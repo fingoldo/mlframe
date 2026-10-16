@@ -47,6 +47,8 @@ import zlib
 from typing import Optional, Sequence
 
 import numpy as np
+
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 from numba import njit
 
 from mlframe.feature_selection.filters._relative_uplift import relative_uplift
@@ -256,7 +258,7 @@ def _triplet_device_col_specs(eng_columns, raw_cols):
 
 def _quantile_codes(values, nbins: int) -> np.ndarray:
     """Quantile-bin a numeric column into integer codes (ties resolved by the bin edges, NaN mapped to its own code)."""
-    v = np.asarray(values, dtype=np.float64)
+    v = np.asarray(values, dtype=_crit_np_dtype())
     finite = np.isfinite(v)
     codes = np.full(v.shape[0], nbins, dtype=np.int64)
     if finite.any():
@@ -311,7 +313,7 @@ def score_triplet_cross_basis_by_cmi(
     the *quantile* of the same statistic under a within-stratum permutation of the triplet, so the bar is data-driven.
     """
     y_codes = np.asarray(coerce_y_classif(y))
-    raw_codes = {c: _quantile_codes(raw_X[c].to_numpy(dtype=np.float64), nbins) for c in raw_X.columns}
+    raw_codes = {c: _quantile_codes(raw_X[c].to_numpy(dtype=_crit_np_dtype()), nbins) for c in raw_X.columns}
     rows = []
     for eng_name in engineered_X.columns:
         head = eng_name.split("__", 1)[0] if "__" in eng_name else eng_name
@@ -321,7 +323,7 @@ def score_triplet_cross_basis_by_cmi(
         leg_mi = {leg: _stratified_cmi(raw_codes[leg], y_codes, np.zeros_like(y_codes)) for leg in legs}
         best_leg = max(legs, key=lambda leg: (leg_mi[leg], leg))
         strata = raw_codes[best_leg]
-        eng_codes = _quantile_codes(engineered_X[eng_name].to_numpy(dtype=np.float64), nbins)
+        eng_codes = _quantile_codes(engineered_X[eng_name].to_numpy(dtype=_crit_np_dtype()), nbins)
         cmi = _stratified_cmi(eng_codes, y_codes, strata)
         # Random stream keyed by the candidate name, so the null does not depend on how many candidates precede it.
         rng = np.random.default_rng([int(seed), zlib.crc32(str(eng_name).encode())])
@@ -447,7 +449,7 @@ def _triple_mi_kernel(codes: np.ndarray, y: np.ndarray, base: int, n_y: int) -> 
     out_i = np.empty(m, np.int64)
     out_j = np.empty(m, np.int64)
     out_k = np.empty(m, np.int64)
-    out_mi = np.empty(m, np.float64)
+    out_mi = np.empty(m, np.float64)  # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
     counts = np.zeros(n_cells * n_y, np.int64)
     t = 0
     for i in range(p):
@@ -490,7 +492,7 @@ def _enumerate_triplet_candidates(X: pd.DataFrame, columns: Sequence[str], y_cod
     n_y = int(y_arr.max()) + 1
     names = sorted(columns)
     base = nbins + 1
-    codes = np.vstack([_quantile_codes(X[c].to_numpy(dtype=np.float64), nbins) for c in names]).astype(np.int64)
+    codes = np.vstack([_quantile_codes(X[c].to_numpy(dtype=_crit_np_dtype()), nbins) for c in names]).astype(np.int64)
     out_i, out_j, out_k, out_mi = _triple_mi_kernel(codes, y_arr, base, n_y)
     order = np.lexsort((out_k, out_j, out_i, -out_mi))[: int(top_m)]
     return [(names[out_i[t]], names[out_j[t]], names[out_k[t]]) for t in order]
@@ -604,9 +606,9 @@ def hybrid_orth_mi_triplet_fe(
         # Ties break by name, so the pool is the same for any column order.
         _first = max(raw_cols_all, key=lambda c: (raw_mi_map[c], c))
         _y_codes = np.asarray(coerce_y_classif(y))
-        _first_codes = _quantile_codes(X[_first].to_numpy(dtype=np.float64), nbins)
+        _first_codes = _quantile_codes(X[_first].to_numpy(dtype=_crit_np_dtype()), nbins)
         _rest = [c for c in raw_cols_all if c != _first]
-        _cond = {c: _stratified_cmi(_quantile_codes(X[c].to_numpy(dtype=np.float64), nbins), _y_codes, _first_codes) for c in _rest}
+        _cond = {c: _stratified_cmi(_quantile_codes(X[c].to_numpy(dtype=_crit_np_dtype()), nbins), _y_codes, _first_codes) for c in _rest}
         _rest.sort(key=lambda c: (-_cond[c], c))
         seed_sources = [_first, *_rest[: max(0, int(top_triplet_seed_k) - 1)]]
 
@@ -749,9 +751,9 @@ def hybrid_orth_mi_triplet_fe_with_recipes(
             col_i, col_j, col_k = legs
             # Value-construction (recovers the basis preprocess params for recipe replay): always
             # float64, matching the fresh-path's own dtype (see generate_triplet_cross_basis_features).
-            x_i = X[col_i].to_numpy(dtype=np.float64)
-            x_j = X[col_j].to_numpy(dtype=np.float64)
-            x_k = X[col_k].to_numpy(dtype=np.float64)
+            x_i = X[col_i].to_numpy(dtype=np.float64)  # Intentional float64: value construction of the triplet product (see above)
+            x_j = X[col_j].to_numpy(dtype=np.float64)  # Intentional float64: value construction of the triplet product (see above)
+            x_k = X[col_k].to_numpy(dtype=np.float64)  # Intentional float64: value construction of the triplet product (see above)
             if basis == "auto":
                 try:
                     basis_a = basis_route_by_moments(x_i)
@@ -795,6 +797,7 @@ def hybrid_orth_mi_triplet_fe_with_recipes(
             # the orth_univariate BUG2 fix); without them replay refits the axis from apply-time rows.
             _pp_u = None
             try:
+                # Intentional float64: value construction of the triplet product (see above)
                 _x_u = X[src].to_numpy(dtype=np.float64)  # value-construction: always float64, see above
                 _, _pp_u = _evaluate_basis_column(_x_u, chosen_basis, chosen_degree, return_params=True)
             except Exception as e:  # nosec B110 - optional dependency import guard

@@ -24,7 +24,7 @@ def _safe_code_dtype(n_bins: int, dtype: type, reserve_nan_slot: bool = False) -
     real code ``n_bins-1`` and keeps the tighter default.
     """
     try:
-        info: np.iinfo = np.iinfo(np.dtype(dtype))  # type: ignore[arg-type, unused-ignore]  # dtype may be non-integer (e.g. float64); caught below at runtime
+        info: np.iinfo = np.iinfo(np.dtype(dtype))  # type: ignore[arg-type, unused-ignore]  # dtype may be non-integer (e.g. a float dtype); caught below at runtime
     except (ValueError, TypeError) as _exc:
         logger.debug("_safe_code_dtype fell back to its default after %s", type(_exc).__name__)
         return dtype  # non-integer requested dtype: caller owns the contract

@@ -11,6 +11,8 @@ from __future__ import annotations
 from collections import OrderedDict
 
 import numpy as np
+
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 from numba import njit, prange
 
 FAMILY_MAXT_PERMUTATIONS = 999
@@ -56,7 +58,9 @@ def _run_family_null_sweep():
         return []
 
     def _make_inputs(dims):
-        n = int(dims["n_rows"]); K = int(dims["n_cols"]); B = 99
+        n = int(dims["n_rows"])
+        K = int(dims["n_cols"])
+        B = 99
         rng = np.random.default_rng(0)
         cols = rng.integers(0, 8, (K, n)).astype(np.int64)
         nx = np.full(K, 8, dtype=np.int64)
@@ -97,7 +101,7 @@ def _mi_one_column_njit(col: np.ndarray, n_x: int, y_codes: np.ndarray, n_y: int
 def mi_all_columns_njit(cols: np.ndarray, n_x: np.ndarray, y_codes: np.ndarray, n_y: int) -> np.ndarray:
     """Plug-in MI (nats) of every row of ``cols`` (k x n integer codes) with ``y_codes``, one column per parallel task."""
     k = cols.shape[0]
-    out = np.zeros(k, dtype=np.float64)
+    out = np.zeros(k, dtype=np.float64)  # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
     for j in prange(k):
         out[j] = _mi_one_column_njit(cols[j], n_x[j], y_codes, n_y)
     return out
@@ -143,7 +147,7 @@ def family_null_max_njit(cols: np.ndarray, n_x: np.ndarray, y_perms: np.ndarray,
     """
     b_count = y_perms.shape[0]
     k = cols.shape[0]
-    out = np.zeros(b_count, dtype=np.float64)
+    out = np.zeros(b_count, dtype=np.float64)  # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
     cap = 1
     for j in range(k):
         if n_x[j] > cap:
@@ -196,7 +200,7 @@ def _permutation_block(rng: np.random.Generator, y: np.ndarray, m: int) -> np.nd
 
 def family_null_max(cols: np.ndarray, n_x: np.ndarray, y: np.ndarray, n_y: int, n_perm: int, rng: np.random.Generator, block: int = 256) -> np.ndarray:
     """Null maxima over ``n_perm`` label permutations drawn from ``rng`` in the same order as a per-permutation loop (results are identical)."""
-    out = np.empty(int(n_perm), dtype=np.float64)
+    out = np.empty(int(n_perm), dtype=np.float64)  # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
     # STRICT GPU mode (MLFRAME_FE_GPU_STRICT=1, or AUTO at scale) runs the null on the device; the permutations are drawn on the host in
     # the same order either way, so the decisions do not depend on the path.
     from ._fe_gpu_strict import fe_gpu_strict_enabled
@@ -222,8 +226,9 @@ def exact_pvalue_pass(observed: np.ndarray, null_max: np.ndarray, alpha: float) 
 
     The test can reject only when ``B + 1 >= 1 / alpha``; with fewer permutations every candidate fails, which is the conservative outcome.
     """
+    # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
     null_sorted = np.sort(np.asarray(null_max, dtype=np.float64))
-    obs = np.asarray(observed, dtype=np.float64)
+    obs = np.asarray(observed, dtype=np.float64)  # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
     # number of null maxima >= each observed value, via binary search on the sorted null
     exceed = null_sorted.shape[0] - np.searchsorted(null_sorted, obs, side="left")
     passes: np.ndarray = (1.0 + exceed) / (null_sorted.shape[0] + 1.0) <= float(alpha)
@@ -251,16 +256,16 @@ def family_maxt_threshold(X: np.ndarray, y_codes: np.ndarray, n_bins: int, n_per
 
 
 def _column_values(X, j: int) -> np.ndarray:
-    """Column ``j`` of a 2-D array or a DataFrame as float64 (one column at a time, never the whole matrix)."""
+    """Column ``j`` of a 2-D array or a DataFrame at the fit's float dtype (one column at a time, never the whole matrix)."""
     if hasattr(X, "iloc"):
-        return np.asarray(X.iloc[:, j].to_numpy(), dtype=np.float64)
-    return np.asarray(X[:, j], dtype=np.float64)
+        return np.asarray(X.iloc[:, j].to_numpy(), dtype=_crit_np_dtype())
+    return np.asarray(X[:, j], dtype=_crit_np_dtype())
 
 
 def _family_codes(X, n_bins: int):
     """Quantile codes of every candidate column as a (K, n) int16 matrix (codes are < n_bins) and the per-column code counts.
 
-    Filled column by column: no float64 copy of the whole candidate matrix and no int64 code matrix (at 50000 x 3795 those were 1.5 GB each).
+    Filled column by column: no full-width float copy of the whole candidate matrix and no int64 code matrix (at 50000 x 3795 those were 1.5 GB each).
     """
     n_rows, n_cols = X.shape
     cols = np.empty((n_cols, n_rows), dtype=np.int16)
@@ -283,14 +288,20 @@ def family_maxt_pass(candidates, y, n_bins: int = 10, alpha: float = 0.01, n_per
     ``candidates`` is a 2-D array-like (rows x candidates) or a DataFrame. Non-finite values are replaced by the column median before binning,
     so a constant or all-NaN candidate simply gets MI 0 and cannot pass.
     """
-    X = candidates if hasattr(candidates, "iloc") else np.asarray(candidates, dtype=np.float64)
+    X = candidates if hasattr(candidates, "iloc") else np.asarray(candidates)
     if getattr(X, "ndim", 2) == 1:
         X = np.asarray(X)[:, None]
+    cols, nx = _family_codes(X, n_bins)
+    return family_maxt_pass_codes(cols, nx, y, alpha=alpha, n_perm=n_perm, seed=seed)
+
+
+def family_maxt_pass_codes(cols: np.ndarray, nx: np.ndarray, y, alpha: float = 0.01, n_perm: int = FAMILY_MAXT_PERMUTATIONS, seed: int = 0) -> np.ndarray:
+    """:func:`family_maxt_pass` on codes already built by :func:`_family_codes` (a caller that streams its candidates in chunks keeps only
+    the int16 codes of every chunk and gates the whole family once)."""
     yv = np.asarray(y).ravel()
     _, y_codes = np.unique(yv, return_inverse=True)
     y_codes = np.ascontiguousarray(y_codes.astype(np.int64).ravel())
     n_y = int(y_codes.max()) + 1
-    cols, nx = _family_codes(X, n_bins)
     observed = mi_all_columns_njit(cols, nx, y_codes, n_y)
     # Exact early stop: candidate j passes iff (1 + R_j) / (B + 1) <= alpha, with R_j the null maxima at or above its observed MI. R_j only
     # grows, so a candidate that already violates the bound fails for any B; permutations stop once no candidate can pass. Same decisions
@@ -327,6 +338,7 @@ def family_pass_batches(batches, y_codes: np.ndarray, alpha: float = 0.01, n_per
     n_x = (cols.max(axis=1) + 1).astype(np.int64)
     observed = mi_all_columns_njit(cols, n_x, y, n_y)
     bounds = np.cumsum([0, *widths])
+    # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
     observed_max = np.array([float(observed[bounds[j] : bounds[j + 1]].max()) if widths[j] else 0.0 for j in range(len(widths))], dtype=np.float64)
     rng = np.random.default_rng(seed)
     B = int(n_perm)

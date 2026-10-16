@@ -429,8 +429,8 @@ def _discretize_quantile_rawkernel(d_arr, cuts, n_bins, out_cp_dtype):
         (blocks,),
         (threads,),
         (
-            d_arr.astype(cp.float64, copy=False),
-            cuts.astype(cp.float64, copy=False),
+            d_arr.astype(cp.float64, copy=False),  # Intentional float64: bin-edge / cut vector, compared against values at full precision
+            cuts.astype(cp.float64, copy=False),  # Intentional float64: bin-edge / cut vector, compared against values at full precision
             out_int32,
             np.int64(n_rows),
             np.int64(n_cols),

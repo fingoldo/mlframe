@@ -105,6 +105,7 @@ def gpu_pairs_fe_mi(
         cand_d = cp.asarray(np.ascontiguousarray(cand, dtype=np.float32))
         codes_d = _gpu_resident_discretize_codes(cand_d, _nb, out_dtype=cp.int32)  # (n,K) RESIDENT int codes
         yc = np.ascontiguousarray(classes_y, dtype=np.int64)
+        # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
         observed = np.asarray(binned_mi_from_codes_gpu(codes_d, yc, ky=by, codes_trusted=True), dtype=np.float64)
         # occupied bins per column ON device: one bincount over code*K+col (values < nb*K), reshaped (nb, K).
         _K = int(codes_d.shape[1])
@@ -146,7 +147,7 @@ def _make_fe_gpu_pairs_inputs(dims: dict) -> tuple:
     y = a**2 / b
     edges = np.quantile(y, np.linspace(0, 1, 21)[1:-1])
     yc = np.searchsorted(edges, y).astype(np.int64)
-    fy = np.bincount(yc, minlength=int(yc.max()) + 1).astype(np.float64) / n
+    fy = np.bincount(yc, minlength=int(yc.max()) + 1).astype(np.float64) / n  # Intentional float64: class/bin counts and frequencies feeding the MI formula
     return (cand, 20, yc, fy)
 
 
@@ -484,14 +485,16 @@ def grand_fused_pair_mi(
         dispatch_batch_mi_with_noise_gate_gpu,
     )
 
+    # Intentional float64: operands at numpy's float64 op width, so device candidates and codes match the host bin_func path
     a_gpu = cp.asarray(a, dtype=cp.float64)
+    # Intentional float64: operands at numpy's float64 op width, so device candidates and codes match the host bin_func path
     b_gpu = cp.asarray(b, dtype=cp.float64)
     n = int(a_gpu.shape[0])
     ua_cm = _unary_stack_cm(cp, a_gpu)
     ub_cm = _unary_stack_cm(cp, b_gpu)
     y_i64 = np.ascontiguousarray(y_codes, dtype=np.int64)
     csafe = np.ascontiguousarray(classes_y_safe)
-    fy = np.ascontiguousarray(freqs_y, dtype=np.float64)
+    fy = np.ascontiguousarray(freqs_y, dtype=np.float64)  # Intentional float64: class/bin counts and frequencies feeding the MI formula
     k_chunk = _gpu_k_chunk(n)
     parts: list[np.ndarray] = []
 
@@ -599,7 +602,7 @@ def grand_fused_pair_mi(
             )
         else:
             fe_mi = out[0] if isinstance(out, tuple) else out
-        parts.append(np.asarray(fe_mi, dtype=np.float64))
+        parts.append(np.asarray(fe_mi, dtype=np.float64))  # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
     return _candidate_names(), np.concatenate(parts) if parts else np.empty(0)
 
 
@@ -722,7 +725,9 @@ def grand_fused_pair_mi_fused(
         _mi_columns_from_counts_cpu,
     )
 
+    # Intentional float64: operands at numpy's float64 op width, so device candidates and codes match the host bin_func path
     a_gpu = cp.asarray(a, dtype=cp.float64)
+    # Intentional float64: operands at numpy's float64 op width, so device candidates and codes match the host bin_func path
     b_gpu = cp.asarray(b, dtype=cp.float64)
     n = int(a_gpu.shape[0])
     ua_cm = _unary_stack_cm(cp, a_gpu)
@@ -732,7 +737,7 @@ def grand_fused_pair_mi_fused(
     # uses -> bit-identical permutation stream). Uploaded ONCE as (P1, n) int32 and shared by every chunk.
     y_orig = np.ascontiguousarray(y_codes, dtype=np.int64).reshape(1, n)
     K_y = int(np.asarray(freqs_y).shape[0])
-    fy = np.ascontiguousarray(freqs_y, dtype=np.float64)
+    fy = np.ascontiguousarray(freqs_y, dtype=np.float64)  # Intentional float64: class/bin counts and frequencies feeding the MI formula
     nperm = int(npermutations) if npermutations and npermutations > 0 else 0
     if nperm > 0:
         shuf = _build_shuffle_matrix(np.asarray(classes_y_safe), np.uint64(random_seed), nperm)
@@ -770,6 +775,7 @@ def grand_fused_pair_mi_fused(
     # Binning working dtype: mirror _gpu_resident_discretize_codes (native f64 here -> bit-identical edges
     # to the non-fused grand-fusion path; MLFRAME_FE_GPU_BINNING_DTYPE=float32 forces f32 percentile).
     forced = os.environ.get("MLFRAME_FE_GPU_BINNING_DTYPE", "").strip().lower()
+    # Intentional float64: bin-edge / cut vector, compared against values at full precision
     work = cp.float32 if forced in ("float32", "f32", "single") else cp.float64
     qs = _quantile_levels_dev(cp, nbins, work)
 
@@ -795,6 +801,7 @@ def grand_fused_pair_mi_fused(
             bin_edges = cp.percentile(cand, qs, axis=1)  # (nbins+1, blk) over the (blk, n) plane
         del cand  # (n,blk) float GONE before the hist pass
         # interior edges, transposed to (blk, nbins-1) row-major f64 for the kernel's per-candidate scan.
+        # Intentional float64: bin-edge / cut vector, compared against values at full precision
         edges_int = cp.ascontiguousarray(bin_edges[1:-1, :].T.astype(cp.float64))
         del bin_edges
         total_size = blk * int(nbins) * K_y
@@ -807,12 +814,12 @@ def grand_fused_pair_mi_fused(
             P1 = nperm + 1
             col_off_d = cp.asarray(np.arange(blk, dtype=np.int64) * (int(nbins) * K_y))
             nbins_d = cp.full(blk, int(nbins), dtype=cp.int32)
-            fy_d = cp.asarray(fy, dtype=cp.float64)
+            fy_d = cp.asarray(fy, dtype=cp.float64)  # Intentional float64: class/bin counts and frequencies feeding the MI formula
             counts_flat = counts_dev.reshape(-1)
-            out_mi = cp.empty((P1, blk), dtype=cp.float64)
+            out_mi = cp.empty((P1, blk), dtype=cp.float64)  # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
             threads = 128
             grid = (P1 * blk + threads - 1) // threads
-            ones_d = cp.ones(blk, dtype=cp.float64)
+            ones_d = cp.ones(blk, dtype=cp.float64)  # Intentional float64: class/bin counts and frequencies feeding the MI formula
             mi_kernel[grid, threads](counts_flat, col_off_d, nbins_d, fy_d, np.int64(n), np.int32(K_y), ones_d, np.int64(total_size), np.int32(P1), out_mi)
             om_d = out_mi[0].copy()
             mi_kernel[grid, threads](counts_flat, col_off_d, nbins_d, fy_d, np.int64(n), np.int32(K_y), om_d, np.int64(total_size), np.int32(P1), out_mi)
@@ -833,7 +840,7 @@ def grand_fused_pair_mi_fused(
         nb_ky = int(nbins) * K_y
         _col_off = np.arange(blk, dtype=np.int64) * nb_ky
         _nbins_arr = np.full(blk, int(nbins), dtype=np.int64)
-        _all_pos = np.ones(blk, dtype=np.float64)
+        _all_pos = np.ones(blk, dtype=np.float64)  # Intentional float64: class/bin counts and frequencies feeding the MI formula
         om = _mi_columns_from_counts_cpu(
             np.ascontiguousarray(counts[0]),
             _col_off,
@@ -869,6 +876,7 @@ def _log_shift_anchor(operand_vals: np.ndarray, unary_name: str):
     else 0.0 (mirrors _step_core._ls_anchor exactly so replay is byte-identical). None for non-log."""
     if unary_name != "log":
         return None
+    # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
     mn = float(np.nanmin(np.asarray(operand_vals, dtype=np.float64)))
     return (1e-5 - mn) if mn <= 0 else 0.0
 
@@ -907,7 +915,9 @@ def gpu_resident_pair_recipes(
     # Route through the dispatcher so this works on ANY backend (GPU-resident in the sweet spot, CPU
     # otherwise) - recipe emission is backend-agnostic.
     _names, mi = pair_candidate_mi_dispatch(a_vals, b_vals, y_codes, nbins=nbins)
+    # Intentional float64: operands at numpy's float64 op width, so device candidates and codes match the host bin_func path
     a64 = np.ascontiguousarray(a_vals, dtype=np.float64)
+    # Intentional float64: operands at numpy's float64 op width, so device candidates and codes match the host bin_func path
     b64 = np.ascontiguousarray(b_vals, dtype=np.float64)
     cols = list(cols_names)
     idx_a = cols.index(src_a_name)
@@ -919,6 +929,7 @@ def gpu_resident_pair_recipes(
         name = get_new_feature_name(fe_tuple, cols)
         # Continuous fit-time engineered column (for edge pinning) - identical op chain as the GPU path.
         fit_vals = _binary_apply(np, bop, _unary_apply(np, ua, a64), _unary_apply(np, ub, b64))
+        # Intentional float64: operands at numpy's float64 op width, so device candidates and codes match the host bin_func path
         fit_vals = np.nan_to_num(np.asarray(fit_vals, dtype=np.float64), nan=0.0, posinf=0.0, neginf=0.0)
         recipe = build_unary_binary_recipe(
             name=name,

@@ -50,6 +50,8 @@ import threading
 from typing import Callable, Optional, Sequence
 
 import numpy as np
+
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 from ._fast_host_ops import count_distinct_int
 from ._y_encoding import FEW_CLASSES_MAX, _has_more_distinct_than
 import pandas as pd
@@ -225,7 +227,7 @@ def raw_mi_noise_floor(
         return 0.0
     y_bin = _coerce_y_classes(y)
     # Stack column by column: raw_X[num_cols] would copy a sub-frame before the float64 matrix copy the scorer needs.
-    arr = np.column_stack([raw_X[c].to_numpy(dtype=np.float64) for c in num_cols])
+    arr = np.column_stack([raw_X[c].to_numpy(dtype=_crit_np_dtype()) for c in num_cols])
 
     _key = None
     try:
@@ -251,7 +253,7 @@ def raw_mi_noise_floor(
         raw_mi = resident_raw_baseline_mi(arr, y_bin, ("raw_noise_floor", tuple(num_cols)), nbins=nbins)
         if raw_mi is None:
             raw_mi = _mi_classif_batch(arr, y_bin, nbins=nbins)
-        raw_mi = np.asarray(raw_mi, dtype=np.float64)
+        raw_mi = np.asarray(raw_mi, dtype=np.float64)  # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
         raw_mi = raw_mi[np.isfinite(raw_mi)]
         if raw_mi.size == 0:
             _res = 0.0
@@ -313,7 +315,7 @@ def local_mi_gate(
     if floor is None:
         floor = raw_mi_noise_floor(raw_X, y, nbins=nbins, mad_mult=mad_mult, columns=raw_columns) if raw_X is not None else 0.0
     y_bin = _coerce_y_classes(y)
-    arr = enc_df[cand_cols].to_numpy(dtype=np.float64)
+    arr = enc_df[cand_cols].to_numpy(dtype=_crit_np_dtype())
     # NOTE (device-born gate, 2026-06-29): unlike the CONDITIONAL gate (whose tau-grid candidates are derived
     # from a few RESIDENT operand columns and so can be built device-born, collapsing the host matrix upload),
     # ``local_mi_gate``'s candidates ARE the engineered ``enc_df`` block - arbitrary per-call columns with no
@@ -321,6 +323,7 @@ def local_mi_gate(
     # is therefore irreducible (the matrix must reach the device once). Routing it through a separate resident
     # wrapper only RELOCATES the same one-shot upload without collapsing it, so this path stays on the exact
     # host ``_mi_classif_batch`` (byte-identical; the STRICT branch inside already uploads once + caches y).
+    # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
     cand_mi = np.asarray(_mi_classif_batch(arr, y_bin, nbins=nbins), dtype=np.float64)
     # Family-wise calibration: the raw-column floor says nothing about the null of the MAXIMUM over this candidate set (engineered and
     # aggregated candidates have their own spread; a grouped-aggregate of an id-like column cleared the raw floor under STRICT). The
@@ -328,9 +331,11 @@ def local_mi_gate(
     # binned without the target, so permuting y only breaks the candidate-target pairing, which is what the null needs.
     if arr.shape[1] >= 2 and len(y_bin) > 0:
         _rng = np.random.default_rng(0)
+        # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
         _null_max = np.empty(_LOCAL_GATE_NULL_PERMUTATIONS, dtype=np.float64)
         for _b in range(_LOCAL_GATE_NULL_PERMUTATIONS):
             _yp = np.asarray(y_bin)[_rng.permutation(len(y_bin))]
+            # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
             _null_max[_b] = float(np.nanmax(np.asarray(_mi_classif_batch(arr, _yp, nbins=nbins), dtype=np.float64)))
         floor = max(float(floor), float(np.quantile(_null_max, 0.95)))
     scored = [(col, float(cand_mi[j])) for j, col in enumerate(cand_cols) if np.isfinite(cand_mi[j]) and cand_mi[j] >= floor]
@@ -436,7 +441,8 @@ def unified_second_pass_gate(
     raw_num = [c for c in raw_cols if c in X_with_all_engineered.columns and pd.api.types.is_numeric_dtype(X_with_all_engineered[c])]
     z_joint: Optional[np.ndarray] = None
     if raw_num and int(seed_raw_cols_count) > 0:
-        raw_arr = X_with_all_engineered[raw_num].to_numpy(dtype=np.float64)
+        raw_arr = X_with_all_engineered[raw_num].to_numpy(dtype=_crit_np_dtype())
+        # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
         raw_mi = np.asarray(_mi_classif_batch(raw_arr, y_bin, nbins=nbins), dtype=np.float64)
         order = np.argsort(-raw_mi, kind="stable")  # plug-in MI is quantised, so ties are real: break them by position, reproducibly
         seed_cols = [raw_num[i] for i in order[: int(seed_raw_cols_count)]]

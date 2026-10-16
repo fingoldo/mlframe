@@ -15,6 +15,8 @@ from typing import Mapping, Optional, Sequence
 
 import numpy as np
 
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
+
 from ._fe_retention_subsumption import retention_form_is_subsumed
 
 
@@ -33,14 +35,14 @@ def final_subsumption_prune(
     anchor_names = [a for a in anchors if a in candidates]
     if not anchor_names:
         return []
-    anchor_values = [np.asarray(candidates[a], dtype=np.float64).ravel() for a in anchor_names]
+    anchor_values = [np.asarray(candidates[a], dtype=_crit_np_dtype()).ravel() for a in anchor_names]
     anchor_set = set(anchor_names)
     dropped: list[str] = []
     for name, values in candidates.items():
         if name in anchor_set:
             continue
         if retention_form_is_subsumed(
-            cand_continuous=np.asarray(values, dtype=np.float64).ravel(),
+            cand_continuous=np.asarray(values, dtype=_crit_np_dtype()).ravel(),
             incumbent_continuous=anchor_values,
             y_binned=np.asarray(y_binned).ravel(),
             y_continuous=y_continuous,

@@ -83,7 +83,7 @@ def family_null_max_device(cols: np.ndarray, n_x: np.ndarray, perms: np.ndarray,
     cols_d = cp.asarray(np.ascontiguousarray(np.asarray(cols).T))
     nx_d = cp.asarray(np.ascontiguousarray(n_x, dtype=np.int64))
     perms_d = cp.asarray(np.ascontiguousarray(perms, dtype=np.int64))
-    out_d = cp.zeros((B, K), dtype=cp.float64)
+    out_d = cp.zeros((B, K), dtype=cp.float64)  # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
     total = B * K
     blocks = (total + _THREADS - 1) // _THREADS
     cap = 64 if int(n_y) * (int(np.max(n_x)) if np.size(n_x) else 0) <= 64 else _MAX_CELLS
