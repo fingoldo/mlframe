@@ -705,6 +705,16 @@ _REEXPORTED_PUBLIC_API = {
     "smearing_predict",  # re-exported by mlframe.training (its package namespace already exposes it)
     "tta_predict",  # re-exported by mlframe.training (its package namespace already exposes it)
     "tta_predict_spread",  # re-exported by mlframe.training (its package namespace already exposes it)
+    "mean_election",  # exported by mlframe.votenrank through its lazy export map (leaderboard._rules)
+    "plurality_election",  # exported by mlframe.votenrank through its lazy export map (leaderboard._rules)
+    "borda_election",  # exported by mlframe.votenrank through its lazy export map (leaderboard._rules)
+    "dowdall_election",  # exported by mlframe.votenrank through its lazy export map (leaderboard._rules)
+    "copeland_election",  # exported by mlframe.votenrank through its lazy export map (leaderboard._rules)
+    "condorcet_election",  # exported by mlframe.votenrank through its lazy export map (leaderboard._rules)
+    "baldwin_election",  # exported by mlframe.votenrank through its lazy export map (leaderboard._rules)
+    "minimax_election",  # exported by mlframe.votenrank through its lazy export map (leaderboard._rules)
+    "optimality_gap_election",  # exported by mlframe.votenrank through its lazy export map (leaderboard._rules)
+    "threshold_election",  # exported by mlframe.votenrank through its lazy export map (leaderboard._rules)
 }
 
 #: Offline synthetic-data generators (calibration probability samplers): called by benchmarks and tests to build
@@ -1026,16 +1036,6 @@ _PLANNED: set[str] = {
     "_skewness",  # library helper with no in-repo caller; owner decides to export or drop
     "compare_targets_performance",  # library helper with no in-repo caller; owner decides to export or drop
     "numpy_rng_scope",  # library helper with no in-repo caller; owner decides to export or drop
-    "baldwin_election",  # library helper with no in-repo caller; owner decides to export or drop
-    "borda_election",  # library helper with no in-repo caller; owner decides to export or drop
-    "condorcet_election",  # library helper with no in-repo caller; owner decides to export or drop
-    "copeland_election",  # library helper with no in-repo caller; owner decides to export or drop
-    "dowdall_election",  # library helper with no in-repo caller; owner decides to export or drop
-    "mean_election",  # library helper with no in-repo caller; owner decides to export or drop
-    "minimax_election",  # library helper with no in-repo caller; owner decides to export or drop
-    "optimality_gap_election",  # library helper with no in-repo caller; owner decides to export or drop
-    "plurality_election",  # library helper with no in-repo caller; owner decides to export or drop
-    "threshold_election",  # library helper with no in-repo caller; owner decides to export or drop
 }
 
 #: Optional entry points a user calls when they want them; no parity test is required, unlike _SUPERSEDED or _OPT_IN_SLOW.
