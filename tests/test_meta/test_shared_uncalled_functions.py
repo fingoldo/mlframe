@@ -747,6 +747,9 @@ _REEXPORTED_PUBLIC_API = {
     "recover_composite_y_scale_metrics",  # exported lazily through mlframe.training
     "screen_base_pool",  # exported lazily through mlframe.training
     "attach_grouped_causal_bases",  # exported lazily through mlframe.training
+    "make_pool",  # exported lazily through mlframe.training
+    "make_dmatrix",  # exported lazily through mlframe.training
+    "make_lgb_dataset",  # exported lazily through mlframe.training
 }
 
 #: Offline synthetic-data generators (calibration probability samplers): called by benchmarks and tests to build
@@ -871,6 +874,8 @@ _RETAINED_KERNELS = {
     "_quantile_codes_1d_njit",  # fused 1-D quantile discretiser measured 0.58-0.74x of numpy nanpercentile+searchsorted on the dev card; kept for re-bench on other hardware
     "_ent_from_counts",  # two-reduction entropy+occupancy over a count vector; the histogram pass now fuses the occupied-cell count in one launch, kept as the unfused form
     "_nnz_from_counts",  # occupied-cell count reduction over a count vector; replaced by the fused histogram atomicAdd count, kept as the unfused form
+    "parallel_mi_with_null",  # joblib-worker form of the null-accumulating kernel; mi_direct runs parallel_mi_prange_with_null since the joblib pool was retired, exercised in tests/feature_selection/biz_val/test_biz_val_filters_permutation.py
+    "parallel_mi_besag_clifford_with_null",  # Besag-Clifford form of the null-accumulating kernel; mi_direct runs parallel_mi_prange_with_null, exercised in tests/feature_selection/biz_val/test_biz_val_filters_permutation.py
 }
 
 #: Called, but the pinned py-ci-shared (v1.17.0) cannot see it: a lazy import with an ``except ImportError: f = None``
@@ -976,8 +981,6 @@ _PLANNED: set[str] = {
     "batch_weighted_mean",  # batch wrapper over weighted_mean_1d, planned for batched neighbour aggregation
     "batch_weighted_std",  # batch wrapper over weighted_std_1d, planned for batched neighbour aggregation
     "batch_weighted_vector_mean",  # batch per-query vector mean, planned for batched neighbour aggregation
-    "parallel_mi_with_null",  # null-mean-accumulating MI twin, planned for the null-calibrated screen
-    "parallel_mi_besag_clifford_with_null",  # null-mean-accumulating Besag-Clifford twin, planned for the null-calibrated screen
     "apply_gpu_unary_batched",  # batched GPU unary apply, planned for the resident FE path
     "apply_gpu_binary_batched",  # batched GPU binary apply, planned for the resident FE path
     "_residual_variance_ratio",  # OLS residual-variance criterion described in the structural hints, planned for the hint decision
@@ -1011,9 +1014,6 @@ _PLANNED: set[str] = {
     "get_binningprocess_featureselectors",  # library helper with no in-repo caller; owner decides to export or drop
     "dtw_dispatch",  # library helper with no in-repo caller; owner decides to export or drop
     "_initialize_mutable_defaults",  # library helper with no in-repo caller; owner decides to export or drop
-    "make_dmatrix",  # library helper with no in-repo caller; owner decides to export or drop
-    "make_lgb_dataset",  # library helper with no in-repo caller; owner decides to export or drop
-    "make_pool",  # library helper with no in-repo caller; owner decides to export or drop
     "_discovery_cache_bytes_total",  # library helper with no in-repo caller; owner decides to export or drop
     "_registered_transform_names",  # library helper with no in-repo caller; owner decides to export or drop
     "_linear_residual_fit_closed",  # library helper with no in-repo caller; owner decides to export or drop

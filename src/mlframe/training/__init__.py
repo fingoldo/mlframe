@@ -123,6 +123,9 @@ def apply_loky_cpu_count_override() -> None:
 # fast-import / optional-dep isolation; no longer guarding a training_old cycle).
 
 _LAZY_IMPORTS = {
+    "make_pool": ("._model_factories", "make_pool"),
+    "make_dmatrix": ("._model_factories", "make_dmatrix"),
+    "make_lgb_dataset": ("._model_factories", "make_lgb_dataset"),
     "recover_composite_y_scale_metrics": (".core._phase_composite_post", "recover_composite_y_scale_metrics"),
     "screen_base_pool": (".composite.discovery._leakage", "screen_base_pool"),
     "attach_grouped_causal_bases": (".composite.discovery._grouped_causal_bases", "attach_grouped_causal_bases"),
@@ -479,6 +482,9 @@ __all__ += [
     "recover_composite_y_scale_metrics",
     "screen_base_pool",
     "attach_grouped_causal_bases",
+    "make_pool",
+    "make_dmatrix",
+    "make_lgb_dataset",
 ]
 
 
