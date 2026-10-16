@@ -4,12 +4,21 @@ Found while taking the four MRMR pillars (F2 across distributions, pure noise, x
 
 | # | Item | State |
 |---|---|---|
-| 1 | Conjunction pillar at default MRMR (50000 rows, 253 columns, ~3800 candidates): honest-null cut search was 78% of the fit (1358 of 1751 s); GPU uploads failed on `cudaErrorAlreadyMapped`; host memory exhausted by float64/int64 copies | cut search presorted (8-12x per call), compact null layouts, pageable uploads, chunked external validation, streamed modular FE. Re-run of the whole fit with the RSS sampler (`conj_rss.py`) still pending |
-| 2 | `test_fe_float32_replay_parity.py::test_f32_nameset_matches_f64[orth_univariate]`: float32 fit loses `min(neg(x1),sqrt(x4))` that the float64 fit selects | fails identically on `543c3a02f` (not a regression of this work); root cause open |
-| 3 | `operand_uplift_null_bar` (`_pairs_operand_floor.py`) has no caller: the pair joint-prevalence gate runs at the default uplift bar 1.0 instead of the data-driven null bar | open; wiring it in changes FE selection, needs a before/after on the pair-FE biz-value tests |
-| 4 | Modules over the 1000-line budget on master: `_pairs_score_steps` 1229, `_gpu_resident_materialise` 1048, `_fit_impl_core` 1020, `batch_mi_noise_gate_gpu` 1077, `_phase_helpers_fit_pipeline` 1007, `_reporting_regression/__init__` 1050; `_mrmr_class` grew 4180 -> 4256 | open (`test_no_file_over_1k_loc` red on master) |
-| 5 | KG-3: `test_biz_val_hybrid_redundancy_chain_drops_redundant_bridge` (HybridSelector keeps the redundant bridge b, corr 0.86 < corr_thr 0.92) is xfail | open, fixable framework bug |
-| 6 | `family_null_backend` kernel-tuning-cache sweep not populated on this machine | open |
-| 7 | Four-pillar bench on CPU and with `MLFRAME_FE_GPU_STRICT=1` | pending item 1 |
+| 1 | Conjunction pillar at default MRMR (50000 rows, 253 columns): honest-null cut search was 78% of the fit; GPU uploads failed on pinned staging; host memory exhausted by float64/int64 copies and by the external-validation family | fixed in pieces (presorted cut search, compact null layouts, pageable uploads, size-gated family, narrow family stack). The whole fit has not been re-run end to end since the family-gate and rescue fixes |
+| 2 | `test_f32_nameset_matches_f64[orth_univariate]`: float32 fit loses `min(neg(x1),sqrt(x4))` the float64 fit selects | fails identically on `543c3a02f`; root cause open |
+| 3 | Pair family gate read unfilled GPU codes and rejected every winner above the table floor | fixed, regression test fails before / passes after |
+| 4 | Exact family permutation test: 4-7 s per 256-permutation block, up to 39 blocks, GPU kernel 94% of GPU time in the xor3 continuous fit (228 launches x 0.85 s) | analytic triage added (certified pass/fail), exact test only for the gray zone. xor3 continuous still spends ~190 s in gray-zone families of 1944 columns: sequential certification of passes and an `ncu` occupancy pass on `_make_family_mi_kernel` are next |
+| 5 | F2 `with_outliers` (pillar 1 of 4): main pipeline picks a wrong a-b form (`min(rint(b),invqubed(oofwarp(a)))`) and admits triplet (`a*c*d`), hinge and `gate_select__` junk; fails with the residual rescue on and off | open; the other four profiles pass (uniform, scaled_1_5, heavy_tailed, mixed) in 16-45 s each |
+| 6 | Residual rescue dropped every engineered pool column (stored as 10-level bin codes, below `FEW_CLASSES_MAX`) and admitted continuous junk | fixed: pool columns are replayed from their recipes; the true term `mul(log(c),sin(d))` is now admitted first |
+| 7 | Target-mix second pass is a whole nested MRMR fit per base: 137-147 s of a 212 s fit on the outlier example | open; no benefit on the F2 pillar (same passes with the rescue off), cost 36-56 s per profile |
+| 8 | xor3: the composite plus a raw operand (`x2`) was selected; contract accepted it | fixed (conditional-information gate in the never-empty stand-in and the emit-both re-attach); contract is exactly `['x1*x2*x3__T1_T1_T1']` |
+| 9 | Once-per-process numba `typed.Dict` compile, 10 s of a 53 s F2 fit (screen memo caches keyed by unicode) | open; replacing the string-keyed caches is a refactor of the screening spine |
+| 10 | Modules over the 1000-line budget on master: `_pairs_score_steps` 1229, `_gpu_resident_materialise` 1048, `_fit_impl_core` 1020, `batch_mi_noise_gate_gpu` 1077, `_phase_helpers_fit_pipeline` 1007, `_reporting_regression/__init__` 1050; `_mrmr_class` 4180 -> 4256; stale ceiling row for `_gpu_resident_fe` | open (`test_no_file_over_1k_loc` red on master) |
+| 11 | `operand_uplift_null_bar` had no caller (the pair joint-prevalence gate ran at uplift bar 1.0) | master classified it; the gate itself is unchanged |
+| 12 | KG-3: `test_biz_val_hybrid_redundancy_chain_drops_redundant_bridge` is xfail | open, fixable framework bug |
+| 13 | `family_null_backend` kernel-tuning-cache sweep not populated on this machine; auto routing uses built-in defaults | open |
+| 14 | `test_create_keep_drop_nsweep[50000-...]` exceeds the 600 s watchdog | open; same cause as the 50000-row path in item 1 |
+
+Pillar state on this machine (CPU/auto, quiet box): pure noise 9/9 (194 s), xor3 2/2 strict (56 s and 279 s), F2 4/5 (16-45 s each), conjunction not yet re-run end to end.
 
 Fixed in this pass, each with a test: multi-output `y` raveled into n * k labels in the FE stages (joint class code now); `basis_route_by_moments` on a constant column; string class labels in the raw-protection probe; GPU pinned-staging failure; `eval_rows` for a screen subsample in the honest null.
