@@ -24,6 +24,7 @@ Public API for downstream consumers:
 from __future__ import annotations
 
 import difflib
+import threading
 from typing import TYPE_CHECKING, Dict, FrozenSet, Iterable, List, Optional, Set, Tuple
 
 from mlframe.training.feature_handling.axis import Axis
@@ -42,6 +43,7 @@ if TYPE_CHECKING:
 # Keyed on (model_kind, axis); value is the set of handler ``method``
 # strings the model accepts on that axis.
 
+_MODEL_AXIS_SUPPORT_LOCK = threading.Lock()
 _MODEL_AXIS_SUPPORT: Dict[Tuple[str, Axis], FrozenSet[str]] = {
     # CatBoost: native cat + native text + frozen embeddings (CB has
     # native embedding_features=).
@@ -102,10 +104,11 @@ def register_model_axis_support(
     """
     key = (model_kind, axis)
     new_set = frozenset(methods)
-    existing = _MODEL_AXIS_SUPPORT.get(key)
-    if existing is not None and existing != new_set:
-        raise ValueError(f"compat matrix entry for {key!r} already registered as {sorted(existing)!r}; " f"cannot reassign to {sorted(new_set)!r}")
-    _MODEL_AXIS_SUPPORT[key] = new_set
+    with _MODEL_AXIS_SUPPORT_LOCK:  # check-then-set: the conflict test and the write stay one step
+        existing = _MODEL_AXIS_SUPPORT.get(key)
+        if existing is not None and existing != new_set:
+            raise ValueError(f"compat matrix entry for {key!r} already registered as {sorted(existing)!r}; " f"cannot reassign to {sorted(new_set)!r}")
+        _MODEL_AXIS_SUPPORT[key] = new_set
 
 
 # =====================================================================
@@ -146,14 +149,15 @@ def validate_handler_for_model(
         )
 
     key = (model_kind, axis)
-    if key not in _MODEL_AXIS_SUPPORT:
-        valid_models = sorted({k[0] for k in _MODEL_AXIS_SUPPORT})
+    with _MODEL_AXIS_SUPPORT_LOCK:
+        valid_methods = _MODEL_AXIS_SUPPORT.get(key)
+        valid_models = sorted({k[0] for k in _MODEL_AXIS_SUPPORT}) if valid_methods is None else None
+    if valid_methods is None:
         raise ValueError(
             f"unknown model_kind {model_kind!r} for axis {axis.value!r}; "
             f"registered models: {valid_models}.{_suggest_method(model_kind, valid_models)} "
             f"To register a custom model, call register_model_axis_support()."
         )
-    valid_methods = _MODEL_AXIS_SUPPORT[key]
     if method not in valid_methods:
         raise ValueError(
             f"model {model_kind!r} does not support method={method!r} on axis={axis.value!r}; "

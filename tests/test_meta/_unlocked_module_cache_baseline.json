@@ -1,17 +1,3 @@
 [
-  "__init__.py:468",
-  "feature_engineering/wavelet_dwt.py:55",
-  "feature_selection/filters/_gpu_resident_discretize.py:81",
-  "feature_selection/filters/_gpu_resident_rank_bin.py:70",
-  "feature_selection/filters/_internals.py:252",
-  "feature_selection/registry.py:72",
-  "metrics/regression/_regression_deviance.py:129",
-  "training/core/_phase_train_one_target_mlp_helpers.py:36",
-  "training/core/_setup_helpers_pipeline_cache.py:71",
-  "training/feature_handling/axis.py:85",
-  "training/feature_handling/compat.py:45",
-  "training/metrics_registry.py:62",
-  "training/mlp_runtime_defaults.py:182",
-  "training/mlp_runtime_defaults.py:338",
-  "training/neural/_base_tensor_helpers.py:111"
+  "feature_selection/filters/_internals.py:252"
 ]

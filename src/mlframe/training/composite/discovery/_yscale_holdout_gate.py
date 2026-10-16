@@ -183,6 +183,7 @@ def apply_structural_fragility_gate(
             base = _extract_column_array(df, base_col, rows=rows).astype(np.float64)
         except Exception as e:  # the same base is read at predict: a base the gate cannot read cannot be served
             # Logged and ledgered by the helper; kept out of ``rejected``, whose summary line formats fragility numbers.
+            logger.debug("y-scale gate: base column %r could not be read for spec %s: %s: %s", base_col, getattr(spec, "name", spec), type(e).__name__, e)
             _gate_error_reject(self, spec, [], RejectStage.STRUCTURAL_FRAGILITY, f"base column {base_col!r} could not be read ({type(e).__name__}: {e})")
             continue
         s = _inverse_base_sensitivity(spec, base)
@@ -344,6 +345,7 @@ def _fit_domain_mask(transform, transform_name: str, y_fit: np.ndarray, base_fit
     try:
         valid = np.asarray(transform.domain_check(y_fit, base_fit), dtype=bool)
     except Exception as e:
+        logger.debug("y-scale gate: domain_check raised for %s: %s: %s", transform_name, type(e).__name__, e)
         _warn_domain_check_failed(transform_name, e)
         return np.ones(y_fit.shape, dtype=bool)
     return valid if valid.shape == y_fit.shape else np.ones(y_fit.shape, dtype=bool)
@@ -505,6 +507,7 @@ def apply_yscale_holdout_gate(
             scored = [_reconstruct_on_eval(transform, spec.transform_name, p, v, y_fit, base_fit, base_eval,
                                            x_fit, x_eval, _tiny, _fit_groups, _eval_groups) for p, v in candidates]
         except Exception as exc:
+            logger.debug("y-scale gate: fit/inverse raised for spec %s: %s: %s", getattr(spec, "name", spec), type(exc).__name__, exc)
             _gate_error_reject(self, spec, rejected, RejectStage.YSCALE_HOLDOUT, f"fit/inverse raised {type(exc).__name__}: {exc}")
             continue
         y_hat = max(scored, key=lambda h: rmse(y_eval, median_filled_with_std(h, y_fit)[0]))

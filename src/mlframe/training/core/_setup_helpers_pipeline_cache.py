@@ -14,6 +14,7 @@ import hashlib
 import logging
 import os
 import sys
+import threading
 from typing import TYPE_CHECKING
 from mlframe.utils.env_flags import env_flag
 
@@ -69,6 +70,20 @@ def _parent_set(name: str, value) -> None:
 # _mlframe_callback_cache_installed patterns for process-stable
 # costs. Falls back to live validation on cache miss.
 _PIPELINE_JSON_ROUNDTRIP_CACHE: dict[str, bool] = {}
+# Concurrent fits (joblib threading backend) read, write and snapshot the cache; every access goes through the helpers below.
+_PIPELINE_JSON_ROUNDTRIP_LOCK = threading.Lock()
+
+
+def pipeline_roundtrip_lookup(js_hash: str) -> bool | None:
+    """Cached JSON round-trip verdict for ``js_hash``, or ``None`` when this process has not validated that JSON yet."""
+    with _PIPELINE_JSON_ROUNDTRIP_LOCK:
+        return _PIPELINE_JSON_ROUNDTRIP_CACHE.get(js_hash)
+
+
+def pipeline_roundtrip_store(js_hash: str, ok: bool) -> None:
+    """Record the round-trip verdict for ``js_hash`` (negative verdicts too: a JSON that fails to parse fails every time)."""
+    with _PIPELINE_JSON_ROUNDTRIP_LOCK:
+        _PIPELINE_JSON_ROUNDTRIP_CACHE[js_hash] = bool(ok)
 
 
 # Cross-process file cache. The in-memory cache above
@@ -182,7 +197,7 @@ def _load_pipeline_disk_cache_into_memory() -> None:
         return
     for hash_str, ok in entries.items():
         try:
-            _PIPELINE_JSON_ROUNDTRIP_CACHE[str(hash_str)] = bool(ok)
+            pipeline_roundtrip_store(str(hash_str), bool(ok))
         except (ValueError, TypeError):  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
             continue  # skip malformed entries
 
@@ -214,7 +229,8 @@ def _persist_pipeline_disk_cache() -> None:
         _parent_dir = os.path.dirname(path)
         if _parent_dir:
             os.makedirs(_parent_dir, exist_ok=True)
-        entries = _PIPELINE_JSON_ROUNDTRIP_CACHE
+        with _PIPELINE_JSON_ROUNDTRIP_LOCK:
+            entries = dict(_PIPELINE_JSON_ROUNDTRIP_CACHE)
         if len(entries) > _PIPELINE_JSON_DISK_CACHE_MAX_ENTRIES:
             # FIFO eviction: keep the most recent N (dict preserves insertion order)
             keep_keys = list(entries.keys())[-_PIPELINE_JSON_DISK_CACHE_MAX_ENTRIES:]

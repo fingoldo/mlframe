@@ -42,7 +42,7 @@ from pyutilz.parallel import cpu_count_physical
 
 from ..spec import CompositeSpec
 from ..transforms import compose_target_name
-from mlframe.training.composite.transforms.shared import TRANSFORMS_REGISTRY as _TRANSFORMS_REGISTRY
+from mlframe.training.composite.transforms.shared import register_transform_if_absent
 from .screening import _extract_column_array, _sample_indices
 from ._region_adaptive import fit_region_adaptive
 from ._auto_chain import discover_chains
@@ -222,7 +222,7 @@ def _run_auto_chain(
             # Register the composed transform so name-based lookup resolves it,
             # plus its provenance so the chain self-describes in reports (and is
             # not a coverage gap now that auto-chaining is default-ON).
-            _TRANSFORMS_REGISTRY.setdefault(cand.chain_name, cand.transform)
+            register_transform_if_absent(cand.chain_name, cand.transform)
             register_chain_provenance(cand.chain_name, cand.residual_name, cand.unary_name)
             spec = CompositeSpec(
                 name=compose_target_name(target_col, cand.chain_name, base_col),

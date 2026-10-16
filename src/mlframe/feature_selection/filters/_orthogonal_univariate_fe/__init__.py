@@ -34,8 +34,7 @@ Why this lives outside of polynom_pair_fe:
   back into MRMR's standard relevance/redundancy gates as ordinary numeric
   columns.
 
-This docstring used to claim "NOT wired into
-MRMR.fit by default - explicit opt-in via direct call" - FALSE for ``hybrid_orth_mi_fe_with_recipes``,
+This docstring used to describe the entry point as reachable only by an explicit direct call, which is FALSE for ``hybrid_orth_mi_fe_with_recipes``,
 which IS the default-on production entry point (``fe_univariate_basis_enable`` defaults to ``True``;
 see ``_mrmr_fit_impl/_fit_impl_core.py``'s "UNIVARIATE-BASIS FE - DEFAULT ON" call site). This stale
 claim plausibly caused this whole 13-file subpackage to be skipped by every per-file audit cluster in

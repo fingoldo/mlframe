@@ -164,6 +164,7 @@ def run_wrap_watchdog(wrapper: Any, spec: Any, split_df: Any, y_split: Any, *, c
         if _is_additive_in_t(t_name):
             _check_additive(wrapper, transform, params, split_df, y_arr, base, groups, composite_name, split_name)
     except Exception as exc:
+        logger.debug("composite wrap watchdog check raised for composite=%r split=%r: %s: %s", composite_name, split_name, type(exc).__name__, exc)
         _warn("composite_wrap_watchdog_failed", "[CompositeTargetEstimator.watchdog] check could not run for composite='%s' split='%s' (%s: %s).",
               composite_name, split_name, type(exc).__name__, exc)
 

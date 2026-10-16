@@ -27,6 +27,7 @@ the existing import-cost contract.
 from __future__ import annotations
 
 import logging
+import threading
 from dataclasses import dataclass
 from typing import Any, Callable, Protocol, runtime_checkable
 
@@ -70,29 +71,36 @@ class _SimpleSpec:
 
 
 _REGISTRY: dict[str, _SimpleSpec] = {}
+_REGISTRY_LOCK = threading.Lock()
 
 
 def register(spec: FeatureSelectorSpec) -> None:
     """Register a selector. Overwrites any prior registration under the same name."""
     if not getattr(spec, "name", None):
         raise ValueError("FeatureSelectorSpec must have a non-empty 'name'")
-    _REGISTRY[spec.name] = _SimpleSpec(
+    entry = _SimpleSpec(
         name=spec.name,
         instantiate=spec.instantiate,
         report_extract=getattr(spec, "report_extract", None),
     )
+    with _REGISTRY_LOCK:
+        _REGISTRY[spec.name] = entry
 
 
 def get(name: str) -> FeatureSelectorSpec:
     """Look up a registered spec by name; raises ``KeyError`` (listing all registered names) on a typo or unregistered selector."""
-    if name not in _REGISTRY:
-        raise KeyError(f"Unknown feature selector spec: {name!r}. Registered: {sorted(_REGISTRY)}")
-    return _REGISTRY[name]
+    with _REGISTRY_LOCK:
+        spec = _REGISTRY.get(name)
+        registered = sorted(_REGISTRY) if spec is None else None
+    if spec is None:
+        raise KeyError(f"Unknown feature selector spec: {name!r}. Registered: {registered}")
+    return spec
 
 
 def available() -> list[str]:
     """Sorted list of registered selector names."""
-    return sorted(_REGISTRY)
+    with _REGISTRY_LOCK:
+        return sorted(_REGISTRY)
 
 
 def _instantiate_mrmr(**kwargs):

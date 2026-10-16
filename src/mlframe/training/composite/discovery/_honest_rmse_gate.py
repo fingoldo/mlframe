@@ -350,6 +350,7 @@ def apply_honest_rmse_gate(
                 y_hat = smeared_inverse(spec_inverse(transform, base_eval, params), t_hat, _q)
         except Exception as exc:
             # The same forward/inverse raises at predict time on rows like these; keeping the spec disabled the gate for it.
+            logger.debug("honest gate: fit/inverse raised for spec %s: %s: %s", getattr(spec, "name", spec), type(exc).__name__, exc)
             _reject(spec, f"fit/inverse raised {type(exc).__name__}: {exc}", error=True)
             continue
 

@@ -5,6 +5,7 @@ parent stays under the LOC ceiling. Re-exported from the parent + ``metrics.core
 """
 from __future__ import annotations
 
+import threading
 from math import log
 from typing import Tuple
 
@@ -127,6 +128,7 @@ def _tweedie_deviance_general_kernel(
 
 
 _TWEEDIE_WARN_COUNTS: dict = {}
+_TWEEDIE_WARN_LOCK = threading.Lock()
 
 
 def _maybe_warn_tweedie(name: str, invalid: int, total: int) -> None:
@@ -140,8 +142,9 @@ def _maybe_warn_tweedie(name: str, invalid: int, total: int) -> None:
     if invalid <= 0:
         return
     key = (name, int(invalid), int(total))
-    count = _TWEEDIE_WARN_COUNTS.get(key, 0) + 1
-    _TWEEDIE_WARN_COUNTS[key] = count
+    with _TWEEDIE_WARN_LOCK:  # read-modify-write: unlocked, concurrent folds lose increments and report the same recurrence number twice
+        count = _TWEEDIE_WARN_COUNTS.get(key, 0) + 1
+        _TWEEDIE_WARN_COUNTS[key] = count
     import warnings
     suffix = "" if count == 1 else f" (recurrence #{count} with the same counts)"
     warnings.warn(

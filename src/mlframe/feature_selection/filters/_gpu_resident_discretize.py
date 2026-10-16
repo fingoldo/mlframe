@@ -13,6 +13,7 @@ dispatch-threshold, or selection behavior changed.
 from __future__ import annotations
 
 import os
+import threading
 
 import numpy as np
 
@@ -80,6 +81,7 @@ void bin_codes_TYPENAME(const TYPE* __restrict__ cand, const double* __restrict_
 _BIN_CODES_OUTTYPE = {"int8": "signed char", "int16": "short", "int32": "int", "int64": "long long"}
 
 _BIN_CODES_KERNELS: dict = {}
+_BIN_CODES_KERNELS_LOCK = threading.Lock()
 
 
 def _get_bin_codes_kernel(dtype, out_name: str = "int32"):
@@ -89,7 +91,8 @@ def _get_bin_codes_kernel(dtype, out_name: str = "int32"):
 
     in_key = "f64" if dtype == cp.float64 else "f32"
     cache_key = in_key + "_" + out_name
-    k = _BIN_CODES_KERNELS.get(cache_key)
+    with _BIN_CODES_KERNELS_LOCK:
+        k = _BIN_CODES_KERNELS.get(cache_key)
     if k is None:
         ctype = "double" if in_key == "f64" else "float"
         out_ctype = _BIN_CODES_OUTTYPE.get(out_name, "int")
@@ -102,7 +105,8 @@ def _get_bin_codes_kernel(dtype, out_name: str = "int32"):
             .replace("TYPE", ctype)
         )
         k = cp.RawKernel(src, sym)
-        _BIN_CODES_KERNELS[cache_key] = k
+        with _BIN_CODES_KERNELS_LOCK:
+            k = _BIN_CODES_KERNELS.setdefault(cache_key, k)
     return k
 
 

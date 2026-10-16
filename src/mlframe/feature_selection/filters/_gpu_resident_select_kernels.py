@@ -14,7 +14,8 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Any
+import threading
+from typing import Any, Callable
 
 from mlframe.utils.log_throttle import log_throttle
 import numpy as np
@@ -873,6 +874,19 @@ def fe_gpu_radix_edges_enabled() -> bool:
 # tiny-H2D allocs (the cupy._core.core.array hotspot). Module-level dict -> not part of the MRMR instance
 # pickle (mirrors the other resident-kernel singletons in this module). (n, nbins) take <=2-3 values per fit.
 _RADIX_INTERP_CACHE: dict = {}
+_RADIX_INTERP_LOCK = threading.Lock()
+
+
+def radix_interp_get_or_build(key: tuple, build: Callable[[], Any]) -> Any:
+    """Cached radix interp entry for ``key`` (``None`` is a cached "radix inapplicable" verdict); ``build`` runs outside the lock on a miss.
+
+    Two threads that miss together both build, and ``setdefault`` keeps the first result so every caller shares one set of device vectors."""
+    with _RADIX_INTERP_LOCK:
+        if key in _RADIX_INTERP_CACHE:
+            return _RADIX_INTERP_CACHE[key]
+    built = build()
+    with _RADIX_INTERP_LOCK:
+        return _RADIX_INTERP_CACHE.setdefault(key, built)
 
 
 _RADIX_INTERP_SRC = r"""

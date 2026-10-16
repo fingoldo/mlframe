@@ -58,7 +58,7 @@ Selection rule
   ``min_uplift * baseline_MI`` where ``baseline_MI`` is the raw column MI;
 * global top-K: across surviving columns keep the top-K by uplift.
 
-NOT wired into MRMR.fit by default - explicit opt-in via
+Off in MRMR.fit unless explicitly enabled via
 ``fe_hybrid_orth_conditional_routing_enable=True``.
 """
 from __future__ import annotations

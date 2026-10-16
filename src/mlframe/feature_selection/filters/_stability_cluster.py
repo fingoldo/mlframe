@@ -13,7 +13,7 @@ E12 - **Complementary Pairs Stability Selection** (Shah & Samworth 2013,
 derive a tight error bound on falsely selected features without
 exchangeability assumptions. Tighter than Meinshausen-Buhlmann 2010 bound.
 
-Both are OPT-IN - not active by default. The MRMR ``stability_selection``
+Both are OPT-IN: off unless selected. The MRMR ``stability_selection``
 constructor knob (already present per RFECV wave 4 work) is extended to
 accept dict-style config:
 

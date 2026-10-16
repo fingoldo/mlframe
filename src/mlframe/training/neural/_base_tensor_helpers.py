@@ -7,6 +7,7 @@ from __future__ import annotations
 from typing import Any, cast
 
 import logging
+import threading
 import warnings as _warnings
 
 import numpy as np
@@ -111,6 +112,8 @@ def _ensure_numpy(arr, dtype: type = np.float32) -> np.ndarray | None:
 
 
 _CUDA_PROBE_CACHE: dict[str, bool] = {}
+# The probe opens a CUDA context and runs a kernel; two threads probing at once is exactly the half-broken-driver situation it exists to catch.
+_CUDA_PROBE_LOCK = threading.Lock()
 
 
 def _probe_cuda_is_usable() -> bool:
@@ -128,8 +131,15 @@ def _probe_cuda_is_usable() -> bool:
     backward + Adam-style sqrt op (the kernel the failure log surfaces),
     so we either confirm GPU is functional or surface the breakage HERE
     (cached, ~10ms upfront cost) rather than mid-fit every time."""
-    if "usable" in _CUDA_PROBE_CACHE:
-        return _CUDA_PROBE_CACHE["usable"]
+    with _CUDA_PROBE_LOCK:
+        cached = _CUDA_PROBE_CACHE.get("usable")
+        if cached is None:
+            cached = _CUDA_PROBE_CACHE["usable"] = _run_cuda_usability_probe()
+        return cached
+
+
+def _run_cuda_usability_probe() -> bool:
+    """Run the CUDA context probe once (the caller caches the verdict under ``_CUDA_PROBE_LOCK``)."""
     ok = False
     try:
         if torch.cuda.is_available():
@@ -160,7 +170,6 @@ def _probe_cuda_is_usable() -> bool:
             torch.cuda.empty_cache()
         except Exception as e2:  # nosec B110 - best-effort path
             logger.debug("empty_cache() retry also failed: %s", e2)
-    _CUDA_PROBE_CACHE["usable"] = ok
     return ok
 
 

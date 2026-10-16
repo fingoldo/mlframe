@@ -1,6 +1,4 @@
 [
-  "training/composite/provenance_formulas.py:656:_register_chain_formula_locked:_TRANSFORM_DESCRIPTIONS",
-  "training/composite/provenance_formulas.py:656:_register_chain_formula_locked:_TRANSFORM_FORMULA_BUILDERS",
   "training/crash_diagnostics.py:183:_sys_excepthook:_UNCAUGHT",
   "training/phases.py:272:phase:_ALL_PHASE_STACKS"
 ]
