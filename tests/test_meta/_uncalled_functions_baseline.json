@@ -76,14 +76,6 @@
    "count": 1,
    "note": ""
   },
-  "src/mlframe/feature_engineering/_numerical_stable.py::naive_mean_var_two_pass_seq": {
-   "count": 1,
-   "note": ""
-  },
-  "src/mlframe/feature_engineering/_numerical_stable.py::naive_moments_two_pass_seq": {
-   "count": 1,
-   "note": ""
-  },
   "src/mlframe/feature_engineering/_numerical_stable.py::welford_mean_var_seq": {
    "count": 1,
    "note": ""

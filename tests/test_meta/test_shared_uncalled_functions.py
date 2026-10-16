@@ -747,6 +747,8 @@ _RETAINED_KERNELS = {
     "arrayCountingArgSortThreaded",  # parallel counterpart of the counting argsort; the production path uses the serial form and no switch reaches this one
     "arrayCountingArgSortAndUniqueValuesThreaded",  # parallel counterpart of the counting argsort with unique values; no switch reaches it
     "arrayMinMaxParallel",  # parallel counterpart of the min/max scan; no switch reaches it
+    "naive_mean_var_two_pass_seq",  # naive A/B variant kept for the numerical-stability bench; the bench chose the default path and no switch reaches this one
+    "naive_moments_two_pass_seq",  # naive A/B variant kept for the numerical-stability bench; the bench chose the default path and no switch reaches this one
 }
 
 #: Called, but the pinned py-ci-shared (v1.17.0) cannot see it: a lazy import with an ``except ImportError: f = None``
