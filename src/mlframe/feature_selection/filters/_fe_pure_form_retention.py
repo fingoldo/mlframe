@@ -50,6 +50,34 @@ def _gpu_usability_on() -> bool:
         return False
 
 
+def _base_trim_select(mrmr, X, base_names, k):
+    """Pick ``k`` base features: half by marginal MI with the target, the rest by standard deviation.
+
+    MI alone pushed the additive-term operands out of the linear base (the usability test then lost them); std alone let
+    noise columns (std 1.0) and proxies (std about 0.8) fill the base ahead of binary operands (std 0.5), so a proxy of an
+    operand passed the usability test without its operand in the base. The MI half keeps the strong operands in; the std
+    half keeps the linear-term operands in. Ties break by name. Falls back to std only when no MI cache is available.
+    """
+    k = int(k)
+    if len(base_names) <= k:
+        return list(base_names)
+    cached = getattr(mrmr, "cached_MIs", None)
+    names_in = list(getattr(mrmr, "feature_names_in_", []))
+    pos = {nm: i for i, nm in enumerate(names_in)}
+    stds = {nm: float(np.nanstd(X[nm].to_numpy())) for nm in base_names}
+    by_std = sorted(base_names, key=lambda nm: (-stds[nm], str(nm)))
+    if not (isinstance(cached, dict) and all(nm in pos for nm in base_names)):
+        return by_std[:k]
+    by_mi = sorted(base_names, key=lambda nm: (-float(cached.get((pos[nm],), 0.0)), str(nm)))
+    chosen = list(dict.fromkeys(by_mi[: k // 2]))
+    for nm in by_std:
+        if len(chosen) >= k:
+            break
+        if nm not in chosen:
+            chosen.append(nm)
+    return chosen
+
+
 def _retention_prep(
     mrmr: Any,
     X: Any,
@@ -75,8 +103,7 @@ def _retention_prep(
     base_names = [nm for nm in feat_in if nm in X.columns and pd.api.types.is_numeric_dtype(X[nm].dtype)]
     base_names_trimmed = base_names
     if len(base_names) > max_base_features:
-        stds = {nm: float(np.nanstd(X[nm].to_numpy())) for nm in base_names}
-        base_names_trimmed = sorted(base_names, key=lambda nm: -stds.get(nm, 0.0))[:max_base_features]
+        base_names_trimmed = _base_trim_select(mrmr, X, base_names, max_base_features)
 
     X_fit, y_fit = X, y_cont
     n_rows = len(X)
@@ -554,8 +581,7 @@ def _retain_usable_pure_identical_inline_computation_standalone(_prep, max_base_
         X_fit, y_fit = _prep["X_fit"], _prep["y_fit"]
     else:
         if len(base_names) > max_base_features:
-            stds = {nm: float(np.nanstd(X[nm].to_numpy())) for nm in base_names}
-            base_names = sorted(base_names, key=lambda nm: -stds.get(nm, 0.0))[:max_base_features]
+            base_names = _base_trim_select(mrmr, X, base_names, max_base_features)
 
         X_fit, y_fit = X, y_cont
         n_rows = len(X)
@@ -753,8 +779,7 @@ def retain_usable_raw_columns(
             X_fit, y_fit = _prep["X_fit"], _prep["y_fit"]
         else:
             if len(base_names) > max_base_features:
-                stds = {nm: float(np.nanstd(X[nm].to_numpy())) for nm in base_names}
-                base_names = sorted(base_names, key=lambda nm: -stds.get(nm, 0.0))[:max_base_features]
+                base_names = _base_trim_select(mrmr, X, base_names, max_base_features)
 
             X_fit, y_fit = X, y_cont
             n_rows = len(X)

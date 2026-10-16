@@ -36,6 +36,7 @@ from .._mrmr_fe_step_helpers import (
     log_fe_summary,
     run_cluster_aggregate_emission,
 )
+from .._fe_rejection_ledger import _drain_fe_rejection_records
 from ._helpers import _synergy_bootstrap_can_supply_pool
 from ._step_pair_order import order_prospective_pairs
 
@@ -530,7 +531,9 @@ def _run_fe_step_impl(
         # ``_hermite_features_`` but never reached ``support_`` under the default
         # single-step path, because only the unary/binary indices were promoted.
         _n_cols_before_polynom = len(cols)
+        _polynom_rejections: list = []
         data, nbins, cols, X = run_polynom_pair_fe(
+            rejection_records=_polynom_rejections,
             X=X, is_polars_input=_is_polars_input,
             prospective_pairs=_prospective_for_polynom,
             classes_y=classes_y,
@@ -572,6 +575,7 @@ def _run_fe_step_impl(
             # non-linear trivial (atan2, etc.) still falls through to the optimiser.
             poly_cheap_skip_min_corr=float(getattr(self, "fe_poly_cheap_skip_min_corr", 0.90)),
         )
+        _drain_fe_rejection_records(self, _polynom_rejections, num_fs_steps)
         # Columns appended by the polynom block (its own gates already accepted
         # them). Promote into selected_vars below so they reach support_.
         st._polynom_engineered_indices = list(range(_n_cols_before_polynom, len(cols)))

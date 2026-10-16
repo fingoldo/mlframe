@@ -108,7 +108,7 @@ def _run_fe_step_impl_accumulators_during_merge_loop(self, dicts, _prewarp_specs
         if _rej_chunk:
             for _rr in _rej_chunk:
                 _record_fe_rejection(
-                    self, gate=_rr.get("gate", "engineered_mi_prevalence"),
+                    self, gate=_rr["gate"],
                     candidate=_rr.get("candidate"), operands=_rr.get("operands"),
                     operator=_rr.get("operator"),
                     observed=_rr.get("observed", float("nan")),
@@ -123,7 +123,7 @@ def _run_fe_step_impl_joblib_branch_already_drained(self, _rej_from_res, num_fs_
     if _rej_from_res:
         for _rr in _rej_from_res:
             _record_fe_rejection(
-                self, gate=_rr.get("gate", "engineered_mi_prevalence"),
+                self, gate=_rr["gate"],
                 candidate=_rr.get("candidate"), operands=_rr.get("operands"),
                 operator=_rr.get("operator"),
                 observed=_rr.get("observed", float("nan")),

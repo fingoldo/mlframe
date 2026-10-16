@@ -406,7 +406,8 @@ def _composite_subsumption_readd_pass(self, X, selected_vars, _y_np, data, cols,
             from mlframe.feature_selection.filters._mrmr_fit_impl._friend_graph_and_redundancy._raw_protect_r2 import heldout_r2_scorer
 
             _rp_r2 = heldout_r2_scorer(_rp_base, _rp_y, _rp_tr, _rp_va)
-            del _rp_base  # the scorer holds only the train/validation blocks
+            _rp_base_cur = list(_rp_base)  # grows with each accepted re-add so later candidates are judged against it
+            del _rp_base
 
             if int(_rp_tr.sum()) >= 32 and int(_rp_va.sum()) >= 16:
                 _rp_r2_base = _rp_r2(None)
@@ -425,7 +426,11 @@ def _composite_subsumption_readd_pass(self, X, selected_vars, _y_np, data, cols,
                 _rp_floor = max(_rp_rel_floor, _rp_max_mi * _rp_rel_frac)
                 # feature_names_in_ is an ndarray; "or []" would test truthiness and raise on a multi-element array.
                 _fni_rp = getattr(self, "feature_names_in_", None)
-                for _rn in (_fni_rp if _fni_rp is not None else []):
+                _rp_names = list(_fni_rp) if _fni_rp is not None else []
+                # Judge candidates strongest-first, ties by name: each accepted copy joins the base before the next one is judged,
+                # so the outcome must not depend on where a column sits in the frame.
+                _rp_names.sort(key=lambda rn: (-float(cached_MIs.get((_cols_index_r.get(rn, -1),), 0.0)) if isinstance(cached_MIs, dict) else 0.0, str(rn)))
+                for _rn in _rp_names:
                     _ridx = _cols_index_r.get(_rn)
                     if _ridx is None or _ridx in _sv_set_r or _rn not in X.columns:
                         continue
@@ -442,6 +447,9 @@ def _composite_subsumption_readd_pass(self, X, selected_vars, _y_np, data, cols,
                         continue
                     _readd_raw.append(_ridx)
                     _sv_set_r.add(_ridx)
+                    _rp_base_cur.append(_rv)
+                    _rp_r2 = heldout_r2_scorer(_rp_base_cur, _rp_y, _rp_tr, _rp_va)
+                    _rp_r2_base = _rp_r2(None)
                 if _readd_raw:
                     selected_vars = list(selected_vars) + _readd_raw
                     if verbose:

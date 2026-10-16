@@ -93,6 +93,14 @@ def _assign_support_tail(
     if run_residual_rescue(self, X, selected_vars, cols, engineered_recipes or {}, _retention_added_eng_names, verbose):
         self.n_features_ = len(selected_vars) + len(self._engineered_recipes_)
 
+    # FINAL SUBSUMPTION PASS runs after the residual rescue as well: it judges every survivor against the finished set of compounds, so a column
+    # that an earlier stage admitted or re-admitted beside a compound carrying its information is dropped here.
+    from ._final_subsumption_stage import run_final_subsumption_prune
+
+    _final_changed, selected_vars = run_final_subsumption_prune(self, X, selected_vars, classes_y, verbose)
+    if _final_changed:
+        self.n_features_ = len(selected_vars) + len(self._engineered_recipes_)
+
 
 def _assign_support_tai_fe_max_steps(self, fe_max_steps, X, verbose, _eng_continuous_snapshot, data, classes_y, y, _retention_added_eng_names, selected_vars, cols, _allowed_raw_idx):
     """Block of _assign_support_tai_fe_max_steps starting at ``if fe_max_steps > 0:``."""
@@ -181,6 +189,10 @@ def _assign_support_tai_f_step1_identical_seed_iloc(self, X, verbose, _retention
                     _retain_extra = _kept_extra
             except Exception as _subsume_exc:
                 logger.debug("MRMR retention engineered-subsumption guard skipped (%s: %s).", type(_subsume_exc).__name__, _subsume_exc)
+        # A fragment that a fused compound already carries (popped into the subsumed store by additive fusion) is not
+        # re-attached: re-adding it beside the compound leaves a redundant single-group fragment in the support.
+        _subsumed_store = getattr(self, "_fe_subsumed_recipes_", None) or {}
+        _retain_extra = [(_r, _n) for _r, _n in _retain_extra if str(_n) not in _subsumed_store]
         for _r_recipe, _r_name in _retain_extra:
             self._engineered_recipes_.append(_r_recipe)
             self._engineered_features_.append(_r_name)

@@ -244,6 +244,36 @@ def _register_pair_recipes(self, engineered_recipes, this_pair_features, transfo
             log_shift_b=_ls_b,
         )
 
+def _filter_unreplayable_pair_block(self, this_pair_features, transformed_vals, new_cols, new_nbins, engineered_recipes, cols, st, verbose):
+    """Drop pair candidates whose engineered parent has no replayable recipe, before they can enter selection.
+
+    A candidate with an engineered operand that has no recipe (in ``engineered_recipes`` or the subsumed-fragment store) cannot be replayed
+    at transform time, so keeping it in the pool lets it win selection and then vanish from the output while the raw operands it displaced
+    stay dropped. Excluding it up front keeps the selection replayable. The kept candidates are re-indexed so ``_j`` again points at the
+    matching ``transformed_vals`` / ``new_cols`` column.
+    """
+    raw_names = set(self.feature_names_in_)
+    subsumed_store = getattr(self, "_fe_subsumed_recipes_", None) or {}
+    keep_positions = []
+    for pos, (config, _j) in enumerate(this_pair_features):
+        transformations_pair = config[0]
+        operands = (cols[transformations_pair[0][0]], cols[transformations_pair[1][0]])
+        replayable = all(name in raw_names or engineered_recipes.get(name) is not None or subsumed_store.get(name) is not None for name in operands)
+        if replayable:
+            keep_positions.append(pos)
+    if len(keep_positions) == len(this_pair_features):
+        return this_pair_features, transformed_vals, new_cols, new_nbins, this_pair_features
+    if verbose:
+        logger.info("MRMR FE pair stage: excluded %d candidate(s) with an unreplayable engineered parent before selection.", len(this_pair_features) - len(keep_positions))
+    kept_original = [this_pair_features[pos] for pos in keep_positions]
+    column_idx = [this_pair_features[pos][1] for pos in keep_positions]
+    filtered_features = [(this_pair_features[pos][0], new_j) for new_j, pos in enumerate(keep_positions)]
+    filtered_vals = transformed_vals[:, column_idx] if column_idx else transformed_vals[:, :0]
+    filtered_cols = [new_cols[j] for j in column_idx]
+    filtered_nbins = np.asarray(new_nbins)[column_idx]
+    return filtered_features, filtered_vals, filtered_cols, filtered_nbins, kept_original
+
+
 def _materialise_and_fina_step3_cols_space_index(self, prospective_additions, engineered_features, verbose, fe_max_steps, X, discretize_array, cols, st, nbins, _is_polars_input, engineered_recipes, get_new_feature_name, _poly_coefs, fe_unary_preset, fe_binary_preset, n_recommended_features, checked_pairs):
     """Step 3 of materialise_and_finalise_fe_candidates: lines starting at ``for raw_vars_pair, (this_pair_features, transformed_vals, new_cols, ne``."""
     import polars as pl
@@ -253,8 +283,13 @@ def _materialise_and_fina_step3_cols_space_index(self, prospective_additions, en
         # `self.factors_to_use` and the caller-supplied filter); no extra plumbing needed at this bookkeeping site. The pair-cache only tracks "raw
         # pair already processed" - a pair that produced no features is processed too - which is name-agnostic.
         checked_pairs.add(raw_vars_pair)
+        kept_original_features = this_pair_features
+        if this_pair_features and engineered_recipes is not None:
+            this_pair_features, transformed_vals, new_cols, new_nbins, kept_original_features = _filter_unreplayable_pair_block(
+                self, this_pair_features, transformed_vals, new_cols, new_nbins, engineered_recipes, cols, st, verbose
+            )
         if this_pair_features:
-            engineered_features.update(this_pair_features)
+            engineered_features.update(kept_original_features)
             if verbose:
                 for mes in messages:
                     logger.info(mes)
