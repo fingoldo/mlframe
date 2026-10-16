@@ -670,6 +670,16 @@ _TEST_UTILITIES = {
     "reset_cluster_su_gpu_probe",
     "reset_gpu_model_available_cache",
     "is_numba_active",  # fast-path probe that tests assert on; not a production call site
+    "clear_mah_y_binning_cache",  # test-isolation reset of the MAH binning cache
+    "clear_feature_matrix_cache",  # test-isolation reset of the error-analysis feature-matrix cache
+    "clear_shared_error_prep",  # test-isolation reset of the shared error-prep cache
+    "_clear_gate_cache",  # test-isolation reset of the ensemble gate cache
+    "reset_gpu_argsort_probe",  # test-isolation reset of the GPU argsort probe
+    "reset_fe_family_wall",  # test-isolation reset of the FE family wall-clock accumulator
+    "_reset_fe_gpu_pool_limit_flag",  # test-isolation reset of the GPU pool-limit flag
+    "_reset_for_tests",  # test-isolation reset of the kernel-tuning state
+    "_xgb_cache_clear",  # test-isolation reset of the xgboost shim cache
+    "_lib_versions_cache_clear",  # test-isolation reset of the library-version cache
 }
 
 _OFFLINE_GENERATORS = {
@@ -687,6 +697,21 @@ _OFFLINE_GENERATORS = {
     "get_tracker_table",  # loads experiment-impact-tracker cost data for offline analysis
     "agg_pipeline_metric",  # hand-run analysis of CV results across pipelines
     "compute_ml_metrics",  # hand-run scoring helper for CV folds, outside the shipped pipeline
+    "create_dummy_lagged_predictions",  # synthetic data generator for hand-run demos
+    "visualize_prediction_vs_truth",  # hand-run plotting helper for pipeline results
+    "plot_beautified_lift",  # hand-run plotting helper for lift curves
+    "plot_roc_curve",  # hand-run plotting helper for ROC curves
+    "analyze_xgboost_model",  # hand-run diagnostic on a fitted xgboost model
+    "explain_top_feature_importances",  # hand-run explanation helper for importances
+    "rank_features_by_split_gain",  # hand-run ranking helper for split gains in a report
+    "crows_pipeline",  # fairness experiment pipeline for the votenrank study, run by hand
+    "stereo_pipeline",  # fairness experiment pipeline for the votenrank study, run by hand
+    "winobias_pipeline",  # fairness experiment pipeline for the votenrank study, run by hand
+    "naive_gpt2_score",  # fairness baseline score for the votenrank study, run by hand
+    "naive_t5_score",  # fairness baseline score for the votenrank study, run by hand
+    "naive_masking_score",  # fairness baseline score for the votenrank study, run by hand
+    "count_and_plot",  # stability experiment plotting helper, run by hand
+    "create_exp_pic",  # stability experiment plotting helper, run by hand
 }
 
 #: Kernel versions kept deliberately when a faster one replaced them (the repository keeps every version for A/B and
