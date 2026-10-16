@@ -3,7 +3,7 @@
 import numpy as np
 import pandas as pd
 
-from mlframe.feature_selection.filters._family_maxt_gate import _family_codes, exact_pvalue_pass, family_maxt_pass, family_maxt_threshold
+from mlframe.feature_selection.filters._family_maxt_gate import _family_codes, exact_pvalue_pass, family_maxt_pass, family_null_max, mi_all_columns_njit
 
 
 def _frame(n=3000, k=40, seed=0):
@@ -27,7 +27,12 @@ def test_early_stop_pass_equals_full_null():
     for seed in range(3):
         X, y = _frame(seed=seed)
         for n_perm in (99, 999):
-            observed, null_max = family_maxt_threshold(X, y, 10, n_perm, seed)
+            cols, nx = _family_codes(X, 10)
+            _, y_codes = np.unique(y, return_inverse=True)
+            y_codes = y_codes.astype(np.int64)
+            n_y = int(y_codes.max()) + 1
+            observed = mi_all_columns_njit(cols, nx, y_codes, n_y)
+            null_max = family_null_max(cols, nx, y_codes, n_y, n_perm, np.random.default_rng(seed))
             full = exact_pvalue_pass(observed, null_max, 0.01)
             lean = family_maxt_pass(X, y, n_bins=10, alpha=0.01, n_perm=n_perm, seed=seed)
             np.testing.assert_array_equal(full, lean)

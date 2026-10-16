@@ -485,18 +485,6 @@ TRIPLET_ENUM_MAX = 200_000  # enumerate every triple of eligible columns when C(
 TRIPLET_ENUM_TOP_M = 10  # triples carried to the gate from the exhaustive enumeration
 
 
-def _plugin_mi_from_counts(counts: np.ndarray) -> float:
-    """Plug-in mutual information (nats) of a joint count table."""
-    total = counts.sum()
-    if total <= 0:
-        return 0.0
-    p = counts / total
-    px = p.sum(axis=1, keepdims=True)
-    py = p.sum(axis=0, keepdims=True)
-    nz = p > 0
-    return float((p[nz] * np.log(p[nz] / (px @ py)[nz])).sum())
-
-
 @njit(cache=False)
 def _triple_mi_kernel(codes: np.ndarray, y: np.ndarray, base: int, n_y: int) -> tuple:
     """Plug-in MI of every triple (i<j<k) of joint codes with y, in lexicographic index order."""

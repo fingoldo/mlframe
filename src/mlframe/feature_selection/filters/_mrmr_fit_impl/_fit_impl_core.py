@@ -168,9 +168,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # Hoisted ONCE (y is never reassigned in _fit_impl): the as-numpy target was re-materialised
     # 53x across the FE/screen stages. Same array (read-only consumers); behavior-preserving.
     _y_np = y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
-    if _y_np.ndim == 2 and _y_np.shape[1] > 1:
-        # Merged-target path of a multi-output y: the FE stages score one target, so they get the joint class code of the output columns
-        # (their ``ravel`` made n * k labels against n rows and aborted whole families, e.g. the triplet FE, with an index error).
+    if _y_np.ndim == 2 and _y_np.shape[1] > 1:  # merged-target path: the FE stages score ONE target, the joint class code of the output columns
         from mlframe.feature_selection.filters._y_encoding import joint_target_codes
 
         _y_np = joint_target_codes(_y_np)

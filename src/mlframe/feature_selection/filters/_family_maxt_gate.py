@@ -243,19 +243,6 @@ def _quantile_codes(v: np.ndarray, n_bins: int) -> tuple[np.ndarray, int]:
     return codes, int(codes.max()) + 1
 
 
-def family_maxt_threshold(X: np.ndarray, y_codes: np.ndarray, n_bins: int, n_perm: int, seed: int):
-    """Observed plug-in MI per candidate column and the family null maxima under ``n_perm`` label permutations.
-
-    ``X`` is rows x candidates; ``y_codes`` holds the integer target codes. Returns ``(observed, null_max)``; the decision is taken by
-    :func:`exact_pvalue_pass`. Shared by the engineered-candidate gate and the empty-support fallback.
-    """
-    n_y = int(y_codes.max()) + 1
-    cols, nx = _family_codes(X, n_bins)
-    observed = mi_all_columns_njit(cols, nx, y_codes, n_y)
-    null_max = family_null_max(cols, nx, y_codes, n_y, n_perm, np.random.default_rng(seed))
-    return observed, null_max
-
-
 def _column_values(X, j: int) -> np.ndarray:
     """Column ``j`` of a 2-D array or a DataFrame at the fit's float dtype (one column at a time, never the whole matrix)."""
     if hasattr(X, "iloc"):
@@ -367,7 +354,6 @@ __all__ = [
     "FAMILY_MAXT_PERMUTATIONS",
     "exact_pvalue_pass",
     "family_maxt_pass",
-    "family_maxt_threshold",
     "family_null_max",
     "family_pass_batches",
     "mi_all_columns_njit",
