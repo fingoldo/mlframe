@@ -6,8 +6,9 @@ column or pair of columns predicts it. Two variants:
 * binary:     ``y = x1 XOR x2 XOR x3`` with ``x_i`` in {0, 1}, classification target.
 * continuous: ``y = x1 * x2 * x3`` with ``x_i ~ U(-1, 1)``, regression target.
 
-Contract: default MRMR (no tuning) must recover the triple, either as a composite feature
-naming all three operands or as at least two raw operands.
+Contract: default MRMR (no tuning) selects EXACTLY ``['x1*x2*x3__T1_T1_T1']``. The target is fully explained by that
+composite, so anything next to it (a noise column, a raw operand, a partial composite, another variant of the composite)
+is a redundant selection and fails the contract.
 
 Baseline (not run in CI, kept for reference): boosted trees on the same data.
 They fail to find the signal once the noise columns are present. Measured with CatBoost,
@@ -42,6 +43,23 @@ def _operands_named(names) -> set[str]:
         tokens = set(re.split(r"[^A-Za-z0-9]+", str(nm)))
         found.update(op for op in OPERANDS if op in tokens)
     return found
+
+
+EXPECTED_SUPPORT = ["x1*x2*x3__T1_T1_T1"]
+
+
+def _support_problems(names) -> list[str]:
+    """What is wrong with a selected support: it must be exactly the one composite of the three operands, with nothing next to it."""
+    names = [str(nm) for nm in names]
+    if names == EXPECTED_SUPPORT:
+        return []
+    problems = [] if EXPECTED_SUPPORT[0] in names else [f"the composite {EXPECTED_SUPPORT[0]!r} is not selected"]
+    for nm in names:
+        if nm == EXPECTED_SUPPORT[0]:
+            continue
+        tokens = set(re.split(r"[^A-Za-z0-9]+", nm))
+        problems.append(f"extra selection {nm!r}" + (" (noise)" if "noise" in tokens else " (redundant operand or composite variant)"))
+    return problems
 
 
 def _make_frame(y_kind: str, seed: int = SEED, perm_seed: int | None = None):
@@ -79,8 +97,7 @@ def _fit_names(y_kind, seed, perm_seed=None):
 def test_mrmr_recovers_3way_xor_among_noise(y_kind, seed):
     """MRMR recovers the three-way XOR among noise columns."""
     names = _fit_names(y_kind, seed)
-    operands = _operands_named(names)
-    assert operands == set(OPERANDS), f"{y_kind} seed={seed} 3-way XOR: recovered operands {sorted(operands)} of {OPERANDS}; support={names}"
+    assert not _support_problems(names), f"{y_kind} seed={seed} 3-way XOR: {_support_problems(names)}; support={names}"
 
 
 @pytest.mark.slow
@@ -89,8 +106,7 @@ def test_mrmr_recovers_3way_xor_among_noise(y_kind, seed):
 def test_mrmr_recovers_3way_xor_under_column_permutation(y_kind, perm_seed):
     """The XOR recovery holds when the columns are permuted."""
     names = _fit_names(y_kind, SEED, perm_seed)
-    operands = _operands_named(names)
-    assert operands == set(OPERANDS), f"{y_kind} perm={perm_seed} 3-way XOR: recovered operands {sorted(operands)} of {OPERANDS}; support={names}"
+    assert not _support_problems(names), f"{y_kind} perm={perm_seed} 3-way XOR: {_support_problems(names)}; support={names}"
 
 
 # Baseline comparison, kept commented out: it fits three boosters per variant and takes minutes.

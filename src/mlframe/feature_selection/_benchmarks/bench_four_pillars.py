@@ -82,16 +82,13 @@ def _noise_case(kind: str, target: str, strategy):
 # ----------------------------------------------------------------------------------------------- xor3 among noise
 def _xor3_case(y_kind: str, seed: int):
     sys.path.insert(0, os.getcwd())
-    from tests.feature_selection.mrmr.biz_val.test_biz_value_mrmr_xor3_noise import _make_frame, _operands_named
+    from tests.feature_selection.mrmr.biz_val.test_biz_value_mrmr_xor3_noise import _make_frame, _support_problems
 
     out = _make_frame(y_kind, seed=seed)
     X, y = out[0], out[1]
     sel, dt = _fit(X, y)
     names = list(sel.get_feature_names_out())
-    ops = _operands_named(names)
-    composite = any({"x1", "x2", "x3"} <= _tokens(nm) for nm in names)
-    ok = composite or len(ops) >= 2
-    return ok, dt, names
+    return not _support_problems(names), dt, names
 
 
 # ----------------------------------------------------------------------------------------------- conjunction with proxies

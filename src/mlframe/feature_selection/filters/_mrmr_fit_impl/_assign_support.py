@@ -237,9 +237,10 @@ def _assign_support(
                 )
 
     # EMIT-BOTH OPERAND RE-ATTACH. A feature selector must not destroy linearly-usable raw signal: for every SELECTED engineered feature, surface its raw operand
-    # columns (parsed from the recipe ``src_names`` or name tokens). Re-attach only operands that themselves carry MARGINAL signal toward y (a within-data
-    # permutation-significance test, p<alpha): a SIGNAL operand of a selected engineered feature is kept (the linear-usability win), but a NOISE operand fused into a
-    # composite (e.g. ``noise_3`` inside ``sub(...,prewarp(noise_3))``) does NOT clear its null and is NOT re-attached -> FS still rejects noise. Bounded to operands
+    # columns (parsed from the recipe ``src_names`` or name tokens). Re-attach only operands that add information about y BEYOND the selected engineered feature that
+    # contains them (conditional MI given that feature's bins against a within-stratum permutation null, p<alpha shared over the operands): a signal operand a linear model
+    # can use on top of the composite is kept, but an operand the composite already explains (the three operands of a XOR, whose marginals carry nothing) and a noise operand
+    # fused into a composite (e.g. ``noise_3`` inside ``sub(...,prewarp(noise_3))``) are NOT re-attached -> FS still rejects them. Bounded to operands
     # of SELECTED engineered features, in feature_names_in_, not already selected, inside the pinned search space (``_allowed_raw_idx``).
     _readd_redundancy_dropped_engineered(self, selected_vars, cols, data, target_indices, nbins, _allowed_raw_idx, verbose)
 
@@ -470,7 +471,9 @@ def _recover_support_from_engineered_operands(self, selected_vars, cols, data, c
             # ``cols`` is not mutated for the remainder of ``_fit_impl`` past this point.
             _ne_cols_idx = {nm: i for i, nm in enumerate(cols)}
             _operand_idxs: set = set()
+            _operand_owners: dict = {}  # operand column -> columns of the engineered features that contain it
             for _r_obj in self._engineered_recipes_:
+                _owner_ci = _ne_cols_idx.get(_ne_recipe_name(_r_obj))
                 for _tok in _NE_TOK_SPLIT.split(_ne_recipe_name(_r_obj)):
                     if not _tok:
                         continue
@@ -479,6 +482,8 @@ def _recover_support_from_engineered_operands(self, selected_vars, cols, data, c
                         _ne_ci = _ne_cols_idx.get(_base)
                         if _ne_ci is not None:
                             _operand_idxs.add(_ne_ci)
+                            if _owner_ci is not None and _owner_ci not in _operand_owners.setdefault(_ne_ci, []):
+                                _operand_owners[_ne_ci].append(_owner_ci)
             # CONDITIONAL-REDUNDANCY GUARD on the re-attach (BUG1). The
             # operand picked below is the highest-MARGINAL-MI one, but a high marginal
             # does NOT mean it carries signal the engineered child lacks: a dominant
@@ -506,14 +511,43 @@ def _recover_support_from_engineered_operands(self, selected_vars, cols, data, c
             # single-group fragment the fusion removed (the FUSION-blocked goal's leftover raw).
             _fused_dropped_ne = set(getattr(self, "_raw_redundancy_dropped_", None) or set())
             _eligible_idxs = _never_empty_eligible(_operand_idxs, cols, _subsumed_verdict, _fused_dropped_ne)
-            selected_vars = _eligible_engineered_gate(self, _eligible_idxs, target_indices, nbins, _ne_mi, data, cols, verbose, _operand_idxs, _subsumed_operand_names, selected_vars)
+            selected_vars = _eligible_engineered_gate(self, _eligible_idxs, target_indices, nbins, _ne_mi, data, cols, verbose, _operand_idxs, _subsumed_operand_names, selected_vars, _operand_owners)
         except Exception as _ne_exc:
             logger.warning("MRMR never-empty raw representative re-attach failed (%r); leaving support_ empty.", _ne_exc)
     return selected_vars
 
 
-def _eligible_engineered_gate(self, _eligible_idxs, target_indices, nbins, _ne_mi, data, cols, verbose, _operand_idxs, _subsumed_operand_names, selected_vars):
+def _eligible_engineered_gate(self, _eligible_idxs, target_indices, nbins, _ne_mi, data, cols, verbose, _operand_idxs, _subsumed_operand_names, selected_vars, _operand_owners=None):
     """Gate the eligible engineered features on their incremental information."""
+    if _eligible_idxs and _operand_owners:
+        # A stand-in must add information about y beyond the engineered feature(s) that contain it: the largest marginal MI alone picked a zero-signal operand of
+        # a 3-way XOR whose composite explains everything. When no operand adds information the engineered features ARE the complete set; record that verdict
+        # (as the subsumed branch below does) so the empty-raw rescue downstream does not resurrect an operand.
+        from mlframe.feature_selection.filters._fallback_probe import call_or_default
+        from mlframe.feature_selection.filters._mrmr_fit_impl._operand_information import operand_adds_information
+        from mlframe.feature_selection.filters.evaluation import mrmr_null_signif_alpha
+
+        _alpha_op = mrmr_null_signif_alpha() / max(1, len(_eligible_idxs))
+        _seed_ne = int(getattr(self, "random_seed", 0) or 0)
+        _informative = {
+            _oi for _oi in _eligible_idxs
+            if bool(call_or_default(
+                lambda _oi=_oi: operand_adds_information(data, int(target_indices[0]), int(_oi), _operand_owners.get(_oi, []), _alpha_op, _seed_ne, str(cols[_oi])),
+                True, key="mrmr_never_empty_conditional_probe_failed",
+                message="mrmr: conditional-information probe failed for a never-empty raw stand-in candidate; it is kept unverified",
+            )) or not _operand_owners.get(_oi)
+        }
+        if not _informative:
+            _names_ne = {cols[_oi] for _oi in _eligible_idxs}
+            self._raw_redundancy_dropped_ = set(getattr(self, "_raw_redundancy_dropped_", None) or set()) | _names_ne
+            self._redundancy_emptied_raw_ = True
+            if verbose:
+                logger.info(
+                    "MRMR never-empty raw representative: no engineered operand adds information beyond the engineered feature(s) containing it; leaving the "
+                    "support engineered-only (no raw stand-in): %s", sorted(_names_ne),
+                )
+            return selected_vars
+        _eligible_idxs = _informative
     if _eligible_idxs:
         _tgt_ne = np.asarray(target_indices, dtype=np.int64)
         _fn_ne = np.asarray(nbins, dtype=np.int64)
@@ -679,6 +713,7 @@ def _readd_redundancy_dropped_engineered(self, selected_vars, cols, data, target
             _eb_alpha = mrmr_null_signif_alpha()
             _eb_qdtype = getattr(self, "quantization_dtype", np.int32)
             _eb_operands: list[str] = []
+            _eb_owners: dict[str, list[int]] = {}  # operand -> columns (in ``data``) of the selected engineered features that contain it
             for _enm, _erec in _eb_recipes.items():
                 if _enm is None or _enm in _eb_raw_names or _enm not in _eb_cols_idx:
                     continue
@@ -688,24 +723,29 @@ def _readd_redundancy_dropped_engineered(self, selected_vars, cols, data, target
                 _eb_toks = list(_src) if _src else [t for t in _EB_TOK_SPLIT.split(str(_enm)) if t]
                 for _t in _eb_toks:
                     _base = _t if _t in _eb_raw_names else (_t.split("__", 1)[0] if "__" in _t else None)
-                    if _base is not None and _base in _eb_raw_names and _base not in _eb_operands:
-                        _eb_operands.append(_base)
+                    if _base is not None and _base in _eb_raw_names:
+                        if _base not in _eb_operands:
+                            _eb_operands.append(_base)
+                        _eb_owners.setdefault(_base, [])
+                        if _eb_cols_idx[_enm] not in _eb_owners[_base]:
+                            _eb_owners[_base].append(_eb_cols_idx[_enm])
 
-            def _eb_operand_is_signal(_cols_i):
-                """Permutation-significance test (32 permutations) for a raw operand of a selected engineered feature; True when it clears its own null (p<alpha) or the MI estimator errors, gating the emit-both re-attach so a noise operand fused into a composite is not resurrected."""
+            def _eb_operand_is_signal(_cols_i, _operand):
+                """True when the raw operand adds information about y beyond EVERY selected engineered feature that contains it: its conditional MI given that feature's bins is significant against a within-stratum permutation null (alpha shared over the operands tested). An operand a composite already explains (the three operands of a XOR, whose marginals carry nothing) is redundant next to it; an estimator error keeps the operand, re-attached unverified."""
                 from mlframe.feature_selection.filters._fallback_probe import call_or_default
 
                 def _probe():
-                    """p-value of the operand's marginal MI against its 32-permutation null, below alpha."""
-                    _r = _eb_mi_direct(data, x=np.array([int(_cols_i)], dtype=np.int64), y=target_indices,  # type: ignore[arg-type]
-                                       factors_nbins=nbins, npermutations=32, min_nonzero_confidence=0.0,
-                                       return_null_mean=True, parallelism="none", dtype=_eb_qdtype, prefer_gpu=False)
-                    return float(_r[3]) < _eb_alpha  # p-value below alpha -> genuine marginal signal
+                    """Conditional-significance verdict over the operand's owners."""
+                    from mlframe.feature_selection.filters._mrmr_fit_impl._operand_information import operand_adds_information
 
-                # An estimator error keeps the operand (never silently drop a possibly-genuine one), but it is then re-attached unverified.
+                    return operand_adds_information(
+                        data, int(target_indices[0]), int(_cols_i), _eb_owners.get(_operand, []), _eb_alpha / max(1, len(_eb_operands)),
+                        int(getattr(self, "random_seed", 0) or 0), _operand,
+                    )
+
                 return bool(call_or_default(
                     _probe, True, key="mrmr_emit_both_operand_probe_failed",
-                    message="mrmr: marginal-MI significance probe failed; the operand is re-attached without verification",
+                    message="mrmr: conditional-MI significance probe failed; the operand is re-attached without verification",
                 ))
             _eb_added = []
             for _op in _eb_operands:
@@ -715,13 +755,13 @@ def _readd_redundancy_dropped_engineered(self, selected_vars, cols, data, target
                 if _allowed_raw_idx is not None and int(_idx) not in _allowed_raw_idx:
                     continue
                 _eb_ci = _eb_cols_idx.get(_op)
-                if _eb_ci is None or not _eb_operand_is_signal(_eb_ci):
-                    continue  # noise operand of a composite -> FS keeps rejecting it
+                if _eb_ci is None or not _eb_operand_is_signal(_eb_ci, _op):
+                    continue  # the composite already explains this operand -> not re-attached
                 selected_vars.append(int(_idx))
                 _eb_sel_set.add(int(_idx))
                 _eb_added.append(_op)
             if _eb_added and verbose:
-                logger.info("MRMR emit_both operand re-attach: added %d signal raw operand(s) of selected engineered features: %s", len(_eb_added), _eb_added)
+                logger.info("MRMR emit_both operand re-attach: added %d raw operand(s) that add information beyond their selected engineered features: %s", len(_eb_added), _eb_added)
         except Exception as _eb_exc:
             logger.debug("MRMR emit_both operand re-attach skipped (%s: %s).", type(_eb_exc).__name__, _eb_exc)
 
