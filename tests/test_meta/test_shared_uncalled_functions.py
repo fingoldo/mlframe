@@ -972,6 +972,9 @@ _OPT_IN_SLOW: set[str] = {
 #: PLUGIN_HOOK: an extension point a downstream package calls by name; no in-repo caller by design.
 _PLUGIN_HOOKS = {
     "forget_pool_bytes",  # downstream evictor calls it after evicting outside evict_for_budget
+    "ensure_batch_mi_noise_gate_tuning",  # refresh-* sweep of the kernel-tuning CLI (feature_selection/_benchmarks/kernel_tuning_cache/cli.py), outside the scanned tree
+    "ensure_fe_gpu_binning_tuning",  # refresh-* sweep of the kernel-tuning CLI (feature_selection/_benchmarks/kernel_tuning_cache/cli.py), outside the scanned tree
+    "ensure_fe_gpu_pairs_mi_tuning",  # refresh-* sweep of the kernel-tuning CLI (feature_selection/_benchmarks/kernel_tuning_cache/cli.py), outside the scanned tree
 }
 
 #: FRAMEWORK_HOOK: invoked by name by a framework (a joblib pool warm-up, a callback); the caller is outside the repo or the framework.
@@ -995,7 +998,6 @@ _PLANNED: set[str] = {
     "weighted_std_1d",  # library helper with no in-repo caller; owner decides to export or drop
     "smote_synthesize_vectorized",  # library helper with no in-repo caller; owner decides to export or drop
     "_column_tie_fraction",  # library helper with no in-repo caller; owner decides to export or drop
-    "ensure_batch_mi_noise_gate_tuning",  # library helper with no in-repo caller; owner decides to export or drop
     "_global_stat",  # library helper with no in-repo caller; owner decides to export or drop
     "_per_cell_raw_moments_njit",  # library helper with no in-repo caller; owner decides to export or drop
     "_per_cell_stats_gpu",  # library helper with no in-repo caller; owner decides to export or drop
@@ -1005,8 +1007,6 @@ _PLANNED: set[str] = {
     "mi_direct_gpu_batched_streamed",  # library helper with no in-repo caller; owner decides to export or drop
     "_gpu_evaluate_basis_column",  # library helper with no in-repo caller; owner decides to export or drop
     "clear_resident_codes_handoff",  # library helper with no in-repo caller; owner decides to export or drop
-    "ensure_fe_gpu_binning_tuning",  # library helper with no in-repo caller; owner decides to export or drop
-    "ensure_fe_gpu_pairs_mi_tuning",  # library helper with no in-repo caller; owner decides to export or drop
     "gpu_resident_pair_recipes",  # library helper with no in-repo caller; owner decides to export or drop
     "grand_fused_pair_mi",  # library helper with no in-repo caller; owner decides to export or drop
     "rank_bin_codes_gpu_resident",  # library helper with no in-repo caller; owner decides to export or drop

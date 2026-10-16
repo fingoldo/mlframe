@@ -26,6 +26,7 @@ Subcommands::
     refresh-discretize-2d-array     tune discretize_2d_array (skip if cached)
     refresh-batch-mi-noise-gate     tune batch_mi_noise_gate (skip if cached)
     refresh-fe-gpu-pairs-mi         tune fe_gpu_pairs_mi (skip if cached)
+    refresh-fe-gpu-binning          tune fe_gpu_binning (skip if cached)
     refresh-all                     tune every registered kernel sweep (skip those already cached; --force to re-run)
 
 All refresh-* skip a kernel already validly cached for this host; pass --force to re-benchmark.
@@ -245,6 +246,11 @@ def _cmd_refresh_fe_gpu_pairs_mi(args) -> int:
     return _refresh_generic("fe_gpu_pairs_mi", ensure_fe_gpu_pairs_mi_tuning, force=args.force)
 
 
+def _cmd_refresh_fe_gpu_binning(args) -> int:
+    from mlframe.feature_selection.filters._gpu_resident_pair_mi import ensure_fe_gpu_binning_tuning
+    return _refresh_generic("fe_gpu_binning", ensure_fe_gpu_binning_tuning, force=args.force)
+
+
 def _cmd_refresh_all(args) -> int:
     """Re-tune every registered kernel sweep. Saves ~10-30s per kernel.
 
@@ -267,6 +273,7 @@ def _cmd_refresh_all(args) -> int:
         _cmd_refresh_discretize_2d_array(args),
         _cmd_refresh_batch_mi_noise_gate(args),
         _cmd_refresh_fe_gpu_pairs_mi(args),
+        _cmd_refresh_fe_gpu_binning(args),
     ]
     return 0 if all(rc == 0 for rc in rcs) else 1
 
@@ -346,6 +353,10 @@ def main(argv=None) -> int:
         help="tune the FE pair-MI CPU-vs-GPU crossover (skip if cached)",
     )
     sub.add_parser(
+        "refresh-fe-gpu-binning", parents=[_force],
+        help="tune the FE binning CPU-vs-GPU crossover (skip if cached)",
+    )
+    sub.add_parser(
         "refresh-all", parents=[_force],
         help="tune every registered kernel sweep (skip those already cached; --force to re-run)",
     )
@@ -369,6 +380,7 @@ def main(argv=None) -> int:
         "refresh-discretize-2d-array": _cmd_refresh_discretize_2d_array,
         "refresh-batch-mi-noise-gate": _cmd_refresh_batch_mi_noise_gate,
         "refresh-fe-gpu-pairs-mi": _cmd_refresh_fe_gpu_pairs_mi,
+        "refresh-fe-gpu-binning": _cmd_refresh_fe_gpu_binning,
         "refresh-all": _cmd_refresh_all,
     }[args.cmd](args)
 
