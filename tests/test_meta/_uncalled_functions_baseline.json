@@ -32,23 +32,7 @@
    "count": 1,
    "note": ""
   },
-  "src/mlframe/core/helpers.py::ListAllSkLearnClassifiers": {
-   "count": 1,
-   "note": ""
-  },
-  "src/mlframe/core/helpers.py::MakeSureBlasAndLaPackAreInstalled": {
-   "count": 1,
-   "note": ""
-  },
-  "src/mlframe/core/helpers.py::show_sys_ram_usage": {
-   "count": 1,
-   "note": ""
-  },
   "src/mlframe/core/stats.py::get_dist_percentage_span_for_sd": {
-   "count": 1,
-   "note": ""
-  },
-  "src/mlframe/data/datasets/generator.py::_probability_only": {
    "count": 1,
    "note": ""
   },
@@ -368,10 +352,6 @@
    "count": 1,
    "note": ""
   },
-  "src/mlframe/feature_selection/filters/_ksg.py::_lnc_correction": {
-   "count": 1,
-   "note": ""
-  },
   "src/mlframe/feature_selection/filters/_mah.py::_greedy_merge_bins": {
    "count": 1,
    "note": ""
@@ -537,10 +517,6 @@
    "note": ""
   },
   "src/mlframe/feature_selection/wrappers/_univariate_ht.py::_mann_whitney_u_z": {
-   "count": 1,
-   "note": ""
-  },
-  "src/mlframe/feature_selection/wrappers/_univariate_ht.py::is_numba_active": {
    "count": 1,
    "note": ""
   },
@@ -1065,10 +1041,6 @@
    "note": ""
   },
   "src/mlframe/votenrank/utils.py::agreement_rate": {
-   "count": 1,
-   "note": ""
-  },
-  "src/mlframe/votenrank/utils.py::get_tracker_table": {
    "count": 1,
    "note": ""
   },

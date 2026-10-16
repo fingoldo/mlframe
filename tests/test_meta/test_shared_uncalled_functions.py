@@ -664,6 +664,7 @@ _TEST_UTILITIES = {
     "reset_catboost_available_cache",
     "reset_cluster_su_gpu_probe",
     "reset_gpu_model_available_cache",
+    "is_numba_active",  # fast-path probe that tests assert on; not a production call site
 }
 
 _OFFLINE_GENERATORS = {
@@ -674,6 +675,11 @@ _OFFLINE_GENERATORS = {
     "generate_similar_probs_random_walk",
     "assess_prediction_band_stability",
     "optimize_persistence_floor_per_class",  # benchmark-only calibration helpers
+    "ListAllSkLearnClassifiers",  # interactive discovery print, run by hand
+    "MakeSureBlasAndLaPackAreInstalled",  # interactive BLAS/LAPACK diagnostic, run by hand
+    "show_sys_ram_usage",  # interactive RAM diagnostic, run by hand
+    "_probability_only",  # difficulty-sweep exploration helper for the synthetic generator, run by hand
+    "get_tracker_table",  # loads experiment-impact-tracker cost data for offline analysis
 }
 
 #: Kernel versions kept deliberately when a faster one replaced them (the repository keeps every version for A/B and
@@ -691,6 +697,7 @@ _RETAINED_KERNELS = {
     "_count_le_2d_njit_parallel",  # bit-identity reference twins of the row-major count kernels (keep-all-kernels rule); parity pinned in tests/feature_selection/discretization/test_multiselect_quantile_edges.py
     "device_permuted_y_batch",  # measured-rejected device permutation generator (slower than the host kernel at 99 x 2000); kept as the bit-identical parity reference, see its module docstring
     "_quantile_edges_2d_radix_njit",  # reference twin of the tiled radix quantile kernel (keep-all-kernels rule); parity pinned in tests/feature_selection/discretization/test_multiselect_quantile_edges.py
+    "_lnc_correction",  # deprecated first-pass LNC kept behind a flag for A/B parity; no switch currently reaches it
 }
 
 #: Called, but the pinned py-ci-shared (v1.17.0) cannot see it: a lazy import with an ``except ImportError: f = None``
