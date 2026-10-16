@@ -44,13 +44,11 @@ _MAX_IS_BETTER_KEYS = ("auc", "ndcg", "r2", "accuracy", "f1")
 
 
 def _is_minimise_metric(metric_name: str) -> bool:
-    """Return True when ``metric_name`` is a lower-is-better metric. Defaults to True (RMSE-like) when ambiguous; ensembles in mlframe default to selection-by-error."""
-    _lower = metric_name.lower()
-    if any(k in _lower for k in _MAX_IS_BETTER_KEYS):
-        return False
-    if any(k in _lower for k in _MIN_IS_BETTER_KEYS):
-        return True
-    return True
+    """Return True when ``metric_name`` is a lower-is-better metric. Delegates to the metrics registry, the live direction source; unknown names default to True (RMSE-like)."""
+    from mlframe.training.metrics_registry import metric_name_higher_is_better
+
+    higher = metric_name_higher_is_better(metric_name)
+    return True if higher is None else not higher
 
 
 def _pick_best_flavour(ensembles_for_target: dict) -> str | None:

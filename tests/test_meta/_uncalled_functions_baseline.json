@@ -612,10 +612,6 @@
    "count": 1,
    "note": ""
   },
-  "src/mlframe/models/ensembling/selection.py::_default_metric_is_auc": {
-   "count": 1,
-   "note": ""
-  },
   "src/mlframe/models/optimization.py::optimize_finite_onedimensional_search_space": {
    "count": 1,
    "note": ""
@@ -805,10 +801,6 @@
    "note": ""
   },
   "src/mlframe/training/core/_phase_composite_post.py::recover_composite_y_scale_metrics": {
-   "count": 1,
-   "note": ""
-  },
-  "src/mlframe/training/core/_phase_finalize.py::_is_minimise_metric": {
    "count": 1,
    "note": ""
   },

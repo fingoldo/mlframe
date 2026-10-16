@@ -769,6 +769,8 @@ _SUPERSEDED = {
     "_yj_forward_scalar",  # scalar reference for _yj_forward (numpy and numba paths); parity pinned in tests/training/composite/transforms/test_yj_forward_scalar_parity.py
     "_entropy_binary",  # binary form of _entropy_from_counts; parity pinned in tests/feature_engineering/transformer/test_entropy_binary_parity.py
     "_flags_to_combo_key",  # flag-set form of the oracle key _combo_key; parity pinned in tests/feature_selection/filters/test_flags_combo_key_parity.py
+    "_is_minimise_metric",  # now delegates to the metrics registry, the live direction source; parity pinned in tests/training/core/test_metric_direction_parity.py
+    "_default_metric_is_auc",  # the unset-metric check; parity pinned in tests/training/core/test_metric_direction_parity.py
 }
 
 #: Valid code path a library user enables by explicit choice; slower than the default, so it is not called in production.
