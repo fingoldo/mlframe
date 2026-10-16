@@ -1,0 +1,101 @@
+diff --git a/src/mlframe/feature_selection/filters/_mrmr_fit_impl/_assign_support_tail.py b/src/mlframe/feature_selection/filters/_mrmr_fit_impl/_assign_support_tail.py
+index 84a8368c4..51b813834 100644
+--- a/src/mlframe/feature_selection/filters/_mrmr_fit_impl/_assign_support_tail.py
++++ b/src/mlframe/feature_selection/filters/_mrmr_fit_impl/_assign_support_tail.py
+@@ -74,7 +74,7 @@ def _assign_support_tail(
+     # n_features_ reports the column count produced by transform() = raw selected + engineered (replayable via _engineered_recipes_). Higher-order
+     # engineered features without a replayable recipe were already warned about above and are NOT counted (they don't appear in transform output).
+     n_engineered_out = len(self._engineered_recipes_)
+-    _assign_support_tai_engineered_features_without_replayable(self, selected_vars, n_engineered_out, cols, data, _allowed_raw_idx, nbins, target_indices)
++    _assign_support_tai_engineered_features_without_replayable(self, selected_vars, n_engineered_out, cols, data, _allowed_raw_idx, nbins, target_indices, classes_y)
+ 
+     # The p>=n FP-control cap above is enforced exactly once,
+     # but the post-selection reconciliation passes below it (emit-both operand re-attach, usability-aware
+@@ -579,7 +579,7 @@ def _assign_support_tai_g_step1_map_each_surviving(self, _post_recipes, _post_se
+     return selected_vars
+ 
+ 
+-def _assign_support_tai_engineered_features_without_replayable(self, selected_vars, n_engineered_out, cols, data, _allowed_raw_idx, nbins, target_indices):
++def _assign_support_tai_engineered_features_without_replayable(self, selected_vars, n_engineered_out, cols, data, _allowed_raw_idx, nbins, target_indices, classes_y):
+     """Block of _assign_support_tail starting at ``if selected_vars:``."""
+     if selected_vars:
+         self.n_features_ = len(selected_vars) + n_engineered_out
+@@ -670,6 +670,20 @@ def _assign_support_tai_engineered_features_without_replayable(self, selected_va
+                            and _name not in _redund_dropped_names
+                            and (_allowed_raw_idx is None or int(i) in _allowed_raw_idx)
+                            and not (_aug_large_n and _name in _surviving_eng_operands)]
++                # A raw whose name is a token of an engineered child is re-attached only if it keeps signal
++                # beyond that child (conditional test). Marginal MI cannot tell an absorbed copy of an operand
++                # from a genuine term, so a decoy of a selected operand otherwise returns to the support.
++                if _to_add:
++                    _consumers_add: dict = {}
++                    for _nm in _eng_names:
++                        for _tok in set(_re_aug.split(r"[^0-9A-Za-z_]+", _nm.replace("__", " "))):
++                            if _tok:
++                                _consumers_add.setdefault(_tok, []).append(_nm)
++                    _subsumed_add: set = set()
++                    _assign_support_tai_signal_aware_subsumption(
++                        self, [self.feature_names_in_[_i] for _i in _to_add], _consumers_add, cols, classes_y, data, {}, _subsumed_add,
++                    )
++                    _to_add = [_i for _i in _to_add if self.feature_names_in_[_i] not in _subsumed_add]
+                 if _to_add:
+                     selected_vars.extend(_to_add)
+                     self.support_ = np.array(selected_vars, dtype=np.int64)
+diff --git a/src/mlframe/feature_selection/filters/_screen_predictors_gate.py b/src/mlframe/feature_selection/filters/_screen_predictors_gate.py
+index e01a7e87b..eba375b8c 100644
+--- a/src/mlframe/feature_selection/filters/_screen_predictors_gate.py
++++ b/src/mlframe/feature_selection/filters/_screen_predictors_gate.py
+@@ -84,6 +84,44 @@ def build_dcd_state(
+         return None
+ 
+ 
++def _conditional_null_passes(factors_data, y_idx, cand_idx, sel_idxs, n_perm=20, quantile=0.99, seed=0) -> bool:
++    """Whether I(cand; y | selected) clears the ``quantile`` of the same statistic under a within-stratum permutation.
++
++    The absolute gain floor sits far below the plug-in bias of a conditional MI at moderate n (a 10-bin decoy of a
++    selected operand reads ~0.003 at n=4000 against a null mean of ~0.002), so noise-level candidates passed it. Permuting
++    the candidate inside the strata of the selected set keeps their association and breaks only the candidate-target link.
++    """
++    from sklearn.metrics import mutual_info_score
++
++    y_codes = np.asarray(factors_data[:, y_idx]).astype(np.int64).ravel()
++    x_codes = np.asarray(factors_data[:, cand_idx]).astype(np.int64).ravel()
++    s_codes = np.zeros(y_codes.shape[0], dtype=np.int64)
++    for j in sel_idxs:
++        col = np.asarray(factors_data[:, j]).astype(np.int64).ravel()
++        s_codes = s_codes * (int(col.max()) + 1) + col
++
++    def _cmi(x):
++        total = 0.0
++        n = y_codes.shape[0]
++        for sv in np.unique(s_codes):
++            m = s_codes == sv
++            k = int(m.sum())
++            if k < 30:
++                continue
++            total += (k / n) * mutual_info_score(x[m], y_codes[m])
++        return total
++
++    rng = np.random.default_rng(seed)
++    null = np.empty(n_perm, dtype=np.float64)
++    for i in range(n_perm):
++        perm = x_codes.copy()
++        for sv in np.unique(s_codes):
++            idx = np.flatnonzero(s_codes == sv)
++            perm[idx] = x_codes[rng.permutation(idx)]
++        null[i] = _cmi(perm)
++    return _cmi(x_codes) > float(np.quantile(null, quantile))
++
++
+ def compute_selection_gate(
+     *,
+     min_relevance_gain: float,
+@@ -193,4 +231,7 @@ def compute_selection_gate(
+                 _nb_y_fdr = int(factors_nbins[_y_idx_fdr2])
+                 _cand_marg_corr -= (_nb_x_fdr - 1) * (_nb_y_fdr - 1) / (2.0 * int(factors_data.shape[0]))
+             _fdr_pass = _cand_marg_corr >= _fdr_floor_eff
+-    return (_best_gain_for_gate >= _abs_floor and _best_gain_for_gate >= _rel_floor and _fdr_pass), _best_gain_for_gate
++    _cond_pass = True
++    if interactions_order == 1 and best_candidate is not None and len(best_candidate) == 1 and selected_vars and _fdr_pass:
++        _cond_pass = _conditional_null_passes(factors_data, _single_int(y), int(best_candidate[0]), [int(v) for v in selected_vars])
++    return (_best_gain_for_gate >= _abs_floor and _best_gain_for_gate >= _rel_floor and _fdr_pass and _cond_pass), _best_gain_for_gate
