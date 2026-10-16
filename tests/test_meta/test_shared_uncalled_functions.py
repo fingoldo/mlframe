@@ -1079,10 +1079,12 @@ _FRAMEWORK_HOOKS: set[str] = {
 
 #: PLANNED: a documented feature whose caller is not written yet; each entry names the feature and the owner decides wire or drop.
 _PLANNED: set[str] = {
-    "carve_calib_conformal",  # dispatches the structure-appropriate conformal calibration carver, planned for the conformal split
-    "translate_sklearn_mlp_overrides_to_recurrent_config_kwargs",  # translates sklearn MLP overrides to the recurrent config, planned for the recurrent trainer
-    "rerank_candidates",  # re-ranks SHAP-proxy candidates by the corrector's predicted loss, planned for the corrector step
-    "_run_one_weight_iteration",  # library helper with no in-repo caller; owner decides to export or drop
+    # Structure-aware conformal slice carver. TrainingSplitConfig.conformal_size is refused today because no split path reads it; wiring this
+    # means carving a third slice through splitting.py, the suite and finalize, which is feature work awaiting the owner.
+    "carve_calib_conformal",
+    # Stale parallel copy of the live loop in _phase_train_one_target_steps.py (state in the st object there, 45 keyword parameters here). Its module
+    # docstring flags it dead; delete-or-rewire is the owner's call, and tests that drive it exercise dead code.
+    "_run_one_weight_iteration",
 }
 
 #: Optional entry points a user calls when they want them; no parity test is required, unlike _SUPERSEDED or _OPT_IN_SLOW.
@@ -1131,6 +1133,11 @@ _OPTIN = {
     # test_numba_polynom_optimizer.py
     "optimize_all_pairs_numba_kernel",
     "mdlp_bin_edges_validated",  # significance-gated MDLP research prototype, opt-in by direct call; tested in test_mdlp_nan_handling.py
+    # corrector-only reorder of (proxy_loss, subset) candidates; fit step 5 applies the same corrector inline together with the uncertainty penalty and
+    # keeps the scores for UCB
+    "rerank_candidates",
+    # recurrent twin of the MLP override translator; documented as unused until ROBUST_RECURRENT_OVERRIDES_UNDER_DRIFT is populated by a sequence-DGP sweep
+    "translate_sklearn_mlp_overrides_to_recurrent_config_kwargs",
 }
 
 
