@@ -715,6 +715,10 @@ _REEXPORTED_PUBLIC_API = {
     "minimax_election",  # exported by mlframe.votenrank through its lazy export map (leaderboard._rules)
     "optimality_gap_election",  # exported by mlframe.votenrank through its lazy export map (leaderboard._rules)
     "threshold_election",  # exported by mlframe.votenrank through its lazy export map (leaderboard._rules)
+    "spearmanr_batched",  # exported by mlframe.metrics (direct-use public surface)
+    "spearmanr_batched_dispatch",  # exported by mlframe.metrics (direct-use public surface)
+    "set_spearmanr_dispatch_threshold",  # exported by mlframe.metrics (direct-use public surface)
+    "bootstrap_auc_distribution_parallel",  # exported by mlframe.metrics (direct-use public surface)
 }
 
 #: Offline synthetic-data generators (calibration probability samplers): called by benchmarks and tests to build
@@ -949,7 +953,6 @@ _PLANNED: set[str] = {
     "translate_sklearn_mlp_overrides_to_recurrent_config_kwargs",  # translates sklearn MLP overrides to the recurrent config, planned for the recurrent trainer
     "wrap_with_lookahead",  # conditional Lookahead wrapper, planned for the neural optimiser setup
     "_group_features_mi_njit",  # fused per-group MI in one njit dispatch, planned for the ranking feature selection
-    "bootstrap_auc_distribution_parallel",  # parallel full bootstrap AUC distribution, planned for the AUC uncertainty report
     "rerank_candidates",  # re-ranks SHAP-proxy candidates by the corrector's predicted loss, planned for the corrector step
     "compute_permutation_importances",  # user-facing permutation importance helper not yet exported, planned as public API
     "_require_plotly",  # plotly import guard for the interactive paths, planned to be called by them
@@ -1002,9 +1005,6 @@ _PLANNED: set[str] = {
     "get_binningprocess_featureselectors",  # library helper with no in-repo caller; owner decides to export or drop
     "_kruskal_wallis_h",  # library helper with no in-repo caller; owner decides to export or drop
     "_mann_whitney_u_z",  # library helper with no in-repo caller; owner decides to export or drop
-    "set_spearmanr_dispatch_threshold",  # library helper with no in-repo caller; owner decides to export or drop
-    "spearmanr_batched",  # library helper with no in-repo caller; owner decides to export or drop
-    "spearmanr_batched_dispatch",  # library helper with no in-repo caller; owner decides to export or drop
     "dtw_dispatch",  # library helper with no in-repo caller; owner decides to export or drop
     "_initialize_mutable_defaults",  # library helper with no in-repo caller; owner decides to export or drop
     "make_dmatrix",  # library helper with no in-repo caller; owner decides to export or drop

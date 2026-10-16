@@ -24,14 +24,23 @@ from mlframe.metrics.core import *
 from mlframe.metrics.quantile import *
 from mlframe.metrics.ranking import *
 from mlframe.metrics.scoring import *
+from mlframe.metrics.rank_correlation import (
+    set_spearmanr_dispatch_threshold,
+    spearmanr_batched,
+    spearmanr_batched_dispatch,
+)
+from mlframe.metrics._core_auc_brier import bootstrap_auc_distribution_parallel
 
 # Public re-export so cross-package consumers (importance.py, _eval_helpers.py) can avoid reaching into ``mlframe.metrics.calibration`` internals directly. The underscore-prefixed source remains the implementation; the public name is the documented surface.
 # Public re-export of the Brier kernel so reporting consumers (model_card) import it from the package surface instead of the ``_core_auc_brier`` implementation module.
 from mlframe.metrics._core_auc_brier import fast_brier_score_loss
+
 # Public re-export of the NumPy-version-agnostic trapezoidal integral so reporting/charts consumers (binary.py, model_comparison.py, risk_coverage.py) import it from the package surface instead of the ``_trapezoid_shared`` implementation module.
 from mlframe.metrics._trapezoid_shared import trapezoid
+
 # Lean full-suite per-target-type aggregator used by per-iteration metric capture (meta-learning / HPO-from-early-observation).
 from mlframe.metrics.iteration_metrics import compute_all_metrics
+
 # Per-target calibration / classification panel. Documented in README as ``from mlframe.metrics import fast_calibration_report``; make it a first-class export instead of relying on the transitive ``from .core import *`` side-effect. ``CalibrationReport`` is its NamedTuple return type.
 from mlframe.metrics.classification import (
     CalibrationReport,
