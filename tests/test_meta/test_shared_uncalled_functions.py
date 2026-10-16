@@ -684,6 +684,7 @@ _TEST_UTILITIES = {
     "_xgb_cache_clear",  # test-isolation reset of the xgboost shim cache
     "_lib_versions_cache_clear",  # test-isolation reset of the library-version cache
     "cache_bytes",  # recorded-size readout for tests and diagnostics of the CatBoost pool budget
+    "is_triton_available",  # Triton availability probe for callers and tests
 }
 
 _OFFLINE_GENERATORS = {
@@ -719,6 +720,11 @@ _OFFLINE_GENERATORS = {
     "evaluate_grouped",  # hand-run demo that reports per-group accuracy for a sample model
     "load_data",  # example-dataset loader for trying the package out by hand
     "get_fe_family_max_concurrency",  # diagnostic reader of the peak FE family concurrency, read by hand
+    "phase_ram_snapshot",  # per-phase RAM delta readout for training diagnostics
+    "record_phase",  # manual timing backfill for training diagnostics
+    "agreement_rate",  # votenrank study metric, run by hand
+    "best_unary_transform",  # baseline comparator for the FE benchmarks, run by hand
+    "score_triplet_baselines",  # baseline comparator for the triplet FE benchmarks, run by hand
 }
 
 #: Kernel versions kept deliberately when a faster one replaced them (the repository keeps every version for A/B and
@@ -749,6 +755,7 @@ _RETAINED_KERNELS = {
     "arrayMinMaxParallel",  # parallel counterpart of the min/max scan; no switch reaches it
     "naive_mean_var_two_pass_seq",  # naive A/B variant kept for the numerical-stability bench; the bench chose the default path and no switch reaches this one
     "naive_moments_two_pass_seq",  # naive A/B variant kept for the numerical-stability bench; the bench chose the default path and no switch reaches this one
+    "_fused_regression_welford_par",  # parallel fused Welford regression kernel kept as an alternative; no switch reaches it
 }
 
 #: Called, but the pinned py-ci-shared (v1.17.0) cannot see it: a lazy import with an ``except ImportError: f = None``
@@ -836,6 +843,40 @@ _PLUGIN_HOOKS = {
     "forget_pool_bytes",  # downstream evictor calls it after evicting outside evict_for_budget
 }
 
+#: PLANNED: a documented feature whose caller is not written yet; each entry names the feature and the owner decides wire or drop.
+_PLANNED: set[str] = {
+    "npnbArrayMinMax",  # fast finite-input min/max utility not yet called; the planned array-stats path uses it
+    "topk_by_partition",  # top-k helper not yet called; the planned ranking path uses it
+    "_suppress_numeric_warnings",  # worker-thread warning filter for the numeric module, planned for its callers
+    "compute_mutual_info_regression",  # KNN regression MI planned for the regression feature-selection path
+    "batch_weighted_mean",  # batch wrapper over weighted_mean_1d, planned for batched neighbour aggregation
+    "batch_weighted_std",  # batch wrapper over weighted_std_1d, planned for batched neighbour aggregation
+    "batch_weighted_vector_mean",  # batch per-query vector mean, planned for batched neighbour aggregation
+    "fill_grid_1d",  # GPU launch-geometry helper for flat kernels, planned to replace hand-written grid sizes
+    "clear_pinned_d2h",  # releases the thread-local pinned D2H staging buffer; location at fit completion undecided
+    "validate_artifact_dict",  # sanity check for received artifact dicts, planned guard on the artifact load path
+    "parse_routing_col_name",  # inverse of _routing_col_name, planned for recipe replay
+    "parallel_mi_with_null",  # null-mean-accumulating MI twin, planned for the null-calibrated screen
+    "parallel_mi_besag_clifford_with_null",  # null-mean-accumulating Besag-Clifford twin, planned for the null-calibrated screen
+    "apply_gpu_unary_batched",  # batched GPU unary apply, planned for the resident FE path
+    "apply_gpu_binary_batched",  # batched GPU binary apply, planned for the resident FE path
+    "sanitize_name_list",  # remaps cat_features names through the sanitiser, planned for the training input path
+    "_residual_variance_ratio",  # OLS residual-variance criterion described in the structural hints, planned for the hint decision
+    "_transform_via",  # applies a fitted pre-pipeline or passes X through, planned for the ensemble predict path
+    "carve_calib_conformal",  # dispatches the structure-appropriate conformal calibration carver, planned for the conformal split
+    "disable_native_es_for_slice_stable",  # strips native early stopping under slice-stable ES, planned for per-slice boosters
+    "translate_sklearn_mlp_overrides_to_recurrent_config_kwargs",  # translates sklearn MLP overrides to the recurrent config, planned for the recurrent trainer
+    "wrap_with_lookahead",  # conditional Lookahead wrapper, planned for the neural optimiser setup
+    "_group_features_mi_njit",  # fused per-group MI in one njit dispatch, planned for the ranking feature selection
+    "bootstrap_auc_distribution_parallel",  # parallel full bootstrap AUC distribution, planned for the AUC uncertainty report
+    "rerank_candidates",  # re-ranks SHAP-proxy candidates by the corrector's predicted loss, planned for the corrector step
+    "compute_permutation_importances",  # user-facing permutation importance helper not yet exported, planned as public API
+    "_require_plotly",  # plotly import guard for the interactive paths, planned to be called by them
+    "_split_arrays",  # groups a value array by split label for error analysis, planned for the split charts
+    "_wrap_text",  # label wrapping for plotly charts, planned for the chart labels
+    "_get_cached_plot_idx",  # cached random subsample index for scatter plots, planned for the residual plots
+}
+
 #: Optional entry points a user calls when they want them; no parity test is required, unlike _SUPERSEDED or _OPT_IN_SLOW.
 _OPTIN = {
     "mi_classif_streamed",  # streamed GPU MI for columns that do not fit resident; chosen per fit on large inputs
@@ -872,6 +913,7 @@ def test_no_new_function_without_a_caller(request):
         | _NAME_DISPATCHED
         | _SUPERSEDED
         | _PLUGIN_HOOKS
+        | _PLANNED
         | _OPT_IN_SLOW
         | _OPTIN,
     )

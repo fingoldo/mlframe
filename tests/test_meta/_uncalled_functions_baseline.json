@@ -12,14 +12,6 @@
    "count": 1,
    "note": ""
   },
-  "src/mlframe/core/arrays.py::npnbArrayMinMax": {
-   "count": 1,
-   "note": ""
-  },
-  "src/mlframe/core/arrays.py::topk_by_partition": {
-   "count": 1,
-   "note": ""
-  },
   "src/mlframe/core/stats.py::get_dist_percentage_span_for_sd": {
    "count": 1,
    "note": ""
@@ -92,26 +84,6 @@
    "count": 1,
    "note": ""
   },
-  "src/mlframe/feature_engineering/numerical.py::_suppress_numeric_warnings": {
-   "count": 1,
-   "note": ""
-  },
-  "src/mlframe/feature_engineering/numerical.py::compute_mutual_info_regression": {
-   "count": 1,
-   "note": ""
-  },
-  "src/mlframe/feature_engineering/transformer/_aggregation.py::batch_weighted_mean": {
-   "count": 1,
-   "note": ""
-  },
-  "src/mlframe/feature_engineering/transformer/_aggregation.py::batch_weighted_std": {
-   "count": 1,
-   "note": ""
-  },
-  "src/mlframe/feature_engineering/transformer/_aggregation.py::batch_weighted_vector_mean": {
-   "count": 1,
-   "note": ""
-  },
   "src/mlframe/feature_engineering/transformer/_aggregation.py::weighted_std_1d": {
    "count": 1,
    "note": ""
@@ -176,10 +148,6 @@
    "count": 1,
    "note": ""
   },
-  "src/mlframe/feature_selection/filters/_gpu_hw_launch.py::fill_grid_1d": {
-   "count": 1,
-   "note": ""
-  },
   "src/mlframe/feature_selection/filters/_gpu_resident_basis.py::_gpu_evaluate_basis_column": {
    "count": 1,
    "note": ""
@@ -189,10 +157,6 @@
    "note": ""
   },
   "src/mlframe/feature_selection/filters/_gpu_resident_fe.py::fe_gpu_resident_enabled": {
-   "count": 1,
-   "note": ""
-  },
-  "src/mlframe/feature_selection/filters/_gpu_resident_materialise.py::clear_pinned_d2h": {
    "count": 1,
    "note": ""
   },
@@ -248,15 +212,7 @@
    "count": 1,
    "note": ""
   },
-  "src/mlframe/feature_selection/filters/_mrmr_artifacts.py::validate_artifact_dict": {
-   "count": 1,
-   "note": ""
-  },
   "src/mlframe/feature_selection/filters/_numba_polynom_optimizer.py::optimize_all_pairs_numba_kernel": {
-   "count": 1,
-   "note": ""
-  },
-  "src/mlframe/feature_selection/filters/_orthogonal_routing_fe.py::parse_routing_col_name": {
    "count": 1,
    "note": ""
   },
@@ -304,23 +260,7 @@
    "count": 1,
    "note": ""
   },
-  "src/mlframe/feature_selection/filters/fe_baselines.py::best_unary_transform": {
-   "count": 1,
-   "note": ""
-  },
-  "src/mlframe/feature_selection/filters/fe_baselines.py::score_triplet_baselines": {
-   "count": 1,
-   "note": ""
-  },
   "src/mlframe/feature_selection/filters/fe_baselines.py::score_trivial_baselines": {
-   "count": 1,
-   "note": ""
-  },
-  "src/mlframe/feature_selection/filters/feature_engineering.py::apply_gpu_binary_batched": {
-   "count": 1,
-   "note": ""
-  },
-  "src/mlframe/feature_selection/filters/feature_engineering.py::apply_gpu_unary_batched": {
    "count": 1,
    "note": ""
   },
@@ -329,14 +269,6 @@
    "note": ""
   },
   "src/mlframe/feature_selection/filters/info_theory/_cmi_cuda.py::reset_cmi_forder_cache": {
-   "count": 1,
-   "note": ""
-  },
-  "src/mlframe/feature_selection/filters/permutation.py::parallel_mi_besag_clifford_with_null": {
-   "count": 1,
-   "note": ""
-  },
-  "src/mlframe/feature_selection/filters/permutation.py::parallel_mi_with_null": {
    "count": 1,
    "note": ""
   },
@@ -352,15 +284,7 @@
    "count": 1,
    "note": ""
   },
-  "src/mlframe/feature_selection/importance.py::compute_permutation_importances": {
-   "count": 1,
-   "note": ""
-  },
   "src/mlframe/feature_selection/optbinning.py::get_binningprocess_featureselectors": {
-   "count": 1,
-   "note": ""
-  },
-  "src/mlframe/feature_selection/shap_proxied_fs/_shap_proxy_calibrate.py::rerank_candidates": {
    "count": 1,
    "note": ""
   },
@@ -385,10 +309,6 @@
    "note": ""
   },
   "src/mlframe/metrics/_auc_per_group.py::fast_aucs_per_group": {
-   "count": 1,
-   "note": ""
-  },
-  "src/mlframe/metrics/_core_auc_brier.py::bootstrap_auc_distribution_parallel": {
    "count": 1,
    "note": ""
   },
@@ -456,10 +376,6 @@
    "count": 1,
    "note": ""
   },
-  "src/mlframe/metrics/core.py::_require_plotly": {
-   "count": 1,
-   "note": ""
-  },
   "src/mlframe/metrics/rank_correlation.py::set_spearmanr_dispatch_threshold": {
    "count": 1,
    "note": ""
@@ -469,10 +385,6 @@
    "note": ""
   },
   "src/mlframe/metrics/rank_correlation.py::spearmanr_batched_dispatch": {
-   "count": 1,
-   "note": ""
-  },
-  "src/mlframe/metrics/regression/_regression_metrics.py::_fused_regression_welford_par": {
    "count": 1,
    "note": ""
   },
@@ -492,14 +404,6 @@
    "count": 1,
    "note": ""
   },
-  "src/mlframe/reporting/charts/_error_analysis_splits.py::_split_arrays": {
-   "count": 1,
-   "note": ""
-  },
-  "src/mlframe/reporting/renderers/plotly.py::_wrap_text": {
-   "count": 1,
-   "note": ""
-  },
   "src/mlframe/signal/dtw.py::dtw_cupy_full": {
    "count": 1,
    "note": ""
@@ -508,19 +412,7 @@
    "count": 1,
    "note": ""
   },
-  "src/mlframe/training/_conformal_split.py::carve_calib_conformal": {
-   "count": 1,
-   "note": ""
-  },
   "src/mlframe/training/_data_helpers.py::_initialize_mutable_defaults": {
-   "count": 1,
-   "note": ""
-  },
-  "src/mlframe/training/_feature_name_sanitize.py::sanitize_name_list": {
-   "count": 1,
-   "note": ""
-  },
-  "src/mlframe/training/_helpers_training_configs.py::disable_native_es_for_slice_stable": {
    "count": 1,
    "note": ""
   },
@@ -604,15 +496,7 @@
    "count": 1,
    "note": ""
   },
-  "src/mlframe/training/composite/discovery/_structural_hints.py::_residual_variance_ratio": {
-   "count": 1,
-   "note": ""
-  },
   "src/mlframe/training/composite/discovery/auto_detect.py::detect_cat_columns": {
-   "count": 1,
-   "note": ""
-  },
-  "src/mlframe/training/composite/ensemble/__init__.py::_transform_via": {
    "count": 1,
    "note": ""
   },
@@ -652,14 +536,6 @@
    "count": 1,
    "note": ""
   },
-  "src/mlframe/training/evaluation.py::_get_cached_plot_idx": {
-   "count": 1,
-   "note": ""
-  },
-  "src/mlframe/training/feature_drift_report.py::translate_sklearn_mlp_overrides_to_recurrent_config_kwargs": {
-   "count": 1,
-   "note": ""
-  },
   "src/mlframe/training/metrics_registry.py::list_registered_specs": {
    "count": 1,
    "note": ""
@@ -672,27 +548,7 @@
    "count": 1,
    "note": ""
   },
-  "src/mlframe/training/neural/_lookahead_optimizer.py::wrap_with_lookahead": {
-   "count": 1,
-   "note": ""
-  },
   "src/mlframe/training/neural/_ranker_losses.py::_ranknet_pair_cache_clear": {
-   "count": 1,
-   "note": ""
-  },
-  "src/mlframe/training/neural/_triton_bootstrap.py::is_triton_available": {
-   "count": 1,
-   "note": ""
-  },
-  "src/mlframe/training/phases.py::phase_ram_snapshot": {
-   "count": 1,
-   "note": ""
-  },
-  "src/mlframe/training/phases.py::record_phase": {
-   "count": 1,
-   "note": ""
-  },
-  "src/mlframe/training/ranking/_ranker_fs.py::_group_features_mi_njit": {
    "count": 1,
    "note": ""
   },
@@ -769,10 +625,6 @@
    "note": ""
   },
   "src/mlframe/votenrank/leaderboard/_rules.py::threshold_election": {
-   "count": 1,
-   "note": ""
-  },
-  "src/mlframe/votenrank/utils.py::agreement_rate": {
    "count": 1,
    "note": ""
   },
