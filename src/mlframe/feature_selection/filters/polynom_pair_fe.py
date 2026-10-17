@@ -553,7 +553,7 @@ def _pp_dispatch_pair_evals(_polynom_n_jobs: int, _n_pairs_to_eval: int, verbose
             # independent of which backend runs it (same ``_eval_one_pair`` call either way), so
             # falling back to serial is safe and selection-equivalent, just slower for this one FE
             # stage on this one fit.
-            _poly_pair_results = Parallel(
+            _poly_pair_results: list[Any] = Parallel(
                 n_jobs=_polynom_n_jobs, backend=_loky_cpu_backend,
                 verbose=10 if verbose else 0,
             )(delayed(_eval_one_pair)(rv, X_ndarr, classes_y, _fe_deadline_value) for rv in _pair_keys)

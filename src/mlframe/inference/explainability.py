@@ -59,7 +59,7 @@ def init_model_instance(model_class: Any, params: dict) -> Any:
         return model_class(**params)
 
 
-def _fit_fold_model(model_instance: Any, pipeline_cls: type, X_train: Any, X_test: Any, y_train: Any, y_test: Any, generated_params: dict, plot: bool) -> None:
+def _fit_fold_model(model_instance: Any, pipeline_cls: Any, X_train: Any, X_test: Any, y_train: Any, y_test: Any, generated_params: dict, plot: bool) -> None:
     """Fit one fold's model, passing CatBoost its eval set / plot flag and concatenating train+test when ``eval_fraction`` is set."""
     if isinstance(model_instance, pipeline_cls):
         if "CatBoost" in type(model_instance.named_steps["est"]).__name__:

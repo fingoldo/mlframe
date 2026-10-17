@@ -63,6 +63,7 @@ class _MRMRFitHelpersMixin:
         get_params: Callable[..., dict]
         fit: Callable[..., "MRMR"]
         random_seed: Optional[int]
+        _fit_sample_weight_: Any
         verbose: bool | int
         _skip_fit_cache: bool
         get_feature_names_out: Callable[..., np.ndarray]

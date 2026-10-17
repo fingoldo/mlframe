@@ -10,7 +10,7 @@ import numpy as np
 import pandas as pd
 import warnings
 from functools import partial
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, ClassVar, Optional, cast
 
 from .._dynamic_cluster_discovery import set_dcd_active as _set_dcd_active
 from .._fe_deadline import clear_fe_deadline as _clear_fe_deadline
@@ -46,6 +46,31 @@ logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
 class _MRMRFitStagesMixin:
     """Mixin carrying the ``_fit_body`` stage methods; see the module docstring."""
+
+    if TYPE_CHECKING:
+        # Attributes and methods the concrete ``MRMR`` class or sibling mixins provide at runtime; declared for mypy only.
+        _fit_sample_weight_: Any
+        random_seed: Optional[int]
+        get_params: Any
+        _effective_random_seed: Any
+        _fit_impl: Any
+        _print_fit_summary: Any
+        _fit_body_isinstance_fe_budget_setting: Any
+        _stability_outer_fit: Any
+        _fit_body_int_paths_get_validated: Any
+        _fit_multioutput: Any
+        _fit_body_ycorr_thr: Any
+        _fit_identity_shortcut: Any
+        _fit_body_best_effort_any_failure: Any
+        _fit_body_requested_aggregator_was_ignored: Any
+        _fit_body_step1_no_resample_case: Any
+        _fit_body_their_package_default_shrunk: Any
+        _FAST_SEARCH_OVERRIDES: ClassVar[Any]
+        _fit_body_these_alone_because_resolved: Any
+        _fit_body_fast: Any
+        _fit_body_freshly_constructed_instance_never: Any
+        _fit_body_step1_anything_below_reads: Any
+        _fit_body_stash_fingerprint_identity_bool: Any
 
     def _fit_body_check_row_counts(self, X: Any, y: Any, st: Any) -> None:
         """Fail fast with a ValueError when X and y row counts differ (before any njit kernel can read out of bounds)."""

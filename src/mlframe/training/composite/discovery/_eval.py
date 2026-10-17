@@ -448,7 +448,7 @@ def _fitted_params_rejection(self, base: str, transform_name: str, mi_y_for_base
     # on the returned params dict; reject the spec here.
     if isinstance(fitted_params, dict) and fitted_params.get("is_degenerate"):
         _ve = fitted_params.get("var_explained", float("nan"))
-        return self._reject(
+        _rejected_degenerate: dict[str, Any] | None = self._reject(
             base,
             transform_name,
             mi_y_for_base,
@@ -460,6 +460,7 @@ def _fitted_params_rejection(self, base: str, transform_name: str, mi_y_for_base
                 f"as on raw y"
             ),
         )
+        return _rejected_degenerate
     # linres_robust dedup. When the MAD-trim step in
     # ``_linear_residual_robust_fit`` doesn't drop any rows, the
     # second-pass OLS produces alpha/beta identical to the first
@@ -470,7 +471,7 @@ def _fitted_params_rejection(self, base: str, transform_name: str, mi_y_for_base
     # ``linres-Y`` and ``linresR-Y`` produced identical
     # RMSE=21.5433 — 100% wasted compute on the duplicate.
     if transform_name == "linear_residual_robust" and isinstance(fitted_params, dict) and fitted_params.get("is_redundant_with_linres"):
-        return self._reject(
+        _rejected_linres: dict[str, Any] | None = self._reject(
             base,
             transform_name,
             mi_y_for_base,
@@ -482,6 +483,7 @@ def _fitted_params_rejection(self, base: str, transform_name: str, mi_y_for_base
                 "Skipping the duplicate evaluation."
             ),
         )
+        return _rejected_linres
     return None
 
 
@@ -540,7 +542,7 @@ def _residual_probe_rejection(
             _t_std = float(np.std(_t_train_finite))
             _residual_ratio = _t_std / _y_std if _y_std > 0 else 1.0
             if _residual_ratio < 0.001:
-                return self._reject(
+                _rejected_residual: dict[str, Any] | None = self._reject(
                     base,
                     transform_name,
                     mi_y_for_base,
@@ -555,6 +557,7 @@ def _residual_probe_rejection(
                         f"inverse_transform."
                     ),
                 )
+                return _rejected_residual
     except Exception as _residual_err:
         # Probe failure is non-fatal -- continue to MI screening.
         logger.debug(
@@ -620,6 +623,7 @@ def _screen_mi_scores(
         _memo_key = hash(valid_screen.tobytes()) if _memo is not None else None
         mi_y_compare = None
         if _memo is not None:
+            assert _memo_lock is not None  # the memo and its lock are always created together in the base context
             with _memo_lock:
                 mi_y_compare = _memo.get(_memo_key)
         if mi_y_compare is None:
@@ -640,6 +644,7 @@ def _screen_mi_scores(
                     **_mi_kwargs,
                 )
             if _memo is not None:
+                assert _memo_lock is not None  # the memo and its lock are always created together in the base context
                 with _memo_lock:
                     _memo[_memo_key] = mi_y_compare
     else:
