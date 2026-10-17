@@ -99,23 +99,31 @@ extern "C" __global__ void root_split_stats_k2(const int* __restrict__ order, co
     const double n_f = (double)n;
     double best_gain = -1e300;
     int best_idx = -1, ncand = 0;
-    int pos = ord[0];
-    int yi = (yb[pos >> 5] >> (pos & 31)) & 1;
-    for (int i = 0; i < n - 1; ++i) {
-        const int pos_next = ord[i + 1];
-        const int y_next = (yb[pos_next >> 5] >> (pos_next & 31)) & 1;
-        long long c_l, c_r;
-        if (yi) { c_l = l1; c_r = r1; } else { c_l = l0; c_r = r0; }
-        s_left += XL(c_l + 1) - XL(c_l);
-        s_right += XL(c_r - 1) - XL(c_r);
-        if (yi) { l1 = c_l + 1; r1 = c_r - 1; } else { l0 = c_l + 1; r0 = c_r - 1; }
-        const int n_l = i + 1, n_r = n - n_l;
-        if (n_l >= min_split && n_r >= min_split && yi != y_next && !tj[i]) {
-            ++ncand;
-            const double gain = h_full - (XL(n_l) - s_left + XL(n_r) - s_right) / n_f;
-            if (gain > best_gain) { best_gain = gain; best_idx = i; }
+    // The labels of the next eight sorted positions are loaded before they are used: the addresses depend only on the order, not on the running counts, so the loads overlap.
+    const int TILE = 8;
+    int ybuf[TILE + 1];
+    for (int i0 = 0; i0 < n - 1; i0 += TILE) {
+        const int cnt = min(TILE + 1, n - i0);
+#pragma unroll
+        for (int t = 0; t < TILE + 1; ++t) {
+            if (t < cnt) { const int pos = ord[i0 + t]; ybuf[t] = (yb[pos >> 5] >> (pos & 31)) & 1; }
         }
-        yi = y_next;
+        for (int t = 0; t < TILE && i0 + t < n - 1; ++t) {
+            const int i = i0 + t;
+            const int yi = ybuf[t];
+            const int y_next = ybuf[t + 1];
+            long long c_l, c_r;
+            if (yi) { c_l = l1; c_r = r1; } else { c_l = l0; c_r = r0; }
+            s_left += XL(c_l + 1) - XL(c_l);
+            s_right += XL(c_r - 1) - XL(c_r);
+            if (yi) { l1 = c_l + 1; r1 = c_r - 1; } else { l0 = c_l + 1; r0 = c_r - 1; }
+            const int n_l = i + 1, n_r = n - n_l;
+            if (n_l >= min_split && n_r >= min_split && yi != y_next && !tj[i]) {
+                ++ncand;
+                const double gain = h_full - (XL(n_l) - s_left + XL(n_r) - s_right) / n_f;
+                if (gain > best_gain) { best_gain = gain; best_idx = i; }
+            }
+        }
     }
     out_gain[idx] = best_gain;
     out_ncand[idx] = ncand;
