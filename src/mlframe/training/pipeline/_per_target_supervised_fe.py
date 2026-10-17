@@ -50,9 +50,9 @@ def _suffix(target_type: Any, target_name: Any) -> str:
 
 def supervised_steps_enabled(config: Any) -> bool:
     """Whether any label-supervised composite step is configured."""
-    return bool(
-        config is not None and (getattr(config, "categorical_group_concat_auto_enabled", False) or getattr(config, "two_step_target_encode_columns", None))
-    )
+    if config is None:
+        return False
+    return bool(getattr(config, "categorical_group_concat_auto_enabled", False) or getattr(config, "two_step_target_encode_columns", None))
 
 
 def iter_targets(target_by_type: Any) -> List[Tuple[Any, Any, np.ndarray]]:

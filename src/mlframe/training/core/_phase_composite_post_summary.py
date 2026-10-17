@@ -122,7 +122,7 @@ def _collect_best_model_metrics(metadata, models, _composite_names_by_tt, _best_
                         continue
                     if _best_val is None or (_is_minimize and _v < _best_val) or (not _is_minimize and _v > _best_val):
                         _best_val = float(_v)
-                        _best_name = _ye.get("model_name") or "Composite"
+                        _best_name = "Composite" if _ye.get("model_name") is None or _ye.get("model_name") == "" else _ye.get("model_name")
                         _best_split = "val"
                 # y-scale entries may carry only TEST metrics (no finite val); fall back to those before declaring "-".
                 if _best_val is None:
@@ -133,7 +133,7 @@ def _collect_best_model_metrics(metadata, models, _composite_names_by_tt, _best_
                             continue
                         if _best_val is None or (_is_minimize and _v < _best_val) or (not _is_minimize and _v > _best_val):
                             _best_val = float(_v)
-                            _best_name = _ye.get("model_name") or "Composite"
+                            _best_name = "Composite" if _ye.get("model_name") is None or _ye.get("model_name") == "" else _ye.get("model_name")
                             _best_split = "test"
             # When y-scale entries are absent OR carry no usable metric, fall through to the T-scale model-list metrics.
             # NOT for composite targets: their model_list metrics are on the T (residual) scale, while the dummy this

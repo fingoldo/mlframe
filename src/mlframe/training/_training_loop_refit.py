@@ -72,7 +72,8 @@ def _discard_stale_catboost_snapshot(params: dict[str, Any]) -> None:
         return
     path = str(snap)
     if not os.path.isabs(path):
-        path = os.path.join(str(params.get("train_dir") or "catboost_info"), path)
+        _train_dir = params.get("train_dir")
+        path = os.path.join(str("catboost_info" if _train_dir is None or _train_dir == "" else _train_dir), path)
     try:
         os.remove(path)
     except FileNotFoundError:

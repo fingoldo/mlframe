@@ -888,4 +888,5 @@ __all__ = [
     "_ADAPTIVE_PRESCREEN_FLOOR",
     "_EXACT_OPTIMIZERS",
     "_HEURISTIC_OPTIMIZERS",
+    "pd",
 ]

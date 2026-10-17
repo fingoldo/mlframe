@@ -18,6 +18,12 @@ from mlframe._conformal_constants import DEFAULT_CONFORMAL_ALPHAS
 logger = logging.getLogger(__name__)
 
 
+def _entry_model_name(entry, index) -> str:
+    """Display name of an ensemble entry: its ``model_name`` unless that is missing or empty, else ``model_<index>``."""
+    name = getattr(entry, "model_name", None)
+    return str(name) if name is not None and name != "" else f"model_{index}"
+
+
 def _param_kwargs(params) -> dict:
     """Arguments a calibration step is called with: the written fields of a strict parameter model, a plain mapping as is, ``{}`` for None."""
     if params is None:
@@ -111,7 +117,7 @@ def _isotonic_overfit_risk_check(ctx: "TrainingContext") -> None:
                     log_throttle(logger, "finalize_calib_isotonic_risk_check_failed", logging.WARNING, "[isotonic_risk] check failed for %s/%s: %s", _ttype, _tname, _iso_err)
                     continue
                 _rep = {k: v for k, v in _rep.items() if k not in ("isotonic_fit", "platt_fit", "predict")}  # drop non-serializable fitted objects
-                _mn = str(getattr(_e, "model_name", None) or f"model_{_i}")
+                _mn = _entry_model_name(_e, _i)
                 out[f"{_ttype}/{_tname}/{_mn}"] = _rep
     if out:
         ctx.metadata["isotonic_risk_report"] = out
@@ -143,7 +149,11 @@ def _optimize_decision_threshold_on_calib_slice(ctx: "TrainingContext") -> None:
     if _cfg is None or not bool(getattr(_cfg, "auto_optimize_threshold", False)):
         return
     _kwargs = _param_kwargs(getattr(_cfg, "threshold_optimizer_kwargs", None))
-    _metric_fn = _kwargs.pop("metric_fn", None) or (lambda y_true, y_pred: float(balanced_accuracy_score(y_true, y_pred)))
+    _metric_fn = _kwargs.pop("metric_fn", None)
+    if _metric_fn is None:
+        def _metric_fn(y_true, y_pred):
+            """Default decision-threshold metric: balanced accuracy."""
+            return float(balanced_accuracy_score(y_true, y_pred))
 
     out: dict = {}
     for _ttype, _by_name in (ctx.models or {}).items():
@@ -175,7 +185,7 @@ def _optimize_decision_threshold_on_calib_slice(ctx: "TrainingContext") -> None:
                     continue
                 _rep = {k: v for k, v in _rep.items() if k not in ("thresholds", "scores")}  # drop the full per-candidate sweep; keep the compact summary
                 _rep["probability_scale"] = _scale
-                _mn = str(getattr(_e, "model_name", None) or f"model_{_i}")
+                _mn = _entry_model_name(_e, _i)
                 out[f"{_ttype}/{_tname}/{_mn}"] = _rep
     if out:
         ctx.metadata["decision_threshold"] = out
@@ -226,7 +236,7 @@ def _apply_confidence_shrinkage_to_regression(ctx: "TrainingContext") -> None:
                 test_preds = _arr(getattr(_e, "test_preds", None))
                 if oof_preds is None or train_target is None or test_preds is None or oof_preds.size != train_target.size:
                     continue
-                _mn = str(getattr(_e, "model_name", None) or f"model_{_i}")
+                _mn = _entry_model_name(_e, _i)
                 entries_by_key[f"{_ttype}/{_tname}/{_mn}"] = (_e, oof_preds, train_target, test_preds)
 
     if not entries_by_key:
@@ -334,7 +344,7 @@ def _recalibrate_regression_on_calib_slice(ctx: "TrainingContext") -> None:
                     _v = _arr(getattr(_e, _attr, None))
                     if _v is not None:
                         setattr(_e, _attr, g.transform(_v))
-                _mn = str(getattr(_e, "model_name", None) or f"model_{_i}")
+                _mn = _entry_model_name(_e, _i)
                 applied[f"{_ttype}/{_tname}/{_mn}"] = {"method": method, "cv2_gain": float(gain), "metrics_are_pre_recalibration": True}
     if applied:
         ctx.metadata["regression_recalibration"] = applied
@@ -437,7 +447,7 @@ def _conformal_on_calib_slice(ctx: "TrainingContext") -> None:
                     except Exception as _cls_err:
                         log_throttle(logger, "finalize_calib_conformal_classification_failed", logging.WARNING, "[conformal] classification sets failed for %s/%s: %s", _ttype, _tname, _cls_err)
                         continue
-                    _mn = str(getattr(_e, "model_name", None) or f"model_{_i}")
+                    _mn = _entry_model_name(_e, _i)
                     out[f"{_ttype}/{_tname}/{_mn}"] = _rep
                     continue
                 y_pred_test = _arr(getattr(_e, "test_preds", None))
@@ -467,7 +477,7 @@ def _conformal_on_calib_slice(ctx: "TrainingContext") -> None:
                     log_throttle(logger, "finalize_calib_conformal_report_failed", logging.WARNING, "[conformal] report failed for %s/%s: %s", _ttype, _tname, _cf_err)
                     continue
                 rep.pop("intervals", None)  # drop per-row arrays; keep the compact per-alpha coverage summary
-                _mn = str(getattr(_e, "model_name", None) or f"model_{_i}")
+                _mn = _entry_model_name(_e, _i)
                 out[f"{_ttype}/{_tname}/{_mn}"] = rep
     if out:
         ctx.metadata["conformal"] = out

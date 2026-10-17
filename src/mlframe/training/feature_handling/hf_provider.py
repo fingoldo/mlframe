@@ -106,8 +106,12 @@ def _hf_cache_lock_path(model_name: str, revision: Optional[str]) -> str:
     # Resolve the HF cache root. ``HF_HOME`` is the modern var;
     # ``TRANSFORMERS_CACHE`` is legacy; finally fall back to OS tmp so
     # the lock still lives somewhere even if the HF env is unset.
-    root = os.environ.get("HF_HOME") or os.environ.get("TRANSFORMERS_CACHE") or os.path.join(tempfile.gettempdir(), "mlframe-hf-locks")
-    sig = f"{model_name}@{revision or 'main'}"
+    root = os.environ.get("HF_HOME")
+    if root is None or root == "":
+        root = os.environ.get("TRANSFORMERS_CACHE")
+    if root is None or root == "":
+        root = os.path.join(tempfile.gettempdir(), "mlframe-hf-locks")
+    sig = f"{model_name}@{'main' if revision is None or revision == '' else revision}"
     sig_hash = hashlib.blake2b(sig.encode("utf-8"), digest_size=12).hexdigest()
     lock_dir = os.path.join(root, ".mlframe-fhc-locks")
     try:

@@ -443,7 +443,8 @@ def calibrate_namespace_model(entry: Any, *, target_type: "TargetTypes | None" =
         from .configs import TargetTypes
         _ttype = target_type if target_type is not None else getattr(entry, "target_type", None)
         if isinstance(_ttype, str):
-            _ttype = getattr(TargetTypes, _ttype, None) or (TargetTypes.MULTILABEL_CLASSIFICATION if _cy.ndim == 2 else TargetTypes.MULTICLASS_CLASSIFICATION)
+            _resolved_ttype = getattr(TargetTypes, _ttype, None)
+            _ttype = _resolved_ttype if _resolved_ttype is not None else (TargetTypes.MULTILABEL_CLASSIFICATION if _cy.ndim == 2 else TargetTypes.MULTICLASS_CLASSIFICATION)
         if _ttype is None:
             _ttype = TargetTypes.MULTILABEL_CLASSIFICATION if _cy.ndim == 2 else TargetTypes.MULTICLASS_CLASSIFICATION
         calibrator = _PerClassIsotonicCalibrator.fit(_cp, _cy, _ttype, classes=getattr(base, "classes_", None))

@@ -38,4 +38,8 @@ __all__ = [
     "train_mlframe_ranker_suite",
     "rrf_fuse",
     "borda_fuse",
+    "prepare_cb_inputs",
+    "prepare_lgb_inputs",
+    "prepare_xgb_inputs",
+    "qid_to_group_sizes",
 ]

@@ -330,7 +330,9 @@ def compute_label_distribution_drift(
         for name, arr in (("train", train), ("val", val), ("test", test)):
             splits[name] = _regression_split_summary(arr) if arr is not None else None
         train_mean = splits["train"]["mean"]
-        train_std = splits["train"]["std"] or float("nan")
+        train_std = splits["train"]["std"]
+        if train_std is None or train_std == 0:
+            train_std = float("nan")
         for split_name in ("val", "test"):
             if splits.get(split_name) is None:
                 continue

@@ -253,7 +253,8 @@ def _slugify(s: str) -> str:
     """Cheap slugifier for safe path components (D11)."""
     if not s:
         return "unnamed"
-    return _SLUG_RE.sub("_", str(s)).strip("_") or "unnamed"
+    _slug = _SLUG_RE.sub("_", str(s)).strip("_")
+    return "unnamed" if _slug == "" else _slug
 
 
 def _is_finite_mask(y: np.ndarray) -> np.ndarray:
@@ -261,7 +262,7 @@ def _is_finite_mask(y: np.ndarray) -> np.ndarray:
     if y.dtype.kind in "fc":
         return np.asarray(np.isfinite(y))
     if y.dtype == object:
-        return np.array([v is not None and (not isinstance(v, float) or np.isfinite(v)) for v in y])
+        return np.array([v is not None and (bool(np.isfinite(v)) if isinstance(v, float) else True) for v in y])
     # int / bool / etc. -- always finite for our purposes
     return np.ones(len(y), dtype=bool)
 

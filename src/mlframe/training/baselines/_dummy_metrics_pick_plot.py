@@ -91,7 +91,7 @@ def _compute_metrics_table(
             else:
                 row["test_RMSE"] = float("nan")
                 row["test_MAE"] = float("nan")
-            row["failed"] = not (_isfinite(row["val_RMSE"]) or _isfinite(row["test_RMSE"]))
+            row["failed"] = not _isfinite(row["val_RMSE"]) and not _isfinite(row["test_RMSE"])
             rows.append(row)
 
     elif target_type in ("binary_classification", "multiclass_classification"):
@@ -104,7 +104,7 @@ def _compute_metrics_table(
             vp = val_preds.get(name)
             tp = test_preds.get(name)
             _compute_metrics_ta_split_name_val_val(val_y, vp, test_y, tp, labels, row, target_type)
-            row["failed"] = not (_isfinite(row.get("val_log_loss", float("nan"))) or _isfinite(row.get("test_log_loss", float("nan"))))
+            row["failed"] = not _isfinite(row.get("val_log_loss", float("nan"))) and not _isfinite(row.get("test_log_loss", float("nan")))
             rows.append(row)
 
     elif target_type == "multilabel_classification":
@@ -160,7 +160,7 @@ def _compute_metrics_table(
                 else:
                     row[f"{split_name}_log_loss_macro"] = float("nan")
                     row[f"{split_name}_log_loss_micro"] = float("nan")
-            row["failed"] = not (_isfinite(row["val_log_loss_macro"]) or _isfinite(row["test_log_loss_macro"]))
+            row["failed"] = not _isfinite(row["val_log_loss_macro"]) and not _isfinite(row["test_log_loss_macro"])
             rows.append(row)
 
     elif target_type == "learning_to_rank":
@@ -192,7 +192,7 @@ def _compute_metrics_table(
                         row[f"{split_name}_NDCG@{k}"] = float("nan")
                     row[f"{split_name}_MAP@10"] = float("nan")
                     row[f"{split_name}_MRR"] = float("nan")
-            row["failed"] = not (_isfinite(row.get("val_NDCG@10", float("nan"))) or _isfinite(row.get("test_NDCG@10", float("nan"))))
+            row["failed"] = not _isfinite(row.get("val_NDCG@10", float("nan"))) and not _isfinite(row.get("test_NDCG@10", float("nan")))
             rows.append(row)
 
     else:
@@ -226,7 +226,7 @@ def _compute_metrics_ta_name_baseline_names(baseline_names, val_preds, test_pred
                 for a in alphas:
                     row[f"{split_name}_pinball@{a:.3f}"] = float("nan")
                 row[f"{split_name}_pinball_mean"] = float("nan")
-        row["failed"] = not (_isfinite(row.get("val_pinball_mean", float("nan"))) or _isfinite(row.get("test_pinball_mean", float("nan"))))
+        row["failed"] = not _isfinite(row.get("val_pinball_mean", float("nan"))) and not _isfinite(row.get("test_pinball_mean", float("nan")))
         rows.append(row)
 
 

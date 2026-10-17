@@ -323,11 +323,9 @@ def prepare_df_for_xgboost(
     cat_features_l: list
     if cat_features is None:
         cat_features_l = []
-    elif not inplace:
-        # Work on a local copy of the names list so the caller's collection is never appended to.
-        cat_features_l = list(cat_features)
     else:
-        cat_features_l = cat_features  # type: ignore[assignment]  # inplace=True: legacy contract mutates the caller's own list
+        # inplace=True keeps the legacy contract (the caller's own list is appended to); otherwise work on a copy of the names list.
+        cat_features_l = cat_features if inplace else list(cat_features)  # type: ignore[assignment]
     casts: dict = {}
     for var in tqdmu(list(df.columns), desc="Processing categorical features for XGBoost...", leave=False):
         domain = (category_domains or {}).get(var)

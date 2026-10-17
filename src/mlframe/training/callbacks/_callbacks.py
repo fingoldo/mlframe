@@ -165,7 +165,7 @@ class UniversalCallback:
             # Route the widget's stop button through the SAME stop_flag the loop already polls every iteration,
             # rather than giving the widget its own path into the training loop.
             _user_stop = self.stop_flag
-            self.stop_flag = lambda: _user_stop() or self._widget.stop_requested()
+            self.stop_flag = lambda: bool(_user_stop() or self._widget.stop_requested())
 
         # Tracks whether the booster ran to (almost) its full iteration budget without our
         # ES ever firing. When True at finalize time, the val curve was still improving at
@@ -530,7 +530,7 @@ class LightGBMCallback(UniversalCallback):
 
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
-        self.monitor_dataset = self.monitor_dataset or "valid_0"
+        self.monitor_dataset = "valid_0" if self.monitor_dataset is None or self.monitor_dataset == "" else self.monitor_dataset
 
     def __call__(self, env: lgb.callback.CallbackEnv) -> None:
         if self.first_iteration:
@@ -567,7 +567,7 @@ class XGBoostCallback(UniversalCallback, TrainingCallback):
         if not _HAS_XGBOOST:
             import_optional("xgboost", "boosting", "XGBoostCallback")
         super().__init__(**kwargs)
-        self.monitor_dataset = self.monitor_dataset or "validation_0"
+        self.monitor_dataset = "validation_0" if self.monitor_dataset is None or self.monitor_dataset == "" else self.monitor_dataset
 
     def after_iteration(self, model: xgb.Booster, epoch: int, evals_log: dict[str, dict[str, list[float] | list[tuple[float, float]]]]) -> bool:
         """XGBoost's per-iteration hook: feed the latest eval values into history, auto-pick the monitor metric on first call, and stamp ``best_score``/``best_iteration`` on the model when signalling stop (XGBoost's own contract for retrieving the best round)."""
@@ -597,7 +597,7 @@ class CatBoostCallback(UniversalCallback):
 
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
-        self.monitor_dataset = self.monitor_dataset or "validation"
+        self.monitor_dataset = "validation" if self.monitor_dataset is None or self.monitor_dataset == "" else self.monitor_dataset
 
     def after_iteration(self, info: Any) -> bool:
         """CatBoost's per-iteration hook: feed the latest eval values into history, auto-pick the monitor metric on first call, and return whether to stop."""

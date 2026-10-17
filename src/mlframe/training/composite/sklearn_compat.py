@@ -146,7 +146,7 @@ def make_composite_regressor(
     # time (clear traceback) rather than deferring to the wrapper's fit deep
     # inside a Pipeline.
     transform = get_transform(transform_name)
-    has_base = bool(base_column) or bool(base_columns)
+    has_base = bool(base_column or base_columns)
     if transform.requires_base and not has_base:
         raise ValueError(
             f"make_composite_regressor: transform {transform_name!r} requires a base "

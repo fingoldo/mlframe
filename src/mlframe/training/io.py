@@ -148,7 +148,9 @@ def atomic_write_bytes(target_path: str, writer_fn: Callable[[Any], None], *, fs
         (recoverable), not "data corruption" (unrecoverable). Pass
         ``fsync=True`` explicitly when writing irreplaceable state.
     """
-    target_dir = os.path.dirname(target_path) or "."
+    target_dir = os.path.dirname(target_path)
+    if target_dir == "":
+        target_dir = "."
     # mkstemp on Windows is ~30x slower than direct os.open because Microsoft
     # Defender / file-system filter drivers intercept the O_EXCL probe + the
     # secure-name generation. Surfaced by the multi-model fuzz

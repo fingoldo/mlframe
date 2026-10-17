@@ -291,7 +291,7 @@ def _combine_probs(
                 _w.shape[0], len(all_probs), f" for target={target_label!r}" if target_label else "",
             )
     combined = _shared_combine_probs(
-        stacked, flavour or "arithm",
+        stacked, "arithm" if flavour is None or flavour == "" else flavour,
         rrf_k=int(rrf_k),
         ensure_prob_limits=_effective_ensure_prob_limits,
         precomputed_weights=_weights,
@@ -514,13 +514,13 @@ def _select_trained_members(
         logger.warning(
             "[predict] %s: %d of the %d member(s) training blended did not load (%s); blending the %d loaded model(s) "
             "unweighted instead, which is not the ensemble whose metrics were reported.",
-            target_label or "target", len(missing), len(members), missing[:5], len(probs_list),
+            "target" if target_label is None or target_label == "" else target_label, len(missing), len(members), missing[:5], len(probs_list),
         )
         return probs_list, (list(calib_flags) if calib_flags is not None else None), None
     order = [by_name[str(m)] for m in members]
     extra = [n for n in member_names if str(n) not in set(map(str, members))]
     if extra:
-        logger.info("[predict] %s: leaving out %d model(s) training's ensemble gates dropped: %s", target_label or "target", len(extra), extra[:5])
+        logger.info("[predict] %s: leaving out %d model(s) training's ensemble gates dropped: %s", "target" if target_label is None or target_label == "" else target_label, len(extra), extra[:5])
     flags = [calib_flags[i] for i in order] if calib_flags is not None else None
     return [probs_list[i] for i in order], flags, weights
 

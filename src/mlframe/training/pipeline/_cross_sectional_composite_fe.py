@@ -52,7 +52,8 @@ def apply_cross_sectional_composite_fe(
 
     _k = getattr(config, "cross_sectional_neighbors_k", None)
     k = 10 if _k is None else int(_k)
-    agg_stats = tuple(getattr(config, "cross_sectional_neighbors_agg_stats", None) or ("mean", "std"))
+    agg_stats = getattr(config, "cross_sectional_neighbors_agg_stats", None)
+    agg_stats = ("mean", "std") if agg_stats is None or len(agg_stats) == 0 else tuple(agg_stats)
 
     # effective_k is derived from TRAIN alone and shared across all splits (a per-split k would silently
     # give val/test a different neighbor radius than what the model was fit on) -- a split with too few
@@ -119,7 +120,8 @@ class _ReplayConfig:
         self.cross_sectional_neighbors_snapshot_col = metadata.get("cross_sectional_neighbors_snapshot_col")
         self.cross_sectional_neighbors_feature_cols = metadata.get("cross_sectional_neighbors_feature_cols") or []
         self.cross_sectional_neighbors_k = metadata.get("cross_sectional_neighbors_k", 10)
-        self.cross_sectional_neighbors_agg_stats = metadata.get("cross_sectional_neighbors_agg_stats") or ["mean", "std"]
+        _agg_stats = metadata.get("cross_sectional_neighbors_agg_stats")
+        self.cross_sectional_neighbors_agg_stats = ["mean", "std"] if _agg_stats is None or len(_agg_stats) == 0 else _agg_stats
 
 
 def replay_cross_sectional_composite_fe(df: Any, metadata: dict, verbose: int = 0) -> Any:

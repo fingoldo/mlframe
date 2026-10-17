@@ -142,7 +142,7 @@ def build_composite_wrapper(
         base_train=train_base_values(train_df, spec),
         group_column=(spec.get("group_column") or group_column) if transform.requires_groups else None,
         recurrence_continuation=bool(spec.get("recurrence_continuation", False)),
-        target_name=target_name or spec.get("target_col"),
+        target_name=spec.get("target_col") if target_name is None or target_name == "" else target_name,
         groups_train=_train_groups(train_df, (spec.get("group_column") or group_column) if transform.requires_groups else None),
     )
     wrapper.spec_digest_ = composite_spec_digest(spec)

@@ -322,7 +322,8 @@ def format_unified_target_verdict_table(
     composite_to_raw = composite_to_raw_target_map or {}
     grouped: dict[tuple[str, str], dict[str, Any]] = {}
     for (tt, tname), m in best_model_metrics_by_target.items():
-        raw_name = composite_to_raw.get((str(tt), str(tname))) or str(tname)
+        _mapped_name = composite_to_raw.get((str(tt), str(tname)))
+        raw_name = str(tname) if _mapped_name is None or _mapped_name == "" else _mapped_name
         slot = grouped.setdefault(
             (str(tt), raw_name),
             {"raw": None, "composites": []},
@@ -368,7 +369,7 @@ def format_unified_target_verdict_table(
             verdict_parts.append("TIE")
         if ct_val is not None and raw_val is not None and ct_val < raw_val * 0.95:
             verdict_parts.append("CT_ENSEMBLE_HELPS")
-        verdict = " ".join(verdict_parts) or "-"
+        verdict = " ".join(verdict_parts) if len(verdict_parts) > 0 else "-"
 
         lines.append(
             f"{raw_name[:24]:<24} "

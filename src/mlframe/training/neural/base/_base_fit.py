@@ -309,7 +309,7 @@ class _FitMixin(_FitCommonHelpersMixin, _FitPrepMixin):
             # per the standard Lightning Trainer contract. Caller is responsible for any
             # trusted-root validation upstream; this join is intentionally permissive and
             # matches Lightning's documented behaviour for default_root_dir.
-            _default_root = self.trainer_params.get("default_root_dir") or "logs"
+            _default_root = "logs" if self.trainer_params.get("default_root_dir") is None or self.trainer_params.get("default_root_dir") == "" else self.trainer_params.get("default_root_dir")
             _ckpt_root = os.path.join(_default_root, f"_run_{id(self)}_{int(_time.time())}")
         os.makedirs(_ckpt_root, exist_ok=True)
 

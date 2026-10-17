@@ -496,7 +496,7 @@ def _train_model_with_f_pandas_model_type_name(_is_pandas, model_type_name, fit_
 def _train_model_with_f_text_processing_via_cb(model_type_name, fit_params, _cb_pool, train_df, model):
     """Block of _train_model_with_fallback_unguarded starting at ``if model_type_name in CATBOOST_MODEL_TYPES:``."""
     if model_type_name in CATBOOST_MODEL_TYPES:
-        _has_text = bool(fit_params.get("text_features")) or (_cb_pool is not None and bool(getattr(_cb_pool, "_mlframe_text_features", None)))
+        _has_text = bool(fit_params.get("text_features") or (_cb_pool is not None and getattr(_cb_pool, "_mlframe_text_features", None)))
         if _has_text:
             # Head off the empty-bigram-dictionary abort. The recovery below only learns about it by FITTING,
             # so a production run paid a full 44.99s doomed fit on 2.4M rows before retrying with unigrams.

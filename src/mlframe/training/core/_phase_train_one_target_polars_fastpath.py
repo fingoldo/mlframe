@@ -159,7 +159,7 @@ def _prepare_strategy_inputs(
             if verbose:
                 logger.info(
                     "  feature-side cache hit for %s (strategy=%s, pp=%s): reusing prepared polars frames across targets",
-                    mlframe_model_name, type(strategy).__name__, pre_pipeline_name or "<ordinary>",
+                    mlframe_model_name, type(strategy).__name__, "<ordinary>" if pre_pipeline_name is None or pre_pipeline_name == "" else pre_pipeline_name,
                 )
         else:
             tier_base = {
@@ -182,17 +182,16 @@ def _prepare_strategy_inputs(
                         tier_polars.get("val_df"),
                         _cat_features,
                     )
+                    tier_enum_map_cache[_enum_cache_key] = _xgb_category_map
                 except Exception as _emb_exc:
                     logger.warning(
                         "build_polars_enum_map failed for %s; " "falling back to per-DF Enum cast: %s",
                         type(strategy).__name__,
                         _emb_exc,
                     )
-                    _xgb_category_map = None
-                tier_enum_map_cache[_enum_cache_key] = _xgb_category_map
+                    _xgb_category_map = None  # a failed build is not cached: a later target retries it
             else:
-                _xgb_category_map = None
-                tier_enum_map_cache[_enum_cache_key] = None
+                _xgb_category_map = None  # strategy has no enum-map builder: nothing to cache
 
             prepared_train = _prep_polars_df(tier_polars["train_df"], strategy, _cat_features, _xgb_category_map)
             prepared_val = _prep_polars_df(tier_polars.get("val_df"), strategy, _cat_features, _xgb_category_map)

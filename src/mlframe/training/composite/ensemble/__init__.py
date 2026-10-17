@@ -654,7 +654,7 @@ def _oof_holdout_predic_fold_train_idx_fold(_kf_split, train_X, y_train_full, co
                 if isinstance(inner, CompositeTargetEstimator):
                     if spec is None:
                         raise ValueError("composite component with no spec")
-                    base_full = base_train_full_per_spec.get(str(spec.get("name") or spec.get("base_column")))
+                    base_full = base_train_full_per_spec.get(str(spec.get("base_column") if spec.get("name") is None or spec.get("name") == "" else spec.get("name")))
                     if base_full is None:
                         raise ValueError(f"missing base column '{spec['base_column']}'")
                     base_stack = base_full[fold_train_idx]
@@ -889,7 +889,7 @@ def _oof_holdout_predic_model_name_spec_zip(component_models, component_names, c
                 # Composite-target wrapper. Re-fit the inner on stack_train T values, then re-wrap and predict.
                 if spec is None:
                     raise ValueError("composite component with no spec")
-                base_full = base_train_full_per_spec.get(str(spec.get("name") or spec.get("base_column")))
+                base_full = base_train_full_per_spec.get(str(spec.get("base_column") if spec.get("name") is None or spec.get("name") == "" else spec.get("name")))
                 if base_full is None:
                     raise ValueError(f"missing base column '{spec['base_column']}' for OOF")
                 base_stack = base_full[train_idx]

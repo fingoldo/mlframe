@@ -28,6 +28,8 @@ class _LossMixin(_LossBase):
     # so mypy can type-check this mixin's reads of them.
     loss_fn: Any
     metrics: Any
+    # Index of the batch currently inside training_step (set there); -1 before the first step.
+    _current_batch_idx: int = -1
     task_type: Any
     log: Any
 
@@ -143,7 +145,7 @@ class _LossMixin(_LossBase):
                     "subsequent warnings for this LightningModule. If "
                     "the entire fit has zero-weight batches the model "
                     "will not learn -- check the sample_weight pipeline.",
-                    getattr(self, "_current_batch_idx", -1),
+                    self._current_batch_idx,
                 )
                 self._warned_zero_weight_batch = True
         return weighted_loss

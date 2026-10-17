@@ -44,8 +44,8 @@ def infer_split_structure(
     ``grouped``. ``bucket_stratify`` without temporal/group structure is ``stratified``. The default
     (no structure) is ``iid`` -> plain split-conformal is valid.
     """
-    temporal = bool(time_column) or str(cv_strategy or "").lower() in ("timeseries", "purged")
-    grouped = bool(use_groups) or bool(wholeday_splitting)
+    temporal = bool(time_column or str(cv_strategy or "").lower() in ("timeseries", "purged"))
+    grouped = bool(use_groups or wholeday_splitting)
     if temporal and grouped:
         return "temporal_grouped"
     if temporal:

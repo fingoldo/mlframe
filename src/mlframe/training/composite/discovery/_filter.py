@@ -179,7 +179,7 @@ def _is_every_row(train_idx: Any, df: Any) -> bool:
     except TypeError as _exc:
         logger.debug("_is_every_row fell back to its default after %s", type(_exc).__name__)
         return False
-    return idx.ndim == 1 and idx.size == n and (n == 0 or (int(idx[0]) == 0 and int(idx[-1]) == n - 1 and np.array_equal(idx, np.arange(n))))
+    return idx.ndim == 1 and idx.size == n and bool(n == 0 or (int(idx[0]) == 0 and int(idx[-1]) == n - 1 and np.array_equal(idx, np.arange(n))))
 
 
 def _leak_corr_survivors(self, candidates, candidate_arrays, _y_leak, drops, corr_drops, block=None):

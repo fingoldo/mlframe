@@ -75,7 +75,7 @@ def rerank_backend(configured: Any) -> str:
     Threads are kept as an explicit choice: they share one process and start instantly, which is fine where the
     native libraries are stable under concurrency. The default is the mode that cannot take the kernel down.
     """
-    value = str(configured or "auto").strip().lower()
+    value = str("auto" if configured is None or configured == "" else configured).strip().lower()
     if value not in RERANK_BACKENDS:
         logger.warning("[CompositeTargetDiscovery] tiny_rerank_backend=%r is not one of %s; using processes.", configured, RERANK_BACKENDS)
         return "processes"

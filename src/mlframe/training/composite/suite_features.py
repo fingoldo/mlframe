@@ -208,6 +208,7 @@ class CompositeFeatureGenerator(TransformerMixin, BaseEstimator):
 
     def get_feature_names_out(self, input_features: Any = None) -> np.ndarray:
         """sklearn feature-name surface: the appended composite column name."""
-        name = getattr(self, "column_name_", None) or self._resolve_column_name()
+        _fitted_name = getattr(self, "column_name_", None)
+        name = self._resolve_column_name() if _fitted_name is None or _fitted_name == "" else _fitted_name
         base = list(input_features) if input_features is not None else []
         return np.asarray([*base, name], dtype=object)

@@ -416,7 +416,7 @@ def _run_target_distribution_analyzer(
             _td_report = analyze_target_distribution(
                 _y_train,
                 group_ids=_g_train,
-                target_type=_picked_type_name or "auto",  # type: ignore[arg-type]  # _picked_type_name only ever holds "regression"/"classification" by construction above
+                target_type="auto" if _picked_type_name is None or _picked_type_name == "" else _picked_type_name,  # type: ignore[arg-type]  # _picked_type_name only ever holds "regression"/"classification" by construction above
                 has_time_axis=_has_time,
             )
             if verbose:
@@ -424,8 +424,8 @@ def _run_target_distribution_analyzer(
                     "[mini-HPT] target_distribution_analyzer on %s target %r "
                     "(n=%d, time_axis=%s): pathologies=%s, knob_overrides=%s, diagnostics=%s",
                     _picked_type_name, _picked_target_name, _td_report.n_samples,
-                    _has_time, _td_report.pathologies or "(none)",
-                    _td_report.knob_overrides or "(none)",
+                    _has_time, "(none)" if _td_report.pathologies is None or len(_td_report.pathologies) == 0 else _td_report.pathologies,
+                    "(none)" if _td_report.knob_overrides is None or len(_td_report.knob_overrides) == 0 else _td_report.knob_overrides,
                     _td_report.diagnostics,
                 )
             metadata["target_distribution_report"] = {
@@ -474,16 +474,16 @@ def _run_target_distribution_analyzer(
                     _fd_report = analyze_feature_distribution(
                         train_df,
                         y=_y_train,
-                        target_type=_picked_type_name or "auto",  # type: ignore[arg-type]  # _picked_type_name only ever holds "regression"/"classification" by construction above
+                        target_type="auto" if _picked_type_name is None or _picked_type_name == "" else _picked_type_name,  # type: ignore[arg-type]  # _picked_type_name only ever holds "regression"/"classification" by construction above
                     )
                     if verbose:
                         logger.info(
                             "[mini-HPT] feature_distribution_analyzer (n_samples=%d, n_features=%d): "
                             "pathologies=%s, drop_candidates=%s, leakage_candidates=%s",
                             _fd_report.n_samples, _fd_report.n_features,
-                            _fd_report.pathologies or "(none)",
-                            _fd_report.drop_candidates or "(none)",
-                            _fd_report.leakage_candidates or "(none)",
+                            "(none)" if _fd_report.pathologies is None or len(_fd_report.pathologies) == 0 else _fd_report.pathologies,
+                            "(none)" if _fd_report.drop_candidates is None or len(_fd_report.drop_candidates) == 0 else _fd_report.drop_candidates,
+                            "(none)" if _fd_report.leakage_candidates is None or len(_fd_report.leakage_candidates) == 0 else _fd_report.leakage_candidates,
                         )
                     _flag_target_named_features(train_df, target_by_type, metadata)
                     metadata["feature_distribution_report"] = {

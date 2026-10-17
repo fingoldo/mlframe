@@ -121,6 +121,10 @@ def apply_missing_indicator_imputation(df: pd.DataFrame, fit_state: Dict[str, An
     """
     group_col = fit_state["group_col"]
     out = df.copy(deep=False)
+    if group_col is None:
+        needs_group = [c for c, i in fit_state["columns"].items() if i["kind"] not in ("explicit", "global")]
+        if needs_group:
+            raise ValueError(f"fit_state has group-kind columns {needs_group} but no group_col")
     for col, info in fit_state["columns"].items():
         if col not in out.columns:
             continue
@@ -133,7 +137,6 @@ def apply_missing_indicator_imputation(df: pd.DataFrame, fit_state: Dict[str, An
         if kind in ("explicit", "global"):
             out[col] = out[col].fillna(info["value"])
         else:  # "group"
-            assert group_col is not None
             group_fill = out[group_col].map(info["group_stat"]).fillna(info["global_fallback"])
             out[col] = out[col].fillna(group_fill)
 

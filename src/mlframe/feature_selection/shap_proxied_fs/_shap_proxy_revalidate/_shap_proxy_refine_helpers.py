@@ -104,14 +104,8 @@ def _collect_candidate_scores(candidates, per_candidate, ranked, member_cols, la
                            honest_loss=mean, honest_std=std, stable_score=mean + lambda_stab * std))
 
 
-def _within_cluster_ref_runs_after_stage_may(member_groups, current, min_multi_clusters, model_template, X_search, y_search, X_holdout, y_holdout, classification, metric, cache, cap, tid, disk_cache, parsimony_tol, protected, n_jobs, inner_n_jobs_cap, ucb_min_eval_size, ucb_enabled, max_drop_rounds, ucb_slack, ucb_stdev_multiplier):
-    """Block of within_cluster_refine starting at ``n_multi_eligible = 0``."""
-    current = _within_cluster_ref_multi_eligible(member_groups, current, min_multi_clusters, model_template, X_search, y_search, X_holdout, y_holdout, classification, metric, cache, cap, tid, disk_cache, parsimony_tol, protected, n_jobs, inner_n_jobs_cap, ucb_min_eval_size, ucb_enabled, max_drop_rounds, ucb_slack, ucb_stdev_multiplier)
-    return current
-
-
 def _within_cluster_ref_multi_eligible(member_groups, current, min_multi_clusters, model_template, X_search, y_search, X_holdout, y_holdout, classification, metric, cache, cap, tid, disk_cache, parsimony_tol, protected, n_jobs, inner_n_jobs_cap, ucb_min_eval_size, ucb_enabled, max_drop_rounds, ucb_slack, ucb_stdev_multiplier):
-    """Block of _within_cluster_ref_runs_after_stage_may starting at ``n_multi_eligible = 0``."""
+    """Block of within_cluster_refine starting at ``n_multi_eligible = 0``."""
     current, st = _within_cluster_ref_m_step1_st_simplenamespace_long(member_groups, current, min_multi_clusters, model_template, X_search, y_search, X_holdout, y_holdout, classification, metric, cache, cap, tid, disk_cache, parsimony_tol, protected, n_jobs, inner_n_jobs_cap)
     # ---- Stage 2a: ONE permutation-importance + batch-drop pass on the (possibly stage-1-collapsed)
     # working set. This is the iter11 perf win: a single ranking pass (1 fit + k cheap predicts)

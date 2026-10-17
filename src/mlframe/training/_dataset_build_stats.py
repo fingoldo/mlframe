@@ -58,7 +58,10 @@ def infer_build_callsite(skip_frames: int = 2) -> str:
             frame = frame.f_back
         if owner and nearest and owner != nearest:
             return f"{owner} <- {nearest}"
-        return owner or nearest or "?"
+        for _candidate in (owner, nearest):
+            if _candidate is not None and _candidate != "":
+                return _candidate
+        return "?"
     except Exception as exc:
         log_throttle(logger, "_dataset_build_stats.infer_build_callsite", logging.WARNING, "_infer_callsite: stack walk failed, call site unknown: %s", exc)
         return "?"

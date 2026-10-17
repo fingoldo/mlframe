@@ -751,7 +751,7 @@ def create_polarsds_pipeline(
 
     if verbose:
         bp_elapsed = timer() - t0_bp
-        logger.info("  Polars-ds pipeline created -- scaler=%s, encoding=%s, %.1fs", config.scaler_name or 'none', config.categorical_encoding or 'none', bp_elapsed)
+        logger.info("  Polars-ds pipeline created -- scaler=%s, encoding=%s, %.1fs", 'none' if config.scaler_name is None or config.scaler_name == '' else config.scaler_name, 'none' if config.categorical_encoding is None or config.categorical_encoding == '' else config.categorical_encoding, bp_elapsed)
         log_ram_usage()
 
     return pipeline

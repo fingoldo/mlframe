@@ -24,14 +24,7 @@ def _get_feature_importances(*args, **kwargs):
 logger = logging.getLogger(__name__)
 
 
-# E8 toggle: when True the Gaussian-knockoff builder raises ValueError instead
-# of just warning when lambda_min(Sigma) is below 1e-4 (degenerate near-singular
-# correlation matrix). Set via module-level globals().setdefault from the call
-# site that explicitly opted into knockoffs.
-_KNOCKOFFS_STRICT_LAM_MIN = False
-
-
-def make_gaussian_knockoffs(X: pd.DataFrame | np.ndarray, random_state: int | None = None, sdp_solve: bool = False) -> np.ndarray:
+def make_gaussian_knockoffs(X: pd.DataFrame | np.ndarray, random_state: int | None = None, sdp_solve: bool = False, strict_lam_min: bool = False) -> np.ndarray:
     """Generate model-X Gaussian knockoffs (Candes et al. 2018, "Panning for Gold").
 
     This is the model-X construction (X assumed ~ N(mu, Sigma)), NOT the fixed-design Barber-Candes 2015 procedure:
@@ -118,7 +111,7 @@ def make_gaussian_knockoffs(X: pd.DataFrame | np.ndarray, random_state: int | No
             "Reduce collinearity (drop duplicates / use feature_groups) "
             "or use stability_selection instead."
         )
-        if _KNOCKOFFS_STRICT_LAM_MIN:
+        if strict_lam_min:
             raise ValueError(_msg + " (strict_lam_min=True)")
         logger.warning(_msg)
     s_val = min(2.0 * lam_min, 1.0) * 0.99  # 0.99 buffer for numerical PSD

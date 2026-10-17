@@ -265,7 +265,7 @@ def _strategy_for_estimator(estimator: Any) -> ModelPipelineStrategy:
 def _slugify(name: str) -> str:
     """Slugify a user-provided model key to alnum + ``-`` + ``_`` only."""
     slug = _SLUG_PATTERN.sub("_", name).strip("_-")
-    return slug or "model"
+    return slug if slug != "" else "model"
 
 
 def _dedupe_key(key: str, used: set) -> str:

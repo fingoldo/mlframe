@@ -92,7 +92,9 @@ def _gather(estimator: Any, X: Any, y: Any) -> dict[str, Any]:
     section degrades gracefully rather than the whole report raising).
     """
     transform_name = getattr(estimator, "transform_name", "?")
-    target_col = getattr(estimator, "target_col", None) or "y"
+    target_col = getattr(estimator, "target_col", None)
+    if target_col is None or target_col == "":
+        target_col = "y"
     base_str = _resolve_base_str(estimator)
     params = dict(getattr(estimator, "fitted_params_", None) or {})
 
@@ -228,7 +230,7 @@ def _render_markdown(facts: dict[str, Any]) -> str:
     # Provenance / formula
     L.append("## Provenance")
     L.append("")
-    L.append(facts["description"] or "(no description)")
+    L.append("(no description)" if facts["description"] is None or facts["description"] == "" else facts["description"])
     L.append("")
     L.append(f"- **Forward**: `{facts['forward']}`")
     L.append(f"- **Inverse**: `{facts['inverse']}`")
@@ -386,7 +388,7 @@ def composite_report(
         attribution, conformal/CQR calibration (+ coverage when ``y`` given),
         and diagnostics (prediction range + fallback rate).
     """
-    fmt_l = (fmt or "markdown").lower()
+    fmt_l = ("markdown" if fmt is None or fmt == "" else fmt).lower()
     if fmt_l not in ("markdown", "md", "html"):
         raise ValueError(f"composite_report: fmt must be 'markdown' or 'html', got {fmt!r}")
     facts = _gather(estimator, X, y)

@@ -304,7 +304,7 @@ def _run_composite_targ_split_cfg_overrides_td(_td_knobs, split_config, group_id
             if _lag1_eff is None and group_ids is not None and filtered_train_idx is not None:
                 _lag1_eff = _recompute_lag1_ar_per_group(_y_arr, group_ids, filtered_train_idx)
                 _recomputed_lag1 = _lag1_eff is not None
-            _grp_active_eff = _group_aware_active or (group_ids is not None)
+            _grp_active_eff = bool(_group_aware_active or group_ids is not None)
             _is_picked_eff = (_td_report.get("picked_target_name") == _tname_disc) or _recomputed_lag1
             if _extreme_ar_discovery_skip(
                 skip_enabled=_extreme_ar_skip,
@@ -499,7 +499,7 @@ def _run_composite_targ_split_cfg_overrides_td(_td_knobs, split_config, group_id
                 logger.info(
                     "[CompositeTargetDiscovery] cache HIT for target='%s' " "(key=%s); skipping full discovery.",
                     _tname_disc,
-                    (_disc_cache_key or "?")[:16],
+                    ("?" if _disc_cache_key is None or _disc_cache_key == "" else _disc_cache_key)[:16],
                 )
                 # No specs_/_disc instance available on cache hit; the
                 # downstream forward-applier loop expects one. Reconstruct
@@ -520,7 +520,7 @@ def _run_composite_targ_split_cfg_overrides_td(_td_knobs, split_config, group_id
                         "[CompositeTargetDiscovery] cache replay spec rebuild "
                         "failed for target='%s' (key=%s): %s; clearing claimed "
                         "specs to avoid a no-column divergence.",
-                        _tname_disc, (_disc_cache_key or "?")[:16], _replay_err,
+                        _tname_disc, ("?" if _disc_cache_key is None or _disc_cache_key == "" else _disc_cache_key)[:16], _replay_err,
                     )
                     metadata["composite_target_specs"][str(_tt_disc)][_tname_disc] = []
                     _cached_specs = []

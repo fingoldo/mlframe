@@ -38,31 +38,29 @@ from mlframe.calibration.prediction_band_correction import find_prediction_band_
 # Only the eagerly-bound names above; ``quality``/``probabilities`` symbols are resolved lazily via
 # __getattr__ (see the module docstring) and are intentionally NOT enumerated here -- listing them would
 # require importing those heavy modules eagerly, defeating the whole point of the lazy resolution.
-__all__ = sorted(
-    [
-        "odds_ratio_combine",
-        "isotonic_overfit_risk",
-        "compute_oof_confidence",
-        "apply_confidence_shrinkage",
-        "optimize_decision_threshold",
-        "apply_decision_threshold",
-        "fit_group_bias_correction",
-        "apply_group_bias_correction",
-        "apply_smoothed_override",
-        "backtest_override",
-        "OverrideBacktestResult",
-        "ConfidenceBucket",
-        "fit_asymmetric_rescale",
-        "apply_asymmetric_rescale",
-        "cross_validate_asymmetric_rescale",
-        "apply_group_zero_sum_constraint",
-        "apply_group_zero_sum_constraint_multi",
-        "apply_sticky_state_persistence_floor",
-        "optimize_persistence_floor",
-        "find_prediction_band_shift",
-        "apply_prediction_band_correction",
-    ]
-)
+__all__ = [
+    "ConfidenceBucket",
+    "OverrideBacktestResult",
+    "apply_asymmetric_rescale",
+    "apply_confidence_shrinkage",
+    "apply_decision_threshold",
+    "apply_group_bias_correction",
+    "apply_group_zero_sum_constraint",
+    "apply_group_zero_sum_constraint_multi",
+    "apply_prediction_band_correction",
+    "apply_smoothed_override",
+    "apply_sticky_state_persistence_floor",
+    "backtest_override",
+    "compute_oof_confidence",
+    "cross_validate_asymmetric_rescale",
+    "find_prediction_band_shift",
+    "fit_asymmetric_rescale",
+    "fit_group_bias_correction",
+    "isotonic_overfit_risk",
+    "odds_ratio_combine",
+    "optimize_decision_threshold",
+    "optimize_persistence_floor",
+]
 
 
 def __getattr__(name: str) -> Any:

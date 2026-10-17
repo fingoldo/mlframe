@@ -84,7 +84,8 @@ class SliceEvalSet:
 
 def _sanitize_name_component(s: str) -> str:
     """Make a subgroup name safe to splice into ``valid_shard_f_<name>``."""
-    return _SLICE_NAME_SANITISE_RE.sub("_", str(s)).strip("_") or "_"
+    sanitised = _SLICE_NAME_SANITISE_RE.sub("_", str(s)).strip("_")
+    return sanitised if sanitised != "" else "_"
 
 
 def _is_polars_df(obj: Any) -> bool:

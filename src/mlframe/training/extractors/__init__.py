@@ -40,13 +40,14 @@ from ._extractors_base import (  # re-exported from the facade
 from ._extractors_simple import SimpleFeaturesAndTargetsExtractor
 
 __all__ = [
-    # Helper functions
     "get_dataframe_info",
     "intize_targets",
     "get_sample_weights_by_recency",
     "showcase_features_and_targets",
-    # Classes
     "FeaturesAndTargetsExtractor",
     "SimpleFeaturesAndTargetsExtractor",
     "FeaturesAndTargetsExtractorProtocol",
+    "np",
+    "pd",
+    "pl",
 ]

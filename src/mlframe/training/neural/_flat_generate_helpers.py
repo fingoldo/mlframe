@@ -299,7 +299,7 @@ def _generate_mlp_every_fit_bench_profiling(model):
                     _std = float(torch.std(_W, unbiased=False).item())
                     if _std < _worst_std:
                         _worst_std = _std
-                        _worst_layer_name = _name or f"Linear({_W.shape[1]}->{_W.shape[0]})"
+                        _worst_layer_name = _name if _name is not None and _name != "" else f"Linear({_W.shape[1]}->{_W.shape[0]})"
         # Threshold: 1e-8 catches zeros_ (std=0) and constant_ (std=0)
         # without false-positives on legitimate kaiming/xavier inits whose
         # std is typically 0.01-0.2 depending on fan_in / fan_out.

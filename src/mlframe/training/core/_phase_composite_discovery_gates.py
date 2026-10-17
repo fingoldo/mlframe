@@ -129,7 +129,7 @@ def _drop_specs_whose_bases_the_suite_cannot_materialise(disc, split_frames, tar
         _missing = [_c for _c in _needed if _c and _c not in available and parse_synthetic(_c, available) is None]
         if _missing:
             dropped.append({
-                "name": getattr(_spec, "name", None) or getattr(_spec, "transform_name", "?"),
+                "name": getattr(_spec, "name", None) if getattr(_spec, "name", None) not in (None, "") else getattr(_spec, "transform_name", "?"),
                 "kept": False,
                 "rejected": True,
                 "reason": f"base column(s) {_missing} exist only in discovery's own frame, so the suite cannot build this target",

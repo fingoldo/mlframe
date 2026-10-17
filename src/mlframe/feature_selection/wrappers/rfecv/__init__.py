@@ -190,6 +190,9 @@ class RFECV(RFECVStateCompatMixin, TransformerMixin, BaseEstimator):
     # RFECV rejects duplicate input column names at fit entry (_fit_init guard); the CorrelatedFeaturesSelector wrapper reads this flag to surface that rejection when RFECV is the inner selector (the inner only sees the deduped cluster medoids, so the wrapper must guard on its behalf).
     rejects_duplicate_feature_names = True
 
+    # Opt-in flag a caller sets on the instance when RFECV owns the polars frame, allowing the zero-copy self_destruct Arrow bridge.
+    _rfecv_owns_polars_frame_ = False
+
     def __init__(
         self,
         estimator: Union[BaseEstimator, None] = None,
@@ -853,7 +856,7 @@ class RFECV(RFECVStateCompatMixin, TransformerMixin, BaseEstimator):
             # columns zero-copy through the Arrow split-blocks bridge instead of densifying into a single block on transform.
             # self_destruct=True releases the polars buffers in-place -- safe only when RFECV owns the frame; gate on the SAME
             # ownership marker _fit_init.py uses, so an ad-hoc/notebook caller's own polars frame isn't silently destroyed here.
-            _frame_is_internally_owned = bool(getattr(X, "_mlframe_owned_frame_", False) or getattr(self, "_rfecv_owns_polars_frame_", False))
+            _frame_is_internally_owned = bool(getattr(X, "_mlframe_owned_frame_", False) or self._rfecv_owns_polars_frame_)
             try:
                 X = X.to_pandas(use_pyarrow_extension_array=True, split_blocks=True, self_destruct=_frame_is_internally_owned)
             except TypeError:

@@ -357,8 +357,7 @@ def _compute_oof_preds_timeseries(
     try:
         for tr_idx, te_idx in tss.split(np.arange(n_rows)):
             est = _clone(estimator)
-            if _threads_weight:
-                assert sw_arr is not None  # _threads_weight is only True when sw_arr is not None (see its definition above)
+            if sw_arr is not None and _threads_weight:
                 est.fit(_row(train_df, tr_idx), y_arr[tr_idx], sample_weight=sw_arr[tr_idx])
             else:
                 est.fit(_row(train_df, tr_idx), y_arr[tr_idx])

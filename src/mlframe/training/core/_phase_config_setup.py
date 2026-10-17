@@ -415,8 +415,8 @@ def setup_configuration(
                 "  CatBoost Pool.%s not available in this build (%s present) -- mlframe will rebuild the Pool "
                 "for every weight schema and same-type target instead of swapping in place. Upgrade CatBoost to "
                 "pick up the Pool label-swap PR.",
-                "/".join(_missing) or "label-swap support",
-                "/".join(_n for _n in ("set_label", "set_weight") if _n not in _missing) or "neither",
+                "/".join(_missing) if len(_missing) > 0 else "label-swap support",
+                "/".join(_n for _n in ("set_label", "set_weight") if _n not in _missing) if any(_n not in _missing for _n in ("set_label", "set_weight")) else "neither",
             )
 
         _clear_catboost_pool_caches()

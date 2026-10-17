@@ -221,7 +221,7 @@ def _build_ransac_regressor(config: LinearModelConfig) -> BaseEstimator:
         # per RANSAC trial" - a standard textbook default that scales with
         # dataset size and avoids the singular-fit failure mode of very small
         # min_samples on high-dimensional feature spaces.
-        min_samples=getattr(config, "ransac_min_samples", 0.5),
+        min_samples=config.ransac_min_samples,
         max_trials=config.max_trials,
         residual_threshold=config.residual_threshold,
         random_state=config.random_state,

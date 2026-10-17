@@ -366,8 +366,7 @@ def knn_aggregate(
 
     # Fill non-finite-query rows with NaN.
     if not q_finite.all():
-        for k_, v in out_aggs.items():
-            out_aggs[k_] = np.where(q_finite, v, np.nan)
+        out_aggs = {k_: np.where(q_finite, v, np.nan) for k_, v in out_aggs.items()}
     return out_aggs
 
 

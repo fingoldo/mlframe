@@ -870,7 +870,7 @@ def _phase_fit_pipeline_polars_native_fastpath_mrmr(
 def _phase_fit_pipeline_verbose(verbose, train_df, cat_features, was_polars_input, cat_features_polars, t0_phase3):
     """Block of _phase_fit_pipeline starting at ``if verbose:``."""
     if verbose:
-        logger.info("  Pipeline done -- train: %s, cat_features: %s", _df_shape_str(train_df), cat_features or "(none)")
+        logger.info("  Pipeline done -- train: %s, cat_features: %s", _df_shape_str(train_df), "(none)" if cat_features is None or len(cat_features) == 0 else cat_features)
         if was_polars_input and cat_features_polars and list(cat_features_polars) != list(cat_features or []):
             logger.info("  Pre-pipeline Polars cat_features: %s", cat_features_polars)
         logger.info("  PHASE 3 total: %s", _elapsed_str(t0_phase3))

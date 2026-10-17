@@ -254,10 +254,10 @@ def _tiny_model_rerank(
     raw_baseline: float = float("nan")
     raw_per_seed_per_family: dict[str, np.ndarray] = {}
     # One fold scheme for raw-y and every spec (per-spec schemes made the threshold and Wilcoxon compare different fold RMSEs).
-    _early_any_base_monotone = bool(getattr(self, "_screen_time_ordered_", False)) or (
+    _early_any_base_monotone = bool(getattr(self, "_screen_time_ordered_", False) or (
         _groups_screen is None
         and any(_is_monotone_nondecreasing(_base_arr) for spec in kept_specs if (_base_arr := _per_base_cache.base_screen(spec.base_column)) is not None)
-    )
+    ))
     if _require_raw_baseline:
         x_full = _x_full
         n_seed_repeats_raw = max(1, int(getattr(

@@ -901,7 +901,8 @@ def describe_importance_kind(model: Any, importances_std: Any = None) -> str:
     if name.startswith("LGBM"):
         return f"Importance: LightGBM {getattr(inner, 'importance_type', 'split')} ({'number of splits using the feature' if getattr(inner, 'importance_type', 'split') == 'split' else 'total loss reduction'})"
     if name.startswith("XGB"):
-        return f"Importance: XGBoost {getattr(inner, 'importance_type', None) or 'gain'}"
+        _importance_type = getattr(inner, "importance_type", None)
+        return f"Importance: XGBoost {'gain' if _importance_type is None or _importance_type == '' else _importance_type}"
     if hasattr(inner, "feature_importances_"):
         return "Importance: impurity decrease (model's feature_importances_)"
     if hasattr(inner, "coef_"):

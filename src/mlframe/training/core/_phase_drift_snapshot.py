@@ -124,7 +124,8 @@ def _log_cardinality_and_drift_snapshot(
 
             if drift_rows:
                 drift_rows.sort(key=lambda x: -x[2])
-                drift_summary = ", ".join(f"{c}:val_only={v},test_only={t}" for c, _, v, t in drift_rows if v > 0 or t > 0) or "(none)"
+                _drift_parts = [f"{c}:val_only={v},test_only={t}" for c, _, v, t in drift_rows if v > 0 or t > 0]
+                drift_summary = ", ".join(_drift_parts) if len(_drift_parts) > 0 else "(none)"
                 logger.info("  Category drift (val/test values missing from train): %s", drift_summary)
 
                 # Test-side drift is reported above but NOT used in healing decisions

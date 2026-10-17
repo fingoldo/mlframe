@@ -421,7 +421,7 @@ def _auto_detect_featur_verbose_text_features_embedding(verbose, text_features, 
         logger.info(
             "  Auto-detected feature types -- text: %s, embedding: %s",
             _fmt_with_cardinality(text_features) if text_features else "(none)",
-            embedding_features or "(none)",
+            "(none)" if embedding_features is None or len(embedding_features) == 0 else embedding_features,
         )
 
 

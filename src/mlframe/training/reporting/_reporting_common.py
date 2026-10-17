@@ -43,7 +43,7 @@ def _reporting_field_default(field_name: str):
         try:
             from ..configs import ReportingConfig
 
-            cache[field_name] = ReportingConfig.model_fields[field_name].default
+            default = ReportingConfig.model_fields[field_name].default
         except (ImportError, KeyError) as e:
             # Narrowed from a bare `except Exception` (which also silently absorbed e.g. an AttributeError
             # from a pydantic version bump changing model_fields' shape) to the two genuine "config
@@ -51,8 +51,9 @@ def _reporting_field_default(field_name: str):
             # bug is at least discoverable -- the result is memoized, so an unnoticed failure previously
             # disabled panel_emphasis="data_aware"'s default-detection for the rest of the process with
             # zero trace in the logs.
-            logger.debug("_reporting_field_default(%r): config unavailable (%s); caching None.", field_name, e)
-            cache[field_name] = None
+            logger.debug("_reporting_field_default(%r): config unavailable (%s); not cached, retried on the next call.", field_name, e)
+            return None
+        cache[field_name] = default
     return cache[field_name]
 
 
@@ -297,7 +298,8 @@ def _account_panel_render(metrics: Any, target_type: Any, rendered_tag: Any, pan
     if not isinstance(metrics, dict):
         return
     charts = metrics.setdefault("charts", {"saved": [], "failed": []})
-    which = ("binary" if (target_type or "").lower() == "binary_classification" else (target_type or "").lower()) or "panels"
+    _target_type_lc = (target_type or "").lower()
+    which = "binary" if _target_type_lc == "binary_classification" else (_target_type_lc if _target_type_lc != "" else "panels")
     if rendered_tag:
         charts["saved"].append(f"{rendered_tag}_panels")
         charts.setdefault("paths", []).append(f"{plot_file}_{rendered_tag}_panels")
@@ -353,4 +355,4 @@ def _slugify_class(name: str) -> str:
         slug = ""
     if not slug:
         slug = "".join(ch if ch.isalnum() else "-" for ch in name).strip("-")
-    return slug or "class"
+    return slug if slug != "" else "class"

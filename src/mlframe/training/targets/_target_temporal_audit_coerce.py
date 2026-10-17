@@ -119,7 +119,7 @@ def coerce_timestamps_for_audit(
         return np.asarray(_dti.to_numpy().astype("datetime64[ns]"))
 
     if arr.size == 0:
-        return _to_ns(pd.to_datetime(arr, unit=explicit_unit or "ns"))
+        return _to_ns(pd.to_datetime(arr, unit="ns" if explicit_unit is None or explicit_unit == "" else explicit_unit))
 
     if explicit_unit is not None:
         if explicit_unit not in _AUDIT_UNIT_NS_FACTOR:

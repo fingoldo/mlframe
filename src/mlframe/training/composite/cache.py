@@ -337,7 +337,8 @@ def compute_config_signature_v1(
         elif hasattr(config, "dict"):
             payload["config"] = config.dict()
         else:
-            payload["config"] = {str(k): str(v) for k, v in sorted(getattr(config, "__dict__", {}).items())} or repr(config)
+            _config_attrs = {str(k): str(v) for k, v in sorted(getattr(config, "__dict__", {}).items())}
+            payload["config"] = repr(config) if len(_config_attrs) == 0 else _config_attrs
     except Exception as _e:
         logger.warning("config serialization failed, falling back to repr(): %s", _e)
         payload["config_repr"] = repr(config)

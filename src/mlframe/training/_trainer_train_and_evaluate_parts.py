@@ -241,9 +241,9 @@ def _train_and_evaluate_val_df_none(val_df, val_target, control, model_category,
                             "slice_aggregate_quantile_level": float(getattr(_slice_cfg, "quantile_level", 0.9)),
                             "slice_correlation_inflation": float(getattr(_slice_cfg, "correlation_inflation", 1.5)),
                             "slice_min_delta_in_se": getattr(_slice_cfg, "min_delta_in_se", None),
-                            "slice_persist_history": bool(getattr(_slice_cfg, "pareto_plot_enabled", True))
-                                                     or bool(getattr(_slice_cfg, "pareto_best_iter_selection", False))
-                                                     or bool(getattr(_slice_cfg, "pareto_persist_shard_history", False)),
+                            "slice_persist_history": bool(getattr(_slice_cfg, "pareto_plot_enabled", True)
+                                                      or getattr(_slice_cfg, "pareto_best_iter_selection", False)
+                                                      or getattr(_slice_cfg, "pareto_persist_shard_history", False)),
                             "slice_diagnostic_only": _slice_diag_only,
                         })
                         # Strip native ES rounds only when the slice callback OWNS the stop

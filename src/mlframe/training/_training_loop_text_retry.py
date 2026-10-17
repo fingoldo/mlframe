@@ -60,12 +60,13 @@ def retry_params_after_empty_text_dictionary(model: Any, train_df: Any, train_ta
             _bad = {c: "probe unavailable" for c in text_feat}
         _keep = [c for c in text_feat if c not in _bad]
         if _bad:
+            _bad_desc = "; ".join(f"{c} ({r})" for c, r in _bad.items())
             logger.warning(
                 "CatBoost raised 'Dictionary size is 0'. Probing each text feature individually against the "
                 "installed CatBoost identified %d unusable of %d: %s. Retrying with the remaining %d text "
                 "feature(s) %s instead of dropping them all.",
-                len(_bad), len(text_feat), "; ".join(f"{c} ({r})" for c, r in _bad.items()) or "(none)",
-                len(_keep), _keep or "(none)",
+                len(_bad), len(text_feat), "(none)" if _bad_desc == "" else _bad_desc,
+                len(_keep), "(none)" if len(_keep) == 0 else _keep,
             )
             # A dropped text column is rerouted to cat_features so CB's categorical handling still sees it;
             # left out entirely, CB tries to cast its strings to float and raises "Cannot convert 'X' to float".

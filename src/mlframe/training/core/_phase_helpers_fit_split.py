@@ -794,7 +794,7 @@ def _phase_auto_detect_feature_types(
                 logger.info("  Cast Polars string columns -> Enum once (shared across model loop)")
 
     if verbose and (text_features or embedding_features):
-        logger.info("  Feature types -- text: %s, embedding: %s, cat: %s", text_features, embedding_features, cat_features or "(none)")
+        logger.info("  Feature types -- text: %s, embedding: %s, cat: %s", text_features, embedding_features, "(none)" if cat_features is None or len(cat_features) == 0 else cat_features)
 
     return (
         train_df,

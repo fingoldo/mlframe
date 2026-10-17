@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import logging
 import math
-from typing import TYPE_CHECKING, Any, Sequence
+from typing import TYPE_CHECKING, Any, Optional, Sequence
 
 import numpy as np
 
@@ -53,6 +53,7 @@ def _auto_base(
     usable_features: Sequence[str],
     y_train: np.ndarray,
     train_idx: np.ndarray,
+    top_k_override: Optional[int] = None,
 ) -> list[str]:
     """Rank candidates by per-feature MI with y on the screening
     sample, take the top-K.
@@ -105,7 +106,7 @@ def _auto_base(
             len(hint_dropped),
             hint_dropped[:5],
         )
-    top_k = self.config.auto_base_top_k
+    top_k = self.config.auto_base_top_k if top_k_override is None else int(top_k_override)
     # Adaptive hint cap. Previous fixed cap of
     # ``max(1, top_k // 2)`` was too aggressive when BD ablation
     # confidently identified the dominant base (e.g. delta% > 100%
@@ -241,7 +242,7 @@ def _auto_base(
                 "to feature-list order.", int(finite.sum()),
             )
             # Keep hint features at the front: BD ablation is the one signal not derived from the broken screening sample, and a hint may not fall within the first top_k of the arbitrary column order.
-            return (hint_kept + [c for c in usable_features if c not in hint_kept])[: self.config.auto_base_top_k]
+            return (hint_kept + [c for c in usable_features if c not in hint_kept])[:top_k]
     # Per-feature MI honours config.mi_estimator: bin-based when
     # the screening pipeline opted for the fast estimator. Hoist the
     # y-binning out of the per-feature loop -- y is fixed across all

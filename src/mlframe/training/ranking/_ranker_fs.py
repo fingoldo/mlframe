@@ -359,7 +359,9 @@ def group_aware_relevance(cols: list, arr: np.ndarray, y: np.ndarray, groups: np
     stops = np.concatenate((boundaries, [gs.size]))
     sizes = (stops - starts).astype(np.float64)
     # Normalise by the sum of CONTRIBUTING (size>=4) group sizes, not all rows: tiny queries are skipped in the accumulation, so dividing by total rows shrinks the size-weighted average toward 0 by the fraction of rows living in those skipped tiny queries -- a systematic downward relevance bias.
-    contributing_total = float(sizes[sizes >= 4].sum()) or 1.0
+    contributing_total = float(sizes[sizes >= 4].sum())
+    if contributing_total == 0.0:
+        contributing_total = 1.0
     probs = np.linspace(0, 1, bins + 1)
     arr_c = np.ascontiguousarray(arr_s, dtype=np.float64)
     y_c = np.ascontiguousarray(y_s, dtype=np.float64)

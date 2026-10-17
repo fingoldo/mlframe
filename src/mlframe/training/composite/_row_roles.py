@@ -36,7 +36,7 @@ _FORCED = False
 
 def ledger_enabled() -> bool:
     """True when a test forced it on or ``MLFRAME_ROW_ROLE_LEDGER=1``."""
-    return _FORCED or env_flag("MLFRAME_ROW_ROLE_LEDGER")
+    return bool(_FORCED or env_flag("MLFRAME_ROW_ROLE_LEDGER"))
 
 
 def note_rows(row_set: str, role: str, consumer: str, rows: Any = None) -> None:

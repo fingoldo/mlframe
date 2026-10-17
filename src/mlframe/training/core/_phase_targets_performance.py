@@ -108,4 +108,4 @@ def targets_performance_file(plot_file: Optional[str], ctx: Any, model_name: Any
 
     from pyutilz.strings import slugify
 
-    return os.path.join(str(data_dir), slugify(str(model_name or "suite")))
+    return os.path.join(str(data_dir), slugify(str("suite" if model_name is None or model_name == "" else model_name)))

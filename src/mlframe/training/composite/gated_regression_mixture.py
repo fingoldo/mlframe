@@ -144,7 +144,7 @@ class GatedRegressionMixture(RegressorMixin, BaseEstimator):
         """
         y_arr = np.asarray(y, dtype=np.float64)
         label_arr = np.asarray(subpop_label)
-        weights = self.branch_sample_weight or {_LOW: 1.0, _HIGH: 1.0}
+        weights = {_LOW: 1.0, _HIGH: 1.0} if self.branch_sample_weight is None or len(self.branch_sample_weight) == 0 else self.branch_sample_weight
         w_arr = np.asarray(sample_weight, dtype=np.float64) if sample_weight is not None else None
 
         # composite_oof_predictions calls .predict(), a poor proxy for a probability (a classifier's hard-

@@ -24,7 +24,6 @@ from ._shap_proxy_refine_helpers import (  # noqa: F401  -- carved helpers
     _plan_ucb_batch_sizes,
     _cap_best_unit_members,
     _collect_candidate_scores,
-    _within_cluster_ref_runs_after_stage_may,
     _within_cluster_ref_multi_eligible,
     _within_cluster_ref_runs_after_stage_may_2,
     _within_cluster_ref_li_ls_zip_batch,
@@ -602,7 +601,7 @@ def within_cluster_refine(
     # singletons (the cluster-collapse low-redundancy fast path). When Stage 1 WILL fire we keep
     # the eager base fit because its threshold gates the Stage 1 probes - the perm-importance pass
     # runs AFTER Stage 1 may have shrunk ``current``, so its rank_base would be on the wrong set.
-    current = _within_cluster_ref_runs_after_stage_may(member_groups, current, min_multi_clusters, model_template, X_search, y_search, X_holdout, y_holdout, classification, metric, cache, cap, tid, disk_cache, parsimony_tol, protected, n_jobs, inner_n_jobs_cap, ucb_min_eval_size, ucb_enabled, max_drop_rounds, ucb_slack, ucb_stdev_multiplier)
+    current = _within_cluster_ref_multi_eligible(member_groups, current, min_multi_clusters, model_template, X_search, y_search, X_holdout, y_holdout, classification, metric, cache, cap, tid, disk_cache, parsimony_tol, protected, n_jobs, inner_n_jobs_cap, ucb_min_eval_size, ucb_enabled, max_drop_rounds, ucb_slack, ucb_stdev_multiplier)
     return list(current)
 
 

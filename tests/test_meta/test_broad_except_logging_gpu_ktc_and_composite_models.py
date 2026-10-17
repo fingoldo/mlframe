@@ -334,7 +334,7 @@ def test_composite_hpo_default_inner_spaces_logs_on_get_params_failure(caplog):
 
     with caplog.at_level(logging.DEBUG, logger="mlframe.training.composite.hpo"):
         out = _default_inner_spaces(_NoGetParams())
-    assert out == {}
+    assert out is None
     assert any("get_params() failed" in rec.message for rec in caplog.records)
 
 

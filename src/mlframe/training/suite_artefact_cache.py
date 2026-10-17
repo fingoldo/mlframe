@@ -173,7 +173,7 @@ class SuiteArtefactCache:
         bytes_limit: int = DEFAULT_BYTES_LIMIT,
         max_entries: Optional[int] = None,
     ) -> None:
-        self.cache_dir = cache_dir or _default_cache_dir()
+        self.cache_dir = cache_dir if cache_dir is not None and cache_dir != "" else _default_cache_dir()
         self.bytes_limit = int(bytes_limit)
         self.max_entries = max_entries
         self._lock = threading.Lock()

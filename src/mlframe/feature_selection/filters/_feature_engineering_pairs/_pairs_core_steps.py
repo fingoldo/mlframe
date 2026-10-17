@@ -139,8 +139,7 @@ def _check_prospective_fe_step1_def_extval_raw(_extval_raw_col_cache, original_c
                         _var,
                         _raw_dtype,
                     )
-                    _extval_raw_col_cache[_var] = None
-                    return None
+                    return None  # not cached: the dtype check is cheap and a skip is not a resolved column value
                 _vals = _densify_nullable(X.iloc[:, original_cols[_var]].values)
             else:
                 _vals = X[:, original_cols[_var]].to_numpy()

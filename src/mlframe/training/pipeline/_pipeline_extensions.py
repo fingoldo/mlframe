@@ -47,7 +47,7 @@ def sparse_df_from_spmatrix(spmat: Any, columns: Any, index: Any) -> pd.DataFram
     preserved. On pandas 2.x where the fill is already ``0`` this is a no-op.
     """
     df = pd.DataFrame.sparse.from_spmatrix(spmat, columns=columns, index=index)
-    _needs_zero_fill = any(isinstance(_dt, pd.SparseDtype) and (pd.isna(_dt.fill_value) or _dt.fill_value != 0) for _dt in df.dtypes)
+    _needs_zero_fill = any(isinstance(_dt, pd.SparseDtype) and bool(pd.isna(_dt.fill_value) or _dt.fill_value != 0) for _dt in df.dtypes)
     if not _needs_zero_fill:
         return df
     from pandas.arrays import SparseArray

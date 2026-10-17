@@ -172,7 +172,9 @@ def _detect_max_iter(model_category: str, model_obj: Any) -> int | None:
         logger.debug("get_params() failed for %s, treating as empty: %s", type(model_obj).__name__, e)
         params = {}
     if model_category == "cb":
-        return params.get("iterations") or params.get("n_estimators")
+        _iterations = params.get("iterations")
+        # None or 0 iterations both mean "not configured", so fall back to the sklearn-style alias.
+        return params.get("n_estimators") if _iterations is None or _iterations == 0 else _iterations
     if model_category in {"lgb", "xgb"}:
         return params.get("n_estimators")
     return None

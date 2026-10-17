@@ -73,7 +73,7 @@ def _compute_oof_with_external_holdout(
                 if spec is None:
                     raise ValueError("composite component with no spec")
                 base_full = base_train_full_per_spec.get(
-                    str(spec.get("name") or spec.get("base_column")),
+                    str(spec.get("base_column") if spec.get("name") is None or spec.get("name") == "" else spec.get("name")),
                 )
                 if base_full is None:
                     raise ValueError(f"missing base column '{spec['base_column']}' " "for external-holdout OOF (train side)")

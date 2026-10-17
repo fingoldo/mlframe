@@ -32,6 +32,9 @@ logger = logging.getLogger(__name__)
 class ShapProxiedFitMixin(ShapProxiedFitStepsMixin):
     """Search-dispatch + fit pipeline for :class:`ShapProxiedFS` (see module docstring)."""
 
+    # Benchmarks assign a dict here before fit() to collect per-stage seconds; None disables the instrumentation.
+    _stage_timings: Optional[dict] = None
+
     def _run_search(self, optimizer, phi, base, y):
         """Dispatch to the chosen optimizer; returns list of (proxy_loss, feature_idx tuple)."""
         from mlframe.feature_selection.shap_proxied_fs._shap_proxied_fit_search import run_search
@@ -50,7 +53,7 @@ class ShapProxiedFitMixin(ShapProxiedFitStepsMixin):
 
         # Optional per-stage wall-clock instrumentation for the scaling benchmark / profiling. Set ``self._stage_timings`` to a dict before calling fit and each
         # stage's seconds land in it; a no-op otherwise (zero overhead beyond a dict lookup), so production fits are unaffected.
-        _timings = getattr(self, "_stage_timings", None)
+        _timings = self._stage_timings
 
         @contextmanager
         def _stage(name):

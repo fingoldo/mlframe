@@ -106,6 +106,7 @@ class LinearModelConfig(ModelConfig):
     # Robust regression parameters
     epsilon: float = 1.35
     max_trials: int = Field(default=100, ge=1)
+    ransac_min_samples: float = Field(default=0.5, gt=0.0)
     residual_threshold: Optional[float] = None
 
     # SGD parameters

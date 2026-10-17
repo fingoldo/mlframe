@@ -239,18 +239,19 @@ def _iloc_rows(X: Any, idx: np.ndarray) -> Any:
     return X[idx]
 
 
-def _default_inner_spaces(inner: Any) -> Dict[str, HPOSpace]:
+def _default_inner_spaces(inner: Any) -> Optional[Dict[str, HPOSpace]]:
     """Best-effort default search space for a tree/boosting inner estimator.
 
     Probes the estimator's params for the common depth / n_estimators /
     learning_rate / regularisation knobs and builds a small space for the ones
     it exposes. Callers wanting full control pass ``inner_spaces`` explicitly.
+    Returns None when the estimator's params cannot be probed (distinct from an empty space).
     """
     try:
         params = inner.get_params()
     except Exception as exc:  # pragma: no cover - non-sklearn inner
         logger.debug("_default_inner_spaces: get_params() failed, no default space built: %s", exc)
-        return {}
+        return None
     spaces: Dict[str, HPOSpace] = {}
     if "max_depth" in params:
         spaces["max_depth"] = HPOSpace("int", low=1, high=8)
@@ -519,7 +520,8 @@ def optimize_composite(
     scorer = scorer or _rmse
 
     if inner_spaces is None:
-        inner_spaces = _default_inner_spaces(inner_factory())
+        _probed_spaces = _default_inner_spaces(inner_factory())
+        inner_spaces = {} if _probed_spaces is None else _probed_spaces
 
     splits = _resolve_splits(X, n_rows, cv, None if time_ordering is None else np.asarray(time_ordering))
 

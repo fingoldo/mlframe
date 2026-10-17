@@ -399,7 +399,7 @@ def surrogate_gbm_interaction_seeds(
         "GBM surrogate seeder: OOF real-mean=%.4f vs permuted-null %.4f (z=%.2f, pair-gate=%s) -> "
         "emitting %d pair + %d triple co-occurrence seed(s) (top by depth-discounted split-gain); "
         "triples are gated by the order-3 maxT floor, pairs by the order-2 floor.",
-        info["oof_real"], info["oof_perm"], info["self_gate_z"], pairs_pass,
+        info["oof_real"], info["oof_perm"], info["self_gate_z"], info["gated"],
         len(seeded_pairs), len(seeded_triplets),
     )
     return seeded_pairs, seeded_triplets, info

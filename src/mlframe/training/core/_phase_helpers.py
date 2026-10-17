@@ -499,7 +499,7 @@ def _phase_pandas_conversion_and_cat_prep(
     # read a polars frame, so each fit converted its own copy, and the cross-clone DMatrix cache (keyed on the
     # frame signature) missed on every weight schema. Ask about the models explicitly instead of inferring it.
     _pipeline_state_lives_in_pandas = pipeline_stages_requested and not polars_pipeline_applied
-    _needs_pandas_frames = _pipeline_state_lives_in_pandas or not all_models_polars_native
+    _needs_pandas_frames = bool(_pipeline_state_lives_in_pandas or not all_models_polars_native)
     defer_pandas_conv = was_polars_input and not _needs_pandas_frames and not recurrent_models and not _has_rfecv
 
     train_df_size_bytes_cached: float | None = None
@@ -568,7 +568,7 @@ def _phase_pandas_conversion_and_cat_prep(
                     reasons.append(f"non-Polars-native models requested: {non_native}")
             logger.info(
                 "  polars->pandas conversion needed because: %s",
-                "; ".join(reasons) or "unknown",
+                "; ".join(reasons) if len(reasons) > 0 else "unknown",
             )
         train_df_pd, val_df_pd, test_df_pd = _convert_dfs_to_pandas(train_df, val_df, test_df, verbose=verbose)
         # Sizing for downstream GPU / RAM heuristics. Two-tier strategy:
@@ -883,7 +883,9 @@ def _maybe_dispatch_to_ltr_ranker_suite(
 
     _save_dir = None
     _data_dir = _cfg_get(ctx.output_config, "data_dir")
-    _models_dir = _cfg_get(ctx.output_config, "models_dir") or "models"
+    _models_dir = _cfg_get(ctx.output_config, "models_dir")
+    if _models_dir is None or _models_dir == "":
+        _models_dir = "models"
     if _data_dir:
         # raw ctx.model_name plumbed into os.path.join is a path-
         # traversal vector ("../../evil" escapes models dir; an absolute "/foo" or "C:/x"

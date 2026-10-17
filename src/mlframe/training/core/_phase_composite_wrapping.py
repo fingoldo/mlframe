@@ -180,7 +180,7 @@ def _record_ensemble_y_scale_metrics(*, entries: list, y_full: np.ndarray, metad
         if _scores:
             record_composite_y_scale_metrics(
                 metadata=metadata, target_type=target_type, composite_name=composite_name,
-                model_name=getattr(_entry, "model_name", None) or "ensemble", scores=_scores,
+                model_name="ensemble" if getattr(_entry, "model_name", None) is None or getattr(_entry, "model_name", None) == "" else getattr(_entry, "model_name", None), scores=_scores,
             )
 
 

@@ -481,7 +481,7 @@ def format_baseline_diagnostics_report(
     Mirrors the style of :func:`format_drift_report` so suite output
     has consistent visual rhythm.
     """
-    name = target_name or report.target_name or "target"
+    name = next((c for c in (target_name, report.target_name) if c is not None and c != ""), "target")
     if report.skipped:
         return f"[BaselineDiagnostics] target='{name}' SKIPPED ({report.skip_reason})"
 

@@ -232,6 +232,7 @@ class MLPTorchModel(_PredictAccelMixin, _LossMixin, L.LightningModule):
 
     def training_step(self, batch, batch_idx: int) -> Dict[str, torch.Tensor]:
         """Training step."""
+        self._current_batch_idx = batch_idx
         features, labels, sample_weight = self._unpack_batch(batch)
 
         # F-68: Mixup augmentation. When enabled, mix features

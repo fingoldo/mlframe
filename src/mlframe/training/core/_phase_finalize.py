@@ -513,7 +513,7 @@ def _render_prediction_stability_panels(ctx: "TrainingContext") -> None:
                 if _mp is None:
                     continue
                 _model = getattr(_e, "model", None)
-                _mn = str(getattr(_e, "model_name", None) or (type(_model).__name__ if _model is not None else f"ensemble_{_i}"))
+                _mn = str(getattr(_e, "model_name", None) if getattr(_e, "model_name", None) not in (None, "") else (type(_model).__name__ if _model is not None else f"ensemble_{_i}"))
                 _yt = getattr(_e, "test_target", None)
                 _base = join(
                     data_dir,

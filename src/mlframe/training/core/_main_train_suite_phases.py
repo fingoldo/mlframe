@@ -319,11 +319,12 @@ def apply_polars_cat_fixes_and_back_write_ctx(
     _enum_domains_export = getattr(_polars_fixes_result, "enum_domains", None) or {}
     if _enum_domains_export:
         metadata.setdefault("enum_domains", {}).update(_enum_domains_export)
+    _locals_snapshot = locals()
     _bulk_setattr_to_ctx(ctx, (
         "train_df_polars", "val_df_polars", "test_df_polars",
         "train_df_pd", "val_df_pd", "test_df_pd",
         "filtered_train_df", "filtered_val_df",
-    ), locals())
+    ), values=_locals_snapshot)
     return (
         train_df_polars, val_df_polars, test_df_polars,
         train_df_pd, val_df_pd, test_df_pd,

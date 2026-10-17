@@ -256,10 +256,10 @@ def _env_force() -> Optional[bool]:
     return None
 
 
-def _calibrate_triton_vs_eager(fn, shape, dtype, device, steps) -> float:
+def _calibrate_triton_vs_eager(fn, shape, dtype, device, steps) -> Optional[float]:
     """Measure eager vs Triton Newton-Schulz once on a synthetic tensor of the
     target shape. Returns eager_time / triton_time (> 1 means Triton is faster);
-    0.0 if anything fails, which the caller reads as "use eager"."""
+    None if the measurement itself failed, which the caller reads as "use eager"."""
     import time
 
     from ._muon_optimizer import _zeropower_via_newtonschulz5
@@ -284,7 +284,7 @@ def _calibrate_triton_vs_eager(fn, shape, dtype, device, steps) -> float:
         return (eager_t / triton_t) if triton_t > 0 else 0.0
     except Exception as _cal_err:
         log_throttle(logger, "_muon_triton_kernel._calibrate_triton_vs_eager", logging.WARNING, "Muon Triton calibration failed (%s); using eager.", _cal_err)
-        return 0.0
+        return None
 
 
 def maybe_newton_schulz_triton(
@@ -339,7 +339,8 @@ def maybe_newton_schulz_triton(
 
                 def _tuner() -> "list[dict]":
                     """Measure Triton vs eager once at this shape and return the region KTC persists."""
-                    _speedup = _calibrate_triton_vs_eager(fn, _shape, _dtype, _device, steps)
+                    _measured = _calibrate_triton_vs_eager(fn, _shape, _dtype, _device, steps)
+                    _speedup = 0.0 if _measured is None else _measured  # a failed measurement persists as "eager" (0.0x)
                     return [{"use_triton": _speedup >= _TRITON_WIN_MARGIN, "speedup": _speedup, "size_bucket_max": size_bucket}]
 
                 cache = _get_kernel_tuning_cache()
@@ -357,7 +358,7 @@ def maybe_newton_schulz_triton(
                         logger.debug("Muon Triton KTC lookup failed (%s); falling back to in-process calibration.", exc)
                 if verdict is None:
                     speedup = _calibrate_triton_vs_eager(fn, _shape, _dtype, _device, steps)
-                    verdict = speedup >= _TRITON_WIN_MARGIN
+                    verdict = speedup is not None and speedup >= _TRITON_WIN_MARGIN
                 _TRITON_VERDICT[key] = verdict
             logger.info(
                 "Muon Triton calibration on %s (bucket %d): %.2fx vs eager -> %s",

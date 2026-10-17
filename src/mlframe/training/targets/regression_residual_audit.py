@@ -761,7 +761,7 @@ def plot_residual_diagnostics(
             _yt, _yp,
             audit=audit, header_str=header_str, metrics_str=metrics_str,
             plot_sample_size=plot_sample_size, seed=seed,
-            panels_template=panels_template or DEFAULT_REGRESSION_PANELS,
+            panels_template=DEFAULT_REGRESSION_PANELS if panels_template is None or len(panels_template) == 0 else panels_template,
         )
         if dpi is not None:
             import dataclasses as _dc

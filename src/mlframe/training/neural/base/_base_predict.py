@@ -119,7 +119,7 @@ class _PredictMixin:
             _cached_acc = getattr(self, "_last_predict_accelerator", None)
             _user_acc = (self.trainer_params or {}).get("accelerator")
             trainer_params = {
-                "accelerator": _cached_acc or _user_acc or "auto",
+                "accelerator": _cached_acc if _cached_acc not in (None, "") else (_user_acc if _user_acc not in (None, "") else "auto"),
                 "devices": 1,
                 "logger": False,
                 "enable_checkpointing": False,

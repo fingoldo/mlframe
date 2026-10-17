@@ -116,7 +116,7 @@ class LGBMonotonicDeclineStop:
                 return
             self._best_value = value
         # Track best iteration so the EarlyStopException rolls back to it.
-        is_better = self._best_value is None or (value > self._best_value if self._stopper.mode == "max" else value < self._best_value)
+        is_better = bool(self._best_value is None or (value > self._best_value if self._stopper.mode == "max" else value < self._best_value))
         if is_better:
             self._best_value = value
             self._best_iter = env.iteration
@@ -166,11 +166,11 @@ def _make_xgb_monotonic_callback(patience: Optional[int] = 20, monitor_dataset: 
             """Feed the latest monitored metric value to the shared stopper; on trigger, stamp best-iteration attrs on ``model`` and return True to stop XGBoost training."""
             if not evals_log:
                 return False
-            ds = self._monitor_dataset or next(iter(evals_log))
+            ds = next(iter(evals_log)) if self._monitor_dataset is None or self._monitor_dataset == "" else self._monitor_dataset
             ds_log = evals_log.get(ds)
             if not ds_log:
                 return False
-            mt = self._monitor_metric or next(iter(ds_log))
+            mt = next(iter(ds_log)) if self._monitor_metric is None or self._monitor_metric == "" else self._monitor_metric
             series = ds_log.get(mt)
             if not series:
                 return False
@@ -190,7 +190,7 @@ def _make_xgb_monotonic_callback(patience: Optional[int] = 20, monitor_dataset: 
             # ``after_iteration``-return-True keeps the FULL booster including the post-best overfit tail,
             # and ``XGBModel.predict`` would then score with every round. Stamp ``best_iteration`` on the
             # booster so ``_get_iteration_range`` truncates prediction to ``best_iteration + 1``.
-            is_better = self._best_value is None or (value > self._best_value if self._stopper.mode == "max" else value < self._best_value)
+            is_better = bool(self._best_value is None or (value > self._best_value if self._stopper.mode == "max" else value < self._best_value))
             if is_better:
                 self._best_value = value
                 self._best_iter = epoch

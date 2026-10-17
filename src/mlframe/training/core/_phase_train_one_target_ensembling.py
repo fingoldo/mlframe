@@ -59,7 +59,7 @@ def _finalize_per_target_ensembling(
         # CatBoost on a 2%-positive target kept 0.5 and predicted the negative class almost everywhere, while the same
         # config with two models was tuned.
         # With ensembling off there is no ens_models list at all; the target's trained models are the members.
-        _members = ens_models or list((models or {}).get(target_type, {}).get(cur_target_name, []) or [])
+        _members = ens_models if ens_models is not None and len(ens_models) > 0 else list((models or {}).get(target_type, {}).get(cur_target_name, []) or [])
         _tune_decision_thresholds(
             ens_models=_members, target_type=target_type, cur_target_name=cur_target_name,
             behavior_config=behavior_config, common_params=common_params, metadata=metadata, verbose=verbose,

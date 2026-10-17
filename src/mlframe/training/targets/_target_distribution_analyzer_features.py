@@ -153,7 +153,7 @@ def _normalise_X(
                 # caller didn't supply feature_names. ``get_pandas_view_of_
                 # polars_df`` raises on Series; fall through to the legacy
                 # ``.to_pandas()`` path which returns a pd.Series directly.
-                _name = feature_names[0] if feature_names else (getattr(X, "name", None) or "f0")
+                _name = feature_names[0] if feature_names else (getattr(X, "name", None) if getattr(X, "name", None) not in (None, "") else "f0")
                 try:
                     df = pd.DataFrame({_name: X.to_pandas()})
                 except Exception as e:

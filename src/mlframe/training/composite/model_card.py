@@ -268,7 +268,8 @@ def _render_markdown(card: dict[str, Any]) -> str:
     lines.append("## Identity")
     lines.append("")
     lines.append(f"- transform: `{ident['transform_name']}`")
-    lines.append(f"- base column(s): {', '.join(f'`{c}`' for c in ident['base_columns']) or '(none)'}")
+    _base_cols_text = ", ".join(f"`{c}`" for c in ident["base_columns"])
+    lines.append(f"- base column(s): {'(none)' if _base_cols_text == '' else _base_cols_text}")
     lines.append(f"- inner estimator: `{ident['inner_estimator_type']}`")
     lines.append(f"- multi-base: {ident['is_multi_base']}")
     lines.append("")
@@ -347,7 +348,7 @@ def _render_markdown(card: dict[str, Any]) -> str:
     lines.append("## Deployment-readiness checklist")
     lines.append("")
     lines.append(f"- [{'x' if rd['conformal_calibrated'] else ' '}] conformal calibrated "
-                 f"(levels: {rd['calibrated_levels'] or 'none'}, n_cal={rd['n_calibration']})")
+                 f"(levels: {'none' if len(rd['calibrated_levels']) == 0 else rd['calibrated_levels']}, n_cal={rd['n_calibration']})")
     lines.append(f"- [{'x' if rd['online_refit_enabled'] else ' '}] online-refit enabled")
     lines.append(f"- [{'x' if rd['drift_monitor_present'] else ' '}] drift-monitor sketch present")
     lines.append("")

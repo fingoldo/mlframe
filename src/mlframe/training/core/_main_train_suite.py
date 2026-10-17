@@ -426,12 +426,13 @@ def train_mlframe_models_suite(
         # ctx-form where phases write straight to ctx. Until every phase is converted the
         # bulk-copy keeps the existing return-tuple shape working while ctx-form readers
         # downstream see the same values.
+        _locals_snapshot = locals()
         _bulk_setattr_to_ctx(ctx, (
             "train_idx", "val_idx", "test_idx", "train_details", "val_details",
             "test_details", "train_df", "val_df", "test_df", "fairness_subgroups",
             "fairness_features", "train_sequences", "val_sequences", "test_sequences",
             "baseline_rss_mb", "calib_idx", "calib_details", "calib_df",
-        ), locals())
+        ), values=_locals_snapshot)
 
         # mini-HPT target-distribution analyzer (+ optional E3 distribution-driven estimator injection).
         hyperparams_config, train_df, val_df, test_df, mlframe_models = run_distribution_analyzer_and_estimator_injection(
@@ -473,6 +474,7 @@ def train_mlframe_models_suite(
             timestamps=timestamps,
             auxiliary_events_df=auxiliary_events_df,
         )
+        _locals_snapshot = locals()
         _bulk_setattr_to_ctx(ctx, (
             "train_df", "val_df", "test_df", "pipeline", "extensions_pipeline",
             "cat_features", "cat_features_polars", "was_polars_input",
@@ -480,7 +482,7 @@ def train_mlframe_models_suite(
             "train_df_polars_pre", "val_df_polars_pre", "test_df_polars_pre",
             "pipeline_config", "preprocessing_extensions",
             "train_df_pandas_pre_meta",
-        ), locals())
+        ), values=_locals_snapshot)
 
         (
             train_df, val_df, test_df,
@@ -522,11 +524,12 @@ def train_mlframe_models_suite(
 
         metadata["text_features"] = text_features
         metadata["embedding_features"] = embedding_features
+        _locals_snapshot = locals()
         _bulk_setattr_to_ctx(ctx, (
             "train_df", "val_df", "test_df", "train_df_polars_pre", "val_df_polars_pre",
             "test_df_polars_pre", "text_features", "embedding_features", "cat_features",
             "text_emb_set", "_dropped_high_card_data",
-        ), locals())
+        ), values=_locals_snapshot)
 
         if verbose:
             log_phase("PHASE 4: Model Training")

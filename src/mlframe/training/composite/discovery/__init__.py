@@ -419,12 +419,7 @@ class CompositeTargetDiscovery:
             # to trim FURTHER when it is tighter, so it is cheapest to just cap ``auto_base_top_k``
             # for this call rather than re-rank a second time post-hoc.
             if cap is not None and int(cap) > 0 and int(cap) < int(getattr(config, "auto_base_top_k", 3)):
-                _saved_cfg = self.config
-                try:
-                    self.config = config.model_copy(update={"auto_base_top_k": int(cap)})
-                    return self._auto_base(df, usable_features, y_train, train_idx)
-                finally:
-                    self.config = _saved_cfg
+                return self._auto_base(df, usable_features, y_train, train_idx, top_k_override=int(cap))
             return self._auto_base(df, usable_features, y_train, train_idx)
         # Explicit list. Keep only entries that survived feature filters.
         explicit = list(config.base_candidates)

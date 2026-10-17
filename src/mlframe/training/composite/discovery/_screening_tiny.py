@@ -402,7 +402,7 @@ def _tiny_cv_rmse_y_scale_multiseed(
     # (per_seed length 1) -- this avoids N identical fits on the dominant rerank
     # phase AND avoids pseudo-replicating a single measurement into a falsely-
     # powered Wilcoxon (the gate then correctly skips on n=1).
-    _seed_invariant = bool(kwargs.get("time_aware", False)) or (kwargs.get("groups", None) is not None)
+    _seed_invariant = bool(kwargs.get("time_aware", False) or (kwargs.get("groups", None) is not None))
     _effective_repeats = 1 if _seed_invariant else n_seed_repeats
     if _effective_repeats <= 1:
         kwargs["random_state"] = base_random_state
@@ -485,7 +485,7 @@ def _tiny_cv_rmse_raw_y_multiseed(
     iteration's raw baseline) can opt in without a signature change."""
     # Seed-invariant splitters (TimeSeriesSplit / GroupKFold) collapse to one
     # honest measurement -- see _tiny_cv_rmse_y_scale_multiseed.
-    _seed_invariant = bool(kwargs.get("time_aware", False)) or (kwargs.get("groups", None) is not None)
+    _seed_invariant = bool(kwargs.get("time_aware", False) or (kwargs.get("groups", None) is not None))
     _effective_repeats = 1 if _seed_invariant else n_seed_repeats
     if _effective_repeats <= 1:
         kwargs["random_state"] = base_random_state

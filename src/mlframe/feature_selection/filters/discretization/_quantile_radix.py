@@ -16,6 +16,24 @@ from numba import njit, prange
 
 
 @njit(nogil=True, cache=True)
+def _radix_pass_8bit(src: np.ndarray, dst: np.ndarray, cnt: np.ndarray, shift: int, n: int) -> None:
+    """One stable LSD counting-sort pass of 8 bits at ``shift``: scatter ``src`` into ``dst`` (``cnt`` is a 256-slot int64 scratch)."""
+    cnt[:] = 0
+    for i in range(n):
+        cnt[(src[i] >> shift) & 0xFF] += 1
+    s = 0
+    for b in range(256):
+        c = cnt[b]
+        cnt[b] = s
+        s += c
+    for i in range(n):
+        v = src[i]
+        b = (v >> shift) & 0xFF
+        dst[cnt[b]] = v
+        cnt[b] += 1
+
+
+@njit(nogil=True, cache=True)
 def _radix_sort_f32(col: np.ndarray, keys: np.ndarray, tmp: np.ndarray, cnt: np.ndarray) -> None:
     """Sort the NaN-free float32 vector ``col`` in place (ascending). ``keys``/``tmp`` are uint32 scratch of ``col``'s length, ``cnt`` an
     int64 scratch of 256. The float bits are mapped to order-preserving unsigned keys (flip all bits for negatives, set the sign bit for
@@ -28,27 +46,11 @@ def _radix_sort_f32(col: np.ndarray, keys: np.ndarray, tmp: np.ndarray, cnt: np.
             keys[i] = ~x
         else:
             keys[i] = x | 0x80000000
-    src = keys
-    dst = tmp
-    for shift in range(0, 32, 8):
-        cnt[:] = 0
-        for i in range(n):
-            cnt[(src[i] >> shift) & 0xFF] += 1
-        s = 0
-        for b in range(256):
-            c = cnt[b]
-            cnt[b] = s
-            s += c
-        for i in range(n):
-            v = src[i]
-            b = (v >> shift) & 0xFF
-            dst[cnt[b]] = v
-            cnt[b] += 1
-        t = src
-        src = dst
-        dst = t
+    for shift in range(0, 32, 16):
+        _radix_pass_8bit(keys, tmp, cnt, shift, n)
+        _radix_pass_8bit(tmp, keys, cnt, shift + 8, n)
     for i in range(n):
-        x = src[i]
+        x = keys[i]
         if x & 0x80000000:
             u[i] = x & 0x7FFFFFFF
         else:
