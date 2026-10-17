@@ -12,6 +12,7 @@ member predictions into one ensemble prediction via the configured method
 threads through ``_WelfordAccumulator`` so we never materialise the full
 (K, N, classes) array in memory for large ensembles.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -96,7 +97,10 @@ def _compute_outlier_gate(
     rel_std_threshold, per_member_mae, per_member_std). Memoised on the member-array identities + thresholds (CPX17)."""
     key = (
         tuple(_member_fingerprint(p) for p in preds),
-        float(max_mae), float(max_std), float(max_mae_relative), float(max_std_relative),
+        float(max_mae),
+        float(max_std),
+        float(max_mae_relative),
+        float(max_std_relative),
     )
     with _gate_cache_lock:
         cached = _gate_cache.get(key)
@@ -129,8 +133,12 @@ def _compute_outlier_gate(
 
         result = (
             frozenset(skipped),
-            median_mae, median_std, rel_mae_threshold, rel_std_threshold,
-            per_member_mae, per_member_std,
+            median_mae,
+            median_std,
+            rel_mae_threshold,
+            rel_std_threshold,
+            per_member_mae,
+            per_member_std,
         )
         # No freeze and no retained arrays. The key used to be ``id()``-based, which is only valid while the objects
         # are alive and unmutated, so the cache defended itself by marking the CALLER's prediction arrays read-only
@@ -247,8 +255,12 @@ def ensemble_probabilistic_predictions(
         # memoised so the n_flavours fan-out in ``score_ensemble`` reuses one gate per split instead of recomputing it.
         (
             _gate_skipped,
-            median_mae, median_std, rel_mae_threshold, rel_std_threshold,
-            per_member_mae, per_member_std,
+            median_mae,
+            median_std,
+            rel_mae_threshold,
+            rel_std_threshold,
+            per_member_mae,
+            per_member_std,
         ) = _compute_outlier_gate(preds_list, _preds_arr, max_mae, max_std, max_mae_relative, max_std_relative)
         skipped_preds_indices = set(_gate_skipped)
 
@@ -267,7 +279,10 @@ def ensemble_probabilistic_predictions(
                     )
                 logger.info(
                     "ens member %d excluded due to high distance from the median: mae=%.4f, std=%.4f [%s]",
-                    i, tot_mae, tot_std, "; ".join(reason_parts),
+                    i,
+                    tot_mae,
+                    tot_std,
+                    "; ".join(reason_parts),
                 )
         if skipped_preds_indices:
             if len(skipped_preds_indices) < len(preds_list):
@@ -286,7 +301,8 @@ def ensemble_probabilistic_predictions(
                 if verbose:
                     logger.info(
                         "ensemble_probabilistic_predictions filters too restrictive (%d vs %d), skipping them",
-                        len(skipped_preds_indices), len(preds_list),
+                        len(skipped_preds_indices),
+                        len(preds_list),
                     )
 
     # -----------------------------------------------------------------------------------------------------------------------------------------------------
@@ -474,10 +490,8 @@ def ensemble_probabilistic_predictions_streaming(
         if verbose:
             logger.info("%s non-finite values replaced with arithmetic mean", n_replaced)
         # shape-contract assert as defensive forward-compat.
-        assert ensembled_predictions.shape == arith_mean.shape, (  # nosec B101 - internal invariant check in src/mlframe/models/ensembling, not reachable with untrusted input
-            f"streaming ensemble combine: shape mismatch ensembled={ensembled_predictions.shape} "
-            f"vs raw_acc.mean={arith_mean.shape}"
-        )  # nosec B101 - internal invariant / dev-time sanity check, not a security gate
+        if not (ensembled_predictions.shape == arith_mean.shape):
+            raise AssertionError(f"streaming ensemble combine: shape mismatch ensembled={ensembled_predictions.shape} " f"vs raw_acc.mean={arith_mean.shape}")
         ensembled_predictions = np.where(non_finite_mask, arith_mean, ensembled_predictions)
 
     if ensure_prob_limits:

@@ -54,7 +54,8 @@ def main():
         C = np.abs(Z.T @ Z / n)
         num_ok = np.ones(p, dtype=bool)
         thr = 0.8
-        assert np.array_equal(_compact(_old(C, thr, num_ok, p)), _compact(_new(C, thr, num_ok, p)))  # nosec B101 - internal invariant check in src/mlframe/feature_selection/filters/_benchmarks, not reachable with untrusted input
+        if not (np.array_equal(_compact(_old(C, thr, num_ok, p)), _compact(_new(C, thr, num_ok, p)))):
+            raise AssertionError
         to = best_of(_old, C, thr, num_ok, p, reps=5); tn = best_of(_new, C, thr, num_ok, p, reps=5)
         print(f"p={p}: OLD {to*1e3:.2f}ms -> NEW {tn*1e3:.3f}ms ({to/tn:.1f}x) clusters identical")
 

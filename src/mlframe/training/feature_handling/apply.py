@@ -273,7 +273,8 @@ def feature_handling_apply(
                 from mlframe.training.feature_handling.custom_handler import (
                     CustomHandler,
                 )
-                assert isinstance(spec.params, CustomParams), f"method='custom' requires CustomParams; got {type(spec.params).__name__}"
+                if not (isinstance(spec.params, CustomParams)):
+                    raise AssertionError(f"method='custom' requires CustomParams; got {type(spec.params).__name__}")
                 _custom_params = spec.params
                 handler = CustomHandler(column=col, params=_custom_params)
                 handler.fit(train_df, train_target)

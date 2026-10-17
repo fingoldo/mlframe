@@ -125,7 +125,8 @@ def diversity_ablation_report(
         return []
 
     corr_matrix, corr_names = residual_correlation_matrix(oof_preds)
-    assert corr_names == names
+    if not (corr_names == names):
+        raise AssertionError
 
     best_model = max(individual_scores, key=lambda k: individual_scores[k]) if higher_score_is_better else min(individual_scores, key=lambda k: individual_scores[k])
     best_score = individual_scores[best_model]

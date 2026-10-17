@@ -8,12 +8,19 @@ alone, since they cannot be judged.
 from __future__ import annotations
 
 import logging
+from typing import TYPE_CHECKING
 
 import numpy as np
 
 from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 
 from ._residual_rescue_stage import _raw_sources
+
+if TYPE_CHECKING:
+    import pandas as pd
+    import polars as pl
+
+    from ..mrmr import MRMR
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +31,9 @@ def _column_values(X, name):
     return np.asarray(col.to_numpy() if hasattr(col, "to_numpy") else col, dtype=_crit_np_dtype()).ravel()
 
 
-def run_final_subsumption_prune(self, X, selected_vars, classes_y, verbose):
+def run_final_subsumption_prune(
+    self: "MRMR", X: "pd.DataFrame | pl.DataFrame", selected_vars: list[int], classes_y: np.ndarray, verbose: int | bool
+) -> tuple[bool, list[int]]:
     """Drop the selected columns the compounds subsume; returns ``(changed, selected_vars)``."""
     try:
         from .._fe_final_subsumption import final_subsumption_prune

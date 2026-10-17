@@ -307,7 +307,8 @@ def load_and_prepare_dataframe(
     if verbose:
         log_ram_usage()
 
-    assert isinstance(_df, pl.DataFrame)
+    if not (isinstance(_df, pl.DataFrame)):
+        raise AssertionError
     return _df
 
 

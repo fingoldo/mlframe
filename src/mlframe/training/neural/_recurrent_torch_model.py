@@ -433,9 +433,8 @@ class RecurrentTorchModel(L.LightningModule):
 
         # Bidirectional: split into fwd / bwd halves, gather each at the
         # semantically correct position, then re-concatenate.
-        assert total_channels % 2 == 0, (  # nosec B101 - internal invariant check in src/mlframe/training/neural, not reachable with untrusted input
-            f"bidirectional rnn_out must have even channel count; got {total_channels}"
-        )
+        if not (total_channels % 2 == 0):
+            raise AssertionError(f"bidirectional rnn_out must have even channel count; got {total_channels}")
         hidden_size = total_channels // 2
         fwd = rnn_out[:, :, :hidden_size]  # (B, T, H)
         bwd = rnn_out[:, :, hidden_size:]  # (B, T, H)

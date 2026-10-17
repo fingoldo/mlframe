@@ -225,7 +225,8 @@ def rff_matmul_cupy(
     import cupy as cp
     n, d = X.shape
     m = W.shape[1]
-    assert out.shape == (n, 2 * m), f"out must have shape (N, 2*m); got {out.shape} vs ({n}, {2 * m})"  # nosec B101 - internal invariant check in src/mlframe/feature_engineering/transformer, not reachable with untrusted input
+    if not (out.shape == (n, 2 * m)):
+        raise AssertionError(f"out must have shape (N, 2*m); got {out.shape} vs ({n}, {2 * m})")
 
     if n == 0:
         return

@@ -299,7 +299,9 @@ def _apply_row_wise_extensions(
                     "how extreme it is. Retrain to persist the reference, or score in batches resembling train."
                 )
             _out = row_wise_top_k_extreme_columns(df, columns=_cols, k=_k, reference=_reference)
-            assert isinstance(_out, pd.DataFrame)  # return_column_summary not passed -> always the plain-DataFrame overload
+            # return_column_summary not passed -> always the plain-DataFrame overload
+            if not (isinstance(_out, pd.DataFrame)):
+                raise AssertionError
             _score_cols = [c for c in _out.columns if c.endswith("_score")]
             _result = _out[_score_cols].add_prefix("row_extreme_")
             for _i in range(1, _k + 1):

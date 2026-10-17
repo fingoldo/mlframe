@@ -78,7 +78,8 @@ def bench_prescreen_stage_delta():
         print(f"prescreen_ranking={ranking}: prescreen stage wall {wall:.4f}s")
     delta = stage_walls["banzhaf"] - stage_walls["mean_abs_phi"]
     print(f"delta (banzhaf - mean_abs_phi): {delta:.4f}s")
-    assert delta <= 0.5, f"banzhaf prescreen stage added {delta:.4f}s > 0.5s budget at (n=3000, P=112)"
+    if not (delta <= 0.5):
+        raise AssertionError(f"banzhaf prescreen stage added {delta:.4f}s > 0.5s budget at (n=3000, P=112)")
 
 
 def bench_cprofile():

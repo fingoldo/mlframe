@@ -37,7 +37,8 @@ def main():
         return np.asarray(mi), np.asarray(cop)
 
     o = old(); ne = new()
-    assert np.array_equal(o[0], ne[0]) and np.array_equal(o[1], ne[1]), "identity"  # nosec B101 - internal invariant check in src/mlframe/feature_selection/filters/_benchmarks, not reachable with untrusted input
+    if not (np.array_equal(o[0], ne[0]) and np.array_equal(o[1], ne[1])):
+        raise AssertionError("identity")
 
     t_old = best_of(old, reps=5)
     t_new = best_of(new, reps=5)

@@ -39,14 +39,17 @@ def main():
         # correctness: fused vs baseline
         ja, ma = _baseline_combine(j0, c1, mult0)
         jb, mb = _combine_factorize_njit(j0, c1, mult0)
-        assert ma == mb, (n, ma, mb)  # nosec B101 - internal invariant check in src/mlframe/feature_selection/filters/_benchmarks, not reachable with untrusted input
+        if not (ma == mb):
+            raise AssertionError((n, ma, mb))
         # induced partition must match (first-seen labels can differ; here both
         # are first-seen so they coincide)
-        assert np.array_equal(ja, jb), (n, "partition mismatch")  # nosec B101 - internal invariant check in src/mlframe/feature_selection/filters/_benchmarks, not reachable with untrusted input
+        if not (np.array_equal(ja, jb)):
+            raise AssertionError((n, "partition mismatch"))
 
         # full _renumber_joint bit-identity vs itself (sanity)
         r0, _ = _renumber_joint(c0, c1)
-        assert np.array_equal(r0, ja)  # nosec B101 - internal invariant check in src/mlframe/feature_selection/filters/_benchmarks, not reachable with untrusted input
+        if not (np.array_equal(r0, ja)):
+            raise AssertionError
 
         reps = 20000
         t0 = time.perf_counter()

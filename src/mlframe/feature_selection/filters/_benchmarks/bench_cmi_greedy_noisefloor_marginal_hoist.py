@@ -57,8 +57,10 @@ def _bench(n=30_000, n_samples=24, n_cand=200, nbins=10, reps=20):
         return [m.marginal_mi_binned_fixed_y(c, *_yt) for c in cands]
 
     # identity check
-    assert np.allclose(old_noise(), new_noise(), atol=1e-9)
-    assert np.allclose(old_marg(), new_marg(), atol=1e-9)
+    if not (np.allclose(old_noise(), new_noise(), atol=1e-9)):
+        raise AssertionError
+    if not (np.allclose(old_marg(), new_marg(), atol=1e-9)):
+        raise AssertionError
 
     def timeit(fn, inner=5):
         best = np.inf

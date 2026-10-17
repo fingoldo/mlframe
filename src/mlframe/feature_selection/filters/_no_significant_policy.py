@@ -16,7 +16,7 @@ NO_SIGNIFICANT_POLICIES = ("best_features", "all_orig_features")
 _DEFAULT_POLICY = "best_features"
 
 
-def resolve_no_significant_policy(instance) -> str:
+def resolve_no_significant_policy(instance: object) -> str:
     """The policy for one selector instance: its own ``no_significant_policy`` when set, else the default."""
     own: str | None = getattr(instance, "no_significant_policy", None)
     if own is None:

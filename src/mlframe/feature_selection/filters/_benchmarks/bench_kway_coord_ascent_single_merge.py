@@ -99,7 +99,8 @@ def main():
             mo, co, no = _eval_old(data, nbins, cls_y, fq_y, t, dtype)
             mn, cn, nn = _eval_new(data, nbins, cls_y, fq_y, t, dtype)
             max_diff = max(max_diff, abs(mo - mn))
-            assert np.array_equal(co, cn) and no == nn, t  # nosec B101 - internal invariant check in src/mlframe/feature_selection/filters/_benchmarks, not reachable with untrusted input
+            if not (np.array_equal(co, cn) and no == nn):
+                raise AssertionError(t)
 
         N = 60
         best_old = best_new = 1e9

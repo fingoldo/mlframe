@@ -16,8 +16,13 @@ need a parallel shuffle, which changes the stream and so loses bit-identity with
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import numpy as np
 from numba import cuda
+
+if TYPE_CHECKING:
+    import cupy as cp
 
 
 @cuda.jit
@@ -38,7 +43,7 @@ def _lcg_permuted_y_cuda_kernel(classes_y, base_seed, first_perm, count, out):
         out[b, k] = tmp
 
 
-def device_permuted_y_batch(classes_y: np.ndarray, base_seed: object, first_perm: int, count: int):
+def device_permuted_y_batch(classes_y: np.ndarray, base_seed: object, first_perm: int, count: int) -> "cp.ndarray":
     """``(count, n)`` int32 cupy matrix whose row ``b`` is ``classes_y`` shuffled by permutation ``first_perm + b`` of ``base_seed``.
 
     Same contract as :func:`_gpu_host_permutations.host_permuted_y_batch` (``base_seed=None`` maps to 0), but the result stays on the device.

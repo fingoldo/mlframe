@@ -54,7 +54,8 @@ def _cmp(r_old, r_new):
     max_abs = 0.0
     for kk in r_old:
         a, b = np.asarray(r_old[kk], float), np.asarray(r_new[kk], float)
-        assert np.array_equal(np.isnan(a), np.isnan(b)), f"NaN mask mismatch {kk}"  # nosec B101 - internal invariant check in src/mlframe/feature_engineering/_benchmarks, not reachable with untrusted input
+        if not (np.array_equal(np.isnan(a), np.isnan(b))):
+            raise AssertionError(f"NaN mask mismatch {kk}")
         m = np.isfinite(a)
         if m.any():
             d = np.max(np.abs(a[m] - b[m]))

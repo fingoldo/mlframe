@@ -83,7 +83,8 @@ def _apply_transform(x: np.ndarray, transform_name: str, fitted_params: Optional
                 logger.warning("_apply_transform fell back to its default after %s", type(_exc).__name__)
                 return None, None
             return np.asarray(transformed, dtype=np.float64), transformer
-        assert isinstance(fitted_params, PowerTransformer)
+        if not (isinstance(fitted_params, PowerTransformer)):
+            raise AssertionError
         try:
             transformed = fitted_params.transform(x.reshape(-1, 1)).ravel()
         except ValueError as _exc:

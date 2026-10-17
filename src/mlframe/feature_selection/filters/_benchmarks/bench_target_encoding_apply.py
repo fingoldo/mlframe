@@ -60,7 +60,8 @@ def main():
     X_int = pd.DataFrame({col: cats_int})
     old = old_mod.apply_target_encoding(X_int, col, recipe)
     new = new_mod.apply_target_encoding(X_int, col, recipe)
-    assert np.array_equal(old, new), f"int values differ: max|d|={np.max(np.abs(old-new))}"  # nosec B101 - internal invariant check in src/mlframe/feature_selection/filters/_benchmarks, not reachable with untrusted input
+    if not (np.array_equal(old, new)):
+        raise AssertionError(f"int values differ: max|d|={np.max(np.abs(old-new))}")
     t_old = _median_time(lambda: old_mod.apply_target_encoding(X_int, col, recipe))
     t_new = _median_time(lambda: new_mod.apply_target_encoding(X_int, col, recipe))
     print(f"int    n={n} card={card}: OLD {t_old*1e3:8.2f} ms -> NEW {t_new*1e3:8.2f} ms  ({t_old/t_new:.2f}x)  identity=exact")
@@ -73,7 +74,8 @@ def main():
     X_obj = pd.DataFrame({col: cats_obj})
     old_o = old_mod.apply_target_encoding(X_obj, col, recipe_obj)
     new_o = new_mod.apply_target_encoding(X_obj, col, recipe_obj)
-    assert np.array_equal(old_o, new_o), f"obj values differ: max|d|={np.max(np.abs(old_o-new_o))}"  # nosec B101 - internal invariant check in src/mlframe/feature_selection/filters/_benchmarks, not reachable with untrusted input
+    if not (np.array_equal(old_o, new_o)):
+        raise AssertionError(f"obj values differ: max|d|={np.max(np.abs(old_o-new_o))}")
     t_old_o = _median_time(lambda: old_mod.apply_target_encoding(X_obj, col, recipe_obj))
     t_new_o = _median_time(lambda: new_mod.apply_target_encoding(X_obj, col, recipe_obj))
     print(f"object n={n} card={card}: OLD {t_old_o*1e3:8.2f} ms -> NEW {t_new_o*1e3:8.2f} ms  ({t_old_o/t_new_o:.2f}x)  identity=exact (unchanged path)")

@@ -133,7 +133,8 @@ def main():
             old_res = _refine_old(data, kway_results, candidate_pool, nbins, cls_y, fq_y, 100_000, 2, dtype)
             new_res = _refine_kway_coordinate_ascent(kway_results=kway_results, candidate_pool=candidate_pool, **kwargs)
             for (ot, oc, on, omi), (nt, nc, nn, nmi) in zip(old_res, new_res):
-                assert ot == nt and np.array_equal(oc, nc) and on == nn and omi == nmi  # nosec B101 - internal invariant check in src/mlframe/feature_selection/filters/_benchmarks, not reachable with untrusted input
+                if not (ot == nt and np.array_equal(oc, nc) and on == nn and omi == nmi):
+                    raise AssertionError
             ident = True
 
             reps = 10 if n <= 30_000 else 4

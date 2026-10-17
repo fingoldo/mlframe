@@ -8,7 +8,7 @@ from sklearn.metrics import mutual_info_score
 __all__ = ["_beats_the_larger_operand", "operand_uplift_null_bar"]
 
 
-def operand_uplift_null_bar(codes_a, codes_b, codes_y, floor: float, n_perm: int = 20, quantile: float = 0.95, seed: int = 0) -> float:
+def operand_uplift_null_bar(codes_a: np.ndarray | None, codes_b: np.ndarray | None, codes_y: np.ndarray, floor: float, n_perm: int = 20, quantile: float = 0.95, seed: int = 0) -> float:
     """Data-driven uplift bar over the larger operand: the null quantile of joint-MI uplift when the partner is noise.
 
     The partner's discretised codes are permuted, which keeps its marginal and destroys its relation to y. The joint MI

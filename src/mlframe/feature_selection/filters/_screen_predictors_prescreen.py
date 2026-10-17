@@ -9,7 +9,7 @@ the already-seeded ``random_seed`` into the permutation-null kernel.
 from __future__ import annotations
 
 import logging
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 
 import numpy as np
 
@@ -116,9 +116,9 @@ def compute_fdr_gain_floor(
     # fit, never shared across separate ``.fit()`` calls or concurrent fits). ``None`` (default)
     # disables caching entirely - legacy behaviour, always recompute.
     maxt_floor_cache: "dict | None" = None,
-    honest_null_codes_fn=None,
-    honest_full_factors=None,
-    honest_eval_rows=None,
+    honest_null_codes_fn: Callable[[np.ndarray], tuple[np.ndarray, np.ndarray]] | None = None,
+    honest_full_factors: np.ndarray | None = None,
+    honest_eval_rows: np.ndarray | None = None,
 ) -> float:
     """Westfall-Young maxT permutation-null gain floor over the finalised order-1 pool.
 

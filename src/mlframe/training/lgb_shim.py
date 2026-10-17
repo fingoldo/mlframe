@@ -634,10 +634,9 @@ class _DatasetReuseMixin:
         """Build the validation datasets of the eval set."""
         if eval_set:
             for i, pair in enumerate(eval_set):
-                assert isinstance(pair, tuple) and len(pair) in (2, 3), (
-                    f"lgb_shim: normalized eval_set item {i} is {type(pair).__name__} "
-                    f"len {len(pair) if hasattr(pair, '__len__') else '?'}; expected a 2/3-tuple."
-                )  # nosec B101 - internal invariant / dev-time sanity check, not a security gate
+                if not (isinstance(pair, tuple) and len(pair) in (2, 3)):
+                    raise AssertionError(f"lgb_shim: normalized eval_set item {i} is {type(pair).__name__} "
+                    f"len {len(pair) if hasattr(pair, '__len__') else '?'}; expected a 2/3-tuple.")
                 pair_seq = pair
                 X_val, y_val_raw = pair_seq[0], pair_seq[1]
                 # Same Arrow split-blocks bridge as train X: keeps Categorical dtype intact, avoids the ``__array__`` numpy fallthrough.

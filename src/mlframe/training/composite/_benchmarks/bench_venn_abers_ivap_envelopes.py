@@ -55,7 +55,8 @@ def main():
         t_new = best
 
         print(f"{n:>6} {t_old*1e3:>10.1f} {t_new*1e3:>9.3f} {t_old/t_new:>8.1f}x {d0:>11.2e} {d1:>11.2e}")
-        assert d0 < 1e-9 and d1 < 1e-9, "IVAP envelope must match the sklearn refit within ~1e-9"  # nosec B101 - internal invariant check in src/mlframe/training/composite/_benchmarks, not reachable with untrusted input
+        if not (d0 < 1e-9 and d1 < 1e-9):
+            raise AssertionError("IVAP envelope must match the sklearn refit within ~1e-9")
 
 
 if __name__ == "__main__":

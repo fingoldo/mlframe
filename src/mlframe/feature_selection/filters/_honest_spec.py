@@ -8,6 +8,8 @@ target-free collapse fallbacks are precomputed per column.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+
 import numpy as np
 import pandas as pd
 
@@ -26,7 +28,7 @@ def _pad_rows(rows: list[np.ndarray]) -> tuple[np.ndarray, np.ndarray]:
     return out, lengths
 
 
-def build_honest_spec(X, cols, y_raw, max_depth: int, method: str = "mdlp") -> dict | None:
+def build_honest_spec(X: pd.DataFrame, cols: Sequence[str], y_raw: np.ndarray, max_depth: int, method: str = "mdlp") -> dict | None:
     """Spec dict for ``_mdlp_honest_njit.honest_null_columns`` over the first ``len(cols)`` factor columns, or None when a column is not
     usable (non-numeric or non-finite): the caller then keeps the categorise-per-permutation path."""
     from ._adaptive_nbins import _edges_from_quantiles

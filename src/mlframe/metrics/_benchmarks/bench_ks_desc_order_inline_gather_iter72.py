@@ -37,7 +37,8 @@ def bench(n, reps=200, trials=30):
 
     v_old = old_path(yt, ys, desc_order)
     v_new = new_path(yt, ys, desc_order)
-    assert v_old == v_new, f"NOT bit-identical: old={v_old!r} new={v_new!r}"  # nosec B101 - internal invariant check in src/mlframe/metrics/_benchmarks, not reachable with untrusted input
+    if not (v_old == v_new):
+        raise AssertionError(f"NOT bit-identical: old={v_old!r} new={v_new!r}")
 
     def best(fn):
         out = []

@@ -200,7 +200,8 @@ def _build_triton_ns_fn() -> Optional[Callable]:
         Same numerical contract as ``_muon_optimizer._zeropower_via_newtonschulz5``
         but the X @ X.T step uses the Triton SYRK kernel above.
         """
-        assert G.ndim == 2 and G.is_cuda, "Triton NS path requires 2D CUDA tensor"  # nosec B101 - internal invariant check in src/mlframe/training/neural, not reachable with untrusted input
+        if not (G.ndim == 2 and G.is_cuda):
+            raise AssertionError("Triton NS path requires 2D CUDA tensor")
         a, b, c = NS5_COEFFS
         X = G.to(torch.bfloat16) if G.is_cuda else G.to(torch.float32)
         transposed = X.size(0) > X.size(1)

@@ -666,9 +666,8 @@ def combine_probs(
         # hard-assert shape contract -- np.where broadcasts
         # silently on shape mismatch, which would silently produce wrong-shape
         # ensemble output if a future flavour returns a different reduce shape.
-        assert (
-            combined.shape == _arith.shape
-        ), f"ensemble combine: shape mismatch combined={combined.shape} vs arith fallback={_arith.shape}"  # nosec B101 - internal invariant / dev-time sanity check, not a security gate
+        if not (combined.shape == _arith.shape):
+            raise AssertionError(f"ensemble combine: shape mismatch combined={combined.shape} vs arith fallback={_arith.shape}")
         combined = np.where(non_finite_mask, _arith, combined)
 
     if ensure_prob_limits:

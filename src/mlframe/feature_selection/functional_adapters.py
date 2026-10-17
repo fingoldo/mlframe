@@ -258,7 +258,8 @@ class ForwardSelectSelector(_FunctionalSelectorBase):
             min_improvement=self.min_improvement, patience=self.patience, significance_level=self.significance_level,
             return_report=False,
         )
-        assert isinstance(selected, list)
+        if not (isinstance(selected, list)):
+            raise AssertionError
         self._finalize(X, selected)
         return self
 

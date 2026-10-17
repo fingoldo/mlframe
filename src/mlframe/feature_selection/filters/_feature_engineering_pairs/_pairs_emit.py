@@ -134,7 +134,7 @@ def _apply_pair_family_floor(valid_pairs_perf, classes_y, n_bins, n_rows, k_tota
             valid_pairs_perf[cfg] = 0.0
 
 
-def apply_pair_family_gate_from_state(st, classes_y, n_bins, alpha=0.01) -> bool:
+def apply_pair_family_gate_from_state(st: _SimpleNamespace, classes_y: np.ndarray, n_bins: int, alpha: float = 0.01) -> bool:
     """Family-wise gate over every configuration of the current pair, read from the pair state. Returns True when the gate rejected the winner
     (the caller must then emit nothing for this pair)."""
     codes = st.__dict__.get("var_pairs_codes") or {}

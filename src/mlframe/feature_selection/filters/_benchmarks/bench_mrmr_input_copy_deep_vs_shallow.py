@@ -83,8 +83,10 @@ def verify_correctness_under_forced_cow_off() -> None:
     m = MRMR(full_npermutations=5, baseline_npermutations=3, n_jobs=1, verbose=0, random_seed=1)
     m.fit(X, y)
 
-    assert list(X.columns) == orig_cols, "fit() must not add/remove/rename the caller's columns"
-    assert np.array_equal(X.to_numpy(), orig_vals), "fit() must not mutate the caller's cell values"
+    if not (list(X.columns) == orig_cols):
+        raise AssertionError("fit() must not add/remove/rename the caller's columns")
+    if not (np.array_equal(X.to_numpy(), orig_vals)):
+        raise AssertionError("fit() must not mutate the caller's cell values")
     print("verify_correctness_under_forced_cow_off: PASSED (caller's frame untouched after fit)")
 
 

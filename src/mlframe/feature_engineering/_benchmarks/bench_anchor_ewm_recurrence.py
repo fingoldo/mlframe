@@ -82,7 +82,8 @@ def main():
             d = np.nanmax(np.abs(a[m] - b[m])) if m.any() else 0.0
             max_abs = max(max_abs, 0.0 if np.isnan(d) else d)
             # NaN positions must match exactly
-            assert np.array_equal(np.isnan(a), np.isnan(b)), f"NaN mask mismatch {kk}"  # nosec B101 - internal invariant check in src/mlframe/feature_engineering/_benchmarks, not reachable with untrusted input
+            if not (np.array_equal(np.isnan(a), np.isnan(b))):
+                raise AssertionError(f"NaN mask mismatch {kk}")
 
         print(f"n={n:>7}  OLD={t_old*1e3:8.2f}ms  NEW={t_new*1e3:8.2f}ms  " f"speedup={t_old/t_new:5.2f}x  max_abs_diff={max_abs:.2e}")
 

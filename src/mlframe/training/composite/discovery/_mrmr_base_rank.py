@@ -71,7 +71,8 @@ def mrmr_rank_bases(
         """Redundancy between candidates ``i`` and ``j``: a matrix lookup when ``redundancy_fn_or_matrix`` is a precomputed matrix, else the pairwise callable evaluated on demand."""
         if matrix is not None:
             return float(matrix[i, j])
-        assert callable(redundancy_fn_or_matrix)
+        if not (callable(redundancy_fn_or_matrix)):
+            raise AssertionError
         return float(redundancy_fn_or_matrix(i, j))
 
     target_k = min(k, n)

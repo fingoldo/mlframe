@@ -99,9 +99,11 @@ def run():
             t_old, r_old = best_of(old_fn)
             t_new, r_new = best_of(new_fn)
             if check:
-                assert np.allclose(r_old, r_new), f"{name}: NEW result diverges from OLD at n_groups={n_groups}"
+                if not (np.allclose(r_old, r_new)):
+                    raise AssertionError(f"{name}: NEW result diverges from OLD at n_groups={n_groups}")
             else:
-                assert abs(r_old - r_new) < 1e-12, f"{name}: NEW result diverges from OLD at n_groups={n_groups}"
+                if not (abs(r_old - r_new) < 1e-12):
+                    raise AssertionError(f"{name}: NEW result diverges from OLD at n_groups={n_groups}")
             print(f"  {name:24s} n_groups={n_groups:>5} items/grp={items_per_group}: OLD {t_old*1e3:8.3f}ms  NEW {t_new*1e3:8.3f}ms  speedup {t_old/t_new:6.2f}x")
 
 
