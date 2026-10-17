@@ -50,7 +50,7 @@ def fused_gate_mi(d_disc, nbins_arr, d_nb, d_y, d_freq, freqs_y, n, K, K_y, P, t
         fy = np.asarray(freqs_y, dtype=np.float64)
         fy = fy[fy > 0]
         h_y = float(-(fy * np.log(fy)).sum())
-        _FUSED_KERNEL[(K, P), int(threads), 0, sh_bytes](d_cm, d_nb, d_y, d_freq, n, K_y, d_ref, d_out, h_y, bool(use_su))  # type: ignore[index]  # numba cuda launch syntax
+        _FUSED_KERNEL[(K, P), int(threads), 0, sh_bytes](d_cm, d_nb, d_y, d_freq, n, K_y, d_ref, d_out, h_y, bool(use_su))
         return np.asarray(d_out.copy_to_host())
     except Exception:
         logger.warning("fused noise-gate kernel failed; using the two-kernel gate", exc_info=True)

@@ -393,13 +393,13 @@ def _reduce_counts_on_device(mi_kernel, su_kernel, blocks, threads, d_counts, d_
     """Launch the MI reduction over the resident joint counts, or the symmetric-uncertainty reduction when ``su_kernel`` is given (it also takes ``H(y)``, which is
     the same for every permutation: a permutation keeps the class frequencies)."""
     if su_kernel is None:
-        mi_kernel[blocks, threads](d_counts, d_off, d_nb, d_freq, n, K_y, d_ref, total_size, P, d_out)  # type: ignore[index]  # numba cuda kernel[grid, block] launch syntax
+        mi_kernel[blocks, threads](d_counts, d_off, d_nb, d_freq, n, K_y, d_ref, total_size, P, d_out)
         return
     # Intentional float64: target entropy, the same value the host reduction uses
     fy = np.asarray(freqs_host, dtype=np.float64)
     fy = fy[fy > 0]
     h_y = float(-(fy * np.log(fy)).sum())
-    su_kernel[blocks, threads](d_counts, d_off, d_nb, d_freq, n, K_y, d_ref, total_size, P, d_out, h_y)  # type: ignore[index]  # numba cuda kernel[grid, block] launch syntax
+    su_kernel[blocks, threads](d_counts, d_off, d_nb, d_freq, n, K_y, d_ref, total_size, P, d_out, h_y)
 
 
 @njit(nogil=True, cache=True)

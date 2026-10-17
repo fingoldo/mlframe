@@ -425,7 +425,10 @@ def _hybrid_modular_fe_gate_first(X, y, src_cols, chunk, periods, top_k, n_boot,
 
     if not any(float(p) > 0.0 for p in periods):
         return X.copy(deep=False), pd.DataFrame()
-    codes, nxs, names, base_parts = [], [], [], []
+    codes: list = []
+    nxs: list = []
+    names: list = []
+    base_parts: list = []
     source_of: dict = {}
     periods_pos = [float(p) for p in periods if float(p) > 0.0]
     for c0 in range(0, len(src_cols), chunk):

@@ -236,7 +236,7 @@ def family_null_max(cols: np.ndarray, n_x: np.ndarray, y: np.ndarray, n_y: int, 
         if want_device:
             dev_bits = _device_bitsets(bit_prep, n_x, int(y.shape[0]))
     use_device = want_device and bit_prep is None and device_supported(n_x, int(n_y))
-    py_const = _label_const(bit_prep[0], y, int(n_y)) if dev_bits is not None else 0.0
+    py_const = _label_const(bit_prep[0], y, int(n_y)) if (dev_bits is not None and bit_prep is not None) else 0.0
     words = (int(y.shape[0]) + 63) // 64
     for start in range(0, int(n_perm), block):
         m = min(block, int(n_perm) - start)
