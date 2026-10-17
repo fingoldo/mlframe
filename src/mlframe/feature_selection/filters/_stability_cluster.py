@@ -223,7 +223,7 @@ def cluster_stability_selection(
     cluster_sel_freq = np.zeros(n_clusters, dtype=np.float64)
     feat_sel_freq = np.zeros(p, dtype=np.float64)
     half = n // 2
-    # 2026-06-03 (audit hierarchy-stability-9): divide frequencies by the number
+    # divide frequencies by the number
     # of SUCCESSFUL bootstraps, not the nominal ``n_bootstrap``. A selector_fn
     # that raises is silently ``continue``d; dividing by the nominal count then
     # scales every frequency by (n_success / n_bootstrap), systematically
@@ -282,7 +282,7 @@ def cluster_stability_selection(
         "n_kept_clusters": int(kept_clusters.size),
         "cluster_sel_freq": cluster_sel_freq.tolist(),
         "feat_sel_freq": feat_sel_freq.tolist(),
-        # 2026-06-03 (audit hierarchy-stability-9): effective subsample count
+        # effective subsample count
         # the frequencies (and the advertised bound) are actually based on.
         "n_effective": int(n_success),
         "n_failed": int(n_failed),
@@ -321,14 +321,14 @@ def complementary_pairs_stability(
     half = n // 2
     pair_complementary = np.zeros(p, dtype=np.float64)
     union_freq = np.zeros(p, dtype=np.float64)
-    # 2026-06-03 (audit hierarchy-stability-9): count SUCCESSFUL pairs so the
+    # count SUCCESSFUL pairs so the
     # frequencies divide by the effective sample size (see the cluster variant).
     n_success = 0
     n_failed = 0
     for _b in range(int(n_pairs)):
         idx = rng.permutation(n)
         idx_b = idx[:half]
-        # 2026-06-03 (audit hierarchy-stability-8): the complement must be the
+        # the complement must be the
         # REST of the permutation (idx[half:]), not idx[half:2*half]. For odd n
         # the latter drops the middle row, so the two halves are not a true
         # partition of the sample - violating the complementary-pair structure
@@ -377,7 +377,7 @@ def complementary_pairs_stability(
         "n_pairs": int(n_pairs),
         "pair_complementary_freq": pair_complementary.tolist(),
         "union_freq": union_freq.tolist(),
-        # 2026-06-03 (audit hierarchy-stability-9): effective pair count.
+        # effective pair count.
         "n_effective": int(n_success),
         "n_failed": int(n_failed),
     }

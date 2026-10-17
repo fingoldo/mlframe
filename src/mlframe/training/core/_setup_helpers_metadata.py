@@ -23,6 +23,7 @@ from ._setup_helpers_pipeline_cache import (
     pipeline_roundtrip_lookup,
     pipeline_roundtrip_store,
 )
+from mlframe.utils.log_throttle import log_throttle
 
 if TYPE_CHECKING:
     from ..configs import (  # noqa: F401
@@ -174,7 +175,7 @@ def _finalize_and_save_metadata(ctx: "TrainingContext", *, verbose: int | None =
                             _PdsPipeline.from_json(_js)
                             _rt_ok = True
                         except Exception as e:
-                            logger.debug("pipeline JSON round-trip check failed: %s", e)
+                            log_throttle(logger, "_setup_helpers_metadata._finalize_and_save_metadata", logging.WARNING, "pipeline JSON round-trip check failed: %s", e)
                             _rt_ok = False
                         pipeline_roundtrip_store(_js_hash, _rt_ok)
                         _persist_pipeline_disk_cache()

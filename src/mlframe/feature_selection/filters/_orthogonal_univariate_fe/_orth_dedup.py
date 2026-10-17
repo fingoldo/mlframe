@@ -447,7 +447,7 @@ def _dedup_collinear_source_cols(
         # cls == "partial_nan": vectorized lookups against kept dense + kept partial.
         p = partial_pos[i]
         assert pc_pd is not None and pc_pp is not None  # this "partial_nan" cls only occurs when partial_order was non-empty, which set both
-        is_dup = _hits(pc_pd[p], kept_dense_rows) or _hits(pc_pp[p], kept_partial_pos)
+        is_dup = True if _hits(pc_pd[p], kept_dense_rows) else _hits(pc_pp[p], kept_partial_pos)
         if not is_dup:
             kept.append(c)
             kept_partial_pos.append(p)

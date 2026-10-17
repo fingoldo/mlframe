@@ -471,7 +471,7 @@ def _compute_pipeline_cache_key(
             if _canon_pairs:
                 _dtype_suffix = f"_dt{hashlib.blake2b(repr(_canon_pairs).encode(), digest_size=6).hexdigest()}"
         except Exception as e:
-            logger.debug("dtype-suffix computation failed, leaving it empty: %s", e)
+            log_throttle(logger, "_phase_train_one_target._compute_pipeline_cache_key", logging.WARNING, "dtype-suffix computation failed, leaving it empty: %s", e)
             _dtype_suffix = ""
     _target_suffix = ""
     if pre_pipeline_name and (target_name is not None or train_target is not None):
@@ -651,3 +651,4 @@ from ._phase_train_one_target_helpers import (  # noqa: F401
     _maybe_run_feature_handling_apply,
 )
 from ._phase_train_one_target_body import _train_one_target  # noqa: F401
+from mlframe.utils.log_throttle import log_throttle

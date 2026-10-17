@@ -208,7 +208,7 @@ def mixed_ksg_mi(x: np.ndarray, y: np.ndarray, k: int = 5, use_gpu: bool = False
     n = x.size
     if n < 2 * k + 2:
         return 0.0
-    # 2026-05-29 stress-bench fix: KDTree is O(N log N) for build + O(N log N)
+    # stress-bench fix: KDTree is O(N log N) for build + O(N log N)
     # for query but the constant is large; at N=100k each call is ~10s, at
     # N=1M extrapolating ~100s. Sub-sample to ``max_input_n`` so MRMR's
     # 100x100 pair loop stays tractable on million-row datasets. The bench
@@ -425,7 +425,7 @@ def ksg_lnc_mi(
     n = x.size
     if n < 2 * k + 2:
         return 0.0
-    # 2026-05-29 fix: low-entropy pre-filter.
+    # fix: low-entropy pre-filter.
     # On binary / few-class y the local PCA inside the LNC correction sees
     # collapsing eigenstructure (most neighbours share y), inflating the
     # log(box / pca_box) term and producing a NON-zero MI on truly random
@@ -474,7 +474,7 @@ def ksg_lnc_mi(
 # =============================================================================
 # (removed) ColumnKNNCache
 # -----------------------------------------------------------------------------
-# A per-column ``np.sort`` cache was removed 2026-06-23: it was never consumed
+# A per-column ``np.sort`` cache was removed: it was never consumed
 # (no caller in the tree) and was unwireable into the actual hot path without
 # changing MI values. The pair MI cost is dominated by the JOINT (x, y) KDTree,
 # which is irreducibly per-pair and not cacheable per column. The only

@@ -356,7 +356,7 @@ def compute_model_input_fingerprint(
             else:
                 dt = df_at_fit[col].dtype
         except Exception as e:
-            logger.debug("failed to read dtype for column %r, using placeholder '?' in the fingerprint schema: %s", col, e)
+            log_throttle(logger, "utils.compute_model_input_fingerprint", logging.WARNING, "failed to read dtype for column %r, using placeholder '?' in the fingerprint schema: %s", col, e)
             dt = "?"
         if col in cat_set:
             role = "cat"
@@ -579,7 +579,7 @@ def get_pandas_view_of_polars_df(
             if _result is not None:
                 return _result
 
-        # iter354 (2026-05-27) size-aware dispatcher: the pyarrow-Table +
+        # iter354 size-aware dispatcher: the pyarrow-Table +
         # per-column-cast path below is 9.5x faster than ``df.to_pandas()`` for
         # numeric-heavy frames (200k x 30 float64: 13.3ms -> 1.4ms) but 2.4x
         # SLOWER for SMALL frames dominated by polars Categorical / Enum
@@ -637,7 +637,7 @@ def get_pandas_view_of_polars_df(
 
         # Diagnostic: warn on nested Polars types that pyarrow's default
         # ``to_pandas()`` materializes as ``object`` dtype with Python list/
-        # dict elements (2026-04-19 probe finding). Downstream CatBoost's
+        # dict elements (probe finding). Downstream CatBoost's
         # embedding_features fastpath expects numeric vectors, not object
         # dtype with list elements, and fails at model.fit() with an opaque
         # "expected numeric" error. Warn here so the operator traces back
@@ -646,7 +646,7 @@ def get_pandas_view_of_polars_df(
         # other callers (logging, post-hoc analysis) legitimately want
         # list-typed columns pass-through.
         #
-        # Noise-dedupe (2026-04-19 round-11): the bridge is called many
+        # Noise-dedupe (round-11): the bridge is called many
         # times per training run (train / val / test x per-model), and a
         # frame with embedding features would emit the same WARN every call.
         # Fire at most once per unique (column-name, dtype-str) tuple set
@@ -683,7 +683,7 @@ def get_pandas_view_of_polars_df(
         df = _remap_polars_categoricals(df)
         tbl = df.to_arrow()
 
-        # Note: short-circuit on "no dictionary columns" was benchmarked 2026-04-14 and
+        # Note: short-circuit on "no dictionary columns" was benchmarked and
         # delivered only 1.16x on pure-numeric workloads (below 1.2x threshold), so the
         # per-column scan is retained for code uniformity.
         # polars Enum is ordered, but older polars (1.36) hands Arrow an unordered dictionary for it; the order is restored from the source dtype.
@@ -693,7 +693,7 @@ def get_pandas_view_of_polars_df(
             if pa.types.is_dictionary(col.type) and (col.type.index_type != pa.int32() or (name in enum_cols and not col.type.ordered)):
                 # Whole-ChunkedArray cast: ~5.5x faster than the prior per-chunk
                 # ``pa.compute.cast(chunk.indices, ...)`` + ``DictionaryArray.from_arrays``
-                # rebuild loop on 1M-row x 3-col frames (microbench 2026-05-20:
+                # rebuild loop on 1M-row x 3-col frames (microbench:
                 # 8.20ms -> 1.48ms). PyArrow's C++ cast dispatches index narrowing
                 # once per array instead of once per chunk + Python-level chunk
                 # rewrap, and preserves the dictionary buffer by reference. The
@@ -707,7 +707,7 @@ def get_pandas_view_of_polars_df(
 
         # Capture which Arrow columns were bool BEFORE to_pandas(). Nullable Boolean
         # columns (those with any null) materialize as pandas ``object`` dtype with
-        # Python True/False/None elements -- verified empirically 2026-04-23 against
+        # Python True/False/None elements -- verified against
         # pyarrow 21 on Polars 1.37. This breaks LightGBM's sklearn wrapper, which
         # refuses ``object`` dtypes (``ValueError: pandas dtypes must be int, float
         # or bool``). Non-null Boolean stays as numpy ``bool``. We post-process only
@@ -740,11 +740,11 @@ def get_pandas_view_of_polars_df(
         #     codes representation, but that's the only unavoidable copy.
         #   * use_threads=True   -> parallel column materialization (default but
         #     stated explicitly so the contract is visible).
-        #   * self_destruct=False (default) -> SAFE. Tested 2026-04-22: enabling
+        # * self_destruct=False (default) -> SAFE. Tested: enabling
         #     self_destruct=True caused a native crash inside pytest during the
         #     integration suite -- pyarrow's "EXPERIMENTAL" warning was no joke.
         #     The 26% extra speedup is not worth the segfault risk; opt-in only.
-        # Bench (2026-04-22, 7.3M x 118 with 18 dict cols):
+        # Bench (7.3M x 118 with 18 dict cols):
         #   default                          30.06s   (1x)
         #   use_threads only                  2.10s   (14x)
         #   +split_blocks                     0.95s   (32x)  <- default
@@ -756,7 +756,7 @@ def get_pandas_view_of_polars_df(
         )
 
         # Coerce object-materialized nullable Boolean -> pandas Int8 with ``pd.NA``.
-        # Verified 2026-04-23 that Int8/``pd.NA`` is accepted by all three tree
+        # Verified that Int8/``pd.NA`` is accepted by all three tree
         # backends (LightGBM 4.6, XGBoost 3.2, CatBoost 1.2.10); pandas nullable
         # ``boolean`` is rejected by CatBoost ("Cannot convert <NA> to float") so we
         # avoid it. Non-null Boolean already came out as numpy ``bool`` and is left

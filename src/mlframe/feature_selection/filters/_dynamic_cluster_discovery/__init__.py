@@ -48,7 +48,7 @@ _DCD_PAIRWISE_CACHE_HARD_CAP = 2_000_000
 
 
 # =============================================================================
-# Thread-local toggle (matches Wave 8 SU/JMIM/BUR pattern at info_theory.py:282)
+# Thread-local toggle (matches the SU/JMIM/BUR pattern at info_theory.py:282)
 # =============================================================================
 
 
@@ -154,7 +154,7 @@ class DCDState:
     # - tunables (forwarded from MRMR ctor) -
     tau_cluster: float = 0.7
     distance: str = "su"
-    # 2026-05-31 Layer 42: default held at 4 (members beyond anchor) pending
+    # Layer 42: default held at 4 (members beyond anchor) pending
     # the post-swap aggregate -> _engineered_recipes_ wiring. Lowering to 2
     # actually triggers the PC1 swap on the 3-feature redundancy cluster
     # (anchor + 2 dups, the production-canonical pattern), but commit_swap
@@ -170,7 +170,7 @@ class DCDState:
     min_cluster_size: int = 2
     max_cluster_size: int = 12
     swap_alpha: float = 0.05  # permutation-null p-value threshold for swap accept
-    # 2026-06-03 (audit dcd-core-1 / dcd-swap-null-1/2): the swap permutation
+    # the swap permutation
     # null needs its OWN draw count, decoupled from the screening-confidence
     # ``full_npermutations`` (MRMR default 3). At B=3 the smallest attainable
     # p-value is (0+1)/(3+1)=0.25, so ``perm_p_value < swap_alpha`` (0.05) was
@@ -445,7 +445,7 @@ def make_dcd_state(
         # half of that loop; users wanting cross-run persistence should run
         # the dedicated calibration bench and write a single regions entry.
         return state
-    # Wave 9.1: kernel_tuning_cache override for ``tau_cluster`` when the
+    # kernel_tuning_cache override for ``tau_cluster`` when the
     # constructor-supplied value is the dev-machine default 0.7. Lets
     # per-host calibration kick in without code edits while preserving
     # user-pinned overrides.

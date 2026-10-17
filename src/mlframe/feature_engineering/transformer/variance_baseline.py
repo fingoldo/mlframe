@@ -87,8 +87,8 @@ def compute_variance_baseline_features(
 
         log_sigma2 = np.log(sigma2_query)
         sigma_sqrt = np.sqrt(sigma2_query)
-        snr_proxy = (mu_query / (sigma_sqrt + 1e-9)).astype(np.float32)
-        global_var = float(y_t.var()) + 1e-9
+        snr_proxy = (mu_query / np.maximum(sigma_sqrt, 1e-9)).astype(np.float32)
+        global_var = max(float(y_t.var()), 1e-9)
         rel_sigma2 = (sigma2_query / global_var).astype(np.float32)
 
         return np.column_stack([mu_query, sigma2_query, log_sigma2, snr_proxy, rel_sigma2])

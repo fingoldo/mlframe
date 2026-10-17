@@ -117,7 +117,7 @@ def _topk_proximity(S_query: sp.csr_matrix, S_bank: sp.csr_matrix, k: int) -> tu
 
 def _softmax_aggregate(topk_ids: np.ndarray, topk_sims: np.ndarray, y_bank: np.ndarray, softmax_temp: float) -> tuple[np.ndarray, np.ndarray]:
     """Softmax over top-k similarities, then weighted y_mean and y_std."""
-    logits = topk_sims / (softmax_temp + 1e-9)
+    logits = topk_sims / max(softmax_temp, 1e-9)
     logits -= logits.max(axis=1, keepdims=True)
     weights = np.exp(logits)
     weights /= weights.sum(axis=1, keepdims=True)

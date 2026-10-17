@@ -129,7 +129,7 @@ def _confirm_pairs_bandit_ucb1(
     # permutations per pair via ``_bulk_shuffle_and_compute_three_mis`` (prange
     # over independent shuffles, each with its own LCG state + local Y buffer);
     # ~6x faster on 8 cores vs the serial _step_pair loop on n=200k, K=10/5/5/3
-    # (bench 2026-05-20). Phase 2 still uses _step_pair because UCB1 needs the
+    # (bench). Phase 2 still uses _step_pair because UCB1 needs the
     # latest result to pick the next allocation.
     _phase1_base_seed = np.uint64(0xC0FFEE)
     for j, k in enumerate(selected_idx):

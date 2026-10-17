@@ -39,7 +39,7 @@ logger = logging.getLogger(__name__)
 _isfinite = math.isfinite
 
 
-# Wave 100 (2026-07-11): the percentile/BCa CI reducer + all four jackknife estimators (~240 lines,
+# the percentile/BCa CI reducer + all four jackknife estimators (~240 lines,
 # including their algorithmic-derivation docstrings) moved to sibling file _bootstrap_jackknife.py to
 # drop this file below the 1k-line monolith threshold. Re-imported below so the rest of this module and
 # existing external callers (`from mlframe.evaluation.bootstrap import _jackknife_metric`, etc.) keep

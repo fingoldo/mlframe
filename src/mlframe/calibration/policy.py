@@ -631,7 +631,8 @@ def _emit_reliability_plot(
         logger.warning("pick_best_calibrator: reporting stack unavailable; skipping reliability plot: %s", exc)
         return None
     try:
-        os.makedirs(os.path.dirname(os.path.abspath(plot_path)) or ".", exist_ok=True)
+        _plot_dir = os.path.dirname(os.path.abspath(plot_path))
+        os.makedirs(_plot_dir if _plot_dir != "" else ".", exist_ok=True)
     except OSError as exc:
         logger.warning("pick_best_calibrator: could not create plot dir for %s: %s", plot_path, exc)
         return None

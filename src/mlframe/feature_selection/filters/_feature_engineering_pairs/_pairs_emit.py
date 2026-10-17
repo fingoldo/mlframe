@@ -130,11 +130,11 @@ def _apply_pair_family_floor(valid_pairs_perf, classes_y, n_bins, n_rows, k_tota
     best = max(float(v) for v in valid_pairs_perf.values())
     table_floor = pair_search_floor(int(n_rows), classes_y, int(n_bins), int(k_total))
     if table_floor is not None and best <= table_floor:
-        for cfg in valid_pairs_perf:
+        for cfg in list(valid_pairs_perf):  # a snapshot of the keys, so rewriting values can never be mistaken for resizing the dict
             valid_pairs_perf[cfg] = 0.0
 
 
-def apply_pair_family_gate_from_state(st, classes_y, n_bins, alpha=0.01) -> bool:
+def apply_pair_family_gate_from_state(st: _SimpleNamespace, classes_y: np.ndarray, n_bins: int, alpha: float = 0.01) -> bool:
     """Family-wise gate over every configuration of the current pair, read from the pair state. Returns True when the gate rejected the winner
     (the caller must then emit nothing for this pair)."""
     codes = st.__dict__.get("var_pairs_codes") or {}
@@ -500,11 +500,11 @@ def _emit_pair_features_step4_deterministic_name_tie(
         name_cache=_name_cache,
     )
     if _winner is not None:
+        this_pair_features.add((_winner, 0))
         if verbose:
             messages.append(
                 f"{_cached_name(_winner)} is recommended to use as a new feature! (best of {len(leading_features)} near-equivalent leaders) best_mi={best_mi:.4f}, pair_mi={pair_mi:.4f}, rat={best_mi/pair_mi:.4f}"
             )
-        this_pair_features.add((_winner, 0))
 
 
 def _emit_pair_features_step1_st_simplenamespace_long(
@@ -719,7 +719,7 @@ def _emit_pair_features_step3_pair_features(
         # Pack each (config, j) into a compact column index
         # ``idx = 0..len(this_pair_features)-1`` instead.
         #
-        # 2026-06-01 (ROOT CAUSE 5 fix): materialise the survivor
+        # materialise the survivor
         # columns whenever FE runs (``fe_max_steps >= 1``), not only on
         # multi-step (``> 1``). Previously, with the default
         # ``fe_max_steps=1`` the recommended features were LOGGED but

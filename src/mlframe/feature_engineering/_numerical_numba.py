@@ -18,7 +18,7 @@ __all__ = [
     "compute_moments_slope_mi",
 ]
 
-# 2026-05-21: NUMBA_NJIT_PARAMS + the numeric constants used inside the
+# NUMBA_NJIT_PARAMS + the numeric constants used inside the
 # njit kernels (LARGE_CONST, GEOMEAN_OVERFLOW_HI/LO, distributions) live
 # in the parent ``numerical`` module. That module imports us from L272
 # AFTER it has defined all of these at L83-128, so by the time Python

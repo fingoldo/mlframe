@@ -76,7 +76,7 @@ def _radix_select_interior_edges(cand_gpu, nbins: int, cm_hint=None, with_extrem
     # ALL of the order-statistic geometry (ranks, R, shared-mem gate, the cupy 'linear' interp gathers bi/ai/w,
     # the device rank vector ranks_g) depends ONLY on (n, nbins) - NOT the candidate data - so compute it ONCE
     # per (n, nbins) and cache it. Was recomputed on EVERY per-candidate call (~11.6k x on the FE pair scan): the
-    # np.unique host sort (cProfile 2026-07-01: 12,149 calls / 4.05s = the top host-CPU cost on this path), the
+    # np.unique host sort (cProfile: 12,149 calls / 4.05s = the top host-CPU cost on this path), the
     # linspace/floor, the per-call device-attribute lookup, AND the ranks H2D - all data-independent. A cached
     # None records the "radix inapplicable" verdict (R over the kernel cap / shared-mem over the device limit) so
     # the caller's cp.percentile fallback is taken without recomputing. Selection-IDENTICAL: same ranks -> same
@@ -122,7 +122,7 @@ def _radix_select_interior_edges(cand_gpu, nbins: int, cm_hint=None, with_extrem
     if _ic is None:
         return None  # cached: radix inapplicable -> cp.percentile
     bi, ai, w, ranks_g, R, shmem = _ic
-    # COLUMN-MAJOR input (nvprof-driven, 2026-06-20): one block/column previously read data[i*K+col] from
+    # COLUMN-MAJOR input (nvprof-driven): one block/column previously read data[i*K+col] from
     # the (n,K) row-major buffer -> stride-K, gld_efficiency 12.5% (1/8 coalesced) on the dominant n-loop
     # (4 byte-passes x n reads). Transpose to (K,n) C-order so consecutive threads read consecutive memory
     # (data[col*n+i]) - one transpose pass buys ~8x coalescing across the 4 passes. Values unchanged ->
@@ -134,7 +134,7 @@ def _radix_select_interior_edges(cand_gpu, nbins: int, cm_hint=None, with_extrem
     elif cm_hint is not None and cm_hint.shape == (K, n) and cm_hint.flags.c_contiguous and cm_hint.dtype == cand_gpu.dtype:
         data_cm = cm_hint
     elif cm_hint is not None and cm_hint.shape == (K, n) and cm_hint.flags.c_contiguous and cm_hint.dtype == cp.float32 and cand_gpu.dtype == cp.float64:
-        # STRICT-f64 fusion recovery (2026-07-02, nsys-driven): under MLFRAME_FE_GPU_BINNING_DTYPE=float64 the
+        # STRICT-f64 fusion recovery (nsys-driven): under MLFRAME_FE_GPU_BINNING_DTYPE=float64 the
         # discretize sibling upcasts the f32 materialise output to f64 (cand_gpu.astype(f64)) BEFORE calling in,
         # so the f32 cm_hint's dtype no longer equals cand_gpu's and the launch-fusion above was SILENTLY
         # defeated -> a full transpose_f64 of the (n,K) f64 cand ran EVERY block (nsys F2 1M STRICT: transpose_f64
@@ -180,7 +180,7 @@ def _radix_select_interior_edges(cand_gpu, nbins: int, cm_hint=None, with_extrem
     # it (bit-identical order statistics, less warp divergence; base linear-scan = fallback). f64 unchanged.
     ker = _get_radix_select_f32_dispatch(n) if is_f32 else _get_radix_select_kernel(is_f32)
     ker((K,), (threads,), (data_cm, np.int64(n), np.int32(K), ranks_g, np.int32(R), osv), shared_mem=shmem)
-    # FUSED interpolation (launch-reduction, 2026-06-25): the two fancy-index gathers + diff + cp.where
+    # FUSED interpolation (launch-reduction): the two fancy-index gathers + diff + cp.where
     # linear-interp collapse into ONE RawKernel that reads the two order-statistic rows from ``osv`` and writes
     # the (nbins-1, K) interior edges directly. Bit-identical to the cupy 'linear' interp (same f64 formula).
     osv64 = osv if osv.dtype == cp.float64 else osv.astype(cp.float64)

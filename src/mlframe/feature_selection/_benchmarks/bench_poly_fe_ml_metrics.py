@@ -42,7 +42,7 @@ from typing import Optional
 import numpy as np
 from mlframe.utils.gpu_sync import synchronize_gpu_if_available
 
-# Wave 87 (2026-05-21): module-level filter removed; gated under __main__ below.
+# module-level filter removed; gated under __main__ below.
 
 
 def _load_california(n_subsample: Optional[int] = 4000, seed: int = 42):

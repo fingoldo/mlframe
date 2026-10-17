@@ -82,7 +82,7 @@ def _paired_bootstrap_vs_runner_up(
     series = table[ref_col].dropna()
     if strongest not in series.index or len(series) < 2:
         return None
-    # Wave 20 fix: registry dispatcher (same shape as _pick_strongest above).
+    # registry dispatcher (same shape as _pick_strongest above).
     from ..metrics_registry import metric_name_higher_is_better as _mhb
     _direction = _mhb(primary_metric)
     minimize = True if _direction is None else (not _direction)

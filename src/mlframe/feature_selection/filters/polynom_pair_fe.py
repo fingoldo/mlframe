@@ -102,7 +102,7 @@ def run_polynom_pair_fe(
     # train-time precision is lost. 0 = use full data (legacy).
     subsample_n: int = 0,
     subsample_seed: int = 42,
-    # STRATIFIED SUBSAMPLE (R1, 2026-06-18). When True the per-pair inner-search subsample below
+    # STRATIFIED SUBSAMPLE (R1). When True the per-pair inner-search subsample below
     # draws a TARGET-STRATIFIED set of rows (per-class proportional for classification, y-quantile
     # for regression) instead of the plain uniform ``rng.choice``, so the CMA/Optuna inner MI is
     # evaluated on a slice that retains rare classes / target tails. False (default) keeps the
@@ -114,7 +114,7 @@ def run_polynom_pair_fe(
     # the polynom path scores the SAME rows as the pair-search / sufficiency floor (one draw per fit).
     # ``None`` keeps the legacy per-pair uniform/stratified draw below.
     shared_subsample_idx: np.ndarray | None = None,
-    # 2026-06-02 CHEAP-FIRST DISPATCH: the expensive CMA/Optuna orthogonal-poly
+    # CHEAP-FIRST DISPATCH: the expensive CMA/Optuna orthogonal-poly
     # search only earns its cost on pairs whose signal a trivial library
     # unary/binary feature CANNOT already capture (non-monotone inners like
     # ``a**3-2a`` -> trivial MI << joint ceiling). When the cheap trivial
@@ -192,7 +192,7 @@ def run_polynom_pair_fe(
         fe_smart_polynom_optimization_steps, st._polynom_n_jobs,
     )
 
-    # 2026-05-22 loky-memmap fix: convert X to a single contiguous ndarray
+    # loky-memmap fix: convert X to a single contiguous ndarray
     # ONCE so joblib can memmap it across loky workers. The previous
     # closure-captured X path would have cloudpickled the full 4M-row
     # frame INTO each worker (16 workers x ~432MB = ~7GB IPC traffic on
@@ -280,7 +280,7 @@ def _run_polynom_pair_fe_step2_existing_np_memmap(_uncoercible, shared_subsample
             return None
         if np.std(vals_a_full) < 1e-12 or np.std(vals_b_full) < 1e-12:
             return None
-        # 2026-05-18 subsample for CMA-ES inner search. Final transform on
+        # subsample for CMA-ES inner search. Final transform on
         # FULL source array preserves precision; only the optimiser's MI
         # evaluation uses the slice.
         _poly_shared_idx = None
@@ -314,7 +314,7 @@ def _run_polynom_pair_fe_step2_existing_np_memmap(_uncoercible, shared_subsample
             vals_a_sub = vals_a_full
             vals_b_sub = vals_b_full
             classes_y_sub = y_arr
-        # 2026-05-20 NEW-A: compute trivial baseline ONCE per pair (was
+        # NEW-A: compute trivial baseline ONCE per pair (was
         # silently re-computed once per ``fe_smart_polynom_iters`` restart
         # inside ``optimise_hermite_pair``). On the n=200k production
         # config ``best_trivial_pair`` is ~50-150ms; with the default
@@ -445,11 +445,11 @@ def _run_polynom_pair_fe_step2_existing_np_memmap(_uncoercible, shared_subsample
 def _run_polynom_pair_f_poly_t0_time_perf(_polynom_n_jobs, _n_pairs_to_eval, verbose, _pair_keys, _eval_one_pair, X_ndarr, classes_y, _fe_deadline_value, fe_min_engineered_mi_prevalence, cols, quantization_nbins, quantization_method, quantization_dtype, is_polars_input, X, pl, engineered_features, hermite_features_list, engineered_recipes, data, nbins, poly_cheap_skip_ratio, rejection_records=None):
     """Block of run_polynom_pair_fe starting at ``_poly_t0 = time.perf_counter()``."""
     _poly_t0 = time.perf_counter()
-    # 2026-05-18 threshold: at n=1M, 15 pairs, joblib worker spin-up
+    # threshold: at n=1M, 15 pairs, joblib worker spin-up
     # exceeded the per-pair work (11s parallel vs 5.75s serial). At 50+
     # pairs (typical 10-feature problem) parallel wins.
     #
-    # 2026-05-22 backend FIX: prior ``backend="threading"`` left only one
+    # backend FIX: prior ``backend="threading"`` left only one
     # CPU core busy in prod because the per-pair work spends most time
     # inside Optuna's TPE/RandomSampler decision loop - pure-Python,
     # holds GIL. 16 threading workers serialised behind the GIL gave
@@ -475,7 +475,7 @@ def _run_polynom_pair_f_poly_t0_time_perf(_polynom_n_jobs, _n_pairs_to_eval, ver
         # ``initializer=disable_cuda_in_worker`` forces every loky worker CPU-ONLY
         # (CUDA_VISIBLE_DEVICES="") so it does NOT grab its own ~250 MB cupy CUDA
         # context - 16 worker contexts filled a 4 GB card and stalled the search
-        # ~2h (see the shared helper's docstring, 2026-07-05). We build a
+        # ~2h (see the shared helper's docstring). We build a
         # ``LokyBackend`` instance instead of passing ``backend="loky"`` + kwargs to
         # ``Parallel`` because in joblib 1.5.x the ``initializer`` (and even
         # ``inner_max_num_threads``) are ONLY honoured when set on the backend
@@ -500,7 +500,7 @@ def _run_polynom_pair_f_poly_t0_time_perf(_polynom_n_jobs, _n_pairs_to_eval, ver
             idle_worker_timeout=POLYNOM_LOKY_IDLE_WORKER_TIMEOUT,
         )
         try:
-            # Fallback to the exact serial path on ANY dispatch failure (2026-07-10 fix; reproduced
+            # Fallback to the exact serial path on ANY dispatch failure (fix; reproduced
             # live at n=3M production scale on a small-VRAM card). A GPU OOM earlier in the SAME fit
             # can leave the main process's CUDA context in a poisoned state; cloudpickle serializing
             # the task closure then fails with ``_pickle.PicklingError`` (CUDADriverError as its

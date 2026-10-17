@@ -56,7 +56,7 @@ def _reject_unscored_specs(self, kept_specs: list, agg_scores: list) -> tuple[li
             kept.append(spec)
             scores.append(score)
             continue
-        logger.warning("[CompositeTargetDiscovery] rejecting %s: its tiny-CV score is %s (the CV failed in every family).", spec.name, score)
+        log_throttle(logger, "composite_tiny_rerank_reject", logging.WARNING, "[CompositeTargetDiscovery] rejecting %s: its tiny-CV score is %s (the CV failed in every family).", spec.name, score)
         ledger_append(
             self, spec_name=spec.name, stage=RejectStage.TINY_RERANK_THRESHOLD,
             reason=f"tiny-rerank CV-RMSE is {score} (failed in every family or collapsed)",

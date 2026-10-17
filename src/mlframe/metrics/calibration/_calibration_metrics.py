@@ -431,7 +431,9 @@ def compute_ece_brier_full_and_debiased(
 
 
 @numba.njit(**NUMBA_NJIT_PARAMS)
-def fast_calibration_metrics(y_true: np.ndarray, y_pred: np.ndarray, nbins: int = 100, use_weights: bool = False, verbose: int = 0):
+def fast_calibration_metrics(
+    y_true: np.ndarray, y_pred: np.ndarray, nbins: int = 100, use_weights: bool = False, verbose: int = 0
+) -> tuple[float, float, float]:
     """One-shot calibration MAE/STD/coverage: bin ``(y_true, y_pred)`` into ``nbins`` then reduce.
 
     Convenience wrapper that runs the equal-mass binning pass and feeds the per-bin frequencies to
@@ -441,7 +443,8 @@ def fast_calibration_metrics(y_true: np.ndarray, y_pred: np.ndarray, nbins: int 
     freqs_predicted, freqs_true, hits = _fast_calibration_binning_serial(y_true, y_pred, nbins)
     if verbose:
         print(freqs_predicted, freqs_true)  # noqa: T201 -- inside @njit nopython mode, logging isn't supported here
-    return calibration_metrics_from_freqs(freqs_predicted=freqs_predicted, freqs_true=freqs_true, hits=hits, nbins=nbins, use_weights=use_weights)
+    result: tuple[float, float, float] = calibration_metrics_from_freqs(freqs_predicted=freqs_predicted, freqs_true=freqs_true, hits=hits, nbins=nbins, use_weights=use_weights)
+    return result
 
 
 # Finite worst-case ICE for an input the metric cannot score. Finite because CatBoost refuses a non-finite custom

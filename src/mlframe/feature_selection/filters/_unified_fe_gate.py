@@ -319,7 +319,7 @@ def local_mi_gate(
         floor = raw_mi_noise_floor(raw_X, y, nbins=nbins, mad_mult=mad_mult, columns=raw_columns) if raw_X is not None else 0.0
     y_bin = _coerce_y_classes(y)
     arr = enc_df[cand_cols].to_numpy(dtype=_crit_np_dtype())
-    # NOTE (device-born gate, 2026-06-29): unlike the CONDITIONAL gate (whose tau-grid candidates are derived
+    # NOTE (device-born gate): unlike the CONDITIONAL gate (whose tau-grid candidates are derived
     # from a few RESIDENT operand columns and so can be built device-born, collapsing the host matrix upload),
     # ``local_mi_gate``'s candidates ARE the engineered ``enc_df`` block - arbitrary per-call columns with no
     # cacheable operand basis. Its single ``cp.asarray`` upload under the STRICT resident ``_mi_classif_batch``

@@ -54,8 +54,10 @@ if __name__ == "__main__":
 
     # identity
     o = old(); nw = new()
-    assert o[1] == nw[1], "signal parent sets differ"  # nosec B101 - internal invariant check in src/mlframe/feature_selection/_benchmarks, not reachable with untrusted input
-    assert o[0] == nw[0]  # nosec B101 - internal invariant check in src/mlframe/feature_selection/_benchmarks, not reachable with untrusted input
+    if not (o[1] == nw[1]):
+        raise AssertionError("signal parent sets differ")
+    if not (o[0] == nw[0]):
+        raise AssertionError
     print("identity OK")
 
     def bench(f, reps=200):

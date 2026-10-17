@@ -397,7 +397,7 @@ def _stage_conditional_dispersion(self, _fe_family_on, X, _y_np, _raw_input_cols
                 _y_for_cd = _y_np
                 _cd_cols = tuple(getattr(self, "fe_conditional_dispersion_cols", ()) or ())
                 _cd_cols = [c for c in _cd_cols if c in X.columns] or None  # type: ignore[assignment]
-                # RAW columns only (2026-06-10 fix, same class as the wavelet stage
+                # RAW columns only (fix, same class as the wavelet stage
                 # below): the all-numeric default scope over the already-augmented X
                 # builds dispersion features OF engineered columns -> nested recipes
                 # the 1-deep replay cannot order at transform() time (KeyError on the
@@ -863,7 +863,7 @@ def _stage_wavelet(self, _fe_family_on, _fe_budget_ok, X, _y_np, _raw_input_cols
                 _y_for_wv = _y_np
                 _wv_cols = tuple(getattr(self, "fe_wavelet_cols", ()) or ())
                 _wv_cols = [c for c in _wv_cols if c in X.columns] or None  # type: ignore[assignment]
-                # RAW columns only (2026-06-10 fix, mirrors the extra-basis stage's
+                # RAW columns only (fix, mirrors the extra-basis stage's
                 # guard at the hybrid_orth call above): by this point X is ALREADY
                 # augmented with poly/fourier/spline/hinge engineered columns, so the
                 # all-numeric default scope emitted NESTED recipes (e.g.
@@ -939,7 +939,7 @@ def _stage_rankgauss(self, _fe_family_on, X, _y_np, _raw_input_cols_pre_fe, _ran
                 _y_for_rg = _y_np
                 _rg_cols = tuple(getattr(self, "fe_rankgauss_cols", ()) or ())
                 _rg_cols = [c for c in _rg_cols if c in X.columns] or None  # type: ignore[assignment]
-                # RAW columns only (2026-06-10 fix, same class as the wavelet /
+                # RAW columns only (fix, same class as the wavelet /
                 # conditional-dispersion stages): keep rankgauss recipes 1-deep and
                 # replayable - never rank-Gaussianise an engineered column whose
                 # parent the transform()-time replay cannot materialise first.

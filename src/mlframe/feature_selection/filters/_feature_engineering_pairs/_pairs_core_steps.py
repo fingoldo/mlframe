@@ -30,6 +30,8 @@ from ._pairs_core_helpers import (  # noqa: F401  -- carved helpers
     _check_prospective__fitted_specs,
     _check_prospective__value_single_float_per,
 )
+import logging
+from mlframe.utils.log_throttle import log_throttle
 
 _DEGENERATE_REL_TOL = 32.0 * np.finfo(np.float64).eps
 
@@ -202,7 +204,7 @@ def _check_prospective_fe_step2_classes_codes_still(_corr_y_cont, _corr_y_cont_f
             # np.std + a 2x2 np.corrcoef (~23-35x on the 8k+ noise-wrap-gate calls); FP-equivalent to ~1e-15.
             return float(_abs_corr_finite_njit(_a, _corr_y_cont, _corr_y_cont_finite, 8))
         except Exception as e:
-            logger.debug("_safe_abs_corr: |corr| computation failed, treating as uncorrelated (0.0): %s", e)
+            log_throttle(logger, "_pairs_core_steps._safe_abs_corr", logging.WARNING, "_safe_abs_corr: |corr| computation failed, treating as uncorrelated (0.0): %s", e)
             return 0.0
 
     _safe_abs_corr.target = (_corr_y_cont, _corr_y_cont_finite)  # type: ignore[attr-defined]  # lets a device caller score a column against the same target without copying it
@@ -245,7 +247,7 @@ def _check_prospective_fe_step3_gpu_clock_variance(_operand_marginal_mi_cache, v
                 )
                 _mi_val = float(_m)
             except Exception as _mm_exc:
-                # FAIL-CLOSED (audit A3, 2026-06-13): the previous ``0.0`` was FAIL-OPEN - it fed
+                # FAIL-CLOSED (audit A3): the previous ``0.0`` was FAIL-OPEN - it fed
                 # the marginal-uplift gate's ``max(operand marginals)``, so a FAILED marginal on the
                 # operand that actually has the LARGER marginal would shrink that max and LOOSEN the
                 # admission bar (``best_nonprewarp_mi >= max_marginal * _FE_MARGINAL_UPLIFT_MIN_RATIO``),

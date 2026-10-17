@@ -55,6 +55,8 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
+import logging
+from mlframe.utils.log_throttle import log_throttle
 
 logger = _logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
@@ -121,7 +123,7 @@ def _operands_str(operands: Any) -> str:
             return "(" + ", ".join(str(o) for o in operands) + ")"
         return str(operands)
     except Exception as e:
-        logger.debug("_operands_str: could not stringify operand collection %r: %s", type(operands), e)
+        log_throttle(logger, "_fe_rejection_ledger._operands_str", logging.WARNING, "_operands_str: could not stringify operand collection %r: %s", type(operands), e)
         return "<unstringifiable>"
 
 
@@ -154,11 +156,12 @@ def record_fe_rejection(
             records = []
             mrmr_self._fe_rejection_records_ = records
         # Configurable per-instance (``fe_rejection_ledger_cap``, default None -> module default). At
-        # very wide p (2026-07-09, hundreds-of-thousands-of-columns use case) a fixed 50k cap is reached
+        # very wide p (hundreds-of-thousands-of-columns use case) a fixed 50k cap is reached
         # after tens of thousands of ALREADY-expensive candidate evaluations, losing FE debugging
         # visibility for the rest of the fit even though each record is small (~200-400 bytes): raising
         # the cap 10x costs low-single-digit-MB extra, cheap on any real host.
-        effective_cap = int(getattr(mrmr_self, "fe_rejection_ledger_cap", None) or FE_REJECTION_LEDGER_CAP)
+        _cap_cfg = getattr(mrmr_self, "fe_rejection_ledger_cap", None)
+        effective_cap = int(FE_REJECTION_LEDGER_CAP if _cap_cfg is None else _cap_cfg)
         n = len(records)
         if n >= effective_cap:
             # Record the truncation EXACTLY once (no silent truncation), then stop appending.

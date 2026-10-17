@@ -92,7 +92,7 @@ class GroupBatchSampler(Sampler):
         self.shuffle = shuffle
         self.seed = seed
         self._epoch = 0
-        # OPT-7 (2026-05-23): when > 1, pack ``queries_per_batch`` queries
+        # OPT-7: when > 1, pack ``queries_per_batch`` queries
         # into ONE batch -- the concatenated row indices flow through the
         # DataLoader as one batch, the Dataset attaches the offset-corrected
         # concatenated (i_idx, j_idx) pair tensors built from per-query
@@ -183,7 +183,7 @@ class _RankerDataset(Dataset):
     """Row-level dataset for (X, y); the GroupBatchSampler controls query grouping."""
 
     def __init__(self, X: np.ndarray, y: np.ndarray):
-        # Wave 56 (2026-05-20): forward to torch Dataset base for forward-compat.
+        # forward to torch Dataset base for forward-compat.
         super().__init__()
         # audit5 memory: eager float32 conversion copies the buffer when the source is not already float32 (a
         # 100GB frame would then double peak RAM). The row-level indexing paths here assume a resident tensor,
@@ -205,7 +205,7 @@ class _RankerDataset(Dataset):
         # leaving this attribute as None falls back to the in-loss runtime cache
         # (tuple(rel.tolist()) key) which needs a per-call GPU->CPU sync.
         self._pair_idx_by_query: dict[tuple, tuple] | None = None
-        # iter357 (2026-05-26): per-query precomputed batch tuple keyed by the
+        # iter357: per-query precomputed batch tuple keyed by the
         # same indices_key as ``_pair_idx_by_query``. Each entry is the EXACT
         # return value of ``__getitems__`` for that query -- either a 4-tuple
         # (X_slice, y_slice, i_idx, j_idx) for queries with informative pairs
@@ -217,7 +217,7 @@ class _RankerDataset(Dataset):
         # OPT-7 multi-query mode skips this cache; its batch key is a packed
         # multi-query union that doesn't repeat exactly across epochs.
         self._batch_by_query: dict[tuple, tuple] | None = None
-        # OPT-7 (2026-05-23): optional reference to the active batch sampler so
+        # OPT-7: optional reference to the active batch sampler so
         # ``__getitems__`` can read multi-query batch partition info to compose
         # offset-corrected concatenated pair tensors. Set via
         # ``attach_sampler``; None means legacy single-query path only.
@@ -324,7 +324,7 @@ class _RankerDataset(Dataset):
         # instead of running [dataset[i] for i in indices] one row at a
         # time. One batched tensor index call replaces ~11 single-row slices
         # per query batch; ~3-3.5x faster end-to-end vs per-row + default
-        # collate (microbench 2026-05-20, batch=11x32 floats). The matching
+        # collate (microbench, batch=11x32 floats). The matching
         # `_ranker_passthrough_collate` below unwraps the 1-element list so
         # the DataLoader doesn't re-stack an already-stacked batch.
         # iter357: legacy queries_per_batch=1 hot path -- check the precomputed
@@ -354,7 +354,7 @@ class _RankerDataset(Dataset):
             idx = torch.as_tensor(indices, dtype=torch.long)
             if indices_key is None:
                 indices_key = tuple(indices)
-        # OPT-7 (2026-05-23): multi-query batch -- sampler stamped a
+        # OPT-7: multi-query batch -- sampler stamped a
         # partition table when it yielded this batch. Compose per-query
         # pair tensors into one offset-corrected concat by adding each
         # query's start-offset to its (i_idx, j_idx). After concat, the
@@ -635,7 +635,7 @@ class MLPRanker(RegressorMixin, BaseEstimator):
         self.seed = seed
         self.verbose = verbose
         self.enable_checkpointing = enable_checkpointing
-        # OPT-7 (2026-05-23): TRUE LTR batch packing. GroupBatchSampler packs
+        # OPT-7: TRUE LTR batch packing. GroupBatchSampler packs
         # N=``queries_per_batch`` queries into each yielded batch; the Dataset
         # composes per-query (i_idx, j_idx) pair tensors with offset
         # corrections into one concat. Net: ONE forward + ONE backward +
@@ -649,7 +649,7 @@ class MLPRanker(RegressorMixin, BaseEstimator):
         # Set ``queries_per_batch=1`` to revert to the legacy per-query
         # path (e.g., for bit-exact gradient reproduction).
         self.queries_per_batch = queries_per_batch
-        # OPT-6 (2026-05-23): accumulate gradients across N "batches" (queries)
+        # OPT-6: accumulate gradients across N "batches" (queries)
         # before each optimizer.step(). The Lightning-native equivalent of
         # explicit batch-packing across queries: each forward+backward is
         # cheap per-query, but optimizer.step() at ~5ms/call is the dominant
@@ -738,7 +738,7 @@ class MLPRanker(RegressorMixin, BaseEstimator):
         bad = ~np.isfinite(X_arr)
         if not bad.any():
             return X_arr
-        # Wave 80 (2026-05-21): always copy. The prior inverse logic
+        # always copy. The prior inverse logic
         # `X_arr.copy() if not X_arr.flags.writeable else X_arr` silently
         # mutated the caller's writable buffer (the most common case), leaking
         # NaN/Inf replacements back into the user's frame. Caller-aliasing is
@@ -806,7 +806,7 @@ class MLPRanker(RegressorMixin, BaseEstimator):
         # the audit signal for "lazy import inside hot loop"). Reuse the module top result.
         L = _L_MODULE
 
-        # Wave 49 (2026-05-20): drop global RNG mutations -- they silently
+        # drop global RNG mutations -- they silently
         # overwrote caller's torch/numpy stream and broke reproducibility for any
         # sibling code in the same process. Downstream consumers already use
         # local generators (lines 224 + 488/509: np.random.default_rng(self.seed)
@@ -818,10 +818,10 @@ class MLPRanker(RegressorMixin, BaseEstimator):
 
         # Seed the network weight-init / dropout draws so two fit() calls with the same `seed` are
         # bit-identical, as the constructor's own docstring promises -- pre-fix only GroupBatchSampler's
-        # query-shuffle order (a local numpy RNG, per Wave 49's own note above) was seeded; torch's global
+        # query-shuffle order (a local numpy RNG, per the note above) was seeded; torch's global
         # RNG (weight init / dropout) drew from whatever process-wide state happened to exist at call
         # time. Save/restore (not a permanent torch.manual_seed) keeps this from polluting sibling code in
-        # the same process, honouring Wave 49's original "no global RNG mutation" concern while still
+        # the same process, honouring the original "no global RNG mutation" concern while still
         # making THIS estimator's own repeated fit() calls reproducible.
         _prior_torch_rng_state = torch.get_rng_state()
         _prior_cuda_rng_state = torch.cuda.get_rng_state_all() if torch.cuda.is_available() else None
@@ -943,7 +943,7 @@ class MLPRanker(RegressorMixin, BaseEstimator):
             # ModelCheckpoint default is dead weight in the suite (joblib-serialised) and
             # emits "Checkpoint directory exists and is not empty" UserWarning across LTR runs.
             enable_checkpointing=self.enable_checkpointing,
-            # OPT-6 (2026-05-23): see __init__ docstring -- amortizes
+            # OPT-6: see __init__ docstring -- amortizes
             # optimizer.step() cost across N batches (queries). 1 = legacy
             # per-query update; 32 = batched gradient update.
             accumulate_grad_batches=self.accumulate_grad_batches,

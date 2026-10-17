@@ -51,7 +51,7 @@ def _set_live(name, value) -> None:
         except Exception as e:  # nosec B110 - best-effort sync, non-fatal by design
             logger.debug("could not sync %s to module %s: %s", name, mod, e)
 
-# Wave 27 P1: ``check_prospective_fe_pairs`` is dispatched via
+# ``check_prospective_fe_pairs`` is dispatched via
 # ``parallel_run`` from mrmr.py with backend='threading'. The function
 # accumulates per-binary-transform timings into a shared ``times_spent``
 # defaultdict via ``+=``. Python's ``+=`` on a float is load-add-store and
@@ -279,11 +279,11 @@ def _fe_effective_buffer_budget_bytes(available_bytes: int, n_workers: int = 1) 
 #     winner-match 5/5 vs the FULL-n screen for every n_eff >= 25_000; 30_000 sits above that validated
 #     floor with headroom for the gate-detection MI band (the screen's >25k requirement). 10_000 is the
 #     marginal floor (jaccard slips) - DO NOT go below 25_000.
-#   * Since 2026-06-20 the default ``MRMR()`` fit shrinks ``fe_check_pairs_subsample_n`` (and
+# * Since the default ``MRMR`` fit shrinks ``fe_check_pairs_subsample_n`` (and
 #     ``fe_smart_polynom_subsample_n``) to this screen size at large n via ``_apply_default_screen_subsample``.
 #     Verified BIT-IDENTICAL selection (chosen features, recipe names, get_feature_names_out order) at the
 #     unified 30k vs the legacy mixed 200k/30k/25k across the F2 goal (uniform/scaled_1_5/heavy_tailed/mixed)
-#     + the canonical biz_value suite + engineered-replay. The 2026-05-18 "200k kept a marginal hermite
+# + the canonical biz_value suite + engineered-replay. The "200k kept a marginal hermite
 #     feature vs 100k" note is superseded: that path (fe_smart_polynom_subsample_n) is likewise screen-shrunk
 #     to 30k by the default profile and the canonical suite (which exercises it) passes at 30k.
 # This is the SINGLE source of truth (no back-compat aliases - every FE site reads THIS name); the per-host

@@ -169,7 +169,7 @@ def _prepare_polars_for_catboost(is_polars, text_features, cols, df, pl, na_fill
         # O(n_rows) astype(str).astype("category") rebuild below — which on
         # a high-cardinality text blob (81k unique values over 810k rows)
         # takes minutes per column and was the root of a hang observed
-        # 2026-04-19 in the CB pandas fallback path.
+        # in the CB pandas fallback path.
         text_feature_set = set(text_features or [])
         _prepare_pandas_categoricals_for_catboost(cols_ordered, text_feature_set, df, na_filler, cat_features, verbose, ensure_categorical, skipped_columns)
     return df
@@ -204,7 +204,7 @@ def _prepare_pandas_categoricals_for_catboost(cols_ordered, text_feature_set, df
                 # ``len(categories) × max_str_len × 4``. On columns where
                 # Polars passed through an untrimmed global string-pool
                 # dictionary (3.3M unique categories, 6133-char longest
-                # string seen in prod 2026-04-19), that's a 75+ GiB
+                # string seen in prod), that's a 75+ GiB
                 # allocation → MemoryError.
                 #
                 # Instead, operate on the integer codes: add ``na_filler``

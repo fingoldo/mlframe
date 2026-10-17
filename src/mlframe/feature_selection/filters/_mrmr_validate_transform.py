@@ -556,7 +556,7 @@ def transform(self, X: pd.DataFrame | pl.DataFrame | np.ndarray, y: pd.Series | 
     try:
         from sklearn.utils._set_output import _get_output_config
         _cfg = _get_output_config("transform", estimator=self)
-        _want_pandas = (_cfg.get("dense") or "default") == "pandas"
+        _want_pandas = (_cfg.get("dense") if _cfg.get("dense") else "default") == "pandas"
     except Exception as e:
         logger.warning("sklearn set_output config lookup failed, defaulting to non-pandas: %s", e)
         _want_pandas = False

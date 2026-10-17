@@ -35,7 +35,7 @@ from ._optimization_shared import (
     plot_search_state,  # noqa: F401
 )
 
-# Wave 100 (2026-07-11): _ETRWithStd + MBHOptimizer (~600 lines: ctor param
+# _ETRWithStd + MBHOptimizer (~600 lines: ctor param
 # checks, RNG discipline, init sampling, suggest_candidate/submit_evaluations)
 # moved to sibling file _optimization_search.py to drop this file below the
 # 1k-line monolith threshold. Re-imported below so
@@ -254,7 +254,7 @@ def optimize_finite_onedimensional_search_space(
     return (optimizer.best_candidate, optimizer.best_evaluation), optimizer.evaluated_candidates
 
 
-# Wave 100 (2026-07-11): _ETRWithStd + MBHOptimizer (~600 lines) moved to sibling file
+# _ETRWithStd + MBHOptimizer (~600 lines) moved to sibling file
 # _optimization_search.py to drop this file below the 1k-line monolith threshold; both this module and
 # the sibling import their shared constants/enums/helpers (including plot_search_state) from the leaf
 # ._optimization_shared module instead of from each other, which is what actually avoids the circular

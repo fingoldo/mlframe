@@ -96,7 +96,7 @@ def _maybe_get_or_build_cb_pool(
     # in train_df. Motivation: MRMR and similar selectors can drop columns
     # AFTER fit_params was built, leaving stale feature lists that CB's
     # Pool rejects with ``ValueError: 'feat' is not in list`` from the
-    # sklearn-wrapper's ``_get_cat_feature_indices`` (observed 2026-04-21
+    # sklearn-wrapper's ``_get_cat_feature_indices`` (observed
     # on ``test_mrmr_with_text_column`` / ``_embedding_column``). Applied
     # to CB only -- XGB/LGB have their own handling for missing cols.
     try:
@@ -136,7 +136,7 @@ def _maybe_get_or_build_cb_pool(
 
     sample_weight = fit_params.get("sample_weight")
 
-    # Cache key: content-fingerprint via shared helper. Pre-2026-05-23
+    # Cache key: content-fingerprint via shared helper. Pre-
     # used ``id(train_df)`` which broke across ``sklearn.clone()`` and
     # ``train_df.iloc[...]`` -- same id(X)-cache-bug class found across
     # all four booster dataset caches (xgb_shim, lgb_shim, this train
@@ -159,7 +159,7 @@ def _maybe_get_or_build_cb_pool(
     _df_rows = train_df.shape[0] if hasattr(train_df, "shape") else None
     _tg_len = len(train_target) if train_target is not None and hasattr(train_target, "__len__") else None
     if _df_rows is not None and _tg_len is not None and _df_rows != _tg_len:
-        # Hard contract violation -- raised 2026-04-28 (batch 4, was
+        # Hard contract violation -- raised (batch 4, was
         # logger.error+fallback). X/y length mismatch reaching this
         # point means an upstream slicing bug (fuzz c0079-style: RFECV
         # inner CV producing inconsistent train_target / train_df

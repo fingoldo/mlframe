@@ -145,7 +145,7 @@ def _radix_edges_with_f32_variant(cand, nbins: int, variant: str):
     # _resolve_radix_f32_variant actually reads the global), not on _sel - _sel re-exports the
     # name via a plain `from ... import`, which creates its own independent binding in _sel's
     # namespace; writing to that binding would silently never reach the kernels module's global
-    # (found 2026-07-18: this sweep probe's override was a no-op the whole time).
+    # (found: this sweep probe's override was a no-op the whole time).
     saved = _grsk._RADIX_F32_VARIANT_OVERRIDE
     try:
         _grsk._RADIX_F32_VARIANT_OVERRIDE = str(variant)  # nosemgrep: module-global-write-via-reexport-alias - _grsk IS _gpu_resident_select_kernels, the owning module

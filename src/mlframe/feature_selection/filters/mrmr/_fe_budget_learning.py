@@ -93,7 +93,8 @@ def update_fe_budgets_after_fit(self) -> None:
         # Compound on top of the budget actually used THIS fit (loaded pre-fit, or
         # equal-split when nothing was persisted yet) - restarting from equal-split every
         # fit would make learning never accumulate across successive fits.
-        _fe_prev_budgets = dict(getattr(self, "_fe_budget_prev_", None) or {f: _fe_equal_share for f in _fe_tracked_families})
+        _fe_prev_raw = getattr(self, "_fe_budget_prev_", None)
+        _fe_prev_budgets = dict(_fe_prev_raw if _fe_prev_raw else {f: _fe_equal_share for f in _fe_tracked_families})
         for _fam in _fe_tracked_families:
             _fe_prev_budgets.setdefault(_fam, _fe_equal_share)
         _fe_budgets_before = dict(_fe_prev_budgets)

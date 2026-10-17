@@ -37,7 +37,8 @@ def main():
 
     old()
     _copula_mi_batch(X, y)  # warm current impl
-    assert np.allclose(old(), _copula_mi_batch(X, y))  # nosec B101 - internal invariant check in src/mlframe/feature_selection/filters/_benchmarks, not reachable with untrusted input
+    if not (np.allclose(old(), _copula_mi_batch(X, y))):
+        raise AssertionError
 
     t_old = best_of(old, reps=7)
     t_new = best_of(lambda: _copula_mi_batch(X, y), reps=7)

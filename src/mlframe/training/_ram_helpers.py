@@ -38,6 +38,7 @@ def _caller_logger() -> logging.Logger:
 import pandas as pd
 import polars as pl
 from pyutilz.system import clean_ram, get_own_memory_usage
+from mlframe.utils.log_throttle import log_throttle
 
 
 def log_ram_usage() -> None:
@@ -155,7 +156,7 @@ def get_process_rss_mb() -> float:
     try:
         return float(psutil.Process().memory_info().rss / 1024**2)
     except Exception as exc:
-        logger.debug("get_process_rss_mb: RSS probe failed, reporting 0.0: %s", exc)
+        log_throttle(logger, "_ram_helpers.get_process_rss_mb", logging.WARNING, "get_process_rss_mb: RSS probe failed, reporting 0.0: %s", exc)
         return 0.0
 
 
@@ -178,8 +179,8 @@ def should_clean_ram(baseline_rss_mb: float, df_size_mb: float, min_growth_mb: f
     """
     try:
         rss_mb = psutil.Process().memory_info().rss / 1024**2
-    except Exception as e:
-        logger.debug("should_clean_ram: RSS measurement failed, falling back to clean", exc_info=e)
+    except Exception:
+        log_throttle(logger, "_ram_helpers.should_clean_ram", logging.WARNING, "should_clean_ram: RSS measurement failed, falling back to clean", exc_info=True)
         return True  # can't measure -> fall back to cleaning
     growth = rss_mb - baseline_rss_mb
     if growth > max(min_growth_mb, 0.3 * df_size_mb):
@@ -192,8 +193,8 @@ def should_clean_ram(baseline_rss_mb: float, df_size_mb: float, min_growth_mb: f
         return False
     try:
         free_mb = psutil.virtual_memory().available / 1024**2
-    except Exception as e:
-        logger.debug("should_clean_ram: free-RAM measurement failed, falling back to clean", exc_info=e)
+    except Exception:
+        log_throttle(logger, "_ram_helpers.should_clean_ram", logging.WARNING, "should_clean_ram: free-RAM measurement failed, falling back to clean", exc_info=True)
         return True
     return bool(free_mb < 2 * df_size_mb)
 

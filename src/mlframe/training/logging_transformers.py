@@ -25,6 +25,7 @@ from collections import OrderedDict
 from typing import Any, Callable, Iterable
 
 import psutil
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger("mlframe.training.logging_transformers")
 
@@ -61,13 +62,13 @@ def log_resources(
                 return func(self, *args, **kwargs)
             finally:
                 dt = time.perf_counter() - t0
-                # Wave 52 (2026-05-20): wrap RSS read in try/except. psutil can raise
+                # wrap RSS read in try/except. psutil can raise
                 # NoSuchProcess on zombie children / pool worker shutdown -- and a
                 # raise in finally would mask the func() exception we just caught.
                 try:
                     rss1 = proc.memory_info().rss / 1024**2
                 except Exception as e:
-                    logger.debug("post-call RSS re-measurement failed: %s", e)
+                    log_throttle(logger, "logging_transformers.wrapper", logging.WARNING, "post-call RSS re-measurement failed: %s", e)
                     rss1 = 0.0
                 label = stage or func.__qualname__
                 cls_name = type(self).__name__

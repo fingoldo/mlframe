@@ -47,7 +47,8 @@ def _run_one(n_cols: int, n_samples: int = 5000, nbins: int = 10, seed: int = 0)
     )
     dt = time.perf_counter() - t0
     n_pairs = n_cols * (n_cols - 1) // 2
-    assert a_out.shape[0] == n_pairs
+    if not (a_out.shape[0] == n_pairs):
+        raise AssertionError
     return dt, n_pairs, backend_counts
 
 

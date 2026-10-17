@@ -110,7 +110,7 @@ def compute_local_density_gradient_features(
         # Pre-compute log_density for all training rows (for neighbor density lookup later)
         train_dists, _ = nn.kneighbors(Xt_s)  # (n_train, k_eff + 1) — first col is self with dist=0
         # Use the k-th neighbor distance (exclude self at index 0)
-        r_k_train = train_dists[:, k_eff].astype(np.float32) + 1e-9
+        r_k_train = np.maximum(train_dists[:, k_eff].astype(np.float32), np.float32(1e-9))
         log_density_train = (-d * np.log(r_k_train)).astype(np.float32)
 
         # Now compute query features
@@ -119,7 +119,7 @@ def compute_local_density_gradient_features(
         # Conservative: use neighbors[:, :k_eff] which are the k nearest (still includes possible self if Xq == Xt rows)
         # Since Mode A query is val_idx and we built NN on train_idx, val rows are NOT in the NN graph → no self-match.
         # Use neighbors[:, :k_eff] uniformly.
-        q_dist_to_kth = q_dists[:, k_eff - 1].astype(np.float32) + 1e-9
+        q_dist_to_kth = np.maximum(q_dists[:, k_eff - 1].astype(np.float32), np.float32(1e-9))
         log_density_query = (-d * np.log(q_dist_to_kth)).astype(np.float32)
 
         neighbor_idx = q_idx[:, :k_eff]  # (n_q, k_eff)
@@ -128,12 +128,12 @@ def compute_local_density_gradient_features(
         neighbor_y = y_t[neighbor_idx]  # (n_q, k_eff)
 
         log_density_neighbors_mean = neighbor_log_density.mean(axis=1).astype(np.float32)
-        log_density_neighbors_std = neighbor_log_density.std(axis=1).astype(np.float32) + 1e-9
+        log_density_neighbors_std = np.maximum(neighbor_log_density.std(axis=1).astype(np.float32), np.float32(1e-9))
 
         # Density gradient: finite-difference ∇log p̂ from each neighbor back to query.
         # ∇log p̂ ≈ mean over neighbors of (log_dens_neighbor - log_dens_query) * direction(neighbor - query) / ||neighbor - query||
         diffs = neighbor_X - Xq_s[:, None, :]  # (n_q, k_eff, d)
-        dists = np.sqrt((diffs**2).sum(axis=-1)) + 1e-9  # (n_q, k_eff)
+        dists = np.maximum(np.sqrt((diffs**2).sum(axis=-1)), 1e-9)  # (n_q, k_eff)
         # Unit directions:
         unit_dirs = diffs / dists[:, :, None]  # (n_q, k_eff, d)
         # Log-density differences:
@@ -146,7 +146,7 @@ def compute_local_density_gradient_features(
         # _benchmarks/bench_local_density_gradient_einsum.py, ~1.6x, exact==).
         weight = (log_dens_diff / dists).astype(np.float32)  # (n_q, k_eff)
         gradient = (np.einsum("qk,qkd->qd", weight, unit_dirs, optimize=False) / unit_dirs.shape[1]).astype(np.float32)  # (n_q, d)
-        gradient_norm = np.sqrt((gradient**2).sum(axis=-1)).astype(np.float32) + 1e-9
+        gradient_norm = np.maximum(np.sqrt((gradient**2).sum(axis=-1)).astype(np.float32), np.float32(1e-9))
 
         # Alignment with y-gradient: compute ŷ-gradient direction via same finite difference
         # i.e. direction of increasing y averaged over neighbors.
@@ -154,7 +154,7 @@ def compute_local_density_gradient_features(
         y_diff = (neighbor_y - y_query_pseudo[:, None]).astype(np.float32)  # (n_q, k_eff)
         y_gradient_weight = (y_diff / dists).astype(np.float32)  # (n_q, k_eff)
         y_gradient = (np.einsum("qk,qkd->qd", y_gradient_weight, unit_dirs, optimize=False) / unit_dirs.shape[1]).astype(np.float32)  # (n_q, d)
-        y_gradient_norm = np.sqrt((y_gradient**2).sum(axis=-1)) + 1e-9
+        y_gradient_norm = np.maximum(np.sqrt((y_gradient**2).sum(axis=-1)), 1e-9)
 
         # Cosine similarity
         dot = (gradient * y_gradient).sum(axis=-1)

@@ -87,7 +87,7 @@ from ._recurrent_arch import AttentionPooling, PositionalEncoding, TransformerSe
 # ----------------------------------------------------------------------------------------------------------------------------
 
 
-# Wave 103 (2026-05-21): RecurrentTorchModel class (~390 lines) moved to
+# RecurrentTorchModel class (~390 lines) moved to
 # sibling file _recurrent_torch_model.py to drop this file below the 1k
 # monolith threshold. Re-exported below so existing callers
 # (`from mlframe.training.neural.recurrent import RecurrentTorchModel`)

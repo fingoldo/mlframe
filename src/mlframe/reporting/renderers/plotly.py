@@ -415,7 +415,7 @@ class PlotlyRenderer:
             # reliability lines). That reasoning does not hold for a SINGLE labelled panel -- there is no soup,
             # and without a legend a chart like the decision curve renders three unlabelled lines that a reader
             # cannot tell apart at a glance. A static export has no hover at all, so it always gets the legend.
-            showlegend=static_legend or _single_panel_has_labelled_series(spec) or _any_panel_needs_a_legend(spec),
+            showlegend=True if static_legend else (True if _single_panel_has_labelled_series(spec) else _any_panel_needs_a_legend(spec)),
         )
         if static_legend:
             # Park the legend BELOW the plot area (horizontal, centred) so it never overlaps subplot titles / the suptitle the way a default top-right in-plot legend does on multi-panel figures.
@@ -526,7 +526,7 @@ class PlotlyRenderer:
         # visually on top of the neighbouring panel. Wrap to this subplot's own width before handing it over.
         _grid = getattr(fig, "_grid_ref", None)
         _cols = max(1, len(_grid[0])) if _grid else 1
-        _panel_w_in = max(float(fig.layout.width or (_PX_PER_INCH * 8)) / _PX_PER_INCH / _cols, 1.0)
+        _panel_w_in = max(float(fig.layout.width if fig.layout.width else (_PX_PER_INCH * 8)) / _PX_PER_INCH / _cols, 1.0)
         _text = wrap_annotation_text(p.text, _panel_w_in, p.fontsize)
         fig.add_annotation(text=_text.replace("\n", "<br>"), x=0.5, y=0.5,
                            xref="x domain", yref="y domain", showarrow=False,

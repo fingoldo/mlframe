@@ -156,7 +156,7 @@ def _predict_from_probs(probs_NK, target_type, classes_=None, threshold=0.5):
         return idx
 
     if target_type == TargetTypes.MULTICLASS_CLASSIFICATION:
-        # Wave 21 P1: if a buggy estimator emits NaN probas, np.argmax picks
+        # if a buggy estimator emits NaN probas, np.argmax picks
         # the NaN column -> silent misclassification for that row. Detect
         # any all-NaN row and WARN; nanargmax raises if a row is all-NaN
         # which loudly surfaces the data corruption.
@@ -322,7 +322,7 @@ def _maybe_wrap_multilabel(estimator, target_type, multilabel_config=None, strat
     # Default + "wrapper" + "auto"-without-native: MultiOutputClassifier
     n_jobs = cfg.wrapper_n_jobs
     if n_jobs == "auto":
-        # OPT-5 (2026-05-23): pick n_jobs based on expected per-label work,
+        # OPT-5: pick n_jobs based on expected per-label work,
         # not just n_labels. joblib's loky backend pays ~500ms per worker
         # spawn (pickle X, fork process, import estimator deps); for small K
         # (3-4) AND small N (<50k) this overhead exceeds the parallel win.
@@ -519,7 +519,7 @@ class _ChainEnsemble(ClassifierMixin, BaseEstimator):
         # cells, impute them column-wise with the per-column median
         # before fit; for non-numeric or empty columns fall back to 0.
         # WARNed loud so the operator sees the silent imputation.
-        # Surfaced 2026-05-20 by fuzz combo c0029 (inject_inf_nan=True,
+        # Surfaced by fuzz combo c0029 (inject_inf_nan=True,
         # cb_hgb_mlp, multilabel_classification chain dispatch).
         _x_for_fit = X
         try:

@@ -100,7 +100,7 @@ def batch_pair_mi_cupy(
     # RESIDENT UPLOAD: factors_data/classes_y/freqs_y are fit-constant across the whole
     # greedy FE round (this kernel is reached once per pair-chunk of the SAME candidate pool, per
     # dispatch_batch_pair_mi_chunked), yet were re-uploaded via a raw cp.asarray on EVERY call -
-    # batch_pair_mi_cuda got the equivalent fix on 2026-07-12 (see _batch_pair_mi_cuda_kernels.py's
+    # batch_pair_mi_cuda got the equivalent fix (see _batch_pair_mi_cuda_kernels.py's
     # batch_pair_mi_cuda docstring) but this CuPy sibling was missed. resident_operand (this package's
     # proven fit-constant GPU cache) content-hashes each array and returns a cached cupy device array on
     # a repeat upload. Bit-identical: same values, only the transfer is deduplicated.
@@ -181,7 +181,7 @@ def batch_pair_mi_cupy(
 # stay defensive.
 #
 # Callers can override the heuristic via ``dispatch_batch_pair_mi(..., force_backend=)``.
-# Wave 23 P1: the 4 hardcoded thresholds below are
+# the 4 hardcoded thresholds below are
 # "measured on GTX 1050 Ti cc 6.1" defaults; per
 # `feedback_use_kernel_tuning_cache_for_gpu` they should be lookup-
 # driven via ``pyutilz.performance.kernel_tuning.cache`` so that consumer
@@ -198,7 +198,7 @@ CUPY_MIN_PAIRS = 200
 
 # Kernel-tuning-cache integration (get_or_tune + @kernel_tuner) ---------------
 #
-# Wave 23 P1 flagged the four hardcoded crossover thresholds above
+# An audit flagged the four hardcoded crossover thresholds above
 # as HW-overfit (GTX 1050 Ti cc 6.1). Per ``feedback_use_kernel_tuning_cache_for_gpu``
 # the live dispatch now consults the per-host cache via the shared ``get_or_tune``
 # orchestrator and a measured backend-crossover sweep. The thresholds above remain

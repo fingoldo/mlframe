@@ -77,7 +77,7 @@ _LEAN_STRIP_FIELDS = frozenset({
     "train_od_idx",
     "val_od_idx",
     "trainset_features_stats",
-    # 2026-05-21 P0 #2 follow-up: OOF preds/probs stamped on the model entry
+    # P0 #2 follow-up: OOF preds/probs stamped on the model entry
     # by train_and_evaluate_model (_trainer_train_and_evaluate.py) when ``oof_n_splits >= 2``. On 4M-row regression each
     # OOF array is ~16 MB (float32); inference-irrelevant (only consumed at
     # training time for level-1 stacking + OOF-based calibration). Without
@@ -151,7 +151,7 @@ def atomic_write_bytes(target_path: str, writer_fn: Callable[[Any], None], *, fs
     target_dir = os.path.dirname(target_path) or "."
     # mkstemp on Windows is ~30x slower than direct os.open because Microsoft
     # Defender / file-system filter drivers intercept the O_EXCL probe + the
-    # secure-name generation. Surfaced by the 2026-05-19 multi-model fuzz
+    # secure-name generation. Surfaced by the multi-model fuzz
     # profile after the fsync skip + pickle-first land: nt.open was 33% of
     # save wall (15 mkstemp calls x 29ms each = 0.44s of 1.32s). We don't
     # need mkstemp's "secure unique name" guarantee for an internal temp file
@@ -580,7 +580,7 @@ def load_mlframe_model(file: str, safe: bool = True, strict_version: bool = Fals
         # operator sees library-version drift (catboost / lightgbm minor upgrades
         # silently change booster internals) instead of chasing a cryptic
         # AttributeError deep in predict(). Returns None on legacy bundles
-        # (pre-2026-05-20) with no sidecar; that's a back-compat path with a
+        # (previous) with no sidecar; that's a back-compat path with a
         # one-line INFO message in the helper.
         try:
             validate_load_meta_sidecar(file, strict=strict_version)

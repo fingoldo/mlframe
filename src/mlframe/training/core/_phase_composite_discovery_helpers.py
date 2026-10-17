@@ -152,13 +152,16 @@ def _discovery_config_signature(config: Any) -> ConfigSignatureV1:
     ):
         try:
             _ver_str = _dist_version(_dist)
-            # Major.minor only -- patch bumps invalidate every cached spec even though MI /
-            # Wilcoxon / boosting math is unchanged. Strip patch + any dev / rc tags.
-            _parts = _ver_str.split(".")
-            if len(_parts) >= 2 and _parts[0].isdigit():
-                _ver_str = f"{_parts[0]}.{_parts[1].split('+')[0].split('rc')[0].split('dev')[0]}"
-            versions[_name] = _ver_str
-        except PackageNotFoundError:  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
+        except PackageNotFoundError:
+            _ver_str = None
+        if _ver_str is None:
             versions[_name] = "absent"
+            continue
+        # Major.minor only -- patch bumps invalidate every cached spec even though MI /
+        # Wilcoxon / boosting math is unchanged. Strip patch + any dev / rc tags.
+        _parts = _ver_str.split(".")
+        if len(_parts) >= 2 and _parts[0].isdigit():
+            _ver_str = f"{_parts[0]}.{_parts[1].split('+')[0].split('rc')[0].split('dev')[0]}"
+        versions[_name] = _ver_str
     versions["python"] = f"{sys.version_info.major}.{sys.version_info.minor}"
     return compute_config_signature_v1(config, library_versions=versions)

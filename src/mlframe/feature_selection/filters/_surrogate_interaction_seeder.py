@@ -162,7 +162,7 @@ def _fit_surrogate_and_oof(
             score = float(np.mean(yhat == yte))
         else:
             ss_res = float(np.sum((yte - pred) ** 2))
-            ss_tot = float(np.sum((yte - np.mean(yte)) ** 2)) + 1e-12
+            ss_tot = max(float(np.sum((yte - np.mean(yte)) ** 2)), 1e-12)
             score = 1.0 - ss_res / ss_tot
         return booster, score
     except Exception:

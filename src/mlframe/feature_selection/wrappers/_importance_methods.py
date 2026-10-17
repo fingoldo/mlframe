@@ -282,7 +282,7 @@ def _resolve_getter(obj: Any, dotted: str) -> Any:
 
 def _read_attribute(model: object, importance_getter: str) -> tuple[Any, str]:
     """The raw attribute value and the attribute NAME it came from (the last dotted segment), for ``'auto'``, a plain name or a dotted path."""
-    # 2026-05-28 sklearn-parity: ``importance_getter`` may be a dotted
+    # sklearn-parity: ``importance_getter`` may be a dotted
     # path such as ``regressor_.coef_`` (for TransformedTargetRegressor)
     # or ``named_steps.lr.coef_`` (for Pipeline). Resolve via
     # operator.attrgetter so the legacy single-attr behaviour AND the

@@ -45,7 +45,7 @@ def test_biz_val_proba_aggregation_geometric_beats_arithmetic_nll():
         ratios.append(_nll(y, pa) / _nll(y, pg))
     mean_ratio = float(np.mean(ratios))
     assert mean_ratio >= 1.20, f"geometric should cut NLL >=1.20x; got {mean_ratio:.3f} over {ratios}"
-    assert all(r > 1.0 for r in ratios), f"geometric should win every seed; got {ratios}"
+    assert bool(ratios) and all(r > 1.0 for r in ratios), f"geometric should win every seed; got {ratios}"
 
 
 def test_biz_val_proba_aggregation_default_is_geometric():

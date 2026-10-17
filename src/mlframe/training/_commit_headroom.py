@@ -19,6 +19,8 @@ from __future__ import annotations
 import logging
 from typing import Optional
 
+from mlframe.utils.log_throttle import log_throttle
+
 logger = logging.getLogger(__name__)
 
 COMMIT_AVAIL_WARN_GB: float = 16.0
@@ -66,7 +68,7 @@ def warn_on_commit_pressure(commit_limit_gb: float, commit_avail_gb: float, priv
     """Log every commit-pressure condition that holds at WARNING; returns the messages logged."""
     messages = [m for m in (low_headroom_message(commit_limit_gb, commit_avail_gb), retained_commit_message(private_commit_gb, rss_gb)) if m]
     for message in messages:
-        logger.warning("[commit-pressure] %s", message)
+        log_throttle(logger, "commit_pressure_message", logging.WARNING, "[commit-pressure] %s", message)
     return messages
 
 
@@ -115,7 +117,6 @@ def check_and_warn(throttle_key: Optional[str] = None) -> list[str]:
         retained = retained_commit_message(private_gb, rss_gb)
         messages = [m for m in (low, retained) if m]
         if throttle_key:
-            from mlframe.utils.log_throttle import log_throttle
 
             if low:
                 log_throttle(logger, f"{throttle_key}:low_headroom", logging.WARNING, "[commit-pressure] %s", low)

@@ -63,7 +63,7 @@ def test_both_backends_thin_a_200_row_chart_hard():
     """
     spec = _spec(200)
     counts = (_plotly_tick_count(spec), _mpl_tick_count(spec))
-    assert all(c is not None and c < 200 for c in counts), f"a 200-row chart was left unthinned somewhere: {counts}"
+    assert bool(counts) and all(c is not None and c < 200 for c in counts), f"a 200-row chart was left unthinned somewhere: {counts}"
     assert max(counts) / min(counts) < 1.5, f"the backends disagree by more than their layout difference explains: {counts}"
 
 

@@ -64,6 +64,7 @@ from sklearn.base import BaseEstimator, RegressorMixin, clone
 from .estimator import CompositeTargetEstimator
 from .transforms import get_transform
 from mlframe.training.composite.transforms.shared import call_transform
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -152,7 +153,7 @@ def _transform_inverse_decreasing(transform_name: str) -> bool:
     try:
         transform = get_transform(transform_name)
     except Exception as exc:  # pragma: no cover - unknown name surfaces earlier at fit
-        logger.debug("_transform_flips_quantile_order: get_transform(%r) failed: %s", transform_name, exc)
+        log_throttle(logger, "quantile._transform_inverse_decreasing", logging.WARNING, "_transform_flips_quantile_order: get_transform(%r) failed: %s", transform_name, exc)
         return False
     if not getattr(transform, "requires_base", True):
         # Unary y-transforms (log_y / cbrt_y / yeo_johnson_y) are all monotone
@@ -168,7 +169,7 @@ def _transform_inverse_decreasing(transform_name: str) -> bool:
         params = call_transform(transform, "fit", np.array([1.0, 2.0, 3.0]), base_probe)
         y_probe = np.asarray(call_transform(transform, "inverse", t_probe, base_probe, params), dtype=np.float64).reshape(-1)
     except Exception as exc:  # pragma: no cover - probe failure -> assume increasing
-        logger.debug("_transform_flips_quantile_order: monotonicity probe failed for %r: %s", transform_name, exc)
+        log_throttle(logger, "quantile._transform_inverse_decreasing", logging.WARNING, "_transform_flips_quantile_order: monotonicity probe failed for %r: %s", transform_name, exc)
         return False
     if y_probe.shape[0] != 3 or not np.all(np.isfinite(y_probe)):
         return False

@@ -143,7 +143,7 @@ def _resolve_quantile_cutoffs(calculated_quantiles, use_quantile, values, tukey_
     if calculated_quantiles is None:
         if use_quantile > 0.5:
             use_quantile = 1 - use_quantile
-        # Wave 31 (2026-05-20): assert -> ValueError.
+        # assert -> ValueError.
         if not (0 < use_quantile < 1.0):
             raise ValueError(f"use_quantile must be in (0, 1); got {use_quantile!r}.")
 
@@ -153,7 +153,7 @@ def _resolve_quantile_cutoffs(calculated_quantiles, use_quantile, values, tukey_
             quantile=use_quantile,
         )  # !TODO add sigma, dist+kwargs fields
     else:
-        # Wave 31 (2026-05-20): assert -> ValueError.
+        # assert -> ValueError.
         if tukey_fences_multiplier is None:
             raise ValueError("When calculated_quantiles is provided, " "tukey_fences_multiplier MUST also be supplied.")
     return calculated_quantiles, tukey_fences_multiplier, use_quantiles
@@ -286,6 +286,7 @@ def _analyse_and_clean__m_step2_col_iterable_columns(iterable_columns, df, st, v
                 nan_vals_already_in_index = col_unique_values.index.isna().astype(int).sum()
                 nmerged = len(to_be_merged)
                 if nmerged >= (nunique - nan_vals_already_in_index):
+                    st.constant_features.add(col)
                     if verbose:
                         logger.info(
                             "Feature %s with %s unique vals is too scarcely populated: %s (head), so it will be removed.",
@@ -293,7 +294,6 @@ def _analyse_and_clean__m_step2_col_iterable_columns(iterable_columns, df, st, v
                             nunique,
                             col_unique_values.head(),
                         )
-                    st.constant_features.add(col)
                     continue  # next col
                 else:
                     if nmerged > 0:
@@ -314,7 +314,7 @@ def _analyse_and_clean__m_step2_col_iterable_columns(iterable_columns, df, st, v
                             repl_instructions = {}
                             for next_var in to_be_merged.index:
                                 if next_var in features_transforms[col]:
-                                    # Wave 63 (2026-05-20): collision-detection warning verified
+                                    # collision-detection warning verified
                                     # in production logs; keep as honest WARN, drop the "remove
                                     # once checked" TODO.
                                     log_throttle(
@@ -452,9 +452,9 @@ def _analyse_and_clean__category_option_name(col_unique_values, na_val, real_val
 def _analyse_and_clean__real_val_none(real_val, verbose, col, col_unique_values, constant_features):
     """Block of analyse_and_clean_features starting at ``if real_val is None:``."""
     if real_val is None:
+        constant_features.add(col)
         if verbose:
             log_throttle(logger, "cleaning_no_nonnull_in_2valued_feature", logging.WARNING, "Non-null value not found in a 2-valued feature %s: %s.", col, col_unique_values)
-        constant_features.add(col)
 
 
 def _analyse_and_clean__vars_having_only_one(col, constant_features, manyvalued_features, col_is_numeric, col_unique_values, features_unique_values, features_ranges):

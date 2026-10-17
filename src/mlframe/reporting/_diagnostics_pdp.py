@@ -10,6 +10,7 @@ import logging
 from typing import Any, Optional, Sequence
 
 import numpy as np
+from mlframe.utils.log_throttle import log_throttle
 
 # The parent module's logger name: these lines predate the split, and log filters select them by that name.
 logger = logging.getLogger("mlframe.reporting.diagnostics_dispatch")
@@ -145,14 +146,14 @@ def _interaction_cost_within_budget(model: Any, df: Any, k: int, grid: int, samp
         if fn is None:
             return True
     except Exception:
-        logger.debug("interaction_strength: cost probe setup failed; allowing render.", exc_info=True)
+        log_throttle(logger, "_diagnostics_pdp._interaction_cost_within_budget", logging.WARNING, "interaction_strength: cost probe setup failed; allowing render.", exc_info=True)
         return True
     try:
         t0 = _time.perf_counter()
         fn(probe)
         t_batch = _time.perf_counter() - t0
     except Exception:
-        logger.info(
+        log_throttle(logger, "_diagnostics_pdp._interaction_cost_within_budget", logging.WARNING,
             "[diagnostics] interaction_strength: the model raised on a %d-row probe predict, so no PDP surface can "
             "be built -- skipping rather than spending the budget reaching the same failure.",
             min(sample, n),

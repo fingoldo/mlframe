@@ -369,7 +369,7 @@ def _assert_additivity_and_base(phi: np.ndarray, base: float, fold_tag: str = ""
     the margin std (not the mean, which is ~0 for balanced binary targets and would false-positive)."""
     margins = base + phi.sum(axis=1)
     mean_margin = float(margins.mean())
-    scale = abs(mean_margin) + float(margins.std()) + 1e-9
+    scale = max(abs(mean_margin) + float(margins.std()), 1e-9)
     if abs(base - mean_margin) / scale > _BASE_BLOAT_REL_TOL:
         logger.warning(
             "ShapProxiedFS%s: base value (%.4g) deviates >%.0f%% from mean margin (%.4g); "

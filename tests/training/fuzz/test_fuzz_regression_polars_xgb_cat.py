@@ -113,8 +113,8 @@ class TestPolarsdsEnumEncode:
             skip_categorical_encoding=False,
         )
         pipe = create_polarsds_pipeline(df, cfg, verbose=0)
-        assert pipe is not None
         out = pipe.transform(df)
+        assert out.height == n and "num_0" in out.columns
         if encoding == "onehot":
             assert any(c.startswith("cat_0_") for c in out.columns)
         else:

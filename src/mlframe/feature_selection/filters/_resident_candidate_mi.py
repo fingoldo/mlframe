@@ -204,7 +204,7 @@ def _build_best_existing_op_candidates_gpu(cols_arr_gpu: list, cp):
         for i in range(m):
             for j in range(i + 1, m):
                 u, v = cols_arr_gpu[i], cols_arr_gpu[j]
-                cands.append(u * v); cands.append(u - v); cands.append(u / (cp.abs(v) + 1e-6)); cands.append(u + v)
+                cands.append(u * v); cands.append(u - v); cands.append(u / cp.maximum(cp.abs(v), 1e-6)); cands.append(u + v)
         stk = cp.stack(cols_arr_gpu, axis=1)
         cands.append(stk.max(axis=1)); cands.append(stk.min(axis=1))
         if m >= 3:

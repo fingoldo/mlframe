@@ -63,16 +63,16 @@ def bench(n_models, n_tasks, reps=20):
     # identity
     a = _old_minimax(ranks, weights, models)
     b = _new_minimax(ranks, weights, models)
-    assert a.equals(b), "identity FAILED"  # nosec B101 - internal invariant check in src/mlframe/votenrank/_benchmarks, not reachable with untrusted input
+    if not (a.equals(b)):
+        raise AssertionError("identity FAILED")
 
     # ...and against what actually ships, not only against the other local copy. Both frozen forms above
     # can agree with each other while diverging from Leaderboard.minimax_ranking.
     from mlframe.votenrank.leaderboard import Leaderboard
 
     shipped = Leaderboard(_tbl_for(n_models, n_tasks)).minimax_ranking()
-    assert np.allclose(shipped.loc[b.index].to_numpy(), b.to_numpy(), equal_nan=True), (  # nosec B101 - internal invariant check in src/mlframe/votenrank/_benchmarks, not reachable with untrusted input
-        f"bench copy diverges from the shipped minimax_ranking: shipped={shipped.to_dict()} bench={b.to_dict()}"
-    )
+    if not (np.allclose(shipped.loc[b.index].to_numpy(), b.to_numpy(), equal_nan=True)):
+        raise AssertionError(f"bench copy diverges from the shipped minimax_ranking: shipped={shipped.to_dict()} bench={b.to_dict()}")
 
     def t(fn):
         best = float("inf")

@@ -40,6 +40,7 @@ import numpy as np
 
 from ._format import unwrap_target_wrapper
 from ._honest_decision_threshold import decision_threshold_block, format_decision_threshold_line
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -65,7 +66,7 @@ def _is_binary_classif(y: np.ndarray) -> bool:
     try:
         u = np.unique(y[np.isfinite(y) if y.dtype.kind in "fc" else slice(None)])
     except Exception as exc:
-        logger.debug("_is_binary_classif: unique-value probe failed: %s", exc)
+        log_throttle(logger, "honest_diagnostics._is_binary_classif", logging.WARNING, "_is_binary_classif: unique-value probe failed: %s", exc)
         return False
     return u.size == 2 and set(u.tolist()).issubset({0, 1})
 
@@ -106,7 +107,7 @@ def _bootstrap_block(y_true: np.ndarray, probs: np.ndarray, *, rng_seed: int = 0
         _jackknife_fns = None
         _make_auc_resampler = None
         try:
-            # iter295 (2026-05-26): use mlframe's numba-compiled fast metric
+            # iter295: use mlframe's numba-compiled fast metric
             # kernels instead of sklearn for bootstrap. c0028 profile attrib-
             # uted 124.96s (86pct of 145.78s wall) to run_honest_diagnostics;
             # 4 metric_fn calls x 1000 bootstrap resamples x 8 _bootstrap_block
@@ -115,7 +116,7 @@ def _bootstrap_block(y_true: np.ndarray, probs: np.ndarray, *, rng_seed: int = 0
             # log_loss respectively (bench at n=20k, see commit msg). Result
             # is numerically identical for the binary case (mlframe versions
             # are direct numba ports of the sklearn algorithm).
-            # iter336 (2026-05-27): use ``fast_roc_auc_unstable`` (quicksort
+            # iter336: use ``fast_roc_auc_unstable`` (quicksort
             # instead of stable sort) inside the bootstrap loop. Bench at
             # c0083 sizes: 2.25x at n=200k, 2.75x at n=20k. Numerically
             # identical when scores are float64 continuous (the dominant

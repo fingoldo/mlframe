@@ -184,7 +184,7 @@ def _warmup_numba_kernels_body(verbose: bool = False, include_feature_selection:
     # lazily inside ``report_probabilistic_model_perf`` on the first
     # binary_classification fit, charging 10-16s of compile cost to the
     # training-phase profile attribution. Surfaced by the 500k binary_class
-    # x lgb fuzz profile 2026-05-19: 27.2s cold-cache vs 10.1s warm-cache
+    # x lgb fuzz profile: 27.2s cold-cache vs 10.1s warm-cache
     # for the same combo + seed, the 17.1s delta sitting almost entirely
     # in numba.dispatcher._compile_for_args under fast_calibration_report.
     # The kernels all have cache=True via NUMBA_NJIT_PARAMS so the warmup

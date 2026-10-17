@@ -134,7 +134,8 @@ def _heldout_uplift_gpu(cp, xg, yg, tau: float, min_rows: int) -> float:
             coef = cp.linalg.solve(A_tr.T @ A_tr, A_tr.T @ y_tr)
         except cp.linalg.LinAlgError as e:
             # A SINGULAR design is a legitimate reason for this candidate to lose, and -inf says exactly that.
-            logger.debug("_val_r2 (GPU-resident hinge): singular design at this breakpoint, so it loses the comparison: %s", e)
+            log_throttle(logger, "hinge_gpu_val_r2_singular", logging.WARNING,
+                         "_val_r2 (GPU-resident hinge): singular design at this breakpoint, so it loses the comparison: %s", e)
             return -np.inf
         except Exception as e:
             # Anything else -- a shape bug, a cupy/driver fault -- is NOT evidence about the breakpoint, yet -inf

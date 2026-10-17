@@ -110,7 +110,7 @@ from .._hinge_basis_fe import (
 )
 
 # Haar wavelet / localized multiresolution basis builder + replay helper (backlog
-# #13, 2026-06-09) live in the sibling ``_wavelet_basis_fe`` one package level up;
+# #13) live in the sibling ``_wavelet_basis_fe`` one package level up;
 # re-exported so external importers resolve the builder from this module (mirrors
 # the hinge re-export above).
 from .._wavelet_basis_fe_recipes import (

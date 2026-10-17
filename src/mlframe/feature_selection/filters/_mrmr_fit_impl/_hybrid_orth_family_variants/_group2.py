@@ -92,7 +92,7 @@ def _hybrid_orth_family_variants_group2(
                 type(_df_exc).__name__,
                 _df_exc,
             )
-    # 2026-05-31 Layer 61 — PER-CLUSTER SHARED-BASIS FE. Independent opt-in
+    # Layer 61 — PER-CLUSTER SHARED-BASIS FE. Independent opt-in
     # (does NOT require fe_hybrid_orth_enable). When active, an internal
     # correlation-based cluster detector finds connected components of the
     # |Pearson corr| >= corr_threshold graph among raw numeric columns, then
@@ -103,7 +103,7 @@ def _hybrid_orth_family_variants_group2(
     # new raw feature WITHOUT a basis expansion). Recipe kind
     # ``orth_cluster_basis``; replay reads X only, no y.
     X = _stage_cluster_basis(self, _fe_family_on, _y_np, X, _hybrid_orth_pre_recipes, verbose)
-    # 2026-05-31 Layer 62 — BOOTSTRAP-STABLE MI ranking for the hybrid
+    # Layer 62 — BOOTSTRAP-STABLE MI ranking for the hybrid
     # orth-poly FE (independent opt-in; does NOT require
     # fe_hybrid_orth_enable). Replaces the Layer 21 point-estimate MI gate
     # with a lower-confidence-bound (mean - 1.96 * std) across n_boot
@@ -113,7 +113,7 @@ def _hybrid_orth_family_variants_group2(
     # is shared. Restrict to RAW columns to avoid recipes referencing
     # already-engineered columns absent at transform.
     X = _stage_bootstrap(self, _fe_family_on, _y_np, X, _hybrid_orth_pre_recipes, verbose)
-    # 2026-05-31 Layer 63 — THREE-GATE + K-fold OOF MI ranking for the
+    # Layer 63 — THREE-GATE + K-fold OOF MI ranking for the
     # hybrid orth-poly FE (independent opt-in; does NOT require
     # fe_hybrid_orth_enable). Layer 21 ranks engineered columns with a
     # plug-in MI estimate biased upward by ``(K-1) / (2n)``; the absolute
@@ -202,7 +202,7 @@ def _hybrid_orth_family_variants_group2(
                 type(_tg_exc).__name__,
                 _tg_exc,
             )
-    # 2026-05-31 Layer 65 — KSG / k-NN MI ranking for the hybrid orth-poly
+    # Layer 65 — KSG / k-NN MI ranking for the hybrid orth-poly
     # FE (independent opt-in; does NOT require fe_hybrid_orth_enable).
     # Replaces the Layer 21 plug-in quantile-binned MI estimator with the
     # Kraskov-Stoegbauer-Grassberger k-NN MI estimator via sklearn's
@@ -211,7 +211,7 @@ def _hybrid_orth_family_variants_group2(
     # (and therefore the selection) changes - so recipes reuse the
     # ``orth_univariate`` kind and replay is shared infrastructure.
     X = _stage_ksg(self, _fe_family_on, _y_np, X, _hybrid_orth_pre_recipes, verbose)
-    # 2026-06-01 Layer 66 — COPULA-MI ranking for the hybrid orth-poly FE
+    # Layer 66 — COPULA-MI ranking for the hybrid orth-poly FE
     # (independent opt-in; does NOT require fe_hybrid_orth_enable). Each
     # variable is rank-transformed to a uniform on (0, 1) before MI is
     # estimated, so the score is INVARIANT under any strictly-monotone

@@ -189,7 +189,8 @@ def _svd_flip_pc1(Z: np.ndarray, svd_cache: dict | None = None) -> np.ndarray:
     sklearn ``svd_flip`` convention (largest-abs loading positive) for cross-BLAS determinism."""
     _Zc, vt = _svd_compute(Z, svd_cache)
     v = vt[0]
-    v = v * np.sign(v[np.argmax(np.abs(v))] or 1.0)
+    _pivot = v[np.argmax(np.abs(v))]
+    v = v * np.sign(_pivot if _pivot != 0 else 1.0)
     return np.asarray(v)
 
 
@@ -206,7 +207,8 @@ def _svd_flip_pcN(Z: np.ndarray, idx: int, svd_cache: dict | None = None) -> np.
     if idx >= vt.shape[0]:
         idx = 0
     v = vt[idx]
-    v = v * np.sign(v[np.argmax(np.abs(v))] or 1.0)
+    _pivot = v[np.argmax(np.abs(v))]
+    v = v * np.sign(_pivot if _pivot != 0 else 1.0)
     return np.asarray(v)
 
 
@@ -229,7 +231,8 @@ def _pc1_communalities(Z: np.ndarray, svd_cache: dict | None = None) -> np.ndarr
     if svd_cache is not None and "comm" in svd_cache:
         return np.asarray(svd_cache["comm"])
     v = vt[0]
-    v = v * np.sign(v[np.argmax(np.abs(v))] or 1.0)
+    _pivot = v[np.argmax(np.abs(v))]
+    v = v * np.sign(_pivot if _pivot != 0 else 1.0)
     score = Zc @ v
     score_c = score - score.mean()
     score_norm_sq = float(score_c @ score_c)
@@ -475,9 +478,10 @@ def run_cluster_aggregate_step(
     method), append it to (data, cols, nbins, X) and register the recipe. Returns
     ``(data, cols, nbins, X, n_added, removed_member_names)``. ``removed_member_names`` is non-empty
     only in ``mode="replace"`` (consumed by ``_fit_impl`` before the cols->original remap)."""
-    methods = tuple(m for m in methods if m in CLUSTER_AGGREGATE_METHODS) or ("mean_z",)
+    _valid_methods = tuple(m for m in methods if m in CLUSTER_AGGREGATE_METHODS)
+    methods = _valid_methods if _valid_methods else ("mean_z",)
     target = np.asarray(target_indices, dtype=np.int64)
-    quantization = {"nbins": int(quantization_nbins), "method": str(quantization_method or "quantile"), "dtype": np.dtype(quantization_dtype).str}
+    quantization = {"nbins": int(quantization_nbins), "method": str(quantization_method if quantization_method else "quantile"), "dtype": np.dtype(quantization_dtype).str}
 
     clusters = _discover_clusters(
         data=data, cols=cols, nbins=nbins, X=X, target_indices=target_indices,
@@ -608,7 +612,7 @@ def run_cluster_aggregate_step(
         assert best is not None, "_cluster_aggregate: methods must be a non-empty sequence (unreachable given the earlier coercion)"
         agg_mi, recipe, binned, method = best
         # Gate: the denoised aggregate must STRICTLY out-score the best single member (denoising claim).
-        # 2026-06-03 (audit cluster-aggregate-9): reject on a TIE (``<=``), not
+        # reject on a TIE (``<=``), not
         # only on a strict loss (``<``). The docstring/contract says "strictly
         # out-scoring"; with the prior ``<`` an aggregate that merely matches the
         # best member's MI (mi_prevalence=1.0) was accepted, which in

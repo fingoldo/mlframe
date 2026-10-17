@@ -279,7 +279,7 @@ class ShapProxiedFitStepsMixin:
                 else:
                     importance = np.abs(phi).mean(axis=0) if residual_blend_importance is None else residual_blend_importance
                 top_keep = np.argsort(-importance)[:prescreen_top]
-                # Noise-floor rescue (bug fix, iter-2026-07-14): a flat top-K cut by mean|phi| alone
+                # Noise-floor rescue (bug fix, iter-): a flat top-K cut by mean|phi| alone
                 # silently drops any real weak-signal column ranked below K whenever the frame has
                 # more than K non-noise proxy columns - confirmed on a real wide/clustered fit
                 # (112 post-clustering units, cap=28): weak/interaction-operand recall collapsed to

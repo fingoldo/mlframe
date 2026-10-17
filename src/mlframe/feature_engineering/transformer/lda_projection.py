@@ -66,7 +66,7 @@ def _fisher_lda(X_pos: np.ndarray, X_neg: np.ndarray) -> Tuple[np.ndarray, float
     cov_inv = np.linalg.pinv(cov).astype(np.float32)
     w = (cov_inv @ diff).astype(np.float32)
     # Normalize w so its scale is comparable across folds.
-    w_norm = np.linalg.norm(w) + 1e-9
+    w_norm = max(np.linalg.norm(w), 1e-9)
     w = w / w_norm
     c = float(w @ (0.5 * (mu_pos + mu_neg)))
     return w, c

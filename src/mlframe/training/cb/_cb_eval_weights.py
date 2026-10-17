@@ -13,6 +13,8 @@ from typing import Any
 
 import numpy as np
 
+from mlframe.utils.log_throttle import log_throttle
+
 logger = logging.getLogger(__name__)
 
 CB_EVAL_WEIGHTS_KEY = "_mlframe_cb_eval_sample_weight"
@@ -75,6 +77,6 @@ def apply_cb_eval_sample_weights(fit_params: dict[str, Any], model_type_name: st
                     embedding_features=list(fit_params.get("embedding_features") or []) or None,
                 )
             except Exception as exc:  # the unweighted eval still works; say that ES now ignores the weights
-                logger.warning("CatBoost eval Pool with val weights could not be built (%s: %s); early stopping uses an UNWEIGHTED val metric.", type(exc).__name__, exc)
+                log_throttle(logger, "cb_eval_pool_val_weights_failed", logging.WARNING, "CatBoost eval Pool with val weights could not be built (%s: %s); early stopping uses an UNWEIGHTED val metric.", type(exc).__name__, exc)
         out.append(entry)
     fit_params["eval_set"] = out[0] if single else out

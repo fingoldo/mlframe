@@ -268,7 +268,7 @@ class NamedCalibrator:
 
     def full_name(self) -> str:
         """Build the ``lib.Name[param_str]`` display identifier used as the row key when comparing calibrators."""
-        base_name = self.name or self._extract_calibrator_class_name()
+        base_name = self.name if self.name else self._extract_calibrator_class_name()
         # Prepend lib only if not already in name (case-insensitive)
         if self.lib and self.lib.lower() not in base_name.lower():
             base_name = f"{self.lib}.{base_name}"
@@ -720,7 +720,7 @@ def _values_overlap_fraction(a: np.ndarray, b: np.ndarray, max_rows: int = 2_000
     return float(hits / shorter.shape[0])
 
 
-# X_EFFICIENCY_ARCHITECTURE-1 fix (mrmr_audit_2026-07-22): train_postcalibrators carved out into
+# train_postcalibrators carved out into
 # _post_train_calibrators.py to clear the repo's enforced hard 1000-LOC CI gate (this file was 1005
 # lines). Re-exported here so every existing import keeps working unchanged.
 from ._post_train_calibrators import train_postcalibrators  # noqa: F401

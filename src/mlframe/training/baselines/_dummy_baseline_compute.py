@@ -62,7 +62,7 @@ def _per_target_seed(base_seed: int, target_name: str) -> int:
     _stable_int = int.from_bytes(_digest, "big")
     return (base_seed + (_stable_int & 0xFFFF)) & 0x7FFFFFFF
 
-# Audit D P2-8 (2026-05-18): ``_pick_per_group_categorical`` + ``_per_group_predict`` both call
+# Audit D P2-8: ``_pick_per_group_categorical`` + ``_per_group_predict`` both call
 # ``_to_pandas_for_baseline`` on the same train_X. The bridge is zero-copy on Arrow buffers so
 # the second call is cheap, but the log line + the get_pandas_view_of_polars_df overhead repeat.
 # A weak-id memo keyed by ``id(X)`` (the caller holds a strong ref across the per-target loop)
@@ -352,7 +352,7 @@ def _per_group_predict(
     train_X_pd = _to_pandas_for_baseline(train_X)
     val_X_pd = _to_pandas_for_baseline(val_X)
     test_X_pd = _to_pandas_for_baseline(test_X)
-    # Audit D P1-1 (2026-05-18): the previous ``pd.DataFrame(train_X)`` fallback was a TRAP.
+    # Audit D P1-1: the previous ``pd.DataFrame(train_X)`` fallback was a TRAP.
     # ``_to_pandas_for_baseline`` only returns ``None`` for objects without ``.to_pandas`` --
     # i.e. NOT pandas, NOT polars. ``pd.DataFrame(<polars_df>)`` does NOT auto-detect polars
     # and instead wraps the polars frame in a single object-dtype column, silently breaking
@@ -436,7 +436,7 @@ def _safe_metric(metric_fn: Callable, y_true: np.ndarray, y_pred: np.ndarray, **
 # ---------------------------------------------------------------------
 # Per-target dispatchers
 # ---------------------------------------------------------------------
-# Wave 92 (2026-05-21): _compute_regression_baselines and
+# _compute_regression_baselines and
 # _compute_classification_baselines moved to sibling files
 # (_dummy_baseline_regression.py, _dummy_baseline_classification.py)
 # and re-exported from the module-top imports above.
@@ -464,5 +464,5 @@ def compute_dummy_baselines(*args: Any, **kwargs: Any) -> Any:
 # ---------------------------------------------------------------------
 # Multilabel + LTR dispatchers + metrics + plot + helpers
 # ---------------------------------------------------------------------
-# Wave 92 (2026-05-21): _compute_quantile_baselines moved to sibling file
+# _compute_quantile_baselines moved to sibling file
 # _dummy_baseline_quantile.py and re-exported from the module-top imports.

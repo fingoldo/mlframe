@@ -15,6 +15,7 @@ import logging
 import numpy as np
 from sklearn.base import clone as _clone
 from sklearn.compose import TransformedTargetRegressor
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -62,7 +63,7 @@ class _TTRWithEvalSetScaling(TransformedTargetRegressor):
             self._y_train_clip_high_ = float("+inf")
             self._y_train_mean_ = 0.0
             self._y_train_std_ = 0.0
-            logger.debug(
+            log_throttle(logger, "_ttr_eval_set_scaling.fit", logging.WARNING,
                 "ttr y-train-clip bound computation failed (non-fatal, defensive predict-time clip disabled): %s",
                 _clip_bound_err,
             )
@@ -151,7 +152,7 @@ class _TTRWithEvalSetScaling(TransformedTargetRegressor):
             # range +/- 3 sigma) doesn't depend on a transformer being configured.
             pred_trans = super().predict(X, **predict_params)
             return self._apply_predict_clip(pred_trans)
-        # iter191 (2026-05-23): inline the parent TransformedTargetRegressor.predict
+        # iter191: inline the parent TransformedTargetRegressor.predict
         # path so we predict ONCE (not twice). The previous form called
         # self.regressor_.predict(X) for the sensor probe then super().predict(X)
         # for the actual return -- both invoke the inner regressor on the full X,

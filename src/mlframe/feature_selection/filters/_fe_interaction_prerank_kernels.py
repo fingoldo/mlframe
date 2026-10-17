@@ -61,13 +61,13 @@ logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 # and cached per host via pyutilz kernel_tuning_cache, NEVER hardcoded into the decision.
 #
 # Bench (this dev box, GTX 1050 Ti host, LightGBM CPU fit, num_boost_round=100, binary;
-# 2026-06-19, machine under concurrent load): ~16.8 s @ p=2000 / n=8000, ~87.7 s @ p=10000
+# machine under concurrent load): ~16.8 s @ p=2000 / n=8000, ~87.7 s @ p=10000
 # / n=8000 -> roughly O(p) at fixed n (the per-column split search dominates). From the two
 # points: cols/sec ~ (10000-2000)/(87.7-16.8) ~= 113 cols/s with a small fixed offset. We
 # model fit_seconds ~ p / cols_per_second(n) and store cols_per_second per (n) region. The
 # ~113 cols/s figure is ONLY the cold-cache analytic FALLBACK (per feedback_use_kernel_
 # tuning_cache_for_gpu: the live path measures-and-caches per (n) below).
-_GBM_FALLBACK_COLS_PER_SEC = 113.0  # cold-cache analytic fallback (bench 2026-06-19, n=8000)
+_GBM_FALLBACK_COLS_PER_SEC = 113.0  # cold-cache analytic fallback (bench, n=8000)
 _GBM_FALLBACK_FIXED_SEC = 2.0  # constant fit overhead (dataset build + boosting setup)
 _GBM_COST_SWEEP_N_SAMPLES = [2000, 8000, 32000]
 _GBM_COST_SALT = 1

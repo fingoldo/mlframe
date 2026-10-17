@@ -130,7 +130,7 @@ def _detect_strong_ar(
         if gids_arr.size == y.size:
             # Apply the same finite-mask filter as y_for_stats.
             _gids_finite = gids_arr[finite] if finite.size == y.size else gids_arr
-            # E5 (2026-05-21) ordering-check addition: warn when within-group
+            # E5 ordering-check addition: warn when within-group
             # sequence is destroyed by post-FTE shuffling. The per-group AR
             # detector assumes rows of the same group are contiguous AND in
             # their natural order (depth- or time-ordered for sequence-style
@@ -346,7 +346,7 @@ def analyze_target_distribution(
                     # ``group_column`` in the split config, so we just surface the hint.
                     knob_overrides.setdefault("split_config", {})["prefer_group_aware"] = True
                     _stamp_prov("split_config", "prefer_group_aware", True, "clustered_target")
-                    # E5.2 (2026-05-21): clustered targets share the SAME MLP-LayerNorm collapse mode
+                    # E5.2: clustered targets share the SAME MLP-LayerNorm collapse mode
                     # as strong-AR (per-row LayerNorm destroys the between-row absolute-scale signal
                     # that the group label encodes). The strong-AR detector above already turns
                     # LayerNorm off when has_time_axis is True OR per-group AR fires; this branch

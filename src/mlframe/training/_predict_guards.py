@@ -42,6 +42,7 @@ import logging
 from typing import Any, Callable
 
 import numpy as np
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -310,7 +311,7 @@ def _apply_nan_guard(
             # would pass the gate but then propagate unchanged through imputer+scaler.
             _has_nan = bool(np.any(np.isnan(_arr_check[:500])))
     except Exception as e:
-        logger.debug("NaN probe on the first 500 rows failed: %s", e)
+        log_throttle(logger, "_predict_guards._apply_nan_guard", logging.WARNING, "NaN probe on the first 500 rows failed: %s", e)
         _has_nan = False
     if not _has_nan:
         # The guard only runs once a model has already raised on NaN or returned non-finite output, so a clean first

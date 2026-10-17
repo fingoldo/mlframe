@@ -312,9 +312,9 @@ def test_f6_polars_capability_docstring_documents_hasattr_not_try_invoke():
 
     import mlframe.training.feature_handling.polars_capability as mod
 
-    src = inspect.getsource(mod)
-    assert "hasattr" in src
-    assert "try-invoke" in src
+    doc = inspect.getdoc(mod) or ""
+    assert "hasattr" in doc
+    assert "try-invoke" in doc
 
 
 def test_f6_detect_polars_ds_capabilities_still_returns_frozenset():
@@ -334,13 +334,12 @@ def test_f8_woe_bench_sweeps_woe_smoothing_not_dead_smoothing_kwarg():
     """F8: pre-fix the bench swept ``smoothing=alpha`` on ``LeakageSafeEncoder(method="woe", ...)``, a
     kwarg the WoE code path never reads (only ``woe_smoothing`` controls WoE's Laplace cushion) -- every
     swept alpha produced bit-identical output and the bench measured no real signal."""
-    import inspect
-
     import mlframe.training.feature_handling._benchmarks.bench_woe_laplace_alpha as mod
+    from tests._source_structure import call_keywords
 
-    src = inspect.getsource(mod)
-    assert "woe_smoothing=alpha" in src
-    assert 'method="woe", smoothing=alpha' not in src
+    encoder_calls = call_keywords(mod, "LeakageSafeEncoder")
+    assert encoder_calls
+    assert all("woe_smoothing" in kwargs and "smoothing" not in kwargs for kwargs in encoder_calls)
 
 
 def test_f8_woe_smoothing_kwarg_actually_changes_transform_output():
@@ -367,13 +366,12 @@ def test_f8_woe_smoothing_kwarg_actually_changes_transform_output():
 def test_f9_feature_cache_does_not_import_cache_backend():
     """F9: FeatureCache's disk tier is still the hand-rolled implementation, not routed through
     CacheBackend/LocalDiskBackend -- confirmed not silently half-wired since the earlier audit pass."""
-    import inspect
-
     import mlframe.training.feature_handling.cache as cache_mod
+    from tests._source_structure import identifiers
 
-    src = inspect.getsource(cache_mod)
-    assert "CacheBackend" not in src
-    assert "LocalDiskBackend" not in src
+    names = identifiers(cache_mod)
+    assert "CacheBackend" not in names
+    assert "LocalDiskBackend" not in names
 
 
 def test_f9_cache_backend_module_documents_why_it_is_not_wired_in():

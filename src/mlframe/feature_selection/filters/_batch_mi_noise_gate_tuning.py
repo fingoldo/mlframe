@@ -135,7 +135,7 @@ def _run_batch_mi_noise_gate_sweep() -> list:
     budget = int(free * 0.4)
     max_n = max(n_rows) if n_rows else 1
     fitting = [k for k in n_cols if max_n * int(k) * 8 * 3 <= budget]
-    n_cols = fitting or [min(n_cols)]  # always keep at least the smallest column
+    n_cols = fitting if fitting else [min(n_cols)]  # always keep at least the smallest column
     from ._gpu_strict_fe._audit import audit_exempt
 
     # the sweep copies its GPU variants' results back to compare them: timing input, not residency traffic of the fit that triggered it

@@ -23,10 +23,7 @@ import numpy as np
 
 logger = logging.getLogger(__name__)
 
-try:
-    from numba import cuda as _nb_cuda
-except ImportError:
-    _nb_cuda = None
+from numba import cuda as _nb_cuda
 
 try:
     from pyutilz.core.pythonlib import is_cuda_available as _pyutilz_is_cuda_available
@@ -575,7 +572,7 @@ def batch_pair_mi_cuda_row_chunked(
     # budget does not apply to a dynamically-sized global-memory array). The accumulator's actual size
     # (``n_pairs * max_joint * n_classes_y * 8`` bytes) is instead bounded by VRAM via
     # :func:`_choose_row_chunk_rows`, which subtracts it from the row-chunk budget - a genuine
-    # hardware constraint, not an arbitrary compile-time one. Found live (2026-07-10 wellbore 3M-row
+    # hardware constraint, not an arbitrary compile-time one. Found live (wellbore 3M-row
     # run): a copy-pasted ``n_classes_y > MAX_Y_BINS_CUDA=16`` check rejected a real n_classes_y=20
     # discretized-target pair-MI call, forcing an unnecessary fall-through to slow CPU njit even though
     # the row-chunked kernel could handle it fine.
@@ -632,7 +629,7 @@ def batch_pair_mi_cuda_row_chunked(
         pair_subchunk_rows, n_pair_subchunks, total_launches, free_b / 1024**3,
     )
     if total_launches > _MAX_REASONABLE_ROW_CHUNK_LAUNCHES:
-        # Found live (2026-07-10 wellbore 1M-row profiling): when free VRAM is itself near-zero (a
+        # Found live (wellbore 1M-row profiling): when free VRAM is itself near-zero (a
         # cupy pool cap + other resident allocations can leave <5MB), both chunk-size choosers clamp to
         # their floor (row_chunk_rows=1000, pair_subchunk_rows=1) - individually "safe" (never over-
         # allocates), but together that's `ceil(n_samples/1000) * n_pairs` kernel launches, e.g.
@@ -653,7 +650,7 @@ def batch_pair_mi_cuda_row_chunked(
     # nbins is indexed by raw column id (not pair position), small, and fit-constant (cardinalities never
     # change) - resident_operand (content-hash keyed) shares the upload not just across this call's
     # pair-subchunks but across every OUTER call to this function within the same fit too, instead of a
-    # fresh to_device on every call (2026-07-12, was re-uploaded every outer call despite never changing).
+    # fresh to_device on every call (was re-uploaded every outer call despite never changing).
     from ._fe_resident_operands import resident_operand
     d_nb = resident_operand(nbins, "bpmi_nbins", dtype=np.int32)
 
@@ -661,7 +658,7 @@ def batch_pair_mi_cuda_row_chunked(
     total_row_chunk_launches = 0
     # freqs_y_c is fit-constant (the y-marginal never changes across pair-subchunks OR row-chunks within
     # this call) but the finalize step re-uploaded it via cp.asarray on EVERY pair-subchunk iteration
-    # (cProfile, 2026-07-15 wellbore fit: cupy._core.core.array 56.1s / 19620 calls, ~6540 outer iterations
+    # (cProfile, wellbore fit: cupy._core.core.array 56.1s / 19620 calls, ~6540 outer iterations
     # x 3 asarray calls - freqs_y_c was one of the 3, purely wasted since only d_joint/d_fx change per
     # iteration). Upload it ONCE before the loop; bit-identical (same array, same device, same dtype).
     _d_freqs_y_const = _cp.asarray(freqs_y_c) if _CUPY_AVAIL else None

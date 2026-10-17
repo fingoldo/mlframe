@@ -73,7 +73,8 @@ def _coerce_entry(entry) -> ChartEntry:
 
 def _slug(text: str, used: Dict[str, int]) -> str:
     """URL-safe, collision-free anchor id from arbitrary label text."""
-    base = "".join(c if c.isalnum() else "-" for c in text.strip().lower()).strip("-") or "panel"
+    base = "".join(c if c.isalnum() else "-" for c in text.strip().lower()).strip("-")
+    base = base if base != "" else "panel"
     n = used.get(base, 0)
     used[base] = n + 1
     return base if n == 0 else f"{base}-{n}"
@@ -203,7 +204,8 @@ def build_combined_report(
             err: Optional[str] = None
         except (TypeError, ValueError, AttributeError) as exc:
             e, err = None, f"skipped malformed entry: {exc}"
-        sec = (e.section if e else "") or "Other"
+        _sec_raw = e.section if e else ""
+        sec = _sec_raw if _sec_raw else "Other"
         if sec not in by_section:
             by_section[sec] = []
             section_order.append(sec)
@@ -222,7 +224,7 @@ def build_combined_report(
         for anchor, e, err in by_section[sec]:
             label = e.label if e else "(malformed)"
             nav_parts.append(f'<a class="child" href="#{anchor}">{html.escape(label)}</a>')
-            body = f'<div class="missing">{html.escape(err or "unknown error")}</div>' if e is None else _render_entry_body(e, out_dir, inline_png_max_bytes, inline_budget, seen_plotly_js)
+            body = f'<div class="missing">{html.escape(err if err else "unknown error")}</div>' if e is None else _render_entry_body(e, out_dir, inline_png_max_bytes, inline_budget, seen_plotly_js)
             cap = f'<p class="cap">{html.escape(e.caption)}</p>' if (e and e.caption) else ""
             panel_parts.append(f'<section class="panel" id="{anchor}">' f"<h3>{html.escape(label)}</h3>{cap}{body}</section>")
 

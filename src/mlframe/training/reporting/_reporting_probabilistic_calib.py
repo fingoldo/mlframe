@@ -26,7 +26,7 @@ except ImportError:
     plt = None  # type: ignore[assignment]
 
 
-# Wave 97 (2026-05-21): _canonical_multilabel_y / _maybe_display + the
+# _canonical_multilabel_y / _maybe_display + the
 # DEFAULT_* constants all live in ``_reporting``; that module imports us
 # from its bottom (after the helpers + constants are bound at module top),
 # so by the time Python resolves these names ``_reporting`` is partially

@@ -225,7 +225,8 @@ def bench_cat_interactions_pair_enum():
     a_new, b_new = new_enum(cand, nbins, max_combined)
     t_new = time.perf_counter() - t0
 
-    assert np.array_equal(a_old, a_new) and np.array_equal(b_old, b_new)
+    if not (np.array_equal(a_old, a_new) and np.array_equal(b_old, b_new)):
+        raise AssertionError
     print(f"M10 cat-interactions pair enum: {n_cand} candidates (~{n_cand*(n_cand-1)//2} pairs): OLD={t_old:.4f}s NEW={t_new:.4f}s speedup={t_old / t_new:.1f}x")
 
 

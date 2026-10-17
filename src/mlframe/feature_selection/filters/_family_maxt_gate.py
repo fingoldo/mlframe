@@ -11,6 +11,9 @@ from __future__ import annotations
 import threading
 from collections import OrderedDict
 
+from collections.abc import Sequence
+from typing import TYPE_CHECKING
+
 import numpy as np
 
 from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
@@ -25,6 +28,10 @@ from ._family_maxt_null_v2_njit import (
     mi_all_columns_counts as mi_all_columns_njit,
     null_max_bitsets,
 )
+
+if TYPE_CHECKING:
+    import pandas as pd
+    from numpy.typing import ArrayLike
 
 FAMILY_MAXT_PERMUTATIONS = 999
 FAMILY_EARLY_BLOCK = 256
@@ -186,26 +193,20 @@ def _permutation_block(rng: np.random.Generator, y: np.ndarray, m: int) -> np.nd
     global _perm_block_cache_bytes
     state_before = rng.bit_generator.state
     key = (y.shape[0], int(m), hash(y.tobytes()), repr(state_before))
+    n = y.shape[0]
     with _perm_block_cache_lock:
         hit = _perm_block_cache.get(key)
         if hit is not None:
             _perm_block_cache.move_to_end(key)
-    if hit is not None:
-        idx, state_after = hit
-        rng.bit_generator.state = state_after
-        cached: np.ndarray = idx
-        return cached
-    n = y.shape[0]
-    idx_dtype = np.uint16 if n <= np.iinfo(np.uint16).max else np.int32
-    idx = np.empty((m, n), dtype=idx_dtype)
-    for i in range(m):
-        idx[i] = rng.permutation(n)
-    state_after = rng.bit_generator.state
-    with _perm_block_cache_lock:
-        previous = _perm_block_cache.pop(key, None)  # two threads that drew the same block: keep one entry and keep the byte count honest
-        if previous is not None:
-            _perm_block_cache_bytes -= previous[0].nbytes
-        _perm_block_cache[key] = (idx, state_after)
+            idx, state_after = hit
+            rng.bit_generator.state = state_after
+            cached: np.ndarray = idx
+            return cached
+        idx_dtype = np.uint16 if n <= np.iinfo(np.uint16).max else np.int32
+        idx = np.empty((m, n), dtype=idx_dtype)
+        for i in range(m):
+            idx[i] = rng.permutation(n)
+        _perm_block_cache[key] = (idx, rng.bit_generator.state)
         _perm_block_cache_bytes += idx.nbytes
         while _perm_block_cache_bytes > _PERM_BLOCK_CACHE_BYTES and len(_perm_block_cache) > 1:
             _, (old, _) = _perm_block_cache.popitem(last=False)
@@ -330,7 +331,7 @@ def _family_codes(X, n_bins: int):
     return cols, nx
 
 
-def family_maxt_pass(candidates, y, n_bins: int = 10, alpha: float = 0.01, n_perm: int = FAMILY_MAXT_PERMUTATIONS, seed: int = 0) -> np.ndarray:
+def family_maxt_pass(candidates: "ArrayLike | pd.DataFrame", y: "ArrayLike", n_bins: int = 10, alpha: float = 0.01, n_perm: int = FAMILY_MAXT_PERMUTATIONS, seed: int = 0) -> np.ndarray:
     """Boolean mask over the candidate columns: True where the exact family-wise permutation test passes at ``alpha``.
 
     ``candidates`` is a 2-D array-like (rows x candidates) or a DataFrame. Non-finite values are replaced by the column median before binning,
@@ -343,7 +344,7 @@ def family_maxt_pass(candidates, y, n_bins: int = 10, alpha: float = 0.01, n_per
     return family_maxt_pass_codes(cols, nx, y, alpha=alpha, n_perm=n_perm, seed=seed)
 
 
-def family_maxt_pass_codes(cols: np.ndarray, nx: np.ndarray, y, alpha: float = 0.01, n_perm: int = FAMILY_MAXT_PERMUTATIONS, seed: int = 0) -> np.ndarray:
+def family_maxt_pass_codes(cols: np.ndarray, nx: np.ndarray, y: "ArrayLike", alpha: float = 0.01, n_perm: int = FAMILY_MAXT_PERMUTATIONS, seed: int = 0) -> np.ndarray:
     """:func:`family_maxt_pass` on codes already built by :func:`_family_codes` (a caller that streams its candidates in chunks keeps only
     the int16 codes of every chunk and gates the whole family once)."""
     from ._y_encoding import encode_y_for_classif_mi
@@ -507,7 +508,7 @@ def _stack_codes_transposed(mats, widths) -> np.ndarray:
     return cols
 
 
-def family_pass_batches(batches, y_codes: np.ndarray, alpha: float = 0.01, n_perm: int = FAMILY_MAXT_PERMUTATIONS, seed: int = 0) -> list:
+def family_pass_batches(batches: "Sequence[np.ndarray]", y_codes: np.ndarray, alpha: float = 0.01, n_perm: int = FAMILY_MAXT_PERMUTATIONS, seed: int = 0) -> list:
     """Family-wise pass flags for several batches of candidate codes that form ONE family (e.g. every configuration of one pair).
 
     ``batches`` is a list of rows x K_b integer code matrices. The null is the maximum MI over the WHOLE family under the same label permutations,

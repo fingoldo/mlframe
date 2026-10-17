@@ -12,6 +12,7 @@ from ..evaluation import report_model_perf
 from ..phases import phase
 from .utils import _augment_with_dropped_high_card_cols
 from mlframe.training.composite.transforms.shared import call_transform
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -204,7 +205,7 @@ def run_dummy_baselines(
                     else:
                         _dummy_mt_suffix = ""
                 except Exception as e:
-                    logger.debug("dummy multi-target suffix formatting failed: %s", e)
+                    log_throttle(logger, "_phase_dummy_baselines.run_dummy_baselines", logging.WARNING, "dummy multi-target suffix formatting failed: %s", e)
                     _dummy_mt_suffix = ""
                 _dummy_name = f"DummyBaseline:{_db_report.strongest} " f"{target_name} {model_name} {cur_target_name}" f"{_dummy_mt_suffix}"
 

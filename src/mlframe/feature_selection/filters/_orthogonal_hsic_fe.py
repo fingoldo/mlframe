@@ -103,6 +103,7 @@ import numpy as np
 import pandas as pd
 
 from ._orthogonal_univariate_fe import generate_univariate_basis_features
+from ._orthogonal_dcor_fe import _subsample_indices
 from mlframe.utils.log_throttle import log_throttle
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
@@ -123,24 +124,6 @@ __all__ = [
     "hybrid_orth_mi_hsic_fe",
     "hybrid_orth_mi_hsic_fe_with_recipes",
 ]
-
-def _subsample_indices(
-    n: int, n_sample: int, random_state: int,
-) -> np.ndarray:
-    """Deterministic random subsample of ``min(n, n_sample)`` indices.
-
-    Returns ``np.arange(n)`` when ``n <= n_sample`` (no work needed);
-    else a sorted random permutation of ``n_sample`` indices to keep the
-    relative ordering of the subsample consistent across paired calls.
-    Identical to the Layer 67 helper but inlined here to keep the
-    sibling module dependency surface tight (no cross-layer import).
-    """
-    if n_sample <= 0 or n <= int(n_sample):
-        return np.arange(n)
-    rng = np.random.default_rng(int(random_state))
-    idx = rng.choice(n, size=int(n_sample), replace=False)
-    idx.sort()
-    return idx
 
 def median_heuristic_sigma(z: np.ndarray) -> float:
     """Median pairwise-distance bandwidth (Gretton 2005).

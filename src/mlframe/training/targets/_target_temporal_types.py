@@ -99,6 +99,7 @@ class TemporalAuditResult:
         subset". Common pattern:
 
             >>> import numpy as np, pandas as pd
+            >>> from mlframe.training.targets.target_temporal_audit import audit_target_over_time
             >>> rng = np.random.default_rng(0)
             >>> n = 4000
             >>> df = pd.DataFrame({
@@ -173,7 +174,7 @@ class TemporalAuditResult:
         gran_seconds = _GRANULARITY_SECONDS.get(self.granularity, 30.44 * 86_400.0)
         gran_delta = pd.Timedelta(seconds=gran_seconds)
 
-        # Wave 34 P1 fix (2026-05-20): pre-fix the ``ts`` Series and the
+        # pre-fix the ``ts`` Series and the
         # ``start_ts/end_ts`` Timestamps could have mismatched tz state.
         # If ``bin_start`` was built from a tz-aware polars Datetime
         # (``Datetime(time_zone="UTC")``), the kept[..].bin_start values

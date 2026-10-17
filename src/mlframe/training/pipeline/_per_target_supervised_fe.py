@@ -24,6 +24,8 @@ from typing import Any, Dict, Iterator, List, Optional, Tuple
 
 import numpy as np
 
+from mlframe.utils.log_throttle import log_throttle
+
 logger = logging.getLogger(__name__)
 
 PER_TARGET_KEY = "supervised_composite_fe_per_target"
@@ -107,7 +109,7 @@ def apply_per_target_supervised_fe(
         if _idx_all is not None and train_df is not None and len(y) != train_df.shape[0]:
             idx = _idx_all
             if len(idx) != train_df.shape[0] or int(idx.max()) >= len(y):
-                logger.warning("Per-target composite FE: target %s/%s does not align with the train rows; skipped.", t, name)
+                log_throttle(logger, "per_target_fe_misaligned_target", logging.WARNING, "Per-target composite FE: target %s/%s does not align with the train rows; skipped.", t, name)
                 continue
             y_train = y[idx]
         # Every target is fitted on the ORIGINAL frames: fitted on top of an earlier target's output, the auto-grouping would

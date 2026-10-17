@@ -107,7 +107,7 @@ def _content_hash(host: Any) -> int:
     return hash(host.tobytes())
 
 
-# HASH MEMO (.md #6, 2026-07-21): the docstring below used to
+# HASH MEMO (.md #6): the docstring below used to
 # document this as unaddressed - "the fit-constant y/z are re-hashed on every role's call". A full
 # caller-side handle-threading rewrite (upload y/z ONCE at the FE-step entry and hand every one of
 # the ~9 documented roles the same resident cupy array by reference) would touch every call site in

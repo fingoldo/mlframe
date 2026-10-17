@@ -9,7 +9,7 @@ the already-seeded ``random_seed`` into the permutation-null kernel.
 from __future__ import annotations
 
 import logging
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 
 import numpy as np
 
@@ -106,7 +106,7 @@ def compute_fdr_gain_floor(
     cardinality_bias_correction: bool,
     random_seed: int | None,
     verbose: int,
-    # 2026-07-09 fix: optional cross-round cache, keyed on the candidate-pool identity + all inputs
+    # fix: optional cross-round cache, keyed on the candidate-pool identity + all inputs
     # that affect the result. ``pooled_permutation_null_gain_floor`` recomputes a full (n_permutations
     # x n_candidates x n_rows) histogram+MI pass on EVERY call; when the SAME raw-column pool recurs
     # across screen_predictors rounds (the common case - data only grows via appended engineered
@@ -116,9 +116,9 @@ def compute_fdr_gain_floor(
     # fit, never shared across separate ``.fit()`` calls or concurrent fits). ``None`` (default)
     # disables caching entirely - legacy behaviour, always recompute.
     maxt_floor_cache: "dict | None" = None,
-    honest_null_codes_fn=None,
-    honest_full_factors=None,
-    honest_eval_rows=None,
+    honest_null_codes_fn: Callable[[np.ndarray], tuple[np.ndarray, np.ndarray]] | None = None,
+    honest_full_factors: np.ndarray | None = None,
+    honest_eval_rows: np.ndarray | None = None,
 ) -> float:
     """Westfall-Young maxT permutation-null gain floor over the finalised order-1 pool.
 
@@ -129,7 +129,7 @@ def compute_fdr_gain_floor(
     Does NOT touch the global RNG: ``random_seed`` is forwarded to the permutation-null kernel, which
     runs after the screening spine already seeded + snapshotted the process RNG.
     """
-    if not (screen_fdr_null_permutations and int(screen_fdr_null_permutations) > 0):
+    if screen_fdr_null_permutations is None or int(screen_fdr_null_permutations) <= 0:
         return 0.0
     _fdr_pool = np.asarray(sorted(x) if isinstance(x, set) else list(x))
     from ._permutation_null import pooled_permutation_null_gain_floor
@@ -137,7 +137,7 @@ def compute_fdr_gain_floor(
     _y_idx_fdr = _single_int(y)
     _wide_pool = len(_fdr_pool) >= int(screen_fdr_min_features)
     # Family-wise over every narrow pool of two or more candidates: a narrow pool with a binary or low-cardinality target lets the best
-    # of its columns clear the per-column gain floors by chance (pure-noise suite, 2026-10-14).
+    # of its columns clear the per-column gain floors by chance (pure-noise suite).
     _narrow_oversplit = not _wide_pool and len(_fdr_pool) >= 2
     if not (_wide_pool or _narrow_oversplit):
         return 0.0

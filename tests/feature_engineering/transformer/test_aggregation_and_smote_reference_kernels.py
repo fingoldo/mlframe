@@ -35,7 +35,9 @@ def test_batch_kernels_match_numpy_weighted_moments(seed):
     ref_std = np.sqrt(np.average((vals - ref_mean[:, None]) ** 2, weights=w, axis=1))
     np.testing.assert_allclose(mean_out, ref_mean, rtol=1e-12, atol=1e-14)
     np.testing.assert_allclose(std_out, ref_std, rtol=1e-12, atol=1e-14)
-    for q in range(vals.shape[0]):
+    queries = list(range(vals.shape[0]))
+    assert queries
+    for q in queries:
         assert weighted_mean_1d(vals[q], w[q]) == pytest.approx(mean_out[q], rel=1e-12)
         assert weighted_std_1d(vals[q], w[q]) == pytest.approx(std_out[q], rel=1e-12)
 

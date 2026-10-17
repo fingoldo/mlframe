@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 # Module-level RawKernel placeholder. ``_ensure_kernels_inited`` populates it on first use.
 row_attention_stage4_raw_kernel: Any = None
 
-# Wave 27 P2 fix (2026-05-20): intra-process lock. Pre-fix claimed
+# intra-process lock. Pre-fix claimed
 # "Cross-process safe lock (Windows spawn workers)" -- that's FALSE on
 # spawn since each child re-imports the module and constructs a fresh
 # Lock(). The parent + children don't share the underlying SemLock.
@@ -225,7 +225,8 @@ def rff_matmul_cupy(
     import cupy as cp
     n, d = X.shape
     m = W.shape[1]
-    assert out.shape == (n, 2 * m), f"out must have shape (N, 2*m); got {out.shape} vs ({n}, {2 * m})"  # nosec B101 - internal invariant check in src/mlframe/feature_engineering/transformer, not reachable with untrusted input
+    if not (out.shape == (n, 2 * m)):
+        raise AssertionError(f"out must have shape (N, 2*m); got {out.shape} vs ({n}, {2 * m})")
 
     if n == 0:
         return

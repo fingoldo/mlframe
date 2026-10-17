@@ -130,7 +130,7 @@ def _knuth_bin_edges(a: np.ndarray, edge_type: str = "quantile", m_max_cap: int 
     if a_max <= a_min:
         return np.array([a_min, a_min + 1e-9])
     M_max = int(min(max(4, int(np.sqrt(n) * 4)), int(m_max_cap)))
-    # 2026-05-29 fix: M_min=2. The posterior favours M=1 on perfectly-uniform
+    # fix: M_min=2. The posterior favours M=1 on perfectly-uniform
     # data (max-entropy histogram is best-described by 1 bin), but M=1 -> 0
     # bins downstream -> 0 MI in MRMR even when the joint signal is large.
     # Forcing M >= 2 yields the same posterior optimum on non-uniform inputs
@@ -294,7 +294,7 @@ def _bayesian_blocks_bin_edges(
             edges_internal[i] = cell_edges[int(cp_idx[i])]
         edges_internal[-1] = cell_edges[-1]
     else:
-        # Legacy 'start' placement (pre-2026-05-29 behaviour).
+        # Legacy 'start' placement (previous behaviour).
         edges_internal = np.empty(cp_idx.size + 1, dtype=np.float64)
         for i, ci in enumerate(cp_idx):
             edges_internal[i] = a_sorted_dp[ci]
@@ -303,7 +303,7 @@ def _bayesian_blocks_bin_edges(
     edges_internal = np.unique(edges_internal)
     if edges_internal[0] > a.min():
         edges_internal = np.concatenate([[a.min()], edges_internal])
-    # 2026-05-29 fix: BB DP correctly returns 1 block on perfectly-uniform data
+    # fix: BB DP correctly returns 1 block on perfectly-uniform data
     # (no change points), which collapses to 0 inner edges -> 0 MI downstream.
     # Insert the median as a forced split so the binner always returns >= 2 bins.
     if edges_internal.size < 3:
@@ -336,7 +336,7 @@ def histogram(a: ArrayLike, bins: int | str = "auto", **kwargs) -> tuple[np.ndar
 def edges(arr: np.ndarray, quantiles: Sequence[float] | np.ndarray) -> np.ndarray:
     """Quantile bin edges for ``arr`` at the given ``quantiles``, NaN-safe (see the inline comment below
     for why plain ``np.percentile`` is unsafe here)."""
-    # Wave 21 P0: use nanpercentile so NaN in arr doesn't poison every
+    # use nanpercentile so NaN in arr doesn't poison every
     # bin edge. ``discretize_array`` calls this 6000+ times per FS fit
     # (per the module docstring); pre-fix any NaN-bearing column made
     # bin_edges all-NaN, then digitize / searchsorted silently bucketed
@@ -357,7 +357,7 @@ def get_binning_edges(arr: np.ndarray, n_bins: int = 10, method: str = "uniform"
             min_value, max_value = arrayMinMax(arr)
         bin_edges = np.linspace(min_value, max_value, n_bins + 1)
     elif method == "quantile":
-        # Wave 21 P0: numba's njit doesn't expose np.nanpercentile, so we
+        # numba's njit doesn't expose np.nanpercentile, so we
         # filter NaN inline before delegating to np.percentile. Pre-fix any
         # NaN in arr poisoned every edge -> downstream digitize silently
         # bucketed all rows to bin 0. The mask path is array-allocate +

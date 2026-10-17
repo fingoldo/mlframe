@@ -241,7 +241,7 @@ def _robust_lo_hi(x: np.ndarray) -> tuple[float, float]:
 
 
 # ---------------------------------------------------------------------------
-# Robust warp-coefficient FITTING (backlog idea #17, 2026-06-10)
+# Robust warp-coefficient FITTING (backlog idea #17)
 # ---------------------------------------------------------------------------
 # Huber tuning constant in units of the robust residual scale. 1.345*sigma is the
 # textbook value giving ~95% asymptotic efficiency at the Gaussian model: residuals

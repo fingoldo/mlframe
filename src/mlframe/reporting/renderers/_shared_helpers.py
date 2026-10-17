@@ -458,7 +458,9 @@ def wrap_text_to_width(text: Any, *, fontsize: float, width_in: float, fallback_
     break survives. Any measurement failure falls back to the character budget: this only controls text
     layout and must never raise.
     """
-    lines_in = str(text).splitlines() or [""]
+    lines_in = str(text).splitlines()
+    if not lines_in:
+        lines_in = [""]
     try:
         budget_pt = max(float(width_in) - 2.0 * _TEXT_SIDE_MARGIN_IN, 1.0) * 72.0
         out: list[str] = []
@@ -540,7 +542,8 @@ def wrap_title_lines(text: Any, width: int) -> list[str]:
 
     out: list = []
     for line in str(text).split("\n"):
-        out.extend(textwrap.wrap(line, width=width, break_long_words=False) or [""])
+        _wrapped = textwrap.wrap(line, width=width, break_long_words=False)
+        out.extend(_wrapped if _wrapped else [""])
     return out
 
 

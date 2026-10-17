@@ -97,7 +97,7 @@ def score_candidates(ctx: ScreenContext, best_gain: float, best_candidate: Any, 
     selected_vars = ctx.selected_vars
     selected_interactions_vars = ctx.selected_interactions_vars
     engineered_lineage = ctx.engineered_lineage
-    dcd_state = getattr(ctx, "dcd_state", None)  # Wave 9
+    dcd_state = getattr(ctx, "dcd_state", None)  # dynamic cluster discovery state
     reduce_gain_on_subelement_chosen = ctx.reduce_gain_on_subelement_chosen
     n_workers = ctx.n_workers
     use_simple_mode = ctx.use_simple_mode
@@ -175,11 +175,11 @@ def score_candidates(ctx: ScreenContext, best_gain: float, best_candidate: Any, 
     ):
         temp_cached_cond_MIs = sanitize(cached_cond_MIs)
         temp_entropy_cache = sanitize(entropy_cache)
-        # 2026-05-30 Wave 9.1 iter 5 fix: snapshot main-thread Wave 8
+        # snapshot main-thread SU/JMIM/BUR
         # toggles. ``threading.local`` storage from info_theory.py does NOT
         # propagate across joblib workers (each worker thread gets its own
         # local namespace), so without explicit forwarding the workers
-        # silently read ``False`` / ``0.0`` defaults and Wave 8 features
+        # silently read ``False`` / ``0.0`` defaults and those features
         # (SU normalization, JMIM, BUR) become no-ops in the parallel hot
         # path - the common case since backend='threading' is the default.
         from .info_theory import (
@@ -464,7 +464,7 @@ def confirm_candidate(ctx: ScreenContext, X: tuple, next_best_gain: float) -> tu
                     pass
             if _confirm_use_gpu:
                 # Mirror evaluate_candidate's GPU
-                # try/except (evaluation.py, 2026-07-09 fix) - this call previously had NO exception
+                # try/except (evaluation.py, fix) - this call previously had NO exception
                 # handling, unlike every sibling GPU dispatch point in this codebase. A transient CUDA
                 # fault here (driver hiccup, OOM, a poisoned context from an earlier unrelated GPU call)
                 # would otherwise propagate all the way up and crash the whole (possibly hours-long)

@@ -155,7 +155,7 @@ def test_detect_group_column_candidates_logs_per_skip(caplog):
     df = _BadGet({"boom": [1, 2, 3, 4, 5, 6], "ok": [1, 1, 2, 2, 3, 3]})
     with caplog.at_level(logging.DEBUG, logger="mlframe.training.composite.discovery.auto_detect"):
         result = cad.detect_group_column_candidates(df, candidate_columns=["boom", "ok"])
-    assert all(name != "boom" for name, _ in result)
+    assert not any(name == "boom" for name, _ in result)
     assert any(
         "detect_group_column_candidates: skipping col=" in r.message for r in caplog.records
     ), f"expected DEBUG skip log; got: {[r.message for r in caplog.records]}"

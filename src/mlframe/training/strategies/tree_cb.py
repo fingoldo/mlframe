@@ -74,7 +74,7 @@ class CatBoostStrategy(TreeModelStrategy):
     supports_polars = True
     supports_text_features = True
     supports_embedding_features = True
-    # 2026-04-24: native multi-output support via loss_function='MultiClass'
+    # native multi-output support via loss_function='MultiClass'
     # for K>2 single-label and 'MultiLogloss' for K independent binary
     # outputs. The dispatch wires these via
     # ModelPipelineStrategy.get_classif_objective_kwargs +
@@ -83,10 +83,10 @@ class CatBoostStrategy(TreeModelStrategy):
     supports_native_multiclass = True
     supports_native_multilabel = True
     supports_native_ranking = True
-    # 2026-05-08 QR: CatBoost MultiQuantile loss handles K alphas in one
+    # QR: CatBoost MultiQuantile loss handles K alphas in one
     # fit; predict returns (N, K) directly.
     supports_native_quantile = True
-    # F-34 (2026-05-31): CatBoost MultiRMSE loss handles K continuous
+    # F-34: CatBoost MultiRMSE loss handles K continuous
     # targets in one fit; predict returns (N, K) directly.
     supports_native_multi_target = True
     # Inherits cache_key = "tree" from TreeModelStrategy so CB/LGB/XGB share

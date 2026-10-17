@@ -377,7 +377,9 @@ def _curve_is_flat_near_best(evaluated_scores_mean: dict, best_n: int) -> bool:
         neigh.append(min(higher))
     if not neigh:
         return True
-    span = max(abs(v) for v in evaluated_scores_mean.values()) or 1.0
+    span = max(abs(v) for v in evaluated_scores_mean.values())
+    if span == 0:
+        span = 1.0
     # Max relative score change to the immediate evaluated neighbours.
     rel = max(abs(best_s - evaluated_scores_mean[n]) for n in neigh) / span
     return bool(rel < 0.01)
@@ -470,7 +472,7 @@ _suggest_scipy_global = _suggest_scipy_local
 
 # ----------------------------------------------------------------------
 # Sibling-module re-exports. Knockoff helpers live in _knockoffs.py
-# (carved out in Wave 5 to keep this file under 1k LOC). Legacy callers
+# (carved out to keep this file under 1k LOC). Legacy callers
 # importing make_gaussian_knockoffs / select_features_fdr /
 # knockoff_importance from this module keep working.
 # ----------------------------------------------------------------------

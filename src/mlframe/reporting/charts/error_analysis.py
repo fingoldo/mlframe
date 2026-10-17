@@ -83,7 +83,7 @@ def _per_row_error(
     if task == "regression":
         return np.asarray(np.abs(yt - yp))
     finite_yt = yt[np.isfinite(yt)]
-    is_binary_label = finite_yt.size == 0 or bool(np.isin(finite_yt, (0.0, 1.0)).all())
+    is_binary_label = True if finite_yt.size == 0 else bool(np.isin(finite_yt, (0.0, 1.0)).all())
     looks_proba = is_binary_label and yp.size > 0 and float(np.nanmin(yp)) >= 0.0 and float(np.nanmax(yp)) <= 1.0
     if looks_proba:
         eps = 1e-12

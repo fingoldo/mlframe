@@ -21,7 +21,7 @@ import numpy as np
 # select parent, so this top import resolves during the partial-init import chain - same pattern as the parent).
 from ._gpu_resident_shared import _quantile_levels_dev
 
-# FUSED PER-COLUMN BINNING (2026-06-20, nvprof-driven). The per-column ``for j in range(K): out[:,j] =
+# FUSED PER-COLUMN BINNING (nvprof-driven). The per-column ``for j in range(K): out[:,j] =
 # cp.searchsorted(edges[:,j], col, 'right')`` loop fired K separate searchsorted launches PLUS K int64->
 # int32 cast-copies (searchsorted returns int64, ``out`` is int32). nvprof on the n=100k/300k binning path:
 # cupy_copy__int64_int32 = 19.2% of GPU time (2304 calls) + cupy_searchsorted_kernel = 11.7% (2304 calls)
@@ -70,7 +70,7 @@ void bin_codes_TYPENAME(const TYPE* __restrict__ cand, const double* __restrict_
 }
 """
 
-# LAUNCH-FUSION (2026-06-27, bit-identical): emit the NARROW code dtype (int8/int16) straight from the
+# LAUNCH-FUSION (bit-identical): emit the NARROW code dtype (int8/int16) straight from the
 # binning kernel instead of int32-then-astype. The resident chunk path discretized to int32 (this kernel)
 # then immediately cast int32->int8 per VRAM chunk (a separate launch + a full (n,K) int32 intermediate,
 # ~12-24x/fit). Instantiating the kernel's OUTPUT type directly (OUTTYPE) drops that cast launch + the int32

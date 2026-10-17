@@ -142,7 +142,7 @@ def _score_plug_in(x: np.ndarray, y_arr: np.ndarray, *, nbins_strategy: Optional
     # codes BEFORE plug_in_mi. The internal quantile-bin-of-y path inside
     # _plug_in_mi treats float y as regression-like and collapses
     # ``np.quantile(binary, 11pts) -> unique==2 -> degenerate 1-bin output``
-    # (verified by smoke 2026-05-29). Detecting low cardinality up-front
+    # (verified by smoke). Detecting low cardinality up-front
     # avoids the trap.
     if y_arr.dtype.kind not in "iub":
         uniq = np.unique(y_arr)

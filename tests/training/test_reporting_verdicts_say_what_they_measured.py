@@ -163,7 +163,7 @@ class TestTheLearningCurveNamesItsSplit:
     def test_the_series_name_the_split_they_came_from(self):
         """The honest form."""
         labels = self._panel("test").panels[0][0].series_labels
-        assert all("test" in lbl for lbl in labels), labels
+        assert bool(labels) and all("test" in lbl for lbl in labels), labels
 
     def test_the_verdict_subtitle_names_it_too(self):
         """`data_starved` / `saturated` reads as a statement about training otherwise."""

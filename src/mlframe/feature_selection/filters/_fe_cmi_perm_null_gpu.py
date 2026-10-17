@@ -156,7 +156,7 @@ def conditional_perm_null_gpu(
     if z_i is None:
         # MARGINAL null (seed step): free within-column shuffle -> null MARGINAL MI(x_perm; y). Draw an (n, nperm)
         # key matrix on device and argsort each column -> nperm independent free permutations, all resident.
-        # INT32 keys (2026-07-02, nsys-driven): cub radix-sorts int32 in HALF the passes of f64 (the argsort was
+        # INT32 keys (nsys-driven): cub radix-sorts int32 in HALF the passes of f64 (the argsort was
         # the dominant per-call cost, micro-bench 305ms at n=1M nperm=25). A 32-bit random key ties within a
         # column with probability ~C(n,2)/2^32; a tie sorts in stable index order - a microscopically
         # non-uniform but valid permutation (this is a NULL estimate; selection-equivalent, same bar as the
@@ -194,7 +194,7 @@ def conditional_perm_null_gpu(
         z_rank_d = cp.asarray(np.ascontiguousarray(z_rank, dtype=np.float64).ravel())[:, None]  # (n, 1)
     x_sorted_d = dx[order_d]  # x reordered into contiguous stratum blocks
 
-    # WITHIN-STRATUM shuffle keys. INT32 RANK-PACK fast path (2026-07-02, nsys-driven): the argsort of the
+    # WITHIN-STRATUM shuffle keys. INT32 RANK-PACK fast path (nsys-driven): the argsort of the
     # combined (z_rank + key) matrix was the dominant per-call cost (micro-bench 305ms of ~880ms at n=1M,
     # nperm=25) because cub radix-sorts f64 in 8 byte-passes. Pack the stratum rank into the HIGH bits of an
     # int32 and the random key into the remaining LOW bits - blocks still never overlap (rank dominates), the
@@ -213,7 +213,7 @@ def conditional_perm_null_gpu(
         keys = z_rank_d + rs.random_sample(size=(n, nperm))  # exact f64 fallback (huge stratum counts)
     within = cp.argsort(keys, axis=0)  # (n, nperm) within-stratum orders (no overlap)
 
-    # SPARSE sort/run-length CMI (2026-07-02, design-agent + nsys): at the raw-redundancy gate the conditioning
+    # SPARSE sort/run-length CMI (design-agent + nsys): at the raw-redundancy gate the conditioning
     # support is near-continuous (Kz ~ 1e5 -> Kx*Kyz multi-million), so the dense (chunk, Kx*Kyz) joint of the
     # chunked scorer is multi-GB - the chunk collapses to ~1 perm and the ~nperm dense passes serialize (the
     # gate's 14.7s). The plug-in CMI needs only OCCUPIED-cell counts, and in the z-SORTED domain (order_d /

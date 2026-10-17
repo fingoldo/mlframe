@@ -76,7 +76,7 @@ def _multiple_r(cols_2d: np.ndarray, y: np.ndarray) -> float:
     try:
         beta, *_ = np.linalg.lstsq(design, yv, rcond=None)
     except Exception as e:
-        logger.debug("_multiple_r: lstsq failed on a degenerate/singular design, returning 0.0: %s", e)
+        log_throttle(logger, "_fe_additive_fusion._multiple_r", logging.WARNING, "_multiple_r: lstsq failed on a degenerate/singular design, returning 0.0: %s", e)
         return 0.0
     fitted = design @ beta
     sf = float(np.std(fitted))
@@ -292,7 +292,7 @@ def propose_additive_fusions(
             # fluctuation scale). Two unrelated features whose combination has no genuine joint uplift
             # (fused_mi ~= the stronger half +/- noise) are NOT fused.
             _binned_mi_passes = fused_mi > _strong["mi"] + _floor_margin * _strong["floor"]
-            # OLS LINEAR-USABILITY SEPARABILITY (2026-06-24, default-ON, ALONGSIDE the binned-MI
+            # OLS LINEAR-USABILITY SEPARABILITY (default-ON, ALONGSIDE the binned-MI
             # gate). Under variance imbalance the coarse binned-MI WRONGLY rejects a genuine
             # fusion: the dominant half saturates most bins, so the fused binned-MI barely exceeds
             # the strong half's even though the second additive term materially improves the

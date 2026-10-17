@@ -40,11 +40,13 @@ def cpx18():
             return len(np.unique(vis))
         def new():
             return _get_nunique(vis, skip_nan=False)
-        assert old() == new(), (old(), new())  # nosec B101 - internal invariant check in src/mlframe/preprocessing/_benchmarks, not reachable with untrusted input
+        if not (old() == new()):
+            raise AssertionError((old(), new()))
         # NaN-containing case
         old_n = len(np.unique(x))
         new_n = _get_nunique(x, skip_nan=False)
-        assert old_n == new_n, (old_n, new_n)  # nosec B101 - internal invariant check in src/mlframe/preprocessing/_benchmarks, not reachable with untrusted input
+        if not (old_n == new_n):
+            raise AssertionError((old_n, new_n))
         to = best_of(old)
         tn = best_of(new)
         print(f"  n={n:>9} span: OLD {to*1e3:7.3f}ms  NEW {tn*1e3:7.3f}ms  speedup {to/tn:5.2f}x  (count={old()})")
@@ -74,8 +76,10 @@ def cpx19():
 
         vo, no = old()
         vn, nn = new()
-        assert no == nn, (no, nn)  # nosec B101 - internal invariant check in src/mlframe/preprocessing/_benchmarks, not reachable with untrusted input
-        assert np.array_equal(vo, vn), "values_in_span differ"  # nosec B101 - internal invariant check in src/mlframe/preprocessing/_benchmarks, not reachable with untrusted input
+        if not (no == nn):
+            raise AssertionError((no, nn))
+        if not (np.array_equal(vo, vn)):
+            raise AssertionError("values_in_span differ")
         to = best_of(old)
         tn = best_of(new)
         print(f"  n={n:>9}: OLD {to*1e3:7.3f}ms  NEW {tn*1e3:7.3f}ms  speedup {to/tn:5.2f}x  (n_outliers={no})")

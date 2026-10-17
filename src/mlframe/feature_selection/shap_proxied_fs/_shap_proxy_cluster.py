@@ -252,7 +252,7 @@ def build_unit_matrix(
         M = X[:, members]
         Z, _mean, _std, _signs = _standardize_align(M, 0)  # ref = first member
         w = _derive_weights(Z, weighting)
-        # 2026-06-03 (audit gap-04): when the combiner is non-linear,
+        # when the combiner is non-linear,
         # _derive_weights returns None for ALL of median/median_z/signed_max_abs/
         # signed_l2_sum. The old ``np.median`` fallback silently collapsed
         # signed_max_abs and signed_l2_sum to a plain median, diverging from the

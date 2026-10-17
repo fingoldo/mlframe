@@ -256,18 +256,13 @@ def _filter_to_numeric(_df, keep_cols=None):
         return _df, []
     # Pre-fix this silently passed through polars DataFrames; downstream ``_df.select_dtypes(...)`` then raised AttributeError with no diagnostic naming the type. Coerce polars -> pandas explicitly; raise on truly unsupported types so the upstream caller sees the boundary.
     if not isinstance(_df, pd.DataFrame):
-        try:
-            import polars as _pl_local
-            if isinstance(_df, _pl_local.DataFrame):
-                # Mirror the ``apply_preprocessing_extensions._to_pandas`` Arrow split-blocks path (this file lines ~360-371): bare .to_pandas() consolidates Arrow buffers (~30x slower on wide frames + degrades pl.Enum to object dtype). self_destruct=True is safe here because the caller's _df reference is being rebound (we don't read _df after this line).
-                try:
-                    _df = _df.to_pandas(split_blocks=True, self_destruct=True)
-                except TypeError:
-                    _df = _df.to_pandas()
-            else:
-                return _df, []
-        except ImportError as _exc:
-            logger.debug("_filter_to_numeric fell back to its default after %s", type(_exc).__name__)
+        if isinstance(_df, pl.DataFrame):
+            # Mirror the ``apply_preprocessing_extensions._to_pandas`` Arrow split-blocks path (this file lines ~360-371): bare .to_pandas() consolidates Arrow buffers (~30x slower on wide frames + degrades pl.Enum to object dtype). self_destruct=True is safe here because the caller's _df reference is being rebound (we don't read _df after this line).
+            try:
+                _df = _df.to_pandas(split_blocks=True, self_destruct=True)
+            except TypeError:
+                _df = _df.to_pandas()
+        else:
             return _df, []
     import numpy as _np_local
     # When ``keep_cols`` is pinned (val/test follow train), promote only the pinned bool columns then select exactly the pinned set, preserving cross-split column parity even if a column's per-split dtype differs.

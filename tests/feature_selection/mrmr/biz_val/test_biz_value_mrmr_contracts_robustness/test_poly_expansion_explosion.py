@@ -174,7 +174,7 @@ class TestPolynomRedundancyPruning:
             # An n-ary product ``a_x_b_x_c`` splits into >2 operands; it is pure-noise iff EVERY operand is a noise
             # factor (none is a signal factor). The earlier 2-tuple unpack crashed on any 3+-operand product name.
             operands = nm.split("_x_")
-            return all(op not in signal_factors for op in operands)
+            return bool(operands) and all(op not in signal_factors for op in operands)
 
         noise_products = [nm for nm in names if _is_pure_noise_product(nm)]
         assert len(noise_products) <= 6, f"Too many pure-noise products in support: {len(noise_products)} survived; support={names}"

@@ -219,7 +219,7 @@ def _init_fit_state(
             repr(np.asarray(X).ravel()[:100].tolist()).encode("utf-8"),
             digest_size=12,
         ).hexdigest()
-    # 2026-06-10 fix: fold the selector's OWN parameter signature (incl. the wrapped estimator's params via
+    # fix: fold the selector's OWN parameter signature (incl. the wrapped estimator's params via
     # ``deep=True`` expansion) into the skip signature. Pre-fix the signature was
     # ``(X.shape, y.shape, columns_key, y_hash, x_hash)`` - SELECTOR/ESTIMATOR PARAMS were absent: refitting
     # the same RFECV instance with changed settings (``set_params`` or direct attribute assignment, e.g. a new

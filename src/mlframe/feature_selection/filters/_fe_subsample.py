@@ -22,6 +22,7 @@ from typing import Optional
 import logging
 
 import numpy as np
+from mlframe.utils.log_throttle import log_throttle
 
 _logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
@@ -40,7 +41,7 @@ _FE_STRATIFY_REG_BINS: int = 10
 
 
 # ---------------------------------------------------------------------------------------------------
-# NUMBA KERNELS (R2, 2026-06-18). Deterministic per-call inline-LCG RNG (thread-safe: no process-global
+# NUMBA KERNELS (R2). Deterministic per-call inline-LCG RNG (thread-safe: no process-global
 # np.random state, so concurrent joblib-threading callers cannot clobber each other's stream). Exact
 # bit-match to the numpy version is NOT required (the
 # default flips to ON anyway) - the kernels only guarantee DETERMINISM (same seed+inputs -> same
@@ -176,7 +177,7 @@ def _derive_seed(rng) -> int:
     try:
         return int(rng.integers(0, 2**31 - 1))
     except Exception as e:
-        _logger.debug("_derive_seed: rng.integers() failed, using fixed seed 0: %s", e)
+        log_throttle(_logger, "_fe_subsample._derive_seed", logging.WARNING, "_derive_seed: rng.integers() failed, using fixed seed 0: %s", e)
         return 0
 
 
@@ -444,5 +445,5 @@ def _resolve_fe_subsample_stratify(stratify_knob, y, *, is_clf: bool) -> bool:
         tail = max(float(finite.max() - med), float(med - finite.min()))
         return bool(tail / iqr >= _FE_STRATIFY_REG_TAIL_IQR_RATIO)
     except Exception as e:
-        _logger.debug("_resolve_fe_subsample_stratify: auto-stratify heuristic failed, defaulting to OFF (legacy uniform draw): %s", e)
+        log_throttle(_logger, "_fe_subsample._resolve_fe_subsample_stratify", logging.WARNING, "_resolve_fe_subsample_stratify: auto-stratify heuristic failed, defaulting to OFF (legacy uniform draw): %s", e)
         return False

@@ -48,16 +48,25 @@ def _fit_score(train_X, ytr, test_X, yte):
     return float((clf.predict(test_X) == yte).mean())
 
 
+def _hf_model_available() -> bool:
+    """True iff the default HuggingFace embedding model can be fetched/loaded here (False when offline or the fetch fails)."""
+    probe = pd.DataFrame({"text_0": ["probe sentence one", "probe sentence two"]})
+    try:
+        NeuralEmbeddingTextEncoder(text_features=["text_0"]).fit_transform(probe)
+    except (OSError, ImportError):  # offline / model-fetch failure; anything else is a real defect and propagates
+        return False
+    return True
+
+
 def test_biz_val_neural_feature_prep_hf_text_beats_tfidf_on_synonym_generalization():
     """Biz val neural feature prep hf text beats tfidf on synonym generalization."""
+    if not _hf_model_available():
+        pytest.skip("HuggingFace model unavailable (offline or model fetch failed)")
     Xtr, ytr = _make_split(POS_TRAIN, NEG_TRAIN, 220, seed=0)
     Xte, yte = _make_split(POS_TEST, NEG_TEST, 120, seed=1)  # DISJOINT synonyms from train
 
     enc = NeuralEmbeddingTextEncoder(text_features=["text_0"])
-    try:
-        tr_emb = enc.fit_transform(Xtr)
-    except (OSError, ImportError) as e:  # pragma: no cover -- offline / model-fetch failure; anything else is a real defect and propagates
-        pytest.skip(f"HuggingFace model unavailable ({type(e).__name__}: {e})")
+    tr_emb = enc.fit_transform(Xtr)
     te_emb = enc.transform(Xte)
 
     hf_acc = _fit_score(tr_emb.to_numpy(), ytr, te_emb.to_numpy(), yte)

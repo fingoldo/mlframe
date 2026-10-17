@@ -112,7 +112,9 @@ def log_fe_family_summary(*, reset: bool = True) -> None:
         if not _FE_FAMILY_WALL:
             return
         rows = sorted(_FE_FAMILY_WALL.items(), key=lambda kv: kv[1][0], reverse=True)
-        total = sum(v[0] for _, v in rows) or 1e-9
+        total = sum(v[0] for _, v in rows)
+        if total == 0:
+            total = 1e-9
         parts = [f"{name}={wall:.1f}s({100.0 * wall / total:.0f}%, x{n})" for name, (wall, n) in rows]
         overlapped = _MAX_INFLIGHT > 1
         peak = int(_MAX_INFLIGHT)

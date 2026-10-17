@@ -14,6 +14,8 @@ from typing import Any, ClassVar, Optional
 
 from pydantic import model_validator
 
+from mlframe.utils.log_throttle import log_throttle
+
 logger = logging.getLogger(__name__)
 
 __all__ = ["InertFieldsWarningMixin"]
@@ -46,7 +48,7 @@ class InertFieldsWarningMixin:
             try:
                 unchanged = value == default or (value is None and default is None)
             except Exception:  # pragma: no cover - exotic comparison: say so, then treat the field as set (the warning below fires)
-                logger.warning("%s.%s: could not compare the value with its default; treating it as set.", type(self).__name__, name)
+                log_throttle(logger, "inert_fields_uncomparable_default", logging.WARNING, "%s.%s: could not compare the value with its default; treating it as set.", type(self).__name__, name)
                 unchanged = False
             if unchanged:
                 continue

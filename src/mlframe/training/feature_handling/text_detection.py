@@ -255,7 +255,7 @@ def detect_text_columns(
     ``candidate_columns`` defaults to all string-like columns in df.
     ``config`` defaults to :class:`TextDetectionConfig` defaults.
     """
-    cfg = config or TextDetectionConfig()
+    cfg = TextDetectionConfig() if config is None else config
     if candidate_columns is None:
         try:
             candidate_columns = list(df.columns)

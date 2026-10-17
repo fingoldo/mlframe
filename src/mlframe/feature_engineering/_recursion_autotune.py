@@ -57,7 +57,7 @@ def _make_data(n_groups: int, rows_per_group: int, seed: int = 0):
     md = np.tile(np.arange(rows_per_group, dtype=float), n_groups)
     obs = np.cumsum(rng.normal(0, 0.1, N)) + md * 0.01
     obs[rng.random(N) < 0.02] = np.nan
-    X = np.column_stack([np.ones(N), md / (md.max() + 1e-9)])
+    X = np.column_stack([np.ones(N), md / max(md.max(), 1e-9)])
     return obs, X, well
 
 

@@ -459,8 +459,9 @@ class TestTrainAndEvaluateModelBasic:
             verbose=False,
         )
 
-        assert result is not None
-        assert result.test_preds is not None
+        expected = model.predict(df.iloc[test_idx])
+        np.testing.assert_allclose(np.asarray(result.test_preds, dtype=float), expected)
+        assert len(result.test_preds) == len(test_idx)
 
     def test_returns_simplenamespace(self, simple_data):
         """Test that result is SimpleNamespace with expected attributes."""
@@ -628,7 +629,7 @@ class TestTrainAndEvaluateModelEdgeCases:
             verbose=False,
         )
 
-        assert result is not None
+        assert len(result.test_preds) == 20
         np.testing.assert_array_equal(result.test_preds, test_preds_arr)
 
     def test_with_separate_train_val_test_dfs(self):

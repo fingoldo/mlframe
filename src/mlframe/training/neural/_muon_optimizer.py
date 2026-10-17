@@ -46,14 +46,15 @@ def _zeropower_via_newtonschulz5(G: torch.Tensor, steps: int = 5) -> torch.Tenso
     practical orthogonality on FP32 / BF16. Uses BF16 internally for
     GEMM speed; final result is cast back to G's dtype.
     """
-    assert G.ndim == 2, f"Newton-Schulz requires 2D input; got shape {tuple(G.shape)}"  # nosec B101 - internal invariant check in src/mlframe/training/neural, not reachable with untrusted input
+    if not (G.ndim == 2):
+        raise AssertionError(f"Newton-Schulz requires 2D input; got shape {tuple(G.shape)}")
     a, b, c = NS5_COEFFS
     X = G.to(torch.bfloat16) if G.is_cuda else G.to(torch.float32)
     # Iterate on the smaller-dim side (faster), then transpose back.
     transposed = X.size(-2) > X.size(-1)
     if transposed:
         X = X.transpose(-2, -1)
-    X = X / (X.norm() + 1e-7)
+    X = X / X.norm().clamp_min(1e-7)
     for _ in range(steps):
         A = X @ X.transpose(-2, -1)
         B = b * A + c * A @ A
@@ -183,7 +184,7 @@ class MuonAdamWHybrid(Optimizer):
         weight_decay: float = 1e-2,
         momentum: float = 0.95,
         nesterov: bool = True,
-        ns_steps: int = 4,  # F-41 2026-05-31: 5 -> 4 default per Muon docstring
+        ns_steps: int = 4,  # F-41: 5 -> 4 default per Muon docstring
     ) -> None:
         # Resolve params to a concrete list so we can iterate twice
         # (split + Optimizer.__init__ both consume the iterable).

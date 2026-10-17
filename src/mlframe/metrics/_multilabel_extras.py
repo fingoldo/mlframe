@@ -394,7 +394,7 @@ def multilabel_f1_weighted(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     return _multilabel_f1_helper(y_true, y_pred, "weighted")
 
 
-# ----- per-label AUC + macro / weighted (Tier 1 follow-up 2026-05-28) -----
+# ----- per-label AUC + macro / weighted (Tier 1 follow-up) -----
 
 
 def multilabel_auc_per_label(
@@ -462,7 +462,7 @@ def multilabel_auc_weighted(
 # ============================================================================
 #
 # Bench (mlframe.metrics._benchmarks.bench_extended_metric_blocks) -
-# measured on Win11 / numba 0.58 / 16-thread Ryzen 2026-05-28, K=20:
+# measured on Win11 / numba 0.58 / 16-thread Ryzen, K=20:
 #   N=10k:   separate 6 calls=6.2 ms    fused=1.5 ms  (4.13x)
 #   N=100k:  separate 6 calls=62.3 ms   fused=15.2 ms (4.11x)
 #   N=1M:    separate 6 calls=625.7 ms  fused=164 ms  (3.81x)

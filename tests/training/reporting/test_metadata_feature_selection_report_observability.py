@@ -140,7 +140,7 @@ def test_build_report_for_ordinary_branch_returns_none_selector():
     )
     assert report["selector_name"] is None
     assert report["kept_features"] == ["a", "b", "c"]
-    assert report["dropped_features"] == [] or report["dropped_features"] is None
+    assert report["dropped_features"] == []
     assert report["scores"] is None
     assert report["reason_per_feature"] is None
 

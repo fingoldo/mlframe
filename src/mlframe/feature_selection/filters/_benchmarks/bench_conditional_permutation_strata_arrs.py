@@ -57,7 +57,8 @@ def bench(old_mod, new_mod, n=20_000, nbx=8, nby=8, nbz=10, B=200, seed=0):
 
     old_res = old_mod.conditional_permutation_test(x, y, z, nbx, nby, nbz, n_permutations=B, seed=7)
     new_res = new_mod.conditional_permutation_test(x, y, z, nbx, nby, nbz, n_permutations=B, seed=7)
-    assert old_res == new_res, f"identity FAILED: {old_res} != {new_res}"  # nosec B101 - internal invariant check in src/mlframe/feature_selection/filters/_benchmarks, not reachable with untrusted input
+    if not (old_res == new_res):
+        raise AssertionError(f"identity FAILED: {old_res} != {new_res}")
 
     t_old = _median_time(lambda: old_mod.conditional_permutation_test(x, y, z, nbx, nby, nbz, n_permutations=B, seed=7))
     t_new = _median_time(lambda: new_mod.conditional_permutation_test(x, y, z, nbx, nby, nbz, n_permutations=B, seed=7))

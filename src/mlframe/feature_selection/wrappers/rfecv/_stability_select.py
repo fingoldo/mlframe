@@ -16,7 +16,7 @@ import pandas as pd
 
 from sklearn.base import clone
 
-from ._fit_fold import _fit_accepts_sample_weight
+from ._fit_fold import _fit_accepts_sample_weight, _resolve_n_repeats
 from ._one_se_band import band_half_width, fold_counts, split_rule_band
 from .._enums import VotesAggregation
 from .._helpers import (
@@ -156,7 +156,7 @@ def _fit_stability_selection(self, X, y, signature):
             f"by sampling noise. Use the regular MBH path or increase n."
         )
     estimators_list = list(self.estimators) if self.estimators else [self.estimator]
-    importance_getter = self.importance_getter or "auto"
+    importance_getter = self.importance_getter if self.importance_getter else "auto"
     rng = np.random.default_rng(self.random_state)
     is_df = isinstance(X, pd.DataFrame)
     n_samples = X.shape[0]
@@ -245,7 +245,7 @@ def _fit_stability_selection(self, X, y, signature):
                     model=est_clone, current_features=feature_names,
                     data=X_eval, target=y_eval,
                     importance_getter=importance_getter,
-                    n_repeats=int(getattr(self, "_effective_n_repeats", None) or getattr(self, "n_repeats", 5) or 5),
+                    n_repeats=_resolve_n_repeats(self),
                     # W3: same fix as the main RFECV fold path - derive a per-bootstrap seed from the
                     # SAME rng stream already driving this bootstrap's subsample draw, instead of
                     # get_feature_importances' hardcoded random_state=0 default on every bootstrap.
@@ -512,7 +512,7 @@ def select_optimal_nfeatures_(
             mean_arr = np.array(cv_mean_perf)
         std_arr = np.array(cv_std_perf)
         nz_idx = np.where(nonzero_mask)[0]
-        # Wave 21 P0: mask out NaN candidates before argmax. cv_mean_perf
+        # mask out NaN candidates before argmax. cv_mean_perf
         # can hold NaN when every fold for that N was degenerate
         # (_helpers.py:337). Pre-fix np.argmax picks the NaN slot ->
         # ``best_mean_idx`` refers to a never-evaluated N and the caller

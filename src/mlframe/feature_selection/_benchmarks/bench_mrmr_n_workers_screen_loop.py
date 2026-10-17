@@ -73,8 +73,10 @@ def main():
         if serial_support is None:
             serial_support, parallel_support = sup_s, sup_p
         else:
-            assert sup_s == serial_support, "n_workers=1 selection is not seed-stable across trials"
-            assert sup_p == parallel_support, "n_workers=8 selection is not seed-stable across trials"
+            if not (sup_s == serial_support):
+                raise AssertionError("n_workers=1 selection is not seed-stable across trials")
+            if not (sup_p == parallel_support):
+                raise AssertionError("n_workers=8 selection is not seed-stable across trials")
         print(f"{trial:>5} {dt_s:>22.3f} {dt_p:>24.3f}")
 
     print()

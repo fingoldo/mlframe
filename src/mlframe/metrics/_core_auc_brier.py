@@ -430,7 +430,7 @@ def bootstrap_auc_distribution_parallel(y_true: np.ndarray, y_score: np.ndarray,
 
     asc_order = np.argsort(y_score)
     sorted_score = y_score[asc_order]
-    tie_free = n < 2 or bool(np.all(sorted_score[1:] != sorted_score[:-1]))
+    tie_free = True if n < 2 else bool(np.all(sorted_score[1:] != sorted_score[:-1]))
     if not tie_free:
         return None
 
@@ -486,7 +486,7 @@ def make_bootstrap_auc_resampler(y_true: np.ndarray, y_score: np.ndarray) -> Cal
     asc_order = np.argsort(y_score)  # ascending; once
     sorted_score = y_score[asc_order]
     # all-distinct gate: no two adjacent sorted scores equal -> tie-free
-    tie_free = n < 2 or bool(np.all(sorted_score[1:] != sorted_score[:-1]))
+    tie_free = True if n < 2 else bool(np.all(sorted_score[1:] != sorted_score[:-1]))
 
     if not tie_free:
         # Tied base scores. The exact per-resample argsort fallback re-sorts the whole

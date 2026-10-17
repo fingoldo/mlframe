@@ -65,7 +65,7 @@ try:
 except ImportError:
     _HAS_POLARS = False
 
-# Wave 106 (2026-05-21): the DEFAULT_* constants + Granularity type alias
+# the DEFAULT_* constants + Granularity type alias
 # live in target_temporal_audit (parent module). That module imports us
 # from its BOTTOM (after these constants are defined at its TOP), so by
 # the time Python resolves these names the parent is partially loaded

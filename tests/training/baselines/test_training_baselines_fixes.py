@@ -65,7 +65,8 @@ def test_f1_classification_all_nan_train_y_degrades_gracefully():
         train_X=train_X, val_X=val_X, test_X=test_X,
         train_y=train_y, val_y=val_y, test_y=test_y,
     )
-    assert report is not None  # must not raise
+    assert not report.table.empty  # degraded to a prior-based table instead of raising
+    assert report.n_train_finite == 0
 
 
 # ----------------------------------------------------------------------
@@ -171,16 +172,23 @@ def test_f4_facade_delegates_and_matches_canonical():
     assert r1.table.shape == r2.table.shape
 
 
-def test_f4_facade_docstring_no_longer_claims_full_reexport_but_has_no_second_body():
-    """F4: facade docstring no longer claims full reexport but has no second body."""
-    import inspect
-
+def test_f4_facade_docstring_no_longer_claims_full_reexport_but_has_no_second_body(monkeypatch):
+    """F4: the facade has no second body of its own: it hands its arguments to the canonical ``dummy.compute_dummy_baselines``."""
+    from mlframe.training.baselines import dummy
     from mlframe.training.baselines._dummy_baseline_compute import compute_dummy_baselines as facade_fn
 
-    src = inspect.getsource(facade_fn)
-    assert "_canonical_compute_dummy_baselines" in src
-    # the pre-fix duplicate body computed val_preds/test_preds itself; the wrapper must not.
-    assert "val_preds: dict[str, np.ndarray] = {}" not in src
+    seen = {}
+    sentinel = object()
+
+    def _canonical(*args, **kwargs):
+        """Record the delegated call and return a sentinel."""
+        seen["args"], seen["kwargs"] = args, kwargs
+        return sentinel
+
+    monkeypatch.setattr(dummy, "compute_dummy_baselines", _canonical)
+    # the pre-fix duplicate body computed the baselines itself and never reached the canonical function
+    assert facade_fn(1, target_name="t") is sentinel
+    assert seen == {"args": (1,), "kwargs": {"target_name": "t"}}
 
 
 # ----------------------------------------------------------------------
@@ -236,13 +244,14 @@ def test_f6_quantile_metrics_table_unaffected():
 
 
 def test_f6_pinball_per_a_no_longer_in_source():
-    """F6: pinball per a no longer in source."""
-    import inspect
-
+    """F6: pinball per a no longer in source (no identifier, string or comment of that name remains)."""
     from mlframe.training.baselines import _dummy_metrics_pick_plot
+    from tests._source_structure import identifiers, string_literals
+    from tests.test_meta._comment_markers import comment_text
 
-    src = inspect.getsource(_dummy_metrics_pick_plot)
-    assert "pinball_per_a" not in src
+    assert "pinball_per_a" not in identifiers(_dummy_metrics_pick_plot)
+    assert not any("pinball_per_a" in text for text in string_literals(_dummy_metrics_pick_plot))
+    assert "pinball_per_a" not in comment_text(_dummy_metrics_pick_plot)
 
 
 # ----------------------------------------------------------------------

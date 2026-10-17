@@ -35,6 +35,8 @@ import numpy as np
 
 from ._helpers import _engineered_recipe_name
 
+from mlframe.utils.log_throttle import log_throttle
+
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
 
@@ -160,7 +162,7 @@ def _accept_rescue_candidates(self, data, nbins, target_indices, cols, _above_fl
     # engineered survivor captures still passes and is rescued. Structure-independent:
     # correct at every n, no tuning constant beyond the existing ``_redundancy_frac``.
     _name_to_cols_idx_eng = {c: i for i, c in enumerate(cols)}
-    # SEED ONLY ON SURVIVING ENGINEERED FEATURES (2026-06-16, s319 under-selection).
+    # SEED ONLY ON SURVIVING ENGINEERED FEATURES (s319 under-selection).
     # Condition the dedup on the engineered features that ACTUALLY REACH THE OUTPUT
     # - i.e. the replayable ``self._engineered_recipes_`` counted in ``n_engineered_out``
     # - NOT ``self._engineered_features_``, which still carries composites that were
@@ -222,7 +224,8 @@ def _accept_rescue_candidates(self, data, nbins, target_indices, cols, _above_fl
                 # that makes the redundancy test below fail, so a failed pair-MI silently admitted an
                 # algebraic near-duplicate into the support, visible afterwards only as a redundancy
                 # regression with no trace.
-                logger.warning(
+                log_throttle(
+                    logger, "mrmr_rescue_pair_mi_probe_failed", logging.WARNING,
                     "MRMR rescue: pair-MI probe raised %s for columns %s vs %s (%s); treating the pair as redundant.",
                     type(e).__name__,
                     _cols_idx,

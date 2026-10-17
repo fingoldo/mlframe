@@ -37,6 +37,7 @@ from typing import Any, Callable, Optional, cast
 import torch
 
 from ._triton_bootstrap import ensure_triton_loaded
+from mlframe.utils.log_throttle import log_throttle
 
 NS5_COEFFS = (3.4445, -4.7750, 2.0315)
 
@@ -159,7 +160,7 @@ def _build_triton_ns_fn() -> Optional[Callable]:
         Returns A: (M, M) same dtype, symmetric.
         """
         M, N = X.shape
-        # F-60 (2026-05-31): zero-init A, NOT torch.empty. The upper-tri
+        # F-60: zero-init A, NOT torch.empty. The upper-tri
         # kernel SKIPS strict-lower-triangle tiles (line 96-97 early return)
         # AND masks out off-tile positions inside the kernel, so the LOWER
         # half + masked positions of A are NEVER written. ``torch.triu(A) +
@@ -199,13 +200,14 @@ def _build_triton_ns_fn() -> Optional[Callable]:
         Same numerical contract as ``_muon_optimizer._zeropower_via_newtonschulz5``
         but the X @ X.T step uses the Triton SYRK kernel above.
         """
-        assert G.ndim == 2 and G.is_cuda, "Triton NS path requires 2D CUDA tensor"  # nosec B101 - internal invariant check in src/mlframe/training/neural, not reachable with untrusted input
+        if not (G.ndim == 2 and G.is_cuda):
+            raise AssertionError("Triton NS path requires 2D CUDA tensor")
         a, b, c = NS5_COEFFS
         X = G.to(torch.bfloat16) if G.is_cuda else G.to(torch.float32)
         transposed = X.size(0) > X.size(1)
         if transposed:
             X = X.transpose(0, 1).contiguous()
-        X = X / (X.norm() + 1e-7)
+        X = X / X.norm().clamp_min(1e-7)
         for _ in range(steps):
             # SYRK: A = X @ X.T (symmetric)
             A = _syrk_via_triton(X.contiguous())
@@ -281,7 +283,7 @@ def _calibrate_triton_vs_eager(fn, shape, dtype, device, steps) -> float:
         triton_t = time.perf_counter() - t0
         return (eager_t / triton_t) if triton_t > 0 else 0.0
     except Exception as _cal_err:
-        logger.debug("Muon Triton calibration failed (%s); using eager.", _cal_err)
+        log_throttle(logger, "_muon_triton_kernel._calibrate_triton_vs_eager", logging.WARNING, "Muon Triton calibration failed (%s); using eager.", _cal_err)
         return 0.0
 
 

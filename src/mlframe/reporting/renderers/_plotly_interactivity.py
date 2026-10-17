@@ -144,7 +144,9 @@ _NONLINE_TEMPLATES = {
 
 def _axis_names(panel) -> tuple:
     """Human axis names for a hover readout, falling back to plain x/y when the panel set no label."""
-    return (getattr(panel, "xlabel", "") or "x", getattr(panel, "ylabel", "") or "y")
+    _xl = getattr(panel, "xlabel", "")
+    _yl = getattr(panel, "ylabel", "")
+    return (_xl if _xl else "x", _yl if _yl else "y")
 
 
 def _apply_nonline_traces(fig, spec) -> None:

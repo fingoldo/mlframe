@@ -395,10 +395,10 @@ def audit_targets_over_time(
     return results
 
 
-# Wave 106c (2026-05-21): _audit_from_agg moved to sibling.
+# _audit_from_agg moved to sibling.
 from ._target_temporal_audit_from_agg import _audit_from_agg
 
-# Wave 106b (2026-05-21): plot_target_over_time moved to sibling.
+# plot_target_over_time moved to sibling.
 from ._target_temporal_plot import plot_target_over_time  # noqa: F401
 
 

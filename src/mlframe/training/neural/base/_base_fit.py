@@ -73,7 +73,7 @@ class _FitMixin(_FitCommonHelpersMixin, _FitPrepMixin):
         # can index them and ``_validate_no_nan_inf`` sees a pure-numeric frame. No-op when no ``cat_features`` are named or the knob is off.
         X, eval_set = self._factorize_cats_fit(X, eval_set, fit_params, is_partial_fit=is_partial_fit)
 
-        # F-06 (2026-05-30): sklearn-canonical reproducibility seed. When
+        # F-06: sklearn-canonical reproducibility seed. When
         # ``random_state`` is an int, seed torch + numpy + Python random +
         # the Lightning DataLoader worker seed BEFORE any random op fires
         # (network init at line 357, dataloader shuffle, dropout mask
@@ -84,7 +84,7 @@ class _FitMixin(_FitCommonHelpersMixin, _FitPrepMixin):
         # (idempotent — re-seeding before each call is fine).
         self._fit_common_idempotent_re_seeding_before()
 
-        # F-23 (2026-05-30): reject NaN / inf in features or labels at fit()
+        # F-23: reject NaN / inf in features or labels at fit
         # entry. Pre-fix any NaN propagated through the first Linear ->
         # all-NaN activations -> all-NaN gradients -> all-NaN weights after
         # one step -> all-NaN predictions; the suite saw a flat val curve
@@ -117,7 +117,7 @@ class _FitMixin(_FitCommonHelpersMixin, _FitPrepMixin):
         # applied at datamodule time, so it MUST be decided before the dm is
         # built. The earlier code did the check after dm construction, which
         # silently fed int64 labels into a CE-loss model, producing the (3) vs
-        # (65536) shape mismatch observed in fuzz combo c0030 (2026-05-20).
+        # (65536) shape mismatch observed in fuzz combo c0030.
         _is_multilabel_target = False
         if isinstance(self, ClassifierMixin):
             _y_check = y.values if isinstance(y, pd.Series) else y
@@ -146,7 +146,7 @@ class _FitMixin(_FitCommonHelpersMixin, _FitPrepMixin):
         # integer indices. Without this encoding, ``fit`` crashed with
         # ``IndexError: Target N is out of bounds`` for any y whose value set
         # is not exactly ``{0..K-1}`` (e.g. ``{10, 20}`` or ``{"low","high"}``;
-        # F-19 in the 2026-05-30 mlp audit). Build the bidirectional encoder
+        # F-19 in the mlp audit). Build the bidirectional encoder
         # once and stash on ``self`` so ``predict`` can ``inverse_transform``
         # at inference time (F-01).
         _classifier_single_label = isinstance(self, ClassifierMixin) and not _is_multilabel_target
@@ -179,7 +179,7 @@ class _FitMixin(_FitCommonHelpersMixin, _FitPrepMixin):
             # to (N,), then CrossEntropyLoss interprets predictions.shape ==
             # labels.shape as the class-probabilities input mode and rejects
             # Long labels with ``Expected floating point type for target with
-            # class probabilities, got Long``. Observed 2026-05-20 on S: in
+            # class probabilities, got Long``. Observed on S: in
             # fuzz_3way combo cb_lgb_mlp_xgb-pl_nullable-n1000 binary
             # classification.
             self._is_multilabel = _is_multilabel_target
@@ -202,7 +202,7 @@ class _FitMixin(_FitCommonHelpersMixin, _FitPrepMixin):
                     # Must be ndarray (not list) for numpy fancy indexing in evaluation.py::report_probabilistic_model_perf
                     # (line ``preds = model.classes_[preds]`` fails on list + ndarray index). Sklearn convention is classes_ ndarray.
                     _y_arr = y.unique() if isinstance(y, pd.Series) else np.unique(y)
-                    # Wave 61 (2026-05-20): object-dtype y (mixed-type label set
+                    # object-dtype y (mixed-type label set
                     # incl. None / np.nan + str) would TypeError on Python sorted();
                     # use np.sort for ndarrays and str-key fallback for object dtype.
                     if hasattr(_y_arr, "dtype") and _y_arr.dtype != object:
@@ -211,7 +211,7 @@ class _FitMixin(_FitCommonHelpersMixin, _FitPrepMixin):
                         self.classes_ = np.asarray(sorted(_y_arr, key=lambda v: (v is None, str(v))))
                 num_classes = len(self.classes_)
         else:
-            # F-24 (2026-05-31): native multi-target regression. When y has
+            # F-24: native multi-target regression. When y has
             # shape (N, K>=2) for a regressor (not multilabel), train K
             # output heads sharing the trunk. MSE between (N, K) preds and
             # (N, K) labels works without any loss-shape gymnastics.
@@ -226,7 +226,7 @@ class _FitMixin(_FitCommonHelpersMixin, _FitPrepMixin):
                 self._is_multi_target_regression = False
             self._is_multilabel = False
 
-        # F-05 (2026-05-30): binary uses 1-output sigmoid + BCE instead of
+        # F-05: binary uses 1-output sigmoid + BCE instead of
         # 2-output softmax + CE -- see the matching block above the dm
         # construction. ``_binary_sigmoid_head`` flag was set there; here
         # we just resolve the network output dim for the network reset
@@ -240,14 +240,14 @@ class _FitMixin(_FitCommonHelpersMixin, _FitPrepMixin):
             self.model = None  # also reset the LightningModule wrapper
 
         # Compute output_activation_scale / center from the y the MLP sees
-        # at fit-time (Fix 1, 2026-05-26). When the wrapping TTR z-scores y,
+        # at fit-time (Fix 1). When the wrapping TTR z-scores y,
         # the MLP sees scaled y and the tanh window lives in scaled space;
         # TTR.inverse_transform unwinds it correctly. Only applied for
         # regression (num_classes==1) with output_activation set; left
         # untouched for classification and the linear default.
         _net_params = dict(self.network_params)
         _out_act = _net_params.get("output_activation", "linear")
-        # 2026-06-01: condition uses OR (any None) so a partially-set
+        # condition uses OR (any None) so a partially-set
         # ``scale OR center`` triggers the auto-fill instead of falling
         # through to ``generate_mlp`` which raises on either one being
         # None. Pre-fix the AND condition would skip the derivation for
@@ -275,7 +275,7 @@ class _FitMixin(_FitCommonHelpersMixin, _FitPrepMixin):
             metric_name = "ICE"
             metrics = [MetricSpec(name=metric_name, fcn=compute_probabilistic_multiclass_error, requires_probs=True)]
         else:
-            # F-02 (2026-05-30 mlp audit): the metric function is sklearn's
+            # F-02 (mlp audit): the metric function is sklearn's
             # ``root_mean_squared_error`` (RMSE), so the label MUST be "RMSE"
             # too. Pre-fix the label was "MSE" -- monitor keys ("val_MSE"),
             # checkpoint filenames (``model-val_MSE=0.7555.ckpt``), and
@@ -305,7 +305,7 @@ class _FitMixin(_FitCommonHelpersMixin, _FitPrepMixin):
         _ckpt_root = getattr(self, "checkpoint_dir_override", None)
         if _ckpt_root is None:
             import time as _time
-            # Wave 46 (2026-05-20): trainer_params["default_root_dir"] is caller-controlled
+            # trainer_params["default_root_dir"] is caller-controlled
             # per the standard Lightning Trainer contract. Caller is responsible for any
             # trusted-root validation upstream; this join is intentionally permissive and
             # matches Lightning's documented behaviour for default_root_dir.
@@ -322,7 +322,7 @@ class _FitMixin(_FitCommonHelpersMixin, _FitPrepMixin):
             save_last=False,
             save_top_k=1,
             mode="min",
-            # F-25 (2026-05-31 cProfile finding): checkpoint writes were
+            # F-25 (cProfile finding): checkpoint writes were
             # 9.59s out of 15.6s total fit wall (61%) on a 10k x 50 / 10-epoch
             # baseline. Lightning's default ModelCheckpoint includes the
             # optimizer state + LR scheduler state + RNG state in every
@@ -361,7 +361,7 @@ class _FitMixin(_FitCommonHelpersMixin, _FitPrepMixin):
             )
         trainer_params["accelerator"] = _resolved
 
-        # F-27 (2026-05-31): auto-enable bf16-mixed precision on Ampere+
+        # F-27: auto-enable bf16-mixed precision on Ampere+
         # GPUs. bf16 has the same dynamic range as fp32 (no GradScaler,
         # no NaN risk -- unlike '16-mixed' / fp16). Measured 1.2-1.8x
         # forward+backward speedup on Ampere+ for GEMM-bound workloads,
@@ -385,8 +385,8 @@ class _FitMixin(_FitCommonHelpersMixin, _FitPrepMixin):
         if "logger" not in trainer_params:
             trainer_params["logger"] = CSVLogger(save_dir=_ckpt_root, name="")
 
-        # F-36 (2026-05-31): opt-in torch.profiler integration via
-        # MLFRAME_TORCH_PROFILE=1. Per the 2026-05-31 PyTorch optimization
+        # F-36: opt-in torch.profiler integration via
+        # MLFRAME_TORCH_PROFILE=1. Per the PyTorch optimization
         # audit (Agent B profiler research), shallow tabular MLPs are
         # typically kernel-launch-bound rather than compute-bound — the
         # 20-40% wall typically spent in inter-kernel gaps is invisible

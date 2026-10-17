@@ -1846,7 +1846,7 @@ def test_recurrent_lstm_smoke(tmp_path):
     )
     # Smoke: trained dict may be empty (LSTM may have its own
     # bookkeeping outside ``trained``), but the call must complete.
-    assert trained is not None
+    assert isinstance(trained, dict)
 
 
 # #36 CB GPU vs CPU equivalence

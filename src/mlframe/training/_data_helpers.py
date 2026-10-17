@@ -45,6 +45,15 @@ def _validate_trusted_path(path: str, trusted_root: str | None) -> None:
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
 
 
+def _finite_mask_or_none(arr) -> "np.ndarray | None":
+    """``np.isfinite(arr)``, or None when ``arr`` has a dtype isfinite does not support (object / string targets cannot hold NaN or inf)."""
+    try:
+        mask: np.ndarray = np.isfinite(arr)
+        return mask
+    except TypeError:  # best-effort: object/string dtypes cannot hold NaN or inf, None is the documented answer
+        return None
+
+
 def get_function_param_names(func: Callable) -> list[str]:
     """Get parameter names from a function signature.
 
@@ -230,7 +239,7 @@ def _validate_target_values(target, subset_name="train", is_classification=None)
     pass the flag explicitly are unaffected.
     """
     # Coerce target to a plain numpy ndarray for the np.isfinite checks below.
-    # Pre-fix shape (pre-2026-05-20 silent-coercion audit): bare
+    # Pre-fix shape (previous silent-coercion audit): bare
     # ``target.values if pd.Series else target`` returned a pandas
     # ExtensionArray for nullable Int64 / Float64 columns, and the
     # subsequent ``np.isfinite`` raised TypeError that was caught at the
@@ -248,32 +257,23 @@ def _validate_target_values(target, subset_name="train", is_classification=None)
             arr = target.to_numpy(copy=False)
     else:
         # polars Series or numpy array
-        try:
-            import polars as _pl
-            if isinstance(target, _pl.Series):
-                # polars Int with nulls -> cast to Float64 then to_numpy so nulls -> nan.
-                if target.null_count() > 0 and not target.dtype.is_float():
-                    arr = target.cast(_pl.Float64).to_numpy()
-                else:
-                    arr = target.to_numpy()
+        if isinstance(target, pl.Series):
+            # polars Int with nulls -> cast to Float64 then to_numpy so nulls -> nan.
+            if target.null_count() > 0 and not target.dtype.is_float():
+                arr = target.cast(pl.Float64).to_numpy()
             else:
-                arr = np.asarray(target)
-        except ImportError:
-            arr = np.asarray(target)
-    try:
-        # Single-pass finiteness check; only re-scan the (typically empty)
-        # non-finite subset to split nan_count vs inf_count. Two separate
-        # isnan/isinf .sum() calls walked the full array twice on the
-        # common all-finite case.
-        finite_mask = np.isfinite(arr)
-        if finite_mask.all():
-            nan_count = inf_count = 0
+                arr = target.to_numpy()
         else:
-            non_finite = arr[~finite_mask]
-            nan_count = int(np.isnan(non_finite).sum())
-            inf_count = int(np.isinf(non_finite).sum())
-    except TypeError:
-        nan_count = inf_count = 0  # non-numeric target (e.g., categorical)
+            arr = np.asarray(target)
+    # Single-pass finiteness check; only re-scan the (typically empty) non-finite subset to split nan_count vs inf_count.
+    # Two separate isnan/isinf .sum() calls walked the full array twice on the common all-finite case.
+    finite_mask = _finite_mask_or_none(arr)
+    if finite_mask is None or finite_mask.all():
+        nan_count = inf_count = 0  # all finite, or a non-numeric target (e.g., categorical) that cannot hold NaN/inf
+    else:
+        non_finite = arr[~finite_mask]
+        nan_count = int(np.isnan(non_finite).sum())
+        inf_count = int(np.isinf(non_finite).sum())
     if nan_count > 0 or inf_count > 0:
         parts = []
         if nan_count > 0:
@@ -393,7 +393,7 @@ def _setup_model_info_and_paths(model, model_name, model_name_prefix, plot_file,
         if isinstance(model_obj, TransformedTargetRegressor):
             model_obj = model_obj.regressor
     model_type_name = type(model_obj).__name__ if model_obj is not None else ""
-    # 2026-05-09: strip internal mixin suffixes so chart titles show
+    # strip internal mixin suffixes so chart titles show
     # the canonical class name (XGBClassifier, not the
     # XGBClassifierWithDMatrixReuse internal subclass). Implementation
     # detail not relevant to end users.
@@ -618,7 +618,7 @@ def _setup_eval_set(
                 f"loosen the knob that emptied val."
             )
 
-    # Historical 0-row val skip in _setup_eval_set removed 2026-04-28
+    # Historical 0-row val skip in _setup_eval_set removed
     # (batch 4). The original empty-val window came from outlier
     # detection rejecting almost every val row; that's now guarded at
     # the source in ``core._apply_outlier_detection_global`` (val-side
@@ -627,7 +627,7 @@ def _setup_eval_set(
     # "Labels variable is empty" so the bug surfaces immediately
     # instead of silently training without early-stopping val.
 
-    # 2026-04-24 Session 6: when the model is wrapped in MultiOutputClassifier
+    # Session 6: when the model is wrapped in MultiOutputClassifier
     # (multilabel path), eval_set / X_val / y_val keyword args propagate
     # verbatim to each per-label inner estimator. y_val stays 2-D and crashes
     # the inner fit ("y should be a 1d array, got an array of shape (n,K)").

@@ -57,6 +57,7 @@ rate in any split differs from train's by more than this many pp."""
 
 
 from .utils import coerce_to_numpy as _coerce_to_numpy
+from mlframe.utils.log_throttle import log_throttle
 
 
 def _to_numpy_or_none(arr: Any) -> np.ndarray | None:
@@ -103,7 +104,7 @@ def _multiclass_split_summary(arr: np.ndarray, classes: Sequence) -> dict[str, A
     n = int(arr.shape[0])
     # Single sort-based pass via np.unique(return_counts) instead of one ``(arr == c).sum()`` full scan per class.
     # Bit-identical (exact integer counts); the per-class dict is rebuilt in the caller's ``classes`` order/dtype.
-    # Bench n=10M: 1.18x @K=5, 4.92x @K=20, 10.6x @K=100 (2026-06-15).
+    # Bench n=10M: 1.18x @K=5, 4.92x @K=20, 10.6x @K=100.
     if n:
         uvals, ucounts = np.unique(arr, return_counts=True)
         count_lookup = dict(zip(uvals.tolist(), ucounts.tolist()))
@@ -306,7 +307,7 @@ def compute_label_distribution_drift(
             _first = _a[0]
             return hasattr(_first, "shape") or (hasattr(_first, "__len__") and not isinstance(_first, (str, bytes)))
         except Exception as exc:
-            logger.debug("drift: object-of-arrays probe failed, treating as not object-of-arrays: %s", exc)
+            log_throttle(logger, "drift_report._is_object_of_arrays", logging.WARNING, "drift: object-of-arrays probe failed, treating as not object-of-arrays: %s", exc)
             return False
 
     is_multilabel = target_type == "multilabel_classification" or (hasattr(train, "ndim") and train.ndim == 2) or _is_object_of_arrays(train)

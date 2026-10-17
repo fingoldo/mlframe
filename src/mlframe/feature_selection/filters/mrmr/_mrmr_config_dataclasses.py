@@ -283,9 +283,10 @@ def invalidate_stale_mrmr_configs(self) -> None:
     hybrid_orth_config = getattr(self, "hybrid_orth_config", None)
     if hybrid_orth_config is not None:
         _disagrees = any(getattr(self, attr_name, None) != getattr(hybrid_orth_config, field_name) for field_name, attr_name in _HYBRID_ORTH_FIELD_MAP.items())
-        _disagrees = _disagrees or any(
-            getattr(self, attr_name, None) != getattr(hybrid_orth_config.scorers, field_name) for field_name, attr_name in _HYBRID_ORTH_SCORERS_FIELD_MAP.items()
-        )
+        if not _disagrees:
+            _disagrees = any(
+                getattr(self, attr_name, None) != getattr(hybrid_orth_config.scorers, field_name) for field_name, attr_name in _HYBRID_ORTH_SCORERS_FIELD_MAP.items()
+            )
         if _disagrees:
             self.hybrid_orth_config = None
 

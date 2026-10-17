@@ -68,7 +68,9 @@ class Snake(nn.Module):
         # x + (1/alpha) * sin^2(alpha * x) = x + (1 - cos(2*alpha*x)) / (2*alpha)
         # Latter form is numerically stabler for small alpha.
         a = self.alpha
-        return cast(torch.Tensor, x + (1.0 - torch.cos(2.0 * a * x)) / (2.0 * a + 1e-12))
+        denom = 2.0 * a
+        denom = torch.where(denom.abs() < 1e-12, torch.full_like(denom, 1e-12), denom)  # alpha may be learnable and negative: guard by magnitude
+        return cast(torch.Tensor, x + (1.0 - torch.cos(2.0 * a * x)) / denom)
 
     def extra_repr(self) -> str:
         """Reports the current ``alpha`` value for ``print(module)`` / ``repr``."""
@@ -355,7 +357,7 @@ def generate_mlp(
     # Final layer: num_classes None/0 = feature extractor, 1 = regression, >1 = classification.
     model_type = _generate_mlp_final_layer_num_classes(num_classes, layers, _maybe_sn, prev_layer_neurons, layer_sizes)
 
-    # Bounded output head (Fix 1, 2026-05-26). Appended ONLY for regression
+    # Bounded output head (Fix 1). Appended ONLY for regression
     # (``num_classes == 1``) and only when caller passes a non-default
     # ``output_activation``. ``"linear"`` is the historical no-op default.
     # ``"tanh_train_range"`` requires ``output_activation_scale`` +
@@ -370,7 +372,7 @@ def generate_mlp(
 
     _generate_mlp_weights_init_fcn(weights_init_fcn, model)
 
-    # Degenerate-init probe (audit Agent A round-2 P1, landed 2026-05-23).
+    # Degenerate-init probe (audit Agent A round-2 P1, landed).
     # The Identity-activation guard above catches the "stack of Linear
     # -> Identity" footgun BEFORE the network is built. This probe runs
     # AFTER ``weights_init_fcn`` has been applied so it catches the

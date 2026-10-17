@@ -9,12 +9,14 @@ from mlframe.models.ensembling.selection import _default_metric_is_auc
 
 def test_direction_matches_registry_for_every_known_higher_metric() -> None:
     """A metric the registry says is higher-is-better is not treated as minimise."""
+    assert R._KNOWN_METRIC_DIRECTIONS_HIGHER
     for name in sorted(R._KNOWN_METRIC_DIRECTIONS_HIGHER):
         assert _is_minimise_metric(name) is False, name
 
 
 def test_direction_matches_registry_for_every_known_lower_metric() -> None:
     """A metric the registry says is lower-is-better is treated as minimise."""
+    assert R._KNOWN_METRIC_DIRECTIONS_LOWER
     for name in sorted(R._KNOWN_METRIC_DIRECTIONS_LOWER):
         assert _is_minimise_metric(name) is True, name
 

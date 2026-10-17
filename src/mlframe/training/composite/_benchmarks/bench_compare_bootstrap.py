@@ -82,7 +82,8 @@ def main():
     a = _old_monolithic(diff, n_boot, alpha, np.random.default_rng(123))
     b = _paired_bootstrap_ci(diff, n_boot, alpha, np.random.default_rng(123))
     print(f"\nCI identity OLD={a} NEW={b}  bit-identical={a == b}")
-    assert a == b, f"the monolithic reference no longer matches production: OLD={a} NEW={b}"  # nosec B101 - internal invariant check in src/mlframe/training/composite/_benchmarks, not reachable with untrusted input
+    if not (a == b):
+        raise AssertionError(f"the monolithic reference no longer matches production: OLD={a} NEW={b}")
 
 
 if __name__ == "__main__":

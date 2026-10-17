@@ -309,20 +309,20 @@ class RFECV(RFECVStateCompatMixin, TransformerMixin, BaseEstimator):
         # a right-sized surrogate (ETR n_estimators=20 for budgets up to 30; CB iterations=50 up to 100; CB iterations=150 above).
         # Escape hatch: pass an explicit dict (e.g. ``{"model_name": "CBQ", "model_params": {"iterations": 50}}`` or any other MBHOptimizer kwarg subset) to override.
         optimizer_config: Union[dict, None] = None,
-        # ----- Wave 1 ML-correctness knobs -----
+        # ----- ML-correctness knobs -----
         # F9: when False (NEW default), the FI runs of a re-explored same-N subset that LOSES the best-of-N gate are popped from feature_importances
-        # so they don't contaminate the next voting round. Set True to restore the pre-2026-05-28 behaviour (every explored subset votes equally).
+        # so they don't contaminate the next voting round. Set True to restore the previous behaviour (every explored subset votes equally).
         keep_loser_subset_fi: bool = False,
         # F1+F2+F3 missing-entry policy for voting. The historical default left ragged-NaN tables intact, which made Borda/Dowdall/Copeland/Minimax silently
         # bias toward late-surviving features (a feature present in 30/30 runs sums over 30 columns; a feature eliminated at iter 3, only over 3). Options:
         #   'worst'  (NEW default): impute missing per-run FI with min(FI)-eps for that run -> features eliminated early get LAST place in those runs
         #            uniformly across every voting rule. Equivalent to "treated as eliminated" rather than "treated as absent".
         #   'median': impute with the run's median FI -> features eliminated early get average treatment (older project default for AM/GM/OG via fillna).
-        #   'skip'  : pre-2026-05-28 raw behaviour (ragged NaN). Documented as biased but exposed for back-compat A/B benches.
+        # 'skip': previous raw behaviour (ragged NaN). Documented as biased but exposed for back-compat A/B benches.
         fi_missing_policy: str = "worst",
         # C2: dummy-baseline-at-N=0 is fed to the MBH surrogate when True. Bench showed that on small p (~8) problems
         # removing this anchor halves the explored-N count - MBH can't extrapolate to low N without a low-anchor and converges to
-        # even-N only. So the safer default is True until S9 (proper low-N init design) lands in Wave 2. Set False on imbalanced
+        # even-N only. So the safer default is True until S9 (proper low-N init design) lands later. Set False on imbalanced
         # accuracy/F1 datasets where the dummy ~= model score and the optimizer biases toward small N.
         submit_dummy_to_optimizer: bool = True,
         # The legacy 'auto' = ('one_se_max' for multi else 'argmax') was inverted: multi-estimator scoring takes min() across estimators, so its 1-SE band is
@@ -331,7 +331,7 @@ class RFECV(RFECVStateCompatMixin, TransformerMixin, BaseEstimator):
         # _stability_select.select_optimal_nfeatures_ is the single source of truth and stamps resolved_n_features_rule_.
         # E2 escape hatch: keep swap_top_k active even when val_cv is set (compare ES vs non-ES scores, accepting potential overfit-swaps).
         swap_top_k_allow_no_es: bool = False,
-        # ----- Wave 2 search-strategy knobs -----
+        # ----- search-strategy knobs -----
         # S8: what target value to feed the MBH surrogate. 'mean' (NEW default) submits raw cv_mean_perf -> aligned with the 1-SE rule
         #   semantics in select_optimal_nfeatures_; 'final_score' (legacy) submits mean*w_mean - std*w_std (a UCB-of-noise) which can
         #   disagree with the post-processing rule when std_perf_weight or feature_cost are non-default.
@@ -367,7 +367,7 @@ class RFECV(RFECVStateCompatMixin, TransformerMixin, BaseEstimator):
         # flat enough for a coarse stride to SAVE an iteration (iters identical auto/midpoint every row). Kept as an opt-in for
         # future re-test on harder curves / different stopping budgets.
         dichotomic_step: str = "midpoint",
-        # ----- Wave 3 FI-semantics knobs -----
+        # ----- FI-semantics knobs -----
         # F8: exponential decay of FI history weights. With rate=r>0, a K-iter-old FI run weighs (1-r)^K vs the freshest run = 1.0.
         # Without decay, voting treats iter-1 FI (on the full feature set) and iter-30 FI (on the narrowed-down survivor set) equally,
         # even though late-iter FI is generally more reliable (fewer correlated co-features). Recommended 0.02-0.1 for runs >=30 iters.
@@ -404,7 +404,7 @@ class RFECV(RFECVStateCompatMixin, TransformerMixin, BaseEstimator):
         # F14: when True (NEW default), drop per-fold-per-estimator FI runs whose score was NaN (estimator failed / degenerate fold). Set
         # False to keep them (legacy contaminates voting with garbage importances from collapsed fits).
         drop_nan_score_fi: bool = True,
-        # ----- TODO A / Wave 6 prelim: auto-parameter tuning -----
+        # ----- TODO A / prelim: auto-parameter tuning -----
         # When True, ``fit`` first computes a DataFingerprint from (X, y) and
         # picks SearchConfig + FIConfig + RobustnessConfig from a rule-based
         # table (later: ML classifier trained on synthetic-bench sweep). The
@@ -412,7 +412,7 @@ class RFECV(RFECVStateCompatMixin, TransformerMixin, BaseEstimator):
         # Any flat kwarg or config explicitly passed by the caller is PRESERVED
         # (auto-tune only fills the unspecified slots).
         auto_tune: bool = False,
-        # ----- Wave 4 robustness knobs -----
+        # ----- robustness knobs -----
         # E15: when True (NEW default), raise if must_exclude contains names not in X (catches typos). False = silently ignore (legacy).
         must_exclude_strict: bool = True,
         # C8: when False (NEW default), the no-improve counter only ticks when the iter actually stored a new best subset. Multi-revisit
@@ -421,7 +421,7 @@ class RFECV(RFECVStateCompatMixin, TransformerMixin, BaseEstimator):
         # CatBoost CPU fast path: quantization borders are computed once on the full source frame and reused by every fold fit (bit-identical selection,
         # skips per-fold re-quantization). False disables it; env MLFRAME_RFECV_CB_CACHED_BORDERS=0 also forces it off regardless of this flag.
         cb_cached_borders: bool = True,
-        # ----- Wave 5 / L4-L7 -----
+        # ----- L4-L7 -----
         # L7: optional prescreen pass run BEFORE the MBH outer loop. Reduces the universe original_features to a smaller candidate set
         # so MBH explores a tighter space. Supported values:
         #   None              (default) : no prescreen
@@ -697,9 +697,10 @@ class RFECV(RFECVStateCompatMixin, TransformerMixin, BaseEstimator):
         path = self.checkpoint_path
         if not path:
             return
-        dir_name = os.path.dirname(os.path.abspath(path)) or "."
+        _abs_dir = os.path.dirname(os.path.abspath(path))
+        dir_name = _abs_dir if _abs_dir != "" else "."
         os.makedirs(dir_name, exist_ok=True)
-        # Wave 36 Low fix: mirror the ``_fd_adopted`` flag
+        # Mirror the ``_fd_adopted`` flag
         # pattern used canonically across the project
         # (``training/io.py:atomic_write_bytes``,
         # ``composite_cache.py._save_lru``). If ``os.fdopen(fd, "wb")``
@@ -786,7 +787,7 @@ class RFECV(RFECVStateCompatMixin, TransformerMixin, BaseEstimator):
         (ColumnTransformer, set_output).
         """
         if not hasattr(self, "support_"):
-            # Wave 37 P1 fix: sklearn convention is
+            # sklearn convention is
             # NotFittedError (ValueError-compatible subclass), so existing
             # ``except ValueError`` chains stay green AND
             # ``except NotFittedError`` discriminators work.

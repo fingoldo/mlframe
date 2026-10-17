@@ -177,7 +177,7 @@ def mine_mi(
     torch.manual_seed(int(seed))
     x_np = np.asarray(x, dtype=np.float32)
     y_np = np.asarray(y, dtype=np.float32)
-    # 2026-05-29 fix: bootstrap upscale for small folds. MINE needs N >= ~1000
+    # fix: bootstrap upscale for small folds. MINE needs N >= ~1000
     # samples to converge stably (Belghazi 2018 sec. 4.3); on CV val folds of
     # n=167 (N=500/3) the estimator under-trains. Resampling with replacement
     # to ``bootstrap_to_n`` preserves the joint distribution exactly while
@@ -192,7 +192,7 @@ def mine_mi(
     n = x_t.shape[0]
     if n < 16:
         return 0.0
-    # 2026-05-29 fix: cap batch_size at n. Pre-fix: batch_size=256 with n<256
+    # fix: cap batch_size at n. Pre-fix: batch_size=256 with n<256
     # produced an index-out-of-bounds CUDA assertion when the shuffle
     # ``torch.randperm(batch_size)`` returned indices >= len(y_b) (which was
     # only ``n`` rows). Manifests on small val folds (n=167 from CV-3 on N=500).
@@ -243,7 +243,7 @@ def mine_mi(
             logger.info("MINE epoch %s: dv=%s", epoch, f"{dv:.4f}")
         # Early stopping: bail if no new best in ``early_stop_patience`` epochs
         # AND we've trained at least 200 epochs (give MINE time to escape
-        # local minima). 2026-05-29 fix: shaves ~50% of MINE bench wall-time
+        # local minima). fix: shaves ~50% of MINE bench wall-time
         # without losing accuracy.
         if epoch > 200 and early_stop_patience > 0 and "best_mi_epoch" in locals() and (epoch - best_mi_epoch) > early_stop_patience:
             break
@@ -389,7 +389,7 @@ def infonet_mi(x: np.ndarray, y: np.ndarray, *, point_cloud_size: int = 4781, de
         y = y[idx]
         n = point_cloud_size
 
-    # 2026-05-29 fix: jitter discrete inputs so rank-normalise doesn't collapse to
+    # fix: jitter discrete inputs so rank-normalise doesn't collapse to
     # degenerate few-value sequences. Without this fix InfoNet on a binary
     # classification y returns 0 (the model sees a constant input).
     # The jitter magnitude is tiny relative to the data std so the rank ordering
@@ -655,7 +655,7 @@ def mist_mi(x: np.ndarray, y: np.ndarray, *, loss: str = "mse", calibrated: bool
         raise ValueError(f"len mismatch: x={x.size} y={y.size}")
     if x.size < 16:
         return 0.0
-    # 2026-05-29 stress-bench fix: MIST set-transformer is O(N^2) in attention.
+    # stress-bench fix: MIST set-transformer is O(N^2) in attention.
     # At N=100k it tried to allocate 596 GB (CUDA OOM). Sub-sample to
     # ``max_input_n`` (default 2000) on inputs that exceed it. The model was
     # trained at this scale anyway - bigger inputs don't improve accuracy.
@@ -671,7 +671,7 @@ def mist_mi(x: np.ndarray, y: np.ndarray, *, loss: str = "mse", calibrated: bool
     Y = y_use.reshape(-1, 1).tolist()
     raw = float(model.estimate_point(X, Y))
     if calibrated:
-        # 2026-05-29 fix: auto-detect y-type to pick the correct calibration
+        # fix: auto-detect y-type to pick the correct calibration
         # table. MIST raw output saturates differently per (binary, multiclass,
         # continuous) y. Pre-fix had a single Gaussian-copula table that
         # over-estimated by 90-200% on binary y.

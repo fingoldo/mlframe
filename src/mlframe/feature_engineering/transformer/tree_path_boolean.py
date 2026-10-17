@@ -46,7 +46,7 @@ def _extract_top_paths(booster, X_sample: np.ndarray, top_k: int = 8) -> list[li
         _walk(tree_info["tree_structure"], [])
 
     # Rank by score, take top_k.
-    # Wave 62 (2026-05-20): lexsort with path-index tiebreak so tied leaf scores
+    # lexsort with path-index tiebreak so tied leaf scores
     # give deterministic top-K paths across runs.
     _scores_arr = np.asarray(leaf_scores)
     order = np.lexsort((np.arange(len(_scores_arr)), -_scores_arr))[:top_k]

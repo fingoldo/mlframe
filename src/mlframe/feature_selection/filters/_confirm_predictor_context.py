@@ -80,10 +80,10 @@ class ScreenContext:
     # (candidates, {parent_name: [idx, ...]}) index cached the same
     # way, for ``_confirmable_engineered_child``'s per-winner parent-name rescan (prefer_engineered_rel_eps path).
     _engineered_parent_index_cache: object = None
-    # 2026-07-16 (wellbore-100k profiling): (z_key, z_classes, z_nclasses) cache for
+    # (z_key, z_classes, z_nclasses) cache for
     # ``_conditioning_rows_per_cell``'s Z=selected_vars encoding - see that function's docstring.
     _z_merge_cache: object = None
-    # 2026-07-19 (MRMR wellbore-4.1M diagnosability): cumulative ``score_candidates`` call count
+    # cumulative ``score_candidates`` call count
     # and wall time across the WHOLE ``screen_predictors`` call (all interactions_orders), so a
     # future log can directly show whether wall time is dominated by pool_size x |Z| scaling
     # instead of requiring another multi-agent investigation to reconstruct it after the fact.
@@ -104,7 +104,7 @@ class ScreenContext:
     partial_gains: dict = field(default_factory=dict)
     added_candidates: set = field(default_factory=set)
     failed_candidates: set = field(default_factory=set)
-    # 2026-06-02 — directed-FE tie-break. ``raw_feature_names`` is the set of
+    # — directed-FE tie-break. ``raw_feature_names`` is the set of
     # ORIGINAL (pre-FE) column names; any ``factors_names[idx]`` not in it is an
     # engineered transform of its raw parent(s). On a near-tie in selection gain
     # (within ``prefer_engineered_rel_eps`` relative tolerance) the greedy pick
@@ -118,7 +118,7 @@ class ScreenContext:
     # the rel-eps to ``0.0`` restores the legacy pure-index tie-break.
     raw_feature_names: object = None
     prefer_engineered_rel_eps: float = 0.0
-    # 2026-06-02 RC2 — sample-size-aware Fleuret confirmation. When the
+    # RC2 — sample-size-aware Fleuret confirmation. When the
     # conditioning joint ``(X u selected_vars)`` has fewer than this many rows
     # per occupied cell, the conditional-MI permutation test is finite-sample
     # unreliable (shuffled-y null CMI ~= real CMI -> over-rejection / premature

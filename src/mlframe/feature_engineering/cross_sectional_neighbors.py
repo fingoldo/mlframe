@@ -56,7 +56,9 @@ def _snapshot_stats_for_k(
         neighbor_vals = vectors[idx_k, col_j]  # (n_snapshots, k)
         neighbor_vals = np.where(valid_k, neighbor_vals, np.nan)
         for stat in agg_stats:
-            reducer = getattr(np, f"nan{stat}", None) or getattr(np, stat)
+            reducer = getattr(np, f"nan{stat}", None)
+            if reducer is None:
+                reducer = getattr(np, stat)
             out[f"{column_prefix}_{col}_{stat}"] = reducer(neighbor_vals, axis=1)
 
     k_eff = dists_k.shape[1]

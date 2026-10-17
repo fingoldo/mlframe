@@ -106,7 +106,7 @@ def pack_blocks_to_devices(works: list[int], speeds: list[float], *, prefer: str
         raise ValueError("pack_blocks_to_devices: speeds is empty (zero visible devices) -- no device to assign blocks to.")
     if len(speeds) <= 1:
         return [0] * len(works)
-    choice = (prefer or os.environ.get("MLFRAME_FE_VRAM_PACKER", "")).strip().lower()
+    choice = (prefer if prefer else os.environ.get("MLFRAME_FE_VRAM_PACKER", "")).strip().lower()
     if choice == "greedy":
         return _greedy_lpt(works, speeds)
     if choice in ("cpsat", "ortools", ""):

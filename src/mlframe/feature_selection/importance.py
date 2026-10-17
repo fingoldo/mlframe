@@ -94,13 +94,13 @@ def _format_top_fi_for_log(
     return "\n".join(parts)
 
 
-# 2026-05-26 (user request): bumped from 10 to 15 after the 33-new-
+# bumped from 10 to 15 after the 33-new-
 # features rollout pushed the informative tail past the top-10 cut.
 # Override via FeatureImportanceConfig(num_factors=N) or via the
 # log_top_n / n kwargs.
 _FI_PLOT_DEFAULT_N: int = 15
 _FI_LOG_DEFAULT_TOP_N: int = 15
-# 2026-05-12 (user request): cap how many bars-with-FI~0 the chart shows.
+# cap how many bars-with-FI~0 the chart shows.
 # Tree models on a residual target often pin 1-2 features near 1.0 and zero
 # everything else; rendering 23 invisible bars wastes vertical real-estate.
 # Show at most this many zero-magnitude features in the bar plot, dropped
@@ -208,7 +208,7 @@ def plot_feature_importance(
             return df  # render-side skipped; the importance series is the data return
 
     if plot_file or show_plots:
-        # 2026-05-12 (user feedback): pick the top-N by ABSOLUTE magnitude in
+        # pick the top-N by ABSOLUTE magnitude in
         # one chart with signed bars, instead of emitting a separate "BOTTOM
         # feature importances" plot whenever the most-negative FI is < 0.
         # On linear models with ~25 features and the old n=20 default, the
@@ -228,7 +228,7 @@ def plot_feature_importance(
         _abs_fi = np.abs(feature_importances)
         _abs_order_full = np.lexsort((np.arange(len(_abs_fi)), -_abs_fi))
         _picked = _abs_order_full[:n]
-        # 2026-05-12 (user request): drop excess zero-FI bars so the chart
+        # drop excess zero-FI bars so the chart
         # stays compact when most features got pruned by the model. ``eps``
         # is scaled to the LARGEST magnitude so we don't accidentally drop
         # legitimately small but nonzero importances (eg gain=1e-6 on a
@@ -255,7 +255,7 @@ def plot_feature_importance(
             _std_arr = np.asarray(importances_std, dtype=np.float64)
             if _std_arr.shape == feature_importances.shape:
                 _picked_std = np.clip(np.nan_to_num(_std_arr[_abs_order], nan=0.0), 0.0, None)
-        # 2026-05-13 (user request): match the perf-chart aesthetic -
+        # match the perf-chart aesthetic.
         # translucent matplotlib-default blue bars + light-alpha grid +
         # explicit zero reference line. Pre-fix the FI plot used solid
         # opaque bars with no grid, visually clashing with the perf-chart
@@ -311,7 +311,7 @@ def plot_feature_importance(
             else:
                 from mlframe.metrics.calibration.shared import show_plots_unless_agg
                 show_plots_unless_agg()
-            # 2026-05-26 Jupyter double-render fix: after
+            # Jupyter double-render fix: after
             # ``IPython.display.display(fig)`` the kernel has already
             # serialised the figure to PNG / SVG and shipped it to the
             # display channel; the matplotlib backing is now independent.
@@ -338,7 +338,7 @@ def plot_feature_importance(
         # AND the ``show_plots=True`` path never closed anything -
         # the explicit ``plt.close`` above now covers the Jupyter
         # branch, so this helper is the safety net for the no-show
-        # path. 2026-05-09 leak fix; helper unifies the detection
+        # path. leak fix; helper unifies the detection
         # across modules.
         from mlframe.metrics.shared import close_unless_interactive as _close_unless_interactive
         _close_unless_interactive(figs, was_shown=show_plots)

@@ -28,6 +28,8 @@ import numpy as np
 import pandas as pd
 from scipy.stats import pearsonr, skew
 
+from mlframe.utils.log_throttle import log_throttle
+
 logger = logging.getLogger(__name__)
 
 _CANDIDATE_TRANSFORMS = ("identity", "sqrt_signed", "log1p_signed", "boxcox", "yeo_johnson")
@@ -81,7 +83,8 @@ def _apply_transform(x: np.ndarray, transform_name: str, fitted_params: Optional
                 logger.warning("_apply_transform fell back to its default after %s", type(_exc).__name__)
                 return None, None
             return np.asarray(transformed, dtype=np.float64), transformer
-        assert isinstance(fitted_params, PowerTransformer)
+        if not (isinstance(fitted_params, PowerTransformer)):
+            raise AssertionError
         try:
             transformed = fitted_params.transform(x.reshape(-1, 1)).ravel()
         except ValueError as _exc:
@@ -258,7 +261,8 @@ def apply_gaussian_power_transform(df: pd.DataFrame, search_result: Dict[str, di
                 if not finite.size:
                     continue
                 fill_median = float(np.median(finite))
-                logger.warning(
+                log_throttle(
+                    logger, "gpt_apply_no_recorded_fill_median", logging.WARNING,
                     "apply_gaussian_power_transform: column %r has no recorded fill_median (search result predates it); "
                     "falling back to this frame's own median, which is a train/serve statistic mismatch. Re-run "
                     "gaussian_power_transform_search to record it.",
@@ -276,7 +280,8 @@ def apply_gaussian_power_transform(df: pd.DataFrame, search_result: Dict[str, di
             positive_mask = finite_fill > 0
             n_nonpositive = int((~positive_mask).sum())
             if n_nonpositive:
-                logger.warning(
+                log_throttle(
+                    logger, "gpt_apply_nonpositive_at_replay", logging.WARNING,
                     "apply_gaussian_power_transform: column %r has %d non-positive value(s) at replay time "
                     "(absent from the fitted data); those rows are left at raw scale, only the %d positive "
                     "row(s) get the fitted Box-Cox transform.",

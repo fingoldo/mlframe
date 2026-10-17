@@ -74,6 +74,15 @@ def test_validate_parent_escape_rejected(tmp_path):
         _validate_trusted_path(escape, str(trusted))
 
 
+def _symlink_created(target: str, link: str) -> bool:
+    """Create the symlink ``link`` -> ``target``; False when the platform or the user's privileges do not allow symlinks."""
+    try:
+        os.symlink(target, link)
+    except (OSError, NotImplementedError):
+        return False
+    return True
+
+
 @pytest.mark.skipif(sys.platform.startswith("win"), reason="symlink on Windows needs admin; tested on POSIX only")
 def test_validate_symlink_escape_resolved(tmp_path):
     # NOTE: _validate_trusted_path uses os.path.abspath, which does NOT resolve symlinks.
@@ -86,9 +95,7 @@ def test_validate_symlink_escape_resolved(tmp_path):
     trusted = tmp_path / "trusted"
     trusted.mkdir()
     linkname = trusted / "link.joblib"
-    try:
-        os.symlink(str(outside), str(linkname))
-    except (OSError, NotImplementedError):
+    if not _symlink_created(str(outside), str(linkname)):
         pytest.skip("symlink unavailable")
     # abspath does NOT resolve symlinks, so link is considered inside trusted.
     # This asserts current (documented) behavior, not a security claim.

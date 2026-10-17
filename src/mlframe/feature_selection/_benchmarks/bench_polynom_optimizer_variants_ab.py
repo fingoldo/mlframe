@@ -34,7 +34,7 @@ a = _r.standard_normal(N); b = _r.standard_normal(N)
 CASES["cubic_inner"] = (a, b, ((a**3 - 2 * a) * b > 0).astype(np.int64))          # non-monotone inner (logabs-winner regime)
 c = _r.standard_normal(N); d = _r.standard_normal(N)
 CASES["cheb_mix"] = (c, d, ((2 * c**2 - 1) + (4 * d**3 - 3 * d) + 0.3 * _r.standard_normal(N) > 0).astype(np.int64))
-# HARDER CASES (2026-07-15 extension). bilinear_xor dropped: non-discriminative (trivial baseline captures it).
+# HARDER CASES (extension). bilinear_xor dropped: non-discriminative (trivial baseline captures it).
 e = np.exp(_r.standard_normal(N)); f = np.exp(_r.standard_normal(N))              # heavy-tail lognormal operands
 CASES["logmult_heavy"] = (e, f, ((np.log(e) * np.log(f)) > 0.2).astype(np.int64)) # multiplicative heavy-tail
 g = _r.standard_normal(N); h = _r.standard_normal(N) * (1 + 2 * (_r.random(N) < 0.1))  # 10% variance-outlier rows

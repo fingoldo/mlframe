@@ -17,6 +17,7 @@ from __future__ import annotations
 import logging
 
 from .._ram_helpers import estimate_df_size_mb, get_process_rss_mb, maybe_clean_ram_and_gpu
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -283,7 +284,7 @@ def _release_ctx_polars_frames(
         try:
             _sz = estimate_df_size_mb(_frame)
         except Exception as e:
-            logger.debug("estimate_df_size_mb failed: %s", e)
+            log_throttle(logger, "_phase_train_one_target_dataset_cache._release_ctx_polars_frames", logging.WARNING, "estimate_df_size_mb failed: %s", e)
             _sz = 0.0
         if _sz and _sz != float("inf"):
             expected_mb += float(_sz)

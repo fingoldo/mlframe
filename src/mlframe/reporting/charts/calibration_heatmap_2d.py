@@ -247,7 +247,7 @@ def compose_calibration_heatmap_2d_figure(
         return FigureSpec(
             suptitle="",
             panels=((AnnotationPanelSpec(text=note, title=title),),),
-            figsize=figsize or (9.0, 4.0),
+            figsize=(9.0, 4.0) if figsize is None else figsize,
         )
 
     x_labels = res["x_labels"]

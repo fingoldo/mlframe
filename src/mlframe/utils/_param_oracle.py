@@ -117,7 +117,7 @@ def _host_key() -> str:
     except Exception as e:
         logger.debug("hw_fingerprint() failed, falling back to platform.node(): %s", e)
         import platform
-        return f"node_{platform.node() or 'unknown'}"
+        return f"node_{platform.node() if platform.node() else 'unknown'}"
 
 
 def default_store_dir() -> str:
@@ -288,7 +288,7 @@ def default_fingerprint(args: Sequence[Any], kwargs: Mapping[str, Any]) -> dict:
         try:
             card = float(np.mean([len(np.unique(arr2d[:, j].astype(str))) for j in range(arr2d.shape[1])]))
         except Exception as e:
-            logger.debug("categorical cardinality computation failed: %s", e)
+            log_throttle(logger, "_param_oracle.default_fingerprint", logging.WARNING, "categorical cardinality computation failed: %s", e)
             card = 0.0
         return {
             "n": n, "p": p, "dtype_kind": "O", "sparsity": 0.0,
@@ -436,6 +436,7 @@ from ._param_oracle_store import (  # noqa: F401
     stable_json,
 )
 from .gpu_sync import synchronize_gpu_if_available
+from mlframe.utils.log_throttle import log_throttle
 
 # ---------------------------------------------------------------------------
 # ParamOracle
@@ -514,7 +515,7 @@ class ParamOracle:
         self.epsilon = float(epsilon)
         self.min_observations = int(min_observations)
         self.host = _host_key()
-        self.rng = rng or random.Random()  # nosec B311 - non-crypto sampling/jitter, not used for tokens/secrets
+        self.rng = random.Random() if rng is None else rng  # nosec B311 - non-crypto sampling/jitter, not used for tokens/secrets
 
     # ----- param-space enumeration -----
 

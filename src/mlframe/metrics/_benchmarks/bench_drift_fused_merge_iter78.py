@@ -61,14 +61,16 @@ def main():
     nan_a = np.array([1.0, 2.0, np.nan, 4.0]); nan_b = np.array([1.0, 2.0, 3.0, 4.0])
     for name, new_f, old_f in (("W1", wasserstein_1d, _old_w1), ("KS", ks_distribution_distance, _old_ks)):
         got, ref = new_f(nan_a, nan_b), old_f(nan_a, nan_b)
-        assert abs(got - ref) < 1e-10, f"{name} diverges on non-finite input: {got} vs {ref}"  # nosec B101 - internal invariant check in src/mlframe/metrics/_benchmarks, not reachable with untrusted input
+        if not (abs(got - ref) < 1e-10):
+            raise AssertionError(f"{name} diverges on non-finite input: {got} vs {ref}")
     print(f"non-finite identity OK: W1={wasserstein_1d(nan_a, nan_b):.12g} KS={ks_distribution_distance(nan_a, nan_b):.12g}")
 
     for n in (50000, 200000, 1000000):
         a = rng.random(n); b = rng.random(n) + 0.1
         wasserstein_1d(a, b); ks_distribution_distance(a, b)
         for name, new_f, old_f in (("W1", wasserstein_1d, _old_w1), ("KS", ks_distribution_distance, _old_ks)):
-            assert abs(new_f(a, b) - old_f(a, b)) < 1e-10  # nosec B101 - internal invariant check in src/mlframe/metrics/_benchmarks, not reachable with untrusted input
+            if not (abs(new_f(a, b) - old_f(a, b)) < 1e-10):
+                raise AssertionError
             t = time.perf_counter()
             for _ in range(30):
                 old_f(a, b)

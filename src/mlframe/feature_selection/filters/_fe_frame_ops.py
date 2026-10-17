@@ -18,6 +18,7 @@ from typing import Any, Iterable
 logger = logging.getLogger(__name__)
 
 import numpy as np
+from mlframe.utils.log_throttle import log_throttle
 
 try:
     import pandas as pd
@@ -62,7 +63,7 @@ def fe_is_numeric_col(X: Any, c: str) -> bool:
         if c not in X.columns:
             return False
         dt = X.schema[c]
-        return bool(dt.is_numeric()) or dt == pl.Boolean
+        return True if dt.is_numeric() else dt == pl.Boolean
     raise TypeError(f"fe_is_numeric_col: unsupported frame type {type(X)!r}")
 
 
@@ -112,7 +113,7 @@ def fe_polars_exceeds(X: Any, max_bytes: int = FE_EAGER_MATERIALIZE_MAX_BYTES) -
         try:
             return int(X.estimated_size()) > int(max_bytes)
         except Exception as e:
-            logger.debug("fe_polars_exceeds: estimated_size() failed, treating frame as within budget: %s", e)
+            log_throttle(logger, "_fe_frame_ops.fe_polars_exceeds", logging.WARNING, "fe_polars_exceeds: estimated_size() failed, treating frame as within budget: %s", e)
             return False
     return False
 

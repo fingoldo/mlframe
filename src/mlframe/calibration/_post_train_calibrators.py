@@ -122,9 +122,13 @@ def train_postcalibrators(
         if isinstance(_ec, dict):
             _bucket = _ec.get("simple")
             if isinstance(_bucket, dict):
-                _by_tt = _bucket.get(task_type) or _bucket.get(str(task_type))
+                _by_tt = _bucket.get(task_type)
+                if _by_tt is None:
+                    _by_tt = _bucket.get(str(task_type))
                 if isinstance(_by_tt, dict):
-                    _resolved_method = _by_tt.get(target_name) or _by_tt.get(str(target_name))
+                    _resolved_method = _by_tt.get(target_name)
+                    if _resolved_method is None:
+                        _resolved_method = _by_tt.get(str(target_name))
                 elif isinstance(_by_tt, str):
                     _resolved_method = _by_tt
     if _resolved_method is None:

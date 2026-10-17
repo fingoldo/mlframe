@@ -62,7 +62,7 @@ class ESTransformedTargetRegressor(TransformedTargetRegressor):
         check_inverse=True,
         es_fit_param_name: str | None = None,
     ):
-        # Wave 56 (2026-05-20): forward to parent __init__ so any new sklearn
+        # forward to parent __init__ so any new sklearn
         # TransformedTargetRegressor attrs (e.g. validate_inverse, _n_features_out)
         # added in minor sklearn releases are populated -- the prior manual
         # re-assignment of the 5 known attrs would silently drop new ones from
@@ -97,7 +97,7 @@ class ESTransformedTargetRegressor(TransformedTargetRegressor):
             y_2d = y
         # transform y and convert back to 1d array if needed
         y_trans = self.transformer_.transform(y_2d)
-        # Wave 63 (2026-05-20): sklearn FunctionTransformer can return a 1D array
+        # sklearn FunctionTransformer can return a 1D array
         # even with validate=True (when the wrapped func returns a 1D array
         # itself). The dim-check below handles both shapes; not actionable.
         if y_trans.ndim == 2 and y_trans.shape[1] == 1:
@@ -197,7 +197,7 @@ class PdOrdinalEncoder(OrdinalEncoder):
     NaN codes in the output raise rather than silently casting to a platform ``INT_MIN``.
     """
 
-    # Wave 50 (2026-05-20): default ``encoded_missing_value`` flipped from
+    # default ``encoded_missing_value`` flipped from
     # ``np.nan`` to ``-1``. Pre-fix, NaN -> int32 produced platform-dependent
     # INT_MIN sentinels that broke downstream code expecting codes in [0, K)
     # AND collided with no real category but obscured the missing-value contract.
@@ -214,7 +214,7 @@ class PdOrdinalEncoder(OrdinalEncoder):
             col_names = None
 
         X = super().transform(X)
-        # Wave 50 (2026-05-20): if caller overrode encoded_missing_value=np.nan,
+        # if caller overrode encoded_missing_value=np.nan,
         # surface NaN explicitly instead of producing platform-dependent INT_MIN
         # via astype(int32). NaN-in-int32 is undefined behaviour.
         if np.any(np.isnan(np.asarray(X, dtype=np.float64))):

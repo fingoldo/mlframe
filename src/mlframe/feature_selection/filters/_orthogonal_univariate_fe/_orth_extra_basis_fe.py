@@ -52,6 +52,8 @@ from ._orth_extra_basis_fe_helpers import (  # noqa: F401  -- carved helpers
     _deflate_sincos,
     _greedy_fourier_frequency_search,
 )
+import logging
+from mlframe.utils.log_throttle import log_throttle
 
 
 def _fit_spline_for_col(x: np.ndarray, n_inner_knots: int):
@@ -533,7 +535,7 @@ def _heldout_smooth_r2(x: np.ndarray, y: np.ndarray) -> float:
     if int(tr.sum()) < 16 or int(va.sum()) < 8:
         return 0.0
     # Rank-normalise x to [-1, 1] so heavy tails (Cauchy / lognormal outliers) cannot dominate the least-squares fit and understate the raw column's usability. Ranks are a monotone reparametrisation, so a genuine oscillation stays non-cubic (gate keeps letting Fourier fire) while a monotone heavy-tailed signal reads as smooth (gate blocks Fourier on it).
-    # single argsort + scatter (2026-07-16, cProfile-driven: this rank computation was the dominant cost of
+    # single argsort + scatter (cProfile-driven: this rank computation was the dominant cost of
     # the whole function, 34ms/call @ n=99401) instead of a double argsort - same ranks (verified bit-
     # identical), ~1.7x faster (32.5ms -> 19.0ms @ n=99401): argsort once for the sort order, then scatter
     # 0..n-1 into that order's positions, instead of sorting the sort-order array a second time.
@@ -548,7 +550,7 @@ def _heldout_smooth_r2(x: np.ndarray, y: np.ndarray) -> float:
         except np.linalg.LinAlgError:
             coef, *_ = np.linalg.lstsq(_Vtr, y[tr], rcond=None)
     except Exception as e:
-        logger.debug("_heldout_smooth_r2: cubic Vandermonde fit failed, returning R2=0.0: %s", e)
+        log_throttle(logger, "_orth_extra_basis_fe._heldout_smooth_r2", logging.WARNING, "_heldout_smooth_r2: cubic Vandermonde fit failed, returning R2=0.0: %s", e)
         return 0.0
     pred = np.vander(zx[va], 4) @ coef
     yv = y[va]
@@ -593,7 +595,7 @@ def _heldout_smooth_r2_fast(x: np.ndarray, prep: tuple) -> float:
     x = np.asarray(x, dtype=np.float64).ravel()
     if x.size != va.size or not np.all(np.isfinite(x)) or float(np.std(x)) < 1e-12:
         return 0.0
-    # single argsort + scatter (2026-07-16, cProfile-driven: this rank computation was the dominant cost of
+    # single argsort + scatter (cProfile-driven: this rank computation was the dominant cost of
     # the whole function, 34ms/call @ n=99401) instead of a double argsort - same ranks (verified bit-
     # identical), ~1.7x faster (32.5ms -> 19.0ms @ n=99401): argsort once for the sort order, then scatter
     # 0..n-1 into that order's positions, instead of sorting the sort-order array a second time.
@@ -609,7 +611,7 @@ def _heldout_smooth_r2_fast(x: np.ndarray, prep: tuple) -> float:
         except np.linalg.LinAlgError:
             coef, *_ = np.linalg.lstsq(_Vtr, y_tr, rcond=None)
     except Exception as e:
-        logger.debug("_heldout_smooth_r2_fast: cubic Vandermonde fit failed, returning R2=0.0: %s", e)
+        log_throttle(logger, "_orth_extra_basis_fe._heldout_smooth_r2_fast", logging.WARNING, "_heldout_smooth_r2_fast: cubic Vandermonde fit failed, returning R2=0.0: %s", e)
         return 0.0
     pred = np.vander(zx[va], 4) @ coef
     sse = float(np.sum((yv - pred) ** 2))

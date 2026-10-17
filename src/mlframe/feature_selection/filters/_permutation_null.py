@@ -348,7 +348,7 @@ def pooled_permutation_null_gain_floor(
     _hx = np.asarray(h_x, dtype=np.float64)
     _mm = np.asarray(mm_bias, dtype=np.float64)
 
-    # RESIDENT-GPU CROSSOVER (iter16, 2026-06-23): the per-shuffle MAX corrected MI over the pool is a
+    # RESIDENT-GPU CROSSOVER (iter16): the per-shuffle MAX corrected MI over the pool is a
     # (nperm x n_cand x n) histogram+MI loop - ONE batched workload (no per-pair launches, the iter13 trap).
     # Route it to the resident cupy twin ONLY where a per-host KTC sweep MEASURED it faster than this njit
     # kernel (wide pools p>=64 and/or large n on a capable card); the narrow tabular floor stays on CPU where
@@ -547,7 +547,7 @@ def pooled_pair_permutation_null_joint_mi_floor(
     if k_y < 2:
         return 0.0
 
-    # ROW-SUBSAMPLE the floor compute (noise-floor-cap regime, 2026-07-05). The floor is a q=0.95
+    # ROW-SUBSAMPLE the floor compute (noise-floor-cap regime). The floor is a q=0.95
     # QUANTILE of the per-shuffle MAX joint-MI over the O(p^2) pool - a COARSE noise threshold, not a
     # precise per-pair statistic. Its dominant term is the finite-sample plug-in MI bias ~ (k_joint-1)
     # (k_y-1)/2n, so subsampling rows raises the floor slightly (more CONSERVATIVE: it rejects the same

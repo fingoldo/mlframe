@@ -584,7 +584,7 @@ def build_calibration_spec(
     # bin-population histogram would reduce over an empty array. Emit an honest placeholder instead.
     finite_bin = np.isfinite(freqs_predicted) & np.isfinite(freqs_true)
     if freqs_predicted.size == 0 or not finite_bin.any():
-        empty_ann = AnnotationPanelSpec(text=(plot_title + "\n" if plot_title else "") + "calibration unavailable: no finite bins", title=plot_title or "Calibration")
+        empty_ann = AnnotationPanelSpec(text=(plot_title + "\n" if plot_title else "") + "calibration unavailable: no finite bins", title=plot_title if plot_title else "Calibration")
         return FigureSpec(suptitle="", panels=((empty_ann,),), figsize=figsize)
 
     # NaN-safe: a single non-finite bin centre made `np.mean(np.diff(...))` NaN, which matplotlib and plotly

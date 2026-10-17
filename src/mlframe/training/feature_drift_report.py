@@ -55,6 +55,7 @@ from typing import Any, Optional
 import numpy as np
 
 from mlframe.training._prediction_envelope_clip import _finite_min_max_std_kernel
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -229,7 +230,7 @@ Adjust if production data calibrates differently.
 """
 
 
-# Back-compat alias for callers that consumed the pre-2026-05-22 flat constant.
+# Back-compat alias for callers that consumed the previous flat constant.
 WEIGHTED_DRIFT_NEURAL_OVERRIDE_THRESHOLD: float = WEIGHTED_DRIFT_NEURAL_OVERRIDE_THRESHOLDS["regression"] or 0.0
 """Deprecated -- use ``WEIGHTED_DRIFT_NEURAL_OVERRIDE_THRESHOLDS[target_type_group]``
 which is per-target-type. Kept for back-compat with callers that
@@ -452,7 +453,7 @@ def _is_unhashable_object_column(df: Any, col: str) -> bool:
             return False
         return isinstance(cell0, (np.ndarray, list, dict, set, tuple))
     except Exception as exc:
-        logger.debug("drift: unhashable-object probe on column %r failed, treating as hashable: %s", col, exc)
+        log_throttle(logger, "feature_drift_report._is_unhashable_object_column", logging.WARNING, "drift: unhashable-object probe on column %r failed, treating as hashable: %s", col, exc)
         return False
 
 
@@ -608,7 +609,7 @@ def compute_categorical_drift_psi(
     ``drift_candidates`` is sorted descending by max(val_psi, test_psi); only features whose max exceeds ``moderate_threshold`` are listed.
     New-category cases (a value present in val/test but missing from train) are surfaced as a positive PSI contribution -- see ``_compute_categorical_psi`` docstring.
     """
-    cols = feature_names or _categorical_columns(train_df)
+    cols = _categorical_columns(train_df) if feature_names is None else feature_names
     per_feature: dict[str, dict[str, float]] = {}
     candidates: list[tuple[str, float]] = []
     too_sparse: list[tuple[str, int, float]] = []
@@ -736,7 +737,7 @@ def _compute_drift_invariant(
     candidate list, and the categorical PSI. Depends only on the frames + names +
     threshold; the caller layers the per-target FI-weighted aggregate on top.
     """
-    cols = feature_names or _numeric_columns(train_df)
+    cols = _numeric_columns(train_df) if feature_names is None else feature_names
     per_feature: dict[str, dict[str, float]] = {}
     candidates: list[tuple[str, float]] = []
     # bench-attempt-rejected 2026-05-23: tried vectorising as
@@ -962,7 +963,7 @@ def compute_feature_distribution_drift(
         _detail = ", ".join(f"{c}(|z|={z:.2f})" for c, z in _shown)
         if len(candidates) > max_features_in_log:
             _detail += f", +{len(candidates) - max_features_in_log} more"
-        # 2026-05-22: WARN only when (a) extreme drift (>=10x threshold) OR
+        # WARN only when (a) extreme drift (>=10x threshold) OR
         # (b) FI-weighted score >= 1.0 (important features are drifting). The
         # plain "drift > 3 sigma" case is INFO-only because it's not a
         # grounded harm signal -- per-model FS may drop the feature, or it

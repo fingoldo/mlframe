@@ -231,11 +231,10 @@ def test_fix5_upfront_filter_preserves_valid_group_aucs():
 
 
 @pytest.mark.hang_guard
-def test_fix5_upfront_filter_faster_on_skewed_workload():
-    """95 %-NaN workload: upfront filter is faster than letting numba iterate
-    every group. Uses a large synthetic frame; tolerance generous — this is
-    a smoke check, not a benchmark gate."""
-    import time
+def test_fix5_upfront_filter_faster_on_skewed_workload(monkeypatch):
+    """95 %-NaN workload: the upfront filter hands the numba per-group loop only the rows of valid groups,
+    not all 200k rows. The deterministic work counter is the row count that reaches the loop."""
+    from mlframe.metrics import _auc_per_group
     from mlframe.metrics.core import fast_aucs_per_group_optimized
 
     rng = np.random.default_rng(0)
@@ -254,18 +253,22 @@ def test_fix5_upfront_filter_faster_on_skewed_workload():
     # Warm numba once.
     _ = fast_aucs_per_group_optimized(y_true[:200], y_score[:200], group_ids[:200])
 
-    t0 = time.perf_counter()
-    fast_aucs_per_group_optimized(y_true, y_score, group_ids)
-    elapsed = time.perf_counter() - t0
-    # On modern CPU, 200k rows with 95 % single-sample should finish well under 5 s.
-    # Pre-Fix-5 it's ~1 s but degrades >5 s once the per-group sort of the valid
-    # tail grows; we just assert "not pathologically slow".
-    # 10.0 -> 20.0 (2026-08-16): CI hit 10.27s (just over the old floor) under xdist shard
-    # contention on a shared 2-vCPU runner; a quiet local run consistently finishes in ~1-2s
-    # (confirmed: PASSED in isolation), and a contended local run (many concurrent background
-    # test processes) hit 17.67s with zero code change -- this is a pure wall-clock smoke check,
-    # not a tight regression gate, so real margin against contention matters more than tightness.
-    assert elapsed < 20.0, f"regressed to {elapsed:.2f}s on 200k skewed groups"
+    rows_seen = []
+    real_loop = _auc_per_group.compute_grouped_group_aucs
+
+    def _spy(sorted_group_ids, sorted_y_true, sorted_y_score):
+        """Record how many rows reach the numba per-group loop."""
+        rows_seen.append(len(sorted_group_ids))
+        return real_loop(sorted_group_ids, sorted_y_true, sorted_y_score)
+
+    monkeypatch.setattr(_auc_per_group, "compute_grouped_group_aucs", _spy)
+    _, _, group_aucs = fast_aucs_per_group_optimized(y_true, y_score, group_ids)
+    # Only the 2-sample tail groups can be valid, so the loop sees at most 2 * n_valid rows (never the 195k single-sample rows).
+    assert len(rows_seen) == 1
+    assert 0 < rows_seen[0] <= 2 * n_valid
+    # Output contract is unchanged: every group still gets an entry, the doomed single-sample ones as NaN.
+    assert len(group_aucs) == len(np.unique(group_ids))
+    assert np.isnan(group_aucs[0][0])
 
 
 # ---------------------------------------------------------------------------

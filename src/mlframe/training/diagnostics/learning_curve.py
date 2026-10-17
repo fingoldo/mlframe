@@ -130,6 +130,7 @@ class LearningCurveConfig:
 
 
 from mlframe.utils.frame_rows import n_rows as _n_rows
+from mlframe.utils.log_throttle import log_throttle
 
 
 def _take_rows(X: Any, idx: np.ndarray) -> Any:
@@ -262,7 +263,7 @@ def _fit_warm_curve(
     try:
         base_n = int(est.get_params().get(n_attr) or 0)
     except Exception as e:
-        logger.debug("could not resolve base %s from estimator params: %s", n_attr, e)
+        log_throttle(logger, "learning_curve._fit_warm_curve", logging.WARNING, "could not resolve base %s from estimator params: %s", n_attr, e)
         base_n = 0
     per_step = max(1, base_n // len(counts)) if base_n else 50
     tr: List[float] = []

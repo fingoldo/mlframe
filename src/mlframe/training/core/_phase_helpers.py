@@ -480,7 +480,7 @@ def _phase_pandas_conversion_and_cat_prep(
     def _strategies_for(models: list[str]) -> list:
         """Resolve per-model strategies, reusing the precomputed ``strategy_by_model`` (keyed by id(model)) when threaded in, else falling back to a fresh ``get_strategy`` walk. Only ever hit on the verbose-log branches."""
         if strategy_by_model:
-            return [strategy_by_model.get(id(m)) or get_strategy(m) for m in models]
+            return [get_strategy(m) if strategy_by_model.get(id(m)) is None else strategy_by_model[id(m)] for m in models]
         return [get_strategy(m) for m in models]
     # The earlier disjunction ``all_models_polars_native OR _has_non_native_mlframe_strategy`` was always True
     # given ``was_polars_input`` (the second disjunct collapses to ``was_polars_input AND NOT first``), so

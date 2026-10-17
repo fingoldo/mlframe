@@ -199,7 +199,7 @@ def _evaluate_basis_column(
     out = polyeval_dispatch(basis, z, coef)
     return (out, params) if return_params else out
 
-# Carved out to _orth_dedup.py (2026-06-22 monolith-split, LOC budget); re-exported here so the
+# Carved out to _orth_dedup.py (monolith-split, LOC budget); re-exported here so the
 # package-facade name `_dedup_collinear_source_cols` and all internal callers keep working.
 from ._orth_dedup import _dedup_collinear_source_cols
 
@@ -348,7 +348,7 @@ def generate_univariate_basis_features(
         # whatever was engineered so far (the core selection still produces a usable partial). No-op when no budget is set.
         if fe_deadline_passed():
             break
-        # BUG FIX (2026-07-12, test_layer23::test_replay_matches_fit_time_values): must be float64, NOT
+        # BUG FIX (test_layer23::test_replay_matches_fit_time_values): must be float64, NOT
         # _crit_np_dtype()'s f32 relaxation. The basis-preprocess params computed from ``x`` here get frozen
         # into an EngineeredRecipe and replayed at transform() time by
         # engineered_recipes._orth_basis_recipes._eval_orth_basis_column, which unconditionally casts its
@@ -379,7 +379,7 @@ def generate_univariate_basis_features(
             aux_col = _aux_pool[col]
         # For auto-routing, fit the moment fingerprint on the SAME pool so
         # train and unlabeled augmentation agree on basis selection.
-        # ONE heavy-tail memo scope per column (2026-07-02, cProfile-driven): basis_route_by_signal already
+        # ONE heavy-tail memo scope per column (cProfile-driven): basis_route_by_signal already
         # memoizes the robust heavy-tail detect over its 4-basis probe, but the FIT-ONCE build below re-detected
         # the same np.median/MAD on the identical column OUTSIDE that scope - the dominant post-subsample
         # np.median caller (154 -> ~77 detects on F2). Wrapping route + build in one nesting-safe scope makes the
@@ -448,7 +448,7 @@ def generate_univariate_basis_features(
                 continue
     return pd.DataFrame(out_cols, index=X.index)
 
-# Carved out to _orth_gpu_resident.py (2026-07-09 monolith-split, LOC budget); re-exported here so the
+# Carved out to _orth_gpu_resident.py (monolith-split, LOC budget); re-exported here so the
 # package-facade names and all internal callers keep working.
 from ._orth_gpu_resident import _raise_if_vram_insufficient, _gpu_build_and_score_univariate
 

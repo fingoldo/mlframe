@@ -75,7 +75,7 @@ _GRAD_DEFAULT_MAX_P = 200  # above this p, the O(p^2) energy tally + null is the
 _GRAD_DEFAULT_N_COMPONENTS = 400  # RFF feature count for the surrogate
 _GRAD_DEFAULT_K_PERM = 12  # permutation-null shuffles
 _GRAD_DEFAULT_Q = 0.99  # null quantile
-# Multiplicative margin on the q99 permutation-null floor. Calibrated 2026-06-10 so the saddle
+# Multiplicative margin on the q99 permutation-null floor. Calibrated so the saddle
 # WIN survives AND additive / pure-noise both emit 0 on BOTH the raw-continuous target (the
 # standalone/unit case) and the DISCRETISED ordinal target the live FE gates score on (the
 # integration case - a weaker, noisier signal). 1.5 (the value first tuned on the continuous

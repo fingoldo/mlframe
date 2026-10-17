@@ -37,6 +37,7 @@ import numpy as np
 import pandas as pd
 
 from ._xxh3_hash import resolve_xxh3_64
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -84,7 +85,7 @@ def _is_all_nan(values: np.ndarray) -> bool:
     try:
         return bool(values.size) and bool(pd.isna(values).all())
     except Exception as e:
-        logger.debug("all-nan check failed for an object-dtype column, treating as not-all-nan: %s", e)
+        log_throttle(logger, "_mrmr_degenerate._is_all_nan", logging.WARNING, "all-nan check failed for an object-dtype column, treating as not-all-nan: %s", e)
         return False
 
 
@@ -105,7 +106,7 @@ def _is_constant(values: np.ndarray) -> bool:
         nun = ser.nunique(dropna=True)
         return nun <= 1 and not ser.isna().all()
     except Exception as e:
-        logger.debug("constant-column check failed, treating as not-constant: %s", e)
+        log_throttle(logger, "_mrmr_degenerate._is_constant", logging.WARNING, "constant-column check failed, treating as not-constant: %s", e)
         return False
 
 

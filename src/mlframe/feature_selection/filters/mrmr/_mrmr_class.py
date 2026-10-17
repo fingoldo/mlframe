@@ -22,7 +22,7 @@ import warnings
 from collections import OrderedDict
 from collections.abc import Iterable, MutableMapping, Sequence
 from functools import partial
-from typing import Any, Callable, ClassVar, NoReturn, Optional, cast
+from typing import Any, ClassVar, NoReturn, Optional, cast
 
 import numpy as np
 import pandas as pd
@@ -70,8 +70,8 @@ from ._mrmr_config_dataclasses import (
 
 from .._mrmr_fingerprints import (
     _mrmr_identity_cache_key,
-    _mrmr_y_corr_sample,
-    _mrmr_y_corr,
+    _mrmr_y_corr_sample,  # noqa: F401 - re-exported facade name
+    _mrmr_y_corr,  # noqa: F401 - re-exported facade name
     _hashable_params_signature,  # noqa: F401  -- re-exported through the package
     _MRMR_IDENTITY_FP_CACHE,
     _MRMR_IDENTITY_FP_LOCK,
@@ -108,7 +108,7 @@ from .._fe_deadline import clear_fe_deadline as _clear_fe_deadline
 from .._mrmr_fe_provenance import populate_fe_provenance as _pop_prov
 from .._fe_rejection_ledger import populate_fe_rejection_ledger as _pop_rej
 from .._fe_family_timing import log_fe_family_summary as _log_fe_wall
-from .._fourier_detect_cap import clear_fourier_detect_cap, set_fourier_detect_cap
+from .._fourier_detect_cap import clear_fourier_detect_cap, set_fourier_detect_cap  # noqa: F401 - re-exported facade names
 from .._mrmr_validate_transform import transform as _mrmr_transform_impl
 from mlframe.feature_selection.filters.info_theory.shared import set_group_mi as _set_group_mi
 from mlframe.feature_selection.filters.info_theory.shared import prepare_group_segments as _prepare_group_segments  # noqa: F401  -- kept importable here
@@ -185,25 +185,12 @@ def _restore_toggles_snapshot_and_raise_impl(_toggles_snapshot, exc: BaseExcepti
     raise exc
 
 
-def _safe_restore(action: Callable[[], Any], description: str) -> None:
-    """Run a single ``fit()``-finally restore action, swallowing any exception it raises into a debug
-    log line instead of letting a failed restore mask the fit's real outcome (success or a genuine
-    error) or abort the remaining restores. Replaces 11 near-identical
-    ``try: ... except Exception as e: logger.debug("suppressed in _mrmr_class.py:<N>: %s", e)`` blocks
-    that each hardcoded their own source line number - numbers which drifted out of sync with the
-    actual line on every subsequent edit, silently giving false diagnostics forever once stale.
-    ``description`` is a short human-readable label instead, which cannot go stale the same way."""
-    try:
-        action()
-    except Exception as exc:  # nosec B110 - a restore-step failure must never break/mask the fit's real outcome
-        logger.debug("mrmr: fit()-finally restore failed (%s): %r", description, exc, exc_info=True)
-
-
 from ._mrmr_class_shared import _mrmr_y_columns  # noqa: F401 - re-exported for callers importing from here
 
 from ._mrmr_class_config import _MRMRConfigMixin
 from ._mrmr_class_transform import _MRMRTransformMixin
 from ._mrmr_class_fit_helpers import _MRMRFitHelpersMixin
+from ._mrmr_class_fit_body_blocks import _MRMRFitBodyBlocksMixin, _safe_restore
 from ._mrmr_fit_log import log_mrmr_fit_summary
 
 # SelectorMixin ADDED purely for the isinstance(x, SelectorMixin) contract and its
@@ -227,7 +214,7 @@ from ._mrmr_fit_log import log_mrmr_fit_summary
 _MRMR_SCHEMA_VERSION = 1
 
 
-class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, _MRMRConfigMixin, _MRMRFitHelpersMixin):
+class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, _MRMRConfigMixin, _MRMRFitHelpersMixin, _MRMRFitBodyBlocksMixin):
     """Finds subset of features having highest impact on target and least redundancy.
 
     Parameters
@@ -405,7 +392,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # -0.052; clf n=100k exact tie), so the win is regime-specific, not a blanket flip. This knob gates the campaign-winner
         # config (nbins_strategy=None, quantization_nbins=20) ON exactly where it wins: detected regression AND n_rows >= the
         # threshold below, ONLY when the user left both quantization params at their constructor defaults (explicit user values
-        # are never overridden). Set to False to keep MDLP everywhere (pre-2026-06-18 behaviour); set the threshold to retune.
+        # are never overridden). Set to False to keep MDLP everywhere (previous behaviour); set the threshold to retune.
         adaptive_nbins_large_n_reg: bool = True,
         adaptive_nbins_large_n_reg_threshold: int = 50_000,
         adaptive_nbins_large_n_reg_nbins: int = 20,
@@ -458,7 +445,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # (zip codes / hash IDs / 50-bin continuous) get inflated relevance.
         # Symmetric Uncertainty SU(X,Y) := 2*I/(H(X)+H(Y)) normalises to [0,1]
         # and removes the bias (Witten-Frank-Hall 2011).
-        #   'none' (default): legacy raw MI scoring (bit-for-bit identical to pre-2026-05-28).
+        # 'none' (default): legacy raw MI scoring (bit-for-bit identical to previous).
         #   'su'            : Symmetric Uncertainty on both unconditional + conditional steps.
         # Default 'none' preserves the regression sentry; flip to 'su' for mixed
         # cat-cardinality data (different binning per feature / target-encoded
@@ -469,7 +456,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # them as an honest category. "ffill_bfill": legacy forward/backward
         # fill (preserves temporal smoothness for time-series). "fillna_zero":
         # legacy pandas behaviour - mixes NaN into bin-0 with true-zero values,
-        # which biases MI; only kept for reproducibility of pre-2026-05-15 runs.
+        # which biases MI; only kept for reproducibility of previous runs.
         nan_strategy: str = "separate_bin",
         # factors
         factors_names_to_use: Sequence[str] | None = None,
@@ -570,7 +557,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         interactions_order_reversed: bool = False,
         max_veteranes_interactions_order: int = 1,
         only_unknown_interactions: bool = False,
-        # FAST-SEARCH MASTER TOGGLE (2026-06-14, default ON). Trades the EXHAUSTIVE FE search tail
+        # FAST-SEARCH MASTER TOGGLE (default ON). Trades the EXHAUSTIVE FE search tail
         # for a substantially faster fit that still recovers the signal. When True AND the user has
         # NOT explicitly overridden a sub-knob (the value still equals its package default), fit()
         # temporarily applies a fast profile and restores every knob in ``finally`` (so clone /
@@ -685,10 +672,10 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # Number of held-out folds for the stability vote (>= 2; below 2 the vote is a
         # structural no-op). 5 mirrors the backlog spec - enough folds that a genuine
         # recipe clears the quorum comfortably while a single-fold-quirk winner fails.
-        # Accepts ``"auto"`` (hardcoded-threshold bench follow-up, 2026-06-13): a GUARDED
+        # Accepts ``"auto"`` (hardcoded-threshold bench follow-up): a GUARDED
         # n-floored K that equals 5 for n >= 500 and only drops to 2-4 for genuinely tiny n
         # that cannot keep ~100 rows/fold across 5 folds. An explicit int (incl. the default
-        # 5) is honoured verbatim - byte-identical to the pre-2026-06-13 behaviour. The bench
+        # 5) is honoured verbatim - byte-identical to the previous behaviour. The bench
         # showed LOWERING K degrades the vote (k=3 lost the F2 feature), so "auto" never raises
         # the noise by going below 5 on data that can sustain it.
         fe_stability_vote_k: "int | str" = 5,
@@ -750,7 +737,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         fe_sufficient_summary_maxt_permutations: int = 25,
         fe_sufficient_summary_maxt_quantile: float = 0.95,
         fe_sufficient_summary_ridge_alpha: float = 1e-3,
-        # AUTO-ESCALATION to the richer SHIPPED bases (2026-06-10, backlog idea B) -
+        # AUTO-ESCALATION to the richer SHIPPED bases (backlog idea B).
         # DEFAULT-ON. When a prospective pair PASSED the pair-MI prescreen (joint-MI
         # ratio gate + order-2 maxT floor) but the unary/binary operator search admitted
         # NOTHING for it, the legacy behaviour was only the "FE produced 0 engineered
@@ -830,7 +817,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         fe_escalation_underdelivery_enable: Optional[bool] = None,
         fe_escalation_underdelivery_excess_frac: float = 0.05,
         fe_escalation_underdelivery_self_ratio: float = 3.0,
-        # PREVALENCE-FAILED SYNERGY RESCUE (2026-06-12, F2 a**2/b miss, default-ON). A
+        # PREVALENCE-FAILED SYNERGY RESCUE (F2 a**2/b miss, default-ON). A
         # synergy pair (>=1 bootstrap-added unselected operand) whose JOINT MI cleared the
         # order-2 maxT permutation floor but missed the stricter ``fe_synergy_min_prevalence``
         # RAW-MI ratio bar is handed to the auto-escalation as a failed pair. The raw-MI
@@ -848,7 +835,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # pure-chance noise pair never reaches escalation); a false rescue only PROPOSES.
         # Set False to restore the pre-fix behaviour (synergy prevalence is a hard drop).
         fe_synergy_prevalence_rescue_enable: bool = True,
-        # ESCALATION FEATURES ARE TERMINAL in the composite feed-forward (2026-06-12, F2
+        # ESCALATION FEATURES ARE TERMINAL in the composite feed-forward (F2
         # rescue). An ``esc_*`` orth-poly / adaptive-Fourier escalation feature already
         # captures a genuine richer-basis interaction; feeding it back as an operand for a
         # FURTHER pair composite fuses two independent additive target terms into one ratio
@@ -865,7 +852,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # Value 3 left the gate with a minimum p of 0.25, so the 0.99 confidence
         # floor gave no per-candidate control and pure noise produced engineered
         # false positives. 99 gives a minimum p of 0.01, the same floor as
-        # ``full_npermutations``. Cost is paid per FE candidate; measured on the pure-noise suite (2026-10-14).
+        # ``full_npermutations``. Cost is paid per FE candidate; measured on the pure-noise suite.
         fe_npermutations: int = 99,
         fe_ntop_features: int = 0,
         # ENGINEERED-OPERAND FEED-FORWARD CAP. At FE step k>1 the
@@ -879,7 +866,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # ``support_`` as selected features, they just don't seed further composites.
         # 8 covers the realistic "a handful of strong engineered factors recombine"
         # case while keeping the extra pair count small. 0 disables the feed-forward
-        # (raw-only operands, the pre-2026-06-08 behaviour); a negative value means
+        # (raw-only operands, the previous behaviour); a negative value means
         # "no cap" (feed back every selected engineered operand).
         fe_max_engineered_operands: int = 8,
         fe_unary_preset: str = "medium",
@@ -913,7 +900,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # matters for the n_pairs<8 / batch-precompute-failure fallback.
         fe_min_pair_mi: float = 0.001,
         # mi of entire pair must be at least that higher than the mi of its individual factors, to consider the pair at all.
-        # Accepts ``"auto"`` (hardcoded-threshold conversion, 2026-06-13): a GUARDED data-derived mode
+        # Accepts ``"auto"`` (hardcoded-threshold conversion): a GUARDED data-derived mode
         # that keeps the 1.05 ratio bar but applies it to the MILLER-MADOW-DEBIASED pair MI (the
         # analytic finite-sample joint-MI bias subtracted), so the gate can only TIGHTEN - it drops
         # the best-of-pool finite-sample-noise pairs a fixed 1.05 admits (bench: bilinear archetype
@@ -928,7 +915,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # mul(log(c),sin(d)) [rat~1.01] cleared 0.90 but not 0.98, so the default fit
         # found ZERO engineered cols. 0.90 keeps genuine 1-D summaries of real 2-D
         # interactions while still rejecting noise (which lands well below the pair MI).
-        # 2026-06-08 regression fix: restored to 0.90 (the documented value above). A
+        # regression fix: restored to 0.90 (the documented value above). A
         # campaign tightening to 0.97 (commit 855c2568, to cut optimisation-inflated
         # noise-FE) rejected GENUINE engineered features on weaker-signal canonical targets
         # (e.g. ``y=0.2*a**2/b + log(c*2)*sin(d/3)`` produced 0 engineered, with the runtime
@@ -939,7 +926,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # joint-prevalence floor no longer has to carry that load and can return to the value
         # that admits genuine 1-D summaries of real 2-D interactions.
         fe_min_engineered_mi_prevalence: float = 0.90,  # mi of transformed pair must be at least that higher than the mi of the entire pair
-        # MILLER-MADOW DEBIAS of the joint-prevalence ratio gate (2026-06-09, + #4).
+        # MILLER-MADOW DEBIAS of the joint-prevalence ratio gate (+ #4).
         # The gate ``best_mi / pair_mi > fe_min_engineered_mi_prevalence`` compares a 1-D
         # engineered MI (over ~``quantization_nbins`` bins) against a 2-D joint MI (over
         # ~``nbins^2`` bins). Both are RAW plug-in MIs whose positive finite-sample bias is
@@ -969,7 +956,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # order-2 biz tests, noise 100% at/below the MM floor) - the reject is the RATIO gate
         # relaxation, not the floor. True enables the full mechanism for re-bench on other data.
         fe_mm_debias_prevalence: bool = False,
-        # ENGINEERED-FEATURE ACCEPTANCE STRATEGY (strategy S5, 2026-06-08).
+        # ENGINEERED-FEATURE ACCEPTANCE STRATEGY (strategy S5).
         # ``"conditional_mi"`` (default): the PRINCIPLED, constant-free gate. After the
         # per-pair search has chosen one best engineered column per pair, a greedy CMI-MRMR
         # runs over the surviving pool - a candidate is admitted iff its CONDITIONAL MI with
@@ -1075,7 +1062,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # UNIFIED_FE_SUBSAMPLE_N in feature_engineering.py). 10_000 is the
         # marginal floor; do NOT set below 25_000.
         fe_check_pairs_subsample_n: int = UNIFIED_FE_SUBSAMPLE_N,
-        # STRATIFIED FE SUBSAMPLE (R1, 2026-06-18). The FE MI-sweep / pure-form-retention /
+        # STRATIFIED FE SUBSAMPLE (R1). The FE MI-sweep / pure-form-retention /
         # polynom-pair subsamplers above draw rows with a PLAIN uniform ``rng.choice`` - no
         # class balance for classification, no y-quantile coverage for regression. On a small
         # rare-class fraction (uniform can drop ALL rows of a 1% class) or a heavy-tailed
@@ -1265,7 +1252,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # ``None`` = default CatFEConfig() with ``enable=True`` and conservative production settings (cat-FE
         # shows measurable wins; XOR biz_value test, 0 regressions). Restore legacy via CatFEConfig(enable=False).
         cat_fe_config: Any = None,
-        # Bound on the process-wide _FIT_CACHE. Strong refs hold every fitted MRMR; long-lived workers (web services, JupyterHub kernels) leaked memory unboundedly pre-2026-05-15. Default 4 covers a typical model suite (RFECV+MRMR x catboost+linear+mlp) without thrashing.
+        # Bound on the process-wide _FIT_CACHE. Strong refs hold every fitted MRMR; long-lived workers (web services, JupyterHub kernels) leaked memory unboundedly previous. Default 4 covers a typical model suite (RFECV+MRMR x catboost+linear+mlp) without thrashing.
         fit_cache_max: int = 4,
         # Byte-size cap on top of fit_cache_max (a 1k-feature suite carrying 4 cached MRMR instances can
         # exceed 1 GB of process RSS). ``None`` (default) falls back to the ``MLFRAME_MRMR_FIT_CACHE_MAX_MB``
@@ -1592,11 +1579,11 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # pre-FE cost on a wide-p fit (~34% of the pre-categorize wall at p=420 - the SAME p=423 scale the
         # MRMR audit's motivating production fit ran at) - the held-out frequency sweep is roughly linear
         # in column count regardless of row count, unlike most of this pipeline which is already
-        # row-subsampled. Default 100 (2026-07-10, corrective-mechanism-on-by-default): bounds cost on
+        # row-subsampled. Default 100 (corrective-mechanism-on-by-default): bounds cost on
         # wide-p fits while preserving full legacy behaviour (no cap in practice) below it, since the vast
         # majority of tabular problems sit under 100 raw columns; the biz_val tests for this cap use p<=8 so
         # are unaffected. Columns beyond the cap still get the cheap fixed-grid Fourier basis, only the
-        # expensive adaptive/chirp detection is capped. ``None`` restores the pre-2026-07-10 unlimited behaviour.
+        # expensive adaptive/chirp detection is capped. ``None`` restores the previous unlimited behaviour.
         fe_univariate_fourier_adaptive_max_cols: Optional[int] = 100,
         # HINGE / piecewise-linear change-point basis.
         # DEFAULT ON. Captures a SLOPE CHANGE at a data-dependent
@@ -1679,7 +1666,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # ``fe_synergy_screen_max_features``, choose WHICH ``cap`` columns enter the O(p^2) synergy sweep by an
         # interaction-propensity score |corr(x^2,y)|+|corr(x,y^2)| instead of skipping the bootstrap. Marginal MI
         # is the wrong ranking (a pure-interaction operand has ~0 marginal MI by construction); higher moments
-        # leak even when the linear marginal is flat. Bench (test_fe_interaction_prerank, 2026-06-18): recovers
+        # leak even when the linear marginal is flat. Bench (test_fe_interaction_prerank): recovers
         # planted zero-marginal operands into the top-250 at recall ~0.88 (realistic leakage L=0.1) vs marginal-MI
         # 0.68 / random 0.12, at O(p*n) ~5s for p=10k. NO-OP below the cap (the bootstrap already adds every
         # column). IRREDUCIBLE: a perfectly-balanced zero-higher-moment interaction (L=0) is invisible to any O(p)
@@ -1748,7 +1735,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # MI collapses to 12-36% on a held-out slice vs genuine's 90-104% - but
         # needs train-based FE selection (deep rewrite) for marginal gain over this
         # tighter-prevalence cut, so it is deferred.
-        # Accepts ``"auto"`` (hardcoded-threshold conversion #3, 2026-06-13): keeps the 1.5 synergy bar
+        # Accepts ``"auto"`` (hardcoded-threshold conversion #3): keeps the 1.5 synergy bar
         # but applies it to the MILLER-MADOW-DEBIASED joint MI (the same guarded mechanism as
         # ``fe_min_pair_mi_prevalence="auto"``), so a synergy pair is admitted only when its DEBIASED
         # joint MI clears 1.5x the marginal sum - tightening against finite-sample-bias noise a fixed
@@ -1976,7 +1963,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # permuted-y check, a GAM additive-residual baseline (additive targets emit 0), and a
         # permutation null on the max mixed-partial energy.
         #
-        # OPT-IN default (``fe_gradient_interaction_enable=False``). bench-reject (2026-06-10,
+        # OPT-IN default (``fe_gradient_interaction_enable=False``). bench-reject (
         # ``_gradient_interaction_seeder.py``): on the prescribed cheap-validation fixture
         # ``y=sin(x5)*x31+noise`` (n=2000, p=60) the gradient detector ranks the (5,31) saddle #1
         # and proposes exactly that pair, BUT the #6 GBM split-co-occurrence seeder ALSO ranks
@@ -2033,7 +2020,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # candidates regardless of p), and the replay P0 (per-leg preprocess refit) is now fixed. Bench:
         # on a genuine 3-way a*b*c target the linear downstream goes 0.094 -> 0.049 (the floor) because
         # it finally gets the a*b*c feature, with NO harm on an additive target and ~negligible fit cost.
-        # Set False to restore the pre-2026-06-13 behaviour (no triplet-cross candidates).
+        # Set False to restore the previous behaviour (no triplet-cross candidates).
         fe_hybrid_orth_triplet_enable: bool = True,
         fe_hybrid_orth_triplet_max_degree: int = 1,
         fe_hybrid_orth_triplet_seed_k: int = 4,
@@ -2051,7 +2038,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # ``orth_quadruplet_cross``; replay reads X only, no y.
         # DEFAULT ON: bounded by seed_k (C(seed_k,4) quadruplets - 1 at seed_k=4), replay
         # P0 fixed, captures genuine 4-way interactions a linear model cannot otherwise form. Set False
-        # to restore the pre-2026-06-13 behaviour.
+        # to restore the previous behaviour.
         fe_hybrid_orth_quadruplet_enable: bool = True,
         fe_hybrid_orth_quadruplet_max_degree: int = 1,
         fe_hybrid_orth_quadruplet_seed_k: int = 4,
@@ -3046,9 +3033,9 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # p=423 scale the MRMR audit's motivating production fit ran at), roughly linear in column count.
         # Unlike the Fourier adaptive cap, there is no cheap fallback here - columns beyond the cap get NO
         # wavelet legs at all, so this default is deliberately more generous than the Fourier cap's floor
-        # would suggest. Default 100 (2026-07-10, corrective-mechanism-on-by-default): bounds cost on
+        # would suggest. Default 100 (corrective-mechanism-on-by-default): bounds cost on
         # wide-p fits while preserving full legacy behaviour below it; the biz_val tests for this cap use
-        # p<=8 so are unaffected. ``None`` restores the pre-2026-07-10 unlimited behaviour.
+        # p<=8 so are unaffected. ``None`` restores the previous unlimited behaviour.
         fe_wavelet_max_cols: Optional[int] = 100,
         fe_wavelet_cols: tuple = (),
         fe_wavelet_max_scale: int = 3,
@@ -3170,7 +3157,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # Multi-output (2D y: multilabel / multi-target regression). MRMR's greedy partial-gain machinery merges the target columns into one
         # joint target, and that merged target makes the lazy confirmation step drop the 2nd genuine feature even when the per-column MI is high.
         # 'union' (default): fit one single-target selector per output column (the 1D path, which is correct) and UNION the selected raw columns.
-        # 'intersect': keep only columns selected for EVERY output column. None / 'joint': legacy merged-target behaviour (byte-identical to pre-2026-06-20).
+        # 'intersect': keep only columns selected for EVERY output column. None / 'joint': legacy merged-target behaviour (byte-identical to previous).
         multioutput_strategy: Optional[str] = "union",
         # Nested config-dataclass alternative to the individual flat kwargs above. Purely ADDITIVE: every flat kwarg above keeps working
         # unchanged forever (this migration's blast radius - ~50+ existing call sites - rules out a
@@ -3959,101 +3946,6 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
                 _toggles_snapshot, st, _orig_cluster_aggregate_enable, _orig_nbins_strategy, _orig_quantization_nbins, _fe_auto_restore
             )
 
-    def _fit_body_clone_pickle_repeated_fit(self, _default_screen_saved):
-        """Block of _fit_body starting at ``if _default_screen_saved:``."""
-        if _default_screen_saved:
-
-            def _make_default_screen_restorer(_k: str, _v: Any) -> Callable[[], None]:
-                """Bind (_k, _v) into a niladic restorer so the loop variables are captured by value, not by reference."""
-                return lambda: setattr(self, _k, _v)
-
-            for _k, _v in _default_screen_saved.items():
-                _safe_restore(_make_default_screen_restorer(_k, _v), f"default-screen-subsample knob {_k!r}")
-
-    def _fit_body_getattr_self_partial_fit(self):
-        """Block of _fit_body starting at ``if not getattr(self, "_in_partial_fit_", False):``."""
-        if not getattr(self, "_in_partial_fit_", False):
-            # An explicit fit() replaces the model, so a partial_fit stream restarts from its next batch; resuming the old buffer made partial_fit(A); fit(B);
-            # partial_fit(C) silently refit on A + C.
-            for _pf_attr in (
-                "_partial_fit_X_buffer_",
-                "_partial_fit_y_buffer_",
-                "_partial_fit_batch_sizes_",
-                "_partial_fit_n_seen_",
-                "_partial_fit_n_since_refit_",
-            ):
-                if getattr(self, _pf_attr, None) is not None:
-                    setattr(self, _pf_attr, None)
-
-    def _fit_body_isinstance_fe_budget_setting(self, _fe_budget_setting, X, _fe_budget_learning_effective, _fe_loaded_budgets):
-        """Block of _fit_body starting at ``if isinstance(_fe_budget_setting, str):``."""
-        if isinstance(_fe_budget_setting, str):
-            if _fe_budget_setting != "auto":
-                raise ValueError(f"fe_budget_learning must be True, False, or 'auto'; got {_fe_budget_setting!r}")
-            try:
-                from mlframe.feature_selection.filters._fe_family_budget import dataset_fingerprint as _fe_budget_fp, load_budgets as _fe_load_budgets
-
-                _fe_budget_cols = list(X.columns) if hasattr(X, "columns") else [str(i) for i in range(np.asarray(X).shape[1])]
-                self._fe_budget_fingerprint_ = _fe_budget_fp(len(_fe_budget_cols), _fe_budget_cols)
-                _fe_loaded_budgets = _fe_load_budgets(fingerprint=self._fe_budget_fingerprint_)
-                # "auto" fires ONLY when a previous explicit opt-in already persisted a budget for this
-                # exact dataset fingerprint - otherwise it is a strict no-op, identical to False.
-                _fe_budget_learning_effective = _fe_loaded_budgets is not None
-            except Exception as _fe_budget_probe_exc:
-                logger.warning("[MRMR] fe_budget_learning='auto': cache probe failed (%s); treating as disabled this fit.", _fe_budget_probe_exc)
-                _fe_budget_learning_effective = False
-        return _fe_budget_learning_effective, _fe_loaded_budgets
-
-    @staticmethod
-    def _fit_body_int_paths_get_validated(_y_check):
-        """Block of _fit_body starting at ``if _y_check.dtype.kind in "fc":``."""
-        if _y_check.dtype.kind in "fc":
-            _n_nan = int(np.isnan(_y_check).sum())
-            _n_inf = int(np.isinf(_y_check).sum())
-            if _n_nan or _n_inf:
-                raise ValueError(
-                    f"MRMR.fit: y contains {_n_nan} NaN and {_n_inf} +/-inf values. "
-                    f"MI estimation silently degrades on NaN; drop or impute these rows "
-                    f"before fitting."
-                )
-
-    @staticmethod
-    def _fit_body_ycorr_thr(_ycorr_thr, _prior_y_sample, y, _measured_corr, _ycorr_ok):
-        """Block of _fit_body starting at ``if _ycorr_thr > 0.0:``."""
-        if _ycorr_thr > 0.0:
-            if _prior_y_sample is not None:
-                _measured_corr = _mrmr_y_corr(_mrmr_y_corr_sample(y), _prior_y_sample)
-                # NaN corr (constant sample / mismatched length) is treated as "cannot confirm" -> refuse.
-                _ycorr_ok = _measured_corr is not None and abs(_measured_corr) >= _ycorr_thr
-            else:
-                # The user asked for the y-correlation safety gate (thr > 0) but the cached entry is the
-                # legacy bool format with no prior y-sample to check against - we cannot confirm the new
-                # target matches the one that produced the cached identity selection. Refuse the shortcut
-                # and run a full fit rather than emit a selection that never saw this y.
-                _ycorr_ok = False
-        return _measured_corr, _ycorr_ok
-
-    def _fit_body_best_effort_any_failure(self, X, y, _sis_input_space_info):
-        """Block of _fit_body starting at ``try:``."""
-        try:
-            _sis_thr = int(getattr(self, "sis_screen_threshold", 0) or 0)
-            _p_in = int(X.shape[1]) if hasattr(X, "shape") and getattr(X, "ndim", 1) > 1 else 0
-            if _sis_thr and _p_in >= _sis_thr:
-                from mlframe.feature_selection.filters._mrmr_sis_apply import _sis_input_space
-
-                _sis_space = _sis_input_space(X)
-                X = self._apply_sis_screen(X, y)
-                _sis_input_space_info = _sis_space
-        except Exception as _sis_exc:
-            warnings.warn(
-                f"MRMR SIS front gate raised {type(_sis_exc).__name__}: {_sis_exc}; falling back to the "
-                "full-width MRMR path (safe -- the screen is a fast-path optimisation, not a correctness "
-                "requirement; the fit still runs, just without the pre-screen speedup).",
-                UserWarning,
-                stacklevel=2,
-            )
-        return X, _sis_input_space_info
-
     def _fit_body_constructor_arg_semantics_stay(self, X, y, _fe_auto_restore):
         """Block of _fit_body starting at ``if bool(getattr(self, "fe_auto", False)):``."""
         if bool(getattr(self, "fe_auto", False)):
@@ -4126,111 +4018,6 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         else:
             _jmim_on = _redundancy_agg == "jmim"
         return _jmim_on
-
-    def _fit_body_their_package_default_shrunk(self, X, _default_screen_saved):
-        """Block of _fit_body starting at ``try:``."""
-        try:
-            _n_rows_for_screen = int(X.shape[0]) if hasattr(X, "shape") else None
-            if _n_rows_for_screen is not None:
-                _default_screen_saved = self._apply_default_screen_subsample(_n_rows_for_screen)
-        except Exception as exc:
-            logger.warning("mrmr: default screen-subsample application failed (%s: %s); screening at full n instead (slower than the subsampled screen)", type(exc).__name__, exc, exc_info=True)
-            _default_screen_saved = {}
-        return _default_screen_saved
-
-    def _fit_body_these_alone_because_resolved(self, _fast_search_saved, _fast_on, _fast_values):
-        """Block of _fit_body starting at ``for _auto_attr, _pkg_value in self._AUTO_KNOB_DEFAULTS:``."""
-        for _auto_attr, _pkg_value in self._AUTO_KNOB_DEFAULTS:
-            if getattr(self, _auto_attr, None) is None:
-                _fast_search_saved[_auto_attr] = None
-                setattr(self, _auto_attr, _fast_values[_auto_attr] if (_fast_on and _auto_attr in _fast_values) else _pkg_value)
-
-    def _fit_body_fast(self, _fast_on, _fast_search_saved):
-        """Block of _fit_body starting at ``if _fast_on:``."""
-        if _fast_on:
-            try:
-                _fast_search_saved.update(self._apply_fast_search_profile())
-            except Exception as exc:
-                # No reset of the saved map: it already holds the auto-knob entries above, which still need restoring.
-                logger.debug("mrmr: fast-search profile application failed; using unmodified knobs: %r", exc, exc_info=True)
-
-    def _fit_body_freshly_constructed_instance_never(self, _skip_shape, _orig_skip_content):
-        """Block of _fit_body starting at ``if _skip_shape is not None:``."""
-        if _skip_shape is not None:
-            _eff_skip = bool(_skip_shape)
-            if _eff_skip != getattr(self, "skip_retraining_on_same_content", True):
-                _orig_skip_content = getattr(self, "skip_retraining_on_same_content", True)
-                self.skip_retraining_on_same_content = _eff_skip
-        return _orig_skip_content
-
-    def _fit_body_stash_fingerprint_identity_bool(self, _identity_skip, _x_fp, X, y, _cache_dict):
-        """Block of _fit_body starting at ``if _identity_skip and _x_fp is not None:``."""
-        if _identity_skip and _x_fp is not None:
-            try:
-                _is_id = (
-                    getattr(self, "support_", None) is not None
-                    and len(self.support_) == X.shape[1]
-                    and len(getattr(self, "_engineered_features_", []) or []) == 0
-                )
-                # Store (is_id, y_sample) so a later candidate hit can apply the y-correlation gate
-                # (A1-06): the "prior identity implies new identity" assumption only holds for a target
-                # correlated with the one that produced this entry. y_sample is a deterministic strided
-                # numeric sample (cheap; never the full y). The value stays back-compatible: legacy bool
-                # readers still see truthiness, and the read path below handles both bool and tuple.
-                with _MRMR_IDENTITY_FP_LOCK:
-                    _cache_dict[_x_fp] = (bool(_is_id), _mrmr_y_corr_sample(y) if _is_id else None)
-                if _is_id:
-                    # Remember which (X, y) fingerprint THIS instance's own real fit produced, so a
-                    # later self-refit on the identical pair defers to _fit_impl's precise same-instance
-                    # shortcuts instead of the coarse cross-target identity-shortcut above.
-                    self._own_last_identity_fp_ = _x_fp
-                    logger.info(
-                        "[MRMR] cross-target identity cache STORED for X fingerprint=%s "
-                        "(no features dropped, no engineered features); subsequent "
-                        "fits on this X will short-circuit.",
-                        _x_fp,
-                    )
-            except Exception as exc:
-                logger.debug("mrmr: cross-target identity-cache store failed (optimisation only): %r", exc, exc_info=True)
-
-    def _fit_body_fast_search_saved(self, _fast_search_saved):
-        """Block of _fit_body starting at ``if _fast_search_saved:``."""
-        if _fast_search_saved:
-
-            def _restore_fast_search_knob(_k: str, _v: Any) -> None:
-                """Restore one saved fast-search knob (plain attr or the Fourier-detect cap)."""
-                if _k == "__fdcap__":
-                    if _v is None:
-                        clear_fourier_detect_cap()
-                    else:
-                        set_fourier_detect_cap(_v)
-                else:
-                    setattr(self, _k, _v)
-
-            def _make_fast_search_restorer(_k: str, _v: Any) -> Callable[[], None]:
-                """Bind (_k, _v) into a niladic restorer so the loop variables are captured by value, not by reference."""
-                return lambda: _restore_fast_search_knob(_k, _v)
-
-            for _k, _v in _fast_search_saved.items():
-                _safe_restore(_make_fast_search_restorer(_k, _v), f"fast-search knob {_k!r}")
-
-    @staticmethod
-    def _fit_body_frame_none_names(frame, names):
-        """Block of _fit_body starting at ``if frame is not None and names:``."""
-        if frame is not None and names:
-            # Drop only columns that actually exist (success path already removed them).
-            present = [c for c in names if c in frame.columns]
-            if present:
-                # Restore the caller's frame in place (it stored this exact object for cleanup); option_context
-                # silences the conservative SettingWithCopy heuristic on a possibly-viewed frame, no copy.
-                def _drop_target_cleanup_columns() -> None:
-                    """Drop the temporary targ_* columns this fit injected into the caller's own frame."""
-                    with pd.option_context("mode.chained_assignment", None):
-                        # `inplace=True` is required here, not a habit: this must mutate the caller's stored frame OBJECT
-                        # by identity, and rebinding a local would silently not clean up the caller's actual frame.
-                        frame.drop(columns=present, inplace=True)  # noqa: PD002 - must mutate the caller's stored frame object by identity
-
-                _safe_restore(_drop_target_cleanup_columns, "target-cleanup column drop on caller frame")
 
     # ``_fit_impl`` is implemented in ``_mrmr_fit_impl.py`` and bound onto
     # this class at the bottom of this module.

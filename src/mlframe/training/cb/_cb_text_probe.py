@@ -35,6 +35,7 @@ import logging
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -227,7 +228,7 @@ def unigram_rescues_text_features(
             pd.DataFrame(data), y_probe, text_features=cols
         )
     except Exception as exc:
-        logger.debug("unigram rescue probe failed (%s: %s)", type(exc).__name__, str(exc).splitlines()[0][:120])
+        log_throttle(logger, "_cb_text_probe.unigram_rescues_text_features", logging.WARNING, "unigram rescue probe failed (%s: %s)", type(exc).__name__, str(exc).splitlines()[0][:120])
         return False
     return True
 

@@ -20,6 +20,7 @@ import logging
 from typing import Sequence
 
 import numpy as np
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -194,7 +195,7 @@ def apply_logical_constraints(
         try:
             return _apply_cupy(out, rules_arr)
         except Exception as e:  # GPU path failed at runtime (OOM, driver hiccup) -> CPU fallback, never raise
-            logger.debug("cupy constraint-apply backend failed, falling back to njit_parallel: %s", e)
+            log_throttle(logger, "logical_constraints.apply_logical_constraints", logging.WARNING, "cupy constraint-apply backend failed, falling back to njit_parallel: %s", e)
             backend = "njit_parallel"
     if backend == "njit_parallel":
         return np.asarray(_apply_njit_parallel(out, rules_arr))

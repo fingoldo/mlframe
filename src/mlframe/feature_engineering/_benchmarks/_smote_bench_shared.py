@@ -29,7 +29,8 @@ def smote_bit_identity_and_speed_main(old: Callable, new: Callable) -> None:
     X = rng.standard_normal((500, 30)).astype(np.float32)
     a = old(X, 5000, 5, 1)
     b = new(X, 5000, 5, 1)
-    assert np.array_equal(a, b), "not bit-identical"  # nosec B101 - internal invariant check in src/mlframe/feature_engineering/_benchmarks, not reachable with untrusted input
+    if not (np.array_equal(a, b)):
+        raise AssertionError("not bit-identical")
     t_old = _best(old, X, 5000, 5, 1)
     t_new = _best(new, X, 5000, 5, 1)
     print(f"OLD={t_old * 1000:.2f}ms  NEW={t_new * 1000:.2f}ms  speedup={t_old / t_new:.2f}x  bit-identical=True")

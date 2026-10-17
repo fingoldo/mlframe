@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import logging
 from typing import Any, Callable, Iterable
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -85,7 +86,7 @@ def _is_fitted_pipeline(pp: Any) -> bool:
         check_is_fitted(pp)
         return True
     except NotFittedError as exc:
-        logger.debug("check_is_fitted(pre_pipeline) says unfitted: %s", exc)
+        log_throttle(logger, "_predict_composite_routing._is_fitted_pipeline", logging.WARNING, "check_is_fitted(pre_pipeline) says unfitted: %s", exc)
         return False
     except TypeError as exc:
         # Not an sklearn estimator at all, so fittedness cannot be read. Treating it as unfitted routes the frame past
@@ -136,7 +137,11 @@ def original_target_of(metadata: Any, target_type: Any, target_name: Any) -> Any
     if name.startswith("_CT_ENSEMBLE__"):
         return name[len("_CT_ENSEMBLE__") :]
     specs = (metadata.get("composite_target_specs") or {}) if isinstance(metadata, dict) else {}
-    by_target = specs.get(str(target_type)) or specs.get(target_type) or {}
+    by_target = specs.get(str(target_type))
+    if by_target is None:
+        by_target = specs.get(target_type)
+    if by_target is None:
+        by_target = {}
     for orig, spec_list in by_target.items() if isinstance(by_target, dict) else ():
         if any(isinstance(s, dict) and s.get("name") == name for s in spec_list or ()):
             return orig

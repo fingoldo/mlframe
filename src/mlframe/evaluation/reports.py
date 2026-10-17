@@ -333,7 +333,7 @@ def evaluate_estimators(
                             fig_cm.savefig(ensure_parent_dir(confusion_matrix_file), dpi=dpi, bbox_inches="tight")
 
                         # Library code must not leave figures open (memory leak under repeated evaluation) nor block on plt.show().
-                        plt.close(fig_cm or plt.gcf())
+                        plt.close(fig_cm if fig_cm is not None else plt.gcf())
 
                     _evaluate_estimator_library_code_must_leave(show_calibration_plot, use_sklearn_calibration, nclasses, probs, y_test_test, calibration_nbins, figsize, est_name, display_labels, competing_probs, X_test_test)
 
@@ -413,7 +413,7 @@ def _evaluate_estimator_nclasses(nclasses, threshold, probs, pos_label):
         # inverted the threshold's meaning. Use an explicit column threshold:
         preds = (probs[:, pos_label] > threshold).astype(np.int8)
     else:
-        # Wave 21 P2: nan-safe argmax.
+        # nan-safe argmax.
         from mlframe.utils.nan_safe import argmax_classes_safe
         preds = argmax_classes_safe(probs, context="evaluation.reports")
     return preds
@@ -677,7 +677,7 @@ def _precision_at_top_decile(y_true: np.ndarray, preds: np.ndarray) -> float:
     if n == 0:
         return 0.0
     k = max(1, n // 10)
-    # Wave 58 (2026-05-20): lexsort with row-position tiebreak so tied
+    # lexsort with row-position tiebreak so tied
     # predictions don't make the top-decile pick depend on input row order.
     idx = np.lexsort((np.arange(n), -preds))[:k]
     return float(np.mean(y_true[idx]))

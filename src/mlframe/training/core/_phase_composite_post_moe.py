@@ -139,7 +139,7 @@ def _restamp_shipped_metrics(metadata: dict, target_type: Any, target_name: str,
         except Exception as err:
             slot.pop(f"{split}_RMSE", None)
             slot.pop(f"{split}_MAE", None)
-            logger.warning("[CompositeMoE] target='%s': could not re-score the shipped model on %s (%s); its metrics were removed.", target_name, split, err)
+            log_throttle(logger, "composite_moe_rescore_failed", logging.WARNING, "[CompositeMoE] target='%s': could not re-score the shipped model on %s (%s); its metrics were removed.", target_name, split, err)
     slot["model_name"] = f"{slot.get('model_name', 'CT_ENSEMBLE')}+MoE"
     slot["val_selection_biased"] = True  # the gate chose its experts on val, so val is not a held-out estimate
 

@@ -238,7 +238,7 @@ def save_key_bank(
     (a partial cache is treated as a miss by ``try_load_key_bank``).
     """
     cache_dir.mkdir(parents=True, exist_ok=True)
-    # Wave 48 (2026-05-20): use a UUID-stamped tmp dir so two parallel workers
+    # use a UUID-stamped tmp dir so two parallel workers
     # writing the same fingerprint don't race on the shared "<fingerprint>.tmp"
     # path (each gets its own scratch). Final rename onto the canonical dir is
     # still racy but harmless (content-addressable: both workers have the same

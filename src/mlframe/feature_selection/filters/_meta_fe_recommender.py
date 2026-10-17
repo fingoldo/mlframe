@@ -237,7 +237,7 @@ def _is_integral(vals) -> bool:
     try:
         return bool(np.all(np.equal(np.mod(vals, 1.0), 0.0)))
     except Exception as _int_exc:
-        logger.debug("_is_integral: probe failed (%s); treating column as non-integral.", _int_exc)
+        log_throttle(logger, "_meta_fe_recommender._is_integral", logging.WARNING, "_is_integral: probe failed (%s); treating column as non-integral.", _int_exc)
         return False
 
 
@@ -246,9 +246,9 @@ def _is_monotone(vals) -> bool:
     import numpy as np
     try:
         d = np.diff(vals)
-        return bool(np.all(d >= 0)) or bool(np.all(d <= 0))
+        return True if np.all(d >= 0) else bool(np.all(d <= 0))
     except Exception as _mono_exc:
-        logger.debug("_is_monotone: probe failed (%s); treating column as non-monotone.", _mono_exc)
+        log_throttle(logger, "_meta_fe_recommender._is_monotone", logging.WARNING, "_is_monotone: probe failed (%s); treating column as non-monotone.", _mono_exc)
         return False
 
 
@@ -360,7 +360,7 @@ class MetaFERecommender:
         min_observations: int = 2,
         fn_name: Optional[str] = None,
     ):
-        self.fn_name = fn_name or self.FN_NAME
+        self.fn_name = fn_name if fn_name else self.FN_NAME
         # param_space declares the toggled flags; combos are the flag-sets we
         # actually observe (recorded via record(), not swept), so the grid is
         # only used for the cold caller-default. maximize the CV score.

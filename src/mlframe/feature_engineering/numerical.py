@@ -315,7 +315,7 @@ def get_simple_stats_names() -> list:
     return "min,max,argmin,argmax,mean,std".split(",")
 
 
-# Wave 107 (2026-05-21): compute_numerical_aggregates_numba moved to
+# compute_numerical_aggregates_numba moved to
 # _numerical_numba.py (along with its @numba.njit(cache=False) decorator,
 # which is needed because numba's AOT cache corrupts on the function's
 # bool-kwarg-heavy signature on Windows + Python 3.11 + numba 0.59).

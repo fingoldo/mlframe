@@ -12,7 +12,6 @@ from __future__ import annotations
 from typing import Any, cast
 
 import os
-import threading
 
 import numba
 import numpy as np
@@ -23,7 +22,6 @@ from pyutilz.system import tqdmu
 # A column is near-constant when its std is within this factor of machine epsilon of its largest |value|: its spread is then rounding noise.
 from ._pairs_core_helpers import (  # noqa: F401  -- carved helpers
     _short_fe_name,
-    logger,
     _check_prospective__use_subsample,
     _check_prospective__behaviour_change_wrapped_experimental,
     _check_prospective__scores_same_rows_fall,
@@ -129,146 +127,18 @@ from ._pairs_setup import _build_operand_table, _fit_prewarp_and_gate_med
 # source of truth (30k), imported from the leaf that defines it so this package does not load the facade at import time.
 from .._feature_engineering_mem_budget import UNIFIED_FE_SUBSAMPLE_N
 
-# _fe_gpu_discretize_enabled/_fe_gpu_binning_enabled are
-# called up to 3x per pair, once per chunk, and once per ext-val tied-leader-set (unlike their sibling
-# resolve_fe_dispatch_env_gate(), which IS hoisted once per check_prospective_fe_pairs call via
-# _fe_env_gate) - each call re-reads env vars, imports+calls cuda_available_for_run(), and (on the default
-# "auto" setting) a kernel_tuning_cache-backed backend-choice lookup, violating the repo's own "hoist the
-# dispatch decision out of hot loops" rule. Threading a hoisted bool through the 4-file call graph
-# (_pairs_core/_pairs_score/_pairs_chunks/_pairs_emit) would be the "proper" fix but touches a lot of the
-# 60+-param hot-loop signature surface for a purely efficiency (not correctness) finding; memoizing each
-# function's own result by its actual inputs is equivalent and self-contained (same inputs -> same
-# output, and the env vars this reads are not supported to change mid-fit - the already-hoisted
-# _fe_env_gate makes the identical assumption for its own env reads).
-_GPU_GATE_CACHE: dict[tuple, bool] = {}
-_GPU_GATE_CACHE_MAX = 64
-# Guards every mutate/iterate of the bounded LRU below: concurrent fits share this module-level dict,
-# and next(iter(...))/pop/insert from two threads corrupts the OrderedDict or drops the wrong entry.
-_GPU_GATE_CACHE_LOCK = threading.Lock()
-
-
-def _gpu_gate_env_signature() -> str:
-    """Env inputs the gate decision depends on, folded into the cache key so a mid-process strict-mode flip
-    (MLFRAME_FE_GPU_STRICT / MLFRAME_DISABLE_GPU) invalidates the memo instead of returning a stale verdict.
-
-    The per-gate tri-state kill-switches (MLFRAME_FE_GPU_DISCRETIZE / MLFRAME_FE_GPU_BINNING) are read LIVE by
-    the uncached gates, so they belong in the key too: without them, flipping the discretize switch mid-process
-    is silently defeated by a memo entry computed under the old value."""
-    return "|".join(
-        os.environ.get(name, "") for name in ("MLFRAME_FE_GPU_STRICT", "MLFRAME_DISABLE_GPU", "MLFRAME_FE_GPU_DISCRETIZE", "MLFRAME_FE_GPU_BINNING")
-    )
-
-
-def _gpu_gate_cached(kind: str, n_rows: int, n_cands: int, compute) -> bool:
-    """Thread-safe bounded-LRU memo shared by the discretize/binning gates."""
-    key = (kind, _gpu_gate_env_signature(), int(n_rows), int(n_cands))
-    with _GPU_GATE_CACHE_LOCK:
-        if key in _GPU_GATE_CACHE:
-            return _GPU_GATE_CACHE[key]
-        result = bool(compute(n_rows, n_cands))
-        if key not in _GPU_GATE_CACHE and len(_GPU_GATE_CACHE) >= _GPU_GATE_CACHE_MAX:
-            # evict-ok: memo; a miss recomputes the value
-            _GPU_GATE_CACHE.pop(next(iter(_GPU_GATE_CACHE)))
-        _GPU_GATE_CACHE[key] = result
-    return result
-
-
-def _fe_gpu_discretize_enabled(n_rows: int, n_cands: int) -> bool:
-    """Memoized wrapper over :func:`_fe_gpu_discretize_enabled_uncached` - see the note above."""
-    return _gpu_gate_cached("discretize", n_rows, n_cands, _fe_gpu_discretize_enabled_uncached)
-
-
-def _fe_gpu_discretize_enabled_uncached(n_rows: int, n_cands: int) -> bool:
-    """Whether to run the per-pair candidate MI (binning + observed-MI) on the GPU. The GPU path is
-    BIT-IDENTICAL to the CPU analytic dispatch (verified maxdiff 0 on binning + observed MI), so the FE
-    selection is unchanged either way - this only chooses the faster backend for the size.
-
-    ``MLFRAME_FE_GPU_DISCRETIZE`` tri-state: ``0/false`` forces CPU; ``1/true`` forces GPU when CUDA is
-    present; unset/``auto`` (the default) routes per-host via kernel_tuning_cache - GPU only above the
-    measured n*K crossover, CPU below - so a small fit is never regressed and a slow-H2D host that loses
-    on GPU is routed to CPU. Requires CUDA; any GPU failure falls back to the CPU dispatcher downstream."""
-    _env = os.environ.get("MLFRAME_FE_GPU_DISCRETIZE", "auto").strip().lower()
-    if _env in ("0", "false", "no", "off"):
-        return False
-    try:
-        from .._gpu_policy import cuda_available_for_run
-
-        if not cuda_available_for_run():
-            return False
-    except Exception as e:
-        logger.debug("_fe_gpu_discretize_enabled_uncached: cuda_available_for_run() check failed, defaulting to CPU: %s", e)
-        return False
-    if _env in ("1", "true", "yes", "on"):
-        return True
-    # STRICT GPU mode (MLFRAME_FE_GPU_STRICT=1, diagnostic, default OFF): force GPU past the KTC crossover.
-    # The GPU pair-MI path is bit-identical to the CPU analytic dispatch (verified maxdiff 0) -> selection-equivalent.
-    try:
-        from .._fe_gpu_strict import fe_gpu_strict_enabled
-
-        if fe_gpu_strict_enabled(n=int(n_rows), p=int(n_cands)):
-            return True
-    except Exception as e:  # nosec B110 - optional dependency import guard
-        logger.debug("fe_gpu_strict_enabled() check failed, continuing to the crossover-based decision: %s", e)
-    try:  # auto: per-host crossover from kernel_tuning_cache (measurement-backed fallback)
-        from .._gpu_resident_fe import fe_gpu_pairs_mi_backend_choice
-
-        return bool(fe_gpu_pairs_mi_backend_choice(int(n_rows), int(n_cands)) == "gpu")
-    except Exception as e:
-        logger.debug("_fe_gpu_discretize_enabled_uncached: KTC backend-choice lookup failed, defaulting to CPU: %s", e)
-        return False
-
-
-def _fe_gpu_binning_enabled(n_rows: int, n_cands: int) -> bool:
-    """Memoized wrapper over :func:`_fe_gpu_binning_enabled_uncached` - see the note above."""
-    return _gpu_gate_cached("binning", n_rows, n_cands, _fe_gpu_binning_enabled_uncached)
-
-
-def _fe_gpu_binning_enabled_uncached(n_rows: int, n_cands: int) -> bool:
-    """Whether to run the FE candidate BINNING (``discretize_2d_quantile_batch``) on the GPU.
-
-    DECOUPLED from ``_fe_gpu_discretize_enabled`` / the full ``fe_gpu_pairs_mi`` analytic
-    path. The binning alone (``gpu_discretize_codes_host``) is BIT-IDENTICAL to the CPU njit binning
-    (verified maxdiff 0) and 17-24x faster at n=100k - but the FULL pair-MI sweep cached "cpu" for the
-    n_rows<=100000 region (its extra GPU MI/chi2 overhead lost a noisy A/B there), which wrongly forced
-    the cheap binning back onto the CPU njit path (the #1 wall hotspot: 116s of a 228s GPU-mode F2 100k
-    fit). The binning is a strictly simpler op with its own crossover, so it routes through its own
-    dedicated KTC backend choice here. Selection is unchanged either way (bit-identical codes).
-
-    ``MLFRAME_FE_GPU_BINNING`` tri-state: ``0/false`` forces CPU; ``1/true`` forces GPU when CUDA is
-    present; unset/``auto`` (default) routes per-host via kernel_tuning_cache. ``MLFRAME_FE_GPU_DISCRETIZE=0``
-    still forces CPU for BOTH (a global FE-GPU kill switch), so existing CPU-only configs are unchanged."""
-    _env_all = os.environ.get("MLFRAME_FE_GPU_DISCRETIZE", "auto").strip().lower()
-    if _env_all in ("0", "false", "no", "off"):
-        return False  # global FE-GPU kill switch also disables binning
-    _env = os.environ.get("MLFRAME_FE_GPU_BINNING", "auto").strip().lower()
-    if _env in ("0", "false", "no", "off"):
-        return False
-    try:
-        from .._gpu_policy import cuda_available_for_run
-
-        if not cuda_available_for_run():
-            return False
-    except Exception as e:
-        logger.debug("_fe_gpu_binning_enabled_uncached: cuda_available_for_run() check failed, defaulting to CPU: %s", e)
-        return False
-    if _env in ("1", "true", "yes", "on"):
-        return True
-    # STRICT GPU mode (MLFRAME_FE_GPU_STRICT=1, diagnostic, default OFF): force GPU binning past the KTC
-    # crossover. The GPU binning is bit-identical to the CPU njit binning (verified maxdiff 0) -> selection-equivalent.
-    try:
-        from .._fe_gpu_strict import fe_gpu_strict_enabled
-
-        if fe_gpu_strict_enabled(n=int(n_rows), p=int(n_cands)):
-            return True
-    except Exception as e:  # nosec B110 - optional dependency import guard
-        logger.debug("fe_gpu_strict_enabled() check failed, continuing to the crossover-based decision: %s", e)
-    try:  # auto: per-host binning crossover from kernel_tuning_cache (measurement-backed fallback)
-        from .._gpu_resident_fe import fe_gpu_binning_backend_choice
-
-        return bool(fe_gpu_binning_backend_choice(int(n_rows), int(n_cands)) == "gpu")
-    except Exception as e:
-        logger.debug("_fe_gpu_binning_enabled_uncached: KTC binning backend-choice lookup failed, defaulting to CPU: %s", e)
-        return False
+# GPU gate decisions live in ``_pairs_gpu_gates`` (carved out for the LOC ceiling); re-exported so call sites and tests keep their imports.
+from ._pairs_gpu_gates import (  # noqa: F401  -- carved helpers
+    _GPU_GATE_CACHE,
+    _GPU_GATE_CACHE_LOCK,
+    _GPU_GATE_CACHE_MAX,
+    _fe_gpu_binning_enabled,
+    _fe_gpu_binning_enabled_uncached,
+    _fe_gpu_discretize_enabled,
+    _fe_gpu_discretize_enabled_uncached,
+    _gpu_gate_cached,
+    _gpu_gate_env_signature,
+)
 
 
 def check_prospective_fe_pairs(
@@ -311,7 +181,7 @@ def check_prospective_fe_pairs(
     # so the pair-search, the polynom path and the sufficient-summary maxT floor all score the SAME rows
     # (one draw per fit, not N independent re-draws). ``None`` keeps the legacy per-call draw below.
     shared_subsample_idx: np.ndarray | None = None,
-    # STRATIFIED SUBSAMPLE (R1, 2026-06-18). When True the MI-sweep row subsample below draws a
+    # STRATIFIED SUBSAMPLE (R1). When True the MI-sweep row subsample below draws a
     # TARGET-STRATIFIED set of rows (per-class proportional for classification - guaranteeing the
     # rare class survives; y-quantile-bin proportional for regression - preserving the tails)
     # instead of the plain uniform ``rng.choice``. False (default) keeps the byte-identical legacy
@@ -338,7 +208,7 @@ def check_prospective_fe_pairs(
     # PREWARP ALS RECONSTRUCTION TARGET. The rank-1 ALS warp fit /
     # held-out validation / winning-spec reconstruction is a least-squares solve
     # of ``y ~ f(a)*g(b)``; its fidelity depends on the RESOLUTION of the target it
-    # reconstructs. The 2026-06-10 target-rebin guard coarsens ``classes_y`` to the
+    # reconstructs. The target-rebin guard coarsens ``classes_y`` to the
     # 10-bin equal-frequency screening codes (correctly - the MI screen/gates need
     # the faithful coarse codes), but feeding those binned codes to the ALS dropped
     # the F-POLY non-monotone product reconstruction |corr| 0.97 -> 0.88. When the
@@ -454,7 +324,7 @@ def check_prospective_fe_pairs(
     # SIZE the candidate buffers (chunk width + shared-buffer fit check) - never changes which
     # candidates are produced or their MI, so selection stays byte-identical.
     concurrent_workers: int = 1,
-    # MILLER-MADOW DEBIAS of the joint-prevalence RATIO gate (2026-06-09, + #4).
+    # MILLER-MADOW DEBIAS of the joint-prevalence RATIO gate (+ #4).
     # The gate ``best_mi / pair_mi > fe_min_engineered_mi_prevalence`` compares a 1-D
     # engineered MI (over ~``quantization_nbins`` bins) against a 2-D joint MI (over
     # ~``nbins^2`` bins). Both are RAW plug-in MIs whose positive finite-sample bias is
@@ -469,7 +339,7 @@ def check_prospective_fe_pairs(
     # seeds, genuine_ab 10/10 -> 8/10). Default False (opt-in); see the full numbers + rationale
     # on ``MRMR.fe_mm_debias_prevalence``. False == legacy raw-plug-in ratio (byte-reproduction).
     fe_mm_debias_prevalence: bool = False,
-    # REJECTION-LEDGER out-param (additive, 2026-06-11). When a list is passed, every pair
+    # REJECTION-LEDGER out-param (additive). When a list is passed, every pair
     # the per-pair acceptance gate REJECTS (joint-prevalence floor AND the marginal-uplift /
     # joint-recovery fallback both declined) appends one record dict carrying the operands,
     # the winning binary operator, the observed best_mi/pair_mi ratio, the prevalence
@@ -523,7 +393,7 @@ def check_prospective_fe_pairs(
 
     X = _check_prospective__behaviour_change_wrapped_experimental(X)
     st.res = {}
-    # REJECTION-LEDGER local accumulator (additive, 2026-06-11): per-pair acceptance-gate
+    # REJECTION-LEDGER local accumulator (additive): per-pair acceptance-gate
     # drops collect here, then are exported via BOTH the ``rejection_ledger_out`` side channel
     # (serial / threading path) AND the reserved ``res`` key (survives the loky-parallel path,
     # where the caller's list cannot be mutated cross-process). Records carry only values the
@@ -569,7 +439,7 @@ def check_prospective_fe_pairs(
         X,
     )
 
-    # EXTERNAL-VALIDATION raw-column EXTRACTION MEMO (2026-06-07, LEVER 1).
+    # EXTERNAL-VALIDATION raw-column EXTRACTION MEMO (LEVER 1).
     # The lazy external-validation tie-break (below) extracts the RAW values of
     # every external factor via ``X.iloc[:, original_cols[ext]].values`` (or the
     # polars ``.to_numpy()``) once per tied-leader config. The external-factor set
@@ -819,7 +689,7 @@ def check_prospective_fe_pairs(
         fe_npermutations,
     )
 
-    # MM-DEBIAS (2026-06-09, + #4): per-operand DISCRETISED codes for the
+    # MM-DEBIAS (+ #4): per-operand DISCRETISED codes for the
     # occupied-joint-K of a raw pair. Memoised + bit-identical to the discretise the
     # gate's ``pair_mi`` was computed over (same ``quantization_nbins`` / method /
     # ``transformed_vars`` identity column ``_operand_marginal_mi`` uses). Returns the
@@ -895,7 +765,7 @@ def check_prospective_fe_pairs(
             st._fe_chunks, st._chunk_buf_width, X, st._pair_to_chunk, verbose, prospective_pairs, st._chunk_buffer, st._chunk_global_batch
         )
 
-    # CHUNK PIPELINE (2026-07-02, max-GPU phase): overlap chunk k+1's GPU produce with chunk k's host
+    # CHUNK PIPELINE (max-GPU phase): overlap chunk k+1's GPU produce with chunk k's host
     # consume. A single-worker executor + a SECOND chunk buffer ride in ``chunk_state``; the lazy-load seam
     # in ``_score_one_pair`` awaits the prefetched future, then submits the next chunk into the alternate
     # buffer before replaying this chunk's pairs (depth-1 double buffer - the reused slot's pairs were fully

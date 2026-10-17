@@ -16,7 +16,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-# X_EFFICIENCY_ARCHITECTURE-1 fix (mrmr_audit_2026-07-22): _RecurrentWrapperBase /
+# _RecurrentWrapperBase /
 # RecurrentClassifierWrapper / RecurrentRegressorWrapper (plus the _monitor_mode helper and the
 # constants they use) all now live in _recurrent_wrappers.py -- moved here wholesale rather than
 # split, since a prior split (base class here, subclasses there) made this module import BACK from

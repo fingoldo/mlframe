@@ -63,7 +63,9 @@ class TestTheyPickle:
 
     def test_the_base_metric_pickles(self, metric):
         """The one that named itself in the production failure message."""
-        assert pickle.loads(pickle.dumps(metric)) is not None  # nosec B301 - round-tripping our OWN objects is precisely what this file verifies
+        restored = pickle.loads(pickle.dumps(metric))  # nosec B301 - round-tripping our OWN objects is precisely what this file verifies
+        assert type(restored) is type(metric)
+        assert restored._kwargs() == metric._kwargs()
 
     @pytest.mark.parametrize(
         "build",
@@ -76,7 +78,9 @@ class TestTheyPickle:
     )
     def test_every_wrapper_pickles(self, metric, build):
         """A wrapper holding an unpicklable inner metric would put the whole chain back on dill."""
-        assert pickle.loads(pickle.dumps(build(metric))) is not None  # nosec B301 - round-tripping our OWN objects is precisely what this file verifies
+        original = build(metric)
+        restored = pickle.loads(pickle.dumps(original))  # nosec B301 - round-tripping our OWN objects is precisely what this file verifies
+        assert type(restored) is type(original)
 
     def test_a_round_tripped_metric_returns_the_same_number(self, metric, data):
         """Picklable is not enough; the restored object has to be the same metric."""
@@ -92,7 +96,8 @@ class TestTheyPickle:
         chain = RobustTimeSplitMetric(
             SubgroupAveragedMetric(metric, None), num_splits=2, std_coeff=1.0, greater_is_better=False,
         )
-        assert pickle.loads(pickle.dumps(chain)) is not None  # nosec B301 - round-tripping our OWN objects is precisely what this file verifies
+        restored = pickle.loads(pickle.dumps(chain))  # nosec B301 - round-tripping our OWN objects is precisely what this file verifies
+        assert type(restored) is type(chain)
 
 
 class TestTheLibraryContracts:
@@ -163,12 +168,17 @@ class TestTheSuiteConfigIsPicklableEndToEnd:
     )
     def test_each_exported_metric_pickles(self, configs, name):
         """These are the four names the suite hands to models and to feature selection."""
-        assert pickle.loads(pickle.dumps(configs[name])) is not None  # nosec B301 - round-tripping our OWN objects is precisely what this file verifies
+        original = configs[name]
+        restored = pickle.loads(pickle.dumps(original))  # nosec B301 - round-tripping our OWN objects is precisely what this file verifies
+        assert type(restored) is type(original)
 
     @pytest.mark.parametrize("name", ["XGB_CALIB_CLASSIF", "CB_CALIB_CLASSIF"])
     def test_the_calibrated_param_dicts_pickle(self, configs, name):
         """The param dict is what travels with the model; CatBoost's carries the metric inside an ICE wrapper."""
-        assert pickle.loads(pickle.dumps(configs[name])) is not None  # nosec B301 - round-tripping our OWN objects is precisely what this file verifies
+        original = configs[name]
+        restored = pickle.loads(pickle.dumps(original))  # nosec B301 - round-tripping our OWN objects is precisely what this file verifies
+        assert type(restored) is type(original)
+        assert restored.keys() == original.keys()
 
     def test_none_of_them_is_a_local_function(self, configs):
         """A local function is what put every save on dill; a repeat would be silent without this."""

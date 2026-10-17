@@ -49,7 +49,8 @@ def main() -> None:
         vars_list = set(range(k))
         pa_o, pb_o, w_o, p_o = _measure(_old, vars_list)
         pa_n, pb_n, w_n, p_n = _measure(_new, vars_list)
-        assert np.array_equal(pa_o, pa_n) and np.array_equal(pb_o, pb_n), f"order diverged at k={k}"
+        if not (np.array_equal(pa_o, pa_n) and np.array_equal(pb_o, pb_n)):
+            raise AssertionError(f"order diverged at k={k}")
         print(
             f"k={k:5d} n_pairs={pa_o.size:>10d} | old {w_o*1e3:8.2f}ms {p_o/1e6:8.1f}MB "
             f"| new {w_n*1e3:8.2f}ms {p_n/1e6:8.1f}MB | mem x{p_o/max(1,p_n):.1f} wall x{w_o/max(1e-9,w_n):.1f}"

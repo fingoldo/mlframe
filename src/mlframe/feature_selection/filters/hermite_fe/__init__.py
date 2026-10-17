@@ -407,7 +407,8 @@ def polyeval_dispatch(basis: str, x: np.ndarray, c: np.ndarray) -> np.ndarray:
         # Per-column device CASCADE: try the roomiest GPU, then the next, then CPU - so on a multi-GPU box a busy/full
         # device 0 does not block the eval, and an OOM (incl. host pinned-mem exhaustion) degrades instead of dropping
         # the column. Empty candidate list (no device has room) -> straight to CPU.
-        for _dev in _polyeval_cuda_pick_devices(n) or [None]:
+        _cuda_devs = _polyeval_cuda_pick_devices(n)
+        for _dev in (_cuda_devs if _cuda_devs else [None]):
             try:
                 return _polyeval_cuda(basis, x, c, device=_dev)
             except (  # noqa: PERF203 -- per-iteration fault isolation is intentional

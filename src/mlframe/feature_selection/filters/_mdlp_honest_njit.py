@@ -426,7 +426,7 @@ def honest_null_columns(
     q_refine_len: np.ndarray,
     eval_rows: np.ndarray,
     col_slot: np.ndarray,
-):
+) -> tuple[np.ndarray, np.ndarray]:
     """Per-permutation, per-column null MI over the pool (prange over permutations).
 
     Returns ``(plain, corrected)``, both ``(perms.shape[0], k)``: ``plain[b, j]`` is the plug-in MI of column ``j`` under permutation ``b``

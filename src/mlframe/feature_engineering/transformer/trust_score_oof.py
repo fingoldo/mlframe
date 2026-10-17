@@ -103,7 +103,7 @@ def compute_trust_score_oof_features(
         d_neg_mean, _ = _nn_dist(neg_correct, Xq_s)
         d_corr_mean, _ = _nn_dist(correct_mask, Xq_s)
         d_incorr_mean, _ = _nn_dist(~correct_mask, Xq_s)
-        log_trust_ratio = np.log((d_neg_mean + 1e-6) / (d_pos_mean + 1e-6)).astype(np.float32)
+        log_trust_ratio = np.log(np.maximum(d_neg_mean, 1e-6) / np.maximum(d_pos_mean, 1e-6)).astype(np.float32)
         # frac correct among top-k overall
         nn = NearestNeighbors(n_neighbors=min(k_neighbors, Xt_s.shape[0]), n_jobs=-1).fit(Xt_s)
         _, all_idx = nn.kneighbors(Xq_s)

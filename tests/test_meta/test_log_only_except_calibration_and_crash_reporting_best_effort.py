@@ -8,14 +8,14 @@ all genuinely non-fatal graceful-degradation sites marked with the scanner's rec
 
 from __future__ import annotations
 
-import inspect
+from tests.test_meta._comment_markers import comment_text
 
 
 def test_post_train_calibrators_sidecar_site_marked_best_effort():
     """The optional .meta.json sidecar write's except handler carries a marker."""
     import mlframe.calibration._post_train_calibrators as calibrators
 
-    src = inspect.getsource(calibrators)
+    src = comment_text(calibrators)
     assert "# best-effort:" in src
 
 
@@ -23,7 +23,7 @@ def test_structure_discovery_site_marked_best_effort():
     """The EDA detector-failure except handler carries a marker."""
     import mlframe.feature_selection.structure_discovery as sd
 
-    src = inspect.getsource(sd)
+    src = comment_text(sd)
     assert "best-effort:" in src
 
 
@@ -31,5 +31,5 @@ def test_crash_reporting_sites_marked_documented_or_best_effort():
     """Both crash-reporting except handlers (already escalated via ok=False) carry a marker."""
     import mlframe.training.crash_reporting as cr
 
-    src = inspect.getsource(cr)
+    src = comment_text(cr)
     assert src.count("escalated via the returned ok=False sentinel below") == 2

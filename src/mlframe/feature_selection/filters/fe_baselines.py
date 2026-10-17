@@ -269,7 +269,7 @@ def best_trivial_pair(
         else:
             y_njit = np.asarray(y, dtype=np.float64)
             mi_arr = _plugin_mi_regression_batch_njit(X_batch, y_njit, plugin_n_bins)
-        # Wave 21 P0: MI batch kernel may return NaN for degenerate
+        # MI batch kernel may return NaN for degenerate
         # features. Pre-fix np.argmax picks the NaN's index -> wrong "best
         # baseline" + bogus float(mi_arr[best_idx]) feeds downstream MI gate.
         _finite_mask = np.isfinite(mi_arr)

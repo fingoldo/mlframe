@@ -326,7 +326,7 @@ def _orth_feature_heldout_gate_pass(
                 try:
                     from mlframe.feature_selection.filters.permutation import mi_direct as _orth_mi_direct
 
-                    # 2026-08-16: was briefly tightened to npermutations=200/alpha=0.02 (6.25x the EMIT-BOTH
+                    # was briefly tightened to npermutations=200/alpha=0.02 (6.25x the EMIT-BOTH
                     # default 32/0.05) on the theory this probe's coarse resolution let noise sources through
                     # on test_biz_val_suite_mrmr_multiclass_excludes_noise. That theory did not survive
                     # direct testing -- swept npermutations 3->25 against the real fixture with ZERO change

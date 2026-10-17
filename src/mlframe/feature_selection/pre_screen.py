@@ -177,7 +177,7 @@ def _scan_columns_for_unsupervised_drops(col_labels, protected, train_df, n_rows
                 # Fast null-count path (bit-identical to ``col.isna().sum()``): for a plain numpy
                 # float column, ``isna`` is exactly ``np.isnan`` on the underlying buffer, but
                 # ``col.isna()`` allocates a fresh boolean Series + dispatches through pandas'
-                # nanops before summing (~6x slower per cProfile 2026-06-12: 61us -> 11us/col).
+                # nanops before summing (~6x slower per cProfile: 61us -> 11us/col).
                 # For numpy integer / bool columns no value can be null, so the count is exactly 0
                 # without touching the data at all. Every other dtype (object/None, datetime/NaT,
                 # nullable Int/Float ext, category, etc.) falls back to the exact ``isna().sum()``.

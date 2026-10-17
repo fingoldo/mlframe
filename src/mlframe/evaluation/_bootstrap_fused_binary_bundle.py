@@ -40,6 +40,8 @@ from mlframe.metrics.shared import fast_log_loss_binary_seq as _fast_log_loss_bi
 
 from ._bootstrap_jackknife import _ci_from_samples, _jackknife_auc, _jackknife_ece, _jackknife_mean_metric, _jackknife_metric
 
+from mlframe.utils.log_throttle import log_throttle
+
 logger = logging.getLogger(__name__)
 
 _LOG_LOSS_EPS_F64 = float(np.finfo(np.float64).eps)
@@ -251,7 +253,7 @@ def bootstrap_auc_brier_ll_ece_batch(
 
     asc_order = np.argsort(p_pos)
     sorted_score = p_pos[asc_order]
-    tie_free = n < 2 or bool(np.all(sorted_score[1:] != sorted_score[:-1]))
+    tie_free = True if n < 2 else bool(np.all(sorted_score[1:] != sorted_score[:-1]))
 
     y_f64 = np.ascontiguousarray(y_true, dtype=np.float64)
     p_f64 = np.ascontiguousarray(p_pos, dtype=np.float64)
@@ -312,7 +314,8 @@ def bootstrap_auc_brier_ll_ece_batch(
             # (evaluation/bootstrap.py): AUC can legitimately go NaN on unstratified resamples of
             # imbalanced binary targets, so a high failure rate here is exactly the case where the
             # surviving-sample CI is most likely biased and worth surfacing.
-            logger.warning(
+            log_throttle(
+                logger, "bootstrap_fused_binary_bundle_resamples_failed", logging.WARNING,
                 "bootstrap_auc_brier_ll_ece_batch: %d/%d resamples failed for %r; CI computed over %d surviving samples may be biased.",
                 n_failed,
                 n_bootstrap,
@@ -332,7 +335,7 @@ def bootstrap_auc_brier_ll_ece_batch(
                 jackknife = _jackknife_mean_metric(y_true, per_row, requires_both_classes=True)
             elif name == "ece":
                 # _jackknife_ece is the SAME O(n) closed-form honest_diagnostics._bootstrap_block's
-                # bootstrap_metrics fallback path already wires into jackknife_fns["ece"] (2026-07-31,
+                # bootstrap_metrics fallback path already wires into jackknife_fns["ece"] (
                 # ~800x vs the generic gather jackknife) -- this bundle used to duplicate the OLD, pre-fix
                 # bootstrap_metrics behaviour (a bare _jackknife_metric gather call) instead of the closed
                 # form, caught live via a 2M-row cProfile: _jackknife_metric cost 24.0s/12 calls here, now

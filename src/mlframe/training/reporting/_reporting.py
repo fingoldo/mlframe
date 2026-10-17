@@ -434,7 +434,7 @@ def report_model_perf(
     return preds, probs
 
 
-# Wave 97 (2026-05-21): report_probabilistic_model_perf (~520 lines)
+# report_probabilistic_model_perf (~520 lines)
 # moved to sibling file _reporting_probabilistic.py to drop this file
 # below the 1k-line monolith threshold. Re-exported below so existing
 # callers (`from .._reporting import report_probabilistic_model_perf`)

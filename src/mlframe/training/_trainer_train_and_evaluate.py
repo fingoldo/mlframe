@@ -309,7 +309,7 @@ def train_and_evaluate_model(
     st.print_report = reporting.print_report
     st.show_perf_chart = reporting.show_perf_chart
     st.show_fi = reporting.show_fi
-    st.fi_config = reporting.feature_importance_config or FeatureImportanceConfig()
+    st.fi_config = FeatureImportanceConfig() if reporting.feature_importance_config is None else reporting.feature_importance_config
     st.fi_kwargs = dict(
         figsize=st.fi_config.figsize,
         num_factors=st.fi_config.num_factors,

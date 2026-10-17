@@ -456,7 +456,8 @@ def _mdlp_recurse_validated_bfs(
             # (every pending node here shares the same `depth`), so a single scalar alpha per batch call
             # is correct; assert the invariant defensively rather than silently averaging wrong alphas.
             _alphas = {p[6] for p in pending_permutation}
-            assert len(_alphas) == 1, "BFS level batch: nodes at the same depth must share the same alpha"
+            if not (len(_alphas) == 1):
+                raise AssertionError("BFS level batch: nodes at the same depth must share the same alpha")
             _batch_alpha = next(iter(_alphas))
             for i, (_x_i, _y_i, _nc_i, gain_i, seed_i, _accept_fn, _a) in enumerate(pending_permutation):
                 ni = len(_x_i)

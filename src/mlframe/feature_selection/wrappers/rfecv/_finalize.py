@@ -130,7 +130,7 @@ def _finalize_fit_results(
     cv_mean_perf = [evaluated_scores_mean[n] for n in checked_nfeatures]
     self.cv_results_ = {"nfeatures": checked_nfeatures, "cv_mean_perf": cv_mean_perf, "cv_std_perf": cv_std_perf}
 
-    # 2026-05-28 sklearn-parity: per-split keys ``split{k}_test_score`` exposing per-fold scores per N.
+    # sklearn-parity: per-split keys ``split{k}_test_score`` exposing per-fold scores per N.
     # ``per_fold_scores`` is dict[N -> list of fold scores]; pivot into len(checked_nfeatures)-aligned arrays.
     _pfs = getattr(self, "_per_fold_scores", None)
     if _pfs is None:

@@ -24,6 +24,7 @@ logger = logging.getLogger(__name__)
 # rationale). np.isfinite on a single Python float pays the full numpy dispatcher (~1.0us / call); the
 # C-implemented math.isfinite is 7.5x faster (0.13us / call).
 import math
+from mlframe.utils.log_throttle import log_throttle
 
 _isfinite = math.isfinite
 
@@ -163,7 +164,7 @@ def _jackknife_metric_idx(
         try:
             v = float(metric_fn_idx(full[keep_mask]))
         except Exception as exc:
-            logger.debug("jackknife-idx LOO metric failed at i=%d: %r", i, exc, exc_info=True)
+            log_throttle(logger, "_bootstrap_jackknife._jackknife_metric_idx", logging.WARNING, "jackknife-idx LOO metric failed at i=%d: %r", i, exc, exc_info=True)
             keep_mask[i] = True
             continue
         keep_mask[i] = True

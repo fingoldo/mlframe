@@ -231,4 +231,5 @@ def test_batch_pair_mi_gpu_host_module_loads() -> None:
     import importlib
 
     mod = importlib.import_module("mlframe.feature_selection.filters.batch_pair_mi_gpu")
-    assert mod is not None
+    assert mod.__name__ == "mlframe.feature_selection.filters.batch_pair_mi_gpu"
+    assert hasattr(mod, "__file__")

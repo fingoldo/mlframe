@@ -61,7 +61,8 @@ def main():
         t_new, r_new = _best_of(lambda: new_fn(label, is_anchor, K))
 
         for key in r_old:
-            assert np.allclose(r_old[key], r_new[key], equal_nan=True), f"mismatch on {key}"  # nosec B101 - internal invariant check in src/mlframe/feature_engineering/_benchmarks, not reachable with untrusted input
+            if not (np.allclose(r_old[key], r_new[key], equal_nan=True)):
+                raise AssertionError(f"mismatch on {key}")
 
         print(f"n={n:>7}  anchor_frac={anchor_frac:<5} OLD={t_old*1e3:8.2f}ms  NEW={t_new*1e3:8.2f}ms  speedup={t_old/t_new:6.2f}x")
 

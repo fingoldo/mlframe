@@ -14,6 +14,7 @@ import numpy as np
 import pandas as pd
 import polars as pl
 import torch
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -66,7 +67,7 @@ def to_tensor_any(data: Any, dtype: Any = torch.float32, device: Any = None, saf
             data = _coerce_object_ndarray_numeric(data)
         # Pandas 2.x / PyArrow-backed Series can return read-only ndarrays via to_numpy(); torch emits
         # "The given NumPy array is not writeable" UserWarning in that case. Bench (bench_torch_from_numpy.py
-        # 2026-05-21, shape=(1M, 50)): direct from_numpy on read-only is 0.009 ms/iter while .copy() to
+        # shape=(1M, 50)): direct from_numpy on read-only is 0.009 ms/iter while .copy to
         # silence the warning is 66 ms/iter (~7400x slower). We never write through this view: the very
         # next .to(dtype, device) either reuses the buffer (when dtype/device match) or allocates a fresh
         # writable tensor (when they don't). So the warning is informational noise; suppress it locally.
@@ -162,7 +163,7 @@ def _run_cuda_usability_probe() -> bool:
             torch.cuda.empty_cache()
             ok = True
     except Exception as e:
-        logger.debug("CUDA context probe failed, treating device as unusable: %s", e)
+        log_throttle(logger, "_base_tensor_helpers._run_cuda_usability_probe", logging.WARNING, "CUDA context probe failed, treating device as unusable: %s", e)
         ok = False
         # Best-effort: try empty_cache once more inside the failure handler
         # so a downstream caller isn't surprised by a half-poisoned context.

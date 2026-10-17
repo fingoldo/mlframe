@@ -22,6 +22,7 @@ import logging
 
 import numpy as np
 from typing import cast
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -61,7 +62,7 @@ def permnull_use_resident(n: int, ncand: int, nperm: int) -> bool:
     try:
         choice = _PERMNULL_SPEC.choose(n_samples=int(n), ncand=int(nb), nperm=int(pb))
     except Exception as e:
-        logger.debug("permnull_use_resident: KTC choose() failed, caller stays on the exact host njit kernel: %s", e)
+        log_throttle(logger, "_permutation_null_resident_ktc.permnull_use_resident", logging.WARNING, "permnull_use_resident: KTC choose() failed, caller stays on the exact host njit kernel: %s", e)
         return False
     return bool(choice == "resident")
 

@@ -90,7 +90,11 @@ def composite_spec_digest(spec: dict) -> str:
 def find_composite_spec(metadata: Any, target_type: Any, target_name: Any) -> Optional[dict]:
     """The spec whose ``name`` is ``target_name`` under ``target_type``, or ``None`` for a raw target."""
     specs = (metadata.get("composite_target_specs") or {}) if isinstance(metadata, dict) else {}
-    by_target = specs.get(str(target_type)) or specs.get(target_type) or {}
+    by_target = specs.get(str(target_type))
+    if by_target is None:
+        by_target = specs.get(target_type)
+    if by_target is None:
+        by_target = {}
     for spec_list in by_target.values() if isinstance(by_target, dict) else ():
         for spec in spec_list or ():
             if isinstance(spec, dict) and spec.get("name") == target_name:

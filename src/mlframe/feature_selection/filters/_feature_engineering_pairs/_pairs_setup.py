@@ -344,7 +344,7 @@ def _build_operand_table(
     # the device (the bulk plain-unary columns rebuilt via _unary_apply; prewarp/gate_med/poly copied from
     # the host) - removing the materialise H2D. Populated only when the gate is on (else stays empty/cheap).
     from .._gpu_resident_fe import _cuda_present
-    # fe_gpu_resident_operands_enabled's HOME module is _gpu_resident_materialise (carved there 2026-06-23);
+    # fe_gpu_resident_operands_enabled's HOME module is _gpu_resident_materialise (carved there);
     # _gpu_resident_select only RE-EXPORTS it via a bottom-of-module rebind loop. That re-export is NOT present
     # under a partial-init import cycle: when _gpu_resident_materialise is imported first, _gpu_resident_select's
     # rebind loop runs while _gpu_resident_materialise is mid-top-import (the name not yet defined), so the
@@ -515,7 +515,7 @@ def _materialise_pair_operands(prospective_pairs, _extval_raw_col, _unary_names_
                         vars_transformations[key] = i
                         if _operand_col_specs is not None:
                             # GPU-resident operand table. A PLAIN unary is GPU-built via _unary_apply from the
-                            # resident raw (``vals``). PREWARP (R1, 2026-06-21) is GPU-APPLIED on the device
+                            # resident raw (``vals``). PREWARP (R1) is GPU-APPLIED on the device
                             # from the resident raw + its stored spec via _gpu_apply_prewarp (no host-column
                             # H2D); the builder falls back to the host copy for any unported basis. gate_med /
                             # hermite-poly remain host-copied (raw_vals=None) -> not yet ported.

@@ -404,7 +404,7 @@ class PULearningWrapper(ClassifierMixin, BaseEstimator):
             Columns are P(y=0|x), P(y=1|x).
         """
         if not hasattr(self, "base_estimator_"):
-            # Wave 37 P1 fix (2026-05-20): NotFittedError per sklearn.
+            # NotFittedError per sklearn.
             from sklearn.exceptions import NotFittedError
             raise NotFittedError("PULearningWrapper not fitted. Call fit() first.")
 

@@ -188,7 +188,7 @@ def pair_su(state: DCDState, a: int, b: int, entropy_cache: Optional[dict] = Non
         # that wasted alloc+remap, ~23x faster per pair at BIT-IDENTICAL numerics (verified
         # max-abs-diff 0.0 vs merge_vars across uniform/sparse/skew/const data, all n;
         # bench D:/Temp/microbench_pairsu2.py).
-        # iter (2026-06-08 wasted-work sweep): the per-pair joint freqs array is consumed by
+        # iter (wasted-work sweep): the per-pair joint freqs array is consumed by
         # NOTHING but the very next ``entropy`` call -> ``joint_entropy_2var`` FUSES the
         # histogram->entropy reduction, dropping the intermediate normalized-freqs array, the
         # ``freqs[freqs > 0]`` mask, and entropy's ``log(freqs) * freqs`` temporary. ~1.24x
@@ -272,13 +272,12 @@ def pair_su(state: DCDState, a: int, b: int, entropy_cache: Optional[dict] = Non
             ec[b] = h_b
         vi = max(0.0, h_a + h_b - 2.0 * mi_ab)
         norm = math.log(max(2, int(fn_arr[a]) * int(fn_arr[b])))
-        # 2026-05-30 Wave 9.1 fix (loop iter 32, parity with sotoca_pla):
         # clamp upper bound to 1.0 defensively. Numerical FP noise can
         # push vi/norm below 0, allowing the score to exceed 1.0 even
         # though the analytical bound holds.
         su = max(0.0, min(1.0, 1.0 - vi / norm)) if norm > 0 else 0.0
     elif state.distance == "sotoca_pla":
-        # 2026-06-03 (audit integration-defaults-1): LEAKAGE FIREWALL.
+        # LEAKAGE FIREWALL.
         # The Sotoca-Pla 2010 distance is TARGET-AWARE - it reads I(X_i; Y)
         # and I(X_j; Y):
         #   d(X_i, X_j) = 2 H(X_i, X_j) - I(X_i; X_j) - I(X_i; Y) - I(X_j; Y)

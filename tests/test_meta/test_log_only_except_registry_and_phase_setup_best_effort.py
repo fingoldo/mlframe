@@ -9,7 +9,7 @@ with the scanner's recognized "best-effort" rationale comment.
 
 from __future__ import annotations
 
-import inspect
+from tests.test_meta._comment_markers import comment_text
 
 
 def test_registry_release_sites_all_marked_best_effort():
@@ -17,7 +17,7 @@ def test_registry_release_sites_all_marked_best_effort():
     `best-effort` marker."""
     import mlframe.training.feature_handling.registry as registry
 
-    src = inspect.getsource(registry)
+    src = comment_text(registry)
     assert src.count("best-effort cleanup") == 4
 
 
@@ -25,7 +25,7 @@ def test_phase_train_one_target_model_setup_sites_all_marked_best_effort():
     """Every diagnostic/auto-tune except handler carries a `best-effort` marker."""
     import mlframe.training.core._phase_train_one_target_model_setup as setup_mod
 
-    src = inspect.getsource(setup_mod)
+    src = comment_text(setup_mod)
     assert src.count("# best-effort:") == 4
 
 
@@ -37,6 +37,6 @@ def test_phase_composite_post_xt_ensemble_sites_all_marked_best_effort():
     helpers_mod = importlib.import_module("mlframe.training.core._phase_composite_post_xt_ensemble._xt_ensemble_helpers")
 
     # the per-target body is carved into a helper module; the markers live next to their handlers in either
-    src = inspect.getsource(ensemble_mod) + inspect.getsource(helpers_mod)
+    src = comment_text(ensemble_mod, helpers_mod)
     assert src.count("# best-effort:") == 3
     assert "best-effort per-iteration fault isolation" in src

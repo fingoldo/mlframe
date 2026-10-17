@@ -682,7 +682,7 @@ def batch_mi_with_noise_gate(
     nfailed = np.zeros(K, dtype=np.int64)
     ny = classes_y_safe.shape[0]
 
-    # F1 (2026-06-22, cProfile-driven): precompute ALL npermutations shuffled y-vectors ONCE (serial; the
+    # F1 (cProfile-driven): precompute ALL npermutations shuffled y-vectors ONCE (serial; the
     # EXACT same (base_seed, i)-seeded Fisher-Yates as parallel_mi_prange, just hoisted out of the scoring
     # loop), then prange over COLUMNS with a serial perm-inner loop - instead of a serial perm-outer loop
     # re-entering an inner prange npermutations times. This removes npermutations-1 fork/join barriers and

@@ -281,7 +281,8 @@ class TestOverlayHandlesMissingPreds:
             save_path=str(tmp_path / "val_only.png"),
             show=False,
         )
-        assert fig is not None
+        assert len(fig.axes) >= 1
+        assert (tmp_path / "val_only.png").stat().st_size > 0
 
 
 class TestOverlayPlotConfigFlag:

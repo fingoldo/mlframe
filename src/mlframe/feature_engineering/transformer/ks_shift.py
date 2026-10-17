@@ -141,11 +141,11 @@ def compute_ks_shift_features(
         y_neighbors = y_t[ids]
         # Mean shift (standardised).
         global_mean = float(y_t.mean())
-        global_std = float(y_t.std()) + 1e-9
+        global_std = max(float(y_t.std()), 1e-9)
         local_mean = y_neighbors.mean(axis=1)
         mean_shift = ((local_mean - global_mean) / global_std).astype(np.float32)
         # Variance shift (log ratio).
-        global_var = float(y_t.var()) + 1e-9
+        global_var = max(float(y_t.var()), 1e-9)
         local_var = y_neighbors.var(axis=1) + 1e-9
         log_var_ratio = np.log(local_var / global_var).astype(np.float32)
         out: dict[str, np.ndarray] = {

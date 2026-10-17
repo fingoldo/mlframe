@@ -174,9 +174,19 @@ def test_external_val_set_used_when_fit_called_without_x_val(reg_data) -> None:
     )
     # NO X_val=/y_val= passed to fit -- wrapper uses external_X_val
     wrapper.fit(X_tr, y_tr)
-    # History should reflect the *external* val (not the internal split since external_X_val
-    # was supplied) -- sanity check the wrapper trained on X_tr length only
-    assert wrapper.best_iter is not None
+    # Reference: the same wrapper given the identical val set explicitly must record the identical metric history,
+    # proving the external set is what scored each epoch.
+    explicit = PartialFitESWrapper(
+        SGDRegressor(max_iter=1, tol=None, random_state=0, learning_rate="constant", eta0=0.01),
+        metric="rmse",
+        patience=5,
+        max_iter=20,
+    )
+    explicit.fit(X_tr, y_tr, X_val=X_val, y_val=y_val)
+    assert 1 <= len(wrapper.history) <= 21
+    assert np.isfinite(np.asarray(wrapper.history, dtype=float)).all()
+    np.testing.assert_allclose(wrapper.history, explicit.history)
+    assert wrapper.best_iter == explicit.best_iter
 
 
 def test_external_val_overridden_by_explicit_fit_kwargs(reg_data) -> None:
@@ -196,8 +206,21 @@ def test_external_val_overridden_by_explicit_fit_kwargs(reg_data) -> None:
         external_y_val=y_val,
     )
     wrapper.fit(X_tr, y_tr, X_val=X_alt, y_val=y_alt)  # explicit wins
-    # No assertion on which val was used internally, just that we don't crash
-    assert wrapper.best_iter is not None
+
+    def _history(**fit_kw):
+        """Metric history of a fresh wrapper with no external val, fitted with the given explicit val."""
+        w = PartialFitESWrapper(
+            SGDRegressor(max_iter=1, tol=None, random_state=0, learning_rate="constant", eta0=0.01),
+            metric="rmse", patience=5, max_iter=10,
+        )
+        w.fit(X_tr, y_tr, **fit_kw)
+        return np.asarray(w.history, dtype=float)
+
+    only_alt = _history(X_val=X_alt, y_val=y_alt)
+    only_external = _history(X_val=X_val, y_val=y_val)
+    assert len(wrapper.history) >= 1
+    np.testing.assert_allclose(wrapper.history, only_alt)  # the explicit set scored every epoch
+    assert len(only_alt) != len(only_external) or not np.allclose(only_alt, only_external)  # negative control: the two sets differ
 
 
 def test_no_val_no_external_raises_on_partial_fit_strategy(reg_data) -> None:
@@ -213,7 +236,9 @@ def test_no_val_no_external_raises_on_partial_fit_strategy(reg_data) -> None:
         val_size=0.2,
     )
     wrapper.fit(X_tr, y_tr)  # internal split
-    assert wrapper.best_iter is not None
+    assert 1 <= len(wrapper.history) <= 11
+    assert np.isfinite(np.asarray(wrapper.history, dtype=float)).all()
+    assert wrapper.best_metric == pytest.approx(min(wrapper.history))
 
 
 # -- budget-param detection -----------------------------------------------------

@@ -12,13 +12,10 @@ order=5 via ``itertools.combinations``, but no test verified that:
 
 from __future__ import annotations
 
-import time
-
 import numpy as np
 import pandas as pd
 import pytest
 
-from tests.conftest import perf_time_budget
 from mlframe.feature_selection.filters.mrmr import MRMR
 
 
@@ -152,27 +149,42 @@ def test_3way_no_zero_division_on_pure_xor():
     sel = MRMR(interactions_max_order=3, verbose=0, fe_max_steps=1, random_state=42)
     sel.fit(X_df, y_ser)  # Must not raise.
     selected = [int(i) for i in np.asarray(sel.support_).ravel()]
-    assert all(0 <= i < X_df.shape[1] for i in selected)
+    assert bool(selected) and all(0 <= i < X_df.shape[1] for i in selected)
 
 
 @pytest.mark.parametrize("order", [2, 3, 4])
-def test_n_way_runtime_scales_polynomially(order):
-    """Wall-time at order=4 with n_features=8 must stay under 60s.
+def test_n_way_runtime_scales_polynomially(order, monkeypatch):
+    """The work at order=k with n_features=8 stays inside the combinatorial bound.
     Combinations grow as O(p^order); at p=8, order=4 -> 70 quadruplets.
-    Each requires a KSG MI estimate -- but plug-in MI keeps each
-    estimate to ~1ms. Total sane bound: 70 * 1ms * 5 reruns = 0.5s
-    per fit. Real measurement should be under 5s; gate at 60s to
-    leave headroom for slow CI."""
+    The deterministic work counter is the number of subsets whose MI the screen evaluated
+    (``cached_MIs`` entries): it can never exceed sum_{j<=order} C(p, j) over the columns screened, so an
+    exponential blow-up (re-evaluating subsets, or enumerating beyond ``interactions_max_order``) trips it
+    without depending on the runner's speed."""
+    import inspect
+    from math import comb
+
+    from mlframe.feature_selection.filters import _screen_predictors as sp_mod
+
     X, y = _make_3way_xor(n=1500, n_features=8, seed=42)
     X_df, y_ser = _to_df(X, y)
     # Warmup: pre-compile numba kernels via order=1 first.
     MRMR(interactions_max_order=1, verbose=0, random_state=42).fit(X_df, y_ser)
 
-    t0 = time.perf_counter()
+    real_step = sp_mod._screen_predictors_step2_interactions_order_subsets
+    sig = inspect.signature(real_step)
+    seen = {}
+
+    def _spy(*args, **kwargs):
+        """Run the real subset-order step, then record how many subsets got an MI and how wide the screened frame was."""
+        out = real_step(*args, **kwargs)
+        bound = sig.bind(*args, **kwargs).arguments
+        seen["n_mi"] = len(bound["cached_MIs"])
+        seen["n_cols"] = int(bound["factors_data"].shape[1])
+        return out
+
+    monkeypatch.setattr(sp_mod, "_screen_predictors_step2_interactions_order_subsets", _spy)
     sel = MRMR(interactions_max_order=order, verbose=0, random_state=42)
     sel.fit(X_df, y_ser)
-    dt = time.perf_counter() - t0
-    # 30s quiet-box cap (real measurement <5s); xdist-relaxed under full-suite ``-n`` contention. This still trips a
-    # true O(p^order) exponential blow-up (which would be minutes), just not transient scheduler starvation.
-    budget = perf_time_budget(30.0)
-    assert dt < budget, f"interactions_max_order={order} took {dt:.1f}s > {budget:.0f}s on n=1500, p=8 -- runtime regression"
+    assert seen, "the screen's interaction-order step never ran"
+    bound_total = sum(comb(seen["n_cols"], k) for k in range(1, order + 1))
+    assert 0 < seen["n_mi"] <= bound_total, f"order={order}: evaluated {seen['n_mi']} subsets > combinatorial bound {bound_total} (p={seen['n_cols']})"

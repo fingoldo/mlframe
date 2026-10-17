@@ -66,8 +66,8 @@ def compute_jackknife_endpoint_stability_features(
                     continue
                 # Two reweighted classifiers as proxy for upper/lower endpoints
                 p_mean = float(y_sub.mean())
-                sw_up = np.where(y_sub > 0.5, 1.0, p_mean / (1 - p_mean + 1e-6)).astype(np.float32)
-                sw_dn = np.where(y_sub > 0.5, (1 - p_mean) / (p_mean + 1e-6), 1.0).astype(np.float32)
+                sw_up = np.where(y_sub > 0.5, 1.0, p_mean / max(1 - p_mean, 1e-6)).astype(np.float32)
+                sw_dn = np.where(y_sub > 0.5, (1 - p_mean) / max(p_mean, 1e-6), 1.0).astype(np.float32)
                 m_up = lgb.LGBMClassifier(n_estimators=30, max_depth=3, learning_rate=0.1, random_state=int(fold_seed) + k, verbose=-1, n_jobs=-1).fit(X_sub, y_sub_int, sample_weight=sw_up)
                 m_dn = lgb.LGBMClassifier(n_estimators=30, max_depth=3, learning_rate=0.1, random_state=int(fold_seed) + k + 100, verbose=-1, n_jobs=-1).fit(X_sub, y_sub_int, sample_weight=sw_dn)
                 upper_preds[k] = np.asarray(m_up.predict_proba(Xq_s))[:, 1].astype(np.float32)

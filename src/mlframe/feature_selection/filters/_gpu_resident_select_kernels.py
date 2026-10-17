@@ -103,7 +103,7 @@ void radix_select_f32(const float* __restrict__ data, const long long n, const i
     if(tid<R){unsigned int u=prefix[tid];u=(u&0x80000000u)?(u&0x7FFFFFFFu):~u;float d;memcpy(&d,&u,4);out[tid*K+col]=d;}
 }
 """
-# BINARY-SEARCH WINDOW-MATCH VARIANT (2026-06-23, Lever C). The base ``radix_select_f32`` is WARP-DIVERGENCE
+# BINARY-SEARCH WINDOW-MATCH VARIANT (Lever C). The base ``radix_select_f32`` is WARP-DIVERGENCE
 # bound (~42% warp_execution_efficiency, prior nvprof): the dominant per-row inner loop linearly scans up to
 # Wl (<=R<=40) active window prefixes to find the ONE matching ``pm = u & hmask`` (lines 139-140). Each row
 # does O(Wl) compares and threads in a warp diverge on WHICH q matches / WHEN they break -> low SIMD eff.
@@ -172,7 +172,7 @@ void radix_select_f32_bsearch(const float* __restrict__ data, const long long n,
     if(tid<R){unsigned int u=prefix[tid];u=(u&0x80000000u)?(u&0x7FFFFFFFu):~u;float d;memcpy(&d,&u,4);out[tid*K+col]=d;}
 }
 """
-# PARALLEL PER-RANK SCAN VARIANT (2026-06-23, Lever 4 -> the real win). The per-byte-pass histogram is
+# PARALLEL PER-RANK SCAN VARIANT (Lever 4 -> the real win). The per-byte-pass histogram is
 # followed by a CUMULATIVE-SCAN + prefix-advance that the base/bsearch kernels run ENTIRELY in ``tid==0``:
 # a serial loop over the R<=40 ranks, each doing its own up-to-256-bucket cumulative scan while the other
 # 1023 threads idle at the barrier. CUDA-event A/B at the production shape (n=100k, K=583, R=38, f32,
@@ -307,7 +307,7 @@ def _resolve_radix_threads(n: int) -> int:
         return _RADIX_SELECT_THREADS
 
 
-# COALESCED TILED TRANSPOSE (2026-06-23, nsys-driven Lever A). The radix-select kernel reads its input
+# COALESCED TILED TRANSPOSE (nsys-driven Lever A). The radix-select kernel reads its input
 # COLUMN-MAJOR (data[col*n+i], coalesced over the dominant n-loop - see _radix_select_interior_edges),
 # so the (n,K) row-major candidate buffer was transposed to (K,n) C-order via cp.ascontiguousarray(cand.T).
 # nsys (isolated KTC, F2 100k, one fit): that transpose-copy = cupy_copy__float32_float32 28 calls /
@@ -351,7 +351,7 @@ def tiled_transpose_blocks(n: int, K: int) -> int:
         raise ValueError(f"tiled transpose of {n}x{K} needs {blocks} blocks (> {_MAX_GRID_X_BLOCKS})")
     return blocks
 
-# f64 twin (2026-07-02, nsys-driven): the F2 1M trace's single LONGEST GPU op was a 1.69s
+# f64 twin (nsys-driven): the F2 1M trace's single LONGEST GPU op was a 1.69s
 # cupy_copy__float64_float64 - the (200k, 527) float64 conditional-gate candidate matrix hitting the
 # cp.ascontiguousarray(cand.T) fallback below at ~0.5 GB/s (uncoalesced on both sides). Same 32x33 padded
 # tile as the f32 kernel; bit-identical bytes, ~2 orders of magnitude faster on that shape.
@@ -443,7 +443,7 @@ def _transpose_cm_to_rm(cm_gpu):
         return cp.ascontiguousarray(cm_gpu.T)
 
 
-# COALESCED TILED TRANSPOSE for the int8/int16 DISC CODES (2026-06-24, nsys-driven int8-copy lever). The
+# COALESCED TILED TRANSPOSE for the int8/int16 DISC CODES (nsys-driven int8-copy lever). The
 # resident-codes noise gate's column-major hist kernel needs the (n,K) int codes as a (K,n) C-order buffer
 # and built it with ``cp.ascontiguousarray(d_disc.T)`` - exactly the uncoalesced strided-copy pattern the
 # f32 transpose above replaced. nsys (isolated KTC, F2 100k, one fit) charged that int8 transpose-copy as
@@ -526,7 +526,7 @@ def _get_radix_select_kernel(is_f32: bool):
     return _RADIX_SELECT_F64_KERNEL
 
 
-# FUSED select+interp for the f64 path (launch-reduction, 2026-06-25): the radix order-statistic select and
+# FUSED select+interp for the f64 path (launch-reduction): the radix order-statistic select and
 # the cupy-'linear' interpolation were two kernels (osv written to global, then radix_interp read it back).
 # This combined kernel keeps the R order statistics in shared memory and emits the (ne, K) interior edges
 # DIRECTLY - one launch, no osv global, no second launch. The radix body is byte-for-byte the f64 select; the
@@ -583,7 +583,7 @@ void radix_select_interp_f64(const double* __restrict__ data, const long long n,
 _RADIX_SELECT_INTERP_F64_KERNEL = None
 
 
-# V2 FUSED select+interp f64 (2026-06-27, nvprof-driven). The original radix_select_interp_f64 still runs the
+# V2 FUSED select+interp f64 (nvprof-driven). The original radix_select_interp_f64 still runs the
 # per-pass window dedup AND the per-rank cumulative scan SERIALLY in tid==0 while the other 1023 threads idle
 # (8 byte-passes x R ranks x up-to-256 bins each in one thread). This v2 ports the two parallelisations the
 # f32 ``v3`` kernel already proved bit-identical: (a) the data-loop window match becomes a BINARY SEARCH over

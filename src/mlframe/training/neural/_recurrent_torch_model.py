@@ -342,7 +342,7 @@ class RecurrentTorchModel(L.LightningModule):
 
         # RNN path: pack_padded_sequence skips compute on padded steps; enforce_sorted=False lets us pass unsorted lengths.
         # pack_padded_sequence dispatches length-sort on CPU even when the data is on GPU.
-        # F-53 (2026-05-31): use non_blocking=True so the host->device async stream can overlap; skip the .cpu() altogether
+        # F-53: use non_blocking=True so the host->device async stream can overlap; skip the .cpu altogether
         # when lengths is already CPU (recurrent_collate_fn emits lengths as CPU torch.long; Lightning typically does not
         # auto-migrate them, but we defensively handle both). Per-forward saving: ~10-50 us on Pascal.
         # Guard: pack_padded_sequence raises RuntimeError when any length == 0 (zero-row sequence). Treat as length-1
@@ -433,9 +433,8 @@ class RecurrentTorchModel(L.LightningModule):
 
         # Bidirectional: split into fwd / bwd halves, gather each at the
         # semantically correct position, then re-concatenate.
-        assert total_channels % 2 == 0, (  # nosec B101 - internal invariant check in src/mlframe/training/neural, not reachable with untrusted input
-            f"bidirectional rnn_out must have even channel count; got {total_channels}"
-        )
+        if not (total_channels % 2 == 0):
+            raise AssertionError(f"bidirectional rnn_out must have even channel count; got {total_channels}")
         hidden_size = total_channels // 2
         fwd = rnn_out[:, :, :hidden_size]  # (B, T, H)
         bwd = rnn_out[:, :, hidden_size:]  # (B, T, H)
@@ -452,7 +451,7 @@ class RecurrentTorchModel(L.LightningModule):
 
     def training_step(self, batch: dict, batch_idx: int) -> torch.Tensor:
         """Training step."""
-        # F-69/F-70 (2026-05-31): Mixup augmentation covering all 3 input
+        # F-69/F-70: Mixup augmentation covering all 3 input
         # modes: pure SEQUENCE_ONLY (mix padded sequences + lengths),
         # FEATURES_ONLY (mix aux_features), HYBRID (mix BOTH with the
         # same lam + idx so per-sample identity is preserved across
@@ -662,7 +661,7 @@ class RecurrentTorchModel(L.LightningModule):
         # routes through `_clip_gradients` which rejects fused optimizers
         # because they unscale internally. bf16-mixed has no GradScaler
         # but the same plugin path still fires the rejection. fp32 / no-AMP
-        # is the only safe precision for fused. Observed 2026-05-31 with
+        # is the only safe precision for fused. Observed with
         # CPU+EMA on a CUDA-available host: Lightning auto-promotes
         # 16-mixed -> bf16-mixed on CPU, then crashes on the first step.
         _safe_for_fused = torch.cuda.is_available() and "mixed" not in precision
@@ -673,7 +672,7 @@ class RecurrentTorchModel(L.LightningModule):
             weight_decay=self.config.weight_decay,
             **_fused_kwarg,
         )
-        # F-62 (2026-05-31): optional Lookahead meta-optimizer wrap. Off by
+        # F-62: optional Lookahead meta-optimizer wrap. Off by
         # default for the recurrent path; users can opt in via
         # RecurrentConfig.use_lookahead. Composes with F-44 fused AdamW.
         from ._lookahead_optimizer import wrap_with_lookahead

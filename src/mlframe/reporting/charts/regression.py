@@ -248,7 +248,7 @@ def _scatter_panel(
         centers = (edges[:-1] + edges[1:]) / 2.0
         col_labels = tuple(f"{c:.3g}" for c in centers)
         row_labels = tuple(f"{c:.3g}" for c in centers)
-        ht = title or f"Predictions vs true (log-density, {n:_} pts)"
+        ht = title if title else f"Predictions vs true (log-density, {n:_} pts)"
         return HeatmapPanelSpec(
             matrix=density,
             row_labels=row_labels,

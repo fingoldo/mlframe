@@ -105,7 +105,7 @@ def _materialise_chunk_njit(tv, a_cols, b_cols, op_codes, out):
                 v = a + b
             elif op == 2:  # sub
                 v = a - b
-            elif op == 3:  # div = _safe_div (2026-06-13 form): EXACT x/y for y != 0, eps floor only on an
+            elif op == 3:  # div = _safe_div (form): EXACT x/y for y != 0, eps floor only on an
                 # exact-zero denominator (the prior x/(y+sign(y)*eps+eps) perturbed every positive denom by 2*eps,
                 # diverging from the canonical _safe_div). float64-promoted then cast to float32 to match _safe_div's
                 # float64 division exactly (an all-float32 div would differ in the last bit).
@@ -175,7 +175,7 @@ def _materialise_chunk_njit_parallel(tv, a_cols, b_cols, op_codes, out):
                 v = a + b
             elif op == 2:  # sub
                 v = a - b
-            elif op == 3:  # div = _safe_div (2026-06-13 form): EXACT x/y for y != 0, eps floor only on exact-zero
+            elif op == 3:  # div = _safe_div (form): EXACT x/y for y != 0, eps floor only on exact-zero
                 # (matches the serial twin + canonical _safe_div; float64-promoted then cast to float32).
                 # Intentional float64: same float64 promotion of the division as the numpy op (bit-identical to the reference path)
                 v = np.float32(np.float64(a) / (np.float64(b) if b != zero else 1e-9))

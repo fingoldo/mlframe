@@ -15,7 +15,7 @@ _DEGENERATE_REL_TOL = 32.0 * np.finfo(np.float64).eps
 _module_logger = logging.getLogger("mlframe.feature_selection.filters._feature_engineering_pairs")
 
 
-# Wave 27 P1: ``check_prospective_fe_pairs`` is dispatched via
+# ``check_prospective_fe_pairs`` is dispatched via
 # ``parallel_run`` from mrmr.py with backend='threading'. The function
 # accumulates per-binary-transform timings into a shared ``times_spent``
 # defaultdict via ``+=``. Python's ``+=`` on a float is load-add-store and

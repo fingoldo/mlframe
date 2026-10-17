@@ -71,8 +71,10 @@ def main():
     ro = OLD.find_weak_slices(X, y_true, y_pred, **kw)
     sn = rn.table["score"].to_numpy()
     so = ro.table["score"].to_numpy()
-    assert np.array_equal(sn, so), "scores diverged between layouts!"  # nosec B101 - internal invariant check in src/mlframe/reporting/_benchmarks, not reachable with untrusted input
-    assert rn.table["bounds"].tolist() == ro.table["bounds"].tolist()  # nosec B101 - internal invariant check in src/mlframe/reporting/_benchmarks, not reachable with untrusted input
+    if not (np.array_equal(sn, so)):
+        raise AssertionError("scores diverged between layouts!")
+    if not (rn.table["bounds"].tolist() == ro.table["bounds"].tolist()):
+        raise AssertionError
     print(f"IDENTITY: bit-identical table ({len(sn)} rows), global_error {rn.global_error!r} == {ro.global_error!r}")
 
     N = 11

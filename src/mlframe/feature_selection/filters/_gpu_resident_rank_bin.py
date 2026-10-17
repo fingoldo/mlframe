@@ -138,7 +138,7 @@ def rank_bin_codes_batch_gpu_resident(X_gpu: Any, n_bins: int) -> Any:
         nb = int(n_bins)
         if nb <= 1:
             return cp.zeros((n, k), dtype=cp.int32)
-        # ARGSORT IS IRREDUCIBLE for the rank byte-match (FIX2 investigation, 2026-06-28). The equi-frequency
+        # ARGSORT IS IRREDUCIBLE for the rank byte-match (FIX2 investigation). The equi-frequency
         # RANK code needs every row's GLOBAL sorted position (rank) so the n//nb-row block assignment matches
         # _quantile_bin_njit; that is a total order == a full sort. No partition / edge / quantile-cut shortcut
         # reproduces it: an edge/searchsorted cut (the radix-edge resident path) assigns by VALUE not by RANK and

@@ -47,7 +47,7 @@ logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 # OVERRIDABLE: pass budget_seconds (the synergy wiring derives it from max_runtime_mins * 60).
 _AUTO_DEFAULT_BUDGET_SECONDS = 60.0
 
-# MEASURED CROSSOVER (default 60s budget, n=8000, this dev box GTX 1050 Ti host; 2026-06-19): the
+# MEASURED CROSSOVER (default 60s budget, n=8000, this dev box GTX 1050 Ti host;): the
 # predicted gbm fit_seconds = 2.0 + p/cols_per_second crosses 60s at p ~= (60-2)*113 ~= 6554 cols
 # (cold-cache analytic fallback; the live gate uses the per-host kernel_tuning_cache value, so the
 # exact crossover is HW-calibrated). Verified by the crossover bench in test_fe_interaction_prerank:

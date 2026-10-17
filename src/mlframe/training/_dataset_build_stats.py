@@ -16,6 +16,7 @@ import logging
 import sys as _sys
 import threading
 from typing import Any, Dict, List
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -59,7 +60,7 @@ def infer_build_callsite(skip_frames: int = 2) -> str:
             return f"{owner} <- {nearest}"
         return owner or nearest or "?"
     except Exception as exc:
-        logger.debug("_infer_callsite: stack walk failed, call site unknown: %s", exc)
+        log_throttle(logger, "_dataset_build_stats.infer_build_callsite", logging.WARNING, "_infer_callsite: stack walk failed, call site unknown: %s", exc)
         return "?"
 
 

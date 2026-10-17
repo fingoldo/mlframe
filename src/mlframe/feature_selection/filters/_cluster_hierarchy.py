@@ -124,7 +124,7 @@ def _quantize_for_su(X) -> tuple:
         for j in range(arr.shape[1]):
             col = arr[:, j].astype(np.float64, copy=False)
             names.append(f"col_{j}")
-            # 2026-06-03 (audit hierarchy-stability-3): mirror the DataFrame
+            # mirror the DataFrame
             # branch's finite-mask. np.quantile over a column containing any
             # NaN/Inf returns NaN edges -> searchsorted assigns a single bin ->
             # SU(this anchor, *)=0, so the anchor silently never merges. The
@@ -300,7 +300,7 @@ def build_cluster_hierarchy(
     )
 
     hierarchy: dict = {}
-    # 2026-06-03 (audit hierarchy-stability-7): count SU-dispatch failures so a
+    # count SU-dispatch failures so a
     # systematic error stops masquerading as "clusters stabilised". A pair that
     # errors defaults to SU=0 (treated as non-redundant -> never merges), so a
     # silent failure would hide genuine super-structure.
@@ -371,7 +371,7 @@ def build_cluster_hierarchy(
         for comp in components:
             if len(comp) < 2:
                 continue
-            # 2026-06-03 (audit hierarchy-stability-12): pick the cluster
+            # pick the cluster
             # representative as the medoid (most-central anchor by mean
             # within-component SU) instead of the lexicographically smallest
             # name, so the super-anchor label carries statistical meaning.

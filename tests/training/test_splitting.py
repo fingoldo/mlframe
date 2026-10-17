@@ -78,15 +78,11 @@ class TestMakeTrainTestSplitBasic:
         """Test split with zero test size."""
         df = pd.DataFrame({"feature": np.random.randn(100)})
 
-        # Note: The splitting function may handle zero test size differently
-        # We just check it doesn't crash and returns valid train/val
-        try:
-            train_idx, _val_idx, _test_idx, _, _, _ = make_train_test_split(df, test_size=0.0, val_size=0.2, random_seed=42)
-            # If it succeeds, check basic validity
-            assert len(train_idx) > 0, "Train should not be empty"
-        except (ValueError, ZeroDivisionError):
-            # Some implementations may not support zero test size
-            pytest.skip("Zero test size not supported by this implementation")
+        train_idx, val_idx, test_idx, _, _, _ = make_train_test_split(df, test_size=0.0, val_size=0.2, random_seed=42)
+        assert len(test_idx) == 0, "A zero test_size must yield an empty test split"
+        assert len(val_idx) == 20
+        assert len(train_idx) == 80
+        assert set(train_idx).isdisjoint(val_idx)
 
     def test_reproducibility_with_seed(self):
         """Test that same seed produces same splits."""

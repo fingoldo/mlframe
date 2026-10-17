@@ -23,6 +23,7 @@ from typing import Optional, Dict, Any
 import dill  # nosec B403 - pickle used only for trusted same-process/dev-local round-trips, see call sites in this file
 
 from mlframe._optional_imports import import_optional
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger("mlframe.training.io")
 
@@ -232,7 +233,7 @@ def save_mlframe_model(
     # duration of dump, then restore. This keeps the caller's compile state intact
     # after save returns and avoids invasive changes to the model class hierarchy.
     #
-    # 2026-05-21: also strips the Lightning bloat attrs. LightningModule._trainer
+    # also strips the Lightning bloat attrs. LightningModule._trainer
     # and PytorchLightningEstimator.prediction_datamodule both hold DataLoader
     # references that carry the whole training dataset. On 4M-row regression
     # this inflated MLP dumps to 311 MB for a network with 14k parameters.
@@ -266,7 +267,7 @@ def save_mlframe_model(
             mod = getattr(cls, "__module__", "") or ""
             name = cls.__name__
         except Exception as exc:
-            logger.debug("_looks_like_training_bloat: type introspection failed: %s", exc)
+            log_throttle(logger, "_io_save._looks_like_training_bloat", logging.WARNING, "_looks_like_training_bloat: type introspection failed: %s", exc)
             return False
         if mod.startswith(("lightning", "pytorch_lightning")):
             # endswith (not ==) so Trainer subclasses / custom DataModules match.
@@ -327,7 +328,7 @@ def save_mlframe_model(
 
     try:
         # Atomic write prevents corruption when two train runs save to
-        # the same file concurrently (2026-04-19 probe finding).
+        # the same file concurrently (probe finding).
         #
         # Serialize to bytes BEFORE writing to disk so a pickle-vs-dill
         # fallback decision is made cleanly: dumping straight to the
@@ -367,14 +368,14 @@ def save_mlframe_model(
             # invariant established for the same-FS atomic rename.
             #
             # BufferedWriter wrapping (64KB/256KB/1MB/4MB) was benchmarked
-            # 2026-04-14 on a fitted RandomForest + 1M-element ndarray payload --
+            # on a fitted RandomForest + 1M-element ndarray payload --
             # all sizes landed within +/-5% of the direct write (high variance).
             # Direct write retained.
             with compressor.stream_writer(f, closefd=False) as zf:
                 zf.write(_payload_bytes)
 
         atomic_write_bytes(file, _writer, fsync=durable)
-        # Wave 19 P0 #1: write a sidecar .meta.json next to the .dump bundle
+        # write a sidecar .meta.json next to the .dump bundle
         # so the load side can refuse / WARN on version skew. Sidecar approach
         # (vs payload-wrapping) is non-invasive: old loaders simply ignore the
         # extra file; new loaders read it before unpickling.

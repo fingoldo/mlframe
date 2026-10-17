@@ -62,7 +62,7 @@ def _should_serialize_fe_pair_check(n_prospective_pairs: int, gpu_fe_active: boo
     when there are too few prospective pairs to fill the worker pool. Extracted as a pure, directly
     Testable predicate; behavior is unchanged.
     """
-    return bool(gpu_fe_active) or int(n_prospective_pairs) < int(serial_min_pairs_per_worker)
+    return True if gpu_fe_active else int(n_prospective_pairs) < int(serial_min_pairs_per_worker)
 
 
 def _free_gpu_fe_mempool() -> bool:

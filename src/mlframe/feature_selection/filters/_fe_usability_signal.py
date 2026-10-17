@@ -25,6 +25,7 @@ _ConfigKeyT = TypeVar("_ConfigKeyT", bound=Hashable)
 
 import numba
 import numpy as np
+from mlframe.utils.log_throttle import log_throttle
 
 
 @numba.njit(cache=True, fastmath={"reassoc", "contract", "arcp", "afn", "nsz"})
@@ -350,7 +351,7 @@ def pair_is_tail_concentrated(y: np.ndarray, x0: np.ndarray, x1: np.ndarray, *, 
         _cp, _cs = usability_form_corrs(y, x0, x1)
         return bool(_cp >= float(min_corr) and _cp >= float(pairness_margin) * float(_cs))
     except Exception as e:
-        logger.debug("pair_is_tail_concentrated: usability_form_corrs failed, strict rank-MI decision stands: %s", e)
+        log_throttle(logger, "_fe_usability_signal.pair_is_tail_concentrated", logging.WARNING, "pair_is_tail_concentrated: usability_form_corrs failed, strict rank-MI decision stands: %s", e)
         return False
 
 
@@ -410,7 +411,7 @@ def pair_is_tail_concentrated_rankaware(
         _rank_corr = abs_pearson(_rank_transform(_y[_m]), _rank_transform(np.asarray(_best_form)[_m]))
         return bool(_rank_corr <= float(max_rank_frac) * _best_lin)
     except Exception as e:
-        logger.debug("rank-aware tail-concentration predicate failed, pre-scan will not relax the prevalence bar: %s", e)
+        log_throttle(logger, "_fe_usability_signal.pair_is_tail_concentrated_rankaware", logging.WARNING, "rank-aware tail-concentration predicate failed, pre-scan will not relax the prevalence bar: %s", e)
         return False
 
 

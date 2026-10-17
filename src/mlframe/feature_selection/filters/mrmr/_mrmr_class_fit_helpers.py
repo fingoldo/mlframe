@@ -54,6 +54,7 @@ class _MRMRFitHelpersMixin:
     """
 
     # fit-body stage methods that the concrete ``MRMR`` class defines and the moved stages call through ``self``
+    skip_retraining_on_same_content: bool
     _fit_body_clone_pickle_repeated_fit: Any
     _fit_body_fast_search_saved: Any
     _fit_body_frame_none_names: Any

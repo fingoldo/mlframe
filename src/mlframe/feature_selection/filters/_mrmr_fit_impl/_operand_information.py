@@ -13,6 +13,7 @@ The statistic is the plug-in I(operand; y | engineered feature) over the bins of
 from __future__ import annotations
 
 import zlib
+from collections.abc import Sequence
 
 import numpy as np
 
@@ -20,7 +21,7 @@ _PERMUTATIONS = 199  # the smallest p-value is 1 / 200, below any alpha shared o
 _MIN_STRATUM_ROWS = 30  # strata smaller than this carry no usable conditional estimate
 
 
-def operand_adds_information(data, target_col: int, operand_col: int, owner_cols, alpha: float, seed: int, key: str) -> bool:
+def operand_adds_information(data: np.ndarray, target_col: int, operand_col: int, owner_cols: Sequence[int], alpha: float, seed: int, key: str) -> bool:
     """True when the operand's conditional MI given each owning engineered feature is significant at ``alpha``.
 
     ``data`` is the discretised factors matrix; ``operand_col``, ``owner_cols`` and ``target_col`` are column indices into it. ``key`` names the operand so

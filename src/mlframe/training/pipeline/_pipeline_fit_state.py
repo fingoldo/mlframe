@@ -12,6 +12,7 @@ import pandas as pd
 from sklearn.exceptions import NotFittedError
 from sklearn.utils.validation import check_is_fitted
 from sklearn.pipeline import Pipeline
+from mlframe.utils.log_throttle import log_throttle
 
 try:
     import polars as pl
@@ -100,7 +101,7 @@ def _step_is_fitted(step) -> bool:
             check_is_fitted(step)
             return True
         except NotFittedError as _exc:
-            logger.debug("_step_is_fitted fell back to its default after %s", type(_exc).__name__)
+            log_throttle(logger, "_pipeline_fit_state._step_is_fitted", logging.WARNING, "_step_is_fitted fell back to its default after %s", type(_exc).__name__)
             return False
         except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
             logger.debug("suppressed: %s", e)
@@ -120,15 +121,15 @@ def _step_is_fitted(step) -> bool:
             check_is_fitted(step)
         return True
     except NotFittedError as _exc:
-        logger.debug("_step_is_fitted fell back to its default after %s", type(_exc).__name__)
+        log_throttle(logger, "_pipeline_fit_state._step_is_fitted", logging.WARNING, "_step_is_fitted fell back to its default after %s", type(_exc).__name__)
         return False
     except Exception as exc:
-        logger.debug("_step_is_fitted: attribute-scoped check_is_fitted failed (%s); retrying unscoped.", exc)
+        log_throttle(logger, "_pipeline_fit_state._step_is_fitted", logging.WARNING, "_step_is_fitted: attribute-scoped check_is_fitted failed (%s); retrying unscoped.", exc)
         try:
             check_is_fitted(step)
             return True
         except NotFittedError as _exc:
-            logger.debug("_step_is_fitted fell back to its default after %s", type(_exc).__name__)
+            log_throttle(logger, "_pipeline_fit_state._step_is_fitted", logging.WARNING, "_step_is_fitted fell back to its default after %s", type(_exc).__name__)
             return False
 
 

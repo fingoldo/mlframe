@@ -100,7 +100,7 @@ _GPU_POOL = _GpuBufferPool()
 # touches the pool cannot self-deadlock.
 _GPU_POOL_LOCK = threading.RLock()
 
-# Wave 27 P2 fix: the prior docstring claimed
+# the prior docstring claimed
 # "Cross-process safe ... picks up the host process's mutex on spawn".
 # That is FALSE on Windows ``spawn`` (the joblib loky default): each
 # child process re-imports the module and constructs its own

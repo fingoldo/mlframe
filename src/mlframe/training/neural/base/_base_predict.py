@@ -70,7 +70,7 @@ class _PredictMixin:
         from . import _PREDICT_ONLY_DM_PARAM_KEYS
 
         if not hasattr(self, "model") or self.model is None:
-            # Wave 37 P1 fix (2026-05-20): NotFittedError per sklearn.
+            # NotFittedError per sklearn.
             from sklearn.exceptions import NotFittedError
             raise NotFittedError("Model has not been fitted yet. Call fit() before predict().")
 
@@ -154,12 +154,12 @@ class _PredictMixin:
         if precision is not None:
             trainer_params["precision"] = precision
 
-        # Multilabel-MLP predict -> CPU (2026-06-02): the multilabel head + the
+        # Multilabel-MLP predict -> CPU: the multilabel head + the
         # per-feature permutation-importance loop (dozens of predicts per fit)
         # churn the model across devices and intermittently corrupt the CUDA
         # context -- "Expected all tensors on the same device, cpu and cuda:0"
         # escalating to "CUDA illegal memory access" and an outright process
-        # crash on some hosts (cu118, observed 2026-06-02). The first GPU attempt
+        # crash on some hosts (cu118, observed). The first GPU attempt
         # is what poisons the context, so retrying-on-CPU after the fact is not
         # enough; route the WHOLE multilabel predict to CPU up front. GPU never
         # gets touched -> the context stays clean -> predictions are stable. GPU
@@ -170,8 +170,8 @@ class _PredictMixin:
             trainer_params["accelerator"] = "cpu"
             trainer_params.pop("precision", None)
 
-        # F-67 prediction-trainer caching (2026-07-21 reinstated): F-67 originally cached one L.Trainer per
-        # (accelerator, precision) key, but was reverted 2026-06-02 -- reusing a Trainer across predict() calls
+        # F-67 prediction-trainer caching (reinstated): F-67 originally cached one L.Trainer per
+        # (accelerator, precision) key, but was reverted -- reusing a Trainer across predict calls
         # accumulated Lightning's prediction-loop state (``predict_loop.max_batches`` grew one entry per call
         # against the CombinedLoader's single iterable), raising "Mismatch in number of limits (N) and number
         # of iterables (1)" on the SECOND+ predict. Re-verified against the currently-installed Lightning

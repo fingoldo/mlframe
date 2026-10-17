@@ -8,6 +8,7 @@ import numpy as np
 import pandas as pd
 import torch
 import lightning as L
+import lightning.pytorch.callbacks as _lightning_callbacks
 from lightning.pytorch.tuner import Tuner
 from lightning.pytorch.callbacks import (
     StochasticWeightAveraging,
@@ -122,7 +123,7 @@ class _FitCommonHelpersMixin:
                     _y_arr_val = _y_arr_val.ravel()
                 eval_set = (eval_set[0], self._label_encoder.transform(_y_arr_val))
 
-            # F-05 (2026-05-30): binary classification uses 1-output
+            # F-05: binary classification uses 1-output
             # sigmoid + BCEWithLogitsLoss instead of 2-output softmax +
             # CrossEntropyLoss. The two-output softmax head is
             # overparameterised (softmax is shift-invariant in z0-z1)
@@ -144,7 +145,7 @@ class _FitCommonHelpersMixin:
     def _fit_common_multilabel_non_classifier_paths(self, _classifier_single_label, y, sample_weight):
         """Block of _fit_common starting at ``if _classifier_single_label:``."""
         if _classifier_single_label:
-            # F-13 (2026-05-30): sklearn-canonical ``class_weight`` support.
+            # F-13: sklearn-canonical ``class_weight`` support.
             # ``class_weight="balanced"`` -> per-sample weights = n / (K * count(class))
             # ``class_weight={cls: w, ...}`` -> per-sample weights = w[cls]
             # ``class_weight=None`` -> no per-class weighting
@@ -301,21 +302,17 @@ class _FitCommonHelpersMixin:
     def _fit_common_self_use_ema(self, callbacks):
         """Block of _fit_common starting at ``if self.use_ema:``."""
         if self.use_ema:
-            # F-28 (2026-05-31): exponential moving average of weights via
+            # F-28: exponential moving average of weights via
             # Lightning's WeightAveraging callback + torch's EMA averaging
             # function. Lightning auto-swaps the averaged weights into the
             # live model on on_train_end, so downstream predict() uses the
             # EMA copy transparently — zero changes to save/load needed.
-            # Cross-cited in two 2026-05-31 research agents
+            # Cross-cited in two research agents
             # (Lightning-plugins + activations/optimizers): +0.04-0.66% on
             # tabular MLPs, cheaper than SWA (no LR warm-restart phase).
             # Falls back to a SWA-as-EMA shim when WeightAveraging is not
             # in the installed Lightning (added in Lightning ~2.5).
-            try:
-                from lightning.pytorch.callbacks import WeightAveraging
-                _ema_has_native = True
-            except ImportError:
-                _ema_has_native = False
+            _ema_has_native = hasattr(_lightning_callbacks, "WeightAveraging")
             from torch.optim.swa_utils import get_ema_avg_fn
             _ema_params = dict(self.ema_params or {})
             # ``decay`` is exposed at the mlframe level for ergonomics;
@@ -366,7 +363,7 @@ class _FitCommonHelpersMixin:
                     verbose=False,
                 )
             )
-            # 2026-05-23 audit-followup #6: divergence detector. Warns
+            # audit-followup #6: divergence detector. Warns
             # when val_loss climbs >=100x its baseline within training
             # so operators catch Identity-MLP-style collapses before
             # paying the full training budget. No automatic stop --
@@ -424,7 +421,7 @@ class _FitCommonHelpersMixin:
             # F-05: binary sigmoid head -> BCEWithLogitsLoss + task_type
             # marker so predict_step / compute_metrics emit sigmoid probs
             # and the classifier wrapper stacks (N, 2).
-            # F-29 (2026-05-31): optional focal loss for binary. When
+            # F-29: optional focal loss for binary. When
             # ``focal_loss_gamma`` is set, replace BCE with the sigmoid
             # focal loss formulation (Lin et al. 2017): heavier penalty
             # on hard examples, mitigates class imbalance even WITHOUT
@@ -443,14 +440,14 @@ class _FitCommonHelpersMixin:
                 _local_model_params["loss_fn"] = torch.nn.BCEWithLogitsLoss()
             _local_model_params["task_type"] = "binary"
         elif isinstance(self, RegressorMixin):
-            # F-24 (2026-05-31): tag regressors so predict_step returns
+            # F-24: tag regressors so predict_step returns
             # raw values for ALL shapes including (N, K>=2) multi-target.
             # Without this tag, predict_step's existing
             # ``logits.shape[1] > 1`` branch would mistakenly apply
             # softmax to (N, K) regression outputs.
             _local_model_params["task_type"] = "regression"
         elif isinstance(self, ClassifierMixin) and not self._is_multilabel and not self._binary_sigmoid_head and self.label_smoothing > 0.0:
-            # F-30 (2026-05-31): label smoothing for MULTICLASS only.
+            # F-30: label smoothing for MULTICLASS only.
             # Replaces the caller's CrossEntropyLoss with one carrying
             # label_smoothing=epsilon. Per RealMLP-TD NeurIPS 2024:
             # +1.8% multiclass accuracy on the ablation. Skipped for

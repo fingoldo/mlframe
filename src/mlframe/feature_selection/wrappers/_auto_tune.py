@@ -98,7 +98,7 @@ class DataFingerprint:
         else:
             ystd = float(np.nanstd(y_arr))
             ymean = float(np.nanmean(y_arr))
-            target_imbalance = float(ystd / (abs(ymean) + 1e-12))
+            target_imbalance = float(ystd / max(abs(ymean), 1e-12))
         # Column-level signals (cheap pass).
         frac_numeric = 1.0
         frac_high_card = 0.0

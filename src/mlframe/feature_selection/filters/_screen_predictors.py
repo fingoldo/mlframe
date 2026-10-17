@@ -209,21 +209,21 @@ def screen_predictors(
     # column with one of its own parents (e.g. ``(orig_i, kway(orig_i, orig_j))`` is redundant since the engineered col already contains orig_i's info). Threaded
     # through ``should_skip_candidate``. ``None`` preserves legacy behaviour.
     engineered_lineage: dict | None = None,
-    # 2026-05-30 Wave 9 — Dynamic Cluster Discovery (DCD) config dict. When
+    # Dynamic Cluster Discovery (DCD) config dict. When
     # not None, DCD is active for this screen call. Keys: enable, tau_cluster,
     # distance, cluster_size_threshold, swap_gain_threshold, swap_method,
     # pairwise_cache_max, min_cluster_size, max_cluster_size, X_raw,
     # quantization_method, quantization_nbins, quantization_dtype, factors_cols.
     # None preserves pre-Wave-9 behaviour bit-stable.
     dcd_config: dict | None = None,
-    # 2026-05-31 Layer 43 (PART A) — host-MRMR engineered_recipes dict (name ->
+    # Layer 43 (PART A) — host-MRMR engineered_recipes dict (name ->
     # EngineeredRecipe). Threaded into ``commit_swap`` so the DCD PC1 aggregate
     # gets registered as a replayable recipe. Pre-fix it was hardcoded to None
     # at the commit_swap callsite -> aggregate appeared in ``selected_vars`` /
     # ``cols`` but the remap in _mrmr_fit_impl.py dropped it from
     # ``_engineered_recipes_`` so ``get_feature_names_out`` silently lost it.
     engineered_recipes: dict | None = None,
-    # 2026-06-02 — directed-FE tie-break (see ScreenContext.raw_feature_names).
+    # — directed-FE tie-break (see ScreenContext.raw_feature_names).
     # ``raw_feature_names`` is the set of ORIGINAL (pre-FE) input column names;
     # any candidate whose ``factors_names`` entry is not in it is engineered.
     # On a near-tie in selection gain (within ``prefer_engineered_rel_eps``
@@ -233,7 +233,7 @@ def screen_predictors(
     # use). ``None`` raw-name set falls back to the syntactic ``(``/``__``
     # heuristic; rel-eps ``0.0`` restores the legacy pure-index tie-break.
     raw_feature_names: Optional[Iterable[str]] = None,
-    # 2026-06-02 RC1: widened 0.01 -> 0.15. On non-monotone targets (e.g.
+    # RC1: widened 0.01 -> 0.15. On non-monotone targets (e.g.
     # y=sign(x1^2-1)) the binned-MI of the raw parent x1 edges out its engineered
     # linearizer x1__He2 by more than 1% (estimation noise; in EXACT MI they are
     # equal because He2 is a deterministic function of x1), so a 1% band left the
@@ -242,7 +242,7 @@ def screen_predictors(
     # the engineered linearizer win over its near-tied raw parent. Still gated to
     # the leading band + engineered-only promotion (clear raw winners untouched).
     prefer_engineered_rel_eps: float = 0.15,
-    # 2026-06-03 — Westfall-Young maxT permutation-null gain floor. In a wide
+    # — Westfall-Young maxT permutation-null gain floor. In a wide
     # candidate pool (embedding / TF-IDF matrices, p >> sqrt(n)) the MAX marginal
     # MI over p pure-noise columns is a positive order statistic that grows with
     # p; per-candidate Miller-Madow correction centres each column's EXPECTED
@@ -259,7 +259,7 @@ def screen_predictors(
     # past the abs/rel gain floors after the genuine signals are picked. The gate fires ONLY when the target is high-cardinality (nbins_y >= median feature nbins - a continuous
     # regression target, not a low-card classification one) AND the (X,y) joint table is dense enough that the floor is itself reliable - so a dense weak-signal regression pool
     # like sklearn diabetes (MDLP nbins_y=64 but ~1.0-1.5 rows per joint cell at n=330) keeps the floor OFF and preserves its 10 weak features, while lognormal (7.8 rows per
-    # joint cell at n=2500) fires. The original ratio=3 keyed on the MDLP ~30-bin over-split that the 2026-06-10 target-rebin guard now removes. See
+    # joint cell at n=2500) fires. The original ratio=3 keyed on the MDLP ~30-bin over-split that the target-rebin guard now removes. See
     # the narrow-pool rule in ``_screen_predictors_prescreen.compute_fdr_gain_floor``. ``screen_fdr_null_permutations=0`` disables. Default 200 (raised from 25): the floor is the 95th
     # percentile of a per-shuffle MAX, an extreme upper-tail order statistic whose K=25 estimate is high-variance (~1.25 draws above the quantile); 200 draws stabilise the
     # floor several-fold run-to-run (bench ``_benchmarks/bench_maxt_floor_stability.py``) - a lower-variance noise floor is the correct behavior, the rescore cost stays
@@ -280,7 +280,7 @@ def screen_predictors(
     # discovery accumulates across passes instead of being rebuilt empty each
     # time (which dropped the screen-1 dup cluster from the published summary).
     existing_dcd_state: "DCDState | None" = None,
-    # 2026-07-09 fix: analogous to ``existing_dcd_state`` above - thread the PRIOR screen round's
+    # fix: analogous to ``existing_dcd_state`` above - thread the PRIOR screen round's
     # relevance/redundancy caches back in instead of starting empty every round. A given cache key
     # (a column-index tuple, or an (X,Z) conditional-MI key) is a deterministic function of the data,
     # which does not change across rounds (only grows via appended engineered columns; existing
@@ -291,12 +291,12 @@ def screen_predictors(
     # PRIOR ``screen_predictors`` call in the same fit. ``None`` (default) preserves the legacy
     # fresh-empty-caches behaviour.
     seed_caches: "tuple | None" = None,
-    # 2026-07-09 fix: optional cross-round cache for the maxT permutation-null gain floor (see
+    # fix: optional cross-round cache for the maxT permutation-null gain floor (see
     # ``compute_fdr_gain_floor``'s ``maxt_floor_cache`` docstring). A plain dict the caller owns and
     # threads unchanged into every ``screen_predictors`` call within one fit (mutated in place - no
     # need to read it back from the return tuple). ``None`` (default) disables caching, legacy behaviour.
     seed_maxt_floor_cache: "dict | None" = None,
-    # 2026-07-09 fix: thread back a joblib ``Parallel`` pool built by a PRIOR ``screen_predictors``
+    # fix: thread back a joblib ``Parallel`` pool built by a PRIOR ``screen_predictors``
     # call in the same fit (only meaningful when ``n_workers>1``). Building a fresh pool + eager
     # warmup dispatch on every one of the ~3 screen/re-screen rounds per fit respawns ``n_workers``
     # threads each time for no benefit - the pool config (backend/n_jobs) is fixed by the MRMR
@@ -447,7 +447,7 @@ def screen_predictors(
         # from "natural gain threshold reached".
         patience_triggered: bool = False
 
-        # 2026-07-09 fix: seed from the PRIOR screen round's caches when supplied (see seed_caches'
+        # fix: seed from the PRIOR screen round's caches when supplied (see seed_caches'
         # docstring above) instead of always starting empty - a cache key's value is a deterministic
         # function of the (stable, append-only) data, so reuse across rounds is exact, not approximate.
         entropy_cache, cached_MIs, cached_confident_MIs, cached_cond_MIs = _init_screen_caches(seed_caches)
@@ -461,7 +461,7 @@ def screen_predictors(
         )
         jmim_hit_counter = np.zeros(1, dtype=np.int64)
 
-        # 2026-05-30 Wave 9 — Dynamic Cluster Discovery state construction.
+        # Dynamic Cluster Discovery state construction.
         # Built only when ``dcd_config`` is provided AND ``enable=True``. The
         # state lives on the screen-local namespace (NOT thread-local) so the
         # joblib parallel-backend path remains safe per Critic1/F fix.
@@ -499,7 +499,7 @@ def screen_predictors(
         else:
             _cardinality_refused_cols = set()
 
-        # 2026-06-03 — Westfall-Young maxT permutation-null gain floor (computed ONCE on the finalised order-1 pool, applied at the selection gate). Fires on a WIDE pool
+        # — Westfall-Young maxT permutation-null gain floor (computed ONCE on the finalised order-1 pool, applied at the selection gate). Fires on a WIDE pool
         # (>= ``screen_fdr_min_features``, where best-of-p selection bias dominates) OR on a NARROW pool that meets the target-over-split gate - an MDLP-over-split heavy-tailed
         # regression target whose plug-in MI bias lifts pure-noise columns past the gain floors after the signals are picked. The narrow-pool gate is itself self-gating: it only
         # engages where the (X,y) joint table is dense enough that the floor is reliable, so a dense weak-signal pool (diabetes) keeps the floor OFF. Below both gates the floor
@@ -532,7 +532,7 @@ def screen_predictors(
         #     a numba Fisher-Yates shuffle) -> it REQUIRES a numpy host array.
         #   * the confirm / baseline-eval GPU branches (``mi_direct_gpu``) want the
         #     pre-warmed CuPy DEVICE buffer to skip the H2D copy.
-        # Pre-2026-06-11 the GPU branch reassigned the single ``classes_y_safe``
+        # Pre-the GPU branch reassigned the single ``classes_y_safe``
         # local to a CuPy array and returned THAT to the FE step, so any
         # ``MRMR(use_gpu=True)`` fit that reached the FE pair-search crashed with
         # ``TypingError: Cannot determine Numba type of <class 'cupy.ndarray'>``
@@ -541,7 +541,7 @@ def screen_predictors(
         classes_y_safe_host = classes_y_safe  # numpy, returned to the FE step
         classes_y_safe, freqs_y_safe = _resident_screen_targets(use_gpu, classes_y, freqs_y, classes_y_safe)
 
-        # RESOLVED (2026-07-19, 7-site joblib.Parallel audit - follow-up to the 2026-07-09
+        # RESOLVED (7-site joblib.Parallel audit - follow-up to the
         # UNRESOLVED note this comment used to carry): the "releases the GIL" claim below was never
         # actually confirmed for THIS call path, and the isolated/warmed/best-of-3+ A/B settles it in the
         # other direction. Measured at ``evaluate_candidates``'s realistic scales: m=10 candidates ->
@@ -580,12 +580,12 @@ def screen_predictors(
             use_simple_mode=use_simple_mode,
             extra_x_shuffling=extra_x_shuffling,
             engineered_lineage=engineered_lineage,
-            # 2026-06-02 — directed-FE tie-break inputs. Normalize the raw-name
+            # — directed-FE tie-break inputs. Normalize the raw-name
             # collection to a set for O(1) membership; ``None`` stays ``None`` so
             # the confirm primitive falls back to the syntactic heuristic.
             raw_feature_names=(set(raw_feature_names) if raw_feature_names is not None else None),
             prefer_engineered_rel_eps=float(prefer_engineered_rel_eps or 0.0),
-            dcd_state=dcd_state,  # Wave 9 — forward DCD state into confirm context
+            dcd_state=dcd_state,  # forward DCD state into confirm context
             n_workers=n_workers,
             workers_pool=workers_pool,
             parallel_kwargs=parallel_kwargs,

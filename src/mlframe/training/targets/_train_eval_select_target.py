@@ -281,11 +281,13 @@ def _select_regression_target(target_type, cur_target_name, model_name, composit
             else:
                 raise TypeError(f"target must be np.ndarray, pd.Series, or pl.Series, " f"got {type(target).__name__}")
             if isinstance(target, pl.Series):
-                assert isinstance(vlcnts, pl.DataFrame)
+                if not (isinstance(vlcnts, pl.DataFrame)):
+                    raise AssertionError
                 vlcnts = vlcnts.filter(pl.col(target.name) == 1)
                 perc = vlcnts["proportion"][0] if len(vlcnts) > 0 else 0
             else:
-                assert isinstance(vlcnts, pd.Series)
+                if not (isinstance(vlcnts, pd.Series)):
+                    raise AssertionError
                 perc = vlcnts.loc[1] if 1 in vlcnts.index else 0
             model_name += f" BT={perc*100:.0f}%"
 

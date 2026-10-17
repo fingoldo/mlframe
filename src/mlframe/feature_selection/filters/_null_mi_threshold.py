@@ -52,7 +52,7 @@ def null_mi_threshold(n_rows: int, n_bins: int, entropy: float, n_candidates: in
     return float(best["threshold"]) if best is not None else None
 
 
-def pair_search_floor(n_rows: int, classes_y, n_bins: int, n_candidates: int) -> float | None:
+def pair_search_floor(n_rows: int, classes_y: np.ndarray, n_bins: int, n_candidates: int) -> float | None:
     """The null floor for a pair search that scored ``n_candidates`` engineered forms against ``classes_y``, or None without a table."""
     return null_mi_threshold(int(n_rows), int(n_bins), target_entropy(classes_y), int(n_candidates))
 

@@ -876,7 +876,8 @@ class TestXGBShimPickleAndCacheLifecycle:
         X, y = small_classification_data
         m = XGBClassifierWithDMatrixReuse(n_estimators=3)
         m.fit(X, y)
-        assert m._cached_train_dmatrix is not None  # precondition
+        live_dm = m._cached_train_dmatrix
+        assert live_dm.num_row() == len(X)  # precondition: a populated cache
 
         state = m.__getstate__()
         # Cache attrs all nulled in the serialised state.
@@ -891,7 +892,7 @@ class TestXGBShimPickleAndCacheLifecycle:
             ), f"__getstate__ must null {_attr!r} before pickling — the QuantileDMatrix holds ctypes pointers that can't be serialised."
         # But the LIVE instance's cache is untouched — getstate must
         # not have mutated ``self.__dict__`` as a side effect.
-        assert m._cached_train_dmatrix is not None
+        assert m._cached_train_dmatrix is live_dm
 
     def test_setstate_initialises_cache_attrs_when_missing(self):
         """Loading a saved model from a pre-fix era (no cache attrs in
@@ -939,9 +940,10 @@ class TestXGBShimPickleAndCacheLifecycle:
         X, y = small_classification_data
         m = XGBClassifierWithDMatrixReuse(n_estimators=3)
         m.fit(X, y)
+        old_dm = m._cached_train_dmatrix
         m.clear_cache()
         m.fit(X, y)
-        assert m._cached_train_dmatrix is not None, "cache should rebuild on the fit after clear_cache"
+        assert m._cached_train_dmatrix is not old_dm and m._cached_train_dmatrix.num_row() == len(X), "cache should rebuild on the fit after clear_cache"
 
     def test_regressor_shim_also_pickles(self, small_regression_data, tmp_path):
         """Regressor variant has the same pickle contract as the

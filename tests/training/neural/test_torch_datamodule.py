@@ -81,8 +81,8 @@ class TestTorchDataModuleInit:
             test_labels=sample_data["y_test"],
         )
 
-        assert dm.test_features is not None
-        assert dm.test_labels is not None
+        assert len(dm.test_features) == len(sample_data["X_test"])
+        assert len(dm.test_labels) == len(sample_data["y_test"])
 
     def test_initialization_minimal(self, sample_data):
         """Test initialization with minimal data (train only)."""
@@ -150,7 +150,7 @@ class TestTorchDataModuleInit:
 
         dm = TorchDataModule(train_features="dummy_path", train_labels=sample_data["y_train"], read_fcn=dummy_read_fcn)
 
-        assert dm.read_fcn is not None
+        assert dm.read_fcn is dummy_read_fcn
 
     def test_predict_features_initialization(self, sample_data):
         """Test that predict_features is None initially."""
@@ -450,7 +450,7 @@ class TestTorchDataModuleSetupPredict:
         test_df = pd.DataFrame(np.random.randn(15, 5))
         dm.setup_predict(test_df)
 
-        assert dm.predict_features is not None
+        assert len(dm.predict_features) == 15
 
     def test_setup_predict_with_batch_size_override(self, sample_data):
         """Test setup_predict with batch_size override."""

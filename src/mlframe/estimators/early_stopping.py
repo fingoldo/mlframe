@@ -55,6 +55,7 @@ from mlframe.metrics.core import accuracy_ratio, fast_root_mean_squared_error
 from pyutilz.pythonlib import store_params_in_object, get_parent_func_args
 
 from .early_stopping_monotonic import MonotonicDeclineStopper
+from mlframe.utils.log_throttle import log_throttle
 
 # Incremental-count attributes a warm-start learner uses to grow capacity, in probe order: boosters/ensembles
 # expose ``n_estimators``, linear/MLP expose ``max_iter``. Mirrors learning_curve._WARM_START_N_ATTRS.
@@ -278,7 +279,7 @@ class EarlyStoppingWrapper(BaseEstimator):
             try:
                 base_n = int(self.estimator_.get_params().get(n_attr) or 0)
             except Exception as e:
-                logger.debug("could not resolve base %s from estimator params: %s", n_attr, e)
+                log_throttle(logger, "early_stopping._fit_warm", logging.WARNING, "could not resolve base %s from estimator params: %s", n_attr, e)
                 base_n = 0
             step = max(1, base_n // 10) if base_n else 10
         i = 0

@@ -45,13 +45,15 @@ def main():
     # 1. round-trip the float through extra (and a pickle to confirm serialisability)
     import pickle  # nosec B403 - pickle used only for trusted same-process/dev-local round-trips, see call sites in this file
     rec2 = pickle.loads(pickle.dumps(rec))  # nosec B301 - round-trips a same-process object, no external input
-    assert rec2.extra["gate_med_a_median"] == med_a, "median did not round-trip"  # nosec B101 - internal invariant check in src/mlframe/feature_selection/_benchmarks/fs_hybrid, not reachable with untrusted input
+    if not (rec2.extra["gate_med_a_median"] == med_a):
+        raise AssertionError("median did not round-trip")
     print(f"[1] extra float round-trip OK: median={rec2.extra['gate_med_a_median']:.6f}")
 
     # 2. bit-identical replay fit-vs-transform on the SAME rows
     z_fit = gate_med_apply(a_tr, rec.extra["gate_med_a_median"]) * b_tr
     z_fit2 = gate_med_apply(a_tr, rec2.extra["gate_med_a_median"]) * b_tr
-    assert np.array_equal(z_fit, z_fit2), "replay not bit-identical"  # nosec B101 - internal invariant check in src/mlframe/feature_selection/_benchmarks/fs_hybrid, not reachable with untrusted input
+    if not (np.array_equal(z_fit, z_fit2)):
+        raise AssertionError("replay not bit-identical")
     print(f"[2] replay bit-identical on train rows: {np.array_equal(z_fit, z_fit2)}")
 
     # 3. leak-safety: transform uses the STORED train median, never recomputes on test

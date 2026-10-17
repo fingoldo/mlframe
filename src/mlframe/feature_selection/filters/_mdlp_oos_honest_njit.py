@@ -21,7 +21,7 @@ from .supervised_binning import _mdlp_best_split_inc_njit as _best_split
 
 
 @njit(cache=True)
-def oos_dedupe_njit(x: np.ndarray, y: np.ndarray):
+def oos_dedupe_njit(x: np.ndarray, y: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     """Mirror of ``_mdlp_validated_split._dedupe_xy``: returns ``(x_out, y_out)``. With no duplicate ``(x, y)`` pair the original arrays come
     back in their original order; otherwise the first representative of each pair, in ``lexsort((y, x))`` order."""
     n = x.shape[0]
@@ -241,7 +241,7 @@ def honest_validated_null_columns(
     q_refine_len: np.ndarray,
     eval_rows: np.ndarray,
     col_slot: np.ndarray,
-):
+) -> tuple[np.ndarray, np.ndarray]:
     """Per-permutation, per-column null MI for the held-out-validated strategy (prange over permutations). Returns ``(plain, corrected)``
     of shape ``(perms.shape[0], k)``, the same contract as :func:`_mdlp_honest_njit.honest_null_columns`."""
     n_perm_rows = perms.shape[0]

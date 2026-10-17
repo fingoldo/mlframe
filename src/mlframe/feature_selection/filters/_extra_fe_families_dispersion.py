@@ -79,7 +79,7 @@ if TYPE_CHECKING:
 # in-body in the three consumers below (mirroring the already-lazy
 # ``generate_conditional_residual_features`` / ``engineered_name_conditional_residual``
 # imports in this module) so the parent finishes initialising before the sibling
-# resolves the names. 2026-06-10.
+# resolves the names.
 
 logger = logging.getLogger(__name__)
 

@@ -338,7 +338,7 @@ def _resolve_use_gpu(
     - ``use_gpu='auto'`` AND ``threshold is None`` -> dispatch via cached micro-bench bucket; first-call cost is a single mini-bench (~50 ms).
     - ``use_gpu='auto'`` AND ``threshold is set`` -> GPU iff available AND work >= threshold.
     """
-    # Wave 28 P0 fix (2026-05-20): pre-fix used ``is True``/``is False``,
+    # pre-fix used ``is True``/``is False``,
     # which silently rejected ``np.bool_(True)`` and ``np.bool_(False)``
     # from config dicts -- numpy bools fail the identity check and
     # fell through to the ``!= "auto"`` ValueError. Normalise: handle

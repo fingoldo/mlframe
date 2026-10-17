@@ -52,7 +52,7 @@ SIMPLE_ENSEMBLING_METHODS: list = "arithm harm median quad qube geo".split()
 try:  # pragma: no cover -- env-dependent
     import numba as _numba
 
-    # Wave 25 P1 fix (2026-05-20): switched from the naive E[X^2]-E[X]^2
+    # switched from the naive E[X^2]-E[X]^2
     # variance formula to a two-pass mean+deviation form, which is
     # numerically stable for the regression-scale inputs (|d| ~ 1e3+) that
     # the previous form lost precision on. The ``< 0`` clamp left behind
@@ -215,7 +215,7 @@ basic_features_names = get_basic_feature_names(
 
 
 # =============================================================================
-# Streaming-accumulator Protocol -- 2026-04-24 Session 2
+# Streaming-accumulator Protocol -- Session 2
 # =============================================================================
 #
 # Pluggable interface for ensemble aggregation that consumes one (N, K)
@@ -344,7 +344,7 @@ class _WelfordAccumulator(StreamingAccumulator):
 
 
 # Streaming median (P^2-Quantile sketch, Jain & Chlamtac 1985) intentionally
-# NOT implemented (explicit-design-decision (wave 69, 2026-05-20)). For typical
+# NOT implemented (explicit-design-decision (wave 69)). For typical
 # M=5-10 ensembling members, exact materialised median via np.nanmedian(preds, axis=0)
 # is O(1) wallclock + O(M*N*K) memory which fits the budget. P^2 wins only on
 # big-M streams (CV with 100+ folds) and a correct (N, K)-vectorised impl
@@ -478,7 +478,7 @@ def _rrf_aggregate_probs(preds_arr: np.ndarray, k: int = 60) -> np.ndarray:
             M, N,
         )
 
-    # Numba parallel-over-M fastpath. Bench (2026-05-19,
+    # Numba parallel-over-M fastpath. Bench (
     # mlframe._benchmarks.bench_ensemble_rrf) shows 2.6-4.1x speedup across
     # (M=5/10/20) x (N=10k/100k/1M) x (K=2/3) -- njit wins at every
     # measured point, equivalence to ~1e-16 max abs delta. The dispatcher
@@ -663,12 +663,11 @@ def combine_probs(
     non_finite_mask = ~np.isfinite(combined)
     if non_finite_mask.any():
         _arith = _finite_member_mean(stacked, weights_arr)
-        # Wave 78 (2026-05-21): hard-assert shape contract -- np.where broadcasts
+        # hard-assert shape contract -- np.where broadcasts
         # silently on shape mismatch, which would silently produce wrong-shape
         # ensemble output if a future flavour returns a different reduce shape.
-        assert (
-            combined.shape == _arith.shape
-        ), f"ensemble combine: shape mismatch combined={combined.shape} vs arith fallback={_arith.shape}"  # nosec B101 - internal invariant / dev-time sanity check, not a security gate
+        if not (combined.shape == _arith.shape):
+            raise AssertionError(f"ensemble combine: shape mismatch combined={combined.shape} vs arith fallback={_arith.shape}")
         combined = np.where(non_finite_mask, _arith, combined)
 
     if ensure_prob_limits:

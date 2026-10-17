@@ -25,6 +25,7 @@ from collections import OrderedDict
 
 import numpy as np
 import pandas as pd
+from mlframe.utils.log_throttle import log_throttle
 
 try:
     import polars as pl
@@ -97,7 +98,7 @@ def _approx_entry_bytes(entry: tuple) -> int:
             if callable(est):
                 total += int(est())
         except Exception as exc:
-            logger.debug("_pipeline_cache: byte-size estimation failed for %r, reporting 0: %s", type(obj).__name__, exc)
+            log_throttle(logger, "_pipeline_cache._approx_entry_bytes", logging.WARNING, "_pipeline_cache: byte-size estimation failed for %r, reporting 0: %s", type(obj).__name__, exc)
             return 0
     return total
 
@@ -322,7 +323,7 @@ def _full_x_content_hash(arr) -> str:
     if cached is not None:
         return cached
     try:
-        # iter299 (2026-05-26): polars-native hash path. The legacy
+        # iter299: polars-native hash path. The legacy
         # ``arr.to_numpy().tobytes() -> blake2b`` chain materialises the
         # full numpy buffer (~40 MB on a 200k x 25 float64 frame) just to
         # hash it; polars exposes a row-wise hash kernel
@@ -346,7 +347,7 @@ def _full_x_content_hash(arr) -> str:
                 row_sum = int(row_hashes.sum())
             except _HASH_FASTPATH_EXC as _exc:
                 # Tuple includes pyo3 PanicException (zero-column hash_rows).
-                logger.debug("_full_x_content_hash fell back to its default after %s", type(_exc).__name__)
+                log_throttle(logger, "_pipeline_cache._full_x_content_hash", logging.WARNING, "_full_x_content_hash fell back to its default after %s", type(_exc).__name__)
                 return ""
             col_names = ",".join(str(c) for c in arr.columns)
             h = hashlib.blake2b(digest_size=16)
@@ -362,11 +363,11 @@ def _full_x_content_hash(arr) -> str:
             try:
                 np_arr = arr.to_numpy()
             except Exception as exc:
-                logger.debug("_full_x_content_hash: polars Series.to_numpy() failed, skipping the full-content hash: %s", exc)
+                log_throttle(logger, "_pipeline_cache._full_x_content_hash", logging.WARNING, "_full_x_content_hash: polars Series.to_numpy() failed, skipping the full-content hash: %s", exc)
                 return ""
             col_names = str(arr.name) if getattr(arr, "name", None) else ""
         elif isinstance(arr, pd.DataFrame):
-            # iter359 (2026-05-26): mirror the polars hash_rows fastpath for
+            # iter359: mirror the polars hash_rows fastpath for
             # pandas frames. ``pl.from_pandas`` does a zero-copy buffer share
             # for primitive-dtype columns (and a column-by-column conversion
             # otherwise) -- much cheaper than ``arr.to_numpy()`` which forces
@@ -386,7 +387,7 @@ def _full_x_content_hash(arr) -> str:
                 # fastpath entirely when the frame has no columns (happens on
                 # all-constant-features datasets after the constant-column
                 # filter drops everything; observed via
-                # test_with_all_constant_features 2026-05-27).
+                # test_with_all_constant_features).
                 try:
                     pl_df = pl.from_pandas(arr)
                     row_hashes = pl_df.hash_rows()
@@ -415,14 +416,14 @@ def _full_x_content_hash(arr) -> str:
             try:
                 np_arr = arr.to_numpy()
             except Exception as exc:
-                logger.debug("_full_x_content_hash: pandas DataFrame.to_numpy() fallback failed, skipping the full-content hash: %s", exc)
+                log_throttle(logger, "_pipeline_cache._full_x_content_hash", logging.WARNING, "_full_x_content_hash: pandas DataFrame.to_numpy() fallback failed, skipping the full-content hash: %s", exc)
                 return ""
             col_names = ",".join(str(c) for c in arr.columns)
         elif isinstance(arr, pd.Series):
             try:
                 np_arr = arr.to_numpy()
             except Exception as exc:
-                logger.debug("_full_x_content_hash: pandas Series.to_numpy() failed, skipping the full-content hash: %s", exc)
+                log_throttle(logger, "_pipeline_cache._full_x_content_hash", logging.WARNING, "_full_x_content_hash: pandas Series.to_numpy() failed, skipping the full-content hash: %s", exc)
                 return ""
             col_names = str(arr.name) if arr.name is not None else ""
         elif isinstance(arr, np.ndarray):
@@ -432,7 +433,7 @@ def _full_x_content_hash(arr) -> str:
             try:
                 np_arr = np.asarray(arr)
             except Exception as exc:
-                logger.debug("_full_x_content_hash: np.asarray() fallback failed, skipping the full-content hash: %s", exc)
+                log_throttle(logger, "_pipeline_cache._full_x_content_hash", logging.WARNING, "_full_x_content_hash: np.asarray() fallback failed, skipping the full-content hash: %s", exc)
                 return ""
             col_names = ""
         if not hasattr(np_arr, "shape") or not hasattr(np_arr, "dtype"):
@@ -451,7 +452,7 @@ def _full_x_content_hash(arr) -> str:
         _weakref_cache_put(_PIPELINE_X_HASH_CACHE, id_shape, arr, _result, _PIPELINE_X_HASH_CACHE_MAX)
         return _result
     except Exception as exc:
-        logger.debug("_full_x_content_hash: outer dispatch failed for %r, skipping the full-content hash: %s", type(arr).__name__, exc)
+        log_throttle(logger, "_pipeline_cache._full_x_content_hash", logging.WARNING, "_full_x_content_hash: outer dispatch failed for %r, skipping the full-content hash: %s", type(arr).__name__, exc)
         return ""
 
 
@@ -521,7 +522,7 @@ def _full_target_content_hash(arr) -> str:
         _weakref_cache_put(_PIPELINE_TARGET_HASH_CACHE, id_shape, arr, _result, _PIPELINE_TARGET_HASH_CACHE_MAX)
         return _result
     except Exception as exc:
-        logger.debug("_full_target_content_hash: outer dispatch failed for %r, skipping the full-content hash: %s", type(arr).__name__, exc)
+        log_throttle(logger, "_pipeline_cache._full_target_content_hash", logging.WARNING, "_full_target_content_hash: outer dispatch failed for %r, skipping the full-content hash: %s", type(arr).__name__, exc)
         return ""
 
 
@@ -549,7 +550,7 @@ def _pipeline_signature_for_cache(pipeline) -> str:
             params = step.get_params(deep=False)
             kw = ",".join(f"{k}={params[k]!r}" for k in sorted(params))
         except Exception as e:
-            logger.debug("get_params(deep=False) failed for cache-key computation on %s: %s", type(step).__name__, e)
+            log_throttle(logger, "_pipeline_cache._pipeline_signature_for_cache", logging.WARNING, "get_params(deep=False) failed for cache-key computation on %s: %s", type(step).__name__, e)
             kw = "?"
         # Fold the setattr-injected ``_mlframe_use_sample_weights_in_fs_`` marker into the per-step signature so a mid-suite toggle of weight-aware FS misses the cache. The marker lives in ``__dict__`` (set by ``_setup_helpers``) and is invisible to ``get_params``; without folding, a weight-blind fit cached under the prior toggle replays for a weight-aware caller.
         _sw_marker = getattr(step, "_mlframe_use_sample_weights_in_fs_", None)
@@ -668,7 +669,7 @@ def _pre_pipeline_cache_key(train_df, val_df, pipeline, train_target=None, targe
                         _wants_sw = True
                         break
     except Exception as e:
-        logger.debug("sample-weight-in-FS marker walk failed: %s", e)
+        log_throttle(logger, "_pipeline_cache._pre_pipeline_cache_key", logging.WARNING, "sample-weight-in-FS marker walk failed: %s", e)
         _wants_sw = False
     _sw_fp = _content_fingerprint_for_cache(sample_weight) if (_wants_sw and sample_weight is not None) else ("no_sw",)
     key = (

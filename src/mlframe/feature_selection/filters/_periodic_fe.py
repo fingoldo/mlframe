@@ -63,6 +63,8 @@ from ._orthogonal_bootstrap_mi_fe import baseline_lcb_by_bootstrap_mi
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from numpy.typing import DTypeLike
+
     from .engineered_recipes import EngineeredRecipe
 
 try:
@@ -228,7 +230,7 @@ def generate_modular_features(
     X: pd.DataFrame,
     num_cols: Optional[Sequence[str]] = None,
     periods: Sequence[float] = DEFAULT_PERIODS,
-    dtype=None,
+    dtype: "DTypeLike | None" = None,
 ) -> pd.DataFrame:
     """For each ``(num_col, period)`` emit the residue ``mod`` plus its ``sin``
     / ``cos`` phase encoding.

@@ -42,7 +42,7 @@ class TestLinearModelCreation:
         config = LinearModelConfig(model_type=model_type)
         model = create_linear_model(model_type, config, use_regression=True)
 
-        assert model is not None
+        assert hasattr(model, "fit") and hasattr(model, "predict")
         # Every regression model is a regressor except RANSAC, which is a meta-estimator wrapping one.
         if model_type != "ransac":
             assert is_regressor(model)

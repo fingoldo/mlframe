@@ -210,7 +210,7 @@ def _get_kernel():
         return module._cmi_joint_hist_cuda
 
 
-# FUSED CMI-from-joint (launch-reduction, 2026-06-25). conditional_mi_batched_cuda called
+# FUSED CMI-from-joint (launch-reduction). conditional_mi_batched_cuda called
 # _entropy_from_counts_axis FOUR times (H(Z), H(X,Z), H(Y,Z), H(X,Y,Z)), each marg.sum(axis) + xlogx EK +
 # .sum(axis=1) = ~3 cuLaunchKernel -> ~12 per call (the measured #1 hidden launch source, 228+95). One block
 # per candidate now reads the global joint once, builds the (X,Z)/(Y,Z)/(Z) marginals in shared memory via
@@ -329,13 +329,13 @@ _XLOGX_EK = None
 # njit pool MI it replaces). Cache the uploaded device copy keyed on array IDENTITY (id + shape + dtype) so
 # repeated calls in the same greedy loop reuse it. Selection-equivalent (same values, just not re-uploaded).
 # Pickle-safe: module-level (never on an instance), cleared at FE-step teardown via clear_cmi_resident_cache().
-# WALL A/B (2026-06-28, CPU-strict 90k uniform, quiet box, MLFRAME_CMI_RESIDENT_CACHE 0 vs 1): warm median
+# WALL A/B (CPU-strict 90k uniform, quiet box, MLFRAME_CMI_RESIDENT_CACHE 0 vs 1): warm median
 # 8.82s -> 8.96s, min 8.79s -> 8.84s == FLAT (within run-to-run noise). At this shape (n_feat=1) the greedy
 # CMI loop runs too few rounds/candidate-batches for the per-call y/z H2D to be on the critical path, so the
 # cache does not move the wall here. Mechanism verified (5 same-y/z dispatch calls -> exactly 2 cache entries
 # = y,z uploaded ONCE not per call). KEPT: it is selection-equivalent and can only help (never hurt) at the
 # many-round shapes where the H2D churn IS the safe_cuda_api/.get() overhead; the value is shape-dependent.
-# LRU FIX (.md #1, 2026-07-21): was a plain dict cleared WHOLESALE past 16
+# LRU FIX (.md #1): was a plain dict cleared WHOLESALE past 16
 # entries, undoing FIX3's own re-upload-avoidance on any greedy round touching >16 distinct y/z roles.
 # OrderedDict mirrors ``_fe_resident_operands.py``'s ``_FE_RESIDENT_OPERANDS`` exactly: move-to-end on hit,
 # evict only the single coldest entry on overflow.
@@ -546,7 +546,7 @@ def conditional_mi_batched_cuda(
         p, n = int(Xc_g.shape[0]), int(Xc_g.shape[1])
     joint_size = int(nbins_x) * int(nbins_y) * int(nbins_z)
 
-    # OOB SCREEN (FIX2, 2026-06-28): the joint-hist kernel uses raw codes DIRECTLY as a flat shared-mem
+    # OOB SCREEN (FIX2): the joint-hist kernel uses raw codes DIRECTLY as a flat shared-mem
     # offset (``cell = cz + cx*nbz + cy*(nbx*nbz)``) sized from nbins_* (= factors_nbins.max()). A -1
     # sentinel or a code >= its nbins indexes OUTSIDE the histogram -> cudaErrorIllegalAddress (a hard,
     # unrecoverable GPU crash, NOT a Python error). Mirror the host min/max screen batch_pair_mi_cuda
@@ -921,7 +921,7 @@ def conditional_mi_batched_dispatch(
     if use_cuda:
         y = np.ascontiguousarray(factors_data[:, y_index], dtype=np.int32)
         z = np.ascontiguousarray(factors_data[:, z_index], dtype=np.int32)
-        # OOB SCREEN (FIX2, 2026-06-28): screen HERE, BEFORE the GPU try/except below, so a -1 /
+        # OOB SCREEN (FIX2): screen HERE, BEFORE the GPU try/except below, so a -1 /
         # out-of-range code (illegal-address) surfaces as a ValueError instead of being swallowed by
         # the device-fault fallback (which would silently mask a real bug -> CPU). Cheap host min/max.
         # Xc's OOB check is now the ONE-TIME whole-matrix guard inside ``_resident_factors_device``

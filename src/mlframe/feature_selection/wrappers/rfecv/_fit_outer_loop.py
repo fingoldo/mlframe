@@ -67,7 +67,7 @@ class OuterLoopState:
     fitted_estimators: dict = field(default_factory=dict)
     selected_features_per_nfeatures: dict = field(default_factory=dict)
     dummy_scores: list = field(default_factory=list)
-    # 2026-05-28 sklearn-parity: per-fold scores keyed by N, for cv_results_["splitK_test_score"] schema.
+    # sklearn-parity: per-fold scores keyed by N, for cv_results_["splitK_test_score"] schema.
     per_fold_scores: dict = field(default_factory=dict)  # dict[N -> list[float] of length n_splits]
     # Every evaluated subset as (N, per-fold scores), in iteration order; feeds the futility stop and is published as ``eval_trace_``.
     eval_trace: list = field(default_factory=list)

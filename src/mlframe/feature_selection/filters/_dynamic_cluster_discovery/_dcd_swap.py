@@ -255,7 +255,7 @@ def evaluate_swap_candidate(
             return SwapDecision(accept=False)
         M, members, member_names = resolved
         Z, st.mean, st.std, st.signs = _standardize_align(M, ref_col=0)
-        # 2026-05-31 Layer 43 (PART B): ``auto`` swap method.
+        # Layer 43 (PART B): ``auto`` swap method.
         # Run a K-fold (n_folds=5) OOF MI bake-off over the three linear-
         # combiner methods and pick the per-cluster winner. The chosen method
         # is recorded in the recipe + swap_log so replay uses it bit-identically
@@ -342,7 +342,7 @@ def evaluate_swap_candidate(
     except Exception as exc:
         logger.warning("DCD swap: relevance estimation failed: %r", exc)
         return SwapDecision(accept=False)
-    # 2026-05-31 Layer 45: ANCHOR REFINEMENT. Pre-fix the decision was a
+    # Layer 45: ANCHOR REFINEMENT. Pre-fix the decision was a
     # binary gate (aggregate vs anchor). When the FIRST-picked feature
     # was a high-MI noisy spike rather than the cluster's center, the
     # aggregate ended up sign-aligned to a sub-optimal reference and the
@@ -397,7 +397,7 @@ def evaluate_swap_candidate(
     # Both gates active -> pick the higher CMI as the candidate branch.
     # When only one is active, that one wins by definition.
     st.prefer_aggregate = st.aggregate_gate and (not st.member_gate or st.rep_relevance >= st.best_member_rel)
-    # 2026-06-03 (audit dcd-core-1 / dcd-swap-null-1/2): resolve the effective
+    # resolve the effective
     # permutation-null draw count. ``full_npermutations`` (the screening
     # confidence, default 3) acts ONLY as the on/off switch - 0 means the
     # caller opted out of every null. When a null is requested we source the
@@ -472,8 +472,8 @@ def evaluate_swap_candidate(
         # Layer 45: aggregate failed its permutation null. If the
         # best-member gate also held (member_gate True), fall through to
         # the member-swap branch - but apply the SAME permutation null
-        # the caller requested via ``full_npermutations``. Wave 9.1 iter-3
-        # follow-up: the prior bypass made the member branch a side door
+        # the caller requested via ``full_npermutations``. The earlier
+        # bypass made the member branch a side door
         # past the null on pure-noise candidates.
         if st.member_gate and st.best_member_idx >= 0:
             member_p2 = _run_member_null(int(st.best_member_idx), float(st.best_member_rel), st.B_eff)
@@ -511,7 +511,7 @@ def evaluate_swap_candidate(
             member_relevance=(st.best_member_rel if st.best_member_idx >= 0 else 0.0),
         )
     aggregate_name = f"_dcd_pc1_{'_'.join(str(cols[m])[:6] for m in members[:3])}" f"_n{len(members)}_a{anchor}"
-    # 2026-05-31 Layer 43 (PART B): record the chosen method (the actual
+    # Layer 43 (PART B): record the chosen method (the actual
     # combiner used to build ``rep_continuous``) in the recipe, NOT the user-
     # facing ``state.swap_method`` string. When ``auto`` was active, the
     # chosen method is the K-fold OOF winner; when a specific method was
@@ -733,7 +733,7 @@ def commit_swap(
     if not decision.accept:
         return -1
     new_idx = int(decision.new_col_idx)
-    # 2026-05-31 Layer 45: member-swap branch. The decision points at an
+    # Layer 45: member-swap branch. The decision points at an
     # existing factors_data column (a cluster member), not a new aggregate.
     # No matrix extension, no recipe, no pool_pruned_mask resize. We
     # simply unprune the chosen member (discover_cluster_members had
@@ -810,7 +810,7 @@ def commit_swap(
     state.factors_data = new_data
     state.cols = new_cols
     state.factors_nbins = new_nbins
-    # 2026-06-03 (audit dcd-core-2): invalidate the int64 view of factors_nbins
+    # invalidate the int64 view of factors_nbins
     # cached by pair_su / pair_su_batch / pair_vi. It is built lazily at the
     # PRE-swap length and then reused while IGNORING the passed factors_nbins
     # (lines 451-454 / 511-514 / 559-562 / 654-657); without this reset, any
@@ -844,7 +844,7 @@ def commit_swap(
     if int(anchor) < state.pool_pruned_mask.shape[0]:
         state.pool_pruned_mask[int(anchor)] = True
     # 5. Persist recipe + log.
-    # 2026-05-31 Layer 43 (PART A): when an ``engineered_recipes`` dict is
+    # Layer 43 (PART A): when an ``engineered_recipes`` dict is
     # supplied (host MRMR's name->EngineeredRecipe map), upgrade the swap
     # ``recipe_obj`` (a plain dict carrying method/members/mean/std/signs/
     # weights) to a frozen ``EngineeredRecipe`` of kind ``cluster_aggregate``
@@ -941,7 +941,7 @@ def commit_swap(
             "aggregate_name": decision.aggregate_name,
             "n_members": len(cluster_members),
         })
-    # 2026-05-31 Layer 43 (PART B): record the chosen swap method (and any
+    # Layer 43 (PART B): record the chosen swap method (and any
     # K-fold OOF bake-off scores when ``auto`` ran) in the swap_log entry so
     # downstream callers can audit per-cluster method selection.
     _swap_log_entry = {

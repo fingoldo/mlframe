@@ -68,7 +68,7 @@ def compute_apriori_itemsets_features(
         d = X_ref.shape[1]
         bin_cols: list[np.ndarray] = []
         for j in range(d):
-            # Wave 21 P0: use nanquantile so a NaN-bearing column doesn't
+            # use nanquantile so a NaN-bearing column doesn't
             # poison every edge -> np.digitize then clamps every target row
             # to bin 0 -> the entire discretised feature collapses to a
             # constant. nanquantile returns NaN only when ALL inputs are
@@ -124,13 +124,13 @@ def compute_apriori_itemsets_features(
                 continue
             if task == "binary":
                 cond_mean = float(y_t[mask_train].mean())
-                lift = (cond_mean + 1e-6) / (target_mean + 1e-6)
+                lift = max(cond_mean, 1e-6) / max(target_mean, 1e-6)
             else:
                 cond_mean = float(np.mean(y_t[mask_train]))
-                lift = abs(cond_mean - target_mean) / (float(np.std(y_t)) + 1e-9)
+                lift = abs(cond_mean - target_mean) / max(float(np.std(y_t)), 1e-9)
             lifts.append(lift)
         # Sort by lift, take top_k.
-        # Wave 62 (2026-05-20): lexsort with itemset-index tiebreak so tied
+        # lexsort with itemset-index tiebreak so tied
         # lifts (rare items often saturate) give deterministic top-K.
         _lifts_arr = np.asarray(lifts)
         order = np.lexsort((np.arange(len(_lifts_arr)), -_lifts_arr))[:top_k]

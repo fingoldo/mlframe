@@ -100,7 +100,7 @@ def test_multilabel_aggregation_matches_manual_mean_across_children():
     model.fit(X, y)
 
     fi = get_model_feature_importances(model, cols, X=X, y=y)
-    assert fi is not None
+    assert fi.shape == (len(cols),)
 
     # Manual aggregation
     manual = np.mean(

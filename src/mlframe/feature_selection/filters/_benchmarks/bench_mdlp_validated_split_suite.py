@@ -811,7 +811,7 @@ def print_hparam_report(results: list) -> None:
         )
 
 
-# X_EFFICIENCY_ARCHITECTURE-1 fix: the duplicate-row/outlier robustness sweep was carved out into
+# the duplicate-row/outlier robustness sweep was carved out into
 # bench_mdlp_robustness.py to clear the repo's enforced hard 1000-LOC CI gate (this file was 1006
 # lines). Re-exported here so the __main__ block below (and external callers, e.g. tests) keep
 # working unchanged. Safe as a top-level import (unlike before the SCENARIOS/_oos_mse/_split move

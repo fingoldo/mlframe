@@ -70,8 +70,10 @@ def main():
     for t in range(50):
         a1, h1 = _old_inner(DX[t], QC[t], k, d)
         a2, h2 = _new_inner(DX[t], QC[t], k, d, iu, ju, diag_mask, ones_col)
-        assert np.array_equal(a1, a2), "A_quad mismatch"  # nosec B101 - internal invariant check in src/mlframe/feature_engineering/_benchmarks, not reachable with untrusted input
-        assert np.array_equal(h1, h2), "H mismatch"  # nosec B101 - internal invariant check in src/mlframe/feature_engineering/_benchmarks, not reachable with untrusted input
+        if not (np.array_equal(a1, a2)):
+            raise AssertionError("A_quad mismatch")
+        if not (np.array_equal(h1, h2)):
+            raise AssertionError("H mismatch")
     print("identity OK (A_quad + H bit-identical over 50 rows)")
 
     def bench_old(reps=7):

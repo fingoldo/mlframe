@@ -87,7 +87,7 @@ def _multiple_r_gpu(cp, X2_dev, yv_dev, y_std: float) -> float:
             logger.warning("cp.linalg.solve failed (likely singular), falling back to lstsq: %s", e)
             beta = cp.linalg.lstsq(design, yv_dev, rcond=None)[0]
     except Exception as e:
-        logger.debug("_multiple_r_gpu_resident: normal-equation solve and lstsq fallback both failed on a degenerate/singular design, returning 0.0: %s", e)
+        log_throttle(logger, "_fe_additive_fusion_gpu_resident._multiple_r_gpu", logging.WARNING, "_multiple_r_gpu_resident: normal-equation solve and lstsq fallback both failed on a degenerate/singular design, returning 0.0: %s", e)
         return 0.0
     fitted = design @ beta
     sf = float(cp.std(fitted))
@@ -283,7 +283,7 @@ def propose_additive_fusions_gpu(
             # no interpolation drift). The sum + binning both stay resident - no binning D2H.
             ca = vals_sc[:, ha["col"]]  # SCORING operands (subsampled); output built full-n on admit
             cb = vals_sc[:, hb["col"]]
-            # SIGN-AWARE ALIGNMENT (2026-07-01, mirrors the CPU path in _fe_additive_fusion.py). Each half is
+            # SIGN-AWARE ALIGNMENT (mirrors the CPU path in _fe_additive_fusion.py). Each half is
             # picked by SIGN-INVARIANT MI, so ``ca + cb`` can be DESTRUCTIVE toward y (a garbage compound that
             # still clears the gate and forces retention re-attachment -> fragmentation). Build BOTH ``ca + cb``
             # and ``ca - cb`` resident, bin each with the same distinct-edge-dedup binner, and keep the one whose

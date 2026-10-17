@@ -129,6 +129,7 @@ def augment_temporal_drift(
         # breaks, but for a per-period label -- a rolling default flag, a next-period target -- every synthetic
         # row was trained against the earlier period's answer.
         synth = ordered.loc[eligible].copy()
+        synth["_temporal_drift_augmented"] = True
         _last_rank_mask = rank_within_entity == (count_within_entity - 1)
         _true_last = ordered.loc[_last_rank_mask]
         if entity_col is not None and not _true_last.empty:
@@ -149,7 +150,6 @@ def augment_temporal_drift(
         safe_std = std.where(std > 0, np.nan)
         standardized = (raw - mean) / safe_std
         synth[feature_cols] = standardized.where(safe_std.notna(), 0.0)
-        synth["_temporal_drift_augmented"] = True
         if weight_by_recency:
             retained = (new_last_rank + 1).loc[eligible].astype(np.float64)
             full = count_within_entity.loc[eligible].astype(np.float64)

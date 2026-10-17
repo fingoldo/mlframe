@@ -13,8 +13,16 @@ from dataclasses import dataclass, field
 from typing import Literal
 
 import numpy as np
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
+
+
+def _arrays_equal_nan_manual(va: np.ndarray, vb: np.ndarray) -> bool:
+    """NaN-aware array equality without ``equal_nan`` (older numpy): same shape and equal everywhere, both-NaN counting as equal."""
+    if va.shape != vb.shape:
+        return False
+    return bool(((va == vb) | ((va != va) & (vb != vb))).all())
 
 
 def _extra_equal(a: dict, b: dict) -> bool:
@@ -47,16 +55,12 @@ def _extra_equal(a: dict, b: dict) -> bool:
             # NaN-aware (equal_nan=True) for float arrays; harmless for
             # integer arrays (numpy ignores the kwarg there).
             try:
-                if not np.array_equal(va, vb, equal_nan=True):
-                    return False
+                arrays_equal = bool(np.array_equal(va, vb, equal_nan=True))
             except TypeError:
-                # Older numpy without equal_nan; fall back to manual
-                # NaN-aware check.
-                if va.shape != vb.shape:
-                    return False
-                _eq = (va == vb) | ((va != va) & (vb != vb))  # both NaN -> equal
-                if not bool(_eq.all()):
-                    return False
+                # Older numpy without equal_nan; fall back to manual NaN-aware check.
+                arrays_equal = _arrays_equal_nan_manual(va, vb)
+            if not arrays_equal:
+                return False
         else:
             # Scalar NaN: float('nan') != float('nan') is True under
             # standard comparison, so treat both-NaN as equal.
@@ -70,7 +74,7 @@ def _extra_equal(a: dict, b: dict) -> bool:
                 # Nested list-of-arrays / ambiguous truth value: be
                 # conservative and report unequal rather than raising
                 # from inside __eq__.
-                logger.debug("_extra_equal fell back to its default after %s", type(_exc).__name__)
+                log_throttle(logger, "_recipe_core._extra_equal", logging.WARNING, "_extra_equal fell back to its default after %s", type(_exc).__name__)
                 return False
     return True
 
@@ -103,11 +107,11 @@ class EngineeredRecipe:
     """
 
     name: str
-    # T1#3 2026-05-18 #1 Hermite recipe: ``"hermite_pair"`` kind carries
+    # T1#3 #1 Hermite recipe: ``"hermite_pair"`` kind carries
     # ``coef_a``, ``coef_b``, ``basis``, ``bin_func_name``, ``preprocess_a``,
     # ``preprocess_b``, ``degree_a``, ``degree_b`` in ``extra``. The
     # 88-min Optuna best_res is now reproducible at predict-time.
-    # Layer 23 2026-05-31: ``orth_univariate`` carries (src_names=(c,),
+    # Layer 23: ``orth_univariate`` carries (src_names=(c,),
     # extra={basis, degree}); ``orth_pair_cross`` carries
     # (src_names=(c_i, c_j), extra={basis_i, basis_j, deg_a, deg_b}). Replay
     # is closed-form from the source column(s) alone - no y reference is
@@ -227,7 +231,7 @@ class EngineeredRecipe:
 
     def __hash__(self) -> int:
         # Name-based hash (names are unique per fit), since ``extra: dict`` is mutable and would normally disable __hash__.
-        # Wave 73 hardening: __eq__ (above) walks the ``extra`` dict
+        # Hardening: __eq__ (above) walks the ``extra`` dict
         # content (incl. ndarrays via np.array_equal). Hash key (kind, name) is
         # NARROWER than equality, so two recipes with same (kind, name) but
         # different ``extra`` collide on the same hash bucket but DON'T compare

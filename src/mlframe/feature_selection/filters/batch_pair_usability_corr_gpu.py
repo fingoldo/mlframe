@@ -83,10 +83,7 @@ from numba import prange
 
 logger = logging.getLogger(__name__)
 
-try:
-    from numba import cuda as _nb_cuda
-except ImportError:
-    _nb_cuda = None
+from numba import cuda as _nb_cuda
 
 try:
     from pyutilz.core.pythonlib import is_cuda_available as _pyutilz_is_cuda_available
@@ -526,8 +523,8 @@ def dispatch_batch_pair_usability_corr(
     elif force_backend is not None:
         raise ValueError(f"force_backend={force_backend!r}; expected 'cpu', 'cuda', 'cuda_warp' or None")
     else:
-        # Un-forced default (REVISED 2026-07-17, see the module docstring's "WARP-COALESCED KERNEL" section
-        # for the full re-measurement): the thread-per-item ``cuda`` backend genuinely lost to CPU (2026-07-11
+        # Un-forced default (REVISED, see the module docstring's "WARP-COALESCED KERNEL" section
+        # for the full re-measurement): the thread-per-item ``cuda`` backend genuinely lost to CPU (
         # A/B, ~0.53-0.6x at production scale) because it was memory-bandwidth-bound on UNCOALESCED reads,
         # not launch-overhead-bound - so batching more pairs never amortized it the way a launch-bound
         # kernel would. That diagnosis pointed at a FIXABLE kernel-design problem (thread-per-item is the

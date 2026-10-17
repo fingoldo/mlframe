@@ -240,7 +240,7 @@ class FeaturesAndTargetsExtractor:
         # Reset per-call state so the same FTE instance can be re-used across multiple
         # train_mlframe_models_suite calls (CV loop, A/B sweeps, fold-by-fold retraining)
         # without leaking N's target columns into N+1's drop list and N's emitted
-        # date-decomposition columns into N+1's metadata. Pre-2026-05-20 build_targets
+        # date-decomposition columns into N+1's metadata. Pre-build_targets
         # called ``self.columns_to_drop.add(col)`` per target column and
         # add_features did ``self.ftextractor_emitted_columns[self.ts_field] = ...``,
         # both growing monotonically per FTE-instance lifetime and contaminating the

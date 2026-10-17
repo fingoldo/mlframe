@@ -765,8 +765,8 @@ class MatplotlibRenderer:
         ys = p.y if isinstance(p.y, tuple) else (p.y,)
         # Per-series x: a tuple of x arrays parallel to ``y`` (ROC overlays with different fpr grids); else shared.
         xs_per_series = isinstance(p.x, tuple)
-        labels = p.series_labels or (None,) * len(ys)
-        styles = p.line_styles or ("-",) * len(ys)
+        labels = p.series_labels if p.series_labels else (None,) * len(ys)
+        styles = p.line_styles if p.line_styles else ("-",) * len(ys)
         cols = p.colors if p.colors else tuple(line_color(i) for i in range(len(ys)))
         sec = _per_series_flags(p.secondary_y, len(ys))
         fills = _per_series_flags(p.fill_to_baseline, len(ys))
@@ -811,7 +811,7 @@ class MatplotlibRenderer:
             ax.axvline(vx, color=vcolor, linestyle=":", linewidth=1.2, label=vlabel or None)
 
         for mx, my, mlabel, mcolor, msym in (p.point_markers or ()):
-            ax.plot([mx], [my], marker=msym or "*", markersize=13, color=mcolor,
+            ax.plot([mx], [my], marker=msym if msym else "*", markersize=13, color=mcolor,
                     markeredgecolor="black", markeredgewidth=0.6, linestyle="none",
                     label=mlabel or None, zorder=6)
             # The label rides the legend entry above and is deliberately NOT repeated next to the marker. It used

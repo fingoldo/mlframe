@@ -495,7 +495,7 @@ def justify_estimator(
         _gate_rng = np.random.default_rng(random_state)
         cv_splitter = KFold(n_splits=cv, shuffle=True, random_state=int(_gate_rng.integers(0, 2**32 - 1)))
     cv_results = cross_validate(est, X, y, cv=cv_splitter, scoring=scoring)
-    # Wave 21 P1: use np.nanmean so a single degenerate fold (e.g. all-one-
+    # use np.nanmean so a single degenerate fold (e.g. all-one-
     # class y, sklearn returns NaN) doesn't make mean_score == NaN; pre-fix
     # the >= gate then returned False and the function silently reported
     # "ML can't be used" + returned None, even when most folds were fine.
@@ -678,7 +678,7 @@ class ParamsOptimizer:
         probabilities. Raises ``ValueError`` if ``sampler`` is not ``'random'`` or ``'ml'``.
         """
 
-        # Wave 31 (2026-05-20): assert -> ValueError. Pre-fix typo
+        # assert -> ValueError. Pre-fix typo
         # silently skipped both branches under -O.
         if sampler not in ("random", "ml"):
             raise ValueError(f"sampler must be 'random' or 'ml'; got {sampler!r}.")

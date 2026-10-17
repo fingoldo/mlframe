@@ -123,7 +123,7 @@ def main():
     r1 = run_one("Fleuret CMIM (legacy)")
     results.append(r1)
 
-    # 2) JMIM aggregator (Wave 8).
+    # 2) JMIM aggregator.
     r2 = run_one("JMIM (Bennasar 2015)", redundancy_aggregator="jmim")
     results.append(r2)
 

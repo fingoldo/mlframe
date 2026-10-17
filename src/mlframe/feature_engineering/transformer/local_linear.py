@@ -25,6 +25,8 @@ import polars as pl
 from ._row_attention_ann import build_hnsw_index, query_topk
 from ._utils import require_seed, validate_numeric_input
 
+from mlframe.utils.log_throttle import log_throttle
+
 logger = logging.getLogger(__name__)
 
 
@@ -123,7 +125,8 @@ def compute_local_linear_attention(
             for q in range(n_anchor):
                 try:
                     beta[q] = np.linalg.solve(A[q], b[q])
-                except np.linalg.LinAlgError:  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
+                except np.linalg.LinAlgError as _sing_exc:  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
+                    log_throttle(logger, "local_linear.solve_row", logging.WARNING, "local_linear: singular local system at anchor %d (%s); using the fallback", q, _sing_exc)
                     singular[q] = True
         intercept = ym - np.einsum("ni,ni->n", Xm, beta)
         out[:, 0] = intercept.astype(dtype, copy=False)

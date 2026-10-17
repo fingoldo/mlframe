@@ -625,7 +625,9 @@ def _record_knob_provenance(metadata, hyperparams_config, _td_report):
             for _knob_name, _stamp in _knobs.items():
                 _has_user = isinstance(_user_slot, dict) and _knob_name.split(".")[0] in _user_slot
                 if _has_user:
-                    assert isinstance(_user_slot, dict)  # guaranteed by the ``_has_user`` construction above
+                    # guaranteed by the ``_has_user`` construction above
+                    if not (isinstance(_user_slot, dict)):
+                        raise AssertionError
                     _slot_store[_knob_name] = {"value": _user_slot[_knob_name.split(".")[0]], "source": "user"}
                 else:
                     _slot_store[_knob_name] = dict(_stamp)

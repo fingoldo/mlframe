@@ -52,7 +52,7 @@ import numpy as np
 
 logger = logging.getLogger(__name__)
 
-# Wave 87 (2026-05-21): module-level filter mutation removed; bench scripts
+# module-level filter mutation removed; bench scripts
 # now gate via __main__ to avoid poisoning the process-global filter on import.
 
 from mlframe.feature_selection.filters.hermite_fe import (

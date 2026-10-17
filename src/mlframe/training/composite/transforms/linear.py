@@ -25,6 +25,8 @@ except ImportError:  # pragma: no cover
     _numba = None
     _HAS_NUMBA = False
 
+from mlframe.utils.log_throttle import log_throttle
+
 logger = logging.getLogger("mlframe.training.composite_transforms")
 
 # Parent-resident constants referenced as default-arg values in function
@@ -745,7 +747,8 @@ def _linear_residual_grouped_fit(
             a_g = float(params_g["alpha"])
             b_g = float(params_g["beta"])
         except Exception as e:  # pragma: no cover - defensive
-            logger.warning(
+            log_throttle(
+                logger, "composite_linear_per_group_ols_failed", logging.WARNING,
                 "composite linear transform: per-group OLS fit failed for group %s (%s: %s); using the global "
                 "alpha/beta for that group's PREDICTIONS, but excluding it from the James-Stein shrinkage "
                 "statistics, since a copy of the global fit is not an independent per-group observation.",

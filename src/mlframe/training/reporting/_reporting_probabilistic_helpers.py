@@ -24,7 +24,7 @@ from mlframe.metrics.core import compute_fairness_metrics, fast_roc_auc
 
 from ..phases import phase
 
-# Wave 97 (2026-05-21): _canonical_multilabel_y / _maybe_display + the
+# _canonical_multilabel_y / _maybe_display + the
 # DEFAULT_* constants all live in ``_reporting``; that module imports us
 # from its bottom (after the helpers + constants are bound at module top),
 # so by the time Python resolves these names ``_reporting`` is partially
@@ -161,7 +161,7 @@ def _report_probabilist_preds_none(preds, targets, probs, multilabel_dispatch_co
             classes_ = model.classes_ if (model is not None and hasattr(model, "classes_")) else np.array([0, 1])
             preds = np.where(probs[:, 1] >= 0.5, classes_[1], classes_[0])
         else:
-            # Wave 21 P2: nan-safe argmax.
+            # nan-safe argmax.
             from mlframe.utils.nan_safe import argmax_classes_safe
 
             preds = argmax_classes_safe(probs, context="_reporting.report_perf")
@@ -310,7 +310,7 @@ def _report_probabilist_dropping_new_fields(y_score, y_true, class_metrics, roc_
             class_metrics["Gini"] = 2.0 * roc_auc - 1.0
         class_metrics["lift_at_10pct"] = lift_at_k(_y_true_arr, _y_score_arr, k_pct=10.0)
 
-        # Tier 2 additions (2026-05-28): Hosmer-Lemeshow calibration
+        # Tier 2 additions: Hosmer-Lemeshow calibration
         # chi-square + Accuracy Ratio. HL adds an actionable p-value
         # for "model is miscalibrated" complementing Spiegelhalter Z;
         # AR is the credit-risk convention name for 2*AUC-1.
@@ -423,7 +423,7 @@ def _report_probabilist_identical_text_shape(is_multilabel, targets, preds, clas
                 )
         else:
             _cls_report_text = classification_report(targets, preds, zero_division=0, digits=report_ndigits)
-    except (ValueError, TypeError, ImportError, AttributeError) as _cls_err:
+    except (ValueError, TypeError, AttributeError) as _cls_err:
         # Fall back to sklearn's classification_report when the njit-backed
         # path can't handle the input shape / dtype. Narrow catch leaves
         # programming bugs (KeyboardInterrupt, MemoryError) to propagate.
@@ -550,7 +550,7 @@ def _predict_probs_if_missing(probs, model, df):
 
             if model is not None and hasattr(model, "classes_"):
                 n_classes = len(model.classes_)
-                # Wave 24 P2 fix (2026-05-20): pre-fix
+                # pre-fix
                 # ``np.searchsorted(classes_, preds_fallback)`` had two
                 # latent bugs: (a) sort-contract on classes_ was assumed
                 # but not asserted; (b) any preds_fallback value NOT in

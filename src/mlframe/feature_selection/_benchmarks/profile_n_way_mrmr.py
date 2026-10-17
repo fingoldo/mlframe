@@ -24,7 +24,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-# Wave 87 (2026-05-21): module-level filter removed; gated under __main__ below.
+# module-level filter removed; gated under __main__ below.
 
 from mlframe.feature_selection.filters.mrmr import MRMR
 

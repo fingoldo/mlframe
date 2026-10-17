@@ -104,7 +104,7 @@ class TestPooledTriplePermutationNullHelper:
             names = [cols[i] for i in t]
             if key == genuine_key:
                 gen_mi = mis[k]
-            elif all(nm.startswith("noise_") for nm in names):
+            elif bool(names) and all(nm.startswith("noise_") for nm in names):
                 noise_mis.append(mis[k])
         noise_mis = np.array(noise_mis)
         assert noise_mis.size > 0, "no pure-noise triples found; the null-floor comparison below would be vacuous"

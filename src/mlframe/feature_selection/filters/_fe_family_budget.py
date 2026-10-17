@@ -240,7 +240,8 @@ def _sanitize_budget_file_key(file_key: str) -> str:
     import re
 
     safe = re.sub(r"[^A-Za-z0-9_.\-]", "_", file_key)
-    return os.path.basename(safe) or "_"
+    _base = os.path.basename(safe)
+    return _base if _base != "" else "_"
 
 
 def persist_budgets(budgets: dict[str, float], *, cache_key: str = "mlframe.fe_family_budget", fingerprint: Optional[str] = None) -> None:

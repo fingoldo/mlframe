@@ -222,7 +222,7 @@ def compose_calibration_by_feature_figure(
         return FigureSpec(
             suptitle="",
             panels=((AnnotationPanelSpec(text=text, title=title),),),
-            figsize=figsize or (9.0, 4.0),
+            figsize=(9.0, 4.0) if figsize is None else figsize,
         )
 
     centers = (np.arange(n_prob_bins) + 0.5) / n_prob_bins  # shared diagonal grid for every mini panel

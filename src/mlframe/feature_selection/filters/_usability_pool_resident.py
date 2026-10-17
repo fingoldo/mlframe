@@ -237,7 +237,7 @@ def score_pair_combos_table_resident(
 
         for p in range(npairs):
             x1, x2 = operands[p]
-            # Content-hash-keyed resident cache (2026-07-16, cProfile-driven): a raw operand column
+            # Content-hash-keyed resident cache (cProfile-driven): a raw operand column
             # commonly recurs across MANY pairs (var A paired with B, C, D, ... all share A) - was
             # re-uploaded from host on every occurrence despite unchanged content. resident_operand
             # (already used pervasively elsewhere in the FE-resident stack) uploads each DISTINCT

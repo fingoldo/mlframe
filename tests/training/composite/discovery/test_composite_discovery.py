@@ -490,7 +490,7 @@ class TestForbiddenFilters:
         )
         # And the corr drop list should NOT mention TVT_prev.
         corr_drops = [d for d in disc.filter_drops() if d.get("reason") == "forbidden_base_corr_threshold"]
-        assert all(d["name"] != "TVT_prev" for d in corr_drops)
+        assert not any(d["name"] == "TVT_prev" for d in corr_drops)
 
     def test_filter_drops_records_corr_threshold_reason(self) -> None:
         """When a literal copy of y IS dropped by corr threshold, the

@@ -199,7 +199,7 @@ def optimise_hermite_pair(
             ) from e
         optuna.logging.set_verbosity(optuna.logging.WARNING)
 
-    bin_funcs = bin_funcs or _DEFAULT_BIN_FUNCS
+    bin_funcs = _DEFAULT_BIN_FUNCS if bin_funcs is None else bin_funcs
 
     if basis not in _POLY_BASES:
         raise ValueError(f"unknown basis {basis!r}; expected one of {list(_POLY_BASES)}")
@@ -332,7 +332,7 @@ def _optimise_hermite_pai_step3_saves_us_call(st, basis, precomputed_identity_ba
     # (mul, ratio, sum_sq, atan2, ...) and use BEST trivial MI as baseline. Often a simple mul(x_a, x_b)
     # captures most of the signal a polynomial would (verified on XOR / circle / saddle / UCI).
     #
-    # 2026-05-20 NEW-A: callers running multiple ``fe_smart_polynom_iters``
+    # NEW-A: callers running multiple ``fe_smart_polynom_iters``
     # restarts per pair can pre-compute the trivial baseline once and feed
     # it in via ``precomputed_trivial_baseline`` (+ ``precomputed_trivial_name``);
     # this elides ~5x duplicated 50-150ms ``best_trivial_pair`` calls per
@@ -408,7 +408,7 @@ def _optimise_hermite_pai_step4_st_bf_callables(st, bin_funcs, multi_fidelity, s
     st.canonical_seeds_func = st.basis_info.get("canonical_seeds_func")
 
     # Factory-based bases (RBF, Sigmoid) eval depends on train-fold-fitted centres / thresholds. Build per-basis
-    # eval once preprocess params are known. Wave 69: separate eval for x_a and x_b already implemented
+    # eval once preprocess params are known. separate eval for x_a and x_b already implemented
     # below - factory is called twice with preprocess_a vs preprocess_b, producing distinct eval kernels per side.
     st.factory = st.basis_info.get("eval_njit_factory")
     if st.factory is not None:
@@ -417,11 +417,11 @@ def _optimise_hermite_pai_step4_st_bf_callables(st, bin_funcs, multi_fidelity, s
     else:
         eval_func_b = st.eval_func
 
-    # 2026-05-18 PERFORMANCE: precompute basis matrices once per pair for
-    # BLAS GEMV fastpath. Initial 2026-05-18 measurement (different
+    # PERFORMANCE: precompute basis matrices once per pair for
+    # BLAS GEMV fastpath. Initial measurement (different
     # hardware) found zero speedup at multi_fidelity=True scale and
     # gated the basis-matrix path OFF for that case. Re-measured
-    # 2026-05-20 on current hardware (numba 0.59, MKL BLAS) at the same
+    # on current hardware (numba 0.59, MKL BLAS) at the same
     # 1500-element inner CMA-ES scale showed BLAS GEMV is **1.13-1.19x
     # faster than ``@njit(parallel=True)`` Horner** — slice-copy
     # overhead and recurrence pipelining no longer cancel. Gate flipped
@@ -474,7 +474,7 @@ def _optimise_hermite_pai_step5_degree_st_degree(st, eval_func_b, mi_estimator, 
         bf_idx_best, coef_a_best, coef_b_best, raw_mi_best = _optimise_hermite_pai_step2_basis_matrix_factory(warm_start_als, st, ca_size, cb_size, B_a_deg, B_b_deg, basis, degree, coef_range, warm_seeds, warm_start, cross_fit_prior_seeds)
 
         if optimizer in ("cma", "cma_batch", "random_batch", "numba_kernel", "cupy_kernel"):
-            # 2026-05-20 NEW-D: translate the Optuna-trial-based
+            # NEW-D: translate the Optuna-trial-based
             # ``early_stop_no_improve`` knob into a CMA-generation count.
             _early_stop_gens = None
             if early_stop_no_improve and early_stop_no_improve < n_trials:
@@ -514,7 +514,7 @@ def _optimise_hermite_pai_step5_degree_st_degree(st, eval_func_b, mi_estimator, 
             # other code expects the full n - produces shape-mismatch
             # OR (silently worse) re-uses subsample-sized h_a but
             # subsample-sized MI -> CMA-ES misjudges which coef is best.
-            # Discovered 2026-05-18 via in-flight VERIFY assertion.
+            # Discovered via in-flight VERIFY assertion.
             full_kwargs["B_a"] = None
             full_kwargs["B_b"] = None
             st._, raw_mi_full, bf_idx_full = _eval_coef_pair(
@@ -590,14 +590,14 @@ def _optimise_hermite_pai_step1_try(optimizer, ca_size, cb_size, coef_range, n_t
         elif optimizer == "cupy_kernel":
             # GPU generation-batched twin of numba_kernel: one cuBLAS GEMM per generation for all
             # candidates' basis evaluation + batched device binning/MI. Same plugin-MI/polynomial-
-            # basis limitations as numba_kernel. cupy_kernel is the DEFAULT since 2026-07-15
+            # basis limitations as numba_kernel. cupy_kernel is the DEFAULT
             # (production wellbore-100k validation: fit wall 854s -> 480s -> 538s under load,
             # selection identical). On a cupy-less host, fall back to random_batch - NOT cma_batch
             # - per the time-to-first-best comparison below (random_batch matches cma_batch's
             # bit-identical winners at equal-or-lower wall on every measured case; instead of
             # letting the generic except route to the much slower/worse-converging optuna path).
             #
-            # OPTIMIZER COMPARISON (2026-07-15, protocol: 3 seeds x 3 restarts x 60 trials, plugin
+            # OPTIMIZER COMPARISON (protocol: 3 seeds x 3 restarts x 60 trials, plugin
             # MI, chebyshev basis, n=20000; "time to first best" = wall-clock offset at which the
             # EVENTUAL best MI was first reached, median across seeds; see
             # _benchmarks/bench_polynom_optimizer_bases_ab.py + results/bench_polynom_optimizer_bases.json):
@@ -809,7 +809,7 @@ def _optimise_hermite_pai_step2_basis_matrix_factory(warm_start_als, st, ca_size
                 B_a_deg,
                 B_b_deg,
                 st.y_search_any,
-                # DEVICE-BORN design (2026-06-30, H2D collapse): the standardised
+                # DEVICE-BORN design (H2D collapse): the standardised
                 # columns + basis B_a_search/B_b_search were built from are in
                 # scope, so route the resident GPU branch through
                 # warm_start_als_seed_gpu_from_z - it rebuilds the (degree+1)

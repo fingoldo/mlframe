@@ -604,7 +604,7 @@ from ._regression_corr import (  # noqa: F401  re-export: rank/correlation metri
 #     Pearson r, ExplainedVariance.
 #
 # Bench (mlframe.metrics._benchmarks.bench_extended_metric_blocks) - measured
-# on Win11 / numba 0.58 / 16-thread Ryzen 2026-05-28:
+# on Win11 / numba 0.58 / 16-thread Ryzen:
 #   N=10k:   separate 12 calls=0.37 ms   fused=0.06 ms   (5.80x)
 #   N=500k:  separate 12 calls=13.68 ms  fused=1.75 ms   (7.82x)
 #   N=5M:    separate 12 calls=121.3 ms  fused=11.5 ms   (10.51x)

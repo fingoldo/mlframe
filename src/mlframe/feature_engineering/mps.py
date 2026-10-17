@@ -173,7 +173,7 @@ def compute_area_profits(prices: np.ndarray, positions: np.ndarray) -> np.ndarra
 
     # Trailing slots (positions exhausted, prices remain) default to 0 -- matches the legacy contract where the last bar has no closing interval.
 
-    # Safe division: ``profits / prices`` previously produced inf/NaN on any zero-price bar (2026-04-19 round-9 probe finding). Zero prices appear in synthetic/test data and corrupted feeds; returning inf/NaN silently poisons downstream ML features. Guard: compute ratio only where price > 0; zero-price bars contribute 0 (no directional profit is meaningful without a valid denominator).
+    # Safe division: ``profits / prices`` previously produced inf/NaN on any zero-price bar (round-9 probe finding). Zero prices appear in synthetic/test data and corrupted feeds; returning inf/NaN silently poisons downstream ML features. Guard: compute ratio only where price > 0; zero-price bars contribute 0 (no directional profit is meaningful without a valid denominator).
     out = np.zeros_like(profits)
     for i in range(n_prices):
         if prices[i] > 0:
@@ -611,7 +611,7 @@ def show_mps_regions(
 
 def generate_market_price(n_days: int=100, base_price: float=100.0, trend: float=0.1, start_date: datetime=datetime(2024, 1, 1), base_volume: int=5000, random_seed: int = 42) -> tuple[Any, np.ndarray, np.ndarray]:  # noqa: DTZ001 -- synthetic demo price series, a naive calendar date is the right default here
     """Generate a synthetic daily (dates, prices, volumes) series with trend, mean reversion, occasional news-event jumps, and volume that spikes on big price moves. For demos/tests, not real market data."""
-    # Wave 49 (2026-05-20): switch to local Generator instead of mutating the
+    # switch to local Generator instead of mutating the
     # global RNG (which broke determinism for any sibling code running in the
     # same process). Falls back to entropy-seeded Generator when random_seed
     # is None per the standard default_rng contract.
@@ -665,7 +665,7 @@ def safely_compute_mps(f: str, **kwargs: Any) -> Any:
         if res is not None and len(res) > 0:
             return res
     except Exception:
-        # Wave 41 (2026-05-20): print -> logger.exception so traceback is preserved
+        # print -> logger.exception so traceback is preserved
         # and the message stops mixing with stdout.
         logger.exception("Error processing MPS file %s", f)
     return None

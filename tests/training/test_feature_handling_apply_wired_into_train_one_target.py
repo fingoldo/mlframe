@@ -187,7 +187,8 @@ def test_sample_weight_kwarg_accepted_today():
         current_train_target=target,
         sample_weight=sw,
     )
-    assert result is not None
+    assert result.val is None and result.test is None
+    assert len(result.feature_names) >= 1
 
 
 # =====================================================================

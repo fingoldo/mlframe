@@ -89,7 +89,7 @@ class ShapProxiedMethodsMixin:
         behaviour path.
         """
         _mode = str(self.proxy_mode).lower()
-        return bool(self.su_seeded_interactions) or _mode in ("auto", "faith_interaction")
+        return True if self.su_seeded_interactions else _mode in ("auto", "faith_interaction")
 
     def _su_screen_snr_z(self) -> float:
         """Resolve the su_seeded screen's ``snr_z`` gate, tightened for the auto-only / faith_interaction-only path.

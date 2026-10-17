@@ -84,11 +84,11 @@ def screen_dcd_discover_and_swap(
                 factors_nbins=factors_nbins,
                 entropy_cache=entropy_cache,
                 cached_MIs=cached_MIs,
-                full_npermutations=int(full_npermutations or 0),
+                full_npermutations=int(full_npermutations) if full_npermutations is not None else 0,
             )
             if _decision.accept:
                 _data_ref: dict = {}
-                # 2026-05-31 Layer 43 (PART A) fix:
+                # Layer 43 (PART A) fix:
                 # pass the host MRMR's engineered_recipes
                 # dict so commit_swap registers the PC1
                 # aggregate as an EngineeredRecipe. Pre-

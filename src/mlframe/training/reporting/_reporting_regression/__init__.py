@@ -52,7 +52,6 @@ from types import SimpleNamespace as _SimpleNamespace
 
 logger = logging.getLogger(__name__)
 
-
 def report_regression_model_perf(
     targets: np.ndarray | pd.Series,
     columns: Sequence[str],
@@ -85,7 +84,7 @@ def report_regression_model_perf(
     # this affects. When set, the fast fused-block path is skipped (the fused kernel has no
     # weighted variant) in favour of the individual weighted fast_* calls.
     sample_weight: np.ndarray | None = None,
-    # 2026-05-23 audit-followup #2: train-y envelope for the collapse sensor.
+    # audit-followup #2: train-y envelope for the collapse sensor.
     # When supplied, the sensor's linear-extrapolation branch additionally
     # checks pred range against the TRAIN-y range, not just the in-batch
     # target range. Catches OOD-extrapolation that lands within the
@@ -94,7 +93,7 @@ def report_regression_model_perf(
     y_train_min: float | None = None,
     y_train_max: float | None = None,
     y_train_std: float | None = None,
-    # 2026-05-28 audit batch: precomputed MASE naive-MAE scale + the
+    # audit batch: precomputed MASE naive-MAE scale + the
     # seasonality used to compute it. When both are set, the report
     # stamps a MASE value into the metrics dict. ``naive_mae`` MUST be
     # computed on the train-fold ONLY via the same seasonality, e.g.
@@ -190,7 +189,7 @@ def report_regression_model_perf(
         st.preds_arr = _point
         preds = _point
 
-    # F-34 (2026-05-31): MULTI_TARGET_REGRESSION gate. This reporter
+    # F-34: MULTI_TARGET_REGRESSION gate. This reporter
     # assumes 1-D targets + 1-D preds for the scatter/histogram chart,
     # the residual audit (skew/kurtosis), the prediction-envelope clip,
     # and the MASE / fairness subgroup paths. (N, K) targets/preds get
@@ -259,7 +258,7 @@ def report_regression_model_perf(
             "instead.",
             st.targets_arr.shape,
         )
-    # 2026-05-22: fused single-pass kernel for the 1-D regression-reporting case.
+    # fused single-pass kernel for the 1-D regression-reporting case.
     # On 1-D inputs the 4 separate ``fast_*`` calls each re-touched (y_true, y_pred)
     # from RAM (4-5 passes total); the fused 2-pass kernel produces numerically
     # equivalent results (<1e-12 abs diff vs sklearn baseline) at 2.3-3.4x the speed
@@ -286,7 +285,7 @@ def report_regression_model_perf(
         y_train_std=y_train_std,
     )
 
-    # 2026-05-28 audit: additional metrics that don't factor into the
+    # audit: additional metrics that don't factor into the
     # fused block (sort-based / log-based / parameterised). Each is gated
     # by a narrow try-block so a degenerate input does not poison the
     # whole report. RMSLE warns + returns NaN on negative inputs (the
@@ -309,7 +308,7 @@ def report_regression_model_perf(
         MaxError=MaxError,
         R2=R2,
         RMSE=RMSE,
-        # 2026-05-28 audit: 8 extras lifted from the fused extended block.
+        # audit: 8 extras lifted from the fused extended block.
         # NSE numerically equals R2 (sklearn convention) but stamped
         # separately because hydrology / climate code expects the name.
         MBE=_ext_MBE,
@@ -384,7 +383,7 @@ def report_regression_model_perf(
         # caller emitting the MTRESID tag with a non-canonical target
         # column (custom user composite) still hits the skip path.
         # Override via env MLFRAME_KEEP_T_SCALE_COMPOSITE_REPORTS=1.
-        # 2026-05-27 (user bug report): the prior detector
+        # the prior detector
         # ``_has_mtresid_token OR is_composite_target_name(token)`` was
         # over-broad. ``is_composite_target_name`` matches the COMPOSITE
         # TARGET NAME (e.g. ``TVT-spline-TVT_prev``) which appears in
@@ -399,7 +398,7 @@ def report_regression_model_perf(
         # marker (y-scale charts have it too).
         _model_name_str = str(model_name)
         _is_t_scale_composite_chart = "MTRESID" in _model_name_str
-        # 2026-05-27 user pushback: a T-scale chart is useless to the
+        # user pushback: a T-scale chart is useless to the
         # operator -- they need a y-scale chart for THIS model that's
         # comparable to raw-target charts. The y-scale chart for
         # composite models is emitted by ``_phase_composite_wrapping``
@@ -420,7 +419,7 @@ def report_regression_model_perf(
         header_str = report_title + " " + model_name + f" [{nfeatures}{get_human_readable_set_size(len(targets))} rows]" + _scale_tag
         from ..._format import format_metric as _fmt
 
-        # 2026-05-28 audit batch: token-based regression title.
+        # audit batch: token-based regression title.
         # The legacy hardcoded "MAE/RMSE/MaxError/R2" string is now a
         # special case of the token loop. The renderable token set is
         # DEFAULT_REGRESSION_TITLE_TOKENS (defined below); callers can
@@ -684,54 +683,6 @@ def _report_regression_mo_step1_st_targets_arr(st, mase_naive_mae, model_name, _
     return _ext_Cindex, _ext_Huber, _ext_Kendall, _ext_MdAPE, _ext_RMSLE, _ext_Spearman
 
 
-def _report_regression__targets_arr_ndim_targets(targets_arr, preds_arr, targets, preds, metrics, model_name, _residual_audit):
-    """Block of report_regression_model_perf starting at ``if not ((targets_arr.ndim > 1 and targets_arr.shape[1] > 1) or (preds_``."""
-    if not ((targets_arr.ndim > 1 and targets_arr.shape[1] > 1) or (preds_arr.ndim > 1 and preds_arr.shape[1] > 1)):
-        try:
-            from mlframe.training.targets import audit_residuals as _audit_residuals_fn
-
-            _residual_audit = _audit_residuals_fn(targets, preds)
-            if metrics is not None:
-                metrics["residual_audit"] = _residual_audit.to_dict()
-        except Exception as _audit_err:
-            logger.warning(
-                "residual_audit failed for '%s': %s. Continuing without diagnostics.",
-                model_name,
-                _audit_err,
-            )
-    return _residual_audit
-
-
-def _report_regression__warm_state_regression_report(show_perf_chart, plot_file):
-    """Block of report_regression_model_perf starting at ``if show_perf_chart and not plot_file:``."""
-    if show_perf_chart and not plot_file:
-        try:
-            _is_interactive_session = bool(__IPYTHON__)  # type: ignore[name-defined]
-        except NameError:
-            import sys as _sys
-
-            _is_interactive_session = hasattr(_sys, "ps1")
-        if not _is_interactive_session:
-            show_perf_chart = False  # disable for the guards below
-    return show_perf_chart
-
-
-def _report_regression__try(reporting_config, _reg_tokens):
-    """Block of report_regression_model_perf starting at ``try:``."""
-    try:
-        _cfg_tokens = getattr(reporting_config, "regression_title_metrics_tokens", None)
-        if _cfg_tokens:
-            _reg_tokens = tuple(_cfg_tokens)
-    except (AttributeError, TypeError):
-        # reporting_config is now a real parameter (threaded through
-        # _trainer_train_and_evaluate -> _compute_split_metrics ->
-        # report_model_perf -> here). It may still be None when a caller
-        # constructs the regression reporter directly without the full
-        # suite context; the try/except keeps that path harmless.
-        pass
-    return _reg_tokens
-
-
 def _report_regression__carry_per_output_aggregated(
     _is_multioutput,
     print_report,
@@ -816,7 +767,7 @@ def _report_regression__carry_per_output_aggregated(
             idx = idx[np.argsort(_preds_arr[idx])]
 
             # Two-panel figure: scatter | residuals histogram.
-            # 2026-05-22: removed the "Residuals vs predicted"
+            # removed the "Residuals vs predicted"
             # panel; its heteroscedasticity diagnostic (spearman
             # of |resid|, y_hat) now lands inside the scatter
             # title. The remaining two panels each get ~50% wider
@@ -924,14 +875,14 @@ def _report_regression__print_report(print_report, model_name, report_title, MAE
         from mlframe.training._format import format_metric as _fmt
 
         # Annotate composite-target reports as T-scale. Composite targets carry ``MTRESID=`` in the model_name (stamped by ``select_target``); this indicates the printed metrics live on the RESIDUAL scale, not the raw y-scale. The wrap pass separately emits y-scale numbers via ``[CompositeTargetEstimator] ... y-scale metrics:`` so the operator can compare apples-to-apples with raw-target reports.
-        # 2026-05-27 (user bug report): same fix as the chart-skip gate
+        # same fix as the chart-skip gate
         # above -- only ``MTRESID`` token marks a T-scale chart. The
         # composite-target-NAME token is present on y-scale charts too;
         # the prior ``is_composite_target_name`` predicate was wrong
         # here and skipped legitimate y-scale prediction-quality
         # reports.
         _is_t_scale_composite = "MTRESID" in model_name
-        # 2026-05-28: a composite target's MAE/RMSE/R2 are in the
+        # a composite target's MAE/RMSE/R2 are in the
         # residual/composite scale, NOT the original-target scale, so they are
         # NOT comparable to the raw-target leaderboard. The user requires that
         # NO composite-scale number ever reaches the log/chart -- only the
@@ -983,68 +934,10 @@ def _report_regression__print_report(print_report, model_name, report_title, MAE
         logger.info("\n".join(_report_lines))
 
 
-def _report_regression__cleanly_under_one_record(subgroups, subset_index, targets, preds, print_report, metrics):
-    """Block of report_regression_model_perf starting at ``if subgroups:``."""
-    if subgroups:
-        fairness_report = compute_fairness_metrics(
-            subgroups=subgroups,
-            subset_index=subset_index,  # compute_fairness_metrics handles None internally (see its subset_index is None branch)
-            y_true=targets,
-            y_pred=preds,
-            metrics={"MAE": fast_mean_absolute_error, "RMSE": fast_root_mean_squared_error},
-            metrics_higher_is_better={"MAE": False, "RMSE": False},
-        )
-        if fairness_report is not None:
-            if print_report:
-                _maybe_display(fairness_report)
-            if metrics is not None:
-                metrics.update(dict(fairness_report=fairness_report))
-
-
-def _report_regression_point_metrics(st, sample_weight):
-    """Headline and extended regression metrics for the current (targets_arr, preds_arr) pair.
-
-    Uses the fused 1-D kernel when there is no sample weight, otherwise the per-metric weighted kernels.
-    Returns (MAE, RMSE, MaxError, R2, MBE, MAPE_mean, SMAPE, wMAPE, CV_RMSE, NSE, Pearson, ExplainedVariance).
-    """
-    if st.targets_arr.ndim == 1 and st.preds_arr.ndim == 1 and sample_weight is None:
-        # 2026-05-28 audit batch: switched from fast_regression_metrics_block
-        # (4 metrics: MAE/RMSE/MaxError/R2) to the EXTENDED block that lands
-        # 12 metrics in the SAME 2 numba passes. 5.8-10.5x faster than the
-        # equivalent 12 separate calls; see comment block in
-        # ``mlframe.metrics._regression_extras`` for measured speedups.
-        # Only reachable when sample_weight is None: the fused kernel has no weighted variant.
-        from mlframe.metrics.core import fast_regression_metrics_block_extended
-
-        _block = fast_regression_metrics_block_extended(st.targets_arr, st.preds_arr)
-        MAE = _block["MAE"]
-        RMSE = _block["RMSE"]
-        MaxError = _block["MaxError"]
-        R2 = _block["R2"]
-        # Stash the rest on the locals so the chart-title token renderer
-        # below can pick them up without recomputing.
-        _ext_MBE = _block["MBE"]
-        _ext_MAPE_mean = _block["MAPE_mean"]
-        _ext_SMAPE = _block["SMAPE"]
-        _ext_wMAPE = _block["wMAPE"]
-        _ext_CV_RMSE = _block["CV_RMSE"]
-        _ext_NSE = _block["NSE"]
-        _ext_Pearson = _block["Pearson"]
-        _ext_EV = _block["ExplainedVariance"]
-    else:
-        # Either a 2-D/multioutput target, OR sample_weight was supplied (the fused block has no
-        # weighted variant). MAE/RMSE/R2 correctly honor sample_weight here via their own
-        # fast_*(sample_weight=...) kernels; the 8 "extended" metrics have no weighted kernel
-        # anywhere in the codebase and stay unweighted (NaN placeholders, matching the pre-existing
-        # 2-D-path behavior) rather than silently mixing weighted and unweighted numbers in one report.
-        _ext_MBE = _ext_MAPE_mean = _ext_SMAPE = _ext_wMAPE = np.nan
-        _ext_CV_RMSE = _ext_NSE = _ext_Pearson = _ext_EV = np.nan
-        MAE = fast_mean_absolute_error(st.targets_arr, st.preds_arr, sample_weight=sample_weight)
-        # 2-D max_error returns per-output array; the existing reporting
-        # contract is a single scalar (overall max), so reduce explicitly.
-        # No weighted variant exists (matches sklearn's own unweighted max_error).
-        _max_err = fast_max_error(st.targets_arr, st.preds_arr)
-        MaxError = float(np.max(_max_err)) if isinstance(_max_err, np.ndarray) else _max_err
-        R2 = fast_r2_score(st.targets_arr, st.preds_arr, sample_weight=sample_weight)
-        RMSE = fast_root_mean_squared_error(st.targets_arr, st.preds_arr, sample_weight=sample_weight)
-    return (MAE, RMSE, MaxError, R2, _ext_MBE, _ext_MAPE_mean, _ext_SMAPE, _ext_wMAPE, _ext_CV_RMSE, _ext_NSE, _ext_Pearson, _ext_EV)
+from ._small_blocks import (
+    _report_regression__cleanly_under_one_record,
+    _report_regression__targets_arr_ndim_targets,
+    _report_regression__try,
+    _report_regression__warm_state_regression_report,
+    _report_regression_point_metrics,
+)

@@ -19,3 +19,8 @@ def njit(*args: Any, **kwargs: Any) -> Any:
         return fn
 
     return deco
+
+
+def prange(*args: Any) -> range:
+    """Serial ``range`` stand-in for ``numba.prange`` so parallel loops still run correctly, just single-threaded."""
+    return range(*args)

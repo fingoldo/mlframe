@@ -154,7 +154,7 @@ def _is_multi_output_catboost(model: Any) -> bool:
     try:
         loss = str(get_params().get("loss_function", "")).lower()
     except Exception as e:
-        logger.debug("get_all_params() probe failed (%s: %s) -- treating as not the CatBoost multi-output risky case", type(e).__name__, e)
+        log_throttle(logger, "shap_panels._is_multi_output_catboost", logging.WARNING, "get_all_params() probe failed (%s: %s) -- treating as not the CatBoost multi-output risky case", type(e).__name__, e)
         return False
     return loss.startswith(_CATBOOST_MULTI_OUTPUT_LOSS_PREFIXES)
 
@@ -172,7 +172,7 @@ def _model_has_catboost_embedding_features(model: Any) -> bool:
     try:
         return bool(get_indices())
     except Exception as e:
-        logger.debug("get_embedding_feature_indices() probe failed (%s: %s) -- treating as not the risky case", type(e).__name__, e)
+        log_throttle(logger, "shap_panels._model_has_catboost_embedding_features", logging.WARNING, "get_embedding_feature_indices() probe failed (%s: %s) -- treating as not the risky case", type(e).__name__, e)
         return False
 
 
@@ -527,7 +527,7 @@ def _matplotlib_formats(plot_outputs: Optional[str]) -> List[str]:
             fl = str(f).lower()
             if fl not in fmts:
                 fmts.append(fl)
-    return fmts or ["png"]
+    return fmts if fmts else ["png"]
 
 
 def _close_figs(figs: List[Any]) -> None:
@@ -718,7 +718,9 @@ def shap_summary_and_dependence(
     else:
         bg = shap.sample(X_sample, min(kernel_background, len(idx)), random_state=seed)
         # A bound ``predict_proba`` is not proof of a classifier: mlframe's PartialFitESWrapper always defines the method and raises at CALL time when wrapping a regressor. Probe once on the tiny background sample and fall back to ``predict`` so KernelSHAP works for regression models instead of raising mid-explain.
-        predict = getattr(model, "predict_proba", None) or getattr(model, "predict")
+        predict = getattr(model, "predict_proba", None)
+        if predict is None:
+            predict = getattr(model, "predict")
         if predict is not getattr(model, "predict", None):
             try:
                 predict(bg[:1])

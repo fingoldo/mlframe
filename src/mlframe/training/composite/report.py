@@ -36,6 +36,7 @@ import numpy as np
 
 from .provenance import _format_transform_formulas
 from ._value_report import build_composite_value_report, render_composite_value_report
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -100,7 +101,7 @@ def _gather(estimator: Any, X: Any, y: Any) -> dict[str, Any]:
         base_cols = estimator._resolve_base_columns()
         primary_base = base_cols[0] if base_cols else "base"
     except Exception as e:  # best-effort: a report field falls back to a placeholder; no fitted state changes
-        logger.debug("_resolve_base_columns() failed, using 'base' as the primary column label: %s", e)
+        log_throttle(logger, "report._gather", logging.WARNING, "_resolve_base_columns() failed, using 'base' as the primary column label: %s", e)
         primary_base = "base"
 
     forward, inverse, description = _format_transform_formulas(

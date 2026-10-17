@@ -137,7 +137,7 @@ def _prefill_cond_MIs_gpu(
         cand_keys = [arr2str(np.asarray([ci], dtype=np.int64)) for ci in cand_indices]
 
         # Shadow the numba typed-dict's keys in a plain Python set for this call's membership checks
-        # (cProfile, 2026-07-16 wellbore fit: numba.typed.typeddict.__contains__ cost 40.5s / 1.6M calls,
+        # (cProfile, wellbore fit: numba.typed.typeddict.__contains__ cost 40.5s / 1.6M calls,
         # ~1613570 of them from the missing_pos scan below - EVERY (candidate, z) membership check crosses
         # the Python<->numba boundary individually. A python 'x in str_key' against a numba typed Dict pays
         # real per-call marshaling overhead: measured ~25us/check vs ~0.2us against a plain python set/dict,
@@ -215,7 +215,7 @@ def evaluate_candidates(
     verbose: int = 1,
     ndigits: int = 5,
     use_simple_mode: bool = True,
-    # 2026-05-30 Wave 9.1 iter 5: Wave 8 thread-locals MUST be re-published
+    # The SU/JMIM/BUR thread-locals MUST be re-published
     # into the worker thread. ``threading.local`` does NOT propagate across
     # joblib workers (even with backend='threading', new threads in the
     # pool have their own local namespace), so reads from inside the worker
@@ -235,7 +235,7 @@ def evaluate_candidates(
     random_seed: Optional[int] = None,
 ) -> tuple:
     """Thread-worker entry point: re-publish the Wave 8 ``threading.local`` toggles (SU/JMIM/Bur-lambda/relax-mrmr/PID/CMI-perm/CPT/Miller-Madow/group-MI) into this worker thread, run ``_evaluate_candidates_inner`` over the workload, then restore the prior thread-local values in ``finally`` so a reused worker doesn't leak this call's settings into the next dispatch."""
-    # Worker-thread re-publish of Wave 8 toggles (iter 5 fix). The
+    # Worker-thread re-publish of the SU/JMIM/BUR toggles. The
     # try/finally guarantees we don't pollute the worker thread's locals
     # if the same worker is re-used for a subsequent dispatch with
     # different settings. mi_miller_madow is forwarded alongside the other six:
@@ -326,7 +326,7 @@ def _hoist_round_shared_columns(
     _relax_sel_nbins: Optional[list] = None
     # The hoist serves every research knob that needs the round's target and selected set, not only RelaxMRMR: PID, the CMI permutation
     # stop and CPT each rebuilt them per candidate. RelaxMRMR additionally requires fleuret complex mode; the others do not.
-    _knobs_need_hoist = get_pid_synergy_bonus() > 0.0 or bool(get_cmi_perm_stop()[0]) or bool(get_cpt_test()[0])
+    _knobs_need_hoist = True if get_pid_synergy_bonus() > 0.0 else (True if get_cmi_perm_stop()[0] else bool(get_cpt_test()[0]))
     _relax_needs_hoist = get_relaxmrmr_alpha() > 0.0 and not use_simple_mode and str(mrmr_relevance_algo) == "fleuret"
     if selected_vars and (_relax_needs_hoist or _knobs_need_hoist):
         try:
@@ -491,7 +491,7 @@ def _evaluate_candidates_inner(
     # here - its only effect is within-call memoisation of repeated {X} u Z keys.
     # The final size is published to the module-level stats deque purely for
     # observability (the parity test reads it to PROVE the cache populated/hit).
-    # bench (2026-06-19, n=4000 p=40 order-2 JMIM): cache delivers ~117k HITS over ~1.26M
+    # bench (n=4000 p=40 order-2 JMIM): cache delivers ~117k HITS over ~1.26M
     # entries -> real cross-round reuse; selection byte-identical (test_jmim_cache_parity).
     # WALL-TIME A/B (3 seeds, distinct frames per arm to dodge the re-fit content cache, cache ON vs a
     # forced-miss kill path): 183.2s on vs 190.0s off => ~1.04x (-6.8s, ~4%) - a real but MODEST wall win,

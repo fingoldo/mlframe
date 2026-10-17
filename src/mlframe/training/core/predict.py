@@ -442,7 +442,7 @@ def _is_post_hoc_calibrated_model(model_obj: Any) -> bool:
         # not: the mixed-calibration WARN could never fire. Both levels are checked, the inner one first.
         _names = [type(getattr(model_obj, "model", model_obj)).__name__, type(model_obj).__name__]
     except Exception as exc:
-        logger.debug("_is_post_hoc_calibrated_model: type introspection failed: %s", exc)
+        log_throttle(logger, "predict._is_post_hoc_calibrated_model", logging.WARNING, "_is_post_hoc_calibrated_model: type introspection failed: %s", exc)
         return False
     return any(_n in _WRAPPERS for _n in _names)
 
@@ -460,9 +460,13 @@ def _resolve_quantile_alphas(metadata: dict, target_type: Any, target_name: Any,
     if isinstance(metadata, dict):
         _qa = metadata.get("quantile_alphas")
         if isinstance(_qa, dict):
-            _by_tt = _qa.get(target_type) or _qa.get(str(target_type))
+            _by_tt = _qa.get(target_type)
+            if _by_tt is None:
+                _by_tt = _qa.get(str(target_type))
             if isinstance(_by_tt, dict):
-                _alphas = _by_tt.get(target_name) or _by_tt.get(str(target_name))
+                _alphas = _by_tt.get(target_name)
+                if _alphas is None:
+                    _alphas = _by_tt.get(str(target_name))
                 if _alphas:
                     return list(_alphas)
             elif isinstance(_by_tt, (list, tuple)):
@@ -534,10 +538,14 @@ def _resolve_chosen_ensemble_params(metadata: dict, target_type: Any = None, tar
     if not isinstance(_ep, dict):
         return {}
     if target_type is not None:
-        _by_tt = _ep.get(target_type) or _ep.get(str(target_type))
+        _by_tt = _ep.get(target_type)
+        if _by_tt is None:
+            _by_tt = _ep.get(str(target_type))
         if isinstance(_by_tt, dict):
             if target_name is not None:
-                _params = _by_tt.get(target_name) or _by_tt.get(str(target_name))
+                _params = _by_tt.get(target_name)
+                if _params is None:
+                    _params = _by_tt.get(str(target_name))
                 if isinstance(_params, dict):
                     return _params
             # single-entry fallback
@@ -583,10 +591,14 @@ def _resolve_chosen_flavour(metadata: dict, target_type: Any = None, target_name
         )
         _bucket = _ec if _looks_flat else None
     if _bucket is not None and target_type is not None:
-        _by_tt = _bucket.get(target_type) or _bucket.get(str(target_type))
+        _by_tt = _bucket.get(target_type)
+        if _by_tt is None:
+            _by_tt = _bucket.get(str(target_type))
         if isinstance(_by_tt, dict):
             if target_name is not None:
-                _fl = _by_tt.get(target_name) or _by_tt.get(str(target_name))
+                _fl = _by_tt.get(target_name)
+                if _fl is None:
+                    _fl = _by_tt.get(str(target_name))
                 if _fl:
                     return str(_fl)
             # Single-target fallback -- if there's only one entry, use it.
@@ -712,7 +724,8 @@ def _concat_probs_dicts(
             else:
                 chunks.append(_chunk.astype(_dtype, copy=False))
         out[key] = np.concatenate(chunks, axis=0)
-        logger.warning(
+        log_throttle(
+            logger, "predict_concat_probs_missing_batches", logging.WARNING,
             "_concat_probs_dicts: %r produced no output on %d of %d batches; those rows are NaN-filled to keep the "
             "array aligned with the input frame. The model is listed under results['partial_models'].",
             key, len(parts) - len(present), len(parts),
@@ -871,7 +884,8 @@ def load_mlframe_suite(models_path: str, trusted_root: str | None = None) -> tup
     # were gone. Report every target that lost members; a target left with NONE cannot be served at all.
     for (_tt, _tn), _names in _failed_loads.items():
         _left = len(models.get(_tt, {}).get(_tn, []))
-        logger.error(
+        log_throttle(
+            logger, "predict_load_suite_members_failed", logging.ERROR,
             "load_mlframe_suite: %d model(s) for %s/%s failed to load and are NOT in the returned suite (%d loaded): %s",
             len(_names), _tt, _tn, _left, _names[:10],
         )

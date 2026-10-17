@@ -56,7 +56,8 @@ def _bench(shape: tuple, n_repeats: int = 3) -> dict:
         b = _numpy_full(M)
     t_np = (time.perf_counter() - t0) * 1000 / n_repeats
 
-    assert np.allclose(a, b, atol=1e-9, equal_nan=True)  # nosec B101 - internal invariant check in src/mlframe/training/_benchmarks, not reachable with untrusted input
+    if not (np.allclose(a, b, atol=1e-9, equal_nan=True)):
+        raise AssertionError
 
     # cupy (optional)
     try:

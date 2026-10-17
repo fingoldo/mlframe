@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import logging
 
+from mlframe.utils.log_throttle import log_throttle
+
 logger = logging.getLogger(__name__)
 
 __all__ = ["insert_composite_targets"]
@@ -40,7 +42,8 @@ def insert_composite_targets(target_by_type: dict, kept: list[dict], metadata: d
         name = item["name"]
         if name in slot:
             collided.append(item)
-            logger.warning(
+            log_throttle(
+                logger, "composite_target_slot_collision", logging.WARNING,
                 "[CompositeTargetDiscovery] composite target '%s' collides with an existing target in target_by_type[%s]; "
                 "the spec is dropped rather than overwriting that target's values.", name, item["tt"],
             )

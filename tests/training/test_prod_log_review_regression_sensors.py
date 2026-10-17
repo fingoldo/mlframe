@@ -1058,7 +1058,7 @@ class TestPolarsReleaseBeforeNonNativeStrategy:
         core_logger.setLevel(_logging.INFO)
         utils_logger.setLevel(_logging.INFO)
         try:
-            train_mlframe_models_suite(
+            trained, _meta = train_mlframe_models_suite(
                 df=pl_df,
                 target_name="release_test",
                 model_name="release",
@@ -1079,6 +1079,9 @@ class TestPolarsReleaseBeforeNonNativeStrategy:
             core_logger.setLevel(prev_core_level)
             utils_logger.setLevel(prev_utils_level)
 
+        # all three strategies (cb, xgb, lgb) must have trained despite the early release of the polars originals
+        n_trained = sum(len(lst) for by_name in trained.values() for lst in by_name.values())
+        assert n_trained == 3
         msgs = [m for _, m in records]
         # Release indicator: any log line announcing that the pre-pipeline Polars originals were dropped (wording is incidental; we test the contract, not the phrasing). Accept either the
         # explicit pre-pipeline release or the post-pipeline release (both indicate the originals are no longer alive by the time LGB enters its lazy conversion).

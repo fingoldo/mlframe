@@ -422,7 +422,9 @@ def render_multi_target_panels(
     render = _PanelRender(plot_dpi=plot_dpi, plot_outputs=plot_outputs, base_path=base_path, panel_failures=panel_failures, suptitle=suptitle, max_cols=max_cols)
 
     # LTR and quantile regression fall through to the classification branches when they do not render.
-    rendered = _try_ltr(render, tt, targets_arr, preds, probs, group_ids, ltr_panels) or _try_quantile(render, tt, targets_arr, preds, quantile_alphas, quantile_panels)
+    rendered = _try_ltr(render, tt, targets_arr, preds, probs, group_ids, ltr_panels)
+    if not rendered:
+        rendered = _try_quantile(render, tt, targets_arr, preds, quantile_alphas, quantile_panels)
     if rendered:
         return rendered
 

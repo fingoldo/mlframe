@@ -189,7 +189,7 @@ def holiday_calendar_features(
         years = range(int(dates_dt.dt.year.min()) - 1, int(dates_dt.dt.year.max()) + 2)
     # Normalize to midnight before any holiday-array comparison: holiday_dates (built from the
     # `holidays` package's date objects) are always midnight-normalized, so an un-normalized
-    # timestamped input (e.g. 2024-12-25 14:30:00) would silently never match via np.isin --
+    # timestamped input (e.g. a timestamp at 14:30 on Christmas Day) would silently never match via np.isin --
     # is_holiday/is_eve always False with no error.
     dates_np = dates_dt.dt.normalize().to_numpy()
 

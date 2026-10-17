@@ -17,6 +17,7 @@ import logging
 
 import numpy as np
 from typing import cast
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -41,7 +42,7 @@ def propagate_use_resident(n_full: int, n_sub: int) -> bool:
     try:
         choice = _PROPAGATE_SPEC.choose(n_full=n_full_bucket, n_sub=n_sub_bucket)
     except Exception as exc:
-        logger.debug("propagate_use_resident: KTC lookup failed, staying on the host path: %s", exc)
+        log_throttle(logger, "_propagate_gpu_ktc.propagate_use_resident", logging.WARNING, "propagate_use_resident: KTC lookup failed, staying on the host path: %s", exc)
         return False
     return bool(choice == "resident")
 

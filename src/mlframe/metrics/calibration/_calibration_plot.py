@@ -58,7 +58,7 @@ from mlframe.utils.env_flags import env_int
 logger = logging.getLogger(__name__)
 
 
-# 2026-05-28 audit: added KS / MCC / BSS to the default title set
+# audit: added KS / MCC / BSS to the default title set
 # per user feedback - the most informative single-number summaries
 # beyond the existing calibration / AUC family. KS shows score
 # discrimination on imbalanced classes; MCC summarises all 4 cells
@@ -98,7 +98,7 @@ def render_title_metric_token(
     precision: float,
     recall: float,
     f1: float,
-    # 2026-05-28 audit batch additions. Default to NaN so older
+    # audit batch additions. Default to NaN so older
     # callers (no extras computed) still render the historical
     # token set without crashing; the new tokens just emit "N/A".
     ks: float = np.nan,
@@ -132,7 +132,7 @@ def render_title_metric_token(
     if token == "BR":  # nosec B105 - identifier/config-key name matched by heuristic, not an embedded credential
         return f"BR={brier_loss * 100:.{pct_digits}f}%"
     if token == "BR_DECOMP":  # nosec B105 - identifier/config-key name matched by heuristic, not an embedded credential
-        # 2026-04-27 Session 7 batch 8 (user feedback): compact form
+        # Session 7 batch 8 (user feedback): compact form
         # of the Brier decomposition. The math is BR = REL - RES + UNC
         # (Murphy 1973), so the most informative compact rendering is
         # the actual signed-sum: ``BR=X%(RL<rel>%+U<unc>%-RS<res>%)`` where
@@ -618,7 +618,7 @@ def show_calibration_plot(
     inline matplotlib path has no overlay. Absent raw arrays -> overlay simply not drawn (binned-only diagram, no crash).
     """
 
-    # Wave 31 (2026-05-20): assert -> ValueError so -O preserves input validation.
+    # assert -> ValueError so -O preserves input validation.
     if backend not in ("plotly", "matplotlib"):
         raise ValueError(f"backend must be 'plotly' or 'matplotlib'; got {backend!r}.")
     if prob_histogram_yscale not in ("auto", "log", "linear"):
@@ -678,7 +678,7 @@ def show_calibration_plot(
         # function and raise UnboundLocalError. Nothing was requested; no-op.
         return None
 
-    # 2026-05-09: short-circuit when there is NO plot consumer. The
+    # short-circuit when there is NO plot consumer. The
     # ``show_plots=True`` default expresses "render if a human can see
     # it"; in a script / CI / fuzz process (no IPython kernel, no
     # ``sys.ps1``) that's a contradiction -- ``plt.show()`` is a
@@ -730,7 +730,7 @@ def show_calibration_plot(
         # Using Figure + FigureCanvasAgg directly drops this to ~0.2s. Also thread-safe,
         # which matters for parallel val/test evaluation.
         #
-        # 2026-05-09: tried extending the guard to also fire for
+        # tried extending the guard to also fire for
         # ``show_plots=True`` outside an IPython kernel, hypothesising
         # that the GUI-bound path's pyplot+Qt overhead was wasted in
         # script / CI runs. Two A/B benches on c0104 (5 fits each)
@@ -759,7 +759,7 @@ def show_calibration_plot(
             return fig
 
         # Interactive path (show_plots=True) -- keep pyplot so the GUI window is managed.
-        # 2026-05-11: layout="constrained" -> layout=None (same rationale as the
+        # layout="constrained" -> layout=None (same rationale as the
         # save-only path above: 1.67x faster, visually equivalent on this
         # 12x6 figsize + multi-axis colorbar + 2-line title geometry).
         fig = _show_calibration_p_x6_figsize_multi_axis(show_prob_histogram, figsize, dpi, _draw_calibration_axes, _draw_histogram_axes, plot_title)
@@ -770,7 +770,7 @@ def show_calibration_plot(
         if plot_file:
             fig.savefig(ensure_parent_dir(plot_file))
 
-        # 2026-05-09: ``show_plots=True`` previously ran ``plt.ion();
+        # ``show_plots=True`` previously ran ``plt.ion;
         # plt.show()`` and left the figure open. In an automated /
         # headless / fuzz / CI run (no REPL, no Jupyter kernel),
         # ``plt.show()`` is either a no-op (Agg canvas, with
@@ -908,7 +908,7 @@ def _show_calibration_p_plot_outputs_base_path(plot_outputs, base_path, plot_fil
         if _fmt not in ("html", "png", "svg", "pdf", "json"):
             _fmt = "html"
         _outputs = parse_plot_output_dsl(f"plotly[{_fmt}]")
-        _base = _root or "calibration"
+        _base = _root if _root != "" else "calibration"
     return _base, _outputs
 
 
@@ -921,7 +921,7 @@ def _show_calibration_p_show_prob_histogram(show_prob_histogram, fig, _draw_cali
         # Colorbar spans BOTH axes so each subplot loses the
         # same horizontal slice -> X-axes stay aligned via
         # sharex (was: colorbar attached only to ax_main,
-        # making ax_hist visually wider -- user feedback 2026-04-27).
+        # making ax_hist visually wider -- user feedback).
         _draw_calibration_axes(ax_main, fig, draw_xlabel=False, cbar_ax=[ax_main, ax_hist])
         _draw_histogram_axes(ax_hist)
         # hide top axes' x tick labels since hist below carries them via sharex

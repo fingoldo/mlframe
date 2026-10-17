@@ -60,7 +60,8 @@ def to_polars(frame: pd.DataFrame, spec: Optional[DatasetSpec] = None) -> Tuple[
     for name in frame.columns:
         series = frame[name]
         if isinstance(series.dtype, pd.CategoricalDtype):
-            levels = list(declared.get(str(name)) or [str(value) for value in series.cat.categories])
+            _declared_levels = declared.get(str(name))
+            levels = list(_declared_levels if _declared_levels else [str(value) for value in series.cat.categories])
             if not declared.get(str(name)):
                 notes.append(f"{name!r}: levels read off this draw rather than from a spec, so another draw's enum may differ")
             values = [None if pd.isna(value) else str(value) for value in series]

@@ -33,7 +33,7 @@ logger = logging.getLogger(__name__)
 # its only caller and the kernels below reference it by this name.
 from ._fe_batched_mi_guards import _assert_codes_in_range
 
-# FUSED MI-FROM-CODES RawKernel (launch-reduction rewrite, 2026-06-25). ONE launch computes plug-in
+# FUSED MI-FROM-CODES RawKernel (launch-reduction rewrite). ONE launch computes plug-in
 # MI(col_k; y) for EVERY column of an (n,K) int code matrix, replacing the cupy chain bincount + reshape
 # + sum(axis) x2 + where + log + multiply + sum (~7 cuLaunchKernel) with a single kernel launch (also via
 # cuLaunchKernel -> a genuine COUNT reduction, not a driver/runtime counter shift). One block per column:
@@ -85,7 +85,7 @@ void mi_from_codes(const long long* __restrict__ codes,   // (n, K) row-major in
     }
 }
 """
-# FUSED VALUES->BIN->HIST->MI RawKernel (mega-fusion, 2026-06-25). For an (n,K) FLOAT matrix + per-column
+# FUSED VALUES->BIN->HIST->MI RawKernel (mega-fusion). For an (n,K) FLOAT matrix + per-column
 # interior quantile edges, ONE launch bins each value in-kernel (binary-search upper_bound == cp.searchsorted
 # side='right') AND builds the joint histogram AND computes plug-in MI - replacing the separate
 # _searchsorted_codes kernel + the (n,K) int code array + binned_mi_from_codes_gpu. One block per column,
@@ -185,7 +185,7 @@ void mi_from_counts_col(const int* __restrict__ gcounts, const int K, const int 
 _MI_FROM_VALUES_KERNEL = None
 _MI_SPLIT_KERNELS = None
 
-# f32-X twin of the values->bin->hist->MI module (dtype-churn kill, 2026-07-03, nsys-driven). The opt-in
+# f32-X twin of the values->bin->hist->MI module (dtype-churn kill,, nsys-driven). The opt-in
 # f32 binning path (keep_dtype / relax_binning) holds the (n,K) candidate matrix in float32 to feed the
 # f32 radix-select edges, but ``binned_mi_from_values_gpu`` re-UPCAST that whole matrix to f64
 # (X.astype(f64)) before this kernel AND transposed it in f64 (transpose_f64) - pure churn: the f32->f64
@@ -310,7 +310,7 @@ _MI_MM_FROM_VALUES_NEK_SRC = (
 )
 _MI_MM_FROM_VALUES_NEK_KERNEL = None
 
-# f32-X twin of the length-aware MM kernel (dtype-churn kill, 2026-07-03). Same rationale as the f32
+# f32-X twin of the length-aware MM kernel (dtype-churn kill). Same rationale as the f32
 # mi_from_values twin: the only use of X is ``double v = X[i*K+c]`` (widening float->double promotion), so
 # reading X as f32 and promoting per-element yields the exact f64 the f64 path stored via X.astype(f64) ->
 # BIT-IDENTICAL codes/MM-MI. Edges stay f64. Kills the (n,K) f32->f64 upcast on the pair-combo MM path.
@@ -482,7 +482,7 @@ def binned_mi_from_values_gpu(x_vals: Any, interior_edges: Any, y_codes: Any, nb
         return None
     _assert_codes_in_range(yv, Ky, "binned_mi_from_values_gpu y codes", codes_trusted)
     mi_out = cp.empty(K, dtype=cp.float64)
-    # COLUMN-MAJOR X for a COALESCED load (nvprof 2026-07-02: the row-major X[i*K+c] scan was gld_efficiency
+    # COLUMN-MAJOR X for a COALESCED load (nvprof: the row-major X[i*K+c] scan was gld_efficiency
     # 28.9% - strided by K). One coalesced tiled transpose to (K,n) feeds both the single + split kernels,
     # which now index X[c*n+i] (consecutive threads -> consecutive addresses). The kernels' bin codes/MI are
     # unchanged (same values, just a different read layout). Falls back to the row-major contiguous copy if the
@@ -496,7 +496,7 @@ def binned_mi_from_values_gpu(x_vals: Any, interior_edges: Any, y_codes: Any, nb
         Xc = _transpose_to_cm(cp.ascontiguousarray(Xd))  # (K, n) C-order == column-major over the (n,K) matrix
     _inv = np.float64(1.0 / float(max(1, n)))
     # SPLIT-N when one-block-per-column can't fill the SMs (narrow K, big n): 60/66 of these launches were
-    # K<=32 blocks on a 6-SM card (nsys 2026-07-02) -> segment the n rows across S blocks/column into a merged
+    # K<=32 blocks on a 6-SM card (nsys) -> segment the n rows across S blocks/column into a merged
     # global histogram, then a per-column MI pass. Same codes + plug-in MI -> selection-equivalent. The
     # single-vs-split crossover is HW-specific (SM count); consult the per-host kernel_tuning_cache instead of
     # the HW-overfit K<48/n>=262144 magic constants, which stay as the measurement-backed fallback + the
@@ -691,7 +691,7 @@ def _get_qbin_coder_kernel():
     global _QBIN_CODER_RAW
     if _QBIN_CODER_RAW is None:
         import cupy as cp
-        # FP64-compare avoidance (ncu 2026-07-15, cc 8.9: the double-compare loop pinned the FP64 pipeline
+        # FP64-compare avoidance (ncu, cc 8.9: the double-compare loop pinned the FP64 pipeline
         # at 84.4% while memory sat at 24.5% - consumer Ada runs FP64 at 1:64). Finite IEEE doubles order
         # identically (signed compare) to key = b >= 0 ? b : b ^ 0x7FFF..F (flip magnitude bits of negatives), so convert x
         # ONCE per element and the edges once per call, then all ne comparisons run on the integer pipeline.
@@ -756,7 +756,7 @@ def batched_quantile_bin_gpu(x_cols: Any, nbins: int) -> Any:
         from ._gpu_resident_select import _radix_select_interior_edges, fe_gpu_radix_edges_enabled
         if fe_gpu_radix_edges_enabled():
             # with_extremes=True: min/max ride along as 2 extra exact order statistics in the SAME select
-            # pass (ncu/nsys-driven, 2026-07-15) instead of two standalone Xd.min(axis=0)/Xd.max(axis=0)
+            # pass (ncu/nsys-driven) instead of two standalone Xd.min(axis=0)/Xd.max(axis=0)
             # reduction kernels - returns the full (nbins+1, K) edge matrix directly, no concatenate.
             edges_all = _radix_select_interior_edges(cp.ascontiguousarray(Xd), int(nbins), with_extremes=True)
     except Exception as e:
@@ -870,7 +870,7 @@ def batched_cmi_gpu(x_cols: Any, y: np.ndarray, z: Any = None, return_cards: boo
         dy = resident_code_operand(np.asarray(y).ravel(), "cmi_y")
     nf = float(max(1, n))
     inv_n = 1.0 / nf
-    # ``kx`` / ``ky`` (2026-07-02, scalar-sync kill): the histogram WIDTH upper bound. The codes are 0-based
+    # ``kx`` / ``ky`` (scalar-sync kill): the histogram WIDTH upper bound. The codes are 0-based
     # equi-frequency bins in [0, nbins-1] and the labels in [0, n_classes-1], so the caller knows the width
     # (nbins / n_classes) - pass it to SKIP the ``int(X.max())`` / ``int(dy.max())`` blocking device syncs (each
     # drains the GPU queue ~ms; the kernel-timeline gap analysis put ~4,900 such scalar D2H as the dominant
@@ -898,7 +898,7 @@ def batched_cmi_gpu(x_cols: Any, y: np.ndarray, z: Any = None, return_cards: boo
 
     # z is ROUND-CONSTANT: when host, resident-cache it (one H2D per round, reused across candidate batches);
     # when already resident, use as-is. The shape+content fingerprint distinguishes successive rounds' z.
-    # ``precomp_yz`` (2026-07-02, perm-null chunk hoist): the column-invariant y/z terms
+    # ``precomp_yz`` (perm-null chunk hoist): the column-invariant y/z terms
     # ``(dz, Kz, h_z, k_z, yz, Kyz, h_yz, k_yz)`` computed by a PRIOR call over the SAME (y, z). The perm-null's
     # VRAM-chunked driver calls this per perm-chunk (down to 1 perm/chunk at the gate's huge joints), and each
     # chunk re-derived the identical z entropies + yz key + the .max() syncs - up to ~25 recomputes per null.
@@ -953,7 +953,7 @@ def batched_cmi_gpu(x_cols: Any, y: np.ndarray, z: Any = None, return_cards: boo
 
 
 # Back-compat re-exports: the batched CMI count/entropy kernel infrastructure was carved into
-# ``_fe_batched_mi_cmi`` (carve-wave, 2026-06-28). Importers use ``from ._fe_batched_mi import X``;
+# ``_fe_batched_mi_cmi`` (carve-wave). Importers use ``from ._fe_batched_mi import X``;
 # keep every previously-public name resolving through the parent.
 from ._fe_batched_mi_cmi import (  # noqa: F401
     _rows_entropy_and_k,

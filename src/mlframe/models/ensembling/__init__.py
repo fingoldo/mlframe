@@ -120,7 +120,9 @@ def _build_votenrank_leaderboard_from_results(res: dict, *, is_regression: bool)
             continue
         if is_regression and _flavour.lower().startswith("rrf"):
             continue
-        _metrics = getattr(_result, "metrics", None) or (_result.get("metrics") if isinstance(_result, dict) else None)
+        _metrics = getattr(_result, "metrics", None)
+        if not _metrics:
+            _metrics = _result.get("metrics") if isinstance(_result, dict) else None
         if not _metrics:
             continue
         _flat: dict[str, float] = {}

@@ -22,6 +22,7 @@ from typing import Any
 import numpy as np
 
 from mlframe.core.helpers import get_model_best_iter
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -406,7 +407,7 @@ def _maybe_refit_on_collapsed_predictions(
     try:
         _y = np.asarray(train_target)
     except Exception as exc:
-        logger.debug("collapse-detector: train_target coercion failed, skipping refit-retry check: %s", exc)
+        log_throttle(logger, "_training_loop_refit._maybe_refit_on_collapsed_predictions", logging.WARNING, "collapse-detector: train_target coercion failed, skipping refit-retry check: %s", exc)
         return False
     if _y.ndim != 1 or _y.size < 10:
         return False
@@ -443,7 +444,7 @@ def _maybe_refit_on_collapsed_predictions(
     try:
         _preds = np.asarray(model.predict(train_df)).reshape(-1)
     except Exception as exc:
-        logger.debug("collapse-detector: train predict failed, skipping refit-retry check: %s", exc)
+        log_throttle(logger, "_training_loop_refit._maybe_refit_on_collapsed_predictions", logging.WARNING, "collapse-detector: train predict failed, skipping refit-retry check: %s", exc)
         return False
     if _preds.size != _y.size:
         return False

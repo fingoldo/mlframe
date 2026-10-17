@@ -72,7 +72,8 @@ def batch_mi_noise_gate_code_version() -> str:
         try:
             from ..batch_mi_noise_gate_gpu import _batch_mi_noise_gate_code_version as _bming_code_version
 
-            _BATCH_MI_NOISE_GATE_CODE_VERSION_CACHED = _bming_code_version() or "batch_mi_noise_gate-v2"
+            _code_version = _bming_code_version()
+            _BATCH_MI_NOISE_GATE_CODE_VERSION_CACHED = _code_version if _code_version else "batch_mi_noise_gate-v2"
         except Exception as e:
             _module_logger.warning("batch_mi_noise_gate_gpu code-version resolution failed, using the static fallback string: %s", e)
             _BATCH_MI_NOISE_GATE_CODE_VERSION_CACHED = "batch_mi_noise_gate-v2"

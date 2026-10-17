@@ -18,11 +18,14 @@ import hashlib
 import logging
 import threading
 from collections import OrderedDict
-from typing import Callable
+from typing import TYPE_CHECKING, Callable
 
 import numpy as np
 
 from mlframe.utils.log_throttle import log_throttle
+
+if TYPE_CHECKING:
+    from numpy.typing import ArrayLike
 
 logger = logging.getLogger(__name__)
 
@@ -68,7 +71,7 @@ def _clear_encode_cache() -> None:
         _encode_memo.clear()
 
 
-def joint_target_codes(y) -> np.ndarray:
+def joint_target_codes(y: "ArrayLike") -> np.ndarray:
     """One dense int64 class code per row for a multi-column target ``y`` of shape (n, k).
 
     The merged-target path (``multioutput_strategy`` None / ``'joint'``) treats the output columns as one joint target, but the FE stages

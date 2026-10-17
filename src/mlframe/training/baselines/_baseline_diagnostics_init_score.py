@@ -10,6 +10,7 @@ from typing import Sequence
 
 import numpy as np
 import pandas as pd
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +29,7 @@ def _is_numeric_column(X, name: str) -> bool:
             return _kind in "iuf"
         return bool(getattr(_dtype, "is_numeric", lambda: False)())
     except Exception as exc:
-        logger.debug("could not read the dtype of %r (%s); treating it as non-numeric", name, exc)
+        log_throttle(logger, "_baseline_diagnostics_init_score._is_numeric_column", logging.WARNING, "could not read the dtype of %r (%s); treating it as non-numeric", name, exc)
         return False
 
 

@@ -27,7 +27,7 @@ def _short_fe_name(name, maxlen: int = 30) -> str:
     try:
         s = str(name)
     except Exception as e:
-        logger.debug("_short_fe_name: str(name) failed for progress-display truncation, showing '?': %s", e)
+        log_throttle(logger, "_pairs_core_helpers._short_fe_name", logging.WARNING, "_short_fe_name: str(name) failed for progress-display truncation, showing '?': %s", e)
         return "?"
     if len(s) <= maxlen:
         return s

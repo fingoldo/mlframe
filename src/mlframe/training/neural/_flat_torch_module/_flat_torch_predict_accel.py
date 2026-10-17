@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, Any, Optional, cast
 
 import torch
 from mlframe.utils.env_flags import env_int
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger("mlframe.training.neural.flat")
 
@@ -92,7 +93,7 @@ class _PredictAccelMixin(_PredictAccelBase):
         try:
             _has_recurrent = any(isinstance(m, _recurrent_types) for m in self.network.modules())
         except Exception as e:
-            logger.debug("recurrent-module scan failed: %s", e)
+            log_throttle(logger, "_flat_torch_predict_accel._apply_torch_compile", logging.WARNING, "recurrent-module scan failed: %s", e)
             _has_recurrent = False
         if _has_recurrent:
             logger.warning(

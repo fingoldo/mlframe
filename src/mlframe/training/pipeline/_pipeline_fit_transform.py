@@ -28,6 +28,7 @@ from pyutilz.pandaslib import ensure_dataframe_float32_convertability
 
 from ..configs import PreprocessingBackendConfig
 from ..strategies import PANDAS_CATEGORICAL_DTYPES, get_polars_cat_columns
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger("mlframe.training.pipeline")
 
@@ -95,7 +96,7 @@ def fit_and_transform_pipeline(
             try:
                 _first = next((v for v in _series.head(8) if v is not None), None)
             except Exception as exc:
-                logger.debug("_looks_embedding: sample probe failed, treating column as non-embedding: %s", exc)
+                log_throttle(logger, "_pipeline_fit_transform._looks_embedding", logging.WARNING, "_looks_embedding: sample probe failed, treating column as non-embedding: %s", exc)
                 return False
             if _first is None:
                 return False

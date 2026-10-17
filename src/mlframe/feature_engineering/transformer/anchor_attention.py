@@ -93,7 +93,7 @@ def _score_rows_against_anchors(X: np.ndarray, anchors: np.ndarray, anchor_aggs:
     """For each row in X, compute softmax-weighted similarity to all anchors AND per-anchor target features (broadcast soft-assignment * aggregate)."""
     # Negative squared euclidean as similarity; softmax over anchors per row.
     dists = _squared_dists(X, anchors)  # (n, K)
-    logits = -dists / (softmax_temp + 1e-9)
+    logits = -dists / max(softmax_temp, 1e-9)
     logits -= logits.max(axis=1, keepdims=True)  # numerical stability
     exp_l = np.exp(logits)
     weights = exp_l / exp_l.sum(axis=1, keepdims=True)  # (n, K)

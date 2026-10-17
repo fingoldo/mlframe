@@ -34,7 +34,7 @@ from mlframe.utils.log_throttle import log_throttle
 _XLOGX_ROWS_EK = None
 
 
-# FUSED per-row entropy + occupied-cell in ONE RawKernel (launch-reduction, 2026-06-25). The prior path was
+# FUSED per-row entropy + occupied-cell in ONE RawKernel (launch-reduction). The prior path was
 # _XLOGX_ROWS_EK (1) + .sum(axis=1) (1) + (counts>0).sum(axis=1) (1) = 3 cuLaunchKernel per call; with 2-4
 # calls per batched_cmi_gpu it was the residual #1 launch source. One block per row (candidate) grid-strides
 # its M cells accumulating (sum xlogx, nnz), a shared-mem tree reduction folds the block, and thread 0 writes
@@ -210,7 +210,7 @@ def _rows_entropy_and_k(counts, inv_n):
         return h, k
 
 
-# FUSED joint-histogram RawKernels (launch-reduction, 2026-06-25). The per-call cupy CMI built each joint
+# FUSED joint-histogram RawKernels (launch-reduction). The per-call cupy CMI built each joint
 # histogram as caller int-arithmetic flat key (dx*Kb+db -> cupy multiply + add) followed by cp.bincount
 # (itself scan + two cub_any passes). These kernels compute the flat key IN-KERNEL and atomicAdd into a
 # caller-zeroed counts buffer -> ONE launch per joint, no intermediate key array, no bincount cub_any.
@@ -473,7 +473,7 @@ def _batched_joint_entropy_and_k2(X, b, Kx, Kb, inv_n):
         return None
 
 
-# FUSED 1D scalar entropy + occupied-cell (launch-reduction, 2026-06-25). The column-invariant H(z)/H(y,z)/
+# FUSED 1D scalar entropy + occupied-cell (launch-reduction). The column-invariant H(z)/H(y,z)/
 # H(y) terms in batched_cmi_gpu were cp.bincount (scan+cub) -> boolean-mask getitem -> *inv_n -> log -> mul
 # -> sum (~6-7 cuLaunchKernel) plus a separate (c>0).sum() nnz. Computing the histogram with the in-kernel
 # atomicAdd joint_counts_gpu (one launch, no bincount) and reducing it with this grid-stride kernel (one
@@ -552,7 +552,7 @@ def joint_counts_gpu(codes: Any, cards: Any) -> Any:
     return counts
 
 
-# FUSED joint histogram + plug-in entropy in ONE launch (launch-reduction, 2026-06-25). The per-candidate
+# FUSED joint histogram + plug-in entropy in ONE launch (launch-reduction). The per-candidate
 # CMI path computed each term as joint_counts_gpu (atomicAdd hist) + _ent_from_counts (entropy reduce) = TWO
 # launches. When the joint cell count M = prod(cards) fits in shared memory, ONE block builds the histogram in
 # SHARED via atomicAdd, then reduces the plug-in entropy (-sum p log p) + occupied-cell count in the same
@@ -666,7 +666,7 @@ def joint_entropy_gpu(codes: Any, cards: Any, inv_n: float) -> tuple[float, int]
     return _ent_nnz_1d(joint_counts_gpu(codes, cards), inv_n)  # type: ignore[no-any-return]
 
 
-# FUSED four-joint conditional-CMI entropies in ONE launch (launch-reduction, 2026-06-26). The conditional
+# FUSED four-joint conditional-CMI entropies in ONE launch (launch-reduction). The conditional
 # CMI(x;y|z) needs the plug-in entropy + occupied-cell count of FOUR joints - (z), (x,z), (y,z), (x,y,z) -
 # which _cmi_from_binned_cupy computed as four separate joint_entropy_gpu launches (the #1 cuLaunchKernel
 # source on the F2 STRICT redundancy gate after the analytic-null card reuse removed joint_cardinalities).
@@ -811,7 +811,7 @@ def marginal_mi_entropies_gpu(dx: Any, dy: Any, Kx: int, ky: int, inv_n: float) 
         return None
 
 
-# FUSED final CMI/MI assembly (launch-reduction, 2026-06-26). batched_cmi_gpu assembled the per-column result
+# FUSED final CMI/MI assembly (launch-reduction). batched_cmi_gpu assembled the per-column result
 # with a cupy chain over (K,) arrays: cmi = h_xz + h_yz - h_z - h_xyz; bias = (k_xyz + k_z - k_xz - k_yz)/2n;
 # max(cmi - bias, 0) - ~7 launches. Both the conditional and marginal forms reduce to
 #   out[i] = max( he1[i] - he2[i] + hc - (kc1[i] - kc2[i] + kc) * inv2n , 0 )

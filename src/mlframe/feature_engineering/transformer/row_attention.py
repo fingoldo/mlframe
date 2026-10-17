@@ -149,7 +149,7 @@ def compute_row_attention(
                     ann_ef_search=ann_ef_search, num_threads=num_threads, stage4_callable=stage4_callable, dtype=dtype,
                 )
             finally:
-                # Wave 52 (2026-05-20): wrap free_device in try/except so CUDA cleanup
+                # wrap free_device in try/except so CUDA cleanup
                 # errors on a broken context (e.g. after attend() OOM) don't mask the
                 # original failure the operator needs to see.
                 if keep_key_bank_on_gpu:
@@ -362,7 +362,7 @@ def _select_stage4_backend(
     ``n_queries_hint`` argument lets us future-proof: at very small n_queries (<256) kernel launch overhead approaches the work, so we may want to fall back to
     CPU in that corner. v1 always picks GPU when available; revisit if profiling shows the threshold matters.
     """
-    # Wave 28 P0 fix (2026-05-20): symmetric with the random_features.py
+    # symmetric with the random_features.py
     # use_gpu fix. ``is True``/``is False`` silently rejected
     # ``np.bool_(True/False)`` from config dicts; the bool() coerce
     # accepts both Python bool and numpy bool uniformly.

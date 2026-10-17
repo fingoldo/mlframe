@@ -29,6 +29,7 @@ import logging
 
 import numpy as np
 from typing import cast
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -58,7 +59,7 @@ def shufflegen_use_numba(n: int, nperm: int) -> bool:
     try:
         choice = _SHUFFLEGEN_SPEC.choose(n_samples=int(n), nperm=int(pb))
     except Exception as e:
-        logger.debug("shufflegen_use_numba: KTC choose() failed, caller stays on the exact sequential numpy stream: %s", e)
+        log_throttle(logger, "_permutation_null_shufflegen_ktc.shufflegen_use_numba", logging.WARNING, "shufflegen_use_numba: KTC choose() failed, caller stays on the exact sequential numpy stream: %s", e)
         return False
     return bool(choice == "numba")
 
@@ -143,7 +144,7 @@ def shufflegen_use_gpu(n: int, nperm: int) -> bool:
     try:
         choice = _SHUFFLEGEN_SPEC.choose(n_samples=int(n), nperm=int(pb))
     except Exception as e:
-        logger.debug("shufflegen_use_gpu: KTC choose() failed, caller uses the host gen: %s", e)
+        log_throttle(logger, "_permutation_null_shufflegen_ktc.shufflegen_use_gpu", logging.WARNING, "shufflegen_use_gpu: KTC choose() failed, caller uses the host gen: %s", e)
         return False
     return bool(choice == "gpu")
 

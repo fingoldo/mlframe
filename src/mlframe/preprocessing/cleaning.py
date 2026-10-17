@@ -93,7 +93,7 @@ def suggest_non_outlying_data_indices(values: np.ndarray, var: Optional[str] = N
 
     if use_quantile > 0.5:
         use_quantile = 1 - use_quantile
-    # Wave 31 (2026-05-20): assert -> ValueError. -O previously stripped
+    # assert -> ValueError. -O previously stripped
     # the guard, letting use_quantile=0 / 1.0 reach nanquantile which
     # returns +/-inf and silently propagated NaN.
     if not (0 < use_quantile < 1.0):
@@ -499,7 +499,7 @@ def is_variable_truly_continuous(
     nexpected_unique_values: Any = None
     n_outliers: Any = None
     if values is None:
-        # Wave 31 (2026-05-20): assert -> ValueError. Pre-fix under -O,
+        # assert -> ValueError. Pre-fix under -O,
         # ``values = df[variable_name].values`` would AttributeError on
         # None far from the root cause.
         if df is None or not variable_name:

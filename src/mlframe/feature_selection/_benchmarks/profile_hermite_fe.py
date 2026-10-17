@@ -23,7 +23,7 @@ import numpy as np
 
 from mlframe.feature_selection._benchmarks.bench_hermite_fe import _make_xor
 
-# Wave 87 (2026-05-21): module-level filter removed; gated under __main__ below.
+# module-level filter removed; gated under __main__ below.
 
 
 def _make_california_pair(n=2000, seed=42):

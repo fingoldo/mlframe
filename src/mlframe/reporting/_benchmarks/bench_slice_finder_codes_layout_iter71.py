@@ -49,7 +49,8 @@ def main():
     # Identity gate.
     rc, rf = _run(codes_c, err, pairs), _run(codes_f, err, pairs)
     for (sc, cc), (sf, cf) in zip(rc, rf):
-        assert np.array_equal(sc, sf) and np.array_equal(cc, cf), "layout changed output!"  # nosec B101 - internal invariant check in src/mlframe/reporting/_benchmarks, not reachable with untrusted input
+        if not (np.array_equal(sc, sf) and np.array_equal(cc, cf)):
+            raise AssertionError("layout changed output!")
     print("IDENTITY: bit-identical sums+counts across all", len(pairs), "pairs")
 
     N = 30

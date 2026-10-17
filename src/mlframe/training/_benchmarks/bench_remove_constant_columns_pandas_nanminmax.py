@@ -74,7 +74,8 @@ def _best(fn, df, n=7) -> float:
 
 def main() -> None:
     df = _make_df()
-    assert _old(df) == _new(df), "drop set diverged"  # nosec B101 - internal invariant check in src/mlframe/training/_benchmarks, not reachable with untrusted input
+    if not (_old(df) == _new(df)):
+        raise AssertionError("drop set diverged")
     old_ms = _best(_old, df) * 1000
     new_ms = _best(_new, df) * 1000
     print(f"OLD {old_ms:.1f} ms")

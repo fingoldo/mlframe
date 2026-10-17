@@ -65,7 +65,7 @@ def get_training_configs(
     has_gpu: bool | None = None,
     subgroups: dict | None = None,
     learning_rate: float = 0.1,
-    # 2026-05-26 (user request): default flipped from "MAE" to "RMSE"
+    # default flipped from "MAE" to "RMSE"
     # for unified ES surface across CB / LGB / XGB / MLP. RMSE is the
     # competition-canonical metric (matches sklearn.r2_score's denominator
     # + the user-visible chart titles "MAE=... RMSE=... R2=..."). When
@@ -290,7 +290,7 @@ def get_training_configs(
         random_state=random_seed,
     )
     XGB_GENERAL_PARAMS.update(xgb_kwargs)
-    # 2026-05-26 unified ES surface: XGB regression default eval_metric
+    # unified ES surface: XGB regression default eval_metric
     # is "rmse" upstream, but mlframe used to leave it implicit -- ES
     # then tracked whatever ``objective`` defaulted to. Stamp the
     # eval_metric explicitly from ``def_regr_metric`` (mapped to xgb
@@ -375,7 +375,7 @@ def get_training_configs(
     _lgb_device = "cuda" if (has_gpu and LGB_GPU_AVAILABLE) else "cpu"
     LGB_GENERAL_PARAMS = dict(
         n_estimators=iterations,
-        # 2026-05-23: explicit ``learning_rate`` plumbed so the suite's
+        # explicit ``learning_rate`` plumbed so the suite's
         # ``learning_rate=`` kwarg actually reaches LightGBM (pre-fix LGB
         # silently inherited library default 0.1 which happened to match
         # the suite default but broke the override surface contract --
@@ -399,7 +399,7 @@ def get_training_configs(
         # histogram_pool_size=16384,
     )
     LGB_GENERAL_PARAMS.update(lgb_kwargs)
-    # 2026-05-26 unified ES surface (companion to the XGB metric stamp):
+    # unified ES surface (companion to the XGB metric stamp):
     # LGB regression default ``metric`` is unset which means "use
     # objective" -- on RMSE that's fine, but on MAE / Huber objective
     # the ES surface drifts from CB's. Stamp ``metric`` explicitly so

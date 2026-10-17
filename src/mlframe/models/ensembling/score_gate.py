@@ -234,7 +234,7 @@ def catastrophic_drop_kn(
             _best_mae = float(np.nanmin(_maes_arr))
         if _best_mae > 0.0 and math.isfinite(_best_mae):
             _ratios = _maes_arr / _best_mae
-            # E4.3 (2026-05-21): surface a borderline-member diagnostic for operators. Any member whose target-MAE exceeds 0.5 * catastrophic_ratio (default 10x best) but stays below the catastrophic_ratio (20x best) is "borderline" -- not dropped, but worth knowing in metadata for the next-session tune of model selection.
+            # E4.3: surface a borderline-member diagnostic for operators. Any member whose target-MAE exceeds 0.5 * catastrophic_ratio (default 10x best) but stays below the catastrophic_ratio (20x best) is "borderline" -- not dropped, but worth knowing in metadata for the next-session tune of model selection.
             _blowout_floor = 0.5 * float(k2_catastrophic_mae_ratio)
             _blowout_idx = [
                 i for i in range(len(_gate_preds_for_check)) if math.isfinite(_ratios[i]) and _blowout_floor <= _ratios[i] < float(k2_catastrophic_mae_ratio)
@@ -261,7 +261,7 @@ def catastrophic_drop_kn(
             _drop_mask = (_ratios >= float(k2_catastrophic_mae_ratio)) | ~np.isfinite(_maes_arr)
             _kept_idx_kn = [i for i in range(len(_gate_preds_for_check)) if not _drop_mask[i]]
             _excl_kn = [(i, f"target_mae={_maes[i]:.4f} vs best={_best_mae:.4f} ratio={_ratios[i]:.1f}x") for i in range(len(_gate_preds_for_check)) if _drop_mask[i]]
-            # E4.2 (2026-05-21): all-members-catastrophic sentinel. If every member's target-MAE either NaNs or exceeds the catastrophic threshold relative to the best one (rare edge case: best is barely-finite, others are way worse), the peer-median fallback would just keep everyone. Detect explicitly and signal the suite to skip ensembling for this target.
+            # E4.2: all-members-catastrophic sentinel. If every member's target-MAE either NaNs or exceeds the catastrophic threshold relative to the best one (rare edge case: best is barely-finite, others are way worse), the peer-median fallback would just keep everyone. Detect explicitly and signal the suite to skip ensembling for this target.
             if len(_kept_idx_kn) < 2 and len(_excl_kn) >= 1:
                 # Either 1 or 0 survivors -- treat as "no honest ensemble possible". Use a separate sentinel so the caller (suite finalize) can decide: ship-best-single-member or fall back to dummy baseline.
                 res["_all_members_catastrophic"] = {

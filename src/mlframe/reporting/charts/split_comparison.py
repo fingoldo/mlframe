@@ -409,7 +409,9 @@ def compose_split_comparison_figure(
             degenerate.append((name, note))
 
     if len(per_metrics) < 2:
-        present = ", ".join(f"{n} ({why})" for n, why in degenerate) or "fewer than 2 usable splits"
+        present = ", ".join(f"{n} ({why})" for n, why in degenerate)
+        if present == "":
+            present = "fewer than 2 usable splits"
         ann = AnnotationPanelSpec(
             text=f"{model_name}: cross-split overfit view needs >= 2 usable splits.\nUnusable: {present}",
             title="Split comparison", fontsize=11,

@@ -403,7 +403,7 @@ def prod_like_frame_small(
 # Eager (non-Hypothesis) helpers
 # =============================================================================
 #
-# X_TEST_SUITE_ARCHITECTURE-5: the column/frame helpers above are all Hypothesis
+# the column/frame helpers above are all Hypothesis
 # strategies (must be driven via @given), which is the wrong shape for the many
 # call sites that just want ONE concrete pl.Series/pl.DataFrame for a plain
 # (non-property-based) test -- that API-shape mismatch, not undiscoverability,

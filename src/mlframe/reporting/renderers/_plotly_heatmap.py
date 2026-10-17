@@ -225,9 +225,9 @@ def _heatmap(self, fig, p: HeatmapPanelSpec, row: int, col: int) -> None:
     # id, none of which a reader can act on. ``xlabel`` / ``ylabel`` / ``colorbar_label`` already carry
     # the human names, so reuse them; ``cell_hovertext`` (when a builder supplies it) adds per-cell
     # support, which is what decides whether a cell is worth believing.
-    _zname = p.colorbar_label or "value"
-    _xname = p.xlabel or "x"
-    _yname = p.ylabel or "y"
+    _zname = p.colorbar_label if p.colorbar_label else "value"
+    _xname = p.xlabel if p.xlabel else "x"
+    _yname = p.ylabel if p.ylabel else "y"
     _hover_extra = "<br>%{text}" if p.cell_hovertext is not None else ""
     # The arrays go to plotly as ndarrays, NOT via ``.tolist()``. A nested Python list makes plotly validate the
     # grid element by element, which is the whole cost of building the trace: 344 ms vs 2.9 ms at 300x300 and

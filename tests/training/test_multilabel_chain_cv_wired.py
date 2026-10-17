@@ -33,6 +33,7 @@ def test_cv_reaches_the_fitted_chains(cv):
 
 def test_non_default_cv_no_longer_warns_as_inert():
     """Negative control for the old INERT_FIELDS entry: a non-default cv is consumed, so constructing the config is silent."""
-    with warnings.catch_warnings():
-        warnings.simplefilter("error")
-        MultilabelDispatchConfig(strategy="chain", cv=3)
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        cfg = MultilabelDispatchConfig(strategy="chain", cv=3)
+    assert cfg.cv == 3 and caught == []

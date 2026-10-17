@@ -8,6 +8,8 @@ MI exceeds the (1 - alpha) quantile of that maximum. The family-wise error rate 
 
 from __future__ import annotations
 
+from collections.abc import Callable, Sequence
+
 import numpy as np
 
 from .._parity_fe import _mi_codes_njit
@@ -16,7 +18,16 @@ FALLBACK_MAXT_PERMUTATIONS = 999
 FAMILY_ALPHA = 0.01
 
 
-def fallback_maxt_floor(data, nbins, target_col: int, cols_idx, alpha: float, n_perm: int = FALLBACK_MAXT_PERMUTATIONS, seed: int = 0, honest_codes_fn=None):
+def fallback_maxt_floor(
+    data: np.ndarray,
+    nbins: np.ndarray,
+    target_col: int,
+    cols_idx: Sequence[int],
+    alpha: float,
+    n_perm: int = FALLBACK_MAXT_PERMUTATIONS,
+    seed: int = 0,
+    honest_codes_fn: Callable[[np.ndarray], tuple[np.ndarray, np.ndarray]] | None = None,
+) -> tuple[np.ndarray, np.ndarray]:
     """Observed plug-in MI of each candidate column and the family-wise threshold over the set.
 
     ``data`` holds integer codes (one column per feature plus the target), ``nbins`` the number of codes per column, and ``cols_idx`` the

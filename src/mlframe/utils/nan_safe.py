@@ -70,7 +70,7 @@ def argmax_classes_safe(
           the index of the max finite value -- the most charitable
           interpretation when only some classes have valid probs.
     """
-    log = logger or _DEFAULT_LOGGER
+    log = _DEFAULT_LOGGER if logger is None else logger
     if probs.ndim == 1:
         # Degenerate 1D case: just argmax with a finite-mask short-circuit.
         if np.all(np.isfinite(probs)):
@@ -143,7 +143,7 @@ def quantile_safe(
     Mirrors ``np.nanquantile`` semantics for ``q`` (scalar or sequence).
     Extra kwargs forwarded to ``np.nanquantile``.
     """
-    log = logger or _DEFAULT_LOGGER
+    log = _DEFAULT_LOGGER if logger is None else logger
     arr_np = np.asarray(arr)
     if arr_np.size == 0 or not np.any(np.isfinite(arr_np)):
         log.warning(
@@ -172,7 +172,7 @@ def median_safe(
     has no finite values (with a WARN). Use over raw ``np.median`` when
     the array can carry NaN.
     """
-    log = logger or _DEFAULT_LOGGER
+    log = _DEFAULT_LOGGER if logger is None else logger
     arr_np = np.asarray(arr)
     if arr_np.size == 0 or not np.any(np.isfinite(arr_np)):
         log.warning(

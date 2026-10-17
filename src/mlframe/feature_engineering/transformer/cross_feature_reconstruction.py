@@ -70,7 +70,8 @@ def compute_cross_feature_reconstruction_features(
                 Xt_j_in, Xt_s[:, j], task="regression", make_aux=_make_aux,
                 aux_n_splits=aux_n_splits, seed=int(fold_seed) + j,
             )
-            mad_j = float(np.median(np.abs(r_train - float(np.median(r_train))))) + 1e-6
+            mad_j = float(np.median(np.abs(r_train - float(np.median(r_train)))))
+            mad_j = max(mad_j, 1e-6)
             m = _make_aux().fit(Xt_j_in, Xt_s[:, j])
             x_hat_q = np.asarray(m.predict(Xq_j_in)).astype(np.float32)
             r_q = Xq_s[:, j] - x_hat_q

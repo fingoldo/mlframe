@@ -106,7 +106,7 @@ class TestFromSpec:
         # round-trip through datetime.fromisoformat shouldn't raise.
         dt = datetime.fromisoformat(prov.discovery_timestamp)
         # And the datetime is timezone-aware.
-        assert dt.tzinfo is not None
+        assert dt.utcoffset().total_seconds() == 0  # tz-aware and UTC
 
     def test_optional_ensemble_fields(self) -> None:
         """Optional ensemble fields."""

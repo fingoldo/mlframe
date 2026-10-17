@@ -133,7 +133,7 @@ class _ParquetStore:
                 if ts > latest_ts:
                     latest_ts = ts
                 try:
-                    obj = orjson.loads(r.get("objective_json") or "{}")
+                    obj = orjson.loads(str(r.get("objective_json")) if r.get("objective_json") else "{}")
                 except Exception as e:
                     log_throttle(
                         logger,

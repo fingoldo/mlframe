@@ -75,7 +75,7 @@ def _apply_prescreen(self, *, X, y, candidate_features, verbose):
         if _topk is not None and len(_kept) > _topk:
             _kept = _kept[: int(_topk)]
         return _kept
-    # mRMR pre-screening (TODO from pre-Wave-1 high-priority, 2026-05-28):
+    # mRMR pre-screening (TODO from pre-Wave-1 high-priority):
     # use the existing ``mlframe.feature_selection.filters.mrmr.MRMR`` to
     # pick the top-K features by min-redundancy / max-relevance MI ranking
     # before the RFECV outer loop. Best when p >> n (e.g. p >= 5000).
@@ -90,7 +90,7 @@ def _apply_prescreen(self, *, X, y, candidate_features, verbose):
             return candidate_features
         try:
             _Xsub = X[candidate_features] if isinstance(X, pd.DataFrame) else X
-            _topk_arg = int(_topk) if _topk else min(500, len(candidate_features) // 2 or 1)
+            _topk_arg = int(_topk) if _topk else min(500, max(1, len(candidate_features) // 2))
             _mrmr = MRMR(
                 full_npermutations=3, cv=3,
                 run_additional_rfecv_minutes=False,
@@ -353,7 +353,7 @@ def fit(self, X: Union[pd.DataFrame, np.ndarray], y: Union[pd.DataFrame, pd.Seri
     # L7: optional prescreen pass. Restricts the MBH search universe to a smaller pre-filtered candidate set so the
     # outer loop converges faster on high-p data. The prescreen sees the (X[original_features], y) AFTER must_include filtering, so
     # pinned features always remain in the final support_ regardless of prescreen output.
-    # SELECTION-OPTIMISM CAVEAT (audit4-C, 2026-07-03): the prescreen pre-filters the feature UNIVERSE using the
+    # SELECTION-OPTIMISM CAVEAT (audit4-C): the prescreen pre-filters the feature UNIVERSE using the
     # WHOLE (X, y) - including the rows that later serve as CV test folds - so the ``cv_mean_perf`` that drives
     # the nfeatures pick is an IN-UNIVERSE estimate, mildly OPTIMISTIC vs a fully-nested one (the surviving
     # candidates were chosen with full-y knowledge). This is a leakage into the SELECTION METRIC, not the final

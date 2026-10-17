@@ -84,12 +84,12 @@ class _BoundedTanhOutput(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Applies the bounded-tanh output head: ``tanh(x) * scale + center``."""
-        # F-37 (2026-05-31): always use the separate-op form
+        # F-37: always use the separate-op form
         # ``tanh(x) * scale + center``. Pre-fix this had a ``if x.is_cuda:
         # return addcmul(...)`` data-dependent branch — measured 1.5-2.4x
         # on CUDA via the explicit addcmul fusion, but the branch
         # FRAGMENTS torch.compile's Inductor fusion of the output head
-        # (per the 2026-05-31 torch.compile audit, Agent A finding #2).
+        # (per the torch.compile audit, Agent A finding #2).
         # The whole tanh + mul + add chain is exactly the pure-pointwise
         # pattern Inductor fuses into ONE Triton kernel automatically
         # when torch.compile is active, recovering the CUDA fusion win

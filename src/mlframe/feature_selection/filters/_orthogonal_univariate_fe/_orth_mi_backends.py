@@ -188,7 +188,7 @@ def _mi_classif_batch_numba(X: np.ndarray, y: np.ndarray, *, nbins: int = 10, ra
                 # kernel tuning miss, etc.), fall back to sklearn for the
                 # affected slice rather than poisoning the whole call.
                 #
-                # BUG FOUND AND FIXED (2026-08-02, incidental to a profiling cycle): this except was previously
+                # BUG FOUND AND FIXED (incidental to a profiling cycle): this except was previously
                 # silent -- no logging at all -- so when the numba/GPU dispatch call fails, the ~53x-slower
                 # sklearn loop kicks in for that slice with zero diagnostic trail. Confirmed live via a 2M-row
                 # cProfile (combo `c0056_f76bf491`) that caught `_mi_classif_batch_sklearn` costing 149.3s
@@ -284,7 +284,7 @@ def _select_mi_backend() -> str:
         logger.debug("_select_mi_backend: numba dispatcher import failed, falling back to the sklearn backend: %s", e)
         return "sklearn"
     except Exception as e:
-        # BUG FOUND AND FIXED (2026-08-02, incidental to a profiling cycle): the prior bare ``except
+        # BUG FOUND AND FIXED (incidental to a profiling cycle): the prior bare ``except
         # Exception`` here caught EVERY exception the trial import could raise, including a transient
         # device/driver fault surfaced while importing ``hermite_fe`` (which probes CUDA availability at
         # import time) -- unrelated to whether the CPU njit dispatcher itself works. Because this
@@ -412,7 +412,7 @@ def _mi_classif_batch(X: np.ndarray, y: np.ndarray, *, nbins: int = 10, rank_bin
     # so the ONLY blocker is the wall regression. A real win needs the candidate matrices GPU-RESIDENT
     # (eliminating the per-call H2D the microbench omits) - the matrix-native FE replatform, tracked
     # separately; a dispatch flag alone cannot win.
-    # residency-blocker quantified (2026-06-23, MRMR FE wall /loop iter14 - "complete end-to-end GPU
+    # residency-blocker quantified (MRMR FE wall /loop iter14 - "complete end-to-end GPU
     # residency for the dominant CPU MI"): the FE-PAIR path is ALREADY fully resident (verified: 47/47
     # _dispatch_batch_mi_with_noise_gate calls hit take_resident_codes -> batch_mi_with_noise_gate_cuda_-
     # resident with device codes in place, 0 H2D), so the pair-MI is NOT the remaining CPU cost. The #1 CPU
@@ -438,14 +438,14 @@ def _mi_classif_batch(X: np.ndarray, y: np.ndarray, *, nbins: int = 10, rank_bin
     #       CPU on this path absent that replatform. cProfile remainder (34.7s wall): _plugin_mi 2.94s,
     #       gpu_materialise_discretize_codes_host 1.12s (GPU launch/sync, already resident), _pair_combo_mi
     #       1.03s, permutation-null/CMI njit ~1.9s (orchestration), the rest one-time JIT + cuda driver.
-    # FULL GPU-RESIDENCY (STRICT, 2026-06-26). Priority #1 is that the FE path runs entirely on the GPU with
+    # FULL GPU-RESIDENCY (STRICT). Priority #1 is that the FE path runs entirely on the GPU with
     # no CPU MI compute. Under MLFRAME_FE_GPU_STRICT the batch MI routes to the resident GPU plug-in kernel
     # (host candidate matrix -> device once -> resident percentile-edge binning + plug-in MI), so EVERY
     # _mi_classif_batch caller (gate-grid, pairwise-modular, perm-null, unified-gate, chunked) becomes GPU.
     # Selection-equivalent to the CPU njit (percentile-edge vs rank binning; recipe-hash byte-identical in the
     # bench-note force-test). Falls back to the CPU njit on any GPU failure / when STRICT is off (the default
     # path stays byte-for-byte the numba batch). Launches rise (priority #2) but residency is the goal.
-    # Narrow device-fault set (FIX1, 2026-06-28): the prior broad ``except Exception: pass`` here
+    # Narrow device-fault set (FIX1): the prior broad ``except Exception: pass`` here
     # SWALLOWED the ValueError that ``_assert_codes_in_range`` raises on a -1 / out-of-range code,
     # silently degrading a genuine OOB (illegal-address) bug to the CPU njit and DEFEATING the guard
     # added in 6c127567. Catch only genuine cupy/device faults below so a true device error still

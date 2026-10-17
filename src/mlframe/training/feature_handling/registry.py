@@ -336,7 +336,7 @@ def prewarm(provider: FrozenFeaturizerProvider) -> Future:
             # Already loaded successfully -- hand back the resolved future.
             return fut
         new_fut = _PREWARM_EXECUTOR.submit(_do_load)
-        # Wave 43 (2026-05-20): if a future internal caller invokes prewarm() but
+        # if a future internal caller invokes prewarm but
         # forgets the wait_prewarm() pair, exceptions stored on the cached future
         # would be silently retained. Attach a done-callback so an unawaited failure
         # at least logs once.

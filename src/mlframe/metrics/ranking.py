@@ -89,11 +89,11 @@ def _ndcg_one_query(y_true_q: np.ndarray, y_score_q: np.ndarray, k: int) -> floa
     if n == 0:
         return np.nan
     # Order by score descending. argsort -> ascending; flip for desc.
-    order = np.argsort(-y_score_q, kind="mergesort")  # Wave 57: stable for tie-determinism
+    order = np.argsort(-y_score_q, kind="mergesort")  # stable for tie-determinism
     rels_pred_order = y_true_q[order]
     # Ideal: best possible ordering is true rels sorted descending.
     # numba's @njit np.sort doesn't accept ``kind=`` (only np.argsort does)
-    # - the Wave 57 stable kwarg here broke compilation. Stable is irrelevant
+    # - the ``stable`` kwarg here broke compilation. Stable is irrelevant
     # on np.sort's VALUES (all tied positions hold the same value); the
     # determinism comes from argsort above, not from this np.sort.
     rels_ideal = -np.sort(-y_true_q)
@@ -115,7 +115,7 @@ def _map_one_query(y_true_q: np.ndarray, y_score_q: np.ndarray, k: int) -> float
     n = y_true_q.shape[0]
     if n == 0:
         return np.nan
-    order = np.argsort(-y_score_q, kind="mergesort")  # Wave 57: stable for tie-determinism
+    order = np.argsort(-y_score_q, kind="mergesort")  # stable for tie-determinism
     rels_pred_order = y_true_q[order]
     limit = k if k < n else n
 
@@ -149,7 +149,7 @@ def _mrr_one_query(y_true_q: np.ndarray, y_score_q: np.ndarray) -> float:
     n = y_true_q.shape[0]
     if n == 0:
         return np.nan
-    order = np.argsort(-y_score_q, kind="mergesort")  # Wave 57: stable for tie-determinism
+    order = np.argsort(-y_score_q, kind="mergesort")  # stable for tie-determinism
     for i in range(n):
         if y_true_q[order[i]] > 0:
             return 1.0 / (i + 1.0)
@@ -330,7 +330,7 @@ def _summary_batched_kernel(
         # MRR; reused across all per-k metrics for this group.
         y_t = sorted_y_true[s:e]
         y_sc = sorted_y_score[s:e]
-        # Wave 57 (2026-05-20): stable sort so tied scores don't shift NDCG/MAP/MRR
+        # stable sort so tied scores don't shift NDCG/MAP/MRR
         # across runs.
         order = np.argsort(-y_sc, kind="mergesort")
         rels_pred = y_t[order]
@@ -343,7 +343,7 @@ def _summary_batched_kernel(
         # numba's @njit np.sort doesn't accept ``kind=`` (only np.argsort does).
         # Stable sort is irrelevant on np.sort's VALUES anyway - the per-tie
         # output positions all hold the same value, so default-quicksort and
-        # stable-mergesort produce identical arrays here. Wave 57's stable
+        # stable-mergesort produce identical arrays here. The stable
         # arg on this line was a copy-paste from line 339 (argsort) where it
         # genuinely matters for tie-breaking indices.
         rels_ideal = -np.sort(-y_t)
