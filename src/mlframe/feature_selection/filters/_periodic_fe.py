@@ -290,6 +290,20 @@ def _parse_modular_name(name: str):
     return None
 
 
+_MODULAR_CHUNK_BYTES = 256 * 1024 * 1024  # candidate-matrix budget of one source-column chunk (3 ops x periods x float width x copies per source column)
+
+
+def _gate_first_halving_on_memory_error(X, y, src_cols, chunk, periods, top_k, n_boot, sample_fraction, seed, nbins, min_uplift_lcb):
+    """:func:`_hybrid_modular_fe_gate_first`, retried with half the chunk when a candidate block cannot be allocated."""
+    try:
+        gated: tuple[Any, Any] = _hybrid_modular_fe_gate_first(X, y, src_cols, max(chunk, 1), periods, top_k, n_boot, sample_fraction, seed, nbins, min_uplift_lcb)
+        return gated
+    except MemoryError:
+        if chunk <= 1:
+            raise
+    return _gate_first_halving_on_memory_error(X, y, src_cols, max(1, chunk // 2), periods, top_k, n_boot, sample_fraction, seed, nbins, min_uplift_lcb)
+
+
 def hybrid_modular_fe(
     X: pd.DataFrame,
     y: np.ndarray,
@@ -332,9 +346,11 @@ def hybrid_modular_fe(
 
         while chunk > 1 and not _can_hoist_shared_buffer(chunk * per_src_bytes, n_workers=1)[0]:
             chunk = max(1, chunk // 2)
+    # The chunk is also capped by a fixed candidate-matrix size: whether a 400 MB block can be allocated depends on what else the machine holds, and a failed allocation dropped the modular columns
+    # from the fit (the selection then depended on free memory). Chunking does not change the scores.
+    chunk = max(1, min(chunk, _MODULAR_CHUNK_BYTES // max(per_src_bytes, 1)))
     if _gate_first_enabled() and src_cols:
-        gated: tuple[Any, Any] = _hybrid_modular_fe_gate_first(X, y, src_cols, max(chunk, 1), periods, top_k, n_boot, sample_fraction, seed, nbins, min_uplift_lcb)
-        return gated
+        return _gate_first_halving_on_memory_error(X, y, src_cols, chunk, periods, top_k, n_boot, sample_fraction, seed, nbins, min_uplift_lcb)
     if 0 < chunk < len(src_cols):
         streamed: tuple[Any, Any] = _hybrid_modular_fe_streamed(X, y, src_cols, chunk, periods, top_k, n_boot, sample_fraction, seed, nbins, min_uplift_lcb)
         return streamed

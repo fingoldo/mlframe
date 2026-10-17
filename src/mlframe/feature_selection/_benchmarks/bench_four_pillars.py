@@ -134,12 +134,16 @@ def main(argv=None):
     ap.add_argument("--profile", default=None)
     ap.add_argument("--f2-default", action="store_true")
     ap.add_argument("--json", default=None)
+    ap.add_argument("--families", action="store_true", help="print the per-family FE wall of every case")
     args = ap.parse_args(argv)
     only = set(args.only.split(","))
     mode = "gpu_strict" if os.environ.get("MLFRAME_FE_GPU_STRICT", "") == "1" else "cpu"
     pr = cProfile.Profile() if args.profile else None
     rows = []
+    from mlframe.feature_selection.filters._fe_family_timing import get_fe_family_wall, reset_fe_family_wall
+
     for name, fn in _cases(only, args.f2_default):
+        reset_fe_family_wall()
         if pr:
             pr.enable()
         try:
@@ -152,6 +156,9 @@ def main(argv=None):
             pr.disable()
         rows.append({"case": name, "ok": bool(ok), "seconds": round(float(dt), 2), "selected": [str(n) for n in names][:8], "error": err})
         print(f"[{mode}] {'PASS' if ok else 'FAIL'} {name:40s} {dt:8.2f}s  {names[:5]}{'  ' + err if err else ''}", flush=True)
+        if args.families:
+            top = sorted(get_fe_family_wall().items(), key=lambda kv: -kv[1][0])[:8]
+            print("    families: " + "  ".join(f"{k}={w:.1f}s(x{c})" for k, (w, c) in top), flush=True)
     total = sum(r["seconds"] for r in rows if np.isfinite(r["seconds"]))
     n_ok = sum(r["ok"] for r in rows)
     print(f"[{mode}] SUMMARY {n_ok}/{len(rows)} pass, total fit time {total:.1f}s", flush=True)

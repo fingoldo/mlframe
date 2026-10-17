@@ -62,3 +62,39 @@ def test_gate_first_handles_source_columns_whose_names_contain_double_underscore
     y = (np.sin(2 * np.pi * (hour % 24) / 24) + 0.3 * rng.normal(size=n) > 0).astype(np.int64)
     X_aug, _ = hybrid_modular_fe(X, y, periods=(24.0,), top_k=3)
     assert any(c.startswith("x__T1__mod") for c in X_aug.columns if c not in X.columns)
+
+
+def test_a_failed_candidate_allocation_is_retried_in_smaller_chunks_with_the_same_winners(monkeypatch):
+    """A MemoryError on a large chunk halves the chunk instead of dropping the modular columns; the winners do not change."""
+    import mlframe.feature_selection.filters._periodic_fe as pf
+
+    X, y = _frame()
+    ref_aug, ref_scores = hybrid_modular_fe(X, y, top_k=4)
+    real = pf._hybrid_modular_fe_gate_first
+    seen = []
+
+    def flaky(X_, y_, src_cols, chunk, *a, **k):
+        """Fail every call whose chunk exceeds two source columns."""
+        seen.append(chunk)
+        if chunk > 2:
+            raise MemoryError("Unable to allocate")
+        return real(X_, y_, src_cols, chunk, *a, **k)
+
+    monkeypatch.setattr(pf, "_hybrid_modular_fe_gate_first", flaky)
+    aug, scores = hybrid_modular_fe(X, y, top_k=4)
+    assert seen[0] > 2 and seen[-1] <= 2
+    assert [c for c in aug.columns if c not in X.columns] == [c for c in ref_aug.columns if c not in X.columns]
+    pd.testing.assert_frame_equal(scores.set_index("engineered_col").sort_index(), ref_scores.set_index("engineered_col").sort_index())
+
+
+def test_the_chunk_is_capped_by_a_fixed_candidate_budget_not_only_by_free_memory(monkeypatch):
+    """With plenty of free memory the chunk still stays within the fixed candidate-matrix budget."""
+    import mlframe.feature_selection.filters._periodic_fe as pf
+
+    X, y = _frame()
+    monkeypatch.setattr(pf, "_MODULAR_CHUNK_BYTES", len(X) * 5 * 3 * 3 * 4 * 2)
+    seen = []
+    real = pf._hybrid_modular_fe_gate_first
+    monkeypatch.setattr(pf, "_hybrid_modular_fe_gate_first", lambda X_, y_, s, chunk, *a, **k: (seen.append(chunk), real(X_, y_, s, chunk, *a, **k))[1])
+    hybrid_modular_fe(X, y, top_k=4)
+    assert seen and seen[0] <= 2
