@@ -77,3 +77,13 @@ def test_cell_triple_candidate_holds_the_conjunction_and_replays():
     small = corrected_joint_mi([cols["A"], codes], y)[0]
     assert small >= corrected_joint_mi([cols["A"], cols["f_ab"], cols["f_ac"]], y)[0] - 1e-3
     assert _synthesized_cell_triple(X.assign(B=np.arange(len(X)) % 20), frozenset("ABC")) is None
+
+
+def test_a_fragment_that_adds_no_information_beyond_the_rest_is_pruned():
+    """A feature built on a proxy of a selected column is dropped; one that carries a different part of y stays."""
+    from mlframe.feature_selection.filters._mrmr_fit_impl._selection_compaction import prune_redundant
+
+    cols, _, y = _conjunction()
+    cols["proxy_frag"] = cols["A"] ^ (np.random.default_rng(5).random(len(y)) < 0.0).astype(int)
+    assert prune_redundant(cols, ["A", "ABC", "proxy_frag"], ["proxy_frag"], y) == ["proxy_frag"]
+    assert prune_redundant(cols, ["A", "ABC"], ["ABC"], y) == []

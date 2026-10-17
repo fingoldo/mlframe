@@ -245,6 +245,12 @@ def generate_modular_features(
     out: dict[str, np.ndarray] = {}
     n = len(X)
     out_dtype = np.dtype(_crit_np_dtype() if dtype is None else dtype)
+    # MLFRAME_MODULAR_DROP_COPIES=1 leaves out the ``mod`` candidate that equals its source column. Default off (bench-attempt-rejected): on the conjunction pillar the changed
+    # candidate pool let the greedy pick a different, equivalent-looking set of pair fragments around binary A (A + cell3 in six runs without it, B + digit fragments of the decoys
+    # with it), so the dedup needs the selection to be stable under a changed pool first.
+    import os
+
+    drop_copies = os.environ.get("MLFRAME_MODULAR_DROP_COPIES", "0").strip().lower() in ("1", "true", "on", "yes")
     for c in cols:
         # Intentional float64: input of the residue v - p*floor(v/p); a float32 timestamp (~1.6e9) has resolution 128, so mod 7 would be noise.
         arr = np.ascontiguousarray(X[c].to_numpy(), dtype=np.float64)
@@ -254,7 +260,7 @@ def generate_modular_features(
             _modular_all_ops_into(arr, p, mod_v, sin_v, cos_v)
             # A column that already lies in [0, period) has its own value as residue: the ``mod`` candidate would be an exact copy of the raw column (a binary column and period 7
             # gave ``A__mod_7`` == ``A``), which the selection could then carry beside, or instead of, the column itself.
-            if not np.array_equal(mod_v, arr.astype(out_dtype, copy=False)):
+            if not (drop_copies and np.array_equal(mod_v, arr.astype(out_dtype, copy=False))):
                 out[engineered_name_modular(c, p, "mod")] = mod_v
             out[engineered_name_modular(c, p, "sin")] = sin_v
             out[engineered_name_modular(c, p, "cos")] = cos_v
@@ -418,6 +424,8 @@ def _hybrid_modular_fe_gate_first(X, y, src_cols, chunk, periods, top_k, n_boot,
     if not any(float(p) > 0.0 for p in periods):
         return X.copy(deep=False), pd.DataFrame()
     codes, nxs, names, base_parts = [], [], [], []
+    source_of: dict = {}
+    periods_pos = [float(p) for p in periods if float(p) > 0.0]
     for c0 in range(0, len(src_cols), chunk):
         cs = list(src_cols[c0 : c0 + chunk])
         eng = generate_modular_features(X, num_cols=cs, periods=periods)
@@ -427,6 +435,10 @@ def _hybrid_modular_fe_gate_first(X, y, src_cols, chunk, periods, top_k, n_boot,
         codes.append(cc)
         nxs.append(nx)
         names.extend(str(c) for c in eng.columns)
+        for c in cs:
+            for p in periods_pos:
+                for op in ("mod", "sin", "cos"):
+                    source_of[engineered_name_modular(c, p, op)] = str(c)
         base_parts.append(pd.DataFrame({"baseline_mi_lcb": baseline_lcb_by_bootstrap_mi(X[cs], y, n_boot=n_boot, sample_fraction=sample_fraction, seed=seed, nbins=nbins)}))
         del eng
     if not names or not base_parts:
@@ -439,7 +451,7 @@ def _hybrid_modular_fe_gate_first(X, y, src_cols, chunk, periods, top_k, n_boot,
     ok_names = [n for n, ok in zip(names, fam_ok) if ok]
     if not ok_names:
         return X.copy(deep=False), base
-    sources = sorted({str(_parse_modular_name(n)[1]) for n in ok_names if _parse_modular_name(n) is not None})
+    sources = sorted({source_of[n] for n in ok_names if n in source_of})
     eng_ok = generate_modular_features(X, num_cols=[c for c in src_cols if str(c) in sources], periods=periods)[ok_names]
     scores = score_modular_by_bootstrap_mi(X[[c for c in src_cols if str(c) in sources]], eng_ok, y, n_boot=n_boot, sample_fraction=sample_fraction, seed=seed, nbins=nbins)
     if scores.empty:

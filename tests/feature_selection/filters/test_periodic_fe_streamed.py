@@ -38,9 +38,11 @@ def test_streamed_matches_one_pass(monkeypatch, cols_per_chunk):
     pd.testing.assert_frame_equal(a, b)
 
 
-def test_residue_that_equals_the_source_column_is_not_a_candidate():
+def test_residue_that_equals_the_source_column_is_not_a_candidate(monkeypatch):
     """A column inside [0, period) has itself as residue, so its ``mod`` candidate (an exact copy of the raw column) is not emitted; ``sin`` / ``cos`` are."""
     from mlframe.feature_selection.filters._periodic_fe import engineered_name_modular, generate_modular_features
+
+    monkeypatch.setenv("MLFRAME_MODULAR_DROP_COPIES", "1")
 
     rng = np.random.default_rng(0)
     inside = rng.integers(0, 2, 300).astype(float)
@@ -49,3 +51,14 @@ def test_residue_that_equals_the_source_column_is_not_a_candidate():
     assert engineered_name_modular("a", 7.0, "mod") not in eng.columns
     assert engineered_name_modular("a", 7.0, "sin") in eng.columns and engineered_name_modular("a", 7.0, "cos") in eng.columns
     assert engineered_name_modular("b", 7.0, "mod") in eng.columns
+
+
+def test_gate_first_handles_source_columns_whose_names_contain_double_underscores(monkeypatch):
+    """An engineered source column such as ``x__T1`` is mapped to its candidates by construction, not by splitting the candidate name; a periodic one is still found."""
+    rng = np.random.default_rng(0)
+    n = 4000
+    hour = rng.uniform(0, 200, n)
+    X = pd.DataFrame({"x__T1": hour, "noise": rng.normal(size=n)})
+    y = (np.sin(2 * np.pi * (hour % 24) / 24) + 0.3 * rng.normal(size=n) > 0).astype(np.int64)
+    X_aug, _ = hybrid_modular_fe(X, y, periods=(24.0,), top_k=3)
+    assert any(c.startswith("x__T1__mod") for c in X_aug.columns if c not in X.columns)

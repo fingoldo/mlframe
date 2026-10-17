@@ -210,7 +210,18 @@ def score_features_by_bootstrap_mi(
     n = len(raw_X)
 
     # Map engineered_col -> source col (prefix before ``__``).
-    src_map = {eng_name: (eng_name.split("__", 1)[0] if "__" in eng_name else eng_name) for eng_name in eng_cols}
+    # The source is the longest raw column the name starts with ("<raw>__<suffix>"): a raw column that itself contains "__" (an engineered column from an earlier stage, x1*x2*x3__T1_T1_T1)
+    # is not cut at its own first "__".
+    _raw_by_len = sorted((str(c) for c in raw_cols), key=len, reverse=True)
+
+    def _source_of(eng_name: str) -> str:
+        """Raw column an engineered name was built from."""
+        for c in _raw_by_len:
+            if eng_name.startswith(c + "__"):
+                return c
+        return eng_name.split("__", 1)[0] if "__" in eng_name else eng_name
+
+    src_map = {eng_name: _source_of(eng_name) for eng_name in eng_cols}
     # Per-engineered baseline lookup is via the raw_X MI vector; we cache the
     # per-replicate raw MI as a name -> mi dict to avoid re-indexing per col.
     from ._fe_usability_signal import _crit_np_dtype
