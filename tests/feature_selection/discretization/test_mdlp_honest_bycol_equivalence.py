@@ -36,11 +36,27 @@ def _inputs(n, k_cont, k_fixed, n_perm, n_classes, seed):
 def test_bycol_matches_the_permutation_parallel_reference(n_classes):
     """Same plain and corrected null MI for every (permutation, column), continuous and fixed alike."""
     common, y, perms = _inputs(6000, 5, 2, 12, n_classes, seed=n_classes)
+    common["analytic_min_n"] = 1000  # analytic regime: no sampled root test, so the two kernels must agree bit for bit
     ref = honest_null_columns(y_raw=y, y_codes=y, perms=perms, **common)
     y_raw_perm, y_codes_perm = permuted_labels(y, y, iter(perms), len(perms))
     got = honest_null_columns_bycol(y_raw_perm=y_raw_perm, y_codes_perm=y_codes_perm, **common)
     for a, b in zip(ref, got):
         assert np.array_equal(a, b)
+
+
+def test_root_null_threshold_is_the_null_quantile_of_the_best_split_gain():
+    """The shared root threshold accepts about ``alpha`` of tie-free columns under a null target, matching the per-column permutation test it replaces."""
+    from mlframe.feature_selection.filters._mdlp_honest_bycol_njit import root_null_gain_threshold
+    from mlframe.feature_selection.filters._mdlp_honest_njit import _mdlp_best_split_njit
+
+    rng = np.random.default_rng(3)
+    n = 1500
+    labels = rng.integers(0, 3, n).astype(np.int64)
+    thr = root_null_gain_threshold(labels, 3, 20, 0.05, 2000, 17)
+    xs = np.arange(n, dtype=np.float64)
+    hits = sum(_mdlp_best_split_njit(xs, rng.permutation(labels), 3, 20)[1] > thr for _ in range(1500))
+    assert 0.02 < hits / 1500 < 0.08
+    assert root_null_gain_threshold(np.zeros(50, dtype=np.int64), 3, 5, 0.05, 50, 1) == np.inf
 
 
 def test_permuted_labels_uses_the_narrowest_integer_type_and_reads_the_rows_as_drawn():

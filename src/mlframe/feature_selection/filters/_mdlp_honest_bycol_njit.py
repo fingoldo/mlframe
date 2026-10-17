@@ -13,6 +13,8 @@ import numpy as np
 from numba import njit, prange
 
 from ._mdlp_honest_njit import (
+    _compact_labels,
+    _mdlp_best_split_njit,
     _mdlp_cuts_presorted,
     _mdlp_dfs,
     _mi_codes,
@@ -36,15 +38,45 @@ def permuted_labels(y_raw: np.ndarray, y_codes: np.ndarray, perm_rows, count: in
 
 
 @njit(cache=True)
-def _cuts_tie_free(xs, ys, n_classes_total, min_split_size, max_depth, alpha, n_permutations, seed, analytic_min_n, analytic_min_cell):
+def _cuts_tie_free(xs, ys, n_classes_total, min_split_size, max_depth, alpha, n_permutations, seed, analytic_min_n, analytic_min_cell, root_crit):
     """``_mdlp_cuts_presorted`` for a column without tied values: the sorted points are already the deduplicated (x, y) pairs, so nothing is copied, and
     the cut buffer holds the most cuts a tree of ``max_depth`` can accept instead of one slot per row."""
     out = np.empty(min(xs.shape[0], (1 << max_depth)) + 1, dtype=np.float64)  # Intentional float64: MDLP cut points at the production binning width
     n_out = np.zeros(1, dtype=np.int64)
-    _mdlp_dfs(xs, ys, n_classes_total, min_split_size, max_depth, alpha, n_permutations, seed, analytic_min_n, analytic_min_cell, out, n_out)
+    _mdlp_dfs(xs, ys, n_classes_total, min_split_size, max_depth, alpha, n_permutations, seed, analytic_min_n, analytic_min_cell, out, n_out, root_crit)
     cuts = out[: n_out[0]].copy()
     cuts.sort()
     return cuts
+
+
+ROOT_NULL_DRAWS = 2000
+
+
+@njit(parallel=True, cache=True)
+def root_null_gain_threshold(labels, n_classes_total, min_split_size, alpha, n_draws, seed):
+    """The ``(1 - alpha)`` order statistic of the best-split gain of ``n_draws`` random labellings of ``len(labels)`` distinct points with the class counts
+    of ``labels``. A tied-free column's root split is accepted when its gain exceeds it; every column and every permutation shares the class counts, so the
+    sample is drawn once instead of once per tree. ``inf`` when fewer than two classes are present."""
+    n = labels.shape[0]
+    _, n_present = _compact_labels(labels, n_classes_total)
+    if n_present <= 1:
+        return np.inf
+    xs = np.arange(n).astype(np.float64)  # Intentional float64: MDLP split search at the production binning width
+    gains = np.empty(n_draws, dtype=np.float64)  # Intentional float64: statistic vector (null gains)
+    for d in prange(n_draws):
+        np.random.seed(seed + d)
+        yp = labels.astype(np.int64)
+        for i in range(n - 1, 0, -1):
+            j = int(np.random.randint(0, i + 1))
+            tmp = yp[i]
+            yp[i] = yp[j]
+            yp[j] = tmp
+        y_c, k = _compact_labels(yp, n_classes_total)
+        _, g, _, _, _ = _mdlp_best_split_njit(xs, y_c, k, min_split_size)
+        gains[d] = g
+    gains.sort()
+    q_idx = max(0, min(int(np.ceil((1.0 - alpha) * n_draws)) - 1, n_draws - 1))
+    return gains[q_idx]
 
 
 @njit(cache=True)
@@ -99,6 +131,9 @@ def honest_null_columns_bycol(
     plain = np.zeros((n_perm_rows, k), dtype=np.float64)  # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
     corrected = np.zeros((n_perm_rows, k), dtype=np.float64)  # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
     order = _presort_columns(raw_cont)
+    root_crit = np.nan
+    if n_perm_rows > 0 and n < analytic_min_n:
+        root_crit = root_null_gain_threshold(y_raw_perm[0], n_classes_total, min_split_size, alpha, ROOT_NULL_DRAWS, seed + 104729)
     for j in prange(k):
         ysrt = np.empty(n, dtype=np.int64)
         ys = np.empty(m, dtype=np.int64)
@@ -141,7 +176,7 @@ def honest_null_columns_bycol(
                 for i in range(n):
                     ysrt[i] = yr_b[order[sj, i]]
                 if tie_free:
-                    cuts = _cuts_tie_free(xsrt, ysrt, n_classes_total, min_split_size, max_depth, alpha, n_permutations, seed, analytic_min_n, analytic_min_cell)
+                    cuts = _cuts_tie_free(xsrt, ysrt, n_classes_total, min_split_size, max_depth, alpha, n_permutations, seed, analytic_min_n, analytic_min_cell, root_crit)
                 else:
                     cuts = _mdlp_cuts_presorted(
                         xsrt,

@@ -134,11 +134,15 @@ def _mdlp_dfs(
     analytic_min_cell: float,
     out: np.ndarray,
     n_out: np.ndarray,
+    root_crit: float = np.nan,
 ) -> None:
     """Validated split search on sorted, deduplicated (x, y), iterative (explicit stack of index ranges): numba cannot cache a recursive
     function, and every process would otherwise recompile the search. Node decisions are those of the depth-first recursion: a node's
     permutation seed depends only on the root seed, its depth and its split index, and the child labels are rank-compacted within the
-    node exactly as before."""
+    node exactly as before.
+
+    ``root_crit`` (finite) replaces the permutation test of the root node by ``best_gain > root_crit``: for a column without tied values the null
+    gain of a random labelling depends only on the labels' class counts, so the caller draws one large null sample for all columns."""
     n_total = xs.shape[0]
     cap = 2 * max_depth + 8  # DFS pops one range and pushes two children one level deeper: the stack never holds more than max_depth + 2 ranges
     st_s = np.empty(cap, dtype=np.int64)
@@ -170,6 +174,8 @@ def _mdlp_dfs(
             n_candidates = _count_candidates_njit(x, y_c, min_split_size)
             p_value = min(1.0, _analytic_p_value(best_gain, n, n_classes_full) * max(1, n_candidates))
             accepted = p_value < alpha
+        elif depth == 0 and root_crit == root_crit:
+            accepted = best_gain > root_crit
         else:
             accepted = _accept_split_serial(x, y_c, n_classes_full, best_gain, min_split_size, n_permutations, node_seed, alpha)
         if not accepted:
