@@ -8,6 +8,7 @@ import numpy as np
 import pandas as pd
 import torch
 import lightning as L
+import lightning.pytorch.callbacks as _lightning_callbacks
 from lightning.pytorch.tuner import Tuner
 from lightning.pytorch.callbacks import (
     StochasticWeightAveraging,
@@ -311,11 +312,7 @@ class _FitCommonHelpersMixin:
             # tabular MLPs, cheaper than SWA (no LR warm-restart phase).
             # Falls back to a SWA-as-EMA shim when WeightAveraging is not
             # in the installed Lightning (added in Lightning ~2.5).
-            try:
-                from lightning.pytorch.callbacks import WeightAveraging
-                _ema_has_native = True
-            except ImportError:
-                _ema_has_native = False
+            _ema_has_native = hasattr(_lightning_callbacks, "WeightAveraging")
             from torch.optim.swa_utils import get_ema_avg_fn
             _ema_params = dict(self.ema_params or {})
             # ``decay`` is exposed at the mlframe level for ergonomics;

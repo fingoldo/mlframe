@@ -286,6 +286,7 @@ def _analyse_and_clean__m_step2_col_iterable_columns(iterable_columns, df, st, v
                 nan_vals_already_in_index = col_unique_values.index.isna().astype(int).sum()
                 nmerged = len(to_be_merged)
                 if nmerged >= (nunique - nan_vals_already_in_index):
+                    st.constant_features.add(col)
                     if verbose:
                         logger.info(
                             "Feature %s with %s unique vals is too scarcely populated: %s (head), so it will be removed.",
@@ -293,7 +294,6 @@ def _analyse_and_clean__m_step2_col_iterable_columns(iterable_columns, df, st, v
                             nunique,
                             col_unique_values.head(),
                         )
-                    st.constant_features.add(col)
                     continue  # next col
                 else:
                     if nmerged > 0:
@@ -452,9 +452,9 @@ def _analyse_and_clean__category_option_name(col_unique_values, na_val, real_val
 def _analyse_and_clean__real_val_none(real_val, verbose, col, col_unique_values, constant_features):
     """Block of analyse_and_clean_features starting at ``if real_val is None:``."""
     if real_val is None:
+        constant_features.add(col)
         if verbose:
             log_throttle(logger, "cleaning_no_nonnull_in_2valued_feature", logging.WARNING, "Non-null value not found in a 2-valued feature %s: %s.", col, col_unique_values)
-        constant_features.add(col)
 
 
 def _analyse_and_clean__vars_having_only_one(col, constant_features, manyvalued_features, col_is_numeric, col_unique_values, features_unique_values, features_ranges):

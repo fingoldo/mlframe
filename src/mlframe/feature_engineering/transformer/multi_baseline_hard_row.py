@@ -148,7 +148,7 @@ def compute_multi_baseline_hard_row_features(
         for preds in preds_list:
             abs_r = np.abs(y_t - preds).astype(np.float32)
             mu = float(abs_r.mean())
-            sd = float(abs_r.std()) + 1e-9
+            sd = max(float(abs_r.std()), 1e-9)
             z = (abs_r - mu) / sd
             combined = np.maximum(combined, z)
 

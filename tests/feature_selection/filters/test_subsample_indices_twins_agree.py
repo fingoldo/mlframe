@@ -1,16 +1,6 @@
-"""The two `_subsample_indices` copies must produce identical index sets.
+"""`_orthogonal_hsic_fe` imports `_subsample_indices` from `_orthogonal_dcor_fe`: one function, so both modules subsample the same rows.
 
-`_orthogonal_hsic_fe._subsample_indices` is a deliberate inline copy of the `_orthogonal_dcor_fe` one --
-its docstring says so: "inlined here to keep the sibling module dependency surface tight (no cross-layer
-import)". The bodies are byte-identical after AST normalisation today, but nothing imports across the two
-and no test asserted they agree, so a seeding change or an edit to the `n <= n_sample` short-circuit applied
-to one would be invisible in the other and the two modules would silently subsample different rows for the
-same `random_state`.
-
-If the no-cross-layer-import constraint is ever dropped, replace both with one shared helper and delete this
-file; until then this is what makes a one-sided edit fail loudly.
-"""
-
+The behavioural pins below (short-circuit branch, sort order, seed sensitivity) run through both module attributes."""
 from __future__ import annotations
 
 import numpy as np
@@ -68,3 +58,8 @@ def test_a_different_seed_gives_a_different_sample():
     """Guards the equality tests above against a copy that ignores random_state entirely."""
     for fn, name in ((_dcor_subsample, "dcor"), (_hsic_subsample, "hsic")):
         assert not np.array_equal(fn(1000, 200, 0), fn(1000, 200, 1)), f"{name}: random_state has no effect on the sample"
+
+
+def test_the_hsic_name_is_the_dcor_function():
+    """Both modules expose ONE function object (the hsic module imports it from dcor), so the two can no longer drift apart."""
+    assert _hsic_subsample is _dcor_subsample

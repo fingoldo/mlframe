@@ -98,7 +98,7 @@ def compute_decision_region_depth_features(
         rng = np.random.default_rng(int(fold_seed))
         # Sample n_probes random unit directions.
         directions = rng.standard_normal((n_probes, d)).astype(np.float32)
-        directions = directions / (np.linalg.norm(directions, axis=1, keepdims=True) + 1e-9)
+        directions = directions / np.maximum(np.linalg.norm(directions, axis=1, keepdims=True), 1e-9)
         # Scale directions by feature stds for isotropic-in-z perturbation
         directions_scaled = directions * feat_std[None, :]
 

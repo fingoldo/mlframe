@@ -423,7 +423,7 @@ def _report_probabilist_identical_text_shape(is_multilabel, targets, preds, clas
                 )
         else:
             _cls_report_text = classification_report(targets, preds, zero_division=0, digits=report_ndigits)
-    except (ValueError, TypeError, ImportError, AttributeError) as _cls_err:
+    except (ValueError, TypeError, AttributeError) as _cls_err:
         # Fall back to sklearn's classification_report when the njit-backed
         # path can't handle the input shape / dtype. Narrow catch leaves
         # programming bugs (KeyboardInterrupt, MemoryError) to propagate.

@@ -206,7 +206,7 @@ def _build_triton_ns_fn() -> Optional[Callable]:
         transposed = X.size(0) > X.size(1)
         if transposed:
             X = X.transpose(0, 1).contiguous()
-        X = X / (X.norm() + 1e-7)
+        X = X / X.norm().clamp_min(1e-7)
         for _ in range(steps):
             # SYRK: A = X @ X.T (symmetric)
             A = _syrk_via_triton(X.contiguous())

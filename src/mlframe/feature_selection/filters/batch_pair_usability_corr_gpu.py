@@ -83,10 +83,7 @@ from numba import prange
 
 logger = logging.getLogger(__name__)
 
-try:
-    from numba import cuda as _nb_cuda
-except ImportError:
-    _nb_cuda = None
+from numba import cuda as _nb_cuda
 
 try:
     from pyutilz.core.pythonlib import is_cuda_available as _pyutilz_is_cuda_available

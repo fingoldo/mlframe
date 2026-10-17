@@ -500,11 +500,11 @@ def _emit_pair_features_step4_deterministic_name_tie(
         name_cache=_name_cache,
     )
     if _winner is not None:
+        this_pair_features.add((_winner, 0))
         if verbose:
             messages.append(
                 f"{_cached_name(_winner)} is recommended to use as a new feature! (best of {len(leading_features)} near-equivalent leaders) best_mi={best_mi:.4f}, pair_mi={pair_mi:.4f}, rat={best_mi/pair_mi:.4f}"
             )
-        this_pair_features.add((_winner, 0))
 
 
 def _emit_pair_features_step1_st_simplenamespace_long(

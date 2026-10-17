@@ -20,10 +20,7 @@ from numba import njit, prange
 logger = logging.getLogger(__name__)
 
 # Optional GPU deps - mirror batch_pair_mi_gpu.py's probe order exactly.
-try:
-    from numba import cuda as _nb_cuda
-except ImportError:
-    _nb_cuda = None
+from numba import cuda as _nb_cuda
 
 from ._internals import numba_cuda_can_compile as _numba_cuda_can_compile
 

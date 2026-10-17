@@ -133,6 +133,8 @@ def from_fitted_inner(
                 t_clip_high = +t_envelope
 
     instance.estimator_ = fitted_inner
+    # Stamp the construction-source flag so __sklearn_clone__ can refuse cloning a wrapper whose fitted state lives outside the __init__ signature. sklearn.base.clone() would otherwise return a silent unfitted shell and the first predict() call on the clone would raise NotFittedError mid-pipeline. The legitimate clone-on-unfitted-spec flow (sklearn.Pipeline, GridSearchCV) goes through __init__ and never trips this flag.
+    instance._built_via_from_fitted_inner = True
     # The entry's fitted pre_pipeline: the inner was trained on its output, so predict applies it to the suite-stage frame for
     # the inner only, while the base keeps the raw stage the transform params were fit on.
     instance.inner_pre_pipeline_ = inner_pre_pipeline
@@ -200,6 +202,4 @@ def from_fitted_inner(
         "t_clip_low_hits": 0,
         "t_clip_high_hits": 0,
     }
-    # Stamp the construction-source flag so __sklearn_clone__ can refuse cloning a wrapper whose fitted state lives outside the __init__ signature. sklearn.base.clone() would otherwise return a silent unfitted shell and the first predict() call on the clone would raise NotFittedError mid-pipeline. The legitimate clone-on-unfitted-spec flow (sklearn.Pipeline, GridSearchCV) goes through __init__ and never trips this flag.
-    instance._built_via_from_fitted_inner = True
     return instance

@@ -323,8 +323,8 @@ def _recover_cb_feature_names(model: Any) -> tuple[list[str], list[str]]:
     text_features lists -- the caller is evaluation code with no knowledge
     of how the model was trained. CatBoost exposes its internal
     per-feature metadata via:
-      - ``_get_cat_feature_indices()``  -- integer indices into feature_names_
-      - ``_get_text_feature_indices()`` -- ditto
+      - ``_get_cat_feature_indices`` (CatBoost method)  -- integer indices into feature_names_
+      - ``_get_text_feature_indices`` (CatBoost method) -- ditto
       - ``feature_names_``  -- list of column names
 
     Returns ``([], [])`` on any failure (e.g. non-fitted model, non-CB

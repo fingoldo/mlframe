@@ -104,7 +104,7 @@ def _solve_weighted_linreg(X_local: np.ndarray, y_local: np.ndarray, w: np.ndarr
     resid = y_local - y_hat
     resid_std = float(np.sqrt((w_safe * resid * resid).sum() / max(w_safe.sum(), 1e-9)))
     y_mean_w = float((w_safe * y_local).sum() / max(w_safe.sum(), 1e-9))
-    ss_tot = float((w_safe * (y_local - y_mean_w) ** 2).sum()) + 1e-9
+    ss_tot = max(float((w_safe * (y_local - y_mean_w) ** 2).sum()), 1e-9)
     ss_res = float((w_safe * resid * resid).sum())
     r2 = 1.0 - ss_res / ss_tot
     coef_norm = float(np.linalg.norm(beta[1:]))

@@ -724,7 +724,8 @@ def _concat_probs_dicts(
             else:
                 chunks.append(_chunk.astype(_dtype, copy=False))
         out[key] = np.concatenate(chunks, axis=0)
-        logger.warning(
+        log_throttle(
+            logger, "predict_concat_probs_missing_batches", logging.WARNING,
             "_concat_probs_dicts: %r produced no output on %d of %d batches; those rows are NaN-filled to keep the "
             "array aligned with the input frame. The model is listed under results['partial_models'].",
             key, len(parts) - len(present), len(parts),
@@ -883,7 +884,8 @@ def load_mlframe_suite(models_path: str, trusted_root: str | None = None) -> tup
     # were gone. Report every target that lost members; a target left with NONE cannot be served at all.
     for (_tt, _tn), _names in _failed_loads.items():
         _left = len(models.get(_tt, {}).get(_tn, []))
-        logger.error(
+        log_throttle(
+            logger, "predict_load_suite_members_failed", logging.ERROR,
             "load_mlframe_suite: %d model(s) for %s/%s failed to load and are NOT in the returned suite (%d loaded): %s",
             len(_names), _tt, _tn, _left, _names[:10],
         )

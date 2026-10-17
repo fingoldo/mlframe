@@ -111,7 +111,7 @@ def compute_performer_attention_features(
         B = phi_k.sum(axis=0)  # (M,)
         # Per-query estimate.
         numer = phi_q @ A  # (n_query,)
-        denom = phi_q @ B + 1e-9
+        denom = np.maximum(phi_q @ B, 1e-9)
         y_estimate = (numer / denom).astype(np.float32)
         y_estimate_sq = (y_estimate**2).astype(np.float32)
         # Kernel concentration: max kernel-similarity over a SAMPLE of train rows (full max is O(N) per query but we sample).

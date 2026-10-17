@@ -358,7 +358,7 @@ def local_linear_detrend(
         t_dev = t[None, :] - t_mean[:, None]
         y_dev = wins - y_mean[:, None]
         cov = (mask * t_dev * y_dev).sum(axis=1)
-        t_var = (mask * t_dev**2).sum(axis=1) + 1e-12
+        t_var = np.maximum((mask * t_dev**2).sum(axis=1), 1e-12)
         b = cov / t_var
         a = y_mean - b * t_mean
         # Predicted y at the LAST position of each window (t = K - 1).

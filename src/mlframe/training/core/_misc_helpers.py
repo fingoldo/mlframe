@@ -12,6 +12,7 @@ import pandas as pd
 import polars as pl
 
 from ..utils import filter_existing, compute_model_input_fingerprint, _dtype_family
+from .._data_helpers import _validate_trusted_path  # noqa: F401 -- re-export of the single shared wrapper; callers import it from here
 from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
@@ -236,16 +237,6 @@ def _drop_cols_df(df, cols):
     if isinstance(df, _pd.DataFrame):
         return df.drop(columns=existing, errors="ignore")
     return df.drop(existing)
-
-
-def _validate_trusted_path(path: str, trusted_root):
-    """Raise ValueError if ``path`` is not inside ``trusted_root``; gates ``joblib.load`` to limit arbitrary-code-execution surface.
-
-    Thin re-export of the single shared implementation (``mlframe.core.helpers.validate_trusted_path``).
-    """
-    from mlframe.core.helpers import validate_trusted_path as _validate
-
-    _validate(path, trusted_root)
 
 
 def _df_shape_str(df) -> str:

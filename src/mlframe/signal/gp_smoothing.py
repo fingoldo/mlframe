@@ -146,7 +146,7 @@ def gp_smooth_irregular_series(
         return _fit_predict_gp(t_arr, y_arr, t_query_arr, best_scale, nu, alpha, normalize_y, False)
     elif ensemble_mode == "cv_blend":
         finite_errors = np.where(np.isfinite(cv_errors), cv_errors, np.nanmax(cv_errors[np.isfinite(cv_errors)]) * 10.0)
-        weights = np.exp(-finite_errors / (finite_errors.mean() + 1e-12))
+        weights = np.exp(-finite_errors / max(finite_errors.mean(), 1e-12))
         weights = weights / weights.sum()
         means = np.zeros_like(t_query_arr, dtype=np.float64).reshape(-1)
         stds = np.zeros_like(means)

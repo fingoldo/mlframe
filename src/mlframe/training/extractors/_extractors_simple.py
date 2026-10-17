@@ -230,6 +230,7 @@ class SimpleFeaturesAndTargetsExtractor(FeaturesAndTargetsExtractor):
                 # with rows without a label.
                 col_data = df[col]
                 missing = _missing_label_mask(col_data)
+                self.columns_to_drop.add(col)
 
                 # Threshold targets: one column per configured (attr, op) whose mapping names this col.
                 _has_threshold = False
@@ -263,8 +264,6 @@ class SimpleFeaturesAndTargetsExtractor(FeaturesAndTargetsExtractor):
                 if not _has_threshold and col not in (self.classification_exact_values or {}):
                     target_name = col
                     targets[target_name] = col_data
-
-                self.columns_to_drop.add(col)
 
             intize_targets(targets)
             target_by_type[TargetTypes.BINARY_CLASSIFICATION] = targets

@@ -9,7 +9,7 @@ class_weight or sample_weight proxies.
 Per query (regression) emit 5 features:
 - q10, q50, q90 (3 quantile predictions)
 - spread = q90 - q10 (conditional IQR-ish)
-- skew_proxy = (q90 + q10 - 2*q50) / (spread + 1e-9)
+- skew_proxy = (q90 + q10 - 2*q50) / np.maximum(spread, np.float32(1e-9))
 
 For binary emit 5 features: 3 reweighted probabilities + their spread + skew.
 """
@@ -95,7 +95,7 @@ def compute_quantile_spread_fan_features(
                 preds[:, i] = np.asarray(m.predict(Xq_s)).astype(np.float32)
             q10, q50, q90 = preds[:, 0], preds[:, 1], preds[:, 2]
         spread = (q90 - q10).astype(np.float32)
-        skew_proxy = ((q90 + q10 - 2.0 * q50) / (spread + 1e-9)).astype(np.float32)
+        skew_proxy = ((q90 + q10 - 2.0 * q50) / np.maximum(spread, np.float32(1e-9))).astype(np.float32)
         return np.column_stack([q10, q50, q90, spread, skew_proxy])
 
     def _make_df(feats):

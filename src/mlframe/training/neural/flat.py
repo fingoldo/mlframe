@@ -68,7 +68,9 @@ class Snake(nn.Module):
         # x + (1/alpha) * sin^2(alpha * x) = x + (1 - cos(2*alpha*x)) / (2*alpha)
         # Latter form is numerically stabler for small alpha.
         a = self.alpha
-        return cast(torch.Tensor, x + (1.0 - torch.cos(2.0 * a * x)) / (2.0 * a + 1e-12))
+        denom = 2.0 * a
+        denom = torch.where(denom.abs() < 1e-12, torch.full_like(denom, 1e-12), denom)  # alpha may be learnable and negative: guard by magnitude
+        return cast(torch.Tensor, x + (1.0 - torch.cos(2.0 * a * x)) / denom)
 
     def extra_repr(self) -> str:
         """Reports the current ``alpha`` value for ``print(module)`` / ``repr``."""

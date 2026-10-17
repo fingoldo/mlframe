@@ -67,13 +67,13 @@ def compute_distributional_moments_features(
         preds_q.sort(axis=1)
         q05 = preds_q[:, 0]; q25 = preds_q[:, 2]
         q50 = preds_q[:, 3]; q75 = preds_q[:, 4]; q85 = preds_q[:, 5]; q95 = preds_q[:, 6]
-        iqr = (q75 - q25).astype(np.float32) + 1e-9
+        iqr = np.maximum((q75 - q25).astype(np.float32), np.float32(1e-9))
         # Skewness (q95 + q05 - 2*q50) / IQR
         skew_proxy = ((q95 + q05 - 2 * q50) / iqr).astype(np.float32)
         # Kurtosis proxy (q95 - q05) / (q75 - q25)
         kurt_proxy = ((q95 - q05) / iqr).astype(np.float32)
         # Upper tail asymmetry
-        upper_asym = ((q95 - q50) / (q50 - q05 + 1e-9)).astype(np.float32)
+        upper_asym = ((q95 - q50) / np.maximum(q50 - q05, 1e-9)).astype(np.float32)
         # Tail mass (q95 - q85)
         tail_mass = (q95 - q85).astype(np.float32)
         return np.column_stack([skew_proxy, kurt_proxy, upper_asym, tail_mass, q50])

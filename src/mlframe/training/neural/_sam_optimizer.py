@@ -160,7 +160,7 @@ class SAM(Optimizer):
         """
         grad_norm = self._grad_norm()
         # Avoid div-by-zero: scale floor.
-        scale = self.rho / (grad_norm + 1e-12)
+        scale = self.rho / grad_norm.clamp_min(1e-12)
         for group in self.base_optimizer.param_groups:
             for p in group["params"]:
                 if p.grad is None:

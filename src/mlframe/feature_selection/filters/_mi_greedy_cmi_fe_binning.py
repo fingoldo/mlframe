@@ -6,7 +6,7 @@ import logging
 import numpy as np
 
 try:
-    from numba import njit, prange
+    from numba import njit
     from numba.core import types as _nb_types
     from numba.typed import Dict as _NbDict
     _NUMBA_AVAILABLE = True
@@ -14,10 +14,6 @@ except ImportError:  # pragma: no cover - numba is a hard dep in practice
     _NUMBA_AVAILABLE = False
     _nb_types = None
     _NbDict = None
-
-    def prange(*a):  # no-op fallback (serial range) when numba is absent
-        """Serial ``range`` stand-in used when numba is unavailable so parallel loops still run correctly, just single-threaded."""
-        return range(*a)
 
     from mlframe._numba_fallback import njit
 

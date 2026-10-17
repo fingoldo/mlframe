@@ -694,7 +694,7 @@ def anchor_ewm_features(
             xs = np.asarray(anchor_positions, dtype=np.float64)
             ys = np.asarray(anchor_values, dtype=np.float64)
             w = 0.5 ** ((i - xs) / half_life_rows)
-            w_sum = w.sum() + 1e-12
+            w_sum = max(w.sum(), 1e-12)
             w_mean = (ys * w).sum() / w_sum
             ewm_val_out[i] = float(w_mean)
             if xs.size >= 2:

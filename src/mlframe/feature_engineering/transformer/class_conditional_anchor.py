@@ -55,7 +55,7 @@ def _fit_kmeans(X: np.ndarray, n_anchors: int, seed: int) -> np.ndarray:
 def _softmax_similarity(X: np.ndarray, anchors: np.ndarray, softmax_temp: float) -> np.ndarray:
     """Per-row softmax over anchor distances. Returns (n_rows, n_anchors)."""
     dists = _squared_dists(X, anchors)
-    logits = -dists / (softmax_temp + 1e-9)
+    logits = -dists / max(softmax_temp, 1e-9)
     logits -= logits.max(axis=1, keepdims=True)
     e = np.exp(logits)
     return np.asarray((e / e.sum(axis=1, keepdims=True)).astype(np.float32))
@@ -75,7 +75,7 @@ def _compute_class_anchor_features(
     # Compute under a UNIFIED softmax over all 2K anchors.
     all_anchors = np.concatenate([anchors_pos, anchors_neg], axis=0)
     dists_all = _squared_dists(X_query_std, all_anchors)
-    logits_all = -dists_all / (softmax_temp + 1e-9)
+    logits_all = -dists_all / max(softmax_temp, 1e-9)
     logits_all -= logits_all.max(axis=1, keepdims=True)
     w_all = np.exp(logits_all)
     w_all /= w_all.sum(axis=1, keepdims=True)

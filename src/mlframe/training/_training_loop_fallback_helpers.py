@@ -412,8 +412,8 @@ def _train_model_with_f_trainer_boundary_regardless_which(_is_pandas, model_type
                             if _c in _eval_df_filled.columns:
                                 if _eval_df_filled is _eval_df:
                                     _eval_df_filled = _eval_df_filled.copy(deep=False)
+                                    _eval_df_filled._mlframe_filled = True
                                 _eval_df_filled[_c] = _eval_df_filled[_c].astype("string").fillna("__MISSING__").astype(object)
-                                _eval_df_filled._mlframe_filled = True
                         _new_eval_set.append((_eval_df_filled, _eval_y))
                     else:
                         _new_eval_set.append(pair)
@@ -484,8 +484,8 @@ def _train_model_with_f_pandas_model_type_name(_is_pandas, model_type_name, fit_
                             if _c in _eval_df_filled.columns and _eval_df_filled[_c].isna().any():
                                 if _eval_df_filled is _eval_df:
                                     _eval_df_filled = _eval_df_filled.copy(deep=False)
+                                    _eval_df_filled._mlframe_filled = True
                                 _eval_df_filled[_c] = _eval_df_filled[_c].astype("string").fillna("__MISSING__").astype("category")
-                                _eval_df_filled._mlframe_filled = True
                         _new_eval_set.append((_eval_df_filled, _eval_y))
                     else:
                         _new_eval_set.append(pair)

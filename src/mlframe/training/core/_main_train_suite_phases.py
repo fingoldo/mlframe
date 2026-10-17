@@ -466,7 +466,6 @@ def export_votenrank_leaderboards(
                 # Concatenate per-(type, target) frames with two index columns so a reader can
                 # filter back to one slice. Honour pl.DataFrame vs pd.DataFrame via .write_csv /
                 # .to_csv duck typing; mixed cases concat after a unified to_pandas hop.
-                import pandas as _pd
                 _frames = []
                 for _tt_s, _by_name in _leaderboards.items():
                     for _tname, _lb in _by_name.items():
@@ -474,19 +473,19 @@ def export_votenrank_leaderboards(
                             # Route through Arrow split-blocks bridge (~32x vs default to_pandas, preserves Enum/Categorical/datetime dtypes); the prior pl->CSV->pandas re-read densified all dtypes to string.
                             from ..utils import get_pandas_view_of_polars_df as _get_pandas_view
                             _frame = _get_pandas_view(_lb)
-                        elif isinstance(_lb, _pd.DataFrame):
+                        elif isinstance(_lb, pd.DataFrame):
                             _frame = _lb
                         else:
-                            _frame = _pd.DataFrame(_lb)
+                            _frame = pd.DataFrame(_lb)
                         _frame.insert(0, "target_type", _tt_s)
                         _frame.insert(1, "target_name", _tname)
                         _frames.append(_frame)
                 if _frames:
-                    _all_lb = _pd.concat(_frames, ignore_index=True)
+                    _all_lb = pd.concat(_frames, ignore_index=True)
                     _all_lb.to_csv(_csv_path, index=False, encoding="utf-8")
                     if verbose:
                         logger.info("votenrank leaderboard exported: %s (%d rows)", _csv_path, len(_all_lb))
-            except (OSError, ValueError, ImportError) as _csv_err:
+            except (OSError, ValueError) as _csv_err:
                 logger.warning("votenrank leaderboard CSV export failed: %s", _csv_err)
 
 

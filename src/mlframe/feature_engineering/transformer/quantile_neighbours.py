@@ -132,7 +132,7 @@ def compute_quantile_neighbours(
         nn = NearestNeighbors(n_neighbors=min(k, Xt_s.shape[0]), algorithm="auto", n_jobs=-1).fit(Xt_s)
         dists, ids = nn.kneighbors(Xq_s)  # (n_q, k)
         # Softmax weights from negative distances (closer => higher weight).
-        logits = -dists / (softmax_temp + 1e-9)
+        logits = -dists / max(softmax_temp, 1e-9)
         logits -= logits.max(axis=1, keepdims=True)
         w = np.exp(logits)
         w /= w.sum(axis=1, keepdims=True)

@@ -53,7 +53,7 @@ def _zeropower_via_newtonschulz5(G: torch.Tensor, steps: int = 5) -> torch.Tenso
     transposed = X.size(-2) > X.size(-1)
     if transposed:
         X = X.transpose(-2, -1)
-    X = X / (X.norm() + 1e-7)
+    X = X / X.norm().clamp_min(1e-7)
     for _ in range(steps):
         A = X @ X.transpose(-2, -1)
         B = b * A + c * A @ A

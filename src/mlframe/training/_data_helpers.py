@@ -256,17 +256,13 @@ def _validate_target_values(target, subset_name="train", is_classification=None)
             arr = target.to_numpy(copy=False)
     else:
         # polars Series or numpy array
-        try:
-            import polars as _pl
-            if isinstance(target, _pl.Series):
-                # polars Int with nulls -> cast to Float64 then to_numpy so nulls -> nan.
-                if target.null_count() > 0 and not target.dtype.is_float():
-                    arr = target.cast(_pl.Float64).to_numpy()
-                else:
-                    arr = target.to_numpy()
+        if isinstance(target, pl.Series):
+            # polars Int with nulls -> cast to Float64 then to_numpy so nulls -> nan.
+            if target.null_count() > 0 and not target.dtype.is_float():
+                arr = target.cast(pl.Float64).to_numpy()
             else:
-                arr = np.asarray(target)
-        except ImportError:
+                arr = target.to_numpy()
+        else:
             arr = np.asarray(target)
     # Single-pass finiteness check; only re-scan the (typically empty) non-finite subset to split nan_count vs inf_count.
     # Two separate isnan/isinf .sum() calls walked the full array twice on the common all-finite case.

@@ -222,7 +222,7 @@ def best_existing_op_mi(arrs: dict, names: Sequence[str], yi: np.ndarray, nbins:
             u, v = cols_arr[i], cols_arr[j]
             cands.append(u * v)
             cands.append(u - v)
-            cands.append(u / (np.abs(v) + 1e-6))
+            cands.append(u / np.maximum(np.abs(v), 1e-6))
             cands.append(u + v)  # pairwise additive baseline a+b / a+c / b+c - a linear selector captures it for free
     stk = np.stack(cols_arr, axis=1)
     cands.append(stk.max(axis=1))

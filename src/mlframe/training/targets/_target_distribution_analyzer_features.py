@@ -355,7 +355,7 @@ def analyze_feature_distribution(
             continue
         mu = float(np.mean(finite))
         sd = float(np.std(finite))
-        rel = abs(sd) / (abs(mu) + 1e-9) if abs(mu) > 1e-9 else (sd if sd > 0 else 0.0)
+        rel = abs(sd) / abs(mu) if abs(mu) > 1e-9 else (sd if sd > 0 else 0.0)
         if sd <= 0.0 or rel < low_variance_rel_std:
             low_var_features.append(c)
             _add_warning(c, f"low_variance(rel_std={rel:.2e})")

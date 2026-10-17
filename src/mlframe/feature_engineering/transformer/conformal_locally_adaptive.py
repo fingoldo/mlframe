@@ -85,7 +85,7 @@ def compute_conformal_locally_adaptive_features(
         for i, a in enumerate(alphas):
             q = float(np.quantile(nonconf_scores, 1.0 - a))
             widths_q[:, i] = q * sigma_q
-        width_ratio = widths_q[:, 0] / (widths_q[:, -1] + 1e-9)
+        width_ratio = widths_q[:, 0] / np.maximum(widths_q[:, -1], 1e-9)
         return np.column_stack([widths_q, sigma_q, preds_q, width_ratio])
 
     def _make_df(feats):

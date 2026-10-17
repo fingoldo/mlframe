@@ -105,7 +105,7 @@ def _run_categorical_fe(
                                 _src_map_cache[_src] = _build_cat_code_map(_x_for_cat[_src], block_has_nan=_block_has_nan)
                             except Exception as exc:
                                 # Not cached: a transient failure must not pin this source as mapless for every later recipe.
-                                logger.warning("mrmr: source-map build failed for recipe source %r; this recipe replays without it: %r", _src, exc, exc_info=True)
+                                log_throttle(logger, "mrmr_cat_fe_source_map_build_failed", logging.WARNING, "mrmr: source-map build failed for recipe source %r; this recipe replays without it: %r", _src, exc, exc_info=True)
                                 continue
                         else:
                             _src_map_cache[_src] = {}

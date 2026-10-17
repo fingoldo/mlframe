@@ -199,7 +199,7 @@ def compute_residual_stratified_distance_features(
         # Replaces prior 2 NN fits (one for dists, one for residuals) per band.
         d_easy, mean_r_easy = _kth_nearest_dists_and_residuals(X_easy, r_easy, Xq_s, residual_k=5)
         d_hard, mean_r_hard = _kth_nearest_dists_and_residuals(X_hard, r_hard, Xq_s, residual_k=5)
-        log_ratio = np.log((d_hard + 1e-6) / (d_easy + 1e-6))
+        log_ratio = np.log(np.maximum(d_hard, 1e-6) / np.maximum(d_easy, 1e-6))
         return np.column_stack([d_easy, d_hard, log_ratio, mean_r_easy, mean_r_hard])
 
     def _make_df(feats: np.ndarray) -> dict[str, np.ndarray]:

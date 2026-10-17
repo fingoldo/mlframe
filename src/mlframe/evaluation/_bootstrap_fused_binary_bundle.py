@@ -40,6 +40,8 @@ from mlframe.metrics.shared import fast_log_loss_binary_seq as _fast_log_loss_bi
 
 from ._bootstrap_jackknife import _ci_from_samples, _jackknife_auc, _jackknife_ece, _jackknife_mean_metric, _jackknife_metric
 
+from mlframe.utils.log_throttle import log_throttle
+
 logger = logging.getLogger(__name__)
 
 _LOG_LOSS_EPS_F64 = float(np.finfo(np.float64).eps)
@@ -312,7 +314,8 @@ def bootstrap_auc_brier_ll_ece_batch(
             # (evaluation/bootstrap.py): AUC can legitimately go NaN on unstratified resamples of
             # imbalanced binary targets, so a high failure rate here is exactly the case where the
             # surviving-sample CI is most likely biased and worth surfacing.
-            logger.warning(
+            log_throttle(
+                logger, "bootstrap_fused_binary_bundle_resamples_failed", logging.WARNING,
                 "bootstrap_auc_brier_ll_ece_batch: %d/%d resamples failed for %r; CI computed over %d surviving samples may be biased.",
                 n_failed,
                 n_bootstrap,

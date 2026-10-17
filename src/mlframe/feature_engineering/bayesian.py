@@ -96,7 +96,7 @@ if _NUMBA_AVAILABLE:
                 total = 0.0
                 for r in range(cur_len):
                     total += rl_probs[r]
-                inv_t = 1.0 / (total + 1e-300)
+                inv_t = 1.0 / max(total, 1e-300)
                 for r in range(cur_len):
                     rl_probs[r] *= inv_t
             else:
@@ -132,7 +132,7 @@ if _NUMBA_AVAILABLE:
                 total = 0.0
                 for r in range(cur_len):
                     total += rl_probs[r]
-                inv_t = 1.0 / (total + 1e-300)
+                inv_t = 1.0 / max(total, 1e-300)
                 for r in range(cur_len):
                     rl_probs[r] *= inv_t
             # Summaries.
@@ -319,7 +319,7 @@ def _pf_single_segment(
         out[t, 3] = float(np.sum(particles * weights))
         # Effective sample size (Liu 1996): 1 / sum(w^2). Diagnoses
         # particle-degeneracy independent of the resample threshold.
-        out[t, 4] = 1.0 / (float(np.sum(weights**2)) + 1e-12)
+        out[t, 4] = 1.0 / max(float(np.sum(weights**2)), 1e-12)
     return out
 
 
@@ -702,7 +702,7 @@ def _bocpd_numpy_segment(
         if not np.isfinite(x):
             rl_probs_new = np.concatenate(([0.0], rl_probs * (1.0 - hazard)))
             rl_probs_new[0] = (rl_probs * hazard).sum()
-            rl_probs_new = rl_probs_new / (rl_probs_new.sum() + 1e-300)
+            rl_probs_new = rl_probs_new / max(rl_probs_new.sum(), 1e-300)
             rl_probs = rl_probs_new
             mu = np.concatenate(([mu0], mu))
             kappa = np.concatenate(([kappa0], kappa))
@@ -710,7 +710,7 @@ def _bocpd_numpy_segment(
             beta = np.concatenate(([beta0], beta))
             if max_run_length > 0 and rl_probs.size > max_run_length:
                 rl_probs = rl_probs[:max_run_length]
-                rl_probs = rl_probs / (rl_probs.sum() + 1e-300)
+                rl_probs = rl_probs / max(rl_probs.sum(), 1e-300)
                 mu = mu[:max_run_length]; kappa = kappa[:max_run_length]
                 alpha = alpha[:max_run_length]; beta = beta[:max_run_length]
             out_p_change[idx_seg[t]] = rl_probs[0]
@@ -727,7 +727,7 @@ def _bocpd_numpy_segment(
         growth = rl_probs * pred * (1.0 - hazard)
         cp = (rl_probs * pred * hazard).sum()
         rl_probs_new = np.concatenate(([cp], growth))
-        rl_probs_new = rl_probs_new / (rl_probs_new.sum() + 1e-300)
+        rl_probs_new = rl_probs_new / max(rl_probs_new.sum(), 1e-300)
         mu_new = np.concatenate(([mu0], (kappa * mu + x) / (kappa + 1.0)))
         kappa_new = np.concatenate(([kappa0], kappa + 1.0))
         alpha_new = np.concatenate(([alpha0], alpha + 0.5))
@@ -740,7 +740,7 @@ def _bocpd_numpy_segment(
         rl_probs = rl_probs_new
         if max_run_length > 0 and rl_probs.size > max_run_length:
             rl_probs = rl_probs[:max_run_length]
-            rl_probs = rl_probs / (rl_probs.sum() + 1e-300)
+            rl_probs = rl_probs / max(rl_probs.sum(), 1e-300)
             mu = mu[:max_run_length]; kappa = kappa[:max_run_length]
             alpha = alpha[:max_run_length]; beta = beta[:max_run_length]
         out_p_change[idx_seg[t]] = float(rl_probs[0])

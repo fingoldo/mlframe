@@ -467,6 +467,15 @@ def _isolate_reporting_render_overrides(monkeypatch):
     _save._INLINE_OVERRIDE.value = prior_inline
 
 @pytest.fixture(autouse=True)
+def _reset_log_throttle_counts():
+    """Start every test with empty per-call-site log throttle counts, so a test's caplog assertion never meets a site silenced by an earlier test."""
+    from mlframe.utils.log_throttle import reset_throttle_counts
+
+    reset_throttle_counts()
+    yield
+
+
+@pytest.fixture(autouse=True)
 def _clear_pin_memory_env_override(monkeypatch):
     """Clear MLFRAME_MLP_PIN_MEMORY before every test so an operator's ambient shell-level
     override (set to work around a driver/CUDA-toolkit pinned-memory teardown crash during a

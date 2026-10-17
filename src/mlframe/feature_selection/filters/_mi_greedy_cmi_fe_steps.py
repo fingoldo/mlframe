@@ -19,11 +19,7 @@ except ImportError:  # pragma: no cover - numba is a hard dep in practice
     _nb_types = None
     _NbDict = None
 
-    def prange(*a):  # no-op fallback (serial range) when numba is absent
-        """Serial ``range`` stand-in used when numba is unavailable so parallel loops still run correctly, just single-threaded."""
-        return range(*a)
-
-    from mlframe._numba_fallback import njit
+    from mlframe._numba_fallback import njit, prange
 
 from mlframe.utils.log_throttle import log_throttle
 
@@ -828,8 +824,8 @@ def _greedy_cmi_fe_constr_step3_while_st_remaining(st, top_k, _noise_floor_for_c
             # (H(Y,Z)/H(Z) + their renumberings) is only needed by this per-candidate loop, not the batched
             # path above - computed here, lazily, instead of eagerly every round (: it used to run
             # unconditionally even when the batched path succeeded and its output went unused, and it forced
-            # ``z_joint`` to be a HOST array every round). ``_host_z()`` materializes the host mirror of
-            # ``z_joint_dev`` on first use in this fallback only.
+            # ``z_joint`` to be a HOST array every round). The host mirror ``_z_host`` of ``z_joint_dev`` is built below, on first use in this
+            # fallback only.
             _yz_dense = None
             _y_marg = None
             if not _have_z:
@@ -878,7 +874,7 @@ def _greedy_cmi_fe_constr_step3_while_st_remaining(st, top_k, _noise_floor_for_c
             # (``cand_bins_dev[best_name]``) - fold them into Z entirely on-device via
             # ``_renumber_joint_gpu`` instead of materializing the winner's (n,) codes host-side just to
             # call the host ``_renumber_joint``. ``z_joint`` (host) is left ``None`` and only backfilled
-            # lazily (``_host_z`` in the fallback branch above) if a later round's batched CMI call faults
+            # lazily (``_z_host`` in the fallback branch above) if a later round's batched CMI call faults
             # and needs a host mirror - the common, all-batched-rounds-succeed path never materializes it.
             import cupy as _cp
 

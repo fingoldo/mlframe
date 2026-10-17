@@ -20,14 +20,9 @@ from typing import Any
 from sklearn.base import BaseEstimator, clone
 from sklearn.exceptions import NotFittedError
 from sklearn.utils.metaestimators import available_if
-from sklearn.utils.validation import check_is_fitted
+# has_fit_parameter is sklearn's canonical "does this estimator's fit accept <param>" check.
+from sklearn.utils.validation import check_is_fitted, has_fit_parameter as _sk_has_fit_parameter
 from mlframe.utils.log_throttle import log_throttle
-
-try:
-    # sklearn's canonical "does this estimator's fit accept <param>" check.
-    from sklearn.utils.validation import has_fit_parameter as _sk_has_fit_parameter
-except ImportError:  # pragma: no cover - sklearn always ships this
-    _sk_has_fit_parameter = None
 
 logger = logging.getLogger(__name__)
 
@@ -46,12 +41,10 @@ def _model_fit_accepts_sample_weight(model: Any) -> bool:
     """
     import inspect
 
-    if _sk_has_fit_parameter is not None:
-        try:
-            return bool(_sk_has_fit_parameter(model, "sample_weight"))
-        except Exception as e:  # pragma: no cover - defensive; fall through
-            logger.debug("swallowed exception in post_shim.py: %s", e)
-            pass
+    try:
+        return bool(_sk_has_fit_parameter(model, "sample_weight"))
+    except Exception as e:  # pragma: no cover - defensive; fall through
+        logger.debug("swallowed exception in post_shim.py: %s", e)
     fit_fn = getattr(model, "fit", None)
     if fit_fn is None:
         return False

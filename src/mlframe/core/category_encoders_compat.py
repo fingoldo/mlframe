@@ -16,7 +16,7 @@ BEFORE ``category_encoders.utils.SupervisedTransformerMixin``/``TransformerWithT
 MRO (sklearn's own convention is the mixin first, ``BaseEstimator`` last -- this is exactly the
 ordering bug sklearn's own maintainers document at
 https://github.com/scikit-learn/scikit-learn/issues/30479). Those two category-encoders mixins each
-define their OWN legacy ``_more_tags()`` without a matching ``__sklearn_tags__()``, which makes
+define their OWN legacy ``_more_tags`` without a matching ``__sklearn_tags__()``, which makes
 sklearn's ``_find_tags_provider`` fall back to the crash-prone legacy MRO-walk path instead of the
 modern one (which has a documented try/except workaround for exactly this ordering bug -- but only
 takes effect when every legacy-tag-defining class ALSO defines ``__sklearn_tags__``). Once
@@ -41,12 +41,12 @@ real ``sklearn.pipeline.Pipeline``:
      and flip back into the broken legacy path for it specifically.
   3. category-encoders' OWN internal code (``BaseEncoder.fit`` / ``_check_fit_inputs``) calls
      ``self._get_tags().get('supervised_encoder')`` -- a custom dict key category-encoders invented
-     for its pre-1.6 legacy tags dict, which sklearn's own ``_to_old_tags()`` conversion (used once the
+     for its pre-1.6 legacy tags dict, which sklearn's own ``_to_old_tags`` conversion (used once the
      modern ``__sklearn_tags__`` path is active) has no way to know about, so it silently comes back
      ``None``/falsy even after steps 1-2 fix the crash, breaking ``lab_encoder_`` setup for supervised
      encoders. Bypassed entirely: ``BaseEncoder._get_tags`` is replaced with a small isinstance-based
      dict built directly from the same "supervised mixins" set discovered in step 1, sidestepping
-     sklearn's tag machinery for this internal use rather than trying to make ``_to_old_tags()`` carry
+     sklearn's tag machinery for this internal use rather than trying to make ``_to_old_tags`` carry
      a category-encoders-specific key it was never designed to know about.
 
 Idempotent; a no-op once the installed category-encoders already defines ``__sklearn_tags__``
@@ -117,7 +117,7 @@ def ensure_category_encoders_sklearn_tags_shim() -> None:
 
     def _get_tags(self):
         """Bypasses sklearn's tag machinery for category-encoders' own internal
-        'supervised_encoder' lookup, which sklearn's _to_old_tags() conversion has no way to carry."""
+        'supervised_encoder' lookup, which sklearn's _to_old_tags conversion has no way to carry."""
         return {"supervised_encoder": isinstance(self, supervised_mixins)}
 
     ce_utils.BaseEncoder._get_tags = _get_tags
