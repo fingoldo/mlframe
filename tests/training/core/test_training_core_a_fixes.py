@@ -19,8 +19,6 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from tests.conftest import perf_time_budget
-
 # ---------------------------------------------------------------------------
 # F1: MTR cross-target ensemble honest-OOF NNLS weighting silently dropped sample_weight
 # ---------------------------------------------------------------------------
@@ -294,20 +292,28 @@ def test_pr3_unsupported_metric_raises():
 
 
 def test_pr3_measured_speedup_at_scale():
-    """Not a strict perf-regression gate (machine-load-sensitive), but confirms the vectorized path is
-    at minimum an order of magnitude faster at a realistic scale -- pins the fix, not a specific number."""
-    import time
+    """At a realistic scale the vectorized sweep returns exactly what the per-candidate O(n) scorer loop (the pre-fix algorithm) returns.
 
+    Equality with that independent oracle is the deterministic contract; wall-clock is not asserted (machine-load-sensitive)."""
     from mlframe.training.core._setup_helpers import tune_decision_threshold
 
     rng = np.random.default_rng(0)
     n = 500_000
     y = rng.integers(0, 2, size=n).astype(np.int8)
     p = rng.uniform(0, 1, size=n)
-    t0 = time.perf_counter()
-    tune_decision_threshold(y, p, metric="f1")
-    elapsed = time.perf_counter() - t0
-    assert elapsed < perf_time_budget(5.0)  # was ~14s pre-fix at this scale (linear extrapolation from the bench numbers)
+    got = tune_decision_threshold(y, p, metric="f1")
+
+    best_thr, best_score = 0.5, None
+    for thr in np.concatenate(([0.5], np.linspace(0.0, 1.0, 202)[1:-1])):
+        pred = p >= thr
+        tp = float(np.count_nonzero(pred & (y == 1)))
+        fp = float(np.count_nonzero(pred & (y == 0)))
+        fn = float(np.count_nonzero(~pred & (y == 1)))
+        denom = 2.0 * tp + fp + fn
+        score = 2.0 * tp / denom if denom > 0 else 0.0
+        if best_score is None or score > best_score:
+            best_thr, best_score = float(thr), score
+    assert got == pytest.approx(best_thr, abs=1e-12)
 
 
 # ---------------------------------------------------------------------------
@@ -348,7 +354,7 @@ def test_pr4_falls_back_to_oof_derived_score_when_val_metrics_absent():
     )
     # Pre-fix: both members lack metrics["val"] -> _member_individual_score returns None -> the WHOLE
     # diagnostic returns None (fully dark). Post-fix: the OOF fallback lets it actually run.
-    assert result is not None
+    assert isinstance(result, list)  # the diagnostic ran (list, possibly empty) instead of returning None
 
 
 def test_pr4_still_uses_val_metrics_when_present():

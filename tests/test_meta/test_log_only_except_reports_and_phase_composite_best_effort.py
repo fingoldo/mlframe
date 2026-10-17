@@ -11,14 +11,14 @@ comment.
 
 from __future__ import annotations
 
-import inspect
+from tests.test_meta._comment_markers import comment_text
 
 
 def test_evaluation_reports_sites_marked_best_effort():
     """Every chart-overlay/log-format except handler in evaluation/reports.py carries a marker."""
     import mlframe.evaluation.reports as reports_mod
 
-    src = inspect.getsource(reports_mod)
+    src = comment_text(reports_mod)
     assert src.count("# best-effort:") >= 3
 
 
@@ -26,7 +26,7 @@ def test_honest_diagnostics_sites_marked_best_effort():
     """Every status="skipped"/reason-escalated except handler carries a marker."""
     import mlframe.training.honest_diagnostics as hd
 
-    src = inspect.getsource(hd)
+    src = comment_text(hd)
     assert src.count("# best-effort: escalated via the returned status=") == 3
 
 
@@ -34,7 +34,7 @@ def test_feature_importances_sites_marked_best_effort():
     """Every feature-importance except handler carries a marker."""
     import mlframe.training._feature_importances as fi
 
-    src = inspect.getsource(fi)
+    src = comment_text(fi)
     assert src.count("# best-effort: feature importance is optional diagnostic output") == 3
 
 
@@ -42,7 +42,7 @@ def test_phase_composite_discovery_sites_marked_best_effort():
     """Every composite-discovery except handler carries a marker."""
     import mlframe.training.core._phase_composite_discovery as disc
 
-    src = inspect.getsource(disc)
+    src = comment_text(disc)
     assert src.count("# best-effort:") == 3
 
 
@@ -50,7 +50,7 @@ def test_phase_dummy_baselines_sites_marked_best_effort():
     """Every dummy-baseline except handler carries a marker."""
     import mlframe.training.core._phase_dummy_baselines as db
 
-    src = inspect.getsource(db)
+    src = comment_text(db)
     assert src.count("# best-effort:") == 3
 
 
@@ -58,7 +58,7 @@ def test_phase_train_one_target_schema_sites_marked_best_effort():
     """Every per-target schema/diagnostic except handler carries a marker."""
     import mlframe.training.core._phase_train_one_target_schema as schema_mod
 
-    src = inspect.getsource(schema_mod)
+    src = comment_text(schema_mod)
     assert src.count("# best-effort:") == 3
 
 
@@ -73,7 +73,7 @@ def test_pipeline_extensions_sites_marked_best_effort():
     import mlframe.training.pipeline._pipeline_extensions_pysr as ext_pysr
     import mlframe.training.pipeline._pipeline_extensions_row_wise as ext_row_wise
 
-    src = inspect.getsource(ext) + inspect.getsource(ext_pysr) + inspect.getsource(ext_row_wise)
+    src = comment_text(ext, ext_pysr, ext_row_wise)
     assert src.count("# best-effort:") == 3
 
 
@@ -81,5 +81,5 @@ def test_reporting_diagnostics_sites_marked_best_effort():
     """Every learning-curve diagnostic/chart except handler carries a marker."""
     import mlframe.training.reporting._reporting_diagnostics as rd
 
-    src = inspect.getsource(rd)
+    src = comment_text(rd)
     assert src.count("# best-effort:") == 3

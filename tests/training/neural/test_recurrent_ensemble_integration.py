@@ -24,6 +24,8 @@ from mlframe.training.core import train_mlframe_models_suite
 
 from tests.training.shared import SimpleFeaturesAndTargetsExtractor
 
+pytest.importorskip("lightning")  # the recurrent (LSTM) training path needs it; a missing optional dependency is a skip, not a masked failure
+
 pytestmark = [pytest.mark.requires_torch, pytest.mark.requires_cb, pytest.mark.uses_torch]
 
 # This module's contract is narrowly about recurrent_ensemble_integration metadata wiring, not model
@@ -75,25 +77,22 @@ def test_recurrent_member_joins_ensemble_after_integration(tmp_path):
     df, sequences = _build_synthetic_dataset(seed=42)
     fte = SimpleFeaturesAndTargetsExtractor(regression=True)
 
-    try:
-        trained, metadata = train_mlframe_models_suite(
-            df=df,
-            target_name="tgt",
-            model_name="mdl",
-            features_and_targets_extractor=fte,
-            mlframe_models=["cb"],
-            recurrent_models=["lstm"],
-            sequences=sequences,
-            hyperparams_config={"iterations": 5},
-            preprocessing_config=PreprocessingConfig(drop_columns=[]),
-            use_ordinary_models=True,
-            use_mlframe_ensembles=True,
-            verbose=0,
-            output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
-            **_FAST_SUITE_KWARGS,
-        )
-    except ImportError as e:
-        pytest.skip(f"recurrent path not fully wired in this env: {e}")
+    trained, metadata = train_mlframe_models_suite(
+        df=df,
+        target_name="tgt",
+        model_name="mdl",
+        features_and_targets_extractor=fte,
+        mlframe_models=["cb"],
+        recurrent_models=["lstm"],
+        sequences=sequences,
+        hyperparams_config={"iterations": 5},
+        preprocessing_config=PreprocessingConfig(drop_columns=[]),
+        use_ordinary_models=True,
+        use_mlframe_ensembles=True,
+        verbose=0,
+        output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
+        **_FAST_SUITE_KWARGS,
+    )
 
     assert trained is not None
     # The integration bookkeeping is the contract this test enforces. It is populated by
@@ -146,25 +145,22 @@ def test_recurrent_skipped_gracefully_when_predict_fails(monkeypatch, tmp_path):
     df, sequences = _build_synthetic_dataset(seed=7)
     fte = SimpleFeaturesAndTargetsExtractor(regression=True)
 
-    try:
-        _, metadata = train_mlframe_models_suite(
-            df=df,
-            target_name="tgt",
-            model_name="mdl",
-            features_and_targets_extractor=fte,
-            mlframe_models=["cb"],
-            recurrent_models=["lstm"],
-            sequences=sequences,
-            hyperparams_config={"iterations": 5},
-            preprocessing_config=PreprocessingConfig(drop_columns=[]),
-            use_ordinary_models=True,
-            use_mlframe_ensembles=True,
-            verbose=0,
-            output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
-            **_FAST_SUITE_KWARGS,
-        )
-    except ImportError as e:
-        pytest.skip(f"recurrent path not fully wired in this env: {e}")
+    _, metadata = train_mlframe_models_suite(
+        df=df,
+        target_name="tgt",
+        model_name="mdl",
+        features_and_targets_extractor=fte,
+        mlframe_models=["cb"],
+        recurrent_models=["lstm"],
+        sequences=sequences,
+        hyperparams_config={"iterations": 5},
+        preprocessing_config=PreprocessingConfig(drop_columns=[]),
+        use_ordinary_models=True,
+        use_mlframe_ensembles=True,
+        verbose=0,
+        output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
+        **_FAST_SUITE_KWARGS,
+    )
 
     # When predict is forced to None on every split, the helper appends the raw model (legacy path) but does
     # NOT register the member under recurrent_ensemble_integration; the rerun is skipped because there are no

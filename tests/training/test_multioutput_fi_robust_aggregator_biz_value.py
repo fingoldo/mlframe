@@ -151,7 +151,7 @@ def test_unsigned_path_still_uses_mean():
     model = MultiOutputClassifier(catboost.CatBoostClassifier(iterations=10, verbose=False)).fit(X, y)
     fi = get_model_feature_importances(model, cols, X=X, y=y)
 
-    assert fi is not None
+    assert fi.shape == (n_feats,)
     # Aggregate matches np.mean of per-child native feature_importances_.
     manual_mean = np.mean(
         [np.asarray(est.feature_importances_) for est in model.estimators_],

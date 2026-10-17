@@ -90,6 +90,7 @@ def build(reps: int, seed: int, log=None) -> dict:
                     cfg_seed = int(rng.integers(0, 2**31 - 1))
                     t_cfg = time.perf_counter()
                     draws = max_null_mi_gpu(cp, n, n_bins, prior, n_candidates, reps_here, cfg_seed)
+                    cp.cuda.Device().synchronize()
                     done += 1
                     elapsed = time.perf_counter() - t0
                     eta = elapsed / done * (total - done)

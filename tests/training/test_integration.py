@@ -533,7 +533,10 @@ class TestIntegrationEdgeCases:
             show_fi=False,
         )
 
-        assert result is not None
+        # Independent oracle: the same Ridge fitted directly with the train-slice weights.
+        expected = Ridge(alpha=1.0).fit(X[:80], y[:80], sample_weight=sample_weight[:80]).predict(X[80:])
+        np.testing.assert_allclose(np.asarray(result.test_preds, dtype=float), expected, rtol=1e-6, atol=1e-8)
+        assert len(result.test_preds) == 20
 
     def test_polars_dataframe(self):
         """Test training with Polars DataFrame.
@@ -573,8 +576,9 @@ class TestIntegrationEdgeCases:
             show_fi=False,
         )
 
-        assert result is not None
-        assert result.test_preds is not None
+        expected = Ridge(alpha=1.0).fit(X[:80], y[:80]).predict(X[80:])
+        np.testing.assert_allclose(np.asarray(result.test_preds, dtype=float), expected, rtol=1e-6, atol=1e-8)
+        assert len(result.test_preds) == 20
 
 
 class TestValidationChecks:

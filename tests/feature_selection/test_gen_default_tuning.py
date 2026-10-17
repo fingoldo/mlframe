@@ -46,9 +46,16 @@ def _assert_canonical_on_disk(raw: str, doc: dict) -> None:
         """Keys sorted."""
         if isinstance(obj, dict):
             keys = list(obj.keys())
-            return keys == sorted(keys) and all(_keys_sorted(v) for v in obj.values())
-        if isinstance(obj, list):
-            return all(_keys_sorted(v) for v in obj)
+            if keys != sorted(keys):
+                return False
+            children = list(obj.values())
+        elif isinstance(obj, list):
+            children = list(obj)
+        else:
+            return True
+        for child in children:
+            if not _keys_sorted(child):
+                return False
         return True
 
     assert _keys_sorted(orjson.loads(raw))

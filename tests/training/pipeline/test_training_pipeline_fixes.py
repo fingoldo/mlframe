@@ -62,12 +62,17 @@ def test_f1_random_seed_absent_still_defaults_to_42():
 
 def test_f1_source_no_longer_contains_or_42_rewrite():
     """The `or 42` falsy-zero rewrite pattern must not reappear at the F1 call site."""
-    import inspect
+    import ast
 
     from mlframe.training.pipeline import _pipeline_extensions
+    from tests._source_structure import module_tree
 
-    src = inspect.getsource(_pipeline_extensions)
-    assert 'int(getattr(config, "random_seed", 42) or 42)' not in src
+    or_42 = [
+        node
+        for node in ast.walk(module_tree(_pipeline_extensions))
+        if isinstance(node, ast.BoolOp) and isinstance(node.op, ast.Or) and isinstance(node.values[-1], ast.Constant) and node.values[-1].value == 42
+    ]
+    assert or_42 == []
 
 
 # ---------------------------------------------------------------------------
@@ -420,29 +425,26 @@ def test_f7_target_encoding_lookup_unseen_entity_still_falls_back():
 
 
 def test_f9_pr4_no_duplicate_pipeline_cache_import():
-    """_pipeline_helpers_apply.py must import _pipeline_cache symbols via _pipeline_helpers's
-    canonical re-export only, not a second independent import block of the same names."""
-    import inspect
+    """_pipeline_helpers_apply.py takes the cache symbols from _pipeline_cache.py (the cycle-free leaf the helpers facade
+    re-exports) as the very same objects, never from a second copy of them."""
+    from mlframe.training.pipeline import _pipeline_cache, _pipeline_helpers, _pipeline_helpers_apply
+    from tests._source_structure import import_sources
 
-    from mlframe.training.pipeline import _pipeline_helpers_apply
-
-    src = inspect.getsource(_pipeline_helpers_apply)
-    assert "from ._pipeline_cache import" not in src
-    assert "from ._pipeline_helpers import" in src
+    assert (1, "_pipeline_cache") in import_sources(_pipeline_helpers_apply)
+    for name in ("_PRE_PIPELINE_CACHE", "_PRE_PIPELINE_CACHE_LOCK", "_approx_entry_bytes", "_pre_pipeline_cache_get", "_pre_pipeline_cache_key"):
+        assert getattr(_pipeline_helpers_apply, name) is getattr(_pipeline_cache, name)
+        assert getattr(_pipeline_helpers, name) is getattr(_pipeline_cache, name)
 
 
 def test_f9_pr4_all_symbols_still_resolve():
-    """Every symbol the module needs from the cache package must still be importable after the dedup."""
+    """Every cache symbol the module itself uses must resolve from it."""
     from mlframe.training.pipeline import _pipeline_helpers_apply as pha
 
     for name in (
         "_PRE_PIPELINE_CACHE", "_PRE_PIPELINE_CACHE_LOCK", "_PRE_PIPELINE_CACHE_MAX",
-        "_PRE_PIPELINE_CACHE_MAX_BYTES", "_approx_entry_bytes", "_content_fingerprint_for_cache",
-        "_fresh_uncachable", "_pipeline_signature_for_cache", "_pre_pipeline_cache_clear",
-        "_pre_pipeline_cache_get", "_pre_pipeline_cache_key", "_pre_pipeline_cache_set",
-        "_UncachableSentinel",
+        "_PRE_PIPELINE_CACHE_MAX_BYTES", "_approx_entry_bytes", "_pre_pipeline_cache_get", "_pre_pipeline_cache_key",
     ):
-        assert hasattr(pha, name), f"{name} no longer resolves from _pipeline_helpers_apply after the import dedup"
+        assert hasattr(pha, name), f"{name} no longer resolves from _pipeline_helpers_apply"
 
 
 # ---------------------------------------------------------------------------
@@ -456,7 +458,8 @@ def test_f4_ma_crossover_and_entity_time_docstrings_document_the_restart():
 
     from mlframe.training.pipeline import _entity_time_composite_fe, _ma_crossover_composite_fe
 
-    assert "restart" in inspect.getsource(_ma_crossover_composite_fe._rolling_means).lower() or "does not carry over" in (_ma_crossover_composite_fe._rolling_means.__doc__ or "").lower()
+    rolling_doc = (inspect.getdoc(_ma_crossover_composite_fe._rolling_means) or "").lower()
+    assert "restart" in rolling_doc or "does not carry over" in rolling_doc
     assert "carry over" in (_entity_time_composite_fe.__doc__ or "").lower() or "restart" in (_entity_time_composite_fe.__doc__ or "").lower()
 
 

@@ -145,14 +145,13 @@ def test_f3_f4_content_fingerprint_distinguishes_id_colliding_targets():
 
 def test_f3_f4_cb_pool_attrs_use_content_sig_not_id():
     """_cb_pool_build.py / _cb_pool.py no longer set/read the id()-based _mlframe_last_target_id attribute."""
-    import inspect
-
     from mlframe.training.cb import _cb_pool, _cb_pool_build
+    from tests._source_structure import identifiers, string_literals
 
     for mod in (_cb_pool_build, _cb_pool):
-        src = inspect.getsource(mod)
-        assert "_mlframe_last_target_id" not in src
-        assert "_mlframe_last_target_sig" in src
+        names = identifiers(mod) | set(string_literals(mod))
+        assert "_mlframe_last_target_id" not in names
+        assert "_mlframe_last_target_sig" in names
 
 
 def test_f3_f4_cb_pool_reuse_hit_with_label_swap_does_not_crash(caplog, monkeypatch):

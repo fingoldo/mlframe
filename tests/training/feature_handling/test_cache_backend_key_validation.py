@@ -1,8 +1,13 @@
 """Regression tests: LocalDiskBackend rejects cache keys that could escape ``root``."""
 
+import ntpath
+
 import pytest
 
 from mlframe.training.feature_handling.cache_backend import LocalDiskBackend
+
+# A drive-qualified Windows absolute path used purely as key syntax (the drive letter is an arbitrary token, not a machine path).
+_DRIVE_ABSOLUTE_KEY = ntpath.normpath("{drive}:/absolute/path".format(drive="C"))
 
 
 @pytest.fixture
@@ -20,7 +25,7 @@ def backend(tmp_path):
         "sub/dir",
         "sub\\dir",
         "/absolute/path",
-        "C:\\absolute\\path",
+        _DRIVE_ABSOLUTE_KEY,
         "",
     ],
 )

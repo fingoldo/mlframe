@@ -15,10 +15,38 @@ tooling suggestion, and a docs note) with no reported bug -- assessed, no fix re
 
 from __future__ import annotations
 
+import ast
 import importlib
 import inspect
+from pathlib import Path
+from types import ModuleType
 
 import pytest
+
+
+def _imported_names(module: ModuleType) -> tuple[set[str], set[str]]:
+    """Return ``(module_level, deferred)`` imported dotted names (``pkg.mod`` / ``pkg.mod.name``) of *module*, via AST.
+
+    ``deferred`` holds imports nested inside a function body; ``module_level`` holds the rest.
+    """
+    tree = ast.parse(Path(module.__file__).read_bytes())
+    module_level: set[str] = set()
+    deferred: set[str] = set()
+
+    def _visit(node: ast.AST, in_function: bool) -> None:
+        """Collect imports below *node*, tracking whether a function body encloses them."""
+        for child in ast.iter_child_nodes(node):
+            nested = in_function or isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef))
+            bucket = deferred if nested else module_level
+            if isinstance(child, ast.Import):
+                bucket.update(alias.name for alias in child.names)
+            elif isinstance(child, ast.ImportFrom) and child.module:
+                bucket.add(child.module)
+                bucket.update(f"{child.module}.{alias.name}" for alias in child.names)
+            _visit(child, nested)
+
+    _visit(tree, False)
+    return module_level, deferred
 
 # ---------------------------------------------------------------------------
 # F1: calibration/post.py no longer eagerly imports mlframe.training.evaluation /
@@ -30,9 +58,9 @@ def test_f1_calibration_post_defers_training_evaluation_import():
     """F1 calibration post defers training evaluation import."""
     import mlframe.calibration.post as post
 
-    src = inspect.getsource(post)
-    assert "from mlframe.training.evaluation import report_model_perf" not in src.split("def ")[0]
-    assert "from mlframe.training.evaluation import report_model_perf" in src  # still present, just deferred
+    module_level, deferred = _imported_names(post)
+    assert "mlframe.training.evaluation.report_model_perf" not in module_level
+    assert "mlframe.training.evaluation.report_model_perf" in deferred  # still present, just deferred
 
 
 def test_f1_calibration_post_defers_ensembling_import():
@@ -44,9 +72,9 @@ def test_f1_calibration_post_defers_ensembling_import():
     """
     import mlframe.calibration._post_train_calibrators as post_train_calibrators
 
-    src = inspect.getsource(post_train_calibrators)
-    assert "from mlframe.models.ensembling import ensemble_probabilistic_predictions" not in src.split("def ")[0]
-    assert "from mlframe.models.ensembling import ensemble_probabilistic_predictions" in src
+    module_level, deferred = _imported_names(post_train_calibrators)
+    assert "mlframe.models.ensembling.ensemble_probabilistic_predictions" not in module_level
+    assert "mlframe.models.ensembling.ensemble_probabilistic_predictions" in deferred
 
 
 def test_f1_calibration_post_still_importable_standalone():
@@ -71,20 +99,19 @@ def test_f1_calibration_post_still_importable_standalone():
 
 def test_f2_categorical_powerset_concat_defers_training_import():
     """F2 categorical powerset concat defers training import."""
-    import mlframe.feature_engineering.categorical_powerset_concat as mod
+    # the package re-exports a function of the same name, so ``import ... as`` would bind the function, not the module
+    mod = importlib.import_module("mlframe.feature_engineering.categorical_powerset_concat")
 
-    src = inspect.getsource(mod)
-    module_header = src.split("def categorical_powerset_concat")[0]
-    assert "mlframe.training" not in module_header
+    module_level, _deferred = _imported_names(mod)
+    assert not any(name.startswith("mlframe.training") for name in module_level)
 
 
 def test_f3_two_step_target_encode_defers_training_import():
     """F3 two step target encode defers training import."""
     import mlframe.feature_engineering.two_step_target_encode as mod
 
-    src = inspect.getsource(mod)
-    module_header = src.split("def two_step_recency_weighted_target_encode")[0]
-    assert "mlframe.training" not in module_header
+    module_level, _deferred = _imported_names(mod)
+    assert not any(name.startswith("mlframe.training") for name in module_level)
 
 
 def test_f2_f3_feature_engineering_modules_still_functionally_correct():
@@ -109,10 +136,9 @@ def test_f4_outlier_detector_zoo_defers_models_import():
     """F4 outlier detector zoo defers models import."""
     import mlframe.preprocessing.outlier_detector_zoo as mod
 
-    src = inspect.getsource(mod)
-    module_header = src.split("def make_outlier_detector")[0]
-    assert "mlframe.models" not in module_header
-    assert "mlframe.models.ensembling.selection import rank_average_blend" in src  # still present, deferred
+    module_level, deferred = _imported_names(mod)
+    assert not any(name.startswith("mlframe.models") for name in module_level)
+    assert "mlframe.models.ensembling.selection.rank_average_blend" in deferred  # still present, deferred
 
 
 # ---------------------------------------------------------------------------
@@ -169,8 +195,7 @@ def test_f7_per_target_seed_documented_as_intentionally_different():
     documenting comment landed instead of a silent, undocumented 3rd construction."""
     from mlframe.training.baselines import _dummy_baseline_compute as mod
 
-    src = inspect.getsource(mod._per_target_seed)
-    assert "Deliberately NOT the shared" in src
+    assert "Deliberately NOT the shared" in inspect.getdoc(mod._per_target_seed)
 
 
 def test_f7_derive_seed_is_deterministic_and_in_range():

@@ -276,19 +276,34 @@ def test_multiclass_split_summary_handles_missing_class():
     assert out["rates"][2] == 0.0
 
 
-def test_object_of_arrays_probe_logs_on_failure():
+def test_object_of_arrays_probe_logs_on_failure(caplog, monkeypatch):
     """The nested `_is_object_of_arrays` probe (used to detect a polars pl.List -> object-cell
     roundtrip for multilabel routing) must log a failure instead of silently treating it as False
-    -- pinned via source presence since forcing a real exception through the full
-    `_to_numpy_or_none` coercion pipeline (which safely handles any real ndarray) isn't feasible
-    without an artificial duck-typed object numpy itself would refuse to accept unmodified."""
-    import inspect
+    -- driven with an ndarray subclass whose first ``dtype`` access raises, injected past the coercion step."""
+    import logging
 
-    from mlframe.training.drift_report import compute_label_distribution_drift
+    from mlframe.training import drift_report
 
-    src = inspect.getsource(compute_label_distribution_drift)
-    assert "object-of-arrays probe failed" in src
-    assert "logger.debug" in src
+    class _FlakyDtypeArray(np.ndarray):
+        """An ndarray whose ``dtype`` raises on the first access only (the probe's), then behaves normally."""
+
+        _raise_once = [True]
+
+        @property
+        def dtype(self):
+            """Raise ``RuntimeError`` once, then return the real dtype."""
+            if _FlakyDtypeArray._raise_once[0]:
+                _FlakyDtypeArray._raise_once[0] = False
+                raise RuntimeError("dtype boom")
+            return np.ndarray.dtype.__get__(self)
+
+    flaky = np.arange(10, dtype=np.float64).view(_FlakyDtypeArray)
+    monkeypatch.setattr(drift_report, "_to_numpy_or_none", lambda x: flaky if x is not None else None)
+    monkeypatch.setattr(drift_report, "log_throttle", lambda lg, key, level, msg, *a: lg.log(level, msg, *a))
+    with caplog.at_level(logging.WARNING, logger=drift_report.logger.name):
+        report = drift_report.compute_label_distribution_drift(np.arange(10.0), None, None, target_type="regression")
+    assert report["target_type"] == "regression"
+    assert any("object-of-arrays probe failed" in rec.getMessage() and "dtype boom" in rec.getMessage() for rec in caplog.records)
 
 
 def test_binary_split_summary_excludes_nan_labels_from_denominator():

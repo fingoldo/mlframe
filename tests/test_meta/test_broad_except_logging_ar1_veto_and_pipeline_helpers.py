@@ -141,17 +141,58 @@ def test_strategies_pipeline_cache_estimate_slot_nbytes_returns_int():
     assert isinstance(out, int)
 
 
-def test_flat_torch_predict_accel_recurrent_scan_logs_on_failure(caplog):
-    """The torch.compile predict path's recurrent-module scan must log on failure -- pinned via
-    source presence since the method lives on a torch.nn.Module subclass requiring a full
-    Lightning network fixture to instantiate directly."""
-    import inspect
-    import mlframe.training.neural._flat_torch_module._flat_torch_predict_accel as fpa
+def test_flat_torch_predict_accel_recurrent_scan_logs_on_failure(caplog, monkeypatch):
+    """All three recurrent-module scans of the predict-accel mixin must log and fall back when ``network.modules()`` raises.
 
-    src = inspect.getsource(fpa)
-    assert "recurrent-module scan failed, falling back to eager" in src
-    assert src.count('logger.debug("torch.compile predict path: recurrent-module scan failed') == 1
-    assert src.count('logger.debug("CUDA-graph predict path: recurrent-module scan failed') == 1
+    The mixin methods are called unbound on a stub ``self`` so no Lightning network fixture is needed.
+    """
+    from types import SimpleNamespace
+
+    import torch
+
+    from mlframe.training.neural._flat_torch_module import _flat_torch_predict_accel as fpa
+
+    class _BrokenNetwork:
+        """A network whose ``modules()`` scan always raises."""
+
+        def modules(self):
+            """Always raises ``RuntimeError('boom')``."""
+            raise RuntimeError("boom")
+
+    class _FakeCudaTensor(torch.Tensor):
+        """A CPU tensor that claims to live on CUDA so the GPU-only guards are passed."""
+
+        @property
+        def is_cuda(self):
+            """Report CUDA residency."""
+            return True
+
+    class _Stub:
+        """Stand-in for the Lightning module: carries only the attributes the scans touch."""
+
+        def __init__(self):
+            self.hparams = SimpleNamespace(compile_network="default")
+            self.network = _BrokenNetwork()
+            self._compile_predict_failed = False
+
+        def __call__(self, x):
+            """Eager forward used as the fallback path."""
+            return x
+
+    mixin = fpa._PredictAccelMixin
+    x = torch.zeros(2).as_subclass(_FakeCudaTensor)
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
+    monkeypatch.setenv("MLFRAME_CUDA_GRAPH_PREDICT", "1")
+    monkeypatch.setenv("MLFRAME_TORCH_COMPILE_PREDICT", "1")
+
+    with caplog.at_level(logging.DEBUG):
+        mixin._apply_torch_compile(_Stub())
+        assert mixin._maybe_compile_predict_forward(_Stub(), x) is None
+        assert mixin._maybe_cuda_graph_forward(_Stub(), x) is x
+    messages = [rec.getMessage() for rec in caplog.records]
+    assert any("recurrent-module scan failed: boom" in m for m in messages)
+    assert any("torch.compile predict path: recurrent-module scan failed" in m for m in messages)
+    assert any("CUDA-graph predict path: recurrent-module scan failed" in m for m in messages)
 
 
 def test_composite_ensemble_is_monotone_nondecreasing_logs_on_coercion_failure(caplog):

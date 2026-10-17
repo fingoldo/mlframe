@@ -43,7 +43,7 @@ def _subset_recovery(input_for_model, model):
         try:
             _inner_list = [str(c) for c in _inner_feat_names]
             _have = {str(c) for c in input_for_model.columns}
-            if all(c in _have for c in _inner_list):
+            if _inner_list and all(c in _have for c in _inner_list):
                 return input_for_model.loc[:, _inner_list]
         except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
             pass

@@ -221,11 +221,9 @@ def test_biz_val_baseline_diagnostics_n_estimators_100_is_faster():
 
 @pytest.mark.hang_guard
 def test_biz_val_baseline_diagnostics_sample_n_caps_runtime():
-    """``sample_n=500`` must keep runtime under 30s on a 50_000-row
-    dataset. The sample_n parameter is the headline speedup: without
-    it, fitting LightGBM on 50k rows would dominate the diagnostic
-    cost. Floor: complete in < 30s. Measured fast on this hardware
-    in 1-3s; 30s leaves CI headroom."""
+    """``sample_n=500`` must cap the rows the diagnostic models are fitted on at 500 of a 50_000-row
+    dataset. The sample_n parameter is the headline speedup: without it, fitting LightGBM on 50k rows
+    would dominate the diagnostic cost. The deterministic work counter is the sampled-row count."""
     pytest.importorskip("lightgbm")
     from mlframe.training.baselines.diagnostics import BaselineDiagnostics
 
@@ -241,7 +239,6 @@ def test_biz_val_baseline_diagnostics_sample_n_caps_runtime():
     df["y"] = 3.0 * df["x_dom"] + 0.3 * rng.normal(size=n)
 
     diag = BaselineDiagnostics(_make_config(sample_n=500))
-    t0 = time.perf_counter()
     report = diag.fit_and_report(
         train_df=df,
         train_target=df["y"],
@@ -249,8 +246,7 @@ def test_biz_val_baseline_diagnostics_sample_n_caps_runtime():
         target_type="regression",
         target_name="y",
     )
-    dt = time.perf_counter() - t0
-    assert dt < 30.0, f"sample_n=500 must keep n=50k runtime under 30s; got {dt:.1f}s"
+    assert report.sample_n_used == 500, f"sample_n=500 must fit the diagnostics on 500 of {n} rows; got {report.sample_n_used}"
     # Behavioural: a sample_n=500 fit must produce a real diagnostics record (not just any object), and the
     # ablation summary must surface the dominant feature so the runtime-vs-quality tradeoff is verifiable.
     assert report is not None, "fit_and_report returned None on sample_n=500 path"

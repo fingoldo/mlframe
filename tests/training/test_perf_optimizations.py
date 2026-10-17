@@ -364,7 +364,8 @@ class TestArrowLargeStringCompat:
             verbose=0,
             output_config=OutputConfig(data_dir=temp_data_dir),
         )
-        assert models is not None
+        entries = [e for by_name in models.values() for lst in by_name.values() for e in lst]
+        assert len(entries) == 1 and hasattr(entries[0], "model")
         self._assert_lib_versions_logged()
 
     @pytest.mark.parametrize("model_name", ["cb", "hgb", "xgb"])
@@ -394,7 +395,8 @@ class TestArrowLargeStringCompat:
             verbose=0,
             output_config=OutputConfig(data_dir=temp_data_dir),
         )
-        assert models is not None
+        entries = [e for by_name in models.values() for lst in by_name.values() for e in lst]
+        assert len(entries) == 1 and hasattr(entries[0], "model")
         self._assert_lib_versions_logged()
 
 

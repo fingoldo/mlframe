@@ -41,7 +41,7 @@ def test_predict_routes_learning_to_rank_to_plain_predict(y_val):
     """learning_to_rank must use model.predict, never model.predict_proba (which rankers lack)."""
     cb = CBIterationMetricsCallback(val_pool=None, y_val=y_val, target_type="learning_to_rank")
     score = cb._predict(_RankerModel(), ntree_end=5)
-    assert score is not None
+    assert score.shape == (3,)
     np.testing.assert_array_equal(score, [0.1, 0.2, 0.3])
 
 
@@ -49,7 +49,7 @@ def test_predict_routes_binary_classification_to_predict_proba(y_val):
     """binary_classification must still use predict_proba, collapsed to the positive-class column."""
     cb = CBIterationMetricsCallback(val_pool=None, y_val=y_val, target_type="binary_classification")
     score = cb._predict(_ClassifierModel(), ntree_end=5)
-    assert score is not None
+    assert score.shape == (3,)
     np.testing.assert_allclose(score, [0.1, 0.6, 0.8])
 
 
@@ -57,5 +57,5 @@ def test_predict_routes_regression_to_plain_predict(y_val):
     """regression must still use plain predict (pre-existing behavior, not regressed by the fix)."""
     cb = CBIterationMetricsCallback(val_pool=None, y_val=y_val, target_type="regression")
     score = cb._predict(_RankerModel(), ntree_end=5)
-    assert score is not None
+    assert score.shape == (3,)
     np.testing.assert_array_equal(score, [0.1, 0.2, 0.3])

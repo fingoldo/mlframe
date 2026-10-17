@@ -25,6 +25,7 @@ def test_late_attributes_are_injected_with_their_neutral_defaults():
     """Lists come back empty, "never computed" attributes None, flags False, the step counter 0."""
     names = _LATE_LISTS + _LATE_NONES + _LATE_FALSES + ("_fe_steps_executed_",)
     obj = _legacy_instance(names)
+    assert _LATE_LISTS and _LATE_NONES and _LATE_FALSES
     for n in _LATE_LISTS:
         assert getattr(obj, n) == []
     for n in _LATE_NONES:

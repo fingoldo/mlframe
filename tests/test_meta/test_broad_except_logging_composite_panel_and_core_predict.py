@@ -106,14 +106,45 @@ def test_ar_skip_recompute_lag1_ar_logs_on_failure(caplog, monkeypatch):
 
 
 def test_phase_helpers_cat_heavy_size_logs_on_failure(caplog):
-    """The categorical-heavy size estimator must log on failure -- pinned via source presence
-    since it's a nested closure inside a larger phase-setup function."""
-    import inspect
-    import mlframe.training.core._phase_helpers as ph
+    """The categorical-heavy size estimator must log and fall back to the raw byte size when iterating ``cat_features`` fails.
 
-    src = inspect.getsource(ph)
-    assert "_cat_heavy_size: categorical-fraction size estimate failed" in src
-    assert "logger.debug" in src
+    It is a closure inside ``_phase_pandas_conversion_and_cat_prep``, so the phase is driven end to end with a polars
+    frame whose ``cat_features`` argument raises on iteration.
+    """
+    import polars as pl
+
+    from mlframe.training.core import _phase_helpers as ph
+
+    class _ExplodingCatFeatures(list):
+        """A non-empty feature list whose iteration always raises."""
+
+        def __iter__(self):
+            """Always raises ``RuntimeError('boom')``."""
+            raise RuntimeError("boom")
+
+    train = pl.DataFrame({"a": [1.0, 2.0, 3.0], "b": [1, 2, 3]})
+    with caplog.at_level(logging.DEBUG, logger="mlframe.training.core._phase_helpers"):
+        out = ph._phase_pandas_conversion_and_cat_prep(
+            train_df=train,
+            val_df=None,
+            test_df=None,
+            train_df_polars_pre=None,
+            val_df_polars_pre=None,
+            test_df_polars_pre=None,
+            cat_features=_ExplodingCatFeatures(["a"]),
+            was_polars_input=True,
+            all_models_polars_native=True,
+            needs_polars_pre_clone=False,
+            mlframe_models=["lgb"],
+            recurrent_models=[],
+            rfecv_models=[],
+            baseline_rss_mb=0.0,
+            df_size_mb=0.0,
+            verbose=False,
+            pipeline_stages_requested=False,
+        )
+    assert out is not None
+    assert any("_cat_heavy_size: categorical-fraction size estimate failed" in rec.getMessage() for rec in caplog.records)
 
 
 def test_phase_train_one_target_mlp_helpers_column_drop_logs_on_failure(caplog):
@@ -259,15 +290,39 @@ def test_feature_handling_cache_eviction_logs_on_disk_probe_failure(caplog, monk
     assert any("disk-cache eviction: free-space probe failed" in rec.message for rec in caplog.records)
 
 
-def test_feature_handling_registry_log_unhandled_logs_on_probe_failure(caplog):
-    """The prewarm-future done-callback must log when the exception probe itself fails -- pinned
-    via source presence since it's a nested closure bound to a specific future instance."""
-    import inspect
+def test_feature_handling_registry_log_unhandled_logs_on_probe_failure(caplog, monkeypatch):
+    """The prewarm-future done-callback must log (not raise) when the exception probe itself fails.
+
+    ``prewarm`` is driven with a stand-in executor whose future's ``exception()`` raises, so the nested done-callback
+    runs against a real ``Future`` object.
+    """
+    from concurrent.futures import Future
+    from types import SimpleNamespace
+
     import mlframe.training.feature_handling.registry as registry_mod
 
-    src = inspect.getsource(registry_mod)
-    assert "_log_unhandled: future.exception() probe failed" in src
-    assert "logger.debug" in src
+    class _ProbeFailsFuture(Future):
+        """A completed future whose ``exception()`` probe always raises."""
+
+        def exception(self, timeout=None):
+            """Always raises ``RuntimeError('probe boom')``."""
+            raise RuntimeError("probe boom")
+
+    class _Executor:
+        """Executor stand-in returning an already-completed probe-failing future."""
+
+        def submit(self, fn, *args, **kwargs):
+            """Return a done future without running ``fn``."""
+            fut = _ProbeFailsFuture()
+            fut.set_result(None)
+            return fut
+
+    monkeypatch.setattr(registry_mod, "_PREWARM_EXECUTOR", _Executor())
+    monkeypatch.setattr(registry_mod, "_PREWARM_FUTURES", {})
+    with caplog.at_level(logging.DEBUG, logger=registry_mod.logger.name):
+        fut = registry_mod.prewarm(SimpleNamespace(signature="probe-fail-sig"))
+    assert isinstance(fut, _ProbeFailsFuture)
+    assert any("_log_unhandled: future.exception() probe failed: probe boom" in rec.getMessage() for rec in caplog.records)
 
 
 def test_recurrent_perf_maybe_enable_cudnn_autotune_returns_none_without_cuda():
@@ -301,15 +356,31 @@ def test_categorical_composite_fe_detect_cat_columns_logs_on_failure(caplog):
     assert any("select_dtypes probe failed" in rec.message for rec in caplog.records)
 
 
-def test_pipeline_fit_transform_looks_embedding_logs_on_failure(caplog):
-    """The embedding-column detector must log when the sample probe fails -- pinned via source
-    presence since it's a nested closure inside a larger pipeline-fit function."""
-    import inspect
-    import mlframe.training.pipeline._pipeline_fit_transform as pft
+def test_pipeline_fit_transform_looks_embedding_logs_on_failure(caplog, monkeypatch):
+    """The embedding-column detector must log and treat the column as non-embedding when the sample probe fails.
 
-    src = inspect.getsource(pft)
-    assert "_looks_embedding: sample probe failed" in src
-    assert "logger.debug" in src
+    ``_looks_embedding`` is a closure inside ``fit_and_transform_pipeline``; the pipeline is run on a small pandas frame
+    with an object column whose ``Series.head`` raises, and must still complete.
+    """
+    import pandas as pd
+
+    from mlframe.training.pipeline import _pipeline_fit_transform as pft
+    from mlframe.training.configs import PreprocessingBackendConfig
+
+    real_head = pd.Series.head
+
+    def _head(self, n=5):
+        """Raise for object-dtype series (the embedding probe), delegate otherwise."""
+        if self.dtype == object:
+            raise RuntimeError("head boom")
+        return real_head(self, n)
+
+    monkeypatch.setattr(pd.Series, "head", _head)
+    train = pd.DataFrame({"x": [1.0, 2.0, 3.0, 4.0], "c": ["a", "b", "a", "b"]})
+    with caplog.at_level(logging.DEBUG):
+        out = pft.fit_and_transform_pipeline(train, None, None, PreprocessingBackendConfig(), verbose=0)
+    assert out is not None
+    assert any("_looks_embedding: sample probe failed" in rec.getMessage() for rec in caplog.records)
 
 
 def test_pipeline_init_schema_drift_check_logs_on_failure(caplog):
@@ -325,11 +396,25 @@ def test_pipeline_init_schema_drift_check_logs_on_failure(caplog):
 
 
 def test_train_eval_select_target_binary_pos_rate_logs_on_failure(caplog):
-    """`_binary_pos_rate`'s coercion except must log on failure -- pinned via source presence
-    since it's a nested closure inside a larger target-selection function."""
-    import inspect
-    import mlframe.training.targets._train_eval_select_target as tet
+    """`_binary_pos_rate`'s coercion except must log on failure and fall back to the whole-target rate.
 
-    src = inspect.getsource(tet)
-    assert "_binary_pos_rate: coercion failed" in src
-    assert "logger.debug" in src
+    It is a closure inside ``_select_regression_target``, so the binary branch is run with a train-target stub whose
+    ``to_numpy`` raises.
+    """
+    import numpy as np
+
+    from mlframe.training.targets._train_eval_select_target import TargetTypes
+    from mlframe.training.targets._train_eval_select_target import _select_regression_target
+
+    class _BrokenTrainTarget:
+        """A train-target stub whose ``to_numpy`` always raises."""
+
+        def to_numpy(self):
+            """Always raises ``RuntimeError('boom')``."""
+            raise RuntimeError("boom")
+
+    target = np.array([0, 1, 0, 1, 1])
+    with caplog.at_level(logging.DEBUG, logger="mlframe.training.train_eval"):
+        out = _select_regression_target(TargetTypes.BINARY_CLASSIFICATION, "t", "m", [], _BrokenTrainTarget(), target)
+    assert out is not None
+    assert any("_binary_pos_rate: coercion failed" in rec.getMessage() for rec in caplog.records)

@@ -37,7 +37,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from tests.conftest import running_under_xdist, perf_time_budget
+from tests.conftest import running_under_xdist
 from tests.feature_selection.conftest import is_fast_mode
 
 # 0.05 min == 3 s. Small enough that an oversized full-mode fit must abort early,
@@ -109,36 +109,69 @@ def _warm_numba():
 
 
 @pytest.mark.slow
-def test_biz_val_mrmr_respects_runtime_budget_and_yields_usable_partial(_warm_numba):
-    """MRMR full mode on a deliberately oversized problem (n=4000, p=120) handed a
-    3s budget must abort within 4x the budget AND leave a usable partial selection.
+def test_biz_val_mrmr_respects_runtime_budget_and_yields_usable_partial(_warm_numba, monkeypatch):
+    """MRMR full mode handed a 3s budget must stop evaluating candidates early AND leave a usable partial selection.
 
-    If MRMR ignored ``max_runtime_mins`` the full-mode fit would run to completion
-    (much longer than 12s on this shape), so this is a genuine behavioural sensor
-    for the budget guard, not a micro-perf gate. Measured 5.5-8.5s across seeds.
+    The budget is exercised on an injected fake clock (every module-level ``timer`` in the selector package is
+    replaced by one that advances a second per read), so the verdict does not depend on the runner's speed. The
+    deterministic work counter is the number of candidate evaluations (``handle_best_candidate`` calls, one per
+    candidate scored): the budgeted fit must score strictly fewer candidates than an identical unbudgeted fit,
+    which is what "MRMR ignored max_runtime_mins entirely" would break.
     """
-    df, y = _signal_noise_df(4000, 120, seed=42)
-    sel = _make_mrmr(simple=False, budget=_BUDGET_MINS, seed=0)
+    import sys
+    import threading
+    from timeit import default_timer
 
-    t0 = time.perf_counter()
+    from mlframe.feature_selection.filters import _confirm_predictor as confirm_mod
+    from mlframe.feature_selection.filters import evaluation as evaluation_mod
+
+    df, y = _signal_noise_df(1500, 40, seed=42)
+
+    evals = {"n": 0}
+    evals_lock = threading.Lock()
+    real_handle = evaluation_mod.handle_best_candidate
+
+    def _counting_handle(*args, **kwargs):
+        """Count one scored candidate, then delegate."""
+        with evals_lock:
+            evals["n"] += 1
+        return real_handle(*args, **kwargs)
+
+    monkeypatch.setattr(evaluation_mod, "handle_best_candidate", _counting_handle)
+    monkeypatch.setattr(confirm_mod, "handle_best_candidate", _counting_handle)
+
+    class _FakeClock:
+        """Monotonic clock advancing a fixed second per read."""
+
+        def __init__(self) -> None:
+            self.now = 0.0
+            self._lock = threading.Lock()
+
+        def __call__(self) -> float:
+            with self._lock:
+                self.now += 1.0
+                return self.now
+
+    clock = _FakeClock()
+    for mod_name, mod in list(sys.modules.items()):
+        if mod_name.startswith("mlframe.feature_selection") and getattr(mod, "timer", None) is default_timer:
+            monkeypatch.setattr(mod, "timer", clock)
+
+    evals["n"] = 0
+    _make_mrmr(simple=False, budget=None, seed=0).fit(df, y)
+    full_evals = evals["n"]
+
+    evals["n"] = 0
+    sel = _make_mrmr(simple=False, budget=_BUDGET_MINS, seed=0)
     sel.fit(df, y)
-    elapsed = time.perf_counter() - t0
+    budgeted_evals = evals["n"]
+    assert 1 <= budgeted_evals < full_evals, f"MRMR ignored max_runtime_mins: scored {budgeted_evals} candidates with a budget vs {full_evals} without"
 
     # USABILITY (always asserted -- independent of wall-clock contention).
     assert _n_selected(sel) >= 1, "partial fit must expose a non-empty support_"
     Xt = sel.transform(df)
     assert Xt.shape[0] == df.shape[0], "transform must round-trip the same row count"
     assert Xt.shape[1] == _n_selected(sel), "transform width must match support_ size"
-
-    # BUDGET-RESPECT. Widened under xdist rather than SKIPPED: the project's own docstrings say CI runs
-    # `-n auto`, so skipping there meant this assertion never ran on the only environment that executes the
-    # full matrix -- the four budget/scaling assertions in this file were, in practice, dead. Contention can
-    # stretch a wall clock by a factor; it cannot make a budget-respecting fit run 10x its budget, which is the
-    # failure ("MRMR ignored max_runtime_mins entirely") this exists to catch.
-    ceiling = perf_time_budget(_BUDGET_SLACK * _XDIST_SLACK * _BUDGET_SECS)
-    assert (
-        elapsed <= ceiling
-    ), f"MRMR ignored max_runtime_mins: elapsed {elapsed:.2f}s > {ceiling:.1f}s (budget {_BUDGET_SECS:.0f}s, slack {_BUDGET_SLACK}x). PROD BUG if persistent."
 
 
 # ---------------------------------------------------------------------------
@@ -147,35 +180,74 @@ def test_biz_val_mrmr_respects_runtime_budget_and_yields_usable_partial(_warm_nu
 
 
 @pytest.mark.slow
-def test_biz_val_rfecv_respects_runtime_budget_and_yields_usable_partial(_warm_numba):
+def test_biz_val_rfecv_respects_runtime_budget_and_yields_usable_partial(_warm_numba, monkeypatch):
     """RFECV with a cheap LogisticRegression refit on an oversized search universe
     (n=2000, p=60) handed a 3s ``max_runtime_mins`` must abort within 4x the budget
     AND finalize a usable ``support_`` / ``transform``.
 
-    A cheap per-refit estimator keeps the outer-loop budget-check granularity fine
-    (each refit is ~ms), so the abort lands close to the deadline. Measured ~3.0s.
+    The budget is exercised on an injected fake clock that advances one second per read, so the verdict
+    depends on how many iterations the outer loop runs before it reads the clock past the budget -- not on
+    the runner's speed. The deterministic work counter is the number of estimator refits: the budgeted fit
+    must do strictly fewer than an identical unbudgeted fit.
     The wrapper still finalizes ``select_optimal_nfeatures_`` after the time-out, so
     the partial result is a real, transformable selection.
     """
+    import threading
+
     from sklearn.linear_model import LogisticRegression
     from mlframe.feature_selection.wrappers import RFECV
+    from mlframe.feature_selection.wrappers.rfecv import _fit as rfecv_fit_mod
+    from mlframe.feature_selection.wrappers.rfecv import _fit_outer_loop as rfecv_loop_mod
+
+    fits = {"n": 0}
+    fits_lock = threading.Lock()
+
+    class _CountingLR(LogisticRegression):
+        """LogisticRegression that counts every fit (clones share the class, so CV refits are counted too)."""
+
+        def fit(self, X, y, *args, **kwargs):
+            """Count, then delegate."""
+            with fits_lock:
+                fits["n"] += 1
+            return super().fit(X, y, *args, **kwargs)
+
+    class _FakeClock:
+        """Monotonic clock advancing a fixed second per read."""
+
+        def __init__(self) -> None:
+            self.now = 0.0
+            self._lock = threading.Lock()
+
+        def __call__(self) -> float:
+            with self._lock:
+                self.now += 1.0
+                return self.now
 
     df, y = _signal_noise_df(2000, 60, seed=42)
-    sel = RFECV(
-        estimator=LogisticRegression(max_iter=200, random_state=0),
-        cv=3,
-        max_runtime_mins=_BUDGET_MINS,
-        random_state=0,
-        leakage_corr_threshold=None,
-        n_features_selection_rule="argmax",
-        max_noimproving_iters=10_000,
-        max_refits=10_000,
-        verbose=0,
-    )
 
-    t0 = time.perf_counter()
-    sel.fit(df, y)
-    elapsed = time.perf_counter() - t0
+    def _fit_rfecv(budget):
+        """Fit a fresh RFECV with the given ``max_runtime_mins`` and report ``(selector, estimator fits used)``."""
+        fits["n"] = 0
+        selector = RFECV(
+            estimator=_CountingLR(max_iter=200, random_state=0),
+            cv=3,
+            max_runtime_mins=budget,
+            random_state=0,
+            leakage_corr_threshold=None,
+            n_features_selection_rule="argmax",
+            max_noimproving_iters=10_000,
+            max_refits=10_000,
+            verbose=0,
+        )
+        selector.fit(df, y)
+        return selector, fits["n"]
+
+    _, full_fits = _fit_rfecv(None)
+    clock = _FakeClock()
+    monkeypatch.setattr(rfecv_loop_mod, "timer", clock)
+    monkeypatch.setattr(rfecv_fit_mod, "timer", clock)
+    sel, budgeted_fits = _fit_rfecv(_BUDGET_MINS)
+    assert 1 <= budgeted_fits < full_fits, f"RFECV ignored max_runtime_mins: {budgeted_fits} refits with a budget vs {full_fits} without"
 
     supp = np.asarray(sel.support_)
     nsel = int(supp.sum()) if supp.dtype == bool else int(supp.size)
@@ -183,12 +255,6 @@ def test_biz_val_rfecv_respects_runtime_budget_and_yields_usable_partial(_warm_n
     Xt = sel.transform(df)
     assert Xt.shape[0] == df.shape[0], "transform must round-trip the same row count"
     assert Xt.shape[1] == nsel, "transform width must match support_ size"
-
-    # Widened under xdist rather than skipped -- see the MRMR budget test above for why.
-    ceiling = perf_time_budget(_BUDGET_SLACK * _XDIST_SLACK * _BUDGET_SECS)
-    assert (
-        elapsed <= ceiling
-    ), f"RFECV ignored max_runtime_mins: elapsed {elapsed:.2f}s > {ceiling:.1f}s (budget {_BUDGET_SECS:.0f}s, slack {_BUDGET_SLACK}x). PROD BUG if persistent."
 
 
 # ---------------------------------------------------------------------------

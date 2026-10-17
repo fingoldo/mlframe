@@ -331,7 +331,7 @@ def test_baseline_diagnostics_outer_try_does_not_swallow_keyboard_interrupt(monk
 
     instance = bd_cls(BaselineDiagnosticsConfig())
     fit_method = getattr(instance, "fit_and_report", None)
-    assert fit_method is not None, (
+    assert callable(fit_method), (
         "BaselineDiagnostics.fit_and_report has gone missing -- mlframe API regression, not a third-party version drift; "
         "investigate baseline_diagnostics.py rather than silently skipping."
     )
@@ -436,7 +436,7 @@ def test_dummy_baselines_numba_log_loss_kernel_narrow_catch(monkeypatch):
 
     monkeypatch.setattr(_dmpp, "log_loss", _mem)
     fn = getattr(dummy_baselines, "_compute_metrics_table", None)
-    assert fn is not None, "_compute_metrics_table must be importable"
+    assert callable(fn), "_compute_metrics_table must be importable"
     # Tiny inputs that exercise the log_loss branch.
     import numpy as _np
 

@@ -507,8 +507,8 @@ def test_no_source_text_sql_probes_in_tests():
 
 # Each function allowed to write a module registry at runtime, with how its entries survive into another process.
 _REGISTRY_REPLAY_WRITERS = {
-    "reregister_auto_chain_transforms": "the replay itself: CompositeTargetEstimator routing calls it for a chain transform on load",
-    "_run_auto_chain": "discovery-time chain registration; every wrapper naming a chain replays it on load via reregister_auto_chain_transforms",
+    "register_transform_if_absent": "the single locked writer of chain_* transforms; discovery registers through it and every wrapper naming a chain "
+    "replays it on load via reregister_auto_chain_transforms",
     "_register_or_get": "per-process provider cache (weakref lifecycle); no pickled object names an entry",
     "_do_load": "per-process provider cache load path; no pickled object names an entry",
     "register_metric": "public plugin API for custom metrics; the built-ins register at import",

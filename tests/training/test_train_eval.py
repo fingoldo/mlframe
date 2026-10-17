@@ -142,4 +142,4 @@ class TestSelectTarget:
         mock_trainer.return_value = ({}, {}, None, None, None, {}, {})
         target = np.array([2.0, 4.0, 6.0])
         select_target("mymodel", target, TargetTypes.REGRESSION, pd.DataFrame({"a": [1, 2, 3]}))
-        assert mock_trainer.call_args is not None
+        assert mock_trainer.call_args.kwargs["model_name"] == "mymodel MT=4.00"

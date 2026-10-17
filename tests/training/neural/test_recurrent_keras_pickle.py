@@ -46,5 +46,5 @@ def test_keras_compatible_mlp_roundtrip_preserves_predictions():
     restored = pickle.loads(pickle.dumps(est))  # nosec B301 -- round-trip of a locally-created, trusted object
     after = restored.predict(X)
 
-    assert restored.model_ is not None
+    assert restored.model_.count_params() == est.model_.count_params()
     np.testing.assert_allclose(before, after, rtol=1e-5, atol=1e-5)

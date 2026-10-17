@@ -34,7 +34,7 @@ def test_biz_val_interaction_surfaces_synergistic_base():
     candidates, y = _make_two_interactions()
     synth, records = discover_interaction_bases(candidates, y, top_k=8, max_pairs=4, nbins=12)
     assert len(synth) >= 1, "a*b / c*d interaction bases must be surfaced (MI beats both marginals)"
-    assert all(r["qualifies"] for r in records), "only qualifying pairs should be returned"
+    assert bool(records) and all(r["qualifies"] for r in records), "only qualifying pairs should be returned"
 
 
 def test_biz_val_interaction_max_pairs_caps_output():

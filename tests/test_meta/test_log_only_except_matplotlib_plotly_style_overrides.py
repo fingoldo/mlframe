@@ -9,12 +9,12 @@ artificial escalation collection for a function that was never meant to have one
 
 from __future__ import annotations
 
-import inspect
+from tests.test_meta._comment_markers import comment_text
 
 
 def test_phase_helpers_plot_style_overrides_all_marked_best_effort():
     """Every except handler in the plot-style-override helper carries a `# best-effort` marker."""
     import mlframe.training.core._phase_helpers as ph
 
-    src = inspect.getsource(ph)
+    src = comment_text(ph)
     assert src.count("# best-effort") >= 5

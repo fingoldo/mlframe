@@ -129,7 +129,7 @@ def compute_fdr_gain_floor(
     Does NOT touch the global RNG: ``random_seed`` is forwarded to the permutation-null kernel, which
     runs after the screening spine already seeded + snapshotted the process RNG.
     """
-    if not (screen_fdr_null_permutations and int(screen_fdr_null_permutations) > 0):
+    if screen_fdr_null_permutations is None or int(screen_fdr_null_permutations) <= 0:
         return 0.0
     _fdr_pool = np.asarray(sorted(x) if isinstance(x, set) else list(x))
     from ._permutation_null import pooled_permutation_null_gain_floor

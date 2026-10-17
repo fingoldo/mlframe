@@ -320,7 +320,8 @@ class TestDataLoadingPreprocessing:
             reporting_config=common_init_params,
             output_config=OutputConfig(data_dir=temp_data_dir),
         )
-        assert metadata is not None
+        assert isinstance(metadata, dict)
+        assert len(_models) >= 1  # training completed despite the NaN rows
 
     def test_preprocessing_drop_columns(self, sample_regression_data, temp_data_dir, common_init_params):
         """Columns in preprocessing_config.drop_columns are removed before training."""

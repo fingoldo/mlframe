@@ -31,7 +31,7 @@ def test_timeseries_strategy_reads_time_column():
     """Timeseries strategy reads time column."""
     df = pd.DataFrame({"ts": np.arange(10, 0, -1), "x": np.arange(10)})
     out = _resolve_timeseries_timestamps(None, _sc(cv_strategy="timeseries", time_column="ts"), df)
-    assert out is not None
+    assert len(out) == 10
     np.testing.assert_array_equal(out, np.arange(10, 0, -1))
 
 

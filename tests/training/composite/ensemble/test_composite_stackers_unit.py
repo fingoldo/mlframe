@@ -234,4 +234,4 @@ def test_meta_stack_pickle_roundtrip(stacker):
     restored = pickle.loads(pickle.dumps(ens))  # nosec B301 -- round-trip of a locally-created, trusted object
     after = restored.predict(X)
     np.testing.assert_allclose(after, before, rtol=1e-10)
-    assert getattr(restored, "_meta_model", None) is not None
+    assert callable(getattr(restored._meta_model, "predict", None))

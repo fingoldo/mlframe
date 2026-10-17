@@ -128,6 +128,7 @@ def test_each_unary_gpu_matches_numpy(u, monkeypatch):
     gpu = apply_unary_binary_gpu(rec, X)
     assert gpu is not None, f"unary {u!r} should be GPU-eligible"
     gpu = np.asarray(gpu, dtype=np.float64)
+    assert gpu.shape == cpu.shape
     np.testing.assert_allclose(gpu, cpu, rtol=1e-6, atol=1e-6, err_msg=f"unary {u!r} GPU != numpy")
 
 
@@ -141,6 +142,7 @@ def test_each_binary_gpu_matches_numpy(binary, monkeypatch):
     gpu = apply_unary_binary_gpu(rec, X)
     assert gpu is not None, f"binary {binary!r} should be GPU-eligible"
     gpu = np.asarray(gpu, dtype=np.float64)
+    assert gpu.shape == cpu.shape
     np.testing.assert_allclose(gpu, cpu, rtol=1e-6, atol=1e-6, err_msg=f"binary {binary!r} GPU != numpy")
 
 

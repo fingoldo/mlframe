@@ -155,7 +155,7 @@ class TestStackingAwareGate:
         # Degenerate: all returned with uniform weights.
         assert len(survivors) == 5
         # Uniform = 1/5 each, which clears min_weight=0.05.
-        assert all(weights[n] == pytest.approx(0.2) for n in preds)
+        assert bool(preds) and all(weights[n] == pytest.approx(0.2) for n in preds)
 
     def test_length_mismatch_raises(self) -> None:
         """Length mismatch raises."""

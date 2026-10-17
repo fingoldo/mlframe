@@ -19,15 +19,12 @@ minimal trigger condition. Faster than running the full fuzz combo.
 from __future__ import annotations
 
 import logging
-import time
 
 import numpy as np
 import pandas as pd
 import polars as pl
 
 from mlframe.training.trainer import run_confidence_analysis
-
-from tests.conftest import perf_time_budget
 
 # ---------------------------------------------------------------------------
 # Bug 1: pl.Utf8 / pl.List / pl.Array / pl.Struct columns leak into CB Pool
@@ -61,8 +58,9 @@ def test_confidence_analysis_drops_polars_utf8_columns(caplog):
         use_shap=False,
         verbose=False,
     )
-    # No crash → the auto-detect dropped text_0; result is a fitted CB.
-    assert result is not None
+    # No crash → the auto-detect dropped text_0; result is a fitted CB trained on the numeric column only.
+    assert result.is_fitted()
+    assert list(result.feature_names_) == ["x_num"]
 
 
 def test_confidence_analysis_drops_polars_list_columns():
@@ -91,7 +89,8 @@ def test_confidence_analysis_drops_polars_list_columns():
         use_shap=False,
         verbose=False,
     )
-    assert result is not None
+    assert result.is_fitted()
+    assert list(result.feature_names_) == ["x_num"]
 
 
 def test_confidence_analysis_drops_polars_array_columns():
@@ -122,7 +121,8 @@ def test_confidence_analysis_drops_polars_array_columns():
         use_shap=False,
         verbose=False,
     )
-    assert result is not None
+    assert result.is_fitted()
+    assert list(result.feature_names_) == ["x_num"]
 
 
 def test_confidence_analysis_pandas_object_dtype_still_dropped():
@@ -152,7 +152,8 @@ def test_confidence_analysis_pandas_object_dtype_still_dropped():
         use_shap=False,
         verbose=False,
     )
-    assert result is not None
+    assert result.is_fitted()
+    assert list(result.feature_names_) == ["x_num"]
 
 
 # ---------------------------------------------------------------------------
@@ -214,7 +215,8 @@ def test_confidence_analysis_runs_when_targets_have_two_values():
         use_shap=False,
         verbose=False,
     )
-    assert result is not None  # Two unique values → fit proceeds
+    assert result.is_fitted()  # Two unique values → fit proceeds
+    assert list(result.feature_names_) == ["x_num", "x_int"]
 
 
 # ---------------------------------------------------------------------------
@@ -282,9 +284,8 @@ def test_confidence_analysis_caller_can_override_iterations_cap():
 
 
 def test_confidence_analysis_completes_within_time_budget():
-    """End-to-end timing guard: with the default iteration cap the
-    confidence fit on 200 rows / 5 features must complete well under
-    30 seconds. If this regresses, suspect the iteration default."""
+    """End-to-end work guard: with the default iteration cap the confidence fit on 200 rows / 5 features
+    trains at most the capped number of trees (deterministic, unlike a wall-clock bound)."""
     rng = np.random.default_rng(0)
     n = 200
     test_df = pd.DataFrame({f"x_{i}": rng.standard_normal(n).astype(np.float32) for i in range(5)})
@@ -292,7 +293,6 @@ def test_confidence_analysis_completes_within_time_budget():
     test_probs = rng.uniform(size=(n, 2))
     test_probs /= test_probs.sum(axis=1, keepdims=True)
 
-    t0 = time.perf_counter()
     result = run_confidence_analysis(
         test_df=test_df,
         test_target=test_target,
@@ -300,9 +300,9 @@ def test_confidence_analysis_completes_within_time_budget():
         use_shap=False,
         verbose=False,
     )
-    elapsed = time.perf_counter() - t0
-    assert result is not None
-    assert elapsed < perf_time_budget(30.0), f"confidence_analysis took {elapsed:.1f}s on 200x5 — iteration cap default may have been removed."
+    assert result.is_fitted()
+    assert result.get_params().get("iterations") == 200
+    assert 1 <= result.tree_count_ <= 200
 
 
 def test_confidence_analysis_accepts_iterations_synonym():

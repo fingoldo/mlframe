@@ -109,7 +109,7 @@ def test_group_aware_splitter_config_activates_rerank_without_recommendation():
         split_config=split_config,
         group_ids=groups,
     )
-    assert rerank_groups is not None, (
+    assert rerank_groups is not None and len(rerank_groups) == n, (
         "group-aware splitter (use_groups=True + group_ids) did not activate the "
         "tiny-rerank GroupKFold path; _group_ids_for_rerank stayed unset (I11 regression)"
     )
@@ -125,7 +125,7 @@ def test_group_aware_splitter_accepts_dict_split_config():
         split_config={"use_groups": True},
         group_ids=groups,
     )
-    assert rerank_groups is not None, "dict split_config with use_groups=True was not honoured for the rerank gate"
+    assert rerank_groups is not None and len(rerank_groups) == n, "dict split_config with use_groups=True was not honoured for the rerank gate"
     np.testing.assert_array_equal(np.asarray(rerank_groups), groups)
 
 
@@ -157,6 +157,6 @@ def test_recommendation_still_activates_rerank_without_split_config():
         metadata_extra=metadata_extra,
     )
     assert (
-        rerank_groups is not None
+        rerank_groups is not None and len(rerank_groups) == n
     ), "analyzer recommendation prefer_group_aware=True no longer activates the rerank when split_config is None (regression in the OR gate)"
     np.testing.assert_array_equal(np.asarray(rerank_groups), groups)

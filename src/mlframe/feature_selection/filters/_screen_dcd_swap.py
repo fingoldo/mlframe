@@ -84,7 +84,7 @@ def screen_dcd_discover_and_swap(
                 factors_nbins=factors_nbins,
                 entropy_cache=entropy_cache,
                 cached_MIs=cached_MIs,
-                full_npermutations=int(full_npermutations or 0),
+                full_npermutations=int(full_npermutations) if full_npermutations is not None else 0,
             )
             if _decision.accept:
                 _data_ref: dict = {}

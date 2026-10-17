@@ -594,7 +594,11 @@ class TestCreatePolardsPipeline:
             verbose=0,
         )
 
-        assert pipeline is not None
+        transformed = pipeline.transform(pl_df.select(feature_names))
+        assert transformed.columns == list(feature_names)
+        assert transformed.height == pl_df.height
+        # standard scaling: every column is centred (mean ~ 0) after the transform
+        assert np.allclose(transformed.to_numpy().mean(axis=0), 0.0, atol=1e-6)
 
     def test_pipeline_with_scaling(self, sample_polars_data):
         """Test pipeline creation with different scaling methods."""
@@ -708,7 +712,13 @@ class TestCreatePolardsPipeline:
             verbose=0,
         )
 
-        assert pipeline is not None
+        src = pl_df.select(feature_names)
+        transformed = pipeline.transform(src)
+        assert transformed.columns == list(feature_names)
+        orig = src.to_numpy()
+        finite = np.isfinite(orig)
+        assert finite.any()
+        assert np.allclose(transformed.to_numpy()[finite], orig[finite])  # no scaler => finite values pass through unchanged
 
     def test_custom_pipeline_name(self, sample_polars_data):
         """Test pipeline creation with custom name."""
@@ -726,7 +736,9 @@ class TestCreatePolardsPipeline:
             verbose=0,
         )
 
-        assert pipeline is not None
+        transformed = pipeline.transform(pl_df.select(feature_names))
+        assert transformed.columns == list(feature_names)
+        assert transformed.height == pl_df.height
 
     def test_pipeline_converts_int_to_float32(self, sample_polars_data):
         """Test that pipeline converts integers to float32."""

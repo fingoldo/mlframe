@@ -338,15 +338,23 @@ def test_composite_hpo_default_inner_spaces_logs_on_get_params_failure(caplog):
     assert any("get_params() failed" in rec.message for rec in caplog.records)
 
 
-def test_composite_meta_nnls_blend_logs_on_solver_failure(caplog):
-    """The NNLS blend-weight solve must log and fall back to an equal split on solver failure --
-    pinned via source presence since it's a nested closure inside the OOF-weight fit."""
-    import inspect
-    import mlframe.training.composite.meta as meta
+def test_composite_meta_nnls_blend_logs_on_solver_failure(caplog, monkeypatch):
+    """The NNLS blend-weight solve must log and fall back to an equal split on solver failure."""
+    import numpy as np
+    import scipy.optimize
 
-    src = inspect.getsource(meta)
-    assert "NNLS blend weight solve failed" in src
-    assert "logger.debug" in src
+    from mlframe.training.composite.meta import _fit_nnls_2col
+
+    def _boom(A, b, *args, **kwargs):
+        """Stand-in solver that always fails."""
+        raise RuntimeError("solver boom")
+
+    monkeypatch.setattr(scipy.optimize, "nnls", _boom)
+    oof = np.array([[1.0, 2.0], [2.0, 1.0], [3.0, 3.0]])
+    with caplog.at_level(logging.DEBUG, logger="mlframe.training.composite.meta"):
+        weights = _fit_nnls_2col(oof, np.array([1.0, 2.0, 3.0]))
+    assert weights.tolist() == [0.5, 0.5]
+    assert any("NNLS blend weight solve failed" in rec.getMessage() for rec in caplog.records)
 
 
 def test_composite_orthogonal_is_polars_df_returns_false_for_plain_object():

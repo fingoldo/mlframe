@@ -69,14 +69,17 @@ def test_f1_prob_exactly_one_row_included_in_top_stratum(monkeypatch):
 
 
 def test_f2_js_sigma_is_per_row_not_scalar():
-    """F2 js sigma is per row not scalar."""
-    import inspect
+    """F2 js sigma is per row not scalar: a row's JS value must not depend on which other rows share its query batch."""
+    from mlframe.feature_engineering.transformer.pairwise_kl_divergence import compute_pairwise_kl_features
 
-    from mlframe.feature_engineering.transformer import pairwise_kl_divergence as mod
-
-    src = inspect.getsource(mod.compute_pairwise_kl_features)
-    assert "float(np.sqrt(mean_var.mean()))" not in src
-    assert "np.sqrt(mean_var).astype(np.float32)" in src
+    rng = np.random.default_rng(0)
+    X = rng.normal(size=(300, 4)).astype(np.float32)
+    y = rng.normal(size=300).astype(np.float32)
+    batch = compute_pairwise_kl_features(X, y, X_query=X[:60], splitter=None, seed=0, task="regression")
+    single = compute_pairwise_kl_features(X, y, X_query=X[:1], splitter=None, seed=0, task="regression")
+    js_col = next(c for c in batch.columns if c.endswith("_js"))
+    # a query-set-wide scalar sigma (the pre-fix behaviour) would make row 0's value shift with the batch around it
+    assert batch[js_col].to_numpy()[0] == pytest.approx(single[js_col].to_numpy()[0])
 
 
 def test_f2_js_varies_across_rows_with_genuinely_different_spread():
@@ -168,13 +171,9 @@ def test_f8_class_mahalanobis_degenerate_fold_uses_far_sentinel():
     ("class_balanced_hard_row", "compute_class_balanced_hard_row_features"),
 ])
 def test_f9_f10_empty_side_no_longer_repeats_index_zero(modname, funcname):
-    """F9 f10 empty side no longer repeats index zero."""
-    import inspect
-
+    """F9 f10 empty side no longer repeats index zero: an empty side's anchors are the far sentinel, not a real row."""
     mod = importlib.import_module(f"mlframe.feature_engineering.transformer.{modname}")
     func = getattr(mod, funcname)
-    src = inspect.getsource(mod)
-    assert "np.zeros(n_hard_per_side, dtype=np.int64)" not in src
 
     rng = np.random.default_rng(0)
     n, d = 40, 3
@@ -183,6 +182,11 @@ def test_f9_f10_empty_side_no_longer_repeats_index_zero(modname, funcname):
     out = func(X, y, X_query=X[:10], splitter=None, seed=0, task="binary")
     assert out.shape[0] == 10
     assert np.isfinite(out.to_numpy()).all()
+    mindist_empty = out[next(c for c in out.columns if c.endswith("mindist_side1"))].to_numpy()
+    mindist_real = out[next(c for c in out.columns if c.endswith("mindist_side2"))].to_numpy()
+    # repeating real row 0 as the empty side's anchors would give it a near-zero distance for the query row X[0]
+    assert (mindist_empty > 1e6).all()
+    assert (mindist_real < mindist_empty).all()
 
 
 # ---------------------------------------------------------------------------
@@ -314,13 +318,22 @@ def test_f15_mdl_binning_honours_explicit_binary_task_for_nonstandard_labels():
 
 
 def test_f17_no_dead_else_branch_remains():
-    """F17 no dead else branch remains."""
-    import inspect
+    """F17 no dead else branch remains: the module no longer compares ``.dtype`` against ``np.int32`` (checked on the AST)."""
+    import ast
+    from pathlib import Path
 
     from mlframe.feature_engineering.transformer import mdl_binning_pairwise as mod
 
-    src = inspect.getsource(mod)
-    assert "y_t.dtype != np.int32" not in src
+    tree = ast.parse(Path(mod.__file__).read_bytes())
+    dtype_vs_int32 = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Compare)
+        and isinstance(node.left, ast.Attribute)
+        and node.left.attr == "dtype"
+        and any(isinstance(c, ast.Attribute) and c.attr == "int32" for c in node.comparators)
+    ]
+    assert dtype_vs_int32 == []
 
 
 # ---------------------------------------------------------------------------
@@ -359,35 +372,93 @@ def test_f19_prediction_band_attention_empty_band_uses_global_fallback():
     assert np.isfinite(out.to_numpy()).all()
 
 
-def test_f21_predictive_info_delta_empty_bin_uses_marginal_entropy():
-    """F21 predictive info delta empty bin uses marginal entropy."""
-    import inspect
+def test_f21_predictive_info_delta_empty_bin_uses_marginal_entropy(monkeypatch):
+    """F21 predictive info delta empty bin uses marginal entropy: a query landing in a bin with no train rows gets delta 0."""
+    import lightgbm
 
-    from mlframe.feature_engineering.transformer import predictive_info_delta as mod
+    from mlframe.feature_engineering.transformer.predictive_info_delta import compute_predictive_info_delta_features
 
-    src = inspect.getsource(mod.compute_predictive_info_delta_features)
-    assert "H_y_per_bin = np.full(n_bins, H_y" in src
+    class _TwoClusterRegressor:
+        """Fake baseline: train predictions equal y (two clusters), every query prediction lies above all train predictions."""
+
+        def __init__(self, **kwargs):
+            """Accept and ignore the LightGBM hyper-parameters."""
+
+        def fit(self, X, y):
+            """Remember the train targets so ``predict`` can tell train rows from query rows."""
+            self._n_train = len(y)
+            self._y = np.asarray(y, dtype=np.float32)
+            return self
+
+        def predict(self, X):
+            """Return y for the train matrix and 2.0 (beyond every train prediction) for the query matrix."""
+            return self._y if len(X) == self._n_train else np.full(len(X), 2.0, dtype=np.float32)
+
+    monkeypatch.setattr(lightgbm, "LGBMRegressor", _TwoClusterRegressor)
+    rng = np.random.default_rng(0)
+    X = rng.normal(size=(100, 3)).astype(np.float32)
+    y = (np.arange(100) % 2).astype(np.float32)
+    out = compute_predictive_info_delta_features(X, y, X_query=X[:5], splitter=None, seed=0, task="regression", n_bins=4, standardize=False)
+    # the top bin (p > last edge) is empty in train, so its conditional entropy falls back to the marginal one
+    assert (out["pinfo_bin"].to_numpy() == 3).all()
+    np.testing.assert_allclose(out["pinfo_H_given_bin"].to_numpy(), out["pinfo_H_marginal"].to_numpy())
+    np.testing.assert_allclose(out["pinfo_delta"].to_numpy(), 0.0, atol=1e-6)
 
 
-def test_f22_ib_baseline_codes_empty_cell_uses_global_fallback():
-    """F22 ib baseline codes empty cell uses global fallback."""
-    import inspect
-
+def test_f22_ib_baseline_codes_empty_cell_uses_global_fallback(monkeypatch):
+    """F22 ib baseline codes empty cell uses global fallback: a query whose baseline code has no train rows gets the global y mean/std."""
     from mlframe.feature_engineering.transformer import ib_baseline_codes as mod
 
-    src = inspect.getsource(mod.compute_ib_baseline_codes_features)
-    assert "code_y_mean = np.full(n_codes" in src
+    def _fake_baselines(Xt, y_t, Xq, task, seed):
+        """Train predictions mirror y in all 3 baselines (codes 0 or 7 only); query predictions set only bit 0 (code 1, unseen)."""
+        tp = np.column_stack([y_t, y_t, y_t]).astype(np.float32)
+        qp = np.column_stack([np.full(len(Xq), 2.0), np.zeros(len(Xq)), np.zeros(len(Xq))]).astype(np.float32)
+        return tp, qp
+
+    monkeypatch.setattr(mod, "_fit_3baselines_two", _fake_baselines)
+    rng = np.random.default_rng(0)
+    X = rng.normal(size=(100, 3)).astype(np.float32)
+    y = (np.arange(100) % 4 == 0).astype(np.float32)
+    out = mod.compute_ib_baseline_codes_features(X, y, X_query=X[:5], splitter=None, seed=0, task="regression", standardize=False)
+    cols = out.columns
+    assert (out[cols[0]].to_numpy() == 1).all()
+    np.testing.assert_allclose(out[cols[1]].to_numpy(), y.mean(), rtol=1e-5)
+    np.testing.assert_allclose(out[cols[2]].to_numpy(), y.std() + 1e-9, rtol=1e-4)
 
 
-def test_f20_fisher_weighted_residual_empty_band_uses_global_fallback():
+def test_f20_fisher_weighted_residual_empty_band_uses_global_fallback(monkeypatch):
     """F20: an empty Fisher-weighted-residual band (tied values collapsing a quantile boundary) must
     fall back to the global target mean, not a misleading ``0.0`` that reads as "genuinely low"."""
-    import inspect
+    import lightgbm
 
     from mlframe.feature_engineering.transformer import fisher_weighted_residual as mod
 
-    src = inspect.getsource(mod.compute_fisher_weighted_residual_features)
-    assert "band_y_mean = np.full(n_bands, float(y_t.mean())" in src
+    class _FakeRegressor:
+        """Fake baseline model: every query prediction sits 2.0 above the train-target median."""
+
+        def __init__(self, **kwargs):
+            """Accept and ignore the LightGBM hyper-parameters."""
+
+        def fit(self, X, y):
+            """Remember the train median."""
+            self._median = float(np.median(y))
+            return self
+
+        def predict(self, X):
+            """Return a constant prediction far above the train targets."""
+            return np.full(len(X), self._median + 2.0, dtype=np.float32)
+
+    # residuals of 0 / 1 tie heavily, so the top quantile band (weighted residual > max train value) is empty in train
+    monkeypatch.setattr(lightgbm, "LGBMRegressor", _FakeRegressor)
+    monkeypatch.setattr(mod, "_oof_train_predictions", lambda Xt, y_t, is_binary, seed: (y_t - (y_t > 0.5)).astype(np.float32))
+    monkeypatch.setattr(mod, "_finite_difference_grad_norm", lambda model, X, is_binary, eps: np.ones(len(X), dtype=np.float32))
+    rng = np.random.default_rng(0)
+    X = rng.normal(size=(100, 3)).astype(np.float32)
+    y = (np.arange(100) % 2).astype(np.float32)
+    out = mod.compute_fisher_weighted_residual_features(X, y, X_query=X[:5], splitter=None, seed=0, task="regression", standardize=False)
+    assert (out["fishres_band"].to_numpy() == 4).all()
+    # a 0.0 fallback for the empty band would read as a genuinely low target rather than "no data"
+    np.testing.assert_allclose(out["fishres_band_y_mean"].to_numpy(), y.mean())
 
 
 def test_f20_fisher_weighted_residual_runs_clean_on_tied_residuals():
@@ -413,12 +484,15 @@ def test_f29_nn_dist_empty_subset_sentinel_is_documented():
     """F29: the ``nearest=0.0``-for-empty-subset sentinel must stay explicitly documented in
     ``_nn_dist``'s own docstring (the report's basis for treating this as a documented tradeoff, not a
     silent one, unlike F3-F8's undocumented zero-sentinels)."""
-    import inspect
+    import ast
+    from pathlib import Path
 
     from mlframe.feature_engineering.transformer import trust_score_oof as mod
 
-    src = inspect.getsource(mod)
-    assert "sentinel fill values" in src
+    tree = ast.parse(Path(mod.__file__).read_bytes())
+    nn_dist = [node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef) and node.name == "_nn_dist"]
+    assert nn_dist
+    assert all("sentinel fill values" in (ast.get_docstring(node) or "") for node in nn_dist)
 
 
 # ---------------------------------------------------------------------------

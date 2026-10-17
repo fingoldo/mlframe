@@ -50,7 +50,7 @@ def _finite_mask_or_none(arr) -> "np.ndarray | None":
     try:
         mask: np.ndarray = np.isfinite(arr)
         return mask
-    except TypeError:
+    except TypeError:  # best-effort: object/string dtypes cannot hold NaN or inf, None is the documented answer
         return None
 
 

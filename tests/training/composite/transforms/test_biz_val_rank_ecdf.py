@@ -145,7 +145,7 @@ def test_rank_ecdf_params_serialize():
     encoded = orjson.dumps({k: _coerce(v) for k, v in p.items()}, option=orjson.OPT_SORT_KEYS)
     decoded = orjson.loads(encoded)
     assert set(decoded) == set(p)
-    assert all(isinstance(decoded[k], list) for k in p)
+    assert bool(p) and all(isinstance(decoded[k], list) for k in p)
 
 
 def test_rank_ecdf_domain_rejects_non_finite():

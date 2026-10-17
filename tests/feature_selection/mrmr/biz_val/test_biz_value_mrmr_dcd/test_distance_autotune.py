@@ -295,7 +295,10 @@ class TestLayer46_AutoDistance:
         # explicitly via a tiny fit.
         X, y = _linear_dup_cluster(n=400, seed=3)
         m.fit(X, y)
-        assert m.dcd_ is not None
+        assert isinstance(m.dcd_, dict)
+        assert m.dcd_["tau_cluster"] == pytest.approx(0.5)
+        assert m.dcd_["tau_calibration"] is None  # numeric tau => no calibration ran
+        assert m.dcd_["n_pruned"] >= 1 and m.dcd_["n_anchors"] >= 1  # 5 near-copies must be pruned
 
     def test_auto_validator_rejects_bogus(self):
         """``dcd_distance="bogus"`` must raise."""
@@ -335,7 +338,9 @@ class TestLayer46_AutoDistance:
             verbose=0,
             random_seed=0,
         ).fit(X, y)
-        assert m.dcd_ is not None
+        assert isinstance(m.dcd_, dict)
+        assert m.dcd_["tau_cluster"] == pytest.approx(0.5)
+        assert m.dcd_["n_swaps"] == len(m.dcd_["swap_log"])
 
 
 # ---------------------------------------------------------------------------
@@ -538,7 +543,11 @@ class TestLayer47_ValidatorSurface:
             verbose=0,
             random_seed=0,
         ).fit(X, y)
-        assert m.dcd_ is not None
+        from mlframe.feature_selection.filters._dynamic_cluster_discovery import _DCD_AUTO_TAU_MAX, _DCD_AUTO_TAU_MIN
+
+        assert m.dcd_["tau_calibration"]["requested"] == "auto"
+        assert _DCD_AUTO_TAU_MIN <= m.dcd_["tau_cluster"] <= _DCD_AUTO_TAU_MAX
+        assert m.dcd_["tau_cluster"] == pytest.approx(m.dcd_["tau_calibration"]["tau"])
 
     def test_bogus_string_rejected(self):
         """Non-'auto' strings must raise ValueError."""
@@ -566,7 +575,8 @@ class TestLayer47_ValidatorSurface:
             verbose=0,
             random_seed=0,
         ).fit(X, y)
-        assert m.dcd_ is not None
+        assert m.dcd_["tau_cluster"] == pytest.approx(0.5)
+        assert m.dcd_["tau_calibration"] is None  # numeric tau => no auto calibration
 
 
 # ---------------------------------------------------------------------------
@@ -842,8 +852,12 @@ class TestLayer47_RegressionL41toL46:
             verbose=0,
             random_seed=0,
         ).fit(X, y)
-        assert m.dcd_ is not None
-        assert m.dcd_["tau_calibration"] is not None
+        from mlframe.feature_selection.filters._dynamic_cluster_discovery import _DCD_AUTO_TAU_MAX, _DCD_AUTO_TAU_MIN
+
+        cal = m.dcd_["tau_calibration"]
+        assert cal["requested"] == "auto"
+        assert _DCD_AUTO_TAU_MIN <= m.dcd_["tau_cluster"] <= _DCD_AUTO_TAU_MAX
+        assert m.dcd_["tau_cluster"] == pytest.approx(cal["tau"])
 
     def test_l45_swap_decision_branch_field_intact(self):
         """SwapDecision's branch field still defaults to "none" after the Layer 47 changes."""

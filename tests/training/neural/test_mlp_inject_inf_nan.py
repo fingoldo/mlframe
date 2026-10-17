@@ -9,7 +9,9 @@ frame before the MLP fit, so the combo trains fine. This test pins that behaviou
 import pytest
 
 from tests.training._fuzz_combo import FuzzCombo, build_frame_for_combo
-from tests.training._fuzz_suite_helpers import _config_for_models, _preprocessing_for_combo
+import numpy as np
+
+from tests.training._fuzz_suite_helpers import _config_for_models, _iter_trained_models, _preprocessing_for_combo
 from tests.training.shared import SimpleFeaturesAndTargetsExtractor
 
 
@@ -46,4 +48,8 @@ def test_mlp_only_trains_with_inject_inf_nan(inject_inf_nan):
         preprocessing_config=_preprocessing_for_combo(combo),
     )
     # The MLP leg must have trained -- a NaN/inf crash would raise above and never reach here.
-    assert trained is not None
+    entries = [e for _tt, _tn, e in _iter_trained_models(trained)]
+    assert len(entries) == 1
+    val_preds = getattr(entries[0], "val_preds", None)
+    assert val_preds is not None and len(val_preds) > 0
+    assert np.isfinite(np.asarray(val_preds, dtype=float)).all()

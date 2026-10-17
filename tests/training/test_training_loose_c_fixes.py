@@ -409,13 +409,13 @@ def test_f14_pr4_suite_artefact_cache_docstring_no_false_wire_in_claim():
 def test_f14_suite_artefact_cache_genuinely_unwired():
     """Confirms the module is still standalone (not silently wired in without a docstring
     update) -- this test itself should be revisited/removed the day it IS wired in."""
-    import inspect
-
     from mlframe.training.core import _phase_helpers_fit_pipeline
+    from tests._source_structure import identifiers, import_sources
 
-    src = inspect.getsource(_phase_helpers_fit_pipeline)
-    assert "cache_artefact" not in src
-    assert "SuiteArtefactCache" not in src
+    names = identifiers(_phase_helpers_fit_pipeline)
+    assert "SuiteArtefactCache" not in names
+    assert not any("cache_artefact" in module_name for _, module_name in import_sources(_phase_helpers_fit_pipeline))
+    assert not any("cache_artefact" in name for name in names)
 
 
 # =====================================================================

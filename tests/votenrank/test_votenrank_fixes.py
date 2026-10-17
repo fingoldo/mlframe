@@ -308,14 +308,14 @@ def test_f12_sns_set_not_called_at_import_time():
 
 def test_f13_no_wave_date_markers_remain():
     """F13 no wave date markers remain."""
-    import inspect
-
     from mlframe.votenrank import iia_exp, utils
     from mlframe.votenrank.leaderboard import leaderboard_impl
+    from tests._source_structure import string_literals
+    from tests.test_meta._comment_markers import comment_text
 
     for mod in (utils, iia_exp, leaderboard_impl):
-        src = inspect.getsource(mod)
-        assert "Wave " not in src or "(2026-05-20)" not in src, f"F13 REGRESSION: {mod.__name__} still has a Wave-N/date audit marker"
+        prose = comment_text(mod) + "\n" + "\n".join(string_literals(mod))
+        assert "Wave " not in prose or "(2026-05-20)" not in prose, f"F13 REGRESSION: {mod.__name__} still has a Wave-N/date audit marker"
 
 
 # ---------------------------------------------------------------------------

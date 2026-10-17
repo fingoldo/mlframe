@@ -48,7 +48,7 @@ def _array_has_nan(X) -> bool:
     """True iff the array-like ``X`` holds a NaN; an input that cannot be coerced to an array, or an integer/bool/string one, holds none."""
     try:
         arr = np.asarray(X)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError):  # best-effort: an uncoercible input holds no detectable NaN; the estimator's own validation rejects it later
         return False
     if arr.dtype.kind in "fc":
         return bool(np.isnan(arr).any())
@@ -63,7 +63,7 @@ def _object_array_has_nan(arr: np.ndarray) -> bool:
     """True iff an object-dtype array holds a NaN once coerced to float; non-numeric content cannot be coerced and so holds none."""
     try:
         return bool(np.isnan(arr.astype(float, copy=False)).any())
-    except (TypeError, ValueError):
+    except (TypeError, ValueError):  # best-effort: non-numeric object content cannot hold a float NaN
         return False
 
 

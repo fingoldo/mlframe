@@ -1222,4 +1222,9 @@ def test_trained_suite_regression_shape(trained_suite_regression):
     consumption.
     """
     suite = trained_suite_regression
-    assert suite is not None
+    models, metadata = suite
+    assert TargetTypes.REGRESSION in models
+    by_target = models[TargetTypes.REGRESSION]
+    assert len(by_target) >= 1
+    assert all(len(entries) >= 1 and hasattr(entries[0], "model") for entries in by_target.values())
+    assert isinstance(metadata, dict)

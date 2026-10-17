@@ -303,9 +303,9 @@ def test_a_deferred_dead_field_warns_when_it_is_set(qualified: str):
     """Accepting a value for a knob nothing reads, in silence, is how a user ends up debugging a setting that never applied."""
     cls_name, field_name = qualified.split(".", 1)
     cls = next((c for c in _all_config_classes() if c.__name__ == cls_name), None)
-    assert cls is not None, f"{cls_name} is no longer a config class; drop the entry"
+    assert isinstance(cls, type), f"{cls_name} is no longer a config class; drop the entry"
     field = cls.model_fields.get(field_name)
-    assert field is not None, f"{qualified} no longer exists; drop the entry"
+    assert hasattr(field, "default"), f"{qualified} no longer exists; drop the entry"
 
     if qualified in _DEFERRED_DEAD_PROBES:
         kwargs = _DEFERRED_DEAD_PROBES[qualified]

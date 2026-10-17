@@ -71,7 +71,7 @@ def test_coerce_y_to_float64_documents_read_only_contract() -> None:
 
     from mlframe.training.feature_handling.target_encoders import _coerce_y_to_float64
 
-    snippet = inspect.getsource(_coerce_y_to_float64)
+    snippet = inspect.getdoc(_coerce_y_to_float64) or ""
     assert (
         "read-only" in snippet.lower()
     ), "training/feature_handling/target_encoders.py: _coerce_y_to_float64 returns a zero-copy view when y is already float64; docstring must warn callers."

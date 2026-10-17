@@ -218,7 +218,8 @@ def test_f6_optimize_model_for_storage_regression_keeps_preds():
 
     model = SimpleNamespace(train_preds=np.zeros(5), val_preds=np.zeros(5), test_preds=np.zeros(5))
     optimize_model_for_storage(model, TargetTypes.REGRESSION)
-    assert model.train_preds is not None
+    for attr in ("train_preds", "val_preds", "test_preds"):
+        np.testing.assert_array_equal(getattr(model, attr), np.zeros(5))
 
 
 # =====================================================================

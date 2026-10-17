@@ -379,5 +379,5 @@ class TestDX15InBodySurface:
         )
         est.fit(X, y)
         # LinearRegression exposes coef_ / intercept_; the wrapper delegates.
-        assert est.coef_ is not None
-        assert est.intercept_ is not None
+        assert np.isfinite(np.asarray(est.coef_)).all()
+        assert np.isfinite(float(np.ravel(est.intercept_)[0]))

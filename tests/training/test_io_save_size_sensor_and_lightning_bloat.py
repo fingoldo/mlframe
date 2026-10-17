@@ -372,8 +372,8 @@ def test_lightning_bloat_strip_shrinks_dump_and_restores_payload():
     payload = SimpleNamespace(model=est)
 
     # Pre-save sanity: confirm the heavy attrs are present in memory.
-    assert payload.model.network._trainer is not None
-    assert payload.model.prediction_datamodule is not None
+    assert len(payload.model.network._trainer.train_dataloader_refs) == 80 * 1024 * 1024
+    assert len(payload.model.prediction_datamodule.cached_dataset) == 40 * 1024 * 1024
 
     with tempfile.NamedTemporaryFile(suffix=".dump", delete=False) as tf:
         fpath = tf.name
@@ -389,8 +389,8 @@ def test_lightning_bloat_strip_shrinks_dump_and_restores_payload():
         ), f"Dump too big ({size_mb:.1f} MB): Lightning bloat strip didn't fire. Expected <5 MB after stripping ``_trainer`` + ``prediction_datamodule``."
 
         # Post-save: in-memory caller must still have BOTH attrs (the strip is transient).
-        assert payload.model.network._trainer is not None, "Bloat strip failed to restore _trainer on the caller's payload."
-        assert payload.model.prediction_datamodule is not None, "Bloat strip failed to restore prediction_datamodule on the caller's payload."
+        assert len(payload.model.network._trainer.train_dataloader_refs) == 80 * 1024 * 1024, "Bloat strip failed to restore _trainer on the caller's payload."
+        assert len(payload.model.prediction_datamodule.cached_dataset) == 40 * 1024 * 1024, "Bloat strip failed to restore prediction_datamodule on the caller's payload."
     finally:
         if os.path.exists(fpath):
             os.remove(fpath)

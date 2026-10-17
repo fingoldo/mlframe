@@ -69,7 +69,7 @@ def resolve_effective_n_jobs(
 
     Returns ``(n_jobs_effective, _is_multithreaded)``. Multi-threaded estimators (CB/LGB/XGB/RF/...) already use all cores natively; parallelising folds on top oversubscribes and SLOWS DOWN. Auto-fallback to sequential unless ``force_parallel=True`` (then pin inner threads to 1 in the fold runner).
     """
-    n_jobs_effective = int(n_jobs_requested) if n_jobs_requested else 1
+    n_jobs_effective = int(n_jobs_requested) if n_jobs_requested is not None and n_jobs_requested != 0 else 1
     if n_jobs_effective < 0:
         # joblib semantics: -1 = all cores.
         try:
