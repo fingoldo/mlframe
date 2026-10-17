@@ -33,6 +33,14 @@ def _safe_restore(action: Callable[[], Any], description: str) -> None:
 class _MRMRFitBodyBlocksMixin:
     """Mixin carrying the small ``_fit_body`` block helpers; see the module docstring."""
 
+    # type-checking-only declarations of what the concrete ``MRMR`` class provides; never assigned here, so the MRO's real members are not shadowed
+    _apply_sis_screen: Any
+    _apply_default_screen_subsample: Any
+    _apply_fast_search_profile: Any
+    _AUTO_KNOB_DEFAULTS: Any
+    support_: Any
+    skip_retraining_on_same_content: bool
+
     def _fit_body_clone_pickle_repeated_fit(self, _default_screen_saved):
         """Block of _fit_body starting at ``if _default_screen_saved:``."""
         if _default_screen_saved:
