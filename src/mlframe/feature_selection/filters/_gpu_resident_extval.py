@@ -24,6 +24,8 @@ logger = logging.getLogger(__name__)
 
 import numpy as np
 
+from mlframe.utils.env_flags import env_flag
+
 
 def _extval_op_gpu(cp, op: int, a, b):
     """One binary op on device in float64, byte-faithful to ``_materialise_extval_njit`` (``_NJIT_BINARY_OP_CODES``:
@@ -48,6 +50,35 @@ def _extval_op_gpu(cp, op: int, a, b):
         return cp.sign(a) * cp.abs(b)
     # op == 8: ratio_abs = a / (|b| + 1)
     return a / (cp.abs(b) + 1.0)
+
+
+def _candidate_matrix(cp, pa, param_b_list, ops, n, n_ops, resident_operand):
+    """The ``(n, n_ext * n_ops)`` double-precision device matrix of ``op_o(pa, ext_e)`` (ext-outer / op-inner), or ``None`` when an external column has the wrong length.
+
+    The fused kernel computes all cells in one launch (``MLFRAME_EXTVAL_FUSED=0`` selects the per-column cupy loop).
+
+    bench-attempt-rejected (2026-08-03): batching across ext factors via one (n, n_ext) stacked matrix + broadcasting (pa[:, None] op B) per op -- reducing
+    n_ext*n_ops single-column kernel launches to n_ops broadcast launches -- was measured 0.85x (SLOWER) on n=1.62M/n_ext=20/n_ops=9 (2529ms -> 2967ms, warm,
+    best-of-10): the stack itself costs n_ext column-assignment launches and the broadcast op does more elementwise work per launch. The fused kernel avoids both.
+    """
+    bs = []
+    for _pb in param_b_list:
+        # Intentional float64: external-factor values, byte-faithful to the host njit materialisation
+        b = resident_operand(_pb, ("extval_ext",), dtype=np.float64).ravel()
+        if b.shape[0] != n:
+            return None
+        bs.append(b)
+    if env_flag("MLFRAME_EXTVAL_FUSED", True):
+        from ._gpu_resident_extval_fused import fused_extval_candidates
+
+        return fused_extval_candidates(cp, pa, cp.stack(bs), cp.asarray(ops, dtype=cp.int32))
+    # Intentional float64: per-column loop kept as the reference, same values as the host materialisation
+    out_dev = cp.empty((n, len(bs) * n_ops), dtype=cp.float64)
+    for _e, b in enumerate(bs):
+        _base = _e * n_ops
+        for _o in range(n_ops):
+            out_dev[:, _base + _o] = _extval_op_gpu(cp, int(ops[_o]), pa, b)
+    return out_dev
 
 
 def gpu_materialise_extval_codes_host(
@@ -92,21 +123,9 @@ def gpu_materialise_extval_codes_host(
         if n == 0 or n_ops == 0 or n_ext == 0:
             return None
         K = n_ext * n_ops
-        out_dev = cp.empty((n, K), dtype=cp.float64)
-        # bench-attempt-rejected (2026-08-03): batching across ext factors via one (n, n_ext) stacked matrix
-        # + broadcasting (pa[:, None] op B) per op -- reducing n_ext*n_ops single-column kernel launches to
-        # n_ops broadcast launches -- was measured 0.85x (SLOWER), not faster, on n=1.62M/n_ext=20/n_ops=9
-        # (2529ms -> 2967ms, warm, best-of-10). Root cause: the (n, n_ext) stack itself costs n_ext separate
-        # column-assignment launches (no cheaper than the original per-column op launches it replaced), and
-        # cupy's broadcast op over the wider (n, n_ext) array does MORE total elementwise work per launch than
-        # the per-column narrow op it's compared against averages out to. Kept the per-column loop.
-        for _e, _pb in enumerate(param_b_list):
-            b = resident_operand(_pb, ("extval_ext",), dtype=np.float64).ravel()
-            if b.shape[0] != n:
-                return None
-            _base = _e * n_ops
-            for _o in range(n_ops):
-                out_dev[:, _base + _o] = _extval_op_gpu(cp, int(_ops[_o]), pa, b)
+        out_dev = _candidate_matrix(cp, pa, param_b_list, _ops, n, n_ops, resident_operand)
+        if out_dev is None:
+            return None
         codes_dev = _gpu_resident_discretize_codes(out_dev, int(nbins))  # NaN/inf -> rightmost bin (searchsorted)
         codes_dev = codes_dev.astype(cp.dtype(_cd), copy=False) if codes_dev.dtype != _cd else codes_dev
         if defer_host_fill and fe_gpu_resident_codes_enabled() and fe_gpu_defer_host_codes_enabled():

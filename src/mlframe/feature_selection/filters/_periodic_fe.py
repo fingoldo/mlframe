@@ -59,6 +59,7 @@ from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtyp
 from mlframe.utils.log_throttle import log_throttle
 
 from ._numeric_decompose_fe import _numeric_cols, score_decompose_by_bootstrap_mi as score_modular_by_bootstrap_mi
+from ._orthogonal_bootstrap_mi_fe import baseline_lcb_by_bootstrap_mi
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -246,6 +247,12 @@ def generate_modular_features(
     out: dict[str, np.ndarray] = {}
     n = len(X)
     out_dtype = np.dtype(_crit_np_dtype() if dtype is None else dtype)
+    # MLFRAME_MODULAR_DROP_COPIES=1 leaves out the ``mod`` candidate that equals its source column. Default off (bench-attempt-rejected): on the conjunction pillar the changed
+    # candidate pool let the greedy pick a different, equivalent-looking set of pair fragments around binary A (A + cell3 in six runs without it, B + digit fragments of the decoys
+    # with it), so the dedup needs the selection to be stable under a changed pool first.
+    import os
+
+    drop_copies = os.environ.get("MLFRAME_MODULAR_DROP_COPIES", "0").strip().lower() in ("1", "true", "on", "yes")
     for c in cols:
         # Intentional float64: input of the residue v - p*floor(v/p); a float32 timestamp (~1.6e9) has resolution 128, so mod 7 would be noise.
         arr = np.ascontiguousarray(X[c].to_numpy(), dtype=np.float64)
@@ -253,7 +260,10 @@ def generate_modular_features(
             # Fused single pass: residue computed once, all three ops emitted (vs three apply_modular passes), written at the output width.
             mod_v, sin_v, cos_v = np.empty(n, dtype=out_dtype), np.empty(n, dtype=out_dtype), np.empty(n, dtype=out_dtype)
             _modular_all_ops_into(arr, p, mod_v, sin_v, cos_v)
-            out[engineered_name_modular(c, p, "mod")] = mod_v
+            # A column that already lies in [0, period) has its own value as residue: the ``mod`` candidate would be an exact copy of the raw column (a binary column and period 7
+            # gave ``A__mod_7`` == ``A``), which the selection could then carry beside, or instead of, the column itself.
+            if not (drop_copies and np.array_equal(mod_v, arr.astype(out_dtype, copy=False))):
+                out[engineered_name_modular(c, p, "mod")] = mod_v
             out[engineered_name_modular(c, p, "sin")] = sin_v
             out[engineered_name_modular(c, p, "cos")] = cos_v
     return pd.DataFrame(out, index=X.index)
@@ -322,6 +332,9 @@ def hybrid_modular_fe(
 
         while chunk > 1 and not _can_hoist_shared_buffer(chunk * per_src_bytes, n_workers=1)[0]:
             chunk = max(1, chunk // 2)
+    if _gate_first_enabled() and src_cols:
+        gated: tuple[Any, Any] = _hybrid_modular_fe_gate_first(X, y, src_cols, max(chunk, 1), periods, top_k, n_boot, sample_fraction, seed, nbins, min_uplift_lcb)
+        return gated
     if 0 < chunk < len(src_cols):
         streamed: tuple[Any, Any] = _hybrid_modular_fe_streamed(X, y, src_cols, chunk, periods, top_k, n_boot, sample_fraction, seed, nbins, min_uplift_lcb)
         return streamed
@@ -390,6 +403,69 @@ def _modular_noise_floor(scores: pd.DataFrame) -> float:
         mad = float(np.median(np.abs(base_lcb - med)))
         return med + 3.5 * 1.4826 * mad
     return 2.0 * float(base_lcb.max()) if base_lcb.size else 0.0
+
+
+def _gate_first_enabled() -> bool:
+    """``MLFRAME_MODULAR_GATE_FIRST=0`` selects the score-every-candidate-first pipeline (the bootstrap scores all ``3 x periods x columns`` candidates, then the family test)."""
+    import os
+
+    return os.environ.get("MLFRAME_MODULAR_GATE_FIRST", "1").strip().lower() in ("1", "true", "on", "yes")
+
+
+def _hybrid_modular_fe_gate_first(X, y, src_cols, chunk, periods, top_k, n_boot, sample_fraction, seed, nbins, min_uplift_lcb):
+    """:func:`hybrid_modular_fe` with the family-wise permutation test BEFORE the bootstrap scoring.
+
+    A candidate is kept only if it clears the bootstrap gate AND the family test, and the family test needs only the candidate's own quantile codes. Running it first leaves the bootstrap
+    (10 resamples x raw + candidate MI over every column, about a quarter of a 253-column fit) to the few candidates that pass it; on a frame without a periodic column that is none.
+    The noise floor of the bootstrap gate is anchored on the raw baseline MI of every source column, which depends on the column and the seeded resamples only
+    (``baseline_lcb_by_bootstrap_mi``), so it is computed without scoring any candidate. Survivors are regenerated and scored with the same seeded resamples, so a survivor's scores equal the
+    score-first pipeline's up to the all-distinct tie guard of the resample gather, which looks at the matrix being scored.
+    """
+    from ._family_maxt_gate import _family_codes, family_maxt_pass_codes
+
+    if not any(float(p) > 0.0 for p in periods):
+        return X.copy(deep=False), pd.DataFrame()
+    codes: list = []
+    nxs: list = []
+    names: list = []
+    base_parts: list = []
+    source_of: dict = {}
+    periods_pos = [float(p) for p in periods if float(p) > 0.0]
+    for c0 in range(0, len(src_cols), chunk):
+        cs = list(src_cols[c0 : c0 + chunk])
+        eng = generate_modular_features(X, num_cols=cs, periods=periods)
+        if eng.empty:
+            continue
+        cc, nx = _family_codes(eng, nbins)
+        codes.append(cc)
+        nxs.append(nx)
+        names.extend(str(c) for c in eng.columns)
+        for c in cs:
+            for p in periods_pos:
+                for op in ("mod", "sin", "cos"):
+                    source_of[engineered_name_modular(c, p, op)] = str(c)
+        base_parts.append(pd.DataFrame({"baseline_mi_lcb": baseline_lcb_by_bootstrap_mi(X[cs], y, n_boot=n_boot, sample_fraction=sample_fraction, seed=seed, nbins=nbins)}))
+        del eng
+    if not names or not base_parts:
+        return X.copy(deep=False), pd.DataFrame()
+    base = pd.concat(base_parts, ignore_index=True)
+    noise_floor = _modular_noise_floor(base)
+    cols_all = codes[0] if len(codes) == 1 else np.concatenate(codes, axis=0)
+    del codes
+    fam_ok = family_maxt_pass_codes(cols_all, np.concatenate(nxs), y, seed=seed)
+    ok_names = [n for n, ok in zip(names, fam_ok) if ok]
+    if not ok_names:
+        return X.copy(deep=False), base
+    sources = sorted({source_of[n] for n in ok_names if n in source_of})
+    eng_ok = generate_modular_features(X, num_cols=[c for c in src_cols if str(c) in sources], periods=periods)[ok_names]
+    scores = score_modular_by_bootstrap_mi(X[[c for c in src_cols if str(c) in sources]], eng_ok, y, n_boot=n_boot, sample_fraction=sample_fraction, seed=seed, nbins=nbins)
+    if scores.empty:
+        return X.copy(deep=False), base
+    qualified = scores[(scores["uplift_mean"] >= float(min_uplift_lcb)) & (scores["engineered_mi_lcb"] >= noise_floor)]
+    keep = list(qualified.sort_values("engineered_mi_lcb", ascending=False).head(int(top_k))["engineered_col"])
+    if not keep:
+        return X.copy(deep=False), scores
+    return pd.concat([X, eng_ok[keep]], axis=1), scores
 
 
 def _hybrid_modular_fe_streamed(X, y, src_cols, chunk, periods, top_k, n_boot, sample_fraction, seed, nbins, min_uplift_lcb):

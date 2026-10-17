@@ -8,6 +8,9 @@ Acceptance has no hand-set margin: the warp's held-out MI must exceed the raw co
 column and is rejected here (the linear-downstream pool is offered the warps separately, see ``_usability_warp_pool``). Columns with at most ``FEW_CLASSES_MAX`` distinct values are skipped: a
 warp of a nominal-like column is a target encoding, which other families already cover.
 
+A warp that wins only through the extreme 5% of the column's range is a tail artefact: a few outliers make ``E[rank(y) | x]`` informative there while the bulk stays flat, and the warped column then
+out-ranks the true form of the pair it joins. The gain is therefore also required to be significant on the rows within the central ``1 - 2 * BULK_TRIM`` of the column (``bulk_gain`` / ``bulk_se``).
+
 Replay (kind ``oof_warp1d``) stores the full table, the fill and the output range; it is a pure function of the source column.
 """
 
@@ -36,6 +39,7 @@ DEFAULT_MIN_RELATIVE_GAIN = 0.05  # default of the practical-effect knob
 DEFAULT_SCAN_ROWS = 100_000  # the warp is fitted and scored on at most this many evenly spaced rows; rows beyond them get the full table
 N_MI_BINS = 10
 _MIN_ROWS = 400
+BULK_TRIM = 0.025  # each tail of the column's range left out when the warp's gain is re-checked on the bulk
 
 def build_oof_warp1d_recipe(*, name: str, src: str, cx: np.ndarray, cy: np.ndarray, fill: float, lo: float, hi: float) -> "EngineeredRecipe":
     """Frozen recipe of one warp column: the full table, the fill for a non-finite value and the output range."""
@@ -59,7 +63,7 @@ def apply_oof_warp1d_recipe(recipe: EngineeredRecipe, X: pd.DataFrame | pl.DataF
 def warp_candidates(X: "pd.DataFrame", y: np.ndarray, cols: Sequence[str], *, scan_rows: int = DEFAULT_SCAN_ROWS, seed: int = 0) -> "list[dict]":
     """Fit the warp of each numeric column of ``cols`` and score it against the raw column on the odd rows of the scan sample.
 
-    Returns one dict per usable column: ``col``, ``x`` (the full column), ``fit`` (the service result on the scan rows), ``rows`` (the scan index), ``mi_raw``, ``mi_warp``, ``gain``, ``se``.
+    Returns one dict per usable column: ``col``, ``x`` (the full column), ``fit`` (the service result on the scan rows), ``rows`` (the scan index), ``mi_raw``, ``mi_warp``, ``gain``, ``se``, ``bulk_gain``, ``bulk_se`` (the same gain and its standard error on the central rows only).
     Columns that are constant, nominal-like (at most ``FEW_CLASSES_MAX`` distinct values) or too short are skipped."""
     from ._y_encoding import encode_y_for_classif_mi
 
@@ -84,7 +88,20 @@ def warp_candidates(X: "pd.DataFrame", y: np.ndarray, cols: Sequence[str], *, sc
         cw = held_out_codes(fit["oof"], even, ~even, N_MI_BINS)
         cr = held_out_codes(np.where(finite, xr, np.min(xr[finite])), even, ~even, N_MI_BINS)
         mi_w, mi_r = plugin_mi_of_codes(cw, N_MI_BINS, y_odd, ky), plugin_mi_of_codes(cr, N_MI_BINS, y_odd, ky)
-        out.append({"col": c, "x": x, "fit": fit, "rows": rows, "mi_raw": mi_r, "mi_warp": mi_w, "gain": mi_w - mi_r, "se": paired_gain_se(cw, cr, y_odd, ky, N_MI_BINS)})
+        x_odd = xr[~even]
+        lo, hi = np.quantile(xr[finite], [BULK_TRIM, 1.0 - BULK_TRIM])
+        bulk = np.isfinite(x_odd) & (x_odd >= lo) & (x_odd <= hi)
+        if bulk.sum() >= _MIN_ROWS // 2:
+            bulk_gain = plugin_mi_of_codes(cw[bulk], N_MI_BINS, y_odd[bulk], ky) - plugin_mi_of_codes(cr[bulk], N_MI_BINS, y_odd[bulk], ky)
+            bulk_se = paired_gain_se(cw[bulk], cr[bulk], y_odd[bulk], ky, N_MI_BINS)
+        else:
+            bulk_gain, bulk_se = mi_w - mi_r, paired_gain_se(cw, cr, y_odd, ky, N_MI_BINS)
+        out.append(
+            {
+                "col": c, "x": x, "fit": fit, "rows": rows, "mi_raw": mi_r, "mi_warp": mi_w, "gain": mi_w - mi_r, "se": paired_gain_se(cw, cr, y_odd, ky, N_MI_BINS),
+                "bulk_gain": bulk_gain, "bulk_se": bulk_se,
+            }
+        )
     return out
 
 def training_column(cand: dict) -> np.ndarray:
@@ -115,12 +132,16 @@ def hybrid_oof_warp_fe(
         return empty
     accepted = []
     for cand in warp_candidates(X, y, cols, scan_rows=scan_rows):
-        if cand["gain"] > SIGNIFICANCE_Z * cand["se"] and cand["gain"] > float(min_relative_gain) * max(cand["mi_raw"], 0.0):
+        if (
+            cand["gain"] > SIGNIFICANCE_Z * cand["se"]
+            and cand["gain"] > float(min_relative_gain) * max(cand["mi_raw"], 0.0)
+            and cand["bulk_gain"] > SIGNIFICANCE_Z * cand["bulk_se"]
+        ):
             accepted.append(cand)
         elif reject_sink is not None:
             reject_sink(
                 gate="oof_warp_gain", candidate=f"oofwarp({cand['col']})", operand_names=str(cand["col"]), operator="oof_warp1d", observed=cand["gain"],
-                threshold=SIGNIFICANCE_Z * cand["se"], reason="held-out MI gain over the raw column not significant or below the practical effect",
+                threshold=SIGNIFICANCE_Z * cand["se"], reason="held-out MI gain over the raw column not significant, below the practical effect, or not carried by the bulk of the column",
             )
     accepted.sort(key=lambda c: -c["gain"])
     new_cols, recipes = {}, []

@@ -262,8 +262,10 @@ def warm_start_als_seed_gpu_from_z(z_a: np.ndarray, z_b: np.ndarray, y: np.ndarr
     except Exception as e:
         logger.warning("crit_float_dtype() lookup failed, using float64: %s", e)
         _zdt = cp.float64
-    za = cp.asarray(np.ascontiguousarray(np.asarray(z_a, dtype=_zdt)).reshape(-1))
-    zb = cp.asarray(np.ascontiguousarray(np.asarray(z_b, dtype=_zdt)).reshape(-1))
+    # The standardisation is per COLUMN, so a column shared by several pairs of the seed scan is the same bytes every time: both ride the content-keyed
+    # cache and upload once per distinct column instead of once per pair.
+    za = resident_operand(np.ascontiguousarray(np.asarray(z_a, dtype=_zdt)).reshape(-1), "hermite_prewarp_z", dtype=_zdt)
+    zb = resident_operand(np.ascontiguousarray(np.asarray(z_b, dtype=_zdt)).reshape(-1), "hermite_prewarp_z", dtype=_zdt)
     yc = resident_operand(yc_h, "hermite_prewarp_yc", dtype=_zdt)
 
     deg = max(1, int(max_degree))

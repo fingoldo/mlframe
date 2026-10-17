@@ -30,6 +30,25 @@ logger = logging.getLogger(__name__)
 __all__ = ["choose_bases", "second_pass_recipes"]
 
 
+def _forward_gain(u: np.ndarray, y: np.ndarray) -> float:
+    """Relative reduction of the squared error of ``y ~ a + b u`` fitted on the first 70% of the rows, measured on the last 30% (0 when the block is too short)."""
+    n = len(y)
+    cut = int(0.7 * n)
+    if cut < 50 or n - cut < 50:
+        return 1.0
+    ut, yt = u[:cut], y[:cut]
+    var = float(np.dot(ut - ut.mean(), ut - ut.mean()))
+    if var <= 1e-12:
+        return 0.0
+    b = float(np.dot(ut - ut.mean(), yt - yt.mean()) / var)
+    a = float(yt.mean() - b * ut.mean())
+    y_test, u_test = y[cut:], u[cut:]
+    sse_const = float(np.sum((y_test - yt.mean()) ** 2))
+    if sse_const <= 0.0:
+        return 0.0
+    return 1.0 - float(np.sum((y_test - (a + b * u_test)) ** 2)) / sse_const
+
+
 def choose_bases(design: Mapping[str, np.ndarray], y: np.ndarray, max_bases: int, *, min_relative_gain: float) -> "list[tuple[str, np.ndarray, float]]":
     """``(name, values, beta)`` of the design columns to mix with y, best first.
 
@@ -49,6 +68,13 @@ def choose_bases(design: Mapping[str, np.ndarray], y: np.ndarray, max_bases: int
             continue
         t_stat, rel = linear_oos_gain({}, u, y)
         if t_stat > z and rel >= min_relative_gain:
+            # The held-out rows above are interleaved with the fitting rows, so a base that only interpolates (a warped or saturating function of a drifting column) scores as well as one that
+            # extrapolates. The slope must also hold on the last 30% of the rows after fitting on the first 70%: with time-ordered rows that is out of range, and a base that fails there
+            # is not a base to subtract from the target.
+            rel_forward = _forward_gain(u, y)
+            if rel_forward <= 0.0:
+                continue
+            rel = min(rel, rel_forward)
             u_even, y_even = u[even], y[even]
             beta = float(np.dot(u_even - u_even.mean(), y_even - y_even.mean()) / max(float(np.dot(u_even - u_even.mean(), u_even - u_even.mean())), 1e-12))
             scored.append((rel, name, u, beta))
@@ -84,10 +110,16 @@ def second_pass_recipes(estimator: Any, X: "pd.DataFrame", y: np.ndarray, design
     X_train = X.iloc[train].reset_index(drop=True)
     found: "dict[str, Any]" = {}
     provenance: "list[dict]" = []
+    from ._target_mix_gate import target_has_structure
+
     for name, u, beta in bases:
+        mixed = y[train] - beta * u[train]
+        if not target_has_structure(X_train, mixed, scan_rows=scan_rows):
+            logger.debug("target-mix base %r leaves no structure in T; second pass skipped", name)
+            continue
         try:
             child = _child(estimator)
-            child.fit(X_train, pd.Series(y[train] - beta * u[train], name="y"))
+            child.fit(X_train, pd.Series(mixed, name="y"))
         except Exception:
             log_throttle(logger, "target_mix_fe.second_pass_failed", logging.WARNING, "MRMR target-mix second pass on the base %r failed; skipped.", name, exc_info=True)
             continue

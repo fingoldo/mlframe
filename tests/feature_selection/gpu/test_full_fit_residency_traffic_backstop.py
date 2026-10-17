@@ -48,7 +48,10 @@ pytestmark = [pytest.mark.gpu, pytest.mark.skipif(not _need_cuda(), reason="no C
 # NEW regression (e.g. a reintroduced bulk upload doubling the count) without false-failing on ordinary
 # run-to-run variance (candidate-pool ordering / KTC cache state / which FE families' MI gates happen to
 # admit a column this seed).
-_BULK_H2D_BUDGET = 1200
+# Re-baselined 2026-10-17 at 1343 bulk H2D on this fixture (the 2026-07-21 figure of 360 predates the pairwise-modular, Hermite prewarp, wavelet, hinge and binned-aggregate resident
+# families; the biggest repeat uploaders were batched in the same pass: modular permutation inverses 360 -> 30, binned-aggregate null shuffles 78 -> 6). Same policy as before: ~1.5x over the
+# observed count, so a new per-column or per-permutation upload loop trips it while run-to-run variance does not.
+_BULK_H2D_BUDGET = 2000
 _BULK_D2H_BUDGET = 1200
 
 
@@ -98,9 +101,10 @@ def strict_fit_audit():
 
 def test_full_fit_completes_and_selects_features(strict_fit_audit):
     """Sanity gate: the audited fit actually ran the real pipeline and produced a non-degenerate
-    support_ (a crashed/empty fit would make the byte-traffic numbers below meaningless)."""
+    selection (a crashed/empty fit would make the byte-traffic numbers below meaningless). The selection can be one fused engineered compound with no raw column
+    (the F2 single-compound contract), in which case ``support_`` (raw columns only) is empty: the output feature names are the criterion."""
     _rep, m = strict_fit_audit
-    assert len(getattr(m, "support_", [])) >= 1, "the STRICT fit selected no features -- traffic audit below would be meaningless"
+    assert len(list(m.get_feature_names_out())) >= 1, "the STRICT fit selected no features -- traffic audit below would be meaningless"
 
 
 def test_full_fit_bulk_h2d_within_regression_budget(strict_fit_audit):

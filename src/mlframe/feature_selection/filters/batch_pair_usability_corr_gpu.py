@@ -276,7 +276,7 @@ def _cuda_kernel_factory():
     if not _CUDA_AVAIL or _nb_cuda is None:
         return None
 
-    @_nb_cuda.jit
+    @_nb_cuda.jit(cache=True)
     def _kernel(y, operand_matrix, pair_a, pair_b, form_ids, eps, cv2, out):
         """One thread per (pair, form): compute that form's usability correlation into ``out``."""
         n_forms = form_ids.shape[0]
@@ -316,7 +316,7 @@ def _cuda_kernel_warp_factory():
     if not _CUDA_AVAIL or _nb_cuda is None:
         return None
 
-    @_nb_cuda.jit
+    @_nb_cuda.jit(cache=True)
     def _kernel_warp(y, operand_matrix, pair_a, pair_b, form_ids, eps, cv2, out):
         """One WARP per (pair, form): lanes stride-partition the row range for coalesced reads, then
         warp-shuffle-reduce the two-pass moment sums."""

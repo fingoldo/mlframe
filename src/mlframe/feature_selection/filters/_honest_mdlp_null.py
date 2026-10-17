@@ -61,7 +61,6 @@ _NULL_CACHE_MAX_COLS = 2048
 
 def _njit_null_columns(spec: dict, factors_data: np.ndarray, factors_nbins, y_idx: int, cols, n_permutations: int, seed_key: int, eval_rows=None):
     """Per-permutation null MI of ``cols`` (no cache): ``(plain, corrected)`` each ``(n_permutations, len(cols))``, from ``honest_null_columns``."""
-    from ._mdlp_honest_njit import honest_null_columns
     from ._mdlp_oos_honest_njit import honest_validated_null_columns
     from ._analytic_mi_null import analytic_null_min_n, _min_expected_cell
 
@@ -110,8 +109,37 @@ def _njit_null_columns(spec: dict, factors_data: np.ndarray, factors_nbins, y_id
         q_rf[j, : q_rf_len[j]] = q_rf_rows[j]
     y_codes = np.ascontiguousarray(np.asarray(factors_data[:, int(y_idx)]).astype(np.int64))
     rng = np.random.default_rng(seed_key)
-    perms = np.stack([rng.permutation(n) for _ in range(int(n_permutations))]).astype(np.int64)
     ev = np.arange(n, dtype=np.int64) if eval_rows is None else np.ascontiguousarray(np.asarray(eval_rows, dtype=np.int64))
+    if spec.get("method") != "oos":
+        # Column-parallel kernel: the permutations are applied to the labels one row at a time, so the (permutations, n) int64 permutation matrix is never built.
+        from ._mdlp_honest_bycol_njit import honest_null_columns_bycol, permuted_labels
+
+        y_raw = np.asarray(spec["y_enc"])
+        perm_rows = (rng.permutation(n) for _ in range(int(n_permutations)))
+        y_raw_perm, y_codes_perm = permuted_labels(y_raw, y_codes, perm_rows, int(n_permutations))
+        return honest_null_columns_bycol(
+            raw_cont,
+            is_cont,
+            fixed,
+            fixed_nb,
+            y_raw_perm,
+            y_codes_perm,
+            int(spec["n_classes_total"]),
+            int(spec["min_split_size"]),
+            int(spec["max_depth"]),
+            float(spec["alpha"]),
+            int(spec["n_permutations"]),
+            int(spec["seed"]),
+            int(analytic_null_min_n()),
+            float(_min_expected_cell()),
+            q_fb,
+            q_fb_len,
+            q_rf,
+            q_rf_len,
+            ev,
+            col_slot,
+        )
+    perms = np.stack([rng.permutation(n) for _ in range(int(n_permutations))]).astype(np.int64)
     if spec.get("method") == "oos":
         return honest_validated_null_columns(
             raw_cont,
@@ -135,29 +163,6 @@ def _njit_null_columns(spec: dict, factors_data: np.ndarray, factors_nbins, y_id
             ev,
             col_slot,
         )
-    return honest_null_columns(
-        raw_cont,
-        is_cont,
-        fixed,
-        fixed_nb,
-        spec["y_enc"],
-        y_codes,
-        int(spec["n_classes_total"]),
-        perms,
-        int(spec["min_split_size"]),
-        int(spec["max_depth"]),
-        float(spec["alpha"]),
-        int(spec["n_permutations"]),
-        int(spec["seed"]),
-        int(analytic_null_min_n()),
-        float(_min_expected_cell()),
-        q_fb,
-        q_fb_len,
-        q_rf,
-        q_rf_len,
-        ev,
-        col_slot,
-    )
 
 
 def _njit_null_matrices(spec: dict, factors_data: np.ndarray, factors_nbins, y_idx: int, pool, n_permutations: int, seed, eval_rows=None):

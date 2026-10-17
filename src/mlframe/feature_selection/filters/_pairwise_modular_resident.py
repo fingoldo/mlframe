@@ -207,12 +207,16 @@ def perm_null_residue_mis_resident(
         # path whose whole purpose is to avoid H2D traffic. Column by column the host holds one (n,) buffer and the device holds only the
         # result. int32 because the index is a row number: n < 2^31 everywhere this runs, and it halves both the traffic and the buffer.
         code_mat = cp.empty((n, n_perm), dtype=cp.int64)
-        inv_col = np.empty(n, dtype=np.int32)
+        # The inverses are uploaded a few columns per transfer: as many as fit a 32 MB host buffer (all 12 at n = 40000, one per transfer from n = 700 000).
+        step = max(1, min(n_perm, (32 << 20) // (4 * max(n, 1))))
+        inv_blk = np.empty((step, n), dtype=np.int32)
         _arange_n = np.arange(n, dtype=np.int32)
-        for i, perm in enumerate(perms):
-            # The inverse is a scatter, not an argsort: bit-identical for a duplicate-free permutation and O(n) rather than O(n log n).
-            inv_col[np.asarray(perm)] = _arange_n
-            code_mat[:, i] = codes_r[cp.asarray(inv_col)]
+        for i0 in range(0, n_perm, step):
+            m = min(step, n_perm - i0)
+            for t in range(m):
+                # The inverse is a scatter, not an argsort: bit-identical for a duplicate-free permutation and O(n) rather than O(n log n).
+                inv_blk[t, np.asarray(perms[i0 + t])] = _arange_n
+            code_mat[:, i0 : i0 + m] = codes_r[cp.asarray(inv_blk[:m])].T
         # y rides the SAME resident "y_mi_classif" role the host STRICT MI path uses (uploaded once per fit).
         _yi = np.ascontiguousarray(encode_y_for_classif_mi(y))
         yd = resident_operand(_yi, "y_mi_classif", dtype=np.int64)

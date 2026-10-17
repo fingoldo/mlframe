@@ -140,7 +140,7 @@ def _mdlp_dfs(
     permutation seed depends only on the root seed, its depth and its split index, and the child labels are rank-compacted within the
     node exactly as before."""
     n_total = xs.shape[0]
-    cap = 2 * n_total + 4
+    cap = 2 * max_depth + 8  # DFS pops one range and pushes two children one level deeper: the stack never holds more than max_depth + 2 ranges
     st_s = np.empty(cap, dtype=np.int64)
     st_e = np.empty(cap, dtype=np.int64)
     st_d = np.empty(cap, dtype=np.int64)

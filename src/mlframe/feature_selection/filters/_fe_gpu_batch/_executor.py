@@ -31,6 +31,14 @@ from mlframe.utils.env_flags import env_int
 _BLOCKS_PER_DEVICE = env_int("MLFRAME_FE_VRAM_BLOCKS_PER_DEVICE", 4, minimum=1)
 
 
+def _scrub_block(cp, Xg):
+    """FE scrub (inf/-inf/nan -> 0, the FE convention - NOT cupy's default inf->float-max), in place. In-place where(isfinite) rather than
+    ``cp.nan_to_num(nan=0, ...)``: nan_to_num runs ``cupy.isnan()`` on each scalar fill argument (a blocking D2H sync) and always scans the array; ``Xg[...] =``
+    assigns elementwise in place with the identical result."""
+    Xg[...] = cp.where(cp.isfinite(Xg), Xg, cp.asarray(0.0, dtype=Xg.dtype))
+    return Xg
+
+
 def gpu_fe_batch_mi(
     X_cands: np.ndarray,
     y_codes: np.ndarray,
@@ -84,20 +92,26 @@ def gpu_fe_batch_mi(
         y_gpu = resident_operand(y_host, "gpu_fe_batch_y", dtype=np.int64)
         # VRAM-budget column chunk: the candidate matrix is the dominant resident footprint (4B f32 / 8B f64).
         chunk = _gpu_k_chunk(n, bytes_per_elem=(4 if _f32 else 8), max_cols=k)
-        for s in range(0, k, chunk):
+        s = 0
+        while s < k:
             sl = slice(s, min(s + chunk, k))
             block = np.ascontiguousarray(X[:, sl], dtype=_cast)
-            Xg = cp.asarray(block)
-            # FE scrub (inf/-inf/nan -> 0, the FE convention - NOT cupy's default inf->float-max). cupy's
-            # nan_to_num always runs a full array scan (_check_nan_inf, ~12% of the GPU wall here), so callers
-            # that already guarantee finite columns (e.g. the orth path's dense finite-filtered subset) pass
-            # scrub=False to skip it entirely. Default True keeps the generic path safe on non-finite input.
-            if scrub:
-                # In-place where(isfinite) not cp.nan_to_num(nan=0,...): nan_to_num runs cupy.isnan() on each
-                # scalar fill arg (a blocking D2H sync); Xg[...]= assigns elementwise in place, identical result.
-                Xg[...] = cp.where(cp.isfinite(Xg), Xg, cp.asarray(0.0, dtype=Xg.dtype))
-            out[sl] = np.asarray(_plugin_mi_classif_batch_cuda_resident(Xg, y_gpu, nbins, y_min=y_min, n_classes=n_classes, keep_dtype=_f32))
+            try:
+                Xg = cp.asarray(block)
+                Xg = _scrub_block(cp, Xg) if scrub else Xg
+                out[sl] = np.asarray(_plugin_mi_classif_batch_cuda_resident(Xg, y_gpu, nbins, y_min=y_min, n_classes=n_classes, keep_dtype=_f32))
+            except cp.cuda.memory.OutOfMemoryError:
+                # The chunk was sized from the free memory when the call started, but a resident cache elsewhere in the fit can hold most of a small card
+                # (2.5 GB of 4 GB here) and the binning intermediates of the chunk then do not fit. Every column's MI is independent: give the cached
+                # blocks back, halve the chunk and redo the same columns on the device instead of sending the slice to the CPU.
+                Xg = None
+                cp.get_default_memory_pool().free_all_blocks()
+                if chunk <= 1:
+                    raise
+                chunk = max(1, chunk // 2)
+                continue
             del Xg
+            s += sl.stop - sl.start
             if free_blocks:
                 # Investigated: this forces a real cudaFree + fresh cudaMalloc on the NEXT
                 # chunk instead of cupy pool reuse - a genuine cost. Left unchanged: this executor is

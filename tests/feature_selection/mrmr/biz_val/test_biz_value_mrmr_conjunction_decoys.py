@@ -3,8 +3,9 @@
 The target is y ~ Bernoulli(sigmoid(-1.5 + 2.5*A + W*A*B*C)). A is strong; B and C act only through their joint AND with A.
 Each operand has 50 proxies (standardised copies of the operand with correlation 0.7), and there are 100 pure noise columns.
 
-Contract: default MRMR names every operand (raw, or inside a composite), selects no proxy and no noise column, and the outcome
-does not depend on the order of the columns.
+Contract: default MRMR selects EXACTLY the raw A and one composite naming A, B and C, and nothing else. A carries the main effect and the
+composite carries the conjunction, which together explain the target completely, so a proxy, a noise column, a lone B or C, a partial
+composite or a second variant of the composite is a redundant selection. The outcome does not depend on the order of the columns.
 """
 
 import re
@@ -82,11 +83,27 @@ def _fit_selection(perm_seed):
     return tuple(sel.get_feature_names_out())
 
 
+def _support_problems(names) -> list[str]:
+    """What is wrong with a selected support: it must be the raw A plus exactly one composite of A, B and C."""
+    names = [str(nm) for nm in names]
+    composites = [nm for nm in names if set(OPERANDS) <= _tokens(nm)]
+    problems = []
+    if "A" not in names:
+        problems.append("the raw A is not selected")
+    if not composites:
+        problems.append("no composite names A, B and C")
+    elif len(composites) > 1:
+        problems.append(f"more than one composite of A, B and C: {composites}")
+    for nm in names:
+        if nm == "A" or nm in composites:
+            continue
+        problems.append(f"extra selection {nm!r}" + (" (proxy or noise)" if _tokens(nm) & _BAD_TOKENS else " (redundant operand fragment)"))
+    return problems
+
+
 def _assert_contract(names):
-    """Assert no proxy or noise is selected and all three operands are named."""
-    bad = _bad_names(names)
-    assert not bad, f"proxy or noise column selected: {bad}; support={list(names)}"
-    assert _operands_named(names) == set(OPERANDS), f"operands not all named: {sorted(_operands_named(names))}; support={list(names)}"
+    """Assert the support is exactly the raw A plus one composite of A, B and C."""
+    assert not _support_problems(names), f"{_support_problems(names)}; support={list(names)}"
 
 
 @pytest.mark.slow

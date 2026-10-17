@@ -516,8 +516,13 @@ def local_mi_gate_binagg_resident(
             _rng = np.random.default_rng(0)
             # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
             _null_max = np.empty(_LOCAL_GATE_NULL_PERMUTATIONS, dtype=np.float64)
+            # The shuffles cross the bus a few per transfer (as many as fit a 32 MB host buffer), drawn in the same order as one per permutation.
+            _step = max(1, min(_LOCAL_GATE_NULL_PERMUTATIONS, (32 << 20) // (8 * max(_yi.size, 1))))
+            _perm_blk = cp.zeros((0, 0), dtype=cp.int64)
             for _b in range(_LOCAL_GATE_NULL_PERMUTATIONS):
-                _perm = cp.asarray(_rng.permutation(_yi.size))
+                if _b % _step == 0:
+                    _perm_blk = cp.asarray(np.stack([_rng.permutation(_yi.size) for _ in range(min(_step, _LOCAL_GATE_NULL_PERMUTATIONS - _b))]))
+                _perm = _perm_blk[_b % _step]
                 _null_max[_b] = float(
                     np.nanmax(
                         np.asarray(

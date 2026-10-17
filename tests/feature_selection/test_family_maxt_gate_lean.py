@@ -78,3 +78,15 @@ def test_family_pass_batches_narrow_stack_equals_int64_reference():
     assert stacked.dtype == np.int8 and stacked.shape == (16, n)
     wide = [np.asarray(b, dtype=np.int64) * 300 for b in batches]
     assert _stack_codes_transposed(wide, [b.shape[1] for b in wide]).dtype == np.int16
+
+
+def test_binary_candidate_columns_keep_their_two_levels():
+    """A two-valued informative candidate must be able to pass: its two levels were merged into one code (MI 0) by the clipped quantile edges."""
+    rng = np.random.default_rng(5)
+    n = 3000
+    y = rng.integers(0, 2, n)
+    informative = np.where(rng.random(n) < 0.85, y, 1 - y).astype(np.float64)
+    noise = rng.integers(0, 2, n).astype(np.float64)
+    cols, nx = _family_codes(np.column_stack([informative, noise]), 10)
+    assert nx.tolist() == [2, 2] and len(np.unique(cols[0])) == 2
+    assert family_maxt_pass(np.column_stack([informative, noise]), y, n_bins=10, alpha=0.01, n_perm=999).tolist() == [True, False]

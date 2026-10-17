@@ -15,6 +15,7 @@ import copy
 # instance gets its own mutable default objects (empty lists / tuples are fine to share,
 # but lists must not be aliased across instances).
 _SETSTATE_LEGACY_DEFAULTS = {
+    "_selection_compaction_": (),  # parsimony compaction log: (replacement, replaced) per swap; empty on an estimator fitted before it existed
     "max_confirmation_cand_nbins": 50,  # legacy default
     "fe_fallback_to_all": True,  # legacy default
     "_engineered_features_": [],

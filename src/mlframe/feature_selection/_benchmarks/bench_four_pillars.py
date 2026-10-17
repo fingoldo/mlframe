@@ -100,12 +100,12 @@ def _xor3_case(y_kind: str, seed: int):
 def _conj_case(perm_seed):
     """Conj case."""
     sys.path.insert(0, os.getcwd())
-    from tests.feature_selection.mrmr.biz_val.test_biz_value_mrmr_conjunction_decoys import _make_frame, _bad_names, _operands_named, OPERANDS
+    from tests.feature_selection.mrmr.biz_val.test_biz_value_mrmr_conjunction_decoys import _make_frame, _support_problems
 
     X, y = _make_frame(seed=0, perm_seed=perm_seed)
     sel, dt = _fit(X, y)
     names = list(sel.get_feature_names_out())
-    ok = not _bad_names(names) and _operands_named(names) == set(OPERANDS)
+    ok = not _support_problems(names)
     return ok, dt, names
 
 

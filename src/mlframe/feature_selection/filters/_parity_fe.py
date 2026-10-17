@@ -94,11 +94,19 @@ def _parity_grid(v: np.ndarray) -> np.ndarray:
 
 
 def _raw_mi(v: np.ndarray, y: np.ndarray) -> float:
-    """MI of the raw column with the target, after quantile binning into ``_BINS`` bins."""
-    edges = np.unique(np.nanquantile(v, np.linspace(0.0, 1.0, _BINS + 1)))
-    codes = np.clip(np.searchsorted(edges, v, side="right") - 1, 0, max(len(edges) - 2, 0)).astype(np.int64)
+    """MI of the raw column with the target: exact codes for a column with at most ``_BINS`` distinct values, else quantile binning into ``_BINS`` bins."""
+    levels = np.unique(v)
+    if levels.size <= _BINS:
+        # The quantile edges of a two-valued column are [lo, hi] and the upper bin is clipped away, which put both values in code 0 and gave a binary
+        # column an MI of 0: a parity feature that is an exact copy of it then showed the column's whole MI as uplift and was appended.
+        codes = np.searchsorted(levels, v).astype(np.int64)
+        n_codes = max(int(levels.size), 1)
+    else:
+        edges = np.unique(np.nanquantile(v, np.linspace(0.0, 1.0, _BINS + 1)))
+        codes = np.clip(np.searchsorted(edges, v, side="right") - 1, 0, max(len(edges) - 2, 0)).astype(np.int64)
+        n_codes = max(len(edges) - 1, 1)
     _, y_codes = np.unique(y, return_inverse=True)
-    return float(_mi_codes_njit(codes, max(len(edges) - 1, 1), y_codes.astype(np.int64).ravel(), int(y_codes.max()) + 1))
+    return float(_mi_codes_njit(codes, n_codes, y_codes.astype(np.int64).ravel(), int(y_codes.max()) + 1))
 
 
 def scan_parity_period(v: np.ndarray, y: np.ndarray) -> tuple[float, float]:
