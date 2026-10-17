@@ -190,8 +190,13 @@ def _probe_cuda_precision_cached(device_id: int) -> str:
     "32-true" otherwise. Probe outcome is process-stable."""
     with _PROBE_PRECISION_LOCK:
         cached = _PROBE_PRECISION_CACHE.get(device_id)
-    if cached is not None:
-        return cached
+        if cached is None:
+            cached = _PROBE_PRECISION_CACHE[device_id] = _probe_cuda_precision_uncached(device_id)
+    return cached
+
+
+def _probe_cuda_precision_uncached(device_id: int) -> str:
+    """Run the CUDA precision probe once; the caller stores the outcome under the cache lock."""
     try:
         import torch
         if not bool(torch.cuda.is_available()):
@@ -206,8 +211,6 @@ def _probe_cuda_precision_cached(device_id: int) -> str:
     except Exception as e:
         logger.debug("precision probe failed, defaulting to 32-true: %s", e)
         result = "32-true"
-    with _PROBE_PRECISION_LOCK:
-        _PROBE_PRECISION_CACHE[device_id] = result
     return result
 
 
@@ -372,27 +375,28 @@ def _probe_available_memory_bytes(
     # Cached-probe path: one stable budget per process/mode so consecutive MLP
     # trainings in the same suite don't get wildly different batch sizes
     # from a fluctuating ``available`` reading.
-    if not os.environ.get("MLFRAME_FORCE_REPROBE"):
-        with _PROBE_MEM_LOCK:
-            cached_bytes = _PROBE_MEM_CACHE.get(cache_key)
-        if cached_bytes is not None:
-            return cached_bytes
+    with _PROBE_MEM_LOCK:
+        cached_bytes = None if os.environ.get("MLFRAME_FORCE_REPROBE") else _PROBE_MEM_CACHE.get(cache_key)
+        if cached_bytes is None:
+            cached_bytes = _measure_available_bytes(cuda_ok, device_id)
+            if cached_bytes is not None:
+                _PROBE_MEM_CACHE[cache_key] = cached_bytes
+    return cached_bytes
+
+
+def _measure_available_bytes(cuda_ok: bool, device_id: int) -> int | None:
+    """Read free GPU memory (CUDA) or available host RAM; ``None`` when both probes fail."""
     if cuda_ok:
         try:
             import torch
             free_bytes, _total_bytes = torch.cuda.mem_get_info(int(device_id))
-            with _PROBE_MEM_LOCK:
-                _PROBE_MEM_CACHE[cache_key] = int(free_bytes)
             return int(free_bytes)
         except Exception as e:  # nosec B110 - optional dependency import guard
             logger.debug("torch.cuda.mem_get_info probe failed (%s: %s) -- falling back to psutil/None", type(e).__name__, e)
     # CPU mode (or CUDA probe failed): use psutil if available, else None.
     try:
         import psutil
-        available = int(psutil.virtual_memory().available)
-        with _PROBE_MEM_LOCK:
-            _PROBE_MEM_CACHE[cache_key] = available
-        return available
+        return int(psutil.virtual_memory().available)
     except Exception as e:
         logger.debug("psutil memory probe failed (%s: %s) -- caller falls back to a constant batch size", type(e).__name__, e)
         return None

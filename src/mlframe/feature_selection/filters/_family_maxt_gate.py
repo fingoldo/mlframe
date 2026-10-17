@@ -201,26 +201,20 @@ def _permutation_block(rng: np.random.Generator, y: np.ndarray, m: int) -> np.nd
     global _perm_block_cache_bytes
     state_before = rng.bit_generator.state
     key = (y.shape[0], int(m), hash(y.tobytes()), repr(state_before))
+    n = y.shape[0]
     with _perm_block_cache_lock:
         hit = _perm_block_cache.get(key)
         if hit is not None:
             _perm_block_cache.move_to_end(key)
-    if hit is not None:
-        idx, state_after = hit
-        rng.bit_generator.state = state_after
-        cached: np.ndarray = idx
-        return cached
-    n = y.shape[0]
-    idx_dtype = np.uint16 if n <= np.iinfo(np.uint16).max else np.int32
-    idx = np.empty((m, n), dtype=idx_dtype)
-    for i in range(m):
-        idx[i] = rng.permutation(n)
-    state_after = rng.bit_generator.state
-    with _perm_block_cache_lock:
-        previous = _perm_block_cache.pop(key, None)  # two threads that drew the same block: keep one entry and keep the byte count honest
-        if previous is not None:
-            _perm_block_cache_bytes -= previous[0].nbytes
-        _perm_block_cache[key] = (idx, state_after)
+            idx, state_after = hit
+            rng.bit_generator.state = state_after
+            cached: np.ndarray = idx
+            return cached
+        idx_dtype = np.uint16 if n <= np.iinfo(np.uint16).max else np.int32
+        idx = np.empty((m, n), dtype=idx_dtype)
+        for i in range(m):
+            idx[i] = rng.permutation(n)
+        _perm_block_cache[key] = (idx, rng.bit_generator.state)
         _perm_block_cache_bytes += idx.nbytes
         while _perm_block_cache_bytes > _PERM_BLOCK_CACHE_BYTES and len(_perm_block_cache) > 1:
             _, (old, _) = _perm_block_cache.popitem(last=False)

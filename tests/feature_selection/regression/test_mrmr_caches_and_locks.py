@@ -266,7 +266,8 @@ def test_regression_gpu_resident_materialise_operand_caches_have_lock():
 def test_regression_fe_gpu_gates_are_memoized():
     """Pre-fix: every call re-did the full env/CUDA/KTC lookup. Post-fix: repeated calls with the same
     (n_rows, n_cands) hit an in-process cache instead of recomputing."""
-    from mlframe.feature_selection.filters._feature_engineering_pairs import _pairs_core as mod
+    # The gates and their memo live in _pairs_gpu_gates (carved out of _pairs_core), so the uncached function is patched where it is looked up.
+    from mlframe.feature_selection.filters._feature_engineering_pairs import _pairs_gpu_gates as mod
 
     mod._GPU_GATE_CACHE.clear()
     call_count = {"n": 0}
