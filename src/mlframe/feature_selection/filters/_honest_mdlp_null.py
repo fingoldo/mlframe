@@ -59,6 +59,24 @@ def _honest_perm_best(honest_codes_fn, factors_data, factors_nbins, y_codes, col
 _NULL_CACHE_MAX_COLS = 2048
 
 
+def _device_honest_null_enabled() -> bool:
+    """The device root-split pipeline is used when a GPU is usable; ``MLFRAME_HONEST_NULL_DEVICE=0`` keeps the host kernel."""
+    import os
+
+    if os.environ.get("MLFRAME_HONEST_NULL_DEVICE", "1").strip().lower() not in ("1", "true", "on", "yes"):
+        return False
+    try:
+        from ._gpu_policy import gpu_globally_disabled
+
+        if gpu_globally_disabled():
+            return False
+        import cupy as cp
+
+        return cp.cuda.runtime.getDeviceCount() > 0
+    except Exception:
+        return False
+
+
 def _njit_null_columns(spec: dict, factors_data: np.ndarray, factors_nbins, y_idx: int, cols, n_permutations: int, seed_key: int, eval_rows=None):
     """Per-permutation null MI of ``cols`` (no cache): ``(plain, corrected)`` each ``(n_permutations, len(cols))``, from ``honest_null_columns``."""
     from ._mdlp_oos_honest_njit import honest_validated_null_columns
@@ -117,7 +135,7 @@ def _njit_null_columns(spec: dict, factors_data: np.ndarray, factors_nbins, y_id
         y_raw = np.asarray(spec["y_enc"])
         perm_rows = (rng.permutation(n) for _ in range(int(n_permutations)))
         y_raw_perm, y_codes_perm = permuted_labels(y_raw, y_codes, perm_rows, int(n_permutations))
-        return honest_null_columns_bycol(
+        args = (
             raw_cont,
             is_cont,
             fixed,
@@ -139,6 +157,13 @@ def _njit_null_columns(spec: dict, factors_data: np.ndarray, factors_nbins, y_id
             ev,
             col_slot,
         )
+        if _device_honest_null_enabled():
+            from ._honest_null_device import honest_null_columns_device
+
+            on_device = honest_null_columns_device(*args)
+            if on_device is not None:
+                return on_device
+        return honest_null_columns_bycol(*args)
     perms = np.stack([rng.permutation(n) for _ in range(int(n_permutations))]).astype(np.int64)
     if spec.get("method") == "oos":
         return honest_validated_null_columns(

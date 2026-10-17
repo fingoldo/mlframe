@@ -13,7 +13,7 @@ import numpy as np
 _SOURCE = r"""
 extern "C" __global__ void family_null_bits(const unsigned long long* __restrict__ bits, const long long* __restrict__ n_x, const unsigned long long* __restrict__ cls,
                                             const double* __restrict__ table, const double* __restrict__ c_a, const long long* __restrict__ px,
-                                            const double c_const, const long long n, const int cap, const int words, const int n_y, const int K, const int B,
+                                            const double* __restrict__ const_b, const long long n, const int cap, const int words, const int n_y, const int K, const int B,
                                             double* __restrict__ out) {
     const long long idx = (long long)blockDim.x * blockIdx.x + threadIdx.x;
     if (idx >= (long long)B * K) return;
@@ -33,7 +33,7 @@ extern "C" __global__ void family_null_bits(const unsigned long long* __restrict
         }
         s += table[rest];
     }
-    out[idx] = (s + c_const - c_a[j]) / (double)n;
+    out[idx] = (s + const_b[b] - c_a[j]) / (double)n;
 }
 """
 
@@ -68,13 +68,25 @@ class DeviceBitsets:
 
 def null_max_bits_device(dev: DeviceBitsets, cls_host: np.ndarray, py_const: float) -> np.ndarray:
     """Per-permutation maximum MI over the family. ``cls_host`` is ``(B, n_y, words)`` uint64; ``py_const = n log n - sum_b xlogx(py_b)``."""
+    # Intentional float64: label-entropy constant of the MI formula (exact permutation ties)
+    const_b = np.full(cls_host.shape[0], float(py_const), dtype=np.float64)
+    return _run(dev, cls_host, const_b, reduce_max=True)
+
+
+def mi_matrix_bits_device(dev: DeviceBitsets, cls_host: np.ndarray, const_b: np.ndarray) -> np.ndarray:
+    """``(B, K)`` plug-in MI of every column against every label vector; ``const_b[b] = n log n - sum_c xlogx(count_c)`` of label vector ``b`` (they differ when each vector has its own class counts)."""
+    return _run(dev, cls_host, const_b, reduce_max=False)
+
+
+def _run(dev: DeviceBitsets, cls_host: np.ndarray, const_b: np.ndarray, reduce_max: bool) -> np.ndarray:
+    """Launch the bit-set kernel over every column group: the per-permutation maximum, or the full ``(B, K)`` matrix."""
     cp = dev.cp
     kern = _get_kernel(cp)
-    # Intentional float64: label-entropy constant of the MI formula (exact permutation ties)
-    const64 = np.float64(py_const)
     B, n_y, _ = cls_host.shape
     cls_d = cp.asarray(cls_host)
+    const_d = cp.asarray(np.ascontiguousarray(const_b, dtype=np.float64))  # Intentional float64: label-entropy constants of the MI formula
     best = cp.zeros(B, dtype=cp.float64)  # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
+    parts = []
     for lo, hi, bits in dev.groups:
         k = hi - lo
         out = cp.empty((B, k), dtype=cp.float64)  # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
@@ -82,8 +94,13 @@ def null_max_bits_device(dev: DeviceBitsets, cls_host: np.ndarray, py_const: flo
         kern(
             ((total + _THREADS - 1) // _THREADS,),
             (_THREADS,),
-            (bits, dev.n_x[lo:hi], cls_d, dev.table, dev.c_a[lo:hi], dev.px[lo:hi], const64, np.int64(dev.n), np.int32(dev.cap), np.int32(dev.words), np.int32(n_y), np.int32(k), np.int32(B), out),
+            (bits, dev.n_x[lo:hi], cls_d, dev.table, dev.c_a[lo:hi], dev.px[lo:hi], const_d, np.int64(dev.n), np.int32(dev.cap), np.int32(dev.words), np.int32(n_y), np.int32(k), np.int32(B), out),
         )
-        best = cp.maximum(best, out.max(axis=1))
-    host: np.ndarray = cp.asnumpy(best)
-    return host
+        if reduce_max:
+            best = cp.maximum(best, out.max(axis=1))
+        else:
+            parts.append(out)
+    if reduce_max:
+        host: np.ndarray = cp.asnumpy(best)
+        return host
+    return np.asarray(cp.asnumpy(parts[0] if len(parts) == 1 else cp.concatenate(parts, axis=1)))
