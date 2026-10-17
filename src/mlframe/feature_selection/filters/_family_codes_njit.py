@@ -33,7 +33,7 @@ def _edge_value(s: np.ndarray, q: float) -> float:
     out = a + diff * gamma
     if gamma >= 0.5:
         out = b - diff * (1.0 - gamma)
-    return out
+    return float(out)
 
 
 @njit(cache=True, parallel=True)

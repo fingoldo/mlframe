@@ -87,7 +87,7 @@ def _pick_granularity(
             best_score = score
             best = g
 
-    return best if best is not None and best != "" else "month"
+    return best if best is not None else "month"
 
 
 _POLARS_BIN_TRUNCATE: dict[Granularity, str] = {

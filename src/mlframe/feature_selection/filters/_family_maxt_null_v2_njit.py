@@ -54,7 +54,7 @@ def mi_column_counts(col: np.ndarray, n_x: int, y: np.ndarray, n_y: int, joint: 
     s = 0.0
     for c in range(cells):
         s += table[joint[c]]
-    return (s + const) / n
+    return float((s + const) / n)
 
 
 @njit(cache=True, parallel=True)
