@@ -500,7 +500,6 @@ def _emit_pair_features_part1(
 
     st._pair_res_entry = (this_pair_features, st.transformed_vals, st.new_cols, st.new_nbins, messages)
     return True, (st._pair_res_entry)
-    return False, None
 
 
 def _emit_pair_features_step1_comment_check_prospective(verbose, leading_features, var_pairs_perf, numeric_vars_to_consider, raw_vars_pair, _op_code_arr):

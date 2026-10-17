@@ -157,7 +157,6 @@ def _grand_fused_pair_mi_part1(
             fe_mi = out[0] if isinstance(out, tuple) else out
         parts.append(np.asarray(fe_mi, dtype=np.float64))  # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
     return True, (_candidate_names(), np.concatenate(parts) if parts else np.empty(0))
-    return False, None
 
 
 def _grand_fused_pair_mi_fused_part1(

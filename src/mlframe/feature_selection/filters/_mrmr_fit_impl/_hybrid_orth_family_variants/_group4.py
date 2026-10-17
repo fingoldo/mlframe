@@ -382,4 +382,3 @@ def _hybrid_orth_family_variants_group4_part1(
             )
 
     return True, (X)
-    return False, None

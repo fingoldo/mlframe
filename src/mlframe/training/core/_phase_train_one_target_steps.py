@@ -312,7 +312,7 @@ def _run_process_model_step(
                 "error_message": str(model_err),
             }
         )
-    return None
+        return None
     if st.verbose:
         logger.info("  process_model(%s, w=%s) done -- %s", mlframe_model_name, weight_name, _elapsed_str(t0_model))
     if not _is_neural and t0_model is not None:

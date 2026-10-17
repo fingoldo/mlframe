@@ -398,7 +398,6 @@ def _hybrid_orth_family_variants_group3_part1(
     # ``orth_univariate`` kind.
 
     return True, (X)
-    return False, None
 
 
 def _stage_tc(self, _fe_family_on, _y_np, X, _hybrid_orth_pre_recipes, verbose):

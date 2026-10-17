@@ -744,7 +744,6 @@ def _adaptive_recipe_for_name(name: str, X: pd.DataFrame, _route_basis: Callable
             "%d in %r; skipping recipe.", arity, name,
         )
         return None
-    return None
 
 
 @fe_timed("adaptive_arity")

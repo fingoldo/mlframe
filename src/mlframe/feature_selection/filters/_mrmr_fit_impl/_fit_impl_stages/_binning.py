@@ -256,4 +256,3 @@ def _discretize_inputs_part1(
     else:
         self._honest_null_codes_fn = None
     return True, (_nbins_strategy, _x_for_cat, cols, data, nbins)
-    return False, None

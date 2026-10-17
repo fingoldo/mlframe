@@ -284,4 +284,3 @@ def _build_resident_operand_table_part1(
         else:
             n_gpu += 1
     return True, (cp.ascontiguousarray(g), n_gpu, n_cpu)
-    return False, None

@@ -446,7 +446,7 @@ class RFECV(RFECVStateCompatMixin, TransformerMixin, BaseEstimator):
         # of a config object do NOT clobber explicit flat values, so a caller
         # who passes ``RFECV(estimator=lr, max_refits=20)`` AND a default
         # ``SearchConfig()`` keeps max_refits=20.
-        _overlay_explicit_config_fields(params, (params["search_config"], params["fi_config"], params["robustness_config"]))
+        _overlay_explicit_config_fields(params, (search_config, fi_config, robustness_config))
         # postfix="" - see mlframe.calibration.post's identical fix comment: this class reads
         # attributes back by their bare param name, but store_params_in_object()'s default postfix
         # changed to "_param_" without every caller being updated.

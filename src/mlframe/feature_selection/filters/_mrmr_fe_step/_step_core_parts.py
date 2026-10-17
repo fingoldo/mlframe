@@ -170,7 +170,6 @@ def _run_fe_step_impl_part6(
     # also runs on the exception path - this was previously the only call site and skipped on any raise.)
 
     return True, (data, cols, nbins, X, selected_vars, st.n_recommended_features)
-    return False, None
 
 
 def _run_fe_step_impl_part5(

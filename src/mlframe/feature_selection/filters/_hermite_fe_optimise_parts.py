@@ -267,4 +267,3 @@ def _optimise_pair_multimode_part1(
     # mi doesn't make results[0] depend on insertion order.
     results.sort(key=lambda r: (-r.mi, getattr(r, "degree_a", 0), getattr(r, "degree_b", 0), r.bin_func_name))
     return True, (results)
-    return False, None

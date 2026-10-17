@@ -607,7 +607,6 @@ def _finalise_fs_results_part1(
     _store_fit_cache(self, _cache_key, _MRMR_FIT_CACHE_LOCK, MRMR, _mrmr_cache_bytes_total)
 
     return True, (self)
-    return False, None
 
 
 def _store_fit_cache(self, _cache_key, _MRMR_FIT_CACHE_LOCK, MRMR, _mrmr_cache_bytes_total):

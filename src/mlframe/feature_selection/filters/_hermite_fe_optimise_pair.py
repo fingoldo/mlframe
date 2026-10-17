@@ -243,7 +243,6 @@ def _optimise_hermite_pair_part2(
             logger.debug("noise-floor permutation guard skipped: %s", _nf_err)
 
     return True, (st.best)  # read from the untyped state namespace / cache the stage helpers share
-    return False, None
 
 
 def _optimise_hermite_pair_part1(

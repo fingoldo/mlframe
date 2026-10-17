@@ -192,7 +192,7 @@ def _build_cross_target_honest_oof_refine(
                 "[CompositeCrossTargetEnsemble] target='%s': honest OOF " "produced no matrix and no component scored on train; " "ensemble skipped.",
                 _orig_tname,
             )
-        return _component_names, _components, False
+            return _component_names, _components, False
         # Drop any component whose train-predict failed (NaN proxy). No OOF
         # matrix exists on this fallback path, so the pool lists carry the
         # full set; restrict them to the scored subset for zero-weight.
@@ -203,7 +203,7 @@ def _build_cross_target_honest_oof_refine(
                 _orig_tname,
                 len(st._oof_components),
             )
-        return _component_names, _components, False
+            return _component_names, _components, False
         st._oof_rmses = st._rmse_arr
     if st._oof_pred_matrix is not None and st._oof_y_holdout is not None and st._oof_pred_matrix.shape[1] > 0:
         logger.info(

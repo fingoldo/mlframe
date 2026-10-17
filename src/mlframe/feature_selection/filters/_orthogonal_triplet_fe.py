@@ -863,7 +863,6 @@ def _triplet_recipe_for_name(name: str, X: pd.DataFrame, basis: str) -> Optional
             legs,
         )
         return None
-    return None
 
 
 @fe_timed("triplet")

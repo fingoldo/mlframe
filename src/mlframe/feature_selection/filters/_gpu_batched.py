@@ -285,7 +285,6 @@ def _mi_direct_gpu_batched_part1(
         original_mi = 0.0
 
     return True, (original_mi, confidence)
-    return False, None
 
 
 def mi_direct_gpu_batched_streamed(
