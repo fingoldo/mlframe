@@ -153,7 +153,8 @@ def _capped_numeric_idx(Xn: np.ndarray, y: np.ndarray, _num_ok: np.ndarray, _dty
         )
     else:
         _kept_numeric_idx = _numeric_idx
-    return _kept_numeric_idx
+    kept_idx: np.ndarray = _kept_numeric_idx
+    return kept_idx
 
 
 def _numeric_view(X: Any, n: int, p: int, _is_df: bool, _dtype: type) -> tuple[np.ndarray, np.ndarray]:
