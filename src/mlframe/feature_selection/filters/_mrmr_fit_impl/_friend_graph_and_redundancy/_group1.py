@@ -298,9 +298,16 @@ def _prefe_raw_sole_parent_pass(self, _prefe_raw, selected_vars, cols, data, tar
         # very members 'replace' mode just removed and re-inject the redundancy the aggregation collapsed. Same exclusion the additional-RFECV rescue pool applies below.
         for _ca_member in getattr(self, "_cluster_aggregate_removals_", None) or []:
             _substituted.add(_ca_member)
+        # A discovered cluster is represented by its aggregate only once a DCD swap replaced the anchor (member or aggregate branch). A cluster that was discovered but never swapped
+        # keeps every member as an ordinary raw, so its anchor stays eligible for raw-retention (exclusion here would make a discovered-but-unswapped anchor unrecoverable).
         _cm_for_raw_retention = getattr(self, "cluster_members_", None)
         if isinstance(_cm_for_raw_retention, dict):
+            _dcd_for_swaps = getattr(self, "dcd_", None)
+            _swapped_idx = {int(_e["anchor"]) for _e in ((_dcd_for_swaps or {}).get("swap_log") or []) if isinstance(_dcd_for_swaps, dict) and _e.get("anchor") is not None}
+            _swapped_names = {cols[_i] for _i in _swapped_idx if 0 <= _i < len(cols)}
             for _anchor, _members in _cm_for_raw_retention.items():
+                if _anchor not in _swapped_names:
+                    continue
                 _substituted.add(_anchor)
                 if isinstance(_members, (list, tuple, set)):
                     _substituted.update(_members)
