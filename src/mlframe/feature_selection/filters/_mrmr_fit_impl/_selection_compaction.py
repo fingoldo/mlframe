@@ -228,7 +228,7 @@ def run_selection_compaction(self, X, selected_vars, cols, data, classes_y, engi
         sources = {nm: _recipe_sources(nm, all_recipes, raw_set) for nm in wanted}
         engineered_recipes = dict(engineered_recipes)
         spanned = _best_triple(sel_eng, sources)
-        if spanned is not None and not any(sources[nm] >= spanned for nm in pool):
+        if spanned is not None and not any(nm.startswith("cell3(") and sources[nm] >= spanned for nm in pool):
             made = _synthesized_cell_triple(X[sorted(spanned)], spanned) or _synthesized_triplet(X, np.asarray(classes_y).ravel(), spanned)
             if made is not None:
                 name, rec, codes = made

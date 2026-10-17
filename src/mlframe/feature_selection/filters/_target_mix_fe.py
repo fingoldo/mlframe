@@ -84,10 +84,16 @@ def second_pass_recipes(estimator: Any, X: "pd.DataFrame", y: np.ndarray, design
     X_train = X.iloc[train].reset_index(drop=True)
     found: "dict[str, Any]" = {}
     provenance: "list[dict]" = []
+    from ._target_mix_gate import target_has_structure
+
     for name, u, beta in bases:
+        mixed = y[train] - beta * u[train]
+        if not target_has_structure(X_train, mixed, scan_rows=scan_rows):
+            logger.debug("target-mix base %r leaves no structure in T; second pass skipped", name)
+            continue
         try:
             child = _child(estimator)
-            child.fit(X_train, pd.Series(y[train] - beta * u[train], name="y"))
+            child.fit(X_train, pd.Series(mixed, name="y"))
         except Exception:
             log_throttle(logger, "target_mix_fe.second_pass_failed", logging.WARNING, "MRMR target-mix second pass on the base %r failed; skipped.", name, exc_info=True)
             continue
