@@ -37,7 +37,7 @@ def _first_nonempty_target_bucket(target_by_type: dict) -> dict:
     from mlframe.training.configs import TargetTypes
 
     for _tt in (TargetTypes.LEARNING_TO_RANK, TargetTypes.REGRESSION, TargetTypes.BINARY_CLASSIFICATION):
-        _cand = target_by_type.get(_tt)
+        _cand: dict[Any, Any] | None = target_by_type.get(_tt)
         if _cand is not None and len(_cand) > 0:
             return _cand
     return {}

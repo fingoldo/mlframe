@@ -48,7 +48,8 @@ def _validate_trusted_path(path: str, trusted_root: str | None) -> None:
 def _finite_mask_or_none(arr) -> "np.ndarray | None":
     """``np.isfinite(arr)``, or None when ``arr`` has a dtype isfinite does not support (object / string targets cannot hold NaN or inf)."""
     try:
-        return np.isfinite(arr)
+        mask: np.ndarray = np.isfinite(arr)
+        return mask
     except TypeError:
         return None
 

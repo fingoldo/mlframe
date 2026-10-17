@@ -179,8 +179,8 @@ def should_clean_ram(baseline_rss_mb: float, df_size_mb: float, min_growth_mb: f
     """
     try:
         rss_mb = psutil.Process().memory_info().rss / 1024**2
-    except Exception as e:
-        log_throttle(logger, "_ram_helpers.should_clean_ram", logging.WARNING, "should_clean_ram: RSS measurement failed, falling back to clean", exc_info=e)
+    except Exception:
+        log_throttle(logger, "_ram_helpers.should_clean_ram", logging.WARNING, "should_clean_ram: RSS measurement failed, falling back to clean", exc_info=True)
         return True  # can't measure -> fall back to cleaning
     growth = rss_mb - baseline_rss_mb
     if growth > max(min_growth_mb, 0.3 * df_size_mb):
@@ -193,8 +193,8 @@ def should_clean_ram(baseline_rss_mb: float, df_size_mb: float, min_growth_mb: f
         return False
     try:
         free_mb = psutil.virtual_memory().available / 1024**2
-    except Exception as e:
-        log_throttle(logger, "_ram_helpers.should_clean_ram", logging.WARNING, "should_clean_ram: free-RAM measurement failed, falling back to clean", exc_info=e)
+    except Exception:
+        log_throttle(logger, "_ram_helpers.should_clean_ram", logging.WARNING, "should_clean_ram: free-RAM measurement failed, falling back to clean", exc_info=True)
         return True
     return bool(free_mb < 2 * df_size_mb)
 
