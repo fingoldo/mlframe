@@ -608,7 +608,13 @@ def _assemble_engineered_output(base_out: Any, engineered_cols: list, recipes: l
             # name differs from its raw name.
             from mlframe.feature_selection.filters.engineered_recipes.shared import simplified_recipe_names
             _disp_names = simplified_recipe_names(recipes)
-            return base_out.with_columns([_pl.Series(nm, col) for nm, col in zip(_disp_names, engineered_cols)])
+            _eng_series = [_pl.Series(nm, col) for nm, col in zip(_disp_names, engineered_cols)]
+            # A polars frame with no columns has height 0 (also after ``select([])`` for an empty selection), so
+            # ``with_columns`` of the replayed series fails with "can't broadcast ... to length 0" on polars 2.x.
+            # Build the engineered frame directly: its height is the replayed row count, as in the fit-time path.
+            if base_out.width == 0:
+                return _pl.DataFrame(_eng_series)
+            return base_out.with_columns(_eng_series)
     except ImportError:
         pass
 
