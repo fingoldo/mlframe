@@ -37,6 +37,9 @@ def build_mix_offset_target(
 
     y = np.asarray(y).ravel()
     tr = np.asarray(train_idx, dtype=np.int64)
+    # Rows with a missing label carry no decision: the selector and the slope fit on the labelled training rows only (the suite's drop_rows policy).
+    if np.issubdtype(y.dtype, np.floating):
+        tr = tr[np.isfinite(y[tr])]
     # ``values`` must be one entry per row of ``X``; a target on another row set (a pinned split holds only the training and
     # validation rows, for instance) cannot be aligned to the frame, so the companion is skipped rather than built wrong.
     if len(y) != len(X):
