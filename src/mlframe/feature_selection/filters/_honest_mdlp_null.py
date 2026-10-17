@@ -199,7 +199,7 @@ def _njit_fdr_floor(spec: dict, factors_data: np.ndarray, factors_nbins, y_idx: 
 
 
 def honest_plain_null_maxima(
-    spec: dict, factors_data: np.ndarray, factors_nbins: np.ndarray, y_idx: int, pool: Sequence[int], n_permutations: int, seed: int | None
+    spec: dict, factors_data: np.ndarray, factors_nbins: np.ndarray, y_idx: int, pool: Sequence[int] | np.ndarray, n_permutations: int, seed: int | None
 ) -> np.ndarray:
     """Per-permutation maximum plain plug-in MI over ``pool`` under the honest null (numba chain), for the empty-support fallback."""
     plain, _ = _njit_null_matrices(spec, factors_data, factors_nbins, y_idx, pool, n_permutations, seed)
@@ -212,7 +212,7 @@ def honest_fdr_floor(
     factors_data: np.ndarray,
     factors_nbins: np.ndarray,
     y_idx: int,
-    pool: Sequence[int],
+    pool: Sequence[int] | np.ndarray,
     n_permutations: int,
     quantile: float,
     seed: int | None,
