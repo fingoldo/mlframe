@@ -398,7 +398,8 @@ def _analytic_triage(cols, n_x, y, n_y, observed, starts, alpha, inverse=None) -
     """Per-batch status from the chi-square null: +1 certified pass, -1 certified fail, 0 undecided; None when the analytic null does not apply.
 
     ``starts`` are the batch boundaries into ``observed`` (batch b spans ``starts[b]:starts[b + 1]``). ``cols`` / ``n_x`` hold the DISTINCT columns of the family and ``inverse`` maps each column
-    of ``observed`` to its row in them (``None``: no repeated columns); the Bonferroni sum runs over the distinct columns.
+    of ``observed`` to its row in them (``None``: no repeated columns). The Bonferroni sum keeps counting every column of the family: the chi-square tail is an approximation, and the pass margin
+    was calibrated against that count (summing over the distinct columns only let the batches through that the exact test rejects).
     """
     from ._analytic_mi_null import _chi2_sf, _min_expected_cell, analytic_null_enabled
 
@@ -431,10 +432,10 @@ def _analytic_triage(cols, n_x, y, n_y, observed, starts, alpha, inverse=None) -
     g = 2.0 * n_rows * best
     # Bonferroni upper bound: columns are grouped by their degrees of freedom (a handful of distinct values), constant columns never exceed M > 0.
     p_bonf = np.zeros(n_batches, dtype=np.float64)  # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
-    for d in np.unique(df_distinct[df_distinct > 0]):
+    for d in np.unique(df[df > 0]):
         # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
         tail = np.asarray(_chi2_sf(g, float(d)), dtype=np.float64)
-        p_bonf += float(np.count_nonzero(df_distinct == d)) * tail
+        p_bonf += float(np.count_nonzero(df == d)) * tail
     p_single = np.ones(n_batches, dtype=np.float64)  # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
     pos = nonempty & (best > 0.0) & (best_df > 0)
     for d in np.unique(best_df[pos]):
