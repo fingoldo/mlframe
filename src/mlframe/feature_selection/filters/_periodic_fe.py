@@ -350,7 +350,8 @@ def hybrid_modular_fe(
     # from the fit (the selection then depended on free memory). Chunking does not change the scores.
     chunk = max(1, min(chunk, _MODULAR_CHUNK_BYTES // max(per_src_bytes, 1)))
     if _gate_first_enabled() and src_cols:
-        return _gate_first_halving_on_memory_error(X, y, src_cols, chunk, periods, top_k, n_boot, sample_fraction, seed, nbins, min_uplift_lcb)
+        gated_first: tuple[Any, Any] = _gate_first_halving_on_memory_error(X, y, src_cols, chunk, periods, top_k, n_boot, sample_fraction, seed, nbins, min_uplift_lcb)
+        return gated_first
     if 0 < chunk < len(src_cols):
         streamed: tuple[Any, Any] = _hybrid_modular_fe_streamed(X, y, src_cols, chunk, periods, top_k, n_boot, sample_fraction, seed, nbins, min_uplift_lcb)
         return streamed

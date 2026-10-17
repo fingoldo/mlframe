@@ -72,7 +72,8 @@ def _device_honest_null_enabled() -> bool:
             return False
         import cupy as cp
 
-        return cp.cuda.runtime.getDeviceCount() > 0
+        has_device: bool = cp.cuda.runtime.getDeviceCount() > 0
+        return has_device
     except Exception:
         return False
 
