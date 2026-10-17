@@ -284,6 +284,71 @@ def _build_support_bins(
         sum_H += _entropy_from_classes(b)
     return bins, sum_H
 
+def _tc_new_info(
+    cand_bin: np.ndarray, y_bin: np.ndarray, y_H: float, sup_sum_H: float, tc_before: float, H_S: float,
+    joint_s_invariant: Optional[np.ndarray], joint_sy_invariant: Optional[np.ndarray],
+) -> float:
+    """Conditional new information ``I(c; y | S)`` of one binned candidate, from the TC increment minus its redundancy with the joint support."""
+    cand_H = _entropy_from_classes(cand_bin)
+    # Build joint(S, c, y) via hash-dedup over the pre-computed
+    # invariant (S, y) joint - one factorize_pack call instead of
+    # the (len(sup_bins)+1)-fold _renumber_joint chain.
+    if joint_sy_invariant is not None:
+        joint_after = _factorize_pack(joint_sy_invariant, cand_bin)
+    else:
+        # No support: H(c, y) only.
+        joint_after = _factorize_pack(cand_bin, y_bin)
+    H_after = _entropy_from_classes(joint_after)
+    tc_after = sup_sum_H + cand_H + y_H - H_after
+    # Raw TC increment (Watanabe). delta_tc decomposes EXACTLY as
+    #     delta_tc = I(c ; (S, y))
+    #             = I(c ; S) + I(c ; y | S)
+    # so the "TC grew" includes BOTH the new-info-with-y term AND
+    # the candidate-support-redundancy term. A near-copy of an
+    # already-selected support col scores high purely from the
+    # ``I(c; S)`` redundancy contribution - the OPPOSITE of "new
+    # info". We rank by the conditional ``I(c; y | S)`` term,
+    # obtained by subtracting ``I(c; joint_S)`` from delta_tc.
+    if joint_s_invariant is not None:
+        joint_cs = _factorize_pack(joint_s_invariant, cand_bin)
+        H_cs = _entropy_from_classes(joint_cs)
+        # I(c; joint_S) = H(c) + H(S) - H(c, S)
+        mi_c_S = cand_H + H_S - H_cs
+    else:
+        mi_c_S = 0.0
+    delta_tc_raw = tc_after - tc_before
+    new_info_term = delta_tc_raw - mi_c_S  # = I(c; y | S)
+    return new_info_term
+
+
+def _support_joint_invariants(sup_bins: list, sup_sum_H: float, y_bin: np.ndarray, y_H: float) -> tuple:
+    """Candidate-independent support-side quantities: ``(joint_s, joint_sy, H_S, tc_before)`` (joints are None without a support)."""
+    # Layer 86 optimization: pre-compute the support-side joints ONCE.
+    # ``_renumber_joint(*sup_bins)`` and ``_renumber_joint(*sup_bins,
+    # y_bin)`` are INVARIANT across the p_eng candidates - chaining
+    # them per-candidate (the pre-opt path) re-did ``len(sup_bins) + 1``
+    # ``np.unique`` calls each loop iter. We hoist them outside the
+    # loop AND switch the per-candidate fold from sort-based
+    # ``_renumber_joint`` to hash-based ``_factorize_pack``: each
+    # candidate's joint_after = factorize_pack(joint_Sy, cand) and
+    # joint_cS = factorize_pack(joint_S, cand) - two hash-dedup ops
+    # vs. (len(sup_bins) + 2) chained np.unique folds. Bit-equivalent
+    # (entropy invariant under class-id permutation).
+    if sup_bins:
+        joint_s_invariant, _ = _renumber_joint(*sup_bins)
+        H_S = _entropy_from_classes(joint_s_invariant)
+        joint_sy_invariant, _ = _renumber_joint(*sup_bins, y_bin)
+        H_sy = _entropy_from_classes(joint_sy_invariant)
+        tc_before = sup_sum_H + y_H - H_sy
+    else:
+        joint_s_invariant = None
+        joint_sy_invariant = None
+        H_S = 0.0
+        H_sy = y_H
+        tc_before = 0.0
+    return joint_s_invariant, joint_sy_invariant, H_S, tc_before
+
+
 def score_features_by_tc_uplift(
     raw_X: pd.DataFrame,
     engineered_X: pd.DataFrame,
@@ -379,29 +444,7 @@ def score_features_by_tc_uplift(
         raw_X, current_support, n_bins=int(n_bins),
     )
 
-    # Layer 86 optimization: pre-compute the support-side joints ONCE.
-    # ``_renumber_joint(*sup_bins)`` and ``_renumber_joint(*sup_bins,
-    # y_bin)`` are INVARIANT across the p_eng candidates - chaining
-    # them per-candidate (the pre-opt path) re-did ``len(sup_bins) + 1``
-    # ``np.unique`` calls each loop iter. We hoist them outside the
-    # loop AND switch the per-candidate fold from sort-based
-    # ``_renumber_joint`` to hash-based ``_factorize_pack``: each
-    # candidate's joint_after = factorize_pack(joint_Sy, cand) and
-    # joint_cS = factorize_pack(joint_S, cand) - two hash-dedup ops
-    # vs. (len(sup_bins) + 2) chained np.unique folds. Bit-equivalent
-    # (entropy invariant under class-id permutation).
-    if sup_bins:
-        joint_s_invariant, _ = _renumber_joint(*sup_bins)
-        H_S = _entropy_from_classes(joint_s_invariant)
-        joint_sy_invariant, _ = _renumber_joint(*sup_bins, y_bin)
-        H_sy = _entropy_from_classes(joint_sy_invariant)
-        tc_before = sup_sum_H + y_H - H_sy
-    else:
-        joint_s_invariant = None
-        joint_sy_invariant = None
-        H_S = 0.0
-        H_sy = y_H
-        tc_before = 0.0
+    joint_s_invariant, joint_sy_invariant, H_S, tc_before = _support_joint_invariants(sup_bins, sup_sum_H, y_bin, y_H)
 
     # Pre-bin all candidate columns via the batched quantile path.
     eng_bins = _bin_dataframe_batched(engineered_X, nbins=int(n_bins))
@@ -412,35 +455,7 @@ def score_features_by_tc_uplift(
         source = eng_name.split("__", 1)[0] if "__" in eng_name else eng_name
         baseline = float(raw_mi_map.get(source, 0.0))
         cand_bin = eng_bins[j]
-        cand_H = _entropy_from_classes(cand_bin)
-        # Build joint(S, c, y) via hash-dedup over the pre-computed
-        # invariant (S, y) joint - one factorize_pack call instead of
-        # the (len(sup_bins)+1)-fold _renumber_joint chain.
-        if joint_sy_invariant is not None:
-            joint_after = _factorize_pack(joint_sy_invariant, cand_bin)
-        else:
-            # No support: H(c, y) only.
-            joint_after = _factorize_pack(cand_bin, y_bin)
-        H_after = _entropy_from_classes(joint_after)
-        tc_after = sup_sum_H + cand_H + y_H - H_after
-        # Raw TC increment (Watanabe). delta_tc decomposes EXACTLY as
-        #     delta_tc = I(c ; (S, y))
-        #             = I(c ; S) + I(c ; y | S)
-        # so the "TC grew" includes BOTH the new-info-with-y term AND
-        # the candidate-support-redundancy term. A near-copy of an
-        # already-selected support col scores high purely from the
-        # ``I(c; S)`` redundancy contribution - the OPPOSITE of "new
-        # info". We rank by the conditional ``I(c; y | S)`` term,
-        # obtained by subtracting ``I(c; joint_S)`` from delta_tc.
-        if joint_s_invariant is not None:
-            joint_cs = _factorize_pack(joint_s_invariant, cand_bin)
-            H_cs = _entropy_from_classes(joint_cs)
-            # I(c; joint_S) = H(c) + H(S) - H(c, S)
-            mi_c_S = cand_H + H_S - H_cs
-        else:
-            mi_c_S = 0.0
-        delta_tc_raw = tc_after - tc_before
-        new_info_term = delta_tc_raw - mi_c_S  # = I(c; y | S)
+        new_info_term = _tc_new_info(cand_bin, y_bin, y_H, sup_sum_H, tc_before, H_S, joint_s_invariant, joint_sy_invariant)
         uplift = relative_uplift(new_info_term, baseline)
         rows.append({
             "engineered_col": eng_name,

@@ -12,6 +12,96 @@ from mlframe.feature_selection.shap_proxied_fs._shap_proxied_resolvers import _r
 logger = logging.getLogger("mlframe.feature_selection.shap_proxied_fs._shap_proxied_fit")
 
 
+def _collapse_intra_cluster_members(
+    self: Any,
+    member_cols: list,
+    member_groups: list,
+    unit_to_members: Any,
+    residual_protected: Optional[set],
+    tol_threshold: float,
+    model_template: Any,
+    X_search: Any,
+    y_search: Any,
+    X_hold: Any,
+    y_hold: Any,
+    honest_cache: Any,
+    core_disk_cache: Any,
+) -> tuple[list, Any]:
+    """Collapse intra-cluster duplicate members before core refine; returns ``(core_member_cols, core_unit_to_members)``."""
+    from mlframe.feature_selection.shap_proxied_fs._shap_proxy_objective import resolve_metric
+    from mlframe.feature_selection.shap_proxied_fs._shap_proxy_revalidate._shap_proxy_loss import _parallel_honest_losses
+
+    # core_refine's LP allocates credit across UNITS (proxy columns), never sub-members
+    # within a unit's own cluster - intra-cluster member redundancy (e.g. exact-duplicate
+    # columns the clustering step didn't merge into one unit) needs the SAME per-cluster
+    # collapse legacy stage 1 performs, so it stays "exactly as today" per gt_02 sec 3.
+    # Best-effort / independently-accepted (no cumulative re-verify): core_refine's own
+    # honest gate below re-checks the WHOLE final proposal and falls back to full legacy
+    # on any failure, so an over-eager collapse here can never surface as a silent
+    # regression - it is caught by the same safety net protecting the unit-level drop.
+    core_member_cols = list(member_cols)
+    core_unit_to_members = unit_to_members
+    multi_groups = [[int(c) for c in g if int(c) in set(member_cols)] for g in member_groups]
+    multi_groups = [g for g in multi_groups if len(g) > 1]
+    if multi_groups:
+        _protected_set = residual_protected or set()
+        probe_tasks = [(sorted(c for c in core_member_cols if c not in set(g[1:]) - _protected_set), None) for g in multi_groups]
+        probe_losses = _parallel_honest_losses(
+            probe_tasks, model_template, X_search, y_search, X_hold, y_hold,
+            self.classification, resolve_metric(self.classification, self.metric), self.n_jobs,
+            cache=honest_cache, n_estimators_cap=self.refine_n_estimators,
+            template_id=("refine_cap", int(self.refine_n_estimators)) if self.refine_n_estimators is not None else None,
+            inner_n_jobs_cap=self.inner_n_jobs_cap, disk_cache=core_disk_cache)
+        accepted_drops: set[int] = set()
+        for g, loss_val in zip(multi_groups, probe_losses):
+            drop_set = set(g[1:]) - _protected_set
+            if loss_val <= tol_threshold:
+                accepted_drops.update(drop_set)
+        if accepted_drops:
+            core_member_cols = sorted(c for c in core_member_cols if c not in accepted_drops)
+            # unit_to_members is a sequence indexed by unit id (not a dict); rebuild the
+            # same indexable shape with dropped duplicate columns filtered out per unit.
+            core_unit_to_members = [[int(c) for c in cols_ if int(c) not in accepted_drops] for cols_ in unit_to_members]
+    return core_member_cols, core_unit_to_members
+
+
+def _make_honest_gate(
+    self: Any,
+    model_template: Any,
+    X_search: Any,
+    y_search: Any,
+    X_hold: Any,
+    y_hold: Any,
+    honest_cache: Any,
+    core_disk_cache: Any,
+    tol_threshold: float,
+    run_legacy_refine: Callable[[], list],
+) -> Callable[[list], bool]:
+    """Build core refine's honest gate (closure over the fit's data and the memoised legacy refine)."""
+    from mlframe.feature_selection.shap_proxied_fs._shap_proxy_objective import resolve_metric
+    from mlframe.feature_selection.shap_proxied_fs._shap_proxy_revalidate import _honest_loss
+
+    def _honest_gate(cols: list) -> bool:
+        """Accept core iff its honest loss is within parsimony_tol of pre-refine AND no worse than greedy's result (core's
+        documented contract). The band alone let core keep 14/41 cols on breast_cancer+decoys vs greedy's 23, -0.006 AUC."""
+        _metric = resolve_metric(self.classification, self.metric)
+        candidate_loss = _honest_loss(
+            model_template, X_search, y_search, X_hold, y_hold, cols, self.classification, _metric, cache=honest_cache, disk_cache=core_disk_cache
+        )
+        if candidate_loss > tol_threshold:
+            return False
+        greedy_cols = run_legacy_refine()
+        if not greedy_cols or sorted(greedy_cols) == sorted(cols):
+            return True
+        greedy_loss = _honest_loss(
+            model_template, X_search, y_search, X_hold, y_hold, list(greedy_cols), self.classification, _metric, cache=honest_cache, disk_cache=core_disk_cache
+        )
+        # Keeping MORE than greedy is core's purpose (weak-but-real recall): parsimony_tol of slack. Keeping FEWER must not cost loss.
+        return bool(candidate_loss <= greedy_loss + (self.parsimony_tol * abs(greedy_loss) if len(cols) >= len(greedy_cols) else 0.0))
+
+    return _honest_gate
+
+
 class ShapProxiedFitStepsMixin:
     """Stage helpers of ``ShapProxiedFitMixin.fit``; every method reads only its arguments and ``self``."""
 
@@ -578,63 +668,18 @@ class ShapProxiedFitStepsMixin:
                     _refine_mode_effective = "core" if _use_core else "greedy"
 
                 if _refine_mode_effective == "core":
-                    from mlframe.feature_selection.shap_proxied_fs._shap_proxy_revalidate._shap_proxy_loss import _parallel_honest_losses
-
                     assert _base_honest_loss_for_auto is not None  # computed above whenever mode is "core" or "auto"
                     base_honest_loss = _base_honest_loss_for_auto
                     _tol_threshold = base_honest_loss + self.parsimony_tol * abs(base_honest_loss)
 
-                    # core_refine's LP allocates credit across UNITS (proxy columns), never sub-members
-                    # within a unit's own cluster - intra-cluster member redundancy (e.g. exact-duplicate
-                    # columns the clustering step didn't merge into one unit) needs the SAME per-cluster
-                    # collapse legacy stage 1 performs, so it stays "exactly as today" per gt_02 sec 3.
-                    # Best-effort / independently-accepted (no cumulative re-verify): core_refine's own
-                    # honest gate below re-checks the WHOLE final proposal and falls back to full legacy
-                    # on any failure, so an over-eager collapse here can never surface as a silent
-                    # regression - it is caught by the same safety net protecting the unit-level drop.
-                    core_member_cols = list(member_cols)
-                    core_unit_to_members = unit_to_members
-                    multi_groups = [[int(c) for c in g if int(c) in set(member_cols)] for g in member_groups]
-                    multi_groups = [g for g in multi_groups if len(g) > 1]
-                    if multi_groups:
-                        _protected_set = _residual_protected or set()
-                        probe_tasks = [(sorted(c for c in core_member_cols if c not in set(g[1:]) - _protected_set), None) for g in multi_groups]
-                        probe_losses = _parallel_honest_losses(
-                            probe_tasks, model_template, X_search, y_search, X_hold, y_hold,
-                            self.classification, resolve_metric(self.classification, self.metric), self.n_jobs,
-                            cache=honest_cache, n_estimators_cap=self.refine_n_estimators,
-                            template_id=("refine_cap", int(self.refine_n_estimators)) if self.refine_n_estimators is not None else None,
-                            inner_n_jobs_cap=self.inner_n_jobs_cap, disk_cache=_core_disk_cache)
-                        accepted_drops: set[int] = set()
-                        for g, loss_val in zip(multi_groups, probe_losses):
-                            drop_set = set(g[1:]) - _protected_set
-                            if loss_val <= _tol_threshold:
-                                accepted_drops.update(drop_set)
-                        if accepted_drops:
-                            core_member_cols = sorted(c for c in core_member_cols if c not in accepted_drops)
-                            # unit_to_members is a sequence indexed by unit id (not a dict); rebuild the
-                            # same indexable shape with dropped duplicate columns filtered out per unit.
-                            core_unit_to_members = [[int(c) for c in cols_ if int(c) not in accepted_drops] for cols_ in unit_to_members]
+                    core_member_cols, core_unit_to_members = _collapse_intra_cluster_members(
+                        self, member_cols, member_groups, unit_to_members, _residual_protected, _tol_threshold,
+                        model_template, X_search, y_search, X_hold, y_hold, honest_cache, _core_disk_cache)
 
                     core_evaluator = _Evaluator(phi, base, y_phi, resolve_metric(self.classification, self.metric))
 
-                    def _honest_gate(cols):
-                        """Accept core iff its honest loss is within parsimony_tol of pre-refine AND no worse than greedy's result (core's
-                        documented contract). The band alone let core keep 14/41 cols on breast_cancer+decoys vs greedy's 23, -0.006 AUC."""
-                        _metric = resolve_metric(self.classification, self.metric)
-                        candidate_loss = _honest_loss(
-                            model_template, X_search, y_search, X_hold, y_hold, cols,
-                            self.classification, _metric, cache=honest_cache, disk_cache=_core_disk_cache)
-                        if candidate_loss > _tol_threshold:
-                            return False
-                        greedy_cols = _run_legacy_refine()
-                        if not greedy_cols or sorted(greedy_cols) == sorted(cols):
-                            return True
-                        greedy_loss = _honest_loss(
-                            model_template, X_search, y_search, X_hold, y_hold, list(greedy_cols),
-                            self.classification, _metric, cache=honest_cache, disk_cache=_core_disk_cache)
-                        # Keeping MORE than greedy is core's purpose (weak-but-real recall): parsimony_tol of slack. Keeping FEWER must not cost loss.
-                        return candidate_loss <= greedy_loss + (self.parsimony_tol * abs(greedy_loss) if len(cols) >= len(greedy_cols) else 0.0)
+                    _honest_gate = _make_honest_gate(
+                        self, model_template, X_search, y_search, X_hold, y_hold, honest_cache, _core_disk_cache, _tol_threshold, _run_legacy_refine)
 
                     refined, core_info = core_refine(
                         core_member_cols, tuple(int(u) for u in best_idx), core_evaluator, _honest_gate,

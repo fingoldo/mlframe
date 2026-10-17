@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import logging
 from collections import defaultdict
-from typing import Callable, Optional, Sequence, Union
+from typing import Any, Callable, Optional, Sequence, Tuple, Union
 
 import numpy as np
 import pandas as pd
@@ -266,6 +266,39 @@ def create_robustness_standard_bins(group_name: str, npoints: int, cont_nbins: i
     return bins, unique_bins
 
 
+def _per_bin_metric_perfs(bins: Any, unique_bins: Any, metrics: dict, y_true: np.ndarray, y_pred: np.ndarray) -> Tuple[list, dict, Any]:
+    """Score every metric on every non-empty bin; returns ``(npoints_per_bin, perfs[metric][bin_label], unique_bins)``."""
+    npoints: list = []
+    perfs: dict = defaultdict(dict)
+    if unique_bins is None:
+        if isinstance(bins, pd.Series):
+            unique_bins = bins.unique()
+        else:
+            unique_bins = np.unique(bins)
+    # Factorize the bins ONCE into integer codes instead of rescanning ``bins == bin_name`` (a full
+    # O(N) string/object equality) for every bin -> O(N*B). The per-bin boolean masks then come from
+    # cheap int-code comparisons; row positions are preserved so each y_true[idx]/y_pred[idx] subset is
+    # bit-identical. ~10-28x faster on string bins at N=50k-200k (bench_fairness_bin_masks.py).
+    _bins_arr = np.asarray(bins)
+    _codes, _code_uniques = pd.factorize(_bins_arr)
+    _code_of = {u: i for i, u in enumerate(_code_uniques)}
+    # A bin_name absent from factorize uniques (e.g. NaN, which factorize codes as -1) never matched
+    # under the old ``bins == bin_name`` either -> empty mask, skipped below. Match that exactly.
+    _masks = {bn: (_codes == _code_of[bn]) if bn in _code_of else np.zeros(_codes.shape, dtype=bool) for bn in unique_bins}
+    for bin_name in unique_bins:
+        idx = _masks[bin_name]
+        n_points = idx.sum()
+        if n_points:
+            npoints.append(n_points)
+            for metric_name, metric_func in metrics.items():
+                if y_pred.ndim == 2:
+                    metric_value = metric_func(y_true[idx], y_pred[idx, :])
+                else:
+                    metric_value = metric_func(y_true[idx], y_pred[idx])
+                perfs[metric_name][f"{bin_name} [{n_points}]"] = metric_value
+    return npoints, perfs, unique_bins
+
+
 def compute_fairness_metrics(
     metrics: dict,
     metrics_higher_is_better: dict,
@@ -325,34 +358,7 @@ def compute_fairness_metrics(
                     bins = bins.loc[subset_index]
                 unique_bins = None
 
-            npoints: list = []
-            perfs: dict = defaultdict(dict)
-            if unique_bins is None:
-                if isinstance(bins, pd.Series):
-                    unique_bins = bins.unique()
-                else:
-                    unique_bins = np.unique(bins)
-            # Factorize the bins ONCE into integer codes instead of rescanning ``bins == bin_name`` (a full
-            # O(N) string/object equality) for every bin -> O(N*B). The per-bin boolean masks then come from
-            # cheap int-code comparisons; row positions are preserved so each y_true[idx]/y_pred[idx] subset is
-            # bit-identical. ~10-28x faster on string bins at N=50k-200k (bench_fairness_bin_masks.py).
-            _bins_arr = np.asarray(bins)
-            _codes, _code_uniques = pd.factorize(_bins_arr)
-            _code_of = {u: i for i, u in enumerate(_code_uniques)}
-            # A bin_name absent from factorize uniques (e.g. NaN, which factorize codes as -1) never matched
-            # under the old ``bins == bin_name`` either -> empty mask, skipped below. Match that exactly.
-            _masks = {bn: (_codes == _code_of[bn]) if bn in _code_of else np.zeros(_codes.shape, dtype=bool) for bn in unique_bins}
-            for bin_name in unique_bins:
-                idx = _masks[bin_name]
-                n_points = idx.sum()
-                if n_points:
-                    npoints.append(n_points)
-                    for metric_name, metric_func in metrics.items():
-                        if y_pred.ndim == 2:
-                            metric_value = metric_func(y_true[idx], y_pred[idx, :])
-                        else:
-                            metric_value = metric_func(y_true[idx], y_pred[idx])
-                        perfs[metric_name][f"{bin_name} [{n_points}]"] = metric_value
+            npoints, perfs, unique_bins = _per_bin_metric_perfs(bins, unique_bins, metrics, y_true, y_pred)
 
             for metric_name, metric_perf in perfs.items():
 

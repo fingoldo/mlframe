@@ -9,6 +9,7 @@ and ``_raise_if_vram_insufficient`` keep their original import path for existing
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 import numpy as np
 
@@ -54,6 +55,87 @@ def _raise_if_vram_insufficient(n_rows: int, k_cols: int) -> None:
         )
 
 
+def _uplift_scores_frame(names: list, name_src: list, raw_mi_map: dict, eng_mi: Any) -> pd.DataFrame:
+    """Uplift-ranked scores frame of the engineered columns against their source baselines."""
+    rows = []
+    for j, nm in enumerate(names):
+        src = name_src[j]
+        base = float(raw_mi_map.get(src, 0.0))
+        emi = float(eng_mi[j])
+        rows.append({
+            "engineered_col": nm, "source_col": src,
+            "baseline_mi": base, "engineered_mi": emi, "uplift": relative_uplift(emi, base),
+        })
+    scores = pd.DataFrame(rows).sort_values("uplift", ascending=False).reset_index(drop=True)
+    return scores
+
+
+def _used_operand_matrix(_Mr: Any, used_idx: list, used_x: list, used_src: list) -> Any:
+    """Operand matrix of the surviving columns: a device slice of the routing matrix when present, else assembled from per-column resident operands."""
+    from .._fe_resident_operands import assemble_resident_matrix
+
+    if _Mr is not None:
+        M = _Mr if used_idx == list(range(_Mr.shape[1])) else _Mr[:, used_idx]
+    else:
+        # NOTE (wave-10 audit): ``used_idx`` indexes into ``cand_x``/``cand_cols`` (the host-skip-filtered
+        # candidate set), NOT into ``raw_mat``'s ``raw_cols`` ordering - ``cand_cols`` drops non-finite /
+        # int-as-cat columns that ``raw_cols`` does not, so the two lists can diverge and a literal
+        # ``raw_mat[:, used_idx]`` reuse would silently pick the WRONG columns whenever any column was
+        # dropped. What IS always true is that every ``used_src[j]`` name is the SAME raw column
+        # ``X[used_src[j]]`` verbatim that ``raw_mat`` (when built) sources from - so instead of an
+        # index-based reuse, assemble THIS matrix from its own per-column resident operands keyed by NAME
+        # (``used_src``), at the SAME dtype (float64) ``_Mr`` uses for its own per-column uploads (matching
+        # the ``_Mr is not None`` branch above so both take the same downstream dtype). ``raw_mat``'s OWN
+        # per-column uploads are at ``_rm_dt`` (``_crit_np_dtype()``, float32 by DEFAULT under
+        # ``MLFRAME_CRIT_DTYPE_RELAXED``, float64 only when that is disabled) - so this content-hits
+        # ``raw_mat``'s cached columns whenever ``_rm_dt`` happens to be float64 (the non-default strict
+        # mode), and ALWAYS content-hits ``_Mr``'s cached columns (same float64 dtype) or ANY other
+        # same-fit caller later requesting the same column at float64 - without ever re-uploading the
+        # whole (n, n_used) matrix as one un-deduped blob (the prior behaviour here).
+        M = assemble_resident_matrix(
+            np.column_stack(used_x), used_src, ("orth_used_M", tuple(used_src)), dtype=np.float64,
+        )
+    return M
+
+
+def _gpu_route_candidate_bases(cp: Any, cand_x: list, cand_cols: list, basis: str, y: Any, _ya: np.ndarray, degrees: Any, ra: bool) -> tuple:
+    """Opt-in GPU routing of every candidate column's basis; returns ``(gpu_routed, resident_matrix)`` (both None when routing is off, inapplicable or failed)."""
+    from .._fe_resident_operands import resident_operand, assemble_resident_matrix
+    from .._gpu_resident_fe import fe_gpu_routing_enabled, _gpu_route_bases_batched
+
+    # GPU ROUTING (opt-in, default OFF): decide every candidate column's basis on the device at once,
+    # mirroring the per-column host basis_route_by_signal. Falls back to the host router per column on any
+    # GPU failure or where the device router returned None (degenerate). The top-level guards (y usable,
+    # n>=30) match basis_route_by_signal's host fallback conditions, applied once since y/n are shared.
+    _gpu_routed = None
+    _Mr = None  # resident (n, n_cand) operand matrix uploaded ONCE for routing, reused for the basis-MI build
+    if basis == "auto" and y is not None and fe_gpu_routing_enabled():
+        _yc = np.asarray(_ya, dtype=np.float64).ravel()
+        if _yc.size == cand_x[0].size and cand_x[0].size >= 30 and np.isfinite(_yc).all() and float(np.std(_yc)) >= 1e-12:
+            try:
+                # _Mr is the candidate-column matrix - each column is a RAW X base column (cand_x[j] =
+                # X[cand_cols[j]] verbatim). DEVICE-ASSEMBLE it from the per-column resident operands so it
+                # never crosses H2D as a whole (n, n_cand) blob: each raw column is already resident under the
+                # shared ("xbasis_op", col) role, so stacking the resident columns content-hits the cache.
+                # Column j is the raw column verbatim -> same bytes -> selection-equivalent; a name/shape
+                # mismatch or cupy fault falls back to the whole-matrix upload.
+                _Mr = assemble_resident_matrix(
+                    np.column_stack(cand_x), cand_cols, ("orth_Mr", tuple(cand_cols)), dtype=np.float64,
+                )
+                # _yc is the FIT-CONSTANT routing target, re-uploaded per orth-family call (a fresh cp.asarray
+                # each time). Route through the content-keyed resident cache so it uploads ONCE per fit and
+                # every later orth call reuses the resident copy. Read-only f64 -> selection-equivalent.
+                _yc_gpu = resident_operand(_yc, "orth_route_y", dtype=np.float64)
+                _gpu_routed = _gpu_route_bases_batched(
+                    cp, _Mr, _yc_gpu, list(_POLY_BASES), tuple(degrees), robust_axis=ra,
+                )
+            except Exception as e:
+                log_throttle(logger, "orth_gpu_batched_routing_failed", logging.WARNING, "GPU-resident batched basis routing failed: %s", e)
+                _gpu_routed = None
+                _Mr = None
+    return _gpu_routed, _Mr
+
+
 def _gpu_build_and_score_univariate(X, cols, degrees, basis, y, nbins):
     """MATRIX-NATIVE (Piece 3, gated): build the univariate orth-basis candidate matrix ON the device
     (_gpu_evaluate_basis_column) and score its plug-in MI RESIDENT (_plugin_mi_classif_batch_cuda_resident,
@@ -87,7 +169,7 @@ def _gpu_build_and_score_univariate(X, cols, degrees, basis, y, nbins):
     # y is a FIT-CONSTANT re-uploaded on every orth-family call (univariate-decide / pair-cross / triplet /
     # quadruplet / meta-scorer / adaptive-arity each re-run this builder over the SAME X/y). Route through the
     # resident operand cache so it is uploaded ONCE per fit (selection-equivalent: same int64 labels).
-    from .._fe_resident_operands import resident_operand, resident_code_operand, assemble_resident_matrix
+    from .._fe_resident_operands import resident_code_operand, assemble_resident_matrix
     y_gpu = resident_code_operand(y_arr, "orth_uni_y")
     # y min/max is a fit-constant -> compute ONCE and reuse for both the raw-MI and the eng-MI resident
     # calls below, instead of each recomputing it (cp.min/max + scalar D2H). Bit-identical (y is invariant).
@@ -130,39 +212,8 @@ def _gpu_build_and_score_univariate(X, cols, degrees, basis, y, nbins):
         cand_x.append(np.ascontiguousarray(x))
     if not cand_x:
         return None, [], _empty
-    from .._gpu_resident_fe import (
-        _gpu_evaluate_basis_matrix, fe_gpu_routing_enabled, _gpu_route_bases_batched,
-    )
-    # GPU ROUTING (opt-in, default OFF): decide every candidate column's basis on the device at once,
-    # mirroring the per-column host basis_route_by_signal. Falls back to the host router per column on any
-    # GPU failure or where the device router returned None (degenerate). The top-level guards (y usable,
-    # n>=30) match basis_route_by_signal's host fallback conditions, applied once since y/n are shared.
-    _gpu_routed = None
-    _Mr = None  # resident (n, n_cand) operand matrix uploaded ONCE for routing, reused for the basis-MI build
-    if basis == "auto" and y is not None and fe_gpu_routing_enabled():
-        _yc = np.asarray(_ya, dtype=np.float64).ravel()
-        if _yc.size == cand_x[0].size and cand_x[0].size >= 30 and np.isfinite(_yc).all() and float(np.std(_yc)) >= 1e-12:
-            try:
-                # _Mr is the candidate-column matrix - each column is a RAW X base column (cand_x[j] =
-                # X[cand_cols[j]] verbatim). DEVICE-ASSEMBLE it from the per-column resident operands so it
-                # never crosses H2D as a whole (n, n_cand) blob: each raw column is already resident under the
-                # shared ("xbasis_op", col) role, so stacking the resident columns content-hits the cache.
-                # Column j is the raw column verbatim -> same bytes -> selection-equivalent; a name/shape
-                # mismatch or cupy fault falls back to the whole-matrix upload.
-                _Mr = assemble_resident_matrix(
-                    np.column_stack(cand_x), cand_cols, ("orth_Mr", tuple(cand_cols)), dtype=np.float64,
-                )
-                # _yc is the FIT-CONSTANT routing target, re-uploaded per orth-family call (a fresh cp.asarray
-                # each time). Route through the content-keyed resident cache so it uploads ONCE per fit and
-                # every later orth call reuses the resident copy. Read-only f64 -> selection-equivalent.
-                _yc_gpu = resident_operand(_yc, "orth_route_y", dtype=np.float64)
-                _gpu_routed = _gpu_route_bases_batched(
-                    cp, _Mr, _yc_gpu, list(_POLY_BASES), tuple(degrees), robust_axis=ra,
-                )
-            except Exception as e:
-                log_throttle(logger, "orth_gpu_batched_routing_failed", logging.WARNING, "GPU-resident batched basis routing failed: %s", e)
-                _gpu_routed = None
-                _Mr = None
+    from .._gpu_resident_fe import _gpu_evaluate_basis_matrix
+    _gpu_routed, _Mr = _gpu_route_candidate_bases(cp, cand_x, cand_cols, basis, y, _ya, degrees, ra)
     used_x: list = []
     used_bases: list = []
     used_src: list = []
@@ -187,27 +238,7 @@ def _gpu_build_and_score_univariate(X, cols, degrees, basis, y, nbins):
     # ONE H2D of the (n, n_used) operand matrix, then ONE vectorised preprocess+Clenshaw per (basis, robust)
     # group/degree. When GPU routing already uploaded the candidate matrix, REUSE it (device slice, no second
     # H2D) - in residency mode the operands are already on the GPU; re-uploading would be a redundant copy.
-    if _Mr is not None:
-        M = _Mr if used_idx == list(range(_Mr.shape[1])) else _Mr[:, used_idx]
-    else:
-        # NOTE (wave-10 audit): ``used_idx`` indexes into ``cand_x``/``cand_cols`` (the host-skip-filtered
-        # candidate set), NOT into ``raw_mat``'s ``raw_cols`` ordering - ``cand_cols`` drops non-finite /
-        # int-as-cat columns that ``raw_cols`` does not, so the two lists can diverge and a literal
-        # ``raw_mat[:, used_idx]`` reuse would silently pick the WRONG columns whenever any column was
-        # dropped. What IS always true is that every ``used_src[j]`` name is the SAME raw column
-        # ``X[used_src[j]]`` verbatim that ``raw_mat`` (when built) sources from - so instead of an
-        # index-based reuse, assemble THIS matrix from its own per-column resident operands keyed by NAME
-        # (``used_src``), at the SAME dtype (float64) ``_Mr`` uses for its own per-column uploads (matching
-        # the ``_Mr is not None`` branch above so both take the same downstream dtype). ``raw_mat``'s OWN
-        # per-column uploads are at ``_rm_dt`` (``_crit_np_dtype()``, float32 by DEFAULT under
-        # ``MLFRAME_CRIT_DTYPE_RELAXED``, float64 only when that is disabled) - so this content-hits
-        # ``raw_mat``'s cached columns whenever ``_rm_dt`` happens to be float64 (the non-default strict
-        # mode), and ALWAYS content-hits ``_Mr``'s cached columns (same float64 dtype) or ANY other
-        # same-fit caller later requesting the same column at float64 - without ever re-uploading the
-        # whole (n, n_used) matrix as one un-deduped blob (the prior behaviour here).
-        M = assemble_resident_matrix(
-            np.column_stack(used_x), used_src, ("orth_used_M", tuple(used_src)), dtype=np.float64,
-        )
+    M = _used_operand_matrix(_Mr, used_idx, used_x, used_src)
     eng_mat, meta = _gpu_evaluate_basis_matrix(cp, M, used_bases, list(degrees), robust_axis=ra)
     if eng_mat is None:
         return None, [], _empty
@@ -227,14 +258,5 @@ def _gpu_build_and_score_univariate(X, cols, degrees, basis, y, nbins):
         eng_mi = _all_mi[_rk:]
     else:
         eng_mi = _plugin_mi_classif_batch_cuda_resident(eng_mat, y_gpu, nbins, y_min=_ymin, n_classes=_ncls)
-    rows = []
-    for j, nm in enumerate(names):
-        src = name_src[j]
-        base = float(raw_mi_map.get(src, 0.0))
-        emi = float(eng_mi[j])
-        rows.append({
-            "engineered_col": nm, "source_col": src,
-            "baseline_mi": base, "engineered_mi": emi, "uplift": relative_uplift(emi, base),
-        })
-    scores = pd.DataFrame(rows).sort_values("uplift", ascending=False).reset_index(drop=True)
+    scores = _uplift_scores_frame(names, name_src, raw_mi_map, eng_mi)
     return eng_mat, names, scores

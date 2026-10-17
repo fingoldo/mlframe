@@ -411,6 +411,47 @@ def _resolve_splits(
 # Public API
 # ----------------------------------------------------------------------
 
+def _make_evaluator(
+    X: Any,
+    y_arr: np.ndarray,
+    *,
+    base_column: str,
+    inner_factory: Callable[[], Any],
+    splits: Any,
+    scorer: Callable[[np.ndarray, np.ndarray], float],
+    collect_oof_pool: bool,
+    trials_log: List[Tuple[str, Dict[str, Any], float]],
+    oof_pool: Optional[List[np.ndarray]],
+) -> Callable[..., float]:
+    """Build the ``_evaluate(transform_name, inner_params, trial=None)`` closure that CV-scores one candidate and logs it into ``trials_log``."""
+
+    def _evaluate(transform_name: str, inner_params: Dict[str, Any], trial: Optional[Any] = None) -> float:
+        """CV-score one (transform, inner-params) candidate and append it to ``trials_log``."""
+        result = _cv_score_candidate(
+            X, y_arr,
+            base_column=base_column,
+            transform_name=transform_name,
+            inner_params=inner_params,
+            inner_factory=inner_factory,
+            splits=splits,
+            scorer=scorer,
+            collect_oof=collect_oof_pool,
+            trial=trial,
+        )
+        score: float
+        if collect_oof_pool:
+            score, oof = result
+            score = float(score)
+            assert oof_pool is not None
+            oof_pool.append(oof)
+        else:
+            score = float(result)
+        trials_log.append((transform_name, dict(inner_params), score))
+        return score
+
+    return _evaluate
+
+
 def optimize_composite(
     X: Any,
     y: Any,
@@ -528,29 +569,10 @@ def optimize_composite(
     trials_log: List[Tuple[str, Dict[str, Any], float]] = []
     oof_pool: Optional[List[np.ndarray]] = [] if collect_oof_pool else None
 
-    def _evaluate(transform_name: str, inner_params: Dict[str, Any], trial: Optional[Any] = None) -> float:
-        """CV-score one (transform, inner-params) candidate and append it to ``trials_log``."""
-        result = _cv_score_candidate(
-            X, y_arr,
-            base_column=base_column,
-            transform_name=transform_name,
-            inner_params=inner_params,
-            inner_factory=inner_factory,
-            splits=splits,
-            scorer=scorer,
-            collect_oof=collect_oof_pool,
-            trial=trial,
-        )
-        score: float
-        if collect_oof_pool:
-            score, oof = result
-            score = float(score)
-            assert oof_pool is not None
-            oof_pool.append(oof)
-        else:
-            score = float(result)
-        trials_log.append((transform_name, dict(inner_params), score))
-        return score
+    _evaluate = _make_evaluator(
+        X, y_arr, base_column=base_column, inner_factory=inner_factory, splits=splits, scorer=scorer,
+        collect_oof_pool=collect_oof_pool, trials_log=trials_log, oof_pool=oof_pool,
+    )
 
     backend, best_transform, best_params, best_score, pruning_stats = _run_search(
         transform_candidates=transform_candidates,

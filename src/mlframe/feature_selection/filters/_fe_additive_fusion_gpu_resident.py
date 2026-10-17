@@ -53,7 +53,7 @@ from mlframe.utils.log_throttle import log_throttle
 
 import logging
 import os
-from typing import Any
+from typing import Any, Optional
 
 import numpy as np
 
@@ -105,6 +105,208 @@ def _multiple_r_gpu(cp, X2_dev, yv_dev, y_std: float) -> float:
     return abs(r)
 
 
+def _collect_gpu_candidate_halves(newly_engineered_names: list, engineered_recipes: dict, engineered_continuous: dict, n_rows: int, raw_name_set: set) -> tuple:
+    """Host filters for the candidate halves (recipe + continuous values of the right length + a raw token); returns ``(names, recipes, tokens, values)``."""
+    from ._fe_additive_fusion import _bare_tokens
+
+    # Candidate halves (cheap host filters identical to the CPU pre-pass): a replayable recipe + continuous
+    # values of the right length + at least one raw token. Collect the names/recipes/tokens on host; the
+    # n-scaled VALUES go up to the device ONCE as a single (n, H) matrix (the only bulk H2D in this stage).
+    _names: list = []
+    _recs: list = []
+    _toks: list = []
+    _vals_cols: list = []
+    for nm in newly_engineered_names:
+        rec = engineered_recipes.get(nm)
+        vals = engineered_continuous.get(nm)
+        if rec is None or vals is None:
+            continue
+        # A device-backed engineered column stays a device array: it is stacked into the (n, H) matrix below without a host round trip.
+        vals = vals if hasattr(vals, "dev") else np.asarray(vals, dtype=np.float64).ravel()
+        if vals.shape[0] != n_rows:
+            continue
+        toks = _bare_tokens(nm, raw_name_set)
+        if not toks:
+            continue
+        _names.append(nm)
+        _recs.append(rec)
+        _toks.append(toks)
+        _vals_cols.append(vals)
+    return _names, _recs, _toks, _vals_cols
+
+
+def _upload_and_subsample(cp: Any, _vals_cols: list, n_rows: int, y_dense: np.ndarray, H: int) -> tuple:
+    """Bulk H2D of the (n, H) half-values matrix and y codes plus the strided scoring subsample; returns ``(vals_dev, y_dev, vals_sc, y_dense_sc, y_dev_sc, stride)``."""
+    # ---- ONE bulk H2D: the (n, H) half-values matrix + the y codes. Everything below stays resident. ----
+    if all(hasattr(c, "dev") for c in _vals_cols):
+        _stk = cp.stack([c.dev.astype(cp.float64, copy=False).ravel() for c in _vals_cols], axis=1)
+        vals_dev = cp.where(cp.isfinite(_stk), _stk, cp.asarray(0.0, dtype=_stk.dtype))  # (n, H) built on the device - FULL n (output values)
+    else:
+        vals_host = np.empty((n_rows, H), dtype=np.float64)
+        for j in range(H):
+            vals_host[:, j] = _vals_cols[j] if not hasattr(_vals_cols[j], "dev") else np.asarray(_vals_cols[j]).ravel()
+        vals_host = np.nan_to_num(vals_host, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
+        vals_dev = cp.asarray(vals_host)  # (n, H) resident - FULL n (output values)
+    y_dev = cp.asarray(y_dense)  # (n,) resident
+
+    # SCORING SUBSAMPLE. The fusion stage only DECIDES which disjoint half-pairs to fuse (per-half
+    # relevance MI + floor, then the O(H^2) per-pair add/sub MI + OLS-R separability razor). Every such decision
+    # is a wide-margin MI/floor comparison that is selection-equivalent under a large strided subsample, while
+    # binning the (n, H) matrix + scoring O(H^2) fused pairs on full 1M rows dominates this stage. Score halves
+    # AND fused pairs on the SAME strided subsample (consistent scale -> the fused-vs-strong-half razor cannot
+    # drift), above MLFRAME_FE_FUSION_MAX_ROWS (default 250k, 0=full-n). ``vals_dev`` stays FULL n so an ADMITTED
+    # compound's ``fused_vals`` (materialised downstream) is built at full resolution.
+    _fus_max = int(os.environ.get("MLFRAME_FE_FUSION_MAX_ROWS", "250000"))
+    # Floor division gave stride==1 (no thinning) for any
+    # n_rows strictly between _fus_max and 2*_fus_max, so "caps at <=_fus_max rows" was only true once
+    # n_rows reached ~2*_fus_max. Ceiling division actually caps at n_rows (matches _hinge_detect's fix).
+    _stride = -(-n_rows // _fus_max) if _fus_max > 0 and n_rows > _fus_max else 1
+    if _stride > 1:
+        vals_sc = cp.ascontiguousarray(vals_dev[::_stride])  # (n_sc, H) resident - scoring only
+        y_dense_sc = np.ascontiguousarray(y_dense[::_stride])
+        y_dev_sc = cp.ascontiguousarray(y_dev[::_stride])
+    else:
+        vals_sc, y_dense_sc, y_dev_sc = vals_dev, y_dense, y_dev
+    return vals_dev, y_dev, vals_sc, y_dense_sc, y_dev_sc, _stride
+
+
+def _gpu_relevant_halves(cp: Any, vals_sc: Any, nbins: int, y_dense_sc: np.ndarray, _names: list, _recs: list, _toks: list, seed: int) -> tuple:
+    """Bin every half on the device, score its relevance MI and keep those above their permutation floor; returns ``(halves, quantile_grid)``."""
+    from ._fe_batched_mi import batched_cmi_gpu
+    from ._fe_cmi_redundancy_gate import _conditional_perm_null
+    from ._usability_njit_pool import _gpu_quantile_bin_codes
+
+    H = len(_names)
+    # Per-half bin codes ON THE DEVICE via the distinct-edge-dedup resident binner ``_gpu_quantile_bin_codes``
+    # (cp.unique adjacent dedup + searchsorted side='right', the SAME np.quantile linear-interp edges as the host
+    # ``_quantile_bin`` / njit ``_qbin_into`` - it is documented BIT-IDENTICAL to ``_qbin_into`` per row, so the
+    # partition is SELECTION-EQUIVALENT to the CPU pre-pass). Unlike ``cp.percentile`` it does NOT shift values
+    # across edges. The binner is row-oriented ((m, n)), so the (n, H) operand is binned as its transpose
+    # (H, n); codes come back resident (H, n) - no code H2D/D2H for the binning itself.
+    qs = cp.linspace(0.0, 1.0, int(nbins) + 1)
+    codes_T_dev, _kx = _gpu_quantile_bin_codes(cp.ascontiguousarray(vals_sc.T), qs)  # (H, n_sc) resident codes
+    codes_dev = cp.ascontiguousarray(codes_T_dev.T)  # (n_sc, H) resident
+
+    # Every half's marginal relevance MI(half; y) in ONE batched device workload over the RESIDENT codes (no
+    # code H2D). Same Miller-Madow plug-in MI as the CPU pre-pass's batched_cmi_gpu.
+    mis = np.asarray(batched_cmi_gpu(codes_dev, y_dense_sc, None), dtype=np.float64)
+
+    halves: list[dict] = []
+    for j in range(H):
+        mi = float(mis[j])
+        # _conditional_perm_null accepts an ALREADY-RESIDENT cupy candidate (its resident-input branch
+        # consumes it without a re-upload), so the floor probe runs on the resident column directly.
+        # The host copy of the codes is only needed by the downstream fusion probe for halves that
+        # actually SURVIVE the floor gate - pulling it before the gate paid a per-half D2H for every
+        # irrelevant half too (most of the pool, by design).
+        col_dev = cp.ascontiguousarray(codes_dev[:, j])
+        floor, _ = _conditional_perm_null(col_dev, y_dense_sc, None, seed=seed)
+        if mi <= floor:
+            continue  # not relevant - never a fusion half
+        halves.append({
+            "name": _names[j], "recipe": _recs[j], "tokens": _toks[j],
+            "mi": mi, "floor": float(floor), "col": j,
+        })
+    return halves, qs
+
+
+def _gpu_evaluate_pair(
+    self: Any, cp: Any, ha: dict, hb: dict, vals_sc: Any, y_dense_sc: np.ndarray, qs: Any, yc_dev: Any, y_std: float, n_rows: int, _floor_margin: float
+) -> Optional[tuple]:
+    """Pick the ``add`` / ``sub`` alignment of two halves on the device and test additive separability; ``(binary, binned_codes, mi)`` or ``None``."""
+    from ._mi_greedy_cmi_fe import _cmi_from_binned
+    from ._usability_njit_pool import _gpu_quantile_bin_codes
+
+    # FUSED SUM + its bin codes RESIDENT: vals_a + vals_b on the device, then the distinct-edge-dedup
+    # resident binner ``_gpu_quantile_bin_codes`` (selection-equivalent to the host ``_quantile_bin``;
+    # no interpolation drift). The sum + binning both stay resident - no binning D2H.
+    ca = vals_sc[:, ha["col"]]  # SCORING operands (subsampled); output built full-n on admit
+    cb = vals_sc[:, hb["col"]]
+    # SIGN-AWARE ALIGNMENT (mirrors the CPU path in _fe_additive_fusion.py). Each half is
+    # picked by SIGN-INVARIANT MI, so ``ca + cb`` can be DESTRUCTIVE toward y (a garbage compound that
+    # still clears the gate and forces retention re-attachment -> fragmentation). Build BOTH ``ca + cb``
+    # and ``ca - cb`` resident, bin each with the same distinct-edge-dedup binner, and keep the one whose
+    # binned MI with y is higher; prefer ``add`` unless ``sub`` beats it by more than the stronger half's
+    # marginal-perm floor. Selection-equivalent to the CPU add/sub decision: the choice is by a floor-
+    # scaled MI margin, so the cupy-vs-numpy reduction delta (~1e-12) cannot flip the alignment.
+    _strong = ha if ha["mi"] >= hb["mi"] else hb
+    # cp.where(cp.isfinite) not cp.nan_to_num(nan=0,...): cupy's nan_to_num runs cupy.isnan() on each
+    # scalar fill arg (a blocking D2H sync per call); the where form is elementwise + identical.
+    _t_add = ca + cb
+    _fadd = cp.where(cp.isfinite(_t_add), _t_add, cp.asarray(0.0, dtype=_t_add.dtype))
+    _t_sub = ca - cb
+    _fsub = cp.where(cp.isfinite(_t_sub), _t_sub, cp.asarray(0.0, dtype=_t_sub.dtype))
+    _bcodes, _kxf = _gpu_quantile_bin_codes(cp.stack([_fadd, _fsub], axis=0), qs)  # (2, n) resident codes
+    _mi_add = float(_cmi_from_binned(_bcodes[0], y_dense_sc, None))  # resident codes -> no re-upload
+    _mi_sub = float(_cmi_from_binned(_bcodes[1], y_dense_sc, None))
+    if _mi_sub > _mi_add + _floor_margin * _strong["floor"]:
+        _binary, _, fvb_dev, fused_mi = "sub", _fsub, _bcodes[1], _mi_sub
+    else:
+        _binary, _, fvb_dev, fused_mi = "add", _fadd, _bcodes[0], _mi_add
+    # Fusion admission razor (not grid-snapped): fused_mi vs strong-half mi + margin*floor. The cupy-vs-
+    # numpy reduction-order delta (~1e-12) is far below the floor-margin band, so it cannot flip this gate
+    # in practice; the direct fusion-parity check (resident vs CPU proposed fusions) + F2 confirm the same
+    # admissions. Accept-and-documented.
+    _binned_mi_passes = fused_mi > _strong["mi"] + _floor_margin * _strong["floor"]
+    _ols_passes = False
+    if not _binned_mi_passes:
+        # OLS multiple-R separability, fully resident (the n-scaled lstsq runs on the device columns).
+        _r_a = _multiple_r_gpu(cp, ca[:, None], yc_dev, y_std)
+        _r_b = _multiple_r_gpu(cp, cb[:, None], yc_dev, y_std)
+        _r_fused = _multiple_r_gpu(cp, cp.stack([ca, cb], axis=1), yc_dev, y_std)
+        _r_best_single = max(_r_a, _r_b)
+        # Was `/ max(np.sqrt(float(n_sc)), 1.0)` - the
+        # SCORING-SUBSAMPLE row count - while the CPU sibling (_fe_additive_fusion.py) computes the
+        # identical margin against the TRUE, full fit row count. Above the subsample threshold this
+        # made the GPU threshold systematically stricter than the CPU one (2/sqrt(250k)=0.004 vs
+        # 2/sqrt(1M)=0.002 at n=1M), not merely the same decision scored on fewer rows (the separate,
+        # already-known B-20 sampling-noise divergence). Use n_rows (the true fit row count) to match.
+        _r_margin = float(getattr(self, "fe_additive_fusion_ols_r_margin_sd", 2.0)) / max(np.sqrt(float(n_rows)), 1.0)
+        _ols_passes = _r_fused > _r_best_single + _r_margin
+    if not (_binned_mi_passes or _ols_passes):
+        return None
+    return _binary, fvb_dev, fused_mi
+
+
+def _gpu_build_fusion(self: Any, cp: Any, ha: dict, hb: dict, _binary: str, vals_dev: Any, existing_names: set) -> tuple:
+    """Full-n fused values (kept lazily on the device) plus the unique name and ``unary_binary`` recipe of an admitted pair; returns ``(fused_vals, name, recipe)``."""
+    from .engineered_recipes import build_unary_binary_recipe
+
+    # Build the fused recipe via the EXISTING unary_binary + nested-parent machinery (host; replays
+    # byte-exactly). The fused VALUES are a REQUIRED return (recipe fit_values_for_edges + the admitted
+    # "values" the caller materialises) - the SAME single array the CPU path holds - so build the
+    # chosen (add/sub) fused sum at FULL n from the full-resolution operands (the add/sub CHOICE was
+    # decided on the scoring subsample; the materialised values must be full-n), clean it identically
+    # to the scored sum, and pull it back ONCE here, only on an ADMITTED pair (bounded by the fusions).
+    _fa = vals_dev[:, ha["col"]]
+    _fb = vals_dev[:, hb["col"]]
+    _tfull = (_fa - _fb) if _binary == "sub" else (_fa + _fb)
+    _fused_full = cp.where(cp.isfinite(_tfull), _tfull, cp.asarray(0.0, dtype=_tfull.dtype))
+    # Stays on the device: the recipe edges are fitted there and the consumer bins / stores it from there; a host reader copies it back (once) on demand.
+    fused_vals = LazyHostCodes(_fused_full.astype(cp.float64, copy=False), np.float64)
+    name = f"{_binary}({ha['name']},{hb['name']})"
+    base = name
+    k = 2
+    while name in existing_names:
+        name = f"{base}_{k}"
+        k += 1
+    recipe = build_unary_binary_recipe(
+        name=name,
+        src_a_name=ha["name"], src_b_name=hb["name"],
+        unary_a_name="identity", unary_b_name="identity",
+        binary_name=_binary,
+        unary_preset=str(getattr(self, "fe_unary_preset", "medium")),
+        binary_preset=str(getattr(self, "fe_binary_preset", "minimal")),
+        quantization_nbins=self.quantization_nbins,
+        quantization_method=self.quantization_method,
+        quantization_dtype=self.quantization_dtype,
+        fit_values_for_edges=fused_vals,
+        nested_parent_a=ha["recipe"],
+        nested_parent_b=hb["recipe"],
+    )
+    return fused_vals, name, recipe
+
+
 def propose_additive_fusions_gpu(
     self,
     *,
@@ -138,13 +340,6 @@ def propose_additive_fusions_gpu(
     dedupes that too (keyed by raw column name, mirroring the CPU twin's ``_raw_bin_cache``)."""
     import cupy as cp
 
-    from ._mi_greedy_cmi_fe import _cmi_from_binned
-    from ._fe_cmi_redundancy_gate import _conditional_perm_null
-    from .engineered_recipes import build_unary_binary_recipe
-    from ._fe_batched_mi import batched_cmi_gpu
-    from ._fe_additive_fusion import _bare_tokens
-    from ._usability_njit_pool import _gpu_quantile_bin_codes
-
     if not engineered_recipes or not newly_engineered_names:
         return [], set(), set()
 
@@ -159,95 +354,15 @@ def propose_additive_fusions_gpu(
     y_dense = encode_y_for_classif_mi(classes_y)
     n_rows = y_dense.shape[0]
 
-    # Candidate halves (cheap host filters identical to the CPU pre-pass): a replayable recipe + continuous
-    # values of the right length + at least one raw token. Collect the names/recipes/tokens on host; the
-    # n-scaled VALUES go up to the device ONCE as a single (n, H) matrix (the only bulk H2D in this stage).
-    _names: list = []
-    _recs: list = []
-    _toks: list = []
-    _vals_cols: list = []
-    for nm in newly_engineered_names:
-        rec = engineered_recipes.get(nm)
-        vals = engineered_continuous.get(nm)
-        if rec is None or vals is None:
-            continue
-        # A device-backed engineered column stays a device array: it is stacked into the (n, H) matrix below without a host round trip.
-        vals = vals if hasattr(vals, "dev") else np.asarray(vals, dtype=np.float64).ravel()
-        if vals.shape[0] != n_rows:
-            continue
-        toks = _bare_tokens(nm, raw_name_set)
-        if not toks:
-            continue
-        _names.append(nm)
-        _recs.append(rec)
-        _toks.append(toks)
-        _vals_cols.append(vals)
+    _names, _recs, _toks, _vals_cols = _collect_gpu_candidate_halves(newly_engineered_names, engineered_recipes, engineered_continuous, n_rows, raw_name_set)
 
     if len(_names) < 2:
         return [], set(), set()
 
     H = len(_names)
-    # ---- ONE bulk H2D: the (n, H) half-values matrix + the y codes. Everything below stays resident. ----
-    if all(hasattr(c, "dev") for c in _vals_cols):
-        _stk = cp.stack([c.dev.astype(cp.float64, copy=False).ravel() for c in _vals_cols], axis=1)
-        vals_dev = cp.where(cp.isfinite(_stk), _stk, cp.asarray(0.0, dtype=_stk.dtype))  # (n, H) built on the device - FULL n (output values)
-    else:
-        vals_host = np.empty((n_rows, H), dtype=np.float64)
-        for j in range(H):
-            vals_host[:, j] = _vals_cols[j] if not hasattr(_vals_cols[j], "dev") else np.asarray(_vals_cols[j]).ravel()
-        vals_host = np.nan_to_num(vals_host, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
-        vals_dev = cp.asarray(vals_host)  # (n, H) resident - FULL n (output values)
-    y_dev = cp.asarray(y_dense)  # (n,) resident
+    vals_dev, _y_dev, vals_sc, y_dense_sc, y_dev_sc, _stride = _upload_and_subsample(cp, _vals_cols, n_rows, y_dense, H)
 
-    # SCORING SUBSAMPLE. The fusion stage only DECIDES which disjoint half-pairs to fuse (per-half
-    # relevance MI + floor, then the O(H^2) per-pair add/sub MI + OLS-R separability razor). Every such decision
-    # is a wide-margin MI/floor comparison that is selection-equivalent under a large strided subsample, while
-    # binning the (n, H) matrix + scoring O(H^2) fused pairs on full 1M rows dominates this stage. Score halves
-    # AND fused pairs on the SAME strided subsample (consistent scale -> the fused-vs-strong-half razor cannot
-    # drift), above MLFRAME_FE_FUSION_MAX_ROWS (default 250k, 0=full-n). ``vals_dev`` stays FULL n so an ADMITTED
-    # compound's ``fused_vals`` (materialised downstream) is built at full resolution.
-    _fus_max = int(os.environ.get("MLFRAME_FE_FUSION_MAX_ROWS", "250000"))
-    # Floor division gave stride==1 (no thinning) for any
-    # n_rows strictly between _fus_max and 2*_fus_max, so "caps at <=_fus_max rows" was only true once
-    # n_rows reached ~2*_fus_max. Ceiling division actually caps at n_rows (matches _hinge_detect's fix).
-    _stride = -(-n_rows // _fus_max) if _fus_max > 0 and n_rows > _fus_max else 1
-    if _stride > 1:
-        vals_sc = cp.ascontiguousarray(vals_dev[::_stride])  # (n_sc, H) resident - scoring only
-        y_dense_sc = np.ascontiguousarray(y_dense[::_stride])
-        y_dev_sc = cp.ascontiguousarray(y_dev[::_stride])
-    else:
-        vals_sc, y_dense_sc, y_dev_sc = vals_dev, y_dense, y_dev
-
-    # Per-half bin codes ON THE DEVICE via the distinct-edge-dedup resident binner ``_gpu_quantile_bin_codes``
-    # (cp.unique adjacent dedup + searchsorted side='right', the SAME np.quantile linear-interp edges as the host
-    # ``_quantile_bin`` / njit ``_qbin_into`` - it is documented BIT-IDENTICAL to ``_qbin_into`` per row, so the
-    # partition is SELECTION-EQUIVALENT to the CPU pre-pass). Unlike ``cp.percentile`` it does NOT shift values
-    # across edges. The binner is row-oriented ((m, n)), so the (n, H) operand is binned as its transpose
-    # (H, n); codes come back resident (H, n) - no code H2D/D2H for the binning itself.
-    qs = cp.linspace(0.0, 1.0, int(nbins) + 1)
-    codes_T_dev, _kx = _gpu_quantile_bin_codes(cp.ascontiguousarray(vals_sc.T), qs)  # (H, n_sc) resident codes
-    codes_dev = cp.ascontiguousarray(codes_T_dev.T)  # (n_sc, H) resident
-
-    # Every half's marginal relevance MI(half; y) in ONE batched device workload over the RESIDENT codes (no
-    # code H2D). Same Miller-Madow plug-in MI as the CPU pre-pass's batched_cmi_gpu.
-    mis = np.asarray(batched_cmi_gpu(codes_dev, y_dense_sc, None), dtype=np.float64)
-
-    halves: list[dict] = []
-    for j in range(H):
-        mi = float(mis[j])
-        # _conditional_perm_null accepts an ALREADY-RESIDENT cupy candidate (its resident-input branch
-        # consumes it without a re-upload), so the floor probe runs on the resident column directly.
-        # The host copy of the codes is only needed by the downstream fusion probe for halves that
-        # actually SURVIVE the floor gate - pulling it before the gate paid a per-half D2H for every
-        # irrelevant half too (most of the pool, by design).
-        col_dev = cp.ascontiguousarray(codes_dev[:, j])
-        floor, _ = _conditional_perm_null(col_dev, y_dense_sc, None, seed=seed)
-        if mi <= floor:
-            continue  # not relevant - never a fusion half
-        halves.append({
-            "name": _names[j], "recipe": _recs[j], "tokens": _toks[j],
-            "mi": mi, "floor": float(floor), "col": j,
-        })
+    halves, qs = _gpu_relevant_halves(cp, vals_sc, nbins, y_dense_sc, _names, _recs, _toks, seed)
 
     if len(halves) < 2:
         return [], set(), set()
@@ -278,86 +393,11 @@ def propose_additive_fusions_gpu(
                 continue
             if ha["tokens"] & hb["tokens"]:
                 continue
-            # FUSED SUM + its bin codes RESIDENT: vals_a + vals_b on the device, then the distinct-edge-dedup
-            # resident binner ``_gpu_quantile_bin_codes`` (selection-equivalent to the host ``_quantile_bin``;
-            # no interpolation drift). The sum + binning both stay resident - no binning D2H.
-            ca = vals_sc[:, ha["col"]]  # SCORING operands (subsampled); output built full-n on admit
-            cb = vals_sc[:, hb["col"]]
-            # SIGN-AWARE ALIGNMENT (mirrors the CPU path in _fe_additive_fusion.py). Each half is
-            # picked by SIGN-INVARIANT MI, so ``ca + cb`` can be DESTRUCTIVE toward y (a garbage compound that
-            # still clears the gate and forces retention re-attachment -> fragmentation). Build BOTH ``ca + cb``
-            # and ``ca - cb`` resident, bin each with the same distinct-edge-dedup binner, and keep the one whose
-            # binned MI with y is higher; prefer ``add`` unless ``sub`` beats it by more than the stronger half's
-            # marginal-perm floor. Selection-equivalent to the CPU add/sub decision: the choice is by a floor-
-            # scaled MI margin, so the cupy-vs-numpy reduction delta (~1e-12) cannot flip the alignment.
-            _strong = ha if ha["mi"] >= hb["mi"] else hb
-            # cp.where(cp.isfinite) not cp.nan_to_num(nan=0,...): cupy's nan_to_num runs cupy.isnan() on each
-            # scalar fill arg (a blocking D2H sync per call); the where form is elementwise + identical.
-            _t_add = ca + cb
-            _fadd = cp.where(cp.isfinite(_t_add), _t_add, cp.asarray(0.0, dtype=_t_add.dtype))
-            _t_sub = ca - cb
-            _fsub = cp.where(cp.isfinite(_t_sub), _t_sub, cp.asarray(0.0, dtype=_t_sub.dtype))
-            _bcodes, _kxf = _gpu_quantile_bin_codes(cp.stack([_fadd, _fsub], axis=0), qs)  # (2, n) resident codes
-            _mi_add = float(_cmi_from_binned(_bcodes[0], y_dense_sc, None))  # resident codes -> no re-upload
-            _mi_sub = float(_cmi_from_binned(_bcodes[1], y_dense_sc, None))
-            if _mi_sub > _mi_add + _floor_margin * _strong["floor"]:
-                _binary, _, fvb_dev, fused_mi = "sub", _fsub, _bcodes[1], _mi_sub
-            else:
-                _binary, _, fvb_dev, fused_mi = "add", _fadd, _bcodes[0], _mi_add
-            # Fusion admission razor (not grid-snapped): fused_mi vs strong-half mi + margin*floor. The cupy-vs-
-            # numpy reduction-order delta (~1e-12) is far below the floor-margin band, so it cannot flip this gate
-            # in practice; the direct fusion-parity check (resident vs CPU proposed fusions) + F2 confirm the same
-            # admissions. Accept-and-documented.
-            _binned_mi_passes = fused_mi > _strong["mi"] + _floor_margin * _strong["floor"]
-            _ols_passes = False
-            if not _binned_mi_passes:
-                # OLS multiple-R separability, fully resident (the n-scaled lstsq runs on the device columns).
-                _r_a = _multiple_r_gpu(cp, ca[:, None], yc_dev, y_std)
-                _r_b = _multiple_r_gpu(cp, cb[:, None], yc_dev, y_std)
-                _r_fused = _multiple_r_gpu(cp, cp.stack([ca, cb], axis=1), yc_dev, y_std)
-                _r_best_single = max(_r_a, _r_b)
-                # Was `/ max(np.sqrt(float(n_sc)), 1.0)` - the
-                # SCORING-SUBSAMPLE row count - while the CPU sibling (_fe_additive_fusion.py) computes the
-                # identical margin against the TRUE, full fit row count. Above the subsample threshold this
-                # made the GPU threshold systematically stricter than the CPU one (2/sqrt(250k)=0.004 vs
-                # 2/sqrt(1M)=0.002 at n=1M), not merely the same decision scored on fewer rows (the separate,
-                # already-known B-20 sampling-noise divergence). Use n_rows (the true fit row count) to match.
-                _r_margin = float(getattr(self, "fe_additive_fusion_ols_r_margin_sd", 2.0)) / max(np.sqrt(float(n_rows)), 1.0)
-                _ols_passes = _r_fused > _r_best_single + _r_margin
-            if not (_binned_mi_passes or _ols_passes):
+            _fusion = _gpu_evaluate_pair(self, cp, ha, hb, vals_sc, y_dense_sc, qs, yc_dev, y_std, n_rows, _floor_margin)
+            if _fusion is None:
                 continue
-            # Build the fused recipe via the EXISTING unary_binary + nested-parent machinery (host; replays
-            # byte-exactly). The fused VALUES are a REQUIRED return (recipe fit_values_for_edges + the admitted
-            # "values" the caller materialises) - the SAME single array the CPU path holds - so build the
-            # chosen (add/sub) fused sum at FULL n from the full-resolution operands (the add/sub CHOICE was
-            # decided on the scoring subsample; the materialised values must be full-n), clean it identically
-            # to the scored sum, and pull it back ONCE here, only on an ADMITTED pair (bounded by the fusions).
-            _fa = vals_dev[:, ha["col"]]
-            _fb = vals_dev[:, hb["col"]]
-            _tfull = (_fa - _fb) if _binary == "sub" else (_fa + _fb)
-            _fused_full = cp.where(cp.isfinite(_tfull), _tfull, cp.asarray(0.0, dtype=_tfull.dtype))
-            # Stays on the device: the recipe edges are fitted there and the consumer bins / stores it from there; a host reader copies it back (once) on demand.
-            fused_vals = LazyHostCodes(_fused_full.astype(cp.float64, copy=False), np.float64)
-            name = f"{_binary}({ha['name']},{hb['name']})"
-            base = name
-            k = 2
-            while name in existing_names:
-                name = f"{base}_{k}"
-                k += 1
-            recipe = build_unary_binary_recipe(
-                name=name,
-                src_a_name=ha["name"], src_b_name=hb["name"],
-                unary_a_name="identity", unary_b_name="identity",
-                binary_name=_binary,
-                unary_preset=str(getattr(self, "fe_unary_preset", "medium")),
-                binary_preset=str(getattr(self, "fe_binary_preset", "minimal")),
-                quantization_nbins=self.quantization_nbins,
-                quantization_method=self.quantization_method,
-                quantization_dtype=self.quantization_dtype,
-                fit_values_for_edges=fused_vals,
-                nested_parent_a=ha["recipe"],
-                nested_parent_b=hb["recipe"],
-            )
+            _binary, fvb_dev, fused_mi = _fusion
+            fused_vals, name, recipe = _gpu_build_fusion(self, cp, ha, hb, _binary, vals_dev, existing_names)
             admitted.append({"name": name, "values": fused_vals, "recipe": recipe, "mi": fused_mi})
             existing_names.add(name)
             subsumed.add(ha["name"])

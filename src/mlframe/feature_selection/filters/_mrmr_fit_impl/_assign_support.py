@@ -19,6 +19,7 @@ this function sets directly -- ``selected_vars`` itself is not read again after 
 
 from __future__ import annotations
 
+from typing import Any
 import logging
 
 import numpy as np
@@ -133,6 +134,33 @@ def _assign_support(
     # the genuine degenerate case (engineered-only with no redundancy verdict).
     selected_vars = _recover_support_from_engineered_operands(self, selected_vars, cols, data, classes_y, y, _eng_continuous_snapshot, X, target_indices, nbins, verbose)
 
+    selected_vars, _allowed_raw_idx, _retention_added_eng_names = _assign_support_part2(
+        self, selected_vars, cols, cached_MIs, verbose, data, target_indices, nbins, engineered_recipes, X, predictors,
+    )
+    _assign_support_tail(
+        self,
+        X=X,
+        classes_y=classes_y,
+        cols=cols,
+        data=data,
+        nbins=nbins,
+        target_indices=target_indices,
+        y=y,
+        verbose=verbose,
+        fe_max_steps=fe_max_steps,
+        _eng_continuous_snapshot=_eng_continuous_snapshot,
+        selected_vars=selected_vars,
+        _allowed_raw_idx=_allowed_raw_idx,
+        _retention_added_eng_names=_retention_added_eng_names,
+        engineered_recipes=engineered_recipes,
+    )
+
+
+def _assign_support_part2(
+    self: Any, selected_vars: Any, cols: Any, cached_MIs: Any, verbose: Any, data: Any, target_indices: Any, nbins: Any, engineered_recipes: Any, X: Any,
+    predictors: Any,
+) -> tuple[Any, ...]:
+    """Extracted block of ``_assign_support`` (part 2); returns the names the caller still uses."""
     # CLUSTER-AGGREGATE 'replace' FINAL EXCLUSION. Members folded into a denoised
     # MULTI-parent aggregate (``cluster_aggregate_mode='replace'`` -> ``_cluster_aggregate_removals_``,
     # or a DCD PC1/mean_z swap -> ``cluster_members_``) were dropped from ``selected_vars`` at the
@@ -208,6 +236,72 @@ def _assign_support(
     # mirroring the RFECV ``p_ge_n_fp_control_cap``. Confined to p >= n so the well-powered p<n path is byte-unchanged. Engineered
     # survivors are counted toward the cap (they reach the output too) but never the dropped tail - only raw ``selected_vars`` is trimmed.
     _pgn_n = int(data.shape[0])
+    selected_vars = _assign_support_part1(
+        self, _pgn_n, selected_vars, cached_MIs, cols, verbose, data, target_indices, nbins, _allowed_raw_idx, engineered_recipes, X,
+    )
+    # Populate ``mrmr_gains_``
+    # so the documented ``uaed_auto_size=True`` post-fit elbow trim below actually fires. Pre-fix the comment claimed
+    # "Wave-7 audit landed this trace" but no code ever assigned the
+    # attribute - ``getattr(self, "mrmr_gains_", [])`` defaulted to
+    # empty, ``gains.size >= 3`` was False, the UAED block was
+    # guaranteed dead code. ``MRMR(uaed_auto_size=True)`` silently
+    # returned the full screen output regardless. Restore the
+    # advertised behaviour: store per-selection-round gains in
+    # screening order, aligned with the predictor log.
+    try:
+        self.mrmr_gains_ = np.asarray(
+            [float(p.get("gain", 0.0)) for p in (predictors or [])],
+            dtype=np.float64,
+        )
+    except Exception as exc:
+        logger.warning(
+            "mrmr: mrmr_gains_ could not be built (%s: %s); it is left empty, which also makes uaed_auto_size a no-op for this fit", type(exc).__name__, exc
+        )
+        self.mrmr_gains_ = np.array([], dtype=np.float64)
+    # Layer 54: stash the greedy predictor log on ``self`` so the FE
+    # provenance helper can map engineered feature names back to their
+    # support_rank / mrmr_gain entries. ``predictors`` is a list of
+    # ``{"name", "indices", "gain", ...}`` dicts in selection order.
+    # Light copy (per-entry shallow) to dodge accidental downstream
+    # mutation of the screen's working list; ``indices`` is captured as
+    # a tuple to keep the entry pickle-safe across processes.
+    try:
+        self._predictors_log_ = tuple(
+            {
+                "name": p.get("name"),
+                "gain": float(p.get("gain", 0.0)),
+                "indices": tuple(p.get("indices", ()) or ()),
+            }
+            for p in (predictors or [])
+        )
+    except Exception as exc:
+        logger.warning("mrmr: predictors log could not be captured (%s: %s); FE provenance will not map engineered names to their gains", type(exc).__name__, exc)
+        self._predictors_log_ = ()
+    self.fallback_used_ = False
+    self.fallback_metadata_ = None
+
+    # USABILITY-AWARE PURE-FORM RETENTION. On an ADDITIVE target whose terms share
+    # operands, the MI greedy keeps a high-MI CROSS-MIX feature and drops the pure single-pair forms
+    # (``a**2/b`` / ``log(c)*sin(d)``) as conditionally redundant - the right call for a TREE model but
+    # not for the LINEAR/additive downstream, which needs the clean pure form the lossy cross-mix cannot
+    # replace. Re-attach a pure single-pair engineered form whenever a CROSS-VALIDATED linear wrapper
+    # confirms it lowers the linear CV-MAE on top of the current selection AND the pair is not already
+    # represented by a pure (<=2-operand) selected feature. Purely ADDITIVE (nothing MI-selected is
+    # removed; support_ untouched) and no-op when the pure form adds no linear value -> byte-identical
+    # there. Only when FE is enabled (fe_max_steps>0); skipped on the fe-disabled raw-only path.
+    # Names of engineered survivors RE-ATTACHED by the retention passes below (AFTER the main raw-vs-
+    # engineered redundancy sweep). The post-retention drop only re-litigates raws against THESE - the
+    # main sweep already vetted raws against survivors it could see (so a genuine pair-interaction operand
+    # the main sweep kept is not re-dropped by the stricter post-retention margin).
+    _retention_added_eng_names: set = set()
+    return selected_vars, _allowed_raw_idx, _retention_added_eng_names
+
+
+def _assign_support_part1(
+    self: Any, _pgn_n: Any, selected_vars: Any, cached_MIs: Any, cols: Any, verbose: Any, data: Any, target_indices: Any, nbins: Any, _allowed_raw_idx: Any,
+    engineered_recipes: Any, X: Any,
+) -> Any:
+    """Extracted block of ``_assign_support`` (part 1); returns the names the caller still uses."""
     _pgn_p = int(getattr(self, "n_features_in_", 0) or 0)
     if _pgn_p > 0 and _pgn_n > 0 and _pgn_p >= _pgn_n and selected_vars:
         _pgn_ceiling = max(20, _pgn_p // 3)
@@ -343,78 +437,7 @@ def _assign_support(
                 _exc,
             )
             self._artifacts_ = None
-    # Populate ``mrmr_gains_``
-    # so the documented ``uaed_auto_size=True`` post-fit elbow trim below actually fires. Pre-fix the comment claimed
-    # "Wave-7 audit landed this trace" but no code ever assigned the
-    # attribute - ``getattr(self, "mrmr_gains_", [])`` defaulted to
-    # empty, ``gains.size >= 3`` was False, the UAED block was
-    # guaranteed dead code. ``MRMR(uaed_auto_size=True)`` silently
-    # returned the full screen output regardless. Restore the
-    # advertised behaviour: store per-selection-round gains in
-    # screening order, aligned with the predictor log.
-    try:
-        self.mrmr_gains_ = np.asarray(
-            [float(p.get("gain", 0.0)) for p in (predictors or [])],
-            dtype=np.float64,
-        )
-    except Exception as exc:
-        logger.warning(
-            "mrmr: mrmr_gains_ could not be built (%s: %s); it is left empty, which also makes uaed_auto_size a no-op for this fit", type(exc).__name__, exc
-        )
-        self.mrmr_gains_ = np.array([], dtype=np.float64)
-    # Layer 54: stash the greedy predictor log on ``self`` so the FE
-    # provenance helper can map engineered feature names back to their
-    # support_rank / mrmr_gain entries. ``predictors`` is a list of
-    # ``{"name", "indices", "gain", ...}`` dicts in selection order.
-    # Light copy (per-entry shallow) to dodge accidental downstream
-    # mutation of the screen's working list; ``indices`` is captured as
-    # a tuple to keep the entry pickle-safe across processes.
-    try:
-        self._predictors_log_ = tuple(
-            {
-                "name": p.get("name"),
-                "gain": float(p.get("gain", 0.0)),
-                "indices": tuple(p.get("indices", ()) or ()),
-            }
-            for p in (predictors or [])
-        )
-    except Exception as exc:
-        logger.warning("mrmr: predictors log could not be captured (%s: %s); FE provenance will not map engineered names to their gains", type(exc).__name__, exc)
-        self._predictors_log_ = ()
-    self.fallback_used_ = False
-    self.fallback_metadata_ = None
-
-    # USABILITY-AWARE PURE-FORM RETENTION. On an ADDITIVE target whose terms share
-    # operands, the MI greedy keeps a high-MI CROSS-MIX feature and drops the pure single-pair forms
-    # (``a**2/b`` / ``log(c)*sin(d)``) as conditionally redundant - the right call for a TREE model but
-    # not for the LINEAR/additive downstream, which needs the clean pure form the lossy cross-mix cannot
-    # replace. Re-attach a pure single-pair engineered form whenever a CROSS-VALIDATED linear wrapper
-    # confirms it lowers the linear CV-MAE on top of the current selection AND the pair is not already
-    # represented by a pure (<=2-operand) selected feature. Purely ADDITIVE (nothing MI-selected is
-    # removed; support_ untouched) and no-op when the pure form adds no linear value -> byte-identical
-    # there. Only when FE is enabled (fe_max_steps>0); skipped on the fe-disabled raw-only path.
-    # Names of engineered survivors RE-ATTACHED by the retention passes below (AFTER the main raw-vs-
-    # engineered redundancy sweep). The post-retention drop only re-litigates raws against THESE - the
-    # main sweep already vetted raws against survivors it could see (so a genuine pair-interaction operand
-    # the main sweep kept is not re-dropped by the stricter post-retention margin).
-    _retention_added_eng_names: set = set()
-    _assign_support_tail(
-        self,
-        X=X,
-        classes_y=classes_y,
-        cols=cols,
-        data=data,
-        nbins=nbins,
-        target_indices=target_indices,
-        y=y,
-        verbose=verbose,
-        fe_max_steps=fe_max_steps,
-        _eng_continuous_snapshot=_eng_continuous_snapshot,
-        selected_vars=selected_vars,
-        _allowed_raw_idx=_allowed_raw_idx,
-        _retention_added_eng_names=_retention_added_eng_names,
-        engineered_recipes=engineered_recipes,
-    )
+    return selected_vars
 
 
 def _collect_cluster_representative_keeps(self, _cm_final, _raw_names_cmfinal, selected_vars, cols, cached_MIs, _ca_final_excl, _ca_keep_raw):

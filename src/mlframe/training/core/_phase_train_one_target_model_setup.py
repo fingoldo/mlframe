@@ -157,143 +157,22 @@ def _render_target_temporal_audit(_all_target_audits, target_type, cur_target_na
             )
 
 
-def _setup_per_target_mlframe_models(
-    *,
-    ctx,
-    target_type,
-    cur_target_name,
-    cur_target_values,
-    metadata,
-    slug_to_original_target_name,
-) -> Dict[str, Any]:
-    """Run the ``if mlframe_models:`` setup phase for one target.
+def _slice_target(cur_target_values: Any, idx: Any) -> Any:
+    """Row-select ``idx`` from a target held as ndarray / polars Series (positional ``[]``) or pandas (``.iloc``)."""
+    return cur_target_values[idx] if isinstance(cur_target_values, (np.ndarray, pl.Series)) else cur_target_values.iloc[idx]
 
-    Returns a dict with the downstream-needed bindings. Caller unpacks
-    via dict-access so missing keys raise KeyError on contract drift.
 
-    Output keys:
-        plot_file, model_file (paths or None)
-        current_train_target, current_val_target, current_test_target
-        metadata (mutated dict; same reference returned for symmetry)
-        common_params, models_params, rfecv_models_params,
-            cpu_configs, gpu_configs (None when mlframe_models is empty)
-        pre_pipelines, pre_pipeline_names (always lists)
-    """
-    # Lazy import: parent re-exports these at its module bottom; a top-level
-    # import would form a hard cycle.
-    from ._phase_train_one_target import (
-        _apply_loss_recommendation_in_place,
-        _is_regression_target_type,
-        _maybe_run_feature_handling_apply,
-    )
-    from ._phase_train_one_target import slugify
-
-    mlframe_models = ctx.mlframe_models
-    # ``rfecv_models_params`` is initialised here so a downstream reference
-    # doesn't NameError when mlframe_models is empty (matches the pre-split
-    # parent's initialiser at the same point in the function body).
-    rfecv_models_params: Dict[str, Any] = {}
-
-    if not mlframe_models:
-        # _train_idx still derived even when no models train: downstream code
-        # (e.g. metadata schema_version record) reads ``cur_target_values[_train_idx]``
-        # to compute train_y for n_classes / multilabel_strategy introspection.
-        _train_idx_fallback = ctx.filtered_train_idx if ctx.filtered_train_idx is not None else ctx.train_idx
-        return {
-            "plot_file": None,
-            "model_file": None,
-            "_train_idx": _train_idx_fallback,
-            "current_train_target": None,
-            "current_val_target": None,
-            "current_test_target": None,
-            "metadata": metadata,
-            "common_params": None,
-            "models_params": None,
-            "rfecv_models_params": rfecv_models_params,
-            "cpu_configs": None,
-            "gpu_configs": None,
-            "pre_pipelines": [],
-            "pre_pipeline_names": [],
-        }
-
-    # ----- ctx unpack (only what's needed below) ------------------------------
-    target_name = ctx.target_name
-    model_name = ctx.model_name
-    hyperparams_config = ctx.hyperparams_config
-    behavior_config = ctx.behavior_config
-    reporting_config = ctx.reporting_config
-    feature_selection_config = ctx.feature_selection_config
-    baseline_diagnostics_config = ctx.baseline_diagnostics_config
-    dummy_baselines_config = ctx.dummy_baselines_config
-    quantile_regression_config = ctx.quantile_regression_config
-    verbose = ctx.verbose
-    linear_model_config = ctx.linear_model_config
-    data_dir = ctx.data_dir
-    models_dir = ctx.models_dir
-    save_charts = ctx.save_charts
-    outlier_detector = ctx.outlier_detector
-    use_mrmr_fs = ctx.use_mrmr_fs
-    use_ordinary_models = ctx.use_ordinary_models
-    mrmr_kwargs = ctx.mrmr_kwargs
-    rfecv_models = ctx.rfecv_models
-    multilabel_dispatch_config = ctx.multilabel_dispatch_config
-    custom_pre_pipelines = ctx.custom_pre_pipelines
-    common_params_dict = ctx.common_params_dict
-    group_ids = ctx.group_ids
-    timestamps = ctx.timestamps
-    sample_weights = ctx.sample_weights
-    train_idx = ctx.train_idx
-    test_idx = ctx.test_idx
-    train_details = ctx.train_details
-    val_details = ctx.val_details
-    test_details = ctx.test_details
-    fairness_subgroups = ctx.fairness_subgroups
-    cat_features = ctx.cat_features
-    text_features = ctx.text_features
-    embedding_features = ctx.embedding_features
-    _dropped_high_card_data = ctx._dropped_high_card_data
-    test_df_pd = ctx.test_df_pd
-    train_df_polars = ctx.train_df_polars
-    val_df_polars = ctx.val_df_polars
-    test_df_polars = ctx.test_df_polars
-    filtered_train_df = ctx.filtered_train_df
-    filtered_val_df = ctx.filtered_val_df
-    filtered_train_idx = ctx.filtered_train_idx
-    filtered_val_idx = ctx.filtered_val_idx
-    train_od_idx = ctx.train_od_idx
-    val_od_idx = ctx.val_od_idx
-    trainset_features_stats = ctx.trainset_features_stats
-    train_df_size_bytes_cached = ctx.train_df_size_bytes_cached
-    val_df_size_bytes_cached = ctx.val_df_size_bytes_cached
-    _all_target_audits = ctx._all_target_audits
-    target_by_type = ctx.target_by_type
-
-    # Identity assignment is intentional: keep the slug key registered even when it equals the original name,
-    # so downstream lookups via slug never KeyError on round-trip identity targets.
-    # Registered ONLY when at least one model is trained -- otherwise the predict-time loader would resolve
-    # this slug to a target name that has no corresponding model on disk.
-    slug_to_original_target_name[slugify(cur_target_name)] = cur_target_name
-    plot_file, model_file = _setup_model_directories(
-        target_name=target_name,
-        model_name=model_name,
-        target_type=target_type,
-        cur_target_name=cur_target_name,
-        data_dir=data_dir,
-        models_dir=models_dir,
-        save_charts=save_charts,
-    )
-
-    _train_idx = filtered_train_idx if filtered_train_idx is not None else train_idx
-    current_train_target = cur_target_values[_train_idx] if isinstance(cur_target_values, (np.ndarray, pl.Series)) else cur_target_values.iloc[_train_idx]
+def _compute_split_targets(ctx: Any, cur_target_values: Any) -> tuple[Any, Any, Any, Any, Any, Any, Any]:
+    """Slice the per-split targets; return (_train_idx, train, val, test, calib_target, _calib_idx, _calib_df)."""
+    _train_idx = ctx.filtered_train_idx if ctx.filtered_train_idx is not None else ctx.train_idx
+    current_train_target = _slice_target(cur_target_values, _train_idx)
     current_val_target = None
-    if filtered_val_idx is not None:
-        current_val_target = (
-            cur_target_values[filtered_val_idx] if isinstance(cur_target_values, (np.ndarray, pl.Series)) else cur_target_values.iloc[filtered_val_idx]
-        )
+    if ctx.filtered_val_idx is not None:
+        current_val_target = _slice_target(cur_target_values, ctx.filtered_val_idx)
     # test_idx is intentionally raw (not OD-filtered) - test must never be filtered by outlier detector.
     current_test_target = None
-    if test_idx is not None:
-        current_test_target = cur_target_values[test_idx] if isinstance(cur_target_values, (np.ndarray, pl.Series)) else cur_target_values.iloc[test_idx]
+    if ctx.test_idx is not None:
+        current_test_target = _slice_target(cur_target_values, ctx.test_idx)
 
     # Calib slice (calib_size>0): raw calib rows + aligned target for the trainer's post-hoc-calibration predict.
     # calib_idx indexes the original full-df rows (disjoint from train/val/test by the splitter's asserts), so the
@@ -302,7 +181,24 @@ def _setup_per_target_mlframe_models(
     _calib_df = getattr(ctx, "calib_df", None)
     current_calib_target = None
     if _calib_df is not None and _calib_idx is not None and len(_calib_idx) > 0:
-        current_calib_target = cur_target_values[_calib_idx] if isinstance(cur_target_values, (np.ndarray, pl.Series)) else cur_target_values.iloc[_calib_idx]
+        current_calib_target = _slice_target(cur_target_values, _calib_idx)
+    return _train_idx, current_train_target, current_val_target, current_test_target, current_calib_target, _calib_idx, _calib_df
+
+
+def _run_diagnostic_phases(
+    ctx: Any, *, target_type: Any, cur_target_name: str, metadata: Dict[str, Any], plot_file: Any,
+    current_train_target: Any, current_val_target: Any, current_test_target: Any,
+) -> Dict[str, Any]:
+    """Feature-handling apply, per-target diagnostics, dummy baselines, temporal audit and diagnostic rendering; return metadata."""
+    from ._phase_train_one_target import _maybe_run_feature_handling_apply
+
+    behavior_config = ctx.behavior_config
+    reporting_config = ctx.reporting_config
+    test_df_pd = ctx.test_df_pd
+    filtered_train_df = ctx.filtered_train_df
+    test_idx = ctx.test_idx
+    timestamps = ctx.timestamps
+    cat_features = ctx.cat_features
 
     # Feature-handling wire-in: opt-in via ctx.feature_handling_config. Sits after the per-target
     # OD-filtered frames + targets are bound (this is the "post-FS / pre-final-pipeline" seam for
@@ -312,9 +208,9 @@ def _setup_per_target_mlframe_models(
     # underlying handlers detect polars vs pandas via _extract_column_values. A blanket
     # polars->pandas conversion here would defeat the suite's polars fastpath -- left to apply.py
     # to keep frame container as-given.
-    _fhc_train_df = train_df_polars if train_df_polars is not None else filtered_train_df
-    _fhc_val_df = val_df_polars if val_df_polars is not None else filtered_val_df
-    _fhc_test_df = test_df_polars if test_df_polars is not None else test_df_pd
+    _fhc_train_df = ctx.train_df_polars if ctx.train_df_polars is not None else filtered_train_df
+    _fhc_val_df = ctx.val_df_polars if ctx.val_df_polars is not None else ctx.filtered_val_df
+    _fhc_test_df = ctx.test_df_polars if ctx.test_df_polars is not None else test_df_pd
     _maybe_run_feature_handling_apply(
         ctx,
         cur_target_name=cur_target_name,
@@ -322,7 +218,7 @@ def _setup_per_target_mlframe_models(
         val_df=_fhc_val_df,
         test_df=_fhc_test_df,
         current_train_target=current_train_target,
-        sample_weight=sample_weights,
+        sample_weight=ctx.sample_weights,
     )
 
     metadata = run_per_target_diagnostics(
@@ -334,7 +230,7 @@ def _setup_per_target_mlframe_models(
         filtered_train_df=filtered_train_df,
         filtered_val_df=_fhc_val_df,
         filtered_test_df=_fhc_test_df,
-        baseline_diagnostics_config=baseline_diagnostics_config,
+        baseline_diagnostics_config=ctx.baseline_diagnostics_config,
         cat_features=cat_features,
         metadata=metadata,
     )
@@ -342,28 +238,28 @@ def _setup_per_target_mlframe_models(
     metadata = run_dummy_baselines(
         target_type=target_type,
         cur_target_name=cur_target_name,
-        target_name=target_name,
-        model_name=model_name,
+        target_name=ctx.target_name,
+        model_name=ctx.model_name,
         current_train_target=current_train_target,
         current_val_target=current_val_target,
         current_test_target=current_test_target,
         filtered_train_df=filtered_train_df,
-        filtered_val_df=filtered_val_df,
+        filtered_val_df=ctx.filtered_val_df,
         test_df_pd=test_df_pd,
-        filtered_train_idx=filtered_train_idx,
-        filtered_val_idx=filtered_val_idx,
+        filtered_train_idx=ctx.filtered_train_idx,
+        filtered_val_idx=ctx.filtered_val_idx,
         test_idx=test_idx,
         timestamps=timestamps,
         cat_features=cat_features,
-        dummy_baselines_config=dummy_baselines_config,
-        quantile_regression_config=quantile_regression_config,
+        dummy_baselines_config=ctx.dummy_baselines_config,
+        quantile_regression_config=ctx.quantile_regression_config,
         reporting_config=reporting_config,
-        _dropped_high_card_data=_dropped_high_card_data,
-        train_od_idx=train_od_idx,
-        val_od_idx=val_od_idx,
+        _dropped_high_card_data=ctx._dropped_high_card_data,
+        train_od_idx=ctx.train_od_idx,
+        val_od_idx=ctx.val_od_idx,
         plot_file=plot_file or "",
         metadata=metadata,
-        target_by_type=target_by_type,
+        target_by_type=ctx.target_by_type,
         _split_preds_probs=_split_preds_probs,
         # Propagate ctx.group_ids so LTR-Popularity / per-group dummy baselines fire on
         # LTR suites instead of silently degrading to regression-style dummy + blank
@@ -371,16 +267,14 @@ def _setup_per_target_mlframe_models(
         group_ids=getattr(ctx, "group_ids", None),
     )
 
-    from ..composite.transforms import composite_target_names
-
     _render_target_temporal_audit(
-        _all_target_audits, target_type, cur_target_name, metadata, behavior_config, reporting_config, plot_file,
+        ctx._all_target_audits, target_type, cur_target_name, metadata, behavior_config, reporting_config, plot_file,
     )
 
     _render_per_target_diagnostics(
         target_type=target_type,
         plot_file=plot_file,
-        save_charts=save_charts,
+        save_charts=ctx.save_charts,
         reporting_config=reporting_config,
         current_train_target=current_train_target,
         current_val_target=current_val_target,
@@ -392,24 +286,13 @@ def _setup_per_target_mlframe_models(
         metadata=metadata,
         cur_target_name=cur_target_name,
     )
+    return metadata
 
-    if verbose:
-        logger.info("select_target...")
 
-    t0_select_target = timer()
-    od_common_params, current_behavior_config = _build_common_params_for_target(
-        common_params_dict=common_params_dict,
-        trainset_features_stats=trainset_features_stats,
-        plot_file=plot_file,
-        train_od_idx=train_od_idx,
-        val_od_idx=val_od_idx,
-        current_train_target=current_train_target,
-        current_val_target=current_val_target,
-        outlier_detector=outlier_detector,
-        behavior_config=behavior_config,
-        fairness_subgroups=fairness_subgroups,
-    )
-
+def _apply_feature_drift_auto_action(
+    *, metadata: Dict[str, Any], hyperparams_config: Any, behavior_config: Any, mlframe_models: Any, target_type: Any, cur_target_name: str,
+) -> Any:
+    """Warn about or apply the feature-drift MLP override for one target; return the per-target hyperparams config."""
     # Feature-drift auto-action layer.
     #
     # Behaviour gates from outermost to innermost:
@@ -518,70 +401,59 @@ def _setup_per_target_mlframe_models(
             cur_target_name,
             _fd_aa_err,
         )
+    return _target_hyperparams_config
+
+
+def _select_target_for_target(
+    ctx: Any, *, cur_target_values: Any, target_type: Any, cur_target_name: str, metadata: Dict[str, Any], od_common_params: Any,
+    current_behavior_config: Any, target_hyperparams_config: Any,
+) -> tuple[Any, Any, Any, Any, Any]:
+    """Run ``select_target`` for one target on the OD-filtered frames; return (common, models, rfecv_models, cpu, gpu) params."""
+    from ..composite.transforms import composite_target_names
 
     # Test set is never OD-filtered. train_df_size_bytes_cached is the pre-conversion Polars-side size, passed so configure_training_params
     # skips a 3-min pandas memory_usage(deep=...) scan on high-cardinality object columns (the OD-shrinkage approximation only feeds a GPU-RAM heuristic).
-    common_params, models_params, rfecv_models_params, cpu_configs, gpu_configs = select_target(
-        model_name=f"{target_name} {model_name} {cur_target_name}", composite_names=composite_target_names(metadata),
+    return select_target(
+        model_name=f"{ctx.target_name} {ctx.model_name} {cur_target_name}", composite_names=composite_target_names(metadata),
         target=cur_target_values,
         target_type=target_type,
         df=None,
-        train_df=filtered_train_df,
-        val_df=filtered_val_df,
-        test_df=test_df_pd,
-        train_idx=filtered_train_idx,
-        val_idx=filtered_val_idx,
-        test_idx=test_idx,
-        train_details=train_details,
-        val_details=val_details,
-        test_details=test_details,
-        group_ids=group_ids,
-        cat_features=cat_features,
-        text_features=text_features,
-        embedding_features=embedding_features,
-        hyperparams_config=_target_hyperparams_config,
+        train_df=ctx.filtered_train_df,
+        val_df=ctx.filtered_val_df,
+        test_df=ctx.test_df_pd,
+        train_idx=ctx.filtered_train_idx,
+        val_idx=ctx.filtered_val_idx,
+        test_idx=ctx.test_idx,
+        train_details=ctx.train_details,
+        val_details=ctx.val_details,
+        test_details=ctx.test_details,
+        group_ids=ctx.group_ids,
+        cat_features=ctx.cat_features,
+        text_features=ctx.text_features,
+        embedding_features=ctx.embedding_features,
+        hyperparams_config=target_hyperparams_config,
         behavior_config=current_behavior_config,
         common_params=od_common_params,
-        mlframe_models=mlframe_models,
+        mlframe_models=ctx.mlframe_models,
         mlframe_models_is_default_allowlist=ctx.mlframe_models_is_default_allowlist,
-        linear_model_config=linear_model_config,
-        train_df_size_bytes=train_df_size_bytes_cached,
-        val_df_size_bytes=val_df_size_bytes_cached,
-        multilabel_dispatch_config=multilabel_dispatch_config,
+        linear_model_config=ctx.linear_model_config,
+        train_df_size_bytes=ctx.train_df_size_bytes_cached,
+        val_df_size_bytes=ctx.val_df_size_bytes_cached,
+        multilabel_dispatch_config=ctx.multilabel_dispatch_config,
     )
 
-    if verbose:
-        logger.info("  select_target done in %s", _elapsed_str(t0_select_target))
-        log_ram_usage()
 
-    # Auto-pick MAE / Huber loss for heavy-tail regression residuals. ``cur_target_values`` is the raw y (raw-target paths) or the composite
-    # residual T (composite paths); either way the inner boosting fits that distribution directly.
-    # The kurtosis is read from the rows the booster actually fits (post-OD train), not the full-length target:
-    # the full vector still carries the outliers the detector just removed (and the val / test rows), so a
-    # contaminated target picked Huber for a fit on already-cleaned rows.
-    if _is_regression_target_type(target_type):
-        _apply_loss_recommendation_in_place(
-            models_params=models_params,
-            target_values=current_train_target if current_train_target is not None else cur_target_values,
-            composite_name=cur_target_name,
-            logger_=logger,
-            verbose=verbose,
-        )
-
-    _cv_policy = _publish_suite_cv_policy(
-        feature_selection_config=feature_selection_config, timestamps=timestamps, train_idx=_train_idx, group_ids=group_ids,
-        split_config=getattr(ctx, "split_config", None), hyperparams_config=_target_hyperparams_config, verbose=verbose,
-        rfecv_models_params={name: rfecv_models_params.get(name) for name in (rfecv_models or [])}, common_params=common_params)
-    apply_catboost_has_time(models_params, _cv_policy, _target_hyperparams_config, verbose=verbose)
-
-    pre_pipelines, pre_pipeline_names = _build_pre_pipelines(
-        cv_policy=_cv_policy,
-        use_ordinary_models=use_ordinary_models,
-        rfecv_models=rfecv_models,
+def _build_target_pre_pipelines(ctx: Any, *, cv_policy: Any, rfecv_models_params: Dict[str, Any], target_type: Any) -> tuple[Any, Any]:
+    """Build the pre_pipelines list and names for one target from the feature-selection config."""
+    feature_selection_config = ctx.feature_selection_config
+    return _build_pre_pipelines(
+        cv_policy=cv_policy,
+        use_ordinary_models=ctx.use_ordinary_models,
+        rfecv_models=ctx.rfecv_models,
         rfecv_models_params=rfecv_models_params,
-        use_mrmr_fs=use_mrmr_fs,
-        mrmr_kwargs=mrmr_kwargs,
-        custom_pre_pipelines=custom_pre_pipelines,
+        use_mrmr_fs=ctx.use_mrmr_fs,
+        mrmr_kwargs=ctx.mrmr_kwargs,
+        custom_pre_pipelines=ctx.custom_pre_pipelines,
         **feature_selection_config.pre_pipeline_kwargs(),
         mrmr_identity_cache=(
             ctx._mrmr_identity_cache if feature_selection_config.mrmr is None or feature_selection_config.mrmr.identity_cache_scope == "ctx" else None
@@ -597,6 +469,16 @@ def _setup_per_target_mlframe_models(
         # Whether the split is group-aware. MRMR's MI is group-naive; it WARNS (not crashes) when groups are threaded.
         fs_use_groups=bool(getattr(getattr(ctx, "split_config", None), "use_groups", False)),
     )
+
+
+def _attach_calib_and_composite_params(
+    ctx: Any, common_params: Dict[str, Any], *, metadata: Dict[str, Any], target_type: Any, cur_target_name: str,
+    _calib_df: Any, _calib_idx: Any, current_calib_target: Any,
+) -> None:
+    """Thread the calib frame, timestamps and composite-spec digest into ``common_params`` (mutated in place)."""
+    group_ids = ctx.group_ids
+    timestamps = ctx.timestamps
+    verbose = ctx.verbose
 
     # Thread the raw calib frame + aligned target into common_params so they reach DataConfig via
     # _build_configs_from_params. The trainer transforms calib_df through the same fitted pre_pipeline as test and
@@ -627,6 +509,172 @@ def _setup_per_target_mlframe_models(
     _cspec = find_composite_spec(metadata, target_type, cur_target_name)
     if _cspec is not None:
         common_params["composite_spec_digest"] = composite_spec_digest(_cspec)
+
+
+def _finalize_models_params(
+    ctx: Any, *, target_type: Any, cur_target_name: str, cur_target_values: Any, current_train_target: Any, train_idx: Any,
+    t0_select_target: float, target_hyperparams_config: Any, models_params: Any, rfecv_models_params: Dict[str, Any], common_params: Dict[str, Any],
+) -> Any:
+    """Log select_target timing, apply the heavy-tail loss recommendation, publish the CV policy and stamp catboost has_time; return the policy."""
+    from ._phase_train_one_target import _apply_loss_recommendation_in_place, _is_regression_target_type
+
+    verbose = ctx.verbose
+    feature_selection_config = ctx.feature_selection_config
+    timestamps = ctx.timestamps
+    group_ids = ctx.group_ids
+    rfecv_models = ctx.rfecv_models
+    _train_idx = train_idx
+    _target_hyperparams_config = target_hyperparams_config
+
+    if verbose:
+        logger.info("  select_target done in %s", _elapsed_str(t0_select_target))
+        log_ram_usage()
+
+    # Auto-pick MAE / Huber loss for heavy-tail regression residuals. ``cur_target_values`` is the raw y (raw-target paths) or the composite
+    # residual T (composite paths); either way the inner boosting fits that distribution directly.
+    # The kurtosis is read from the rows the booster actually fits (post-OD train), not the full-length target:
+    # the full vector still carries the outliers the detector just removed (and the val / test rows), so a
+    # contaminated target picked Huber for a fit on already-cleaned rows.
+    if _is_regression_target_type(target_type):
+        _apply_loss_recommendation_in_place(
+            models_params=models_params,
+            target_values=current_train_target if current_train_target is not None else cur_target_values,
+            composite_name=cur_target_name,
+            logger_=logger,
+            verbose=verbose,
+        )
+
+    _cv_policy = _publish_suite_cv_policy(
+        feature_selection_config=feature_selection_config, timestamps=timestamps, train_idx=_train_idx, group_ids=group_ids,
+        split_config=getattr(ctx, "split_config", None), hyperparams_config=_target_hyperparams_config, verbose=verbose,
+        rfecv_models_params={name: rfecv_models_params.get(name) for name in (rfecv_models or [])}, common_params=common_params)
+    apply_catboost_has_time(models_params, _cv_policy, _target_hyperparams_config, verbose=verbose)
+    return _cv_policy
+
+
+def _setup_per_target_mlframe_models(
+    *,
+    ctx,
+    target_type,
+    cur_target_name,
+    cur_target_values,
+    metadata,
+    slug_to_original_target_name,
+) -> Dict[str, Any]:
+    """Run the ``if mlframe_models:`` setup phase for one target.
+
+    Returns a dict with the downstream-needed bindings. Caller unpacks
+    via dict-access so missing keys raise KeyError on contract drift.
+
+    Output keys:
+        plot_file, model_file (paths or None)
+        current_train_target, current_val_target, current_test_target
+        metadata (mutated dict; same reference returned for symmetry)
+        common_params, models_params, rfecv_models_params,
+            cpu_configs, gpu_configs (None when mlframe_models is empty)
+        pre_pipelines, pre_pipeline_names (always lists)
+    """
+    # Lazy import: parent re-exports these at its module bottom; a top-level
+    # import would form a hard cycle.
+    from ._phase_train_one_target import slugify
+
+    mlframe_models = ctx.mlframe_models
+    # ``rfecv_models_params`` is initialised here so a downstream reference
+    # doesn't NameError when mlframe_models is empty (matches the pre-split
+    # parent's initialiser at the same point in the function body).
+    rfecv_models_params: Dict[str, Any] = {}
+
+    if not mlframe_models:
+        # _train_idx still derived even when no models train: downstream code
+        # (e.g. metadata schema_version record) reads ``cur_target_values[_train_idx]``
+        # to compute train_y for n_classes / multilabel_strategy introspection.
+        _train_idx_fallback = ctx.filtered_train_idx if ctx.filtered_train_idx is not None else ctx.train_idx
+        return {
+            "plot_file": None,
+            "model_file": None,
+            "_train_idx": _train_idx_fallback,
+            "current_train_target": None,
+            "current_val_target": None,
+            "current_test_target": None,
+            "metadata": metadata,
+            "common_params": None,
+            "models_params": None,
+            "rfecv_models_params": rfecv_models_params,
+            "cpu_configs": None,
+            "gpu_configs": None,
+            "pre_pipelines": [],
+            "pre_pipeline_names": [],
+        }
+
+    verbose = ctx.verbose
+    behavior_config = ctx.behavior_config
+    hyperparams_config = ctx.hyperparams_config
+    target_name = ctx.target_name
+
+    # Identity assignment is intentional: keep the slug key registered even when it equals the original name,
+    # so downstream lookups via slug never KeyError on round-trip identity targets.
+    # Registered ONLY when at least one model is trained -- otherwise the predict-time loader would resolve
+    # this slug to a target name that has no corresponding model on disk.
+    slug_to_original_target_name[slugify(cur_target_name)] = cur_target_name
+    plot_file, model_file = _setup_model_directories(
+        target_name=target_name,
+        model_name=ctx.model_name,
+        target_type=target_type,
+        cur_target_name=cur_target_name,
+        data_dir=ctx.data_dir,
+        models_dir=ctx.models_dir,
+        save_charts=ctx.save_charts,
+    )
+
+    _train_idx, current_train_target, current_val_target, current_test_target, current_calib_target, _calib_idx, _calib_df = _compute_split_targets(
+        ctx, cur_target_values
+    )
+
+    metadata = _run_diagnostic_phases(
+        ctx, target_type=target_type, cur_target_name=cur_target_name, metadata=metadata, plot_file=plot_file,
+        current_train_target=current_train_target, current_val_target=current_val_target, current_test_target=current_test_target,
+    )
+
+    if verbose:
+        logger.info("select_target...")
+
+    t0_select_target = timer()
+    od_common_params, current_behavior_config = _build_common_params_for_target(
+        common_params_dict=ctx.common_params_dict,
+        trainset_features_stats=ctx.trainset_features_stats,
+        plot_file=plot_file,
+        train_od_idx=ctx.train_od_idx,
+        val_od_idx=ctx.val_od_idx,
+        current_train_target=current_train_target,
+        current_val_target=current_val_target,
+        outlier_detector=ctx.outlier_detector,
+        behavior_config=behavior_config,
+        fairness_subgroups=ctx.fairness_subgroups,
+    )
+
+    _target_hyperparams_config = _apply_feature_drift_auto_action(
+        metadata=metadata, hyperparams_config=hyperparams_config, behavior_config=behavior_config, mlframe_models=mlframe_models,
+        target_type=target_type, cur_target_name=cur_target_name,
+    )
+
+    common_params, models_params, rfecv_models_params, cpu_configs, gpu_configs = _select_target_for_target(
+        ctx, cur_target_values=cur_target_values, target_type=target_type, cur_target_name=cur_target_name, metadata=metadata,
+        od_common_params=od_common_params, current_behavior_config=current_behavior_config, target_hyperparams_config=_target_hyperparams_config,
+    )
+
+    _cv_policy = _finalize_models_params(
+        ctx, target_type=target_type, cur_target_name=cur_target_name, cur_target_values=cur_target_values,
+        current_train_target=current_train_target, train_idx=_train_idx, t0_select_target=t0_select_target,
+        target_hyperparams_config=_target_hyperparams_config, models_params=models_params, rfecv_models_params=rfecv_models_params,
+        common_params=common_params,
+    )
+
+    pre_pipelines, pre_pipeline_names = _build_target_pre_pipelines(ctx, cv_policy=_cv_policy, rfecv_models_params=rfecv_models_params, target_type=target_type)
+
+    _attach_calib_and_composite_params(
+        ctx, common_params, metadata=metadata, target_type=target_type, cur_target_name=cur_target_name,
+        _calib_df=_calib_df, _calib_idx=_calib_idx, current_calib_target=current_calib_target,
+    )
 
     return {
         "plot_file": plot_file,

@@ -100,6 +100,29 @@ def _triplet_eng_col_name(
     return f"{col_i}*{col_j}*{col_k}__{code}{deg_a}_{code}{deg_b}_{code}{deg_c}"
 
 
+def _prepare_triplet_legs(X: pd.DataFrame, col_i: str, col_j: str, col_k: str) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Return the three leg columns as private, NaN-mean-filled arrays in the criterion dtype."""
+    from ._fe_usability_signal import _crit_np_dtype
+
+    _dt = _crit_np_dtype()  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); matches the GPU device
+    # builder's operand dtype (_gpu_resident_cross_basis.py) so host and device run the polynomial
+    # recurrence at the SAME precision - see build_leg_product_matrix_gpu's docstring.
+    # np.array (copy=True): X[col].to_numpy() can alias the DataFrame's backing block - e.g. a
+    # zero-copy Arrow-backed view or a frozen MRMR-fit-cache array reused via fe_append_columns from
+    # an earlier stage - and the np.copyto NaN-fill below would then either mutate the CALLER's X or
+    # raise "assignment destination is read-only" on a genuinely read-only block. A fresh copy (matching
+    # the sibling pair-cross / GPU-resident generators' established pattern) keeps the fill local and safe.
+    x_i = np.array(X[col_i].to_numpy(), dtype=_dt)
+    x_j = np.array(X[col_j].to_numpy(), dtype=_dt)
+    x_k = np.array(X[col_k].to_numpy(), dtype=_dt)
+    for x in (x_i, x_j, x_k):
+        finite_mask = np.isfinite(x)
+        if not finite_mask.all():
+            fill = float(np.nanmean(x[finite_mask])) if finite_mask.any() else 0.0
+            np.copyto(x, np.where(finite_mask, x, fill))
+    return x_i, x_j, x_k
+
+
 def generate_triplet_cross_basis_features(
     X: pd.DataFrame,
     triplets: Sequence[tuple[str, str, str]],
@@ -163,24 +186,7 @@ def generate_triplet_cross_basis_features(
             continue
         if not (pd.api.types.is_numeric_dtype(X[col_i]) and pd.api.types.is_numeric_dtype(X[col_j]) and pd.api.types.is_numeric_dtype(X[col_k])):
             continue
-        from ._fe_usability_signal import _crit_np_dtype
-
-        _dt = _crit_np_dtype()  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); matches the GPU device
-        # builder's operand dtype (_gpu_resident_cross_basis.py) so host and device run the polynomial
-        # recurrence at the SAME precision - see build_leg_product_matrix_gpu's docstring.
-        # np.array (copy=True): X[col].to_numpy() can alias the DataFrame's backing block - e.g. a
-        # zero-copy Arrow-backed view or a frozen MRMR-fit-cache array reused via fe_append_columns from
-        # an earlier stage - and the np.copyto NaN-fill below would then either mutate the CALLER's X or
-        # raise "assignment destination is read-only" on a genuinely read-only block. A fresh copy (matching
-        # the sibling pair-cross / GPU-resident generators' established pattern) keeps the fill local and safe.
-        x_i = np.array(X[col_i].to_numpy(), dtype=_dt)
-        x_j = np.array(X[col_j].to_numpy(), dtype=_dt)
-        x_k = np.array(X[col_k].to_numpy(), dtype=_dt)
-        for x in (x_i, x_j, x_k):
-            finite_mask = np.isfinite(x)
-            if not finite_mask.all():
-                fill = float(np.nanmean(x[finite_mask])) if finite_mask.any() else 0.0
-                np.copyto(x, np.where(finite_mask, x, fill))
+        x_i, x_j, x_k = _prepare_triplet_legs(X, col_i, col_j, col_k)
         basis_i = basis_route_by_moments(x_i) if basis == "auto" else basis
         basis_j = basis_route_by_moments(x_j) if basis == "auto" else basis
         basis_k = basis_route_by_moments(x_k) if basis == "auto" else basis
@@ -533,6 +539,95 @@ def _enumerate_triplet_candidates(
     return [(names[out_i[t]], names[out_j[t]], names[out_k[t]]) for t in order]
 
 
+def _resolve_triplets(X: pd.DataFrame, explicit_triplets: Optional[Sequence[tuple]], seed_sources: list, top_triplet_count: int) -> Optional[tuple[list, list]]:
+    """Resolve the triplet list to expand and the matching seed columns; None when there is nothing to expand."""
+    # EXPLICIT TRIPLETS (GBM seeder): when the caller passes an order-3
+    # proposer's surviving triples (each already order-3-maxT-floored), enumerate EXACTLY
+    # those triples instead of the C(seed_k, 3) over the univariate-MI seed pool - the whole
+    # point of the surrogate seeder is to reach the zero-marginal 3-way needle whose operands
+    # the univariate seed_k never ranks. The proposer GENERATES; the per-triplet uplift / abs-MI
+    # gates below still GATE, so a spurious explicit triple cannot survive. Only triples whose
+    # legs all map to valid numeric columns in X are kept.
+    if explicit_triplets:
+        _xset = set(X.columns)
+        triplets = []
+        _seen = set()
+        for _tr in explicit_triplets:
+            if len(_tr) != 3:
+                continue
+            if not all((c in _xset and pd.api.types.is_numeric_dtype(X[c])) for c in _tr):
+                continue
+            _key = tuple(sorted(_tr))
+            if _key in _seen:
+                continue
+            _seen.add(_key)
+            triplets.append(tuple(_tr))
+        if not triplets:
+            return None
+        # The MI-uplift baseline / seed-X frame need the union of explicit-triple legs.
+        seed_sources = sorted({c for _tr in triplets for c in _tr})
+    else:
+        if len(seed_sources) < 3 or int(top_triplet_count) <= 0:
+            return None
+
+        triplets = [
+            (seed_sources[i], seed_sources[j], seed_sources[k])
+            for i in range(len(seed_sources))
+            for j in range(i + 1, len(seed_sources))
+            for k in range(j + 1, len(seed_sources))
+        ]
+    return triplets, seed_sources
+
+
+def _triplet_seed_sources(
+    X: pd.DataFrame, y: np.ndarray, cols: Optional[Sequence[str]], uni_scores: pd.DataFrame, explicit_triplets: Optional[Sequence[tuple]],
+    top_triplet_seed_k: int, nbins: int,
+) -> tuple[list, Optional[Sequence[tuple]]]:
+    """Build the triplet seed pool; returns ``(seed_sources, explicit_triplets)`` where ``explicit_triplets`` may have been filled by full enumeration."""
+    # Build the triplet seed pool. Critical bug class on 3-way XOR:
+    # MI(x_i; y) is statistically indistinguishable from MI(noise; y)
+    # when y = sign(x_1 * x_2 * x_3) - every signal leg looks marginally
+    # balanced, so a raw-MI top-k cut would silently drop one of the
+    # three signal legs and the triplet path never gets to enumerate
+    # the right cell.
+    #
+    # Resolution: when the caller explicitly enumerates ``cols``, respect
+    # that as the seed pool intent (truncate only to the first
+    # ``top_triplet_seed_k`` of them, preserving caller order). Only fall
+    # back to raw-MI ranking when ``cols=None`` AND the input width is
+    # larger than ``top_triplet_seed_k`` (the algo has to pick somehow).
+    raw_cols_all = [c for c in (cols or X.columns) if c in X.columns and pd.api.types.is_numeric_dtype(X[c])]
+    seed_sources: list[str] = []
+    # Order-invariant candidate set. When every triple of eligible columns fits the budget, enumerate them all and let the
+    # gate decide; otherwise seed the pool by ranking. Neither depends on where a column sits in the frame.
+    if len(raw_cols_all) >= 3 and not explicit_triplets and math.comb(len(raw_cols_all), 3) <= TRIPLET_ENUM_MAX:
+        explicit_triplets = _enumerate_triplet_candidates(X, raw_cols_all, coerce_y_classif(y), top_m=TRIPLET_ENUM_TOP_M)
+    if len(raw_cols_all) >= 3 and not explicit_triplets:
+        _baseline_map: dict = {}
+        if not uni_scores.empty:
+            _baseline_map = uni_scores.groupby("source_col")["baseline_mi"].first().to_dict()
+        _missing = [c for c in raw_cols_all if c not in _baseline_map]
+        if _missing:
+            y_arr = coerce_y_classif(y)
+            from ._fe_usability_signal import _crit_np_dtype
+
+            _dt = _crit_np_dtype()  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); MI binning is scale-robust
+            # Fit-scoped memo: no-op passthrough outside an active orth_scoring_memo_scope(); inside a
+            # scope, shares this residual MI batch with sibling opt-in layers.
+            _baseline_map.update(cached_raw_mi_baseline(_missing, X[_missing].to_numpy(dtype=_dt), y_arr, nbins=nbins))
+        raw_mi_map = {c: float(_baseline_map.get(c, 0.0)) for c in raw_cols_all}
+        # The strongest raw column seeds the pool; the rest are ranked by I(x; y | strongest), not by marginal MI.
+        # Ties break by name, so the pool is the same for any column order.
+        _first = max(raw_cols_all, key=lambda c: (raw_mi_map[c], c))
+        _y_codes = np.asarray(coerce_y_classif(y))
+        _first_codes = _quantile_codes(X[_first].to_numpy(dtype=_crit_np_dtype()), nbins)
+        _rest = [c for c in raw_cols_all if c != _first]
+        _cond = {c: _stratified_cmi(_quantile_codes(X[c].to_numpy(dtype=_crit_np_dtype()), nbins), _y_codes, _first_codes) for c in _rest}
+        _rest.sort(key=lambda c: (-_cond[c], c))
+        seed_sources = [_first, *_rest[: max(0, int(top_triplet_seed_k) - 1)]]
+    return seed_sources, explicit_triplets
+
+
 def hybrid_orth_mi_triplet_fe(
     X: pd.DataFrame,
     y: np.ndarray,
@@ -597,9 +692,6 @@ def hybrid_orth_mi_triplet_fe(
         triplet_scores : ranking DataFrame from stage 2.
     """
     # Stage 1: univariate hybrid (Layer 21).
-    from ._fe_usability_signal import _crit_np_dtype
-
-    _dt = _crit_np_dtype()  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); hoisted so _dt is bound on every branch
     X_aug_uni, uni_scores = hybrid_orth_mi_fe(
         X,
         y,
@@ -612,83 +704,12 @@ def hybrid_orth_mi_triplet_fe(
         nbins=nbins,
     )
 
-    # Build the triplet seed pool. Critical bug class on 3-way XOR:
-    # MI(x_i; y) is statistically indistinguishable from MI(noise; y)
-    # when y = sign(x_1 * x_2 * x_3) - every signal leg looks marginally
-    # balanced, so a raw-MI top-k cut would silently drop one of the
-    # three signal legs and the triplet path never gets to enumerate
-    # the right cell.
-    #
-    # Resolution: when the caller explicitly enumerates ``cols``, respect
-    # that as the seed pool intent (truncate only to the first
-    # ``top_triplet_seed_k`` of them, preserving caller order). Only fall
-    # back to raw-MI ranking when ``cols=None`` AND the input width is
-    # larger than ``top_triplet_seed_k`` (the algo has to pick somehow).
-    raw_cols_all = [c for c in (cols or X.columns) if c in X.columns and pd.api.types.is_numeric_dtype(X[c])]
-    seed_sources: list[str] = []
-    # Order-invariant candidate set. When every triple of eligible columns fits the budget, enumerate them all and let the
-    # gate decide; otherwise seed the pool by ranking. Neither depends on where a column sits in the frame.
-    if len(raw_cols_all) >= 3 and not explicit_triplets and math.comb(len(raw_cols_all), 3) <= TRIPLET_ENUM_MAX:
-        explicit_triplets = _enumerate_triplet_candidates(X, raw_cols_all, coerce_y_classif(y), top_m=TRIPLET_ENUM_TOP_M)
-    if len(raw_cols_all) >= 3 and not explicit_triplets:
-        _baseline_map: dict = {}
-        if not uni_scores.empty:
-            _baseline_map = uni_scores.groupby("source_col")["baseline_mi"].first().to_dict()
-        _missing = [c for c in raw_cols_all if c not in _baseline_map]
-        if _missing:
-            y_arr = coerce_y_classif(y)
-            from ._fe_usability_signal import _crit_np_dtype
+    seed_sources, explicit_triplets = _triplet_seed_sources(X, y, cols, uni_scores, explicit_triplets, top_triplet_seed_k, nbins)
 
-            _dt = _crit_np_dtype()  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); MI binning is scale-robust
-            # Fit-scoped memo: no-op passthrough outside an active orth_scoring_memo_scope(); inside a
-            # scope, shares this residual MI batch with sibling opt-in layers.
-            _baseline_map.update(cached_raw_mi_baseline(_missing, X[_missing].to_numpy(dtype=_dt), y_arr, nbins=nbins))
-        raw_mi_map = {c: float(_baseline_map.get(c, 0.0)) for c in raw_cols_all}
-        # The strongest raw column seeds the pool; the rest are ranked by I(x; y | strongest), not by marginal MI.
-        # Ties break by name, so the pool is the same for any column order.
-        _first = max(raw_cols_all, key=lambda c: (raw_mi_map[c], c))
-        _y_codes = np.asarray(coerce_y_classif(y))
-        _first_codes = _quantile_codes(X[_first].to_numpy(dtype=_crit_np_dtype()), nbins)
-        _rest = [c for c in raw_cols_all if c != _first]
-        _cond = {c: _stratified_cmi(_quantile_codes(X[c].to_numpy(dtype=_crit_np_dtype()), nbins), _y_codes, _first_codes) for c in _rest}
-        _rest.sort(key=lambda c: (-_cond[c], c))
-        seed_sources = [_first, *_rest[: max(0, int(top_triplet_seed_k) - 1)]]
-
-    # EXPLICIT TRIPLETS (GBM seeder): when the caller passes an order-3
-    # proposer's surviving triples (each already order-3-maxT-floored), enumerate EXACTLY
-    # those triples instead of the C(seed_k, 3) over the univariate-MI seed pool - the whole
-    # point of the surrogate seeder is to reach the zero-marginal 3-way needle whose operands
-    # the univariate seed_k never ranks. The proposer GENERATES; the per-triplet uplift / abs-MI
-    # gates below still GATE, so a spurious explicit triple cannot survive. Only triples whose
-    # legs all map to valid numeric columns in X are kept.
-    if explicit_triplets:
-        _xset = set(X.columns)
-        triplets = []
-        _seen = set()
-        for _tr in explicit_triplets:
-            if len(_tr) != 3:
-                continue
-            if not all((c in _xset and pd.api.types.is_numeric_dtype(X[c])) for c in _tr):
-                continue
-            _key = tuple(sorted(_tr))
-            if _key in _seen:
-                continue
-            _seen.add(_key)
-            triplets.append(tuple(_tr))
-        if not triplets:
-            return X_aug_uni, uni_scores, pd.DataFrame(columns=_TRIPLET_SCORE_EMPTY_COLS)
-        # The MI-uplift baseline / seed-X frame need the union of explicit-triple legs.
-        seed_sources = sorted({c for _tr in triplets for c in _tr})
-    else:
-        if len(seed_sources) < 3 or int(top_triplet_count) <= 0:
-            return X_aug_uni, uni_scores, pd.DataFrame(columns=_TRIPLET_SCORE_EMPTY_COLS)
-
-        triplets = [
-            (seed_sources[i], seed_sources[j], seed_sources[k])
-            for i in range(len(seed_sources))
-            for j in range(i + 1, len(seed_sources))
-            for k in range(j + 1, len(seed_sources))
-        ]
+    resolved = _resolve_triplets(X, explicit_triplets, seed_sources, top_triplet_count)
+    if resolved is None:
+        return X_aug_uni, uni_scores, pd.DataFrame(columns=_TRIPLET_SCORE_EMPTY_COLS)
+    triplets, seed_sources = resolved
     triplet_eng = generate_triplet_cross_basis_features(
         X,
         triplets,
@@ -714,6 +735,135 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from .engineered_recipes import EngineeredRecipe
+
+
+def _triplet_recipe_for_name(name: str, X: pd.DataFrame, basis: str) -> Optional[EngineeredRecipe]:
+    """Build the replay recipe for one appended engineered column (triplet cross or univariate), or None when its name cannot be parsed."""
+    from .engineered_recipes import (
+        build_orth_univariate_recipe,
+        build_orth_triplet_cross_recipe,
+    )
+
+    head = name.split("__", 1)[0]
+    legs = head.split("*")
+    if len(legs) == 3:
+        # triplet cross: "{col_i}*{col_j}*{col_k}__{code_a}{deg_a}_{code_b}{deg_b}_{code_c}{deg_c}"
+        try:
+            suffix = name.split("__", 1)[1]
+            parts = suffix.split("_")
+        except (ValueError, IndexError):
+            log_throttle(
+                logger,
+                "triplet_recipe_cannot_parse_suffix",
+                logging.WARNING,
+                "hybrid_orth_mi_triplet_fe_with_recipes: cannot parse " "suffix in %r; skipping recipe.",
+                name,
+            )
+            return None
+        if len(parts) != 3:
+            log_throttle(
+                logger,
+                "triplet_recipe_bad_parts_count",
+                logging.WARNING,
+                "hybrid_orth_mi_triplet_fe_with_recipes: expected 3 deg " "parts in %r; skipping recipe.",
+                name,
+            )
+            return None
+        basis_a, deg_a = parse_code_deg_with_basis(parts[0])
+        basis_b, deg_b = parse_code_deg_with_basis(parts[1])
+        basis_c, deg_c = parse_code_deg_with_basis(parts[2])
+        if basis_a is None or basis_b is None or basis_c is None or deg_a is None or deg_b is None or deg_c is None:
+            log_throttle(
+                logger,
+                "triplet_recipe_cannot_parse_code_deg",
+                logging.WARNING,
+                "hybrid_orth_mi_triplet_fe_with_recipes: cannot parse " "code/deg from %r; skipping recipe.",
+                name,
+            )
+            return None
+        # Same auto-routing fixup as Layer 22 pair recipe builder.
+        col_i, col_j, col_k = legs
+        # Value-construction (recovers the basis preprocess params for recipe replay): always
+        # float64, matching the fresh-path's own dtype (see generate_triplet_cross_basis_features).
+        x_i = X[col_i].to_numpy(dtype=np.float64)  # Intentional float64: value construction of the triplet product (see above)
+        x_j = X[col_j].to_numpy(dtype=np.float64)  # Intentional float64: value construction of the triplet product (see above)
+        x_k = X[col_k].to_numpy(dtype=np.float64)  # Intentional float64: value construction of the triplet product (see above)
+        if basis == "auto":
+            try:
+                basis_a = basis_route_by_moments(x_i)
+                basis_b = basis_route_by_moments(x_j)
+                basis_c = basis_route_by_moments(x_k)
+            except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+                logger.debug("suppressed: %s", e)
+                pass
+        # REPLAY-FIDELITY FIX: freeze each leg's fit-time basis-preprocess params
+        # (z-score mean/std, min-max lo/hi, ...) so ``transform()`` replays the basis axis
+        # byte-exactly instead of refitting it from the apply-time rows (slice-replay corruption).
+        # Guarded -> on any failure params stay None (legacy refit path), never crashing the emit.
+        _pp_a = _pp_b = _pp_c = None
+        try:
+            _, _pp_a = _evaluate_basis_column(x_i, basis_a, deg_a, return_params=True)
+            _, _pp_b = _evaluate_basis_column(x_j, basis_b, deg_b, return_params=True)
+            _, _pp_c = _evaluate_basis_column(x_k, basis_c, deg_c, return_params=True)
+        except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+            logger.debug("suppressed: %s", e)
+            pass
+        return build_orth_triplet_cross_recipe(
+            name=name,
+            src_a_name=col_i,
+            src_b_name=col_j,
+            src_c_name=col_k,
+            basis_i=basis_a,
+            basis_j=basis_b,
+            basis_k=basis_c,
+            deg_a=deg_a,
+            deg_b=deg_b,
+            deg_c=deg_c,
+            preprocess_params_i=_pp_a,
+            preprocess_params_j=_pp_b,
+            preprocess_params_k=_pp_c,
+        )
+    elif len(legs) == 1:
+        # univariate: "{col}__{code}{degree}"
+        src = legs[0]
+        suffix = name.split("__", 1)[1] if "__" in name else ""
+        chosen_basis, chosen_degree = parse_code_deg_with_basis(suffix)
+        if chosen_basis is None or chosen_degree is None:
+            log_throttle(
+                logger,
+                "triplet_recipe_cannot_parse_basis_degree",
+                logging.WARNING,
+                "hybrid_orth_mi_triplet_fe_with_recipes: cannot parse basis/" "degree from %r; skipping recipe.",
+                name,
+            )
+            return None
+        # REPLAY-FIDELITY FIX: freeze the fit-time basis-preprocess params (mirrors
+        # the orth_univariate BUG2 fix); without them replay refits the axis from apply-time rows.
+        _pp_u = None
+        try:
+            # Intentional float64: value construction of the triplet product (see above)
+            _x_u = X[src].to_numpy(dtype=np.float64)  # value-construction: always float64, see above
+            _, _pp_u = _evaluate_basis_column(_x_u, chosen_basis, chosen_degree, return_params=True)
+        except Exception as e:  # nosec B110 - optional dependency import guard
+            logger.debug("Could not freeze fit-time basis-preprocess params for %r (%s: %s); recipe replays without them", src, type(e).__name__, e)
+        return build_orth_univariate_recipe(
+            name=name,
+            src_name=src,
+            basis=chosen_basis,
+            degree=chosen_degree,
+            preprocess_params=_pp_u,
+        )
+    else:
+        log_throttle(
+            logger,
+            "triplet_recipe_unexpected_leg_count",
+            logging.WARNING,
+            "hybrid_orth_mi_triplet_fe_with_recipes: unexpected leg count " "in %r (legs=%r); skipping recipe.",
+            name,
+            legs,
+        )
+        return None
+    return None
 
 
 @fe_timed("triplet")
@@ -743,11 +893,6 @@ def hybrid_orth_mi_triplet_fe_with_recipes(
     order-3-floored proposer survivors) instead of the C(seed_k, 3) over the
     univariate-MI seed pool.
     """
-    from .engineered_recipes import (
-        build_orth_univariate_recipe,
-        build_orth_triplet_cross_recipe,
-    )
-
     X_aug, uni_scores, triplet_scores = hybrid_orth_mi_triplet_fe(
         X,
         y,
@@ -769,127 +914,7 @@ def hybrid_orth_mi_triplet_fe_with_recipes(
 
     recipes = []
     for name in appended:
-        head = name.split("__", 1)[0]
-        legs = head.split("*")
-        if len(legs) == 3:
-            # triplet cross: "{col_i}*{col_j}*{col_k}__{code_a}{deg_a}_{code_b}{deg_b}_{code_c}{deg_c}"
-            try:
-                suffix = name.split("__", 1)[1]
-                parts = suffix.split("_")
-            except (ValueError, IndexError):
-                log_throttle(
-                    logger,
-                    "triplet_recipe_cannot_parse_suffix",
-                    logging.WARNING,
-                    "hybrid_orth_mi_triplet_fe_with_recipes: cannot parse " "suffix in %r; skipping recipe.",
-                    name,
-                )
-                continue
-            if len(parts) != 3:
-                log_throttle(
-                    logger,
-                    "triplet_recipe_bad_parts_count",
-                    logging.WARNING,
-                    "hybrid_orth_mi_triplet_fe_with_recipes: expected 3 deg " "parts in %r; skipping recipe.",
-                    name,
-                )
-                continue
-            basis_a, deg_a = parse_code_deg_with_basis(parts[0])
-            basis_b, deg_b = parse_code_deg_with_basis(parts[1])
-            basis_c, deg_c = parse_code_deg_with_basis(parts[2])
-            if basis_a is None or basis_b is None or basis_c is None or deg_a is None or deg_b is None or deg_c is None:
-                log_throttle(
-                    logger,
-                    "triplet_recipe_cannot_parse_code_deg",
-                    logging.WARNING,
-                    "hybrid_orth_mi_triplet_fe_with_recipes: cannot parse " "code/deg from %r; skipping recipe.",
-                    name,
-                )
-                continue
-            # Same auto-routing fixup as Layer 22 pair recipe builder.
-            col_i, col_j, col_k = legs
-            # Value-construction (recovers the basis preprocess params for recipe replay): always
-            # float64, matching the fresh-path's own dtype (see generate_triplet_cross_basis_features).
-            x_i = X[col_i].to_numpy(dtype=np.float64)  # Intentional float64: value construction of the triplet product (see above)
-            x_j = X[col_j].to_numpy(dtype=np.float64)  # Intentional float64: value construction of the triplet product (see above)
-            x_k = X[col_k].to_numpy(dtype=np.float64)  # Intentional float64: value construction of the triplet product (see above)
-            if basis == "auto":
-                try:
-                    basis_a = basis_route_by_moments(x_i)
-                    basis_b = basis_route_by_moments(x_j)
-                    basis_c = basis_route_by_moments(x_k)
-                except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-                    logger.debug("suppressed: %s", e)
-                    pass
-            # REPLAY-FIDELITY FIX: freeze each leg's fit-time basis-preprocess params
-            # (z-score mean/std, min-max lo/hi, ...) so ``transform()`` replays the basis axis
-            # byte-exactly instead of refitting it from the apply-time rows (slice-replay corruption).
-            # Guarded -> on any failure params stay None (legacy refit path), never crashing the emit.
-            _pp_a = _pp_b = _pp_c = None
-            try:
-                _, _pp_a = _evaluate_basis_column(x_i, basis_a, deg_a, return_params=True)
-                _, _pp_b = _evaluate_basis_column(x_j, basis_b, deg_b, return_params=True)
-                _, _pp_c = _evaluate_basis_column(x_k, basis_c, deg_c, return_params=True)
-            except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-                logger.debug("suppressed: %s", e)
-                pass
-            recipes.append(
-                build_orth_triplet_cross_recipe(
-                    name=name,
-                    src_a_name=col_i,
-                    src_b_name=col_j,
-                    src_c_name=col_k,
-                    basis_i=basis_a,
-                    basis_j=basis_b,
-                    basis_k=basis_c,
-                    deg_a=deg_a,
-                    deg_b=deg_b,
-                    deg_c=deg_c,
-                    preprocess_params_i=_pp_a,
-                    preprocess_params_j=_pp_b,
-                    preprocess_params_k=_pp_c,
-                )
-            )
-        elif len(legs) == 1:
-            # univariate: "{col}__{code}{degree}"
-            src = legs[0]
-            suffix = name.split("__", 1)[1] if "__" in name else ""
-            chosen_basis, chosen_degree = parse_code_deg_with_basis(suffix)
-            if chosen_basis is None or chosen_degree is None:
-                log_throttle(
-                    logger,
-                    "triplet_recipe_cannot_parse_basis_degree",
-                    logging.WARNING,
-                    "hybrid_orth_mi_triplet_fe_with_recipes: cannot parse basis/" "degree from %r; skipping recipe.",
-                    name,
-                )
-                continue
-            # REPLAY-FIDELITY FIX: freeze the fit-time basis-preprocess params (mirrors
-            # the orth_univariate BUG2 fix); without them replay refits the axis from apply-time rows.
-            _pp_u = None
-            try:
-                # Intentional float64: value construction of the triplet product (see above)
-                _x_u = X[src].to_numpy(dtype=np.float64)  # value-construction: always float64, see above
-                _, _pp_u = _evaluate_basis_column(_x_u, chosen_basis, chosen_degree, return_params=True)
-            except Exception as e:  # nosec B110 - optional dependency import guard
-                logger.debug("Could not freeze fit-time basis-preprocess params for %r (%s: %s); recipe replays without them", src, type(e).__name__, e)
-            recipes.append(
-                build_orth_univariate_recipe(
-                    name=name,
-                    src_name=src,
-                    basis=chosen_basis,
-                    degree=chosen_degree,
-                    preprocess_params=_pp_u,
-                )
-            )
-        else:
-            log_throttle(
-                logger,
-                "triplet_recipe_unexpected_leg_count",
-                logging.WARNING,
-                "hybrid_orth_mi_triplet_fe_with_recipes: unexpected leg count " "in %r (legs=%r); skipping recipe.",
-                name,
-                legs,
-            )
-            continue
+        recipe = _triplet_recipe_for_name(name, X, basis)
+        if recipe is not None:
+            recipes.append(recipe)
     return X_aug, uni_scores, triplet_scores, recipes

@@ -692,7 +692,9 @@ class _MRMRFitHelpersMixin:
 
     def _fit_body_step2_prev_restore_evaluation(self, _toggles_snapshot, st, _orig_cluster_aggregate_enable, _orig_nbins_strategy, _orig_quantization_nbins, _fe_auto_restore):
         """Step 2 of _fit_body: lines starting at ``_su0, _jmim0, _bur0, _mm0, _relax0, _pid0, _cmi0, _cpt0, _cs0 = _toggl``."""
-        from ._mrmr_class import _UNSET, _hashable_params_signature, _safe_restore, _set_dcd_active, _set_group_mi, set_bur_lambda, set_cmi_perm_stop, set_cpt_test, set_jmim_aggregator, set_mi_chao_shen, set_mi_miller_madow, set_pid_synergy_bonus, set_relaxmrmr_alpha, set_su_normalization  # resolved on the class module so patches of its names reach this method
+        from ._mrmr_class import _UNSET, _hashable_params_signature, _safe_restore, set_bur_lambda, set_cmi_perm_stop, set_cpt_test, set_jmim_aggregator, set_mi_chao_shen, set_mi_miller_madow, set_pid_synergy_bonus, set_relaxmrmr_alpha, set_su_normalization  # resolved on the class module so patches of its names reach this method
+        from .._dynamic_cluster_discovery import set_dcd_active as _set_dcd_active
+        from mlframe.feature_selection.filters.info_theory.shared import set_group_mi as _set_group_mi
         _su0, _jmim0, _bur0, _mm0, _relax0, _pid0, _cmi0, _cpt0, _cs0, _gmi0 = _toggles_snapshot
 
         def _restore_synergy_bonuses() -> None:

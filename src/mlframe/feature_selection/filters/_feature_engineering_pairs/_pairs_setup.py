@@ -126,137 +126,10 @@ def _fit_prewarp_and_gate_med(
     _prewarp_spec_by_var: dict[int, dict] = {}
     _prewarp_y_eff = None
     if _prewarp_active:
-        from ..hermite_fe import apply_operand_prewarp, fit_pair_prewarp_als
-        # The ALS reconstruction target: prefer the CONTINUOUS y when supplied (it
-        # is the faithful least-squares target; the binned ``classes_y`` codes the
-        # target-rebin guard produces are for the MI screen, not for reconstructing
-        # a continuous f(a)*g(b)). Fall back to ``classes_y`` codes when no
-        # continuous target was threaded (legacy / non-numeric / multi-output y).
-        _pw_y_src = prewarp_y_continuous if prewarp_y_continuous is not None else prewarp_y
-        _pw_y = np.asarray(_pw_y_src)
-        if _use_subsample and _pw_y.shape[0] == _full_n_rows:
-            _pw_y = _pw_y[_sample_idx]
-        _prewarp_y_eff = winsorize_heavy_tailed_target(np.ascontiguousarray(_pw_y, dtype=np.float64))
-
-        # JOINT per-pair ALS pre-fit. For each prospective pair fit BOTH operand
-        # warps together (rank-1 ALS); an independent 1-D fit cannot recover the
-        # b-side of a product target whose b-marginal is ~0. First pairing wins
-        # for a var shared across pairs (pairs are processed most-prospective-
-        # first, so a shared var binds to its strongest interaction). None specs
-        # leave the pseudo-unary unregistered for that var.
-        # Q8: route the prewarp operand extraction through the SHARED
-        # ``_extval_raw_col`` memo (the single {var: raw-ndarray} cache) instead of a
-        # second un-memoised ``X.iloc[...].values`` per call. The prewarp loop reads each
-        # pair's two operands, and a var shared across many prospective pairs was previously
-        # re-extracted once PER pair; the shared memo extracts each distinct var ONCE.
-        # Bit-identical: ``_extval_raw_col`` performs the IDENTICAL ``.values`` / ``.to_numpy()``
-        # extract (same None-on-missing guard) - only the redundant re-reads are removed.
-        _operand_vals = _extval_raw_col
-
-        # OUT-OF-SAMPLE PREWARP VALIDATION. The ALS prewarp is a
-        # SUPERVISED per-operand fit; at small n it overfits noise operands (the
-        # in-sample uplift is inflated by the fit AND by the multiple operand/pair
-        # comparisons), so a noise-paired warp clears the in-sample uplift gate,
-        # gets engineered, and ABSORBS a genuine feature - the raw column then
-        # reads as redundant and is dropped, leaving a noise-diluted feature
-        # (measured: a genuine X5 dropped at n=500). Guard: fit the warp on a TRAIN
-        # slice and keep it only if its rank-1 reconstruction f(a)*g(b) still tracks
-        # y on a HELD-OUT slice. Genuine synergy (incl. zero-marginal XOR) and
-        # genuine non-monotone inners generalise; overfit-on-noise collapses on the
-        # held-out slice. At large n train ~= full so genuine recovery is untouched.
-        # ``fe_pair_prewarp_min_val_corr`` (default 0.08) is the held-out floor; 0.0
-        # restores the legacy in-sample-only fit.
-        _pw_min_val_corr = float(prewarp_min_val_corr or 0.0)
-        _pw_n = int(_prewarp_y_eff.shape[0]) if hasattr(_prewarp_y_eff, "shape") else len(_prewarp_y_eff)
-        # Deterministic stride split (no RNG): every 3rd row -> validation (~33%).
-        _pw_cv_ok = _pw_min_val_corr > 0.0 and _pw_n >= 60
-        if _pw_cv_ok:
-            _val_mask = np.arange(_pw_n) % 3 == 0
-            _tr_mask = ~_val_mask
-            _y_tr = _prewarp_y_eff[_tr_mask]
-            _y_val = _prewarp_y_eff[_val_mask] - float(np.mean(_prewarp_y_eff[_val_mask]))
-
-        def _prewarp_generalises(_va_full, _vb_full):
-            """True if an ALS warp fit on the train slice still tracks y on the
-            held-out slice (rank-1 reconstruction correlation >= floor)."""
-            # Operands are read from the (already subsampled) pair-search frame and the target is cut to the same rows, so their lengths agree on
-            # every correct path. A mismatch means the rows are misaligned: no warp fit on them is meaningful, validated or not, so reject before
-            # the CV switch. Accepting here used to skip the held-out check and let the full ALS fit pair operand rows with the wrong target rows.
-            _len_a = int(np.asarray(_va_full).reshape(-1).shape[0])
-            _len_b = int(np.asarray(_vb_full).reshape(-1).shape[0])
-            if _len_a != _pw_n or _len_b != _pw_n:
-                log_throttle(
-                    _module_logger, "prewarp_operand_length_mismatch", logging.WARNING,
-                    "prewarp operand length (%d, %d) differs from the target's %d rows; the rows are misaligned, REJECTING the warp.",
-                    _len_a, _len_b, _pw_n,
-                )
-                return False
-            if not _pw_cv_ok:
-                return True  # CV disabled / n too small -> accept (legacy behaviour)
-            try:
-                _a = np.asarray(_va_full, dtype=np.float64).reshape(-1)
-                _b = np.asarray(_vb_full, dtype=np.float64).reshape(-1)
-                _sa_tr, _sb_tr = fit_pair_prewarp_als(
-                    _a[_tr_mask], _b[_tr_mask], _y_tr,
-                    basis=prewarp_basis, max_degree=prewarp_max_degree,
-                )
-                if _sa_tr is None or _sb_tr is None:
-                    return False
-                _wa = apply_operand_prewarp(_a[_val_mask], _sa_tr)
-                _wb = apply_operand_prewarp(_b[_val_mask], _sb_tr)
-                _recon = _wa * _wb
-                if float(np.std(_recon)) < 1e-12 or float(np.std(_y_val)) < 1e-12:
-                    return False
-                # measure-experiment-rejected (2026-06-03): a dcor / MI held-out
-                # floor (to recover non-monotone XOR prewarps that |corr| might
-                # under-credit at small n) gives NO gain. The rank-1 reconstruction
-                # f(a)*g(b) is FIT to approximate y, so it is linear-in-y by
-                # construction -> |Pearson| is the right measure and is already
-                # high for genuine synergy (XOR-sign reconstruction |corr| 0.64-0.75
-                # at n=200, far above this 0.08 floor); benched 0/20 cases where
-                # |corr|<floor BUT dcor>=0.15 across mul/xor-sign/sq*abs/a*sin(b).
-                return abs(float(np.corrcoef(_recon, _y_val)[0, 1])) >= _pw_min_val_corr
-            except Exception as e:
-                # ACCEPT was the wrong fallback direction: this closure's entire job is to prove, on held-out
-                # rows, that the warp helps. A failure means there is NO such evidence, yet returning True
-                # promoted an unvalidated (possibly distorted) operand into the engineered set -- the gate
-                # switching itself off in exactly the conditions that trip it. Reject instead: losing one
-                # candidate warp is strictly cheaper than admitting an unchecked one, and ``False`` is
-                # already an ordinary outcome of this closure. Throttled warning (per-pair hot path) so a
-                # validator that starts failing is discoverable rather than silently permissive.
-                log_throttle(
-                    _module_logger, "prewarp_heldout_validation_failed", logging.WARNING,
-                    "prewarp held-out correlation validation failed (%s: %s); REJECTING the warp (no held-out evidence).",
-                    type(e).__name__, e,
-                )
-                return False
-
-        # bench-attempt-rejected (2026-06-20): "skip the ALS prewarp fit when the clean-form
-        # demotion (commit 3e62742e) would discard it anyway" was investigated and NOT shipped.
-        # (1) A per-pair MEMO / cross-chunk shared cache to drop "wasted" refits was a NO-OP:
-        # instrumentation showed every distinct (var_a, var_b) index pair is already fit EXACTLY
-        # ONCE per FE step (memo never hit a duplicate). The apparent "32 full fits / 8 distinct
-        # pairs" signal was a measurement artifact - distinct var-index pairs collided under a
-        # first-2-operand-values signature; there is no redundant fitting to eliminate, so the
-        # batched/shared-factorisation lever (B) has no target.
-        # (2) A PRE-SCREEN (A) - skip the fit when the prewarp cannot clear the +5% demotion bar
-        # - needs the clean-form's continuous-y |corr|, but that is the best NON-prewarp ENGINEERED
-        # config (unary x unary x binary), i.e. the very search being timed; it is not cheaply
-        # computable before the fit. The cheap proxy max(best_single_unary|corr(a)|,|corr(b)|) does
-        # NOT separate cleanly: measured prewarp_recon/best_single_unary ratio on the canonical
-        # demoted pairs ranged 1.00-1.12 while the genuinely-non-monotone RETAINED case
-        # (y=(a**3-2a)*(b**2-b)) ranged 1.05-1.47 - overlapping bands, so any skip threshold safe
-        # for the prewarp_retained pin (>=1.36) would leave most demoted pairs unskipped, and a
-        # tighter one would risk pruning the retained case. The whole lstsq/ALS stage is only ~2.8s
-        # of a ~128s canonical n=100k fit (~2.2%), and only a fraction is safely skippable, so the
-        # bounded, selection-risky win does not clear the bar. Left as the exact per-pair fit.
-        # A var's warp is fit JOINTLY with one partner, but the var-keyed column is shared by every pair it enters, so the binding
-        # decides which interaction the warp can express. Binding to the first (most-prospective) pairing let a strong but
-        # additive partner claim the var: on y = 0.2*a**2/b + f/5 + log(2c)*sin(d/3) pair (a,c) ranks before (c,d), and the
-        # c-warp fit against a gives prewarp(c)*prewarp(d) MI 0.23 about y, against 0.31 with the c-warp fit against d. Each
-        # var now binds to the pair whose rank-1 product carries the most |corr(y)| BEYOND its own two factors (the synergy the
-        # joint fit exists for); the first pairing still wins ties, so a var with no synergistic partner keeps its legacy warp.
-        _pw_bind_gain: dict = {}
+        apply_operand_prewarp, fit_pair_prewarp_als, _prewarp_y_eff, _operand_vals, _prewarp_generalises, _pw_bind_gain = _fit_prewarp_and_gate_med_part1(
+            prewarp_y_continuous, prewarp_y, _use_subsample, _full_n_rows, _sample_idx, _extval_raw_col, prewarp_min_val_corr, prewarp_basis,
+            prewarp_max_degree,
+        )
         for raw_vars_pair, _ in prospective_pairs.keys():
             _va, _vb = raw_vars_pair[0], raw_vars_pair[1]
             _vals_a = _operand_vals(_va)
@@ -317,6 +190,145 @@ def _fit_prewarp_and_gate_med(
                     continue
                 _gate_med_median_by_var[_gv] = _gmed
     return _prewarp_active, _prewarp_spec_by_var, _gate_med_active, _gate_med_median_by_var
+
+
+def _fit_prewarp_and_gate_med_part1(
+    prewarp_y_continuous: Any, prewarp_y: Any, _use_subsample: Any, _full_n_rows: Any, _sample_idx: Any, _extval_raw_col: Any, prewarp_min_val_corr: Any,
+    prewarp_basis: Any, prewarp_max_degree: Any,
+) -> tuple[Any, ...]:
+    """Extracted block of ``_fit_prewarp_and_gate_med`` (part 1); returns the names the caller still uses."""
+    from ..hermite_fe import apply_operand_prewarp, fit_pair_prewarp_als
+    # The ALS reconstruction target: prefer the CONTINUOUS y when supplied (it
+    # is the faithful least-squares target; the binned ``classes_y`` codes the
+    # target-rebin guard produces are for the MI screen, not for reconstructing
+    # a continuous f(a)*g(b)). Fall back to ``classes_y`` codes when no
+    # continuous target was threaded (legacy / non-numeric / multi-output y).
+    _pw_y_src = prewarp_y_continuous if prewarp_y_continuous is not None else prewarp_y
+    _pw_y = np.asarray(_pw_y_src)
+    if _use_subsample and _pw_y.shape[0] == _full_n_rows:
+        _pw_y = _pw_y[_sample_idx]
+    _prewarp_y_eff = winsorize_heavy_tailed_target(np.ascontiguousarray(_pw_y, dtype=np.float64))
+
+    # JOINT per-pair ALS pre-fit. For each prospective pair fit BOTH operand
+    # warps together (rank-1 ALS); an independent 1-D fit cannot recover the
+    # b-side of a product target whose b-marginal is ~0. First pairing wins
+    # for a var shared across pairs (pairs are processed most-prospective-
+    # first, so a shared var binds to its strongest interaction). None specs
+    # leave the pseudo-unary unregistered for that var.
+    # Q8: route the prewarp operand extraction through the SHARED
+    # ``_extval_raw_col`` memo (the single {var: raw-ndarray} cache) instead of a
+    # second un-memoised ``X.iloc[...].values`` per call. The prewarp loop reads each
+    # pair's two operands, and a var shared across many prospective pairs was previously
+    # re-extracted once PER pair; the shared memo extracts each distinct var ONCE.
+    # Bit-identical: ``_extval_raw_col`` performs the IDENTICAL ``.values`` / ``.to_numpy()``
+    # extract (same None-on-missing guard) - only the redundant re-reads are removed.
+    _operand_vals = _extval_raw_col
+
+    # OUT-OF-SAMPLE PREWARP VALIDATION. The ALS prewarp is a
+    # SUPERVISED per-operand fit; at small n it overfits noise operands (the
+    # in-sample uplift is inflated by the fit AND by the multiple operand/pair
+    # comparisons), so a noise-paired warp clears the in-sample uplift gate,
+    # gets engineered, and ABSORBS a genuine feature - the raw column then
+    # reads as redundant and is dropped, leaving a noise-diluted feature
+    # (measured: a genuine X5 dropped at n=500). Guard: fit the warp on a TRAIN
+    # slice and keep it only if its rank-1 reconstruction f(a)*g(b) still tracks
+    # y on a HELD-OUT slice. Genuine synergy (incl. zero-marginal XOR) and
+    # genuine non-monotone inners generalise; overfit-on-noise collapses on the
+    # held-out slice. At large n train ~= full so genuine recovery is untouched.
+    # ``fe_pair_prewarp_min_val_corr`` (default 0.08) is the held-out floor; 0.0
+    # restores the legacy in-sample-only fit.
+    _pw_min_val_corr = float(prewarp_min_val_corr or 0.0)
+    _pw_n = int(_prewarp_y_eff.shape[0]) if hasattr(_prewarp_y_eff, "shape") else len(_prewarp_y_eff)
+    # Deterministic stride split (no RNG): every 3rd row -> validation (~33%).
+    _pw_cv_ok = _pw_min_val_corr > 0.0 and _pw_n >= 60
+    if _pw_cv_ok:
+        _val_mask = np.arange(_pw_n) % 3 == 0
+        _tr_mask = ~_val_mask
+        _y_tr = _prewarp_y_eff[_tr_mask]
+        _y_val = _prewarp_y_eff[_val_mask] - float(np.mean(_prewarp_y_eff[_val_mask]))
+
+    def _prewarp_generalises(_va_full, _vb_full):
+        """True if an ALS warp fit on the train slice still tracks y on the
+            held-out slice (rank-1 reconstruction correlation >= floor)."""
+        # Operands are read from the (already subsampled) pair-search frame and the target is cut to the same rows, so their lengths agree on
+        # every correct path. A mismatch means the rows are misaligned: no warp fit on them is meaningful, validated or not, so reject before
+        # the CV switch. Accepting here used to skip the held-out check and let the full ALS fit pair operand rows with the wrong target rows.
+        _len_a = int(np.asarray(_va_full).reshape(-1).shape[0])
+        _len_b = int(np.asarray(_vb_full).reshape(-1).shape[0])
+        if _len_a != _pw_n or _len_b != _pw_n:
+            log_throttle(
+                _module_logger, "prewarp_operand_length_mismatch", logging.WARNING,
+                "prewarp operand length (%d, %d) differs from the target's %d rows; the rows are misaligned, REJECTING the warp.",
+                _len_a, _len_b, _pw_n,
+            )
+            return False
+        if not _pw_cv_ok:
+            return True  # CV disabled / n too small -> accept (legacy behaviour)
+        try:
+            _a = np.asarray(_va_full, dtype=np.float64).reshape(-1)
+            _b = np.asarray(_vb_full, dtype=np.float64).reshape(-1)
+            _sa_tr, _sb_tr = fit_pair_prewarp_als(
+                _a[_tr_mask], _b[_tr_mask], _y_tr,
+                basis=prewarp_basis, max_degree=prewarp_max_degree,
+            )
+            if _sa_tr is None or _sb_tr is None:
+                return False
+            _wa = apply_operand_prewarp(_a[_val_mask], _sa_tr)
+            _wb = apply_operand_prewarp(_b[_val_mask], _sb_tr)
+            _recon = _wa * _wb
+            if float(np.std(_recon)) < 1e-12 or float(np.std(_y_val)) < 1e-12:
+                return False
+            # measure-experiment-rejected (2026-06-03): a dcor / MI held-out
+            # floor (to recover non-monotone XOR prewarps that |corr| might
+            # under-credit at small n) gives NO gain. The rank-1 reconstruction
+            # f(a)*g(b) is FIT to approximate y, so it is linear-in-y by
+            # construction -> |Pearson| is the right measure and is already
+            # high for genuine synergy (XOR-sign reconstruction |corr| 0.64-0.75
+            # at n=200, far above this 0.08 floor); benched 0/20 cases where
+            # |corr|<floor BUT dcor>=0.15 across mul/xor-sign/sq*abs/a*sin(b).
+            return abs(float(np.corrcoef(_recon, _y_val)[0, 1])) >= _pw_min_val_corr
+        except Exception as e:
+            # ACCEPT was the wrong fallback direction: this closure's entire job is to prove, on held-out
+            # rows, that the warp helps. A failure means there is NO such evidence, yet returning True
+            # promoted an unvalidated (possibly distorted) operand into the engineered set -- the gate
+            # switching itself off in exactly the conditions that trip it. Reject instead: losing one
+            # candidate warp is strictly cheaper than admitting an unchecked one, and ``False`` is
+            # already an ordinary outcome of this closure. Throttled warning (per-pair hot path) so a
+            # validator that starts failing is discoverable rather than silently permissive.
+            log_throttle(
+                _module_logger, "prewarp_heldout_validation_failed", logging.WARNING,
+                "prewarp held-out correlation validation failed (%s: %s); REJECTING the warp (no held-out evidence).",
+                type(e).__name__, e,
+            )
+            return False
+
+    # bench-attempt-rejected (2026-06-20): "skip the ALS prewarp fit when the clean-form
+    # demotion (commit 3e62742e) would discard it anyway" was investigated and NOT shipped.
+    # (1) A per-pair MEMO / cross-chunk shared cache to drop "wasted" refits was a NO-OP:
+    # instrumentation showed every distinct (var_a, var_b) index pair is already fit EXACTLY
+    # ONCE per FE step (memo never hit a duplicate). The apparent "32 full fits / 8 distinct
+    # pairs" signal was a measurement artifact - distinct var-index pairs collided under a
+    # first-2-operand-values signature; there is no redundant fitting to eliminate, so the
+    # batched/shared-factorisation lever (B) has no target.
+    # (2) A PRE-SCREEN (A) - skip the fit when the prewarp cannot clear the +5% demotion bar
+    # - needs the clean-form's continuous-y |corr|, but that is the best NON-prewarp ENGINEERED
+    # config (unary x unary x binary), i.e. the very search being timed; it is not cheaply
+    # computable before the fit. The cheap proxy max(best_single_unary|corr(a)|,|corr(b)|) does
+    # NOT separate cleanly: measured prewarp_recon/best_single_unary ratio on the canonical
+    # demoted pairs ranged 1.00-1.12 while the genuinely-non-monotone RETAINED case
+    # (y=(a**3-2a)*(b**2-b)) ranged 1.05-1.47 - overlapping bands, so any skip threshold safe
+    # for the prewarp_retained pin (>=1.36) would leave most demoted pairs unskipped, and a
+    # tighter one would risk pruning the retained case. The whole lstsq/ALS stage is only ~2.8s
+    # of a ~128s canonical n=100k fit (~2.2%), and only a fraction is safely skippable, so the
+    # bounded, selection-risky win does not clear the bar. Left as the exact per-pair fit.
+    # A var's warp is fit JOINTLY with one partner, but the var-keyed column is shared by every pair it enters, so the binding
+    # decides which interaction the warp can express. Binding to the first (most-prospective) pairing let a strong but
+    # additive partner claim the var: on y = 0.2*a**2/b + f/5 + log(2c)*sin(d/3) pair (a,c) ranks before (c,d), and the
+    # c-warp fit against a gives prewarp(c)*prewarp(d) MI 0.23 about y, against 0.31 with the c-warp fit against d. Each
+    # var now binds to the pair whose rank-1 product carries the most |corr(y)| BEYOND its own two factors (the synergy the
+    # joint fit exists for); the first pairing still wins ties, so a var with no synergistic partner keeps its legacy warp.
+    _pw_bind_gain: dict = {}
+    return apply_operand_prewarp, fit_pair_prewarp_als, _prewarp_y_eff, _operand_vals, _prewarp_generalises, _pw_bind_gain
 
 
 def _build_operand_table(

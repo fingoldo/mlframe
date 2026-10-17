@@ -246,6 +246,19 @@ def sis_screen(
     if y_arr.shape[0] != n:
         raise ValueError(f"y length {y_arr.shape[0]} != n_rows {n}")
 
+    _ret_sis_screen_part1 = _sis_screen_part1(chunk_width, n, p, y_arr, nbins, Xarr, target_survivors, k_target, mad_c, dedup_corr_thr, return_scores)
+    if _ret_sis_screen_part1[0]:
+        _early_sis_screen_part1: np.ndarray | tuple[np.ndarray, dict] = _ret_sis_screen_part1[1]
+        return _early_sis_screen_part1
+    survivors: np.ndarray | tuple[np.ndarray, dict] = _ret_sis_screen_part1[1]
+    return survivors
+
+
+def _sis_screen_part1(
+    chunk_width: Optional[int], n: Any, p: Any, y_arr: Any, nbins: int, Xarr: Any, target_survivors: Optional[int], k_target: Optional[int], mad_c: float,
+    dedup_corr_thr: float, return_scores: bool,
+) -> tuple[Any, ...]:
+    """Extracted block of ``sis_screen`` (part 1); returns the names the caller still uses."""
     free_bytes = _free_ram_bytes()
     if chunk_width is None:
         chunk_width = _choose_chunk_width(n, p, free_bytes)
@@ -380,8 +393,8 @@ def sis_screen(
             logger.warning("sis_screen: redundancy dedup skipped (%s: %s); keeping all %d survivors", type(exc).__name__, exc, n_pre_dedup)
 
     if return_scores:
-        return survivors, {"fused": fused, "mi": mi, "propensity": prop, "chunk_width": chunk_width}
-    return survivors
+        return True, (survivors, {"fused": fused, "mi": mi, "propensity": prop, "chunk_width": chunk_width})
+    return False, survivors
 
 
 __all__ = ["sis_screen", "fuse_scores", "survivor_count"]

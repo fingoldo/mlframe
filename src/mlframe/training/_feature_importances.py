@@ -214,6 +214,58 @@ def _unwrap_estimator_chain(model: Any) -> Any:
     return cur
 
 
+# Adaptive scorer: PyTorch-Lightning / Keras / custom predict-only
+# wrappers usually lack a sklearn-style ``.score(X, y)`` method, so
+# ``permutation_importance`` would raise "estimator does not have a
+# 'score' method". Supplying an explicit callable that dispatches
+# to r2_score (regression) or accuracy_score (classification) based
+# on predict's dtype keeps both paths working without the caller
+# threading a task hint.
+def _adaptive_permutation_scorer(estimator: Any, X: Any, y: Any, sample_weight: Optional[np.ndarray] = None) -> float:
+    """Score ``estimator`` on a private, writeable copy of ``X`` using r2/accuracy chosen from the predictions' dtype, for wrappers lacking a sklearn-style ``.score()``.
+
+    ``sample_weight`` is accepted (not just ignored) because sklearn's ``permutation_importance``
+    calls ``scoring(estimator, X, y, sample_weight=sample_weight)`` whenever its own ``sample_weight``
+    argument is non-None -- an unweighted-only signature would raise ``TypeError`` on every call.
+    """
+    try:
+        # CatBoost.predict() flips its input ndarray to read-only; sklearn reuses one X_permuted buffer and
+        # shuffles it in place across n_repeats, so predicting on it directly makes the next shuffle raise
+        # "assignment destination is read-only". Predict on a private copy to keep sklearn's buffer writeable.
+        preds = estimator.predict(np.array(X, copy=True) if isinstance(X, np.ndarray) else X)
+    except Exception as exc:
+        # Throttled WARNING, not debug. `-inf` for every permutation makes baseline and permuted scores
+        # equal, so the importances come out uninformative rather than wrong -- which is exactly why a
+        # genuinely broken estimator would otherwise never be noticed. The scorer runs once per feature per
+        # repeat, so a plain warning would spam; a throttled one surfaces it a handful of times per process.
+        log_throttle(
+            logger,
+            "permutation_fi_scorer_predict_failed",
+            logging.WARNING,
+            "permutation FI: the estimator's predict() raised (%s: %s), so every permutation scores as -inf "
+            "and the resulting importances carry no information. This is an estimator failure, not a "
+            "feature-importance result.",
+            type(exc).__name__,
+            exc,
+        )
+        return -np.inf
+    preds_arr = np.asarray(preds)
+    y_arr_local = np.asarray(y)
+    if preds_arr.dtype.kind == "f" and y_arr_local.dtype.kind in {"f", "i", "u"}:
+        from mlframe.metrics.core import fast_r2_score
+        try:
+            return float(fast_r2_score(y_arr_local, preds_arr, sample_weight=sample_weight))
+        except Exception as exc:
+            log_throttle(logger, "_feature_importances._adaptive_scorer", logging.WARNING, "permutation FI: fast_r2_score scoring failed; scoring as -inf: %r", exc, exc_info=True)
+            return -np.inf
+    from mlframe.metrics.core import accuracy_ratio
+    try:
+        return float(accuracy_ratio(y_arr_local, preds_arr))
+    except Exception as exc:
+        log_throttle(logger, "_feature_importances._adaptive_scorer", logging.WARNING, "permutation FI: accuracy_ratio scoring failed; scoring as -inf: %r", exc, exc_info=True)
+        return -np.inf
+
+
 def _permutation_feature_importances(
     model: Any,
     X: np.ndarray | pd.DataFrame,
@@ -289,56 +341,6 @@ def _permutation_feature_importances(
         X_sub = X_arr
         y_sub = y_arr
         sw_sub = sw_arr
-    # Adaptive scorer: PyTorch-Lightning / Keras / custom predict-only
-    # wrappers usually lack a sklearn-style ``.score(X, y)`` method, so
-    # ``permutation_importance`` would raise "estimator does not have a
-    # 'score' method". Supplying an explicit callable that dispatches
-    # to r2_score (regression) or accuracy_score (classification) based
-    # on predict's dtype keeps both paths working without the caller
-    # threading a task hint.
-    def _adaptive_scorer(estimator, X, y, sample_weight=None):
-        """Score ``estimator`` on a private, writeable copy of ``X`` using r2/accuracy chosen from the predictions' dtype, for wrappers lacking a sklearn-style ``.score()``.
-
-        ``sample_weight`` is accepted (not just ignored) because sklearn's ``permutation_importance``
-        calls ``scoring(estimator, X, y, sample_weight=sample_weight)`` whenever its own ``sample_weight``
-        argument is non-None -- an unweighted-only signature would raise ``TypeError`` on every call.
-        """
-        try:
-            # CatBoost.predict() flips its input ndarray to read-only; sklearn reuses one X_permuted buffer and
-            # shuffles it in place across n_repeats, so predicting on it directly makes the next shuffle raise
-            # "assignment destination is read-only". Predict on a private copy to keep sklearn's buffer writeable.
-            preds = estimator.predict(np.array(X, copy=True) if isinstance(X, np.ndarray) else X)
-        except Exception as exc:
-            # Throttled WARNING, not debug. `-inf` for every permutation makes baseline and permuted scores
-            # equal, so the importances come out uninformative rather than wrong -- which is exactly why a
-            # genuinely broken estimator would otherwise never be noticed. The scorer runs once per feature per
-            # repeat, so a plain warning would spam; a throttled one surfaces it a handful of times per process.
-            log_throttle(
-                logger,
-                "permutation_fi_scorer_predict_failed",
-                logging.WARNING,
-                "permutation FI: the estimator's predict() raised (%s: %s), so every permutation scores as -inf "
-                "and the resulting importances carry no information. This is an estimator failure, not a "
-                "feature-importance result.",
-                type(exc).__name__,
-                exc,
-            )
-            return -np.inf
-        preds_arr = np.asarray(preds)
-        y_arr_local = np.asarray(y)
-        if preds_arr.dtype.kind == "f" and y_arr_local.dtype.kind in {"f", "i", "u"}:
-            from mlframe.metrics.core import fast_r2_score
-            try:
-                return float(fast_r2_score(y_arr_local, preds_arr, sample_weight=sample_weight))
-            except Exception as exc:
-                log_throttle(logger, "_feature_importances._adaptive_scorer", logging.WARNING, "permutation FI: fast_r2_score scoring failed; scoring as -inf: %r", exc, exc_info=True)
-                return -np.inf
-        from mlframe.metrics.core import accuracy_ratio
-        try:
-            return float(accuracy_ratio(y_arr_local, preds_arr))
-        except Exception as exc:
-            log_throttle(logger, "_feature_importances._adaptive_scorer", logging.WARNING, "permutation FI: accuracy_ratio scoring failed; scoring as -inf: %r", exc, exc_info=True)
-            return -np.inf
     # Threading backend (NOT loky / multiprocessing):
     # ``profiling/bench_permutation_fi_nn.py`` measured a
     # ~1.4x median speedup across 6 NN-FI scenarios when
@@ -363,7 +365,7 @@ def _permutation_feature_importances(
         with joblib.parallel_backend("threading", n_jobs=-1):
             result = permutation_importance(
                 model, X_sub, y_sub,
-                scoring=_adaptive_scorer,
+                scoring=_adaptive_permutation_scorer,
                 n_repeats=n_repeats, random_state=random_state, n_jobs=-1,
                 sample_weight=sw_sub,
             )

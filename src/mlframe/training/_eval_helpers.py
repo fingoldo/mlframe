@@ -572,11 +572,8 @@ def _compute_split_metrics(
         plot_outputs=plot_outputs,
         split_plot_file=split_plot_file,
         metrics_dict=metrics_dict,
-        columns=columns,
-        subgroups=subgroups,
-        idx=idx,
-        split_timestamps=split_timestamps,
-        reporting_config=reporting_config,
+        columns=columns, subgroups=subgroups, idx=idx,
+        split_timestamps=split_timestamps, reporting_config=reporting_config,
     )
     return preds, probs, columns
 

@@ -81,6 +81,59 @@ def _cast_utf8_cats_to_categorical(
     return df_.with_columns(exprs) if exprs else df_
 
 
+def _fill_null_in_categorical_features(
+    train_df_polars: pl.DataFrame | None,
+    val_df_polars: pl.DataFrame | None,
+    test_df_polars: pl.DataFrame | None,
+    cat_features: list[str] | None,
+    verbose: bool,
+) -> tuple[pl.DataFrame | None, pl.DataFrame | None, pl.DataFrame | None, set[str]]:
+    """Fill nulls of nullable Polars Categorical cat_features with ``__MISSING__``; return the frames plus the set of filled columns."""
+    _filled_with_missing_sentinel: set[str] = set()
+    if train_df_polars is not None:
+        from mlframe.training.trainer import (
+            _polars_nullable_categorical_cols,
+            _polars_fill_null_in_categorical,
+        )
+        # Union across train/val/test: val-only nulls are common on time-ordered splits and must also trigger the fill.
+        train_null_cats = set(_polars_nullable_categorical_cols(
+            train_df_polars, cat_features=cat_features,
+        ))
+        val_null_cats = set(_polars_nullable_categorical_cols(
+            val_df_polars, cat_features=cat_features,
+        )) if val_df_polars is not None else set()
+        test_null_cats = set(_polars_nullable_categorical_cols(
+            test_df_polars, cat_features=cat_features,
+        )) if test_df_polars is not None else set()
+        nullable_cats = sorted(train_null_cats | val_null_cats | test_null_cats)
+        _filled_with_missing_sentinel = set(nullable_cats)
+        if nullable_cats:
+            val_only = sorted((val_null_cats | test_null_cats) - train_null_cats)
+            if verbose:
+                logger.info(
+                    "  Pre-fit fill_null('__MISSING__') on %d nullable Polars "
+                    "Categorical cat_feature(s) [union train/val/test]: %s. "
+                    "Keeps CB 1.2.x's Polars fastpath alive (avoids the "
+                    "~15-min pandas-path detour) and gives XGB/HGB the "
+                    "same pre-filled frame.",
+                    len(nullable_cats), nullable_cats,
+                )
+                if val_only:
+                    logger.warning(
+                        "  val/test introduced nulls in %d cat_feature(s) that "
+                        "train never had: %s. Without pre-fill these would "
+                        "slip into the model's val DMatrix as raw nulls and "
+                        "crash CB/XGB native layer.",
+                        len(val_only), val_only,
+                    )
+            train_df_polars = _polars_fill_null_in_categorical(train_df_polars, nullable_cats)
+            if val_df_polars is not None:
+                val_df_polars = _polars_fill_null_in_categorical(val_df_polars, nullable_cats)
+            if test_df_polars is not None:
+                test_df_polars = _polars_fill_null_in_categorical(test_df_polars, nullable_cats)
+    return train_df_polars, val_df_polars, test_df_polars, _filled_with_missing_sentinel
+
+
 def apply_polars_categorical_fixes(
     *,
     train_df_polars: pl.DataFrame | None,
@@ -129,47 +182,9 @@ def apply_polars_categorical_fixes(
     _filled_with_missing_sentinel: set[str] = set()
 
     # 1. Null-fill. Null values in Polars Categorical cat_features trip CatBoost 1.2.10's fused-cpdef dispatcher.
-    if train_df_polars is not None:
-        from mlframe.training.trainer import (
-            _polars_nullable_categorical_cols,
-            _polars_fill_null_in_categorical,
-        )
-        # Union across train/val/test: val-only nulls are common on time-ordered splits and must also trigger the fill.
-        train_null_cats = set(_polars_nullable_categorical_cols(
-            train_df_polars, cat_features=cat_features,
-        ))
-        val_null_cats = set(_polars_nullable_categorical_cols(
-            val_df_polars, cat_features=cat_features,
-        )) if val_df_polars is not None else set()
-        test_null_cats = set(_polars_nullable_categorical_cols(
-            test_df_polars, cat_features=cat_features,
-        )) if test_df_polars is not None else set()
-        nullable_cats = sorted(train_null_cats | val_null_cats | test_null_cats)
-        _filled_with_missing_sentinel = set(nullable_cats)
-        if nullable_cats:
-            val_only = sorted((val_null_cats | test_null_cats) - train_null_cats)
-            if verbose:
-                logger.info(
-                    "  Pre-fit fill_null('__MISSING__') on %d nullable Polars "
-                    "Categorical cat_feature(s) [union train/val/test]: %s. "
-                    "Keeps CB 1.2.x's Polars fastpath alive (avoids the "
-                    "~15-min pandas-path detour) and gives XGB/HGB the "
-                    "same pre-filled frame.",
-                    len(nullable_cats), nullable_cats,
-                )
-                if val_only:
-                    logger.warning(
-                        "  val/test introduced nulls in %d cat_feature(s) that "
-                        "train never had: %s. Without pre-fill these would "
-                        "slip into the model's val DMatrix as raw nulls and "
-                        "crash CB/XGB native layer.",
-                        len(val_only), val_only,
-                    )
-            train_df_polars = _polars_fill_null_in_categorical(train_df_polars, nullable_cats)
-            if val_df_polars is not None:
-                val_df_polars = _polars_fill_null_in_categorical(val_df_polars, nullable_cats)
-            if test_df_polars is not None:
-                test_df_polars = _polars_fill_null_in_categorical(test_df_polars, nullable_cats)
+    train_df_polars, val_df_polars, test_df_polars, _filled_with_missing_sentinel = _fill_null_in_categorical_features(
+        train_df_polars, val_df_polars, test_df_polars, cat_features, verbose
+    )
 
     # 2. Align dicts across train/val/test via pl.Enum.
     # pl.Categorical assigns physical codes per-Series (order-of-first-occurrence) and XGB's native layer treats val's physical codes as indices into train's bin structure without re-reading the Arrow dict. pl.Enum(list) enforces a shared dict by construction. Opt out via ``align_polars_categorical_dicts=False``.

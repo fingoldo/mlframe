@@ -128,6 +128,216 @@ def _retention_prep(
     }
 
 
+def _raws_already_explain_y(X: Any, y_cont: np.ndarray, base_names: list, is_clf: bool, seed: int) -> bool:
+    """Cheap gate: ``True`` when a linear / logistic fit on the raw bases already explains the target, so no trapped nonlinear pair form can help."""
+    # CHEAP LINEAR-FIT GATE: the trap conditions above are NECESSARY but not sufficient -
+    # ``trap_b`` (no pure pair form present) is true on almost every regression fit, including ones whose
+    # y is simply ADDITIVE-LINEAR in the raws (no interaction to recover at all). The expensive pool build
+    # (O(pairs x unary^2 x binary) MI evals - ~88% of fit time when it fires) must therefore ALSO be
+    # gated on evidence that a nonlinear pair interaction even EXISTS: fit a plain linear model on the raw
+    # bases and skip when it already explains y well (high R^2 -> the linear downstream is already served
+    # by the raws, no pure form can help). a**2/b / log(c)*sin(d) / a*b leave large linear residual (low
+    # R^2) -> proceed; y = sum(raws) + noise fits ~0.98 -> skip. One cheap fit vs a 200s pool build.
+    try:
+        from sklearn.preprocessing import StandardScaler
+        from sklearn.pipeline import make_pipeline as _mp
+
+        _ng = len(y_cont)
+        if _ng > 2000:
+            _rg = np.random.default_rng(int(seed) + 5)
+            _gi = np.sort(_rg.choice(_ng, size=2000, replace=False))
+            _Xg = X.iloc[_gi][base_names].to_numpy(dtype=np.float64, copy=False)
+            _yg = y_cont[_gi]
+        else:
+            _Xg = X[base_names].to_numpy(dtype=np.float64, copy=False)
+            _yg = y_cont
+        _Xg = np.nan_to_num(_Xg, nan=0.0, posinf=0.0, neginf=0.0)
+        if is_clf:
+            # CLASSIFICATION analogue: fit a logistic model on the raw bases and skip when the raws
+            # already linearly SEPARATE the classes well (held-in AUC>=0.92 binary / accuracy>=0.92
+            # multiclass) - no trapped nonlinear interaction a pure form could recover. A polynomial /
+            # interaction target leaves the raw-only logistic AUC well below 0.92 -> proceed.
+            from sklearn.linear_model import LogisticRegression as _LogR
+            from mlframe.metrics.core import fast_roc_auc as _auc
+
+            _ycodes_g = np.unique(_yg, return_inverse=True)[1]
+            if np.unique(_ycodes_g).size >= 2:
+                _clf = _mp(StandardScaler(), _LogR(max_iter=200)).fit(_Xg, _ycodes_g)
+                if np.unique(_ycodes_g).size == 2:
+                    _sc = float(_auc(_ycodes_g, _clf.predict_proba(_Xg)[:, 1]))
+                else:
+                    # multiclass accuracy = fraction correct (accuracy_ratio is CAP-AR, a different quantity)
+                    _sc = float(np.mean(_ycodes_g == _clf.predict(_Xg)))
+                if _sc >= 0.92:
+                    return True  # raws already separate the classes - nothing nonlinear to recover
+        else:
+            from sklearn.linear_model import LinearRegression
+
+            _r2 = float(_mp(StandardScaler(), LinearRegression()).fit(_Xg, _yg).score(_Xg, _yg))
+            if _r2 >= 0.92:
+                return True  # raws already fit y linearly - no trapped nonlinear interaction to recover
+    except Exception as e:  # nosec B110 - optional/best-effort path, rationale documented
+        logger.debug("linear-fit gate check failed, falling through to the full path: %s", e)  # gate is an optimisation; on any failure fall through to the (correct) full path
+    return False
+
+
+def _abscorr(u, v):
+    """Absolute Pearson correlation between ``u`` and ``v``, returning 0.0 when either is (near-)constant to avoid a divide-by-zero."""
+    u = u - u.mean(); v = v - v.mean()
+    du, dv = float(np.sqrt((u * u).sum())), float(np.sqrt((v * v).sum()))
+    if du <= 1e-12 or dv <= 1e-12:
+        return 0.0
+    return abs(float((u * v).sum()) / (du * dv))
+
+def _single_operand_basis(x):
+    """Build a small additive nonlinear basis (square/cube/signed-sqrt/signed-log1p/reciprocal) for a single standardized operand, spanning separable single-variable nonlinearities so a genuinely joint (non-separable) form can be told apart from a sum of per-operand transforms."""
+    # any SEPARABLE function f(a)+g(b) lives in the span of [basis(a)] + [basis(b)], so a cross-pair form that merely sums two single-operand
+    # nonlinearities (a**3 + sqrt(d)) is reconstructed here with ~0 residual, while a genuine
+    # NON-separable joint form (a**2/b is a ratio, log(c)*sin(d) a product) is not.
+    xs = standardise(x)
+    cols = [xs, xs * xs, xs * xs * xs, np.sign(xs) * np.sqrt(np.abs(xs)), np.sign(xs) * np.log1p(np.abs(xs)), 1.0 / (np.abs(xs) + 1.0)]
+    return cols
+
+
+def _build_form_pool(mrmr: Any, X_fit: Any, _yv: np.ndarray, base_names: list, is_clf: bool) -> Any:
+    """Build the usability candidate pool over the base operands (joint-MI-ranked pairs, wider per-pair cap for classification)."""
+    from ._usability_aware_selection import build_usability_candidate_pool
+
+    # max_per_pair: 3 for REGRESSION (the genuine joint form is the top-joint-MI form for its pair, so
+    # top-3 reliably keeps it). For CLASSIFICATION the binned-MI ranking favours high-MI quadratic-WARP
+    # forms whose joint residual is IRRELEVANT to the class indicator, burying the genuinely usable
+    # ratio/product form (e.g. on y=sign(0.7*x0^2-0.5*x1^2+0.3*x0*x1) the relevant div(abs(x0),sqrt(x1))
+    # - class-indicator corr ~0.47 - only survives the per-pair cap at >=8). Widen the cap to 8 so the
+    # downstream non-separability + class-relevance filter has the genuine form to keep; the filter
+    # discards the rest, so the extra replay cost is bounded.
+    _max_per_pair = 8 if is_clf else 3
+    # An explicit ``min_relevance_gain_mode='absolute'`` floor is a verbatim caller contract that every
+    # selection path honours; this pool is built outside the screen, so it applies the floor itself.
+    # The default relative mode keeps the pool's own 0.02 floor (retention exists to rescue forms the
+    # relative screen under-ranks).
+    _pool_mi_floor = 0.02
+    _pool_mi_floor = _retain_usable_pure_relative_screen_under_ranks(mrmr, _pool_mi_floor)
+    pool = build_usability_candidate_pool(
+        X_fit, _yv, base_names, max_pairs=10, max_per_pair=_max_per_pair, rank_pairs_by_joint_mi=True, mi_floor=_pool_mi_floor,
+    )
+    return pool
+
+
+def _pure_form_trap_present(existing: Any, base_names: list, is_clf: bool, _clf_form_relevant: Any) -> bool:
+    """Cheap trap pre-check: ``True`` when a cross-mix recipe exists or no pure pair form is present (>=2 raw numeric bases), i.e. a pure form may be trapped."""
+    # CHEAP TRAP PRE-CHECK: the whole point of this pass is to rescue a pure single-pair
+    # form the MI greedy TRAPPED - either inside a high-MI CROSS-MIX (>2 distinct operands) or in
+    # separate raw operands on a single-step fit that never produced the pure pair form. If NEITHER
+    # trap is plausibly present, no pure form can be trapped and the (expensive) pool build + CV greedy
+    # cannot recover anything, so return [] BEFORE paying that cost. This makes the pass zero-cost and
+    # side-effect-free on the vast majority of fits (no cross-mix and a pure pair already engineered),
+    # which is what was shifting survivor sets / adding per-fit cost on unrelated fits.
+    #   (a) a CROSS-MIX recipe exists: an engineered entry whose src_names has >2 DISTINCT names - the
+    #       blend that traps pure pairs; OR
+    #   (b) NO pure (<=2-operand) pair engineered form already survives (with >=2 raw numeric bases) -
+    #       the greedy either picked raw operands instead of the pure pair form (MS_three_tier
+    #       ``y = 5*a*b``) or a multi-step composite subsumed and dropped it (the user's F2
+    #       ``a**2/b + log(c)*sin(d)``).
+    # Count DISTINCT RAW OPERANDS, not src_names ENTRIES: on a MULTI-step fit a recipe's ``src_names``
+    # are themselves COMPOSITE expression strings (e.g. ``mul(exp(a),sqr(c))``), so a true 4-raw
+    # cross-mix ``div(sqr(add(invcbrt(b),prewarp(d))),invsqrt(mul(exp(a),sqr(c))))`` has only TWO
+    # src_names entries and would be mis-counted as a pure PAIR. Resolve each src token down to the
+    # raw bases it references (intersect its name tokens with the input feature set) so the
+    # cross-mix-vs-pure-pair classification is over genuine raw-operand arity.
+    _raw_base_set = set(base_names)
+
+    _raw_operands = _retain_usable_pure_f_step3_cross_mix_vs(_raw_base_set)
+
+    has_cross_mix = False
+    has_pure_pair = False
+    has_cross_mix, has_pure_pair = _retain_usable_pure_existing_2(existing, _raw_operands, is_clf, _clf_form_relevant, has_cross_mix, has_pure_pair)
+    # (b) NO pure (<=2-operand) pair engineered form already survives, yet >=2 raw numeric bases exist.
+    # The MI greedy then either picked raw operands instead of the pure pair form (single-step
+    # ``y = 5*a*b`` MS_three_tier case) OR - on a MULTI-step fit - built a higher-order composite that
+    # subsumed the pure pair and dropped it (the user's F2 ``a**2/b + log(c)*sin(d)``: the 2nd FE step
+    # fuses a cross-mix and the post-FE greedy drops the pure ``a**2/b`` parent). Either way the pure
+    # pair is trapped and recoverable, so the (multi-step) restriction the earlier draft placed on
+    # fe_max_steps==1 was too narrow - it suppressed the F2 recovery this pass exists for. Gate only on
+    # "a pure pair form is not already present", independent of step count.
+    trap_b = len(base_names) >= 2 and not has_pure_pair
+    return has_cross_mix or trap_b
+
+
+def _existing_form_coverage(mrmr: Any, X: Any, is_clf: bool, _clf_classes: Any, _y_codes: Any) -> tuple:
+    """Existing engineered recipes and the operand pairs they already cover; returns ``(existing, covered_pairs, clf_form_relevant)``."""
+    # Operand-pairs already covered by a PURE (<=2-operand) selected engineered form: those are
+    # not trapped, so do not duplicate them. Cross-mix forms (>2 operands) do NOT count - they
+    # are exactly what traps the pair.
+    existing = getattr(mrmr, "_engineered_recipes_", None) or []
+
+    # CLASSIFICATION lossy-form detection: the bug this pass fixes for classification is
+    # that the MI greedy keeps a LOSSY pure pair form (e.g. div(invqubed(x0),invqubed(x1)) on the
+    # polynomial-interaction target) that a logistic model cannot use, while the genuinely usable form
+    # (div(abs(x0),sqrt(x1)), class-indicator corr ~0.47) is absent. A lossy existing form sets
+    # has_pure_pair / covered_pairs and would wrongly suppress recovery. So for classification a pair
+    # counts as COVERED only if its best existing pure-pair form is actually class-relevant (replayed
+    # value's |point-biserial corr with the class indicator| >= this floor); a lossy form leaves the
+    # pair recoverable. Regression keeps presence-only coverage (byte-identical).
+    _CLF_COVER_CORR = 0.20
+
+    _clf_form_relevant = _retain_usable_pure_f_step1_pair_recoverable_regression(X, _clf_classes, _y_codes, _CLF_COVER_CORR)
+
+    covered_pairs: set[Any] = set()
+    _retain_usable_pure_existing(existing, is_clf, _clf_form_relevant, covered_pairs)
+    return existing, covered_pairs, _clf_form_relevant
+
+
+def _detect_pure_form_task(y_cont: np.ndarray) -> tuple:
+    """Classification-vs-regression detection for the cast target; returns ``(is_clf, y_codes, clf_classes)`` (codes / classes are ``None`` for regression)."""
+    from ._fe_accuracy_gate import infer_classification
+
+    # TASK DETECTION: the call-site passes ``_fe_prewarp_y_continuous_`` (any 1D numeric y
+    # cast to float64), so a CLASSIFICATION target arrives here as its float-cast integer labels.
+    # ``infer_classification`` distinguishes a low-cardinality discrete label vector from a genuine
+    # continuous regression target. For classification the LINEAR downstream is a LOGISTIC model and the
+    # gates below switch to a class-indicator (point-biserial) relevance test + a CV-logloss greedy;
+    # the regression path stays byte-identical (is_clf=False).
+    is_clf = bool(infer_classification(y_cont))
+    _y_codes: Any = None
+    _clf_classes: Any = None
+    if is_clf:
+        _clf_classes, _y_codes = np.unique(y_cont, return_inverse=True)
+    return is_clf, _y_codes, _clf_classes
+
+
+def _make_nonlinear_value_gate(min_resid_frac: float, min_resid_corr: float, _f64: Any, _scrub: Any, X_fit: Any, _nrows: int, is_clf: bool, _rel_y: Any) -> Any:
+    """Build the per-candidate non-separability gate: the form must be genuinely nonlinear in its raw operands and that nonlinearity relevant to the target."""
+    # NONLINEAR-RESIDUAL-VS-Y GATE. The CV-MAE greedy alone over-fires (adversarial-found):
+    # it admits a linear SUM like add(x1,x2) - a linear model ALREADY builds it from the raw operands -
+    # and CROSS-PAIR / noise-operand forms that lower MAE on a fold by chance. The retention's whole
+    # point is the NONLINEAR interaction a linear model cannot build from the raws (a**2/b,
+    # log(c)*sin(d)). Discriminator that avoids the other-additive-term variance confound (a global
+    # CV-MAE-over-raws comparison is dominated by the UNEXPLAINED term's variance, so a genuine form's
+    # relative gain can fall below any fixed threshold): regress the FORM on its two raw operands, take
+    # the RESIDUAL (the part the raws cannot linearly reproduce), and require BOTH (a) the residual is
+    # non-negligible (the form is genuinely nonlinear in its raws - rejects add(x1,x2), whose residual
+    # ~0) AND (b) that residual correlates with y (the nonlinearity is RELEVANT - rejects a cross-pair
+    # / noise form whose nonlinear part is unrelated to the target). a**2/b: large residual, correlated
+    # with y -> kept; both holes -> rejected.
+    from sklearn.linear_model import LinearRegression
+    from sklearn.preprocessing import StandardScaler
+
+    # Cache the (nm_a, nm_b) additive-basis design matrix, ALREADY StandardScaler-transformed, keyed
+    # by the unordered operand pair: it depends only on (xa, xb), not on the per-candidate form
+    # values, yet _adds_nonlinear_value is called once per CANDIDATE and up to 8/3 candidates can
+    # share the same pair - rebuilding + refitting the scaler from scratch each time was pure waste.
+    # Only the OLS leg (which fits the candidate-specific target) still runs per candidate.
+    _basis_cache: "dict[frozenset, np.ndarray]" = {}
+
+    # min_resid_frac / min_resid_corr are exposed as tunable kwargs (default 0.10 / 0.08). bench-attempt-rejected: lowering
+    # min_resid_corr 0.08 -> 0.05 to recover weak-but-relevant joint forms is a DEAD KNOB at tractable scale - on every synthetic tried (weak-joint
+    # additive + control + a strongly-nonlinear a**2/b + log(c)*sin(d) target with raw-linear R2=0.10) the MI greedy ALREADY selected the pure pair
+    # forms, so the trap pre-check (has_cross_mix OR no-pure-pair) returns [] BEFORE this gate runs and the corr floor never fires (+0 retained at corr in
+    # {0.08, 0.05, 0.0}). Bench: _benchmarks/fs_quality/qual23_pure_form_resid_corr.py. Not flipped; re-test on a dataset where the greedy traps a pure pair.
+    _adds_nonlinear_value = _retain_usable_pure_f_step4_bench_benchmarks_fs(min_resid_frac, min_resid_corr, _f64, _scrub, X_fit, _nrows, _basis_cache, _single_operand_basis, StandardScaler, LinearRegression, is_clf, _abscorr, _rel_y)
+    return _adds_nonlinear_value
+
+
 def retain_usable_pure_forms(
     mrmr: Any,
     X: Any,
@@ -175,41 +385,11 @@ def retain_usable_pure_forms(
         if y_cont.shape[0] != len(X) or not np.isfinite(y_cont).any():
             return []
 
-        from ._fe_accuracy_gate import infer_classification
+        is_clf, _y_codes, _clf_classes = _detect_pure_form_task(y_cont)
+        if is_clf and _clf_classes.size < 2:
+            return []  # degenerate single-class -> nothing to recover
 
-        # TASK DETECTION: the call-site passes ``_fe_prewarp_y_continuous_`` (any 1D numeric y
-        # cast to float64), so a CLASSIFICATION target arrives here as its float-cast integer labels.
-        # ``infer_classification`` distinguishes a low-cardinality discrete label vector from a genuine
-        # continuous regression target. For classification the LINEAR downstream is a LOGISTIC model and the
-        # gates below switch to a class-indicator (point-biserial) relevance test + a CV-logloss greedy;
-        # the regression path stays byte-identical (is_clf=False).
-        is_clf = bool(infer_classification(y_cont))
-        _y_codes: Any = None
-        _clf_classes: Any = None
-        if is_clf:
-            _clf_classes, _y_codes = np.unique(y_cont, return_inverse=True)
-            if _clf_classes.size < 2:
-                return []  # degenerate single-class -> nothing to recover
-
-        # Operand-pairs already covered by a PURE (<=2-operand) selected engineered form: those are
-        # not trapped, so do not duplicate them. Cross-mix forms (>2 operands) do NOT count - they
-        # are exactly what traps the pair.
-        existing = getattr(mrmr, "_engineered_recipes_", None) or []
-
-        # CLASSIFICATION lossy-form detection: the bug this pass fixes for classification is
-        # that the MI greedy keeps a LOSSY pure pair form (e.g. div(invqubed(x0),invqubed(x1)) on the
-        # polynomial-interaction target) that a logistic model cannot use, while the genuinely usable form
-        # (div(abs(x0),sqrt(x1)), class-indicator corr ~0.47) is absent. A lossy existing form sets
-        # has_pure_pair / covered_pairs and would wrongly suppress recovery. So for classification a pair
-        # counts as COVERED only if its best existing pure-pair form is actually class-relevant (replayed
-        # value's |point-biserial corr with the class indicator| >= this floor); a lossy form leaves the
-        # pair recoverable. Regression keeps presence-only coverage (byte-identical).
-        _CLF_COVER_CORR = 0.20
-
-        _clf_form_relevant = _retain_usable_pure_f_step1_pair_recoverable_regression(X, _clf_classes, _y_codes, _CLF_COVER_CORR)
-
-        covered_pairs: set[Any] = set()
-        _retain_usable_pure_existing(existing, is_clf, _clf_form_relevant, covered_pairs)
+        existing, covered_pairs, _clf_form_relevant = _existing_form_coverage(mrmr, X, is_clf, _clf_classes, _y_codes)
 
         # Base operands: numeric raw columns only (the usability pool builds pair forms over these).
         # feature_names_in_ is an ndarray; "or []" would test truthiness and raise on a multi-element array.
@@ -217,92 +397,11 @@ def retain_usable_pure_forms(
         if len(base_names) < 2:
             return []
 
-        # CHEAP TRAP PRE-CHECK: the whole point of this pass is to rescue a pure single-pair
-        # form the MI greedy TRAPPED - either inside a high-MI CROSS-MIX (>2 distinct operands) or in
-        # separate raw operands on a single-step fit that never produced the pure pair form. If NEITHER
-        # trap is plausibly present, no pure form can be trapped and the (expensive) pool build + CV greedy
-        # cannot recover anything, so return [] BEFORE paying that cost. This makes the pass zero-cost and
-        # side-effect-free on the vast majority of fits (no cross-mix and a pure pair already engineered),
-        # which is what was shifting survivor sets / adding per-fit cost on unrelated fits.
-        #   (a) a CROSS-MIX recipe exists: an engineered entry whose src_names has >2 DISTINCT names - the
-        #       blend that traps pure pairs; OR
-        #   (b) NO pure (<=2-operand) pair engineered form already survives (with >=2 raw numeric bases) -
-        #       the greedy either picked raw operands instead of the pure pair form (MS_three_tier
-        #       ``y = 5*a*b``) or a multi-step composite subsumed and dropped it (the user's F2
-        #       ``a**2/b + log(c)*sin(d)``).
-        # Count DISTINCT RAW OPERANDS, not src_names ENTRIES: on a MULTI-step fit a recipe's ``src_names``
-        # are themselves COMPOSITE expression strings (e.g. ``mul(exp(a),sqr(c))``), so a true 4-raw
-        # cross-mix ``div(sqr(add(invcbrt(b),prewarp(d))),invsqrt(mul(exp(a),sqr(c))))`` has only TWO
-        # src_names entries and would be mis-counted as a pure PAIR. Resolve each src token down to the
-        # raw bases it references (intersect its name tokens with the input feature set) so the
-        # cross-mix-vs-pure-pair classification is over genuine raw-operand arity.
-        _raw_base_set = set(base_names)
-
-        _raw_operands = _retain_usable_pure_f_step3_cross_mix_vs(_raw_base_set)
-
-        has_cross_mix = False
-        has_pure_pair = False
-        has_cross_mix, has_pure_pair = _retain_usable_pure_existing_2(existing, _raw_operands, is_clf, _clf_form_relevant, has_cross_mix, has_pure_pair)
-        # (b) NO pure (<=2-operand) pair engineered form already survives, yet >=2 raw numeric bases exist.
-        # The MI greedy then either picked raw operands instead of the pure pair form (single-step
-        # ``y = 5*a*b`` MS_three_tier case) OR - on a MULTI-step fit - built a higher-order composite that
-        # subsumed the pure pair and dropped it (the user's F2 ``a**2/b + log(c)*sin(d)``: the 2nd FE step
-        # fuses a cross-mix and the post-FE greedy drops the pure ``a**2/b`` parent). Either way the pure
-        # pair is trapped and recoverable, so the (multi-step) restriction the earlier draft placed on
-        # fe_max_steps==1 was too narrow - it suppressed the F2 recovery this pass exists for. Gate only on
-        # "a pure pair form is not already present", independent of step count.
-        trap_b = len(base_names) >= 2 and not has_pure_pair
-        if not (has_cross_mix or trap_b):
+        if not _pure_form_trap_present(existing, base_names, is_clf, _clf_form_relevant):
             return []
 
-        # CHEAP LINEAR-FIT GATE: the trap conditions above are NECESSARY but not sufficient -
-        # ``trap_b`` (no pure pair form present) is true on almost every regression fit, including ones whose
-        # y is simply ADDITIVE-LINEAR in the raws (no interaction to recover at all). The expensive pool build
-        # (O(pairs x unary^2 x binary) MI evals - ~88% of fit time when it fires) must therefore ALSO be
-        # gated on evidence that a nonlinear pair interaction even EXISTS: fit a plain linear model on the raw
-        # bases and skip when it already explains y well (high R^2 -> the linear downstream is already served
-        # by the raws, no pure form can help). a**2/b / log(c)*sin(d) / a*b leave large linear residual (low
-        # R^2) -> proceed; y = sum(raws) + noise fits ~0.98 -> skip. One cheap fit vs a 200s pool build.
-        try:
-            from sklearn.preprocessing import StandardScaler
-            from sklearn.pipeline import make_pipeline as _mp
-
-            _ng = len(y_cont)
-            if _ng > 2000:
-                _rg = np.random.default_rng(int(seed) + 5)
-                _gi = np.sort(_rg.choice(_ng, size=2000, replace=False))
-                _Xg = X.iloc[_gi][base_names].to_numpy(dtype=np.float64, copy=False)
-                _yg = y_cont[_gi]
-            else:
-                _Xg = X[base_names].to_numpy(dtype=np.float64, copy=False)
-                _yg = y_cont
-            _Xg = np.nan_to_num(_Xg, nan=0.0, posinf=0.0, neginf=0.0)
-            if is_clf:
-                # CLASSIFICATION analogue: fit a logistic model on the raw bases and skip when the raws
-                # already linearly SEPARATE the classes well (held-in AUC>=0.92 binary / accuracy>=0.92
-                # multiclass) - no trapped nonlinear interaction a pure form could recover. A polynomial /
-                # interaction target leaves the raw-only logistic AUC well below 0.92 -> proceed.
-                from sklearn.linear_model import LogisticRegression as _LogR
-                from mlframe.metrics.core import fast_roc_auc as _auc
-
-                _ycodes_g = np.unique(_yg, return_inverse=True)[1]
-                if np.unique(_ycodes_g).size >= 2:
-                    _clf = _mp(StandardScaler(), _LogR(max_iter=200)).fit(_Xg, _ycodes_g)
-                    if np.unique(_ycodes_g).size == 2:
-                        _sc = float(_auc(_ycodes_g, _clf.predict_proba(_Xg)[:, 1]))
-                    else:
-                        # multiclass accuracy = fraction correct (accuracy_ratio is CAP-AR, a different quantity)
-                        _sc = float(np.mean(_ycodes_g == _clf.predict(_Xg)))
-                    if _sc >= 0.92:
-                        return []  # raws already separate the classes - nothing nonlinear to recover
-            else:
-                from sklearn.linear_model import LinearRegression
-
-                _r2 = float(_mp(StandardScaler(), LinearRegression()).fit(_Xg, _yg).score(_Xg, _yg))
-                if _r2 >= 0.92:
-                    return []  # raws already fit y linearly - no trapped nonlinear interaction to recover
-        except Exception as e:  # nosec B110 - optional/best-effort path, rationale documented
-            logger.debug("linear-fit gate check failed, falling through to the full path: %s", e)  # gate is an optimisation; on any failure fall through to the (correct) full path
+        if _raws_already_explain_y(X, y_cont, base_names, is_clf, seed):
+            return []
 
         # Scope wide frames: keep the highest-variance base operands so the O(pairs) pool stays bounded
         # (the usability pool itself also caps pairs, but trimming here bounds its input). ROW SUBSAMPLE
@@ -315,7 +414,7 @@ def retain_usable_pure_forms(
         X_fit, base_names, y_fit = _retain_usable_pure_identical_inline_computation_standalone(_prep, max_base_features, X, y_cont, max_rows, seed, mrmr, is_clf, base_names)
 
         from ._usability_aware_selection import (
-            build_usability_candidate_pool, usability_greedy, _f64, _scrub,
+            usability_greedy, _f64, _scrub,
         )
 
         _yv = _scrub(np.asarray(y_fit, dtype=np.float64))
@@ -326,51 +425,7 @@ def retain_usable_pure_forms(
         # majority class. ``_abscorr(resid, _rel_y)`` then measures whether the form's joint nonlinearity is
         # RELEVANT to class membership.
         _rel_y = _retain_usable_pure_relevant_class_membership(is_clf, _yv)
-        # NONLINEAR-RESIDUAL-VS-Y GATE. The CV-MAE greedy alone over-fires (adversarial-found):
-        # it admits a linear SUM like add(x1,x2) - a linear model ALREADY builds it from the raw operands -
-        # and CROSS-PAIR / noise-operand forms that lower MAE on a fold by chance. The retention's whole
-        # point is the NONLINEAR interaction a linear model cannot build from the raws (a**2/b,
-        # log(c)*sin(d)). Discriminator that avoids the other-additive-term variance confound (a global
-        # CV-MAE-over-raws comparison is dominated by the UNEXPLAINED term's variance, so a genuine form's
-        # relative gain can fall below any fixed threshold): regress the FORM on its two raw operands, take
-        # the RESIDUAL (the part the raws cannot linearly reproduce), and require BOTH (a) the residual is
-        # non-negligible (the form is genuinely nonlinear in its raws - rejects add(x1,x2), whose residual
-        # ~0) AND (b) that residual correlates with y (the nonlinearity is RELEVANT - rejects a cross-pair
-        # / noise form whose nonlinear part is unrelated to the target). a**2/b: large residual, correlated
-        # with y -> kept; both holes -> rejected.
-        from sklearn.linear_model import LinearRegression
-        from sklearn.preprocessing import StandardScaler
-
-        def _abscorr(u, v):
-            """Absolute Pearson correlation between ``u`` and ``v``, returning 0.0 when either is (near-)constant to avoid a divide-by-zero."""
-            u = u - u.mean(); v = v - v.mean()
-            du, dv = float(np.sqrt((u * u).sum())), float(np.sqrt((v * v).sum()))
-            if du <= 1e-12 or dv <= 1e-12:
-                return 0.0
-            return abs(float((u * v).sum()) / (du * dv))
-
-        def _single_operand_basis(x):
-            """Build a small additive nonlinear basis (square/cube/signed-sqrt/signed-log1p/reciprocal) for a single standardized operand, spanning separable single-variable nonlinearities so a genuinely joint (non-separable) form can be told apart from a sum of per-operand transforms."""
-            # any SEPARABLE function f(a)+g(b) lives in the span of [basis(a)] + [basis(b)], so a cross-pair form that merely sums two single-operand
-            # nonlinearities (a**3 + sqrt(d)) is reconstructed here with ~0 residual, while a genuine
-            # NON-separable joint form (a**2/b is a ratio, log(c)*sin(d) a product) is not.
-            xs = standardise(x)
-            cols = [xs, xs * xs, xs * xs * xs, np.sign(xs) * np.sqrt(np.abs(xs)), np.sign(xs) * np.log1p(np.abs(xs)), 1.0 / (np.abs(xs) + 1.0)]
-            return cols
-
-        # Cache the (nm_a, nm_b) additive-basis design matrix, ALREADY StandardScaler-transformed, keyed
-        # by the unordered operand pair: it depends only on (xa, xb), not on the per-candidate form
-        # values, yet _adds_nonlinear_value is called once per CANDIDATE and up to 8/3 candidates can
-        # share the same pair - rebuilding + refitting the scaler from scratch each time was pure waste.
-        # Only the OLS leg (which fits the candidate-specific target) still runs per candidate.
-        _basis_cache: "dict[frozenset, np.ndarray]" = {}
-
-        # min_resid_frac / min_resid_corr are exposed as tunable kwargs (default 0.10 / 0.08). bench-attempt-rejected: lowering
-        # min_resid_corr 0.08 -> 0.05 to recover weak-but-relevant joint forms is a DEAD KNOB at tractable scale - on every synthetic tried (weak-joint
-        # additive + control + a strongly-nonlinear a**2/b + log(c)*sin(d) target with raw-linear R2=0.10) the MI greedy ALREADY selected the pure pair
-        # forms, so the trap pre-check (has_cross_mix OR no-pure-pair) returns [] BEFORE this gate runs and the corr floor never fires (+0 retained at corr in
-        # {0.08, 0.05, 0.0}). Bench: _benchmarks/fs_quality/qual23_pure_form_resid_corr.py. Not flipped; re-test on a dataset where the greedy traps a pure pair.
-        _adds_nonlinear_value = _retain_usable_pure_f_step4_bench_benchmarks_fs(min_resid_frac, min_resid_corr, _f64, _scrub, X_fit, _nrows, _basis_cache, _single_operand_basis, StandardScaler, LinearRegression, is_clf, _abscorr, _rel_y)
+        _adds_nonlinear_value = _make_nonlinear_value_gate(min_resid_frac, min_resid_corr, _f64, _scrub, X_fit, _nrows, is_clf, _rel_y)
 
         # Build the candidate pool, then FILTER pair forms by the non-separability gate BEFORE the greedy.
         # The CV-MAE greedy, given the raw pool, prefers a SEPARABLE cross-pair form (it absorbs the CV
@@ -388,23 +443,7 @@ def retain_usable_pure_forms(
         # ~0) drop out, so a SMALL max_pairs runs fast without losing a genuine pair (top-K is robust where
         # an absolute joint-MI floor mis-prunes a genuine pair whose MM-debited value is small). Measured:
         # structured n=10000 fit 193s -> ~71s, recovery intact.
-        # max_per_pair: 3 for REGRESSION (the genuine joint form is the top-joint-MI form for its pair, so
-        # top-3 reliably keeps it). For CLASSIFICATION the binned-MI ranking favours high-MI quadratic-WARP
-        # forms whose joint residual is IRRELEVANT to the class indicator, burying the genuinely usable
-        # ratio/product form (e.g. on y=sign(0.7*x0^2-0.5*x1^2+0.3*x0*x1) the relevant div(abs(x0),sqrt(x1))
-        # - class-indicator corr ~0.47 - only survives the per-pair cap at >=8). Widen the cap to 8 so the
-        # downstream non-separability + class-relevance filter has the genuine form to keep; the filter
-        # discards the rest, so the extra replay cost is bounded.
-        _max_per_pair = 8 if is_clf else 3
-        # An explicit ``min_relevance_gain_mode='absolute'`` floor is a verbatim caller contract that every
-        # selection path honours; this pool is built outside the screen, so it applies the floor itself.
-        # The default relative mode keeps the pool's own 0.02 floor (retention exists to rescue forms the
-        # relative screen under-ranks).
-        _pool_mi_floor = 0.02
-        _pool_mi_floor = _retain_usable_pure_relative_screen_under_ranks(mrmr, _pool_mi_floor)
-        pool = build_usability_candidate_pool(
-            X_fit, _yv, base_names, max_pairs=10, max_per_pair=_max_per_pair, rank_pairs_by_joint_mi=True, mi_floor=_pool_mi_floor,
-        )
+        pool = _build_form_pool(mrmr, X_fit, _yv, base_names, is_clf)
         # GPU-RESIDENT non-separability filter (MLFRAME_FE_GPU_STRICT + ..._RESIDENT, default OFF). The
         # per-candidate ``_adds_nonlinear_value`` gate (each call re-uploads the form column + both raw
         # operand columns and pulls the (n,) residual back - ~3P bulk H2D + P bulk D2H over the pool) is

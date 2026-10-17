@@ -285,6 +285,37 @@ def _fit_warm_curve(
     return tr, ho, sizes_done, reached
 
 
+def _warm_start_result(
+    tr: List[float],
+    ho: List[float],
+    sizes_done: List[float],
+    skipped_fracs: Sequence[float],
+    time_budget_s: Optional[float],
+    n_hold: int,
+    scorer_name: str,
+    higher_is_better: bool,
+    elapsed_seconds: float,
+) -> LearningCurveResult:
+    """Assemble the ``LearningCurveResult`` of the warm-start path (zero std bands) and log any budget-skipped sizes."""
+    train_sizes = np.asarray(sizes_done, dtype=np.int64)
+    train_scores = np.asarray(tr, dtype=np.float64)
+    holdout_scores = np.asarray(ho, dtype=np.float64)
+    train_std = np.zeros_like(train_scores)
+    holdout_std = np.zeros_like(holdout_scores)
+    skipped = tuple(skipped_fracs)
+    if skipped:
+        logger.info(
+            "compute_learning_curve: time budget %.1fs hit (warm-start); skipped %d size(s) %s",
+            float(time_budget_s if time_budget_s is not None else 0.0), len(skipped), [round(f, 3) for f in skipped],
+        )
+    return LearningCurveResult(
+        train_sizes=train_sizes, train_scores=train_scores, holdout_scores=holdout_scores,
+        train_score_std=train_std, holdout_score_std=holdout_std, holdout_n=n_hold,
+        scorer_name=scorer_name, higher_is_better=higher_is_better, warm_start_used=True,
+        skipped_fractions=skipped, elapsed_seconds=elapsed_seconds,
+    )
+
+
 def compute_learning_curve(
     estimator_factory: Callable[[], Any],
     X: Any,
@@ -381,22 +412,8 @@ def compute_learning_curve(
             estimator_factory, X_pool, y_pool, perm, counts, warm_attr,
             X_hold, y_hold, scorer, deadline,
         )
-        train_sizes = np.asarray(sizes_done, dtype=np.int64)
-        train_scores = np.asarray(tr, dtype=np.float64)
-        holdout_scores = np.asarray(ho, dtype=np.float64)
-        train_std = np.zeros_like(train_scores)
-        holdout_std = np.zeros_like(holdout_scores)
-        skipped = tuple(fracs[reached:])
-        if skipped:
-            logger.info(
-                "compute_learning_curve: time budget %.1fs hit (warm-start); skipped %d size(s) %s",
-                float(time_budget_s if time_budget_s is not None else 0.0), len(skipped), [round(f, 3) for f in skipped],
-            )
-        return LearningCurveResult(
-            train_sizes=train_sizes, train_scores=train_scores, holdout_scores=holdout_scores,
-            train_score_std=train_std, holdout_score_std=holdout_std, holdout_n=n_hold,
-            scorer_name=scorer_name, higher_is_better=higher_is_better, warm_start_used=True,
-            skipped_fractions=skipped, elapsed_seconds=timer() - t0,
+        return _warm_start_result(
+            tr, ho, sizes_done, fracs[reached:], time_budget_s, n_hold, scorer_name, higher_is_better, timer() - t0,
         )
 
     def _job(c: int) -> Tuple[float, float, float, float]:

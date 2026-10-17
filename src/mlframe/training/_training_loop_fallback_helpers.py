@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from timeit import default_timer as timer
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -50,6 +51,249 @@ from ._training_loop_objectives import _ensure_xgb_classification_objective
 from ._calibration_models import _maybe_apply_posthoc_calibration
 from ._training_loop_objectives import _maybe_wrap_for_2d_target
 
+
+def _decategorize_text_cols(df: Any, text_feat: list) -> Any:
+    """CatBoost's pandas path rejects columns that are pd.Categorical
+    but not in cat_features with "column 'X' has dtype 'category' but
+    is not in cat_features list". Columns auto-promoted from
+    cat_features -> text_features keep a pd.Categorical dtype after
+    the Polars->pandas zero-copy conversion. Cast those to plain
+    object to keep CB happy (and preserve the string content).
+    """
+    if not text_feat:
+        return df
+    for col in text_feat:
+        if col in df.columns and isinstance(df[col].dtype, pd.CategoricalDtype):
+            df[col] = df[col].astype("object").fillna("")
+    return df
+
+
+def _is_catboost_polars_fastpath_miss(model_type_name: str, train_df: Any, error_str: str) -> bool:
+    """Return True when a CatBoost fit failure is the native-Polars fastpath rejecting the frame.
+
+    Matches the two opaque error families the fastpath raises for categorical column layouts.
+    """
+    return (
+        model_type_name in CATBOOST_MODEL_TYPES
+        and pl is not None
+        and isinstance(train_df, pl.DataFrame)
+        and (
+            "No matching signature found" in error_str
+            # Catch *both* "Categorical for a numerical feature column" and
+            # "Categorical for a text feature column" (the latter surfaces
+            # when a column auto-promoted from cat_features -> text_features
+            # is still pl.Categorical in the df). Upstream fix casts those
+            # columns to pl.String before CB.fit; this is a safety net for
+            # any future variant of the same error family.
+            or "Unsupported data type Categorical" in error_str
+        )
+    )
+
+
+def _mark_polars_fastpath_broken(model: Any) -> None:
+    """Flag ``model`` so later predict calls skip the Polars fastpath and go straight to pandas.
+
+    Best-effort: a failure to set the attributes is logged at debug and otherwise ignored.
+    """
+    try:
+        model._mlframe_polars_fastpath_broken = True
+        model._mlframe_polars_fastpath_miss_observed = True
+    except Exception as _mark_broken_err:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+        # Deliberately NOT named `e`: this is nested inside the outer `except Exception as e:` handler,
+        # and Python implicitly `del`s the exception name at the end of its own except clause -- reusing
+        # `e` here would delete the OUTER `e` too, breaking the `raise e` re-raise further down.
+        logger.debug("suppressed: %s", _mark_broken_err)
+
+
+def _rewrite_eval_set_to_pandas(model_type_name: str, train_df: Any, fit_params: dict, cat_feat: list, text_feat: list) -> tuple[Any, dict]:
+    """Convert every ``eval_set`` pair to pandas, re-aligning categories against ``train_df``.
+
+    Returns ``(train_df, fit_params)``; ``train_df`` may be replaced by the category re-alignment.
+    """
+    eval_set = fit_params.get("eval_set")
+    if eval_set is None:
+        return train_df, fit_params
+    t0_es = timer()
+    pairs = eval_set if isinstance(eval_set, list) else [eval_set]
+    new_pairs = []
+    for pair in pairs:
+        X_val, y_val = pair
+        if pl is not None and isinstance(X_val, pl.DataFrame):
+            X_val = get_pandas_view_of_polars_df(X_val)
+            # ``get_pandas_view_of_polars_df`` keys each frame's
+            # pl.Categorical->pl.Enum remap on THAT frame's own
+            # unique values, so train and val (converted separately
+            # above) get DIVERGING pandas Categorical ``categories``
+            # lists -- the same string maps to different integer
+            # codes across the fit/eval boundary (a silent mis-encode
+            # for any code-consuming backend). Re-align to the
+            # train+val category union (leak-free: val already feeds
+            # early stopping) before prep so codes match.
+            train_df, X_val, _ = _align_xgb_cat_categories(
+                model_type_name, train_df, val_df=X_val, test_df=None,
+            )
+            # Decategorize BEFORE prep_cb (see train_df comment above).
+            X_val = _decategorize_text_cols(X_val, text_feat)
+            _prep_cb(X_val, cat_features=cat_feat)  # in-place; text_feat already decategorised above
+        else:
+            X_val = _decategorize_text_cols(X_val, text_feat) if isinstance(X_val, pd.DataFrame) else X_val
+        new_pairs.append((X_val, y_val))
+    fit_params["eval_set"] = new_pairs if isinstance(eval_set, list) else new_pairs[0]
+    logger.info("  [fallback] eval_set rewrite in %.1fs", timer() - t0_es)
+    return train_df, fit_params
+
+
+def _convert_polars_fastpath_to_pandas(model_type_name: str, train_df: Any, fit_params: dict) -> tuple[Any, dict]:
+    """Rewrite the train frame and ``eval_set`` from Polars to the pandas path CatBoost accepts.
+
+    Returns ``(train_df, fit_params)`` with the conversions applied; logs per-step timings.
+    """
+    cat_feat = list(fit_params.get("cat_features") or [])
+    text_feat = list(fit_params.get("text_features") or [])
+
+    # Per-step timing for the fallback: a production run showed this
+    # entire path consumed >1 hour on a 1M x 98 frame with 4
+    # high-cardinality text columns -- without timing it was impossible
+    # to tell which step (Polars->pandas vs. prep_cb vs. decategorize)
+    # was responsible. The timer log writes to the trainer logger so
+    # the lines interleave with surrounding INFO output.
+    t0_fb = timer()
+    shape_str = f"{train_df.shape[0]:_}x{train_df.shape[1]}" if hasattr(train_df, "shape") else "?"
+
+    t0 = timer()
+    train_df = get_pandas_view_of_polars_df(train_df)
+    logger.info("  [fallback] polars->pandas(train) %s in %.1fs", shape_str, timer() - t0)
+
+    # IMPORTANT: decategorize text columns BEFORE prepare_df_for_catboost.
+    # Otherwise prep_cb hits the pd.Categorical text columns (auto-promoted
+    # from cat to text earlier) and runs
+    #   df[col].astype(str).fillna("").astype("category")
+    # which on a high-cardinality column like skills_text (81k unique
+    # values over 810k rows) takes many minutes per column -- the
+    # production-reproduced hang that motivated this reorder.
+    t0 = timer()
+    train_df = _decategorize_text_cols(train_df, text_feat)
+    logger.info("  [fallback] decategorize text cols(train) in %.1fs", timer() - t0)
+
+    t0 = timer()
+    _prep_cb(train_df, cat_features=cat_feat)  # in-place; text_feat already decategorised above
+    logger.info("  [fallback] prepare_df_for_catboost(train) in %.1fs", timer() - t0)
+
+    # eval_set carries the val split for CB -- rewrite it too.
+    train_df, fit_params = _rewrite_eval_set_to_pandas(model_type_name, train_df, fit_params, cat_feat, text_feat)
+
+    logger.info("  [fallback] total pandas prep for CB in %.1fs", timer() - t0_fb)
+    return train_df, fit_params
+
+
+def _handle_fit_failure(
+    e: Exception, model: Any, model_obj: Any, model_type_name: str, train_df: Any, train_target: Any, fit_params: dict
+) -> tuple[bool, Any, dict]:
+    """Decide whether a failed ``model.fit`` is recoverable; returns ``(try_again, train_df, fit_params)`` with the retry adjustments applied.
+
+    Called from inside the ``except`` block of the fit, so the bare ``raise`` statements re-raise the active exception ``e``.
+    """
+    try_again = False
+    error_str = str(e)
+
+    if "KeyboardInterrupt" in error_str:
+        # CatBoost catches whatever a python-side custom metric / callback raises and re-raises it as CatBoostError,
+        # so a Ctrl+C during the fit arrived here as a model FAILURE: with continue_on_model_failure the suite went
+        # on to the next model instead of stopping. KeyboardInterrupt is not an Exception, so re-raising it here
+        # passes through every ``except Exception`` between this frame and the caller.
+        raise KeyboardInterrupt("interrupted during model fit (CatBoost re-raised it as CatBoostError)") from e
+
+    if "out of memory" in error_str:
+        try_again = _handle_oom_error(model_obj, model_type_name)
+
+    elif "User defined callbacks are not supported for GPU" in error_str and "callbacks" in fit_params:
+        logger.warning("%s; retrying without callbacks (backstop: CatBoostGpuFitGuard normally strips them before fit)", e)
+        try_again, _ = True, fit_params.pop("callbacks")
+
+    elif "CUDA Tree Learner" in error_str:
+        logger.warning("CUDA is not enabled in this LightGBM build. Falling back to CPU.")
+        model.set_params(device_type="cpu")
+        try_again = True
+    elif "pandas dtypes must be int, float or bool" in error_str:
+        # Upstream feature-typing gap: a column reached the estimator with a
+        # dtype it cannot consume (e.g. object/datetime/Categorical not cast
+        # to numeric). A silent ``return None, None`` here hides the real
+        # cause and surfaces downstream as an opaque "model produced no
+        # predictions" failure. Surface the offending dtypes and re-raise so
+        # the upstream type-detection / casting gap is visible and fixable.
+        _dtypes = getattr(train_df, "dtypes", None)
+        logger.error(
+            "Model %s received a column with an unsupported pandas dtype "
+            "(estimator requires int/float/bool). Offending frame dtypes: %s. "
+            "Fix upstream feature typing / casting -- do not pass object / "
+            "datetime / un-encoded categorical columns to this estimator.",
+            model_type_name, _dtypes,
+        )
+        raise
+
+    elif model_type_name in CATBOOST_MODEL_TYPES and "Dictionary size is 0" in error_str:
+        # CatBoost's text estimator could not build a vocabulary for at least ONE text column, and the
+        # raise names none of them -- so the old handler dropped EVERY text feature and retried, silently
+        # training without any of the columns that were promoted on purpose.
+        #
+        # It also blamed the wrong thing ("too few non-null samples"). Measured against CatBoost 1.2.10, a
+        # column with 400 non-null rows and 400 distinct tokens still raises, while one whose rows carry
+        # three tokens each survives at a token frequency of 3 -- the condition is about token structure,
+        # not row counts. ``_cb_text_probe`` asks the installed CatBoost per column instead of re-deriving
+        # its vocabulary filter, so only the genuinely unusable columns are dropped.
+        try_again, fit_params = retry_params_after_empty_text_dictionary(model, train_df, train_target, fit_params)
+
+    elif _is_catboost_polars_fastpath_miss(model_type_name, train_df, error_str):
+        # CatBoost's native-Polars fastpath (_set_features_order_data_polars_*)
+        # can reject certain categorical column layouts with opaque messages --
+        # either "No matching signature found" (fused cpdef dispatch miss) or
+        # the categorical/numeric type mismatch above. Fall back to the pandas
+        # path: zero-copy Arrow view + `prepare_df_for_catboost` preserves
+        # dtypes and CatBoost's pandas path accepts a wider
+        # range of category backings.
+        # Full last-line for the one-line message, plus a structured
+        # schema dump so the NEXT occurrence is diagnosable from the
+        # first log line (prev. we only had the truncated error str,
+        # and for opaque dispatch misses that's useless).
+        last_line = error_str.splitlines()[-1] if error_str else "<empty>"
+        logger.warning(
+            "CatBoost Polars fastpath rejected the data (%s); " "converting to pandas and retrying.",
+            last_line[:240],
+        )
+        # Mark the model "Polars-broken" so subsequent predict_proba /
+        # predict_log_proba calls via _predict_with_fallback go straight
+        # to the pandas path -- avoids the same Cython dispatch miss on
+        # every VAL/TEST/ensemble scoring (one WARN + one ~2s retry per
+        # call saved). See the symmetric short-circuit in
+        # _predict_with_fallback.
+        _mark_polars_fastpath_broken(model)
+        schema_dump = _polars_schema_diagnostic(
+            train_df,
+            cat_features=fit_params.get("cat_features"),
+            text_features=fit_params.get("text_features"),
+        )
+        logger.warning("CB Polars fastpath failure -- schema context:\n%s", schema_dump)
+        # ``get_pandas_view_of_polars_df`` and ``prepare_df_for_catboost`` (as _prep_cb) are now
+        # imported at module top; re-importing them on every retry inside the exception handler
+        # paid sys.modules lookup cost N times per training session.
+
+        train_df, fit_params = _convert_polars_fastpath_to_pandas(model_type_name, train_df, fit_params)
+        try_again = True
+
+    elif "unexpected keyword argument" in error_str and any(param in error_str for param in ("X_val", "y_val", "eval_set")):
+        # Older sklearn versions don't support validation set in HistGradientBoosting
+        val_params = ["X_val", "y_val", "eval_set"]
+        removed = [p for p in val_params if p in fit_params]
+        if removed:
+            logger.warning(
+                "This sklearn version doesn't support validation set parameters (%s) " "for %s. Training without early stopping validation.",
+                ", ".join(removed),
+                model_type_name,
+            )
+            for param in val_params:
+                fit_params.pop(param, None)
+            try_again = True
+    return try_again, train_df, fit_params
 
 
 def _train_model_with_f_base_estimator_cloned_per(model_type_name, model, _effective_model_type_name, _is_polars, _POLARS_NATIVE_FIT_MODEL_PREFIXES, train_df, _is_pandas, fit_params, _cb_pool, verbose, train_target, model_obj, t0_fit):
@@ -106,204 +350,7 @@ def _train_model_with_f_base_estimator_cloned_per(model_type_name, model, _effec
         _maybe_disable_cb_plot(model_type_name, fit_params, verbose)
         fit_params, model = _train_model_with_f_phase(model_type_name, train_df, _cb_pool, fit_params, model, train_target)
     except Exception as e:
-        try_again = False
-        error_str = str(e)
-
-        if "KeyboardInterrupt" in error_str:
-            # CatBoost catches whatever a python-side custom metric / callback raises and re-raises it as CatBoostError,
-            # so a Ctrl+C during the fit arrived here as a model FAILURE: with continue_on_model_failure the suite went
-            # on to the next model instead of stopping. KeyboardInterrupt is not an Exception, so re-raising it here
-            # passes through every ``except Exception`` between this frame and the caller.
-            raise KeyboardInterrupt("interrupted during model fit (CatBoost re-raised it as CatBoostError)") from e
-
-        if "out of memory" in error_str:
-            try_again = _handle_oom_error(model_obj, model_type_name)
-
-        elif "User defined callbacks are not supported for GPU" in error_str and "callbacks" in fit_params:
-            logger.warning("%s; retrying without callbacks (backstop: CatBoostGpuFitGuard normally strips them before fit)", e)
-            try_again, _ = True, fit_params.pop("callbacks")
-
-        elif "CUDA Tree Learner" in error_str:
-            logger.warning("CUDA is not enabled in this LightGBM build. Falling back to CPU.")
-            model.set_params(device_type="cpu")
-            try_again = True
-        elif "pandas dtypes must be int, float or bool" in error_str:
-            # Upstream feature-typing gap: a column reached the estimator with a
-            # dtype it cannot consume (e.g. object/datetime/Categorical not cast
-            # to numeric). A silent ``return None, None`` here hides the real
-            # cause and surfaces downstream as an opaque "model produced no
-            # predictions" failure. Surface the offending dtypes and re-raise so
-            # the upstream type-detection / casting gap is visible and fixable.
-            _dtypes = getattr(train_df, "dtypes", None)
-            logger.error(
-                "Model %s received a column with an unsupported pandas dtype "
-                "(estimator requires int/float/bool). Offending frame dtypes: %s. "
-                "Fix upstream feature typing / casting -- do not pass object / "
-                "datetime / un-encoded categorical columns to this estimator.",
-                model_type_name, _dtypes,
-            )
-            raise
-
-        elif model_type_name in CATBOOST_MODEL_TYPES and "Dictionary size is 0" in error_str:
-            # CatBoost's text estimator could not build a vocabulary for at least ONE text column, and the
-            # raise names none of them -- so the old handler dropped EVERY text feature and retried, silently
-            # training without any of the columns that were promoted on purpose.
-            #
-            # It also blamed the wrong thing ("too few non-null samples"). Measured against CatBoost 1.2.10, a
-            # column with 400 non-null rows and 400 distinct tokens still raises, while one whose rows carry
-            # three tokens each survives at a token frequency of 3 -- the condition is about token structure,
-            # not row counts. ``_cb_text_probe`` asks the installed CatBoost per column instead of re-deriving
-            # its vocabulary filter, so only the genuinely unusable columns are dropped.
-            try_again, fit_params = retry_params_after_empty_text_dictionary(model, train_df, train_target, fit_params)
-
-        elif (
-            model_type_name in CATBOOST_MODEL_TYPES
-            and pl is not None
-            and isinstance(train_df, pl.DataFrame)
-            and (
-                "No matching signature found" in error_str
-                # Catch *both* "Categorical for a numerical feature column" and
-                # "Categorical for a text feature column" (the latter surfaces
-                # when a column auto-promoted from cat_features -> text_features
-                # is still pl.Categorical in the df). Upstream fix casts those
-                # columns to pl.String before CB.fit; this is a safety net for
-                # any future variant of the same error family.
-                or "Unsupported data type Categorical" in error_str
-            )
-        ):
-            # CatBoost's native-Polars fastpath (_set_features_order_data_polars_*)
-            # can reject certain categorical column layouts with opaque messages --
-            # either "No matching signature found" (fused cpdef dispatch miss) or
-            # the categorical/numeric type mismatch above. Fall back to the pandas
-            # path: zero-copy Arrow view + `prepare_df_for_catboost` preserves
-            # dtypes and CatBoost's pandas path accepts a wider
-            # range of category backings.
-            # Full last-line for the one-line message, plus a structured
-            # schema dump so the NEXT occurrence is diagnosable from the
-            # first log line (prev. we only had the truncated error str,
-            # and for opaque dispatch misses that's useless).
-            last_line = error_str.splitlines()[-1] if error_str else "<empty>"
-            logger.warning(
-                "CatBoost Polars fastpath rejected the data (%s); " "converting to pandas and retrying.",
-                last_line[:240],
-            )
-            # Mark the model "Polars-broken" so subsequent predict_proba /
-            # predict_log_proba calls via _predict_with_fallback go straight
-            # to the pandas path -- avoids the same Cython dispatch miss on
-            # every VAL/TEST/ensemble scoring (one WARN + one ~2s retry per
-            # call saved). See the symmetric short-circuit in
-            # _predict_with_fallback.
-            try:
-                model._mlframe_polars_fastpath_broken = True
-                model._mlframe_polars_fastpath_miss_observed = True
-            except Exception as _mark_broken_err:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-                # Deliberately NOT named `e`: this is nested inside the outer `except Exception as e:` handler,
-                # and Python implicitly `del`s the exception name at the end of its own except clause -- reusing
-                # `e` here would delete the OUTER `e` too, breaking the `raise e` re-raise further down.
-                logger.debug("suppressed: %s", _mark_broken_err)
-            schema_dump = _polars_schema_diagnostic(
-                train_df,
-                cat_features=fit_params.get("cat_features"),
-                text_features=fit_params.get("text_features"),
-            )
-            logger.warning("CB Polars fastpath failure -- schema context:\n%s", schema_dump)
-            # ``get_pandas_view_of_polars_df`` and ``prepare_df_for_catboost`` (as _prep_cb) are now
-            # imported at module top; re-importing them on every retry inside the exception handler
-            # paid sys.modules lookup cost N times per training session.
-
-            cat_feat = list(fit_params.get("cat_features") or [])
-            text_feat = list(fit_params.get("text_features") or [])
-
-            def _decategorize_text_cols(df):
-                """CatBoost's pandas path rejects columns that are pd.Categorical
-                but not in cat_features with "column 'X' has dtype 'category' but
-                is not in cat_features list". Columns auto-promoted from
-                cat_features -> text_features keep a pd.Categorical dtype after
-                the Polars->pandas zero-copy conversion. Cast those to plain
-                object to keep CB happy (and preserve the string content).
-                """
-                if not text_feat:
-                    return df
-                for col in text_feat:
-                    if col in df.columns and isinstance(df[col].dtype, pd.CategoricalDtype):
-                        df[col] = df[col].astype("object").fillna("")
-                return df
-
-            # Per-step timing for the fallback: a production run showed this
-            # entire path consumed >1 hour on a 1M x 98 frame with 4
-            # high-cardinality text columns -- without timing it was impossible
-            # to tell which step (Polars->pandas vs. prep_cb vs. decategorize)
-            # was responsible. The timer log writes to the trainer logger so
-            # the lines interleave with surrounding INFO output.
-            t0_fb = timer()
-            shape_str = f"{train_df.shape[0]:_}x{train_df.shape[1]}" if hasattr(train_df, "shape") else "?"
-
-            t0 = timer()
-            train_df = get_pandas_view_of_polars_df(train_df)
-            logger.info("  [fallback] polars->pandas(train) %s in %.1fs", shape_str, timer() - t0)
-
-            # IMPORTANT: decategorize text columns BEFORE prepare_df_for_catboost.
-            # Otherwise prep_cb hits the pd.Categorical text columns (auto-promoted
-            # from cat to text earlier) and runs
-            #   df[col].astype(str).fillna("").astype("category")
-            # which on a high-cardinality column like skills_text (81k unique
-            # values over 810k rows) takes many minutes per column -- the
-            # production-reproduced hang that motivated this reorder.
-            t0 = timer()
-            train_df = _decategorize_text_cols(train_df)
-            logger.info("  [fallback] decategorize text cols(train) in %.1fs", timer() - t0)
-
-            t0 = timer()
-            _prep_cb(train_df, cat_features=cat_feat)  # in-place; text_feat already decategorised above
-            logger.info("  [fallback] prepare_df_for_catboost(train) in %.1fs", timer() - t0)
-
-            # eval_set carries the val split for CB -- rewrite it too.
-            eval_set = fit_params.get("eval_set")
-            if eval_set is not None:
-                t0_es = timer()
-                pairs = eval_set if isinstance(eval_set, list) else [eval_set]
-                new_pairs = []
-                for pair in pairs:
-                    X_val, y_val = pair
-                    if pl is not None and isinstance(X_val, pl.DataFrame):
-                        X_val = get_pandas_view_of_polars_df(X_val)
-                        # ``get_pandas_view_of_polars_df`` keys each frame's
-                        # pl.Categorical->pl.Enum remap on THAT frame's own
-                        # unique values, so train and val (converted separately
-                        # above) get DIVERGING pandas Categorical ``categories``
-                        # lists -- the same string maps to different integer
-                        # codes across the fit/eval boundary (a silent mis-encode
-                        # for any code-consuming backend). Re-align to the
-                        # train+val category union (leak-free: val already feeds
-                        # early stopping) before prep so codes match.
-                        train_df, X_val, _ = _align_xgb_cat_categories(
-                            model_type_name, train_df, val_df=X_val, test_df=None,
-                        )
-                        # Decategorize BEFORE prep_cb (see train_df comment above).
-                        X_val = _decategorize_text_cols(X_val)
-                        _prep_cb(X_val, cat_features=cat_feat)  # in-place; text_feat already decategorised above
-                    else:
-                        X_val = _decategorize_text_cols(X_val) if isinstance(X_val, pd.DataFrame) else X_val
-                    new_pairs.append((X_val, y_val))
-                fit_params["eval_set"] = new_pairs if isinstance(eval_set, list) else new_pairs[0]
-                logger.info("  [fallback] eval_set rewrite in %.1fs", timer() - t0_es)
-
-            logger.info("  [fallback] total pandas prep for CB in %.1fs", timer() - t0_fb)
-            try_again = True
-
-        elif "unexpected keyword argument" in error_str and any(param in error_str for param in ("X_val", "y_val", "eval_set")):
-            # Older sklearn versions don't support validation set in HistGradientBoosting
-            val_params = ["X_val", "y_val", "eval_set"]
-            removed = [p for p in val_params if p in fit_params]
-            if removed:
-                logger.warning(
-                    "This sklearn version doesn't support validation set parameters (%s) " "for %s. Training without early stopping validation.",
-                    ", ".join(removed),
-                    model_type_name,
-                )
-                for param in val_params:
-                    fit_params.pop(param, None)
-                try_again = True
+        try_again, train_df, fit_params = _handle_fit_failure(e, model, model_obj, model_type_name, train_df, train_target, fit_params)
 
         if try_again:
             _maybe_clean_ram()

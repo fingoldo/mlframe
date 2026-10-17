@@ -464,6 +464,52 @@ def _clean_cat_and_obj_columns(
             collect()
 
 
+def _quantile_span_and_outliers(values: Any, calculated_quantiles: Optional[np.ndarray], use_quantile: float, tukey_fences_multiplier: Optional[float]) -> tuple:
+    """Resolve the quantile span and count Tukey-fence outliers; returns ``(calculated_quantiles, values_in_span, n_outliers, use_quantiles)``."""
+    use_quantiles = None
+
+    # `calculated_quantiles is not None`, not a truthiness check: a caller following the documented
+    # contract passes a 2-element np.ndarray, and `bool(<2-element ndarray>)` raises
+    # "the truth value of an array with more than one element is ambiguous".
+    if calculated_quantiles is not None or use_quantile:
+
+        calculated_quantiles, tukey_fences_multiplier, use_quantiles = _resolve_quantile_cutoffs(calculated_quantiles, use_quantile, values, tukey_fences_multiplier, use_quantiles)
+
+        iqr = calculated_quantiles[1] - calculated_quantiles[0]
+        q0 = calculated_quantiles[0]
+        q1 = calculated_quantiles[1]
+        lo = q0 - tukey_fences_multiplier * iqr
+        hi = q1 + tukey_fences_multiplier * iqr
+
+        # Fuse the span-mask build and the two fence counts into a single pass (was: one boolean &-mask
+        # plus two separate .sum() scans). NaN compares False everywhere, so it stays out of the span and
+        # counts in neither fence — identical values_in_span and n_outliers. Float-1d only; else exact numpy.
+        if getattr(values, "dtype", None) is not None and values.dtype.kind == "f" and values.ndim == 1:
+            in_span_mask, n_below, n_above = _get_span_fence_njit()(values, q0, q1, lo, hi)
+            values_in_span = values[in_span_mask]
+            n_outliers = n_below + n_above
+        else:
+            values_in_span = values[(values >= q0) & (values <= q1)]
+            n_outliers = (values < lo).sum() + (values > hi).sum()
+
+    else:
+        calculated_quantiles = np.array([np.nanmin(values), np.nanmax(values)])
+        values_in_span = values
+        n_outliers = 0
+    return calculated_quantiles, values_in_span, n_outliers, use_quantiles
+
+
+def _to_naive_datetime64(values: Any) -> np.ndarray:
+    """Normalize any pandas datetime carrier (tz-aware Series / DatetimeArray) to a tz-naive numpy datetime64[ns] array."""
+    # The resolution probe + quantile/span arithmetic in is_variable_truly_continuous all assume numpy: np.nanquantile / the q-diff yield pandas
+    # Timestamp/Timedelta scalars on a DatetimeArray, which lack the .astype the span computation calls (and pandas >=2.0
+    # rejects casting a DatetimeArray straight to datetime64[h]). Callers passing numpy already (df[col].to_numpy()) are unaffected.
+    _tz = getattr(getattr(values, "dtype", None), "tz", None)
+    if _tz is not None:
+        values = values.tz_convert("UTC").tz_localize(None)
+    return np.asarray(values, dtype="datetime64[ns]")
+
+
 def is_variable_truly_continuous(
     df: Optional[pd.DataFrame] = None,
     variable_name: str = "",
@@ -532,14 +578,7 @@ def is_variable_truly_continuous(
         return False, 0.0
 
     if var_is_datetime:
-        # Normalize any pandas datetime carrier (tz-aware Series / DatetimeArray) to a tz-naive numpy datetime64 array up front.
-        # The resolution probe + quantile/span arithmetic below all assume numpy: np.nanquantile / the q-diff yield pandas
-        # Timestamp/Timedelta scalars on a DatetimeArray, which lack the .astype the span computation calls (and pandas >=2.0
-        # rejects casting a DatetimeArray straight to datetime64[h]). Callers passing numpy already (df[col].to_numpy()) are unaffected.
-        _tz = getattr(getattr(values, "dtype", None), "tz", None)
-        if _tz is not None:
-            values = values.tz_convert("UTC").tz_localize(None)
-        values = np.asarray(values, dtype="datetime64[ns]")
+        values = _to_naive_datetime64(values)
 
     if var_is_numeric:
         nz_fract_digits = 0
@@ -566,36 +605,7 @@ def is_variable_truly_continuous(
     # get quantiles and count outliers
     # -----------------------------------------------------------------------------------------------------------------------------------------------------
 
-    use_quantiles = None
-
-    # `calculated_quantiles is not None`, not a truthiness check: a caller following the documented
-    # contract passes a 2-element np.ndarray, and `bool(<2-element ndarray>)` raises
-    # "the truth value of an array with more than one element is ambiguous".
-    if calculated_quantiles is not None or use_quantile:
-
-        calculated_quantiles, tukey_fences_multiplier, use_quantiles = _resolve_quantile_cutoffs(calculated_quantiles, use_quantile, values, tukey_fences_multiplier, use_quantiles)
-
-        iqr = calculated_quantiles[1] - calculated_quantiles[0]
-        q0 = calculated_quantiles[0]
-        q1 = calculated_quantiles[1]
-        lo = q0 - tukey_fences_multiplier * iqr
-        hi = q1 + tukey_fences_multiplier * iqr
-
-        # Fuse the span-mask build and the two fence counts into a single pass (was: one boolean &-mask
-        # plus two separate .sum() scans). NaN compares False everywhere, so it stays out of the span and
-        # counts in neither fence — identical values_in_span and n_outliers. Float-1d only; else exact numpy.
-        if getattr(values, "dtype", None) is not None and values.dtype.kind == "f" and values.ndim == 1:
-            in_span_mask, n_below, n_above = _get_span_fence_njit()(values, q0, q1, lo, hi)
-            values_in_span = values[in_span_mask]
-            n_outliers = n_below + n_above
-        else:
-            values_in_span = values[(values >= q0) & (values <= q1)]
-            n_outliers = (values < lo).sum() + (values > hi).sum()
-
-    else:
-        calculated_quantiles = np.array([np.nanmin(values), np.nanmax(values)])
-        values_in_span = values
-        n_outliers = 0
+    calculated_quantiles, values_in_span, n_outliers, use_quantiles = _quantile_span_and_outliers(values, calculated_quantiles, use_quantile, tukey_fences_multiplier)
 
     outliers_percent = n_outliers / len(values)
 

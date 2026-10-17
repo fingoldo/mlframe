@@ -226,6 +226,159 @@ def _coarse_basis_njit(z: np.ndarray, freqs: np.ndarray) -> tuple:
 # thread schedule, the float result is bit-identical across thread counts / process starts - unlike a numba
 # auto-reduction over ``prange(n)``, whose per-thread partial-combine order drifts in the low ULPs with the
 # thread count and silently flips razor-tie frequency-rank selections downstream (_refine_peak_freq argmax).
+def _build_coarse_basis(z_tr: np.ndarray, grid: list[float]) -> list:
+    """Coarse-grid sin/cos bases on TRAIN as ``(sin_centered, sin_ss, cos_centered, cos_ss)`` per grid frequency."""
+    # Precompute the coarse-grid sin/cos bases on TRAIN once: they depend only
+    # on z, not y, so deflation iterations reuse them (cProfile: the per-freq
+    # np.sin/np.cos + np.corrcoef was the dominant cost at p=200; this drops
+    # the coarse sweep to a centered dot product per cached basis).
+    # bench-attempt-rejected (2026-06-13): batching the coarse-basis build (and the
+    # refine-peak scan) into one ``np.outer`` + matrix ``np.sin``/``np.cos`` eval LOSES
+    # at the scene train-slice sizes - the m*n temporary's allocation + memory-bandwidth
+    # cost dominates the saved per-call overhead (0.5-0.7x at n>=1100, only winning at
+    # n~533), and the ``axis=1`` reduction shifts power by ~1e-12. benches:
+    # profiling/bench_coarse_basis_batched.py, profiling/bench_refine_peak_batched.py.
+    # The shipped win is the per-call no-alloc rewrite of ``_corr_sq_centered`` instead.
+    # bench-attempt-rejected (2026-06-13): storing RAW sin/cos + centered SS (``raw@raw - sum(raw)^2/n``) to skip the two ``s - s.mean()`` / ``c - c.mean()``
+    # temporaries per freq (the same no-alloc identity shipped in ``_corr_sq_centered``) is bit-identical to ~1e-15 BUT NEUTRAL at the detector level: same-process
+    # A/B of the full detector at n=1667 chirp48 was 3.645 -> 3.644ms (1.000x). The build is only ~37% of the detector and the alloc-savings are swamped by the
+    # dominant sin/cos+dot cost. Isolated build-loop bench is pure noise (0.47x-2.35x scatter). bench: profiling/bench_coarse_basis_nocenter.py.
+    # Coarse-basis build (the detector's dominant own-frame cost: scene n=12000 cProfile 1.050s/68 calls). The per-freq
+    # numpy sin/cos + center + SS loop fuses into ONE njit(parallel=True) prange-over-freqs kernel (iter52): the
+    # transcendentals + reductions run in machine code, parallelised across the 16/48 grid frequencies. Measured 2.45-9.2x
+    # warm over the numpy loop across n=533..8000 (bench_coarse_basis_njit_parallel). The fused reduction shifts the
+    # sin/cos SS by ~1e-13 (single-ULP, sequential-vs-pairwise sum) which only perturbs the coarse-sweep ``best_f``
+    # argmax that ``_refine_peak_freq`` re-localises - end-to-end MRMR scene selection is byte-identical. Set
+    # ``MLFRAME_FOURIER_COARSE_BASIS_EXACT=1`` to force the exact numpy build.
+    _coarse_basis = []  # (sin_centered, sin_ss, cos_centered, cos_ss) per grid freq
+    _use_exact_basis = os.environ.get("MLFRAME_FOURIER_COARSE_BASIS_EXACT", "") == "1"
+    if not _use_exact_basis and len(grid) > 0 and z_tr.size > 0:
+        _sc_m, _cc_m, _sss, _css = _coarse_basis_njit(np.ascontiguousarray(z_tr), np.asarray(grid, dtype=np.float64))
+        _coarse_basis = [(_sc_m[gi], float(_sss[gi]), _cc_m[gi], float(_css[gi])) for gi in range(len(grid))]
+    else:
+        for f in grid:
+            ang = 2.0 * np.pi * f * z_tr
+            s = np.sin(ang); c = np.cos(ang)
+            sc = s - s.mean(); cc = c - c.mean()
+            _coarse_basis.append((sc, float(sc @ sc), cc, float(cc @ cc)))
+    return _coarse_basis
+
+
+def _polynomial_detrend(z_tr: np.ndarray, z_va: np.ndarray, y_tr: np.ndarray, y_va: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Detrend ``y`` by a cubic in ``z`` fit on TRAIN and applied to VAL; returns the residual ``(y_tr, y_va)``."""
+    # POLYNOMIAL DETREND: regress y on [1, z, z^2, z^3] and run
+    # detection on the RESIDUAL. A monotone / smooth trend (the linear-additive
+    # target ``y = sign(x1 + 0.7*x2)``) has HIGH periodogram power at LOW
+    # frequencies because a sub-1-cycle sinusoid mimics a monotone ramp - so
+    # the raw periodogram would FALSE-POSITIVE a "frequency" on a non-periodic
+    # target (the linear fixture emitted a spurious ``x1__sin0.75``). A low-
+    # degree polynomial in z ABSORBS any such trend, so its z-frequency power
+    # collapses to ~0 after detrending (measured 0.689 -> 0.002), while a
+    # genuine oscillation - which a cubic CANNOT express - is left intact
+    # (sin(5.3x) power 0.94 retained). The cubic coefficients are fit on TRAIN
+    # and APPLIED to VAL (no val leakage); this is the discriminator that
+    # separates "arbitrary-period oscillation" from "smooth trend the poly
+    # basis already covers".
+    _V_tr = np.vander(z_tr, 4)  # [z^3, z^2, z, 1]
+    try:
+        # normal-eq solve on the 4-col cubic Vandermonde (faster than SVD lstsq); lstsq fallback keeps
+        # the rank-robustness for a degenerate z (constant/near-constant column).
+        try:
+            _poly_coef = np.linalg.solve(_V_tr.T @ _V_tr, _V_tr.T @ y_tr)
+        except np.linalg.LinAlgError:
+            _poly_coef, *_ = np.linalg.lstsq(_V_tr, y_tr, rcond=None)
+        y_tr = y_tr - _V_tr @ _poly_coef
+        y_va = y_va - np.vander(z_va, 4) @ _poly_coef
+    except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+        logger.debug("suppressed: %s", e)
+        pass
+    return y_tr, y_va
+
+
+def _split_and_cap_fourier(z01: np.ndarray, y: np.ndarray, n: int) -> Optional[tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]]:
+    """Seeded 2/3 train - 1/3 held-out split (row-subsampled above the detect cap); None when a slice is too small or constant. Returns ``(z_tr, z_va, y_tr, y_va)``."""
+    # SEEDED held-out split (P1-5): a plain ``idx % 3`` stride leaks under sorted / periodic row order
+    # (every 3rd row is then highly correlated with its train neighbours -> the "held-out" gate is not
+    # honest and a chance frequency clears the floor). A fixed-seed permutation picks a row-order-
+    # INDEPENDENT 1/3, so the split is robust however the caller ordered the rows; deterministic (seed 0).
+    val_mask = np.zeros(n, dtype=bool)
+    val_mask[np.random.default_rng(0).permutation(n)[: n // 3]] = True
+    train_mask = ~val_mask
+    z_tr, z_va = z01[train_mask], z01[val_mask]
+    y_tr = y[train_mask].copy()
+    y_va = y[val_mask].copy()
+    if z_tr.size < 16 or z_va.size < 8:
+        return None
+    # Frequency DETECTION is a proposal heuristic; at very large n the coarse-basis (grid x n) sin/cos
+    # planes dominate memory (a 1M-row fit OOMs building (25, ~667k) planes per column). A uniform
+    # random ROW-subsample preserves the (z, y) joint distribution the detector fits sin(2*pi*f*z) to,
+    # so it recovers the same dominant frequencies at a fraction of the memory. Cap via
+    # MLFRAME_FOURIER_DETECT_MAX_N (0 = no cap; default 200k is ample for dominant-frequency detection).
+    # Seeded local Generator -> deterministic + NO global-RNG contamination. Below the cap: untouched.
+    from .._fourier_detect_cap import get_fourier_detect_max_n
+    _fdet_cap = get_fourier_detect_max_n()
+    if _fdet_cap > 0 and z_tr.size > _fdet_cap:
+        _fdet_rng = np.random.default_rng(0xF0F0_1234)
+        _sub_tr = _fdet_rng.choice(z_tr.size, size=_fdet_cap, replace=False)
+        z_tr = np.ascontiguousarray(z_tr[_sub_tr]); y_tr = np.ascontiguousarray(y_tr[_sub_tr])
+        _va_cap = max(8, _fdet_cap // 2)
+        if z_va.size > _va_cap:
+            _sub_va = _fdet_rng.choice(z_va.size, size=_va_cap, replace=False)
+            z_va = np.ascontiguousarray(z_va[_sub_va]); y_va = np.ascontiguousarray(y_va[_sub_va])
+    if float(np.std(y_tr)) < 1e-12 or float(np.std(y_va)) < 1e-12:
+        return None
+    return z_tr, z_va, y_tr, y_va
+
+
+def _try_gpu_fourier_detect(z01: np.ndarray, y: np.ndarray, f_grid: Sequence[float], min_val_corr: float, min_rows: int, max_freqs: int) -> Optional[list[float]]:
+    """Run the GPU-resident detector when the resident flag is on; None when it is off, unavailable, or hit a genuine device fault (caller falls back to CPU)."""
+    # GPU-RESIDENT dispatch (residency contract, not a wall win): under the resident flag
+    # (MLFRAME_FE_GPU_STRICT + MLFRAME_FE_GPU_STRICT_RESIDENT) keep the column operand + target resident on the
+    # device and run the deflation loop on cupy. Selection-equivalent to (NOT byte-identical with) this CPU path
+    # within the coarse-grid tolerance. Any cupy/device error falls through to the CPU njit path below, so the
+    # default (flag-off) path is byte-identical and a GPU fault never breaks a fit. See the bench-note: this twin
+    # is EXPECTED slower on small-n / sequential-loop HW and that is a PASS by the residency contract.
+    try:
+        from .._gpu_strict_fe._entry import fe_gpu_strict_resident_enabled as _fourier_resident_flag_on
+    except ImportError:
+        _fourier_resident_flag_on = None  # type: ignore[assignment]
+    if _fourier_resident_flag_on is not None and _fourier_resident_flag_on():
+        # Import stays broad-guarded (cupy/twin may be absent); the CALL is narrowed to genuine
+        # device/linalg faults so a real twin logic/shape bug (ValueError/KeyError/IndexError)
+        # propagates to tests instead of silently degrading to CPU as a "device fallback".
+        try:
+            from ._fourier_detect_gpu_resident import detect_fourier_freqs_for_col_gpu
+            from .._fourier_detect_cap import get_fourier_detect_max_n
+            _twin_ready = True
+        except ImportError:
+            _twin_ready = False
+        if _twin_ready:
+            _dev_errs: list = []
+            try:
+                _dev_errs.append(np.linalg.LinAlgError)
+                import cupy as _cp
+                _dev_errs.append(_cp.cuda.runtime.CUDARuntimeError)
+                _dev_errs.append(_cp.cuda.memory.OutOfMemoryError)
+                # FIX4: cuSOLVER/cuBLAS faults from cp.linalg.solve/lstsq subclass plain
+                # RuntimeError, NOT CUDARuntimeError -> omitting them would crash instead of falling
+                # back. getattr so an absent symbol can't break the tuple builder.
+                from cupy_backends.cuda.libs import cusolver as _cusolver
+                _dev_errs.append(getattr(_cusolver, "CUSOLVERError", None))
+                from cupy_backends.cuda.libs import cublas as _cublas
+                _dev_errs.append(getattr(_cublas, "CUBLASError", None))
+            except Exception as e:  # nosec B110 - optional dependency import guard
+                logger.debug("cusolver/cublas error-type import probe failed: %s", e)
+            _dev_errs = [e for e in _dev_errs if isinstance(e, type) and issubclass(e, BaseException)]
+            try:
+                return detect_fourier_freqs_for_col_gpu(
+                    z01, y, f_grid=f_grid, min_val_corr=min_val_corr, min_rows=min_rows,
+                    max_freqs=max_freqs, fourier_detect_max_n=get_fourier_detect_max_n(),
+                )
+            except tuple(_dev_errs):
+                pass  # genuine cupy/device/linalg fault -> CPU njit path (byte-identical default); logic bugs propagate
+    return None
+
+
 def _detect_fourier_freqs_for_col(
     z01: np.ndarray,
     y: np.ndarray,
@@ -287,50 +440,9 @@ def _detect_fourier_freqs_for_col(
     66k vector to compute ONE float, pure overhead. All three are already at the CPU optimum (fused
     njit(parallel) machine code, 2.45-9.2x over the numpy loop), gated below the parallel-crossover for small n.
     """
-    # GPU-RESIDENT dispatch (residency contract, not a wall win): under the resident flag
-    # (MLFRAME_FE_GPU_STRICT + MLFRAME_FE_GPU_STRICT_RESIDENT) keep the column operand + target resident on the
-    # device and run the deflation loop on cupy. Selection-equivalent to (NOT byte-identical with) this CPU path
-    # within the coarse-grid tolerance. Any cupy/device error falls through to the CPU njit path below, so the
-    # default (flag-off) path is byte-identical and a GPU fault never breaks a fit. See the bench-note: this twin
-    # is EXPECTED slower on small-n / sequential-loop HW and that is a PASS by the residency contract.
-    try:
-        from .._gpu_strict_fe._entry import fe_gpu_strict_resident_enabled as _fourier_resident_flag_on
-    except ImportError:
-        _fourier_resident_flag_on = None  # type: ignore[assignment]
-    if _fourier_resident_flag_on is not None and _fourier_resident_flag_on():
-        # Import stays broad-guarded (cupy/twin may be absent); the CALL is narrowed to genuine
-        # device/linalg faults so a real twin logic/shape bug (ValueError/KeyError/IndexError)
-        # propagates to tests instead of silently degrading to CPU as a "device fallback".
-        try:
-            from ._fourier_detect_gpu_resident import detect_fourier_freqs_for_col_gpu
-            from .._fourier_detect_cap import get_fourier_detect_max_n
-            _twin_ready = True
-        except ImportError:
-            _twin_ready = False
-        if _twin_ready:
-            _dev_errs: list = []
-            try:
-                _dev_errs.append(np.linalg.LinAlgError)
-                import cupy as _cp
-                _dev_errs.append(_cp.cuda.runtime.CUDARuntimeError)
-                _dev_errs.append(_cp.cuda.memory.OutOfMemoryError)
-                # FIX4: cuSOLVER/cuBLAS faults from cp.linalg.solve/lstsq subclass plain
-                # RuntimeError, NOT CUDARuntimeError -> omitting them would crash instead of falling
-                # back. getattr so an absent symbol can't break the tuple builder.
-                from cupy_backends.cuda.libs import cusolver as _cusolver
-                _dev_errs.append(getattr(_cusolver, "CUSOLVERError", None))
-                from cupy_backends.cuda.libs import cublas as _cublas
-                _dev_errs.append(getattr(_cublas, "CUBLASError", None))
-            except Exception as e:  # nosec B110 - optional dependency import guard
-                logger.debug("cusolver/cublas error-type import probe failed: %s", e)
-            _dev_errs = [e for e in _dev_errs if isinstance(e, type) and issubclass(e, BaseException)]
-            try:
-                return detect_fourier_freqs_for_col_gpu(
-                    z01, y, f_grid=f_grid, min_val_corr=min_val_corr, min_rows=min_rows,
-                    max_freqs=max_freqs, fourier_detect_max_n=get_fourier_detect_max_n(),
-                )
-            except tuple(_dev_errs):
-                pass  # genuine cupy/device/linalg fault -> CPU njit path (byte-identical default); logic bugs propagate
+    _gpu_result = _try_gpu_fourier_detect(z01, y, f_grid, min_val_corr, min_rows, max_freqs)
+    if _gpu_result is not None:
+        return _gpu_result
     z01 = np.asarray(z01, dtype=np.float64).ravel()
     y = np.asarray(y, dtype=np.float64).ravel()
     n = z01.size
@@ -343,62 +455,11 @@ def _detect_fourier_freqs_for_col(
     grid = [float(f) for f in f_grid if float(f) > 0.0]
     if not grid:
         return []
-    # SEEDED held-out split (P1-5): a plain ``idx % 3`` stride leaks under sorted / periodic row order
-    # (every 3rd row is then highly correlated with its train neighbours -> the "held-out" gate is not
-    # honest and a chance frequency clears the floor). A fixed-seed permutation picks a row-order-
-    # INDEPENDENT 1/3, so the split is robust however the caller ordered the rows; deterministic (seed 0).
-    val_mask = np.zeros(n, dtype=bool)
-    val_mask[np.random.default_rng(0).permutation(n)[: n // 3]] = True
-    train_mask = ~val_mask
-    z_tr, z_va = z01[train_mask], z01[val_mask]
-    y_tr = y[train_mask].copy()
-    y_va = y[val_mask].copy()
-    if z_tr.size < 16 or z_va.size < 8:
+    _split = _split_and_cap_fourier(z01, y, n)
+    if _split is None:
         return []
-    # Frequency DETECTION is a proposal heuristic; at very large n the coarse-basis (grid x n) sin/cos
-    # planes dominate memory (a 1M-row fit OOMs building (25, ~667k) planes per column). A uniform
-    # random ROW-subsample preserves the (z, y) joint distribution the detector fits sin(2*pi*f*z) to,
-    # so it recovers the same dominant frequencies at a fraction of the memory. Cap via
-    # MLFRAME_FOURIER_DETECT_MAX_N (0 = no cap; default 200k is ample for dominant-frequency detection).
-    # Seeded local Generator -> deterministic + NO global-RNG contamination. Below the cap: untouched.
-    from .._fourier_detect_cap import get_fourier_detect_max_n
-    _fdet_cap = get_fourier_detect_max_n()
-    if _fdet_cap > 0 and z_tr.size > _fdet_cap:
-        _fdet_rng = np.random.default_rng(0xF0F0_1234)
-        _sub_tr = _fdet_rng.choice(z_tr.size, size=_fdet_cap, replace=False)
-        z_tr = np.ascontiguousarray(z_tr[_sub_tr]); y_tr = np.ascontiguousarray(y_tr[_sub_tr])
-        _va_cap = max(8, _fdet_cap // 2)
-        if z_va.size > _va_cap:
-            _sub_va = _fdet_rng.choice(z_va.size, size=_va_cap, replace=False)
-            z_va = np.ascontiguousarray(z_va[_sub_va]); y_va = np.ascontiguousarray(y_va[_sub_va])
-    if float(np.std(y_tr)) < 1e-12 or float(np.std(y_va)) < 1e-12:
-        return []
-    # POLYNOMIAL DETREND: regress y on [1, z, z^2, z^3] and run
-    # detection on the RESIDUAL. A monotone / smooth trend (the linear-additive
-    # target ``y = sign(x1 + 0.7*x2)``) has HIGH periodogram power at LOW
-    # frequencies because a sub-1-cycle sinusoid mimics a monotone ramp - so
-    # the raw periodogram would FALSE-POSITIVE a "frequency" on a non-periodic
-    # target (the linear fixture emitted a spurious ``x1__sin0.75``). A low-
-    # degree polynomial in z ABSORBS any such trend, so its z-frequency power
-    # collapses to ~0 after detrending (measured 0.689 -> 0.002), while a
-    # genuine oscillation - which a cubic CANNOT express - is left intact
-    # (sin(5.3x) power 0.94 retained). The cubic coefficients are fit on TRAIN
-    # and APPLIED to VAL (no val leakage); this is the discriminator that
-    # separates "arbitrary-period oscillation" from "smooth trend the poly
-    # basis already covers".
-    _V_tr = np.vander(z_tr, 4)  # [z^3, z^2, z, 1]
-    try:
-        # normal-eq solve on the 4-col cubic Vandermonde (faster than SVD lstsq); lstsq fallback keeps
-        # the rank-robustness for a degenerate z (constant/near-constant column).
-        try:
-            _poly_coef = np.linalg.solve(_V_tr.T @ _V_tr, _V_tr.T @ y_tr)
-        except np.linalg.LinAlgError:
-            _poly_coef, *_ = np.linalg.lstsq(_V_tr, y_tr, rcond=None)
-        y_tr = y_tr - _V_tr @ _poly_coef
-        y_va = y_va - np.vander(z_va, 4) @ _poly_coef
-    except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-        logger.debug("suppressed: %s", e)
-        pass
+    z_tr, z_va, y_tr, y_va = _split
+    y_tr, y_va = _polynomial_detrend(z_tr, z_va, y_tr, y_va)
     if float(np.std(y_tr)) < 1e-9 or float(np.std(y_va)) < 1e-9:
         return []
     # Effective held-out floor. Even after the polynomial detrend, a FINITE-
@@ -413,39 +474,7 @@ def _detect_fourier_freqs_for_col(
     # Tail-aliasing guard (see _fourier_core_cycles): a frequency that completes < MIN_CORE_CYCLES over the inner-quantile core
     # is a sub-cycle ramp in the bulk whose oscillation lives only in the sparse tail -> not admitted. Span from the FULL axis.
     _core_span = core_span(z01)
-    # Precompute the coarse-grid sin/cos bases on TRAIN once: they depend only
-    # on z, not y, so deflation iterations reuse them (cProfile: the per-freq
-    # np.sin/np.cos + np.corrcoef was the dominant cost at p=200; this drops
-    # the coarse sweep to a centered dot product per cached basis).
-    # bench-attempt-rejected (2026-06-13): batching the coarse-basis build (and the
-    # refine-peak scan) into one ``np.outer`` + matrix ``np.sin``/``np.cos`` eval LOSES
-    # at the scene train-slice sizes - the m*n temporary's allocation + memory-bandwidth
-    # cost dominates the saved per-call overhead (0.5-0.7x at n>=1100, only winning at
-    # n~533), and the ``axis=1`` reduction shifts power by ~1e-12. benches:
-    # profiling/bench_coarse_basis_batched.py, profiling/bench_refine_peak_batched.py.
-    # The shipped win is the per-call no-alloc rewrite of ``_corr_sq_centered`` instead.
-    # bench-attempt-rejected (2026-06-13): storing RAW sin/cos + centered SS (``raw@raw - sum(raw)^2/n``) to skip the two ``s - s.mean()`` / ``c - c.mean()``
-    # temporaries per freq (the same no-alloc identity shipped in ``_corr_sq_centered``) is bit-identical to ~1e-15 BUT NEUTRAL at the detector level: same-process
-    # A/B of the full detector at n=1667 chirp48 was 3.645 -> 3.644ms (1.000x). The build is only ~37% of the detector and the alloc-savings are swamped by the
-    # dominant sin/cos+dot cost. Isolated build-loop bench is pure noise (0.47x-2.35x scatter). bench: profiling/bench_coarse_basis_nocenter.py.
-    # Coarse-basis build (the detector's dominant own-frame cost: scene n=12000 cProfile 1.050s/68 calls). The per-freq
-    # numpy sin/cos + center + SS loop fuses into ONE njit(parallel=True) prange-over-freqs kernel (iter52): the
-    # transcendentals + reductions run in machine code, parallelised across the 16/48 grid frequencies. Measured 2.45-9.2x
-    # warm over the numpy loop across n=533..8000 (bench_coarse_basis_njit_parallel). The fused reduction shifts the
-    # sin/cos SS by ~1e-13 (single-ULP, sequential-vs-pairwise sum) which only perturbs the coarse-sweep ``best_f``
-    # argmax that ``_refine_peak_freq`` re-localises - end-to-end MRMR scene selection is byte-identical. Set
-    # ``MLFRAME_FOURIER_COARSE_BASIS_EXACT=1`` to force the exact numpy build.
-    _coarse_basis = []  # (sin_centered, sin_ss, cos_centered, cos_ss) per grid freq
-    _use_exact_basis = os.environ.get("MLFRAME_FOURIER_COARSE_BASIS_EXACT", "") == "1"
-    if not _use_exact_basis and len(grid) > 0 and z_tr.size > 0:
-        _sc_m, _cc_m, _sss, _css = _coarse_basis_njit(np.ascontiguousarray(z_tr), np.asarray(grid, dtype=np.float64))
-        _coarse_basis = [(_sc_m[gi], float(_sss[gi]), _cc_m[gi], float(_css[gi])) for gi in range(len(grid))]
-    else:
-        for f in grid:
-            ang = 2.0 * np.pi * f * z_tr
-            s = np.sin(ang); c = np.cos(ang)
-            sc = s - s.mean(); cc = c - c.mean()
-            _coarse_basis.append((sc, float(sc @ sc), cc, float(cc @ cc)))
+    _coarse_basis = _build_coarse_basis(z_tr, grid)
     out: list[float] = []
     _greedy_fourier_frequency_search(max_freqs, y_tr, y_va, grid, _coarse_basis, z_tr, out, z_va, _core_span, _eff_min_val_corr)
     return out

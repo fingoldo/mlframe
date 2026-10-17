@@ -26,6 +26,8 @@ from ._screen_predictors_gate import build_dcd_state
 from ._screen_predictors_prescreen import cardinality_prescreen, compute_fdr_gain_floor
 from .info_theory import merge_vars
 from ._numba_warmup import warmup_typed_dict
+from ._doc_attach import set_doc
+from ._screen_predictors_doc import SCREEN_PREDICTORS_DOC
 from ._screen_predictors_step1 import _screen_predictors_step1_array_returned_encodings
 
 if TYPE_CHECKING:
@@ -89,6 +91,35 @@ def _init_screen_caches(seed_caches):
     return entropy_cache, cached_MIs, cached_confident_MIs, cached_cond_MIs
 
 
+# ``classes_y_safe`` is OVERLOADED across two consumers with INCOMPATIBLE
+# array-backend requirements, so we keep a CPU numpy buffer ALWAYS and a
+# separate CuPy device buffer only when GPU is on:
+#   * the FE step (returned ``classes_y_safe`` -> check_prospective_fe_pairs
+#     -> the batched MI noise-gate) runs njit kernels (CPU fallback AND the
+#     bit-identical GPU twin, which does ``np.asarray(classes_y_safe)`` +
+#     a numba Fisher-Yates shuffle) -> it REQUIRES a numpy host array.
+#   * the confirm / baseline-eval GPU branches (``mi_direct_gpu``) want the
+#     pre-warmed CuPy DEVICE buffer to skip the H2D copy.
+# Pre-the GPU branch reassigned the single ``classes_y_safe``
+# local to a CuPy array and returned THAT to the FE step, so any
+# ``MRMR(use_gpu=True)`` fit that reached the FE pair-search crashed with
+# ``TypingError: Cannot determine Numba type of <class 'cupy.ndarray'>``
+# (or ``np.asarray`` on a cupy array raising in the subsample path). Now the
+# numpy buffer survives for the return; the device buffer only goes to ctx.
+#
+# RESOLVED (7-site joblib.Parallel audit - follow-up to the
+# UNRESOLVED note this comment used to carry): the "releases the GIL" claim below was never
+# actually confirmed for THIS call path, and the isolated/warmed/best-of-3+ A/B settles it in the
+# other direction. Measured at ``evaluate_candidates``'s realistic scales: m=10 candidates ->
+# 0.03x (SLOWER than serial), m=320 (wellbore-scale) -> 0.72-0.73x, m=820/n_workers=8 -> 0.81x -
+# this ``Parallel(backend="threading")`` pool NEVER wins over serial at any tested scale, confirming
+# the pool is GIL-bound at the dispatch boundary exactly as suspected (evaluate_candidates
+# eventually calls njit kernels that DO release the GIL, but the per-call joblib dispatch/aggregation
+# overhead dominates at these candidate counts). The pool is therefore never constructed here anymore
+# - ``evaluate_candidates`` always runs on the serial fast path in ``confirm_one_predictor``/
+# ``_confirm_predictor.py``. ``n_workers`` is kept as an accepted parameter (other call sites, e.g.
+# the Fleuret conditional-confirmation gate, still branch on it) but no longer causes a pool to be
+# built here; ``seed_workers_pool`` is likewise accepted-but-unused for this purpose.
 def _resident_screen_targets(use_gpu, classes_y, freqs_y, classes_y_safe):
     """Return ``(classes_y_safe, freqs_y_safe)`` for the screen: a shuffle-safe resident device copy of the target codes on GPU, else the host arrays."""
     if use_gpu:
@@ -122,277 +153,8 @@ def _resident_screen_targets(use_gpu, classes_y, freqs_y, classes_y_safe):
     return classes_y_safe, freqs_y_safe
 
 
-def screen_predictors(
-    # factors
-    factors_data: np.ndarray,
-    factors_nbins: Sequence[int],
-    factors_names: Sequence[str] | None = None,
-    factors_names_to_use: Sequence[str] | None = None,
-    factors_to_use: Sequence[int] | None = None,
-    # targets
-    targets_data: np.ndarray | None = None,
-    targets_nbins: Sequence[int] | None = None,
-    y: Sequence[int] | None = None,
-    # algorithm
-    mrmr_relevance_algo: str = "fleuret",
-    mrmr_redundancy_algo: str = "fleuret",
-    reduce_gain_on_subelement_chosen: bool = True,
-    # performance
-    extra_x_shuffling: bool = True,
-    dtype: type = np.int32,
-    random_seed: int | None = None,
-    # ONE shared FE subsample ("score the screen on the same rows"). When supplied, the order-1 relevance SWEEP + its maxT FDR floor are computed on
-    # THESE rows (consistent estimator scale, and the full-n permutation work disappears); the RETURNED target encodings (classes_y / freqs_y) are recomputed at
-    # FULL n so the downstream FE pipeline stays row-aligned. None -> full-n screen.
-    subsample_idx: np.ndarray | None = None,
-    use_gpu: bool = False,
-    n_workers: int = 1,
-    # confidence Statistical defaults aligned with the MRMR constructor (mrmr.py) so a direct ``screen_predictors`` caller - and any consumer that does not
-    # override every knob (e.g. ad-hoc screening) - gets the same behaviour MRMR.fit produces, rather than the far-stricter legacy 1000/100 permutation counts
-    # that made standalone screening ~300x slower and over-reject. MRMR.fit still explicitly overrides each of these.
-    min_occupancy: int | None = None,
-    min_nonzero_confidence: float = 0.99,
-    full_npermutations: int = 3,
-    baseline_npermutations: int = 2,
-    # Sample-size-aware Fleuret confirmation threshold (rows per occupied cell of the conditioning joint). Below it the conditional-MI
-    # permutation gate is finite-sample unreliable and ``confirm_candidate`` falls back to a marginal-MI permutation test. 0.0 = always use the strict
-    # conditional test (legacy). Threaded into ``ScreenContext``.
-    fe_confirm_undersample_rows_per_cell: float = 5.0,
-    # stopping conditions
-    min_relevance_gain: float = 0.0001,
-    # diminishing-returns stop. Stops greedy selection when the
-    # current candidate's gain falls below this fraction of the FIRST-selected
-    # feature's gain. Catches "trailing noise" leakage on imbalanced y where
-    # tiny-but-statistically-positive gains squeeze past min_relevance_gain
-    # (e.g. Layer 13: signal gain 0.0176, noise gain 0.0004 - both clear the
-    # H(y)-relative floor at 1% imbalance, but noise is 2.5% of signal).
-    # 0.0 disables; default 0.05 = stop once gain drops below 5% of first
-    # gain. Only applies from the second selected feature onward.
-    min_relevance_gain_relative_to_first: float = 0.05,
-    # Miller-Madow MI bias correction at the selection gate.
-    # Plug-in mutual information OVERESTIMATES MI for high-cardinality
-    # features (Paninski 2003, Miller 1955). For a binned feature with
-    # |X| bins, target with |Y| classes, and n samples the plug-in MI
-    # picks up a bias of ~(|X|-1)*(|Y|-1)/(2n). On a 1200-level user_id
-    # at n=2500 with binary y that's ~0.24 nats - enough to make pure
-    # noise outrank real numeric signal (Layer 10 seed=101 hijack:
-    # user_id raw gain 0.328, after MM correction 0.088; num_signal_1
-    # raw 0.187 -> corrected 0.185; the corrected ordering puts the
-    # real signal first and demotes user_id to #3, where the relative-
-    # gain floor then excludes it). True = subtract MM bias from gains
-    # at the floor comparison only (does NOT mutate mrmr_gains_ which
-    # remains the raw plug-in value for downstream consumers).
-    cardinality_bias_correction: bool = True,
-    # Column NAMES whose bin count is a raw level count (categoricals). Only these are eligible for the
-    # cardinality ceiling: a numeric column discretised by a SUPERVISED strategy earns bins for EXPLAINING the
-    # target, so judging it by bin count drops the strongest feature. None = judge every column by bin count.
-    raw_cardinality_cols: set | None = None,
-    max_consec_unconfirmed: int = 10,
-    max_runtime_mins: float | None = None,
-    interactions_min_order: int = 1,
-    interactions_max_order: int = 1,
-    interactions_order_reversed: bool = False,
-    max_veteranes_interactions_order: int = 1,
-    only_unknown_interactions: bool = False,
-    # Confirmation-step cardinality cutoff. ``None`` falls back to ``MAX_CONFIRMATION_CAND_NBINS``; ``MRMR.fit`` overrides with ``quantization_nbins ** interactions_max_order * 2``.
-    max_confirmation_cand_nbins: int | None = None,
-    # When screening returns zero selected_vars, legacy FE fell back to running on ALL features. False skips FE instead (safer default: FE on empty screen amplifies noise). Aligned with the MRMR ctor default (False).
-    fe_fallback_to_all: bool = False,
-    # verbosity and formatting
-    verbose: int = 0,
-    ndigits: int = 5,
-    parallel_kwargs: dict | None = None,
-    stop_file: str | None = None,
-    # Aligned with the MRMR ctor (False): full Fleuret conditional-MI redundancy is the point of MRMR. True is the faster dedup-free path on very wide pools.
-    use_simple_mode: bool = False,
-    # ``engineered_lineage`` - mapping ``{engineered_col_idx: frozenset(parent_indices)}``. When set, k-way candidate enumeration skips combinations of an engineered
-    # column with one of its own parents (e.g. ``(orig_i, kway(orig_i, orig_j))`` is redundant since the engineered col already contains orig_i's info). Threaded
-    # through ``should_skip_candidate``. ``None`` preserves legacy behaviour.
-    engineered_lineage: dict | None = None,
-    # Dynamic Cluster Discovery (DCD) config dict. When
-    # not None, DCD is active for this screen call. Keys: enable, tau_cluster,
-    # distance, cluster_size_threshold, swap_gain_threshold, swap_method,
-    # pairwise_cache_max, min_cluster_size, max_cluster_size, X_raw,
-    # quantization_method, quantization_nbins, quantization_dtype, factors_cols.
-    # None preserves pre-Wave-9 behaviour bit-stable.
-    dcd_config: dict | None = None,
-    # Layer 43 (PART A) — host-MRMR engineered_recipes dict (name ->
-    # EngineeredRecipe). Threaded into ``commit_swap`` so the DCD PC1 aggregate
-    # gets registered as a replayable recipe. Pre-fix it was hardcoded to None
-    # at the commit_swap callsite -> aggregate appeared in ``selected_vars`` /
-    # ``cols`` but the remap in _mrmr_fit_impl.py dropped it from
-    # ``_engineered_recipes_`` so ``get_feature_names_out`` silently lost it.
-    engineered_recipes: dict | None = None,
-    # — directed-FE tie-break (see ScreenContext.raw_feature_names).
-    # ``raw_feature_names`` is the set of ORIGINAL (pre-FE) input column names;
-    # any candidate whose ``factors_names`` entry is not in it is engineered.
-    # On a near-tie in selection gain (within ``prefer_engineered_rel_eps``
-    # relative tolerance) the greedy pick prefers the engineered candidate over a
-    # raw one - deterministic, and the whole point of directed FE: surface the
-    # nonlinear combination, not its raw parent (which a shallow downstream can't
-    # use). ``None`` raw-name set falls back to the syntactic ``(``/``__``
-    # heuristic; rel-eps ``0.0`` restores the legacy pure-index tie-break.
-    raw_feature_names: Optional[Iterable[str]] = None,
-    # RC1: widened 0.01 -> 0.15. On non-monotone targets (e.g.
-    # y=sign(x1^2-1)) the binned-MI of the raw parent x1 edges out its engineered
-    # linearizer x1__He2 by more than 1% (estimation noise; in EXACT MI they are
-    # equal because He2 is a deterministic function of x1), so a 1% band left the
-    # raw parent winning and the engineered linearizer pruned - the downstream a
-    # linear model needs (x1^2-1) was lost (AUC ~0.5 vs ~0.99). A 0.15 band lets
-    # the engineered linearizer win over its near-tied raw parent. Still gated to
-    # the leading band + engineered-only promotion (clear raw winners untouched).
-    prefer_engineered_rel_eps: float = 0.15,
-    # — Westfall-Young maxT permutation-null gain floor. In a wide
-    # candidate pool (embedding / TF-IDF matrices, p >> sqrt(n)) the MAX marginal
-    # MI over p pure-noise columns is a positive order statistic that grows with
-    # p; per-candidate Miller-Madow correction centres each column's EXPECTED
-    # bias near zero but cannot remove this max-over-p selection inflation, so the
-    # best-of-p noise clears the abs/rel floors by chance and the greedy admits a
-    # noise cloud (Layer-20 p=500: 15 noise dims pass a <=15 bound). The null
-    # shuffles y K times, records the per-shuffle MAX corrected marginal MI over
-    # the pool, and floors order-1 selection at the q-th quantile of that
-    # distribution - the chance ceiling for THIS pool. SELF-GATING: tiny at small
-    # p (keeps weak genuine signals), large at high p (rejects the noise cloud).
-    # Applied when the pool has >= ``screen_fdr_min_features`` candidates (wide pool: embedding / TF-IDF best-of-p bias) OR when a NARROW pool meets the high-cardinality-target
-    # gate (``screen_fdr_target_oversplit_ratio`` / ``screen_fdr_min_rows_per_joint_cell``). The narrow-pool gate catches a distinct finite-sample-bias regime: a heavy-tailed
-    # (log-normal) regression target whose quantile binning yields a high-cardinality target (~10 equal-frequency bins, matching feature cardinality), lifting pure-noise columns
-    # past the abs/rel gain floors after the genuine signals are picked. The gate fires ONLY when the target is high-cardinality (nbins_y >= median feature nbins - a continuous
-    # regression target, not a low-card classification one) AND the (X,y) joint table is dense enough that the floor is itself reliable - so a dense weak-signal regression pool
-    # like sklearn diabetes (MDLP nbins_y=64 but ~1.0-1.5 rows per joint cell at n=330) keeps the floor OFF and preserves its 10 weak features, while lognormal (7.8 rows per
-    # joint cell at n=2500) fires. The original ratio=3 keyed on the MDLP ~30-bin over-split that the target-rebin guard now removes. See
-    # the narrow-pool rule in ``_screen_predictors_prescreen.compute_fdr_gain_floor``. ``screen_fdr_null_permutations=0`` disables. Default 200 (raised from 25): the floor is the 95th
-    # percentile of a per-shuffle MAX, an extreme upper-tail order statistic whose K=25 estimate is high-variance (~1.25 draws above the quantile); 200 draws stabilise the
-    # floor several-fold run-to-run (bench ``_benchmarks/bench_maxt_floor_stability.py``) - a lower-variance noise floor is the correct behavior, the rescore cost stays
-    # sub-second at production widths.
-    screen_fdr_null_permutations: int = 999,
-    screen_fdr_null_quantile: float = 0.975,
-    honest_null_codes_fn: "Callable | None" = None,
-    screen_fdr_min_features: int = 30,
-    screen_fdr_target_oversplit_ratio: float = 1.0,
-    # 8.0 -> 7.0. MDLP now bins the lognormal biz_val target into 64 bins (not the
-    # ~10-30 assumed at this gate's original calibration), which pushed the lognormal fixture's
-    # measured rows/cell to exactly 7.8125 - just under the old 8.0 bar, silently disabling the
-    # gate it exists to trigger. Diabetes (the no-regression side) measures ~1.0-1.5 rows/cell,
-    # so 7.0 keeps its comfortable separation while restoring the lognormal win.
-    screen_fdr_min_rows_per_joint_cell: float = 7.0,
-    # When MRMR.fit re-screens after a feature-engineering step (confirm-rescreen
-    # loop), the DCDState from the prior pass is threaded back in here so cluster
-    # discovery accumulates across passes instead of being rebuilt empty each
-    # time (which dropped the screen-1 dup cluster from the published summary).
-    existing_dcd_state: "DCDState | None" = None,
-    # fix: analogous to ``existing_dcd_state`` above - thread the PRIOR screen round's
-    # relevance/redundancy caches back in instead of starting empty every round. A given cache key
-    # (a column-index tuple, or an (X,Z) conditional-MI key) is a deterministic function of the data,
-    # which does not change across rounds (only grows via appended engineered columns; existing
-    # indices' content is stable), so a cached value computed in round N-1 is EXACT, not approximate,
-    # for round N - the same guarantee this memoization already provides WITHIN one round, just not
-    # previously carried across the 2-3 rounds a typical fit runs. ``seed_caches``, when given, is the
-    # 4-tuple ``(entropy_cache, cached_MIs, cached_confident_MIs, cached_cond_MIs)`` returned by a
-    # PRIOR ``screen_predictors`` call in the same fit. ``None`` (default) preserves the legacy
-    # fresh-empty-caches behaviour.
-    seed_caches: "tuple | None" = None,
-    # fix: optional cross-round cache for the maxT permutation-null gain floor (see
-    # ``compute_fdr_gain_floor``'s ``maxt_floor_cache`` docstring). A plain dict the caller owns and
-    # threads unchanged into every ``screen_predictors`` call within one fit (mutated in place - no
-    # need to read it back from the return tuple). ``None`` (default) disables caching, legacy behaviour.
-    seed_maxt_floor_cache: "dict | None" = None,
-    # fix: thread back a joblib ``Parallel`` pool built by a PRIOR ``screen_predictors``
-    # call in the same fit (only meaningful when ``n_workers>1``). Building a fresh pool + eager
-    # warmup dispatch on every one of the ~3 screen/re-screen rounds per fit respawns ``n_workers``
-    # threads each time for no benefit - the pool config (backend/n_jobs) is fixed by the MRMR
-    # instance for the whole ``fit()`` call, so a warmed pool from round 1 is safe to reuse verbatim
-    # in rounds 2-3. ``None`` (default) preserves the legacy fresh-pool-per-call behaviour.
-    seed_workers_pool: "Parallel | None" = None,
-) -> tuple:
-    """Finds best predictors for the target. ``factors_data`` must be an n-by-m array of integers (ordinal encoded).
-
-    ``max_confirmation_cand_nbins=None`` falls back to the module constant for backward compat; ``MRMR.fit`` overrides explicitly. ``fe_fallback_to_all`` is consumed
-    by ``MRMR.fit`` and only threaded here for caller pass-through.
-
-    Args:
-        factors_data: n-by-m array of ordinal-encoded integer factor columns.
-        factors_nbins: number of bins (cardinality) of each factor column.
-        factors_names: names of the factor columns; generated when None.
-        factors_names_to_use: restrict screening to these column names.
-        factors_to_use: restrict screening to these column indices.
-        targets_data: integer-encoded target columns; built from ``y`` when None.
-        targets_nbins: number of bins of each target column.
-        y: indices of the target columns inside ``factors_data``.
-        mrmr_relevance_algo: relevance scheme.
-            "fleuret": max(min(I(X,Y|Z)),max(I(X,Y|Z)-I(X,Y))) Possible to use n-way interactions here.
-            "pld": I(X,Y)
-        mrmr_redundancy_algo: redundancy scheme.
-            "fleuret": 0 ('cause redundancy already accounted for)
-            "pld_max": max(I(veterane,cand)) Possible to use n-way interactions here.
-            "pld_mean": mean(I(veterane,cand)) Possible to use n-way interactions here.
-        reduce_gain_on_subelement_chosen: reduce a candidate's gain when one of its sub-elements was already chosen.
-        extra_x_shuffling: also shuffle the candidate column in permutation tests.
-        dtype: integer dtype used for the working copy of the data.
-        random_seed: seeds numpy, numba and (with ``use_gpu``) cupy for the duration of the screen; None leaves RNG state untouched.
-        subsample_idx: row indices of one shared FE subsample on which the order-1 sweep and its maxT floor are computed; None means full n.
-        use_gpu: run the MI kernels on the GPU.
-        n_workers: number of joblib workers for candidate evaluation.
-        min_occupancy: minimum rows per occupied cell for a candidate to be considered; None disables the check.
-        min_nonzero_confidence: if in random permutation tests this or higher % of cases had worse current_gain than original, current_gain value is considered valid, otherwise, it's set to zero.
-        full_npermutations: when computing every MI, repeat calculations with randomly shuffled indices that many times
-        baseline_npermutations: number of permutations used for the cheaper baseline (order-1) significance checks.
-        fe_confirm_undersample_rows_per_cell: rows per occupied conditioning cell below which confirmation falls back to a marginal-MI permutation test; 0.0 always uses the strict conditional test.
-        min_relevance_gain: absolute gain below which selection stops.
-        min_relevance_gain_relative_to_first: stop once a candidate's gain drops below this fraction of the first selected feature's gain; 0.0 disables.
-        cardinality_bias_correction: subtract the Miller-Madow bias from gains at the floor comparison (the raw gains stay unmodified).
-        raw_cardinality_cols: names of columns whose bin count is a raw level count and so eligible for the cardinality ceiling; None judges every column by bin count.
-        max_consec_unconfirmed: stop after this many consecutive candidates fail confirmation.
-        max_runtime_mins: wall-clock budget in minutes; None means unlimited.
-        interactions_min_order: smallest interaction order enumerated.
-        interactions_max_order: largest interaction order enumerated.
-        interactions_order_reversed: enumerate interaction orders from largest to smallest.
-        max_veteranes_interactions_order: maximum interaction order evaluated against already selected features.
-        only_unknown_interactions: True for speed, False for completeness of higher order interactions discovery.
-        max_confirmation_cand_nbins: confirmation-step cardinality cutoff; None falls back to ``MAX_CONFIRMATION_CAND_NBINS``.
-        fe_fallback_to_all: consumed by ``MRMR.fit``; only passed through here.
-        verbose: int  1=log only important info,>1=also log additional details
-        ndigits: decimals used when logging numeric values.
-        parallel_kwargs: extra keyword arguments for the joblib ``Parallel`` pool.
-        stop_file: path of a file whose existence requests an early stop.
-        use_simple_mode: True selects the faster dedup-free path on very wide pools instead of the full Fleuret conditional-MI redundancy.
-        engineered_lineage: mapping ``{engineered_col_idx: frozenset(parent_indices)}`` used to skip combinations of an engineered column with its own parents.
-        dcd_config: Dynamic Cluster Discovery configuration; None leaves DCD off.
-        engineered_recipes: host ``engineered_recipes`` dict (name to recipe) into which DCD aggregates are registered.
-        raw_feature_names: original (pre-FE) input column names; candidates outside it are treated as engineered for the near-tie preference.
-        prefer_engineered_rel_eps: relative gain tolerance within which an engineered candidate is preferred over a raw one; 0.0 restores pure-index tie-breaking.
-        screen_fdr_null_permutations: number of y shuffles for the maxT permutation-null gain floor; 0 disables it.
-        screen_fdr_null_quantile: quantile of the per-shuffle maximum used as the floor.
-        honest_null_codes_fn: callable re-binning every column on a row-permuted raw target (supervised binning); None keeps the plain permutation null.
-        screen_fdr_min_features: pool width at which the maxT floor is applied.
-        screen_fdr_target_oversplit_ratio: target-cardinality ratio that triggers the floor on narrow pools.
-        screen_fdr_min_rows_per_joint_cell: minimum rows per (X, y) joint cell for the narrow-pool floor to be considered reliable.
-        existing_dcd_state: DCD state from the prior screening pass, so cluster discovery accumulates across passes.
-        seed_caches: 4-tuple ``(entropy_cache, cached_MIs, cached_confident_MIs, cached_cond_MIs)`` from a prior call in the same fit; None starts with empty caches.
-        seed_maxt_floor_cache: caller-owned dict caching the maxT floor across calls, mutated in place; None disables caching.
-        seed_workers_pool: warmed joblib ``Parallel`` pool from a prior call, reused when ``n_workers`` > 1; None builds a fresh pool.
-
-    Returns:
-        1) best set of non-redundant single features influencing the target
-        2) subsets of size 2..interactions_max_order influencing the target. Such subsets will be candidates for predictors and OtherVarsEncoding.
-        3) all 1-vs-1 influencers (not necessarily in mRMR)
-    """
-    # ---------------------------------------------------------------------------------------------------------------
-    # Input checks
-    # ---------------------------------------------------------------------------------------------------------------
-    factors_names, max_confirmation_cand_nbins, parallel_kwargs, st, targets_data = _screen_predictors_step1_block(
-        parallel_kwargs,
-        max_confirmation_cand_nbins,
-        mrmr_relevance_algo,
-        mrmr_redundancy_algo,
-        y,
-        factors_data,
-        targets_data,
-        targets_nbins,
-        factors_nbins,
-        factors_names,
-    )
-    _screen_predictors_step2_initialize_factor_indices(factors_to_use, st, factors_names_to_use, factors_names, factors_data, targets_data, verbose, y)
-    assert y is not None  # _screen_predictors_step1_block rejects y=None before this point
+def _seed_screen_rngs(st: _SimpleNamespace, random_seed: int | None, use_gpu: bool) -> None:
+    """Capture fresh restore seeds on ``st`` and seed numba (and cupy when ``use_gpu``) for the duration of the screen; no-op when ``random_seed`` is None."""
     if random_seed is not None:
         # Capture a fresh entropy-derived seed to restore numba/cupy with on
         # finally; mathematically equivalent (from the consumer's view) to
@@ -434,6 +196,169 @@ def screen_predictors(
                 # so a seed failure must not crash the whole screen.
                 pass
 
+
+def _init_jmim_cache() -> tuple:
+    """Return the JMIM joint-MI cache (typed dict) and its int64 hit counter.
+
+    Built once per fit alongside ``cached_cond_MIs`` so it persists across greedy rounds (the {X} u Z multiset key recurs as selected_vars
+    grows). The plain int64 array counts cache HITS for observability. Both are forwarded through ScreenContext to evaluate_candidate; never
+    pickled onto the instance.
+    """
+    cached_jmim_MIs = numba.typed.Dict.empty(
+        key_type=types.unicode_type,
+        value_type=types.float64,
+    )
+    return cached_jmim_MIs, np.zeros(1, dtype=np.int64)
+
+
+def _screen_fdr_floor(
+    factors_data: np.ndarray,
+    factors_nbins: Sequence[int],
+    factors_names: Sequence[str],
+    st: _SimpleNamespace,
+    y: Sequence[int],
+    subsample_idx: np.ndarray | None,
+    screen_full_factors: np.ndarray | None,
+    cardinality_bias_correction: bool,
+    raw_cardinality_cols: set | None,
+    fdr_kwargs: dict,
+    random_seed: int | None,
+    verbose: int,
+    seed_maxt_floor_cache: dict | None,
+) -> float:
+    """Run the cardinality pre-screen (updating ``st.x``) and return the maxT permutation-null gain floor for the finalised order-1 pool."""
+    # Cardinality-bias pre-screen: drop columns whose Miller-Madow plug-in-MI bias is too large to score honestly (nbins_x > 2*sqrt(n)). See ``cardinality_prescreen``.
+    if cardinality_bias_correction and factors_data.shape[1] > 0:
+        st.x, _cardinality_refused_cols = cardinality_prescreen(
+            factors_data,
+            factors_nbins,
+            factors_names,
+            st.x,
+            y,
+            verbose,
+            raw_cardinality_cols=raw_cardinality_cols,
+        )
+    else:
+        _cardinality_refused_cols = set()
+
+    # — Westfall-Young maxT permutation-null gain floor (computed ONCE on the finalised order-1 pool, applied at the selection gate). Fires on a WIDE pool
+    # (>= ``screen_fdr_min_features``, where best-of-p selection bias dominates) OR on a NARROW pool that meets the target-over-split gate - an MDLP-over-split heavy-tailed
+    # regression target whose plug-in MI bias lifts pure-noise columns past the gain floors after the signals are picked. The narrow-pool gate is itself self-gating: it only
+    # engages where the (X,y) joint table is dense enough that the floor is reliable, so a dense weak-signal pool (diabetes) keeps the floor OFF. Below both gates the floor
+    # is 0.0 (no-op) so the clean low-cardinality tabular suite is untouched. See ``_permutation_null.py``.
+    return compute_fdr_gain_floor(
+        factors_data,
+        np.asarray(factors_nbins),
+        st.x,
+        y,
+        honest_full_factors=screen_full_factors,
+        honest_eval_rows=(np.asarray(subsample_idx, dtype=np.int64) if screen_full_factors is not None else None),
+        cardinality_bias_correction=cardinality_bias_correction,
+        random_seed=random_seed,
+        verbose=verbose,
+        maxt_floor_cache=seed_maxt_floor_cache,
+        **fdr_kwargs,
+    )
+
+
+def _log_screen_termination(ctx: ScreenContext, selected_vars: list, patience_triggered: bool, max_consec_unconfirmed: int) -> None:
+    """Emit the always-on termination-reason summary line for ``screen_predictors``."""
+    # Termination-reason summary (always emitted). ``patience_triggered`` distinguishes "gave up confirming" (max_consec_unconfirmed hit) from natural exhaustion below
+    # ``min_relevance_gain``. If patience keeps tripping, raise ``max_consec_unconfirmed`` or smooth the relevance signals.
+    # Total wall time inside score_candidates + call count + final |Z| appended to the
+    # SAME existing always-emitted summary line (cheaper than a whole new logging mechanism) -
+    # this is exactly the trio (pool_size x |Z| scaling driver, not the FE-pair-precompute step
+    # logged elsewhere) a prior investigation had to reconstruct from code instead of the log.
+    _sc_summary = f" [score_candidates: {ctx.sc_wall:.1f}s over {ctx.sc_calls} call(s), final |Z|={len(selected_vars)}]"
+    if patience_triggered:
+        logger.warning(
+            "screen_predictors terminated early via max_consec_unconfirmed=%d "
+            "patience (at least one level exhausted). Returned %d selected "
+            "feature(s). If you expected more, increase max_consec_unconfirmed "
+            "or reduce the relevance-gain threshold.%s",
+            max_consec_unconfirmed,
+            len(selected_vars),
+            _sc_summary,
+        )
+    else:
+        logger.info(
+            "screen_predictors finished naturally (no patience trip). " "Returned %d selected feature(s).%s",
+            len(selected_vars),
+            _sc_summary,
+        )
+
+
+def _influencing_vars(cached_confident_MIs: dict) -> set:
+    """Return the union of variable indices from every confidently-scored combination whose bootstrapped gain is positive."""
+    any_influencing: set = set()
+    for vars_combination, (bootstrapped_gain, _confidence) in cached_confident_MIs.items():
+        if bootstrapped_gain > 0:
+            any_influencing.update(set(vars_combination))
+
+    """Выбрать группы/кластера скоррелированных факторов. Вместо использования 1 самого крутого, рассмотреть средние от всех
+        отброшенных факторов, имеющих высокое прямое direct_MI с таргетом, но близкое к 0 additional_knowledge с каждым
+        "победившим" фактором, проверить, не могут ли они усилить свой победивший фактор через ансамблирование. Усиление в смысле
+        среднего и вариативности MI с таргетом на бутстрепе подвыборок?
+
+        key = arr2str(X) + "_" + arr2str(Z)
+        if key in cached_cond_MIs:
+            additional_knowledge = cached_cond_MIs[key]
+    """
+    return any_influencing
+
+
+# Notes on the locals of ``screen_predictors`` (patience flag, cache seeding, DCD state, subsample, data_copy aliasing, ScreenContext), in code order.
+# True if inner confirmation loop hit ``max_consec_unconfirmed`` patience at least once. Surfaced at function exit so callers can distinguish "gave up confirming"
+# from "natural gain threshold reached".
+# Seed from the PRIOR screen round's caches when supplied (see seed_caches in the parameter notes) instead of always starting empty - a cache key's value
+# is a deterministic function of the (stable, append-only) data, so reuse across rounds is exact, not approximate.
+# Dynamic Cluster Discovery state construction.
+# Built only when ``dcd_config`` is provided AND ``enable=True``. The
+# state lives on the screen-local namespace (NOT thread-local) so the
+# joblib parallel-backend path remains safe per Critic1/F fix.
+# DCD state construction (config parsing + make_dcd_state call + fallback-on-error)
+# lives in ``build_dcd_state`` (``_screen_predictors_gate.py``).
+# SCREEN SUBSAMPLE ("score on the shared rows"): slice the working factors/targets to the fit's
+# one shared draw so the relevance sweep + maxT FDR floor below run on ~30k rows (consistent with
+# the candidates they gate; no full-n permutation work). ``_screen_full_factors`` keeps the full
+# array so the RETURNED encodings are recomputed at full n (row-aligned for the FE pipeline).
+# Mutate-and-restore instead of a whole-matrix copy: ``data_copy`` aliases ``factors_data`` and the Fleuret permutation njit
+# (``get_fleuret_criteria_confidence``) saves+restores ONLY the few columns it shuffles (x u y, ~O(n) each), so peak extra RAM is
+# O((|x|+|y|)*n) not O(p*n). Frames here can be 100+ GB; the per-screen-call full copy doubled peak RAM. The parallel confirm path
+# already copies per-worker, so it never mutated this buffer - the serial path now matches that pristine-start semantics.
+# Shared confirmation context. Static fields + the four MI caches are set once; per-interactions-order fields
+# (``candidates`` / ``partial_gains`` / ``added_candidates`` / ``failed_candidates`` / ``interactions_order`` /
+# ``num_possible_candidates``) are refreshed at the top of each order below. ``selected_vars`` /
+# ``selected_interactions_vars`` are the same list objects throughout (appended to, never reassigned), so the
+# confirmation primitives always see the up-to-date selection.
+@set_doc(SCREEN_PREDICTORS_DOC)
+def screen_predictors(
+    factors_data: np.ndarray, factors_nbins: Sequence[int], factors_names: Sequence[str] | None = None,
+    factors_names_to_use: Sequence[str] | None = None, factors_to_use: Sequence[int] | None = None, targets_data: np.ndarray | None = None,
+    targets_nbins: Sequence[int] | None = None, y: Sequence[int] | None = None, mrmr_relevance_algo: str = "fleuret",
+    mrmr_redundancy_algo: str = "fleuret", reduce_gain_on_subelement_chosen: bool = True, extra_x_shuffling: bool = True, dtype: type = np.int32,
+    random_seed: int | None = None, subsample_idx: np.ndarray | None = None, use_gpu: bool = False, n_workers: int = 1,
+    min_occupancy: int | None = None, min_nonzero_confidence: float = 0.99, full_npermutations: int = 3, baseline_npermutations: int = 2,
+    fe_confirm_undersample_rows_per_cell: float = 5.0, min_relevance_gain: float = 0.0001, min_relevance_gain_relative_to_first: float = 0.05,
+    cardinality_bias_correction: bool = True, raw_cardinality_cols: set | None = None, max_consec_unconfirmed: int = 10,
+    max_runtime_mins: float | None = None, interactions_min_order: int = 1, interactions_max_order: int = 1,
+    interactions_order_reversed: bool = False, max_veteranes_interactions_order: int = 1, only_unknown_interactions: bool = False,
+    max_confirmation_cand_nbins: int | None = None, fe_fallback_to_all: bool = False, verbose: int = 0, ndigits: int = 5,
+    parallel_kwargs: dict | None = None, stop_file: str | None = None, use_simple_mode: bool = False, engineered_lineage: dict | None = None,
+    dcd_config: dict | None = None, engineered_recipes: dict | None = None, raw_feature_names: Optional[Iterable[str]] = None,
+    prefer_engineered_rel_eps: float = 0.15, screen_fdr_null_permutations: int = 999, screen_fdr_null_quantile: float = 0.975,
+    honest_null_codes_fn: "Callable | None" = None, screen_fdr_min_features: int = 30, screen_fdr_target_oversplit_ratio: float = 1.0,
+    screen_fdr_min_rows_per_joint_cell: float = 7.0, existing_dcd_state: "DCDState | None" = None, seed_caches: "tuple | None" = None,
+    seed_maxt_floor_cache: "dict | None" = None, seed_workers_pool: "Parallel | None" = None,
+) -> tuple:
+    """Finds best predictors for the target; the full documentation is attached by ``set_doc``."""
+    factors_names, max_confirmation_cand_nbins, parallel_kwargs, st, targets_data = _screen_predictors_step1_block(
+        parallel_kwargs, max_confirmation_cand_nbins, mrmr_relevance_algo, mrmr_redundancy_algo, y, factors_data, targets_data, targets_nbins, factors_nbins, factors_names
+    )
+    _screen_predictors_step2_initialize_factor_indices(factors_to_use, st, factors_names_to_use, factors_names, factors_data, targets_data, verbose, y)
+    assert y is not None  # _screen_predictors_step1_block rejects y=None before this point
+    _seed_screen_rngs(st, random_seed, use_gpu)
+
     try:
         max_failed = int(full_npermutations * (1 - min_nonzero_confidence))
         if max_failed <= 1:
@@ -443,174 +368,65 @@ def screen_predictors(
         selected_vars: list = []  # stores just indices. can't use set 'cause the order is important for efficient computing
         predictors: list = []  # stores more details.
 
-        # True if inner confirmation loop hit ``max_consec_unconfirmed`` patience at least once. Surfaced at function exit so callers can distinguish "gave up confirming"
-        # from "natural gain threshold reached".
         patience_triggered: bool = False
 
-        # fix: seed from the PRIOR screen round's caches when supplied (see seed_caches'
-        # docstring above) instead of always starting empty - a cache key's value is a deterministic
-        # function of the (stable, append-only) data, so reuse across rounds is exact, not approximate.
         entropy_cache, cached_MIs, cached_confident_MIs, cached_cond_MIs = _init_screen_caches(seed_caches)
-        # JMIM joint-MI cache, built once per fit alongside cached_cond_MIs so
-        # it persists across greedy rounds (the {X} u Z multiset key recurs as selected_vars
-        # grows). Plain int64 array counts cache HITS for observability. Both are forwarded
-        # through ScreenContext to evaluate_candidate; never pickled onto the instance.
-        cached_jmim_MIs = numba.typed.Dict.empty(
-            key_type=types.unicode_type,
-            value_type=types.float64,
-        )
-        jmim_hit_counter = np.zeros(1, dtype=np.int64)
+        cached_jmim_MIs, jmim_hit_counter = _init_jmim_cache()
 
-        # Dynamic Cluster Discovery state construction.
-        # Built only when ``dcd_config`` is provided AND ``enable=True``. The
-        # state lives on the screen-local namespace (NOT thread-local) so the
-        # joblib parallel-backend path remains safe per Critic1/F fix.
-        # DCD state construction (config parsing + make_dcd_state call + fallback-on-error)
-        # lives in ``build_dcd_state`` (``_screen_predictors_gate.py``).
         dcd_state = build_dcd_state(dcd_config, factors_data, factors_nbins, factors_names, y, existing_dcd_state, verbose)
 
-        # SCREEN SUBSAMPLE ("score on the shared rows"): slice the working factors/targets to the fit's
-        # one shared draw so the relevance sweep + maxT FDR floor below run on ~30k rows (consistent with
-        # the candidates they gate; no full-n permutation work). ``_screen_full_factors`` keeps the full
-        # array so the RETURNED encodings are recomputed at full n (row-aligned for the FE pipeline).
         _screen_full_factors = None
         _screen_full_factors, factors_data = _screen_predictors_step1_array_returned_encodings(subsample_idx, factors_data, targets_data, _screen_full_factors)
 
-        # Mutate-and-restore instead of a whole-matrix copy: ``data_copy`` aliases ``factors_data`` and the Fleuret permutation njit
-        # (``get_fleuret_criteria_confidence``) saves+restores ONLY the few columns it shuffles (x u y, ~O(n) each), so peak extra RAM is
-        # O((|x|+|y|)*n) not O(p*n). Frames here can be 100+ GB; the per-screen-call full copy doubled peak RAM. The parallel confirm path
-        # already copies per-worker, so it never mutated this buffer - the serial path now matches that pristine-start semantics.
         data_copy = factors_data
 
         classes_y, freqs_y, _ = merge_vars(factors_data=factors_data, vars_indices=y, var_is_nominal=None, factors_nbins=factors_nbins, dtype=dtype)
         classes_y_safe = classes_y.copy()
 
-        # Cardinality-bias pre-screen: drop columns whose Miller-Madow plug-in-MI bias is too large to score honestly (nbins_x > 2*sqrt(n)). See ``cardinality_prescreen``.
-        if cardinality_bias_correction and factors_data.shape[1] > 0:
-            st.x, _cardinality_refused_cols = cardinality_prescreen(
-                factors_data,
-                factors_nbins,
-                factors_names,
-                st.x,
-                y,
-                verbose,
-                raw_cardinality_cols=raw_cardinality_cols,
-            )
-        else:
-            _cardinality_refused_cols = set()
-
-        # — Westfall-Young maxT permutation-null gain floor (computed ONCE on the finalised order-1 pool, applied at the selection gate). Fires on a WIDE pool
-        # (>= ``screen_fdr_min_features``, where best-of-p selection bias dominates) OR on a NARROW pool that meets the target-over-split gate - an MDLP-over-split heavy-tailed
-        # regression target whose plug-in MI bias lifts pure-noise columns past the gain floors after the signals are picked. The narrow-pool gate is itself self-gating: it only
-        # engages where the (X,y) joint table is dense enough that the floor is reliable, so a dense weak-signal pool (diabetes) keeps the floor OFF. Below both gates the floor
-        # is 0.0 (no-op) so the clean low-cardinality tabular suite is untouched. See ``_permutation_null.py``.
-        _fdr_gain_floor = compute_fdr_gain_floor(
-            factors_data,
-            np.asarray(factors_nbins),
-            st.x,
-            y,
-            screen_fdr_null_permutations=screen_fdr_null_permutations,
-            screen_fdr_null_quantile=screen_fdr_null_quantile,
-            honest_null_codes_fn=honest_null_codes_fn,
-            honest_full_factors=_screen_full_factors,
-            honest_eval_rows=(np.asarray(subsample_idx, dtype=np.int64) if _screen_full_factors is not None else None),
-            screen_fdr_min_features=screen_fdr_min_features,
-            screen_fdr_target_oversplit_ratio=screen_fdr_target_oversplit_ratio,
-            screen_fdr_min_rows_per_joint_cell=screen_fdr_min_rows_per_joint_cell,
-            cardinality_bias_correction=cardinality_bias_correction,
-            random_seed=random_seed,
-            verbose=verbose,
-            maxt_floor_cache=seed_maxt_floor_cache,
+        _fdr_gain_floor = _screen_fdr_floor(
+            factors_data, factors_nbins, factors_names, st, y, subsample_idx, _screen_full_factors, cardinality_bias_correction, raw_cardinality_cols,
+            dict(
+                screen_fdr_null_permutations=screen_fdr_null_permutations,
+                screen_fdr_null_quantile=screen_fdr_null_quantile,
+                honest_null_codes_fn=honest_null_codes_fn,
+                screen_fdr_min_features=screen_fdr_min_features,
+                screen_fdr_target_oversplit_ratio=screen_fdr_target_oversplit_ratio,
+                screen_fdr_min_rows_per_joint_cell=screen_fdr_min_rows_per_joint_cell,
+            ),
+            random_seed, verbose, seed_maxt_floor_cache,
         )
 
-        # ``classes_y_safe`` is OVERLOADED across two consumers with INCOMPATIBLE
-        # array-backend requirements, so we keep a CPU numpy buffer ALWAYS and a
-        # separate CuPy device buffer only when GPU is on:
-        #   * the FE step (returned ``classes_y_safe`` -> check_prospective_fe_pairs
-        #     -> the batched MI noise-gate) runs njit kernels (CPU fallback AND the
-        #     bit-identical GPU twin, which does ``np.asarray(classes_y_safe)`` +
-        #     a numba Fisher-Yates shuffle) -> it REQUIRES a numpy host array.
-        #   * the confirm / baseline-eval GPU branches (``mi_direct_gpu``) want the
-        #     pre-warmed CuPy DEVICE buffer to skip the H2D copy.
-        # Pre-the GPU branch reassigned the single ``classes_y_safe``
-        # local to a CuPy array and returned THAT to the FE step, so any
-        # ``MRMR(use_gpu=True)`` fit that reached the FE pair-search crashed with
-        # ``TypingError: Cannot determine Numba type of <class 'cupy.ndarray'>``
-        # (or ``np.asarray`` on a cupy array raising in the subsample path). Now the
-        # numpy buffer survives for the return; the device buffer only goes to ctx.
+        # ``classes_y_safe`` is kept as a CPU numpy buffer (``classes_y_safe_host``, returned to the FE step) while the confirm GPU branches get a device copy;
+        # see the note above ``_resident_screen_targets``.
         classes_y_safe_host = classes_y_safe  # numpy, returned to the FE step
         classes_y_safe, freqs_y_safe = _resident_screen_targets(use_gpu, classes_y, freqs_y, classes_y_safe)
 
-        # RESOLVED (7-site joblib.Parallel audit - follow-up to the
-        # UNRESOLVED note this comment used to carry): the "releases the GIL" claim below was never
-        # actually confirmed for THIS call path, and the isolated/warmed/best-of-3+ A/B settles it in the
-        # other direction. Measured at ``evaluate_candidates``'s realistic scales: m=10 candidates ->
-        # 0.03x (SLOWER than serial), m=320 (wellbore-scale) -> 0.72-0.73x, m=820/n_workers=8 -> 0.81x -
-        # this ``Parallel(backend="threading")`` pool NEVER wins over serial at any tested scale, confirming
-        # the pool is GIL-bound at the dispatch boundary exactly as suspected (evaluate_candidates
-        # eventually calls njit kernels that DO release the GIL, but the per-call joblib dispatch/aggregation
-        # overhead dominates at these candidate counts). The pool is therefore never constructed here anymore
-        # - ``evaluate_candidates`` always runs on the serial fast path in ``confirm_one_predictor``/
-        # ``_confirm_predictor.py``. ``n_workers`` is kept as an accepted parameter (other call sites, e.g.
-        # the Fleuret conditional-confirmation gate, still branch on it) but no longer causes a pool to be
-        # built here; ``seed_workers_pool`` is likewise accepted-but-unused for this purpose.
+        # The joblib pool is never constructed here: see the note above ``_resident_screen_targets`` on why ``evaluate_candidates`` always runs serially.
         workers_pool = None
 
-        # Shared confirmation context. Static fields + the four MI caches are set once; per-interactions-order fields
-        # (``candidates`` / ``partial_gains`` / ``added_candidates`` / ``failed_candidates`` / ``interactions_order`` /
-        # ``num_possible_candidates``) are refreshed at the top of each order below. ``selected_vars`` /
-        # ``selected_interactions_vars`` are the same list objects throughout (appended to, never reassigned), so the
-        # confirmation primitives always see the up-to-date selection.
         ctx = ScreenContext(
-            factors_data=factors_data,
-            factors_nbins=factors_nbins,
-            factors_names=factors_names,
-            y=y,
-            data_copy=data_copy,
-            classes_y=classes_y,
-            classes_y_safe=classes_y_safe,
-            freqs_y=freqs_y,
-            freqs_y_safe=freqs_y_safe,
-            mrmr_relevance_algo=mrmr_relevance_algo,
-            mrmr_redundancy_algo=mrmr_redundancy_algo,
+            factors_data=factors_data, factors_nbins=factors_nbins, factors_names=factors_names, y=y, data_copy=data_copy,
+            classes_y=classes_y, classes_y_safe=classes_y_safe, freqs_y=freqs_y, freqs_y_safe=freqs_y_safe,
+            mrmr_relevance_algo=mrmr_relevance_algo, mrmr_redundancy_algo=mrmr_redundancy_algo,
             reduce_gain_on_subelement_chosen=reduce_gain_on_subelement_chosen,
-            max_veteranes_interactions_order=max_veteranes_interactions_order,
-            only_unknown_interactions=only_unknown_interactions,
-            use_gpu=use_gpu,
-            use_simple_mode=use_simple_mode,
-            extra_x_shuffling=extra_x_shuffling,
-            engineered_lineage=engineered_lineage,
+            max_veteranes_interactions_order=max_veteranes_interactions_order, only_unknown_interactions=only_unknown_interactions,
+            use_gpu=use_gpu, use_simple_mode=use_simple_mode, extra_x_shuffling=extra_x_shuffling, engineered_lineage=engineered_lineage,
             # — directed-FE tie-break inputs. Normalize the raw-name
             # collection to a set for O(1) membership; ``None`` stays ``None`` so
             # the confirm primitive falls back to the syntactic heuristic.
             raw_feature_names=(set(raw_feature_names) if raw_feature_names is not None else None),
             prefer_engineered_rel_eps=float(prefer_engineered_rel_eps or 0.0),
             dcd_state=dcd_state,  # forward DCD state into confirm context
-            n_workers=n_workers,
-            workers_pool=workers_pool,
-            parallel_kwargs=parallel_kwargs,
-            baseline_npermutations=baseline_npermutations,
-            full_npermutations=full_npermutations,
-            min_nonzero_confidence=min_nonzero_confidence,
+            n_workers=n_workers, workers_pool=workers_pool, parallel_kwargs=parallel_kwargs,
+            baseline_npermutations=baseline_npermutations, full_npermutations=full_npermutations, min_nonzero_confidence=min_nonzero_confidence,
             fe_confirm_undersample_rows_per_cell=float(fe_confirm_undersample_rows_per_cell or 0.0),
-            max_failed=max_failed,
-            min_relevance_gain=min_relevance_gain,
-            max_consec_unconfirmed=max_consec_unconfirmed,
+            max_failed=max_failed, min_relevance_gain=min_relevance_gain, max_consec_unconfirmed=max_consec_unconfirmed,
             max_runtime_mins=max_runtime_mins if max_runtime_mins is not None else 0.0,
-            max_confirmation_cand_nbins=max_confirmation_cand_nbins,
-            random_seed=random_seed if random_seed is not None else 0,
-            verbose=verbose,
-            ndigits=ndigits,
-            start_time=st.start_time,
-            num_possible_candidates=0,
-            cached_MIs=cached_MIs,
-            cached_confident_MIs=cached_confident_MIs,
-            cached_cond_MIs=cached_cond_MIs,
-            cached_jmim_MIs=cached_jmim_MIs,
-            jmim_hit_counter=jmim_hit_counter,
-            entropy_cache=entropy_cache,
-            selected_vars=selected_vars,
-            selected_interactions_vars=selected_interactions_vars,
+            max_confirmation_cand_nbins=max_confirmation_cand_nbins, random_seed=random_seed if random_seed is not None else 0,
+            verbose=verbose, ndigits=ndigits, start_time=st.start_time, num_possible_candidates=0,
+            cached_MIs=cached_MIs, cached_confident_MIs=cached_confident_MIs, cached_cond_MIs=cached_cond_MIs,
+            cached_jmim_MIs=cached_jmim_MIs, jmim_hit_counter=jmim_hit_counter, entropy_cache=entropy_cache,
+            selected_vars=selected_vars, selected_interactions_vars=selected_interactions_vars,
         )
 
         subsets = range(interactions_min_order, interactions_max_order + 1)
@@ -619,84 +435,23 @@ def screen_predictors(
 
         if verbose >= 2:
             logger.info(
-                "Starting work with full_npermutations=%d, min_nonzero_confidence=%.*f, max_failed=%d",
-                full_npermutations,
-                ndigits,
-                min_nonzero_confidence,
-                max_failed,
+                "Starting work with full_npermutations=%d, min_nonzero_confidence=%.*f, max_failed=%d", full_npermutations, ndigits, min_nonzero_confidence, max_failed
             )
 
         num_possible_candidates = 0  # needed to refrain from multiprocessing when all direct MIs are in cache already
 
         factors_nbins, patience_triggered = _screen_predictors_step2_interactions_order_subsets(
-            subsets,
-            verbose,
-            st,
-            num_possible_candidates,
-            ctx,
-            stop_file,
-            patience_triggered,
-            min_relevance_gain,
-            cardinality_bias_correction,
-            factors_data,
-            y,
-            factors_nbins,
-            min_relevance_gain_relative_to_first,
-            selected_vars,
-            predictors,
-            _fdr_gain_floor,
-            cached_MIs,
-            selected_interactions_vars,
-            dcd_state,
-            factors_names,
-            data_copy,
-            entropy_cache,
-            full_npermutations,
-            engineered_recipes,
-            ndigits,
+            subsets, verbose, st, num_possible_candidates, ctx, stop_file, patience_triggered, min_relevance_gain, cardinality_bias_correction,
+            factors_data, y, factors_nbins, min_relevance_gain_relative_to_first, selected_vars, predictors, _fdr_gain_floor, cached_MIs,
+            selected_interactions_vars, dcd_state, factors_names, data_copy, entropy_cache, full_npermutations, engineered_recipes, ndigits,
         )
 
         if verbose >= 2:
             logger.info("Finished.")
 
-        # Termination-reason summary (always emitted). ``patience_triggered`` distinguishes "gave up confirming" (max_consec_unconfirmed hit) from natural exhaustion below
-        # ``min_relevance_gain``. If patience keeps tripping, raise ``max_consec_unconfirmed`` or smooth the relevance signals.
-        # Total wall time inside score_candidates + call count + final |Z| appended to the
-        # SAME existing always-emitted summary line (cheaper than a whole new logging mechanism) -
-        # this is exactly the trio (pool_size x |Z| scaling driver, not the FE-pair-precompute step
-        # logged elsewhere) a prior investigation had to reconstruct from code instead of the log.
-        _sc_summary = f" [score_candidates: {ctx.sc_wall:.1f}s over {ctx.sc_calls} call(s), final |Z|={len(selected_vars)}]"
-        if patience_triggered:
-            logger.warning(
-                "screen_predictors terminated early via max_consec_unconfirmed=%d "
-                "patience (at least one level exhausted). Returned %d selected "
-                "feature(s). If you expected more, increase max_consec_unconfirmed "
-                "or reduce the relevance-gain threshold.%s",
-                max_consec_unconfirmed,
-                len(selected_vars),
-                _sc_summary,
-            )
-        else:
-            logger.info(
-                "screen_predictors finished naturally (no patience trip). " "Returned %d selected feature(s).%s",
-                len(selected_vars),
-                _sc_summary,
-            )
+        _log_screen_termination(ctx, selected_vars, patience_triggered, max_consec_unconfirmed)
+        any_influencing = _influencing_vars(cached_confident_MIs)
 
-        any_influencing = set()
-        for vars_combination, (bootstrapped_gain, _confidence) in cached_confident_MIs.items():
-            if bootstrapped_gain > 0:
-                any_influencing.update(set(vars_combination))
-
-        """Выбрать группы/кластера скоррелированных факторов. Вместо использования 1 самого крутого, рассмотреть средние от всех
-            отброшенных факторов, имеющих высокое прямое direct_MI с таргетом, но близкое к 0 additional_knowledge с каждым
-            "победившим" фактором, проверить, не могут ли они усилить свой победивший фактор через ансамблирование. Усиление в смысле
-            среднего и вариативности MI с таргетом на бутстрепе подвыборок?
-
-            key = arr2str(X) + "_" + arr2str(Z)
-            if key in cached_cond_MIs:
-                additional_knowledge = cached_cond_MIs[key]
-        """
         # When the screen SCORED on a subsample, recompute the RETURNED target encodings at FULL n: the
         # downstream FE pipeline consumes classes_y / classes_y_safe_host / freqs_y row-aligned to the
         # full data (the subsample only bounded the screen's relevance sweep + maxT floor cost).
@@ -708,18 +463,8 @@ def screen_predictors(
         # njit MI noise-gate, which cannot accept a cupy array. ``classes_y_safe_host`` is
         # defined unconditionally above; on the CPU path it IS ``classes_y_safe``.
         return (
-            selected_vars,
-            predictors,
-            any_influencing,
-            entropy_cache,
-            cached_MIs,
-            cached_confident_MIs,
-            cached_cond_MIs,
-            classes_y,
-            classes_y_safe_host,
-            freqs_y,
-            dcd_state,
-            workers_pool,
+            selected_vars, predictors, any_influencing, entropy_cache, cached_MIs, cached_confident_MIs, cached_cond_MIs,
+            classes_y, classes_y_safe_host, freqs_y, dcd_state, workers_pool,
         )
     finally:
         # numpy global state is no longer mutated by this function (a local

@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import logging
 from timeit import default_timer as timer
+from typing import Any
 
 from ..phases import phase
 from ..models import is_neural_model
@@ -108,6 +109,104 @@ def _run_one_weight_iteration(
     model failure) and ``break_model_loop`` (mirrors the original inline ``break`` on the identity-
     equivalent-pre_pipeline dedup shortcut).
     """
+    model_name_with_weight, model_file_name, current_common_params = _init_weight_params(
+        common_params=common_params, weight_name=weight_name, weight_values=weight_values, mlframe_model_name=mlframe_model_name,
+        polars_fastpath_active=polars_fastpath_active, prepared_train=prepared_train, prepared_val=prepared_val, prepared_test=prepared_test,
+        tier_pandas=tier_pandas, behavior_config=behavior_config, cur_target_name=cur_target_name, _schema_hash=_schema_hash,
+    )
+
+    cached_dfs, pre_pipeline = _lookup_cached_pipeline(pipeline_cache, cache_key, pre_pipeline)
+
+    # INTENTIONAL: clone() lives INSIDE the weight loop. Each weight schema produces a
+    # different trained model stored separately in models[type][target]; without per-iteration
+    # cloning all in-memory entries would alias to the same last-trained sklearn object and
+    # only the .dump snapshots would be correct. Do NOT move clone() outside the loop.
+    original_model = models_params[_model_entry]["model"]
+    cloned_model, _ngb_fallback_snapshot = _clone_model_with_sticky_flags(
+        original_model=original_model,
+        _cached_init_params=_cached_init_params,
+        _ngb_fallback_snapshot=_ngb_fallback_snapshot,
+        _forward_dataset_reuse_cache=_forward_dataset_reuse_cache,
+        logger_obj=logger,
+    )
+    cloned_model = _wire_multi_target_regression(cloned_model, target_type, _model_entry, mlframe_model_name)
+
+    current_model_params = models_params[_model_entry].copy()
+    current_model_params["model"] = cloned_model
+
+    _stitch_fit_params(current_model_params, _cb_extra_fit_invariant, _neural_extra_fit_invariant)
+
+    if mlframe_model_name == "mlp" and _mlp_extreme_ar_fired:
+        _apply_mlp_extreme_ar_protections(cloned_model, behavior_config)
+
+    process_model_kwargs = _build_weight_process_model_kwargs(
+        model_file=model_file, model_name_with_weight=model_name_with_weight, model_file_name=model_file_name, target_type=target_type,
+        pre_pipeline=pre_pipeline, pre_pipeline_name=pre_pipeline_name, cur_target_name=cur_target_name, models=models,
+        current_model_params=current_model_params, current_common_params=current_common_params, ens_models=ens_models,
+        trainset_features_stats=trainset_features_stats, verbose=verbose, cached_dfs=cached_dfs, polars_pipeline_applied=polars_pipeline_applied,
+        strategy=strategy, polars_fastpath_active=polars_fastpath_active, mlframe_model_name=mlframe_model_name, metadata=metadata,
+    )
+
+    _is_neural = is_neural_model(mlframe_model_name)
+    _timeout = _compute_neural_max_time(_non_neural_train_times) if _is_neural else None
+    _apply_mlp_trainer_timeout(_timeout, current_model_params, verbose, mlframe_model_name)
+
+    _step = _run_process_model_for_weight(
+        process_model_kwargs=process_model_kwargs, mlframe_model_name=mlframe_model_name, weight_name=weight_name,
+        behavior_config=behavior_config, metadata=metadata, verbose=verbose, _is_neural=_is_neural,
+        _non_neural_train_times=_non_neural_train_times,
+    )
+    if _step is None:
+        return _weight_iteration_result(
+            trainset_features_stats, pre_pipeline, None, current_common_params, cache_key, _ngb_fallback_snapshot, break_model_loop=False, skip=True,
+        )
+    trainset_features_stats, pre_pipeline, train_df_transformed, val_df_transformed, test_df_transformed = _step
+
+    _record_weight_outputs(
+        ctx=ctx, behavior_config=behavior_config, test_df_transformed=test_df_transformed, current_test_target=current_test_target,
+        target_type=target_type, cur_target_name=cur_target_name, mlframe_model_name=mlframe_model_name, metadata=metadata,
+        test_df_pd=test_df_pd, _train_idx=_train_idx, cloned_model=cloned_model, original_model=original_model,
+        _forward_dataset_reuse_cache=_forward_dataset_reuse_cache, model_file_name=model_file_name, weight_name=weight_name,
+        strategy=strategy, cur_target_values=cur_target_values, pre_pipeline=pre_pipeline, pre_pipeline_name=pre_pipeline_name,
+        train_df_transformed=train_df_transformed, _schema_hash=_schema_hash, _input_schema=_input_schema,
+        _build_feature_selection_report=_build_feature_selection_report, _selector_params_hash=_selector_params_hash,
+        _unwrap_selector=_unwrap_selector, cached_dfs=cached_dfs, pipeline_cache=pipeline_cache, cache_key=cache_key,
+        val_df_transformed=val_df_transformed,
+    )
+
+    _break_model_loop = _is_identity_equivalent_dedup(
+        _model_idx_in_run=_model_idx_in_run, _pp_name_stripped=_pp_name_stripped, use_ordinary_models=use_ordinary_models,
+        feature_selection_config=feature_selection_config, pre_pipeline=pre_pipeline, _total_models_in_run=_total_models_in_run,
+        train_df_transformed=train_df_transformed,
+    )
+    return _weight_iteration_result(
+        trainset_features_stats, pre_pipeline, train_df_transformed, current_common_params, cache_key, _ngb_fallback_snapshot,
+        break_model_loop=_break_model_loop, skip=False,
+    )
+
+
+def _weight_iteration_result(
+    trainset_features_stats: Any, pre_pipeline: Any, train_df_transformed: Any, current_common_params: dict, cache_key: str,
+    _ngb_fallback_snapshot: Any, *, break_model_loop: bool, skip: bool,
+) -> dict:
+    """Build the result dict the parent uses to thread loop state forward."""
+    return {
+        "trainset_features_stats": trainset_features_stats,
+        "pre_pipeline": pre_pipeline,
+        "train_df_transformed": train_df_transformed,
+        "current_common_params": current_common_params,
+        "cache_key": cache_key,
+        "break_model_loop": break_model_loop,
+        "skip": skip,
+        "_ngb_fallback_snapshot": _ngb_fallback_snapshot,
+    }
+
+
+def _init_weight_params(
+    *, common_params: dict, weight_name: Any, weight_values: Any, mlframe_model_name: str, polars_fastpath_active: bool, prepared_train: Any,
+    prepared_val: Any, prepared_test: Any, tier_pandas: Any, behavior_config: Any, cur_target_name: str, _schema_hash: Any,
+) -> tuple[str, str, dict]:
+    """Per-weight names and the isolated common_params copy (fast-path frames, MLP column drop, file-hash suffix, plot_file decoration)."""
     model_name_with_weight = common_params["model_name"]
     model_file_name = f"{mlframe_model_name}"
     if weight_name != "uniform":
@@ -173,25 +272,21 @@ def _run_one_weight_iteration(
 
     if weight_name != "uniform" and current_common_params.get("plot_file"):
         current_common_params["plot_file"] = current_common_params["plot_file"] + weight_name + "_"
+    return model_name_with_weight, model_file_name, current_common_params
 
+
+def _lookup_cached_pipeline(pipeline_cache: Any, cache_key: str, pre_pipeline: Any) -> tuple[Any, Any]:
+    """Fetch the cached transformed frames; adopt the cached fitted pre_pipeline when one exists. Return (cached_dfs, pre_pipeline)."""
     cached_dfs = pipeline_cache.get(cache_key)
     # Cached frames came out of the pre_pipeline fitted by the model that populated the entry; this model never fits its
     # own, so it carries that fitted one (otherwise predict would skip the transform and feed its inner raw columns).
     if cached_dfs is not None and pipeline_cache.get_fitted_pipeline(cache_key) is not None:
         pre_pipeline = pipeline_cache.get_fitted_pipeline(cache_key)
+    return cached_dfs, pre_pipeline
 
-    # INTENTIONAL: clone() lives INSIDE the weight loop. Each weight schema produces a
-    # different trained model stored separately in models[type][target]; without per-iteration
-    # cloning all in-memory entries would alias to the same last-trained sklearn object and
-    # only the .dump snapshots would be correct. Do NOT move clone() outside the loop.
-    original_model = models_params[_model_entry]["model"]
-    cloned_model, _ngb_fallback_snapshot = _clone_model_with_sticky_flags(
-        original_model=original_model,
-        _cached_init_params=_cached_init_params,
-        _ngb_fallback_snapshot=_ngb_fallback_snapshot,
-        _forward_dataset_reuse_cache=_forward_dataset_reuse_cache,
-        logger_obj=logger,
-    )
+
+def _wire_multi_target_regression(cloned_model: Any, target_type: Any, _model_entry: Any, mlframe_model_name: str) -> Any:
+    """Inject MULTI_TARGET_REGRESSION objective kwargs / wrapper into the cloned model; return the (possibly wrapped) model."""
     # Isolation copy: each weight iteration installs its own cloned_model and may
     # patch fit_params (CatBoost text/embedding fastpath); without copying we would
     # mutate the suite-level models_params template and the next target would inherit
@@ -233,10 +328,11 @@ def _run_one_weight_iteration(
                 for _k, _v in _mtr_obj_kwargs.items():
                     setattr(cloned_model, _k, _v)
         cloned_model = _mtr_strategy.wrap_multi_target(cloned_model)
+    return cloned_model
 
-    current_model_params = models_params[_model_entry].copy()
-    current_model_params["model"] = cloned_model
 
+def _stitch_fit_params(current_model_params: dict, _cb_extra_fit_invariant: Any, _neural_extra_fit_invariant: Any) -> None:
+    """Merge the hoisted CatBoost / neural fit-param invariants into the per-weight ``fit_params`` (mutates ``current_model_params``)."""
     # CatBoost is the only Polars-native consumer that accepts cat_features / text_features / embedding_features at fit time; XGB and HGB
     # auto-detect via enable_categorical=True. Hoisted invariant ``_cb_extra_fit_invariant`` carries the filtered cat/text/embedding lists
     # (invariant across weights); stitch them into the per-weight fit_params here.
@@ -248,6 +344,9 @@ def _run_one_weight_iteration(
     if _neural_extra_fit_invariant and "fit_params" in current_model_params:
         current_model_params["fit_params"] = {**current_model_params["fit_params"], **_neural_extra_fit_invariant}
 
+
+def _apply_mlp_extreme_ar_protections(cloned_model: Any, behavior_config: Any) -> None:
+    """Apply the MLP extreme-AR output-activation and weight-decay protections to the per-weight cloned model."""
     # MLP extreme-AR + group-aware protections. Trigger predicate
     # ``_mlp_extreme_ar_fired`` is set above (per target, per
     # model). Both modifications land on the per-weight CLONED
@@ -255,32 +354,39 @@ def _run_one_weight_iteration(
     # overrides; the cross-target template is untouched because
     # we mutate ``current_model_params["model"]`` not
     # ``models_params``.
-    if mlframe_model_name == "mlp" and _mlp_extreme_ar_fired:
-        # Fix 1: bounded output activation (tanh -> hard cap).
-        _apply_mlp_extreme_ar_output_activation(cloned_model)
-        # Fix 3: L2 weight_decay bump by factor (default 100x).
-        _wd_factor = float(
-            getattr(
-                behavior_config,
-                "mlp_extreme_ar_weight_decay_factor",
-                100.0,
-            )
+    # Fix 1: bounded output activation (tanh -> hard cap).
+    _apply_mlp_extreme_ar_output_activation(cloned_model)
+    # Fix 3: L2 weight_decay bump by factor (default 100x).
+    _wd_factor = float(
+        getattr(
+            behavior_config,
+            "mlp_extreme_ar_weight_decay_factor",
+            100.0,
         )
-        _wd_base = float(
-            getattr(
-                behavior_config,
-                "mlp_extreme_ar_weight_decay_base",
-                1e-4,
-            )
+    )
+    _wd_base = float(
+        getattr(
+            behavior_config,
+            "mlp_extreme_ar_weight_decay_base",
+            1e-4,
         )
-        _apply_mlp_extreme_ar_weight_decay_bump(
-            cloned_model,
-            factor=_wd_factor,
-            base_weight_decay=_wd_base,
-        )
+    )
+    _apply_mlp_extreme_ar_weight_decay_bump(
+        cloned_model,
+        factor=_wd_factor,
+        base_weight_decay=_wd_base,
+    )
 
+
+def _build_weight_process_model_kwargs(
+    *, model_file: Any, model_name_with_weight: str, model_file_name: str, target_type: Any, pre_pipeline: Any, pre_pipeline_name: Any,
+    cur_target_name: str, models: Any, current_model_params: dict, current_common_params: dict, ens_models: Any, trainset_features_stats: Any,
+    verbose: bool, cached_dfs: Any, polars_pipeline_applied: bool, strategy: Any, polars_fastpath_active: bool, mlframe_model_name: str,
+    metadata: dict,
+) -> dict:
+    """Assemble the kwargs for ``process_model`` for one weight iteration."""
     # Build process_model kwargs using helper
-    process_model_kwargs = _build_process_model_kwargs(
+    return _build_process_model_kwargs(
         model_file=model_file,
         model_name_with_weight=model_name_with_weight,
         model_file_name=model_file_name,
@@ -308,10 +414,12 @@ def _run_one_weight_iteration(
         metadata_columns=metadata.get("columns"),
     )
 
-    _is_neural = is_neural_model(mlframe_model_name)
-    _timeout = _compute_neural_max_time(_non_neural_train_times) if _is_neural else None
-    _apply_mlp_trainer_timeout(_timeout, current_model_params, verbose, mlframe_model_name)
 
+def _run_process_model_for_weight(
+    *, process_model_kwargs: dict, mlframe_model_name: str, weight_name: Any, behavior_config: Any, metadata: dict, verbose: bool,
+    _is_neural: bool, _non_neural_train_times: list,
+) -> tuple[Any, Any, Any, Any, Any] | None:
+    """Run ``process_model``; return its 5 outputs, or None when a failure is tolerated (``continue_on_model_failure``)."""
     t0_model = timer()
     try:
         with phase("process_model", model=mlframe_model_name, weight=weight_name):
@@ -337,20 +445,22 @@ def _run_one_weight_iteration(
                 "error_message": str(model_err),
             }
         )
-        return {
-            "trainset_features_stats": trainset_features_stats,
-            "pre_pipeline": pre_pipeline,
-            "train_df_transformed": None,
-            "current_common_params": current_common_params,
-            "cache_key": cache_key,
-            "break_model_loop": False,
-            "skip": True,
-            "_ngb_fallback_snapshot": _ngb_fallback_snapshot,
-        }
+        return None
     if verbose:
         logger.info("  process_model(%s, w=%s) done -- %s", mlframe_model_name, weight_name, _elapsed_str(t0_model))
     if not _is_neural and t0_model is not None:
         _non_neural_train_times.append(timer() - t0_model)
+    return trainset_features_stats, pre_pipeline, train_df_transformed, val_df_transformed, test_df_transformed
+
+
+def _record_weight_outputs(
+    *, ctx: Any, behavior_config: Any, test_df_transformed: Any, current_test_target: Any, target_type: Any, cur_target_name: str,
+    mlframe_model_name: str, metadata: dict, test_df_pd: Any, _train_idx: Any, cloned_model: Any, original_model: Any,
+    _forward_dataset_reuse_cache: Any, model_file_name: str, weight_name: Any, strategy: Any, cur_target_values: Any, pre_pipeline: Any,
+    pre_pipeline_name: Any, train_df_transformed: Any, _schema_hash: Any, _input_schema: Any, _build_feature_selection_report: Any,
+    _selector_params_hash: Any, _unwrap_selector: Any, cached_dfs: Any, pipeline_cache: Any, cache_key: str, val_df_transformed: Any,
+) -> None:
+    """Post-train tail, dataset-reuse cache hand-back, model-schema record and pipeline-cache store for one weight iteration."""
     # Per-model post-train tail (TTA uncertainty eval + composite
     # y-scale emit + adaptive RAM reclaim) carved into
     # ``_run_per_model_post_train_tail``; it mutates ``metadata`` /
@@ -398,6 +508,12 @@ def _run_one_weight_iteration(
         pipeline_cache.set(cache_key, train_df_transformed, val_df_transformed, test_df_transformed)
         pipeline_cache.set_fitted_pipeline(cache_key, pre_pipeline)
 
+
+def _is_identity_equivalent_dedup(
+    *, _model_idx_in_run: int, _pp_name_stripped: Any, use_ordinary_models: bool, feature_selection_config: Any, pre_pipeline: Any,
+    _total_models_in_run: int, train_df_transformed: Any,
+) -> bool:
+    """True when the first model's pre_pipeline kept every column and the ordinary branch exists, so remaining models can be skipped."""
     # After the first model trains, if the pre_pipeline is identity-equivalent (kept all
     # columns) AND the ordinary branch is in the suite, the remaining models would see
     # identical data - skip them. Checked AFTER _build_and_record_model_schema /
@@ -421,27 +537,8 @@ def _run_one_weight_iteration(
                 train_df_transformed.shape[1] if train_df_transformed is not None else 0,
                 _skip_remaining,
             )
-        return {
-            "trainset_features_stats": trainset_features_stats,
-            "pre_pipeline": pre_pipeline,
-            "train_df_transformed": train_df_transformed,
-            "current_common_params": current_common_params,
-            "cache_key": cache_key,
-            "break_model_loop": True,
-            "skip": False,
-            "_ngb_fallback_snapshot": _ngb_fallback_snapshot,
-        }
-
-    return {
-        "trainset_features_stats": trainset_features_stats,
-        "pre_pipeline": pre_pipeline,
-        "train_df_transformed": train_df_transformed,
-        "current_common_params": current_common_params,
-        "cache_key": cache_key,
-        "break_model_loop": False,
-        "skip": False,
-        "_ngb_fallback_snapshot": _ngb_fallback_snapshot,
-    }
+        return True
+    return False
 
 
 def _apply_polars_fastpath_frames(polars_fastpath_active, prepared_train, current_common_params, prepared_val, prepared_test, tier_pandas):

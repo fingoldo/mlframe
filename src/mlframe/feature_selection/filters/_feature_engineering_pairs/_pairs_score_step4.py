@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from typing import Any
 import logging
 
 import numpy as np
@@ -100,6 +101,115 @@ def _score_one_pair_step4_iteration_serialization_point(
     prewarp_uplift_threshold,
 ):
     """Step 4 of _score_one_pair: lines starting at ``_score_one_pair_iteration_serialization_point_under(st._local_times, t``."""
+    _score_one_pair_step4_iteration_serialization_point_part1(
+        st, times_spent, verbose, raw_vars_pair, _corr_y_cont, _PREWARP_UNARY, fe_good_to_best_feature_mi_threshold, final_transformed_vals,
+        _this_chunk_deferred, _resolve_col, _config_by_i, transformed_vars, vars_transformations, binary_transformations, _safe_abs_corr, pair_mi,
+    )
+    st._gate_ratio = _score_one_pair_mi_threshold_ratio_fix(
+        fe_mm_debias_prevalence,
+        pair_mi,
+        st.best_config,
+        classes_y,
+        freqs_y,
+        quantization_nbins,
+        discretize_array,
+        _resolve_col,
+        quantization_method,
+        quantization_dtype,
+        _operand_discretized,
+        raw_vars_pair,
+        st.best_mi,
+        st._gate_ratio,
+    )
+    st._passes_joint_gate = st._gate_ratio > fe_min_engineered_mi_prevalence * (1.0 if num_fs_steps < 1 else 1.025)
+    st._passes_joint_gate = st._passes_joint_gate and _beats_the_larger_operand(
+        st.best_mi, _operand_marginal_mi, raw_vars_pair, st.messages if verbose else None, pair_mi
+    )
+
+    # Alternative pre-warp acceptance: the joint-prevalence gate
+    # structurally rejects a 1-D summary of a 2-D pair on a non-monotone inner
+    # distortion. Admit the prewarp winner when it beats the best NON-prewarp
+    # engineered MI by ``prewarp_uplift_threshold`` AND clears the pair-MI
+    # noise floor (its MI must exceed the larger individual operand MI - the
+    # same notion the smart_polynom baseline uplift uses), so it cannot fire
+    # on noise (where prewarp does not beat the library) or pure-linear data
+    # (where the elementary library already saturates and the prewarp adds no
+    # uplift). When it fires, the prewarp config becomes the winner.
+    st._prewarp_accept = False
+    st._prewarp_accept, st.best_config, st.best_mi = _score_one_pair_uplift_fires_prewarp_config(
+        _prewarp_active,
+        st._passes_joint_gate,
+        st.best_prewarp_config,
+        st.best_nonprewarp_mi,
+        st.best_prewarp_mi,
+        prewarp_uplift_threshold,
+        verbose,
+        st.messages,
+        pair_mi,
+        fe_min_engineered_mi_prevalence,
+        st._prewarp_accept,
+        st.best_config,
+        st.best_mi,
+    )
+
+    # MARGINAL-UPLIFT alternative acceptance: admit a pair the joint-prevalence
+    # gate rejects when its best ELEMENTARY-LIBRARY (non-prewarp) engineered column
+    # beats the LARGER individual operand marginal MI by ``_FE_MARGINAL_UPLIFT_MIN_RATIO``
+    # AND still recovers at least ``_FE_MARGINAL_UPLIFT_MIN_JOINT_RATIO`` of the inflated
+    # 2-D joint. Rationale + thresholds: see the module-level constants. Genuine synergy
+    # pairs (a**2/b, log(c)*sin(d)) clear both; cross-pair artefacts that merely recapture
+    # one operand's marginal fail the uplift bar, and structureless noise pairs never reach
+    # here (the upstream pair screen + order-2 maxT floor remove them). Only fires when the
+    # primary joint gate AND the prewarp path both declined, so it is purely additive recall
+    # for genuine pairs the strict joint bar drops. We score + promote the best NON-PREWARP
+    # winner: the prewarp pseudo-unary has its own dedicated acceptance path above
+    # (``_prewarp_accept``), and promoting a prewarp form here would require the per-operand
+    # warp spec to round-trip into the recipe - which is only guaranteed on the prewarp path.
+    st._marginal_uplift_accept = False
+    st._marginal_uplift_accept, st.best_config, st.best_mi = _score_one_pair_warp_spec_round_trip(
+        st._passes_joint_gate,
+        st._prewarp_accept,
+        st.best_nonprewarp_config,
+        st.best_nonprewarp_mi,
+        pair_mi,
+        _operand_marginal_mi,
+        raw_vars_pair,
+        verbose,
+        st.messages,
+        fe_min_engineered_mi_prevalence,
+        st._marginal_uplift_accept,
+        st.best_config,
+        st.best_mi,
+    )
+
+    # TAIL-CONCENTRATION USABILITY ADMISSION + WINNER PROMOTION. Under heavy operand outliers a
+    # genuine ratio (a**2/b) is TAIL-CONCENTRATED: in the clean bulk its rank association with y collapses
+    # (Spearman ~0), so its rank-MI sits in a tight noise band where a SPURIOUS form out-ranks the true ratio
+    # by a REAL margin the tie band cannot bridge (F2 with_outliers: min(reciproc(a),sign(b)) rank-MI 0.073
+    # beats the true div(sqr(a),b) 0.063), AND the whole pair's best rank-MI fails the engineered-MI joint /
+    # marginal-uplift gates (0.073/0.094 = 0.78 < the 0.90+ bar). Both failures are the SAME rank-MI blind
+    # spot: the distinguishing signal is LINEAR (|corr(continuous y)| 0.986 true vs 0.371 spurious, corr
+    # outlier-inflated - exactly right for a tail signal). Detect tail concentration on the RAW operands vs
+    # the continuous y (``pair_is_tail_concentrated`` - best bivariate-form |corr| clears the bar AND beats
+    # the best single-operand form by the pairness margin, so cross-mix / lone-dominant-operand / noise pairs
+    # are rejected). When detected, PROMOTE the |corr|-best engineered FORM as the winner: this (a) admits the
+    # pair when every rank-MI gate declined (``_usability_accept``) and (b) both widens the emit leader set to
+    # include the true form - its rank-MI is BELOW ``fe_good_to_best_feature_mi_threshold`` x the spurious
+    # leader, so it would otherwise be excluded - and flips the winner-selection primary key to |corr|
+    # (``_usability_primary``) so the true ratio wins. The rank-vs-|corr| DISAGREEMENT gate
+    # (``tail_concentration_form_override``) makes it a strict no-op on the 4 passing F2 profiles + canonical
+    # fixtures (there the ratio is BOTH the rank-MI and |corr| leader, so nothing is promoted). Best-effort:
+    # any error leaves the rank-MI decision untouched.
+    st._usability_accept = False
+    st._usability_primary = False
+
+
+def _score_one_pair_step4_iteration_serialization_point_part1(
+    st: Any, times_spent: Any, verbose: Any, raw_vars_pair: Any, _corr_y_cont: Any, _PREWARP_UNARY: Any, fe_good_to_best_feature_mi_threshold: Any,
+    final_transformed_vals: Any, _this_chunk_deferred: Any, _resolve_col: Any, _config_by_i: Any, transformed_vars: Any, vars_transformations: Any,
+    binary_transformations: Any, _safe_abs_corr: Any, pair_mi: Any,
+) -> None:
+    """Extracted block of ``_score_one_pair_step4_iteration_serialization_point`` (part 1); returns the names the caller still uses."""
     _score_one_pair_iteration_serialization_point_under(st._local_times, times_spent)
 
     if verbose > 2:
@@ -233,100 +343,3 @@ def _score_one_pair_step4_iteration_serialization_point(
     # 4th MI-threshold lever and fails by construction like #1/#8/#19; do NOT re-attempt an
     # MI-threshold/ratio fix here. Numbers + verdict in D:/Temp/null_prev_results.md.
     st._gate_ratio = (st.best_mi / pair_mi) if pair_mi > 0.0 else 0.0
-    st._gate_ratio = _score_one_pair_mi_threshold_ratio_fix(
-        fe_mm_debias_prevalence,
-        pair_mi,
-        st.best_config,
-        classes_y,
-        freqs_y,
-        quantization_nbins,
-        discretize_array,
-        _resolve_col,
-        quantization_method,
-        quantization_dtype,
-        _operand_discretized,
-        raw_vars_pair,
-        st.best_mi,
-        st._gate_ratio,
-    )
-    st._passes_joint_gate = st._gate_ratio > fe_min_engineered_mi_prevalence * (1.0 if num_fs_steps < 1 else 1.025)
-    st._passes_joint_gate = st._passes_joint_gate and _beats_the_larger_operand(
-        st.best_mi, _operand_marginal_mi, raw_vars_pair, st.messages if verbose else None, pair_mi
-    )
-
-    # Alternative pre-warp acceptance: the joint-prevalence gate
-    # structurally rejects a 1-D summary of a 2-D pair on a non-monotone inner
-    # distortion. Admit the prewarp winner when it beats the best NON-prewarp
-    # engineered MI by ``prewarp_uplift_threshold`` AND clears the pair-MI
-    # noise floor (its MI must exceed the larger individual operand MI - the
-    # same notion the smart_polynom baseline uplift uses), so it cannot fire
-    # on noise (where prewarp does not beat the library) or pure-linear data
-    # (where the elementary library already saturates and the prewarp adds no
-    # uplift). When it fires, the prewarp config becomes the winner.
-    st._prewarp_accept = False
-    st._prewarp_accept, st.best_config, st.best_mi = _score_one_pair_uplift_fires_prewarp_config(
-        _prewarp_active,
-        st._passes_joint_gate,
-        st.best_prewarp_config,
-        st.best_nonprewarp_mi,
-        st.best_prewarp_mi,
-        prewarp_uplift_threshold,
-        verbose,
-        st.messages,
-        pair_mi,
-        fe_min_engineered_mi_prevalence,
-        st._prewarp_accept,
-        st.best_config,
-        st.best_mi,
-    )
-
-    # MARGINAL-UPLIFT alternative acceptance: admit a pair the joint-prevalence
-    # gate rejects when its best ELEMENTARY-LIBRARY (non-prewarp) engineered column
-    # beats the LARGER individual operand marginal MI by ``_FE_MARGINAL_UPLIFT_MIN_RATIO``
-    # AND still recovers at least ``_FE_MARGINAL_UPLIFT_MIN_JOINT_RATIO`` of the inflated
-    # 2-D joint. Rationale + thresholds: see the module-level constants. Genuine synergy
-    # pairs (a**2/b, log(c)*sin(d)) clear both; cross-pair artefacts that merely recapture
-    # one operand's marginal fail the uplift bar, and structureless noise pairs never reach
-    # here (the upstream pair screen + order-2 maxT floor remove them). Only fires when the
-    # primary joint gate AND the prewarp path both declined, so it is purely additive recall
-    # for genuine pairs the strict joint bar drops. We score + promote the best NON-PREWARP
-    # winner: the prewarp pseudo-unary has its own dedicated acceptance path above
-    # (``_prewarp_accept``), and promoting a prewarp form here would require the per-operand
-    # warp spec to round-trip into the recipe - which is only guaranteed on the prewarp path.
-    st._marginal_uplift_accept = False
-    st._marginal_uplift_accept, st.best_config, st.best_mi = _score_one_pair_warp_spec_round_trip(
-        st._passes_joint_gate,
-        st._prewarp_accept,
-        st.best_nonprewarp_config,
-        st.best_nonprewarp_mi,
-        pair_mi,
-        _operand_marginal_mi,
-        raw_vars_pair,
-        verbose,
-        st.messages,
-        fe_min_engineered_mi_prevalence,
-        st._marginal_uplift_accept,
-        st.best_config,
-        st.best_mi,
-    )
-
-    # TAIL-CONCENTRATION USABILITY ADMISSION + WINNER PROMOTION. Under heavy operand outliers a
-    # genuine ratio (a**2/b) is TAIL-CONCENTRATED: in the clean bulk its rank association with y collapses
-    # (Spearman ~0), so its rank-MI sits in a tight noise band where a SPURIOUS form out-ranks the true ratio
-    # by a REAL margin the tie band cannot bridge (F2 with_outliers: min(reciproc(a),sign(b)) rank-MI 0.073
-    # beats the true div(sqr(a),b) 0.063), AND the whole pair's best rank-MI fails the engineered-MI joint /
-    # marginal-uplift gates (0.073/0.094 = 0.78 < the 0.90+ bar). Both failures are the SAME rank-MI blind
-    # spot: the distinguishing signal is LINEAR (|corr(continuous y)| 0.986 true vs 0.371 spurious, corr
-    # outlier-inflated - exactly right for a tail signal). Detect tail concentration on the RAW operands vs
-    # the continuous y (``pair_is_tail_concentrated`` - best bivariate-form |corr| clears the bar AND beats
-    # the best single-operand form by the pairness margin, so cross-mix / lone-dominant-operand / noise pairs
-    # are rejected). When detected, PROMOTE the |corr|-best engineered FORM as the winner: this (a) admits the
-    # pair when every rank-MI gate declined (``_usability_accept``) and (b) both widens the emit leader set to
-    # include the true form - its rank-MI is BELOW ``fe_good_to_best_feature_mi_threshold`` x the spurious
-    # leader, so it would otherwise be excluded - and flips the winner-selection primary key to |corr|
-    # (``_usability_primary``) so the true ratio wins. The rank-vs-|corr| DISAGREEMENT gate
-    # (``tail_concentration_form_override``) makes it a strict no-op on the 4 passing F2 profiles + canonical
-    # fixtures (there the ratio is BOTH the rank-MI and |corr| leader, so nothing is promoted). Best-effort:
-    # any error leaves the rank-MI decision untouched.
-    st._usability_accept = False
-    st._usability_primary = False

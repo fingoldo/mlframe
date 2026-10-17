@@ -16,6 +16,97 @@ import numpy as np
 logger = logging.getLogger(__name__)
 
 
+def _finite_int_labels(y: np.ndarray) -> np.ndarray:
+    """Drop non-finite (NaN/Inf) entries before the int64 cast: ``np.nan`` cast to int64 is an
+    implementation-defined large-magnitude value (observed as a large negative number on this box),
+    and ``np.bincount`` raises on a negative element -- a single missing/NaN label (a realistic
+    real-world occurrence on partially-labeled data) otherwise crashes the whole dummy-baselines phase
+    for that target."""
+    y_arr = np.asarray(y)
+    finite = y_arr[np.isfinite(y_arr)] if y_arr.dtype.kind in "fc" else y_arr
+    return finite.astype(np.int64)
+
+
+def _add_stratified(
+    val_probs: dict[str, np.ndarray], test_probs: dict[str, np.ndarray], extras: dict[str, Any], train_prior: np.ndarray,
+    n_val: int, n_test: int, n_classes: int, n_repeats: int, seed: int,
+) -> None:
+    """Add the ``stratified`` baseline: mean of one-hot class draws from the train prior over ``n_repeats`` seeds."""
+    # stratified: n_repeats over different seeds
+    # Predicted class sampled from prior; probs = one-hot of sampled class.
+    # The final prob per row is the MEAN over reps of one-hot[rng.choice].
+    # Accumulator path: one (N, K) zeros allocation + per-rep += 1.0 at the
+    # sampled cells, divided once at the end. The old per-rep
+    # ``np.zeros((N, K))`` + one-hot fill + list.append + np.mean across the
+    # whole stack allocated n_repeats * N * K * 8 bytes (~200 MB at N=200k /
+    # K=3 / R=40) and added a final np.mean across a 4-D stack -- 9ms+ of
+    # allocs and a few ms of stack-mean at the c0137 shape.
+    val_acc = np.zeros((n_val, n_classes)) if n_val > 0 else None
+    test_acc = np.zeros((n_test, n_classes)) if n_test > 0 else None
+    val_row_idx = np.arange(n_val) if n_val > 0 else None
+    test_row_idx = np.arange(n_test) if n_test > 0 else None
+    # Inline the inverse-CDF sampler that ``rng.choice(classes, size=N,
+    # p=train_prior)`` runs internally: choice builds ``cdf = cumsum(p); cdf /=
+    # cdf[-1]`` then returns ``cdf.searchsorted(rng.random(N), side="right")``
+    # (replace=True). Computing the cdf ONCE (it's constant across reps) and
+    # calling searchsorted directly skips choice's per-call probability
+    # validation + array dispatch and the redundant per-rep cumsum; ``classes``
+    # is ``arange(n_classes)`` so the searchsorted result is already the class
+    # index (no gather). Bit-identical to the old rng.choice output for the
+    # same seed and draw order (the legacy-equivalence regression test pins
+    # this), ~1.16x per rep at n=150k.
+    _cdf = np.cumsum(train_prior)
+    _cdf = _cdf / _cdf[-1]
+    for r in range(n_repeats):
+        rng = np.random.default_rng(seed + r)
+        if val_acc is not None:
+            val_classes = _cdf.searchsorted(rng.random(n_val), side="right")
+            val_acc[val_row_idx, val_classes] += 1.0
+        if test_acc is not None:
+            test_classes = _cdf.searchsorted(rng.random(n_test), side="right")
+            test_acc[test_row_idx, test_classes] += 1.0
+    if val_acc is not None and n_repeats > 0:
+        val_probs["stratified"] = val_acc / n_repeats
+    if test_acc is not None and n_repeats > 0:
+        test_probs["stratified"] = test_acc / n_repeats
+    extras["stratified_n_repeats"] = n_repeats
+
+
+def _add_per_group_prior(
+    target_name: str, train_X: Any, val_X: Any, test_X: Any, train_y: np.ndarray, cat_features: Sequence[str] | None, config: Any,
+    target_type: str, val_probs: dict[str, np.ndarray], test_probs: dict[str, np.ndarray], extras: dict[str, Any],
+) -> None:
+    """Add the binary ``per_group_prior`` baseline over the best categorical column, with the coverage gate."""
+    from ._dummy_baseline_compute import _pick_per_group_categorical, _per_group_predict
+
+    # per_group_prior (binary only for now)
+    if target_type == "binary_classification":
+        cat_col = _pick_per_group_categorical(
+            train_X, cat_features, len(train_y), config.per_group_max_cardinality_ratio,
+        )
+        if cat_col is not None:
+            try:
+                _, val_pg, test_pg, pg_diag = _per_group_predict(
+                    train_X, val_X, test_X, train_y.astype(np.float64), cat_col, target_type,
+                )
+                val_pg_2d = np.column_stack([1 - val_pg, val_pg])  # (N, 2) probs: [1-p, p]
+                test_pg_2d = np.column_stack([1 - test_pg, test_pg])
+                label = f"per_group_prior[{cat_col}]"
+                # "high_entity_overlap" = share of val rows whose group also had >=5 train rows (entity reuse, not skill).
+                if pg_diag["repeat_entity_rate"] >= config.per_group_high_overlap_threshold:
+                    label = f"{label} (high_entity_overlap={pg_diag['repeat_entity_rate']:.2f})"
+                val_probs[label] = val_pg_2d
+                test_probs[label] = test_pg_2d
+                extras["per_group"] = {"cat_col": cat_col, **pg_diag}
+                if pg_diag["val_coverage_pct"] < config.per_group_min_val_coverage_pct or pg_diag["test_coverage_pct"] < config.per_group_min_val_coverage_pct:
+                    extras.setdefault("strongest_pick_excluded", []).append(label)
+            except Exception as e:
+                logger.info(
+                    "[dummy-baselines] target='%s' per_group_prior failed (%s); skipping",
+                    target_name, e,
+                )
+
+
 def _compute_classification_baselines(
     target_name: str,
     train_X: Any,
@@ -36,7 +127,7 @@ def _compute_classification_baselines(
     ``(N, K)`` matrices.
     """
     # Lazy import to break the circular load with _dummy_baseline_compute.
-    from ._dummy_baseline_compute import _per_target_seed, _pick_per_group_categorical, _per_group_predict
+    from ._dummy_baseline_compute import _per_target_seed
 
     val_probs: dict[str, np.ndarray] = {}
     test_probs: dict[str, np.ndarray] = {}
@@ -45,16 +136,6 @@ def _compute_classification_baselines(
     n_val = 0 if val_y is None else len(val_y)
     n_test = 0 if test_y is None else len(test_y)
     seed = _per_target_seed(config.random_state, target_name)
-
-    def _finite_int_labels(y: np.ndarray) -> np.ndarray:
-        """Drop non-finite (NaN/Inf) entries before the int64 cast: ``np.nan`` cast to int64 is an
-        implementation-defined large-magnitude value (observed as a large negative number on this box),
-        and ``np.bincount`` raises on a negative element -- a single missing/NaN label (a realistic
-        real-world occurrence on partially-labeled data) otherwise crashes the whole dummy-baselines phase
-        for that target."""
-        y_arr = np.asarray(y)
-        finite = y_arr[np.isfinite(y_arr)] if y_arr.dtype.kind in "fc" else y_arr
-        return finite.astype(np.int64)
 
     def _prior_from(y: np.ndarray | None) -> np.ndarray:
         """Class-marginal distribution of ``y`` (uniform fallback for None/empty or an all-zero bincount); used only for the oracle/eval-split-aware baselines, never the honest train-only prior (see the comment below)."""
@@ -122,71 +203,7 @@ def _compute_classification_baselines(
         val_probs["all_ones"] = np.tile(o_row, (n_val, 1))
         test_probs["all_ones"] = np.tile(o_row, (n_test, 1))
 
-    # stratified: n_repeats over different seeds
-    # Predicted class sampled from prior; probs = one-hot of sampled class.
-    # The final prob per row is the MEAN over reps of one-hot[rng.choice].
-    # Accumulator path: one (N, K) zeros allocation + per-rep += 1.0 at the
-    # sampled cells, divided once at the end. The old per-rep
-    # ``np.zeros((N, K))`` + one-hot fill + list.append + np.mean across the
-    # whole stack allocated n_repeats * N * K * 8 bytes (~200 MB at N=200k /
-    # K=3 / R=40) and added a final np.mean across a 4-D stack -- 9ms+ of
-    # allocs and a few ms of stack-mean at the c0137 shape.
-    n_repeats = config.stratified_n_repeats
-    val_acc = np.zeros((n_val, n_classes)) if n_val > 0 else None
-    test_acc = np.zeros((n_test, n_classes)) if n_test > 0 else None
-    val_row_idx = np.arange(n_val) if n_val > 0 else None
-    test_row_idx = np.arange(n_test) if n_test > 0 else None
-    # Inline the inverse-CDF sampler that ``rng.choice(classes, size=N,
-    # p=train_prior)`` runs internally: choice builds ``cdf = cumsum(p); cdf /=
-    # cdf[-1]`` then returns ``cdf.searchsorted(rng.random(N), side="right")``
-    # (replace=True). Computing the cdf ONCE (it's constant across reps) and
-    # calling searchsorted directly skips choice's per-call probability
-    # validation + array dispatch and the redundant per-rep cumsum; ``classes``
-    # is ``arange(n_classes)`` so the searchsorted result is already the class
-    # index (no gather). Bit-identical to the old rng.choice output for the
-    # same seed and draw order (the legacy-equivalence regression test pins
-    # this), ~1.16x per rep at n=150k.
-    _cdf = np.cumsum(train_prior)
-    _cdf = _cdf / _cdf[-1]
-    for r in range(n_repeats):
-        rng = np.random.default_rng(seed + r)
-        if val_acc is not None:
-            val_classes = _cdf.searchsorted(rng.random(n_val), side="right")
-            val_acc[val_row_idx, val_classes] += 1.0
-        if test_acc is not None:
-            test_classes = _cdf.searchsorted(rng.random(n_test), side="right")
-            test_acc[test_row_idx, test_classes] += 1.0
-    if val_acc is not None and n_repeats > 0:
-        val_probs["stratified"] = val_acc / n_repeats
-    if test_acc is not None and n_repeats > 0:
-        test_probs["stratified"] = test_acc / n_repeats
-    extras["stratified_n_repeats"] = n_repeats
-
-    # per_group_prior (binary only for now)
-    if target_type == "binary_classification":
-        cat_col = _pick_per_group_categorical(
-            train_X, cat_features, len(train_y), config.per_group_max_cardinality_ratio,
-        )
-        if cat_col is not None:
-            try:
-                _, val_pg, test_pg, pg_diag = _per_group_predict(
-                    train_X, val_X, test_X, train_y.astype(np.float64), cat_col, target_type,
-                )
-                val_pg_2d = np.column_stack([1 - val_pg, val_pg])  # (N, 2) probs: [1-p, p]
-                test_pg_2d = np.column_stack([1 - test_pg, test_pg])
-                label = f"per_group_prior[{cat_col}]"
-                # "high_entity_overlap" = share of val rows whose group also had >=5 train rows (entity reuse, not skill).
-                if pg_diag["repeat_entity_rate"] >= config.per_group_high_overlap_threshold:
-                    label = f"{label} (high_entity_overlap={pg_diag['repeat_entity_rate']:.2f})"
-                val_probs[label] = val_pg_2d
-                test_probs[label] = test_pg_2d
-                extras["per_group"] = {"cat_col": cat_col, **pg_diag}
-                if pg_diag["val_coverage_pct"] < config.per_group_min_val_coverage_pct or pg_diag["test_coverage_pct"] < config.per_group_min_val_coverage_pct:
-                    extras.setdefault("strongest_pick_excluded", []).append(label)
-            except Exception as e:
-                logger.info(
-                    "[dummy-baselines] target='%s' per_group_prior failed (%s); skipping",
-                    target_name, e,
-                )
+    _add_stratified(val_probs, test_probs, extras, train_prior, n_val, n_test, n_classes, config.stratified_n_repeats, seed)
+    _add_per_group_prior(target_name, train_X, val_X, test_X, train_y, cat_features, config, target_type, val_probs, test_probs, extras)
 
     return val_probs, test_probs, extras

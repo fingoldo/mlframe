@@ -160,6 +160,33 @@ def compute_risk_coverage(
     return coverage, accuracy, running_risk, aurc, full_risk, has_signal
 
 
+def _risk_coverage_unavailable(
+    y_true: Any,
+    title: str,
+    figsize: Tuple[float, float],
+    coverage: np.ndarray,
+    accuracy: np.ndarray,
+    risk: np.ndarray,
+    task: Task,
+) -> RiskCoverageResult:
+    """Placeholder result for an input with no usable (finite) rows: an annotation figure and all-NaN summary statistics."""
+    n_in = int(np.asarray(y_true).shape[0])
+    return RiskCoverageResult(
+        figure=FigureSpec(
+            suptitle="",
+            panels=((AnnotationPanelSpec(
+                text=(f"Risk-coverage unavailable: none of the {n_in:,} supplied rows survives the finite "
+                      "y_true/score mask, so there is no confidence ordering to abstain along."),
+                title=title,
+            ),),),
+            figsize=figsize,
+        ),
+        coverage=coverage, accuracy=accuracy, risk=risk,
+        aurc=float("nan"), aurc_random=float("nan"), metric_at_80=float("nan"), metric_at_100=float("nan"),
+        selective_gain=float("nan"), has_ranking_signal=False, task=str(task),
+    )
+
+
 def build_risk_coverage_spec(
     y_true: Any,
     y_score: Any,
@@ -181,21 +208,7 @@ def build_risk_coverage_spec(
     if coverage.size == 0 or not np.any(np.isfinite(risk)):
         # On no usable row the curve is all-NaN (empty axes) while the title still asserted "constant confidence:
         # no ranking signal" -- a verdict about the MODEL where the cause is the absence of data.
-        n_in = int(np.asarray(y_true).shape[0])
-        return RiskCoverageResult(
-            figure=FigureSpec(
-                suptitle="",
-                panels=((AnnotationPanelSpec(
-                    text=(f"Risk-coverage unavailable: none of the {n_in:,} supplied rows survives the finite "
-                          "y_true/score mask, so there is no confidence ordering to abstain along."),
-                    title=title,
-                ),),),
-                figsize=figsize,
-            ),
-            coverage=coverage, accuracy=accuracy, risk=risk,
-            aurc=float("nan"), aurc_random=float("nan"), metric_at_80=float("nan"), metric_at_100=float("nan"),
-            selective_gain=float("nan"), has_ranking_signal=False, task=str(task),
-        )
+        return _risk_coverage_unavailable(y_true, title, figsize, coverage, accuracy, risk, task)
     is_regression = task == "regression"
 
     # Plain-language explainer wired into the title so a reader who has never seen a risk-coverage curve knows what it

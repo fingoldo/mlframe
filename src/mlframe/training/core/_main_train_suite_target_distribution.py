@@ -314,6 +314,167 @@ def _flag_target_named_features(train_df: Any, target_by_type: Any, metadata: di
         metadata["target_named_feature_columns"] = list(named)
 
 
+def _pick_representative_target(target_by_type: Any) -> tuple[Any, Any, Any]:
+    """Pick the target the analyzer inspects: returns ``(target_array, "regression"/"classification"/None, target_name)``."""
+    from ..configs import TargetTypes
+
+    # Pick a representative target: prefer regression (the typical
+    # scenario class), fall back to the first available type. ``target_by_type``
+    # maps TargetTypes -> dict[target_name -> array-like]. Skip empty buckets.
+    _picked_target = None
+    _picked_type_name = None
+    _picked_target_name = None
+    for _tt_key in (TargetTypes.REGRESSION, TargetTypes.BINARY_CLASSIFICATION, TargetTypes.MULTICLASS_CLASSIFICATION):
+        _bag = target_by_type.get(_tt_key)
+        if isinstance(_bag, dict) and _bag:
+            _picked_target_name, _picked_target = next(iter(_bag.items()))
+            _picked_type_name = "regression" if _tt_key == TargetTypes.REGRESSION else "classification"
+            break
+    if _picked_target is None:
+        # Fallback: walk all keys, take the first non-empty target.
+        for _tt_key, _bag in target_by_type.items():
+            if isinstance(_bag, dict) and _bag:
+                _picked_target_name, _picked_target = next(iter(_bag.items()))
+                _picked_type_name = "regression" if str(_tt_key).endswith("REGRESSION") else "classification"
+                break
+    return _picked_target, _picked_type_name, _picked_target_name
+
+
+def _picked_target_covers_train_idx(picked_target: Any, train_idx: Any) -> bool:
+    """True when the picked target array is long enough to be indexed by a non-empty ``train_idx`` (warns and returns False otherwise)."""
+    _train_idx_arr = np.asarray(train_idx)
+    _y_arr_precheck = np.asarray(picked_target)
+    if _train_idx_arr.size == 0 or _y_arr_precheck.size < int(_train_idx_arr.max()) + 1:
+        logger.warning(
+            "_run_target_distribution_analyzer: picked target array (size=%d) is shorter than "
+            "train_idx implies, or train_idx is empty; skipping the mini-HPT target-distribution "
+            "analyzer for this suite rather than silently analyzing the full unfiltered "
+            "(train+val+test) target array.",
+            _y_arr_precheck.size,
+        )
+        return False
+    return True
+
+
+def _stamp_target_distribution_report(
+    metadata: dict, _td_report: Any, _picked_type_name: Any, _picked_target_name: Any, _has_time: bool, verbose: bool,
+) -> None:
+    """Log the target-side report and stamp it (plus its provenance entry) into ``metadata``."""
+    if verbose:
+        logger.info(
+            "[mini-HPT] target_distribution_analyzer on %s target %r "
+            "(n=%d, time_axis=%s): pathologies=%s, knob_overrides=%s, diagnostics=%s",
+            _picked_type_name, _picked_target_name, _td_report.n_samples,
+            _has_time, "(none)" if _td_report.pathologies is None or len(_td_report.pathologies) == 0 else _td_report.pathologies,
+            "(none)" if _td_report.knob_overrides is None or len(_td_report.knob_overrides) == 0 else _td_report.knob_overrides,
+            _td_report.diagnostics,
+        )
+    metadata["target_distribution_report"] = {
+        "target_type": _td_report.target_type,
+        "picked_target_name": _picked_target_name,
+        "n_samples": _td_report.n_samples,
+        "pathologies": list(_td_report.pathologies),
+        "knob_overrides": dict(_td_report.knob_overrides),
+        "knob_overrides_provenance": dict(getattr(_td_report, "knob_overrides_provenance", {}) or {}),
+        "diagnostics": dict(_td_report.diagnostics),
+    }
+    try:
+        from mlframe.training.provenance import record_provenance as _record_provenance
+        _record_provenance(
+            metadata,
+            "target_distribution_analyzer",
+            source="train_only",
+            n_rows=int(_td_report.n_samples),
+            extra={"target_type": _td_report.target_type, "n_pathologies": len(_td_report.pathologies)},
+        )
+    except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+        logger.debug("suppressed: %s", e)
+        pass
+
+
+def _run_feature_side_analyzer(
+    *, train_df: Any, val_df: Any, test_df: Any, y_train: Any, picked_type_name: Any, target_by_type: Any, metadata: dict,
+    verbose: bool, behavior_config: Any, preprocessing_config: Any, ctx: Any,
+) -> tuple[Any, Any, Any]:
+    """Run the feature-side analyzer, stamp its report, and apply the opt-in auto-drop; returns the (possibly trimmed) ``train_df, val_df, test_df``."""
+    # FEATURE-SIDE analyzer (mini-HPT v2). The target-side detector recommends model
+    # objectives / layernorm flags / class weights; the feature-side detector surfaces
+    # low-variance / NaN-heavy / high-cardinality / redundant / suspected-leakage
+    # features. Both reports are stamped into metadata so operators see the full
+    # diagnostic table on every default run.
+    try:
+        from ..targets import analyze_feature_distribution
+        # Use train_df_polars_pre / train_df / whatever is available at this point;
+        # _phase_train_val_test_split has already returned train_df at this scope.
+        if train_df is not None:
+            _fd_report = analyze_feature_distribution(
+                train_df,
+                y=y_train,
+                target_type="auto" if picked_type_name is None or picked_type_name == "" else picked_type_name,
+            )
+            if verbose:
+                logger.info(
+                    "[mini-HPT] feature_distribution_analyzer (n_samples=%d, n_features=%d): " "pathologies=%s, drop_candidates=%s, leakage_candidates=%s",
+                    _fd_report.n_samples,
+                    _fd_report.n_features,
+                    "(none)" if _fd_report.pathologies is None or len(_fd_report.pathologies) == 0 else _fd_report.pathologies,
+                    "(none)" if _fd_report.drop_candidates is None or len(_fd_report.drop_candidates) == 0 else _fd_report.drop_candidates,
+                    "(none)" if _fd_report.leakage_candidates is None or len(_fd_report.leakage_candidates) == 0 else _fd_report.leakage_candidates,
+                )
+            _flag_target_named_features(train_df, target_by_type, metadata)
+            metadata["feature_distribution_report"] = {
+                "n_samples": _fd_report.n_samples,
+                "n_features": _fd_report.n_features,
+                "pathologies": list(_fd_report.pathologies),
+                "drop_candidates": list(_fd_report.drop_candidates),
+                "leakage_candidates": list(_fd_report.leakage_candidates),
+                "feature_warnings": dict(_fd_report.feature_warnings),
+                "diagnostics": dict(_fd_report.diagnostics),
+                "knob_overrides": dict(_fd_report.knob_overrides),
+            }
+            # Auto-drop: when behavior_config opts in (defaults ON for
+            # candidate-list, threshold 0.999 for near-duplicate), strip the
+            # nan-heavy / low-variance / exact-duplicate columns from all
+            # three splits before Phase 3. The drop SET is train-derived so
+            # val/test never enter the decision; they just lose the same
+            # columns to keep schemas aligned. The legacy diagnostic-only
+            # behaviour is preserved by setting both knobs off.
+            try:
+                train_df, val_df, test_df, _dropped = _maybe_auto_drop_after_feature_analyzer(
+                    fd_report=_fd_report,
+                    train_df=train_df,
+                    val_df=val_df,
+                    test_df=test_df,
+                    behavior_config=behavior_config,
+                    metadata=metadata,
+                    verbose=verbose,
+                    preprocessing_config=preprocessing_config,
+                    mlframe_models=getattr(ctx, "mlframe_models", None),
+                )
+                # Mirror drops onto ctx so any later phase reading from ctx
+                # (the in-progress ctx-form migration in main_train_suite) sees
+                # the trimmed frames too.
+                if _dropped and ctx is not None:
+                    for _slot in ("train_df", "val_df", "test_df"):
+                        if hasattr(ctx, _slot):
+                            try:
+                                setattr(ctx, _slot, locals()[_slot])
+                            except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+                                logger.debug("suppressed: %s", e)
+                                pass
+            except Exception as _drop_err:  # best-effort: falls back to the full column set
+                logger.warning(
+                    "[mini-HPT] auto-drop after feature_distribution_analyzer failed (%s); " "training continues with full column set.",
+                    _drop_err,
+                )
+    except Exception as _fd_err:
+        logger.warning(
+            "[mini-HPT] feature_distribution_analyzer crashed (%s); proceeding without feature warnings.",
+            _fd_err, exc_info=False,
+        )
+    return train_df, val_df, test_df
+
+
 def _run_target_distribution_analyzer(
     *,
     enable_target_distribution_analyzer: bool,
@@ -354,41 +515,11 @@ def _run_target_distribution_analyzer(
 
     try:
         from ..targets import analyze_target_distribution
-        from ..configs import TargetTypes
 
-        # Pick a representative target: prefer regression (the typical
-        # scenario class), fall back to the first available type. ``target_by_type``
-        # maps TargetTypes -> dict[target_name -> array-like]. Skip empty buckets.
-        _picked_target = None
-        _picked_type_name = None
-        _picked_target_name = None
-        for _tt_key in (TargetTypes.REGRESSION, TargetTypes.BINARY_CLASSIFICATION, TargetTypes.MULTICLASS_CLASSIFICATION):
-            _bag = target_by_type.get(_tt_key)
-            if isinstance(_bag, dict) and _bag:
-                _picked_target_name, _picked_target = next(iter(_bag.items()))
-                _picked_type_name = "regression" if _tt_key == TargetTypes.REGRESSION else "classification"
-                break
-        if _picked_target is None:
-            # Fallback: walk all keys, take the first non-empty target.
-            for _tt_key, _bag in target_by_type.items():
-                if isinstance(_bag, dict) and _bag:
-                    _picked_target_name, _picked_target = next(iter(_bag.items()))
-                    _picked_type_name = "regression" if str(_tt_key).endswith("REGRESSION") else "classification"
-                    break
-
+        _picked_target, _picked_type_name, _picked_target_name = _pick_representative_target(target_by_type)
         _picked_target_usable = _picked_target is not None and train_idx is not None
         if _picked_target_usable:
-            _train_idx_arr = np.asarray(train_idx)
-            _y_arr_precheck = np.asarray(_picked_target)
-            if _train_idx_arr.size == 0 or _y_arr_precheck.size < int(_train_idx_arr.max()) + 1:
-                logger.warning(
-                    "_run_target_distribution_analyzer: picked target array (size=%d) is shorter than "
-                    "train_idx implies, or train_idx is empty; skipping the mini-HPT target-distribution "
-                    "analyzer for this suite rather than silently analyzing the full unfiltered "
-                    "(train+val+test) target array.",
-                    _y_arr_precheck.size,
-                )
-                _picked_target_usable = False
+            _picked_target_usable = _picked_target_covers_train_idx(_picked_target, train_idx)
 
         if _picked_target_usable:
             _y_arr = np.asarray(_picked_target)
@@ -416,39 +547,10 @@ def _run_target_distribution_analyzer(
             _td_report = analyze_target_distribution(
                 _y_train,
                 group_ids=_g_train,
-                target_type="auto" if _picked_type_name is None or _picked_type_name == "" else _picked_type_name,  # type: ignore[arg-type]  # _picked_type_name only ever holds "regression"/"classification" by construction above
+                target_type="auto" if _picked_type_name is None or _picked_type_name == "" else _picked_type_name,
                 has_time_axis=_has_time,
             )
-            if verbose:
-                logger.info(
-                    "[mini-HPT] target_distribution_analyzer on %s target %r "
-                    "(n=%d, time_axis=%s): pathologies=%s, knob_overrides=%s, diagnostics=%s",
-                    _picked_type_name, _picked_target_name, _td_report.n_samples,
-                    _has_time, "(none)" if _td_report.pathologies is None or len(_td_report.pathologies) == 0 else _td_report.pathologies,
-                    "(none)" if _td_report.knob_overrides is None or len(_td_report.knob_overrides) == 0 else _td_report.knob_overrides,
-                    _td_report.diagnostics,
-                )
-            metadata["target_distribution_report"] = {
-                "target_type": _td_report.target_type,
-                "picked_target_name": _picked_target_name,
-                "n_samples": _td_report.n_samples,
-                "pathologies": list(_td_report.pathologies),
-                "knob_overrides": dict(_td_report.knob_overrides),
-                "knob_overrides_provenance": dict(getattr(_td_report, "knob_overrides_provenance", {}) or {}),
-                "diagnostics": dict(_td_report.diagnostics),
-            }
-            try:
-                from mlframe.training.provenance import record_provenance as _record_provenance
-                _record_provenance(
-                    metadata,
-                    "target_distribution_analyzer",
-                    source="train_only",
-                    n_rows=int(_td_report.n_samples),
-                    extra={"target_type": _td_report.target_type, "n_pathologies": len(_td_report.pathologies)},
-                )
-            except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-                logger.debug("suppressed: %s", e)
-                pass
+            _stamp_target_distribution_report(metadata, _td_report, _picked_type_name, _picked_target_name, _has_time, verbose)
             # Maintain a per-knob "hyperparams_used" provenance dict so downstream consumers (model factories, audit
             # reports) can distinguish analyzer-injected knobs from caller-supplied defaults. User overrides take
             # precedence: if a slot+knob already lives in caller's hyperparams_config, keep that source as "user".
@@ -461,81 +563,11 @@ def _run_target_distribution_analyzer(
             # cb_kwargs); other fields are left intact.
             hyperparams_config = _apply_knob_overrides(_td_report, hyperparams_config, ctx)
 
-            # FEATURE-SIDE analyzer (mini-HPT v2). The target-side detector recommends model
-            # objectives / layernorm flags / class weights; the feature-side detector surfaces
-            # low-variance / NaN-heavy / high-cardinality / redundant / suspected-leakage
-            # features. Both reports are stamped into metadata so operators see the full
-            # diagnostic table on every default run.
-            try:
-                from ..targets import analyze_feature_distribution
-                # Use train_df_polars_pre / train_df / whatever is available at this point;
-                # _phase_train_val_test_split has already returned train_df at this scope.
-                if train_df is not None:
-                    _fd_report = analyze_feature_distribution(
-                        train_df,
-                        y=_y_train,
-                        target_type="auto" if _picked_type_name is None or _picked_type_name == "" else _picked_type_name,  # type: ignore[arg-type]  # _picked_type_name only ever holds "regression"/"classification" by construction above
-                    )
-                    if verbose:
-                        logger.info(
-                            "[mini-HPT] feature_distribution_analyzer (n_samples=%d, n_features=%d): "
-                            "pathologies=%s, drop_candidates=%s, leakage_candidates=%s",
-                            _fd_report.n_samples, _fd_report.n_features,
-                            "(none)" if _fd_report.pathologies is None or len(_fd_report.pathologies) == 0 else _fd_report.pathologies,
-                            "(none)" if _fd_report.drop_candidates is None or len(_fd_report.drop_candidates) == 0 else _fd_report.drop_candidates,
-                            "(none)" if _fd_report.leakage_candidates is None or len(_fd_report.leakage_candidates) == 0 else _fd_report.leakage_candidates,
-                        )
-                    _flag_target_named_features(train_df, target_by_type, metadata)
-                    metadata["feature_distribution_report"] = {
-                        "n_samples": _fd_report.n_samples,
-                        "n_features": _fd_report.n_features,
-                        "pathologies": list(_fd_report.pathologies),
-                        "drop_candidates": list(_fd_report.drop_candidates),
-                        "leakage_candidates": list(_fd_report.leakage_candidates),
-                        "feature_warnings": dict(_fd_report.feature_warnings),
-                        "diagnostics": dict(_fd_report.diagnostics),
-                        "knob_overrides": dict(_fd_report.knob_overrides),
-                    }
-                    # Auto-drop: when behavior_config opts in (defaults ON for
-                    # candidate-list, threshold 0.999 for near-duplicate), strip the
-                    # nan-heavy / low-variance / exact-duplicate columns from all
-                    # three splits before Phase 3. The drop SET is train-derived so
-                    # val/test never enter the decision; they just lose the same
-                    # columns to keep schemas aligned. The legacy diagnostic-only
-                    # behaviour is preserved by setting both knobs off.
-                    try:
-                        train_df, val_df, test_df, _dropped = _maybe_auto_drop_after_feature_analyzer(
-                            fd_report=_fd_report,
-                            train_df=train_df,
-                            val_df=val_df,
-                            test_df=test_df,
-                            behavior_config=behavior_config,
-                            metadata=metadata,
-                            verbose=verbose,
-                            preprocessing_config=preprocessing_config,
-                            mlframe_models=getattr(ctx, "mlframe_models", None),
-                        )
-                        # Mirror drops onto ctx so any later phase reading from ctx
-                        # (the in-progress ctx-form migration in main_train_suite) sees
-                        # the trimmed frames too.
-                        if _dropped and ctx is not None:
-                            for _slot in ("train_df", "val_df", "test_df"):
-                                if hasattr(ctx, _slot):
-                                    try:
-                                        setattr(ctx, _slot, locals()[_slot])
-                                    except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-                                        logger.debug("suppressed: %s", e)
-                                        pass
-                    except Exception as _drop_err:  # best-effort: falls back to the full column set
-                        logger.warning(
-                            "[mini-HPT] auto-drop after feature_distribution_analyzer failed (%s); " "training continues with full column set.",
-                            _drop_err,
-                        )
-            except Exception as _fd_err:
-                logger.warning(
-                    "[mini-HPT] feature_distribution_analyzer crashed (%s); proceeding without feature warnings.",
-                    _fd_err, exc_info=False,
-                )
+            train_df, val_df, test_df = _run_feature_side_analyzer(
+                train_df=train_df, val_df=val_df, test_df=test_df, y_train=_y_train, picked_type_name=_picked_type_name,
+                target_by_type=target_by_type, metadata=metadata, verbose=verbose, behavior_config=behavior_config,
+                preprocessing_config=preprocessing_config, ctx=ctx,
+            )
     except Exception as _td_err:
         # The analyzer is observational + recommendation-only; any failure
         # MUST NOT block training. WARN once so the operator can debug.

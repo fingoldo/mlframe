@@ -33,6 +33,7 @@ from typing import Any, Optional, Sequence, Union, cast
 
 import numpy as np
 from mlframe.utils.log_throttle import log_throttle
+from mlframe.feature_selection.shap_proxied_fs._shap_proxy_explain_cache import _open_shap_disk_cache, _store_shap_cache
 import pandas as pd
 from sklearn.base import clone
 from sklearn.model_selection import KFold, StratifiedKFold
@@ -625,6 +626,28 @@ def _prepare_oof_inputs(X: pd.DataFrame, y, rng: Optional[np.random.Generator]):
     return X.reset_index(drop=True), np.asarray(y), rng
 
 
+def _resolve_fold_parallelism(n_jobs: Optional[int], n_folds: int, inner_n_jobs_cap: bool) -> tuple[int, Optional[int]]:
+    """Resolve ``(outer, inner)``: concurrent folds and the per-fold booster thread count (None when serial)."""
+    import os
+
+    n_cores = os.cpu_count() or 1
+    outer = 1
+    if n_jobs not in (None, 0, 1) and n_folds > 1:
+        outer = n_cores if n_jobs == -1 else int(cast(int, n_jobs))
+        outer = max(1, min(outer, n_folds, n_cores))
+    # iter54: default lets xgboost manage all cores via its own thread pool (inner=-1). iter53 A/B at
+    # width 4000+10000 measured the iter4 oversubscription cap (n_cores // outer when outer > 1) as
+    # 8-9% e2e SLOWER - per-stage: reval +8%, refine +11%, trust +12% wall-clock loss; prefilter +2%
+    # small win. xgboost's internal scheduler handles outer*inner > n_cores more efficiently than the
+    # joblib-side cap on 8-core modern boxes. ``inner_n_jobs_cap=True`` restores legacy behaviour for
+    # callers who measure regression on their HW.
+    if outer > 1:
+        inner = max(1, n_cores // outer) if inner_n_jobs_cap else -1
+    else:
+        inner = None
+    return outer, inner
+
+
 def compute_shap_matrix(
     model_template: Any,
     X: pd.DataFrame,
@@ -688,76 +711,12 @@ def compute_shap_matrix(
     X, y, rng = _prepare_oof_inputs(X, y, rng)
     st.n, f = X.shape
 
-    # Content-addressable disk cache: keyed by (X summary, y summary, booster params, fold/model
-    # state). The OOF-SHAP stage dominates wall-clock at C3/C4; in hyperparam sweeps and ablations
-    # the same (X, y, template) tuple recurs verbatim, so a hit returns phi + base + tail without
-    # paying the per-fold xgboost fit + TreeSHAP attribution cost. ``cache_dir=None`` skips entirely
-    # (default, zero behaviour change). The RNG bit-stream is snapshotted at entry so the cache key
-    # reflects the seed every fold WILL see, not whatever state ``rng`` reaches after the function
-    # consumes draws - without that snapshot a hit on a partially-consumed rng would key under
-    # different bits than the original miss.
-    _cache = None
-    _cache_key = None
-    if cache_dir is not None:
-        try:
-            from mlframe.utils.disk_cache import DiskCache, compose_key, hash_array_summary, hash_object
-
-            _cache = DiskCache(cache_dir)
-            try:
-                _params = model_template.get_params(deep=False)
-            # best-effort: only the cache key degrades (repr of the template instead of its params); the computation is unaffected
-            except Exception as e:
-                logger.debug("get_params(deep=False) failed, using repr() as the cache-key params: %s", e)
-                _params = {"_repr": repr(model_template)}
-            _rng_state: Any
-            try:
-                _rng_state = rng.bit_generator.state
-            except AttributeError:
-                _rng_state = repr(rng)
-            _x_key = hash_array_summary(X.values if hasattr(X, "values") else np.asarray(X))
-            _y_key = hash_array_summary(np.asarray(y))
-            _state_key = hash_object({
-                "params": _params,
-                "rng": _rng_state,
-                "n_splits": int(n_splits),
-                "n_models": int(n_models),
-                "out_of_fold": bool(out_of_fold),
-                "config_jitter": bool(config_jitter),
-                "return_variance": bool(return_variance),
-                "return_per_fold_phi_mean": bool(return_per_fold_phi_mean),
-                "shap_backend": str(shap_backend),
-                "n_estimators_cap": n_estimators_cap,
-                "inner_n_jobs_cap": bool(inner_n_jobs_cap),
-                "classification": bool(classification),
-                "columns": list(map(str, getattr(X, "columns", []))),
-            })
-            _cache_key = "shap_phi_" + compose_key(_x_key, _y_key, _state_key)
-            _hit = _cache.get(_cache_key)
-            if _hit is not None:
-                logger.debug("compute_shap_matrix: cache hit key=%s", _cache_key)
-                # Replay the exact ``rng.integers`` draws the miss path would consume so the shared
-                # rng's post-state matches byte-for-byte. Without this, downstream stages that share
-                # the same rng (selector heuristics, refine, trust-guard) would observe different
-                # draws between cache-hit and cache-miss runs - breaking subset bit-identity.
-                # Sequence (mirrors the non-cached code path below):
-                #   * out_of_fold=False: n_models seeds.
-                #   * out_of_fold=True: 1 splitter seed + n_splits * n_models fold seeds.
-                _compute_shap_matri_out_fold_true_splitter(out_of_fold, n_models, rng, n_splits)
-                return _hit
-        except Exception as exc:
-            # Cache failures are non-fatal: we lose the speedup but the compute path stays correct.
-            log_throttle(logger, "shap_proxy.cache_disabled", logging.WARNING, "compute_shap_matrix: the disk cache is disabled for this call (%s), the result is recomputed", exc)
-            _cache = None
-            _cache_key = None
-
-    def _maybe_store(result):
-        """Write ``result`` into the outer ``shap_phi_`` disk cache under the pre-computed key (no-op if caching is disabled or unavailable); returns ``result`` unchanged for chaining at the return site."""
-        if _cache is not None and _cache_key is not None:
-            try:
-                _cache.put(_cache_key, result)
-            except Exception as exc:
-                logger.debug("compute_shap_matrix: cache put failed (%s)", exc)
-        return result
+    _cache, _cache_key, _hit = _open_shap_disk_cache(
+        cache_dir, model_template, X, y, rng, classification=classification, out_of_fold=out_of_fold, n_splits=n_splits, n_models=n_models,
+        config_jitter=config_jitter, return_variance=return_variance, return_per_fold_phi_mean=return_per_fold_phi_mean,
+        shap_backend=shap_backend, n_estimators_cap=n_estimators_cap, inner_n_jobs_cap=inner_n_jobs_cap)
+    if _hit is not None:
+        return _hit
 
     _models_phi = _compute_shap_matrix_step1_def_models_phi(f, return_variance, n_models, config_jitter, _cache, model_template, classification, n_estimators_cap, shap_backend)
 
@@ -773,8 +732,8 @@ def compute_shap_matrix(
         if return_per_fold_phi_mean:
             st.out_tail.append(st.per_fold_mean)
         if st.out_tail:
-            return _maybe_store((phi_acc, base_arr, y.astype(np.float64), *st.out_tail))
-        return _maybe_store((phi_acc, base_arr, y.astype(np.float64)))
+            return _store_shap_cache(_cache, _cache_key, (phi_acc, base_arr, y.astype(np.float64), *st.out_tail))
+        return _store_shap_cache(_cache, _cache_key, (phi_acc, base_arr, y.astype(np.float64)))
 
     # Out-of-fold: honest per-row attributions.
     st.split_iter = _oof_split_iter(cv_policy, X, y, st.n, n_splits, classification, rng)
@@ -790,24 +749,7 @@ def compute_shap_matrix(
     # which fold's thread runs first).
     fold_seeds = [[int(rng.integers(0, 2**31 - 1)) for _ in range(n_models)] for _ in st.folds]
 
-    import os
-
-    st.n_cores = os.cpu_count() or 1
-    st.outer = 1
-    if n_jobs not in (None, 0, 1) and len(st.folds) > 1:
-        st.outer = st.n_cores if n_jobs == -1 else int(n_jobs)
-        st.outer = max(1, min(st.outer, len(st.folds), st.n_cores))
-    # iter54: default lets xgboost manage all cores via its own thread pool (inner=-1). iter53 A/B at
-    # width 4000+10000 measured the iter4 oversubscription cap (n_cores // outer when outer > 1) as
-    # 8-9% e2e SLOWER - per-stage: reval +8%, refine +11%, trust +12% wall-clock loss; prefilter +2%
-    # small win. xgboost's internal scheduler handles outer*inner > n_cores more efficiently than the
-    # joblib-side cap on 8-core modern boxes. ``inner_n_jobs_cap=True`` restores legacy behaviour for
-    # callers who measure regression on their HW.
-    if st.outer > 1:
-        inner = max(1, st.n_cores // st.outer) if inner_n_jobs_cap else -1
-    else:
-        inner = None
-
+    st.outer, inner = _resolve_fold_parallelism(n_jobs, len(st.folds), inner_n_jobs_cap)
     def _one_fold(fold_id, tr_idx, va_idx):
         """Fit + explain one out-of-fold CV split (train on ``tr_idx``, attribute the held-out ``va_idx`` rows), returning the fold id, validation indices, and the fold's mean phi/base/variance for the caller to scatter back into the full-length accumulators."""
         pf, bf, vf = _models_phi(X.iloc[tr_idx], y[tr_idx], X.iloc[va_idx], fold_seeds[fold_id], inner_n_jobs=inner)
@@ -826,8 +768,8 @@ def compute_shap_matrix(
     if return_per_fold_phi_mean:
         st.out_tail.append(st.per_fold_mean)
     if st.out_tail:
-        return _maybe_store((st.phi, st.base, y.astype(np.float64), *st.out_tail))
-    return _maybe_store((st.phi, st.base, y.astype(np.float64)))
+        return _store_shap_cache(_cache, _cache_key, (st.phi, st.base, y.astype(np.float64), *st.out_tail))
+    return _store_shap_cache(_cache, _cache_key, (st.phi, st.base, y.astype(np.float64)))
 
 
 def _compute_shap_matrix_step1_def_models_phi(f, return_variance, n_models, config_jitter, _cache, model_template, classification, n_estimators_cap, shap_backend):
@@ -885,17 +827,6 @@ def _compute_shap_matrix_step1_def_models_phi(f, return_variance, n_models, conf
         var = _phi_var.variance(n_models) if _phi_var is not None else None
         return mean, b / n_models, var
     return _models_phi
-
-
-def _compute_shap_matri_out_fold_true_splitter(out_of_fold, n_models, rng, n_splits):
-    """Block of compute_shap_matrix starting at ``if not out_of_fold:``."""
-    if not out_of_fold:
-        for _ in range(n_models):
-            rng.integers(0, 2**31 - 1)
-    else:
-        rng.integers(0, 2**31 - 1)
-        for _ in range(n_splits * n_models):
-            rng.integers(0, 2**31 - 1)
 
 
 def _compute_shap_matri_outer(outer, folds, _one_fold, tqdm_desc):

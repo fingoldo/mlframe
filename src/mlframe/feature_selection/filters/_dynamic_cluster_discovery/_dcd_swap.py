@@ -14,7 +14,6 @@ import zlib
 from typing import TYPE_CHECKING, Any, Optional
 
 from mlframe.utils.log_throttle import log_throttle
-from ._dcd_swap_matrix import _resolve_member_matrix
 
 import numpy as np
 
@@ -227,321 +226,25 @@ def evaluate_swap_candidate(
     No mutation occurs until ``commit_swap`` is called with the returned
     decision (Critic1/B-2 pre-confirmation guarantee).
     """
-    # ``SwapDecision`` lives in the DCD parent; lazy-import to avoid the parent<->swap import cycle.
-    st = _SimpleNamespace()  # long-lived locals of this function (see the stage helpers below)
+    st = _SimpleNamespace()  # long-lived locals of this function (see the stage helpers in ``_dcd_swap_stages``)
     st.rep_relevance = None
     st.rep_binned = None
-    from . import SwapDecision
-    st.cluster = state.cluster_anchors.get(anchor, set())
-    if len(st.cluster) < max(int(state.min_cluster_size), int(state.cluster_size_threshold)):
-        return SwapDecision(accept=False)
-    members = [anchor, *sorted(st.cluster)]
-    if X_raw is None:
-        X_raw = state.X_raw_ref
-    if X_raw is None:
-        return SwapDecision(accept=False)
-    cols = state.cols
-    if cols is None or len(cols) <= max(members):
-        return SwapDecision(accept=False)
-    try:
-        from .._cluster_aggregate import _standardize_align, _derive_weights
-    except Exception as exc:
-        logger.warning("DCD swap: failed to import cluster_aggregate helpers: %r", exc)
-        return SwapDecision(accept=False)
-    try:
-        member_names = [cols[m] for m in members]
-        resolved = _resolve_member_matrix(X_raw, members, member_names)
-        if resolved is None:
-            return SwapDecision(accept=False)
-        M, members, member_names = resolved
-        Z, st.mean, st.std, st.signs = _standardize_align(M, ref_col=0)
-        # Layer 43 (PART B): ``auto`` swap method.
-        # Run a K-fold (n_folds=5) OOF MI bake-off over the three linear-
-        # combiner methods and pick the per-cluster winner. The chosen method
-        # is recorded in the recipe + swap_log so replay uses it bit-identically
-        # (no y at transform time). K-fold scores are cached on
-        # state._auto_method_cache keyed by tuple(member_names) so successive
-        # re-evaluations of the same cluster reuse the bake-off.
-        if str(state.swap_method) == "auto":
-            st.chosen_method, st.kfold_scores = _select_swap_method_auto(
-                state=state, Z=Z, target_y=target_y,
-                member_names=tuple(member_names),
-            )
-        else:
-            st.chosen_method = str(state.swap_method)
-            st.kfold_scores = None
-        # Layer 44: route all non-linear / row-reduction methods through the
-        # shared ``_apply_method_nonlinear`` (median / median_z / signed_max_abs
-        # / signed_l2_sum). Linear methods stay on the ``Z @ weights`` fast path.
-        from .._cluster_aggregate import (
-            _apply_method_nonlinear, _NONLINEAR_METHODS,
-        )
-        if st.chosen_method in _NONLINEAR_METHODS:
-            st.weights = None
-            st.rep_continuous = _apply_method_nonlinear(Z, st.chosen_method).astype(np.float64)
-        else:
-            st.weights = _derive_weights(Z, st.chosen_method)
-            if st.weights is None:
-                return SwapDecision(accept=False)
-            st.rep_continuous = (Z @ st.weights).astype(np.float64)
-        # Bin the rep via quantile/uniform to integer codes.
-        st.rep_binned = _binarize_aggregate(
-            st.rep_continuous, method=state.quantization_method,
-            n_bins=state.quantization_nbins, dtype=state.quantization_dtype,
-        )
-    except Exception as exc:
-        logger.warning("DCD swap: PC1 fit failed: %r", exc)
-        return SwapDecision(accept=False)
-    # Build a candidate matrix with rep appended.
-    assert state.factors_data is not None, "DCD swap candidate scoring requires a populated DCDState.factors_data"
-    st.new_col_idx = int(state.factors_data.shape[1])
-    st.data_with_rep = np.column_stack([state.factors_data, st.rep_binned])
-    st.nbins_with_rep = np.concatenate([
-        np.asarray(state.factors_nbins, dtype=np.int64),
-        [int(st.rep_binned.max()) + 1 if st.rep_binned.size else int(state.quantization_nbins)],
-    ])
-    # Relevance comparison: conditional MI against Selected − {anchor}.
-    target = state.target_indices if state.target_indices is not None and state.target_indices.size > 0 else target_y
-    if target is None:
-        return SwapDecision(accept=False)
-    # Build conditioning set Selected − {anchor}.
-    S_minus_anchor = [int(s) for s in selected_vars if int(s) != int(anchor)]
-    try:
-        from ..info_theory import mi, conditional_mi
-        if S_minus_anchor:
-            st.rep_relevance = float(conditional_mi(
-                factors_data=st.data_with_rep,
-                x=np.array([st.new_col_idx], dtype=np.int64),
-                y=np.asarray(target, dtype=np.int64),
-                z=np.array(S_minus_anchor, dtype=np.int64),
-                var_is_nominal=None,
-                factors_nbins=st.nbins_with_rep,
-                entropy_cache=entropy_cache,
-                can_use_x_cache=False, can_use_y_cache=True,
-            ))
-            st.anchor_rel = float(conditional_mi(
-                factors_data=state.factors_data,
-                x=np.array([int(anchor)], dtype=np.int64),
-                y=np.asarray(target, dtype=np.int64),
-                z=np.array(S_minus_anchor, dtype=np.int64),
-                var_is_nominal=None,
-                factors_nbins=state.factors_nbins,
-                entropy_cache=entropy_cache,
-                can_use_x_cache=False, can_use_y_cache=True,
-            ))
-        else:
-            # First-selected case: use unconditional MI.
-            st.rep_relevance = float(mi(
-                st.data_with_rep, np.array([st.new_col_idx], dtype=np.int64),
-                np.asarray(target, dtype=np.int64), st.nbins_with_rep,
-            ))
-            st.anchor_rel = float(mi(
-                state.factors_data, np.array([int(anchor)], dtype=np.int64),
-                np.asarray(target, dtype=np.int64), state.factors_nbins,
-            ))
-    except Exception as exc:
-        logger.warning("DCD swap: relevance estimation failed: %r", exc)
-        return SwapDecision(accept=False)
-    # Layer 45: ANCHOR REFINEMENT. Pre-fix the decision was a
-    # binary gate (aggregate vs anchor). When the FIRST-picked feature
-    # was a high-MI noisy spike rather than the cluster's center, the
-    # aggregate ended up sign-aligned to a sub-optimal reference and the
-    # swap either fired weakly or never fired even though a sibling
-    # member carried strictly more information about y.
-    #
-    # The refinement: score each cluster member with the SAME conditional
-    # MI(member; y | Selected − anchor) used for the anchor. Pick the
-    # best member; if it dominates the anchor by the swap gain, it's a
-    # viable swap target on its own. The final branch is whichever of
-    # ``aggregate`` / ``best_member`` has the higher CMI - both have to
-    # individually beat the anchor by ``swap_gain_threshold``.
-    st.member_relevances = {}
-    st.best_member_idx = -1
-    st.best_member_rel = float("-inf")
-    st.target_arr = np.asarray(target, dtype=np.int64)
-    st._sorted_cluster = sorted(st.cluster)
-    # BATCHED: one parallel call scoring every cluster member (bounded by max_cluster_size,
-    # default 12) against the SAME (y, Selected-anchor) instead of a per-member Python loop - see
-    # ``_dcd_member_rank_batch.py`` for why the public ``conditional_mi_batched_dispatch``/``_cpu_cmi_loop``
-    # dispatchers are NOT safe here (their default hoisted fast path silently mis-handles a multi-column Z)
-    # and why the one real call site's ``entropy_cache`` was never actually live to lose. Any failure
-    # (shape mismatch, degenerate cardinality, ...) falls back to the exact original per-member loop with
-    # its own per-member fail-to-0.0 semantics, unchanged.
-    st.best_member_idx, st.best_member_rel = _evaluate_swap_cand_its_own_per_member(state, st._sorted_cluster, st.target_arr, S_minus_anchor, st.member_relevances, st.best_member_rel, entropy_cache, st.best_member_idx)
-    st.gain_factor = 1.0 + float(state.swap_gain_threshold)
-    # Cheap pre-filter ahead of the (potentially expensive) permutation null below. When a null
-    # will actually run (``full_npermutations > 0``), soften this to plain dominance - the
-    # candidate merely needs to beat the anchor's point estimate - and let the null's p-value be
-    # the SOLE significance arbiter: the fixed ``swap_gain_threshold`` margin was rejecting real,
-    # null-eligible swaps whose point-estimate gain fell just under the bar (measured case:
-    # aggregate beat anchor by 3.3%, short of the 5% default margin, despite the underlying
-    # improvement being real). When no null is requested (``full_npermutations <= 0``, so no
-    # statistical backstop is available), keep the stricter margin as the sole heuristic gate.
-    st._null_will_run = int(full_npermutations or 0) > 0
-    if st._null_will_run:
-        st.aggregate_gate = st.rep_relevance > st.anchor_rel
-        st.member_gate = st.best_member_idx >= 0 and st.best_member_rel > st.anchor_rel
-    else:
-        st.aggregate_gate = st.rep_relevance > st.anchor_rel * st.gain_factor
-        st.member_gate = st.best_member_idx >= 0 and st.best_member_rel > st.anchor_rel * st.gain_factor
-    if not st.aggregate_gate and not st.member_gate:
-        # Branch A: no swap candidate beats the anchor.
-        return SwapDecision(
-            accept=False,
-            rep_relevance=st.rep_relevance,
-            anchor_relevance_in_ctx=st.anchor_rel,
-            branch="none",
-            member_col_idx=st.best_member_idx,
-            member_relevance=(st.best_member_rel if st.best_member_idx >= 0 else 0.0),
-        )
-    # Both gates active -> pick the higher CMI as the candidate branch.
-    # When only one is active, that one wins by definition.
-    st.prefer_aggregate = st.aggregate_gate and (not st.member_gate or st.rep_relevance >= st.best_member_rel)
-    # resolve the effective
-    # permutation-null draw count. ``full_npermutations`` (the screening
-    # confidence, default 3) acts ONLY as the on/off switch - 0 means the
-    # caller opted out of every null. When a null is requested we source the
-    # actual count from ``state.swap_npermutations`` and auto-raise it to
-    # ceil(1/swap_alpha) so 1/(B+1) < swap_alpha holds; otherwise the gate is
-    # arithmetically un-passable (B=3 -> min-p 0.25 >> 0.05) and every swap is
-    # silently rejected. Both the aggregate and member nulls use this B_eff.
-    st.B_eff = _evaluate_swap_cand_silently_rejected_both_aggregate(full_npermutations, state)
-    # When the caller requested a permutation null (``full_npermutations > 0``), apply the SAME null to the member
-    # candidate too. The point-CMI gate is upward-biased on small/noisy data; if the swap is firing on pure noise
-    # the null catches it for the aggregate path - the member branch must not be a side door that bypasses it.
-    def _run_member_null(member_idx: int, member_rel: float, B_: int) -> float:
-        """Delegate to ``_dcd_swap_null.run_member_null`` for a p-value on the member candidate's relevance, closing over ``state``/``anchor``/``target``/``S_minus_anchor``/``logger`` so both call sites below need only pass the member-specific args."""
-        # The B-permutation null is parallelized across cores in ``_dcd_swap_null.run_member_null``:
-        # it pre-generates all B shuffles of ONLY the member column (SAME rng sequence -> bit-identical
-        # permutation multiset / p-value), then ``prange``s the per-draw conditional MI over a thread-local
-        # shuffled column against the precomputed (Z)/(Y,Z) class labelings - NO frame copy, NO mutate-restore
-        # on the parallel path (Z and Y are read read-only from state.factors_data, the shuffled X is passed
-        # directly). Tiny B falls back to the exact serial mutate-and-restore path. H(Z)/H(Y,Z) are hoisted once
-        # (permutation-invariant); see _dcd_swap_null docstring.
-        from ._dcd_swap_null import run_member_null
-        return run_member_null(
-            state=state, member_idx=int(member_idx), member_rel=float(member_rel), B_=int(B_),
-            anchor=int(anchor), target=target, S_minus_anchor=S_minus_anchor, logger=logger,
-        )
-    if not st.prefer_aggregate:
-        # Branch B: member swap. Apply permutation null when requested
-        # (B>0) - otherwise this branch silently bypasses the check the
-        # caller asked for on the swap as a whole.
-        member_p = _run_member_null(int(st.best_member_idx), float(st.best_member_rel), st.B_eff)
-        if st.B_eff > 0 and member_p >= float(state.swap_alpha):
-            return SwapDecision(
-                accept=False,
-                rep_relevance=st.rep_relevance,
-                anchor_relevance_in_ctx=st.anchor_rel,
-                perm_p_value=member_p,
-                branch="none",
-                member_col_idx=int(st.best_member_idx),
-                member_relevance=float(st.best_member_rel),
-            )
-        return SwapDecision(
-            accept=True,
-            new_col_idx=int(st.best_member_idx),
-            aggregate_name="",
-            binned_rep=None,
-            new_nbins=0,
-            recipe_obj=None,
-            rep_relevance=st.rep_relevance,
-            anchor_relevance_in_ctx=st.anchor_rel,
-            perm_p_value=member_p,
-            branch="member",
-            member_col_idx=int(st.best_member_idx),
-            member_relevance=float(st.best_member_rel),
-        )
-    # Branch C continues - aggregate must still pass the permutation null.
-    st.deterministic_gate = st.aggregate_gate
-    # Permutation null on rep.
-    # The deterministic point-MI gate is upward-biased on small / noisy data
-    # because rep (a continuous PC1 projection re-binned with quantization_nbins
-    # bins, often > anchor's bin count) gets more degrees of freedom than the
-    # raw anchor. Without a null check, swap accepts spurious aggregates on
-    # pure noise. Plan v2 B-2 mandated this null but it was never implemented.
-    #
-    # Null hypothesis: rep_binned has no real conditional dependence on y
-    # given Selected\{anchor}. Reject when observed rep_relevance lies in
-    # the upper tail of the shuffled-rep distribution.
-    st.perm_p_value = 0.0
-    st.B = st.B_eff
-    st.perm_p_value = _evaluate_swap_cand_upper_tail_shuffled_rep(st.B, state, anchor, target, S_minus_anchor, st.data_with_rep, st.nbins_with_rep, st.new_col_idx, st.rep_binned, st.rep_relevance, conditional_mi, mi, st.perm_p_value)
-    st.accept = st.deterministic_gate and (st.B <= 0 or st.perm_p_value < float(state.swap_alpha))
-    if not st.accept:
-        # Layer 45: aggregate failed its permutation null. If the
-        # best-member gate also held (member_gate True), fall through to
-        # the member-swap branch - but apply the SAME permutation null
-        # the caller requested via ``full_npermutations``. The earlier
-        # bypass made the member branch a side door
-        # past the null on pure-noise candidates.
-        if st.member_gate and st.best_member_idx >= 0:
-            member_p2 = _run_member_null(int(st.best_member_idx), float(st.best_member_rel), st.B_eff)
-            if st.B_eff > 0 and member_p2 >= float(state.swap_alpha):
-                return SwapDecision(
-                    accept=False,
-                    rep_relevance=st.rep_relevance,
-                    anchor_relevance_in_ctx=st.anchor_rel,
-                    perm_p_value=max(st.perm_p_value, member_p2),
-                    branch="none",
-                    member_col_idx=int(st.best_member_idx),
-                    member_relevance=float(st.best_member_rel),
-                )
-            return SwapDecision(
-                accept=True,
-                new_col_idx=int(st.best_member_idx),
-                aggregate_name="",
-                binned_rep=None,
-                new_nbins=0,
-                recipe_obj=None,
-                rep_relevance=st.rep_relevance,
-                anchor_relevance_in_ctx=st.anchor_rel,
-                perm_p_value=member_p2,
-                branch="member",
-                member_col_idx=int(st.best_member_idx),
-                member_relevance=float(st.best_member_rel),
-            )
-        return SwapDecision(
-            accept=False,
-            rep_relevance=st.rep_relevance,
-            anchor_relevance_in_ctx=st.anchor_rel,
-            perm_p_value=st.perm_p_value,
-            branch="none",
-            member_col_idx=st.best_member_idx,
-            member_relevance=(st.best_member_rel if st.best_member_idx >= 0 else 0.0),
-        )
-    aggregate_name = f"_dcd_pc1_{'_'.join(str(cols[m])[:6] for m in members[:3])}" f"_n{len(members)}_a{anchor}"
-    # Layer 43 (PART B): record the chosen method (the actual
-    # combiner used to build ``rep_continuous``) in the recipe, NOT the user-
-    # facing ``state.swap_method`` string. When ``auto`` was active, the
-    # chosen method is the K-fold OOF winner; when a specific method was
-    # pinned, chosen_method == state.swap_method. Replay reads recipe.method
-    # so the transform-time aggregate is bit-identical with fit.
-    st.recipe_obj = {
-        "method": st.chosen_method, "members": members,
-        "mean": st.mean.tolist(), "std": st.std.tolist(),
-        "signs": st.signs.tolist(),
-    }
-    if st.weights is not None:
-        st.recipe_obj["weights"] = st.weights.tolist()
-    if st.kfold_scores is not None:
-        st.recipe_obj["kfold_scores"] = {k: float(v) for k, v in st.kfold_scores.items()}
-        st.recipe_obj["auto_winner"] = st.chosen_method
-    return SwapDecision(
-        accept=True,
-        new_col_idx=st.new_col_idx,
-        aggregate_name=aggregate_name,
-        binned_rep=st.rep_binned,
-        new_nbins=int(st.nbins_with_rep[-1]),
-        recipe_obj=st.recipe_obj,
-        rep_relevance=st.rep_relevance,
-        anchor_relevance_in_ctx=st.anchor_rel,
-        perm_p_value=st.perm_p_value,
-        branch="aggregate",
-        member_col_idx=st.best_member_idx,
-        member_relevance=(st.best_member_rel if st.best_member_idx >= 0 else 0.0),
-        rep_continuous=st.rep_continuous,
+    from ._dcd_swap_stages import (
+        stage_aggregate_branch, stage_fit_aggregate, stage_member_branch, stage_member_scoring, stage_relevance,
     )
+    _res = stage_fit_aggregate(st, state, anchor, X_raw, target_y)
+    if _res is not None:
+        return _res
+    _res = stage_relevance(st, state, anchor, selected_vars, target_y, entropy_cache)
+    if _res is not None:
+        return _res
+    _res = stage_member_scoring(st, state, entropy_cache, full_npermutations)
+    if _res is not None:
+        return _res
+    _res = stage_member_branch(st, state, anchor, full_npermutations)
+    if _res is not None:
+        return _res
+    return stage_aggregate_branch(st, state, anchor)
 
 
 def _evaluate_swap_cand_its_own_per_member(state, _sorted_cluster, target_arr, S_minus_anchor, member_relevances, best_member_rel, entropy_cache, best_member_idx):
@@ -714,6 +417,162 @@ def _evaluate_swap_cand_upper_tail_shuffled_rep(B, state, anchor, target, S_minu
             perm_p_value = 1.0  # conservative: fail closed
     return perm_p_value
 
+def _commit_member_swap(state: DCDState, anchor: int, decision: SwapDecision, new_idx: int, selected_vars: list, predictors_log: Optional[list]) -> int:
+    """Member-swap branch of ``commit_swap``: re-seat the cluster under the chosen member (no new column) and log it; returns the member index."""
+    # Layer 45: member-swap branch. The decision points at an
+    # existing factors_data column (a cluster member), not a new aggregate.
+    # No matrix extension, no recipe, no pool_pruned_mask resize. We
+    # simply unprune the chosen member (discover_cluster_members had
+    # pruned every member when it grew the cluster), replace the anchor
+    # index in selected_vars, and reseat the cluster bookkeeping under
+    # the member as the new anchor. The rest of the pipeline - bin counts,
+    # transform replay, support_ resolution - already trusts the column.
+    member_idx = new_idx
+    # Replace anchor in selected_vars with the chosen member.
+    try:
+        pos = selected_vars.index(int(anchor))
+        selected_vars[pos] = member_idx
+    except ValueError:
+        selected_vars.append(member_idx)
+    # Move cluster ownership to the new anchor; drop the chosen
+    # member from its own membership set (it IS the anchor now).
+    cluster_members = state.cluster_anchors.pop(int(anchor), set())
+    new_member_set = {int(m) for m in cluster_members if int(m) != member_idx}
+    # Add old anchor as a member of the new cluster (it's still
+    # SU-redundant with the new anchor and should stay pruned).
+    new_member_set.add(int(anchor))
+    state.cluster_anchors[member_idx] = new_member_set
+    for m in new_member_set:
+        state.member_to_anchor[int(m)] = member_idx
+    # Mark old anchor as pruned (it's now a member); unprune the new
+    # anchor (it must be eligible for downstream confirm/select).
+    assert state.pool_pruned_mask is not None, "DCD swap application requires a populated DCDState.pool_pruned_mask"
+    if int(anchor) < state.pool_pruned_mask.shape[0]:
+        state.pool_pruned_mask[int(anchor)] = True
+    if 0 <= member_idx < state.pool_pruned_mask.shape[0]:
+        state.pool_pruned_mask[member_idx] = False
+    # Remove the new anchor from member_to_anchor since it is itself
+    # the anchor now (anchors aren't tracked there).
+    state.member_to_anchor.pop(member_idx, None)
+    if predictors_log is not None:
+        predictors_log.append(
+            {
+                "dcd_swap": True,
+                "dcd_swap_branch": "member",
+                "anchor": int(anchor),
+                "new_col_idx": member_idx,
+                "aggregate_name": "",
+                "n_members": len(new_member_set),
+            }
+        )
+    state.swap_log.append(
+        {
+            "anchor": int(anchor),
+            "new_col_idx": member_idx,
+            "aggregate_name": "",
+            "n_members": len(new_member_set),
+            "rep_relevance": float(decision.rep_relevance),
+            "anchor_relevance_in_ctx": float(decision.anchor_relevance_in_ctx),
+            "branch": "member",
+            "member_relevance": float(decision.member_relevance),
+        }
+    )
+    return member_idx
+
+
+def _register_engineered_recipe(state: DCDState, decision: SwapDecision, engineered_recipes: dict) -> None:
+    """Upgrade the swap ``recipe_obj`` to a frozen ``cluster_aggregate`` EngineeredRecipe (with fit-time bin edges) and store it in ``engineered_recipes``."""
+    # Layer 43 (PART A): when an ``engineered_recipes`` dict is
+    # supplied (host MRMR's name->EngineeredRecipe map), upgrade the swap
+    # ``recipe_obj`` (a plain dict carrying method/members/mean/std/signs/
+    # weights) to a frozen ``EngineeredRecipe`` of kind ``cluster_aggregate``
+    # so the ``_mrmr_fit_impl`` remap routes it into ``self._engineered_recipes_``
+    # and ``get_feature_names_out`` / ``transform`` replay the PC1 aggregate
+    # column. Pre-fix this stored a raw dict and the remap dropped the
+    # aggregate from ``support_``/output silently.
+    _recipe = decision.recipe_obj
+    if isinstance(_recipe, dict):
+        try:
+            from ..engineered_recipes import build_cluster_aggregate_recipe
+
+            assert state.cols is not None, "DCD swap application requires a populated DCDState.cols"
+            _src_names = tuple(str(state.cols[m]) if 0 <= m < len(state.cols) else f"col_{m}" for m in _recipe.get("members", []))
+            _quant = {
+                "nbins": int(state.quantization_nbins),
+                "method": str(state.quantization_method),
+                "dtype": np.dtype(state.quantization_dtype).str,
+            }
+            # Persist fit-time bin edges so ``_apply_cluster_aggregate``
+            # uses identical edges at transform-time (no re-quantile drift).
+            _bin = np.asarray(decision.binned_rep)
+            if _bin.size > 0:
+                n_bins_eff = int(_bin.max()) + 1
+                _q_arr = np.linspace(0.0, 100.0, n_bins_eff + 1)
+                # Derive edges from the continuous rep consistent with the fit-time binning.
+                try:
+                    if decision.rep_continuous is not None:
+                        # evaluate_swap_candidate already built the standardized + sign-aligned
+                        # aggregate (Z / rep_continuous) that these edges must match - reuse it
+                        # directly instead of re-deriving M/Z from X_raw + the recipe's stored
+                        # mean/std/signs (own comment below).
+                        _cont = np.nan_to_num(
+                            np.asarray(decision.rep_continuous, dtype=np.float64),
+                            copy=False, nan=0.0, posinf=0.0, neginf=0.0,
+                        )
+                        _edges = np.nanpercentile(_cont, _q_arr)
+                        _quant["edges"] = _edges.tolist()
+                    elif state.X_raw_ref is not None and hasattr(state.X_raw_ref, "columns"):
+                        # Fallback: reconstruct the standardized + sign-aligned matrix the swap
+                        # was evaluated against. X_raw_ref + src_names are the canonical sources.
+                        _M = state.X_raw_ref[list(_src_names)].to_numpy(
+                            dtype=np.float64, copy=True,
+                        )
+                        _mean = np.asarray(_recipe["mean"], dtype=np.float64)
+                        _std_raw = np.asarray(_recipe["std"], dtype=np.float64)
+                        _std = np.where(_std_raw > 0.0, _std_raw, 1.0)
+                        _signs = np.asarray(_recipe["signs"], dtype=np.float64)
+                        _Z = ((_M - _mean) / _std) * _signs
+                        # Layer 44: non-linear / row-reduction methods
+                        # (median / median_z / signed_max_abs / signed_l2_sum)
+                        # rebuild via the shared reducer; linear methods
+                        # stay on ``Z @ weights``.
+                        from .._cluster_aggregate import (
+                            _apply_method_nonlinear, _NONLINEAR_METHODS,
+                        )
+                        _m = _recipe.get("method")
+                        if _m in _NONLINEAR_METHODS:
+                            _cont = _apply_method_nonlinear(_Z, _m)
+                        else:
+                            _cont = _Z @ np.asarray(_recipe["weights"], dtype=np.float64)
+                        _cont = np.nan_to_num(
+                            _cont, copy=False, nan=0.0, posinf=0.0, neginf=0.0,
+                        )
+                        _edges = np.nanpercentile(_cont, _q_arr)
+                        _quant["edges"] = _edges.tolist()
+                except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+                    logger.debug("suppressed: %s", e)
+                    pass
+            engineered_recipe = build_cluster_aggregate_recipe(
+                name=str(decision.aggregate_name),
+                src_names=_src_names,
+                method=str(_recipe.get("method", "pca_pc1")),
+                member_mean=np.asarray(_recipe["mean"], dtype=np.float64),
+                member_std=np.asarray(_recipe["std"], dtype=np.float64),
+                signs=np.asarray(_recipe["signs"], dtype=np.float64),
+                weights=(np.asarray(_recipe["weights"], dtype=np.float64) if "weights" in _recipe else None),
+                quantization=_quant,
+            )
+            engineered_recipes[decision.aggregate_name] = engineered_recipe
+        except Exception as _build_exc:
+            logger.warning(
+                "DCD commit_swap: failed to build EngineeredRecipe " "(falling back to dict): %r",
+                _build_exc,
+            )
+            engineered_recipes[decision.aggregate_name] = _recipe
+    else:
+        engineered_recipes[decision.aggregate_name] = _recipe
+
+
 def commit_swap(
     state: DCDState,
     anchor: int,
@@ -733,69 +592,11 @@ def commit_swap(
     if not decision.accept:
         return -1
     new_idx = int(decision.new_col_idx)
-    # Layer 45: member-swap branch. The decision points at an
-    # existing factors_data column (a cluster member), not a new aggregate.
-    # No matrix extension, no recipe, no pool_pruned_mask resize. We
-    # simply unprune the chosen member (discover_cluster_members had
-    # pruned every member when it grew the cluster), replace the anchor
-    # index in selected_vars, and reseat the cluster bookkeeping under
-    # the member as the new anchor. The rest of the pipeline - bin counts,
-    # transform replay, support_ resolution - already trusts the column.
     # SwapDecision.branch always exists (default
     # "none"), never absent - the getattr default was unreachable defensive code.
     is_member_swap = decision.branch == "member" and not decision.aggregate_name and decision.binned_rep is None
     if is_member_swap:
-        member_idx = new_idx
-        # Replace anchor in selected_vars with the chosen member.
-        try:
-            pos = selected_vars.index(int(anchor))
-            selected_vars[pos] = member_idx
-        except ValueError:
-            selected_vars.append(member_idx)
-        # Move cluster ownership to the new anchor; drop the chosen
-        # member from its own membership set (it IS the anchor now).
-        cluster_members = state.cluster_anchors.pop(int(anchor), set())
-        new_member_set = {int(m) for m in cluster_members if int(m) != member_idx}
-        # Add old anchor as a member of the new cluster (it's still
-        # SU-redundant with the new anchor and should stay pruned).
-        new_member_set.add(int(anchor))
-        state.cluster_anchors[member_idx] = new_member_set
-        for m in new_member_set:
-            state.member_to_anchor[int(m)] = member_idx
-        # Mark old anchor as pruned (it's now a member); unprune the new
-        # anchor (it must be eligible for downstream confirm/select).
-        assert state.pool_pruned_mask is not None, "DCD swap application requires a populated DCDState.pool_pruned_mask"
-        if int(anchor) < state.pool_pruned_mask.shape[0]:
-            state.pool_pruned_mask[int(anchor)] = True
-        if 0 <= member_idx < state.pool_pruned_mask.shape[0]:
-            state.pool_pruned_mask[member_idx] = False
-        # Remove the new anchor from member_to_anchor since it is itself
-        # the anchor now (anchors aren't tracked there).
-        state.member_to_anchor.pop(member_idx, None)
-        if predictors_log is not None:
-            predictors_log.append(
-                {
-                    "dcd_swap": True,
-                    "dcd_swap_branch": "member",
-                    "anchor": int(anchor),
-                    "new_col_idx": member_idx,
-                    "aggregate_name": "",
-                    "n_members": len(new_member_set),
-                }
-            )
-        state.swap_log.append(
-            {
-                "anchor": int(anchor),
-                "new_col_idx": member_idx,
-                "aggregate_name": "",
-                "n_members": len(new_member_set),
-                "rep_relevance": float(decision.rep_relevance),
-                "anchor_relevance_in_ctx": float(decision.anchor_relevance_in_ctx),
-                "branch": "member",
-                "member_relevance": float(decision.member_relevance),
-            }
-        )
-        return member_idx
+        return _commit_member_swap(state, anchor, decision, new_idx, selected_vars, predictors_log)
     # Branch C below: aggregate swap (existing behaviour).
     # 1. Extend matrix.
     assert state.factors_data is not None, "DCD swap application requires a populated DCDState.factors_data"
@@ -844,95 +645,8 @@ def commit_swap(
     if int(anchor) < state.pool_pruned_mask.shape[0]:
         state.pool_pruned_mask[int(anchor)] = True
     # 5. Persist recipe + log.
-    # Layer 43 (PART A): when an ``engineered_recipes`` dict is
-    # supplied (host MRMR's name->EngineeredRecipe map), upgrade the swap
-    # ``recipe_obj`` (a plain dict carrying method/members/mean/std/signs/
-    # weights) to a frozen ``EngineeredRecipe`` of kind ``cluster_aggregate``
-    # so the ``_mrmr_fit_impl`` remap routes it into ``self._engineered_recipes_``
-    # and ``get_feature_names_out`` / ``transform`` replay the PC1 aggregate
-    # column. Pre-fix this stored a raw dict and the remap dropped the
-    # aggregate from ``support_``/output silently.
     if engineered_recipes is not None and decision.aggregate_name:
-        _recipe = decision.recipe_obj
-        if isinstance(_recipe, dict):
-            try:
-                from ..engineered_recipes import build_cluster_aggregate_recipe
-
-                _src_names = tuple(str(state.cols[m]) if 0 <= m < len(state.cols) else f"col_{m}" for m in _recipe.get("members", []))
-                _quant = {
-                    "nbins": int(state.quantization_nbins),
-                    "method": str(state.quantization_method),
-                    "dtype": np.dtype(state.quantization_dtype).str,
-                }
-                # Persist fit-time bin edges so ``_apply_cluster_aggregate``
-                # uses identical edges at transform-time (no re-quantile drift).
-                _bin = np.asarray(decision.binned_rep)
-                if _bin.size > 0:
-                    n_bins_eff = int(_bin.max()) + 1
-                    _q_arr = np.linspace(0.0, 100.0, n_bins_eff + 1)
-                    # Derive edges from the continuous rep consistent with the fit-time binning.
-                    try:
-                        if decision.rep_continuous is not None:
-                            # evaluate_swap_candidate already built the standardized + sign-aligned
-                            # aggregate (Z / rep_continuous) that these edges must match - reuse it
-                            # directly instead of re-deriving M/Z from X_raw + the recipe's stored
-                            # mean/std/signs (own comment below).
-                            _cont = np.nan_to_num(
-                                np.asarray(decision.rep_continuous, dtype=np.float64),
-                                copy=False, nan=0.0, posinf=0.0, neginf=0.0,
-                            )
-                            _edges = np.nanpercentile(_cont, _q_arr)
-                            _quant["edges"] = _edges.tolist()
-                        elif state.X_raw_ref is not None and hasattr(state.X_raw_ref, "columns"):
-                            # Fallback: reconstruct the standardized + sign-aligned matrix the swap
-                            # was evaluated against. X_raw_ref + src_names are the canonical sources.
-                            _M = state.X_raw_ref[list(_src_names)].to_numpy(
-                                dtype=np.float64, copy=True,
-                            )
-                            _mean = np.asarray(_recipe["mean"], dtype=np.float64)
-                            _std_raw = np.asarray(_recipe["std"], dtype=np.float64)
-                            _std = np.where(_std_raw > 0.0, _std_raw, 1.0)
-                            _signs = np.asarray(_recipe["signs"], dtype=np.float64)
-                            _Z = ((_M - _mean) / _std) * _signs
-                            # Layer 44: non-linear / row-reduction methods
-                            # (median / median_z / signed_max_abs / signed_l2_sum)
-                            # rebuild via the shared reducer; linear methods
-                            # stay on ``Z @ weights``.
-                            from .._cluster_aggregate import (
-                                _apply_method_nonlinear, _NONLINEAR_METHODS,
-                            )
-                            _m = _recipe.get("method")
-                            if _m in _NONLINEAR_METHODS:
-                                _cont = _apply_method_nonlinear(_Z, _m)
-                            else:
-                                _cont = _Z @ np.asarray(_recipe["weights"], dtype=np.float64)
-                            _cont = np.nan_to_num(
-                                _cont, copy=False, nan=0.0, posinf=0.0, neginf=0.0,
-                            )
-                            _edges = np.nanpercentile(_cont, _q_arr)
-                            _quant["edges"] = _edges.tolist()
-                    except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-                        logger.debug("suppressed: %s", e)
-                        pass
-                engineered_recipe = build_cluster_aggregate_recipe(
-                    name=str(decision.aggregate_name),
-                    src_names=_src_names,
-                    method=str(_recipe.get("method", "pca_pc1")),
-                    member_mean=np.asarray(_recipe["mean"], dtype=np.float64),
-                    member_std=np.asarray(_recipe["std"], dtype=np.float64),
-                    signs=np.asarray(_recipe["signs"], dtype=np.float64),
-                    weights=(np.asarray(_recipe["weights"], dtype=np.float64) if "weights" in _recipe else None),
-                    quantization=_quant,
-                )
-                engineered_recipes[decision.aggregate_name] = engineered_recipe
-            except Exception as _build_exc:
-                logger.warning(
-                    "DCD commit_swap: failed to build EngineeredRecipe " "(falling back to dict): %r",
-                    _build_exc,
-                )
-                engineered_recipes[decision.aggregate_name] = _recipe
-        else:
-            engineered_recipes[decision.aggregate_name] = _recipe
+        _register_engineered_recipe(state, decision, engineered_recipes)
     if predictors_log is not None:
         predictors_log.append({
             "dcd_swap": True,

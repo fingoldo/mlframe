@@ -532,6 +532,25 @@ def _hgb_supports_external_val(model_obj: Any) -> bool:
         return False
 
 
+def _assert_nonempty_val(val_df: Any, model_category: str) -> None:
+    """Raise ``ValueError`` when the validation frame has zero rows (a 0-row eval_set silently disables early stopping)."""
+    # Defensive non-empty val assertion. A 0-row val silently disables early stopping
+    # (the booster fits to max_iter on a degenerate / empty eval_set). Outlier detection
+    # now raises on val-collapse, but a 0-row val can still reach here from a different
+    # source (aging-limit, sequential split, drift filter). Surface it with an actionable
+    # error from ANY source instead of training without a working ES signal.
+    if val_df is not None:
+        _n_val = val_df.shape[0] if hasattr(val_df, "shape") else len(val_df)
+        if _n_val == 0:
+            raise ValueError(
+                f"_setup_eval_set received a 0-row validation set for model_category "
+                f"'{model_category}'. A 0-row eval_set silently disables early stopping. "
+                f"The val collapsed upstream (outlier detection, trainset_aging_limit, "
+                f"sequential/drift split). Investigate the split / filter pipeline OR "
+                f"loosen the knob that emptied val."
+            )
+
+
 def _setup_eval_set(
     model_type_name: str,
     fit_params: dict[str, Any],
@@ -602,21 +621,7 @@ def _setup_eval_set(
     if model_category not in eval_set_configs:
         return
 
-    # Defensive non-empty val assertion. A 0-row val silently disables early stopping
-    # (the booster fits to max_iter on a degenerate / empty eval_set). Outlier detection
-    # now raises on val-collapse, but a 0-row val can still reach here from a different
-    # source (aging-limit, sequential split, drift filter). Surface it with an actionable
-    # error from ANY source instead of training without a working ES signal.
-    if val_df is not None:
-        _n_val = val_df.shape[0] if hasattr(val_df, "shape") else len(val_df)
-        if _n_val == 0:
-            raise ValueError(
-                f"_setup_eval_set received a 0-row validation set for model_category "
-                f"'{model_category}'. A 0-row eval_set silently disables early stopping. "
-                f"The val collapsed upstream (outlier detection, trainset_aging_limit, "
-                f"sequential/drift split). Investigate the split / filter pipeline OR "
-                f"loosen the knob that emptied val."
-            )
+    _assert_nonempty_val(val_df, model_category)
 
     # Historical 0-row val skip in _setup_eval_set removed
     # (batch 4). The original empty-val window came from outlier

@@ -19,6 +19,7 @@ from typing import Literal, Optional, Tuple, cast
 
 import numpy as np
 
+from mlframe.reporting.charts.calibration_delong import _midrank as _midrank, delong_auc_ci, delong_auc_variance
 from mlframe.reporting.colors import auto_text_color, calibration_cmap
 from mlframe.reporting.spec import (
     AnnotationPanelSpec, FigureSpec, HistogramPanelSpec, LinePanelSpec, ScatterPanelSpec,
@@ -587,55 +588,16 @@ def build_calibration_spec(
         empty_ann = AnnotationPanelSpec(text=(plot_title + "\n" if plot_title else "") + "calibration unavailable: no finite bins", title=plot_title if plot_title else "Calibration")
         return FigureSpec(suptitle="", panels=((empty_ann,),), figsize=figsize)
 
-    # NaN-safe: a single non-finite bin centre made `np.mean(np.diff(...))` NaN, which matplotlib and plotly
-    # both render as NO BARS AT ALL -- the histogram silently disappeared rather than dropping one bin.
-    _finite_centres = np.sort(np.asarray(freqs_predicted, dtype=np.float64))
-    _finite_centres = _finite_centres[np.isfinite(_finite_centres)]
-    if _finite_centres.size > 1:
-        _gaps = np.diff(_finite_centres)
-        _gaps = _gaps[np.isfinite(_gaps) & (_gaps > 0)]
-        bar_width = float(_gaps.mean()) if _gaps.size else 0.05
-    else:
-        bar_width = 0.05
+    bar_width = _tiling_bar_width(freqs_predicted)
 
     inline_labels: Optional[Tuple[Tuple[float, float, str], ...]] = None
     label_keep: Optional[np.ndarray] = None
     if show_inline_population_labels and len(hits) > 0 and len(freqs_predicted) <= INLINE_LABEL_MAX_BINS:
-        # Skip non-finite points: a label emitted at NaN coordinates is a ghost -- invisible on matplotlib and
-        # an off-canvas annotation on plotly -- so a NaN bin used to leave a stray, unplaceable label behind.
-        # The kept INDICES are carried, not just the labels: the per-label colour is chosen from the marker the
-        # label sits on, so a dropped empty bin would otherwise shift every later label onto its neighbour's
-        # colour and radius -- and the contrast decision would then be made against the wrong bubble, which is
-        # the one thing that helper exists to get right.
-        label_keep = np.flatnonzero(np.isfinite(freqs_predicted) & np.isfinite(freqs_true))
-        inline_labels = tuple((float(freqs_predicted[i]), float(freqs_true[i]), _format_population(float(hits[i]))) for i in label_keep)
+        inline_labels, label_keep = _finite_inline_labels(freqs_predicted, freqs_true, hits)
 
     point_size = _bubble_point_size(hits)
 
-    overlay_line: Optional[Tuple[np.ndarray, np.ndarray, str]] = None
-    overlay_band: Optional[Tuple[np.ndarray, np.ndarray, np.ndarray]] = None
-    # Both overlays are off by default. The isotonic curve is a SECOND estimate of the same relationship the bubbles
-    # already draw, in a second visual language, and its bootstrap band is a confidence interval on that second
-    # estimate rather than on the data -- two more layers over a panel whose subject is the gap between the points
-    # and the diagonal. Where the band's verdict is wanted it goes to the log, not onto the chart: the fraction of
-    # the range on which miscalibration is significant is a number, and a number is not a picture.
-    if reliability_smoothed and raw_probs is not None and raw_labels is not None:
-        curve = smoothed_reliability_curve(raw_probs, raw_labels)
-        if curve is not None:
-            overlay_line = (curve[0], curve[1], "smoothed (isotonic)")
-    if (reliability_band or log_miscalibration_significance) and raw_probs is not None and raw_labels is not None:
-        band = bootstrap_reliability_band(raw_probs, raw_labels)
-        if band is not None:
-            bgrid, blo, bhi, _sig_frac = band
-            if reliability_band and overlay_line is not None:
-                overlay_band = (bgrid, blo, bhi)
-            # The verdict goes to the log rather than onto the chart. It is one number and a range, which reads
-            # better as a line of text than as a caption competing with the points it describes.
-            _where = _significant_region_note(bgrid, blo, bhi)
-            logger.info(
-                "calibration: miscalibration significant on %.0f%% of the score range (simultaneous 95%% band)%s",
-                _sig_frac * 100.0, f" -- {_where}" if _where else "",
-            )
+    overlay_line, overlay_band = _reliability_overlays(reliability_smoothed, reliability_band, log_miscalibration_significance, raw_probs, raw_labels)
 
     # Wilson CI band on the observed frequency per bin: ``freqs_true`` is the per-bin positive rate, ``hits`` its
     # count, so the binomial interval reflects sampling uncertainty (wide where a bin holds few points). The spec
@@ -643,17 +605,7 @@ def build_calibration_spec(
     y_err: Optional[Tuple[np.ndarray, np.ndarray]] = None
     low_evidence: Optional[np.ndarray] = None
     if show_wilson_ci and len(hits) > 0:
-        lower, upper = wilson_ci(freqs_true, hits.astype(np.float64))
-        lo_dist = np.where(np.isfinite(lower), freqs_true - lower, 0.0)
-        hi_dist = np.where(np.isfinite(upper), upper - freqs_true, 0.0)
-        y_err = (np.clip(lo_dist, 0.0, None), np.clip(hi_dist, 0.0, None))
-        # Which bins are too thin to read is decided by the WIDTH OF THEIR OWN INTERVAL, not by a row-count
-        # floor. A row count means different things at different base rates -- 30 rows is plenty near p=0.5 and
-        # nothing near p=0.001 -- whereas an interval wider than this covers so much of the axis that the bin
-        # cannot distinguish over- from under-confidence, which is the only question being asked of it.
-        low_evidence = np.flatnonzero((np.asarray(y_err[0]) + np.asarray(y_err[1])) >= low_evidence_ci_width)
-        if low_evidence.size == 0:
-            low_evidence = None
+        y_err, low_evidence = _wilson_error_bars(freqs_true, hits, low_evidence_ci_width)
 
     # Off by default: the figure headline already carries the metrics layer's own ``ECE=`` token, and a second ECE
     # underneath it -- computed over a different binning -- read as a contradiction rather than as a second estimate.
@@ -663,49 +615,23 @@ def build_calibration_spec(
         if ann:
             scatter_title = f"{plot_title}\n{ann}" if plot_title else ann
 
-    point_color, cmap, c_vmin, c_vmax, resolved_cbar_label = _resolve_point_coloring(freqs_predicted, freqs_true, hits, color_by, colorbar_label)
-    label_colors = _inline_label_colors(
-        inline_labels,
-        point_color if label_keep is None else point_color[label_keep],
-        point_size if label_keep is None else np.asarray(point_size)[label_keep],
-        cmap,
-        c_vmin,
-        c_vmax,
-    )
-
-    scatter = ScatterPanelSpec(
-        x=freqs_predicted,
-        y=freqs_true,
-        title=scatter_title,
-        # Empty ON PURPOSE when the population histogram is drawn: it shares this x axis and carries the label,
-        # so repeating it here would print the same axis name twice in one stacked figure.
-        xlabel=label_prob if not show_prob_histogram else "",
-        ylabel=label_freq,
-        perfect_fit_line=True,
-        point_color=point_color,
-        colormap=cmap,
-        color_vmin=c_vmin,
-        color_vmax=c_vmax,
-        point_alpha=0.7,
+    scatter = _calibration_scatter_panel(
+        freqs_predicted,
+        freqs_true,
+        hits,
+        scatter_title=scatter_title,
+        show_prob_histogram=show_prob_histogram,
+        label_prob=label_prob,
+        label_freq=label_freq,
+        color_by=color_by,
+        colorbar_label=colorbar_label,
         point_size=point_size,
         inline_labels=inline_labels,
-        inline_label_colors=label_colors,
-        colorbar_label=resolved_cbar_label,
+        label_keep=label_keep,
         y_err=y_err,
-        low_evidence_indices=low_evidence,
+        low_evidence=low_evidence,
         overlay_line=overlay_line,
         overlay_band=overlay_band,
-        # The reliability diagram's most informative region is the low-probability corner, which is exactly where an
-        # inside legend lands by default -- it sat on top of the curve near the origin. The curve runs from that
-        # corner to the opposite one, so the lower-right corner is reliably empty; park the legend there INSIDE
-        # the panel instead of pushing it outside (which wasted a wide strip of blank margin next to the colorbar).
-        legend_loc="lower right",
-        # Both axes are probabilities on [0, 1]; pin a tight range so the population-sized bubble markers cannot drive
-        # autoscale past the data. Not squared: the diagonal spans corner-to-corner at any aspect, so the scatter fills
-        # the panel width and aligns with the population histogram below (no empty left gutter).
-        xlim=_PROB_AXIS_RANGE,
-        ylim=_PROB_AXIS_RANGE,
-        equal_aspect=False,
     )
 
     resolved_yscale = _resolve_yscale(yscale, hits)
@@ -743,6 +669,149 @@ def build_calibration_spec(
         caption=_how_to_read(color_by),
         row_height_ratios=(3.0, 1.0),
         sharex=True,
+    )
+
+
+def _tiling_bar_width(freqs_predicted: np.ndarray) -> float:
+    """Mean positive gap between sorted finite bin centres (0.05 when fewer than two distinct finite centres)."""
+    # NaN-safe: a single non-finite bin centre made `np.mean(np.diff(...))` NaN, which matplotlib and plotly
+    # both render as NO BARS AT ALL -- the histogram silently disappeared rather than dropping one bin.
+    _finite_centres = np.sort(np.asarray(freqs_predicted, dtype=np.float64))
+    _finite_centres = _finite_centres[np.isfinite(_finite_centres)]
+    if _finite_centres.size > 1:
+        _gaps = np.diff(_finite_centres)
+        _gaps = _gaps[np.isfinite(_gaps) & (_gaps > 0)]
+        return float(_gaps.mean()) if _gaps.size else 0.05
+    return 0.05
+
+
+def _finite_inline_labels(freqs_predicted: np.ndarray, freqs_true: np.ndarray, hits: np.ndarray) -> Tuple[Tuple[Tuple[float, float, str], ...], np.ndarray]:
+    """Inline population labels for the finite bins, plus the kept bin indices."""
+    # Skip non-finite points: a label emitted at NaN coordinates is a ghost -- invisible on matplotlib and
+    # an off-canvas annotation on plotly -- so a NaN bin used to leave a stray, unplaceable label behind.
+    # The kept INDICES are carried, not just the labels: the per-label colour is chosen from the marker the
+    # label sits on, so a dropped empty bin would otherwise shift every later label onto its neighbour's
+    # colour and radius -- and the contrast decision would then be made against the wrong bubble, which is
+    # the one thing that helper exists to get right.
+    label_keep = np.flatnonzero(np.isfinite(freqs_predicted) & np.isfinite(freqs_true))
+    inline_labels = tuple((float(freqs_predicted[i]), float(freqs_true[i]), _format_population(float(hits[i]))) for i in label_keep)
+    return inline_labels, label_keep
+
+
+def _reliability_overlays(
+    reliability_smoothed: bool,
+    reliability_band: bool,
+    log_miscalibration_significance: bool,
+    raw_probs: Optional[np.ndarray],
+    raw_labels: Optional[np.ndarray],
+) -> Tuple[Optional[Tuple[np.ndarray, np.ndarray, str]], Optional[Tuple[np.ndarray, np.ndarray, np.ndarray]]]:
+    """Optional isotonic overlay line and bootstrap band for the reliability scatter; logs the significance verdict."""
+    overlay_line: Optional[Tuple[np.ndarray, np.ndarray, str]] = None
+    overlay_band: Optional[Tuple[np.ndarray, np.ndarray, np.ndarray]] = None
+    # Both overlays are off by default. The isotonic curve is a SECOND estimate of the same relationship the bubbles
+    # already draw, in a second visual language, and its bootstrap band is a confidence interval on that second
+    # estimate rather than on the data -- two more layers over a panel whose subject is the gap between the points
+    # and the diagonal. Where the band's verdict is wanted it goes to the log, not onto the chart: the fraction of
+    # the range on which miscalibration is significant is a number, and a number is not a picture.
+    if reliability_smoothed and raw_probs is not None and raw_labels is not None:
+        curve = smoothed_reliability_curve(raw_probs, raw_labels)
+        if curve is not None:
+            overlay_line = (curve[0], curve[1], "smoothed (isotonic)")
+    if (reliability_band or log_miscalibration_significance) and raw_probs is not None and raw_labels is not None:
+        band = bootstrap_reliability_band(raw_probs, raw_labels)
+        if band is not None:
+            bgrid, blo, bhi, _sig_frac = band
+            if reliability_band and overlay_line is not None:
+                overlay_band = (bgrid, blo, bhi)
+            # The verdict goes to the log rather than onto the chart. It is one number and a range, which reads
+            # better as a line of text than as a caption competing with the points it describes.
+            _where = _significant_region_note(bgrid, blo, bhi)
+            logger.info(
+                "calibration: miscalibration significant on %.0f%% of the score range (simultaneous 95%% band)%s",
+                _sig_frac * 100.0, f" -- {_where}" if _where else "",
+            )
+    return overlay_line, overlay_band
+
+
+def _wilson_error_bars(freqs_true: np.ndarray, hits: np.ndarray, low_evidence_ci_width: float) -> Tuple[Tuple[np.ndarray, np.ndarray], Optional[np.ndarray]]:
+    """Asymmetric Wilson error-bar distances per bin and the indices of bins whose interval is too wide to read."""
+    lower, upper = wilson_ci(freqs_true, hits.astype(np.float64))
+    lo_dist = np.where(np.isfinite(lower), freqs_true - lower, 0.0)
+    hi_dist = np.where(np.isfinite(upper), upper - freqs_true, 0.0)
+    y_err = (np.clip(lo_dist, 0.0, None), np.clip(hi_dist, 0.0, None))
+    # Which bins are too thin to read is decided by the WIDTH OF THEIR OWN INTERVAL, not by a row-count
+    # floor. A row count means different things at different base rates -- 30 rows is plenty near p=0.5 and
+    # nothing near p=0.001 -- whereas an interval wider than this covers so much of the axis that the bin
+    # cannot distinguish over- from under-confidence, which is the only question being asked of it.
+    low_evidence: Optional[np.ndarray] = np.flatnonzero((np.asarray(y_err[0]) + np.asarray(y_err[1])) >= low_evidence_ci_width)
+    if low_evidence is not None and low_evidence.size == 0:
+        low_evidence = None
+    return y_err, low_evidence
+
+
+def _calibration_scatter_panel(
+    freqs_predicted: np.ndarray,
+    freqs_true: np.ndarray,
+    hits: np.ndarray,
+    *,
+    scatter_title: str,
+    show_prob_histogram: bool,
+    label_prob: str,
+    label_freq: str,
+    color_by: str,
+    colorbar_label: Optional[str],
+    point_size: np.ndarray,
+    inline_labels: Optional[Tuple[Tuple[float, float, str], ...]],
+    label_keep: Optional[np.ndarray],
+    y_err: Optional[Tuple[np.ndarray, np.ndarray]],
+    low_evidence: Optional[np.ndarray],
+    overlay_line: Optional[Tuple[np.ndarray, np.ndarray, str]],
+    overlay_band: Optional[Tuple[np.ndarray, np.ndarray, np.ndarray]],
+) -> ScatterPanelSpec:
+    """Assemble the reliability scatter panel (point colouring, inline label colours, error bars, overlays)."""
+    point_color, cmap, c_vmin, c_vmax, resolved_cbar_label = _resolve_point_coloring(freqs_predicted, freqs_true, hits, color_by, colorbar_label)
+    label_colors = _inline_label_colors(
+        inline_labels,
+        point_color if label_keep is None else point_color[label_keep],
+        point_size if label_keep is None else np.asarray(point_size)[label_keep],
+        cmap,
+        c_vmin,
+        c_vmax,
+    )
+
+    return ScatterPanelSpec(
+        x=freqs_predicted,
+        y=freqs_true,
+        title=scatter_title,
+        # Empty ON PURPOSE when the population histogram is drawn: it shares this x axis and carries the label,
+        # so repeating it here would print the same axis name twice in one stacked figure.
+        xlabel=label_prob if not show_prob_histogram else "",
+        ylabel=label_freq,
+        perfect_fit_line=True,
+        point_color=point_color,
+        colormap=cmap,
+        color_vmin=c_vmin,
+        color_vmax=c_vmax,
+        point_alpha=0.7,
+        point_size=point_size,
+        inline_labels=inline_labels,
+        inline_label_colors=label_colors,
+        colorbar_label=resolved_cbar_label,
+        y_err=y_err,
+        low_evidence_indices=low_evidence,
+        overlay_line=overlay_line,
+        overlay_band=overlay_band,
+        # The reliability diagram's most informative region is the low-probability corner, which is exactly where an
+        # inside legend lands by default -- it sat on top of the curve near the origin. The curve runs from that
+        # corner to the opposite one, so the lower-right corner is reliably empty; park the legend there INSIDE
+        # the panel instead of pushing it outside (which wasted a wide strip of blank margin next to the colorbar).
+        legend_loc="lower right",
+        # Both axes are probabilities on [0, 1]; pin a tight range so the population-sized bubble markers cannot drive
+        # autoscale past the data. Not squared: the diagonal spans corner-to-corner at any aspect, so the scatter fills
+        # the panel width and aligns with the population histogram below (no empty left gutter).
+        xlim=_PROB_AXIS_RANGE,
+        ylim=_PROB_AXIS_RANGE,
+        equal_aspect=False,
     )
 
 
@@ -848,113 +917,6 @@ def build_reliability_overlay_spec(
             )
         ),
     )
-
-
-def _midrank(x: np.ndarray) -> np.ndarray:
-    """Midranks of ``x`` (tied values share the mean of the ranks they would occupy). O(n log n) via one argsort.
-
-    Midranks are the core primitive of DeLong's fast AUC-variance algorithm: AUC equals a function of the midranks of
-    the pooled, the positive-only, and the negative-only score samples, so the variance follows in closed form.
-
-    Fully vectorised: after sorting, each tie block spans ``[start, end)`` of equal values and gets the 1-indexed mean
-    rank ``0.5*(start + end - 1) + 1``. ``searchsorted`` on the sorted values gives every value's left/right tie bound
-    in two O(n log n) passes (no python per-element loop -- the loop form was ~93% of DeLong's wall at n=1e6).
-    """
-    n = x.shape[0]
-    if n == 0:
-        return np.empty(0, dtype=np.float64)
-    order = np.argsort(x, kind="quicksort")
-    sorted_x = x[order]
-    # For each sorted position, the inclusive tie block is [left, right): searchsorted finds the first equal and the
-    # first strictly-greater value. The mean 0-based position is 0.5*(left + right - 1); +1 makes it a 1-indexed rank.
-    left = np.searchsorted(sorted_x, sorted_x, side="left")
-    right = np.searchsorted(sorted_x, sorted_x, side="right")
-    sorted_ranks = 0.5 * (left + right - 1) + 1.0
-    ranks = np.empty(n, dtype=np.float64)
-    ranks[order] = sorted_ranks
-    return ranks
-
-
-def delong_auc_variance(y_true: np.ndarray, y_score: np.ndarray) -> Tuple[float, float]:
-    """ROC-AUC and its DeLong variance (Sun & Xu 2014 fast O(n log n) form), single binary problem.
-
-    Returns ``(auc, var)``. ``y_true`` is binary {0,1}; ``y_score`` higher = more positive. The DeLong estimator is
-    the standard closed-form AUC-variance: no bootstrap needed. ``var`` is NaN when either class is empty (AUC and
-    its variance are undefined). Ties are handled via midranks, so tied scores give the correct (smaller) variance.
-    """
-    yt = np.asarray(y_true).ravel()
-    ys = np.asarray(y_score, dtype=np.float64).ravel()
-    # NaN never compares equal to itself, so a non-finite score's tie block is empty and its midrank is meaningless
-    # -- and the AUC built from it is silently wrong rather than undefined. Drop those rows and say how many.
-    finite = np.isfinite(ys)
-    if not np.all(finite):
-        logger.warning(
-            "delong_auc_variance: dropping %d of %d rows with a non-finite score; a NaN has no rank, so leaving it "
-            "in produces a midrank from an empty tie block and an AUC that is wrong rather than undefined.",
-            int((~finite).sum()), int(ys.size),
-        )
-        yt, ys = yt[finite], ys[finite]
-    labels = np.unique(yt)
-    off_domain = [v for v in labels.tolist() if v not in (0, 1, True, False)]
-    if off_domain:
-        logger.warning(
-            "delong_auc_variance: y_true carries %d label(s) outside {0, 1} (%s); those rows are treated as the "
-            "NEGATIVE class, which is a one-vs-rest reading of a target that may not be binary.",
-            len(off_domain), off_domain[:5],
-        )
-    pos = ys[yt == 1]
-    neg = ys[yt == 0]
-    m = pos.size
-    n = neg.size
-    if m == 0 or n == 0:
-        return float("nan"), float("nan")
-    # Sun-Xu midrank decomposition: structural components V10 (per positive) and V01 (per negative).
-    tz = _midrank(np.concatenate([pos, neg]))
-    tx = _midrank(pos)
-    ty = _midrank(neg)
-    # AUC = (sum of positive midranks in the pooled sample - m(m+1)/2) / (m n) -- the Mann-Whitney form via midranks.
-    auc = (tz[:m].sum() - m * (m + 1.0) / 2.0) / (m * n)
-    v10 = (tz[:m] - tx) / n
-    v01 = 1.0 - (tz[m:] - ty) / m
-    s10 = float(np.var(v10, ddof=1)) if m > 1 else 0.0
-    s01 = float(np.var(v01, ddof=1)) if n > 1 else 0.0
-    var = s10 / m + s01 / n
-    return float(auc), float(var)
-
-
-def delong_auc_ci(
-    y_true: np.ndarray,
-    y_score: np.ndarray,
-    *,
-    alpha: float = 0.05,
-) -> Tuple[float, float, float]:
-    """ROC-AUC with a two-sided ``1-alpha`` DeLong confidence interval, on the LOGIT scale.
-
-    Returns ``(auc, lower, upper)``. The interval is built on the logit-transformed AUC -- ``logit(auc) +- z *
-    sqrt(var)/(auc*(1-auc))`` (delta-method SE of the transform) -- then mapped back through the sigmoid. This is
-    the bounded-transform DeLong CI (Cortes & Mohri 2005; pROC's ``method="logit"``). The naive normal-theory
-    interval ``auc +- z*sqrt(var)`` clipped to [0,1] UNDER-COVERS near AUC≈1: the symmetric bar pokes past 1 and the
-    clip truncates the upper tail, so the realised coverage drops below ``1-alpha`` exactly where AUCs cluster in
-    practice. The logit interval is asymmetric, stays strictly inside (0,1) by construction, and never hits the
-    clip, restoring coverage near the boundary. It still narrows as ``~1/sqrt(n)``. ``(nan, nan, nan)`` when a class
-    is empty; the degenerate ``auc in {0,1}`` (zero var or undefined logit) falls back to the point.
-    """
-    auc, var = delong_auc_variance(y_true, y_score)
-    if not np.isfinite(auc) or not np.isfinite(var):
-        return auc, float("nan"), float("nan")
-    from scipy.stats import norm
-
-    z = float(norm.ppf(1.0 - alpha / 2.0))
-    sd = float(np.sqrt(max(var, 0.0)))
-    # logit transform is undefined / has infinite SE at auc in {0,1}; with zero spread there is no interval to form.
-    if not (0.0 < auc < 1.0) or sd == 0.0:
-        return auc, auc, auc
-    logit = float(np.log(auc / (1.0 - auc)))
-    se_logit = sd / (auc * (1.0 - auc))  # delta-method: d/dx logit(x) = 1/(x(1-x))
-    half = z * se_logit
-    lo = 1.0 / (1.0 + np.exp(-(logit - half)))
-    hi = 1.0 / (1.0 + np.exp(-(logit + half)))
-    return auc, float(lo), float(hi)
 
 
 __all__ = [

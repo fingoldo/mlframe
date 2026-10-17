@@ -173,6 +173,132 @@ def _instantiate_functional_selector(name: str, kwargs: dict[str, Any] | None, f
     return selector
 
 
+def _build_mrmr_selector(
+    mrmr_kwargs: dict[str, Any] | None,
+    fs_random_seed: int | None,
+    fs_use_groups: bool,
+    use_sample_weights_in_fs: bool,
+    mrmr_identity_cache: dict | None,
+) -> Any:
+    """Instantiate the suite's MRMR selector through the registry, seeded from the suite seed and stamped with the suite markers."""
+    # MRMR handles NaN natively via ``nan_strategy`` (default "separate_bin" routes NaN rows to a
+    # dedicated discretization bin instead of imputing them; see MRMR._validate_inputs). Wrapping in
+    # SimpleImputer would discard that signal and silently degrade downstream NaN-aware backends
+    # (catboost / lgb / xgb). Instantiation goes through the registry spec (lazy import + report_extract
+    # live next to the spec); the suite-wiring of a new selector still needs a config flag + a branch here
+    # + a _selector_kind entry -- see registry.py module docstring for the data-driven-loop FUTURE plan.
+    from mlframe.feature_selection.registry import get as _get_selector_spec
+    _mrmr_spec = _get_selector_spec("MRMR")
+    # Reproducibility: default MRMR's seed from the split seed when the operator didn't pass one
+    # (random_seed=None makes MRMR non-deterministic via pid^id derivation). Explicit seeds win.
+    mrmr_kwargs = dict(mrmr_kwargs or {})
+    if fs_random_seed is not None and mrmr_kwargs.get("random_seed") is None and mrmr_kwargs.get("random_state") is None:
+        mrmr_kwargs["random_seed"] = int(fs_random_seed)
+    # MRMR's MI estimator is group-naive (grouped MI is not implemented). Under a group-aware split it therefore
+    # ranks features ignoring groups -- a minor honesty caveat that MRMR itself surfaces via a UserWarning +
+    # ``groups_ignored_`` on fit. We do NOT let ``strict_groups=True`` fire here: forcing it turns every
+    # group-aware MRMR run into a hard NotImplementedError that aborts the whole suite, which is disproportionate
+    # to a group-naive feature RANKING. MRMR's OWN constructor default flipped to ``strict_groups=True`` (finding
+    # #20) for ad-hoc callers who pass ``groups=`` directly and should be warned loudly -- but the suite's
+    # group-aware split threads ``groups=`` through EVERY selector uniformly, so inheriting that hard default here
+    # would abort suites that never opted into the strict behavior. Explicitly default to the legacy warn-only
+    # fallback unless the caller opted into the hard stop via ``mrmr_kwargs={"strict_groups": True}``.
+    if fs_use_groups and "strict_groups" not in mrmr_kwargs:
+        mrmr_kwargs["strict_groups"] = False
+    _mrmr = _mrmr_spec.instantiate(**mrmr_kwargs)
+    _mrmr._mlframe_use_sample_weights_in_fs_ = bool(use_sample_weights_in_fs)
+    _mrmr._mlframe_selector_kind_ = "MRMR"
+    # When the suite caller passes a ctx-scoped cache dict (default per FeatureSelectionConfig.mrmr_identity_cache_scope="ctx"),
+    # stamp it on the MRMR instance so fit-time identity-cache reads/writes route to the suite-bounded dict instead of the
+    # process-global module-level cache. None falls back to the module-level cache (mrmr_identity_cache_scope="process").
+    if mrmr_identity_cache is not None:
+        _mrmr._mlframe_identity_cache_override_ = _NonPicklingCacheView(mrmr_identity_cache)
+    return _mrmr
+
+
+def _build_boruta_shap_selector(boruta_shap_kwargs: dict[str, Any] | None, fs_random_seed: int | None, target_type: Any) -> Any:
+    """Instantiate the BorutaShap selector through the registry, deriving ``classification`` from ``target_type`` when unpinned."""
+    # The BorutaShap spec hides the lazy-import behind ``instantiate`` so shap / matplotlib / seaborn
+    # (~2s cold cost) only load when this branch fires.
+    from mlframe.feature_selection.registry import get as _get_selector_spec
+    _bs_spec = _get_selector_spec("BorutaShap")
+    # BorutaShap's ``classification`` defaults to True, so the inner
+    # default model is RandomForestClassifier --
+    # which raises ValueError("Unknown label type: 'continuous'") inside
+    # sklearn.multiclass on regression targets. When the caller hasn't
+    # set ``classification`` explicitly in boruta_shap_kwargs AND
+    # target_type is known, derive it from target_type so the inner
+    # RandomForestRegressor is picked on regression targets.
+    _bs_kwargs = _seeded_kwargs(boruta_shap_kwargs, fs_random_seed)
+    if "classification" not in _bs_kwargs and target_type is not None:
+        _tt_str = str(target_type).lower()
+        # TargetTypes enum stringifies to e.g. "targettypes.regression"; substring match handles
+        # both the enum and a plain string variant.
+        _is_regression = "regression" in _tt_str
+        _bs_kwargs["classification"] = not _is_regression
+    _bs = _bs_spec.instantiate(**_bs_kwargs)
+    _bs._mlframe_selector_kind_ = "BorutaShap"
+    return _bs
+
+
+def _build_shap_proxied_selector(shap_proxied_fs_kwargs: dict[str, Any] | None, fs_random_seed: int | None, target_type: Any) -> Any:
+    """Instantiate the ShapProxiedFS selector through the registry, deriving ``classification`` from ``target_type`` when unpinned."""
+    # Registry-driven dispatch (mirrors BorutaShap). The ShapProxiedFS spec hides the lazy-import (shap +
+    # a tree booster) behind ``instantiate`` so it only loads when this branch fires. ShapProxiedFS clusters
+    # correlated features internally, so it is intentionally NOT wrapped in the CorrelatedFeaturesSelector cluster-medoid
+    # reduction (the registry instantiate does not wrap it either).
+    from mlframe.feature_selection.registry import get as _get_selector_spec
+    _sp_spec = _get_selector_spec("ShapProxiedFS")
+    # ShapProxiedFS, like BorutaShap, defaults ``classification=True`` (inner classifier). Auto-derive it
+    # from target_type when the caller did not pin it, so a regression target picks the regressor inner model
+    # instead of crashing on continuous y.
+    _sp_kwargs = _seeded_kwargs(shap_proxied_fs_kwargs, fs_random_seed)
+    if "classification" not in _sp_kwargs and target_type is not None:
+        _is_regression = "regression" in str(target_type).lower()
+        _sp_kwargs["classification"] = not _is_regression
+    _sp = _sp_spec.instantiate(**_sp_kwargs)
+    _sp._mlframe_selector_kind_ = "ShapProxiedFS"
+    return _sp
+
+
+def _build_ace_selector(ace_kwargs: dict[str, Any] | None, fs_random_seed: int | None) -> Any:
+    """Instantiate the ACE selector through the registry, seeded from the suite seed."""
+    # Registry-driven dispatch (mirrors ShapProxiedFS). The ACE spec hides the lazy-import (sklearn ensembles +
+    # scipy.stats) behind ``instantiate`` so it only loads when this branch fires. ACE auto-derives
+    # classification/regression from the target dtype internally, so unlike BorutaShap / ShapProxiedFS there is
+    # no ``classification`` key to fill from target_type here.
+    from mlframe.feature_selection.registry import get as _get_selector_spec
+    _ace_spec = _get_selector_spec("ACE")
+    # Reproducibility: default ACE's seed from the split seed when the operator didn't pin one. Explicit wins.
+    _ace_kwargs = _seeded_kwargs(ace_kwargs, fs_random_seed)
+    _ace = _ace_spec.instantiate(**_ace_kwargs)
+    _ace._mlframe_selector_kind_ = "ACE"
+    return _ace
+
+
+def _clone_custom_pre_pipelines(custom_pre_pipelines: dict[str, Any]) -> list[tuple[str, Any]]:
+    """Clone every user-supplied pre-pipeline (sklearn ``clone``, else ``deepcopy``) and return ``(name, clone)`` pairs in input order."""
+    # Clone every user-supplied pre-pipeline before insertion so fit-time
+    # state from one model never leaks across the others in this suite.
+    # sklearn.base.clone is the canonical path; non-BaseEstimator objects
+    # fall back to copy.deepcopy so callers can pass custom transformers
+    # that don't implement the sklearn estimator protocol.
+    import copy as _copy
+    try:
+        from sklearn.base import clone as _sk_clone
+    except ImportError:
+        _sk_clone = None
+    out: list[tuple[str, Any]] = []
+    for pipeline_name, pipeline_obj in custom_pre_pipelines.items():
+        try:
+            _cloned = _sk_clone(pipeline_obj) if _sk_clone is not None else _copy.deepcopy(pipeline_obj)
+        except Exception as e:
+            logger.debug("sklearn clone() failed for pipeline %s, falling back to deepcopy: %s", pipeline_name, e)
+            _cloned = _copy.deepcopy(pipeline_obj)
+        out.append((pipeline_name, _cloned))
+    return out
+
+
 def _build_pre_pipelines(
     use_ordinary_models: bool,
     rfecv_models: list[str],
@@ -259,96 +385,19 @@ def _build_pre_pipelines(
         pre_pipeline_names.append(f"{rfecv_model_name} ")
 
     if use_mrmr_fs:
-        # MRMR handles NaN natively via ``nan_strategy`` (default "separate_bin" routes NaN rows to a
-        # dedicated discretization bin instead of imputing them; see MRMR._validate_inputs). Wrapping in
-        # SimpleImputer would discard that signal and silently degrade downstream NaN-aware backends
-        # (catboost / lgb / xgb). Instantiation goes through the registry spec (lazy import + report_extract
-        # live next to the spec); the suite-wiring of a new selector still needs a config flag + a branch here
-        # + a _selector_kind entry -- see registry.py module docstring for the data-driven-loop FUTURE plan.
-        from mlframe.feature_selection.registry import get as _get_selector_spec
-        _mrmr_spec = _get_selector_spec("MRMR")
-        # Reproducibility: default MRMR's seed from the split seed when the operator didn't pass one
-        # (random_seed=None makes MRMR non-deterministic via pid^id derivation). Explicit seeds win.
-        mrmr_kwargs = dict(mrmr_kwargs or {})
-        if fs_random_seed is not None and mrmr_kwargs.get("random_seed") is None and mrmr_kwargs.get("random_state") is None:
-            mrmr_kwargs["random_seed"] = int(fs_random_seed)
-        # MRMR's MI estimator is group-naive (grouped MI is not implemented). Under a group-aware split it therefore
-        # ranks features ignoring groups -- a minor honesty caveat that MRMR itself surfaces via a UserWarning +
-        # ``groups_ignored_`` on fit. We do NOT let ``strict_groups=True`` fire here: forcing it turns every
-        # group-aware MRMR run into a hard NotImplementedError that aborts the whole suite, which is disproportionate
-        # to a group-naive feature RANKING. MRMR's OWN constructor default flipped to ``strict_groups=True`` (finding
-        # #20) for ad-hoc callers who pass ``groups=`` directly and should be warned loudly -- but the suite's
-        # group-aware split threads ``groups=`` through EVERY selector uniformly, so inheriting that hard default here
-        # would abort suites that never opted into the strict behavior. Explicitly default to the legacy warn-only
-        # fallback unless the caller opted into the hard stop via ``mrmr_kwargs={"strict_groups": True}``.
-        if fs_use_groups and "strict_groups" not in mrmr_kwargs:
-            mrmr_kwargs["strict_groups"] = False
-        _mrmr = _mrmr_spec.instantiate(**mrmr_kwargs)
-        _mrmr._mlframe_use_sample_weights_in_fs_ = bool(use_sample_weights_in_fs)
-        _mrmr._mlframe_selector_kind_ = "MRMR"
-        # When the suite caller passes a ctx-scoped cache dict (default per FeatureSelectionConfig.mrmr_identity_cache_scope="ctx"),
-        # stamp it on the MRMR instance so fit-time identity-cache reads/writes route to the suite-bounded dict instead of the
-        # process-global module-level cache. None falls back to the module-level cache (mrmr_identity_cache_scope="process").
-        if mrmr_identity_cache is not None:
-            _mrmr._mlframe_identity_cache_override_ = _NonPicklingCacheView(mrmr_identity_cache)
-        pre_pipelines.append(_mrmr)
+        pre_pipelines.append(_build_mrmr_selector(mrmr_kwargs, fs_random_seed, fs_use_groups, use_sample_weights_in_fs, mrmr_identity_cache))
         pre_pipeline_names.append("MRMR ")
 
     if use_boruta_shap:
-        # The BorutaShap spec hides the lazy-import behind ``instantiate`` so shap / matplotlib / seaborn
-        # (~2s cold cost) only load when this branch fires.
-        from mlframe.feature_selection.registry import get as _get_selector_spec
-        _bs_spec = _get_selector_spec("BorutaShap")
-        # BorutaShap's ``classification`` defaults to True, so the inner
-        # default model is RandomForestClassifier --
-        # which raises ValueError("Unknown label type: 'continuous'") inside
-        # sklearn.multiclass on regression targets. When the caller hasn't
-        # set ``classification`` explicitly in boruta_shap_kwargs AND
-        # target_type is known, derive it from target_type so the inner
-        # RandomForestRegressor is picked on regression targets.
-        _bs_kwargs = _seeded_kwargs(boruta_shap_kwargs, fs_random_seed)
-        if "classification" not in _bs_kwargs and target_type is not None:
-            _tt_str = str(target_type).lower()
-            # TargetTypes enum stringifies to e.g. "targettypes.regression"; substring match handles
-            # both the enum and a plain string variant.
-            _is_regression = "regression" in _tt_str
-            _bs_kwargs["classification"] = not _is_regression
-        _bs = _bs_spec.instantiate(**_bs_kwargs)
-        _bs._mlframe_selector_kind_ = "BorutaShap"
-        pre_pipelines.append(_bs)
+        pre_pipelines.append(_build_boruta_shap_selector(boruta_shap_kwargs, fs_random_seed, target_type))
         pre_pipeline_names.append("BorutaShap ")
 
     if use_shap_proxied_fs:
-        # Registry-driven dispatch (mirrors BorutaShap). The ShapProxiedFS spec hides the lazy-import (shap +
-        # a tree booster) behind ``instantiate`` so it only loads when this branch fires. ShapProxiedFS clusters
-        # correlated features internally, so it is intentionally NOT wrapped in the CorrelatedFeaturesSelector cluster-medoid
-        # reduction (the registry instantiate does not wrap it either).
-        from mlframe.feature_selection.registry import get as _get_selector_spec
-        _sp_spec = _get_selector_spec("ShapProxiedFS")
-        # ShapProxiedFS, like BorutaShap, defaults ``classification=True`` (inner classifier). Auto-derive it
-        # from target_type when the caller did not pin it, so a regression target picks the regressor inner model
-        # instead of crashing on continuous y.
-        _sp_kwargs = _seeded_kwargs(shap_proxied_fs_kwargs, fs_random_seed)
-        if "classification" not in _sp_kwargs and target_type is not None:
-            _is_regression = "regression" in str(target_type).lower()
-            _sp_kwargs["classification"] = not _is_regression
-        _sp = _sp_spec.instantiate(**_sp_kwargs)
-        _sp._mlframe_selector_kind_ = "ShapProxiedFS"
-        pre_pipelines.append(_sp)
+        pre_pipelines.append(_build_shap_proxied_selector(shap_proxied_fs_kwargs, fs_random_seed, target_type))
         pre_pipeline_names.append("ShapProxiedFS ")
 
     if use_ace_fs:
-        # Registry-driven dispatch (mirrors ShapProxiedFS). The ACE spec hides the lazy-import (sklearn ensembles +
-        # scipy.stats) behind ``instantiate`` so it only loads when this branch fires. ACE auto-derives
-        # classification/regression from the target dtype internally, so unlike BorutaShap / ShapProxiedFS there is
-        # no ``classification`` key to fill from target_type here.
-        from mlframe.feature_selection.registry import get as _get_selector_spec
-        _ace_spec = _get_selector_spec("ACE")
-        # Reproducibility: default ACE's seed from the split seed when the operator didn't pin one. Explicit wins.
-        _ace_kwargs = _seeded_kwargs(ace_kwargs, fs_random_seed)
-        _ace = _ace_spec.instantiate(**_ace_kwargs)
-        _ace._mlframe_selector_kind_ = "ACE"
-        pre_pipelines.append(_ace)
+        pre_pipelines.append(_build_ace_selector(ace_kwargs, fs_random_seed))
         pre_pipeline_names.append("ACE ")
 
     for _name, _enabled, _kwargs in (
@@ -362,22 +411,7 @@ def _build_pre_pipelines(
             pre_pipeline_names.append(f"{_name} ")
 
     if custom_pre_pipelines:
-        # Clone every user-supplied pre-pipeline before insertion so fit-time
-        # state from one model never leaks across the others in this suite.
-        # sklearn.base.clone is the canonical path; non-BaseEstimator objects
-        # fall back to copy.deepcopy so callers can pass custom transformers
-        # that don't implement the sklearn estimator protocol.
-        import copy as _copy
-        try:
-            from sklearn.base import clone as _sk_clone
-        except ImportError:
-            _sk_clone = None
-        for pipeline_name, pipeline_obj in custom_pre_pipelines.items():
-            try:
-                _cloned = _sk_clone(pipeline_obj) if _sk_clone is not None else _copy.deepcopy(pipeline_obj)
-            except Exception as e:
-                logger.debug("sklearn clone() failed for pipeline %s, falling back to deepcopy: %s", pipeline_name, e)
-                _cloned = _copy.deepcopy(pipeline_obj)
+        for pipeline_name, _cloned in _clone_custom_pre_pipelines(custom_pre_pipelines):
             pre_pipelines.append(_cloned)
             pre_pipeline_names.append(f"{pipeline_name} ")
 

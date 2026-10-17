@@ -16,6 +16,7 @@ What lives here:
 
 from __future__ import annotations
 
+import functools
 import logging
 import math
 from collections.abc import Sequence
@@ -239,6 +240,209 @@ def _fitted_domain_mask(transform: Any, y_train: np.ndarray, base_train: np.ndar
     return valid
 
 
+def _build_yscale_population(
+    y_train: np.ndarray,
+    base_train: np.ndarray,
+    x_train_matrix: np.ndarray,
+    valid: np.ndarray,
+    transform: Any,
+    fitted_params: dict[str, Any],
+    groups: np.ndarray | None,
+    cv_folds: int,
+) -> tuple[np.ndarray, np.ndarray, Any, np.ndarray, np.ndarray | None, np.ndarray | None, np.ndarray | None] | None:
+    """Build the CV population of the y-scale tiny screen: ``(y, base, x, T, split_valid_mask, group_mask, transform_groups)``, or ``None`` when degenerate (-> NaN)."""
+    x_clean: Any = None
+    # Baseline-population parity with the raw-y sibling. The raw-y baseline scores EVERY finite-y row, but this transformed-target path previously scored only domain-valid rows -- so composite RMSE was measured on a STRICT SUBSET of the rows raw RMSE was measured on, a population mismatch that biases the raw-baseline gate exactly where a transform's domain excludes hard rows.
+    # Production CompositeTargetEstimator.predict does NOT drop invalid rows: it predicts on the whole batch and fills domain-violation rows with y_train_median. We emulate that so the screening val population == the raw-y val population (all finite-y rows): the model still TRAINS only on the transform's domain (forward is undefined off-domain), but each fold is SCORED over its full finite-y val rows, with domain-invalid val rows filled by the train-fold median.
+    # The _all_valid short-circuit keeps this bit-identical to the legacy path when the transform's domain covers every row (the common case) and preserves the no-copy fast path; ``finite_y`` mirrors raw-y's isfinite(y) mask and ``valid`` is a subset of it, so the split population (finite_y) is a superset of the trainable (valid) rows.
+    _all_valid = bool(valid.all())
+    finite_y = np.isfinite(np.asarray(y_train, dtype=np.float64))
+    # The rows' groups for the transform itself (a grouped transform's forward / inverse / refit needs them), kept even when
+    # the split below falls back from GroupKFold for too few groups.
+    _g_in = np.asarray(groups) if groups is not None and np.asarray(groups).shape[0] == len(y_train) else None
+    _emulate_fallback = (not _all_valid) and bool((finite_y & ~valid).any())
+    _split_valid_mask: np.ndarray | None = None
+    _group_mask: np.ndarray | None = None
+    if _emulate_fallback:
+        # Split population = all finite-y rows (raw-y parity); ``valid_pop`` flags which are on the transform's fitted domain (trainable). The rest are scored via the median fallback on the val side only.
+        pop_mask = finite_y
+        y_pop = np.asarray(y_train, dtype=np.float64)[pop_mask]
+        base_pop = np.asarray(base_train, dtype=np.float64)[pop_mask]
+        x_pop = x_train_matrix[pop_mask]
+        valid_pop = np.asarray(valid, dtype=bool)[pop_mask]
+        if int(valid_pop.sum()) < cv_folds * 10:
+            return None
+        # T computed only on the trainable rows; off-domain rows never enter forward(). A non-finite T on a domain-valid row still nukes the spec (legacy semantics), so keep the whole-spec finite guard.
+        t_pop = np.full(y_pop.shape[0], np.nan, dtype=np.float64)
+        _transform_groups = _g_in[pop_mask] if _g_in is not None else None
+        t_pop[valid_pop] = call_transform(
+            transform,
+            "forward",
+            y_pop[valid_pop],
+            base_pop[valid_pop],
+            fitted_params,
+            groups=_transform_groups[valid_pop] if _transform_groups is not None else None,
+        )
+        if not np.all(np.isfinite(t_pop[valid_pop])):
+            return None
+        y_clean = y_pop
+        base_clean = base_pop
+        x_clean = x_pop
+        t_clean = t_pop
+        _split_valid_mask = valid_pop
+        _group_mask = pop_mask
+    else:
+        # Skip the full-matrix fancy-index copy of the wide feature matrix when
+        # every row is valid (mirror the raw-y no-copy gate at the top of
+        # _tiny_cv_rmse_raw_y). Downstream reads x_clean[train_fold]/x_clean[val_fold]
+        # (which fancy-index a copy regardless), so passing the view is bit-identical.
+        y_clean = y_train.astype(np.float64) if _all_valid else y_train[valid].astype(np.float64)
+        base_clean = base_train.astype(np.float64) if _all_valid else base_train[valid].astype(np.float64)
+        x_clean = x_train_matrix if _all_valid else x_train_matrix[valid]
+        _transform_groups = _g_in if (_g_in is None or _all_valid) else _g_in[valid]
+        t_clean = call_transform(transform, "forward", y_clean, base_clean, fitted_params, groups=_transform_groups)
+        if not np.all(np.isfinite(t_clean)):
+            return None
+        _split_valid_mask = None  # every split row is trainable
+        _group_mask = valid if not _all_valid else None
+    return y_clean, base_clean, x_clean, t_clean, _split_valid_mask, _group_mask, _transform_groups
+
+
+def _yscale_one_fold(
+    train_fold: np.ndarray,
+    val_fold: np.ndarray,
+    *,
+    transform: Any,
+    fitted_params: dict[str, Any],
+    y_clean: np.ndarray,
+    base_clean: np.ndarray,
+    x_clean: Any,
+    t_clean: np.ndarray,
+    split_valid_mask: np.ndarray | None,
+    transform_groups: np.ndarray | None,
+    family: str,
+    n_estimators: int,
+    num_leaves: int,
+    learning_rate: float,
+    random_state: int,
+    deterministic: bool,
+    inner_n_jobs: int,
+    n_jobs: int,
+    return_per_bin: bool,
+    n_bins: int,
+) -> tuple[float, np.ndarray | None]:
+    """Return (fold_rmse, per_bin_rmse_or_None)."""
+    try:
+        # Under fallback emulation the train fold may contain off-domain rows (NaN T); fit ONLY on the domain-valid train rows (forward is undefined off-domain) -- production fits the inner the same way. ``_fit_rows`` == the full train fold on the legacy / all-valid path.
+        if split_valid_mask is not None:
+            _tr_valid = train_fold[split_valid_mask[train_fold]]
+            if _tr_valid.shape[0] < 2:
+                return float("nan"), None
+            _fit_rows = _tr_valid
+        else:
+            _fit_rows = train_fold
+        _fold_params, _fit_rows, _t_fit = _fold_fit_inputs(
+            transform,
+            fitted_params,
+            y_clean,
+            base_clean,
+            t_clean,
+            transform_groups,
+            _fit_rows,
+        )
+        with _silence_tiny_model_output(family):
+            model = _fit_fold_model(
+                x_clean,
+                train_fold,
+                _fit_rows,
+                _t_fit,
+                family=family,
+                n_estimators=n_estimators,
+                num_leaves=num_leaves,
+                learning_rate=learning_rate,
+                random_state=random_state,
+                deterministic=deterministic,
+                inner_n_jobs=inner_n_jobs,
+                n_jobs=n_jobs,
+            )
+            t_hat = np.asarray(model.predict(x_clean[val_fold])).reshape(-1)
+        # Domain-invalid val rows have a meaningless base for the inverse; supply a safe placeholder and overwrite with the median fallback below (mirrors estimator/_predict.py base_safe + y_train_median).
+        if split_valid_mask is not None:
+            _val_valid = split_valid_mask[val_fold]
+            _base_for_inverse = np.where(_val_valid, base_clean[val_fold], 1.0)
+        else:
+            _val_valid = None
+            _base_for_inverse = base_clean[val_fold]
+        # Smearing for curved unary inverses (see ``estimator._smearing``), as the trained composite predicts.
+        y_hat = smeared_prediction(
+            getattr(transform, "name", ""),
+            model,
+            x_clean[_fit_rows],
+            _t_fit,
+            t_hat,
+            lambda t: call_transform(
+                transform, "inverse", t, _base_for_inverse, _fold_params, groups=transform_groups[val_fold] if transform_groups is not None else None
+            ),
+        )
+        # Wrapper-aware clipping. The
+        # production CompositeTargetEstimator.predict applies
+        # the same y-clip on inverse output to keep predictions
+        # inside a physically plausible range. Mirror that here
+        # so screening RMSE matches deployed RMSE (otherwise
+        # heavy-tail transforms like logratio look better in
+        # screening than they actually deliver).
+        # _y_train_clip_bounds is imported at module level above (race-safe across joblib threading folds). The y-clip envelope is fit on the domain-valid train rows (the rows the production estimator's clip bounds were learned from).
+        y_clip_low, y_clip_high = _y_train_clip_bounds(y_clean[_fit_rows])
+        y_hat = np.clip(
+            y_hat.astype(np.float64),
+            y_clip_low,
+            y_clip_high,
+        )
+        # Domain-violation fallback: rows where the transform's domain_check fails on val use y_train_median (matches wrapper.predict). The wrapper computes domain_check on (y, base) but at inference y is unknown, so it uses y=None handling; here on val we know y_clean[val_fold] and emulate the wrapper by falling back rows where y_hat is non-finite OR where the row is domain-invalid. The fallback median uses the domain-valid train y (estimator/_predict.py stores y_train_median over fit rows).
+        _y_train_fallback: float | None = None
+        if _val_valid is not None and (~_val_valid).any():
+            _y_fit = y_clean[_fit_rows]
+            _y_train_fallback = float(np.median(_y_fit[np.isfinite(_y_fit)])) if np.isfinite(_y_fit).any() else 0.0
+            y_hat[~_val_valid] = _y_train_fallback
+        non_finite = ~np.isfinite(y_hat)
+        if non_finite.any():
+            if _y_train_fallback is not None:
+                y_train_median = _y_train_fallback
+            else:
+                _y_fit = y_clean[_fit_rows]
+                y_train_median = float(np.median(_y_fit[np.isfinite(_y_fit)])) if np.isfinite(_y_fit).any() else 0.0
+            y_hat[non_finite] = y_train_median
+        diff = y_hat - y_clean[val_fold]
+        finite = np.isfinite(diff)
+        if finite.sum() == 0:
+            return float("nan"), None
+        rmse = float(np.sqrt(np.mean(diff[finite] * diff[finite])))
+        per_bin = None
+        if return_per_bin:
+            per_bin = _per_bin_rmse(
+                y_clean[val_fold],
+                y_hat,
+                base_clean[val_fold],
+                n_bins=n_bins,
+            )
+        return rmse, per_bin
+    except Exception as _e:
+        # Failed fold reported as NaN -> np.nanmean over surviving folds
+        # silently shifts the screening RMSE toward well-behaved folds
+        # (K_eff < K with no signal). At least WARN-log per failure so
+        # operators see why the effective fold count dropped. The NaN
+        # return semantics are preserved (caller knows to use nanmean).
+        import logging as _logging
+
+        _logging.getLogger(__name__).warning(
+            "composite_screening: tiny-model CV fold failed (%s); fold "
+            "reported as NaN. Screening RMSE will use nanmean over surviving "
+            "folds -- effective fold count is reduced.",
+            _e,
+        )
+        return float("nan"), None
+
+
 def _tiny_cv_rmse_y_scale(
     y_train: np.ndarray,
     base_train: np.ndarray,
@@ -300,178 +504,36 @@ def _tiny_cv_rmse_y_scale(
     valid = _fitted_domain_mask(transform, y_train, base_train, fitted_params)
     if valid.sum() < cv_folds * 10:
         return (float("nan"), np.full(n_bins, float("nan"))) if return_per_bin else float("nan")
-    # Baseline-population parity with the raw-y sibling. The raw-y baseline scores EVERY finite-y row, but this transformed-target path previously scored only domain-valid rows -- so composite RMSE was measured on a STRICT SUBSET of the rows raw RMSE was measured on, a population mismatch that biases the raw-baseline gate exactly where a transform's domain excludes hard rows.
-    # Production CompositeTargetEstimator.predict does NOT drop invalid rows: it predicts on the whole batch and fills domain-violation rows with y_train_median. We emulate that so the screening val population == the raw-y val population (all finite-y rows): the model still TRAINS only on the transform's domain (forward is undefined off-domain), but each fold is SCORED over its full finite-y val rows, with domain-invalid val rows filled by the train-fold median.
-    # The _all_valid short-circuit keeps this bit-identical to the legacy path when the transform's domain covers every row (the common case) and preserves the no-copy fast path; ``finite_y`` mirrors raw-y's isfinite(y) mask and ``valid`` is a subset of it, so the split population (finite_y) is a superset of the trainable (valid) rows.
-    _all_valid = bool(valid.all())
-    finite_y = np.isfinite(np.asarray(y_train, dtype=np.float64))
-    # The rows' groups for the transform itself (a grouped transform's forward / inverse / refit needs them), kept even when
-    # the split below falls back from GroupKFold for too few groups.
-    _g_in = np.asarray(groups) if groups is not None and np.asarray(groups).shape[0] == len(y_train) else None
-    _emulate_fallback = (not _all_valid) and bool((finite_y & ~valid).any())
-    _split_valid_mask: np.ndarray | None = None
-    _group_mask: np.ndarray | None = None
-    if _emulate_fallback:
-        # Split population = all finite-y rows (raw-y parity); ``valid_pop`` flags which are on the transform's fitted domain (trainable). The rest are scored via the median fallback on the val side only.
-        pop_mask = finite_y
-        y_pop = np.asarray(y_train, dtype=np.float64)[pop_mask]
-        base_pop = np.asarray(base_train, dtype=np.float64)[pop_mask]
-        x_pop = x_train_matrix[pop_mask]
-        valid_pop = np.asarray(valid, dtype=bool)[pop_mask]
-        if int(valid_pop.sum()) < cv_folds * 10:
-            return (float("nan"), np.full(n_bins, float("nan"))) if return_per_bin else float("nan")
-        # T computed only on the trainable rows; off-domain rows never enter forward(). A non-finite T on a domain-valid row still nukes the spec (legacy semantics), so keep the whole-spec finite guard.
-        t_pop = np.full(y_pop.shape[0], np.nan, dtype=np.float64)
-        _transform_groups = _g_in[pop_mask] if _g_in is not None else None
-        t_pop[valid_pop] = call_transform(
-            transform,
-            "forward",
-            y_pop[valid_pop],
-            base_pop[valid_pop],
-            fitted_params,
-            groups=_transform_groups[valid_pop] if _transform_groups is not None else None,
-        )
-        if not np.all(np.isfinite(t_pop[valid_pop])):
-            return (float("nan"), np.full(n_bins, float("nan"))) if return_per_bin else float("nan")
-        y_clean = y_pop
-        base_clean = base_pop
-        x_clean = x_pop
-        t_clean = t_pop
-        _split_valid_mask = valid_pop
-        _group_mask = pop_mask
-    else:
-        # Skip the full-matrix fancy-index copy of the wide feature matrix when
-        # every row is valid (mirror the raw-y no-copy gate at the top of
-        # _tiny_cv_rmse_raw_y). Downstream reads x_clean[train_fold]/x_clean[val_fold]
-        # (which fancy-index a copy regardless), so passing the view is bit-identical.
-        y_clean = y_train.astype(np.float64) if _all_valid else y_train[valid].astype(np.float64)
-        base_clean = base_train.astype(np.float64) if _all_valid else base_train[valid].astype(np.float64)
-        x_clean = x_train_matrix if _all_valid else x_train_matrix[valid]
-        _transform_groups = _g_in if (_g_in is None or _all_valid) else _g_in[valid]
-        t_clean = call_transform(transform, "forward", y_clean, base_clean, fitted_params, groups=_transform_groups)
-        if not np.all(np.isfinite(t_clean)):
-            return (float("nan"), np.full(n_bins, float("nan"))) if return_per_bin else float("nan")
-        _split_valid_mask = None  # every split row is trainable
-        _group_mask = valid if not _all_valid else None
+    pop = _build_yscale_population(y_train, base_train, x_train_matrix, valid, transform, fitted_params, groups, cv_folds)
+    if pop is None:
+        return (float("nan"), np.full(n_bins, float("nan"))) if return_per_bin else float("nan")
+    y_clean, base_clean, x_clean, t_clean, _split_valid_mask, _group_mask, _transform_groups = pop
 
     groups_clean = None
     groups_clean = _resolve_perbin_cv_groups(groups, y_train, _group_mask, cv_folds, cv_splitter, time_aware, groups_clean)
     splits = _resolve_perbin_cv_splitter(cv_splitter, groups_clean, x_clean, time_aware, cv_folds, random_state)
 
-    def _one_fold(
-        train_fold: np.ndarray,
-        val_fold: np.ndarray,
-    ) -> tuple[float, np.ndarray | None]:
-        """Return (fold_rmse, per_bin_rmse_or_None)."""
-        try:
-            # Under fallback emulation the train fold may contain off-domain rows (NaN T); fit ONLY on the domain-valid train rows (forward is undefined off-domain) -- production fits the inner the same way. ``_fit_rows`` == the full train fold on the legacy / all-valid path.
-            if _split_valid_mask is not None:
-                _tr_valid = train_fold[_split_valid_mask[train_fold]]
-                if _tr_valid.shape[0] < 2:
-                    return float("nan"), None
-                _fit_rows = _tr_valid
-            else:
-                _fit_rows = train_fold
-            _fold_params, _fit_rows, _t_fit = _fold_fit_inputs(
-                transform,
-                fitted_params,
-                y_clean,
-                base_clean,
-                t_clean,
-                _transform_groups,
-                _fit_rows,
-            )
-            with _silence_tiny_model_output(family):
-                model = _fit_fold_model(
-                    x_clean,
-                    train_fold,
-                    _fit_rows,
-                    _t_fit,
-                    family=family,
-                    n_estimators=n_estimators,
-                    num_leaves=num_leaves,
-                    learning_rate=learning_rate,
-                    random_state=random_state,
-                    deterministic=deterministic,
-                    inner_n_jobs=inner_n_jobs,
-                    n_jobs=n_jobs,
-                )
-                t_hat = np.asarray(model.predict(x_clean[val_fold])).reshape(-1)
-            # Domain-invalid val rows have a meaningless base for the inverse; supply a safe placeholder and overwrite with the median fallback below (mirrors estimator/_predict.py base_safe + y_train_median).
-            if _split_valid_mask is not None:
-                _val_valid = _split_valid_mask[val_fold]
-                _base_for_inverse = np.where(_val_valid, base_clean[val_fold], 1.0)
-            else:
-                _val_valid = None
-                _base_for_inverse = base_clean[val_fold]
-            # Smearing for curved unary inverses (see ``estimator._smearing``), as the trained composite predicts.
-            y_hat = smeared_prediction(
-                getattr(transform, "name", ""),
-                model,
-                x_clean[_fit_rows],
-                _t_fit,
-                t_hat,
-                lambda t: call_transform(
-                    transform, "inverse", t, _base_for_inverse, _fold_params, groups=_transform_groups[val_fold] if _transform_groups is not None else None
-                ),
-            )
-            # Wrapper-aware clipping. The
-            # production CompositeTargetEstimator.predict applies
-            # the same y-clip on inverse output to keep predictions
-            # inside a physically plausible range. Mirror that here
-            # so screening RMSE matches deployed RMSE (otherwise
-            # heavy-tail transforms like logratio look better in
-            # screening than they actually deliver).
-            # _y_train_clip_bounds is imported at module level above (race-safe across joblib threading folds). The y-clip envelope is fit on the domain-valid train rows (the rows the production estimator's clip bounds were learned from).
-            y_clip_low, y_clip_high = _y_train_clip_bounds(y_clean[_fit_rows])
-            y_hat = np.clip(
-                y_hat.astype(np.float64),
-                y_clip_low,
-                y_clip_high,
-            )
-            # Domain-violation fallback: rows where the transform's domain_check fails on val use y_train_median (matches wrapper.predict). The wrapper computes domain_check on (y, base) but at inference y is unknown, so it uses y=None handling; here on val we know y_clean[val_fold] and emulate the wrapper by falling back rows where y_hat is non-finite OR where the row is domain-invalid. The fallback median uses the domain-valid train y (estimator/_predict.py stores y_train_median over fit rows).
-            _y_train_fallback: float | None = None
-            if _val_valid is not None and (~_val_valid).any():
-                _y_fit = y_clean[_fit_rows]
-                _y_train_fallback = float(np.median(_y_fit[np.isfinite(_y_fit)])) if np.isfinite(_y_fit).any() else 0.0
-                y_hat[~_val_valid] = _y_train_fallback
-            non_finite = ~np.isfinite(y_hat)
-            if non_finite.any():
-                if _y_train_fallback is not None:
-                    y_train_median = _y_train_fallback
-                else:
-                    _y_fit = y_clean[_fit_rows]
-                    y_train_median = float(np.median(_y_fit[np.isfinite(_y_fit)])) if np.isfinite(_y_fit).any() else 0.0
-                y_hat[non_finite] = y_train_median
-            diff = y_hat - y_clean[val_fold]
-            finite = np.isfinite(diff)
-            if finite.sum() == 0:
-                return float("nan"), None
-            rmse = float(np.sqrt(np.mean(diff[finite] * diff[finite])))
-            per_bin = None
-            if return_per_bin:
-                per_bin = _per_bin_rmse(
-                    y_clean[val_fold],
-                    y_hat,
-                    base_clean[val_fold],
-                    n_bins=n_bins,
-                )
-            return rmse, per_bin
-        except Exception as _e:
-            # Failed fold reported as NaN -> np.nanmean over surviving folds
-            # silently shifts the screening RMSE toward well-behaved folds
-            # (K_eff < K with no signal). At least WARN-log per failure so
-            # operators see why the effective fold count dropped. The NaN
-            # return semantics are preserved (caller knows to use nanmean).
-            import logging as _logging
-
-            _logging.getLogger(__name__).warning(
-                "composite_screening: tiny-model CV fold failed (%s); fold "
-                "reported as NaN. Screening RMSE will use nanmean over surviving "
-                "folds -- effective fold count is reduced.",
-                _e,
-            )
-            return float("nan"), None
+    _one_fold = functools.partial(
+        _yscale_one_fold,
+        transform=transform,
+        fitted_params=fitted_params,
+        y_clean=y_clean,
+        base_clean=base_clean,
+        x_clean=x_clean,
+        t_clean=t_clean,
+        split_valid_mask=_split_valid_mask,
+        transform_groups=_transform_groups,
+        family=family,
+        n_estimators=n_estimators,
+        num_leaves=num_leaves,
+        learning_rate=learning_rate,
+        random_state=random_state,
+        deterministic=deterministic,
+        inner_n_jobs=inner_n_jobs,
+        n_jobs=n_jobs,
+        return_per_bin=return_per_bin,
+        n_bins=n_bins,
+    )
 
     # ``splits`` was built above (GroupKFold path inserted before this
     # function body so groups-aware tiny-CV uses the same fold contract).
@@ -499,6 +561,28 @@ def _tiny_cv_rmse_y_scale(
             _n_finite_so_far = 0
             _tiny_cv_y_sca_fi_tr_va_enumerate(splits, _one_fold, fold_results, _sum_so_far, _n_finite_so_far, early_stop_threshold, cv_folds, cv_selector_mode)
 
+    return _aggregate_yscale_folds(
+        fold_results,
+        return_per_bin=return_per_bin,
+        n_bins=n_bins,
+        cv_selector_mode=cv_selector_mode,
+        cv_selector_alpha=cv_selector_alpha,
+        cv_selector_confidence=cv_selector_confidence,
+        cv_selector_quantile_level=cv_selector_quantile_level,
+    )
+
+
+def _aggregate_yscale_folds(
+    fold_results: list[tuple[float, np.ndarray | None]],
+    *,
+    return_per_bin: bool,
+    n_bins: int,
+    cv_selector_mode: str,
+    cv_selector_alpha: float,
+    cv_selector_confidence: float,
+    cv_selector_quantile_level: float,
+) -> Any:
+    """Aggregate per-fold ``(rmse, per_bin)`` results of the y-scale tiny CV into the scalar or ``(scalar, per_bin_mean)`` return."""
     # NaN-fold aggregate WARN (twin of the y-scale branch).
     _nan_fold_count = sum(1 for r, _ in fold_results if not math.isfinite(r))
     if _nan_fold_count > 0:

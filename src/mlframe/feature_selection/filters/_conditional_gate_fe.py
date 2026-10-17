@@ -600,6 +600,91 @@ def _rank_and_prune(X, cols: Sequence[str], yi: np.ndarray, nbins: int, k_gate: 
     gate_cols = [cols[i] for i in gate_order][: max(1, int(k_gate))]
     return gate_cols, operand_cols
 
+def _gate_build_feats(mode, operands, taus):
+    """Host tau-grid block for one combo - the exact host candidate columns (used by the host fallback MI
+    and by ``_perm_null_hi`` for the best column)."""
+    cv = operands[0]
+    n = cv.shape[0]
+    if n >= _GATE_BUILD_NJIT_MIN_N:
+        _t = np.ascontiguousarray(taus, dtype=np.float64)
+        _cv = np.ascontiguousarray(cv, dtype=np.float64)
+        if mode == "mask":
+            return _gate_mask_grid_njit(_cv, np.ascontiguousarray(operands[1], dtype=np.float64), _t)
+        return _gate_select_grid_njit(_cv, np.ascontiguousarray(operands[1], dtype=np.float64), np.ascontiguousarray(operands[2], dtype=np.float64), _t)
+    feats = np.empty((n, len(taus)), dtype=np.float64)
+    if mode == "mask":
+        av = operands[1]
+        # ``av * (cv > tau)`` (bool upcast) preserves the off-region NaN semantics of the prior
+        # ``(cv > tau).astype(float) * av`` (0*NaN=NaN) while skipping the explicit astype temp; ~1.1x.
+        for j, tau in enumerate(taus):
+            np.multiply(av, cv > tau, out=feats[:, j])
+    else:  # select
+        av, bv = operands[1], operands[2]
+        for j, tau in enumerate(taus):
+            feats[:, j] = np.where(cv > tau, av, bv)
+    return feats
+
+
+# DEVICE-BORN gate-grid: under STRICT residency, build the tau-grid candidates on the device
+# from resident operand columns + score per-column MI via the resident plug-in - the host gate-grid matrix
+# is never materialised + uploaded (collapses the dominant :311 H2D). Threads the SAME rank_binning the host
+# path uses so the binning estimator never switches. Per-column bit-identical; on any cupy failure / non-strict
+# default the host ``_gate_grid_mi`` of the materialised blocks runs (byte-identical).
+def _gate_device_born_all_mi(_pending, yi, nbins):
+    """Score all pending tau-grid specs on the device without materialising/uploading the host gate-grid matrix; returns ``None`` (triggering the host fallback) on missing strict-residency support, disabled config, or any cupy failure."""
+    try:
+        from ._gpu_strict_fe import fe_gpu_device_born_gate_enabled
+        if not fe_gpu_device_born_gate_enabled():
+            return None
+        from ._resident_candidate_mi import gate_grid_mi_resident
+        _yi64 = np.ascontiguousarray(np.asarray(yi)).astype(np.int64).ravel()
+        _ym = int(_yi64.min()) if _yi64.size else 0
+        _nc = (int(_yi64.max()) - _ym + 1) if _yi64.size else 1
+        # Carry the operand COLUMN NAMES (ctup) so the resident operand cache keys stably per column (the
+        # same gate / operand column recurs across many specs -> uploaded ONCE per fit, not per spec).
+        specs = [(mode, ctup, operands, taus) for (mode, ctup, operands, taus, _bkey) in _pending]
+        return gate_grid_mi_resident(specs, yi, nbins, rank_binning=_gate_rank_binning(), y_min=_ym, n_classes=_nc)
+    except Exception as _resident_exc:
+        logger.debug("gate_grid_mi_resident batch failed (%s); caller falls back to per-spec host scoring.", _resident_exc)
+        return None
+
+
+def _gate_flush_pending(_pending: list, yi: np.ndarray, nbins: int, seed: int, _baseline: Any, hits: list) -> None:
+    """Score every pending spec's tau grid in one batched call (device-born if available, else host), gate each on its margin over the baseline and append the ``GateHit``(s) to ``hits``."""
+    all_mi = _gate_device_born_all_mi(_pending, yi, nbins)
+    if all_mi is None:
+        big = np.ascontiguousarray(np.concatenate([_gate_build_feats(m, o, t) for (m, _c, o, t, _b) in _pending], axis=1))
+        all_mi = _gate_grid_mi(big, yi, nbins)
+    off = 0
+    for mode, ctup, operands, taus, bkey in _pending:
+        k = len(taus)
+        grid = all_mi[off:off + k]; off += k
+        # SELECTION OPTIMISM (mrmr_critique EX-3, DOC): tau is chosen to MAXIMISE in-sample MI over the grid, and
+        # the permutation null downstream is then computed on this already-argmax-selected best-tau column, so the
+        # null understates the selection-inflated MI - a borderline candidate on data with no genuine regime
+        # structure can clear the margin/null band by chance. This is in-sample OPTIMISM (inflates apparent value),
+        # NOT a serving skew: tau is frozen and replays deterministically. Consistent with the framework's other
+        # in-sample-MI FE gates; a nested/held-out tau selection would be strictly more honest (FUTURE).
+        best_j = int(np.argmax(grid))
+        best_mi, best_tau = float(grid[best_j]), float(taus[best_j])
+        baseline = _baseline(bkey)
+        if (best_mi - baseline) >= _MIN_MARGIN:
+            # Recompute just the best column on host for the cheap permutation null (one column, not the grid).
+            # bench-attempt-rejected (2026-07-05): slicing the best column out of the already-built ``big``
+            # (`np.ascontiguousarray(big[:, bstart+best_j])`) measured 0.3x (SLOWER, 0.692ms vs 0.214ms/spec @100k)
+            # - ``big`` is row-major so a single column is strided and copies cache-unfriendly, while the fused
+            # njit single-tau rebuild is contiguous + parallel. The rebuild is cheaper than the slice; kept.
+            best_col = _gate_build_feats(mode, operands, np.asarray([taus[best_j]], dtype=np.float64))[:, 0]
+            # The best-tau column is fit-constant across the 12-perm null: upload it ONCE and thread the
+            # resident handle so it never re-crosses H2D at the :318 MI upload site (host array unchanged when
+            # residency is off / non-finite / cupy fault).
+            best_col_r = _resident_cand(best_col, ("gate_cand_best", mode, ctup, best_tau))
+            null_hi = _perm_null_hi(best_col_r, yi, nbins, seed=seed)
+        else:
+            null_hi = float("inf")
+        hits.append(GateHit(mode, ctup, best_tau, best_mi, baseline, null_hi))
+
+
 def cheap_conditional_gate_scan(
     X: pd.DataFrame | pl.DataFrame,
     y: np.ndarray,
@@ -697,90 +782,12 @@ def cheap_conditional_gate_scan(
     _pending: list = []
     _pending_cols = 0
 
-    def _build_feats(mode, operands, taus):
-        """Host tau-grid block for one combo - the exact host candidate columns (used by the host fallback MI
-        and by ``_perm_null_hi`` for the best column)."""
-        cv = operands[0]
-        n = cv.shape[0]
-        if n >= _GATE_BUILD_NJIT_MIN_N:
-            _t = np.ascontiguousarray(taus, dtype=np.float64)
-            _cv = np.ascontiguousarray(cv, dtype=np.float64)
-            if mode == "mask":
-                return _gate_mask_grid_njit(_cv, np.ascontiguousarray(operands[1], dtype=np.float64), _t)
-            return _gate_select_grid_njit(_cv, np.ascontiguousarray(operands[1], dtype=np.float64), np.ascontiguousarray(operands[2], dtype=np.float64), _t)
-        feats = np.empty((n, len(taus)), dtype=np.float64)
-        if mode == "mask":
-            av = operands[1]
-            # ``av * (cv > tau)`` (bool upcast) preserves the off-region NaN semantics of the prior
-            # ``(cv > tau).astype(float) * av`` (0*NaN=NaN) while skipping the explicit astype temp; ~1.1x.
-            for j, tau in enumerate(taus):
-                np.multiply(av, cv > tau, out=feats[:, j])
-        else:  # select
-            av, bv = operands[1], operands[2]
-            for j, tau in enumerate(taus):
-                feats[:, j] = np.where(cv > tau, av, bv)
-        return feats
-
-    # DEVICE-BORN gate-grid: under STRICT residency, build the tau-grid candidates on the device
-    # from resident operand columns + score per-column MI via the resident plug-in - the host gate-grid matrix
-    # is never materialised + uploaded (collapses the dominant :311 H2D). Threads the SAME rank_binning the host
-    # path uses so the binning estimator never switches. Per-column bit-identical; on any cupy failure / non-strict
-    # default the host ``_gate_grid_mi`` of the materialised blocks runs (byte-identical).
-    def _device_born_all_mi():
-        """Score all pending tau-grid specs on the device without materialising/uploading the host gate-grid matrix; returns ``None`` (triggering the host fallback) on missing strict-residency support, disabled config, or any cupy failure."""
-        try:
-            from ._gpu_strict_fe import fe_gpu_device_born_gate_enabled
-            if not fe_gpu_device_born_gate_enabled():
-                return None
-            from ._resident_candidate_mi import gate_grid_mi_resident
-            _yi64 = np.ascontiguousarray(np.asarray(yi)).astype(np.int64).ravel()
-            _ym = int(_yi64.min()) if _yi64.size else 0
-            _nc = (int(_yi64.max()) - _ym + 1) if _yi64.size else 1
-            # Carry the operand COLUMN NAMES (ctup) so the resident operand cache keys stably per column (the
-            # same gate / operand column recurs across many specs -> uploaded ONCE per fit, not per spec).
-            specs = [(mode, ctup, operands, taus) for (mode, ctup, operands, taus, _bkey) in _pending]
-            return gate_grid_mi_resident(specs, yi, nbins, rank_binning=_gate_rank_binning(), y_min=_ym, n_classes=_nc)
-        except Exception as _resident_exc:
-            logger.debug("gate_grid_mi_resident batch failed (%s); caller falls back to per-spec host scoring.", _resident_exc)
-            return None
-
     def _flush():
-        """Score every pending spec's tau grid in one batched call (device-born if available, else host), pick each spec's argmax tau, gate on the margin-over-baseline, and append the resulting ``GateHit``(s); clears ``_pending`` afterward."""
+        """Score every pending spec's tau grid in one batched call (device-born if available, else host), gate each on its margin over the baseline and append the ``GateHit``(s); clears ``_pending`` afterward."""
         nonlocal _pending, _pending_cols
         if not _pending:
             return
-        all_mi = _device_born_all_mi()
-        if all_mi is None:
-            big = np.ascontiguousarray(np.concatenate([_build_feats(m, o, t) for (m, _c, o, t, _b) in _pending], axis=1))
-            all_mi = _gate_grid_mi(big, yi, nbins)
-        off = 0
-        for mode, ctup, operands, taus, bkey in _pending:
-            k = len(taus)
-            grid = all_mi[off:off + k]; off += k
-            # SELECTION OPTIMISM (mrmr_critique EX-3, DOC): tau is chosen to MAXIMISE in-sample MI over the grid, and
-            # the permutation null downstream is then computed on this already-argmax-selected best-tau column, so the
-            # null understates the selection-inflated MI - a borderline candidate on data with no genuine regime
-            # structure can clear the margin/null band by chance. This is in-sample OPTIMISM (inflates apparent value),
-            # NOT a serving skew: tau is frozen and replays deterministically. Consistent with the framework's other
-            # in-sample-MI FE gates; a nested/held-out tau selection would be strictly more honest (FUTURE).
-            best_j = int(np.argmax(grid))
-            best_mi, best_tau = float(grid[best_j]), float(taus[best_j])
-            baseline = _baseline(bkey)
-            if (best_mi - baseline) >= _MIN_MARGIN:
-                # Recompute just the best column on host for the cheap permutation null (one column, not the grid).
-                # bench-attempt-rejected (2026-07-05): slicing the best column out of the already-built ``big``
-                # (`np.ascontiguousarray(big[:, bstart+best_j])`) measured 0.3x (SLOWER, 0.692ms vs 0.214ms/spec @100k)
-                # - ``big`` is row-major so a single column is strided and copies cache-unfriendly, while the fused
-                # njit single-tau rebuild is contiguous + parallel. The rebuild is cheaper than the slice; kept.
-                best_col = _build_feats(mode, operands, np.asarray([taus[best_j]], dtype=np.float64))[:, 0]
-                # The best-tau column is fit-constant across the 12-perm null: upload it ONCE and thread the
-                # resident handle so it never re-crosses H2D at the :318 MI upload site (host array unchanged when
-                # residency is off / non-finite / cupy fault).
-                best_col_r = _resident_cand(best_col, ("gate_cand_best", mode, ctup, best_tau))
-                null_hi = _perm_null_hi(best_col_r, yi, nbins, seed=seed)
-            else:
-                null_hi = float("inf")
-            hits.append(GateHit(mode, ctup, best_tau, best_mi, baseline, null_hi))
+        _gate_flush_pending(_pending, yi, nbins, seed, _baseline, hits)
         _pending = []; _pending_cols = 0
 
     def _add(mode, ctup, operands, taus, bkey):

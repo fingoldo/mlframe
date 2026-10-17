@@ -134,58 +134,16 @@ def _l2_penalty_value(coef_a: np.ndarray, coef_b: np.ndarray, l2_penalty: float,
     return l2_penalty * s
 
 
-def warm_start_als_seed(B_a: np.ndarray, B_b: np.ndarray, y: np.ndarray,
-                         *, iters: int = 3,
-                         x_a: np.ndarray | None = None,
-                         x_b: np.ndarray | None = None,
-                         z_a: np.ndarray | None = None,
-                         z_b: np.ndarray | None = None,
-                         basis: str | None = None) -> tuple:
-    """Per-operand warm-start coefficients for the multiplicative pair model
-    ``y ~ f(x_a) * g(x_b)`` via a rank-1 alternating-least-squares (ALS) sweep
-    in the orthogonal-polynomial basis.
-
-    ``B_a`` / ``B_b`` are precomputed basis matrices ``B[i, k] = T_k(z[i])`` of
-    shape ``(n, degree + 1)`` (see :func:`build_basis_matrix`). Returns
-    ``(coef_a, coef_b)`` - each length ``degree + 1`` - such that ``B_a @
-    coef_a`` and ``B_b @ coef_b`` are the rank-1 separable factors best fitting
-    the centred target.
-
-    Why ALS and not two independent 1-D fits: for a centred product target the
-    marginal ``E[y | x_b]`` is ~ ``g(x_b) * E[f(x_a)] ~ 0``, so an independent
-    1-D least-squares fit of ``y`` on ``B_b`` recovers almost nothing on the
-    b-side (measured corr 0.49 vs Q on the F-POLY fixture). One ALS sweep - fit
-    ``f`` given the current ``g`` by regressing ``y`` on ``B_a`` scaled
-    column-wise by ``g``, then symmetrically - recovers BOTH factors exactly
-    (corr 1.0 each on F-POLY) in three cheap ``lstsq`` solves. This is the
-    highest-leverage, near-free warm start: it lands the joint optimiser
-    directly in the true (large-coefficient) basin that CMA-ES otherwise never
-    finds from the canonical unit-magnitude seeds.
-
-    The returned coefficient SCALE is arbitrary for a ``mul`` combination (MI is
-    scale-invariant under ``mul``); the magnitude is split between the two
-    factors by the ALS normalisation and is intentionally NOT projected - the
-    saturating penalty (:func:`_l2_penalty_value`) makes that scale harmless.
-
-    Returns ``(None, None)`` if the target has no variance or ``lstsq`` fails.
-
-    ROBUST WARP FIT: ``x_a`` / ``x_b`` (the raw operand
-    columns) are accepted so a heavy-tail-gated robust (Huber-IRLS) ALS sweep COULD
-    be substituted here - but it is intentionally NOT, because robustifying the
-    rank-1 ALS does not ship safely. The robust fit DID ship for the convex 1-D
-    :func:`fit_operand_prewarp` solve (clean 30/30 win, never regresses); the ALS
-    sweep is different and the params are kept only for call-site symmetry / future
-    work. See the ``# bench-attempt-rejected`` note in the body for the numbers.
-
-    DEVICE-BORN DESIGN (2026-06-30, H2D collapse): ``z_a`` / ``z_b`` (the small
-    standardised columns ``basis_fit(x)`` from which ``B_a`` / ``B_b`` were built)
-    and ``basis`` are OPTIONAL. They affect ONLY the resident GPU branch: when all
-    three are supplied, the (n x degree+1) design matrices are rebuilt ON DEVICE
-    from ``z`` (collapsing the ~374MB matrix upload at 300k) instead of uploading
-    the prebuilt ``B_a`` / ``B_b``. The CPU path ignores them and stays byte-
-    identical; callers that already hold only ``B_a`` / ``B_b`` omit them and the
-    resident branch uploads the prebuilt matrices exactly as before.
-    """
+def _als_seed_gpu_resident(
+    B_a: np.ndarray,
+    B_b: np.ndarray,
+    y: np.ndarray,
+    iters: int,
+    z_a: np.ndarray | None,
+    z_b: np.ndarray | None,
+    basis: str | None,
+) -> tuple | None:
+    """GPU-resident ALS warm start for ``warm_start_als_seed``: the twin's result, or ``None`` when the resident path is off/unavailable/faulted (CPU path runs)."""
     # GPU-RESIDENT dispatch (residency contract, not a wall win): under the resident flag
     # (MLFRAME_FE_GPU_STRICT + MLFRAME_FE_GPU_STRICT_RESIDENT) keep the design matrices + target resident on the
     # device and run the alternating normal-equation sweep on cupy. Selection-equivalent to (== ~1e-13, NOT
@@ -243,6 +201,74 @@ def warm_start_als_seed(B_a: np.ndarray, B_b: np.ndarray, y: np.ndarray,
                 return warm_start_als_seed_gpu(B_a, B_b, y, iters=iters)
             except tuple(_dev_errs):
                 pass  # genuine cupy/device/linalg fault -> CPU normal-eq path (byte-identical default); logic bugs propagate
+    return None
+
+
+def _als_solve(A: np.ndarray, b: np.ndarray) -> np.ndarray:
+    """Solve the small (degree+1)x(degree+1) normal-equations least-squares system ``A @ x ~= b`` for one ALS coordinate update, falling back to ``lstsq`` when the Gram matrix ``A.T @ A`` is singular."""
+    AtA = A.T @ A
+    try:
+        return np.asarray(np.linalg.solve(AtA, A.T @ b))
+    except np.linalg.LinAlgError:
+        coef, *_ = np.linalg.lstsq(A, b, rcond=None)
+        return np.asarray(coef)
+
+
+def warm_start_als_seed(B_a: np.ndarray, B_b: np.ndarray, y: np.ndarray,
+                         *, iters: int = 3,
+                         x_a: np.ndarray | None = None,
+                         x_b: np.ndarray | None = None,
+                         z_a: np.ndarray | None = None,
+                         z_b: np.ndarray | None = None,
+                         basis: str | None = None) -> tuple:
+    """Per-operand warm-start coefficients for the multiplicative pair model
+    ``y ~ f(x_a) * g(x_b)`` via a rank-1 alternating-least-squares (ALS) sweep
+    in the orthogonal-polynomial basis.
+
+    ``B_a`` / ``B_b`` are precomputed basis matrices ``B[i, k] = T_k(z[i])`` of
+    shape ``(n, degree + 1)`` (see :func:`build_basis_matrix`). Returns
+    ``(coef_a, coef_b)`` - each length ``degree + 1`` - such that ``B_a @
+    coef_a`` and ``B_b @ coef_b`` are the rank-1 separable factors best fitting
+    the centred target.
+
+    Why ALS and not two independent 1-D fits: for a centred product target the
+    marginal ``E[y | x_b]`` is ~ ``g(x_b) * E[f(x_a)] ~ 0``, so an independent
+    1-D least-squares fit of ``y`` on ``B_b`` recovers almost nothing on the
+    b-side (measured corr 0.49 vs Q on the F-POLY fixture). One ALS sweep - fit
+    ``f`` given the current ``g`` by regressing ``y`` on ``B_a`` scaled
+    column-wise by ``g``, then symmetrically - recovers BOTH factors exactly
+    (corr 1.0 each on F-POLY) in three cheap ``lstsq`` solves. This is the
+    highest-leverage, near-free warm start: it lands the joint optimiser
+    directly in the true (large-coefficient) basin that CMA-ES otherwise never
+    finds from the canonical unit-magnitude seeds.
+
+    The returned coefficient SCALE is arbitrary for a ``mul`` combination (MI is
+    scale-invariant under ``mul``); the magnitude is split between the two
+    factors by the ALS normalisation and is intentionally NOT projected - the
+    saturating penalty (:func:`_l2_penalty_value`) makes that scale harmless.
+
+    Returns ``(None, None)`` if the target has no variance or ``lstsq`` fails.
+
+    ROBUST WARP FIT: ``x_a`` / ``x_b`` (the raw operand
+    columns) are accepted so a heavy-tail-gated robust (Huber-IRLS) ALS sweep COULD
+    be substituted here - but it is intentionally NOT, because robustifying the
+    rank-1 ALS does not ship safely. The robust fit DID ship for the convex 1-D
+    :func:`fit_operand_prewarp` solve (clean 30/30 win, never regresses); the ALS
+    sweep is different and the params are kept only for call-site symmetry / future
+    work. See the ``# bench-attempt-rejected`` note in the body for the numbers.
+
+    DEVICE-BORN DESIGN (2026-06-30, H2D collapse): ``z_a`` / ``z_b`` (the small
+    standardised columns ``basis_fit(x)`` from which ``B_a`` / ``B_b`` were built)
+    and ``basis`` are OPTIONAL. They affect ONLY the resident GPU branch: when all
+    three are supplied, the (n x degree+1) design matrices are rebuilt ON DEVICE
+    from ``z`` (collapsing the ~374MB matrix upload at 300k) instead of uploading
+    the prebuilt ``B_a`` / ``B_b``. The CPU path ignores them and stays byte-
+    identical; callers that already hold only ``B_a`` / ``B_b`` omit them and the
+    resident branch uploads the prebuilt matrices exactly as before.
+    """
+    _gpu_seed = _als_seed_gpu_resident(B_a, B_b, y, iters, z_a, z_b, basis)
+    if _gpu_seed is not None:
+        return _gpu_seed
     yc = np.ascontiguousarray(np.asarray(y, dtype=np.float64))
     yc = yc - yc.mean()
     if float(np.std(yc)) < 1e-12:
@@ -283,15 +309,6 @@ def warm_start_als_seed(B_a: np.ndarray, B_b: np.ndarray, y: np.ndarray,
     # below the GTX 1050 Ti launch+H2D crossover (the cmi/maxT residents only won by batching THOUSANDS of cols
     # into one resident call; here the inner dim is ~4 and the sweep can't be unrolled across seeds without
     # restructuring the whole CMA-ES warm-start driver). Already at the CPU optimum (normal-eq, 1.24-1.84x over lstsq).
-    def _als_solve(A: np.ndarray, b: np.ndarray) -> np.ndarray:
-        """Solve the small (degree+1)x(degree+1) normal-equations least-squares system ``A @ x ~= b`` for one ALS coordinate update, falling back to ``lstsq`` when the Gram matrix ``A.T @ A`` is singular."""
-        AtA = A.T @ A
-        try:
-            return np.asarray(np.linalg.solve(AtA, A.T @ b))
-        except np.linalg.LinAlgError:
-            coef, *_ = np.linalg.lstsq(A, b, rcond=None)
-            return np.asarray(coef)
-
     try:
         # Initialise g(b) from a plain 1-D least-squares fit on the b-basis.
         cb = _als_solve(B_b, yc)

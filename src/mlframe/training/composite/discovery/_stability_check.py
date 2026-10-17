@@ -22,6 +22,32 @@ from mlframe.utils.log_throttle import log_throttle
 logger = logging.getLogger(__name__)
 
 
+def _stability_group_labels(self: "CompositeTargetDiscovery", df: Any, train_idx: np.ndarray) -> np.ndarray | None:
+    """Group labels aligned to ``train_idx`` when group-wise resampling engages (>= 2 distinct groups), else ``None`` (row draw)."""
+    from ._stability import _align_group_labels, _resolve_group_ids
+    _stab_group_aware = bool(getattr(self.config, "stability_group_aware", True))
+    _group_labels_train = None
+    if _stab_group_aware:
+        _grp_full = _resolve_group_ids(None, getattr(self.config, "group_column", None), df, self)
+        _aligned = _align_group_labels(_grp_full, train_idx) if _grp_full is not None else None
+        if _aligned is not None and np.unique(_aligned).size >= 2:
+            _group_labels_train = _aligned
+    return _group_labels_train
+
+
+def _stability_run_train_idx(screen_pool: np.ndarray, group_labels_pool: np.ndarray | None, frac: float, run_seed: int, pool_sub_n: int) -> np.ndarray:
+    """One run's training rows: a seeded (group-wise when labels resolve) subsample of the screen pool, or the whole pool when no subsample is due."""
+    from ._stability import _subsample_groups
+
+    pool_n = int(screen_pool.size)
+    if pool_sub_n < pool_n:
+        run_rng = np.random.default_rng(run_seed)
+        if group_labels_pool is not None:
+            return _subsample_groups(screen_pool, group_labels_pool, frac, run_rng)
+        return np.sort(run_rng.choice(screen_pool, size=pool_sub_n, replace=False))
+    return screen_pool
+
+
 def fit_with_stability_check(
     self: "CompositeTargetDiscovery",
     df: Any,
@@ -94,14 +120,7 @@ def fit_with_stability_check(
     # group's rows in both the replicate and its complement, so a spec that only memorised per-group levels looks
     # stable and the stability check leaks the very overfit it exists to catch. No group key -> the row draw below,
     # bit-identical to the prior behaviour. Reuses the same helpers as ``stability_select_specs``.
-    from ._stability import _align_group_labels, _resolve_group_ids, _subsample_groups
-    _stab_group_aware = bool(getattr(self.config, "stability_group_aware", True))
-    _group_labels_train = None
-    if _stab_group_aware:
-        _grp_full = _resolve_group_ids(None, getattr(self.config, "group_column", None), df, self)
-        _aligned = _align_group_labels(_grp_full, train_idx) if _grp_full is not None else None
-        if _aligned is not None and np.unique(_aligned).size >= 2:
-            _group_labels_train = _aligned
+    _group_labels_train = _stability_group_labels(self, df, train_idx)
     # Carve the honest holdout ONCE for the whole sweep (shared across replicates). Per-replicate
     # carves each drew a fresh 20% of that run's subsample, so every replicate's holdout landed
     # inside other replicates' screening pools -- no row set stayed "never touched" sweep-wide,
@@ -143,14 +162,7 @@ def fit_with_stability_check(
             # holdout): a dedicated RNG seeded from the decorrelated run seed keeps the draw
             # reproducible per base seed while making each run a genuinely different population.
             # Sorted to preserve any time/order semantics train_idx carried.
-            if _pool_sub_n < _pool_n:
-                _run_rng = np.random.default_rng(_run_seed)
-                if _group_labels_pool is not None:
-                    _run_train_idx = _subsample_groups(_screen_pool, _group_labels_pool, _frac, _run_rng)
-                else:
-                    _run_train_idx = np.sort(_run_rng.choice(_screen_pool, size=_pool_sub_n, replace=False))
-            else:
-                _run_train_idx = _screen_pool
+            _run_train_idx = _stability_run_train_idx(_screen_pool, _group_labels_pool, _frac, _run_seed, _pool_sub_n)
             try:
                 self.fit(df, target_col, feature_cols, _run_train_idx, val_idx, test_idx, time_ordering=time_ordering, val_df=val_df, val_y=val_y)
             except Exception as _exc:

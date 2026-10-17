@@ -70,54 +70,11 @@ def _warn_ts_baselines_skipped_interleaved(target_name: str) -> None:
     )
 
 
-def _compute_regression_baselines(
-    target_name: str,
-    train_X: Any,
-    val_X: Any,
-    test_X: Any,
-    train_y: np.ndarray,
-    val_y: np.ndarray | None,
-    test_y: np.ndarray | None,
-    timestamps_train: np.ndarray | None,
-    timestamps_val: np.ndarray | None,
-    timestamps_test: np.ndarray | None,
-    cat_features: Sequence[str] | None,
-    config: Any,
-    target_type: str = "regression",
-) -> tuple[dict[str, np.ndarray], dict[str, np.ndarray], dict[str, Any]]:
-    """Build {baseline_name: val_pred} + {baseline_name: test_pred} dicts.
-
-    Returns ``(val_preds, test_preds, extras)``.
-    """
-    # Lazy local imports break the circular load with dummy_baselines.py and
-    # the helpers that live in _dummy_baseline_compute.
-    from .dummy import _is_temporally_monotonic, _normalize_timestamps, _resolve_ts_periods
-    from ._dummy_baseline_compute import _pick_per_group_categorical, _per_group_predict
-
-    val_preds: dict[str, np.ndarray] = {}
-    test_preds: dict[str, np.ndarray] = {}
-    extras: dict[str, Any] = {}
-
-    # --- Constant baselines (mean / median / quantile) ---
-    n_val = 0 if val_y is None else len(val_y)
-    n_test = 0 if test_y is None else len(test_y)
-    # nan* variants: a single NaN in train_y (a realistic partially-labeled-data occurrence) previously
-    # made plain np.mean/np.median/np.quantile return NaN, wiping out every constant-prediction baseline
-    # and collapsing the whole verdict to strongest=None even when val/test are fully finite.
-    train_mean = float(np.nanmean(train_y))
-    train_median = float(np.nanmedian(train_y))
-
-    val_preds["mean"] = np.full(n_val, train_mean)
-    test_preds["mean"] = np.full(n_test, train_mean)
-
-    val_preds["median"] = np.full(n_val, train_median)
-    test_preds["median"] = np.full(n_test, train_median)
-
-    for q_label, q_alpha in [("quantile_p25", 0.25), ("quantile_p75", 0.75)]:
-        c = float(np.nanquantile(train_y, q_alpha, method="linear"))
-        val_preds[q_label] = np.full(n_val, c)
-        test_preds[q_label] = np.full(n_test, c)
-
+def _add_lag_predict(
+    target_name: str, train_X: Any, val_X: Any, test_X: Any, n_val: int, n_test: int,
+    val_preds: dict[str, np.ndarray], test_preds: dict[str, np.ndarray], extras: dict[str, Any],
+) -> None:
+    """Add the ``lag_predict`` baseline when a ``{target}_prev`` / ``_lag_1`` / ``_lag1`` / ``_lag`` column exists."""
     # Lag-predict baseline. For strongly auto-regressive
     # targets (lag1_corr ~ 0.999 within groups),
     # the dumbest possible prediction -- ``y_hat = lag_target_value``
@@ -156,6 +113,16 @@ def _compute_regression_baselines(
                 "failed (%s); skipping",
                 target_name, _lag_col, _lag_err,
             )
+
+
+def _add_per_group_mean(
+    target_name: str, train_X: Any, val_X: Any, test_X: Any, train_y: np.ndarray, timestamps_train: np.ndarray | None,
+    timestamps_val: np.ndarray | None, timestamps_test: np.ndarray | None, cat_features: Sequence[str] | None, config: Any,
+    target_type: str, val_preds: dict[str, np.ndarray], test_preds: dict[str, np.ndarray], extras: dict[str, Any],
+) -> None:
+    """Add the per-group (historical) mean baseline over the best categorical column, with the coverage gate."""
+    from .dummy import _is_temporally_monotonic
+    from ._dummy_baseline_compute import _pick_per_group_categorical, _per_group_predict
 
     # --- per_group_mean ---
     cat_col = _pick_per_group_categorical(
@@ -200,7 +167,15 @@ def _compute_regression_baselines(
             target_name, cat_features, len(train_y), config.per_group_max_cardinality_ratio,
         )
 
-    # --- TS baselines (prediction rules) ---
+
+def _add_ts_baselines(
+    target_name: str, train_y: np.ndarray, timestamps_train: np.ndarray | None, timestamps_val: np.ndarray | None,
+    timestamps_test: np.ndarray | None, config: Any, n_val: int, n_test: int,
+    val_preds: dict[str, np.ndarray], test_preds: dict[str, np.ndarray], extras: dict[str, Any],
+) -> None:
+    """Add the time-series rule baselines (naive_last, seasonal naive, rolling mean, linear extrapolation) when the split is temporal."""
+    from .dummy import _is_temporally_monotonic, _normalize_timestamps, _resolve_ts_periods
+
     if timestamps_train is not None and timestamps_val is not None and timestamps_test is not None:
         ts_train, ts_val, ts_test = (_normalize_timestamps(t) for t in (timestamps_train, timestamps_val, timestamps_test))
         _ts_skip_reason = _ts_baselines_skip_reason()
@@ -283,5 +258,59 @@ def _compute_regression_baselines(
         else:
             extras["ts_skip_reason"] = "interleaved split -- TS baselines skipped; for TS-naive use val_placement='forward'"
             _warn_ts_baselines_skipped_interleaved(target_name)
+
+
+def _compute_regression_baselines(
+    target_name: str,
+    train_X: Any,
+    val_X: Any,
+    test_X: Any,
+    train_y: np.ndarray,
+    val_y: np.ndarray | None,
+    test_y: np.ndarray | None,
+    timestamps_train: np.ndarray | None,
+    timestamps_val: np.ndarray | None,
+    timestamps_test: np.ndarray | None,
+    cat_features: Sequence[str] | None,
+    config: Any,
+    target_type: str = "regression",
+) -> tuple[dict[str, np.ndarray], dict[str, np.ndarray], dict[str, Any]]:
+    """Build {baseline_name: val_pred} + {baseline_name: test_pred} dicts.
+
+    Returns ``(val_preds, test_preds, extras)``.
+    """
+    val_preds: dict[str, np.ndarray] = {}
+    test_preds: dict[str, np.ndarray] = {}
+    extras: dict[str, Any] = {}
+
+    # --- Constant baselines (mean / median / quantile) ---
+    n_val = 0 if val_y is None else len(val_y)
+    n_test = 0 if test_y is None else len(test_y)
+    # nan* variants: a single NaN in train_y (a realistic partially-labeled-data occurrence) previously
+    # made plain np.mean/np.median/np.quantile return NaN, wiping out every constant-prediction baseline
+    # and collapsing the whole verdict to strongest=None even when val/test are fully finite.
+    train_mean = float(np.nanmean(train_y))
+    train_median = float(np.nanmedian(train_y))
+
+    val_preds["mean"] = np.full(n_val, train_mean)
+    test_preds["mean"] = np.full(n_test, train_mean)
+
+    val_preds["median"] = np.full(n_val, train_median)
+    test_preds["median"] = np.full(n_test, train_median)
+
+    for q_label, q_alpha in [("quantile_p25", 0.25), ("quantile_p75", 0.75)]:
+        c = float(np.nanquantile(train_y, q_alpha, method="linear"))
+        val_preds[q_label] = np.full(n_val, c)
+        test_preds[q_label] = np.full(n_test, c)
+
+    _add_lag_predict(target_name, train_X, val_X, test_X, n_val, n_test, val_preds, test_preds, extras)
+
+    _add_per_group_mean(
+        target_name, train_X, val_X, test_X, train_y, timestamps_train, timestamps_val, timestamps_test, cat_features, config,
+        target_type, val_preds, test_preds, extras,
+    )
+
+    # --- TS baselines (prediction rules) ---
+    _add_ts_baselines(target_name, train_y, timestamps_train, timestamps_val, timestamps_test, config, n_val, n_test, val_preds, test_preds, extras)
 
     return val_preds, test_preds, extras

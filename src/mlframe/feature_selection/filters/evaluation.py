@@ -5,7 +5,7 @@ See ``screen.py`` for the screening orchestrator that calls these functions.
 from __future__ import annotations
 
 import logging
-from typing import Sequence, Tuple, Any
+from typing import Callable, Sequence, Tuple, Any
 
 import numba
 import numpy as np
@@ -215,52 +215,11 @@ def _apply_bur_bonus(current_gain, direct_gain, selected_vars, factors_data, X, 
     return current_gain
 
 
-def evaluate_candidate(
-    cand_idx: int,
-    X: Sequence[int],
-    y: Sequence[int],
-    nexisting: int,
-    best_gain: float,
-    factors_data: np.ndarray,
-    factors_nbins: np.ndarray,
-    factors_names: Sequence[str],
-    expected_gains: np.ndarray,
-    partial_gains: dict,
-    selected_vars: list,
-    baseline_npermutations: int,
-    classes_y: np.ndarray | None = None,
-    classes_y_safe: np.ndarray | None = None,
-    freqs_y: np.ndarray | None = None,
-    freqs_y_safe: np.ndarray | None = None,
-    use_gpu: bool = True,
-    cached_MIs: dict | None = None,
-    cached_confident_MIs: dict | None = None,
-    cached_cond_MIs: dict | None = None,
-    cached_jmim_MIs: dict | None = None,
-    jmim_hit_counter: np.ndarray | None = None,
-    entropy_cache: dict | None = None,
-    mrmr_relevance_algo: str = "fleuret",
-    mrmr_redundancy_algo: str = "fleuret",
-    max_veteranes_interactions_order: int = 2,
-    extra_knowledge_multipler: float = -1.0,
-    sink_threshold: float = -1.0,
-    dtype: type = np.int32,
-    verbose: int = 1,
-    ndigits: int = 5,
-    use_simple_mode: bool = True,
-    _relax_y_col: np.ndarray | None = None,
-    _relax_k_y: int | None = None,
-    _relax_sel_cols: list | None = None,
-    _relax_sel_nbins: list | None = None,
-    random_seed: int | None = None,
-) -> Tuple[float, set]:  # unused-ok: verbose: shared candidate-evaluator signature; logging goes through logger levels
-    """Score one MRMR candidate (relevance minus redundancy against already-selected vars, optionally confidence-gated by a permutation baseline) and update the ``expected_gains``/``partial_gains``/``failed_candidates`` bookkeeping in place; this is the per-candidate body invoked in the main selection loop's inner scan over ``combs``."""
-    current_gain: Any = None
-    sink_reasons: set = set()
-
-    # Is this candidate any good for target 1-vs-1?
-    direct_gain = _evaluate_candidate_candidate_any_good_target(X, cached_confident_MIs, y, factors_data, factors_nbins, dtype, freqs_y, cached_MIs, classes_y, baseline_npermutations, random_seed, cand_idx, use_gpu, classes_y_safe, freqs_y_safe)
-
+def _force_conditional_eval(
+    direct_gain: float, selected_vars: list, use_simple_mode: bool, mrmr_relevance_algo: str, X: Sequence[int], y: Sequence[int],
+    factors_data: np.ndarray, factors_nbins: np.ndarray, dtype: type,
+) -> bool:
+    """True when a zero-direct-gain candidate must still be evaluated for conditional (synergy) gain."""
     # Synergy candidates can have direct_gain == 0 (pure XOR, parity, etc.: the
     # marginal MI is zero by construction but the conditional MI given an
     # already-selected variable surfaces the synergy). When the fleuret-style
@@ -275,104 +234,235 @@ def evaluate_candidate(
     # term comes from the between-group structure, not from a within-group partner. A pure synergy operand has zero global MI too.
     if _force_cond and direct_gain <= 0.0 and _group_leak_without_synergy(X, y, factors_data, factors_nbins, dtype):
         _force_cond = False
+    return bool(_force_cond)
+
+
+def _conditional_gain_step(
+    cand_idx: int, X: Sequence[int], y: Sequence[int], nexisting: int, best_gain: float, factors_data: np.ndarray, factors_nbins: np.ndarray,
+    selected_vars: list, partial_gains: dict, expected_gains: np.ndarray, direct_gain: float, mrmr_relevance_algo: str, mrmr_redundancy_algo: str,
+    max_veteranes_interactions_order: int, extra_knowledge_multipler: float, sink_threshold: float, entropy_cache: dict | None,
+    cached_cond_MIs: dict | None, cached_jmim_MIs: dict | None, jmim_hit_counter: np.ndarray | None,
+) -> Tuple[Any, set, bool]:
+    """Fleuret conditional-gain evaluation for a candidate against the already-selected set.
+
+    Returns ``(current_gain, sink_reasons, done)``; ``done`` is True when the stored partial gain already rules the candidate out, in which case the caller
+    returns ``(current_gain, sink_reasons)`` immediately.
+    """
+    sink_reasons: set = set()
+    # Some factors already selected. Best gain from including X is min I(X; Y | Z) over Z in selected_vars. But a variable correlated to every real
+    # predictor plus noise has real value zero - I(X; Y | Z) alone still gives significant impact. Summing I(X, Z) over Zs reveals it shares all
+    # knowledge with the rest and has no value alone, but that requires all real factors already in S; otherwise 'connected-to-all' trash dominates.
+    # Solution: compute sum(X, Z) not only when adding Z, but repeat for all Zs once a new X is added - some Zs may become useless after.
+    # P2 FIX: the (current_gain, last_checked_k) cross-step resume is only VALID
+    # when newly-selected vars APPEND to the end of the combination sequence - true at the
+    # default max_veteranes_interactions_order == 1 (a new singleton appends at the tail), but
+    # NOT at order >= 2, where growing selected_vars inserts the new singleton in the MIDDLE of
+    # the global k-sequence. Resuming from a stale last_checked_k then SKIPS measuring the new
+    # var's redundancy against the candidate, so a feature fully redundant with the
+    # most-recently-selected var could survive. For order >= 2 evaluate from scratch (re-min over
+    # ALL combinations incl. the new ones); order == 1 keeps the byte-identical resume optimisation.
+    # S-F4: the early-exit + resume below assume the stored partial gain is a running MIN (a monotone lower
+    # bound). That holds for the standard MRMR min-redundancy objective, but NOT when
+    # ``extra_knowledge_multipler > 0``: evaluate_gain then flips to positive_mode = MAX over Z of the
+    # extra-knowledge term, so a later Z (or a newly-selected var) can yield a HIGHER score. The
+    # ``_stored_gain <= best_gain -> return`` would wrongly prune a candidate whose best synergy is with a
+    # newly-added var, and positive_mode is reset each entry (not persisted across resume calls). Re-evaluate
+    # from scratch on the extra-knowledge path (perf cost only; the knob is off by default, -1.0). No-op on
+    # the default path, which keeps the byte-identical resume optimisation.
+    if cand_idx in partial_gains and not (extra_knowledge_multipler > 0):
+        _stored_gain, _stored_k = partial_gains[cand_idx]
+        # EARLY-EXIT is safe at ANY interactions_order: the stored partial gain is a running MIN
+        # over the combinations checked so far, so the FINAL gain (min over MORE combinations) can
+        # only be <= it. If the partial is already <= best_gain this candidate cannot win -> return.
+        if best_gain is not None and (_stored_gain <= best_gain):
+            return _stored_gain, sink_reasons, True
+        # RESUME (continue from last_checked_k) is only valid at order < 2, where a newly-selected
+        # var APPENDS at the tail of the combination sequence. At order >= 2 the new singleton
+        # inserts in the MIDDLE, so a stale last_checked_k would skip measuring its redundancy
+        # against the candidate -> re-evaluate from scratch (re-min over ALL combinations).
+        if max_veteranes_interactions_order < 2:
+            current_gain, last_checked_k = _stored_gain, _stored_k
+        else:
+            current_gain = LARGE_CONST
+            last_checked_k = -1
+    else:
+        current_gain = LARGE_CONST
+        last_checked_k = -1
+
+    # The @njit evaluate_gain types the JMIM-cache ``in`` check
+    # unconditionally (even when use_jmim is off), so it needs a REAL numba
+    # typed dict + a real counter array, never None. Callers that do not
+    # thread a shared cache (e.g. the serial/parallel _confirm_predictor
+    # path) leave these None; self-provision a fresh per-call typed dict +
+    # zeroed counter here so the kernel always type-checks. A fresh local
+    # dict gives within-call memoisation only (the cross-round reuse needs
+    # the driver to thread a shared dict, mirroring cached_cond_MIs) and is
+    # purely local => never leaks onto an instance / breaks pickle.
+    if cached_jmim_MIs is None:
+        cached_jmim_MIs = numba.typed.Dict.empty(
+            key_type=types.unicode_type, value_type=types.float64,
+        )
+    if jmim_hit_counter is None:
+        jmim_hit_counter = np.zeros(1, dtype=np.int64)
+
+    stopped_early, current_gain, k, sink_reasons = evaluate_gain(
+        current_gain=current_gain,
+        last_checked_k=last_checked_k,
+        direct_gain=direct_gain,
+        X=X,
+        y=y,
+        nexisting=nexisting,
+        best_gain=best_gain,
+        factors_data=factors_data,
+        factors_nbins=factors_nbins,
+        # np.array(...), not the raw list: evaluate_gain is @njit and this function's own
+        # docstring/type hint already say `selected_vars: np.ndarray` -- a plain Python
+        # list slipping through here as-is gets numba's "reflected list" typing (silently
+        # accepted, no error, since numba infers from the runtime value not the type hint),
+        # which fires a NumbaPendingDeprecationWarning on every call (152 occurrences in one
+        # CI run's warning summary) and will stop working once numba removes reflected-list
+        # support. `selected_vars` (the plain list) is still used unconverted below for its
+        # own O(1)-membership-set/iteration needs -- this only converts the copy fed to the
+        # njit kernel.
+        selected_vars=np.array(selected_vars, dtype=np.int64) if selected_vars else np.empty(0, dtype=np.int64),
+        mrmr_relevance_algo=mrmr_relevance_algo,
+        mrmr_redundancy_algo=mrmr_redundancy_algo,
+        max_veteranes_interactions_order=max_veteranes_interactions_order,
+        extra_knowledge_multipler=extra_knowledge_multipler,
+        sink_threshold=sink_threshold,
+        entropy_cache=entropy_cache,
+        cached_cond_MIs=cached_cond_MIs,
+        cached_jmim_MIs=cached_jmim_MIs,
+        jmim_hit_counter=jmim_hit_counter,
+        can_use_x_cache=True,
+        can_use_y_cache=True,
+        use_su=(_use_su := use_su_normalization()),
+        use_jmim=use_jmim_aggregator(),
+        jmim_discount_only=jmim_exponent_discount_only(),
+        use_mm=(use_mi_miller_madow() and not _use_su),  # MM redundancy when MM relevance is active
+    )
+
+    partial_gains[cand_idx] = current_gain, k
+    if not stopped_early:  # no break - current_gain computed fully.
+        expected_gains[cand_idx] = current_gain
+    return current_gain, sink_reasons, False
+
+
+def _apply_relax_gate(
+    current_gain: Any, cand_idx: int, selected_vars: list, use_simple_mode: bool, mrmr_relevance_algo: str, partial_gains: dict,
+    expected_gains: np.ndarray, knob_columns: Callable[[], tuple], knob_cols_cache: dict,
+) -> Any:
+    """RelaxMRMR 3-D-redundancy score gate; returns the (possibly replaced) ``current_gain``."""
+    # RelaxMRMR 3-D-redundancy score (Vinh 2016). Default alpha=0.0 -> dispatch skipped, legacy Fleuret score untouched (byte-identical). When alpha>0 the candidate's
+    # complex-mode score is REPLACED by ``relax_mrmr_score`` (relevance - mean pairwise redundancy + alpha-weighted 3-way interaction term), which down-weights redundancy
+    # detected only at the 3-feature level. Only meaningful in fleuret complex mode with a non-empty selected set (the simple-mode / first-pick path keeps direct_gain).
+    _relax_alpha = get_relaxmrmr_alpha()
+    if _relax_alpha > 0.0 and selected_vars and not use_simple_mode and str(mrmr_relevance_algo) == "fleuret":
+        try:
+            from ._relaxmrmr_3d import relax_mrmr_score
+
+            (x_col, k_x), (y_col, k_y), (sel_cols, sel_nbins) = knob_columns()
+            # y_col/k_y and every selected column's materialize_var result depend only on (y,
+            # factors_data, factors_nbins, dtype, selected_vars) - NOT on the candidate X - and
+            # selected_vars is stable across the caller's per-candidate workload loop within one
+            # greedy iteration, so the caller (_evaluate_candidates_inner) hoists and passes these
+            # once per iteration instead of every candidate rebuilding them from scratch. Falls back
+            # to the identical inline computation when called standalone (e.g. unit tests / direct
+            # callers) that don't pass the precomputed values.
+            # The hoisted path has already range-checked y and the selected set for this round; the standalone fallback above has not.
+            _prechecked = bool(knob_cols_cache.get("hoisted"))
+            current_gain = float(relax_mrmr_score(x_col, sel_cols, y_col, k_x, sel_nbins, k_y, alpha=_relax_alpha, selected_prechecked=_prechecked))
+            if cand_idx in partial_gains:
+                _g, _k = partial_gains[cand_idx]
+                partial_gains[cand_idx] = (current_gain, _k)
+            expected_gains[cand_idx] = current_gain
+        except Exception as _relax_exc:
+            log_throttle(logger, "evaluation_gate_failed_relaxmrmr", logging.WARNING, _GATE_FAILED_MSG, "RelaxMRMR score", cand_idx, type(_relax_exc).__name__, _relax_exc)
+            current_gain = _exclude_ungated_candidate(cand_idx, partial_gains, expected_gains)
+    return current_gain
+
+
+def _apply_pid_bonus(
+    current_gain: Any, cand_idx: int, selected_vars: list, partial_gains: dict, expected_gains: np.ndarray, knob_columns: Callable[[], tuple]
+) -> Any:
+    """PID synergy additive bonus; returns the updated ``current_gain``."""
+    # PID synergy bonus (Williams-Beer / Ince I_ccs). Default bonus=0.0 -> skipped (byte-identical). When bonus>0, add ``bonus * max_j synergy(X, Z_j; Y)`` so a candidate
+    # that is synergistic with an already-selected feature (XOR-like joint information neither carries alone) is rewarded - the standard redundancy gate would otherwise drop
+    # it. Mirrors the BUR additive-bonus shape: computed once per candidate, floored at zero, republished into the dense ranking vector.
+    _pid_bonus = get_pid_synergy_bonus()
+    if _pid_bonus > 0.0 and selected_vars:
+        try:
+            from ._pid_decomposition import pid_decomposition
+
+            (x_col, k_x), (y_col, k_y), (_pid_sel_cols, _pid_sel_nbins) = knob_columns()
+            max_syn = 0.0
+            max_syn = _evaluate_candidate_zc_zk_zip_pid(_pid_sel_cols, _pid_sel_nbins, pid_decomposition, x_col, y_col, k_x, k_y, max_syn)
+            bonus = max(0.0, max_syn) * _pid_bonus
+            current_gain = float(current_gain) + bonus
+            if cand_idx in partial_gains:
+                _g, _k = partial_gains[cand_idx]
+                partial_gains[cand_idx] = (float(_g) + bonus, _k)
+            expected_gains[cand_idx] = current_gain
+        except Exception as _pid_exc:
+            logger.warning("PID synergy bonus computation failed silently: %r", _pid_exc)
+    return current_gain
+
+
+def _apply_cmi_perm_stop(
+    current_gain: Any, cand_idx: int, selected_vars: list, partial_gains: dict, expected_gains: np.ndarray, knob_columns: Callable[[], tuple],
+    cmi_cpt_seed: int,
+) -> Any:
+    """CMI permutation early-stop gate; returns the (possibly zeroed) ``current_gain``."""
+    # CMI permutation early-stop (Yu & Principe 2019). Default off -> skipped (byte-identical). When active, permute the candidate (preserving its marginal) and re-estimate
+    # ``I(X; Y | selected)``; if the observed conditional MI is NOT significant at alpha (p >= alpha), the candidate carries no conditional signal given the selected set and is
+    # dropped (gain forced to 0.0). Drops a conditionally-redundant candidate the relative-gain floor alone would admit.
+    _cmi_active, _cmi_alpha, _cmi_nperm = get_cmi_perm_stop()
+    if _cmi_active and selected_vars and current_gain > 0.0:
+        try:
+            from ._cmi_perm_stop import cmi_permutation_stop
+
+            (x_col, k_x), (y_col, k_y), (sel_cols, sel_nbins) = knob_columns()
+            is_signif, _obs, _pval = cmi_permutation_stop(
+                x_col, y_col, sel_cols, k_x, k_y, sel_nbins,
+                n_permutations=_cmi_nperm, alpha=_cmi_alpha, seed=cmi_cpt_seed,
+            )
+            current_gain = _evaluate_candidate_signif(is_signif, cand_idx, partial_gains, expected_gains, current_gain)
+        except Exception as _cmi_exc:
+            log_throttle(logger, "evaluation_gate_failed_cmi", logging.WARNING, _GATE_FAILED_MSG, "CMI permutation early-stop", cand_idx, type(_cmi_exc).__name__, _cmi_exc)
+            current_gain = _exclude_ungated_candidate(cand_idx, partial_gains, expected_gains)
+    return current_gain
+
+
+def evaluate_candidate(
+    cand_idx: int, X: Sequence[int], y: Sequence[int], nexisting: int, best_gain: float, factors_data: np.ndarray, factors_nbins: np.ndarray,
+    factors_names: Sequence[str], expected_gains: np.ndarray, partial_gains: dict, selected_vars: list, baseline_npermutations: int,
+    classes_y: np.ndarray | None = None, classes_y_safe: np.ndarray | None = None, freqs_y: np.ndarray | None = None,
+    freqs_y_safe: np.ndarray | None = None, use_gpu: bool = True, cached_MIs: dict | None = None, cached_confident_MIs: dict | None = None,
+    cached_cond_MIs: dict | None = None, cached_jmim_MIs: dict | None = None, jmim_hit_counter: np.ndarray | None = None,
+    entropy_cache: dict | None = None, mrmr_relevance_algo: str = "fleuret", mrmr_redundancy_algo: str = "fleuret",
+    max_veteranes_interactions_order: int = 2, extra_knowledge_multipler: float = -1.0, sink_threshold: float = -1.0, dtype: type = np.int32,
+    verbose: int = 1, ndigits: int = 5, use_simple_mode: bool = True, _relax_y_col: np.ndarray | None = None, _relax_k_y: int | None = None,
+    _relax_sel_cols: list | None = None, _relax_sel_nbins: list | None = None, random_seed: int | None = None,
+) -> Tuple[float, set]:  # unused-ok: verbose: shared candidate-evaluator signature; logging goes through logger levels
+    """Score one MRMR candidate (relevance minus redundancy against already-selected vars, optionally confidence-gated by a permutation baseline) and update the ``expected_gains``/``partial_gains``/``failed_candidates`` bookkeeping in place; this is the per-candidate body invoked in the main selection loop's inner scan over ``combs``."""
+    current_gain: Any = None
+    sink_reasons: set = set()
+
+    # Is this candidate any good for target 1-vs-1?
+    direct_gain = _evaluate_candidate_candidate_any_good_target(
+        X, cached_confident_MIs, y, factors_data, factors_nbins, dtype, freqs_y, cached_MIs, classes_y, baseline_npermutations, random_seed, cand_idx, use_gpu, classes_y_safe, freqs_y_safe
+    )
+
+    _force_cond = _force_conditional_eval(direct_gain, selected_vars, use_simple_mode, mrmr_relevance_algo, X, y, factors_data, factors_nbins, dtype)
     if direct_gain > 0 or _force_cond:
         if selected_vars and not use_simple_mode:
-            # Some factors already selected. Best gain from including X is min I(X; Y | Z) over Z in selected_vars. But a variable correlated to every real
-            # predictor plus noise has real value zero - I(X; Y | Z) alone still gives significant impact. Summing I(X, Z) over Zs reveals it shares all
-            # knowledge with the rest and has no value alone, but that requires all real factors already in S; otherwise 'connected-to-all' trash dominates.
-            # Solution: compute sum(X, Z) not only when adding Z, but repeat for all Zs once a new X is added - some Zs may become useless after.
-            # P2 FIX: the (current_gain, last_checked_k) cross-step resume is only VALID
-            # when newly-selected vars APPEND to the end of the combination sequence - true at the
-            # default max_veteranes_interactions_order == 1 (a new singleton appends at the tail), but
-            # NOT at order >= 2, where growing selected_vars inserts the new singleton in the MIDDLE of
-            # the global k-sequence. Resuming from a stale last_checked_k then SKIPS measuring the new
-            # var's redundancy against the candidate, so a feature fully redundant with the
-            # most-recently-selected var could survive. For order >= 2 evaluate from scratch (re-min over
-            # ALL combinations incl. the new ones); order == 1 keeps the byte-identical resume optimisation.
-            # S-F4: the early-exit + resume below assume the stored partial gain is a running MIN (a monotone lower
-            # bound). That holds for the standard MRMR min-redundancy objective, but NOT when
-            # ``extra_knowledge_multipler > 0``: evaluate_gain then flips to positive_mode = MAX over Z of the
-            # extra-knowledge term, so a later Z (or a newly-selected var) can yield a HIGHER score. The
-            # ``_stored_gain <= best_gain -> return`` would wrongly prune a candidate whose best synergy is with a
-            # newly-added var, and positive_mode is reset each entry (not persisted across resume calls). Re-evaluate
-            # from scratch on the extra-knowledge path (perf cost only; the knob is off by default, -1.0). No-op on
-            # the default path, which keeps the byte-identical resume optimisation.
-            if cand_idx in partial_gains and not (extra_knowledge_multipler > 0):
-                _stored_gain, _stored_k = partial_gains[cand_idx]
-                # EARLY-EXIT is safe at ANY interactions_order: the stored partial gain is a running MIN
-                # over the combinations checked so far, so the FINAL gain (min over MORE combinations) can
-                # only be <= it. If the partial is already <= best_gain this candidate cannot win -> return.
-                if best_gain is not None and (_stored_gain <= best_gain):
-                    return _stored_gain, sink_reasons
-                # RESUME (continue from last_checked_k) is only valid at order < 2, where a newly-selected
-                # var APPENDS at the tail of the combination sequence. At order >= 2 the new singleton
-                # inserts in the MIDDLE, so a stale last_checked_k would skip measuring its redundancy
-                # against the candidate -> re-evaluate from scratch (re-min over ALL combinations).
-                if max_veteranes_interactions_order < 2:
-                    current_gain, last_checked_k = _stored_gain, _stored_k
-                else:
-                    current_gain = LARGE_CONST
-                    last_checked_k = -1
-            else:
-                current_gain = LARGE_CONST
-                last_checked_k = -1
-
-            # The @njit evaluate_gain types the JMIM-cache ``in`` check
-            # unconditionally (even when use_jmim is off), so it needs a REAL numba
-            # typed dict + a real counter array, never None. Callers that do not
-            # thread a shared cache (e.g. the serial/parallel _confirm_predictor
-            # path) leave these None; self-provision a fresh per-call typed dict +
-            # zeroed counter here so the kernel always type-checks. A fresh local
-            # dict gives within-call memoisation only (the cross-round reuse needs
-            # the driver to thread a shared dict, mirroring cached_cond_MIs) and is
-            # purely local => never leaks onto an instance / breaks pickle.
-            if cached_jmim_MIs is None:
-                cached_jmim_MIs = numba.typed.Dict.empty(
-                    key_type=types.unicode_type, value_type=types.float64,
-                )
-            if jmim_hit_counter is None:
-                jmim_hit_counter = np.zeros(1, dtype=np.int64)
-
-            stopped_early, current_gain, k, sink_reasons = evaluate_gain(
-                current_gain=current_gain,
-                last_checked_k=last_checked_k,
-                direct_gain=direct_gain,
-                X=X,
-                y=y,
-                nexisting=nexisting,
-                best_gain=best_gain,
-                factors_data=factors_data,
-                factors_nbins=factors_nbins,
-                # np.array(...), not the raw list: evaluate_gain is @njit and this function's own
-                # docstring/type hint already say `selected_vars: np.ndarray` -- a plain Python
-                # list slipping through here as-is gets numba's "reflected list" typing (silently
-                # accepted, no error, since numba infers from the runtime value not the type hint),
-                # which fires a NumbaPendingDeprecationWarning on every call (152 occurrences in one
-                # CI run's warning summary) and will stop working once numba removes reflected-list
-                # support. `selected_vars` (the plain list) is still used unconverted below for its
-                # own O(1)-membership-set/iteration needs -- this only converts the copy fed to the
-                # njit kernel.
-                selected_vars=np.array(selected_vars, dtype=np.int64) if selected_vars else np.empty(0, dtype=np.int64),
-                mrmr_relevance_algo=mrmr_relevance_algo,
-                mrmr_redundancy_algo=mrmr_redundancy_algo,
-                max_veteranes_interactions_order=max_veteranes_interactions_order,
-                extra_knowledge_multipler=extra_knowledge_multipler,
-                sink_threshold=sink_threshold,
-                entropy_cache=entropy_cache,
-                cached_cond_MIs=cached_cond_MIs,
-                cached_jmim_MIs=cached_jmim_MIs,
-                jmim_hit_counter=jmim_hit_counter,
-                can_use_x_cache=True,
-                can_use_y_cache=True,
-                use_su=(_use_su := use_su_normalization()),
-                use_jmim=use_jmim_aggregator(),
-                jmim_discount_only=jmim_exponent_discount_only(),
-                use_mm=(use_mi_miller_madow() and not _use_su),  # MM redundancy when MM relevance is active
+            current_gain, sink_reasons, _done = _conditional_gain_step(
+                cand_idx, X, y, nexisting, best_gain, factors_data, factors_nbins, selected_vars, partial_gains, expected_gains, direct_gain,
+                mrmr_relevance_algo, mrmr_redundancy_algo, max_veteranes_interactions_order, extra_knowledge_multipler, sink_threshold,
+                entropy_cache, cached_cond_MIs, cached_jmim_MIs, jmim_hit_counter,
             )
-
-            partial_gains[cand_idx] = current_gain, k
-            if not stopped_early:  # no break - current_gain computed fully.
-                expected_gains[cand_idx] = current_gain
+            if _done:
+                return current_gain, sink_reasons
         else:
             # No factors selected yet - current_gain is just direct_gain.
             current_gain = direct_gain
@@ -399,52 +489,8 @@ def evaluate_candidate(
                 relax_y_col=_relax_y_col, relax_k_y=_relax_k_y, relax_sel_cols=_relax_sel_cols, relax_sel_nbins=_relax_sel_nbins))
         return _knob_cols_cache["x"], _knob_cols_cache["y"], _knob_cols_cache["sel"]
 
-    # RelaxMRMR 3-D-redundancy score (Vinh 2016). Default alpha=0.0 -> dispatch skipped, legacy Fleuret score untouched (byte-identical). When alpha>0 the candidate's
-    # complex-mode score is REPLACED by ``relax_mrmr_score`` (relevance - mean pairwise redundancy + alpha-weighted 3-way interaction term), which down-weights redundancy
-    # detected only at the 3-feature level. Only meaningful in fleuret complex mode with a non-empty selected set (the simple-mode / first-pick path keeps direct_gain).
-    _relax_alpha = get_relaxmrmr_alpha()
-    if _relax_alpha > 0.0 and selected_vars and not use_simple_mode and str(mrmr_relevance_algo) == "fleuret":
-        try:
-            from ._relaxmrmr_3d import relax_mrmr_score
-
-            (x_col, k_x), (y_col, k_y), (sel_cols, sel_nbins) = _knob_columns()
-            # y_col/k_y and every selected column's materialize_var result depend only on (y,
-            # factors_data, factors_nbins, dtype, selected_vars) - NOT on the candidate X - and
-            # selected_vars is stable across the caller's per-candidate workload loop within one
-            # greedy iteration, so the caller (_evaluate_candidates_inner) hoists and passes these
-            # once per iteration instead of every candidate rebuilding them from scratch. Falls back
-            # to the identical inline computation when called standalone (e.g. unit tests / direct
-            # callers) that don't pass the precomputed values.
-            # The hoisted path has already range-checked y and the selected set for this round; the standalone fallback above has not.
-            _prechecked = bool(_knob_cols_cache.get("hoisted"))
-            current_gain = float(relax_mrmr_score(x_col, sel_cols, y_col, k_x, sel_nbins, k_y, alpha=_relax_alpha, selected_prechecked=_prechecked))
-            if cand_idx in partial_gains:
-                _g, _k = partial_gains[cand_idx]
-                partial_gains[cand_idx] = (current_gain, _k)
-            expected_gains[cand_idx] = current_gain
-        except Exception as _relax_exc:
-            log_throttle(logger, "evaluation_gate_failed_relaxmrmr", logging.WARNING, _GATE_FAILED_MSG, "RelaxMRMR score", cand_idx, type(_relax_exc).__name__, _relax_exc)
-            current_gain = _exclude_ungated_candidate(cand_idx, partial_gains, expected_gains)
-
-    # PID synergy bonus (Williams-Beer / Ince I_ccs). Default bonus=0.0 -> skipped (byte-identical). When bonus>0, add ``bonus * max_j synergy(X, Z_j; Y)`` so a candidate
-    # that is synergistic with an already-selected feature (XOR-like joint information neither carries alone) is rewarded - the standard redundancy gate would otherwise drop
-    # it. Mirrors the BUR additive-bonus shape: computed once per candidate, floored at zero, republished into the dense ranking vector.
-    _pid_bonus = get_pid_synergy_bonus()
-    if _pid_bonus > 0.0 and selected_vars:
-        try:
-            from ._pid_decomposition import pid_decomposition
-
-            (x_col, k_x), (y_col, k_y), (_pid_sel_cols, _pid_sel_nbins) = _knob_columns()
-            max_syn = 0.0
-            max_syn = _evaluate_candidate_zc_zk_zip_pid(_pid_sel_cols, _pid_sel_nbins, pid_decomposition, x_col, y_col, k_x, k_y, max_syn)
-            bonus = max(0.0, max_syn) * _pid_bonus
-            current_gain = float(current_gain) + bonus
-            if cand_idx in partial_gains:
-                _g, _k = partial_gains[cand_idx]
-                partial_gains[cand_idx] = (float(_g) + bonus, _k)
-            expected_gains[cand_idx] = current_gain
-        except Exception as _pid_exc:
-            logger.warning("PID synergy bonus computation failed silently: %r", _pid_exc)
+    current_gain = _apply_relax_gate(current_gain, cand_idx, selected_vars, use_simple_mode, mrmr_relevance_algo, partial_gains, expected_gains, _knob_columns, _knob_cols_cache)
+    current_gain = _apply_pid_bonus(current_gain, cand_idx, selected_vars, partial_gains, expected_gains, _knob_columns)
 
     # concurrency audit: cmi_perm_stop / cpt_test below previously seeded their permutation null
     # SOLELY from ``cand_idx`` (identical across every greedy round for the same candidate). ``selected_vars``
@@ -455,24 +501,7 @@ def evaluate_candidate(
     # the others for the same candidate. ``random_seed`` is now also threaded in end-to-end (screen_predictors ->
     # confirm_predictor -> evaluate_candidate), so the ``random_seed=`` knob actually moves this component's draws.
     _cmi_cpt_seed = hash(((int(random_seed) if random_seed is not None else 0), int(cand_idx), tuple(sorted(int(v) for v in selected_vars)))) & 0xFFFFFFFF
-
-    # CMI permutation early-stop (Yu & Principe 2019). Default off -> skipped (byte-identical). When active, permute the candidate (preserving its marginal) and re-estimate
-    # ``I(X; Y | selected)``; if the observed conditional MI is NOT significant at alpha (p >= alpha), the candidate carries no conditional signal given the selected set and is
-    # dropped (gain forced to 0.0). Drops a conditionally-redundant candidate the relative-gain floor alone would admit.
-    _cmi_active, _cmi_alpha, _cmi_nperm = get_cmi_perm_stop()
-    if _cmi_active and selected_vars and current_gain > 0.0:
-        try:
-            from ._cmi_perm_stop import cmi_permutation_stop
-
-            (x_col, k_x), (y_col, k_y), (sel_cols, sel_nbins) = _knob_columns()
-            is_signif, _obs, _pval = cmi_permutation_stop(
-                x_col, y_col, sel_cols, k_x, k_y, sel_nbins,
-                n_permutations=_cmi_nperm, alpha=_cmi_alpha, seed=_cmi_cpt_seed,
-            )
-            current_gain = _evaluate_candidate_signif(is_signif, cand_idx, partial_gains, expected_gains, current_gain)
-        except Exception as _cmi_exc:
-            log_throttle(logger, "evaluation_gate_failed_cmi", logging.WARNING, _GATE_FAILED_MSG, "CMI permutation early-stop", cand_idx, type(_cmi_exc).__name__, _cmi_exc)
-            current_gain = _exclude_ungated_candidate(cand_idx, partial_gains, expected_gains)
+    current_gain = _apply_cmi_perm_stop(current_gain, cand_idx, selected_vars, partial_gains, expected_gains, _knob_columns, _cmi_cpt_seed)
 
     # D10 Conditional Permutation Test (Berrett, Wang, Barber, Samworth 2020). Default off -> skipped (byte-identical).
     # Complements cmi_perm_stop: uses the dedicated ``conditional_permutation_test`` primitive (within-selected-stratum

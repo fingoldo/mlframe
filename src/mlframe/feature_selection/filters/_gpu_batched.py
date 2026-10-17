@@ -137,6 +137,19 @@ def mi_direct_gpu_batched(
     # every call) or grow the resident cache unboundedly across a wide candidate pool.
     from ._fe_resident_operands import resident_operand
     classes_x_gpu = cp.asarray(classes_x.astype(np.int32))
+    _ret_mi_direct_gpu_batched_part1 = _mi_direct_gpu_batched_part1(
+        resident_operand, classes_y, cp, freqs_x, freqs_y, nbins_x, nbins_y, n, _gpu_module, classes_x_gpu, npermutations, batch_size, base_seed,
+        min_nonzero_confidence, original_mi,
+    )
+    _early_mi_direct_gpu_batched_part1: tuple = _ret_mi_direct_gpu_batched_part1[1]
+    return _early_mi_direct_gpu_batched_part1
+
+
+def _mi_direct_gpu_batched_part1(
+    resident_operand: Any, classes_y: np.ndarray, cp: Any, freqs_x: Any, freqs_y: np.ndarray, nbins_x: Any, nbins_y: Any, n: Any,
+    _gpu_module: Any, classes_x_gpu: Any, npermutations: int, batch_size: int, base_seed: Optional[int], min_nonzero_confidence: float, original_mi: Any,
+) -> tuple[Any, ...]:
+    """Extracted block of ``mi_direct_gpu_batched`` (part 1); returns the names the caller still uses."""
     classes_y_gpu = resident_operand(classes_y, "mi_batched_classes_y", dtype=np.int32)
     freqs_x_gpu = cp.asarray(freqs_x).astype(cp.float64)
     freqs_y_gpu = resident_operand(freqs_y, "mi_batched_freqs_y", dtype=np.float64)
@@ -271,7 +284,8 @@ def mi_direct_gpu_batched(
     if nfailed >= max_failed:
         original_mi = 0.0
 
-    return original_mi, confidence
+    return True, (original_mi, confidence)
+    return False, None
 
 
 def mi_direct_gpu_batched_streamed(
@@ -318,6 +332,41 @@ def mi_direct_gpu_batched_streamed(
 
     from . import gpu as _gpu_module
 
+    _ret_mi_direct_gpu_batched_streamed_part1 = _mi_direct_gpu_batched_streamed_part1(
+        _gpu_module, factors_data, x, factors_nbins, dtype, classes_y, y, freqs_y, npermutations, min_nonzero_confidence, base_seed, cp, batch_size,
+        n_streams,
+    )
+    if _ret_mi_direct_gpu_batched_streamed_part1[0]:
+        _early_mi_direct_gpu_batched_streamed_part1: tuple = _ret_mi_direct_gpu_batched_streamed_part1[1]
+        return _early_mi_direct_gpu_batched_streamed_part1
+    original_mi, streams, batch_failures, nchecked = _ret_mi_direct_gpu_batched_streamed_part1[1:]
+
+    # Sync all streams before the host-side aggregation.
+    for s in streams:
+        s.synchronize()
+
+    if batch_failures:
+        nfailed = int(cp.stack(batch_failures).sum())
+    else:
+        nfailed = 0
+
+    confidence = (1.0 - nfailed / nchecked) if nchecked > 0 else 0.0
+    # Same fix as
+    # ``mi_direct_gpu_batched`` above - respect caller's
+    # min_nonzero_confidence; clamp to avoid degenerate auto-reject.
+    max_failed = int(npermutations * (1.0 - float(min_nonzero_confidence)))
+    if max_failed <= 1:
+        max_failed = 1
+    if nfailed >= max_failed:
+        original_mi = 0.0
+    return original_mi, confidence
+
+
+def _mi_direct_gpu_batched_streamed_part1(
+    _gpu_module: Any, factors_data: Any, x: tuple, factors_nbins: np.ndarray, dtype: type, classes_y: Optional[np.ndarray], y: tuple,
+    freqs_y: Optional[np.ndarray], npermutations: int, min_nonzero_confidence: float, base_seed: Optional[int], cp: Any, batch_size: int, n_streams: int,
+) -> tuple[Any, ...]:
+    """Extracted block of ``mi_direct_gpu_batched_streamed`` (part 1); returns the names the caller still uses."""
     _gpu_module._ensure_kernels_inited()
     _gpu_module._pin_device_if_needed()  # D2 part 2: per-thread CUDA device pin
 
@@ -337,7 +386,7 @@ def mi_direct_gpu_batched_streamed(
         classes_y=classes_y, freqs_y=freqs_y, dtype=dtype,
     )
     if original_mi <= 0 or npermutations <= 0:
-        return original_mi, 0.0
+        return True, (original_mi, 0.0)
 
     n = len(classes_x)
     nbins_x = len(freqs_x)
@@ -353,13 +402,13 @@ def mi_direct_gpu_batched_streamed(
         _cushion_ok = True
     if not _cushion_ok:
         from .permutation import mi_direct
-        return mi_direct(
+        return True, (mi_direct(
             factors_data, x=x, y=y, factors_nbins=factors_nbins,
             npermutations=npermutations, dtype=dtype,
             classes_y=classes_y, freqs_y=freqs_y,
             min_nonzero_confidence=min_nonzero_confidence, prefer_gpu=False,
             base_seed=int(base_seed) if base_seed is not None else 0,
-        )
+        ))
 
     free_bytes, _ = cp.cuda.runtime.memGetInfo()
     batch_size = cap_batch_size(batch_size, free_bytes, n)
@@ -453,23 +502,4 @@ def mi_direct_gpu_batched_streamed(
         iter_idx += 1
         nchecked += b
         remaining -= b
-
-    # Sync all streams before the host-side aggregation.
-    for s in streams:
-        s.synchronize()
-
-    if batch_failures:
-        nfailed = int(cp.stack(batch_failures).sum())
-    else:
-        nfailed = 0
-
-    confidence = (1.0 - nfailed / nchecked) if nchecked > 0 else 0.0
-    # Same fix as
-    # ``mi_direct_gpu_batched`` above - respect caller's
-    # min_nonzero_confidence; clamp to avoid degenerate auto-reject.
-    max_failed = int(npermutations * (1.0 - float(min_nonzero_confidence)))
-    if max_failed <= 1:
-        max_failed = 1
-    if nfailed >= max_failed:
-        original_mi = 0.0
-    return original_mi, confidence
+    return False, original_mi, streams, batch_failures, nchecked

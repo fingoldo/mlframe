@@ -14,6 +14,7 @@ This is the last stage of the FE cascade; the MI-greedy screen, friend-graph, su
 
 from __future__ import annotations
 
+from typing import Any
 import logging
 import warnings
 
@@ -110,6 +111,28 @@ def _fe_stage_cascade_mid_b(
     """Run the Layer 95B/104 FE family stage(s) and return the (possibly column-augmented)
     ``X``. See the module docstring for the full section this carves out.
     """
+    X_acc = _fe_stage_cascade_mid_b_part1(
+        X, self, _fe_family_on, _y_np, _group_distance_pre_recipes, verbose, _raw_input_cols_pre_fe, _rare_category_pre_recipes,
+        _conditional_residual_pre_recipes, _conditional_dispersion_pre_recipes, _conditional_quantile_rank_pre_recipes, _ordinal_pattern_pre_recipes,
+        _random_fourier_pre_recipes, _sir_direction_pre_recipes, _lof_pre_recipes, _mahalanobis_density_pre_recipes, _offset_product_pre_recipes,
+        _oof_warp_pre_recipes, _row_stat_pre_recipes, _fe_budget_ok, _wavelet_pre_recipes,
+    )
+
+    # FAMILY C - RankGauss (rank-Gaussianisation). NOT MI-gated: monotone ->
+    # MI-invariant by the data-processing inequality; the pool is bounded by raw
+    # marginal MI and the value is downstream (linear / NN). Routing piggybacks
+    # on hybrid_orth_features_.
+    return _fe_merge_new_columns(X_acc, _stage_rankgauss(self, _fe_family_on, X, _y_np, _raw_input_cols_pre_fe, _rankgauss_pre_recipes, verbose), X)
+
+
+def _fe_stage_cascade_mid_b_part1(
+    X: Any, self: Any, _fe_family_on: Any, _y_np: Any, _group_distance_pre_recipes: Any, verbose: Any, _raw_input_cols_pre_fe: Any,
+    _rare_category_pre_recipes: Any, _conditional_residual_pre_recipes: Any, _conditional_dispersion_pre_recipes: Any,
+    _conditional_quantile_rank_pre_recipes: Any, _ordinal_pattern_pre_recipes: Any, _random_fourier_pre_recipes: Any, _sir_direction_pre_recipes: Any,
+    _lof_pre_recipes: Any, _mahalanobis_density_pre_recipes: Any, _offset_product_pre_recipes: Any, _oof_warp_pre_recipes: Any, _row_stat_pre_recipes: Any,
+    _fe_budget_ok: Any, _wavelet_pre_recipes: Any,
+) -> Any:
+    """Extracted block of ``_fe_stage_cascade_mid_b`` (part 1); returns the names the caller still uses."""
     # Layer 95 PART B: per-group distribution-distance. For each
     # (group, num) emit the group-level z / KL / Wasserstein-1 distance from the
     # global distribution, broadcast to rows; each survivor MI-gated against the
@@ -242,12 +265,7 @@ def _fe_stage_cascade_mid_b(
     # dyadic (j, k); replay is the closed-form indicator - no y, leak-safe.
     # Routing piggybacks on hybrid_orth_features_ (like Family D dispersion).
     X_acc = _fe_merge_new_columns(X_acc, _stage_wavelet(self, _fe_family_on, _fe_budget_ok, X, _y_np, _raw_input_cols_pre_fe, _wavelet_pre_recipes, verbose), X)
-
-    # FAMILY C - RankGauss (rank-Gaussianisation). NOT MI-gated: monotone ->
-    # MI-invariant by the data-processing inequality; the pool is bounded by raw
-    # marginal MI and the value is downstream (linear / NN). Routing piggybacks
-    # on hybrid_orth_features_.
-    return _fe_merge_new_columns(X_acc, _stage_rankgauss(self, _fe_family_on, X, _y_np, _raw_input_cols_pre_fe, _rankgauss_pre_recipes, verbose), X)
+    return X_acc
 
 
 def _stage_group_distance(self, _fe_family_on, X, _y_np, _group_distance_pre_recipes, verbose):

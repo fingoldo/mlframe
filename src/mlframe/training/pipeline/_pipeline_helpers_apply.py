@@ -57,6 +57,42 @@ from ._pipeline_fit_state import (
 )
 
 
+def _stamp_identity_equivalent(pre_pipeline: Any, _input_cols: Optional[list], train_df: Any) -> None:
+    """Stamp ``_mlframe_identity_equivalent`` on ``pre_pipeline``: output columns equal the input columns and no value-transforming step exists."""
+    # Identity-equivalent = column set unchanged AND no value-transforming
+    # steps (ce/imp/scaler/transform). Column-list-equality alone gave a
+    # false positive for LinearModelStrategy's encoder+imputer+scaler chain:
+    # those steps preserve column names while remapping string cats to
+    # numeric, so the suite skipped pre_pipeline.transform on test_df and
+    # LogisticRegression got raw string cats at predict time (TypeError in
+    # safe_sparse_dot, surfaced by fuzz_regression_sensors).
+    if _input_cols is not None and hasattr(train_df, "columns"):
+        _output_cols = list(train_df.columns)
+        _cols_same = _input_cols == _output_cols
+        _has_value_transforms = False
+        _named = getattr(pre_pipeline, "named_steps", None)
+        if _named:
+            for _step_name in ("ce", "imp", "scaler", "transform"):
+                if _named.get(_step_name) is not None:
+                    _has_value_transforms = True
+                    break
+        try:
+            pre_pipeline._mlframe_identity_equivalent = _cols_same and not _has_value_transforms
+        except Exception as e:  # nosec B110 - optional/best-effort path, rationale documented
+            logger.debug("could not stamp _mlframe_identity_equivalent on non-writable pre_pipeline: %s", e)
+
+
+def _check_pre_pipeline_rowcount(_input_n_rows: Optional[int], train_df: Any) -> None:
+    """Raise when the pre_pipeline changed the train row count (see the row-count contract in ``_apply_pre_pipeline_transforms``)."""
+    # Row-count contract guard (see _input_n_rows above). Skip on unknown row count or a
+    # 0-feature frame (handled above). The passthrough path raises the same error earlier.
+    if _input_n_rows is not None and hasattr(train_df, "shape") and len(train_df.shape) >= 1:
+        _out_n_rows = train_df.shape[0]
+        _is_zero_feature = len(train_df.shape) == 2 and train_df.shape[1] == 0
+        if _out_n_rows != _input_n_rows and not _is_zero_feature:
+            _raise_pre_pipeline_rowcount_change(_input_n_rows, _out_n_rows)
+
+
 def _apply_pre_pipeline_transforms(
     model: Any,
     pre_pipeline: Any,
@@ -160,27 +196,7 @@ def _apply_pre_pipeline_transforms(
             _cache_key_entry,
         )
 
-        # Identity-equivalent = column set unchanged AND no value-transforming
-        # steps (ce/imp/scaler/transform). Column-list-equality alone gave a
-        # false positive for LinearModelStrategy's encoder+imputer+scaler chain:
-        # those steps preserve column names while remapping string cats to
-        # numeric, so the suite skipped pre_pipeline.transform on test_df and
-        # LogisticRegression got raw string cats at predict time (TypeError in
-        # safe_sparse_dot, surfaced by fuzz_regression_sensors).
-        if _input_cols is not None and hasattr(train_df, "columns"):
-            _output_cols = list(train_df.columns)
-            _cols_same = _input_cols == _output_cols
-            _has_value_transforms = False
-            _named = getattr(pre_pipeline, "named_steps", None)
-            if _named:
-                for _step_name in ("ce", "imp", "scaler", "transform"):
-                    if _named.get(_step_name) is not None:
-                        _has_value_transforms = True
-                        break
-            try:
-                pre_pipeline._mlframe_identity_equivalent = _cols_same and not _has_value_transforms
-            except Exception as e:  # nosec B110 - optional/best-effort path, rationale documented
-                logger.debug("could not stamp _mlframe_identity_equivalent on non-writable pre_pipeline: %s", e)
+        _stamp_identity_equivalent(pre_pipeline, _input_cols, train_df)
 
         # Stamp the fitted pre_pipeline onto model itself (mirrors the _mlframe_identity_equivalent
         # bookkeeping attr above) so the direct-net FI paths (Captum, the CUDA-batched permutation
@@ -207,11 +223,7 @@ def _apply_pre_pipeline_transforms(
 
         # Row-count contract guard (see _input_n_rows above). Skip on unknown row count or a
         # 0-feature frame (handled above). The passthrough path raises the same error earlier.
-        if _input_n_rows is not None and hasattr(train_df, "shape") and len(train_df.shape) >= 1:
-            _out_n_rows = train_df.shape[0]
-            _is_zero_feature = len(train_df.shape) == 2 and train_df.shape[1] == 0
-            if _out_n_rows != _input_n_rows and not _is_zero_feature:
-                _raise_pre_pipeline_rowcount_change(_input_n_rows, _out_n_rows)
+        _check_pre_pipeline_rowcount(_input_n_rows, train_df)
 
     return train_df, val_df
 

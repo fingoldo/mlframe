@@ -339,6 +339,40 @@ def _degenerate_card(model_name: str, split: str, text: str, figsize: Tuple[floa
     return FigureSpec(suptitle="", panels=((ann,),), figsize=figsize)
 
 
+def _card_figure(
+    model_name: str,
+    split: str,
+    verdict: ModelCardVerdict,
+    header: AnnotationPanelSpec,
+    bar: BarPanelSpec,
+    minis: List[PanelSpec],
+    figsize: Tuple[float, float],
+) -> FigureSpec:
+    """Assemble the shared card layout: header and headline bar over three mini panels, with the explanatory caption and verdict."""
+    # The top row's third cell is empty and the bottom row's is a mini panel, but ``col_width_ratios``
+    # applies to the WHOLE grid -- there is no per-row spanning. Collapsing the third column to ~0 to
+    # widen the header therefore crushed "mini gain" into an unreadable sliver, legend wider than the
+    # panel. The top two cells stay wider than the third, which keeps the header's text out of a single
+    # narrow column, without taking the third mini panel's width away from it.
+    grid = ((header, bar, None), tuple(minis))
+    col_ratios = (1.3, 1.3, 1.0)
+    return FigureSpec(
+        suptitle=f"Model card -- {'[DUMMY] ' if _is_dummy_name(model_name) else ''}{model_name} ({split}) -- {verdict.label}",
+        panels=grid, figsize=figsize, row_height_ratios=(1.2, 1.0), col_width_ratios=col_ratios,
+        caption=(
+            "Every headline bar is rescaled so LONGER = BETTER on [0, 1]: higher-is-better metrics are shown "
+            "directly and error metrics as 1 - metric, which is what makes otherwise incomparable quantities "
+            "readable side by side -- but only the LENGTHS are comparable, so each bar names its own raw "
+            "value. There is no shared reference line: 0.5 is chance for ROC_AUC and for KS and means "
+            "nothing for a rescaled error metric, so one line across all of them would invite a comparison "
+            "that is not defined. Judge each metric against its own baseline, using the raw value beside "
+            "its name. The bars keep a fixed order so two cards can be read against each other. The mini "
+            "panels below carry the distributional detail the single bars cannot. "
+            f"VERDICT: {verdict.reason}"
+        ),
+    )
+
+
 def compose_model_card_figure(
     *,
     task: str,
@@ -418,28 +452,7 @@ def compose_model_card_figure(
         header = _header_panel(model_name, split, verdict, metric_fmt)
         bar = _headline_bar(bar_fmt, verdict.color)
         minis = [_mini_roc(sort), _mini_score_dist(sort, yt, ys), _mini_gain(sort)]
-        # The top row's third cell is empty and the bottom row's is a mini panel, but ``col_width_ratios``
-        # applies to the WHOLE grid -- there is no per-row spanning. Collapsing the third column to ~0 to
-        # widen the header therefore crushed "mini gain" into an unreadable sliver, legend wider than the
-        # panel. The top two cells stay wider than the third, which keeps the header's text out of a single
-        # narrow column, without taking the third mini panel's width away from it.
-        grid = ((header, bar, None), tuple(minis))
-        col_ratios = (1.3, 1.3, 1.0)
-        return FigureSpec(
-            suptitle=f"Model card -- {'[DUMMY] ' if _is_dummy_name(model_name) else ''}{model_name} ({split}) -- {verdict.label}",
-            panels=grid, figsize=figsize, row_height_ratios=(1.2, 1.0), col_width_ratios=col_ratios,
-            caption=(
-                "Every headline bar is rescaled so LONGER = BETTER on [0, 1]: higher-is-better metrics are shown "
-                "directly and error metrics as 1 - metric, which is what makes otherwise incomparable quantities "
-                "readable side by side -- but only the LENGTHS are comparable, so each bar names its own raw "
-                "value. There is no shared reference line: 0.5 is chance for ROC_AUC and for KS and means "
-                "nothing for a rescaled error metric, so one line across all of them would invite a comparison "
-                "that is not defined. Judge each metric against its own baseline, using the raw value beside "
-                "its name. The bars keep a fixed order so two cards can be read against each other. The mini "
-                "panels below carry the distributional detail the single bars cannot. "
-                f"VERDICT: {verdict.reason}"
-            ),
-        )
+        return _card_figure(model_name, split, verdict, header, bar, minis, figsize)
 
     if t == "regression":
         if y_pred is None:
@@ -467,28 +480,7 @@ def compose_model_card_figure(
         header = _header_panel(model_name, split, verdict, metric_fmt)
         bar = _headline_bar(bar_fmt, verdict.color)
         minis = [_mini_resid_vs_pred(yt, yp), _mini_resid_hist(yt, yp), _mini_pred_vs_actual(yt, yp)]
-        # The top row's third cell is empty and the bottom row's is a mini panel, but ``col_width_ratios``
-        # applies to the WHOLE grid -- there is no per-row spanning. Collapsing the third column to ~0 to
-        # widen the header therefore crushed "mini gain" into an unreadable sliver, legend wider than the
-        # panel. The top two cells stay wider than the third, which keeps the header's text out of a single
-        # narrow column, without taking the third mini panel's width away from it.
-        grid = ((header, bar, None), tuple(minis))
-        col_ratios = (1.3, 1.3, 1.0)
-        return FigureSpec(
-            suptitle=f"Model card -- {'[DUMMY] ' if _is_dummy_name(model_name) else ''}{model_name} ({split}) -- {verdict.label}",
-            panels=grid, figsize=figsize, row_height_ratios=(1.2, 1.0), col_width_ratios=col_ratios,
-            caption=(
-                "Every headline bar is rescaled so LONGER = BETTER on [0, 1]: higher-is-better metrics are shown "
-                "directly and error metrics as 1 - metric, which is what makes otherwise incomparable quantities "
-                "readable side by side -- but only the LENGTHS are comparable, so each bar names its own raw "
-                "value. There is no shared reference line: 0.5 is chance for ROC_AUC and for KS and means "
-                "nothing for a rescaled error metric, so one line across all of them would invite a comparison "
-                "that is not defined. Judge each metric against its own baseline, using the raw value beside "
-                "its name. The bars keep a fixed order so two cards can be read against each other. The mini "
-                "panels below carry the distributional detail the single bars cannot. "
-                f"VERDICT: {verdict.reason}"
-            ),
-        )
+        return _card_figure(model_name, split, verdict, header, bar, minis, figsize)
 
     raise ValueError(f"unknown task {task!r}; expected 'classification'/'binary'/'regression'")
 

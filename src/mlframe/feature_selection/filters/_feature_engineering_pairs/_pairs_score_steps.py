@@ -370,119 +370,10 @@ def _score_one_pair_step3_step1_pair_phase_produced(
         # replay's ``_fe_mi_arr[_ci]`` lookup is correct without re-indexing.
         _fe_mi_arr = _fe_mi_by_col
     else:
-        assert final_transformed_vals is not None  # _use_batch_disc with no _chunk_entry implies the buffer is filled (see _use_batch_disc definition above)
-        # bench-attempt-rejected (2026-06-23, MRMR FE wall /loop iter10): the F2 100k cProfile
-        # attributes ~40s tottime to THIS function and ~6.6s to ``_safe_div``, suggesting "Python
-        # per-candidate orchestration overhead". A line_profiler pass (line-by-line, F2 100k warm)
-        # disproves that: line 310 (``final_transformed_vals[:, i] = bin_func(param_a, param_b)``)
-        # is 72.2% of the body's time, the Phase-1b ``nan_to_num`` 12.1%, GPU binning 7.4%, batch-MI
-        # dispatch 4.6% - ALL numeric kernels (njit ufuncs / compiled div / GPU), already routed by
-        # prior iterations. The Python bookkeeping is negligible: ``_local_times`` dict 0.4%,
-        # ``_batch_candidates.append`` 0.2%, the ``binary_transformations.items()`` loop 0.2%, the
-        # per-pair-comb ``np.errstate`` 1.0%; the replay loop / ``var_pairs_perf`` dict / recipe-name
-        # building / clean-form-demotion loop are each <0.2% (sum of all Python orchestration < 2.5%).
-        # ``feature_engineering._safe_div`` is NOT pure-Python overhead: it IS njit-compiled
-        # in-run (4 signatures compile during the fit, incl. the float32 'A' strided-column layout this
-        # path feeds it) and its 6.6s is genuine compiled float32->float64 ratio compute over 9720
-        # 100k-row columns; cProfile attributes the dispatcher's call to the py_func code-object
-        # location, which LOOKS like a Python frame but is not. The float64 upcast inside ``_safe_div``
-        # (then downcast on the float32 store here) is a real but UNSAFE lever: a native float32 divide
-        # rounds differently from float64-divide-then-cast at ULP and this is selection-critical FE
-        # scoring, so it is NOT changed. Verdict: ``_score_one_pair`` is already lean on Python overhead
-        # - the wall IS candidate-column materialisation COMPUTE. iter11 RESOLVES that wall:
-        # the line-310 CPU ``bin_func`` materialise is now routed to the GPU FUSED materialise+bin
-        # (the GPU-fused branch directly below), measured F2 100k 83.8s -> 30.0s (2.8x), selection
-        # bit-identical - so the "no win" tail of the iter10 verdict is SUPERSEDED for this path.
-        # Phase 1: materialise + nan_to_num + record. ``i`` advances exactly as in the
-        # per-candidate path so ``config``'s buffer index and ``_config_by_i`` are identical.
-        _batch_candidates = []  # (transformations_pair, bin_func_name, i, uses_pw)
-        _disc_2d = None  # set by the GPU FUSED materialise+bin path below; None -> CPU Phase 2 bins it
-
-        # GPU FUSED PER-PAIR MATERIALISE+BIN. The CPU
-        # ``bin_func`` strided materialise (the line ``final_transformed_vals[:, i] = bin_func(param_a,
-        # param_b)`` below) is the per-pair FE-scan WALL: on the F2 100k fit it is 71.9% of
-        # ``_score_one_pair`` (line_profiler 45.8s of 63.7s). The chunk path already routes its
-        # materialise to the GPU FUSED ``gpu_materialise_discretize_codes_host`` (4.40x vs CPU
-        # njit-mat+CPU-bin / 2.03x vs CPU njit-mat+GPU-bin, GTX 1050 Ti n=100k), but it only fires
-        # when a chunk holds >1 pair (``_chunk_buffer`` allocated); at the canonical 100k fit the
-        # RAM-budgeted chunk width is barely one pair wide (chunkmax~3561 vs pairwidth 1944), so
-        # ``_chunk_buffer`` stays None and EVERY pair falls to THIS per-pair CPU path - 100% of
-        # candidate materialise (measured: F2 seed-7 = 58320/58320 cols on the CPU line below).
-        # So we route the per-pair materialise through the SAME fused GPU kernel here. It builds the
-        # (n,K) float candidate matrix on-device from (a_cols, b_cols, op_codes), fills the host buffer
-        # (``out_cand`` - the downstream survivor/usability/ext-val stages still read the continuous
-        # columns) AND bins it RESIDENT, returning ``_disc_2d`` so the separate Phase-2 binning is
-        # skipped. BIT-IDENTICAL selection: ``gpu_materialise_discretize_codes_host`` mirrors
-        # ``_materialise_chunk_njit`` (maxdiff 0), which is itself bit-identical to the numpy
-        # ``bin_func`` (the chunk-batch invariant), and the inline kernel nan-scrub == the per-column
-        # ``np.nan_to_num`` below. PER-OP GATE: routed only when ``_njit_binary_op_codes`` covers EVERY
-        # op in the registry (None -> any hypot/scipy.special op -> stay on the bit-safe CPU loop). Gated
-        # by the dedicated GPU-binning crossover (if binning wins, the fused mat+bin certainly wins) +
-        # the ``MLFRAME_FE_GPU_MATERIALISE`` escape hatch (same knob the chunk path uses). Any GPU
-        # failure falls through to the CPU loop below (never a regression).
-        # ``_gpu_mat_on``/``_op_code_arr`` are resolved ONCE by the caller (call-invariant), not
-        # recomputed for every pair - see the per-call hoist comment in ``check_prospective_fe_pairs``.
-        _gpu_fused_done = False
-        try:
-            if _op_code_arr is not None:
-                # Build candidate specs + per-candidate (a_col, b_col, op_code) in the SAME
-                # (combs x bin_func) order the CPU path produces -> identical buffer index ``i``.
-                _name_list = list(binary_transformations.keys())
-                _a_cols: list = []
-                _b_cols: list = []
-                _ops: list = []
-                _gpu_cands: list[Any] = []
-                st.i = _score_one_pair_transformations_pair_combs(
-                    st.combs, vars_transformations, _PREWARP_UNARY, _name_list, _a_cols, _b_cols, _ops, _op_code_arr, _gpu_cands, st.i
-                )
-                _K = st.i
-                from mlframe.feature_selection.filters._feature_engineering_pairs._pairs_core import _fe_gpu_binning_enabled
-
-                _batch_candidates, _disc_2d, _gpu_fused_done, _defer_meta = _score_one_pair_fe_gpu_binning_enabled(
-                    _K,
-                    _fe_gpu_binning_enabled,
-                    final_transformed_vals,
-                    quantization_nbins,
-                    quantization_dtype,
-                    transformed_vars,
-                    _a_cols,
-                    _b_cols,
-                    _ops,
-                    _gpu_cands,
-                    _name_list,
-                    st._local_times,
-                    _batch_candidates,
-                    _disc_2d,
-                    _gpu_fused_done,
-                    st._fe_defer_float,
-                )
-                if _defer_meta is not None:
-                    # same keys the chunk path keeps in ``chunk_state``: the operand table is uploaded once and resolved columns are cached
-                    st._pair_defer_state = {"defer_meta": _defer_meta, "tv_gpu": None, "resolved_cols": {}}
-        except Exception:
-            log_throttle(logger, "pairs_score_gpu_fused", logging.WARNING, "FE per-pair GPU fused materialise+bin failed; CPU materialise", exc_info=True)
-            _gpu_fused_done = False
-            _disc_2d = None
-            _batch_candidates = []
-            st.i = 0
-
-        st.i = _score_one_pair_gpu_fused_done(
-            _gpu_fused_done,
-            st.combs,
-            vars_transformations,
+        _batch_candidates, _disc_2d, _fe_mi_arr = _score_one_pair_step3_step1_pair_phase_produced_part1(
+            final_transformed_vals, _op_code_arr, binary_transformations, st, vars_transformations, _PREWARP_UNARY, quantization_nbins, quantization_dtype,
             transformed_vars,
-            _PREWARP_UNARY,
-            binary_transformations,
-            final_transformed_vals,
-            st._local_times,
-            _batch_candidates,
-            st.i,
         )
-
-        # Phase 2: ONE batch discretisation over the materialised columns [:, :n].
-        # Bit-identical to per-column ``discretize_array(method='quantile')`` - the
-        # buffer dtype (float32) is NOT cast; per-column edges/codes match exactly.
-        _fe_mi_arr = None
         if _batch_candidates:
             # ``i`` advanced once per materialised candidate from 0 (reset per raw-pair),
             # so the filled buffer slice is exactly [:, :i], densely packed 0..i-1.
@@ -542,6 +433,127 @@ def _score_one_pair_step3_step1_pair_phase_produced(
                     env_gate=_fe_env_gate,
                 )
     return _batch_candidates, _fe_mi_arr
+
+
+def _score_one_pair_step3_step1_pair_phase_produced_part1(
+    final_transformed_vals: Any, _op_code_arr: Any, binary_transformations: Any, st: Any, vars_transformations: Any, _PREWARP_UNARY: Any,
+    quantization_nbins: Any, quantization_dtype: Any, transformed_vars: Any,
+) -> tuple[Any, ...]:
+    """Extracted block of ``_score_one_pair_step3_step1_pair_phase_produced`` (part 1); returns the names the caller still uses."""
+    assert final_transformed_vals is not None  # _use_batch_disc with no _chunk_entry implies the buffer is filled (see _use_batch_disc definition above)
+    # bench-attempt-rejected (2026-06-23, MRMR FE wall /loop iter10): the F2 100k cProfile
+    # attributes ~40s tottime to THIS function and ~6.6s to ``_safe_div``, suggesting "Python
+    # per-candidate orchestration overhead". A line_profiler pass (line-by-line, F2 100k warm)
+    # disproves that: line 310 (``final_transformed_vals[:, i] = bin_func(param_a, param_b)``)
+    # is 72.2% of the body's time, the Phase-1b ``nan_to_num`` 12.1%, GPU binning 7.4%, batch-MI
+    # dispatch 4.6% - ALL numeric kernels (njit ufuncs / compiled div / GPU), already routed by
+    # prior iterations. The Python bookkeeping is negligible: ``_local_times`` dict 0.4%,
+    # ``_batch_candidates.append`` 0.2%, the ``binary_transformations.items()`` loop 0.2%, the
+    # per-pair-comb ``np.errstate`` 1.0%; the replay loop / ``var_pairs_perf`` dict / recipe-name
+    # building / clean-form-demotion loop are each <0.2% (sum of all Python orchestration < 2.5%).
+    # ``feature_engineering._safe_div`` is NOT pure-Python overhead: it IS njit-compiled
+    # in-run (4 signatures compile during the fit, incl. the float32 'A' strided-column layout this
+    # path feeds it) and its 6.6s is genuine compiled float32->float64 ratio compute over 9720
+    # 100k-row columns; cProfile attributes the dispatcher's call to the py_func code-object
+    # location, which LOOKS like a Python frame but is not. The float64 upcast inside ``_safe_div``
+    # (then downcast on the float32 store here) is a real but UNSAFE lever: a native float32 divide
+    # rounds differently from float64-divide-then-cast at ULP and this is selection-critical FE
+    # scoring, so it is NOT changed. Verdict: ``_score_one_pair`` is already lean on Python overhead
+    # - the wall IS candidate-column materialisation COMPUTE. iter11 RESOLVES that wall:
+    # the line-310 CPU ``bin_func`` materialise is now routed to the GPU FUSED materialise+bin
+    # (the GPU-fused branch directly below), measured F2 100k 83.8s -> 30.0s (2.8x), selection
+    # bit-identical - so the "no win" tail of the iter10 verdict is SUPERSEDED for this path.
+    # Phase 1: materialise + nan_to_num + record. ``i`` advances exactly as in the
+    # per-candidate path so ``config``'s buffer index and ``_config_by_i`` are identical.
+    _batch_candidates: list = []  # (transformations_pair, bin_func_name, i, uses_pw)
+    _disc_2d = None  # set by the GPU FUSED materialise+bin path below; None -> CPU Phase 2 bins it
+
+    # GPU FUSED PER-PAIR MATERIALISE+BIN. The CPU
+    # ``bin_func`` strided materialise (the line ``final_transformed_vals[:, i] = bin_func(param_a,
+    # param_b)`` below) is the per-pair FE-scan WALL: on the F2 100k fit it is 71.9% of
+    # ``_score_one_pair`` (line_profiler 45.8s of 63.7s). The chunk path already routes its
+    # materialise to the GPU FUSED ``gpu_materialise_discretize_codes_host`` (4.40x vs CPU
+    # njit-mat+CPU-bin / 2.03x vs CPU njit-mat+GPU-bin, GTX 1050 Ti n=100k), but it only fires
+    # when a chunk holds >1 pair (``_chunk_buffer`` allocated); at the canonical 100k fit the
+    # RAM-budgeted chunk width is barely one pair wide (chunkmax~3561 vs pairwidth 1944), so
+    # ``_chunk_buffer`` stays None and EVERY pair falls to THIS per-pair CPU path - 100% of
+    # candidate materialise (measured: F2 seed-7 = 58320/58320 cols on the CPU line below).
+    # So we route the per-pair materialise through the SAME fused GPU kernel here. It builds the
+    # (n,K) float candidate matrix on-device from (a_cols, b_cols, op_codes), fills the host buffer
+    # (``out_cand`` - the downstream survivor/usability/ext-val stages still read the continuous
+    # columns) AND bins it RESIDENT, returning ``_disc_2d`` so the separate Phase-2 binning is
+    # skipped. BIT-IDENTICAL selection: ``gpu_materialise_discretize_codes_host`` mirrors
+    # ``_materialise_chunk_njit`` (maxdiff 0), which is itself bit-identical to the numpy
+    # ``bin_func`` (the chunk-batch invariant), and the inline kernel nan-scrub == the per-column
+    # ``np.nan_to_num`` below. PER-OP GATE: routed only when ``_njit_binary_op_codes`` covers EVERY
+    # op in the registry (None -> any hypot/scipy.special op -> stay on the bit-safe CPU loop). Gated
+    # by the dedicated GPU-binning crossover (if binning wins, the fused mat+bin certainly wins) +
+    # the ``MLFRAME_FE_GPU_MATERIALISE`` escape hatch (same knob the chunk path uses). Any GPU
+    # failure falls through to the CPU loop below (never a regression).
+    # ``_gpu_mat_on``/``_op_code_arr`` are resolved ONCE by the caller (call-invariant), not
+    # recomputed for every pair - see the per-call hoist comment in ``check_prospective_fe_pairs``.
+    _gpu_fused_done = False
+    try:
+        if _op_code_arr is not None:
+            # Build candidate specs + per-candidate (a_col, b_col, op_code) in the SAME
+            # (combs x bin_func) order the CPU path produces -> identical buffer index ``i``.
+            _name_list = list(binary_transformations.keys())
+            _a_cols: list = []
+            _b_cols: list = []
+            _ops: list = []
+            _gpu_cands: list[Any] = []
+            st.i = _score_one_pair_transformations_pair_combs(
+                st.combs, vars_transformations, _PREWARP_UNARY, _name_list, _a_cols, _b_cols, _ops, _op_code_arr, _gpu_cands, st.i
+            )
+            _K = st.i
+            from mlframe.feature_selection.filters._feature_engineering_pairs._pairs_core import _fe_gpu_binning_enabled
+
+            _batch_candidates, _disc_2d, _gpu_fused_done, _defer_meta = _score_one_pair_fe_gpu_binning_enabled(
+                _K,
+                _fe_gpu_binning_enabled,
+                final_transformed_vals,
+                quantization_nbins,
+                quantization_dtype,
+                transformed_vars,
+                _a_cols,
+                _b_cols,
+                _ops,
+                _gpu_cands,
+                _name_list,
+                st._local_times,
+                _batch_candidates,
+                _disc_2d,
+                _gpu_fused_done,
+                st._fe_defer_float,
+            )
+            if _defer_meta is not None:
+                # same keys the chunk path keeps in ``chunk_state``: the operand table is uploaded once and resolved columns are cached
+                st._pair_defer_state = {"defer_meta": _defer_meta, "tv_gpu": None, "resolved_cols": {}}
+    except Exception:
+        log_throttle(logger, "pairs_score_gpu_fused", logging.WARNING, "FE per-pair GPU fused materialise+bin failed; CPU materialise", exc_info=True)
+        _gpu_fused_done = False
+        _disc_2d = None
+        _batch_candidates = []
+        st.i = 0
+
+    st.i = _score_one_pair_gpu_fused_done(
+        _gpu_fused_done,
+        st.combs,
+        vars_transformations,
+        transformed_vars,
+        _PREWARP_UNARY,
+        binary_transformations,
+        final_transformed_vals,
+        st._local_times,
+        _batch_candidates,
+        st.i,
+    )
+
+    # Phase 2: ONE batch discretisation over the materialised columns [:, :n].
+    # Bit-identical to per-column ``discretize_array(method='quantile')`` - the
+    # buffer dtype (float32) is NOT cast; per-column edges/codes match exactly.
+    _fe_mi_arr = None
+    return _batch_candidates, _disc_2d, _fe_mi_arr
 
 
 def _score_one_pair_step3_step2_transformations_pair_st(

@@ -79,6 +79,296 @@ def _random_baseline_is_meaningful(k: int, f: int) -> bool:
     return 0 < k < f
 
 
+class _RevalRun:
+    """State of one ``revalidate_top_n`` call: the honest-evaluation context plus the per-round accumulators.
+
+    Built once per call; ``run_rounds`` fills ``per_candidate`` and the UCB / adaptive diagnostics, which ``revalidate_top_n`` then
+    turns into the ranked list, the winner and the report payload.
+    """
+
+    def __init__(
+        self,
+        candidates: Sequence[tuple[float, Sequence[int]]],
+        model_template: Any,
+        X_search: Any,
+        y_search: Any,
+        X_holdout: Any,
+        y_holdout: Any,
+        *,
+        classification: bool,
+        metric: str | None,
+        n_models: int,
+        lambda_stab: float,
+        parsimony_tol: float,
+        rng: np.random.Generator | None,
+        n_jobs: Any,
+        unit_to_members: Any,
+        cache: Any,
+        revalidation_n_estimators: int | None,
+        ucb_enabled: bool,
+        ucb_min_eval_size: int | None,
+        ucb_slack: float | None,
+        ucb_stdev_multiplier: float,
+        candidate_score: Sequence[float] | np.ndarray | None,
+        inner_n_jobs_cap: bool,
+        adaptive_n_models: bool,
+        disk_cache_dir: str | None,
+    ) -> None:
+        # Resolve the metric/rng, pre-expand member columns, pre-draw every fit seed and decide the UCB / adaptive plan.
+        self.candidates = candidates
+        self.model_template = model_template
+        self.X_search = X_search
+        self.y_search = y_search
+        self.X_holdout = X_holdout
+        self.y_holdout = y_holdout
+        self.classification = classification
+        self.n_models = n_models
+        self.lambda_stab = lambda_stab
+        self.parsimony_tol = parsimony_tol
+        self.n_jobs = n_jobs
+        self.unit_to_members = unit_to_members
+        self.cache = cache
+        self.inner_n_jobs_cap = inner_n_jobs_cap
+        self.ucb_slack = ucb_slack
+        self.ucb_stdev_multiplier = ucb_stdev_multiplier
+        self.metric = resolve_metric(classification, metric)
+        self.rng = np.random.default_rng(0) if rng is None else rng
+        self.cap = revalidation_n_estimators
+        self.tid = ("reval_cap", int(self.cap)) if self.cap is not None else None
+        # iter80: cross-process disk cache for repeat hyperparam sweeps over the same (X_search,
+        # y_search, X_holdout, y_holdout, template) tuple. Opened once so the LRU evictor sees the full
+        # batch of writes from this revalidation pass; ``None`` (default) keeps the legacy in-memory-only
+        # cache wiring.
+        self.disk_cache = _open_disk_cache(disk_cache_dir)
+        # Pre-expand member columns + sample per-fit seeds once so candidate ordering shuffles only the
+        # task LIST, never re-samples (cache reuse + determinism across UCB/no-UCB paths).
+        self.member_cols = [_expand(idx, unit_to_members) for _, idx in candidates]
+        self.candidate_seeds = [[int(self.rng.integers(0, 2**31 - 1)) for _ in range(n_models)] for _ in candidates]
+        self.n_total = len(candidates)
+        # UCB batched dispatch (iter34): evaluate proxy-ranked candidates in batches; stop once the running winner
+        # provably beats every remaining candidate's UCB lower bound. Determinism: within-batch joblib results are zipped
+        # back to the (cols, seed) tuples we dispatched, ties in proxy ordering are broken by the original candidate index
+        # (kind="stable" argsort), and ALL seeds are sampled BEFORE the gate decides any batch - so n_candidates_evaluated
+        # is the only variable between UCB and the legacy path; ranked entries for evaluated candidates are bit-identical
+        # given identical seed + cache state.
+        proxy_losses_arr = np.asarray([float(c[0]) for c in candidates], dtype=np.float64)
+        # ``candidate_score`` (iter34): the caller's already-computed per-candidate score (corrector-
+        # predicted honest loss when the bias corrector fit cleanly, raw proxy_loss otherwise). The
+        # facade computes this for ordering anyway; passing it through lets the UCB lower bound work on
+        # the honest scale instead of the cheap-but-tightly-clustered proxy_loss. With ``candidate_score``
+        # supplied, the gate compares un-evaluated score + slack against the running best stable score;
+        # the slack auto-calibrates the residual gap. When ``None`` (standalone tests, legacy callers),
+        # falls back to raw proxy_loss - the gate still works but may rarely fire on regimes whose
+        # proxy_loss spread is too tight to discriminate (corrector-aware score widens the spread).
+        self.score_arr = np.asarray(candidate_score, dtype=np.float64) if candidate_score is not None else proxy_losses_arr
+        # Use the CALLER'S order (the facade already sorts top_n by bias-corrector + uncertainty score,
+        # which is a strictly stronger ordering than raw proxy_loss alone). Re-sorting on proxy_loss
+        # here would unwind that work and surrender the corrector's per-candidate trust signal - the
+        # very signal the trust-guard pays its 60+ anchor retrains to produce. Stays compatible with
+        # the standalone test fixtures that pass already-proxy-sorted candidates.
+        self.proxy_order = np.arange(self.n_total, dtype=np.int64)
+        if ucb_min_eval_size is None:
+            import os as _os
+            n_cores = _os.cpu_count() or 1
+            outer = n_cores if n_jobs in (-1, None, 0) else int(n_jobs)
+            self.ucb_min_eval_size_eff = max(int(outer), 3)
+        else:
+            self.ucb_min_eval_size_eff = max(1, int(ucb_min_eval_size))
+        # UCB only pays when joblib actually BATCHES dispatch across workers (the iter34 premise).
+        # With n_jobs=1 the legacy single-batch path is already sequential, so skipping candidates
+        # produces no wall savings - only opens a window for the gate to stop on a too-small evaluated
+        # batch (3 candidates) and miss the winner. The user-visible failure mode on the biz_val test
+        # (noise2 kept where the legacy path picked an informative) is exactly this: 1-job runs are
+        # typically test fixtures where determinism + recall matter more than wall savings.
+        self.use_ucb = bool(ucb_enabled) and self.n_total > self.ucb_min_eval_size_eff and n_jobs not in (1, 0, None)
+
+        self.per_candidate: dict[int, list[float]] = {}
+        self.n_candidates_evaluated = 0
+        self.ucb_slack_used = 0.0
+        # iter77 adaptive_n_models: split the n_models stability seeds into separate rounds, allow early
+        # stop when the parsimony winner stabilises. With adaptive_n_models=False (legacy) the rounds
+        # collapse into one combined batch (the original semantics).
+        self.adapt_active = bool(adaptive_n_models) and int(n_models) >= 2
+        self.seed_rounds = int(n_models) if self.adapt_active else 1
+        # When NOT adaptive, "one round" dispatches all n_models seeds per candidate; when adaptive,
+        # each round dispatches ONE seed per candidate (round k -> candidate_seeds[ci][k:k+1]).
+        self.n_models_run = 0
+        self.prev_winner: tuple | None = None
+        # iter92: compare winners on the EXPANDED member-column set rather than the raw unit tuple.
+        # At high redundancy_rho with cluster_features=True, distinct unit tuples can map to the same
+        # deployed member subset after cluster aggregation. The user-visible "chosen subset" is the
+        # member set, so equivalence on members captures convergence one round earlier whenever two
+        # different unit tuples collapse to the same deployment. Build a per-candidate member-key
+        # lookup (sorted tuple) once - _expand was already paid for in ``member_cols`` above.
+        self.members_by_unit_tuple = {tuple(idx): tuple(sorted(int(c) for c in self.member_cols[ci])) for ci, (_, idx) in enumerate(candidates)}
+        self.prev_winner_members: tuple | None = None
+        # When the early-stop fires on member-equivalence WHILE unit tuples still differ, that's the
+        # iter92-specific win; tracked separately so downstream diagnostics can quantify the lever.
+        self.stopped_via_member_equiv = False
+
+    def _eval_candidates(self, cand_idx: Sequence[int], round_seeds: list[list[int]]) -> None:
+        """Honestly retrain every ``(candidate, seed)`` task of ``cand_idx`` in one parallel batch and append the losses per candidate."""
+        tasks: list[tuple[Any, int]] = []
+        task_owner: list[int] = []
+        for ci in cand_idx:
+            for s in round_seeds[ci]:
+                tasks.append((self.member_cols[ci], s))
+                task_owner.append(ci)
+        losses = _parallel_honest_losses(tasks, self.model_template, self.X_search, self.y_search, self.X_holdout, self.y_holdout,
+                                         self.classification, self.metric, self.n_jobs, cache=self.cache,
+                                         n_estimators_cap=self.cap, template_id=self.tid,
+                                         inner_n_jobs_cap=self.inner_n_jobs_cap,
+                                         disk_cache=self.disk_cache)
+        for owner, loss in zip(task_owner, losses):
+            self.per_candidate.setdefault(owner, []).append(loss)
+
+    def _run_round_ucb(self, round_seeds: list[list[int]]) -> None:
+        """One seed round under the UCB batched dispatch: evaluate proxy-ordered batches until no remaining candidate can win."""
+        evaluated_idx_set: set[int] = set()
+        # First batch saturates the workers. Subsequent batches are workers-sized so each iteration
+        # is one wall-clock pool dispatch on the same operating point.
+        import os as _os
+        n_cores = _os.cpu_count() or 1
+        outer_workers = n_cores if self.n_jobs in (-1, None, 0) else int(self.n_jobs)
+        outer_workers = max(1, outer_workers)
+        # Effective seeds-per-candidate THIS round drives the worker-share denominator.
+        seeds_per_cand = len(round_seeds[0]) if round_seeds and round_seeds[0] else 1
+        batch_sizes: list[int] = []
+        cur = 0
+        _plan_ucb_batch_sizes(cur, self.n_total, self.ucb_min_eval_size_eff, outer_workers, seeds_per_cand, batch_sizes)
+        pos = 0
+        for step in batch_sizes:
+            batch_candidate_idx = [int(self.proxy_order[pos + j]) for j in range(step)]
+            pos += step
+            self._eval_candidates(batch_candidate_idx, round_seeds)
+            evaluated_idx_set.update(batch_candidate_idx)
+            self.n_candidates_evaluated = len(evaluated_idx_set)
+            if pos >= self.n_total:
+                break
+            # Compute the running best stable_score over evaluated candidates.
+            best_so_far = float("inf")
+            ev_proxy: list[float] = []
+            ev_honest_mean: list[float] = []
+            for ci in evaluated_idx_set:
+                scores = np.asarray(self.per_candidate[ci], dtype=np.float64)
+                mean = float(scores.mean())
+                std = float(scores.std())
+                stable = mean + self.lambda_stab * std
+                if stable < best_so_far:
+                    best_so_far = stable
+                ev_proxy.append(float(self.score_arr[ci]))
+                ev_honest_mean.append(mean)
+            if self.ucb_slack is None:
+                self.ucb_slack_used = _ucb_auto_slack(ev_proxy, ev_honest_mean, self.ucb_stdev_multiplier)
+            else:
+                self.ucb_slack_used = float(self.ucb_slack)
+            remaining_idx = [int(self.proxy_order[j]) for j in range(pos, self.n_total)]
+            remaining_score = [float(self.score_arr[ci]) for ci in remaining_idx]
+            if _ucb_stop_remaining_cannot_win(
+                best_so_far, remaining_score, self.ucb_slack_used, self.parsimony_tol,
+            ):
+                break
+
+    def run_rounds(self) -> None:
+        """Run the seed rounds (one combined round, or one seed per round with the adaptive winner-stability early stop)."""
+        for round_k in range(self.seed_rounds):
+            if self.adapt_active:
+                round_seeds = [[self.candidate_seeds[ci][round_k]] for ci in range(self.n_total)]
+            else:
+                round_seeds = self.candidate_seeds  # legacy: all seeds in one round
+            if not self.use_ucb:
+                # Legacy path: one parallel batch over all candidates.
+                self._eval_candidates(range(self.n_total), round_seeds)
+                self.n_candidates_evaluated = self.n_total
+            else:
+                self._run_round_ucb(round_seeds)
+            self.n_models_run = round_k + 1
+            # Parsimony-rule winner across accumulated per-candidate losses; early-stop when stable
+            # across two consecutive rounds. Floor at 2 rounds so we always have at least one stability
+            # check (round_k >= 1). When n_models == 1 the loop runs exactly once - no check possible
+            # and adapt_active is False anyway, so this branch is skipped.
+            if self.adapt_active:
+                cur_winner = _winner_from_per_candidate(
+                    self.per_candidate, self.candidates, self.member_cols, self.lambda_stab, self.parsimony_tol,
+                )
+                # iter92: equivalence on EXPANDED members. ``cur_winner`` is the unit tuple; look up its
+                # deployed member set. Fallback to the unit tuple if (somehow) absent from the map,
+                # which preserves iter77 semantics on degenerate inputs.
+                cur_winner_members = self.members_by_unit_tuple.get(cur_winner) if cur_winner is not None else None
+                if round_k >= 1 and cur_winner_members is not None and cur_winner_members == self.prev_winner_members:
+                    # Member sets matched; the iter92 "fired earlier than iter77" subcase is when the
+                    # unit tuples differ even though the deployed member sets are identical.
+                    if cur_winner != self.prev_winner:
+                        self.stopped_via_member_equiv = True
+                    break
+                self.prev_winner = cur_winner
+                self.prev_winner_members = cur_winner_members
+
+    def pick_winner(self, parsimony_se: float) -> tuple[Any, list[Any], dict[str, Any]]:
+        """Rank the evaluated candidates and pick the parsimony / paired one-SE winner; returns ``(best_idx, ranked, paired_info)``."""
+        ranked: list[Any] = []
+        _collect_candidate_scores(self.candidates, self.per_candidate, ranked, self.member_cols, self.lambda_stab)
+        ranked.sort(key=lambda d: d["stable_score"])
+        if ranked:
+            best_score = ranked[0]["stable_score"]
+            threshold = best_score + self.parsimony_tol * abs(best_score)
+            eligible = [d for d in ranked if d["stable_score"] <= threshold]
+            chosen = min(eligible, key=lambda d: (d["n_members"], d["stable_score"]))
+            best_idx = chosen["features"]
+            from mlframe.feature_selection.shap_proxied_fs._shap_proxy_revalidate._shap_proxy_paired_parsimony import paired_one_se_pick
+
+            chosen_ci = next(i for i, (_, ix) in enumerate(self.candidates) if tuple(ix) == tuple(best_idx))
+            best_idx, paired_info = paired_one_se_pick(
+                ranked, chosen, self.model_template, self.X_search, self.y_search, self.X_holdout, self.y_holdout,
+                classification=self.classification, metric=self.metric, unit_to_members=self.unit_to_members,
+                seed=self.candidate_seeds[chosen_ci][0] if self.candidate_seeds[chosen_ci] else None,
+                n_estimators_cap=self.cap, n_se=parsimony_se,
+            )
+        else:
+            best_idx = ()
+            paired_info = dict(applied=False, tested=[])
+        return best_idx, ranked, paired_info
+
+    def baseline_payload(self, best_idx: Any, paired_info: dict[str, Any]) -> dict[str, Any]:
+        """Same-size random-subset baseline for the winner (winner's-curse context) plus the UCB / paired-one-SE diagnostics."""
+        # Same-size (in member columns) random-subset baseline for the winner (winner's-curse context).
+        # RF1: only meaningful when the winner is strictly smaller than the full feature set; when k >= f the
+        # "random" sample would BE the whole feature set, so the baseline equals the all-features model and
+        # carries no winner's-curse signal - skip it (baseline stays None) rather than report a tautology.
+        baseline: dict[str, Any] | None = None
+        if best_idx:
+            k = len(_expand(best_idx, self.unit_to_members))
+            f = self.X_search.shape[1]
+            if _random_baseline_is_meaningful(k, f):
+                rnd = tuple(sorted(self.rng.choice(f, size=k, replace=False).tolist()))
+                baseline = dict(features=rnd, honest_loss=_honest_loss(
+                    self.model_template, self.X_search, self.y_search, self.X_holdout, self.y_holdout, list(rnd), self.classification, self.metric,
+                    cache=self.cache, disk_cache=self.disk_cache))
+        ucb_info = dict(enabled=bool(self.use_ucb), n_candidates_total=int(self.n_total),
+                        n_candidates_evaluated=int(self.n_candidates_evaluated),
+                        min_eval_size=int(self.ucb_min_eval_size_eff),
+                        slack=float(self.ucb_slack_used),
+                        adaptive_n_models=bool(self.adapt_active),
+                        n_models_configured=int(self.n_models),
+                        n_models_run=int(self.n_models_run),
+                        # iter92: ``True`` when adaptive early-stop fired because two consecutive
+                        # rounds' winners EXPANDED to the same member set despite differing unit
+                        # tuples (cluster-aggregation collapse). ``False`` covers both the
+                        # iter77-equivalent firing (unit tuples already matched) and the "no
+                        # early-stop" case.
+                        n_reval_models_run_via_member_equiv=bool(self.stopped_via_member_equiv))
+        # Attach UCB diagnostic to the random-subset baseline dict (or create a stub when no winner).
+        # Keeps the 3-tuple return contract stable; downstream consumers fish ucb diagnostics out via
+        # ``report['revalidation']['random_baseline']['ucb']``. Same pattern as other-revalidator-side
+        # diagnostics that ride on the baseline payload without expanding the return signature.
+        if baseline is None:
+            baseline = dict(ucb=ucb_info)
+        else:
+            baseline["ucb"] = ucb_info
+        baseline["paired_one_se"] = paired_info
+        return baseline
+
+
 def revalidate_top_n(
     candidates: Sequence[tuple[float, Sequence[int]]], model_template: Any, X_search: Any, y_search: Any, X_holdout: Any, y_holdout: Any,
     *, classification: bool, metric: str | None = None, n_models: int = 1, lambda_stab: float = 0.5, parsimony_tol: float = 0.02,
@@ -163,200 +453,14 @@ def revalidate_top_n(
     the parsimony rule (relative-tol) is robust to this. Surface: ``baseline['ucb']['n_models_run']``
     reports actual rounds executed.
     """
-    best_idx: Any = None
-    metric = resolve_metric(classification, metric)
-    rng = np.random.default_rng(0) if rng is None else rng
-    cap = revalidation_n_estimators
-    tid = ("reval_cap", int(cap)) if cap is not None else None
-    # iter80: cross-process disk cache for repeat hyperparam sweeps over the same (X_search,
-    # y_search, X_holdout, y_holdout, template) tuple. Opened once so the LRU evictor sees the full
-    # batch of writes from this revalidation pass; ``None`` (default) keeps the legacy in-memory-only
-    # cache wiring.
-    disk_cache = _open_disk_cache(disk_cache_dir)
-    # Pre-expand member columns + sample per-fit seeds once so candidate ordering shuffles only the
-    # task LIST, never re-samples (cache reuse + determinism across UCB/no-UCB paths).
-    member_cols = [_expand(idx, unit_to_members) for _, idx in candidates]
-    candidate_seeds = [[int(rng.integers(0, 2**31 - 1)) for _ in range(n_models)] for _ in candidates]
-    n_total = len(candidates)
-    # UCB batched dispatch (iter34): evaluate proxy-ranked candidates in batches; stop once the running winner
-    # provably beats every remaining candidate's UCB lower bound. Determinism: within-batch joblib results are zipped
-    # back to the (cols, seed) tuples we dispatched, ties in proxy ordering are broken by the original candidate index
-    # (kind="stable" argsort), and ALL seeds are sampled BEFORE the gate decides any batch - so n_candidates_evaluated
-    # is the only variable between UCB and the legacy path; ranked entries for evaluated candidates are bit-identical
-    # given identical seed + cache state.
-    proxy_losses_arr = np.asarray([float(c[0]) for c in candidates], dtype=np.float64)
-    # ``candidate_score`` (iter34): the caller's already-computed per-candidate score (corrector-
-    # predicted honest loss when the bias corrector fit cleanly, raw proxy_loss otherwise). The
-    # facade computes this for ordering anyway; passing it through lets the UCB lower bound work on
-    # the honest scale instead of the cheap-but-tightly-clustered proxy_loss. With ``candidate_score``
-    # supplied, the gate compares un-evaluated score + slack against the running best stable score;
-    # the slack auto-calibrates the residual gap. When ``None`` (standalone tests, legacy callers),
-    # falls back to raw proxy_loss - the gate still works but may rarely fire on regimes whose
-    # proxy_loss spread is too tight to discriminate (corrector-aware score widens the spread).
-    score_arr = np.asarray(candidate_score, dtype=np.float64) if candidate_score is not None else proxy_losses_arr
-    # Use the CALLER'S order (the facade already sorts top_n by bias-corrector + uncertainty score,
-    # which is a strictly stronger ordering than raw proxy_loss alone). Re-sorting on proxy_loss
-    # here would unwind that work and surrender the corrector's per-candidate trust signal - the
-    # very signal the trust-guard pays its 60+ anchor retrains to produce. Stays compatible with
-    # the standalone test fixtures that pass already-proxy-sorted candidates.
-    proxy_order = np.arange(n_total, dtype=np.int64)
-    if ucb_min_eval_size is None:
-        import os as _os
-        n_cores = _os.cpu_count() or 1
-        outer = n_cores if n_jobs in (-1, None, 0) else int(n_jobs)
-        ucb_min_eval_size_eff = max(int(outer), 3)
-    else:
-        ucb_min_eval_size_eff = max(1, int(ucb_min_eval_size))
-    # UCB only pays when joblib actually BATCHES dispatch across workers (the iter34 premise).
-    # With n_jobs=1 the legacy single-batch path is already sequential, so skipping candidates
-    # produces no wall savings - only opens a window for the gate to stop on a too-small evaluated
-    # batch (3 candidates) and miss the winner. The user-visible failure mode on the biz_val test
-    # (noise2 kept where the legacy path picked an informative) is exactly this: 1-job runs are
-    # typically test fixtures where determinism + recall matter more than wall savings.
-    use_ucb = bool(ucb_enabled) and n_total > ucb_min_eval_size_eff and n_jobs not in (1, 0, None)
-
-    per_candidate: dict[int, list[float]] = {}
-    n_candidates_evaluated = 0
-    ucb_slack_used = 0.0
-    # iter77 adaptive_n_models: split the n_models stability seeds into separate rounds, allow early
-    # stop when the parsimony winner stabilises. With adaptive_n_models=False (legacy) the rounds
-    # collapse into one combined batch (the original semantics).
-    adapt_active = bool(adaptive_n_models) and int(n_models) >= 2
-    seed_rounds = int(n_models) if adapt_active else 1
-    # When NOT adaptive, "one round" dispatches all n_models seeds per candidate; when adaptive,
-    # each round dispatches ONE seed per candidate (round k -> candidate_seeds[ci][k:k+1]).
-    n_models_run = 0
-    prev_winner: tuple | None = None
-    # iter92: compare winners on the EXPANDED member-column set rather than the raw unit tuple.
-    # At high redundancy_rho with cluster_features=True, distinct unit tuples can map to the same
-    # deployed member subset after cluster aggregation. The user-visible "chosen subset" is the
-    # member set, so equivalence on members captures convergence one round earlier whenever two
-    # different unit tuples collapse to the same deployment. Build a per-candidate member-key
-    # lookup (sorted tuple) once - _expand was already paid for in ``member_cols`` above.
-    members_by_unit_tuple = {tuple(idx): tuple(sorted(int(c) for c in member_cols[ci])) for ci, (_, idx) in enumerate(candidates)}
-    prev_winner_members: tuple | None = None
-    # When the early-stop fires on member-equivalence WHILE unit tuples still differ, that's the
-    # iter92-specific win; tracked separately so downstream diagnostics can quantify the lever.
-    stopped_via_member_equiv = False
-
-    for round_k in range(seed_rounds):
-        if adapt_active:
-            round_seeds = [[candidate_seeds[ci][round_k]] for ci in range(n_total)]
-        else:
-            round_seeds = candidate_seeds  # legacy: all seeds in one round
-        if not use_ucb:
-            # Legacy path: one parallel batch over all candidates.
-            tasks, task_owner = [], []
-            for ci in range(n_total):
-                for s in round_seeds[ci]:
-                    tasks.append((member_cols[ci], s))
-                    task_owner.append(ci)
-            losses = _parallel_honest_losses(tasks, model_template, X_search, y_search, X_holdout, y_holdout,
-                                             classification, metric, n_jobs, cache=cache,
-                                             n_estimators_cap=cap, template_id=tid,
-                                             inner_n_jobs_cap=inner_n_jobs_cap,
-                                             disk_cache=disk_cache)
-            for owner, loss in zip(task_owner, losses):
-                per_candidate.setdefault(owner, []).append(loss)
-            n_candidates_evaluated = n_total
-        else:
-            evaluated_idx_set: set[int] = set()
-            # First batch saturates the workers. Subsequent batches are workers-sized so each iteration
-            # is one wall-clock pool dispatch on the same operating point.
-            import os as _os
-            n_cores = _os.cpu_count() or 1
-            outer_workers = n_cores if n_jobs in (-1, None, 0) else int(n_jobs)
-            outer_workers = max(1, outer_workers)
-            # Effective seeds-per-candidate THIS round drives the worker-share denominator.
-            seeds_per_cand = len(round_seeds[0]) if round_seeds and round_seeds[0] else 1
-            batch_sizes: list[int] = []
-            cur = 0
-            _plan_ucb_batch_sizes(cur, n_total, ucb_min_eval_size_eff, outer_workers, seeds_per_cand, batch_sizes)
-            pos = 0
-            for step in batch_sizes:
-                batch_candidate_idx = [int(proxy_order[pos + j]) for j in range(step)]
-                pos += step
-                tasks, task_owner = [], []
-                for ci in batch_candidate_idx:
-                    for s in round_seeds[ci]:
-                        tasks.append((member_cols[ci], s))
-                        task_owner.append(ci)
-                losses = _parallel_honest_losses(tasks, model_template, X_search, y_search, X_holdout, y_holdout,
-                                                 classification, metric, n_jobs, cache=cache,
-                                                 n_estimators_cap=cap, template_id=tid,
-                                                 inner_n_jobs_cap=inner_n_jobs_cap,
-                                                 disk_cache=disk_cache)
-                for owner, loss in zip(task_owner, losses):
-                    per_candidate.setdefault(owner, []).append(loss)
-                evaluated_idx_set.update(batch_candidate_idx)
-                n_candidates_evaluated = len(evaluated_idx_set)
-                if pos >= n_total:
-                    break
-                # Compute the running best stable_score over evaluated candidates.
-                best_so_far = float("inf")
-                ev_proxy: list[float] = []
-                ev_honest_mean: list[float] = []
-                for ci in evaluated_idx_set:
-                    scores = np.asarray(per_candidate[ci], dtype=np.float64)
-                    mean = float(scores.mean())
-                    std = float(scores.std())
-                    stable = mean + lambda_stab * std
-                    if stable < best_so_far:
-                        best_so_far = stable
-                    ev_proxy.append(float(score_arr[ci]))
-                    ev_honest_mean.append(mean)
-                if ucb_slack is None:
-                    ucb_slack_used = _ucb_auto_slack(ev_proxy, ev_honest_mean, ucb_stdev_multiplier)
-                else:
-                    ucb_slack_used = float(ucb_slack)
-                remaining_idx = [int(proxy_order[j]) for j in range(pos, n_total)]
-                remaining_score = [float(score_arr[ci]) for ci in remaining_idx]
-                if _ucb_stop_remaining_cannot_win(
-                    best_so_far, remaining_score, ucb_slack_used, parsimony_tol,
-                ):
-                    break
-        n_models_run = round_k + 1
-        # Parsimony-rule winner across accumulated per-candidate losses; early-stop when stable
-        # across two consecutive rounds. Floor at 2 rounds so we always have at least one stability
-        # check (round_k >= 1). When n_models == 1 the loop runs exactly once - no check possible
-        # and adapt_active is False anyway, so this branch is skipped.
-        if adapt_active:
-            cur_winner = _winner_from_per_candidate(
-                per_candidate, candidates, member_cols, lambda_stab, parsimony_tol,
-            )
-            # iter92: equivalence on EXPANDED members. ``cur_winner`` is the unit tuple; look up its
-            # deployed member set. Fallback to the unit tuple if (somehow) absent from the map,
-            # which preserves iter77 semantics on degenerate inputs.
-            cur_winner_members = members_by_unit_tuple.get(cur_winner) if cur_winner is not None else None
-            if round_k >= 1 and cur_winner_members is not None and cur_winner_members == prev_winner_members:
-                # Member sets matched; the iter92 "fired earlier than iter77" subcase is when the
-                # unit tuples differ even though the deployed member sets are identical.
-                if cur_winner != prev_winner:
-                    stopped_via_member_equiv = True
-                break
-            prev_winner = cur_winner
-            prev_winner_members = cur_winner_members
-
-    ranked: list[Any] = []
-    _collect_candidate_scores(candidates, per_candidate, ranked, member_cols, lambda_stab)
-    ranked.sort(key=lambda d: d["stable_score"])
-    if ranked:
-        best_score = ranked[0]["stable_score"]
-        threshold = best_score + parsimony_tol * abs(best_score)
-        eligible = [d for d in ranked if d["stable_score"] <= threshold]
-        chosen = min(eligible, key=lambda d: (d["n_members"], d["stable_score"]))
-        best_idx = chosen["features"]
-        from mlframe.feature_selection.shap_proxied_fs._shap_proxy_revalidate._shap_proxy_paired_parsimony import paired_one_se_pick
-
-        chosen_ci = next(i for i, (_, ix) in enumerate(candidates) if tuple(ix) == tuple(best_idx))
-        best_idx, paired_info = paired_one_se_pick(
-            ranked, chosen, model_template, X_search, y_search, X_holdout, y_holdout, classification=classification, metric=metric,
-            unit_to_members=unit_to_members, seed=candidate_seeds[chosen_ci][0] if candidate_seeds[chosen_ci] else None,
-            n_estimators_cap=cap, n_se=parsimony_se,
-        )
-    else:
-        best_idx = ()
-        paired_info = dict(applied=False, tested=[])
+    run = _RevalRun(
+        candidates, model_template, X_search, y_search, X_holdout, y_holdout, classification=classification, metric=metric, n_models=n_models,
+        lambda_stab=lambda_stab, parsimony_tol=parsimony_tol, rng=rng, n_jobs=n_jobs, unit_to_members=unit_to_members, cache=cache,
+        revalidation_n_estimators=revalidation_n_estimators, ucb_enabled=ucb_enabled, ucb_min_eval_size=ucb_min_eval_size, ucb_slack=ucb_slack,
+        ucb_stdev_multiplier=ucb_stdev_multiplier, candidate_score=candidate_score, inner_n_jobs_cap=inner_n_jobs_cap,
+        adaptive_n_models=adaptive_n_models, disk_cache_dir=disk_cache_dir)
+    run.run_rounds()
+    best_idx, ranked, paired_info = run.pick_winner(parsimony_se)
 
     # Full-template re-evaluation of the WINNER so the user-visible honest_loss in the report stays
     # apples-to-apples with the trust-guard / ablation outputs (those use the full template). Only
@@ -365,45 +469,9 @@ def revalidate_top_n(
     # same subset (e.g. when ablation later refits the winner, that fit is the cache hit). Same
     # design as within_cluster_refine's final full-template re-evaluation. When cap is None the
     # ranking trials already used the full template and this is a guaranteed cache hit (no extra fit).
-    _cap_best_unit_members(best_idx, cap, unit_to_members, model_template, X_search, y_search, X_holdout, y_holdout, classification, metric, cache, disk_cache, ranked, lambda_stab, per_candidate, candidates)
+    _cap_best_unit_members(best_idx, run.cap, unit_to_members, model_template, X_search, y_search, X_holdout, y_holdout, classification, run.metric, cache, run.disk_cache, ranked, lambda_stab, run.per_candidate, candidates)
     _mark_selection_optimistic(ranked, best_idx)  # the winner's holdout loss is a min over candidates
-
-    # Same-size (in member columns) random-subset baseline for the winner (winner's-curse context).
-    # RF1: only meaningful when the winner is strictly smaller than the full feature set; when k >= f the
-    # "random" sample would BE the whole feature set, so the baseline equals the all-features model and
-    # carries no winner's-curse signal - skip it (baseline stays None) rather than report a tautology.
-    baseline = None
-    if best_idx:
-        k = len(_expand(best_idx, unit_to_members))
-        f = X_search.shape[1]
-        if _random_baseline_is_meaningful(k, f):
-            rnd = tuple(sorted(rng.choice(f, size=k, replace=False).tolist()))
-            baseline = dict(features=rnd, honest_loss=_honest_loss(
-                model_template, X_search, y_search, X_holdout, y_holdout, list(rnd), classification, metric,
-                cache=cache, disk_cache=disk_cache))
-    ucb_info = dict(enabled=bool(use_ucb), n_candidates_total=int(n_total),
-                    n_candidates_evaluated=int(n_candidates_evaluated),
-                    min_eval_size=int(ucb_min_eval_size_eff),
-                    slack=float(ucb_slack_used),
-                    adaptive_n_models=bool(adapt_active),
-                    n_models_configured=int(n_models),
-                    n_models_run=int(n_models_run),
-                    # iter92: ``True`` when adaptive early-stop fired because two consecutive
-                    # rounds' winners EXPANDED to the same member set despite differing unit
-                    # tuples (cluster-aggregation collapse). ``False`` covers both the
-                    # iter77-equivalent firing (unit tuples already matched) and the "no
-                    # early-stop" case.
-                    n_reval_models_run_via_member_equiv=bool(stopped_via_member_equiv))
-    # Attach UCB diagnostic to the random-subset baseline dict (or create a stub when no winner).
-    # Keeps the 3-tuple return contract stable; downstream consumers fish ucb diagnostics out via
-    # ``report['revalidation']['random_baseline']['ucb']``. Same pattern as other-revalidator-side
-    # diagnostics that ride on the baseline payload without expanding the return signature.
-    if baseline is None:
-        baseline = dict(ucb=ucb_info)
-    else:
-        baseline["ucb"] = ucb_info
-    baseline["paired_one_se"] = paired_info
-    return best_idx, ranked, baseline
+    return best_idx, ranked, run.baseline_payload(best_idx, paired_info)
 
 
 def active_learning_revalidate(

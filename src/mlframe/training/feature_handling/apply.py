@@ -103,6 +103,198 @@ class FeatureHandlingResult:
 # =====================================================================
 
 
+def _resolve_cat_columns(train_df: Any, candidate_cat_columns: Optional[List[str]], text_cols: List[str]) -> List[str]:
+    """Return the explicit cat columns, or auto-detect them by dtype excluding the columns already claimed as text."""
+    if candidate_cat_columns is None:
+        # Auto-detect by-dtype using the same convention the rest of mlframe uses
+        # (_phase_pandas_conversion_and_cat_prep in _phase_helpers.py): polars Categorical/Enum/String/Utf8 and pandas
+        # category/object/string. Exclude any column the text detector above already
+        # claimed so a text-promoted column doesn't ALSO appear in the cat list -- it
+        # would compute target_mean over the long-text strings as if they were a
+        # finite category vocabulary.
+        from .text_detection import detect_cat_columns_by_dtype
+        return detect_cat_columns_by_dtype(train_df, exclude_columns=text_cols)
+    else:
+        return list(candidate_cat_columns)
+
+
+def _collect_custom_blocks(
+    spec: Any,
+    col: str,
+    train_df: Any,
+    val_df: Optional[Any],
+    test_df: Optional[Any],
+    train_target: Optional[Any],
+    train_blocks: List[HandlerOutput],
+    val_blocks: List[HandlerOutput],
+    test_blocks: List[HandlerOutput],
+) -> None:
+    """Run a ``method='custom'`` text spec on ``col`` and append its train/val/test blocks."""
+    # Phase P CustomHandler path -- wires through here.
+    from mlframe.training.feature_handling.custom_handler import (
+        CustomHandler,
+    )
+    if not (isinstance(spec.params, CustomParams)):
+        raise AssertionError(f"method='custom' requires CustomParams; got {type(spec.params).__name__}")
+    _custom_params = spec.params
+    handler = CustomHandler(column=col, params=_custom_params)
+    handler.fit(train_df, train_target)
+    tr_out = handler.transform(train_df)
+    tr_block = HandlerOutput(
+        column=col, method="custom", data=tr_out,
+        n_features=tr_out.shape[1] if hasattr(tr_out, "shape") else 0,
+        output_kind=_custom_params.output_kind,
+    )
+    train_blocks.append(tr_block)
+    if val_df is not None:
+        v_out = handler.transform(val_df)
+        val_blocks.append(HandlerOutput(
+            column=col, method="custom", data=v_out,
+            n_features=v_out.shape[1] if hasattr(v_out, "shape") else 0,
+            output_kind=_custom_params.output_kind,
+        ))
+    if test_df is not None:
+        t_out = handler.transform(test_df)
+        test_blocks.append(HandlerOutput(
+            column=col, method="custom", data=t_out,
+            n_features=t_out.shape[1] if hasattr(t_out, "shape") else 0,
+            output_kind=_custom_params.output_kind,
+        ))
+
+
+def _collect_text_blocks(
+    text_specs: Any,
+    text_cols: List[str],
+    train_df: Any,
+    val_df: Optional[Any],
+    test_df: Optional[Any],
+    train_target: Optional[Any],
+    cache: Optional[FeatureCache],
+    session_id: str,
+    train_id: int,
+    train_blocks: List[HandlerOutput],
+    val_blocks: List[HandlerOutput],
+    test_blocks: List[HandlerOutput],
+) -> None:
+    """Text axis of ``feature_handling_apply``: run every text spec over its columns, appending blocks in place."""
+    for spec in text_specs:
+        target_cols = spec.apply_to_columns or text_cols
+        for col in target_cols:
+            if spec.method == "drop":
+                continue
+            if spec.method == "native":
+                # Defer to model-native consumer (e.g. CB text_features).
+                # Phase F wires this into the CB-specific consumer path;
+                # phase Q hands back the column as-is via a passthrough
+                # block so the caller can route it natively.
+                continue
+
+            # TF-IDF / Hashing path (phase C TextColumnEncoder)
+            if spec.method in ("tfidf", "hashing"):
+                params = spec.params if not isinstance(spec.params, type(None)) else None
+                tr_block, val_block, te_block = _apply_text_encoder(
+                    train_df=train_df, val_df=val_df, test_df=test_df,
+                    column=col, params=params,
+                    cache=cache, session_id=session_id,
+                    train_id=train_id,
+                )
+                if tr_block is not None:
+                    train_blocks.append(tr_block)
+                if val_block is not None:
+                    val_blocks.append(val_block)
+                if te_block is not None:
+                    test_blocks.append(te_block)
+                continue
+
+            if spec.method == "frozen_text_embedding":
+                # Phase B HuggingFaceProvider path. Defer to phase F/G
+                # for the actual end-to-end inference; phase Q docs the
+                # path but doesn't run inference here (heavy + needs
+                # provider lifecycle setup).
+                logger.info(
+                    "[fhc] frozen_text_embedding on %r deferred to phase F/G consumer wiring",
+                    col,
+                )
+                continue
+
+            if spec.method == "learnable_text_embedding":
+                # Same: this lives in TabularInputEncoder (phase G)
+                # because it's an nn.Module not an offline transform.
+                logger.info(
+                    "[fhc] learnable_text_embedding on %r deferred to phase G",
+                    col,
+                )
+                continue
+
+            if spec.method == "custom":
+                _collect_custom_blocks(spec, col, train_df, val_df, test_df, train_target, train_blocks, val_blocks, test_blocks)
+                continue
+
+
+def _collect_cat_blocks(
+    cat_specs: Any,
+    cat_cols: List[str],
+    train_df: Any,
+    val_df: Optional[Any],
+    test_df: Optional[Any],
+    train_target: Optional[Any],
+    cache: Optional[FeatureCache],
+    session_id: str,
+    train_id: int,
+    sample_weight: Optional[Any],
+    train_blocks: List[HandlerOutput],
+    val_blocks: List[HandlerOutput],
+    test_blocks: List[HandlerOutput],
+) -> None:
+    """Cat axis of ``feature_handling_apply`` (target encoders only): run every cat spec over its columns, appending blocks in place."""
+    for cat_spec in cat_specs:
+        if cat_spec.group_columns:
+            # group_columns ("group-aware encoding") is declared but not yet consumed anywhere in this
+            # loop or by LeakageSafeEncoder -- warn (once per column-tuple) so a caller relying on it
+            # notices they're silently getting ordinary global-fold encoding instead of per-group stats.
+            _gc_key = (cat_spec.method, tuple(cat_spec.group_columns))
+            log_throttle(
+                logger,
+                f"feature_handling_apply_group_columns_noop:{_gc_key}",
+                logging.WARNING,
+                "CatHandlerSpec(method=%r).group_columns=%r is set but group-aware encoding is not "
+                "yet implemented; falling back to ordinary global-fold encoding (group_columns is "
+                "silently ignored).",
+                cat_spec.method, cat_spec.group_columns,
+                max_count=1,
+            )
+        target_cols = cat_spec.apply_to_columns or cat_cols
+        for col in target_cols:
+            if cat_spec.method.startswith("target_") or cat_spec.method == "woe":
+                if train_target is None:
+                    raise ValueError(f"target encoder method={cat_spec.method!r} on column " f"{col!r} requires train_target argument; got None.")
+                # Target encoders are single-output by construction. Multi-output (multilabel /
+                # multi-regression) inputs slip through downstream sklearn's ``np.asarray(list(y))`` with
+                # shape (n, k); the LeakageSafeEncoder then crashes with an opaque length-mismatch trace.
+                # Raise here with the actual shape so the wiring bug is visible at the call site.
+                _tt = train_target
+                _shape = None
+                _shape = _shape_of(_tt, _shape)
+                if _shape is not None and len(_shape) > 1 and _shape[1] > 1:
+                    raise ValueError(
+                        f"target encoder method={cat_spec.method!r} on column {col!r}: train_target is "
+                        f"multi-output (shape={_shape}); collapse via mean / pick-target before passing in."
+                    )
+                tr_block, val_block, te_block = _apply_target_encoder(
+                    train_df=train_df, val_df=val_df, test_df=test_df,
+                    column=col, params=cat_spec.params,
+                    train_target=train_target,
+                    cache=cache, session_id=session_id,
+                    train_id=train_id,
+                    sample_weight=sample_weight,
+                )
+                train_blocks.append(tr_block)
+                if val_block is not None:
+                    val_blocks.append(val_block)
+                if te_block is not None:
+                    test_blocks.append(te_block)
+
+
 def feature_handling_apply(
     *,
     train_df: Any,
@@ -198,17 +390,7 @@ def feature_handling_apply(
     # Filter chain by which handlers actually have target columns.
     # text_specs apply to text_cols (or the spec's apply_to_columns
     # restriction); cat_specs to cat_cols.
-    if candidate_cat_columns is None:
-        # Auto-detect by-dtype using the same convention the rest of mlframe uses
-        # (_phase_pandas_conversion_and_cat_prep in _phase_helpers.py): polars Categorical/Enum/String/Utf8 and pandas
-        # category/object/string. Exclude any column the text detector above already
-        # claimed so a text-promoted column doesn't ALSO appear in the cat list -- it
-        # would compute target_mean over the long-text strings as if they were a
-        # finite category vocabulary.
-        from .text_detection import detect_cat_columns_by_dtype
-        cat_cols = detect_cat_columns_by_dtype(train_df, exclude_columns=text_cols)
-    else:
-        cat_cols = list(candidate_cat_columns)
+    cat_cols = _resolve_cat_columns(train_df, candidate_cat_columns, text_cols)
 
     # ---- 3. Run handlers on each column, collect blocks --------
     train_blocks: List[HandlerOutput] = []
@@ -219,136 +401,16 @@ def feature_handling_apply(
     train_id = id(train_df)
 
     # Text axis
-    for spec in text_specs:
-        target_cols = spec.apply_to_columns or text_cols
-        for col in target_cols:
-            if spec.method == "drop":
-                continue
-            if spec.method == "native":
-                # Defer to model-native consumer (e.g. CB text_features).
-                # Phase F wires this into the CB-specific consumer path;
-                # phase Q hands back the column as-is via a passthrough
-                # block so the caller can route it natively.
-                continue
-
-            # TF-IDF / Hashing path (phase C TextColumnEncoder)
-            if spec.method in ("tfidf", "hashing"):
-                params = spec.params if not isinstance(spec.params, type(None)) else None
-                tr_block, val_block, te_block = _apply_text_encoder(
-                    train_df=train_df, val_df=val_df, test_df=test_df,
-                    column=col, params=params,
-                    cache=cache, session_id=sess.session_id,
-                    train_id=train_id,
-                )
-                if tr_block is not None:
-                    train_blocks.append(tr_block)
-                if val_block is not None:
-                    val_blocks.append(val_block)
-                if te_block is not None:
-                    test_blocks.append(te_block)
-                continue
-
-            if spec.method == "frozen_text_embedding":
-                # Phase B HuggingFaceProvider path. Defer to phase F/G
-                # for the actual end-to-end inference; phase Q docs the
-                # path but doesn't run inference here (heavy + needs
-                # provider lifecycle setup).
-                logger.info(
-                    "[fhc] frozen_text_embedding on %r deferred to phase F/G consumer wiring",
-                    col,
-                )
-                continue
-
-            if spec.method == "learnable_text_embedding":
-                # Same: this lives in TabularInputEncoder (phase G)
-                # because it's an nn.Module not an offline transform.
-                logger.info(
-                    "[fhc] learnable_text_embedding on %r deferred to phase G",
-                    col,
-                )
-                continue
-
-            if spec.method == "custom":
-                # Phase P CustomHandler path -- wires through here.
-                from mlframe.training.feature_handling.custom_handler import (
-                    CustomHandler,
-                )
-                if not (isinstance(spec.params, CustomParams)):
-                    raise AssertionError(f"method='custom' requires CustomParams; got {type(spec.params).__name__}")
-                _custom_params = spec.params
-                handler = CustomHandler(column=col, params=_custom_params)
-                handler.fit(train_df, train_target)
-                tr_out = handler.transform(train_df)
-                tr_block = HandlerOutput(
-                    column=col, method="custom", data=tr_out,
-                    n_features=tr_out.shape[1] if hasattr(tr_out, "shape") else 0,
-                    output_kind=_custom_params.output_kind,
-                )
-                train_blocks.append(tr_block)
-                if val_df is not None:
-                    v_out = handler.transform(val_df)
-                    val_blocks.append(HandlerOutput(
-                        column=col, method="custom", data=v_out,
-                        n_features=v_out.shape[1] if hasattr(v_out, "shape") else 0,
-                        output_kind=_custom_params.output_kind,
-                    ))
-                if test_df is not None:
-                    t_out = handler.transform(test_df)
-                    test_blocks.append(HandlerOutput(
-                        column=col, method="custom", data=t_out,
-                        n_features=t_out.shape[1] if hasattr(t_out, "shape") else 0,
-                        output_kind=_custom_params.output_kind,
-                    ))
-                continue
-
+    _collect_text_blocks(
+        text_specs, text_cols, train_df, val_df, test_df, train_target, cache, sess.session_id, train_id,
+        train_blocks, val_blocks, test_blocks,
+    )
     # Cat axis (target encoders only -- ordinal/onehot/native handled
     # elsewhere in the existing pipeline path)
-    for cat_spec in cat_specs:
-        if cat_spec.group_columns:
-            # group_columns ("group-aware encoding") is declared but not yet consumed anywhere in this
-            # loop or by LeakageSafeEncoder -- warn (once per column-tuple) so a caller relying on it
-            # notices they're silently getting ordinary global-fold encoding instead of per-group stats.
-            _gc_key = (cat_spec.method, tuple(cat_spec.group_columns))
-            log_throttle(
-                logger,
-                f"feature_handling_apply_group_columns_noop:{_gc_key}",
-                logging.WARNING,
-                "CatHandlerSpec(method=%r).group_columns=%r is set but group-aware encoding is not "
-                "yet implemented; falling back to ordinary global-fold encoding (group_columns is "
-                "silently ignored).",
-                cat_spec.method, cat_spec.group_columns,
-                max_count=1,
-            )
-        target_cols = cat_spec.apply_to_columns or cat_cols
-        for col in target_cols:
-            if cat_spec.method.startswith("target_") or cat_spec.method == "woe":
-                if train_target is None:
-                    raise ValueError(f"target encoder method={cat_spec.method!r} on column " f"{col!r} requires train_target argument; got None.")
-                # Target encoders are single-output by construction. Multi-output (multilabel /
-                # multi-regression) inputs slip through downstream sklearn's ``np.asarray(list(y))`` with
-                # shape (n, k); the LeakageSafeEncoder then crashes with an opaque length-mismatch trace.
-                # Raise here with the actual shape so the wiring bug is visible at the call site.
-                _tt = train_target
-                _shape = None
-                _shape = _shape_of(_tt, _shape)
-                if _shape is not None and len(_shape) > 1 and _shape[1] > 1:
-                    raise ValueError(
-                        f"target encoder method={cat_spec.method!r} on column {col!r}: train_target is "
-                        f"multi-output (shape={_shape}); collapse via mean / pick-target before passing in."
-                    )
-                tr_block, val_block, te_block = _apply_target_encoder(
-                    train_df=train_df, val_df=val_df, test_df=test_df,
-                    column=col, params=cat_spec.params,
-                    train_target=train_target,
-                    cache=cache, session_id=sess.session_id,
-                    train_id=train_id,
-                    sample_weight=sample_weight,
-                )
-                train_blocks.append(tr_block)
-                if val_block is not None:
-                    val_blocks.append(val_block)
-                if te_block is not None:
-                    test_blocks.append(te_block)
+    _collect_cat_blocks(
+        cat_specs, cat_cols, train_df, val_df, test_df, train_target, cache, sess.session_id, train_id, sample_weight,
+        train_blocks, val_blocks, test_blocks,
+    )
 
     # ---- 4. Assemble per model_kind ----------------------------
     train_asm = assemble_for_model(

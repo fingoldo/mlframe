@@ -41,6 +41,62 @@ if _NUMBA_AVAILABLE:
 logger = logging.getLogger(__name__)
 
 
+def _sklearn_loop_bootstrap_deltas(
+    primary_metric: str, y_ref: np.ndarray, p1: np.ndarray, p2: np.ndarray, n_resamples: int, seed: int, minimize: bool,
+) -> np.ndarray | None:
+    """Final fallback: paired-bootstrap deltas via a per-resample sklearn metric loop (``None`` when unsupported or too many draws fail)."""
+    n = len(y_ref)
+    # Final fallback: sklearn metric loop. Used for log_loss_macro (skipped
+    # via the None return below) and as a safety net if the numba / vectorised
+    # paths raised.
+    if "RMSE" in primary_metric:
+        def fn(y, p):
+            """Per-resample RMSE of the fallback sklearn metric loop."""
+            return float(fast_root_mean_squared_error(y, p))
+    elif "MAE" in primary_metric:
+        def fn(y, p):
+            """Per-resample MAE of the fallback sklearn metric loop."""
+            return float(fast_mean_absolute_error(y, p))
+    elif "log_loss_macro" in primary_metric:
+        return None  # multi-output; cost > value at this gate
+    elif "log_loss" in primary_metric:
+        from sklearn.metrics import log_loss as _ll
+        def fn(y, p):
+            """Per-resample binary log-loss of the fallback sklearn metric loop."""
+            return float(_ll(y, p))
+    else:
+        return None
+
+    rng = np.random.default_rng(seed)
+    deltas = np.empty(n_resamples, dtype=np.float64)
+    valid = 0
+    for _i in range(n_resamples):
+        idx = rng.integers(0, n, size=n)
+        try:
+            v1 = fn(y_ref[idx], p1[idx])
+            v2 = fn(y_ref[idx], p2[idx])
+        except Exception as e:  # nosec B112 - swallow converted to debug-log, non-fatal by design
+            logger.debug("suppressed: %s", e)
+            continue
+        if not (np.isfinite(v1) and np.isfinite(v2)):
+            continue
+        deltas[valid] = (v1 - v2) if minimize else (v2 - v1)
+        valid += 1
+    n_dropped = n_resamples - valid
+    if valid < n_resamples // 4:
+        return None
+    if n_dropped:
+        # Failed / non-finite resamples were silently dropped before; log so an operator
+        # sees the surviving-sample count rather than trusting a CI computed over fewer draws.
+        logger.warning(
+            "dummy_baselines: paired bootstrap dropped %d/%d resamples (metric raised or non-finite); "
+            "CI computed over %d surviving deltas.",
+            n_dropped, n_resamples, valid,
+        )
+    deltas = deltas[:valid]
+    return deltas
+
+
 def _paired_bootstrap_vs_runner_up(
     target_type: str,
     strongest: str,
@@ -127,54 +183,9 @@ def _paired_bootstrap_vs_runner_up(
     deltas = _numpy_logloss_bootstrap_deltas(deltas, primary_metric, y_ref, p1, n_resamples, seed, p2, minimize)
 
     if deltas is None:
-        # Final fallback: sklearn metric loop. Used for log_loss_macro (skipped
-        # via the None return below) and as a safety net if the numba / vectorised
-        # paths raised.
-        if "RMSE" in primary_metric:
-            def fn(y, p):
-                """Per-resample RMSE of the fallback sklearn metric loop."""
-                return float(fast_root_mean_squared_error(y, p))
-        elif "MAE" in primary_metric:
-            def fn(y, p):
-                """Per-resample MAE of the fallback sklearn metric loop."""
-                return float(fast_mean_absolute_error(y, p))
-        elif "log_loss_macro" in primary_metric:
-            return None  # multi-output; cost > value at this gate
-        elif "log_loss" in primary_metric:
-            from sklearn.metrics import log_loss as _ll
-            def fn(y, p):
-                """Per-resample binary log-loss of the fallback sklearn metric loop."""
-                return float(_ll(y, p))
-        else:
+        deltas = _sklearn_loop_bootstrap_deltas(primary_metric, y_ref, p1, p2, n_resamples, seed, minimize)
+        if deltas is None:
             return None
-
-        rng = np.random.default_rng(seed)
-        deltas = np.empty(n_resamples, dtype=np.float64)
-        valid = 0
-        for _i in range(n_resamples):
-            idx = rng.integers(0, n, size=n)
-            try:
-                v1 = fn(y_ref[idx], p1[idx])
-                v2 = fn(y_ref[idx], p2[idx])
-            except Exception as e:  # nosec B112 - swallow converted to debug-log, non-fatal by design
-                logger.debug("suppressed: %s", e)
-                continue
-            if not (np.isfinite(v1) and np.isfinite(v2)):
-                continue
-            deltas[valid] = (v1 - v2) if minimize else (v2 - v1)
-            valid += 1
-        n_dropped = n_resamples - valid
-        if valid < n_resamples // 4:
-            return None
-        if n_dropped:
-            # Failed / non-finite resamples were silently dropped before; log so an operator
-            # sees the surviving-sample count rather than trusting a CI computed over fewer draws.
-            logger.warning(
-                "dummy_baselines: paired bootstrap dropped %d/%d resamples (metric raised or non-finite); "
-                "CI computed over %d surviving deltas.",
-                n_dropped, n_resamples, valid,
-            )
-        deltas = deltas[:valid]
 
     # For minimize metrics: strongest wins iff strongest_val < runner_up_val
     # -> delta = (strongest - runner_up) < 0. P(strongest beats) = mean(delta < 0).

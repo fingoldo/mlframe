@@ -351,6 +351,121 @@ def _fit_domain_mask(transform, transform_name: str, y_fit: np.ndarray, base_fit
     return valid if valid.shape == y_fit.shape else np.ones(y_fit.shape, dtype=bool)
 
 
+def _subsample_sorted(rng: np.random.Generator, idx: np.ndarray, n_cap: int) -> np.ndarray:
+    """Cap ``idx`` to ``n_cap`` rows via a sorted random draw, leaving it unchanged when already within budget."""
+    idx = np.asarray(idx)
+    if n_cap <= 0 or idx.size <= n_cap:
+        return idx
+    return np.sort(rng.choice(idx, size=n_cap, replace=False))
+
+
+def _gate_eval_split(
+    self, df: Any, target_col: str, kept_specs: list, feats: list[str], screen_idx: np.ndarray, y_full: np.ndarray,
+    val_df: Any, val_y: np.ndarray | None, cap: int, rng: np.random.Generator,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray | None, np.ndarray | None, str, Any] | None:
+    """Form the unseen-group evaluation split, or ``None`` (logged) when none can be formed.
+
+    Returns ``(fit_idx, eval_idx, y_fit, y_eval, fit_groups, eval_groups, gate_mode, eval_df)``: the VAL frame when supplied (preferred), else a
+    group-disjoint carve of the training groups.
+    """
+    cfg = self.config
+    _eval_df = df  # frame the eval rows are gathered from; df (train) for the fallback path
+    if val_df is not None and val_y is not None and val_y.size >= 50:
+        # Preferred path: fit on TRAIN (seen wells), evaluate on the VAL frame (unseen wells); group-disjoint by construction under the group-aware split.
+        fit_idx = _subsample_sorted(rng, screen_idx, cap)
+        eval_idx = _subsample_sorted(rng, np.arange(val_y.size), cap)
+        # Engineered grouped causal features / bases exist only on the discovery frame; build them on val from val_y.
+        _eval_df = grouped_causal_bases_for_frame(self, val_df, val_y, target_col, [*feats, *(c for s in kept_specs for c in spec_base_columns(s))])
+        y_fit = y_full[fit_idx].astype(np.float64)
+        y_eval = val_y[eval_idx].astype(np.float64)
+        _fit_groups = None  # the params were fit on train and the eval rows come from the val frame: no refit needed
+        _eval_groups = _val_group_labels(self, val_df, eval_idx)
+        _gate_mode = "val-split"
+    else:
+        # Fallback: carve a group-disjoint holdout out of the training groups themselves.
+        group_ids = getattr(self, "_group_ids_for_rerank", None)
+        if group_ids is None:
+            logger.info(
+                "[CompositeTargetDiscovery.yscale_gate] no val frame and no group ids -- gate skipped "
+                "(the inverse-collapse regime is unseen-group; nothing to validate against)."
+            )
+            return None
+        group_ids = np.asarray(group_ids)
+        sample_idx = _subsample_sorted(rng, screen_idx, cap)
+        try:
+            groups_sample = group_ids[sample_idx]
+        except (IndexError, TypeError):
+            logger.warning("[CompositeTargetDiscovery.yscale_gate] group ids not row-aligned -- gate skipped.")
+            return None
+        min_groups = int(getattr(cfg, "yscale_holdout_gate_min_groups", 4))
+        if np.unique(groups_sample).size < min_groups:
+            logger.info(
+                "[CompositeTargetDiscovery.yscale_gate] only %d group(s) in the gate sample (<%d) and no "
+                "val frame -- cannot carve a disjoint holdout; gate skipped.",
+                np.unique(groups_sample).size, min_groups,
+            )
+            return None
+        fit_idx, eval_idx = _carve_group_disjoint(sample_idx, groups_sample, float(getattr(cfg, "yscale_holdout_gate_holdout_group_frac", 0.3)), rng)
+        y_fit = y_full[fit_idx].astype(np.float64)
+        y_eval = y_full[eval_idx].astype(np.float64)
+        _fit_groups = group_ids[fit_idx]  # the spec's params saw the holdout groups; refit them on the fit groups alone
+        _eval_groups = group_ids[eval_idx]
+        _gate_mode = "train-group-holdout"
+    if fit_idx.size < 50 or eval_idx.size < 50:
+        logger.info("[CompositeTargetDiscovery.yscale_gate] unseen-group eval set too small -- gate skipped.")
+        return None
+    return fit_idx, eval_idx, y_fit, y_eval, _fit_groups, _eval_groups, _gate_mode, _eval_df
+
+
+def _judge_reconstruction(
+    self, spec: Any, y_hat: np.ndarray, y_fit: np.ndarray, valid: np.ndarray, y_eval: np.ndarray, y_eval_std: float, raw_rmse: float, tol: float,
+    rejected: list[tuple[str, str, float]],
+) -> bool:
+    """Judge one spec's worst-case eval reconstruction against the raw-y baseline: True when it survives, else records the rejection and returns False."""
+    finite = np.isfinite(y_hat)
+    n_finite = int(finite.sum())
+    _led_kw = dict(base_column=getattr(spec, "base_column", ""), transform_name=getattr(spec, "transform_name", ""))
+    if n_finite < max(50, int(0.5 * y_hat.size)):
+        _r = f"non-finite inverse ({n_finite}/{y_hat.size} finite)"
+        rejected.append((spec.name, _r, float("inf")))
+        ledger_append(self, spec_name=spec.name, stage=RejectStage.YSCALE_HOLDOUT, reason=_r,
+                      numbers={"n_finite": n_finite, "n_total": int(y_hat.size)}, **_led_kw)
+        return False
+    y_hat, pred_std = median_filled_with_std(y_hat, y_fit[valid])  # score what predict() ships, on every eval row
+    if y_eval_std > 0 and pred_std < 1e-4 * y_eval_std:
+        _r = f"collapsed (pred_std={pred_std:.3g} vs y_std={y_eval_std:.3g})"
+        rejected.append((spec.name, _r, float("inf")))
+        ledger_append(self, spec_name=spec.name, stage=RejectStage.YSCALE_HOLDOUT, reason=_r,
+                      numbers={"pred_std": pred_std, "y_eval_std": y_eval_std}, **_led_kw)
+        return False
+    rmse_y = rmse(y_eval, y_hat)
+    if not np.isfinite(rmse_y) or rmse_y > raw_rmse * tol:
+        _r = f"y-RMSE={rmse_y:.4g} > raw {raw_rmse:.4g} x {tol:.2f}"
+        rejected.append((spec.name, _r, float(rmse_y)))
+        ledger_append(self, spec_name=spec.name, stage=RejectStage.YSCALE_HOLDOUT, reason=_r,
+                      numbers={"rmse_y": float(rmse_y), "raw_rmse": float(raw_rmse), "tol": float(tol)}, **_led_kw)
+        return False
+    object.__setattr__(spec, "yscale_holdout_rmse", float(rmse_y))
+    object.__setattr__(spec, "yscale_holdout_raw_rmse", float(raw_rmse))
+    return True
+
+
+def _log_gate_outcome(rejected: list[tuple[str, str, float]], n_specs: int, gate_mode: str, raw_rmse: float, tol: float) -> None:
+    """Log which specs the y-scale holdout gate dropped, or that all passed."""
+    if rejected:
+        logger.warning(
+            "[CompositeTargetDiscovery.yscale_gate] dropped %d/%d spec(s) that collapse on the "
+            "%s y-scale eval (raw-y baseline RMSE=%.4g, tol=%.2f): %s",
+            len(rejected), n_specs, gate_mode, raw_rmse, tol,
+            ", ".join(f"{n}({why})" for n, why, _ in rejected),
+        )
+    else:
+        logger.info(
+            "[CompositeTargetDiscovery.yscale_gate] all %d spec(s) passed the %s "
+            "y-scale eval (raw-y baseline RMSE=%.4g).", n_specs, gate_mode, raw_rmse,
+        )
+
+
 def apply_yscale_holdout_gate(
     self,
     df: Any,
@@ -391,59 +506,11 @@ def apply_yscale_holdout_gate(
     cap = int(getattr(cfg, "yscale_holdout_gate_sample_n", 30_000))
     rng = np.random.default_rng(int(getattr(cfg, "random_state", 42)))
 
-    def _subsample(idx: np.ndarray, n_cap: int) -> np.ndarray:
-        """Cap ``idx`` to ``n_cap`` rows via a sorted random draw, leaving it unchanged when already within budget."""
-        idx = np.asarray(idx)
-        if n_cap <= 0 or idx.size <= n_cap:
-            return idx
-        return np.sort(rng.choice(idx, size=n_cap, replace=False))
-
     feats, val_y = list(usable_features), (None if val_y is None else np.asarray(val_y))
-    _eval_df = df  # frame the eval rows are gathered from; df (train) for the fallback path
-    if val_df is not None and val_y is not None and val_y.size >= 50:
-        # Preferred path: fit on TRAIN (seen wells), evaluate on the VAL frame (unseen wells); group-disjoint by construction under the group-aware split.
-        fit_idx = _subsample(screen_idx, cap)
-        eval_idx = _subsample(np.arange(val_y.size), cap)
-        # Engineered grouped causal features / bases exist only on the discovery frame; build them on val from val_y.
-        _eval_df = grouped_causal_bases_for_frame(self, val_df, val_y, target_col, [*feats, *(c for s in kept_specs for c in spec_base_columns(s))])
-        y_fit = y_full[fit_idx].astype(np.float64)
-        y_eval = val_y[eval_idx].astype(np.float64)
-        _fit_groups = None  # the params were fit on train and the eval rows come from the val frame: no refit needed
-        _eval_groups = _val_group_labels(self, val_df, eval_idx)
-        _gate_mode = "val-split"
-    else:
-        # Fallback: carve a group-disjoint holdout out of the training groups themselves.
-        group_ids = getattr(self, "_group_ids_for_rerank", None)
-        if group_ids is None:
-            logger.info(
-                "[CompositeTargetDiscovery.yscale_gate] no val frame and no group ids -- gate skipped "
-                "(the inverse-collapse regime is unseen-group; nothing to validate against)."
-            )
-            return kept_specs
-        group_ids = np.asarray(group_ids)
-        sample_idx = _subsample(screen_idx, cap)
-        try:
-            groups_sample = group_ids[sample_idx]
-        except (IndexError, TypeError):
-            logger.warning("[CompositeTargetDiscovery.yscale_gate] group ids not row-aligned -- gate skipped.")
-            return kept_specs
-        min_groups = int(getattr(cfg, "yscale_holdout_gate_min_groups", 4))
-        if np.unique(groups_sample).size < min_groups:
-            logger.info(
-                "[CompositeTargetDiscovery.yscale_gate] only %d group(s) in the gate sample (<%d) and no "
-                "val frame -- cannot carve a disjoint holdout; gate skipped.",
-                np.unique(groups_sample).size, min_groups,
-            )
-            return kept_specs
-        fit_idx, eval_idx = _carve_group_disjoint(sample_idx, groups_sample, float(getattr(cfg, "yscale_holdout_gate_holdout_group_frac", 0.3)), rng)
-        y_fit = y_full[fit_idx].astype(np.float64)
-        y_eval = y_full[eval_idx].astype(np.float64)
-        _fit_groups = group_ids[fit_idx]  # the spec's params saw the holdout groups; refit them on the fit groups alone
-        _eval_groups = group_ids[eval_idx]
-        _gate_mode = "train-group-holdout"
-    if fit_idx.size < 50 or eval_idx.size < 50:
-        logger.info("[CompositeTargetDiscovery.yscale_gate] unseen-group eval set too small -- gate skipped.")
+    split = _gate_eval_split(self, df, target_col, kept_specs, feats, screen_idx, y_full, val_df, val_y, cap, rng)
+    if split is None:
         return kept_specs
+    fit_idx, eval_idx, y_fit, y_eval, _fit_groups, _eval_groups, _gate_mode, _eval_df = split
 
     x_fit = self._build_feature_matrix(df, feats, fit_idx)
     x_eval = self._build_feature_matrix(_eval_df, feats, eval_idx)
@@ -477,7 +544,6 @@ def apply_yscale_holdout_gate(
         return kept_specs
 
     tol = float(getattr(cfg, "yscale_holdout_gate_tolerance", 1.10))
-    threshold = raw_rmse * tol
     survivors: list = []
     rejected: list[tuple[str, str, float]] = []
 
@@ -512,43 +578,8 @@ def apply_yscale_holdout_gate(
             continue
         y_hat = max(scored, key=lambda h: rmse(y_eval, median_filled_with_std(h, y_fit)[0]))
 
-        finite = np.isfinite(y_hat)
-        n_finite = int(finite.sum())
-        _led_kw = dict(base_column=getattr(spec, "base_column", ""), transform_name=getattr(spec, "transform_name", ""))
-        if n_finite < max(50, int(0.5 * y_hat.size)):
-            _r = f"non-finite inverse ({n_finite}/{y_hat.size} finite)"
-            rejected.append((spec.name, _r, float("inf")))
-            ledger_append(self, spec_name=spec.name, stage=RejectStage.YSCALE_HOLDOUT, reason=_r,
-                          numbers={"n_finite": n_finite, "n_total": int(y_hat.size)}, **_led_kw)
-            continue
-        y_hat, pred_std = median_filled_with_std(y_hat, y_fit[valid])  # score what predict() ships, on every eval row
-        if y_eval_std > 0 and pred_std < 1e-4 * y_eval_std:
-            _r = f"collapsed (pred_std={pred_std:.3g} vs y_std={y_eval_std:.3g})"
-            rejected.append((spec.name, _r, float("inf")))
-            ledger_append(self, spec_name=spec.name, stage=RejectStage.YSCALE_HOLDOUT, reason=_r,
-                          numbers={"pred_std": pred_std, "y_eval_std": y_eval_std}, **_led_kw)
-            continue
-        rmse_y = rmse(y_eval, y_hat)
-        if not np.isfinite(rmse_y) or rmse_y > threshold:
-            _r = f"y-RMSE={rmse_y:.4g} > raw {raw_rmse:.4g} x {tol:.2f}"
-            rejected.append((spec.name, _r, float(rmse_y)))
-            ledger_append(self, spec_name=spec.name, stage=RejectStage.YSCALE_HOLDOUT, reason=_r,
-                          numbers={"rmse_y": float(rmse_y), "raw_rmse": float(raw_rmse), "tol": float(tol)}, **_led_kw)
-            continue
-        object.__setattr__(spec, "yscale_holdout_rmse", float(rmse_y))
-        object.__setattr__(spec, "yscale_holdout_raw_rmse", float(raw_rmse))
-        survivors.append(spec)
+        if _judge_reconstruction(self, spec, y_hat, y_fit, valid, y_eval, y_eval_std, raw_rmse, tol, rejected):
+            survivors.append(spec)
 
-    if rejected:
-        logger.warning(
-            "[CompositeTargetDiscovery.yscale_gate] dropped %d/%d spec(s) that collapse on the "
-            "%s y-scale eval (raw-y baseline RMSE=%.4g, tol=%.2f): %s",
-            len(rejected), len(kept_specs), _gate_mode, raw_rmse, tol,
-            ", ".join(f"{n}({why})" for n, why, _ in rejected),
-        )
-    else:
-        logger.info(
-            "[CompositeTargetDiscovery.yscale_gate] all %d spec(s) passed the %s "
-            "y-scale eval (raw-y baseline RMSE=%.4g).", len(kept_specs), _gate_mode, raw_rmse,
-        )
+    _log_gate_outcome(rejected, len(kept_specs), _gate_mode, raw_rmse, tol)
     return survivors

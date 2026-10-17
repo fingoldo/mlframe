@@ -37,6 +37,7 @@ from __future__ import annotations
 
 import logging
 import os
+from typing import Any, Optional
 
 import numba
 import numpy as np
@@ -191,6 +192,102 @@ def _generate_target_shuffles(y_codes: np.ndarray, nperm: int, dtype, rng, *, ra
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
 
+def _resident_floor_maxes(
+    scaled_flat: np.ndarray, offsets: np.ndarray, _jc: np.ndarray, _hx: np.ndarray, _mm: np.ndarray, h_y: float, y_perms_dev: Optional[Any],
+    y_perms: Optional[np.ndarray], inv_n: float,
+) -> Optional[np.ndarray]:
+    """Per-shuffle MAX corrected MI from the resident cupy twin; None on any GPU fault (circuit breaker tripped) so the caller runs the exact njit kernel."""
+    try:
+        from ._permutation_null_resident import pooled_gain_floor_perms_cupy
+
+        # y_perms_dev (device-born, no H2D) when the GPU shuffle-gen fired; else the host matrix
+        # (cp.asarray uploads it once). Either way the resident floor D2Hs only the (nperm,) maxes.
+        return pooled_gain_floor_perms_cupy(
+            scaled_flat,
+            offsets,
+            _jc,
+            _hx,
+            _mm,
+            float(h_y),
+            (y_perms_dev if y_perms_dev is not None else y_perms),
+            float(inv_n),
+        )
+    except Exception:
+        # Same zero-logging/no-circuit-breaker gap as the shuffle-gen site above.
+        logger.warning(
+            "MRMR FE: resident-GPU order-1 maxT permutation-null pooled-gain-floor faulted; tripping "
+            "the GPU circuit breaker and falling back to the CPU njit floor for the rest of this process.",
+            exc_info=True,
+        )
+        try:
+            from ._permutation_null_resident import trip_order1_maxt_gpu_circuit_breaker
+
+            trip_order1_maxt_gpu_circuit_breaker()
+        except Exception as _trip_exc:
+            logger.debug("mrmr: tripping the order-1 maxT GPU circuit breaker itself failed: %r", _trip_exc, exc_info=True)
+        return None  # fall through to the exact njit kernel
+
+
+def _device_target_shuffles(y_codes: np.ndarray, n: int, nperm: int, fdr_dt: type, random_seed: int | None) -> Optional[Any]:
+    """Device-born target shuffles when the shuffle-gen KTC says the GPU wins; None on a fault (circuit breaker tripped) or when the host should generate."""
+    y_perms_dev = None
+    try:
+        from ._permutation_null_shufflegen_ktc import shufflegen_use_gpu
+
+        if shufflegen_use_gpu(n, nperm):
+            from ._permutation_null_resident import gen_target_shuffles_cupy
+
+            y_perms_dev = gen_target_shuffles_cupy(y_codes, nperm, fdr_dt, random_seed)
+    except Exception:
+        # This fault path had zero logging and no circuit breaker, unlike
+        # the order-2 sibling. WARN once and trip so later calls this process skip the (likely
+        # poisoned) GPU context immediately instead of re-faulting silently on every call.
+        logger.warning(
+            "MRMR FE: resident-GPU order-1 maxT permutation-null shuffle-gen faulted; tripping the "
+            "GPU circuit breaker and falling back to the CPU shuffle-gen for the rest of this process.",
+            exc_info=True,
+        )
+        try:
+            from ._permutation_null_resident import trip_order1_maxt_gpu_circuit_breaker
+
+            trip_order1_maxt_gpu_circuit_breaker()
+        except Exception as _trip_exc:
+            logger.debug("mrmr: tripping the order-1 maxT GPU circuit breaker itself failed: %r", _trip_exc, exc_info=True)
+        y_perms_dev = None
+    return y_perms_dev
+
+
+def _order1_candidate_stats(
+    factors_data: np.ndarray, factors_nbins: np.ndarray, candidate_indices: np.ndarray, y_idx: int, nbins_y: int, inv_n: float, n: int, ky_eff: int,
+    cardinality_bias_correction: bool,
+) -> tuple[list, list, list, list]:
+    """Per-candidate scaled codes, joint cardinalities, marginal entropies and Miller-Madow biases of the order-1 pool (the ``y_index`` column is skipped)."""
+    scaled_codes = []  # x_codes * nbins_y  (so joint = scaled + y_perm)
+    joint_card = []  # nbins_x * nbins_y
+    h_x = []  # marginal entropy of each candidate
+    mm_bias = []  # Miller-Madow bias subtracted from each candidate's MI
+    for c in candidate_indices:
+        ci = int(c)
+        if ci == y_idx:
+            continue
+        nb = int(factors_nbins[ci])
+        if nb < 2:
+            continue
+        xc = np.ascontiguousarray(factors_data[:, ci]).astype(np.int64)
+        xcounts = np.bincount(xc, minlength=nb).astype(np.float64)
+        px = xcounts[xcounts > 0] * inv_n
+        kx_eff = int(px.shape[0])  # occupied bins of this candidate (idea-#9)
+        # int32 codes (not int64): the joint code ``x_code*nbins_y + y_code`` is < nbins_x*nbins_y,
+        # always within int32 - so this is BIT-IDENTICAL but halves the (n_cand x n) ``scaled_flat``
+        # and (nperm x n) ``y_perms`` pools below, which reach GBs at n=1M and drove an OOM
+        # (_permutation_null.py:239, (n_cand*n,) int64). Used only as histogram indices downstream.
+        scaled_codes.append((xc * nbins_y).astype(np.int32))
+        joint_card.append(nb * nbins_y)
+        h_x.append(float(-(px * np.log(px)).sum()))
+        mm_bias.append(((kx_eff - 1) * (ky_eff - 1) / (2.0 * n)) if cardinality_bias_correction else 0.0)
+    return scaled_codes, joint_card, h_x, mm_bias
+
+
 def pooled_permutation_null_gain_floor(
     factors_data: np.ndarray,
     factors_nbins: np.ndarray,
@@ -260,29 +357,9 @@ def pooled_permutation_null_gain_floor(
     # relabelling shuffle, so it is fixed here.
     ky_eff = int(py.shape[0])
 
-    scaled_codes = []  # x_codes * nbins_y  (so joint = scaled + y_perm)
-    joint_card = []  # nbins_x * nbins_y
-    h_x = []  # marginal entropy of each candidate
-    mm_bias = []  # Miller-Madow bias subtracted from each candidate's MI
-    for c in candidate_indices:
-        ci = int(c)
-        if ci == y_idx:
-            continue
-        nb = int(factors_nbins[ci])
-        if nb < 2:
-            continue
-        xc = np.ascontiguousarray(factors_data[:, ci]).astype(np.int64)
-        xcounts = np.bincount(xc, minlength=nb).astype(np.float64)
-        px = xcounts[xcounts > 0] * inv_n
-        kx_eff = int(px.shape[0])  # occupied bins of this candidate (idea-#9)
-        # int32 codes (not int64): the joint code ``x_code*nbins_y + y_code`` is < nbins_x*nbins_y,
-        # always within int32 - so this is BIT-IDENTICAL but halves the (n_cand x n) ``scaled_flat``
-        # and (nperm x n) ``y_perms`` pools below, which reach GBs at n=1M and drove an OOM
-        # (_permutation_null.py:239, (n_cand*n,) int64). Used only as histogram indices downstream.
-        scaled_codes.append((xc * nbins_y).astype(np.int32))
-        joint_card.append(nb * nbins_y)
-        h_x.append(float(-(px * np.log(px)).sum()))
-        mm_bias.append(((kx_eff - 1) * (ky_eff - 1) / (2.0 * n)) if cardinality_bias_correction else 0.0)
+    scaled_codes, joint_card, h_x, mm_bias = _order1_candidate_stats(
+        factors_data, factors_nbins, candidate_indices, y_idx, nbins_y, inv_n, n, ky_eff, cardinality_bias_correction
+    )
 
     n_cand = len(scaled_codes)
     if n_cand < 2:
@@ -317,29 +394,7 @@ def pooled_permutation_null_gain_floor(
     y_perms = None
     y_perms_dev = None
     if _resident_ok:
-        try:
-            from ._permutation_null_shufflegen_ktc import shufflegen_use_gpu
-
-            if shufflegen_use_gpu(n, nperm):
-                from ._permutation_null_resident import gen_target_shuffles_cupy
-
-                y_perms_dev = gen_target_shuffles_cupy(y_codes, nperm, _fdr_dt, random_seed)
-        except Exception:
-            # This fault path had zero logging and no circuit breaker, unlike
-            # the order-2 sibling. WARN once and trip so later calls this process skip the (likely
-            # poisoned) GPU context immediately instead of re-faulting silently on every call.
-            logger.warning(
-                "MRMR FE: resident-GPU order-1 maxT permutation-null shuffle-gen faulted; tripping the "
-                "GPU circuit breaker and falling back to the CPU shuffle-gen for the rest of this process.",
-                exc_info=True,
-            )
-            try:
-                from ._permutation_null_resident import trip_order1_maxt_gpu_circuit_breaker
-
-                trip_order1_maxt_gpu_circuit_breaker()
-            except Exception as _trip_exc:
-                logger.debug("mrmr: tripping the order-1 maxT GPU circuit breaker itself failed: %r", _trip_exc, exc_info=True)
-            y_perms_dev = None
+        y_perms_dev = _device_target_shuffles(y_codes, n, nperm, _fdr_dt, random_seed)
     if y_perms_dev is None:
         y_perms = _generate_target_shuffles(y_codes, nperm, _fdr_dt, rng, random_seed=random_seed)
     scaled_flat = np.concatenate(scaled_codes).astype(_fdr_dt)
@@ -357,35 +412,7 @@ def pooled_permutation_null_gain_floor(
     # floor is NEVER broken by a GPU problem (correctness first).
     maxes = None
     if _resident_ok:
-        try:
-            from ._permutation_null_resident import pooled_gain_floor_perms_cupy
-
-            # y_perms_dev (device-born, no H2D) when the GPU shuffle-gen fired; else the host matrix
-            # (cp.asarray uploads it once). Either way the resident floor D2Hs only the (nperm,) maxes.
-            maxes = pooled_gain_floor_perms_cupy(
-                scaled_flat,
-                offsets,
-                _jc,
-                _hx,
-                _mm,
-                float(h_y),
-                (y_perms_dev if y_perms_dev is not None else y_perms),
-                float(inv_n),
-            )
-        except Exception:
-            # Same zero-logging/no-circuit-breaker gap as the shuffle-gen site above.
-            logger.warning(
-                "MRMR FE: resident-GPU order-1 maxT permutation-null pooled-gain-floor faulted; tripping "
-                "the GPU circuit breaker and falling back to the CPU njit floor for the rest of this process.",
-                exc_info=True,
-            )
-            try:
-                from ._permutation_null_resident import trip_order1_maxt_gpu_circuit_breaker
-
-                trip_order1_maxt_gpu_circuit_breaker()
-            except Exception as _trip_exc:
-                logger.debug("mrmr: tripping the order-1 maxT GPU circuit breaker itself failed: %r", _trip_exc, exc_info=True)
-            maxes = None  # fall through to the exact njit kernel
+        maxes = _resident_floor_maxes(scaled_flat, offsets, _jc, _hx, _mm, h_y, y_perms_dev, y_perms, inv_n)
     if maxes is None:
         # njit fallback needs the HOST matrix; generate it now if the device path skipped the host gen.
         if y_perms is None:

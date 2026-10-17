@@ -261,6 +261,126 @@ def _resolve_pc_backend(q: int, r: int, n: int) -> str:
         return "numpy"
 
 
+def _dedup_walk(
+    cols: Sequence[str], classes: list, dense_idx: list, abs_corr: Optional[np.ndarray], pc_pd: Optional[np.ndarray], pc_pp: Optional[np.ndarray],
+    partial_pos: dict, corr_threshold: float,
+) -> list[str]:
+    """Pass 3: walk the columns in order and keep those not duplicated (|corr| >= threshold) by an already-kept column."""
+    def _hits(vec: np.ndarray, idxs: list[int]) -> bool:
+        """True iff any kept reference in ``idxs`` has finite |corr| >= threshold (nan == not-a-duplicate)."""
+        if not idxs:
+            return False
+        sub = vec[idxs]
+        return bool(np.any(np.isfinite(sub) & (sub >= corr_threshold)))
+
+    # ---- Pass 3: walk in order, apply dedup verdict --------------------------
+    kept: list[str] = []
+    kept_dense_rows: list[int] = []  # dense-matrix row indices already kept
+    kept_partial_pos: list[int] = []  # partial-matrix row indices already kept
+    dense_pos = 0  # which dense candidate slot we're currently at
+    for i, c in enumerate(cols):
+        cls = classes[i]
+        if cls == "pass_through":
+            kept.append(c)
+            # Pass-through columns are never used as a corr reference for downstream candidates (legacy stored arr but
+            # the comparison always short-circuited via `.sum() < 8` or `.std() <= 1e-12`).
+            continue
+        if cls == "dense":
+            row_idx = dense_idx[dense_pos]
+            dense_pos += 1
+            assert abs_corr is not None  # this "dense" cls only occurs when dense_rows was non-empty, which set abs_corr
+            is_dup = _hits(abs_corr[row_idx], kept_dense_rows)
+            # Also compare against any kept partial-NaN columns (rare): pc_pd[p, row_idx] is partial-p vs this dense col.
+            if not is_dup and kept_partial_pos:
+                assert pc_pd is not None  # kept_partial_pos non-empty implies partial_order was non-empty, which set pc_pd
+                col = pc_pd[:, row_idx]
+                is_dup = bool(np.any(np.isfinite(col[kept_partial_pos]) & (col[kept_partial_pos] >= corr_threshold)))
+            if not is_dup:
+                kept.append(c)
+                kept_dense_rows.append(row_idx)
+            continue
+        # cls == "partial_nan": vectorized lookups against kept dense + kept partial.
+        p = partial_pos[i]
+        assert pc_pd is not None and pc_pp is not None  # this "partial_nan" cls only occurs when partial_order was non-empty, which set both
+        is_dup = True if _hits(pc_pd[p], kept_dense_rows) else _hits(pc_pp[p], kept_partial_pos)
+        if not is_dup:
+            kept.append(c)
+            kept_partial_pos.append(p)
+    return kept
+
+
+def _dense_abs_corr(dense_rows: list) -> tuple[Optional[np.ndarray], Optional[np.ndarray]]:
+    """Pass 2: ``(dense_matrix, |corr| matrix)`` of the fully-finite columns (both None when there are none)."""
+    # ---- Pass 2: bulk corrcoef on the dense block ---------------------------
+    # One C call replaces p_dense * (p_dense - 1) / 2 per-pair Python+numpy
+    # roundtrips. Numerically equivalent to per-pair np.corrcoef because
+    # numpy.corrcoef(M)[i, j] uses the same _cov / _std reduction order as
+    # numpy.corrcoef(M[i], M[j])[0, 1] (verified bit-identical at p=200).
+    if dense_rows:
+        dense_matrix = np.vstack(dense_rows)
+        # This block used to hardcode np.corrcoef regardless of backend, unlike the partial-NaN block below
+        # which already dispatches through _resolve_pc_backend/_pairwise_complete_abs_corr (GPU-strict aware).
+        # On the wellbore-100k GPU-strict cProfile this hardcoded CPU call cost 116.9s cumtime over just 9
+        # calls (p_dense in the thousands after FE families stack their candidate columns) while the STRICT
+        # contract is "carry FE compute on the device". A fully-finite matrix is the degenerate case of
+        # pairwise-complete-obs correlation (every row kept), so routing it through the same bit-verified
+        # backend as the partial-NaN path is correctness-neutral and picks up the cupy/njit dispatch for free.
+        _backend = _resolve_pc_backend(len(dense_rows), len(dense_rows), dense_matrix.shape[1])
+        if _backend in ("cupy", "njit"):
+            abs_corr = _pairwise_complete_abs_corr(dense_matrix, dense_matrix)
+        else:
+            # Empty (0, n) matrix corrcoef raises; only call when we have rows.
+            corr_matrix = np.corrcoef(dense_matrix)
+            # Single-row corrcoef returns a scalar 1.0 instead of (1, 1); normalize.
+            if corr_matrix.ndim == 0:
+                corr_matrix = np.array([[1.0]], dtype=np.float64)
+            # Absolute corrs only; NaN -> not duplicate (matches legacy's
+            # `if not np.isfinite(corr): continue` skip).
+            abs_corr = np.abs(corr_matrix)
+    else:
+        abs_corr = None
+    return (dense_matrix if dense_rows else None), abs_corr
+
+
+def _classify_dedup_columns(X: pd.DataFrame, cols: Sequence[str], _sample_idx: Optional[np.ndarray]) -> tuple[list, list, list, dict]:
+    """Pass 1: classify each column as pass_through / dense / partial_nan; returns ``(classes, dense_idx, dense_rows, partial_arrays)``."""
+    classes: list[str] = []  # one of: "pass_through", "dense", "partial_nan"
+    dense_idx: list[int] = []  # candidate index in cols -> dense-matrix row
+    dense_rows: list[np.ndarray] = []  # the dense arrays themselves
+    partial_arrays: dict[int, np.ndarray] = {}  # candidate index -> arr (with NaN)
+
+    from .._fe_usability_signal import _crit_np_dtype
+    _dt = _crit_np_dtype()  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); coarse corr-threshold dedup is scale-robust. Hoisted out of the loop (was re-invoked once per column).
+    for i, c in enumerate(cols):
+        if c not in X.columns or not pd.api.types.is_numeric_dtype(X[c]):
+            classes.append("pass_through")
+            continue
+        arr = np.asarray(X[c].to_numpy(), dtype=_dt)
+        if _sample_idx is not None:
+            arr = arr[_sample_idx]
+        finite = np.isfinite(arr)
+        if not finite.any():
+            # All-NaN: pass-through, no kept_array stored. (Matches legacy:
+            # legacy stored kept_arrays[c] = arr but immediately continued
+            # on the next iteration's `mask.sum() < 8` check; the only
+            # observable effect is that downstream partial-NaN candidates
+            # don't compute corr against an all-NaN kept column anyway.)
+            classes.append("pass_through")
+            continue
+        # std on the finite subset, matching legacy's constant-detection.
+        if arr[finite].std() <= 1e-12:
+            classes.append("pass_through")
+            continue
+        if finite.all():
+            classes.append("dense")
+            dense_idx.append(len(dense_rows))
+            dense_rows.append(arr)
+        else:
+            classes.append("partial_nan")
+            partial_arrays[i] = arr
+    return classes, dense_idx, dense_rows, partial_arrays
+
+
 def _dedup_collinear_source_cols(
     X: pd.DataFrame, cols: Sequence[str], *, corr_threshold: float = 0.999,
 ) -> list[str]:
@@ -330,69 +450,9 @@ def _dedup_collinear_source_cols(
     # Row-cap the correlation estimate (see _MAX_CORR_ROWS note). Deterministic seed so a fit is reproducible; sorted so
     # the sampled rows keep their original order (irrelevant to Pearson, but avoids surprising downstream if reused).
     _sample_idx = _dedup_sample_idx(n_rows)
-    classes: list[str] = []  # one of: "pass_through", "dense", "partial_nan"
-    dense_idx: list[int] = []  # candidate index in cols -> dense-matrix row
-    dense_rows: list[np.ndarray] = []  # the dense arrays themselves
-    partial_arrays: dict[int, np.ndarray] = {}  # candidate index -> arr (with NaN)
+    classes, dense_idx, dense_rows, partial_arrays = _classify_dedup_columns(X, cols, _sample_idx)
 
-    from .._fe_usability_signal import _crit_np_dtype
-    _dt = _crit_np_dtype()  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); coarse corr-threshold dedup is scale-robust. Hoisted out of the loop (was re-invoked once per column).
-    for i, c in enumerate(cols):
-        if c not in X.columns or not pd.api.types.is_numeric_dtype(X[c]):
-            classes.append("pass_through")
-            continue
-        arr = np.asarray(X[c].to_numpy(), dtype=_dt)
-        if _sample_idx is not None:
-            arr = arr[_sample_idx]
-        finite = np.isfinite(arr)
-        if not finite.any():
-            # All-NaN: pass-through, no kept_array stored. (Matches legacy:
-            # legacy stored kept_arrays[c] = arr but immediately continued
-            # on the next iteration's `mask.sum() < 8` check; the only
-            # observable effect is that downstream partial-NaN candidates
-            # don't compute corr against an all-NaN kept column anyway.)
-            classes.append("pass_through")
-            continue
-        # std on the finite subset, matching legacy's constant-detection.
-        if arr[finite].std() <= 1e-12:
-            classes.append("pass_through")
-            continue
-        if finite.all():
-            classes.append("dense")
-            dense_idx.append(len(dense_rows))
-            dense_rows.append(arr)
-        else:
-            classes.append("partial_nan")
-            partial_arrays[i] = arr
-
-    # ---- Pass 2: bulk corrcoef on the dense block ---------------------------
-    # One C call replaces p_dense * (p_dense - 1) / 2 per-pair Python+numpy
-    # roundtrips. Numerically equivalent to per-pair np.corrcoef because
-    # numpy.corrcoef(M)[i, j] uses the same _cov / _std reduction order as
-    # numpy.corrcoef(M[i], M[j])[0, 1] (verified bit-identical at p=200).
-    if dense_rows:
-        dense_matrix = np.vstack(dense_rows)
-        # This block used to hardcode np.corrcoef regardless of backend, unlike the partial-NaN block below
-        # which already dispatches through _resolve_pc_backend/_pairwise_complete_abs_corr (GPU-strict aware).
-        # On the wellbore-100k GPU-strict cProfile this hardcoded CPU call cost 116.9s cumtime over just 9
-        # calls (p_dense in the thousands after FE families stack their candidate columns) while the STRICT
-        # contract is "carry FE compute on the device". A fully-finite matrix is the degenerate case of
-        # pairwise-complete-obs correlation (every row kept), so routing it through the same bit-verified
-        # backend as the partial-NaN path is correctness-neutral and picks up the cupy/njit dispatch for free.
-        _backend = _resolve_pc_backend(len(dense_rows), len(dense_rows), dense_matrix.shape[1])
-        if _backend in ("cupy", "njit"):
-            abs_corr = _pairwise_complete_abs_corr(dense_matrix, dense_matrix)
-        else:
-            # Empty (0, n) matrix corrcoef raises; only call when we have rows.
-            corr_matrix = np.corrcoef(dense_matrix)
-            # Single-row corrcoef returns a scalar 1.0 instead of (1, 1); normalize.
-            if corr_matrix.ndim == 0:
-                corr_matrix = np.array([[1.0]], dtype=np.float64)
-            # Absolute corrs only; NaN -> not duplicate (matches legacy's
-            # `if not np.isfinite(corr): continue` skip).
-            abs_corr = np.abs(corr_matrix)
-    else:
-        abs_corr = None
+    dense_matrix, abs_corr = _dense_abs_corr(dense_rows)
 
     # Precompute the partial-NaN comparison blocks ONCE via the vectorized pairwise-complete kernel, replacing the
     # legacy O(P^2) per-pair ``np.corrcoef`` loop (the hot path on frames with many NaN-bearing columns, e.g. well logs
@@ -405,52 +465,13 @@ def _dedup_collinear_source_cols(
     pc_pp: np.ndarray | None
     if partial_order:
         partial_mat = np.vstack([partial_arrays[i] for i in partial_order])
-        dense_mat_for_pc = dense_matrix if dense_rows else np.empty((0, partial_mat.shape[1]), dtype=np.float64)
+        dense_mat_for_pc = dense_matrix if dense_matrix is not None else np.empty((0, partial_mat.shape[1]), dtype=np.float64)
         pc_pd = _pairwise_complete_abs_corr(partial_mat, dense_mat_for_pc)  # (n_partial, n_dense)
         pc_pp = _pairwise_complete_abs_corr(partial_mat, partial_mat)  # (n_partial, n_partial)
     else:
         pc_pd = pc_pp = None
 
-    def _hits(vec: np.ndarray, idxs: list[int]) -> bool:
-        """True iff any kept reference in ``idxs`` has finite |corr| >= threshold (nan == not-a-duplicate)."""
-        if not idxs:
-            return False
-        sub = vec[idxs]
-        return bool(np.any(np.isfinite(sub) & (sub >= corr_threshold)))
-
-    # ---- Pass 3: walk in order, apply dedup verdict --------------------------
-    kept: list[str] = []
-    kept_dense_rows: list[int] = []  # dense-matrix row indices already kept
-    kept_partial_pos: list[int] = []  # partial-matrix row indices already kept
-    dense_pos = 0  # which dense candidate slot we're currently at
-    for i, c in enumerate(cols):
-        cls = classes[i]
-        if cls == "pass_through":
-            kept.append(c)
-            # Pass-through columns are never used as a corr reference for downstream candidates (legacy stored arr but
-            # the comparison always short-circuited via `.sum() < 8` or `.std() <= 1e-12`).
-            continue
-        if cls == "dense":
-            row_idx = dense_idx[dense_pos]
-            dense_pos += 1
-            assert abs_corr is not None  # this "dense" cls only occurs when dense_rows was non-empty, which set abs_corr
-            is_dup = _hits(abs_corr[row_idx], kept_dense_rows)
-            # Also compare against any kept partial-NaN columns (rare): pc_pd[p, row_idx] is partial-p vs this dense col.
-            if not is_dup and kept_partial_pos:
-                assert pc_pd is not None  # kept_partial_pos non-empty implies partial_order was non-empty, which set pc_pd
-                col = pc_pd[:, row_idx]
-                is_dup = bool(np.any(np.isfinite(col[kept_partial_pos]) & (col[kept_partial_pos] >= corr_threshold)))
-            if not is_dup:
-                kept.append(c)
-                kept_dense_rows.append(row_idx)
-            continue
-        # cls == "partial_nan": vectorized lookups against kept dense + kept partial.
-        p = partial_pos[i]
-        assert pc_pd is not None and pc_pp is not None  # this "partial_nan" cls only occurs when partial_order was non-empty, which set both
-        is_dup = True if _hits(pc_pd[p], kept_dense_rows) else _hits(pc_pp[p], kept_partial_pos)
-        if not is_dup:
-            kept.append(c)
-            kept_partial_pos.append(p)
+    kept = _dedup_walk(cols, classes, dense_idx, abs_corr, pc_pd, pc_pp, partial_pos, corr_threshold)
     if _memo is not None:
         _memo[_memo_key] = kept
     return kept

@@ -135,6 +135,34 @@ def _friend_graph_and_redundancy_passes_group2(
     # remap so the re-added index routes correctly; the recipe is in
     # ``engineered_recipes`` -> transform() replays it byte-for-byte.
     _hinge_feats = getattr(self, "_hinge_features_", None)
+    selected_vars = _friend_graph_and_redundancy_passes_group2_part1(
+        _hinge_feats, self, selected_vars, cols, _y_np, data, X, _eng_continuous_snapshot, _hybrid_orth_pre_recipes, _hinge_deferred_values, verbose,
+        target_indices, nbins, _effective_min_relevance_gain, cached_MIs,
+    )
+
+    # CAT-FE FLOOR-DROP PROTECTION (Fix-C). The Westfall-Young maxT relevance floor (computed over
+    # the FULL widened candidate pool when many FE families are on) routinely rises above the marginal binned-MI
+    # of a genuine categorical-FE encoding - a K-fold target encoding (``cat__te``), a count/frequency encoding,
+    # or a cat-num residual (``price__resid_by__cat_region``) - so the greedy screen drops it after 2 features
+    # EVEN THOUGH it carries strong LINEAR usability to y (the MI-vs-linear-usability gap, a recurring mlframe
+    # theme). The cat-num residual on the kitchen-sink frame has univariate corr ~0.27 / held-out R^2-incr ~0.06
+    # over the selected design yet is screened out, so downstream LogReg loses ~0.6% AUC. This is the SAME class
+    # of false-drop the raw-feature / orth-basis / hinge protections already correct - but those iterate only
+    # over raw ``feature_names_in_`` / single-source orth bases / hinge legs, so an engineered cat-FE column falls
+    # through every one of them. Mirror the raw protection here: KEEP the floor (sub-null noise stays rejected)
+    # and re-add a dropped cat-FE column IFF it lifts a HELD-OUT linear fit over the already-selected design by
+    # >= the same R^2 floor. The cat-FE columns live as quantized codes in ``data[:, idx]`` (the continuous
+    # snapshot is only populated by the fe_max_steps>0 path); the binned codes preserve the monotone/linear
+    # signal well enough for the usability test (a genuine encoding lifts R^2 >> floor; a noise encoding ~0).
+
+    return selected_vars, cols, data, nbins
+
+
+def _friend_graph_and_redundancy_passes_group2_part1(
+    _hinge_feats: Any, self: Any, selected_vars: Any, cols: Any, _y_np: Any, data: Any, X: Any, _eng_continuous_snapshot: Any, _hybrid_orth_pre_recipes: Any,
+    _hinge_deferred_values: Any, verbose: Any, target_indices: Any, nbins: Any, _effective_min_relevance_gain: Any, cached_MIs: Any,
+) -> Any:
+    """Extracted block of ``_friend_graph_and_redundancy_passes_group2`` (part 1); returns the names the caller still uses."""
     # ``_heldout_incr_over_selected`` (defined below) is also the ORTH-BASIS UNIVARIATE PROTECTION block's
     # sole held-out-uplift probe (see that block further down) - it was originally written for the hinge
     # protection only and the orth-basis block was added later, reusing the closure via ``locals()`` instead
@@ -268,23 +296,7 @@ def _friend_graph_and_redundancy_passes_group2(
     selected_vars = _composite_subsumption_readd_pass(
         self, X, selected_vars, _y_np, data, cols, _eng_continuous_snapshot, _effective_min_relevance_gain, cached_MIs, verbose
     )
-
-    # CAT-FE FLOOR-DROP PROTECTION (Fix-C). The Westfall-Young maxT relevance floor (computed over
-    # the FULL widened candidate pool when many FE families are on) routinely rises above the marginal binned-MI
-    # of a genuine categorical-FE encoding - a K-fold target encoding (``cat__te``), a count/frequency encoding,
-    # or a cat-num residual (``price__resid_by__cat_region``) - so the greedy screen drops it after 2 features
-    # EVEN THOUGH it carries strong LINEAR usability to y (the MI-vs-linear-usability gap, a recurring mlframe
-    # theme). The cat-num residual on the kitchen-sink frame has univariate corr ~0.27 / held-out R^2-incr ~0.06
-    # over the selected design yet is screened out, so downstream LogReg loses ~0.6% AUC. This is the SAME class
-    # of false-drop the raw-feature / orth-basis / hinge protections already correct - but those iterate only
-    # over raw ``feature_names_in_`` / single-source orth bases / hinge legs, so an engineered cat-FE column falls
-    # through every one of them. Mirror the raw protection here: KEEP the floor (sub-null noise stays rejected)
-    # and re-add a dropped cat-FE column IFF it lifts a HELD-OUT linear fit over the already-selected design by
-    # >= the same R^2 floor. The cat-FE columns live as quantized codes in ``data[:, idx]`` (the continuous
-    # snapshot is only populated by the fe_max_steps>0 path); the binned codes preserve the monotone/linear
-    # signal well enough for the usability test (a genuine encoding lifts R^2 >> floor; a noise encoding ~0).
-
-    return selected_vars, cols, data, nbins
+    return selected_vars
 
 
 def _orth_feature_heldout_gate_pass(

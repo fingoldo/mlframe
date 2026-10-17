@@ -24,12 +24,20 @@ import logging
 import os
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Callable, Iterable, Mapping, Optional, Sequence, cast
+from typing import Any, Callable, Iterable, Mapping, Optional, Sequence
 
 import numpy as np
 
 from mlframe.evaluation import jackknife_ece as _jackknife_ece
 from mlframe.evaluation.shared import ci_from_samples as _ci_from_samples, jackknife_metric as _jackknife_metric
+from mlframe.calibration._policy_pick_helpers import (
+    build_selection_resamples,
+    choose_calibrator,
+    prepare_oof_inputs,
+    resolve_candidate_names,
+    score_candidates,
+    warn_same_oof_selection,
+)
 from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
@@ -761,118 +769,12 @@ def pick_best_calibrator(
     if selection not in ("inner_cv", "same_oof"):
         raise ValueError(f"pick_best_calibrator: selection must be 'inner_cv' or 'same_oof'; got {selection!r}")
     if selection == "same_oof":
-        # same_oof fits AND ECE-scores every candidate on the SAME OOF rows: a flexible calibrator
-        # (Isotonic) interpolates its in-sample ECE toward ~0 and is selected ~100% of the time, with a
-        # reported ECE optimistic by ~0.006 vs fresh data. Prefer selection="inner_cv" for an honest
-        # held-out estimate; same_oof is kept only for replay / A-B against the legacy path.
-        logger.warning(
-            "pick_best_calibrator: selection='same_oof' fits and scores candidates on the same OOF rows "
-            "-- the reported ECE is optimistically biased (Isotonic-favouring). Use selection='inner_cv' "
-            "for an honest held-out estimate."
-        )
-    oof_p = np.asarray(oof_probs, dtype=np.float64)
-    if oof_p.ndim == 2 and oof_p.shape[1] >= 2:
-        oof_p_pos = oof_p[:, 1]
-    else:
-        oof_p_pos = oof_p.ravel()
-    oof_y_arr = np.asarray(oof_y).ravel()
-    n_oof = int(oof_y_arr.shape[0])
-    if oof_p_pos.shape[0] != n_oof:
-        raise ValueError(f"pick_best_calibrator: oof_probs rows ({oof_p_pos.shape[0]}) do not match oof_y ({n_oof})")
-    if n_oof < 4:
-        raise ValueError(f"pick_best_calibrator: need at least 4 OOF rows; got n_oof={n_oof}")
-
-    cand_names = tuple(candidates) if candidates is not None else CANDIDATE_NAMES
-    unknown = [c for c in cand_names if c not in CANDIDATE_NAMES]
-    if unknown:
-        logger.warning("pick_best_calibrator: unknown candidate(s) ignored: %s", unknown)
-    cand_names = tuple(c for c in cand_names if c in CANDIDATE_NAMES)
-    if not cand_names:
-        raise ValueError(f"pick_best_calibrator: no valid candidate names; allowed={CANDIDATE_NAMES}")
-
-    results: dict[str, dict[str, Any]] = {}
-    classes = np.unique(oof_y_arr)
-    stratify = oof_y_arr if classes.size == 2 else None
-
-    def metric_fn(_y: np.ndarray, _p: np.ndarray, _nb: int = n_bins) -> float:
-        """ECE metric closure over the outer ``n_bins`` default, passed to the bootstrap/jackknife machinery."""
-        return _ece_score(_y, _p, n_bins=_nb)
-
-    inner_folds: Optional[list[np.ndarray]] = None
-    if selection == "inner_cv":
-        inner_folds = _stratified_inner_folds(oof_y_arr, max(2, int(inner_cv_splits)), random_state)
-
-    # Only the same-OOF path reads the bootstrap. Under the default ``selection="inner_cv"`` the held-out block
-    # below replaces BOTH the point estimate and the interval, so building the matrix and running 1000 resamples
-    # plus a jackknife per candidate produced a number nothing read -- and the build itself raises MemoryError
-    # once ``4 * n_bootstrap * n_oof`` passes the 1 GiB ceiling, killing a call whose result was going to be
-    # discarded (1.2 GiB at n_oof=300k with the defaults).
-    #
-    # Build the matrix ONCE for the path that does read it: every candidate shares the same n / stratify / seed
-    # and differs only in calibrated y_pred, so a per-candidate ``bootstrap_metric`` would regenerate identical
-    # resamples. One matrix reused across candidates -> same indices -> bit-identical CIs. Indices mirror
-    # bootstrap_metric's RNG order.
-    idx_matrix: Optional[np.ndarray] = None if inner_folds is not None else _build_resample_indices(n_oof, n_bootstrap, stratify, random_state)
-
-    for name in cand_names:
-        apply_fn = _fit_calibrator(name, oof_p_pos, oof_y_arr)
-        if apply_fn is None:
-            continue
-        try:
-            cal_oof = np.asarray(apply_fn(oof_p_pos), dtype=np.float64).ravel()
-            cal_oof = np.clip(cal_oof, 0.0, 1.0)
-        except Exception as exc:
-            log_throttle(logger, "calib_policy_oof_predict_failed", logging.WARNING, "pick_best_calibrator: %s.predict on OOF failed: %s", name, exc)
-            continue
-        # ``rank_ece`` drives selection: held-out (honest) for inner_cv, same-OOF (legacy) otherwise.
-        rank_ece: float
-        ece_ci: tuple
-        if inner_folds is not None:
-            ho = _heldout_ece_inner_cv(name, oof_p_pos, oof_y_arr, inner_folds, n_bins)
-            if ho is None:
-                continue
-            rank_ece, fold_eces = ho
-            # CI from the SAME held-out resampling as the point estimate, so the reported interval brackets the
-            # reported number. An in-sample bootstrap CI paired with a held-out point would not.
-            ece_ci = _heldout_ece_ci(rank_ece, fold_eces, alpha)
-        else:
-            try:
-                ci = _bootstrap_ece_with_indices(oof_y_arr, cal_oof, cast(np.ndarray, idx_matrix), metric_fn, alpha, n_bins=n_bins)
-            except Exception as exc:
-                log_throttle(logger, "calib_policy_bootstrap_failed", logging.WARNING, "pick_best_calibrator: bootstrap on %s failed: %s", name, exc)
-                continue
-            rank_ece = float(ci["point"])
-            ece_ci = (float(ci["lo"]), float(ci["hi"]))
-        results[name] = {
-            "ece_mean": rank_ece,
-            "ece_ci": ece_ci,
-            "calibrated_probs": cal_oof,
-        }
-
-    if not results:
-        raise RuntimeError("pick_best_calibrator: every candidate calibrator failed; check optional deps " "(betacal, ml_insights) and OOF input shape.")
-
-    ranked = sorted(results.items(), key=lambda kv: kv[1]["ece_mean"])
-    chosen_name = ranked[0][0]
-    selection_rule = "lowest_ece"
-    if selection == "inner_cv":
-        # Held-out ECE already removes the same-data optimism, so the lowest held-out ECE is the honest
-        # winner; the same-OOF bootstrap CI (still reported) would mis-tie Isotonic, so no CI tiebreak here.
-        selection_rule = "lowest_heldout_ece"
-    elif len(ranked) > 1:
-        top_ci = ranked[0][1]["ece_ci"]
-        runner_ci = ranked[1][1]["ece_ci"]
-        if _cis_overlap(top_ci, runner_ci):
-            default_choice = "Isotonic" if n_oof >= SMALL_SAMPLE_THRESHOLD else "Beta"
-            tied = [name for name, info in ranked if _cis_overlap(top_ci, info["ece_ci"])]
-            if default_choice in tied:
-                chosen_name = default_choice
-                selection_rule = "default_isotonic" if default_choice == "Isotonic" else "default_beta"
-            else:
-                # Default candidate isn't in the tied subset; fall back to the lowest-mean.
-                selection_rule = "lowest_ece_ci_overlap"
-        else:
-            selection_rule = "lowest_ece_ci_separated"
+        warn_same_oof_selection()
+    oof_p_pos, oof_y_arr, n_oof = prepare_oof_inputs(oof_probs, oof_y)
+    cand_names = resolve_candidate_names(candidates)
+    inner_folds, idx_matrix = build_selection_resamples(selection, oof_y_arr, n_oof, n_bootstrap, inner_cv_splits, random_state)
+    results = score_candidates(cand_names, oof_p_pos, oof_y_arr, inner_folds, idx_matrix, n_bins, alpha)
+    chosen_name, selection_rule = choose_calibrator(results, selection, n_oof)
 
     # Secondary diagnostic: if a held-out ``probs``/``y`` pair is supplied, score the CHOSEN calibrator's ECE on it.
     # This never influences the selection above (which stays OOF-only for honesty); it is a side report so a caller can

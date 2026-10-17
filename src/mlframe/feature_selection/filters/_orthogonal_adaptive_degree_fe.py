@@ -70,6 +70,112 @@ __all__ = [
     "hybrid_orth_mi_adaptive_degree_fe_with_recipes",
 ]
 
+def _gate_best_degree_per_source(cand_to_source: list, cand_cols: list, cand_values: list, eng_mi: np.ndarray, raw_mi_map: dict, min_uplift: float) -> tuple[dict, dict]:
+    """Pick the MI-argmax degree per source and apply the uplift / absolute-floor gate; returns ``(out_cols, meta)``."""
+    # ---- Step 4: per-source argmax + uplift gate
+    # Group candidates by source, pick the MI argmax per source, then
+    # gate by ``engineered_mi / baseline_mi >= min_uplift``.
+    best_per_source: dict[str, dict] = {}
+    for j, (src, deg, chosen_basis) in enumerate(cand_to_source):
+        emi = float(eng_mi[j])
+        if not np.isfinite(emi):
+            continue
+        cur = best_per_source.get(src)
+        if cur is None or emi > cur["engineered_mi"]:
+            best_per_source[src] = {
+                "src": src,
+                "basis": chosen_basis,
+                "degree": deg,
+                "engineered_mi": emi,
+                "engineered_col": cand_cols[j],
+                "values_idx": j,
+            }
+
+    out_cols: dict = {}
+    meta: dict = {}
+    min_uplift_f = float(min_uplift)
+    for src, info in best_per_source.items():
+        baseline = float(raw_mi_map.get(src, 0.0))
+        emi = float(info["engineered_mi"])
+        # Near-zero baseline makes the uplift ratio explode (a tiny noise
+        # baseline divides a tiny emi into a huge ratio that passes the gate
+        # despite no real signal). Mirror the JMIM guard: when the baseline is
+        # below eps, suppress the ratio and require an absolute MI floor instead.
+        if baseline < _BASELINE_EPS:
+            uplift = 0.0
+            if emi < _ABS_MI_FLOOR:
+                continue
+        else:
+            uplift = emi / baseline
+            if uplift < min_uplift_f:
+                continue
+        name = str(info["engineered_col"])
+        vals = cand_values[int(info["values_idx"])]
+        out_cols[name] = vals
+        meta[name] = {
+            "src": src,
+            "basis": str(info["basis"]),
+            "degree": int(info["degree"]),
+            "uplift": float(uplift),
+            "engineered_mi": emi,
+            "baseline_mi": baseline,
+        }
+    return out_cols, meta
+
+
+def _build_degree_candidates(X: pd.DataFrame, cols: list, y_arr: np.ndarray, degree_range: tuple, basis: str, _dt: type) -> tuple[list, list, list]:
+    """Evaluate every (column, degree) cell; returns ``(cand_cols, cand_values, cand_to_source)`` where ``cand_to_source`` holds ``(src, degree, basis)``."""
+    # ---- Step 2: build the (col, degree) candidate matrix in one shot
+    # Generate every basis_d(c) value column, route per-col basis once.
+    # Naming carries the SOURCE plus a degree marker so we can recover the
+    # argmax per source after the batch MI call.
+    code = _BASIS_CODE
+    chosen_basis_per_col: dict[str, str] = {}
+    cand_cols: list[str] = []
+    cand_values: list[np.ndarray] = []
+    cand_to_source: list[tuple[str, int, str]] = []  # (src, degree, basis)
+    for col in cols:
+        x: np.ndarray = np.asarray(X[col].to_numpy(), dtype=_dt)  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); MI binning is scale-robust
+        finite_mask = np.isfinite(x)
+        if not finite_mask.all():
+            fill = float(np.nanmean(x[finite_mask])) if finite_mask.any() else 0.0
+            x = np.where(finite_mask, x, fill)
+        # signal-adaptive routing (route by which basis best linearises
+        # y, max best-degree |corr|) - mirrors the default Layer-21/58 routers;
+        # beats moment routing on heavy-tailed/skewed x (bench: OOS-linear 0.92 vs
+        # 0.77). Falls back to moment routing without a usable y.
+        chosen_basis = basis_route_by_signal(x, y_arr, degrees=degree_range) if basis == "auto" else basis
+        if chosen_basis not in _POLY_BASES:
+            log_throttle(
+                logger, "adaptive_degree_unknown_basis", logging.WARNING,
+                "generate_adaptive_degree_basis_features: unknown basis %r "
+                "for col %r; skipping", chosen_basis, col,
+            )
+            continue
+        chosen_basis_per_col[col] = chosen_basis
+        for d in degree_range:
+            try:
+                vals = _evaluate_basis_column(x, chosen_basis, int(d))
+            except Exception as exc:
+                log_throttle(
+                    logger, "adaptive_degree_eval_raised", logging.WARNING,
+                    "generate_adaptive_degree_basis_features: basis=%r "
+                    "degree=%d on col=%r raised %r; skipping",
+                    chosen_basis, d, col, exc,
+                )
+                continue
+            # Reject constant / non-finite candidates outright - they
+            # carry zero MI and pollute downstream argmax tie-breaks.
+            if not np.isfinite(vals).all():
+                continue
+            if float(np.std(vals)) <= 1e-12:
+                continue
+            cand_cols.append(f"{col}__{code.get(chosen_basis, chosen_basis)}{int(d)}")
+            cand_values.append(vals)
+            cand_to_source.append((col, int(d), chosen_basis))
+    return cand_cols, cand_values, cand_to_source
+
+
 def generate_adaptive_degree_basis_features(
     X: pd.DataFrame,
     y: np.ndarray,
@@ -147,54 +253,7 @@ def generate_adaptive_degree_basis_features(
     # layers (total-correlation / routing / cluster-basis / diff-basis / adaptive-arity).
     raw_mi_map = cached_raw_mi_baseline(cols, raw_X.to_numpy(dtype=_dt), y_arr, nbins=nbins)
 
-    # ---- Step 2: build the (col, degree) candidate matrix in one shot
-    # Generate every basis_d(c) value column, route per-col basis once.
-    # Naming carries the SOURCE plus a degree marker so we can recover the
-    # argmax per source after the batch MI call.
-    code = _BASIS_CODE
-    chosen_basis_per_col: dict[str, str] = {}
-    cand_cols: list[str] = []
-    cand_values: list[np.ndarray] = []
-    cand_to_source: list[tuple[str, int, str]] = []  # (src, degree, basis)
-    for col in cols:
-        x = np.asarray(X[col].to_numpy(), dtype=_dt)  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); MI binning is scale-robust
-        finite_mask = np.isfinite(x)
-        if not finite_mask.all():
-            fill = float(np.nanmean(x[finite_mask])) if finite_mask.any() else 0.0
-            x = np.where(finite_mask, x, fill)
-        # signal-adaptive routing (route by which basis best linearises
-        # y, max best-degree |corr|) - mirrors the default Layer-21/58 routers;
-        # beats moment routing on heavy-tailed/skewed x (bench: OOS-linear 0.92 vs
-        # 0.77). Falls back to moment routing without a usable y.
-        chosen_basis = basis_route_by_signal(x, y_arr, degrees=degree_range) if basis == "auto" else basis
-        if chosen_basis not in _POLY_BASES:
-            log_throttle(
-                logger, "adaptive_degree_unknown_basis", logging.WARNING,
-                "generate_adaptive_degree_basis_features: unknown basis %r "
-                "for col %r; skipping", chosen_basis, col,
-            )
-            continue
-        chosen_basis_per_col[col] = chosen_basis
-        for d in degree_range:
-            try:
-                vals = _evaluate_basis_column(x, chosen_basis, int(d))
-            except Exception as exc:
-                log_throttle(
-                    logger, "adaptive_degree_eval_raised", logging.WARNING,
-                    "generate_adaptive_degree_basis_features: basis=%r "
-                    "degree=%d on col=%r raised %r; skipping",
-                    chosen_basis, d, col, exc,
-                )
-                continue
-            # Reject constant / non-finite candidates outright - they
-            # carry zero MI and pollute downstream argmax tie-breaks.
-            if not np.isfinite(vals).all():
-                continue
-            if float(np.std(vals)) <= 1e-12:
-                continue
-            cand_cols.append(f"{col}__{code.get(chosen_basis, chosen_basis)}{int(d)}")
-            cand_values.append(vals)
-            cand_to_source.append((col, int(d), chosen_basis))
+    cand_cols, cand_values, cand_to_source = _build_degree_candidates(X, cols, y_arr, degree_range, basis, _dt)
 
     if not cand_cols:
         return pd.DataFrame(index=X.index), {}
@@ -203,55 +262,7 @@ def generate_adaptive_degree_basis_features(
     cand_mat = np.column_stack(cand_values).astype(np.float64, copy=False)
     eng_mi = _mi_classif_batch(cand_mat, y_arr, nbins=nbins)
 
-    # ---- Step 4: per-source argmax + uplift gate
-    # Group candidates by source, pick the MI argmax per source, then
-    # gate by ``engineered_mi / baseline_mi >= min_uplift``.
-    best_per_source: dict[str, dict] = {}
-    for j, (src, deg, chosen_basis) in enumerate(cand_to_source):
-        emi = float(eng_mi[j])
-        if not np.isfinite(emi):
-            continue
-        cur = best_per_source.get(src)
-        if cur is None or emi > cur["engineered_mi"]:
-            best_per_source[src] = {
-                "src": src,
-                "basis": chosen_basis,
-                "degree": deg,
-                "engineered_mi": emi,
-                "engineered_col": cand_cols[j],
-                "values_idx": j,
-            }
-
-    out_cols: dict = {}
-    meta: dict = {}
-    min_uplift_f = float(min_uplift)
-    for src, info in best_per_source.items():
-        baseline = float(raw_mi_map.get(src, 0.0))
-        emi = float(info["engineered_mi"])
-        # Near-zero baseline makes the uplift ratio explode (a tiny noise
-        # baseline divides a tiny emi into a huge ratio that passes the gate
-        # despite no real signal). Mirror the JMIM guard: when the baseline is
-        # below eps, suppress the ratio and require an absolute MI floor instead.
-        if baseline < _BASELINE_EPS:
-            uplift = 0.0
-            if emi < _ABS_MI_FLOOR:
-                continue
-        else:
-            uplift = emi / baseline
-            if uplift < min_uplift_f:
-                continue
-        name = str(info["engineered_col"])
-        vals = cand_values[int(info["values_idx"])]
-        out_cols[name] = vals
-        meta[name] = {
-            "src": src,
-            "basis": str(info["basis"]),
-            "degree": int(info["degree"]),
-            "uplift": float(uplift),
-            "engineered_mi": emi,
-            "baseline_mi": baseline,
-        }
-
+    out_cols, meta = _gate_best_degree_per_source(cand_to_source, cand_cols, cand_values, eng_mi, raw_mi_map, min_uplift)
     return pd.DataFrame(out_cols, index=X.index), meta
 
 def hybrid_orth_mi_adaptive_degree_fe(

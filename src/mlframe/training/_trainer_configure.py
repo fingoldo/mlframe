@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import copy
 import threading
+from functools import partial
 from timeit import default_timer as timer
 from typing import Any, Callable, Optional, Sequence, TYPE_CHECKING
 if TYPE_CHECKING:
@@ -224,6 +225,322 @@ def _get_training_configs_cached(**kwargs):
     return res
 
 
+def _default_scorings(regression: dict | None, classification: dict | None) -> tuple[dict, dict]:
+    """Fill the default RFECV regression (MAE) and classification (ROC AUC) scoring specs when the caller gave none."""
+    from .trainer import fast_roc_auc
+
+    if regression is None:
+        regression = dict(score_func=fast_mean_absolute_error, response_method="predict", greater_is_better=False)
+
+    if classification is None:
+        classification = dict(score_func=fast_roc_auc, response_method="predict_proba", greater_is_better=True)
+    return regression, classification
+
+
+def _build_subgroups(
+    precomputed: dict | None,
+    fairness_features: Sequence | None,
+    df: Any,
+    train_df: Any,
+    cont_nbins: int,
+    fairness_min_pop_cat_thresh: float | int,
+    use_robust_eval_metric: bool,
+    train_idx: np.ndarray | None,
+    val_idx: np.ndarray | None,
+    test_idx: np.ndarray | None,
+) -> tuple[Any, Any]:
+    """Resolve the fairness subgroups and, when a robust eval metric is requested, their per-split indexed form; returns ``(subgroups, indexed_subgroups)``."""
+    from .trainer import create_fairness_subgroups_indices
+
+    subgroups = precomputed
+    subgroups = _configure_training_subgroups_none_fairness_features(subgroups, fairness_features, df, train_df, cont_nbins, fairness_min_pop_cat_thresh)
+
+    if use_robust_eval_metric and subgroups is not None and train_idx is not None and val_idx is not None and test_idx is not None:
+        indexed_subgroups = create_fairness_subgroups_indices(
+            subgroups=subgroups, train_idx=train_idx, val_idx=val_idx, test_idx=test_idx, group_weights={}, cont_nbins=cont_nbins
+        )
+    else:
+        indexed_subgroups = None
+    return subgroups, indexed_subgroups
+
+
+def _identity_model(x: Any) -> Any:
+    """Default ``metamodel_func`` when the caller doesn't supply one: passes the model through unchanged."""
+    return x
+
+
+def _wrap_for_multilabel_if_needed(
+    estimator: Any, strategy_cls: Any, *, use_regression: bool, target_type: Any, multilabel_dispatch_config: Any, n_classes: int | None
+) -> Any:
+    """For strategies without native ``(N, K)`` target support, wrap ``estimator`` in ``strategy_cls().wrap_multilabel`` on a MULTILABEL_CLASSIFICATION target; first strips any eval_set-dependent early-stopping params, since the multilabel wrapper doesn't slice eval_set per label. No-op for regression or non-multilabel targets."""
+    if use_regression or target_type is None or not hasattr(target_type, "name") or target_type.name != "MULTILABEL_CLASSIFICATION":
+        return estimator
+    # Disable eval_set-dependent early stopping on the inner estimator.
+    try:
+        params = estimator.get_params()
+    except Exception as e:
+        logger.debug("estimator.get_params() failed, treating params as empty: %s", e)
+        params = {}
+    _patch: dict = {}
+    if "early_stopping_rounds" in params and params.get("early_stopping_rounds") is not None:
+        _patch["early_stopping_rounds"] = None
+    # XGB sklearn >=2 uses callbacks for early stopping too; strip them.
+    if "callbacks" in params and params.get("callbacks"):
+        _patch["callbacks"] = None
+    if _patch:
+        try:
+            estimator.set_params(**_patch)
+        except Exception as e:
+            logger.debug("swallowed exception in _trainer_configure.py: %s", e)
+            pass
+    return strategy_cls().wrap_multilabel(
+        estimator,
+        target_type,
+        multilabel_config=multilabel_dispatch_config,
+        n_labels=n_classes,
+    )
+
+
+def _resolve_training_configs(
+    config_params: dict,
+    indexed_subgroups: Any,
+    train_df: Any,
+    val_df: Any,
+    train_df_size_bytes: float | None,
+    val_df_size_bytes: float | None,
+    prefer_gpu_configs: bool,
+    models_set: set | None,
+    prefer_cpu_for_xgboost: bool,
+) -> tuple[Any, Any, Any, Any]:
+    """Build the CPU and GPU configs and pick the ones to use; returns ``(cpu_configs, gpu_configs, configs, cb_configs)``."""
+    from .trainer import get_df_memory_consumption
+
+    # Per-section timers. Three candidate hot-spots: get_training_configs (called twice - CPU + GPU), get_df_memory_consumption(deep=False), and the GPU probe (cached nvidia-smi subprocess). The timers below localise the spend so the operator can see the breakdown without instrumenting by hand.
+    #
+    # A5#4/#16 partial memo: ``_get_training_configs_cached`` is a thin session-cache wrapper around ``get_training_configs`` keyed on the suite-invariant kwargs (``has_gpu``, the ``config_params`` content hash, and the ``indexed_subgroups`` identity). Across a multi-target suite, ``config_params`` is derived from ``hyperparams_config.model_dump()`` once and never changes per target, so the second-target call hits the cache and skips the CB / LGB / XGB defaults assembly. Memoization is a no-op when the kwargs contain unhashable values (callable scorers, polars-categorical dicts) -- the wrapper falls through to a direct call in that case.
+    _t0_cfg = timer()
+    cpu_configs = _get_training_configs_cached(has_gpu=False, subgroups=indexed_subgroups, **config_params)
+    _t_cpu_cfg = timer() - _t0_cfg
+    _t0_cfg = timer()
+    gpu_configs = _get_training_configs_cached(has_gpu=None, subgroups=indexed_subgroups, **config_params)
+    _t_gpu_cfg = timer() - _t0_cfg
+
+    # Prefer caller-supplied size (typically computed on the Polars frame
+    # BEFORE pandas conversion via .estimated_size() -- O(cols), microseconds).
+    # Fall back to get_df_memory_consumption with deep=False -- O(cols) for
+    # pandas too. Explicit deep=False avoids the O(rows) deep scan that used
+    # to block this site for 3 minutes on frames with millions of unique
+    # object-column strings. pyutilz default stays deep=True (back-compat);
+    # mlframe opts out at this specific heuristic-only call site.
+    _t0_mem = timer()
+    if train_df_size_bytes is not None:
+        train_df_size = float(train_df_size_bytes)
+    else:
+        train_df_size = get_df_memory_consumption(train_df, deep=False)
+    val_df_size = _configure_training_val_df_size_bytes(val_df_size_bytes, val_df)
+    data_size_gb = (train_df_size + val_df_size) / (1024**3)
+    _t_mem = timer() - _t0_mem
+
+    # Skip expensive GPU probe (nvidia-smi subprocess ~0.5s, also pulls GPUtil
+    # ~50ms transitive distutils import) when GPU configs are unreachable. Three
+    # opt-out conditions, any one enough:
+    #   - prefer_gpu_configs=False (caller explicit opt-out)
+    #   - cb_kwargs.task_type == "CPU" (CatBoost forced to CPU)
+    #   - No GPU-eligible model in mlframe_models: no CatBoost AND
+    #     (no XGBoost OR prefer_cpu_for_xgboost). LightGBM is excluded
+    #     because prefer_cpu_for_lightgbm=True by default and lgb GPU uses
+    #     OpenCL, not the CUDA topology this probe reports.
+    _t0_gpu = timer()
+    # ``cb_kwargs`` may be present-but-None (an explicit ``cb_kwargs=None`` in config_params),
+    # so ``dict.get(..., {})`` is not enough -- it only substitutes the default for a MISSING
+    # key, not for a present None value. Coerce to {} before the nested ``.get`` to avoid an
+    # AttributeError: 'NoneType' object has no attribute 'get' (observed on the binary-imbalanced
+    # edge-case path where the strategy left cb_kwargs unset to None).
+    _cb_kwargs = config_params.get("cb_kwargs") or {}
+    cb_task_type = _cb_kwargs.get("task_type")
+    cb_devices = _cb_kwargs.get("devices")
+    _cb_requested = models_set is None or "cb" in models_set
+    _xgb_gpu_eligible = (models_set is None or "xgb" in models_set) and not prefer_cpu_for_xgboost
+    _no_gpu_model_needed = not (_cb_requested or _xgb_gpu_eligible)
+    data_fits_cb_gpu_ram, data_fits_gpu_ram = _configure_training_prefer_gpu_configs_cb(prefer_gpu_configs, cb_task_type, _no_gpu_model_needed, data_size_gb, cb_devices)
+    _t_gpu = timer() - _t0_gpu
+
+    logger.info("data_fits_gpu_ram=%s, data_fits_cb_gpu_ram=%s, cb_devices=%s", data_fits_gpu_ram, data_fits_cb_gpu_ram, cb_devices)
+    if (_t_cpu_cfg + _t_gpu_cfg + _t_mem + _t_gpu) > 0.5:
+        logger.info(
+            "configure_training_params timing breakdown: " "cpu_configs=%.2fs, gpu_configs=%.2fs, mem_probe=%.2fs, gpu_probe=%.2fs (total %.2fs)",
+            _t_cpu_cfg,
+            _t_gpu_cfg,
+            _t_mem,
+            _t_gpu,
+            _t_cpu_cfg + _t_gpu_cfg + _t_mem + _t_gpu,
+        )
+
+    configs = gpu_configs if (prefer_gpu_configs and data_fits_gpu_ram) else cpu_configs
+    cb_configs = gpu_configs if (prefer_gpu_configs and data_fits_cb_gpu_ram) else cpu_configs
+    return cpu_configs, gpu_configs, configs, cb_configs
+
+
+def _build_common_params(
+    common_params: dict | None,
+    configs: Any,
+    target_type: Any,
+    **fields: Any,
+) -> dict[str, Any]:
+    """Merge the caller's ``common_params`` over the per-call defaults (data splits, details, calibration metrics) shared by every model."""
+    common_params_result = dict(
+        custom_ice_metric=configs.integral_calibration_error,
+        custom_rice_metric=configs.final_integral_calibration_error,
+        # Thread target_type through so the ensemble path (score_ensemble -> _process_single_ensemble_method -> _build_configs_from_params) can gate render_multi_target_panels via DataConfig.target_type. Without this the ensemble report block goes through report_model_perf with target_type=None and auto_dispatch falls back to firing LTR / multilabel / multiclass panels for any target with group_ids set, which is wrong on regression.
+        target_type=str(target_type) if target_type is not None else None,
+        **fields,
+    )
+    if common_params:
+        common_params_result.update(common_params)
+    return common_params_result
+
+
+def _build_tree_model_params(
+    should_create_model: Callable[[str], bool],
+    wrap_for_multilabel: Callable[[Any, Any], Any],
+    configs: Any,
+    cpu_configs: Any,
+    cb_configs: Any,
+    use_regression: bool,
+    metamodel_func: Callable,
+    prefer_calibrated_classifiers: bool,
+    verbose: bool,
+    cat_features: list | None,
+    text_features: list | None,
+    embedding_features: list | None,
+    cb_fit_params: dict | None,
+    prefer_cpu_for_xgboost: bool,
+    prefer_cpu_for_lightgbm: bool,
+    xgboost_verbose: int | bool,
+) -> tuple[Any, Any, Any, Any]:
+    """Lazily create the cb / hgb / xgb / lgb model param dicts (None for models not requested); returns ``(cb, hgb, xgb, lgb)`` params."""
+    from .trainer import _configure_lightgbm_params, _configure_xgboost_params
+
+    _should_create_model = should_create_model
+    _wrap_for_multilabel_if_needed = wrap_for_multilabel
+    # Lazy model creation - only create models that are in mlframe_models (or all if None)
+    cb_params = None
+    cb_params = _configure_training_lazy_model_creation_only(_should_create_model, use_regression, metamodel_func, cb_configs, prefer_calibrated_classifiers, verbose, cat_features, text_features, embedding_features, cb_fit_params, cb_params)
+
+    hgb_params = None
+    if _should_create_model("hgb"):
+        from .strategies import HGBStrategy
+
+        _hgb_est = (
+            HistGradientBoostingRegressor(**configs.HGB_GENERAL_PARAMS)
+            if use_regression
+            else _wrap_for_multilabel_if_needed(
+                HistGradientBoostingClassifier(**configs.HGB_GENERAL_PARAMS),
+                HGBStrategy,
+            )
+        )
+        hgb_params = dict(model=metamodel_func(_hgb_est))
+
+    xgb_params = None
+    if _should_create_model("xgb"):
+        xgb_params = _configure_xgboost_params(
+            configs=configs,
+            cpu_configs=cpu_configs,
+            use_regression=use_regression,
+            prefer_cpu_for_xgboost=prefer_cpu_for_xgboost,
+            prefer_calibrated_classifiers=prefer_calibrated_classifiers,
+            xgboost_verbose=xgboost_verbose,
+            metamodel_func=metamodel_func,
+        )
+        # XGB sklearn wrapper rejects 2-D y unless we use multi_strategy='multi_output_tree' (WIP in 3.x). Default to MultiOutputClassifier instead.
+        from .strategies import XGBoostStrategy
+
+        xgb_params["model"] = _wrap_for_multilabel_if_needed(xgb_params["model"], XGBoostStrategy)
+
+    lgb_params = None
+    if _should_create_model("lgb"):
+        lgb_params = _configure_lightgbm_params(
+            configs=configs,
+            cpu_configs=cpu_configs,
+            use_regression=use_regression,
+            prefer_cpu_for_lightgbm=prefer_cpu_for_lightgbm,
+            prefer_calibrated_classifiers=prefer_calibrated_classifiers,
+            metamodel_func=metamodel_func,
+        )
+        # LGB has no native multilabel -- wrap with MultiOutputClassifier.
+        from .strategies import TreeModelStrategy
+
+        lgb_params["model"] = _wrap_for_multilabel_if_needed(lgb_params["model"], TreeModelStrategy)
+    return cb_params, hgb_params, xgb_params, lgb_params
+
+
+def _build_rfecv_and_models(
+    configs: Any,
+    cpu_configs: Any,
+    cb_configs: Any,
+    common_params: dict,
+    use_regression: bool,
+    metamodel_func: Callable,
+    prefer_calibrated_classifiers: bool,
+    rfecv_model_verbose: bool,
+    cat_features: list | None,
+    default_regression_scoring: dict,
+    default_classification_scoring: dict,
+    model_params: tuple,
+    linear_model_params: dict,
+    mlframe_models: list | None,
+) -> tuple[dict, Any, Any, Any]:
+    """Build the RFECV selectors and the model-params registry; returns ``(models_params, cb_rfecv, lgb_rfecv, xgb_rfecv)``."""
+    from .trainer import RFECV
+
+    cb_params, lgb_params, xgb_params, hgb_params, mlp_params, ngb_params, gated_outlier_params, bagging_params, composite_classification_params = model_params
+    rfecv_params = configs.COMMON_RFECV_PARAMS.copy()
+    cb_rfecv_params = cb_configs.COMMON_RFECV_PARAMS.copy()
+
+    if not common_params.get("show_perf_chart", True):
+        rfecv_params["optimizer_plotting"] = "No"
+        cb_rfecv_params["optimizer_plotting"] = "No"
+
+    if "rfecv_params" in common_params:
+        custom_rfecv_params = common_params.pop("rfecv_params")
+        rfecv_params.update(custom_rfecv_params)
+        cb_rfecv_params.update(custom_rfecv_params)
+
+    rfecv_scoring = _configure_training_use_regression(use_regression, default_regression_scoring, prefer_calibrated_classifiers, configs, rfecv_model_verbose, default_classification_scoring)
+
+    params = (cb_configs.CB_REGR if use_regression else (cb_configs.CB_CALIB_CLASSIF if prefer_calibrated_classifiers else cb_configs.CB_CLASSIF)).copy()
+
+    cb_rfecv = RFECV(
+        estimator=(metamodel_func(CatBoostRegressor(**params)) if use_regression else CatBoostClassifier(**params)),
+        fit_params=dict(plot=rfecv_model_verbose > 1),
+        cat_features=cat_features,
+        scoring=rfecv_scoring,
+        **cb_rfecv_params,
+    )
+
+    lgb_fit_params = dict(eval_metric=cpu_configs.lgbm_integral_calibration_error) if prefer_calibrated_classifiers else {}
+
+    lgb_rfecv = RFECV(
+        estimator=(metamodel_func(LGBMRegressor(**configs.LGB_GENERAL_PARAMS)) if use_regression else LGBMClassifier(**configs.LGB_GENERAL_PARAMS)),
+        fit_params=lgb_fit_params,
+        cat_features=cat_features,
+        scoring=rfecv_scoring,
+        **rfecv_params,
+    )
+
+    models_params, xgb_rfecv = _configure_training_xgb_rfecv_rfecv(use_regression, metamodel_func, configs, prefer_calibrated_classifiers, cat_features, rfecv_scoring, rfecv_params, cb_params, lgb_params, xgb_params, hgb_params, mlp_params, ngb_params, gated_outlier_params, bagging_params, composite_classification_params)
+    # Add linear models (already filtered to only needed ones)
+    models_params.update(linear_model_params)
+
+    # Generic estimator-instance path. Beyond the built-in string tags (cb/lgb/xgb/hgb/mlp/ngb/linear),
+    # ``mlframe_models`` may carry sklearn-compatible estimator INSTANCES or ``(name, estimator)`` tuples
+    # (``get_strategy`` already dispatches both, MRO-based). The per-target loop keys ``models_params`` and
+    # ``strategy_by_model`` by the entry object / ``id()``, so the entry itself is the key here. Mirror the
+    # minimal linear params shape (``dict(model=...)``); the training body reads every other key via ``.get``.
+    _configure_training_minimal_linear_params_shape(mlframe_models, metamodel_func, models_params)
+    return models_params, cb_rfecv, lgb_rfecv, xgb_rfecv
+
+
 def configure_training_params(
     df: Optional[pd.DataFrame] = None,
     train_df: Optional[pd.DataFrame] = None,
@@ -308,11 +625,7 @@ def configure_training_params(
     # Lazy import of parent-resident helpers: ``.trainer`` re-imports
     # this sibling at its bottom, so a top-level ``from .trainer
     # import ...`` would create a hard cycle the meta-test flags.
-    from .trainer import LINEAR_MODEL_TYPES, RFECV, _configure_lightgbm_params, _configure_xgboost_params, create_fairness_subgroups_indices, fast_roc_auc, get_df_memory_consumption
-
-    def _identity(x):
-        """Default ``metamodel_func`` when the caller doesn't supply one: passes the model through unchanged."""
-        return x
+    from .trainer import LINEAR_MODEL_TYPES
 
     # Helper for lazy model creation
     models_set = set(mlframe_models) if mlframe_models else None
@@ -322,201 +635,37 @@ def configure_training_params(
         return models_set is None or name in models_set
 
     if metamodel_func is None:
-        metamodel_func = _identity
+        metamodel_func = _identity_model
 
-    if default_regression_scoring is None:
-        default_regression_scoring = dict(score_func=fast_mean_absolute_error, response_method="predict", greater_is_better=False)
-
-    if default_classification_scoring is None:
-        default_classification_scoring = dict(score_func=fast_roc_auc, response_method="predict_proba", greater_is_better=True)
+    default_regression_scoring, default_classification_scoring = _default_scorings(default_regression_scoring, default_classification_scoring)
 
     cb_fit_params, common_params, config_params, fairness_features, prefer_calibrated_classifiers = _configure_training_common_params_none(common_params, config_params, fairness_features, cb_fit_params, target_type, prefer_calibrated_classifiers, multilabel_dispatch_config, n_classes, mlframe_models)
 
     _configure_training_use_regression_2(use_regression, config_params, target, target_type)
 
-    subgroups = _precomputed_fairness_subgroups
-    subgroups = _configure_training_subgroups_none_fairness_features(subgroups, fairness_features, df, train_df, cont_nbins, fairness_min_pop_cat_thresh)
-
-    if use_robust_eval_metric and subgroups is not None and train_idx is not None and val_idx is not None and test_idx is not None:
-        indexed_subgroups = create_fairness_subgroups_indices(
-            subgroups=subgroups, train_idx=train_idx, val_idx=val_idx, test_idx=test_idx, group_weights={}, cont_nbins=cont_nbins
-        )
-    else:
-        indexed_subgroups = None
-
-    # Per-section timers. Three candidate hot-spots: get_training_configs (called twice - CPU + GPU), get_df_memory_consumption(deep=False), and the GPU probe (cached nvidia-smi subprocess). The timers below localise the spend so the operator can see the breakdown without instrumenting by hand.
-    #
-    # A5#4/#16 partial memo: ``_get_training_configs_cached`` is a thin session-cache wrapper around ``get_training_configs`` keyed on the suite-invariant kwargs (``has_gpu``, the ``config_params`` content hash, and the ``indexed_subgroups`` identity). Across a multi-target suite, ``config_params`` is derived from ``hyperparams_config.model_dump()`` once and never changes per target, so the second-target call hits the cache and skips the CB / LGB / XGB defaults assembly. Memoization is a no-op when the kwargs contain unhashable values (callable scorers, polars-categorical dicts) -- the wrapper falls through to a direct call in that case.
-    _t0_cfg = timer()
-    cpu_configs = _get_training_configs_cached(has_gpu=False, subgroups=indexed_subgroups, **config_params)
-    _t_cpu_cfg = timer() - _t0_cfg
-    _t0_cfg = timer()
-    gpu_configs = _get_training_configs_cached(has_gpu=None, subgroups=indexed_subgroups, **config_params)
-    _t_gpu_cfg = timer() - _t0_cfg
-
-    # Prefer caller-supplied size (typically computed on the Polars frame
-    # BEFORE pandas conversion via .estimated_size() -- O(cols), microseconds).
-    # Fall back to get_df_memory_consumption with deep=False -- O(cols) for
-    # pandas too. Explicit deep=False avoids the O(rows) deep scan that used
-    # to block this site for 3 minutes on frames with millions of unique
-    # object-column strings. pyutilz default stays deep=True (back-compat);
-    # mlframe opts out at this specific heuristic-only call site.
-    _t0_mem = timer()
-    if train_df_size_bytes is not None:
-        train_df_size = float(train_df_size_bytes)
-    else:
-        train_df_size = get_df_memory_consumption(train_df, deep=False)
-    val_df_size = _configure_training_val_df_size_bytes(val_df_size_bytes, val_df)
-    data_size_gb = (train_df_size + val_df_size) / (1024**3)
-    _t_mem = timer() - _t0_mem
-
-    # Skip expensive GPU probe (nvidia-smi subprocess ~0.5s, also pulls GPUtil
-    # ~50ms transitive distutils import) when GPU configs are unreachable. Three
-    # opt-out conditions, any one enough:
-    #   - prefer_gpu_configs=False (caller explicit opt-out)
-    #   - cb_kwargs.task_type == "CPU" (CatBoost forced to CPU)
-    #   - No GPU-eligible model in mlframe_models: no CatBoost AND
-    #     (no XGBoost OR prefer_cpu_for_xgboost). LightGBM is excluded
-    #     because prefer_cpu_for_lightgbm=True by default and lgb GPU uses
-    #     OpenCL, not the CUDA topology this probe reports.
-    _t0_gpu = timer()
-    # ``cb_kwargs`` may be present-but-None (an explicit ``cb_kwargs=None`` in config_params),
-    # so ``dict.get(..., {})`` is not enough -- it only substitutes the default for a MISSING
-    # key, not for a present None value. Coerce to {} before the nested ``.get`` to avoid an
-    # AttributeError: 'NoneType' object has no attribute 'get' (observed on the binary-imbalanced
-    # edge-case path where the strategy left cb_kwargs unset to None).
-    _cb_kwargs = config_params.get("cb_kwargs") or {}
-    cb_task_type = _cb_kwargs.get("task_type")
-    cb_devices = _cb_kwargs.get("devices")
-    _cb_requested = models_set is None or "cb" in models_set
-    _xgb_gpu_eligible = (models_set is None or "xgb" in models_set) and not prefer_cpu_for_xgboost
-    _no_gpu_model_needed = not (_cb_requested or _xgb_gpu_eligible)
-    data_fits_cb_gpu_ram, data_fits_gpu_ram = _configure_training_prefer_gpu_configs_cb(prefer_gpu_configs, cb_task_type, _no_gpu_model_needed, data_size_gb, cb_devices)
-    _t_gpu = timer() - _t0_gpu
-
-    logger.info("data_fits_gpu_ram=%s, data_fits_cb_gpu_ram=%s, cb_devices=%s", data_fits_gpu_ram, data_fits_cb_gpu_ram, cb_devices)
-    if (_t_cpu_cfg + _t_gpu_cfg + _t_mem + _t_gpu) > 0.5:
-        logger.info(
-            "configure_training_params timing breakdown: " "cpu_configs=%.2fs, gpu_configs=%.2fs, mem_probe=%.2fs, gpu_probe=%.2fs (total %.2fs)",
-            _t_cpu_cfg,
-            _t_gpu_cfg,
-            _t_mem,
-            _t_gpu,
-            _t_cpu_cfg + _t_gpu_cfg + _t_mem + _t_gpu,
-        )
-
-    configs = gpu_configs if (prefer_gpu_configs and data_fits_gpu_ram) else cpu_configs
-    cb_configs = gpu_configs if (prefer_gpu_configs and data_fits_cb_gpu_ram) else cpu_configs
-
-    common_params_result = dict(
-        nbins=nbins,
-        subgroups=subgroups,
-        sample_weight=sample_weight,
-        df=df,
-        train_df=train_df,
-        test_df=test_df,
-        val_df=val_df,
-        target=target,
-        train_target=train_target,
-        test_target=test_target,
-        val_target=val_target,
-        train_idx=train_idx,
-        test_idx=test_idx,
-        val_idx=val_idx,
-        target_label_encoder=target_label_encoder,
-        custom_ice_metric=configs.integral_calibration_error,
-        custom_rice_metric=configs.final_integral_calibration_error,
-        train_details=train_details,
-        val_details=val_details,
-        test_details=test_details,
-        group_ids=group_ids,
-        model_name=model_name,
-        callback_params=callback_params,
-        # Thread target_type through so the ensemble path (score_ensemble -> _process_single_ensemble_method -> _build_configs_from_params) can gate render_multi_target_panels via DataConfig.target_type. Without this the ensemble report block goes through report_model_perf with target_type=None and auto_dispatch falls back to firing LTR / multilabel / multiclass panels for any target with group_ids set, which is wrong on regression.
-        target_type=str(target_type) if target_type is not None else None,
+    subgroups, indexed_subgroups = _build_subgroups(
+        _precomputed_fairness_subgroups, fairness_features, df, train_df, cont_nbins, fairness_min_pop_cat_thresh, use_robust_eval_metric, train_idx, val_idx, test_idx
     )
-    if common_params:
-        common_params_result.update(common_params)
-    common_params = common_params_result
 
-    # Lazy model creation - only create models that are in mlframe_models (or all if None)
-    cb_params = None
-    cb_params = _configure_training_lazy_model_creation_only(_should_create_model, use_regression, metamodel_func, cb_configs, prefer_calibrated_classifiers, verbose, cat_features, text_features, embedding_features, cb_fit_params, cb_params)
+    cpu_configs, gpu_configs, configs, cb_configs = _resolve_training_configs(
+        config_params, indexed_subgroups, train_df, val_df, train_df_size_bytes, val_df_size_bytes, prefer_gpu_configs, models_set, prefer_cpu_for_xgboost
+    )
+
+    common_params = _build_common_params(
+        common_params, configs, target_type, nbins=nbins, subgroups=subgroups, sample_weight=sample_weight, df=df, train_df=train_df, test_df=test_df,
+        val_df=val_df, target=target, train_target=train_target, test_target=test_target, val_target=val_target, train_idx=train_idx, test_idx=test_idx,
+        val_idx=val_idx, target_label_encoder=target_label_encoder, train_details=train_details, val_details=val_details, test_details=test_details,
+        group_ids=group_ids, model_name=model_name, callback_params=callback_params,
+    )
 
     # Per-strategy multilabel-wrap helper. Strategies without native (N, K) target support (HGB, XGB-via-MultiOutputClassifier, LGB, Linear) need MultiOutputClassifier when target is multilabel. Inner-estimator early_stopping that depends on eval_set must be disabled because the outer wrapper doesn't slice eval_set per label; without an eval_set the inner fit would crash ("at least one dataset and eval metric is required for evaluation").
-    def _wrap_for_multilabel_if_needed(estimator, strategy_cls):
-        """For strategies without native ``(N, K)`` target support, wrap ``estimator`` in ``strategy_cls().wrap_multilabel`` on a MULTILABEL_CLASSIFICATION target; first strips any eval_set-dependent early-stopping params, since the multilabel wrapper doesn't slice eval_set per label. No-op for regression or non-multilabel targets."""
-        if use_regression or target_type is None or not hasattr(target_type, "name") or target_type.name != "MULTILABEL_CLASSIFICATION":
-            return estimator
-        # Disable eval_set-dependent early stopping on the inner estimator.
-        try:
-            params = estimator.get_params()
-        except Exception as e:
-            logger.debug("estimator.get_params() failed, treating params as empty: %s", e)
-            params = {}
-        _patch: dict = {}
-        if "early_stopping_rounds" in params and params.get("early_stopping_rounds") is not None:
-            _patch["early_stopping_rounds"] = None
-        # XGB sklearn >=2 uses callbacks for early stopping too; strip them.
-        if "callbacks" in params and params.get("callbacks"):
-            _patch["callbacks"] = None
-        if _patch:
-            try:
-                estimator.set_params(**_patch)
-            except Exception as e:
-                logger.debug("swallowed exception in _trainer_configure.py: %s", e)
-                pass
-        return strategy_cls().wrap_multilabel(
-            estimator,
-            target_type,
-            multilabel_config=multilabel_dispatch_config,
-            n_labels=n_classes,
-        )
-
-    hgb_params = None
-    if _should_create_model("hgb"):
-        from .strategies import HGBStrategy
-
-        _hgb_est = (
-            HistGradientBoostingRegressor(**configs.HGB_GENERAL_PARAMS)
-            if use_regression
-            else _wrap_for_multilabel_if_needed(
-                HistGradientBoostingClassifier(**configs.HGB_GENERAL_PARAMS),
-                HGBStrategy,
-            )
-        )
-        hgb_params = dict(model=metamodel_func(_hgb_est))
-
-    xgb_params = None
-    if _should_create_model("xgb"):
-        xgb_params = _configure_xgboost_params(
-            configs=configs,
-            cpu_configs=cpu_configs,
-            use_regression=use_regression,
-            prefer_cpu_for_xgboost=prefer_cpu_for_xgboost,
-            prefer_calibrated_classifiers=prefer_calibrated_classifiers,
-            xgboost_verbose=xgboost_verbose,
-            metamodel_func=metamodel_func,
-        )
-        # XGB sklearn wrapper rejects 2-D y unless we use multi_strategy='multi_output_tree' (WIP in 3.x). Default to MultiOutputClassifier instead.
-        from .strategies import XGBoostStrategy
-
-        xgb_params["model"] = _wrap_for_multilabel_if_needed(xgb_params["model"], XGBoostStrategy)
-
-    lgb_params = None
-    if _should_create_model("lgb"):
-        lgb_params = _configure_lightgbm_params(
-            configs=configs,
-            cpu_configs=cpu_configs,
-            use_regression=use_regression,
-            prefer_cpu_for_lightgbm=prefer_cpu_for_lightgbm,
-            prefer_calibrated_classifiers=prefer_calibrated_classifiers,
-            metamodel_func=metamodel_func,
-        )
-        # LGB has no native multilabel -- wrap with MultiOutputClassifier.
-        from .strategies import TreeModelStrategy
-
-        lgb_params["model"] = _wrap_for_multilabel_if_needed(lgb_params["model"], TreeModelStrategy)
+    _wrap_for_multilabel = partial(
+        _wrap_for_multilabel_if_needed, use_regression=use_regression, target_type=target_type, multilabel_dispatch_config=multilabel_dispatch_config, n_classes=n_classes
+    )
+    cb_params, hgb_params, xgb_params, lgb_params = _build_tree_model_params(
+        _should_create_model, _wrap_for_multilabel, configs, cpu_configs, cb_configs, use_regression, metamodel_func, prefer_calibrated_classifiers, verbose,
+        cat_features, text_features, embedding_features, cb_fit_params, prefer_cpu_for_xgboost, prefer_cpu_for_lightgbm, xgboost_verbose,
+    )
 
     mlp_params = None
     mlp_params = _configure_training_should_create_model_mlp(_should_create_model, train_df, train_target, configs, config_params, use_regression, metamodel_func, target_type, mlp_params)
@@ -529,60 +678,13 @@ def configure_training_params(
     # Keys that have incompatible meanings between tree and linear models
     # (e.g., learning_rate is float for trees but string schedule for linear SGD)
     linear_config_excluded_keys = {"learning_rate"}
-    _configure_training_learning_rate_float_trees(linear_models_needed, config_params, linear_config_excluded_keys, linear_model_config, use_regression, _wrap_for_multilabel_if_needed, metamodel_func, linear_model_params)
+    _configure_training_learning_rate_float_trees(linear_models_needed, config_params, linear_config_excluded_keys, linear_model_config, use_regression, _wrap_for_multilabel, metamodel_func, linear_model_params)
 
-    # RFECV setup
-    rfecv_params = configs.COMMON_RFECV_PARAMS.copy()
-    cb_rfecv_params = cb_configs.COMMON_RFECV_PARAMS.copy()
-
-    if not common_params.get("show_perf_chart", True):
-        rfecv_params["optimizer_plotting"] = "No"
-        cb_rfecv_params["optimizer_plotting"] = "No"
-
-    if "rfecv_params" in common_params:
-        custom_rfecv_params = common_params.pop("rfecv_params")
-        rfecv_params.update(custom_rfecv_params)
-        cb_rfecv_params.update(custom_rfecv_params)
-
-    rfecv_scoring = _configure_training_use_regression(use_regression, default_regression_scoring, prefer_calibrated_classifiers, configs, rfecv_model_verbose, default_classification_scoring)
-
-    params = (cb_configs.CB_REGR if use_regression else (cb_configs.CB_CALIB_CLASSIF if prefer_calibrated_classifiers else cb_configs.CB_CLASSIF)).copy()
-
-    cb_rfecv = RFECV(
-        estimator=(metamodel_func(CatBoostRegressor(**params)) if use_regression else CatBoostClassifier(**params)),
-        fit_params=dict(plot=rfecv_model_verbose > 1),
-        cat_features=cat_features,
-        scoring=rfecv_scoring,
-        **cb_rfecv_params,
+    models_params, cb_rfecv, lgb_rfecv, xgb_rfecv = _build_rfecv_and_models(
+        configs, cpu_configs, cb_configs, common_params, use_regression, metamodel_func, prefer_calibrated_classifiers, rfecv_model_verbose, cat_features,
+        default_regression_scoring, default_classification_scoring,
+        (cb_params, lgb_params, xgb_params, hgb_params, mlp_params, ngb_params, gated_outlier_params, bagging_params, composite_classification_params),
+        linear_model_params, mlframe_models,
     )
 
-    lgb_fit_params = dict(eval_metric=cpu_configs.lgbm_integral_calibration_error) if prefer_calibrated_classifiers else {}
-
-    lgb_rfecv = RFECV(
-        estimator=(metamodel_func(LGBMRegressor(**configs.LGB_GENERAL_PARAMS)) if use_regression else LGBMClassifier(**configs.LGB_GENERAL_PARAMS)),
-        fit_params=lgb_fit_params,
-        cat_features=cat_features,
-        scoring=rfecv_scoring,
-        **rfecv_params,
-    )
-
-    models_params, xgb_rfecv = _configure_training_xgb_rfecv_rfecv(use_regression, metamodel_func, configs, prefer_calibrated_classifiers, cat_features, rfecv_scoring, rfecv_params, cb_params, lgb_params, xgb_params, hgb_params, mlp_params, ngb_params, gated_outlier_params, bagging_params, composite_classification_params)
-    # Add linear models (already filtered to only needed ones)
-    models_params.update(linear_model_params)
-
-    # Generic estimator-instance path. Beyond the built-in string tags (cb/lgb/xgb/hgb/mlp/ngb/linear),
-    # ``mlframe_models`` may carry sklearn-compatible estimator INSTANCES or ``(name, estimator)`` tuples
-    # (``get_strategy`` already dispatches both, MRO-based). The per-target loop keys ``models_params`` and
-    # ``strategy_by_model`` by the entry object / ``id()``, so the entry itself is the key here. Mirror the
-    # minimal linear params shape (``dict(model=...)``); the training body reads every other key via ``.get``.
-    _configure_training_minimal_linear_params_shape(mlframe_models, metamodel_func, models_params)
-
-    return (
-        common_params,
-        models_params,
-        cb_rfecv,
-        lgb_rfecv,
-        xgb_rfecv,
-        cpu_configs,
-        gpu_configs,
-    )
+    return common_params, models_params, cb_rfecv, lgb_rfecv, xgb_rfecv, cpu_configs, gpu_configs

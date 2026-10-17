@@ -42,6 +42,68 @@ class ForwardSelectReport:
     stopped_early: bool = False
 
 
+def _numeric_view(subset: Callable[[List[Any]], Any], cols: List[Any]) -> Optional[np.ndarray]:
+    """Float view of ``cols`` for the masking test, or None when any of them is non-numeric."""
+    try:
+        return np.asarray(subset(cols), dtype=np.float64)
+    except (TypeError, ValueError) as _exc:
+        logger.debug("_numeric fell back to its default after %s", type(_exc).__name__)
+        return None
+
+
+def _drop_masked_candidates(subset: Callable[[List[Any]], Any], selected: List[Any], remaining: List[Any], masking_r2: float) -> List[Any]:
+    """Drop candidates the already-selected columns explain linearly with R^2 >= ``masking_r2`` (numeric columns only)."""
+    from ._linear_masking import linear_r2
+
+    kept_arr = _numeric_view(subset, selected)
+    if kept_arr is not None:
+        unmasked = []
+        for candidate in remaining:
+            cand_arr = _numeric_view(subset, [candidate])
+            if cand_arr is None or linear_r2(kept_arr, cand_arr[:, 0]) < masking_r2:
+                unmasked.append(candidate)
+        remaining = unmasked
+    return remaining
+
+
+def _score_trial_candidates(
+    subset: Callable[[List[Any]], Any],
+    estimator_factory: Callable[[], Any],
+    selected: List[Any],
+    remaining: List[Any],
+    y: np.ndarray,
+    cv: int,
+    scoring: Optional[str],
+    diagnostics_needed: bool,
+) -> Tuple[dict[Any, float], dict[Any, np.ndarray]]:
+    """CV-score ``selected + [candidate]`` for every remaining candidate; returns mean scores and (when diagnostics are needed) per-fold scores."""
+    from sklearn.model_selection import cross_val_score
+
+    trial_scores: dict[Any, float] = {}
+    trial_fold_scores: dict[Any, np.ndarray] = {}
+    for candidate in remaining:
+        trial_cols = [*selected, candidate]
+        model = estimator_factory()
+        fold_scores = cross_val_score(model, subset(trial_cols), y, cv=cv, scoring=scoring)
+        trial_scores[candidate] = float(np.mean(fold_scores))
+        if diagnostics_needed:
+            trial_fold_scores[candidate] = fold_scores
+    return trial_scores, trial_fold_scores
+
+
+def _paired_significance(best_fold_scores: np.ndarray, current_fold_scores: np.ndarray, significance_level: float, n_remaining: int) -> Tuple[Optional[float], bool]:
+    """Paired one-sided t-test of the best candidate's fold scores against the current subset's; returns ``(p_value, significant)``."""
+    from scipy.stats import ttest_rel
+
+    if np.allclose(best_fold_scores, current_fold_scores):
+        return 1.0, False
+    _, p_value = ttest_rel(best_fold_scores, current_fold_scores, alternative="greater")
+    # Bonferroni-correct for picking the best of `len(remaining)` candidates each round -
+    # without this, "best-of-many noise columns" is significant far more often than
+    # `significance_level` alone implies (the classic post-selection multiple-comparisons bias).
+    return p_value, bool(p_value <= significance_level / n_remaining)
+
+
 @logs_selection("forward_select", summ_selected_of_x)
 def forward_select(
     X: Any,
@@ -149,37 +211,12 @@ def forward_select(
     report = ForwardSelectReport()
     non_significant_streak = 0
 
-    def _numeric(cols: List[Any]) -> Optional[np.ndarray]:
-        """Float view of ``cols`` for the masking test, or None when any of them is non-numeric."""
-        try:
-            return np.asarray(_subset(cols), dtype=np.float64)
-        except (TypeError, ValueError) as _exc:
-            logger.debug("_numeric fell back to its default after %s", type(_exc).__name__)
-            return None
-
     while remaining and len(selected) < cap:
         if mask_redundant and selected:
-            from ._linear_masking import linear_r2
-
-            kept_arr = _numeric(selected)
-            if kept_arr is not None:
-                unmasked = []
-                for candidate in remaining:
-                    cand_arr = _numeric([candidate])
-                    if cand_arr is None or linear_r2(kept_arr, cand_arr[:, 0]) < masking_r2:
-                        unmasked.append(candidate)
-                remaining = unmasked
+            remaining = _drop_masked_candidates(_subset, selected, remaining, masking_r2)
             if not remaining:
                 break
-        trial_scores: dict[Any, float] = {}
-        trial_fold_scores: dict[Any, np.ndarray] = {}
-        for candidate in remaining:
-            trial_cols = [*selected, candidate]
-            model = estimator_factory()
-            fold_scores = cross_val_score(model, _subset(trial_cols), y, cv=cv, scoring=scoring)
-            trial_scores[candidate] = float(np.mean(fold_scores))
-            if diagnostics_needed:
-                trial_fold_scores[candidate] = fold_scores
+        trial_scores, trial_fold_scores = _score_trial_candidates(_subset, estimator_factory, selected, remaining, y, cv, scoring, diagnostics_needed)
 
         best_candidate = max(trial_scores, key=lambda c: trial_scores[c])
         improvement = trial_scores[best_candidate] - best_score
@@ -189,17 +226,7 @@ def forward_select(
         p_value: Optional[float] = None
         significant = True
         if diagnostics_needed and current_fold_scores is not None:
-            from scipy.stats import ttest_rel
-
-            best_fold_scores = trial_fold_scores[best_candidate]
-            if np.allclose(best_fold_scores, current_fold_scores):
-                p_value, significant = 1.0, False
-            else:
-                _, p_value = ttest_rel(best_fold_scores, current_fold_scores, alternative="greater")
-                # Bonferroni-correct for picking the best of `len(remaining)` candidates each round -
-                # without this, "best-of-many noise columns" is significant far more often than
-                # `significance_level` alone implies (the classic post-selection multiple-comparisons bias).
-                significant = bool(p_value <= significance_level / len(remaining))
+            p_value, significant = _paired_significance(trial_fold_scores[best_candidate], current_fold_scores, significance_level, len(remaining))
 
         if diagnostics_needed:
             report.steps.append(MarginalGainStep(candidate=best_candidate, improvement=improvement, p_value=p_value, significant=significant))

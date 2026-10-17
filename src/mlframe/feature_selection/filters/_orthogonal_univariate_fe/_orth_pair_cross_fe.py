@@ -341,6 +341,86 @@ def score_pair_cross_basis_by_mi_uplift(
         df = df.sort_values("uplift", ascending=False).reset_index(drop=True)
     return df
 
+def _pair_abs_floor(cross_scores: pd.DataFrame, uni_scores: pd.DataFrame, pair_min_abs_mi_frac: float) -> float:
+    """Absolute engineered-MI floor of the pair stage: the largest of the legacy fraction-of-max floor and the two MAD noise floors."""
+    # Two-gate selection mirrors the univariate stage. The absolute floor is
+    # max(raw_baseline_max, cross_engineered_mi_max) * frac. The second
+    # term matters for pure-interaction targets (XOR / saddle): all
+    # univariate / raw baselines are noise-floor (~0.003), but the true
+    # cross-basis winner sits at 0.6 nats; without taking the cross-scores
+    # max into account, ALL noise cross-terms with engineered_mi ~ 0.006
+    # would clear an abs_floor of 0.0003 and pollute the output. Using
+    # max(.) as the reference correctly raises the bar to 0.06 in that
+    # regime so only the true XOR term qualifies.
+    max_raw_baseline = float(cross_scores["baseline_mi"].max()) if not cross_scores.empty else 0.0
+    if not uni_scores.empty:
+        max_raw_baseline = max(max_raw_baseline, float(uni_scores["baseline_mi"].max()))
+    max_cross_engineered = float(cross_scores["engineered_mi"].max()) if not cross_scores.empty else 0.0
+    legacy_floor = float(pair_min_abs_mi_frac) * max(max_raw_baseline, max_cross_engineered)
+    # Layer 27 noise-aware floor: see hybrid_orth_mi_fe for
+    # the rationale. The pair stage is even more prone to noise pollution
+    # (O(p^2) candidates vs O(p) for univariate); the noise-aware
+    # mean+3*std reference protects the all-noise frame's contract.
+    _baselines = cross_scores["baseline_mi"].to_numpy() if not cross_scores.empty else np.array([])
+    # Bonferroni-aware sigma (see hybrid_orth_mi_fe for derivation): pair
+    # candidate counts are much larger than univariate so the per-candidate
+    # threshold must be tighter. Anchor at max(5.0, sqrt(2 ln 2p) + 1.5).
+    n_cands = int(_baselines.size)
+    sigma_thresh = max(
+        5.0,
+        float(np.sqrt(2.0 * np.log(max(2.0, 2.0 * n_cands))) + 1.5),
+    )
+    if _baselines.size >= 4:
+        _med = float(np.median(_baselines))
+        _mad = float(np.median(np.abs(_baselines - _med)))
+        noise_floor = _med + sigma_thresh * 1.4826 * _mad
+    else:
+        noise_floor = 0.0
+    # Also bound vs engineered MI distribution.
+    _eng_mis = cross_scores["engineered_mi"].to_numpy() if not cross_scores.empty else np.array([])
+    if _eng_mis.size >= 4:
+        _med_e = float(np.median(_eng_mis))
+        _mad_e = float(np.median(np.abs(_eng_mis - _med_e)))
+        eng_noise_floor = _med_e + sigma_thresh * 1.4826 * _mad_e
+    else:
+        eng_noise_floor = 0.0
+    abs_floor = max(legacy_floor, noise_floor, eng_noise_floor)
+    return abs_floor
+
+
+def _pair_seed_sources(X: pd.DataFrame, y: np.ndarray, cols: Optional[Sequence[str]], uni_scores: pd.DataFrame, top_pair_seed_k: int, nbins: int) -> list[str]:
+    """Pair seed pool: source columns of the top univariate winners, topped up from the raw-column MI ranking when winners are sparse."""
+    # Build the pair seed pool: top univariate winners' SOURCE columns,
+    # plus a fallback to the raw column MI ranking when uplift-based winners
+    # are sparse (e.g. when y has no useful univariate non-linear signal but
+    # has a XOR cross-term, the seed pool would otherwise be empty).
+    raw_cols_all = [c for c in (cols or X.columns) if c in X.columns and pd.api.types.is_numeric_dtype(X[c])]
+    seed_sources: list[str] = []
+    if not uni_scores.empty:
+        # Source columns of top univariate winners by uplift, deduped, order-preserving.
+        for src in uni_scores["source_col"].tolist():
+            if src not in seed_sources and src in raw_cols_all:
+                seed_sources.append(src)
+            if len(seed_sources) >= int(top_pair_seed_k):
+                break
+    if len(seed_sources) < 2 and len(raw_cols_all) >= 2:
+        # Fallback: rank raw columns by MI(x; y), take top N. Required for
+        # pure-XOR targets where no univariate basis term uplifts (all
+        # univariate MIs are near-zero for y = sign(x_i * x_j)).
+        y_arr = np.asarray(y).astype(np.int64) if not np.issubdtype(np.asarray(y).dtype, np.integer) else np.asarray(y, dtype=np.int64)
+        raw_X_all = X[raw_cols_all]
+        from .._fe_usability_signal import _crit_np_dtype
+        raw_mi_arr = _mi_classif_batch(raw_X_all.to_numpy(dtype=_crit_np_dtype()), y_arr, nbins=nbins)
+        order = np.argsort(-raw_mi_arr, kind="stable")  # plug-in MI is quantised, so ties are real: break them by position, reproducibly
+        fallback = [raw_cols_all[i] for i in order[: int(top_pair_seed_k)]]
+        for src in fallback:
+            if src not in seed_sources:
+                seed_sources.append(src)
+            if len(seed_sources) >= int(top_pair_seed_k):
+                break
+    return seed_sources
+
+
 def hybrid_orth_mi_pair_fe(
     X: pd.DataFrame,
     y: np.ndarray,
@@ -411,34 +491,7 @@ def hybrid_orth_mi_pair_fe(
         min_abs_mi_frac=min_abs_mi_frac, nbins=nbins,
     )
 
-    # Build the pair seed pool: top univariate winners' SOURCE columns,
-    # plus a fallback to the raw column MI ranking when uplift-based winners
-    # are sparse (e.g. when y has no useful univariate non-linear signal but
-    # has a XOR cross-term, the seed pool would otherwise be empty).
-    raw_cols_all = [c for c in (cols or X.columns) if c in X.columns and pd.api.types.is_numeric_dtype(X[c])]
-    seed_sources: list[str] = []
-    if not uni_scores.empty:
-        # Source columns of top univariate winners by uplift, deduped, order-preserving.
-        for src in uni_scores["source_col"].tolist():
-            if src not in seed_sources and src in raw_cols_all:
-                seed_sources.append(src)
-            if len(seed_sources) >= int(top_pair_seed_k):
-                break
-    if len(seed_sources) < 2 and len(raw_cols_all) >= 2:
-        # Fallback: rank raw columns by MI(x; y), take top N. Required for
-        # pure-XOR targets where no univariate basis term uplifts (all
-        # univariate MIs are near-zero for y = sign(x_i * x_j)).
-        y_arr = np.asarray(y).astype(np.int64) if not np.issubdtype(np.asarray(y).dtype, np.integer) else np.asarray(y, dtype=np.int64)
-        raw_X_all = X[raw_cols_all]
-        from .._fe_usability_signal import _crit_np_dtype
-        raw_mi_arr = _mi_classif_batch(raw_X_all.to_numpy(dtype=_crit_np_dtype()), y_arr, nbins=nbins)
-        order = np.argsort(-raw_mi_arr, kind="stable")  # plug-in MI is quantised, so ties are real: break them by position, reproducibly
-        fallback = [raw_cols_all[i] for i in order[: int(top_pair_seed_k)]]
-        for src in fallback:
-            if src not in seed_sources:
-                seed_sources.append(src)
-            if len(seed_sources) >= int(top_pair_seed_k):
-                break
+    seed_sources = _pair_seed_sources(X, y, cols, uni_scores, top_pair_seed_k, nbins)
 
     cross_scores_empty_cols = [
         "engineered_col", "source_col_i", "source_col_j",
@@ -459,48 +512,7 @@ def hybrid_orth_mi_pair_fe(
     cross_scores = score_pair_cross_basis_by_mi_uplift(
         raw_X_seed, pair_eng, y, nbins=nbins, basis=basis,
     )
-    # Two-gate selection mirrors the univariate stage. The absolute floor is
-    # max(raw_baseline_max, cross_engineered_mi_max) * frac. The second
-    # term matters for pure-interaction targets (XOR / saddle): all
-    # univariate / raw baselines are noise-floor (~0.003), but the true
-    # cross-basis winner sits at 0.6 nats; without taking the cross-scores
-    # max into account, ALL noise cross-terms with engineered_mi ~ 0.006
-    # would clear an abs_floor of 0.0003 and pollute the output. Using
-    # max(.) as the reference correctly raises the bar to 0.06 in that
-    # regime so only the true XOR term qualifies.
-    max_raw_baseline = float(cross_scores["baseline_mi"].max()) if not cross_scores.empty else 0.0
-    if not uni_scores.empty:
-        max_raw_baseline = max(max_raw_baseline, float(uni_scores["baseline_mi"].max()))
-    max_cross_engineered = float(cross_scores["engineered_mi"].max()) if not cross_scores.empty else 0.0
-    legacy_floor = float(pair_min_abs_mi_frac) * max(max_raw_baseline, max_cross_engineered)
-    # Layer 27 noise-aware floor: see hybrid_orth_mi_fe for
-    # the rationale. The pair stage is even more prone to noise pollution
-    # (O(p^2) candidates vs O(p) for univariate); the noise-aware
-    # mean+3*std reference protects the all-noise frame's contract.
-    _baselines = cross_scores["baseline_mi"].to_numpy() if not cross_scores.empty else np.array([])
-    # Bonferroni-aware sigma (see hybrid_orth_mi_fe for derivation): pair
-    # candidate counts are much larger than univariate so the per-candidate
-    # threshold must be tighter. Anchor at max(5.0, sqrt(2 ln 2p) + 1.5).
-    n_cands = int(_baselines.size)
-    sigma_thresh = max(
-        5.0,
-        float(np.sqrt(2.0 * np.log(max(2.0, 2.0 * n_cands))) + 1.5),
-    )
-    if _baselines.size >= 4:
-        _med = float(np.median(_baselines))
-        _mad = float(np.median(np.abs(_baselines - _med)))
-        noise_floor = _med + sigma_thresh * 1.4826 * _mad
-    else:
-        noise_floor = 0.0
-    # Also bound vs engineered MI distribution.
-    _eng_mis = cross_scores["engineered_mi"].to_numpy() if not cross_scores.empty else np.array([])
-    if _eng_mis.size >= 4:
-        _med_e = float(np.median(_eng_mis))
-        _mad_e = float(np.median(np.abs(_eng_mis - _med_e)))
-        eng_noise_floor = _med_e + sigma_thresh * 1.4826 * _mad_e
-    else:
-        eng_noise_floor = 0.0
-    abs_floor = max(legacy_floor, noise_floor, eng_noise_floor)
+    abs_floor = _pair_abs_floor(cross_scores, uni_scores, pair_min_abs_mi_frac)
     qualified = cross_scores[(cross_scores["uplift"] >= float(pair_min_uplift)) & (cross_scores["engineered_mi"] >= abs_floor)]
     winners = qualified.head(int(top_pair_count))
     keep_pair = list(winners["engineered_col"])

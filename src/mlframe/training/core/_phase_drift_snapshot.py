@@ -22,6 +22,160 @@ _DRIFT_MIN_ABS = 5
 _DRIFT_MIN_FRAC = 0.05
 
 
+def _compute_drift_rows(
+    train_df: Any,
+    val_df: Any,
+    test_df: Any,
+    pairs: list[tuple[str, int]],
+    ctx: Any | None,
+) -> list[tuple[str, int, int, int]]:
+    """Count val/test categories absent from train per column: rows of (col, train_card, val_only, test_only)."""
+    # Per-col anti-join was 3 selects + 2 joins = ~5 eager passes; on 100 cols that's ~500 passes ~10-30 s.
+    # Batched implode pattern: one lazy collect per frame yielding a 1-row frame whose cells are the
+    # imploded unique-value lists. Anti-set is then a pure-Python set-difference on the materialised lists.
+    drift_cols = [c for c, card in pairs if card <= _DRIFT_SKIP_CARD and c in val_df.columns and c in test_df.columns]
+    drift_rows: list[tuple[str, int, int, int]] = []
+    if drift_cols:
+        # CAT-DRIFT-FULL-IMPLODE: cache the train-side ``unique().implode()`` result on
+        # ctx keyed by (id(train_df), drift_cols_tuple). The drift snapshot is invoked up
+        # to three times per suite (pre-split / post-split / pre-fit) on the same train
+        # frame, each time paying a full lazy collect over hundreds of columns. Recompute
+        # only when ctx is absent OR the train frame identity changes; val/test sides are
+        # not cached because they're cheap relative to train and may rotate per pass.
+        _cache_key = (id(train_df), tuple(drift_cols))
+        _drift_cache = getattr(ctx, "_cat_drift_implode_cache", None) if ctx is not None else None
+        _tr_sets_cached = _drift_cache.get(_cache_key) if isinstance(_drift_cache, dict) else None
+        if _tr_sets_cached is None:
+            _tr_uniq = train_df.lazy().select([pl.col(c).drop_nulls().unique().implode().alias(c) for c in drift_cols]).collect()
+            # Materialise to per-col sets ONCE; the previous code recomputed the
+            # ``set(_tr_uniq[c][0].to_list())`` per column inside the row loop.
+            _tr_sets_cached = {c: set(_tr_uniq[c][0].to_list()) for c in drift_cols}
+            if isinstance(_drift_cache, dict):
+                _drift_cache[_cache_key] = _tr_sets_cached
+        _v_uniq = val_df.lazy().select([pl.col(c).drop_nulls().unique().implode().alias(c) for c in drift_cols]).collect()
+        _te_uniq = test_df.lazy().select([pl.col(c).drop_nulls().unique().implode().alias(c) for c in drift_cols]).collect()
+        _card_by_col = dict(pairs)
+        for c in drift_cols:
+            tr_set = _tr_sets_cached[c]
+            val_only = sum(1 for x in _v_uniq[c][0].to_list() if x not in tr_set)
+            test_only = sum(1 for x in _te_uniq[c][0].to_list() if x not in tr_set)
+            drift_rows.append((c, _card_by_col[c], val_only, test_only))
+    return drift_rows
+
+
+def _healing_suggestion(c: str, card_tr: int) -> str:
+    """Healing advice text for a drifting categorical column, keyed on its train-side cardinality."""
+    if card_tr >= 1000:
+        return (
+            f"        suggested actions (pick one):\n"
+            f"          a) hash-bucket via FeatureHasher / target-encoding "
+            f"(card {card_tr:_} >= 1 000 -> model will memorize train-only "
+            f"values and generalize poorly on val/test);\n"
+            f"          b) drop '{c}' from cat_features and keep only the "
+            f"top-K most frequent (K=100-300) as one-hot, route the rest "
+            f"into an '__OTHER__' bucket;\n"
+            f"          c) drop '{c}' entirely if it's an identifier or "
+            f"free-text field -- promote to text_features via use_text_features=True "
+            f"so CatBoost handles it natively and other backends ignore it."
+        )
+    if card_tr >= 100:
+        return (
+            f"        suggested actions (pick one):\n"
+            f"          a) target-encoding (CatBoostEncoder) to collapse "
+            f"{card_tr:_} levels into a continuous feature;\n"
+            f"          b) keep top-K by train frequency, bucket the rest "
+            f"into '__OTHER__' before fit (K~=30-80)."
+        )
+    return (
+        "        suggested actions (pick one):\n"
+        "          a) add an explicit '__UNSEEN__' bucket in the "
+        "Enum domain so val values absent from train resolve to a "
+        "known category instead of raising;\n"
+        "          b) widen the training window (temporal split) so "
+        "val_only categories are observed at fit time."
+    )
+
+
+def _log_one_drift_row(
+    c: str,
+    card_tr: int,
+    v_only: int,
+    v_frac: float,
+    text_cols: set[str],
+    align_categorical_dicts: bool,
+) -> None:
+    """Log the throttled drift line (text-vocabulary INFO, handled INFO, or crash-suspect WARNING) for one drifting column."""
+    if c in text_cols:
+        # This scan covers text_features too (unseen tokens are worth knowing about), but the
+        # categorical advice does not apply to them: the column is not in cat_features to be
+        # dropped from, promoting it already happened, and a text feature never reaches the
+        # categorical DMatrix path the crash warning describes. A production log printed all
+        # three at once, one line after promoting the very columns it was advising about.
+        log_throttle(
+            logger,
+            "phase_drift_snapshot_text_drift",
+            logging.INFO,
+            "  Text-feature vocabulary drift: %s -- val carries %s value(s) (%s of the %s seen in "
+            "train) that train never saw. Unseen values are tokenised rather than treated as new "
+            "categories, so nothing here needs healing: token drift is expected for free text. "
+            "Refit more often or widen the training window if the model leans on this column.",
+            c, v_only, f"{v_frac:.1%}", f"{card_tr:_}",
+        )
+        return
+    _healing = _healing_suggestion(c, card_tr)
+    _aligned = align_categorical_dicts and card_tr + v_only <= _DICT_ALIGN_SKIP_CARD
+    if _aligned and card_tr < 100:
+        log_throttle(
+            logger,
+            "phase_drift_snapshot_category_drift_handled",
+            logging.INFO,
+            "  Category drift: %s -- val has %s categor%s (%s of train card %s) that train never "
+            "saw. Handled automatically: the fit shares one train+val category domain across "
+            "splits, so val-only values are known categories and test-only values become missing.",
+            c, v_only, "y" if v_only == 1 else "ies", f"{v_frac:.1%}", f"{card_tr:_}",
+        )
+        return
+    _crash_note = (
+        "The shared train+val category domain prevents a crash, but train-only levels generalize poorly."
+        if _aligned
+        else "XGB/CB may crash when constructing val DMatrix with ref=train."
+    )
+    log_throttle(
+        logger,
+        "phase_drift_snapshot_category_drift_suspect",
+        logging.WARNING,
+        "  Category drift suspect: %s -- val has %s categories " "(%s of train card %s) that train never saw. " "%s\n" "%s",
+        c,
+        v_only,
+        f"{v_frac:.1%}",
+        f"{card_tr:_}",
+        _crash_note,
+        _healing,
+    )
+
+
+def _log_drift_rows(
+    drift_rows: list[tuple[str, int, int, int]],
+    text_features: list[str],
+    align_categorical_dicts: bool,
+) -> None:
+    """Log the drift summary and per-column drift advice for rows of (col, train_card, val_only, test_only)."""
+    drift_rows.sort(key=lambda x: -x[2])
+    _drift_parts = [f"{c}:val_only={v},test_only={t}" for c, _, v, t in drift_rows if v > 0 or t > 0]
+    drift_summary = ", ".join(_drift_parts) if len(_drift_parts) > 0 else "(none)"
+    logger.info("  Category drift (val/test values missing from train): %s", drift_summary)
+
+    # Test-side drift is reported above but NOT used in healing decisions
+    # (would leak test info into training).
+    _text_cols = set(text_features or [])
+    for c, card_tr, v_only, t_only in drift_rows:
+        if v_only == 0 and t_only == 0:
+            continue
+        v_frac = v_only / max(card_tr, 1)
+        if v_only >= _DRIFT_MIN_ABS or v_frac >= _DRIFT_MIN_FRAC:
+            _log_one_drift_row(c, card_tr, v_only, v_frac, _text_cols, align_categorical_dicts)
+
+
 def _log_cardinality_and_drift_snapshot(
     *,
     train_df: pl.DataFrame | pd.DataFrame | None,
@@ -91,126 +245,8 @@ def _log_cardinality_and_drift_snapshot(
 
         # Drift log: val/test categories not seen in train.
         if is_polars and val_df is not None and test_df is not None and val_df.height > 0:
-            # Per-col anti-join was 3 selects + 2 joins = ~5 eager passes; on 100 cols that's ~500 passes ~10-30 s.
-            # Batched implode pattern: one lazy collect per frame yielding a 1-row frame whose cells are the
-            # imploded unique-value lists. Anti-set is then a pure-Python set-difference on the materialised lists.
-            drift_cols = [c for c, card in pairs if card <= _DRIFT_SKIP_CARD and c in val_df.columns and c in test_df.columns]
-            drift_rows: list = []
-            if drift_cols:
-                # CAT-DRIFT-FULL-IMPLODE: cache the train-side ``unique().implode()`` result on
-                # ctx keyed by (id(train_df), drift_cols_tuple). The drift snapshot is invoked up
-                # to three times per suite (pre-split / post-split / pre-fit) on the same train
-                # frame, each time paying a full lazy collect over hundreds of columns. Recompute
-                # only when ctx is absent OR the train frame identity changes; val/test sides are
-                # not cached because they're cheap relative to train and may rotate per pass.
-                _cache_key = (id(train_df), tuple(drift_cols))
-                _drift_cache = getattr(ctx, "_cat_drift_implode_cache", None) if ctx is not None else None
-                _tr_sets_cached = _drift_cache.get(_cache_key) if isinstance(_drift_cache, dict) else None
-                if _tr_sets_cached is None:
-                    _tr_uniq = train_df.lazy().select([pl.col(c).drop_nulls().unique().implode().alias(c) for c in drift_cols]).collect()
-                    # Materialise to per-col sets ONCE; the previous code recomputed the
-                    # ``set(_tr_uniq[c][0].to_list())`` per column inside the row loop.
-                    _tr_sets_cached = {c: set(_tr_uniq[c][0].to_list()) for c in drift_cols}
-                    if isinstance(_drift_cache, dict):
-                        _drift_cache[_cache_key] = _tr_sets_cached
-                _v_uniq = val_df.lazy().select([pl.col(c).drop_nulls().unique().implode().alias(c) for c in drift_cols]).collect()
-                _te_uniq = test_df.lazy().select([pl.col(c).drop_nulls().unique().implode().alias(c) for c in drift_cols]).collect()
-                _card_by_col = dict(pairs)
-                for c in drift_cols:
-                    tr_set = _tr_sets_cached[c]
-                    val_only = sum(1 for x in _v_uniq[c][0].to_list() if x not in tr_set)
-                    test_only = sum(1 for x in _te_uniq[c][0].to_list() if x not in tr_set)
-                    drift_rows.append((c, _card_by_col[c], val_only, test_only))
-
+            drift_rows = _compute_drift_rows(train_df, val_df, test_df, pairs, ctx)
             if drift_rows:
-                drift_rows.sort(key=lambda x: -x[2])
-                _drift_parts = [f"{c}:val_only={v},test_only={t}" for c, _, v, t in drift_rows if v > 0 or t > 0]
-                drift_summary = ", ".join(_drift_parts) if len(_drift_parts) > 0 else "(none)"
-                logger.info("  Category drift (val/test values missing from train): %s", drift_summary)
-
-                # Test-side drift is reported above but NOT used in healing decisions
-                # (would leak test info into training).
-                _text_cols = set(text_features or [])
-                for c, card_tr, v_only, t_only in drift_rows:
-                    if v_only == 0 and t_only == 0:
-                        continue
-                    v_frac = v_only / max(card_tr, 1)
-                    if v_only >= _DRIFT_MIN_ABS or v_frac >= _DRIFT_MIN_FRAC:
-                        if c in _text_cols:
-                            # This scan covers text_features too (unseen tokens are worth knowing about), but the
-                            # categorical advice does not apply to them: the column is not in cat_features to be
-                            # dropped from, promoting it already happened, and a text feature never reaches the
-                            # categorical DMatrix path the crash warning describes. A production log printed all
-                            # three at once, one line after promoting the very columns it was advising about.
-                            log_throttle(
-                                logger,
-                                "phase_drift_snapshot_text_drift",
-                                logging.INFO,
-                                "  Text-feature vocabulary drift: %s -- val carries %s value(s) (%s of the %s seen in "
-                                "train) that train never saw. Unseen values are tokenised rather than treated as new "
-                                "categories, so nothing here needs healing: token drift is expected for free text. "
-                                "Refit more often or widen the training window if the model leans on this column.",
-                                c, v_only, f"{v_frac:.1%}", f"{card_tr:_}",
-                            )
-                            continue
-                        if card_tr >= 1000:
-                            _healing = (
-                                f"        suggested actions (pick one):\n"
-                                f"          a) hash-bucket via FeatureHasher / target-encoding "
-                                f"(card {card_tr:_} >= 1 000 -> model will memorize train-only "
-                                f"values and generalize poorly on val/test);\n"
-                                f"          b) drop '{c}' from cat_features and keep only the "
-                                f"top-K most frequent (K=100-300) as one-hot, route the rest "
-                                f"into an '__OTHER__' bucket;\n"
-                                f"          c) drop '{c}' entirely if it's an identifier or "
-                                f"free-text field -- promote to text_features via use_text_features=True "
-                                f"so CatBoost handles it natively and other backends ignore it."
-                            )
-                        elif card_tr >= 100:
-                            _healing = (
-                                f"        suggested actions (pick one):\n"
-                                f"          a) target-encoding (CatBoostEncoder) to collapse "
-                                f"{card_tr:_} levels into a continuous feature;\n"
-                                f"          b) keep top-K by train frequency, bucket the rest "
-                                f"into '__OTHER__' before fit (K~=30-80)."
-                            )
-                        else:
-                            _healing = (
-                                "        suggested actions (pick one):\n"
-                                "          a) add an explicit '__UNSEEN__' bucket in the "
-                                "Enum domain so val values absent from train resolve to a "
-                                "known category instead of raising;\n"
-                                "          b) widen the training window (temporal split) so "
-                                "val_only categories are observed at fit time."
-                            )
-                        _aligned = align_categorical_dicts and card_tr + v_only <= _DICT_ALIGN_SKIP_CARD
-                        if _aligned and card_tr < 100:
-                            log_throttle(
-                                logger,
-                                "phase_drift_snapshot_category_drift_handled",
-                                logging.INFO,
-                                "  Category drift: %s -- val has %s categor%s (%s of train card %s) that train never "
-                                "saw. Handled automatically: the fit shares one train+val category domain across "
-                                "splits, so val-only values are known categories and test-only values become missing.",
-                                c, v_only, "y" if v_only == 1 else "ies", f"{v_frac:.1%}", f"{card_tr:_}",
-                            )
-                            continue
-                        _crash_note = (
-                            "The shared train+val category domain prevents a crash, but train-only levels generalize poorly."
-                            if _aligned
-                            else "XGB/CB may crash when constructing val DMatrix with ref=train."
-                        )
-                        log_throttle(
-                            logger,
-                            "phase_drift_snapshot_category_drift_suspect",
-                            logging.WARNING,
-                            "  Category drift suspect: %s -- val has %s categories " "(%s of train card %s) that train never saw. " "%s\n" "%s",
-                            c,
-                            v_only,
-                            f"{v_frac:.1%}",
-                            f"{card_tr:_}",
-                            _crash_note,
-                            _healing,
-                        )
+                _log_drift_rows(drift_rows, text_features, align_categorical_dicts)
     except Exception as _e:
         logger.warning("  Failed to compute categorical cardinality/drift: %s", _e)

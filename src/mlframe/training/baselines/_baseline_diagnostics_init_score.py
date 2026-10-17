@@ -78,6 +78,87 @@ def _impute_nonfinite_columns(B: np.ndarray) -> "tuple[np.ndarray, np.ndarray, i
     return out, finite_col_mask, n_imputed_total
 
 
+def _single_feature_base(X: pd.DataFrame, feat: str) -> "np.ndarray | None":
+    """Float values of ``feat`` with non-finite rows median-imputed; ``None`` when the column is entirely non-finite."""
+    base_values, _n_imputed = _impute_nonfinite_1d(X[feat].to_numpy().astype(np.float64))
+    if base_values is None:
+        logger.info("BaselineDiagnostics: init_score top feature %r is entirely non-finite; skipping.", feat)
+        return None
+    if _n_imputed:
+        logger.info(
+            "BaselineDiagnostics: init_score top feature %r had %d non-finite row(s); "
+            "imputed with the column's finite median rather than skipping the diagnostic.",
+            feat, _n_imputed,
+        )
+    return base_values
+
+
+def _combined_features_base(X: pd.DataFrame, y: np.ndarray, chosen: list, target_type: str) -> "tuple[np.ndarray, str] | None":
+    """OLS (regression) / logistic (binary) combination of the chosen features: ``(base_values, feature_used)``, ``None`` if all columns are unusable."""
+    _feats_for_combiner = [e.feature for e in chosen]
+    if hasattr(X, "loc"):
+        B = X.loc[:, _feats_for_combiner].to_numpy(dtype=np.float64, copy=False)
+    else:
+        # Polars DataFrame branch -- single select -> arrow -> numpy.
+        B = X.select(_feats_for_combiner).to_numpy()
+        if B.dtype != np.float64:
+            B = B.astype(np.float64, copy=False)
+    B, _finite_col_mask, _n_imputed = _impute_nonfinite_columns(B)
+    if _n_imputed:
+        logger.info(
+            "BaselineDiagnostics: init_score combiner input had %d non-finite value(s) across "
+            "%d candidate column(s); imputed each with its own finite median rather than skipping.",
+            _n_imputed, B.shape[1],
+        )
+    ptp = np.ptp(B, axis=0)
+    keep_cols = (ptp > 1e-12) & _finite_col_mask
+    if keep_cols.sum() == 0:
+        return None
+    B = B[:, keep_cols]
+    if target_type == "binary_classification":
+        # Logistic regression -> probability scale, then converted to
+        # logit by the binary branch below.
+        from sklearn.linear_model import LogisticRegression
+        lr = LogisticRegression(max_iter=200, C=1.0)
+        lr.fit(B, y)
+        base_values = lr.predict_proba(B)[:, 1]
+    else:
+        B_aug = np.column_stack([B, np.ones(len(B))])
+        coef, *_ = np.linalg.lstsq(
+            B_aug, y.astype(np.float64), rcond=None,
+        )
+        base_values = B_aug @ coef
+    kept_feats = [e.feature for e, k in zip(chosen, keep_cols) if k]
+    feature_used = "+".join(kept_feats) if kept_feats else chosen[0].feature
+    return base_values, feature_used
+
+
+def _init_logit_from_base(base_values: np.ndarray, y: np.ndarray) -> np.ndarray:
+    """Convert a binary base signal to the logit-scale ``init_score`` LightGBM expects."""
+    # Treat base_values as a probability-scale signal. Squash through
+    # sigmoid first if it's outside [0, 1] (raw feature scale), else
+    # clip to (eps, 1-eps) and take logit.
+    mn, mx = float(np.min(base_values)), float(np.max(base_values))
+    if mn < 0.0 or mx > 1.0:
+        # Not on probability scale; squash via sigmoid relative to the
+        # sample mean so the prior centres on the observed class balance.
+        base_values = base_values - float(np.mean(base_values))
+        # Scale so std ~= 1 (keeps logit values reasonable).
+        std = float(np.std(base_values)) or 1.0
+        base_values = base_values / std
+        # Centre the logit baseline on the empirical positive rate so
+        # init_score isn't biased toward 50/50.
+        p_pos = float(np.mean(y))
+        p_pos = min(max(p_pos, 1e-3), 1 - 1e-3)
+        init_logit = base_values + math.log(p_pos / (1.0 - p_pos))
+    else:
+        # Probability scale; clip + logit directly.
+        eps = 1e-6
+        p = np.clip(base_values, eps, 1.0 - eps)
+        init_logit = np.log(p / (1.0 - p))
+    return init_logit
+
+
 def _fit_init_score_baseline(
     self,
     X: pd.DataFrame,
@@ -135,58 +216,17 @@ def _fit_init_score_baseline(
 
     if len(chosen) == 1:
         feat = chosen[0].feature
-        base_values, _n_imputed = _impute_nonfinite_1d(X[feat].to_numpy().astype(np.float64))
+        base_values = _single_feature_base(X, feat)
         if base_values is None:
-            logger.info("BaselineDiagnostics: init_score top feature %r is entirely non-finite; skipping.", feat)
             return None
-        if _n_imputed:
-            logger.info(
-                "BaselineDiagnostics: init_score top feature %r had %d non-finite row(s); "
-                "imputed with the column's finite median rather than skipping the diagnostic.",
-                feat, _n_imputed,
-            )
         feature_used = feat
     else:
         # Linear combiner: OLS for regression, LR for binary.
         try:
-            # Single-select / loc materialisation hoists per-feature dispatch out of the loop. On K>=4
-            # candidate features this saved ~3x over the prior list-comprehension of independent .to_numpy()
-            # calls (each call dispatched through pandas/polars column-access overhead).
-            _feats_for_combiner = [e.feature for e in chosen]
-            if hasattr(X, "loc"):
-                B = X.loc[:, _feats_for_combiner].to_numpy(dtype=np.float64, copy=False)
-            else:
-                # Polars DataFrame branch -- single select -> arrow -> numpy.
-                B = X.select(_feats_for_combiner).to_numpy()
-                if B.dtype != np.float64:
-                    B = B.astype(np.float64, copy=False)
-            B, _finite_col_mask, _n_imputed = _impute_nonfinite_columns(B)
-            if _n_imputed:
-                logger.info(
-                    "BaselineDiagnostics: init_score combiner input had %d non-finite value(s) across "
-                    "%d candidate column(s); imputed each with its own finite median rather than skipping.",
-                    _n_imputed, B.shape[1],
-                )
-            ptp = np.ptp(B, axis=0)
-            keep_cols = (ptp > 1e-12) & _finite_col_mask
-            if keep_cols.sum() == 0:
+            _combined = _combined_features_base(X, y, chosen, target_type)
+            if _combined is None:
                 return None
-            B = B[:, keep_cols]
-            if target_type == "binary_classification":
-                # Logistic regression -> probability scale, then converted to
-                # logit by the binary branch below.
-                from sklearn.linear_model import LogisticRegression
-                lr = LogisticRegression(max_iter=200, C=1.0)
-                lr.fit(B, y)
-                base_values = lr.predict_proba(B)[:, 1]
-            else:
-                B_aug = np.column_stack([B, np.ones(len(B))])
-                coef, *_ = np.linalg.lstsq(
-                    B_aug, y.astype(np.float64), rcond=None,
-                )
-                base_values = B_aug @ coef
-            kept_feats = [e.feature for e, k in zip(chosen, keep_cols) if k]
-            feature_used = "+".join(kept_feats) if kept_feats else chosen[0].feature
+            base_values, feature_used = _combined
         except (ValueError, np.linalg.LinAlgError, RuntimeError, TypeError) as exc:
             # OLS / LR combiner can fail on rank-deficient B or NaN-rich y;
             # fall back to single-feature mode. KeyboardInterrupt / MemoryError
@@ -196,16 +236,9 @@ def _fit_init_score_baseline(
                 exc,
             )
             feat = chosen[0].feature
-            base_values, _n_imputed = _impute_nonfinite_1d(X[feat].to_numpy().astype(np.float64))
+            base_values = _single_feature_base(X, feat)
             if base_values is None:
-                logger.info("BaselineDiagnostics: init_score top feature %r is entirely non-finite; skipping.", feat)
                 return None
-            if _n_imputed:
-                logger.info(
-                    "BaselineDiagnostics: init_score top feature %r had %d non-finite row(s); "
-                    "imputed with the column's finite median rather than skipping the diagnostic.",
-                    feat, _n_imputed,
-                )
             feature_used = feat
 
     if not np.all(np.isfinite(base_values)):
@@ -218,28 +251,7 @@ def _fit_init_score_baseline(
     # Convert to the right scale for the inner family. LightGBM's init_score
     # for binary expects a LOGIT, not a probability.
     if target_type == "binary_classification":
-        # Treat base_values as a probability-scale signal. Squash through
-        # sigmoid first if it's outside [0, 1] (raw feature scale), else
-        # clip to (eps, 1-eps) and take logit.
-        mn, mx = float(np.min(base_values)), float(np.max(base_values))
-        if mn < 0.0 or mx > 1.0:
-            # Not on probability scale; squash via sigmoid relative to the
-            # sample mean so the prior centres on the observed class balance.
-            base_values = base_values - float(np.mean(base_values))
-            # Scale so std ~= 1 (keeps logit values reasonable).
-            std = float(np.std(base_values)) or 1.0
-            base_values = base_values / std
-            # Centre the logit baseline on the empirical positive rate so
-            # init_score isn't biased toward 50/50.
-            p_pos = float(np.mean(y))
-            p_pos = min(max(p_pos, 1e-3), 1 - 1e-3)
-            init_logit = base_values + math.log(p_pos / (1.0 - p_pos))
-        else:
-            # Probability scale; clip + logit directly.
-            eps = 1e-6
-            p = np.clip(base_values, eps, 1.0 - eps)
-            init_logit = np.log(p / (1.0 - p))
-        init_score_arg = init_logit
+        init_score_arg = _init_logit_from_base(base_values, y)
     else:
         init_score_arg = base_values
 

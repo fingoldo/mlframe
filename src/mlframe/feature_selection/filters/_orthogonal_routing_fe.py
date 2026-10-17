@@ -157,6 +157,179 @@ def parse_routing_col_name(name: str) -> Optional[tuple[str, str, str, int]]:
                 return (src, pre_transform, code_to_basis[code], int(deg_str))
     return None
 
+def _routing_winners_output(index: pd.Index, winners: list, cand_values: list) -> tuple[pd.DataFrame, dict]:
+    """Materialise the winning routed columns and their replay meta."""
+    out_cols: dict = {}
+    meta: dict = {}
+    for info in winners:
+        name = str(info["engineered_col"])
+        vals = cand_values[int(info["values_idx"])]
+        out_cols[name] = vals
+        meta[name] = {
+            "src": info["src"],
+            "basis": str(info["basis"]),
+            "degree": int(info["degree"]),
+            "pre_transform": str(info["pre_transform"]),
+            "uplift": float(info["uplift"]),
+            "engineered_mi": float(info["engineered_mi"]),
+            "baseline_mi": float(info["baseline_mi"]),
+        }
+    return pd.DataFrame(out_cols, index=index), meta
+
+
+def _routing_abs_floor(raw_mi_map: dict, best_per_source: dict, min_abs_mi_frac: float) -> float:
+    """Absolute MI floor: the largest of the legacy fraction-of-max floor, the raw-baseline MAD floor and the per-source-best MAD floor."""
+    # ---- Step 5: uplift gate + noise-aware absolute MI floor + top-K
+    # The per-column argmax can still surface noise-only columns where raw
+    # MI is itself tiny and the ratio amplifies pure tail sampling. Mirror
+    # Layer 21's two-gate (relative uplift + noise-aware absolute floor)
+    # but use the PER-SOURCE-BEST engineered MI distribution for the noise
+    # floor instead of the full candidate distribution: per-source winners
+    # are a much cleaner signal-vs-noise comparison (with 4 sources of
+    # which 3 carry signal, the full candidate pool has too much signal
+    # mass for MAD to identify the noise band, while the per-source-best
+    # distribution has at most 1 row per source which preserves the
+    # signal-vs-noise gap). The raw-baseline MAD floor is unchanged from
+    # Layer 21 and remains the dominant safeguard on all-noise frames.
+    raw_baselines = np.asarray(list(raw_mi_map.values()), dtype=np.float64)
+    max_raw_baseline = float(raw_baselines.max()) if raw_baselines.size else 0.0
+    legacy_floor = float(min_abs_mi_frac) * max_raw_baseline
+    n_cands = int(raw_baselines.size)
+    sigma_thresh = max(
+        5.0,
+        float(np.sqrt(2.0 * np.log(max(2.0, 2.0 * n_cands))) + 1.5),
+    )
+    # Bonferroni MAD floor only safe when there's enough columns for MAD
+    # to identify the noise band. With p<16 a multi-signal frame can have
+    # many baselines well above the noise mass; MAD then captures the
+    # signal-vs-signal spread and the resulting threshold exceeds every
+    # legitimate engineered MI. Gate on n_sources >= 16 so all-noise
+    # frames at production p (typically >> 16) get the protection while
+    # small benchmark frames still emit signal columns.
+    if raw_baselines.size >= 16:
+        med = float(np.median(raw_baselines))
+        mad = float(np.median(np.abs(raw_baselines - med)))
+        noise_floor = med + sigma_thresh * 1.4826 * mad
+    else:
+        noise_floor = 0.0
+    # Per-source-best engineered MI distribution noise floor: only safe
+    # when there are MANY sources (so MAD reliably tracks the noise band
+    # and a few signals don't pull the median past every survivor). For
+    # small p the per-source-best distribution has too few rows; one signal
+    # source drags the median above the noise mass and even legitimate
+    # signal columns at neighbouring sources can be filtered out. Gate
+    # this floor on n_sources >= 16; otherwise rely on raw-baseline MAD +
+    # legacy floor + the per-column relative-uplift gate (which still
+    # screens out noise-MI tail amplifications).
+    best_emis = np.asarray(
+        [float(info["engineered_mi"]) for info in best_per_source.values()],
+        dtype=np.float64,
+    )
+    if best_emis.size >= 16:
+        med_e = float(np.median(best_emis))
+        mad_e = float(np.median(np.abs(best_emis - med_e)))
+        eng_noise_floor = med_e + sigma_thresh * 1.4826 * mad_e
+    else:
+        eng_noise_floor = 0.0
+    abs_floor = max(legacy_floor, noise_floor, eng_noise_floor)
+    return abs_floor
+
+
+def _best_cell_per_source(cand_meta: list, cand_cols: list, eng_mi: np.ndarray, route_score: np.ndarray) -> dict:
+    """Per-source argmax over (pre, basis, degree) by ``route_score``; the selected cell's MI is retained for the (MI-based) keep gate."""
+    # ---- Step 4: per-source argmax over (pre, basis, degree) by route_score;
+    # the selected cell's MI is retained for the (MI-based) keep gate in Step 5.
+    best_per_source: dict[str, dict] = {}
+    for j, (src, pt, basis_name, deg) in enumerate(cand_meta):
+        emi = float(eng_mi[j])
+        rscore = float(route_score[j])
+        if not np.isfinite(emi) or not np.isfinite(rscore):
+            continue
+        cur = best_per_source.get(src)
+        if cur is None or rscore > cur["route_score"]:
+            best_per_source[src] = {
+                "src": src,
+                "pre_transform": pt,
+                "basis": basis_name,
+                "degree": deg,
+                "engineered_mi": emi,
+                "route_score": rscore,
+                "engineered_col": cand_cols[j],
+                "values_idx": j,
+            }
+    return best_per_source
+
+
+def _routing_scores(routing_criterion: str, y_arr: np.ndarray, cand_mat: np.ndarray, eng_mi: np.ndarray) -> np.ndarray:
+    """Per-candidate routing score: |Pearson corr| with y under ``routing_criterion="corr"`` (default), else the MI itself."""
+    # ---- Step 3b: routing score. The per-source ARGMAX (which (pre,basis,degree)
+    # cell to keep) is a LINEARISATION decision - pick the cell a shallow/linear
+    # downstream can best use - so route by |Pearson corr|, NOT by MI. A 30-class
+    # OOS study over this exact (pre x basis x degree) space showed
+    # corr-routing near-oracle (OOS-linear R^2 0.81 vs MI 0.52; MI picks an
+    # informative-but-non-linear cell - log|x|/tanh+Laguerre - in 23/30 cases).
+    # Mirrors ``basis_route_by_signal`` (the default Layer-21 router). The KEEP
+    # gate below (uplift + noise floor) stays MI-based: relevance IS an MI
+    # question. ``routing_criterion="mi"`` restores the legacy argmax.
+    route_score: np.ndarray
+    if str(routing_criterion).lower() == "corr":
+        _yf = y_arr.astype(np.float64)
+        _ystd = float(_yf.std())
+        if _ystd > 1e-12:
+            _Mz = standardise(cand_mat)
+            route_score = np.abs(_Mz.T @ ((_yf - _yf.mean()) / _ystd) / _yf.size)
+        else:
+            route_score = eng_mi
+    else:
+        route_score = eng_mi
+    return route_score
+
+
+def _enumerate_routing_cells(X: pd.DataFrame, cols: Sequence[str], transform_variants: tuple, candidate_bases: tuple, degrees: tuple) -> tuple[list, list, list]:
+    """Enumerate every (col, pre_transform, basis, degree) cell; returns ``(cand_cols, cand_values, cand_meta)`` with ``cand_meta`` = ``(src, pre, basis, degree)``."""
+    # ---- Step 2: enumerate every (col, pre_transform, basis, degree) cell.
+    # Pre-compute pre-transformed columns ONCE per (col, pre_transform) so
+    # the basis evaluation doesn't re-run log/sqrt/tanh per basis.
+    cand_cols: list[str] = []
+    cand_values: list[np.ndarray] = []
+    cand_meta: list[tuple[str, str, str, int]] = []  # (src, pre, basis, degree)
+
+    for col in cols:
+        # Value-construction site (feeds the engineered column, not just an MI score): always
+        # float64, matching _apply_orth_univariate's hardcoded replay dtype - a relaxed f32 cast
+        # here reproduces the fit/replay drift bug fixed in _orthogonal_univariate_fe/__init__.py.
+        x_raw = np.asarray(X[col].to_numpy(), dtype=np.float64)
+        finite_mask = np.isfinite(x_raw)
+        if not finite_mask.all():
+            fill = float(np.nanmean(x_raw[finite_mask])) if finite_mask.any() else 0.0
+            x_raw = np.where(finite_mask, x_raw, fill)
+        # Pre-transform cache for this column.
+        pt_cache: dict[str, np.ndarray] = {}
+        _pre_transform_variants_for_column(transform_variants, x_raw, col, pt_cache)
+        for pt, xt in pt_cache.items():
+            for basis_name in candidate_bases:
+                for d in degrees:
+                    try:
+                        vals = _evaluate_basis_column(xt, basis_name, int(d))
+                    except Exception as exc:
+                        log_throttle(
+                            logger, "routing_fe_basis_eval_raised", logging.WARNING,
+                            "generate_conditional_basis_routing_features: "
+                            "basis=%r pre=%r degree=%d on col=%r raised %r; "
+                            "skipping.",
+                            basis_name, pt, d, col, exc,
+                        )
+                        continue
+                    if not np.isfinite(vals).all():
+                        continue
+                    if float(np.std(vals)) <= 1e-12:
+                        continue
+                    cand_cols.append(_routing_col_name(col, basis_name, int(d), pt))
+                    cand_values.append(vals)
+                    cand_meta.append((col, pt, basis_name, int(d)))
+    return cand_cols, cand_values, cand_meta
+
+
 def generate_conditional_basis_routing_features(
     X: pd.DataFrame,
     y: np.ndarray,
@@ -246,46 +419,7 @@ def generate_conditional_basis_routing_features(
     # layers (total-correlation / adaptive-degree / cluster-basis / diff-basis / adaptive-arity).
     raw_mi_map = cached_raw_mi_baseline(cols, raw_X.to_numpy(dtype=_dt), y_arr, nbins=nbins)
 
-    # ---- Step 2: enumerate every (col, pre_transform, basis, degree) cell.
-    # Pre-compute pre-transformed columns ONCE per (col, pre_transform) so
-    # the basis evaluation doesn't re-run log/sqrt/tanh per basis.
-    cand_cols: list[str] = []
-    cand_values: list[np.ndarray] = []
-    cand_meta: list[tuple[str, str, str, int]] = []  # (src, pre, basis, degree)
-
-    for col in cols:
-        # Value-construction site (feeds the engineered column, not just an MI score): always
-        # float64, matching _apply_orth_univariate's hardcoded replay dtype - a relaxed f32 cast
-        # here reproduces the fit/replay drift bug fixed in _orthogonal_univariate_fe/__init__.py.
-        x_raw = np.asarray(X[col].to_numpy(), dtype=np.float64)
-        finite_mask = np.isfinite(x_raw)
-        if not finite_mask.all():
-            fill = float(np.nanmean(x_raw[finite_mask])) if finite_mask.any() else 0.0
-            x_raw = np.where(finite_mask, x_raw, fill)
-        # Pre-transform cache for this column.
-        pt_cache: dict[str, np.ndarray] = {}
-        _pre_transform_variants_for_column(transform_variants, x_raw, col, pt_cache)
-        for pt, xt in pt_cache.items():
-            for basis_name in candidate_bases:
-                for d in degrees:
-                    try:
-                        vals = _evaluate_basis_column(xt, basis_name, int(d))
-                    except Exception as exc:
-                        log_throttle(
-                            logger, "routing_fe_basis_eval_raised", logging.WARNING,
-                            "generate_conditional_basis_routing_features: "
-                            "basis=%r pre=%r degree=%d on col=%r raised %r; "
-                            "skipping.",
-                            basis_name, pt, d, col, exc,
-                        )
-                        continue
-                    if not np.isfinite(vals).all():
-                        continue
-                    if float(np.std(vals)) <= 1e-12:
-                        continue
-                    cand_cols.append(_routing_col_name(col, basis_name, int(d), pt))
-                    cand_values.append(vals)
-                    cand_meta.append((col, pt, basis_name, int(d)))
+    cand_cols, cand_values, cand_meta = _enumerate_routing_cells(X, cols, transform_variants, candidate_bases, degrees)
 
     if not cand_cols:
         return pd.DataFrame(index=X.index), {}
@@ -294,122 +428,18 @@ def generate_conditional_basis_routing_features(
     cand_mat = np.column_stack(cand_values).astype(np.float64, copy=False)
     eng_mi = _mi_classif_batch(cand_mat, y_arr, nbins=nbins)
 
-    # ---- Step 3b: routing score. The per-source ARGMAX (which (pre,basis,degree)
-    # cell to keep) is a LINEARISATION decision - pick the cell a shallow/linear
-    # downstream can best use - so route by |Pearson corr|, NOT by MI. A 30-class
-    # OOS study over this exact (pre x basis x degree) space showed
-    # corr-routing near-oracle (OOS-linear R^2 0.81 vs MI 0.52; MI picks an
-    # informative-but-non-linear cell - log|x|/tanh+Laguerre - in 23/30 cases).
-    # Mirrors ``basis_route_by_signal`` (the default Layer-21 router). The KEEP
-    # gate below (uplift + noise floor) stays MI-based: relevance IS an MI
-    # question. ``routing_criterion="mi"`` restores the legacy argmax.
-    if str(routing_criterion).lower() == "corr":
-        _yf = y_arr.astype(np.float64)
-        _ystd = float(_yf.std())
-        if _ystd > 1e-12:
-            _Mz = standardise(cand_mat)
-            route_score = np.abs(_Mz.T @ ((_yf - _yf.mean()) / _ystd) / _yf.size)
-        else:
-            route_score = eng_mi
-    else:
-        route_score = eng_mi
+    route_score = _routing_scores(routing_criterion, y_arr, cand_mat, eng_mi)
 
-    # ---- Step 4: per-source argmax over (pre, basis, degree) by route_score;
-    # the selected cell's MI is retained for the (MI-based) keep gate in Step 5.
-    best_per_source: dict[str, dict] = {}
-    for j, (src, pt, basis_name, deg) in enumerate(cand_meta):
-        emi = float(eng_mi[j])
-        rscore = float(route_score[j])
-        if not np.isfinite(emi) or not np.isfinite(rscore):
-            continue
-        cur = best_per_source.get(src)
-        if cur is None or rscore > cur["route_score"]:
-            best_per_source[src] = {
-                "src": src,
-                "pre_transform": pt,
-                "basis": basis_name,
-                "degree": deg,
-                "engineered_mi": emi,
-                "route_score": rscore,
-                "engineered_col": cand_cols[j],
-                "values_idx": j,
-            }
+    best_per_source = _best_cell_per_source(cand_meta, cand_cols, eng_mi, route_score)
 
-    # ---- Step 5: uplift gate + noise-aware absolute MI floor + top-K
-    # The per-column argmax can still surface noise-only columns where raw
-    # MI is itself tiny and the ratio amplifies pure tail sampling. Mirror
-    # Layer 21's two-gate (relative uplift + noise-aware absolute floor)
-    # but use the PER-SOURCE-BEST engineered MI distribution for the noise
-    # floor instead of the full candidate distribution: per-source winners
-    # are a much cleaner signal-vs-noise comparison (with 4 sources of
-    # which 3 carry signal, the full candidate pool has too much signal
-    # mass for MAD to identify the noise band, while the per-source-best
-    # distribution has at most 1 row per source which preserves the
-    # signal-vs-noise gap). The raw-baseline MAD floor is unchanged from
-    # Layer 21 and remains the dominant safeguard on all-noise frames.
     min_uplift_f = float(min_uplift)
-    raw_baselines = np.asarray(list(raw_mi_map.values()), dtype=np.float64)
-    max_raw_baseline = float(raw_baselines.max()) if raw_baselines.size else 0.0
-    legacy_floor = float(min_abs_mi_frac) * max_raw_baseline
-    n_cands = int(raw_baselines.size)
-    sigma_thresh = max(
-        5.0,
-        float(np.sqrt(2.0 * np.log(max(2.0, 2.0 * n_cands))) + 1.5),
-    )
-    # Bonferroni MAD floor only safe when there's enough columns for MAD
-    # to identify the noise band. With p<16 a multi-signal frame can have
-    # many baselines well above the noise mass; MAD then captures the
-    # signal-vs-signal spread and the resulting threshold exceeds every
-    # legitimate engineered MI. Gate on n_sources >= 16 so all-noise
-    # frames at production p (typically >> 16) get the protection while
-    # small benchmark frames still emit signal columns.
-    if raw_baselines.size >= 16:
-        med = float(np.median(raw_baselines))
-        mad = float(np.median(np.abs(raw_baselines - med)))
-        noise_floor = med + sigma_thresh * 1.4826 * mad
-    else:
-        noise_floor = 0.0
-    # Per-source-best engineered MI distribution noise floor: only safe
-    # when there are MANY sources (so MAD reliably tracks the noise band
-    # and a few signals don't pull the median past every survivor). For
-    # small p the per-source-best distribution has too few rows; one signal
-    # source drags the median above the noise mass and even legitimate
-    # signal columns at neighbouring sources can be filtered out. Gate
-    # this floor on n_sources >= 16; otherwise rely on raw-baseline MAD +
-    # legacy floor + the per-column relative-uplift gate (which still
-    # screens out noise-MI tail amplifications).
-    best_emis = np.asarray(
-        [float(info["engineered_mi"]) for info in best_per_source.values()],
-        dtype=np.float64,
-    )
-    if best_emis.size >= 16:
-        med_e = float(np.median(best_emis))
-        mad_e = float(np.median(np.abs(best_emis - med_e)))
-        eng_noise_floor = med_e + sigma_thresh * 1.4826 * mad_e
-    else:
-        eng_noise_floor = 0.0
-    abs_floor = max(legacy_floor, noise_floor, eng_noise_floor)
+    abs_floor = _routing_abs_floor(raw_mi_map, best_per_source, min_abs_mi_frac)
     survivors: list[dict] = []
     _routing_gain_over_raw_mi(best_per_source, raw_mi_map, min_uplift_f, abs_floor, survivors)
     survivors.sort(key=lambda d: d["uplift"], reverse=True)
     winners = survivors[: int(top_k)]
 
-    out_cols: dict = {}
-    meta: dict = {}
-    for info in winners:
-        name = str(info["engineered_col"])
-        vals = cand_values[int(info["values_idx"])]
-        out_cols[name] = vals
-        meta[name] = {
-            "src": info["src"],
-            "basis": str(info["basis"]),
-            "degree": int(info["degree"]),
-            "pre_transform": str(info["pre_transform"]),
-            "uplift": float(info["uplift"]),
-            "engineered_mi": float(info["engineered_mi"]),
-            "baseline_mi": float(info["baseline_mi"]),
-        }
-    return pd.DataFrame(out_cols, index=X.index), meta
+    return _routing_winners_output(X.index, winners, cand_values)
 
 def _pre_transform_variants_for_column(transform_variants, x_raw, col, pt_cache):
     """Evaluate the pre-transform variants of one source column."""

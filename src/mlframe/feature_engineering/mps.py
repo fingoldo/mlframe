@@ -388,6 +388,111 @@ def find_maximum_profit_system(
     }
 
 
+def _plot_positions_plotly(
+    prices: Union[np.ndarray, list],
+    positions: Union[np.ndarray, list],
+    raw_prices: Optional[np.ndarray],
+    profits: Optional[np.ndarray],
+    figsize: Tuple[int, int],
+    title: str,
+    xlabel: str,
+    ylabel: str,
+    price_label: str,
+    raw_price_label: str,
+    price_line_width: float,
+    raw_price_line_width: float,
+    price_line_color: str,
+    raw_price_line_color: str,
+    raw_price_opacity: float,
+    background_opacity: float,
+    plotly_size_multiplier: int,
+    x_data: list,
+    color_map: dict,
+) -> Any:
+    """Plotly rendering of ``plot_positions``: raw/price lines plus a single bar trace as the position background."""
+    # Create Plotly figure
+    fig = go.Figure()
+
+    # Prepare hover text for profits if provided
+    hover_text = None
+    if profits is not None:
+        hover_text = [
+            f"{price_label}: {price:.2f}<br>Profit: {profit*100:.2f}%<br>Position: {position}" for price, profit, position in zip(prices, profits, positions)
+        ]
+
+    # Add raw prices if provided
+    if raw_prices is not None:
+        raw_hover_text = None
+        if profits is not None:
+            raw_hover_text = [
+                f"{raw_price_label}: {price:.2f}<br>Profit: {profit*100:.2f}%<br>Position: {position}"
+                for price, profit, position in zip(raw_prices, profits, positions)
+            ]
+
+        fig.add_trace(
+            go.Scatter(
+                x=x_data,
+                y=raw_prices,
+                mode="lines",
+                line=dict(color=raw_price_line_color, width=raw_price_line_width, dash="dot"),
+                name=raw_price_label,
+                opacity=raw_price_opacity,
+                hovertext=raw_hover_text,
+                hoverinfo="text" if raw_hover_text else "x+y",
+            )
+        )
+
+    # OPTIMIZED: Create background using bar trace instead of individual vrects
+    if len(positions) > 0:
+        # Get y-axis range for background bars
+        all_prices = list(prices) + (list(raw_prices) if raw_prices is not None else [])
+        y_min, y_max = min(all_prices), max(all_prices)
+        y_range = y_max - y_min
+        bar_height = y_range * 1.2  # Extend slightly beyond data range
+        bar_base = y_min - y_range * 0.1
+
+        # Create color array for bars
+        bar_colors = [color_map.get(pos, color_map[0])["color"] for pos in positions]
+
+        fig.add_trace(
+            go.Bar(
+                x=x_data,
+                y=[bar_height] * len(positions),
+                base=bar_base,
+                marker=dict(color=bar_colors, opacity=background_opacity, line=dict(width=0)),
+                name="Background",
+                showlegend=False,
+                hoverinfo="skip",
+            )
+        )
+
+    # Add price line
+    fig.add_trace(
+        go.Scatter(
+            x=x_data,
+            y=prices,
+            mode="lines",
+            line=dict(color=price_line_color, width=price_line_width),
+            name=price_label,
+            hovertext=hover_text,
+            hoverinfo="text" if hover_text else "x+y",
+        )
+    )
+
+    # Update layout
+    fig.update_layout(
+        title=title,
+        xaxis_title=xlabel,
+        yaxis_title=ylabel,
+        showlegend=False,
+        width=figsize[0] * plotly_size_multiplier,
+        height=figsize[1] * plotly_size_multiplier,
+        bargap=0,  # Remove gaps between bars
+        bargroupgap=0,
+    )
+    return fig
+
+
 def plot_positions(
     prices: Union[np.ndarray, list],
     positions: Union[np.ndarray, list],
@@ -446,87 +551,10 @@ def plot_positions(
     }
 
     if use_plotly:
-
-        # Create Plotly figure
-        fig = go.Figure()
-
-        # Prepare hover text for profits if provided
-        hover_text = None
-        if profits is not None:
-            hover_text = [
-                f"{price_label}: {price:.2f}<br>Profit: {profit*100:.2f}%<br>Position: {position}"
-                for price, profit, position in zip(prices, profits, positions)
-            ]
-
-        # Add raw prices if provided
-        if raw_prices is not None:
-            raw_hover_text = None
-            if profits is not None:
-                raw_hover_text = [
-                    f"{raw_price_label}: {price:.2f}<br>Profit: {profit*100:.2f}%<br>Position: {position}"
-                    for price, profit, position in zip(raw_prices, profits, positions)
-                ]
-
-            fig.add_trace(
-                go.Scatter(
-                    x=x_data,
-                    y=raw_prices,
-                    mode="lines",
-                    line=dict(color=raw_price_line_color, width=raw_price_line_width, dash="dot"),
-                    name=raw_price_label,
-                    opacity=raw_price_opacity,
-                    hovertext=raw_hover_text,
-                    hoverinfo="text" if raw_hover_text else "x+y",
-                )
-            )
-
-        # OPTIMIZED: Create background using bar trace instead of individual vrects
-        if len(positions) > 0:
-            # Get y-axis range for background bars
-            all_prices = list(prices) + (list(raw_prices) if raw_prices is not None else [])
-            y_min, y_max = min(all_prices), max(all_prices)
-            y_range = y_max - y_min
-            bar_height = y_range * 1.2  # Extend slightly beyond data range
-            bar_base = y_min - y_range * 0.1
-
-            # Create color array for bars
-            bar_colors = [color_map.get(pos, color_map[0])["color"] for pos in positions]
-
-            fig.add_trace(
-                go.Bar(
-                    x=x_data,
-                    y=[bar_height] * len(positions),
-                    base=bar_base,
-                    marker=dict(color=bar_colors, opacity=background_opacity, line=dict(width=0)),
-                    name="Background",
-                    showlegend=False,
-                    hoverinfo="skip",
-                )
-            )
-
-        # Add price line
-        fig.add_trace(
-            go.Scatter(
-                x=x_data,
-                y=prices,
-                mode="lines",
-                line=dict(color=price_line_color, width=price_line_width),
-                name=price_label,
-                hovertext=hover_text,
-                hoverinfo="text" if hover_text else "x+y",
-            )
-        )
-
-        # Update layout
-        fig.update_layout(
-            title=title,
-            xaxis_title=xlabel,
-            yaxis_title=ylabel,
-            showlegend=False,
-            width=figsize[0] * plotly_size_multiplier,
-            height=figsize[1] * plotly_size_multiplier,
-            bargap=0,  # Remove gaps between bars
-            bargroupgap=0,
+        fig = _plot_positions_plotly(
+            prices, positions, raw_prices, profits, figsize, title, xlabel, ylabel, price_label, raw_price_label, price_line_width,
+            raw_price_line_width, price_line_color, raw_price_line_color, raw_price_opacity, background_opacity, plotly_size_multiplier,
+            x_data, color_map,
         )
 
     else:

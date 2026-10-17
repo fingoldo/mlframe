@@ -120,6 +120,240 @@ def resolve_su_seeded_pairs(
     return _su_kept_pairs, _su_screen_info, _su_rescue_proxy_idx
 
 
+def _augment_interaction_aware(
+    self: Any,
+    candidates: list,
+    phi: np.ndarray,
+    X_proxy: Any,
+    proxy_cols_kept: Any,
+    y_phi: np.ndarray,
+    y_search: np.ndarray,
+    model_template: Any,
+    report: dict,
+) -> list:
+    """Add candidates ranked by the SHAP-interaction coalition value (``interaction_aware``); returns the (possibly extended) ``candidates``."""
+    # Interaction-aware coalition (#5): for interaction-heavy targets the main-effect sum can't
+    # see a pair's joint signal (XOR partners have ~0 main effect). Add candidates ranked by the
+    # SHAP-interaction coalition value and let honest re-validation arbitrate. Bounded to a small
+    # proxy width (post pre-screen); tensor is O(P^2).
+    from mlframe.feature_selection.shap_proxied_fs._shap_proxy_interactions import compute_interaction_tensor, interaction_top_n
+
+    X_proxy_kept = X_proxy.iloc[:, list(proxy_cols_kept)]
+    Phi, ibase = compute_interaction_tensor(model_template, X_proxy_kept, y_search, classification=self.classification, rng=self._rng)
+    icands = interaction_top_n(
+        Phi, ibase, y_phi, classification=self.classification, metric=self.metric,
+        min_card=resolve_effective_min_features(self.min_features, int(phi.shape[1])), max_card=self.max_features, top_n=self.top_n,
+        exhaustive_max=self.max_interaction_features)
+    merged = {tuple(sorted(c)): lo for lo, c in candidates}
+    for lo, c in icands:
+        merged.setdefault(tuple(sorted(c)), lo)
+    candidates = sorted(((lo, c) for c, lo in merged.items()), key=lambda t: t[0])
+    report["interaction_aware"] = dict(applied=True, n_proxy=int(phi.shape[1]), n_interaction_candidates=len(icands))
+    return candidates
+
+
+def _augment_proxy_mode_interaction(
+    self: Any,
+    candidates: list,
+    phi: np.ndarray,
+    base: Any,
+    X_proxy: Any,
+    proxy_cols_kept: Any,
+    y_phi: np.ndarray,
+    y_search: np.ndarray,
+    model_template: Any,
+    report: dict,
+    _stage: Callable,
+) -> list:
+    """Re-score/extend ``candidates`` under the interaction-aware proxy (``proxy_mode='interaction'``); falls back to additive on failure."""
+    # proxy_mode="interaction" (OPT-IN): re-score the additive search's candidates under the
+    # INTERACTION-AWARE coalition proxy ``base + sum phi_j + 2*sum_{i<j in S} Phi_ij`` and add a
+    # gated singleton/pair sweep, so a subset whose value comes from a non-additive PAIR (XOR /
+    # multiplicative) earns credit the additive proxy denies it. The pairwise term is GATED to the
+    # top-k features by mean |phi| so the cost is O(k^2) not O(P^2). Default stays "additive"
+    # (bench_shap_interaction_proxy: interaction wins the competing-XOR bed by ~+0.24 AUC replicated
+    # 3/3 seeds, but is only 1/6 beds and slightly regresses one additive-redundant seed - not the
+    # majority+no-regression win a default flip requires; kept opt-in). Tree models only (needs the
+    # TreeSHAP interaction tensor); non-tree falls back to additive cleanly (compute_interaction_
+    # tensor returns None-equivalent and the block no-ops).
+    with _stage("proxy_mode_interaction"):
+        from mlframe.feature_selection.shap_proxied_fs._shap_proxy_interactions import compute_interaction_tensor
+        from mlframe.feature_selection.shap_proxied_fs._shap_proxy_interaction_proxy import interaction_proxy_top_n
+
+        applied = False
+        n_int_cands = 0
+        try:
+            X_proxy_kept = X_proxy.iloc[:, list(proxy_cols_kept)]
+            Phi_ip, _ibase = compute_interaction_tensor(model_template, X_proxy_kept, y_search, classification=self.classification, rng=self._rng)
+            icands = interaction_proxy_top_n(
+                phi, Phi_ip, base, y_phi, classification=self.classification, metric=self.metric,
+                min_card=resolve_effective_min_features(self.min_features, int(phi.shape[1])), max_card=self.max_features, top_n=self.top_n,
+                interaction_top_k=int(self.interaction_proxy_top_k),
+                candidate_subsets=[c for _l, c in candidates])
+            merged = {tuple(sorted(c)): lo for lo, c in candidates}
+            for lo, c in icands:
+                key = tuple(sorted(c))
+                if key not in merged or lo < merged[key]:
+                    merged[key] = lo
+                    n_int_cands += 1
+            candidates = sorted(((lo, c) for c, lo in merged.items()), key=lambda t: t[0])
+            applied = True
+        except Exception as exc:  # unsupported model / tensor failure -> additive fallback
+            logger.warning("proxy_mode=interaction fell back to additive: %s", exc)
+        report["proxy_mode_interaction"] = dict(
+            applied=applied, n_proxy=int(phi.shape[1]), interaction_top_k=int(self.interaction_proxy_top_k), n_added=int(n_int_cands)
+        )
+    return candidates
+
+
+def _augment_su_seeded(
+    self: Any,
+    candidates: list,
+    phi: np.ndarray,
+    base: Any,
+    X_proxy: Any,
+    proxy_cols_kept: Any,
+    y_phi: np.ndarray,
+    y_search: np.ndarray,
+    model_template: Any,
+    report: dict,
+    _stage: Callable,
+    _su_kept_pairs: list,
+    _su_screen_info: dict,
+) -> list:
+    """Merge the sparse su_seeded interaction candidates into ``candidates`` and record ``report['su_seeded_interactions']``."""
+    # su_seeded_interactions merge (#5b, OPT-IN): the CHEAP sparse alternative to
+    # ``interaction_aware``'s O(P^2) tensor. The synergy screen + SNR gate ran above (operands
+    # already rescued past the prescreen, so they are present in ``phi``). Here the interaction
+    # objective runs on ONLY the surviving K pairs - a sparse product-column augmentation, never
+    # the dense P x P tensor. Each surviving product candidate is expanded into its two OPERAND
+    # proxy-columns so the merged coalition lives in plain phi-column space (selecting the product
+    # == recovering both operands); honest re-validation downstream still retrains only on real
+    # columns. Runs at ANY phi width (no max_interaction_features gate). When the screen kept no
+    # pair this whole block is skipped (the SNR-gate no-op).
+    from mlframe.feature_selection.shap_proxied_fs._shap_proxy_interactions import sparse_interaction_candidates
+
+    with _stage("su_seeded_interactions"):
+        # Map proxy-column NAMES -> phi-column indices (X_proxy_kept aligns 1:1 with phi).
+        X_proxy_kept = X_proxy.iloc[:, list(proxy_cols_kept)]
+        name_to_phi_idx = {str(c): i for i, c in enumerate(X_proxy_kept.columns)}
+        # Keep only pairs whose BOTH operand proxy-columns survived into phi (the prescreen
+        # rescue should guarantee this for every kept pair; the filter is defensive).
+        usable_pairs = [(s, a, b) for s, a, b in _su_kept_pairs if str(a) in name_to_phi_idx and str(b) in name_to_phi_idx]
+        n_seed_cands = 0
+        if usable_pairs:
+            # ISOLATED rng (NOT self._rng): keep the sparse-interaction refit off the shared
+            # RNG stream so the additive default stays byte-identical in the no-op case and the
+            # win-path stays reproducible.
+            icands_sparse, prod_to_operands = sparse_interaction_candidates(
+                model_template, X_proxy_kept, y_search, usable_pairs,
+                classification=self.classification, metric=self.metric,
+                min_card=resolve_effective_min_features(self.min_features, int(phi.shape[1])), max_card=self.max_features,
+                top_n=self.top_n,
+                rng=np.random.default_rng(int(self.random_state) + 7919))
+            # Expand augmented-index candidates back into phi-column space: a product index is
+            # replaced by its two operand phi-columns (selecting the product recovers both).
+            merged = {tuple(sorted(c)): lo for lo, c in candidates}
+            for lo, c in icands_sparse:
+                expanded: set[int] = set()
+                for idx in c:
+                    idx = int(idx)
+                    if idx in prod_to_operands:
+                        a_i, b_i = prod_to_operands[idx]
+                        expanded.add(int(a_i))
+                        expanded.add(int(b_i))
+                    elif idx < phi.shape[1]:
+                        expanded.add(idx)
+                if not expanded:
+                    continue
+                key = tuple(sorted(expanded))
+                if key not in merged or lo < merged[key]:
+                    merged[key] = lo
+                    n_seed_cands += 1
+            # Always inject the bare operand pair of EVERY surviving synergistic pair as a
+            # candidate coalition (so even when the augmented search prefers larger subsets,
+            # the minimal interacting pair is still revalidated honestly on real columns).
+            # Inject the bare operand pair of every surviving synergistic pair so honest
+            # re-validation downstream can still revalidate the minimal interacting pair on
+            # real columns; pairs with no measured proxy loss go in at +inf (cannot win).
+            _inject_operand_pairs(
+                merged, usable_pairs, name_to_phi_idx, phi=phi, base=base, y_phi=y_phi, classification=self.classification, metric=self.metric
+            )
+            candidates = sorted(((lo, c) for c, lo in merged.items()), key=lambda t: t[0])
+        report["su_seeded_interactions"] = dict(
+            applied=True,
+            n_proxy=int(phi.shape[1]),
+            n_kept_pairs=len(_su_kept_pairs),
+            n_usable_pairs=len(usable_pairs),
+            n_seed_candidates=int(n_seed_cands),
+            kept_pairs=[(round(float(s), 6), str(a), str(b)) for s, a, b in _su_kept_pairs],
+            snr_gate=round(float(_su_screen_info.get("gate", float("nan"))), 6),
+            best_synergy=round(float(_su_screen_info.get("best_synergy", float("nan"))), 6),
+            n_screened_cols=int(_su_screen_info.get("n_screened_cols", 0)),
+            n_pairs=int(_su_screen_info.get("n_pairs", 0)))
+    return candidates
+
+
+def _augment_faith_interaction(
+    self: Any,
+    candidates: list,
+    phi: np.ndarray,
+    base: Any,
+    X_proxy: Any,
+    proxy_cols_kept: Any,
+    y_phi: np.ndarray,
+    report: dict,
+    _stage: Callable,
+    _su_kept_pairs: list,
+) -> list:
+    """Merge order-2 Faith-Shap surrogate candidates (``proxy_mode='faith_interaction'``) into ``candidates``; additive fallback on failure."""
+    # proxy_mode="faith_interaction" (gt_01, OPT-IN): order-2 Faith-Shap surrogate ranking over the
+    # SAME additive proxy game, candidate-pair-restricted (never the full O(P^2) design - see
+    # _shap_proxy_faith_interactions.py's module docstring for why that's rejected as underdetermined
+    # at typical post-prescreen widths). Reuses the su_synergy_screen candidate pairs resolved above
+    # (``_su_screen_enabled()`` fires for this mode too, so the screen runs at most once per fit).
+    # No-ops cleanly (screen kept nothing -> no candidate pairs -> block skipped) exactly like the
+    # su_seeded/auto paths.
+    with _stage("faith_interaction"):
+        from mlframe.feature_selection.shap_proxied_fs._shap_proxy_faith_interactions import faith_interaction_top_n
+
+        X_proxy_kept = X_proxy.iloc[:, list(proxy_cols_kept)]
+        name_to_phi_idx = {str(c): i for i, c in enumerate(X_proxy_kept.columns)}
+        candidate_pairs = [
+            (name_to_phi_idx[str(a)], name_to_phi_idx[str(b)]) for _s, a, b in _su_kept_pairs if str(a) in name_to_phi_idx and str(b) in name_to_phi_idx
+        ]
+        applied = False
+        n_added = 0
+        top_pairs: list = []
+        r2_of_fit = float("nan")
+        if candidate_pairs:
+            try:
+                fcands, finfo = faith_interaction_top_n(
+                    phi, base, y_phi, classification=self.classification, metric=self.metric,
+                    candidate_pairs=candidate_pairs, min_card=resolve_effective_min_features(self.min_features, int(phi.shape[1])), max_card=self.max_features,
+                    top_n=self.top_n, n_coalitions=int(self.faith_n_coalitions),
+                    rng=np.random.default_rng(int(self.random_state) + 104729),
+                )
+                merged = {tuple(sorted(c)): lo for lo, c in candidates}
+                for lo, c in fcands:
+                    key = tuple(sorted(c))
+                    if key not in merged or lo < merged[key]:
+                        merged[key] = lo
+                        n_added += 1
+                candidates = sorted(((lo, c) for c, lo in merged.items()), key=lambda t: t[0])
+                applied = True
+                r2_of_fit = float(finfo.get("r2_of_fit", float("nan")))
+                phi_idx_to_name = {i: str(c) for i, c in enumerate(X_proxy_kept.columns)}
+                top_pairs = [(phi_idx_to_name.get(i, i), phi_idx_to_name.get(j, j)) for i, j in candidate_pairs[:10]]
+            except Exception as exc:  # numerically ill-conditioned design / unsupported metric -> additive fallback
+                logger.warning("proxy_mode=faith_interaction fell back to additive: %s", exc)
+        report["faith_interaction"] = dict(
+            applied=applied, n_pairs=len(candidate_pairs), n_coalitions=int(self.faith_n_coalitions),
+            r2_of_fit=r2_of_fit, top_pairs=top_pairs, n_added=int(n_added),
+        )
+    return candidates
+
+
 def augment_candidates_with_interactions(
     self: Any,
     candidates: list,
@@ -143,180 +377,15 @@ def augment_candidates_with_interactions(
     cleanly when its gate doesn't clear, so the additive default stays untouched. Returns the
     (possibly extended) ``candidates`` list; mutates ``report`` in place.
     """
-    # Interaction-aware coalition (#5): for interaction-heavy targets the main-effect sum can't
-    # see a pair's joint signal (XOR partners have ~0 main effect). Add candidates ranked by the
-    # SHAP-interaction coalition value and let honest re-validation arbitrate. Bounded to a small
-    # proxy width (post pre-screen); tensor is O(P^2).
     if self.interaction_aware and phi.shape[1] <= self.max_interaction_features:
-        from mlframe.feature_selection.shap_proxied_fs._shap_proxy_interactions import compute_interaction_tensor, interaction_top_n
-
-        X_proxy_kept = X_proxy.iloc[:, list(proxy_cols_kept)]
-        Phi, ibase = compute_interaction_tensor(model_template, X_proxy_kept, y_search, classification=self.classification, rng=self._rng)
-        icands = interaction_top_n(
-            Phi, ibase, y_phi, classification=self.classification, metric=self.metric,
-            min_card=resolve_effective_min_features(self.min_features, int(phi.shape[1])), max_card=self.max_features, top_n=self.top_n,
-            exhaustive_max=self.max_interaction_features)
-        merged = {tuple(sorted(c)): lo for lo, c in candidates}
-        for lo, c in icands:
-            merged.setdefault(tuple(sorted(c)), lo)
-        candidates = sorted(((lo, c) for c, lo in merged.items()), key=lambda t: t[0])
-        report["interaction_aware"] = dict(applied=True, n_proxy=int(phi.shape[1]), n_interaction_candidates=len(icands))
-
-    # proxy_mode="interaction" (OPT-IN): re-score the additive search's candidates under the
-    # INTERACTION-AWARE coalition proxy ``base + sum phi_j + 2*sum_{i<j in S} Phi_ij`` and add a
-    # gated singleton/pair sweep, so a subset whose value comes from a non-additive PAIR (XOR /
-    # multiplicative) earns credit the additive proxy denies it. The pairwise term is GATED to the
-    # top-k features by mean |phi| so the cost is O(k^2) not O(P^2). Default stays "additive"
-    # (bench_shap_interaction_proxy: interaction wins the competing-XOR bed by ~+0.24 AUC replicated
-    # 3/3 seeds, but is only 1/6 beds and slightly regresses one additive-redundant seed - not the
-    # majority+no-regression win a default flip requires; kept opt-in). Tree models only (needs the
-    # TreeSHAP interaction tensor); non-tree falls back to additive cleanly (compute_interaction_
-    # tensor returns None-equivalent and the block no-ops).
+        candidates = _augment_interaction_aware(self, candidates, phi, X_proxy, proxy_cols_kept, y_phi, y_search, model_template, report)
     if str(getattr(self, "proxy_mode", "additive")).lower() == "interaction" and phi.shape[1] >= 2:
-        with _stage("proxy_mode_interaction"):
-            from mlframe.feature_selection.shap_proxied_fs._shap_proxy_interactions import compute_interaction_tensor
-            from mlframe.feature_selection.shap_proxied_fs._shap_proxy_interaction_proxy import interaction_proxy_top_n
-
-            applied = False
-            n_int_cands = 0
-            try:
-                X_proxy_kept = X_proxy.iloc[:, list(proxy_cols_kept)]
-                Phi_ip, _ibase = compute_interaction_tensor(model_template, X_proxy_kept, y_search, classification=self.classification, rng=self._rng)
-                icands = interaction_proxy_top_n(
-                    phi, Phi_ip, base, y_phi, classification=self.classification, metric=self.metric,
-                    min_card=resolve_effective_min_features(self.min_features, int(phi.shape[1])), max_card=self.max_features, top_n=self.top_n,
-                    interaction_top_k=int(self.interaction_proxy_top_k),
-                    candidate_subsets=[c for _l, c in candidates])
-                merged = {tuple(sorted(c)): lo for lo, c in candidates}
-                for lo, c in icands:
-                    key = tuple(sorted(c))
-                    if key not in merged or lo < merged[key]:
-                        merged[key] = lo
-                        n_int_cands += 1
-                candidates = sorted(((lo, c) for c, lo in merged.items()), key=lambda t: t[0])
-                applied = True
-            except Exception as exc:  # unsupported model / tensor failure -> additive fallback
-                logger.warning("proxy_mode=interaction fell back to additive: %s", exc)
-            report["proxy_mode_interaction"] = dict(
-                applied=applied, n_proxy=int(phi.shape[1]), interaction_top_k=int(self.interaction_proxy_top_k), n_added=int(n_int_cands)
-            )
-
-    # su_seeded_interactions merge (#5b, OPT-IN): the CHEAP sparse alternative to
-    # ``interaction_aware``'s O(P^2) tensor. The synergy screen + SNR gate ran above (operands
-    # already rescued past the prescreen, so they are present in ``phi``). Here the interaction
-    # objective runs on ONLY the surviving K pairs - a sparse product-column augmentation, never
-    # the dense P x P tensor. Each surviving product candidate is expanded into its two OPERAND
-    # proxy-columns so the merged coalition lives in plain phi-column space (selecting the product
-    # == recovering both operands); honest re-validation downstream still retrains only on real
-    # columns. Runs at ANY phi width (no max_interaction_features gate). When the screen kept no
-    # pair this whole block is skipped (the SNR-gate no-op).
+        candidates = _augment_proxy_mode_interaction(self, candidates, phi, base, X_proxy, proxy_cols_kept, y_phi, y_search, model_template, report, _stage)
     if self._su_screen_enabled():
-        from mlframe.feature_selection.shap_proxied_fs._shap_proxy_interactions import sparse_interaction_candidates
-
-        with _stage("su_seeded_interactions"):
-            # Map proxy-column NAMES -> phi-column indices (X_proxy_kept aligns 1:1 with phi).
-            X_proxy_kept = X_proxy.iloc[:, list(proxy_cols_kept)]
-            name_to_phi_idx = {str(c): i for i, c in enumerate(X_proxy_kept.columns)}
-            # Keep only pairs whose BOTH operand proxy-columns survived into phi (the prescreen
-            # rescue should guarantee this for every kept pair; the filter is defensive).
-            usable_pairs = [(s, a, b) for s, a, b in _su_kept_pairs if str(a) in name_to_phi_idx and str(b) in name_to_phi_idx]
-            n_seed_cands = 0
-            if usable_pairs:
-                # ISOLATED rng (NOT self._rng): keep the sparse-interaction refit off the shared
-                # RNG stream so the additive default stays byte-identical in the no-op case and the
-                # win-path stays reproducible.
-                icands_sparse, prod_to_operands = sparse_interaction_candidates(
-                    model_template, X_proxy_kept, y_search, usable_pairs,
-                    classification=self.classification, metric=self.metric,
-                    min_card=resolve_effective_min_features(self.min_features, int(phi.shape[1])), max_card=self.max_features,
-                    top_n=self.top_n,
-                    rng=np.random.default_rng(int(self.random_state) + 7919))
-                # Expand augmented-index candidates back into phi-column space: a product index is
-                # replaced by its two operand phi-columns (selecting the product recovers both).
-                merged = {tuple(sorted(c)): lo for lo, c in candidates}
-                for lo, c in icands_sparse:
-                    expanded: set[int] = set()
-                    for idx in c:
-                        idx = int(idx)
-                        if idx in prod_to_operands:
-                            a_i, b_i = prod_to_operands[idx]
-                            expanded.add(int(a_i))
-                            expanded.add(int(b_i))
-                        elif idx < phi.shape[1]:
-                            expanded.add(idx)
-                    if not expanded:
-                        continue
-                    key = tuple(sorted(expanded))
-                    if key not in merged or lo < merged[key]:
-                        merged[key] = lo
-                        n_seed_cands += 1
-                # Always inject the bare operand pair of EVERY surviving synergistic pair as a
-                # candidate coalition (so even when the augmented search prefers larger subsets,
-                # the minimal interacting pair is still revalidated honestly on real columns).
-                # Inject the bare operand pair of every surviving synergistic pair so honest
-                # re-validation downstream can still revalidate the minimal interacting pair on
-                # real columns; pairs with no measured proxy loss go in at +inf (cannot win).
-                _inject_operand_pairs(
-                    merged, usable_pairs, name_to_phi_idx, phi=phi, base=base, y_phi=y_phi, classification=self.classification, metric=self.metric
-                )
-                candidates = sorted(((lo, c) for c, lo in merged.items()), key=lambda t: t[0])
-            report["su_seeded_interactions"] = dict(
-                applied=True,
-                n_proxy=int(phi.shape[1]),
-                n_kept_pairs=len(_su_kept_pairs),
-                n_usable_pairs=len(usable_pairs),
-                n_seed_candidates=int(n_seed_cands),
-                kept_pairs=[(round(float(s), 6), str(a), str(b)) for s, a, b in _su_kept_pairs],
-                snr_gate=round(float(_su_screen_info.get("gate", float("nan"))), 6),
-                best_synergy=round(float(_su_screen_info.get("best_synergy", float("nan"))), 6),
-                n_screened_cols=int(_su_screen_info.get("n_screened_cols", 0)),
-                n_pairs=int(_su_screen_info.get("n_pairs", 0)))
-
-    # proxy_mode="faith_interaction" (gt_01, OPT-IN): order-2 Faith-Shap surrogate ranking over the
-    # SAME additive proxy game, candidate-pair-restricted (never the full O(P^2) design - see
-    # _shap_proxy_faith_interactions.py's module docstring for why that's rejected as underdetermined
-    # at typical post-prescreen widths). Reuses the su_synergy_screen candidate pairs resolved above
-    # (``_su_screen_enabled()`` fires for this mode too, so the screen runs at most once per fit).
-    # No-ops cleanly (screen kept nothing -> no candidate pairs -> block skipped) exactly like the
-    # su_seeded/auto paths.
+        candidates = _augment_su_seeded(
+            self, candidates, phi, base, X_proxy, proxy_cols_kept, y_phi, y_search, model_template, report, _stage, _su_kept_pairs, _su_screen_info)
     if str(getattr(self, "proxy_mode", "additive")).lower() == "faith_interaction" and phi.shape[1] >= 2:
-        with _stage("faith_interaction"):
-            from mlframe.feature_selection.shap_proxied_fs._shap_proxy_faith_interactions import faith_interaction_top_n
-
-            X_proxy_kept = X_proxy.iloc[:, list(proxy_cols_kept)]
-            name_to_phi_idx = {str(c): i for i, c in enumerate(X_proxy_kept.columns)}
-            candidate_pairs = [
-                (name_to_phi_idx[str(a)], name_to_phi_idx[str(b)]) for _s, a, b in _su_kept_pairs if str(a) in name_to_phi_idx and str(b) in name_to_phi_idx
-            ]
-            applied = False
-            n_added = 0
-            top_pairs: list = []
-            r2_of_fit = float("nan")
-            if candidate_pairs:
-                try:
-                    fcands, finfo = faith_interaction_top_n(
-                        phi, base, y_phi, classification=self.classification, metric=self.metric,
-                        candidate_pairs=candidate_pairs, min_card=resolve_effective_min_features(self.min_features, int(phi.shape[1])), max_card=self.max_features,
-                        top_n=self.top_n, n_coalitions=int(self.faith_n_coalitions),
-                        rng=np.random.default_rng(int(self.random_state) + 104729),
-                    )
-                    merged = {tuple(sorted(c)): lo for lo, c in candidates}
-                    for lo, c in fcands:
-                        key = tuple(sorted(c))
-                        if key not in merged or lo < merged[key]:
-                            merged[key] = lo
-                            n_added += 1
-                    candidates = sorted(((lo, c) for c, lo in merged.items()), key=lambda t: t[0])
-                    applied = True
-                    r2_of_fit = float(finfo.get("r2_of_fit", float("nan")))
-                    phi_idx_to_name = {i: str(c) for i, c in enumerate(X_proxy_kept.columns)}
-                    top_pairs = [(phi_idx_to_name.get(i, i), phi_idx_to_name.get(j, j)) for i, j in candidate_pairs[:10]]
-                except Exception as exc:  # numerically ill-conditioned design / unsupported metric -> additive fallback
-                    logger.warning("proxy_mode=faith_interaction fell back to additive: %s", exc)
-            report["faith_interaction"] = dict(
-                applied=applied, n_pairs=len(candidate_pairs), n_coalitions=int(self.faith_n_coalitions),
-                r2_of_fit=r2_of_fit, top_pairs=top_pairs, n_added=int(n_added),
-            )
+        candidates = _augment_faith_interaction(self, candidates, phi, base, X_proxy, proxy_cols_kept, y_phi, report, _stage, _su_kept_pairs)
 
     # proxy_mode_resolved (gt_08): surfaces which "auto" branch actually ran, since the mode's
     # whole point is that the SAME "auto" setting silently degrades to plain additive on

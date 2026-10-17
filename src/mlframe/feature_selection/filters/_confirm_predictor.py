@@ -33,12 +33,9 @@ import os
 import numba
 import numpy as np
 from numba.core import types
-from joblib import Parallel, delayed
 
-from pyutilz.parallel import split_list_into_chunks
 
-from ._internals import MAX_ITERATIONS_TO_TRACK, NMAX_NONPARALLEL_ITERS, sanitize
-from ._numba_utils import count_cand_nbins
+from ._internals import MAX_ITERATIONS_TO_TRACK, NMAX_NONPARALLEL_ITERS
 from .evaluation import (
     evaluate_candidate,
     evaluate_candidates,
@@ -48,10 +45,8 @@ from .evaluation import (
     should_skip_candidate,
     _prefill_cond_MIs_gpu,
 )
-from ._numba_utils import get_fleuret_criteria_confidence
-from .fleuret import get_fleuret_criteria_confidence_parallel
 from .gpu import mi_direct_gpu
-from .permutation import mi_direct, _addone_pvalue_enabled
+from .permutation import mi_direct
 
 logger = logging.getLogger(__name__)
 
@@ -69,7 +64,6 @@ _EVALUATE_CANDIDATES_POOL_ENABLED = os.environ.get("MLFRAME_MRMR_EVAL_POOL", "0"
 # ``_mrmr_fit_impl`` imports ``_extract_single_raw_parent`` from this module by name (raw-retention pass).
 from ._confirm_predictor_engineered import (
     _confirmable_engineered_child,
-    _conditioning_rows_per_cell,
     _extract_single_raw_parent,  # noqa: F401 - re-exported for _mrmr_fit_impl/_fit_impl_core.py
     _prefer_engineered_order,
 )
@@ -78,6 +72,8 @@ from ._confirm_predictor_engineered import (
 # _confirm_predictor_context.py to clear the repo's enforced hard 1000-LOC CI gate (this file had crept
 # back to 1007 lines). Re-exported here so every existing import keeps working unchanged.
 from ._confirm_predictor_context import ScreenContext
+from ._confirm_predictor_score import score_candidates_parallel, score_candidates_serial
+from ._confirm_predictor_helpers import confirm_in_gain_order, fleuret_conditional_recheck, marginal_confirm_use_gpu
 
 
 def score_candidates(ctx: ScreenContext, best_gain: float, best_candidate: Any, expected_gains: np.ndarray) -> tuple:
@@ -103,7 +99,6 @@ def score_candidates(ctx: ScreenContext, best_gain: float, best_candidate: Any, 
     use_simple_mode = ctx.use_simple_mode
     cached_MIs = ctx.cached_MIs
     num_possible_candidates = ctx.num_possible_candidates
-    cached_cond_MIs = ctx.cached_cond_MIs
     # JMIM joint-MI cache + hit counter (see ScreenContext). Lazily
     # provisioned for direct ScreenContext callers that don't set them, so the
     # serial evaluate_candidate path always gets a real numba dict (the @njit
@@ -118,29 +113,7 @@ def score_candidates(ctx: ScreenContext, best_gain: float, best_candidate: Any, 
     if jmim_hit_counter is None:
         jmim_hit_counter = np.zeros(1, dtype=np.int64)
         ctx.jmim_hit_counter = jmim_hit_counter
-    entropy_cache = ctx.entropy_cache
-    workers_pool = ctx.workers_pool
-    y = ctx.y
-    factors_data = ctx.factors_data
-    factors_nbins = ctx.factors_nbins
-    factors_names = ctx.factors_names
-    classes_y = ctx.classes_y
-    classes_y_safe = ctx.classes_y_safe
-    freqs_y = ctx.freqs_y
-    use_gpu = ctx.use_gpu
-    freqs_y_safe = ctx.freqs_y_safe
-    partial_gains = ctx.partial_gains
-    baseline_npermutations = ctx.baseline_npermutations
-    mrmr_relevance_algo = ctx.mrmr_relevance_algo
-    mrmr_redundancy_algo = ctx.mrmr_redundancy_algo
-    max_veteranes_interactions_order = ctx.max_veteranes_interactions_order
-    cached_confident_MIs = ctx.cached_confident_MIs
-    max_runtime_mins = ctx.max_runtime_mins
-    start_time = ctx.start_time
-    min_relevance_gain = ctx.min_relevance_gain
     verbose = ctx.verbose
-    ndigits = ctx.ndigits
-    random_seed = ctx.random_seed
 
     run_out_of_time = False
 
@@ -173,195 +146,14 @@ def score_candidates(ctx: ScreenContext, best_gain: float, best_candidate: Any, 
         and (not use_simple_mode or len(cached_MIs) < num_possible_candidates)
         and len(feasible_candidates) > NMAX_NONPARALLEL_ITERS
     ):
-        temp_cached_cond_MIs = sanitize(cached_cond_MIs)
-        temp_entropy_cache = sanitize(entropy_cache)
-        # snapshot main-thread SU/JMIM/BUR
-        # toggles. ``threading.local`` storage from info_theory.py does NOT
-        # propagate across joblib workers (each worker thread gets its own
-        # local namespace), so without explicit forwarding the workers
-        # silently read ``False`` / ``0.0`` defaults and those features
-        # (SU normalization, JMIM, BUR) become no-ops in the parallel hot
-        # path - the common case since backend='threading' is the default.
-        from .info_theory import (
-            use_su_normalization as _use_su, use_jmim_aggregator as _use_jmim,
-            get_bur_lambda as _get_bur, get_relaxmrmr_alpha as _get_relax,
-            get_pid_synergy_bonus as _get_pid, get_cmi_perm_stop as _get_cmi,
-            use_mi_miller_madow as _use_mm, get_cpt_test as _get_cpt,
+        best_gain, best_candidate, run_out_of_time = score_candidates_parallel(
+            ctx, feasible_candidates, best_gain, best_candidate, expected_gains, evaluate_candidates,
         )
-        from mlframe.feature_selection.filters.info_theory.shared import get_group_mi as _get_gmi
-        _gmi_snapshot = _get_gmi()
-        _su_snapshot = bool(_use_su())
-        _jmim_snapshot = bool(_use_jmim())
-        _bur_snapshot = float(_get_bur())
-        _relax_snapshot = float(_get_relax())
-        _pid_snapshot = float(_get_pid())
-        _cmi_snapshot = _get_cmi()
-        _cpt_snapshot = _get_cpt()
-        _mm_snapshot = bool(_use_mm())
-        res = workers_pool(  # type: ignore[operator]
-            delayed(evaluate_candidates)(
-                workload=workload,
-                y=y,
-                best_gain=best_gain,
-                factors_data=factors_data,
-                factors_nbins=factors_nbins,
-                factors_names=factors_names,
-                classes_y=classes_y,
-                freqs_y=freqs_y,
-                use_gpu=use_gpu,
-                freqs_y_safe=freqs_y_safe,
-                # Per-worker COPIES of the two dicts the worker writes in-place (unlike cond_MIs/entropy,
-                # which each worker re-copies into its own numba dict). Sharing one object let several
-                # threading workers __setitem__ it concurrently -> a "dict changed size during iteration"
-                # crash at scale. sanitize() is evaluated once per workload so each worker owns its copy;
-                # the merge-back below consolidates them (workers own disjoint candidate keys, so the
-                # merged result is byte-identical to the old shared-write path).
-                partial_gains=sanitize(partial_gains),
-                baseline_npermutations=baseline_npermutations,
-                mrmr_relevance_algo=mrmr_relevance_algo,
-                mrmr_redundancy_algo=mrmr_redundancy_algo,
-                max_veteranes_interactions_order=max_veteranes_interactions_order,
-                selected_vars=selected_vars,
-                cached_MIs=sanitize(cached_MIs),
-                cached_confident_MIs=cached_confident_MIs,
-                cached_cond_MIs=temp_cached_cond_MIs,
-                entropy_cache=temp_entropy_cache,
-                max_runtime_mins=max_runtime_mins,
-                start_time=start_time,
-                min_relevance_gain=min_relevance_gain,
-                verbose=verbose,
-                ndigits=ndigits,
-                use_simple_mode=use_simple_mode,
-                use_su=_su_snapshot,
-                use_jmim=_jmim_snapshot,
-                bur_lambda=_bur_snapshot,
-                relaxmrmr_alpha=_relax_snapshot,
-                pid_synergy_bonus=_pid_snapshot,
-                cmi_perm=_cmi_snapshot,
-                cpt=_cpt_snapshot,
-                mi_miller_madow=_mm_snapshot,
-                group_mi=_gmi_snapshot,
-                random_seed=random_seed,
-            )
-            for workload in split_list_into_chunks(feasible_candidates, max(1, len(feasible_candidates) // n_workers))
-        )
-
-        for (
-            worker_best_gain,
-            worker_best_candidate,
-            worker_partial_gains,
-            worker_expected_gains,
-            worker_cached_MIs,
-            worker_cached_cond_MIs,
-            worker_entropy_cache,
-        ) in res:
-
-            if worker_best_gain > best_gain:
-                best_candidate = worker_best_candidate
-                best_gain = worker_best_gain
-
-            # sync caches
-            for local_storage, global_storage in [
-                (worker_expected_gains, expected_gains),
-                (worker_cached_MIs, cached_MIs),
-                (worker_cached_cond_MIs, cached_cond_MIs),
-                (worker_entropy_cache, entropy_cache),
-            ]:
-                for key, value in local_storage.items():
-                    global_storage[key] = value  # type: ignore[index]
-
-            for cand_idx, (worker_current_gain, worker_z_idx) in worker_partial_gains.items():
-                if cand_idx in partial_gains:
-                    current_gain, z_idx = partial_gains[cand_idx]
-                else:
-                    z_idx = -2
-                if worker_z_idx > z_idx:
-                    partial_gains[cand_idx] = (worker_current_gain, worker_z_idx)
-
-        if use_simple_mode:
-            # need to sort all cands by perfs
-            pass
-        if max_runtime_mins and not run_out_of_time:
-            run_out_of_time = (timer() - start_time) > max_runtime_mins * 60
-            if run_out_of_time:
-                logger.info("Time limit exhausted. Finalizing the search...")
-
     else:
-        # Batched-GPU conditional-MI cache pre-fill for the SERIAL path (default ON;
-        # env kill-switch MLFRAME_MRMR_GPU_CMI=0). Same win as the parallel wiring in
-        # _evaluate_candidates_inner: pre-populate the shared python ``cached_cond_MIs``
-        # with batched I(X; Y | Z) so the @njit evaluate_gain loop hits the cache and
-        # skips the serial scalar conditional_mi. Unlike the parallel path (which writes
-        # a per-worker numba dict to avoid a concurrent "dict changed size" race), the
-        # serial loop has NO concurrent iteration, so writing the plain python dict in
-        # place BEFORE the loop is race-free. The helper reuses the exact arr2str key
-        # format and the same size/HW dispatch + SU/JMIM/order-1 gating; bit-parity
-        # kernel => selection unchanged; any failure / non-eligible regime is a silent
-        # no-op (scalar path).
-        _prefill_cond_MIs_gpu(
-            workload=feasible_candidates,
-            y=y,
-            factors_data=factors_data,
-            factors_nbins=factors_nbins,
-            selected_vars=selected_vars,
-            cached_cond_MIs=cached_cond_MIs,
-            use_simple_mode=use_simple_mode,
-            mrmr_relevance_algo=mrmr_relevance_algo,
-            max_veteranes_interactions_order=max_veteranes_interactions_order,
+        best_gain, best_candidate, run_out_of_time = score_candidates_serial(
+            ctx, feasible_candidates, best_gain, best_candidate, expected_gains, cached_jmim_MIs, jmim_hit_counter,
+            _prefill_cond_MIs_gpu, evaluate_candidate, handle_best_candidate,
         )
-
-        for cand_idx, X, nexisting in feasible_candidates:
-
-            current_gain, _sink_reasons = evaluate_candidate(
-                cand_idx=cand_idx,
-                X=X,
-                y=y,
-                nexisting=nexisting,
-                best_gain=best_gain,
-                factors_data=factors_data,
-                factors_nbins=factors_nbins,  # type: ignore[arg-type]
-                factors_names=factors_names,
-                classes_y=classes_y,
-                classes_y_safe=classes_y_safe,  # type: ignore[arg-type]
-                freqs_y=freqs_y,
-                use_gpu=use_gpu,
-                freqs_y_safe=freqs_y_safe,  # type: ignore[arg-type]
-                partial_gains=partial_gains,
-                baseline_npermutations=baseline_npermutations,
-                mrmr_relevance_algo=mrmr_relevance_algo,
-                mrmr_redundancy_algo=mrmr_redundancy_algo,
-                max_veteranes_interactions_order=max_veteranes_interactions_order,
-                expected_gains=expected_gains,
-                selected_vars=selected_vars,
-                cached_MIs=cached_MIs,
-                cached_confident_MIs=cached_confident_MIs,
-                cached_cond_MIs=cached_cond_MIs,  # type: ignore[arg-type]
-                cached_jmim_MIs=cached_jmim_MIs,
-                jmim_hit_counter=jmim_hit_counter,
-                entropy_cache=entropy_cache,  # type: ignore[arg-type]
-                verbose=verbose,
-                ndigits=ndigits,
-                use_simple_mode=use_simple_mode,
-                random_seed=random_seed,
-            )
-
-            best_gain, best_candidate, run_out_of_time = handle_best_candidate(
-                current_gain=current_gain,
-                best_gain=best_gain,
-                X=X,
-                best_candidate=best_candidate,
-                factors_names=factors_names,  # type: ignore[arg-type]
-                max_runtime_mins=max_runtime_mins,
-                start_time=start_time,
-                min_relevance_gain=min_relevance_gain,
-                verbose=verbose,
-                ndigits=ndigits,
-            )
-
-            if run_out_of_time:
-                if verbose:
-                    logger.info("Time limit exhausted. Finalizing the search...")
-                break
 
     if verbose > 2 and len(selected_vars) < MAX_ITERATIONS_TO_TRACK:
         logger.info("evaluate_candidates took %.1f sec.", timer() - eval_start)
@@ -405,16 +197,7 @@ def confirm_candidate(ctx: ScreenContext, X: tuple, next_best_gain: float) -> tu
     n_workers = ctx.n_workers
     workers_pool = ctx.workers_pool
     parallel_kwargs = ctx.parallel_kwargs
-    max_confirmation_cand_nbins = ctx.max_confirmation_cand_nbins
-    data_copy = ctx.data_copy
     y = ctx.y
-    max_failed = ctx.max_failed
-    mrmr_relevance_algo = ctx.mrmr_relevance_algo
-    mrmr_redundancy_algo = ctx.mrmr_redundancy_algo
-    max_veteranes_interactions_order = ctx.max_veteranes_interactions_order
-    cached_cond_MIs = ctx.cached_cond_MIs
-    entropy_cache = ctx.entropy_cache
-    extra_x_shuffling = ctx.extra_x_shuffling
     random_seed = ctx.random_seed
     verbose = ctx.verbose
     ndigits = ctx.ndigits
@@ -443,25 +226,7 @@ def confirm_candidate(ctx: ScreenContext, X: tuple, next_best_gain: float) -> tu
             # permutation confirm (``mi_direct_gpu``, cupy argsort) was 37% of a 300k fit on a weak
             # GPU (cupy argsort + GPU-sync sleep, CPU idle), and ignored MLFRAME_DISABLE_GPU. At large
             # n the analytic CPU path supersedes it everywhere; small-n + enabled GPU still uses GPU.
-            _confirm_use_gpu = use_gpu
-            if _confirm_use_gpu:
-                try:
-                    import os as _os
-                    from ._analytic_mi_null import analytic_null_min_n, analytic_null_enabled
-                    _cvd = _os.environ.get("CUDA_VISIBLE_DEVICES", None)
-                    _gpu_disabled_env = _os.environ.get("MLFRAME_DISABLE_GPU", "") == "1"
-                    _gpu_hidden_env = _cvd is not None and _cvd.strip() == ""
-                    _gpu_off = False
-                    if _gpu_disabled_env:
-                        _gpu_off = True
-                    elif _gpu_hidden_env:
-                        _gpu_off = True
-                    _analytic_n = analytic_null_enabled() and int(factors_data.shape[0]) >= analytic_null_min_n()
-                    if _gpu_off or _analytic_n:
-                        _confirm_use_gpu = False
-                except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-                    logger.debug("suppressed: %s", e)
-                    pass
+            _confirm_use_gpu = marginal_confirm_use_gpu(use_gpu, factors_data)
             if _confirm_use_gpu:
                 # Mirror evaluate_candidate's GPU
                 # try/except (evaluation.py, fix) - this call previously had NO exception
@@ -538,120 +303,7 @@ def confirm_candidate(ctx: ScreenContext, X: tuple, next_best_gain: float) -> tu
 
     if full_npermutations and bootstrapped_gain > 0 and selected_vars and not use_simple_mode:  # additional check of Fleuret criteria
 
-        if count_cand_nbins(X, factors_nbins) <= max_confirmation_cand_nbins:
-
-            skip_cand = [(subel in selected_vars) for subel in X]
-            nexisting = sum(skip_cand)
-
-            if verbose and len(selected_vars) < MAX_ITERATIONS_TO_TRACK:
-                eval_start = timer()
-
-            # RC2 sample-size-aware confirmation. The Fleuret CONDITIONAL
-            # permutation test estimates ``I(X; Y | Z)`` over the (X, Y, Z)
-            # joint; on a small-n / high-cardinality conditioning joint that
-            # joint is severely undersampled (e.g. diabetes s5 -> ~0.4
-            # rows/cell) so the shuffled-y NULL conditional MI is ~= the REAL
-            # conditional MI and the gate OVER-REJECTS every genuine feature
-            # after the first (premature stop, catastrophic under-selection).
-            # When the conditioning joint has fewer than
-            # ``fe_confirm_undersample_rows_per_cell`` rows per occupied cell,
-            # confirm the candidate by a MARGINAL-MI permutation test instead
-            # (the X-marginal joint is far better sampled). The marginal
-            # bootstrap (``bootstrapped_gain`` / ``confidence`` computed above
-            # via ``mi_direct`` / ``mi_direct_gpu``, which permute y and
-            # compare real vs permuted I(X; y)) IS exactly that test, so the
-            # fallback is simply to keep its verdict and SKIP the unreliable
-            # conditional recheck. Pure noise is still rejected because its
-            # marginal permutation test rejects it; redundant duplicates are
-            # still dropped because the relevance-minus-redundancy GAIN
-            # (``next_best_gain``, already net of the redundancy term) handles
-            # dedup independently of this gate. Set the threshold to 0 (knob
-            # ``fe_confirm_undersample_rows_per_cell=0``) to always use the
-            # strict conditional test (legacy behaviour).
-            _undersample_threshold = float(getattr(ctx, "fe_confirm_undersample_rows_per_cell", 0.0) or 0.0)
-            if _undersample_threshold > 0.0:
-                _rows_per_cell = _conditioning_rows_per_cell(ctx, X)
-                if _rows_per_cell < _undersample_threshold:
-                    if verbose and len(selected_vars) < MAX_ITERATIONS_TO_TRACK:
-                        logger.debug(
-                            "confirm %s: conditioning joint undersampled (%.2f rows/cell < %.2f); " "marginal-MI fallback (conf=%.*f)",
-                            get_candidate_name(X, factors_names=factors_names),
-                            _rows_per_cell, _undersample_threshold, ndigits, confidence,
-                        )
-                    # Keep the marginal bootstrap verdict; do not run the
-                    # unreliable conditional permutation gate.
-                    return bootstrapped_gain, confidence
-
-            # fold the candidate's own identity (``hash(X)``) into the seed -
-            # pre-fix this only depended on (random_seed, len(selected_vars)), so every distinct candidate
-            # confirmed at the same selected_vars depth within one greedy round drew the IDENTICAL
-            # permutation stream for the Fleuret conditional recheck.
-            _fleuret_base_seed = int(((int(random_seed or 0) * 2654435761) + len(selected_vars) + 1 + hash(X)) & 0xFFFFFFFFFFFFFFFF)
-            if n_workers and n_workers > 1 and full_npermutations > NMAX_NONPARALLEL_ITERS:
-                # Build the Fleuret parallel pool ONCE per
-                # screen round and cache it on ``ctx`` - pre-fix, ``workers_pool`` was always None here
-                # (deliberately, per the RETIRED note above, for the UNRELATED evaluate_candidates path),
-                # so ``get_fleuret_criteria_confidence_parallel`` rebuilt a fresh joblib.Parallel pool on
-                # EVERY candidate needing the conditional recheck, even though the same ctx/round can
-                # confirm dozens of candidates. Reusing one pool across the round amortises the
-                # construction cost while every other candidate/round still gets a fresh pool as before.
-                if workers_pool is None:
-                    workers_pool = Parallel(n_jobs=n_workers, **(parallel_kwargs or {}))
-                    ctx.workers_pool = workers_pool
-                bootstrapped_gain, confidence, parallel_entropy_cache = get_fleuret_criteria_confidence_parallel(
-                    data_copy=data_copy,
-                    factors_nbins=factors_nbins,  # type: ignore[arg-type]
-                    x=X,
-                    y=y,  # type: ignore[arg-type]
-                    selected_vars=selected_vars,
-                    bootstrapped_gain=next_best_gain,
-                    npermutations=full_npermutations,
-                    max_failed=max_failed,
-                    nexisting=nexisting,
-                    mrmr_relevance_algo=mrmr_relevance_algo,
-                    mrmr_redundancy_algo=mrmr_redundancy_algo,
-                    max_veteranes_interactions_order=max_veteranes_interactions_order,
-                    cached_cond_MIs=cached_cond_MIs,  # type: ignore[arg-type]
-                    entropy_cache=entropy_cache,  # type: ignore[arg-type]
-                    extra_x_shuffling=extra_x_shuffling,
-                    n_workers=n_workers,
-                    workers_pool=workers_pool,
-                    parallel_kwargs=parallel_kwargs,
-                    base_seed=_fleuret_base_seed,
-                )
-                for key, value in parallel_entropy_cache.items():
-                    entropy_cache[key] = value  # type: ignore[index]
-            else:
-                nfailed, nchecked = get_fleuret_criteria_confidence(
-                    data_copy=data_copy,
-                    factors_nbins=factors_nbins,
-                    x=X,
-                    y=y,
-                    selected_vars=selected_vars,
-                    bootstrapped_gain=next_best_gain,
-                    npermutations=full_npermutations,
-                    max_failed=max_failed,
-                    nexisting=nexisting,
-                    mrmr_relevance_algo=mrmr_relevance_algo,
-                    mrmr_redundancy_algo=mrmr_redundancy_algo,
-                    max_veteranes_interactions_order=max_veteranes_interactions_order,
-                    cached_cond_MIs=cached_cond_MIs,
-                    entropy_cache=entropy_cache,
-                    extra_x_shuffling=extra_x_shuffling,
-                    base_seed=np.uint64(_fleuret_base_seed),
-                )
-                # The SERIAL confirm runs only at the screen's tiny default budget (full_npermutations=3,
-                # below NMAX_NONPARALLEL_ITERS) where the parallel path is never taken - so there is no serial-vs-
-                # parallel comparison to reconcile here. The add-one estimator's ceiling at budget 3 is 1-1/4=0.75,
-                # which lowers gain*confidence ~25% below min_relevance_gain and STARVES the screen (a prior C4
-                # attempt to add-one this path regressed cluster-aggregate / FE recovery). Keep the raw rate: a clean
-                # null (nfailed=0) correctly yields confidence 1.0 so genuine signals clear the small-budget screen.
-                confidence = 1 - nfailed / nchecked
-                if nfailed >= max_failed:
-                    bootstrapped_gain = 0.0
-
-            if verbose and len(selected_vars) < MAX_ITERATIONS_TO_TRACK:
-                logger.debug("get_fleuret_criteria_confidence bootstrapped eval took %.1f sec.", timer() - eval_start)
+        bootstrapped_gain, confidence = fleuret_conditional_recheck(ctx, X, next_best_gain, bootstrapped_gain, confidence)
 
     return bootstrapped_gain, confidence
 
@@ -678,10 +330,7 @@ def confirm_one_predictor(
     candidates = ctx.candidates
     min_relevance_gain = ctx.min_relevance_gain
     selected_vars = ctx.selected_vars
-    failed_candidates = ctx.failed_candidates
     added_candidates = ctx.added_candidates
-    partial_gains = ctx.partial_gains
-    full_npermutations = ctx.full_npermutations
     max_consec_unconfirmed = ctx.max_consec_unconfirmed
     factors_names = ctx.factors_names
     verbose = ctx.verbose
@@ -745,98 +394,13 @@ def confirm_one_predictor(
         # promotion reads only the backend-identical ``expected_gains`` array).
         _gain_order = np.lexsort((_name_rank, -np.asarray(expected_gains)))
         _gain_order = _prefer_engineered_order(_gain_order, expected_gains, ctx)
-        for n, next_best_candidate_idx in enumerate(_gain_order):
-            next_best_gain = expected_gains[next_best_candidate_idx]
-            if next_best_gain >= min_relevance_gain:  # only can consider here candidates fully checked against every Z
-
-                X = candidates[next_best_candidate_idx]
-
-                if n > 0:
-                    best_partial_gain, best_key = find_best_partial_gain(
-                        partial_gains=partial_gains,
-                        failed_candidates=failed_candidates,
-                        added_candidates=added_candidates,
-                        candidates=candidates,
-                        selected_vars=selected_vars,
-                        dcd_state=getattr(ctx, "dcd_state", None),
-                    )
-
-                    if best_partial_gain > next_best_gain:
-                        best_gain = next_best_gain
-                        if verbose > 2:
-                            logger.debug(
-                                "Have no best_candidate anymore. Need to recompute partial gains. best_partial_gain of candidate %s was %s",
-                                get_candidate_name(candidates[best_key], factors_names=factors_names),
-                                best_partial_gain,
-                            )
-                        break  # out of best candidates confirmation, to retry all cands evaluation
-
-                any_cand_considered = True
-
-                if full_npermutations:
-                    total_checked += 1
-
-                bootstrapped_gain, confidence = confirm_candidate(ctx, X, next_best_gain)
-
-                if bootstrapped_gain > 0:
-
-                    nconsec_unconfirmed = 0
-
-                    # Budget-aware confidence for the gain multiplier. The marginal bootstrap confidence
-                    # from ``mi_direct`` uses the add-one Monte-Carlo p-value (calibrated for the REPORTED
-                    # significance), whose ceiling at a clean null is ``budget/(budget+1)`` - only 0.75 at
-                    # the screen's tiny default budget (full_npermutations=3). Multiplying the gain by that
-                    # ceiling deflates a perfectly clean signal ~25%, dropping it below ``min_relevance_gain``
-                    # and starving the FE pair-pool (engineered features collapse to ~0). Dividing by the
-                    # add-one ceiling exactly recovers the raw exceedance-rate confidence (1.0 at a clean
-                    # null) the screen used pre-add-one, so genuine signals clear the small-budget screen
-                    # while the calibrated add-one confidence is still what gets STORED/reported. No-op when
-                    # add-one is disabled (ceiling == 1.0) and on large budgets (ceiling -> 1.0).
-                    _conf_for_gain = confidence
-                    _conf_for_gain = _confirm_one_predic_add_one_disabled_ceiling(full_npermutations, confidence, _conf_for_gain)
-                    next_best_gain = next_best_gain * _conf_for_gain
-                    expected_gains[next_best_candidate_idx] = next_best_gain
-
-                    best_partial_gain, best_key = find_best_partial_gain(
-                        partial_gains=partial_gains,
-                        failed_candidates=failed_candidates,
-                        added_candidates=added_candidates,
-                        candidates=candidates,
-                        selected_vars=selected_vars,
-                        skip_indices=(next_best_candidate_idx,),
-                        dcd_state=getattr(ctx, "dcd_state", None),
-                    )
-                    if best_partial_gain > next_best_gain:
-                        if verbose > 2:
-                            logger.info(
-                                "\t\tCandidate's lowered confidence %s requires re-checking other candidates, "
-                                "as now its expected gain is only %.*f, vs %.*f, of %s",
-                                confidence, ndigits, next_best_gain, ndigits, best_partial_gain,
-                                get_candidate_name(candidates[best_key], factors_names=factors_names),
-                            )
-                        break  # out of best candidates confirmation, to retry all cands evaluation
-                    else:
-                        cand_confirmed = True
-                        if full_npermutations:
-                            if verbose > 2:
-                                logger.info("\t\tconfirmed with confidence %.*f", ndigits, confidence)
-                        break  # out of best candidates confirmation, to add candidate to the list, and go to more candidates
-                else:
-                    expected_gains[next_best_candidate_idx] = 0.0
-                    failed_candidates.add(next_best_candidate_idx)
-                    if verbose > 2:
-                        logger.info("\t\tconfirmation failed with confidence %.*f", ndigits, confidence)
-
-                    nconsec_unconfirmed += 1
-                    total_disproved += 1
-                    if max_consec_unconfirmed and (nconsec_unconfirmed > max_consec_unconfirmed):
-                        patience_triggered = True
-                        if verbose:
-                            logger.info("Maximum consecutive confirmation failures reached.")
-                        break  # out of best candidates confirmation, to finish the level
-
-            else:  # next_best_gain = 0
-                break  # nothing wrong, just retry all cands evaluation
+        (
+            best_gain, cand_confirmed, any_cand_considered, nconsec_unconfirmed, total_checked, total_disproved, patience_triggered,
+            next_best_candidate_idx, X, next_best_gain, confidence,
+        ) = confirm_in_gain_order(
+            ctx, _gain_order, expected_gains, best_gain, nconsec_unconfirmed, total_checked, total_disproved, patience_triggered, confidence,
+            confirm_candidate, find_best_partial_gain, get_candidate_name,
+        )
 
         # ---------------------------------------------------------------------------------------------------------------
         # Let's act upon results of the permutation test
@@ -896,15 +460,6 @@ def _confirm_one_predic_contiguous_integer_key_np(_rank_cache, candidates, facto
             _name_rank[_pos] = _rank
         ctx._name_rank_cache = (candidates, _cand_names, _name_rank)
     return _name_rank
-
-
-def _confirm_one_predic_add_one_disabled_ceiling(full_npermutations, confidence, _conf_for_gain):
-    """Block of confirm_one_predictor starting at ``if _addone_pvalue_enabled() and full_npermutations:``."""
-    if _addone_pvalue_enabled() and full_npermutations:
-        _addone_ceiling = full_npermutations / (full_npermutations + 1.0)
-        if _addone_ceiling > 0.0:
-            _conf_for_gain = min(1.0, confidence / _addone_ceiling)
-    return _conf_for_gain
 
 
 def _confirm_one_predic_becomes_redundant_marked_accepted(_child, ctx, added_candidates, next_best_candidate_idx, verbose, X, factors_names, ndigits, next_best_gain, _sub_X, _sub_gain, _sub_idx):

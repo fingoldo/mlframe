@@ -192,13 +192,104 @@ def generate_modelling_data(
 
     # Initialize X and y
 
-    fnames = []
+    fnames: list = []
     X = np.empty((n_samples, n_features), dtype=np.float32)
 
     # ----------------------------------------------------------------------------------------------------------------------------
     # Initially draw informative features
     # ----------------------------------------------------------------------------------------------------------------------------
 
+    y = _generate_informative_features(
+        n_samples, n_classes, generation, n_informative, shift, scale, include_distributions, generator, target_noise, weights, X, fnames
+    )
+
+    idx = n_informative
+
+    # ----------------------------------------------------------------------------------------------------------------------------
+    # Create correlated features
+    # ----------------------------------------------------------------------------------------------------------------------------
+
+    # Coefficient-drift-over-time: when timeseries=True, treat the sample axis as a time axis and
+    # scale each correlated feature's dependence on its source predictor(s) by a factor drifting
+    # linearly from 0.5x (start) to 1.5x (end), so the correlation strength is not stationary.
+    time_drift = 1.0 + (np.linspace(0.0, 1.0, n_samples, dtype=np.float32) - 0.5) if timeseries else None
+
+    _add_singly_correlated_features(n_singly_correlated, n_samples, shift, scale, include_distributions, generator, X, idx, n_informative, time_drift, feature_noise, fnames)
+    idx += n_singly_correlated
+
+    _add_mutually_correlated_features(
+        n_mutually_correlated, n_samples, shift, scale, include_distributions, generator, X, idx, n_informative, time_drift, feature_noise, fnames
+    )
+    idx += n_mutually_correlated
+
+    if n_directly_correlated > 0:
+        # directly dependent on the generated outcome itself, instead of predictors.
+        # cat (easiest, just pick from the classes with probs such that one of the real class is highest, rest equal).
+        raise NotImplementedError
+    idx += n_directly_correlated
+
+    # ----------------------------------------------------------------------------------------------------------------------------
+    # Create unrelated features
+    # ----------------------------------------------------------------------------------------------------------------------------
+
+    _add_unrelated_single_features(n_unrelated_single, n_samples, shift, scale, include_distributions, generator, X, idx, max_cardinality, min_cardinality, fnames)
+
+    idx += n_unrelated_single
+
+    _add_unrelated_intercorrelated_features(n_unrelated_intercorrelated, n_unrelated_single, generator, n_samples, shift, scale, include_distributions, X, idx, fnames)
+
+    idx += n_unrelated_intercorrelated
+
+    # ----------------------------------------------------------------------------------------------------------------------------
+    # Repeat some features
+    # ----------------------------------------------------------------------------------------------------------------------------
+
+    if n_repeated > 0:
+        n = idx
+        # Uniformly pick source columns from [0, n). The previous formula
+        # `((n-1)*rand + 0.5).astype(intp)` under-sampled column 0 and
+        # column n-1 (each had half the weight of interior columns).
+        indices = generator.randint(0, n, size=n_repeated)
+        X[:, n : n + n_repeated] = X[:, indices]
+
+    # ----------------------------------------------------------------------------------------------------------------------------
+    # Randomly replace labels
+    # ----------------------------------------------------------------------------------------------------------------------------
+
+    if flip_y >= 0.0:
+        flip_mask = generator.rand(n_samples) < flip_y
+        y[flip_mask] = generator.randint(n_classes, size=flip_mask.sum())
+
+    # ----------------------------------------------------------------------------------------------------------------------------
+    # Randomly permute features
+    # ----------------------------------------------------------------------------------------------------------------------------
+
+    if shuffle:
+        indices = np.arange(n_features)
+        generator.shuffle(indices)
+        X[:, :] = X[:, indices]
+        fnames = np.array(fnames)[indices].tolist()
+
+    if return_dataframe:
+        X = pd.DataFrame(data=X, columns=fnames)
+    return X, y, fnames
+
+
+def _generate_informative_features(
+    n_samples: int,
+    n_classes: int,
+    generation: str,
+    n_informative: int,
+    shift: float,
+    scale: float,
+    include_distributions: set,
+    generator: np.random.RandomState,
+    target_noise: float,
+    weights: Sequence[float] | np.ndarray | None,
+    X: np.ndarray,
+    fnames: list,
+) -> np.ndarray:
+    """Draw the informative predictors into ``X[:, :n_informative]`` (appending their names to ``fnames``) and return the target ``y``."""
     if n_classes > 0:
         # classification
         y = np.empty(n_samples, dtype=np.int32)
@@ -265,21 +356,24 @@ def generate_modelling_data(
         # regression
         y = np.empty(n_samples, dtype=np.float32)
         raise NotImplementedError
+    return y
 
-    idx = n_informative
 
-    # ----------------------------------------------------------------------------------------------------------------------------
-    # Create correlated features
-    # ----------------------------------------------------------------------------------------------------------------------------
-
-    # Coefficient-drift-over-time: when timeseries=True, treat the sample axis as a time axis and
-    # scale each correlated feature's dependence on its source predictor(s) by a factor drifting
-    # linearly from 0.5x (start) to 1.5x (end), so the correlation strength is not stationary.
-    time_drift = 1.0 + (np.linspace(0.0, 1.0, n_samples, dtype=np.float32) - 0.5) if timeseries else None
-
-    _add_singly_correlated_features(n_singly_correlated, n_samples, shift, scale, include_distributions, generator, X, idx, n_informative, time_drift, feature_noise, fnames)
-    idx += n_singly_correlated
-
+def _add_mutually_correlated_features(
+    n_mutually_correlated: int,
+    n_samples: int,
+    shift: float,
+    scale: float,
+    include_distributions: set,
+    generator: np.random.RandomState,
+    X: np.ndarray,
+    idx: int,
+    n_informative: int,
+    time_drift: Optional[np.ndarray],
+    feature_noise: float,
+    fnames: list,
+) -> None:
+    """Add the features that depend on a random subset (>1) of the informative predictors."""
     if n_mutually_correlated > 0:
         # dependent on a random subset of predictors (>1). cont.
 
@@ -297,59 +391,6 @@ def generate_modelling_data(
                 X[:, idx + j] += generator.normal(0.0, feature_noise * (np.std(X[:, idx + j]) or 1.0), size=n_samples).astype(np.float32)
 
             fnames.append(f"mc_{dist_name}_{'-'.join(map(str,current_combination))}")
-    idx += n_mutually_correlated
-
-    if n_directly_correlated > 0:
-        # directly dependent on the generated outcome itself, instead of predictors.
-        # cat (easiest, just pick from the classes with probs such that one of the real class is highest, rest equal).
-        raise NotImplementedError
-    idx += n_directly_correlated
-
-    # ----------------------------------------------------------------------------------------------------------------------------
-    # Create unrelated features
-    # ----------------------------------------------------------------------------------------------------------------------------
-
-    _add_unrelated_single_features(n_unrelated_single, n_samples, shift, scale, include_distributions, generator, X, idx, max_cardinality, min_cardinality, fnames)
-
-    idx += n_unrelated_single
-
-    _add_unrelated_intercorrelated_features(n_unrelated_intercorrelated, n_unrelated_single, generator, n_samples, shift, scale, include_distributions, X, idx, fnames)
-
-    idx += n_unrelated_intercorrelated
-
-    # ----------------------------------------------------------------------------------------------------------------------------
-    # Repeat some features
-    # ----------------------------------------------------------------------------------------------------------------------------
-
-    if n_repeated > 0:
-        n = idx
-        # Uniformly pick source columns from [0, n). The previous formula
-        # `((n-1)*rand + 0.5).astype(intp)` under-sampled column 0 and
-        # column n-1 (each had half the weight of interior columns).
-        indices = generator.randint(0, n, size=n_repeated)
-        X[:, n : n + n_repeated] = X[:, indices]
-
-    # ----------------------------------------------------------------------------------------------------------------------------
-    # Randomly replace labels
-    # ----------------------------------------------------------------------------------------------------------------------------
-
-    if flip_y >= 0.0:
-        flip_mask = generator.rand(n_samples) < flip_y
-        y[flip_mask] = generator.randint(n_classes, size=flip_mask.sum())
-
-    # ----------------------------------------------------------------------------------------------------------------------------
-    # Randomly permute features
-    # ----------------------------------------------------------------------------------------------------------------------------
-
-    if shuffle:
-        indices = np.arange(n_features)
-        generator.shuffle(indices)
-        X[:, :] = X[:, indices]
-        fnames = np.array(fnames)[indices].tolist()
-
-    if return_dataframe:
-        X = pd.DataFrame(data=X, columns=fnames)
-    return X, y, fnames
 
 
 def _add_singly_correlated_features(n_singly_correlated, n_samples, shift, scale, include_distributions, generator, X, idx, n_informative, time_drift, feature_noise, fnames):

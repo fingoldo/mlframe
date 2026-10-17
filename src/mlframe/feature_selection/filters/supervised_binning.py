@@ -73,6 +73,92 @@ def _encode_mdlp_target(y, max_y_classes, fast_mode, y_pseudo_classes, max_depth
     return _y_arr, max_depth
 
 
+def _drop_nonfinite_xy(x: np.ndarray, y_arr: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Drop rows where ``x`` (or a still-float ``y_arr``) is non-finite; returns ``x`` and ``y`` cast to int64 class labels."""
+    # Drop NaN rows BEFORE
+    # sorting. Pre-fix ``np.argsort(x)`` placed NaN at the tail; the
+    # njit recursion then sliced ``x[best_idx+1:]`` and could include
+    # the NaN tail, poisoning subsequent ``x[best_idx] + x[best_idx+1]``
+    # midpoints and emitting literal NaN values into the ``splits``
+    # list. Final ``edges = [-inf, ...sorted_splits..., +inf]`` then
+    # contained NaN in the middle, violating the
+    # ``np.searchsorted``-relies-on-sorted invariant downstream.
+    # python backend and njit backend disagreed silently on NaN-bearing
+    # inputs - docstring promises identical semantics. Filter NaN out
+    # of both inputs once at the entry point (single-source-of-truth).
+    #
+    # this mask used to check ONLY ``x``. When ``y`` is a continuous
+    # target with too FEW distinct finite values to trigger the quantile-rebucketing branch above
+    # (so ``y_arr`` still holds raw floats here), a NaN in ``y`` survived this filter and then
+    # ``.astype(np.int64)`` below turned it into a platform-defined garbage class label (typically
+    # INT64_MIN) instead of being dropped or raising - a phantom "class" silently polluting every
+    # entropy computation downstream. Fold ``y``'s finiteness into the SAME mask (only meaningful
+    # when ``y_arr`` is still float; the factorize/quantise branches above never leave a NaN in an
+    # already-integer ``y_arr``).
+    _finite_mask = np.isfinite(x)
+    if y_arr.dtype.kind == "f":
+        _finite_mask &= np.isfinite(y_arr)
+    if not _finite_mask.all():
+        x = x[_finite_mask]
+        y_arr = y_arr[_finite_mask]
+    return x, y_arr.astype(np.int64)
+
+
+def _mdlp_sorted_splits(
+    x_sorted: np.ndarray,
+    y_sorted: np.ndarray,
+    *,
+    fast_mode: bool,
+    backend: str,
+    min_split_size: int,
+    max_depth: int,
+    alpha: float,
+    n_permutations: int,
+    bonferroni: bool,
+    validated_seed: int,
+) -> list[float]:
+    """Run the MDLP recursion (classic Fayyad-Irani in ``fast_mode``, else significance-gated) on sorted ``x`` / aligned ``y``; returns the unsorted split points."""
+    splits: list[float] = []
+    if fast_mode:
+        # Explicit speed opt-out: the previous classic Fayyad-Irani accept test
+        # (in-sample MDL threshold + the depth-cap guardrail above), unchanged.
+        if backend == "njit":
+            _mdlp_recurse_njit(x_sorted, y_sorted, splits, depth=0, min_split_size=int(min_split_size), max_depth=int(max_depth))
+        else:
+            _mdlp_recurse(x_sorted, y_sorted, splits, depth=0, min_split_size=int(min_split_size), max_depth=int(max_depth))
+    else:
+        # DEFAULT (user decision - accuracy over speed per project convention):
+        # significance-gated splitting (``_mdlp_validated_split.py``). Lazy import to avoid a
+        # module-load-order circular import (that module imports ``_mdlp_best_split_njit`` /
+        # ``_entropy_from_counts_njit`` from HERE at ITS top level; by the time this function
+        # runs, this module has finished loading, so the import is safe - doing it at this
+        # module's own top level would not be).
+        from ._mdlp_validated_split import _dedupe_xy, _mdlp_recurse_validated_bfs
+
+        # Exact-duplicate (x, y) rows must be collapsed BEFORE the significance-gated recursion -
+        # see ``_dedupe_xy``'s docstring for the measured over-splitting artifact this prevents
+        # (duplicated rows sit x-adjacent with an identical y, which a permutation null built by
+        # shuffling y never reproduces, so the observed gain spuriously clears the test).
+        x_dedup, y_dedup = _dedupe_xy(x_sorted, y_sorted)
+        # Level-order (BFS) recursion, batching every tree level's permutation-null significance
+        # tests into one chunk-parallel njit call instead of one Python dispatch per node -- this
+        # call site was found still on the previous DFS recursion via a fresh 2M-row cProfile
+        # (21.3s tottime / 1212 calls) despite the BFS rewrite already shipping for the OTHER MDLP
+        # entry point (``mdlp_bin_edges_validated``) -- an unwired-elsewhere primitive, now fixed.
+        splits = _mdlp_recurse_validated_bfs(
+            x_dedup,
+            y_dedup,
+            int(min_split_size),
+            int(max_depth),
+            float(alpha),
+            int(n_permutations),
+            int(validated_seed),
+            bool(bonferroni),
+            None,
+        )
+    return splits
+
+
 def mdlp_bin_edges(
     x: np.ndarray,
     y: np.ndarray,
@@ -206,33 +292,7 @@ def mdlp_bin_edges(
     if scaled_min_split:
         min_split_size = max(int(min_split_size), int(0.02 * len(x)))
 
-    # Drop NaN rows BEFORE
-    # sorting. Pre-fix ``np.argsort(x)`` placed NaN at the tail; the
-    # njit recursion then sliced ``x[best_idx+1:]`` and could include
-    # the NaN tail, poisoning subsequent ``x[best_idx] + x[best_idx+1]``
-    # midpoints and emitting literal NaN values into the ``splits``
-    # list. Final ``edges = [-inf, ...sorted_splits..., +inf]`` then
-    # contained NaN in the middle, violating the
-    # ``np.searchsorted``-relies-on-sorted invariant downstream.
-    # python backend and njit backend disagreed silently on NaN-bearing
-    # inputs - docstring promises identical semantics. Filter NaN out
-    # of both inputs once at the entry point (single-source-of-truth).
-    #
-    # this mask used to check ONLY ``x``. When ``y`` is a continuous
-    # target with too FEW distinct finite values to trigger the quantile-rebucketing branch above
-    # (so ``_y_arr`` still holds raw floats here), a NaN in ``y`` survived this filter and then
-    # ``.astype(np.int64)`` below turned it into a platform-defined garbage class label (typically
-    # INT64_MIN) instead of being dropped or raising - a phantom "class" silently polluting every
-    # entropy computation downstream. Fold ``y``'s finiteness into the SAME mask (only meaningful
-    # when ``_y_arr`` is still float; the factorize/quantise branches above never leave a NaN in an
-    # already-integer ``_y_arr``).
-    _finite_mask = np.isfinite(x)
-    if _y_arr.dtype.kind == "f":
-        _finite_mask &= np.isfinite(_y_arr)
-    if not _finite_mask.all():
-        x = x[_finite_mask]
-        _y_arr = _y_arr[_finite_mask]
-    y = _y_arr.astype(np.int64)
+    x, y = _drop_nonfinite_xy(x, _y_arr)
     if x.size == 0:
         # All-NaN / all-non-finite input: no splits computable.
         return np.array([-np.inf, np.inf], dtype=np.float64)  # Intentional float64: bin-edge / cut vector, compared against values at full precision
@@ -242,48 +302,13 @@ def mdlp_bin_edges(
     x_sorted = np.ascontiguousarray(x[sorter].astype(np.float64))
     y_sorted = np.ascontiguousarray(y[sorter])
 
-    splits: list[float] = []
-    if fast_mode:
-        # Explicit speed opt-out: the previous classic Fayyad-Irani accept test
-        # (in-sample MDL threshold + the depth-cap guardrail above), unchanged.
-        if backend == "njit":
-            _mdlp_recurse_njit(x_sorted, y_sorted, splits, depth=0, min_split_size=int(min_split_size), max_depth=int(max_depth))
-        else:
-            _mdlp_recurse(x_sorted, y_sorted, splits, depth=0, min_split_size=int(min_split_size), max_depth=int(max_depth))
-    else:
-        # DEFAULT (user decision - accuracy over speed per project convention):
-        # significance-gated splitting (``_mdlp_validated_split.py``). Lazy import to avoid a
-        # module-load-order circular import (that module imports ``_mdlp_best_split_njit`` /
-        # ``_entropy_from_counts_njit`` from HERE at ITS top level; by the time this function
-        # runs, this module has finished loading, so the import is safe - doing it at this
-        # module's own top level would not be).
-        from ._mdlp_validated_split import _dedupe_xy, _mdlp_recurse_validated_bfs
-
-        # Exact-duplicate (x, y) rows must be collapsed BEFORE the significance-gated recursion -
-        # see ``_dedupe_xy``'s docstring for the measured over-splitting artifact this prevents
-        # (duplicated rows sit x-adjacent with an identical y, which a permutation null built by
-        # shuffling y never reproduces, so the observed gain spuriously clears the test).
-        x_dedup, y_dedup = _dedupe_xy(x_sorted, y_sorted)
-        # Level-order (BFS) recursion, batching every tree level's permutation-null significance
-        # tests into one chunk-parallel njit call instead of one Python dispatch per node -- this
-        # call site was found still on the previous DFS recursion via a fresh 2M-row cProfile
-        # (21.3s tottime / 1212 calls) despite the BFS rewrite already shipping for the OTHER MDLP
-        # entry point (``mdlp_bin_edges_validated``) -- an unwired-elsewhere primitive, now fixed.
-        splits = _mdlp_recurse_validated_bfs(
-            x_dedup,
-            y_dedup,
-            int(min_split_size),
-            int(max_depth),
-            float(alpha),
-            int(n_permutations),
-            int(validated_seed),
-            bool(bonferroni),
-            None,
-        )
+    splits = _mdlp_sorted_splits(
+        x_sorted, y_sorted, fast_mode=fast_mode, backend=backend, min_split_size=int(min_split_size), max_depth=int(max_depth),
+        alpha=alpha, n_permutations=n_permutations, bonferroni=bonferroni, validated_seed=validated_seed,
+    )
     splits.sort()
     # Intentional float64: bin-edge / cut vector, compared against values at full precision
-    edges = np.concatenate([[-np.inf], np.asarray(splits, dtype=np.float64), [np.inf]])
-    return edges
+    return np.concatenate([[-np.inf], np.asarray(splits, dtype=np.float64), [np.inf]])
 
 
 def _entropy_from_labels(y: np.ndarray) -> float:

@@ -49,6 +49,40 @@ def _friend_graph_and_redundancy_passes_group1(
 ):
     """Run the friend-graph, cluster-aggregate-removal, standalone-gate-prune, interactions-order-2-drop, prefe-raw-reconsider, adaptive-fourier-readd, missingness-indicator-readd pass(es) and return ``(selected_vars, cols, data, nbins)``.
     See the package docstring for the full section this carves out."""
+    selected_vars = _friend_graph_and_redundancy_passes_group1_part1(
+        self, selected_vars, data, nbins, target_indices, cols, engineered_recipes, verbose, X, classes_y, fe_to_pandas,
+    )
+
+    selected_vars = readd_protected_columns(
+        self,
+        X=X,
+        cols=cols,
+        data=data,
+        selected_vars=selected_vars,
+        _eng_continuous_snapshot=_eng_continuous_snapshot,
+        _y_np=_y_np,
+        hybrid_orth_pre_recipes=_hybrid_orth_pre_recipes,
+        miss_ind_pre_recipes=_miss_ind_pre_recipes,
+        verbose=verbose,
+    )
+
+    # HINGE / CHANGE-POINT DEFERRED MATERIALISATION: the hinge stage
+    # ran BEFORE the pair-FE loop (it needs the raw source columns) but DEFERRED
+    # appending its legs so they could not perturb composite recovery. Now that the
+    # FE loop has settled (composites recovered untouched), materialise the buffered
+    # legs into the candidate matrix (``data`` bin-codes / ``cols`` / ``nbins``),
+    # the augmented frame ``X``, and the recipe registry, then let the protection
+    # block below re-add the deserving ones into ``selected_vars``. Skipped wholesale
+    # when nothing was detected (legacy / no-kink path: the buffer is empty).
+
+    return selected_vars, cols, data, nbins
+
+
+def _friend_graph_and_redundancy_passes_group1_part1(
+    self: Any, selected_vars: Any, data: Any, nbins: Any, target_indices: Any, cols: Any, engineered_recipes: Any, verbose: Any, X: Any, classes_y: Any,
+    fe_to_pandas: Any,
+) -> Any:
+    """Extracted block of ``_friend_graph_and_redundancy_passes_group1`` (part 1); returns the names the caller still uses."""
     self.friend_graph_ = None
     # ``len(...)`` not truthiness: by this point ``selected_vars`` may be a numpy array (the empty-screen FE fallback rebinds it), and ``and <array>`` raises
     # "truth value ... ambiguous". Empty list AND empty array both give len 0, so the guard reads "build the graph only when something was selected".
@@ -184,30 +218,7 @@ def _friend_graph_and_redundancy_passes_group1(
     # leaves the support when a sole-parent transform of it survives.
     _prefe_raw = getattr(self, "_prefe_screened_raw_", None)
     selected_vars = _prefe_raw_sole_parent_pass(self, _prefe_raw, selected_vars, cols, data, target_indices, nbins, verbose)
-
-    selected_vars = readd_protected_columns(
-        self,
-        X=X,
-        cols=cols,
-        data=data,
-        selected_vars=selected_vars,
-        _eng_continuous_snapshot=_eng_continuous_snapshot,
-        _y_np=_y_np,
-        hybrid_orth_pre_recipes=_hybrid_orth_pre_recipes,
-        miss_ind_pre_recipes=_miss_ind_pre_recipes,
-        verbose=verbose,
-    )
-
-    # HINGE / CHANGE-POINT DEFERRED MATERIALISATION: the hinge stage
-    # ran BEFORE the pair-FE loop (it needs the raw source columns) but DEFERRED
-    # appending its legs so they could not perturb composite recovery. Now that the
-    # FE loop has settled (composites recovered untouched), materialise the buffered
-    # legs into the candidate matrix (``data`` bin-codes / ``cols`` / ``nbins``),
-    # the augmented frame ``X``, and the recipe registry, then let the protection
-    # block below re-add the deserving ones into ``selected_vars``. Skipped wholesale
-    # when nothing was detected (legacy / no-kink path: the buffer is empty).
-
-    return selected_vars, cols, data, nbins
+    return selected_vars
 
 
 def _synergy_screen_pass(self, _iac_max_order, cols, X, classes_y, fe_to_pandas, selected_vars, verbose):

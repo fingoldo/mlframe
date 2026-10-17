@@ -170,6 +170,116 @@ def _fit_surrogate_and_oof(
         return None, float("nan")
 
 
+def _aggregate_cooccurrence(boosters: list, depth_discount: float, local_to_global: dict) -> tuple[dict, dict, dict]:
+    """Aggregate split-gain co-occurrence over all real-fit surrogates and remap local feature indices to global candidate columns; returns ``(pair_w, triple_w, feat_w)``."""
+    # AGGREGATE split-gain co-occurrence over ALL ``reps`` real-fit surrogates (different
+    # seeds). A hard 3-way ``sign(a*b*c)`` is at the EDGE of a single shallow tree's reach -
+    # one fit recovers the operand triple only on lucky seeds (seed-sensitive rank) - but the
+    # TRUE operands co-occur CONSISTENTLY across seeds while chance-max noise triples vary, so
+    # summing the per-booster depth-discounted weights stabilises the ranking and lifts the
+    # genuine needle to the top robustly (the boosters were already fit for the self-gate, so
+    # this is free).
+    pair_w_local: dict = {}
+    triple_w_local: dict = {}
+    feat_w_local: dict = {}
+    for bst in boosters:
+        md = bst.dump_model()
+        for tinfo in md.get("tree_info", []):
+            ts = tinfo.get("tree_structure")
+            if ts is not None:
+                _walk_paths_tally(ts, [], pair_w_local, triple_w_local, feat_w_local, depth_discount)
+
+    # Remap the surrogate's LOCAL feature indices (into ``sub_X``) back to the GLOBAL
+    # candidate column indices. Every surrogate feature is a candidate by construction, so
+    # nothing is dropped; the sorted (a < b) / sorted-triple key order is re-imposed.
+    def _g(i):
+        """Maps a surrogate-local feature index (into ``sub_X``) back to its global candidate column index."""
+        return local_to_global[int(i)]
+
+    pair_w: dict = {}
+    for (la, lb), v in pair_w_local.items():
+        if v <= 0.0:
+            continue
+        ga, gb = _g(la), _g(lb)
+        key = (ga, gb) if ga < gb else (gb, ga)
+        pair_w[key] = pair_w.get(key, 0.0) + v
+    triple_w: dict = {}
+    for tr, v in triple_w_local.items():
+        if v <= 0.0:
+            continue
+        key = tuple(sorted(_g(i) for i in tr))
+        triple_w[key] = triple_w.get(key, 0.0) + v
+    feat_w = {_g(i): v for i, v in feat_w_local.items()}
+    return pair_w, triple_w, feat_w
+
+
+def _self_gate_z(real_scores: list, perm_scores: list, y: np.ndarray, is_classification: bool, info: dict) -> tuple[float, float, float, float]:
+    """Self-gate statistics; fills ``info`` and returns ``(oof_real, perm_mean, perm_std, z)``."""
+    real_arr = np.asarray(real_scores, dtype=np.float64)
+    oof_real = float(real_arr.mean())
+    info["oof_real"] = oof_real
+    if perm_scores:
+        perm_arr = np.asarray(perm_scores, dtype=np.float64)
+        perm_mean = float(perm_arr.mean())
+        perm_std = float(perm_arr.std())
+        info["oof_perm"] = perm_mean
+    else:
+        # Permuted runs all failed, so there is NO null distribution to test against. The analytic
+        # majority-class / 0-R^2 baseline is still a reasonable point estimate for REPORTING, but it comes
+        # with no spread -- and the old code set ``perm_std = 0.0`` and divided by ``perm_std + 1e-9``,
+        # which turns any positive gap into z ~ 1e9 and makes the gate pass UNCONDITIONALLY. That is the
+        # exact opposite of the "nominal spread so the z-gate still applies" the comment claimed. Absent a
+        # null, the honest z is "unknown", and unknown must not emit.
+        if is_classification:
+            _, cnts = np.unique(np.asarray(y), return_counts=True)
+            perm_mean = float(cnts.max() / cnts.sum())
+        else:
+            perm_mean = 0.0
+        perm_std = float("nan")
+        info["oof_perm"] = perm_mean
+    info["self_gate_null_available"] = bool(perm_scores)
+    if perm_scores and perm_std > 1e-12:
+        info["self_gate_z"] = float((oof_real - perm_mean) / perm_std)
+    else:
+        # No null, or a degenerate one (every permuted run scored identically): either way the z-statistic
+        # is undefined rather than large. Fail the gate instead of fabricating significance.
+        if perm_scores:
+            logger.warning(
+                "surrogate interaction seeder: permuted-null spread is degenerate (std=%.3g over %d runs); "
+                "the self-gate z is undefined, emitting NO pair seeds.", perm_std, len(perm_scores),
+            )
+        else:
+            logger.warning(
+                "surrogate interaction seeder: every permuted run failed, so there is no null to test "
+                "against; the self-gate z is undefined, emitting NO pair seeds."
+            )
+        info["self_gate_z"] = float("-inf")
+    z = info["self_gate_z"]
+    return oof_real, perm_mean, perm_std, z
+
+
+def _fit_permuted_surrogates(sub_X: np.ndarray, y: np.ndarray, reps: int, fit_kwargs: dict, random_seed: int) -> list:
+    """OOF scores of ``reps`` surrogates fit on permuted y (seeds ``random_seed + 1000 + r``): the null distribution of the self-gate."""
+    perm_scores = []
+    for r in range(reps):
+        _, s = _fit_surrogate_and_oof(sub_X, y, **fit_kwargs, random_seed=random_seed + 1000 + r, shuffle_y=True)
+        if np.isfinite(s):
+            perm_scores.append(float(s))
+    return perm_scores
+
+
+def _fit_real_surrogates(sub_X: np.ndarray, y: np.ndarray, reps: int, fit_kwargs: dict, random_seed: int) -> tuple[list, list]:
+    """Fit ``reps`` real surrogates (seeds ``random_seed + r``); returns ``(real_oof_scores, boosters)`` of the fits that produced a finite score."""
+    real_scores = []
+    boosters = []  # keep ALL real-fit surrogates; co-occurrence is AGGREGATED over them.
+    for r in range(reps):
+        bst, s = _fit_surrogate_and_oof(sub_X, y, **fit_kwargs, random_seed=random_seed + r, shuffle_y=False)
+        if bst is not None and np.isfinite(s):
+            real_scores.append(float(s))
+            boosters.append(bst)
+    return real_scores, boosters
+
+
 def surrogate_gbm_interaction_seeds(
     disc_X: np.ndarray,
     y: np.ndarray,
@@ -257,71 +367,14 @@ def surrogate_gbm_interaction_seeds(
     # near chance for a shallow tree even though its split co-occurrence still ranks the
     # operands) is recovered via the floors even if the OOF gate is conservative.
     reps = max(1, int(self_gate_reps))
-    real_scores = []
-    boosters = []  # keep ALL real-fit surrogates; co-occurrence is AGGREGATED over them.
-    for r in range(reps):
-        bst, s = _fit_surrogate_and_oof(
-            sub_X, y, is_classification=is_classification, n_estimators=n_estimators,
-            max_depth=max_depth, num_leaves=num_leaves, learning_rate=learning_rate,
-            min_data_in_leaf=min_data_in_leaf, n_threads=n_threads, random_seed=random_seed + r,
-            shuffle_y=False,
-        )
-        if bst is not None and np.isfinite(s):
-            real_scores.append(float(s))
-            boosters.append(bst)
+    fit_kwargs = dict(is_classification=is_classification, n_estimators=n_estimators, max_depth=max_depth, num_leaves=num_leaves,
+                      learning_rate=learning_rate, min_data_in_leaf=min_data_in_leaf, n_threads=n_threads)
+    real_scores, boosters = _fit_real_surrogates(sub_X, y, reps, fit_kwargs, random_seed)
     if not boosters or not real_scores:
         return [], [], info
-    perm_scores = []
-    for r in range(reps):
-        _, s = _fit_surrogate_and_oof(
-            sub_X, y, is_classification=is_classification, n_estimators=n_estimators,
-            max_depth=max_depth, num_leaves=num_leaves, learning_rate=learning_rate,
-            min_data_in_leaf=min_data_in_leaf, n_threads=n_threads,
-            random_seed=random_seed + 1000 + r, shuffle_y=True,
-        )
-        if np.isfinite(s):
-            perm_scores.append(float(s))
+    perm_scores = _fit_permuted_surrogates(sub_X, y, reps, fit_kwargs, random_seed)
 
-    real_arr = np.asarray(real_scores, dtype=np.float64)
-    oof_real = float(real_arr.mean())
-    info["oof_real"] = oof_real
-    if perm_scores:
-        perm_arr = np.asarray(perm_scores, dtype=np.float64)
-        perm_mean = float(perm_arr.mean())
-        perm_std = float(perm_arr.std())
-        info["oof_perm"] = perm_mean
-    else:
-        # Permuted runs all failed, so there is NO null distribution to test against. The analytic
-        # majority-class / 0-R^2 baseline is still a reasonable point estimate for REPORTING, but it comes
-        # with no spread -- and the old code set ``perm_std = 0.0`` and divided by ``perm_std + 1e-9``,
-        # which turns any positive gap into z ~ 1e9 and makes the gate pass UNCONDITIONALLY. That is the
-        # exact opposite of the "nominal spread so the z-gate still applies" the comment claimed. Absent a
-        # null, the honest z is "unknown", and unknown must not emit.
-        if is_classification:
-            _, cnts = np.unique(np.asarray(y), return_counts=True)
-            perm_mean = float(cnts.max() / cnts.sum())
-        else:
-            perm_mean = 0.0
-        perm_std = float("nan")
-        info["oof_perm"] = perm_mean
-    info["self_gate_null_available"] = bool(perm_scores)
-    if perm_scores and perm_std > 1e-12:
-        info["self_gate_z"] = float((oof_real - perm_mean) / perm_std)
-    else:
-        # No null, or a degenerate one (every permuted run scored identically): either way the z-statistic
-        # is undefined rather than large. Fail the gate instead of fabricating significance.
-        if perm_scores:
-            logger.warning(
-                "surrogate interaction seeder: permuted-null spread is degenerate (std=%.3g over %d runs); "
-                "the self-gate z is undefined, emitting NO pair seeds.", perm_std, len(perm_scores),
-            )
-        else:
-            logger.warning(
-                "surrogate interaction seeder: every permuted run failed, so there is no null to test "
-                "against; the self-gate z is undefined, emitting NO pair seeds."
-            )
-        info["self_gate_z"] = float("-inf")
-    z = info["self_gate_z"]
+    oof_real, perm_mean, perm_std, z = _self_gate_z(real_scores, perm_scores, y, is_classification, info)
 
     # SELF-GATE is asymmetric by INFORMATION CONTENT of the OOF statistic at each order:
     #   * PAIRS - a genuine 2-way (product / XOR) lifts the surrogate's held-out OOF FAR
@@ -346,44 +399,7 @@ def surrogate_gbm_interaction_seeds(
             oof_real, perm_mean, perm_std, z, self_gate_min_z,
         )
 
-    # AGGREGATE split-gain co-occurrence over ALL ``reps`` real-fit surrogates (different
-    # seeds). A hard 3-way ``sign(a*b*c)`` is at the EDGE of a single shallow tree's reach -
-    # one fit recovers the operand triple only on lucky seeds (seed-sensitive rank) - but the
-    # TRUE operands co-occur CONSISTENTLY across seeds while chance-max noise triples vary, so
-    # summing the per-booster depth-discounted weights stabilises the ranking and lifts the
-    # genuine needle to the top robustly (the boosters were already fit for the self-gate, so
-    # this is free).
-    pair_w_local: dict = {}
-    triple_w_local: dict = {}
-    feat_w_local: dict = {}
-    for bst in boosters:
-        md = bst.dump_model()
-        for tinfo in md.get("tree_info", []):
-            ts = tinfo.get("tree_structure")
-            if ts is not None:
-                _walk_paths_tally(ts, [], pair_w_local, triple_w_local, feat_w_local, depth_discount)
-
-    # Remap the surrogate's LOCAL feature indices (into ``sub_X``) back to the GLOBAL
-    # candidate column indices. Every surrogate feature is a candidate by construction, so
-    # nothing is dropped; the sorted (a < b) / sorted-triple key order is re-imposed.
-    def _g(i):
-        """Maps a surrogate-local feature index (into ``sub_X``) back to its global candidate column index."""
-        return local_to_global[int(i)]
-
-    pair_w: dict = {}
-    for (la, lb), v in pair_w_local.items():
-        if v <= 0.0:
-            continue
-        ga, gb = _g(la), _g(lb)
-        key = (ga, gb) if ga < gb else (gb, ga)
-        pair_w[key] = pair_w.get(key, 0.0) + v
-    triple_w: dict = {}
-    for tr, v in triple_w_local.items():
-        if v <= 0.0:
-            continue
-        key = tuple(sorted(_g(i) for i in tr))
-        triple_w[key] = triple_w.get(key, 0.0) + v
-    feat_w = {_g(i): v for i, v in feat_w_local.items()}
+    pair_w, triple_w, feat_w = _aggregate_cooccurrence(boosters, depth_discount, local_to_global)
 
     # PAIRS: emitted only when the OOF pair self-gate passed (2-way signal IS OOF-detectable).
     seeded_pairs = [k for k, _ in sorted(pair_w.items(), key=lambda kv: kv[1], reverse=True)[: int(top_k_pairs)]] if pairs_pass else []

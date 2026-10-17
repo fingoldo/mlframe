@@ -15,6 +15,47 @@ from ..feature_drift_report import compute_feature_distribution_drift
 logger = logging.getLogger(__name__)
 
 
+def _feature_importance_from_ablation(bd_report_dict: dict | None) -> dict[str, float] | None:
+    """Build feature_importance from baseline_diagnostics ablation deltas.
+
+    Each ablation entry is {"feature": str, "delta_pct": float, "rank": int};
+    delta_pct > 0 means "metric got worse when this feature was dropped"
+    i.e. the feature was important. abs(delta_pct) is the FI proxy.
+    """
+    fi: dict[str, float] | None = None
+    if bd_report_dict and isinstance(bd_report_dict.get("ablation"), list):
+        fi = {}
+        for ab in bd_report_dict["ablation"]:
+            if isinstance(ab, dict) and "feature" in ab:
+                fi[str(ab["feature"])] = float(abs(ab.get("delta_pct", 0.0)))
+        if not fi:
+            fi = None
+    return fi
+
+
+def _linear_shape_delta_from_baseline(bd_report_dict: dict | None) -> float | None:
+    """Shape-detector signal for the classification override gate.
+
+    ``init_score_baseline.delta_vs_raw_pct`` measures how well the
+    linear baseline (LogReg on top-FI features) captures the
+    LightGBM raw metric. When |delta| is small the target is
+    linear-shape and the classification override is safe to
+    auto-apply. Available only when baseline_diagnostics computed
+    an init_score_baseline; for regression this signal is
+    unused (regression auto-apply doesn't need it).
+    """
+    linear_shape_delta: float | None = None
+    if bd_report_dict and isinstance(bd_report_dict.get("init_score_baseline"), dict):
+        isb = bd_report_dict["init_score_baseline"]
+        delta = isb.get("delta_vs_raw_pct")
+        if delta is not None:
+            try:
+                linear_shape_delta = float(delta)
+            except (ValueError, TypeError):
+                linear_shape_delta = None
+    return linear_shape_delta
+
+
 def run_per_target_diagnostics(
     *,
     target_type: Any,
@@ -120,35 +161,8 @@ def run_per_target_diagnostics(
     # the design review demanded.
     if filtered_val_df is not None or filtered_test_df is not None:
         try:
-            # Build feature_importance from baseline_diagnostics ablation deltas.
-            # Each ablation entry is {"feature": str, "delta_pct": float, "rank": int};
-            # delta_pct > 0 means "metric got worse when this feature was dropped"
-            # i.e. the feature was important. abs(delta_pct) is the FI proxy.
-            _fi: dict[str, float] | None = None
-            if _bd_report_dict and isinstance(_bd_report_dict.get("ablation"), list):
-                _fi = {}
-                for _ab in _bd_report_dict["ablation"]:
-                    if isinstance(_ab, dict) and "feature" in _ab:
-                        _fi[str(_ab["feature"])] = float(abs(_ab.get("delta_pct", 0.0)))
-                if not _fi:
-                    _fi = None
-            # Shape-detector signal for the classification override gate.
-            # ``init_score_baseline.delta_vs_raw_pct`` measures how well the
-            # linear baseline (LogReg on top-FI features) captures the
-            # LightGBM raw metric. When |delta| is small the target is
-            # linear-shape and the classification override is safe to
-            # auto-apply. Available only when baseline_diagnostics computed
-            # an init_score_baseline; for regression this signal is
-            # unused (regression auto-apply doesn't need it).
-            _linear_shape_delta: float | None = None
-            if _bd_report_dict and isinstance(_bd_report_dict.get("init_score_baseline"), dict):
-                _isb = _bd_report_dict["init_score_baseline"]
-                _delta = _isb.get("delta_vs_raw_pct")
-                if _delta is not None:
-                    try:
-                        _linear_shape_delta = float(_delta)
-                    except (ValueError, TypeError):
-                        _linear_shape_delta = None
+            _fi = _feature_importance_from_ablation(_bd_report_dict)
+            _linear_shape_delta = _linear_shape_delta_from_baseline(_bd_report_dict)
             _fd_report = compute_feature_distribution_drift(
                 train_df=filtered_train_df,
                 val_df=filtered_val_df,

@@ -643,43 +643,9 @@ def shap_summary_and_dependence(
         return _skipped_result(
             "non-tree model; KernelExplainer is slow -- pass allow_kernel=True to opt in", plot_file, plot_outputs,
         )
-    if tree and _is_multi_output_catboost(model):
-        # shap's CatBoost tree parser (shap/explainers/_tree.py TreeEnsemble.get_trees) assumes ONE scalar leaf
-        # value per tree and rebuilds the binary-index arrays (children_left/children_right/...) via a `2**counter`
-        # size formula derived from len(leaf_values). Any CatBoost loss whose leaf_values are a FLAT list of
-        # n_leaves*n_outputs entries (multiple values per leaf) breaks that formula -- confirmed for MultiLogloss/
-        # MultiCrossEntropy (multilabel; caught live via a fuzz combo: models=('cb',) target=multilabel_classification)
-        # AND for MultiClass/MultiClassOneVsAll (multiclass, one leaf value per class -- caught live via a separate
-        # fuzz combo: models=('cb','lgb') target=multiclass_classification, cat_feature_count=15) AND for
-        # MultiQuantile (quantile regression, one leaf value per alpha -- caught live via a third fuzz combo:
-        # models=('cb','lgb','linear','xgb') target=quantile_regression) AND for MultiRMSE (native multi-target
-        # regression, one leaf value per target -- caught live via a fourth fuzz combo:
-        # models=('cb','hgb','lgb','linear','mlp') target=multi_target_regression). All four produce
-        # malformed/wrongly-sized child-index arrays; SingleTree.__init__ then walks them and reads out of bounds,
-        # crashing the WHOLE PROCESS with a native access violation before any Python-catchable exception, so this
-        # must be caught BEFORE shap.TreeExplainer(model) is ever constructed. Skip rather than risk the crash.
-        return _skipped_result(
-            "CatBoost multi-output (MultiLogloss/MultiCrossEntropy/MultiClass/MultiClassOneVsAll/MultiQuantile/"
-            "MultiRMSE) leaf values are not supported by shap's TreeExplainer CatBoost parser -- constructing it "
-            "risks a native crash (see shap_panels.py comment)",
-            plot_file, plot_outputs,
-        )
-    if tree and _model_has_catboost_embedding_features(model):
-        # shap's own CatBoost path (shap/explainers/_tree.py TreeExplainer.shap_values) rebuilds a fresh
-        # ``catboost.Pool(X, cat_features=self.model.cat_feature_indices)`` -- it forwards ONLY cat_features,
-        # never embedding_features. A model fit with embedding_features then gets its embedding column fed back
-        # to CatBoost as a plain NUMERIC feature, which cannot convert a Python list to float: a clean
-        # CatBoostError in isolation, but a native access violation under some data/threading conditions (caught
-        # live via a fuzz combo: models=('cb','hgb','linear','xgb') target=binary_classification, an emb_0
-        # embedding column present, crash inside shap's TreeExplainer -> CatBoost Pool._init). Must be caught
-        # BEFORE shap.TreeExplainer(model) is ever called with the embedding column present. Skip rather than
-        # risk the crash -- shap has no supported way to carry embedding_features through its own Pool rebuild.
-        return _skipped_result(
-            "CatBoost model has embedding_features -- shap's TreeExplainer CatBoost parser rebuilds its own Pool "
-            "without forwarding embedding_features, so the embedding column reaches CatBoost as a plain numeric "
-            "feature and can crash the process (see shap_panels.py comment)",
-            plot_file, plot_outputs,
-        )
+    _cb_skip = _catboost_unsupported_skip(model, tree, plot_file, plot_outputs)
+    if _cb_skip is not None:
+        return _cb_skip
 
     cap = max_rows if tree else min(max_rows, kernel_max_rows)
     pool_idx = np.arange(n)
@@ -738,6 +704,71 @@ def shap_summary_and_dependence(
     if plt is None:
         return _skipped_result("matplotlib unavailable", plot_file, plot_outputs, top_names=top_names, mean_abs=mean_abs, kind=explainer_kind)
 
+    figures, paths = _render_shap_figures(shap, shap_mat, vals_sample, names, order, top_names, top_k, plot_file, plot_outputs, plot_dpi)
+
+    return ShapPanelsResult(figures, paths, top_names, mean_abs, explainer_kind)
+
+
+def _catboost_unsupported_skip(
+    model: Any,
+    tree: bool,
+    plot_file: Optional[str],
+    plot_outputs: Optional[str],
+) -> Optional[ShapPanelsResult]:
+    """Skip result for CatBoost models whose leaf layout or embedding features make shap's TreeExplainer crash natively; ``None`` when supported."""
+    if tree and _is_multi_output_catboost(model):
+        # shap's CatBoost tree parser (shap/explainers/_tree.py TreeEnsemble.get_trees) assumes ONE scalar leaf
+        # value per tree and rebuilds the binary-index arrays (children_left/children_right/...) via a `2**counter`
+        # size formula derived from len(leaf_values). Any CatBoost loss whose leaf_values are a FLAT list of
+        # n_leaves*n_outputs entries (multiple values per leaf) breaks that formula -- confirmed for MultiLogloss/
+        # MultiCrossEntropy (multilabel; caught live via a fuzz combo: models=('cb',) target=multilabel_classification)
+        # AND for MultiClass/MultiClassOneVsAll (multiclass, one leaf value per class -- caught live via a separate
+        # fuzz combo: models=('cb','lgb') target=multiclass_classification, cat_feature_count=15) AND for
+        # MultiQuantile (quantile regression, one leaf value per alpha -- caught live via a third fuzz combo:
+        # models=('cb','lgb','linear','xgb') target=quantile_regression) AND for MultiRMSE (native multi-target
+        # regression, one leaf value per target -- caught live via a fourth fuzz combo:
+        # models=('cb','hgb','lgb','linear','mlp') target=multi_target_regression). All four produce
+        # malformed/wrongly-sized child-index arrays; SingleTree.__init__ then walks them and reads out of bounds,
+        # crashing the WHOLE PROCESS with a native access violation before any Python-catchable exception, so this
+        # must be caught BEFORE shap.TreeExplainer(model) is ever constructed. Skip rather than risk the crash.
+        return _skipped_result(
+            "CatBoost multi-output (MultiLogloss/MultiCrossEntropy/MultiClass/MultiClassOneVsAll/MultiQuantile/"
+            "MultiRMSE) leaf values are not supported by shap's TreeExplainer CatBoost parser -- constructing it "
+            "risks a native crash (see shap_panels.py comment)",
+            plot_file, plot_outputs,
+        )
+    if tree and _model_has_catboost_embedding_features(model):
+        # shap's own CatBoost path (shap/explainers/_tree.py TreeExplainer.shap_values) rebuilds a fresh
+        # ``catboost.Pool(X, cat_features=self.model.cat_feature_indices)`` -- it forwards ONLY cat_features,
+        # never embedding_features. A model fit with embedding_features then gets its embedding column fed back
+        # to CatBoost as a plain NUMERIC feature, which cannot convert a Python list to float: a clean
+        # CatBoostError in isolation, but a native access violation under some data/threading conditions (caught
+        # live via a fuzz combo: models=('cb','hgb','linear','xgb') target=binary_classification, an emb_0
+        # embedding column present, crash inside shap's TreeExplainer -> CatBoost Pool._init). Must be caught
+        # BEFORE shap.TreeExplainer(model) is ever called with the embedding column present. Skip rather than
+        # risk the crash -- shap has no supported way to carry embedding_features through its own Pool rebuild.
+        return _skipped_result(
+            "CatBoost model has embedding_features -- shap's TreeExplainer CatBoost parser rebuilds its own Pool "
+            "without forwarding embedding_features, so the embedding column reaches CatBoost as a plain numeric "
+            "feature and can crash the process (see shap_panels.py comment)",
+            plot_file, plot_outputs,
+        )
+    return None
+
+
+def _render_shap_figures(
+    shap: Any,
+    shap_mat: np.ndarray,
+    vals_sample: Any,
+    names: Any,
+    order: np.ndarray,
+    top_names: List[str],
+    top_k: int,
+    plot_file: Optional[str],
+    plot_outputs: Optional[str],
+    plot_dpi: Optional[int],
+) -> Tuple[List[Any], List[str]]:
+    """Render the beeswarm and the dependence grids (saving them when ``plot_file`` is set); returns (figures, saved paths)."""
     figures: List[Any] = []
     paths: List[str] = []
 
@@ -767,8 +798,7 @@ def shap_summary_and_dependence(
         # Close EVERY figure shap opened (not just the ones we tracked) so a mid-flow error never leaks.
         leaked = [plt.figure(num) for num in plt.get_fignums() if num not in figs_before]
         _close_figs(leaked or figures)
-
-    return ShapPanelsResult(figures, paths, top_names, mean_abs, explainer_kind)
+    return figures, paths
 
 
 __all__ = [

@@ -107,6 +107,7 @@ from __future__ import annotations
 
 from mlframe.utils.log_throttle import log_throttle
 
+import importlib
 import logging
 from typing import Optional, Sequence
 
@@ -152,106 +153,8 @@ def _numeric_cols(X: pd.DataFrame, cols: Optional[Sequence[str]] = None):
     return [c for c in cols if c in X.columns and pd.api.types.is_numeric_dtype(X[c])]
 
 
-def fingerprint_signal(
-    X: pd.DataFrame,
-    y: np.ndarray,
-    *,
-    cols: Optional[Sequence[str]] = None,
-    dcor_proxy_sample: int = 500,
-    random_state: int = 0,
-) -> dict:
-    """Compute a cheap fingerprint of the (X, y) signal character.
-
-    Returns
-    -------
-    dict
-        Keys: ``n``, ``unique_y_count``, ``x_unique_avg``,
-        ``mean_abs_pearson``, ``mean_abs_skew``, ``mean_kurtosis``,
-        ``inter_x_max_corr``, ``dcor_proxy``. All floats / ints; NaN
-        for empty-input edge cases.
-
-    The compute is intentionally sub-second on typical mlframe frames:
-    Pearson and Spearman are O(n * d); skew / kurtosis are O(n * d)
-    per column; the dCor proxy uses Spearman rank correlation on a
-    subsample of up to ``dcor_proxy_sample`` rows so the cost is
-    capped regardless of frame size.
-    """
-    num_cols = _numeric_cols(X, cols)
-    y_arr = np.asarray(y).ravel()
-    n = len(y_arr)
-    unique_y_count = int(np.unique(y_arr[~pd.isna(y_arr)]).size)
-
-    if not num_cols:
-        return {
-            "n": n,
-            "unique_y_count": unique_y_count,
-            "n_source_cols": 0,
-            "x_unique_avg": 0.0,
-            "mean_abs_pearson": 0.0,
-            "mean_abs_skew": 0.0,
-            "mean_kurtosis": 0.0,
-            "inter_x_max_corr": 0.0,
-            "dcor_proxy": 0.0,
-        }
-
-    X_num = X[num_cols].copy()
-    # x_unique_avg: mean column-cardinality (capped at n to avoid weird
-    # values on object cols that snuck through dtype check).
-    x_unique_avg = float(np.mean([min(int(X_num[c].nunique(dropna=True)), n) for c in num_cols]))
-
-    # mean_abs_pearson: |corr(X[c], y)| averaged across numeric columns.
-    # When y is constant or all-NaN we fall back to 0.0.
-    try:
-        y_series = pd.Series(y_arr, index=X_num.index)
-        pears = []
-        if y_series.nunique(dropna=True) >= 2:
-            for c in num_cols:
-                try:
-                    r = float(X_num[c].corr(y_series, method="pearson"))
-                except _NUMERIC_ERRORS as exc:
-                    # Was a bare `except Exception`, broader
-                    # than this module's own declared _NUMERIC_ERRORS convention (and the module docstring's
-                    # explicit invariant that a genuine programming error must propagate); unlogged.
-                    log_throttle(logger, "orthogonal_meta_scorer_fe.hot_loop_warning", logging.WARNING, "meta_scorer pearson corr failed for column %r: %r", c, exc)
-                    r = float("nan")
-                if np.isfinite(r):
-                    pears.append(abs(r))
-        mean_abs_pearson = float(np.mean(pears)) if pears else 0.0
-    except _NUMERIC_ERRORS as exc:
-        logger.warning("meta_scorer mean_abs_pearson failed numerically: %r", exc)
-        mean_abs_pearson = 0.0
-
-    # mean_abs_skew and mean_kurtosis on numeric columns. skew() returns
-    # NaN on constant cols; we drop those.
-    try:
-        skews = X_num.skew(axis=0, numeric_only=True)
-        mean_abs_skew = float(skews.abs().replace([np.inf, -np.inf], np.nan).dropna().mean()) if len(skews) else 0.0
-    except _NUMERIC_ERRORS as exc:
-        logger.warning("meta_scorer mean_abs_skew failed numerically: %r", exc)
-        mean_abs_skew = 0.0
-    try:
-        kurts = X_num.kurt(axis=0, numeric_only=True)
-        mean_kurtosis = float(kurts.replace([np.inf, -np.inf], np.nan).dropna().mean()) if len(kurts) else 0.0
-    except _NUMERIC_ERRORS as exc:
-        logger.warning("meta_scorer mean_kurtosis failed numerically: %r", exc)
-        mean_kurtosis = 0.0
-
-    # inter_x_max_corr: max |Pearson| among off-diagonal pairs. Redundancy
-    # proxy that powers the L75 xor_redundant -> CMIM routing.
-    try:
-        if X_num.shape[1] >= 2:
-            corr_mat = X_num.corr(method="pearson").to_numpy()
-            d = corr_mat.shape[0]
-            mask = ~np.eye(d, dtype=bool)
-            finite_off = corr_mat[mask]
-            finite_off = finite_off[np.isfinite(finite_off)]
-            inter_x_max_corr = float(np.abs(finite_off).max()) if finite_off.size else 0.0
-        else:
-            inter_x_max_corr = 0.0
-    except _NUMERIC_ERRORS as exc:
-        logger.warning("meta_scorer inter_x_max_corr failed numerically: %r", exc)
-        inter_x_max_corr = 0.0
-
+def _dcor_proxy(X_num: pd.DataFrame, num_cols: list, y_arr: np.ndarray, n: int, dcor_proxy_sample: int, random_state: int) -> float:
+    """Cheap non-linear dependence proxy: mean over columns of max(|Spearman|, |Pearson(|x - mean|, y)|) on a subsample."""
     # dcor_proxy: mean MAX(|Spearman|, |Pearson(|x - mean|, y)|) of each
     # column with y, on a subsample of up to ``dcor_proxy_sample`` rows.
     # We combine TWO cheap non-Pearson dependence proxies:
@@ -301,6 +204,128 @@ def fingerprint_signal(
     except _NUMERIC_ERRORS as exc:
         logger.warning("meta_scorer dcor_proxy failed numerically: %r", exc)
         dcor_proxy = 0.0
+    return dcor_proxy
+
+
+def _inter_x_max_corr(X_num: pd.DataFrame) -> float:
+    """Max ``|Pearson|`` among off-diagonal column pairs (0.0 for fewer than two columns or on numeric failure)."""
+    # inter_x_max_corr: max |Pearson| among off-diagonal pairs. Redundancy
+    # proxy that powers the L75 xor_redundant -> CMIM routing.
+    try:
+        if X_num.shape[1] >= 2:
+            corr_mat = X_num.corr(method="pearson").to_numpy()
+            d = corr_mat.shape[0]
+            mask = ~np.eye(d, dtype=bool)
+            finite_off = corr_mat[mask]
+            finite_off = finite_off[np.isfinite(finite_off)]
+            inter_x_max_corr = float(np.abs(finite_off).max()) if finite_off.size else 0.0
+        else:
+            inter_x_max_corr = 0.0
+    except _NUMERIC_ERRORS as exc:
+        logger.warning("meta_scorer inter_x_max_corr failed numerically: %r", exc)
+        inter_x_max_corr = 0.0
+    return inter_x_max_corr
+
+
+def _mean_abs_skew_and_kurtosis(X_num: pd.DataFrame) -> tuple[float, float]:
+    """``(mean_abs_skew, mean_kurtosis)`` over the numeric columns (NaN / inf columns dropped)."""
+    # mean_abs_skew and mean_kurtosis on numeric columns. skew() returns
+    # NaN on constant cols; we drop those.
+    try:
+        skews = X_num.skew(axis=0, numeric_only=True)
+        mean_abs_skew = float(skews.abs().replace([np.inf, -np.inf], np.nan).dropna().mean()) if len(skews) else 0.0
+    except _NUMERIC_ERRORS as exc:
+        logger.warning("meta_scorer mean_abs_skew failed numerically: %r", exc)
+        mean_abs_skew = 0.0
+    try:
+        kurts = X_num.kurt(axis=0, numeric_only=True)
+        mean_kurtosis = float(kurts.replace([np.inf, -np.inf], np.nan).dropna().mean()) if len(kurts) else 0.0
+    except _NUMERIC_ERRORS as exc:
+        logger.warning("meta_scorer mean_kurtosis failed numerically: %r", exc)
+        mean_kurtosis = 0.0
+    return mean_abs_skew, mean_kurtosis
+
+
+def _mean_abs_pearson(X_num: pd.DataFrame, num_cols: list, y_arr: np.ndarray) -> float:
+    """Mean ``|corr(X[c], y)|`` over the numeric columns; 0.0 when ``y`` is constant or the computation fails numerically."""
+    # mean_abs_pearson: |corr(X[c], y)| averaged across numeric columns.
+    # When y is constant or all-NaN we fall back to 0.0.
+    try:
+        y_series = pd.Series(y_arr, index=X_num.index)
+        pears = []
+        if y_series.nunique(dropna=True) >= 2:
+            for c in num_cols:
+                try:
+                    r = float(X_num[c].corr(y_series, method="pearson"))
+                except _NUMERIC_ERRORS as exc:
+                    # Was a bare `except Exception`, broader
+                    # than this module's own declared _NUMERIC_ERRORS convention (and the module docstring's
+                    # explicit invariant that a genuine programming error must propagate); unlogged.
+                    log_throttle(logger, "orthogonal_meta_scorer_fe.hot_loop_warning", logging.WARNING, "meta_scorer pearson corr failed for column %r: %r", c, exc)
+                    r = float("nan")
+                if np.isfinite(r):
+                    pears.append(abs(r))
+        mean_abs_pearson = float(np.mean(pears)) if pears else 0.0
+    except _NUMERIC_ERRORS as exc:
+        logger.warning("meta_scorer mean_abs_pearson failed numerically: %r", exc)
+        mean_abs_pearson = 0.0
+    return mean_abs_pearson
+
+
+def fingerprint_signal(
+    X: pd.DataFrame,
+    y: np.ndarray,
+    *,
+    cols: Optional[Sequence[str]] = None,
+    dcor_proxy_sample: int = 500,
+    random_state: int = 0,
+) -> dict:
+    """Compute a cheap fingerprint of the (X, y) signal character.
+
+    Returns
+    -------
+    dict
+        Keys: ``n``, ``unique_y_count``, ``x_unique_avg``,
+        ``mean_abs_pearson``, ``mean_abs_skew``, ``mean_kurtosis``,
+        ``inter_x_max_corr``, ``dcor_proxy``. All floats / ints; NaN
+        for empty-input edge cases.
+
+    The compute is intentionally sub-second on typical mlframe frames:
+    Pearson and Spearman are O(n * d); skew / kurtosis are O(n * d)
+    per column; the dCor proxy uses Spearman rank correlation on a
+    subsample of up to ``dcor_proxy_sample`` rows so the cost is
+    capped regardless of frame size.
+    """
+    num_cols = _numeric_cols(X, cols)
+    y_arr = np.asarray(y).ravel()
+    n = len(y_arr)
+    unique_y_count = int(np.unique(y_arr[~pd.isna(y_arr)]).size)
+
+    if not num_cols:
+        return {
+            "n": n,
+            "unique_y_count": unique_y_count,
+            "n_source_cols": 0,
+            "x_unique_avg": 0.0,
+            "mean_abs_pearson": 0.0,
+            "mean_abs_skew": 0.0,
+            "mean_kurtosis": 0.0,
+            "inter_x_max_corr": 0.0,
+            "dcor_proxy": 0.0,
+        }
+
+    X_num = X[num_cols].copy()
+    # x_unique_avg: mean column-cardinality (capped at n to avoid weird
+    # values on object cols that snuck through dtype check).
+    x_unique_avg = float(np.mean([min(int(X_num[c].nunique(dropna=True)), n) for c in num_cols]))
+
+    mean_abs_pearson = _mean_abs_pearson(X_num, num_cols, y_arr)
+
+    mean_abs_skew, mean_kurtosis = _mean_abs_skew_and_kurtosis(X_num)
+
+    inter_x_max_corr = _inter_x_max_corr(X_num)
+
+    dcor_proxy = _dcor_proxy(X_num, num_cols, y_arr, n, dcor_proxy_sample, random_state)
 
     return {
         "n": n,
@@ -423,6 +448,18 @@ def predict_best_scorer(fp: dict) -> str:
 # ---------------------------------------------------------------------------
 
 
+# scorer name -> (module, hybrid function stem, fixed kwargs, whether ``random_state`` is forwarded); the recipes variant is ``<stem>_with_recipes``.
+_SCORER_DISPATCH: dict[str, tuple[str, str, dict, bool]] = {
+    "plug_in": ("_orthogonal_univariate_fe", "hybrid_orth_mi_fe", {"nbins": 10}, False),
+    "ksg": ("_orthogonal_ksg_mi_fe", "hybrid_orth_mi_ksg_fe", {"n_neighbors": 3}, True),
+    "copula": ("_orthogonal_copula_mi_fe", "hybrid_orth_mi_copula_fe", {"n_bins": 20}, False),
+    "dcor": ("_orthogonal_dcor_fe", "hybrid_orth_mi_dcor_fe", {"n_sample": 500}, True),
+    "hsic": ("_orthogonal_hsic_fe", "hybrid_orth_mi_hsic_fe", {"n_sample": 500}, True),
+    "jmim": ("_orthogonal_jmim_fe", "hybrid_orth_mi_jmim_fe", {"n_bins": 10}, False),
+    "cmim": ("_orthogonal_cmim_fe", "hybrid_orth_mi_cmim_fe", {"n_bins": 10}, False),
+    "tc": ("_orthogonal_total_correlation_fe", "hybrid_orth_mi_tc_fe", {"n_bins": 10}, False),
+}
+
 def _dispatch_scorer(
     scorer: str,
     X: pd.DataFrame,
@@ -442,140 +479,15 @@ def _dispatch_scorer(
     ``with_recipes``.
     """
     scorer = scorer.lower()
-    if scorer == "plug_in":
-        from ._orthogonal_univariate_fe import (
-            hybrid_orth_mi_fe,
-            hybrid_orth_mi_fe_with_recipes,
-        )
-        if with_recipes:
-            return hybrid_orth_mi_fe_with_recipes(
-                X, y, cols=cols, degrees=degrees, basis=basis,
-                top_k=top_k, min_uplift=min_uplift,
-                min_abs_mi_frac=min_abs_mi_frac, nbins=10,
-            )
-        return hybrid_orth_mi_fe(
-            X, y, cols=cols, degrees=degrees, basis=basis,
-            top_k=top_k, min_uplift=min_uplift,
-            min_abs_mi_frac=min_abs_mi_frac, nbins=10,
-        )
-    if scorer == "ksg":
-        from ._orthogonal_ksg_mi_fe import (
-            hybrid_orth_mi_ksg_fe,
-            hybrid_orth_mi_ksg_fe_with_recipes,
-        )
-        if with_recipes:
-            return hybrid_orth_mi_ksg_fe_with_recipes(
-                X, y, cols=cols, degrees=degrees, basis=basis,
-                top_k=top_k, min_uplift=min_uplift,
-                min_abs_mi_frac=min_abs_mi_frac,
-                n_neighbors=3, random_state=random_state,
-            )
-        return hybrid_orth_mi_ksg_fe(
-            X, y, cols=cols, degrees=degrees, basis=basis,
-            top_k=top_k, min_uplift=min_uplift,
-            min_abs_mi_frac=min_abs_mi_frac,
-            n_neighbors=3, random_state=random_state,
-        )
-    if scorer == "copula":
-        from ._orthogonal_copula_mi_fe import (
-            hybrid_orth_mi_copula_fe,
-            hybrid_orth_mi_copula_fe_with_recipes,
-        )
-        if with_recipes:
-            return hybrid_orth_mi_copula_fe_with_recipes(
-                X, y, cols=cols, degrees=degrees, basis=basis,
-                top_k=top_k, min_uplift=min_uplift,
-                min_abs_mi_frac=min_abs_mi_frac, n_bins=20,
-            )
-        return hybrid_orth_mi_copula_fe(
-            X, y, cols=cols, degrees=degrees, basis=basis,
-            top_k=top_k, min_uplift=min_uplift,
-            min_abs_mi_frac=min_abs_mi_frac, n_bins=20,
-        )
-    if scorer == "dcor":
-        from ._orthogonal_dcor_fe import (
-            hybrid_orth_mi_dcor_fe,
-            hybrid_orth_mi_dcor_fe_with_recipes,
-        )
-        if with_recipes:
-            return hybrid_orth_mi_dcor_fe_with_recipes(
-                X, y, cols=cols, degrees=degrees, basis=basis,
-                top_k=top_k, min_uplift=min_uplift,
-                min_abs_mi_frac=min_abs_mi_frac,
-                n_sample=500, random_state=random_state,
-            )
-        return hybrid_orth_mi_dcor_fe(
-            X, y, cols=cols, degrees=degrees, basis=basis,
-            top_k=top_k, min_uplift=min_uplift,
-            min_abs_mi_frac=min_abs_mi_frac,
-            n_sample=500, random_state=random_state,
-        )
-    if scorer == "hsic":
-        from ._orthogonal_hsic_fe import (
-            hybrid_orth_mi_hsic_fe,
-            hybrid_orth_mi_hsic_fe_with_recipes,
-        )
-        if with_recipes:
-            return hybrid_orth_mi_hsic_fe_with_recipes(
-                X, y, cols=cols, degrees=degrees, basis=basis,
-                top_k=top_k, min_uplift=min_uplift,
-                min_abs_mi_frac=min_abs_mi_frac,
-                n_sample=500, random_state=random_state,
-            )
-        return hybrid_orth_mi_hsic_fe(
-            X, y, cols=cols, degrees=degrees, basis=basis,
-            top_k=top_k, min_uplift=min_uplift,
-            min_abs_mi_frac=min_abs_mi_frac,
-            n_sample=500, random_state=random_state,
-        )
-    if scorer == "jmim":
-        from ._orthogonal_jmim_fe import (
-            hybrid_orth_mi_jmim_fe,
-            hybrid_orth_mi_jmim_fe_with_recipes,
-        )
-        if with_recipes:
-            return hybrid_orth_mi_jmim_fe_with_recipes(
-                X, y, cols=cols, degrees=degrees, basis=basis,
-                top_k=top_k, min_uplift=min_uplift,
-                min_abs_mi_frac=min_abs_mi_frac, n_bins=10,
-            )
-        return hybrid_orth_mi_jmim_fe(
-            X, y, cols=cols, degrees=degrees, basis=basis,
-            top_k=top_k, min_uplift=min_uplift,
-            min_abs_mi_frac=min_abs_mi_frac, n_bins=10,
-        )
-    if scorer == "cmim":
-        from ._orthogonal_cmim_fe import (
-            hybrid_orth_mi_cmim_fe,
-            hybrid_orth_mi_cmim_fe_with_recipes,
-        )
-        if with_recipes:
-            return hybrid_orth_mi_cmim_fe_with_recipes(
-                X, y, cols=cols, degrees=degrees, basis=basis,
-                top_k=top_k, min_uplift=min_uplift,
-                min_abs_mi_frac=min_abs_mi_frac, n_bins=10,
-            )
-        return hybrid_orth_mi_cmim_fe(
-            X, y, cols=cols, degrees=degrees, basis=basis,
-            top_k=top_k, min_uplift=min_uplift,
-            min_abs_mi_frac=min_abs_mi_frac, n_bins=10,
-        )
-    if scorer == "tc":
-        from ._orthogonal_total_correlation_fe import (
-            hybrid_orth_mi_tc_fe,
-            hybrid_orth_mi_tc_fe_with_recipes,
-        )
-        if with_recipes:
-            return hybrid_orth_mi_tc_fe_with_recipes(
-                X, y, cols=cols, degrees=degrees, basis=basis,
-                top_k=top_k, min_uplift=min_uplift,
-                min_abs_mi_frac=min_abs_mi_frac, n_bins=10,
-            )
-        return hybrid_orth_mi_tc_fe(
-            X, y, cols=cols, degrees=degrees, basis=basis,
-            top_k=top_k, min_uplift=min_uplift,
-            min_abs_mi_frac=min_abs_mi_frac, n_bins=10,
-        )
+    entry = _SCORER_DISPATCH.get(scorer)
+    if entry is not None:
+        module_name, stem, fixed_kwargs, takes_random_state = entry
+        module = importlib.import_module(f"mlframe.feature_selection.filters.{module_name}")
+        fn = getattr(module, f"{stem}_with_recipes" if with_recipes else stem)
+        extra = dict(fixed_kwargs)
+        if takes_random_state:
+            extra["random_state"] = random_state
+        return fn(X, y, cols=cols, degrees=degrees, basis=basis, top_k=top_k, min_uplift=min_uplift, min_abs_mi_frac=min_abs_mi_frac, **extra)
     raise ValueError(f"Unknown scorer {scorer!r}; expected one of " f"{(*META_SCORER_NAMES, 'tc')} (tc only via force_scorer).")
 
 

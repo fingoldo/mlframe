@@ -7,6 +7,7 @@ section this fans out from and the ``self``/``X`` threading contract (mirrors th
 
 from __future__ import annotations
 
+from typing import Any
 import logging
 
 
@@ -98,6 +99,15 @@ def _hybrid_orth_family_variants_group3(
                 type(_copula_exc).__name__,
                 _copula_exc,
             )
+    _ret_hybrid_orth_family_variants_group3_part3 = _hybrid_orth_family_variants_group3_part3(_fe_family_on, _y_np, self, X, _hybrid_orth_pre_recipes, verbose)
+    if _ret_hybrid_orth_family_variants_group3_part3[0]:
+        return _ret_hybrid_orth_family_variants_group3_part3[1]
+
+
+def _hybrid_orth_family_variants_group3_part3(
+    _fe_family_on: Any, _y_np: Any, self: Any, X: Any, _hybrid_orth_pre_recipes: Any, verbose: Any,
+) -> tuple[Any, ...]:
+    """Extracted block of ``_hybrid_orth_family_variants_group3`` (part 3); returns the names the caller still uses."""
     # Layer 67 — DISTANCE-CORRELATION ranking for the hybrid
     # orth-poly FE (independent opt-in; does NOT require
     # fe_hybrid_orth_enable). Szekely-Rizzo dCor is the only non-MI
@@ -181,6 +191,16 @@ def _hybrid_orth_family_variants_group3(
                 type(_dcor_exc).__name__,
                 _dcor_exc,
             )
+    _ret_hybrid_orth_family_variants_group3_part2 = _hybrid_orth_family_variants_group3_part2(_fe_family_on, _y_np, self, X, _hybrid_orth_pre_recipes, verbose)
+    if _ret_hybrid_orth_family_variants_group3_part2[0]:
+        return True, (_ret_hybrid_orth_family_variants_group3_part2[1])
+    return False, None
+
+
+def _hybrid_orth_family_variants_group3_part2(
+    _fe_family_on: Any, _y_np: Any, self: Any, X: Any, _hybrid_orth_pre_recipes: Any, verbose: Any,
+) -> tuple[Any, ...]:
+    """Extracted block of ``_hybrid_orth_family_variants_group3`` (part 2); returns the names the caller still uses."""
     # Layer 71 — HSIC ranking for hybrid orth-poly FE
     # (independent opt-in; does NOT require fe_hybrid_orth_enable).
     # Kernel-based dependence measure with the universal HSIC == 0 iff
@@ -270,6 +290,16 @@ def _hybrid_orth_family_variants_group3(
                 type(_hsic_exc).__name__,
                 _hsic_exc,
             )
+    _ret_hybrid_orth_family_variants_group3_part1 = _hybrid_orth_family_variants_group3_part1(_fe_family_on, _y_np, self, X, _hybrid_orth_pre_recipes, verbose)
+    if _ret_hybrid_orth_family_variants_group3_part1[0]:
+        return True, (_ret_hybrid_orth_family_variants_group3_part1[1])
+    return False, None
+
+
+def _hybrid_orth_family_variants_group3_part1(
+    _fe_family_on: Any, _y_np: Any, self: Any, X: Any, _hybrid_orth_pre_recipes: Any, verbose: Any,
+) -> tuple[Any, ...]:
+    """Extracted block of ``_hybrid_orth_family_variants_group3`` (part 1); returns the names the caller still uses."""
     # Layer 72 — JMIM (Bennasar 2015) redundancy-aware ranking
     # for hybrid orth-poly FE (independent opt-in; does NOT require
     # fe_hybrid_orth_enable). Each engineered candidate is scored by
@@ -367,7 +397,8 @@ def _hybrid_orth_family_variants_group3(
     # 73. Engineered VALUES bit-equal to Layer 21 -> recipes reuse the
     # ``orth_univariate`` kind.
 
-    return X
+    return True, (X)
+    return False, None
 
 
 def _stage_tc(self, _fe_family_on, _y_np, X, _hybrid_orth_pre_recipes, verbose):

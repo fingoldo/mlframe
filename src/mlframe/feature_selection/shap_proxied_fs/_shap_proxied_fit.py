@@ -12,7 +12,8 @@ from __future__ import annotations
 from mlframe.utils.budgets import active_budget
 
 import logging
-from typing import Optional
+from contextlib import AbstractContextManager
+from typing import Any, Callable, Optional
 
 import numpy as np
 import pandas as pd
@@ -28,6 +29,8 @@ from ._shap_proxied_fit_steps import ShapProxiedFitStepsMixin
 
 logger = logging.getLogger(__name__)
 
+_StageFn = Callable[[str], AbstractContextManager[None]]
+
 
 class ShapProxiedFitMixin(ShapProxiedFitStepsMixin):
     """Search-dispatch + fit pipeline for :class:`ShapProxiedFS` (see module docstring)."""
@@ -41,49 +44,12 @@ class ShapProxiedFitMixin(ShapProxiedFitStepsMixin):
 
         return run_search(self, optimizer, phi, base, y)
 
-    # ------------------------------------------------------------------ fit
-    @logs_fit("ShapProxiedFS", lambda self: (self.selected_features_, int(self.n_features_in_), None))
-    @rng_hygienic_fit
-    def fit(self, X, y):
-        """Fit the SHAP-proxied selector: compute OOF SHAP values, run the configured proxy-search optimizer, then apply the budget-gated refinement stages (revalidation, ablation, cluster-refine) before finalising the selected subset."""
-        import time
-        from contextlib import contextmanager
-
-        from mlframe.feature_selection.shap_proxied_fs._shap_proxy_explain import compute_shap_matrix, make_default_estimator
-
-        # Optional per-stage wall-clock instrumentation for the scaling benchmark / profiling. Set ``self._stage_timings`` to a dict before calling fit and each
-        # stage's seconds land in it; a no-op otherwise (zero overhead beyond a dict lookup), so production fits are unaffected.
-        _timings = self._stage_timings
-
-        @contextmanager
-        def _stage(name):
-            """Accumulate wall-clock seconds spent in the ``with`` block under ``_timings[name]``; a no-op context when no timing dict was requested."""
-            if _timings is None:
-                yield
-                return
-            t0 = time.perf_counter()
-            try:
-                yield
-            finally:
-                _timings[name] = _timings.get(name, 0.0) + (time.perf_counter() - t0)
-
-        # Control/safety budget (parity with MRMR / RFECV). The OOF-SHAP + proxy-search core always
-        # runs (it produces the candidate subsets), but the OPTIONAL expensive refinement phases
-        # below - honest revalidation, importance ablation, within-cluster refine - are each gated
-        # on this budget. When the wall-clock budget is exceeded OR ``stop_file`` exists, they are
-        # skipped and fit() finalises with the proxy-best subset (a valid selection). ``getattr``
-        # keeps old pickled instances (without the new attrs) working.
-        from os.path import exists as _stop_file_exists
-        _budget_t0 = time.perf_counter()
-        _budget_max_mins = getattr(self, "max_runtime_mins", None)
-        _budget_stop_file = getattr(self, "stop_file", None)
-
-        def _budget_exhausted() -> bool:
-            """True once the optional refinement wall-clock budget has elapsed or the caller-provided ``stop_file`` has appeared."""
-            if (minutes := active_budget(_budget_max_mins)) is not None and (time.perf_counter() - _budget_t0) > minutes * 60.0:
-                return True
-            return bool(_budget_stop_file) and _stop_file_exists(str(_budget_stop_file))
-
+    def _fit_ingest(
+        self,
+        X: Any,
+        y: Any,
+    ) -> tuple[pd.DataFrame, np.ndarray, int]:
+        """Coerce ``X``/``y`` to the fit-time pandas/ndarray form, reject duplicate column names and record ``feature_names_in_`` / ``n_features_in_``."""
         X = self._to_pandas(X).reset_index(drop=True)
         X.columns = [str(c) for c in X.columns]
         # Duplicate column names make ``X[label]`` return a DataFrame (not a Series), whose ``.dtype`` access raises inside the parallel SHAP/booster path, and break the feature -> selected-subset mapping. Surface a clear error at fit entry.
@@ -100,6 +66,13 @@ class ShapProxiedFitMixin(ShapProxiedFitStepsMixin):
         # Reset per-fit su_seeded_interactions scratch so a re-fit never reuses a prior fit's pairs.
         self._su_seeded_pairs_orig = None
         self._su_seeded_screen_info = {}
+        return X, y, n_features
+
+    def _fit_resolve_model_template(
+        self,
+    ) -> Any:
+        """Return the user's ``model`` or build the default booster template (validating ``booster_kind`` before any expensive stage)."""
+        from mlframe.feature_selection.shap_proxied_fs._shap_proxy_explain import make_default_estimator
 
         if self.model is not None:
             model_template = self.model
@@ -125,7 +98,14 @@ class ShapProxiedFitMixin(ShapProxiedFitStepsMixin):
                 self.classification, random_state=int(self.random_state),
                 booster_kind=_booster_kind, cat_features=self.cat_features,
             )
+        return model_template
 
+    def _fit_split_search_holdout(
+        self,
+        X: pd.DataFrame,
+        y: np.ndarray,
+    ) -> tuple[pd.DataFrame, np.ndarray, np.ndarray, pd.Index, Any]:
+        """Split rows into search/holdout (holdout materialisation deferred); returns ``X_search, y_search, y_hold, X_cols, report_slice``."""
         # Disjoint holdout for honest re-validation + trust guard (avoids winner's curse).
         stratify = y if self.classification else None
         idx_all = np.arange(len(X))
@@ -160,9 +140,19 @@ class ShapProxiedFitMixin(ShapProxiedFitStepsMixin):
         # Defer X_hold materialisation: store the inputs and let the post-prefilter step build it
         # at the narrow working-column count.
         self._deferred_holdout = (X_vals_full, idx_hold, X_cols)
-        X_hold = None  # built post-prefilter (or pre-clustering if prefilter is skipped)
         y_hold = y[idx_hold]
+        return X_search, y_search, y_hold, X_cols, _report_slice
 
+    def _fit_prefilter_and_cluster(
+        self,
+        X_search: pd.DataFrame,
+        y_search: np.ndarray,
+        X_cols: pd.Index,
+        model_template: Any,
+        n_features: int,
+        _stage: _StageFn,
+    ) -> tuple[dict, pd.DataFrame, np.ndarray, Any, Any, Any]:
+        """Align precomputed artifacts, run the (SHAP-aware) prefilter, materialise the holdout and cluster; returns ``report, X_search, working_cols, X_hold, X_proxy, unit_to_members``."""
         report: dict = {}
 
         # iter66: validate + align the precomputed cross-selector artifacts
@@ -226,6 +216,17 @@ class ShapProxiedFitMixin(ShapProxiedFitStepsMixin):
             self=self, working_cols=working_cols, n_features=n_features,
             _precomputed_aligned=_precomputed_aligned, X_search=X_search,
             report=report, _stage=_stage)
+        return report, X_search, working_cols, X_hold, X_proxy, unit_to_members
+
+    def _fit_oof_shap(
+        self,
+        model_template: Any,
+        X_proxy: Any,
+        y_search: np.ndarray,
+        _stage: _StageFn,
+    ) -> tuple[bool, Any, Any, np.ndarray, Any, np.ndarray]:
+        """Run the OOF-SHAP stage on the proxy columns; returns ``want_per_fold_phi, base, per_fold_phi_mean, phi, phi_var, y_phi``."""
+        from mlframe.feature_selection.shap_proxied_fs._shap_proxy_explain import compute_shap_matrix
 
         # SHAP attribution on the proxy (unit or raw) columns. Request per-model attribution variance
         # only when the uncertainty lever is active AND we actually have multiple models to vary.
@@ -242,17 +243,17 @@ class ShapProxiedFitMixin(ShapProxiedFitStepsMixin):
                 return_per_fold_phi_mean=want_per_fold_phi,
                 cache_dir=self.cache_dir, cv_policy=getattr(self, "_search_cv_policy", None))
         base, per_fold_phi_mean, phi, phi_var, y_phi = self._fit_step2_want_var_want(want_var, want_per_fold_phi, shap_out)
+        return want_per_fold_phi, base, per_fold_phi_mean, phi, phi_var, y_phi
 
-        # Two-phase residual attribution (gt_09, OPT-IN via residual_passes=0 default): a second SHAP
-        # pass on pass-1's residual re-credits weak features the additive coalition proxy under-weighs
-        # when strong features absorb most of the shared credit. Runs on the PRE-prescreen phi/X_proxy
-        # - rescue only helps if it can save a column the prescreen would otherwise cut, so it must
-        # happen BEFORE the knee/prescreen block below, never after.
-        from mlframe.feature_selection.shap_proxied_fs._shap_proxied_fit_residual import run_residual_pass
-
-        residual_rescue_proxy_idx, residual_blend_importance, residual_protected_working_cols = run_residual_pass(
-            self, phi, base, y_phi, X_proxy, model_template, unit_to_members, working_cols, X_cols, report, _stage)
-
+    def _fit_record_mean_abs_shap(
+        self,
+        phi: np.ndarray,
+        unit_to_members: Any,
+        working_cols: np.ndarray,
+        n_features: int,
+        report: dict,
+    ) -> None:
+        """Persist the per-feature mean |SHAP| map and its coverage block into ``report``."""
         # Persist the per-feature mean |SHAP| the subset search ranks by. Computed HERE, on the
         # PRE-prescreen phi, so it covers every column the SHAP pass actually attributed - after the
         # prescreen narrows phi the tail columns are gone and the map would be a top-K slice. Values are
@@ -267,6 +268,16 @@ class ShapProxiedFitMixin(ShapProxiedFitStepsMixin):
             complete=bool(len(_mean_abs_shap) == int(n_features)),
             unit_level=bool(unit_to_members is not None and len(unit_to_members) < len(_mean_abs_shap)),
         )
+
+    def _fit_adaptive_prescreen_cap(
+        self,
+        phi: np.ndarray,
+        per_fold_phi_mean: Any,
+        want_per_fold_phi: bool,
+        report: dict,
+    ) -> int:
+        """Resolve the (possibly narrowed) brute-force prescreen cap for the configured ladder mode, recording ``report['adaptive_prescreen']``."""
+        from mlframe.feature_selection.shap_proxied_fs._shap_proxy_explain import compute_phi_rank_stability
 
         # Adaptive prescreen narrowing (iter59): when SHAP per-fold ranks are unstable, NARROW the
         # cap so noisy mid-rank features don't get injected into beam's candidate pool. The lever is
@@ -293,31 +304,24 @@ class ShapProxiedFitMixin(ShapProxiedFitStepsMixin):
                 effective_cap=int(effective_brute_force_cap),
             )
             report["adaptive_prescreen"] = adaptive_info
+        return effective_brute_force_cap
 
-        # su_seeded_interactions screen (#5b, OPT-IN) - resolve the synergistic operand pairs in
-        # PROXY-column space BEFORE the importance pre-screen, so their operand proxy-columns can be
-        # RESCUED past the prescreen (pure-interaction operands have ~0 mean|phi|, the regime the
-        # additive proxy is blind to, so they sit in the tail the prescreen drops). The prefilter
-        # stage already ran the cheap screen + rescued the operands past the PREFILTER when the
-        # prefilter narrowed the frame (storing ``self._su_seeded_pairs_orig``); if it did NOT run
-        # (narrow data, no prefilter) we run the screen on X_proxy here. Either way the cost is the
-        # O(P)+O(K) screen, never the O(P^2) tensor, and it NO-OPs cleanly when the SNR gate clears
-        # nothing. Operand columns are keyed by ORIGINAL feature name and mapped to proxy columns via
-        # unit_to_members so clustering's unit-rename does not break the pairing.
-        from mlframe.feature_selection.shap_proxied_fs._shap_proxied_fit_interactions import resolve_su_seeded_pairs
-
-        _su_kept_pairs, _su_screen_info, _su_rescue_proxy_idx = resolve_su_seeded_pairs(
-            self, phi, X_proxy, y_phi, unit_to_members, working_cols, X_cols, report, _stage)
-
-        # Importance pre-screen: when the proxy still has more columns than the exact-search budget,
-        # keep the top-K by SHAP importance (mean |phi|) so exhaustive-approx stays feasible.
-        n_proxy = phi.shape[1]
-        proxy_cols_kept = np.arange(n_proxy)  # proxy(unit) columns behind the current phi columns
-        prescreen_top = self.prescreen_top
-        if prescreen_top is None and n_proxy > effective_brute_force_cap and self.optimizer in ("auto", "bruteforce", "bruteforce_gpu"):
-            prescreen_top = effective_brute_force_cap
-        phi, phi_var, proxy_cols_kept, unit_to_members = self._fit_step3_prescreen_top_none(prescreen_top, n_proxy, _stage, residual_blend_importance, phi, base, y_phi, _su_rescue_proxy_idx, residual_rescue_proxy_idx, phi_var, unit_to_members, report, proxy_cols_kept)
-
+    def _fit_search_candidates(
+        self,
+        phi: np.ndarray,
+        base: Any,
+        y_phi: np.ndarray,
+        X_proxy: Any,
+        proxy_cols_kept: np.ndarray,
+        y_search: np.ndarray,
+        model_template: Any,
+        unit_to_members: Any,
+        report: dict,
+        _stage: _StageFn,
+        _su_kept_pairs: Any,
+        _su_screen_info: Any,
+    ) -> tuple[str, list, int]:
+        """Run the proxy search, merge interaction candidates, apply the min-selected-ratio guard; returns ``optimizer, candidates, effective_min_card``."""
         optimizer = self._resolve_optimizer(phi.shape[1], n_rows=phi.shape[0])
         # One clamp, reused by the search AND by every downstream stage that samples subsets of the
         # SAME phi (trust-guard anchors): min_features is an original-feature-space floor, phi is in
@@ -350,6 +354,98 @@ class ShapProxiedFitMixin(ShapProxiedFitStepsMixin):
                 f"max_features={self.max_features}, min_selected_ratio={self.min_selected_ratio}).")
 
         report.update(optimizer=optimizer, n_candidates=len(candidates), proxy_best=dict(features=tuple(candidates[0][1]), proxy_loss=candidates[0][0]))
+        return optimizer, candidates, _effective_min_card
+
+    # ------------------------------------------------------------------ fit
+    @logs_fit("ShapProxiedFS", lambda self: (self.selected_features_, int(self.n_features_in_), None))
+    @rng_hygienic_fit
+    def fit(self, X, y):
+        """Fit the SHAP-proxied selector: compute OOF SHAP values, run the configured proxy-search optimizer, then apply the budget-gated refinement stages (revalidation, ablation, cluster-refine) before finalising the selected subset."""
+        import time
+        from contextlib import contextmanager
+
+        # Optional per-stage wall-clock instrumentation for the scaling benchmark / profiling. Set ``self._stage_timings`` to a dict before calling fit and each
+        # stage's seconds land in it; a no-op otherwise (zero overhead beyond a dict lookup), so production fits are unaffected.
+        _timings = self._stage_timings
+
+        @contextmanager
+        def _stage(name):
+            """Accumulate wall-clock seconds spent in the ``with`` block under ``_timings[name]``; a no-op context when no timing dict was requested."""
+            if _timings is None:
+                yield
+                return
+            t0 = time.perf_counter()
+            try:
+                yield
+            finally:
+                _timings[name] = _timings.get(name, 0.0) + (time.perf_counter() - t0)
+
+        # Control/safety budget (parity with MRMR / RFECV). The OOF-SHAP + proxy-search core always
+        # runs (it produces the candidate subsets), but the OPTIONAL expensive refinement phases
+        # below - honest revalidation, importance ablation, within-cluster refine - are each gated
+        # on this budget. When the wall-clock budget is exceeded OR ``stop_file`` exists, they are
+        # skipped and fit() finalises with the proxy-best subset (a valid selection). ``getattr``
+        # keeps old pickled instances (without the new attrs) working.
+        from os.path import exists as _stop_file_exists
+        _budget_t0 = time.perf_counter()
+        _budget_max_mins = getattr(self, "max_runtime_mins", None)
+        _budget_stop_file = getattr(self, "stop_file", None)
+
+        def _budget_exhausted() -> bool:
+            """True once the optional refinement wall-clock budget has elapsed or the caller-provided ``stop_file`` has appeared."""
+            if (minutes := active_budget(_budget_max_mins)) is not None and (time.perf_counter() - _budget_t0) > minutes * 60.0:
+                return True
+            return bool(_budget_stop_file) and _stop_file_exists(str(_budget_stop_file))
+
+        X, y, n_features = self._fit_ingest(X, y)
+        model_template = self._fit_resolve_model_template()
+        X_search, y_search, y_hold, X_cols, _report_slice = self._fit_split_search_holdout(X, y)
+        del X
+
+        report, X_search, working_cols, X_hold, X_proxy, unit_to_members = self._fit_prefilter_and_cluster(X_search, y_search, X_cols, model_template, n_features, _stage)
+
+        want_per_fold_phi, base, per_fold_phi_mean, phi, phi_var, y_phi = self._fit_oof_shap(model_template, X_proxy, y_search, _stage)
+
+        # Two-phase residual attribution (gt_09, OPT-IN via residual_passes=0 default): a second SHAP
+        # pass on pass-1's residual re-credits weak features the additive coalition proxy under-weighs
+        # when strong features absorb most of the shared credit. Runs on the PRE-prescreen phi/X_proxy
+        # - rescue only helps if it can save a column the prescreen would otherwise cut, so it must
+        # happen BEFORE the knee/prescreen block below, never after.
+        from mlframe.feature_selection.shap_proxied_fs._shap_proxied_fit_residual import run_residual_pass
+
+        residual_rescue_proxy_idx, residual_blend_importance, residual_protected_working_cols = run_residual_pass(
+            self, phi, base, y_phi, X_proxy, model_template, unit_to_members, working_cols, X_cols, report, _stage)
+
+        self._fit_record_mean_abs_shap(phi, unit_to_members, working_cols, n_features, report)
+
+        effective_brute_force_cap = self._fit_adaptive_prescreen_cap(phi, per_fold_phi_mean, want_per_fold_phi, report)
+
+        # su_seeded_interactions screen (#5b, OPT-IN) - resolve the synergistic operand pairs in
+        # PROXY-column space BEFORE the importance pre-screen, so their operand proxy-columns can be
+        # RESCUED past the prescreen (pure-interaction operands have ~0 mean|phi|, the regime the
+        # additive proxy is blind to, so they sit in the tail the prescreen drops). The prefilter
+        # stage already ran the cheap screen + rescued the operands past the PREFILTER when the
+        # prefilter narrowed the frame (storing ``self._su_seeded_pairs_orig``); if it did NOT run
+        # (narrow data, no prefilter) we run the screen on X_proxy here. Either way the cost is the
+        # O(P)+O(K) screen, never the O(P^2) tensor, and it NO-OPs cleanly when the SNR gate clears
+        # nothing. Operand columns are keyed by ORIGINAL feature name and mapped to proxy columns via
+        # unit_to_members so clustering's unit-rename does not break the pairing.
+        from mlframe.feature_selection.shap_proxied_fs._shap_proxied_fit_interactions import resolve_su_seeded_pairs
+
+        _su_kept_pairs, _su_screen_info, _su_rescue_proxy_idx = resolve_su_seeded_pairs(
+            self, phi, X_proxy, y_phi, unit_to_members, working_cols, X_cols, report, _stage)
+
+        # Importance pre-screen: when the proxy still has more columns than the exact-search budget,
+        # keep the top-K by SHAP importance (mean |phi|) so exhaustive-approx stays feasible.
+        n_proxy = phi.shape[1]
+        proxy_cols_kept = np.arange(n_proxy)  # proxy(unit) columns behind the current phi columns
+        prescreen_top = self.prescreen_top
+        if prescreen_top is None and n_proxy > effective_brute_force_cap and self.optimizer in ("auto", "bruteforce", "bruteforce_gpu"):
+            prescreen_top = effective_brute_force_cap
+        phi, phi_var, proxy_cols_kept, unit_to_members = self._fit_step3_prescreen_top_none(prescreen_top, n_proxy, _stage, residual_blend_importance, phi, base, y_phi, _su_rescue_proxy_idx, residual_rescue_proxy_idx, phi_var, unit_to_members, report, proxy_cols_kept)
+
+        optimizer, candidates, _effective_min_card = self._fit_search_candidates(
+            phi, base, y_phi, X_proxy, proxy_cols_kept, y_search, model_template, unit_to_members, report, _stage, _su_kept_pairs, _su_screen_info)
 
         # One honest-retrain memo shared across trust guard, re-validation, ablation, and within-cluster
         # refine: within this fit the train/holdout split + model + metric are fixed, so a retrain's

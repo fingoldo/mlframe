@@ -64,6 +64,134 @@ def _promotes_to_text(n_unique: int, non_null: int, threshold: int, abs_threshol
     return n_unique > threshold and n_unique >= _LOWERED_THRESHOLD_MIN_UNIQUE_RATIO * max(non_null, 1)
 
 
+# Accept all embedding-shaped dtypes:
+# - pl.List(pl.Float32/Float64): the legacy variable-length float embedding.
+# - pl.Array(<inner>, N):        polars>=0.20 fixed-size embeddings; backends
+#                                that auto-densify treat the row as a length-N
+#                                vector regardless of inner dtype.
+# - pl.List(pl.Int*):            quantized 8/16/32-bit embeddings (e.g.
+#                                Sentence-Transformers int8 export); the row
+#                                is still a vector, just stored compact.
+_PL_ARRAY_CLS = getattr(pl, "Array", None)
+_INT_INNER_DTYPES = (pl.Int8, pl.Int16, pl.Int32, pl.Int64, pl.UInt8, pl.UInt16, pl.UInt32, pl.UInt64)
+
+
+def _is_embedding_dtype(dt: Any) -> bool:
+    """True when ``dt`` is a polars dtype that represents an embedding row: variable-length float/int list, or a fixed-size ``pl.Array``."""
+    # Variable-length float embedding (legacy path).
+    if dt == pl.List(pl.Float32) or dt == pl.List(pl.Float64):
+        return True
+    # Quantized int embedding stored as variable-length list.
+    inner = getattr(dt, "inner", None)
+    if isinstance(dt, pl.List) and inner is not None and inner in _INT_INNER_DTYPES:
+        return True
+    # Fixed-size pl.Array(...) - any numeric inner is an embedding.
+    if _PL_ARRAY_CLS is not None and isinstance(dt, _PL_ARRAY_CLS):
+        if inner is not None and (inner in (pl.Float32, pl.Float64) or inner in _INT_INNER_DTYPES):
+            return True
+    return False
+
+
+def _pandas_column_sources(df: Any, pandas_meta: dict | None, use_meta: bool) -> tuple:
+    """Column list, dtype-string map and (metadata path only) n_unique / non_null / embedding-object sources for the pandas branch."""
+    if use_meta:
+        assert pandas_meta is not None  # guaranteed by the ``use_meta`` construction above
+        _columns = pandas_meta["columns"]
+        _dtypes = pandas_meta["dtypes"]
+        _meta_n_unique = pandas_meta.get("n_unique", {})
+        _meta_non_null = pandas_meta.get("non_null", {})
+        _meta_embed_obj = set(pandas_meta.get("embedding_object_cols", []))
+    else:
+        _columns = list(df.columns)
+        # same dupe-column hazard as the dtype map in _phase_helpers.py;
+        # silently-collapsing dtype dict would feed a wrong schema-hash downstream.
+        if len(set(_columns)) != len(_columns):
+            from collections import Counter as _Counter
+            _dupes = [_c for _c, _n in _Counter(_columns).items() if _n > 1]
+            raise ValueError(f"df has {len(_dupes)} duplicate column name(s) " f"({_dupes[:5]}); deduplicate before predict() to keep schema-hash honest.")
+        _dtypes = {c: str(df[c].dtype) for c in _columns}
+        _meta_n_unique = None
+        _meta_non_null = None
+        _meta_embed_obj = None
+    return _columns, _dtypes, _meta_n_unique, _meta_non_null, _meta_embed_obj
+
+
+def _log_auto_detect_outcomes(
+    auto_detected_high_card_to_drop: list, skipped_low_non_null: list, honored_user_dtype_cols: list, verbose: bool, threshold: Any,
+    min_non_null_abs: int, min_non_null_frac: float, total_rows: int, _fmt_with_cardinality: Any,
+) -> None:
+    """Log the auto-dropped high-cardinality columns, the low-non-null columns kept as cat, and the honored-dtype columns."""
+    # Load-bearing: log drop-list regardless of verbose so operators see auto-dropped columns and why (silent drop bites).
+    if auto_detected_high_card_to_drop:
+        logger.warning(
+            "  use_text_features=False: auto-dropping %d high-cardinality "
+            "text-like column(s) (n_unique > %d) to prevent "
+            "XGB QuantileDMatrix OOM / CB model-artefact bloat: %s. "
+            "To keep these columns, set use_text_features=True (routes "
+            "them to text_features -- CB uses them, XGB/LGB drop them) "
+            "or add them explicitly to feature_types_config.text_features.",
+            len(auto_detected_high_card_to_drop),
+            threshold,
+            _fmt_with_cardinality(auto_detected_high_card_to_drop),
+        )
+
+    # Load-bearing diagnostic: columns silently kept as cat_features instead of being promoted (avoids "Dictionary size is 0").
+    if skipped_low_non_null:
+        formatted = ", ".join(f"{name}:{n_unique:_} (non_null={nn:_}/{total_rows:_})" for name, n_unique, nn in skipped_low_non_null)
+        logger.warning(
+            "  Auto-detection: %d column(s) had n_unique>%d (would be "
+            "promoted to text_features) but non_null<%d (%.1f%% of %d rows, "
+            "below the %.2f%% floor) -- kept as cat_features to avoid "
+            "CatBoost's 'Dictionary size is 0' error on sparse text "
+            "columns: %s",
+            len(skipped_low_non_null), threshold, min_non_null_abs,
+            min_non_null_frac * 100, total_rows, min_non_null_frac * 100,
+            formatted,
+        )
+    if honored_user_dtype_cols and verbose:
+        logger.info(
+            "  %d column(s) with explicit categorical dtype (pl.Categorical / pl.Enum / pandas category) "
+            "kept out of text-auto-promotion regardless of cardinality: pl.Enum always (a closed, "
+            "already-encoded nominal categorical); others only when honor_user_dtype=True: %s",
+            len(honored_user_dtype_cols), sorted(honored_user_dtype_cols),
+        )
+
+
+def _route_polars_columns(
+    df: Any, user_assigned: set, cat_features: list, embedding_features: list, honor_user_dtype: bool, honored_user_dtype_cols: list,
+) -> list:
+    """Route embeddings + honored-dtype columns by schema alone; returns the residual text-like column names (embeddings are appended in place)."""
+    # First pass is dtype-only (cheap, no kernel launches): route embeddings + honored + user_assigned cols, and
+    # collect the residual text-like list. Then ONE lazy aggregation computes n_unique + count for every text-like
+    # col in a single collect (was: 2 eager Series calls per col = 2N kernel launches; on 60 cols this was 50-200 ms).
+    text_like_cols: list = []
+    for name, dtype in df.schema.items():
+        if name in user_assigned:
+            continue
+        if _is_embedding_dtype(dtype):
+            if name not in cat_features:
+                embedding_features.append(name)
+            continue
+        # pl.Enum is a CLOSED, already-encoded nominal categorical (its category set is fixed at schema
+        # time) -- never free text, so it must stay nominal unconditionally, not only when
+        # honor_user_dtype is set (this function's own docstring already documents "pl.Enum stays
+        # nominal" as the intended behavior; the code used to contradict it by including Enum in
+        # is_text_like whenever honor_user_dtype was left at its False default). Promoting an Enum
+        # column to text_features leaks its physical integer code (not the decoded string label) into
+        # CatBoost's text-feature Pool construction, which then rejects it: "text_features must have
+        # string type" -- caught live via a fuzz combo with a high-cardinality polars Enum column.
+        # pl.Enum is an instance-level dtype (not a class), so isinstance() is required alongside the class-level check.
+        is_enum = isinstance(dtype, pl.Enum)
+        is_text_like = dtype in (pl.String, pl.Utf8, pl.Categorical) and not is_enum
+        is_user_categorical_dtype = dtype == pl.Categorical or is_enum
+        if is_enum or (honor_user_dtype and is_user_categorical_dtype):
+            honored_user_dtype_cols.append(name)
+            continue
+        if is_text_like:
+            text_like_cols.append(name)
+    return text_like_cols
+
+
 def _auto_detect_feature_types(
     df,
     feature_types_config,
@@ -138,86 +266,14 @@ def _auto_detect_feature_types(
     honored_user_dtype_cols: list = []
 
     if isinstance(df, pl.DataFrame):
-        # Accept all embedding-shaped dtypes:
-        # - pl.List(pl.Float32/Float64): the legacy variable-length float embedding.
-        # - pl.Array(<inner>, N):        polars>=0.20 fixed-size embeddings; backends
-        #                                that auto-densify treat the row as a length-N
-        #                                vector regardless of inner dtype.
-        # - pl.List(pl.Int*):            quantized 8/16/32-bit embeddings (e.g.
-        #                                Sentence-Transformers int8 export); the row
-        #                                is still a vector, just stored compact.
-        _pl_array_cls = getattr(pl, "Array", None)
-        _int_inner_dtypes = (pl.Int8, pl.Int16, pl.Int32, pl.Int64, pl.UInt8, pl.UInt16, pl.UInt32, pl.UInt64)
-
-        def _is_embedding_dtype(dt) -> bool:
-            """True when ``dt`` is a polars dtype that represents an embedding row: variable-length float/int list, or a fixed-size ``pl.Array``."""
-            # Variable-length float embedding (legacy path).
-            if dt == pl.List(pl.Float32) or dt == pl.List(pl.Float64):
-                return True
-            # Quantized int embedding stored as variable-length list.
-            inner = getattr(dt, "inner", None)
-            if isinstance(dt, pl.List) and inner is not None and inner in _int_inner_dtypes:
-                return True
-            # Fixed-size pl.Array(...) - any numeric inner is an embedding.
-            if _pl_array_cls is not None and isinstance(dt, _pl_array_cls):
-                if inner is not None and (inner in (pl.Float32, pl.Float64) or inner in _int_inner_dtypes):
-                    return True
-            return False
-
-        # First pass is dtype-only (cheap, no kernel launches): route embeddings + honored + user_assigned cols, and
-        # collect the residual text-like list. Then ONE lazy aggregation computes n_unique + count for every text-like
-        # col in a single collect (was: 2 eager Series calls per col = 2N kernel launches; on 60 cols this was 50-200 ms).
-        text_like_cols: list = []
-        for name, dtype in df.schema.items():
-            if name in user_assigned:
-                continue
-            if _is_embedding_dtype(dtype):
-                if name not in cat_features:
-                    embedding_features.append(name)
-                continue
-            # pl.Enum is a CLOSED, already-encoded nominal categorical (its category set is fixed at schema
-            # time) -- never free text, so it must stay nominal unconditionally, not only when
-            # honor_user_dtype is set (this function's own docstring already documents "pl.Enum stays
-            # nominal" as the intended behavior; the code used to contradict it by including Enum in
-            # is_text_like whenever honor_user_dtype was left at its False default). Promoting an Enum
-            # column to text_features leaks its physical integer code (not the decoded string label) into
-            # CatBoost's text-feature Pool construction, which then rejects it: "text_features must have
-            # string type" -- caught live via a fuzz combo with a high-cardinality polars Enum column.
-            # pl.Enum is an instance-level dtype (not a class), so isinstance() is required alongside the class-level check.
-            is_enum = isinstance(dtype, pl.Enum)
-            is_text_like = dtype in (pl.String, pl.Utf8, pl.Categorical) and not is_enum
-            is_user_categorical_dtype = dtype == pl.Categorical or is_enum
-            if is_enum or (honor_user_dtype and is_user_categorical_dtype):
-                honored_user_dtype_cols.append(name)
-                continue
-            if is_text_like:
-                text_like_cols.append(name)
-
+        text_like_cols = _route_polars_columns(df, user_assigned, cat_features, embedding_features, honor_user_dtype, honored_user_dtype_cols)
         _auto_detect_featur_text_like_cols(text_like_cols, df, threshold, abs_threshold, min_non_null_abs, skipped_low_non_null, cardinalities, promote_text, text_features, cat_features, promoted, auto_detected_high_card_to_drop)
     else:
         # pandas path: prefer the mutation-immune ``pandas_meta`` dict snapshot when supplied (built by
         # ``_phase_fit_pipeline`` before the pipeline mutates dtypes / column set). Both branches share
         # the same promotion logic; only the source of column-list / dtype-string / n_unique / non-null /
         # embedding-shape-sniff differs.
-        if use_meta:
-            assert pandas_meta is not None  # guaranteed by the ``use_meta`` construction above
-            _columns = pandas_meta["columns"]
-            _dtypes = pandas_meta["dtypes"]
-            _meta_n_unique = pandas_meta.get("n_unique", {})
-            _meta_non_null = pandas_meta.get("non_null", {})
-            _meta_embed_obj = set(pandas_meta.get("embedding_object_cols", []))
-        else:
-            _columns = list(df.columns)
-            # same dupe-column hazard as the dtype map in _phase_helpers.py;
-            # silently-collapsing dtype dict would feed a wrong schema-hash downstream.
-            if len(set(_columns)) != len(_columns):
-                from collections import Counter as _Counter
-                _dupes = [_c for _c, _n in _Counter(_columns).items() if _n > 1]
-                raise ValueError(f"df has {len(_dupes)} duplicate column name(s) " f"({_dupes[:5]}); deduplicate before predict() to keep schema-hash honest.")
-            _dtypes = {c: str(df[c].dtype) for c in _columns}
-            _meta_n_unique = None
-            _meta_non_null = None
-            _meta_embed_obj = None
+        _columns, _dtypes, _meta_n_unique, _meta_non_null, _meta_embed_obj = _pandas_column_sources(df, pandas_meta, use_meta)
 
         nunique_cols: list = []
         # pandas 2.3+ / 3.0 surface object string columns under several
@@ -253,40 +309,10 @@ def _auto_detect_feature_types(
 
     _auto_detect_featur_verbose_text_features_embedding(verbose, text_features, embedding_features, promoted, threshold, _fmt_with_cardinality)
 
-    # Load-bearing: log drop-list regardless of verbose so operators see auto-dropped columns and why (silent drop bites).
-    if auto_detected_high_card_to_drop:
-        logger.warning(
-            "  use_text_features=False: auto-dropping %d high-cardinality "
-            "text-like column(s) (n_unique > %d) to prevent "
-            "XGB QuantileDMatrix OOM / CB model-artefact bloat: %s. "
-            "To keep these columns, set use_text_features=True (routes "
-            "them to text_features -- CB uses them, XGB/LGB drop them) "
-            "or add them explicitly to feature_types_config.text_features.",
-            len(auto_detected_high_card_to_drop),
-            threshold,
-            _fmt_with_cardinality(auto_detected_high_card_to_drop),
-        )
-
-    # Load-bearing diagnostic: columns silently kept as cat_features instead of being promoted (avoids "Dictionary size is 0").
-    if skipped_low_non_null:
-        formatted = ", ".join(f"{name}:{n_unique:_} (non_null={nn:_}/{total_rows:_})" for name, n_unique, nn in skipped_low_non_null)
-        logger.warning(
-            "  Auto-detection: %d column(s) had n_unique>%d (would be "
-            "promoted to text_features) but non_null<%d (%.1f%% of %d rows, "
-            "below the %.2f%% floor) -- kept as cat_features to avoid "
-            "CatBoost's 'Dictionary size is 0' error on sparse text "
-            "columns: %s",
-            len(skipped_low_non_null), threshold, min_non_null_abs,
-            min_non_null_frac * 100, total_rows, min_non_null_frac * 100,
-            formatted,
-        )
-    if honored_user_dtype_cols and verbose:
-        logger.info(
-            "  %d column(s) with explicit categorical dtype (pl.Categorical / pl.Enum / pandas category) "
-            "kept out of text-auto-promotion regardless of cardinality: pl.Enum always (a closed, "
-            "already-encoded nominal categorical); others only when honor_user_dtype=True: %s",
-            len(honored_user_dtype_cols), sorted(honored_user_dtype_cols),
-        )
+    _log_auto_detect_outcomes(
+        auto_detected_high_card_to_drop, skipped_low_non_null, honored_user_dtype_cols, verbose, threshold, min_non_null_abs,
+        min_non_null_frac, total_rows, _fmt_with_cardinality,
+    )
 
     return text_features, embedding_features, auto_detected_high_card_to_drop
 

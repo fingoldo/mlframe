@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import NamedTuple, Optional
+from typing import NamedTuple, Optional, Any
 
 import numpy as np
 
@@ -252,6 +252,41 @@ def _dispatch_batch_mi_with_noise_gate_impl(
         if _ensure_host is not None:
             _ensure_host(disc_2d)
 
+    _ret_dispatch_batch_mi_with_noise_gate_impl_part1 = _dispatch_batch_mi_with_noise_gate_impl_part1(
+        npermutations, use_su, freqs_y, n, quantization_nbins, device_codes, env_gate, classes_y, min_nonzero_confidence, _need_host_codes, _cpu_kernel,
+        disc_2d, factors_nbins, classes_y_safe, K,
+    )
+    if _ret_dispatch_batch_mi_with_noise_gate_impl_part1[0]:
+        _early_dispatch_batch_mi_with_noise_gate_impl_part1: np.ndarray = _ret_dispatch_batch_mi_with_noise_gate_impl_part1[1]
+        return _early_dispatch_batch_mi_with_noise_gate_impl_part1
+
+    # CPU njit-prange kernel (the required win and always-correct fallback).
+    _need_host_codes()  # CPU kernel reads host codes -> materialise the deferred D2H now
+    return np.asarray(_cpu_kernel(
+        disc_2d=disc_2d,
+        factors_nbins=factors_nbins,
+        classes_y=classes_y,
+        classes_y_safe=classes_y_safe,
+        freqs_y=freqs_y,
+        npermutations=int(npermutations),
+        base_seed=np.uint64(0),
+        min_nonzero_confidence=float(min_nonzero_confidence),
+        use_su=bool(use_su),
+        dtype=np.int32,
+        # OPT-B: size the (n, K) densified-code buffer to disc_2d's (now narrow) width - the
+        # dense codes live in the SAME [0, n_bins) range, so int8/int16 is value-identical and
+        # cuts both the alloc (the 589MiB->147MiB classes_dense that OOM'd RAM-tight hosts) and
+        # the per-permutation strided gather bandwidth. joint_counts (the real counter) stays int32.
+        classes_dtype=_fe_classes_dtype(disc_2d.dtype, factors_nbins),
+    ))
+
+
+def _dispatch_batch_mi_with_noise_gate_impl_part1(
+    npermutations: int, use_su: bool, freqs_y: np.ndarray, n: Any, quantization_nbins: int, device_codes: Any, env_gate: _FeDispatchEnvGate,
+    classes_y: np.ndarray, min_nonzero_confidence: float, _need_host_codes: Any, _cpu_kernel: Any, disc_2d: np.ndarray, factors_nbins: Any,
+    classes_y_safe: np.ndarray, K: Any,
+) -> tuple[Any, ...]:
+    """Extracted block of ``_dispatch_batch_mi_with_noise_gate_impl`` (part 1); returns the names the caller still uses."""
     # ---- Analytic large-n noise gate -------------------------------------------------
     # The per-candidate permutation null - CPU prange shuffles AND the GPU cupy-argsort twin below -
     # is the dominant large-n FE-scan cost. At large n the gate's permutation p-value is the analytic
@@ -289,7 +324,7 @@ def _dispatch_batch_mi_with_noise_gate_impl(
 
             _resident_res = resident_analytic_gate(device_codes, classes_y, _by_occ, int(n), float(min_nonzero_confidence))
             if _resident_res is not None:
-                return np.asarray(_resident_res)
+                return True, (np.asarray(_resident_res))
         if _an_ok:
             try:
                 _need_host_codes()  # analytic gate reads host codes -> materialise the deferred D2H now
@@ -300,9 +335,9 @@ def _dispatch_batch_mi_with_noise_gate_impl(
                     use_su=False, dtype=np.int32,
                     classes_dtype=_fe_classes_dtype(disc_2d.dtype, factors_nbins),
                 )
-                return analytic_batch_noise_gate(
+                return True, (analytic_batch_noise_gate(
                     disc_2d, _observed, classes_y, int(n), float(min_nonzero_confidence), by=_by_occ,
-                )
+                ))
             except Exception as _an_exc:  # any failure -> fall through to the permutation path
                 # The analytic and permutation gates are two APPROXIMATIONS of the same null, not the same
                 # estimator computed two ways, so they return different keep/reject verdicts for borderline
@@ -332,7 +367,7 @@ def _dispatch_batch_mi_with_noise_gate_impl(
     # so the GPU try/except below never catches it). Skip the GPU route entirely when the user asked for no CUDA device.
     if env_gate.gpu_opted_out:
         _need_host_codes()  # CPU njit kernel reads host codes -> materialise the deferred D2H now
-        return np.asarray(_cpu_kernel(
+        return True, (np.asarray(_cpu_kernel(
             disc_2d=disc_2d,
             factors_nbins=factors_nbins,
             classes_y=classes_y,
@@ -344,7 +379,7 @@ def _dispatch_batch_mi_with_noise_gate_impl(
             use_su=bool(use_su),
             dtype=np.int32,
             classes_dtype=_fe_classes_dtype(disc_2d.dtype, factors_nbins),
-        ))
+        )))
     backend = _tuned_noise_gate_backend(int(n), int(K))
 
     # STRICT GPU mode (MLFRAME_FE_GPU_STRICT=1, diagnostic, default OFF): force the noise-gate MI onto the
@@ -380,32 +415,13 @@ def _dispatch_batch_mi_with_noise_gate_impl(
                 env_gate=env_gate,
             )
             if _res is not None:
-                return np.asarray(_res)
+                return True, (np.asarray(_res))
         except Exception as _exc:  # pragma: no cover - GPU optional
             _module_logger.debug(
                 "batch_mi_with_noise_gate GPU path failed (%s: %s); CPU fallback",
                 type(_exc).__name__, _exc,
             )
-
-    # CPU njit-prange kernel (the required win and always-correct fallback).
-    _need_host_codes()  # CPU kernel reads host codes -> materialise the deferred D2H now
-    return np.asarray(_cpu_kernel(
-        disc_2d=disc_2d,
-        factors_nbins=factors_nbins,
-        classes_y=classes_y,
-        classes_y_safe=classes_y_safe,
-        freqs_y=freqs_y,
-        npermutations=int(npermutations),
-        base_seed=np.uint64(0),
-        min_nonzero_confidence=float(min_nonzero_confidence),
-        use_su=bool(use_su),
-        dtype=np.int32,
-        # OPT-B: size the (n, K) densified-code buffer to disc_2d's (now narrow) width - the
-        # dense codes live in the SAME [0, n_bins) range, so int8/int16 is value-identical and
-        # cuts both the alloc (the 589MiB->147MiB classes_dense that OOM'd RAM-tight hosts) and
-        # the per-permutation strided gather bandwidth. joint_counts (the real counter) stays int32.
-        classes_dtype=_fe_classes_dtype(disc_2d.dtype, factors_nbins),
-    ))
+    return False, None
 
 
 def _batch_mi_with_noise_gate_gpu(

@@ -248,6 +248,55 @@ def _resolve_group_ids(
     return None
 
 
+def _resolve_replicate_group_labels(
+    discovery_factory: Callable[[], Any],
+    df: Any,
+    train_idx: np.ndarray,
+    group_ids: Any,
+    group_column: str | None,
+    group_aware: bool | None,
+) -> np.ndarray | None:
+    """Group labels aligned to ``train_idx`` when group-wise resampling engages (>= 2 distinct groups), else ``None`` (row path)."""
+    # A single probe instance (discarded) supplies the config toggle + the
+    # discovery-side ``_group_ids_for_rerank`` fallback. Built only when the
+    # group decision is not already fully pinned by the explicit args, so a
+    # caller passing ``group_aware=False`` pays nothing. Never touches the RNG
+    # sequence -> the row path stays bit-identical regardless.
+    probe = None
+    if group_aware is None or (group_aware and group_ids is None and not group_column):
+        try:
+            probe = discovery_factory()
+        except Exception as exc:  # -- probe is best-effort; loop still runs
+            logger.warning("[stability_select_specs] probe factory() failed: %s", exc)
+    if group_aware is None:
+        group_aware = bool(getattr(getattr(probe, "config", None), "stability_group_aware", True))
+
+    group_labels = None
+    if group_aware:
+        resolved = _resolve_group_ids(group_ids, group_column, df, probe)
+        aligned = _align_group_labels(resolved, train_idx)
+        # Leave-groups-out needs >= 2 distinct groups; a single (or absent) group
+        # cannot leave a well out, so fall back to the row-level path there.
+        if aligned is not None and np.unique(aligned).size >= 2:
+            group_labels = aligned
+    return group_labels
+
+
+def _count_replicate_specs(discovery: Any, keep_counter: Counter, spec_by_name: Dict[str, Any]) -> None:
+    """Add one replicate's selected specs (each name at most once) to the selection counter and the representative-spec map."""
+    seen_this_run: set[str] = set()
+    for spec in getattr(discovery, "specs_", None) or []:
+        name = spec.name
+        # Count each spec name at most once per replicate (a replicate is a
+        # Bernoulli selection trial -- duplicates within one fit would skew
+        # the frequency above 1.0).
+        if name in seen_this_run:
+            continue
+        seen_this_run.add(name)
+        keep_counter[name] += 1
+        spec_by_name.setdefault(name, spec)
+
+
 def stability_select_specs(
     discovery_factory: Callable[[], Any],
     df: Any,
@@ -323,28 +372,7 @@ def stability_select_specs(
     # no arithmetic stride that could collide with an inner multi-seed ladder.
     seed_seqs = np.random.SeedSequence(int(random_state)).spawn(n_replicates)
 
-    # A single probe instance (discarded) supplies the config toggle + the
-    # discovery-side ``_group_ids_for_rerank`` fallback. Built only when the
-    # group decision is not already fully pinned by the explicit args, so a
-    # caller passing ``group_aware=False`` pays nothing. Never touches the RNG
-    # sequence -> the row path stays bit-identical regardless.
-    probe = None
-    if group_aware is None or (group_aware and group_ids is None and not group_column):
-        try:
-            probe = discovery_factory()
-        except Exception as exc:  # -- probe is best-effort; loop still runs
-            logger.warning("[stability_select_specs] probe factory() failed: %s", exc)
-    if group_aware is None:
-        group_aware = bool(getattr(getattr(probe, "config", None), "stability_group_aware", True))
-
-    group_labels = None
-    if group_aware:
-        resolved = _resolve_group_ids(group_ids, group_column, df, probe)
-        aligned = _align_group_labels(resolved, train_idx)
-        # Leave-groups-out needs >= 2 distinct groups; a single (or absent) group
-        # cannot leave a well out, so fall back to the row-level path there.
-        if aligned is not None and np.unique(aligned).size >= 2:
-            group_labels = aligned
+    group_labels = _resolve_replicate_group_labels(discovery_factory, df, train_idx, group_ids, group_column, group_aware)
     use_group = group_labels is not None
 
     keep_counter: Counter = Counter()
@@ -369,17 +397,7 @@ def stability_select_specs(
             )
             continue
         n_successful += 1
-        seen_this_run: set[str] = set()
-        for spec in getattr(discovery, "specs_", None) or []:
-            name = spec.name
-            # Count each spec name at most once per replicate (a replicate is a
-            # Bernoulli selection trial -- duplicates within one fit would skew
-            # the frequency above 1.0).
-            if name in seen_this_run:
-                continue
-            seen_this_run.add(name)
-            keep_counter[name] += 1
-            spec_by_name.setdefault(name, spec)
+        _count_replicate_specs(discovery, keep_counter, spec_by_name)
 
     denom = max(1, n_successful)
     frequencies = {name: count / denom for name, count in keep_counter.items()}

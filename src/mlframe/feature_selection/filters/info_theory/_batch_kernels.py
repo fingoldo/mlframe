@@ -8,6 +8,8 @@ import os
 import numpy as np
 from numba import njit, prange
 
+from ._dense_relevance import _relevance_from_dense
+
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
 # Cardinality cap for the per-pair / per-triple joint histogram. ``nbins`` derives from ``data.max(axis=0)+1`` and can be huge for high-cardinality
@@ -557,6 +559,91 @@ def _perm_failcount_col(
 
 
 @njit(parallel=True, nogil=True, cache=True)
+def _dense_encode_and_relevance(
+    disc_2d: np.ndarray,
+    factors_nbins: np.ndarray,
+    classes_y: np.ndarray,
+    freqs_y: np.ndarray,
+    use_su: bool,
+    dtype: type,
+    classes_dtype: type,
+    max_nbins: int,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """Densify every column of ``disc_2d`` and score it against ``y``: returns ``(classes_dense, freqs_dense, kx, original_mi)``.
+
+    Replicates ``merge_vars`` for a single variable per column (histogram, prune empty bins, renumber to a dense ``0..Kx-1`` range)."""
+    n = disc_2d.shape[0]
+    K = disc_2d.shape[1]
+    # Per-column densified codes + dense marginals, replicating ``merge_vars`` for a single
+    # variable: histogram, prune empty bins, renumber to a dense 0..Kx-1 range.
+    # OPT-B: ``classes_dense`` holds DENSE codes in ``[0, n_dense) <= n_bins``, so it
+    # is sized by the narrow ``classes_dtype`` (int8 on the FE path where n_bins ~10) instead of
+    # the int32 ``dtype``. This is the SAME (n, K) shape as ``disc_2d`` - on the scene 2407x64152
+    # chunk that is 147 MiB int8 vs 589 MiB int32 (the allocation that OOM'd RAM-tight hosts), and
+    # it halves/quarters the bandwidth of the strided ``classes_dense[r, k]`` gathers re-read once
+    # per permutation in ``_relevance_from_dense``. BIT-IDENTICAL: the codes are non-negative
+    # ordinals only ever READ as histogram indices (``joint_counts[classes_dense[r,k], ...]``), so
+    # the narrower storage width does not change a single count; ``joint_counts`` itself stays at
+    # The wide ``dtype`` (the actual counter). Default ``classes_dtype=int16``: the dense
+    # codes are in ``[0, n_dense) <= n_bins``, so int16 holds any realistic nbins (<32768) and HALVES
+    # this (n, K) buffer vs the old int32 default for EVERY caller (not just those that opted into int8),
+    # value-identical. Callers with a known-narrower disc dtype (int8) still pass it and win further.
+    classes_dense: np.ndarray = np.zeros((n, K), dtype=classes_dtype)
+    freqs_dense = np.zeros((K, max_nbins), dtype=np.float64)
+    kx = np.zeros(K, dtype=np.int64)
+    original_mi = np.zeros(K, dtype=np.float64)
+
+    for k in prange(K):
+        nb_k = int(factors_nbins[k])
+        counts = np.zeros(nb_k, dtype=np.int64)
+        col = disc_2d[:, k]
+        for r in range(n):
+            counts[col[r]] += 1
+        # Dense remap: lookup_table[c] = c - (#empty bins below c).
+        lookup = np.empty(nb_k, dtype=np.int64)
+        nzeros = 0
+        for c in range(nb_k):
+            if counts[c] == 0:
+                nzeros += 1
+            lookup[c] = c - nzeros
+        n_dense = nb_k - nzeros
+        kx[k] = n_dense
+        # Write dense codes + dense marginals.
+        wpos = 0
+        for c in range(nb_k):
+            if counts[c] != 0:
+                # ``counts[c] / n`` (NOT ``counts[c] * (1/n)``) to be bit-identical to
+                # ``merge_vars``' ``freqs / len(factors_data)`` array division.
+                freqs_dense[k, wpos] = counts[c] / n
+                wpos += 1
+        for r in range(n):
+            classes_dense[r, k] = lookup[col[r]]
+
+        original_mi[k] = _relevance_from_dense(
+            use_su, classes_dense, k, freqs_dense, n_dense, classes_y, freqs_y, dtype,
+        )
+    return classes_dense, freqs_dense, kx, original_mi
+
+
+@njit(nogil=True, cache=True)
+def _shuffled_y_matrix(classes_y_safe: np.ndarray, npermutations: int, base_seed: np.uint64) -> np.ndarray:
+    """All ``npermutations`` shuffled copies of ``classes_y_safe`` (row ``i`` seeded by ``(base_seed, i)``), identical to ``parallel_mi_prange``."""
+    ny = classes_y_safe.shape[0]
+    locals_mat = np.empty((npermutations, ny), dtype=classes_y_safe.dtype)
+    for i in range(npermutations):
+        state = np.uint64(base_seed) * np.uint64(2654435761) + np.uint64(i + 1)
+        local = classes_y_safe.copy()
+        for j in range(ny - 1, 0, -1):
+            state = state * np.uint64(6364136223846793005) + np.uint64(1442695040888963407)
+            kk = int(state >> np.uint64(33)) % (j + 1)
+            tmp = local[j]
+            local[j] = local[kk]
+            local[kk] = tmp
+        locals_mat[i] = local
+    return locals_mat
+
+
+@njit(parallel=True, nogil=True, cache=True)
 def batch_mi_with_noise_gate(
     disc_2d: np.ndarray,
     factors_nbins: np.ndarray,
@@ -621,54 +708,9 @@ def batch_mi_with_noise_gate(
     if max_nbins > 1 and classes_dtype(max_nbins - 1) != max_nbins - 1:
         raise ValueError("batch_mi_with_noise_gate: factors_nbins exceeds classes_dtype capacity; widen classes_dtype (int32).")
 
-    # Per-column densified codes + dense marginals, replicating ``merge_vars`` for a single
-    # variable: histogram, prune empty bins, renumber to a dense 0..Kx-1 range.
-    # OPT-B: ``classes_dense`` holds DENSE codes in ``[0, n_dense) <= n_bins``, so it
-    # is sized by the narrow ``classes_dtype`` (int8 on the FE path where n_bins ~10) instead of
-    # the int32 ``dtype``. This is the SAME (n, K) shape as ``disc_2d`` - on the scene 2407x64152
-    # chunk that is 147 MiB int8 vs 589 MiB int32 (the allocation that OOM'd RAM-tight hosts), and
-    # it halves/quarters the bandwidth of the strided ``classes_dense[r, k]`` gathers re-read once
-    # per permutation in ``_relevance_from_dense``. BIT-IDENTICAL: the codes are non-negative
-    # ordinals only ever READ as histogram indices (``joint_counts[classes_dense[r,k], ...]``), so
-    # the narrower storage width does not change a single count; ``joint_counts`` itself stays at
-    # The wide ``dtype`` (the actual counter). Default ``classes_dtype=int16``: the dense
-    # codes are in ``[0, n_dense) <= n_bins``, so int16 holds any realistic nbins (<32768) and HALVES
-    # this (n, K) buffer vs the old int32 default for EVERY caller (not just those that opted into int8),
-    # value-identical. Callers with a known-narrower disc dtype (int8) still pass it and win further.
-    classes_dense: np.ndarray = np.zeros((n, K), dtype=classes_dtype)
-    freqs_dense = np.zeros((K, max_nbins), dtype=np.float64)
-    kx = np.zeros(K, dtype=np.int64)
-    original_mi = np.zeros(K, dtype=np.float64)
-
-    for k in prange(K):
-        nb_k = int(factors_nbins[k])
-        counts = np.zeros(nb_k, dtype=np.int64)
-        col = disc_2d[:, k]
-        for r in range(n):
-            counts[col[r]] += 1
-        # Dense remap: lookup_table[c] = c - (#empty bins below c).
-        lookup = np.empty(nb_k, dtype=np.int64)
-        nzeros = 0
-        for c in range(nb_k):
-            if counts[c] == 0:
-                nzeros += 1
-            lookup[c] = c - nzeros
-        n_dense = nb_k - nzeros
-        kx[k] = n_dense
-        # Write dense codes + dense marginals.
-        wpos = 0
-        for c in range(nb_k):
-            if counts[c] != 0:
-                # ``counts[c] / n`` (NOT ``counts[c] * (1/n)``) to be bit-identical to
-                # ``merge_vars``' ``freqs / len(factors_data)`` array division.
-                freqs_dense[k, wpos] = counts[c] / n
-                wpos += 1
-        for r in range(n):
-            classes_dense[r, k] = lookup[col[r]]
-
-        original_mi[k] = _relevance_from_dense(
-            use_su, classes_dense, k, freqs_dense, n_dense, classes_y, freqs_y, dtype,
-        )
+    classes_dense, freqs_dense, kx, original_mi = _dense_encode_and_relevance(
+        disc_2d, factors_nbins, classes_y, freqs_y, use_su, dtype, classes_dtype, max_nbins,
+    )
 
     if npermutations <= 0:
         for k in range(K):
@@ -680,7 +722,6 @@ def batch_mi_with_noise_gate(
         max_failed = 1
 
     nfailed = np.zeros(K, dtype=np.int64)
-    ny = classes_y_safe.shape[0]
 
     # F1 (cProfile-driven): precompute ALL npermutations shuffled y-vectors ONCE (serial; the
     # EXACT same (base_seed, i)-seeded Fisher-Yates as parallel_mi_prange, just hoisted out of the scoring
@@ -689,17 +730,7 @@ def batch_mi_with_noise_gate(
     # keeps all cores saturated regardless of K. Bit-identical: the shuffle arithmetic/order is unchanged;
     # nfailed[k] is an integer count of mi_perm>=original_mi[k], so reordering the (i,k) iteration leaves
     # each per-column count identical; each prange thread owns its own k (writes nfailed[k] privately).
-    locals_mat = np.empty((npermutations, ny), dtype=classes_y_safe.dtype)
-    for i in range(npermutations):
-        state = np.uint64(base_seed) * np.uint64(2654435761) + np.uint64(i + 1)
-        local = classes_y_safe.copy()
-        for j in range(ny - 1, 0, -1):
-            state = state * np.uint64(6364136223846793005) + np.uint64(1442695040888963407)
-            kk = int(state >> np.uint64(33)) % (j + 1)
-            tmp = local[j]
-            local[j] = local[kk]
-            local[kk] = tmp
-        locals_mat[i] = local
+    locals_mat = _shuffled_y_matrix(classes_y_safe, npermutations, base_seed)
 
     for k in prange(K):
         if original_mi[k] <= 0.0:
@@ -865,71 +896,6 @@ def _densify_and_relevance_fused(
         dc = lookup[col[r]]
         classes_dense[r, k] = dc
         joint_counts[dc, classes_y[r]] += 1
-    inv_n = 1.0 / n
-
-    mi_xy = 0.0
-    for i in range(K_x):
-        prob_x = freqs_dense[k, i]
-        for j in range(K_y):
-            jc = joint_counts[i, j]
-            if jc != 0:
-                prob_y = freqs_y[j]
-                jf = jc * inv_n
-                mi_xy += jf * math.log(jf / (prob_x * prob_y))
-
-    if not use_su:
-        return mi_xy
-
-    h_x = 0.0
-    for i in range(K_x):
-        p = freqs_dense[k, i]
-        if p > 0:
-            h_x -= p * math.log(p)
-    h_y = 0.0
-    for j in range(K_y):
-        p = freqs_y[j]
-        if p > 0:
-            h_y -= p * math.log(p)
-    denom = h_x + h_y
-    if denom <= 1e-12:
-        return 0.0
-    # Floor the plug-in numerator at 0: float round-off on near-deterministic columns can leave ``mi_xy`` slightly negative -> tiny negative SU treated as valid low relevance instead of 0.
-    if mi_xy < 0.0:
-        mi_xy = 0.0
-    return 2.0 * mi_xy / denom
-
-
-@njit(nogil=True, cache=True)
-def _relevance_from_dense(
-    use_su: bool,
-    classes_dense: np.ndarray,
-    k: int,
-    freqs_dense: np.ndarray,
-    K_x: int,
-    classes_y: np.ndarray,
-    freqs_y: np.ndarray,
-    dtype,
-) -> float:
-    """MI (or SU) of densified column ``k`` against ``y`` - inlined twin of
-    ``compute_relevance_score`` reading the column from the padded ``classes_dense`` /
-    ``freqs_dense`` buffers. Numerically identical to calling
-    ``compute_relevance_score(use_su, classes_dense[:, k], freqs_dense[k, :K_x], ...)``:
-    same indexed joint-count pass, same ``jf * log(jf / (px * py))`` accumulation order.
-    """
-    n = classes_dense.shape[0]
-    K_y = len(freqs_y)
-    # bench-attempt-rejected (2026-06-07): REUSE a thread-local joint_counts scratch
-    # (indexed by numba.get_thread_id()) instead of this per-call ``np.zeros`` to remove
-    # the K*(nperm+1) allocations (Q5). BYTE-IDENTICAL but a NET LOSS: 0.58x (K=300) ..
-    # 0.77x (K=4000) on the scene-like CPU gate. numba pool/stack-allocates this tiny
-    # (K_x x K_y ~ 10x2) array essentially for free; a shared (nthreads, max_Kx*K_y)
-    # scratch adds get_thread_id() + a manual zeroing loop + flat-index arithmetic +
-    # cross-thread false sharing that all cost MORE than the elided alloc. Keep the
-    # per-call np.zeros. (proto D:/Temp/q5_scratch_proto.py)
-    # int64 counter: a joint cell can reach ``n``; int32 (default ``dtype``) wraps negative above ~2.1e9 rows -> NaN MI.
-    joint_counts = np.zeros((K_x, K_y), dtype=np.int64)
-    for r in range(n):
-        joint_counts[classes_dense[r, k], classes_y[r]] += 1
     inv_n = 1.0 / n
 
     mi_xy = 0.0

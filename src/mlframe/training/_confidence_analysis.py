@@ -63,6 +63,61 @@ def run_confidence_analysis(
     the real model was trained on, instead of silently reverting to an unweighted fit. A ``sample_weight``
     key already present in ``fit_params`` takes precedence (an explicit caller override).
     """
+    use_shap, max_features, cmap, alpha, title, ylabel = _confidence_style_defaults(use_shap, max_features, cmap, alpha, title, ylabel)
+    if test_df is None:
+        return None
+
+    if verbose:
+        logger.info("Running confidence analysis...")
+
+    confidence_model_kwargs = _confidence_model_kwargs(confidence_model_kwargs)
+
+    # Lazy import: _model_factories <-> _eval_helpers circular load; resolved at call time.
+    from ._model_factories import CUDA_IS_AVAILABLE
+    confidence_task_type = "GPU" if CUDA_IS_AVAILABLE else "CPU"
+    confidence_model = CatBoostRegressor(verbose=0, eval_fraction=0.1, task_type=confidence_task_type, **confidence_model_kwargs)
+
+    fit_params_copy: dict[Any, Any] = {}
+    fit_params_copy = _copy_confidence_fit_params(fit_params, fit_params_copy)
+    _add_confidence_sample_weight(sample_weight, fit_params_copy, test_df)
+
+    cat_features, test_df = _prepare_confidence_frame(test_df, text_features, embedding_features, cat_features)
+
+    _set_confidence_cat_features(cat_features, fit_params_copy, test_df)
+
+    # CatBoost rejects NaN in cat_feature cells with
+    # ``cat_features must be integer or string, real number values and
+    # NaN values should be converted to string``. The combo enum's
+    # `null_fraction_cats > 0` axis routinely produces null cells in
+    # categorical columns; the upstream trainer fills them with a
+    # sentinel for the main fit, but the confidence analyzer instantiates
+    # a fresh CB pool from the post-pipeline test_df where the nulls
+    # remain (and surface as NaN after the polars->pandas Arrow bridge).
+    # Fill with the literal string "_NULL_" so CB treats missing as a
+    # distinct category rather than crashing. Read cat_features from
+    # fit_params_copy (covers both the caller-passed and auto-detected
+    # cases) so HGB-side calls (which pass cat_features=None and rely
+    # on the auto-detect block above) are not skipped.
+    _resolved_cat_features = fit_params_copy.get("cat_features")
+    test_df = _cast_resolved_cat_features(_resolved_cat_features, test_df)
+
+    fit_params_copy["plot"] = False
+
+    confidence_targets = _confidence_targets_or_none(test_df, test_target, test_probs, verbose)
+    if confidence_targets is None:
+        return None
+
+    confidence_model = _fit_confidence_model(confidence_model, confidence_task_type, confidence_model_kwargs, test_df, confidence_targets, fit_params_copy)
+
+    _shap_confidence_plot(use_shap, test_df, confidence_model, max_features, cmap, alpha, ylabel, title, plot_file, figsize)
+
+    return confidence_model
+
+
+def _confidence_style_defaults(
+    use_shap: bool | None, max_features: int | None, cmap: str | None, alpha: float | None, title: str | None, ylabel: str | None
+) -> tuple[Any, Any, Any, Any, Any, Any]:
+    """Fill the ``None`` styling arguments from the ``ConfidenceAnalysisConfig`` field defaults."""
     from .configs import ConfidenceAnalysisConfig
     _caf = ConfidenceAnalysisConfig.model_fields
     if use_shap is None:
@@ -77,12 +132,11 @@ def run_confidence_analysis(
         title = _caf["title"].default
     if ylabel is None:
         ylabel = _caf["ylabel"].default
-    if test_df is None:
-        return None
+    return use_shap, max_features, cmap, alpha, title, ylabel
 
-    if verbose:
-        logger.info("Running confidence analysis...")
 
+def _confidence_model_kwargs(confidence_model_kwargs: dict | None) -> dict[str, Any]:
+    """Copy the caller's confidence-model kwargs and inject the bounded iteration budget and early stopping."""
     # Copy (not just default-to-{}) so the iterations/early_stopping_rounds injection below never mutates a caller-supplied dict in place -- a caller reusing
     # one shared kwargs dict across calls would otherwise see it silently polluted after the first call.
     confidence_model_kwargs = dict(confidence_model_kwargs) if confidence_model_kwargs is not None else {}
@@ -103,16 +157,13 @@ def run_confidence_analysis(
     if not any(_syn in confidence_model_kwargs for _syn in _CB_ITER_SYNONYMS):
         confidence_model_kwargs["iterations"] = 200
     confidence_model_kwargs.setdefault("early_stopping_rounds", 30)
+    return confidence_model_kwargs
 
-    # Lazy import: _model_factories <-> _eval_helpers circular load; resolved at call time.
-    from ._model_factories import CUDA_IS_AVAILABLE
-    confidence_task_type = "GPU" if CUDA_IS_AVAILABLE else "CPU"
-    confidence_model = CatBoostRegressor(verbose=0, eval_fraction=0.1, task_type=confidence_task_type, **confidence_model_kwargs)
 
-    fit_params_copy: dict[Any, Any] = {}
-    fit_params_copy = _copy_confidence_fit_params(fit_params, fit_params_copy)
-    _add_confidence_sample_weight(sample_weight, fit_params_copy, test_df)
-
+def _prepare_confidence_frame(
+    test_df: Any, text_features: list[str] | None, embedding_features: list[str] | None, cat_features: list[str] | None
+) -> tuple[list[str] | None, Any]:
+    """Drop text / embedding / string columns and turn a polars frame into a pandas view; returns ``(cat_features, test_df)``."""
     # Drop text / embedding columns from test_df upfront.
     # SHAP's TreeExplainer rebuilds a CatBoost Pool using ONLY
     # ``cat_features`` from the model (no text awareness), so text
@@ -166,38 +217,11 @@ def run_confidence_analysis(
         # confidence analyzer is in the noise.
         from .utils import get_pandas_view_of_polars_df
         test_df = get_pandas_view_of_polars_df(test_df)
+    return cat_features, test_df
 
-    _set_confidence_cat_features(cat_features, fit_params_copy, test_df)
 
-    # CatBoost rejects NaN in cat_feature cells with
-    # ``cat_features must be integer or string, real number values and
-    # NaN values should be converted to string``. The combo enum's
-    # `null_fraction_cats > 0` axis routinely produces null cells in
-    # categorical columns; the upstream trainer fills them with a
-    # sentinel for the main fit, but the confidence analyzer instantiates
-    # a fresh CB pool from the post-pipeline test_df where the nulls
-    # remain (and surface as NaN after the polars->pandas Arrow bridge).
-    # Fill with the literal string "_NULL_" so CB treats missing as a
-    # distinct category rather than crashing. Read cat_features from
-    # fit_params_copy (covers both the caller-passed and auto-detected
-    # cases) so HGB-side calls (which pass cat_features=None and rely
-    # on the auto-detect block above) are not skipped.
-    _resolved_cat_features = fit_params_copy.get("cat_features")
-    test_df = _cast_resolved_cat_features(_resolved_cat_features, test_df)
-
-    fit_params_copy["plot"] = False
-
-    # Confidence analysis pulls the predicted probability of the TRUE class
-    # for each row (``test_probs[i, test_target[i]]``). That fancy-index
-    # is well-defined only for single-label targets where ``test_target``
-    # is a 1-D vector of integer class indices. For multilabel
-    # classification ``test_target`` is (N, K) binary indicators, and for
-    # regression there's no probability concept at all - in both cases
-    # ``confidence_targets`` is ill-defined. Skip with an INFO log so the
-    # caller's ``include_confidence_analysis=True`` is honoured for the
-    # cases where it makes sense and silently no-op for the cases where
-    # it cannot. Without this guard a multilabel target would
-    # raise IndexError on the (N,) vs (N,K) shape mismatch.
+def _confidence_targets_or_none(test_df: Any, test_target: np.ndarray, test_probs: np.ndarray, verbose: bool) -> np.ndarray | None:
+    """Probability of the true class per row, or None (after a log line) when the inputs cannot support a confidence fit."""
     test_target_arr = np.asarray(test_target)
     if test_target_arr.ndim != 1:
         if verbose:
@@ -239,7 +263,7 @@ def run_confidence_analysis(
                 _n_target,
             )
         return None
-    confidence_targets = test_probs[np.arange(test_probs.shape[0]), test_target_arr]
+    confidence_targets: np.ndarray = test_probs[np.arange(test_probs.shape[0]), test_target_arr]
 
     # Degenerate confidence_targets.
     # When all rows in test happen to land in the same predicted-
@@ -278,7 +302,13 @@ def run_confidence_analysis(
             "The confidence regressor needs at least one feature to fit."
         )
         return None
+    return confidence_targets
 
+
+def _fit_confidence_model(
+    confidence_model: Any, confidence_task_type: str, confidence_model_kwargs: dict[str, Any], test_df: Any, confidence_targets: np.ndarray, fit_params_copy: dict
+) -> Any:
+    """Fit the confidence regressor, falling back to CPU when CatBoost has no GPU runtime; returns the fitted model."""
     from .utils import maybe_clean_ram_adaptive as _maybe_clean_ram  # lazy: utils imports from _nan_processing which transitively cycles back
     _maybe_clean_ram()
     try:
@@ -295,9 +325,6 @@ def run_confidence_analysis(
         else:
             raise
     _maybe_clean_ram()
-
-    _shap_confidence_plot(use_shap, test_df, confidence_model, max_features, cmap, alpha, ylabel, title, plot_file, figsize)
-
     return confidence_model
 
 

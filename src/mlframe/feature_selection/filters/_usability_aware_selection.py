@@ -118,6 +118,33 @@ def _binned_mi(x: np.ndarray, y_codes: np.ndarray, nbins: int, y_terms: Any = No
     return float(_cmi_from_binned(xb, y_codes, None))
 
 
+# Note on the GPU-resident pair-combo MI table used by ``build_usability_candidate_pool`` (``st._resident_table``):
+# bench-attempt-rejected (iter17, 2026-06-23): GPU-RESIDENT batched pair-combo MI TABLE. The MI-table
+# computation IS cleanly separable from this retention/diversity bookkeeping (the loop only reads
+# ``mis[j]`` per pair), and a resident batched-across-pairs table was built + gated
+# (``_usability_pool_resident.py`` + ``_usability_pool_resident_ktc.py``, kept for a capable card).
+# NOT WIRED IN, for TWO independent reasons measured here: (1) it LOSES on the dev GTX 1050 Ti - n=100k
+# npairs=4 nc=1734/pair CUDA-event A/B: 29.6s resident vs 14.7s CPU njit = 0.50x, because the bit-faithful
+# ``_gpu_quantile_bin_codes``/``_gpu_marginal_mi`` do a per-row device->host scalar sync (~14k tiny syncs)
+# the 6-SM card cannot hide (HW-bound regime). (2) MORE IMPORTANTLY it is NOT selection-equivalent: the
+# table is bit-faithful to ~6e-15, but the downstream STABLE MI-sort + greedy ``_abscorr`` diversity
+# filter is ULP-sensitive at MI ties - a 6e-15 reassociation flips the tie ORDER, changing which of two
+# near-equal-MI combos is retained (verified: a 125-form structured pool had ~6 retained forms DIFFER,
+# e.g. mul(invsquared(a),neg(b)) vs mul(invsquared(a),identity(b))). Selection must stay byte-identical on
+# this path, so the resident MI is not fed in. NEEDS-X to ship: a BIT-EXACT (not just bit-faithful) GPU MI
+# matching the njit reduction order, AND a row-vectorised sync-free bin+MI kernel, AND a card where it wins.
+# RESIDENT PAIR-COMBO MI TABLE NOW WIRED: ``score_pair_combos_table_resident`` is fed into the
+# retention loop under the resident GPU-strict flag (``_seleq``) only. The (3) blocker the iter17 note below
+# records - the fused resident binning diverged from the njit on low-cardinality columns - was fixed in
+# 71e31818 (the resident binner now matches the njit distinct-edge dedup), so the resident table is now
+# SELECTION-EQUIVALENT to the njit per-pair ``score_pair_combos`` (parity test green:
+# tests/feature_selection/gpu/test_usability_pool_resident_parity.py). The ULP-tie sensitivity is absorbed by
+# the ``_mi_key`` grid-snap (already engaged under ``_seleq``). The DEFAULT (flag-off) path is BYTE-IDENTICAL
+# - it never computes the resident table and uses the per-pair njit ``score_pair_combos`` exactly as before.
+# If the resident table errors (no cupy / device fault) it returns None and we fall back per-pair. This is a
+# residency win (the MI runs on-device under the flag), not necessarily a wall win at the FE-subsample n.
+
+
 def build_usability_candidate_pool(
     X_df: "Any",
     y_cont: np.ndarray,
@@ -242,30 +269,6 @@ def build_usability_candidate_pool(
     # Contract preserved: every recipe that reaches the returned pool is replayable by ``transform()``.
     st._combo_replay_ok = {}
 
-    # bench-attempt-rejected (iter17, 2026-06-23): GPU-RESIDENT batched pair-combo MI TABLE. The MI-table
-    # computation IS cleanly separable from this retention/diversity bookkeeping (the loop only reads
-    # ``mis[j]`` per pair), and a resident batched-across-pairs table was built + gated
-    # (``_usability_pool_resident.py`` + ``_usability_pool_resident_ktc.py``, kept for a capable card).
-    # NOT WIRED IN, for TWO independent reasons measured here: (1) it LOSES on the dev GTX 1050 Ti - n=100k
-    # npairs=4 nc=1734/pair CUDA-event A/B: 29.6s resident vs 14.7s CPU njit = 0.50x, because the bit-faithful
-    # ``_gpu_quantile_bin_codes``/``_gpu_marginal_mi`` do a per-row device->host scalar sync (~14k tiny syncs)
-    # the 6-SM card cannot hide (HW-bound regime). (2) MORE IMPORTANTLY it is NOT selection-equivalent: the
-    # table is bit-faithful to ~6e-15, but the downstream STABLE MI-sort + greedy ``_abscorr`` diversity
-    # filter is ULP-sensitive at MI ties - a 6e-15 reassociation flips the tie ORDER, changing which of two
-    # near-equal-MI combos is retained (verified: a 125-form structured pool had ~6 retained forms DIFFER,
-    # e.g. mul(invsquared(a),neg(b)) vs mul(invsquared(a),identity(b))). Selection must stay byte-identical on
-    # this path, so the resident MI is not fed in. NEEDS-X to ship: a BIT-EXACT (not just bit-faithful) GPU MI
-    # matching the njit reduction order, AND a row-vectorised sync-free bin+MI kernel, AND a card where it wins.
-    # RESIDENT PAIR-COMBO MI TABLE NOW WIRED: ``score_pair_combos_table_resident`` is fed into the
-    # retention loop under the resident GPU-strict flag (``_seleq``) only. The (3) blocker the iter17 note below
-    # records - the fused resident binning diverged from the njit on low-cardinality columns - was fixed in
-    # 71e31818 (the resident binner now matches the njit distinct-edge dedup), so the resident table is now
-    # SELECTION-EQUIVALENT to the njit per-pair ``score_pair_combos`` (parity test green:
-    # tests/feature_selection/gpu/test_usability_pool_resident_parity.py). The ULP-tie sensitivity is absorbed by
-    # the ``_mi_key`` grid-snap (already engaged under ``_seleq``). The DEFAULT (flag-off) path is BYTE-IDENTICAL
-    # - it never computes the resident table and uses the per-pair njit ``score_pair_combos`` exactly as before.
-    # If the resident table errors (no cupy / device fault) it returns None and we fall back per-pair. This is a
-    # residency win (the MI runs on-device under the flag), not necessarily a wall win at the FE-subsample n.
     st._resident_table = None
     st._resident_table = _build_usability_cand_step2_residency_win_mi(st._seleq, st._ua_codes, st._ub_codes, st._bn_codes, st.pairs, st.base_f64, st.y_codes, st.y_terms, quantization_nbins)
     _build_usability_cand_step3_pidx_n1_n2(st.pairs, st.base_f64, st._ua_codes, st.unary, st.binary, st._resident_table, st.y_codes, st.y_terms, quantization_nbins, st._ub_codes, st._bn_codes, mi_floor, st._mi_key, max_per_pair, feature_dtype, diversity_corr, unary_preset, binary_preset, quantization_method, quantization_dtype, st._combo_replay_ok, X_df, st.pool)
@@ -534,6 +537,133 @@ def _usability_greedy_try_gpu_resident(pool, y_cont, *, w, K, seed, n_folds, mae
     return None
 
 
+def _usability_scorers(classification: bool, y_cont: np.ndarray) -> Optional[tuple]:
+    """CV scorer factory ``_mk`` (scaled logistic / OLS pipeline), the multi-class log-loss, and the encoded labels; None when a classification target has < 2 classes.
+
+    Returns ``(_mk, _logloss, y_enc, n_classes)``."""
+    from sklearn.linear_model import LinearRegression, LogisticRegression
+    from sklearn.preprocessing import StandardScaler
+    from sklearn.pipeline import make_pipeline
+
+    # CLASSIFICATION mode: the LINEAR downstream for a classification target is a LOGISTIC
+    # model, and the deployed objective is a CLASSIFICATION metric - so the wrapper must score by
+    # CROSS-VALIDATED LOGLOSS of a logistic model, not CV-MAE of a linear regression. Mirrors the
+    # regression structure exactly (lower-is-better metric, majority-of-folds improvement gate); the
+    # regression path (classification=False) is byte-identical.
+    _logloss: Any = None  # defined on the classification branch only; the CV helper reads it there
+    y_enc: Any = None
+    n_classes: Any = None
+    if classification:
+        y_enc = np.asarray(y_cont).ravel()
+        # encode to dense 0..C-1 class codes
+        _classes, y_enc = np.unique(y_enc, return_inverse=True)
+        n_classes = int(_classes.size)
+        if n_classes < 2:
+            return None
+
+        def _mk():
+            """Build a fresh scaled-logistic-regression pipeline (classification path CV scorer/pre-rank model)."""
+            return make_pipeline(StandardScaler(), LogisticRegression(max_iter=200))
+
+        from sklearn.metrics import log_loss as _log_loss
+        _labels = np.arange(n_classes)
+
+        def _logloss(y_true, proba):
+            """Multi-class log loss of ``proba`` against ``y_true``, evaluated over the fixed full label set
+            ``_labels`` (so a fold missing a class still scores against the complete class set)."""
+            return float(_log_loss(y_true, proba, labels=_labels))
+    else:
+        # bench-attempt-rejected (2026-06-13): an audit flagged OLS min-norm as fragile on a singular/wide
+        # selected set and suggested a small Ridge in the CV. Benched OLS vs Ridge(alpha=1) on F2: n=8000
+        # IDENTICAL (0.0554 per-seed - the design is never singular here, K<=8 features vs folds of 1000s
+        # of rows), n=500 marginally WORSE (0.0670 -> 0.0672). The singular regime needs per-fold rows <
+        # selected-feature count, which cannot happen given the shortlist + the small K, so Ridge buys
+        # nothing. Kept OLS (the gold-standard wrapper that matches the deployed objective). Do not re-add.
+        def _mk():
+            """Build a fresh scaled-OLS-linear-regression pipeline (regression path CV scorer/pre-rank model)."""
+            return make_pipeline(StandardScaler(), LinearRegression())
+    return _mk, _logloss, y_enc, n_classes
+
+    # INCREMENTAL CV (was a PERF TODO): the regression scorer no longer refits a
+    # StandardScaler+LinearRegression for every (candidate, fold). ``StandardScaler -> LinearRegression
+    # (fit_intercept=True)`` predictions are INVARIANT to per-column affine scaling, so they equal a raw
+    # mean-CENTERED OLS-with-intercept fit; that lets us work with the centered normal equations directly.
+    # Within one greedy step ``selected`` is fixed, so per fold the selected-set centered Gram
+    # ``Gs = Xc_tr.T @ Xc_tr`` and ``bs = Xc_tr.T @ yc_tr`` are computed ONCE; each shortlist candidate is a
+    # rank-1 BORDER (one extra row/col of the Gram + one dot with y), solved as a (k+1)x(k+1) system
+    # (k <= K, trivial) instead of an O(n*k^2) refit. The per-candidate work is then O(n) for the borders +
+    # O(k^3) for the solve. The selection is the SAME as the full-refit path: centered OLS is the unique
+    # minimiser the SVD-based LinearRegression also finds (matched to ~1e-9 on the gate datasets). The
+    # classification (logistic / CV-logloss) path and the no-selection MAE baseline stay on ``_cv_per_fold``
+    # (byte-identical), and ``_cv_per_fold`` remains the exact fallback for any fold whose bordered Gram is
+    # singular (degenerate / collinear column) so correctness never depends on the fast path.
+
+
+def _cv_candidates_incremental(sel_idx, cand_list, n_folds: int, _fold_tr: list, _fold_va: list, y_cont: np.ndarray, _pv, _cv_per_fold) -> dict:
+    """Return {cand_i: per-fold MAE array} for the regression path via the bordered normal equations.
+    Falls back to a per-candidate ``_cv_per_fold`` for any fold where the centered border is singular."""
+    # Precompute, ONCE per step per fold: centered selected design (train+val), ybar, Gs, bs.
+    Xsel = np.column_stack([_pv(j) for j in sel_idx]) if sel_idx else None
+    per_fold = []
+    for fo in range(n_folds):
+        tr, va = _fold_tr[fo], _fold_va[fo]
+        ytr = y_cont[tr]
+        ybar = float(ytr.mean())
+        yc = ytr - ybar
+        if sel_idx:
+            assert Xsel is not None  # Xsel is built from the same sel_idx truthiness check above
+            Str = Xsel[tr]; Sva = Xsel[va]
+            mu = Str.mean(axis=0)
+            Sc_tr = Str - mu
+            Sc_va = Sva - mu
+            Gs = Sc_tr.T @ Sc_tr
+            bs = Sc_tr.T @ yc
+        else:
+            Sc_tr = Sc_va = None; mu = None; Gs = None; bs = None
+        per_fold.append((tr, va, ybar, yc, Sc_tr, Sc_va, Gs, bs))
+
+    out: dict = {}
+    for i in cand_list:
+        ci = _pv(i)
+        errs = np.empty(n_folds, dtype=np.float64)
+        singular = False
+        for fo in range(n_folds):
+            tr, va, ybar, yc, Sc_tr, Sc_va, Gs, bs = per_fold[fo]
+            ctr = ci[tr]; cva = ci[va]
+            cmu = float(ctr.mean())
+            cc_tr = ctr - cmu
+            cc_va = cva - cmu
+            if Sc_tr is None:
+                d = float(cc_tr @ cc_tr)
+                if d <= 1e-12:
+                    singular = True; break
+                beta = float(cc_tr @ yc) / d
+                pred = ybar + cc_va * beta
+            else:
+                g = Sc_tr.T @ cc_tr  # cross terms (k,)
+                d = float(cc_tr @ cc_tr)  # new diagonal
+                bn = float(cc_tr @ yc)  # new rhs entry
+                k = Gs.shape[0]
+                G = np.empty((k + 1, k + 1), dtype=np.float64)
+                G[:k, :k] = Gs; G[:k, k] = g; G[k, :k] = g; G[k, k] = d
+                rhs = np.empty(k + 1, dtype=np.float64)
+                rhs[:k] = bs; rhs[k] = bn
+                try:
+                    beta_vec = np.linalg.solve(G, rhs)
+                except np.linalg.LinAlgError as _sing_exc:
+                    log_throttle(logger, "_usability_aware_selection.loo_solve", logging.WARNING,
+                                 "usability LOO solve hit a singular Gram matrix (%s); candidate falls back to the exact refit", _sing_exc)
+                    singular = True; break
+                pred = ybar + Sc_va @ beta_vec[:k] + cc_va * beta_vec[k]
+            errs[fo] = float(np.mean(np.abs(y_cont[va] - pred)))
+        if singular:
+            # exact fallback: refit through the standard pipeline for this candidate.
+            out[i] = _cv_per_fold([*sel_idx, i])
+        else:
+            out[i] = errs
+    return out
+
+
 def usability_greedy(
     pool: list[UsableCandidate],
     y_cont: np.ndarray,
@@ -588,47 +718,10 @@ def usability_greedy(
     )
     if _gpu_res is not None:
         return _gpu_res
-    from sklearn.linear_model import LinearRegression, LogisticRegression
-    from sklearn.preprocessing import StandardScaler
-    from sklearn.pipeline import make_pipeline
-
-    # CLASSIFICATION mode: the LINEAR downstream for a classification target is a LOGISTIC
-    # model, and the deployed objective is a CLASSIFICATION metric - so the wrapper must score by
-    # CROSS-VALIDATED LOGLOSS of a logistic model, not CV-MAE of a linear regression. Mirrors the
-    # regression structure exactly (lower-is-better metric, majority-of-folds improvement gate); the
-    # regression path (classification=False) is byte-identical.
-    _logloss: Any = None  # defined on the classification branch only; the CV helper reads it there
-    y_enc: Any = None
-    n_classes: Any = None
-    if classification:
-        y_enc = np.asarray(y_cont).ravel()
-        # encode to dense 0..C-1 class codes
-        _classes, y_enc = np.unique(y_enc, return_inverse=True)
-        n_classes = int(_classes.size)
-        if n_classes < 2:
-            return []
-
-        def _mk():
-            """Build a fresh scaled-logistic-regression pipeline (classification path CV scorer/pre-rank model)."""
-            return make_pipeline(StandardScaler(), LogisticRegression(max_iter=200))
-
-        from sklearn.metrics import log_loss as _log_loss
-        _labels = np.arange(n_classes)
-
-        def _logloss(y_true, proba):
-            """Multi-class log loss of ``proba`` against ``y_true``, evaluated over the fixed full label set
-            ``_labels`` (so a fold missing a class still scores against the complete class set)."""
-            return float(_log_loss(y_true, proba, labels=_labels))
-    else:
-        # bench-attempt-rejected (2026-06-13): an audit flagged OLS min-norm as fragile on a singular/wide
-        # selected set and suggested a small Ridge in the CV. Benched OLS vs Ridge(alpha=1) on F2: n=8000
-        # IDENTICAL (0.0554 per-seed - the design is never singular here, K<=8 features vs folds of 1000s
-        # of rows), n=500 marginally WORSE (0.0670 -> 0.0672). The singular regime needs per-fold rows <
-        # selected-feature count, which cannot happen given the shortlist + the small K, so Ridge buys
-        # nothing. Kept OLS (the gold-standard wrapper that matches the deployed objective). Do not re-add.
-        def _mk():
-            """Build a fresh scaled-OLS-linear-regression pipeline (regression path CV scorer/pre-rank model)."""
-            return make_pipeline(StandardScaler(), LinearRegression())
+    _scorers = _usability_scorers(classification, y_cont)
+    if _scorers is None:
+        return []
+    _mk, _logloss, y_enc, n_classes = _scorers
 
     if not pool:
         return []
@@ -662,20 +755,6 @@ def usability_greedy(
     if mi_max == 0:
         mi_max = 1.0
 
-    # INCREMENTAL CV (was a PERF TODO): the regression scorer no longer refits a
-    # StandardScaler+LinearRegression for every (candidate, fold). ``StandardScaler -> LinearRegression
-    # (fit_intercept=True)`` predictions are INVARIANT to per-column affine scaling, so they equal a raw
-    # mean-CENTERED OLS-with-intercept fit; that lets us work with the centered normal equations directly.
-    # Within one greedy step ``selected`` is fixed, so per fold the selected-set centered Gram
-    # ``Gs = Xc_tr.T @ Xc_tr`` and ``bs = Xc_tr.T @ yc_tr`` are computed ONCE; each shortlist candidate is a
-    # rank-1 BORDER (one extra row/col of the Gram + one dot with y), solved as a (k+1)x(k+1) system
-    # (k <= K, trivial) instead of an O(n*k^2) refit. The per-candidate work is then O(n) for the borders +
-    # O(k^3) for the solve. The selection is the SAME as the full-refit path: centered OLS is the unique
-    # minimiser the SVD-based LinearRegression also finds (matched to ~1e-9 on the gate datasets). The
-    # classification (logistic / CV-logloss) path and the no-selection MAE baseline stay on ``_cv_per_fold``
-    # (byte-identical), and ``_cv_per_fold`` remains the exact fallback for any fold whose bordered Gram is
-    # singular (degenerate / collinear column) so correctness never depends on the fast path.
-
     # Per-fold train/val masks + train-centered selected design, cached for the current step.
     _fold_tr = [folds != fo for fo in range(n_folds)]
     _fold_va = [folds == fo for fo in range(n_folds)]
@@ -693,69 +772,9 @@ def usability_greedy(
             _f64_by_idx[i] = v
         return v
 
-    def _cv_candidates_incremental(sel_idx, cand_list) -> dict:
-        """Return {cand_i: per-fold MAE array} for the regression path via the bordered normal equations.
-        Falls back to a per-candidate ``_cv_per_fold`` for any fold where the centered border is singular."""
-        # Precompute, ONCE per step per fold: centered selected design (train+val), ybar, Gs, bs.
-        Xsel = np.column_stack([_pv(j) for j in sel_idx]) if sel_idx else None
-        per_fold = []
-        for fo in range(n_folds):
-            tr, va = _fold_tr[fo], _fold_va[fo]
-            ytr = y_cont[tr]
-            ybar = float(ytr.mean())
-            yc = ytr - ybar
-            if sel_idx:
-                assert Xsel is not None  # Xsel is built from the same sel_idx truthiness check above
-                Str = Xsel[tr]; Sva = Xsel[va]
-                mu = Str.mean(axis=0)
-                Sc_tr = Str - mu
-                Sc_va = Sva - mu
-                Gs = Sc_tr.T @ Sc_tr
-                bs = Sc_tr.T @ yc
-            else:
-                Sc_tr = Sc_va = None; mu = None; Gs = None; bs = None
-            per_fold.append((tr, va, ybar, yc, Sc_tr, Sc_va, Gs, bs))
-
-        out: dict = {}
-        for i in cand_list:
-            ci = _pv(i)
-            errs = np.empty(n_folds, dtype=np.float64)
-            singular = False
-            for fo in range(n_folds):
-                tr, va, ybar, yc, Sc_tr, Sc_va, Gs, bs = per_fold[fo]
-                ctr = ci[tr]; cva = ci[va]
-                cmu = float(ctr.mean())
-                cc_tr = ctr - cmu
-                cc_va = cva - cmu
-                if Sc_tr is None:
-                    d = float(cc_tr @ cc_tr)
-                    if d <= 1e-12:
-                        singular = True; break
-                    beta = float(cc_tr @ yc) / d
-                    pred = ybar + cc_va * beta
-                else:
-                    g = Sc_tr.T @ cc_tr  # cross terms (k,)
-                    d = float(cc_tr @ cc_tr)  # new diagonal
-                    bn = float(cc_tr @ yc)  # new rhs entry
-                    k = Gs.shape[0]
-                    G = np.empty((k + 1, k + 1), dtype=np.float64)
-                    G[:k, :k] = Gs; G[:k, k] = g; G[k, :k] = g; G[k, k] = d
-                    rhs = np.empty(k + 1, dtype=np.float64)
-                    rhs[:k] = bs; rhs[k] = bn
-                    try:
-                        beta_vec = np.linalg.solve(G, rhs)
-                    except np.linalg.LinAlgError as _sing_exc:
-                        log_throttle(logger, "_usability_aware_selection.loo_solve", logging.WARNING,
-                                     "usability LOO solve hit a singular Gram matrix (%s); candidate falls back to the exact refit", _sing_exc)
-                        singular = True; break
-                    pred = ybar + Sc_va @ beta_vec[:k] + cc_va * beta_vec[k]
-                errs[fo] = float(np.mean(np.abs(y_cont[va] - pred)))
-            if singular:
-                # exact fallback: refit through the standard pipeline for this candidate.
-                out[i] = _cv_per_fold([*sel_idx, i])
-            else:
-                out[i] = errs
-        return out
+    def _cv_candidates_incremental_bound(sel_idx: Any, cand_list: Any) -> dict:
+        """Per-fold MAE of each candidate appended to ``sel_idx`` (bordered normal equations, exact refit fallback)."""
+        return _cv_candidates_incremental(sel_idx, cand_list, n_folds, _fold_tr, _fold_va, y_cont, _pv, _cv_per_fold)
 
     _cv_per_fold = _usability_greedy_step2_def_cv_fold(classification, n_folds, folds, y_enc, n_classes, _logloss, _pv, _mk, y_cont)
 
@@ -770,7 +789,7 @@ def usability_greedy(
     st.selected = []
     st.folds_cur = _cv_per_fold(st.selected)
     st.mae_cur = float(st.folds_cur.mean())
-    _usability_greedy_step4_consistency_across_folds(K, pool, _shortlist, st, classification, _cv_candidates_incremental, _cv_per_fold, mae_improve_rel)
+    _usability_greedy_step4_consistency_across_folds(K, pool, _shortlist, st, classification, _cv_candidates_incremental_bound, _cv_per_fold, mae_improve_rel)
     return [pool[i] for i in st.selected]
 
 

@@ -390,6 +390,274 @@ def get_postcalibrators(calib_target: np.ndarray, num_bins: int) -> list[NamedCa
     return calibrators
 
 
+def _require_binary_calib_target(calib_target: np.ndarray) -> None:
+    """Raise unless ``calib_target`` has exactly 2 distinct classes (the calibrator zoo is binary-only)."""
+    # get_postcalibrators/BinaryPostCalibrator wrap third-party BINARY calibrators only (see class
+    # docstring): postcalibrate_probs unconditionally reduces to a positive-class column and reshapes
+    # 1D output into a (n, 2) matrix, which is only correct for exactly 2 classes. A 3+-class or
+    # single-class calib_target must raise here rather than silently mis-fit deep inside sklearn/netcal.
+    _classes_check = np.unique(np.asarray(calib_target))
+    if _classes_check.size != 2:
+        raise ValueError(
+            f"compare_postcalibrators: calib_target must have exactly 2 distinct classes (got {_classes_check.size}: "
+            f"{_classes_check.tolist()!r}). The calibrator zoo (BinaryPostCalibrator/get_postcalibrators) is binary-only; "
+            "a 3+-class target silently mis-fits some wrapped calibrators, and a single-class target crashes deep "
+            "inside third-party fit() calls (e.g. sklearn's 'needs samples of at least 2 classes'). Provide a "
+            "2-class calib_target, or route multi-class calibration through a one-vs-rest wrapper upstream."
+        )
+
+
+def _resolve_inner_cv(
+    oos_probs: Optional[np.ndarray],
+    selection: str,
+    calib_target_np: np.ndarray,
+    inner_cv_splits: int,
+    random_state: Optional[int],
+    eval_label: str,
+) -> tuple[bool, Optional[list[np.ndarray]], str]:
+    """Decide whether the inner-CV held-out evaluation applies; returns ``(use_inner_cv, inner_folds, eval_label)``."""
+    use_inner_cv = False
+    inner_folds: Optional[list[np.ndarray]] = None
+    if oos_probs is None and selection == "inner_cv":
+        classes = np.unique(calib_target_np)
+        min_rows_needed = max(2, int(inner_cv_splits)) * 2
+        if classes.size != 2:
+            logger.warning(
+                "compare_postcalibrators: selection='inner_cv' requires exactly 2 classes in calib_target; " "got %d. Falling back to self-eval (optimistic).",
+                classes.size,
+            )
+        elif calib_target_np.shape[0] < min_rows_needed:
+            logger.warning(
+                "compare_postcalibrators: selection='inner_cv' needs >= %d calib rows for %d folds; got %d. " "Falling back to self-eval (optimistic).",
+                min_rows_needed,
+                inner_cv_splits,
+                calib_target_np.shape[0],
+            )
+        else:
+            inner_folds = _stratified_inner_folds(calib_target_np, max(2, int(inner_cv_splits)), random_state)
+            use_inner_cv = True
+            eval_label = "CALIB (inner-CV held-out)"
+    return use_inner_cv, inner_folds, eval_label
+
+
+def _disambiguate_calibrator_name(calibrator_name: str, _seen_names: dict[str, int]) -> str:
+    """Return a unique calibrator key: a ``#n`` suffix is appended (with a warning) when ``full_name()`` repeats."""
+    # full_name() collisions (two zoo entries resolving to the same lib.Name[param_str] key,
+    # e.g. a caller-added custom calibrator without a distinguishing name/param_str) would
+    # otherwise silently overwrite one calibrator's row in metrics/fit_calibrators - disambiguate
+    # with a numeric suffix and warn, rather than dropping a result with no error.
+    if calibrator_name in _seen_names:
+        _seen_names[calibrator_name] += 1
+        _disambiguated_name = f"{calibrator_name}#{_seen_names[calibrator_name]}"
+        log_throttle(
+            logger,
+            "compare_postcalibrators_name_collision",
+            logging.WARNING,
+            "compare_postcalibrators: calibrator name %r collides with a previously-seen entry; "
+            "renaming this one to %r to avoid silently overwriting its result. Give it a distinguishing "
+            "name/param_str in get_postcalibrators/named_calibrator to fix at the source.",
+            calibrator_name,
+            _disambiguated_name,
+        )
+        calibrator_name = _disambiguated_name
+    else:
+        _seen_names[calibrator_name] = 0
+    return calibrator_name
+
+
+def _fit_and_predict_calibrator(
+    clf: Any,
+    calibrator_name: str,
+    use_inner_cv: bool,
+    inner_folds: Optional[list[np.ndarray]],
+    calib_probs: np.ndarray,
+    calib_target: np.ndarray,
+    calib_probs_np: np.ndarray,
+    calib_target_np: np.ndarray,
+    sample_weight_np: Optional[np.ndarray],
+    _eval_probs: np.ndarray,
+    _eval_target: np.ndarray,
+    fit_calibrators: dict,
+) -> tuple[Any, float, float, np.ndarray]:
+    """Fit one calibrator and predict; returns ``(calibrated_probs, fitting_time, predicting_time, eval_target)``."""
+    with config_context(transform_output="default"):
+
+        r"""
+        config_context needed here to avoid:
+
+        ...\site-packages\netcal\binning\IsotonicRegression.py:183, in IsotonicRegression.transform(self, X)
+            179     calibrated = self._iso.transform(X)
+            181 # add clipping to [0, 1] to avoid exceeding due to numerical issues
+            182 # https://github.com/EFS-OpenSource/calibration-framework/issues/54
+        --> 183 np.clip(calibrated, 0, 1, out=calibrated)
+            185 return calibrated
+        """
+
+        start = timer()
+
+        if use_inner_cv and inner_folds is not None:
+            # Fit on each fold's complement, predict on the held-out fold - the calibrator
+            # never sees the rows it is scored on, unlike the same-data self-eval path.
+            oof_calibrated = None
+            for held_idx in inner_folds:
+                held_mask = np.zeros(calib_target_np.shape[0], dtype=bool)
+                held_mask[held_idx] = True
+                train_idx = np.flatnonzero(~held_mask)
+                fold_clf = copy.deepcopy(clf)
+                fold_sw = sample_weight_np[train_idx] if sample_weight_np is not None else None
+                fold_clf.fit(calib_probs_np[train_idx], calib_target_np[train_idx], sample_weight=fold_sw)
+                fold_pred = np.asarray(fold_clf.postcalibrate_probs(calib_probs_np[held_idx]))
+                if oof_calibrated is None:
+                    oof_calibrated = np.empty((calib_target_np.shape[0], *fold_pred.shape[1:]), dtype=fold_pred.dtype)
+                oof_calibrated[held_idx] = fold_pred
+            calibrated_probs = oof_calibrated
+            fitting_time = timer() - start
+
+            # Refit on the FULL calib set for the deployment artefact persisted to disk.
+            start = timer()
+            clf.fit(calib_probs, calib_target, sample_weight=sample_weight_np)
+            fit_calibrators[calibrator_name] = clf
+            predicting_time = timer() - start
+            _row_eval_target = calib_target_np
+        else:
+            clf.fit(calib_probs, calib_target, sample_weight=sample_weight_np)
+            fit_calibrators[calibrator_name] = clf
+            fitting_time = timer() - start
+
+            start = timer()
+            calibrated_probs = clf.postcalibrate_probs(_eval_probs)
+            predicting_time = timer() - start
+            _row_eval_target = _eval_target
+    return calibrated_probs, fitting_time, predicting_time, _row_eval_target
+
+
+def _fit_score_calibrators(
+    calibrators: list,
+    include_patterns: list,
+    skip_patterns: list,
+    use_inner_cv: bool,
+    inner_folds: Optional[list[np.ndarray]],
+    calib_probs: np.ndarray,
+    calib_target: np.ndarray,
+    calib_probs_np: np.ndarray,
+    calib_target_np: np.ndarray,
+    sample_weight_np: Optional[np.ndarray],
+    _eval_probs: np.ndarray,
+    _eval_target: np.ndarray,
+    _eval_label: str,
+    columns: list,
+    model_name: str,
+    calib_type: str,
+    plot_file: str,
+    report_params: dict,
+    metrics: dict[str, Any],
+    fit_calibrators: dict,
+    failed_calibrators: dict[str, str],
+) -> None:
+    """Fit/predict every calibrator in the zoo and record its report metrics into ``metrics`` (failures go to ``failed_calibrators``)."""
+    from mlframe.training.evaluation import report_model_perf
+
+    _seen_names: dict[str, int] = {}
+    for nc in tqdmu(calibrators, desc="calibrator"):
+        clf = nc.calibrator
+        calibrator_name = _disambiguate_calibrator_name(nc.full_name(), _seen_names)
+
+        if not should_run(calibrator_name, include_patterns, skip_patterns):
+            continue
+
+        _calibrator_start = timer()
+        try:
+            calibrated_probs, fitting_time, predicting_time, _row_eval_target = _fit_and_predict_calibrator(
+                clf,
+                calibrator_name,
+                use_inner_cv,
+                inner_folds,
+                calib_probs,
+                calib_target,
+                calib_probs_np,
+                calib_target_np,
+                sample_weight_np,
+                _eval_probs,
+                _eval_target,
+                fit_calibrators,
+            )
+        except Exception as exc:
+            # Elapsed time up to the point of failure - a calibrator that hangs/is unusually slow
+            # before crashing otherwise leaves no partial timing signal to diagnose which one.
+            _elapsed = timer() - _calibrator_start
+            log_throttle(
+                logger,
+                "compare_postcalibrators_calibrator_failed",
+                logging.ERROR,
+                "compare_postcalibrators: calibrator %s failed to fit/predict after %.3fs and is skipped: %r",
+                calibrator_name,
+                _elapsed,
+                exc,
+                exc_info=True,
+            )
+            failed_calibrators[calibrator_name] = repr(exc)
+            continue
+
+        metrics[calibrator_name] = {}
+        _, _ = report_model_perf(
+            targets=_row_eval_target,
+            columns=columns,
+            df=None,
+            model_name=f"{model_name} {calibrator_name} {calib_type}",
+            model=None,
+            target_label_encoder=None,
+            preds=None,
+            probs=calibrated_probs,
+            plot_file=plot_file,
+            report_title=_eval_label,
+            metrics=metrics[calibrator_name],
+            group_ids=None,
+            **report_params,
+        )
+        metrics[calibrator_name]["fitting_time"] = fitting_time
+        metrics[calibrator_name]["predicting_time"] = predicting_time
+
+
+def _assemble_metrics_df(metrics: dict[str, Any]) -> Optional[pd.DataFrame]:
+    """Flatten the per-calibrator ``metrics`` dict into a dataframe sorted by ``ice`` (``None`` when no calibrator produced a row)."""
+    metrics_df: Optional[pd.DataFrame]
+    if len(metrics) <= 1:
+        # Only the "oos"/baseline row was ever populated - every calibrator was either skipped by
+        # should_run's include/skip patterns or failed during fit/predict.
+        metrics_df = None
+    else:
+        metrics_df = pd.DataFrame(metrics).T
+        # Column `1` holds the second element of the tuple returned by report_model_perf
+        # (a dict of per-metric scores); we flatten it into wide-form columns and drop the
+        # feature_importances column which isn't useful for calibrator comparison.
+        PERF_DICT_COL = 1
+        perf_dict_df = metrics_df[PERF_DICT_COL].apply(pd.Series)
+        # report_model_perf's per-calibrator dict shape may vary across task types/configs (e.g. a
+        # metric undefined for a degenerate/constant prediction). Taking the UNION of keys means a
+        # calibrator missing a key gets a NaN there instead of raising - surface that explicitly
+        # rather than letting it silently rank the calibrator via NaN sort placement.
+        _row_key_counts = perf_dict_df.notna().sum(axis=1)
+        _expected_keys = perf_dict_df.shape[1]
+        _incomplete_rows = _row_key_counts[_row_key_counts < _expected_keys]
+        if not _incomplete_rows.empty:
+            logger.warning(
+                "compare_postcalibrators: %d calibrator(s) have a narrower metric-key set than the rest "
+                "(missing metrics NaN-filled rather than computed): %s",
+                len(_incomplete_rows),
+                {name: _expected_keys - int(cnt) for name, cnt in _incomplete_rows.items()},
+            )
+        metrics_df = metrics_df.drop(columns=[PERF_DICT_COL]).join(perf_dict_df)
+        metrics_df = metrics_df.drop(columns=["feature_importances"], errors="ignore")
+        if "ice" in metrics_df.columns:
+            metrics_df = metrics_df.sort_values("ice")
+        else:
+            logger.warning(
+                "compare_postcalibrators: expected 'ice' metric column not found in report_model_perf output " "(got columns=%s); skipping the ice-based sort.",
+                list(metrics_df.columns),
+            )
+    return metrics_df
+
+
 def compare_postcalibrators(
     model_name: str,
     columns: list,
@@ -446,23 +714,11 @@ def compare_postcalibrators(
     if selection not in ("inner_cv", "self_eval"):
         raise ValueError(f"compare_postcalibrators: selection must be 'inner_cv' or 'self_eval'; got {selection!r}")
 
-    # get_postcalibrators/BinaryPostCalibrator wrap third-party BINARY calibrators only (see class
-    # docstring): postcalibrate_probs unconditionally reduces to a positive-class column and reshapes
     # Deferred: calibration/ is a lower-level package that training/ orchestrates; this avoids an
     # eager module-scope training/ import for a name only used inside this function body.
     from mlframe.training.evaluation import report_model_perf
 
-    # 1D output into a (n, 2) matrix, which is only correct for exactly 2 classes. A 3+-class or
-    # single-class calib_target must raise here rather than silently mis-fit deep inside sklearn/netcal.
-    _classes_check = np.unique(np.asarray(calib_target))
-    if _classes_check.size != 2:
-        raise ValueError(
-            f"compare_postcalibrators: calib_target must have exactly 2 distinct classes (got {_classes_check.size}: "
-            f"{_classes_check.tolist()!r}). The calibrator zoo (BinaryPostCalibrator/get_postcalibrators) is binary-only; "
-            "a 3+-class target silently mis-fits some wrapped calibrators, and a single-class target crashes deep "
-            "inside third-party fit() calls (e.g. sklearn's 'needs samples of at least 2 classes'). Provide a "
-            "2-class calib_target, or route multi-class calibration through a one-vs-rest wrapper upstream."
-        )
+    _require_binary_calib_target(calib_target)
 
     logger.info(
         "Calib set size=%d, oos set size=%d, num_bins=%s.",
@@ -475,7 +731,7 @@ def compare_postcalibrators(
         report_params = {"report_ndigits": 4, "calib_report_ndigits": 4, "print_report": False}
 
     metrics: dict[str, Any] = {"oos": {}}
-    fit_calibrators = {}
+    fit_calibrators: dict = {}
     failed_calibrators: dict[str, str] = {}
 
     # No separate OOS set (the ONLY current caller, train_postcalibrators, never supplies one - see
@@ -493,27 +749,7 @@ def compare_postcalibrators(
     _eval_target = oos_target if oos_target is not None else calib_target
     _eval_label = "OOS" if oos_probs is not None else "CALIB (self-eval, optimistic)"
 
-    use_inner_cv = False
-    inner_folds: Optional[list[np.ndarray]] = None
-    if oos_probs is None and selection == "inner_cv":
-        classes = np.unique(calib_target_np)
-        min_rows_needed = max(2, int(inner_cv_splits)) * 2
-        if classes.size != 2:
-            logger.warning(
-                "compare_postcalibrators: selection='inner_cv' requires exactly 2 classes in calib_target; " "got %d. Falling back to self-eval (optimistic).",
-                classes.size,
-            )
-        elif calib_target_np.shape[0] < min_rows_needed:
-            logger.warning(
-                "compare_postcalibrators: selection='inner_cv' needs >= %d calib rows for %d folds; got %d. " "Falling back to self-eval (optimistic).",
-                min_rows_needed,
-                inner_cv_splits,
-                calib_target_np.shape[0],
-            )
-        else:
-            inner_folds = _stratified_inner_folds(calib_target_np, max(2, int(inner_cv_splits)), random_state)
-            use_inner_cv = True
-            _eval_label = "CALIB (inner-CV held-out)"
+    use_inner_cv, inner_folds, _eval_label = _resolve_inner_cv(oos_probs, selection, calib_target_np, inner_cv_splits, random_state, _eval_label)
 
     _, _ = report_model_perf(
         targets=_eval_target,
@@ -533,120 +769,29 @@ def compare_postcalibrators(
 
     calibrators = get_postcalibrators(calib_target=calib_target, num_bins=num_bins)
 
-    _seen_names: dict[str, int] = {}
-    for nc in tqdmu(calibrators, desc="calibrator"):
-        clf = nc.calibrator
-        calibrator_name = nc.full_name()
-
-        # full_name() collisions (two zoo entries resolving to the same lib.Name[param_str] key,
-        # e.g. a caller-added custom calibrator without a distinguishing name/param_str) would
-        # otherwise silently overwrite one calibrator's row in metrics/fit_calibrators - disambiguate
-        # with a numeric suffix and warn, rather than dropping a result with no error.
-        if calibrator_name in _seen_names:
-            _seen_names[calibrator_name] += 1
-            _disambiguated_name = f"{calibrator_name}#{_seen_names[calibrator_name]}"
-            log_throttle(
-                logger,
-                "compare_postcalibrators_name_collision",
-                logging.WARNING,
-                "compare_postcalibrators: calibrator name %r collides with a previously-seen entry; "
-                "renaming this one to %r to avoid silently overwriting its result. Give it a distinguishing "
-                "name/param_str in get_postcalibrators/named_calibrator to fix at the source.",
-                calibrator_name,
-                _disambiguated_name,
-            )
-            calibrator_name = _disambiguated_name
-        else:
-            _seen_names[calibrator_name] = 0
-
-        if not should_run(calibrator_name, include_patterns, skip_patterns):
-            continue
-
-        _calibrator_start = timer()
-        try:
-            with config_context(transform_output="default"):
-
-                r"""
-                config_context needed here to avoid:
-
-                ...\site-packages\netcal\binning\IsotonicRegression.py:183, in IsotonicRegression.transform(self, X)
-                    179     calibrated = self._iso.transform(X)
-                    181 # add clipping to [0, 1] to avoid exceeding due to numerical issues
-                    182 # https://github.com/EFS-OpenSource/calibration-framework/issues/54
-                --> 183 np.clip(calibrated, 0, 1, out=calibrated)
-                    185 return calibrated
-                """
-
-                start = timer()
-
-                if use_inner_cv and inner_folds is not None:
-                    # Fit on each fold's complement, predict on the held-out fold - the calibrator
-                    # never sees the rows it is scored on, unlike the same-data self-eval path.
-                    oof_calibrated = None
-                    for held_idx in inner_folds:
-                        held_mask = np.zeros(calib_target_np.shape[0], dtype=bool)
-                        held_mask[held_idx] = True
-                        train_idx = np.flatnonzero(~held_mask)
-                        fold_clf = copy.deepcopy(clf)
-                        fold_sw = sample_weight_np[train_idx] if sample_weight_np is not None else None
-                        fold_clf.fit(calib_probs_np[train_idx], calib_target_np[train_idx], sample_weight=fold_sw)
-                        fold_pred = np.asarray(fold_clf.postcalibrate_probs(calib_probs_np[held_idx]))
-                        if oof_calibrated is None:
-                            oof_calibrated = np.empty((calib_target_np.shape[0], *fold_pred.shape[1:]), dtype=fold_pred.dtype)
-                        oof_calibrated[held_idx] = fold_pred
-                    calibrated_probs = oof_calibrated
-                    fitting_time = timer() - start
-
-                    # Refit on the FULL calib set for the deployment artefact persisted to disk.
-                    start = timer()
-                    clf.fit(calib_probs, calib_target, sample_weight=sample_weight_np)
-                    fit_calibrators[calibrator_name] = clf
-                    predicting_time = timer() - start
-                    _row_eval_target = calib_target_np
-                else:
-                    clf.fit(calib_probs, calib_target, sample_weight=sample_weight_np)
-                    fit_calibrators[calibrator_name] = clf
-                    fitting_time = timer() - start
-
-                    start = timer()
-                    calibrated_probs = clf.postcalibrate_probs(_eval_probs)
-                    predicting_time = timer() - start
-                    _row_eval_target = _eval_target
-        except Exception as exc:
-            # Elapsed time up to the point of failure - a calibrator that hangs/is unusually slow
-            # before crashing otherwise leaves no partial timing signal to diagnose which one.
-            _elapsed = timer() - _calibrator_start
-            log_throttle(
-                logger,
-                "compare_postcalibrators_calibrator_failed",
-                logging.ERROR,
-                "compare_postcalibrators: calibrator %s failed to fit/predict after %.3fs and is skipped: %r",
-                calibrator_name,
-                _elapsed,
-                exc,
-                exc_info=True,
-            )
-            failed_calibrators[calibrator_name] = repr(exc)
-            continue
-
-        metrics[calibrator_name] = {}
-        _, _ = report_model_perf(
-            targets=_row_eval_target,
-            columns=columns,
-            df=None,
-            model_name=f"{model_name} {calibrator_name} {calib_type}",
-            model=None,
-            target_label_encoder=None,
-            preds=None,
-            probs=calibrated_probs,
-            plot_file=plot_file,
-            report_title=_eval_label,
-            metrics=metrics[calibrator_name],
-            group_ids=None,
-            **report_params,
-        )
-        metrics[calibrator_name]["fitting_time"] = fitting_time
-        metrics[calibrator_name]["predicting_time"] = predicting_time
+    _fit_score_calibrators(
+        calibrators,
+        include_patterns,
+        skip_patterns,
+        use_inner_cv,
+        inner_folds,
+        calib_probs,
+        calib_target,
+        calib_probs_np,
+        calib_target_np,
+        sample_weight_np,
+        _eval_probs,
+        _eval_target,
+        _eval_label,
+        columns,
+        model_name,
+        calib_type,
+        plot_file,
+        report_params,
+        metrics,
+        fit_calibrators,
+        failed_calibrators,
+    )
 
     if failed_calibrators:
         logger.warning(
@@ -655,41 +800,7 @@ def compare_postcalibrators(
             failed_calibrators,
         )
 
-    metrics_df: Optional[pd.DataFrame]
-    if len(metrics) <= 1:
-        # Only the "oos"/baseline row was ever populated - every calibrator was either skipped by
-        # should_run's include/skip patterns or failed during fit/predict.
-        metrics_df = None
-    else:
-        metrics_df = pd.DataFrame(metrics).T
-        # Column `1` holds the second element of the tuple returned by report_model_perf
-        # (a dict of per-metric scores); we flatten it into wide-form columns and drop the
-        # feature_importances column which isn't useful for calibrator comparison.
-        PERF_DICT_COL = 1
-        perf_dict_df = metrics_df[PERF_DICT_COL].apply(pd.Series)
-        # report_model_perf's per-calibrator dict shape may vary across task types/configs (e.g. a
-        # metric undefined for a degenerate/constant prediction). Taking the UNION of keys means a
-        # calibrator missing a key gets a NaN there instead of raising - surface that explicitly
-        # rather than letting it silently rank the calibrator via NaN sort placement.
-        _row_key_counts = perf_dict_df.notna().sum(axis=1)
-        _expected_keys = perf_dict_df.shape[1]
-        _incomplete_rows = _row_key_counts[_row_key_counts < _expected_keys]
-        if not _incomplete_rows.empty:
-            logger.warning(
-                "compare_postcalibrators: %d calibrator(s) have a narrower metric-key set than the rest "
-                "(missing metrics NaN-filled rather than computed): %s",
-                len(_incomplete_rows),
-                {name: _expected_keys - int(cnt) for name, cnt in _incomplete_rows.items()},
-            )
-        metrics_df = metrics_df.drop(columns=[PERF_DICT_COL]).join(perf_dict_df)
-        metrics_df = metrics_df.drop(columns=["feature_importances"], errors="ignore")
-        if "ice" in metrics_df.columns:
-            metrics_df = metrics_df.sort_values("ice")
-        else:
-            logger.warning(
-                "compare_postcalibrators: expected 'ice' metric column not found in report_model_perf output " "(got columns=%s); skipping the ice-based sort.",
-                list(metrics_df.columns),
-            )
+    metrics_df = _assemble_metrics_df(metrics)
 
     return metrics_df, fit_calibrators, failed_calibrators
 

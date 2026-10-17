@@ -65,35 +65,7 @@ class _PredictMixin:
         if hasattr(X, "columns"):
             X = self._apply_cat_codes(X)
 
-        # Lazy import: the package __init__ imports this mixin at class-definition
-        # time, so a module-top ``from . import ...`` would be a cycle.
-        from . import _PREDICT_ONLY_DM_PARAM_KEYS
-
-        if not hasattr(self, "model") or self.model is None:
-            # NotFittedError per sklearn.
-            from sklearn.exceptions import NotFittedError
-            raise NotFittedError("Model has not been fitted yet. Call fit() before predict().")
-
-        if not hasattr(self, "prediction_datamodule") or self.prediction_datamodule is None:
-            # Reaches here only when the estimator was reconstructed
-            # without ever going through .fit() (e.g. user-constructed
-            # bare estimator, or a load() path that bypasses the sklearn
-            # lifecycle). The post-fit memory-safety pass now only NULLs
-            # the heavy train/val tensors INSIDE the datamodule (see
-            # fit() epilogue), keeping the lightweight shell around so
-            # predict-after-fit no longer reaches this branch at all.
-            logger.warning("No datamodule found from training. Creating temporary datamodule for prediction.")
-            # Same predict-only-key strip as the fit-time construction: the
-            # temporary datamodule constructor rejects ``predict_batch_size``
-            # (it is read off self.datamodule_params at line ~1161 below, not
-            # passed to the datamodule).
-            datamodule = self.datamodule_class(**{k: v for k, v in self.datamodule_params.items() if k not in _PREDICT_ONLY_DM_PARAM_KEYS})
-        else:
-            # Pre-fix this else-branch was missing and ``datamodule`` was
-            # left unbound; line 522 ``datamodule.setup_predict(...)`` then
-            # raised ``UnboundLocalError`` whenever a training-time
-            # datamodule was retained on the estimator.
-            datamodule = self.prediction_datamodule
+        datamodule = self._resolve_predict_datamodule()
 
         # Determine batch size for prediction. Three layers of precedence:
         #   1. ``batch_size`` arg explicitly passed to predict() - always wins.
@@ -115,108 +87,9 @@ class _PredictMixin:
 
         datamodule.setup_predict(X, batch_size=pred_batch_size)
 
-        if not hasattr(self, "trainer") or self.trainer is None:
-            _cached_acc = getattr(self, "_last_predict_accelerator", None)
-            _user_acc = (self.trainer_params or {}).get("accelerator")
-            trainer_params = {
-                "accelerator": _cached_acc if _cached_acc not in (None, "") else (_user_acc if _user_acc not in (None, "") else "auto"),
-                "devices": 1,
-                "logger": False,
-                "enable_checkpointing": False,
-                "enable_progress_bar": False,
-            }
-        else:
-            trainer_params = {
-                "accelerator": (
-                    self.trainer.accelerator.__class__.__name__.replace("Accelerator", "").lower() if hasattr(self.trainer, "accelerator") else "auto"
-                ),
-                "devices": 1,
-                "logger": False,
-                "enable_checkpointing": False,
-                "enable_progress_bar": False,
-            }
-            # Inherit the live trainer's precision when the caller didn't ask for
-            # a specific one; an explicit ``precision`` arg is applied below.
-            if precision is None and hasattr(self.trainer, "precision"):
-                trainer_params["precision"] = self.trainer.precision
+        trainer_params = self._build_predict_trainer_params(device, precision)
 
-        # Honor explicit predict(device=, precision=) overrides in BOTH paths.
-        # These used to live only in the ``else`` (live-trainer) branch, but
-        # ``self.trainer`` is reset to None after fit and after every predict, so
-        # the normal post-fit predict path always took the other branch and
-        # silently dropped the device/precision arguments documented on the
-        # public predict()/predict_proba() API.
-        if device is not None:
-            if device.startswith("cuda"):
-                trainer_params["accelerator"] = "cuda"
-            elif device == "cpu":
-                trainer_params["accelerator"] = "cpu"
-        if precision is not None:
-            trainer_params["precision"] = precision
-
-        # Multilabel-MLP predict -> CPU: the multilabel head + the
-        # per-feature permutation-importance loop (dozens of predicts per fit)
-        # churn the model across devices and intermittently corrupt the CUDA
-        # context -- "Expected all tensors on the same device, cpu and cuda:0"
-        # escalating to "CUDA illegal memory access" and an outright process
-        # crash on some hosts (cu118, observed). The first GPU attempt
-        # is what poisons the context, so retrying-on-CPU after the fact is not
-        # enough; route the WHOLE multilabel predict to CPU up front. GPU never
-        # gets touched -> the context stays clean -> predictions are stable. GPU
-        # acceleration is marginal for a small-MLP predict anyway, and
-        # binary/regression MLP predict is unaffected (still GPU). 16-mixed
-        # precision is invalid on CPU, so drop it when forcing CPU.
-        if getattr(self, "_is_multilabel", False):
-            trainer_params["accelerator"] = "cpu"
-            trainer_params.pop("precision", None)
-
-        # F-67 prediction-trainer caching (reinstated): F-67 originally cached one L.Trainer per
-        # (accelerator, precision) key, but was reverted -- reusing a Trainer across predict calls
-        # accumulated Lightning's prediction-loop state (``predict_loop.max_batches`` grew one entry per call
-        # against the CombinedLoader's single iterable), raising "Mismatch in number of limits (N) and number
-        # of iterables (1)" on the SECOND+ predict. Re-verified against the currently-installed Lightning
-        # (2.6.5): reusing one Trainer across many predict() calls with a FRESH TorchDataModule each time (this
-        # code's actual pattern -- ``datamodule.setup_predict(...)`` above always builds a new datamodule/
-        # dataloader) no longer reproduces that error; the CombinedLoader instance is rebuilt per call, only
-        # the outer Trainer object is reused. Safe now for another reason too: ``run_with_cuda_cpu_fallback``
-        # (``_cuda_fallback.py``) serializes every Trainer call process-wide, so concurrent permutation-
-        # importance threads (the scenario that made F-67's bug "exactly its benefit case") can no longer race
-        # on this cached Trainer's internal state either. Validated (see test_predict_trainer_cache_reuse.py):
-        # 100+ sequential predicts, a real multi-feature permutation_importance sweep, a multilabel model, and
-        # 8-thread concurrent predict -- all clean. Cache key matches the F-67 design (accelerator, precision);
-        # a mid-suite device/precision flip still rebuilds. ``_prediction_trainer_cache`` is pickle-excluded at
-        # __getstate__ (F-73b) since a cached Trainer isn't picklable -- the next predict() after a load()
-        # rebuilds it lazily.
-        # CUDA-broken-host guard (mirrors ``_base_fit.py``'s primary-trainer construction): resolve
-        # via ``safe_accelerator`` BEFORE building the Trainer, not after. Without this, a caller/test
-        # that lands "cuda"/"gpu"/"auto" in ``trainer_params["accelerator"]`` (the cached
-        # ``_last_predict_accelerator``, a ``device="cuda"`` override, or a live trainer whose
-        # accelerator reflects a prior GPU fit) went straight into ``L.Trainer(accelerator="cuda")`` on
-        # a host with no usable CUDA device, and Lightning raises
-        # ``MisconfigurationException: CUDAAccelerator can not run on your system`` at CONSTRUCTION
-        # time -- before ``run_with_cuda_cpu_fallback`` below ever gets a chance to catch anything,
-        # since it only wraps the ``.predict()`` call, not building ``prediction_trainer`` itself.
-        # ``_requested_accelerator`` (the pre-downgrade value) is kept for the fallback gate below so a
-        # caller who explicitly asked for CUDA (e.g. these CPU-fallback regression tests) still gets the
-        # CUDA-fingerprint retry semantics even once the probe has downgraded the trainer to "cpu".
-        _requested_accelerator = str(trainer_params.get("accelerator", "auto"))
-        _resolved_accelerator = safe_accelerator(_requested_accelerator)
-        if _resolved_accelerator != _requested_accelerator and _requested_accelerator in ("cuda", "gpu"):
-            logger.warning(
-                "Requested predict accelerator=%r but CUDA probe failed; downgrading to CPU so predict can complete.",
-                _requested_accelerator,
-            )
-        trainer_params["accelerator"] = _resolved_accelerator
-
-        _cache_key = (trainer_params.get("accelerator"), trainer_params.get("precision"))
-        _trainer_cache = getattr(self, "_prediction_trainer_cache", None)
-        if _trainer_cache is None:
-            _trainer_cache = {}
-        prediction_trainer = _trainer_cache.get(_cache_key)
-        if prediction_trainer is None:
-            prediction_trainer = L.Trainer(**cast(dict, trainer_params))
-            _trainer_cache[_cache_key] = prediction_trainer
-            self._prediction_trainer_cache = _trainer_cache
+        prediction_trainer, _requested_accelerator = self._get_prediction_trainer(trainer_params)
 
         # F-G fix: cache the accelerator the current prediction_trainer
         # was built with so the next _predict_raw call (after
@@ -286,6 +159,148 @@ class _PredictMixin:
         logger.info("Generated predictions with shape %s", result.shape)
 
         return result
+
+    def _resolve_predict_datamodule(self) -> Any:
+        """Return the datamodule used for prediction (the retained training one, or a temporary one); raise ``NotFittedError`` if unfitted."""
+        # Lazy import: the package __init__ imports this mixin at class-definition
+        # time, so a module-top ``from . import ...`` would be a cycle.
+        from . import _PREDICT_ONLY_DM_PARAM_KEYS
+
+        if not hasattr(self, "model") or self.model is None:
+            # NotFittedError per sklearn.
+            from sklearn.exceptions import NotFittedError
+            raise NotFittedError("Model has not been fitted yet. Call fit() before predict().")
+
+        if not hasattr(self, "prediction_datamodule") or self.prediction_datamodule is None:
+            # Reaches here only when the estimator was reconstructed
+            # without ever going through .fit() (e.g. user-constructed
+            # bare estimator, or a load() path that bypasses the sklearn
+            # lifecycle). The post-fit memory-safety pass now only NULLs
+            # the heavy train/val tensors INSIDE the datamodule (see
+            # fit() epilogue), keeping the lightweight shell around so
+            # predict-after-fit no longer reaches this branch at all.
+            logger.warning("No datamodule found from training. Creating temporary datamodule for prediction.")
+            # Same predict-only-key strip as the fit-time construction: the
+            # temporary datamodule constructor rejects ``predict_batch_size``
+            # (it is read off self.datamodule_params at line ~1161 below, not
+            # passed to the datamodule).
+            datamodule = self.datamodule_class(**{k: v for k, v in self.datamodule_params.items() if k not in _PREDICT_ONLY_DM_PARAM_KEYS})
+        else:
+            # Pre-fix this else-branch was missing and ``datamodule`` was
+            # left unbound; line 522 ``datamodule.setup_predict(...)`` then
+            # raised ``UnboundLocalError`` whenever a training-time
+            # datamodule was retained on the estimator.
+            datamodule = self.prediction_datamodule
+        return datamodule
+
+    def _build_predict_trainer_params(self, device: Optional[str], precision: Optional[str]) -> dict[str, Any]:
+        """Assemble the Lightning ``Trainer`` kwargs for prediction, honouring device / precision overrides and the multilabel CPU routing."""
+        if not hasattr(self, "trainer") or self.trainer is None:
+            _cached_acc = getattr(self, "_last_predict_accelerator", None)
+            _user_acc = (self.trainer_params or {}).get("accelerator")
+            trainer_params = {
+                "accelerator": _cached_acc if _cached_acc not in (None, "") else (_user_acc if _user_acc not in (None, "") else "auto"),
+                "devices": 1,
+                "logger": False,
+                "enable_checkpointing": False,
+                "enable_progress_bar": False,
+            }
+        else:
+            trainer_params = {
+                "accelerator": (
+                    self.trainer.accelerator.__class__.__name__.replace("Accelerator", "").lower() if hasattr(self.trainer, "accelerator") else "auto"
+                ),
+                "devices": 1,
+                "logger": False,
+                "enable_checkpointing": False,
+                "enable_progress_bar": False,
+            }
+            # Inherit the live trainer's precision when the caller didn't ask for
+            # a specific one; an explicit ``precision`` arg is applied below.
+            if precision is None and hasattr(self.trainer, "precision"):
+                trainer_params["precision"] = self.trainer.precision
+
+        # Honor explicit predict(device=, precision=) overrides in BOTH paths.
+        # These used to live only in the ``else`` (live-trainer) branch, but
+        # ``self.trainer`` is reset to None after fit and after every predict, so
+        # the normal post-fit predict path always took the other branch and
+        # silently dropped the device/precision arguments documented on the
+        # public predict()/predict_proba() API.
+        if device is not None:
+            if device.startswith("cuda"):
+                trainer_params["accelerator"] = "cuda"
+            elif device == "cpu":
+                trainer_params["accelerator"] = "cpu"
+        if precision is not None:
+            trainer_params["precision"] = precision
+
+        # Multilabel-MLP predict -> CPU: the multilabel head + the
+        # per-feature permutation-importance loop (dozens of predicts per fit)
+        # churn the model across devices and intermittently corrupt the CUDA
+        # context -- "Expected all tensors on the same device, cpu and cuda:0"
+        # escalating to "CUDA illegal memory access" and an outright process
+        # crash on some hosts (cu118, observed). The first GPU attempt
+        # is what poisons the context, so retrying-on-CPU after the fact is not
+        # enough; route the WHOLE multilabel predict to CPU up front. GPU never
+        # gets touched -> the context stays clean -> predictions are stable. GPU
+        # acceleration is marginal for a small-MLP predict anyway, and
+        # binary/regression MLP predict is unaffected (still GPU). 16-mixed
+        # precision is invalid on CPU, so drop it when forcing CPU.
+        if getattr(self, "_is_multilabel", False):
+            trainer_params["accelerator"] = "cpu"
+            trainer_params.pop("precision", None)
+        return trainer_params
+
+    def _get_prediction_trainer(self, trainer_params: dict[str, Any]) -> tuple[Any, str]:
+        """Return ``(prediction_trainer, requested_accelerator)``; the trainer is reused from the per-(accelerator, precision) cache when present."""
+        # F-67 prediction-trainer caching (reinstated): F-67 originally cached one L.Trainer per
+        # (accelerator, precision) key, but was reverted -- reusing a Trainer across predict calls
+        # accumulated Lightning's prediction-loop state (``predict_loop.max_batches`` grew one entry per call
+        # against the CombinedLoader's single iterable), raising "Mismatch in number of limits (N) and number
+        # of iterables (1)" on the SECOND+ predict. Re-verified against the currently-installed Lightning
+        # (2.6.5): reusing one Trainer across many predict() calls with a FRESH TorchDataModule each time (this
+        # code's actual pattern -- ``datamodule.setup_predict(...)`` above always builds a new datamodule/
+        # dataloader) no longer reproduces that error; the CombinedLoader instance is rebuilt per call, only
+        # the outer Trainer object is reused. Safe now for another reason too: ``run_with_cuda_cpu_fallback``
+        # (``_cuda_fallback.py``) serializes every Trainer call process-wide, so concurrent permutation-
+        # importance threads (the scenario that made F-67's bug "exactly its benefit case") can no longer race
+        # on this cached Trainer's internal state either. Validated (see test_predict_trainer_cache_reuse.py):
+        # 100+ sequential predicts, a real multi-feature permutation_importance sweep, a multilabel model, and
+        # 8-thread concurrent predict -- all clean. Cache key matches the F-67 design (accelerator, precision);
+        # a mid-suite device/precision flip still rebuilds. ``_prediction_trainer_cache`` is pickle-excluded at
+        # __getstate__ (F-73b) since a cached Trainer isn't picklable -- the next predict() after a load()
+        # rebuilds it lazily.
+        # CUDA-broken-host guard (mirrors ``_base_fit.py``'s primary-trainer construction): resolve
+        # via ``safe_accelerator`` BEFORE building the Trainer, not after. Without this, a caller/test
+        # that lands "cuda"/"gpu"/"auto" in ``trainer_params["accelerator"]`` (the cached
+        # ``_last_predict_accelerator``, a ``device="cuda"`` override, or a live trainer whose
+        # accelerator reflects a prior GPU fit) went straight into ``L.Trainer(accelerator="cuda")`` on
+        # a host with no usable CUDA device, and Lightning raises
+        # ``MisconfigurationException: CUDAAccelerator can not run on your system`` at CONSTRUCTION
+        # time -- before ``run_with_cuda_cpu_fallback`` below ever gets a chance to catch anything,
+        # since it only wraps the ``.predict()`` call, not building ``prediction_trainer`` itself.
+        # ``_requested_accelerator`` (the pre-downgrade value) is kept for the fallback gate below so a
+        # caller who explicitly asked for CUDA (e.g. these CPU-fallback regression tests) still gets the
+        # CUDA-fingerprint retry semantics even once the probe has downgraded the trainer to "cpu".
+        _requested_accelerator = str(trainer_params.get("accelerator", "auto"))
+        _resolved_accelerator = safe_accelerator(_requested_accelerator)
+        if _resolved_accelerator != _requested_accelerator and _requested_accelerator in ("cuda", "gpu"):
+            logger.warning(
+                "Requested predict accelerator=%r but CUDA probe failed; downgrading to CPU so predict can complete.",
+                _requested_accelerator,
+            )
+        trainer_params["accelerator"] = _resolved_accelerator
+
+        _cache_key = (trainer_params.get("accelerator"), trainer_params.get("precision"))
+        _trainer_cache = getattr(self, "_prediction_trainer_cache", None)
+        if _trainer_cache is None:
+            _trainer_cache = {}
+        prediction_trainer = _trainer_cache.get(_cache_key)
+        if prediction_trainer is None:
+            prediction_trainer = L.Trainer(**cast(dict, trainer_params))
+            _trainer_cache[_cache_key] = prediction_trainer
+            self._prediction_trainer_cache = _trainer_cache
+        return prediction_trainer, _requested_accelerator
 
     def _predict_with_override(self, override, X):
         """Predict through the override callable."""

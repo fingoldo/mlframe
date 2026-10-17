@@ -13,7 +13,7 @@ confirmed via a systematic reassignment-vs-mutation check), so no return is need
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from ..engineered_recipes import EngineeredRecipe
@@ -137,6 +137,29 @@ def _fe_stage_cascade_mid_a(
     # Layer 89: cat x cat synergy cross with II pre-filter.
     X_acc = _fe_merge_new_columns(X_acc, _stage_cat_pair(self, _fe_family_on, X, _y_np, _raw_input_cols_pre_fe, _cat_pair_pre_recipes, verbose), X)
 
+    X_acc, _discrete_fe_master, _y_class_mi_applicable, _y_class_mi_binned = _fe_stage_cascade_mid_a_part1(
+        X_acc, self, _fe_family_on, X, _y_np, _raw_input_cols_pre_fe, _cat_triple_pre_recipes, verbose, _numeric_decompose_pre_recipes, _modular_pre_recipes,
+        _fe_budget_ok, fe_max_steps, y, _pairwise_modular_pre_recipes, _integer_lattice_pre_recipes,
+    )
+
+    # Row-argmax FE (frontier pass 2): for a column triple (a, b, c) emit the integer index 0/1/2 of the row-maximum - an
+    # ordinal/comparison pattern the MI/linear path cannot read off marginals or pairwise diffs. ZERO free params, detector-clean;
+    # leak-free deterministic replay (np.argmax over the stacked source columns). Budget-guarded on wide frames.
+    if _discrete_fe_master and _fe_family_on("fe_row_argmax_enable", False):
+        X_acc = _fe_merge_new_columns(X_acc, _stage_row_argmax(self, X, _y_class_mi_applicable, _y_class_mi_binned, _row_argmax_pre_recipes, verbose), X)
+
+    # Conditional-gate FE (frontier pass 2): detect a regime switch c>tau ? a : b (select) or a masked interaction 1[c>tau]*a
+    # (mask) routed by a third column's data-dependent threshold tau (frozen in the recipe). HARDENED detector gates vs the
+    # best-existing-op MI (not the raw single-operand floor) so smooth/ordinary_mul controls stay silent. Budget-guarded.
+    return _fe_merge_new_columns(X_acc, _stage_conditional_gate(self, _discrete_fe_master, _fe_family_on, X, _y_class_mi_applicable, _y_class_mi_binned, _conditional_gate_pre_recipes, verbose), X)
+
+
+def _fe_stage_cascade_mid_a_part1(
+    X_acc: Any, self: Any, _fe_family_on: Any, X: Any, _y_np: Any, _raw_input_cols_pre_fe: Any, _cat_triple_pre_recipes: Any, verbose: Any,
+    _numeric_decompose_pre_recipes: Any, _modular_pre_recipes: Any, _fe_budget_ok: Any, fe_max_steps: Any, y: Any, _pairwise_modular_pre_recipes: Any,
+    _integer_lattice_pre_recipes: Any,
+) -> tuple[Any, ...]:
+    """Extracted block of ``_fe_stage_cascade_mid_a`` (part 1); returns the names the caller still uses."""
     # Layer 94: cat x cat x cat TRIPLE synergy cross via beam
     # search over three-way interaction information (co-information).
     X_acc = _fe_merge_new_columns(X_acc, _stage_cat_triple(self, _fe_family_on, X, _y_np, _raw_input_cols_pre_fe, _cat_triple_pre_recipes, verbose), X)
@@ -272,17 +295,7 @@ def _fe_stage_cascade_mid_a(
                     type(_il_exc).__name__,
                     _il_exc,
                 )
-
-    # Row-argmax FE (frontier pass 2): for a column triple (a, b, c) emit the integer index 0/1/2 of the row-maximum - an
-    # ordinal/comparison pattern the MI/linear path cannot read off marginals or pairwise diffs. ZERO free params, detector-clean;
-    # leak-free deterministic replay (np.argmax over the stacked source columns). Budget-guarded on wide frames.
-    if _discrete_fe_master and _fe_family_on("fe_row_argmax_enable", False):
-        X_acc = _fe_merge_new_columns(X_acc, _stage_row_argmax(self, X, _y_class_mi_applicable, _y_class_mi_binned, _row_argmax_pre_recipes, verbose), X)
-
-    # Conditional-gate FE (frontier pass 2): detect a regime switch c>tau ? a : b (select) or a masked interaction 1[c>tau]*a
-    # (mask) routed by a third column's data-dependent threshold tau (frozen in the recipe). HARDENED detector gates vs the
-    # best-existing-op MI (not the raw single-operand floor) so smooth/ordinary_mul controls stay silent. Budget-guarded.
-    return _fe_merge_new_columns(X_acc, _stage_conditional_gate(self, _discrete_fe_master, _fe_family_on, X, _y_class_mi_applicable, _y_class_mi_binned, _conditional_gate_pre_recipes, verbose), X)
+    return X_acc, _discrete_fe_master, _y_class_mi_applicable, _y_class_mi_binned
 
 def _stage_composite_group_agg(self, _fe_family_on, X, _y_np, _composite_group_agg_pre_recipes, verbose):
     """Run the composite group-aggregate feature family when it is enabled."""

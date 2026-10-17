@@ -7,6 +7,7 @@ section this fans out from and the ``self``/``X`` threading contract (mirrors th
 
 from __future__ import annotations
 
+from typing import Any
 import logging
 
 
@@ -22,6 +23,101 @@ def _hybrid_orth_family_variants_group1(
 ):
     """Run the triplet, quadruplet, adaptive_arity, adaptive_degree, conditional_routing hybrid_orth family stage(s) and return the (possibly
     column-augmented) ``X``. See the package docstring for the full section this carves out."""
+    _hybrid_already_appended, X, _r = _hybrid_orth_family_variants_group1_part1(
+        _fe_family_on, _gbm_seeded_triplet_names, _y_np, self, X, _hybrid_orth_pre_recipes, verbose,
+    )
+    # Layer 57 — ADAPTIVE PER-COLUMN DEGREE FE stage.
+    # Independent opt-in (does NOT require fe_hybrid_orth_enable). When
+    # active, for each source column we evaluate every degree in
+    # ``fe_hybrid_orth_adaptive_degree_range`` and emit ONLY the argmax-MI
+    # degree (if it clears the per-col uplift gate). Recipe kind reuses
+    # ``orth_univariate`` - replay reads X only, no y.
+    if _fe_family_on("fe_hybrid_orth_adaptive_degree_enable", False):
+        # Format-agnostic since the matrix-native FE seam (see triplet stage): skip-guard removed, runs on polars/pandas.
+        try:
+            from ..._orthogonal_adaptive_degree_fe import (
+                hybrid_orth_mi_adaptive_degree_fe_with_recipes,
+            )
+
+            _y_for_adapt = _y_np
+            _y_for_adapt = encode_y_for_classif_mi(_y_for_adapt)
+            # Restrict the seed pool to RAW source columns - engineered
+            # columns from prior stages would create recipes whose
+            # src_names reference an engineered column absent at
+            # transform time (KeyError on replay).
+            _hybrid_already_appended = set(getattr(self, "hybrid_orth_features_", None) or [])
+            _ad_cols: list | None = None
+            if getattr(self, "factors_names_to_use", None):
+                _ad_cols = [c for c in self.factors_names_to_use if c in X.columns and c not in _hybrid_already_appended]
+            else:
+                _ad_cols = [
+                    c for c in X.columns
+                    if c not in _hybrid_already_appended
+                ]
+            _ad_range = tuple(int(d) for d in getattr(
+                self, "fe_hybrid_orth_adaptive_degree_range", (1, 2, 3, 4, 5, 6),
+            ))
+            _ad_min_uplift = float(getattr(
+                self, "fe_hybrid_orth_adaptive_degree_min_uplift", 1.05,
+            ))
+            _ad_basis = str(getattr(self, "fe_hybrid_orth_basis", "auto"))
+            _X_before_adaptive_cols = list(X.columns)
+            X_ad, _ad_scores, _ad_recipes = fe_decide_on_subsample(
+                hybrid_orth_mi_adaptive_degree_fe_with_recipes,
+                X,
+                _y_for_adapt,
+                subsample_n=int(getattr(self, "fe_check_pairs_subsample_n", 0) or 0),
+                subsample_seed=int(getattr(self, "random_seed", 0) or 0),
+                shared_subsample_idx=getattr(self, "_fe_shared_subsample_idx", None),
+                cols=_ad_cols,
+                degree_range=_ad_range,
+                basis=_ad_basis,
+                min_uplift=_ad_min_uplift,
+            )
+            _ad_appended = [c for c in X_ad.columns if c not in _X_before_adaptive_cols]
+            if _ad_appended:
+                X = fe_append_columns(X, fe_extract_columns(X_ad, _ad_appended))
+                self.hybrid_orth_features_ = list(self.hybrid_orth_features_ or []) + list(_ad_appended)
+                # Merge into the same recipe dict used by the master
+                # hybrid stage so the end-of-fit remap into
+                # ``_engineered_recipes_`` picks it up.
+                for _r in _ad_recipes:
+                    _hybrid_orth_pre_recipes[_r.name] = _r
+                if verbose:
+                    logger.info(
+                        "MRMR.fit hybrid_orth adaptive-degree: appended " "%d engineered column(s): %s",
+                        len(_ad_appended),
+                        _ad_appended[:8],
+                    )
+        except Exception as _ad_exc:
+            logger.warning(
+                "MRMR.fit hybrid_orth adaptive-degree FE raised %s: %s; " "continuing without adaptive-degree columns.",
+                type(_ad_exc).__name__,
+                _ad_exc,
+            )
+    # Layer 58 — CONDITIONAL BASIS ROUTING FE stage.
+    # Independent opt-in (does NOT require fe_hybrid_orth_enable). When
+    # active, we try every (pre_transform, basis, degree) cell per source
+    # column and keep the MI-uplift winner; global top-K appended. Recipe
+    # kind reuses ``orth_univariate`` (extra carries ``pre_transform``);
+    # replay reads X only, no y.
+    X = _stage_conditional_routing(self, _fe_family_on, _y_np, X, _hybrid_orth_pre_recipes, verbose)
+    # Layer 59 — DIFF-BASIS FE for highly-correlated source pairs.
+    # Independent opt-in (does NOT require fe_hybrid_orth_enable). When
+    # active, the auto-pair detector flags every pair with |Pearson corr| >=
+    # threshold, computes the residual diff, and evaluates a basis expansion
+    # per requested degree; top-K winners appended. Recipe kind
+    # ``orth_diff_basis``; replay reads X only, no y.
+
+    return X
+
+
+def _hybrid_orth_family_variants_group1_part1(
+    _fe_family_on: Any, _gbm_seeded_triplet_names: Any, _y_np: Any, self: Any, X: Any, _hybrid_orth_pre_recipes: Any, verbose: Any,
+) -> tuple[Any, ...]:
+    """Extracted block of ``_hybrid_orth_family_variants_group1`` (part 1); returns the names the caller still uses."""
+    _hybrid_already_appended: Any = None
+    _r: Any = None
     if _fe_family_on("fe_hybrid_orth_triplet_enable", False) or _gbm_seeded_triplet_names:
         # Format-agnostic since the matrix-native FE seam: the isinstance(X, pd.DataFrame) skip-guard is gone - the family
         # runs on polars/pandas alike (subsample decision + native replay via fe_decide_on_subsample / _fe_frame_ops).
@@ -139,90 +235,7 @@ def _hybrid_orth_family_variants_group1(
     # is emitted iff its MI strictly beats every lower-arity prefix).
     # Recipes route to the per-arity Layer 22 / 56 / 77 builders.
     X = _stage_adaptive_arity(self, _fe_family_on, _y_np, X, _hybrid_orth_pre_recipes, verbose)
-    # Layer 57 — ADAPTIVE PER-COLUMN DEGREE FE stage.
-    # Independent opt-in (does NOT require fe_hybrid_orth_enable). When
-    # active, for each source column we evaluate every degree in
-    # ``fe_hybrid_orth_adaptive_degree_range`` and emit ONLY the argmax-MI
-    # degree (if it clears the per-col uplift gate). Recipe kind reuses
-    # ``orth_univariate`` - replay reads X only, no y.
-    if _fe_family_on("fe_hybrid_orth_adaptive_degree_enable", False):
-        # Format-agnostic since the matrix-native FE seam (see triplet stage): skip-guard removed, runs on polars/pandas.
-        try:
-            from ..._orthogonal_adaptive_degree_fe import (
-                hybrid_orth_mi_adaptive_degree_fe_with_recipes,
-            )
-
-            _y_for_adapt = _y_np
-            _y_for_adapt = encode_y_for_classif_mi(_y_for_adapt)
-            # Restrict the seed pool to RAW source columns - engineered
-            # columns from prior stages would create recipes whose
-            # src_names reference an engineered column absent at
-            # transform time (KeyError on replay).
-            _hybrid_already_appended = set(getattr(self, "hybrid_orth_features_", None) or [])
-            _ad_cols: list | None = None
-            if getattr(self, "factors_names_to_use", None):
-                _ad_cols = [c for c in self.factors_names_to_use if c in X.columns and c not in _hybrid_already_appended]
-            else:
-                _ad_cols = [
-                    c for c in X.columns
-                    if c not in _hybrid_already_appended
-                ]
-            _ad_range = tuple(int(d) for d in getattr(
-                self, "fe_hybrid_orth_adaptive_degree_range", (1, 2, 3, 4, 5, 6),
-            ))
-            _ad_min_uplift = float(getattr(
-                self, "fe_hybrid_orth_adaptive_degree_min_uplift", 1.05,
-            ))
-            _ad_basis = str(getattr(self, "fe_hybrid_orth_basis", "auto"))
-            _X_before_adaptive_cols = list(X.columns)
-            X_ad, _ad_scores, _ad_recipes = fe_decide_on_subsample(
-                hybrid_orth_mi_adaptive_degree_fe_with_recipes,
-                X,
-                _y_for_adapt,
-                subsample_n=int(getattr(self, "fe_check_pairs_subsample_n", 0) or 0),
-                subsample_seed=int(getattr(self, "random_seed", 0) or 0),
-                shared_subsample_idx=getattr(self, "_fe_shared_subsample_idx", None),
-                cols=_ad_cols,
-                degree_range=_ad_range,
-                basis=_ad_basis,
-                min_uplift=_ad_min_uplift,
-            )
-            _ad_appended = [c for c in X_ad.columns if c not in _X_before_adaptive_cols]
-            if _ad_appended:
-                X = fe_append_columns(X, fe_extract_columns(X_ad, _ad_appended))
-                self.hybrid_orth_features_ = list(self.hybrid_orth_features_ or []) + list(_ad_appended)
-                # Merge into the same recipe dict used by the master
-                # hybrid stage so the end-of-fit remap into
-                # ``_engineered_recipes_`` picks it up.
-                for _r in _ad_recipes:
-                    _hybrid_orth_pre_recipes[_r.name] = _r
-                if verbose:
-                    logger.info(
-                        "MRMR.fit hybrid_orth adaptive-degree: appended " "%d engineered column(s): %s",
-                        len(_ad_appended),
-                        _ad_appended[:8],
-                    )
-        except Exception as _ad_exc:
-            logger.warning(
-                "MRMR.fit hybrid_orth adaptive-degree FE raised %s: %s; " "continuing without adaptive-degree columns.",
-                type(_ad_exc).__name__,
-                _ad_exc,
-            )
-    # Layer 58 — CONDITIONAL BASIS ROUTING FE stage.
-    # Independent opt-in (does NOT require fe_hybrid_orth_enable). When
-    # active, we try every (pre_transform, basis, degree) cell per source
-    # column and keep the MI-uplift winner; global top-K appended. Recipe
-    # kind reuses ``orth_univariate`` (extra carries ``pre_transform``);
-    # replay reads X only, no y.
-    X = _stage_conditional_routing(self, _fe_family_on, _y_np, X, _hybrid_orth_pre_recipes, verbose)
-    # Layer 59 — DIFF-BASIS FE for highly-correlated source pairs.
-    # Independent opt-in (does NOT require fe_hybrid_orth_enable). When
-    # active, the auto-pair detector flags every pair with |Pearson corr| >=
-    # threshold, computes the residual diff, and evaluates a basis expansion
-    # per requested degree; top-K winners appended. Recipe kind
-    # ``orth_diff_basis``; replay reads X only, no y.
-
-    return X
+    return _hybrid_already_appended, X, _r
 
 
 def _stage_quadruplet(self, _fe_family_on, _y_np, X, _hybrid_orth_pre_recipes, verbose):

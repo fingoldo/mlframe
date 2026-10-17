@@ -32,7 +32,7 @@ from __future__ import annotations
 
 import logging
 from itertools import combinations
-from typing import Optional, Sequence
+from typing import Any, Optional, Sequence
 
 import numpy as np
 import pandas as pd
@@ -215,6 +215,116 @@ def composite_cardinality_ok(
         return False
     return n_distinct <= int(max_card_frac * n_rows)
 
+def _emit_num_col_features(
+    X: pd.DataFrame,
+    num_col: str,
+    keys: Any,
+    key_uniq: Any,
+    key_inverse: Any,
+    group_cols: tuple,
+    stats: Sequence[str],
+    encoded: dict,
+    raw_recipes: dict,
+) -> None:
+    """Compute one numeric column's per-composite-group broadcasts plus its z-within-group and ratio residuals into ``encoded`` / ``raw_recipes``."""
+    x = np.asarray(X[num_col].to_numpy(), dtype=np.float64)
+    tmp = pd.DataFrame({"_g": keys, "_v": x}, index=X.index)
+    grouped = tmp.groupby("_g", observed=True, sort=False)["_v"]
+    mean_series = grouped.mean()
+    std_series = grouped.std(ddof=1)
+    lookup_mean = {str(k): float(v) for k, v in mean_series.items()}
+    lookup_std = {str(k): (float(v) if np.isfinite(v) else 0.0) for k, v in std_series.items()}
+    global_mean = _global_value_for_stat(x, "mean")
+    global_std = _global_value_for_stat(x, "std")
+
+    for stat in stats:
+        # mean / std are already materialised above for the z / ratio
+        # residuals; reuse them instead of re-running the (O(n)) cython
+        # groupby a second time. ``grouped.mean()`` == ``grouped.agg("mean")``
+        # and ``grouped.std(ddof=1)`` == ``grouped.agg("std")`` bit-for-bit.
+        if stat == "mean":
+            agg_series = mean_series
+        elif stat == "std":
+            agg_series = std_series
+        else:
+            agg_series = grouped.agg(_agg_func_for_stat(stat))
+        lookup = {str(k): (float(v) if np.isfinite(v) else 0.0) for k, v in agg_series.items()}
+        if stat in ("count", "nunique"):
+            # The whole-population fallback
+            # (finite.size / np.unique(finite).size) used to emit a WILDLY out-of-distribution
+            # value for an unseen composite key - confirmed by direct execution: real per-cell
+            # count values were 14-25 (n=2000) vs a global fallback of 2000 (the entire training
+            # set, ~100x). Every OTHER stat's fallback stays on the SAME SCALE as a per-cell value;
+            # use the median PER-CELL count/nunique across fit-time cells instead.
+            global_value = float(np.median(agg_series.to_numpy())) if len(agg_series) else 0.0
+        else:
+            global_value = _global_value_for_stat(x, stat)
+        broadcast = _broadcast_lookup(
+            keys, lookup, global_value,
+            uniq=key_uniq, inverse=key_inverse,
+        )
+        name = engineered_name_composite_agg(num_col, group_cols, stat)
+        encoded[name] = broadcast
+        raw_recipes[name] = {
+            "group_cols": tuple(group_cols),
+            "num_col": num_col,
+            "stat": stat,
+            "op": "broadcast",
+            "group_lookup_dict": lookup,
+            "global_value": global_value,
+            "lookup_mean": lookup_mean,
+            "lookup_std": lookup_std,
+            "global_mean": global_mean,
+            "global_std": global_std,
+        }
+
+    # ---- z-within-composite-group residual ----
+    per_row_mean = _broadcast_lookup(
+        keys, lookup_mean, global_mean,
+        uniq=key_uniq, inverse=key_inverse,
+    )
+    per_row_std = _broadcast_lookup(
+        keys, lookup_std, global_std,
+        uniq=key_uniq, inverse=key_inverse,
+    )
+    per_row_std = np.where(per_row_std > 0.0, per_row_std, 1.0)
+    zscore = np.nan_to_num(
+        (x - per_row_mean) / per_row_std, nan=0.0, posinf=0.0, neginf=0.0,
+    )
+    z_name = engineered_name_composite_z(num_col, group_cols)
+    encoded[z_name] = zscore
+    raw_recipes[z_name] = {
+        "group_cols": tuple(group_cols),
+        "num_col": num_col,
+        "stat": "mean",
+        "op": "z_within",
+        "group_lookup_dict": lookup_mean,
+        "global_value": global_mean,
+        "lookup_mean": lookup_mean,
+        "lookup_std": lookup_std,
+        "global_mean": global_mean,
+        "global_std": global_std if global_std > 0.0 else 1.0,
+    }
+
+    # ---- ratio-to-composite-group residual ----
+    denom = _ratio_denominator(per_row_mean, global_mean, global_std)
+    ratio = np.nan_to_num(x / denom, nan=1.0, posinf=1.0, neginf=1.0)
+    r_name = engineered_name_composite_ratio(num_col, group_cols)
+    encoded[r_name] = ratio
+    raw_recipes[r_name] = {
+        "group_cols": tuple(group_cols),
+        "num_col": num_col,
+        "stat": "mean",
+        "op": "ratio",
+        "group_lookup_dict": lookup_mean,
+        "global_value": global_mean,
+        "lookup_mean": lookup_mean,
+        "lookup_std": lookup_std,
+        "global_mean": global_mean,
+        "global_std": global_std if global_std > 0.0 else 1.0,
+    }
+
+
 def generate_composite_group_agg_features(
     X: pd.DataFrame,
     group_col_sets: Sequence[Sequence[str]],
@@ -290,102 +400,7 @@ def generate_composite_group_agg_features(
         # same empirical bit-identity verification as the K-fold subtraction rewrite, and this file's num_cols
         # loop is uncapped (unlike the capped max_pairs paths that make that verification cheap to scope).
         for num_col in cur_num_cols:
-            x = np.asarray(X[num_col].to_numpy(), dtype=np.float64)
-            tmp = pd.DataFrame({"_g": keys, "_v": x}, index=X.index)
-            grouped = tmp.groupby("_g", observed=True, sort=False)["_v"]
-            mean_series = grouped.mean()
-            std_series = grouped.std(ddof=1)
-            lookup_mean = {str(k): float(v) for k, v in mean_series.items()}
-            lookup_std = {str(k): (float(v) if np.isfinite(v) else 0.0) for k, v in std_series.items()}
-            global_mean = _global_value_for_stat(x, "mean")
-            global_std = _global_value_for_stat(x, "std")
-
-            for stat in stats:
-                # mean / std are already materialised above for the z / ratio
-                # residuals; reuse them instead of re-running the (O(n)) cython
-                # groupby a second time. ``grouped.mean()`` == ``grouped.agg("mean")``
-                # and ``grouped.std(ddof=1)`` == ``grouped.agg("std")`` bit-for-bit.
-                if stat == "mean":
-                    agg_series = mean_series
-                elif stat == "std":
-                    agg_series = std_series
-                else:
-                    agg_series = grouped.agg(_agg_func_for_stat(stat))
-                lookup = {str(k): (float(v) if np.isfinite(v) else 0.0) for k, v in agg_series.items()}
-                if stat in ("count", "nunique"):
-                    # The whole-population fallback
-                    # (finite.size / np.unique(finite).size) used to emit a WILDLY out-of-distribution
-                    # value for an unseen composite key - confirmed by direct execution: real per-cell
-                    # count values were 14-25 (n=2000) vs a global fallback of 2000 (the entire training
-                    # set, ~100x). Every OTHER stat's fallback stays on the SAME SCALE as a per-cell value;
-                    # use the median PER-CELL count/nunique across fit-time cells instead.
-                    global_value = float(np.median(agg_series.to_numpy())) if len(agg_series) else 0.0
-                else:
-                    global_value = _global_value_for_stat(x, stat)
-                broadcast = _broadcast_lookup(
-                    keys, lookup, global_value,
-                    uniq=key_uniq, inverse=key_inverse,
-                )
-                name = engineered_name_composite_agg(num_col, group_cols, stat)
-                encoded[name] = broadcast
-                raw_recipes[name] = {
-                    "group_cols": tuple(group_cols),
-                    "num_col": num_col,
-                    "stat": stat,
-                    "op": "broadcast",
-                    "group_lookup_dict": lookup,
-                    "global_value": global_value,
-                    "lookup_mean": lookup_mean,
-                    "lookup_std": lookup_std,
-                    "global_mean": global_mean,
-                    "global_std": global_std,
-                }
-
-            # ---- z-within-composite-group residual ----
-            per_row_mean = _broadcast_lookup(
-                keys, lookup_mean, global_mean,
-                uniq=key_uniq, inverse=key_inverse,
-            )
-            per_row_std = _broadcast_lookup(
-                keys, lookup_std, global_std,
-                uniq=key_uniq, inverse=key_inverse,
-            )
-            per_row_std = np.where(per_row_std > 0.0, per_row_std, 1.0)
-            zscore = np.nan_to_num(
-                (x - per_row_mean) / per_row_std, nan=0.0, posinf=0.0, neginf=0.0,
-            )
-            z_name = engineered_name_composite_z(num_col, group_cols)
-            encoded[z_name] = zscore
-            raw_recipes[z_name] = {
-                "group_cols": tuple(group_cols),
-                "num_col": num_col,
-                "stat": "mean",
-                "op": "z_within",
-                "group_lookup_dict": lookup_mean,
-                "global_value": global_mean,
-                "lookup_mean": lookup_mean,
-                "lookup_std": lookup_std,
-                "global_mean": global_mean,
-                "global_std": global_std if global_std > 0.0 else 1.0,
-            }
-
-            # ---- ratio-to-composite-group residual ----
-            denom = _ratio_denominator(per_row_mean, global_mean, global_std)
-            ratio = np.nan_to_num(x / denom, nan=1.0, posinf=1.0, neginf=1.0)
-            r_name = engineered_name_composite_ratio(num_col, group_cols)
-            encoded[r_name] = ratio
-            raw_recipes[r_name] = {
-                "group_cols": tuple(group_cols),
-                "num_col": num_col,
-                "stat": "mean",
-                "op": "ratio",
-                "group_lookup_dict": lookup_mean,
-                "global_value": global_mean,
-                "lookup_mean": lookup_mean,
-                "lookup_std": lookup_std,
-                "global_mean": global_mean,
-                "global_std": global_std if global_std > 0.0 else 1.0,
-            }
+            _emit_num_col_features(X, num_col, keys, key_uniq, key_inverse, group_cols, stats, encoded, raw_recipes)
 
     enc_df = pd.DataFrame(encoded, index=X.index)
     return enc_df, raw_recipes

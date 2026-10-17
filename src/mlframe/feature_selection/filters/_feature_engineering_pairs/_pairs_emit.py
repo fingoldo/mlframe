@@ -146,6 +146,13 @@ def apply_pair_family_gate_from_state(st: _SimpleNamespace, classes_y: np.ndarra
     return bool(old_best is not None and old_best in st.var_pairs_perf and st.var_pairs_perf[old_best] == 0.0 and float(st.best_mi) > 0.0)
 
 
+# Notes on the parameters of _emit_pair_features (kept verbatim from the signature; [name] marks the parameter each block belongs to):
+# [_mi_band]
+# Miller-Madow tie-band + op-code table + noise-gate-dispatch env gate: all resolved ONCE per
+# ``check_prospective_fe_pairs`` call (invariant across every pair) and threaded down through
+# ``_score_one_pair`` - not recomputed here per admitted pair / per tied-leader.
+# [discretize_array]
+# framework callables (lazily imported in the parent)
 def _emit_pair_features(
     *,
     raw_vars_pair,
@@ -183,9 +190,6 @@ def _emit_pair_features(
     freqs_y,
     fe_npermutations,
     fe_min_nonzero_confidence,
-    # Miller-Madow tie-band + op-code table + noise-gate-dispatch env gate: all resolved ONCE per
-    # ``check_prospective_fe_pairs`` call (invariant across every pair) and threaded down through
-    # ``_score_one_pair`` - not recomputed here per admitted pair / per tied-leader.
     _mi_band,
     _op_code_arr,
     _fe_env_gate,
@@ -203,7 +207,6 @@ def _emit_pair_features(
     serial_main_thread,
     verbose,
     messages,
-    # framework callables (lazily imported in the parent)
     discretize_array,
     discretize_2d_quantile_batch,
     mi_direct,
@@ -221,12 +224,158 @@ def _emit_pair_features(
     """Emit the survivor feature(s) for an ADMITTED pair. Returns the
     ``res[raw_vars_pair]`` tuple ``(this_pair_features, transformed_vals,
     new_cols, new_nbins, messages)``. Appends to ``messages`` (caller-owned)."""
+    _ret_emit_pair_features_part3 = _emit_pair_features_part3(
+        _full_n_rows, classes_y, quantization_nbins, var_pairs_perf, best_mi, this_pair_features, messages, get_new_feature_name, cols,
+        _marginal_uplift_accept, _passes_joint_gate, _prewarp_accept, fe_good_to_best_feature_mi_threshold, _corr_y_cont, final_transformed_vals,
+        _this_chunk_deferred, _resolve_col, _config_by_i, transformed_vars, vars_transformations, binary_transformations, _safe_abs_corr,
+    )
+    if _ret_emit_pair_features_part3[0]:
+        return _ret_emit_pair_features_part3[1]
+    _cached_name, _name_cache, leading_features, st = _ret_emit_pair_features_part3[1:]
+
+    # ABSOLUTE binned-MI tie band. Two FORMS of
+    # the same raw pair that are monotone re-expressions of one algebraic target have MI equal up to the
+    # plug-in bias scale; without a tie band an MI EPSILON (pure binning noise) crowns a form whose linear
+    # usability is far worse (mixed: additive ``add(log(a),invsqrt(b))`` MI 0.1180 > exact ratio
+    # ``div(sqr(a),b)`` 0.1167, yet |corr(y)| 0.25 vs 0.46 - the noise winner does not fuse cleanly and
+    # leaves the ratio form as a fragment). Snapping the primary MI key to this band inside
+    # ``_select_single_best`` lets the EXISTING linear-usability tie-break pick the linearly-usable form.
+    # ``_mi_band`` is the caller-hoisted, call-invariant tie band (a parameter - see the per-call hoist
+    # comment in ``check_prospective_fe_pairs``), not recomputed per admitted pair.
+
+    if len(leading_features) > 1:
+        if len(numeric_vars_to_consider) > 2:
+
+            valid_pairs_perf = _emit_pair_features_part5(
+                verbose, leading_features, var_pairs_perf, numeric_vars_to_consider, raw_vars_pair, _op_code_arr, final_transformed_vals,
+                _this_chunk_deferred, _resolve_col, _config_by_i, st, transformed_vars, vars_transformations, binary_transformations,
+                fe_max_external_validation_factors, _rng_extval, _extval_raw_col, X, _can_hoist_shared_buffer, _n_workers, quantization_method,
+                _narrow_code_dtype, quantization_nbins, quantization_dtype, _materialise_extval_njit, discretize_2d_quantile_batch, _fe_use_parallel_kernels,
+                serial_main_thread, _dispatch_batch_mi_with_noise_gate, classes_y, classes_y_safe, freqs_y, fe_npermutations, fe_min_nonzero_confidence,
+                use_su_normalization, batch_mi_with_noise_gate, _fe_env_gate, discretize_array, mi_direct,
+            )
+
+            _emit_pair_features_part2(
+                leading_features, var_pairs_perf, cols, valid_pairs_perf, st, _mi_band, _usability_primary, _name_cache, _cached_name, verbose, messages,
+                best_mi, pair_mi, this_pair_features,
+            )
+        else:
+            _emit_pair_features_part4(
+                leading_features, var_pairs_perf, cols, st, _mi_band, _usability_primary, _name_cache, verbose, messages, _cached_name, best_mi, pair_mi,
+                this_pair_features,
+            )
+    else:
+        new_feature_name = _cached_name(best_config)
+        if verbose:
+            messages.append(
+                f"{new_feature_name} is recommended to use as a new feature! (clear winner) best_mi={best_mi:.4f}, pair_mi={pair_mi:.4f}, rat={best_mi/pair_mi:.4f}"
+            )
+        j = 0
+        this_pair_features.add((best_config, j))
+
+    _ret_emit_pair_features_part1 = _emit_pair_features_part1(
+        fe_multi_emit_max_per_pair, final_transformed_vals, _this_chunk_deferred, this_pair_features, best_mi, fe_multi_emit_mi_floor,
+        fe_multi_emit_diversity_corr, _cached_name, _resolve_col, var_pairs_perf, st, verbose, messages, fe_max_steps, _use_subsample,
+        _rebuild_full_survivor_col, _X_full, original_cols, unary_transformations, binary_transformations, _prewarp_spec_by_var, _gate_med_median_by_var,
+        cols, engineered_operand_values, _config_by_i, transformed_vars, vars_transformations, _full_n_rows, quantization_nbins,
+    )
+    if _ret_emit_pair_features_part1[0]:
+        return _ret_emit_pair_features_part1[1]
+
+
+def _emit_pair_features_part5(
+    verbose: Any, leading_features: Any, var_pairs_perf: Any, numeric_vars_to_consider: Any, raw_vars_pair: Any, _op_code_arr: Any,
+    final_transformed_vals: Any, _this_chunk_deferred: Any, _resolve_col: Any, _config_by_i: Any, st: Any, transformed_vars: Any, vars_transformations: Any,
+    binary_transformations: Any, fe_max_external_validation_factors: Any, _rng_extval: Any, _extval_raw_col: Any, X: Any, _can_hoist_shared_buffer: Any,
+    _n_workers: Any, quantization_method: Any, _narrow_code_dtype: Any, quantization_nbins: Any, quantization_dtype: Any, _materialise_extval_njit: Any,
+    discretize_2d_quantile_batch: Any, _fe_use_parallel_kernels: Any, serial_main_thread: Any, _dispatch_batch_mi_with_noise_gate: Any, classes_y: Any,
+    classes_y_safe: Any, freqs_y: Any, fe_npermutations: Any, fe_min_nonzero_confidence: Any, use_su_normalization: Any, batch_mi_with_noise_gate: Any,
+    _fe_env_gate: Any, discretize_array: Any, mi_direct: Any,
+) -> Any:
+    """Extracted block of ``_emit_pair_features`` (part 5); returns the names the caller still uses."""
+    _ev_configs, _ev_op_codes, _ext_factors_sorted, valid_pairs_perf = _emit_pair_features_step1_comment_check_prospective(
+        verbose, leading_features, var_pairs_perf, numeric_vars_to_consider, raw_vars_pair, _op_code_arr
+    )
+    _emit_pair_features_step2_read_here_once(
+        _ev_configs,
+        final_transformed_vals,
+        _this_chunk_deferred,
+        _resolve_col,
+        _config_by_i,
+        st,
+        transformed_vars,
+        vars_transformations,
+        binary_transformations,
+        _ext_factors_sorted,
+        fe_max_external_validation_factors,
+        _rng_extval,
+        _extval_raw_col,
+        X,
+        _can_hoist_shared_buffer,
+        _n_workers,
+        quantization_method,
+        _narrow_code_dtype,
+        quantization_nbins,
+        quantization_dtype,
+        _ev_op_codes,
+        _materialise_extval_njit,
+        discretize_2d_quantile_batch,
+        _fe_use_parallel_kernels,
+        serial_main_thread,
+        _dispatch_batch_mi_with_noise_gate,
+        classes_y,
+        classes_y_safe,
+        freqs_y,
+        fe_npermutations,
+        fe_min_nonzero_confidence,
+        use_su_normalization,
+        batch_mi_with_noise_gate,
+        _fe_env_gate,
+        discretize_array,
+        mi_direct,
+        valid_pairs_perf,
+    )
+    return valid_pairs_perf
+
+
+def _emit_pair_features_part4(
+    leading_features: Any, var_pairs_perf: Any, cols: Any, st: Any, _mi_band: Any, _usability_primary: Any, _name_cache: Any, verbose: Any, messages: Any,
+    _cached_name: Any, best_mi: Any, pair_mi: Any, this_pair_features: Any,
+) -> None:
+    """Extracted block of ``_emit_pair_features`` (part 4); returns the names the caller still uses."""
+    # Can't narrow by external validation (only 2 vars total) -
+    # still emit ONE best representative (highest engineered MI,
+    # deterministic name tie-break) rather than the whole class.
+    _emit_pair_features_step4_deterministic_name_tie(
+        leading_features,
+        var_pairs_perf,
+        cols,
+        st,
+        _mi_band,
+        _usability_primary,
+        _name_cache,
+        verbose,
+        messages,
+        _cached_name,
+        best_mi,
+        pair_mi,
+        this_pair_features,
+    )
+
+
+def _emit_pair_features_part3(
+    _full_n_rows: Any, classes_y: Any, quantization_nbins: Any, var_pairs_perf: Any, best_mi: Any, this_pair_features: Any, messages: Any,
+    get_new_feature_name: Any, cols: Any, _marginal_uplift_accept: Any, _passes_joint_gate: Any, _prewarp_accept: Any,
+    fe_good_to_best_feature_mi_threshold: Any, _corr_y_cont: Any, final_transformed_vals: Any, _this_chunk_deferred: Any, _resolve_col: Any,
+    _config_by_i: Any, transformed_vars: Any, vars_transformations: Any, binary_transformations: Any, _safe_abs_corr: Any,
+) -> tuple[Any, ...]:
+    """Extracted block of ``_emit_pair_features`` (part 3); returns the names the caller still uses."""
     # Family-wise gate over the pair's K configurations: the winner is the maximum over K candidates, so its MI must clear the
     # 1 - alpha quantile of the maximum null over K noise candidates for this (n, bins, target entropy) fingerprint. Without it a pure-noise pair
     # wins its family by chance at roughly the per-candidate rate, times K.
     _pair_floor = pair_search_floor(int(_full_n_rows), classes_y, int(quantization_nbins), len(var_pairs_perf))
     if _pair_floor is not None and float(best_mi) <= _pair_floor:
-        return this_pair_features, None, None, None, messages
+        return True, (this_pair_features, None, None, None, messages)
     _cached_name, _name_cache, leading_features, st = _emit_pair_features_step1_st_simplenamespace_long(
         get_new_feature_name,
         cols,
@@ -246,120 +395,53 @@ def _emit_pair_features(
         binary_transformations,
         _safe_abs_corr,
     )
+    return False, _cached_name, _name_cache, leading_features, st
 
-    # ABSOLUTE binned-MI tie band. Two FORMS of
-    # the same raw pair that are monotone re-expressions of one algebraic target have MI equal up to the
-    # plug-in bias scale; without a tie band an MI EPSILON (pure binning noise) crowns a form whose linear
-    # usability is far worse (mixed: additive ``add(log(a),invsqrt(b))`` MI 0.1180 > exact ratio
-    # ``div(sqr(a),b)`` 0.1167, yet |corr(y)| 0.25 vs 0.46 - the noise winner does not fuse cleanly and
-    # leaves the ratio form as a fragment). Snapping the primary MI key to this band inside
-    # ``_select_single_best`` lets the EXISTING linear-usability tie-break pick the linearly-usable form.
-    # ``_mi_band`` is the caller-hoisted, call-invariant tie band (a parameter - see the per-call hoist
-    # comment in ``check_prospective_fe_pairs``), not recomputed per admitted pair.
 
-    if len(leading_features) > 1:
-        if len(numeric_vars_to_consider) > 2:
+def _emit_pair_features_part2(
+    leading_features: Any, var_pairs_perf: Any, cols: Any, valid_pairs_perf: Any, st: Any, _mi_band: Any, _usability_primary: Any, _name_cache: Any,
+    _cached_name: Any, verbose: Any, messages: Any, best_mi: Any, pair_mi: Any, this_pair_features: Any,
+) -> None:
+    """Extracted block of ``_emit_pair_features`` (part 2); returns the names the caller still uses."""
+    # ONE-BEST-PER-PAIR: the leading-features
+    # equivalence class holds many near-identical representations
+    # of the same algebraic target (a**2/b == div(sqr(a),b) ==
+    # mul(sqr(a),reciproc(b)) == div(a,sqrt(b)) ...). The
+    # pre-refactor code materialised EXACTLY ONE per raw pair;
+    # the refactor regressed to emitting the whole class (~15
+    # cols on the canonical fixture). Pick the single best by
+    # TARGET MI (``var_pairs_perf`` - the primary objective),
+    # using the external-validation MI (``valid_pairs_perf``)
+    # only as a tie-break among target-MI-equal leaders. (Prior
+    # bug: selected by external-validation MI alone, discarding
+    # the true max-target-MI form - e.g. picking add(log(c),1/d)
+    # MI=0.25 over the true mul(log(c),sin(d)) MI=0.32.)
+    _emit_pair_features_step3_mi_over_true(
+        leading_features,
+        var_pairs_perf,
+        cols,
+        valid_pairs_perf,
+        st,
+        _mi_band,
+        _usability_primary,
+        _name_cache,
+        _cached_name,
+        verbose,
+        messages,
+        best_mi,
+        pair_mi,
+        this_pair_features,
+    )
 
-            _ev_configs, _ev_op_codes, _ext_factors_sorted, valid_pairs_perf = _emit_pair_features_step1_comment_check_prospective(
-                verbose, leading_features, var_pairs_perf, numeric_vars_to_consider, raw_vars_pair, _op_code_arr
-            )
-            _emit_pair_features_step2_read_here_once(
-                _ev_configs,
-                final_transformed_vals,
-                _this_chunk_deferred,
-                _resolve_col,
-                _config_by_i,
-                st,
-                transformed_vars,
-                vars_transformations,
-                binary_transformations,
-                _ext_factors_sorted,
-                fe_max_external_validation_factors,
-                _rng_extval,
-                _extval_raw_col,
-                X,
-                _can_hoist_shared_buffer,
-                _n_workers,
-                quantization_method,
-                _narrow_code_dtype,
-                quantization_nbins,
-                quantization_dtype,
-                _ev_op_codes,
-                _materialise_extval_njit,
-                discretize_2d_quantile_batch,
-                _fe_use_parallel_kernels,
-                serial_main_thread,
-                _dispatch_batch_mi_with_noise_gate,
-                classes_y,
-                classes_y_safe,
-                freqs_y,
-                fe_npermutations,
-                fe_min_nonzero_confidence,
-                use_su_normalization,
-                batch_mi_with_noise_gate,
-                _fe_env_gate,
-                discretize_array,
-                mi_direct,
-                valid_pairs_perf,
-            )
 
-            # ONE-BEST-PER-PAIR: the leading-features
-            # equivalence class holds many near-identical representations
-            # of the same algebraic target (a**2/b == div(sqr(a),b) ==
-            # mul(sqr(a),reciproc(b)) == div(a,sqrt(b)) ...). The
-            # pre-refactor code materialised EXACTLY ONE per raw pair;
-            # the refactor regressed to emitting the whole class (~15
-            # cols on the canonical fixture). Pick the single best by
-            # TARGET MI (``var_pairs_perf`` - the primary objective),
-            # using the external-validation MI (``valid_pairs_perf``)
-            # only as a tie-break among target-MI-equal leaders. (Prior
-            # bug: selected by external-validation MI alone, discarding
-            # the true max-target-MI form - e.g. picking add(log(c),1/d)
-            # MI=0.25 over the true mul(log(c),sin(d)) MI=0.32.)
-            _emit_pair_features_step3_mi_over_true(
-                leading_features,
-                var_pairs_perf,
-                cols,
-                valid_pairs_perf,
-                st,
-                _mi_band,
-                _usability_primary,
-                _name_cache,
-                _cached_name,
-                verbose,
-                messages,
-                best_mi,
-                pair_mi,
-                this_pair_features,
-            )
-        else:
-            # Can't narrow by external validation (only 2 vars total) -
-            # still emit ONE best representative (highest engineered MI,
-            # deterministic name tie-break) rather than the whole class.
-            _emit_pair_features_step4_deterministic_name_tie(
-                leading_features,
-                var_pairs_perf,
-                cols,
-                st,
-                _mi_band,
-                _usability_primary,
-                _name_cache,
-                verbose,
-                messages,
-                _cached_name,
-                best_mi,
-                pair_mi,
-                this_pair_features,
-            )
-    else:
-        new_feature_name = _cached_name(best_config)
-        if verbose:
-            messages.append(
-                f"{new_feature_name} is recommended to use as a new feature! (clear winner) best_mi={best_mi:.4f}, pair_mi={pair_mi:.4f}, rat={best_mi/pair_mi:.4f}"
-            )
-        j = 0
-        this_pair_features.add((best_config, j))
-
+def _emit_pair_features_part1(
+    fe_multi_emit_max_per_pair: Any, final_transformed_vals: Any, _this_chunk_deferred: Any, this_pair_features: Any, best_mi: Any,
+    fe_multi_emit_mi_floor: Any, fe_multi_emit_diversity_corr: Any, _cached_name: Any, _resolve_col: Any, var_pairs_perf: Any, st: Any, verbose: Any,
+    messages: Any, fe_max_steps: Any, _use_subsample: Any, _rebuild_full_survivor_col: Any, _X_full: Any, original_cols: Any, unary_transformations: Any,
+    binary_transformations: Any, _prewarp_spec_by_var: Any, _gate_med_median_by_var: Any, cols: Any, engineered_operand_values: Any, _config_by_i: Any,
+    transformed_vars: Any, vars_transformations: Any, _full_n_rows: Any, quantization_nbins: Any,
+) -> tuple[Any, ...]:
+    """Extracted block of ``_emit_pair_features`` (part 1); returns the names the caller still uses."""
     # MULTI-CANDIDATE DIVERSE EMISSION: the blocks above emit the
     # single MAX-MI engineered form. MI is rank-based and blind to LINEAR usability,
     # so the MI-winner can be a tree-friendly monotone warp that a linear model
@@ -417,7 +499,8 @@ def _emit_pair_features(
     )
 
     st._pair_res_entry = (this_pair_features, st.transformed_vals, st.new_cols, st.new_nbins, messages)
-    return st._pair_res_entry
+    return True, (st._pair_res_entry)
+    return False, None
 
 
 def _emit_pair_features_step1_comment_check_prospective(verbose, leading_features, var_pairs_perf, numeric_vars_to_consider, raw_vars_pair, _op_code_arr):
@@ -703,138 +786,153 @@ def _emit_pair_features_step3_pair_features(
     """Step 3 of _emit_pair_features: lines starting at ``if this_pair_features:``."""
     if this_pair_features:
 
-        # Bulk add the found & checked best features.
-        # ``this_pair_features`` is a SET of (config, j) tuples
-        # with sparse, non-contiguous ``j`` indices into
-        # ``final_transformed_vals``. The consumer (mrmr.py
-        # ``_run_fe_step``) iterates
-        # ``for k in range(len(this_pair_features)):
-        # transformed_vals[:, k]``, so the buffer MUST have
-        # exactly ``len(this_pair_features)`` columns packed
-        # densely 0..N-1, not the sparse ``j``-indexed layout
-        # with holes. Pre-fix code wrote to ``transformed_vals[:, j]``
-        # then sliced to ``[:, :last_j + 1]`` - this gives
-        # either a too-short buffer (if last_j was small) and
-        # IndexError downstream, or holes (if last_j was large).
-        # Pack each (config, j) into a compact column index
-        # ``idx = 0..len(this_pair_features)-1`` instead.
-        #
-        # materialise the survivor
-        # columns whenever FE runs (``fe_max_steps >= 1``), not only on
-        # multi-step (``> 1``). Previously, with the default
-        # ``fe_max_steps=1`` the recommended features were LOGGED but
-        # ``transformed_vals`` stayed ``None`` - so the consumer
-        # (_mrmr_fe_step) had nothing to append, the columns never
-        # entered ``data``/``selected_vars``, and ``_engineered_features_``
-        # stayed empty. Producing the buffer unconditionally lets the
-        # single-step default actually emit engineered columns.
-        # Materialise each survivor into a temp column FIRST, then apply
-        # the NON-CONSTANT guard: a column that replays as
-        # constant (std<=1e-9) or non-finite is a DEAD feature and must
-        # never be appended - it reaches the downstream model carrying
-        # zero variance. Several div(sqr(a),b)-family combos replayed
-        # constant on the canonical fixture (degenerate quantile binning
-        # of the heavy-tailed a**2/b). One-best-per-pair already keeps the
-        # non-constant MI winner; this guard is defence-in-depth and also
-        # compacts ``this_pair_features`` / buffers so the recipe builder
-        # downstream never constructs a recipe for a dropped column.
-        _kept_configs = []  # list[(config, j)] that survived the guard
-        _kept_cols_vals = []  # list[np.ndarray] aligned with _kept_configs
-        _kept_names = []
-
-        # ``this_pair_features`` is a SET of ``(config, j)`` tuples whose ``config`` holds
-        # transformation-NAME strings, so a bare ``enumerate(set)`` iterates in PYTHONHASHSEED-
-        # randomised order (string hashing is salted per process) whenever a pair emits more than
-        # one form (multi-emit). That order becomes the ``new_cols`` / ``transformed_vals`` column
-        # order below, which propagates into the engineered-column ordering downstream tie-breaks
-        # depend on - a latent cross-process determinism hole. Iterate in a STABLE, hash-independent
-        # order keyed on the engineered feature NAME (the canonical algebraic identity of the form)
-        # so the emitted column order is reproducible across processes.
-        _ordered_pair_features = sorted(
-            this_pair_features,
-            key=lambda _cj: _cached_name(_cj[0]),
+        this_pair_features = _emit_pair_features_step3_pair_features_part1(
+            this_pair_features, _cached_name, fe_max_steps, _use_subsample, _rebuild_full_survivor_col, _X_full, original_cols, unary_transformations,
+            binary_transformations, _prewarp_spec_by_var, _gate_med_median_by_var, cols, engineered_operand_values, final_transformed_vals,
+            _this_chunk_deferred, _resolve_col, _config_by_i, st, transformed_vars, vars_transformations, verbose, messages, _full_n_rows, quantization_nbins,
         )
-        for _idx, (config, j) in enumerate(_ordered_pair_features):
-            new_feature_name = _cached_name(config)
-            _transformations_pair, _bin_func_name, i = config
+    return this_pair_features
 
-            if fe_max_steps >= 1:
-                if _use_subsample:
-                    # SUBSAMPLE path: rebuild from raw _X_full so the survivor column
-                    # carries the FULL n rows the caller expects (mrmr.py appends it
-                    # back to its full-n ``data`` array). The MI sweep used a 200k
-                    # subset; the survivor IDENTITIES are correct (bench shows
-                    # jaccard=1.0 vs full-n at n_eff>=50k), so we just need to
-                    # rematerialise the values at full resolution.
-                    _col_full = _rebuild_full_survivor_col(
-                        config,
-                        _X_full,
-                        original_cols,
-                        unary_transformations,
-                        binary_transformations,
-                        prewarp_spec_by_var=_prewarp_spec_by_var,
-                        gate_med_median_by_var=_gate_med_median_by_var,
-                        cols=cols,
-                        engineered_operand_values=engineered_operand_values,
-                    )
-                elif final_transformed_vals is not None:
-                    _col_full = final_transformed_vals[:, i]
-                elif _this_chunk_deferred:
-                    # DEFERRED-float GPU path, NON-subsample (transformed_vars is at full n here):
-                    # re-materialise the survivor column on the GPU (bit-identical to the buffer,
-                    # full-n directly). The subsample case took the _rebuild_full_survivor_col
-                    # branch above (full-n rebuild from raw), so this only handles full-n fits.
-                    # Under the strict-resident path the survivor stays a DEVICE column: the downstream stage bins it, derives the recipe edges and
-                    # stores its continuous values from the device, and only copies back what a host consumer actually reads.
-                    _col_full = _survivor_device_column(_resolve_col, i)
-                    if _col_full is None:
-                        _col_full = _resolve_col(i)
-                else:
-                    # CRITICAL #2 recompute-fallback (no subsample, tight RAM): rebuild
-                    # the survivor column from its (a_key, b_key, bin_func_name)
-                    # metadata via the cached unary table. transformed_vars is at
-                    # full n in this path so the column lands at full n directly.
-                    st._a_key, st._b_key, st._bin_name = _config_by_i[i]
-                    st._pa = transformed_vars[:, vars_transformations[st._a_key]]
-                    st._pb = transformed_vars[:, vars_transformations[st._b_key]]
-                    st._col = binary_transformations[st._bin_name](st._pa, st._pb)
-                    np.nan_to_num(st._col, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
-                    _col_full = st._col
 
-                # Keep the RAW (float) engineered values, scrubbed of
-                # nan/inf. CRITICAL: do NOT cast to the
-                # integer ``quantization_dtype`` here. ``transformed_vals``
-                # feeds two consumers downstream - (a) ``_mrmr_fe_step``
-                # discretises it via ``discretize_array(method=quantile)``
-                # into the ``data`` bin-code matrix, and (b) the recipe
-                # builder computes its quantile EDGES from these values for
-                # leak-safe replay. A premature int cast TRUNCATES the
-                # heavy-tailed engineered values (e.g. mul(log(c),sin(d)) in
-                # (-inf,0] collapses to ~2 integers), so the subsequent
-                # quantile binning sees only 2-3 distinct values and the
-                # column reaches the model with a fraction of its MI
-                # (measured: 0.14 vs the true 0.32). Keeping float lets the
-                # downstream quantile discretiser produce the full nbins
-                # codes and the recipe pin correct edges.
-                _col_arr = _finalize_survivor_column(_col_full)
-                _col_std = _survivor_std(_col_arr)
-                if _col_std <= 1e-9:
-                    if verbose:
-                        messages.append(f"{new_feature_name} dropped at materialisation: dead column " f"(std={_col_std:.2e}, non-constant guard).")
-                    continue
-                _kept_cols_vals.append(_col_arr)
-            _kept_configs.append((config, j))
-            _kept_names.append(new_feature_name)
+def _emit_pair_features_step3_pair_features_part1(
+    this_pair_features: Any, _cached_name: Any, fe_max_steps: Any, _use_subsample: Any, _rebuild_full_survivor_col: Any, _X_full: Any, original_cols: Any,
+    unary_transformations: Any, binary_transformations: Any, _prewarp_spec_by_var: Any, _gate_med_median_by_var: Any, cols: Any,
+    engineered_operand_values: Any, final_transformed_vals: Any, _this_chunk_deferred: Any, _resolve_col: Any, _config_by_i: Any, st: Any,
+    transformed_vars: Any, vars_transformations: Any, verbose: Any, messages: Any, _full_n_rows: Any, quantization_nbins: Any,
+) -> Any:
+    """Extracted block of ``_emit_pair_features_step3_pair_features`` (part 1); returns the names the caller still uses."""
+    # Bulk add the found & checked best features.
+    # ``this_pair_features`` is a SET of (config, j) tuples
+    # with sparse, non-contiguous ``j`` indices into
+    # ``final_transformed_vals``. The consumer (mrmr.py
+    # ``_run_fe_step``) iterates
+    # ``for k in range(len(this_pair_features)):
+    # transformed_vals[:, k]``, so the buffer MUST have
+    # exactly ``len(this_pair_features)`` columns packed
+    # densely 0..N-1, not the sparse ``j``-indexed layout
+    # with holes. Pre-fix code wrote to ``transformed_vals[:, j]``
+    # then sliced to ``[:, :last_j + 1]`` - this gives
+    # either a too-short buffer (if last_j was small) and
+    # IndexError downstream, or holes (if last_j was large).
+    # Pack each (config, j) into a compact column index
+    # ``idx = 0..len(this_pair_features)-1`` instead.
+    #
+    # materialise the survivor
+    # columns whenever FE runs (``fe_max_steps >= 1``), not only on
+    # multi-step (``> 1``). Previously, with the default
+    # ``fe_max_steps=1`` the recommended features were LOGGED but
+    # ``transformed_vals`` stayed ``None`` - so the consumer
+    # (_mrmr_fe_step) had nothing to append, the columns never
+    # entered ``data``/``selected_vars``, and ``_engineered_features_``
+    # stayed empty. Producing the buffer unconditionally lets the
+    # single-step default actually emit engineered columns.
+    # Materialise each survivor into a temp column FIRST, then apply
+    # the NON-CONSTANT guard: a column that replays as
+    # constant (std<=1e-9) or non-finite is a DEAD feature and must
+    # never be appended - it reaches the downstream model carrying
+    # zero variance. Several div(sqr(a),b)-family combos replayed
+    # constant on the canonical fixture (degenerate quantile binning
+    # of the heavy-tailed a**2/b). One-best-per-pair already keeps the
+    # non-constant MI winner; this guard is defence-in-depth and also
+    # compacts ``this_pair_features`` / buffers so the recipe builder
+    # downstream never constructs a recipe for a dropped column.
+    _kept_configs = []  # list[(config, j)] that survived the guard
+    _kept_cols_vals = []  # list[np.ndarray] aligned with _kept_configs
+    _kept_names = []
 
-        # Rebuild the survivor set / buffers from ONLY the kept columns so
-        # the recipe builder and the downstream dense consumer stay aligned.
-        this_pair_features = set(_kept_configs)
-        st.new_cols = list(_kept_names)
-        if fe_max_steps >= 1 and _kept_cols_vals:
-            # float buffer: holds RAW engineered values (discretised to
-            # codes downstream; see the non-constant-guard comment above).
-            st.transformed_vals = _stack_survivor_columns(_kept_cols_vals, _full_n_rows)
-            st.new_nbins = [quantization_nbins] * len(_kept_cols_vals)
-        else:
-            st.transformed_vals, st.new_nbins = None, []
+    # ``this_pair_features`` is a SET of ``(config, j)`` tuples whose ``config`` holds
+    # transformation-NAME strings, so a bare ``enumerate(set)`` iterates in PYTHONHASHSEED-
+    # randomised order (string hashing is salted per process) whenever a pair emits more than
+    # one form (multi-emit). That order becomes the ``new_cols`` / ``transformed_vals`` column
+    # order below, which propagates into the engineered-column ordering downstream tie-breaks
+    # depend on - a latent cross-process determinism hole. Iterate in a STABLE, hash-independent
+    # order keyed on the engineered feature NAME (the canonical algebraic identity of the form)
+    # so the emitted column order is reproducible across processes.
+    _ordered_pair_features = sorted(
+        this_pair_features,
+        key=lambda _cj: _cached_name(_cj[0]),
+    )
+    for _idx, (config, j) in enumerate(_ordered_pair_features):
+        new_feature_name = _cached_name(config)
+        _transformations_pair, _bin_func_name, i = config
+
+        if fe_max_steps >= 1:
+            if _use_subsample:
+                # SUBSAMPLE path: rebuild from raw _X_full so the survivor column
+                # carries the FULL n rows the caller expects (mrmr.py appends it
+                # back to its full-n ``data`` array). The MI sweep used a 200k
+                # subset; the survivor IDENTITIES are correct (bench shows
+                # jaccard=1.0 vs full-n at n_eff>=50k), so we just need to
+                # rematerialise the values at full resolution.
+                _col_full = _rebuild_full_survivor_col(
+                    config,
+                    _X_full,
+                    original_cols,
+                    unary_transformations,
+                    binary_transformations,
+                    prewarp_spec_by_var=_prewarp_spec_by_var,
+                    gate_med_median_by_var=_gate_med_median_by_var,
+                    cols=cols,
+                    engineered_operand_values=engineered_operand_values,
+                )
+            elif final_transformed_vals is not None:
+                _col_full = final_transformed_vals[:, i]
+            elif _this_chunk_deferred:
+                # DEFERRED-float GPU path, NON-subsample (transformed_vars is at full n here):
+                # re-materialise the survivor column on the GPU (bit-identical to the buffer,
+                # full-n directly). The subsample case took the _rebuild_full_survivor_col
+                # branch above (full-n rebuild from raw), so this only handles full-n fits.
+                # Under the strict-resident path the survivor stays a DEVICE column: the downstream stage bins it, derives the recipe edges and
+                # stores its continuous values from the device, and only copies back what a host consumer actually reads.
+                _col_full = _survivor_device_column(_resolve_col, i)
+                if _col_full is None:
+                    _col_full = _resolve_col(i)
+            else:
+                # CRITICAL #2 recompute-fallback (no subsample, tight RAM): rebuild
+                # the survivor column from its (a_key, b_key, bin_func_name)
+                # metadata via the cached unary table. transformed_vars is at
+                # full n in this path so the column lands at full n directly.
+                st._a_key, st._b_key, st._bin_name = _config_by_i[i]
+                st._pa = transformed_vars[:, vars_transformations[st._a_key]]
+                st._pb = transformed_vars[:, vars_transformations[st._b_key]]
+                st._col = binary_transformations[st._bin_name](st._pa, st._pb)
+                np.nan_to_num(st._col, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
+                _col_full = st._col
+
+            # Keep the RAW (float) engineered values, scrubbed of
+            # nan/inf. CRITICAL: do NOT cast to the
+            # integer ``quantization_dtype`` here. ``transformed_vals``
+            # feeds two consumers downstream - (a) ``_mrmr_fe_step``
+            # discretises it via ``discretize_array(method=quantile)``
+            # into the ``data`` bin-code matrix, and (b) the recipe
+            # builder computes its quantile EDGES from these values for
+            # leak-safe replay. A premature int cast TRUNCATES the
+            # heavy-tailed engineered values (e.g. mul(log(c),sin(d)) in
+            # (-inf,0] collapses to ~2 integers), so the subsequent
+            # quantile binning sees only 2-3 distinct values and the
+            # column reaches the model with a fraction of its MI
+            # (measured: 0.14 vs the true 0.32). Keeping float lets the
+            # downstream quantile discretiser produce the full nbins
+            # codes and the recipe pin correct edges.
+            _col_arr = _finalize_survivor_column(_col_full)
+            _col_std = _survivor_std(_col_arr)
+            if _col_std <= 1e-9:
+                if verbose:
+                    messages.append(f"{new_feature_name} dropped at materialisation: dead column " f"(std={_col_std:.2e}, non-constant guard).")
+                continue
+            _kept_cols_vals.append(_col_arr)
+        _kept_configs.append((config, j))
+        _kept_names.append(new_feature_name)
+
+    # Rebuild the survivor set / buffers from ONLY the kept columns so
+    # the recipe builder and the downstream dense consumer stay aligned.
+    this_pair_features = set(_kept_configs)
+    st.new_cols = list(_kept_names)
+    if fe_max_steps >= 1 and _kept_cols_vals:
+        # float buffer: holds RAW engineered values (discretised to
+        # codes downstream; see the non-constant-guard comment above).
+        st.transformed_vals = _stack_survivor_columns(_kept_cols_vals, _full_n_rows)
+        st.new_nbins = [quantization_nbins] * len(_kept_cols_vals)
+    else:
+        st.transformed_vals, st.new_nbins = None, []
     return this_pair_features

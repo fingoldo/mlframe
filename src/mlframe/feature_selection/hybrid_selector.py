@@ -557,22 +557,8 @@ class HybridSelector:
             expanded.extend(rep_members.get(r, [r]))
         return [c for c in dict.fromkeys(expanded) if c in X.columns]
 
-    # ------------------------------------------------------------------ fit / transform
-    @logs_fit("HybridSelector", _selection_summary)
-    @rng_hygienic_fit
-    def fit(self, X, y):
-        """Run the full hybrid pipeline: bridge to a pandas view, validate a classification target, run MRMR (stage 0,
-        engineers the shared FE columns), score the augmented frame with one shared permutation-FI pass, gate/admit tree
-        co-occurrence products, cluster-prescreen wide frames, run the member selectors (mrmr/shap/boruta/tree) on the
-        shared narrowed space, then combine their votes cluster-aware (stage 3). Populates the sklearn-style fitted
-        attributes (``feature_names_in_``, ``n_features_in_``, ``selected_features_``) used by ``transform``."""
-        # Polars frames carry their column names in a plain ``list`` (no ``.has_duplicates`` / ``.iloc`` / ``.values``), so the pandas-only glue below
-        # would crash at the first ``X.columns.has_duplicates``. Bridge to an Arrow-backed pandas VIEW once at the boundary (zero-copy for numeric cols),
-        # which captures the REAL polars column names. The defensive LGBM ``feature_names_in_`` setter shim guards the inner LightGBM fits against the
-        # LightGBM 4.x + sklearn read-only-property write-path defect when a non-pandas input slips through to a member.
-        from mlframe.training.shared import patch_lgb_feature_names_in_setter as _patch_lgb_feature_names_in_setter
-        _patch_lgb_feature_names_in_setter()
-        X = _as_pandas_view(X)
+    def _validate_fit_inputs(self, X: pd.DataFrame, y: Any) -> None:
+        """Reject duplicate column names and any target that is not a single-output classification target."""
         # Duplicate column names make ``X[label]`` return a DataFrame (not a Series) and crash the member selectors (MRMR / LightGBM FI / cluster expand) that assume unique names. Surface a clear error at fit entry.
         if hasattr(X, "columns") and X.columns.has_duplicates:
             dup_names = X.columns[X.columns.duplicated()].unique().tolist()
@@ -618,6 +604,40 @@ class HybridSelector:
                     f"('{_ttype}'); pass classification=True to confirm or classification=False if this is regression.",
                     stacklevel=2,
                 )
+
+    def _gate_tree_products(self, X: pd.DataFrame, X_aug: pd.DataFrame, fi_full: dict) -> pd.DataFrame:
+        """Gate the candidate tree co-occurrence products on the shared FI and prune rejected ones from the frame and the replay pairs; returns ``X_aug``."""
+        if self.use_tree_member and getattr(self, "_tree_prod_names_", None):
+            self.fi_ = fi_full  # _admit_tree_products reads self.fi_
+            raw_cols = list(X.columns)
+            survivor_proxy = [c for c in raw_cols if fi_full.get(c, 0.0) > 0.0] or raw_cols  # bar for relevant_median; all-zero FI (degenerate fit) -> the full raw set, not a caller-supplied-empty trap
+            admitted = set(self._admit_tree_products(survivor_proxy, raw_cols))
+            rejected = [nm for nm in self._tree_prod_names_ if nm not in admitted]
+            if rejected:
+                kept = [(p, nm) for p, nm in zip(self._tree_prod_pairs_, self._tree_prod_names_) if nm in admitted]
+                self._tree_prod_pairs_ = [p for p, _ in kept]
+                self._tree_prod_names_ = [nm for _, nm in kept]
+                self._tree_op_ = {nm: self._tree_op_[nm] for nm in self._tree_prod_names_ if nm in self._tree_op_}
+                X_aug = X_aug.drop(columns=[c for c in rejected if c in X_aug.columns])
+        return X_aug
+
+    # ------------------------------------------------------------------ fit / transform
+    @logs_fit("HybridSelector", _selection_summary)
+    @rng_hygienic_fit
+    def fit(self, X, y):
+        """Run the full hybrid pipeline: bridge to a pandas view, validate a classification target, run MRMR (stage 0,
+        engineers the shared FE columns), score the augmented frame with one shared permutation-FI pass, gate/admit tree
+        co-occurrence products, cluster-prescreen wide frames, run the member selectors (mrmr/shap/boruta/tree) on the
+        shared narrowed space, then combine their votes cluster-aware (stage 3). Populates the sklearn-style fitted
+        attributes (``feature_names_in_``, ``n_features_in_``, ``selected_features_``) used by ``transform``."""
+        # Polars frames carry their column names in a plain ``list`` (no ``.has_duplicates`` / ``.iloc`` / ``.values``), so the pandas-only glue below
+        # would crash at the first ``X.columns.has_duplicates``. Bridge to an Arrow-backed pandas VIEW once at the boundary (zero-copy for numeric cols),
+        # which captures the REAL polars column names. The defensive LGBM ``feature_names_in_`` setter shim guards the inner LightGBM fits against the
+        # LightGBM 4.x + sklearn read-only-property write-path defect when a non-pandas input slips through to a member.
+        from mlframe.training.shared import patch_lgb_feature_names_in_setter as _patch_lgb_feature_names_in_setter
+        _patch_lgb_feature_names_in_setter()
+        X = _as_pandas_view(X)
+        self._validate_fit_inputs(X, y)
         # STAGE 0 - MRMR FIRST (it engineers the shared FE columns), then build the augmented frame X_aug once;
         # every downstream shared artifact + member then operates on raw+engineered features.
         self.mrmr_selected_, self.artifacts_ = self._run_mrmr(X, y) if self.use_mrmr else ([], None)
@@ -632,18 +652,7 @@ class HybridSelector:
         self._tree_signals(X, y)
         X_aug = self._augment(X)  # all candidate products present, for honest FI scoring
         fi_full = self._shared_perm_fi(X_aug, y)  # the single (expensive) shared FI pass
-        if self.use_tree_member and getattr(self, "_tree_prod_names_", None):
-            self.fi_ = fi_full  # _admit_tree_products reads self.fi_
-            raw_cols = list(X.columns)
-            survivor_proxy = [c for c in raw_cols if fi_full.get(c, 0.0) > 0.0] or raw_cols  # bar for relevant_median; all-zero FI (degenerate fit) -> the full raw set, not a caller-supplied-empty trap
-            admitted = set(self._admit_tree_products(survivor_proxy, raw_cols))
-            rejected = [nm for nm in self._tree_prod_names_ if nm not in admitted]
-            if rejected:
-                kept = [(p, nm) for p, nm in zip(self._tree_prod_pairs_, self._tree_prod_names_) if nm in admitted]
-                self._tree_prod_pairs_ = [p for p, _ in kept]
-                self._tree_prod_names_ = [nm for _, nm in kept]
-                self._tree_op_ = {nm: self._tree_op_[nm] for nm in self._tree_prod_names_ if nm in self._tree_op_}
-                X_aug = X_aug.drop(columns=[c for c in rejected if c in X_aug.columns])
+        X_aug = self._gate_tree_products(X, X_aug, fi_full)
         cols = list(X_aug.columns)
         # engineered = MRMR-engineered + the ADMITTED tree products (rejected ones are already pruned). Both are
         # candidate engineered columns exempt from the raw-FI prescreen (they passed their own FE/synergy gate).

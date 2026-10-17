@@ -435,6 +435,90 @@ def predict(self, X: Any, inner_X: Any = None) -> np.ndarray:
     return _clip_and_record(self, np.asarray(y_hat), meta)
 
 
+def _quantile_base_array(self: Any, X: Any, transform: Any) -> np.ndarray | None:
+    """Base column for ``predict_quantile`` (None for unary transforms) after the quantile-order guards for ratio / logratio / reciprocal_residual."""
+    base_arr: np.ndarray | None
+    # Unary transforms (requires_base=False) have no base column; extracting
+    # one raises 'base_columns is empty'. Mirror _predict_unclipped: defer to
+    # a zeros placeholder sized to t_raw, which the unary inverse ignores.
+    if transform.requires_base:
+        base_columns = self._resolve_base_columns()
+        base_arr = self._extract_base_for_transform(X, base_columns)
+
+        # Sign-flip guard for ratio: T < 0 and base < 0 produces
+        # positive y; high T-quantile would swap to low y-quantile.
+        if self.transform_name == "ratio":
+            if np.any(base_arr < 0):
+                raise NotImplementedError(
+                    "predict_quantile is not supported for transform 'ratio' "
+                    "when base contains negative values: y = T * base flips "
+                    "the quantile ordering on negative-base rows. Use "
+                    "predict() for point predictions or switch transform."
+                )
+
+        # logratio domain check: base must be > 0 (already required at
+        # fit time, but predict-time inputs may differ).
+        if self.transform_name == "logratio":
+            if np.any(base_arr <= 0):
+                raise NotImplementedError(
+                    "predict_quantile for transform 'logratio' requires "
+                    "base > 0 on every row. Filter the input or use "
+                    "predict() with the wrapper's domain fallback."
+                )
+
+        # reciprocal_residual: y = 1/(T + 1/base) is DECREASING in T, so the
+        # inverse swaps the quantile order (the alpha-quantile of T maps to the
+        # (1-alpha)-quantile of y). Raise rather than silently return inverted
+        # intervals.
+        if self.transform_name == "reciprocal_residual":
+            raise NotImplementedError(
+                "predict_quantile is not supported for transform "
+                "'reciprocal_residual': y = 1/(T + 1/base) is monotone "
+                "DECREASING in T, which swaps the quantile ordering. Use "
+                "predict() for point predictions or switch transform."
+            )
+    else:
+        base_arr = None
+    return base_arr
+
+
+def _inner_t_quantiles(inner: Any, X_for_inner: Any, alpha: Any) -> np.ndarray:
+    """T-scale quantiles from the inner estimator, retrying with ``alpha=`` for libs that name the kwarg."""
+    try:
+        return np.asarray(
+            inner.predict_quantile(X_for_inner, alpha),
+            dtype=np.float64,
+        )
+    except TypeError:
+        # Some libs name the kwarg differently (e.g. quantile=, q=).
+        return np.asarray(
+            inner.predict_quantile(X_for_inner, alpha=alpha),
+            dtype=np.float64,
+        )
+
+
+def _quantile_domain_ok(transform: Any, base_arr: np.ndarray | None, params: dict, n_rows: int) -> tuple[np.ndarray, np.ndarray]:
+    """Return ``(base_arr, domain_ok)``; unary transforms get a zeros placeholder base and an all-True mask."""
+    # Base-side domain mask (parity with predict). A NaN / out-of-domain base
+    # otherwise yields a silent NaN quantile; instead route those rows through
+    # the same fallback predict() uses. Unary transforms have no base, so all
+    # rows are in-domain and the placeholder base is ignored by the inverse.
+    if base_arr is None:
+        base_arr = np.zeros(n_rows, dtype=np.float64)
+        domain_ok = np.ones(n_rows, dtype=bool)
+    elif transform.requires_base:
+        domain_ok = _compute_base_domain_ok(transform, base_arr, params)
+    else:
+        domain_ok = np.ones(n_rows, dtype=bool)
+    return base_arr, domain_ok
+
+
+def _record_quantile_batch(self: Any, shrunk_mask: Any, deep_ood: Any, n_rows: int, n_violation: int, totals: tuple[int, int, int, int]) -> None:
+    """Record soft-shrink info and the per-batch runtime counters; ``totals`` is ``(y_low, y_high, t_low, t_high)`` clip hits."""
+    _soft_shrink.record_info(self, shrunk_mask, deep_ood, n_rows)
+    _record_runtime_stats(self, n_rows, n_violation, totals[0], totals[1], totals[2], totals[3])
+
+
 def predict_quantile(
     self,
     X: Any,
@@ -487,47 +571,7 @@ def predict_quantile(
 
     transform = get_transform(self.transform_name)
     params = self.fitted_params_
-    # Unary transforms (requires_base=False) have no base column; extracting
-    # one raises 'base_columns is empty'. Mirror _predict_unclipped: defer to
-    # a zeros placeholder sized to t_raw, which the unary inverse ignores.
-    if transform.requires_base:
-        base_columns = self._resolve_base_columns()
-        base_arr = self._extract_base_for_transform(X, base_columns)
-
-        # Sign-flip guard for ratio: T < 0 and base < 0 produces
-        # positive y; high T-quantile would swap to low y-quantile.
-        if self.transform_name == "ratio":
-            if np.any(base_arr < 0):
-                raise NotImplementedError(
-                    "predict_quantile is not supported for transform 'ratio' "
-                    "when base contains negative values: y = T * base flips "
-                    "the quantile ordering on negative-base rows. Use "
-                    "predict() for point predictions or switch transform."
-                )
-
-        # logratio domain check: base must be > 0 (already required at
-        # fit time, but predict-time inputs may differ).
-        if self.transform_name == "logratio":
-            if np.any(base_arr <= 0):
-                raise NotImplementedError(
-                    "predict_quantile for transform 'logratio' requires "
-                    "base > 0 on every row. Filter the input or use "
-                    "predict() with the wrapper's domain fallback."
-                )
-
-        # reciprocal_residual: y = 1/(T + 1/base) is DECREASING in T, so the
-        # inverse swaps the quantile order (the alpha-quantile of T maps to the
-        # (1-alpha)-quantile of y). Raise rather than silently return inverted
-        # intervals.
-        if self.transform_name == "reciprocal_residual":
-            raise NotImplementedError(
-                "predict_quantile is not supported for transform "
-                "'reciprocal_residual': y = 1/(T + 1/base) is monotone "
-                "DECREASING in T, which swaps the quantile ordering. Use "
-                "predict() for point predictions or switch transform."
-            )
-    else:
-        base_arr = None
+    base_arr = _quantile_base_array(self, X, transform)
 
     # Grouped-transform parity with predict(). The grouped inverse needs per-row
     # group labels, and the inner must NOT see the (string) group_column.
@@ -541,30 +585,10 @@ def predict_quantile(
     X_for_inner = frame_for_inner(inner, inner_X if inner_X is not None else _inner_input(self, X, transform))
 
     alpha_is_scalar = np.isscalar(alpha)
-    try:
-        t_raw = np.asarray(
-            inner.predict_quantile(X_for_inner, alpha),
-            dtype=np.float64,
-        )
-    except TypeError:
-        # Some libs name the kwarg differently (e.g. quantile=, q=).
-        t_raw = np.asarray(
-            inner.predict_quantile(X_for_inner, alpha=alpha),
-            dtype=np.float64,
-        )
+    t_raw = _inner_t_quantiles(inner, X_for_inner, alpha)
 
-    # Base-side domain mask (parity with predict). A NaN / out-of-domain base
-    # otherwise yields a silent NaN quantile; instead route those rows through
-    # the same fallback predict() uses. Unary transforms have no base, so all
-    # rows are in-domain and the placeholder base is ignored by the inverse.
     n_rows = int(t_raw.shape[0])
-    if base_arr is None:
-        base_arr = np.zeros(n_rows, dtype=np.float64)
-        domain_ok = np.ones(n_rows, dtype=bool)
-    elif transform.requires_base:
-        domain_ok = _compute_base_domain_ok(transform, base_arr, params)
-    else:
-        domain_ok = np.ones(n_rows, dtype=bool)
+    base_arr, domain_ok = _quantile_domain_ok(transform, base_arr, params, n_rows)
 
     # Soft base-shrink parity with predict() (see _predict_unclipped above): without this,
     # predict_quantile() never called _soft_shrink.compute, so the default-ON out-of-range-base
@@ -613,47 +637,20 @@ def predict_quantile(
 
     if alpha_is_scalar:
         y_q = _quantile_fallback(self, params, _invert_one(t_raw), alpha, domain_ok, deep_ood)
-        _soft_shrink.record_info(self, shrunk_mask, deep_ood, n_rows)
-        _record_runtime_stats(
-            self,
-            n_rows,
-            n_violation,
-            _y_low_total,
-            _y_high_total,
-            _t_low_total,
-            _t_high_total,
-        )
+        _record_quantile_batch(self, shrunk_mask, deep_ood, n_rows, n_violation, (_y_low_total, _y_high_total, _t_low_total, _t_high_total))
         return y_q
 
     if t_raw.ndim == 1:
         # Inner emits per-alpha 1-D and was called with a vector -- broadcast
         # against the single base column we already extracted (which is 1-D).
         y_q = _invert_one(t_raw).reshape(-1, 1)
-        _soft_shrink.record_info(self, shrunk_mask, deep_ood, n_rows)
-        _record_runtime_stats(
-            self,
-            n_rows,
-            n_violation,
-            _y_low_total,
-            _y_high_total,
-            _t_low_total,
-            _t_high_total,
-        )
+        _record_quantile_batch(self, shrunk_mask, deep_ood, n_rows, n_violation, (_y_low_total, _y_high_total, _t_low_total, _t_high_total))
         return y_q
     if t_raw.ndim != 2:
         raise ValueError(f"CompositeTargetEstimator.predict_quantile: inner returned ndim={t_raw.ndim}; expected 1 or 2.")
     # Per-column inverse: base_arr is (n_samples,), so reshape to broadcast.
     cols = [_invert_one(t_raw[:, k]) for k in range(t_raw.shape[1])]
-    _soft_shrink.record_info(self, shrunk_mask, deep_ood, n_rows)
-    _record_runtime_stats(
-        self,
-        n_rows,
-        n_violation,
-        _y_low_total,
-        _y_high_total,
-        _t_low_total,
-        _t_high_total,
-    )
+    _record_quantile_batch(self, shrunk_mask, deep_ood, n_rows, n_violation, (_y_low_total, _y_high_total, _t_low_total, _t_high_total))
     return _finish_quantiles(self, params, np.column_stack(cols), np.asarray(alpha, dtype=np.float64).reshape(-1), domain_ok, deep_ood)
 
 

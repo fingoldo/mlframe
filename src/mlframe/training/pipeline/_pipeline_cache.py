@@ -15,7 +15,7 @@ What lives here:
 """
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Optional
 import hashlib
 import logging
 import os
@@ -297,6 +297,90 @@ def _weakref_cache_put(cache: "OrderedDict[tuple, tuple[weakref.ReferenceType, s
         cache.popitem(last=False)
 
 
+def _hash_polars_frame_rows(arr) -> str:
+    """Row-hash digest of a polars DataFrame, or ``""`` when it has no columns or ``hash_rows`` fails."""
+    # iter299: polars-native hash path. The legacy
+    # ``arr.to_numpy().tobytes() -> blake2b`` chain materialises the
+    # full numpy buffer (~40 MB on a 200k x 25 float64 frame) just to
+    # hash it; polars exposes a row-wise hash kernel
+    # (``DataFrame.hash_rows()``) that runs entirely in the Rust
+    # engine and produces a u64-per-row Series. Folding the row-hash
+    # sum + shape + columns into blake2b gives a deterministic 128-bit
+    # digest with 21.9x speedup at the c0142 frame shape (104.68 ms ->
+    # 4.78 ms / call; 16 calls saves ~1.5 s on a 13.88 s combo wall).
+    # Cache lives per-process, so the hash key change does not
+    # invalidate any persisted state.
+    # Guard zero-column polars frames: ``hash_rows`` panics at the
+    # Rust layer with ``pyo3_runtime.PanicException: at least one
+    # key`` -- not a Python ``Exception`` on older pyo3 builds.
+    if arr.width == 0:
+        return ""
+    try:
+        row_hashes = arr.hash_rows()
+        # Cast to UInt64 then sum mod 2^64 -- polars sum on UInt64
+        # wraps natively, giving a deterministic 64-bit summary.
+        row_sum = int(row_hashes.sum())
+    except _HASH_FASTPATH_EXC as _exc:
+        # Tuple includes pyo3 PanicException (zero-column hash_rows).
+        log_throttle(logger, "_pipeline_cache._full_x_content_hash", logging.WARNING, "_full_x_content_hash fell back to its default after %s", type(_exc).__name__)
+        return ""
+    col_names = ",".join(str(c) for c in arr.columns)
+    h = hashlib.blake2b(digest_size=16)
+    h.update(str(row_sum).encode())
+    h.update(str(arr.shape).encode())
+    h.update(str(arr.schema).encode())
+    if col_names:
+        h.update(col_names.encode())
+    return h.hexdigest()
+
+
+def _hash_pandas_frame_via_polars(arr) -> Optional[str]:
+    """Row-hash digest of a pandas DataFrame via the polars kernel, or None when the fastpath is unavailable (caller falls back to tobytes)."""
+    # iter359: mirror the polars hash_rows fastpath for
+    # pandas frames. ``pl.from_pandas`` does a zero-copy buffer share
+    # for primitive-dtype columns (and a column-by-column conversion
+    # otherwise) -- much cheaper than ``arr.to_numpy()`` which forces
+    # an _interleave consolidation copy across every column to build
+    # one homogeneous numpy block. On a 200k x 25 mixed-dtype frame
+    # the polars path runs 9.7x faster (129.81 ms -> 13.29 ms / call;
+    # c0051 16 hashes saves ~1.9 s). hash_rows() is Rust-side
+    # deterministic, identical guarantees to blake2b(tobytes) for
+    # cache-key collision resistance.
+    pd_row_sum: int | None
+    if pl is not None and arr.shape[1] > 0:
+        # Guard against zero-column frames: polars' ``hash_rows`` panics
+        # at the Rust layer (``pyo3_runtime.PanicException: at least one
+        # key``), which is NOT a Python ``Exception`` subclass on older
+        # pyo3 (inherits ``BaseException``) -- ``except Exception``
+        # below wouldn't catch it on those builds. Skip the polars
+        # fastpath entirely when the frame has no columns (happens on
+        # all-constant-features datasets after the constant-column
+        # filter drops everything; observed via
+        # test_with_all_constant_features).
+        try:
+            pl_df = pl.from_pandas(arr)
+            row_hashes = pl_df.hash_rows()
+            pd_row_sum = int(row_hashes.sum())
+        except _HASH_FASTPATH_EXC:
+            # Tuple includes pyo3 PanicException (zero-column
+            # hash_rows). Fallback uses ``arr.to_numpy().tobytes()``.
+            pl_df = None
+            pd_row_sum = None
+    else:
+        pl_df = None
+        pd_row_sum = None
+    if pd_row_sum is None:
+        return None
+    col_names = ",".join(str(c) for c in arr.columns)
+    h = hashlib.blake2b(digest_size=16)
+    h.update(str(pd_row_sum).encode())
+    h.update(str(arr.shape).encode())
+    h.update(str(arr.dtypes.to_list()).encode())
+    if col_names:
+        h.update(col_names.encode())
+    return h.hexdigest()
+
+
 def _full_x_content_hash(arr) -> str:
     """Full blake2b content hash of an X frame for cache-key disambiguation.
 
@@ -323,41 +407,10 @@ def _full_x_content_hash(arr) -> str:
     if cached is not None:
         return cached
     try:
-        # iter299: polars-native hash path. The legacy
-        # ``arr.to_numpy().tobytes() -> blake2b`` chain materialises the
-        # full numpy buffer (~40 MB on a 200k x 25 float64 frame) just to
-        # hash it; polars exposes a row-wise hash kernel
-        # (``DataFrame.hash_rows()``) that runs entirely in the Rust
-        # engine and produces a u64-per-row Series. Folding the row-hash
-        # sum + shape + columns into blake2b gives a deterministic 128-bit
-        # digest with 21.9x speedup at the c0142 frame shape (104.68 ms ->
-        # 4.78 ms / call; 16 calls saves ~1.5 s on a 13.88 s combo wall).
-        # Cache lives per-process, so the hash key change does not
-        # invalidate any persisted state.
         if pl is not None and isinstance(arr, pl.DataFrame):
-            # Guard zero-column polars frames: ``hash_rows`` panics at the
-            # Rust layer with ``pyo3_runtime.PanicException: at least one
-            # key`` -- not a Python ``Exception`` on older pyo3 builds.
-            if arr.width == 0:
-                return ""
-            try:
-                row_hashes = arr.hash_rows()
-                # Cast to UInt64 then sum mod 2^64 -- polars sum on UInt64
-                # wraps natively, giving a deterministic 64-bit summary.
-                row_sum = int(row_hashes.sum())
-            except _HASH_FASTPATH_EXC as _exc:
-                # Tuple includes pyo3 PanicException (zero-column hash_rows).
-                log_throttle(logger, "_pipeline_cache._full_x_content_hash", logging.WARNING, "_full_x_content_hash fell back to its default after %s", type(_exc).__name__)
-                return ""
-            col_names = ",".join(str(c) for c in arr.columns)
-            h = hashlib.blake2b(digest_size=16)
-            h.update(str(row_sum).encode())
-            h.update(str(arr.shape).encode())
-            h.update(str(arr.schema).encode())
-            if col_names:
-                h.update(col_names.encode())
-            _result = h.hexdigest()
-            _weakref_cache_put(_PIPELINE_X_HASH_CACHE, id_shape, arr, _result, _PIPELINE_X_HASH_CACHE_MAX)
+            _result = _hash_polars_frame_rows(arr)
+            if _result:
+                _weakref_cache_put(_PIPELINE_X_HASH_CACHE, id_shape, arr, _result, _PIPELINE_X_HASH_CACHE_MAX)
             return _result
         if pl is not None and isinstance(arr, pl.Series):
             try:
@@ -367,50 +420,10 @@ def _full_x_content_hash(arr) -> str:
                 return ""
             col_names = str(arr.name) if getattr(arr, "name", None) else ""
         elif isinstance(arr, pd.DataFrame):
-            # iter359: mirror the polars hash_rows fastpath for
-            # pandas frames. ``pl.from_pandas`` does a zero-copy buffer share
-            # for primitive-dtype columns (and a column-by-column conversion
-            # otherwise) -- much cheaper than ``arr.to_numpy()`` which forces
-            # an _interleave consolidation copy across every column to build
-            # one homogeneous numpy block. On a 200k x 25 mixed-dtype frame
-            # the polars path runs 9.7x faster (129.81 ms -> 13.29 ms / call;
-            # c0051 16 hashes saves ~1.9 s). hash_rows() is Rust-side
-            # deterministic, identical guarantees to blake2b(tobytes) for
-            # cache-key collision resistance.
-            pd_row_sum: int | None
-            if pl is not None and arr.shape[1] > 0:
-                # Guard against zero-column frames: polars' ``hash_rows`` panics
-                # at the Rust layer (``pyo3_runtime.PanicException: at least one
-                # key``), which is NOT a Python ``Exception`` subclass on older
-                # pyo3 (inherits ``BaseException``) -- ``except Exception``
-                # below wouldn't catch it on those builds. Skip the polars
-                # fastpath entirely when the frame has no columns (happens on
-                # all-constant-features datasets after the constant-column
-                # filter drops everything; observed via
-                # test_with_all_constant_features).
-                try:
-                    pl_df = pl.from_pandas(arr)
-                    row_hashes = pl_df.hash_rows()
-                    pd_row_sum = int(row_hashes.sum())
-                except _HASH_FASTPATH_EXC:
-                    # Tuple includes pyo3 PanicException (zero-column
-                    # hash_rows). Fallback uses ``arr.to_numpy().tobytes()``.
-                    pl_df = None
-                    pd_row_sum = None
-            else:
-                pl_df = None
-                pd_row_sum = None
-            if pd_row_sum is not None:
-                col_names = ",".join(str(c) for c in arr.columns)
-                h = hashlib.blake2b(digest_size=16)
-                h.update(str(pd_row_sum).encode())
-                h.update(str(arr.shape).encode())
-                h.update(str(arr.dtypes.to_list()).encode())
-                if col_names:
-                    h.update(col_names.encode())
-                _result = h.hexdigest()
-                _weakref_cache_put(_PIPELINE_X_HASH_CACHE, id_shape, arr, _result, _PIPELINE_X_HASH_CACHE_MAX)
-                return _result
+            _result_pd = _hash_pandas_frame_via_polars(arr)
+            if _result_pd is not None:
+                _weakref_cache_put(_PIPELINE_X_HASH_CACHE, id_shape, arr, _result_pd, _PIPELINE_X_HASH_CACHE_MAX)
+                return _result_pd
             # Fallback to legacy to_numpy + tobytes path on any polars failure
             # (mixed-dtype frame polars can't ingest, etc).
             try:

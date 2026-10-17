@@ -183,10 +183,6 @@ def evaluate_estimators(
     # Lazy: IPython transitively pulls in jedi's completion engine, one of the slowest imports in
     # the ecosystem -- module-level import here made every ``import mlframe.evaluation.reports``
     # (incl. kernel-tuning discovery's whole-package walk) pay that cost even outside a notebook.
-    target_names_to_use: Any = None
-    probs: Any = None
-    preds: Any = None
-    nclasses: Any = None
     est_name: Any = None
     est: Any = None
     from IPython.display import display, Markdown
@@ -239,105 +235,156 @@ def evaluate_estimators(
             test_size = len(y_test_test)
 
             if test_size > 0:
-                logger.info("test_size=%s", test_size)
-                test_size = get_human_readable_set_size(test_size)
-                is_classification = is_classifier(est)
-
-                if is_classification:
-
-                    # ----------------------------------------------------------------------------------------------------------------------------
-                    # Classifier
-                    # ----------------------------------------------------------------------------------------------------------------------------
-
-                    probs = pipe.predict_proba(X_test_test)
-                    nclasses = probs.shape[1]
-
-                    preds = _evaluate_estimator_nclasses(nclasses, threshold, probs, pos_label)
-
-                    if nclasses == 2:
-                        _bal_acc = balanced_accuracy_binary(y_test_test, preds)
-                    else:
-                        # balanced_accuracy_binary is binary-only; multiclass recall-macro has no fast kernel.
-                        from sklearn.metrics import balanced_accuracy_score
-                        _bal_acc = balanced_accuracy_score(y_test_test, preds)
-                    mes = f"Balanced accuracy on {test_size} samples: {_bal_acc:.2%}"
-                    if classification_thresholds is not None:
-                        # classification_thresholds is documented as a list (see the regressor branch below,
-                        # which uses it as bin-edge cut points): class index i's representative value is
-                        # classification_thresholds[i]. Series.map() needs a dict/callable/Series, not a bare
-                        # list -- passing the list directly raised "TypeError: 'list' object is not callable".
-                        _thresholds_map = dict(enumerate(classification_thresholds))
-                        mes += "\n" + regression_stats(pd.Series(y_test_test).map(_thresholds_map), pd.Series(preds).map(_thresholds_map))
-
-                else:
-
-                    # ----------------------------------------------------------------------------------------------------------------------------
-                    # Regressor
-                    # ----------------------------------------------------------------------------------------------------------------------------
-
-                    preds = pipe.predict(X_test_test)
-
-                    mes = regression_stats(y_test_test, preds)
-
-                    if classification_thresholds is not None:
-                        _thresholds_arr = _thresholds_arr_all
-                        _, y_test_test = get_predicted_classes(y_test_test.values, thresholds=_thresholds_arr)
-                        probs, preds = get_predicted_classes(preds, thresholds=_thresholds_arr)
-                        nclasses = probs.shape[1]
-
-                # ----------------------------------------------------------------------------------------------------------------------------
-                # Report accuracy & other metrics
-                # ----------------------------------------------------------------------------------------------------------------------------
-
-                if mes:
-                    display(Markdown(f"*Model*: **{est_name}**, {mes}"))
-
-                # ----------------------------------------------------------------------------------------------------------------------------
-                # Compute additional metrics & visualisations
-                # ----------------------------------------------------------------------------------------------------------------------------
-
-                if is_classification or (classification_thresholds is not None):
-
-                    if "classes_" in dir(est):
-                        labels_to_use = est.classes_
-                        target_names_to_use = {key: value for key, value in target_names.items() if value in labels_to_use}
-                    else:
-                        labels_to_use = None
-                        target_names_to_use = target_names
-
-                    # Ordered target-name list for the fast report/plot (their kernels index by
-                    # class 0..nclasses-1). target_names_to_use is a {label: display-name} dict.
-                    _tn = _evaluate_estimator_class_nclasses_target_names(target_names_to_use, nclasses)
-
-                    classification_report_dict, classification_report_text = _evaluate_estimator_show_classification_report(show_classification_report, y_test_test, preds, nclasses, _tn, results_log, classification_report_dict, classification_report_text)
-
-                    if show_confusion_matrix:
-
-                        cm, _cm_labels = confusion_matrix_counts(y_test_test, preds, labels=labels_to_use)
-                        fig_cm, ax_cm = plot_confusion_matrix(
-                            y_test_test,
-                            preds,
-                            labels=labels_to_use,
-                            display_labels=display_labels,
-                            normalize=cfm_normalize,
-                            cmap=cfm_cmap,
-                            ax=cfm_ax,
-                            values_format=cfm_values_format,
-                            colorbar=cfm_colorbar,
-                            include_values=cfm_include_values,
-                            xticks_rotation=cfm_xticks_rotation,
-                        )
-
-                        ax_cm.grid(visible=None)
-                        if confusion_matrix_file:
-                            fig_cm.savefig(ensure_parent_dir(confusion_matrix_file), dpi=dpi, bbox_inches="tight")
-
-                        # Library code must not leave figures open (memory leak under repeated evaluation) nor block on plt.show().
-                        plt.close(fig_cm if fig_cm is not None else plt.gcf())
-
-                    _evaluate_estimator_library_code_must_leave(show_calibration_plot, use_sklearn_calibration, nclasses, probs, y_test_test, calibration_nbins, figsize, est_name, display_labels, competing_probs, X_test_test)
+                classification_report_dict, classification_report_text, cm = _evaluate_test_set(
+                    est, pipe, est_name, X_test_test, y_test_test, test_size, threshold, pos_label, classification_thresholds, _thresholds_arr_all,
+                    target_names, display_labels, show_classification_report, show_confusion_matrix, confusion_matrix_file, cfm_normalize,
+                    cfm_include_values, cfm_cmap, cfm_ax, cfm_xticks_rotation, cfm_values_format, cfm_colorbar, dpi, results_log,
+                    show_calibration_plot, use_sklearn_calibration, calibration_nbins, figsize, competing_probs,
+                    classification_report_dict, classification_report_text, cm,
+                )
 
     return pipe, classification_report_text, classification_report_dict, cm
+
+
+def _evaluate_test_set(
+    est: Any,
+    pipe: Any,
+    est_name: str,
+    X_test_test: Any,
+    y_test_test: Any,
+    test_size: Any,
+    threshold: float,
+    pos_label: int,
+    classification_thresholds: Optional[list],
+    _thresholds_arr_all: Any,
+    target_names: dict,
+    display_labels: list,
+    show_classification_report: bool,
+    show_confusion_matrix: bool,
+    confusion_matrix_file: Optional[str],
+    cfm_normalize: str,
+    cfm_include_values: bool,
+    cfm_cmap: str,
+    cfm_ax: object,
+    cfm_xticks_rotation: str,
+    cfm_values_format: str,
+    cfm_colorbar: bool,
+    dpi: int,
+    results_log: Optional[dict],
+    show_calibration_plot: bool,
+    use_sklearn_calibration: bool,
+    calibration_nbins: int,
+    figsize: tuple,
+    competing_probs: list,
+    classification_report_dict: Optional[dict],
+    classification_report_text: Optional[str],
+    cm: Any,
+) -> tuple[Optional[dict], Optional[str], Any]:
+    """Predict on the test slice with a fitted pipeline and show the metrics/plots; returns ``(report_dict, report_text, confusion_matrix)``."""
+    from IPython.display import display, Markdown
+
+    target_names_to_use: Any = None
+    probs: Any = None
+    preds: Any = None
+    nclasses: Any = None
+    logger.info("test_size=%s", test_size)
+    test_size = get_human_readable_set_size(test_size)
+    is_classification = is_classifier(est)
+
+    if is_classification:
+
+        # ----------------------------------------------------------------------------------------------------------------------------
+        # Classifier
+        # ----------------------------------------------------------------------------------------------------------------------------
+
+        probs = pipe.predict_proba(X_test_test)
+        nclasses = probs.shape[1]
+
+        preds = _evaluate_estimator_nclasses(nclasses, threshold, probs, pos_label)
+
+        if nclasses == 2:
+            _bal_acc = balanced_accuracy_binary(y_test_test, preds)
+        else:
+            # balanced_accuracy_binary is binary-only; multiclass recall-macro has no fast kernel.
+            from sklearn.metrics import balanced_accuracy_score
+            _bal_acc = balanced_accuracy_score(y_test_test, preds)
+        mes = f"Balanced accuracy on {test_size} samples: {_bal_acc:.2%}"
+        if classification_thresholds is not None:
+            # classification_thresholds is documented as a list (see the regressor branch below,
+            # which uses it as bin-edge cut points): class index i's representative value is
+            # classification_thresholds[i]. Series.map() needs a dict/callable/Series, not a bare
+            # list -- passing the list directly raised "TypeError: 'list' object is not callable".
+            _thresholds_map = dict(enumerate(classification_thresholds))
+            mes += "\n" + regression_stats(pd.Series(y_test_test).map(_thresholds_map), pd.Series(preds).map(_thresholds_map))
+
+    else:
+
+        # ----------------------------------------------------------------------------------------------------------------------------
+        # Regressor
+        # ----------------------------------------------------------------------------------------------------------------------------
+
+        preds = pipe.predict(X_test_test)
+
+        mes = regression_stats(y_test_test, preds)
+
+        if classification_thresholds is not None:
+            _thresholds_arr = _thresholds_arr_all
+            _, y_test_test = get_predicted_classes(y_test_test.values, thresholds=_thresholds_arr)
+            probs, preds = get_predicted_classes(preds, thresholds=_thresholds_arr)
+            nclasses = probs.shape[1]
+
+    # ----------------------------------------------------------------------------------------------------------------------------
+    # Report accuracy & other metrics
+    # ----------------------------------------------------------------------------------------------------------------------------
+
+    if mes:
+        display(Markdown(f"*Model*: **{est_name}**, {mes}"))
+
+    # ----------------------------------------------------------------------------------------------------------------------------
+    # Compute additional metrics & visualisations
+    # ----------------------------------------------------------------------------------------------------------------------------
+
+    if is_classification or (classification_thresholds is not None):
+
+        if "classes_" in dir(est):
+            labels_to_use = est.classes_
+            target_names_to_use = {key: value for key, value in target_names.items() if value in labels_to_use}
+        else:
+            labels_to_use = None
+            target_names_to_use = target_names
+
+        # Ordered target-name list for the fast report/plot (their kernels index by
+        # class 0..nclasses-1). target_names_to_use is a {label: display-name} dict.
+        _tn = _evaluate_estimator_class_nclasses_target_names(target_names_to_use, nclasses)
+
+        classification_report_dict, classification_report_text = _evaluate_estimator_show_classification_report(show_classification_report, y_test_test, preds, nclasses, _tn, results_log, classification_report_dict, classification_report_text)
+
+        if show_confusion_matrix:
+
+            cm, _cm_labels = confusion_matrix_counts(y_test_test, preds, labels=labels_to_use)
+            fig_cm, ax_cm = plot_confusion_matrix(
+                y_test_test,
+                preds,
+                labels=labels_to_use,
+                display_labels=display_labels,
+                normalize=cfm_normalize,
+                cmap=cfm_cmap,
+                ax=cfm_ax,
+                values_format=cfm_values_format,
+                colorbar=cfm_colorbar,
+                include_values=cfm_include_values,
+                xticks_rotation=cfm_xticks_rotation,
+            )
+
+            ax_cm.grid(visible=None)
+            if confusion_matrix_file:
+                fig_cm.savefig(ensure_parent_dir(confusion_matrix_file), dpi=dpi, bbox_inches="tight")
+
+            # Library code must not leave figures open (memory leak under repeated evaluation) nor block on plt.show().
+            plt.close(fig_cm if fig_cm is not None else plt.gcf())
+
+        _evaluate_estimator_library_code_must_leave(show_calibration_plot, use_sklearn_calibration, nclasses, probs, y_test_test, calibration_nbins, figsize, est_name, display_labels, competing_probs, X_test_test)
+    return classification_report_dict, classification_report_text, cm
 
 
 def _is_catboost_pool_or_path(obj) -> bool:

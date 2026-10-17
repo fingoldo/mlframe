@@ -41,6 +41,35 @@ from ._baseline_oof import fit_baseline_predict_oof as _fit_baseline_predict
 _topk_within_subset = topk_within_subset
 
 
+def _make_cbhr_columns(
+    feats: np.ndarray,
+    temps_list: tuple,
+    features_per_temp: int,
+    n_hard_per_side: int,
+    n_total_anchors: int,
+    task: str,
+    column_prefix: str,
+    dtype: type,
+) -> dict[str, np.ndarray]:
+    """Label the flat ``(n_query, n_temps * features_per_temp)`` feature block into named columns (per-temperature weights, entropy, and per-side y/residual aggregates)."""
+    cols: dict[str, np.ndarray] = {}
+    for ti, t in enumerate(temps_list):
+        base = ti * features_per_temp
+        t_tag = f"t{t:g}".replace(".", "p")
+        for a in range(n_hard_per_side):
+            tag = "pos" if task == "binary" else "topy"
+            cols[f"{column_prefix}_{t_tag}_w_{tag}_h{a}"] = feats[:, base + a].astype(dtype, copy=False)
+        for a in range(n_hard_per_side):
+            tag = "neg" if task == "binary" else "boty"
+            cols[f"{column_prefix}_{t_tag}_w_{tag}_h{a}"] = feats[:, base + n_hard_per_side + a].astype(dtype, copy=False)
+        cols[f"{column_prefix}_{t_tag}_entropy"] = feats[:, base + n_total_anchors].astype(dtype, copy=False)
+        cols[f"{column_prefix}_{t_tag}_y_side1"] = feats[:, base + n_total_anchors + 1].astype(dtype, copy=False)
+        cols[f"{column_prefix}_{t_tag}_y_side2"] = feats[:, base + n_total_anchors + 2].astype(dtype, copy=False)
+        cols[f"{column_prefix}_{t_tag}_resid_side1"] = feats[:, base + n_total_anchors + 3].astype(dtype, copy=False)
+        cols[f"{column_prefix}_{t_tag}_resid_side2"] = feats[:, base + n_total_anchors + 4].astype(dtype, copy=False)
+    return cols
+
+
 def compute_multi_temp_cbhr_features(
     X_train: np.ndarray,
     y_train: np.ndarray,
@@ -162,29 +191,10 @@ def compute_multi_temp_cbhr_features(
 
         return out_blocks
 
-    def _make_df(feats: np.ndarray) -> dict[str, np.ndarray]:
-        """Label the flat ``(n_query, n_temps * features_per_temp)`` feature block into named columns (per-temperature weights, entropy, and per-side y/residual aggregates)."""
-        cols: dict[str, np.ndarray] = {}
-        for ti, t in enumerate(temps_list):
-            base = ti * features_per_temp
-            t_tag = f"t{t:g}".replace(".", "p")
-            for a in range(n_hard_per_side):
-                tag = "pos" if task == "binary" else "topy"
-                cols[f"{column_prefix}_{t_tag}_w_{tag}_h{a}"] = feats[:, base + a].astype(dtype, copy=False)
-            for a in range(n_hard_per_side):
-                tag = "neg" if task == "binary" else "boty"
-                cols[f"{column_prefix}_{t_tag}_w_{tag}_h{a}"] = feats[:, base + n_hard_per_side + a].astype(dtype, copy=False)
-            cols[f"{column_prefix}_{t_tag}_entropy"] = feats[:, base + n_total_anchors].astype(dtype, copy=False)
-            cols[f"{column_prefix}_{t_tag}_y_side1"] = feats[:, base + n_total_anchors + 1].astype(dtype, copy=False)
-            cols[f"{column_prefix}_{t_tag}_y_side2"] = feats[:, base + n_total_anchors + 2].astype(dtype, copy=False)
-            cols[f"{column_prefix}_{t_tag}_resid_side1"] = feats[:, base + n_total_anchors + 3].astype(dtype, copy=False)
-            cols[f"{column_prefix}_{t_tag}_resid_side2"] = feats[:, base + n_total_anchors + 4].astype(dtype, copy=False)
-        return cols
-
     if X_query is not None:
         Xq = np.asarray(X_query, dtype=np.float32)
         feats = _process(X_train_f, Xq, y_train_f, seed)
-        return pl.DataFrame(_make_df(feats))
+        return pl.DataFrame(_make_cbhr_columns(feats, temps_list, features_per_temp, n_hard_per_side, n_total_anchors, task, column_prefix, dtype))
 
     if splitter is None:
         raise ValueError("Mode A (X_query=None) requires a splitter.")
@@ -197,4 +207,4 @@ def compute_multi_temp_cbhr_features(
         out[val_idx] = feats.astype(dtype, copy=False)
         logger.info("multi_temp_cbhr: fold %d/%d done", fold_idx + 1, len(splits))
 
-    return pl.DataFrame(_make_df(out))
+    return pl.DataFrame(_make_cbhr_columns(out, temps_list, features_per_temp, n_hard_per_side, n_total_anchors, task, column_prefix, dtype))

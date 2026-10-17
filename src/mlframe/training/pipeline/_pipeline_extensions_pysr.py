@@ -57,48 +57,8 @@ def _labelled_fit_view(train_df: pd.DataFrame, y_train: Any) -> "tuple[pd.DataFr
     return (train_df.loc[labelled].copy(), y[labelled]) if not labelled.all() else (train_df, y)
 
 
-def _apply_pysr_fe(
-    *,
-    train_df: pd.DataFrame,
-    val_df,
-    test_df,
-    y_train,
-    config: "PreprocessingExtensionsConfig",
-    verbose: int = 1,
-    out_equations: Optional[Dict[str, str]] = None,
-    out_transformer: Optional[list] = None,
-) -> list:
-    """Run PySR symbolic regression on train, apply top equations to all
-    splits, and add predictions as new numeric columns in-place. Returns
-    the list of added column names.
-
-    Column naming uses ``pysr__{blake2b(equation_str)[:8]}__{seed}`` so a given symbolic equation always lands on the same column across seeds / runs / processes; two seeds that discover different equations get distinct column names instead of silently overlaying onto a shared ``pysr_eq{idx}`` slot (the prior naming collided across runs).
-
-    When ``out_equations`` is provided, the equation-string -> column-name map is populated for predict-time replay persistence.
-
-    Gracefully skips on ImportError (Julia/PySR not installed). Raises a ``logger.warning`` when ``y_train`` is None (target not threaded through from the calling phase) - silent skip used to mask wiring bugs where ``pysr_enabled=True`` was set but the suite never invoked PySR.
-    """
-    # Lazy import of parent-resident helpers: ``.predict`` re-imports this sibling at its bottom, so a top-level ``from .predict
-    # import ...`` would create a hard cycle the meta-test flags.
-    from . import PySRTransformer, _maybe_set_pysr_thread_env, pysr_predict_column
-    if y_train is None:
-        logger.warning(
-            "_apply_pysr_fe: pysr_enabled=True but y_train was not passed in "
-            "(caller did not thread the target through). PySR feature "
-            "engineering SKIPPED. Pass a 1-D y_train array to enable it."
-        )
-        return []
-    # Set Julia thread-count env BEFORE importing run_pysr_feature_engineering (which boots juliacall).
-    # Deferred from module-import time so callers who never trigger PySR don't get their env mutated.
-    _maybe_set_pysr_thread_env()
-    try:
-        from mlframe.feature_engineering.bruteforce import run_pysr_feature_engineering
-    except (ImportError, OSError, subprocess.CalledProcessError):
-        if verbose:
-            logger.warning("PySR feature engineering is enabled but the pysr / Julia " "runtime is not importable. Skipping.")
-        return []
-
-    pysr_params = getattr(config, "pysr_params", None) or {}
+def _build_pysr_params(config: "PreprocessingExtensionsConfig", pysr_params: dict) -> dict:
+    """Merge the operator preset, in-suite defaults, typed config knobs and ``pysr_params`` into the final PySR kwargs."""
     # Operator preset (minimal / standard / physics) -- standard is the in-suite default. The preset
     # supplies binary_operators, unary_operators, complexity_of_operators, nested_constraints, and
     # extra_sympy_mappings; the raw pysr_params dict can still override any individual key.
@@ -166,6 +126,130 @@ def _apply_pysr_fe(
     # Use a shallow copy so underlying YAML/dict config isn't mutated.
     merged_params = dict(defaults)
     _prune_preset_operator_maps(merged_params, pysr_params)
+    return merged_params
+
+
+def _add_pysr_equation_columns(
+    *,
+    model: Any,
+    eq_df: pd.DataFrame,
+    train_df: pd.DataFrame,
+    val_df: Any,
+    test_df: Any,
+    pysr_random_state: int,
+    out_equations: Optional[Dict[str, str]],
+    out_transformer: Optional[list],
+) -> list:
+    """Predict each top equation onto train/val/test as ``pysr__<hash>__<seed>`` columns; returns the added column names."""
+    from . import PySRTransformer, pysr_predict_column
+
+    import hashlib
+
+    new_cols: list = []
+    _col_to_index: Dict[str, int] = {}
+    # Equation-string column lives under several possible names depending on the PySR version (``equation``, ``sympy_format``, ``lambda_format``); fall back to the row repr if none are present so the hash still has a deterministic basis.
+    _eq_col = next((c for c in ("equation", "sympy_format", "lambda_format") if c in eq_df.columns), None)
+    for idx in eq_df.index:
+        # Compute equation_str / col_name outside the predict try so any failure during
+        # name construction itself surfaces (it's pure computation; if it raises it's a
+        # real bug not a per-equation skip).
+        if _eq_col is not None:
+            equation_str = str(eq_df.loc[idx, _eq_col])
+        else:
+            equation_str = repr(eq_df.loc[idx].to_dict())
+        hash8 = hashlib.blake2b(equation_str.encode("utf-8"), digest_size=4).hexdigest()
+        col_name = f"pysr__{hash8}__{pysr_random_state}"
+        if col_name in train_df.columns:
+            # Same equation rediscovered in this seed -- the column already carries the
+            # same values, skip recompute.
+            if out_equations is not None:
+                out_equations[col_name] = equation_str
+            _col_to_index[col_name] = int(idx)
+            continue
+        # Per-equation try wraps all three predict-and-assign calls. Pre-fix bare
+        # ``except: continue`` left schema drift when predict succeeded on train but
+        # raised on val (e.g. odd dtype quirk, single edge value): train_df kept the
+        # column, val_df / test_df didn't, and downstream fit raised a cryptic
+        # feature-count mismatch with no log line. Now: on any failure, roll back
+        # all three frames so the column is either uniformly present or uniformly
+        # absent across splits, and log the skip so the operator sees how many
+        # equations were dropped.
+        try:
+            train_df[col_name] = pysr_predict_column(model, train_df, idx)
+            if val_df is not None:
+                val_df[col_name] = pysr_predict_column(model, val_df, idx)
+            if test_df is not None:
+                test_df[col_name] = pysr_predict_column(model, test_df, idx)
+        except Exception as _eq_err:
+            # Roll back any partial writes so train / val / test stay schema-consistent.
+            for _frame in (train_df, val_df, test_df):
+                if _frame is not None and col_name in getattr(_frame, "columns", []):
+                    try:
+                        _frame.drop(columns=[col_name], inplace=True)  # noqa: PD002 -- _frame is a loop var aliasing train_df/val_df/test_df; a rebind would not propagate the rollback to the caller's actual frames
+                    except (TypeError, ValueError):
+                        # polars (no inplace=) or unusual frame -- best-effort drop.
+                        pass
+            log_throttle(
+                logger,
+                "pysr_equation_skipped",
+                logging.WARNING,
+                "PySR equation idx=%s skipped (col=%s): %s: %s. Train/val/test "
+                "rolled back to keep splits schema-consistent.",
+                idx, col_name, type(_eq_err).__name__, _eq_err,
+            )
+            continue
+        new_cols.append(col_name)
+        _col_to_index[col_name] = int(idx)
+        if out_equations is not None:
+            out_equations[col_name] = equation_str
+    if out_transformer is not None and _col_to_index:
+        out_transformer.append(PySRTransformer(model=model, col_to_index=_col_to_index, equations=out_equations or {}))
+    return new_cols
+
+
+def _apply_pysr_fe(
+    *,
+    train_df: pd.DataFrame,
+    val_df,
+    test_df,
+    y_train,
+    config: "PreprocessingExtensionsConfig",
+    verbose: int = 1,
+    out_equations: Optional[Dict[str, str]] = None,
+    out_transformer: Optional[list] = None,
+) -> list:
+    """Run PySR symbolic regression on train, apply top equations to all
+    splits, and add predictions as new numeric columns in-place. Returns
+    the list of added column names.
+
+    Column naming uses ``pysr__{blake2b(equation_str)[:8]}__{seed}`` so a given symbolic equation always lands on the same column across seeds / runs / processes; two seeds that discover different equations get distinct column names instead of silently overlaying onto a shared ``pysr_eq{idx}`` slot (the prior naming collided across runs).
+
+    When ``out_equations`` is provided, the equation-string -> column-name map is populated for predict-time replay persistence.
+
+    Gracefully skips on ImportError (Julia/PySR not installed). Raises a ``logger.warning`` when ``y_train`` is None (target not threaded through from the calling phase) - silent skip used to mask wiring bugs where ``pysr_enabled=True`` was set but the suite never invoked PySR.
+    """
+    # Lazy import of parent-resident helpers: ``.predict`` re-imports this sibling at its bottom, so a top-level ``from .predict
+    # import ...`` would create a hard cycle the meta-test flags.
+    from . import _maybe_set_pysr_thread_env
+    if y_train is None:
+        logger.warning(
+            "_apply_pysr_fe: pysr_enabled=True but y_train was not passed in "
+            "(caller did not thread the target through). PySR feature "
+            "engineering SKIPPED. Pass a 1-D y_train array to enable it."
+        )
+        return []
+    # Set Julia thread-count env BEFORE importing run_pysr_feature_engineering (which boots juliacall).
+    # Deferred from module-import time so callers who never trigger PySR don't get their env mutated.
+    _maybe_set_pysr_thread_env()
+    try:
+        from mlframe.feature_engineering.bruteforce import run_pysr_feature_engineering
+    except (ImportError, OSError, subprocess.CalledProcessError):
+        if verbose:
+            logger.warning("PySR feature engineering is enabled but the pysr / Julia " "runtime is not importable. Skipping.")
+        return []
+
+    pysr_params = getattr(config, "pysr_params", None) or {}
+    merged_params = _build_pysr_params(config, pysr_params)
 
     _top_k_override = getattr(config, "pysr_top_k", None)
     top_k = int(_top_k_override) if _top_k_override is not None else min(5, merged_params.get("population_size", 20) // 2)
@@ -230,65 +314,13 @@ def _apply_pysr_fe(
         return []
     eq_df = eq_df.sort_values(["score"], ascending=[False]).head(top_k)
 
-    import hashlib
-
-    new_cols = []
-    _col_to_index: Dict[str, int] = {}
-    # Equation-string column lives under several possible names depending on the PySR version (``equation``, ``sympy_format``, ``lambda_format``); fall back to the row repr if none are present so the hash still has a deterministic basis.
-    _eq_col = next((c for c in ("equation", "sympy_format", "lambda_format") if c in eq_df.columns), None)
-    for idx in eq_df.index:
-        # Compute equation_str / col_name outside the predict try so any failure during
-        # name construction itself surfaces (it's pure computation; if it raises it's a
-        # real bug not a per-equation skip).
-        if _eq_col is not None:
-            equation_str = str(eq_df.loc[idx, _eq_col])
-        else:
-            equation_str = repr(eq_df.loc[idx].to_dict())
-        hash8 = hashlib.blake2b(equation_str.encode("utf-8"), digest_size=4).hexdigest()
-        col_name = f"pysr__{hash8}__{pysr_random_state}"
-        if col_name in train_df.columns:
-            # Same equation rediscovered in this seed -- the column already carries the
-            # same values, skip recompute.
-            if out_equations is not None:
-                out_equations[col_name] = equation_str
-            _col_to_index[col_name] = int(idx)
-            continue
-        # Per-equation try wraps all three predict-and-assign calls. Pre-fix bare
-        # ``except: continue`` left schema drift when predict succeeded on train but
-        # raised on val (e.g. odd dtype quirk, single edge value): train_df kept the
-        # column, val_df / test_df didn't, and downstream fit raised a cryptic
-        # feature-count mismatch with no log line. Now: on any failure, roll back
-        # all three frames so the column is either uniformly present or uniformly
-        # absent across splits, and log the skip so the operator sees how many
-        # equations were dropped.
-        try:
-            train_df[col_name] = pysr_predict_column(model, train_df, idx)
-            if val_df is not None:
-                val_df[col_name] = pysr_predict_column(model, val_df, idx)
-            if test_df is not None:
-                test_df[col_name] = pysr_predict_column(model, test_df, idx)
-        except Exception as _eq_err:
-            # Roll back any partial writes so train / val / test stay schema-consistent.
-            for _frame in (train_df, val_df, test_df):
-                if _frame is not None and col_name in getattr(_frame, "columns", []):
-                    try:
-                        _frame.drop(columns=[col_name], inplace=True)  # noqa: PD002 -- _frame is a loop var aliasing train_df/val_df/test_df; a rebind would not propagate the rollback to the caller's actual frames
-                    except (TypeError, ValueError):
-                        # polars (no inplace=) or unusual frame -- best-effort drop.
-                        pass
-            log_throttle(
-                logger,
-                "pysr_equation_skipped",
-                logging.WARNING,
-                "PySR equation idx=%s skipped (col=%s): %s: %s. Train/val/test "
-                "rolled back to keep splits schema-consistent.",
-                idx, col_name, type(_eq_err).__name__, _eq_err,
-            )
-            continue
-        new_cols.append(col_name)
-        _col_to_index[col_name] = int(idx)
-        if out_equations is not None:
-            out_equations[col_name] = equation_str
-    if out_transformer is not None and _col_to_index:
-        out_transformer.append(PySRTransformer(model=model, col_to_index=_col_to_index, equations=out_equations or {}))
-    return new_cols
+    return _add_pysr_equation_columns(
+        model=model,
+        eq_df=eq_df,
+        train_df=train_df,
+        val_df=val_df,
+        test_df=test_df,
+        pysr_random_state=pysr_random_state,
+        out_equations=out_equations,
+        out_transformer=out_transformer,
+    )

@@ -17,7 +17,7 @@ What lives here:
 from __future__ import annotations
 
 import logging
-from typing import Any, Callable, Optional, Sequence, Union, cast
+from typing import Any, Callable, Optional, Sequence, Tuple, Union, cast
 
 import numpy as np
 
@@ -256,9 +256,6 @@ def compute_probabilistic_multiclass_error(
     # already-0..K-1 targets, so the common path stays bit-identical; only the shifted/non-contiguous case is corrected.
     labels = _infer_multilabel_from_labels(labels, multilabel, probs, y_true)
 
-    total_error = 0.0
-    weights_sum = 0
-
     _w = _nonuniform_weights(sample_weight)
     if _w is not None:
         return _weighted_multiclass_error(
@@ -278,32 +275,74 @@ def compute_probabilistic_multiclass_error(
     # of the legacy fast_ice_only K-loop -- verified in
     # ``profiling/bench_compute_multiclass_error.py``.
     if method == "multicrit" and not verbose and _every_class_bins_uniform(probs, y_true, labels, multilabel):
-        # Build the set of class_ids to evaluate (binary case skips 0).
-        _class_ids = [c for c in range(len(probs)) if not (len(probs) == 2 and c == 0 and not multilabel)]
-        try:
-            _y_pred_NK, _y_true_NK = _stack_class_columns(probs, y_true, labels, multilabel, _class_ids)
-            # Descending per-class score order via numpy's C argsort (vectorised over K); hoisted out of the njit
-            # kernel because numba's own argsort is ~3.6x slower. The AUC/PR walk is tie-order invariant, so this is
-            # bit-identical.
-            _desc_idx_NK = np.ascontiguousarray(np.argsort(-_y_pred_NK, axis=0).astype(np.int64))
-            # Single-dispatch batched kernel
-            ice_per_class = _ice_kernel_dispatch(
-                _y_true_NK, _y_pred_NK, _desc_idx_NK, nbins,
-                bool(use_weighted_calibration),
-                float(mae_weight), float(std_weight), float(brier_loss_weight),
-                float(roc_auc_weight), float(pr_auc_weight),
-                float(min_roc_auc), float(roc_auc_penalty),
-                float(coverage_weight),
-            )
-            return _reduce_per_class(ice_per_class, _class_ids, _y_true_NK, weight_by_class_npositives, return_per_class)
-        except (ValueError, TypeError) as _exc:
-            # Only shape/dtype mismatches fall back to the legacy per-class loop; a genuine numeric/logic bug
-            # (any other exception type) must propagate rather than be silently masked. Log at WARNING so the
-            # fallback is visible in prod, not buried at DEBUG.
-            logger.warning(
-                "_batch_per_class_ice_kernel fastpath failed (%s); falling back to per-class loop.",
-                _exc,
-            )
+        _fast_result = _try_batched_ice_fastpath(
+            probs, y_true, labels, multilabel, nbins, use_weighted_calibration, mae_weight, std_weight, brier_loss_weight, roc_auc_weight, pr_auc_weight,
+            min_roc_auc, roc_auc_penalty, coverage_weight, weight_by_class_npositives, return_per_class,
+        )
+        if _fast_result is not None:
+            return _fast_result
+
+    total_error, weights_sum, _n_last = _legacy_per_class_loop(
+        probs, y_true, labels, multilabel, method, verbose, nbins, ndigits, use_weighted_calibration, mae_weight, std_weight, brier_loss_weight,
+        roc_auc_weight, pr_auc_weight, min_roc_auc, roc_auc_penalty, coverage_weight, weight_by_class_npositives,
+    )
+
+    # Guard against div-by-zero when every per-class weight was 0 (e.g.
+    # weight_by_class_npositives with all-negative y_true, or empty probs).
+    # Previously propagated 0/0 -> NaN silently.
+    if weights_sum > 0:
+        total_error /= weights_sum
+    else:
+        logger.warning("compute_probabilistic_multiclass_error: sum of per-class weights is 0; returning NaN.")
+        total_error = float("nan")
+
+    if verbose:
+        logger.info("method=%s, data size=%s mean_class_error=%s", method, f"{_n_last:_}", f"{total_error:.{ndigits}f}")
+
+    if return_per_class:
+        # Legacy/verbose/non-multicrit path does not surface the per-class
+        # vector; return empty dict so the caller falls back to its own
+        # per-class recompute rather than indexing a missing entry.
+        return total_error, {}
+    return total_error
+
+
+def _try_batched_ice_fastpath(probs: Any, y_true: Any, labels: Any, multilabel: bool, nbins: int, use_weighted_calibration: bool, mae_weight: float, std_weight: float, brier_loss_weight: float, roc_auc_weight: float, pr_auc_weight: float, min_roc_auc: float, roc_auc_penalty: float, coverage_weight: float, weight_by_class_npositives: bool, return_per_class: bool) -> Any:
+    """Run the batched-numba multicrit fastpath; returns the final result, or None when a shape/dtype mismatch means the caller must use the per-class loop."""
+    # Build the set of class_ids to evaluate (binary case skips 0).
+    _class_ids = [c for c in range(len(probs)) if not (len(probs) == 2 and c == 0 and not multilabel)]
+    try:
+        _y_pred_NK, _y_true_NK = _stack_class_columns(probs, y_true, labels, multilabel, _class_ids)
+        # Descending per-class score order via numpy's C argsort (vectorised over K); hoisted out of the njit
+        # kernel because numba's own argsort is ~3.6x slower. The AUC/PR walk is tie-order invariant, so this is
+        # bit-identical.
+        _desc_idx_NK = np.ascontiguousarray(np.argsort(-_y_pred_NK, axis=0).astype(np.int64))
+        # Single-dispatch batched kernel
+        ice_per_class = _ice_kernel_dispatch(
+            _y_true_NK, _y_pred_NK, _desc_idx_NK, nbins,
+            bool(use_weighted_calibration),
+            float(mae_weight), float(std_weight), float(brier_loss_weight),
+            float(roc_auc_weight), float(pr_auc_weight),
+            float(min_roc_auc), float(roc_auc_penalty),
+            float(coverage_weight),
+        )
+        return _reduce_per_class(ice_per_class, _class_ids, _y_true_NK, weight_by_class_npositives, return_per_class)
+    except (ValueError, TypeError) as _exc:
+        # Only shape/dtype mismatches fall back to the legacy per-class loop; a genuine numeric/logic bug
+        # (any other exception type) must propagate rather than be silently masked. Log at WARNING so the
+        # fallback is visible in prod, not buried at DEBUG.
+        logger.warning(
+            "_batch_per_class_ice_kernel fastpath failed (%s); falling back to per-class loop.",
+            _exc,
+        )
+    return None
+
+
+
+def _legacy_per_class_loop(probs: Any, y_true: Any, labels: Any, multilabel: bool, method: str, verbose: bool, nbins: int, ndigits: int, use_weighted_calibration: bool, mae_weight: float, std_weight: float, brier_loss_weight: float, roc_auc_weight: float, pr_auc_weight: float, min_roc_auc: float, roc_auc_penalty: float, coverage_weight: float, weight_by_class_npositives: bool) -> Tuple[float, Any, Optional[int]]:
+    """Per-class Python loop (legacy / verbose / non-multicrit path); returns ``(total_error, weights_sum, n_rows_of_last_class)`` before normalisation."""
+    total_error = 0.0
+    weights_sum = 0
 
     for class_id in range(len(probs)):
 
@@ -371,25 +410,10 @@ def compute_probabilistic_multiclass_error(
 
         total_error += class_error * weight
         weights_sum += weight
-
-    # Guard against div-by-zero when every per-class weight was 0 (e.g.
-    # weight_by_class_npositives with all-negative y_true, or empty probs).
-    # Previously propagated 0/0 -> NaN silently.
-    if weights_sum > 0:
-        total_error /= weights_sum
-    else:
-        logger.warning("compute_probabilistic_multiclass_error: sum of per-class weights is 0; returning NaN.")
-        total_error = float("nan")
-
+    n_last: Optional[int] = None
     if verbose:
-        logger.info("method=%s, data size=%s mean_class_error=%s", method, f"{len(correct_class):_}", f"{total_error:.{ndigits}f}")
-
-    if return_per_class:
-        # Legacy/verbose/non-multicrit path does not surface the per-class
-        # vector; return empty dict so the caller falls back to its own
-        # per-class recompute rather than indexing a missing entry.
-        return total_error, {}
-    return total_error
+        n_last = len(correct_class)
+    return total_error, weights_sum, n_last
 
 
 def _infer_multilabel_from_labels(labels, multilabel, probs, y_true):

@@ -178,11 +178,7 @@ def _choose_discretize_row_chunk_rows(n_cols: int, in_itemsize: int, free_bytes:
 
 
 def discretize_2d_array_cuda_row_chunked(
-    arr: np.ndarray,
-    n_bins: int = 10,
-    method: str = "quantile",
-    dtype: type = np.int8,
-    quantile_subsample_rows: Optional[int] = None,
+    arr: np.ndarray, n_bins: int = 10, method: str = "quantile", dtype: type = np.int8, quantile_subsample_rows: Optional[int] = None,
     free_bytes: Optional[int] = None,
 ) -> np.ndarray:
     """Row-chunked variant of :func:`discretize_2d_array_cuda` for when the FULL ``arr`` upload would not
@@ -248,14 +244,7 @@ def discretize_2d_array_cuda_row_chunked(
     _quantile_subsample_note = f", quantile_subsample_rows={min(n_rows, quantile_subsample_rows)}/{n_rows}" if method == "quantile" else ""
     logger.info(
         "discretize_2d_array_cuda_row_chunked: method=%s n_rows=%d n_cols=%d in_dtype=%s -> row_chunk_rows=%d " "(%d chunk(s)), free_vram=%.2fGB%s",
-        method,
-        n_rows,
-        n_cols,
-        arr.dtype,
-        row_chunk_rows,
-        -(-n_rows // row_chunk_rows),
-        free_b / 1024**3,
-        _quantile_subsample_note,
+        method, n_rows, n_cols, arr.dtype, row_chunk_rows, -(-n_rows // row_chunk_rows), free_b / 1024**3, _quantile_subsample_note,
     )
 
     out: np.ndarray = np.empty((n_rows, n_cols), dtype=dtype)

@@ -103,6 +103,28 @@ def _fit_3baselines_predict(Xt: np.ndarray, y_t: np.ndarray, task: str, seed: in
 _topk_within_subset = topk_within_subset
 
 
+def _make_hard_row_columns(feats: np.ndarray, n_hard_per_side: int, n_total_anchors: int, task: str, column_prefix: str, dtype: type) -> dict[str, np.ndarray]:
+    """Split the flat ``_process`` output (per-anchor weights + aggregate stats) into named columns."""
+    cols: dict[str, np.ndarray] = {}
+    for a in range(n_hard_per_side):
+        tag = "pos" if task == "binary" else "topy"
+        cols[f"{column_prefix}_w_{tag}_h{a}"] = feats[:, a].astype(dtype, copy=False)
+    for a in range(n_hard_per_side):
+        tag = "neg" if task == "binary" else "boty"
+        cols[f"{column_prefix}_w_{tag}_h{a}"] = feats[:, n_hard_per_side + a].astype(dtype, copy=False)
+    col_idx = n_total_anchors
+    cols[f"{column_prefix}_entropy"] = feats[:, col_idx].astype(dtype, copy=False); col_idx += 1
+    cols[f"{column_prefix}_y_side1"] = feats[:, col_idx].astype(dtype, copy=False); col_idx += 1
+    cols[f"{column_prefix}_y_side2"] = feats[:, col_idx].astype(dtype, copy=False); col_idx += 1
+    cols[f"{column_prefix}_hardness_side1"] = feats[:, col_idx].astype(dtype, copy=False); col_idx += 1
+    cols[f"{column_prefix}_hardness_side2"] = feats[:, col_idx].astype(dtype, copy=False); col_idx += 1
+    cols[f"{column_prefix}_best_side1"] = feats[:, col_idx].astype(dtype, copy=False); col_idx += 1
+    cols[f"{column_prefix}_best_side2"] = feats[:, col_idx].astype(dtype, copy=False); col_idx += 1
+    cols[f"{column_prefix}_mindist_side1"] = feats[:, col_idx].astype(dtype, copy=False); col_idx += 1
+    cols[f"{column_prefix}_mindist_side2"] = feats[:, col_idx].astype(dtype, copy=False); col_idx += 1
+    return cols
+
+
 def compute_multi_baseline_hard_row_features(
     X_train: np.ndarray,
     y_train: np.ndarray,
@@ -219,33 +241,12 @@ def compute_multi_baseline_hard_row_features(
             best_pos, best_neg, min_dist_pos, min_dist_neg,
         ])
 
-    def _make_df(feats: np.ndarray) -> dict[str, np.ndarray]:
-        """Split the flat ``_process`` output (per-anchor weights + aggregate stats) into named columns."""
-        cols: dict[str, np.ndarray] = {}
-        for a in range(n_hard_per_side):
-            tag = "pos" if task == "binary" else "topy"
-            cols[f"{column_prefix}_w_{tag}_h{a}"] = feats[:, a].astype(dtype, copy=False)
-        for a in range(n_hard_per_side):
-            tag = "neg" if task == "binary" else "boty"
-            cols[f"{column_prefix}_w_{tag}_h{a}"] = feats[:, n_hard_per_side + a].astype(dtype, copy=False)
-        col_idx = n_total_anchors
-        cols[f"{column_prefix}_entropy"] = feats[:, col_idx].astype(dtype, copy=False); col_idx += 1
-        cols[f"{column_prefix}_y_side1"] = feats[:, col_idx].astype(dtype, copy=False); col_idx += 1
-        cols[f"{column_prefix}_y_side2"] = feats[:, col_idx].astype(dtype, copy=False); col_idx += 1
-        cols[f"{column_prefix}_hardness_side1"] = feats[:, col_idx].astype(dtype, copy=False); col_idx += 1
-        cols[f"{column_prefix}_hardness_side2"] = feats[:, col_idx].astype(dtype, copy=False); col_idx += 1
-        cols[f"{column_prefix}_best_side1"] = feats[:, col_idx].astype(dtype, copy=False); col_idx += 1
-        cols[f"{column_prefix}_best_side2"] = feats[:, col_idx].astype(dtype, copy=False); col_idx += 1
-        cols[f"{column_prefix}_mindist_side1"] = feats[:, col_idx].astype(dtype, copy=False); col_idx += 1
-        cols[f"{column_prefix}_mindist_side2"] = feats[:, col_idx].astype(dtype, copy=False); col_idx += 1
-        return cols
-
     n_features = n_total_anchors + 9
 
     if X_query is not None:
         Xq = np.asarray(X_query, dtype=np.float32)
         feats = _process(X_train_f, Xq, y_train_f, seed)
-        return pl.DataFrame(_make_df(feats))
+        return pl.DataFrame(_make_hard_row_columns(feats, n_hard_per_side, n_total_anchors, task, column_prefix, dtype))
 
     if splitter is None:
         raise ValueError("Mode A (X_query=None) requires a splitter.")
@@ -257,4 +258,4 @@ def compute_multi_baseline_hard_row_features(
         out[val_idx] = feats.astype(dtype, copy=False)
         logger.info("multi_baseline_hard_row: fold %d/%d done", fold_idx + 1, len(splits))
 
-    return pl.DataFrame(_make_df(out))
+    return pl.DataFrame(_make_hard_row_columns(out, n_hard_per_side, n_total_anchors, task, column_prefix, dtype))

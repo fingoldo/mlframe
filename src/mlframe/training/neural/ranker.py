@@ -25,7 +25,7 @@ import pandas as pd
 import torch
 import torch.nn as nn
 from sklearn.base import BaseEstimator, RegressorMixin
-from torch.utils.data import DataLoader, Dataset, Sampler
+from torch.utils.data import DataLoader, Dataset
 
 from mlframe.training.neural.flat import generate_mlp
 
@@ -58,125 +58,7 @@ from ._ranker_losses import (  # noqa: F401
 # ----------------------------------------------------------------------------------
 # Group-aware batching
 # ----------------------------------------------------------------------------------
-
-
-class GroupBatchSampler(Sampler):
-    """Yield ONE query's row indices per batch.
-
-    Skips queries with fewer than 2 docs (no pair possible) or a single distinct relevance
-    value (no positive pair; such queries contribute 0 to the loss and cause numerical
-    issues in some Lightning callbacks).
-
-    Deterministic when ``shuffle=False``; with ``shuffle=True`` yields queries in per-epoch
-    random order (within-query doc order is preserved).
-    """
-
-    def __init__(
-        self,
-        group_ids: np.ndarray,
-        relevance: np.ndarray,
-        shuffle: bool = True,
-        seed: int = 0,
-        queries_per_batch: int = 1,
-    ):
-        # Forward to torch Sampler base. Newer torch (2.x) ``Sampler.__init__``
-        # is the bare object inheritance (no ``data_source`` kwarg) -- passing
-        # ``data_source=None`` falls through to ``object.__init__(data_source=None)``
-        # which raises ``TypeError: takes exactly one argument``. Older torch
-        # accepted the kwarg as a no-op; the bare call is correct under both.
-        # Older torch's Sampler stub declares data_source as required -- the ignore is only
-        # "needed" against that stub; see the warn_unused_ignores override for this module.
-        super().__init__()  # type: ignore[call-arg]
-        self.group_ids = np.asarray(group_ids)
-        self.relevance = np.asarray(relevance)
-        self.shuffle = shuffle
-        self.seed = seed
-        self._epoch = 0
-        # OPT-7: when > 1, pack ``queries_per_batch`` queries
-        # into ONE batch -- the concatenated row indices flow through the
-        # DataLoader as one batch, the Dataset attaches the offset-corrected
-        # concatenated (i_idx, j_idx) pair tensors built from per-query
-        # cache, and Lightning runs ONE forward + ONE backward + ONE
-        # optimizer.step per packed batch. iter216 measured 162000 / epoch
-        # = 800s of optimizer wall on c0098 LTR; packing 32 queries drops
-        # that to ~5000 / epoch.
-        self.queries_per_batch = max(1, int(queries_per_batch))
-        # Per-batch partition info: tuple(concat_indices) ->
-        # list of (per_query_cache_key, query_start_offset_in_batch). The
-        # Dataset reads this to compose per-query pair indices into a
-        # single offset-corrected concat pair tensor.
-        # Cleared at epoch start (set_epoch) -- prefetch overlap relies on
-        # entries surviving from yield to __getitems__, but not beyond.
-        self._batch_partition: dict[tuple, list[tuple]] = {}
-
-        sort_idx = np.argsort(self.group_ids, kind="stable")
-        sorted_groups = self.group_ids[sort_idx]
-        boundaries = np.flatnonzero(sorted_groups[1:] != sorted_groups[:-1]) + 1
-        starts = np.concatenate(([0], boundaries, [len(sorted_groups)]))
-        self._query_slices: list[np.ndarray] = []
-        for i in range(len(starts) - 1):
-            s, e = starts[i], starts[i + 1]
-            indices = sort_idx[s:e]
-            if len(indices) < 2:
-                continue
-            rel_slice = self.relevance[indices]
-            if rel_slice.ndim > 1:
-                # Multilabel relevance: coerce to 1-D by summing labels (any non-zero = relevant).
-                rel_slice = rel_slice.sum(axis=1)
-            if len(np.unique(rel_slice)) < 2:
-                continue
-            self._query_slices.append(indices)
-
-    def set_epoch(self, epoch: int) -> None:
-        """Advance the sampler's internal epoch counter so ``shuffle=True`` reshuffles queries per epoch.
-
-        Lightning only auto-calls ``set_epoch`` on torch's ``DistributedSampler``; this sampler is advanced
-        explicitly by ``_SamplerSetEpochCallback.on_train_epoch_start``. Without it, every epoch would replay
-        the SAME random query order (seeded once at construction), which stalls training in a local optimum.
-        Also clears the OPT-7 multi-query ``_batch_partition`` cache since a new shuffle order invalidates it.
-        """
-        self._epoch = int(epoch)
-        # OPT-7: drop last epoch's partition entries -- yields fresh order so
-        # batch composition changes.
-        if self.queries_per_batch > 1:
-            self._batch_partition.clear()
-
-    def __iter__(self):
-        order = np.arange(len(self._query_slices))
-        if self.shuffle:
-            rng = np.random.default_rng(self.seed + self._epoch)
-            rng.shuffle(order)
-        if self.queries_per_batch == 1:
-            # Legacy per-query path -- bit-exact prior behaviour.
-            for i in order:
-                yield self._query_slices[i].tolist()
-            return
-        # OPT-7 multi-query path: pack queries_per_batch queries / yield.
-        qpb = self.queries_per_batch
-        for batch_start in range(0, len(order), qpb):
-            batch_q_ids = order[batch_start : batch_start + qpb]
-            slices = [self._query_slices[q] for q in batch_q_ids]
-            concat = np.concatenate(slices)
-            # Per-query starts in concat positions (offsets for pair indices).
-            offsets = [0]
-            for s in slices:
-                offsets.append(offsets[-1] + len(s))
-            # Build per-query (cache_key, batch_offset) list. The Dataset's
-            # ``install_pair_index_cache`` keys per-query (i_idx, j_idx) by
-            # ``tuple(query_indices.tolist())``; mirror that here so the
-            # Dataset can look them up.
-            partition = [(tuple(s.tolist()), offsets[i]) for i, s in enumerate(slices)]
-            indices_list = concat.tolist()
-            key = tuple(indices_list)
-            self._batch_partition[key] = partition
-            yield indices_list
-
-    def __len__(self) -> int:
-        # Legacy: one batch = one query. OPT-7 batched: ceil(n_queries / qpb).
-        if self.queries_per_batch <= 1:
-            return len(self._query_slices)
-        n = len(self._query_slices)
-        return (n + self.queries_per_batch - 1) // self.queries_per_batch
+from ._ranker_sampler import GroupBatchSampler  # re-exported for existing callers
 
 
 class _RankerDataset(Dataset):
@@ -785,6 +667,104 @@ class MLPRanker(RegressorMixin, BaseEstimator):
             return X_arr
         return np.asarray(((X_arr - mean) / std).astype(np.float32, copy=False))
 
+    def _build_train_loader(self, X_arr: np.ndarray, y_arr: np.ndarray, group_ids) -> tuple[_RankerDataset, GroupBatchSampler, DataLoader]:
+        """Build the training dataset, query sampler and DataLoader (with the per-query pair/batch caches installed); return all three."""
+        train_ds = _RankerDataset(X_arr, y_arr)
+        # OPT-7: pack queries_per_batch queries per gradient update. ranknet
+        # loss needs precomputed per-query (i_idx, j_idx); the multi-query
+        # path needs both. listnet falls back to single-query.
+        _train_qpb = max(1, int(self.queries_per_batch)) if (self.loss_fn == "ranknet" and y_arr.ndim == 1) else 1
+        train_sampler = GroupBatchSampler(
+            group_ids=np.asarray(group_ids), relevance=y_arr,
+            shuffle=True, seed=self.random_state,
+            queries_per_batch=_train_qpb,
+        )
+        if len(train_sampler) == 0:
+            raise ValueError(
+                "MLPRanker.fit: zero usable training queries (every query has <2 docs OR "
+                "single-class relevance). Increase rows per query OR ensure y has graded values."
+            )
+        # Precompute per-query pair-index tensors on CPU so __getitems__ can
+        # attach them to each batch and the loss skips the tuple(rel.tolist())
+        # device sync on every call. Only enabled for ranknet (listnet doesn't
+        # need pair indices); skips when relevance is multilabel since the loss
+        # falls back to the legacy path on those.
+        if self.loss_fn == "ranknet" and y_arr.ndim == 1:
+            train_ds.install_pair_index_cache(train_sampler._query_slices)
+            if _train_qpb > 1:
+                train_ds.attach_sampler(train_sampler)
+        elif self.loss_fn == "listnet" and y_arr.ndim == 1:
+            # iter364: listnet doesn't need pair indices but still benefits
+            # from the (X_slice, y_slice) batch cache that collapses
+            # __getitems__ to one dict.get per epoch.
+            train_ds.install_batch_cache_no_pairs(train_sampler._query_slices)
+        train_loader = DataLoader(
+            train_ds,
+            batch_sampler=train_sampler,
+            num_workers=0,
+            collate_fn=_ranker_passthrough_collate,
+        )
+        return train_ds, train_sampler, train_loader
+
+    def _build_val_loader(self, X_val, y_val, group_ids_val) -> tuple[Optional[_RankerDataset], Optional[DataLoader]]:
+        """Build the validation dataset and DataLoader; ``(None, None)`` when no validation data is given, loader None when it has no usable queries."""
+        val_ds: Optional[_RankerDataset] = None
+        val_loader: Optional[DataLoader] = None
+        if X_val is not None and y_val is not None and group_ids_val is not None:
+            X_val_arr = self._apply_scaler(self._apply_imputer(self._x_to_array(X_val)))
+            y_val_arr = np.asarray(y_val, dtype=np.float32).ravel()
+            val_ds = _RankerDataset(X_val_arr, y_val_arr)
+            _val_qpb = max(1, int(self.queries_per_batch)) if (self.loss_fn == "ranknet" and y_val_arr.ndim == 1) else 1
+            val_sampler = GroupBatchSampler(
+                group_ids=np.asarray(group_ids_val), relevance=y_val_arr,
+                shuffle=False, seed=self.random_state,
+                queries_per_batch=_val_qpb,
+            )
+            if self.loss_fn == "ranknet" and y_val_arr.ndim == 1:
+                val_ds.install_pair_index_cache(val_sampler._query_slices)
+                if _val_qpb > 1:
+                    val_ds.attach_sampler(val_sampler)
+            elif self.loss_fn == "listnet" and y_val_arr.ndim == 1:
+                val_ds.install_batch_cache_no_pairs(val_sampler._query_slices)
+            if len(val_sampler) > 0:
+                val_loader = DataLoader(
+                    val_ds, batch_sampler=val_sampler, num_workers=0,
+                    collate_fn=_ranker_passthrough_collate,
+                )
+        return val_ds, val_loader
+
+    def _build_trainer(self, callbacks: list):
+        """Create the Lightning ``Trainer`` for ``fit`` from the estimator hyper-parameters and the given callbacks."""
+        # _L_MODULE is the module-level resolved lightning package; the prior per-fit
+        # ``_import_lightning()`` call re-resolved it on every fit (cheap but tarnishes
+        # the audit signal for "lazy import inside hot loop"). Reuse the module top result.
+        L = _L_MODULE
+        # CUDA-broken-host guard: probe a 1-element allocation before
+        # Lightning auto-selects ``cuda``. On hosts where the CUDA libs are
+        # present but the runtime can't open a context (CURAND init fail /
+        # illegal memory access on first model_to_device), Lightning's
+        # ``accelerator='auto'`` crashes deep inside the strategy setup.
+        # Falling back to CPU keeps the ranker fit-able everywhere.
+        from ._base_tensor_helpers import safe_accelerator
+        trainer = L.Trainer(
+            accelerator=safe_accelerator("auto"),
+            max_epochs=self.n_estimators,
+            enable_model_summary=False,
+            enable_progress_bar=bool(self.verbose),
+            logger=False,
+            callbacks=callbacks,
+            num_sanity_val_steps=0,
+            check_val_every_n_epoch=1,
+            # ModelCheckpoint default is dead weight in the suite (joblib-serialised) and
+            # emits "Checkpoint directory exists and is not empty" UserWarning across LTR runs.
+            enable_checkpointing=self.enable_checkpointing,
+            # OPT-6: see __init__ docstring -- amortizes
+            # optimizer.step() cost across N batches (queries). 1 = legacy
+            # per-query update; 32 = batched gradient update.
+            accumulate_grad_batches=self.accumulate_grad_batches,
+        )
+        return trainer
+
     def fit(
         self,
         X,
@@ -801,11 +781,6 @@ class MLPRanker(RegressorMixin, BaseEstimator):
         columns must already be numeric-encoded by the caller (MLPRanker doesn't support
         raw categoricals).
         """
-        # _L_MODULE is the module-level resolved lightning package; the prior per-fit
-        # ``_import_lightning()`` call re-resolved it on every fit (cheap but tarnishes
-        # the audit signal for "lazy import inside hot loop"). Reuse the module top result.
-        L = _L_MODULE
-
         # drop global RNG mutations -- they silently
         # overwrote caller's torch/numpy stream and broke reproducibility for any
         # sibling code in the same process. Downstream consumers already use
@@ -852,64 +827,9 @@ class MLPRanker(RegressorMixin, BaseEstimator):
             verbose=0,
         )
 
-        train_ds = _RankerDataset(X_arr, y_arr)
-        # OPT-7: pack queries_per_batch queries per gradient update. ranknet
-        # loss needs precomputed per-query (i_idx, j_idx); the multi-query
-        # path needs both. listnet falls back to single-query.
-        _train_qpb = max(1, int(self.queries_per_batch)) if (self.loss_fn == "ranknet" and y_arr.ndim == 1) else 1
-        train_sampler = GroupBatchSampler(
-            group_ids=np.asarray(group_ids), relevance=y_arr,
-            shuffle=True, seed=self.random_state,
-            queries_per_batch=_train_qpb,
-        )
-        if len(train_sampler) == 0:
-            raise ValueError(
-                "MLPRanker.fit: zero usable training queries (every query has <2 docs OR "
-                "single-class relevance). Increase rows per query OR ensure y has graded values."
-            )
-        # Precompute per-query pair-index tensors on CPU so __getitems__ can
-        # attach them to each batch and the loss skips the tuple(rel.tolist())
-        # device sync on every call. Only enabled for ranknet (listnet doesn't
-        # need pair indices); skips when relevance is multilabel since the loss
-        # falls back to the legacy path on those.
-        if self.loss_fn == "ranknet" and y_arr.ndim == 1:
-            train_ds.install_pair_index_cache(train_sampler._query_slices)
-            if _train_qpb > 1:
-                train_ds.attach_sampler(train_sampler)
-        elif self.loss_fn == "listnet" and y_arr.ndim == 1:
-            # iter364: listnet doesn't need pair indices but still benefits
-            # from the (X_slice, y_slice) batch cache that collapses
-            # __getitems__ to one dict.get per epoch.
-            train_ds.install_batch_cache_no_pairs(train_sampler._query_slices)
-        train_loader = DataLoader(
-            train_ds,
-            batch_sampler=train_sampler,
-            num_workers=0,
-            collate_fn=_ranker_passthrough_collate,
-        )
+        train_ds, train_sampler, train_loader = self._build_train_loader(X_arr, y_arr, group_ids)
 
-        val_loader = None
-        if X_val is not None and y_val is not None and group_ids_val is not None:
-            X_val_arr = self._apply_scaler(self._apply_imputer(self._x_to_array(X_val)))
-            y_val_arr = np.asarray(y_val, dtype=np.float32).ravel()
-            val_ds = _RankerDataset(X_val_arr, y_val_arr)
-            _val_qpb = max(1, int(self.queries_per_batch)) if (self.loss_fn == "ranknet" and y_val_arr.ndim == 1) else 1
-            val_sampler = GroupBatchSampler(
-                group_ids=np.asarray(group_ids_val), relevance=y_val_arr,
-                shuffle=False, seed=self.random_state,
-                queries_per_batch=_val_qpb,
-            )
-            if self.loss_fn == "ranknet" and y_val_arr.ndim == 1:
-                val_ds.install_pair_index_cache(val_sampler._query_slices)
-                if _val_qpb > 1:
-                    val_ds.attach_sampler(val_sampler)
-            elif self.loss_fn == "listnet" and y_val_arr.ndim == 1:
-                val_ds.install_batch_cache_no_pairs(val_sampler._query_slices)
-            if len(val_sampler) > 0:
-                val_loader = DataLoader(
-                    val_ds, batch_sampler=val_sampler, num_workers=0,
-                    collate_fn=_ranker_passthrough_collate,
-                )
+        val_ds, val_loader = self._build_val_loader(X_val, y_val, group_ids_val)
 
         self.module_ = _make_lightning_module(
             network, self.loss_fn, self.learning_rate,
@@ -924,30 +844,7 @@ class MLPRanker(RegressorMixin, BaseEstimator):
                 )
             )
 
-        # CUDA-broken-host guard: probe a 1-element allocation before
-        # Lightning auto-selects ``cuda``. On hosts where the CUDA libs are
-        # present but the runtime can't open a context (CURAND init fail /
-        # illegal memory access on first model_to_device), Lightning's
-        # ``accelerator='auto'`` crashes deep inside the strategy setup.
-        # Falling back to CPU keeps the ranker fit-able everywhere.
-        from ._base_tensor_helpers import safe_accelerator
-        trainer = L.Trainer(
-            accelerator=safe_accelerator("auto"),
-            max_epochs=self.n_estimators,
-            enable_model_summary=False,
-            enable_progress_bar=bool(self.verbose),
-            logger=False,
-            callbacks=callbacks,
-            num_sanity_val_steps=0,
-            check_val_every_n_epoch=1,
-            # ModelCheckpoint default is dead weight in the suite (joblib-serialised) and
-            # emits "Checkpoint directory exists and is not empty" UserWarning across LTR runs.
-            enable_checkpointing=self.enable_checkpointing,
-            # OPT-6: see __init__ docstring -- amortizes
-            # optimizer.step() cost across N batches (queries). 1 = legacy
-            # per-query update; 32 = batched gradient update.
-            accumulate_grad_batches=self.accumulate_grad_batches,
-        )
+        trainer = self._build_trainer(callbacks)
         try:
             trainer.fit(
                 model=self.module_,
@@ -967,7 +864,7 @@ class MLPRanker(RegressorMixin, BaseEstimator):
         # state (network weights + hparams).
         train_ds._pair_idx_by_query = None
         train_ds._batch_by_query = None
-        if val_loader is not None:
+        if val_loader is not None and val_ds is not None:
             val_ds._pair_idx_by_query = None
             val_ds._batch_by_query = None
         self.trainer_ = trainer

@@ -8,7 +8,8 @@ resolves transparently.
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Dict, List, Optional, Union
+from types import SimpleNamespace
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
 
 if TYPE_CHECKING:
     from ..feature_handling.config import FeatureHandlingConfig
@@ -63,6 +64,7 @@ from ._main_train_suite_encoding import (  # noqa: F401  (_encode_string_multicl
 from ._phase_helpers_fit_pipeline import extensions_with_split_seed
 from ._main_train_suite_target_loop import train_every_target
 from ._main_train_suite_polars_gate import any_pipeline_stage_requested, needs_polars_pre_clone
+from ._main_train_suite_doc import SUITE_DOC
 from ._misc_helpers import _bulk_setattr_to_ctx, _split_preds_probs, _prep_polars_df, mirror_split_outputs_to_ctx  # noqa: F401
 from ._main_train_suite_defaults import _build_default_extractor, _infer_target_is_classification  # noqa: F401
 from ._main_train_suite_phases import (  # noqa: F401  (apply_module_global_patches re-exported for callers of this facade)
@@ -153,111 +155,7 @@ def train_mlframe_models_suite(
     enable_target_distribution_analyzer: bool = True,
     verbose: int = 1,
 ) -> SuiteResult:
-    """
-    Train a suite of ML models on a dataset.
-
-    Happy path (extractor inferred from the target column):
-
-        models, metadata = train_mlframe_models_suite(df, target_name="y")
-
-    Args:
-        df: DataFrame or path to parquet file
-        target_name: Name of the target to predict
-        model_name: Base name for the models (defaults to ``"model"``)
-        features_and_targets_extractor: FeaturesAndTargetsExtractor instance for computing targets.
-            Optional: when None, a ``SimpleFeaturesAndTargetsExtractor`` is built from ``target_name``,
-            with the task type (regression vs classification) inferred from the target column's
-            dtype/cardinality. Pass an explicit extractor to override.
-        mlframe_models: List of model types to train (cb, lgb, xgb, mlp, hgb, linear, ridge, etc.)
-        recurrent_models: List of recurrent model types to train (lstm, gru, rnn, transformer).
-            These models handle sequential data and support variable-length sequences.
-        recurrent_config: RecurrentConfig object for recurrent model hyperparameters.
-            If None, uses default configuration.
-        sequences: Pre-extracted sequences as list of (seq_len, n_features) arrays.
-            If None and extractor has sequence_columns configured, sequences will be
-            extracted automatically using extractor.get_sequences().
-        use_ordinary_models: Whether to train regular models
-        use_mlframe_ensembles: Whether to create ensembles
-        target_type: Explicit ``TargetTypes`` override. None auto-detects from the extractor;
-            LEARNING_TO_RANK routes to the ranker suite. See ``TargetTypes``.
-        ranking_config: LTR-only dispatch knobs (objectives, eval cutoffs, rank fusion). See ``LearningToRankConfig``.
-        preprocessing_config: Preprocessing configuration. Holds custom transformer overrides
-            (``scaler``, ``imputer``, ``category_encoder``).
-        split_config: Train/val/test split configuration
-        pipeline_config: Pipeline configuration
-        preprocessing_extensions: Optional FE-extension transforms (PySR, polynomial, etc.). See ``PreprocessingExtensionsConfig``.
-        auxiliary_events_df: Optional separate reference table (e.g. an entity x item interaction
-            log distinct from the row-per-sample training frame) consumed by
-            ``preprocessing_extensions`` steps that need it -- ``latent_interaction_svd`` and
-            ``nearest_past_join``. None (default) is a genuine no-op for both.
-        feature_types_config: Numeric/categorical/text type-detection overrides. See ``FeatureTypesConfig``.
-        linear_model_config: Linear-model family hyperparameters. See ``LinearModelConfig``.
-        hyperparams_config: Model hyperparameters (iterations, learning rate, per-model kwargs).
-        behavior_config: Training behavior flags (GPU preference, calibration, fairness).
-        training_config: Aggregate ``TrainingConfig`` carrier; supplies ``linear_model_config`` /
-            ``behavior_config`` defaults from its ``.linear_config`` / ``.behavior`` sub-configs
-            when those explicit kwargs are left as None (an explicit kwarg always wins).
-        multilabel_dispatch_config: Multilabel-only strategy (wrapper/chain/native). See ``MultilabelDispatchConfig``.
-        reporting_config: Calibration / training-report look. Holds figure size, chart toggles,
-            title-metrics template, histogram subplot toggles, inline population labels, FI plot config.
-        output_config: Filesystem destinations - ``data_dir``, ``models_dir``, ``plot_file``, ``save_charts``.
-        outlier_detection_config: Outlier-detector + ``apply_to_val``.
-        feature_selection_config: Holds ``use_mrmr_fs``, ``mrmr_kwargs``, ``rfecv_models``,
-            ``rfecv_kwargs``, ``custom_pre_pipelines``.
-        confidence_analysis_config: SHAP-based confidence-of-correct-prediction analysis. See ``ConfidenceAnalysisConfig``.
-        baseline_diagnostics_config: Baseline ablation / quick-model diagnostics. See ``BaselineDiagnosticsConfig``.
-        dummy_baselines_config: Per-target dummy-baseline computation. See ``DummyBaselinesConfig``.
-        quantile_regression_config: Quantile-regression alphas / crossing-fix / coverage. See ``QuantileRegressionConfig``.
-        conformal_config: Conformal prediction intervals (regression) / sets (classification) plus
-            achieved coverage into ``metadata["conformal"]``; default ON. See ``ConformalConfig``.
-        regression_calibration_config: point recalibration, OFF by default; its apply_confidence_shrinkage is ON by default and always applies.
-        composite_target_discovery_config: Composite-target (diff/ratio/linres) discovery. ``MLFRAME_DISABLE_COMPOSITE=1`` forces off. See ``CompositeTargetDiscoveryConfig``.
-        feature_handling_config: Feature-handling / caching config bundle (advanced). See the feature_handling package.
-        precomputed: Opt-in ``TrainMlframeSuitePrecomputed`` bundle for repeated-suite-on-same-train
-            benchmarking. When supplied, each non-None field skips the matching in-suite compute step:
-            ``trainset_features_stats`` (skips the stats pass), ``dummy_baselines`` (skips the per-target
-            dummy-baseline pass by short-circuiting via ``dummy_baselines_config.enabled=False`` and
-            pre-seeding ``metadata["dummy_baselines"]``), ``composite_target_specs`` (skips the
-            composite discovery phase and pre-seeds ``metadata["composite_target_specs"]``). Build the
-            bundle via ``mlframe.training.helpers.precompute_all`` or by hand from a prior run's
-            metadata. None (default) preserves legacy behaviour: every step computes inline.
-        enable_target_distribution_analyzer: When True (default), run the mini-HPT target-distribution analyzer
-            (heavy-tail / multi-modal / strong-AR / imbalance detection) and merge gap-fill hyperparameter recommendations.
-        verbose: Verbosity level (0=silent, 1=info, 2=debug). Mapped to a root logging level at entry
-            (1->INFO, 2->DEBUG); per-site gates still distinguish only silent vs non-silent.
-
-    Side effects (process-wide, irreversible):
-        Running this suite installs idempotent monkeypatches on installed third-party libraries that persist
-        for the process lifetime and affect EVERY consumer of those libraries in the same process (not just
-        mlframe): a patched ``lightgbm.sklearn.LGBMModel.feature_names_in_`` property, logging wrappers on
-        ``catboost.Pool`` / ``xgboost.DMatrix`` / ``lightgbm.Dataset`` constructors, and a
-        ``joblib.externals.loky`` physical-core override. There is no un-patch path. Bare
-        ``import mlframe.training`` does NOT patch anything (the patches are lazy, applied on first suite call).
-        Where mlframe controls the call site, prefer the ``make_pool`` / ``make_dmatrix`` / ``make_lgb_dataset``
-        factories in ``_model_factories`` over the global constructor wrapping.
-
-    Returns:
-        A ``SuiteResult`` — a NamedTuple that is fully back-compatible with the historical
-        ``(models_dict, metadata_dict)`` 2-tuple (unpacks + indexes identically) and adds
-        ``.models`` / ``.metadata`` / ``get_model(name, task=None)`` / ``best_model(task=None)``.
-
-    Example:
-        ```python
-        models, metadata = train_mlframe_models_suite(
-            df="data.parquet",
-            target_name="target",
-            model_name="experiment_1",
-            features_and_targets_extractor=my_ft_extractor,
-            mlframe_models=["linear", "ridge", "cb", "lgb"],
-            preprocessing_config=PreprocessingConfig(fillna_value=0.0),
-            split_config=TrainingSplitConfig(test_size=0.1, val_size=0.1),
-            reporting_config=ReportingConfig(
-                title_metrics_template="ICE BR ECE CMAEW",
-            ),
-            output_config=OutputConfig(data_dir="./artifacts", save_charts=True),
-        )
-        ```
-    """
+    """Train a suite of ML models on a dataset; the full parameter reference is ``SUITE_DOC`` (assigned to ``__doc__`` below)."""
     import sys as _sys
 
     begin_suite_process_state(verbose, _sys.modules[__name__])  # logging level, module patches, per-suite process registries
@@ -271,46 +169,21 @@ def train_mlframe_models_suite(
         features_and_targets_extractor = _build_default_extractor(df, target_name)
 
     df = validate_suite_inputs(df, target_name, model_name, features_and_targets_extractor)
-
-    if training_config is not None:
-        if linear_model_config is None:
-            linear_model_config = training_config.linear_config
-        if behavior_config is None:
-            behavior_config = training_config.behavior
-        from ._setup_helpers import behavior_with_training_config_metamodel
-
-        behavior_config = behavior_with_training_config_metamodel(behavior_config, training_config.metamodel_func)
+    linear_model_config, behavior_config = _apply_training_config_defaults(training_config, linear_model_config, behavior_config)
 
     ctx = pr.setup_configuration(
-        preprocessing_config=preprocessing_config,
-        pipeline_config=pipeline_config,
-        feature_types_config=feature_types_config,
-        split_config=split_config,
-        hyperparams_config=hyperparams_config,
-        behavior_config=behavior_config,
-        reporting_config=reporting_config,
-        output_config=output_config,
-        outlier_detection_config=outlier_detection_config,
-        feature_selection_config=feature_selection_config,
-        confidence_analysis_config=confidence_analysis_config,
-        baseline_diagnostics_config=baseline_diagnostics_config,
-        dummy_baselines_config=dummy_baselines_config,
-        quantile_regression_config=quantile_regression_config,
-        conformal_config=conformal_config,
-        regression_calibration_config=regression_calibration_config,
-        composite_target_discovery_config=composite_target_discovery_config,
-        feature_handling_config=feature_handling_config,
-        ranking_config=ranking_config,
-        linear_model_config=linear_model_config,
-        multilabel_dispatch_config=multilabel_dispatch_config,
-        model_name=model_name,
-        target_name=target_name,
-        mlframe_models=mlframe_models,
+        preprocessing_config=preprocessing_config, pipeline_config=pipeline_config, feature_types_config=feature_types_config,
+        split_config=split_config, hyperparams_config=hyperparams_config, behavior_config=behavior_config,
+        reporting_config=reporting_config, output_config=output_config, outlier_detection_config=outlier_detection_config,
+        feature_selection_config=feature_selection_config, confidence_analysis_config=confidence_analysis_config,
+        baseline_diagnostics_config=baseline_diagnostics_config, dummy_baselines_config=dummy_baselines_config,
+        quantile_regression_config=quantile_regression_config, conformal_config=conformal_config,
+        regression_calibration_config=regression_calibration_config, composite_target_discovery_config=composite_target_discovery_config,
+        feature_handling_config=feature_handling_config, ranking_config=ranking_config, linear_model_config=linear_model_config,
+        multilabel_dispatch_config=multilabel_dispatch_config, model_name=model_name, target_name=target_name, mlframe_models=mlframe_models,
         # Read only by the prewarm gate: a run with no neural model must not pay the lightning import.
         recurrent_models=recurrent_models,
-        use_mlframe_ensembles=use_mlframe_ensembles,
-        use_ordinary_models=use_ordinary_models,
-        verbose=verbose,
+        use_mlframe_ensembles=use_mlframe_ensembles, use_ordinary_models=use_ordinary_models, verbose=verbose,
     )
     # Every process-wide override setup_configuration just flipped (residual audit, inline display, per-format
     # plot subfolders) lives on this THREAD until something restores it. The snapshot of their prior values is
@@ -319,434 +192,23 @@ def train_mlframe_models_suite(
     _flag_snapshot = capture_process_flag_snapshot(ctx)
     _render_queue, _queue_scope = _enter_render_scope(ctx, verbose)
     try:
-
-        # LTR opt-in: helper returns None for non-LTR call sites. Moved AFTER setup_configuration because the helper now reads
-        # Pydantic-shape configs from ``ctx`` (output / split / hyperparams / reporting); pre-setup the configs may still be
-        # dict-or-None form and would trip ``_cfg_get`` callers downstream.
-        # Capture the RAW (pre-preprocessing) df: the auto-detected-LTR safety net below
-        # re-dispatches to the ranker suite, which re-runs its own load/transform and so
-        # needs the original frame, not the preprocessed one ``df`` gets rebound to later.
-        _raw_df_for_ltr_autoroute = df
-        _ltr_result = _maybe_dispatch_to_ltr_ranker_suite(
-            ctx,
-            target_type=target_type,
-            df=df,
-            features_and_targets_extractor=features_and_targets_extractor,
-        )
-        if _ltr_result is not None:
-            return _assert_suite_return_shape(_ltr_result, source="_maybe_dispatch_to_ltr_ranker_suite")
-
-        preprocessing_config = ctx.preprocessing_config
-        pipeline_config = ctx.pipeline_config
-        feature_types_config = ctx.feature_types_config
-        split_config = ctx.split_config
-        hyperparams_config = ctx.hyperparams_config
-        behavior_config = ctx.behavior_config
-        reporting_config = ctx.reporting_config
-        output_config = ctx.output_config
-        outlier_detection_config = ctx.outlier_detection_config
-        feature_selection_config = ctx.feature_selection_config
-        baseline_diagnostics_config = ctx.baseline_diagnostics_config
-        dummy_baselines_config = ctx.dummy_baselines_config
-        quantile_regression_config = ctx.quantile_regression_config
-        composite_target_discovery_config = ctx.composite_target_discovery_config
-        data_dir = ctx.data_dir
-        models_dir = ctx.models_dir
-        save_charts = ctx.save_charts
-        outlier_detector = ctx.outlier_detector
-        od_val_set = ctx.od_val_set
-        use_mrmr_fs = ctx.use_mrmr_fs
-        mrmr_kwargs = ctx.mrmr_kwargs
-        rfecv_models = ctx.rfecv_models
-        custom_pre_pipelines = ctx.custom_pre_pipelines
-        common_params_dict = ctx.common_params_dict
-        mlframe_models = ctx.mlframe_models
-        metadata = ctx.metadata
-
-        # ctx-form: parallel-session migrated _phase_load_and_preprocess to read from / write to ctx in place.
-        ctx.df = df
-        ctx.recurrent_models = recurrent_models
-        ctx.sequences = sequences
-        _phase_load_and_preprocess(ctx, features_and_targets_extractor=features_and_targets_extractor)
-        df = ctx.df
-        target_by_type = ctx.target_by_type
-        warn_on_empty_target_by_type(target_by_type)
-        _ltr_auto_result = maybe_autoroute_autodetected_ltr(
-            ctx,
-            target_type=target_type,
-            target_by_type=target_by_type,
-            raw_df=_raw_df_for_ltr_autoroute,
-            features_and_targets_extractor=features_and_targets_extractor,
-        )
-        if _ltr_auto_result is not None:
-            return _assert_suite_return_shape(_ltr_auto_result, source="maybe_autoroute_autodetected_ltr")
-        group_ids_raw = ctx.group_ids_raw
-        group_ids = ctx.group_ids
-        timestamps = ctx.timestamps
-        artifacts = ctx.artifacts
-        additional_columns_to_drop = ctx.additional_columns_to_drop
-        sample_weights = ctx.sample_weights
-        baseline_rss_mb = ctx.baseline_rss_mb
-        df_size_mb = ctx.df_size_mb
-        sequences = ctx.sequences
-
-        (
-            train_idx, val_idx, test_idx,
-            train_details, val_details, test_details,
-            train_df, val_df, test_df,
-            fairness_subgroups, fairness_features,
-            train_sequences, val_sequences, test_sequences,
-            baseline_rss_mb, calib_idx, calib_details, calib_df,
-        ) = _phase_train_val_test_split(
-            df=df,
-            target_by_type=target_by_type,
-            timestamps=timestamps,
-            group_ids=group_ids,
-            group_ids_raw=group_ids_raw,
-            artifacts=artifacts,
-            sequences=sequences,
-            split_config=split_config,
-            behavior_config=behavior_config,
-            metadata=metadata,
-            data_dir=data_dir,
-            models_dir=models_dir,
-            target_name=target_name,
-            model_name=model_name,
-            df_size_mb=df_size_mb,
-            verbose=bool(verbose),
-            row_ids=ctx.split_row_ids,
-        )
-        # ``del df`` drops the local rebound name so the only remaining strong reference
-        # is ``ctx.df``; nulling that lets the GC reclaim the now-unreferenced source frame.
-        # Without both, the post-split full dataframe lingers in memory until the suite ends.
-        del df
-        ctx.df = ctx.split_row_ids = None  # the split keys are consumed too
-        # Mirror locals into ctx in a single bulk loop. This is the in-progress migration from
-        # the legacy "phase returns big tuple, caller fans out into locals" form to a pure
-        # ctx-form where phases write straight to ctx. Until every phase is converted the
-        # bulk-copy keeps the existing return-tuple shape working while ctx-form readers
-        # downstream see the same values.
-        _locals_snapshot = locals()
-        _bulk_setattr_to_ctx(ctx, (
-            "train_idx", "val_idx", "test_idx", "train_details", "val_details",
-            "test_details", "train_df", "val_df", "test_df", "fairness_subgroups",
-            "fairness_features", "train_sequences", "val_sequences", "test_sequences",
-            "baseline_rss_mb", "calib_idx", "calib_details", "calib_df",
-        ), values=_locals_snapshot)
-
-        # mini-HPT target-distribution analyzer (+ optional E3 distribution-driven estimator injection).
-        hyperparams_config, train_df, val_df, test_df, mlframe_models = run_distribution_analyzer_and_estimator_injection(
+        # Shared state of the stage helpers below: the suite-level locals that outlive a single phase.
+        st = SimpleNamespace(
+            df=df, target_type=target_type, target_name=target_name, model_name=model_name, verbose=verbose,
+            features_and_targets_extractor=features_and_targets_extractor, recurrent_models=recurrent_models,
+            recurrent_config=recurrent_config, sequences=sequences, auxiliary_events_df=auxiliary_events_df,
+            preprocessing_extensions=preprocessing_extensions, precomputed=precomputed,
             enable_target_distribution_analyzer=enable_target_distribution_analyzer,
-            target_by_type=target_by_type, train_idx=train_idx, group_ids=group_ids, timestamps=timestamps,
-            train_df=train_df, val_df=val_df, test_df=test_df, verbose=verbose, metadata=metadata,
-            hyperparams_config=hyperparams_config, behavior_config=behavior_config, mlframe_models=mlframe_models, ctx=ctx,
-            preprocessing_config=preprocessing_config,
         )
-
-        (
-            train_df, val_df, test_df,
-            pipeline, extensions_pipeline,
-            cat_features, cat_features_polars,
-            was_polars_input, all_models_polars_native, polars_pipeline_applied,
-            train_df_polars_pre, val_df_polars_pre, test_df_polars_pre,
-            pipeline_config, preprocessing_extensions,
-            train_df_pandas_pre_meta,
-        ) = _phase_fit_pipeline(
-            train_df=train_df,
-            val_df=val_df,
-            test_df=test_df,
-            mlframe_models=mlframe_models,
-            pipeline_config=pipeline_config,
-            preprocessing_config=preprocessing_config,
-            feature_types_config=feature_types_config,
-            preprocessing_extensions=extensions_with_split_seed(preprocessing_extensions, getattr(split_config, "random_seed", None)),
-            metadata=metadata,
-            verbose=bool(verbose),
-            # Threaded through so apply_preprocessing_extensions can grab a 1-D
-            # regression target for PySR symbolic feature discovery (used to be
-            # silently None -> PySR-skip wiring bug). train_idx slices the
-            # PRE-split target down to train-set rows so PySR sees train-only y.
-            target_by_type=target_by_type,
-            train_idx=ctx.train_idx,
-            val_idx=ctx.val_idx,
-            test_idx=ctx.test_idx,
-            group_ids=group_ids,
-            timestamps=timestamps,
-            auxiliary_events_df=auxiliary_events_df,
-        )
-        _locals_snapshot = locals()
-        _bulk_setattr_to_ctx(ctx, (
-            "train_df", "val_df", "test_df", "pipeline", "extensions_pipeline",
-            "cat_features", "cat_features_polars", "was_polars_input",
-            "all_models_polars_native", "polars_pipeline_applied",
-            "train_df_polars_pre", "val_df_polars_pre", "test_df_polars_pre",
-            "pipeline_config", "preprocessing_extensions",
-            "train_df_pandas_pre_meta",
-        ), values=_locals_snapshot)
-
-        (
-            train_df, val_df, test_df,
-            train_df_polars_pre, val_df_polars_pre, test_df_polars_pre,
-            text_features, embedding_features, cat_features,
-            text_emb_set, _dropped_high_card_data,
-        ) = _phase_auto_detect_feature_types(
-            train_df=train_df,
-            val_df=val_df,
-            test_df=test_df,
-            train_df_polars_pre=train_df_polars_pre,
-            val_df_polars_pre=val_df_polars_pre,
-            test_df_polars_pre=test_df_polars_pre,
-            cat_features=cat_features,
-            cat_features_polars=cat_features_polars,
-            was_polars_input=was_polars_input,
-            all_models_polars_native=all_models_polars_native,
-            pipeline_config=pipeline_config,
-            feature_types_config=feature_types_config,
-            metadata=metadata,
-            verbose=bool(verbose),
-            train_df_pandas_pre_meta=train_df_pandas_pre_meta,
-        )
-
-        if verbose:
-            _log_cardinality_and_drift_snapshot(
-                train_df=train_df, val_df=val_df, test_df=test_df,
-                cat_features=cat_features,
-                text_features=text_features,
-                embedding_features=embedding_features,
-                ctx=ctx,
-                # ``train_df`` here can be the post-extensions numeric-only frame; the categoricals this
-                # diagnostic reports on live on the polars-pre frames. See the callee's fallback note.
-                train_df_polars_pre=train_df_polars_pre,
-                val_df_polars_pre=val_df_polars_pre,
-                test_df_polars_pre=test_df_polars_pre,
-                align_categorical_dicts=bool(getattr(behavior_config, "align_polars_categorical_dicts", True)),
-            )
-
-        metadata["text_features"] = text_features
-        metadata["embedding_features"] = embedding_features
-        _locals_snapshot = locals()
-        _bulk_setattr_to_ctx(ctx, (
-            "train_df", "val_df", "test_df", "train_df_polars_pre", "val_df_polars_pre",
-            "test_df_polars_pre", "text_features", "embedding_features", "cat_features",
-            "text_emb_set", "_dropped_high_card_data",
-        ), values=_locals_snapshot)
-
-        if verbose:
-            log_phase("PHASE 4: Model Training")
-
-        with phase("initialize_training_defaults"):
-            (
-                common_params_dict,
-                rfecv_models,
-                mrmr_kwargs,
-            ) = _initialize_training_defaults(
-                common_params_dict=common_params_dict,
-                rfecv_models=rfecv_models,
-                mrmr_kwargs=mrmr_kwargs,
-                suite_verbose=getattr(ctx, "verbose", None),
-            )
-
-        # Propagate split-config random_seed so the default CatBoostEncoder is
-        # deterministic across runs. fix audit row FE-P2-5.
-        _seed_for_components = getattr(split_config, "random_seed", None) if split_config is not None else None
-        assert preprocessing_config is not None, "_main_train_suite: preprocessing_config must be resolved before pipeline component setup"
-        category_encoder, imputer, scaler = _get_pipeline_components(
-            preprocessing_config, cat_features, random_seed=_seed_for_components,
-        )
-        # Propagate to ctx so _phase_train_one_target reads the resolved components, not the None defaults from TrainingContext (LinearModelStrategy.build_pipeline silently skips imputation when imputer=None, sending raw NaN into LinearRegression.fit).
-        ctx.category_encoder = category_encoder
-        ctx.imputer = imputer
-        ctx.scaler = scaler
-
-        # CACHE-P2-1: MUST run BEFORE _phase_pandas_conversion_and_cat_prep. The
-        # polars vs pandas branch below picks its backend from ``train_df``'s
-        # current type; if the pandas conversion fires first the polars fastpath
-        # silently degrades to pandas without surfacing the regression. Keep
-        # this block ABOVE the ``_phase_pandas_conversion_and_cat_prep`` call.
-        #
-        # train_df is still polars at this point IFF the upstream split kept the polars fastpath alive
-        # (no pandas-only preprocessor forced a conversion). The polars stats path lazily expresses the
-        # numeric/categorical summaries without materialising a pandas copy, so we must branch here
-        # rather than always falling through to the pandas-typed get_trainset_features_stats below.
-        # Opt-in fast path: when caller supplies a pre-computed stats dict via ``precomputed``, skip the
-        # inline pass entirely. Useful for repeated suite runs on the same train frame (benchmarking).
-        # PRECOMP-NO-FP-CHECK: when the caller stamped ``train_df_fingerprint`` on the bundle, verify it
-        # matches the live train frame. A mismatch (caller passed a bundle from a different run) is a
-        # silent label-leak vector -- we WARN-and-recompute rather than trust the precomputed stats.
-        _precomp_fp_ok = check_precomputed_fingerprint(precomputed, train_df)
-        trainset_features_stats = compute_or_fetch_trainset_features_stats(
-            _precomp_fp_ok=_precomp_fp_ok,
-            precomputed=precomputed,
-            train_df=train_df,
-            train_df_polars_pre=train_df_polars_pre,
-            verbose=verbose,
-        )
-
-        (
-            train_df_pd, val_df_pd, test_df_pd,
-            train_df_polars, val_df_polars, test_df_polars,
-            train_df, val_df, test_df,
-            train_df_size_bytes_cached, val_df_size_bytes_cached,
-            defer_pandas_conv, baseline_rss_mb,
-        ) = _phase_pandas_conversion_and_cat_prep(
-            train_df=train_df,
-            val_df=val_df,
-            test_df=test_df,
-            train_df_polars_pre=train_df_polars_pre,
-            val_df_polars_pre=val_df_polars_pre,
-            test_df_polars_pre=test_df_polars_pre,
-            cat_features=cat_features,
-            was_polars_input=was_polars_input,
-            all_models_polars_native=all_models_polars_native,
-            # _phase_fit_pipeline reports whether the pre-fit polars-stage actually ran (skipped when caller passed
-            # pandas or when no model is polars-native). The pandas-conversion phase needs the truthful value, not the
-            # default=True placeholder, to decide whether the polars-side cat fixes (Utf8 -> Categorical fills) need to be
-            # mirrored back into the pandas-side frames before CatBoost Pool construction.
-            polars_pipeline_applied=polars_pipeline_applied,
-            pipeline_stages_requested=any_pipeline_stage_requested(pipeline_config),
-            needs_polars_pre_clone=needs_polars_pre_clone(pipeline_config, was_polars_input=was_polars_input),
-            mlframe_models=mlframe_models,
-            recurrent_models=recurrent_models or [],
-            rfecv_models=rfecv_models,
-            baseline_rss_mb=baseline_rss_mb,
-            df_size_mb=df_size_mb,
-            verbose=bool(verbose),
-            strategy_by_model=getattr(ctx, "strategy_by_model", None),
-        )
-        # Store cached sizes on ctx BEFORE the per-target loop so _train_one_target can read them.
-        ctx.train_df_size_bytes_cached = train_df_size_bytes_cached
-        ctx.val_df_size_bytes_cached = val_df_size_bytes_cached
-
-        # ctx-form: parallel-session migrated _phase_global_outlier_detection to read from / write to ctx in place.
-        mirror_split_outputs_to_ctx(
-            ctx, train_df_pd=train_df_pd, val_df_pd=val_df_pd, train_df_polars=train_df_polars, val_df_polars=val_df_polars,
-            train_idx=train_idx, val_idx=val_idx, test_idx=test_idx, target_by_type=target_by_type,
-            outlier_detector=outlier_detector, od_val_set=od_val_set, baseline_rss_mb=baseline_rss_mb, df_size_mb=df_size_mb, metadata=metadata,
-        )
-        _phase_global_outlier_detection(ctx)
-        filtered_train_df = ctx.filtered_train_df
-        filtered_val_df = ctx.filtered_val_df
-        filtered_train_idx = ctx.filtered_train_idx
-        filtered_val_idx = ctx.filtered_val_idx
-        train_od_idx = ctx.train_od_idx
-        val_od_idx = ctx.val_od_idx
-        outlier_detection_result = ctx.outlier_detection_result
-        train_df_polars = ctx.train_df_polars
-        val_df_polars = ctx.val_df_polars
-
-        ctx.filtered_train_df = filtered_train_df
-        ctx.filtered_val_df = filtered_val_df
-        ctx.filtered_train_idx = filtered_train_idx
-        ctx.filtered_val_idx = filtered_val_idx
-        ctx.train_od_idx = train_od_idx
-        ctx.val_od_idx = val_od_idx
-
-        # Opt-in per-target diagnostics, then composite-target discovery -- see the helper's own
-        # docstring; both are no-ops absent their respective opt-in config.
-        target_by_type, metadata = run_optional_diagnostics_and_composite_discovery(
-            output_config=output_config, target_by_type=target_by_type, target_name=target_name,
-            filtered_train_idx=filtered_train_idx, filtered_train_df=filtered_train_df,
-            filtered_val_df=filtered_val_df, test_df=test_df, cat_features=cat_features,
-            group_ids=group_ids, metadata=metadata, data_dir=data_dir, _precomp_fp_ok=_precomp_fp_ok,
-            precomputed=precomputed, verbose=verbose,
-            maybe_apply_composite_target_specs_precomputed=maybe_apply_composite_target_specs_precomputed,
-            pr_module=pr, composite_target_discovery_config=composite_target_discovery_config,
-            mlframe_models=mlframe_models, train_df_pd=train_df_pd, val_df_pd=val_df_pd,
-            test_df_pd=test_df_pd, train_idx=train_idx, val_idx=val_idx, test_idx=test_idx,
-            baseline_diagnostics_config=baseline_diagnostics_config, split_config=split_config,
-            save_charts=save_charts,
-        )
-
-        (
-            train_df_polars, val_df_polars, test_df_polars,
-            train_df_pd, val_df_pd, test_df_pd,
-            filtered_train_df, filtered_val_df,
-        ) = apply_polars_cat_fixes_and_back_write_ctx(
-            pr_module=pr,
-            ctx=ctx,
-            train_df_polars=train_df_polars,
-            val_df_polars=val_df_polars,
-            test_df_polars=test_df_polars,
-            train_df_pd=train_df_pd,
-            val_df_pd=val_df_pd,
-            test_df_pd=test_df_pd,
-            filtered_train_df=filtered_train_df,
-            filtered_val_df=filtered_val_df,
-            cat_features=cat_features,
-            behavior_config=behavior_config,
-            defer_pandas_conv=defer_pandas_conv,
-            was_polars_input=was_polars_input,
-            metadata=metadata,
-            verbose=verbose,
-            _bulk_setattr_to_ctx=_bulk_setattr_to_ctx,
-        )
-
-        dummy_baselines_config = maybe_apply_dummy_baselines_precomputed(
-            _precomp_fp_ok=_precomp_fp_ok,
-            precomputed=precomputed,
-            metadata=metadata,
-            dummy_baselines_config=dummy_baselines_config,
-            ctx=ctx,
-            verbose=verbose,
-        )
-
-        # Save metadata early so partial training runs leave already-trained models usable.
-        _finalize_and_save_metadata(ctx)
-
-        ctx._all_target_audits = pr.run_temporal_audit_batch(
-            behavior_config=behavior_config,
-            features_and_targets_extractor=features_and_targets_extractor,
-            timestamps=timestamps,
-            target_by_type=target_by_type,
-            verbose=bool(verbose),
-        )
-
-        train_every_target(ctx, target_by_type, metadata, pr)
-
-        export_votenrank_leaderboards(ctx=ctx, data_dir=data_dir, verbose=verbose)
-
-        # Reads consumed by ``run_recurrent_finalize_and_composite_post`` only. The historical block
-        # also mirrored ``ctx.{train,val,test}_df_polars`` / pipeline / defer_pandas_conv / baseline_rss_mb
-        # / ``*_size_bytes_cached`` / trainset_features_stats / slug_to_original_target_{type,name} into
-        # locals; none of those locals were read after this point so they were dead in the pre-carve body.
-        _non_neural_train_times = ctx._non_neural_train_times
-        train_df_pd = ctx.train_df_pd
-        val_df_pd = ctx.val_df_pd
-        test_df_pd = ctx.test_df_pd
-        filtered_train_df = ctx.filtered_train_df
-        filtered_val_df = ctx.filtered_val_df
-
-        models, metadata = run_recurrent_finalize_and_composite_post(
-            ctx=ctx,
-            pr_module=pr,
-            recurrent_config=recurrent_config,
-            train_sequences=train_sequences,
-            val_sequences=val_sequences,
-            test_sequences=test_sequences,
-            train_df=train_df,
-            train_df_pd=train_df_pd,
-            val_df_pd=val_df_pd,
-            test_df_pd=test_df_pd,
-            target_by_type=target_by_type,
-            train_idx=train_idx,
-            val_idx=val_idx,
-            test_idx=test_idx,
-            _non_neural_train_times=_non_neural_train_times,
-            model_name=model_name,
-            target_name=target_name,
-            composite_target_discovery_config=composite_target_discovery_config,
-            filtered_train_df=filtered_train_df,
-            filtered_val_df=filtered_val_df,
-            filtered_train_idx=filtered_train_idx,
-            filtered_val_idx=filtered_val_idx,
-            dummy_baselines_config=dummy_baselines_config,
-            reporting_config=reporting_config,
-            verbose=verbose,
-        )
-        # Frees the per-column nan-imputation arrays.
-        _dropped_high_card_data.clear()
-
-        return SuiteResult(dict(models), metadata)
+        del df  # the stage helpers own the only remaining strong reference (st.df, then ctx.df)
+        early_result = _suite_stage_load_and_split(ctx, st)
+        if early_result is not None:
+            return early_result
+        _suite_stage_analyze_and_fit_pipeline(ctx, st)
+        _suite_stage_detect_feature_types(ctx, st)
+        _suite_stage_defaults_and_conversion(ctx, st)
+        _suite_stage_outliers_and_diagnostics(ctx, st)
+        return _suite_stage_train_and_finalize(ctx, st)
     finally:
         _exit_render_scope(_render_queue, _queue_scope, ctx)
         # ctx.artifacts first (finalize_suite pops from it on the happy path, so this is usually a no-op), then the
@@ -759,3 +221,472 @@ def train_mlframe_models_suite(
         from mlframe.training.crash_diagnostics import stop_heartbeat
 
         stop_heartbeat()
+
+
+train_mlframe_models_suite.__doc__ = SUITE_DOC
+
+# Config / runtime attributes ``setup_configuration`` resolved onto ``ctx`` that the stage helpers read back as suite-level state.
+_CTX_RESOLVED_NAMES: tuple[str, ...] = (
+    "preprocessing_config", "pipeline_config", "feature_types_config", "split_config", "hyperparams_config", "behavior_config",
+    "reporting_config", "output_config", "outlier_detection_config", "feature_selection_config", "baseline_diagnostics_config",
+    "dummy_baselines_config", "quantile_regression_config", "composite_target_discovery_config", "data_dir", "models_dir", "save_charts",
+    "outlier_detector", "od_val_set", "use_mrmr_fs", "mrmr_kwargs", "rfecv_models", "custom_pre_pipelines", "common_params_dict",
+    "mlframe_models", "metadata",
+)
+_SPLIT_NAMES: tuple[str, ...] = (
+    "train_idx", "val_idx", "test_idx", "train_details", "val_details",
+    "test_details", "train_df", "val_df", "test_df", "fairness_subgroups",
+    "fairness_features", "train_sequences", "val_sequences", "test_sequences",
+    "baseline_rss_mb", "calib_idx", "calib_details", "calib_df",
+)
+_FIT_PIPELINE_NAMES: tuple[str, ...] = (
+    "train_df", "val_df", "test_df", "pipeline", "extensions_pipeline",
+    "cat_features", "cat_features_polars", "was_polars_input",
+    "all_models_polars_native", "polars_pipeline_applied",
+    "train_df_polars_pre", "val_df_polars_pre", "test_df_polars_pre",
+    "pipeline_config", "preprocessing_extensions",
+    "train_df_pandas_pre_meta",
+)
+_FEATURE_TYPE_NAMES: tuple[str, ...] = (
+    "train_df", "val_df", "test_df", "train_df_polars_pre", "val_df_polars_pre",
+    "test_df_polars_pre", "text_features", "embedding_features", "cat_features",
+    "text_emb_set", "_dropped_high_card_data",
+)
+_CONVERSION_STATE_NAMES: tuple[str, ...] = (
+    "common_params_dict", "rfecv_models", "mrmr_kwargs", "_precomp_fp_ok", "trainset_features_stats", "train_df_pd", "val_df_pd",
+    "test_df_pd", "train_df_polars", "val_df_polars", "test_df_polars", "train_df", "val_df", "test_df", "defer_pandas_conv",
+    "baseline_rss_mb",
+)
+
+
+def _apply_training_config_defaults(
+    training_config: Optional["TrainingConfig"],
+    linear_model_config: Optional[LinearModelConfig],
+    behavior_config: Optional[Union[TrainingBehaviorConfig, Dict]],
+) -> tuple[Optional[LinearModelConfig], Optional[Union[TrainingBehaviorConfig, Dict]]]:
+    """Fill ``linear_model_config`` / ``behavior_config`` from the aggregate ``training_config`` carrier (an explicit kwarg always wins)."""
+    if training_config is not None:
+        if linear_model_config is None:
+            linear_model_config = training_config.linear_config
+        if behavior_config is None:
+            behavior_config = training_config.behavior
+        from ._setup_helpers import behavior_with_training_config_metamodel
+
+        behavior_config = behavior_with_training_config_metamodel(behavior_config, training_config.metamodel_func)
+    return linear_model_config, behavior_config
+
+
+def _publish_to_ctx_and_state(ctx: Any, st: SimpleNamespace, names: tuple[str, ...], values: Dict[str, Any]) -> None:
+    """Mirror the named locals onto ``ctx`` (loud on a missing name) and onto the suite state ``st``."""
+    _bulk_setattr_to_ctx(ctx, names, values=values)
+    for name in names:
+        setattr(st, name, values[name])
+
+
+def _suite_stage_load_and_split(ctx: Any, st: SimpleNamespace) -> Optional[SuiteResult]:
+    """LTR dispatch, load + preprocess, auto-detected-LTR safety net, then the train/val/test split.
+
+    Returns the finished result for the two LTR early exits, else None with the split outputs published on ``ctx`` and ``st``.
+    """
+    df = st.df
+    st.df = None
+    verbose = st.verbose
+    features_and_targets_extractor = st.features_and_targets_extractor
+
+    # LTR opt-in: helper returns None for non-LTR call sites. Moved AFTER setup_configuration because the helper now reads
+    # Pydantic-shape configs from ``ctx`` (output / split / hyperparams / reporting); pre-setup the configs may still be
+    # dict-or-None form and would trip ``_cfg_get`` callers downstream.
+    # Capture the RAW (pre-preprocessing) df: the auto-detected-LTR safety net below
+    # re-dispatches to the ranker suite, which re-runs its own load/transform and so
+    # needs the original frame, not the preprocessed one ``df`` gets rebound to later.
+    _raw_df_for_ltr_autoroute = df
+    _ltr_result = _maybe_dispatch_to_ltr_ranker_suite(
+        ctx,
+        target_type=st.target_type,
+        df=df,
+        features_and_targets_extractor=features_and_targets_extractor,
+    )
+    if _ltr_result is not None:
+        return _assert_suite_return_shape(_ltr_result, source="_maybe_dispatch_to_ltr_ranker_suite")
+
+    for resolved_name in _CTX_RESOLVED_NAMES:
+        setattr(st, resolved_name, getattr(ctx, resolved_name))
+
+    # ctx-form: parallel-session migrated _phase_load_and_preprocess to read from / write to ctx in place.
+    ctx.df = df
+    ctx.recurrent_models = st.recurrent_models
+    ctx.sequences = st.sequences
+    _phase_load_and_preprocess(ctx, features_and_targets_extractor=features_and_targets_extractor)
+    df = ctx.df
+    target_by_type = ctx.target_by_type
+    warn_on_empty_target_by_type(target_by_type)
+    _ltr_auto_result = maybe_autoroute_autodetected_ltr(
+        ctx,
+        target_type=st.target_type,
+        target_by_type=target_by_type,
+        raw_df=_raw_df_for_ltr_autoroute,
+        features_and_targets_extractor=features_and_targets_extractor,
+    )
+    if _ltr_auto_result is not None:
+        return _assert_suite_return_shape(_ltr_auto_result, source="maybe_autoroute_autodetected_ltr")
+    group_ids = ctx.group_ids
+    timestamps = ctx.timestamps
+    df_size_mb = ctx.df_size_mb
+
+    (
+        train_idx, val_idx, test_idx,
+        train_details, val_details, test_details,
+        train_df, val_df, test_df,
+        fairness_subgroups, fairness_features,
+        train_sequences, val_sequences, test_sequences,
+        baseline_rss_mb, calib_idx, calib_details, calib_df,
+    ) = _phase_train_val_test_split(
+        df=df,
+        target_by_type=target_by_type,
+        timestamps=timestamps,
+        group_ids=group_ids,
+        group_ids_raw=ctx.group_ids_raw,
+        artifacts=ctx.artifacts,
+        sequences=ctx.sequences,
+        split_config=st.split_config,
+        behavior_config=st.behavior_config,
+        metadata=st.metadata,
+        data_dir=st.data_dir,
+        models_dir=st.models_dir,
+        target_name=st.target_name,
+        model_name=st.model_name,
+        df_size_mb=df_size_mb,
+        verbose=bool(verbose),
+        row_ids=ctx.split_row_ids,
+    )
+    # ``del df`` drops the local rebound name so the only remaining strong reference
+    # is ``ctx.df``; nulling that lets the GC reclaim the now-unreferenced source frame.
+    # Without both, the post-split full dataframe lingers in memory until the suite ends.
+    del df
+    ctx.df = ctx.split_row_ids = None  # the split keys are consumed too
+    st.target_by_type, st.group_ids, st.timestamps, st.df_size_mb = target_by_type, group_ids, timestamps, df_size_mb
+    # Mirror locals into ctx in a single bulk loop. This is the in-progress migration from
+    # the legacy "phase returns big tuple, caller fans out into locals" form to a pure
+    # ctx-form where phases write straight to ctx. Until every phase is converted the
+    # bulk-copy keeps the existing return-tuple shape working while ctx-form readers
+    # downstream see the same values.
+    _publish_to_ctx_and_state(ctx, st, _SPLIT_NAMES, locals())
+    return None
+
+
+def _suite_stage_analyze_and_fit_pipeline(ctx: Any, st: SimpleNamespace) -> None:
+    """Run the mini-HPT target-distribution analyzer (+ estimator injection), then fit the preprocessing pipeline."""
+    verbose = st.verbose
+    target_by_type = st.target_by_type
+    # mini-HPT target-distribution analyzer (+ optional E3 distribution-driven estimator injection).
+    hyperparams_config, train_df, val_df, test_df, mlframe_models = run_distribution_analyzer_and_estimator_injection(
+        enable_target_distribution_analyzer=st.enable_target_distribution_analyzer,
+        target_by_type=target_by_type, train_idx=st.train_idx, group_ids=st.group_ids, timestamps=st.timestamps,
+        train_df=st.train_df, val_df=st.val_df, test_df=st.test_df, verbose=verbose, metadata=st.metadata,
+        hyperparams_config=st.hyperparams_config, behavior_config=st.behavior_config, mlframe_models=st.mlframe_models, ctx=ctx,
+        preprocessing_config=st.preprocessing_config,
+    )
+    st.hyperparams_config, st.mlframe_models = hyperparams_config, mlframe_models
+
+    (
+        train_df, val_df, test_df,
+        pipeline, extensions_pipeline,
+        cat_features, cat_features_polars,
+        was_polars_input, all_models_polars_native, polars_pipeline_applied,
+        train_df_polars_pre, val_df_polars_pre, test_df_polars_pre,
+        pipeline_config, preprocessing_extensions,
+        train_df_pandas_pre_meta,
+    ) = _phase_fit_pipeline(
+        train_df=train_df,
+        val_df=val_df,
+        test_df=test_df,
+        mlframe_models=mlframe_models,
+        pipeline_config=st.pipeline_config,
+        preprocessing_config=st.preprocessing_config,
+        feature_types_config=st.feature_types_config,
+        preprocessing_extensions=extensions_with_split_seed(st.preprocessing_extensions, getattr(st.split_config, "random_seed", None)),
+        metadata=st.metadata,
+        verbose=bool(verbose),
+        # Threaded through so apply_preprocessing_extensions can grab a 1-D
+        # regression target for PySR symbolic feature discovery (used to be
+        # silently None -> PySR-skip wiring bug). train_idx slices the
+        # PRE-split target down to train-set rows so PySR sees train-only y.
+        target_by_type=target_by_type,
+        train_idx=ctx.train_idx,
+        val_idx=ctx.val_idx,
+        test_idx=ctx.test_idx,
+        group_ids=st.group_ids,
+        timestamps=st.timestamps,
+        auxiliary_events_df=st.auxiliary_events_df,
+    )
+    _publish_to_ctx_and_state(ctx, st, _FIT_PIPELINE_NAMES, locals())
+
+
+def _suite_stage_detect_feature_types(ctx: Any, st: SimpleNamespace) -> None:
+    """Auto-detect text / embedding / categorical features, log the cardinality + drift snapshot, and stamp the feature lists."""
+    verbose = st.verbose
+    metadata = st.metadata
+    (
+        train_df, val_df, test_df,
+        train_df_polars_pre, val_df_polars_pre, test_df_polars_pre,
+        text_features, embedding_features, cat_features,
+        text_emb_set, _dropped_high_card_data,
+    ) = _phase_auto_detect_feature_types(
+        train_df=st.train_df,
+        val_df=st.val_df,
+        test_df=st.test_df,
+        train_df_polars_pre=st.train_df_polars_pre,
+        val_df_polars_pre=st.val_df_polars_pre,
+        test_df_polars_pre=st.test_df_polars_pre,
+        cat_features=st.cat_features,
+        cat_features_polars=st.cat_features_polars,
+        was_polars_input=st.was_polars_input,
+        all_models_polars_native=st.all_models_polars_native,
+        pipeline_config=st.pipeline_config,
+        feature_types_config=st.feature_types_config,
+        metadata=metadata,
+        verbose=bool(verbose),
+        train_df_pandas_pre_meta=st.train_df_pandas_pre_meta,
+    )
+
+    if verbose:
+        _log_cardinality_and_drift_snapshot(
+            train_df=train_df, val_df=val_df, test_df=test_df,
+            cat_features=cat_features,
+            text_features=text_features,
+            embedding_features=embedding_features,
+            ctx=ctx,
+            # ``train_df`` here can be the post-extensions numeric-only frame; the categoricals this
+            # diagnostic reports on live on the polars-pre frames. See the callee's fallback note.
+            train_df_polars_pre=train_df_polars_pre,
+            val_df_polars_pre=val_df_polars_pre,
+            test_df_polars_pre=test_df_polars_pre,
+            align_categorical_dicts=bool(getattr(st.behavior_config, "align_polars_categorical_dicts", True)),
+        )
+
+    metadata["text_features"] = text_features
+    metadata["embedding_features"] = embedding_features
+    _publish_to_ctx_and_state(ctx, st, _FEATURE_TYPE_NAMES, locals())
+
+
+def _suite_stage_defaults_and_conversion(ctx: Any, st: SimpleNamespace) -> None:
+    """Initialise training defaults and pipeline components, compute train-set feature stats, then run the pandas conversion + cat prep."""
+    verbose = st.verbose
+    if verbose:
+        log_phase("PHASE 4: Model Training")
+
+    with phase("initialize_training_defaults"):
+        (
+            common_params_dict,
+            rfecv_models,
+            mrmr_kwargs,
+        ) = _initialize_training_defaults(
+            common_params_dict=st.common_params_dict,
+            rfecv_models=st.rfecv_models,
+            mrmr_kwargs=st.mrmr_kwargs,
+            suite_verbose=getattr(ctx, "verbose", None),
+        )
+
+    # Propagate split-config random_seed so the default CatBoostEncoder is
+    # deterministic across runs. fix audit row FE-P2-5.
+    _seed_for_components = getattr(st.split_config, "random_seed", None) if st.split_config is not None else None
+    assert st.preprocessing_config is not None, "_main_train_suite: preprocessing_config must be resolved before pipeline component setup"
+    category_encoder, imputer, scaler = _get_pipeline_components(
+        st.preprocessing_config, st.cat_features, random_seed=_seed_for_components,
+    )
+    # Propagate to ctx so _phase_train_one_target reads the resolved components, not the None defaults from TrainingContext (LinearModelStrategy.build_pipeline silently skips imputation when imputer=None, sending raw NaN into LinearRegression.fit).
+    ctx.category_encoder = category_encoder
+    ctx.imputer = imputer
+    ctx.scaler = scaler
+
+    # CACHE-P2-1: MUST run BEFORE _phase_pandas_conversion_and_cat_prep. The
+    # polars vs pandas branch below picks its backend from ``train_df``'s
+    # current type; if the pandas conversion fires first the polars fastpath
+    # silently degrades to pandas without surfacing the regression. Keep
+    # this block ABOVE the ``_phase_pandas_conversion_and_cat_prep`` call.
+    #
+    # train_df is still polars at this point IFF the upstream split kept the polars fastpath alive
+    # (no pandas-only preprocessor forced a conversion). The polars stats path lazily expresses the
+    # numeric/categorical summaries without materialising a pandas copy, so we must branch here
+    # rather than always falling through to the pandas-typed get_trainset_features_stats below.
+    # Opt-in fast path: when caller supplies a pre-computed stats dict via ``precomputed``, skip the
+    # inline pass entirely. Useful for repeated suite runs on the same train frame (benchmarking).
+    # PRECOMP-NO-FP-CHECK: when the caller stamped ``train_df_fingerprint`` on the bundle, verify it
+    # matches the live train frame. A mismatch (caller passed a bundle from a different run) is a
+    # silent label-leak vector -- we WARN-and-recompute rather than trust the precomputed stats.
+    _precomp_fp_ok = check_precomputed_fingerprint(st.precomputed, st.train_df)
+    trainset_features_stats = compute_or_fetch_trainset_features_stats(
+        _precomp_fp_ok=_precomp_fp_ok,
+        precomputed=st.precomputed,
+        train_df=st.train_df,
+        train_df_polars_pre=st.train_df_polars_pre,
+        verbose=verbose,
+    )
+
+    (
+        train_df_pd, val_df_pd, test_df_pd,
+        train_df_polars, val_df_polars, test_df_polars,
+        train_df, val_df, test_df,
+        train_df_size_bytes_cached, val_df_size_bytes_cached,
+        defer_pandas_conv, baseline_rss_mb,
+    ) = _phase_pandas_conversion_and_cat_prep(
+        train_df=st.train_df,
+        val_df=st.val_df,
+        test_df=st.test_df,
+        train_df_polars_pre=st.train_df_polars_pre,
+        val_df_polars_pre=st.val_df_polars_pre,
+        test_df_polars_pre=st.test_df_polars_pre,
+        cat_features=st.cat_features,
+        was_polars_input=st.was_polars_input,
+        all_models_polars_native=st.all_models_polars_native,
+        # _phase_fit_pipeline reports whether the pre-fit polars-stage actually ran (skipped when caller passed
+        # pandas or when no model is polars-native). The pandas-conversion phase needs the truthful value, not the
+        # default=True placeholder, to decide whether the polars-side cat fixes (Utf8 -> Categorical fills) need to be
+        # mirrored back into the pandas-side frames before CatBoost Pool construction.
+        polars_pipeline_applied=st.polars_pipeline_applied,
+        pipeline_stages_requested=any_pipeline_stage_requested(st.pipeline_config),
+        needs_polars_pre_clone=needs_polars_pre_clone(st.pipeline_config, was_polars_input=st.was_polars_input),
+        mlframe_models=st.mlframe_models,
+        recurrent_models=st.recurrent_models or [],
+        rfecv_models=rfecv_models,
+        baseline_rss_mb=st.baseline_rss_mb,
+        df_size_mb=st.df_size_mb,
+        verbose=bool(verbose),
+        strategy_by_model=getattr(ctx, "strategy_by_model", None),
+    )
+    # Store cached sizes on ctx BEFORE the per-target loop so _train_one_target can read them.
+    ctx.train_df_size_bytes_cached = train_df_size_bytes_cached
+    ctx.val_df_size_bytes_cached = val_df_size_bytes_cached
+    _snapshot = locals()
+    for exported in _CONVERSION_STATE_NAMES:
+        setattr(st, exported, _snapshot[exported])
+
+
+def _suite_stage_outliers_and_diagnostics(ctx: Any, st: SimpleNamespace) -> None:
+    """Global outlier detection, opt-in diagnostics + composite discovery, polars cat fixes, dummy baselines, early metadata save."""
+    verbose = st.verbose
+    # ctx-form: parallel-session migrated _phase_global_outlier_detection to read from / write to ctx in place.
+    mirror_split_outputs_to_ctx(
+        ctx, train_df_pd=st.train_df_pd, val_df_pd=st.val_df_pd, train_df_polars=st.train_df_polars, val_df_polars=st.val_df_polars,
+        train_idx=st.train_idx, val_idx=st.val_idx, test_idx=st.test_idx, target_by_type=st.target_by_type,
+        outlier_detector=st.outlier_detector, od_val_set=st.od_val_set, baseline_rss_mb=st.baseline_rss_mb, df_size_mb=st.df_size_mb,
+        metadata=st.metadata,
+    )
+    _phase_global_outlier_detection(ctx)
+    filtered_train_df = ctx.filtered_train_df
+    filtered_val_df = ctx.filtered_val_df
+    filtered_train_idx = ctx.filtered_train_idx
+    filtered_val_idx = ctx.filtered_val_idx
+    train_od_idx = ctx.train_od_idx
+    val_od_idx = ctx.val_od_idx
+    train_df_polars = ctx.train_df_polars
+    val_df_polars = ctx.val_df_polars
+
+    ctx.filtered_train_df = filtered_train_df
+    ctx.filtered_val_df = filtered_val_df
+    ctx.filtered_train_idx = filtered_train_idx
+    ctx.filtered_val_idx = filtered_val_idx
+    ctx.train_od_idx = train_od_idx
+    ctx.val_od_idx = val_od_idx
+
+    # Opt-in per-target diagnostics, then composite-target discovery -- see the helper's own
+    # docstring; both are no-ops absent their respective opt-in config.
+    target_by_type, metadata = run_optional_diagnostics_and_composite_discovery(
+        output_config=st.output_config, target_by_type=st.target_by_type, target_name=st.target_name,
+        filtered_train_idx=filtered_train_idx, filtered_train_df=filtered_train_df,
+        filtered_val_df=filtered_val_df, test_df=st.test_df, cat_features=st.cat_features,
+        group_ids=st.group_ids, metadata=st.metadata, data_dir=st.data_dir, _precomp_fp_ok=st._precomp_fp_ok,
+        precomputed=st.precomputed, verbose=verbose,
+        maybe_apply_composite_target_specs_precomputed=maybe_apply_composite_target_specs_precomputed,
+        pr_module=pr, composite_target_discovery_config=st.composite_target_discovery_config,
+        mlframe_models=st.mlframe_models, train_df_pd=st.train_df_pd, val_df_pd=st.val_df_pd,
+        test_df_pd=st.test_df_pd, train_idx=st.train_idx, val_idx=st.val_idx, test_idx=st.test_idx,
+        baseline_diagnostics_config=st.baseline_diagnostics_config, split_config=st.split_config,
+        save_charts=st.save_charts,
+    )
+
+    apply_polars_cat_fixes_and_back_write_ctx(
+        pr_module=pr,
+        ctx=ctx,
+        train_df_polars=train_df_polars,
+        val_df_polars=val_df_polars,
+        test_df_polars=st.test_df_polars,
+        train_df_pd=st.train_df_pd,
+        val_df_pd=st.val_df_pd,
+        test_df_pd=st.test_df_pd,
+        filtered_train_df=filtered_train_df,
+        filtered_val_df=filtered_val_df,
+        cat_features=st.cat_features,
+        behavior_config=st.behavior_config,
+        defer_pandas_conv=st.defer_pandas_conv,
+        was_polars_input=st.was_polars_input,
+        metadata=metadata,
+        verbose=verbose,
+        _bulk_setattr_to_ctx=_bulk_setattr_to_ctx,
+    )
+
+    st.dummy_baselines_config = maybe_apply_dummy_baselines_precomputed(
+        _precomp_fp_ok=st._precomp_fp_ok,
+        precomputed=st.precomputed,
+        metadata=metadata,
+        dummy_baselines_config=st.dummy_baselines_config,
+        ctx=ctx,
+        verbose=verbose,
+    )
+
+    # Save metadata early so partial training runs leave already-trained models usable.
+    _finalize_and_save_metadata(ctx)
+
+    ctx._all_target_audits = pr.run_temporal_audit_batch(
+        behavior_config=st.behavior_config,
+        features_and_targets_extractor=st.features_and_targets_extractor,
+        timestamps=st.timestamps,
+        target_by_type=target_by_type,
+        verbose=bool(verbose),
+    )
+    st.target_by_type, st.metadata = target_by_type, metadata
+    st.filtered_train_idx, st.filtered_val_idx = filtered_train_idx, filtered_val_idx
+
+
+def _suite_stage_train_and_finalize(ctx: Any, st: SimpleNamespace) -> SuiteResult:
+    """Train every target, export leaderboards, run recurrent finalize + composite post-processing, and build the result."""
+    verbose = st.verbose
+    train_every_target(ctx, st.target_by_type, st.metadata, pr)
+
+    export_votenrank_leaderboards(ctx=ctx, data_dir=st.data_dir, verbose=verbose)
+
+    # Reads consumed by ``run_recurrent_finalize_and_composite_post`` only. The historical block
+    # also mirrored ``ctx.{train,val,test}_df_polars`` / pipeline / defer_pandas_conv / baseline_rss_mb
+    # / ``*_size_bytes_cached`` / trainset_features_stats / slug_to_original_target_{type,name} into
+    # locals; none of those locals were read after this point so they were dead in the pre-carve body.
+    models, metadata = run_recurrent_finalize_and_composite_post(
+        ctx=ctx,
+        pr_module=pr,
+        recurrent_config=st.recurrent_config,
+        train_sequences=st.train_sequences,
+        val_sequences=st.val_sequences,
+        test_sequences=st.test_sequences,
+        train_df=st.train_df,
+        train_df_pd=ctx.train_df_pd,
+        val_df_pd=ctx.val_df_pd,
+        test_df_pd=ctx.test_df_pd,
+        target_by_type=st.target_by_type,
+        train_idx=st.train_idx,
+        val_idx=st.val_idx,
+        test_idx=st.test_idx,
+        _non_neural_train_times=ctx._non_neural_train_times,
+        model_name=st.model_name,
+        target_name=st.target_name,
+        composite_target_discovery_config=st.composite_target_discovery_config,
+        filtered_train_df=ctx.filtered_train_df,
+        filtered_val_df=ctx.filtered_val_df,
+        filtered_train_idx=st.filtered_train_idx,
+        filtered_val_idx=st.filtered_val_idx,
+        dummy_baselines_config=st.dummy_baselines_config,
+        reporting_config=st.reporting_config,
+        verbose=verbose,
+    )
+    # Frees the per-column nan-imputation arrays.
+    st._dropped_high_card_data.clear()
+
+    return SuiteResult(dict(models), metadata)

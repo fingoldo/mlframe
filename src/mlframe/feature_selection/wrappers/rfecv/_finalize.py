@@ -18,6 +18,7 @@ transparently.
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -57,6 +58,97 @@ def _finalize_fit_results(
     signature,
 ):
     """Run the SFFS swap pass + write the public RFECV result slots."""
+    best_nfeatures, best_score = _run_sffs_swap_stage(
+        self,
+        X=X, y=y, X_estimator=X_estimator, col_pos=col_pos, estimator=estimator, cv=cv, scoring=scoring,
+        best_nfeatures=best_nfeatures, best_score=best_score,
+        selected_features_per_nfeatures=selected_features_per_nfeatures,
+        feature_importances=feature_importances,
+        original_features=original_features,
+        evaluated_scores_mean=evaluated_scores_mean,
+        evaluated_scores_std=evaluated_scores_std,
+        verbose=verbose, ndigits=ndigits,
+    )
+
+    # Save best result found so far as final.
+    self.n_features_in_ = X.shape[1]
+    # Row count at fit, consumed by select_optimal_nfeatures_'s p>=n FP-control gate (the collapsed-search below-dummy reject).
+    self._n_samples_fit_ = int(X.shape[0])
+    self.feature_names_in_ = X.columns.tolist() if isinstance(X, pd.DataFrame) else list(map(str, np.arange(self.n_features_in_)))
+
+    self.estimators_ = fitted_estimators  # dict keyed by nfeatures_nfold
+    self.feature_importances_ = feature_importances  # dict keyed by nfeatures_nfold
+    self.selected_features_ = selected_features_per_nfeatures  # dict keyed by nfeatures
+
+    checked_nfeatures = sorted(evaluated_scores_mean.keys())
+    cv_std_perf = [evaluated_scores_std[n] for n in checked_nfeatures]
+    cv_mean_perf = [evaluated_scores_mean[n] for n in checked_nfeatures]
+    self.cv_results_ = {"nfeatures": checked_nfeatures, "cv_mean_perf": cv_mean_perf, "cv_std_perf": cv_std_perf}
+
+    _add_per_fold_cv_results(self, checked_nfeatures)
+
+    self.select_optimal_nfeatures_(
+        checked_nfeatures=checked_nfeatures,
+        cv_mean_perf=cv_mean_perf,
+        cv_std_perf=cv_std_perf,
+        feature_cost=feature_cost,
+        smooth_perf=smooth_perf,
+        use_all_fi_runs=use_all_fi_runs,
+        use_last_fi_run_only=use_last_fi_run_only,
+        use_one_freshest_fi_run=use_one_freshest_fi_run,
+        use_fi_ranking=use_fi_ranking,
+        votes_aggregation_method=votes_aggregation_method,
+        verbose=verbose,
+        show_plot=show_plot,
+    )
+
+    _glue_must_include_into_support(self, must_include_resolved)
+
+    # feature_groups: all-or-nothing decision per group. If ANY member of group G is in support_, ALL members are added; if NONE, all
+    # stay out. Resolves the "5 collinear copies" caveat at config level when the operator knows the group structure.
+    _expand_support_by_feature_groups(self, verbose)
+
+    # Refresh the params slot with POST-fit values before storing: fit resolves some params in place
+    # (``scoring=None -> make_scorer(...)``, ``force_parallel`` thread pinning on the wrapped estimator),
+    # so the entry-time params fingerprint would never match the NEXT fit's ``get_params`` and identical
+    # refits would never skip. The data slots (shapes/hashes/columns) stay as computed at fit entry.
+    from ._fit_init import _current_params_signature
+
+    self.signature = (*signature[:-1], _current_params_signature(self))
+
+    # Cache resolved column list so transform() avoids per-call reconstruction.
+    self._selected_cols_cache = None
+    support = getattr(self, "support_", None)
+    if support is not None and len(support) > 0:
+        if isinstance(support[0], (bool, np.bool_)):
+            self._selected_cols_cache = [col for col, selected in zip(self.feature_names_in_, support) if selected]
+        else:
+            self._selected_cols_cache = [self.feature_names_in_[i] for i in support]
+
+    _persist_fitted_estimators(self, estimator=estimator, fitted_estimators=fitted_estimators, verbose=verbose)
+
+
+def _run_sffs_swap_stage(
+    self: Any,
+    *,
+    X: Any,
+    y: Any,
+    X_estimator: Any,
+    col_pos: Any,
+    estimator: Any,
+    cv: Any,
+    scoring: Any,
+    best_nfeatures: int,
+    best_score: float,
+    selected_features_per_nfeatures: dict,
+    feature_importances: dict,
+    original_features: Any,
+    evaluated_scores_mean: dict,
+    evaluated_scores_std: dict,
+    verbose: Any,
+    ndigits: int,
+) -> tuple[int, float]:
+    """Run the optional SFFS swap pass and return the (possibly refreshed) ``(best_nfeatures, best_score)``."""
     # SFFS swap pass: greedy 1-in / 1-out tweak around the current best.
     # ``_sffs_swap_pass`` does NOT honour fit_params / val_cv / early stopping.
     # E2: when val_cv is set AND the estimator actually
@@ -114,22 +206,11 @@ def _finalize_fit_results(
                 "Set swap_top_k_allow_no_es=True to override.",
                 self.swap_top_k,
             )
+    return best_nfeatures, best_score
 
-    # Save best result found so far as final.
-    self.n_features_in_ = X.shape[1]
-    # Row count at fit, consumed by select_optimal_nfeatures_'s p>=n FP-control gate (the collapsed-search below-dummy reject).
-    self._n_samples_fit_ = int(X.shape[0])
-    self.feature_names_in_ = X.columns.tolist() if isinstance(X, pd.DataFrame) else list(map(str, np.arange(self.n_features_in_)))
 
-    self.estimators_ = fitted_estimators  # dict keyed by nfeatures_nfold
-    self.feature_importances_ = feature_importances  # dict keyed by nfeatures_nfold
-    self.selected_features_ = selected_features_per_nfeatures  # dict keyed by nfeatures
-
-    checked_nfeatures = sorted(evaluated_scores_mean.keys())
-    cv_std_perf = [evaluated_scores_std[n] for n in checked_nfeatures]
-    cv_mean_perf = [evaluated_scores_mean[n] for n in checked_nfeatures]
-    self.cv_results_ = {"nfeatures": checked_nfeatures, "cv_mean_perf": cv_mean_perf, "cv_std_perf": cv_std_perf}
-
+def _add_per_fold_cv_results(self: Any, checked_nfeatures: list) -> None:
+    """Add sklearn-parity per-split ``split{k}_test_score`` columns to ``self.cv_results_``."""
     # sklearn-parity: per-split keys ``split{k}_test_score`` exposing per-fold scores per N.
     # ``per_fold_scores`` is dict[N -> list of fold scores]; pivot into len(checked_nfeatures)-aligned arrays.
     _pfs = getattr(self, "_per_fold_scores", None)
@@ -149,21 +230,9 @@ def _finalize_fit_results(
                 _col.append(float(_arr[_k]) if (_arr is not None and _k < len(_arr)) else float("nan"))
             self.cv_results_[_key] = _col
 
-    self.select_optimal_nfeatures_(
-        checked_nfeatures=checked_nfeatures,
-        cv_mean_perf=cv_mean_perf,
-        cv_std_perf=cv_std_perf,
-        feature_cost=feature_cost,
-        smooth_perf=smooth_perf,
-        use_all_fi_runs=use_all_fi_runs,
-        use_last_fi_run_only=use_last_fi_run_only,
-        use_one_freshest_fi_run=use_one_freshest_fi_run,
-        use_fi_ranking=use_fi_ranking,
-        votes_aggregation_method=votes_aggregation_method,
-        verbose=verbose,
-        show_plot=show_plot,
-    )
 
+def _glue_must_include_into_support(self: Any, must_include_resolved: Any) -> None:
+    """Force the must_include columns into ``self.support_`` (bool-mask or integer-index form) and refresh ``n_features_``."""
     # Glue must_include into the final support_. The optimiser produced support_ over the search-universe complement only;
     # must_include features are always in the final selection regardless of what the optimiser picked.
     if must_include_resolved and hasattr(self, "support_"):
@@ -185,29 +254,6 @@ def _finalize_fit_results(
             merged = list(idx_must) + [i for i in existing if i not in idx_must]
             self.support_ = np.asarray(merged, dtype=int)
             self.n_features_ = len(self.support_)
-
-    # feature_groups: all-or-nothing decision per group. If ANY member of group G is in support_, ALL members are added; if NONE, all
-    # stay out. Resolves the "5 collinear copies" caveat at config level when the operator knows the group structure.
-    _expand_support_by_feature_groups(self, verbose)
-
-    # Refresh the params slot with POST-fit values before storing: fit resolves some params in place
-    # (``scoring=None -> make_scorer(...)``, ``force_parallel`` thread pinning on the wrapped estimator),
-    # so the entry-time params fingerprint would never match the NEXT fit's ``get_params`` and identical
-    # refits would never skip. The data slots (shapes/hashes/columns) stay as computed at fit entry.
-    from ._fit_init import _current_params_signature
-
-    self.signature = (*signature[:-1], _current_params_signature(self))
-
-    # Cache resolved column list so transform() avoids per-call reconstruction.
-    self._selected_cols_cache = None
-    support = getattr(self, "support_", None)
-    if support is not None and len(support) > 0:
-        if isinstance(support[0], (bool, np.bool_)):
-            self._selected_cols_cache = [col for col, selected in zip(self.feature_names_in_, support) if selected]
-        else:
-            self._selected_cols_cache = [self.feature_names_in_[i] for i in support]
-
-    _persist_fitted_estimators(self, estimator=estimator, fitted_estimators=fitted_estimators, verbose=verbose)
 
 
 def _expand_support_by_feature_groups(self, verbose):

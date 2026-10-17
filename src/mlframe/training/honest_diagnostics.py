@@ -82,6 +82,202 @@ def _derive_seed(master_seed: int, key: str) -> int:
     return derive_seed(master_seed, key)
 
 
+def _setup_binary_bootstrap_metrics(out: dict[str, Any]) -> tuple[dict[str, Any], Optional[dict[str, Any]], Optional[dict[str, Any]], Optional[Any]]:
+    """Build the binary bootstrap metric bundle: ``(metric_fns, per_row_fns, jackknife_fns, make_auc_resampler)``.
+
+    Import failures are recorded as per-metric ``skipped`` entries in ``out`` rather than raised.
+    """
+    metric_fns: dict[str, Any] = {}
+    # Normally-initialized (not read back via locals().get(...) below) so a rename/reorder/
+    # extraction-into-a-helper fails loudly (NameError) instead of silently falling back to None.
+    _per_row_fns: Optional[dict[str, Any]] = None
+    _jackknife_fns: Optional[dict[str, Any]] = None
+    _make_auc_resampler: Optional[Any] = None
+    try:
+        # iter295: use mlframe's numba-compiled fast metric
+        # kernels instead of sklearn for bootstrap. c0028 profile attrib-
+        # uted 124.96s (86pct of 145.78s wall) to run_honest_diagnostics;
+        # 4 metric_fn calls x 1000 bootstrap resamples x 8 _bootstrap_block
+        # invocations = 32k sklearn metric calls each ~4-5ms. The numba
+        # kernels are 3.0x / 45.7x / 8.5x faster on roc_auc / brier /
+        # log_loss respectively (bench at n=20k, see commit msg). Result
+        # is numerically identical for the binary case (mlframe versions
+        # are direct numba ports of the sklearn algorithm).
+        # iter336: use ``fast_roc_auc_unstable`` (quicksort
+        # instead of stable sort) inside the bootstrap loop. Bench at
+        # c0083 sizes: 2.25x at n=200k, 2.75x at n=20k. Numerically
+        # identical when scores are float64 continuous (the dominant
+        # case from real ML model outputs); see kernel docstring for
+        # the rationale and when to use the stable variant instead.
+        from mlframe.evaluation import (
+            brier as _brier,
+            log_loss as _ll,
+            ll_per_row as _ll_per_row,
+            brier_per_row as _brier_per_row,
+        )
+        from mlframe.metrics.core import (
+            make_bootstrap_auc_resampler,
+        )
+
+        # mlframe kernels accept (y_true, y_pred) bound on float64; the
+        # bootstrap resampler hands us views of the original arrays so
+        # one-time cast in the calling closure is enough (numba dispatcher
+        # caches per dtype, so the first resample warms the JIT).
+        # iter599: dropped the .astype on _auc -- fast_roc_auc_unstable's
+        # underlying njit kernel accepts int y_true natively (``tps +=
+        # y_true[i]`` widens automatically). For int labels (the common
+        # bootstrap path) astype(np.float64) ALWAYS copies despite copy=
+        # False (the flag only saves a copy when dtype matches). Bench
+        # n=25k bootstrap-resample size: int64 1.05x, int8 1.19x,
+        # float64 1.00x. Bit-equivalent.
+        # KEPT .astype on _brier / _ll -- bench showed regressions on
+        # float64 labels (0.77x / 0.85x) when kernel was called direct;
+        # something about the dispatcher fast-path on (float64,float64)
+        # outperforms the bare call. Not worth the float64 regression to
+        # win on int paths.
+        # Cast y_true / p_pos to float64 ONCE before the 1000-resample loop
+        # (below), so the resampled ``y_true[idx]`` / ``p_pos
+        # [idx]`` views handed to each metric are already float64. The old
+        # per-call ``yy.astype(np.float64, copy=False)`` inside _brier/_ll
+        # still COPIED on every int-label resample (copy=False only avoids a
+        # copy when dtype already matches) -- ~4000 in-loop copies / block.
+        # With the pre-cast the kernels receive float64 directly: bit-
+        # identical (same values), and the dispatcher hits the same
+        # (float64,float64) fast path the prior code wanted.
+        metric_fns["brier"] = _brier
+        metric_fns["log_loss"] = _ll
+
+        # Per-row decompositions so the BCa acceleration jackknife runs in O(n) exact-algebraic form
+        # (LOO_i = (sum - row_i)/(n-1)) instead of re-gathering n-1 rows + recomputing the full metric per
+        # leave-out point -- ~11s -> ~20ms per metric at n=300k, ~1e-13 CI-equivalent. eps matches fast_log_loss's
+        # dtype-eps clip so the per-row cross-entropy equals the kernel's; requires_both_classes=True mirrors
+        # log-loss's single-class NaN (Brier is defined on any set).
+        _per_row_fns = {"log_loss": (_ll_per_row, True, None), "brier": (_brier_per_row, False, None)}
+
+        # ROC-AUC is not a mean of per-row values, but its BCa jackknife has an exact O(n log n) closed form via
+        # Mann-Whitney placement values (bit-identical to re-running fast_roc_auc on n-1 rows; 159x at n=300k).
+        from mlframe.evaluation.shared import jackknife_auc as _jk_auc
+        _jackknife_fns = {"roc_auc": lambda yy, ss: _jk_auc(yy, ss)}
+        # ECE's BCa jackknife has the same class of O(n) algebraic closed form as roc_auc's above (a sum
+        # decomposable through per-bin aggregation rather than per-row mean) -- was left on the generic
+        # O(max_n * n) gather path; see _jackknife_ece's docstring for the derivation and the profile that
+        # caught it (15.3s/6 calls on a 2M-row combo).
+        try:
+            from mlframe.evaluation.shared import jackknife_ece as _jk_ece
+            _jackknife_fns["ece"] = lambda yy, pp: _jk_ece(yy, pp)
+        except ImportError as exc:
+            logger.debug("honest_diagnostics: _jackknife_ece import failed (%r); ece BCa uses the generic jackknife.", exc)
+        # roc_auc via the INDEX-aware resampler: pre-argsort the base score
+        # vector ONCE, then build each of the 1000 resamples' descending order
+        # in O(n) (counting-gather over base ranks) instead of a fresh
+        # O(n log n) argsort per resample. 1.6x-4.4x on the 1000-bootstrap
+        # loop, BIT-IDENTICAL on tie-free float64 scores (dominant case);
+        # tied/discrete base auto-falls back to exact argsort in the factory.
+        _make_auc_resampler = make_bootstrap_auc_resampler
+    except ImportError as exc:
+        # Per-metric skip entries (matching the ECE except-block just below), NOT a whole-block
+        # `out["status"]` -- execution falls through to the independent ECE try-block regardless,
+        # and a whole-block status key would contradict a legitimately-populated `out["ece"]` if
+        # that import succeeds on its own.
+        _import_skip_reason = f"mlframe metrics import failed: {exc}"
+        for _skipped_metric in ("roc_auc", "brier", "log_loss"):
+            out[_skipped_metric] = {"status": "skipped", "reason": _import_skip_reason}
+    # ECE via the policy module's _ece_score (consistent with auto-pick).
+    try:
+        from mlframe.calibration.shared import ece_score as _ece_score
+        metric_fns["ece"] = lambda yy, pp: _ece_score(yy, pp)
+    except Exception as exc:
+        logger.debug("ece metric setup failed, skipping: %s", exc)
+        out["ece"] = {"status": "skipped", "reason": f"{type(exc).__name__}: {exc}"}
+    return metric_fns, _per_row_fns, _jackknife_fns, _make_auc_resampler
+
+
+def _run_binary_bootstrap(
+    y_true: np.ndarray,
+    p_pos: np.ndarray,
+    metric_fns: dict[str, Any],
+    make_auc_resampler: Optional[Any],
+    per_row_fns: Optional[dict[str, Any]],
+    jackknife_fns: Optional[dict[str, Any]],
+    rng_seed: int,
+) -> dict[str, Any]:
+    """Bootstrap the binary metric bundle in one shared resample loop (fused njit path first, ``bootstrap_metrics`` fallback)."""
+    from mlframe.evaluation.bootstrap import bootstrap_metrics
+
+    # Pre-cast ONCE so resampled views are float64 (see _brier/_ll note):
+    # removes ~4000 in-loop per-resample copies. _auc/_ece accept float64
+    # natively; stratify uses the original-label y_true for class masks.
+    y_true_f64 = np.ascontiguousarray(y_true, dtype=np.float64)
+    p_pos_f64 = np.ascontiguousarray(p_pos, dtype=np.float64)
+    # Build the index-aware AUC resampler on the same f64 base arrays the
+    # loop resamples, so resampler(idx) matches y_true_f64[idx]/p_pos_f64[idx].
+    _metric_fns_idx = None
+    if make_auc_resampler is not None:
+        _metric_fns_idx = {"roc_auc": make_auc_resampler(y_true_f64, p_pos_f64)}
+    cis = None
+    # Fused fast path: this bundle is ALWAYS exactly {roc_auc, brier, log_loss, ece} sharing one
+    # resample (the only shape this module ever builds). bootstrap_auc_brier_ll_ece_batch fuses
+    # all four metrics' per-resample computation into ONE numba.njit(parallel=True) call instead
+    # of bootstrap_metrics's per-resample Python-dispatch loop -- 2.9x-3.4x measured (see
+    # bench_bootstrap_fused_binary_bundle.py), bit-identical modulo ~1e-14 FP-reorder (the fused
+    # kernel calls the sequential brier/log_loss reduction; bootstrap_metrics's size-adaptive
+    # dispatcher picks the parallel-reduction variant at n>=100k -- same FP-reorder class the
+    # project already accepts elsewhere). Handles tied base scores too (grouped AUC counting,
+    # bit-identical) -- falls back to bootstrap_metrics only if this exact 4-metric bundle isn't
+    # present (e.g. the ECE import failed above) or the fused call itself raises.
+    if {"brier", "log_loss", "ece"} <= set(metric_fns) and _metric_fns_idx is not None:
+        from mlframe.evaluation import bootstrap_auc_brier_ll_ece_batch
+
+        try:
+            cis = bootstrap_auc_brier_ll_ece_batch(
+                y_true_f64, p_pos_f64, n_bootstrap=1000, alpha=0.05, stratify=y_true, random_state=rng_seed,
+            )
+        except Exception as exc:
+            logger.debug("honest_diagnostics: fused bootstrap bundle failed, falling back to bootstrap_metrics: %r", exc, exc_info=True)
+            cis = None
+    if cis is None:
+        try:
+            cis = bootstrap_metrics(
+                y_true_f64, p_pos_f64, metric_fns,
+                n_bootstrap=1000, alpha=0.05, stratify=y_true, random_state=rng_seed,
+                metric_fns_idx=_metric_fns_idx,
+                per_row_fns=per_row_fns,
+                jackknife_fns=jackknife_fns,
+            )
+        except Exception as exc:
+            logger.debug("bootstrap CI computation failed for this metric bundle: %s", exc)
+            cis = {name: {"error": f"{type(exc).__name__}: {exc}"} for name in metric_fns}
+    return cis
+
+
+def _rmse_bootstrap_entry(y_true: np.ndarray, p_pos: np.ndarray, out: dict[str, Any], rng_seed: int) -> None:
+    """Regression-ish fallback of ``_bootstrap_block``: store the bootstrap RMSE CI (or a ``skipped`` reason) under ``out["rmse"]``."""
+    from mlframe.evaluation.bootstrap import bootstrap_metric
+
+    # Regression-ish fallback: RMSE on point-prediction-or-prob-mean.
+    try:
+        # iter367: route through mlframe.metrics.scoring.fast_rmse so the
+        # inner bootstrap loop (1000 resamples) calls the numba single-
+        # pass kernel instead of the np.asarray + element-wise difference
+        # + np.mean + np.sqrt chain. 37x microbench (889us -> 24us / call
+        # at n=100k); c0095 regression bootstrap saves ~10s of metric_fn
+        # wall on a 9.8s bootstrap_metric tottime baseline.
+        from mlframe.metrics.scoring import fast_rmse as _rmse
+
+        # RMSE = sqrt(mean(squared error)) -> exact O(n) algebraic jackknife via per-row squared errors + sqrt reduce.
+        def _rmse_per_row(yy, pp):
+            """Per-row squared error; the jackknife reduces it via mean+sqrt to get the exact O(n) leave-one-out RMSE."""
+            return (np.asarray(yy, dtype=np.float64) - np.asarray(pp, dtype=np.float64)) ** 2
+        ci = bootstrap_metric(
+            y_true, p_pos, metric_fn=_rmse, n_bootstrap=1000, alpha=0.05, random_state=rng_seed,
+            jackknife_per_row=(_rmse_per_row, False, np.sqrt),
+        )
+        out["rmse"] = {"point": ci["point"], "ci_lo": ci["lo"], "ci_hi": ci["hi"], "resampling": "iid"}
+    except Exception as exc:
+        logger.debug("rmse metric computation failed, skipping: %s", exc)
+        out["rmse"] = {"status": "skipped", "reason": f"{type(exc).__name__}: {exc}"}
+
+
 def _bootstrap_block(y_true: np.ndarray, probs: np.ndarray, *, rng_seed: int = 0) -> dict[str, Any]:
     """Compute bootstrap CIs for the binary top-line metrics that apply to ``(y_true, probs)``.
 
@@ -90,8 +286,6 @@ def _bootstrap_block(y_true: np.ndarray, probs: np.ndarray, *, rng_seed: int = 0
     which reads as working plumbing for a crisp-metric CI that does not exist -- so it is gone rather than
     silently ignored. Adding an accuracy or F1 interval means adding the metric AND the argument together.
     """
-    from mlframe.evaluation.bootstrap import bootstrap_metric, bootstrap_metrics
-
     p = probs
     if p is not None and p.ndim == 2 and p.shape[1] >= 2:
         p_pos = p[:, 1]
@@ -100,108 +294,7 @@ def _bootstrap_block(y_true: np.ndarray, probs: np.ndarray, *, rng_seed: int = 0
     out: dict[str, Any] = {}
 
     if p_pos is not None and _is_binary_classif(y_true):
-        metric_fns: dict = {}
-        # Normally-initialized (not read back via locals().get(...) below) so a rename/reorder/
-        # extraction-into-a-helper fails loudly (NameError) instead of silently falling back to None.
-        _per_row_fns = None
-        _jackknife_fns = None
-        _make_auc_resampler = None
-        try:
-            # iter295: use mlframe's numba-compiled fast metric
-            # kernels instead of sklearn for bootstrap. c0028 profile attrib-
-            # uted 124.96s (86pct of 145.78s wall) to run_honest_diagnostics;
-            # 4 metric_fn calls x 1000 bootstrap resamples x 8 _bootstrap_block
-            # invocations = 32k sklearn metric calls each ~4-5ms. The numba
-            # kernels are 3.0x / 45.7x / 8.5x faster on roc_auc / brier /
-            # log_loss respectively (bench at n=20k, see commit msg). Result
-            # is numerically identical for the binary case (mlframe versions
-            # are direct numba ports of the sklearn algorithm).
-            # iter336: use ``fast_roc_auc_unstable`` (quicksort
-            # instead of stable sort) inside the bootstrap loop. Bench at
-            # c0083 sizes: 2.25x at n=200k, 2.75x at n=20k. Numerically
-            # identical when scores are float64 continuous (the dominant
-            # case from real ML model outputs); see kernel docstring for
-            # the rationale and when to use the stable variant instead.
-            from mlframe.evaluation import (
-                brier as _brier,
-                log_loss as _ll,
-                ll_per_row as _ll_per_row,
-                brier_per_row as _brier_per_row,
-            )
-            from mlframe.metrics.core import (
-                make_bootstrap_auc_resampler,
-            )
-
-            # mlframe kernels accept (y_true, y_pred) bound on float64; the
-            # bootstrap resampler hands us views of the original arrays so
-            # one-time cast in the calling closure is enough (numba dispatcher
-            # caches per dtype, so the first resample warms the JIT).
-            # iter599: dropped the .astype on _auc -- fast_roc_auc_unstable's
-            # underlying njit kernel accepts int y_true natively (``tps +=
-            # y_true[i]`` widens automatically). For int labels (the common
-            # bootstrap path) astype(np.float64) ALWAYS copies despite copy=
-            # False (the flag only saves a copy when dtype matches). Bench
-            # n=25k bootstrap-resample size: int64 1.05x, int8 1.19x,
-            # float64 1.00x. Bit-equivalent.
-            # KEPT .astype on _brier / _ll -- bench showed regressions on
-            # float64 labels (0.77x / 0.85x) when kernel was called direct;
-            # something about the dispatcher fast-path on (float64,float64)
-            # outperforms the bare call. Not worth the float64 regression to
-            # win on int paths.
-            # Cast y_true / p_pos to float64 ONCE before the 1000-resample loop
-            # (below), so the resampled ``y_true[idx]`` / ``p_pos
-            # [idx]`` views handed to each metric are already float64. The old
-            # per-call ``yy.astype(np.float64, copy=False)`` inside _brier/_ll
-            # still COPIED on every int-label resample (copy=False only avoids a
-            # copy when dtype already matches) -- ~4000 in-loop copies / block.
-            # With the pre-cast the kernels receive float64 directly: bit-
-            # identical (same values), and the dispatcher hits the same
-            # (float64,float64) fast path the prior code wanted.
-            metric_fns["brier"] = _brier
-            metric_fns["log_loss"] = _ll
-
-            # Per-row decompositions so the BCa acceleration jackknife runs in O(n) exact-algebraic form
-            # (LOO_i = (sum - row_i)/(n-1)) instead of re-gathering n-1 rows + recomputing the full metric per
-            # leave-out point -- ~11s -> ~20ms per metric at n=300k, ~1e-13 CI-equivalent. eps matches fast_log_loss's
-            # dtype-eps clip so the per-row cross-entropy equals the kernel's; requires_both_classes=True mirrors
-            # log-loss's single-class NaN (Brier is defined on any set).
-            _per_row_fns = {"log_loss": (_ll_per_row, True, None), "brier": (_brier_per_row, False, None)}
-
-            # ROC-AUC is not a mean of per-row values, but its BCa jackknife has an exact O(n log n) closed form via
-            # Mann-Whitney placement values (bit-identical to re-running fast_roc_auc on n-1 rows; 159x at n=300k).
-            from mlframe.evaluation.shared import jackknife_auc as _jk_auc
-            _jackknife_fns = {"roc_auc": lambda yy, ss: _jk_auc(yy, ss)}
-            # ECE's BCa jackknife has the same class of O(n) algebraic closed form as roc_auc's above (a sum
-            # decomposable through per-bin aggregation rather than per-row mean) -- was left on the generic
-            # O(max_n * n) gather path; see _jackknife_ece's docstring for the derivation and the profile that
-            # caught it (15.3s/6 calls on a 2M-row combo).
-            try:
-                from mlframe.evaluation.shared import jackknife_ece as _jk_ece
-                _jackknife_fns["ece"] = lambda yy, pp: _jk_ece(yy, pp)
-            except ImportError as exc:
-                logger.debug("honest_diagnostics: _jackknife_ece import failed (%r); ece BCa uses the generic jackknife.", exc)
-            # roc_auc via the INDEX-aware resampler: pre-argsort the base score
-            # vector ONCE, then build each of the 1000 resamples' descending order
-            # in O(n) (counting-gather over base ranks) instead of a fresh
-            # O(n log n) argsort per resample. 1.6x-4.4x on the 1000-bootstrap
-            # loop, BIT-IDENTICAL on tie-free float64 scores (dominant case);
-            # tied/discrete base auto-falls back to exact argsort in the factory.
-            _make_auc_resampler = make_bootstrap_auc_resampler
-        except ImportError as exc:
-            # Per-metric skip entries (matching the ECE except-block just below), NOT a whole-block
-            # `out["status"]` -- execution falls through to the independent ECE try-block regardless,
-            # and a whole-block status key would contradict a legitimately-populated `out["ece"]` if
-            # that import succeeds on its own.
-            _import_skip_reason = f"mlframe metrics import failed: {exc}"
-            for _skipped_metric in ("roc_auc", "brier", "log_loss"):
-                out[_skipped_metric] = {"status": "skipped", "reason": _import_skip_reason}
-        # ECE via the policy module's _ece_score (consistent with auto-pick).
-        try:
-            from mlframe.calibration.shared import ece_score as _ece_score
-            metric_fns["ece"] = lambda yy, pp: _ece_score(yy, pp)
-        except Exception as exc:
-            logger.debug("ece metric setup failed, skipping: %s", exc)
-            out["ece"] = {"status": "skipped", "reason": f"{type(exc).__name__}: {exc}"}
+        metric_fns, _per_row_fns, _jackknife_fns, _make_auc_resampler = _setup_binary_bootstrap_metrics(out)
         # Bootstrap roc_auc / brier / log_loss / ece TOGETHER: they share the
         # same y_true / p_pos / seed / stratify, so one resample loop serves all
         # of them. The resample generation + ``(y_true[idx], y_pred[idx])`` slice
@@ -210,77 +303,14 @@ def _bootstrap_block(y_true: np.ndarray, probs: np.ndarray, *, rng_seed: int = 0
         # per-metric bootstrap_metric calls for the same random_state (identical
         # index sequence; a metric raising never advances the RNG).
         if metric_fns:
-            # Pre-cast ONCE so resampled views are float64 (see _brier/_ll note):
-            # removes ~4000 in-loop per-resample copies. _auc/_ece accept float64
-            # natively; stratify uses the original-label y_true for class masks.
-            y_true_f64 = np.ascontiguousarray(y_true, dtype=np.float64)
-            p_pos_f64 = np.ascontiguousarray(p_pos, dtype=np.float64)
-            # Build the index-aware AUC resampler on the same f64 base arrays the
-            # loop resamples, so resampler(idx) matches y_true_f64[idx]/p_pos_f64[idx].
-            _metric_fns_idx = None
-            if _make_auc_resampler is not None:
-                _metric_fns_idx = {"roc_auc": _make_auc_resampler(y_true_f64, p_pos_f64)}
-            cis = None
-            # Fused fast path: this bundle is ALWAYS exactly {roc_auc, brier, log_loss, ece} sharing one
-            # resample (the only shape this module ever builds). bootstrap_auc_brier_ll_ece_batch fuses
-            # all four metrics' per-resample computation into ONE numba.njit(parallel=True) call instead
-            # of bootstrap_metrics's per-resample Python-dispatch loop -- 2.9x-3.4x measured (see
-            # bench_bootstrap_fused_binary_bundle.py), bit-identical modulo ~1e-14 FP-reorder (the fused
-            # kernel calls the sequential brier/log_loss reduction; bootstrap_metrics's size-adaptive
-            # dispatcher picks the parallel-reduction variant at n>=100k -- same FP-reorder class the
-            # project already accepts elsewhere). Handles tied base scores too (grouped AUC counting,
-            # bit-identical) -- falls back to bootstrap_metrics only if this exact 4-metric bundle isn't
-            # present (e.g. the ECE import failed above) or the fused call itself raises.
-            if {"brier", "log_loss", "ece"} <= set(metric_fns) and _metric_fns_idx is not None:
-                from mlframe.evaluation import bootstrap_auc_brier_ll_ece_batch
-
-                try:
-                    cis = bootstrap_auc_brier_ll_ece_batch(
-                        y_true_f64, p_pos_f64, n_bootstrap=1000, alpha=0.05, stratify=y_true, random_state=rng_seed,
-                    )
-                except Exception as exc:
-                    logger.debug("honest_diagnostics: fused bootstrap bundle failed, falling back to bootstrap_metrics: %r", exc, exc_info=True)
-                    cis = None
-            if cis is None:
-                try:
-                    cis = bootstrap_metrics(
-                        y_true_f64, p_pos_f64, metric_fns,
-                        n_bootstrap=1000, alpha=0.05, stratify=y_true, random_state=rng_seed,
-                        metric_fns_idx=_metric_fns_idx,
-                        per_row_fns=_per_row_fns,
-                        jackknife_fns=_jackknife_fns,
-                    )
-                except Exception as exc:
-                    logger.debug("bootstrap CI computation failed for this metric bundle: %s", exc)
-                    cis = {name: {"error": f"{type(exc).__name__}: {exc}"} for name in metric_fns}
+            cis = _run_binary_bootstrap(y_true, p_pos, metric_fns, _make_auc_resampler, _per_row_fns, _jackknife_fns, rng_seed)
             for name, ci in cis.items():
                 if "error" in ci:
                     out[name] = {"status": "skipped", "reason": ci["error"]}
                 else:
                     out[name] = {"point": ci["point"], "ci_lo": ci["lo"], "ci_hi": ci["hi"], "resampling": "iid"}
     elif p_pos is not None and y_true is not None:
-        # Regression-ish fallback: RMSE on point-prediction-or-prob-mean.
-        try:
-            # iter367: route through mlframe.metrics.scoring.fast_rmse so the
-            # inner bootstrap loop (1000 resamples) calls the numba single-
-            # pass kernel instead of the np.asarray + element-wise difference
-            # + np.mean + np.sqrt chain. 37x microbench (889us -> 24us / call
-            # at n=100k); c0095 regression bootstrap saves ~10s of metric_fn
-            # wall on a 9.8s bootstrap_metric tottime baseline.
-            from mlframe.metrics.scoring import fast_rmse as _rmse
-
-            # RMSE = sqrt(mean(squared error)) -> exact O(n) algebraic jackknife via per-row squared errors + sqrt reduce.
-            def _rmse_per_row(yy, pp):
-                """Per-row squared error; the jackknife reduces it via mean+sqrt to get the exact O(n) leave-one-out RMSE."""
-                return (np.asarray(yy, dtype=np.float64) - np.asarray(pp, dtype=np.float64)) ** 2
-            ci = bootstrap_metric(
-                y_true, p_pos, metric_fn=_rmse, n_bootstrap=1000, alpha=0.05, random_state=rng_seed,
-                jackknife_per_row=(_rmse_per_row, False, np.sqrt),
-            )
-            out["rmse"] = {"point": ci["point"], "ci_lo": ci["lo"], "ci_hi": ci["hi"], "resampling": "iid"}
-        except Exception as exc:
-            logger.debug("rmse metric computation failed, skipping: %s", exc)
-            out["rmse"] = {"status": "skipped", "reason": f"{type(exc).__name__}: {exc}"}
+        _rmse_bootstrap_entry(y_true, p_pos, out, rng_seed)
     return out
 
 

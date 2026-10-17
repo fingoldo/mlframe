@@ -410,8 +410,94 @@ def compute_dummy_baselines(
     ts_train = _normalize_timestamps(timestamps_train)
     ts_val = _normalize_timestamps(timestamps_val)
     ts_test = _normalize_timestamps(timestamps_test)
+    _routed = _dispatch_baselines(
+        target_type, target_name, train_X=train_X, val_X=val_X, test_X=test_X,
+        train_y_arr=train_y_arr, val_y_arr=val_y_arr, test_y_arr=test_y_arr,
+        ts_train=ts_train, ts_val=ts_val, ts_test=ts_test,
+        group_ids_train=group_ids_train, group_ids_val=group_ids_val, group_ids_test=group_ids_test,
+        doc_ids_train=doc_ids_train, doc_ids_val=doc_ids_val, doc_ids_test=doc_ids_test,
+        cat_features=cat_features, quantile_alphas=quantile_alphas, config=config,
+    )
+    if _routed is None:
+        return _empty_report(
+            target_type, target_name, t0,
+            reason=f"unsupported target_type={target_type}",
+        )
+    val_preds, test_preds, extras, train_y_arr, val_y_arr, test_y_arr = _routed
 
-    # Dispatch by target_type
+    # Compute metrics table
+    table, primary_metric = _compute_metrics_table(
+        target_type, val_preds, test_preds, val_y_arr, test_y_arr,
+        group_ids_val=group_ids_val, group_ids_test=group_ids_test,
+        extras=extras,
+    )
+
+    # Strongest-pick: non-degeneracy gate + paired-bootstrap
+    strongest, ts_period_used = _pick_strongest(
+        target_type, table, val_y_arr, test_y_arr, primary_metric, extras, config,
+    )
+
+    _apply_paired_bootstrap(target_type, target_name, strongest, primary_metric, table, val_preds, test_preds, val_y_arr, test_y_arr, extras, config, n_val_finite, n_test_finite)
+    _apply_bootstrap_ci(target_type, target_name, strongest, primary_metric, val_preds, test_preds, val_y_arr, test_y_arr, extras, config, n_val_finite, n_test_finite)
+
+    # The standard report_model_perf pipeline (gated by config.plot_strongest) already
+    # produces per-model scatter + residual + calibration charts, so the dedicated overlay
+    # PNG is off by default; it renders only when the operator opts into config.overlay_plot.
+    plot_path = None
+
+    _attach_strongest_baseline_preds(strongest, val_preds, test_preds, extras)
+
+    elapsed_s = _time.time() - t0
+    report = BaselineReport(
+        target_type=target_type,
+        target_name=target_name,
+        table=table,
+        strongest=strongest,
+        primary_metric=primary_metric,
+        ts_period_used=ts_period_used,
+        plot_path=plot_path,
+        elapsed_s=elapsed_s,
+        n_train=n_train, n_val=n_val, n_test=n_test,
+        n_train_finite=n_train_finite, n_val_finite=n_val_finite, n_test_finite=n_test_finite,
+        extras=extras,
+    )
+
+    return _maybe_overlay_plot(report, config, strongest, plot_file_prefix, target_name, val_y_arr, test_y_arr)
+
+
+def _attach_strongest_baseline_preds(strongest, val_preds, test_preds, extras):
+    """Put the strongest baseline's val and test predictions into extras for the renderer."""
+    # Expose strongest-baseline val/test predictions via
+    # ``extras`` so a downstream consumer (core.py, between
+    # dummy-baselines computation and the per-target model-training
+    # loop) can render the "best-baseline-overlay" pre-training chart
+    # the user repeatedly asked for. We keep the prediction arrays
+    # OUT of ``BaselineReport``'s top-level fields (they'd bloat
+    # JSON serialization of metadata.pkl) and store them in extras
+    # under explicit keys that the renderer reads by name. Memory
+    # cost: 2 x n_split float arrays per target, freed once the
+    # renderer consumes them.
+    if strongest is not None:
+        sv = val_preds.get(strongest)
+        st = test_preds.get(strongest)
+        if sv is not None:
+            extras["strongest_val_preds"] = np.asarray(sv)
+        if st is not None:
+            extras["strongest_test_preds"] = np.asarray(st)
+
+
+def _dispatch_baselines(
+    target_type: str, target_name: str, *, train_X: Any, val_X: Any, test_X: Any,
+    train_y_arr: np.ndarray, val_y_arr: np.ndarray | None, test_y_arr: np.ndarray | None,
+    ts_train: Any, ts_val: Any, ts_test: Any, group_ids_train: Any, group_ids_val: Any, group_ids_test: Any,
+    doc_ids_train: Any, doc_ids_val: Any, doc_ids_test: Any, cat_features: Sequence[str] | None,
+    quantile_alphas: Sequence[float] | None, config: Any,
+) -> tuple[dict[str, np.ndarray], dict[str, np.ndarray], dict[str, Any], np.ndarray, np.ndarray | None, np.ndarray | None] | None:
+    """Route to the per-target-type baseline computer.
+
+    Returns ``(val_preds, test_preds, extras, train_y_arr, val_y_arr, test_y_arr)`` (classification label-encodes the y arrays),
+    or ``None`` for an unsupported ``target_type``.
+    """
     val_preds: dict[str, np.ndarray] = {}
     test_preds: dict[str, np.ndarray] = {}
     extras: dict[str, Any] = {}
@@ -482,23 +568,15 @@ def compute_dummy_baselines(
             doc_ids_test=doc_ids_test,
         )
     else:
-        return _empty_report(
-            target_type, target_name, t0,
-            reason=f"unsupported target_type={target_type}",
-        )
+        return None
+    return val_preds, test_preds, extras, train_y_arr, val_y_arr, test_y_arr
 
-    # Compute metrics table
-    table, primary_metric = _compute_metrics_table(
-        target_type, val_preds, test_preds, val_y_arr, test_y_arr,
-        group_ids_val=group_ids_val, group_ids_test=group_ids_test,
-        extras=extras,
-    )
 
-    # Strongest-pick: non-degeneracy gate + paired-bootstrap
-    strongest, ts_period_used = _pick_strongest(
-        target_type, table, val_y_arr, test_y_arr, primary_metric, extras, config,
-    )
-
+def _apply_paired_bootstrap(
+    target_type: str, target_name: str, strongest: Any, primary_metric: Any, table: Any, val_preds: dict, test_preds: dict,
+    val_y_arr: np.ndarray | None, test_y_arr: np.ndarray | None, extras: dict, config: Any, n_val_finite: int, n_test_finite: int,
+) -> None:
+    """Annotate ``extras`` with the paired-bootstrap result vs the runner-up (and the TIE flag)."""
     # Paired-bootstrap robustness: compute delta vs runner-up + 95% CI +
     # P(strongest beats runner-up). Below `strongest_min_beat_runner_up_prob`
     # the strongest is annotated as TIE and the overlay plot is skipped.
@@ -527,6 +605,12 @@ def compute_dummy_baselines(
                 target_name, e,
             )
 
+
+def _apply_bootstrap_ci(
+    target_type: str, target_name: str, strongest: Any, primary_metric: Any, val_preds: dict, test_preds: dict,
+    val_y_arr: np.ndarray | None, test_y_arr: np.ndarray | None, extras: dict, config: Any, n_val_finite: int, n_test_finite: int,
+) -> None:
+    """Store the bootstrap CI of the strongest baseline in ``extras`` for small evaluation splits."""
     # Bootstrap CI for strongest baseline when min(n_val, n_test) < 2000.
     # Below that threshold the noise floor on RMSE / log_loss / NDCG is non-
     # trivial (>1%), so a CI grounds the verdict line. Above 2000, point
@@ -551,38 +635,12 @@ def compute_dummy_baselines(
                 target_name, e,
             )
 
-    # The standard report_model_perf pipeline (gated by config.plot_strongest) already
-    # produces per-model scatter + residual + calibration charts, so the dedicated overlay
-    # PNG is off by default; it renders only when the operator opts into config.overlay_plot.
-    plot_path = None
 
-    # Expose strongest-baseline val/test predictions via
-    # ``extras`` so a downstream consumer (core.py, between
-    # dummy-baselines computation and the per-target model-training
-    # loop) can render the "best-baseline-overlay" pre-training chart
-    # the user repeatedly asked for. We keep the prediction arrays
-    # OUT of ``BaselineReport``'s top-level fields (they'd bloat
-    # JSON serialization of metadata.pkl) and store them in extras
-    # under explicit keys that the renderer reads by name. Memory
-    # cost: 2 x n_split float arrays per target, freed once the
-    # renderer consumes them.
-    _attach_strongest_baseline_preds(strongest, val_preds, test_preds, extras)
-
-    elapsed_s = _time.time() - t0
-    report = BaselineReport(
-        target_type=target_type,
-        target_name=target_name,
-        table=table,
-        strongest=strongest,
-        primary_metric=primary_metric,
-        ts_period_used=ts_period_used,
-        plot_path=plot_path,
-        elapsed_s=elapsed_s,
-        n_train=n_train, n_val=n_val, n_test=n_test,
-        n_train_finite=n_train_finite, n_val_finite=n_val_finite, n_test_finite=n_test_finite,
-        extras=extras,
-    )
-
+def _maybe_overlay_plot(
+    report: BaselineReport, config: Any, strongest: Any, plot_file_prefix: str, target_name: str,
+    val_y_arr: np.ndarray | None, test_y_arr: np.ndarray | None,
+) -> BaselineReport:
+    """Render the optional pre-training overlay and return the report with ``plot_path`` set when it was saved."""
     # Optional dedicated pre-training overlay (off by default; standard reports cover the floor).
     # BaselineReport is an immutable NamedTuple, so rebuild it with the saved path via _replace.
     if getattr(config, "overlay_plot", False) and strongest is not None:
@@ -596,19 +654,7 @@ def compute_dummy_baselines(
                 report = report._replace(plot_path=_ov_save)
         except Exception as _ov_err:
             logger.debug("[dummy-baselines] target='%s' overlay plot failed (%s); skipping", target_name, _ov_err)
-
     return report
-
-
-def _attach_strongest_baseline_preds(strongest, val_preds, test_preds, extras):
-    """Put the strongest baseline's val and test predictions into extras for the renderer."""
-    if strongest is not None:
-        sv = val_preds.get(strongest)
-        st = test_preds.get(strongest)
-        if sv is not None:
-            extras["strongest_val_preds"] = np.asarray(sv)
-        if st is not None:
-            extras["strongest_test_preds"] = np.asarray(st)
 
 
 # ---------------------------------------------------------------------

@@ -102,60 +102,9 @@ def _init_fit_state(
     # Inner estimators (notably CatBoost) crash on polars Enum columns, so convert once here and let every downstream caller see pandas.
     # Before lossy conversion, stash a "polars-detected monotonic datetime axis" hint so the CV auto-detect block below can route
     # to TimeSeriesSplit. After to_pandas() the original polars schema is gone and the .index becomes a plain RangeIndex.
-    _polars_time_series_hint = False
-    if isinstance(X, pl.DataFrame):
-        try:
-            _dt_cols = [n for n, d in X.schema.items() if d in (pl.Datetime, pl.Date) or str(d).startswith(("Datetime", "Date"))]
-            if len(_dt_cols) == 1:
-                _col = X.get_column(_dt_cols[0])
-                if _col.is_sorted(descending=False) and _col.null_count() == 0:
-                    _polars_time_series_hint = True
-        except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-            logger.debug("suppressed: %s", e)
-            pass
-        # ``self_destruct=True`` releases the polars buffers in-place; safe only when RFECV owns the frame. The suite-side _apply_pre_pipeline_transforms passes cloned per-target subsets so the
-        # safe path is the historical default, but ad-hoc / notebook callers who pass their own polars frame would silently lose data. Gate on the ``_mlframe_owned_frame_`` marker (set by suite
-        # internals on subsets it owns) OR on the explicit instance flag ``_rfecv_owns_polars_frame_`` so a caller can opt in deliberately. Default behaviour for unmarked frames: pay the extra
-        # buffer copy rather than corrupt caller data.
-        _frame_is_internally_owned = bool(getattr(X, "_mlframe_owned_frame_", False) or getattr(self, "_rfecv_owns_polars_frame_", False))
-        try:
-            X = X.to_pandas(use_pyarrow_extension_array=True, split_blocks=True, self_destruct=_frame_is_internally_owned)
-        except TypeError:
-            X = X.to_pandas()
-    if isinstance(y, pl.Series):
-        y = y.to_pandas()
+    X, y, _polars_time_series_hint = _polars_to_pandas_at_entry(self, X, y)
 
-    # Reject pathological y / X early instead of letting sklearn raise opaque errors deep in the splitter or estimator.
-    try:
-        y_arr = np.asarray(y)
-    except Exception as exc:
-        raise ValueError(f"y must be array-like; got {type(y).__name__}: {exc}") from exc
-    if y_arr.size == 0:
-        raise ValueError("y is empty; nothing to fit.")
-    # Sklearn parity: accept bare Python list as y. The downstream signature
-    # tuple uses y.shape; lists don't have .shape, so promote to ndarray now.
-    if not hasattr(y, "shape"):
-        y = y_arr
-    # L6: explicit multi-output guard. Currently RFECV is single-y; users with K targets are best served by
-    # looping selection per-target and OR-aggregating support_. Document this via a clear error rather than silently flattening y.
-    if y_arr.ndim >= 2 and y_arr.shape[-1] > 1:
-        raise NotImplementedError(
-            "RFECV.fit: multi-output y (shape=" + str(y_arr.shape) + ") is not yet "
-            "supported. Loop selection per target column and aggregate "
-            "support_ via union (OR), e.g. ``selected = set().union(*[RFECV(...).fit(X, y[:,k]).get_feature_names_out() for k in range(K)])``."
-        )
-    # NaN / Inf in y are silent miscompute traps in sklearn folds.
-    if y_arr.dtype.kind in "fc":
-        n_nan_y = int(np.isnan(y_arr).sum())
-        n_inf_y = int(np.isinf(y_arr).sum())
-        if n_nan_y or n_inf_y:
-            raise ValueError(
-                f"y contains {n_nan_y} NaN and {n_inf_y} +/-inf values. "
-                f"sklearn CV splitters silently mishandle these. Drop or "
-                f"impute these rows before passing y to RFECV."
-            )
-    # Single-class y for classification is a fold-collapse trap.
-    _check_classification_target(self, y_arr)
+    y = _validate_target_y(self, y)
 
     # must_include + must_exclude intersection is a confusing config error.
     if self.must_include and self.must_exclude:
@@ -196,6 +145,84 @@ def _init_fit_state(
     # 16-byte digest because two semantically-different targets of the same length and shape (e.g. column-A binary vs column-B
     # binary picked off the same frame) used to replay the prior fit's support_; without the y-hash a per-target FS loop reusing
     # one RFECV instance silently selected features for whichever target arrived first.
+    signature = _compute_fit_signature(self, X, y)
+    # Invalidate stale support_/cache at fit entry so a partial-fit failure cannot leave a previous-fit's selection silently in place.
+    # The cache is rebuilt below only on a successful path.
+    self._selected_cols_cache = None
+    skip = False
+    if self.skip_retraining_on_same_shape:
+        if signature == self.signature:
+            if self.verbose:
+                logger.info("Skipping retraining on the same inputs signature %s", signature)
+            skip = True
+    return X, y, signature, _polars_time_series_hint, skip
+
+
+def _polars_to_pandas_at_entry(self: Any, X: Any, y: Any) -> tuple[Any, Any, bool]:
+    """Convert polars ``X`` / ``y`` to pandas and return ``(X, y, polars_time_series_hint)``."""
+    _polars_time_series_hint = False
+    if isinstance(X, pl.DataFrame):
+        try:
+            _dt_cols = [n for n, d in X.schema.items() if d in (pl.Datetime, pl.Date) or str(d).startswith(("Datetime", "Date"))]
+            if len(_dt_cols) == 1:
+                _col = X.get_column(_dt_cols[0])
+                if _col.is_sorted(descending=False) and _col.null_count() == 0:
+                    _polars_time_series_hint = True
+        except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+            logger.debug("suppressed: %s", e)
+            pass
+        # ``self_destruct=True`` releases the polars buffers in-place; safe only when RFECV owns the frame. The suite-side _apply_pre_pipeline_transforms passes cloned per-target subsets so the
+        # safe path is the historical default, but ad-hoc / notebook callers who pass their own polars frame would silently lose data. Gate on the ``_mlframe_owned_frame_`` marker (set by suite
+        # internals on subsets it owns) OR on the explicit instance flag ``_rfecv_owns_polars_frame_`` so a caller can opt in deliberately. Default behaviour for unmarked frames: pay the extra
+        # buffer copy rather than corrupt caller data.
+        _frame_is_internally_owned = bool(getattr(X, "_mlframe_owned_frame_", False) or getattr(self, "_rfecv_owns_polars_frame_", False))
+        try:
+            X = X.to_pandas(use_pyarrow_extension_array=True, split_blocks=True, self_destruct=_frame_is_internally_owned)
+        except TypeError:
+            X = X.to_pandas()
+    if isinstance(y, pl.Series):
+        y = y.to_pandas()
+    return X, y, _polars_time_series_hint
+
+
+def _validate_target_y(self: Any, y: Any) -> Any:
+    """Reject pathological ``y`` (empty, multi-output, NaN/inf, single-class) and return it with a ``.shape`` attribute."""
+    # Reject pathological y / X early instead of letting sklearn raise opaque errors deep in the splitter or estimator.
+    try:
+        y_arr = np.asarray(y)
+    except Exception as exc:
+        raise ValueError(f"y must be array-like; got {type(y).__name__}: {exc}") from exc
+    if y_arr.size == 0:
+        raise ValueError("y is empty; nothing to fit.")
+    # Sklearn parity: accept bare Python list as y. The downstream signature
+    # tuple uses y.shape; lists don't have .shape, so promote to ndarray now.
+    if not hasattr(y, "shape"):
+        y = y_arr
+    # L6: explicit multi-output guard. Currently RFECV is single-y; users with K targets are best served by
+    # looping selection per-target and OR-aggregating support_. Document this via a clear error rather than silently flattening y.
+    if y_arr.ndim >= 2 and y_arr.shape[-1] > 1:
+        raise NotImplementedError(
+            "RFECV.fit: multi-output y (shape=" + str(y_arr.shape) + ") is not yet "
+            "supported. Loop selection per target column and aggregate "
+            "support_ via union (OR), e.g. ``selected = set().union(*[RFECV(...).fit(X, y[:,k]).get_feature_names_out() for k in range(K)])``."
+        )
+    # NaN / Inf in y are silent miscompute traps in sklearn folds.
+    if y_arr.dtype.kind in "fc":
+        n_nan_y = int(np.isnan(y_arr).sum())
+        n_inf_y = int(np.isinf(y_arr).sum())
+        if n_nan_y or n_inf_y:
+            raise ValueError(
+                f"y contains {n_nan_y} NaN and {n_inf_y} +/-inf values. "
+                f"sklearn CV splitters silently mishandle these. Drop or "
+                f"impute these rows before passing y to RFECV."
+            )
+    # Single-class y for classification is a fold-collapse trap.
+    _check_classification_target(self, y_arr)
+    return y
+
+
+def _compute_fit_signature(self: Any, X: Any, y: Any) -> tuple:
+    """Fingerprint of the fit inputs and the selector's own params, used by ``skip_retraining_on_same_shape``."""
     columns_key: tuple
     if isinstance(X, pd.DataFrame):
         columns_key = tuple(map(str, X.columns.tolist()))
@@ -228,16 +255,7 @@ def _init_fit_state(
     # (fixed same day) and the earlier y-content hole fixed above. See ``_current_params_signature`` for the
     # set_params/attribute-assignment capture semantics and the post-fit refresh contract at the store sites.
     signature = (X.shape, y.shape, columns_key, _y_hash, _x_hash, _current_params_signature(self))
-    # Invalidate stale support_/cache at fit entry so a partial-fit failure cannot leave a previous-fit's selection silently in place.
-    # The cache is rebuilt below only on a successful path.
-    self._selected_cols_cache = None
-    skip = False
-    if self.skip_retraining_on_same_shape:
-        if signature == self.signature:
-            if self.verbose:
-                logger.info("Skipping retraining on the same inputs signature %s", signature)
-            skip = True
-    return X, y, signature, _polars_time_series_hint, skip
+    return signature
 
 
 def _validate_fit_sample_weight(self, X, y):

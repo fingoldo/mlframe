@@ -76,6 +76,35 @@ class InitScoreBaseline:
     delta_vs_raw_pct: float
 
 
+def _cast_non_numeric_to_category(X: pd.DataFrame) -> pd.DataFrame:
+    """Cast every non-numeric, scalar-celled feature column of ``X`` to the pandas 'category' dtype (see comments)."""
+    # The quick model is LightGBM, which rejects object/string feature columns ("pandas dtypes must be int,
+    # float or bool") even when they are named in categorical_feature -- it needs pandas 'category' dtype.
+    # Cast the declared categoricals that arrive as object/string ONCE on the full frame (via assign, so the
+    # untouched numeric blocks are reused -- no whole-frame copy on a possibly-huge frame) so the sample /
+    # split / ablation all inherit consistent category codes. Without this the ENTIRE diagnostic was silently
+    # skipped (broad-except-swallowed) for any frame carrying string categoricals -- e.g. a pandas frame with
+    # string cat columns, or a multi_target_regression combo downgraded to regression. Polars Categorical /
+    # Enum columns already arrive as 'category' via the Arrow bridge and are left untouched.
+    # Cast EVERY non-numeric feature column (not just the declared cat_features) to 'category' -- an object/
+    # string column the caller did NOT declare categorical (e.g. a text feature, or an undeclared string col)
+    # would otherwise reach the LightGBM quick model and raise the same "pandas dtypes must be int/float/bool".
+    # A column whose object cells are non-scalar (embedding List / ndarray) can't be a category; skip it (best-
+    # effort -- the quick model would ignore it or the outer except still guards).
+    _needs_cat = []
+    for c in X.columns:
+        _dt = X[c].dtype
+        if _dt.kind in "iufb" or isinstance(_dt, pd.CategoricalDtype):
+            continue
+        _first = X[c].iloc[0] if len(X) else None
+        if hasattr(_first, "__len__") and not isinstance(_first, (str, bytes)):
+            continue  # non-scalar cells (embeddings) -- not castable to a category
+        _needs_cat.append(c)
+    if _needs_cat:
+        X = X.assign(**{c: X[c].astype("category") for c in _needs_cat})
+    return X
+
+
 @dataclass(frozen=True)
 class BaselineDiagnosticsReport:
     """Structured diagnostic output. Stored on metadata for retrospective
@@ -321,30 +350,7 @@ class BaselineDiagnostics:
             y = _to_1d_numpy(train_target)
             X = _coerce_to_pandas(train_df, feature_cols)
             y, X = _drop_unlabelled_rows(y, X)
-            # The quick model is LightGBM, which rejects object/string feature columns ("pandas dtypes must be int,
-            # float or bool") even when they are named in categorical_feature -- it needs pandas 'category' dtype.
-            # Cast the declared categoricals that arrive as object/string ONCE on the full frame (via assign, so the
-            # untouched numeric blocks are reused -- no whole-frame copy on a possibly-huge frame) so the sample /
-            # split / ablation all inherit consistent category codes. Without this the ENTIRE diagnostic was silently
-            # skipped (broad-except-swallowed) for any frame carrying string categoricals -- e.g. a pandas frame with
-            # string cat columns, or a multi_target_regression combo downgraded to regression. Polars Categorical /
-            # Enum columns already arrive as 'category' via the Arrow bridge and are left untouched.
-            # Cast EVERY non-numeric feature column (not just the declared cat_features) to 'category' -- an object/
-            # string column the caller did NOT declare categorical (e.g. a text feature, or an undeclared string col)
-            # would otherwise reach the LightGBM quick model and raise the same "pandas dtypes must be int/float/bool".
-            # A column whose object cells are non-scalar (embedding List / ndarray) can't be a category; skip it (best-
-            # effort -- the quick model would ignore it or the outer except still guards).
-            _needs_cat = []
-            for c in X.columns:
-                _dt = X[c].dtype
-                if _dt.kind in "iufb" or isinstance(_dt, pd.CategoricalDtype):
-                    continue
-                _first = X[c].iloc[0] if len(X) else None
-                if hasattr(_first, "__len__") and not isinstance(_first, (str, bytes)):
-                    continue  # non-scalar cells (embeddings) -- not castable to a category
-                _needs_cat.append(c)
-            if _needs_cat:
-                X = X.assign(**{c: X[c].astype("category") for c in _needs_cat})
+            X = _cast_non_numeric_to_category(X)
             # Sanity: align lengths (FTE drift can produce mismatches if
             # caller passes the wrong slice).
             if len(X) != len(y):

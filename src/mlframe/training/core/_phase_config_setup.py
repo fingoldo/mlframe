@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import logging
 import sys
+import time
 from typing import Any
 
 from ._schema_version import CURRENT_SCHEMA_VERSION
@@ -198,38 +199,7 @@ def setup_configuration(
     if verbose:
         log_phase(f"Starting mlframe training suite: {model_name}")
 
-    # Setup-timing scaffolding. The user's observed 5-13 minute zero-CPU gap
-    # between the suite-start log and the cal-plot short-circuit log lives
-    # entirely between this point and the early-INFO block below. The likely
-    # candidates (matplotlib font cache rebuild, plotly lazy template fetch,
-    # ``mlframe.training.evaluation`` first-import cascade, AV scan on each
-    # .pyc) are indistinguishable from outside; one timing log per major step
-    # turns the black box into a labelled punch-list.
-    #
-    # Opt-out: MLFRAME_SETUP_TIMING=0 (default ON; cost ~5 us per checkpoint
-    # via time.perf_counter, fully amortised at the first slow step).
-    import time as _time
-    _setup_timing_on = env_flag("MLFRAME_SETUP_TIMING", default=True)
-    _setup_t_prev = _time.perf_counter()
-    _setup_t_start = _setup_t_prev
-
-    def _step_done(label: str) -> None:
-        """Log the elapsed time since the previous checkpoint under ``label``, promoting slow (>=2s) steps to INFO so they surface in prod logs."""
-        nonlocal _setup_t_prev
-        if not _setup_timing_on or not verbose:
-            return
-        _now = _time.perf_counter()
-        _delta = _now - _setup_t_prev
-        # Promote to INFO when a step is genuinely slow (>= 2s) so the loud
-        # checkpoints surface in the prod log; quick steps stay at DEBUG to
-        # keep the suite-start banner uncluttered on fast hosts.
-        _lvl = logging.INFO if _delta >= 2.0 else logging.DEBUG
-        logger.log(
-            _lvl,
-            "[setup-timing] %s in %.2fs (cumulative %.2fs)",
-            label, _delta, _now - _setup_t_start,
-        )
-        _setup_t_prev = _now
+    _step_done = _SetupStepTimer(verbose)
 
     _validate_feature_handling_config(feature_handling_config, mlframe_models, verbose)
     _step_done("feature_handling_config validate")
@@ -250,82 +220,10 @@ def setup_configuration(
     # process silently kept the first one's budget and two concurrent suites raced one variable. An operator's own
     # MLFRAME_PIPELINE_CACHE_RAM_FRACTION / _BYTES_LIMIT still wins, inside ``_resolve_pipeline_cache_budget``.
 
-    # Module-level overrides for residual_audit + inline_display.
-    # Pre-fix the leading comment promised "restored after the suite finishes" but no restore
-    # call site existed anywhere -- the flag stayed flipped for the rest of the process and
-    # leaked into the next suite call that didn't override it. Snapshot prior values onto
-    # transient locals, stash on ctx via artifacts (set below) so _phase_finalize can restore.
-    from ..evaluation import (
-        _set_residual_audit_enabled as _set_resid_audit,
-        _get_residual_audit_enabled as _get_resid_audit,
-    )
-    _step_done("import mlframe.training.evaluation")
-    _residual_audit_prior = _get_resid_audit()
-    _set_resid_audit(getattr(behavior_config, "report_residual_audit", True))
-    # Every override below is process- or thread-wide, and the snapshot that lets ``_phase_finalize``
-    # put it back is only handed to ``ctx.artifacts`` at the end of this function - ctx does not exist
-    # yet at this point. Anything raising in between (a bad feature_handling_config, a chart-registry
-    # import failure, a validation error on a downstream config block) would therefore leave the flags
-    # flipped with no snapshot in existence for anyone to restore from, and in a test process that means
-    # every later test on this thread runs on a setting nobody in it chose. Since a caller that never
-    # receives a ctx can never restore them either, the flags are unwound here instead.
     _flag_restores: list = []
-    _flag_restores.append(lambda _v=_residual_audit_prior: _set_resid_audit(_v))
+    _residual_audit_prior = _flip_residual_audit(behavior_config, _flag_restores, _step_done)
     try:
-
-        # None = clear override (auto-detect via __IPYTHON__ / sys.ps1); True/False = explicit.
-        # Only import the renderers.save module when the caller actually set a non-None value.
-        # The import triggers the mlframe.reporting -> renderers chain (~12ms on cold-start)
-        # which is pure overhead on suites that never touch charts (plot_outputs='matplotlib[png]'
-        # + save_charts=False).
-        _inline_display = getattr(reporting_config, "plot_inline_display", None)
-        _inline_display_prior_set = False  # whether we successfully captured a prior to restore
-        _inline_display_prior = None
-        _inline_display_prior, _inline_display_prior_set = _resolve_inline_display(_inline_display, _flag_restores, _inline_display_prior, _inline_display_prior_set)
-        # Same set-and-restore shape as the inline-display override above, and the same reason for the thread-local:
-        # two suites running concurrently must not flip each other's output layout mid-run.
-        _subfolders = getattr(reporting_config, "plot_format_subfolders", None)
-        _subfolders_prior_set = False
-        _subfolders_prior = None
-        if _subfolders is not None:
-            try:
-                from mlframe.reporting.renderers.save import (
-                    get_format_subfolders as _get_fsf,
-                    set_format_subfolders as _set_fsf,
-                )
-                _subfolders_prior = _get_fsf()
-                _subfolders_prior_set = True
-                _set_fsf(_subfolders)
-                _flag_restores.append(lambda _v=_subfolders_prior: _set_fsf(_v))
-            except (ImportError, AttributeError):
-                pass
-        # Same set-and-restore shape again, for the reliability diagram's colour scale.
-        _calib_cmap = getattr(reporting_config, "calibration_colormap", None)
-        _calib_cmap_prior_set = False
-        _calib_cmap_prior = None
-        if _calib_cmap is not None:
-            try:
-                from mlframe.reporting.colors import (
-                    get_calibration_cmap_override as _get_ccm,
-                    set_calibration_cmap as _set_ccm,
-                )
-                _calib_cmap_prior = _get_ccm()
-                _calib_cmap_prior_set = True
-                _set_ccm(_calib_cmap)
-                _flag_restores.append(lambda _v=_calib_cmap_prior: _set_ccm(_v))
-            except (ImportError, AttributeError):
-                pass
-        # One run's chart-timing table must describe one run's charts, and the registry behind it is process-wide.
-        # Reset here rather than at the facade so a caller that builds its own context still gets a clean table.
-        try:
-            from mlframe.reporting.renderers import reset_chart_timings
-
-            from .._dataset_build_stats import reset_dataset_build_stats
-
-            reset_chart_timings()
-            reset_dataset_build_stats()
-        except (ImportError, AttributeError):
-            pass
+        _override_priors = _flip_reporting_overrides(reporting_config, _flag_restores)
         _step_done("inline_display setup (import mlframe.reporting.renderers.save)")
 
         # Process-wide; None keeps the user's pre-suite matplotlib/plotly settings intact.
@@ -348,152 +246,37 @@ def setup_configuration(
         regression_calibration_config = _ensure_config(regression_calibration_config, RegressionCalibrationConfig, {})
         _step_done("_ensure_config x9 (output..regression_calibration)")
 
-        # Pre-warm numba kernels so the first call does not pay the JIT cold-start.
-        #
-        # The feature-selection kernel set is by far the expensive half and is only worth compiling when
-        # feature selection will actually run: a CatBoost-only fit with no MRMR and no RFECV never calls one of
-        # those kernels, so warming them is pure wall time before any data is read.
-        _fs_will_run = feature_selection_config.mrmr is not None or feature_selection_config.rfecv is not None
-        # The heavy-lib half (lightning -> torchmetrics -> transformers -> a tensorflow probe, plus shap) is worth
-        # importing only when this run will actually reach it. A production fit with mlframe_models=['cb'] spent
-        # 382.73s warming a neural stack it never touched. SHAP counts too: the trainer imports it when use_shap.
-        _heavy_will_run = _heavy_libs_needed(mlframe_models, recurrent_models, reporting_config)
-        if dummy_baselines_config.enabled:
-            try:
-                from mlframe.training.baselines.shared import warmup_numba_kernels as _warmup_numba_kernels
-                _warmup_numba_kernels(include_feature_selection=_fs_will_run, include_heavy_libs=_heavy_will_run)
-            except Exception as e:  # nosec B110 - optional dependency import guard
-                logger.debug("numba kernel warm-up failed, first real call will pay JIT cost: %s", e)
+        _prewarm_numba_kernels(feature_selection_config, dummy_baselines_config, mlframe_models, recurrent_models, reporting_config)
         _step_done("_warmup_numba_kernels (JIT prewarm)")
 
         composite_target_discovery_config = _ensure_config(composite_target_discovery_config, CompositeTargetDiscoveryConfig, {})
         _step_done("_ensure_config(CompositeTargetDiscoveryConfig)")
         composite_target_discovery_config = apply_composite_kill_switch(composite_target_discovery_config)
 
-        data_dir = output_config.data_dir
-        models_dir = output_config.models_dir
-        save_charts = output_config.save_charts
-
-        # Render-gating is a behavioral kill-switch, NOT a logging concern: a verbose=0 run with
-        # save_charts=False and a stale plot_file would otherwise render 100+ charts nobody sees
-        # (~60s wasted on 1M-row multiclass). Compute + mutate unconditionally; only the INFO lines
-        # below stay gated on verbose. Cached interactive flag doesn't switch between calls in-process.
-        _is_interactive_logp = _MLFRAME_INTERACTIVE
-        _short_circuit_active = (not _is_interactive_logp) and not save_charts
-        if _short_circuit_active:
-            output_config.plot_file = ""
-
-        _log_chart_locations(verbose, data_dir, save_charts, target_name, model_name, _short_circuit_active, _is_interactive_logp, reporting_config)
-
-        outlier_detector = outlier_detection_config.detector
-        od_val_set = outlier_detection_config.apply_to_val
-        use_mrmr_fs = feature_selection_config.mrmr is not None
-        mrmr_kwargs = feature_selection_config.selector_kwargs("mrmr")
-        rfecv_models = list(feature_selection_config.rfecv.models) if feature_selection_config.rfecv is not None else None
-        custom_pre_pipelines = feature_selection_config.custom_pre_pipelines if feature_selection_config.custom_pre_pipelines else None
-
-        common_params_dict = _build_suite_common_params_dict(
-            reporting_config=reporting_config,
-            preprocessing_config=preprocessing_config,
-            confidence_analysis_config=confidence_analysis_config,
-            behavior_config=behavior_config,
+        runtime_state = _build_runtime_state(
+            output_config=output_config, outlier_detection_config=outlier_detection_config, feature_selection_config=feature_selection_config,
+            reporting_config=reporting_config, preprocessing_config=preprocessing_config, confidence_analysis_config=confidence_analysis_config,
+            behavior_config=behavior_config, pipeline_config=pipeline_config, split_config=split_config, mlframe_models=mlframe_models,
+            model_name=model_name, target_name=target_name, verbose=verbose,
         )
-
-        if behavior_config.enable_crash_reporting:
-            from mlframe.training.crash_reporting import enable_crash_reporting as _enable_crash_reporting
-            _enable_crash_reporting()
-
-        _dataset_reuse_caps = _detect_dataset_reuse_capabilities()
-        logger.info("Dataset-reuse capabilities: %s", _dataset_reuse_caps)
-        if not _dataset_reuse_caps.get("cb_pool_label_swap"):
-            # Name the method that is ACTUALLY missing. The old text said "set_label/set_weight not available"
-            # whenever the label-swap capability was off, which reads as both being absent -- and set_weight has
-            # shipped and been documented for years, so an operator checking the docs concluded mlframe was wrong.
-            # In CatBoost 1.2.10 set_weight exists and set_label does not; only the latter gates the swap.
-            _missing = [_name for _name, _key in (("set_label", "cb_pool_set_label"), ("set_weight", "cb_pool_set_weight")) if not _dataset_reuse_caps.get(_key)]
-            logger.warning(
-                "  CatBoost Pool.%s not available in this build (%s present) -- mlframe will rebuild the Pool "
-                "for every weight schema and same-type target instead of swapping in place. Upgrade CatBoost to "
-                "pick up the Pool label-swap PR.",
-                "/".join(_missing) if len(_missing) > 0 else "label-swap support",
-                "/".join(_n for _n in ("set_label", "set_weight") if _n not in _missing) if any(_n not in _missing for _n in ("set_label", "set_weight")) else "neither",
-            )
-
-        _clear_catboost_pool_caches()
-
-        _mlframe_models_is_default_allowlist = mlframe_models is None
-        if mlframe_models is None:
-            mlframe_models = ["cb", "lgb", "xgb", "mlp", "linear"]
-
-        # Strategy + tier-sort are suite-constants (depend only on mlframe_models, which never
-        # mutates after setup). Computing here avoids paying O(targets * pre_pipelines * models)
-        # get_strategy() calls inside the inner training loop.
-        from ..strategies import get_strategy as _get_strategy
-        from ..models import is_neural_model as _is_neural_model
-        _strategy_by_model = {id(m): _get_strategy(m) for m in mlframe_models}
-        _sorted_mlframe_models = sorted(
-            mlframe_models,
-            key=lambda m: (
-                _is_neural_model(m),
-                tuple(-int(t) for t in _strategy_by_model[id(m)].feature_tier()),
-            ),
-        )
-
-        metadata = _create_initial_metadata(
-            model_name=model_name,
-            target_name=target_name,
-            mlframe_models=mlframe_models,
-            preprocessing_config=preprocessing_config,
-            pipeline_config=pipeline_config,
-            split_config=split_config,
-        )
-        metadata["schema_version"] = CURRENT_SCHEMA_VERSION
 
         ctx = TrainingContext(
-            model_name=model_name,
-            target_name=target_name,
-            preprocessing_config=preprocessing_config,
-            pipeline_config=pipeline_config,
-            feature_types_config=feature_types_config,
-            split_config=split_config,
-            hyperparams_config=hyperparams_config,
-            behavior_config=behavior_config,
-            reporting_config=reporting_config,
-            output_config=output_config,
-            outlier_detection_config=outlier_detection_config,
-            feature_selection_config=feature_selection_config,
-            confidence_analysis_config=confidence_analysis_config,
-            baseline_diagnostics_config=baseline_diagnostics_config,
-            dummy_baselines_config=dummy_baselines_config,
-            quantile_regression_config=quantile_regression_config,
-            conformal_config=conformal_config,
-            regression_calibration_config=regression_calibration_config,
-            composite_target_discovery_config=composite_target_discovery_config,
-            linear_model_config=linear_model_config,
-            multilabel_dispatch_config=multilabel_dispatch_config,
-            ranking_config=ranking_config,
+            model_name=model_name, target_name=target_name, preprocessing_config=preprocessing_config, pipeline_config=pipeline_config,
+            feature_types_config=feature_types_config, split_config=split_config, hyperparams_config=hyperparams_config,
+            behavior_config=behavior_config, reporting_config=reporting_config, output_config=output_config,
+            outlier_detection_config=outlier_detection_config, feature_selection_config=feature_selection_config,
+            confidence_analysis_config=confidence_analysis_config, baseline_diagnostics_config=baseline_diagnostics_config,
+            dummy_baselines_config=dummy_baselines_config, quantile_regression_config=quantile_regression_config,
+            conformal_config=conformal_config, regression_calibration_config=regression_calibration_config,
+            composite_target_discovery_config=composite_target_discovery_config, linear_model_config=linear_model_config,
+            multilabel_dispatch_config=multilabel_dispatch_config, ranking_config=ranking_config,
             # Caller's verbose level. Without this the TrainingContext class default (1) was
             # always used regardless of user-passed value, so every ``if ctx.verbose:`` block
             # across phases fired even on verbose=0 runs (including the _phase_finalize.py:438
             # plotly-import for kaleido telemetry, ~25ms cold-start). Fixed.
             verbose=int(verbose) if verbose is not None else 1,
-            data_dir=data_dir,
-            models_dir=models_dir,
-            save_charts=save_charts,
-            outlier_detector=outlier_detector,
-            od_val_set=od_val_set,
-            use_mrmr_fs=use_mrmr_fs,
-            mrmr_kwargs=mrmr_kwargs,
-            rfecv_models=rfecv_models,
-            custom_pre_pipelines=custom_pre_pipelines,
-            common_params_dict=common_params_dict,
-            mlframe_models=mlframe_models,
-            mlframe_models_is_default_allowlist=_mlframe_models_is_default_allowlist,
-            strategy_by_model=_strategy_by_model,
-            sorted_mlframe_models=_sorted_mlframe_models,
-            use_mlframe_ensembles=use_mlframe_ensembles,
-            use_ordinary_models=use_ordinary_models,
-            metadata=metadata,
+            use_mlframe_ensembles=use_mlframe_ensembles, use_ordinary_models=use_ordinary_models,
+            **runtime_state,
         )
         # TrainingContext is slots=True with no ``feature_handling_config`` slot. Stashing via ``ctx.artifacts`` is the only
         # in-scope path; the FH consumer in ``_phase_train_one_target_helpers.py`` (``_maybe_run_feature_handling_apply``)
@@ -507,17 +290,252 @@ def setup_configuration(
         # first call's setting (the leading "restored after the suite finishes" comment
         # at the original set call was aspirational; no restore call site existed pre-fix).
         ctx.artifacts["_process_flag_prior_residual_audit"] = _residual_audit_prior
-        if _inline_display_prior_set:
-            ctx.artifacts["_process_flag_prior_inline_display"] = _inline_display_prior
-        if _subfolders_prior_set:
-            ctx.artifacts["_process_flag_prior_format_subfolders"] = _subfolders_prior
-        if _calib_cmap_prior_set:
-            ctx.artifacts["_process_flag_prior_calibration_cmap"] = _calib_cmap_prior
+        ctx.artifacts.update(_override_priors)
     except BaseException:
         for _restore in reversed(_flag_restores):
             _restore_process_flag_quietly(_restore)
         raise
     return ctx
+
+
+class _SetupStepTimer:
+    """Per-step timing log for ``setup_configuration``; call the instance with a label at the end of each step.
+
+    The user's observed 5-13 minute zero-CPU gap between the suite-start log and the cal-plot short-circuit log lives
+    entirely inside ``setup_configuration``. The likely candidates (matplotlib font cache rebuild, plotly lazy template fetch,
+    ``mlframe.training.evaluation`` first-import cascade, AV scan on each .pyc) are indistinguishable from outside; one timing
+    log per major step turns the black box into a labelled punch-list.
+
+    Opt-out: MLFRAME_SETUP_TIMING=0 (default ON; cost ~5 us per checkpoint via time.perf_counter, fully amortised at the first slow step).
+    """
+
+    def __init__(self, verbose: int) -> None:
+        # Start the clock; the timing switch is read once, at construction.
+        self._timing_on = env_flag("MLFRAME_SETUP_TIMING", default=True)
+        self._verbose = verbose
+        self._t_prev = time.perf_counter()
+        self._t_start = self._t_prev
+
+    def __call__(self, label: str) -> None:
+        """Log the elapsed time since the previous checkpoint under ``label``, promoting slow (>=2s) steps to INFO so they surface in prod logs."""
+        if not self._timing_on or not self._verbose:
+            return
+        _now = time.perf_counter()
+        _delta = _now - self._t_prev
+        # Promote to INFO when a step is genuinely slow (>= 2s) so the loud
+        # checkpoints surface in the prod log; quick steps stay at DEBUG to
+        # keep the suite-start banner uncluttered on fast hosts.
+        _lvl = logging.INFO if _delta >= 2.0 else logging.DEBUG
+        logger.log(
+            _lvl,
+            "[setup-timing] %s in %.2fs (cumulative %.2fs)",
+            label, _delta, _now - self._t_start,
+        )
+        self._t_prev = _now
+
+
+def _flip_residual_audit(behavior_config: Any, _flag_restores: list, _step_done: Any) -> Any:
+    """Flip the process-wide residual-audit flag from ``behavior_config``, register its undo, and return the prior value."""
+    # Module-level overrides for residual_audit + inline_display.
+    # Pre-fix the leading comment promised "restored after the suite finishes" but no restore
+    # call site existed anywhere -- the flag stayed flipped for the rest of the process and
+    # leaked into the next suite call that didn't override it. Snapshot prior values onto
+    # transient locals, stash on ctx via artifacts (set below) so _phase_finalize can restore.
+    from ..evaluation import (
+        _set_residual_audit_enabled as _set_resid_audit,
+        _get_residual_audit_enabled as _get_resid_audit,
+    )
+    _step_done("import mlframe.training.evaluation")
+    _residual_audit_prior = _get_resid_audit()
+    _set_resid_audit(getattr(behavior_config, "report_residual_audit", True))
+    # Every override below is process- or thread-wide, and the snapshot that lets ``_phase_finalize``
+    # put it back is only handed to ``ctx.artifacts`` at the end of this function - ctx does not exist
+    # yet at this point. Anything raising in between (a bad feature_handling_config, a chart-registry
+    # import failure, a validation error on a downstream config block) would therefore leave the flags
+    # flipped with no snapshot in existence for anyone to restore from, and in a test process that means
+    # every later test on this thread runs on a setting nobody in it chose. Since a caller that never
+    # receives a ctx can never restore them either, the flags are unwound here instead.
+    _flag_restores.append(lambda _v=_residual_audit_prior: _set_resid_audit(_v))
+    return _residual_audit_prior
+
+
+def _flip_reporting_overrides(reporting_config: Any, _flag_restores: list) -> dict[str, Any]:
+    """Flip the reporting-driven process/thread-wide overrides, registering an undo for each in ``_flag_restores``.
+
+    Returns the ``ctx.artifacts`` entries holding each flipped override's prior value (only those whose prior was captured).
+    """
+    priors: dict[str, Any] = {}
+    # None = clear override (auto-detect via __IPYTHON__ / sys.ps1); True/False = explicit.
+    # Only import the renderers.save module when the caller actually set a non-None value.
+    # The import triggers the mlframe.reporting -> renderers chain (~12ms on cold-start)
+    # which is pure overhead on suites that never touch charts (plot_outputs='matplotlib[png]'
+    # + save_charts=False).
+    _inline_display = getattr(reporting_config, "plot_inline_display", None)
+    _inline_display_prior_set = False  # whether we successfully captured a prior to restore
+    _inline_display_prior = None
+    _inline_display_prior, _inline_display_prior_set = _resolve_inline_display(_inline_display, _flag_restores, _inline_display_prior, _inline_display_prior_set)
+    if _inline_display_prior_set:
+        priors["_process_flag_prior_inline_display"] = _inline_display_prior
+    # Same set-and-restore shape as the inline-display override above, and the same reason for the thread-local:
+    # two suites running concurrently must not flip each other's output layout mid-run.
+    _subfolders = getattr(reporting_config, "plot_format_subfolders", None)
+    if _subfolders is not None:
+        try:
+            from mlframe.reporting.renderers.save import (
+                get_format_subfolders as _get_fsf,
+                set_format_subfolders as _set_fsf,
+            )
+            _subfolders_prior = _get_fsf()
+            priors["_process_flag_prior_format_subfolders"] = _subfolders_prior
+            _set_fsf(_subfolders)
+            _flag_restores.append(lambda _v=_subfolders_prior: _set_fsf(_v))
+        except (ImportError, AttributeError):
+            pass
+    # Same set-and-restore shape again, for the reliability diagram's colour scale.
+    _calib_cmap = getattr(reporting_config, "calibration_colormap", None)
+    if _calib_cmap is not None:
+        try:
+            from mlframe.reporting.colors import (
+                get_calibration_cmap_override as _get_ccm,
+                set_calibration_cmap as _set_ccm,
+            )
+            _calib_cmap_prior = _get_ccm()
+            priors["_process_flag_prior_calibration_cmap"] = _calib_cmap_prior
+            _set_ccm(_calib_cmap)
+            _flag_restores.append(lambda _v=_calib_cmap_prior: _set_ccm(_v))
+        except (ImportError, AttributeError):
+            pass
+    # One run's chart-timing table must describe one run's charts, and the registry behind it is process-wide.
+    # Reset here rather than at the facade so a caller that builds its own context still gets a clean table.
+    try:
+        from mlframe.reporting.renderers import reset_chart_timings
+
+        from .._dataset_build_stats import reset_dataset_build_stats
+
+        reset_chart_timings()
+        reset_dataset_build_stats()
+    except (ImportError, AttributeError):
+        pass
+    return priors
+
+
+def _prewarm_numba_kernels(
+    feature_selection_config: Any, dummy_baselines_config: Any, mlframe_models: list[str] | None, recurrent_models: list[str] | None,
+    reporting_config: Any,
+) -> None:
+    """Pre-warm numba kernels so the first call does not pay the JIT cold-start."""
+    # The feature-selection kernel set is by far the expensive half and is only worth compiling when
+    # feature selection will actually run: a CatBoost-only fit with no MRMR and no RFECV never calls one of
+    # those kernels, so warming them is pure wall time before any data is read.
+    _fs_will_run = feature_selection_config.mrmr is not None or feature_selection_config.rfecv is not None
+    # The heavy-lib half (lightning -> torchmetrics -> transformers -> a tensorflow probe, plus shap) is worth
+    # importing only when this run will actually reach it. A production fit with mlframe_models=['cb'] spent
+    # 382.73s warming a neural stack it never touched. SHAP counts too: the trainer imports it when use_shap.
+    _heavy_will_run = _heavy_libs_needed(mlframe_models, recurrent_models, reporting_config)
+    if dummy_baselines_config.enabled:
+        try:
+            from mlframe.training.baselines.shared import warmup_numba_kernels as _warmup_numba_kernels
+            _warmup_numba_kernels(include_feature_selection=_fs_will_run, include_heavy_libs=_heavy_will_run)
+        except Exception as e:  # nosec B110 - optional dependency import guard
+            logger.debug("numba kernel warm-up failed, first real call will pay JIT cost: %s", e)
+
+
+def _log_dataset_reuse_capabilities() -> None:
+    """Log the detected CatBoost dataset-reuse capabilities, warning when the Pool label-swap path is unavailable."""
+    _dataset_reuse_caps = _detect_dataset_reuse_capabilities()
+    logger.info("Dataset-reuse capabilities: %s", _dataset_reuse_caps)
+    if not _dataset_reuse_caps.get("cb_pool_label_swap"):
+        # Name the method that is ACTUALLY missing. The old text said "set_label/set_weight not available"
+        # whenever the label-swap capability was off, which reads as both being absent -- and set_weight has
+        # shipped and been documented for years, so an operator checking the docs concluded mlframe was wrong.
+        # In CatBoost 1.2.10 set_weight exists and set_label does not; only the latter gates the swap.
+        _missing = [_name for _name, _key in (("set_label", "cb_pool_set_label"), ("set_weight", "cb_pool_set_weight")) if not _dataset_reuse_caps.get(_key)]
+        logger.warning(
+            "  CatBoost Pool.%s not available in this build (%s present) -- mlframe will rebuild the Pool "
+            "for every weight schema and same-type target instead of swapping in place. Upgrade CatBoost to "
+            "pick up the Pool label-swap PR.",
+            "/".join(_missing) if len(_missing) > 0 else "label-swap support",
+            "/".join(_n for _n in ("set_label", "set_weight") if _n not in _missing) if any(_n not in _missing for _n in ("set_label", "set_weight")) else "neither",
+        )
+
+
+def _build_runtime_state(
+    *, output_config: Any, outlier_detection_config: Any, feature_selection_config: Any, reporting_config: Any, preprocessing_config: Any,
+    confidence_analysis_config: Any, behavior_config: Any, pipeline_config: Any, split_config: Any, mlframe_models: list[str] | None,
+    model_name: str, target_name: str, verbose: int,
+) -> dict[str, Any]:
+    """Derive the resolved-config runtime fields of the ``TrainingContext`` (paths, selector settings, strategies, initial metadata)."""
+    data_dir = output_config.data_dir
+    models_dir = output_config.models_dir
+    save_charts = output_config.save_charts
+
+    # Render-gating is a behavioral kill-switch, NOT a logging concern: a verbose=0 run with
+    # save_charts=False and a stale plot_file would otherwise render 100+ charts nobody sees
+    # (~60s wasted on 1M-row multiclass). Compute + mutate unconditionally; only the INFO lines
+    # below stay gated on verbose. Cached interactive flag doesn't switch between calls in-process.
+    _is_interactive_logp = _MLFRAME_INTERACTIVE
+    _short_circuit_active = (not _is_interactive_logp) and not save_charts
+    if _short_circuit_active:
+        output_config.plot_file = ""
+
+    _log_chart_locations(verbose, data_dir, save_charts, target_name, model_name, _short_circuit_active, _is_interactive_logp, reporting_config)
+
+    outlier_detector = outlier_detection_config.detector
+    od_val_set = outlier_detection_config.apply_to_val
+    use_mrmr_fs = feature_selection_config.mrmr is not None
+    mrmr_kwargs = feature_selection_config.selector_kwargs("mrmr")
+    rfecv_models = list(feature_selection_config.rfecv.models) if feature_selection_config.rfecv is not None else None
+    custom_pre_pipelines = feature_selection_config.custom_pre_pipelines if feature_selection_config.custom_pre_pipelines else None
+
+    common_params_dict = _build_suite_common_params_dict(
+        reporting_config=reporting_config,
+        preprocessing_config=preprocessing_config,
+        confidence_analysis_config=confidence_analysis_config,
+        behavior_config=behavior_config,
+    )
+
+    if behavior_config.enable_crash_reporting:
+        from mlframe.training.crash_reporting import enable_crash_reporting as _enable_crash_reporting
+        _enable_crash_reporting()
+
+    _log_dataset_reuse_capabilities()
+
+    _clear_catboost_pool_caches()
+
+    _mlframe_models_is_default_allowlist = mlframe_models is None
+    if mlframe_models is None:
+        mlframe_models = ["cb", "lgb", "xgb", "mlp", "linear"]
+
+    # Strategy + tier-sort are suite-constants (depend only on mlframe_models, which never
+    # mutates after setup). Computing here avoids paying O(targets * pre_pipelines * models)
+    # get_strategy() calls inside the inner training loop.
+    from ..strategies import get_strategy as _get_strategy
+    from ..models import is_neural_model as _is_neural_model
+    _strategy_by_model = {id(m): _get_strategy(m) for m in mlframe_models}
+    _sorted_mlframe_models = sorted(
+        mlframe_models,
+        key=lambda m: (
+            _is_neural_model(m),
+            tuple(-int(t) for t in _strategy_by_model[id(m)].feature_tier()),
+        ),
+    )
+
+    metadata = _create_initial_metadata(
+        model_name=model_name,
+        target_name=target_name,
+        mlframe_models=mlframe_models,
+        preprocessing_config=preprocessing_config,
+        pipeline_config=pipeline_config,
+        split_config=split_config,
+    )
+    metadata["schema_version"] = CURRENT_SCHEMA_VERSION
+    return {
+        "data_dir": data_dir, "models_dir": models_dir, "save_charts": save_charts, "outlier_detector": outlier_detector,
+        "od_val_set": od_val_set, "use_mrmr_fs": use_mrmr_fs, "mrmr_kwargs": mrmr_kwargs, "rfecv_models": rfecv_models,
+        "custom_pre_pipelines": custom_pre_pipelines, "common_params_dict": common_params_dict, "mlframe_models": mlframe_models,
+        "mlframe_models_is_default_allowlist": _mlframe_models_is_default_allowlist, "strategy_by_model": _strategy_by_model,
+        "sorted_mlframe_models": _sorted_mlframe_models, "metadata": metadata,
+    }
 
 
 def _validate_feature_handling_config(feature_handling_config, mlframe_models, verbose):

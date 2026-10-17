@@ -13,7 +13,7 @@ The ensemble-of-scorers rank-fusion path lives in the parent module
 from __future__ import annotations
 
 import logging
-from typing import Optional, Sequence
+from typing import Callable, Optional, Sequence
 
 import numpy as np
 
@@ -213,6 +213,65 @@ def _bootstrap_subsample_indices(
         out.append(idx.astype(np.int64))
     return out
 
+_AUTO_SCORER_COLUMNS = [
+    "engineered_col",
+    "source_col",
+    "best_scorer",
+    "lcb",
+    "baseline_lcb",
+    "uplift",
+    "lcb_per_scorer",
+    "lcb_norm_per_scorer",
+]
+
+
+def _bootstrap_lcb_per_scorer(x_full: np.ndarray, y_arr: np.ndarray, boot_idx: list, random_state: int, scorer_call: Callable) -> dict:
+    """Bootstrap LCB of every scorer in ``SCORER_NAMES`` for one column: ``{scorer: lcb}``."""
+    per_scorer = {}
+    for s in SCORER_NAMES:
+        vals = np.empty(len(boot_idx), dtype=np.float64)
+        for b, idx in enumerate(boot_idx):
+            vals[b] = scorer_call(
+                s, x_full[idx], y_arr[idx],
+                int(random_state) + b,
+            )
+        per_scorer[s] = _compute_lcb(vals)
+    return per_scorer
+
+
+def _per_scorer_headroom_scales(source_lcb: dict, raw_cols: list) -> tuple:
+    """Per-scorer ``(max, scale)`` dicts over the raw source columns' LCBs, used to normalise engineered LCBs."""
+    # Per-scorer normalisation constant: each scorer is on a different
+    # natural scale (plug-in MI in nats, KSG MI in nats but with k-NN
+    # bias correction, copula MI in nats on rank-uniform pairs, dCor on
+    # [0, 1]). Comparing raw LCBs across scorers systematically favours
+    # whichever scorer has the larger natural support (dCor's [0, 1]
+    # dominates plug-in MI capped near H(Y)). We normalise each scorer's
+    # LCB by the MAX LCB it achieves on the raw_X source columns under
+    # the same bootstrap - this is the per-scorer "headroom" against
+    # the strongest raw signal available, which is the right ratio to
+    # compare cross-scorer. Equivalent to asking "how close did this
+    # scorer get to the strongest raw-signal LCB it could possibly hit"
+    # rather than "which scorer's natural support is largest".
+    per_scorer_max = {}
+    for s in SCORER_NAMES:
+        max_s = max(
+            (source_lcb[src].get(s, 0.0) for src in raw_cols),
+            default=0.0,
+        )
+        per_scorer_max[s] = float(max(max_s, 1e-12))
+    # Per-scorer self-referential scale for the headroom denominator below. Each scorer's natural magnitude differs by orders (HSIC's RKHS
+    # statistic vs nat-scale MI), so the floor on the denominator MUST live on the scorer's OWN scale, never a global cross-scorer ceiling.
+    # We take the larger of the scorer's raw-pool max and the median of its raw-pool LCBs; a scorer whose entire raw pool is its noise floor
+    # then has a denominator that tracks that noise floor rather than a near-zero value that would inflate any engineered LCB into a win.
+    per_scorer_scale = {}
+    for s in SCORER_NAMES:
+        raw_vals = [float(source_lcb[src].get(s, 0.0)) for src in raw_cols]
+        med_s = float(np.median(raw_vals)) if raw_vals else 0.0
+        per_scorer_scale[s] = float(max(per_scorer_max[s], med_s, 1e-12))
+    return per_scorer_max, per_scorer_scale
+
+
 def select_best_scorer_per_column(
     raw_X: pd.DataFrame,
     engineered_X: pd.DataFrame,
@@ -275,18 +334,7 @@ def select_best_scorer_per_column(
     if len(raw_X) != len(y_arr):
         raise ValueError(f"select_best_scorer_per_column: raw_X has {len(raw_X)} rows " f"but y has {len(y_arr)}; positional row alignment required.")
     if engineered_X.empty:
-        return pd.DataFrame(
-            columns=[
-                "engineered_col",
-                "source_col",
-                "best_scorer",
-                "lcb",
-                "baseline_lcb",
-                "uplift",
-                "lcb_per_scorer",
-                "lcb_norm_per_scorer",
-            ]
-        )
+        return pd.DataFrame(columns=_AUTO_SCORER_COLUMNS)
     n = len(raw_X)
     boot_idx = _bootstrap_subsample_indices(
         n, int(n_boot), int(random_state),
@@ -304,59 +352,16 @@ def select_best_scorer_per_column(
     source_lcb = {}
     for src in raw_cols:
         x_full = raw_X[src].to_numpy(dtype=np.float64)
-        per_scorer = {}
-        for s in SCORER_NAMES:
-            vals = np.empty(len(boot_idx), dtype=np.float64)
-            for b, idx in enumerate(boot_idx):
-                vals[b] = _scorer_call(
-                    s, x_full[idx], y_arr[idx],
-                    int(random_state) + b,
-                )
-            per_scorer[s] = _compute_lcb(vals)
+        per_scorer = _bootstrap_lcb_per_scorer(x_full, y_arr, boot_idx, random_state, _scorer_call)
         source_lcb[src] = per_scorer
 
-    # Per-scorer normalisation constant: each scorer is on a different
-    # natural scale (plug-in MI in nats, KSG MI in nats but with k-NN
-    # bias correction, copula MI in nats on rank-uniform pairs, dCor on
-    # [0, 1]). Comparing raw LCBs across scorers systematically favours
-    # whichever scorer has the larger natural support (dCor's [0, 1]
-    # dominates plug-in MI capped near H(Y)). We normalise each scorer's
-    # LCB by the MAX LCB it achieves on the raw_X source columns under
-    # the same bootstrap - this is the per-scorer "headroom" against
-    # the strongest raw signal available, which is the right ratio to
-    # compare cross-scorer. Equivalent to asking "how close did this
-    # scorer get to the strongest raw-signal LCB it could possibly hit"
-    # rather than "which scorer's natural support is largest".
-    per_scorer_max = {}
-    for s in SCORER_NAMES:
-        max_s = max(
-            (source_lcb[src].get(s, 0.0) for src in raw_cols),
-            default=0.0,
-        )
-        per_scorer_max[s] = float(max(max_s, 1e-12))
-    # Per-scorer self-referential scale for the headroom denominator below. Each scorer's natural magnitude differs by orders (HSIC's RKHS
-    # statistic vs nat-scale MI), so the floor on the denominator MUST live on the scorer's OWN scale, never a global cross-scorer ceiling.
-    # We take the larger of the scorer's raw-pool max and the median of its raw-pool LCBs; a scorer whose entire raw pool is its noise floor
-    # then has a denominator that tracks that noise floor rather than a near-zero value that would inflate any engineered LCB into a win.
-    per_scorer_scale = {}
-    for s in SCORER_NAMES:
-        raw_vals = [float(source_lcb[src].get(s, 0.0)) for src in raw_cols]
-        med_s = float(np.median(raw_vals)) if raw_vals else 0.0
-        per_scorer_scale[s] = float(max(per_scorer_max[s], med_s, 1e-12))
+    per_scorer_max, per_scorer_scale = _per_scorer_headroom_scales(source_lcb, raw_cols)
 
     rows = []
     for eng_name in eng_cols:
         src = eng_name.split("__", 1)[0] if "__" in eng_name else eng_name
         x_full = engineered_X[eng_name].to_numpy(dtype=np.float64)
-        per_scorer = {}
-        for s in SCORER_NAMES:
-            vals = np.empty(len(boot_idx), dtype=np.float64)
-            for b, idx in enumerate(boot_idx):
-                vals[b] = _scorer_call(
-                    s, x_full[idx], y_arr[idx],
-                    int(random_state) + b,
-                )
-            per_scorer[s] = _compute_lcb(vals)
+        per_scorer = _bootstrap_lcb_per_scorer(x_full, y_arr, boot_idx, random_state, _scorer_call)
         # Normalised score = per-scorer HEADROOM over its own raw baseline, on its own scale: ``(engineered_lcb - raw_max) / scale``. This is
         # dimensionless and self-calibrating, so the winner is the scorer that demonstrates the most REAL additional signal beyond the strongest
         # raw signal IT could detect - not the scorer with the largest natural scale, nor a scorer whose tiny raw ceiling would let any engineered

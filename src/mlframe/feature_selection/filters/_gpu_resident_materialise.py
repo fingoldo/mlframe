@@ -553,63 +553,11 @@ def gpu_materialise_discretize_codes_host(
     one (the bandwidth-bound strided-gather op the GPU is good at) while keeping the buffer the rest of the
     pipeline expects. Pass ``out_cand=None`` to skip the float D2H (codes-only, when no downstream
     continuous read is needed). Inputs are finite by construction (the kernel scrubs NaN/inf inline)."""
-    _validate_materialise_codes_dtype(dtype, nbins)
-    import cupy as cp
+    cp, _gpu_resident_discretize_codes, a_cols, b_cols, op_codes, K, tv_gpu, out, dev_codes, _defer_host_codes, k_chunk, _db_slot, _copy_stream = _gpu_materialise_discretize_codes_host_part1(
+        dtype, nbins, transformed_vars, a_cols, b_cols, op_codes, out_cand,
+    )
 
-    # This used to call clear_resident_codes_handoff with NO
-    # argument - the blanket, whole-dict-clear form - which silently dropped another concurrent thread's
-    # still-pending deferred-fill entry under joblib threading (each chunk's dispatch should already have
-    # consumed/cleared its OWN entry; this was meant only as a dead-man's-switch, not a normal-path event).
-    # Rely on the bounded-FIFO eviction (_DEFERRED_HOST_FILL_MAX) to age out any truly-abandoned entry instead.
-    from ._gpu_resident_discretize import _gpu_resident_discretize_codes  # carve sibling (lazy: avoid cycle)
-
-    tv = np.ascontiguousarray(transformed_vars, dtype=np.float32)
-    a_cols = np.ascontiguousarray(a_cols, dtype=np.int64)
-    b_cols = np.ascontiguousarray(b_cols, dtype=np.int64)
-    op_codes = np.ascontiguousarray(op_codes, dtype=np.int8)
-    n = int(tv.shape[0])
-    K = int(a_cols.shape[0])
-    # Operand table H2D cached per-step by weakref identity (same transformed_vars across the step's
-    # chunks -> uploaded ONCE, not per chunk). Pass the ORIGINAL array so the weakref tracks it.
-    tv_gpu = _resident_operand_table(cp, transformed_vars)
-    out = np.empty((n, K), dtype=dtype)
-    # RESIDENT-CODES HANDOFF (gated, default OFF): keep the on-device int codes in ONE (n, K) resident
-    # cupy array so the noise-gate's resident-CUDA path can consume them DIRECTLY - skipping the codes'
-    # GPU->host (here) ->GPU (the gate's H2D) round-trip. The host ``out`` is STILL filled (the CPU /
-    # analytic / opt-out / SU / any-failure dispatch branches need it and it is the safe fallback), so this
-    # only ADDS a resident copy when the gate is on; the round-trip is skipped only when the resident gate
-    # is the actual consumer (it matches ``out`` by identity via the module handoff).
-    _resident_codes_on = fe_gpu_resident_codes_enabled()
-    dev_codes = cp.empty((n, K), dtype=cp.dtype(np.dtype(dtype))) if _resident_codes_on else None
-    # DEFER the host-codes D2H when the resident handoff is on: the host ``out`` is filled LAZILY (only if a
-    # host consumer reads it - see ensure_host_codes_filled) instead of eagerly per block. This skips the
-    # (n, K) codes D2H (the canonical fit's single largest D2H) whenever the resident gate consumes the
-    # device codes. Needs dev_codes (the resident copy) to fill from, so it is only active with it.
-    _defer_host_codes = bool(dev_codes is not None and fe_gpu_defer_host_codes_enabled())
-    # CODES path footprint is f32 (cand + transpose + int32 codes + narrow out), ~4B x ~4 working copies -
-    # NOT the f64 MI prototype's 8x5. Budget for that so the VRAM sub-chunk is ~3x wider -> ~3x fewer
-    # radix/bin/materialise launches (cuts the launch+sync+GPU-idle overhead). working_multiple=6 keeps a
-    # safe margin over the honest ~4 on the 4GB card; still 0.25*free VRAM-governed; per-column-independent
-    # so codes are bit-identical regardless of chunk boundary.
-    k_chunk = _gpu_k_chunk(n, bytes_per_elem=4, working_multiple=6, max_cols=K)
-    # ASYNC DOUBLE-BUFFERED float D2H (max-GPU phase): the float-candidate readback used a
-    # SYNCHRONOUS cand.get(out=pinned) - the host blocked until materialise AND the copy finished, THEN ran
-    # the 8-25 MB host memcpy, THEN launched the block's binning kernels; every block serialised
-    # [materialise -> D2H -> memcpy -> bin]. Now the copy is enqueued on a dedicated non-blocking COPY STREAM
-    # (after an event marking materialise completion) into one of two alternating pinned buffers, the binning
-    # kernels launch IMMEDIATELY (compute overlaps the PCIe transfer), and the PREVIOUS block's finished copy
-    # is drained into ``out_cand`` while THIS block's kernels run. Bit-identical bytes (same DMA, same
-    # memcpy); only the schedule changes. Falls back to the synchronous path on any stream/event fault.
-    _db_slot = 0
     _db_pending = None  # (copy_done_event, pinned_view, col_slice, cand_ref)
-    _copy_stream = None
-    if out_cand is not None:
-        try:
-            _copy_stream = cp.cuda.Stream(non_blocking=True)
-        # best-effort: a synchronous copy gives the same bytes, only without overlapping the GPU work
-        except Exception as e:
-            logger.debug("non-blocking copy stream creation failed, falling back to synchronous copy: %s", e)
-            _copy_stream = None
 
     def _drain_pending():
         """Block on the pending async D2H copy's event (if any) and flush it into ``out_cand``, letting the previous block's transfer overlap the current block's compute."""
@@ -709,7 +657,71 @@ def gpu_materialise_discretize_codes_host(
         # CPU / non-resident GPU) can materialise it on demand via ensure_host_codes_filled. The eager
         # per-block D2H above was skipped; the resident gate reads the device codes directly (no host read).
         _stash_deferred_host_fill(out, dev_codes)
-    return out
+    _out_final: np.ndarray = out
+    return _out_final
+
+
+def _gpu_materialise_discretize_codes_host_part1(
+    dtype: Any, nbins: int, transformed_vars: np.ndarray, a_cols: np.ndarray, b_cols: np.ndarray, op_codes: np.ndarray, out_cand: np.ndarray | None,
+) -> tuple[Any, ...]:
+    """Extracted block of ``gpu_materialise_discretize_codes_host`` (part 1); returns the names the caller still uses."""
+    _validate_materialise_codes_dtype(dtype, nbins)
+    import cupy as cp
+
+    # This used to call clear_resident_codes_handoff with NO
+    # argument - the blanket, whole-dict-clear form - which silently dropped another concurrent thread's
+    # still-pending deferred-fill entry under joblib threading (each chunk's dispatch should already have
+    # consumed/cleared its OWN entry; this was meant only as a dead-man's-switch, not a normal-path event).
+    # Rely on the bounded-FIFO eviction (_DEFERRED_HOST_FILL_MAX) to age out any truly-abandoned entry instead.
+    from ._gpu_resident_discretize import _gpu_resident_discretize_codes  # carve sibling (lazy: avoid cycle)
+
+    tv = np.ascontiguousarray(transformed_vars, dtype=np.float32)
+    a_cols = np.ascontiguousarray(a_cols, dtype=np.int64)
+    b_cols = np.ascontiguousarray(b_cols, dtype=np.int64)
+    op_codes = np.ascontiguousarray(op_codes, dtype=np.int8)
+    n = int(tv.shape[0])
+    K = int(a_cols.shape[0])
+    # Operand table H2D cached per-step by weakref identity (same transformed_vars across the step's
+    # chunks -> uploaded ONCE, not per chunk). Pass the ORIGINAL array so the weakref tracks it.
+    tv_gpu = _resident_operand_table(cp, transformed_vars)
+    out = np.empty((n, K), dtype=dtype)
+    # RESIDENT-CODES HANDOFF (gated, default OFF): keep the on-device int codes in ONE (n, K) resident
+    # cupy array so the noise-gate's resident-CUDA path can consume them DIRECTLY - skipping the codes'
+    # GPU->host (here) ->GPU (the gate's H2D) round-trip. The host ``out`` is STILL filled (the CPU /
+    # analytic / opt-out / SU / any-failure dispatch branches need it and it is the safe fallback), so this
+    # only ADDS a resident copy when the gate is on; the round-trip is skipped only when the resident gate
+    # is the actual consumer (it matches ``out`` by identity via the module handoff).
+    _resident_codes_on = fe_gpu_resident_codes_enabled()
+    dev_codes = cp.empty((n, K), dtype=cp.dtype(np.dtype(dtype))) if _resident_codes_on else None
+    # DEFER the host-codes D2H when the resident handoff is on: the host ``out`` is filled LAZILY (only if a
+    # host consumer reads it - see ensure_host_codes_filled) instead of eagerly per block. This skips the
+    # (n, K) codes D2H (the canonical fit's single largest D2H) whenever the resident gate consumes the
+    # device codes. Needs dev_codes (the resident copy) to fill from, so it is only active with it.
+    _defer_host_codes = bool(dev_codes is not None and fe_gpu_defer_host_codes_enabled())
+    # CODES path footprint is f32 (cand + transpose + int32 codes + narrow out), ~4B x ~4 working copies -
+    # NOT the f64 MI prototype's 8x5. Budget for that so the VRAM sub-chunk is ~3x wider -> ~3x fewer
+    # radix/bin/materialise launches (cuts the launch+sync+GPU-idle overhead). working_multiple=6 keeps a
+    # safe margin over the honest ~4 on the 4GB card; still 0.25*free VRAM-governed; per-column-independent
+    # so codes are bit-identical regardless of chunk boundary.
+    k_chunk = _gpu_k_chunk(n, bytes_per_elem=4, working_multiple=6, max_cols=K)
+    # ASYNC DOUBLE-BUFFERED float D2H (max-GPU phase): the float-candidate readback used a
+    # SYNCHRONOUS cand.get(out=pinned) - the host blocked until materialise AND the copy finished, THEN ran
+    # the 8-25 MB host memcpy, THEN launched the block's binning kernels; every block serialised
+    # [materialise -> D2H -> memcpy -> bin]. Now the copy is enqueued on a dedicated non-blocking COPY STREAM
+    # (after an event marking materialise completion) into one of two alternating pinned buffers, the binning
+    # kernels launch IMMEDIATELY (compute overlaps the PCIe transfer), and the PREVIOUS block's finished copy
+    # is drained into ``out_cand`` while THIS block's kernels run. Bit-identical bytes (same DMA, same
+    # memcpy); only the schedule changes. Falls back to the synchronous path on any stream/event fault.
+    _db_slot = 0
+    _copy_stream = None
+    if out_cand is not None:
+        try:
+            _copy_stream = cp.cuda.Stream(non_blocking=True)
+        # best-effort: a synchronous copy gives the same bytes, only without overlapping the GPU work
+        except Exception as e:
+            logger.debug("non-blocking copy stream creation failed, falling back to synchronous copy: %s", e)
+            _copy_stream = None
+    return cp, _gpu_resident_discretize_codes, a_cols, b_cols, op_codes, K, tv_gpu, out, dev_codes, _defer_host_codes, k_chunk, _db_slot, _copy_stream
 
 
 def gpu_discretize_codes_host(cand: np.ndarray, nbins: int, *, dtype: Any = np.int8, defer_host_fill: bool = False) -> np.ndarray:

@@ -78,6 +78,321 @@ except ImportError:  # pragma: no cover
 # into a public model-card / chart title -- strip them so the user sees the real estimator name (``LGBMRegressor``).
 
 
+def _is_probabilistic_model(model: Any, probs: np.ndarray | None) -> bool:
+    """True when the report should take the classification branch (``model`` is a classifier, or ``model`` is None and ``probs`` were supplied)."""
+    # sklearn>=1.6 raises AttributeError when is_classifier(None) triggers
+    # get_tags(None) (formerly just returned False). The just_evaluate=True
+    # path passes model=None with pre-computed preds/probs -- infer task type
+    # from whether probs were supplied (presence of probs => classification).
+    if model is None:
+        is_probabilistic = probs is not None
+    else:
+        is_probabilistic = is_classifier(model) or type(model).__name__ == "NGBClassifier"
+    return is_probabilistic
+
+
+def _report_probabilistic(
+    common_params: dict[str, Any],
+    *,
+    probs: np.ndarray | None,
+    use_weights: bool,
+    calib_report_ndigits: int,
+    classes: Sequence | None,
+    target_label_encoder: LabelEncoder | None,
+    nbins: int,
+    custom_ice_metric: Callable | None,
+    custom_rice_metric: Callable | None,
+    group_ids: np.ndarray | None,
+    show_prob_histogram: bool,
+    prob_histogram_yscale: str,
+    show_inline_population_labels: bool,
+    title_metrics_tokens: tuple[str, ...] | None,
+    multilabel_dispatch_config: MultilabelDispatchConfig | None,
+    plot_dpi: int | None,
+    plot_outputs: str | None,
+    reporting_config: Any,
+    f1_opt_threshold: float | None,
+    tune_f1_threshold: bool,
+) -> tuple[np.ndarray, np.ndarray | None]:
+    """Classification branch of ``report_model_perf``: wraps ``report_probabilistic_model_perf`` in its phase with the ReportingConfig toggles resolved."""
+    targets = common_params["targets"]
+    # G7: calibration binning strategy + reliability-CI toggle from ReportingConfig
+    # (default-ON binning="auto"; reliability_show_ci forwarded for when the wave-5 y_err
+    # spec field lands so the Wilson band renders).
+    _calib_binning = getattr(reporting_config, "calibration_binning", None)
+    _reliability_show_ci = getattr(reporting_config, "reliability_show_ci", None)
+    _fairness_calibration_charts = getattr(reporting_config, "fairness_calibration_charts", True)
+    _calibration_by_feature_charts = getattr(reporting_config, "calibration_by_feature_charts", True)
+    _calibration_heatmap_2d_charts = getattr(reporting_config, "calibration_heatmap_2d_charts", True)
+    with phase(
+        "report_probabilistic_model_perf",
+        n_rows=(len(targets) if hasattr(targets, "__len__") else None),
+    ):
+        preds, probs = report_probabilistic_model_perf(
+            **common_params,
+            use_weights=use_weights,
+            calib_report_ndigits=calib_report_ndigits,
+            classes=classes,
+            probs=probs,
+            target_label_encoder=target_label_encoder,
+            nbins=nbins,
+            custom_ice_metric=custom_ice_metric,
+            custom_rice_metric=custom_rice_metric,
+            group_ids=group_ids,
+            show_prob_histogram=show_prob_histogram,
+            prob_histogram_yscale=prob_histogram_yscale,
+            show_inline_population_labels=show_inline_population_labels,
+            title_metrics_tokens=title_metrics_tokens,
+            multilabel_dispatch_config=multilabel_dispatch_config,
+            plot_dpi=plot_dpi,
+            calibration_binning=_calib_binning,
+            reliability_show_ci=_reliability_show_ci,
+            plot_outputs=plot_outputs,
+            fairness_calibration_charts=_fairness_calibration_charts,
+            calibration_by_feature_charts=_calibration_by_feature_charts,
+            calibration_heatmap_2d_charts=_calibration_heatmap_2d_charts,
+            f1_opt_threshold=f1_opt_threshold,
+            tune_f1_threshold=tune_f1_threshold,
+        )
+    return preds, probs
+
+
+def _report_regression(
+    common_params: dict[str, Any],
+    *,
+    plot_outputs: str | None,
+    plot_dpi: int | None,
+    y_train_envelope_stats: Any,
+    reporting_config: Any,
+    quantile_alphas: Sequence[float] | None,
+) -> tuple[np.ndarray, np.ndarray | None]:
+    """Regression branch of ``report_model_perf``: wraps ``report_regression_model_perf`` in its phase with the train-envelope bounds resolved."""
+    targets = common_params["targets"]
+    with phase(
+        "report_regression_model_perf",
+        n_rows=(len(targets) if hasattr(targets, "__len__") else None),
+    ):
+        # Thread plot_outputs explicitly so the regression
+        # report can pick the plotly DSL path. Probabilistic path
+        # uses plot_outputs differently (multi_target_panels at L277);
+        # regression's only consumer is the residual-diagnostics chart.
+        #
+        # Decompose ``y_train_envelope_stats`` (computed once per
+        # (model, target) in the trainer) into the three legacy
+        # kwargs so the prediction-envelope clip uses the TRAIN
+        # bound (k=3 sigma) instead of the per-split eval-fallback
+        # bound (k=10 sigma). Composite-target wrap pass attaches
+        # its own y-scale stats; degenerate train targets pass
+        # None and the reporter falls back to eval-derived bounds.
+        _ytmin, _ytmax, _ytstd = _train_envelope_bounds(y_train_envelope_stats)
+        _scatter_sample = getattr(reporting_config, "regression_scatter_sample_size", DEFAULT_PLOT_SAMPLE_SIZE)
+        preds, probs = report_regression_model_perf(
+            **common_params,
+            plot_outputs=plot_outputs,
+            plot_dpi=plot_dpi,
+            y_train_min=_ytmin,
+            y_train_max=_ytmax,
+            y_train_std=_ytstd,
+            plot_sample_size=_scatter_sample,
+            reporting_config=reporting_config,
+            quantile_alphas=quantile_alphas,
+            mase_naive_mae=getattr(y_train_envelope_stats, "naive_mae", None),
+            mase_seasonality=getattr(reporting_config, "mase_seasonality", None),
+        )
+    return preds, probs
+
+
+def _render_panel_grids(
+    *,
+    targets: Any,
+    columns: Sequence[str],
+    model_name: str,
+    preds: np.ndarray,
+    probs: np.ndarray | None,
+    classes: Sequence | None,
+    group_ids: np.ndarray | None,
+    quantile_alphas: Sequence[float] | None,
+    plot_file: str,
+    plot_outputs: str | None,
+    plot_dpi: int | None,
+    binary_panels: str | None,
+    multiclass_panels: str | None,
+    multilabel_panels: str | None,
+    ltr_panels: str | None,
+    quantile_panels: str | None,
+    n_features: int | None,
+    report_title: str,
+    target_type: str | None,
+    metrics: dict[str, Any] | None,
+    reporting_config: Any,
+) -> None:
+    """Render the per-target_type panel grids (no-op unless templates + output DSL are set); see the notes below."""
+    # Render multiclass / multilabel / LTR panel
+    # grids when the caller has supplied per-target_type templates +
+    # output DSL. No-op for binary classification / regression / when
+    # templates are unset. Failures are logged + swallowed (panels are
+    # additive; existing perf chart + FI still emit).
+    if plot_file and plot_outputs and (binary_panels or multiclass_panels or multilabel_panels or ltr_panels or quantile_panels):
+        from mlframe.reporting.auto_dispatch import render_multi_target_panels
+
+        # INV-37: stamp the [NF / M rows] shape annotation onto the panel-grid suptitle like the FI plot header, so a
+        # multi-target panel grid is self-describing (how many features + rows produced it).
+        _n_cols_hdr = n_features if n_features is not None else (len(columns) if columns is not None and len(columns) > 0 else 0)
+        _nfeatures_hdr = f"{_n_cols_hdr:_}F/" if _n_cols_hdr > 0 else ""
+        _n_rows_hdr = len(preds) if (preds is not None and hasattr(preds, "__len__")) else (len(targets) if hasattr(targets, "__len__") else 0)
+        _shape_hdr = f" [{_nfeatures_hdr}{get_human_readable_set_size(_n_rows_hdr)} rows]" if _n_rows_hdr else ""
+        # Data-aware binary panel emphasis is opt-in via ReportingConfig and applies only when the operator left binary_panels at its field default; a custom
+        # template is never reordered/dropped. The dispatcher derives the base rate from the y_true it already holds (no extra full-n pass).
+        _panel_emphasis = getattr(reporting_config, "panel_emphasis", "all")
+        _emph_lo = getattr(reporting_config, "emphasis_imbalance_lo", 0.2)
+        _emph_hi = getattr(reporting_config, "emphasis_imbalance_hi", 0.8)
+        _binary_panels_is_default = binary_panels == _reporting_field_default("binary_panels")
+        with phase("render_multi_target_panels"):
+            _panel_failures: list = []
+            _rendered_tag = render_multi_target_panels(
+                targets=np.asarray(targets) if not isinstance(targets, np.ndarray) else targets,
+                probs=probs,
+                preds=preds,
+                classes=classes,
+                group_ids=group_ids,
+                quantile_alphas=quantile_alphas,
+                plot_outputs=plot_outputs,
+                plot_dpi=plot_dpi,
+                binary_panels=binary_panels,
+                multiclass_panels=multiclass_panels,
+                multilabel_panels=multilabel_panels,
+                ltr_panels=ltr_panels,
+                quantile_panels=quantile_panels,
+                panel_emphasis=_panel_emphasis,
+                binary_panels_is_default=_binary_panels_is_default,
+                emphasis_imbalance_lo=_emph_lo,
+                emphasis_imbalance_hi=_emph_hi,
+                base_path=plot_file,
+                suptitle=(report_title + " " + model_name).strip() + _shape_hdr,
+                # Authoritative target_type gate — prevents regression
+                # targets that happen to carry group_ids from FTE
+                # (grouped-CV pattern) from incorrectly triggering the
+                # LTR panels branch, which used to render NDCG/MRR
+                # nonsense for regression + paid 10-30s on 5M rows.
+                target_type=target_type,
+                panel_failures=_panel_failures,
+            )
+            _account_panel_render(metrics, target_type, _rendered_tag, _panel_failures, plot_file)
+
+
+def _finalize_report(
+    *,
+    targets: Any,
+    columns: Sequence[str],
+    model_name: str,
+    model: Any,
+    df: pd.DataFrame | None,
+    preds: np.ndarray,
+    probs: np.ndarray | None,
+    report_title: str,
+    plot_file: str,
+    plot_outputs: str | None,
+    plot_dpi: int | None,
+    metrics: dict[str, Any] | None,
+    target_type: str | None,
+    n_features: int | None,
+    show_fi: bool,
+    fi_kwargs: dict[str, Any] | None,
+    reporting_config: Any,
+    classes: Sequence | None,
+    group_ids: np.ndarray | None,
+    quantile_alphas: Sequence[float] | None,
+    binary_panels: str | None,
+    multiclass_panels: str | None,
+    multilabel_panels: str | None,
+    ltr_panels: str | None,
+    quantile_panels: str | None,
+) -> None:
+    """Post-report extras: panel grids, training curves, binary decile table, feature importances and post-fit diagnostics."""
+    if fi_kwargs is None:
+        fi_kwargs = {}
+    _render_panel_grids(
+        targets=targets, columns=columns, model_name=model_name, preds=preds, probs=probs, classes=classes, group_ids=group_ids, quantile_alphas=quantile_alphas,
+        plot_file=plot_file, plot_outputs=plot_outputs, plot_dpi=plot_dpi, binary_panels=binary_panels, multiclass_panels=multiclass_panels,
+        multilabel_panels=multilabel_panels, ltr_panels=ltr_panels, quantile_panels=quantile_panels, n_features=n_features, report_title=report_title,
+        target_type=target_type, metrics=metrics, reporting_config=reporting_config,
+    )
+
+    # Per-model train-vs-val iteration curves (INV-24): default-ON; no-op for non-boosting models, when charts are
+    # not saved to disk, or when the model carries no eval history.
+    if model is not None:
+        with phase("render_training_curves"):
+            _render_training_curves(
+                model,
+                # The booster's iteration history is the same whichever split this report is for, so the split
+                # heading (e.g. "TEST <start date>/<end date>") is left off: it made a split-independent chart claim a split.
+                model_name=str(model_name).strip(),
+                plot_file=plot_file,
+                plot_outputs=plot_outputs,
+                plot_dpi=plot_dpi,
+                metrics=metrics,
+                reporting_config=reporting_config,
+            )
+
+    # Binary decile gains/lift/KS table -- surfaced in the metrics dict (not a chart panel) so the operator gets the gains-table view alongside the curves.
+    if isinstance(metrics, dict) and (target_type or "").lower() == "binary_classification" and probs is not None:
+        _stamp_binary_decile_table(metrics, targets, probs)
+
+    if show_fi:
+        n_cols = n_features if n_features is not None else (len(columns) if columns is not None and len(columns) > 0 else 0)
+        nfeatures = f"{n_cols:_}F/" if n_cols > 0 else ""
+        with phase(
+            "plot_feature_importances",
+            model=type(model).__name__,
+            n_cols=len(columns) if columns is not None and len(columns) > 0 else 0,
+        ):
+            # Lazy import: _reporting <- evaluation <- _reporting cycle (see comment at top of file).
+            from ..evaluation import plot_model_feature_importances
+
+            # Thread df + targets through to power the permutation-FI
+            # fallback for estimators without native ``feature_importances_``
+            # / ``coef_`` (PyTorch-Lightning MLP, Keras nets, custom predict-
+            # only wrappers). When the inner exposes a native source the
+            # permutation path is skipped automatically.
+            # NOTE: report_model_perf itself has no genuine per-row sample_weight parameter (its own
+            # ``use_weights`` is bin-count weighting, unrelated -- see this function's docstring), so
+            # the permutation-FI fallback's own ``sample_weight`` support (see
+            # ``_permutation_feature_importances``) can only be reached by a caller passing
+            # ``sample_weight=...`` explicitly via ``fi_kwargs``, not automatically from this scope.
+            _fi_X = df[list(columns)] if (df is not None and columns is not None and len(columns) > 0) else None
+            feature_importances = plot_model_feature_importances(
+                model=model,
+                columns=columns,
+                model_name=(report_title + " " + model_name + f" [{nfeatures}{get_human_readable_set_size(len(preds))} rows]").strip(),
+                plot_file=_fi_png_path(plot_file) if plot_file else "",
+                X=_fi_X,
+                y=targets,
+                **fi_kwargs,
+            )
+        if metrics is not None:
+            metrics.update({"feature_importances": feature_importances})
+
+    # Standalone post-fit diagnostics (PDP/ICE, slice-finder, decision-curve, SHAP, learning curve) + combined HTML.
+    # Placed after the FI block so the importance ranking is available for PDP feature selection.
+    with phase("render_post_fit_diagnostics"):
+        _render_post_fit_diagnostics(
+            targets=targets,
+            model=model,
+            df=df,
+            columns=columns,
+            preds=preds,
+            probs=probs,
+            target_type=target_type,
+            plot_file=plot_file,
+            plot_outputs=plot_outputs,
+            plot_dpi=plot_dpi,
+            metrics=metrics,
+            reporting_config=reporting_config,
+            model_name=model_name,
+            report_title=report_title,
+        )
+
+
 def report_model_perf(
     targets: np.ndarray | pd.Series,
     columns: Sequence[str],
@@ -201,236 +516,30 @@ def report_model_perf(
     tuple
         (preds, probs) for classification, (preds, None) for regression.
     """
-    if fi_kwargs is None:
-        fi_kwargs = {}
-
-    # Common parameters shared by both classification and regression
     common_params: dict[str, Any] = dict(
-        targets=targets,
-        columns=columns,
-        model_name=model_name,
-        model=model,
-        subgroups=subgroups,
-        subset_index=subset_index,
-        report_ndigits=report_ndigits,
-        figsize=figsize,
-        report_title=report_title,
-        verbose=verbose,
-        preds=preds,
-        df=df,
-        print_report=print_report,
-        show_perf_chart=show_perf_chart,
-        plot_file=plot_file,
-        metrics=metrics,
-        n_features=n_features,
+        targets=targets, columns=columns, model_name=model_name, model=model, subgroups=subgroups, subset_index=subset_index, report_ndigits=report_ndigits,
+        figsize=figsize, report_title=report_title, verbose=verbose, preds=preds, df=df, print_report=print_report, show_perf_chart=show_perf_chart,
+        plot_file=plot_file, metrics=metrics, n_features=n_features,
     )
-
-    # sklearn>=1.6 raises AttributeError when is_classifier(None) triggers
-    # get_tags(None) (formerly just returned False). The just_evaluate=True
-    # path passes model=None with pre-computed preds/probs -- infer task type
-    # from whether probs were supplied (presence of probs => classification).
-    if model is None:
-        is_probabilistic = probs is not None
-    else:
-        is_probabilistic = is_classifier(model) or type(model).__name__ == "NGBClassifier"
-    if is_probabilistic:
-        # G7: calibration binning strategy + reliability-CI toggle from ReportingConfig
-        # (default-ON binning="auto"; reliability_show_ci forwarded for when the wave-5 y_err
-        # spec field lands so the Wilson band renders).
-        _calib_binning = getattr(reporting_config, "calibration_binning", None)
-        _reliability_show_ci = getattr(reporting_config, "reliability_show_ci", None)
-        _fairness_calibration_charts = getattr(reporting_config, "fairness_calibration_charts", True)
-        _calibration_by_feature_charts = getattr(reporting_config, "calibration_by_feature_charts", True)
-        _calibration_heatmap_2d_charts = getattr(reporting_config, "calibration_heatmap_2d_charts", True)
-        with phase(
-            "report_probabilistic_model_perf",
-            n_rows=(len(targets) if hasattr(targets, "__len__") else None),
-        ):
-            preds, probs = report_probabilistic_model_perf(
-                **common_params,
-                use_weights=use_weights,
-                calib_report_ndigits=calib_report_ndigits,
-                classes=classes,
-                probs=probs,
-                target_label_encoder=target_label_encoder,
-                nbins=nbins,
-                custom_ice_metric=custom_ice_metric,
-                custom_rice_metric=custom_rice_metric,
-                group_ids=group_ids,
-                show_prob_histogram=show_prob_histogram,
-                prob_histogram_yscale=prob_histogram_yscale,
-                show_inline_population_labels=show_inline_population_labels,
-                title_metrics_tokens=title_metrics_tokens,
-                multilabel_dispatch_config=multilabel_dispatch_config,
-                plot_dpi=plot_dpi,
-                calibration_binning=_calib_binning,
-                reliability_show_ci=_reliability_show_ci,
-                plot_outputs=plot_outputs,
-                fairness_calibration_charts=_fairness_calibration_charts,
-                calibration_by_feature_charts=_calibration_by_feature_charts,
-                calibration_heatmap_2d_charts=_calibration_heatmap_2d_charts,
-                f1_opt_threshold=f1_opt_threshold,
-                tune_f1_threshold=tune_f1_threshold,
-            )
-    else:
-        with phase(
-            "report_regression_model_perf",
-            n_rows=(len(targets) if hasattr(targets, "__len__") else None),
-        ):
-            # Thread plot_outputs explicitly so the regression
-            # report can pick the plotly DSL path. Probabilistic path
-            # uses plot_outputs differently (multi_target_panels at L277);
-            # regression's only consumer is the residual-diagnostics chart.
-            #
-            # Decompose ``y_train_envelope_stats`` (computed once per
-            # (model, target) in the trainer) into the three legacy
-            # kwargs so the prediction-envelope clip uses the TRAIN
-            # bound (k=3 sigma) instead of the per-split eval-fallback
-            # bound (k=10 sigma). Composite-target wrap pass attaches
-            # its own y-scale stats; degenerate train targets pass
-            # None and the reporter falls back to eval-derived bounds.
-            _ytmin, _ytmax, _ytstd = _train_envelope_bounds(y_train_envelope_stats)
-            _scatter_sample = getattr(reporting_config, "regression_scatter_sample_size", DEFAULT_PLOT_SAMPLE_SIZE)
-            preds, probs = report_regression_model_perf(
-                **common_params,
-                plot_outputs=plot_outputs,
-                plot_dpi=plot_dpi,
-                y_train_min=_ytmin,
-                y_train_max=_ytmax,
-                y_train_std=_ytstd,
-                plot_sample_size=_scatter_sample,
-                reporting_config=reporting_config,
-                quantile_alphas=quantile_alphas,
-                mase_naive_mae=getattr(y_train_envelope_stats, "naive_mae", None),
-                mase_seasonality=getattr(reporting_config, "mase_seasonality", None),
-            )
-
-    # Render multiclass / multilabel / LTR panel
-    # grids when the caller has supplied per-target_type templates +
-    # output DSL. No-op for binary classification / regression / when
-    # templates are unset. Failures are logged + swallowed (panels are
-    # additive; existing perf chart + FI still emit).
-    if plot_file and plot_outputs and (binary_panels or multiclass_panels or multilabel_panels or ltr_panels or quantile_panels):
-        from mlframe.reporting.auto_dispatch import render_multi_target_panels
-
-        # INV-37: stamp the [NF / M rows] shape annotation onto the panel-grid suptitle like the FI plot header, so a
-        # multi-target panel grid is self-describing (how many features + rows produced it).
-        _n_cols_hdr = n_features if n_features is not None else (len(columns) if columns is not None and len(columns) > 0 else 0)
-        _nfeatures_hdr = f"{_n_cols_hdr:_}F/" if _n_cols_hdr > 0 else ""
-        _n_rows_hdr = len(preds) if (preds is not None and hasattr(preds, "__len__")) else (len(targets) if hasattr(targets, "__len__") else 0)
-        _shape_hdr = f" [{_nfeatures_hdr}{get_human_readable_set_size(_n_rows_hdr)} rows]" if _n_rows_hdr else ""
-        # Data-aware binary panel emphasis is opt-in via ReportingConfig and applies only when the operator left binary_panels at its field default; a custom
-        # template is never reordered/dropped. The dispatcher derives the base rate from the y_true it already holds (no extra full-n pass).
-        _panel_emphasis = getattr(reporting_config, "panel_emphasis", "all")
-        _emph_lo = getattr(reporting_config, "emphasis_imbalance_lo", 0.2)
-        _emph_hi = getattr(reporting_config, "emphasis_imbalance_hi", 0.8)
-        _binary_panels_is_default = binary_panels == _reporting_field_default("binary_panels")
-        with phase("render_multi_target_panels"):
-            _panel_failures: list = []
-            _rendered_tag = render_multi_target_panels(
-                targets=np.asarray(targets) if not isinstance(targets, np.ndarray) else targets,
-                probs=probs,
-                preds=preds,
-                classes=classes,
-                group_ids=group_ids,
-                quantile_alphas=quantile_alphas,
-                plot_outputs=plot_outputs,
-                plot_dpi=plot_dpi,
-                binary_panels=binary_panels,
-                multiclass_panels=multiclass_panels,
-                multilabel_panels=multilabel_panels,
-                ltr_panels=ltr_panels,
-                quantile_panels=quantile_panels,
-                panel_emphasis=_panel_emphasis,
-                binary_panels_is_default=_binary_panels_is_default,
-                emphasis_imbalance_lo=_emph_lo,
-                emphasis_imbalance_hi=_emph_hi,
-                base_path=plot_file,
-                suptitle=(report_title + " " + model_name).strip() + _shape_hdr,
-                # Authoritative target_type gate — prevents regression
-                # targets that happen to carry group_ids from FTE
-                # (grouped-CV pattern) from incorrectly triggering the
-                # LTR panels branch, which used to render NDCG/MRR
-                # nonsense for regression + paid 10-30s on 5M rows.
-                target_type=target_type,
-                panel_failures=_panel_failures,
-            )
-            _account_panel_render(metrics, target_type, _rendered_tag, _panel_failures, plot_file)
-
-    # Per-model train-vs-val iteration curves (INV-24): default-ON; no-op for non-boosting models, when charts are
-    # not saved to disk, or when the model carries no eval history.
-    if model is not None:
-        with phase("render_training_curves"):
-            _render_training_curves(
-                model,
-                # The booster's iteration history is the same whichever split this report is for, so the split
-                # heading (e.g. "TEST <start date>/<end date>") is left off: it made a split-independent chart claim a split.
-                model_name=str(model_name).strip(),
-                plot_file=plot_file,
-                plot_outputs=plot_outputs,
-                plot_dpi=plot_dpi,
-                metrics=metrics,
-                reporting_config=reporting_config,
-            )
-
-    # Binary decile gains/lift/KS table -- surfaced in the metrics dict (not a chart panel) so the operator gets the gains-table view alongside the curves.
-    if isinstance(metrics, dict) and (target_type or "").lower() == "binary_classification" and probs is not None:
-        _stamp_binary_decile_table(metrics, targets, probs)
-
-    if show_fi:
-        n_cols = n_features if n_features is not None else (len(columns) if columns is not None and len(columns) > 0 else 0)
-        nfeatures = f"{n_cols:_}F/" if n_cols > 0 else ""
-        with phase(
-            "plot_feature_importances",
-            model=type(model).__name__,
-            n_cols=len(columns) if columns is not None and len(columns) > 0 else 0,
-        ):
-            # Lazy import: _reporting <- evaluation <- _reporting cycle (see comment at top of file).
-            from ..evaluation import plot_model_feature_importances
-
-            # Thread df + targets through to power the permutation-FI
-            # fallback for estimators without native ``feature_importances_``
-            # / ``coef_`` (PyTorch-Lightning MLP, Keras nets, custom predict-
-            # only wrappers). When the inner exposes a native source the
-            # permutation path is skipped automatically.
-            # NOTE: report_model_perf itself has no genuine per-row sample_weight parameter (its own
-            # ``use_weights`` is bin-count weighting, unrelated -- see this function's docstring), so
-            # the permutation-FI fallback's own ``sample_weight`` support (see
-            # ``_permutation_feature_importances``) can only be reached by a caller passing
-            # ``sample_weight=...`` explicitly via ``fi_kwargs``, not automatically from this scope.
-            _fi_X = df[list(columns)] if (df is not None and columns is not None and len(columns) > 0) else None
-            feature_importances = plot_model_feature_importances(
-                model=model,
-                columns=columns,
-                model_name=(report_title + " " + model_name + f" [{nfeatures}{get_human_readable_set_size(len(preds))} rows]").strip(),
-                plot_file=_fi_png_path(plot_file) if plot_file else "",
-                X=_fi_X,
-                y=targets,
-                **fi_kwargs,
-            )
-        if metrics is not None:
-            metrics.update({"feature_importances": feature_importances})
-
-    # Standalone post-fit diagnostics (PDP/ICE, slice-finder, decision-curve, SHAP, learning curve) + combined HTML.
-    # Placed after the FI block so the importance ranking is available for PDP feature selection.
-    with phase("render_post_fit_diagnostics"):
-        _render_post_fit_diagnostics(
-            targets=targets,
-            model=model,
-            df=df,
-            columns=columns,
-            preds=preds,
-            probs=probs,
-            target_type=target_type,
-            plot_file=plot_file,
-            plot_outputs=plot_outputs,
-            plot_dpi=plot_dpi,
-            metrics=metrics,
-            reporting_config=reporting_config,
-            model_name=model_name,
-            report_title=report_title,
+    if _is_probabilistic_model(model, probs):
+        preds, probs = _report_probabilistic(
+            common_params, probs=probs, use_weights=use_weights, calib_report_ndigits=calib_report_ndigits, classes=classes, nbins=nbins,
+            target_label_encoder=target_label_encoder, custom_ice_metric=custom_ice_metric, custom_rice_metric=custom_rice_metric, group_ids=group_ids,
+            show_prob_histogram=show_prob_histogram, prob_histogram_yscale=prob_histogram_yscale, show_inline_population_labels=show_inline_population_labels,
+            title_metrics_tokens=title_metrics_tokens, multilabel_dispatch_config=multilabel_dispatch_config, plot_dpi=plot_dpi, plot_outputs=plot_outputs,
+            reporting_config=reporting_config, f1_opt_threshold=f1_opt_threshold, tune_f1_threshold=tune_f1_threshold,
         )
-
+    else:
+        preds, probs = _report_regression(
+            common_params, plot_outputs=plot_outputs, plot_dpi=plot_dpi, y_train_envelope_stats=y_train_envelope_stats,
+            reporting_config=reporting_config, quantile_alphas=quantile_alphas,
+        )
+    _finalize_report(
+        targets=targets, columns=columns, model_name=model_name, model=model, df=df, preds=preds, probs=probs, report_title=report_title, plot_file=plot_file,
+        plot_outputs=plot_outputs, plot_dpi=plot_dpi, metrics=metrics, target_type=target_type, n_features=n_features, show_fi=show_fi, fi_kwargs=fi_kwargs,
+        reporting_config=reporting_config, classes=classes, group_ids=group_ids, quantile_alphas=quantile_alphas, binary_panels=binary_panels,
+        multiclass_panels=multiclass_panels, multilabel_panels=multilabel_panels, ltr_panels=ltr_panels, quantile_panels=quantile_panels,
+    )
     return preds, probs
 
 

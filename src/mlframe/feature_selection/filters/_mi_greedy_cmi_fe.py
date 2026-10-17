@@ -43,7 +43,7 @@ from __future__ import annotations
 import functools
 import logging
 import threading
-from typing import Optional, Sequence
+from typing import Optional, Sequence, Any
 
 import numpy as np
 import pandas as pd
@@ -673,6 +673,48 @@ def greedy_cmi_fe_construct(
        is a DataFrame with one row per appended column ordered by
        selection sequence.
     """
+    _ret_greedy_cmi_fe_construct_part1 = _greedy_cmi_fe_construct_part1(
+        cols, X, y, nbins, seed_cols_count, include_unary, include_trig_on_bounded, include_binary,
+    )
+    if _ret_greedy_cmi_fe_construct_part1[0]:
+        _early_greedy_cmi_fe_construct_part1: tuple[pd.DataFrame, pd.DataFrame] = _ret_greedy_cmi_fe_construct_part1[1]
+        return _early_greedy_cmi_fe_construct_part1
+    st, y_bin, engineered, z_joint, z_joint_dev, cand_names, _bin_fingerprint = _ret_greedy_cmi_fe_construct_part1[1:]
+
+    # RESIDENT candidate codes: when GPU-strict-resident is on, bin every candidate ONCE on-device
+    # (``cand_bins_dev``) and fingerprint via a device-side reduction instead of the host ``_quantile_bin`` +
+    # ``.tobytes()`` pair below. This closes the confirmed residency gap (``_fe_gpu_strict.py`` docstring, "KNOWN
+    # NON-PRODUCTION RESIDENCY GAP"): the host path forces one bulk (n,) D2H PER CANDIDATE just to hash its
+    # bytes. ``cand_bins`` (host) stays LAZY here - populated on demand only for the small subset of names the
+    # Z-fold step actually touches (at most ``top_k`` winners, via ``_host_bins`` below), not eagerly for every
+    # candidate. Falls back to the fully-eager host path (unchanged, byte-identical) on any cupy failure or when
+    # GPU-strict-resident is off - selection-identical either way (fingerprint is a dedup key, not a scored
+    # quantity; a 64-bit reduction hash is the same collision-domain acceptance the resident cache
+    # (``_content_hash``) already uses elsewhere in this codebase).
+    cand_bins_dev: dict = {}
+    st.cand_fp = {}
+    st._resident_fp_ok = False
+    _host_bins, cand_bins_dev, rng_floor = _greedy_cmi_fe_constr_step1_content_hash_already(cand_names, engineered, nbins, st, _bin_fingerprint, seed, cand_bins_dev)
+
+    _noise_floor_for_current_z = _greedy_cmi_fe_constr_step2_rng_raw_small(cand_names, rng_floor, y_bin, z_joint_dev, z_joint, cand_bins_dev, _host_bins, st)
+    _greedy_cmi_fe_constr_step3_while_st_remaining(st, top_k, _noise_floor_for_current_z, min_cmi_gain, z_joint_dev, z_joint, y_bin, cand_bins_dev, _host_bins, nbins)
+
+    st.scores = pd.DataFrame(st.rows, columns=[
+        "engineered_col", "transform", "source_cols",
+        "cmi_at_selection", "step",
+    ])
+    if st.winners:
+        st.X_aug = pd.concat([X, engineered[st.winners]], axis=1)
+    else:
+        st.X_aug = X.copy(deep=False)
+    return st.X_aug, st.scores
+
+
+def _greedy_cmi_fe_construct_part1(
+    cols: Optional[Sequence[str]], X: pd.DataFrame, y: np.ndarray, nbins: int, seed_cols_count: int, include_unary: bool, include_trig_on_bounded: bool,
+    include_binary: bool,
+) -> tuple[Any, ...]:
+    """Extracted block of ``greedy_cmi_fe_construct`` (part 1); returns the names the caller still uses."""
     st = _SimpleNamespace()  # long-lived locals of this function (see the stage helpers below)
     from ._mi_greedy_fe import (
         generate_mi_greedy_features,
@@ -688,7 +730,7 @@ def greedy_cmi_fe_construct(
     st._cols_source = cols if cols is not None else X.columns
     st.candidates_pool = [c for c in st._cols_source if c in X.columns and pd.api.types.is_numeric_dtype(X[c])]
     if not st.candidates_pool:
-        return X, st.empty_scores
+        return True, (X, st.empty_scores)
 
     # This used to `.astype(np.int64)` (TRUNCATE) any
     # non-integer y here, BEFORE both the raw_mi scoring below AND the np.unique densify further down -
@@ -726,7 +768,7 @@ def greedy_cmi_fe_construct(
         ))
     engineered, st.parsed = generate_mi_greedy_features(X, st.cands)
     if engineered.empty:
-        return X, st.empty_scores
+        return True, (X, st.empty_scores)
 
     # 3. y_bin was already densified up front (reuses it here, no re-densify
     #    needed). Start Z EMPTY. Z grows step-by-step from greedy picks (under the fragmentation cap
@@ -764,34 +806,7 @@ def greedy_cmi_fe_construct(
     def _bin_fingerprint(b: np.ndarray) -> bytes:
         """Hashable fingerprint of a binned candidate array; monotone-equivalent candidates (identical bin assignment under equi-frequency quantization) collapse to the same fingerprint for dedup against already-picked winners."""
         return b.tobytes()
-
-    # RESIDENT candidate codes: when GPU-strict-resident is on, bin every candidate ONCE on-device
-    # (``cand_bins_dev``) and fingerprint via a device-side reduction instead of the host ``_quantile_bin`` +
-    # ``.tobytes()`` pair below. This closes the confirmed residency gap (``_fe_gpu_strict.py`` docstring, "KNOWN
-    # NON-PRODUCTION RESIDENCY GAP"): the host path forces one bulk (n,) D2H PER CANDIDATE just to hash its
-    # bytes. ``cand_bins`` (host) stays LAZY here - populated on demand only for the small subset of names the
-    # Z-fold step actually touches (at most ``top_k`` winners, via ``_host_bins`` below), not eagerly for every
-    # candidate. Falls back to the fully-eager host path (unchanged, byte-identical) on any cupy failure or when
-    # GPU-strict-resident is off - selection-identical either way (fingerprint is a dedup key, not a scored
-    # quantity; a 64-bit reduction hash is the same collision-domain acceptance the resident cache
-    # (``_content_hash``) already uses elsewhere in this codebase).
-    cand_bins_dev: dict = {}
-    st.cand_fp = {}
-    st._resident_fp_ok = False
-    _host_bins, cand_bins_dev, rng_floor = _greedy_cmi_fe_constr_step1_content_hash_already(cand_names, engineered, nbins, st, _bin_fingerprint, seed, cand_bins_dev)
-
-    _noise_floor_for_current_z = _greedy_cmi_fe_constr_step2_rng_raw_small(cand_names, rng_floor, y_bin, z_joint_dev, z_joint, cand_bins_dev, _host_bins, st)
-    _greedy_cmi_fe_constr_step3_while_st_remaining(st, top_k, _noise_floor_for_current_z, min_cmi_gain, z_joint_dev, z_joint, y_bin, cand_bins_dev, _host_bins, nbins)
-
-    st.scores = pd.DataFrame(st.rows, columns=[
-        "engineered_col", "transform", "source_cols",
-        "cmi_at_selection", "step",
-    ])
-    if st.winners:
-        st.X_aug = pd.concat([X, engineered[st.winners]], axis=1)
-    else:
-        st.X_aug = X.copy(deep=False)
-    return st.X_aug, st.scores
+    return False, st, y_bin, engineered, z_joint, z_joint_dev, cand_names, _bin_fingerprint
 
 def greedy_cmi_fe_construct_with_recipes(
     X: pd.DataFrame,

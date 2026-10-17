@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import logging
 import math
-from typing import Optional
+from typing import Any, Optional
 
 import numpy as np
 
@@ -111,6 +111,55 @@ def _scatter(self, fig, p: ScatterPanelSpec, row: int, col: int) -> None:
         trace_cls = go.Scatter
     else:
         trace_cls = go.Scattergl if n > _SCATTER_WEBGL_THRESHOLD else go.Scatter
+    _scatter_main_traces(fig, p, trace_cls, x, y, idx, marker, error_y, error_x, row, col)
+
+    # Emphasised subset (worst-K errors): resolve indices against the ORIGINAL arrays (pre-downsample).
+    _scatter_emphasised_subset_worst_errors(p, size_arr, fig, go, row, col)
+
+    _scatter_trend_line_none(p, n, fig, go, row, col)
+
+    if p.overlay_band is not None:
+        bx, blo, bhi = (np.asarray(a) for a in p.overlay_band)
+        fig.add_trace(
+            go.Scatter(x=bx, y=blo, mode="lines", line=dict(width=0), showlegend=False, hoverinfo="skip"),
+            row=row,
+            col=col,
+        )
+        fig.add_trace(
+            go.Scatter(x=bx, y=bhi, mode="lines", line=dict(width=0),
+                       fill="tonexty", fillcolor=_rgba(OVERLAY_LINE, 0.18),
+                       name="curve 95% band", showlegend=True, hoverinfo="skip"),
+            row=row, col=col,
+        )
+
+    if p.overlay_line is not None:
+        ox_grid, oy_grid, olabel = p.overlay_line
+        fig.add_trace(
+            go.Scatter(x=np.asarray(ox_grid), y=np.asarray(oy_grid), mode="lines", line=dict(color=OVERLAY_LINE, width=2), name=olabel, showlegend=True),
+            row=row,
+            col=col,
+        )
+
+    _scatter_perfect_fit_line(p, n, x, y, fig, go, row, col)
+
+    fig.update_xaxes(title_text=p.xlabel, row=row, col=col, showgrid=p.grid)
+    fig.update_yaxes(title_text=p.ylabel, row=row, col=col, showgrid=p.grid)
+
+
+def _scatter_main_traces(
+    fig: Any,
+    p: ScatterPanelSpec,
+    trace_cls: Any,
+    x: np.ndarray,
+    y: np.ndarray,
+    idx: Optional[np.ndarray],
+    marker: dict,
+    error_y: Optional[dict],
+    error_x: Optional[dict],
+    row: int,
+    col: int,
+) -> None:
+    """Add the main marker trace, split into confident and hollow low-evidence traces when the spec flags weak bins."""
     # Points resting on too little data to be an observation: drawn hollow in their own trace, mirroring the
     # matplotlib twin, so the two backends do not disagree about which bins are readable.
     weak = low_evidence_mask(p.low_evidence_indices if len(x) == len(np.asarray(p.x)) else None, len(x))
@@ -204,38 +253,6 @@ def _scatter(self, fig, p: ScatterPanelSpec, row: int, col: int) -> None:
                       showlegend=bool(p.legend_label), **_sel_hover()),
             row=row, col=col,
         )
-
-    # Emphasised subset (worst-K errors): resolve indices against the ORIGINAL arrays (pre-downsample).
-    _scatter_emphasised_subset_worst_errors(p, size_arr, fig, go, row, col)
-
-    _scatter_trend_line_none(p, n, fig, go, row, col)
-
-    if p.overlay_band is not None:
-        bx, blo, bhi = (np.asarray(a) for a in p.overlay_band)
-        fig.add_trace(
-            go.Scatter(x=bx, y=blo, mode="lines", line=dict(width=0), showlegend=False, hoverinfo="skip"),
-            row=row,
-            col=col,
-        )
-        fig.add_trace(
-            go.Scatter(x=bx, y=bhi, mode="lines", line=dict(width=0),
-                       fill="tonexty", fillcolor=_rgba(OVERLAY_LINE, 0.18),
-                       name="curve 95% band", showlegend=True, hoverinfo="skip"),
-            row=row, col=col,
-        )
-
-    if p.overlay_line is not None:
-        ox_grid, oy_grid, olabel = p.overlay_line
-        fig.add_trace(
-            go.Scatter(x=np.asarray(ox_grid), y=np.asarray(oy_grid), mode="lines", line=dict(color=OVERLAY_LINE, width=2), name=olabel, showlegend=True),
-            row=row,
-            col=col,
-        )
-
-    _scatter_perfect_fit_line(p, n, x, y, fig, go, row, col)
-
-    fig.update_xaxes(title_text=p.xlabel, row=row, col=col, showgrid=p.grid)
-    fig.update_yaxes(title_text=p.ylabel, row=row, col=col, showgrid=p.grid)
 
 
 def _scatter_color_arr_none(color_arr, marker, p):

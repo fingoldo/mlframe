@@ -27,6 +27,7 @@ directly on the winning base, they are not wired into any selection path.
 from __future__ import annotations
 
 import logging
+import math
 from typing import Any
 
 import numpy as np
@@ -49,6 +50,58 @@ logger = logging.getLogger(__name__)
 _BAYESIAN_ALPHA_DEFAULT_N_BOOTSTRAP: int = 200
 _BAYESIAN_ALPHA_DEFAULT_CI_LEVEL: float = 0.95
 _BAYESIAN_ALPHA_POSTERIOR_N_SAMPLES: int = 500
+
+
+def _degenerate_alpha_posterior(y_f: np.ndarray, base_f: np.ndarray, ci_level: float, n: int, *, spread: float, kind: str) -> dict[str, Any]:
+    """Degenerate-posterior result: the OLS point estimate with every spread / interval set to ``spread`` (NaN for too few rows, +-inf for a singular design)."""
+    from mlframe.training.composite.transforms.shared import linear_residual_fit as _linear_residual_fit
+
+    params = _linear_residual_fit(y_f, base_f)
+    return {
+        "alpha_mean": params["alpha"],
+        "alpha_std": spread,
+        "alpha_ci_low": -spread if math.isinf(spread) else spread,
+        "alpha_ci_high": spread,
+        "beta_mean": params["beta"],
+        "beta_std": spread,
+        "beta_ci_low": -spread if math.isinf(spread) else spread,
+        "beta_ci_high": spread,
+        "alpha_samples": np.array([params["alpha"]], dtype=np.float64),
+        "beta_samples": np.array([params["beta"]], dtype=np.float64),
+        "n_bootstrap": 0,
+        "n_samples": 0,
+        "ci_level": float(ci_level),
+        "posterior_kind": kind,
+        "degrees_of_freedom": float(max(n - 2, 0)),
+    }
+
+
+def _draw_alpha_beta_samples(
+    coef: np.ndarray, xtx_inv: np.ndarray, v: int, ssr: float, s2_hat: float, n_samples: int, random_state: int
+) -> tuple[np.ndarray, np.ndarray, int]:
+    """Draw ``(alpha_samples, beta_samples, n_draws)`` from the conjugate posterior via the hierarchical recipe."""
+    # Draw posterior samples via the hierarchical recipe so downstream
+    # consumers can recover custom percentiles or build joint plots.
+    rng = np.random.default_rng(random_state)
+    n_draws = max(int(n_samples), 1)
+    # sigma^2 ~ Inverse-Gamma(v/2, ssr/2) <=> 1/sigma^2 ~ Gamma(v/2, scale=2/ssr).
+    if v > 0 and ssr > 0:
+        inv_sigma2 = rng.gamma(shape=v / 2.0, scale=2.0 / ssr, size=n_draws)
+        sigma2_samples = 1.0 / inv_sigma2
+    else:
+        sigma2_samples = np.full(n_draws, max(s2_hat, 0.0))
+    # (alpha, beta) | sigma^2 ~ N(coef, sigma^2 * xtx_inv); draw via Cholesky.
+    try:
+        L = np.linalg.cholesky(xtx_inv)
+    except np.linalg.LinAlgError:
+        L = np.diag(np.sqrt(np.clip(np.diag(xtx_inv), 0.0, None)))
+    z = rng.standard_normal(size=(n_draws, 2))
+    scaled = z @ L.T  # (n_draws, 2)
+    scale = np.sqrt(sigma2_samples)[:, None]
+    samples = coef[None, :] + scale * scaled  # (n_draws, 2)
+    alpha_samples = samples[:, 0]
+    beta_samples = samples[:, 1]
+    return alpha_samples, beta_samples, n_draws
 
 
 def bayesian_alpha_fit(
@@ -87,25 +140,7 @@ def bayesian_alpha_fit(
     if n < 4:
         # Degenerate: no posterior to compute. Mirror the legacy degenerate
         # contract so swapping implementations is safe.
-        from mlframe.training.composite.transforms.shared import linear_residual_fit as _linear_residual_fit
-        params = _linear_residual_fit(y_f, base_f)
-        return {
-            "alpha_mean": params["alpha"],
-            "alpha_std": float("nan"),
-            "alpha_ci_low": float("nan"),
-            "alpha_ci_high": float("nan"),
-            "beta_mean": params["beta"],
-            "beta_std": float("nan"),
-            "beta_ci_low": float("nan"),
-            "beta_ci_high": float("nan"),
-            "alpha_samples": np.array([params["alpha"]], dtype=np.float64),
-            "beta_samples": np.array([params["beta"]], dtype=np.float64),
-            "n_bootstrap": 0,
-            "n_samples": 0,
-            "ci_level": float(ci_level),
-            "posterior_kind": "conjugate_normal_inverse_gamma",
-            "degrees_of_freedom": float(max(n - 2, 0)),
-        }
+        return _degenerate_alpha_posterior(y_f, base_f, ci_level, n, spread=float("nan"), kind="conjugate_normal_inverse_gamma")
     # Design matrix [base, 1] -- same convention as ``_linear_residual_fit``.
     X = np.column_stack([base_f, np.ones(n, dtype=np.float64)])
     # OLS point estimate.
@@ -119,25 +154,7 @@ def bayesian_alpha_fit(
             raise np.linalg.LinAlgError("non-finite pseudo-inverse")
     except np.linalg.LinAlgError:
         # Degenerate design (constant base). Return a wide-but-finite posterior.
-        from mlframe.training.composite.transforms.shared import linear_residual_fit as _linear_residual_fit
-        params = _linear_residual_fit(y_f, base_f)
-        return {
-            "alpha_mean": params["alpha"],
-            "alpha_std": float("inf"),
-            "alpha_ci_low": float("-inf"),
-            "alpha_ci_high": float("inf"),
-            "beta_mean": params["beta"],
-            "beta_std": float("inf"),
-            "beta_ci_low": float("-inf"),
-            "beta_ci_high": float("inf"),
-            "alpha_samples": np.array([params["alpha"]], dtype=np.float64),
-            "beta_samples": np.array([params["beta"]], dtype=np.float64),
-            "n_bootstrap": 0,
-            "n_samples": 0,
-            "ci_level": float(ci_level),
-            "posterior_kind": "conjugate_normal_inverse_gamma_degenerate",
-            "degrees_of_freedom": float(max(n - 2, 0)),
-        }
+        return _degenerate_alpha_posterior(y_f, base_f, ci_level, n, spread=float("inf"), kind="conjugate_normal_inverse_gamma_degenerate")
     coef = XtX_inv @ (X.T @ y_f)
     alpha_hat, beta_hat = float(coef[0]), float(coef[1])
     residuals = y_f - X @ coef
@@ -189,27 +206,7 @@ def bayesian_alpha_fit(
     alpha_ci_high = alpha_hat + t_q * alpha_t_scale
     beta_ci_low = beta_hat - t_q * beta_t_scale
     beta_ci_high = beta_hat + t_q * beta_t_scale
-    # Draw posterior samples via the hierarchical recipe so downstream
-    # consumers can recover custom percentiles or build joint plots.
-    rng = np.random.default_rng(random_state)
-    n_draws = max(int(n_samples), 1)
-    # sigma^2 ~ Inverse-Gamma(v/2, ssr/2) <=> 1/sigma^2 ~ Gamma(v/2, scale=2/ssr).
-    if v > 0 and ssr > 0:
-        inv_sigma2 = rng.gamma(shape=v / 2.0, scale=2.0 / ssr, size=n_draws)
-        sigma2_samples = 1.0 / inv_sigma2
-    else:
-        sigma2_samples = np.full(n_draws, max(s2_hat, 0.0))
-    # (alpha, beta) | sigma^2 ~ N(coef, sigma^2 * XtX_inv); draw via Cholesky.
-    try:
-        L = np.linalg.cholesky(XtX_inv)
-    except np.linalg.LinAlgError:
-        L = np.diag(np.sqrt(np.clip(np.diag(XtX_inv), 0.0, None)))
-    z = rng.standard_normal(size=(n_draws, 2))
-    scaled = z @ L.T  # (n_draws, 2)
-    scale = np.sqrt(sigma2_samples)[:, None]
-    samples = coef[None, :] + scale * scaled  # (n_draws, 2)
-    alpha_samples = samples[:, 0]
-    beta_samples = samples[:, 1]
+    alpha_samples, beta_samples, n_draws = _draw_alpha_beta_samples(coef, XtX_inv, v, ssr, s2_hat, n_samples, random_state)
     return {
         "alpha_mean": alpha_hat,
         "alpha_std": alpha_std,

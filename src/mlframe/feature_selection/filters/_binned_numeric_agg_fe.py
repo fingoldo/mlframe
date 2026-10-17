@@ -497,6 +497,82 @@ def _top_agg_by_variance(X, acands, max_agg_cols):
     return sorted(acands, key=lambda a: a_var.get(a, 0.0), reverse=True)[: max(1, int(max_agg_cols))], a_var
 
 
+def _redundancy_gate_binagg(
+    X: pd.DataFrame,
+    y: np.ndarray,
+    raw: dict,
+    feat_df: Any,
+    _dev_cands: Any,
+    gsel: list,
+    asel: list,
+    stats: Sequence[str],
+    nbins_base: int,
+    n_folds: int,
+    random_state: int,
+    min_cmi_gain: float,
+    reject_sink: Callable[..., None] | None,
+) -> Any:
+    """Keep the ``binagg_*`` candidates whose CMI against ``y`` given their own source columns clears the floor and the permutation null; ``None`` when none survive."""
+    from ._mi_greedy_cmi_fe import _quantile_bin
+    from ._unified_fe_gate import _coerce_y_classes
+
+    y_cls = _coerce_y_classes(y)
+    _src_bin_cache: dict[str, np.ndarray] = {}
+    # Permutation-null floor. The plug-in CMI estimator is positively biased at finite n: a binagg column that is
+    # genuinely redundant with its sources still scores a small POSITIVE CMI that a fixed threshold cannot separate
+    # from real signal (the bias grows as n shrinks / the conditioning support fragments, and the OOF per-fold
+    # aggregate adds further sampling noise). Calibrate per-candidate: score the SAME candidate against shuffled-y
+    # under the same conditioning; the max over a handful of permutations is the candidate's own noise ceiling.
+    # Keep it only when its observed CMI clears BOTH the absolute floor AND that ceiling - genuine cell-conditional
+    # signal sits far above the null, redundant re-encodings sit at it.
+    #
+    # FWER fix: the ceiling was the raw MAX over only 15 permutations. With ~1/(n_perm+1) effective
+    # alpha per candidate and many (group, agg, stat) candidates over many fits, a high-variance noise stat
+    # (kurt sits at the top of the moment ladder) eventually clears the noisy max by luck - measured on the
+    # all-noise null frame (seed=6, clf): binagg_kurt(n2|qbin(n4)) cmi=0.02507 vs max-of-15=0.02279 (PASS by
+    # luck) yet max-of-60=0.02490 and the candidate sits squarely INSIDE the null. Replace the unstable raw
+    # max with a robust one-sided z-ceiling (mean + _NULL_Z * std of the permutation CMIs): a stable estimate
+    # of the null upper tail that does not depend on catching the single luckiest permutation. Genuine signal
+    # sits far above the null so this does not suppress it; it collapses the borderline noise FPs to zero.
+    _n_perm = 30
+    # Family-wise z: the ceiling is applied to EVERY surviving (group, agg, stat) candidate (up to max_pairs x
+    # stats = 256 at the defaults), so a fixed per-candidate z=2 (~2.3% one-sided) lets ~6 pure-noise columns
+    # through on a wide noise frame (measured: binagg_std(noise_48|qbin(x5)) survived on the wide-synergy
+    # fixture and fed spurious engineered composites). Bonferroni over the tested candidates at alpha=0.05,
+    # never below the old per-candidate z.
+    cands = _dev_cands if _dev_cands is not None else HostCandidates(feat_df, _quantile_bin, _candidate_codes)
+    _NULL_Z = _family_wise_null_z(len(cands.names))
+    _rng = np.random.default_rng(int(random_state))
+
+    def _src_bins(col: str) -> np.ndarray:
+        """Quantile-bin codes for a raw source column, memoized in ``_src_bin_cache`` since the same source column conditions many candidate binagg columns."""
+        b = _src_bin_cache.get(col)
+        if b is None:
+            b = _quantile_bin(X[col].to_numpy(dtype=np.float64), nbins=nbins_base)
+            _src_bin_cache[col] = b
+        return b
+
+    kept_cols: list[Any] = []
+    _build_binned_agg_recipes(cands, raw, X, _src_bins, nbins_base, y_cls, min_cmi_gain, _rng, _n_perm, _NULL_Z, kept_cols, reject_sink)
+    if _dev_cands is not None:
+        # Host out-of-fold columns for the KEPT pairs only (usually none): same values the all-survivors fit would have produced for them.
+        if not kept_cols:
+            return None
+        _kept_pairs = set((raw[_nm]["group_col"], raw[_nm]["agg_col"]) for _nm in kept_cols)
+        feat_df, _ = fit_binned_numeric_agg(
+            X, y, group_num_cols=gsel, agg_num_cols=asel,
+            stats=stats, nbins_base=nbins_base, n_folds=n_folds, random_state=random_state,
+            pairs=_kept_pairs,
+        )
+        _have = set(feat_df.columns)
+        kept_cols = [c for c in kept_cols if c in _have]
+    assert feat_df is not None
+    feat_df = feat_df[kept_cols]
+    if feat_df.shape[1] == 0:
+        return None
+    return feat_df
+
+
 def binned_numeric_agg_with_recipes(
     X: pd.DataFrame, y: np.ndarray, *,
     group_num_cols: Sequence[str] | None = None, agg_num_cols: Sequence[str] | None = None,
@@ -613,62 +689,8 @@ def binned_numeric_agg_with_recipes(
     # adds information the raw marginals cannot).
     assert raw is not None and (feat_df is not None or _dev_cands is not None)  # the host branch fills feat_df, the device branch fills it or leaves the lazy device source
     if redundancy_gate and (_dev_cands is not None or (feat_df is not None and feat_df.shape[1] > 0)):
-        from ._mi_greedy_cmi_fe import _quantile_bin
-        from ._unified_fe_gate import _coerce_y_classes
-
-        y_cls = _coerce_y_classes(y)
-        _src_bin_cache: dict[str, np.ndarray] = {}
-        # Permutation-null floor. The plug-in CMI estimator is positively biased at finite n: a binagg column that is
-        # genuinely redundant with its sources still scores a small POSITIVE CMI that a fixed threshold cannot separate
-        # from real signal (the bias grows as n shrinks / the conditioning support fragments, and the OOF per-fold
-        # aggregate adds further sampling noise). Calibrate per-candidate: score the SAME candidate against shuffled-y
-        # under the same conditioning; the max over a handful of permutations is the candidate's own noise ceiling.
-        # Keep it only when its observed CMI clears BOTH the absolute floor AND that ceiling - genuine cell-conditional
-        # signal sits far above the null, redundant re-encodings sit at it.
-        #
-        # FWER fix: the ceiling was the raw MAX over only 15 permutations. With ~1/(n_perm+1) effective
-        # alpha per candidate and many (group, agg, stat) candidates over many fits, a high-variance noise stat
-        # (kurt sits at the top of the moment ladder) eventually clears the noisy max by luck - measured on the
-        # all-noise null frame (seed=6, clf): binagg_kurt(n2|qbin(n4)) cmi=0.02507 vs max-of-15=0.02279 (PASS by
-        # luck) yet max-of-60=0.02490 and the candidate sits squarely INSIDE the null. Replace the unstable raw
-        # max with a robust one-sided z-ceiling (mean + _NULL_Z * std of the permutation CMIs): a stable estimate
-        # of the null upper tail that does not depend on catching the single luckiest permutation. Genuine signal
-        # sits far above the null so this does not suppress it; it collapses the borderline noise FPs to zero.
-        _n_perm = 30
-        # Family-wise z: the ceiling is applied to EVERY surviving (group, agg, stat) candidate (up to max_pairs x
-        # stats = 256 at the defaults), so a fixed per-candidate z=2 (~2.3% one-sided) lets ~6 pure-noise columns
-        # through on a wide noise frame (measured: binagg_std(noise_48|qbin(x5)) survived on the wide-synergy
-        # fixture and fed spurious engineered composites). Bonferroni over the tested candidates at alpha=0.05,
-        # never below the old per-candidate z.
-        cands = _dev_cands if _dev_cands is not None else HostCandidates(feat_df, _quantile_bin, _candidate_codes)
-        _NULL_Z = _family_wise_null_z(len(cands.names))
-        _rng = np.random.default_rng(int(random_state))
-
-        def _src_bins(col: str) -> np.ndarray:
-            """Quantile-bin codes for a raw source column, memoized in ``_src_bin_cache`` since the same source column conditions many candidate binagg columns."""
-            b = _src_bin_cache.get(col)
-            if b is None:
-                b = _quantile_bin(X[col].to_numpy(dtype=np.float64), nbins=nbins_base)
-                _src_bin_cache[col] = b
-            return b
-
-        kept_cols: list[Any] = []
-        _build_binned_agg_recipes(cands, raw, X, _src_bins, nbins_base, y_cls, min_cmi_gain, _rng, _n_perm, _NULL_Z, kept_cols, reject_sink)
-        if _dev_cands is not None:
-            # Host out-of-fold columns for the KEPT pairs only (usually none): same values the all-survivors fit would have produced for them.
-            if not kept_cols:
-                return X, [], []
-            _kept_pairs = set((raw[_nm]["group_col"], raw[_nm]["agg_col"]) for _nm in kept_cols)
-            feat_df, _ = fit_binned_numeric_agg(
-                X, y, group_num_cols=gsel, agg_num_cols=asel,
-                stats=stats, nbins_base=nbins_base, n_folds=n_folds, random_state=random_state,
-                pairs=_kept_pairs,
-            )
-            _have = set(feat_df.columns)
-            kept_cols = [c for c in kept_cols if c in _have]
-        assert feat_df is not None
-        feat_df = feat_df[kept_cols]
-        if feat_df.shape[1] == 0:
+        feat_df = _redundancy_gate_binagg(X, y, raw, feat_df, _dev_cands, gsel, asel, stats, nbins_base, n_folds, random_state, min_cmi_gain, reject_sink)
+        if feat_df is None:
             return X, [], []
     assert feat_df is not None
     X_aug = pd.concat([X, feat_df], axis=1)

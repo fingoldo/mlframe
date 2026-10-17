@@ -98,6 +98,7 @@ from __future__ import annotations
 
 import functools
 import logging
+from types import SimpleNamespace as _SimpleNamespace
 import threading
 import zlib
 from typing import Optional, Any
@@ -210,84 +211,11 @@ def _cmi_gate_resident_eligible(y_bin, names) -> bool:
         return False
 
 
-def apply_cmi_redundancy_gate(
-    candidates: dict,
-    y_bin: np.ndarray,
-    *,
-    nbins: int = 10,
-    retain_frac: float = DEFAULT_CMI_RETAIN_FRAC,
-    n_permutations: int = _CMI_FLOOR_PERMUTATIONS,
-    quantile: float = _CMI_FLOOR_QUANTILE,
-    significance_escape_margin: float = _CMI_SIGNIFICANCE_ESCAPE_MARGIN,
-    max_candidates: int = _DEFAULT_MAX_CANDIDATES,
-    seed: int = 0,
-    verbose: int = 0,
-) -> tuple[set, dict]:
-    """Greedy CMI-redundancy gate over the surviving engineered candidate pool.
-
-    Parameters
-    ----------
-    candidates : dict ``{name -> (continuous_values: np.ndarray, marginal_mi: float)}``
-        The engineered columns that already cleared the per-pair acceptance
-        machinery (joint / prewarp / marginal-uplift). ``continuous_values`` is
-        the full-n float column (NOT pre-binned - binned here so the CMI codes
-        match the production quantile binning the prototype validated).
-    y_bin : np.ndarray
-        Discretised target codes (the same ``classes_y`` the MI sweep scores
-        against). Renumbered to dense 0..K-1 internally.
-    nbins : int
-        Equi-frequency bins per candidate column.
-    retain_frac : float
-        TAU - the scale-free relative-retention fraction (default 0.15).
-    n_permutations, quantile : int, float
-        Conditional-permutation floor config.
-    significance_escape_margin : float
-        Strong-significance escape for the relative-gap (leg 2) bar. A candidate
-        whose observed CMI clears its OWN conditional-permutation floor by at
-        least this MULTIPLICATIVE margin is robustly-significant NEW information
-        not contained in the admitted support, so it is admitted even when its
-        debiased excess is below the relative bar. Prevents the FALSE REJECT of a
-        genuinely complementary but individually-WEAKER feature (whose excess is
-        below ``retain_frac * strongest-incumbent`` yet which clears its floor
-        20x+). Set ``<= 1`` to disable the escape (pure two-leg behaviour).
-    max_candidates : int
-        COST GUARD. The greedy gate is O(K^2) in the candidate count (every
-        remaining candidate re-scored against the support in each round, each
-        scoring running a per-stratum permutation null). When ``len(candidates)``
-        exceeds this cap the pool is PRE-RANKED by marginal MI and only the
-        top-``max_candidates`` enter the greedy - bounding the cost to O(M^2)
-        regardless of how wide the upstream FE pool grows. Safe for the redundancy
-        decision: the gate already admits in marginal-MI order and a redundant
-        remap shares its genuine sibling's marginal MI, so every genuine driver's
-        representative is retained; only deep-tail redundant remaps (rejected
-        anyway) are dropped. ``<= 0`` disables the cap (unbounded greedy). The
-        dropped tail is diagnosed with ``reason='dropped_cost_cap'``.
-    seed : int
-        RNG seed for the conditional-permutation floor (deterministic).
-    verbose : int
-        >0 emits per-candidate accept/reject diagnostics via the module logger.
-
-    Returns
-    -------
-    (accepted_names, diagnostics)
-        ``accepted_names`` is the set of candidate names to KEEP; everything
-        else is dropped as redundant. ``diagnostics`` maps each name to a dict
-        with ``accept`` / ``cmi`` (raw observed CMI) / ``cmi_excess`` (debiased
-        excess = ``max(0, cmi - null_mean)``, what the relative bar compares) /
-        ``floor`` / ``null_mean`` / ``rel_bar`` / ``reason``.
-
-    Degenerate fallback: with <2 candidates, or fewer than ``_MIN_ROWS_FOR_CMI``
-    rows, there is nothing to condition on (or the conditional estimate is
-    unreliable) - ACCEPT every candidate on its marginal significance rather
-    than rejecting everything.
-    """
-    _yhit: Any = None
-    from ._mi_greedy_cmi_fe import _cmi_from_binned, _quantile_bin
-
-    names = list(candidates.keys())
-    diagnostics: dict = {}
-    if not names:
-        return set(), diagnostics
+def _gate_prepare(
+    g: Any, candidates: dict, y_bin: np.ndarray, names: list, nbins: int, max_candidates: int, verbose: int, diagnostics: dict
+) -> Optional[tuple]:
+    """Dense target, resident eligibility, candidate binning, partition dedup and the cost cap; returns the finished ``(accepted, diagnostics)`` for the degenerate case, else ``None``."""
+    from ._mi_greedy_cmi_fe import _quantile_bin
 
     # DEVICE-BORN candidate-code residency (default ON under fe_gpu_strict_resident_enabled; env opt-out
     # MLFRAME_FE_GATE_RESIDENT_CANDS=0). When on, each candidate is quantile-binned ONCE on the device and its
@@ -368,7 +296,13 @@ def apply_cmi_redundancy_gate(
     # permutation-null cost. ``max_candidates <= 0`` disables it.
     _dropped_for_cost: list[str] = []
     names, nm = _apply_cmi_redundan_permutation_null_cost_max(max_candidates, names, candidates, diagnostics, verbose, nm)
+    g.names, g.cand_bins, g.cand_bins_dev, g.marg, g.y_dense, g.n_rows, g.gate_resident = names, cand_bins, cand_bins_dev, marg, y_dense, n_rows, _gate_resident
+    return None
 
+
+def _gate_seed(g: Any, n_permutations: int, quantile: float, seed: int, diagnostics: dict) -> None:
+    """Admit the highest-marginal-MI candidate on its marginal significance and initialise the greedy state on ``g``."""
+    names, cand_bins, cand_bins_dev, marg, y_dense, n_rows = g.names, g.cand_bins, g.cand_bins_dev, g.marg, g.y_dense, g.n_rows
     accepted: list[str] = []  # admitted candidate names, in selection order
     accepted_bins: list[np.ndarray] = []
     # Parallel list of the RESIDENT (device) code for each admitted feature (None where that feature fell back to
@@ -436,161 +370,272 @@ def apply_cmi_redundancy_gate(
         floor=seed_floor, null_mean=seed_null_mean, rel_bar=0.0,
         reason="seed_marginal",
     )
+    g.accepted, g.accepted_bins, g.accepted_bins_dev, g.admitted_excess = accepted, accepted_bins, accepted_bins_dev, admitted_excess
+    g.remaining, g.frag_cap, g.z_support, g._pending_z_support, g._pending_z_card, g._tie_key = remaining, frag_cap, z_support, _pending_z_support, _pending_z_card, _tie_key
 
-    while remaining:
-        # DEVICE-BORN conditioning support Z: when every admitted feature has a resident code, join them ON the
-        # device (``_renumber_joint_gpu``) so Z never crosses H2D - threaded RESIDENT through the round-batched
-        # CMI, the per-candidate CMI, and the conditional perm-null (which derives order/z_rank on device). The
-        # device join yields a different dense-id numbering than the host njit factorize but the SAME partition
-        # -> the same CMI, so admit/reject is selection-identical. Mixed / host-fallback rounds keep the host
-        # join. The host ``z_support`` is still built when NOT device-born (or as a rare perm-null fallback).
-        # A round's frag-cap admission check (candidate_support, below) joins accepted_bins + the
-        # winning candidate - EXACTLY the join this round needs here once that candidate is folded in
-        # (accepted_bins now equals that same set). Reuse it instead of a second _renumber_joint over
-        # the identical columns; consumed-and-cleared unconditionally so a frag-cap-frozen round (which
-        # left accepted_bins unchanged) or the very first round never carries a stale/absent value in.
-        _prev_z_support, _prev_z_card = _pending_z_support, _pending_z_card
-        _pending_z_support, _pending_z_card = None, None
-        z_support_dev = None
-        z_support_dev = _apply_cmi_redundan_gate_resident_accepted_bins(_gate_resident, accepted_bins_dev, z_support_dev)
-        _z_card, z_support = _apply_cmi_redundan_support_dev_none(z_support_dev, _prev_z_support, _prev_z_card, accepted_bins, z_support)
-        # z handed to the DEVICE scorers (round-batched CMI + per-candidate CMI): the resident support when
-        # device-born, else the host support - both accepted by the cupy resident-input branches.
-        _z_scored = z_support_dev if z_support_dev is not None else z_support
-        # Relative bar is a fraction of the WEAKEST admitted feature's DEBIASED
-        # EXCESS CMI - n-invariant because the finite-sample bias cancels in the
-        # excess (cmi_obs - null_mean). A redundant candidate's excess ~ 0; a
-        # genuine candidate's excess stays a large positive value.
-        rel_bar = float(retain_frac) * min(admitted_excess)
-        best_name = None
-        best_excess = -1.0
-        scored: dict = {}
-        # ROUND-LEVEL BATCHED CMI + ANALYTIC FLOOR/df (launch-reduction): within a greedy round z_support is
-        # FIXED, so EVERY remaining candidate's CMI(x; y | z) AND its analytic-null cardinalities
-        # (k_z/k_xz/k_yz/k_xyz -> df) are computed in ONE batched_cmi_gpu(return_cards) workload instead of a
-        # per-candidate _cmi_from_binned + joint_cardinalities_cupy. The occupied-cell counts equal the
-        # per-candidate path's (same definition) -> df, hence floor = chi2.ppf(q,df)/2N and null_mean =
-        # df/2N, are BIT-IDENTICAL to _conditional_perm_null's analytic branch (the SAME applicability gate:
-        # n >= analytic-min-n, df > 0, n/k_xyz >= min-expected-cell). Candidates where the analytic null does
-        # NOT apply fall back to the per-candidate _conditional_perm_null (permutation path) below. Gated
-        # under STRICT/CMI_GPU (default OFF -> per-candidate CPU, byte-identical).
-        _round_cmi: dict = {}
-        _round_floor: dict = {}
-        _round_cards: dict = {}  # nm -> (k_z, k_xz, k_yz, k_xyz) from the batched return_cards workload
-        # Stable, hash-independent iteration order: ``remaining`` is a set of name strings, so a
-        # bare ``list(remaining)`` is PYTHONHASHSEED-randomised and the per-round winner tie-break
-        # (``cmi_excess > best_excess``, first-wins) would flip across processes on equal-excess
-        # candidates. Order by the SAME structural-preference key as the seed (simplest/raw form
-        # first) so the winner among equal-excess candidates is reproducible AND consistent with
-        # the seed's preference.
-        _rem_list = sorted(remaining, key=_tie_key)
-        try:
-            from ._mi_greedy_cmi_fe import _cmi_gpu_enabled
-            if _cmi_gpu_enabled(n=int(y_dense.shape[0]), p=len(_rem_list)) and len(_rem_list) > 1:
-                from ._fe_batched_mi import batched_cmi_gpu
-                # RESIDENT candidate-matrix build: when every round candidate has a device-resident code
-                # (device-born binning), stack them into a RESIDENT (n, K) cupy matrix so the derived codes
-                # never re-cross H2D into ``batched_cmi_gpu`` (which accepts a resident ``x_cols``). Mixed /
-                # host-fallback rounds keep the host int64 build (byte-identical codes -> same CMI).
-                if cand_bins_dev and all(_nm in cand_bins_dev for _nm in _rem_list):
-                    import cupy as _cp
-                    _Xc = _cp.empty((y_dense.shape[0], len(_rem_list)), dtype=_cp.int64)
-                    for _j, _nm in enumerate(_rem_list):
-                        _Xc[:, _j] = cand_bins_dev[_nm]
-                else:
-                    _Xc = np.empty((y_dense.shape[0], len(_rem_list)), dtype=np.int64)
-                    for _j, _nm in enumerate(_rem_list):
-                        _Xc[:, _j] = cand_bins[_nm]
-                _cmis, _kz, _kxz, _kyz, _kxyz = batched_cmi_gpu(_Xc, y_dense, _z_scored, return_cards=True)
-                _cmis = np.asarray(_cmis, dtype=np.float64)
-                _round_cmi = {_nm: float(_cmis[_j]) for _j, _nm in enumerate(_rem_list)}
-                # cards for EVERY candidate -> pass to the per-candidate permutation-null fallback so it never
-                # recomputes joint_cardinalities_cupy (z_support is conditional here, so cards apply).
-                if _z_scored is not None:
-                    _kxz_a = np.asarray(_kxz)
-                    _kxyz_a = np.asarray(_kxyz)
-                    _round_cards = {_nm: (int(_kz), int(_kxz_a[_j]), int(_kyz), int(_kxyz_a[_j])) for _j, _nm in enumerate(_rem_list)}
-                # analytic floor/null for all candidates from the batched cards (matches _conditional_perm_null)
-                _round_floor = _apply_cmi_redundan_analytic_floor_null_all(n_rows, _rem_list, _kxyz, _kz, _kxz, _kyz, quantile, _round_floor, _j, _nm)
-        except Exception as e:
-            log_throttle(logger, "cmi_gate.round_cmi_floor", logging.WARNING, "CMI gate: the round CMI/floor computation failed (%s: %s), the round proceeds with empty CMI and floor tables", type(e).__name__, e)
-            _round_cmi = {}
-            _round_floor = {}
-        # z_support is FIXED within the round, so read its occupied cardinality ONCE here (one D2H) and pass it
-        # to every per-candidate CMI fallback as kz - otherwise _cmi_from_binned_cupy re-reads int(dz.max()) per
-        # candidate. Candidate codes are nbins-binned, so kx=nbins is a safe (empty-bin) upper bound with no read.
-        _zcard = 0
-        _zcard = _apply_cmi_redundan_candidate_candidate_codes_nbins(_z_card, _z_scored, _zcard)
-        for nm in _rem_list:
-            # Prefer the RESIDENT candidate code for the per-candidate CMI + perm-null fallbacks (both dispatch
-            # to the cupy resident-input branch: ``_cmi_from_binned`` -> ``_cmi_from_binned_cupy(isinstance
-            # cp.ndarray)``; ``conditional_perm_null_gpu(isinstance cp.ndarray)``), so a candidate that misses the
-            # round-batched result is scored from its resident codes without a re-upload. Host code otherwise.
-            _cb = cand_bins_dev.get(nm) if cand_bins_dev else None
-            if _cb is None:
-                _cb = cand_bins[nm]
-            cmi = _round_cmi[nm] if nm in _round_cmi else float(_cmi_from_binned(_cb, y_dense, _z_scored, kx=int(nbins), kz=int(_zcard)))
-            if nm in _round_floor:
-                floor, null_mean = _round_floor[nm]
+
+def _gate_round_batched(g: Any, _rem_list: list, _z_scored: Any, quantile: float) -> tuple:
+    """Round-level batched CMI + analytic floor / cardinalities for every remaining candidate; returns ``(round_cmi, round_floor, round_cards)`` (empty on failure)."""
+    y_dense, n_rows, cand_bins, cand_bins_dev = g.y_dense, g.n_rows, g.cand_bins, g.cand_bins_dev
+    _round_cmi: dict = {}
+    _round_floor: dict = {}
+    _round_cards: dict = {}  # nm -> (k_z, k_xz, k_yz, k_xyz) from the batched return_cards workload
+    try:
+        from ._mi_greedy_cmi_fe import _cmi_gpu_enabled
+        if _cmi_gpu_enabled(n=int(y_dense.shape[0]), p=len(_rem_list)) and len(_rem_list) > 1:
+            from ._fe_batched_mi import batched_cmi_gpu
+            # RESIDENT candidate-matrix build: when every round candidate has a device-resident code
+            # (device-born binning), stack them into a RESIDENT (n, K) cupy matrix so the derived codes
+            # never re-cross H2D into ``batched_cmi_gpu`` (which accepts a resident ``x_cols``). Mixed /
+            # host-fallback rounds keep the host int64 build (byte-identical codes -> same CMI).
+            if cand_bins_dev and all(_nm in cand_bins_dev for _nm in _rem_list):
+                import cupy as _cp
+                _Xc = _cp.empty((y_dense.shape[0], len(_rem_list)), dtype=_cp.int64)
+                for _j, _nm in enumerate(_rem_list):
+                    _Xc[:, _j] = cand_bins_dev[_nm]
             else:
-                floor, null_mean = _conditional_perm_null(
-                    _cb, y_dense, z_support,
-                    n_permutations=n_permutations, quantile=quantile, seed=seed,
-                    salt=zlib.crc32(nm.encode("utf-8")),
-                    precomp_cards=_round_cards.get(nm), z_support_dev=z_support_dev,
-                )
-            cmi_excess = max(0.0, cmi - null_mean)
-            scored[nm] = (cmi, cmi_excess)
-            passes_floor = cmi > floor  # leg 1: significance
-            # Strong-significance escape: a candidate whose observed CMI clears
-            # its OWN conditional-permutation floor by a robust multiplicative
-            # margin carries genuinely NEW conditional information that is NOT in
-            # the admitted support (a redundant feature's CMI collapses to ~its
-            # floor - measured cmi/floor 1.0--1.4 for the spurious cross-signal
-            # vs >=20 for a genuine complementary feature). Such a feature is
-            # admitted even if its debiased excess is below the relative bar,
-            # which by itself would FALSELY REJECT a complementary-but-weaker
-            # feature as "redundant". The escape requires passes_floor first (no
-            # division-by-noise on a sub-floor candidate).
-            strongly_significant = passes_floor and significance_escape_margin > 1.0 and floor > 0.0 and cmi >= significance_escape_margin * floor
-            passes_rel = cmi_excess >= rel_bar  # leg 2: debiased relative gap
-            passes = passes_floor and (passes_rel or strongly_significant)
-            if nm not in diagnostics:
-                diagnostics[nm] = {}
-            diagnostics[nm].update(
-                accept=False, cmi=cmi, cmi_excess=cmi_excess, floor=floor,
-                null_mean=null_mean, rel_bar=rel_bar,
-                reason=("redundant_below_floor" if not passes_floor
-                        else "pending" if (passes_rel or strongly_significant)
-                        else "redundant_below_rel_bar"),
-            )
-            if passes and cmi_excess > best_excess:
-                best_excess = cmi_excess
-                best_name = nm
-        if best_name is None:
-            # No remaining candidate adds enough NEW information -> stop; the
-            # rest are redundant given the admitted engineered support.
-            break
-        diagnostics[best_name].update(accept=True, reason="admitted_cmi")
-        # Fold the winner into the conditioning support, respecting the
-        # fragmentation cap (freeze support if folding would shatter the strata).
-        new_bin = cand_bins[best_name]
-        candidate_support, _cand_card = _joint_with_winner(accepted_bins, accepted_bins_dev, new_bin, cand_bins_dev.get(best_name) if cand_bins_dev else None)
-        if _cand_card <= frag_cap:
-            accepted_bins.append(new_bin)
-            # Keep the resident-code list in lockstep so the NEXT round's device-born support join includes
-            # this winner (None where it fell back to host binning -> that round takes the host support).
-            accepted_bins_dev.append(cand_bins_dev.get(best_name) if cand_bins_dev else None)
-            # accepted_bins now equals exactly the columns just joined above -> carry the join forward
-            # for the next round's z_support build (see the top of this loop).
-            _pending_z_support, _pending_z_card = candidate_support, _cand_card
-        # else: keep accepted_bins frozen; the feature is still admitted.
-        accepted.append(best_name)
-        admitted_excess.append(best_excess)
-        remaining.discard(best_name)
+                _Xc = np.empty((y_dense.shape[0], len(_rem_list)), dtype=np.int64)
+                for _j, _nm in enumerate(_rem_list):
+                    _Xc[:, _j] = cand_bins[_nm]
+            _cmis, _kz, _kxz, _kyz, _kxyz = batched_cmi_gpu(_Xc, y_dense, _z_scored, return_cards=True)
+            _cmis = np.asarray(_cmis, dtype=np.float64)
+            _round_cmi = {_nm: float(_cmis[_j]) for _j, _nm in enumerate(_rem_list)}
+            # cards for EVERY candidate -> pass to the per-candidate permutation-null fallback so it never
+            # recomputes joint_cardinalities_cupy (z_support is conditional here, so cards apply).
+            if _z_scored is not None:
+                _kxz_a = np.asarray(_kxz)
+                _kxyz_a = np.asarray(_kxyz)
+                _round_cards = {_nm: (int(_kz), int(_kxz_a[_j]), int(_kyz), int(_kxyz_a[_j])) for _j, _nm in enumerate(_rem_list)}
+            # analytic floor/null for all candidates from the batched cards (matches _conditional_perm_null)
+            _round_floor = _apply_cmi_redundan_analytic_floor_null_all(n_rows, _rem_list, _kxyz, _kz, _kxz, _kyz, quantile, _round_floor, _j, _nm)
+    except Exception as e:
+        log_throttle(logger, "cmi_gate.round_cmi_floor", logging.WARNING, "CMI gate: the round CMI/floor computation failed (%s: %s), the round proceeds with empty CMI and floor tables", type(e).__name__, e)
+        _round_cmi = {}
+        _round_floor = {}
+    return _round_cmi, _round_floor, _round_cards
 
-    _apply_cmi_redundan_verbose(verbose, names, diagnostics)
-    return set(accepted), diagnostics
+
+def _gate_round(
+    g: Any, nbins: int, n_permutations: int, quantile: float, significance_escape_margin: float, retain_frac: float, seed: int, diagnostics: dict
+) -> bool:
+    """One greedy round: score every remaining candidate against the admitted support and fold the winner in; ``False`` when no candidate adds enough new information."""
+    from ._mi_greedy_cmi_fe import _cmi_from_binned
+
+    cand_bins, cand_bins_dev, y_dense = g.cand_bins, g.cand_bins_dev, g.y_dense
+    accepted, accepted_bins, accepted_bins_dev, admitted_excess = g.accepted, g.accepted_bins, g.accepted_bins_dev, g.admitted_excess
+    remaining, frag_cap, z_support, _tie_key, _gate_resident = g.remaining, g.frag_cap, g.z_support, g._tie_key, g.gate_resident
+    _pending_z_support, _pending_z_card = g._pending_z_support, g._pending_z_card
+
+    # DEVICE-BORN conditioning support Z: when every admitted feature has a resident code, join them ON the
+    # device (``_renumber_joint_gpu``) so Z never crosses H2D - threaded RESIDENT through the round-batched
+    # CMI, the per-candidate CMI, and the conditional perm-null (which derives order/z_rank on device). The
+    # device join yields a different dense-id numbering than the host njit factorize but the SAME partition
+    # -> the same CMI, so admit/reject is selection-identical. Mixed / host-fallback rounds keep the host
+    # join. The host ``z_support`` is still built when NOT device-born (or as a rare perm-null fallback).
+    # A round's frag-cap admission check (candidate_support, below) joins accepted_bins + the
+    # winning candidate - EXACTLY the join this round needs here once that candidate is folded in
+    # (accepted_bins now equals that same set). Reuse it instead of a second _renumber_joint over
+    # the identical columns; consumed-and-cleared unconditionally so a frag-cap-frozen round (which
+    # left accepted_bins unchanged) or the very first round never carries a stale/absent value in.
+    _prev_z_support, _prev_z_card = _pending_z_support, _pending_z_card
+    _pending_z_support, _pending_z_card = None, None
+    z_support_dev = None
+    z_support_dev = _apply_cmi_redundan_gate_resident_accepted_bins(_gate_resident, accepted_bins_dev, z_support_dev)
+    _z_card, z_support = _apply_cmi_redundan_support_dev_none(z_support_dev, _prev_z_support, _prev_z_card, accepted_bins, z_support)
+    # z handed to the DEVICE scorers (round-batched CMI + per-candidate CMI): the resident support when
+    # device-born, else the host support - both accepted by the cupy resident-input branches.
+    _z_scored = z_support_dev if z_support_dev is not None else z_support
+    # Relative bar is a fraction of the WEAKEST admitted feature's DEBIASED
+    # EXCESS CMI - n-invariant because the finite-sample bias cancels in the
+    # excess (cmi_obs - null_mean). A redundant candidate's excess ~ 0; a
+    # genuine candidate's excess stays a large positive value.
+    rel_bar = float(retain_frac) * min(admitted_excess)
+    best_name = None
+    best_excess = -1.0
+    scored: dict = {}
+    # ROUND-LEVEL BATCHED CMI + ANALYTIC FLOOR/df (launch-reduction): within a greedy round z_support is
+    # FIXED, so EVERY remaining candidate's CMI(x; y | z) AND its analytic-null cardinalities
+    # (k_z/k_xz/k_yz/k_xyz -> df) are computed in ONE batched_cmi_gpu(return_cards) workload instead of a
+    # per-candidate _cmi_from_binned + joint_cardinalities_cupy. The occupied-cell counts equal the
+    # per-candidate path's (same definition) -> df, hence floor = chi2.ppf(q,df)/2N and null_mean =
+    # df/2N, are BIT-IDENTICAL to _conditional_perm_null's analytic branch (the SAME applicability gate:
+    # n >= analytic-min-n, df > 0, n/k_xyz >= min-expected-cell). Candidates where the analytic null does
+    # NOT apply fall back to the per-candidate _conditional_perm_null (permutation path) below. Gated
+    # under STRICT/CMI_GPU (default OFF -> per-candidate CPU, byte-identical).
+    # Stable, hash-independent iteration order: ``remaining`` is a set of name strings, so a
+    # bare ``list(remaining)`` is PYTHONHASHSEED-randomised and the per-round winner tie-break
+    # (``cmi_excess > best_excess``, first-wins) would flip across processes on equal-excess
+    # candidates. Order by the SAME structural-preference key as the seed (simplest/raw form
+    # first) so the winner among equal-excess candidates is reproducible AND consistent with
+    # the seed's preference.
+    _rem_list = sorted(remaining, key=_tie_key)
+    _round_cmi, _round_floor, _round_cards = _gate_round_batched(g, _rem_list, _z_scored, quantile)
+    # z_support is FIXED within the round, so read its occupied cardinality ONCE here (one D2H) and pass it
+    # to every per-candidate CMI fallback as kz - otherwise _cmi_from_binned_cupy re-reads int(dz.max()) per
+    # candidate. Candidate codes are nbins-binned, so kx=nbins is a safe (empty-bin) upper bound with no read.
+    _zcard = 0
+    _zcard = _apply_cmi_redundan_candidate_candidate_codes_nbins(_z_card, _z_scored, _zcard)
+    for nm in _rem_list:
+        # Prefer the RESIDENT candidate code for the per-candidate CMI + perm-null fallbacks (both dispatch
+        # to the cupy resident-input branch: ``_cmi_from_binned`` -> ``_cmi_from_binned_cupy(isinstance
+        # cp.ndarray)``; ``conditional_perm_null_gpu(isinstance cp.ndarray)``), so a candidate that misses the
+        # round-batched result is scored from its resident codes without a re-upload. Host code otherwise.
+        _cb = cand_bins_dev.get(nm) if cand_bins_dev else None
+        if _cb is None:
+            _cb = cand_bins[nm]
+        cmi = _round_cmi[nm] if nm in _round_cmi else float(_cmi_from_binned(_cb, y_dense, _z_scored, kx=int(nbins), kz=int(_zcard)))
+        if nm in _round_floor:
+            floor, null_mean = _round_floor[nm]
+        else:
+            floor, null_mean = _conditional_perm_null(
+                _cb, y_dense, z_support,
+                n_permutations=n_permutations, quantile=quantile, seed=seed,
+                salt=zlib.crc32(nm.encode("utf-8")),
+                precomp_cards=_round_cards.get(nm), z_support_dev=z_support_dev,
+            )
+        cmi_excess = max(0.0, cmi - null_mean)
+        scored[nm] = (cmi, cmi_excess)
+        passes_floor = cmi > floor  # leg 1: significance
+        # Strong-significance escape: a candidate whose observed CMI clears
+        # its OWN conditional-permutation floor by a robust multiplicative
+        # margin carries genuinely NEW conditional information that is NOT in
+        # the admitted support (a redundant feature's CMI collapses to ~its
+        # floor - measured cmi/floor 1.0--1.4 for the spurious cross-signal
+        # vs >=20 for a genuine complementary feature). Such a feature is
+        # admitted even if its debiased excess is below the relative bar,
+        # which by itself would FALSELY REJECT a complementary-but-weaker
+        # feature as "redundant". The escape requires passes_floor first (no
+        # division-by-noise on a sub-floor candidate).
+        strongly_significant = passes_floor and significance_escape_margin > 1.0 and floor > 0.0 and cmi >= significance_escape_margin * floor
+        passes_rel = cmi_excess >= rel_bar  # leg 2: debiased relative gap
+        passes = passes_floor and (passes_rel or strongly_significant)
+        if nm not in diagnostics:
+            diagnostics[nm] = {}
+        diagnostics[nm].update(
+            accept=False, cmi=cmi, cmi_excess=cmi_excess, floor=floor,
+            null_mean=null_mean, rel_bar=rel_bar,
+            reason=("redundant_below_floor" if not passes_floor
+                    else "pending" if (passes_rel or strongly_significant)
+                    else "redundant_below_rel_bar"),
+        )
+        if passes and cmi_excess > best_excess:
+            best_excess = cmi_excess
+            best_name = nm
+    if best_name is None:
+        # No remaining candidate adds enough NEW information -> stop; the
+        # rest are redundant given the admitted engineered support.
+        return False
+    diagnostics[best_name].update(accept=True, reason="admitted_cmi")
+    # Fold the winner into the conditioning support, respecting the
+    # fragmentation cap (freeze support if folding would shatter the strata).
+    new_bin = cand_bins[best_name]
+    candidate_support, _cand_card = _joint_with_winner(accepted_bins, accepted_bins_dev, new_bin, cand_bins_dev.get(best_name) if cand_bins_dev else None)
+    if _cand_card <= frag_cap:
+        accepted_bins.append(new_bin)
+        # Keep the resident-code list in lockstep so the NEXT round's device-born support join includes
+        # this winner (None where it fell back to host binning -> that round takes the host support).
+        accepted_bins_dev.append(cand_bins_dev.get(best_name) if cand_bins_dev else None)
+        # accepted_bins now equals exactly the columns just joined above -> carry the join forward
+        # for the next round's z_support build (see the top of this loop).
+        _pending_z_support, _pending_z_card = candidate_support, _cand_card
+    # else: keep accepted_bins frozen; the feature is still admitted.
+    accepted.append(best_name)
+    admitted_excess.append(best_excess)
+    remaining.discard(best_name)
+
+    g.z_support, g._pending_z_support, g._pending_z_card = z_support, _pending_z_support, _pending_z_card
+    return True
+
+
+def apply_cmi_redundancy_gate(
+    candidates: dict,
+    y_bin: np.ndarray,
+    *,
+    nbins: int = 10,
+    retain_frac: float = DEFAULT_CMI_RETAIN_FRAC,
+    n_permutations: int = _CMI_FLOOR_PERMUTATIONS,
+    quantile: float = _CMI_FLOOR_QUANTILE,
+    significance_escape_margin: float = _CMI_SIGNIFICANCE_ESCAPE_MARGIN,
+    max_candidates: int = _DEFAULT_MAX_CANDIDATES,
+    seed: int = 0,
+    verbose: int = 0,
+) -> tuple[set, dict]:
+    """Greedy CMI-redundancy gate over the surviving engineered candidate pool.
+
+    Parameters
+    ----------
+    candidates : dict ``{name -> (continuous_values: np.ndarray, marginal_mi: float)}``
+        The engineered columns that already cleared the per-pair acceptance
+        machinery (joint / prewarp / marginal-uplift). ``continuous_values`` is
+        the full-n float column (NOT pre-binned - binned here so the CMI codes
+        match the production quantile binning the prototype validated).
+    y_bin : np.ndarray
+        Discretised target codes (the same ``classes_y`` the MI sweep scores
+        against). Renumbered to dense 0..K-1 internally.
+    nbins : int
+        Equi-frequency bins per candidate column.
+    retain_frac : float
+        TAU - the scale-free relative-retention fraction (default 0.15).
+    n_permutations, quantile : int, float
+        Conditional-permutation floor config.
+    significance_escape_margin : float
+        Strong-significance escape for the relative-gap (leg 2) bar. A candidate
+        whose observed CMI clears its OWN conditional-permutation floor by at
+        least this MULTIPLICATIVE margin is robustly-significant NEW information
+        not contained in the admitted support, so it is admitted even when its
+        debiased excess is below the relative bar. Prevents the FALSE REJECT of a
+        genuinely complementary but individually-WEAKER feature (whose excess is
+        below ``retain_frac * strongest-incumbent`` yet which clears its floor
+        20x+). Set ``<= 1`` to disable the escape (pure two-leg behaviour).
+    max_candidates : int
+        COST GUARD. The greedy gate is O(K^2) in the candidate count (every
+        remaining candidate re-scored against the support in each round, each
+        scoring running a per-stratum permutation null). When ``len(candidates)``
+        exceeds this cap the pool is PRE-RANKED by marginal MI and only the
+        top-``max_candidates`` enter the greedy - bounding the cost to O(M^2)
+        regardless of how wide the upstream FE pool grows. Safe for the redundancy
+        decision: the gate already admits in marginal-MI order and a redundant
+        remap shares its genuine sibling's marginal MI, so every genuine driver's
+        representative is retained; only deep-tail redundant remaps (rejected
+        anyway) are dropped. ``<= 0`` disables the cap (unbounded greedy). The
+        dropped tail is diagnosed with ``reason='dropped_cost_cap'``.
+    seed : int
+        RNG seed for the conditional-permutation floor (deterministic).
+    verbose : int
+        >0 emits per-candidate accept/reject diagnostics via the module logger.
+
+    Returns
+    -------
+    (accepted_names, diagnostics)
+        ``accepted_names`` is the set of candidate names to KEEP; everything
+        else is dropped as redundant. ``diagnostics`` maps each name to a dict
+        with ``accept`` / ``cmi`` (raw observed CMI) / ``cmi_excess`` (debiased
+        excess = ``max(0, cmi - null_mean)``, what the relative bar compares) /
+        ``floor`` / ``null_mean`` / ``rel_bar`` / ``reason``.
+
+    Degenerate fallback: with <2 candidates, or fewer than ``_MIN_ROWS_FOR_CMI``
+    rows, there is nothing to condition on (or the conditional estimate is
+    unreliable) - ACCEPT every candidate on its marginal significance rather
+    than rejecting everything.
+    """
+    _yhit: Any = None
+
+    names = list(candidates.keys())
+    diagnostics: dict = {}
+    if not names:
+        return set(), diagnostics
+
+    g = _SimpleNamespace()  # greedy state shared by the stage helpers below
+    _early = _gate_prepare(g, candidates, y_bin, names, nbins, max_candidates, verbose, diagnostics)
+    if _early is not None:
+        return _early
+    _gate_seed(g, n_permutations, quantile, seed, diagnostics)
+    while g.remaining:
+        if not _gate_round(g, nbins, n_permutations, quantile, significance_escape_margin, retain_frac, seed, diagnostics):
+            break
+
+    _apply_cmi_redundan_verbose(verbose, g.names, diagnostics)
+    return set(g.accepted), diagnostics
 
 
 def _apply_cmi_redundan_yhit_none(_yhit, y_arr, _yk):

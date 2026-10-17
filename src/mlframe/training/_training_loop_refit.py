@@ -363,6 +363,65 @@ _MIN_MAX_EPOCHS_FOR_RETRY: int = 3
 """If the user explicitly requested ``max_epochs <= 2`` we treat the collapse as intentional (tiny-budget run) and skip the refit. Symmetric to the ``_MIN_BEST_ITER_FRACTION`` gate on the booster path."""
 
 
+def _try_collapse_recovery_ladder(
+    ladder: list[tuple[str, dict]],
+    orig_snapshot: dict,
+    inner: Any,
+    model: Any,
+    model_obj: Any,
+    model_type_name: str,
+    train_df: Any,
+    train_target: Any,
+    fit_params: dict[str, Any],
+    logger_: logging.Logger,
+    ratio: float,
+    y_std: float,
+    max_epochs: int | None,
+) -> bool:
+    """Refit ``model_obj`` once per ladder rung until the train-prediction spread recovers; True as soon as one rung is healthy."""
+    for _step_idx, (_step_name, _patch) in enumerate(ladder, start=1):
+        _candidate_params = dict(orig_snapshot)
+        _candidate_params.update(_patch)
+        logger_.warning(
+            "[pred-collapse] %s collapse detected (pred_std/y_std=%.4f < "
+            "%.2f; max_epochs=%s). Ladder step %d/%d: %s "
+            "(patch=%s). Output_activation STAYS 'tanh_train_range' "
+            "to keep the prediction bound; we change ARCHITECTURE.",
+            model_type_name, ratio, _COLLAPSED_PRED_STD_FRACTION,
+            str(max_epochs) if max_epochs is not None else "?",
+            _step_idx, len(ladder), _step_name, _patch,
+        )
+        try:
+            inner.network_params = _candidate_params
+            if hasattr(inner, "network"):
+                try:
+                    inner.network = None
+                except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+                    logging.getLogger(__name__).debug("suppressed: %s", e)
+                    pass
+            model_obj.fit(train_df, train_target, **fit_params)
+            _preds2 = np.asarray(model.predict(train_df)).reshape(-1)
+            _preds2_fin = _preds2[np.isfinite(_preds2)]
+            _ratio2 = float(_preds2_fin.std()) / y_std if _preds2_fin.size >= 10 else 0.0
+        except Exception as _refit_err:
+            logger_.warning(
+                "[pred-collapse] %s ladder step %d (%s) refit raised: "
+                "%s. Trying next rung.",
+                model_type_name, _step_idx, _step_name, _refit_err,
+            )
+            continue
+        logger_.warning(
+            "[pred-collapse] %s ladder step %d (%s) done: pred_std/"
+            "y_std %.4f -> %.4f%s.",
+            model_type_name, _step_idx, _step_name, ratio, _ratio2,
+            (" (healthy)" if _ratio2 >= _COLLAPSED_PRED_STD_FRACTION
+             else " (still collapsed)"),
+        )
+        if _ratio2 >= _COLLAPSED_PRED_STD_FRACTION:
+            return True
+    return False
+
+
 def _maybe_refit_on_collapsed_predictions(
     *,
     model: Any,
@@ -482,46 +541,10 @@ def _maybe_refit_on_collapsed_predictions(
     _ladder.append(("shrink_to_1_layer", {"use_batchnorm": True, "nlayers": 1}))
     _ladder.append(("bump_dropout", {"use_batchnorm": True, "nlayers": 1, "dropout_prob": 0.15}))
 
-    for _step_idx, (_step_name, _patch) in enumerate(_ladder, start=1):
-        _candidate_params = dict(_orig_snapshot)
-        _candidate_params.update(_patch)
-        logger_.warning(
-            "[pred-collapse] %s collapse detected (pred_std/y_std=%.4f < "
-            "%.2f; max_epochs=%s). Ladder step %d/%d: %s "
-            "(patch=%s). Output_activation STAYS 'tanh_train_range' "
-            "to keep the prediction bound; we change ARCHITECTURE.",
-            model_type_name, _ratio, _COLLAPSED_PRED_STD_FRACTION,
-            str(_max_epochs) if _max_epochs is not None else "?",
-            _step_idx, len(_ladder), _step_name, _patch,
-        )
-        try:
-            _inner.network_params = _candidate_params
-            if hasattr(_inner, "network"):
-                try:
-                    _inner.network = None
-                except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-                    logging.getLogger(__name__).debug("suppressed: %s", e)
-                    pass
-            model_obj.fit(train_df, train_target, **fit_params)
-            _preds2 = np.asarray(model.predict(train_df)).reshape(-1)
-            _preds2_fin = _preds2[np.isfinite(_preds2)]
-            _ratio2 = float(_preds2_fin.std()) / _y_std if _preds2_fin.size >= 10 else 0.0
-        except Exception as _refit_err:
-            logger_.warning(
-                "[pred-collapse] %s ladder step %d (%s) refit raised: "
-                "%s. Trying next rung.",
-                model_type_name, _step_idx, _step_name, _refit_err,
-            )
-            continue
-        logger_.warning(
-            "[pred-collapse] %s ladder step %d (%s) done: pred_std/"
-            "y_std %.4f -> %.4f%s.",
-            model_type_name, _step_idx, _step_name, _ratio, _ratio2,
-            (" (healthy)" if _ratio2 >= _COLLAPSED_PRED_STD_FRACTION
-             else " (still collapsed)"),
-        )
-        if _ratio2 >= _COLLAPSED_PRED_STD_FRACTION:
-            return True
+    if _try_collapse_recovery_ladder(
+        _ladder, _orig_snapshot, _inner, model, model_obj, model_type_name, train_df, train_target, fit_params, logger_, _ratio, _y_std, _max_epochs
+    ):
+        return True
 
     # All ladder rungs exhausted. `_inner.network_params` already reflects the LAST-attempted rung
     # (set at the top of the loop, line ~319, before that rung's fit) and `_inner.network` (the live

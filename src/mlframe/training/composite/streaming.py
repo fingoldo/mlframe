@@ -197,6 +197,65 @@ def _detect_change_point(
     }
 
 
+def _streaming_info(
+    refit: bool,
+    z: float,
+    z_alpha: float,
+    z_beta: float,
+    alpha_buffer: float,
+    beta_buffer: float,
+    change_point: int,
+    cp_f_stat: float,
+    n_fit: int,
+    reason: str,
+) -> dict[str, Any]:
+    """Diagnostics dict returned by :func:`streaming_alpha_check_and_refit`."""
+    return {
+        "refit": refit,
+        "z_score": z,
+        "z_alpha": z_alpha,
+        "z_beta": z_beta,
+        "alpha_buffer": alpha_buffer,
+        "beta_buffer": beta_buffer,
+        "change_point": change_point,
+        "cp_f_stat": cp_f_stat,
+        "n_fit": n_fit,
+        "reason": reason,
+    }
+
+
+def _drift_z_scores(
+    fit_y: np.ndarray,
+    fit_base: np.ndarray,
+    alpha_buf: float,
+    beta_buf: float,
+    current_alpha: float,
+    current_beta: float,
+    base_std: float,
+    base_mean: float,
+) -> tuple[float, float]:
+    """Slope and intercept drift z-scores of the buffer fit against the deployed coefficients."""
+    n_fit = int(fit_y.size)
+    # Residual-based OLS standard errors. sigma_resid = sqrt(SSE / (n-2)) is the
+    # residual scale of the fit window. The slope SE is the classic
+    # SE(alpha) = sigma_resid / (sqrt(n) * base_std); the intercept SE is
+    # SE(beta) = sigma_resid * sqrt(1/n + base_mean^2 / (n * base_var)) -- the
+    # textbook OLS intercept SE, which is what lets us detect a pure
+    # level-shift (alpha unchanged, beta jumps).
+    if n_fit > 2:
+        residuals = fit_y - (alpha_buf * fit_base + beta_buf)
+        sse = float(np.sum(residuals * residuals))
+        sigma_resid = float(np.sqrt(max(sse / (n_fit - 2), 0.0)))
+    else:
+        sigma_resid = float(np.std(fit_y))
+    base_var = base_std * base_std
+    se_alpha = sigma_resid / (np.sqrt(n_fit) * base_std)
+    se_beta = sigma_resid * np.sqrt(1.0 / n_fit + (base_mean * base_mean) / (n_fit * base_var))
+    z_alpha = abs(alpha_buf - current_alpha) / max(se_alpha, 1e-12)
+    z_beta = abs(beta_buf - current_beta) / max(se_beta, 1e-12)
+    return z_alpha, z_beta
+
+
 def streaming_alpha_check_and_refit(
     y_buffer: np.ndarray,
     base_buffer: np.ndarray,
@@ -261,22 +320,8 @@ def streaming_alpha_check_and_refit(
 
     def _too_small() -> tuple[float, float, dict[str, Any]]:
         """No-refit early return when the streaming buffer is below the minimum-fit size: keeps the current (alpha, beta) and reports diagnostics with NaN stats and ``reason="buffer_too_small"``."""
-        return (
-            current_alpha,
-            current_beta,
-            {
-                "refit": False,
-                "z_score": float("nan"),
-                "z_alpha": float("nan"),
-                "z_beta": float("nan"),
-                "alpha_buffer": float("nan"),
-                "beta_buffer": float("nan"),
-                "change_point": -1,
-                "cp_f_stat": float("nan"),
-                "n_fit": 0,
-                "reason": "buffer_too_small",
-            },
-        )
+        _nan = float("nan")
+        return current_alpha, current_beta, _streaming_info(False, _nan, _nan, _nan, _nan, _nan, -1, _nan, 0, "buffer_too_small")
 
     if y_f.size < min_buffer_n:
         return _too_small()
@@ -318,40 +363,12 @@ def streaming_alpha_check_and_refit(
     base_std = float(np.std(fit_base))
     base_mean = float(np.mean(fit_base))
     if base_std < 1e-12:
-        return (
-            current_alpha,
-            current_beta,
-            {
-                "refit": False,
-                "z_score": float("nan"),
-                "z_alpha": float("nan"),
-                "z_beta": float("nan"),
-                "alpha_buffer": alpha_buf,
-                "beta_buffer": beta_buf,
-                "change_point": int(cp_info["cp_index"]) if cp_info["found"] else -1,
-                "cp_f_stat": float(cp_info["f_stat"]),
-                "n_fit": n_fit,
-                "reason": "degenerate_buffer",
-            },
+        return current_alpha, current_beta, _streaming_info(
+            False, float("nan"), float("nan"), float("nan"), alpha_buf, beta_buf,
+            int(cp_info["cp_index"]) if cp_info["found"] else -1, float(cp_info["f_stat"]), n_fit, "degenerate_buffer",
         )
 
-    # Residual-based OLS standard errors. sigma_resid = sqrt(SSE / (n-2)) is the
-    # residual scale of the fit window. The slope SE is the classic
-    # SE(alpha) = sigma_resid / (sqrt(n) * base_std); the intercept SE is
-    # SE(beta) = sigma_resid * sqrt(1/n + base_mean^2 / (n * base_var)) -- the
-    # textbook OLS intercept SE, which is what lets us detect a pure
-    # level-shift (alpha unchanged, beta jumps).
-    if n_fit > 2:
-        residuals = fit_y - (alpha_buf * fit_base + beta_buf)
-        sse = float(np.sum(residuals * residuals))
-        sigma_resid = float(np.sqrt(max(sse / (n_fit - 2), 0.0)))
-    else:
-        sigma_resid = float(np.std(fit_y))
-    base_var = base_std * base_std
-    se_alpha = sigma_resid / (np.sqrt(n_fit) * base_std)
-    se_beta = sigma_resid * np.sqrt(1.0 / n_fit + (base_mean * base_mean) / (n_fit * base_var))
-    z_alpha = abs(alpha_buf - current_alpha) / max(se_alpha, 1e-12)
-    z_beta = abs(beta_buf - current_beta) / max(se_beta, 1e-12)
+    z_alpha, z_beta = _drift_z_scores(fit_y, fit_base, alpha_buf, beta_buf, current_alpha, current_beta, base_std, base_mean)
     z = max(z_alpha, z_beta)
 
     cp_used = int(cp_info["cp_index"]) if cp_info["found"] else -1
@@ -360,35 +377,5 @@ def streaming_alpha_check_and_refit(
         # Distinguish a pure level-shift (only the intercept moved) so callers
         # / monitoring can see that the slope was stable but the level drifted.
         reason = "drift_detected" if z_alpha > z_threshold else "drift_detected_level"
-        return (
-            alpha_buf,
-            beta_buf,
-            {
-                "refit": True,
-                "z_score": float(z),
-                "z_alpha": float(z_alpha),
-                "z_beta": float(z_beta),
-                "alpha_buffer": alpha_buf,
-                "beta_buffer": beta_buf,
-                "change_point": cp_used,
-                "cp_f_stat": cp_f,
-                "n_fit": n_fit,
-                "reason": reason,
-            },
-        )
-    return (
-        current_alpha,
-        current_beta,
-        {
-            "refit": False,
-            "z_score": float(z),
-            "z_alpha": float(z_alpha),
-            "z_beta": float(z_beta),
-            "alpha_buffer": alpha_buf,
-            "beta_buffer": beta_buf,
-            "change_point": cp_used,
-            "cp_f_stat": cp_f,
-            "n_fit": n_fit,
-            "reason": "no_drift",
-        },
-    )
+        return alpha_buf, beta_buf, _streaming_info(True, float(z), float(z_alpha), float(z_beta), alpha_buf, beta_buf, cp_used, cp_f, n_fit, reason)
+    return current_alpha, current_beta, _streaming_info(False, float(z), float(z_alpha), float(z_beta), alpha_buf, beta_buf, cp_used, cp_f, n_fit, "no_drift")

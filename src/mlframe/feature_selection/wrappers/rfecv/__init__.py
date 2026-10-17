@@ -66,13 +66,12 @@ from .._helpers import (
     suppress_irritating_3rdparty_warnings,
 )
 from ._configs import FIConfig, RobustnessConfig, SearchConfig
-from ._futility_stop import validate_futility_anchor
+from ._init_validate import _N_FEATURES_SELECTION_RULES, validate_init_params_early, validate_init_params_late
 from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
 
-_N_FEATURES_SELECTION_RULES = ("auto", "argmax", "one_se_min", "one_se_max", "one_se_min_foldstd", "one_se_max_foldstd", "plateau")
 N_FEATURES_SELECTION_RULES = _N_FEATURES_SELECTION_RULES  # public name for consumers outside the package
 
 
@@ -193,411 +192,253 @@ class RFECV(RFECVStateCompatMixin, TransformerMixin, BaseEstimator):
     # Opt-in flag a caller sets on the instance when RFECV owns the polars frame, allowing the zero-copy self_destruct Arrow bridge.
     _rfecv_owns_polars_frame_ = False
 
+    # RFECV.__init__ parameter notes. They sit here, in signature order, instead of between the parameters, so the signature itself stays short.
+    # Grouped pydantic configs. When passed, their non-None fields override matching flat kwargs.
+    # All flat kwargs are kept for back-compat AND because some power-users want flat call-sites.
+    # See ``_rfecv_configs.py`` and USAGE.md for the canonical mlframe pattern.
+    # stopping conditions. Budgets follow mlframe.utils.budgets: max_runtime_mins / max_refits of 0 or None = no limit; negatives are rejected.
+    # CV
+    # Other
+    # importance_getter: source of the per-feature importance that drives elimination. 'auto'/'feature_importances_'
+    # use the estimator's (impurity/gain) importance - fast but biased toward high-cardinality/structure-bearing
+    # columns and under-rank low-marginal signals. 'permutation' (OOF permutation importance) debiases this and
+    # measured a CONSISTENT downstream gain on a controlled synthetic (+0.029 mean LightGBM holdout AUC across 3
+    # seeds, positive every seed, incl. full base-recall on one) at ~4-5x fit cost - prefer it for QUALITY when the
+    # budget allows. 'conditional_permutation' (Strobl) was measured to HURT here (splits credit across correlated
+    # copies, keeps more noise). Also: 'coef_', 'shap', 'drop_column', 'boruta', 'boruta_shap', or a callable.
+    # optimizer_plotting: Controls Optimizer plotting: 'No', 'Final', 'OnScoreImprovement', 'Regular'
+    # estimators_save_path: fitted estimators get saved into join(estimators_save_path,estimator_type_name,nestimator_nfeatures_nfold.dump)
+    # Required features and achieved ml metrics get saved in a dict join(estimators_save_path,required_features.dump).
+    # Skip the full re-fit when fit() is called again on identical inputs. Despite the legacy "same_shape" name, the
+    # skip keys on CONTENT: it invalidates on (a) X content / column-name change, (b) y / TARGET content change, AND
+    # (c) ANY selector- or wrapped-estimator-parameter change (set_params or direct attribute assignment alike;
+    # params are re-read at every fit call) - so it never replays a stale support_ for a changed target or settings.
+    #
+    # must_include: feature names (or integer indices for ndarray X) that MUST end up in support_. The optimiser only searches over the remaining features;
+    # the final support_ is the union of must_include and the optimiser's pick. Differs from special_feature_indices which forces a fixed subset and short-circuits search.
+    # n_jobs>1 spawns joblib workers, one per fold. CRITICAL: gradient-boosting estimators (CatBoost, LightGBM, XGBoost) and tree ensembles (RandomForest)
+    # already use native multi-threading; parallelising folds on top over-subscribes cores and SLOWS DOWN the run. When n_jobs>1 AND a multi-threaded estimator
+    # is detected, we either auto-fallback to sequential (force_parallel=False) or pin the estimator's thread_count/n_jobs/n_threads to 1 (force_parallel=True).
+    # must_exclude: symmetric counterpart of must_include. Named features are dropped at fit entry so they never enter the optimiser's universe and cannot
+    # end up in support_. Use case: known target-leak columns (IDs, timestamps, post-hoc enrichments) the operator wants guaranteed excluded.
+    # leakage_corr_threshold: at fit entry, check |Pearson(X_i, y)| against this. Catches the most common leak (post-hoc enrichments, ID columns that encode
+    # the target) before the model sees the leaked column. Set None to disable.
+    # leakage_action: 'warn' only logs; 'exclude' auto-drops the column (treats it like must_exclude); 'raise' aborts the fit.
+    # mbh_adaptive_threshold: cutoff (in MBH evaluation budget) below which the surrogate switches from CatBoost (~500ms fixed overhead) to sklearn ExtraTreesRegressor (~20ms).
+    # The historical hardcoded value was 30; tune up when the outer estimator is so cheap that CB's fixed cost dominates even at larger budgets, tune down when ETR's 20-tree noise hurts selection.
+    # feature_groups: maps group_name -> list of column names; support_ then reflects an all-or-nothing decision at the group level (all members in, or all out).
+    # Resolves the "5 collinear copies" caveat at configuration level when the operator knows the groups (e.g. one-hot expansions).
+    # n_features_selection_rule: rule for picking n_features_ from cv_results_ (resolved in select_optimal_nfeatures_).
+    #   'argmax' - argmax of (mean - lambda*std - feature_cost*N). On FLAT score curves around the optimum this collapses to the FIRST N visited near-max, often under-selecting.
+    #   one_se_* band = [best mean - std/sqrt(k), best mean], k = folds scored at the best N ('*_foldstd' variants keep the legacy, sqrt(k)-wider across-fold-std band).
+    #   'one_se_max' - LARGEST N within the band; robust on plateaus. Set feature_cost>0 (biases toward fewer features) or use 'one_se_min' for a compact set.
+    #   'one_se_min' - sklearn-canonical SMALLEST N within the band; parsimonious but can under-select on flat curves.
+    #   'plateau' - smallest N within one across-fold std of the best mean achievable at >= that N.
+    #   'auto' (default) - 'one_se_max' for ALL estimators; recall-oriented because 'one_se_min' and 'argmax' under-select on plateau-prone curves.
+    # Stability Selection (Meinshausen & Buhlmann 2010, JRSS-B). When True, replaces MBH+CV-fold-voting with bootstrap subsampling: B replicates of n/2 (no
+    # replacement), fit estimator on each, count how often each feature appears in the top-K importance ranks. Feature is selected if frequency >= stability_threshold.
+    # Provable family-wise error rate control. Preferred over CV-fold voting on small n / high p.
+    # stability_top_k: default n_features // 4
+    # estimators: list of BaseEstimators; on each CV fold fit ALL of them, gather FI from each, aggregate via the existing voting layer (Leaderboard treats each
+    # per-estimator FI run as a separate column). Robust to single-estimator FI bias (LR favours scale, RF favours high-cardinality, CB favours continuous).
+    # Supersedes ``estimator`` when set. Must all be the same type-family (classifier or regressor).
+    # Do NOT parallelise across estimators - they use native multi-threading, and parallel folds is the layer where joblib lives.
+    # checkpoint_path: when set, RFECV pickles outer-loop state (evaluated_scores_*, optimizer, counters, best-so-far) after every iter; on a subsequent fit()
+    # with a matching (X.shape, y.shape, columns) signature the loop resumes where it left off. The fitted-estimators dict is NOT persisted (CB / RF ensembles
+    # would dominate file size). Atomic write: tmpfile + os.replace, so a crash mid-write cannot corrupt the previous checkpoint.
+    # swap_top_k: after the main MBH loop converges, run K paired swap evaluations on the best subset - replace each of the K worst-FI features kept with each
+    # of the K best-FI features dropped, accept any swap that improves the CV score. Cost: O(K) extra CV evaluations at the END only (classical SFFS would run
+    # after every backward step but that's O(K)*iter_count, often impractical). Default 0 = disabled.
+    # Swap evaluations use sklearn.cross_val_score directly and do NOT honour fit_params / val_cv / early stopping; use as a final-mile refinement.
+    # optimizer_config: MBH fits an internal surrogate to predict score-per-nfeatures and pick the next candidate. On small problems (p<=30 with cheap outer
+    # estimators like Ridge / LR) a 150-tree CatBoost surrogate dominates wall-clock. Auto-tune: when left None and the max-evaluations budget is small, use
+    # a right-sized surrogate (ETR n_estimators=20 for budgets up to 30; CB iterations=50 up to 100; CB iterations=150 above).
+    # Escape hatch: pass an explicit dict (e.g. ``{"model_name": "CBQ", "model_params": {"iterations": 50}}`` or any other MBHOptimizer kwarg subset) to override.
+    # ----- ML-correctness knobs -----
+    # F9: when False (NEW default), the FI runs of a re-explored same-N subset that LOSES the best-of-N gate are popped from feature_importances
+    # so they don't contaminate the next voting round. Set True to restore the previous behaviour (every explored subset votes equally).
+    # F1+F2+F3 missing-entry policy for voting. The historical default left ragged-NaN tables intact, which made Borda/Dowdall/Copeland/Minimax silently
+    # bias toward late-surviving features (a feature present in 30/30 runs sums over 30 columns; a feature eliminated at iter 3, only over 3). Options:
+    #   'worst'  (NEW default): impute missing per-run FI with min(FI)-eps for that run -> features eliminated early get LAST place in those runs
+    #            uniformly across every voting rule. Equivalent to "treated as eliminated" rather than "treated as absent".
+    #   'median': impute with the run's median FI -> features eliminated early get average treatment (older project default for AM/GM/OG via fillna).
+    # 'skip': previous raw behaviour (ragged NaN). Documented as biased but exposed for back-compat A/B benches.
+    # C2: dummy-baseline-at-N=0 is fed to the MBH surrogate when True. Bench showed that on small p (~8) problems
+    # removing this anchor halves the explored-N count - MBH can't extrapolate to low N without a low-anchor and converges to
+    # even-N only. So the safer default is True until S9 (proper low-N init design) lands later. Set False on imbalanced
+    # accuracy/F1 datasets where the dummy ~= model score and the optimizer biases toward small N.
+    # The legacy 'auto' = ('one_se_max' for multi else 'argmax') was inverted: multi-estimator scoring takes min() across estimators, so its 1-SE band is
+    # WIDER and 'one_se_max' over-selects MORE there, not less. An interim fix made 'auto' mean plain 'argmax'; a bench (n=8000, p=200, 30 informative,
+    # flat curve) then measured argmax at recall 0.30 against one_se_max's 1.0, so 'auto' resolves to 'one_se_max' for both. The resolution block in
+    # _stability_select.select_optimal_nfeatures_ is the single source of truth and stamps resolved_n_features_rule_.
+    # E2 escape hatch: keep swap_top_k active even when val_cv is set (compare ES vs non-ES scores, accepting potential overfit-swaps).
+    # ----- search-strategy knobs -----
+    # S8: what target value to feed the MBH surrogate. 'mean' (NEW default) submits raw cv_mean_perf -> aligned with the 1-SE rule
+    #   semantics in select_optimal_nfeatures_; 'final_score' (legacy) submits mean*w_mean - std*w_std (a UCB-of-noise) which can
+    #   disagree with the post-processing rule when std_perf_weight or feature_cost are non-default.
+    # S7: tolerance-based convergence. When set, break when max(last K final_scores) - min(...) < tol * |best_score|. None disables.
+    # Futility stop (default ON; False restores the exhaustive search - see _futility_stop.py): quit once no smaller subset is likely to beat the FULL set by more than the one_se_max band, judged on paired
+    # per-fold differences vs iteration 0. Armed only for n_features_selection_rule in {auto, one_se_max, one_se_max_foldstd} with feature_cost=0 and
+    # max_nfeatures=None; selection-neutral by construction while the pick is the full set. min_iters = smaller sizes that must be evaluated first;
+    # alpha = one-sided confidence level of the upper bound on any subset's gain; patience_frac = flat stretch demanded as a fraction of the iterations left.
+    # futility_anchor: 'full' (default) only stops while the pick is the FULL set (selection-neutral by construction); 'pick' also stops while a smaller
+    # pick holds, judged against that pick (saves more, measured ~94% same-N on the one-SE bench, unproven - unevaluated sizes above the pick stay possible).
+    # S9+S10: richer init design seeding the MBH optimizer with multiple low/mid/high N anchors. None = legacy single seed;
+    # int K = exactly K equidistant anchors; 'auto' (NEW default) scales K by p AND evaluation budget so init-seed wall stays
+    # small relative to user-driven exploration: p<=10 -> K=2, p<=50 OR budget<30 -> K=3, else -> K=5.
+    # S6: epsilon random kick for ExhaustiveDichotomic to avoid getting stuck in the first local maximum on multi-modal score-vs-N
+    # curves. Default 0.1 (NEW) sets ~10% iters to pick a random unevaluated N outside the best-known neighbourhood. Set 0.0 to
+    # restore pure dichotomic behaviour.
+    # dichotomic_step: elimination-pace schedule for ExhaustiveDichotomic. 'midpoint' (default) is the legacy fixed
+    # bisection. 'auto' is the adaptive coarse-to-fine schedule: stride by max(1, floor(frac*n_remaining)) away from the
+    # best while the unevaluated N-pool is large AND the CV curve is flat, then collapse to step=1 midpoint refinement near
+    # the knee. bench-attempt-rejected-as-default (see _benchmarks/bench_dichotomic_adaptive_step.py): selection is exactly
+    # equivalent (Jaccard 1.00, held-out delta 0.0000 across 5 scenarios x 3 seeds, p in 30..600) but NO replicated wall win
+    # (median 1.00x, 3/15 wins) - the outer-loop early-stop terminates the dichotomic search before the pool is ever large+
+    # flat enough for a coarse stride to SAVE an iteration (iters identical auto/midpoint every row). Kept as an opt-in for
+    # future re-test on harder curves / different stopping budgets.
+    # ----- FI-semantics knobs -----
+    # F8: exponential decay of FI history weights. With rate=r>0, a K-iter-old FI run weighs (1-r)^K vs the freshest run = 1.0.
+    # Without decay, voting treats iter-1 FI (on the full feature set) and iter-30 FI (on the narrowed-down survivor set) equally,
+    # even though late-iter FI is generally more reliable (fewer correlated co-features). Recommended 0.02-0.1 for runs >=30 iters.
+    # Default 0.0 = no decay (legacy).
+    # F5: how to collapse multi-class one-vs-rest |coef_| across classes. 'max' (NEW default) -> a feature important for ANY class is
+    # important; 'sum' (legacy) -> mixes class-specific signals into a noisy aggregate (a 1-class discriminator equals a mid-relevance
+    # feature for every class). 'max' matches what permutation/SHAP would produce; 'sum' is documented for back-compat A/B.
+    # F4: which set to use for coef_ scale correction. 'train' (NEW default) -> stds computed from X_train of the fold (the data the
+    # model was fitted on); 'test' (legacy) -> stds from X_test (leaks test variance into FI). 'none' -> skip the rescale entirely.
+    # F10: max_depth for the conditional-permutation auxiliary tree. None (NEW default) lets the tree grow until min_samples_leaf
+    # constraint kicks in (more reliable conditioning on high-d feature sets). Integer caps depth at that value (legacy was 5).
+    # F10: min_samples_leaf for the conditional-permutation auxiliary tree. Default 10 (NEW) follows Strobl 2008 (>=5 recommended).
+    # repeats for 'permutation' / 'conditional_permutation' importance (forwarded to get_feature_importances at each
+    # fold + the stability bootstraps). Surfaced for tuning; default 5 keeps prior behaviour.
+    # Wide-data perm-FI cost guard. Permutation / conditional-permutation importance rescore the model
+    # O(p * n_repeats) times PER FOLD. On wide frames a single RFECV iteration can exceed the whole runtime budget
+    # (measured madelon p=500, n_repeats=5 -> ~208s/iter > a 180s budget), so only 2-3 iters complete, the CV curve
+    # is ~3 points, and the N-rule lands at the over-selection. When True (NEW default) and the search universe
+    # exceeds ``wide_data_fi_threshold``, RFECV falls back to the estimator's native (gain/impurity) importance for
+    # the elimination ranking so the outer loop can build a REAL multi-point curve in budget; ``wide_data_fi_n_repeats``
+    # caps n_repeats just under the threshold to soften the cliff. False = exact permutation FI regardless of p.
+    # F6: when False (NEW default), multi-estimator + AM/GM auto-falls-back to Borda. Set True to keep the user's choice for
+    # benchmark / A-B purposes.
+    # F14: when True (NEW default), drop per-fold-per-estimator FI runs whose score was NaN (estimator failed / degenerate fold). Set
+    # False to keep them (legacy contaminates voting with garbage importances from collapsed fits).
+    # ----- TODO A / prelim: auto-parameter tuning -----
+    # When True, ``fit`` first computes a DataFingerprint from (X, y) and
+    # picks SearchConfig + FIConfig + RobustnessConfig from a rule-based
+    # table (later: ML classifier trained on synthetic-bench sweep). The
+    # chosen combo is stored in ``self.auto_tune_decision_`` for inspection.
+    # Any flat kwarg or config explicitly passed by the caller is PRESERVED
+    # (auto-tune only fills the unspecified slots).
+    # ----- robustness knobs -----
+    # E15: when True (NEW default), raise if must_exclude contains names not in X (catches typos). False = silently ignore (legacy).
+    # C8: when False (NEW default), the no-improve counter only ticks when the iter actually stored a new best subset. Multi-revisit
+    # of the same N with a worse subset no longer trips max_noimproving_iters prematurely. True = legacy.
+    # CatBoost CPU fast path: quantization borders are computed once on the full source frame and reused by every fold fit (bit-identical selection,
+    # skips per-fold re-quantization). False disables it; env MLFRAME_RFECV_CB_CACHED_BORDERS=0 also forces it off regardless of this flag.
+    # ----- L4-L7 -----
+    # L7: optional prescreen pass run BEFORE the MBH outer loop. Reduces the universe original_features to a smaller candidate set
+    # so MBH explores a tighter space. Supported values:
+    #   None              (default) : no prescreen
+    #   'univariate_ht'              : in-tree native Mann-Whitney / Kruskal-Wallis / Kendall / chi-squared + BY-FDR
+    #                                  (see _univariate_ht.py; numba-compiled rank/U/H/tau kernels).
+    #   callable(X, y) -> list       : user-supplied prescreen returning the kept feature names/indices
+    # L7: top-K cap on the prescreen output. None = keep every feature that passes the prescreen's own significance filter.
+    # L7: relevance p-value FDR-level (Benjamini-Yekutieli). 0.05 is the standard default.
+    # audit4-C: honest nested prescreen. The full-data prescreen still defines the SEARCH universe
+    # (legitimate for the final model), but when True the per-fold cv_mean_perf is computed against a prescreen
+    # re-derived on that fold's TRAIN rows only, so a feature that survived the global prescreen purely via
+    # test-fold leakage is dropped in folds where it fails the train-only prescreen - eliminating the
+    # selection-metric optimism. Default True (honest); set False for the cheaper legacy in-universe estimate.
+    # multioutput_strategy: how to handle a 2D y (multilabel / multi-target regression). sklearn RFE/RFECV is single-target, so we fit one
+    # single-target RFECV per output column and aggregate the per-column support_. Default 'union' (OR) just works out of the box - keeps a
+    # feature selected for ANY output (recall-oriented, never drops a feature useful to one target). 'intersect' (AND) keeps only features
+    # selected for EVERY output (precision-oriented). Set None to opt OUT and get the historical clear NotImplementedError on a 2D y. Each
+    # sub-fit clones the full configured RFECV on one y column.
+    # drop_id_like_sequences: when True (default), drop near-unique columns whose sorted distinct values are (near-)perfectly affine-spaced at fit entry -
+    # an enumerated row-id / index / counter (or an affine rescale of one). Such a column is pure sample-order with ZERO generalisable signal yet a tree
+    # estimator memorises it via split-frequency bias and admits it into support_. The guard is deliberately NARROW: it fires only on the structureless
+    # affine-sequence shape (spacing coefficient-of-variation <= id_like_spacing_cv), so a continuous real signal (spacing CV ~O(1)) and a hash-style random
+    # id (irregular spacing) are NEVER touched - it cannot drop a weak recoverable signal. Set False to disable.
+    # drop_near_dup_corr: when True (default), drop columns that are a (near-)monotone copy of another already kept - a scaled / shifted / tiny-noise replica
+    # (``100*x``, ``x + 1e-3*eps``) the exact-dup hash misses bit-for-bit. RFECV's voting otherwise splits the replica's importance across the copies and admits
+    # the redundant copy into support_. Uses |Spearman| (rank) so any monotone rescale is caught regardless of slope/offset; keeps the FIRST of each pair. NARROW
+    # BY CONSTRUCTION: the 0.999 default fires only on a near-perfect monotone replica - a legitimately-distinct correlated pair (corr ~0.7, even ~0.95 cluster
+    # mates) sits far below it and BOTH survive, so it cannot drop a weak recoverable signal. Reducing a genuine high-VIF cluster to a representative remains the
+    # redundancy-aware CorrelatedFeaturesSelector wrapper's job (cluster_reduce=True). Set False to disable.
+    # nan_in_X_policy: how to handle NaN cells in X at fit entry, mirroring MRMR's native-NaN contract for cross-selector
+    # consistency. The default sklearn linear cores (LogisticRegression / Ridge) raise ``ValueError: Input X contains NaN``,
+    # so ordinary real-world missing data used to hard-crash RFECV. Options:
+    #   'impute' (NEW default): graceful median-impute NaN per column on the local working frame so the linear core fits.
+    #       When the core estimator NATIVELY tolerates NaN (HistGradientBoosting / CatBoost / LightGBM / XGBoost - detected via
+    #       the sklearn ``allow_nan`` input tag + a known-name allowlist) imputation is SKIPPED and NaN passes through untouched.
+    #       The impute path is a strict no-op on a NaN-free frame, so non-NaN selection is byte-identical to before.
+    #   'raise': preserve the strict legacy crash on any NaN (benchmarks / replay).
+    # nan_indicator_cols: optional column names for which an ``is_missing__{col}`` 0/1 indicator is appended at fit entry
+    # (built from the PRE-impute mask) so a missingness-carried signal (MNAR) stays capturable even after the value is imputed.
+    # Mirrors MRMR's Layer-37 ``fe_missingness_indicator`` emitter, which is itself opt-in, so this defaults to () (OFF) for
+    # cross-selector parity. Indicators are pandas-only (they need column names); ignored for raw ndarray X.
+    # importance_agg: how per-fold importances are aggregated across CV folds into the elimination ranking.
+    #   'legacy'     : historical mean+vote (Leaderboard / votes_aggregation_method) on abs'd per-fold FI.
+    #   'dispatched' (default): estimator-type-aware. TREE/GBM -> mean down-weighted by cross-fold CV
+    #       (mean/(1+cv)); LINEAR -> sign-harmony on SIGNED coef (|mean signed| * sign-agreement) so a
+    #       feature whose sign flips across folds is demoted; KERNEL / no native FI -> defers to the legacy
+    #       vote. Flipped to default after a multi-scenario x multi-seed honest-holdout win (see
+    #       _benchmarks/bench_rfecv_importance_agg.py). Falls back to legacy automatically when family info
+    #       or signed coef are unavailable.
+    # k_cv: tree-family variance penalty strength in importance_agg='dispatched'; score=mean/(1+k_cv*cv).
+    # elimination_rule: how the per-iteration elimination ranking is formed from the cross-fold FI table.
+    #   'importance' (default): rank by aggregated importance (legacy / importance_agg path).
+    #   'stability'  (opt-in) : rank by mean_importance * fold_selection_frequency, where frequency is the
+    #       fraction of folds in which the feature lands in the top-N (survives the cut in that fold alone).
+    #       Protects steady-mid-rank features from one-fold-noise eviction. Operates on the raw per-fold
+    #       table independently of importance_agg (no double-count). Kept opt-in pending a replicated win.
     def __init__(
         self,
-        estimator: Union[BaseEstimator, None] = None,
-        # Grouped pydantic configs. When passed, their non-None fields override matching flat kwargs.
-        # All flat kwargs are kept for back-compat AND because some power-users want flat call-sites.
-        # See ``_rfecv_configs.py`` and USAGE.md for the canonical mlframe pattern.
-        search_config: "Union[SearchConfig, None]" = None,
-        fi_config: "Union[FIConfig, None]" = None,
-        robustness_config: "Union[RobustnessConfig, None]" = None,
-        fit_params: Union[dict, None] = None,
-        max_nfeatures: Union[int, None] = None,
-        mean_perf_weight: float = 1.0,
-        std_perf_weight: float = 0.1,
-        feature_cost: float = 0.0,
-        smooth_perf: int = 0,
-        # stopping conditions. Budgets follow mlframe.utils.budgets: max_runtime_mins / max_refits of 0 or None = no limit; negatives are rejected.
-        max_runtime_mins: Union[float, None] = None,
-        max_refits: Union[int, None] = None,
-        best_desired_score: Union[float, None] = None,
-        max_noimproving_iters: int = 30,
-        # CV
-        cv: Union[object, int, None] = 3,
-        cv_shuffle: bool = False,
-        min_train_size: Union[int, None] = None,
-        # Other
-        early_stopping_val_nsplits: Union[int, None] = 10,
-        early_stopping_rounds: Union[int, None] = None,
-        scoring: Union[object, None] = None,
-        nofeatures_dummy_scoring: bool = True,
-        top_predictors_search_method: OptimumSearch = OptimumSearch.ModelBasedHeuristic,
-        votes_aggregation_method: VotesAggregation = VotesAggregation.Borda,
-        use_all_fi_runs: bool = True,
-        use_last_fi_run_only: bool = False,
-        use_one_freshest_fi_run: bool = False,
-        use_fi_ranking: bool = False,
-        # importance_getter: source of the per-feature importance that drives elimination. 'auto'/'feature_importances_'
-        # use the estimator's (impurity/gain) importance - fast but biased toward high-cardinality/structure-bearing
-        # columns and under-rank low-marginal signals. 'permutation' (OOF permutation importance) debiases this and
-        # measured a CONSISTENT downstream gain on a controlled synthetic (+0.029 mean LightGBM holdout AUC across 3
-        # seeds, positive every seed, incl. full base-recall on one) at ~4-5x fit cost - prefer it for QUALITY when the
-        # budget allows. 'conditional_permutation' (Strobl) was measured to HURT here (splits credit across correlated
-        # copies, keeps more noise). Also: 'coef_', 'shap', 'drop_column', 'boruta', 'boruta_shap', or a callable.
-        importance_getter: Union[str, Callable, None] = None,
-        random_state: Union[int, None] = None,
-        leave_progressbars: bool = True,
-        verbose: Union[bool, int] = 0,
-        show_plot: bool = False,
-        optimizer_plotting: Union[str, None] = None,  # Controls Optimizer plotting: 'No', 'Final', 'OnScoreImprovement', 'Regular'
-        cat_features: Union[Sequence, None] = None,
-        keep_estimators: bool = False,
-        estimators_save_path: Union[str, None] = None,  # fitted estimators get saved into join(estimators_save_path,estimator_type_name,nestimator_nfeatures_nfold.dump)
-        # Required features and achieved ml metrics get saved in a dict join(estimators_save_path,required_features.dump).
-        frac: Union[float, None] = None,
-        # Skip the full re-fit when fit() is called again on identical inputs. Despite the legacy "same_shape" name, the
-        # skip keys on CONTENT: it invalidates on (a) X content / column-name change, (b) y / TARGET content change, AND
-        # (c) ANY selector- or wrapped-estimator-parameter change (set_params or direct attribute assignment alike;
-        # params are re-read at every fit call) - so it never replays a stale support_ for a changed target or settings.
-        skip_retraining_on_same_shape: bool = True,
-        stop_file: str = "stop",
-        report_ndigits: int = 4,
-        #
-        special_feature_indices: Union[list, None] = None,
-        conduct_final_voting: bool = False,
-        # must_include: feature names (or integer indices for ndarray X) that MUST end up in support_. The optimiser only searches over the remaining features;
-        # the final support_ is the union of must_include and the optimiser's pick. Differs from special_feature_indices which forces a fixed subset and short-circuits search.
-        must_include: Union[Sequence, None] = None,
-        # n_jobs>1 spawns joblib workers, one per fold. CRITICAL: gradient-boosting estimators (CatBoost, LightGBM, XGBoost) and tree ensembles (RandomForest)
-        # already use native multi-threading; parallelising folds on top over-subscribes cores and SLOWS DOWN the run. When n_jobs>1 AND a multi-threaded estimator
-        # is detected, we either auto-fallback to sequential (force_parallel=False) or pin the estimator's thread_count/n_jobs/n_threads to 1 (force_parallel=True).
-        n_jobs: int = 1,
-        force_parallel: bool = False,
-        # must_exclude: symmetric counterpart of must_include. Named features are dropped at fit entry so they never enter the optimiser's universe and cannot
-        # end up in support_. Use case: known target-leak columns (IDs, timestamps, post-hoc enrichments) the operator wants guaranteed excluded.
-        must_exclude: Union[Sequence, None] = None,
-        # leakage_corr_threshold: at fit entry, check |Pearson(X_i, y)| against this. Catches the most common leak (post-hoc enrichments, ID columns that encode
-        # the target) before the model sees the leaked column. Set None to disable.
-        leakage_corr_threshold: Union[float, None] = 0.95,
-        # leakage_action: 'warn' only logs; 'exclude' auto-drops the column (treats it like must_exclude); 'raise' aborts the fit.
-        leakage_action: str = "warn",
-        # mbh_adaptive_threshold: cutoff (in MBH evaluation budget) below which the surrogate switches from CatBoost (~500ms fixed overhead) to sklearn ExtraTreesRegressor (~20ms).
-        # The historical hardcoded value was 30; tune up when the outer estimator is so cheap that CB's fixed cost dominates even at larger budgets, tune down when ETR's 20-tree noise hurts selection.
-        mbh_adaptive_threshold: int = 30,
-        # feature_groups: maps group_name -> list of column names; support_ then reflects an all-or-nothing decision at the group level (all members in, or all out).
-        # Resolves the "5 collinear copies" caveat at configuration level when the operator knows the groups (e.g. one-hot expansions).
-        feature_groups: Union[dict, None] = None,
-        # n_features_selection_rule: rule for picking n_features_ from cv_results_ (resolved in select_optimal_nfeatures_).
-        #   'argmax' - argmax of (mean - lambda*std - feature_cost*N). On FLAT score curves around the optimum this collapses to the FIRST N visited near-max, often under-selecting.
-        #   one_se_* band = [best mean - std/sqrt(k), best mean], k = folds scored at the best N ('*_foldstd' variants keep the legacy, sqrt(k)-wider across-fold-std band).
-        #   'one_se_max' - LARGEST N within the band; robust on plateaus. Set feature_cost>0 (biases toward fewer features) or use 'one_se_min' for a compact set.
-        #   'one_se_min' - sklearn-canonical SMALLEST N within the band; parsimonious but can under-select on flat curves.
-        #   'plateau' - smallest N within one across-fold std of the best mean achievable at >= that N.
-        #   'auto' (default) - 'one_se_max' for ALL estimators; recall-oriented because 'one_se_min' and 'argmax' under-select on plateau-prone curves.
-        n_features_selection_rule: str = "auto",
-        # Stability Selection (Meinshausen & Buhlmann 2010, JRSS-B). When True, replaces MBH+CV-fold-voting with bootstrap subsampling: B replicates of n/2 (no
-        # replacement), fit estimator on each, count how often each feature appears in the top-K importance ranks. Feature is selected if frequency >= stability_threshold.
-        # Provable family-wise error rate control. Preferred over CV-fold voting on small n / high p.
-        stability_selection: bool = False,
-        stability_n_bootstrap: int = 50,
-        stability_threshold: float = 0.6,
-        stability_top_k: Union[int, None] = None,  # default n_features // 4
-        # estimators: list of BaseEstimators; on each CV fold fit ALL of them, gather FI from each, aggregate via the existing voting layer (Leaderboard treats each
-        # per-estimator FI run as a separate column). Robust to single-estimator FI bias (LR favours scale, RF favours high-cardinality, CB favours continuous).
-        # Supersedes ``estimator`` when set. Must all be the same type-family (classifier or regressor).
-        # Do NOT parallelise across estimators - they use native multi-threading, and parallel folds is the layer where joblib lives.
-        estimators: Union[Sequence, None] = None,
-        # checkpoint_path: when set, RFECV pickles outer-loop state (evaluated_scores_*, optimizer, counters, best-so-far) after every iter; on a subsequent fit()
-        # with a matching (X.shape, y.shape, columns) signature the loop resumes where it left off. The fitted-estimators dict is NOT persisted (CB / RF ensembles
-        # would dominate file size). Atomic write: tmpfile + os.replace, so a crash mid-write cannot corrupt the previous checkpoint.
-        checkpoint_path: Union[str, None] = None,
-        # swap_top_k: after the main MBH loop converges, run K paired swap evaluations on the best subset - replace each of the K worst-FI features kept with each
-        # of the K best-FI features dropped, accept any swap that improves the CV score. Cost: O(K) extra CV evaluations at the END only (classical SFFS would run
-        # after every backward step but that's O(K)*iter_count, often impractical). Default 0 = disabled.
-        # Swap evaluations use sklearn.cross_val_score directly and do NOT honour fit_params / val_cv / early stopping; use as a final-mile refinement.
-        swap_top_k: int = 0,
-        # optimizer_config: MBH fits an internal surrogate to predict score-per-nfeatures and pick the next candidate. On small problems (p<=30 with cheap outer
-        # estimators like Ridge / LR) a 150-tree CatBoost surrogate dominates wall-clock. Auto-tune: when left None and the max-evaluations budget is small, use
-        # a right-sized surrogate (ETR n_estimators=20 for budgets up to 30; CB iterations=50 up to 100; CB iterations=150 above).
-        # Escape hatch: pass an explicit dict (e.g. ``{"model_name": "CBQ", "model_params": {"iterations": 50}}`` or any other MBHOptimizer kwarg subset) to override.
-        optimizer_config: Union[dict, None] = None,
-        # ----- ML-correctness knobs -----
-        # F9: when False (NEW default), the FI runs of a re-explored same-N subset that LOSES the best-of-N gate are popped from feature_importances
-        # so they don't contaminate the next voting round. Set True to restore the previous behaviour (every explored subset votes equally).
-        keep_loser_subset_fi: bool = False,
-        # F1+F2+F3 missing-entry policy for voting. The historical default left ragged-NaN tables intact, which made Borda/Dowdall/Copeland/Minimax silently
-        # bias toward late-surviving features (a feature present in 30/30 runs sums over 30 columns; a feature eliminated at iter 3, only over 3). Options:
-        #   'worst'  (NEW default): impute missing per-run FI with min(FI)-eps for that run -> features eliminated early get LAST place in those runs
-        #            uniformly across every voting rule. Equivalent to "treated as eliminated" rather than "treated as absent".
-        #   'median': impute with the run's median FI -> features eliminated early get average treatment (older project default for AM/GM/OG via fillna).
-        # 'skip': previous raw behaviour (ragged NaN). Documented as biased but exposed for back-compat A/B benches.
-        fi_missing_policy: str = "worst",
-        # C2: dummy-baseline-at-N=0 is fed to the MBH surrogate when True. Bench showed that on small p (~8) problems
-        # removing this anchor halves the explored-N count - MBH can't extrapolate to low N without a low-anchor and converges to
-        # even-N only. So the safer default is True until S9 (proper low-N init design) lands later. Set False on imbalanced
-        # accuracy/F1 datasets where the dummy ~= model score and the optimizer biases toward small N.
-        submit_dummy_to_optimizer: bool = True,
-        # The legacy 'auto' = ('one_se_max' for multi else 'argmax') was inverted: multi-estimator scoring takes min() across estimators, so its 1-SE band is
-        # WIDER and 'one_se_max' over-selects MORE there, not less. An interim fix made 'auto' mean plain 'argmax'; a bench (n=8000, p=200, 30 informative,
-        # flat curve) then measured argmax at recall 0.30 against one_se_max's 1.0, so 'auto' resolves to 'one_se_max' for both. The resolution block in
-        # _stability_select.select_optimal_nfeatures_ is the single source of truth and stamps resolved_n_features_rule_.
-        # E2 escape hatch: keep swap_top_k active even when val_cv is set (compare ES vs non-ES scores, accepting potential overfit-swaps).
-        swap_top_k_allow_no_es: bool = False,
-        # ----- search-strategy knobs -----
-        # S8: what target value to feed the MBH surrogate. 'mean' (NEW default) submits raw cv_mean_perf -> aligned with the 1-SE rule
-        #   semantics in select_optimal_nfeatures_; 'final_score' (legacy) submits mean*w_mean - std*w_std (a UCB-of-noise) which can
-        #   disagree with the post-processing rule when std_perf_weight or feature_cost are non-default.
-        optimizer_target: str = "mean",
-        # S7: tolerance-based convergence. When set, break when max(last K final_scores) - min(...) < tol * |best_score|. None disables.
-        convergence_tol: Union[float, None] = None,
-        convergence_tol_window: int = 10,
-        # Futility stop (default ON; False restores the exhaustive search - see _futility_stop.py): quit once no smaller subset is likely to beat the FULL set by more than the one_se_max band, judged on paired
-        # per-fold differences vs iteration 0. Armed only for n_features_selection_rule in {auto, one_se_max, one_se_max_foldstd} with feature_cost=0 and
-        # max_nfeatures=None; selection-neutral by construction while the pick is the full set. min_iters = smaller sizes that must be evaluated first;
-        # alpha = one-sided confidence level of the upper bound on any subset's gain; patience_frac = flat stretch demanded as a fraction of the iterations left.
-        futility_stop: bool = True,
-        futility_min_iters: int = 5,
-        futility_alpha: float = 0.05,
-        futility_patience_frac: float = 0.1,
-        # futility_anchor: 'full' (default) only stops while the pick is the FULL set (selection-neutral by construction); 'pick' also stops while a smaller
-        # pick holds, judged against that pick (saves more, measured ~94% same-N on the one-SE bench, unproven - unevaluated sizes above the pick stay possible).
-        futility_anchor: str = "full",
-        # S9+S10: richer init design seeding the MBH optimizer with multiple low/mid/high N anchors. None = legacy single seed;
-        # int K = exactly K equidistant anchors; 'auto' (NEW default) scales K by p AND evaluation budget so init-seed wall stays
-        # small relative to user-driven exploration: p<=10 -> K=2, p<=50 OR budget<30 -> K=3, else -> K=5.
-        init_design_size: Union[int, str, None] = "auto",
-        # S6: epsilon random kick for ExhaustiveDichotomic to avoid getting stuck in the first local maximum on multi-modal score-vs-N
-        # curves. Default 0.1 (NEW) sets ~10% iters to pick a random unevaluated N outside the best-known neighbourhood. Set 0.0 to
-        # restore pure dichotomic behaviour.
-        dichotomic_epsilon: float = 0.1,
-        # dichotomic_step: elimination-pace schedule for ExhaustiveDichotomic. 'midpoint' (default) is the legacy fixed
-        # bisection. 'auto' is the adaptive coarse-to-fine schedule: stride by max(1, floor(frac*n_remaining)) away from the
-        # best while the unevaluated N-pool is large AND the CV curve is flat, then collapse to step=1 midpoint refinement near
-        # the knee. bench-attempt-rejected-as-default (see _benchmarks/bench_dichotomic_adaptive_step.py): selection is exactly
-        # equivalent (Jaccard 1.00, held-out delta 0.0000 across 5 scenarios x 3 seeds, p in 30..600) but NO replicated wall win
-        # (median 1.00x, 3/15 wins) - the outer-loop early-stop terminates the dichotomic search before the pool is ever large+
-        # flat enough for a coarse stride to SAVE an iteration (iters identical auto/midpoint every row). Kept as an opt-in for
-        # future re-test on harder curves / different stopping budgets.
-        dichotomic_step: str = "midpoint",
-        # ----- FI-semantics knobs -----
-        # F8: exponential decay of FI history weights. With rate=r>0, a K-iter-old FI run weighs (1-r)^K vs the freshest run = 1.0.
-        # Without decay, voting treats iter-1 FI (on the full feature set) and iter-30 FI (on the narrowed-down survivor set) equally,
-        # even though late-iter FI is generally more reliable (fewer correlated co-features). Recommended 0.02-0.1 for runs >=30 iters.
-        # Default 0.0 = no decay (legacy).
-        fi_decay_rate: float = 0.0,
-        # F5: how to collapse multi-class one-vs-rest |coef_| across classes. 'max' (NEW default) -> a feature important for ANY class is
-        # important; 'sum' (legacy) -> mixes class-specific signals into a noisy aggregate (a 1-class discriminator equals a mid-relevance
-        # feature for every class). 'max' matches what permutation/SHAP would produce; 'sum' is documented for back-compat A/B.
-        multiclass_coef_aggregation: str = "max",
-        # F4: which set to use for coef_ scale correction. 'train' (NEW default) -> stds computed from X_train of the fold (the data the
-        # model was fitted on); 'test' (legacy) -> stds from X_test (leaks test variance into FI). 'none' -> skip the rescale entirely.
-        coef_scale_source: str = "train",
-        # F10: max_depth for the conditional-permutation auxiliary tree. None (NEW default) lets the tree grow until min_samples_leaf
-        # constraint kicks in (more reliable conditioning on high-d feature sets). Integer caps depth at that value (legacy was 5).
-        cpi_max_depth: Union[int, None] = None,
-        # F10: min_samples_leaf for the conditional-permutation auxiliary tree. Default 10 (NEW) follows Strobl 2008 (>=5 recommended).
-        cpi_min_samples_leaf: int = 10,
-        # repeats for 'permutation' / 'conditional_permutation' importance (forwarded to get_feature_importances at each
-        # fold + the stability bootstraps). Surfaced for tuning; default 5 keeps prior behaviour.
-        n_repeats: int = 5,
-        # Wide-data perm-FI cost guard. Permutation / conditional-permutation importance rescore the model
-        # O(p * n_repeats) times PER FOLD. On wide frames a single RFECV iteration can exceed the whole runtime budget
-        # (measured madelon p=500, n_repeats=5 -> ~208s/iter > a 180s budget), so only 2-3 iters complete, the CV curve
-        # is ~3 points, and the N-rule lands at the over-selection. When True (NEW default) and the search universe
-        # exceeds ``wide_data_fi_threshold``, RFECV falls back to the estimator's native (gain/impurity) importance for
-        # the elimination ranking so the outer loop can build a REAL multi-point curve in budget; ``wide_data_fi_n_repeats``
-        # caps n_repeats just under the threshold to soften the cliff. False = exact permutation FI regardless of p.
-        wide_data_fi_fallback: bool = True,
-        wide_data_fi_threshold: int = 200,
-        wide_data_fi_n_repeats: int = 2,
-        # F6: when False (NEW default), multi-estimator + AM/GM auto-falls-back to Borda. Set True to keep the user's choice for
-        # benchmark / A-B purposes.
-        allow_unsafe_aggregation: bool = False,
-        # F14: when True (NEW default), drop per-fold-per-estimator FI runs whose score was NaN (estimator failed / degenerate fold). Set
-        # False to keep them (legacy contaminates voting with garbage importances from collapsed fits).
-        drop_nan_score_fi: bool = True,
-        # ----- TODO A / prelim: auto-parameter tuning -----
-        # When True, ``fit`` first computes a DataFingerprint from (X, y) and
-        # picks SearchConfig + FIConfig + RobustnessConfig from a rule-based
-        # table (later: ML classifier trained on synthetic-bench sweep). The
-        # chosen combo is stored in ``self.auto_tune_decision_`` for inspection.
-        # Any flat kwarg or config explicitly passed by the caller is PRESERVED
-        # (auto-tune only fills the unspecified slots).
-        auto_tune: bool = False,
-        # ----- robustness knobs -----
-        # E15: when True (NEW default), raise if must_exclude contains names not in X (catches typos). False = silently ignore (legacy).
-        must_exclude_strict: bool = True,
-        # C8: when False (NEW default), the no-improve counter only ticks when the iter actually stored a new best subset. Multi-revisit
-        # of the same N with a worse subset no longer trips max_noimproving_iters prematurely. True = legacy.
-        noimprove_counts_revisit: bool = False,
-        # CatBoost CPU fast path: quantization borders are computed once on the full source frame and reused by every fold fit (bit-identical selection,
-        # skips per-fold re-quantization). False disables it; env MLFRAME_RFECV_CB_CACHED_BORDERS=0 also forces it off regardless of this flag.
-        cb_cached_borders: bool = True,
-        # ----- L4-L7 -----
-        # L7: optional prescreen pass run BEFORE the MBH outer loop. Reduces the universe original_features to a smaller candidate set
-        # so MBH explores a tighter space. Supported values:
-        #   None              (default) : no prescreen
-        #   'univariate_ht'              : in-tree native Mann-Whitney / Kruskal-Wallis / Kendall / chi-squared + BY-FDR
-        #                                  (see _univariate_ht.py; numba-compiled rank/U/H/tau kernels).
-        #   callable(X, y) -> list       : user-supplied prescreen returning the kept feature names/indices
-        prescreen: Union[str, Callable, None] = None,
-        # L7: top-K cap on the prescreen output. None = keep every feature that passes the prescreen's own significance filter.
-        prescreen_top_k: Union[int, None] = None,
-        # L7: relevance p-value FDR-level (Benjamini-Yekutieli). 0.05 is the standard default.
-        prescreen_fdr_level: float = 0.05,
-        # audit4-C: honest nested prescreen. The full-data prescreen still defines the SEARCH universe
-        # (legitimate for the final model), but when True the per-fold cv_mean_perf is computed against a prescreen
-        # re-derived on that fold's TRAIN rows only, so a feature that survived the global prescreen purely via
-        # test-fold leakage is dropped in folds where it fails the train-only prescreen - eliminating the
-        # selection-metric optimism. Default True (honest); set False for the cheaper legacy in-universe estimate.
-        prescreen_nested: bool = True,
-        # multioutput_strategy: how to handle a 2D y (multilabel / multi-target regression). sklearn RFE/RFECV is single-target, so we fit one
-        # single-target RFECV per output column and aggregate the per-column support_. Default 'union' (OR) just works out of the box - keeps a
-        # feature selected for ANY output (recall-oriented, never drops a feature useful to one target). 'intersect' (AND) keeps only features
-        # selected for EVERY output (precision-oriented). Set None to opt OUT and get the historical clear NotImplementedError on a 2D y. Each
-        # sub-fit clones the full configured RFECV on one y column.
-        multioutput_strategy: Union[str, None] = "union",
-        # drop_id_like_sequences: when True (default), drop near-unique columns whose sorted distinct values are (near-)perfectly affine-spaced at fit entry -
-        # an enumerated row-id / index / counter (or an affine rescale of one). Such a column is pure sample-order with ZERO generalisable signal yet a tree
-        # estimator memorises it via split-frequency bias and admits it into support_. The guard is deliberately NARROW: it fires only on the structureless
-        # affine-sequence shape (spacing coefficient-of-variation <= id_like_spacing_cv), so a continuous real signal (spacing CV ~O(1)) and a hash-style random
-        # id (irregular spacing) are NEVER touched - it cannot drop a weak recoverable signal. Set False to disable.
-        drop_id_like_sequences: bool = True,
-        id_like_ratio_threshold: float = 0.999,
-        id_like_spacing_cv: float = 1e-3,
-        # drop_near_dup_corr: when True (default), drop columns that are a (near-)monotone copy of another already kept - a scaled / shifted / tiny-noise replica
-        # (``100*x``, ``x + 1e-3*eps``) the exact-dup hash misses bit-for-bit. RFECV's voting otherwise splits the replica's importance across the copies and admits
-        # the redundant copy into support_. Uses |Spearman| (rank) so any monotone rescale is caught regardless of slope/offset; keeps the FIRST of each pair. NARROW
-        # BY CONSTRUCTION: the 0.999 default fires only on a near-perfect monotone replica - a legitimately-distinct correlated pair (corr ~0.7, even ~0.95 cluster
-        # mates) sits far below it and BOTH survive, so it cannot drop a weak recoverable signal. Reducing a genuine high-VIF cluster to a representative remains the
-        # redundancy-aware CorrelatedFeaturesSelector wrapper's job (cluster_reduce=True). Set False to disable.
-        drop_near_dup_corr: bool = True,
-        near_dup_corr_threshold: float = 0.999,
-        # nan_in_X_policy: how to handle NaN cells in X at fit entry, mirroring MRMR's native-NaN contract for cross-selector
-        # consistency. The default sklearn linear cores (LogisticRegression / Ridge) raise ``ValueError: Input X contains NaN``,
-        # so ordinary real-world missing data used to hard-crash RFECV. Options:
-        #   'impute' (NEW default): graceful median-impute NaN per column on the local working frame so the linear core fits.
-        #       When the core estimator NATIVELY tolerates NaN (HistGradientBoosting / CatBoost / LightGBM / XGBoost - detected via
-        #       the sklearn ``allow_nan`` input tag + a known-name allowlist) imputation is SKIPPED and NaN passes through untouched.
-        #       The impute path is a strict no-op on a NaN-free frame, so non-NaN selection is byte-identical to before.
-        #   'raise': preserve the strict legacy crash on any NaN (benchmarks / replay).
-        nan_in_X_policy: str = "impute",
-        # nan_indicator_cols: optional column names for which an ``is_missing__{col}`` 0/1 indicator is appended at fit entry
-        # (built from the PRE-impute mask) so a missingness-carried signal (MNAR) stays capturable even after the value is imputed.
-        # Mirrors MRMR's Layer-37 ``fe_missingness_indicator`` emitter, which is itself opt-in, so this defaults to () (OFF) for
-        # cross-selector parity. Indicators are pandas-only (they need column names); ignored for raw ndarray X.
-        nan_indicator_cols: Union[Sequence, None] = (),
-        # importance_agg: how per-fold importances are aggregated across CV folds into the elimination ranking.
-        #   'legacy'     : historical mean+vote (Leaderboard / votes_aggregation_method) on abs'd per-fold FI.
-        #   'dispatched' (default): estimator-type-aware. TREE/GBM -> mean down-weighted by cross-fold CV
-        #       (mean/(1+cv)); LINEAR -> sign-harmony on SIGNED coef (|mean signed| * sign-agreement) so a
-        #       feature whose sign flips across folds is demoted; KERNEL / no native FI -> defers to the legacy
-        #       vote. Flipped to default after a multi-scenario x multi-seed honest-holdout win (see
-        #       _benchmarks/bench_rfecv_importance_agg.py). Falls back to legacy automatically when family info
-        #       or signed coef are unavailable.
-        importance_agg: str = "dispatched",
-        # k_cv: tree-family variance penalty strength in importance_agg='dispatched'; score=mean/(1+k_cv*cv).
-        importance_agg_k_cv: float = 1.0,
-        # elimination_rule: how the per-iteration elimination ranking is formed from the cross-fold FI table.
-        #   'importance' (default): rank by aggregated importance (legacy / importance_agg path).
-        #   'stability'  (opt-in) : rank by mean_importance * fold_selection_frequency, where frequency is the
-        #       fraction of folds in which the feature lands in the top-N (survives the cut in that fold alone).
-        #       Protects steady-mid-rank features from one-fold-noise eviction. Operates on the raw per-fold
-        #       table independently of importance_agg (no double-count). Kept opt-in pending a replicated win.
-        elimination_rule: str = "importance",
+        estimator: Union[BaseEstimator, None] = None, search_config: "Union[SearchConfig, None]" = None, fi_config: "Union[FIConfig, None]" = None,
+        robustness_config: "Union[RobustnessConfig, None]" = None, fit_params: Union[dict, None] = None, max_nfeatures: Union[int, None] = None,
+        mean_perf_weight: float = 1.0, std_perf_weight: float = 0.1, feature_cost: float = 0.0, smooth_perf: int = 0,
+        max_runtime_mins: Union[float, None] = None, max_refits: Union[int, None] = None, best_desired_score: Union[float, None] = None,
+        max_noimproving_iters: int = 30, cv: Union[object, int, None] = 3, cv_shuffle: bool = False, min_train_size: Union[int, None] = None,
+        early_stopping_val_nsplits: Union[int, None] = 10, early_stopping_rounds: Union[int, None] = None, scoring: Union[object, None] = None,
+        nofeatures_dummy_scoring: bool = True, top_predictors_search_method: OptimumSearch = OptimumSearch.ModelBasedHeuristic,
+        votes_aggregation_method: VotesAggregation = VotesAggregation.Borda, use_all_fi_runs: bool = True, use_last_fi_run_only: bool = False,
+        use_one_freshest_fi_run: bool = False, use_fi_ranking: bool = False, importance_getter: Union[str, Callable, None] = None,
+        random_state: Union[int, None] = None, leave_progressbars: bool = True, verbose: Union[bool, int] = 0, show_plot: bool = False,
+        optimizer_plotting: Union[str, None] = None, cat_features: Union[Sequence, None] = None, keep_estimators: bool = False,
+        estimators_save_path: Union[str, None] = None, frac: Union[float, None] = None, skip_retraining_on_same_shape: bool = True,
+        stop_file: str = "stop", report_ndigits: int = 4, special_feature_indices: Union[list, None] = None, conduct_final_voting: bool = False,
+        must_include: Union[Sequence, None] = None, n_jobs: int = 1, force_parallel: bool = False, must_exclude: Union[Sequence, None] = None,
+        leakage_corr_threshold: Union[float, None] = 0.95, leakage_action: str = "warn", mbh_adaptive_threshold: int = 30,
+        feature_groups: Union[dict, None] = None, n_features_selection_rule: str = "auto", stability_selection: bool = False,
+        stability_n_bootstrap: int = 50, stability_threshold: float = 0.6, stability_top_k: Union[int, None] = None,
+        estimators: Union[Sequence, None] = None, checkpoint_path: Union[str, None] = None, swap_top_k: int = 0,
+        optimizer_config: Union[dict, None] = None, keep_loser_subset_fi: bool = False, fi_missing_policy: str = "worst",
+        submit_dummy_to_optimizer: bool = True, swap_top_k_allow_no_es: bool = False, optimizer_target: str = "mean",
+        convergence_tol: Union[float, None] = None, convergence_tol_window: int = 10, futility_stop: bool = True, futility_min_iters: int = 5,
+        futility_alpha: float = 0.05, futility_patience_frac: float = 0.1, futility_anchor: str = "full",
+        init_design_size: Union[int, str, None] = "auto", dichotomic_epsilon: float = 0.1, dichotomic_step: str = "midpoint",
+        fi_decay_rate: float = 0.0, multiclass_coef_aggregation: str = "max", coef_scale_source: str = "train",
+        cpi_max_depth: Union[int, None] = None, cpi_min_samples_leaf: int = 10, n_repeats: int = 5, wide_data_fi_fallback: bool = True,
+        wide_data_fi_threshold: int = 200, wide_data_fi_n_repeats: int = 2, allow_unsafe_aggregation: bool = False, drop_nan_score_fi: bool = True,
+        auto_tune: bool = False, must_exclude_strict: bool = True, noimprove_counts_revisit: bool = False, cb_cached_borders: bool = True,
+        prescreen: Union[str, Callable, None] = None, prescreen_top_k: Union[int, None] = None, prescreen_fdr_level: float = 0.05,
+        prescreen_nested: bool = True, multioutput_strategy: Union[str, None] = "union", drop_id_like_sequences: bool = True,
+        id_like_ratio_threshold: float = 0.999, id_like_spacing_cv: float = 1e-3, drop_near_dup_corr: bool = True,
+        near_dup_corr_threshold: float = 0.999, nan_in_X_policy: str = "impute", nan_indicator_cols: Union[Sequence, None] = (),
+        importance_agg: str = "dispatched", importance_agg_k_cv: float = 1.0, elimination_rule: str = "importance",
     ):
-
-        # checks
-        validate_futility_anchor(futility_anchor)
-        if frac is not None:
-            if not (frac > 0.0 and frac < 1.0):
-                raise ValueError(f"frac must be between 0 and 1, got {frac}")
-            if verbose:
-                logger.info("Using %s fraction of the training dataset.", frac)
-
-        # 0 = None = no refit limit (mlframe.utils.budgets); a negative count is a mistake, not a limit.
-        if max_refits is not None and max_refits < 0:
-            raise ValueError(f"max_refits must be >= 0 (0 or None = unlimited); got {max_refits}.")
-
-        # cv=1 is degenerate (no train/test split possible).
-        if isinstance(cv, int) and cv < 2:
-            raise ValueError(f"cv must be >= 2 (or a CV splitter object); got cv={cv}. " f"k-fold CV requires at least 2 splits.")
-
-        self._check_stability_selection_params(stability_selection, stability_threshold, stability_n_bootstrap, verbose)
-
-        self._check_feature_groups_nonempty(feature_groups, verbose)
-
-        if nan_in_X_policy not in ("impute", "raise"):
-            raise ValueError(f"nan_in_X_policy must be 'impute' or 'raise'; got {nan_in_X_policy!r}.")
-
-        if leakage_action not in ("warn", "exclude", "raise"):
-            raise ValueError(f"leakage_action must be 'warn', 'exclude', or 'raise'; " f"got {leakage_action!r}.")
-
-        if n_features_selection_rule not in _N_FEATURES_SELECTION_RULES:
-            raise ValueError(f"n_features_selection_rule must be one of {_N_FEATURES_SELECTION_RULES}; got {n_features_selection_rule!r}.")
-
-        if fi_missing_policy not in ("worst", "median", "skip"):
-            raise ValueError(f"fi_missing_policy must be 'worst', 'median', or 'skip'; " f"got {fi_missing_policy!r}.")
-
-        if multioutput_strategy not in (None, "union", "intersect"):
-            raise ValueError(f"multioutput_strategy must be None, 'union', or 'intersect'; got {multioutput_strategy!r}.")
-        if importance_agg not in ("legacy", "dispatched"):
-            raise ValueError(f"importance_agg must be 'legacy' or 'dispatched'; got {importance_agg!r}.")
-
-        if elimination_rule not in ("importance", "stability"):
-            raise ValueError(f"elimination_rule must be 'importance' or 'stability'; got {elimination_rule!r}.")
-
-        if optimizer_target not in ("mean", "final_score"):
-            raise ValueError(f"optimizer_target must be 'mean' or 'final_score'; got {optimizer_target!r}.")
-
-        if not (0.0 <= dichotomic_epsilon <= 1.0):
-            raise ValueError(f"dichotomic_epsilon must be in [0, 1]; got {dichotomic_epsilon}.")
-
-        if dichotomic_step not in ("auto", "midpoint"):
-            raise ValueError(f"dichotomic_step must be 'auto' or 'midpoint'; got {dichotomic_step!r}.")
-
-        if not (0.0 <= fi_decay_rate < 1.0):
-            raise ValueError(f"fi_decay_rate must be in [0, 1); got {fi_decay_rate}.")
-
-        if multiclass_coef_aggregation not in ("max", "sum"):
-            raise ValueError(f"multiclass_coef_aggregation must be 'max' or 'sum'; got {multiclass_coef_aggregation!r}.")
-
-        if coef_scale_source not in ("train", "test", "none"):
-            raise ValueError(f"coef_scale_source must be 'train', 'test', or 'none'; got {coef_scale_source!r}.")
-
-        # E9: assert all entries in ``estimators=`` share the
-        # same type-family (classifier vs regressor). Mixing silently picks the
-        # first estimator's family for CV stratification / scoring and the other
-        # estimator crashes mid-fold with cryptic errors.
-        if estimators:
-            from sklearn.base import is_classifier as _is_clf
-            from sklearn.base import is_regressor as _is_reg
-            _est_list = list(estimators)
-            if len(_est_list) >= 2:
-                _is_clf_flags = [_is_clf(e) for e in _est_list]
-                _is_reg_flags = [_is_reg(e) for e in _est_list]
-                # Allow estimators that are NEITHER (custom transformers used as importers)
-                # but reject mixing detectable classifier+regressor.
-                if any(_is_clf_flags) and any(_is_reg_flags):
-                    raise ValueError(
-                        "RFECV: estimators=[...] mixes classifier and regressor "
-                        "families. All entries must share type-family for CV "
-                        "stratification + scoring to be consistent. Got: "
-                        f"{[type(e).__name__ for e in _est_list]}"
-                    )
-
-        # F6: multi-estimator + AM/GM is unsafe.
-        # LR coef ~ 0.01..1, RF Gini ~ 0..0.1, CB split-gain ~ thousands - raw
-        # arithmetic / geometric mean is dominated by the largest-magnitude
-        # estimator (AM) or zeroed by any single zero (GM). Force rank-based
-        # rules (Borda / Copeland) for multi-estimator. User can opt back in
-        # via allow_unsafe_aggregation=True for benchmarks.
-        if estimators and votes_aggregation_method in (VotesAggregation.AM, VotesAggregation.GM):
-            if verbose:
-                logger.warning(
-                    "RFECV: multi-estimator + votes_aggregation_method=%s mixes raw "
-                    "FI values from incomparable scales (LR coef ~ 0.01-1, RF Gini ~ "
-                    "0-0.1, CB split-gain ~ 1000s). Switching to Borda (rank-based). "
-                    "Pass allow_unsafe_aggregation=True to keep the original choice.",
-                    votes_aggregation_method,
-                )
+        # Store the RFECV configuration; the per-parameter notes sit in the comment block above this method.
+        params = get_parent_func_args()
+        validate_init_params_early(params)
+        self._check_stability_selection_params(params["stability_selection"], params["stability_threshold"], params["stability_n_bootstrap"], params["verbose"])
+        self._check_feature_groups_nonempty(params["feature_groups"], params["verbose"])
+        validate_init_params_late(params)
 
         # E3: feature_groups overlap is silently expanded into a contradictory all-or-nothing rule that grows
         # the support_ by every group member of every overlapping group whenever ANY shared member is picked. Reject upfront.
-        self._check_feature_groups_disjoint(feature_groups)
+        self._check_feature_groups_disjoint(params["feature_groups"])
 
-        params = get_parent_func_args()
         # grouped-config merge. When a SearchConfig / FIConfig /
         # RobustnessConfig is passed, its EXPLICITLY-SET fields (per pydantic
         # v2's ``model_fields_set``) override the matching flat kwarg before
@@ -605,7 +446,7 @@ class RFECV(RFECVStateCompatMixin, TransformerMixin, BaseEstimator):
         # of a config object do NOT clobber explicit flat values, so a caller
         # who passes ``RFECV(estimator=lr, max_refits=20)`` AND a default
         # ``SearchConfig()`` keeps max_refits=20.
-        _overlay_explicit_config_fields(params, (search_config, fi_config, robustness_config))
+        _overlay_explicit_config_fields(params, (params["search_config"], params["fi_config"], params["robustness_config"]))
         # postfix="" - see mlframe.calibration.post's identical fix comment: this class reads
         # attributes back by their bare param name, but store_params_in_object()'s default postfix
         # changed to "_param_" without every caller being updated.

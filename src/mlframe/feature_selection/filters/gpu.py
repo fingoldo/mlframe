@@ -21,6 +21,14 @@ from typing import Any, Optional
 
 import numpy as np
 
+from ._gpu_kernel_sources import (
+    COMPUTE_JOINT_HIST_BATCHED_CUDA_SRC,
+    COMPUTE_JOINT_HIST_BATCHED_SHARED_CUDA_SRC,
+    COMPUTE_JOINT_HIST_CUDA_SRC,
+    COMPUTE_JOINT_HIST_MULTI_PAIR_CUDA_SRC,
+    COMPUTE_JOINT_HIST_MULTI_PAIR_SHARED_CUDA_SRC,
+    COMPUTE_MI_FROM_CLASSES_CUDA_SRC,
+)
 from ._internals import GPU_MAX_BLOCK_SIZE
 from .info_theory import compute_mi_from_classes, merge_vars
 
@@ -153,15 +161,7 @@ def init_kernels() -> None:
         )
 
     module.compute_joint_hist_cuda = cp.RawKernel(  # type: ignore[attr-defined]
-        r"""
-    extern "C" __global__
-    void compute_joint_hist_cuda(const int *classes_x, const int *classes_y, int *joint_counts, int n, int nbins_y) {
-        int tid = blockDim.x * blockIdx.x + threadIdx.x;
-        if (tid<n){
-            atomicAdd(&joint_counts[classes_x[tid]*nbins_y+classes_y[tid]],1);
-        }
-    }
-    """,
+        COMPUTE_JOINT_HIST_CUDA_SRC,
         "compute_joint_hist_cuda",
     )
 
@@ -171,25 +171,7 @@ def init_kernels() -> None:
     # slower than shared-memory atomics on cc 6.x. Kept available for
     # back-compat + fall-back when joint_size exceeds the shared-mem budget.
     module.compute_joint_hist_batched_cuda = cp.RawKernel(  # type: ignore[attr-defined]
-        r"""
-    extern "C" __global__
-    void compute_joint_hist_batched_cuda(
-        const int *classes_x,           // (n,)
-        const int *perms_y,             // (batch, n) row-major
-        int *joint_counts_batch,        // (batch, nbins_x * nbins_y) row-major
-        int n,
-        int nbins_x,
-        int nbins_y
-    ) {
-        int batch_id = blockIdx.y;
-        int tid = blockDim.x * blockIdx.x + threadIdx.x;
-        if (tid < n) {
-            int cy = perms_y[(long long)batch_id * n + tid];
-            int cx = classes_x[tid];
-            atomicAdd(&joint_counts_batch[(long long)batch_id * (nbins_x * nbins_y) + cx * nbins_y + cy], 1);
-        }
-    }
-    """,
+        COMPUTE_JOINT_HIST_BATCHED_CUDA_SRC,
         "compute_joint_hist_batched_cuda",
     )
 
@@ -204,46 +186,7 @@ def init_kernels() -> None:
     # (the global-atomic version above) stays available; the dispatcher picks
     # this faster path only when joint_size fits.
     module.compute_joint_hist_batched_shared_cuda = cp.RawKernel(  # type: ignore[attr-defined]
-        r"""
-    extern "C" __global__
-    void compute_joint_hist_batched_shared_cuda(
-        const int *classes_x,           // (n,)
-        const int *perms_y,             // (batch, n) row-major
-        int *joint_counts_batch,        // (batch, nbins_x * nbins_y) row-major
-        int n,
-        int nbins_x,
-        int nbins_y
-    ) {
-        extern __shared__ int sm_hist[];  // size: nbins_x * nbins_y * sizeof(int)
-        int batch_id = blockIdx.y;
-        int joint_size = nbins_x * nbins_y;
-        int tid = threadIdx.x;
-        int nthreads = blockDim.x;
-        long long gid_offset = (long long)blockIdx.x * nthreads;
-
-        // Zero the shared histogram.
-        for (int i = tid; i < joint_size; i += nthreads) {
-            sm_hist[i] = 0;
-        }
-        __syncthreads();
-
-        // Grid-strided read of n_samples (only the block's slice).
-        long long my_row = gid_offset + tid;
-        if (my_row < n) {
-            int cy = perms_y[(long long)batch_id * n + my_row];
-            int cx = classes_x[my_row];
-            atomicAdd(&sm_hist[cx * nbins_y + cy], 1);
-        }
-        __syncthreads();
-
-        // Reduce: each thread merges its slice of sm_hist into the per-batch
-        // global output. Block-level atomicAdd into global is still atomic
-        // (many blocks may have this batch_id), so we use atomicAdd here too.
-        for (int i = tid; i < joint_size; i += nthreads) {
-            atomicAdd(&joint_counts_batch[(long long)batch_id * joint_size + i], sm_hist[i]);
-        }
-    }
-    """,
+        COMPUTE_JOINT_HIST_BATCHED_SHARED_CUDA_SRC,
         "compute_joint_hist_batched_shared_cuda",
     )
     # Multi-pair batched joint histogram kernel. Processes B pairs per launch via 3D grid (blocks along rows, blocks along pairs). Each (pair, row) thread atomically
@@ -255,39 +198,7 @@ def init_kernels() -> None:
     #   joint_counts_flat: (sum(nbins_a*nbins_b),) flat output buffer.
     #   n_rows, n_pairs: grid dims.
     module.compute_joint_hist_multi_pair_cuda = cp.RawKernel(  # type: ignore[attr-defined]
-        r"""
-    extern "C" __global__
-    void compute_joint_hist_multi_pair_cuda(
-        const int *factors_data_T,    // (n_cols, n)
-        const int *classes_y,          // (n,)  - already merged target
-        const int *pairs_a,            // (n_pairs,)
-        const int *pairs_b,            // (n_pairs,)
-        const int *nbins_a,            // (n_pairs,)
-        const int *joint_offsets,      // (n_pairs + 1,) prefix sum into joint_counts_flat
-        int *joint_counts_flat,        // sum(nbins_a[p]*nbins_b[p]*nbins_y)
-        int n_rows,
-        int n_pairs,
-        int nbins_y
-    ) {
-        int row = blockIdx.x * blockDim.x + threadIdx.x;
-        int pid = blockIdx.y;
-        if (pid >= n_pairs) return;
-        if (row >= n_rows) return;
-
-        int col_a = pairs_a[pid];
-        int col_b = pairs_b[pid];
-        int nba = nbins_a[pid];
-        int va = factors_data_T[(long long)col_a * n_rows + row];
-        int vb = factors_data_T[(long long)col_b * n_rows + row];
-        int cy = classes_y[row];
-        // Merged (a, b) code = va + vb * nba. Joint cell = merged * nbins_y + cy.
-        int merged = va + vb * nba;
-        atomicAdd(
-            &joint_counts_flat[joint_offsets[pid] + merged * nbins_y + cy],
-            1
-        );
-    }
-    """,
+        COMPUTE_JOINT_HIST_MULTI_PAIR_CUDA_SRC,
         "compute_joint_hist_multi_pair_cuda",
     )
 
@@ -300,91 +211,12 @@ def init_kernels() -> None:
     # wasted shared-mem - acceptable when the variance across pairs is
     # bounded (mlframe cat-FE typically has uniform nbins).
     module.compute_joint_hist_multi_pair_shared_cuda = cp.RawKernel(  # type: ignore[attr-defined]
-        r"""
-    extern "C" __global__
-    void compute_joint_hist_multi_pair_shared_cuda(
-        const int *factors_data_T,    // (n_cols, n)
-        const int *classes_y,          // (n,)
-        const int *pairs_a,            // (n_pairs,)
-        const int *pairs_b,            // (n_pairs,)
-        const int *nbins_a,            // (n_pairs,)
-        const int *joint_offsets,      // (n_pairs + 1,) prefix sum
-        int *joint_counts_flat,        // sum(nbins_a[p]*nbins_b[p]*nbins_y)
-        int n_rows,
-        int n_pairs,
-        int nbins_y,
-        int max_joint_size_y           // shared-mem allocation size in cells
-    ) {
-        extern __shared__ int sm_hist[];  // size: max_joint_size_y * sizeof(int)
-        int pid = blockIdx.y;
-        if (pid >= n_pairs) return;
-
-        int pair_size = joint_offsets[pid + 1] - joint_offsets[pid];
-        int tid = threadIdx.x;
-        int nthreads = blockDim.x;
-
-        // Zero only the pair's slice of shared (rest is unused / garbage).
-        for (int i = tid; i < pair_size; i += nthreads) {
-            sm_hist[i] = 0;
-        }
-        __syncthreads();
-
-        int col_a = pairs_a[pid];
-        int col_b = pairs_b[pid];
-        int nba = nbins_a[pid];
-
-        long long row = (long long)blockIdx.x * nthreads + tid;
-        if (row < n_rows) {
-            int va = factors_data_T[(long long)col_a * n_rows + row];
-            int vb = factors_data_T[(long long)col_b * n_rows + row];
-            int cy = classes_y[row];
-            int merged = va + vb * nba;
-            atomicAdd(&sm_hist[merged * nbins_y + cy], 1);
-        }
-        __syncthreads();
-
-        // Reduce shared -> per-pair global slot.
-        int g_off = joint_offsets[pid];
-        for (int i = tid; i < pair_size; i += nthreads) {
-            atomicAdd(&joint_counts_flat[g_off + i], sm_hist[i]);
-        }
-    }
-    """,
+        COMPUTE_JOINT_HIST_MULTI_PAIR_SHARED_CUDA_SRC,
         "compute_joint_hist_multi_pair_shared_cuda",
     )
 
     module.compute_mi_from_classes_cuda = cp.RawKernel(  # type: ignore[attr-defined]
-        r"""
-    extern "C" __global__
-    void compute_mi_from_classes_cuda(const int *classes_x, const double *freqs_x,const int *classes_y, const double *freqs_y, int *joint_counts, double *totals, int n,int nbins_x,int nbins_y) {
-        int tid = blockDim.x * blockIdx.x + threadIdx.x;
-        if (tid==0){
-            // joint_counts is a (nbins_x, nbins_y) row-major histogram written by
-            // compute_joint_hist_cuda with stride nbins_y (``cx*nbins_y+cy``). The
-            // reduction MUST read it with the SAME stride. A pre-2026-06-11 bug
-            // hardcoded ``i*2+j`` (stride 2), which only matched a binary target
-            // (nbins_y==2); for any nbins_y!=2 (multi-class y, or quantile-binned
-            // regression y with nbins_y up to 10) it read the WRONG cells, yielding
-            // garbage permutation-null MIs that systematically over-rejected genuine
-            // candidates - silently diverging the GPU selection from the CPU path.
-            // Use double throughout (no float32 narrowing) to match the bit-exact
-            // CPU njit compute_mi_from_classes.
-            double total = 0.0;
-            for (int i=0;i<nbins_x;++i){
-                double prob_x = freqs_x[i];
-                for (int j=0;j<nbins_y;++j){
-                    int jc = joint_counts[i*nbins_y+j];
-                    if (jc>0){
-                        double prob_y = freqs_y[j];
-                        double jf=(double)jc/ (double)n;
-                        total += jf* log(jf / (prob_x * prob_y));
-                    }
-                }
-            }
-            totals[0]=total;
-        }
-    }
-    """,
+        COMPUTE_MI_FROM_CLASSES_CUDA_SRC,
         "compute_mi_from_classes_cuda",
     )
 
@@ -475,6 +307,135 @@ _PERM_READBACK_CHUNK = 32
 _PERM_FANOUT_MIN_PERMUTATIONS = 32
 _PERM_FANOUT_BATCH_SIZE = 64
 
+
+def _gpu_single_perm_loop(
+    classes_x: np.ndarray,
+    freqs_x: np.ndarray,
+    classes_y: np.ndarray,
+    freqs_y: np.ndarray,
+    classes_y_safe: Optional[Any],
+    freqs_y_safe: Optional[Any],
+    original_mi: float,
+    max_failed: int,
+    npermutations: int,
+    base_seed: Optional[int],
+) -> tuple[float, float, int, float, int]:
+    """Per-permutation GPU loop of ``mi_direct_gpu``: returns ``(original_mi, confidence, nfailed, null_sum, nchecked)``.
+
+    ``original_mi`` comes back zeroed when the exceedance count reaches ``max_failed``; ``null_sum`` is the sum of the per-permutation MIs."""
+    import cupy as cp
+
+    confidence = 0.0
+    nfailed = 0
+    _null_sum = 0.0
+    _nchecked = 0
+    # Persistent device buffers. Pool grows monotonically so back-to-back calls on similarly-sized inputs reuse the same allocations.
+    n, nbins_x, nbins_y = len(classes_x), len(freqs_x), len(freqs_y)
+    with _GPU_POOL_LOCK:  # the whole ensure-fill-launch block; see the lock's definition
+        _GPU_POOL.ensure(n=n, nbins_x=nbins_x, nbins_y=nbins_y)
+        # .ensure() allocates every buffer below unconditionally; narrows the pool's Optional[...] attrs for mypy.
+        assert _GPU_POOL.classes_x is not None and _GPU_POOL.classes_y is not None
+        assert _GPU_POOL.freqs_x is not None and _GPU_POOL.freqs_y is not None
+        assert _GPU_POOL.joint_counts is not None and _GPU_POOL.totals is not None
+
+        # classes_y_safe override path (caller passed cached GPU arrays).
+        # The permutation loop below shuffles this buffer IN PLACE and cumulatively. When the caller supplied
+        # it (the pre-warmed-device-buffer path in evaluation.py / _confirm_predictor.py) that left their
+        # cached array permanently permuted relative to classes_x. Harmless for the null itself -- a
+        # composition of random permutations is still a random permutation, and original_mi is computed from
+        # the HOST classes_y -- but any future consumer reading that shared buffer as the TRUE label vector
+        # would silently get scrambled labels. Shuffle a scratch copy instead, so the caller's buffer is
+        # exactly as they left it.
+        if classes_y_safe is None:
+            classes_y_safe = _GPU_POOL.classes_y[:n]
+            classes_y_safe[:] = cp.asarray(classes_y, dtype=cp.int32)
+        else:
+            classes_y_safe = classes_y_safe.copy()
+        if freqs_y_safe is None:
+            freqs_y_safe = _GPU_POOL.freqs_y[:nbins_y]
+            freqs_y_safe[:] = cp.asarray(freqs_y)
+
+        totals = _GPU_POOL.totals
+        totals.fill(0)
+        joint_counts = _GPU_POOL.joint_counts[:nbins_x, :nbins_y]
+
+        # block_size via the per-host kernel_tuning_cache: lets fast GPUs
+        # (cc 7+, more registers/warp scheduler) pick a smaller block size
+        # when the per-perm kernel is dispatch-bound. Cache miss -> the
+        # hardcoded ``GPU_MAX_BLOCK_SIZE`` (1024), unchanged.
+        # Module-singleton cache (see ._kernel_tuning); a fresh
+        # KernelTuningCache() here would re-spawn nvidia-smi per call.
+        block_size = GPU_MAX_BLOCK_SIZE
+        from ._kernel_tuning import get_kernel_tuning_cache
+        _ktc = get_kernel_tuning_cache()
+        if _ktc is not None:
+            try:
+                _ktc_entry = _ktc.lookup("joint_hist_single_perm", n_samples=int(n))
+                if _ktc_entry is not None and "block_size" in _ktc_entry:
+                    block_size = int(_ktc_entry["block_size"])
+            except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+                logger.debug("suppressed: %s", e)
+                pass
+        grid_size = math.ceil(n / block_size)
+
+        classes_x_gpu = _GPU_POOL.classes_x[:n]
+        classes_x_gpu[:] = cp.asarray(classes_x, dtype=cp.int32)
+        classes_x = classes_x_gpu
+        freqs_x_gpu = _GPU_POOL.freqs_x[:nbins_x]
+        freqs_x_gpu[:] = cp.asarray(freqs_x)
+        freqs_x = freqs_x_gpu
+        nfailed = 0
+        _i = 0
+        # Permutations come from the host LCG stream shared with the CPU kernels (see _gpu_host_permutations),
+        # copied into the pooled buffer so downstream consumers keep its identity.
+        _y_host = np.asarray(classes_y)
+        # Per-permutation ``totals.get()`` cost one FULL device sync per permutation, so D2H traffic scaled
+        # linearly with the permutation budget and each read stalled the pipeline behind the next launch.
+        # The MIs are instead staged into a small device buffer (device-to-device, no sync) and read back one
+        # chunk at a time. The host-side pass over each chunk is byte-for-byte the original loop body, so
+        # nfailed, _nchecked and the break point are identical - the only difference is that up to
+        # ``_PERM_READBACK_CHUNK - 1`` extra permutations may be COMPUTED before a short-circuit is noticed,
+        # matching the batch-granularity contract ``mi_direct_gpu_batched`` already documents. On the
+        # return_null_mean path there is nothing to lose at all: max_failed is lifted to the full budget just
+        # above, precisely so the early stop cannot truncate the null.
+        _chunk = min(_PERM_READBACK_CHUNK, npermutations)
+        _mi_buf = cp.empty(_chunk, dtype=totals.dtype)
+        _done = 0
+        _stop = False
+        while _done < npermutations and not _stop:
+            _m = min(_chunk, npermutations - _done)
+            _perm_rows = cp.asarray(host_permuted_y_batch(_y_host, base_seed, _done, _m))
+            for _j in range(_m):
+                classes_y_safe[:] = _perm_rows[_j]
+                joint_counts.fill(0)
+                compute_joint_hist_cuda(
+                    (grid_size,),
+                    (block_size,),
+                    (classes_x, classes_y_safe, joint_counts, len(classes_x), len(freqs_y)),
+                )
+                compute_mi_from_classes_cuda(
+                    (1,),
+                    (1,),
+                    (classes_x, freqs_x, classes_y_safe, freqs_y_safe, joint_counts, totals, len(classes_x), len(freqs_x), len(freqs_y)),
+                )
+                _mi_buf[_j] = totals[0]  # stays on the device; the readback below is the only D2H
+            _host_mi = cp.asnumpy(_mi_buf[:_m])
+            for _j in range(_m):
+                mi = float(_host_mi[_j])
+                _i = _done + _j
+                _null_sum += mi  # accumulate for the empirical null mean (return_null_mean path)
+                if mi >= original_mi:
+                    nfailed += 1
+                    if nfailed >= max_failed:
+                        original_mi = 0.0
+                        _stop = True
+                        break
+            _done += _m
+        confidence = 1 - nfailed / (_i + 1)
+        _nchecked = _i + 1
+    return original_mi, confidence, nfailed, _null_sum, _nchecked
+
+
 def mi_direct_gpu(
     factors_data: np.ndarray,
     x: tuple,
@@ -527,8 +488,6 @@ def mi_direct_gpu(
     (``None`` means 0, the ``mi_direct`` default). The permutations are identical on both backends, so the
     exceedance count differs only through floating-point rounding of the MI reduction.
     """
-    import cupy as cp
-
     _ensure_kernels_inited()
     _pin_device_if_needed()  # D2 part 2: per-thread CUDA device pin
 
@@ -593,110 +552,9 @@ def mi_direct_gpu(
             if max_failed <= 1:
                 max_failed = 1
 
-        # Persistent device buffers. Pool grows monotonically so back-to-back calls on similarly-sized inputs reuse the same allocations.
-        n, nbins_x, nbins_y = len(classes_x), len(freqs_x), len(freqs_y)
-        with _GPU_POOL_LOCK:  # the whole ensure-fill-launch block; see the lock's definition
-            _GPU_POOL.ensure(n=n, nbins_x=nbins_x, nbins_y=nbins_y)
-            # .ensure() allocates every buffer below unconditionally; narrows the pool's Optional[...] attrs for mypy.
-            assert _GPU_POOL.classes_x is not None and _GPU_POOL.classes_y is not None
-            assert _GPU_POOL.freqs_x is not None and _GPU_POOL.freqs_y is not None
-            assert _GPU_POOL.joint_counts is not None and _GPU_POOL.totals is not None
-
-            # classes_y_safe override path (caller passed cached GPU arrays).
-            # The permutation loop below shuffles this buffer IN PLACE and cumulatively. When the caller supplied
-            # it (the pre-warmed-device-buffer path in evaluation.py / _confirm_predictor.py) that left their
-            # cached array permanently permuted relative to classes_x. Harmless for the null itself -- a
-            # composition of random permutations is still a random permutation, and original_mi is computed from
-            # the HOST classes_y -- but any future consumer reading that shared buffer as the TRUE label vector
-            # would silently get scrambled labels. Shuffle a scratch copy instead, so the caller's buffer is
-            # exactly as they left it.
-            if classes_y_safe is None:
-                classes_y_safe = _GPU_POOL.classes_y[:n]
-                classes_y_safe[:] = cp.asarray(classes_y, dtype=cp.int32)
-            else:
-                classes_y_safe = classes_y_safe.copy()
-            if freqs_y_safe is None:
-                freqs_y_safe = _GPU_POOL.freqs_y[:nbins_y]
-                freqs_y_safe[:] = cp.asarray(freqs_y)
-
-            totals = _GPU_POOL.totals
-            totals.fill(0)
-            joint_counts = _GPU_POOL.joint_counts[:nbins_x, :nbins_y]
-
-            # block_size via the per-host kernel_tuning_cache: lets fast GPUs
-            # (cc 7+, more registers/warp scheduler) pick a smaller block size
-            # when the per-perm kernel is dispatch-bound. Cache miss -> the
-            # hardcoded ``GPU_MAX_BLOCK_SIZE`` (1024), unchanged.
-            # Module-singleton cache (see ._kernel_tuning); a fresh
-            # KernelTuningCache() here would re-spawn nvidia-smi per call.
-            block_size = GPU_MAX_BLOCK_SIZE
-            from ._kernel_tuning import get_kernel_tuning_cache
-            _ktc = get_kernel_tuning_cache()
-            if _ktc is not None:
-                try:
-                    _ktc_entry = _ktc.lookup("joint_hist_single_perm", n_samples=int(n))
-                    if _ktc_entry is not None and "block_size" in _ktc_entry:
-                        block_size = int(_ktc_entry["block_size"])
-                except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-                    logger.debug("suppressed: %s", e)
-                    pass
-            grid_size = math.ceil(n / block_size)
-
-            classes_x_gpu = _GPU_POOL.classes_x[:n]
-            classes_x_gpu[:] = cp.asarray(classes_x, dtype=cp.int32)
-            classes_x = classes_x_gpu
-            freqs_x_gpu = _GPU_POOL.freqs_x[:nbins_x]
-            freqs_x_gpu[:] = cp.asarray(freqs_x)
-            freqs_x = freqs_x_gpu
-            nfailed = 0
-            _i = 0
-            # Permutations come from the host LCG stream shared with the CPU kernels (see _gpu_host_permutations),
-            # copied into the pooled buffer so downstream consumers keep its identity.
-            _y_host = np.asarray(classes_y)
-            # Per-permutation ``totals.get()`` cost one FULL device sync per permutation, so D2H traffic scaled
-            # linearly with the permutation budget and each read stalled the pipeline behind the next launch.
-            # The MIs are instead staged into a small device buffer (device-to-device, no sync) and read back one
-            # chunk at a time. The host-side pass over each chunk is byte-for-byte the original loop body, so
-            # nfailed, _nchecked and the break point are identical - the only difference is that up to
-            # ``_PERM_READBACK_CHUNK - 1`` extra permutations may be COMPUTED before a short-circuit is noticed,
-            # matching the batch-granularity contract ``mi_direct_gpu_batched`` already documents. On the
-            # return_null_mean path there is nothing to lose at all: max_failed is lifted to the full budget just
-            # above, precisely so the early stop cannot truncate the null.
-            _chunk = min(_PERM_READBACK_CHUNK, npermutations)
-            _mi_buf = cp.empty(_chunk, dtype=totals.dtype)
-            _done = 0
-            _stop = False
-            while _done < npermutations and not _stop:
-                _m = min(_chunk, npermutations - _done)
-                _perm_rows = cp.asarray(host_permuted_y_batch(_y_host, base_seed, _done, _m))
-                for _j in range(_m):
-                    classes_y_safe[:] = _perm_rows[_j]
-                    joint_counts.fill(0)
-                    compute_joint_hist_cuda(
-                        (grid_size,),
-                        (block_size,),
-                        (classes_x, classes_y_safe, joint_counts, len(classes_x), len(freqs_y)),
-                    )
-                    compute_mi_from_classes_cuda(
-                        (1,),
-                        (1,),
-                        (classes_x, freqs_x, classes_y_safe, freqs_y_safe, joint_counts, totals, len(classes_x), len(freqs_x), len(freqs_y)),
-                    )
-                    _mi_buf[_j] = totals[0]  # stays on the device; the readback below is the only D2H
-                _host_mi = cp.asnumpy(_mi_buf[:_m])
-                for _j in range(_m):
-                    mi = float(_host_mi[_j])
-                    _i = _done + _j
-                    _null_sum += mi  # accumulate for the empirical null mean (return_null_mean path)
-                    if mi >= original_mi:
-                        nfailed += 1
-                        if nfailed >= max_failed:
-                            original_mi = 0.0
-                            _stop = True
-                            break
-                _done += _m
-            confidence = 1 - nfailed / (_i + 1)
-            _nchecked = _i + 1
+        original_mi, confidence, nfailed, _null_sum, _nchecked = _gpu_single_perm_loop(
+            classes_x, freqs_x, classes_y, freqs_y, classes_y_safe, freqs_y_safe, original_mi, max_failed, npermutations, base_seed,
+        )
 
     if return_null_mean:
         # Mirror the CPU mi_direct(return_null_mean=True) contract: empirical null mean over the permutations

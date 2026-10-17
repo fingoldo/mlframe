@@ -170,6 +170,64 @@ def _run_cross_target_ensemble_for_type(_tt_e, _tt_specs, *, _args_by_target, _f
         )
 
 
+def _wrap_composite_targets(
+    *, models: dict, metadata: dict, target_by_type: dict, composite_specs_by_target_type: dict, composite_target_discovery_config: Any,
+    filtered_train_idx: Any, filtered_train_df: Any, filtered_val_idx: Any, filtered_val_df: Any, test_idx: Any, test_df_pd: Any,
+    target_name: str, plot_file: str | None, reporting_config: Any, args_by_target: Any,
+) -> dict[tuple, np.ndarray]:
+    """Wrap T-scale inner models so ``predict()`` returns y-scale; returns the train-prediction cache keyed by wrapper identity."""
+    _skip_predict = bool(getattr(
+        composite_target_discovery_config, "skip_wrap_pass_predict", True,
+    ))
+    _enable_watchdog = bool(getattr(
+        composite_target_discovery_config, "enable_wrap_pass_watchdog", True,
+    ))
+    return _run_composite_target_wrapping(
+        models=models,
+        metadata=metadata,
+        target_by_type=target_by_type,
+        composite_specs_by_target_type=composite_specs_by_target_type,
+        filtered_train_idx=filtered_train_idx,
+        filtered_train_df=filtered_train_df,
+        filtered_val_idx=filtered_val_idx,
+        filtered_val_df=filtered_val_df,
+        test_idx=test_idx,
+        test_df_pd=test_df_pd,
+        skip_predict=_skip_predict,
+        enable_watchdog=_enable_watchdog,
+        target_name=target_name,
+        plot_file=plot_file,
+        reporting_config=reporting_config,
+        group_column=getattr(composite_target_discovery_config, "group_column", None),
+        split_args_by_target=args_by_target,
+    )
+
+
+def _run_moe_stage(
+    *, models: dict, metadata: dict, target_by_type: dict, composite_target_discovery_config: Any, filtered_train_df: Any, filtered_val_df: Any,
+    filtered_train_idx: Any, filtered_val_idx: Any, ctx: Any, test_df_pd: Any, test_idx: Any, args_by_target: Any,
+) -> None:
+    """MoE selection gate + composite VALUE report; best-effort, a failure leaves the deploy unchanged."""
+    try:
+        from ._phase_composite_post_moe import run_composite_moe_and_value_report
+        run_composite_moe_and_value_report(
+            models=models,
+            metadata=metadata,
+            target_by_type=target_by_type,
+            composite_target_discovery_config=composite_target_discovery_config,
+            filtered_train_df=filtered_train_df,
+            filtered_val_df=filtered_val_df,
+            filtered_train_idx=filtered_train_idx,
+            filtered_val_idx=filtered_val_idx,
+            ctx=ctx, test_df=test_df_pd, test_idx=test_idx,
+            split_args_by_target=args_by_target,
+        )
+    except Exception as _moe_err:
+        logger.warning(
+            "[CompositeMoE] value-report / MoE-gate stage failed (%s); deploy left unchanged.", _moe_err,
+        )
+
+
 @with_prediction_memo
 def run_composite_post_processing(
     *,
@@ -216,30 +274,11 @@ def run_composite_post_processing(
     # Train-prediction cache (key = id(wrapper)) populated by the wrapping block and reused by the cross-target ensemble block.
     _train_pred_cache: dict[tuple, np.ndarray] = {}
     if composite_specs_by_target_type:
-        _skip_predict = bool(getattr(
-            composite_target_discovery_config, "skip_wrap_pass_predict", True,
-        ))
-        _enable_watchdog = bool(getattr(
-            composite_target_discovery_config, "enable_wrap_pass_watchdog", True,
-        ))
-        _train_pred_cache = _run_composite_target_wrapping(
-            models=models,
-            metadata=metadata,
-            target_by_type=target_by_type,
-            composite_specs_by_target_type=composite_specs_by_target_type,
-            filtered_train_idx=filtered_train_idx,
-            filtered_train_df=filtered_train_df,
-            filtered_val_idx=filtered_val_idx,
-            filtered_val_df=filtered_val_df,
-            test_idx=test_idx,
-            test_df_pd=test_df_pd,
-            skip_predict=_skip_predict,
-            enable_watchdog=_enable_watchdog,
-            target_name=target_name,
-            plot_file=plot_file,
-            reporting_config=reporting_config,
-            group_column=getattr(composite_target_discovery_config, "group_column", None),
-            split_args_by_target=_args_by_target,
+        _train_pred_cache = _wrap_composite_targets(
+            models=models, metadata=metadata, target_by_type=target_by_type, composite_specs_by_target_type=composite_specs_by_target_type,
+            composite_target_discovery_config=composite_target_discovery_config, filtered_train_idx=filtered_train_idx,
+            filtered_train_df=filtered_train_df, filtered_val_idx=filtered_val_idx, filtered_val_df=filtered_val_df, test_idx=test_idx,
+            test_df_pd=test_df_pd, target_name=target_name, plot_file=plot_file, reporting_config=reporting_config, args_by_target=_args_by_target,
         )
 
     # Discovery may have been auto-enabled for a heavy-tail target on a config that still reads enabled=False here (the
@@ -297,24 +336,11 @@ def run_composite_post_processing(
     # MoE selection gate + composite VALUE report: this is the one place where the deployed composite ensemble,
     # the raw-y model, the lag failsafe, true y and group_ids coexist on the honest val split. Both are flag-gated
     # and no-op cleanly (deploy byte-identical) when their inputs are missing.
-    try:
-        from ._phase_composite_post_moe import run_composite_moe_and_value_report
-        run_composite_moe_and_value_report(
-            models=models,
-            metadata=metadata,
-            target_by_type=target_by_type,
-            composite_target_discovery_config=composite_target_discovery_config,
-            filtered_train_df=filtered_train_df,
-            filtered_val_df=filtered_val_df,
-            filtered_train_idx=filtered_train_idx,
-            filtered_val_idx=filtered_val_idx,
-            ctx=ctx, test_df=test_df_pd, test_idx=test_idx,
-            split_args_by_target=_args_by_target,
-        )
-    except Exception as _moe_err:
-        logger.warning(
-            "[CompositeMoE] value-report / MoE-gate stage failed (%s); deploy left unchanged.", _moe_err,
-        )
+    _run_moe_stage(
+        models=models, metadata=metadata, target_by_type=target_by_type, composite_target_discovery_config=composite_target_discovery_config,
+        filtered_train_df=filtered_train_df, filtered_val_df=filtered_val_df, filtered_train_idx=filtered_train_idx, filtered_val_idx=filtered_val_idx,
+        ctx=ctx, test_df_pd=test_df_pd, test_idx=test_idx, args_by_target=_args_by_target,
+    )
 
     _run_suite_end_dummy_baselines_summary(
         models=models,

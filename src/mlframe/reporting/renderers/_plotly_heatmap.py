@@ -258,6 +258,35 @@ def _heatmap(self, fig, p: HeatmapPanelSpec, row: int, col: int) -> None:
     # huge grid where the per-annotation O(cells) plotly layout copy stalls and the text is unreadable soup anyway.
     rng = _finite_range(p.matrix)
     drew_cell_text = p.cell_text is not None and rng is not None and p.matrix.size <= _HEATMAP_CELL_TEXT_MAX
+    _heatmap_cell_text(fig, p, go, row, col, drew_cell_text, rng, cmap_name)
+    # Iso-value contour overlays at named matrix levels (PSI 0.10 / 0.25 triage lines). Drawn as a line-only
+    # go.Contour over the categorical axes: plotly maps category positions to 0..n-1, so the numeric contour
+    # x/y (the label lists) line up cell-for-cell with the heatmap.
+    _heatmap_threshold_contours(fig, p, go, row, col, drew_cell_text)
+    _heatmap_trend_line(fig, p, go, row, col)
+
+    apply_heatmap_tick_budget(fig, p, row, col)
+    fig.update_xaxes(title_text=p.xlabel, row=row, col=col)
+    # Row order must match matplotlib, which switches to origin="lower" for a density panel carrying
+    # `trend_xy` (it reads bottom-up, row 0 = lowest value) and keeps the top-down matrix order otherwise.
+    # Reversing unconditionally rendered the pred-vs-actual density heatmap VERTICALLY MIRRORED between the
+    # two backends -- the same figure, with the trend running the opposite way.
+    _reversed = p.trend_xy is None
+    _y_kw = {"autorange": "reversed"} if _reversed else {}
+    fig.update_yaxes(title_text=p.ylabel, row=row, col=col, **_y_kw)
+
+
+def _heatmap_cell_text(
+    fig: Any,
+    p: HeatmapPanelSpec,
+    go: Any,
+    row: int,
+    col: int,
+    drew_cell_text: bool,
+    rng: Any,
+    cmap_name: str,
+) -> None:
+    """Add per-cell text annotations (luminance-flipped colour), batched into one annotations assignment."""
     if drew_cell_text and p.cell_text is not None and rng is not None:
         from mlframe.reporting.colors import auto_text_colors_batch
         mat = p.matrix
@@ -302,9 +331,17 @@ def _heatmap(self, fig, p: HeatmapPanelSpec, row: int, col: int) -> None:
             ]
             if rest:
                 fig.layout.annotations = fig.layout.annotations + tuple(rest)
-    # Iso-value contour overlays at named matrix levels (PSI 0.10 / 0.25 triage lines). Drawn as a line-only
-    # go.Contour over the categorical axes: plotly maps category positions to 0..n-1, so the numeric contour
-    # x/y (the label lists) line up cell-for-cell with the heatmap.
+
+
+def _heatmap_threshold_contours(
+    fig: Any,
+    p: HeatmapPanelSpec,
+    go: Any,
+    row: int,
+    col: int,
+    drew_cell_text: bool,
+) -> None:
+    """Add line-only iso-value contour traces at the spec's named threshold levels."""
     if p.threshold_contours:
         mat = np.asarray(p.matrix, dtype=float)
         if mat.ndim == 2 and mat.shape[0] >= 2 and mat.shape[1] >= 2:
@@ -334,6 +371,16 @@ def _heatmap(self, fig, p: HeatmapPanelSpec, row: int, col: int) -> None:
                                showscale=False, hovertemplate=(f"{_label}<extra></extra>" if _label else "skip")),
                     row=row, col=col,
                 )
+
+
+def _heatmap_trend_line(
+    fig: Any,
+    p: HeatmapPanelSpec,
+    go: Any,
+    row: int,
+    col: int,
+) -> None:
+    """Add the y=x diagonal and the robust trend line, mapped from value space onto the category-axis positions."""
     if p.trend_line is not None and p.trend_xy is not None:
         from mlframe.reporting.renderers._trend import robust_fit_endpoints
         # The heatmap axes are CATEGORY axes (one position per bin label), but robust_fit_endpoints and the
@@ -376,16 +423,6 @@ def _heatmap(self, fig, p: HeatmapPanelSpec, row: int, col: int) -> None:
                                    name=f"robust fit ({p.trend_line})", showlegend=True),
                         row=row, col=col,
                     )
-
-    apply_heatmap_tick_budget(fig, p, row, col)
-    fig.update_xaxes(title_text=p.xlabel, row=row, col=col)
-    # Row order must match matplotlib, which switches to origin="lower" for a density panel carrying
-    # `trend_xy` (it reads bottom-up, row 0 = lowest value) and keeps the top-down matrix order otherwise.
-    # Reversing unconditionally rendered the pred-vs-actual density heatmap VERTICALLY MIRRORED between the
-    # two backends -- the same figure, with the trend running the opposite way.
-    _reversed = p.trend_xy is None
-    _y_kw = {"autorange": "reversed"} if _reversed else {}
-    fig.update_yaxes(title_text=p.ylabel, row=row, col=col, **_y_kw)
 
 
 def apply_heatmap_tick_budget(fig: Any, p: HeatmapPanelSpec, row: int, col: int) -> None:

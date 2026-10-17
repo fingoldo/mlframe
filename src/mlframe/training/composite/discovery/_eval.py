@@ -2,6 +2,7 @@
 
 ``eval_one_transform`` was the ``_eval_one_transform`` nested closure inside ``fit``; it is lifted to module level so the parallel-dispatch wrapper can call it without re-capturing the (large) per-base arrays via closure cells. Every variable the closure captured from the enclosing ``fit`` scope is now an explicit parameter: the discovery instance (``self``, for ``self.config`` + ``self._reject``), the per-base context map (``base_contexts``), and the shared ``y_train`` / ``y_screen`` / ``target_col``. The function is pure w.r.t. shared state: it reads ``base_contexts[base]`` (read-only after setup) and returns a fresh list, so it is safe to call concurrently from the threading pool.
 """
+
 from __future__ import annotations
 
 import logging
@@ -107,7 +108,8 @@ def build_unary_base_context(
             mi_y = _mi_to_target_prebinned(full_x_prebinned, y_screen, **mi_kwargs)
     else:
         mi_y = _mi_to_target(
-            full_x_matrix, y_screen,
+            full_x_matrix,
+            y_screen,
             n_neighbors=mi_n_neighbors,
             random_state=random_state,
             estimator=mi_estimator,
@@ -143,7 +145,8 @@ def _boot_mi(x_rows, target, prebinned: bool, mi_kwargs, config) -> float:
     if prebinned:
         return _mi_to_target_prebinned(x_rows, target, **mi_kwargs)
     return _mi_to_target(
-        x_rows, target,
+        x_rows,
+        target,
         n_neighbors=config.mi_n_neighbors,
         random_state=config.random_state,
         estimator=config.mi_estimator,
@@ -193,7 +196,9 @@ class _ReplayedBootstrapError(Exception):
     """A bootstrap replicate whose ``MI(y, X)`` failed for an earlier candidate on the same draws; carries its message."""
 
 
-def _bootstrap_gain_replicates(boot_gains, bootstrap_n, boot_rng, n_screen, t_screen, _y_screen_valid, _x_pb_valid_const, x_screen_valid, _mi_kwargs, config, failures, mi_y_reps=None):
+def _bootstrap_gain_replicates(
+    boot_gains, bootstrap_n, boot_rng, n_screen, t_screen, _y_screen_valid, _x_pb_valid_const, x_screen_valid, _mi_kwargs, config, failures, mi_y_reps=None
+):
     """Fill ``boot_gains`` with one resampled ``MI(T, X) - MI(y, X)`` per replicate, recording any that fail.
 
     A replicate that raises leaves NaN and appends its message to ``failures``; the caller decides whether enough
@@ -245,6 +250,7 @@ def _bootstrap_gain_replicates(boot_gains, bootstrap_n, boot_rng, n_screen, t_sc
             failures.append(f"replicate {b}: {_msg}")
             if _boot_fail_count == 1:
                 import logging as _logging
+
                 _logging.getLogger(__name__).warning(
                     "composite_discovery: MI-bootstrap iteration "
                     "failed (%s); per-bootstrap result reported "
@@ -252,7 +258,8 @@ def _bootstrap_gain_replicates(boot_gains, bootstrap_n, boot_rng, n_screen, t_sc
                     "samples; with sparse failures the LCB is "
                     "biased toward well-behaved bootstraps "
                     "(failures so far: %d).",
-                    _msg, _boot_fail_count,
+                    _msg,
+                    _boot_fail_count,
                 )
             boot_gains[b] = float("nan")
     return _boot_fail_count, (mi_y_vals, mi_y_fail)
@@ -288,9 +295,18 @@ def eval_one_transform(
     """
     _mi_y = base_contexts.get(base, {}).get("mi_y_for_base", float("nan"))
     if getattr(transform, "requires_groups", False):
-        return [self._reject(base, transform_name, _mi_y, float("nan"), reason=(
-            "grouped transform: discovery screens without group labels, so it cannot fit one; "
-            "fit it directly with CompositeTargetEstimator(group_column=...)"))]
+        return [
+            self._reject(
+                base,
+                transform_name,
+                _mi_y,
+                float("nan"),
+                reason=(
+                    "grouped transform: discovery screens without group labels, so it cannot fit one; "
+                    "fit it directly with CompositeTargetEstimator(group_column=...)"
+                ),
+            )
+        ]
     if not transform.requires_base:
         _uctx = base_contexts[base]
         _memo = _uctx.get("_unary_result_memo")
@@ -305,9 +321,14 @@ def eval_one_transform(
                 # leak into another call's view of the same memoised entry.
                 return [dict(_c) for _c in _cached]
             _result = _eval_one_transform_impl(
-                self, base, transform_name, transform,
-                base_contexts=base_contexts, y_train=y_train,
-                y_screen=y_screen, target_col=target_col,
+                self,
+                base,
+                transform_name,
+                transform,
+                base_contexts=base_contexts,
+                y_train=y_train,
+                y_screen=y_screen,
+                target_col=target_col,
             )
             with _memo_lock:
                 # First writer wins; a concurrent second compute produced the
@@ -316,48 +337,52 @@ def eval_one_transform(
             return _result
     try:
         return _eval_one_transform_impl(
-            self, base, transform_name, transform,
-            base_contexts=base_contexts, y_train=y_train,
-            y_screen=y_screen, target_col=target_col,
+            self,
+            base,
+            transform_name,
+            transform,
+            base_contexts=base_contexts,
+            y_train=y_train,
+            y_screen=y_screen,
+            target_col=target_col,
         )
     except Exception as err:  # nosec B110 -- converted into this candidate's rejection, logged and ledgered, never silent
-        logger.warning("[CompositeTargetDiscovery] candidate (%s, %s) failed to evaluate (%s: %s); rejected, discovery continues.",
-                       base, transform_name, type(err).__name__, err)
+        logger.warning(
+            "[CompositeTargetDiscovery] candidate (%s, %s) failed to evaluate (%s: %s); rejected, discovery continues.",
+            base,
+            transform_name,
+            type(err).__name__,
+            err,
+        )
         return [self._reject(base, transform_name, _mi_y, float("nan"), reason=f"evaluation failed: {type(err).__name__}: {err}")]
 
 
-def _eval_one_transform_impl(
-    self,
-    base: str,
-    transform_name: str,
-    transform,
-    *,
-    base_contexts: dict,
-    y_train: np.ndarray,
-    y_screen: np.ndarray,
-    target_col: str,
-) -> list[dict[str, Any]]:
-    """Core per-(base, transform) evaluation body (see :func:`eval_one_transform`)."""
-    _ctx = base_contexts[base]
-    base_train = _ctx["base_train"]
-    base_screen = _ctx["base_screen"]
-    x_remaining_matrix, _x_prebinned = context_matrices(_ctx)
-    mi_y_for_base = _ctx["mi_y_for_base"]
-    _mi_kwargs = _ctx["_mi_kwargs"]
+def _fit_transform_checked(
+    self, base: str, transform_name: str, transform: Any, y_train: np.ndarray, base_train: np.ndarray, mi_y_for_base: float
+) -> tuple[list[dict[str, Any]] | None, Any, np.ndarray, float, Any]:
+    """Domain-check, fit the transform on valid train rows and refine the domain by the fitted params.
+
+    Returns ``(early_result, fitted_params, valid, valid_frac, domain_check_fitted)``; ``early_result`` is the finished
+    result list when the candidate was rejected/skipped, else ``None``.
+    """
     _local: list[dict[str, Any]] = []
     # Domain check on train, drop invalids, fit transform
     # params on the surviving rows only.
     valid = transform.domain_check(y_train, base_train)
     valid_frac = float(valid.mean()) if valid.size else 0.0
     if valid_frac < self.config.min_valid_domain_frac:
-        _local.append(self._reject(
-            base, transform_name, mi_y_for_base, valid_frac,
-            reason=f"valid_domain_frac={valid_frac:.3f} "
-                   f"< {self.config.min_valid_domain_frac:.3f}",
-        ))
-        return _local
+        _local.append(
+            self._reject(
+                base,
+                transform_name,
+                mi_y_for_base,
+                valid_frac,
+                reason=f"valid_domain_frac={valid_frac:.3f} " f"< {self.config.min_valid_domain_frac:.3f}",
+            )
+        )
+        return _local, None, valid, valid_frac, None
     if not valid.any():
-        return _local
+        return _local, None, valid, valid_frac, None
 
     # Gather ``y_train[valid]`` /
     # ``base_train[valid]`` ONCE here and reuse the same arrays for both the
@@ -391,17 +416,27 @@ def _eval_one_transform_impl(
             _valid_stale = True  # the cached gather no longer matches valid.
             valid_frac = float(valid.mean()) if valid.size else 0.0
             if valid_frac < self.config.min_valid_domain_frac:
-                _local.append(self._reject(
-                    base, transform_name, mi_y_for_base, valid_frac,
-                    reason=(
-                        f"fitted-domain valid_frac={valid_frac:.3f} "
-                        f"< {self.config.min_valid_domain_frac:.3f} "
-                        f"(rows out of domain only after fit set params)"
-                    ),
-                ))
-                return _local
+                _local.append(
+                    self._reject(
+                        base,
+                        transform_name,
+                        mi_y_for_base,
+                        valid_frac,
+                        reason=(
+                            f"fitted-domain valid_frac={valid_frac:.3f} "
+                            f"< {self.config.min_valid_domain_frac:.3f} "
+                            f"(rows out of domain only after fit set params)"
+                        ),
+                    )
+                )
+                return _local, None, valid, valid_frac, None
             if not valid.any():
-                return _local
+                return _local, None, valid, valid_frac, None
+    return None, fitted_params, valid, valid_frac, _dcf
+
+
+def _fitted_params_rejection(self, base: str, transform_name: str, mi_y_for_base: float, valid_frac: float, fitted_params: Any) -> dict[str, Any] | None:
+    """Reject-entry for degenerate / redundant fitted params (near-identity, linres duplicate), else ``None``."""
     # Reject identity / near-identity transforms early.
     # Some bivariate transforms can collapse to a constant residual
     # (T = y - const) when the base does not actually carry the
@@ -413,16 +448,18 @@ def _eval_one_transform_impl(
     # on the returned params dict; reject the spec here.
     if isinstance(fitted_params, dict) and fitted_params.get("is_degenerate"):
         _ve = fitted_params.get("var_explained", float("nan"))
-        _local.append(self._reject(
-            base, transform_name, mi_y_for_base, valid_frac,
+        return self._reject(
+            base,
+            transform_name,
+            mi_y_for_base,
+            valid_frac,
             reason=(
                 f"transform fitted to a near-identity function: "
                 f"var_explained={_ve:.4f} -- T == y up to noise, "
                 f"downstream models will produce SAME predictions "
                 f"as on raw y"
             ),
-        ))
-        return _local
+        )
     # linres_robust dedup. When the MAD-trim step in
     # ``_linear_residual_robust_fit`` doesn't drop any rows, the
     # second-pass OLS produces alpha/beta identical to the first
@@ -432,19 +469,35 @@ def _eval_one_transform_impl(
     # + duplicate downstream rerank+training. Observed in a prod log:
     # ``linres-Y`` and ``linresR-Y`` produced identical
     # RMSE=21.5433 — 100% wasted compute on the duplicate.
-    if (transform_name == "linear_residual_robust"
-            and isinstance(fitted_params, dict)
-            and fitted_params.get("is_redundant_with_linres")):
-        _local.append(self._reject(
-            base, transform_name, mi_y_for_base, valid_frac,
+    if transform_name == "linear_residual_robust" and isinstance(fitted_params, dict) and fitted_params.get("is_redundant_with_linres"):
+        return self._reject(
+            base,
+            transform_name,
+            mi_y_for_base,
+            valid_frac,
             reason=(
                 "linear_residual_robust MAD-trim found zero "
                 "outliers above 3*sigma_MAD; second-pass OLS "
                 "would be identical to plain linear_residual. "
                 "Skipping the duplicate evaluation."
             ),
-        ))
-        return _local
+        )
+    return None
+
+
+def _residual_probe_rejection(
+    self,
+    base: str,
+    transform_name: str,
+    transform: Any,
+    y_screen: np.ndarray,
+    base_screen: np.ndarray,
+    fitted_params: Any,
+    _dcf: Any,
+    mi_y_for_base: float,
+    valid_frac: float,
+) -> dict[str, Any] | None:
+    """Reject-entry when the residual T is below the noise floor on the screen sample, else ``None`` (probe failures are non-fatal)."""
     # Upper-bound degeneracy check. The pre-fix
     # ``is_degenerate`` flag in transform.fit only catches the
     # LOWER bound (transform explains <5% of y variance -- T ~= y).
@@ -487,8 +540,11 @@ def _eval_one_transform_impl(
             _t_std = float(np.std(_t_train_finite))
             _residual_ratio = _t_std / _y_std if _y_std > 0 else 1.0
             if _residual_ratio < 0.001:
-                _local.append(self._reject(
-                    base, transform_name, mi_y_for_base, valid_frac,
+                return self._reject(
+                    base,
+                    transform_name,
+                    mi_y_for_base,
+                    valid_frac,
                     reason=(
                         f"residual T below noise floor: "
                         f"T_std={_t_std:.3g} vs y_std={_y_std:.3g} "
@@ -498,31 +554,30 @@ def _eval_one_transform_impl(
                         f"T-errors into y-scale errors via "
                         f"inverse_transform."
                     ),
-                ))
-                return _local
+                )
     except Exception as _residual_err:
         # Probe failure is non-fatal -- continue to MI screening.
         logger.debug(
-            "composite_discovery: residual-std probe failed "
-            "for base=%s transform=%s: %s (continuing)",
-            base, transform_name, _residual_err,
+            "composite_discovery: residual-std probe failed " "for base=%s transform=%s: %s (continuing)",
+            base,
+            transform_name,
+            _residual_err,
         )
-    # T on the screening sample (which is a subset of train).
-    valid_screen = transform.domain_check(y_screen, base_screen)
-    # Apply the same fitted-domain refinement to the screening mask so
-    # ``t_screen`` (mi_t) and ``y_screen[valid_screen]`` (mi_y_compare) score
-    # the SAME row population -- otherwise mi_gain compares MI over different
-    # rows (mi_t excludes NaN-T rows inside the binner, mi_y_compare keeps
-    # them) and the gate sees an apples-to-oranges delta.
-    valid_screen = _narrow_screen_valid_mask(_dcf, fitted_params, y_screen, base_screen, valid_screen)
-    if valid_screen.sum() < 50:
-        _local.append(self._reject(
-            base, transform_name, mi_y_for_base, valid_frac,
-            reason="too few rows in screening sample after domain filter",
-        ))
-        return _local
-    t_screen = call_transform(transform, "forward", y_screen[valid_screen], base_screen[valid_screen], fitted_params)
+    return None
 
+
+def _screen_mi_scores(
+    self,
+    _ctx: dict,
+    x_remaining_matrix: Any,
+    _x_prebinned: Any,
+    valid_screen: np.ndarray,
+    y_screen: np.ndarray,
+    t_screen: np.ndarray,
+    mi_y_for_base: float,
+    _mi_kwargs: dict,
+) -> tuple[float, float, Any]:
+    """``(mi_t, mi_y_compare, x_screen_valid)`` on the valid screen rows; mi_y_compare is memoised per base context."""
     # MI(T, X_remaining) on the same valid rows -- comparable
     # to mi_y_for_base computed on the same x_remaining.
     # x_screen_valid (the full-precision float slice) is consumed ONLY on the
@@ -534,12 +589,15 @@ def _eval_one_transform_impl(
     if _x_prebinned is not None:
         _x_pb_valid = _x_prebinned if bool(valid_screen.all()) else _x_prebinned[valid_screen]
         mi_t = _mi_to_target_prebinned(
-            _x_pb_valid, t_screen, **_mi_kwargs,
+            _x_pb_valid,
+            t_screen,
+            **_mi_kwargs,
         )
     else:
         assert x_screen_valid is not None  # _x_prebinned is None in this branch, so x_screen_valid was built above
         mi_t = _mi_to_target(
-            x_screen_valid, t_screen,
+            x_screen_valid,
+            t_screen,
             n_neighbors=self.config.mi_n_neighbors,
             random_state=self.config.random_state,
             estimator=self.config.mi_estimator,
@@ -567,12 +625,15 @@ def _eval_one_transform_impl(
         if mi_y_compare is None:
             if _x_prebinned is not None:
                 mi_y_compare = _mi_to_target_prebinned(
-                    _x_pb_valid, y_screen[valid_screen], **_mi_kwargs,
+                    _x_pb_valid,
+                    y_screen[valid_screen],
+                    **_mi_kwargs,
                 )
             else:
                 assert x_screen_valid is not None  # _x_prebinned is None in this branch, so x_screen_valid was built above
                 mi_y_compare = _mi_to_target(
-                    x_screen_valid, y_screen[valid_screen],
+                    x_screen_valid,
+                    y_screen[valid_screen],
                     n_neighbors=self.config.mi_n_neighbors,
                     random_state=self.config.random_state,
                     estimator=self.config.mi_estimator,
@@ -583,8 +644,23 @@ def _eval_one_transform_impl(
                     _memo[_memo_key] = mi_y_compare
     else:
         mi_y_compare = mi_y_for_base
-    mi_gain = mi_t - mi_y_compare
+    return mi_t, mi_y_compare, x_screen_valid
 
+
+def _bootstrap_mi_gain(
+    self,
+    _ctx: dict,
+    valid_screen: np.ndarray,
+    y_screen: np.ndarray,
+    t_screen: np.ndarray,
+    _x_prebinned: Any,
+    x_screen_valid: Any,
+    _mi_kwargs: dict,
+    mi_gain: float,
+) -> tuple[float, float, int, list]:
+    """``(mi_gain_lcb, bootstrap_p_value, failure_count, failures)`` from the mi_gain bootstrap (no-CI defaults when disabled)."""
+    failures: list = []  # per-replicate failure messages, surfaced in the returned entry
+    _boot_fail_count = 0
     # Bootstrap CI on mi_gain. The point-estimate has a noise floor that scales
     # with screening-sample size and y-tail heaviness; the absolute eps_mi_gain
     # threshold misses this. Bootstrap produces a 95% CI; the gate compares
@@ -597,16 +673,24 @@ def _eval_one_transform_impl(
     # chance that a noise spec spuriously "beats baseline". The family-wise
     # correction MUST be a post-collection pass (BH needs the full p-value
     # vector), so it lives at the gate in ``_fit.py``, not here.
-    bootstrap_n = int(getattr(
-        self.config, "mi_gain_bootstrap_n", 0,
-    ))
+    bootstrap_n = int(
+        getattr(
+            self.config,
+            "mi_gain_bootstrap_n",
+            0,
+        )
+    )
     mi_gain_lcb = mi_gain  # default: point estimate.
     bootstrap_p_value = float("nan")  # NaN until bootstrap replicates exist.
     if bootstrap_n > 0:
         boot_rng = np.random.default_rng(
-            int(getattr(
-                self.config, "mi_gain_bootstrap_random_state", 12345,
-            ))
+            int(
+                getattr(
+                    self.config,
+                    "mi_gain_bootstrap_random_state",
+                    12345,
+                )
+            )
         )
         n_screen = int(valid_screen.sum())
         boot_gains = np.empty(bootstrap_n)
@@ -615,13 +699,30 @@ def _eval_one_transform_impl(
         # even though they are constants across replicates.
         _y_screen_valid = y_screen[valid_screen]
         _x_pb_valid_const, _mi_y_reps = _shared_bootstrap_inputs(
-            _ctx, valid_screen, bootstrap_n, int(getattr(self.config, "mi_gain_bootstrap_random_state", 12345)),
-            n_screen, _y_screen_valid, _x_prebinned, x_screen_valid, _mi_kwargs, self.config,
+            _ctx,
+            valid_screen,
+            bootstrap_n,
+            int(getattr(self.config, "mi_gain_bootstrap_random_state", 12345)),
+            n_screen,
+            _y_screen_valid,
+            _x_prebinned,
+            x_screen_valid,
+            _mi_kwargs,
+            self.config,
         )
-        failures: list = []  # per-replicate failure messages, surfaced in the returned entry below
         _boot_fail_count, _ = _bootstrap_gain_replicates(
-            boot_gains, bootstrap_n, boot_rng, n_screen, t_screen, _y_screen_valid,
-            _x_pb_valid_const, x_screen_valid, _mi_kwargs, self.config, failures, mi_y_reps=_mi_y_reps,
+            boot_gains,
+            bootstrap_n,
+            boot_rng,
+            n_screen,
+            t_screen,
+            _y_screen_valid,
+            _x_pb_valid_const,
+            x_screen_valid,
+            _mi_kwargs,
+            self.config,
+            failures,
+            mi_y_reps=_mi_y_reps,
         )
         boot_finite = boot_gains[np.isfinite(boot_gains)]
         # `boot_finite.size >= bootstrap_n // 2` is trivially true (0 >= 0) whenever
@@ -635,7 +736,26 @@ def _eval_one_transform_impl(
         # ALL finite replicates (not gated on the >= n/2 floor the LCB uses) so a
         # sparsely-failing bootstrap still yields a usable, conservative p-value.
         bootstrap_p_value = bootstrap_gain_p_value(boot_gains)
+    return mi_gain_lcb, bootstrap_p_value, int(_boot_fail_count), failures
 
+
+def _build_spec_entry(
+    transform: Any,
+    target_col: str,
+    transform_name: str,
+    base: str,
+    fitted_params: Any,
+    mi_gain: float,
+    mi_y_compare: float,
+    mi_t: float,
+    valid_frac: float,
+    valid: np.ndarray,
+    mi_gain_lcb: float,
+    bootstrap_p_value: float,
+    boot_fail_count: int,
+    failures: list,
+) -> dict[str, Any]:
+    """Assemble the (not yet filtered) report entry with its ``CompositeSpec`` for one evaluated candidate."""
     # Unary specs are base-free. When
     # ``transform.requires_base`` is False (cbrt_y / log_y / yeo_johnson_y /
     # quantile_normal_y / y_quantile_clip), the transform ignores ``base``
@@ -669,15 +789,109 @@ def _eval_one_transform_impl(
         valid_domain_frac=valid_frac,
         n_train_rows=int(valid.sum()),
     )
-    _local.append({
+    return {
         "spec": spec,
         "kept": False,  # set after filtering
         "reason": "",
         "mi_gain_lcb": float(mi_gain_lcb),
         "bootstrap_p_value": float(bootstrap_p_value),
-        "bootstrap_failure_count": int(_boot_fail_count) if bootstrap_n > 0 else 0,
-        "failures": failures if bootstrap_n > 0 else [],
-    })
+        "bootstrap_failure_count": int(boot_fail_count),
+        "failures": failures,
+    }
+
+
+def _eval_one_transform_impl(
+    self,
+    base: str,
+    transform_name: str,
+    transform,
+    *,
+    base_contexts: dict,
+    y_train: np.ndarray,
+    y_screen: np.ndarray,
+    target_col: str,
+) -> list[dict[str, Any]]:
+    """Core per-(base, transform) evaluation body (see :func:`eval_one_transform`)."""
+    _ctx = base_contexts[base]
+    base_train = _ctx["base_train"]
+    base_screen = _ctx["base_screen"]
+    x_remaining_matrix, _x_prebinned = context_matrices(_ctx)
+    mi_y_for_base = _ctx["mi_y_for_base"]
+    _mi_kwargs = _ctx["_mi_kwargs"]
+    _local: list[dict[str, Any]] = []
+    _early, fitted_params, valid, valid_frac, _dcf = _fit_transform_checked(self, base, transform_name, transform, y_train, base_train, mi_y_for_base)
+    if _early is not None:
+        return _early
+    _rej = _fitted_params_rejection(self, base, transform_name, mi_y_for_base, valid_frac, fitted_params)
+    if _rej is not None:
+        return [_rej]
+    _rej = _residual_probe_rejection(self, base, transform_name, transform, y_screen, base_screen, fitted_params, _dcf, mi_y_for_base, valid_frac)
+    if _rej is not None:
+        return [_rej]
+    # T on the screening sample (which is a subset of train).
+    valid_screen = transform.domain_check(y_screen, base_screen)
+    # Apply the same fitted-domain refinement to the screening mask so
+    # ``t_screen`` (mi_t) and ``y_screen[valid_screen]`` (mi_y_compare) score
+    # the SAME row population -- otherwise mi_gain compares MI over different
+    # rows (mi_t excludes NaN-T rows inside the binner, mi_y_compare keeps
+    # them) and the gate sees an apples-to-oranges delta.
+    valid_screen = _narrow_screen_valid_mask(_dcf, fitted_params, y_screen, base_screen, valid_screen)
+    if valid_screen.sum() < 50:
+        _local.append(
+            self._reject(
+                base,
+                transform_name,
+                mi_y_for_base,
+                valid_frac,
+                reason="too few rows in screening sample after domain filter",
+            )
+        )
+        return _local
+    t_screen = call_transform(transform, "forward", y_screen[valid_screen], base_screen[valid_screen], fitted_params)
+
+    mi_t, mi_y_compare, x_screen_valid = _screen_mi_scores(
+        self,
+        _ctx,
+        x_remaining_matrix,
+        _x_prebinned,
+        valid_screen,
+        y_screen,
+        t_screen,
+        mi_y_for_base,
+        _mi_kwargs,
+    )
+    mi_gain = mi_t - mi_y_compare
+
+    mi_gain_lcb, bootstrap_p_value, _boot_fail_count, failures = _bootstrap_mi_gain(
+        self,
+        _ctx,
+        valid_screen,
+        y_screen,
+        t_screen,
+        _x_prebinned,
+        x_screen_valid,
+        _mi_kwargs,
+        mi_gain,
+    )
+
+    _local.append(
+        _build_spec_entry(
+            transform,
+            target_col,
+            transform_name,
+            base,
+            fitted_params,
+            mi_gain,
+            mi_y_compare,
+            mi_t,
+            valid_frac,
+            valid,
+            mi_gain_lcb,
+            bootstrap_p_value,
+            _boot_fail_count,
+            failures,
+        )
+    )
     return _local
 
 
@@ -694,7 +908,8 @@ def _narrow_screen_valid_mask(_dcf, fitted_params, y_screen, base_screen, valid_
     """Narrow the screen validity mask by the mask recomputed with the fitted transform parameters."""
     if _dcf is not None and isinstance(fitted_params, dict):
         valid_screen_fitted = np.asarray(
-            _dcf(y_screen, base_screen, fitted_params), dtype=bool,
+            _dcf(y_screen, base_screen, fitted_params),
+            dtype=bool,
         )
         if valid_screen_fitted.shape == valid_screen.shape:
             valid_screen = valid_screen & valid_screen_fitted

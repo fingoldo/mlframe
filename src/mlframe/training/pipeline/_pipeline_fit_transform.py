@@ -36,6 +36,67 @@ logger = logging.getLogger("mlframe.training.pipeline")
 # ``_apply_pysr_fe`` call so importers who never touch PySR don't get their env mutated.
 
 
+# Identify categorical features (exclude text/embedding columns).
+# Embedding columns can sneak past the dtype filter when stored as
+# pandas object-of-ndarray (an embedding vector per row). They look
+# categorical via dtype.name=='object' but their cells are ndarrays
+# that hash() raises on, crashing category_encoders.OrdinalEncoder's
+# internal .unique() call. Detect and exclude via first-cell shape.
+def _looks_embedding(_series: pd.Series) -> bool:
+    """True iff an object-dtype column's cells look like embedding vectors (ndarray-like, non-str/bytes) rather than scalar categoricals, sampled from the first up-to-8 non-null values."""
+    if _series.dtype != object:
+        return False
+    try:
+        _first = next((v for v in _series.head(8) if v is not None), None)
+    except Exception as exc:
+        log_throttle(logger, "_pipeline_fit_transform._looks_embedding", logging.WARNING, "_looks_embedding: sample probe failed, treating column as non-embedding: %s", exc)
+        return False
+    if _first is None:
+        return False
+    return hasattr(_first, "shape") or (hasattr(_first, "__len__") and not isinstance(_first, (str, bytes)))
+
+# High-cardinality object/string columns are free-text, not categoricals.
+# The downstream auto-detect (_phase_auto_detect_feature_types) will
+# promote them to text_features, but it runs AFTER this pipeline-fit
+# phase. Without this guard, the elif branch below converts text_col
+# to pandas Categorical in-place; CB Pool then rejects it ("dtype
+# 'category' but not in cat_features list") because by the time the
+# CB Pool is built, text_col is correctly listed in text_features.
+# Threshold mirrors FeatureTypesConfig.cat_text_cardinality_threshold
+# default (300) and uses a SAMPLE-based unique count for cheap detection
+# on million-row frames. Surfaced by fuzz iter#49 (object+text_col+cb).
+_CAT_CARDINALITY_LIMIT = 300
+_SAMPLE_SIZE = 5000
+# The absolute limit above can NEVER fire on a frame with <= 300 rows -- n_unique_sample is capped
+# by len(sample), so a genuine free-text column (near-100% row-unique) on e.g. a 200-row frame was
+# silently ordinal-encoded to int here, then crashed downstream once _phase_auto_detect_feature_types
+# (which runs AFTER this pipeline-fit phase) still listed the now-int column in text_features --
+# CatBoost's Pool build then rejects it: "text_features must have string type" (caught live via a
+# fuzz combo: a text column on a rows_target=200 frame). A relative floor (more than half the sampled
+# rows are distinct) catches free text on small frames without this absolute check ever needing to fire.
+_CAT_CARDINALITY_FRACTION = 0.5
+
+def _looks_text(_series: pd.Series) -> bool:
+    """True iff a string-like column looks like free text rather than a categorical: cardinality above
+    ``_CAT_CARDINALITY_LIMIT`` OR above ``_CAT_CARDINALITY_FRACTION`` of the sampled rows (so a small
+    frame's genuinely-free-text column isn't missed just because its absolute unique count can't reach
+    the large-frame threshold), measured on a cheap ``_SAMPLE_SIZE``-row sample."""
+    dtype_name = _series.dtype.name
+    # Include "str" for pandas-3.0 future.infer_string dtype.
+    if dtype_name not in ("object", "string", "string[pyarrow]", "large_string[pyarrow]", "str"):
+        return False
+    n_rows = len(_series)
+    if n_rows == 0:
+        return False
+    sample = _series.iloc[: min(_SAMPLE_SIZE, n_rows)]
+    try:
+        n_unique_sample = sample.nunique(dropna=True)
+    except TypeError as _exc:
+        logger.debug("_looks_text fell back to its default after %s", type(_exc).__name__)
+        return False
+    return bool(n_unique_sample > _CAT_CARDINALITY_LIMIT or n_unique_sample > _CAT_CARDINALITY_FRACTION * len(sample))
+
+
 def fit_and_transform_pipeline(
     train_df: Union[pd.DataFrame, pl.DataFrame],
     val_df: Optional[Union[pd.DataFrame, pl.DataFrame]],
@@ -83,66 +144,6 @@ def fit_and_transform_pipeline(
 
     # Handle pandas DataFrames with sklearn-style pipeline (also the fallback target when polars-ds was unavailable).
     if isinstance(train_df, pd.DataFrame) and (not isinstance(train_df, pl.DataFrame)):
-        # Identify categorical features (exclude text/embedding columns).
-        # Embedding columns can sneak past the dtype filter when stored as
-        # pandas object-of-ndarray (an embedding vector per row). They look
-        # categorical via dtype.name=='object' but their cells are ndarrays
-        # that hash() raises on, crashing category_encoders.OrdinalEncoder's
-        # internal .unique() call. Detect and exclude via first-cell shape.
-        def _looks_embedding(_series):
-            """True iff an object-dtype column's cells look like embedding vectors (ndarray-like, non-str/bytes) rather than scalar categoricals, sampled from the first up-to-8 non-null values."""
-            if _series.dtype != object:
-                return False
-            try:
-                _first = next((v for v in _series.head(8) if v is not None), None)
-            except Exception as exc:
-                log_throttle(logger, "_pipeline_fit_transform._looks_embedding", logging.WARNING, "_looks_embedding: sample probe failed, treating column as non-embedding: %s", exc)
-                return False
-            if _first is None:
-                return False
-            return hasattr(_first, "shape") or (hasattr(_first, "__len__") and not isinstance(_first, (str, bytes)))
-
-        # High-cardinality object/string columns are free-text, not categoricals.
-        # The downstream auto-detect (_phase_auto_detect_feature_types) will
-        # promote them to text_features, but it runs AFTER this pipeline-fit
-        # phase. Without this guard, the elif branch below converts text_col
-        # to pandas Categorical in-place; CB Pool then rejects it ("dtype
-        # 'category' but not in cat_features list") because by the time the
-        # CB Pool is built, text_col is correctly listed in text_features.
-        # Threshold mirrors FeatureTypesConfig.cat_text_cardinality_threshold
-        # default (300) and uses a SAMPLE-based unique count for cheap detection
-        # on million-row frames. Surfaced by fuzz iter#49 (object+text_col+cb).
-        _CAT_CARDINALITY_LIMIT = 300
-        _SAMPLE_SIZE = 5000
-        # The absolute limit above can NEVER fire on a frame with <= 300 rows -- n_unique_sample is capped
-        # by len(sample), so a genuine free-text column (near-100% row-unique) on e.g. a 200-row frame was
-        # silently ordinal-encoded to int here, then crashed downstream once _phase_auto_detect_feature_types
-        # (which runs AFTER this pipeline-fit phase) still listed the now-int column in text_features --
-        # CatBoost's Pool build then rejects it: "text_features must have string type" (caught live via a
-        # fuzz combo: a text column on a rows_target=200 frame). A relative floor (more than half the sampled
-        # rows are distinct) catches free text on small frames without this absolute check ever needing to fire.
-        _CAT_CARDINALITY_FRACTION = 0.5
-
-        def _looks_text(_series):
-            """True iff a string-like column looks like free text rather than a categorical: cardinality above
-            ``_CAT_CARDINALITY_LIMIT`` OR above ``_CAT_CARDINALITY_FRACTION`` of the sampled rows (so a small
-            frame's genuinely-free-text column isn't missed just because its absolute unique count can't reach
-            the large-frame threshold), measured on a cheap ``_SAMPLE_SIZE``-row sample."""
-            dtype_name = _series.dtype.name
-            # Include "str" for pandas-3.0 future.infer_string dtype.
-            if dtype_name not in ("object", "string", "string[pyarrow]", "large_string[pyarrow]", "str"):
-                return False
-            n_rows = len(_series)
-            if n_rows == 0:
-                return False
-            sample = _series.iloc[: min(_SAMPLE_SIZE, n_rows)]
-            try:
-                n_unique_sample = sample.nunique(dropna=True)
-            except TypeError as _exc:
-                logger.debug("_looks_text fell back to its default after %s", type(_exc).__name__)
-                return False
-            return n_unique_sample > _CAT_CARDINALITY_LIMIT or n_unique_sample > _CAT_CARDINALITY_FRACTION * len(sample)
-
         cat_features = [
             col for col in train_df.columns
             if train_df[col].dtype.name in PANDAS_CATEGORICAL_DTYPES

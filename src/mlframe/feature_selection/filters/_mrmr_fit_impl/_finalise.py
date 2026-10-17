@@ -476,6 +476,19 @@ def _finalise_fs_results(
     fresh top-level import here would reintroduce the same cycle, and ``signature``/``ran_out_of_time``
     are plain fit-body locals with no ``self`` attribute to read them back from before this tail runs.
     Returns ``self`` (the direct return value of ``_fit_impl`` itself)."""
+    _ret_finalise_fs_results_part1 = _finalise_fs_results_part1(
+        align_mrmr_gains, hashable_params_signature, mrmr_cache_bytes_total, cache_key, fit_cache_lock, verbose, predictors, self, signature, start_time,
+        ran_out_of_time, cols, classes_y, data, nbins, X, MRMR,
+    )
+    if _ret_finalise_fs_results_part1[0]:
+        return _ret_finalise_fs_results_part1[1]
+
+
+def _finalise_fs_results_part1(
+    align_mrmr_gains: Any, hashable_params_signature: Any, mrmr_cache_bytes_total: Any, cache_key: Any, fit_cache_lock: Any, verbose: Any, predictors: Any,
+    self: Any, signature: Any, start_time: Any, ran_out_of_time: Any, cols: Any, classes_y: Any, data: Any, nbins: Any, X: Any, MRMR: Any,
+) -> tuple[Any, ...]:
+    """Extracted block of ``_finalise_fs_results`` (part 1); returns the names the caller still uses."""
     _align_mrmr_gains = align_mrmr_gains
     _hashable_params_signature = hashable_params_signature
     _mrmr_cache_bytes_total = mrmr_cache_bytes_total
@@ -593,7 +606,8 @@ def _finalise_fs_results(
     # thread's instance by ANOTHER thread's eviction walk).
     _store_fit_cache(self, _cache_key, _MRMR_FIT_CACHE_LOCK, MRMR, _mrmr_cache_bytes_total)
 
-    return self
+    return True, (self)
+    return False, None
 
 
 def _store_fit_cache(self, _cache_key, _MRMR_FIT_CACHE_LOCK, MRMR, _mrmr_cache_bytes_total):

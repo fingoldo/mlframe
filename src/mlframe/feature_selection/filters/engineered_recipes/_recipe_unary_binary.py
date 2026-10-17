@@ -61,6 +61,77 @@ def _device_fit_edges(values: Any, method: str, nbins: int) -> "np.ndarray | Non
         return None
 
 
+# The learned ``prewarp`` and ``gate_med`` pseudo-unaries are NOT members of any preset registry; their closed-form replay reads the fit-time state
+# stored in ``recipe.extra`` (prewarp: poly coeffs; gate_med: the TRAIN median).
+_PREWARP = "prewarp"
+_GATE_MED = "gate_med"
+_PSEUDO = (_PREWARP, _GATE_MED)
+
+
+def _apply_unary_side(recipe: EngineeredRecipe, side: str, uname: str, vals: Any, unary_funcs: "dict[str, Callable]") -> Any:
+    """Apply the ``uname`` unary to one operand side, dispatching between the closed-form pseudo-unaries
+    (``gate_med``, ``poly_<coef>``, ``prewarp``), the frozen-anchor ``log`` replay, and the plain preset registry lookup."""
+    if uname == _GATE_MED:
+        # Median-gate pseudo-unary: replay closed-form ``(x > train_median)``
+        # from the single fit-time median float stored in ``extra`` (no y, no
+        # test-time recompute -> leak-safe and bit-identical to fit).
+        _mkey = f"gate_med_{side}_median"
+        if _mkey not in recipe.extra:
+            raise KeyError(
+                f"unary_binary recipe '{recipe.name}' uses the 'gate_med' "
+                f"pseudo-unary on side {side!r} but '{_mkey}' is missing from "
+                f"extra. Re-fit MRMR to regenerate the recipe."
+            )
+        from .._feature_engineering_pairs import _gate_med_apply
+        return _gate_med_apply(vals, float(recipe.extra[_mkey]))
+    if uname != _PREWARP:
+        if uname.startswith("poly_"):
+            # ``poly_<coef>`` pseudo-unary: at fit the key mapped to a hermite coefficient ARRAY (not a callable),
+            # applied via ``hermval(vals, coef)`` (feature_engineering). The recipe stores that coef in extra so
+            # replay reconstructs it - previously the coef lived only in the per-fit unary_transformations dict,
+            # so recipe replay raised KeyError looking ``poly_<coef>`` up in the static preset (critique ND-1).
+            from numpy.polynomial.hermite import hermval
+            _ckey = f"poly_{side}_coef"
+            if _ckey not in recipe.extra:
+                raise KeyError(
+                    f"unary_binary recipe '{recipe.name}' uses a 'poly_' pseudo-unary on side {side!r} but "
+                    f"'{_ckey}' is missing from extra. Re-fit MRMR to regenerate the recipe."
+                )
+            return hermval(np.asarray(vals, dtype=np.float64), np.asarray(recipe.extra[_ckey], dtype=np.float64))
+        # BUG2 FIX: ``smart_log`` (the registry ``log``) additively
+        # shifts non-positive inputs by ``(1e-5 - nanmin(vals))`` - a
+        # DATA-DEPENDENT anchor recomputed from ``vals`` each call. On a row-slice
+        # replay ``nanmin`` differs from the full-frame fit, shifting every
+        # ``log`` output and (after the downstream quantiser) drifting the bin code
+        # by up to several bins on a nested ``log(...)`` operand. When the recipe
+        # froze the fit-time shift anchor, replay the log from THAT frozen anchor so
+        # the operand is byte-exact regardless of the slice. Non-log unaries are
+        # closed-form and stay on the registry path.
+        _skey = f"log_shift_{side}"
+        if uname == "log" and _skey in recipe.extra:
+            _shift = float(recipe.extra[_skey])
+            return np.log(np.asarray(vals, dtype=np.float64) + _shift) if _shift != 0.0 else np.log(np.asarray(vals, dtype=np.float64))
+        return unary_funcs[uname](vals)
+    # Reconstruct the pre-warp spec from the flat ``extra`` fields and replay
+    # it closed-form (no y) so the warped operand is bit-identical to fit.
+    import orjson as _orjson
+    from ..hermite_fe import apply_operand_prewarp
+    for _k in (f"prewarp_{side}_coef", f"prewarp_{side}_basis"):
+        if _k not in recipe.extra:
+            raise KeyError(
+                f"unary_binary recipe '{recipe.name}' uses the 'prewarp' "
+                f"pseudo-unary on side {side!r} but '{_k}' is missing from "
+                f"extra. Re-fit MRMR to regenerate the recipe."
+            )
+    _spec = {
+        "basis": str(recipe.extra[f"prewarp_{side}_basis"]),
+        "degree": int(recipe.extra[f"prewarp_{side}_degree"]),
+        "coef": np.asarray(recipe.extra[f"prewarp_{side}_coef"], dtype=np.float64),
+        "preprocess": _orjson.loads(recipe.extra[f"prewarp_{side}_preprocess"]),
+    }
+    return apply_operand_prewarp(vals, _spec)
+
+
 def _apply_unary_binary(recipe: EngineeredRecipe, X: Any, col_cache: "dict[str, np.ndarray] | None" = None) -> np.ndarray:
     """Replay a ``unary_binary`` recipe: reconstruct ``binary(unary_a(X[a]), unary_b(X[b]))`` (including the
     ``prewarp`` / ``gate_med`` / ``poly_`` pseudo-unaries and nested-engineered operands) and return the
@@ -103,9 +174,6 @@ def _apply_unary_binary(recipe: EngineeredRecipe, X: Any, col_cache: "dict[str, 
     # replay reads the fit-time state stored in ``recipe.extra`` (prewarp: poly
     # coeffs; gate_med: the TRAIN median). Validate only the REAL unary names
     # against the preset.
-    _PREWARP = "prewarp"
-    _GATE_MED = "gate_med"
-    _PSEUDO = (_PREWARP, _GATE_MED)
 
     def _is_pseudo(_u: str) -> bool:
         """Whether ``_u`` is a state-carrying pseudo-unary (not a preset registry lookup)."""
@@ -140,76 +208,13 @@ def _apply_unary_binary(recipe: EngineeredRecipe, X: Any, col_cache: "dict[str, 
     vals_a = _nested_continuous(_np_a) if _np_a is not None else _extract_column(X, name_a, col_cache=col_cache)
     vals_b = _nested_continuous(_np_b) if _np_b is not None else _extract_column(X, name_b, col_cache=col_cache)
 
-    def _apply_side(side: str, uname: str, vals):
-        """Apply the ``uname`` unary to one operand side, dispatching between the closed-form pseudo-unaries
-        (``gate_med``, ``poly_<coef>``, ``prewarp``), the frozen-anchor ``log`` replay, and the plain preset registry lookup."""
-        if uname == _GATE_MED:
-            # Median-gate pseudo-unary: replay closed-form ``(x > train_median)``
-            # from the single fit-time median float stored in ``extra`` (no y, no
-            # test-time recompute -> leak-safe and bit-identical to fit).
-            _mkey = f"gate_med_{side}_median"
-            if _mkey not in recipe.extra:
-                raise KeyError(
-                    f"unary_binary recipe '{recipe.name}' uses the 'gate_med' "
-                    f"pseudo-unary on side {side!r} but '{_mkey}' is missing from "
-                    f"extra. Re-fit MRMR to regenerate the recipe."
-                )
-            from .._feature_engineering_pairs import _gate_med_apply
-            return _gate_med_apply(vals, float(recipe.extra[_mkey]))
-        if uname != _PREWARP:
-            if uname.startswith("poly_"):
-                # ``poly_<coef>`` pseudo-unary: at fit the key mapped to a hermite coefficient ARRAY (not a callable),
-                # applied via ``hermval(vals, coef)`` (feature_engineering). The recipe stores that coef in extra so
-                # replay reconstructs it - previously the coef lived only in the per-fit unary_transformations dict,
-                # so recipe replay raised KeyError looking ``poly_<coef>`` up in the static preset (critique ND-1).
-                from numpy.polynomial.hermite import hermval
-                _ckey = f"poly_{side}_coef"
-                if _ckey not in recipe.extra:
-                    raise KeyError(
-                        f"unary_binary recipe '{recipe.name}' uses a 'poly_' pseudo-unary on side {side!r} but "
-                        f"'{_ckey}' is missing from extra. Re-fit MRMR to regenerate the recipe."
-                    )
-                return hermval(np.asarray(vals, dtype=np.float64), np.asarray(recipe.extra[_ckey], dtype=np.float64))
-            # BUG2 FIX: ``smart_log`` (the registry ``log``) additively
-            # shifts non-positive inputs by ``(1e-5 - nanmin(vals))`` - a
-            # DATA-DEPENDENT anchor recomputed from ``vals`` each call. On a row-slice
-            # replay ``nanmin`` differs from the full-frame fit, shifting every
-            # ``log`` output and (after the downstream quantiser) drifting the bin code
-            # by up to several bins on a nested ``log(...)`` operand. When the recipe
-            # froze the fit-time shift anchor, replay the log from THAT frozen anchor so
-            # the operand is byte-exact regardless of the slice. Non-log unaries are
-            # closed-form and stay on the registry path.
-            _skey = f"log_shift_{side}"
-            if uname == "log" and _skey in recipe.extra:
-                _shift = float(recipe.extra[_skey])
-                return np.log(np.asarray(vals, dtype=np.float64) + _shift) if _shift != 0.0 else np.log(np.asarray(vals, dtype=np.float64))
-            return unary_funcs[uname](vals)
-        # Reconstruct the pre-warp spec from the flat ``extra`` fields and replay
-        # it closed-form (no y) so the warped operand is bit-identical to fit.
-        import orjson as _orjson
-        from ..hermite_fe import apply_operand_prewarp
-        for _k in (f"prewarp_{side}_coef", f"prewarp_{side}_basis"):
-            if _k not in recipe.extra:
-                raise KeyError(
-                    f"unary_binary recipe '{recipe.name}' uses the 'prewarp' "
-                    f"pseudo-unary on side {side!r} but '{_k}' is missing from "
-                    f"extra. Re-fit MRMR to regenerate the recipe."
-                )
-        _spec = {
-            "basis": str(recipe.extra[f"prewarp_{side}_basis"]),
-            "degree": int(recipe.extra[f"prewarp_{side}_degree"]),
-            "coef": np.asarray(recipe.extra[f"prewarp_{side}_coef"], dtype=np.float64),
-            "preprocess": _orjson.loads(recipe.extra[f"prewarp_{side}_preprocess"]),
-        }
-        return apply_operand_prewarp(vals, _spec)
-
     # Any unary/binary in the registry can overflow or hit an invalid op on an extreme replay input
     # (e.g. an unguarded power, or a reciprocal-power's pre-eps-floor era); suppress the resulting numpy
     # RuntimeWarnings for the whole operator chain (previously only the frozen-log-shift branch was
     # wrapped) since the nan_to_num scrub right below already sanitises the final output regardless.
     with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
-        transformed_a = _apply_side("a", u_a, vals_a)
-        transformed_b = _apply_side("b", u_b, vals_b)
+        transformed_a = _apply_unary_side(recipe, "a", u_a, vals_a, unary_funcs)
+        transformed_b = _apply_unary_side(recipe, "b", u_b, vals_b, unary_funcs)
         out = binary_funcs[recipe.binary_name](transformed_a, transformed_b)
 
     # Match fit-time NaN/Inf scrubbing in ``feature_engineering.check_prospective_fe_pairs``.

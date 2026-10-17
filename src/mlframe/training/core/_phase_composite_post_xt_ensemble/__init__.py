@@ -136,6 +136,95 @@ def _inject_lag_predict(components: list, component_names: list, metadata: dict,
         )
 
 
+def _is_multi_target_regression(_tt_e: Any) -> bool:
+    """True when the target type is MULTI_TARGET_REGRESSION (False when detection itself fails)."""
+    try:
+        from mlframe.training import TargetTypes
+
+        return bool(str(_tt_e) == str(TargetTypes.MULTI_TARGET_REGRESSION) or (hasattr(_tt_e, "is_multi_target_regression") and _tt_e.is_multi_target_regression))
+    except Exception as e:
+        logger.debug("multi-target-regression detection failed, defaulting to False: %s", e)
+        return False
+
+
+def _build_cross_target_mtr_branch(
+    _tt_e: Any, _orig_tname: Any, models: dict, metadata: dict, target_by_type: dict, filtered_train_df: Any, filtered_train_idx: Any,
+    composite_target_discovery_config: Any, ctx: Any,
+) -> None:
+    """MULTI_TARGET_REGRESSION path: per-column mean ensemble with honest train-K-fold OOF NNLS weights."""
+    # Honest train-K-fold OOF NNLS weights (bench: bench_mtr_nnls_oof.py -- beats equal_mean on 8/8 seeds,
+    # leak-free vs the old val-fold fit). The val fold was the early-stopping surface for the components, so
+    # fitting per-column NNLS on it double-dipped a biased surface; we now derive the weights from a true
+    # train-K-fold OOF stack on the TRAIN rows and inject them. Falls back to equal-mean if OOF fails.
+    _fit_y_full = (target_by_type or {}).get(_tt_e, {}).get(_orig_tname)
+    _oof_weights = None
+    _oof_weights = _build_cross_target_train_fold_oof_stack(filtered_train_df, _fit_y_full, filtered_train_idx, models, _tt_e, _orig_tname, composite_target_discovery_config, ctx, _oof_weights)
+    _build_mtr_per_column_ensemble(
+        _tt_e=_tt_e,
+        _orig_tname=_orig_tname,
+        models=models,
+        metadata=metadata,
+        target_by_type=target_by_type,
+        oof_weights=_oof_weights,
+    )
+
+
+def _build_cross_target_honest_oof_refine(
+    st: Any, _components: list, _component_names: list, _spec_list: list, train_df_pd: Any, val_df_pd: Any, test_df_pd: Any, train_idx: Any, val_idx: Any,
+    test_idx: Any, filtered_train_idx: Any, filtered_val_idx: Any, filtered_val_df: Any, filtered_train_df: Any, ctx: Any, _orig_tname: Any,
+    composite_target_discovery_config: Any, metadata: dict, _tt_e: Any, _compute_train_rmse_proxy: Any, _drop_unscored_from_pool: Any,
+) -> tuple[list, list, bool]:
+    """Honest-OOF refinement of the ensemble pool; returns ``(component_names, components, proceed)`` with ``proceed=False`` when the target must be skipped."""
+    # Per-spec base matrix on filtered_train_df rows for transform.forward inside the OOF helper. Multi-base specs (linear_residual_multi from forward-stepwise auto-promotion) need the FULL (n, 1+K) matrix whose column count matches the fitted alphas.
+    _component_names, _components = _build_cross_target_e_step1_spec_base_matrix(_spec_list, train_df_pd, val_df_pd, test_df_pd, train_idx, val_idx, test_idx, st, filtered_train_idx, filtered_val_idx, _component_names, _components, ctx, _orig_tname, composite_target_discovery_config, filtered_val_df, metadata, _tt_e, filtered_train_df)
+    if st._oof_pred_matrix is not None and st._oof_y_holdout is not None and st._oof_pred_matrix.shape[1] > 0:
+        # Re-align to the surviving set returned by the OOF helper.
+        _surviving_set = set(st._surviving)
+        st._oof_components = [c for c, n in zip(_components, _component_names) if n in _surviving_set]
+        st._oof_names = list(st._surviving)
+        st._oof_rmses = column_rmses(st._oof_pred_matrix, st._oof_y_holdout, st._oof_sw)  # per column over its finite rows; NaN if none
+    elif st._defer_train_proxy:
+        # OOF produced no usable matrix and the train-RMSE proxy was
+        # deferred -> compute it now as the fallback weighting surface.
+        st._rmse_arr = _compute_train_rmse_proxy()
+        if not np.isfinite(st._rmse_arr).any():
+            logger.warning(
+                "[CompositeCrossTargetEnsemble] target='%s': honest OOF " "produced no matrix and no component scored on train; " "ensemble skipped.",
+                _orig_tname,
+            )
+        return _component_names, _components, False
+        # Drop any component whose train-predict failed (NaN proxy). No OOF
+        # matrix exists on this fallback path, so the pool lists carry the
+        # full set; restrict them to the scored subset for zero-weight.
+        st._oof_components, st._oof_names, st._rmse_arr = _drop_unscored_from_pool(st._rmse_arr)
+        if len(st._oof_components) < 2:
+            logger.info(
+                "[CompositeCrossTargetEnsemble] target='%s': only %d " "component(s) scored on train after dropping failed " "predicts; ensemble skipped.",
+                _orig_tname,
+                len(st._oof_components),
+            )
+        return _component_names, _components, False
+        st._oof_rmses = st._rmse_arr
+    if st._oof_pred_matrix is not None and st._oof_y_holdout is not None and st._oof_pred_matrix.shape[1] > 0:
+        logger.info(
+            "[CompositeCrossTargetEnsemble] target='%s' using " "honest OOF holdout (frac=%.2f, n=%d) for ensemble " "weights / stacking.",
+            _orig_tname,
+            st._oof_frac,
+            len(st._oof_y_holdout),
+        )
+        # Dummy-floor gate: drop components whose honest-OOF RMSE loses to the strongest dummy on the same OOF rows.
+        st._oof_components, st._oof_names, st._oof_rmses, st._oof_pred_matrix = apply_dummy_floor_gate(
+            composite_target_discovery_config, metadata, _tt_e, _orig_tname,
+            st._oof_components, st._oof_names, st._oof_rmses, st._oof_pred_matrix, st._oof_y_holdout,
+        )
+
+    # Residual-correlation dedup (opt-in): drop near-duplicate members (|residual corr| > threshold), keeping
+    # the lower-OOF-RMSE one, so a redundant pair can't split + dominate the NNLS weight. Runs on the honest
+    # OOF residuals so redundancy is measured on the same surface the stacker fits.
+    _build_cross_target_e_step2_oof_residuals_redundancy(composite_target_discovery_config, st, _orig_tname)
+    return _component_names, _components, True
+
+
 def _build_cross_target_ensemble_for_target(
     *,
     _tt_e,
@@ -188,30 +277,10 @@ def _build_cross_target_ensemble_for_target(
         return _p
 
     # MULTI_TARGET_REGRESSION path. The general CT_ENSEMBLE flow below assumes 1-D y per component (sklearn metrics + honest-OOF blender solve a 1-D regression at the component level). For (N, K) MTR targets we build a per-column mean ensemble: stack each component's (N, K) predictions across a "component" axis, then average across components for a single (N, K) output. Equal-weight is the floor; per-column honest-OOF blended weights can swap in without changing the public deployable model interface.
-    try:
-        from mlframe.training import TargetTypes
-
-        st._is_mtr = str(_tt_e) == str(TargetTypes.MULTI_TARGET_REGRESSION) or (hasattr(_tt_e, "is_multi_target_regression") and _tt_e.is_multi_target_regression)
-    except Exception as e:
-        logger.debug("multi-target-regression detection failed, defaulting to False: %s", e)
-        st._is_mtr = False
+    st._is_mtr = _is_multi_target_regression(_tt_e)
 
     if st._is_mtr:
-        # Honest train-K-fold OOF NNLS weights (bench: bench_mtr_nnls_oof.py -- beats equal_mean on 8/8 seeds,
-        # leak-free vs the old val-fold fit). The val fold was the early-stopping surface for the components, so
-        # fitting per-column NNLS on it double-dipped a biased surface; we now derive the weights from a true
-        # train-K-fold OOF stack on the TRAIN rows and inject them. Falls back to equal-mean if OOF fails.
-        _fit_y_full = (target_by_type or {}).get(_tt_e, {}).get(_orig_tname)
-        _oof_weights = None
-        _oof_weights = _build_cross_target_train_fold_oof_stack(filtered_train_df, _fit_y_full, filtered_train_idx, models, _tt_e, _orig_tname, composite_target_discovery_config, ctx, _oof_weights)
-        _build_mtr_per_column_ensemble(
-            _tt_e=_tt_e,
-            _orig_tname=_orig_tname,
-            models=models,
-            metadata=metadata,
-            target_by_type=target_by_type,
-            oof_weights=_oof_weights,
-        )
+        _build_cross_target_mtr_branch(_tt_e, _orig_tname, models, metadata, target_by_type, filtered_train_df, filtered_train_idx, composite_target_discovery_config, ctx)
         return
 
     # Collect raw-target + wrapped composite-target entries for this original target.
@@ -282,53 +351,13 @@ def _build_cross_target_ensemble_for_target(
     st._oof_y_holdout = None
     st._oof_rmses = st._rmse_arr  # train-RMSE proxy by default
     if st._oof_frac > 0.0 and st._oof_y_full is not None:
-        # Per-spec base matrix on filtered_train_df rows for transform.forward inside the OOF helper. Multi-base specs (linear_residual_multi from forward-stepwise auto-promotion) need the FULL (n, 1+K) matrix whose column count matches the fitted alphas.
-        _component_names, _components = _build_cross_target_e_step1_spec_base_matrix(_spec_list, train_df_pd, val_df_pd, test_df_pd, train_idx, val_idx, test_idx, st, filtered_train_idx, filtered_val_idx, _component_names, _components, ctx, _orig_tname, composite_target_discovery_config, filtered_val_df, metadata, _tt_e, filtered_train_df)
-        if st._oof_pred_matrix is not None and st._oof_y_holdout is not None and st._oof_pred_matrix.shape[1] > 0:
-            # Re-align to the surviving set returned by the OOF helper.
-            _surviving_set = set(st._surviving)
-            st._oof_components = [c for c, n in zip(_components, _component_names) if n in _surviving_set]
-            st._oof_names = list(st._surviving)
-            st._oof_rmses = column_rmses(st._oof_pred_matrix, st._oof_y_holdout, st._oof_sw)  # per column over its finite rows; NaN if none
-        elif st._defer_train_proxy:
-            # OOF produced no usable matrix and the train-RMSE proxy was
-            # deferred -> compute it now as the fallback weighting surface.
-            st._rmse_arr = _compute_train_rmse_proxy()
-            if not np.isfinite(st._rmse_arr).any():
-                logger.warning(
-                    "[CompositeCrossTargetEnsemble] target='%s': honest OOF " "produced no matrix and no component scored on train; " "ensemble skipped.",
-                    _orig_tname,
-                )
-                return
-            # Drop any component whose train-predict failed (NaN proxy). No OOF
-            # matrix exists on this fallback path, so the pool lists carry the
-            # full set; restrict them to the scored subset for zero-weight.
-            st._oof_components, st._oof_names, st._rmse_arr = _drop_unscored_from_pool(st._rmse_arr)
-            if len(st._oof_components) < 2:
-                logger.info(
-                    "[CompositeCrossTargetEnsemble] target='%s': only %d " "component(s) scored on train after dropping failed " "predicts; ensemble skipped.",
-                    _orig_tname,
-                    len(st._oof_components),
-                )
-                return
-            st._oof_rmses = st._rmse_arr
-        if st._oof_pred_matrix is not None and st._oof_y_holdout is not None and st._oof_pred_matrix.shape[1] > 0:
-            logger.info(
-                "[CompositeCrossTargetEnsemble] target='%s' using " "honest OOF holdout (frac=%.2f, n=%d) for ensemble " "weights / stacking.",
-                _orig_tname,
-                st._oof_frac,
-                len(st._oof_y_holdout),
-            )
-            # Dummy-floor gate: drop components whose honest-OOF RMSE loses to the strongest dummy on the same OOF rows.
-            st._oof_components, st._oof_names, st._oof_rmses, st._oof_pred_matrix = apply_dummy_floor_gate(
-                composite_target_discovery_config, metadata, _tt_e, _orig_tname,
-                st._oof_components, st._oof_names, st._oof_rmses, st._oof_pred_matrix, st._oof_y_holdout,
-            )
-
-        # Residual-correlation dedup (opt-in): drop near-duplicate members (|residual corr| > threshold), keeping
-        # the lower-OOF-RMSE one, so a redundant pair can't split + dominate the NNLS weight. Runs on the honest
-        # OOF residuals so redundancy is measured on the same surface the stacker fits.
-        _build_cross_target_e_step2_oof_residuals_redundancy(composite_target_discovery_config, st, _orig_tname)
+        _component_names, _components, _proceed = _build_cross_target_honest_oof_refine(
+            st, _components, _component_names, _spec_list, train_df_pd, val_df_pd, test_df_pd, train_idx, val_idx, test_idx, filtered_train_idx,
+            filtered_val_idx, filtered_val_df, filtered_train_df, ctx, _orig_tname, composite_target_discovery_config, metadata, _tt_e,
+            _compute_train_rmse_proxy, _drop_unscored_from_pool,
+        )
+        if not _proceed:
+            return
 
     st._stack_without_oof = False
     try:

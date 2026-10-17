@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import logging
 import os
+from typing import Any
 
 try:
     import polars as pl
@@ -95,157 +96,60 @@ def resolve_pandas_view_cache_budget_bytes() -> float:
         return _DEFAULT_ABS_BYTES
 
 
-def _prepare_strategy_inputs(
-    *,
-    polars_fastpath_active: bool,
-    mlframe_model_name: str,
-    strategy,
-    cat_features,
-    text_features,
-    embedding_features,
-    train_df_polars,
-    val_df_polars,
-    test_df_polars,
-    prepared_frames_cache: dict,
-    tier_dfs_cache: dict,
-    tier_enum_map_cache: dict,
-    common_params: dict,
-    pre_pipeline_name,
-    ctx,
-    verbose: bool,
-) -> dict:
-    """Build the per-(pre_pipeline, model) feature-side cache or perform lazy
-    pandas conversion, then return a dict of the bindings the parent expects
-    to use further down the iteration.
+def _resolve_xgb_category_map(strategy: Any, tier_polars: dict, cat_features: list, tier_enum_map_cache: dict) -> Any:
+    """Return the leak-free train+val Enum map for ``strategy`` (cached by tier and strategy class), or None when unavailable."""
+    # Enum map: leak-free, train+val union only; cached by (tier, strategy class).
+    _enum_cache_key = (strategy.feature_tier(), type(strategy).__name__)
+    if _enum_cache_key in tier_enum_map_cache:
+        _xgb_category_map = tier_enum_map_cache[_enum_cache_key]
+    elif hasattr(strategy, "build_polars_enum_map"):
+        try:
+            _xgb_category_map = strategy.build_polars_enum_map(
+                tier_polars["train_df"],
+                tier_polars.get("val_df"),
+                cat_features,
+            )
+            tier_enum_map_cache[_enum_cache_key] = _xgb_category_map
+        except Exception as _emb_exc:
+            logger.warning(
+                "build_polars_enum_map failed for %s; " "falling back to per-DF Enum cast: %s",
+                type(strategy).__name__,
+                _emb_exc,
+            )
+            _xgb_category_map = None  # a failed build is not cached: a later target retries it
+    else:
+        _xgb_category_map = None  # strategy has no enum-map builder: nothing to cache
+    return _xgb_category_map
 
-    Polars-fastpath branch sets:
-      ``polars_fastpath_active=True``, ``prepared_train`` / ``prepared_val``
-      / ``prepared_test``, ``xgb_category_map``, ``cat_features``.
 
-    Pandas branch sets:
-      ``polars_fastpath_active=False``, ``tier_pandas`` dict (and mutates
-      ``common_params`` in place so the caller's reference picks up the
-      pandas views).
-
-    Caller binds via dict-unpack so missing keys raise KeyError on misuse.
-    """
-    if polars_fastpath_active:
-        if verbose:
+def _cast_cb_text_columns(prepared_train: Any, prepared_val: Any, prepared_test: Any, text_features: Any, verbose: bool) -> tuple[Any, Any, Any]:
+    """Cast Categorical/Enum text columns to String and fill nulls for CatBoost's polars text path; return the three prepared frames."""
+    text_cols_present = filter_existing(prepared_train, text_features)
+    if text_cols_present:
+        # Determine which of the text columns need a dtype cast.
+        needs_cast = [c for c in text_cols_present if prepared_train.schema[c] == pl.Categorical or isinstance(prepared_train.schema[c], pl.Enum)]
+        prep_exprs = []
+        for c in text_cols_present:
+            expr = pl.col(c)
+            if c in needs_cast:
+                expr = expr.cast(pl.String)
+            prep_exprs.append(expr.fill_null(""))
+        prepared_train = prepared_train.with_columns(prep_exprs)
+        if prepared_val is not None:
+            prepared_val = prepared_val.with_columns(prep_exprs)
+        if prepared_test is not None:
+            prepared_test = prepared_test.with_columns(prep_exprs)
+        if needs_cast and verbose:
             logger.info(
-                "  Polars fastpath active for %s (strategy=%s)",
-                mlframe_model_name, type(strategy).__name__,
+                "  Cast %d text feature(s) from Polars Categorical to String " "for CatBoost: %s",
+                len(needs_cast),
+                needs_cast,
             )
-        # MUST use the post-promotion `cat_features` (post-auto-detect reassignment), NOT the stale
-        # `cat_features_polars` snapshot from before auto-detect ran - the latter would still list
-        # text-promoted columns and trip CB's polars-categorical fastpath on String dtypes.
-        _cat_features = list(cat_features or [])
+    return prepared_train, prepared_val, prepared_test
 
-        # Cross-target reuse: cache key is (feature_tier, supports_polars=True, strategy_class,
-        # cb_text_pass) where cb_text_pass tracks whether the CB-only Categorical->String text-
-        # column cast must be applied (CB requires it; other CB-tier polars-native models don't).
-        # All target-independent so the prepared frames carry from target 1 to target N.
-        _prep_key = (
-            strategy.feature_tier(),
-            True,
-            type(strategy).__name__,
-            bool(text_features and mlframe_model_name == "cb"),
-        )
-        _cached_prep = prepared_frames_cache.get(_prep_key)
-        if _cached_prep is not None:
-            prepared_train = _cached_prep["prepared_train"]
-            prepared_val = _cached_prep["prepared_val"]
-            prepared_test = _cached_prep["prepared_test"]
-            _xgb_category_map = _cached_prep["xgb_category_map"]
-            if verbose:
-                logger.info(
-                    "  feature-side cache hit for %s (strategy=%s, pp=%s): reusing prepared polars frames across targets",
-                    mlframe_model_name, type(strategy).__name__, "<ordinary>" if pre_pipeline_name is None or pre_pipeline_name == "" else pre_pipeline_name,
-                )
-        else:
-            tier_base = {
-                "train_df": train_df_polars,
-                "val_df": val_df_polars,
-                "test_df": test_df_polars,
-            }
-            tier_polars = _build_tier_dfs(
-                tier_base, strategy, text_features, embedding_features, tier_dfs_cache, verbose=verbose,
-            )
 
-            # Enum map: leak-free, train+val union only; cached by (tier, strategy class).
-            _enum_cache_key = (strategy.feature_tier(), type(strategy).__name__)
-            if _enum_cache_key in tier_enum_map_cache:
-                _xgb_category_map = tier_enum_map_cache[_enum_cache_key]
-            elif hasattr(strategy, "build_polars_enum_map"):
-                try:
-                    _xgb_category_map = strategy.build_polars_enum_map(
-                        tier_polars["train_df"],
-                        tier_polars.get("val_df"),
-                        _cat_features,
-                    )
-                    tier_enum_map_cache[_enum_cache_key] = _xgb_category_map
-                except Exception as _emb_exc:
-                    logger.warning(
-                        "build_polars_enum_map failed for %s; " "falling back to per-DF Enum cast: %s",
-                        type(strategy).__name__,
-                        _emb_exc,
-                    )
-                    _xgb_category_map = None  # a failed build is not cached: a later target retries it
-            else:
-                _xgb_category_map = None  # strategy has no enum-map builder: nothing to cache
-
-            prepared_train = _prep_polars_df(tier_polars["train_df"], strategy, _cat_features, _xgb_category_map)
-            prepared_val = _prep_polars_df(tier_polars.get("val_df"), strategy, _cat_features, _xgb_category_map)
-            prepared_test = _prep_polars_df(tier_polars.get("test_df"), strategy, _cat_features, _xgb_category_map)
-
-            # CatBoost's polars text-features path requires plain String with no nulls; cast Categorical/Enum
-            # text columns and fill_null. The dtype mismatch happens whenever auto-detect promotes a
-            # column from cat_features to text_features without changing its backing dtype.
-            if text_features and mlframe_model_name == "cb":
-                text_cols_present = filter_existing(prepared_train, text_features)
-                if text_cols_present:
-                    # Determine which of the text columns need a dtype cast.
-                    needs_cast = [c for c in text_cols_present if prepared_train.schema[c] == pl.Categorical or isinstance(prepared_train.schema[c], pl.Enum)]
-                    prep_exprs = []
-                    for c in text_cols_present:
-                        expr = pl.col(c)
-                        if c in needs_cast:
-                            expr = expr.cast(pl.String)
-                        prep_exprs.append(expr.fill_null(""))
-                    prepared_train = prepared_train.with_columns(prep_exprs)
-                    if prepared_val is not None:
-                        prepared_val = prepared_val.with_columns(prep_exprs)
-                    if prepared_test is not None:
-                        prepared_test = prepared_test.with_columns(prep_exprs)
-                    if needs_cast and verbose:
-                        logger.info(
-                            "  Cast %d text feature(s) from Polars Categorical to String " "for CatBoost: %s",
-                            len(needs_cast),
-                            needs_cast,
-                        )
-
-            # Null-in-Categorical fill is applied upstream once on train_df_polars/val/test (search:
-            # `_polars_fill_null_in_categorical`, marker "__MISSING__"); no per-model fill needed.
-
-            # Store REFERENCES only (no clones / no copies): a 100GB train_df_polars is shared
-            # with ctx.train_df_polars; the prepared variant is a polars LazyFrame-evaluation
-            # result that's already eager but immutable in our path. Carrying across targets
-            # costs ~one pointer per slot - never duplicates feature data.
-            prepared_frames_cache[_prep_key] = {
-                "prepared_train": prepared_train,
-                "prepared_val": prepared_val,
-                "prepared_test": prepared_test,
-                "xgb_category_map": _xgb_category_map,
-            }
-        return {
-            "polars_fastpath_active": True,
-            "prepared_train": prepared_train,
-            "prepared_val": prepared_val,
-            "prepared_test": prepared_test,
-            "xgb_category_map": _xgb_category_map,
-            "cat_features": _cat_features,
-            "tier_pandas": None,
-        }
-
+def _lazy_convert_common_params_to_pandas(common_params: dict, strategy: Any, mlframe_model_name: str, ctx: Any, verbose: bool) -> None:
+    """Convert polars frames in ``common_params`` to cached pandas views in place (non-Polars-native strategies)."""
     # Lazy pandas conversion for non-Polars-native strategies. The upfront
     # _convert_dfs_to_pandas is skipped when all blockers are non-native;
     # per-strategy conversion happens here, which preserves RAM when CB/XGB
@@ -299,6 +203,117 @@ def _prepare_strategy_inputs(
                 except (AttributeError, KeyError):
                     pass
             common_params[df_key] = _pd_view
+
+
+def _prepare_strategy_inputs(
+    *,
+    polars_fastpath_active: bool,
+    mlframe_model_name: str,
+    strategy,
+    cat_features,
+    text_features,
+    embedding_features,
+    train_df_polars,
+    val_df_polars,
+    test_df_polars,
+    prepared_frames_cache: dict,
+    tier_dfs_cache: dict,
+    tier_enum_map_cache: dict,
+    common_params: dict,
+    pre_pipeline_name,
+    ctx,
+    verbose: bool,
+) -> dict:
+    """Build the per-(pre_pipeline, model) feature-side cache or perform lazy
+    pandas conversion, then return a dict of the bindings the parent expects
+    to use further down the iteration.
+
+    Polars-fastpath branch sets:
+      ``polars_fastpath_active=True``, ``prepared_train`` / ``prepared_val``
+      / ``prepared_test``, ``xgb_category_map``, ``cat_features``.
+
+    Pandas branch sets:
+      ``polars_fastpath_active=False``, ``tier_pandas`` dict (and mutates
+      ``common_params`` in place so the caller's reference picks up the
+      pandas views).
+
+    Caller binds via dict-unpack so missing keys raise KeyError on misuse.
+    """
+    if polars_fastpath_active:
+        if verbose:
+            logger.info("  Polars fastpath active for %s (strategy=%s)", mlframe_model_name, type(strategy).__name__)
+        # MUST use the post-promotion `cat_features` (post-auto-detect reassignment), NOT the stale
+        # `cat_features_polars` snapshot from before auto-detect ran - the latter would still list
+        # text-promoted columns and trip CB's polars-categorical fastpath on String dtypes.
+        _cat_features = list(cat_features or [])
+
+        # Cross-target reuse: cache key is (feature_tier, supports_polars=True, strategy_class,
+        # cb_text_pass) where cb_text_pass tracks whether the CB-only Categorical->String text-
+        # column cast must be applied (CB requires it; other CB-tier polars-native models don't).
+        # All target-independent so the prepared frames carry from target 1 to target N.
+        _prep_key = (
+            strategy.feature_tier(),
+            True,
+            type(strategy).__name__,
+            bool(text_features and mlframe_model_name == "cb"),
+        )
+        _cached_prep = prepared_frames_cache.get(_prep_key)
+        if _cached_prep is not None:
+            prepared_train = _cached_prep["prepared_train"]
+            prepared_val = _cached_prep["prepared_val"]
+            prepared_test = _cached_prep["prepared_test"]
+            _xgb_category_map = _cached_prep["xgb_category_map"]
+            if verbose:
+                logger.info(
+                    "  feature-side cache hit for %s (strategy=%s, pp=%s): reusing prepared polars frames across targets",
+                    mlframe_model_name, type(strategy).__name__, "<ordinary>" if pre_pipeline_name is None or pre_pipeline_name == "" else pre_pipeline_name,
+                )
+        else:
+            tier_base = {
+                "train_df": train_df_polars,
+                "val_df": val_df_polars,
+                "test_df": test_df_polars,
+            }
+            tier_polars = _build_tier_dfs(
+                tier_base, strategy, text_features, embedding_features, tier_dfs_cache, verbose=verbose,
+            )
+
+            _xgb_category_map = _resolve_xgb_category_map(strategy, tier_polars, _cat_features, tier_enum_map_cache)
+
+            prepared_train = _prep_polars_df(tier_polars["train_df"], strategy, _cat_features, _xgb_category_map)
+            prepared_val = _prep_polars_df(tier_polars.get("val_df"), strategy, _cat_features, _xgb_category_map)
+            prepared_test = _prep_polars_df(tier_polars.get("test_df"), strategy, _cat_features, _xgb_category_map)
+
+            # CatBoost's polars text-features path requires plain String with no nulls; cast Categorical/Enum
+            # text columns and fill_null. The dtype mismatch happens whenever auto-detect promotes a
+            # column from cat_features to text_features without changing its backing dtype.
+            if text_features and mlframe_model_name == "cb":
+                prepared_train, prepared_val, prepared_test = _cast_cb_text_columns(prepared_train, prepared_val, prepared_test, text_features, verbose)
+
+            # Null-in-Categorical fill is applied upstream once on train_df_polars/val/test (search:
+            # `_polars_fill_null_in_categorical`, marker "__MISSING__"); no per-model fill needed.
+
+            # Store REFERENCES only (no clones / no copies): a 100GB train_df_polars is shared
+            # with ctx.train_df_polars; the prepared variant is a polars LazyFrame-evaluation
+            # result that's already eager but immutable in our path. Carrying across targets
+            # costs ~one pointer per slot - never duplicates feature data.
+            prepared_frames_cache[_prep_key] = {
+                "prepared_train": prepared_train,
+                "prepared_val": prepared_val,
+                "prepared_test": prepared_test,
+                "xgb_category_map": _xgb_category_map,
+            }
+        return {
+            "polars_fastpath_active": True,
+            "prepared_train": prepared_train,
+            "prepared_val": prepared_val,
+            "prepared_test": prepared_test,
+            "xgb_category_map": _xgb_category_map,
+            "cat_features": _cat_features,
+            "tier_pandas": None,
+        }
+
+    _lazy_convert_common_params_to_pandas(common_params, strategy, mlframe_model_name, ctx, verbose)
 
     # Defense-in-depth: after lazy conversion, every common_params DF must be non-polars.
     # Surfacing here (rather than at trainer.fit time) makes the cross-iteration leakage cause

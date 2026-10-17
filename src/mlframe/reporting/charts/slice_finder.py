@@ -288,14 +288,100 @@ def find_weak_slices(
 
     capped: List[str] = []
     if n == 0 or p == 0:
-        empty = pd.DataFrame(columns=["features", "bounds", "mean_error", "support", "support_fraction", "error_ratio", "score"])
-        bar = BarPanelSpec(categories=("(no data)",), values=np.array([0.0]), title=title + " (no usable data)", orientation="horizontal")
-        return SliceFinderResult(FigureSpec(panels=((bar,),), figsize=FIGSIZE_STANDARD), empty, global_error, ((), "", float("nan"), 0), ())
+        return _empty_slice_result("(no data)", title + " (no usable data)", global_error, capped)
 
     codes, all_edges, has_missing = _bin_matrix(mat, nbins, row_mask=row_mask)
     nbins_per = [max(1, all_edges[j].size - 1) + (1 if has_missing[j] else 0) for j in range(p)]
 
-    # Build the combination list with caps.
+    combos = _build_combos(mat, err, names, p, max_arity, max_combos, three_way_top_features, seed, capped)
+
+    # Batch the arity-2 pair aggregations (the dominant ~thousands of combos) into one prange-parallel pass; singles
+    # and triples (far fewer) stay on the serial per-combo path. Bit-identical to the serial path by construction.
+    _pair_agg: dict = {}
+    _score_pair_combos_numba(combos, codes, nbins_per, err, _pair_agg)
+
+    cand = _collect_candidates(combos, codes, err, nbins_per, _pair_agg, min_support, global_error, n)
+    rec_score, rec_mean, rec_support = cand.score, cand.mean, cand.support
+
+    if rec_score.size == 0:
+        return _empty_slice_result("(no weak slice)", title + f"\n(no slice worse than global={global_error:.3g})", global_error, capped)
+
+    # Display order matches the SCORE the candidate pool was built with (degradation x sqrt(support share)), rather
+    # than raw mean error: sorting by mean error alone hands the top bar to the thinnest slice that cleared the
+    # support floor, which is the opposite of what a reader should look at first.
+    order = np.argsort(rec_score, kind="stable")[::-1][:top_k]
+    # Per-slice 95% interval on the mean error, from that slice's own rows. Only the DISPLAYED slices are measured
+    # (top_k of them), so this is a handful of masked reductions, not a pass over every candidate.
+    n_candidates = int(rec_score.size)
+    # Sidak: a per-slice level of 1 - (1 - 0.05)**(1/m) gives a 95% SIMULTANEOUS family, so an interval that
+    # excludes the global error means the slice survives the multiple comparison rather than merely being the
+    # luckiest of m draws. Slightly tighter than Bonferroni for the same guarantee.
+    _alpha_per_slice = 1.0 - 0.95 ** (1.0 / max(n_candidates, 1))  # Sidak: family-wise 5% split across m slices
+    z_simultaneous = float(_norm_ppf_one_sided(1.0 - _alpha_per_slice / 2.0))
+    ci_lo: List[float] = []
+    ci_hi: List[float] = []
+    for i in order:
+        mask = np.ones(err.shape[0], dtype=bool)
+        _bins_i = cand.bins_of(i)
+        for k, feat in enumerate(cand.combo_of(i)):
+            mask &= codes[:, feat] == _bins_i[k]
+        vals_i = err[mask]
+        if vals_i.size > 1:
+            se = float(np.std(vals_i, ddof=1) / np.sqrt(vals_i.size))
+            ci_lo.append(float(rec_mean[i] - z_simultaneous * se))
+            ci_hi.append(float(rec_mean[i] + z_simultaneous * se))
+        else:
+            ci_lo.append(float("nan"))
+            ci_hi.append(float("nan"))
+    # Build the expensive bounds / features labels ONLY for the displayed top_k rows (see the deferral note in _collect_candidates).
+    rec_features = {i: tuple(names[f] for f in cand.combo_of(i)) for i in order}
+    rec_bounds = {i: _bounds_label(cand, names, all_edges, i) for i in order}
+    table = pd.DataFrame({
+        "features": [rec_features[i] for i in order],
+        "bounds": [rec_bounds[i] for i in order],
+        "mean_error": [float(rec_mean[i]) for i in order],
+        "support": [int(rec_support[i]) for i in order],
+        "support_fraction": [int(rec_support[i]) / n for i in order],
+        "error_ratio": [float(rec_mean[i]) / global_error if global_error > 0 else float("inf") for i in order],
+        "error_ratio_lo": [lo / global_error if global_error > 0 else float("nan") for lo in ci_lo],
+        "error_ratio_hi": [hi / global_error if global_error > 0 else float("nan") for hi in ci_hi],
+        "score": [float(rec_score[i]) for i in order],
+    })
+    table.index = np.arange(1, len(order) + 1)
+    table.index.name = "rank"
+
+    for msg in capped:
+        logger.info("slice_finder cap: %s", msg)
+
+    fig = _slice_figure(table, ci_lo, ci_hi, global_error, title, n_candidates, z_simultaneous)
+    top_row = table.iloc[0]
+    worst_slice = (tuple(top_row["features"]), str(top_row["bounds"]), float(top_row["mean_error"]), int(top_row["support"]))
+    return SliceFinderResult(fig, table, global_error, worst_slice, tuple(capped))
+
+
+def _empty_slice_result(category: str, title: str, global_error: float, capped: List[str]) -> SliceFinderResult:
+    """Result for a search with nothing to show (no usable data, or no slice worse than global); logs the caps."""
+    import pandas as pd
+
+    empty = pd.DataFrame(columns=["features", "bounds", "mean_error", "support", "support_fraction", "error_ratio", "score"])
+    bar = BarPanelSpec(categories=(category,), values=np.array([0.0]), title=title, orientation="horizontal")
+    for msg in capped:
+        logger.info("slice_finder cap: %s", msg)
+    return SliceFinderResult(FigureSpec(panels=((bar,),), figsize=FIGSIZE_STANDARD), empty, global_error, ((), "", float("nan"), 0), tuple(capped))
+
+
+def _build_combos(
+    mat: np.ndarray,
+    err: np.ndarray,
+    names: Sequence[str],
+    p: int,
+    max_arity: int,
+    max_combos: int,
+    three_way_top_features: int,
+    seed: int,
+    capped: List[str],
+) -> List[Tuple[int, ...]]:
+    """Build the candidate feature-combination list (singles, pairs, restricted triples) honouring the caps; appends cap notes to ``capped``."""
     combos: List[Tuple[int, ...]] = [(j,) for j in range(p)]
     pairs = list(itertools.combinations(range(p), 2))
     _cap_combos_with_pairs(max_arity, combos, pairs, max_combos, capped)
@@ -309,22 +395,62 @@ def find_weak_slices(
             capped.append(f"3-way enumeration truncated to {max(room, 0)} of {len(triples)} triples")
             triples = triples[: max(room, 0)]
         combos.extend(triples)
+    return combos
 
-    # Batch the arity-2 pair aggregations (the dominant ~thousands of combos) into one prange-parallel pass; singles
-    # and triples (far fewer) stay on the serial per-combo path. Bit-identical to the serial path by construction.
-    _pair_agg: dict = {}
-    _score_pair_combos_numba(combos, codes, nbins_per, err, _pair_agg)
 
+class _Candidates:
+    """Per-combo candidate blocks (concatenated stats plus the block offsets needed to recover a row's combo and bins on demand)."""
+
+    def __init__(
+        self,
+        blocks: List[Tuple[Tuple[int, ...], np.ndarray]],
+        offsets: List[int],
+        mean_parts: List[np.ndarray],
+        support_parts: List[np.ndarray],
+        score_parts: List[np.ndarray],
+    ) -> None:
+        # Concatenate the per-combo stat parts and keep the block table.
+        self.blocks = blocks
+        self.score = np.concatenate(score_parts) if score_parts else np.empty(0, dtype=np.float64)
+        self.mean = np.concatenate(mean_parts) if mean_parts else np.empty(0, dtype=np.float64)
+        self.support = np.concatenate(support_parts) if support_parts else np.empty(0, dtype=np.int64)
+        self.offsets = np.asarray(offsets, dtype=np.int64)
+
+    def _block_of(self, i: int) -> Tuple[Tuple[int, ...], np.ndarray]:
+        """The (combo, decoded-bins) block that candidate row ``i`` came from."""
+        return self.blocks[int(np.searchsorted(self.offsets, i, side="right")) - 1]
+
+    def combo_of(self, i: int) -> Tuple[int, ...]:
+        """Feature indices of candidate row ``i``."""
+        return self._block_of(i)[0]
+
+    def bins_of(self, i: int) -> np.ndarray:
+        """Per-feature bin indices of candidate row ``i``."""
+        blk_start = int(self.offsets[int(np.searchsorted(self.offsets, i, side="right")) - 1])
+        return np.asarray(self._block_of(i)[1][i - blk_start])
+
+
+def _collect_candidates(
+    combos: List[Tuple[int, ...]],
+    codes: np.ndarray,
+    err: np.ndarray,
+    nbins_per: Sequence[int],
+    pair_agg: dict,
+    min_support: int,
+    global_error: float,
+    n: int,
+) -> _Candidates:
+    """Aggregate every combo and collect the slices above the support floor that are worse than the global error."""
     # Aggregate every combo; collect slices above the support floor. Only the cheap numeric records (mean / support /
     # score) plus the minimal slice IDENTITY (the combo's feature indices + the decoded per-feature bin row) are kept
     # here -- the expensive human-readable ``bounds`` / ``features`` labels (thousands of ``_bin_label`` calls + f-string
-    # formatting + " & ".join) are deferred to AFTER the top_k selection below, so labels are built for only the ~top_k
+    # formatting + " & ".join) are deferred to AFTER the top_k selection, so labels are built for only the ~top_k
     # displayed rows instead of every candidate cell across all combos (the caller discards all but top_k).
     # Accumulated per COMBO, not per candidate cell. A cell only ever becomes a table row if it lands in the
     # displayed top_k -- a handful of rows out of a candidate pool that runs to hundreds of thousands of cells --
     # so materialising five Python objects per cell built a list nothing reads. The per-combo blocks keep the
     # numpy arrays the kernel already produced, and the combo/bin identity of row ``i`` is recovered on demand
-    # from the block offsets (see ``_combo_of`` / ``_bins_of`` below), which only the displayed rows ask for.
+    # from the block offsets (see ``_Candidates.combo_of`` / ``bins_of``), which only the displayed rows ask for.
     rec_blocks: List[Tuple[Tuple[int, ...], np.ndarray]] = []
     rec_offsets: List[int] = []
     mean_parts: List[np.ndarray] = []
@@ -332,7 +458,7 @@ def find_weak_slices(
     score_parts: List[np.ndarray] = []
     _n_rows = 0
     for combo in combos:
-        _cached = _pair_agg.get(combo)
+        _cached = pair_agg.get(combo)
         if _cached is not None:
             sums, counts, strides = _cached
         else:
@@ -363,92 +489,26 @@ def find_weak_slices(
         support_parts.append(counts[cell_ids])
         score_parts.append(scores[cell_ids])
         _n_rows += int(cell_ids.size)
+    return _Candidates(rec_blocks, rec_offsets, mean_parts, support_parts, score_parts)
 
-    rec_score = np.concatenate(score_parts) if score_parts else np.empty(0, dtype=np.float64)
-    rec_mean = np.concatenate(mean_parts) if mean_parts else np.empty(0, dtype=np.float64)
-    rec_support = np.concatenate(support_parts) if support_parts else np.empty(0, dtype=np.int64)
-    _offsets = np.asarray(rec_offsets, dtype=np.int64)
 
-    def _block_of(i: int) -> Tuple[Tuple[int, ...], np.ndarray]:
-        """The (combo, decoded-bins) block that candidate row ``i`` came from."""
-        return rec_blocks[int(np.searchsorted(_offsets, i, side="right")) - 1]
+def _bounds_label(cand: _Candidates, names: Sequence[str], all_edges: List[np.ndarray], i: int) -> str:
+    """Human-readable ``"feature [lo..hi] & feature2 [lo..hi]"`` bound string for candidate row ``i`` -- built only for the displayed top-k rows."""
+    combo_i = cand.combo_of(i)
+    bins_i = cand.bins_of(i)
+    return " & ".join(f"{names[combo_i[k]]} {_bin_label(all_edges[combo_i[k]], int(bins_i[k]))}" for k in range(len(combo_i)))
 
-    def _combo_of(i: int) -> Tuple[int, ...]:
-        """Feature indices of candidate row ``i``."""
-        return _block_of(i)[0]
 
-    def _bins_of(i: int) -> np.ndarray:
-        """Per-feature bin indices of candidate row ``i``."""
-        blk_start = int(_offsets[int(np.searchsorted(_offsets, i, side="right")) - 1])
-        return np.asarray(_block_of(i)[1][i - blk_start])
-
-    if rec_score.size == 0:
-        empty = pd.DataFrame(columns=["features", "bounds", "mean_error", "support",
-                                       "support_fraction", "error_ratio", "score"])
-        bar = BarPanelSpec(categories=("(no weak slice)",), values=np.array([0.0]),
-                           title=title + f"\n(no slice worse than global={global_error:.3g})",
-                           orientation="horizontal")
-        for msg in capped:
-            logger.info("slice_finder cap: %s", msg)
-        return SliceFinderResult(FigureSpec(panels=((bar,),), figsize=FIGSIZE_STANDARD), empty, global_error, ((), "", float("nan"), 0), tuple(capped))
-
-    # Display order matches the SCORE the candidate pool was built with (degradation x sqrt(support share)), rather
-    # than raw mean error: sorting by mean error alone hands the top bar to the thinnest slice that cleared the
-    # support floor, which is the opposite of what a reader should look at first.
-    order = np.argsort(rec_score, kind="stable")[::-1][:top_k]
-    # Per-slice 95% interval on the mean error, from that slice's own rows. Only the DISPLAYED slices are measured
-    # (top_k of them), so this is a handful of masked reductions, not a pass over every candidate.
-    n_candidates = int(rec_score.size)
-    # Sidak: a per-slice level of 1 - (1 - 0.05)**(1/m) gives a 95% SIMULTANEOUS family, so an interval that
-    # excludes the global error means the slice survives the multiple comparison rather than merely being the
-    # luckiest of m draws. Slightly tighter than Bonferroni for the same guarantee.
-    _alpha_per_slice = 1.0 - 0.95 ** (1.0 / max(n_candidates, 1))  # Sidak: family-wise 5% split across m slices
-    z_simultaneous = float(_norm_ppf_one_sided(1.0 - _alpha_per_slice / 2.0))
-    ci_lo: List[float] = []
-    ci_hi: List[float] = []
-    for i in order:
-        mask = np.ones(err.shape[0], dtype=bool)
-        _bins_i = _bins_of(i)
-        for k, feat in enumerate(_combo_of(i)):
-            mask &= codes[:, feat] == _bins_i[k]
-        vals_i = err[mask]
-        if vals_i.size > 1:
-            se = float(np.std(vals_i, ddof=1) / np.sqrt(vals_i.size))
-            ci_lo.append(float(rec_mean[i] - z_simultaneous * se))
-            ci_hi.append(float(rec_mean[i] + z_simultaneous * se))
-        else:
-            ci_lo.append(float("nan"))
-            ci_hi.append(float("nan"))
-    # Build the expensive bounds / features labels ONLY for the displayed top_k rows (see the deferral note above).
-    def _features_for(i: int) -> Tuple[str, ...]:
-        """Feature names for candidate row ``i``'s combo -- built only for the displayed top-k rows (see the deferral note above)."""
-        return tuple(names[f] for f in _combo_of(i))
-
-    def _bounds_for(i: int) -> str:
-        """Human-readable ``"feature [lo..hi] & feature2 [lo..hi]"`` bound string for candidate row ``i`` -- built only for the displayed top-k rows."""
-        combo_i = _combo_of(i)
-        bins_i = _bins_of(i)
-        return " & ".join(f"{names[combo_i[k]]} {_bin_label(all_edges[combo_i[k]], int(bins_i[k]))}" for k in range(len(combo_i)))
-
-    rec_features = {i: _features_for(i) for i in order}
-    rec_bounds = {i: _bounds_for(i) for i in order}
-    table = pd.DataFrame({
-        "features": [rec_features[i] for i in order],
-        "bounds": [rec_bounds[i] for i in order],
-        "mean_error": [float(rec_mean[i]) for i in order],
-        "support": [int(rec_support[i]) for i in order],
-        "support_fraction": [int(rec_support[i]) / n for i in order],
-        "error_ratio": [float(rec_mean[i]) / global_error if global_error > 0 else float("inf") for i in order],
-        "error_ratio_lo": [lo / global_error if global_error > 0 else float("nan") for lo in ci_lo],
-        "error_ratio_hi": [hi / global_error if global_error > 0 else float("nan") for hi in ci_hi],
-        "score": [float(rec_score[i]) for i in order],
-    })
-    table.index = np.arange(1, len(order) + 1)
-    table.index.name = "rank"
-
-    for msg in capped:
-        logger.info("slice_finder cap: %s", msg)
-
+def _slice_figure(
+    table: Any,
+    ci_lo: List[float],
+    ci_hi: List[float],
+    global_error: float,
+    title: str,
+    n_candidates: int,
+    z_simultaneous: float,
+) -> FigureSpec:
+    """Horizontal bar figure of the worst slices (worst on top) with simultaneous-interval error bars and a global-error line."""
     # Horizontal bars, worst on top: bar length = mean error, annotated label carries the support fraction + ratio.
     # Read the three columns out once instead of re-resolving each Series and doing a positional lookup per
     # row: the same per-element DataFrame access in a loop this module avoids everywhere else.
@@ -490,7 +550,7 @@ def find_weak_slices(
         value_err=(err_lo, err_hi),
         hline=(global_error, "black", f"global = {global_error:.3g}"),
     )
-    fig = FigureSpec(
+    return FigureSpec(
         suptitle="",
         panels=((bar,),),
         figsize=(10.0, max(5.0, 0.5 * len(table) + 2.0)),
@@ -501,9 +561,6 @@ def find_weak_slices(
             "alongside the ratio -- a 3x error ratio over 40 rows is a different claim from one over 40,000."
         ),
     )
-    top_row = table.iloc[0]
-    worst_slice = (tuple(top_row["features"]), str(top_row["bounds"]), float(top_row["mean_error"]), int(top_row["support"]))
-    return SliceFinderResult(fig, table, global_error, worst_slice, tuple(capped))
 
 
 def _cap_combos_with_pairs(max_arity, combos, pairs, max_combos, capped):

@@ -347,27 +347,8 @@ def _hoist_round_shared_columns(
     return _relax_y_col, _relax_k_y, _relax_sel_cols, _relax_sel_nbins
 
 
-def _evaluate_candidates_inner(
-    workload, y, best_gain, factors_data, factors_nbins, factors_names,
-    partial_gains, selected_vars, baseline_npermutations,
-    classes_y=None, freqs_y=None, freqs_y_safe=None, use_gpu=True,
-    cached_MIs=None, cached_confident_MIs=None, cached_cond_MIs=None,
-    cached_jmim_MIs=None,
-    entropy_cache=None, mrmr_relevance_algo="fleuret",
-    mrmr_redundancy_algo="fleuret", max_veteranes_interactions_order=1,
-    dtype=np.int32, max_runtime_mins=None, start_time=None,
-    min_relevance_gain=None, verbose=1, ndigits=5, use_simple_mode=True,
-    random_seed=None,
-) -> tuple:
-    """Score every candidate in ``workload`` (serial loop over ``evaluate_candidate``), tracking the running best gain/candidate and updating ``partial_gains``/the MI caches in place."""
-    # lazy: parent-defined helpers + cache deque, imported here to avoid the
-    # _evaluation_driver <-> evaluation module-level import cycle.
-    from .evaluation import evaluate_candidate, handle_best_candidate, _JMIM_CACHE_STATS
-
-    best_gain = -LARGE_CONST
-    best_candidate: Optional[Sequence] = None
-    expected_gains: dict = {}
-
+def _seed_numba_caches(entropy_cache: Any, cached_cond_MIs: Any, cached_jmim_MIs: Any) -> tuple:
+    """Seed the three per-call numba typed dicts from the callers' python dicts; returns ``(entropy, cond_MIs, jmim_MIs, jmim_hit_counter)``."""
     entropy_cache_dict = numba.typed.Dict.empty(
         key_type=types.unicode_type,
         value_type=types.float64,
@@ -392,6 +373,31 @@ def _evaluate_candidates_inner(
     # 1-element int64 hit counter, mutated in place by the @njit evaluate_gain on every
     # JMIM cache read-hit (an array, since @njit cannot mutate a python scalar by ref).
     jmim_hit_counter = np.zeros(1, dtype=np.int64)
+    return entropy_cache_dict, cached_cond_MIs_dict, cached_jmim_MIs_dict, jmim_hit_counter
+
+
+def _evaluate_candidates_inner(
+    workload, y, best_gain, factors_data, factors_nbins, factors_names,
+    partial_gains, selected_vars, baseline_npermutations,
+    classes_y=None, freqs_y=None, freqs_y_safe=None, use_gpu=True,
+    cached_MIs=None, cached_confident_MIs=None, cached_cond_MIs=None,
+    cached_jmim_MIs=None,
+    entropy_cache=None, mrmr_relevance_algo="fleuret",
+    mrmr_redundancy_algo="fleuret", max_veteranes_interactions_order=1,
+    dtype=np.int32, max_runtime_mins=None, start_time=None,
+    min_relevance_gain=None, verbose=1, ndigits=5, use_simple_mode=True,
+    random_seed=None,
+) -> tuple:
+    """Score every candidate in ``workload`` (serial loop over ``evaluate_candidate``), tracking the running best gain/candidate and updating ``partial_gains``/the MI caches in place."""
+    # lazy: parent-defined helpers + cache deque, imported here to avoid the
+    # _evaluation_driver <-> evaluation module-level import cycle.
+    from .evaluation import evaluate_candidate, handle_best_candidate, _JMIM_CACHE_STATS
+
+    best_gain = -LARGE_CONST
+    best_candidate: Optional[Sequence] = None
+    expected_gains: dict = {}
+
+    entropy_cache_dict, cached_cond_MIs_dict, cached_jmim_MIs_dict, jmim_hit_counter = _seed_numba_caches(entropy_cache, cached_cond_MIs, cached_jmim_MIs)
 
     # Batched-GPU conditional-MI cache pre-fill (default ON; env kill-switch MLFRAME_MRMR_GPU_CMI=0).
     # Realises the GPU win: pre-populate the LOCAL numba cond-MI dict with batched I(X; Y | Z) so the

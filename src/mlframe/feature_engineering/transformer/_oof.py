@@ -43,6 +43,49 @@ _EXTRA_AGGS = ("y_iqr", "y_skew", "x_centroid_dist")
 logger = logging.getLogger(__name__)
 
 
+def _build_fold_projections(
+    projection: str,
+    projections_global: Any,
+    X_tr_s: np.ndarray,
+    y_tr: np.ndarray,
+    n_heads: int,
+    head_dim: int,
+    seed: int,
+    fold_idx: int,
+    dtype: type,
+) -> Any:
+    """Projection matrices for one fold: the global random ones, or a supervised family refit on this fold's train subset only."""
+    # Build projections (random reuses global; PLS / importance / SHAP refit on this fold's train subset only).
+    if projection == "pls":
+        projections = build_supervised_projections_pls(
+            X=X_tr_s, y=y_tr, n_heads=n_heads, head_dim=head_dim,
+            seed=int(seed) + fold_idx,
+            dtype=dtype,
+        )
+    elif projection == "importance":
+        projections = build_importance_weighted_projection(
+            X=X_tr_s, y=y_tr, n_heads=n_heads, head_dim=head_dim,
+            seed=int(seed) + fold_idx,
+            dtype=dtype,
+        )
+    elif projection == "shap":
+        projections = build_shap_weighted_projection(
+            X=X_tr_s, y=y_tr, n_heads=n_heads, head_dim=head_dim,
+            seed=int(seed) + fold_idx,
+            dtype=dtype,
+        )
+    elif projection == "nca":
+        projections = build_nca_projection(
+            X=X_tr_s, y=y_tr, n_heads=n_heads, head_dim=head_dim,
+            seed=int(seed) + fold_idx,
+            dtype=dtype,
+        )
+    else:
+        assert projections_global is not None  # projection == "random" is the only path reaching this else, and that branch built projections_global above
+        projections = projections_global
+    return projections
+
+
 def kfold_attention_loop(
     X_train: np.ndarray,
     y_train: np.ndarray,
@@ -123,34 +166,7 @@ def kfold_attention_loop(
             X_tr_s = X_tr.astype(dtype, copy=False)
             X_va_s = X_va.astype(dtype, copy=False)
 
-        # Build projections (random reuses global; PLS / importance / SHAP refit on this fold's train subset only).
-        if projection == "pls":
-            projections = build_supervised_projections_pls(
-                X=X_tr_s, y=y_tr, n_heads=n_heads, head_dim=head_dim,
-                seed=int(seed) + fold_idx,
-                dtype=dtype,
-            )
-        elif projection == "importance":
-            projections = build_importance_weighted_projection(
-                X=X_tr_s, y=y_tr, n_heads=n_heads, head_dim=head_dim,
-                seed=int(seed) + fold_idx,
-                dtype=dtype,
-            )
-        elif projection == "shap":
-            projections = build_shap_weighted_projection(
-                X=X_tr_s, y=y_tr, n_heads=n_heads, head_dim=head_dim,
-                seed=int(seed) + fold_idx,
-                dtype=dtype,
-            )
-        elif projection == "nca":
-            projections = build_nca_projection(
-                X=X_tr_s, y=y_tr, n_heads=n_heads, head_dim=head_dim,
-                seed=int(seed) + fold_idx,
-                dtype=dtype,
-            )
-        else:
-            assert projections_global is not None  # projection == "random" is the only path reaching this else, and that branch built projections_global above
-            projections = projections_global
+        projections = _build_fold_projections(projection, projections_global, X_tr_s, y_tr, n_heads, head_dim, seed, fold_idx, dtype)
 
         # Project both fold subsets with the projection matrices.
         k_proj_tr = apply_projection(X_tr_s, projections, l2_normalize=True)  # (n_heads, |train_idx|, head_dim)

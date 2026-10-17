@@ -10,6 +10,7 @@ siblings' own ``X``-in-``X``-out contract, confirmed the same way (grepping ever
 
 from __future__ import annotations
 
+from typing import Any
 import logging
 
 import numpy as np
@@ -193,6 +194,32 @@ def _fe_stage_cascade_early_a(
     # stage failed. ``encode_y_for_classif_mi`` replaces the inline ``astype(int64)`` discretisation, which truncated
     # non-integral float labels (``{0.0, 0.5, 1.0, 1.5}`` -> two classes) instead of densifying them.
     _y_for_hybrid = encode_y_for_classif_mi(_y_np)
+    X_acc = _fe_stage_cascade_early_a_part2(
+        self, _hybrid_on, _univ_basis_on, _fe_budget_ok, X, _y_for_hybrid, X_acc, _hybrid_orth_pre_recipes, verbose, _fe_family_on,
+    )
+    _hinge_deferred_values, _hinge_deferred_recipes, X_acc = _fe_stage_cascade_early_a_part1(
+        _fe_family_on, _fe_budget_ok, _y_np, self, X, _hinge_deferred_values, _hinge_deferred_recipes, verbose, X_acc, y, _hybrid_orth_pre_recipes,
+        _mi_greedy_pre_recipes,
+    )
+
+    # Layer 60 — CMI-greedy FE constructor (sibling to Layer 26).
+    # Ranks the same candidate library by ``CMI(candidate; y | support)``
+    # instead of marginal ``MI(candidate; y)`` so duplicate-signal transforms
+    # (``log_abs(x)`` + ``square(x)`` both monotone in |x|) cannot all be
+    # picked: once one is in the support, the others' CMI collapses near
+    # zero. Winners are MERGED into ``mi_greedy_features_`` (same recipe
+    # kind ``mi_greedy_transform``) so downstream end-of-fit remap and
+    # transform-time replay are shared infrastructure. Seed pool excludes
+    # both prior hybrid-orth and prior marginal-MI-greedy engineered cols
+    # (same rationale: replay must not reference engineered sources).
+    return _fe_merge_new_columns(X_acc, _stage_greedy_cmi(self, _fe_family_on, _y_np, X, _mi_greedy_pre_recipes, verbose), X), _raw_input_cols_pre_fe, _hinge_deferred_values, _hinge_deferred_recipes
+
+
+def _fe_stage_cascade_early_a_part2(
+    self: Any, _hybrid_on: Any, _univ_basis_on: Any, _fe_budget_ok: Any, X: Any, _y_for_hybrid: Any, X_acc: Any, _hybrid_orth_pre_recipes: Any, verbose: Any,
+    _fe_family_on: Any,
+) -> Any:
+    """Extracted block of ``_fe_stage_cascade_early_a`` (part 2); returns the names the caller still uses."""
     _default_scorer = str(getattr(self, "fe_hybrid_orth_default_scorer", "plug_in"))
     if (_hybrid_on or _univ_basis_on) and _fe_budget_ok():
         # Polars frames: skip with a warning - hybrid FE pipeline operates on
@@ -323,6 +350,14 @@ def _fe_stage_cascade_early_a(
         if _univ_fourier_on and _univ_basis_on and _extra_basis_scorer_ok and "fourier" not in _eff_extra_bases:
             _eff_extra_bases = (*_eff_extra_bases, "fourier")
         X_acc = _fe_merge_new_columns(X_acc, _stage_extra_orthogonal_bases(self, _eff_extra_bases, X, _y_for_extra, _top_k_for_extra, _hybrid_orth_pre_recipes, verbose), X)
+    return X_acc
+
+
+def _fe_stage_cascade_early_a_part1(
+    _fe_family_on: Any, _fe_budget_ok: Any, _y_np: Any, self: Any, X: Any, _hinge_deferred_values: Any, _hinge_deferred_recipes: Any, verbose: Any,
+    X_acc: Any, y: Any, _hybrid_orth_pre_recipes: Any, _mi_greedy_pre_recipes: Any,
+) -> tuple[Any, ...]:
+    """Extracted block of ``_fe_stage_cascade_early_a`` (part 1); returns the names the caller still uses."""
     # — HINGE / piecewise-linear change-point basis stage.
     # Independent opt-in via ``fe_hinge_enable`` (does NOT require
     # ``fe_hybrid_orth_enable``): captures a SLOPE CHANGE at a data-dependent
@@ -458,18 +493,7 @@ def _fe_stage_cascade_early_a(
     if _fe_family_on("fe_mi_greedy_enable", False):
         # Format-agnostic since the matrix-native FE seam (see triplet stage): skip-guard removed, runs on polars/pandas.
         X_acc = _stage_mi_greedy(self, X_acc, X, _y_np, _mi_greedy_pre_recipes, verbose)
-
-    # Layer 60 — CMI-greedy FE constructor (sibling to Layer 26).
-    # Ranks the same candidate library by ``CMI(candidate; y | support)``
-    # instead of marginal ``MI(candidate; y)`` so duplicate-signal transforms
-    # (``log_abs(x)`` + ``square(x)`` both monotone in |x|) cannot all be
-    # picked: once one is in the support, the others' CMI collapses near
-    # zero. Winners are MERGED into ``mi_greedy_features_`` (same recipe
-    # kind ``mi_greedy_transform``) so downstream end-of-fit remap and
-    # transform-time replay are shared infrastructure. Seed pool excludes
-    # both prior hybrid-orth and prior marginal-MI-greedy engineered cols
-    # (same rationale: replay must not reference engineered sources).
-    return _fe_merge_new_columns(X_acc, _stage_greedy_cmi(self, _fe_family_on, _y_np, X, _mi_greedy_pre_recipes, verbose), X), _raw_input_cols_pre_fe, _hinge_deferred_values, _hinge_deferred_recipes
+    return _hinge_deferred_values, _hinge_deferred_recipes, X_acc
 
 
 def _stage_extra_orthogonal_bases(self, _eff_extra_bases, X, _y_for_extra, _top_k_for_extra, _hybrid_orth_pre_recipes, verbose):

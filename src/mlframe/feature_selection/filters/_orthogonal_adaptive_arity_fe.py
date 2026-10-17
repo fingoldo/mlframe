@@ -61,7 +61,7 @@ from ._orthogonal_shared import parse_code_deg_with_basis
 
 import logging
 from itertools import combinations
-from typing import Optional, Sequence
+from typing import Callable, Optional, Sequence
 
 import numpy as np
 
@@ -123,6 +123,94 @@ def _coerce_y_classif(y) -> np.ndarray:
         return y_arr.astype(np.int64, copy=False)
     _, inv = np.unique(y_arr, return_inverse=True)
     return cast("np.ndarray", inv.astype(np.int64, copy=False))
+
+def _select_arity_winners(tuple_best: dict, max_arity: int) -> dict:
+    """Pass 2: arity 2 candidates plus every higher-arity tuple whose best MI strictly beats all of its (k-1)-subsets."""
+    # Pass 2: for each arity k >= 3, prune tuples whose best MI does not
+    # strictly exceed the max best MI over its (k-1)-subsets.
+    # Track which tuples win at SOME arity so the lower-arity prefix that
+    # is dominated by a higher-arity winner can still be reported.
+    # Adaptive contract: emit the arity at which MI is best AND lower
+    # arity does not already match. Concretely we emit a tuple at arity k
+    # iff (a) MI(k) > max MI(k-1 subsets), AND (b) the tuple is not
+    # itself a strict subset of a higher-arity winner that ALSO beats it.
+    # (b) is automatic when (a) holds at the higher arity.
+    winners: dict[frozenset, tuple[int, float, tuple[int, ...], str, np.ndarray]] = {}
+    # arity 2: always candidates (no lower arity to compare against). We
+    # still gate on absolute MI > 0 to skip degenerate / constant cells.
+    for key, (mi_val, degs, name, prod) in tuple_best[2].items():
+        if mi_val > 0.0:
+            winners[key] = (2, mi_val, degs, name, prod)
+    # arity k >= 3: keep ONLY if MI strictly beats every (k-1)-subset MI.
+    for k in range(3, max_arity + 1):
+        for key, (mi_val, degs, name, prod) in tuple_best[k].items():
+            # Max MI over (k-1)-subsets that themselves were evaluated.
+            sub_max = 0.0
+            for sub in combinations(tuple(key), k - 1):
+                sub_key = frozenset(sub)
+                sub_best = tuple_best[k - 1].get(sub_key)
+                if sub_best is not None and sub_best[0] > sub_max:
+                    sub_max = sub_best[0]
+            if mi_val > sub_max:
+                winners[key] = (k, mi_val, degs, name, prod)
+    return winners
+
+
+def _best_cell_per_tuple(eval_results: dict, X: pd.DataFrame, y_arr: np.ndarray, basis: str, nbins: int, max_arity: int) -> dict:
+    """Score each arity's cells in one MI batch and keep the best degree combo per tuple: ``tuple_best[arity][frozenset] = (mi, degs, name, product)``."""
+    # tuple_best[arity][tuple-key] = (best_mi, best_deg_combo, best_col_name, product_array)
+    # tuple-key is the frozenset of column names (commutative product).
+    tuple_best: dict[int, dict[frozenset, tuple[float, tuple[int, ...], str, np.ndarray]]] = {k: {} for k in range(2, max_arity + 1)}
+    # Batch MI per arity to amortise the histogram + plug-in cost.
+    for k in range(2, max_arity + 1):
+        if not eval_results[k]:
+            continue
+        # DEVICE-BORN (STRICT-resident): rebuild this arity's product matrix on the GPU from the small operand
+        # columns and score via the resident plug-in MI, collapsing the host cols_block upload at :311. The prune
+        # logic below compares MI VALUES across tuples/arities - all from the SAME estimator (device or host),
+        # so the comparison is internally consistent either way. None (-> host batch) on no-cupy / non-strict /
+        # cupy failure / unsupported basis. Selection-equivalent (device Clenshaw vs host forward ~1e-12).
+        mi_block = _adaptive_arity_mi_resident_block(X, y_arr, eval_results[k], basis=basis, nbins=nbins)
+        if mi_block is None:
+            cols_block = np.column_stack([r[3] for r in eval_results[k]]).astype(np.float64, copy=False)
+            mi_block = _mi_classif_batch(cols_block, y_arr, nbins=nbins)
+        for (tup, degs, name, prod), mi_val in zip(eval_results[k], mi_block.tolist()):
+            key = frozenset(tup)
+            prev = tuple_best[k].get(key)
+            if prev is None or float(mi_val) > prev[0]:
+                tuple_best[k][key] = (float(mi_val), degs, name, prod)
+    return tuple_best
+
+
+def _enumerate_arity_cells(valid_src: list, leg_cache: dict, basis_per_col: dict, max_arity: int, max_d: int) -> dict:
+    """Enumerate every (tuple, degree-combo) cell at every arity 2..``max_arity`` and evaluate its product."""
+    def _all_deg_combos(k: int) -> list[tuple[int, ...]]:
+        """Enumerate every degree assignment (1..max_d per leg) for a k-way tuple, i.e. the full max_d**k grid."""
+        combos: list[tuple[int, ...]] = [()]
+        for _ in range(k):
+            combos = [(*c, d) for c in combos for d in range(1, max_d + 1)]
+        return combos
+
+    # Pass 1: enumerate every (tuple, degree-combo) cell at every arity,
+    # evaluate the product, compute MI in batch, find the best degree
+    # combo per tuple.
+    eval_results: dict[int, list[tuple[tuple[str, ...], tuple[int, ...], str, np.ndarray]]] = {k: [] for k in range(2, max_arity + 1)}
+    for k in range(2, max_arity + 1):
+        if len(valid_src) < k:
+            continue
+        deg_combos = _all_deg_combos(k)
+        for tup in combinations(valid_src, k):
+            for degs in deg_combos:
+                prod = leg_cache[(tup[0], degs[0])].copy()
+                for leg_idx in range(1, k):
+                    prod = prod * leg_cache[(tup[leg_idx], degs[leg_idx])]
+                # Per-leg basis for the name; arity-uniform basis code in the
+                # name (matches Layer 22 / 56 / 77 stable naming convention).
+                name_basis = basis_per_col[tup[0]]
+                name = _adaptive_eng_col_name(tup, name_basis, degs)
+                eval_results[k].append((tup, degs, name, prod))
+    return eval_results
+
 
 def generate_adaptive_arity_cross_basis(
     X: pd.DataFrame,
@@ -201,84 +289,12 @@ def generate_adaptive_arity_cross_basis(
     if len(valid_src) < 2:
         return pd.DataFrame(index=X.index), pd.DataFrame(columns=_ADAPTIVE_SCORE_EMPTY_COLS)
 
-    # tuple_best[arity][tuple-key] = (best_mi, best_deg_combo, best_col_name, product_array)
-    # tuple-key is the frozenset of column names (commutative product).
-    tuple_best: dict[int, dict[frozenset, tuple[float, tuple[int, ...], str, np.ndarray]]] = {k: {} for k in range(2, max_arity + 1)}
+    eval_results = _enumerate_arity_cells(valid_src, leg_cache, basis_per_col, max_arity, max_d)
+    tuple_best = _best_cell_per_tuple(eval_results, X, y_arr, basis, nbins, max_arity)
 
-    def _all_deg_combos(k: int) -> list[tuple[int, ...]]:
-        """Enumerate every degree assignment (1..max_d per leg) for a k-way tuple, i.e. the full max_d**k grid."""
-        combos: list[tuple[int, ...]] = [()]
-        for _ in range(k):
-            combos = [(*c, d) for c in combos for d in range(1, max_d + 1)]
-        return combos
-
-    # Pass 1: enumerate every (tuple, degree-combo) cell at every arity,
-    # evaluate the product, compute MI in batch, find the best degree
-    # combo per tuple.
-    eval_results: dict[int, list[tuple[tuple[str, ...], tuple[int, ...], str, np.ndarray]]] = {k: [] for k in range(2, max_arity + 1)}
-    for k in range(2, max_arity + 1):
-        if len(valid_src) < k:
-            continue
-        deg_combos = _all_deg_combos(k)
-        for tup in combinations(valid_src, k):
-            for degs in deg_combos:
-                prod = leg_cache[(tup[0], degs[0])].copy()
-                for leg_idx in range(1, k):
-                    prod = prod * leg_cache[(tup[leg_idx], degs[leg_idx])]
-                # Per-leg basis for the name; arity-uniform basis code in the
-                # name (matches Layer 22 / 56 / 77 stable naming convention).
-                name_basis = basis_per_col[tup[0]]
-                name = _adaptive_eng_col_name(tup, name_basis, degs)
-                eval_results[k].append((tup, degs, name, prod))
-
-    # Batch MI per arity to amortise the histogram + plug-in cost.
-    for k in range(2, max_arity + 1):
-        if not eval_results[k]:
-            continue
-        # DEVICE-BORN (STRICT-resident): rebuild this arity's product matrix on the GPU from the small operand
-        # columns and score via the resident plug-in MI, collapsing the host cols_block upload at :311. The prune
-        # logic below compares MI VALUES across tuples/arities - all from the SAME estimator (device or host),
-        # so the comparison is internally consistent either way. None (-> host batch) on no-cupy / non-strict /
-        # cupy failure / unsupported basis. Selection-equivalent (device Clenshaw vs host forward ~1e-12).
-        mi_block = _adaptive_arity_mi_resident_block(X, y_arr, eval_results[k], basis=basis, nbins=nbins)
-        if mi_block is None:
-            cols_block = np.column_stack([r[3] for r in eval_results[k]]).astype(np.float64, copy=False)
-            mi_block = _mi_classif_batch(cols_block, y_arr, nbins=nbins)
-        for (tup, degs, name, prod), mi_val in zip(eval_results[k], mi_block.tolist()):
-            key = frozenset(tup)
-            prev = tuple_best[k].get(key)
-            if prev is None or float(mi_val) > prev[0]:
-                tuple_best[k][key] = (float(mi_val), degs, name, prod)
-
-    # Pass 2: for each arity k >= 3, prune tuples whose best MI does not
-    # strictly exceed the max best MI over its (k-1)-subsets.
     out_cols: dict[str, np.ndarray] = {}
     rows: list[dict] = []
-    # Track which tuples win at SOME arity so the lower-arity prefix that
-    # is dominated by a higher-arity winner can still be reported.
-    # Adaptive contract: emit the arity at which MI is best AND lower
-    # arity does not already match. Concretely we emit a tuple at arity k
-    # iff (a) MI(k) > max MI(k-1 subsets), AND (b) the tuple is not
-    # itself a strict subset of a higher-arity winner that ALSO beats it.
-    # (b) is automatic when (a) holds at the higher arity.
-    winners: dict[frozenset, tuple[int, float, tuple[int, ...], str, np.ndarray]] = {}
-    # arity 2: always candidates (no lower arity to compare against). We
-    # still gate on absolute MI > 0 to skip degenerate / constant cells.
-    for key, (mi_val, degs, name, prod) in tuple_best[2].items():
-        if mi_val > 0.0:
-            winners[key] = (2, mi_val, degs, name, prod)
-    # arity k >= 3: keep ONLY if MI strictly beats every (k-1)-subset MI.
-    for k in range(3, max_arity + 1):
-        for key, (mi_val, degs, name, prod) in tuple_best[k].items():
-            # Max MI over (k-1)-subsets that themselves were evaluated.
-            sub_max = 0.0
-            for sub in combinations(tuple(key), k - 1):
-                sub_key = frozenset(sub)
-                sub_best = tuple_best[k - 1].get(sub_key)
-                if sub_best is not None and sub_best[0] > sub_max:
-                    sub_max = sub_best[0]
-            if mi_val > sub_max:
-                winners[key] = (k, mi_val, degs, name, prod)
+    winners = _select_arity_winners(tuple_best, max_arity)
 
     # Now collapse to ONE winner per maximal signal set. Two-way pruning:
     # (a) a HIGHER-arity winner with strictly larger MI eclipses every
@@ -617,6 +633,120 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from .engineered_recipes import EngineeredRecipe
 
+def _adaptive_recipe_for_name(name: str, X: pd.DataFrame, _route_basis: Callable[[str], str], _freeze_leg_pp: Callable) -> Optional[EngineeredRecipe]:
+    """Build the replay recipe for one appended engineered column (arity 1..4), or None when its name cannot be parsed or the arity is unexpected."""
+    from .engineered_recipes import build_orth_univariate_recipe
+    from ._orthogonal_quadruplet_fe_recipes import build_orth_quadruplet_cross_recipe
+
+    head = name.split("__", 1)[0]
+    legs = head.split("*")
+    arity = len(legs)
+    suffix = name.split("__", 1)[1] if "__" in name else ""
+    parts = suffix.split("_")
+    if arity == 1:
+        chosen_basis, chosen_degree = parse_code_deg_with_basis(parts[0]) if parts else (None, None)
+        if chosen_basis is None or chosen_degree is None:
+            log_throttle(
+                logger, "adaptive_arity_recipe_cannot_parse_univariate_suffix", logging.WARNING,
+                "hybrid_orth_mi_adaptive_arity_fe_with_recipes: cannot parse " "univariate suffix in %r; skipping recipe.",
+                name,
+            )
+            return None
+        # freeze the fit-time basis-preprocess params (mirrors the
+        # canonical Layer-21 hybrid_orth_mi_fe_with_recipes fix); recomputing on the FULL fit-time
+        # source column is safe/exact - it reproduces, not refits, the fit-time params.
+        _pp = None
+        try:
+            _col_full = np.asarray(X[legs[0]].to_numpy(), dtype=np.float64)
+            _, _pp = _evaluate_basis_column(_col_full, chosen_basis, int(chosen_degree), return_params=True)
+        except Exception as exc:
+            # Was a bare except with zero logging.
+            log_throttle(logger, "orthogonal_adaptive_arity_fe.hot_loop_warning", logging.WARNING, "failed to freeze fit-time basis preprocess_params (falling back to refit-at-replay): %r", exc)
+            _pp = None
+        return build_orth_univariate_recipe(
+            name=name, src_name=legs[0],
+            basis=chosen_basis, degree=chosen_degree,
+            preprocess_params=_pp,
+        )
+    elif arity == 2:
+        if len(parts) != 2:
+            log_throttle(
+                logger, "adaptive_arity_recipe_bad_parts_count_pair", logging.WARNING,
+                "hybrid_orth_mi_adaptive_arity_fe_with_recipes: expected 2 " "deg parts in %r; skipping recipe.",
+                name,
+            )
+            return None
+        basis_a, deg_a = parse_code_deg_with_basis(parts[0])
+        basis_b, deg_b = parse_code_deg_with_basis(parts[1])
+        if basis_a is None or basis_b is None or deg_a is None or deg_b is None:
+            return None
+        basis_a = _route_basis(legs[0])
+        basis_b = _route_basis(legs[1])
+        # Route through the builder (which freezes preprocess params via _freeze_preprocess_params) with
+        # each leg's frozen fit-time basis-preprocess params, so transform() replays - not refits - the
+        # per-leg axis. The prior inline EngineeredRecipe(...) omitted them -> refit-at-replay leak.
+        from .engineered_recipes import build_orth_pair_cross_recipe
+        return build_orth_pair_cross_recipe(
+            name=name, src_a_name=legs[0], src_b_name=legs[1],
+            basis_i=basis_a, basis_j=basis_b, deg_a=int(deg_a), deg_b=int(deg_b),
+            preprocess_params_i=_freeze_leg_pp(legs[0], basis_a, deg_a),
+            preprocess_params_j=_freeze_leg_pp(legs[1], basis_b, deg_b),
+        )
+    elif arity == 3:
+        if len(parts) != 3:
+            return None
+        basis_a, deg_a = parse_code_deg_with_basis(parts[0])
+        basis_b, deg_b = parse_code_deg_with_basis(parts[1])
+        basis_c, deg_c = parse_code_deg_with_basis(parts[2])
+        if basis_a is None or basis_b is None or basis_c is None or deg_a is None or deg_b is None or deg_c is None:
+            return None
+        basis_a = _route_basis(legs[0])
+        basis_b = _route_basis(legs[1])
+        basis_c = _route_basis(legs[2])
+        from ._orthogonal_triplet_fe_recipes import build_orth_triplet_cross_recipe
+        return build_orth_triplet_cross_recipe(
+            name=name, src_a_name=legs[0], src_b_name=legs[1], src_c_name=legs[2],
+            basis_i=basis_a, basis_j=basis_b, basis_k=basis_c,
+            deg_a=int(deg_a), deg_b=int(deg_b), deg_c=int(deg_c),
+            preprocess_params_i=_freeze_leg_pp(legs[0], basis_a, deg_a),
+            preprocess_params_j=_freeze_leg_pp(legs[1], basis_b, deg_b),
+            preprocess_params_k=_freeze_leg_pp(legs[2], basis_c, deg_c),
+        )
+    elif arity == 4:
+        if len(parts) != 4:
+            return None
+        basis_a, deg_a = parse_code_deg_with_basis(parts[0])
+        basis_b, deg_b = parse_code_deg_with_basis(parts[1])
+        basis_c, deg_c = parse_code_deg_with_basis(parts[2])
+        basis_d, deg_d = parse_code_deg_with_basis(parts[3])
+        if basis_a is None or basis_b is None or basis_c is None or basis_d is None or deg_a is None or deg_b is None or deg_c is None or deg_d is None:
+            return None
+        basis_a = _route_basis(legs[0])
+        basis_b = _route_basis(legs[1])
+        basis_c = _route_basis(legs[2])
+        basis_d = _route_basis(legs[3])
+        return build_orth_quadruplet_cross_recipe(
+            name=name,
+            src_a_name=legs[0], src_b_name=legs[1],
+            src_c_name=legs[2], src_d_name=legs[3],
+            basis_i=basis_a, basis_j=basis_b,
+            basis_k=basis_c, basis_l=basis_d,
+            deg_a=deg_a, deg_b=deg_b, deg_c=deg_c, deg_d=deg_d,
+            preprocess_params_i=_freeze_leg_pp(legs[0], basis_a, deg_a),
+            preprocess_params_j=_freeze_leg_pp(legs[1], basis_b, deg_b),
+            preprocess_params_k=_freeze_leg_pp(legs[2], basis_c, deg_c),
+            preprocess_params_l=_freeze_leg_pp(legs[3], basis_d, deg_d),
+        )
+    else:
+        log_throttle(
+            logger, "adaptive_arity_recipe_unexpected_arity", logging.WARNING,
+            "hybrid_orth_mi_adaptive_arity_fe_with_recipes: unexpected arity "
+            "%d in %r; skipping recipe.", arity, name,
+        )
+        return None
+    return None
+
+
 @fe_timed("adaptive_arity")
 def hybrid_orth_mi_adaptive_arity_fe_with_recipes(
     X: pd.DataFrame,
@@ -642,9 +772,6 @@ def hybrid_orth_mi_adaptive_arity_fe_with_recipes(
     Per-arity recipes are routed to the existing Layer 22 / 56 / 77
     builders. No new recipe kind is introduced.
     """
-    from .engineered_recipes import build_orth_univariate_recipe
-    from ._orthogonal_quadruplet_fe_recipes import build_orth_quadruplet_cross_recipe
-
     X_aug, uni_scores, adaptive_scores = hybrid_orth_mi_adaptive_arity_fe(
         X, y, cols=cols, degrees=degrees, basis=basis,
         top_k=top_k, seed_k=seed_k,
@@ -706,110 +833,7 @@ def hybrid_orth_mi_adaptive_arity_fe_with_recipes(
 
     recipes = []
     for name in appended:
-        head = name.split("__", 1)[0]
-        legs = head.split("*")
-        arity = len(legs)
-        suffix = name.split("__", 1)[1] if "__" in name else ""
-        parts = suffix.split("_")
-        if arity == 1:
-            chosen_basis, chosen_degree = parse_code_deg_with_basis(parts[0]) if parts else (None, None)
-            if chosen_basis is None or chosen_degree is None:
-                log_throttle(
-                    logger, "adaptive_arity_recipe_cannot_parse_univariate_suffix", logging.WARNING,
-                    "hybrid_orth_mi_adaptive_arity_fe_with_recipes: cannot parse " "univariate suffix in %r; skipping recipe.",
-                    name,
-                )
-                continue
-            # freeze the fit-time basis-preprocess params (mirrors the
-            # canonical Layer-21 hybrid_orth_mi_fe_with_recipes fix); recomputing on the FULL fit-time
-            # source column is safe/exact - it reproduces, not refits, the fit-time params.
-            _pp = None
-            try:
-                _col_full = np.asarray(X[legs[0]].to_numpy(), dtype=np.float64)
-                _, _pp = _evaluate_basis_column(_col_full, chosen_basis, int(chosen_degree), return_params=True)
-            except Exception as exc:
-                # Was a bare except with zero logging.
-                log_throttle(logger, "orthogonal_adaptive_arity_fe.hot_loop_warning", logging.WARNING, "failed to freeze fit-time basis preprocess_params (falling back to refit-at-replay): %r", exc)
-                _pp = None
-            recipes.append(build_orth_univariate_recipe(
-                name=name, src_name=legs[0],
-                basis=chosen_basis, degree=chosen_degree,
-                preprocess_params=_pp,
-            ))
-        elif arity == 2:
-            if len(parts) != 2:
-                log_throttle(
-                    logger, "adaptive_arity_recipe_bad_parts_count_pair", logging.WARNING,
-                    "hybrid_orth_mi_adaptive_arity_fe_with_recipes: expected 2 " "deg parts in %r; skipping recipe.",
-                    name,
-                )
-                continue
-            basis_a, deg_a = parse_code_deg_with_basis(parts[0])
-            basis_b, deg_b = parse_code_deg_with_basis(parts[1])
-            if basis_a is None or basis_b is None or deg_a is None or deg_b is None:
-                continue
-            basis_a = _route_basis(legs[0])
-            basis_b = _route_basis(legs[1])
-            # Route through the builder (which freezes preprocess params via _freeze_preprocess_params) with
-            # each leg's frozen fit-time basis-preprocess params, so transform() replays - not refits - the
-            # per-leg axis. The prior inline EngineeredRecipe(...) omitted them -> refit-at-replay leak.
-            from .engineered_recipes import build_orth_pair_cross_recipe
-            recipes.append(build_orth_pair_cross_recipe(
-                name=name, src_a_name=legs[0], src_b_name=legs[1],
-                basis_i=basis_a, basis_j=basis_b, deg_a=int(deg_a), deg_b=int(deg_b),
-                preprocess_params_i=_freeze_leg_pp(legs[0], basis_a, deg_a),
-                preprocess_params_j=_freeze_leg_pp(legs[1], basis_b, deg_b),
-            ))
-        elif arity == 3:
-            if len(parts) != 3:
-                continue
-            basis_a, deg_a = parse_code_deg_with_basis(parts[0])
-            basis_b, deg_b = parse_code_deg_with_basis(parts[1])
-            basis_c, deg_c = parse_code_deg_with_basis(parts[2])
-            if basis_a is None or basis_b is None or basis_c is None or deg_a is None or deg_b is None or deg_c is None:
-                continue
-            basis_a = _route_basis(legs[0])
-            basis_b = _route_basis(legs[1])
-            basis_c = _route_basis(legs[2])
-            from ._orthogonal_triplet_fe_recipes import build_orth_triplet_cross_recipe
-            recipes.append(build_orth_triplet_cross_recipe(
-                name=name, src_a_name=legs[0], src_b_name=legs[1], src_c_name=legs[2],
-                basis_i=basis_a, basis_j=basis_b, basis_k=basis_c,
-                deg_a=int(deg_a), deg_b=int(deg_b), deg_c=int(deg_c),
-                preprocess_params_i=_freeze_leg_pp(legs[0], basis_a, deg_a),
-                preprocess_params_j=_freeze_leg_pp(legs[1], basis_b, deg_b),
-                preprocess_params_k=_freeze_leg_pp(legs[2], basis_c, deg_c),
-            ))
-        elif arity == 4:
-            if len(parts) != 4:
-                continue
-            basis_a, deg_a = parse_code_deg_with_basis(parts[0])
-            basis_b, deg_b = parse_code_deg_with_basis(parts[1])
-            basis_c, deg_c = parse_code_deg_with_basis(parts[2])
-            basis_d, deg_d = parse_code_deg_with_basis(parts[3])
-            if basis_a is None or basis_b is None or basis_c is None or basis_d is None or deg_a is None or deg_b is None or deg_c is None or deg_d is None:
-                continue
-            basis_a = _route_basis(legs[0])
-            basis_b = _route_basis(legs[1])
-            basis_c = _route_basis(legs[2])
-            basis_d = _route_basis(legs[3])
-            recipes.append(build_orth_quadruplet_cross_recipe(
-                name=name,
-                src_a_name=legs[0], src_b_name=legs[1],
-                src_c_name=legs[2], src_d_name=legs[3],
-                basis_i=basis_a, basis_j=basis_b,
-                basis_k=basis_c, basis_l=basis_d,
-                deg_a=deg_a, deg_b=deg_b, deg_c=deg_c, deg_d=deg_d,
-                preprocess_params_i=_freeze_leg_pp(legs[0], basis_a, deg_a),
-                preprocess_params_j=_freeze_leg_pp(legs[1], basis_b, deg_b),
-                preprocess_params_k=_freeze_leg_pp(legs[2], basis_c, deg_c),
-                preprocess_params_l=_freeze_leg_pp(legs[3], basis_d, deg_d),
-            ))
-        else:
-            log_throttle(
-                logger, "adaptive_arity_recipe_unexpected_arity", logging.WARNING,
-                "hybrid_orth_mi_adaptive_arity_fe_with_recipes: unexpected arity "
-                "%d in %r; skipping recipe.", arity, name,
-            )
-            continue
+        recipe = _adaptive_recipe_for_name(name, X, _route_basis, _freeze_leg_pp)
+        if recipe is not None:
+            recipes.append(recipe)
     return X_aug, uni_scores, adaptive_scores, recipes

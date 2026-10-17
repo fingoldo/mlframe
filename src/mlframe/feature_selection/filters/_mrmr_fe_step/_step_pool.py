@@ -37,6 +37,100 @@ def build_fe_operand_pool(
     verbose: int,
 ) -> tuple:
     """Construct the FE operand pool ``numeric_vars_to_consider`` and the synergy-added index set."""
+    numeric_vars_to_consider, _synergy_added_idx = _build_fe_operand_pool_part1(
+        self, selected_vars, categorical_vars, X, cols, num_fs_steps, data, target_indices, verbose, nbins, classes_y, freqs_y,
+    )
+
+    # bench-rejected - "RFF / random-projection interaction pre-screen
+    # (detect-without-enumerate)": a sibling proposer to the GBM seeder above that would draw R
+    # random SPARSE (support 2-4 cols) hyperplane projections phi_r(x)=cos(w_r^T x_std + b_r), score
+    # each phi_r's MI vs y, and promote supports whose best-of-trials MI uplift over the additive
+    # baseline clears a permutation-null maxT floor - meant to recover zero-marginal/smooth
+    # interaction supports the all-pairs synergy bootstrap SKIPS when p > fe_synergy_screen_max_features.
+    # Prototyped + benchmarked end-to-end (D:/Temp/rff_proto*.py, rff_coverage.py, rff_vs_allpairs.py,
+    # rff_smooth_check.py, rff_largep_birthday.py; n=2000, p=500-3000). The MECHANISM is sound - when
+    # the needle support is COVERED, best-of-T RFF ranks it #0 with uplift 0.146 vs a null floor 0.0145
+    # (10x), 0 noise false-promote - but it loses in EVERY regime against the direct joint-MI sweep:
+    #   1) COVERAGE is the binding constraint, not enumeration. A SPECIFIC localized k=2 needle in p=500
+    #      has hit-probability R / C(p,2): R=2000 -> 1.6%, R=16000 -> 12%, R=124750 (== full all-pairs) ->
+    #      63%; reaching 0.95 recall of ONE needle needs ~374k random draws. Random sparse supports cannot
+    #      guarantee recall of a specific needle without ~enumerating all pairs.
+    #   2) The BIRTHDAY-PARADOX rationale is wrong for sparse planted needles: with K=30 planted needles at
+    #      p=3000 (C(p,2)=4.5M), R=20000 x T=6 = 120k evals (65s) DREW 0/30 needles -> recall 0/30. Hitting
+    #      a fixed K-needle set needs draws ~ C(p,2)/K (~150k here), not R << p^2; the birthday paradox is
+    #      about collisions AMONG draws, not hitting a fixed small target set.
+    #   3) COST: one RFF best-of-T (T=8) support evaluation is 17x the cost of one direct joint-MI pair
+    #      evaluation (4.1ms vs 0.24ms). 0.95-recall of one needle ~1533s of RFF vs ~30s for the full
+    #      deterministic C(500,2) joint-MI sweep.
+    #   4) NO EXCLUSIVE SWEET SPOT: the 2-D joint-MI estimator is a nonparametric (x_i, x_j, y) contingency
+    #      MI, so it recovers the SMOOTH sin(x1*x2) needle (rank #0/2000, jMI 1.29) exactly as well as the
+    #      zero-marginal product x3*x400 (rank #0/2000, jMI 1.51). The "smooth/rotated interactions trees
+    #      miss" argument applies to the GBM seeder's AXIS-ALIGNED trees (#6/#21), NOT to the joint-MI sweep
+    #      that #9 was meant to replace.
+    # RE-CONFIRMED (cycle-10) on the 3-WAY trees-miss case. Cycle-5 proved the #6 GBM
+    # seeder is GREEDY-BLIND to pure 3-way synergy (sign(x7*x42*x113)+0.3noise, n=4000/p=200, needle
+    # rank 0/3), so RFF was re-attempted as the last open NON-GREEDY path. Decisive A/B/C
+    # (D:/Temp/cycle10_rff_results.md): (A) 2-way x3*x400 p=500 R=4000 -> support recall 0->0 (needle
+    # NEVER drawn, P(hit)~1.9%); (B) 3-way p=200 R=8000 sparse-3 -> support recall 0->0 (needle NEVER
+    # drawn, P(hit)~0.36%); (C) pure-noise -> 0 promoted (floor holds). When the needle support is
+    # INJECTED, the uplift DOES score it (3-way covered uplift 0.0224 > additive baseline 0.0077 and >
+    # all 2-subsets ~0) - so the scorer is NOT greedy-blind to 3-way; the wall is purely COVERAGE.
+    # 0.95-recall of ONE needle needs ~623k draws (2-way) / ~6.56M (3-way) == ~85x the full
+    # deterministic enumeration cost in BOTH regimes. Pure 3-way stays UNREACHED: trees are
+    # greedy-blind, RFF is coverage-blind; only direct order-3 enumeration (raise the cap) recovers it.
+    # The correct fix for "needle missed when p > fe_synergy_screen_max_features" is to RAISE/relax that cap
+    # (and its fe_synergy_max_sweep_cost n*p^2 budget): the direct all-pairs joint-MI bootstrap recovers
+    # both the zero-marginal and the smooth needle DETERMINISTICALLY and ~17x cheaper at p<=1000 (full sweep
+    # ~30s at p=500, ~120s at p=1000). RFF random-support prescreen would only conceivably help at p >~ 5000
+    # where C(p,2) joint-MI is itself infeasible - but even there it is coverage-bound (test #2 above) and
+    # never recovers a SPECIFIC needle, so it is not implemented. Do NOT re-attempt as a default or opt-in
+    # proposer without a fundamentally different (non-random-support) coverage scheme.
+
+    # bench-rejected - "Conditional-MI complementarity growth (Apriori lattice)":
+    # grow triples from the order-2 SURVIVOR frontier (the prospective pairs below) by testing only third
+    # columns c maximising the conditional-MI uplift I((a,b,c);y) - I((a,b);y) (reusing batch_triple_mi_prange
+    # for scale-consistency with the #7 order-3 maxT floor), keeping triples above that floor; meant to catch a
+    # 3rd operand that matters ONLY given (a,b) - pure higher-order synergy the univariate triplet seed_count
+    # misses. Prototyped + benchmarked end-to-end (D:/Temp/cmi_lattice_proto{,2,3,4,5}.py, cmi_lattice_cost.py;
+    # n=3000, p=40, the backlog fixture). REJECTED: the Apriori ANTI-MONOTONE premise is FALSE for the exact
+    # signal class #10 targets, and the part that DOES work is already shipped as #6.
+    #   1) NOT GREEDY-TRAPPABLE (the binding wall). The backlog fixture y=sign(x1*x2)*x3>0 is, mathematically, a
+    #      PURE 3-way sign XOR (verified 100% agreement with sign(x0)*sign(x1)*sign(x2)>0), NOT a "detectable
+    #      2-way (x1,x2) + conditional x3" as the backlog text claims. For a pure k-way interaction ALL its
+    #      (k-1)-way sub-tuples have joint MI AT THE NOISE FLOOR: the needle pair ranks ~39th of C(40,2) (jMI
+    #      0.0002-0.0107 across nbins 2..8, indistinguishable from the noise-pair max), so it NEVER enters the
+    #      top-N order-2 frontier -> the needle triple is NEVER grown (frontier in {6,8,12} all miss it). This is
+    #      the same conditional-MI-is-not-greedy-trappable wall that killed beam-search for MRMR - Apriori
+    #      pruning ("grow only from surviving (k-1)-tuples") structurally CANNOT reach a pure higher-order
+    #      synergy whose every lower-order projection is null.
+    #   2) The GROWTH KERNEL itself is sound but moot. Given a base pair holding 2 of the 3 needle legs, the
+    #      CMI uplift ranks the true 3rd operand RANK-0 every time (6/6, uplift 0.21-0.61 >> noise) - but that
+    #      base pair is exactly what the frontier never contains (point 1).
+    #   3) NOISE ADMISSION on the one fixture where the lattice CAN grow the needle (a marginal-signal base x0
+    #      plus a conditional-only x2, y=(x0>0)^((x1>0)&(x2>0))): the lattice grows (0,1,2) as the #1 triple
+    #      (jMI 0.4495) BUT the order-3 maxT floor (0.0287) admits 31/31 grown noise triples, ALL sharing the
+    #      marginal-signal leg x0 (a (0,noise,noise) triple inherits x0's MI and clears the floor). This is not
+    #      a lattice-specific defect (#6's seeded triples admit 8/8 on the same fixture) - it is the downstream
+    #      per-triplet uplift gate's job, NOT the maxT floor's, so the lattice adds NO admission advantage.
+    #   4) FULLY REDUNDANT with the shipped #6 GBM seeder. On the pure-3-way-XOR fixture the GBM
+    #      split-co-occurrence proposer recovers the SAME needle {x1,x2,x3} as its RANK-0 triple (z=5.46),
+    #      order-3-floored - because path co-occurrence conditions a zero-marginal operand on its co-splitter
+    #      WITHOUT requiring a detectable (k-1)-tuple, so it is immune to the anti-monotone wall that blocks #10.
+    #      #10's whole purpose (reach a 3-way the univariate seeder misses) is already delivered by #6.
+    # The lattice's ONLY edge is cost (19.5 ms growth vs 1641 ms for the GBM fit+self-gate at n=3000/p=40) - but
+    # that merely buys a proposer that misses its own target signal class. Do NOT re-implement as the backlog
+    # specifies. A non-Apriori conditional-growth scheme (e.g. seed triples from the GBM's co-occurrence pool,
+    # THEN refine the 3rd operand by CMI uplift) could compose with #6, but the recovery is already complete via
+    # #6 alone, so there is no measured gap to close.
+
+    return numeric_vars_to_consider, _synergy_added_idx
+
+
+def _build_fe_operand_pool_part1(
+    self: Any, selected_vars: Any, categorical_vars: Any, X: Any, cols: list[str], num_fs_steps: int, data: np.ndarray,
+    target_indices: Sequence[int] | np.ndarray, verbose: int, nbins: np.ndarray, classes_y: np.ndarray, freqs_y: np.ndarray,
+) -> tuple[Any, ...]:
+    """Extracted block of ``build_fe_operand_pool`` (part 1); returns the names the caller still uses."""
 
     # bench-attempt-rejected (FS surrogate-GBM split-co-occurrence 3-way seeder + #7 order-3 maxT floor):
     # Hypothesis was that a shallow GBM's gain-weighted root->leaf path co-occurrence could propose pure zero-marginal
@@ -168,87 +262,4 @@ def build_fe_operand_pool(
         non_numeric_idx=_non_numeric_idx,
         verbose=verbose,
     )
-
-    # bench-rejected - "RFF / random-projection interaction pre-screen
-    # (detect-without-enumerate)": a sibling proposer to the GBM seeder above that would draw R
-    # random SPARSE (support 2-4 cols) hyperplane projections phi_r(x)=cos(w_r^T x_std + b_r), score
-    # each phi_r's MI vs y, and promote supports whose best-of-trials MI uplift over the additive
-    # baseline clears a permutation-null maxT floor - meant to recover zero-marginal/smooth
-    # interaction supports the all-pairs synergy bootstrap SKIPS when p > fe_synergy_screen_max_features.
-    # Prototyped + benchmarked end-to-end (D:/Temp/rff_proto*.py, rff_coverage.py, rff_vs_allpairs.py,
-    # rff_smooth_check.py, rff_largep_birthday.py; n=2000, p=500-3000). The MECHANISM is sound - when
-    # the needle support is COVERED, best-of-T RFF ranks it #0 with uplift 0.146 vs a null floor 0.0145
-    # (10x), 0 noise false-promote - but it loses in EVERY regime against the direct joint-MI sweep:
-    #   1) COVERAGE is the binding constraint, not enumeration. A SPECIFIC localized k=2 needle in p=500
-    #      has hit-probability R / C(p,2): R=2000 -> 1.6%, R=16000 -> 12%, R=124750 (== full all-pairs) ->
-    #      63%; reaching 0.95 recall of ONE needle needs ~374k random draws. Random sparse supports cannot
-    #      guarantee recall of a specific needle without ~enumerating all pairs.
-    #   2) The BIRTHDAY-PARADOX rationale is wrong for sparse planted needles: with K=30 planted needles at
-    #      p=3000 (C(p,2)=4.5M), R=20000 x T=6 = 120k evals (65s) DREW 0/30 needles -> recall 0/30. Hitting
-    #      a fixed K-needle set needs draws ~ C(p,2)/K (~150k here), not R << p^2; the birthday paradox is
-    #      about collisions AMONG draws, not hitting a fixed small target set.
-    #   3) COST: one RFF best-of-T (T=8) support evaluation is 17x the cost of one direct joint-MI pair
-    #      evaluation (4.1ms vs 0.24ms). 0.95-recall of one needle ~1533s of RFF vs ~30s for the full
-    #      deterministic C(500,2) joint-MI sweep.
-    #   4) NO EXCLUSIVE SWEET SPOT: the 2-D joint-MI estimator is a nonparametric (x_i, x_j, y) contingency
-    #      MI, so it recovers the SMOOTH sin(x1*x2) needle (rank #0/2000, jMI 1.29) exactly as well as the
-    #      zero-marginal product x3*x400 (rank #0/2000, jMI 1.51). The "smooth/rotated interactions trees
-    #      miss" argument applies to the GBM seeder's AXIS-ALIGNED trees (#6/#21), NOT to the joint-MI sweep
-    #      that #9 was meant to replace.
-    # RE-CONFIRMED (cycle-10) on the 3-WAY trees-miss case. Cycle-5 proved the #6 GBM
-    # seeder is GREEDY-BLIND to pure 3-way synergy (sign(x7*x42*x113)+0.3noise, n=4000/p=200, needle
-    # rank 0/3), so RFF was re-attempted as the last open NON-GREEDY path. Decisive A/B/C
-    # (D:/Temp/cycle10_rff_results.md): (A) 2-way x3*x400 p=500 R=4000 -> support recall 0->0 (needle
-    # NEVER drawn, P(hit)~1.9%); (B) 3-way p=200 R=8000 sparse-3 -> support recall 0->0 (needle NEVER
-    # drawn, P(hit)~0.36%); (C) pure-noise -> 0 promoted (floor holds). When the needle support is
-    # INJECTED, the uplift DOES score it (3-way covered uplift 0.0224 > additive baseline 0.0077 and >
-    # all 2-subsets ~0) - so the scorer is NOT greedy-blind to 3-way; the wall is purely COVERAGE.
-    # 0.95-recall of ONE needle needs ~623k draws (2-way) / ~6.56M (3-way) == ~85x the full
-    # deterministic enumeration cost in BOTH regimes. Pure 3-way stays UNREACHED: trees are
-    # greedy-blind, RFF is coverage-blind; only direct order-3 enumeration (raise the cap) recovers it.
-    # The correct fix for "needle missed when p > fe_synergy_screen_max_features" is to RAISE/relax that cap
-    # (and its fe_synergy_max_sweep_cost n*p^2 budget): the direct all-pairs joint-MI bootstrap recovers
-    # both the zero-marginal and the smooth needle DETERMINISTICALLY and ~17x cheaper at p<=1000 (full sweep
-    # ~30s at p=500, ~120s at p=1000). RFF random-support prescreen would only conceivably help at p >~ 5000
-    # where C(p,2) joint-MI is itself infeasible - but even there it is coverage-bound (test #2 above) and
-    # never recovers a SPECIFIC needle, so it is not implemented. Do NOT re-attempt as a default or opt-in
-    # proposer without a fundamentally different (non-random-support) coverage scheme.
-
-    # bench-rejected - "Conditional-MI complementarity growth (Apriori lattice)":
-    # grow triples from the order-2 SURVIVOR frontier (the prospective pairs below) by testing only third
-    # columns c maximising the conditional-MI uplift I((a,b,c);y) - I((a,b);y) (reusing batch_triple_mi_prange
-    # for scale-consistency with the #7 order-3 maxT floor), keeping triples above that floor; meant to catch a
-    # 3rd operand that matters ONLY given (a,b) - pure higher-order synergy the univariate triplet seed_count
-    # misses. Prototyped + benchmarked end-to-end (D:/Temp/cmi_lattice_proto{,2,3,4,5}.py, cmi_lattice_cost.py;
-    # n=3000, p=40, the backlog fixture). REJECTED: the Apriori ANTI-MONOTONE premise is FALSE for the exact
-    # signal class #10 targets, and the part that DOES work is already shipped as #6.
-    #   1) NOT GREEDY-TRAPPABLE (the binding wall). The backlog fixture y=sign(x1*x2)*x3>0 is, mathematically, a
-    #      PURE 3-way sign XOR (verified 100% agreement with sign(x0)*sign(x1)*sign(x2)>0), NOT a "detectable
-    #      2-way (x1,x2) + conditional x3" as the backlog text claims. For a pure k-way interaction ALL its
-    #      (k-1)-way sub-tuples have joint MI AT THE NOISE FLOOR: the needle pair ranks ~39th of C(40,2) (jMI
-    #      0.0002-0.0107 across nbins 2..8, indistinguishable from the noise-pair max), so it NEVER enters the
-    #      top-N order-2 frontier -> the needle triple is NEVER grown (frontier in {6,8,12} all miss it). This is
-    #      the same conditional-MI-is-not-greedy-trappable wall that killed beam-search for MRMR - Apriori
-    #      pruning ("grow only from surviving (k-1)-tuples") structurally CANNOT reach a pure higher-order
-    #      synergy whose every lower-order projection is null.
-    #   2) The GROWTH KERNEL itself is sound but moot. Given a base pair holding 2 of the 3 needle legs, the
-    #      CMI uplift ranks the true 3rd operand RANK-0 every time (6/6, uplift 0.21-0.61 >> noise) - but that
-    #      base pair is exactly what the frontier never contains (point 1).
-    #   3) NOISE ADMISSION on the one fixture where the lattice CAN grow the needle (a marginal-signal base x0
-    #      plus a conditional-only x2, y=(x0>0)^((x1>0)&(x2>0))): the lattice grows (0,1,2) as the #1 triple
-    #      (jMI 0.4495) BUT the order-3 maxT floor (0.0287) admits 31/31 grown noise triples, ALL sharing the
-    #      marginal-signal leg x0 (a (0,noise,noise) triple inherits x0's MI and clears the floor). This is not
-    #      a lattice-specific defect (#6's seeded triples admit 8/8 on the same fixture) - it is the downstream
-    #      per-triplet uplift gate's job, NOT the maxT floor's, so the lattice adds NO admission advantage.
-    #   4) FULLY REDUNDANT with the shipped #6 GBM seeder. On the pure-3-way-XOR fixture the GBM
-    #      split-co-occurrence proposer recovers the SAME needle {x1,x2,x3} as its RANK-0 triple (z=5.46),
-    #      order-3-floored - because path co-occurrence conditions a zero-marginal operand on its co-splitter
-    #      WITHOUT requiring a detectable (k-1)-tuple, so it is immune to the anti-monotone wall that blocks #10.
-    #      #10's whole purpose (reach a 3-way the univariate seeder misses) is already delivered by #6.
-    # The lattice's ONLY edge is cost (19.5 ms growth vs 1641 ms for the GBM fit+self-gate at n=3000/p=40) - but
-    # that merely buys a proposer that misses its own target signal class. Do NOT re-implement as the backlog
-    # specifies. A non-Apriori conditional-growth scheme (e.g. seed triples from the GBM's co-occurrence pool,
-    # THEN refine the 3rd operand by CMI uplift) could compose with #6, but the recovery is already complete via
-    # #6 alone, so there is no measured gap to close.
-
     return numeric_vars_to_consider, _synergy_added_idx

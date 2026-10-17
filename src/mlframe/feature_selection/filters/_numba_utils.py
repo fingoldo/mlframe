@@ -13,7 +13,7 @@ import math
 
 import numpy as np
 from numba import njit, prange
-from typing import Optional, Sequence
+from typing import Any, Optional, Sequence
 
 from ._njit_key_helpers import arr2str, unpack_and_sort  # noqa: F401 -- re-exported; defined in the leaf so info_theory can import them without a cycle
 
@@ -474,41 +474,138 @@ def _jmim_additional_knowledge(X, Z, y, factors_data, factors_nbins, dtype, nexi
 
 
 @njit(cache=_EVALUATE_GAIN_DISK_CACHE)
+def _fleuret_additional_knowledge(
+    X: Any, Z: Any, y: Any, factors_data: Any, factors_nbins: Any, nexisting: Any, entropy_cache: Any, cached_cond_MIs: Any, cached_jmim_MIs: Any, jmim_hit_counter: Any,
+    can_use_x_cache: Any, can_use_y_cache: Any, dtype: Any, confidence_mode: Any, use_su: Any, use_jmim: Any, jmim_discount_only: Any, use_mm: Any,
+) -> Any:
+    """Redundancy term ``additional_knowledge`` for one ``(X, Z)`` pair: cached conditional MI (or its SU / JMIM variant) with the ``nexisting`` exponent applied.
+
+    The Fleuret branch of ``evaluate_gain``, split out as its own njit function so the kernel body stays within the function-length gate.
+    """
+    key_found = False
+    if not confidence_mode:
+        #
+        # ``arr2str`` already uses ``_`` as its element
+        # separator, so the prior boundary ``"_"`` between
+        # ``arr2str(X)`` and ``arr2str(Z)`` aliased every
+        # partition of the multiset ``X u Z``. Confirmed:
+        # X=[1,2] Z=[3,4], X=[1] Z=[2,3,4], X=[1,2,3] Z=[4]
+        # all produced ``"1_2_3_4"`` -> wrong-answer cache
+        # hits, silent. Affects every config with
+        # ``max_veteranes_interactions_order >= 2`` or
+        # engineered multi-element X/Z, biasing
+        # conditional-MI scoring. Switching to ``"|"``
+        # (a character ``arr2str`` cannot emit) makes the
+        # boundary unambiguous.
+        #
+        # cache the RAW (pre-exponent) conditional MI
+        # and apply ``** (nexisting + 1)`` at every
+        # read site. Pre-fix the cache stored the
+        # already-exponentiated value but the key
+        # omitted ``nexisting``, so a subsequent
+        # ``(X, Z)`` lookup with a different
+        # ``nexisting`` returned the WRONG exponent
+        # (and silently biased the Fleuret/CMIM
+        # redundancy score). Caching the raw value
+        # lets all nexisting tiers share the
+        # underlying CMI compute.
+        key = arr2str(X) + "|" + arr2str(Z)
+        if key in cached_cond_MIs:  # caller always supplies a dict on the non-JMIM path (see docstring)
+            additional_knowledge = cached_cond_MIs[key]
+            # Apply the nexisting exponent at read time.
+            if nexisting > 0:
+                additional_knowledge = additional_knowledge ** (nexisting + 1)
+            key_found = True
+
+    if not key_found:
+
+        # JMIM aggregator (Bennasar 2015).
+        # When the thread-local JMIM toggle is on, replace
+        # Fleuret's conditional MI ``I(X; Y | Z)`` with the
+        # joint MI ``I({X, Z}; Y)``. Both feed the same
+        # outer ``min_k`` aggregator. JMIM preserves the
+        # synergistic information that CMIM rejects on
+        # multi-collinear groups (Brown 2012 / Bennasar 2015
+        # framework). Caching skipped on the JMIM branch
+        # because the joint-MI computation has its own
+        # per-pair entropy cost; future sprint may add a
+        # joint-MI cache keyed on the multiset {X, Z, Y}.
+        # SU branch bypasses entropy caches because the SU denominator
+        # is path-dependent and re-using cached unconditional CMI numbers would
+        # silently desync the normalization. Cheap (no caching) is correct here;
+        # legacy raw-CMI path keeps cache wired in. ``use_su`` AND ``use_jmim``
+        # are threaded from the Python-level caller (evaluate_candidate ->
+        # evaluate_gain) - the njit kernel cannot read the Python thread-locals
+        # at runtime (IMPORT_NAME / dynamic Python call are unsupported in @njit).
+        if use_jmim:
+            additional_knowledge = _jmim_additional_knowledge(
+                X, Z, y, factors_data, factors_nbins, dtype, nexisting, confidence_mode, cached_jmim_MIs, jmim_hit_counter, jmim_discount_only,
+            )
+        elif use_su:
+            additional_knowledge = conditional_symmetric_uncertainty(
+                factors_data=factors_data, x=X, y=y, z=Z,
+                factors_nbins=factors_nbins, dtype=dtype,
+            )
+        else:
+            additional_knowledge = conditional_mi(
+                factors_data=factors_data,
+                x=X,
+                y=y,
+                z=Z,
+                var_is_nominal=None,
+                factors_nbins=factors_nbins,
+                entropy_cache=entropy_cache,
+                can_use_x_cache=can_use_x_cache,
+                can_use_y_cache=can_use_y_cache,
+                dtype=dtype,
+                use_mm=use_mm,  # N-F2: redundancy carries the SAME MM bias correction as the relevance
+            )
+
+        #
+        # write the RAW additional_knowledge to the
+        # cache BEFORE applying the nexisting
+        # exponent. Apply the exponent only to the
+        # local ``additional_knowledge`` after the
+        # write. This makes the cache nexisting-
+        # independent and lets all callers share
+        # the underlying CMI compute.
+        # JMIM manages its OWN cache + exponent above
+        # (cached_jmim_MIs, keyed on the {X} u Z multiset). Skip the
+        # shared cond-MI write/exponent here so JMIM values are neither
+        # stored under the CMI key nor double-exponentiated. The SU
+        # branch is uncached by design; the plain-CMI branch keeps the
+        # legacy write/exponent. ``key`` is undefined when use_jmim, so
+        # this guard also avoids a NameError under JMIM.
+        if not use_jmim:
+            if not confidence_mode:
+                cached_cond_MIs[key] = additional_knowledge  # caller always supplies a dict on the non-JMIM path
+            if nexisting > 0:
+                additional_knowledge = additional_knowledge ** (nexisting + 1)
+    return additional_knowledge
+
+
+# evaluate_gain parameter notes (kept beside the definition; the signature itself is packed):
+# cached_jmim_MIs: JMIM joint-MI cache. Mirrors ``cached_cond_MIs`` but keyed on the multiset ``{X} u Z`` only (``arr2str(xz_combined)``); y is fixed per fit so it is not
+#   part of the key. Stores the RAW ``mi({X,Z}; y)``; the nexisting exponent is applied at READ time, exactly as the plain-CMI branch does for its cache.
+# jmim_hit_counter: 1-element int64 array hit counter for the JMIM cache. An array
+#   (not a scalar) so the @njit kernel can mutate it in place and the caller can
+#   read the post-loop count - proves the cache actually HITS, not just that it
+#   is harmless. Counter[0] is incremented on every JMIM cache read-hit.
+# use_su: SU normalization toggle threaded from process_candidates / mrmr_fit_impl.
+# use_jmim: JMIM aggregator toggle, threaded from the Python-level caller for the same reason as ``use_su`` - ``@njit`` cannot do ``from X import Y`` or call a non-njit
+#   thread-local reader at runtime (IMPORT_NAME opcode is unsupported).
+# jmim_discount_only: MLFRAME_JMIM_EXPONENT_DISCOUNT_ONLY, read by the Python caller (see jmim_exponent_discount_only)
+# use_mm: N-F2: Miller-Madow toggle for the redundancy CMI, threaded like use_su so the redundancy carries the SAME bias correction as the MM relevance.
+#   Default False -> plug-in redundancy, unchanged.
+@njit(cache=_EVALUATE_GAIN_DISK_CACHE)
 def evaluate_gain(
-    current_gain: float,
-    last_checked_k: int,
-    direct_gain: float,
-    X: np.ndarray,
-    y: np.ndarray,
-    nexisting: int,
-    best_gain: float,
-    factors_data: np.ndarray,
-    factors_nbins: np.ndarray,
-    selected_vars: np.ndarray,
-    mrmr_relevance_algo: str = "fleuret",
-    mrmr_redundancy_algo: str = "fleuret",
-    max_veteranes_interactions_order: int = 2,
-    extra_knowledge_multipler: float = -1.0,
-    sink_threshold: float = -1.0,
-    entropy_cache: dict | None = None,
-    cached_cond_MIs: dict | None = None,
-    # JMIM joint-MI cache. Mirrors ``cached_cond_MIs`` but keyed on the multiset ``{X} u Z`` only (``arr2str(xz_combined)``); y is fixed per fit so it is not
-    # part of the key. Stores the RAW ``mi({X,Z}; y)``; the nexisting exponent is applied at READ time, exactly as the plain-CMI branch does for its cache.
-    cached_jmim_MIs: dict | None = None,
-    # 1-element int64 array hit counter for the JMIM cache. An array
-    # (not a scalar) so the @njit kernel can mutate it in place and the caller can
-    # read the post-loop count - proves the cache actually HITS, not just that it
-    # is harmless. Counter[0] is incremented on every JMIM cache read-hit.
-    jmim_hit_counter: np.ndarray | None = None,
-    can_use_x_cache: bool = False,
-    can_use_y_cache: bool = False,
-    dtype: type = np.int32,
-    confidence_mode: bool = False,
-    max_confirmation_cand_nbins: int = MAX_CONFIRMATION_CAND_NBINS,
-    use_su: bool = False,  # SU normalization toggle threaded from process_candidates / mrmr_fit_impl.
-    use_jmim: bool = False,  # JMIM aggregator toggle, threaded from the Python-level caller for the same reason as ``use_su`` - ``@njit`` cannot do ``from X import Y`` or call a non-njit thread-local reader at runtime (IMPORT_NAME opcode is unsupported).
-    jmim_discount_only: bool = False,  # MLFRAME_JMIM_EXPONENT_DISCOUNT_ONLY, read by the Python caller (see jmim_exponent_discount_only)
-    use_mm: bool = False,  # N-F2: Miller-Madow toggle for the redundancy CMI, threaded like use_su so the redundancy carries the SAME bias correction as the MM relevance. Default False -> plug-in redundancy, unchanged.
+    current_gain: float, last_checked_k: int, direct_gain: float, X: np.ndarray, y: np.ndarray, nexisting: int, best_gain: float,
+    factors_data: np.ndarray, factors_nbins: np.ndarray, selected_vars: np.ndarray, mrmr_relevance_algo: str = "fleuret",
+    mrmr_redundancy_algo: str = "fleuret", max_veteranes_interactions_order: int = 2, extra_knowledge_multipler: float = -1.0,
+    sink_threshold: float = -1.0, entropy_cache: dict | None = None, cached_cond_MIs: dict | None = None, cached_jmim_MIs: dict | None = None,
+    jmim_hit_counter: np.ndarray | None = None, can_use_x_cache: bool = False, can_use_y_cache: bool = False, dtype: type = np.int32,
+    confidence_mode: bool = False, max_confirmation_cand_nbins: int = MAX_CONFIRMATION_CAND_NBINS, use_su: bool = False, use_jmim: bool = False,
+    jmim_discount_only: bool = False, use_mm: bool = False,
 ) -> tuple:
     """``max_confirmation_cand_nbins`` is a parameter (not a baked-in constant). Default mirrors the legacy value; ``MRMR.fit`` overrides with ``quantization_nbins ** interactions_max_order * 2`` unless the user pins it explicitly."""
 
@@ -551,105 +648,10 @@ def evaluate_gain(
                     # fix (that combination never worked either way).
                     if mrmr_redundancy_algo == "fleuret" or mrmr_relevance_algo == "fleuret":
                         # additional_knowledge = I(X; Y | Z) = H(X, Z) + H(Y, Z) - H(Z) - H(X, Y, Z); I(X, Z) = entropy_x + entropy_z - entropy_xz.
-                        key_found = False
-                        if not confidence_mode:
-                            #
-                            # ``arr2str`` already uses ``_`` as its element
-                            # separator, so the prior boundary ``"_"`` between
-                            # ``arr2str(X)`` and ``arr2str(Z)`` aliased every
-                            # partition of the multiset ``X u Z``. Confirmed:
-                            # X=[1,2] Z=[3,4], X=[1] Z=[2,3,4], X=[1,2,3] Z=[4]
-                            # all produced ``"1_2_3_4"`` -> wrong-answer cache
-                            # hits, silent. Affects every config with
-                            # ``max_veteranes_interactions_order >= 2`` or
-                            # engineered multi-element X/Z, biasing
-                            # conditional-MI scoring. Switching to ``"|"``
-                            # (a character ``arr2str`` cannot emit) makes the
-                            # boundary unambiguous.
-                            #
-                            # cache the RAW (pre-exponent) conditional MI
-                            # and apply ``** (nexisting + 1)`` at every
-                            # read site. Pre-fix the cache stored the
-                            # already-exponentiated value but the key
-                            # omitted ``nexisting``, so a subsequent
-                            # ``(X, Z)`` lookup with a different
-                            # ``nexisting`` returned the WRONG exponent
-                            # (and silently biased the Fleuret/CMIM
-                            # redundancy score). Caching the raw value
-                            # lets all nexisting tiers share the
-                            # underlying CMI compute.
-                            key = arr2str(X) + "|" + arr2str(Z)
-                            if key in cached_cond_MIs:  # type: ignore[operator]  # caller always supplies a dict on the non-JMIM path (see docstring)
-                                additional_knowledge = cached_cond_MIs[key]  # type: ignore[index]
-                                # Apply the nexisting exponent at read time.
-                                if nexisting > 0:
-                                    additional_knowledge = additional_knowledge ** (nexisting + 1)
-                                key_found = True
-
-                        if not key_found:
-
-                            # JMIM aggregator (Bennasar 2015).
-                            # When the thread-local JMIM toggle is on, replace
-                            # Fleuret's conditional MI ``I(X; Y | Z)`` with the
-                            # joint MI ``I({X, Z}; Y)``. Both feed the same
-                            # outer ``min_k`` aggregator. JMIM preserves the
-                            # synergistic information that CMIM rejects on
-                            # multi-collinear groups (Brown 2012 / Bennasar 2015
-                            # framework). Caching skipped on the JMIM branch
-                            # because the joint-MI computation has its own
-                            # per-pair entropy cost; future sprint may add a
-                            # joint-MI cache keyed on the multiset {X, Z, Y}.
-                            # SU branch bypasses entropy caches because the SU denominator
-                            # is path-dependent and re-using cached unconditional CMI numbers would
-                            # silently desync the normalization. Cheap (no caching) is correct here;
-                            # legacy raw-CMI path keeps cache wired in. ``use_su`` AND ``use_jmim``
-                            # are threaded from the Python-level caller (evaluate_candidate ->
-                            # evaluate_gain) - the njit kernel cannot read the Python thread-locals
-                            # at runtime (IMPORT_NAME / dynamic Python call are unsupported in @njit).
-                            if use_jmim:
-                                additional_knowledge = _jmim_additional_knowledge(
-                                    X, Z, y, factors_data, factors_nbins, dtype, nexisting, confidence_mode, cached_jmim_MIs, jmim_hit_counter, jmim_discount_only,
-                                )
-                            elif use_su:
-                                additional_knowledge = conditional_symmetric_uncertainty(
-                                    factors_data=factors_data, x=X, y=y, z=Z,
-                                    factors_nbins=factors_nbins, dtype=dtype,
-                                )
-                            else:
-                                additional_knowledge = conditional_mi(
-                                    factors_data=factors_data,
-                                    x=X,
-                                    y=y,
-                                    z=Z,
-                                    var_is_nominal=None,
-                                    factors_nbins=factors_nbins,
-                                    entropy_cache=entropy_cache,
-                                    can_use_x_cache=can_use_x_cache,
-                                    can_use_y_cache=can_use_y_cache,
-                                    dtype=dtype,
-                                    use_mm=use_mm,  # N-F2: redundancy carries the SAME MM bias correction as the relevance
-                                )
-
-                            #
-                            # write the RAW additional_knowledge to the
-                            # cache BEFORE applying the nexisting
-                            # exponent. Apply the exponent only to the
-                            # local ``additional_knowledge`` after the
-                            # write. This makes the cache nexisting-
-                            # independent and lets all callers share
-                            # the underlying CMI compute.
-                            # JMIM manages its OWN cache + exponent above
-                            # (cached_jmim_MIs, keyed on the {X} u Z multiset). Skip the
-                            # shared cond-MI write/exponent here so JMIM values are neither
-                            # stored under the CMI key nor double-exponentiated. The SU
-                            # branch is uncached by design; the plain-CMI branch keeps the
-                            # legacy write/exponent. ``key`` is undefined when use_jmim, so
-                            # this guard also avoids a NameError under JMIM.
-                            if not use_jmim:
-                                if not confidence_mode:
-                                    cached_cond_MIs[key] = additional_knowledge  # type: ignore[index]  # caller always supplies a dict on the non-JMIM path
-                                if nexisting > 0:
-                                    additional_knowledge = additional_knowledge ** (nexisting + 1)
+                        additional_knowledge = _fleuret_additional_knowledge(
+                            X, Z, y, factors_data, factors_nbins, nexisting, entropy_cache, cached_cond_MIs, cached_jmim_MIs, jmim_hit_counter,
+                            can_use_x_cache, can_use_y_cache, dtype, confidence_mode, use_su, use_jmim, jmim_discount_only, use_mm,
+                        )
 
                     # Account for possible extra knowledge from conditioning on Z; must update best_gain globally and log such cases. Order of discovery is
                     # not guaranteed, but cases are too precious to ignore. Also enables skipping higher-order interactions containing all approved candidates.

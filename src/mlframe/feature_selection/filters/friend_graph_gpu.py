@@ -206,69 +206,19 @@ def _target_col(target_indices: np.ndarray) -> Optional[int]:
 # ---------------------------------------------------------------------------
 
 
-def friend_graph_stats_cupy(
-    sel: list,
+def _cupy_relevance(
+    cp: Any,
+    d_sub: Any,
+    nb_sel: np.ndarray,
+    sel_arr: np.ndarray,
+    n: int,
+    nbins: np.ndarray,
     factors_data: np.ndarray,
-    factors_nbins: np.ndarray,
     target_indices: np.ndarray,
-    dtype: type = np.int32,
-) -> FriendGraphGPUStats:
-    """CuPy GPU twin of the friend-graph node + edge compute. BIT-IDENTICAL.
-
-    GPU work (one H2D of the selected sub-frame + target up front, O(1) transfers
-    otherwise):
-
-      * node marginals: a single batched ``cupy.bincount`` over the flattened
-        ``(col_block_offset + va)`` index for all k selected columns at once.
-      * feature-target joints: a batched ``cupy.bincount`` over
-        ``(col_block_offset + code(va, y))`` for all k columns -> relevance.
-      * pairwise joints: tiled batched ``cupy.bincount`` over
-        ``(pair_block_offset + va + vb*nbins[a])`` for all C(k, 2) pairs, tiled over the
-        pair axis against a queried free-memory budget so big k never OOMs.
-
-    The MI / entropy is reduced from those INTEGER counts on the bit-exact CPU path
-    (``_entropy_from_counts`` -> the project ``entropy()`` njit). Raises ``RuntimeError``
-    if cupy is unavailable.
-    """
-    if not _CUPY_AVAIL:
-        raise RuntimeError("cupy is not available on this host")
-    cp = _cp
-
-    n = int(factors_data.shape[0])
-    k = len(sel)
-    nbins = np.asarray(factors_nbins, dtype=np.int64)
-    sel_arr = np.asarray(sel, dtype=np.int64)
-
-    # ---- ONE H2D: the selected sub-frame (n, k) as int32.
-    sub = np.ascontiguousarray(factors_data[:, sel_arr], dtype=np.int32)
-    d_sub = cp.asarray(sub)  # (n, k)
-    nb_sel = nbins[sel_arr]  # (k,) per selected-column cardinality
-
-    # ----- Node marginals: one batched bincount over all k columns.
-    off_node = np.zeros(k + 1, dtype=np.int64)
-    off_node[1:] = np.cumsum(nb_sel)
-    total_node = int(off_node[k])
-    d_off_node = cp.asarray(off_node[:k].reshape(1, k))  # (1, k)
-    d_node_idx = (d_off_node + d_sub.astype(cp.int64)).reshape(-1)  # (n*k,)
-    d_node_counts = cp.bincount(d_node_idx, minlength=total_node)[:total_node]
-
-    H: dict = {}
-    if _entropy_resident_enabled():
-        try:
-            from ._friend_graph_gpu_entropy_resident import entropy_segments_gpu
-
-            h_node = entropy_segments_gpu(cp, d_node_counts, n, off_node)
-            H = {int(sel_arr[i]): float(h_node[i]) for i in range(k)}
-        except Exception as e:
-            logger.warning("entropy_segments_gpu (node) failed, falling back to per-node CPU entropy: %s", e)
-            H = {}
-    if not H:
-        node_counts = cp.asnumpy(d_node_counts)
-        for i in range(k):
-            block = node_counts[off_node[i] : off_node[i + 1]]
-            H[int(sel_arr[i])] = _entropy_from_counts(block, n)
-
-    # ----- Feature-target relevance (single-target fast path on GPU; else CPU).
+    H: dict,
+) -> dict | None:
+    """Feature-target relevance for ``friend_graph_stats_cupy`` (single-target fast path on GPU); ``None`` when the caller must compute it on CPU."""
+    k = int(sel_arr.shape[0])
     rel: dict | None = {}
     tcol = _target_col(target_indices)
     if tcol is not None:
@@ -311,8 +261,20 @@ def friend_graph_stats_cupy(
             rel[f] = H[f] + h_y - float(h_xy_by_i[i])  # raw mi() value (mi() does not clamp relevance)
     else:
         rel = None  # caller computes relevance on CPU
+    return rel
 
-    # ----- Pairwise edges: tiled batched bincount over all C(k, 2) pairs.
+
+def _cupy_pair_edges(
+    cp: Any,
+    d_sub: Any,
+    nbins: np.ndarray,
+    sel: list,
+    sel_arr: np.ndarray,
+    n: int,
+    H: dict,
+) -> dict:
+    """Pairwise raw ``I(X_a; X_b)`` for all C(k, 2) pairs via tiled batched bincounts (clamped >= 0, before the significance floor)."""
+    k = len(sel)
     edge_mi: dict = {}
     pa, pb = _pair_indices(sel)
     n_pairs = pa.shape[0]
@@ -389,6 +351,75 @@ def friend_graph_stats_cupy(
                 edge_mi[(int(pa[p]), int(pb[p]))] = m if m > 0.0 else 0.0
             del va, vb, code, flat, d_tile_counts
             start = stop
+    return edge_mi
+
+
+def friend_graph_stats_cupy(
+    sel: list,
+    factors_data: np.ndarray,
+    factors_nbins: np.ndarray,
+    target_indices: np.ndarray,
+    dtype: type = np.int32,
+) -> FriendGraphGPUStats:
+    """CuPy GPU twin of the friend-graph node + edge compute. BIT-IDENTICAL.
+
+    GPU work (one H2D of the selected sub-frame + target up front, O(1) transfers
+    otherwise):
+
+      * node marginals: a single batched ``cupy.bincount`` over the flattened
+        ``(col_block_offset + va)`` index for all k selected columns at once.
+      * feature-target joints: a batched ``cupy.bincount`` over
+        ``(col_block_offset + code(va, y))`` for all k columns -> relevance.
+      * pairwise joints: tiled batched ``cupy.bincount`` over
+        ``(pair_block_offset + va + vb*nbins[a])`` for all C(k, 2) pairs, tiled over the
+        pair axis against a queried free-memory budget so big k never OOMs.
+
+    The MI / entropy is reduced from those INTEGER counts on the bit-exact CPU path
+    (``_entropy_from_counts`` -> the project ``entropy()`` njit). Raises ``RuntimeError``
+    if cupy is unavailable.
+    """
+    if not _CUPY_AVAIL:
+        raise RuntimeError("cupy is not available on this host")
+    cp = _cp
+
+    n = int(factors_data.shape[0])
+    k = len(sel)
+    nbins = np.asarray(factors_nbins, dtype=np.int64)
+    sel_arr = np.asarray(sel, dtype=np.int64)
+
+    # ---- ONE H2D: the selected sub-frame (n, k) as int32.
+    sub = np.ascontiguousarray(factors_data[:, sel_arr], dtype=np.int32)
+    d_sub = cp.asarray(sub)  # (n, k)
+    nb_sel = nbins[sel_arr]  # (k,) per selected-column cardinality
+
+    # ----- Node marginals: one batched bincount over all k columns.
+    off_node = np.zeros(k + 1, dtype=np.int64)
+    off_node[1:] = np.cumsum(nb_sel)
+    total_node = int(off_node[k])
+    d_off_node = cp.asarray(off_node[:k].reshape(1, k))  # (1, k)
+    d_node_idx = (d_off_node + d_sub.astype(cp.int64)).reshape(-1)  # (n*k,)
+    d_node_counts = cp.bincount(d_node_idx, minlength=total_node)[:total_node]
+
+    H: dict = {}
+    if _entropy_resident_enabled():
+        try:
+            from ._friend_graph_gpu_entropy_resident import entropy_segments_gpu
+
+            h_node = entropy_segments_gpu(cp, d_node_counts, n, off_node)
+            H = {int(sel_arr[i]): float(h_node[i]) for i in range(k)}
+        except Exception as e:
+            logger.warning("entropy_segments_gpu (node) failed, falling back to per-node CPU entropy: %s", e)
+            H = {}
+    if not H:
+        node_counts = cp.asnumpy(d_node_counts)
+        for i in range(k):
+            block = node_counts[off_node[i] : off_node[i + 1]]
+            H[int(sel_arr[i])] = _entropy_from_counts(block, n)
+
+    rel = _cupy_relevance(cp, d_sub, nb_sel, sel_arr, n, nbins, factors_data, target_indices, H)
+
+    # ----- Pairwise edges: tiled batched bincount over all C(k, 2) pairs.
+    edge_mi = _cupy_pair_edges(cp, d_sub, nbins, sel, sel_arr, n, H)
 
     return FriendGraphGPUStats(H=H, rel=rel, edge_mi=edge_mi, backend="cupy")
 

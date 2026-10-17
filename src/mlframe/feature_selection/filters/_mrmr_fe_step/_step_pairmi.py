@@ -120,6 +120,61 @@ def compute_pair_mis_and_floor(
     verbose: int,
 ) -> tuple:
     """Compute pair MIs + the order-2 maxT floor for the FE candidate pool. ``cached_MIs`` mutated in place."""
+    compute_pairs_mis, tqdmu, _lazy_chunks, _MRMR_BATCH_PRECOMPUTE_MIN_PAIRS, _eng_cap, numeric_vars_to_consider, n_pairs, _BATCH_PRECOMPUTE_ENABLED, _batch_prefill_count, _exhaustive_backend = _compute_pair_mis_and_floor_part3(
+        self, numeric_vars_to_consider, cols, cached_MIs, verbose,
+    )
+    _batch_precompute_t0 = perf_counter()
+    if _BATCH_PRECOMPUTE_ENABLED and n_pairs >= _MRMR_BATCH_PRECOMPUTE_MIN_PAIRS:
+        try:
+            from mlframe.feature_selection.filters.batch_pair_mi_gpu import dispatch_batch_pair_mi_chunked
+
+            _ids_arr = np.fromiter(numeric_vars_to_consider, dtype=np.int64, count=len(numeric_vars_to_consider))
+            _pair_a_arr, _pair_b_arr, _pair_mi_batch, _backend_counts = dispatch_batch_pair_mi_chunked(
+                factors_data=data,
+                ids=_ids_arr,
+                nbins=nbins,
+                classes_y=classes_y,
+                freqs_y=freqs_y,
+                force_backend=_exhaustive_backend,
+            )
+            # Populate cached_MIs to short-circuit compute_pairs_mis's per-pair mi_direct call.
+            # Skip pairs already in cached_confident_MIs (those had a confident permutation outcome).
+            _n_pairs_batch = int(_pair_a_arr.shape[0])
+            _batch_prefill_count += _prefill_cached_pair_mis(_pair_a_arr, _pair_b_arr, _pair_mi_batch, cached_MIs, cached_confident_MIs)
+            if verbose:
+                _backend_summary = ", ".join(f"{k}={v}" for k, v in sorted(_backend_counts.items()))
+                logger.debug(
+                    "MRMR FE: batch-prefilled %d/%d pair MIs via [%s] backend chunk(s) (permutation test skipped for these pairs)",
+                    _batch_prefill_count, _n_pairs_batch, _backend_summary,
+                )
+        except Exception as _exc:
+            # WARNING, not gated on ``verbose``: this used to be ``if verbose:``, so on
+            # a default ``verbose=0`` fit (the wellbore production config) a real batch-precompute
+            # failure was completely SILENT - live-reproduced at n=3M/p=423: this path failed with no
+            # trace in the log, the downstream loky pool then also timed out, and the fit fell all the
+            # way to the legacy per-pair sweep with zero diagnostic evidence of why. A failure this
+            # consequential (it decides between a sub-minute batched pass and an hours-long serial one)
+            # must always be visible, matching every other WARNING-level log in this module.
+            logger.warning(
+                "MRMR FE: dispatch_batch_pair_mi_chunked failed (%s: %s); falling back to legacy per-pair path "
+                "[n_pairs=%d, n_rows=%d, n_classes_y=%d]",
+                type(_exc).__name__, _exc,
+                n_pairs, int(data.shape[0]) if hasattr(data, "shape") else -1,
+                int(freqs_y.shape[0]) if hasattr(freqs_y, "shape") else -1,
+            )
+    record_fe_family_wall("pairwise_mi_batch_precompute", perf_counter() - _batch_precompute_t0)
+
+    _pair_maxt_floor, _pair_mm_bias, _prevalence_debias_auto = _compute_pair_mis_and_floor_part2(
+        fe_npermutations, n_jobs, n_pairs, numeric_vars_to_consider, cached_MIs, cached_confident_MIs, verbose, compute_pairs_mis, tqdmu, data,
+        target_indices, nbins, classes_y, classes_y_safe, freqs_y, fe_min_nonzero_confidence, fe_min_pair_mi, fe_min_pair_mi_prevalence, prefetch_factor,
+        parallel_kwargs, _lazy_chunks, self, _prevalence_debias_auto,
+    )
+
+    return numeric_vars_to_consider, _eng_cap, _pair_maxt_floor, _pair_mm_bias, _prevalence_debias_auto
+
+
+def _compute_pair_mis_and_floor_part3(self: Any, numeric_vars_to_consider: set, cols: list[str], cached_MIs: dict, verbose: int) -> tuple[Any, ...]:
+    """Extracted block of ``compute_pair_mis_and_floor`` (part 3); returns the names the caller still uses."""
     # Lazy import: ``.mrmr`` re-imports this package at its bottom for method binding -> a top-level
     # ``from ..mrmr import ...`` here would create a hard import cycle (see _step_core).
     from ..mrmr import compute_pairs_mis, tqdmu
@@ -243,47 +298,16 @@ def compute_pair_mis_and_floor(
             logger.warning("batch_pair_mi_gpu._CUDA_AVAIL import failed: %s", e)
             _CUDA_AVAIL = False
         _exhaustive_backend = "cuda" if _CUDA_AVAIL else "njit_parallel"
-    _batch_precompute_t0 = perf_counter()
-    if _BATCH_PRECOMPUTE_ENABLED and n_pairs >= _MRMR_BATCH_PRECOMPUTE_MIN_PAIRS:
-        try:
-            from mlframe.feature_selection.filters.batch_pair_mi_gpu import dispatch_batch_pair_mi_chunked
+    return compute_pairs_mis, tqdmu, _lazy_chunks, _MRMR_BATCH_PRECOMPUTE_MIN_PAIRS, _eng_cap, numeric_vars_to_consider, n_pairs, _BATCH_PRECOMPUTE_ENABLED, _batch_prefill_count, _exhaustive_backend
 
-            _ids_arr = np.fromiter(numeric_vars_to_consider, dtype=np.int64, count=len(numeric_vars_to_consider))
-            _pair_a_arr, _pair_b_arr, _pair_mi_batch, _backend_counts = dispatch_batch_pair_mi_chunked(
-                factors_data=data,
-                ids=_ids_arr,
-                nbins=nbins,
-                classes_y=classes_y,
-                freqs_y=freqs_y,
-                force_backend=_exhaustive_backend,
-            )
-            # Populate cached_MIs to short-circuit compute_pairs_mis's per-pair mi_direct call.
-            # Skip pairs already in cached_confident_MIs (those had a confident permutation outcome).
-            _n_pairs_batch = int(_pair_a_arr.shape[0])
-            _batch_prefill_count += _prefill_cached_pair_mis(_pair_a_arr, _pair_b_arr, _pair_mi_batch, cached_MIs, cached_confident_MIs)
-            if verbose:
-                _backend_summary = ", ".join(f"{k}={v}" for k, v in sorted(_backend_counts.items()))
-                logger.debug(
-                    "MRMR FE: batch-prefilled %d/%d pair MIs via [%s] backend chunk(s) (permutation test skipped for these pairs)",
-                    _batch_prefill_count, _n_pairs_batch, _backend_summary,
-                )
-        except Exception as _exc:
-            # WARNING, not gated on ``verbose``: this used to be ``if verbose:``, so on
-            # a default ``verbose=0`` fit (the wellbore production config) a real batch-precompute
-            # failure was completely SILENT - live-reproduced at n=3M/p=423: this path failed with no
-            # trace in the log, the downstream loky pool then also timed out, and the fit fell all the
-            # way to the legacy per-pair sweep with zero diagnostic evidence of why. A failure this
-            # consequential (it decides between a sub-minute batched pass and an hours-long serial one)
-            # must always be visible, matching every other WARNING-level log in this module.
-            logger.warning(
-                "MRMR FE: dispatch_batch_pair_mi_chunked failed (%s: %s); falling back to legacy per-pair path "
-                "[n_pairs=%d, n_rows=%d, n_classes_y=%d]",
-                type(_exc).__name__, _exc,
-                n_pairs, int(data.shape[0]) if hasattr(data, "shape") else -1,
-                int(freqs_y.shape[0]) if hasattr(freqs_y, "shape") else -1,
-            )
-    record_fe_family_wall("pairwise_mi_batch_precompute", perf_counter() - _batch_precompute_t0)
 
+def _compute_pair_mis_and_floor_part2(
+    fe_npermutations: int, n_jobs: int, n_pairs: Any, numeric_vars_to_consider: set, cached_MIs: dict, cached_confident_MIs: dict, verbose: int,
+    compute_pairs_mis: Any, tqdmu: Any, data: np.ndarray, target_indices: np.ndarray, nbins: np.ndarray, classes_y: np.ndarray, classes_y_safe: np.ndarray,
+    freqs_y: np.ndarray, fe_min_nonzero_confidence: float, fe_min_pair_mi: float, fe_min_pair_mi_prevalence: float, prefetch_factor: int,
+    parallel_kwargs: dict, _lazy_chunks: Any, self: Any, _prevalence_debias_auto: bool,
+) -> tuple[Any, ...]:
+    """Extracted block of ``compute_pair_mis_and_floor`` (part 2); returns the names the caller still uses."""
     # SKIP THE LOKY POOL when the batch precompute above already covers every pair. With
     # With the old pair-count cap removed, the batch precompute now runs unconditionally at n_pairs>=8 and -
     # confirmed live (verbose repro, n=8000/p=249/n_pairs=31125): "batch-prefilled 31125/31125 pair MIs" -
@@ -376,135 +400,11 @@ def compute_pair_mis_and_floor(
         # built-in default (``'1M'``) govern instead, which still memmaps ``data`` (far past 1 MB)
         # but stops needlessly memmap-spilling every few-KB argument to a temp file.
         _extra_kwargs = {k: v for k, v in parallel_kwargs.items() if k not in ("backend", "max_nbytes")}
-        _loky_cpu_backend = LokyBackend(
-            inner_max_num_threads=1,
-            initializer=disable_cuda_in_worker,
+        _compute_pair_mis_and_floor_part1(
+            data, n_jobs, verbose, _extra_kwargs, _lazy_chunks, numeric_vars_to_consider, chunk_size, compute_pairs_mis, target_indices, nbins, classes_y,
+            classes_y_safe, freqs_y, fe_min_nonzero_confidence, fe_npermutations, cached_confident_MIs, cached_MIs, fe_min_pair_mi, fe_min_pair_mi_prevalence,
+            n_pairs, tqdmu,
         )
-        # OUTER WALL-CLOCK WATCHDOG, not just joblib's own ``timeout=``. A fresh loky pool
-        # spawns ``n_jobs`` brand-new Python processes, each re-importing mlframe/numba/its heavy deps and
-        # JIT-compiling every njit kernel it touches from a COLD cache - on Windows this has been observed
-        # to hang INDEFINITELY (reproduced repeatedly: a 900s wait with zero progress, stuck in joblib's
-        # ``_retrieve`` sleep-poll; likely a numba disk-cache write race, or a stuck process spawn, when
-        # many freshly-spawned workers compile the SAME kernel concurrently for the first time). Passing
-        # ``timeout=`` to ``Parallel(...)`` alone does NOT catch this: joblib's task-level timeout only
-        # fires once a task has actually been DISPATCHED and registered in ``self._jobs`` - a hang during
-        # POOL SPAWN, before the first task is ever dispatched, is invisible to it (confirmed: the hang
-        # recurred identically with ``timeout=300`` set on ``Parallel`` itself). Windows has no
-        # ``signal.alarm``, so the only reliable bound is an OUTER watchdog: run the risky call on a daemon
-        # thread and stop WAITING for it after ``_LOKY_POOL_WALL_CLOCK_TIMEOUT`` seconds, falling back to
-        # the exact serial path immediately. The abandoned thread (and any loky worker processes it spawned)
-        # may linger as orphans - strictly better than blocking the whole fit indefinitely, which is the
-        # exact "10h44m fit, weak CPU/GPU utilization" pathology the whole audit started from.
-
-        # Ship the fit-constant ``data`` matrix as a READ-ONLY memmap: joblib passes an existing
-        # np.memmap to loky workers by FILENAME, skipping the per-Parallel-invocation re-dump of the
-        # whole ~hundreds-of-MB buffer to a fresh temp file (45 dumps / ~315s of _pickle.dumps on the
-        # wellbore-100k profile). One dump per fit (content-keyed cache in _joblib_safe); fallback on
-        # any failure is the original array - identical behavior, only the dedup is lost.
-        from .._joblib_safe import fit_constant_memmap
-        _data_shipped = fit_constant_memmap(data)
-
-        def _run_loky_pair_mi_pool():
-            """Score every prospective pair's MI in a loky worker pool against the memmapped ``data``."""
-            return list(
-                Parallel(
-                    n_jobs=n_jobs,
-                    backend=_loky_cpu_backend,
-                    verbose=10 if verbose else 0,
-                    timeout=_LOKY_TASK_TIMEOUT,
-                    **_extra_kwargs,
-                )(
-                    delayed(compute_pairs_mis)(
-                        all_pairs=chunk,
-                        data=_data_shipped,
-                        target_indices=target_indices,
-                        nbins=nbins,
-                        classes_y=classes_y,
-                        classes_y_safe=classes_y_safe,
-                        freqs_y=freqs_y,
-                        fe_min_nonzero_confidence=fe_min_nonzero_confidence,
-                        fe_npermutations=fe_npermutations,
-                        cached_confident_MIs=cached_confident_MIs,
-                        cached_MIs=cached_MIs,
-                        fe_min_pair_mi=fe_min_pair_mi,
-                        fe_min_pair_mi_prevalence=fe_min_pair_mi_prevalence,
-                    )
-                    for chunk in _lazy_chunks(combinations(numeric_vars_to_consider, 2), chunk_size)
-                )
-            )
-
-        try:
-            from mlframe.utils.daemon_task import start_daemon_task
-
-            # Daemon thread: an abandoned (possibly hung-forever) pool call must not be joined at interpreter exit.
-            dicts = start_daemon_task(_run_loky_pair_mi_pool).result(timeout=_LOKY_POOL_WALL_CLOCK_TIMEOUT)
-            for next_dict in dicts:
-                cached_MIs.update(next_dict)
-        except Exception as _pool_exc:
-            _kill_reusable_loky_workers()  # else the retry below runs at 2x oversubscription beside the abandoned pool
-            logger.warning(
-                "MRMR FE: loky pair-MI pool failed or timed out (%s: %s); retrying via the batched "
-                "CPU dispatcher before falling back to the slow per-pair path [n_pairs=%d, n_jobs=%d].",
-                type(_pool_exc).__name__, _pool_exc, n_pairs, n_jobs,
-            )
-            # Retry via the batched dispatcher FORCED to CPU njit-parallel, not the legacy per-pair sweep
-            # directly (fix; reproduced live at n=3M/p=423, n_pairs=89,253: the loky pool
-            # timing out and falling straight to ``compute_pairs_mis``'s serial per-pair ``mi_direct``
-            # loop turned into a multi-hour, single-core slog - the exact "weak CPU/GPU utilization"
-            # pathology the whole audit traces back to). The batched kernel is 10-30x faster per pair
-            # than the legacy permutation-test loop regardless of backend (see the batch-precompute note
-            # above); forcing ``njit_parallel`` here specifically avoids retrying on a GPU that may have
-            # JUST failed (the loky pool failure and a GPU OOM earlier in the same fit are plausibly
-            # correlated) while still using ALL CPU cores instead of one. Only pairs this ALSO can't
-            # cover (a genuine kernel failure, vanishingly rare) fall through to the legacy per-pair path.
-            try:
-                from mlframe.feature_selection.filters.batch_pair_mi_gpu import dispatch_batch_pair_mi_chunked
-
-                _retry_ids_arr = np.fromiter(numeric_vars_to_consider, dtype=np.int64, count=len(numeric_vars_to_consider))
-                _retry_pair_a, _retry_pair_b, _retry_mi, _retry_backend_counts = dispatch_batch_pair_mi_chunked(
-                    factors_data=data,
-                    ids=_retry_ids_arr,
-                    nbins=nbins,
-                    classes_y=classes_y,
-                    freqs_y=freqs_y,
-                    force_backend="njit_parallel",
-                )
-                _retry_n = int(_retry_pair_a.shape[0])
-                _retry_prefill_count = _prefill_cached_pair_mis(_retry_pair_a, _retry_pair_b, _retry_mi, cached_MIs, cached_confident_MIs)
-                logger.warning(
-                    "MRMR FE: batched CPU retry covered %d/%d pair MIs via [%s] backend chunk(s) after " "the loky pool failure.",
-                    _retry_prefill_count,
-                    _retry_n,
-                    ", ".join(f"{k}={v}" for k, v in sorted(_retry_backend_counts.items())),
-                )
-            except Exception as _retry_exc:
-                logger.warning(
-                    "MRMR FE: batched CPU retry ALSO failed (%s: %s); falling back to the slow serial "
-                    "per-pair path for whatever pairs remain uncached [n_pairs=%d].",
-                    type(_retry_exc).__name__, _retry_exc, n_pairs,
-                )
-            compute_pairs_mis(
-                all_pairs=tqdmu(
-                    combinations(numeric_vars_to_consider, 2),
-                    total=n_pairs,
-                    desc="getting pairs MIs (serial fallback)",
-                    leave=False,
-                    mininterval=5,
-                    disable=not verbose,
-                ),
-                data=data,
-                target_indices=target_indices,
-                nbins=nbins,
-                classes_y=classes_y,
-                classes_y_safe=classes_y_safe,
-                freqs_y=freqs_y,
-                fe_min_nonzero_confidence=fe_min_nonzero_confidence,
-                fe_npermutations=fe_npermutations,
-                cached_confident_MIs=cached_confident_MIs,
-                cached_MIs=cached_MIs,
-                fe_min_pair_mi=fe_min_pair_mi,
-                fe_min_pair_mi_prevalence=fe_min_pair_mi_prevalence,
-            )
     record_fe_family_wall("pairwise_mi_legacy_sweep", perf_counter() - _legacy_sweep_t0)
 
     # ---------------------------------------------------------------------------------------------------------------
@@ -542,8 +442,145 @@ def compute_pair_mis_and_floor(
     # when "auto" is active and the maxT path left it empty. On failure fall back to the fixed bar
     # (degrade to the proven default rather than risk a wrong gate).
     _prevalence_debias_auto = _debias_pair_mis_by_prevalence(self, _prevalence_debias_auto, _pair_mm_bias, freqs_y, data, numeric_vars_to_consider, nbins)
+    return _pair_maxt_floor, _pair_mm_bias, _prevalence_debias_auto
 
-    return numeric_vars_to_consider, _eng_cap, _pair_maxt_floor, _pair_mm_bias, _prevalence_debias_auto
+
+def _compute_pair_mis_and_floor_part1(
+    data: np.ndarray, n_jobs: int, verbose: int, _extra_kwargs: Any, _lazy_chunks: Any, numeric_vars_to_consider: set, chunk_size: Any,
+    compute_pairs_mis: Any, target_indices: np.ndarray, nbins: np.ndarray, classes_y: np.ndarray, classes_y_safe: np.ndarray, freqs_y: np.ndarray,
+    fe_min_nonzero_confidence: float, fe_npermutations: int, cached_confident_MIs: dict, cached_MIs: dict, fe_min_pair_mi: float,
+    fe_min_pair_mi_prevalence: float, n_pairs: Any, tqdmu: Any,
+) -> None:
+    """Extracted block of ``compute_pair_mis_and_floor`` (part 1); returns the names the caller still uses."""
+    _loky_cpu_backend = LokyBackend(
+        inner_max_num_threads=1,
+        initializer=disable_cuda_in_worker,
+    )
+    # OUTER WALL-CLOCK WATCHDOG, not just joblib's own ``timeout=``. A fresh loky pool
+    # spawns ``n_jobs`` brand-new Python processes, each re-importing mlframe/numba/its heavy deps and
+    # JIT-compiling every njit kernel it touches from a COLD cache - on Windows this has been observed
+    # to hang INDEFINITELY (reproduced repeatedly: a 900s wait with zero progress, stuck in joblib's
+    # ``_retrieve`` sleep-poll; likely a numba disk-cache write race, or a stuck process spawn, when
+    # many freshly-spawned workers compile the SAME kernel concurrently for the first time). Passing
+    # ``timeout=`` to ``Parallel(...)`` alone does NOT catch this: joblib's task-level timeout only
+    # fires once a task has actually been DISPATCHED and registered in ``self._jobs`` - a hang during
+    # POOL SPAWN, before the first task is ever dispatched, is invisible to it (confirmed: the hang
+    # recurred identically with ``timeout=300`` set on ``Parallel`` itself). Windows has no
+    # ``signal.alarm``, so the only reliable bound is an OUTER watchdog: run the risky call on a daemon
+    # thread and stop WAITING for it after ``_LOKY_POOL_WALL_CLOCK_TIMEOUT`` seconds, falling back to
+    # the exact serial path immediately. The abandoned thread (and any loky worker processes it spawned)
+    # may linger as orphans - strictly better than blocking the whole fit indefinitely, which is the
+    # exact "10h44m fit, weak CPU/GPU utilization" pathology the whole audit started from.
+
+    # Ship the fit-constant ``data`` matrix as a READ-ONLY memmap: joblib passes an existing
+    # np.memmap to loky workers by FILENAME, skipping the per-Parallel-invocation re-dump of the
+    # whole ~hundreds-of-MB buffer to a fresh temp file (45 dumps / ~315s of _pickle.dumps on the
+    # wellbore-100k profile). One dump per fit (content-keyed cache in _joblib_safe); fallback on
+    # any failure is the original array - identical behavior, only the dedup is lost.
+    from .._joblib_safe import fit_constant_memmap
+    _data_shipped = fit_constant_memmap(data)
+
+    def _run_loky_pair_mi_pool():
+        """Score every prospective pair's MI in a loky worker pool against the memmapped ``data``."""
+        return list(
+            Parallel(
+                n_jobs=n_jobs,
+                backend=_loky_cpu_backend,
+                verbose=10 if verbose else 0,
+                timeout=_LOKY_TASK_TIMEOUT,
+                **_extra_kwargs,
+            )(
+                delayed(compute_pairs_mis)(
+                    all_pairs=chunk,
+                    data=_data_shipped,
+                    target_indices=target_indices,
+                    nbins=nbins,
+                    classes_y=classes_y,
+                    classes_y_safe=classes_y_safe,
+                    freqs_y=freqs_y,
+                    fe_min_nonzero_confidence=fe_min_nonzero_confidence,
+                    fe_npermutations=fe_npermutations,
+                    cached_confident_MIs=cached_confident_MIs,
+                    cached_MIs=cached_MIs,
+                    fe_min_pair_mi=fe_min_pair_mi,
+                    fe_min_pair_mi_prevalence=fe_min_pair_mi_prevalence,
+                )
+                for chunk in _lazy_chunks(combinations(numeric_vars_to_consider, 2), chunk_size)
+            )
+        )
+
+    try:
+        from mlframe.utils.daemon_task import start_daemon_task
+
+        # Daemon thread: an abandoned (possibly hung-forever) pool call must not be joined at interpreter exit.
+        dicts = start_daemon_task(_run_loky_pair_mi_pool).result(timeout=_LOKY_POOL_WALL_CLOCK_TIMEOUT)
+        for next_dict in dicts:
+            cached_MIs.update(next_dict)
+    except Exception as _pool_exc:
+        _kill_reusable_loky_workers()  # else the retry below runs at 2x oversubscription beside the abandoned pool
+        logger.warning(
+            "MRMR FE: loky pair-MI pool failed or timed out (%s: %s); retrying via the batched "
+                "CPU dispatcher before falling back to the slow per-pair path [n_pairs=%d, n_jobs=%d].",
+            type(_pool_exc).__name__, _pool_exc, n_pairs, n_jobs,
+        )
+        # Retry via the batched dispatcher FORCED to CPU njit-parallel, not the legacy per-pair sweep
+        # directly (fix; reproduced live at n=3M/p=423, n_pairs=89,253: the loky pool
+        # timing out and falling straight to ``compute_pairs_mis``'s serial per-pair ``mi_direct``
+        # loop turned into a multi-hour, single-core slog - the exact "weak CPU/GPU utilization"
+        # pathology the whole audit traces back to). The batched kernel is 10-30x faster per pair
+        # than the legacy permutation-test loop regardless of backend (see the batch-precompute note
+        # above); forcing ``njit_parallel`` here specifically avoids retrying on a GPU that may have
+        # JUST failed (the loky pool failure and a GPU OOM earlier in the same fit are plausibly
+        # correlated) while still using ALL CPU cores instead of one. Only pairs this ALSO can't
+        # cover (a genuine kernel failure, vanishingly rare) fall through to the legacy per-pair path.
+        try:
+            from mlframe.feature_selection.filters.batch_pair_mi_gpu import dispatch_batch_pair_mi_chunked
+
+            _retry_ids_arr = np.fromiter(numeric_vars_to_consider, dtype=np.int64, count=len(numeric_vars_to_consider))
+            _retry_pair_a, _retry_pair_b, _retry_mi, _retry_backend_counts = dispatch_batch_pair_mi_chunked(
+                factors_data=data,
+                ids=_retry_ids_arr,
+                nbins=nbins,
+                classes_y=classes_y,
+                freqs_y=freqs_y,
+                force_backend="njit_parallel",
+            )
+            _retry_n = int(_retry_pair_a.shape[0])
+            _retry_prefill_count = _prefill_cached_pair_mis(_retry_pair_a, _retry_pair_b, _retry_mi, cached_MIs, cached_confident_MIs)
+            logger.warning(
+                "MRMR FE: batched CPU retry covered %d/%d pair MIs via [%s] backend chunk(s) after " "the loky pool failure.",
+                _retry_prefill_count,
+                _retry_n,
+                ", ".join(f"{k}={v}" for k, v in sorted(_retry_backend_counts.items())),
+            )
+        except Exception as _retry_exc:
+            logger.warning(
+                "MRMR FE: batched CPU retry ALSO failed (%s: %s); falling back to the slow serial "
+                    "per-pair path for whatever pairs remain uncached [n_pairs=%d].",
+                type(_retry_exc).__name__, _retry_exc, n_pairs,
+            )
+        compute_pairs_mis(
+            all_pairs=tqdmu(
+                combinations(numeric_vars_to_consider, 2),
+                total=n_pairs,
+                desc="getting pairs MIs (serial fallback)",
+                leave=False,
+                mininterval=5,
+                disable=not verbose,
+            ),
+            data=data,
+            target_indices=target_indices,
+            nbins=nbins,
+            classes_y=classes_y,
+            classes_y_safe=classes_y_safe,
+            freqs_y=freqs_y,
+            fe_min_nonzero_confidence=fe_min_nonzero_confidence,
+            fe_npermutations=fe_npermutations,
+            cached_confident_MIs=cached_confident_MIs,
+            cached_MIs=cached_MIs,
+            fe_min_pair_mi=fe_min_pair_mi,
+            fe_min_pair_mi_prevalence=fe_min_pair_mi_prevalence,
+        )
 
 
 def _debias_pair_mis_by_prevalence(self, _prevalence_debias_auto, _pair_mm_bias, freqs_y, data, numeric_vars_to_consider, nbins):

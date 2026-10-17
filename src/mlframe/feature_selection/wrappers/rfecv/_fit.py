@@ -213,17 +213,10 @@ def fit(self, X: Union[pd.DataFrame, np.ndarray], y: Union[pd.DataFrame, pd.Seri
     # Multi-output (2D y) opt-in: fit one single-target RFECV per output column and aggregate support_ (union/intersect).
     # Default ``multioutput_strategy=None`` falls through to the historical clear NotImplementedError in _fit_init.
     _mo_strategy = getattr(self, "multioutput_strategy", None)
-    if _mo_strategy is not None:
-        try:
-            _y_arr = np.asarray(y)
-            _is_2d = _y_arr.ndim >= 2 and _y_arr.shape[-1] > 1
-        except Exception as e:
-            logger.warning("y-shape 2D check failed, assuming 1D: %s", e)
-            _is_2d = False
-        if _is_2d:
-            from ._multioutput import fit_multioutput
-            _fp = copy.copy(self.fit_params) if self.fit_params else {}
-            return fit_multioutput(self, X, y, groups, sample_weight, _fp, _mo_strategy)
+    if _mo_strategy is not None and _y_is_multioutput(y):
+        from ._multioutput import fit_multioutput
+        _fp = copy.copy(self.fit_params) if self.fit_params else {}
+        return fit_multioutput(self, X, y, groups, sample_weight, _fp, _mo_strategy)
 
     # A knob counts as "not overridden by the caller" when it still equals the corresponding config
     # baseline default, which is an approximation: a caller who explicitly passes the default value
@@ -236,6 +229,41 @@ def fit(self, X: Union[pd.DataFrame, np.ndarray], y: Union[pd.DataFrame, pd.Seri
     if _init_skip:
         return self
 
+    X_estimator, col_pos = _build_estimator_numpy_view(self, X)
+
+    # ``estimators`` (list) supersedes the singular ``estimator``. Work with a list internally; singular path is a len-1 list.
+    # Score per fold = mean across estimators; FI runs stored under separate keys so the voting layer treats each estimator's
+    # importance as an independent "run".
+    estimators_list = list(self.estimators) if self.estimators else ([self.estimator] if self.estimator is not None else [])
+    if not estimators_list:
+        raise ValueError("RFECV requires either estimator= or estimators=.")
+
+    # Stability selection branch: uses bootstrap voting instead of the MBH+CV-fold-voting search. Returns early after setting
+    # support_ / n_features_ / cv_results_-shim / feature_names_in_ etc. Dispatched AFTER the estimators_list presence check
+    # above -- _fit_stability_selection clones self.estimator internally, so with no estimator configured it crashed with a
+    # confusing AttributeError from sklearn.base.clone(None) instead of this function's own clear ValueError.
+    if self.stability_selection:
+        return self._fit_stability_selection(X=X, y=y, signature=signature)
+    fit_params = _resolve_fit_params(self, fit_params)
+    state, loop_kw = _prepare_outer_loop(
+        self, X=X, y=y, groups=groups, X_estimator=X_estimator, col_pos=col_pos, estimators_list=estimators_list,
+        signature=signature, fit_params=fit_params, polars_time_series_hint=_polars_time_series_hint, fit_t0=_fit_t0,
+    )
+    return _run_outer_loop_and_finalize(self, state, loop_kw, fit_t0=_fit_t0)
+
+
+def _y_is_multioutput(y: Any) -> bool:
+    """True iff ``y`` is 2D with more than one column (a failing shape probe is logged and treated as 1D)."""
+    try:
+        _y_arr = np.asarray(y)
+        return bool(_y_arr.ndim >= 2 and _y_arr.shape[-1] > 1)
+    except Exception as e:
+        logger.warning("y-shape 2D check failed, assuming 1D: %s", e)
+        return False
+
+
+def _build_estimator_numpy_view(self: Any, X: Any) -> tuple[Any, Any]:
+    """Return ``(X_estimator, col_pos)``: the contiguous numpy mirror of an all-numeric ``X`` plus its name->position map, or ``(None, None)``."""
     # perf: build ONE contiguous numpy mirror of the (now sanitised) DataFrame and feed the
     # inner estimator numpy column-SUBSETS by integer position throughout elimination / CV scoring /
     # permutation-FI re-prediction. This skips LightGBM's per-fit/per-predict ``_data_from_pandas``
@@ -251,46 +279,24 @@ def fit(self, X: Union[pd.DataFrame, np.ndarray], y: Union[pd.DataFrame, pd.Seri
     # opt-out should any estimator ever misbehave on numpy input.
     _force_pandas = bool(getattr(self, "_force_pandas_estimator_path", False))
     X_estimator, col_pos = _numpy_view_of_numeric_X(_force_pandas, X, X_estimator, col_pos)
+    return X_estimator, col_pos
 
-    # ``estimators`` (list) supersedes the singular ``estimator``. Work with a list internally; singular path is a len-1 list.
-    # Score per fold = mean across estimators; FI runs stored under separate keys so the voting layer treats each estimator's
-    # importance as an independent "run".
-    estimators_list = list(self.estimators) if self.estimators else ([self.estimator] if self.estimator is not None else [])
-    if not estimators_list:
-        raise ValueError("RFECV requires either estimator= or estimators=.")
 
-    # Stability selection branch: uses bootstrap voting instead of the MBH+CV-fold-voting search. Returns early after setting
-    # support_ / n_features_ / cv_results_-shim / feature_names_in_ etc. Dispatched AFTER the estimators_list presence check
-    # above -- _fit_stability_selection clones self.estimator internally, so with no estimator configured it crashed with a
-    # confusing AttributeError from sklearn.base.clone(None) instead of this function's own clear ValueError.
-    if self.stability_selection:
-        return self._fit_stability_selection(X=X, y=y, signature=signature)
-    # ``estimator`` retained for legacy code paths inside fit() that need a single object for type-dispatch (CV stratification,
-    # scoring, importance_getter resolution). First estimator is the representative.
-    estimator = estimators_list[0]
+def _resolve_fit_params(self: Any, fit_params: Any) -> dict:
+    """Copy ``self.fit_params`` and carry over a caller-supplied ``timestamps`` hint."""
     # Extract suite-level ``timestamps`` hint BEFORE we shadow ``fit_params`` with ``self.fit_params``;
     # the time-series auto-detect block below picks it up to upgrade plain int cv -> TimeSeriesSplit
     # for callers whose X has no DatetimeIndex / polars datetime column but who know the row order
     # is temporal (e.g. epoch-seconds in a separate array).
     _ts_hint_from_caller = fit_params.pop("timestamps", None) if isinstance(fit_params, dict) else None
-    fit_params = copy.copy(self.fit_params) if self.fit_params else {}
+    resolved: dict = copy.copy(self.fit_params) if self.fit_params else {}
     if _ts_hint_from_caller is not None:
-        fit_params["timestamps"] = _ts_hint_from_caller
-    max_runtime_mins = self.max_runtime_mins
-    max_refits = self.max_refits
-    cv = self.cv
-    cv_shuffle = self.cv_shuffle
-    early_stopping_val_nsplits = self.early_stopping_val_nsplits
-    early_stopping_rounds = self.early_stopping_rounds
-    scoring = self.scoring
-    top_predictors_search_method = self.top_predictors_search_method
-    votes_aggregation_method = self.votes_aggregation_method
-    use_all_fi_runs = self.use_all_fi_runs
-    use_last_fi_run_only = self.use_last_fi_run_only
-    use_one_freshest_fi_run = self.use_one_freshest_fi_run
-    use_fi_ranking = self.use_fi_ranking
-    importance_getter = self.importance_getter
-    random_state = self.random_state
+        resolved["timestamps"] = _ts_hint_from_caller
+    return resolved
+
+
+def _seed_fit_rng(self: Any, random_state: Any, signature: Any) -> None:
+    """Set ``self._rng``, deriving a signature-stable seed when ``random_state`` is None."""
     # When random_state is None, derive a stable seed from the signature so re-fits on the SAME data are deterministic. Otherwise
     # self._rng is reseeded from system entropy on every fit, breaking reproducibility silently.
     # Use ``hashlib.blake2b`` (not Python's builtin ``hash``) so the seed is bit-stable across processes /
@@ -307,34 +313,10 @@ def fit(self, X: Union[pd.DataFrame, np.ndarray], y: Union[pd.DataFrame, pd.Seri
         self._rng = np.random.default_rng(_seed)
     else:
         self._rng = np.random.default_rng(random_state)
-    leave_progressbars = self.leave_progressbars
-    verbose = self.verbose
-    show_plot = self.show_plot
-    cat_features = filter_cat_features_by_dtype(X, self.cat_features, verbose)
-    keep_estimators = self.keep_estimators
-    feature_cost = self.feature_cost
-    smooth_perf = self.smooth_perf
-    frac = self.frac
-    best_desired_score = self.best_desired_score
-    max_noimproving_iters = self.max_noimproving_iters
 
-    n_jobs_effective, _is_multithreaded = resolve_effective_n_jobs(
-        self.n_jobs, estimator, self.force_parallel, verbose,
-    )
-    ndigits = self.report_ndigits
 
-    start_time = _fit_t0
-    if active_budget(max_runtime_mins) is not None:
-        if verbose:
-            logger.info("max_runtime_mins=%.2f", max_runtime_mins)
-
-    if random_state is not None:
-        set_random_seed(random_state)
-
-    feature_importances: dict = {}
-    evaluated_scores_std: dict = {}
-    evaluated_scores_mean: dict = {}
-
+def _init_importance_family(self: Any, estimators_list: list) -> None:
+    """Resolve the ``importance_agg='dispatched'`` estimator family and reset the signed-importance store."""
     # importance_agg='dispatched': resolve the estimator family ONCE (cheap, type-name based) and prepare the
     # signed-coef store the fold loop fills for the linear sign-harmony path. Multi-estimator runs fall back to
     # the legacy vote (mixed families have no single coherent dispatched aggregation).
@@ -345,57 +327,11 @@ def fit(self, X: Union[pd.DataFrame, np.ndarray], y: Union[pd.DataFrame, pd.Seri
         self._fi_family = None
     self._signed_importances = {}
 
-    original_features = X.columns.tolist() if isinstance(X, pd.DataFrame) else np.arange(X.shape[1])
 
-    # must_include partition: the optimiser only sees the complement; pinned features are glued back into support_ at the end.
-    original_features, must_include_resolved = _resolve_must_include(self, X=X, original_features=original_features, verbose=verbose)
-
-    # L7: optional prescreen pass. Restricts the MBH search universe to a smaller pre-filtered candidate set so the
-    # outer loop converges faster on high-p data. The prescreen sees the (X[original_features], y) AFTER must_include filtering, so
-    # pinned features always remain in the final support_ regardless of prescreen output.
-    # SELECTION-OPTIMISM CAVEAT (audit4-C): the prescreen pre-filters the feature UNIVERSE using the
-    # WHOLE (X, y) - including the rows that later serve as CV test folds - so the ``cv_mean_perf`` that drives
-    # the nfeatures pick is an IN-UNIVERSE estimate, mildly OPTIMISTIC vs a fully-nested one (the surviving
-    # candidates were chosen with full-y knowledge). This is a leakage into the SELECTION METRIC, not the final
-    # fitted model. A fully-honest estimate would nest the prescreen inside each CV fold, but the outer optimiser
-    # searches nfeatures over a FIXED universe, so per-fold prescreening is architecturally incompatible here.
-    # Treat ``cv_mean_perf`` with a prescreen as a ranking signal, not an unbiased generalisation estimate; take
-    # the honest number from a truly held-out evaluation. Default is prescreen=None (no optimism).
-    _prescreen = getattr(self, "prescreen", None)
-    self._prescreen_fold_universes = None
-    self._prescreen_full_features = None
-    original_features = _stash_prescreen_universe(self, _prescreen, original_features, X, y, verbose)
-
-    cv, val_cv, early_stopping_rounds = _resolve_cv_and_val_cv(
-        cv=cv, X=X, y=y, groups=groups, estimator=estimator,
-        cv_shuffle=cv_shuffle, random_state=random_state,
-        fit_params=fit_params,
-        early_stopping_val_nsplits=early_stopping_val_nsplits,
-        early_stopping_rounds=early_stopping_rounds,
-        _polars_time_series_hint=_polars_time_series_hint,
-        verbose=verbose,
-    )
-    # Expose the resolved splitter for introspection (auto-detect tests / callers checking which CV strategy was picked).
-    self.cv_ = cv
-
-    # Nested prescreen (audit4-C honest fix): precompute, once, each fold's prescreen universe from its TRAIN rows
-    # only, keyed by the fold's train-index bytes. _eval_fold_body masks the searched subset to the fold universe so
-    # cv_mean_perf never benefits from a feature that survived the global prescreen only via that fold's test rows.
-    # DataFrame-only (the reliable prescreen path); ndarray X keeps the global (in-universe) estimate.
-    if self._prescreen_full_features is not None and isinstance(X, pd.DataFrame):
-        self._prescreen_fold_universes = _precompute_prescreen_fold_universes(
-            self, X=X, y=y, groups=groups, cv=cv, full_features=self._prescreen_full_features, verbose=verbose,
-        )
-
-    progressbar_prefix = "RFECV:"
-    iters_pbar = tqdmu(
-        desc=progressbar_prefix,
-        leave=leave_progressbars,
-        total=min(len(original_features) + 1, max_refits) if active_budget(max_refits) is not None else len(original_features) + 1,
-    )
-
-    suppress_irritating_3rdparty_warnings()
-
+def _resolve_scoring_and_importance_getter(
+    self: Any, scoring: Any, importance_getter: Any, estimator: Any, original_features: list, verbose: Any,
+) -> tuple[Any, Any, str]:
+    """Resolve the default scoring, the estimator type name and the (wide-data guarded) importance getter."""
     if scoring is None:
         scoring = resolve_default_scoring(scoring, estimator)
     self.scoring_ = scoring
@@ -428,7 +364,23 @@ def fit(self, X: Union[pd.DataFrame, np.ndarray], y: Union[pd.DataFrame, pd.Seri
     # Effective n_repeats consumed by the per-fold permutation FI + stability bootstraps; read via the private attr so
     # the user-facing self.n_repeats is never mutated by the guard.
     self._effective_n_repeats = _eff_n_repeats
+    return scoring, importance_getter, estimator_type
 
+
+def _build_outer_loop_state(
+    self: Any,
+    *,
+    X: Any,
+    original_features: list,
+    max_refits: Any,
+    top_predictors_search_method: Any,
+    evaluated_scores_mean: dict,
+    evaluated_scores_std: dict,
+    feature_importances: dict,
+    signature: Any,
+    verbose: Any,
+) -> OuterLoopState:
+    """Create the outer-loop state (optimizer included), restore it from a matching checkpoint and record the baseline RAM footprint."""
     state = OuterLoopState(
         evaluated_scores_mean=evaluated_scores_mean,
         evaluated_scores_std=evaluated_scores_std,
@@ -472,53 +424,172 @@ def fit(self, X: Union[pd.DataFrame, np.ndarray], y: Union[pd.DataFrame, pd.Seri
     state.Optimizer = _ckpt_state["Optimizer"]
 
     # Baseline RSS + best-effort frame footprint so the RAM-aware ``maybe_clean_ram_and_gpu`` short-circuit can decide whether a ``gc.collect()`` is justified each iter. The old "every 5th iter" trigger ran a ~290ms gc.collect even when nothing had accumulated, dominating wall on small problems; the helper only fires when RSS actually grew past a threshold or free RAM gets tight relative to frame size.
-    from mlframe.training import estimate_df_size_mb as _estimate_df_size_mb, get_process_rss_mb as _get_process_rss_mb, maybe_clean_ram_and_gpu as _maybe_clean_ram_and_gpu
+    from mlframe.training import estimate_df_size_mb as _estimate_df_size_mb, get_process_rss_mb as _get_process_rss_mb
     state.ram_baseline_mb = _get_process_rss_mb()
     try:
         state.ram_df_size_mb = _estimate_df_size_mb(X)
     except Exception as e:
         logger.warning("_estimate_df_size_mb failed, recording ram_df_size_mb as 0.0: %s", e)
         state.ram_df_size_mb = 0.0
+    return state
 
-    while state.nsteps < len(original_features):
-        outcome = run_outer_loop_iteration(
-            self,
-            state,
-            X=X, y=y, X_estimator=X_estimator, col_pos=col_pos, groups=groups,
-            cv=cv, val_cv=val_cv,
-            original_features=original_features,
-            must_include_resolved=must_include_resolved,
-            estimators_list=estimators_list,
-            estimator=estimator,
-            estimator_type=estimator_type,
-            scoring=scoring,
-            importance_getter=importance_getter,
-            cat_features=cat_features,
-            fit_params=fit_params,
-            keep_estimators=keep_estimators,
-            early_stopping_rounds=early_stopping_rounds,
-            frac=frac,
-            n_jobs_effective=n_jobs_effective,
-            _is_multithreaded=_is_multithreaded,
-            use_all_fi_runs=use_all_fi_runs,
-            use_last_fi_run_only=use_last_fi_run_only,
-            use_one_freshest_fi_run=use_one_freshest_fi_run,
-            use_fi_ranking=use_fi_ranking,
-            top_predictors_search_method=top_predictors_search_method,
-            votes_aggregation_method=votes_aggregation_method,
-            max_runtime_mins=max_runtime_mins,
-            max_refits=max_refits,
-            best_desired_score=best_desired_score,
-            max_noimproving_iters=max_noimproving_iters,
-            verbose=verbose,
-            ndigits=ndigits,
-            progressbar_prefix=progressbar_prefix,
-            iters_pbar=iters_pbar,
-            start_time=start_time,
-            signature=signature,
-            maybe_clean_ram_and_gpu=_maybe_clean_ram_and_gpu,
-            pin_threads_to_one=_pin_threads_to_one,
+
+def _prepare_outer_loop(
+    self: Any,
+    *,
+    X: Any,
+    y: Any,
+    groups: Any,
+    X_estimator: Any,
+    col_pos: Any,
+    estimators_list: list,
+    signature: Any,
+    fit_params: dict,
+    polars_time_series_hint: Any,
+    fit_t0: float,
+) -> tuple[OuterLoopState, dict[str, Any]]:
+    """Resolve every fit setting, the prescreen universe, CV splitter, scoring and importance getter; return the outer-loop state and the
+    keyword arguments shared by every ``run_outer_loop_iteration`` call."""
+    # ``estimator`` retained for legacy code paths inside fit() that need a single object for type-dispatch (CV stratification,
+    # scoring, importance_getter resolution). First estimator is the representative.
+    estimator = estimators_list[0]
+    max_runtime_mins = self.max_runtime_mins
+    max_refits = self.max_refits
+    cv = self.cv
+    cv_shuffle = self.cv_shuffle
+    early_stopping_val_nsplits = self.early_stopping_val_nsplits
+    early_stopping_rounds = self.early_stopping_rounds
+    scoring = self.scoring
+    top_predictors_search_method = self.top_predictors_search_method
+    votes_aggregation_method = self.votes_aggregation_method
+    use_all_fi_runs = self.use_all_fi_runs
+    use_last_fi_run_only = self.use_last_fi_run_only
+    use_one_freshest_fi_run = self.use_one_freshest_fi_run
+    use_fi_ranking = self.use_fi_ranking
+    importance_getter = self.importance_getter
+    random_state = self.random_state
+    _seed_fit_rng(self, random_state, signature)
+    leave_progressbars = self.leave_progressbars
+    verbose = self.verbose
+    cat_features = filter_cat_features_by_dtype(X, self.cat_features, verbose)
+    keep_estimators = self.keep_estimators
+    frac = self.frac
+    best_desired_score = self.best_desired_score
+    max_noimproving_iters = self.max_noimproving_iters
+
+    n_jobs_effective, _is_multithreaded = resolve_effective_n_jobs(
+        self.n_jobs, estimator, self.force_parallel, verbose,
+    )
+    ndigits = self.report_ndigits
+
+    if active_budget(max_runtime_mins) is not None:
+        if verbose:
+            logger.info("max_runtime_mins=%.2f", max_runtime_mins)
+
+    if random_state is not None:
+        set_random_seed(random_state)
+
+    feature_importances: dict = {}
+    evaluated_scores_std: dict = {}
+    evaluated_scores_mean: dict = {}
+
+    _init_importance_family(self, estimators_list)
+
+    original_features = X.columns.tolist() if isinstance(X, pd.DataFrame) else np.arange(X.shape[1])
+
+    # must_include partition: the optimiser only sees the complement; pinned features are glued back into support_ at the end.
+    original_features, must_include_resolved = _resolve_must_include(self, X=X, original_features=original_features, verbose=verbose)
+
+    _prescreen = getattr(self, "prescreen", None)
+    self._prescreen_fold_universes = None
+    self._prescreen_full_features = None
+    original_features = _stash_prescreen_universe(self, _prescreen, original_features, X, y, verbose)
+
+    cv, val_cv, early_stopping_rounds = _resolve_cv_and_val_cv(
+        cv=cv, X=X, y=y, groups=groups, estimator=estimator,
+        cv_shuffle=cv_shuffle, random_state=random_state,
+        fit_params=fit_params,
+        early_stopping_val_nsplits=early_stopping_val_nsplits,
+        early_stopping_rounds=early_stopping_rounds,
+        _polars_time_series_hint=polars_time_series_hint,
+        verbose=verbose,
+    )
+    # Expose the resolved splitter for introspection (auto-detect tests / callers checking which CV strategy was picked).
+    self.cv_ = cv
+
+    # Nested prescreen (audit4-C honest fix): precompute, once, each fold's prescreen universe from its TRAIN rows
+    # only, keyed by the fold's train-index bytes. _eval_fold_body masks the searched subset to the fold universe so
+    # cv_mean_perf never benefits from a feature that survived the global prescreen only via that fold's test rows.
+    # DataFrame-only (the reliable prescreen path); ndarray X keeps the global (in-universe) estimate.
+    if self._prescreen_full_features is not None and isinstance(X, pd.DataFrame):
+        self._prescreen_fold_universes = _precompute_prescreen_fold_universes(
+            self, X=X, y=y, groups=groups, cv=cv, full_features=self._prescreen_full_features, verbose=verbose,
         )
+
+    progressbar_prefix = "RFECV:"
+    iters_pbar = tqdmu(
+        desc=progressbar_prefix,
+        leave=leave_progressbars,
+        total=min(len(original_features) + 1, max_refits) if active_budget(max_refits) is not None else len(original_features) + 1,
+    )
+
+    suppress_irritating_3rdparty_warnings()
+
+    scoring, importance_getter, estimator_type = _resolve_scoring_and_importance_getter(
+        self, scoring, importance_getter, estimator, original_features, verbose,
+    )
+
+    state = _build_outer_loop_state(
+        self, X=X, original_features=original_features, max_refits=max_refits,
+        top_predictors_search_method=top_predictors_search_method,
+        evaluated_scores_mean=evaluated_scores_mean, evaluated_scores_std=evaluated_scores_std,
+        feature_importances=feature_importances, signature=signature, verbose=verbose,
+    )
+
+    from mlframe.training import maybe_clean_ram_and_gpu as _maybe_clean_ram_and_gpu
+    loop_kw: dict[str, Any] = dict(
+        X=X, y=y, X_estimator=X_estimator, col_pos=col_pos, groups=groups,
+        cv=cv, val_cv=val_cv,
+        original_features=original_features,
+        must_include_resolved=must_include_resolved,
+        estimators_list=estimators_list,
+        estimator=estimator,
+        estimator_type=estimator_type,
+        scoring=scoring,
+        importance_getter=importance_getter,
+        cat_features=cat_features,
+        fit_params=fit_params,
+        keep_estimators=keep_estimators,
+        early_stopping_rounds=early_stopping_rounds,
+        frac=frac,
+        n_jobs_effective=n_jobs_effective,
+        _is_multithreaded=_is_multithreaded,
+        use_all_fi_runs=use_all_fi_runs,
+        use_last_fi_run_only=use_last_fi_run_only,
+        use_one_freshest_fi_run=use_one_freshest_fi_run,
+        use_fi_ranking=use_fi_ranking,
+        top_predictors_search_method=top_predictors_search_method,
+        votes_aggregation_method=votes_aggregation_method,
+        max_runtime_mins=max_runtime_mins,
+        max_refits=max_refits,
+        best_desired_score=best_desired_score,
+        max_noimproving_iters=max_noimproving_iters,
+        verbose=verbose,
+        ndigits=ndigits,
+        progressbar_prefix=progressbar_prefix,
+        iters_pbar=iters_pbar,
+        start_time=fit_t0,
+        signature=signature,
+        maybe_clean_ram_and_gpu=_maybe_clean_ram_and_gpu,
+        pin_threads_to_one=_pin_threads_to_one,
+    )
+    return state, loop_kw
+
+
+def _run_outer_loop_and_finalize(self: Any, state: OuterLoopState, loop_kw: dict[str, Any], *, fit_t0: float) -> Any:
+    """Drive the outer elimination loop, publish its outputs, finalize ``self`` and record provenance; returns ``self``."""
+    while state.nsteps < len(loop_kw["original_features"]):
+        outcome = run_outer_loop_iteration(self, state, **loop_kw)
         if outcome is IterationOutcome.BREAK:
             break
 
@@ -527,26 +598,33 @@ def fit(self, X: Union[pd.DataFrame, np.ndarray], y: Union[pd.DataFrame, pd.Seri
     # Truncated SFFS final-pass swap: run K paired swaps on the best subset found - replace each of the K worst-FI kept features with each of the K best-FI dropped features, accept any swap that improves the CV score. Uses sklearn.cross_val_score directly so it does NOT honour fit_params / val_cv / early stopping.
     _finalize_fit_results(
         self,
-        X=X, y=y, X_estimator=X_estimator, col_pos=col_pos, estimator=estimator, cv=cv, scoring=scoring,
+        X=loop_kw["X"], y=loop_kw["y"], X_estimator=loop_kw["X_estimator"], col_pos=loop_kw["col_pos"],
+        estimator=loop_kw["estimator"], cv=loop_kw["cv"], scoring=loop_kw["scoring"],
         best_nfeatures=state.best_nfeatures, best_score=state.best_score,
         selected_features_per_nfeatures=state.selected_features_per_nfeatures,
         feature_importances=state.feature_importances,
-        original_features=original_features,
+        original_features=loop_kw["original_features"],
         evaluated_scores_mean=state.evaluated_scores_mean,
         evaluated_scores_std=state.evaluated_scores_std,
-        verbose=verbose, ndigits=ndigits,
+        verbose=loop_kw["verbose"], ndigits=loop_kw["ndigits"],
         fitted_estimators=state.fitted_estimators,
-        must_include_resolved=must_include_resolved,
-        feature_cost=feature_cost, smooth_perf=smooth_perf,
-        use_all_fi_runs=use_all_fi_runs,
-        use_last_fi_run_only=use_last_fi_run_only,
-        use_one_freshest_fi_run=use_one_freshest_fi_run,
-        use_fi_ranking=use_fi_ranking,
-        votes_aggregation_method=votes_aggregation_method,
-        show_plot=show_plot,
-        signature=signature,
+        must_include_resolved=loop_kw["must_include_resolved"],
+        feature_cost=self.feature_cost, smooth_perf=self.smooth_perf,
+        use_all_fi_runs=loop_kw["use_all_fi_runs"],
+        use_last_fi_run_only=loop_kw["use_last_fi_run_only"],
+        use_one_freshest_fi_run=loop_kw["use_one_freshest_fi_run"],
+        use_fi_ranking=loop_kw["use_fi_ranking"],
+        votes_aggregation_method=loop_kw["votes_aggregation_method"],
+        show_plot=self.show_plot,
+        signature=loop_kw["signature"],
     )
-    log_rfecv_fit_summary(self, stop_reason=state.stop_reason, n_iters=state.nsteps, elapsed_s=timer() - _fit_t0, ndigits=ndigits)
+    log_rfecv_fit_summary(self, stop_reason=state.stop_reason, n_iters=state.nsteps, elapsed_s=timer() - fit_t0, ndigits=loop_kw["ndigits"])
+    _record_fit_provenance(self, loop_kw["X"])
+    return self
+
+
+def _record_fit_provenance(self: Any, X: Any) -> None:
+    """Record the fit's provenance on the sink and ``self.provenance_`` (best-effort: failures are logged at debug)."""
     try:
         from mlframe.training.provenance import record_provenance as _record_provenance
         _n_rows_done = int(X.shape[0]) if hasattr(X, "shape") else None
@@ -565,8 +643,6 @@ def fit(self, X: Union[pd.DataFrame, np.ndarray], y: Union[pd.DataFrame, pd.Seri
         }
     except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
         logger.debug("suppressed: %s", e)
-        pass
-    return self
 
 
 def _numpy_view_of_numeric_X(_force_pandas, X, X_estimator, col_pos):
@@ -631,6 +707,17 @@ def _apply_auto_tune(self, X, y):
 
 def _stash_prescreen_universe(self, _prescreen, original_features, X, y, verbose):
     """Stash the pre-prescreen feature universe for the per-fold prescreen."""
+    # L7: optional prescreen pass. Restricts the MBH search universe to a smaller pre-filtered candidate set so the
+    # outer loop converges faster on high-p data. The prescreen sees the (X[original_features], y) AFTER must_include filtering, so
+    # pinned features always remain in the final support_ regardless of prescreen output.
+    # SELECTION-OPTIMISM CAVEAT (audit4-C): the prescreen pre-filters the feature UNIVERSE using the
+    # WHOLE (X, y) - including the rows that later serve as CV test folds - so the ``cv_mean_perf`` that drives
+    # the nfeatures pick is an IN-UNIVERSE estimate, mildly OPTIMISTIC vs a fully-nested one (the surviving
+    # candidates were chosen with full-y knowledge). This is a leakage into the SELECTION METRIC, not the final
+    # fitted model. A fully-honest estimate would nest the prescreen inside each CV fold, but the outer optimiser
+    # searches nfeatures over a FIXED universe, so per-fold prescreening is architecturally incompatible here.
+    # Treat ``cv_mean_perf`` with a prescreen as a ranking signal, not an unbiased generalisation estimate; take
+    # the honest number from a truly held-out evaluation. Default is prescreen=None (no optimism).
     if _prescreen is not None and len(original_features) > 0:
         # Stash the PRE-prescreen universe so the nested per-fold prescreen (below) can re-derive, on each fold's
         # train rows, which of these features would survive - a feature kept globally only via test-fold leakage

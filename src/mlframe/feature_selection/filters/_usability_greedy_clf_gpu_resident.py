@@ -67,16 +67,39 @@ _C = 1.0  # sklearn LogisticRegression default inverse-regularisation strength
 _LOGLOSS_EPS = 1e-15
 
 
+# Why MULTICLASS stays on the exact CPU path in ``usability_greedy_clf_gpu_resident`` (the in-function branch returns None for n_classes > 2):
+# MULTICLASS is kept on the CPU path (evidence-based, not assumed). sklearn 1.x
+# LogisticRegression ALWAYS fits multinomial (softmax) for >2 classes via lbfgs, in the
+# SYMMETRIC (over-parametrised, full C-class) coefficient space, applying the L2 penalty
+# (C=1.0) to those symmetric coefficients with the intercept UNPENALISED. Two roads, both
+# re-measured with fresh evidence (sklearn 1.8.0, GTX 1050 Ti / cupy 13.6):
+#
+#   (1) A resident Newton in sklearn's OWN symmetric basis is structurally SINGULAR. The
+#       per-class block Hessian has the softmax sum-to-zero null direction; the L2 penalty
+#       does break the slope null but the intercept is UNPENALISED (reg=0), so the null
+#       survives in the intercept and ``cp.linalg.solve`` returns a garbage step along it
+#       -> the line search collapses to t~1e-16 and the objective blows up to NaN. lbfgs
+#       (gradient-only, no Hessian inverse) tolerates this; a direct Newton cannot.
+#   (2) A resident Newton in a NON-singular REDUCED (C-1, baseline-class-0) basis converges,
+#       but to a DIFFERENT regularised optimum: the L2 penalty in the baseline-relative basis
+#       is a genuinely different regulariser than sklearn's symmetric-basis penalty, so the
+#       probabilities differ (single 3-class fit: sklearn train-logloss 0.65829 vs reduced
+#       0.65879) and the per-fold CV-logloss differs at the improvement gate. Measured with a
+#       GUARANTEED-CONVERGED reduced multinomial (scipy L-BFGS-B to the optimum, ftol 1e-14,
+#       gtol 1e-10 - so this is the GAUGE effect, not solver instability): on the 3-class +
+#       4-class usability fixtures x 6 seeds x {strong,weak} (24 cases) the reduced selection
+#       FLIPPED sklearn's on 9/24 (systematically over-selecting, e.g. appending 'ab'/'c'):
+#         3cls strong seed2: sklearn [a,b,f,cd]      vs reduced [a,b,f,cd,ab]
+#         4cls strong seed0: sklearn [a,b,f,cd]      vs reduced [a,b,f,cd,ab,c]
+#         4cls weak   seed3: sklearn [a,cd,b,f,ab]   vs reduced [a,cd,b,f,ab,c]   (+6 more)
+#
+# The bar is SELECTION-EQUIVALENCE. (1) cannot run, (2) flips 9/24 selections by the gauge
+# alone, so a resident multinomial must NOT ship; multiclass stays on the exact CPU sklearn
+# path. (Binary is selection-equivalent and DOES run - the binary L2 Newton is non-singular.)
+
+
 def usability_greedy_clf_gpu_resident(
-    pool: list,
-    y_cont: np.ndarray,
-    *,
-    w: float = 0.7,
-    K: int = 8,
-    seed: int = 0,
-    n_folds: int = 4,
-    mae_improve_rel: float = 0.01,
-    shortlist: int = 40,
+    pool: list, y_cont: np.ndarray, *, w: float = 0.7, K: int = 8, seed: int = 0, n_folds: int = 4, mae_improve_rel: float = 0.01, shortlist: int = 40,
     shortlist_diversity_corr: float = 0.97,
 ) -> Optional[list]:
     """Resident twin of the CLASSIFICATION branch of :func:`usability_greedy`.
@@ -112,34 +135,7 @@ def usability_greedy_clf_gpu_resident(
         if n_classes < 2:
             return None  # CPU returns [] for <2 classes; [] != a selection here, so defer to CPU
         if n_classes > 2:
-            # MULTICLASS is kept on the CPU path (evidence-based, not assumed). sklearn 1.x
-            # LogisticRegression ALWAYS fits multinomial (softmax) for >2 classes via lbfgs, in the
-            # SYMMETRIC (over-parametrised, full C-class) coefficient space, applying the L2 penalty
-            # (C=1.0) to those symmetric coefficients with the intercept UNPENALISED. Two roads, both
-            # re-measured with fresh evidence (sklearn 1.8.0, GTX 1050 Ti / cupy 13.6):
-            #
-            #   (1) A resident Newton in sklearn's OWN symmetric basis is structurally SINGULAR. The
-            #       per-class block Hessian has the softmax sum-to-zero null direction; the L2 penalty
-            #       does break the slope null but the intercept is UNPENALISED (reg=0), so the null
-            #       survives in the intercept and ``cp.linalg.solve`` returns a garbage step along it
-            #       -> the line search collapses to t~1e-16 and the objective blows up to NaN. lbfgs
-            #       (gradient-only, no Hessian inverse) tolerates this; a direct Newton cannot.
-            #   (2) A resident Newton in a NON-singular REDUCED (C-1, baseline-class-0) basis converges,
-            #       but to a DIFFERENT regularised optimum: the L2 penalty in the baseline-relative basis
-            #       is a genuinely different regulariser than sklearn's symmetric-basis penalty, so the
-            #       probabilities differ (single 3-class fit: sklearn train-logloss 0.65829 vs reduced
-            #       0.65879) and the per-fold CV-logloss differs at the improvement gate. Measured with a
-            #       GUARANTEED-CONVERGED reduced multinomial (scipy L-BFGS-B to the optimum, ftol 1e-14,
-            #       gtol 1e-10 - so this is the GAUGE effect, not solver instability): on the 3-class +
-            #       4-class usability fixtures x 6 seeds x {strong,weak} (24 cases) the reduced selection
-            #       FLIPPED sklearn's on 9/24 (systematically over-selecting, e.g. appending 'ab'/'c'):
-            #         3cls strong seed2: sklearn [a,b,f,cd]      vs reduced [a,b,f,cd,ab]
-            #         4cls strong seed0: sklearn [a,b,f,cd]      vs reduced [a,b,f,cd,ab,c]
-            #         4cls weak   seed3: sklearn [a,cd,b,f,ab]   vs reduced [a,cd,b,f,ab,c]   (+6 more)
-            #
-            # The bar is SELECTION-EQUIVALENCE. (1) cannot run, (2) flips 9/24 selections by the gauge
-            # alone, so a resident multinomial must NOT ship; multiclass stays on the exact CPU sklearn
-            # path. (Binary is selection-equivalent and DOES run - the binary L2 Newton is non-singular.)
+            # MULTICLASS stays on the exact CPU sklearn path; see the note above this function for the evidence.
             return None
         n = int(y_enc.shape[0])
         if n < 2:

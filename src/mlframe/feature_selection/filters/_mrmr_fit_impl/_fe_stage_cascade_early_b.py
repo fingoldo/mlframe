@@ -14,6 +14,7 @@ via ``pyutilz.dev.freevar_analysis`` never reassigned here, only read, so no ret
 
 from __future__ import annotations
 
+from typing import Any
 import logging
 import warnings
 
@@ -145,6 +146,19 @@ def _fe_stage_cascade_early_b(
     # Recipes route through ``hybrid_orth_features_`` so the end-of-fit
     # remap (Layer 23 pattern) routes them into ``_engineered_recipes_``.
     self.count_encoding_features_ = []
+    X_acc = _fe_stage_cascade_early_b_part1(
+        self, _fe_family_on, X, _y_np, X_acc, _count_enc_pre_recipes, verbose, _freq_enc_pre_recipes, _cat_num_pre_recipes, _fit_entry_nan_mask,
+        _raw_input_cols_pre_fe, _miss_ind_pre_recipes, _miss_cnt_pre_recipes, _miss_pat_pre_recipes,
+    )
+    return _fe_merge_new_columns(X_acc, _stage_pairwise_ratio_family(self, _fe_family_on, X, _y_np, _ratio_pre_recipes, verbose, _log_ratio_pre_recipes, _grouped_delta_pre_recipes, _lagged_diff_pre_recipes), X)
+
+
+def _fe_stage_cascade_early_b_part1(
+    self: Any, _fe_family_on: Any, X: Any, _y_np: Any, X_acc: Any, _count_enc_pre_recipes: Any, verbose: Any, _freq_enc_pre_recipes: Any,
+    _cat_num_pre_recipes: Any, _fit_entry_nan_mask: Any, _raw_input_cols_pre_fe: Any, _miss_ind_pre_recipes: Any, _miss_cnt_pre_recipes: Any,
+    _miss_pat_pre_recipes: Any,
+) -> Any:
+    """Extracted block of ``_fe_stage_cascade_early_b`` (part 1); returns the names the caller still uses."""
     self.frequency_encoding_features_ = []
     self.cat_num_interaction_features_ = []
     if (
@@ -277,7 +291,7 @@ def _fe_stage_cascade_early_b(
     # coverage no clean form expresses (CASE2). Empty when no gate fired.
     self._gate_col_src_vars_ = {}
     self.group_distance_features_ = []
-    return _fe_merge_new_columns(X_acc, _stage_pairwise_ratio_family(self, _fe_family_on, X, _y_np, _ratio_pre_recipes, verbose, _log_ratio_pre_recipes, _grouped_delta_pre_recipes, _lagged_diff_pre_recipes), X)
+    return X_acc
 
 
 def _stage_missingness_family(self, X, _fit_entry_nan_mask, _y_np, _raw_input_cols_pre_fe, _miss_ind_pre_recipes, verbose, _miss_cnt_pre_recipes, _miss_pat_pre_recipes):

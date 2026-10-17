@@ -81,6 +81,73 @@ def _line(self, fig, p: LinePanelSpec, row: int, col: int) -> None:
             row=row, col=col,
         )
 
+    _line_series_traces(fig, p, go, row, col, ys, styles, fills, sec, has_secondary, cols, labels, _STYLE_MAP, _xi)
+
+    _line_vspans_and_vlines(self, fig, p, go, row, col, _STACKED_LABEL_SHIFT_PX, pd_timestamp)
+
+    _marker_traces = [
+        # Marker only, with the label on the legend entry and the hover -- not printed beside the point as
+        # well. Carrying it in both places captioned every operating point twice, and the printed copy
+        # overhung the panel exactly as it did on the matplotlib twin.
+        go.Scatter(x=[mx], y=[my], mode="markers",
+                   marker=dict(color=mcolor, size=13, symbol=_marker_symbol(msym),
+                               line=dict(color="black", width=0.6)),
+                   hovertext=[mlabel or ""], hoverinfo="text" if mlabel else "skip",
+                   name=mlabel or None, showlegend=bool(mlabel))
+        for mx, my, mlabel, mcolor, msym in p.point_markers or ()
+    ]
+    if _marker_traces:
+        fig.add_traces(_marker_traces, rows=[row] * len(_marker_traces), cols=[col] * len(_marker_traces))
+
+    # ``x_is_time`` with a NUMERIC x means epoch nanoseconds; rotating the labels (all this used to do)
+    # leaves them reading "1.62e18". ``epoch_ns_ticks`` no-ops on an already-datetime axis.
+    # See the matplotlib twin: builders set ylim deliberately and no line-panel path honoured it.
+    _ylim = getattr(p, "ylim", None)
+    if _ylim is not None:
+        fig.update_yaxes(range=[float(_ylim[0]), float(_ylim[1])], row=row, col=col, secondary_y=False)
+    _xkw: dict = dict(title_text=p.xlabel, row=row, col=col, showgrid=p.grid, tickangle=-30 if p.x_is_time else 0)
+    _xlim = getattr(p, "xlim", None)
+    if _xlim is not None:
+        _xkw["range"] = [float(_xlim[0]), float(_xlim[1])]
+    # The COUNT comes from the panel's own width, not the helper's fixed six: a -30-degree date label needs
+    # real room, and the fixed count crowds a narrow panel exactly as a fixed cap crowded the heatmap ticks.
+    _n_dates = 6
+    if p.x_is_time:
+        _cols = len(fig._grid_ref[0]) if getattr(fig, "_grid_ref", None) else 1
+        _panel_w_in = _figure_width_px(fig) / _PX_PER_INCH / max(_cols, 1)
+        _n_dates = ticks_that_fit(_panel_w_in, 6, floor=2, pitch_in=rotated_tick_pitch_in(8, 30))
+    _tv, _tt = epoch_ns_ticks(_xi(0), n_ticks=_n_dates) if p.x_is_time else (None, None)
+    if _tv is not None:
+        _xkw.update(tickmode="array", tickvals=_tv, ticktext=_tt)
+    _x_tick_labels = getattr(p, "x_tick_labels", None)
+    if _x_tick_labels is not None:
+        _xkw.update(tickmode="array", tickvals=list(_xi(0)), ticktext=list(_x_tick_labels), tickangle=-30)
+    fig.update_xaxes(**_xkw)
+    _ykw: dict = dict(title_text=p.ylabel, row=row, col=col, showgrid=p.grid, secondary_y=False)
+    if getattr(p, "yscale", "linear") == "log":
+        _ykw["type"] = "log"
+    fig.update_yaxes(**_ykw)
+    if has_secondary:
+        fig.update_yaxes(title_text=p.secondary_ylabel, row=row, col=col, secondary_y=True, showgrid=False)
+
+
+def _line_series_traces(
+    fig: Any,
+    p: LinePanelSpec,
+    go: Any,
+    row: int,
+    col: int,
+    ys: Any,
+    styles: Any,
+    fills: Any,
+    sec: Any,
+    has_secondary: bool,
+    cols: Any,
+    labels: Any,
+    _STYLE_MAP: dict,
+    _xi: Any,
+) -> None:
+    """Add one trace per series (style, optional fill-to-baseline helper trace, secondary-y routing)."""
     for i, y in enumerate(ys):
         token = styles[i % len(styles)]  # nosec B105 - not a credential -- config/format token label or sentinel string constant
         if token == "markers":  # nosec B105 - identifier/config-key name matched by heuristic, not an embedded credential
@@ -137,6 +204,18 @@ def _line(self, fig, p: LinePanelSpec, row: int, col: int) -> None:
             row=row, col=col, **sec_kw,
         )
 
+
+def _line_vspans_and_vlines(
+    self: Any,
+    fig: Any,
+    p: LinePanelSpec,
+    go: Any,
+    row: int,
+    col: int,
+    _STACKED_LABEL_SHIFT_PX: int,
+    pd_timestamp: Any,
+) -> None:
+    """Add the panel's vertical spans and vertical lines (with stacked labels) as batched shapes, traces and annotations."""
     _vspan_rows = self._label_rows(
         [sp[0] for sp in (p.vspans or ())],
         [(sp[4] if len(sp) > 4 else "") for sp in (p.vspans or ())],
@@ -183,51 +262,6 @@ def _line(self, fig, p: LinePanelSpec, row: int, col: int) -> None:
         fig.layout.shapes = tuple(fig.layout.shapes) + tuple(_line_shapes)
     if _line_annotations:
         fig.layout.annotations = tuple(fig.layout.annotations) + tuple(_line_annotations)
-
-    _marker_traces = [
-        # Marker only, with the label on the legend entry and the hover -- not printed beside the point as
-        # well. Carrying it in both places captioned every operating point twice, and the printed copy
-        # overhung the panel exactly as it did on the matplotlib twin.
-        go.Scatter(x=[mx], y=[my], mode="markers",
-                   marker=dict(color=mcolor, size=13, symbol=_marker_symbol(msym),
-                               line=dict(color="black", width=0.6)),
-                   hovertext=[mlabel or ""], hoverinfo="text" if mlabel else "skip",
-                   name=mlabel or None, showlegend=bool(mlabel))
-        for mx, my, mlabel, mcolor, msym in p.point_markers or ()
-    ]
-    if _marker_traces:
-        fig.add_traces(_marker_traces, rows=[row] * len(_marker_traces), cols=[col] * len(_marker_traces))
-
-    # ``x_is_time`` with a NUMERIC x means epoch nanoseconds; rotating the labels (all this used to do)
-    # leaves them reading "1.62e18". ``epoch_ns_ticks`` no-ops on an already-datetime axis.
-    # See the matplotlib twin: builders set ylim deliberately and no line-panel path honoured it.
-    _ylim = getattr(p, "ylim", None)
-    if _ylim is not None:
-        fig.update_yaxes(range=[float(_ylim[0]), float(_ylim[1])], row=row, col=col, secondary_y=False)
-    _xkw: dict = dict(title_text=p.xlabel, row=row, col=col, showgrid=p.grid, tickangle=-30 if p.x_is_time else 0)
-    _xlim = getattr(p, "xlim", None)
-    if _xlim is not None:
-        _xkw["range"] = [float(_xlim[0]), float(_xlim[1])]
-    # The COUNT comes from the panel's own width, not the helper's fixed six: a -30-degree date label needs
-    # real room, and the fixed count crowds a narrow panel exactly as a fixed cap crowded the heatmap ticks.
-    _n_dates = 6
-    if p.x_is_time:
-        _cols = len(fig._grid_ref[0]) if getattr(fig, "_grid_ref", None) else 1
-        _panel_w_in = _figure_width_px(fig) / _PX_PER_INCH / max(_cols, 1)
-        _n_dates = ticks_that_fit(_panel_w_in, 6, floor=2, pitch_in=rotated_tick_pitch_in(8, 30))
-    _tv, _tt = epoch_ns_ticks(_xi(0), n_ticks=_n_dates) if p.x_is_time else (None, None)
-    if _tv is not None:
-        _xkw.update(tickmode="array", tickvals=_tv, ticktext=_tt)
-    _x_tick_labels = getattr(p, "x_tick_labels", None)
-    if _x_tick_labels is not None:
-        _xkw.update(tickmode="array", tickvals=list(_xi(0)), ticktext=list(_x_tick_labels), tickangle=-30)
-    fig.update_xaxes(**_xkw)
-    _ykw: dict = dict(title_text=p.ylabel, row=row, col=col, showgrid=p.grid, secondary_y=False)
-    if getattr(p, "yscale", "linear") == "log":
-        _ykw["type"] = "log"
-    fig.update_yaxes(**_ykw)
-    if has_secondary:
-        fig.update_yaxes(title_text=p.secondary_ylabel, row=row, col=col, secondary_y=True, showgrid=False)
 
 
 def _add_vspans(p, _span_shapes, go, _xref, _yref, _span_traces, _span_annotations, _vspan_rows):

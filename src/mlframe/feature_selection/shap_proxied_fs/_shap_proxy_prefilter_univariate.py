@@ -122,6 +122,49 @@ def _coerce_2d_float(X) -> np.ndarray:
     return np.asarray(X)
 
 
+def _stable_class_ss(
+    chunk: np.ndarray,
+    grand_sum: np.ndarray,
+    n_per_class: np.ndarray,
+    indicators: Optional[np.ndarray],
+    masks: list,
+    acc_dtype: np.dtype,
+    gemm_active: bool,
+    N: int,
+    K: int,
+    b: int,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Centred (against the grand mean) total and between-class sums of squares for one column chunk; returns ``(sst, ssbn)``."""
+    chunk_c = chunk.astype(acc_dtype, copy=False) - (grand_sum / acc_dtype.type(N))
+    if gemm_active and indicators is not None:
+        sums_c = indicators @ chunk_c
+        sumsq_c = indicators @ (chunk_c * chunk_c)
+    else:
+        sums_c = np.empty((K, b), dtype=acc_dtype)
+        sumsq_c = np.empty((K, b), dtype=acc_dtype)
+        for k, mask in enumerate(masks):
+            block_c = chunk_c[mask, :]
+            sums_c[k] = block_c.sum(axis=0)
+            sumsq_c[k] = (block_c * block_c).sum(axis=0)
+    sst = sumsq_c.sum(axis=0)
+    ssbn = (sums_c * sums_c / n_per_class[:, None]).sum(axis=0)
+    return sst, ssbn
+
+
+def _per_class_sums_legacy(chunk: np.ndarray, masks: list, acc_dtype: np.dtype, K: int, b: int) -> tuple[np.ndarray, np.ndarray]:
+    """Legacy K-loop per-class column sums and sums of squares (sklearn bit-parity path); returns ``(sums, sumsq)``."""
+    sums = np.empty((K, b), dtype=acc_dtype)
+    sumsq = np.empty((K, b), dtype=acc_dtype)
+    for k, mask in enumerate(masks):
+        block = chunk[mask, :]  # (n_k, b)
+        sums[k] = block.sum(axis=0)
+        # Use (block * block).sum to match sklearn's safe_sqr(a).sum(axis=0) accumulation
+        # order. einsum would route through a BLAS dot that reorders sums and breaks
+        # bit-parity with sklearn under float32.
+        sumsq[k] = (block * block).sum(axis=0)
+    return sums, sumsq
+
+
 def f_classif_chunked(
     X: pd.DataFrame | np.ndarray,
     y: Any,
@@ -214,15 +257,7 @@ def f_classif_chunked(
             chunk_sq = chunk * chunk
             sumsq = indicators @ chunk_sq
         else:
-            sums = np.empty((K, b), dtype=acc_dtype)
-            sumsq = np.empty((K, b), dtype=acc_dtype)
-            for k, mask in enumerate(masks):
-                block = chunk[mask, :]  # (n_k, b)
-                sums[k] = block.sum(axis=0)
-                # Use (block * block).sum to match sklearn's safe_sqr(a).sum(axis=0) accumulation
-                # order. einsum would route through a BLAS dot that reorders sums and breaks
-                # bit-parity with sklearn under float32.
-                sumsq[k] = (block * block).sum(axis=0)
+            sums, sumsq = _per_class_sums_legacy(chunk, masks, acc_dtype, K, b)
         grand_sum = sums.sum(axis=0)  # (b,)
         total_sumsq = sumsq.sum(axis=0)  # (b,)
         correction = (grand_sum * grand_sum) / acc_dtype.type(N)
@@ -230,19 +265,7 @@ def f_classif_chunked(
             # Re-accumulate against the grand mean. `sst` is then a sum of squares of deviations -- every term
             # non-negative, nothing subtracted -- and the between-class term needs no `correction` either,
             # because the centred grand sum is zero by construction.
-            chunk_c = chunk.astype(acc_dtype, copy=False) - (grand_sum / acc_dtype.type(N))
-            if gemm_active and indicators is not None:
-                sums_c = indicators @ chunk_c
-                sumsq_c = indicators @ (chunk_c * chunk_c)
-            else:
-                sums_c = np.empty((K, b), dtype=acc_dtype)
-                sumsq_c = np.empty((K, b), dtype=acc_dtype)
-                for k, mask in enumerate(masks):
-                    block_c = chunk_c[mask, :]
-                    sums_c[k] = block_c.sum(axis=0)
-                    sumsq_c[k] = (block_c * block_c).sum(axis=0)
-            sst = sumsq_c.sum(axis=0)
-            ssbn = (sums_c * sums_c / n_per_class[:, None]).sum(axis=0)
+            sst, ssbn = _stable_class_ss(chunk, grand_sum, n_per_class, indicators, masks, acc_dtype, gemm_active, N, K, b)
         else:
             sst = total_sumsq - correction
             ssbn = (sums * sums / n_per_class[:, None]).sum(axis=0) - correction

@@ -81,6 +81,56 @@ def _detector_requires_fit_predict(outlier_detector: Any) -> bool:
     return hasattr(outlier_detector, "fit_predict") and not hasattr(outlier_detector, "predict")
 
 
+def _numeric_only_view(df_: Any) -> Any:
+    """Select numeric/boolean columns for whichever frame flavour is passed; returns the input unchanged when it's already all-numeric (no copy)."""
+    if isinstance(df_, pl.DataFrame):
+        numeric_cols = [name for name, dt in df_.schema.items() if dt.is_numeric() or dt == pl.Boolean]
+        return df_.select(numeric_cols) if len(numeric_cols) != len(df_.columns) else df_
+    if hasattr(df_, "select_dtypes"):
+        return df_.select_dtypes(include=["number", "bool"])
+    return df_
+
+
+def _filter_df_by_mask(_df: Any, mask: Any) -> Any:
+    """Boolean-mask row filter, dispatched per frame flavour (polars ``.filter`` vs pandas ``.loc``)."""
+    if isinstance(_df, pl.DataFrame):
+        return _df.filter(pl.Series(mask))
+    return _df.loc[mask]
+
+
+def _train_od_destroys_classes(targets_for_classbalance: dict[str, Any] | None, train_idx: np.ndarray, train_od_idx: np.ndarray) -> bool:
+    """True when applying the inlier mask would leave some target with fewer than 2 classes in train (the OD filter must then be skipped)."""
+    if not targets_for_classbalance:
+        return False
+    for _tn, _tv in targets_for_classbalance.items():
+        if _tv is None:
+            continue
+        try:
+            _y_pre = _tv[train_idx] if isinstance(_tv, (np.ndarray, pl.Series)) else _tv.iloc[train_idx]
+            _y_post = _tv[train_idx[train_od_idx]] if isinstance(_tv, (np.ndarray, pl.Series)) else _tv.iloc[train_idx[train_od_idx]]
+            _arr_pre = np.asarray(_y_pre)
+            _arr_post = np.asarray(_y_post)
+            _flat_pre = _arr_pre.flatten() if _arr_pre.ndim > 1 else _arr_pre
+            _flat_post = _arr_post.flatten() if _arr_post.ndim > 1 else _arr_post
+            if len(labelled_unique(_flat_pre)) >= 2 and len(labelled_unique(_flat_post)) < 2:
+                log_throttle(
+                    logger, "outliers_od_destroys_classes_train", logging.ERROR,
+                    "Outlier detection would eliminate the entire minority "
+                    "class from train target '%s' (pre-OD unique=%d, post-OD "
+                    "unique=%d). Typical cause: a feature highly correlated "
+                    "with the target (e.g. label-leak feature) drives the "
+                    "unsupervised OD to flag the rare class as outliers. "
+                    "Skipping OD filter for train; original train_df retained.",
+                    _tn,
+                    len(labelled_unique(_flat_pre)),
+                    len(labelled_unique(_flat_post)),
+                )
+                return True
+        except (IndexError, KeyError, ValueError, TypeError, AttributeError) as _exc:
+            log_throttle(logger, "outliers_classbalance_precheck_train_failed", logging.WARNING, "Class-balance pre-check failed for target %s: %s", _tn, _exc)
+    return False
+
+
 def _apply_outlier_detection_global(
     train_df: pd.DataFrame,
     val_df: pd.DataFrame | None,
@@ -111,15 +161,6 @@ def _apply_outlier_detection_global(
     # call so polars and pandas paths stay symmetric. bench-attempt-rejected: caching the numeric column list across the train + val calls
     # would require asserting train+val schemas match, but val can legitimately have different dtypes (e.g. early-rare-category never seen in train);
     # the per-call schema iteration is ~us on typical column counts so the cache adds maintenance burden without measurable wall gain.
-    def _numeric_only_view(df_):
-        """Select numeric/boolean columns for whichever frame flavour is passed; returns the input unchanged when it's already all-numeric (no copy)."""
-        if isinstance(df_, pl.DataFrame):
-            numeric_cols = [name for name, dt in df_.schema.items() if dt.is_numeric() or dt == pl.Boolean]
-            return df_.select(numeric_cols) if len(numeric_cols) != len(df_.columns) else df_
-        if hasattr(df_, "select_dtypes"):
-            return df_.select_dtypes(include=["number", "bool"])
-        return df_
-
     _train_numeric = _numeric_only_view(train_df)
     # LocalOutlierFactor and OneClassSVM reject NaN inputs (unlike IsolationForest which
     # tolerates NaN on recent sklearn). The mlframe outlier-detection step runs BEFORE
@@ -154,47 +195,13 @@ def _apply_outlier_detection_global(
     filtered_train_df = train_df
     filtered_train_idx = train_idx
 
-    def _filter_df_by_mask(_df, mask):
-        """Boolean-mask row filter, dispatched per frame flavour (polars ``.filter`` vs pandas ``.loc``)."""
-        if isinstance(_df, pl.DataFrame):
-            return _df.filter(pl.Series(mask))
-        return _df.loc[mask]
-
     train_kept = train_od_idx.sum()
     if train_kept < len(train_df):
         # When OD is fit on features that include a label-correlated leak feature, the unsupervised
         # detector can flag the rare class as outliers and remove it entirely, leaving train with
         # one unique target and crashing CB/XGB deep in C++. Skip the OD filter when this would
         # happen; fit stays intact for diagnostic logging via train_od_idx.
-        _od_destroys_classes = False
-        if targets_for_classbalance:
-            for _tn, _tv in targets_for_classbalance.items():
-                if _tv is None:
-                    continue
-                try:
-                    _y_pre = _tv[train_idx] if isinstance(_tv, (np.ndarray, pl.Series)) else _tv.iloc[train_idx]
-                    _y_post = _tv[train_idx[train_od_idx]] if isinstance(_tv, (np.ndarray, pl.Series)) else _tv.iloc[train_idx[train_od_idx]]
-                    _arr_pre = np.asarray(_y_pre)
-                    _arr_post = np.asarray(_y_post)
-                    _flat_pre = _arr_pre.flatten() if _arr_pre.ndim > 1 else _arr_pre
-                    _flat_post = _arr_post.flatten() if _arr_post.ndim > 1 else _arr_post
-                    if len(labelled_unique(_flat_pre)) >= 2 and len(labelled_unique(_flat_post)) < 2:
-                        _od_destroys_classes = True
-                        log_throttle(
-                            logger, "outliers_od_destroys_classes_train", logging.ERROR,
-                            "Outlier detection would eliminate the entire minority "
-                            "class from train target '%s' (pre-OD unique=%d, post-OD "
-                            "unique=%d). Typical cause: a feature highly correlated "
-                            "with the target (e.g. label-leak feature) drives the "
-                            "unsupervised OD to flag the rare class as outliers. "
-                            "Skipping OD filter for train; original train_df retained.",
-                            _tn,
-                            len(labelled_unique(_flat_pre)),
-                            len(labelled_unique(_flat_post)),
-                        )
-                        break
-                except (IndexError, KeyError, ValueError, TypeError, AttributeError) as _exc:
-                    log_throttle(logger, "outliers_classbalance_precheck_train_failed", logging.WARNING, "Class-balance pre-check failed for target %s: %s", _tn, _exc)
+        _od_destroys_classes = _train_od_destroys_classes(targets_for_classbalance, train_idx, train_od_idx)
         if not _od_destroys_classes:
             logger.info("Outlier rejection: %d train samples -> %d kept.", len(train_df), train_kept)
             filtered_train_df = _filter_df_by_mask(train_df, train_od_idx)

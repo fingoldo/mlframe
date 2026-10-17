@@ -129,40 +129,8 @@ def _in_and_out_of_bag(X, y_arr, idx, n_samples: int, is_df: bool):
     return X_sub, y_sub, (X.iloc[oob_idx] if is_df else X[oob_idx]), y_arr[oob_idx]
 
 
-def _fit_stability_selection(self, X, y, signature):
-    """Stability Selection (Meinshausen & Buhlmann 2010, JRSS-B).
-
-    Bootstrap-based feature selection. For each of B bootstrap subsamples (n/2, no replacement), fit the estimator(s) and record which
-    features appeared in the top-K by importance. A feature is selected if its appearance frequency >= ``stability_threshold``
-    (typically 0.6-0.9). Provable error control: E[V] <= q^2 / ((2*pi - 1) * p), where q is the average number of selected features
-    per bootstrap and pi is the threshold. This bound is now computed and exposed as ``self.stability_pfer_bound_`` (and surfaced under
-    ``cv_results_['pfer_bound']``) so callers can check the selection against a false-positive budget; it is ``nan`` when ``pi <= 0.5``
-    (no finite control). With the default per-run top-K = p/4, ``q ~ p/4`` and the implied bound can be large - lower ``stability_top_k``
-    or raise ``stability_threshold`` to tighten it.
-
-    Particularly robust on small-n / high-p problems where per-fold CV voting is dominated by sampling noise. If ``self.estimators`` is
-    set, FI is averaged across them inside each bootstrap.
-    """
-    # Docstring must be the FIRST statement to bind to __doc__; the n_samples
-    # guard below was previously placed above it, leaving __doc__ unset and
-    # the literal evaluated-and-discarded on every call.
-    # E12: floor n_samples for stability selection. With
-    # n<20 the n/2 sub_size becomes <=10 and per-bootstrap FI is noise; the
-    # threshold-based selection then picks essentially-random features.
-    if X.shape[0] < 20:
-        raise ValueError(
-            f"stability_selection requires n_samples >= 20; got n={X.shape[0]}. "
-            f"With n/2 sub_size below 10 the bootstrap FI signal is dominated "
-            f"by sampling noise. Use the regular MBH path or increase n."
-        )
-    estimators_list = list(self.estimators) if self.estimators else [self.estimator]
-    importance_getter = self.importance_getter if self.importance_getter else "auto"
-    rng = np.random.default_rng(self.random_state)
-    is_df = isinstance(X, pd.DataFrame)
-    n_samples = X.shape[0]
-    n_features = X.shape[1]
-    feature_names = X.columns.tolist() if is_df else [str(i) for i in range(n_features)]
-
+def _stability_wide_data_guard(self: Any, importance_getter: Any, n_features: int) -> Any:
+    """Apply the wide-data permutation-FI cost guard, set ``self._effective_n_repeats`` and return the (possibly downgraded) importance getter."""
     # Wide-data perm-FI cost guard: mirror RFECV.fit's MBH-path guard on the stability-selection path.
     # Permutation / conditional-permutation importance rescore the model O(p * n_repeats) times PER BOOTSTRAP; over
     # stability_n_bootstrap replicates of a wide frame this is prohibitive. When wide_data_fi_fallback (default True) and
@@ -185,24 +153,26 @@ def _fit_stability_selection(self, X, y, signature):
             if _eff_n_repeats > _cap and n_features > max(1, _threshold // 4):
                 _eff_n_repeats = _cap
     self._effective_n_repeats = _eff_n_repeats
+    return importance_getter
 
-    top_k = self.stability_top_k
-    if top_k is None:
-        # Top quartile - generous enough that informative features clearly above the noise floor will hit threshold.
-        top_k = max(1, n_features // 4)
-    top_k = min(int(top_k), n_features)
 
-    # Subsample size: n/2, the standard Meinshausen-Buhlmann choice.
-    sub_size = max(2, n_samples // 2)
+def _run_stability_bootstraps(
+    self: Any,
+    X: Any,
+    y: Any,
+    *,
+    rng: np.random.Generator,
+    is_df: bool,
+    n_samples: int,
+    n_features: int,
+    feature_names: list,
+    estimators_list: list,
+    importance_getter: Any,
+    sub_size: int,
+    top_k: int,
+) -> np.ndarray:
+    """Run the ``stability_n_bootstrap`` subsample fits and return how often each feature landed in a bootstrap's positive-importance top-K."""
     selection_counts = np.zeros(n_features, dtype=int)
-
-    if self.verbose:
-        logger.info(
-            "stability_selection: B=%d bootstraps, sub_size=%d (of %d), "
-            "top_k=%d (of %d), threshold=%.2f, estimators=%d",
-            self.stability_n_bootstrap, sub_size, n_samples,
-            top_k, n_features, self.stability_threshold, len(estimators_list),
-        )
 
     # W1: self._fit_sample_weight_ was previously never read anywhere in this function - a caller
     # who validated their weighted-fit setup on the default (MBH) path, then flipped
@@ -277,6 +247,90 @@ def _fit_stability_selection(self, X, y, signature):
         # stability threshold - admitting noise into support_. A zero-FI feature is, by definition, not "selected" by this bootstrap.
         top_idx = top_idx[per_feature_score_sum[top_idx] > 0]
         selection_counts[top_idx] += 1
+    return selection_counts
+
+
+def _publish_stability_state(self: Any, feature_names: list, n_features: int, support_mask: np.ndarray, selection_freq: np.ndarray) -> None:
+    """Write the public fitted attributes of the stability path (same shape as the regular path)."""
+    # Public state: same shape as the regular path so transform / get_feature_names_out / selection_stability_ all work.
+    self.feature_names_in_ = list(feature_names)
+    self.n_features_in_ = n_features
+    self.support_ = support_mask
+    self.n_features_ = int(support_mask.sum())
+    self.estimators_ = {}
+    self.feature_importances_ = {}
+    self.selected_features_ = {}
+    # The stability path ranks features by IN-SAMPLE bootstrap selection frequency, NOT an honest
+    # held-out CV score. Exposing that frequency under ``cv_mean_perf`` (the key consumers read as a
+    # genuine OOF score in select_optimal_nfeatures_ / diagnostics) would mislabel it. Surface the
+    # frequency under its own key and leave cv_mean_perf NaN, since no held-out score is computed here.
+    self.cv_results_ = {
+        "nfeatures": [self.n_features_],
+        "cv_mean_perf": [float("nan")],
+        "cv_std_perf": [0.0],
+        "selection_frequency": [float(selection_freq[support_mask].mean()) if support_mask.any() else 0.0],
+        "pfer_bound": [self.stability_pfer_bound_],
+    }
+    # Per-feature stability frequencies for inspection / downstream weighting, aligned with feature_names_in_.
+    self.stability_selection_freq_ = selection_freq
+
+
+def _fit_stability_selection(self, X, y, signature):
+    """Stability Selection (Meinshausen & Buhlmann 2010, JRSS-B).
+
+    Bootstrap-based feature selection. For each of B bootstrap subsamples (n/2, no replacement), fit the estimator(s) and record which
+    features appeared in the top-K by importance. A feature is selected if its appearance frequency >= ``stability_threshold``
+    (typically 0.6-0.9). Provable error control: E[V] <= q^2 / ((2*pi - 1) * p), where q is the average number of selected features
+    per bootstrap and pi is the threshold. This bound is now computed and exposed as ``self.stability_pfer_bound_`` (and surfaced under
+    ``cv_results_['pfer_bound']``) so callers can check the selection against a false-positive budget; it is ``nan`` when ``pi <= 0.5``
+    (no finite control). With the default per-run top-K = p/4, ``q ~ p/4`` and the implied bound can be large - lower ``stability_top_k``
+    or raise ``stability_threshold`` to tighten it.
+
+    Particularly robust on small-n / high-p problems where per-fold CV voting is dominated by sampling noise. If ``self.estimators`` is
+    set, FI is averaged across them inside each bootstrap.
+    """
+    # Docstring must be the FIRST statement to bind to __doc__; the n_samples
+    # guard below was previously placed above it, leaving __doc__ unset and
+    # the literal evaluated-and-discarded on every call.
+    # E12: floor n_samples for stability selection. With
+    # n<20 the n/2 sub_size becomes <=10 and per-bootstrap FI is noise; the
+    # threshold-based selection then picks essentially-random features.
+    if X.shape[0] < 20:
+        raise ValueError(
+            f"stability_selection requires n_samples >= 20; got n={X.shape[0]}. "
+            f"With n/2 sub_size below 10 the bootstrap FI signal is dominated "
+            f"by sampling noise. Use the regular MBH path or increase n."
+        )
+    estimators_list = list(self.estimators) if self.estimators else [self.estimator]
+    importance_getter = self.importance_getter if self.importance_getter else "auto"
+    rng = np.random.default_rng(self.random_state)
+    is_df = isinstance(X, pd.DataFrame)
+    n_samples = X.shape[0]
+    n_features = X.shape[1]
+    feature_names = X.columns.tolist() if is_df else [str(i) for i in range(n_features)]
+
+    importance_getter = _stability_wide_data_guard(self, importance_getter, n_features)
+
+    top_k = self.stability_top_k
+    if top_k is None:
+        # Top quartile - generous enough that informative features clearly above the noise floor will hit threshold.
+        top_k = max(1, n_features // 4)
+    top_k = min(int(top_k), n_features)
+
+    # Subsample size: n/2, the standard Meinshausen-Buhlmann choice.
+    sub_size = max(2, n_samples // 2)
+    if self.verbose:
+        logger.info(
+            "stability_selection: B=%d bootstraps, sub_size=%d (of %d), "
+            "top_k=%d (of %d), threshold=%.2f, estimators=%d",
+            self.stability_n_bootstrap, sub_size, n_samples,
+            top_k, n_features, self.stability_threshold, len(estimators_list),
+        )
+
+    selection_counts = _run_stability_bootstraps(
+        self, X, y, rng=rng, is_df=is_df, n_samples=n_samples, n_features=n_features, feature_names=feature_names,
+        estimators_list=estimators_list, importance_getter=importance_getter, sub_size=sub_size, top_k=top_k,
+    )
 
     selection_freq = selection_counts / max(1, int(self.stability_n_bootstrap))
     support_mask = selection_freq >= float(self.stability_threshold)
@@ -302,27 +356,7 @@ def _fit_stability_selection(self, X, y, signature):
             if c in feature_names:
                 support_mask[feature_names.index(c)] = True
 
-    # Public state: same shape as the regular path so transform / get_feature_names_out / selection_stability_ all work.
-    self.feature_names_in_ = list(feature_names)
-    self.n_features_in_ = n_features
-    self.support_ = support_mask
-    self.n_features_ = int(support_mask.sum())
-    self.estimators_ = {}
-    self.feature_importances_ = {}
-    self.selected_features_ = {}
-    # The stability path ranks features by IN-SAMPLE bootstrap selection frequency, NOT an honest
-    # held-out CV score. Exposing that frequency under ``cv_mean_perf`` (the key consumers read as a
-    # genuine OOF score in select_optimal_nfeatures_ / diagnostics) would mislabel it. Surface the
-    # frequency under its own key and leave cv_mean_perf NaN, since no held-out score is computed here.
-    self.cv_results_ = {
-        "nfeatures": [self.n_features_],
-        "cv_mean_perf": [float("nan")],
-        "cv_std_perf": [0.0],
-        "selection_frequency": [float(selection_freq[support_mask].mean()) if support_mask.any() else 0.0],
-        "pfer_bound": [self.stability_pfer_bound_],
-    }
-    # Per-feature stability frequencies for inspection / downstream weighting, aligned with feature_names_in_.
-    self.stability_selection_freq_ = selection_freq
+    _publish_stability_state(self, feature_names, n_features, support_mask, selection_freq)
 
     self._selected_cols_cache = [c for c, s in zip(feature_names, support_mask) if s]
     # Refresh the params slot with POST-fit values before storing (fit may resolve params in place,
@@ -361,6 +395,151 @@ def _warn_if_smoothing_across_sparse_n(checked_nfeatures: Any) -> None:
             "so adjacent rows may mix unrelated regimes. Either set smooth_perf=0 or evaluate more N values.",
             max_gap, median_gap,
         )
+
+
+def _apply_pge_n_fp_control_cap(
+    self: Any,
+    nfeatures_arr: np.ndarray,
+    nonzero_mask: np.ndarray,
+    checked_nfeatures: Any,
+    cv_mean_perf: Any,
+    cv_std_perf: Any,
+    band_kind: Any,
+    use_all_fi_runs: bool,
+    use_last_fi_run_only: bool,
+    use_one_freshest_fi_run: bool,
+    use_fi_ranking: bool,
+    votes_aggregation_method: VotesAggregation,
+) -> bool:
+    """Cap a collapsed p>=n search at the FP-control ceiling; True when the cap fixed ``support_`` (the caller then returns)."""
+    # p>=n FP-control gate. On p>>n the elimination search routinely collapses to evaluating ONLY {N=0 dummy, N=full}: the per-step
+    # CV score is non-decreasing out to the full set, so every selection rule (argmax / 1-SE / plateau) is forced to pick N=full -
+    # i.e. ALL p features, which gives ZERO multiple-comparison control. When that collapse happens AND the full set is SE-significantly
+    # WORSE than the no-features dummy, selecting all p is never right. Instead of selecting the full set we CAP the selection at the
+    # FP-control ceiling ``max(20, p//3)`` features chosen by importance ranking: that keeps multiple-comparison inflation bounded
+    # (a controlled selector must not return ~all p) WHILE still recovering the genuinely-informative columns (the top-ceiling by
+    # importance includes them), so a noise-diluted-but-recoverable signal is no longer sacrificed. This is GATED to the p>=n regime
+    # (n_features_in_ >= n_samples) and to the collapsed-search case (the only non-zero candidate IS the full set), so the well-powered
+    # p<n path - where the search explores intermediate N and the 1-SE rule legitimately recovers signal - is untouched. An earlier
+    # version of this gate ABSTAINED (returned empty support_) here; that broke signal-bearing high-dim selection (it fired on
+    # overfit-but-recoverable high-dim too, not just pure noise), so it was replaced by the bounded cap. The even-earlier unconditional
+    # below-dummy reject (bench-attempt-rejected 2026-06-11, see below) was worse still - it fired on p<n collapses too.
+    n_samples_fit = getattr(self, "_n_samples_fit_", None)
+    p_in = int(getattr(self, "n_features_in_", 0))
+    nz_candidates = nfeatures_arr[nonzero_mask]
+    if n_samples_fit is not None and p_in >= int(n_samples_fit) and nz_candidates.size == 1 and int(nz_candidates[0]) == p_in and (nfeatures_arr == 0).any():
+        _full_pos = int(np.flatnonzero(nonzero_mask)[0])
+        _zero_pos = int(np.flatnonzero(nfeatures_arr == 0)[0])
+        _mean = np.array(cv_mean_perf)
+        _std = np.array(cv_std_perf)
+        if np.isfinite(_mean[_full_pos]) and np.isfinite(_mean[_zero_pos]):
+            _full_se = float(band_half_width(_std, fold_counts(self, checked_nfeatures), band_kind)[_full_pos])
+            _full_se = _full_se if np.isfinite(_full_se) else 0.0
+            if _mean[_full_pos] + _full_se < _mean[_zero_pos]:
+                _cap = min(p_in, max(20, p_in // 3))
+                _ranking = _rank_features_by_importance(
+                    self,
+                    use_all_fi_runs=use_all_fi_runs,
+                    use_last_fi_run_only=use_last_fi_run_only,
+                    use_one_freshest_fi_run=use_one_freshest_fi_run,
+                    use_fi_ranking=use_fi_ranking,
+                    votes_aggregation_method=votes_aggregation_method,
+                    nfeatures=p_in,
+                )
+                if _ranking is not None and len(_ranking) > 0:
+                    _capped = _cap if _cap <= len(_ranking) else len(_ranking)
+                    _keep = set(_ranking[:_capped])
+                    self.support_ = np.array([f in _keep for f in self.feature_names_in_])
+                    self.n_features_ = int(self.support_.sum())
+                    self.consensus_ranking_ = list(_ranking)
+                else:
+                    # Importance ranking unavailable (no FI captured): keep the first ``_cap`` features by position.
+                    _capped = min(_cap, len(self.feature_names_in_))
+                    self.support_ = np.array([i < _capped for i in range(len(self.feature_names_in_))])
+                    self.n_features_ = int(self.support_.sum())
+                logger.warning(
+                    "select_optimal_nfeatures_: p>=n collapsed search ({N=0, N=%d}); the full set scores SE-worse than the no-features "
+                    "dummy. Capping selection at %d features (ceiling max(20, p//3)) by importance for multiple-comparison control "
+                    "instead of selecting all %d.",
+                    p_in, self.n_features_, p_in,
+                )
+                self.resolved_n_features_rule_ = f"{self.resolved_n_features_rule_}+p_ge_n_fp_control_cap"
+                return True
+    return False
+
+
+def _pick_best_idx_by_rule(
+    self: Any,
+    rule: str,
+    band_kind: Any,
+    ultimate_perf: np.ndarray,
+    nonzero_mask: np.ndarray,
+    nfeatures_arr: np.ndarray,
+    checked_nfeatures: Any,
+    cv_mean_perf: Any,
+    cv_std_perf: Any,
+    feature_cost: float,
+) -> Any:
+    """Index into ``checked_nfeatures`` of the subset size chosen by the argmax / one-SE / plateau ``rule``."""
+    if rule == "argmax":
+        # Pick the index with the highest ultimate_perf among the candidate N values; nonzero_mask honours max_nfeatures.
+        sorted_idx = np.argsort(ultimate_perf)[::-1]
+        best_idx = None
+        for idx in sorted_idx:
+            if nonzero_mask[idx]:
+                best_idx = idx
+                break
+    else:
+        # one_se_max / one_se_min: build the SE band around the best mean (cv_mean_perf - the *unadjusted* score, so 1-SE has its
+        # standard interpretation), then pick the largest or smallest N within the band.
+        # When ``feature_cost > 0`` use the cost-adjusted ``ultimate_perf`` for both the band reference and the band
+        # values, so the cost penalty actually bites under 1-SE rules too. Without this, feature_cost was silently a no-op under
+        # the new ``auto='one_se_max'`` default and the user's "shrink toward fewer features" hint was ignored.
+        if feature_cost and feature_cost > 0:
+            mean_arr = np.array(ultimate_perf)
+        else:
+            mean_arr = np.array(cv_mean_perf)
+        std_arr = np.array(cv_std_perf)
+        nz_idx = np.where(nonzero_mask)[0]
+        # mask out NaN candidates before argmax. cv_mean_perf
+        # can hold NaN when every fold for that N was degenerate
+        # (_helpers.py:337). Pre-fix np.argmax picks the NaN slot ->
+        # ``best_mean_idx`` refers to a never-evaluated N and the caller
+        # silently returns a bogus support_ for that count.
+        _finite_mask = np.isfinite(mean_arr[nz_idx])
+        if not _finite_mask.any():
+            raise ValueError(
+                "RFECV: cv_mean_perf is all-NaN across non-zero "
+                "candidates; cannot pick a winner. Re-run with more "
+                "data or check that the inner-CV folds aren't all "
+                "degenerate (all-one-class)."
+            )
+        _finite_nz_idx = nz_idx[_finite_mask]
+        best_mean_idx = _finite_nz_idx[np.argmax(mean_arr[_finite_nz_idx])]
+        threshold = mean_arr[best_mean_idx] - band_half_width(std_arr, fold_counts(self, checked_nfeatures), band_kind)[best_mean_idx]
+        in_band = [i for i in nz_idx if mean_arr[i] >= threshold]
+        if not in_band:
+            in_band = [int(best_mean_idx)]
+        if rule == "one_se_max":
+            best_idx = max(in_band, key=lambda i: nfeatures_arr[i])
+        elif rule == "one_se_min":
+            best_idx = min(in_band, key=lambda i: nfeatures_arr[i])
+        elif rule == "plateau":
+            # Plateau-onset (round-2 R2r-6): smallest N whose mean is within 1 SE of the BEST mean achievable
+            # at >= that N - i.e. the point past which adding features yields no SE-significant gain. Sits
+            # between one_se_max (keeps ~all on flat tails) and one_se_min/knee (over-prunes a flat curve to a
+            # tiny N): it stops where the curve flattened, capturing the full achievable score parsimoniously.
+            _se = band_half_width(std_arr, fold_counts(self, checked_nfeatures), band_kind)[best_mean_idx]
+            _order = sorted(nz_idx, key=lambda i: nfeatures_arr[i])
+            best_idx = _order[-1]
+            for _pos, _i in enumerate(_order):
+                _future_best = max(mean_arr[j] for j in _order[_pos:])
+                if mean_arr[_i] >= _future_best - _se:
+                    best_idx = _i
+                    break
+        else:
+            raise ValueError(f"n_features_selection_rule={rule!r} not supported. " f"Use 'auto', 'argmax', 'one_se_max', 'one_se_min', 'one_se_max_foldstd', 'one_se_min_foldstd', or 'plateau'.")
+    return best_idx
 
 
 def select_optimal_nfeatures_(
@@ -438,118 +617,13 @@ def select_optimal_nfeatures_(
         self.support_ = np.array([])
         return
 
-    # p>=n FP-control gate. On p>>n the elimination search routinely collapses to evaluating ONLY {N=0 dummy, N=full}: the per-step
-    # CV score is non-decreasing out to the full set, so every selection rule (argmax / 1-SE / plateau) is forced to pick N=full -
-    # i.e. ALL p features, which gives ZERO multiple-comparison control. When that collapse happens AND the full set is SE-significantly
-    # WORSE than the no-features dummy, selecting all p is never right. Instead of selecting the full set we CAP the selection at the
-    # FP-control ceiling ``max(20, p//3)`` features chosen by importance ranking: that keeps multiple-comparison inflation bounded
-    # (a controlled selector must not return ~all p) WHILE still recovering the genuinely-informative columns (the top-ceiling by
-    # importance includes them), so a noise-diluted-but-recoverable signal is no longer sacrificed. This is GATED to the p>=n regime
-    # (n_features_in_ >= n_samples) and to the collapsed-search case (the only non-zero candidate IS the full set), so the well-powered
-    # p<n path - where the search explores intermediate N and the 1-SE rule legitimately recovers signal - is untouched. An earlier
-    # version of this gate ABSTAINED (returned empty support_) here; that broke signal-bearing high-dim selection (it fired on
-    # overfit-but-recoverable high-dim too, not just pure noise), so it was replaced by the bounded cap. The even-earlier unconditional
-    # below-dummy reject (bench-attempt-rejected 2026-06-11, see below) was worse still - it fired on p<n collapses too.
-    n_samples_fit = getattr(self, "_n_samples_fit_", None)
-    p_in = int(getattr(self, "n_features_in_", 0))
-    nz_candidates = nfeatures_arr[nonzero_mask]
-    if n_samples_fit is not None and p_in >= int(n_samples_fit) and nz_candidates.size == 1 and int(nz_candidates[0]) == p_in and (nfeatures_arr == 0).any():
-        _full_pos = int(np.flatnonzero(nonzero_mask)[0])
-        _zero_pos = int(np.flatnonzero(nfeatures_arr == 0)[0])
-        _mean = np.array(cv_mean_perf)
-        _std = np.array(cv_std_perf)
-        if np.isfinite(_mean[_full_pos]) and np.isfinite(_mean[_zero_pos]):
-            _full_se = float(band_half_width(_std, fold_counts(self, checked_nfeatures), band_kind)[_full_pos])
-            _full_se = _full_se if np.isfinite(_full_se) else 0.0
-            if _mean[_full_pos] + _full_se < _mean[_zero_pos]:
-                _cap = min(p_in, max(20, p_in // 3))
-                _ranking = _rank_features_by_importance(
-                    self,
-                    use_all_fi_runs=use_all_fi_runs,
-                    use_last_fi_run_only=use_last_fi_run_only,
-                    use_one_freshest_fi_run=use_one_freshest_fi_run,
-                    use_fi_ranking=use_fi_ranking,
-                    votes_aggregation_method=votes_aggregation_method,
-                    nfeatures=p_in,
-                )
-                if _ranking is not None and len(_ranking) > 0:
-                    _capped = _cap if _cap <= len(_ranking) else len(_ranking)
-                    _keep = set(_ranking[:_capped])
-                    self.support_ = np.array([f in _keep for f in self.feature_names_in_])
-                    self.n_features_ = int(self.support_.sum())
-                    self.consensus_ranking_ = list(_ranking)
-                else:
-                    # Importance ranking unavailable (no FI captured): keep the first ``_cap`` features by position.
-                    _capped = min(_cap, len(self.feature_names_in_))
-                    self.support_ = np.array([i < _capped for i in range(len(self.feature_names_in_))])
-                    self.n_features_ = int(self.support_.sum())
-                logger.warning(
-                    "select_optimal_nfeatures_: p>=n collapsed search ({N=0, N=%d}); the full set scores SE-worse than the no-features "
-                    "dummy. Capping selection at %d features (ceiling max(20, p//3)) by importance for multiple-comparison control "
-                    "instead of selecting all %d.",
-                    p_in, self.n_features_, p_in,
-                )
-                self.resolved_n_features_rule_ = f"{self.resolved_n_features_rule_}+p_ge_n_fp_control_cap"
-                return
+    if _apply_pge_n_fp_control_cap(
+        self, nfeatures_arr, nonzero_mask, checked_nfeatures, cv_mean_perf, cv_std_perf, band_kind,
+        use_all_fi_runs, use_last_fi_run_only, use_one_freshest_fi_run, use_fi_ranking, votes_aggregation_method,
+    ):
+        return
 
-    if rule == "argmax":
-        # Pick the index with the highest ultimate_perf among the candidate N values; nonzero_mask honours max_nfeatures.
-        sorted_idx = np.argsort(ultimate_perf)[::-1]
-        best_idx = None
-        for idx in sorted_idx:
-            if nonzero_mask[idx]:
-                best_idx = idx
-                break
-    else:
-        # one_se_max / one_se_min: build the SE band around the best mean (cv_mean_perf - the *unadjusted* score, so 1-SE has its
-        # standard interpretation), then pick the largest or smallest N within the band.
-        # When ``feature_cost > 0`` use the cost-adjusted ``ultimate_perf`` for both the band reference and the band
-        # values, so the cost penalty actually bites under 1-SE rules too. Without this, feature_cost was silently a no-op under
-        # the new ``auto='one_se_max'`` default and the user's "shrink toward fewer features" hint was ignored.
-        if feature_cost and feature_cost > 0:
-            mean_arr = np.array(ultimate_perf)
-        else:
-            mean_arr = np.array(cv_mean_perf)
-        std_arr = np.array(cv_std_perf)
-        nz_idx = np.where(nonzero_mask)[0]
-        # mask out NaN candidates before argmax. cv_mean_perf
-        # can hold NaN when every fold for that N was degenerate
-        # (_helpers.py:337). Pre-fix np.argmax picks the NaN slot ->
-        # ``best_mean_idx`` refers to a never-evaluated N and the caller
-        # silently returns a bogus support_ for that count.
-        _finite_mask = np.isfinite(mean_arr[nz_idx])
-        if not _finite_mask.any():
-            raise ValueError(
-                "RFECV: cv_mean_perf is all-NaN across non-zero "
-                "candidates; cannot pick a winner. Re-run with more "
-                "data or check that the inner-CV folds aren't all "
-                "degenerate (all-one-class)."
-            )
-        _finite_nz_idx = nz_idx[_finite_mask]
-        best_mean_idx = _finite_nz_idx[np.argmax(mean_arr[_finite_nz_idx])]
-        threshold = mean_arr[best_mean_idx] - band_half_width(std_arr, fold_counts(self, checked_nfeatures), band_kind)[best_mean_idx]
-        in_band = [i for i in nz_idx if mean_arr[i] >= threshold]
-        if not in_band:
-            in_band = [int(best_mean_idx)]
-        if rule == "one_se_max":
-            best_idx = max(in_band, key=lambda i: nfeatures_arr[i])
-        elif rule == "one_se_min":
-            best_idx = min(in_band, key=lambda i: nfeatures_arr[i])
-        elif rule == "plateau":
-            # Plateau-onset (round-2 R2r-6): smallest N whose mean is within 1 SE of the BEST mean achievable
-            # at >= that N - i.e. the point past which adding features yields no SE-significant gain. Sits
-            # between one_se_max (keeps ~all on flat tails) and one_se_min/knee (over-prunes a flat curve to a
-            # tiny N): it stops where the curve flattened, capturing the full achievable score parsimoniously.
-            _se = band_half_width(std_arr, fold_counts(self, checked_nfeatures), band_kind)[best_mean_idx]
-            _order = sorted(nz_idx, key=lambda i: nfeatures_arr[i])
-            best_idx = _order[-1]
-            for _pos, _i in enumerate(_order):
-                _future_best = max(mean_arr[j] for j in _order[_pos:])
-                if mean_arr[_i] >= _future_best - _se:
-                    best_idx = _i
-                    break
-        else:
-            raise ValueError(f"n_features_selection_rule={rule!r} not supported. " f"Use 'auto', 'argmax', 'one_se_max', 'one_se_min', 'one_se_max_foldstd', 'one_se_min_foldstd', or 'plateau'.")
+    best_idx = _pick_best_idx_by_rule(self, rule, band_kind, ultimate_perf, nonzero_mask, nfeatures_arr, checked_nfeatures, cv_mean_perf, cv_std_perf, feature_cost)
     best_top_n = int(nfeatures_arr[best_idx])
 
     _plot_cv_performance(show_plot, plot_file, font_size, figsize, checked_nfeatures, cv_mean_perf, cv_std_perf, ultimate_perf, best_idx, base_perf)

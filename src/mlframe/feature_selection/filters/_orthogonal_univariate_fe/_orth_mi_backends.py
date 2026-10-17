@@ -9,7 +9,7 @@ modules import.
 """
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, Optional, cast
 
 import logging
 
@@ -352,51 +352,8 @@ def _resident_labels(y: Any, cp: Any) -> tuple:
         _ncls = (int(_yi.max()) - _ymin + 1) if _yi.size else 1
     return yd, _ymin, _ncls
 
-def _mi_classif_batch(X: np.ndarray, y: np.ndarray, *, nbins: int = 10, rank_binning: bool = False) -> np.ndarray:
-    """Batch MI(X_j; y) for classification target.
-
-    ``rank_binning`` (GATE MI ONLY, default False): the STRICT-residency MI core bins by percentile EDGES,
-    which does NOT byte-match the CPU njit RANK binning the conditional-gate scoring uses on heavily-tied
-    columns (the gate_mask output ``1[c>0]*a`` is ~50% exact zeros). When ``rank_binning=True`` AND the
-    resident opt-in ``MLFRAME_FE_GPU_STRICT_RESIDENT`` is on, the resident MI is computed over RANK codes
-    (argsort equi-frequency, ``_gpu_resident_rank_bin``) so the gate STRICT MI matches the CPU rank MI. The
-    FE-candidate path leaves this False -> the edge path is untouched. Falls back to the CPU njit rank path on
-    any GPU failure; default flag-off is byte-for-byte unchanged regardless of this flag.
-
-    Layer 31: routes to the numba prange batch dispatcher
-    (``_mi_classif_batch_numba``) when available — ~53x speedup at
-    p=200 n=2000 over the per-column sklearn loop, bit-equivalent to within
-    machine epsilon (< 2e-15 across 40 seeds). Set ``MLFRAME_NUMBA_MI=0``
-    to force the sklearn reference if a downstream regression demands it.
-
-    Idea #18 (2026-06-10) - bench-rejected, default OFF: an inverse-prior
-    class-balanced MI was added to test whether plain plug-in MI under-RANKS
-    rare-class-discriminative features under imbalance. It does NOT: balancing is
-    a near-uniform multiplicative rescale (Kendall tau 0.989 vs plain), so it
-    almost never changes the rank-based selection, and where it does (13/120
-    imbalanced frames) the downstream rare-class AP is a net-negative coin-flip
-    (mean dAP -0.0037). Kept opt-in via ``MLFRAME_FE_IMBALANCE_MI=on`` (default
-    ``off`` => this branch is skipped and the path is byte-for-byte the plain MI
-    below). Full numbers in ``_imbalance_mi`` module docstring + the regression
-    test ``tests/feature_selection/test_imbalance_mi.py``.
-    """
-    # A resident caller (row-argmax / conditional-gate scorer) may hand a genuinely 1-D candidate column (numpy
-    # or cupy) on the assumption this function reshapes it to a single-column batch - true INSIDE the
-    # GPU-STRICT branch below (``if Xd.ndim == 1: Xd = Xd[:, None]``), but GPU-STRICT is off by default, in
-    # which case the array fell through unreshaped to ``_mi_classif_batch_numba``'s ``_n, p = X.shape``, which
-    # assumes 2-D and raised "not enough values to unpack (expected 2, got 1)" on a 1-D shape. Normalise once,
-    # unconditionally, at the single choke point instead of relying on the STRICT-only reshape.
-    if X.ndim == 1:
-        X = X[:, None]
-    # Fast OFF short-circuit (the default): a single env read, no import / no
-    # bincount, so the common path is byte-for-byte and ~free vs plain numba.
-    import os as _os
-    if _os.environ.get("MLFRAME_FE_IMBALANCE_MI", "").strip().lower() in ("on", "1", "true", "yes", "auto"):
-        class_w = _maybe_class_weights(y)  # opt-in only
-        if class_w is not None:
-            cb = _mi_classif_batch_balanced(X, y, class_w, nbins=nbins)
-            if cb is not None:
-                return np.asarray(cb)
+def _strict_resident_mi(X: Any, y: Any, nbins: int, rank_binning: bool) -> Optional[np.ndarray]:
+    """GPU-STRICT resident plug-in MI of a candidate batch; None when STRICT is off, cupy / the strict module is absent, or a genuine device fault occurred (caller runs the CPU path)."""
     # bench-attempt-rejected (2026-06-23, GTX 1050 Ti, F2 100k MRMR wall /loop "drive CPU share -> 0"):
     # tried routing this CPU njit batch-MI (the #1 mlframe CPU-compute kernel: cProfile tottime 3.05s of a
     # 34.8s warm F2 100k fit, 157 calls via plugin_mi_classif_batch_dispatch, callers = _conditional_gate_fe
@@ -501,6 +458,57 @@ def _mi_classif_batch(X: np.ndarray, y: np.ndarray, *, nbins: int = 10, rank_bin
         pass  # cupy/strict-module absent OR a genuine device fault -> exact CPU njit below.
         # NOTE (FIX1): ValueError / IndexError are intentionally NOT caught here - a -1 / out-of-range
         # code raised by _assert_codes_in_range (illegal-address guard) must surface, not degrade to CPU.
+    return None
+
+
+def _mi_classif_batch(X: np.ndarray, y: np.ndarray, *, nbins: int = 10, rank_binning: bool = False) -> np.ndarray:
+    """Batch MI(X_j; y) for classification target.
+
+    ``rank_binning`` (GATE MI ONLY, default False): the STRICT-residency MI core bins by percentile EDGES,
+    which does NOT byte-match the CPU njit RANK binning the conditional-gate scoring uses on heavily-tied
+    columns (the gate_mask output ``1[c>0]*a`` is ~50% exact zeros). When ``rank_binning=True`` AND the
+    resident opt-in ``MLFRAME_FE_GPU_STRICT_RESIDENT`` is on, the resident MI is computed over RANK codes
+    (argsort equi-frequency, ``_gpu_resident_rank_bin``) so the gate STRICT MI matches the CPU rank MI. The
+    FE-candidate path leaves this False -> the edge path is untouched. Falls back to the CPU njit rank path on
+    any GPU failure; default flag-off is byte-for-byte unchanged regardless of this flag.
+
+    Layer 31: routes to the numba prange batch dispatcher
+    (``_mi_classif_batch_numba``) when available — ~53x speedup at
+    p=200 n=2000 over the per-column sklearn loop, bit-equivalent to within
+    machine epsilon (< 2e-15 across 40 seeds). Set ``MLFRAME_NUMBA_MI=0``
+    to force the sklearn reference if a downstream regression demands it.
+
+    Idea #18 (2026-06-10) - bench-rejected, default OFF: an inverse-prior
+    class-balanced MI was added to test whether plain plug-in MI under-RANKS
+    rare-class-discriminative features under imbalance. It does NOT: balancing is
+    a near-uniform multiplicative rescale (Kendall tau 0.989 vs plain), so it
+    almost never changes the rank-based selection, and where it does (13/120
+    imbalanced frames) the downstream rare-class AP is a net-negative coin-flip
+    (mean dAP -0.0037). Kept opt-in via ``MLFRAME_FE_IMBALANCE_MI=on`` (default
+    ``off`` => this branch is skipped and the path is byte-for-byte the plain MI
+    below). Full numbers in ``_imbalance_mi`` module docstring + the regression
+    test ``tests/feature_selection/test_imbalance_mi.py``.
+    """
+    # A resident caller (row-argmax / conditional-gate scorer) may hand a genuinely 1-D candidate column (numpy
+    # or cupy) on the assumption this function reshapes it to a single-column batch - true INSIDE the
+    # GPU-STRICT branch below (``if Xd.ndim == 1: Xd = Xd[:, None]``), but GPU-STRICT is off by default, in
+    # which case the array fell through unreshaped to ``_mi_classif_batch_numba``'s ``_n, p = X.shape``, which
+    # assumes 2-D and raised "not enough values to unpack (expected 2, got 1)" on a 1-D shape. Normalise once,
+    # unconditionally, at the single choke point instead of relying on the STRICT-only reshape.
+    if X.ndim == 1:
+        X = X[:, None]
+    # Fast OFF short-circuit (the default): a single env read, no import / no
+    # bincount, so the common path is byte-for-byte and ~free vs plain numba.
+    import os as _os
+    if _os.environ.get("MLFRAME_FE_IMBALANCE_MI", "").strip().lower() in ("on", "1", "true", "yes", "auto"):
+        class_w = _maybe_class_weights(y)  # opt-in only
+        if class_w is not None:
+            cb = _mi_classif_batch_balanced(X, y, class_w, nbins=nbins)
+            if cb is not None:
+                return np.asarray(cb)
+    strict_mi = _strict_resident_mi(X, y, nbins, rank_binning)
+    if strict_mi is not None:
+        return strict_mi
     # A RESIDENT-INPUT caller (device-born matrix or the gate / row-argmax scorer that threads a resident cupy
     # candidate) may reach this CPU fallback on a genuine device fault -> bring the operands back to host so the
     # njit / sklearn path actually runs instead of crashing on ``np.asarray(cupy)``. Host inputs pass through.

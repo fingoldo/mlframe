@@ -10,6 +10,7 @@ import functools
 import inspect
 import logging
 import threading
+from typing import Any, Optional
 from contextlib import nullcontext
 
 import numpy as np
@@ -158,6 +159,274 @@ def _score_with_optional_weight(scoring, fitted, X_test, y_test, test_sample_wei
         return scoring(fitted, X_test, y_test)
 
 
+def _split_early_stopping_val(
+    *,
+    val_cv: Any,
+    groups: Any,
+    train_index: Any,
+    X_train: Any,
+    y_train: Any,
+    verbose: Any,
+    fit_features: Any,
+    cat_features: Any,
+    estimator: Any,
+    early_stopping_rounds: Any,
+    current_features: Any,
+    fit_params: dict,
+) -> tuple[Any, Any, Any, Any, dict, dict]:
+    """Carve the early-stopping validation split out of the fold's train rows and build the matching fit params.
+
+    Returns ``(X_train, y_train, X_val, true_train_index, temp_fit_params, filtered_fit_params)``."""
+    _filtered_fit_params: dict = {}
+    # Additional early-stopping split from X_train.
+    if groups is not None:
+        if isinstance(groups, pd.Series):
+            train_groups = groups.iloc[train_index]
+        else:
+            train_groups = groups[train_index]
+    else:
+        train_groups = None
+
+    splits = list(val_cv.split(X=X_train, y=y_train, groups=train_groups))
+    true_train_index, val_index = splits[-1]
+
+    X_train, y_train, X_val, y_val = split_into_train_test(X=X_train, y=y_train, train_index=true_train_index, test_index=val_index)
+    if verbose > 2:
+        logger.debug("Val set size=%d, val idx sum=%d", len(y_val), val_index.sum())
+
+    # If the estimator type is known, craft early-stopping fit params tailored to it.
+    # Index cat features against fit_features (the ACTUAL X_train/X_val column
+    # order = must_include_resolved + current_features), NOT current_features:
+    # otherwise must_include's prepended columns shift every index by
+    # len(must_include) and any categorical must_include column is dropped,
+    # so CatBoost treats the wrong columns as categorical.
+    temp_cat_features = [fit_features.index(var) for var in cat_features if var in fit_features] if cat_features else None
+
+    temp_fit_params = pack_val_set_into_fit_params(
+        model=estimator,
+        X_val=X_val,
+        y_val=y_val,
+        early_stopping_rounds=early_stopping_rounds,
+        cat_features=temp_cat_features,
+    )
+    # Filter feature-list keys (cat_features / text_features / embedding_features) coming in via fit_params to only columns present in the current selector iteration. Otherwise names from the outer call reference columns dropped by the current iteration and CB raises ``Error while processing column for feature 'cat_0'``.
+    # cat_features: pack_val_set_into_fit_params above already injected index-based temp_cat_features IFF that list was non-empty. When empty (current_features doesn't intersect self.cat_features) we MUST still pass a name-list filtered to current_features so CB doesn't fall back to auto-detect on numerically-encoded category columns (target-encoded cats look like floats and trip CB's "Invalid type for cat_feature").
+    # When current_features holds integer indices (ndarray X path), set-membership against string column names always misses; in that case the user-supplied lists pass through unfiltered (the inner estimator can deal with missing column references on its own).
+    _features_are_integer = len(current_features) > 0 and isinstance(current_features[0], (int, np.integer))
+    _current_set = set(current_features) if not _features_are_integer else None
+    _filter_fold_fit_params(fit_params, temp_fit_params, _current_set, _filtered_fit_params)
+    temp_fit_params.update(_filtered_fit_params)
+    return X_train, y_train, X_val, true_train_index, temp_fit_params, _filtered_fit_params
+
+
+def _fold_slice_is_empty(
+    nfold: Any,
+    current_features: Any,
+    X_train: Any,
+    y_train: Any,
+    X_test: Any,
+    y_test: Any,
+    scores: list,
+    feature_importances: dict,
+) -> bool:
+    """True (after logging the error and recording a NaN score + empty FI run) when the fold's train or test slice has no rows."""
+    # Empty-train guard: heavy upstream filtering (small n + outlier_detection + trainset_aging_limit) can collapse X_train / y_train to 0 rows on a CV fold; CatBoost then raises "Labels variable is empty" deep in C++ Pool init. Skip the fold cleanly with a NaN score; sklearn's RFECV does the same on degenerate inner folds.
+    _x_n = X_train.shape[0] if hasattr(X_train, "shape") else None
+    _y_n = len(y_train) if y_train is not None and hasattr(y_train, "__len__") else None
+    if (_x_n is not None and _x_n == 0) or (_y_n is not None and _y_n == 0):
+        # Always-on ERROR (not verbose-gated) so the operator sees the empty-fold collapse. Root cause is upstream filter aggression (OD + trainset_aging_limit together can shrink the inner-CV training fraction below cv splits) - fix that, not this guard.
+        logger.error(
+            "wrappers.fit: skipping fold %s - empty train slice "
+            "(rows=%s, target_len=%s). Upstream filters reduced "
+            "the train batch to zero. Investigate "
+            "outlier_detection contamination + "
+            "trainset_aging_limit interactions.",
+            nfold, _x_n, _y_n,
+        )
+        with _FOLD_STATE_LOCK:
+            scores.append(np.nan)
+            feature_importances[f"{len(current_features)}_{nfold}"] = {}
+        return True
+    # Empty-TEST guard (symmetric to the empty-train guard above): the same upstream filtering can collapse the
+    # TEST slice to 0 rows on a fold, and scoring(...) on a 0-row slice then raises and ABORTS the whole
+    # sequential fit instead of skipping. Skip the fold with a NaN score, matching the train-side behaviour.
+    _xt_n = X_test.shape[0] if hasattr(X_test, "shape") else None
+    _yt_n = len(y_test) if y_test is not None and hasattr(y_test, "__len__") else None
+    if (_xt_n is not None and _xt_n == 0) or (_yt_n is not None and _yt_n == 0):
+        logger.error(
+            "wrappers.fit: skipping fold %s - empty test slice (rows=%s, target_len=%s); scoring cannot run. "
+            "Upstream filters reduced the test batch to zero.",
+            nfold, _xt_n, _yt_n,
+        )
+        with _FOLD_STATE_LOCK:
+            scores.append(np.nan)
+            feature_importances[f"{len(current_features)}_{nfold}"] = {}
+        return True
+    return False
+
+
+def _fit_score_one_estimator(
+    self: Any,
+    *,
+    est_idx: int,
+    est_proto: Any,
+    first_fitted: Any,
+    nfold: Any,
+    fold_seed: Any,
+    train_index: Any,
+    true_train_index: Any,
+    fit_features: Any,
+    current_features: Any,
+    X: Any,
+    X_estimator: Any,
+    X_train: Any,
+    y_train: Any,
+    X_test: Any,
+    y_test: Any,
+    X_val: Any,
+    temp_fit_params: dict,
+    filtered_fit_params: dict,
+    fold_train_sw: Any,
+    fold_test_sw: Any,
+    frac: Any,
+    val_cv: Any,
+    estimator_type: Any,
+    scoring: Any,
+    importance_getter: Any,
+    must_include_resolved: Any,
+    n_estimators: int,
+    keep_estimators: Any,
+    fitted_estimators: dict,
+) -> tuple[Any, Optional[tuple[str, dict]]]:
+    """Fit one estimator of the fold, score it and compute its importances.
+
+    Returns ``(score, fi_run)`` where ``fi_run`` is ``(key, importances)`` or None when a NaN score drops the run from the voting pool."""
+    _fi_run: Optional[tuple[str, dict]] = None
+    if est_idx == 0:
+        # First estimator was already cloned + text_processing tuned above as ``first_fitted``.
+        _fitted = first_fitted
+    else:
+        _fitted = _clone_with_cb_text_processing(est_proto, X_train, filtered_fit_params, val_cv and has_early_stopping_support(estimator_type))
+
+    _model_type_name = type(_fitted).__name__
+    _ctx = suppress_stdout_stderr() if _model_type_name in CATBOOST_MODEL_TYPES else nullcontext()
+    # Build per-call fit kwargs: only attach sample_weight when the estimator's fit signature accepts it. CatBoost / LGBM / sklearn estimators all accept it; some custom shims may not, so introspect.
+    _per_est_fit_params = dict(temp_fit_params)
+    if fold_train_sw is not None and "sample_weight" not in _per_est_fit_params:
+        # Key the cached signature lookup on the UNBOUND fit function (same per estimator class); the bound
+        # method object differs per fold instance and would never cache-hit. Fall back to introspecting the
+        # bound method directly if __func__ is unavailable (C-level / functools-wrapped callables).
+        _fit_key = getattr(_fitted.fit, "__func__", _fitted.fit)
+        if _fit_accepts_sample_weight(_fit_key):
+            _per_est_fit_params["sample_weight"] = fold_train_sw
+    _fast_done = getattr(self, "cb_cached_borders", True) and frac is None and _try_cached_border_fit(
+        _fitted, source=X_estimator if X_estimator is not None else X, X_train=X_train, y_train=y_train, fit_features=fit_features,
+        fit_params=_per_est_fit_params, train_rows=(train_index if true_train_index is None else train_index[true_train_index]),
+        sample_weight=fold_train_sw,
+    )
+    if not _fast_done:
+        with _ctx:
+            _fitted.fit(X=X_train, y=y_train, **_per_est_fit_params)
+    _score = _score_with_optional_weight(scoring, _fitted, X_test, y_test, fold_test_sw)
+
+    # FI is computed on the actual fit_features.
+    # F4/F5/F10/F11: pass through the rescale-source
+    # and aggregation knobs so coef_ uses train-side stds (not test) and
+    # multiclass collapses via max (not sum); CPI uses min_samples_leaf
+    # instead of a fixed depth cap.
+    _fi_full = get_feature_importances(
+        model=_fitted, current_features=fit_features,
+        data=X_test, reference_data=X_val, target=y_test,
+        train_data=X_train,
+        importance_getter=importance_getter,
+        multiclass_coef_aggregation=getattr(self, "multiclass_coef_aggregation", "max"),
+        coef_scale_source=getattr(self, "coef_scale_source", "train"),
+        cpi_max_depth=getattr(self, "cpi_max_depth", None),
+        cpi_min_samples_leaf=int(getattr(self, "cpi_min_samples_leaf", 10)),
+        # Prefer the wide-data-guard's effective n_repeats (set in RFECV.fit) over the user-facing self.n_repeats.
+        n_repeats=_resolve_n_repeats(self),
+        # W3: get_feature_importances' own default (random_state=0) was never overridden here, so
+        # every permutation/CPI FI computation across every fold of every outer iteration drew
+        # from the identical RNG seed - the fold-voting ensemble's cross-fold permutation-noise
+        # component was less independent than it appeared. fold_seed is already deterministic
+        # (derived from self._rng per fold) and distinct per fold, matching the pattern the
+        # frac-subsampling local_rng above already uses.
+        random_state=int(fold_seed),
+    )
+    if must_include_resolved:
+        must_set = set(must_include_resolved)
+        _fi = {k: v for k, v in _fi_full.items() if k not in must_set}
+    else:
+        _fi = _fi_full
+
+    _est_suffix = f"_e{est_idx}" if n_estimators > 1 else ""
+    _key = f"{len(current_features)}_{nfold}{_est_suffix}"
+    # F14: if THIS estimator's score on THIS fold was NaN, drop its FI from the voting pool. A failed/degenerate
+    # estimator-fold pair should not contribute to the next-subset rank vote. Keep the score in _est_scores so the across-estimator
+    # aggregation (min) still sees it (and propagates NaN to the score curve, which is the diagnostic signal). Opt-out via
+    # drop_nan_score_fi=False.
+    _drop_nan_fi = getattr(self, "drop_nan_score_fi", True)
+    if not (_drop_nan_fi and isinstance(_score, float) and np.isnan(_score)):
+        _fi_run = (_key, _fi)
+        # Sign-harmony aggregation (importance_agg='dispatched'): also stash the SIGNED, scale-corrected
+        # coef for the linear family so the cross-fold aggregator can detect sign flips. Tree / kernel
+        # families and the legacy path skip this (None / no native coef -> no-op).
+        _record_signed_linear_coef(self, _fitted, fit_features, X_train, must_include_resolved, _key)
+    if keep_estimators:
+        with _FOLD_STATE_LOCK:
+            fitted_estimators[_key] = _fitted
+    return _score, _fi_run
+
+
+def _commit_fold_scores(est_scores: list, est_fi_runs: list, scores: list, feature_importances: dict) -> float:
+    """Aggregate the per-estimator scores into the fold score, publish it and every FI run under the fold-state lock; returns the score."""
+    # Aggregate fold score via worst-case (min) across estimators given sklearn's "higher is better". Mean would let one strong estimator (e.g. RF on 2 informative features) mask the fact that another (e.g. LR) needs more features to converge; worst-case forces N to be where ALL estimators agree it's sufficient. For the singular path (len-1 list), min == mean.
+    if est_scores:
+        valid_scores = [s for s in est_scores if not np.isnan(s)]
+        score = float(np.min(valid_scores)) if valid_scores else float("nan")
+    else:
+        score = float("nan")
+    with _FOLD_STATE_LOCK:
+        scores.append(score)
+        # Persist every estimator's FI run.
+        feature_importances.update({_k: _fi for _k, _fi in est_fi_runs})
+    return score
+
+
+def _append_fold_dummy_score(
+    self: Any,
+    *,
+    score: float,
+    estimator: Any,
+    X_train: Any,
+    y_train: Any,
+    X_test: Any,
+    y_test: Any,
+    scoring: Any,
+    fold_train_sw: Any,
+    fold_test_sw: Any,
+    dummy_scores: list,
+) -> None:
+    """Compute the N=0 dummy baseline for this fold and append it to ``dummy_scores``."""
+    # Dummy baselines serve as fitness @ 0 features.
+    if not self.nofeatures_dummy_scoring:
+        # Sign-direction-agnostic "worse than model" placeholder. ``score/10`` silently put the dummy ABOVE the model when _sign==+1 and score was negative (e.g. R^2 < 0). Subtracting a positive number always makes the score worse under both sklearn conventions; use a magnitude-relative fudge so it scales with the metric in play (log-loss ~0.5, MSE ~1e6, R^2 ~1).
+        fudge = max(abs(score), 1e-3) * 9.0
+        _dummy = score - fudge
+    else:
+        # Computed OUTSIDE the lock (it can be slow); only the append is guarded.
+        # W5: thread the SAME fold train/test weights the real per-N scores already use, so the
+        # N=0 anchor (early-exit "dummy already beats this subset" check, cv_results_ diagnostic
+        # row) is directly comparable to the weighted real-N scores instead of an apples-to-oranges
+        # unweighted-vs-weighted comparison.
+        _dummy = get_best_dummy_score(
+            estimator=estimator, X_train=X_train, y_train=y_train, X_test=X_test, y_test=y_test, scoring=scoring,
+            train_sample_weight=fold_train_sw, test_sample_weight=fold_test_sw,
+        )
+    with _FOLD_STATE_LOCK:
+        dummy_scores.append(_dummy)
+
+
 def _eval_fold_body(
     nfold,
     train_index,
@@ -221,45 +490,11 @@ def _eval_fold_body(
     # knows whether X_train was narrowed to true_train_index.
     true_train_index = None
     if val_cv and has_early_stopping_support(estimator_type):
-
-        # Additional early-stopping split from X_train.
-        if groups is not None:
-            if isinstance(groups, pd.Series):
-                train_groups = groups.iloc[train_index]
-            else:
-                train_groups = groups[train_index]
-        else:
-            train_groups = None
-
-        splits = list(val_cv.split(X=X_train, y=y_train, groups=train_groups))
-        true_train_index, val_index = splits[-1]
-
-        X_train, y_train, X_val, y_val = split_into_train_test(X=X_train, y=y_train, train_index=true_train_index, test_index=val_index)
-        if verbose > 2:
-            logger.debug("Val set size=%d, val idx sum=%d", len(y_val), val_index.sum())
-
-        # If the estimator type is known, craft early-stopping fit params tailored to it.
-        # Index cat features against fit_features (the ACTUAL X_train/X_val column
-        # order = must_include_resolved + current_features), NOT current_features:
-        # otherwise must_include's prepended columns shift every index by
-        # len(must_include) and any categorical must_include column is dropped,
-        # so CatBoost treats the wrong columns as categorical.
-        temp_cat_features = [fit_features.index(var) for var in cat_features if var in fit_features] if cat_features else None
-
-        temp_fit_params = pack_val_set_into_fit_params(
-            model=estimator,
-            X_val=X_val,
-            y_val=y_val,
-            early_stopping_rounds=early_stopping_rounds,
-            cat_features=temp_cat_features,
+        X_train, y_train, X_val, true_train_index, temp_fit_params, _filtered_fit_params = _split_early_stopping_val(
+            val_cv=val_cv, groups=groups, train_index=train_index, X_train=X_train, y_train=y_train, verbose=verbose,
+            fit_features=fit_features, cat_features=cat_features, estimator=estimator, early_stopping_rounds=early_stopping_rounds,
+            current_features=current_features, fit_params=fit_params,
         )
-        # Filter feature-list keys (cat_features / text_features / embedding_features) coming in via fit_params to only columns present in the current selector iteration. Otherwise names from the outer call reference columns dropped by the current iteration and CB raises ``Error while processing column for feature 'cat_0'``.
-        # cat_features: pack_val_set_into_fit_params above already injected index-based temp_cat_features IFF that list was non-empty. When empty (current_features doesn't intersect self.cat_features) we MUST still pass a name-list filtered to current_features so CB doesn't fall back to auto-detect on numerically-encoded category columns (target-encoded cats look like floats and trip CB's "Invalid type for cat_feature").
-        # When current_features holds integer indices (ndarray X path), set-membership against string column names always misses; in that case the user-supplied lists pass through unfiltered (the inner estimator can deal with missing column references on its own).
-        _features_are_integer = len(current_features) > 0 and isinstance(current_features[0], (int, np.integer))
-        _current_set = set(current_features) if not _features_are_integer else None
-        _filter_fold_fit_params(fit_params, temp_fit_params, _current_set, _filtered_fit_params)
-        temp_fit_params.update(_filtered_fit_params)
 
     else:
 
@@ -286,147 +521,34 @@ def _eval_fold_body(
     # Dynamic CB ``text_processing`` calibration for THIS fold's clone (not the outer estimator). RFECV folds are typically much smaller than the outer training set; with CB's default ``occurrence_lower_bound=50`` words that occur < 50 times in the fold are pruned, leaving an empty dictionary and HANGING CB's C++ ``_train`` loop. ``compute_cb_text_processing`` returns a config that scales the floor proportionally to fold rows, or None when the fold is large enough.
     _calibrate_catboost_text_processing(val_cv, estimator_type, _filtered_fit_params, fitted_estimator, X_train)
 
-    # Empty-train guard: heavy upstream filtering (small n + outlier_detection + trainset_aging_limit) can collapse X_train / y_train to 0 rows on a CV fold; CatBoost then raises "Labels variable is empty" deep in C++ Pool init. Skip the fold cleanly with a NaN score; sklearn's RFECV does the same on degenerate inner folds.
-    _x_n = X_train.shape[0] if hasattr(X_train, "shape") else None
-    _y_n = len(y_train) if y_train is not None and hasattr(y_train, "__len__") else None
-    if (_x_n is not None and _x_n == 0) or (_y_n is not None and _y_n == 0):
-        # Always-on ERROR (not verbose-gated) so the operator sees the empty-fold collapse. Root cause is upstream filter aggression (OD + trainset_aging_limit together can shrink the inner-CV training fraction below cv splits) - fix that, not this guard.
-        logger.error(
-            "wrappers.fit: skipping fold %s - empty train slice "
-            "(rows=%s, target_len=%s). Upstream filters reduced "
-            "the train batch to zero. Investigate "
-            "outlier_detection contamination + "
-            "trainset_aging_limit interactions.",
-            nfold, _x_n, _y_n,
-        )
-        with _FOLD_STATE_LOCK:
-            scores.append(np.nan)
-            feature_importances[f"{len(current_features)}_{nfold}"] = {}
-        return None
-    # Empty-TEST guard (symmetric to the empty-train guard above): the same upstream filtering can collapse the
-    # TEST slice to 0 rows on a fold, and scoring(...) on a 0-row slice then raises and ABORTS the whole
-    # sequential fit instead of skipping. Skip the fold with a NaN score, matching the train-side behaviour.
-    _xt_n = X_test.shape[0] if hasattr(X_test, "shape") else None
-    _yt_n = len(y_test) if y_test is not None and hasattr(y_test, "__len__") else None
-    if (_xt_n is not None and _xt_n == 0) or (_yt_n is not None and _yt_n == 0):
-        logger.error(
-            "wrappers.fit: skipping fold %s - empty test slice (rows=%s, target_len=%s); scoring cannot run. "
-            "Upstream filters reduced the test batch to zero.",
-            nfold, _xt_n, _yt_n,
-        )
-        with _FOLD_STATE_LOCK:
-            scores.append(np.nan)
-            feature_importances[f"{len(current_features)}_{nfold}"] = {}
+    # Empty train/test slice guard: skips the fold with a NaN score (see ``_fold_slice_is_empty``).
+    if _fold_slice_is_empty(nfold, current_features, X_train, y_train, X_test, y_test, scores, feature_importances):
         return None
     # Multi-estimator: fit ALL estimators (singular case is a len-1 list). Score per fold = mean across estimators; FI runs stored under separate keys ("{N}_{fold}" for singular, "{N}_{fold}_e{idx}" for multi) so the voting layer treats each estimator's importances as an independent run.
     _est_scores = []
     _est_fi_runs = []  # list of (key, fi_dict)
     for _est_idx, _est_proto in enumerate(estimators_list):
-        if _est_idx == 0:
-            # First estimator was already cloned + text_processing tuned above as ``fitted_estimator``.
-            _fitted = fitted_estimator
-        else:
-            _fitted = _clone_with_cb_text_processing(_est_proto, X_train, _filtered_fit_params, val_cv and has_early_stopping_support(estimator_type))
-
-        _model_type_name = type(_fitted).__name__
-        _ctx = suppress_stdout_stderr() if _model_type_name in CATBOOST_MODEL_TYPES else nullcontext()
-        # Build per-call fit kwargs: only attach sample_weight when the estimator's fit signature accepts it. CatBoost / LGBM / sklearn estimators all accept it; some custom shims may not, so introspect.
-        _per_est_fit_params = dict(temp_fit_params)
-        if _fold_train_sw is not None and "sample_weight" not in _per_est_fit_params:
-            # Key the cached signature lookup on the UNBOUND fit function (same per estimator class); the bound
-            # method object differs per fold instance and would never cache-hit. Fall back to introspecting the
-            # bound method directly if __func__ is unavailable (C-level / functools-wrapped callables).
-            _fit_key = getattr(_fitted.fit, "__func__", _fitted.fit)
-            if _fit_accepts_sample_weight(_fit_key):
-                _per_est_fit_params["sample_weight"] = _fold_train_sw
-        _fast_done = getattr(self, "cb_cached_borders", True) and frac is None and _try_cached_border_fit(
-            _fitted, source=X_estimator if X_estimator is not None else X, X_train=X_train, y_train=y_train, fit_features=fit_features,
-            fit_params=_per_est_fit_params, train_rows=(train_index if true_train_index is None else train_index[true_train_index]),
-            sample_weight=_fold_train_sw,
+        _score, _fi_run = _fit_score_one_estimator(
+            self, est_idx=_est_idx, est_proto=_est_proto, first_fitted=fitted_estimator, nfold=nfold, fold_seed=fold_seed,
+            train_index=train_index, true_train_index=true_train_index, fit_features=fit_features, current_features=current_features,
+            X=X, X_estimator=X_estimator, X_train=X_train, y_train=y_train, X_test=X_test, y_test=y_test, X_val=X_val,
+            temp_fit_params=temp_fit_params, filtered_fit_params=_filtered_fit_params, fold_train_sw=_fold_train_sw,
+            fold_test_sw=_fold_test_sw, frac=frac, val_cv=val_cv, estimator_type=estimator_type, scoring=scoring,
+            importance_getter=importance_getter, must_include_resolved=must_include_resolved, n_estimators=len(estimators_list),
+            keep_estimators=keep_estimators, fitted_estimators=fitted_estimators,
         )
-        if not _fast_done:
-            with _ctx:
-                _fitted.fit(X=X_train, y=y_train, **_per_est_fit_params)
-        _score = _score_with_optional_weight(scoring, _fitted, X_test, y_test, _fold_test_sw)
         _est_scores.append(_score)
+        if _fi_run is not None:
+            _est_fi_runs.append(_fi_run)
 
-        # FI is computed on the actual fit_features.
-        # F4/F5/F10/F11: pass through the rescale-source
-        # and aggregation knobs so coef_ uses train-side stds (not test) and
-        # multiclass collapses via max (not sum); CPI uses min_samples_leaf
-        # instead of a fixed depth cap.
-        _fi_full = get_feature_importances(
-            model=_fitted, current_features=fit_features,
-            data=X_test, reference_data=X_val, target=y_test,
-            train_data=X_train,
-            importance_getter=importance_getter,
-            multiclass_coef_aggregation=getattr(self, "multiclass_coef_aggregation", "max"),
-            coef_scale_source=getattr(self, "coef_scale_source", "train"),
-            cpi_max_depth=getattr(self, "cpi_max_depth", None),
-            cpi_min_samples_leaf=int(getattr(self, "cpi_min_samples_leaf", 10)),
-            # Prefer the wide-data-guard's effective n_repeats (set in RFECV.fit) over the user-facing self.n_repeats.
-            n_repeats=_resolve_n_repeats(self),
-            # W3: get_feature_importances' own default (random_state=0) was never overridden here, so
-            # every permutation/CPI FI computation across every fold of every outer iteration drew
-            # from the identical RNG seed - the fold-voting ensemble's cross-fold permutation-noise
-            # component was less independent than it appeared. fold_seed is already deterministic
-            # (derived from self._rng per fold) and distinct per fold, matching the pattern the
-            # frac-subsampling local_rng above already uses.
-            random_state=int(fold_seed),
-        )
-        if must_include_resolved:
-            must_set = set(must_include_resolved)
-            _fi = {k: v for k, v in _fi_full.items() if k not in must_set}
-        else:
-            _fi = _fi_full
-
-        _est_suffix = f"_e{_est_idx}" if len(estimators_list) > 1 else ""
-        _key = f"{len(current_features)}_{nfold}{_est_suffix}"
-        # F14: if THIS estimator's score on THIS fold was NaN, drop its FI from the voting pool. A failed/degenerate
-        # estimator-fold pair should not contribute to the next-subset rank vote. Keep the score in _est_scores so the across-estimator
-        # aggregation (min) still sees it (and propagates NaN to the score curve, which is the diagnostic signal). Opt-out via
-        # drop_nan_score_fi=False.
-        _drop_nan_fi = getattr(self, "drop_nan_score_fi", True)
-        if not (_drop_nan_fi and isinstance(_score, float) and np.isnan(_score)):
-            _est_fi_runs.append((_key, _fi))
-            # Sign-harmony aggregation (importance_agg='dispatched'): also stash the SIGNED, scale-corrected
-            # coef for the linear family so the cross-fold aggregator can detect sign flips. Tree / kernel
-            # families and the legacy path skip this (None / no native coef -> no-op).
-            _record_signed_linear_coef(self, _fitted, fit_features, X_train, must_include_resolved, _key)
-        if keep_estimators:
-            with _FOLD_STATE_LOCK:
-                fitted_estimators[_key] = _fitted
-
-    # Aggregate fold score via worst-case (min) across estimators given sklearn's "higher is better". Mean would let one strong estimator (e.g. RF on 2 informative features) mask the fact that another (e.g. LR) needs more features to converge; worst-case forces N to be where ALL estimators agree it's sufficient. For the singular path (len-1 list), min == mean.
-    if _est_scores:
-        valid_scores = [s for s in _est_scores if not np.isnan(s)]
-        score = float(np.min(valid_scores)) if valid_scores else float("nan")
-    else:
-        score = float("nan")
-    with _FOLD_STATE_LOCK:
-        scores.append(score)
-        # Persist every estimator's FI run.
-        feature_importances.update({_k: _fi for _k, _fi in _est_fi_runs})
+    score = _commit_fold_scores(_est_scores, _est_fi_runs, scores, feature_importances)
 
     if 0 not in evaluated_scores_mean:
 
-        # Dummy baselines serve as fitness @ 0 features.
-        if not self.nofeatures_dummy_scoring:
-            # Sign-direction-agnostic "worse than model" placeholder. ``score/10`` silently put the dummy ABOVE the model when _sign==+1 and score was negative (e.g. R^2 < 0). Subtracting a positive number always makes the score worse under both sklearn conventions; use a magnitude-relative fudge so it scales with the metric in play (log-loss ~0.5, MSE ~1e6, R^2 ~1).
-            fudge = max(abs(score), 1e-3) * 9.0
-            _dummy = score - fudge
-        else:
-            # Computed OUTSIDE the lock (it can be slow); only the append is guarded.
-            # W5: thread the SAME fold train/test weights the real per-N scores already use, so the
-            # N=0 anchor (early-exit "dummy already beats this subset" check, cv_results_ diagnostic
-            # row) is directly comparable to the weighted real-N scores instead of an apples-to-oranges
-            # unweighted-vs-weighted comparison.
-            _dummy = get_best_dummy_score(
-                estimator=estimator, X_train=X_train, y_train=y_train, X_test=X_test, y_test=y_test, scoring=scoring,
-                train_sample_weight=_fold_train_sw, test_sample_weight=_fold_test_sw,
-            )
-        with _FOLD_STATE_LOCK:
-            dummy_scores.append(_dummy)
+        _append_fold_dummy_score(
+            self, score=score, estimator=estimator, X_train=X_train, y_train=y_train, X_test=X_test, y_test=y_test,
+            scoring=scoring, fold_train_sw=_fold_train_sw, fold_test_sw=_fold_test_sw, dummy_scores=dummy_scores,
+        )
 
 
 def _filter_fold_fit_params(fit_params, temp_fit_params, _current_set, _filtered_fit_params):

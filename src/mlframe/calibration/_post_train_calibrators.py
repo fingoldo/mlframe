@@ -28,6 +28,71 @@ def _publish_calibrator(calibrator: Any, path: str) -> None:
     write_sidecar(path)
 
 
+def _resolve_ensembling_method(ensembling_method: Optional[str], metadata: Optional[dict], task_type: Any, target_name: str) -> str:
+    """Resolve the ensemble flavour: explicit arg > ``metadata["ensembles_chosen"]["simple"][tt][tname]`` > ``"harm"``."""
+    _resolved_method = ensembling_method
+    if _resolved_method is None and metadata is not None:
+        _ec = metadata.get("ensembles_chosen") if isinstance(metadata, dict) else None
+        if isinstance(_ec, dict):
+            _bucket = _ec.get("simple")
+            if isinstance(_bucket, dict):
+                _by_tt = _bucket.get(task_type)
+                if _by_tt is None:
+                    _by_tt = _bucket.get(str(task_type))
+                if isinstance(_by_tt, dict):
+                    _resolved_method = _by_tt.get(target_name)
+                    if _resolved_method is None:
+                        _resolved_method = _by_tt.get(str(target_name))
+                elif isinstance(_by_tt, str):
+                    _resolved_method = _by_tt
+    if _resolved_method is None:
+        _resolved_method = "harm"
+        logger.warning(
+            "train_postcalibrators: no ensemble flavour passed and metadata['ensembles_chosen'] "
+            "did not expose one for target=%r; defaulting to 'harm'. The deployed predict path "
+            "may select a different flavour, leading to a calibration / deployment mismatch.",
+            target_name,
+        )
+    return _resolved_method
+
+
+def _save_calibrators(test_calibrators: dict, final_models_dir: str, _resolved_method: str) -> None:
+    """Publish every fitted calibrator (plus its ``.meta.json`` sidecar) under ``final_models_dir``."""
+    for calib_name, calibrator in test_calibrators.items():
+        ens_name = f"ens_{_resolved_method}"
+        calib_fpath = join(final_models_dir, f"{ens_name}_postcalibrator_{slugify(calib_name)}.dump")
+        _publish_calibrator(calibrator, calib_fpath)
+        # Write the .meta.json sidecar so calibrator-loaders surface mlframe-version drift. Calibrator classes
+        # (_PerClassIsotonicCalibrator / _PostHocMultiCalibratedModel) carry
+        # attributes (n_classes, is_exclusive, _target_type) whose semantics
+        # could shift across mlframe versions; predict-time uses getattr
+        # blindly.
+        try:
+            from mlframe.training.shared import write_save_meta_sidecar as _wsms
+            _wsms(calib_fpath, durable=False)
+        except Exception as _meta_e:  # best-effort: the calibrator itself is already saved; the sidecar is optional metadata
+            log_throttle(
+                logger, "post_train_calib_meta_sidecar_write_failed", logging.WARNING,
+                "calibration: failed to write .meta.json sidecar for %s: %s. "
+                "Calibrator saved; load-time version validation will fall "
+                "through to back-compat.", calib_fpath, _meta_e,
+            )
+
+
+def _validated_calib_arrays(calib_probs_per_model: Sequence[np.ndarray], _calib_target_np: np.ndarray) -> list:
+    """Coerce the calibration probabilities to arrays and check they are non-empty and row-aligned to ``calib_target``."""
+    _calib_arrays = [np.asarray(p) for p in calib_probs_per_model]
+    if not _calib_arrays:
+        raise ValueError("train_postcalibrators: calib_probs_per_model is empty.")
+    _n_calib = _calib_arrays[0].shape[0]
+    if _calib_target_np.shape[0] != _n_calib:
+        raise ValueError(f"train_postcalibrators: calib_target length {_calib_target_np.shape[0]} " f"does not match calib_probs row count {_n_calib}.")
+    for _i, _p in enumerate(_calib_arrays):
+        if _p.shape[0] != _n_calib:
+            raise ValueError(f"train_postcalibrators: calib_probs_per_model[{_i}] has {_p.shape[0]} rows; " f"expected {_n_calib} aligned to calib_target.")
+    return _calib_arrays
+
+
 def train_postcalibrators(
     models: dict,
     model_name: str,
@@ -116,39 +181,9 @@ def train_postcalibrators(
     # metadata["ensembles_chosen"]["simple"][tt][tname] > "harm" fallback.
     # Arch-3: ensembles_chosen is sub-keyed per family; calibrators always run on the simple
     # per-target ensemble bucket (cross-target ensembles have their own calibration story).
-    _resolved_method = ensembling_method
-    if _resolved_method is None and metadata is not None:
-        _ec = metadata.get("ensembles_chosen") if isinstance(metadata, dict) else None
-        if isinstance(_ec, dict):
-            _bucket = _ec.get("simple")
-            if isinstance(_bucket, dict):
-                _by_tt = _bucket.get(task_type)
-                if _by_tt is None:
-                    _by_tt = _bucket.get(str(task_type))
-                if isinstance(_by_tt, dict):
-                    _resolved_method = _by_tt.get(target_name)
-                    if _resolved_method is None:
-                        _resolved_method = _by_tt.get(str(target_name))
-                elif isinstance(_by_tt, str):
-                    _resolved_method = _by_tt
-    if _resolved_method is None:
-        _resolved_method = "harm"
-        logger.warning(
-            "train_postcalibrators: no ensemble flavour passed and metadata['ensembles_chosen'] "
-            "did not expose one for target=%r; defaulting to 'harm'. The deployed predict path "
-            "may select a different flavour, leading to a calibration / deployment mismatch.",
-            target_name,
-        )
+    _resolved_method = _resolve_ensembling_method(ensembling_method, metadata, task_type, target_name)
 
-    _calib_arrays = [np.asarray(p) for p in calib_probs_per_model]
-    if not _calib_arrays:
-        raise ValueError("train_postcalibrators: calib_probs_per_model is empty.")
-    _n_calib = _calib_arrays[0].shape[0]
-    if _calib_target_np.shape[0] != _n_calib:
-        raise ValueError(f"train_postcalibrators: calib_target length {_calib_target_np.shape[0]} " f"does not match calib_probs row count {_n_calib}.")
-    for _i, _p in enumerate(_calib_arrays):
-        if _p.shape[0] != _n_calib:
-            raise ValueError(f"train_postcalibrators: calib_probs_per_model[{_i}] has {_p.shape[0]} rows; " f"expected {_n_calib} aligned to calib_target.")
+    _calib_arrays = _validated_calib_arrays(calib_probs_per_model, _calib_target_np)
 
     # Deferred: calibration/ is a lower-level package that models.ensembling/ sits above; this avoids
     # an eager module-scope import for a name only used inside this function body.
@@ -200,25 +235,7 @@ def train_postcalibrators(
         slugify(model_name),
     )
 
-    for calib_name, calibrator in test_calibrators.items():
-        ens_name = f"ens_{_resolved_method}"
-        calib_fpath = join(final_models_dir, f"{ens_name}_postcalibrator_{slugify(calib_name)}.dump")
-        _publish_calibrator(calibrator, calib_fpath)
-        # Write the .meta.json sidecar so calibrator-loaders surface mlframe-version drift. Calibrator classes
-        # (_PerClassIsotonicCalibrator / _PostHocMultiCalibratedModel) carry
-        # attributes (n_classes, is_exclusive, _target_type) whose semantics
-        # could shift across mlframe versions; predict-time uses getattr
-        # blindly.
-        try:
-            from mlframe.training.shared import write_save_meta_sidecar as _wsms
-            _wsms(calib_fpath, durable=False)
-        except Exception as _meta_e:  # best-effort: the calibrator itself is already saved; the sidecar is optional metadata
-            log_throttle(
-                logger, "post_train_calib_meta_sidecar_write_failed", logging.WARNING,
-                "calibration: failed to write .meta.json sidecar for %s: %s. "
-                "Calibrator saved; load-time version validation will fall "
-                "through to back-compat.", calib_fpath, _meta_e,
-            )
+    _save_calibrators(test_calibrators, final_models_dir, _resolved_method)
 
     # Return the fitted calibrator objects, the calib-set comparison metrics that picked them, and any
     # calibrator names that failed to fit/predict - so a caller can see WHICH calibrator won on

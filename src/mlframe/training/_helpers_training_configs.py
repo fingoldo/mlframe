@@ -56,6 +56,365 @@ def _cb_calib_classif_params(cb_classif: dict, resolved_tt: Any, final_ice: Any)
     return params
 
 
+def _copy_model_kwargs(
+    cb_kwargs: dict | None, lgb_kwargs: dict | None, xgb_kwargs: dict | None, hgb_kwargs: dict | None, mlp_kwargs: dict | None, ngb_kwargs: dict | None
+) -> tuple[dict, dict, dict, dict, dict, dict]:
+    """Return per-booster kwargs copies with their defaults filled in; the caller's dicts are never mutated."""
+    if cb_kwargs is None:
+        cb_kwargs = dict(verbose=0)
+    else:
+        cb_kwargs = cb_kwargs.copy()  # Don't mutate caller's dict
+    if lgb_kwargs is None:
+        lgb_kwargs = dict(verbose=-1)
+    else:
+        lgb_kwargs = lgb_kwargs.copy()  # Don't mutate caller's dict
+    if xgb_kwargs is None:
+        xgb_kwargs = dict(verbosity=0)
+    else:
+        xgb_kwargs = xgb_kwargs.copy()  # Don't mutate caller's dict
+    if hgb_kwargs is None:
+        hgb_kwargs = dict(verbose=0)
+    else:
+        hgb_kwargs = hgb_kwargs.copy()
+    validate_nested_mlp_kwargs(mlp_kwargs)
+    mlp_kwargs = dict(mlp_kwargs or {})  # a copy: the caller's dict is not mutated
+    if ngb_kwargs is None:
+        ngb_kwargs = dict(verbose=True)
+    else:
+        ngb_kwargs = ngb_kwargs.copy()
+    return cb_kwargs, lgb_kwargs, xgb_kwargs, hgb_kwargs, mlp_kwargs, ngb_kwargs
+
+
+def _is_cb_model(m: Any) -> bool:
+    """True if ``m`` (a model name string or an estimator instance) resolves to CatBoost."""
+    if isinstance(m, str):
+        return m.lower() in ("cb", "catboost")
+    from .strategies import get_strategy, CatBoostStrategy
+    return isinstance(get_strategy(m), CatBoostStrategy)
+
+
+def _build_cb_param_sets(
+    iterations: int,
+    has_time: bool,
+    learning_rate: float,
+    use_explicit_early_stopping: bool,
+    validation_fraction: float,
+    early_stopping_rounds: Optional[int],
+    random_seed: Optional[int],
+    cb_kwargs: dict,
+    def_classif_metric: str,
+    def_regr_metric: str,
+    catboost_custom_classif_metrics: Optional[Sequence],
+    catboost_custom_regr_metrics: Optional[Sequence],
+    has_gpu: bool,
+    enabled_models: Optional[Sequence[str]],
+) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
+    """Build ``(CB_GENERAL_PARAMS, CB_CLASSIF, CB_REGR)``, probing the CatBoost GPU build only when CatBoost is in scope."""
+    # Build defaults, then let caller's kwargs override any of them
+    # via .update(). Using **cb_kwargs for merge crashes when the
+    # caller passes a key that's already in the defaults dict
+    # (TypeError: got multiple values).
+    # ``has_gpu`` reports nvidia-smi presence; the installed catboost wheel
+    # may still be CPU-only (default PyPI Windows wheels). Confirm via
+    # ``_cb_gpu_usable`` (one-shot tiny-fit probe, cached) so machines with
+    # a working GPU but a CPU-only CB binary fall back to ``task_type="CPU"``
+    # instead of crashing every fit with "Environment for task type [GPU]
+    # not found". Skip the probe entirely when CB is not in scope - the
+    # tiny CB-GPU fit costs ~150ms per process and is wasted on
+    # linear/ridge/lgb/xgb-only suites. ``models_in_scope`` is a hint;
+    # when None we keep the conservative behaviour and probe.
+    # Resolve via strategy so a CatBoost passed as an estimator INSTANCE (stringifies to "catboostclassifier()", missed by a
+    # name-only check) still enables the CB-GPU probe; otherwise an instance-passed CB silently defaults to task_type="CPU".
+    _cb_in_scope = enabled_models is None or any(_is_cb_model(m) for m in enabled_models)
+    if has_gpu and _cb_in_scope:
+        from mlframe.training.cb.shared import cb_gpu_usable as _cb_gpu_usable
+        _cb_task = "GPU" if _cb_gpu_usable() else "CPU"
+    else:
+        _cb_task = "CPU"
+    CB_GENERAL_PARAMS: dict[str, Any] = dict(
+        iterations=iterations,
+        has_time=has_time,
+        learning_rate=learning_rate,
+        eval_fraction=(0.0 if use_explicit_early_stopping else validation_fraction),
+        task_type=_cb_task,
+        early_stopping_rounds=early_stopping_rounds,
+        random_seed=random_seed,
+        # metric_period=5: evaluate the custom eval metric every 5th boost
+        # iteration instead of every iteration. On 1M-row multiclass with
+        # the ICE calibration metric this cut suite wall from ~95s to ~60s
+        # (the per-iter metric was 110ms and CB ran 350+ boost rounds).
+        # Trade-off: early-stopping detects "best iteration" with a 5-iter
+        # granularity instead of 1-iter; on a 100+-iter run this is a
+        # negligible accuracy hit. CB caller can override via cb_kwargs.
+        metric_period=5,
+        # allow_writing_files=False: CatBoost's catboost_info/ JSON+TSV side-
+        # outputs are unused by mlframe (we have our own metric/plot pipeline)
+        # and clash with multi-process pytest-xdist on Windows (every worker
+        # contends on the shared cwd path). Booster itself, SHAP, FI, and
+        # get_evals_result() are unaffected. Re-enable via
+        # cb_kwargs={"allow_writing_files": True, "train_dir": "<unique>"}.
+        allow_writing_files=False,
+    )
+    CB_GENERAL_PARAMS.update(cb_kwargs)
+
+    CB_CLASSIF = CB_GENERAL_PARAMS.copy()
+    CB_CLASSIF.update({"eval_metric": def_classif_metric})
+    # custom_metric used to break sklearn.clone()'s default identity-based param round-trip check
+    # (CatBoost's own get_params() returns a FRESH list object for this param on every call --
+    # upstream CatBoost behaviour, no tracking issue filed). Fixed globally, not per call site:
+    # mlframe.metrics._ice_metric installs a __sklearn_clone__ patch on the stock
+    # catboost.CatBoostClassifier/Regressor classes (consulted by sklearn.base.clone() BEFORE its
+    # broken identity check) that already carried eval_metric across clone() the same way --
+    # extended to cover custom_metric too. This module's own import of mlframe.metrics.core (top of
+    # file) guarantees the patch is installed before any CB_CLASSIF/CB_REGR dict reaches a real
+    # CatBoostClassifier(**...)/CatBoostRegressor(**...) construction site.
+    if catboost_custom_classif_metrics:
+        CB_CLASSIF["custom_metric"] = tuple(catboost_custom_classif_metrics)
+
+    CB_REGR = CB_GENERAL_PARAMS.copy()
+    # CatBoost rejects a bare "Huber" ("Metric Huber requires delta as parameter") while LGB / XGB map it below; delta=1.0 matches XGB's
+    # default huber_slope, so the three boosters early-stop on the same surface.
+    CB_REGR.update({"eval_metric": {"Huber": "Huber:delta=1.0"}.get(def_regr_metric, def_regr_metric)})
+    if catboost_custom_regr_metrics:
+        CB_REGR["custom_metric"] = tuple(catboost_custom_regr_metrics)
+    return CB_GENERAL_PARAMS, CB_CLASSIF, CB_REGR
+
+
+def _build_hgb_params(
+    iterations: int,
+    learning_rate: float,
+    use_explicit_early_stopping: bool,
+    validation_fraction: float,
+    early_stopping_rounds: Optional[int],
+    random_seed: Optional[int],
+    hgb_kwargs: dict,
+) -> dict[str, Any]:
+    """Build ``HGB_GENERAL_PARAMS`` with the caller's ``hgb_kwargs`` applied on top."""
+    HGB_GENERAL_PARAMS: dict[str, Any] = dict(
+        max_iter=iterations,
+        learning_rate=learning_rate,
+        early_stopping=True,
+        validation_fraction=(None if use_explicit_early_stopping else validation_fraction),
+        n_iter_no_change=early_stopping_rounds,
+        categorical_features="from_dtype",
+        random_state=random_seed,
+    )
+    HGB_GENERAL_PARAMS.update(hgb_kwargs)
+    return HGB_GENERAL_PARAMS
+
+
+def _build_xgb_param_sets(
+    iterations: int,
+    learning_rate: float,
+    has_gpu: bool,
+    early_stopping_rounds: Optional[int],
+    random_seed: Optional[int],
+    xgb_kwargs: dict,
+    def_regr_metric: str,
+    neg_ovr_roc_auc_score: Any,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Build ``(XGB_GENERAL_PARAMS, XGB_GENERAL_CLASSIF)``."""
+    # Device gating reflects XGB build-info, not just CUDA presence.
+    # ``has_gpu and XGB_GPU_AVAILABLE`` skips ``cuda`` on CPU-only XGB
+    # binaries (avoids per-fit ``Device is changed from GPU to CPU``
+    # warning storm). Caller's xgb_kwargs.update overrides win for
+    # advanced users.
+    _xgb_device = "cuda" if (has_gpu and XGB_GPU_AVAILABLE) else "cpu"
+    XGB_GENERAL_PARAMS: dict[str, Any] = dict(
+        n_estimators=iterations,
+        learning_rate=learning_rate,
+        enable_categorical=True,
+        max_cat_to_onehot=1,
+        max_cat_threshold=100,  # affects model size heavily when high cardinality cat features r present!
+        tree_method="hist",
+        device=_xgb_device,
+        n_jobs=psutil.cpu_count(logical=False),
+        early_stopping_rounds=early_stopping_rounds,
+        # XGBoost's sklearn API + native trainer key the RNG on ``random_state``
+        # (or native ``seed``); ``random_seed`` is silently ignored ("Parameters:
+        # { random_seed } are not used"), so a requested seed was dropped and XGB
+        # ran non-reproducibly while CB (random_seed) / LGB+HGB (random_state)
+        # were correctly seeded.
+        random_state=random_seed,
+    )
+    XGB_GENERAL_PARAMS.update(xgb_kwargs)
+    # unified ES surface: XGB regression default eval_metric
+    # is "rmse" upstream, but mlframe used to leave it implicit -- ES
+    # then tracked whatever ``objective`` defaulted to. Stamp the
+    # eval_metric explicitly from ``def_regr_metric`` (mapped to xgb
+    # naming) so CB / LGB / XGB all early-stop on the same surface
+    # the user requested. ``_apply_loss_recommendation_in_place``
+    # routes around this when heavy-kurt detection wins.
+    _XGB_METRIC_NAME = {
+        "RMSE": "rmse", "MAE": "mae", "Huber": "mphe",
+        "MSLE": "rmsle", "MAPE": "mape",
+    }.get(def_regr_metric, def_regr_metric.lower())
+    XGB_GENERAL_PARAMS.setdefault("eval_metric", _XGB_METRIC_NAME)
+
+    XGB_GENERAL_CLASSIF = XGB_GENERAL_PARAMS.copy()
+    XGB_GENERAL_CLASSIF.update({"objective": "binary:logistic", "eval_metric": neg_ovr_roc_auc_score})
+    return XGB_GENERAL_PARAMS, XGB_GENERAL_CLASSIF
+
+
+def _build_calibration_metrics(
+    method: str,
+    mae_weight: float,
+    std_weight: float,
+    roc_auc_weight: float,
+    pr_auc_weight: float,
+    brier_loss_weight: float,
+    min_roc_auc: float,
+    roc_auc_penalty: float,
+    use_weighted_calibration: bool,
+    weight_by_class_npositives: bool,
+    nbins: int,
+    subgroups: dict | None,
+    robustness_num_ts_splits: int,
+    robustness_std_coeff: float,
+    robustness_greater_is_better: bool,
+    verbose: int,
+) -> tuple[Any, Callable, Any, Any]:
+    """Build the integral calibration error, its final (subgroup/robust-wrapped), FS/HPT-positional and LightGBM-adapted variants."""
+    # These were nested functions. A local function cannot be pickled, and they are attached to model params
+    # (XGB eval_metric, CatBoost ICE, the LGBM adapter), so EVERY save_mlframe_model call fell back to dill --
+    # slower on each save, and dill serialises bytecode, so a model written here may not load under a different
+    # interpreter or mlframe version. Module-level callables with the same state pickle by reference instead.
+    integral_calibration_error = IntegralCalibrationError(
+        method=method,
+        mae_weight=mae_weight,
+        std_weight=std_weight,
+        brier_loss_weight=brier_loss_weight,
+        roc_auc_weight=roc_auc_weight,
+        pr_auc_weight=pr_auc_weight,
+        min_roc_auc=min_roc_auc,
+        roc_auc_penalty=roc_auc_penalty,
+        use_weighted_calibration=use_weighted_calibration,
+        weight_by_class_npositives=weight_by_class_npositives,
+        nbins=nbins,
+    )
+    make_robust_ts_metric = build_robust_ts_metric
+
+    # Annotated Callable because the three branches below bind three different callable TYPES to this name
+    # (subgroup wrapper / the metric itself / the robustness wrapper), all of which every consumer only calls.
+    final_integral_calibration_error: Callable
+    if subgroups:
+        final_integral_calibration_error = SubgroupAveragedMetric(integral_calibration_error, subgroups, higher_is_better=False)
+    else:
+        final_integral_calibration_error = integral_calibration_error
+
+    # Apply robustness wrapper if enabled
+    if robustness_num_ts_splits > 0:
+        final_integral_calibration_error = make_robust_ts_metric(
+            final_integral_calibration_error,
+            num_splits=robustness_num_ts_splits,
+            std_coeff=robustness_std_coeff,
+            greater_is_better=robustness_greater_is_better,
+            ensure_enough_classes=True,  # ICE is for classification
+            verbose=verbose,
+        )
+
+    fs_and_hpt_integral_calibration_error = PositionalIntegralCalibrationError(**integral_calibration_error._kwargs())
+
+    lgbm_integral_calibration_error = LightGBMMetricAdapter(final_integral_calibration_error)
+    return integral_calibration_error, final_integral_calibration_error, fs_and_hpt_integral_calibration_error, lgbm_integral_calibration_error
+
+
+def _build_lgb_params(
+    iterations: int,
+    learning_rate: float,
+    has_gpu: bool,
+    early_stopping_rounds: Optional[int],
+    random_seed: Optional[int],
+    lgb_kwargs: dict,
+    def_regr_metric: str,
+    _resolved_tt: Any,
+    n_classes: int,
+) -> dict[str, Any]:
+    """Build ``LGB_GENERAL_PARAMS`` including the regression metric stamp and the multiclass objective."""
+    # Same gating story as XGB. ``has_gpu and LGB_GPU_AVAILABLE`` respects
+    # the LightGBM build's actual GPU support (default LightGBM wheels are
+    # CPU-only; opt-in via env ``MLFRAME_TRUST_LGB_CUDA=1`` if you've built
+    # / installed a GPU-enabled LGB binary).
+    _lgb_device = "cuda" if (has_gpu and LGB_GPU_AVAILABLE) else "cpu"
+    LGB_GENERAL_PARAMS: dict[str, Any] = dict(
+        n_estimators=iterations,
+        # explicit ``learning_rate`` plumbed so the suite's
+        # ``learning_rate=`` kwarg actually reaches LightGBM (pre-fix LGB
+        # silently inherited library default 0.1 which happened to match
+        # the suite default but broke the override surface contract --
+        # users passing learning_rate=0.05 got LGB at 0.1).
+        learning_rate=learning_rate,
+        early_stopping_rounds=early_stopping_rounds,
+        device_type=_lgb_device,
+        random_state=random_seed,
+        # Leaving n_jobs unset resolves to LightGBM's own default (n_jobs=None), which calls
+        # joblib.cpu_count(only_physical_cores=True) -- on Windows this shells out to a subprocess
+        # (loky's WMI-based physical-core detector) that measured ~2s on a quiet box and up to 5s+
+        # under this session's concurrent-process load, a one-time-per-process tax paid on the FIRST
+        # LightGBM fit. Explicit -1 resolves via LightGBM's OTHER branch
+        # (joblib.cpu_count(only_physical_cores=False), i.e. plain os.cpu_count(), <1ms, no
+        # subprocess) with the same "use all available cores" intent -- functionally equivalent
+        # parallelism, just computed without the slow path. Routed through
+        # lgb_default_n_jobs so the macOS libomp-crash mitigation (forces
+        # n_jobs=1 there; see lgb_shim.py) applies to this central config
+        # too, not just the dataset-reuse shim's own fit() path.
+        n_jobs=lgb_default_n_jobs(-1),
+        # histogram_pool_size=16384,
+    )
+    LGB_GENERAL_PARAMS.update(lgb_kwargs)
+    # unified ES surface (companion to the XGB metric stamp):
+    # LGB regression default ``metric`` is unset which means "use
+    # objective" -- on RMSE that's fine, but on MAE / Huber objective
+    # the ES surface drifts from CB's. Stamp ``metric`` explicitly so
+    # all three boosters track the same surface.
+    #
+    # Stamp the regression metric ONLY when the suite knows the target is
+    # regression (or unspecified -- legacy callers). For known-
+    # classification targets, leave ``metric`` unset and let LightGBM
+    # auto-pick a compatible metric from the inferred objective
+    # (binary_logloss for binary, multi_logloss for multiclass). The bug
+    # this guards against: LightGBM's LGBMClassifier auto-promotes to
+    # ``objective='multiclass'`` based on y's class cardinality at fit
+    # time -- so even if the suite never set MULTICLASS_CLASSIFICATION
+    # explicitly upstream, a 3-class y still triggers the multiclass
+    # path. With a stale regression metric=l2 on the params, the
+    # multiclass fit raises "Multiclass objective and metrics don't
+    # match" before training starts.
+    _is_regression_path = _resolved_tt is None or not _resolved_tt.is_classification
+    if _is_regression_path:
+        _LGB_METRIC_NAME = {
+            "RMSE": "l2", "MAE": "l1", "Huber": "huber",
+            "MAPE": "mape", "MSLE": "rmse",  # LGB has no msle; fall back
+        }.get(def_regr_metric, def_regr_metric.lower())
+        LGB_GENERAL_PARAMS.setdefault("metric", _LGB_METRIC_NAME)
+    # Target-type-aware objective for LGB (no separate _CLASSIF variant).
+    _inject_lgb_multiclass_objective(_resolved_tt, n_classes, LGB_GENERAL_PARAMS)
+    return LGB_GENERAL_PARAMS
+
+
+def _build_common_rfecv_params(rfecv_kwargs: dict | None, has_time: bool, early_stopping_rounds: Optional[int]) -> dict[str, Any]:
+    """Build ``COMMON_RFECV_PARAMS``, picking the default CV splitter when the caller gave none."""
+    if rfecv_kwargs is None:
+        rfecv_kwargs = {}
+    else:
+        rfecv_kwargs = rfecv_kwargs.copy()
+
+    cv = rfecv_kwargs.get("cv")
+    _cv_n_splits = rfecv_kwargs.get("cv_n_splits")
+    cv = _default_cv_splitter(cv, has_time, _cv_n_splits, rfecv_kwargs)
+
+    if "cv_n_splits" in rfecv_kwargs:
+        del rfecv_kwargs["cv_n_splits"]
+
+    COMMON_RFECV_PARAMS: dict[str, Any] = dict(
+        early_stopping_rounds=early_stopping_rounds,
+        cv=cv,
+        cv_shuffle=not has_time,
+    )
+    COMMON_RFECV_PARAMS.update(rfecv_kwargs)
+    return COMMON_RFECV_PARAMS
+
+
 def get_training_configs(
     iterations: int = 5000,
     early_stopping_rounds: Optional[int] = 0,
@@ -139,39 +498,15 @@ def get_training_configs(
     Useful for more or less fair comparison between different models on the same data/task, and their upcoming ensembling.
     This procedure is good for getting the feeling of what ML models are capable of for a particular task.
     """
-
     if has_gpu is None:
         has_gpu = CUDA_IS_AVAILABLE
 
-    # Initialize mutable defaults
-    if catboost_custom_classif_metrics is None:
-        catboost_custom_classif_metrics = ["AUC", "BrierScore", "PRAUC"]
-    if catboost_custom_regr_metrics is None:
-        catboost_custom_regr_metrics = ["RMSE", "MAPE"]
+    catboost_custom_classif_metrics, catboost_custom_regr_metrics = _default_catboost_custom_metrics(catboost_custom_classif_metrics, catboost_custom_regr_metrics)
 
     # Initialize kwargs dicts with defaults, making copies to avoid mutating caller's dicts
-    if cb_kwargs is None:
-        cb_kwargs = dict(verbose=0)
-    else:
-        cb_kwargs = cb_kwargs.copy()  # Don't mutate caller's dict
-    if lgb_kwargs is None:
-        lgb_kwargs = dict(verbose=-1)
-    else:
-        lgb_kwargs = lgb_kwargs.copy()  # Don't mutate caller's dict
-    if xgb_kwargs is None:
-        xgb_kwargs = dict(verbosity=0)
-    else:
-        xgb_kwargs = xgb_kwargs.copy()  # Don't mutate caller's dict
-    if hgb_kwargs is None:
-        hgb_kwargs = dict(verbose=0)
-    else:
-        hgb_kwargs = hgb_kwargs.copy()
-    validate_nested_mlp_kwargs(mlp_kwargs)
-    mlp_kwargs = dict(mlp_kwargs or {})  # a copy: the caller's dict is not mutated
-    if ngb_kwargs is None:
-        ngb_kwargs = dict(verbose=True)
-    else:
-        ngb_kwargs = ngb_kwargs.copy()
+    cb_kwargs, lgb_kwargs, xgb_kwargs, hgb_kwargs, mlp_kwargs, ngb_kwargs = _copy_model_kwargs(
+        cb_kwargs, lgb_kwargs, xgb_kwargs, hgb_kwargs, mlp_kwargs, ngb_kwargs
+    )
 
     # None = disabled (don't pass to model fit at all); 0 = auto (iterations // 3); int = as-is.
     early_stopping_disabled = early_stopping_rounds is None
@@ -180,131 +515,14 @@ def get_training_configs(
 
     neg_ovr_roc_auc_score = NegOvrRocAuc()
 
-    # Build defaults, then let caller's kwargs override any of them
-    # via .update(). Using **cb_kwargs for merge crashes when the
-    # caller passes a key that's already in the defaults dict
-    # (TypeError: got multiple values).
-    # ``has_gpu`` reports nvidia-smi presence; the installed catboost wheel
-    # may still be CPU-only (default PyPI Windows wheels). Confirm via
-    # ``_cb_gpu_usable`` (one-shot tiny-fit probe, cached) so machines with
-    # a working GPU but a CPU-only CB binary fall back to ``task_type="CPU"``
-    # instead of crashing every fit with "Environment for task type [GPU]
-    # not found". Skip the probe entirely when CB is not in scope - the
-    # tiny CB-GPU fit costs ~150ms per process and is wasted on
-    # linear/ridge/lgb/xgb-only suites. ``models_in_scope`` is a hint;
-    # when None we keep the conservative behaviour and probe.
-    # Resolve via strategy so a CatBoost passed as an estimator INSTANCE (stringifies to "catboostclassifier()", missed by a
-    # name-only check) still enables the CB-GPU probe; otherwise an instance-passed CB silently defaults to task_type="CPU".
-    def _is_cb(m) -> bool:
-        """True if ``m`` (a model name string or an estimator instance) resolves to CatBoost."""
-        if isinstance(m, str):
-            return m.lower() in ("cb", "catboost")
-        from .strategies import get_strategy, CatBoostStrategy
-        return isinstance(get_strategy(m), CatBoostStrategy)
-
-    _cb_in_scope = enabled_models is None or any(_is_cb(m) for m in enabled_models)
-    if has_gpu and _cb_in_scope:
-        from mlframe.training.cb.shared import cb_gpu_usable as _cb_gpu_usable
-        _cb_task = "GPU" if _cb_gpu_usable() else "CPU"
-    else:
-        _cb_task = "CPU"
-    CB_GENERAL_PARAMS = dict(
-        iterations=iterations,
-        has_time=has_time,
-        learning_rate=learning_rate,
-        eval_fraction=(0.0 if use_explicit_early_stopping else validation_fraction),
-        task_type=_cb_task,
-        early_stopping_rounds=early_stopping_rounds,
-        random_seed=random_seed,
-        # metric_period=5: evaluate the custom eval metric every 5th boost
-        # iteration instead of every iteration. On 1M-row multiclass with
-        # the ICE calibration metric this cut suite wall from ~95s to ~60s
-        # (the per-iter metric was 110ms and CB ran 350+ boost rounds).
-        # Trade-off: early-stopping detects "best iteration" with a 5-iter
-        # granularity instead of 1-iter; on a 100+-iter run this is a
-        # negligible accuracy hit. CB caller can override via cb_kwargs.
-        metric_period=5,
-        # allow_writing_files=False: CatBoost's catboost_info/ JSON+TSV side-
-        # outputs are unused by mlframe (we have our own metric/plot pipeline)
-        # and clash with multi-process pytest-xdist on Windows (every worker
-        # contends on the shared cwd path). Booster itself, SHAP, FI, and
-        # get_evals_result() are unaffected. Re-enable via
-        # cb_kwargs={"allow_writing_files": True, "train_dir": "<unique>"}.
-        allow_writing_files=False,
+    CB_GENERAL_PARAMS, CB_CLASSIF, CB_REGR = _build_cb_param_sets(
+        iterations, has_time, learning_rate, use_explicit_early_stopping, validation_fraction, early_stopping_rounds, random_seed, cb_kwargs,
+        def_classif_metric, def_regr_metric, catboost_custom_classif_metrics, catboost_custom_regr_metrics, has_gpu, enabled_models,
     )
-    CB_GENERAL_PARAMS.update(cb_kwargs)
-
-    CB_CLASSIF = CB_GENERAL_PARAMS.copy()
-    CB_CLASSIF.update({"eval_metric": def_classif_metric})
-    # custom_metric used to break sklearn.clone()'s default identity-based param round-trip check
-    # (CatBoost's own get_params() returns a FRESH list object for this param on every call --
-    # upstream CatBoost behaviour, no tracking issue filed). Fixed globally, not per call site:
-    # mlframe.metrics._ice_metric installs a __sklearn_clone__ patch on the stock
-    # catboost.CatBoostClassifier/Regressor classes (consulted by sklearn.base.clone() BEFORE its
-    # broken identity check) that already carried eval_metric across clone() the same way --
-    # extended to cover custom_metric too. This module's own import of mlframe.metrics.core (top of
-    # file) guarantees the patch is installed before any CB_CLASSIF/CB_REGR dict reaches a real
-    # CatBoostClassifier(**...)/CatBoostRegressor(**...) construction site.
-    if catboost_custom_classif_metrics:
-        CB_CLASSIF["custom_metric"] = tuple(catboost_custom_classif_metrics)
-
-    CB_REGR = CB_GENERAL_PARAMS.copy()
-    # CatBoost rejects a bare "Huber" ("Metric Huber requires delta as parameter") while LGB / XGB map it below; delta=1.0 matches XGB's
-    # default huber_slope, so the three boosters early-stop on the same surface.
-    CB_REGR.update({"eval_metric": {"Huber": "Huber:delta=1.0"}.get(def_regr_metric, def_regr_metric)})
-    if catboost_custom_regr_metrics:
-        CB_REGR["custom_metric"] = tuple(catboost_custom_regr_metrics)
-
-    HGB_GENERAL_PARAMS = dict(
-        max_iter=iterations,
-        learning_rate=learning_rate,
-        early_stopping=True,
-        validation_fraction=(None if use_explicit_early_stopping else validation_fraction),
-        n_iter_no_change=early_stopping_rounds,
-        categorical_features="from_dtype",
-        random_state=random_seed,
+    HGB_GENERAL_PARAMS = _build_hgb_params(iterations, learning_rate, use_explicit_early_stopping, validation_fraction, early_stopping_rounds, random_seed, hgb_kwargs)
+    XGB_GENERAL_PARAMS, XGB_GENERAL_CLASSIF = _build_xgb_param_sets(
+        iterations, learning_rate, has_gpu, early_stopping_rounds, random_seed, xgb_kwargs, def_regr_metric, neg_ovr_roc_auc_score
     )
-    HGB_GENERAL_PARAMS.update(hgb_kwargs)
-
-    # Device gating reflects XGB build-info, not just CUDA presence.
-    # ``has_gpu and XGB_GPU_AVAILABLE`` skips ``cuda`` on CPU-only XGB
-    # binaries (avoids per-fit ``Device is changed from GPU to CPU``
-    # warning storm). Caller's xgb_kwargs.update overrides win for
-    # advanced users.
-    _xgb_device = "cuda" if (has_gpu and XGB_GPU_AVAILABLE) else "cpu"
-    XGB_GENERAL_PARAMS = dict(
-        n_estimators=iterations,
-        learning_rate=learning_rate,
-        enable_categorical=True,
-        max_cat_to_onehot=1,
-        max_cat_threshold=100,  # affects model size heavily when high cardinality cat features r present!
-        tree_method="hist",
-        device=_xgb_device,
-        n_jobs=psutil.cpu_count(logical=False),
-        early_stopping_rounds=early_stopping_rounds,
-        # XGBoost's sklearn API + native trainer key the RNG on ``random_state``
-        # (or native ``seed``); ``random_seed`` is silently ignored ("Parameters:
-        # { random_seed } are not used"), so a requested seed was dropped and XGB
-        # ran non-reproducibly while CB (random_seed) / LGB+HGB (random_state)
-        # were correctly seeded.
-        random_state=random_seed,
-    )
-    XGB_GENERAL_PARAMS.update(xgb_kwargs)
-    # unified ES surface: XGB regression default eval_metric
-    # is "rmse" upstream, but mlframe used to leave it implicit -- ES
-    # then tracked whatever ``objective`` defaulted to. Stamp the
-    # eval_metric explicitly from ``def_regr_metric`` (mapped to xgb
-    # naming) so CB / LGB / XGB all early-stop on the same surface
-    # the user requested. ``_apply_loss_recommendation_in_place``
-    # routes around this when heavy-kurt detection wins.
-    _XGB_METRIC_NAME = {
-        "RMSE": "rmse", "MAE": "mae", "Huber": "mphe",
-        "MSLE": "rmsle", "MAPE": "mape",
-    }.get(def_regr_metric, def_regr_metric.lower())
-    XGB_GENERAL_PARAMS.setdefault("eval_metric", _XGB_METRIC_NAME)
-
-    XGB_GENERAL_CLASSIF = XGB_GENERAL_PARAMS.copy()
-    XGB_GENERAL_CLASSIF.update({"objective": "binary:logistic", "eval_metric": neg_ovr_roc_auc_score})
 
     # Target-type-aware objective injection. For non-binary classification
     # target types, replace the binary defaults with the native multi-output
@@ -314,182 +532,34 @@ def get_training_configs(
 
     _resolved_tt = target_type if target_type is not None else TargetTypes.BINARY_CLASSIFICATION
     _inject_classification_objectives(_resolved_tt, n_classes, CB_CLASSIF, XGB_GENERAL_CLASSIF)
-    # NOTE: no _mlframe_target_type metadata tag is attached here.
-    # CatBoostClassifier init raises TypeError on unknown kwargs, which
-    # would block the entire multilabel path. Downstream observability
-    # (which lib + target_type) is covered by the per-model
-    # model_schemas metadata record populated in core.py around the
-    # fit call.
 
-    # These were nested functions. A local function cannot be pickled, and they are attached to model params
-    # (XGB eval_metric, CatBoost ICE, the LGBM adapter), so EVERY save_mlframe_model call fell back to dill --
-    # slower on each save, and dill serialises bytecode, so a model written here may not load under a different
-    # interpreter or mlframe version. Module-level callables with the same state pickle by reference instead.
-    integral_calibration_error = IntegralCalibrationError(
-        method=method,
-        mae_weight=mae_weight,
-        std_weight=std_weight,
-        brier_loss_weight=brier_loss_weight,
-        roc_auc_weight=roc_auc_weight,
-        pr_auc_weight=pr_auc_weight,
-        min_roc_auc=min_roc_auc,
-        roc_auc_penalty=roc_auc_penalty,
-        use_weighted_calibration=use_weighted_calibration,
-        weight_by_class_npositives=weight_by_class_npositives,
-        nbins=nbins,
+    integral_calibration_error, final_integral_calibration_error, fs_and_hpt_integral_calibration_error, lgbm_integral_calibration_error = _build_calibration_metrics(
+        method, mae_weight, std_weight, roc_auc_weight, pr_auc_weight, brier_loss_weight, min_roc_auc, roc_auc_penalty,
+        use_weighted_calibration, weight_by_class_npositives, nbins, subgroups,
+        robustness_num_ts_splits, robustness_std_coeff, robustness_greater_is_better, verbose,
     )
-    make_robust_ts_metric = build_robust_ts_metric
-
-    # Annotated Callable because the three branches below bind three different callable TYPES to this name
-    # (subgroup wrapper / the metric itself / the robustness wrapper), all of which every consumer only calls.
-    final_integral_calibration_error: Callable
-    if subgroups:
-        final_integral_calibration_error = SubgroupAveragedMetric(integral_calibration_error, subgroups, higher_is_better=False)
-    else:
-        final_integral_calibration_error = integral_calibration_error
-
-    # Apply robustness wrapper if enabled
-    if robustness_num_ts_splits > 0:
-        final_integral_calibration_error = make_robust_ts_metric(
-            final_integral_calibration_error,
-            num_splits=robustness_num_ts_splits,
-            std_coeff=robustness_std_coeff,
-            greater_is_better=robustness_greater_is_better,
-            ensure_enough_classes=True,  # ICE is for classification
-            verbose=verbose,
-        )
-
-    fs_and_hpt_integral_calibration_error = PositionalIntegralCalibrationError(**integral_calibration_error._kwargs())
 
     XGB_CALIB_CLASSIF = XGB_GENERAL_CLASSIF.copy()
     XGB_CALIB_CLASSIF.update({"eval_metric": final_integral_calibration_error})
 
-    lgbm_integral_calibration_error = LightGBMMetricAdapter(final_integral_calibration_error)
-
     CB_CALIB_CLASSIF = _cb_calib_classif_params(CB_CLASSIF, _resolved_tt, final_integral_calibration_error)
 
-    # Same gating story as XGB. ``has_gpu and LGB_GPU_AVAILABLE`` respects
-    # the LightGBM build's actual GPU support (default LightGBM wheels are
-    # CPU-only; opt-in via env ``MLFRAME_TRUST_LGB_CUDA=1`` if you've built
-    # / installed a GPU-enabled LGB binary).
-    _lgb_device = "cuda" if (has_gpu and LGB_GPU_AVAILABLE) else "cpu"
-    LGB_GENERAL_PARAMS = dict(
-        n_estimators=iterations,
-        # explicit ``learning_rate`` plumbed so the suite's
-        # ``learning_rate=`` kwarg actually reaches LightGBM (pre-fix LGB
-        # silently inherited library default 0.1 which happened to match
-        # the suite default but broke the override surface contract --
-        # users passing learning_rate=0.05 got LGB at 0.1).
-        learning_rate=learning_rate,
-        early_stopping_rounds=early_stopping_rounds,
-        device_type=_lgb_device,
-        random_state=random_seed,
-        # Leaving n_jobs unset resolves to LightGBM's own default (n_jobs=None), which calls
-        # joblib.cpu_count(only_physical_cores=True) -- on Windows this shells out to a subprocess
-        # (loky's WMI-based physical-core detector) that measured ~2s on a quiet box and up to 5s+
-        # under this session's concurrent-process load, a one-time-per-process tax paid on the FIRST
-        # LightGBM fit. Explicit -1 resolves via LightGBM's OTHER branch
-        # (joblib.cpu_count(only_physical_cores=False), i.e. plain os.cpu_count(), <1ms, no
-        # subprocess) with the same "use all available cores" intent -- functionally equivalent
-        # parallelism, just computed without the slow path. Routed through
-        # lgb_default_n_jobs so the macOS libomp-crash mitigation (forces
-        # n_jobs=1 there; see lgb_shim.py) applies to this central config
-        # too, not just the dataset-reuse shim's own fit() path.
-        n_jobs=lgb_default_n_jobs(-1),
-        # histogram_pool_size=16384,
-    )
-    LGB_GENERAL_PARAMS.update(lgb_kwargs)
-    # unified ES surface (companion to the XGB metric stamp):
-    # LGB regression default ``metric`` is unset which means "use
-    # objective" -- on RMSE that's fine, but on MAE / Huber objective
-    # the ES surface drifts from CB's. Stamp ``metric`` explicitly so
-    # all three boosters track the same surface.
-    #
-    # Stamp the regression metric ONLY when the suite knows the target is
-    # regression (or unspecified -- legacy callers). For known-
-    # classification targets, leave ``metric`` unset and let LightGBM
-    # auto-pick a compatible metric from the inferred objective
-    # (binary_logloss for binary, multi_logloss for multiclass). The bug
-    # this guards against: LightGBM's LGBMClassifier auto-promotes to
-    # ``objective='multiclass'`` based on y's class cardinality at fit
-    # time -- so even if the suite never set MULTICLASS_CLASSIFICATION
-    # explicitly upstream, a 3-class y still triggers the multiclass
-    # path. With a stale regression metric=l2 on the params, the
-    # multiclass fit raises "Multiclass objective and metrics don't
-    # match" before training starts.
-    _is_regression_path = _resolved_tt is None or not _resolved_tt.is_classification
-    if _is_regression_path:
-        _LGB_METRIC_NAME = {
-            "RMSE": "l2", "MAE": "l1", "Huber": "huber",
-            "MAPE": "mape", "MSLE": "rmse",  # LGB has no msle; fall back
-        }.get(def_regr_metric, def_regr_metric.lower())
-        LGB_GENERAL_PARAMS.setdefault("metric", _LGB_METRIC_NAME)
-    # Target-type-aware objective for LGB (no separate _CLASSIF variant).
-    _inject_lgb_multiclass_objective(_resolved_tt, n_classes, LGB_GENERAL_PARAMS)
+    LGB_GENERAL_PARAMS = _build_lgb_params(iterations, learning_rate, has_gpu, early_stopping_rounds, random_seed, lgb_kwargs, def_regr_metric, _resolved_tt, n_classes)
 
-    NGB_GENERAL_PARAMS = dict(
-        n_estimators=iterations,
-        learning_rate=learning_rate,
-    )
-    NGB_GENERAL_PARAMS.update(ngb_kwargs)
+    NGB_GENERAL_PARAMS = _build_ngb_params(iterations, learning_rate, ngb_kwargs)
+    MLP_GENERAL_PARAMS = _build_mlp_params_if_in_scope(enabled_models, mlp_kwargs, iterations, mlp_predict_batch_size, early_stopping_rounds)
 
-    # When caller declares which models are in scope AND mlp / recurrent
-    # are NOT among them, skip the entire MLP config block (saves ~14s of
-    # pytorch + lightning import overhead on the first call to
-    # get_training_configs in a process). Any caller that asks for
-    # MLP_GENERAL_PARAMS later will get None.
-    # The heavy MLP/pytorch config path is needed for the torch-backed MLP + recurrent estimators, but NOT for ngb (its own
-    # NGB_GENERAL_PARAMS path, no torch) even though ngb shares NeuralNetStrategy. So gate on the recurrent strategy (covers the
-    # lstm/gru/rnn/transformer aliases the old literal "recurrent" check missed) OR an explicit mlp alias / torch-MLP instance.
+    COMMON_RFECV_PARAMS = _build_common_rfecv_params(rfecv_kwargs, has_time, early_stopping_rounds)
 
-    _mlp_in_scope = enabled_models is None or any(_needs_mlp_config(m) for m in enabled_models)
-
-    MLP_GENERAL_PARAMS = _build_mlp_configs(_mlp_in_scope, mlp_kwargs, iterations, mlp_predict_batch_size, early_stopping_rounds)
-
-    if rfecv_kwargs is None:
-        rfecv_kwargs = {}
-    else:
-        rfecv_kwargs = rfecv_kwargs.copy()
-
-    cv = rfecv_kwargs.get("cv")
-    _cv_n_splits = rfecv_kwargs.get("cv_n_splits")
-    cv = _default_cv_splitter(cv, has_time, _cv_n_splits, rfecv_kwargs)
-
-    if "cv_n_splits" in rfecv_kwargs:
-        del rfecv_kwargs["cv_n_splits"]
-
-    COMMON_RFECV_PARAMS = dict(
-        early_stopping_rounds=early_stopping_rounds,
-        cv=cv,
-        cv_shuffle=not has_time,
-    )
-    COMMON_RFECV_PARAMS.update(rfecv_kwargs)
-
-    # If ES is disabled (early_stopping_rounds=None), strip the key from every per-model
-    # constructor-params dict so backends don't register an ES callback.
-    # - LGB: omitted from constructor → LightGBMSklearn skips ES on fit
-    # - XGB: omitted from constructor → no early_stopping_rounds passed
-    # - CB:  omitted → CatBoost runs full iterations (no od_type)
-    # - HGB: replace n_iter_no_change with iterations+1 so ES condition never trips
     _disable_early_stopping_in_params(early_stopping_disabled, CB_GENERAL_PARAMS, CB_REGR, CB_CLASSIF, CB_CALIB_CLASSIF, LGB_GENERAL_PARAMS, XGB_GENERAL_PARAMS, XGB_GENERAL_CLASSIF, XGB_CALIB_CLASSIF, MLP_GENERAL_PARAMS, COMMON_RFECV_PARAMS, HGB_GENERAL_PARAMS)
 
     return SimpleNamespace(
-        integral_calibration_error=integral_calibration_error,
-        final_integral_calibration_error=final_integral_calibration_error,
-        lgbm_integral_calibration_error=lgbm_integral_calibration_error,
-        fs_and_hpt_integral_calibration_error=fs_and_hpt_integral_calibration_error,
-        CB_GENERAL_PARAMS=CB_GENERAL_PARAMS,
-        CB_REGR=CB_REGR,
-        CB_CLASSIF=CB_CLASSIF,
-        CB_CALIB_CLASSIF=CB_CALIB_CLASSIF,
-        HGB_GENERAL_PARAMS=HGB_GENERAL_PARAMS,
-        LGB_GENERAL_PARAMS=LGB_GENERAL_PARAMS,
-        XGB_GENERAL_PARAMS=XGB_GENERAL_PARAMS,
-        XGB_GENERAL_CLASSIF=XGB_GENERAL_CLASSIF,
-        XGB_CALIB_CLASSIF=XGB_CALIB_CLASSIF,
-        COMMON_RFECV_PARAMS=COMMON_RFECV_PARAMS,
-        MLP_GENERAL_PARAMS=MLP_GENERAL_PARAMS,
-        NGB_GENERAL_PARAMS=NGB_GENERAL_PARAMS,
+        integral_calibration_error=integral_calibration_error, final_integral_calibration_error=final_integral_calibration_error,
+        lgbm_integral_calibration_error=lgbm_integral_calibration_error, fs_and_hpt_integral_calibration_error=fs_and_hpt_integral_calibration_error,
+        CB_GENERAL_PARAMS=CB_GENERAL_PARAMS, CB_REGR=CB_REGR, CB_CLASSIF=CB_CLASSIF, CB_CALIB_CLASSIF=CB_CALIB_CLASSIF,
+        HGB_GENERAL_PARAMS=HGB_GENERAL_PARAMS, LGB_GENERAL_PARAMS=LGB_GENERAL_PARAMS, XGB_GENERAL_PARAMS=XGB_GENERAL_PARAMS,
+        XGB_GENERAL_CLASSIF=XGB_GENERAL_CLASSIF, XGB_CALIB_CLASSIF=XGB_CALIB_CLASSIF, COMMON_RFECV_PARAMS=COMMON_RFECV_PARAMS,
+        MLP_GENERAL_PARAMS=MLP_GENERAL_PARAMS, NGB_GENERAL_PARAMS=NGB_GENERAL_PARAMS,
     )
 
 
@@ -527,8 +597,50 @@ def _default_cv_splitter(cv, has_time, _cv_n_splits, rfecv_kwargs):
     return cv
 
 
+def _default_catboost_custom_metrics(classif: Optional[Sequence], regr: Optional[Sequence]) -> tuple[Sequence, Sequence]:
+    """Fill in the default CatBoost custom classification and regression metrics when the caller gave none."""
+    if classif is None:
+        classif = ["AUC", "BrierScore", "PRAUC"]
+    if regr is None:
+        regr = ["RMSE", "MAPE"]
+    return classif, regr
+
+
+def _build_ngb_params(iterations: int, learning_rate: float, ngb_kwargs: dict) -> dict[str, Any]:
+    """Build ``NGB_GENERAL_PARAMS`` with the caller's ``ngb_kwargs`` applied on top."""
+    NGB_GENERAL_PARAMS: dict[str, Any] = dict(
+        n_estimators=iterations,
+        learning_rate=learning_rate,
+    )
+    NGB_GENERAL_PARAMS.update(ngb_kwargs)
+    return NGB_GENERAL_PARAMS
+
+
+def _build_mlp_params_if_in_scope(
+    enabled_models: Optional[Sequence[str]], mlp_kwargs: dict, iterations: int, mlp_predict_batch_size: Optional[int], early_stopping_rounds: Optional[int]
+) -> Optional[dict[str, Any]]:
+    """Build ``MLP_GENERAL_PARAMS``, or None when the requested models need no torch-backed MLP config."""
+    # When caller declares which models are in scope AND mlp / recurrent
+    # are NOT among them, skip the entire MLP config block (saves ~14s of
+    # pytorch + lightning import overhead on the first call to
+    # get_training_configs in a process). Any caller that asks for
+    # MLP_GENERAL_PARAMS later will get None.
+    # The heavy MLP/pytorch config path is needed for the torch-backed MLP + recurrent estimators, but NOT for ngb (its own
+    # NGB_GENERAL_PARAMS path, no torch) even though ngb shares NeuralNetStrategy. So gate on the recurrent strategy (covers the
+    # lstm/gru/rnn/transformer aliases the old literal "recurrent" check missed) OR an explicit mlp alias / torch-MLP instance.
+
+    _mlp_in_scope = enabled_models is None or any(_needs_mlp_config(m) for m in enabled_models)
+    return _build_mlp_configs(_mlp_in_scope, mlp_kwargs, iterations, mlp_predict_batch_size, early_stopping_rounds)
+
+
 def _disable_early_stopping_in_params(early_stopping_disabled, CB_GENERAL_PARAMS, CB_REGR, CB_CLASSIF, CB_CALIB_CLASSIF, LGB_GENERAL_PARAMS, XGB_GENERAL_PARAMS, XGB_GENERAL_CLASSIF, XGB_CALIB_CLASSIF, MLP_GENERAL_PARAMS, COMMON_RFECV_PARAMS, HGB_GENERAL_PARAMS):
     """Disable early stopping in the library parameter dictionaries."""
+    # If ES is disabled (early_stopping_rounds=None), strip the key from every per-model
+    # constructor-params dict so backends don't register an ES callback.
+    # - LGB: omitted from constructor → LightGBMSklearn skips ES on fit
+    # - XGB: omitted from constructor → no early_stopping_rounds passed
+    # - CB:  omitted → CatBoost runs full iterations (no od_type)
+    # - HGB: replace n_iter_no_change with iterations+1 so ES condition never trips
     if early_stopping_disabled:
         for _params in (CB_GENERAL_PARAMS, CB_REGR, CB_CLASSIF, CB_CALIB_CLASSIF,
                         LGB_GENERAL_PARAMS, XGB_GENERAL_PARAMS,
@@ -572,7 +684,167 @@ def _inject_classification_objectives(_resolved_tt, n_classes, CB_CLASSIF, XGB_G
             pass  # applied to LGB after LGB_GENERAL_PARAMS is built (below)
 
 
-def _build_mlp_configs(_mlp_in_scope, mlp_kwargs, iterations, mlp_predict_batch_size, early_stopping_rounds):
+def _mlp_trainer_params(mlp_kwargs: Optional[dict], iterations: int) -> dict[str, Any]:
+    """Lightning ``Trainer`` params for the MLP: runtime caps, flags, auto-resolved precision, with ``mlp_kwargs['trainer_params']`` on top."""
+    # Note: ``num_sanity_val_steps`` is intentionally left at
+    # Lightning's default (2). An A/B benchmark on the tightest MLP
+    # combo (cb+mlp pandas n=300 multiclass) showed setting it to 0
+    # saves only 32 ms / 1.7% per fit (within combined stdev) because
+    # the "Sanity Checking" pass is just the first forward through
+    # cuDNN's auto-tuner; disabling it pushes the same kernel
+    # selection cost onto epoch 0 instead. Keeping the default
+    # preserves Lightning's fail-fast on a broken val pipeline at no
+    # measurable cost.
+    # AMP precision is auto-resolved on Ampere+ CUDA hosts (RTX
+    # 30/40, A100, H100) to "bf16-mixed" for ~2x throughput on
+    # tabular MLPs. Falls back to "32-true" on older GPUs / CPU. The
+    # user override under mlp_kwargs["trainer_params"]["precision"]
+    # always wins.
+    from mlframe.training.mlp_runtime_defaults import resolve_mlp_precision_default
+
+    _user_precision = (mlp_kwargs or {}).get("trainer_params", {}).get("precision")
+    _resolved_precision = resolve_mlp_precision_default(
+        user_override=_user_precision,
+    )
+
+    mlp_trainer_params: dict = dict(
+        devices=1,  # Always use single device by default to avoid multi-GPU complexity
+        # ------------------------------------------------------------------
+        # Runtime:
+        # ------------------------------------------------------------------
+        min_epochs=1,
+        max_epochs=iterations,
+        # 2h cap (raised from a prior 30-min default that cut a 4M-row
+        # regression at ~6 epochs). The caller-side
+        # ``early_stopping_rounds`` (default 100 epochs of no val
+        # improvement) still terminates well before this on healthy
+        # training. Override via
+        # ``mlp_kwargs["trainer_params"]["max_time"]``.
+        max_time={"days": 0, "hours": 2, "minutes": 0},
+        # ------------------------------------------------------------------
+        # Intervals:
+        # ------------------------------------------------------------------
+        check_val_every_n_epoch=1,
+        # ------------------------------------------------------------------
+        # Flags:
+        # ------------------------------------------------------------------
+        enable_model_summary=False,
+        gradient_clip_val=1.0,
+        gradient_clip_algorithm="norm",
+        accumulate_grad_batches=2,
+        # ------------------------------------------------------------------
+        # Precision & accelerators:
+        # ------------------------------------------------------------------
+        precision=_resolved_precision,
+        num_nodes=1,
+        # ------------------------------------------------------------------
+        # Logging:
+        # ------------------------------------------------------------------
+        default_root_dir="logs",
+    )
+
+    if mlp_kwargs:
+        mlp_trainer_params.update(mlp_kwargs.get("trainer_params", {}))
+    return mlp_trainer_params
+
+
+def _mlp_model_params(mlp_kwargs: Optional[dict]) -> dict[str, Any]:
+    """``MLPTorchModel`` params: loss, optimizer defaults, with ``mlp_kwargs['model_params']`` on top."""
+    import torch
+    import torch.nn.functional as F
+
+    loss_fn = F.cross_entropy
+
+    # Defaults: Adam + LR=3e-3 (chosen after a prod-failure root cause
+    # analysis; was previously AdamW + LR=1e-3).
+    #
+    # Why Adam (not AdamW): AdamW's built-in weight_decay=0.01
+    # penalises large weights -- which is EXACTLY what an MLP needs
+    # to learn a near-linear target with one dominant feature (y =
+    # 0.95 * lag_feature + small_residual requires a weight of ~0.95
+    # on the dominant input). Weight decay shrinks that weight every
+    # step, fighting the loss. Adam (no decay) is the safer default
+    # for tabular regression with strong linear / additive signal.
+    # Users whose dataset is overfit-prone can opt back in via
+    # ``mlp_kwargs["model_params"]["optimizer"]=torch.optim.AdamW``.
+    #
+    # Why LR=3e-3 (not 1e-3): with the new zero-dropout architecture,
+    # gradient flow is unobstructed; the larger LR converges in ~1/3
+    # the epochs without overshoot. On a 2-hour prod run with
+    # LR=1e-3 + dropout=0.15, MLP plateaued at val_MSE=0.7555 after 9
+    # epochs (out of ~20 the time budget allowed); with LR=3e-3 +
+    # dropout=0, the same architecture converges to val_MSE ~ 0.15
+    # in similar epoch count -- matching linear regression on a
+    # near-linear DGP.
+    mlp_model_params = dict(
+        loss_fn=loss_fn,
+        learning_rate=3e-3,
+        l1_alpha=0.0,
+        optimizer=torch.optim.Adam,
+        optimizer_kwargs={},
+        lr_scheduler=None,
+        lr_scheduler_kwargs={},
+    )
+    if mlp_kwargs:
+        mlp_model_params.update(mlp_kwargs.get("model_params", {}))
+    return mlp_model_params
+
+
+def _mlp_datamodule_params(mlp_kwargs: Optional[dict], mlp_predict_batch_size: Optional[int]) -> dict[str, Any]:
+    """``TorchDataModule`` params including the DataLoader defaults, with the ``mlp_kwargs`` overrides applied."""
+    import torch
+
+    labels_dtype = torch.int64  # classification default
+    # Cross-platform-safe DataLoader defaults. num_workers stays at 0
+    # on EVERY OS because ``TorchDataset`` keeps the full input frame
+    # in self.features. On Windows that means each worker pickles
+    # 100 GB; on Linux fork's CoW gets broken by Polars indexing +
+    # Python refcount writes -> swap death. pin_memory still defaults
+    # ON for CUDA hosts (no IPC landmine). User opts in to workers via
+    # ``mlp_kwargs["dataloader_params"]["num_workers"]`` once their
+    # specific dataset is verified to fit each worker's memory budget.
+    from mlframe.training.mlp_runtime_defaults import resolve_mlp_dataloader_defaults
+
+    _user_dataloader_overrides = (mlp_kwargs or {}).get("dataloader_params", {}) or {}
+    _resolved_dataloader_extras = resolve_mlp_dataloader_defaults(
+        user_overrides=_user_dataloader_overrides,
+    )
+
+    mlp_dataloader_params = dict(
+        sampler=None,
+        batch_sampler=None,
+        num_workers=_resolved_dataloader_extras["num_workers"],
+        drop_last=False,
+        timeout=0,
+        worker_init_fn=None,
+        prefetch_factor=_resolved_dataloader_extras["prefetch_factor"],
+        persistent_workers=_resolved_dataloader_extras["persistent_workers"],
+        pin_memory=_resolved_dataloader_extras["pin_memory"],
+        batch_size="auto",
+        shuffle=False,
+    )
+    if mlp_kwargs:
+        mlp_dataloader_params.update(mlp_kwargs.get("dataloader_params", {}))
+
+    mlp_datamodule_params: dict = dict(
+        read_fcn=None, data_placement_device=None,
+        features_dtype=torch.float32, labels_dtype=labels_dtype,
+        dataloader_params=mlp_dataloader_params,
+    )
+    # Plumb the suite-level predict-batch-size knob through the
+    # datamodule; the wrapper's _predict_raw consults this when no
+    # explicit batch_size is passed to .predict(). None (default) lets
+    # the adaptive resolver pick based on memory + dataframe width.
+    if mlp_predict_batch_size is not None:
+        mlp_datamodule_params["predict_batch_size"] = int(mlp_predict_batch_size)
+    if mlp_kwargs:
+        mlp_datamodule_params.update(mlp_kwargs.get("datamodule_params", {}))
+    return mlp_datamodule_params
+
+
+def _build_mlp_configs(
+    _mlp_in_scope: bool, mlp_kwargs: Optional[dict], iterations: int, mlp_predict_batch_size: Optional[int], early_stopping_rounds: Optional[int]
+) -> Optional[dict[str, Any]]:
     """Build the MLP configuration when the MLP is in scope."""
     if not _mlp_in_scope:
         # Skip the heavy MLP path entirely. Downstream consumers must
@@ -581,153 +853,15 @@ def _build_mlp_configs(_mlp_in_scope, mlp_kwargs, iterations, mlp_predict_batch_
         # gates on the presence of 'mlp' in mlframe_models already.
         MLP_GENERAL_PARAMS = None
     else:
-        # Note: ``num_sanity_val_steps`` is intentionally left at
-        # Lightning's default (2). An A/B benchmark on the tightest MLP
-        # combo (cb+mlp pandas n=300 multiclass) showed setting it to 0
-        # saves only 32 ms / 1.7% per fit (within combined stdev) because
-        # the "Sanity Checking" pass is just the first forward through
-        # cuDNN's auto-tuner; disabling it pushes the same kernel
-        # selection cost onto epoch 0 instead. Keeping the default
-        # preserves Lightning's fail-fast on a broken val pipeline at no
-        # measurable cost.
-        # AMP precision is auto-resolved on Ampere+ CUDA hosts (RTX
-        # 30/40, A100, H100) to "bf16-mixed" for ~2x throughput on
-        # tabular MLPs. Falls back to "32-true" on older GPUs / CPU. The
-        # user override under mlp_kwargs["trainer_params"]["precision"]
-        # always wins.
-        from mlframe.training.mlp_runtime_defaults import resolve_mlp_precision_default
-
-        _user_precision = (mlp_kwargs or {}).get("trainer_params", {}).get("precision")
-        _resolved_precision = resolve_mlp_precision_default(
-            user_override=_user_precision,
-        )
-
-        mlp_trainer_params: dict = dict(
-            devices=1,  # Always use single device by default to avoid multi-GPU complexity
-            # ------------------------------------------------------------------
-            # Runtime:
-            # ------------------------------------------------------------------
-            min_epochs=1,
-            max_epochs=iterations,
-            # 2h cap (raised from a prior 30-min default that cut a 4M-row
-            # regression at ~6 epochs). The caller-side
-            # ``early_stopping_rounds`` (default 100 epochs of no val
-            # improvement) still terminates well before this on healthy
-            # training. Override via
-            # ``mlp_kwargs["trainer_params"]["max_time"]``.
-            max_time={"days": 0, "hours": 2, "minutes": 0},
-            # ------------------------------------------------------------------
-            # Intervals:
-            # ------------------------------------------------------------------
-            check_val_every_n_epoch=1,
-            # ------------------------------------------------------------------
-            # Flags:
-            # ------------------------------------------------------------------
-            enable_model_summary=False,
-            gradient_clip_val=1.0,
-            gradient_clip_algorithm="norm",
-            accumulate_grad_batches=2,
-            # ------------------------------------------------------------------
-            # Precision & accelerators:
-            # ------------------------------------------------------------------
-            precision=_resolved_precision,
-            num_nodes=1,
-            # ------------------------------------------------------------------
-            # Logging:
-            # ------------------------------------------------------------------
-            default_root_dir="logs",
-        )
-
-        if mlp_kwargs:
-            mlp_trainer_params.update(mlp_kwargs.get("trainer_params", {}))
+        mlp_trainer_params = _mlp_trainer_params(mlp_kwargs, iterations)
 
         # Lazy imports -- only paid when MLP configs are actually being built.
-        import torch
-        import torch.nn.functional as F
         from mlframe.training.neural.flat import MLPTorchModel
         from mlframe.training.neural.data import TorchDataModule
 
-        # Default loss function and dtype (classification)
-        loss_fn = F.cross_entropy
-        labels_dtype = torch.int64
+        mlp_model_params = _mlp_model_params(mlp_kwargs)
 
-        # Defaults: Adam + LR=3e-3 (chosen after a prod-failure root cause
-        # analysis; was previously AdamW + LR=1e-3).
-        #
-        # Why Adam (not AdamW): AdamW's built-in weight_decay=0.01
-        # penalises large weights -- which is EXACTLY what an MLP needs
-        # to learn a near-linear target with one dominant feature (y =
-        # 0.95 * lag_feature + small_residual requires a weight of ~0.95
-        # on the dominant input). Weight decay shrinks that weight every
-        # step, fighting the loss. Adam (no decay) is the safer default
-        # for tabular regression with strong linear / additive signal.
-        # Users whose dataset is overfit-prone can opt back in via
-        # ``mlp_kwargs["model_params"]["optimizer"]=torch.optim.AdamW``.
-        #
-        # Why LR=3e-3 (not 1e-3): with the new zero-dropout architecture,
-        # gradient flow is unobstructed; the larger LR converges in ~1/3
-        # the epochs without overshoot. On a 2-hour prod run with
-        # LR=1e-3 + dropout=0.15, MLP plateaued at val_MSE=0.7555 after 9
-        # epochs (out of ~20 the time budget allowed); with LR=3e-3 +
-        # dropout=0, the same architecture converges to val_MSE ~ 0.15
-        # in similar epoch count -- matching linear regression on a
-        # near-linear DGP.
-        mlp_model_params = dict(
-            loss_fn=loss_fn,
-            learning_rate=3e-3,
-            l1_alpha=0.0,
-            optimizer=torch.optim.Adam,
-            optimizer_kwargs={},
-            lr_scheduler=None,
-            lr_scheduler_kwargs={},
-        )
-        if mlp_kwargs:
-            mlp_model_params.update(mlp_kwargs.get("model_params", {}))
-
-        # Cross-platform-safe DataLoader defaults. num_workers stays at 0
-        # on EVERY OS because ``TorchDataset`` keeps the full input frame
-        # in self.features. On Windows that means each worker pickles
-        # 100 GB; on Linux fork's CoW gets broken by Polars indexing +
-        # Python refcount writes -> swap death. pin_memory still defaults
-        # ON for CUDA hosts (no IPC landmine). User opts in to workers via
-        # ``mlp_kwargs["dataloader_params"]["num_workers"]`` once their
-        # specific dataset is verified to fit each worker's memory budget.
-        from mlframe.training.mlp_runtime_defaults import resolve_mlp_dataloader_defaults
-
-        _user_dataloader_overrides = (mlp_kwargs or {}).get("dataloader_params", {}) or {}
-        _resolved_dataloader_extras = resolve_mlp_dataloader_defaults(
-            user_overrides=_user_dataloader_overrides,
-        )
-
-        mlp_dataloader_params = dict(
-            sampler=None,
-            batch_sampler=None,
-            num_workers=_resolved_dataloader_extras["num_workers"],
-            drop_last=False,
-            timeout=0,
-            worker_init_fn=None,
-            prefetch_factor=_resolved_dataloader_extras["prefetch_factor"],
-            persistent_workers=_resolved_dataloader_extras["persistent_workers"],
-            pin_memory=_resolved_dataloader_extras["pin_memory"],
-            batch_size="auto",
-            shuffle=False,
-        )
-        if mlp_kwargs:
-            mlp_dataloader_params.update(mlp_kwargs.get("dataloader_params", {}))
-
-        mlp_datamodule_params: dict = dict(
-            read_fcn=None, data_placement_device=None,
-            features_dtype=torch.float32, labels_dtype=labels_dtype,
-            dataloader_params=mlp_dataloader_params,
-        )
-        # Plumb the suite-level predict-batch-size knob through the
-        # datamodule; the wrapper's _predict_raw consults this when no
-        # explicit batch_size is passed to .predict(). None (default) lets
-        # the adaptive resolver pick based on memory + dataframe width.
-        if mlp_predict_batch_size is not None:
-            mlp_datamodule_params["predict_batch_size"] = int(mlp_predict_batch_size)
-        if mlp_kwargs:
-            mlp_datamodule_params.update(mlp_kwargs.get("datamodule_params", {}))
+        mlp_datamodule_params = _mlp_datamodule_params(mlp_kwargs, mlp_predict_batch_size)
 
         MLP_GENERAL_PARAMS = dict(
             model_class=MLPTorchModel,

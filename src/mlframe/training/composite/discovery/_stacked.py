@@ -85,6 +85,103 @@ def _warn_unrebuildable_oof_specs(pass2_specs, existing_names):
     return bad
 
 
+def _slice_train_frame(df: Any, train_idx_arr: np.ndarray) -> Any:
+    """Positional train-row slice of a pandas / polars frame in ``train_idx_arr`` order, or ``None`` when the frame type is unsupported."""
+    if hasattr(df, "iloc"):
+        return df.iloc[train_idx_arr].reset_index(drop=True)
+    try:
+        import polars as _pl
+
+        if isinstance(df, _pl.DataFrame):
+            # Positional gather, in train_idx_arr order like y_train: a boolean mask returned frame order, so an
+            # unsorted train index paired each row with another row's target.
+            return df[train_idx_arr.astype(np.int64)]
+        raise TypeError(type(df).__name__)
+    except Exception:
+        return None
+
+
+def _augment_with_oof_columns(df: Any, feature_cols: Sequence[str], oof_cols: dict[str, np.ndarray], train_idx_arr: np.ndarray) -> tuple[Any, list[str]]:
+    """Write OOF columns on TRAIN rows only (NaN elsewhere) onto ``df``; returns the augmented frame and the extended feature list."""
+    df_aug = df
+    new_feature_cols = list(feature_cols)
+    if hasattr(df_aug, "assign"):
+        _full_cols: dict[str, np.ndarray] = {}
+        _n_total = len(df_aug)
+        for col_name, train_vec in oof_cols.items():
+            _v = np.full(_n_total, np.nan, dtype=np.float64)
+            _v[train_idx_arr] = train_vec
+            _full_cols[col_name] = _v
+            new_feature_cols.append(col_name)
+        df_aug = df_aug.assign(**_full_cols)
+    else:
+        import polars as _pl
+        if isinstance(df_aug, _pl.DataFrame):
+            _n_total = df_aug.height
+            for col_name, train_vec in oof_cols.items():
+                _v = np.full(_n_total, np.nan, dtype=np.float64)
+                _v[train_idx_arr] = train_vec
+                df_aug = df_aug.with_columns(_pl.Series(col_name, _v))
+                new_feature_cols.append(col_name)
+    return df_aug, new_feature_cols
+
+
+def _attach_residual_column(df: Any, residual_col: str, train_idx_arr: np.ndarray, y_residual_train: np.ndarray) -> Any:
+    """Add the pass-2 residual target column to ``df`` (NaN outside the train rows); ``None`` (logged) when a non-pandas frame cannot take it."""
+    if hasattr(df, "assign"):
+        y_full_residual = np.full(len(df), np.nan, dtype=np.float64)
+        y_full_residual[train_idx_arr] = y_residual_train
+        return df.assign(**{residual_col: y_full_residual})
+    try:
+        import polars as _pl
+
+        y_full_residual = np.full(df.height, np.nan, dtype=np.float64)
+        y_full_residual[train_idx_arr] = y_residual_train
+        return df.with_columns(_pl.Series(residual_col, y_full_residual))
+    except Exception as _aug_err:
+        logger.warning(
+            "[CompositeTargetDiscovery.stacked_on_residual] could not " "build residual-target df: %s. Returning pass-1 only.",
+            _aug_err,
+        )
+        return None
+
+
+def _annotate_residual_specs(self: Any, pass1_specs: list) -> list:
+    """Flag the pass-2 residual-target specs, warn that they are inspection-only, and return those not already in pass 1."""
+    pass2_specs = list(self.specs_) if self.specs_ else []
+    # Annotate pass-2 specs so suite-side training can route them to the
+    # residual-aware fit path (future work; today the specs are stored
+    # but not auto-trained on residual).
+    for spec in pass2_specs:
+        try:
+            object.__setattr__(spec, "discovered_on_residual", True)
+        except Exception as e:  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
+            logger.debug("swallowed exception in _stacked.py: %s", e)
+            pass
+
+    existing_names = {s.name for s in pass1_specs}
+    _new_residual_specs = [s for s in pass2_specs if s.name not in existing_names]
+    # These pass-2 specs carry ``fitted_params`` fit against the RESIDUAL
+    # target, but the suite has no residual-aware training route yet -- it would
+    # apply them against raw ``y``, mis-using the residual-fitted params. The
+    # ``discovered_on_residual`` flag is currently read only by tests, not by
+    # suite routing, so surface the hazard explicitly rather than let it merge
+    # silently into ``specs_``. (Full fix: a residual-aware training path or not
+    # merging these into ``specs_`` at all -- cross-file, suite-side.)
+    if _new_residual_specs:
+        logger.warning(
+            "[CompositeTargetDiscovery.stacked_on_residual] %d pass-2 spec(s) "
+            "were discovered on the RESIDUAL target and carry residual-fitted "
+            "params: %s. They are merged into specs_ and flagged "
+            "discovered_on_residual=True for inspection, but the suite does NOT "
+            "yet route them through a residual-aware training path -- training "
+            "would apply their params against raw y. Treat as inspection-only "
+            "until the residual-aware training path lands (A7).",
+            len(_new_residual_specs), [s.name for s in _new_residual_specs],
+        )
+    return _new_residual_specs
+
+
 def fit_stacked(
     self,
     df: Any,
@@ -142,23 +239,13 @@ def fit_stacked(
     # Slice the train frame ONCE -- X_train is invariant across specs, so the
     # prior per-spec rebuild materialised the same train slice N times (the
     # sibling fit_stacked_on_residual already hoists this).
-    if hasattr(df, "iloc"):
-        X_train = df.iloc[_train_idx_arr].reset_index(drop=True)
-    else:
-        try:
-            import polars as _pl
-            if isinstance(df, _pl.DataFrame):
-                # Positional gather, in _train_idx_arr order like y_train above: a boolean mask returned frame order, so an
-                # unsorted train index paired each row with another row's target.
-                X_train = df[_train_idx_arr.astype(np.int64)]
-            else:
-                raise TypeError(type(df).__name__)
-        except Exception:
-            logger.warning(
-                "[CompositeTargetDiscovery.stacked] cannot slice df type=%s; skipping pass 2.",
-                type(df).__name__,
-            )
-            return self
+    X_train = _slice_train_frame(df, _train_idx_arr)
+    if X_train is None:
+        logger.warning(
+            "[CompositeTargetDiscovery.stacked] cannot slice df type=%s; skipping pass 2.",
+            type(df).__name__,
+        )
+        return self
     oof_cols: dict[str, np.ndarray] = {}
     for spec in top_specs:
         _factory = partial(_ridge_composite_factory, spec)
@@ -185,27 +272,8 @@ def fit_stacked(
 
     # Augment df: write OOF cols on TRAIN rows only; NaN on val/test rows
     # (pass 2 only inspects train_idx so val/test fill is irrelevant).
-    df_aug = df
-    new_feature_cols = list(feature_cols)
     try:
-        if hasattr(df_aug, "assign"):
-            _full_cols: dict[str, np.ndarray] = {}
-            _n_total = len(df_aug)
-            for col_name, train_vec in oof_cols.items():
-                _v = np.full(_n_total, np.nan, dtype=np.float64)
-                _v[_train_idx_arr] = train_vec
-                _full_cols[col_name] = _v
-                new_feature_cols.append(col_name)
-            df_aug = df_aug.assign(**_full_cols)
-        else:
-            import polars as _pl
-            if isinstance(df_aug, _pl.DataFrame):
-                _n_total = df_aug.height
-                for col_name, train_vec in oof_cols.items():
-                    _v = np.full(_n_total, np.nan, dtype=np.float64)
-                    _v[_train_idx_arr] = train_vec
-                    df_aug = df_aug.with_columns(_pl.Series(col_name, _v))
-                    new_feature_cols.append(col_name)
+        df_aug, new_feature_cols = _augment_with_oof_columns(df, feature_cols, oof_cols, _train_idx_arr)
     except Exception as _aug_err:
         logger.warning(
             "[CompositeTargetDiscovery.stacked] could not augment df: %s. Returning pass-1 only.",
@@ -294,22 +362,13 @@ def fit_stacked_on_residual(
     y_full = _extract_column_array(df, target_col)
     y_train = y_full[_train_idx_arr]
 
-    if hasattr(df, "iloc"):
-        X_train = df.iloc[_train_idx_arr].reset_index(drop=True)
-    else:
-        try:
-            import polars as _pl
-            if isinstance(df, _pl.DataFrame):
-                # Positional gather in _train_idx_arr order, aligned with y_train (a boolean mask returned frame order).
-                X_train = df[_train_idx_arr.astype(np.int64)]
-            else:
-                raise TypeError(type(df).__name__)
-        except Exception:
-            logger.warning(
-                "[CompositeTargetDiscovery.stacked_on_residual] cannot slice df type=%s; " "returning pass-1 only.",
-                type(df).__name__,
-            )
-            return self
+    X_train = _slice_train_frame(df, _train_idx_arr)
+    if X_train is None:
+        logger.warning(
+            "[CompositeTargetDiscovery.stacked_on_residual] cannot slice df type=%s; " "returning pass-1 only.",
+            type(df).__name__,
+        )
+        return self
 
     # Cap the number of pass-1 specs whose OOF predictions feed the aggregate.
     # The old ``ranked[:max(1,len(ranked))]`` was a no-op slice (selected ALL
@@ -355,22 +414,9 @@ def fit_stacked_on_residual(
 
     y_residual_train = y_train.astype(np.float64) - pass1_pred.astype(np.float64)
     _residual_col = f"__y_residual__{target_col}"
-    if hasattr(df, "assign"):
-        _y_full_residual = np.full(len(df), np.nan, dtype=np.float64)
-        _y_full_residual[_train_idx_arr] = y_residual_train
-        df_with_resid = df.assign(**{_residual_col: _y_full_residual})
-    else:
-        try:
-            import polars as _pl
-            _y_full_residual = np.full(df.height, np.nan, dtype=np.float64)
-            _y_full_residual[_train_idx_arr] = y_residual_train
-            df_with_resid = df.with_columns(_pl.Series(_residual_col, _y_full_residual))
-        except Exception as _aug_err:
-            logger.warning(
-                "[CompositeTargetDiscovery.stacked_on_residual] could not " "build residual-target df: %s. Returning pass-1 only.",
-                _aug_err,
-            )
-            return self
+    df_with_resid = _attach_residual_column(df, _residual_col, _train_idx_arr, y_residual_train)
+    if df_with_resid is None:
+        return self
 
     try:
         # The pass-2 target is the residual, so the raw-target val_y does not apply; time order still does.
@@ -386,37 +432,7 @@ def fit_stacked_on_residual(
         self.specs_ = pass1_specs
         return self
 
-    pass2_specs = list(self.specs_) if self.specs_ else []
-    # Annotate pass-2 specs so suite-side training can route them to the
-    # residual-aware fit path (future work; today the specs are stored
-    # but not auto-trained on residual).
-    for spec in pass2_specs:
-        try:
-            object.__setattr__(spec, "discovered_on_residual", True)
-        except Exception as e:  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
-            logger.debug("swallowed exception in _stacked.py: %s", e)
-            pass
-
-    existing_names = {s.name for s in pass1_specs}
-    _new_residual_specs = [s for s in pass2_specs if s.name not in existing_names]
-    # These pass-2 specs carry ``fitted_params`` fit against the RESIDUAL
-    # target, but the suite has no residual-aware training route yet -- it would
-    # apply them against raw ``y``, mis-using the residual-fitted params. The
-    # ``discovered_on_residual`` flag is currently read only by tests, not by
-    # suite routing, so surface the hazard explicitly rather than let it merge
-    # silently into ``specs_``. (Full fix: a residual-aware training path or not
-    # merging these into ``specs_`` at all -- cross-file, suite-side.)
-    if _new_residual_specs:
-        logger.warning(
-            "[CompositeTargetDiscovery.stacked_on_residual] %d pass-2 spec(s) "
-            "were discovered on the RESIDUAL target and carry residual-fitted "
-            "params: %s. They are merged into specs_ and flagged "
-            "discovered_on_residual=True for inspection, but the suite does NOT "
-            "yet route them through a residual-aware training path -- training "
-            "would apply their params against raw y. Treat as inspection-only "
-            "until the residual-aware training path lands (A7).",
-            len(_new_residual_specs), [s.name for s in _new_residual_specs],
-        )
+    _new_residual_specs = _annotate_residual_specs(self, pass1_specs)
     merged = pass1_specs + _new_residual_specs
     self.specs_ = merged
     logger.info(

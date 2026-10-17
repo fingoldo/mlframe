@@ -344,6 +344,150 @@ def _pick_strongest(
 # report_model_perf pipeline (DummyBaselinesConfig.plot_strongest) covers the floor by default.
 
 
+def _draw_regression_overlay(
+    _plt: Any, report: BaselineReport, figsize: tuple[float, float],
+    val_y_s: np.ndarray | None, val_p_s: np.ndarray | None, test_y_s: np.ndarray | None, test_p_s: np.ndarray | None,
+) -> Any:
+    """Two-panel regression overlay: predictions-vs-actual scatter plus residual histogram; returns the figure."""
+    fig, (ax_scatter, ax_resid) = _plt.subplots(
+        1, 2, figsize=figsize, constrained_layout=True,
+    )
+    # Left: predictions vs actual scatter.
+    lo, hi = None, None
+    if val_y_s is not None:
+        ax_scatter.scatter(
+            val_y_s, val_p_s, s=4, alpha=0.35,
+            color="tab:blue", label=f"val (n={len(val_y_s)})",
+        )
+        lo = float(np.nanmin(val_y_s))
+        hi = float(np.nanmax(val_y_s))
+    if test_y_s is not None:
+        ax_scatter.scatter(
+            test_y_s, test_p_s, s=4, alpha=0.35,
+            color="tab:orange", label=f"test (n={len(test_y_s)})",
+        )
+        if lo is None:
+            lo, hi = float(np.nanmin(test_y_s)), float(np.nanmax(test_y_s))
+        else:
+            assert hi is not None  # paired with lo: both set together above, or both remain None
+            lo = min(lo, float(np.nanmin(test_y_s)))
+            hi = max(hi, float(np.nanmax(test_y_s)))
+    if lo is not None and hi is not None:
+        ax_scatter.plot(
+            [lo, hi], [lo, hi], color="black",
+            linestyle="--", linewidth=1.0, label="y = y_hat",
+        )
+    ax_scatter.set_xlabel("y_true")
+    ax_scatter.set_ylabel("y_hat (strongest baseline)")
+    ax_scatter.set_title(f"Baseline floor: {report.strongest}\n" f"({report.primary_metric}={_safe_metric_for_title(report)})")
+    ax_scatter.legend(loc="best", fontsize=9)
+    ax_scatter.grid(alpha=0.3)
+
+    # Right: residual histogram.
+    for label, y_s, p_s, color in [
+        ("val", val_y_s, val_p_s, "tab:blue"),
+        ("test", test_y_s, test_p_s, "tab:orange"),
+    ]:
+        if y_s is None or p_s is None:
+            continue
+        res = p_s - y_s
+        res = res[np.isfinite(res)]
+        if res.size == 0:
+            continue
+        ax_resid.hist(
+            res, bins=40, alpha=0.5, color=color,
+            label=f"{label} (n={res.size}, mean={res.mean():+.3g}, "
+                  f"std={res.std():.3g})",
+        )
+    ax_resid.axvline(0, color="black", linestyle="--", linewidth=1.0)
+    ax_resid.set_xlabel("y_hat - y_true (baseline residual)")
+    ax_resid.set_ylabel("count")
+    ax_resid.set_title("Baseline residuals (pre-training floor)")
+    ax_resid.legend(loc="best", fontsize=9)
+    ax_resid.grid(alpha=0.3)
+    return fig
+
+
+def _draw_classification_overlay(_plt: Any, report: BaselineReport, figsize: tuple[float, float], sv: Any) -> Any:
+    """Single-panel class-prior bar overlay for classification baselines; returns the figure."""
+    # Classification: single-panel bar of class-prior probabilities
+    # for the strongest baseline (typically ``majority`` /
+    # ``stratified_random``).
+    fig, ax = _plt.subplots(1, 1, figsize=(figsize[0] / 2, figsize[1]), constrained_layout=True)
+    # Pull P(y=k) from the strongest baseline's val predictions.
+    if sv is not None and sv.ndim == 1:
+        # Single-label hard-prediction baseline (e.g. majority).
+        uniq, counts = np.unique(sv, return_counts=True)
+        ax.bar(range(len(uniq)), counts / counts.sum(), color="tab:blue")
+        ax.set_xticks(range(len(uniq)))
+        ax.set_xticklabels([str(u) for u in uniq])
+        ax.set_ylabel("P(predicted class)")
+        ax.set_xlabel("class")
+    elif sv is not None and sv.ndim == 2:
+        # Probabilistic baseline (stratified_random_proba etc.).
+        avg_p = sv.mean(axis=0)
+        ax.bar(range(len(avg_p)), avg_p, color="tab:blue")
+        ax.set_xticks(range(len(avg_p)))
+        ax.set_ylabel("mean P(class) on val")
+        ax.set_xlabel("class")
+    ax.set_title(f"Baseline floor: {report.strongest}\n" f"({report.primary_metric}={_safe_metric_for_title(report)})")
+    ax.grid(axis="y", alpha=0.3)
+    return fig
+
+
+def _finish_overlay(fig: Any, _plt: Any, report: BaselineReport, save_path: str | None, show: bool) -> Any:
+    """Add the suptitle, save the PNG when asked and display / close the figure; returns the figure."""
+    # Suptitle with target name.
+    fig.suptitle(
+        f"Dummy-baseline floor: target='{report.target_name}' " f"(target_type={report.target_type})",
+        fontsize=11,
+        y=1.02,
+    )
+
+    if save_path:
+        try:
+            fig.savefig(ensure_parent_dir(save_path), bbox_inches="tight")
+            logger.info(
+                "[dummy-baselines] target='%s' baseline-overlay plot "
+                "saved: %s", report.target_name, save_path,
+            )
+        except Exception as _save_err:  # best-effort: diagnostic plot save, baseline computation continues
+            logger.warning(
+                "[dummy-baselines] target='%s' baseline-overlay save "
+                "failed: %s", report.target_name, _save_err,
+            )
+
+    # Inline display in Jupyter (mirrors the fix shipped in
+    # feature_importance.plot_feature_importance -- use IPython.display
+    # so the chart shows up even when the global matplotlib backend is
+    # Agg).
+    if show:
+        try:
+            _in_kernel = bool(__IPYTHON__)  # type: ignore[name-defined]
+        except NameError:
+            _in_kernel = False
+        if _in_kernel:
+            try:
+                from IPython.display import display as _ipy_display
+                _ipy_display(fig)
+                # Close right after inline display: IPython has already
+                # serialised the figure to the kernel display channel,
+                # so the pyplot-registry reference is dead weight.
+                # Leaving it alive causes the inline backend's end-of-
+                # cell auto-flush to re-render the figure (a "crowd of
+                # plots" double-render).
+                _plt.close(fig)
+            except Exception as e:
+                logger.debug("IPython inline display failed, falling back to plt.show(): %s", e)
+                # block=False (not plt.ion()) so the process-global interactive flag is not leaked; close after to avoid the leak.
+                _plt.show(block=False)
+                _plt.close(fig)
+        else:
+            # In a script/CI: close after save to avoid figure leak.
+            _plt.close(fig)
+    return fig
+
+
 def plot_best_dummy_baseline_overlay(
     report: BaselineReport,
     *,
@@ -418,135 +562,11 @@ def plot_best_dummy_baseline_overlay(
     test_y_s, test_p_s = _maybe_subsample(test_y, st)
 
     if is_regression:
-        fig, (ax_scatter, ax_resid) = _plt.subplots(
-            1, 2, figsize=figsize, constrained_layout=True,
-        )
-        # Left: predictions vs actual scatter.
-        lo, hi = None, None
-        if val_y_s is not None:
-            ax_scatter.scatter(
-                val_y_s, val_p_s, s=4, alpha=0.35,
-                color="tab:blue", label=f"val (n={len(val_y_s)})",
-            )
-            lo = float(np.nanmin(val_y_s))
-            hi = float(np.nanmax(val_y_s))
-        if test_y_s is not None:
-            ax_scatter.scatter(
-                test_y_s, test_p_s, s=4, alpha=0.35,
-                color="tab:orange", label=f"test (n={len(test_y_s)})",
-            )
-            if lo is None:
-                lo, hi = float(np.nanmin(test_y_s)), float(np.nanmax(test_y_s))
-            else:
-                assert hi is not None  # paired with lo: both set together above, or both remain None
-                lo = min(lo, float(np.nanmin(test_y_s)))
-                hi = max(hi, float(np.nanmax(test_y_s)))
-        if lo is not None and hi is not None:
-            ax_scatter.plot(
-                [lo, hi], [lo, hi], color="black",
-                linestyle="--", linewidth=1.0, label="y = y_hat",
-            )
-        ax_scatter.set_xlabel("y_true")
-        ax_scatter.set_ylabel("y_hat (strongest baseline)")
-        ax_scatter.set_title(f"Baseline floor: {report.strongest}\n" f"({report.primary_metric}={_safe_metric_for_title(report)})")
-        ax_scatter.legend(loc="best", fontsize=9)
-        ax_scatter.grid(alpha=0.3)
-
-        # Right: residual histogram.
-        for label, y_s, p_s, color in [
-            ("val", val_y_s, val_p_s, "tab:blue"),
-            ("test", test_y_s, test_p_s, "tab:orange"),
-        ]:
-            if y_s is None or p_s is None:
-                continue
-            res = p_s - y_s
-            res = res[np.isfinite(res)]
-            if res.size == 0:
-                continue
-            ax_resid.hist(
-                res, bins=40, alpha=0.5, color=color,
-                label=f"{label} (n={res.size}, mean={res.mean():+.3g}, "
-                      f"std={res.std():.3g})",
-            )
-        ax_resid.axvline(0, color="black", linestyle="--", linewidth=1.0)
-        ax_resid.set_xlabel("y_hat - y_true (baseline residual)")
-        ax_resid.set_ylabel("count")
-        ax_resid.set_title("Baseline residuals (pre-training floor)")
-        ax_resid.legend(loc="best", fontsize=9)
-        ax_resid.grid(alpha=0.3)
+        fig = _draw_regression_overlay(_plt, report, figsize, val_y_s, val_p_s, test_y_s, test_p_s)
     else:
-        # Classification: single-panel bar of class-prior probabilities
-        # for the strongest baseline (typically ``majority`` /
-        # ``stratified_random``).
-        fig, ax = _plt.subplots(1, 1, figsize=(figsize[0] / 2, figsize[1]), constrained_layout=True)
-        # Pull P(y=k) from the strongest baseline's val predictions.
-        if sv is not None and sv.ndim == 1:
-            # Single-label hard-prediction baseline (e.g. majority).
-            uniq, counts = np.unique(sv, return_counts=True)
-            ax.bar(range(len(uniq)), counts / counts.sum(), color="tab:blue")
-            ax.set_xticks(range(len(uniq)))
-            ax.set_xticklabels([str(u) for u in uniq])
-            ax.set_ylabel("P(predicted class)")
-            ax.set_xlabel("class")
-        elif sv is not None and sv.ndim == 2:
-            # Probabilistic baseline (stratified_random_proba etc.).
-            avg_p = sv.mean(axis=0)
-            ax.bar(range(len(avg_p)), avg_p, color="tab:blue")
-            ax.set_xticks(range(len(avg_p)))
-            ax.set_ylabel("mean P(class) on val")
-            ax.set_xlabel("class")
-        ax.set_title(f"Baseline floor: {report.strongest}\n" f"({report.primary_metric}={_safe_metric_for_title(report)})")
-        ax.grid(axis="y", alpha=0.3)
+        fig = _draw_classification_overlay(_plt, report, figsize, sv)
 
-    # Suptitle with target name.
-    fig.suptitle(
-        f"Dummy-baseline floor: target='{report.target_name}' " f"(target_type={report.target_type})",
-        fontsize=11,
-        y=1.02,
-    )
-
-    if save_path:
-        try:
-            fig.savefig(ensure_parent_dir(save_path), bbox_inches="tight")
-            logger.info(
-                "[dummy-baselines] target='%s' baseline-overlay plot "
-                "saved: %s", report.target_name, save_path,
-            )
-        except Exception as _save_err:  # best-effort: diagnostic plot save, baseline computation continues
-            logger.warning(
-                "[dummy-baselines] target='%s' baseline-overlay save "
-                "failed: %s", report.target_name, _save_err,
-            )
-
-    # Inline display in Jupyter (mirrors the fix shipped in
-    # feature_importance.plot_feature_importance -- use IPython.display
-    # so the chart shows up even when the global matplotlib backend is
-    # Agg).
-    if show:
-        try:
-            _in_kernel = bool(__IPYTHON__)  # type: ignore[name-defined]
-        except NameError:
-            _in_kernel = False
-        if _in_kernel:
-            try:
-                from IPython.display import display as _ipy_display
-                _ipy_display(fig)
-                # Close right after inline display: IPython has already
-                # serialised the figure to the kernel display channel,
-                # so the pyplot-registry reference is dead weight.
-                # Leaving it alive causes the inline backend's end-of-
-                # cell auto-flush to re-render the figure (a "crowd of
-                # plots" double-render).
-                _plt.close(fig)
-            except Exception as e:
-                logger.debug("IPython inline display failed, falling back to plt.show(): %s", e)
-                # block=False (not plt.ion()) so the process-global interactive flag is not leaked; close after to avoid the leak.
-                _plt.show(block=False)
-                _plt.close(fig)
-        else:
-            # In a script/CI: close after save to avoid figure leak.
-            _plt.close(fig)
-    return fig
+    return _finish_overlay(fig, _plt, report, save_path, show)
 
 
 def _safe_metric_for_title(report: BaselineReport) -> str:

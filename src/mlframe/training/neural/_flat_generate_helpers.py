@@ -287,6 +287,26 @@ def _generate_mlp_weights_init_fcn(weights_init_fcn, model):
 
 def _generate_mlp_every_fit_bench_profiling(model):
     """Block of generate_mlp starting at ``try:``."""
+    # Degenerate-init probe (audit Agent A round-2 P1, landed).
+    # The Identity-activation guard above catches the "stack of Linear
+    # -> Identity" footgun BEFORE the network is built. This probe runs
+    # AFTER ``weights_init_fcn`` has been applied so it catches the
+    # COMPLEMENTARY init-side pathologies that produce dead layers:
+    #   * ``weights_init_fcn=torch.nn.init.zeros_`` (all weights zero,
+    #     layer outputs zero, no gradient signal)
+    #   * accidental ``constant_`` init (all weights identical)
+    #   * any callable that produces zero-variance weight matrices
+    #
+    # bench-attempt-rejected (2026-05-23, c0039 / iter256): full
+    # ``torch.linalg.matrix_rank`` (SVD-based) cost 785ms per Linear
+    # layer = 7.85s for a 10-layer suite (5.2pct of total wall on c0039).
+    # std-based check below is O(n*m) vs SVD's O(n*m^2), runs in
+    # microseconds, and catches every common-case pathology this probe
+    # was added to detect (zeros_/constant_/scalar-init). The rare
+    # "non-zero-std but rank-deficient by construction" case (e.g. a
+    # custom init that copies one row across the matrix) is a
+    # model-design bug that should be caught at design time, not at
+    # every fit. Bench: profiling/bench_mlp_rank_probe_std_vs_svd.py.
     try:
         _worst_std: float = float("inf")
         _worst_layer_name: str = ""

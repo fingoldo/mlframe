@@ -417,6 +417,45 @@ def build_binagg_oof_matrix_gpu(
     return cp.ascontiguousarray(cp.stack(out_cols, axis=1).astype(dt, copy=False))
 
 
+def _binagg_null_calibrated_floor(cp: Any, mat_gpu: Any, y_gpu: Any, _yi: np.ndarray, _ymin: int, _ncls: int, nbins: int, floor: float) -> float:
+    """Raise the MI noise ``floor`` to the 95th percentile of the per-permutation maximum candidate MI.
+
+    Family-wise calibration, identical to ``_unified_fe_gate.local_mi_gate``: y is permuted on the device and each
+    permutation's maximum candidate MI is recorded (candidates are binned without the target).
+    """
+    from ._hermite_fe_mi import _plugin_mi_classif_batch_cuda_resident
+    from ._unified_fe_gate import _LOCAL_GATE_NULL_PERMUTATIONS
+
+    _rng = np.random.default_rng(0)
+    # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
+    _null_max = np.empty(_LOCAL_GATE_NULL_PERMUTATIONS, dtype=np.float64)
+    # The shuffles cross the bus a few per transfer (as many as fit a 32 MB host buffer), drawn in the same order as one per permutation.
+    _step = max(1, min(_LOCAL_GATE_NULL_PERMUTATIONS, (32 << 20) // (8 * max(_yi.size, 1))))
+    _perm_blk = cp.zeros((0, 0), dtype=cp.int64)
+    for _b in range(_LOCAL_GATE_NULL_PERMUTATIONS):
+        if _b % _step == 0:
+            _perm_blk = cp.asarray(np.stack([_rng.permutation(_yi.size) for _ in range(min(_step, _LOCAL_GATE_NULL_PERMUTATIONS - _b))]))
+        _perm = _perm_blk[_b % _step]
+        _null_max[_b] = float(
+            np.nanmax(
+                np.asarray(
+                    _plugin_mi_classif_batch_cuda_resident(
+                        mat_gpu,
+                        y_gpu[_perm],
+                        int(nbins),
+                        y_min=_ymin,
+                        n_classes=_ncls,
+                        relax_binning=True,
+                        keep_dtype=True,
+                        x_is_cm=True,
+                    ),
+                    dtype=np.float64,  # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
+                )
+            )
+        )
+    return max(float(floor), float(np.quantile(_null_max, 0.95)))
+
+
 def local_mi_gate_binagg_resident(
     feat_df: pd.DataFrame,
     y: Any,
@@ -510,37 +549,8 @@ def local_mi_gate_binagg_resident(
         )
         # Family-wise calibration, identical to ``_unified_fe_gate.local_mi_gate``: the floor is raised to the 95th percentile of the
         # per-permutation maximum MI over these candidates (y permuted on the device; candidates are binned without the target).
-        from ._unified_fe_gate import _LOCAL_GATE_NULL_PERMUTATIONS
-
         if mat_gpu.shape[0] >= 2 and _yi.size > 0:
-            _rng = np.random.default_rng(0)
-            # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
-            _null_max = np.empty(_LOCAL_GATE_NULL_PERMUTATIONS, dtype=np.float64)
-            # The shuffles cross the bus a few per transfer (as many as fit a 32 MB host buffer), drawn in the same order as one per permutation.
-            _step = max(1, min(_LOCAL_GATE_NULL_PERMUTATIONS, (32 << 20) // (8 * max(_yi.size, 1))))
-            _perm_blk = cp.zeros((0, 0), dtype=cp.int64)
-            for _b in range(_LOCAL_GATE_NULL_PERMUTATIONS):
-                if _b % _step == 0:
-                    _perm_blk = cp.asarray(np.stack([_rng.permutation(_yi.size) for _ in range(min(_step, _LOCAL_GATE_NULL_PERMUTATIONS - _b))]))
-                _perm = _perm_blk[_b % _step]
-                _null_max[_b] = float(
-                    np.nanmax(
-                        np.asarray(
-                            _plugin_mi_classif_batch_cuda_resident(
-                                mat_gpu,
-                                y_gpu[_perm],
-                                int(nbins),
-                                y_min=_ymin,
-                                n_classes=_ncls,
-                                relax_binning=True,
-                                keep_dtype=True,
-                                x_is_cm=True,
-                            ),
-                            dtype=np.float64,  # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
-                        )
-                    )
-                )
-            floor = max(float(floor), float(np.quantile(_null_max, 0.95)))
+            floor = _binagg_null_calibrated_floor(cp, mat_gpu, y_gpu, _yi, _ymin, _ncls, int(nbins), floor)
     except Exception as _exc:
         logger.debug("local_mi_gate_binagg_resident: GPU path failed (%s); host fallback", _exc)
         return None

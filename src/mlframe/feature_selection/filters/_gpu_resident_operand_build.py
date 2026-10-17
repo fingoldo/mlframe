@@ -142,6 +142,15 @@ def build_resident_operand_table(transformed_vars: np.ndarray, col_specs: Sequen
     # one column at a time. Columns with no spec (the unused tail, if any) are zero-filled - they are never
     # read by the materialise (operand indices are always < the used width), so their content is irrelevant.
     g = cp.zeros((n, n_operands), dtype=cp.float32)
+    _ret_build_resident_operand_table_part1 = _build_resident_operand_table_part1(col_specs, fb, cp, n, n_operands, g, _gpu_apply_prewarp, transformed_vars)
+    if _ret_build_resident_operand_table_part1[0]:
+        return _ret_build_resident_operand_table_part1[1]
+
+
+def _build_resident_operand_table_part1(
+    col_specs: Sequence[Any], fb: Any, cp: Any, n: Any, n_operands: Any, g: Any, _gpu_apply_prewarp: Any, transformed_vars: np.ndarray,
+) -> tuple[Any, ...]:
+    """Extracted block of ``build_resident_operand_table`` (part 1); returns the names the caller still uses."""
     # ONE-TRANSFER (phase R0): batch the DISTINCT raw operands referenced by the GPU-buildable
     # specs into per-dtype host matrices and upload each in ONE H2D, instead of one cp.asarray per distinct
     # raw. Each raw keeps its NATIVE float dtype (we group BY dtype) so the unary still applies in the exact
@@ -274,4 +283,5 @@ def build_resident_operand_table(transformed_vars: np.ndarray, col_specs: Sequen
             n_cpu += 1
         else:
             n_gpu += 1
-    return cp.ascontiguousarray(g), n_gpu, n_cpu
+    return True, (cp.ascontiguousarray(g), n_gpu, n_cpu)
+    return False, None

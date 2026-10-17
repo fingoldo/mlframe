@@ -231,6 +231,134 @@ def _is_polars_categorical_dtype(dt) -> bool:
     return dt == pl.Utf8 or dt == pl.String or dt == pl.Categorical or dt == pl.Boolean or (hasattr(pl, "Enum") and isinstance(dt, pl.Enum))
 
 
+def _assign_nan_bin_codes(
+    data: np.ndarray, _nan_mask: np.ndarray, nbins_strategy: Optional[str], per_col_bins: Optional[list], n_bins: int, arr: np.ndarray,
+) -> None:
+    """Overwrite the NaN positions of ``data`` in place with each column's dedicated NaN bin code (one past the column's highest regular code)."""
+    # per-COLUMN NaN bin code.
+    # Pre-fix used the constructor ``n_bins`` as the dedicated NaN code
+    # for every column, but the adaptive ``nbins_strategy`` branch
+    # produces per-column bin counts that often exceed ``n_bins``
+    # (e.g. FD gives ~22 for n=600 N(0,1), while ctor n_bins=4). So the
+    # NaN code 4 silently collided with regular real-data bin 4 - NaN
+    # observations got merged into a real bin, destroying the
+    # missingness signal and biasing every downstream MI / SU / MRMR
+    # score. Fix: each column's NaN code is one past that column's
+    # highest regular code. Per-column scheme works because downstream
+    # MI estimators treat each column independently and
+    # ``data.max(axis=0) + 1`` (line 1151) recomputes ``nbins`` per col.
+    if nbins_strategy is not None:
+        nan_codes_per_col = np.asarray(per_col_bins, dtype=np.int64)
+    else:
+        # Legacy unsupervised path: discretize_2d_array can emit a real code == n_bins for some columns
+        # ([0..n_bins], n_bins+1 distinct codes), so a flat NaN code = ctor n_bins collides with that real
+        # top bin and destroys the missingness signal - the same defect the adaptive branch fixes per-column.
+        # ``max(n_bins, col_real_max + 1)`` keeps the NaN code at n_bins wherever it is already distinct
+        # (bit-identical to the prior behaviour) and only pushes it one past the real max for a colliding column.
+        col_real_max = data.max(axis=0).astype(np.int64) if data.size else np.zeros(arr.shape[1], dtype=np.int64)
+        nan_codes_per_col = np.maximum(int(n_bins), col_real_max + 1)
+    max_bin_after = int(nan_codes_per_col.max())
+    if max_bin_after > np.iinfo(data.dtype).max:
+        raise ValueError(
+            f"separate_bin strategy needs dtype able to hold {max_bin_after}; "
+            f"current dtype {data.dtype} max is {np.iinfo(data.dtype).max}. "
+            "Pass a wider dtype to categorize_dataset."
+        )
+    # Per-column NaN code: broadcast across NaN-row positions.
+    _rows, _c = np.where(_nan_mask)
+    data[_rows, _c] = nan_codes_per_col[_c].astype(data.dtype)
+
+
+def _discretize_with_nbins_strategy(
+    arr: np.ndarray, numerical_cols: list, nbins_strategy: str, nbins_strategy_kwargs: Optional[dict], y_for_strategy: "np.ndarray | pd.Series | None",
+    cache_dir: Optional[str], dtype: type,
+) -> tuple[np.ndarray, list]:
+    """Per-column adaptive-bin discretisation (``nbins_strategy``): edges per column, one batched searchsorted, padded to the global max bin count; returns ``(data, per_col_bins)``."""
+    from .._adaptive_nbins import per_feature_edges
+    _strategy_kwargs = dict(nbins_strategy_kwargs or {})
+    # Pass y if the strategy is supervised.
+    _needs_y = str(nbins_strategy).lower() in (
+        "mdlp", "fayyad_irani", "mdlp_validated", "fayyad_irani_validated", "optimal_joint", "cv",
+        "mah", "mah_sci", "sci", "marx",
+    )
+    _y_arr = None
+    if _needs_y and y_for_strategy is not None:
+        _y_arr = np.asarray(y_for_strategy).ravel()
+    edges_per_col = per_feature_edges(
+        arr, y=_y_arr, method=nbins_strategy, cache_dir=cache_dir, **_strategy_kwargs,
+    )
+    # Dispatcher-level silent-degenerate-fallback guardrail: ``per_feature_edges`` already
+    # logs a per-column WARNING when a strategy returns empty edges for a column with real variance (see
+    # its own guardrail), but ``categorize_dataset`` is the actual top-level entry MRMR.fit calls and it
+    # previously used ``edges_per_col`` completely blindly - an empty-edges column silently becomes an
+    # all-bin-0 column further down (the ``+inf``-padded searchsorted resolves every value to bin 0), with
+    # NO signal at this call site. This is exactly how the MDLP overflow bug (3.0**n_classes -> inf,
+    # acceptance check always False) went undetected in production: nothing at the entry point a caller
+    # actually watches ever surfaced it. Aggregate + name the affected columns here so a production fit's
+    # logs are diagnosable without per-strategy vigilance, regardless of which strategy is selected.
+    _degenerate_col_names: list = []
+    for _j, _ej in enumerate(edges_per_col):
+        if _ej is not None and hasattr(_ej, "size") and _ej.size == 0:
+            _col_vals = arr[:, _j]
+            _col_finite = _col_vals[np.isfinite(_col_vals)]
+            if _col_finite.size and np.unique(_col_finite).size > 1:
+                _degenerate_col_names.append(numerical_cols[_j] if _j < len(numerical_cols) else _j)
+    if _degenerate_col_names:
+        logger.warning(
+            "categorize_dataset: nbins_strategy=%r produced EMPTY bin edges for %d column(s) with real "
+            "variance -- each collapses to a single degenerate bin (all rows share one code), silently "
+            "destroying that column's MI signal for the rest of this fit: %s",
+            nbins_strategy, len(_degenerate_col_names), _degenerate_col_names[:20],
+        )
+    # Per-column searchsorted; pad to global max nbins.
+    n_rows = arr.shape[0]
+    n_cols = arr.shape[1]
+    per_col_bins = [int(e.size + 1) for e in edges_per_col]
+    max_bins = max(max(per_col_bins) if per_col_bins else 1, 1)
+    # Validate the requested dtype can hold ``max_bins`` (matches the
+    # post-discretize NaN-bin overflow check below).
+    if max_bins > np.iinfo(dtype).max:
+        raise ValueError(
+            f"nbins_strategy={nbins_strategy!r} produced {max_bins} bins which "
+            f"exceeds dtype {dtype} max {np.iinfo(dtype).max}. "
+            f"Use a wider dtype or constrain the strategy (e.g. knuth_m_max_cap=64)."
+        )
+    data: np.ndarray = np.empty((n_rows, n_cols), dtype=dtype)
+    # BATCHED: pad every column's interior-edge vector to the SAME length
+    # (``n_edges_max``, already implied by ``max_bins`` above) with ``+inf`` sentinels, then run ONE
+    # ``_searchsorted_2d_right_njit_parallel`` call over the padded (n_edges_max, n_cols) matrix instead
+    # of a per-column ``np.searchsorted`` Python-dispatch loop - this file's own prior comment flagged
+    # this exact gap ("max_bins is already computed one line above"). Padding is safe: ``side='right'``
+    # counts edges <= v, and a finite v is never >= +inf, so padding entries are never counted -
+    # identical to the per-column call with that column's OWN (shorter) edge vector. A column with
+    # ``ej.size == 0`` is an all-``+inf`` row: every comparison resolves to bin 0, matching the
+    # original explicit ``data[:, j] = 0`` branch exactly. NaN never reaches this call (``_handle_missing``
+    # above unconditionally fills or raises on NaN for every strategy), so the kernel's separate
+    # NaN-walks-to-``len(edges)`` contract - which WOULD differ under padding - never engages here.
+    # PARALLEL (not the serial ``nogil`` twin): measured - the serial kernel is a WASH-TO-SLIGHT-LOSS
+    # against numpy's per-column ``searchsorted`` (0.83-1.26x across n=20k-100k, p=200-4000; numpy's C
+    # binary search is already fast per call, so a single-threaded scalar njit loop doesn't beat it) while
+    # the ``prange``-parallel twin is a consistent 6-10x win at the same scales. Safe here (unlike the
+    # FE pair-search hot path, which must stay serial to avoid nesting under joblib ``backend="threading"``):
+    # ``categorize_dataset`` has exactly ONE call site (``_fit_impl_core.py``, ``MRMR.fit``'s top-level
+    # entry, before any joblib worker spawns), so there is no nested-parallelism hazard.
+    n_edges_max = max((int(e.size) for e in edges_per_col), default=0)
+    edges_padded = np.full((n_edges_max, n_cols), np.inf, dtype=np.float64)
+    for j, ej in enumerate(edges_per_col):
+        if ej.size:
+            edges_padded[: ej.size, j] = ej
+    _codes = np.empty((n_rows, n_cols), dtype=np.int64)
+    from ._kernels import _searchsorted_2d_right_njit_parallel
+    # ``arr`` passed at its NATIVE dtype (float32 or float64): the kernel promotes per-element against
+    # the float64 edges, byte-identical to pre-upcasting the whole column (see the kernel's own
+    # docstring) - avoids an (n_rows, n_cols) float64 copy on top of the input buffer.
+    # Reachable from the FE pair sweep's threaded paths; see mlframe._numba_parallel_guard.
+    with parallel_kernel_entry():
+        _searchsorted_2d_right_njit_parallel(edges_padded, arr, _codes)
+    data[:, :] = _codes.astype(dtype)
+    return data, per_col_bins
+
+
 def categorize_dataset(
     df: pd.DataFrame | pl.DataFrame | pl.LazyFrame,
     method: str = "quantile",
@@ -314,88 +442,7 @@ def categorize_dataset(
     # CMI redundancy loop (~290s at 100k) which the batched-CUDA CMI kernel attacks first. A cheaper interim
     # lever (column-parallelising per_feature_edges) is a candidate if MDLP discretization becomes the wall.
     if nbins_strategy is not None:
-        from .._adaptive_nbins import per_feature_edges
-        _strategy_kwargs = dict(nbins_strategy_kwargs or {})
-        # Pass y if the strategy is supervised.
-        _needs_y = str(nbins_strategy).lower() in (
-            "mdlp", "fayyad_irani", "mdlp_validated", "fayyad_irani_validated", "optimal_joint", "cv",
-            "mah", "mah_sci", "sci", "marx",
-        )
-        _y_arr = None
-        if _needs_y and y_for_strategy is not None:
-            _y_arr = np.asarray(y_for_strategy).ravel()
-        edges_per_col = per_feature_edges(
-            arr, y=_y_arr, method=nbins_strategy, cache_dir=cache_dir, **_strategy_kwargs,
-        )
-        # Dispatcher-level silent-degenerate-fallback guardrail: ``per_feature_edges`` already
-        # logs a per-column WARNING when a strategy returns empty edges for a column with real variance (see
-        # its own guardrail), but ``categorize_dataset`` is the actual top-level entry MRMR.fit calls and it
-        # previously used ``edges_per_col`` completely blindly - an empty-edges column silently becomes an
-        # all-bin-0 column further down (the ``+inf``-padded searchsorted resolves every value to bin 0), with
-        # NO signal at this call site. This is exactly how the MDLP overflow bug (3.0**n_classes -> inf,
-        # acceptance check always False) went undetected in production: nothing at the entry point a caller
-        # actually watches ever surfaced it. Aggregate + name the affected columns here so a production fit's
-        # logs are diagnosable without per-strategy vigilance, regardless of which strategy is selected.
-        _degenerate_col_names: list = []
-        for _j, _ej in enumerate(edges_per_col):
-            if _ej is not None and hasattr(_ej, "size") and _ej.size == 0:
-                _col_vals = arr[:, _j]
-                _col_finite = _col_vals[np.isfinite(_col_vals)]
-                if _col_finite.size and np.unique(_col_finite).size > 1:
-                    _degenerate_col_names.append(numerical_cols[_j] if _j < len(numerical_cols) else _j)
-        if _degenerate_col_names:
-            logger.warning(
-                "categorize_dataset: nbins_strategy=%r produced EMPTY bin edges for %d column(s) with real "
-                "variance -- each collapses to a single degenerate bin (all rows share one code), silently "
-                "destroying that column's MI signal for the rest of this fit: %s",
-                nbins_strategy, len(_degenerate_col_names), _degenerate_col_names[:20],
-            )
-        # Per-column searchsorted; pad to global max nbins.
-        n_rows = arr.shape[0]
-        n_cols = arr.shape[1]
-        per_col_bins = [int(e.size + 1) for e in edges_per_col]
-        max_bins = max(max(per_col_bins) if per_col_bins else 1, 1)
-        # Validate the requested dtype can hold ``max_bins`` (matches the
-        # post-discretize NaN-bin overflow check below).
-        if max_bins > np.iinfo(dtype).max:
-            raise ValueError(
-                f"nbins_strategy={nbins_strategy!r} produced {max_bins} bins which "
-                f"exceeds dtype {dtype} max {np.iinfo(dtype).max}. "
-                f"Use a wider dtype or constrain the strategy (e.g. knuth_m_max_cap=64)."
-            )
-        data = np.empty((n_rows, n_cols), dtype=dtype)
-        # BATCHED: pad every column's interior-edge vector to the SAME length
-        # (``n_edges_max``, already implied by ``max_bins`` above) with ``+inf`` sentinels, then run ONE
-        # ``_searchsorted_2d_right_njit_parallel`` call over the padded (n_edges_max, n_cols) matrix instead
-        # of a per-column ``np.searchsorted`` Python-dispatch loop - this file's own prior comment flagged
-        # this exact gap ("max_bins is already computed one line above"). Padding is safe: ``side='right'``
-        # counts edges <= v, and a finite v is never >= +inf, so padding entries are never counted -
-        # identical to the per-column call with that column's OWN (shorter) edge vector. A column with
-        # ``ej.size == 0`` is an all-``+inf`` row: every comparison resolves to bin 0, matching the
-        # original explicit ``data[:, j] = 0`` branch exactly. NaN never reaches this call (``_handle_missing``
-        # above unconditionally fills or raises on NaN for every strategy), so the kernel's separate
-        # NaN-walks-to-``len(edges)`` contract - which WOULD differ under padding - never engages here.
-        # PARALLEL (not the serial ``nogil`` twin): measured - the serial kernel is a WASH-TO-SLIGHT-LOSS
-        # against numpy's per-column ``searchsorted`` (0.83-1.26x across n=20k-100k, p=200-4000; numpy's C
-        # binary search is already fast per call, so a single-threaded scalar njit loop doesn't beat it) while
-        # the ``prange``-parallel twin is a consistent 6-10x win at the same scales. Safe here (unlike the
-        # FE pair-search hot path, which must stay serial to avoid nesting under joblib ``backend="threading"``):
-        # ``categorize_dataset`` has exactly ONE call site (``_fit_impl_core.py``, ``MRMR.fit``'s top-level
-        # entry, before any joblib worker spawns), so there is no nested-parallelism hazard.
-        n_edges_max = max((int(e.size) for e in edges_per_col), default=0)
-        edges_padded = np.full((n_edges_max, n_cols), np.inf, dtype=np.float64)
-        for j, ej in enumerate(edges_per_col):
-            if ej.size:
-                edges_padded[: ej.size, j] = ej
-        _codes = np.empty((n_rows, n_cols), dtype=np.int64)
-        from ._kernels import _searchsorted_2d_right_njit_parallel
-        # ``arr`` passed at its NATIVE dtype (float32 or float64): the kernel promotes per-element against
-        # the float64 edges, byte-identical to pre-upcasting the whole column (see the kernel's own
-        # docstring) - avoids an (n_rows, n_cols) float64 copy on top of the input buffer.
-        # Reachable from the FE pair sweep's threaded paths; see mlframe._numba_parallel_guard.
-        with parallel_kernel_entry():
-            _searchsorted_2d_right_njit_parallel(edges_padded, arr, _codes)
-        data[:, :] = _codes.astype(dtype)
+        data, per_col_bins = _discretize_with_nbins_strategy(arr, numerical_cols, nbins_strategy, nbins_strategy_kwargs, y_for_strategy, cache_dir, dtype)
     else:
         # Unsupervised numeric path: each column binned independently of others AND of the target, so per-column
         # codes are cached cross-instance (huge win across a suite's many targets on one feature frame). Bit-identical.
@@ -405,38 +452,7 @@ def categorize_dataset(
         )
 
     if _nan_mask is not None and _nan_mask.any():
-        # per-COLUMN NaN bin code.
-        # Pre-fix used the constructor ``n_bins`` as the dedicated NaN code
-        # for every column, but the adaptive ``nbins_strategy`` branch
-        # produces per-column bin counts that often exceed ``n_bins``
-        # (e.g. FD gives ~22 for n=600 N(0,1), while ctor n_bins=4). So the
-        # NaN code 4 silently collided with regular real-data bin 4 - NaN
-        # observations got merged into a real bin, destroying the
-        # missingness signal and biasing every downstream MI / SU / MRMR
-        # score. Fix: each column's NaN code is one past that column's
-        # highest regular code. Per-column scheme works because downstream
-        # MI estimators treat each column independently and
-        # ``data.max(axis=0) + 1`` (line 1151) recomputes ``nbins`` per col.
-        if nbins_strategy is not None:
-            nan_codes_per_col = np.asarray(per_col_bins, dtype=np.int64)
-        else:
-            # Legacy unsupervised path: discretize_2d_array can emit a real code == n_bins for some columns
-            # ([0..n_bins], n_bins+1 distinct codes), so a flat NaN code = ctor n_bins collides with that real
-            # top bin and destroys the missingness signal - the same defect the adaptive branch fixes per-column.
-            # ``max(n_bins, col_real_max + 1)`` keeps the NaN code at n_bins wherever it is already distinct
-            # (bit-identical to the prior behaviour) and only pushes it one past the real max for a colliding column.
-            col_real_max = data.max(axis=0).astype(np.int64) if data.size else np.zeros(arr.shape[1], dtype=np.int64)
-            nan_codes_per_col = np.maximum(int(n_bins), col_real_max + 1)
-        max_bin_after = int(nan_codes_per_col.max())
-        if max_bin_after > np.iinfo(data.dtype).max:
-            raise ValueError(
-                f"separate_bin strategy needs dtype able to hold {max_bin_after}; "
-                f"current dtype {data.dtype} max is {np.iinfo(data.dtype).max}. "
-                "Pass a wider dtype to categorize_dataset."
-            )
-        # Per-column NaN code: broadcast across NaN-row positions.
-        _rows, _c = np.where(_nan_mask)
-        data[_rows, _c] = nan_codes_per_col[_c].astype(data.dtype)
+        _assign_nan_bin_codes(data, _nan_mask, nbins_strategy, per_col_bins if nbins_strategy is not None else None, n_bins, arr)
 
     categorical_cols, new_vals = _factorize_categorical_columns(_is_polars, categorical_cols_detected, df, pl, max_categorical_cardinality)
     data, dtype = _encode_categorical_block(categorical_cols, new_vals, missing_strategy, dtype, data)

@@ -40,6 +40,104 @@ logger = logging.getLogger(__name__)
 # Floor on the binomial variance term of the early-stop margin (previously an additive 1e-9 inside the sqrt).
 _MIN_BANDIT_VARIANCE = 1e-9
 
+
+def _build_pair_cache(factors_data: np.ndarray, pairs_a: np.ndarray, pairs_b: np.ndarray, selected_idx: np.ndarray, nbins: np.ndarray, dtype) -> list:
+    """Merge results ``(cls_pair, fq_pair, cls_x1, fq_x1, cls_x2, fq_x2)`` for every surviving pair, with the single-variable merges memoised."""
+    pair_cache: list = []  # cached merge results per survivor
+
+    # The single-variable merge of feature ``idx`` depends only on
+    # ``factors_data[:, idx]`` + ``nbins[idx]`` (default current_nclasses=1,
+    # fresh final_classes), so it is identical for every pair that contains
+    # ``idx``. Features recur across the selected pairs, so memoising the
+    # single-var merge by feature index removes the redundant recomputation
+    # (previously 2 single-var merges per pair -> one per UNIQUE feature). The
+    # cached (classes, freqs) arrays are read-only downstream (the shuffle
+    # mutates only a copy of classes_y, never classes_x1/x2), so sharing one
+    # array across pairs is safe. Bit-identical: same merge_vars output, memoised.
+    _single_merge_cache: dict = {}
+    _single_merge = make_single_merge(factors_data, nbins, dtype, _single_merge_cache)
+
+    for k in selected_idx:
+        i = int(pairs_a[k])
+        jj = int(pairs_b[k])
+        cls_pair, fq_pair, _ = merge_vars(
+            factors_data=factors_data,
+            vars_indices=np.array([i, jj], dtype=np.int64),
+            var_is_nominal=None, factors_nbins=nbins, dtype=dtype,
+        )
+        cls_x1, fq_x1 = _single_merge(i)
+        cls_x2, fq_x2 = _single_merge(jj)
+        pair_cache.append((cls_pair, fq_pair, cls_x1, fq_x1, cls_x2, fq_x2))
+    return pair_cache
+
+
+def _phase1_bulk_allocate(
+    selected_idx: np.ndarray, ii_arr: np.ndarray, pair_cache: list, classes_y: np.ndarray, freqs_y: np.ndarray, min_perms: int, dtype,
+    nfailed: np.ndarray, nshuf: np.ndarray, _phase1_base_seed: np.uint64,
+) -> None:
+    """Phase 1: give every survivor ``min_perms`` bulk shuffles, updating ``nfailed`` / ``nshuf`` in place."""
+    for j, k in enumerate(selected_idx):
+        ii_obs = float(ii_arr[k])
+        cls_pair, fq_pair, cls_x1, fq_x1, cls_x2, fq_x2 = pair_cache[j]
+        # Per-pair base seed so different pairs see different permutation
+        # sequences (deterministic given the fixed _phase1_base_seed).
+        _base_seed = _phase1_base_seed + np.uint64(j) * np.uint64(0x9E3779B1)
+        ip_arr, ix1_arr, ix2_arr = _bulk_shuffle_and_compute_three_mis(
+            cls_pair, fq_pair, cls_x1, fq_x1, cls_x2, fq_x2,
+            classes_y, freqs_y, min_perms, _base_seed, dtype,
+        )
+        for _p in range(min_perms):
+            if (ip_arr[_p] - ix1_arr[_p] - ix2_arr[_p]) >= ii_obs:
+                nfailed[j] += 1
+            nshuf[j] += 1
+
+
+def _ucb1_pick(active_mask: np.ndarray, nfailed: np.ndarray, nshuf: np.ndarray, used: int) -> int:
+    """Index of the active pair with the highest UCB1 score (``-1`` when every pair has converged)."""
+    best_j = -1
+    best_score = -np.inf
+    for j in range(len(active_mask)):
+        if not active_mask[j]:
+            continue
+        p_est = nfailed[j] / max(nshuf[j], 1)
+        # Binomial CI half-width ~1.96 * sqrt(p*(1-p)/n); approx with min(p, 1-p) for the variance term. UCB bonus = sqrt(2*ln(used)/n_j).
+        ucb_bonus = math.sqrt(2.0 * math.log(max(used, 2)) / max(nshuf[j], 1))
+        score = ucb_bonus + p_est * (1.0 - p_est)  # prefer ambiguous
+        if score > best_score:
+            best_score = score
+            best_j = j
+    return best_j
+
+
+def _confirm_by_confidence(
+    selected_idx: np.ndarray, pairs_a: np.ndarray, pairs_b: np.ndarray, nfailed: np.ndarray, nshuf: np.ndarray,
+    cfg: CatFEConfig, n_search_pairs: int, min_conf: float, verbose: int,
+) -> tuple:
+    """Turn the per-pair failure counts into FWER-corrected confidences; returns ``(selected_idx_kept, corrected_confidence_dict)``."""
+    # Build confidence dict
+    confidence_dict: dict = {}
+    for j, k in enumerate(selected_idx):
+        i = int(pairs_a[k])
+        jj = int(pairs_b[k])
+        p = (nfailed[j] + 1) / (nshuf[j] + 1)  # continuity-corrected
+        confidence_dict[(i, jj)] = 1.0 - p
+
+    # FWER correction (reuse same path)
+    corrected_conf = _apply_fwer_correction(
+        confidence_dict, cfg, n_search_pairs=n_search_pairs,
+    )
+    kept_mask = np.array([corrected_conf[(int(pairs_a[k]), int(pairs_b[k]))] >= min_conf for k in selected_idx])
+    if verbose:
+        for j, k in enumerate(selected_idx):
+            ij = (int(pairs_a[k]), int(pairs_b[k]))
+            logger.info(
+                "cat-FE bandit: pair %s nshuf=%d conf=%.3f corrected=%.3f%s",
+                ij, nshuf[j], confidence_dict[ij], corrected_conf[ij],
+                "" if kept_mask[j] else " [REJECTED]",
+            )
+    return selected_idx[kept_mask], corrected_conf
+
+
 def _confirm_pairs_bandit_ucb1(
     factors_data: np.ndarray,
     pairs_a: np.ndarray,
@@ -85,31 +183,8 @@ def _confirm_pairs_bandit_ucb1(
     nfailed = np.zeros(len(selected_idx), dtype=np.int64)
     nshuf = np.zeros(len(selected_idx), dtype=np.int64)
     active_mask = np.ones(len(selected_idx), dtype=bool)
-    pair_cache: list = []  # cached merge results per survivor
 
-    # The single-variable merge of feature ``idx`` depends only on
-    # ``factors_data[:, idx]`` + ``nbins[idx]`` (default current_nclasses=1,
-    # fresh final_classes), so it is identical for every pair that contains
-    # ``idx``. Features recur across the selected pairs, so memoising the
-    # single-var merge by feature index removes the redundant recomputation
-    # (previously 2 single-var merges per pair -> one per UNIQUE feature). The
-    # cached (classes, freqs) arrays are read-only downstream (the shuffle
-    # mutates only a copy of classes_y, never classes_x1/x2), so sharing one
-    # array across pairs is safe. Bit-identical: same merge_vars output, memoised.
-    _single_merge_cache: dict = {}
-    _single_merge = make_single_merge(factors_data, nbins, dtype, _single_merge_cache)
-
-    for k in selected_idx:
-        i = int(pairs_a[k])
-        jj = int(pairs_b[k])
-        cls_pair, fq_pair, _ = merge_vars(
-            factors_data=factors_data,
-            vars_indices=np.array([i, jj], dtype=np.int64),
-            var_is_nominal=None, factors_nbins=nbins, dtype=dtype,
-        )
-        cls_x1, fq_x1 = _single_merge(i)
-        cls_x2, fq_x2 = _single_merge(jj)
-        pair_cache.append((cls_pair, fq_pair, cls_x1, fq_x1, cls_x2, fq_x2))
+    pair_cache = _build_pair_cache(factors_data, pairs_a, pairs_b, selected_idx, nbins, dtype)
 
     def _step_pair(j: int, ii_obs: float):
         """One shuffle for pair j. Updates nfailed, nshuf in place."""
@@ -132,20 +207,7 @@ def _confirm_pairs_bandit_ucb1(
     # (bench). Phase 2 still uses _step_pair because UCB1 needs the
     # latest result to pick the next allocation.
     _phase1_base_seed = np.uint64(0xC0FFEE)
-    for j, k in enumerate(selected_idx):
-        ii_obs = float(ii_arr[k])
-        cls_pair, fq_pair, cls_x1, fq_x1, cls_x2, fq_x2 = pair_cache[j]
-        # Per-pair base seed so different pairs see different permutation
-        # sequences (deterministic given the fixed _phase1_base_seed).
-        _base_seed = _phase1_base_seed + np.uint64(j) * np.uint64(0x9E3779B1)
-        ip_arr, ix1_arr, ix2_arr = _bulk_shuffle_and_compute_three_mis(
-            cls_pair, fq_pair, cls_x1, fq_x1, cls_x2, fq_x2,
-            classes_y, freqs_y, min_perms, _base_seed, dtype,
-        )
-        for _p in range(min_perms):
-            if (ip_arr[_p] - ix1_arr[_p] - ix2_arr[_p]) >= ii_obs:
-                nfailed[j] += 1
-            nshuf[j] += 1
+    _phase1_bulk_allocate(selected_idx, ii_arr, pair_cache, classes_y, freqs_y, min_perms, dtype, nfailed, nshuf, _phase1_base_seed)
 
     # Phase 2: adaptive allocation. Budget remaining = total - phase1
     total_budget = max(n_perms_total * len(selected_idx), min_perms * len(selected_idx))
@@ -179,18 +241,7 @@ def _confirm_pairs_bandit_ucb1(
         if fe_deadline_passed():
             break
         # Decide which pair to allocate next shuffle to. UCB1-style: pair with widest CI on current p_estimate, AMONG ACTIVES.
-        best_j = -1
-        best_score = -np.inf
-        for j in range(len(selected_idx)):
-            if not active_mask[j]:
-                continue
-            p_est = nfailed[j] / max(nshuf[j], 1)
-            # Binomial CI half-width ~1.96 * sqrt(p*(1-p)/n); approx with min(p, 1-p) for the variance term. UCB bonus = sqrt(2*ln(used)/n_j).
-            ucb_bonus = math.sqrt(2.0 * math.log(max(used, 2)) / max(nshuf[j], 1))
-            score = ucb_bonus + p_est * (1.0 - p_est)  # prefer ambiguous
-            if score > best_score:
-                best_score = score
-                best_j = j
+        best_j = _ucb1_pick(active_mask, nfailed, nshuf, used)
         if best_j < 0:
             break  # all converged
 
@@ -229,25 +280,4 @@ def _confirm_pairs_bandit_ucb1(
         if lower > alpha + 0.02 or upper < alpha - 0.02:
             active_mask[best_j] = False
 
-    # Build confidence dict
-    confidence_dict: dict = {}
-    for j, k in enumerate(selected_idx):
-        i = int(pairs_a[k])
-        jj = int(pairs_b[k])
-        p = (nfailed[j] + 1) / (nshuf[j] + 1)  # continuity-corrected
-        confidence_dict[(i, jj)] = 1.0 - p
-
-    # FWER correction (reuse same path)
-    corrected_conf = _apply_fwer_correction(
-        confidence_dict, cfg, n_search_pairs=n_search_pairs,
-    )
-    kept_mask = np.array([corrected_conf[(int(pairs_a[k]), int(pairs_b[k]))] >= min_conf for k in selected_idx])
-    if verbose:
-        for j, k in enumerate(selected_idx):
-            ij = (int(pairs_a[k]), int(pairs_b[k]))
-            logger.info(
-                "cat-FE bandit: pair %s nshuf=%d conf=%.3f corrected=%.3f%s",
-                ij, nshuf[j], confidence_dict[ij], corrected_conf[ij],
-                "" if kept_mask[j] else " [REJECTED]",
-            )
-    return selected_idx[kept_mask], corrected_conf
+    return _confirm_by_confidence(selected_idx, pairs_a, pairs_b, nfailed, nshuf, cfg, n_search_pairs, min_conf, verbose)

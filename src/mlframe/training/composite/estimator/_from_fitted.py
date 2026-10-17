@@ -51,6 +51,46 @@ def _reconstruct_t_train(
         return None
 
 
+def _inherit_feature_names(instance: Any, fitted_inner: Any) -> None:
+    """Copy the inner model's feature names onto the wrapper and stamp the wrapper-level feature count."""
+    # Inherit feature_names_in_ from the already-fitted inner so the
+    # predict-side column-subset fallback can resolve the wrapper's expected
+    # columns; without it the wrapper is fed the post-extensions pca/svd-only
+    # frame while its inner was trained on the raw-plus-extension frame, and
+    # CatBoost raises a feature-name mismatch.
+    _inner_names = getattr(fitted_inner, "feature_names_in_", None)
+    if _inner_names is None:
+        _inner_names = getattr(fitted_inner, "feature_names_", None)
+    if _inner_names is not None:
+        try:
+            instance.feature_names_in_ = list(_inner_names)
+        except TypeError as _names_err:
+            # Slotted / read-only inner instance rejected the assignment. Surface
+            # so the operator sees this rather than waiting for the CatBoost
+            # ``At position 0 should be feature with name x0 (found pca0)`` crash
+            # at predict time which doesn't trace back to this propagation step.
+            logger.warning(
+                "CompositeEstimator: failed to propagate inner.feature_names_in_ "
+                "onto wrapper (%s); predict-time may raise feature-name mismatch "
+                "on CB/LGB/XGB inner model. Inner type: %s, inner names count: %d.",
+                _names_err,
+                type(fitted_inner).__name__,
+                len(list(_inner_names)),
+            )
+    # Stamp the wrapper-level feature count so ``n_features_in_`` is
+    # consistent with ``feature_names_in_``. ``from_fitted_inner`` does not
+    # support grouped transforms (no group_column arg), so the inner's
+    # feature count already equals what the wrapper exposes; prefer the
+    # inherited name list when present, else the inner's scalar.
+    _ffi_names = getattr(instance, "feature_names_in_", None)
+    if _ffi_names is not None:
+        instance._n_features_in_wrapper = len(_ffi_names)
+    else:
+        _inner_n = getattr(fitted_inner, "n_features_in_", None)
+        if _inner_n is not None:
+            instance._n_features_in_wrapper = int(_inner_n)
+
+
 def from_fitted_inner(
     cls: type,
     fitted_inner: Any,
@@ -157,42 +197,7 @@ def from_fitted_inner(
         from . import _soft_shrink as _soft_shrink
 
         _soft_shrink.capture_base_fit_range(instance, get_transform(transform_name), np.asarray(base_train, dtype=np.float64))
-    # Inherit feature_names_in_ from the already-fitted inner so the
-    # predict-side column-subset fallback can resolve the wrapper's expected
-    # columns; without it the wrapper is fed the post-extensions pca/svd-only
-    # frame while its inner was trained on the raw-plus-extension frame, and
-    # CatBoost raises a feature-name mismatch.
-    _inner_names = getattr(fitted_inner, "feature_names_in_", None)
-    if _inner_names is None:
-        _inner_names = getattr(fitted_inner, "feature_names_", None)
-    if _inner_names is not None:
-        try:
-            instance.feature_names_in_ = list(_inner_names)
-        except TypeError as _names_err:
-            # Slotted / read-only inner instance rejected the assignment. Surface
-            # so the operator sees this rather than waiting for the CatBoost
-            # ``At position 0 should be feature with name x0 (found pca0)`` crash
-            # at predict time which doesn't trace back to this propagation step.
-            logger.warning(
-                "CompositeEstimator: failed to propagate inner.feature_names_in_ "
-                "onto wrapper (%s); predict-time may raise feature-name mismatch "
-                "on CB/LGB/XGB inner model. Inner type: %s, inner names count: %d.",
-                _names_err,
-                type(fitted_inner).__name__,
-                len(list(_inner_names)),
-            )
-    # Stamp the wrapper-level feature count so ``n_features_in_`` is
-    # consistent with ``feature_names_in_``. ``from_fitted_inner`` does not
-    # support grouped transforms (no group_column arg), so the inner's
-    # feature count already equals what the wrapper exposes; prefer the
-    # inherited name list when present, else the inner's scalar.
-    _ffi_names = getattr(instance, "feature_names_in_", None)
-    if _ffi_names is not None:
-        instance._n_features_in_wrapper = len(_ffi_names)
-    else:
-        _inner_n = getattr(fitted_inner, "n_features_in_", None)
-        if _inner_n is not None:
-            instance._n_features_in_wrapper = int(_inner_n)
+    _inherit_feature_names(instance, fitted_inner)
     instance.runtime_stats_ = {
         "predict_calls": 0,
         "predict_rows_total": 0,

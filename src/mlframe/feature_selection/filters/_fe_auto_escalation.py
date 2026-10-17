@@ -297,73 +297,8 @@ def _skip_for_nominal_target(self, info: dict) -> bool:
     return True
 
 
-def run_fe_auto_escalation(
-    self: Any,
-    *,
-    failed_pairs: Any,
-    X: Any,
-    cols: Sequence[str],
-    classes_y: Any,
-    pair_maxt_floor: float,
-    admitted_pool: dict,
-    verbose: int = 0,
-    capture_vals: dict | None = None,
-    rescue_pairs: set | None = None,
-) -> list[dict]:
-    """Escalate the FE search to the richer shipped bases for prescreen-surviving pairs
-    the unary/binary step admitted NOTHING for (or, via the UNDERDELIVERY trigger,
-    admitted only a partial capture for). PROPOSES candidates (signal-adaptive
-    orth-poly ALS warps + demodulated adaptive-frequency Fourier/chirp warps), then runs
-    them through the EXISTING admission gates (order-2 maxT floor on MM-debiased MI,
-    marginal-permutation floor, S5 conditional-MI redundancy gate vs the admitted
-    engineered support).
-
-    ``capture_vals`` (optional): per-pair matrix of the pair's ALREADY-ADMITTED
-    engineered column values (full n). When present for a pair, the proposers fit the
-    RESIDUAL of the supervised target after removing each capture column's BINNED
-    CONDITIONAL MEAN (nonparametric - removes ANY function of the capture at bin
-    resolution, crucially including the rank-vs-raw monotone remap a linear residual
-    leaves behind), so they hunt for the MISSING part of the signal: a candidate that
-    merely re-expresses the existing capture finds ~no residual correlation and dies
-    at the proposers' held-out floors - measured on the He3(a)*b fixture, where the
-    default prewarp capture's leftover triggers underdelivery but the full-target /
-    lstsq-residual re-fits both produced a +0.0008-held-out-R^2 remap candidate (the
-    S5 gate's train-side conditional MI admitted it); the binned-mean residual kills
-    it at the proposal stage while the sin(3.7a)*b inner frequency - genuinely
-    ABSENT from its envelope capture - survives residualisation and is recovered.
-
-    Returns a list of admitted candidate dicts ``{name, values, recipe, mi, kind,
-    pair}`` for the caller to materialise; stamps ``self.fe_escalation_info_``
-    provenance. Never raises (degrades to ``[]``)."""
-    from ._fe_cmi_redundancy_gate import apply_cmi_redundancy_gate
-    from ._mi_greedy_cmi_fe import _cmi_from_binned, _quantile_bin
-
-    info: dict = {"eligible_pairs": [], "proposed": 0, "admitted": [], "rejected": {}, "pair_maxt_floor": float(pair_maxt_floor)}
-    self.fe_escalation_info_ = info
-    # Accumulated per-call history (one entry per FE step that ran escalation), so a
-    # late no-op step does not erase the provenance of an earlier admitting step.
-    if not isinstance(getattr(self, "fe_escalation_history_", None), list):
-        self.fe_escalation_history_ = []
-    self.fe_escalation_history_.append(info)
-    if not failed_pairs or _skip_for_nominal_target(self, info):
-        return []
-
-    n_rows = len(X)
-    min_rows = int(getattr(self, "fe_escalation_min_rows", 500))
-    if n_rows < min_rows:
-        info["skipped"] = f"n_rows={n_rows} < fe_escalation_min_rows={min_rows}"
-        return []
-
-    raw_names = set(getattr(self, "feature_names_in_", []))
-    eng_cont = getattr(self, "_engineered_continuous_", None)
-    max_pairs = int(getattr(self, "fe_escalation_max_pairs", 8))
-    min_val_corr = float(getattr(self, "fe_escalation_min_val_corr", 0.15))
-    poly_degree = int(getattr(self, "fe_escalation_poly_degree", 6))
-    max_freqs = int(getattr(self, "fe_escalation_fourier_max_freqs", 3))
-    per_pair_cap = int(getattr(self, "fe_escalation_max_candidates_per_pair", 3))
-    seed = int(getattr(self, "random_seed", 0) or 0)
-    nbins = int(self.quantization_nbins)
-
+def _subsample_decision_inputs(self: Any, X: Any, classes_y: Any, capture_vals: dict | None, admitted_pool: dict, n_rows: int, seed: int, nbins: int) -> tuple:
+    """Optionally row-subsample the decision inputs and build the supervised fit target; returns ``(X, classes_y, capture_vals, admitted_pool, n_rows, y_f, y_dense, subsampled)``."""
     # SUBSAMPLED DECISION. The escalation proposers (orth-poly ALS warp fit +
     # adaptive Fourier/chirp periodogram DETECTION) are the dominant active orth-FE CPU cost
     # and ran on the FULL frame. Decide on the SAME row-subsample the rest of FE uses
@@ -371,7 +306,6 @@ def run_fe_auto_escalation(
     # ``values`` at full n via its closed-form recipe before returning (output-safe). Operands,
     # target, residualisation captures and the admitted-support pool are all subsampled in
     # lockstep so the gates decide on a consistent slice. Default off -> full-data decision.
-    _X_full = X
     _esc_ss_n = int(getattr(self, "fe_check_pairs_subsample_n", 0) or 0)
     _esc_do_sub = isinstance(_esc_ss_n, int) and 0 < _esc_ss_n < n_rows
     _y_rank_eff = getattr(self, "_fe_escalation_y_rank_", None)
@@ -405,7 +339,11 @@ def run_fe_auto_escalation(
         y_arr = y_arr.astype(np.int64)
     _, y_dense = np.unique(y_arr, return_inverse=True)
     y_dense = y_dense.astype(np.int64)
+    return X, classes_y, capture_vals, admitted_pool, n_rows, y_f, y_dense, _esc_do_sub
 
+
+def _select_eligible_pairs(failed_pairs: Any, cols: Sequence[str], raw_names: set, rescue_pairs: set | None, max_pairs: int, info: dict) -> tuple:
+    """Pick the raw-raw pairs to escalate (half of the budget reserved for rescue pairs) and record them in ``info``; returns ``(rescue_set, eligible)``."""
     # RAW-RAW pairs only, bounded by the pair budget. A prevalence-failed-synergy rescue
     # pair (a genuine SMOOTH ratio interaction the raw-MI ratio under-rates) has LOW raw
     # joint MI BY CONSTRUCTION, so a plain joint-MI sort buries it below the zero-admission
@@ -446,10 +384,16 @@ def run_fe_auto_escalation(
     # Raw cols-space index tuples of the processed pairs - the caller's per-fit
     # dedup ledger key (stable across FE steps: engineered columns append at the end).
     info["eligible_idx"] = [tuple(pair) for pair, _, _, _ in eligible]
-    if not eligible:
-        return []
+    return _rescue, eligible
 
-    existing_names = set(cols) | set(admitted_pool)
+
+def _propose_pair_candidates(
+    self: Any, eligible: list, X: Any, eng_cont: Any, n_rows: int, capture_vals: dict | None, y_f: np.ndarray, y_dense: np.ndarray,
+    poly_degree: int, min_val_corr: float, max_freqs: int, per_pair_cap: int, nbins: int,
+) -> list:
+    """Propose richer-basis candidates (orth-poly ALS and demodulated Fourier/chirp warps) for each eligible pair, scored by MM-debiased MI and capped per pair."""
+    from ._mi_greedy_cmi_fe import _cmi_from_binned, _quantile_bin
+
     candidates: list[dict] = []
     for pair, _pair_mi, na, nb in eligible:
         x_a = _resolve_operand(X, na, eng_cont)
@@ -486,6 +430,103 @@ def run_fe_auto_escalation(
             c["mi"] = float(_cmi_from_binned(vb, y_dense, None))
         pair_cands.sort(key=lambda c: c["mi"], reverse=True)
         candidates.extend(pair_cands[: max(1, per_pair_cap)])
+    return candidates
+
+
+def _cmi_gate_accepted(self: Any, admitted_pool: dict, survivors: list, y_dense: np.ndarray, nbins: int, seed: int, verbose: int) -> Any:
+    """Run the S5 conditional-MI redundancy gate over the admitted support plus the escalation survivors; returns the accepted names."""
+    from ._fe_cmi_redundancy_gate import apply_cmi_redundancy_gate
+
+    pool: dict = {}
+    for nm, (vals, marg) in (admitted_pool or {}).items():
+        pool[nm] = (np.asarray(vals, dtype=np.float64), float(marg))
+    for c in survivors:
+        pool[c["name"]] = (np.asarray(c["values"], dtype=np.float64), c["mi"])
+    accepted, _diag = apply_cmi_redundancy_gate(
+        pool, y_dense, nbins=nbins,
+        retain_frac=float(getattr(self, "fe_engineered_cmi_retain_frac", 0.15)),
+        seed=seed, verbose=int(bool(verbose)),
+    )
+    return accepted
+
+
+def run_fe_auto_escalation(
+    self: Any,
+    *,
+    failed_pairs: Any,
+    X: Any,
+    cols: Sequence[str],
+    classes_y: Any,
+    pair_maxt_floor: float,
+    admitted_pool: dict,
+    verbose: int = 0,
+    capture_vals: dict | None = None,
+    rescue_pairs: set | None = None,
+) -> list[dict]:
+    """Escalate the FE search to the richer shipped bases for prescreen-surviving pairs
+    the unary/binary step admitted NOTHING for (or, via the UNDERDELIVERY trigger,
+    admitted only a partial capture for). PROPOSES candidates (signal-adaptive
+    orth-poly ALS warps + demodulated adaptive-frequency Fourier/chirp warps), then runs
+    them through the EXISTING admission gates (order-2 maxT floor on MM-debiased MI,
+    marginal-permutation floor, S5 conditional-MI redundancy gate vs the admitted
+    engineered support).
+
+    ``capture_vals`` (optional): per-pair matrix of the pair's ALREADY-ADMITTED
+    engineered column values (full n). When present for a pair, the proposers fit the
+    RESIDUAL of the supervised target after removing each capture column's BINNED
+    CONDITIONAL MEAN (nonparametric - removes ANY function of the capture at bin
+    resolution, crucially including the rank-vs-raw monotone remap a linear residual
+    leaves behind), so they hunt for the MISSING part of the signal: a candidate that
+    merely re-expresses the existing capture finds ~no residual correlation and dies
+    at the proposers' held-out floors - measured on the He3(a)*b fixture, where the
+    default prewarp capture's leftover triggers underdelivery but the full-target /
+    lstsq-residual re-fits both produced a +0.0008-held-out-R^2 remap candidate (the
+    S5 gate's train-side conditional MI admitted it); the binned-mean residual kills
+    it at the proposal stage while the sin(3.7a)*b inner frequency - genuinely
+    ABSENT from its envelope capture - survives residualisation and is recovered.
+
+    Returns a list of admitted candidate dicts ``{name, values, recipe, mi, kind,
+    pair}`` for the caller to materialise; stamps ``self.fe_escalation_info_``
+    provenance. Never raises (degrades to ``[]``)."""
+    info: dict = {"eligible_pairs": [], "proposed": 0, "admitted": [], "rejected": {}, "pair_maxt_floor": float(pair_maxt_floor)}
+    self.fe_escalation_info_ = info
+    # Accumulated per-call history (one entry per FE step that ran escalation), so a
+    # late no-op step does not erase the provenance of an earlier admitting step.
+    if not isinstance(getattr(self, "fe_escalation_history_", None), list):
+        self.fe_escalation_history_ = []
+    self.fe_escalation_history_.append(info)
+    if not failed_pairs or _skip_for_nominal_target(self, info):
+        return []
+
+    n_rows = len(X)
+    min_rows = int(getattr(self, "fe_escalation_min_rows", 500))
+    if n_rows < min_rows:
+        info["skipped"] = f"n_rows={n_rows} < fe_escalation_min_rows={min_rows}"
+        return []
+
+    raw_names = set(getattr(self, "feature_names_in_", []))
+    eng_cont = getattr(self, "_engineered_continuous_", None)
+    max_pairs = int(getattr(self, "fe_escalation_max_pairs", 8))
+    min_val_corr = float(getattr(self, "fe_escalation_min_val_corr", 0.15))
+    poly_degree = int(getattr(self, "fe_escalation_poly_degree", 6))
+    max_freqs = int(getattr(self, "fe_escalation_fourier_max_freqs", 3))
+    per_pair_cap = int(getattr(self, "fe_escalation_max_candidates_per_pair", 3))
+    seed = int(getattr(self, "random_seed", 0) or 0)
+    nbins = int(self.quantization_nbins)
+
+    _X_full = X
+    X, classes_y, capture_vals, admitted_pool, n_rows, y_f, y_dense, _esc_do_sub = _subsample_decision_inputs(
+        self, X, classes_y, capture_vals, admitted_pool, n_rows, seed, nbins,
+    )
+
+    _rescue, eligible = _select_eligible_pairs(failed_pairs, cols, raw_names, rescue_pairs, max_pairs, info)
+    if not eligible:
+        return []
+
+    existing_names = set(cols) | set(admitted_pool)
+    candidates = _propose_pair_candidates(
+        self, eligible, X, eng_cont, n_rows, capture_vals, y_f, y_dense, poly_degree, min_val_corr, max_freqs, per_pair_cap, nbins,
+    )
 
     info["proposed"] = len(candidates)
     if not candidates:
@@ -514,16 +555,7 @@ def run_fe_auto_escalation(
 
     # GATE 4: S5 conditional-MI redundancy gate over admitted support + survivors.
     # Verdicts are applied to ESCALATION candidates only.
-    pool: dict = {}
-    for nm, (vals, marg) in (admitted_pool or {}).items():
-        pool[nm] = (np.asarray(vals, dtype=np.float64), float(marg))
-    for c in survivors:
-        pool[c["name"]] = (np.asarray(c["values"], dtype=np.float64), c["mi"])
-    accepted, _diag = apply_cmi_redundancy_gate(
-        pool, y_dense, nbins=nbins,
-        retain_frac=float(getattr(self, "fe_engineered_cmi_retain_frac", 0.15)),
-        seed=seed, verbose=int(bool(verbose)),
-    )
+    accepted = _cmi_gate_accepted(self, admitted_pool, survivors, y_dense, nbins, seed, verbose)
     admitted: list[dict] = []
     _admit_cmi_survivors(self, survivors, accepted, info, admitted)
     # FULL-n OUTPUT: when the DECISION ran on a subsample, the candidate ``values`` are

@@ -344,6 +344,189 @@ def compute_cluster_aggregate(
         return out, fit_stats
     return out
 
+def _cluster_winners_output(index: pd.Index, winners: list, cand_values: list) -> tuple[pd.DataFrame, dict]:
+    """Materialise the winning cluster-basis columns and their replay meta."""
+    out_cols: dict = {}
+    meta: dict = {}
+    for info in winners:
+        name = str(info["engineered_col"])
+        vals = cand_values[int(info["values_idx"])]
+        out_cols[name] = vals
+        meta[name] = {
+            "anchor": str(info["anchor"]),
+            "members": tuple(info["members"]),
+            "basis": str(info["basis"]),
+            "degree": int(info["degree"]),
+            "aggregator": str(info["aggregator"]),
+            "engineered_mi": float(info["engineered_mi"]),
+            "baseline_mi": float(info["baseline_mi"]),
+            "uplift": float(info["uplift"]),
+            # fit-time stats for
+            # refit-free replay (persisted into the recipe extra).
+            "agg_stats": info.get("agg_stats"),
+            "basis_params": info.get("basis_params"),
+        }
+    return pd.DataFrame(out_cols, index=index), meta
+
+
+def _cluster_survivors(
+    cand_cols: list, cand_meta: list, eng_mi: np.ndarray, raw_mi_map: dict, min_abs_mi_frac: float, min_uplift: float,
+    reject_sink: Optional[Callable[..., None]],
+) -> list:
+    """Uplift gate (vs the MAX cluster-member baseline) plus the noise-aware MAD floor; returns the surviving candidates."""
+    # ---- Step 4: uplift gate (vs MAX cluster-member baseline) + noise-aware
+    # MAD floor + global top-K.
+    raw_baselines = np.asarray(list(raw_mi_map.values()), dtype=np.float64)
+    max_raw_baseline = float(raw_baselines.max()) if raw_baselines.size else 0.0
+    legacy_floor = float(min_abs_mi_frac) * max_raw_baseline
+    n_baselines = int(raw_baselines.size)
+    sigma_thresh = max(
+        5.0,
+        float(np.sqrt(2.0 * np.log(max(2.0, 2.0 * max(n_baselines, 1)))) + 1.5),
+    )
+    if n_baselines >= 16:
+        med = float(np.median(raw_baselines))
+        mad = float(np.median(np.abs(raw_baselines - med)))
+        noise_floor = med + sigma_thresh * 1.4826 * mad
+    else:
+        noise_floor = 0.0
+    abs_floor = max(legacy_floor, noise_floor)
+
+    survivors: list[dict] = []
+    for j, info in enumerate(cand_meta):
+        emi = float(eng_mi[j])
+        if not np.isfinite(emi):
+            continue
+        baseline = max(
+            (float(raw_mi_map.get(m, 0.0)) for m in info["members"]),
+            default=0.0,
+        )
+        uplift = relative_uplift(emi, baseline)
+        if uplift < float(min_uplift):
+            continue
+        if emi < abs_floor:
+            # W6 abs-MAD floor instrumentation (pure-record; no decision
+            # change): this candidate cleared the uplift gate but missed the
+            # absolute med+k*MAD noise floor - the ``marginal_uplift_floor``
+            # gate kill. Selection is byte-identical with or without the sink.
+            if reject_sink is not None:
+                try:
+                    reject_sink(
+                        gate="marginal_uplift_floor",
+                        candidate=str(cand_cols[j]),
+                        operands=tuple(info["members"]),
+                        operator="cluster_basis",
+                        observed=float(emi),
+                        threshold=float(abs_floor),
+                        reason="cluster-basis abs-MAD floor: engineered_mi below med+k*MAD noise floor",
+                    )
+                except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+                    logger.debug("suppressed: %s", e)
+                    pass
+            continue
+        survivors.append({
+            "engineered_col": cand_cols[j],
+            "values_idx": j,
+            "engineered_mi": emi,
+            "baseline_mi": baseline,
+            "uplift": float(uplift),
+            **info,
+        })
+    return survivors
+
+
+def _enumerate_cluster_cells(X: pd.DataFrame, cleaned: dict, degrees: tuple, basis: str, aggregator: str) -> tuple[list, list, list]:
+    """Enumerate (cluster, degree) cells; returns ``(cand_cols, cand_values, cand_meta)``."""
+    # ---- Step 2: enumerate (cluster, degree) cells.
+    cand_cols: list[str] = []
+    cand_values: list[np.ndarray] = []
+    cand_meta: list[dict] = []
+    for anchor, members in cleaned.items():
+        try:
+            # capture fit-time member
+            # mean/std/signs + combiner weights so the recipe can replay without
+            # refitting on test data.
+            agg, agg_stats = compute_cluster_aggregate(
+                X, members, aggregator=aggregator, return_stats=True,
+            )
+        except Exception as exc:
+            log_throttle(
+                logger, "cluster_basis_aggregator_raised", logging.WARNING,
+                "generate_cluster_basis_features: aggregator=%r on cluster "
+                "%r raised %r; skipping cluster.",
+                aggregator, anchor, exc,
+            )
+            continue
+        if float(np.std(agg)) <= 1e-12:
+            continue
+        for d in degrees:
+            try:
+                # capture the basis preprocess params too (z-score mean/std etc.)
+                vals, basis_params = _evaluate_basis_column(
+                    agg, basis, int(d), return_params=True,
+                )
+            except Exception as exc:
+                log_throttle(
+                    logger, "cluster_basis_eval_raised", logging.WARNING,
+                    "generate_cluster_basis_features: basis=%r degree=%d on "
+                    "cluster %r raised %r; skipping cell.",
+                    basis, d, anchor, exc,
+                )
+                continue
+            if not np.isfinite(vals).all():
+                continue
+            if float(np.std(vals)) <= 1e-12:
+                continue
+            cand_cols.append(_cluster_col_name(anchor, aggregator, basis, int(d)))
+            cand_values.append(vals)
+            cand_meta.append({
+                "anchor": str(anchor),
+                "members": tuple(members),
+                "basis": str(basis),
+                "degree": int(d),
+                "aggregator": str(aggregator),
+                "agg_stats": agg_stats,
+                "basis_params": dict(basis_params) if basis_params is not None else None,
+            })
+    return cand_cols, cand_values, cand_meta
+
+
+def _member_baselines(X: pd.DataFrame, cleaned: dict, y_arr: np.ndarray, nbins: int) -> dict:
+    """Baseline MI per member column (one batch call across the union of all members)."""
+    # Baseline MI per member (one batch call across the union of all members).
+    touched = sorted({m for members in cleaned.values() for m in members})
+    raw_mat = X[touched].to_numpy(dtype=np.float64, copy=False)
+    finite = np.isfinite(raw_mat)
+    if not finite.all():
+        col_means = np.where(
+            finite.any(axis=0),
+            np.where(finite, raw_mat, 0.0).sum(axis=0) / np.maximum(finite.sum(axis=0), 1),
+            0.0,
+        )
+        raw_mat = np.where(finite, raw_mat, col_means[None, :])
+    # Fit-scoped memo: no-op passthrough outside an active orth_scoring_memo_scope() (byte-for-byte the
+    # same _mi_classif_batch call on this already NaN-mean-filled matrix); inside a scope, shares
+    # per-column MI with sibling opt-in layers requesting the same (content, dtype) column.
+    raw_mi_map = cached_raw_mi_baseline(touched, raw_mat, y_arr, nbins=nbins)
+    return raw_mi_map
+
+
+def _clean_cluster_members(X: pd.DataFrame, cluster_members: dict) -> dict:
+    """Keep, per anchor, only the numeric members present in ``X`` (sorted); clusters with fewer than two survivors are dropped."""
+    # Filter clusters down to members that are actually present and numeric
+    # in X. Sort members deterministically (lexicographic) so the recipe
+    # src_names tuple is stable across pickle / clone.
+    cleaned: dict[str, tuple[str, ...]] = {}
+    for anchor, members in cluster_members.items():
+        if not members:
+            continue
+        kept = tuple(sorted(m for m in members if m in X.columns and pd.api.types.is_numeric_dtype(X[m])))
+        if len(kept) < 2:
+            continue
+        cleaned[str(anchor)] = kept
+    return cleaned
+
+
 def generate_cluster_basis_features(
     X: pd.DataFrame,
     y: np.ndarray,
@@ -415,87 +598,13 @@ def generate_cluster_basis_features(
 
     y_arr = coerce_y_classif(y)
 
-    # Filter clusters down to members that are actually present and numeric
-    # in X. Sort members deterministically (lexicographic) so the recipe
-    # src_names tuple is stable across pickle / clone.
-    cleaned: dict[str, tuple[str, ...]] = {}
-    for anchor, members in cluster_members.items():
-        if not members:
-            continue
-        kept = tuple(sorted(m for m in members if m in X.columns and pd.api.types.is_numeric_dtype(X[m])))
-        if len(kept) < 2:
-            continue
-        cleaned[str(anchor)] = kept
+    cleaned = _clean_cluster_members(X, cluster_members)
     if not cleaned:
         return pd.DataFrame(index=X.index), {}
 
-    # Baseline MI per member (one batch call across the union of all members).
-    touched = sorted({m for members in cleaned.values() for m in members})
-    raw_mat = X[touched].to_numpy(dtype=np.float64, copy=False)
-    finite = np.isfinite(raw_mat)
-    if not finite.all():
-        col_means = np.where(
-            finite.any(axis=0),
-            np.where(finite, raw_mat, 0.0).sum(axis=0) / np.maximum(finite.sum(axis=0), 1),
-            0.0,
-        )
-        raw_mat = np.where(finite, raw_mat, col_means[None, :])
-    # Fit-scoped memo: no-op passthrough outside an active orth_scoring_memo_scope() (byte-for-byte the
-    # same _mi_classif_batch call on this already NaN-mean-filled matrix); inside a scope, shares
-    # per-column MI with sibling opt-in layers requesting the same (content, dtype) column.
-    raw_mi_map = cached_raw_mi_baseline(touched, raw_mat, y_arr, nbins=nbins)
+    raw_mi_map = _member_baselines(X, cleaned, y_arr, nbins)
 
-    # ---- Step 2: enumerate (cluster, degree) cells.
-    cand_cols: list[str] = []
-    cand_values: list[np.ndarray] = []
-    cand_meta: list[dict] = []
-    for anchor, members in cleaned.items():
-        try:
-            # capture fit-time member
-            # mean/std/signs + combiner weights so the recipe can replay without
-            # refitting on test data.
-            agg, agg_stats = compute_cluster_aggregate(
-                X, members, aggregator=aggregator, return_stats=True,
-            )
-        except Exception as exc:
-            log_throttle(
-                logger, "cluster_basis_aggregator_raised", logging.WARNING,
-                "generate_cluster_basis_features: aggregator=%r on cluster "
-                "%r raised %r; skipping cluster.",
-                aggregator, anchor, exc,
-            )
-            continue
-        if float(np.std(agg)) <= 1e-12:
-            continue
-        for d in degrees:
-            try:
-                # capture the basis preprocess params too (z-score mean/std etc.)
-                vals, basis_params = _evaluate_basis_column(
-                    agg, basis, int(d), return_params=True,
-                )
-            except Exception as exc:
-                log_throttle(
-                    logger, "cluster_basis_eval_raised", logging.WARNING,
-                    "generate_cluster_basis_features: basis=%r degree=%d on "
-                    "cluster %r raised %r; skipping cell.",
-                    basis, d, anchor, exc,
-                )
-                continue
-            if not np.isfinite(vals).all():
-                continue
-            if float(np.std(vals)) <= 1e-12:
-                continue
-            cand_cols.append(_cluster_col_name(anchor, aggregator, basis, int(d)))
-            cand_values.append(vals)
-            cand_meta.append({
-                "anchor": str(anchor),
-                "members": tuple(members),
-                "basis": str(basis),
-                "degree": int(d),
-                "aggregator": str(aggregator),
-                "agg_stats": agg_stats,
-                "basis_params": dict(basis_params) if basis_params is not None else None,
-            })
+    cand_cols, cand_values, cand_meta = _enumerate_cluster_cells(X, cleaned, degrees, basis, aggregator)
 
     if not cand_cols:
         return pd.DataFrame(index=X.index), {}
@@ -504,90 +613,13 @@ def generate_cluster_basis_features(
     cand_mat = np.column_stack(cand_values).astype(np.float64, copy=False)
     eng_mi = _mi_classif_batch(cand_mat, y_arr, nbins=nbins)
 
-    # ---- Step 4: uplift gate (vs MAX cluster-member baseline) + noise-aware
-    # MAD floor + global top-K.
-    raw_baselines = np.asarray(list(raw_mi_map.values()), dtype=np.float64)
-    max_raw_baseline = float(raw_baselines.max()) if raw_baselines.size else 0.0
-    legacy_floor = float(min_abs_mi_frac) * max_raw_baseline
-    n_baselines = int(raw_baselines.size)
-    sigma_thresh = max(
-        5.0,
-        float(np.sqrt(2.0 * np.log(max(2.0, 2.0 * max(n_baselines, 1)))) + 1.5),
-    )
-    if n_baselines >= 16:
-        med = float(np.median(raw_baselines))
-        mad = float(np.median(np.abs(raw_baselines - med)))
-        noise_floor = med + sigma_thresh * 1.4826 * mad
-    else:
-        noise_floor = 0.0
-    abs_floor = max(legacy_floor, noise_floor)
-
-    survivors: list[dict] = []
-    for j, info in enumerate(cand_meta):
-        emi = float(eng_mi[j])
-        if not np.isfinite(emi):
-            continue
-        baseline = max(
-            (float(raw_mi_map.get(m, 0.0)) for m in info["members"]),
-            default=0.0,
-        )
-        uplift = relative_uplift(emi, baseline)
-        if uplift < float(min_uplift):
-            continue
-        if emi < abs_floor:
-            # W6 abs-MAD floor instrumentation (pure-record; no decision
-            # change): this candidate cleared the uplift gate but missed the
-            # absolute med+k*MAD noise floor - the ``marginal_uplift_floor``
-            # gate kill. Selection is byte-identical with or without the sink.
-            if reject_sink is not None:
-                try:
-                    reject_sink(
-                        gate="marginal_uplift_floor",
-                        candidate=str(cand_cols[j]),
-                        operands=tuple(info["members"]),
-                        operator="cluster_basis",
-                        observed=float(emi),
-                        threshold=float(abs_floor),
-                        reason="cluster-basis abs-MAD floor: engineered_mi below med+k*MAD noise floor",
-                    )
-                except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-                    logger.debug("suppressed: %s", e)
-                    pass
-            continue
-        survivors.append({
-            "engineered_col": cand_cols[j],
-            "values_idx": j,
-            "engineered_mi": emi,
-            "baseline_mi": baseline,
-            "uplift": float(uplift),
-            **info,
-        })
+    survivors = _cluster_survivors(cand_cols, cand_meta, eng_mi, raw_mi_map, min_abs_mi_frac, min_uplift, reject_sink)
 
     # Deterministic order: uplift desc, then engineered_col asc to break ties.
     survivors.sort(key=lambda d: (-d["uplift"], d["engineered_col"]))
     winners = survivors[: int(top_k)]
 
-    out_cols: dict = {}
-    meta: dict = {}
-    for info in winners:
-        name = str(info["engineered_col"])
-        vals = cand_values[int(info["values_idx"])]
-        out_cols[name] = vals
-        meta[name] = {
-            "anchor": str(info["anchor"]),
-            "members": tuple(info["members"]),
-            "basis": str(info["basis"]),
-            "degree": int(info["degree"]),
-            "aggregator": str(info["aggregator"]),
-            "engineered_mi": float(info["engineered_mi"]),
-            "baseline_mi": float(info["baseline_mi"]),
-            "uplift": float(info["uplift"]),
-            # fit-time stats for
-            # refit-free replay (persisted into the recipe extra).
-            "agg_stats": info.get("agg_stats"),
-            "basis_params": info.get("basis_params"),
-        }
-    return pd.DataFrame(out_cols, index=X.index), meta
+    return _cluster_winners_output(X.index, winners, cand_values)
 
 def hybrid_orth_mi_cluster_basis_fe(
     X: pd.DataFrame,

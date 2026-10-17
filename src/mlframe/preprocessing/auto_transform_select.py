@@ -183,6 +183,60 @@ def _classification_probe_score(model, y_test: np.ndarray, proba: np.ndarray) ->
         return -float(log_loss(y_test, proba, labels=labels))
 
 
+def _score_transform_over_folds(
+    raw: np.ndarray,
+    transform_name: str,
+    fold_indices: list,
+    fold_context: List[tuple],
+    multivariate_probe: bool,
+    multivariate_probe_model_fn: Optional[Callable[[], _Probe]],
+    probe_model_fn: Callable[[], _Probe],
+    y: np.ndarray,
+    task: str,
+) -> Optional[float]:
+    """Mean cross-validated probe score of one transform on one column; ``None`` when the transform fails or yields non-finite values."""
+    fold_scores = []
+    for fold_i, (train_idx, test_idx) in enumerate(fold_indices):
+        # Fit the transform on THIS FOLD'S train rows only, then apply it to both train
+        # and test -- fitting on the full column (train+test) before splitting would leak
+        # the test fold's own statistics into its "held-out" score.
+        # Imputed per fold, from this fold's train rows only -- see ``_fill_nonfinite_from_train``.
+        col_filled = _fill_nonfinite_from_train(raw, train_idx)
+        fitted = _fit_transform_fold(col_filled, transform_name, train_idx, test_idx)
+        if fitted is None:
+            return None
+        transformed_train, transformed_test = fitted
+        if not (np.all(np.isfinite(transformed_train)) and np.all(np.isfinite(transformed_test))):
+            return None
+        if multivariate_probe:
+            assert multivariate_probe_model_fn is not None
+            context_matrix = fold_context[fold_i][1]
+            ctx_filled = np.column_stack([_fill_nonfinite_from_train(context_matrix[:, i], train_idx) for i in range(context_matrix.shape[1])]) if context_matrix.shape[1] else context_matrix
+            ctx_train, ctx_test = ctx_filled[train_idx], ctx_filled[test_idx]
+            inter_train = [transformed_train.reshape(-1, 1) * ctx_train[:, i : i + 1] for i in range(ctx_train.shape[1])]
+            inter_test = [transformed_test.reshape(-1, 1) * ctx_test[:, i : i + 1] for i in range(ctx_test.shape[1])]
+            feature_train = np.column_stack([transformed_train.reshape(-1, 1), ctx_train, *inter_train])
+            feature_test = np.column_stack([transformed_test.reshape(-1, 1), ctx_test, *inter_test])
+            model = multivariate_probe_model_fn()
+            model.fit(feature_train, y[train_idx])
+            if task == "classification":
+                fold_scores.append(_classification_probe_score(model, y[test_idx], model.predict_proba(feature_test)))
+            else:
+                pred = model.predict(feature_test)
+                fold_scores.append(-float(np.sqrt(np.mean((y[test_idx] - pred) ** 2))))
+        else:
+            model = probe_model_fn()
+            model.fit(transformed_train.reshape(-1, 1), y[train_idx])
+            if task == "classification":
+                fold_scores.append(_classification_probe_score(model, y[test_idx], model.predict_proba(transformed_test.reshape(-1, 1))))
+            else:
+                pred = model.predict(transformed_test.reshape(-1, 1))
+                fold_scores.append(-float(np.sqrt(np.mean((y[test_idx] - pred) ** 2))))
+    if not fold_scores:
+        return None
+    return float(np.mean(fold_scores))
+
+
 def select_column_transforms(
     df: pd.DataFrame,
     y: np.ndarray,
@@ -294,49 +348,12 @@ def select_column_transforms(
 
         scores: Dict[str, float] = {}
         for transform_name in candidate_transforms:
-            fold_scores = []
-            transform_failed = False
-            for fold_i, (train_idx, test_idx) in enumerate(fold_indices):
-                # Fit the transform on THIS FOLD'S train rows only, then apply it to both train
-                # and test -- fitting on the full column (train+test) before splitting would leak
-                # the test fold's own statistics into its "held-out" score.
-                # Imputed per fold, from this fold's train rows only -- see ``_fill_nonfinite_from_train``.
-                col_filled = _fill_nonfinite_from_train(raw, train_idx)
-                fitted = _fit_transform_fold(col_filled, transform_name, train_idx, test_idx)
-                if fitted is None:
-                    transform_failed = True
-                    break
-                transformed_train, transformed_test = fitted
-                if not (np.all(np.isfinite(transformed_train)) and np.all(np.isfinite(transformed_test))):
-                    transform_failed = True
-                    break
-                if multivariate_probe:
-                    assert multivariate_probe_model_fn is not None
-                    context_matrix = fold_context[fold_i][1]
-                    ctx_filled = np.column_stack([_fill_nonfinite_from_train(context_matrix[:, i], train_idx) for i in range(context_matrix.shape[1])]) if context_matrix.shape[1] else context_matrix
-                    ctx_train, ctx_test = ctx_filled[train_idx], ctx_filled[test_idx]
-                    inter_train = [transformed_train.reshape(-1, 1) * ctx_train[:, i : i + 1] for i in range(ctx_train.shape[1])]
-                    inter_test = [transformed_test.reshape(-1, 1) * ctx_test[:, i : i + 1] for i in range(ctx_test.shape[1])]
-                    feature_train = np.column_stack([transformed_train.reshape(-1, 1), ctx_train, *inter_train])
-                    feature_test = np.column_stack([transformed_test.reshape(-1, 1), ctx_test, *inter_test])
-                    model = multivariate_probe_model_fn()
-                    model.fit(feature_train, y[train_idx])
-                    if task == "classification":
-                        fold_scores.append(_classification_probe_score(model, y[test_idx], model.predict_proba(feature_test)))
-                    else:
-                        pred = model.predict(feature_test)
-                        fold_scores.append(-float(np.sqrt(np.mean((y[test_idx] - pred) ** 2))))
-                else:
-                    model = probe_model_fn()
-                    model.fit(transformed_train.reshape(-1, 1), y[train_idx])
-                    if task == "classification":
-                        fold_scores.append(_classification_probe_score(model, y[test_idx], model.predict_proba(transformed_test.reshape(-1, 1))))
-                    else:
-                        pred = model.predict(transformed_test.reshape(-1, 1))
-                        fold_scores.append(-float(np.sqrt(np.mean((y[test_idx] - pred) ** 2))))
-            if transform_failed or not fold_scores:
+            score = _score_transform_over_folds(
+                raw, transform_name, fold_indices, fold_context, multivariate_probe, multivariate_probe_model_fn, probe_model_fn, y, task
+            )
+            if score is None:
                 continue
-            scores[transform_name] = float(np.mean(fold_scores))
+            scores[transform_name] = score
 
         if not scores:
             continue

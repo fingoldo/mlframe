@@ -308,6 +308,32 @@ def cmim_score(
             return 0.0
     return float(best)
 
+def _reference_support_bins(raw_X: pd.DataFrame, engineered_X: pd.DataFrame, current_support: Optional[pd.DataFrame], n_bins: int) -> tuple[list, list]:
+    """Quantile-bin the CMIM reference set ``S`` (``current_support``, or ``raw_X`` when absent / misaligned); returns ``(bin_codes, column_names)``."""
+    # Build the reference set ``S`` for the CMIM min. Default to raw_X
+    # when no explicit current_support is provided (mirrors Layer 72).
+    use_support = current_support
+    if use_support is None or not isinstance(use_support, pd.DataFrame) or use_support.shape[1] == 0:
+        use_support = raw_X
+    if len(use_support) != len(engineered_X):
+        # Defensive: a misaligned support is treated as raw_X (fall back
+        # to the first-round case).
+        logger.warning(
+            "score_features_by_cmim: current_support length %d does not " "match engineered_X length %d; falling back to raw_X as " "redundancy reference.",
+            len(use_support),
+            len(engineered_X),
+        )
+        use_support = raw_X
+    sel_bins: list[np.ndarray] = []
+    for c in use_support.columns:
+        col = use_support[c].to_numpy()
+        sel_bins.append(_quantile_bin(
+            np.ascontiguousarray(col, dtype=np.float64),
+            nbins=int(n_bins),
+        ))
+    return sel_bins, list(use_support.columns)
+
+
 def score_features_by_cmim(
     raw_X: pd.DataFrame,
     engineered_X: pd.DataFrame,
@@ -382,27 +408,7 @@ def score_features_by_cmim(
     )
     raw_mi_map = dict(zip(list(raw_X.columns), raw_mi.tolist()))
 
-    # Build the reference set ``S`` for the CMIM min. Default to raw_X
-    # when no explicit current_support is provided (mirrors Layer 72).
-    use_support = current_support
-    if use_support is None or not isinstance(use_support, pd.DataFrame) or use_support.shape[1] == 0:
-        use_support = raw_X
-    if len(use_support) != len(engineered_X):
-        # Defensive: a misaligned support is treated as raw_X (fall back
-        # to the first-round case).
-        logger.warning(
-            "score_features_by_cmim: current_support length %d does not " "match engineered_X length %d; falling back to raw_X as " "redundancy reference.",
-            len(use_support),
-            len(engineered_X),
-        )
-        use_support = raw_X
-    sel_bins: list[np.ndarray] = []
-    for c in use_support.columns:
-        col = use_support[c].to_numpy()
-        sel_bins.append(_quantile_bin(
-            np.ascontiguousarray(col, dtype=np.float64),
-            nbins=int(n_bins),
-        ))
+    sel_bins, support_col_names = _reference_support_bins(raw_X, engineered_X, current_support, n_bins)
 
     # y bin support: cmim_score expects integer-encoded y.
     _, y_bin = np.unique(y_int, return_inverse=True)
@@ -414,7 +420,6 @@ def score_features_by_cmim(
     # the ``p_eng`` candidate columns - caching saves ``p_eng-1``
     # ``np.unique`` calls per support member (~6x speedup on a typical
     # n=2500, p=20 fixture). Bit-equivalent to the per-call path.
-    support_col_names = list(use_support.columns)
     n_rows = float(max(1, y_bin.size))
     full_cache = _build_cmi_yz_cache(y_bin, sel_bins)
 

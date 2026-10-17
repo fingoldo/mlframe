@@ -54,6 +54,7 @@ from typing import Any, Optional
 
 import numpy as np
 
+from mlframe.training._feature_drift_weighted import fi_weighted_drift_score
 from mlframe.training._prediction_envelope_clip import _finite_min_max_std_kernel
 from mlframe.utils.log_throttle import log_throttle
 
@@ -903,26 +904,7 @@ def compute_feature_distribution_drift(
     per_feature = _invariant["per_feature"]
     candidates = _invariant["candidates"]
     categorical_psi = _invariant["categorical_psi"]
-    # Compute the FI-weighted aggregate when feature_importance is provided.
-    # Without FI this is None -- the per-feature z-scores alone aren't strong
-    # enough to be a grounded harm signal (drift on a fi=0 feature is
-    # harmless; drift on a dominant feature is potentially catastrophic).
-    weighted_score: Optional[float] = None
-    if feature_importance is not None:
-        _num = 0.0
-        _den = 0.0
-        for col, entry in per_feature.items():
-            fi = float(abs(feature_importance.get(col, 0.0)))
-            if fi == 0.0:
-                continue
-            _z = max(
-                abs(entry["val_z"]) if math.isfinite(entry["val_z"]) else 0.0,
-                abs(entry["test_z"]) if math.isfinite(entry["test_z"]) else 0.0,
-            )
-            _num += _z * fi
-            _den += fi
-        if _den > 0:
-            weighted_score = float(_num / _den)
+    weighted_score = fi_weighted_drift_score(per_feature, feature_importance)
 
     # Pick the target-type-appropriate override family. Regression uses
     # ROBUST_MLP_OVERRIDES_UNDER_DRIFT (alpha=1e-4, the score-is-linear

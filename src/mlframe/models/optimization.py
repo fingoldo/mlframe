@@ -170,47 +170,18 @@ def optimize_finite_onedimensional_search_space(
         random_state=random_state,
     )
 
-    # ----------------------------------------------------------------------------------------------------------------------------
-    # Inits
-    # ----------------------------------------------------------------------------------------------------------------------------
-
     start_time = timer()
     ran_out_of_time = False
 
-    # ----------------------------------------------------------------------------------------------------------------------------
-    # Optimization Loop
-    # ----------------------------------------------------------------------------------------------------------------------------
-
     while True:
 
-        next_candidate = optimizer.suggest_candidate()
-        if next_candidate is NOT_READY:
-            # Surrogate not yet trainable (no evaluations submitted, or all known targets identical).
-            # This is transient, NOT exhaustion -- fall back to any still-unchecked search-space point so
-            # the search keeps producing evaluations instead of terminating early (silent truncation).
-            checked = set(optimizer.known_candidates.tolist()) | set(optimizer.suggested_candidates.keys())
-            fallback = next((c for c in np.asarray(optimizer.search_space).tolist() if c not in checked), None)
-            if fallback is None:
-                if verbose:
-                    logger.info("Search space fully checked, quitting")
-                break
-            next_candidate = fallback
-            optimizer.suggested_candidates[fallback] = timer()
-        elif next_candidate is None:
-            if verbose:
-                logger.info("Search space fully checked, quitting")
+        next_candidate, quit_search = _resolve_next_candidate(optimizer, verbose)
+        if quit_search:
             break
 
         if predict_runtimes and max_runtime_mins is not None and max_runtime_mins != 0 and optimizer.evaluated_candidates:
-            mean_eval_duration = float(np.mean([c["duration"] for c in optimizer.evaluated_candidates if c["duration"] is not None]))
-            if np.isfinite(mean_eval_duration) and (timer() - start_time) + mean_eval_duration > max_runtime_mins * 60:
+            if _predicted_budget_exceeded(optimizer, start_time, max_runtime_mins, verbose):
                 ran_out_of_time = True
-                if verbose:
-                    logger.info(
-                        "max_runtime_mins=%s would be exceeded by the next candidate (predicted duration=%.2fs); quitting preemptively.",
-                        f"{max_runtime_mins:_.1f}",
-                        mean_eval_duration,
-                    )
                 break
 
         eval_start_time = timer()
@@ -218,40 +189,92 @@ def optimize_finite_onedimensional_search_space(
         next_duration = timer() - eval_start_time
         optimizer.submit_evaluations(candidates=[next_candidate], evaluations=[next_evaluation], durations=[next_duration])
 
-        # ----------------------------------------------------------------------------------------------------------------------------
-        # Checking exit conditions
-        # ----------------------------------------------------------------------------------------------------------------------------
-
-        if best_desired_score is not None:
-            if direction == OptimizationDirection.Maximize:
-                if optimizer.best_evaluation >= best_desired_score:
-                    if verbose:
-                        logger.info("best_desired_score=%s reached.", f"{optimizer.best_evaluation:_.6f}")
-                    break
-            elif direction == OptimizationDirection.Minimize:
-                if optimizer.best_evaluation <= best_desired_score:
-                    if verbose:
-                        logger.info("best_desired_score=%s reached.", f"{optimizer.best_evaluation:_.6f}")
-                    break
-
-        if max_runtime_mins is not None and max_runtime_mins != 0 and not ran_out_of_time:
-            ran_out_of_time = (timer() - start_time) > max_runtime_mins * 60
-            if ran_out_of_time:
-                if verbose:
-                    logger.info("max_runtime_mins=%s reached.", f"{max_runtime_mins:_.1f}")
-                break
-
-        if max_fevals is not None and max_fevals != 0 and optimizer.nsteps >= max_fevals:
-            if verbose:
-                logger.info("max_fevals=%s reached.", f"{max_fevals:_}")
-            break
-
-        if max_noimproving_iters is not None and max_noimproving_iters != 0 and optimizer.n_noimproving_iters >= max_noimproving_iters:
-            if verbose:
-                logger.info("Max # of noimproved iters reached: %s", optimizer.n_noimproving_iters)
+        stop, ran_out_of_time = _exit_condition_reached(
+            optimizer, direction, start_time, ran_out_of_time, best_desired_score, max_runtime_mins, max_fevals, max_noimproving_iters, verbose
+        )
+        if stop:
             break
 
     return (optimizer.best_candidate, optimizer.best_evaluation), optimizer.evaluated_candidates
+
+
+def _resolve_next_candidate(optimizer: MBHOptimizer, verbose: int) -> tuple:
+    """Ask the optimizer for the next candidate; returns ``(candidate, quit_search)`` with the not-ready fallback applied."""
+    next_candidate = optimizer.suggest_candidate()
+    if next_candidate is NOT_READY:
+        # Surrogate not yet trainable (no evaluations submitted, or all known targets identical).
+        # This is transient, NOT exhaustion -- fall back to any still-unchecked search-space point so
+        # the search keeps producing evaluations instead of terminating early (silent truncation).
+        checked = set(optimizer.known_candidates.tolist()) | set(optimizer.suggested_candidates.keys())
+        fallback = next((c for c in np.asarray(optimizer.search_space).tolist() if c not in checked), None)
+        if fallback is None:
+            if verbose:
+                logger.info("Search space fully checked, quitting")
+            return None, True
+        next_candidate = fallback
+        optimizer.suggested_candidates[fallback] = timer()
+    elif next_candidate is None:
+        if verbose:
+            logger.info("Search space fully checked, quitting")
+        return None, True
+    return next_candidate, False
+
+
+def _predicted_budget_exceeded(optimizer: MBHOptimizer, start_time: float, max_runtime_mins: float, verbose: int) -> bool:
+    """True when the mean past evaluation duration would push the next candidate past the ``max_runtime_mins`` budget."""
+    mean_eval_duration = float(np.mean([c["duration"] for c in optimizer.evaluated_candidates if c["duration"] is not None]))
+    if np.isfinite(mean_eval_duration) and (timer() - start_time) + mean_eval_duration > max_runtime_mins * 60:
+        if verbose:
+            logger.info(
+                "max_runtime_mins=%s would be exceeded by the next candidate (predicted duration=%.2fs); quitting preemptively.",
+                f"{max_runtime_mins:_.1f}",
+                mean_eval_duration,
+            )
+        return True
+    return False
+
+
+def _exit_condition_reached(
+    optimizer: MBHOptimizer,
+    direction: OptimizationDirection,
+    start_time: float,
+    ran_out_of_time: bool,
+    best_desired_score: Optional[float],
+    max_runtime_mins: Optional[float],
+    max_fevals: Optional[int],
+    max_noimproving_iters: Optional[int],
+    verbose: int,
+) -> tuple:
+    """Check the stopping conditions after an evaluation; returns ``(stop, ran_out_of_time)``."""
+    if best_desired_score is not None:
+        if direction == OptimizationDirection.Maximize:
+            if optimizer.best_evaluation >= best_desired_score:
+                if verbose:
+                    logger.info("best_desired_score=%s reached.", f"{optimizer.best_evaluation:_.6f}")
+                return True, ran_out_of_time
+        elif direction == OptimizationDirection.Minimize:
+            if optimizer.best_evaluation <= best_desired_score:
+                if verbose:
+                    logger.info("best_desired_score=%s reached.", f"{optimizer.best_evaluation:_.6f}")
+                return True, ran_out_of_time
+
+    if max_runtime_mins is not None and max_runtime_mins != 0 and not ran_out_of_time:
+        ran_out_of_time = (timer() - start_time) > max_runtime_mins * 60
+        if ran_out_of_time:
+            if verbose:
+                logger.info("max_runtime_mins=%s reached.", f"{max_runtime_mins:_.1f}")
+            return True, ran_out_of_time
+
+    if max_fevals is not None and max_fevals != 0 and optimizer.nsteps >= max_fevals:
+        if verbose:
+            logger.info("max_fevals=%s reached.", f"{max_fevals:_}")
+        return True, ran_out_of_time
+
+    if max_noimproving_iters is not None and max_noimproving_iters != 0 and optimizer.n_noimproving_iters >= max_noimproving_iters:
+        if verbose:
+            logger.info("Max # of noimproved iters reached: %s", optimizer.n_noimproving_iters)
+        return True, ran_out_of_time
+    return False, ran_out_of_time
 
 
 # _ETRWithStd + MBHOptimizer (~600 lines) moved to sibling file

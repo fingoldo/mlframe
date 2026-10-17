@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import logging
 
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 import pandas as pd
@@ -409,24 +409,32 @@ def _identity_fastpath_is_safe(self, X) -> bool:
         return False
 
 
-def transform(self, X: pd.DataFrame | pl.DataFrame | np.ndarray, y: pd.Series | np.ndarray | None = None) -> pd.DataFrame | pl.DataFrame | np.ndarray:
-    """Apply the fitted MRMR selection + engineered-recipe replay to ``X``.
+def _output_as_pandas_if_requested(self: Any, out: Any) -> Any:
+    """Convert a polars ``out`` to Arrow-preserving pandas when the ``set_output`` config asks for pandas; else return ``out`` unchanged."""
+    # When X is polars and Pipeline has set_output(transform="pandas"), sklearn's PandasAdapter calls
+    # pd.DataFrame(out, ...) which (unlike polars' own .to_pandas()) does NOT preserve Arrow-backed
+    # dtypes: pl.Enum / pl.Categorical collapse to object; pl.Float32 turns to object-of-strings
+    # ('1.23' as text), and downstream HGB/XGB/SimpleImputer raise "could not convert string to float".
+    # Convert ourselves via polars' Arrow-preserving .to_pandas() whenever the consumer expects pandas.
+    try:
+        from sklearn.utils._set_output import _get_output_config
+        _cfg = _get_output_config("transform", estimator=self)
+        _want_pandas = (_cfg.get("dense") if _cfg.get("dense") else "default") == "pandas"
+    except Exception as e:
+        logger.warning("sklearn set_output config lookup failed, defaulting to non-pandas: %s", e)
+        _want_pandas = False
+    if _want_pandas:
+        try:
+            import polars as _pl
+            if isinstance(out, _pl.DataFrame):
+                out = out.to_pandas()
+        except ImportError:
+            pass
+    return out
 
-    Returns the column-subset / engineered-frame matching the layout MRMR
-    produced at fit time. Raises :class:`sklearn.exceptions.NotFittedError`
-    if called before :meth:`MRMR.fit`. Bound onto the ``MRMR`` class at the
-    parent module's bottom so ``self.transform(X)`` call sites work
-    unchanged.
-    """
-    # Lazy import: ``.mrmr`` re-imports this module at its bottom for method
-    # binding -> any top-level ``from .mrmr import ...`` here creates a hard
-    # import cycle that ``tests/test_meta/test_no_import_cycles.py`` flags.
-    from .mrmr import ENSURE_ARROW_DF_SUPPORT
-    # Unfitted -> NotFittedError (sklearn-canonical); previously returned X unchanged, masking config bugs.
-    if not hasattr(self, "support_") or not hasattr(self, "feature_names_in_"):
-        from sklearn.exceptions import NotFittedError
 
-        raise NotFittedError("This MRMR instance is not fitted yet. Call 'fit' before " "using 'transform'.")
+def _check_transform_n_features(self: Any, X: Any) -> None:
+    """Raise ``ValueError`` when a plain (unnamed-column) ``X`` has a different feature count than MRMR was fitted on."""
     # Sklearn ``n_features_in_``
     # contract. Pre-fix ``transform()`` accepted ndarray (and any non-
     # DataFrame array) with wrong column count and silently sliced
@@ -453,6 +461,27 @@ def transform(self, X: pd.DataFrame | pl.DataFrame | np.ndarray, y: pd.Series | 
             _is_named_frame = (pd is not None and isinstance(X, pd.DataFrame)) or hasattr(X, "schema")  # polars DataFrame / LazyFrame
             if not _is_named_frame:
                 raise ValueError(f"X has {int(X.shape[1])} features, but MRMR is expecting " f"{int(_n_features_in)} features as input.")
+
+
+def transform(self, X: pd.DataFrame | pl.DataFrame | np.ndarray, y: pd.Series | np.ndarray | None = None) -> pd.DataFrame | pl.DataFrame | np.ndarray:
+    """Apply the fitted MRMR selection + engineered-recipe replay to ``X``.
+
+    Returns the column-subset / engineered-frame matching the layout MRMR
+    produced at fit time. Raises :class:`sklearn.exceptions.NotFittedError`
+    if called before :meth:`MRMR.fit`. Bound onto the ``MRMR`` class at the
+    parent module's bottom so ``self.transform(X)`` call sites work
+    unchanged.
+    """
+    # Lazy import: ``.mrmr`` re-imports this module at its bottom for method
+    # binding -> any top-level ``from .mrmr import ...`` here creates a hard
+    # import cycle that ``tests/test_meta/test_no_import_cycles.py`` flags.
+    from .mrmr import ENSURE_ARROW_DF_SUPPORT
+    # Unfitted -> NotFittedError (sklearn-canonical); previously returned X unchanged, masking config bugs.
+    if not hasattr(self, "support_") or not hasattr(self, "feature_names_in_"):
+        from sklearn.exceptions import NotFittedError
+
+        raise NotFittedError("This MRMR instance is not fitted yet. Call 'fit' before " "using 'transform'.")
+    _check_transform_n_features(self, X)
     support = self.support_
     recipes = getattr(self, "_engineered_recipes_", [])
 
@@ -548,256 +577,10 @@ def transform(self, X: pd.DataFrame | pl.DataFrame | np.ndarray, y: pd.Series | 
         base_out = X[:, _support_idx]
 
     out = self._append_engineered(base_out, X, recipes)
-    # When X is polars and Pipeline has set_output(transform="pandas"), sklearn's PandasAdapter calls
-    # pd.DataFrame(out, ...) which (unlike polars' own .to_pandas()) does NOT preserve Arrow-backed
-    # dtypes: pl.Enum / pl.Categorical collapse to object; pl.Float32 turns to object-of-strings
-    # ('1.23' as text), and downstream HGB/XGB/SimpleImputer raise "could not convert string to float".
-    # Convert ourselves via polars' Arrow-preserving .to_pandas() whenever the consumer expects pandas.
-    try:
-        from sklearn.utils._set_output import _get_output_config
-        _cfg = _get_output_config("transform", estimator=self)
-        _want_pandas = (_cfg.get("dense") if _cfg.get("dense") else "default") == "pandas"
-    except Exception as e:
-        logger.warning("sklearn set_output config lookup failed, defaulting to non-pandas: %s", e)
-        _want_pandas = False
-    if _want_pandas:
-        try:
-            import polars as _pl
-            if isinstance(out, _pl.DataFrame):
-                out = out.to_pandas()
-        except ImportError:
-            pass
-    return out
+    return _output_as_pandas_if_requested(self, out)
 
-def _fresh_recipe_caches() -> "tuple[dict, dict]":
-    """Empty ``(column cache, basis cache)`` for one ``_append_engineered`` call.
-
-    A hub source column is pulled from X once and a shared orth operand's basis is evaluated once, however many recipes
-    read it. Recipes never write into what they read, so the cached arrays stay valid for the call.
-    """
-    return {}, {}
-
-
-def _append_engineered(self, base_out, X, recipes):
-    """Append engineered-recipe columns onto ``base_out``.
-
-    Inputs:
-    - ``base_out``: DataFrame / ndarray already restricted to the base
-      ``support_`` columns. Caller's dtype is preserved.
-    - ``X``: full input frame (DataFrame, ndarray, or polars). Recipe
-      replay reads source columns from here BY NAME, so X must
-      contain at least every ``recipe.src_names`` entry.
-    - ``recipes``: list of EngineeredRecipe to replay.
-
-    Behaviour:
-    - Returns ``base_out`` unchanged when ``recipes`` is empty (legacy
-      path, zero overhead).
-    - For pandas / polars input, engineered cols are appended as
-      named columns.
-    - For ndarray input, engineered cols are stacked as additional
-      numeric columns; column names are not preserved (caller is
-      expected to use ``get_feature_names_out`` for naming).
-
-    CAVEAT (chained recipes): a chained recipe whose engineered intermediate had its PRODUCER pruned at fit time is
-    unreconstructable at transform. Because ``get_feature_names_out`` fixes the output WIDTH (the recipe count), such a
-    column cannot be physically dropped without a shape mismatch, so it is emitted as a constant-0 (zero-variance) column
-    with only a ``logger.warning`` - the feature is effectively dropped (no signal) but silently present in the output
-    layout. A constant 0.0 (not NaN) is used so NaN-rejecting downstream estimators do not hard-crash.
-    """
-    if not recipes:
-        return base_out
-
-    # Lazy import keeps import-time cost off MRMR users who never engage FE.
-    from .engineered_recipes import apply_recipe
-
-    # K-way recipes ship a chained-lookup payload (extras ``chain_lookups`` / ``chain_nuniqs``) so they replay on test data alongside pair
-    # recipes. The only filter is the legacy ``requires_refit_for_replay`` flag retained for OLD pickles that pre-date the chain payload.
-    replayable = [r for r in recipes if r.extra.get("chain_lookups") is not None or not r.extra.get("requires_refit_for_replay")]
-    _col_cache, _basis_cache = _fresh_recipe_caches()
-    if len(replayable) < len(recipes) and self.verbose:
-        logger.info(
-            "MRMR.transform: skipping %d legacy k-way recipe(s) " "without chained-lookup payload (pre-D3 pickle). Re-fit " "to materialise the chain.",
-            len(recipes) - len(replayable),
-        )
-    if not replayable:
-        return base_out
-    recipes = replayable
-    # Engineered-recipe replay resolves source columns by NAME (e.g. cluster_aggregate looks
-    # up ``recipe.src_names`` via filters/engineered_recipes._extract_column). A plain 2-D
-    # ndarray has no column-name index, so wrap it in a pandas DataFrame using fit-time
-    # feature_names_in_ before replay. base_out is already projected so we keep its shape;
-    # this view is only used for engineered-column resolution.
-    _X_for_recipes = X
-    if isinstance(X, np.ndarray) and X.dtype.names is None and hasattr(self, "feature_names_in_"):
-        try:
-            _X_for_recipes = pd.DataFrame(X, columns=list(self.feature_names_in_))
-        except (ValueError, TypeError) as _wrap_err:
-            # A length/shape mismatch means X does not match fit-time feature_names_in_. Falling back
-            # to the nameless ndarray makes every src-names-by-name recipe resolve against an unnamed
-            # frame -> wrong engineered columns. Surface it at WARNING instead of masking it silently.
-            logger.warning(
-                "MRMR.transform: could not wrap input ndarray in fit-time feature_names_in_ (%s: %s); "
-                "engineered-recipe replay will run on an unnamed frame and may produce wrong columns.",
-                type(_wrap_err).__name__, _wrap_err,
-            )
-            _X_for_recipes = X
-    else:
-        # Polars input: bridge to a zero-copy (Arrow-backed) pandas VIEW for recipe resolution only
-        # (base_out below stays polars-native; only this local variable changes). Without this, a polars
-        # frame fell into the single-pass "ndarray / polars path" branch below, which cannot resolve a
-        # CHAINED recipe (one whose src_names are another recipe's output, e.g. a fe_max_steps>=2 nested
-        # unary_binary-of-unary_binary) - it raised RuntimeError on every chained recipe even though the
-        # recipe is perfectly reconstructable via the multi-pass topological replay a couple lines below.
-        # Confirmed live (2026-07): CompositeCrossTargetEnsemble's k-fold OOF refit passes the polars
-        # train_df through this path, so EVERY chained recipe MRMR selected made the refit + CompositeMoE
-        # evaluation fail for the whole target. get_pandas_view_of_polars_df is the project's sanctioned
-        # zero-copy polars->pandas bridge (see CLAUDE.md "polars FE path is ALREADY optimal"); using it
-        # here costs no extra copy and reuses the identical chained-resolution code the pandas branch
-        # already has, instead of duplicating it for polars.
-        try:
-            import polars as _pl
-            if isinstance(X, _pl.DataFrame):
-                from ...training.utils import get_pandas_view_of_polars_df
-                _X_for_recipes = get_pandas_view_of_polars_df(X)
-        except ImportError:
-            pass
-    # Recipe replay must support multi-level chaining: a spline / fourier / hybrid
-    # extra-basis recipe can carry ``src_names=('x__He2',)`` referencing a sibling
-    # ``orth_univariate`` recipe rather than a raw input column. The fit-time pipeline
-    # appends each level's columns to the augmented frame before the next level runs,
-    # so the recipe order recorded in ``_engineered_recipes_`` is already a valid
-    # topological order. We mirror that here: materialise each recipe's output into
-    # a per-row working frame so subsequent recipes can resolve their ``src_names``.
-    # Falls back transparently to the legacy single-pass behaviour for recipes whose
-    # src_names point only at raw input columns.
-    engineered_cols = []
-    if isinstance(_X_for_recipes, pd.DataFrame):
-        # Take ownership with ONE copy up front (never mutate the caller's own frame - ``chained``
-        # would otherwise alias ``_X_for_recipes``/``X`` directly). Every recipe below then does a
-        # cheap in-place column append instead of ``.assign()`` (see below) - profiling a 100k-row
-        # transform found this loop's repeated ``.assign()`` calls responsible for 36.5s of the wall
-        # (16,204 pandas block-manager copies, cProfile `wellbore_profile_99401rows.prof`).
-        chained = _X_for_recipes[_recipe_reachable_columns(_X_for_recipes, recipes)].copy()
-        # Dependency-aware replay: a chained recipe (e.g. modular-of-cross,
-        # spline-on-He2) references an earlier engineered column via src_names.
-        # The recorded order is USUALLY topological, but cross-family chaining
-        # (cat_pair_cross consumed by a numeric_decompose / modular recipe) can
-        # record the consumer before its producer. Resolve in passes: apply only
-        # recipes whose src_names already exist in ``chained``, defer the rest,
-        # loop until no progress - then apply any genuinely-unresolvable
-        # remainder in recorded order (surfaces a real missing-source KeyError
-        # rather than an ordering artefact).
-        _results: dict = {}
-        _pending = list(recipes)
-        _unresolved: set = set()
-
-        def _unresolved_sources(r) -> list:
-            """Source names a recipe still needs from ``chained`` that are NOT
-            available. NESTED-ENGINEERED PARENTS: a ``unary_binary``
-            recipe whose operand is itself engineered carries that parent's recipe
-            in ``extra['nested_parent_a'|'nested_parent_b']`` and recomputes it
-            recursively in ``apply_recipe`` - so that side is self-resolving and
-            must NOT be treated as a missing column dependency (its engineered
-            ``src_name`` is never present in the raw-only transform frame)."""
-            _src = tuple(getattr(r, "src_names", ()) or ())
-            _extra = getattr(r, "extra", {}) or {}
-            _nested_by_pos = (_extra.get("nested_parent_a"), _extra.get("nested_parent_b"))
-            out = []
-            for _pos, s in enumerate(_src):
-                if s in chained.columns:
-                    continue
-                if _pos < 2 and _nested_by_pos[_pos] is not None:
-                    # Resolved recursively via the stored parent recipe - BUT that parent
-                    # may itself reference a SEPARATE engineered column (its own src) that
-                    # is not yet in ``chained`` (e.g. a nested binned_numeric_agg whose
-                    # group_col is an adaptive Fourier/chirp column produced by another
-                    # recipe). Surface those TRANSITIVE deps so the scheduler waits for the
-                    # producing recipe to replay first, instead of KeyError-ing on the
-                    # missing column. (Exposed once orth-FE/extra-basis is ON
-                    # by default and binned_agg feeds-forward on a chirp operand.)
-                    out.extend(_unresolved_sources(_nested_by_pos[_pos]))
-                    continue
-                out.append(s)
-            return out
-
-        while _pending:
-            _progress = False
-            _still: list = []
-            for r in _pending:
-                if not _unresolved_sources(r):
-                    col = apply_recipe(r, chained, col_cache=_col_cache, basis_cache=_basis_cache)
-                    _results[r.name] = col
-                    # In-place append, not ``.assign()`` (which ALWAYS returns a full block-manager
-                    # copy - see the ownership comment above ``chained = ... .copy()``). Safe here:
-                    # ``chained`` was privately copied once before this loop, so no caller-visible
-                    # aliasing risk; ``__setitem__`` on a new column name is a cheap block append.
-                    # This does trigger pandas' "highly fragmented" PerformanceWarning at wide recipe
-                    # counts (many single-column blocks) - investigated: ``chained`` is
-                    # only ever read via single named-column lookups in this loop (never a whole-frame
-                    # op like ``.to_numpy()``/arithmetic across all columns) and is discarded once the
-                    # loop ends (the return value is built from ``_results``, not ``chained``), so
-                    # fragmentation has no measured downstream cost - confirmed absent from a fresh
-                    # cProfile top-40 tottime pass on a 100k-row production run after this fix landed.
-                    chained[r.name] = col
-                    _progress = True
-                else:
-                    _still.append(r)
-            if not _progress:
-                for r in _still:
-                    _missing = _unresolved_sources(r)
-                    # Raise-vs-NaN is keyed on the recipe kind's data-flow contract. Raw-seed-only kinds (``mi_greedy_transform``) consume
-                    # input columns exclusively - a missing source is a genuine recipe-vs-X mismatch (corrupted/stale recipe, or wrong X)
-                    # and must fail loudly and name the column. Chained-capable kinds (modular / numeric_decompose / numeric_rounding /
-                    # orth_spline / cross families) may reference an engineered intermediate that fit-time pruning dropped its producer for;
-                    # that source is unreconstructable at transform, so emit a NaN column rather than crash.
-                    if r.kind in _RAW_SEED_ONLY_RECIPE_KINDS:
-                        raise KeyError(
-                            f"MRMR.transform: recipe {r.name!r} (kind={r.kind}) references "
-                            f"source column(s) {_missing} that are absent from X. This kind consumes "
-                            f"input columns only, so the recipe set does not match the input frame "
-                            f"(corrupted/stale recipe, or wrong X)."
-                        )
-                    log_throttle(
-                        logger,
-                        "mrmr_validate_transform_unresolved_engineered_source",
-                        logging.WARNING,
-                        "MRMR.transform: recipe %r (kind=%s) references unresolved engineered "
-                        "source(s) %s; emitting a neutral zero column (feature effectively dropped from replay).",
-                        r.name, r.kind, _missing,
-                    )
-                    # The producer of the engineered intermediate was pruned at fit time, so this chained recipe is
-                    # unreconstructable. The output width is fixed by ``get_feature_names_out`` (the recipe count), so
-                    # the column cannot be physically removed without a shape mismatch - emit a zero-variance column
-                    # instead. A NaN placeholder (the prior behaviour) propagates into every downstream estimator and
-                    # hard-crashes the ones that reject NaN (LogisticRegression et al.); a constant 0.0 carries no
-                    # signal (so it is "dropped" in effect) yet is accepted by every estimator.
-                    _results[r.name] = np.zeros(len(chained), dtype=np.float64)
-                    chained[r.name] = _results[r.name]  # in-place append; see ownership comment above
-                    _unresolved.add(r.name)
-                _still = []
-            _pending = _still
-        engineered_cols = [_results[r.name] for r in recipes]
-    else:
-        # ndarray / polars path: best-effort single pass (recipes that reference
-        # engineered intermediates aren't expressible without a name-indexed frame).
-        # Validate each recipe's raw source columns against the input BEFORE replay -
-        # mirroring the base-feature guard above (support_/selected_cols missing check).
-        # Without this, a recipe referencing a column that upstream dropped between fit
-        # and transform (constant-col removal / imputer drop / OD filter narrowing the
-        # frame) surfaces as a raw, unhelpful ``ColumnNotFoundError``/``KeyError`` deep
-        # inside ``apply_recipe`` instead of the actionable diagnostic used elsewhere.
-        _x_cols = set(getattr(_X_for_recipes, "columns", ()) or ())
-        for r in recipes:
-            _r_missing = [s for s in (getattr(r, "src_names", ()) or ()) if s not in _x_cols]
-            if _r_missing:
-                raise RuntimeError(
-                    f"MRMR.transform: engineered recipe {r.name!r} references source "
-                    f"column(s) {_r_missing} missing from input X. The fitted recipe no "
-                    f"longer matches the input's physical columns; an upstream step "
-                    f"(constant-col removal / imputer drop / OD filter) is mutating the "
-                    f"column set BETWEEN fit and transform. Investigate."
-                )
-        engineered_cols = [apply_recipe(r, _X_for_recipes, col_cache=_col_cache, basis_cache=_basis_cache) for r in recipes]
+def _assemble_engineered_output(base_out: Any, engineered_cols: list, recipes: list) -> Any:
+    """Attach the replayed ``engineered_cols`` to ``base_out`` in the container flavour of ``base_out`` (pandas, polars or ndarray)."""
     if isinstance(base_out, pd.DataFrame):
         # ``copy=False`` would risk mutating caller's view (base_out is a view into pandas X). Build a narrow
         # new frame: engineered cols are fresh ndarrays anyway, only base cols share buffers with X.
@@ -850,3 +633,264 @@ def _append_engineered(self, base_out, X, recipes):
         base_out.astype(common_dtype, copy=False),
         engineered_arr.astype(common_dtype, copy=False),
     ])
+
+
+def _replay_recipes_single_pass(recipes: list, _X_for_recipes: Any, _col_cache: dict, _basis_cache: dict) -> list:
+    """Best-effort single-pass replay for ndarray / polars input; returns the engineered columns in recipe order."""
+    # Lazy import keeps import-time cost off MRMR users who never engage FE.
+    from .engineered_recipes import apply_recipe
+
+    # ndarray / polars path: best-effort single pass (recipes that reference
+    # engineered intermediates aren't expressible without a name-indexed frame).
+    # Validate each recipe's raw source columns against the input BEFORE replay -
+    # mirroring the base-feature guard above (support_/selected_cols missing check).
+    # Without this, a recipe referencing a column that upstream dropped between fit
+    # and transform (constant-col removal / imputer drop / OD filter narrowing the
+    # frame) surfaces as a raw, unhelpful ``ColumnNotFoundError``/``KeyError`` deep
+    # inside ``apply_recipe`` instead of the actionable diagnostic used elsewhere.
+    _x_cols = set(getattr(_X_for_recipes, "columns", ()) or ())
+    for r in recipes:
+        _r_missing = [s for s in (getattr(r, "src_names", ()) or ()) if s not in _x_cols]
+        if _r_missing:
+            raise RuntimeError(
+                f"MRMR.transform: engineered recipe {r.name!r} references source "
+                f"column(s) {_r_missing} missing from input X. The fitted recipe no "
+                f"longer matches the input's physical columns; an upstream step "
+                f"(constant-col removal / imputer drop / OD filter) is mutating the "
+                f"column set BETWEEN fit and transform. Investigate."
+            )
+    engineered_cols = [apply_recipe(r, _X_for_recipes, col_cache=_col_cache, basis_cache=_basis_cache) for r in recipes]
+    return engineered_cols
+
+
+def _replay_recipes_chained(recipes: list, _X_for_recipes: pd.DataFrame, _col_cache: dict, _basis_cache: dict) -> list:
+    """Replay ``recipes`` on a pandas frame with dependency-aware multi-pass chaining; returns the engineered columns in recipe order."""
+    # Lazy import keeps import-time cost off MRMR users who never engage FE.
+    from .engineered_recipes import apply_recipe
+
+    # Recipe replay must support multi-level chaining: a spline / fourier / hybrid
+    # extra-basis recipe can carry ``src_names=('x__He2',)`` referencing a sibling
+    # ``orth_univariate`` recipe rather than a raw input column. The fit-time pipeline
+    # appends each level's columns to the augmented frame before the next level runs,
+    # so the recipe order recorded in ``_engineered_recipes_`` is already a valid
+    # topological order. We mirror that here: materialise each recipe's output into
+    # a per-row working frame so subsequent recipes can resolve their ``src_names``.
+    # Falls back transparently to the legacy single-pass behaviour for recipes whose
+    # src_names point only at raw input columns.
+    # Take ownership with ONE copy up front (never mutate the caller's own frame - ``chained``
+    # would otherwise alias ``_X_for_recipes``/``X`` directly). Every recipe below then does a
+    # cheap in-place column append instead of ``.assign()`` (see below) - profiling a 100k-row
+    # transform found this loop's repeated ``.assign()`` calls responsible for 36.5s of the wall
+    # (16,204 pandas block-manager copies, cProfile `wellbore_profile_99401rows.prof`).
+    chained = _X_for_recipes[_recipe_reachable_columns(_X_for_recipes, recipes)].copy()
+    # Dependency-aware replay: a chained recipe (e.g. modular-of-cross,
+    # spline-on-He2) references an earlier engineered column via src_names.
+    # The recorded order is USUALLY topological, but cross-family chaining
+    # (cat_pair_cross consumed by a numeric_decompose / modular recipe) can
+    # record the consumer before its producer. Resolve in passes: apply only
+    # recipes whose src_names already exist in ``chained``, defer the rest,
+    # loop until no progress - then apply any genuinely-unresolvable
+    # remainder in recorded order (surfaces a real missing-source KeyError
+    # rather than an ordering artefact).
+    _results: dict = {}
+    _pending = list(recipes)
+    _unresolved: set = set()
+
+    def _unresolved_sources(r) -> list:
+        """Source names a recipe still needs from ``chained`` that are NOT
+        available. NESTED-ENGINEERED PARENTS: a ``unary_binary``
+        recipe whose operand is itself engineered carries that parent's recipe
+        in ``extra['nested_parent_a'|'nested_parent_b']`` and recomputes it
+        recursively in ``apply_recipe`` - so that side is self-resolving and
+        must NOT be treated as a missing column dependency (its engineered
+        ``src_name`` is never present in the raw-only transform frame)."""
+        _src = tuple(getattr(r, "src_names", ()) or ())
+        _extra = getattr(r, "extra", {}) or {}
+        _nested_by_pos = (_extra.get("nested_parent_a"), _extra.get("nested_parent_b"))
+        out = []
+        for _pos, s in enumerate(_src):
+            if s in chained.columns:
+                continue
+            if _pos < 2 and _nested_by_pos[_pos] is not None:
+                # Resolved recursively via the stored parent recipe - BUT that parent
+                # may itself reference a SEPARATE engineered column (its own src) that
+                # is not yet in ``chained`` (e.g. a nested binned_numeric_agg whose
+                # group_col is an adaptive Fourier/chirp column produced by another
+                # recipe). Surface those TRANSITIVE deps so the scheduler waits for the
+                # producing recipe to replay first, instead of KeyError-ing on the
+                # missing column. (Exposed once orth-FE/extra-basis is ON
+                # by default and binned_agg feeds-forward on a chirp operand.)
+                out.extend(_unresolved_sources(_nested_by_pos[_pos]))
+                continue
+            out.append(s)
+        return out
+
+    while _pending:
+        _progress = False
+        _still: list = []
+        for r in _pending:
+            if not _unresolved_sources(r):
+                col = apply_recipe(r, chained, col_cache=_col_cache, basis_cache=_basis_cache)
+                _results[r.name] = col
+                # In-place append, not ``.assign()`` (which ALWAYS returns a full block-manager
+                # copy - see the ownership comment above ``chained = ... .copy()``). Safe here:
+                # ``chained`` was privately copied once before this loop, so no caller-visible
+                # aliasing risk; ``__setitem__`` on a new column name is a cheap block append.
+                # This does trigger pandas' "highly fragmented" PerformanceWarning at wide recipe
+                # counts (many single-column blocks) - investigated: ``chained`` is
+                # only ever read via single named-column lookups in this loop (never a whole-frame
+                # op like ``.to_numpy()``/arithmetic across all columns) and is discarded once the
+                # loop ends (the return value is built from ``_results``, not ``chained``), so
+                # fragmentation has no measured downstream cost - confirmed absent from a fresh
+                # cProfile top-40 tottime pass on a 100k-row production run after this fix landed.
+                chained[r.name] = col
+                _progress = True
+            else:
+                _still.append(r)
+        if not _progress:
+            for r in _still:
+                _missing = _unresolved_sources(r)
+                # Raise-vs-NaN is keyed on the recipe kind's data-flow contract. Raw-seed-only kinds (``mi_greedy_transform``) consume
+                # input columns exclusively - a missing source is a genuine recipe-vs-X mismatch (corrupted/stale recipe, or wrong X)
+                # and must fail loudly and name the column. Chained-capable kinds (modular / numeric_decompose / numeric_rounding /
+                # orth_spline / cross families) may reference an engineered intermediate that fit-time pruning dropped its producer for;
+                # that source is unreconstructable at transform, so emit a NaN column rather than crash.
+                if r.kind in _RAW_SEED_ONLY_RECIPE_KINDS:
+                    raise KeyError(
+                        f"MRMR.transform: recipe {r.name!r} (kind={r.kind}) references "
+                        f"source column(s) {_missing} that are absent from X. This kind consumes "
+                        f"input columns only, so the recipe set does not match the input frame "
+                        f"(corrupted/stale recipe, or wrong X)."
+                    )
+                log_throttle(
+                    logger,
+                    "mrmr_validate_transform_unresolved_engineered_source",
+                    logging.WARNING,
+                    "MRMR.transform: recipe %r (kind=%s) references unresolved engineered "
+                    "source(s) %s; emitting a neutral zero column (feature effectively dropped from replay).",
+                    r.name, r.kind, _missing,
+                )
+                # The producer of the engineered intermediate was pruned at fit time, so this chained recipe is
+                # unreconstructable. The output width is fixed by ``get_feature_names_out`` (the recipe count), so
+                # the column cannot be physically removed without a shape mismatch - emit a zero-variance column
+                # instead. A NaN placeholder (the prior behaviour) propagates into every downstream estimator and
+                # hard-crashes the ones that reject NaN (LogisticRegression et al.); a constant 0.0 carries no
+                # signal (so it is "dropped" in effect) yet is accepted by every estimator.
+                _results[r.name] = np.zeros(len(chained), dtype=np.float64)
+                chained[r.name] = _results[r.name]  # in-place append; see ownership comment above
+                _unresolved.add(r.name)
+            _still = []
+        _pending = _still
+    engineered_cols = [_results[r.name] for r in recipes]
+    return engineered_cols
+
+
+def _recipe_replay_frame(self: Any, X: Any) -> Any:
+    """Return the frame recipe replay resolves source columns from: an ndarray wrapped with fit-time names, a polars frame bridged to a pandas view."""
+    # Engineered-recipe replay resolves source columns by NAME (e.g. cluster_aggregate looks
+    # up ``recipe.src_names`` via filters/engineered_recipes._extract_column). A plain 2-D
+    # ndarray has no column-name index, so wrap it in a pandas DataFrame using fit-time
+    # feature_names_in_ before replay. base_out is already projected so we keep its shape;
+    # this view is only used for engineered-column resolution.
+    _X_for_recipes = X
+    if isinstance(X, np.ndarray) and X.dtype.names is None and hasattr(self, "feature_names_in_"):
+        try:
+            _X_for_recipes = pd.DataFrame(X, columns=list(self.feature_names_in_))
+        except (ValueError, TypeError) as _wrap_err:
+            # A length/shape mismatch means X does not match fit-time feature_names_in_. Falling back
+            # to the nameless ndarray makes every src-names-by-name recipe resolve against an unnamed
+            # frame -> wrong engineered columns. Surface it at WARNING instead of masking it silently.
+            logger.warning(
+                "MRMR.transform: could not wrap input ndarray in fit-time feature_names_in_ (%s: %s); "
+                "engineered-recipe replay will run on an unnamed frame and may produce wrong columns.",
+                type(_wrap_err).__name__, _wrap_err,
+            )
+            _X_for_recipes = X
+    else:
+        # Polars input: bridge to a zero-copy (Arrow-backed) pandas VIEW for recipe resolution only
+        # (base_out below stays polars-native; only this local variable changes). Without this, a polars
+        # frame fell into the single-pass "ndarray / polars path" branch below, which cannot resolve a
+        # CHAINED recipe (one whose src_names are another recipe's output, e.g. a fe_max_steps>=2 nested
+        # unary_binary-of-unary_binary) - it raised RuntimeError on every chained recipe even though the
+        # recipe is perfectly reconstructable via the multi-pass topological replay a couple lines below.
+        # Confirmed live (2026-07): CompositeCrossTargetEnsemble's k-fold OOF refit passes the polars
+        # train_df through this path, so EVERY chained recipe MRMR selected made the refit + CompositeMoE
+        # evaluation fail for the whole target. get_pandas_view_of_polars_df is the project's sanctioned
+        # zero-copy polars->pandas bridge (see CLAUDE.md "polars FE path is ALREADY optimal"); using it
+        # here costs no extra copy and reuses the identical chained-resolution code the pandas branch
+        # already has, instead of duplicating it for polars.
+        try:
+            import polars as _pl
+            if isinstance(X, _pl.DataFrame):
+                from ...training.utils import get_pandas_view_of_polars_df
+                _X_for_recipes = get_pandas_view_of_polars_df(X)
+        except ImportError:
+            pass
+    return _X_for_recipes
+
+
+def _fresh_recipe_caches() -> "tuple[dict, dict]":
+    """Empty ``(column cache, basis cache)`` for one ``_append_engineered`` call.
+
+    A hub source column is pulled from X once and a shared orth operand's basis is evaluated once, however many recipes
+    read it. Recipes never write into what they read, so the cached arrays stay valid for the call.
+    """
+    return {}, {}
+
+
+def _append_engineered(self, base_out, X, recipes):
+    """Append engineered-recipe columns onto ``base_out``.
+
+    Inputs:
+    - ``base_out``: DataFrame / ndarray already restricted to the base
+      ``support_`` columns. Caller's dtype is preserved.
+    - ``X``: full input frame (DataFrame, ndarray, or polars). Recipe
+      replay reads source columns from here BY NAME, so X must
+      contain at least every ``recipe.src_names`` entry.
+    - ``recipes``: list of EngineeredRecipe to replay.
+
+    Behaviour:
+    - Returns ``base_out`` unchanged when ``recipes`` is empty (legacy
+      path, zero overhead).
+    - For pandas / polars input, engineered cols are appended as
+      named columns.
+    - For ndarray input, engineered cols are stacked as additional
+      numeric columns; column names are not preserved (caller is
+      expected to use ``get_feature_names_out`` for naming).
+
+    CAVEAT (chained recipes): a chained recipe whose engineered intermediate had its PRODUCER pruned at fit time is
+    unreconstructable at transform. Because ``get_feature_names_out`` fixes the output WIDTH (the recipe count), such a
+    column cannot be physically dropped without a shape mismatch, so it is emitted as a constant-0 (zero-variance) column
+    with only a ``logger.warning`` - the feature is effectively dropped (no signal) but silently present in the output
+    layout. A constant 0.0 (not NaN) is used so NaN-rejecting downstream estimators do not hard-crash.
+    """
+    if not recipes:
+        return base_out
+
+    # K-way recipes ship a chained-lookup payload (extras ``chain_lookups`` / ``chain_nuniqs``) so they replay on test data alongside pair
+    # recipes. The only filter is the legacy ``requires_refit_for_replay`` flag retained for OLD pickles that pre-date the chain payload.
+    replayable = [r for r in recipes if r.extra.get("chain_lookups") is not None or not r.extra.get("requires_refit_for_replay")]
+    _col_cache, _basis_cache = _fresh_recipe_caches()
+    if len(replayable) < len(recipes) and self.verbose:
+        logger.info(
+            "MRMR.transform: skipping %d legacy k-way recipe(s) " "without chained-lookup payload (pre-D3 pickle). Re-fit " "to materialise the chain.",
+            len(recipes) - len(replayable),
+        )
+    if not replayable:
+        return base_out
+    recipes = replayable
+    _X_for_recipes = _recipe_replay_frame(self, X)
+    # Recipe replay must support multi-level chaining: a spline / fourier / hybrid
+    # extra-basis recipe can carry ``src_names=('x__He2',)`` referencing a sibling
+    # ``orth_univariate`` recipe rather than a raw input column. The fit-time pipeline
+    # appends each level's columns to the augmented frame before the next level runs,
+    # so the recipe order recorded in ``_engineered_recipes_`` is already a valid
+    # topological order. We mirror that here: materialise each recipe's output into
+    # a per-row working frame so subsequent recipes can resolve their ``src_names``.
+    # Falls back transparently to the legacy single-pass behaviour for recipes whose
+    # src_names point only at raw input columns.
+    if isinstance(_X_for_recipes, pd.DataFrame):
+        engineered_cols = _replay_recipes_chained(recipes, _X_for_recipes, _col_cache, _basis_cache)
+    else:
+        engineered_cols = _replay_recipes_single_pass(recipes, _X_for_recipes, _col_cache, _basis_cache)
+    return _assemble_engineered_output(base_out, engineered_cols, recipes)

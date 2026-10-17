@@ -163,6 +163,52 @@ def _bin_columns(
         ks.append(max(1, k))
     return bins, ks, names
 
+def _jmim_min_score(x_c: np.ndarray, K_x: int, y_bin_c: np.ndarray, K_y: int, sel_bins_c: list, sel_ks_arr: list, has_support: bool) -> float:
+    """JMIM score of one binned candidate: the minimum joint MI ``I((x, z); y)`` over the support members (``I(x; y)`` when there is none)."""
+    if not has_support:
+        score = float(_joint_mi_3d_njit(
+            x_c, np.zeros(x_c.size, dtype=np.int64), y_bin_c,
+            K_x, 1, K_y,
+        ))
+    else:
+        best = np.inf
+        for k, z_c in enumerate(sel_bins_c):
+            K_z = int(sel_ks_arr[k])
+            mi = float(_joint_mi_3d_njit(
+                x_c, z_c, y_bin_c, K_x, K_z, K_y,
+            ))
+            if mi < best:
+                best = mi
+            if best <= 0.0:
+                # MI floors at zero in the njit kernel; once a zero is
+                # observed the min cannot drop further - early exit.
+                best = 0.0
+                break
+        score = float(best) if best != np.inf else 0.0
+    return score
+
+
+def _jmim_reference_bins(raw_X: pd.DataFrame, engineered_X: pd.DataFrame, current_support: Optional[pd.DataFrame], n_bins: int) -> tuple[list, list]:
+    """Bin the JMIM reference set ``S`` (``current_support``, or ``raw_X`` when absent / misaligned); returns ``(bin_codes, cardinalities)``."""
+    # Build the reference set ``S`` for the JMIM min. Default to raw_X
+    # when no explicit current_support is provided.
+    use_support = current_support
+    if use_support is None or not isinstance(use_support, pd.DataFrame) or use_support.shape[1] == 0:
+        use_support = raw_X
+    if len(use_support) != len(engineered_X):
+        # Defensive: a misaligned support is treated as empty (falls
+        # back to the first-round case in jmim_score, which returns
+        # I(X_cand; y)).
+        logger.warning(
+            "score_features_by_jmim: current_support length %d does not " "match engineered_X length %d; falling back to raw_X as " "redundancy reference.",
+            len(use_support),
+            len(engineered_X),
+        )
+        use_support = raw_X
+    sel_bins, sel_ks, _ = _bin_columns(use_support, nbins=int(n_bins))
+    return sel_bins, sel_ks
+
+
 def score_features_by_jmim(
     raw_X: pd.DataFrame,
     engineered_X: pd.DataFrame,
@@ -235,22 +281,7 @@ def score_features_by_jmim(
     )
     raw_mi_map = dict(zip(list(raw_X.columns), raw_mi.tolist()))
 
-    # Build the reference set ``S`` for the JMIM min. Default to raw_X
-    # when no explicit current_support is provided.
-    use_support = current_support
-    if use_support is None or not isinstance(use_support, pd.DataFrame) or use_support.shape[1] == 0:
-        use_support = raw_X
-    if len(use_support) != len(engineered_X):
-        # Defensive: a misaligned support is treated as empty (falls
-        # back to the first-round case in jmim_score, which returns
-        # I(X_cand; y)).
-        logger.warning(
-            "score_features_by_jmim: current_support length %d does not " "match engineered_X length %d; falling back to raw_X as " "redundancy reference.",
-            len(use_support),
-            len(engineered_X),
-        )
-        use_support = raw_X
-    sel_bins, sel_ks, _ = _bin_columns(use_support, nbins=int(n_bins))
+    sel_bins, sel_ks = _jmim_reference_bins(raw_X, engineered_X, current_support, n_bins)
 
     # y bin support: jmim_score expects integer-encoded y.
     _, y_bin = np.unique(y_int, return_inverse=True)
@@ -290,26 +321,7 @@ def score_features_by_jmim(
         # mechanism the paper describes.
         x_c = np.ascontiguousarray(eng_bins[j], dtype=np.int64)
         K_x = int(eng_ks[j])
-        if not has_support:
-            score = float(_joint_mi_3d_njit(
-                x_c, np.zeros(x_c.size, dtype=np.int64), y_bin_c,
-                K_x, 1, K_y,
-            ))
-        else:
-            best = np.inf
-            for k, z_c in enumerate(sel_bins_c):
-                K_z = int(sel_ks_arr[k])
-                mi = float(_joint_mi_3d_njit(
-                    x_c, z_c, y_bin_c, K_x, K_z, K_y,
-                ))
-                if mi < best:
-                    best = mi
-                if best <= 0.0:
-                    # MI floors at zero in the njit kernel; once a zero is
-                    # observed the min cannot drop further - early exit.
-                    best = 0.0
-                    break
-            score = float(best) if best != np.inf else 0.0
+        score = _jmim_min_score(x_c, K_x, y_bin_c, K_y, sel_bins_c, sel_ks_arr, has_support)
         uplift = relative_uplift(score, baseline)
         rows.append({
             "engineered_col": eng_name,

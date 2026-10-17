@@ -113,6 +113,140 @@ _FI_DEFAULT_MAX_ZERO: int = 4
 _FI_DEFAULT_FIGSIZE: tuple = (8.0, 6.0)
 
 
+def _pick_fi_bars(feature_importances: np.ndarray, columns_eff: Any, n: int, max_zero_fi_to_plot: int, importances_std: np.ndarray | None) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray | None]:
+    """Choose the bars to draw: top-``n`` by |FI| (few zero-FI bars), re-sorted by signed value; returns ``(order, fi, columns, std_or_None)``."""
+    # Rank by |FI| descending. Use original signed values for the bar so
+    # negative coefficients show as left-bars.
+    # Lexsort with feature-position tiebreaker so tied
+    # zero-importance features (common after model pruning) pick the same
+    # set across runs and the displayed bar chart stays reproducible.
+    _abs_fi = np.abs(feature_importances)
+    _abs_order_full = np.lexsort((np.arange(len(_abs_fi)), -_abs_fi))
+    _picked = _abs_order_full[:n]
+    # drop excess zero-FI bars so the chart
+    # stays compact when most features got pruned by the model. ``eps``
+    # is scaled to the LARGEST magnitude so we don't accidentally drop
+    # legitimately small but nonzero importances (eg gain=1e-6 on a
+    # near-orthogonal feature). Keep at most ``max_zero_fi_to_plot`` of
+    # the zero-FI bars; if the head already exceeds ``n``, no zeros pass.
+    _abs_picked = np.abs(feature_importances[_picked])
+    if _abs_picked.size > 0:
+        _fi_eps = max(1e-12, float(_abs_picked.max()) * 1e-6)
+    else:
+        _fi_eps = 1e-12
+    _nonzero_mask = _abs_picked > _fi_eps
+    _nonzero_ids = _picked[_nonzero_mask]
+    _zero_ids = _picked[~_nonzero_mask][: max(0, int(max_zero_fi_to_plot))]
+    _abs_order = np.concatenate([_nonzero_ids, _zero_ids])
+    # Re-sort the picked subset by signed value so the bars stack
+    # cleanly (most-negative at the bottom, most-positive at the top).
+    _abs_order = _abs_order[np.argsort(feature_importances[_abs_order])]
+    _picked_fi = feature_importances[_abs_order]
+    _picked_cols = np.array(columns_eff)[_abs_order]
+    # Align the dispersion to the SAME picked + signed-sorted order as the bars so each
+    # whisker sits on its own bar. Non-finite / negative entries -> 0 (errorbar rejects them).
+    _picked_std = None
+    if importances_std is not None:
+        _std_arr = np.asarray(importances_std, dtype=np.float64)
+        if _std_arr.shape == feature_importances.shape:
+            _picked_std = np.clip(np.nan_to_num(_std_arr[_abs_order], nan=0.0), 0.0, None)
+    return _abs_order, _picked_fi, _picked_cols, _picked_std
+
+
+def _draw_fi_bars(ax: Any, _abs_order: np.ndarray, _picked_fi: np.ndarray, _picked_cols: np.ndarray, _picked_std: np.ndarray | None, kind: str, importance_label: str) -> None:
+    """Draw the signed horizontal FI bars (with optional error whiskers), title, labels and grid on ``ax``."""
+    # match the perf-chart aesthetic.
+    # translucent matplotlib-default blue bars + light-alpha grid +
+    # explicit zero reference line. Pre-fix the FI plot used solid
+    # opaque bars with no grid, visually clashing with the perf-chart
+    # diagnostic above it (alpha=0.3 dots + grid(alpha=0.3)).
+    ax.barh(
+        range(len(_abs_order)), _picked_fi,
+        align="center", alpha=0.7,
+        color="tab:blue", edgecolor="tab:blue",
+        xerr=_picked_std if _picked_std is not None else None,
+        error_kw={"ecolor": "0.3", "elinewidth": 0.8, "capsize": 2} if _picked_std is not None else None,
+    )
+    ax.set(yticks=range(len(_abs_order)), yticklabels=_picked_cols)
+    ax.set_title(f"{kind} feature importances", fontsize=11)
+    ax.set_xlabel(importance_label)
+    ax.axvline(0, color="k", linewidth=0.5, alpha=0.5)
+    ax.grid(True, axis="x", alpha=0.3)
+    ax.set_axisbelow(True)
+
+
+def _emit_fi_figures(figs: list, fig_top: Any, plot_file: str, show_plots: bool) -> None:
+    """Save the figure to ``plot_file`` and/or display it (inline in a kernel, else via ``plt.show``), then close the figures unless interactive."""
+    if plot_file:
+        # bbox_inches="tight" so long ytick labels (feature names) and
+        # the title don't get cropped by the default figure bbox.
+        fig_top.savefig(ensure_parent_dir(plot_file), bbox_inches="tight", pad_inches=0.15)
+
+    if show_plots:
+        # Prefer explicit ``IPython.display.display(fig)``
+        # when running inside a Jupyter / IPython kernel. This is
+        # robust to the matplotlib backend being Agg (the global
+        # mlframe pipeline may have set it for the on-disk rendering
+        # path); ``plt.show()`` on Agg prints the "non-GUI backend"
+        # warning and renders nothing. ``display(fig)`` works
+        # regardless of backend because it hands the figure to the
+        # kernel's display-data channel and the inline backend
+        # renders it as a PNG payload.
+        try:
+            # ``__IPYTHON__`` is defined only inside an IPython /
+            # Jupyter kernel (not in bare python or in a script
+            # that happened to import IPython transitively).
+            _in_kernel = bool(__IPYTHON__)  # type: ignore[name-defined]
+        except NameError:
+            _in_kernel = False
+        _displayed_inline = False
+        if _in_kernel:
+            try:
+                from IPython.display import display as _ipy_display
+                for _fig in figs:
+                    _ipy_display(_fig)
+                _displayed_inline = True
+            except Exception as e:
+                logger.debug("IPython inline display failed, falling back to plt.show(): %s", e)
+                # Fall back to plt.show on any import / display error.
+                from mlframe.metrics.calibration.shared import show_plots_unless_agg
+                show_plots_unless_agg()
+        else:
+            from mlframe.metrics.calibration.shared import show_plots_unless_agg
+            show_plots_unless_agg()
+        # Jupyter double-render fix: after
+        # ``IPython.display.display(fig)`` the kernel has already
+        # serialised the figure to PNG / SVG and shipped it to the
+        # display channel; the matplotlib backing is now independent.
+        # If we LEAVE the figure alive in matplotlib's pyplot
+        # registry, the inline backend's end-of-cell auto-flush
+        # picks it up and renders it AGAIN, producing the "толпа
+        # FI графиков" wave after the composite-ensemble phase
+        # finishes its async pipeline. Closing here drops the
+        # registry reference without affecting the already-
+        # displayed inline image. Out-of-kernel path is handled
+        # by the unified ``_close_unless_interactive`` below.
+        if _displayed_inline:
+            for _fig in figs:
+                try:
+                    plt.close(_fig)
+                except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design  # noqa: PERF203 - per-iteration fault isolation is intentional, not a hoisting candidate
+                    logger.debug("suppressed: %s", e)
+                    pass
+    # Close ALL figs (top + bottom) unless inside an IPython /
+    # Jupyter kernel where the inline display has ALREADY captured
+    # the rendered figure to the display channel. Previously only
+    # the last-assigned fig was closed in the ``not show_plots``
+    # branch (top-FI leaked whenever the bottom branch also fired)
+    # AND the ``show_plots=True`` path never closed anything -
+    # the explicit ``plt.close`` above now covers the Jupyter
+    # branch, so this helper is the safety net for the no-show
+    # path. leak fix; helper unifies the detection
+    # across modules.
+    from mlframe.metrics.shared import close_unless_interactive as _close_unless_interactive
+    _close_unless_interactive(figs, was_shown=show_plots)
+
+
 def plot_feature_importance(
     feature_importances: np.ndarray,
     columns: Sequence,
@@ -220,128 +354,9 @@ def plot_feature_importance(
         fig_top = plt.figure(figsize=figsize)
         figs.append(fig_top)
         ax = plt.gca()  # visible=True
-        # Rank by |FI| descending. Use original signed values for the bar so
-        # negative coefficients show as left-bars.
-        # Lexsort with feature-position tiebreaker so tied
-        # zero-importance features (common after model pruning) pick the same
-        # set across runs and the displayed bar chart stays reproducible.
-        _abs_fi = np.abs(feature_importances)
-        _abs_order_full = np.lexsort((np.arange(len(_abs_fi)), -_abs_fi))
-        _picked = _abs_order_full[:n]
-        # drop excess zero-FI bars so the chart
-        # stays compact when most features got pruned by the model. ``eps``
-        # is scaled to the LARGEST magnitude so we don't accidentally drop
-        # legitimately small but nonzero importances (eg gain=1e-6 on a
-        # near-orthogonal feature). Keep at most ``max_zero_fi_to_plot`` of
-        # the zero-FI bars; if the head already exceeds ``n``, no zeros pass.
-        _abs_picked = np.abs(feature_importances[_picked])
-        if _abs_picked.size > 0:
-            _fi_eps = max(1e-12, float(_abs_picked.max()) * 1e-6)
-        else:
-            _fi_eps = 1e-12
-        _nonzero_mask = _abs_picked > _fi_eps
-        _nonzero_ids = _picked[_nonzero_mask]
-        _zero_ids = _picked[~_nonzero_mask][: max(0, int(max_zero_fi_to_plot))]
-        _abs_order = np.concatenate([_nonzero_ids, _zero_ids])
-        # Re-sort the picked subset by signed value so the bars stack
-        # cleanly (most-negative at the bottom, most-positive at the top).
-        _abs_order = _abs_order[np.argsort(feature_importances[_abs_order])]
-        _picked_fi = feature_importances[_abs_order]
-        _picked_cols = np.array(columns_eff)[_abs_order]
-        # Align the dispersion to the SAME picked + signed-sorted order as the bars so each
-        # whisker sits on its own bar. Non-finite / negative entries -> 0 (errorbar rejects them).
-        _picked_std = None
-        if importances_std is not None:
-            _std_arr = np.asarray(importances_std, dtype=np.float64)
-            if _std_arr.shape == feature_importances.shape:
-                _picked_std = np.clip(np.nan_to_num(_std_arr[_abs_order], nan=0.0), 0.0, None)
-        # match the perf-chart aesthetic.
-        # translucent matplotlib-default blue bars + light-alpha grid +
-        # explicit zero reference line. Pre-fix the FI plot used solid
-        # opaque bars with no grid, visually clashing with the perf-chart
-        # diagnostic above it (alpha=0.3 dots + grid(alpha=0.3)).
-        ax.barh(
-            range(len(_abs_order)), _picked_fi,
-            align="center", alpha=0.7,
-            color="tab:blue", edgecolor="tab:blue",
-            xerr=_picked_std if _picked_std is not None else None,
-            error_kw={"ecolor": "0.3", "elinewidth": 0.8, "capsize": 2} if _picked_std is not None else None,
-        )
-        ax.set(yticks=range(len(_abs_order)), yticklabels=_picked_cols)
-        ax.set_title(f"{kind} feature importances", fontsize=11)
-        ax.set_xlabel(importance_label)
-        ax.axvline(0, color="k", linewidth=0.5, alpha=0.5)
-        ax.grid(True, axis="x", alpha=0.3)
-        ax.set_axisbelow(True)
-
-        if plot_file:
-            # bbox_inches="tight" so long ytick labels (feature names) and
-            # the title don't get cropped by the default figure bbox.
-            fig_top.savefig(ensure_parent_dir(plot_file), bbox_inches="tight", pad_inches=0.15)
-
-        if show_plots:
-            # Prefer explicit ``IPython.display.display(fig)``
-            # when running inside a Jupyter / IPython kernel. This is
-            # robust to the matplotlib backend being Agg (the global
-            # mlframe pipeline may have set it for the on-disk rendering
-            # path); ``plt.show()`` on Agg prints the "non-GUI backend"
-            # warning and renders nothing. ``display(fig)`` works
-            # regardless of backend because it hands the figure to the
-            # kernel's display-data channel and the inline backend
-            # renders it as a PNG payload.
-            try:
-                # ``__IPYTHON__`` is defined only inside an IPython /
-                # Jupyter kernel (not in bare python or in a script
-                # that happened to import IPython transitively).
-                _in_kernel = bool(__IPYTHON__)  # type: ignore[name-defined]
-            except NameError:
-                _in_kernel = False
-            _displayed_inline = False
-            if _in_kernel:
-                try:
-                    from IPython.display import display as _ipy_display
-                    for _fig in figs:
-                        _ipy_display(_fig)
-                    _displayed_inline = True
-                except Exception as e:
-                    logger.debug("IPython inline display failed, falling back to plt.show(): %s", e)
-                    # Fall back to plt.show on any import / display error.
-                    from mlframe.metrics.calibration.shared import show_plots_unless_agg
-                    show_plots_unless_agg()
-            else:
-                from mlframe.metrics.calibration.shared import show_plots_unless_agg
-                show_plots_unless_agg()
-            # Jupyter double-render fix: after
-            # ``IPython.display.display(fig)`` the kernel has already
-            # serialised the figure to PNG / SVG and shipped it to the
-            # display channel; the matplotlib backing is now independent.
-            # If we LEAVE the figure alive in matplotlib's pyplot
-            # registry, the inline backend's end-of-cell auto-flush
-            # picks it up and renders it AGAIN, producing the "толпа
-            # FI графиков" wave after the composite-ensemble phase
-            # finishes its async pipeline. Closing here drops the
-            # registry reference without affecting the already-
-            # displayed inline image. Out-of-kernel path is handled
-            # by the unified ``_close_unless_interactive`` below.
-            if _displayed_inline:
-                for _fig in figs:
-                    try:
-                        plt.close(_fig)
-                    except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design  # noqa: PERF203 - per-iteration fault isolation is intentional, not a hoisting candidate
-                        logger.debug("suppressed: %s", e)
-                        pass
-        # Close ALL figs (top + bottom) unless inside an IPython /
-        # Jupyter kernel where the inline display has ALREADY captured
-        # the rendered figure to the display channel. Previously only
-        # the last-assigned fig was closed in the ``not show_plots``
-        # branch (top-FI leaked whenever the bottom branch also fired)
-        # AND the ``show_plots=True`` path never closed anything -
-        # the explicit ``plt.close`` above now covers the Jupyter
-        # branch, so this helper is the safety net for the no-show
-        # path. leak fix; helper unifies the detection
-        # across modules.
-        from mlframe.metrics.shared import close_unless_interactive as _close_unless_interactive
-        _close_unless_interactive(figs, was_shown=show_plots)
+        _abs_order, _picked_fi, _picked_cols, _picked_std = _pick_fi_bars(feature_importances, columns_eff, n, max_zero_fi_to_plot, importances_std)
+        _draw_fi_bars(ax, _abs_order, _picked_fi, _picked_cols, _picked_std, kind, importance_label)
+        _emit_fi_figures(figs, fig_top, plot_file, show_plots)
 
     return df
 

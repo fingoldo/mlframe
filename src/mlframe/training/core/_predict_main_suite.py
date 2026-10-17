@@ -100,6 +100,86 @@ def _load_suite_metadata(models_path: str, trusted_root: str | None, verbose: in
     return cast(dict, metadata)
 
 
+def _validate_suite_predict_inputs(df: Any, models_path: Any) -> None:
+    """Raise ``TypeError``/``ValueError`` when ``df`` or ``models_path`` is not a usable predict input."""
+    if not isinstance(df, (pd.DataFrame, pl.DataFrame)):
+        raise TypeError(f"df must be pandas or polars DataFrame, got {type(df).__name__}")
+    if len(df) == 0:
+        raise ValueError("df cannot be empty")
+    if not isinstance(models_path, str):
+        raise TypeError(f"models_path must be a str, got {type(models_path).__name__}")
+    if not os.path.isdir(models_path):
+        raise ValueError(f"models_path must be a valid directory, got: {models_path}")
+
+
+def _replay_suite_feature_engineering(
+    df: Any,
+    metadata: dict,
+    _predict_group_ids: Any,
+    _predict_timestamps: Any,
+    auxiliary_events_df: Any,
+    verbose: int,
+) -> Any:
+    """Replay the suite-owned datetime decomposition and every composite FE family on the predict frame, in training order."""
+    # Lazy import of parent-resident helpers: ``.predict`` re-imports this sibling at its bottom, so a top-level ``from .predict
+    # import ...`` would create a hard cycle the meta-test flags.
+    from .predict import _replay_suite_datetime_decomposition
+    from mlframe.training.pipeline.shared import replay_categorical_composite_fe
+    from mlframe.training.pipeline.shared import replay_entity_time_composite_fe
+    from mlframe.training.pipeline.shared import replay_cross_sectional_composite_fe
+    from mlframe.training.pipeline.shared import replay_target_encoding_composite_fe
+    from mlframe.training.pipeline.shared import replay_per_target_supervised_fe
+    from mlframe.training.pipeline.shared import replay_ma_crossover_composite_fe
+    from mlframe.training.pipeline.shared import replay_latent_interaction_svd_composite_fe
+    from mlframe.training.pipeline.shared import replay_nearest_past_join_composite_fe
+    from mlframe.training.pipeline.shared import replay_event_proximity_decay_composite_fe
+    df = _replay_suite_datetime_decomposition(df, metadata, verbose=verbose)
+    df = replay_categorical_composite_fe(df, metadata, verbose=verbose)
+    df = replay_entity_time_composite_fe(df, metadata, _predict_group_ids, _predict_timestamps, verbose=verbose)
+    df = replay_cross_sectional_composite_fe(df, metadata, verbose=verbose)
+    df = replay_target_encoding_composite_fe(df, metadata, _predict_group_ids, verbose=verbose)
+    df = replay_per_target_supervised_fe(df, metadata, _predict_group_ids, verbose=verbose)
+    df = replay_ma_crossover_composite_fe(df, metadata, _predict_group_ids, _predict_timestamps, verbose=verbose)
+    df = replay_latent_interaction_svd_composite_fe(df, metadata, auxiliary_events_df, _predict_group_ids, verbose=verbose)
+    df = replay_nearest_past_join_composite_fe(df, metadata, auxiliary_events_df, verbose=verbose)
+    df = replay_event_proximity_decay_composite_fe(df, metadata, _predict_timestamps, verbose=verbose)
+    return df
+
+
+def _predict_suite_in_batches(
+    df: Any,
+    models_path: str,
+    features_and_targets_extractor: FeaturesAndTargetsExtractor | None,
+    model_names: list[str] | None,
+    return_probabilities: bool,
+    verbose: int,
+    trusted_root: str | None,
+    predict_batch_rows: int,
+    auxiliary_events_df: Any,
+    _preloaded_metadata: dict | None,
+) -> dict[str, Any]:
+    """Predict ``df`` in row-chunks of ``predict_batch_rows`` by re-entering the suite predictor once per slice."""
+    from .predict import _run_batched
+
+    _shared_metadata = _preloaded_metadata if _preloaded_metadata is not None else _load_suite_metadata(models_path, trusted_root, verbose)
+    # Dispatch to the batched-runner; the batched-runner calls this same function recursively per slice with predict_batch_rows=None so the legacy
+    # single-pass code path runs unchanged for each batch.
+    return _run_batched(
+        lambda _d: predict_mlframe_models_suite(
+            _d, models_path,
+            features_and_targets_extractor=features_and_targets_extractor,
+            model_names=model_names,
+            return_probabilities=return_probabilities,
+            verbose=verbose,
+            trusted_root=trusted_root,
+            predict_batch_rows=None,
+            auxiliary_events_df=auxiliary_events_df,  # an events TABLE (entity/time join), so each batch needs all of it
+            _preloaded_metadata=_shared_metadata,  # read-only here, so every batch shares one load
+        ),
+        df, predict_batch_rows,
+    )
+
+
 def predict_mlframe_models_suite(
     df: pl.DataFrame | pd.DataFrame,
     models_path: str,
@@ -142,43 +222,13 @@ def predict_mlframe_models_suite(
     """
     # Lazy import of parent-resident helpers: ``.predict`` re-imports this sibling at its bottom, so a top-level ``from .predict
     # import ...`` would create a hard cycle the meta-test flags.
-    from .predict import _apply_row_wise_extensions, _replay_suite_datetime_decomposition, _run_batched
-    from mlframe.training.pipeline.shared import replay_categorical_composite_fe
-    from mlframe.training.pipeline.shared import replay_entity_time_composite_fe
-    from mlframe.training.pipeline.shared import replay_cross_sectional_composite_fe
-    from mlframe.training.pipeline.shared import replay_target_encoding_composite_fe
-    from mlframe.training.pipeline.shared import replay_per_target_supervised_fe
-    from mlframe.training.pipeline.shared import replay_ma_crossover_composite_fe
-    from mlframe.training.pipeline.shared import replay_latent_interaction_svd_composite_fe
-    from mlframe.training.pipeline.shared import replay_nearest_past_join_composite_fe
-    from mlframe.training.pipeline.shared import replay_event_proximity_decay_composite_fe
-    # Validate inputs
-    if not isinstance(df, (pd.DataFrame, pl.DataFrame)):
-        raise TypeError(f"df must be pandas or polars DataFrame, got {type(df).__name__}")
-    if len(df) == 0:
-        raise ValueError("df cannot be empty")
-    if not isinstance(models_path, str):
-        raise TypeError(f"models_path must be a str, got {type(models_path).__name__}")
-    if not os.path.isdir(models_path):
-        raise ValueError(f"models_path must be a valid directory, got: {models_path}")
+    from .predict import _apply_row_wise_extensions
+    _validate_suite_predict_inputs(df, models_path)
 
     if predict_batch_rows is not None and predict_batch_rows > 0 and len(df) > predict_batch_rows:
-        _shared_metadata = _preloaded_metadata if _preloaded_metadata is not None else _load_suite_metadata(models_path, trusted_root, verbose)
-        # Dispatch to the batched-runner; the batched-runner calls this same function recursively per slice with predict_batch_rows=None so the legacy
-        # single-pass code path runs unchanged for each batch.
-        return _run_batched(
-            lambda _d: predict_mlframe_models_suite(
-                _d, models_path,
-                features_and_targets_extractor=features_and_targets_extractor,
-                model_names=model_names,
-                return_probabilities=return_probabilities,
-                verbose=verbose,
-                trusted_root=trusted_root,
-                predict_batch_rows=None,
-                auxiliary_events_df=auxiliary_events_df,  # an events TABLE (entity/time join), so each batch needs all of it
-                _preloaded_metadata=_shared_metadata,  # read-only here, so every batch shares one load
-            ),
-            df, predict_batch_rows,
+        return _predict_suite_in_batches(
+            df, models_path, features_and_targets_extractor, model_names, return_probabilities, verbose, trusted_root,
+            predict_batch_rows, auxiliary_events_df, _preloaded_metadata,
         )
 
     results: dict[str, Any] = {
@@ -223,16 +273,7 @@ def predict_mlframe_models_suite(
         df = get_pandas_view_of_polars_df(df)
 
     # Replay suite-owned datetime decomposition before validation/pipeline so the predict frame has the SAME derived columns as training; FTE already handled its own ts_field on the line above.
-    df = _replay_suite_datetime_decomposition(df, metadata, verbose=verbose)
-    df = replay_categorical_composite_fe(df, metadata, verbose=verbose)
-    df = replay_entity_time_composite_fe(df, metadata, _predict_group_ids, _predict_timestamps, verbose=verbose)
-    df = replay_cross_sectional_composite_fe(df, metadata, verbose=verbose)
-    df = replay_target_encoding_composite_fe(df, metadata, _predict_group_ids, verbose=verbose)
-    df = replay_per_target_supervised_fe(df, metadata, _predict_group_ids, verbose=verbose)
-    df = replay_ma_crossover_composite_fe(df, metadata, _predict_group_ids, _predict_timestamps, verbose=verbose)
-    df = replay_latent_interaction_svd_composite_fe(df, metadata, auxiliary_events_df, _predict_group_ids, verbose=verbose)
-    df = replay_nearest_past_join_composite_fe(df, metadata, auxiliary_events_df, verbose=verbose)
-    df = replay_event_proximity_decay_composite_fe(df, metadata, _predict_timestamps, verbose=verbose)
+    df = _replay_suite_feature_engineering(df, metadata, _predict_group_ids, _predict_timestamps, auxiliary_events_df, verbose)
 
     df = _validate_input_columns_against_metadata(df, metadata, verbose=bool(verbose))
 
@@ -291,7 +332,7 @@ def _predict_mlframe_mo_quantile_bundles_skipped_fix(metadata, model_files, mode
     """Block of predict_mlframe_models_suite starting at ``per_target_sample_model: dict[tuple[Any, Any], Any] = {}``."""
     probs: Any = None
     preds: Any = None
-    from mlframe.training.core.predict import _apply_pre_pipeline_with_passthrough, _ensure_pandas_view, _is_polars_native_model, _is_post_hoc_calibrated_model
+    from mlframe.training.core.predict import _ensure_pandas_view, _is_post_hoc_calibrated_model
 
     per_target_sample_model: dict[tuple[Any, Any], Any] = {}
     # Arch-4: per-member calibration flags so _combine_probs can WARN on mixed ensembles. One bool
@@ -346,50 +387,9 @@ def _predict_mlframe_mo_quantile_bundles_skipped_fix(metadata, model_files, mode
                 per_target_preds.setdefault((_tt, _tn), []).append(preds)
                 continue
 
-            input_for_model = df
-            # Lazy polars->pandas only when this specific model is NOT polars-native (mirrors the training pattern
-            # in ``_phase_train_one_target`` so two non-native models hit the cache after the first conversion).
-            if isinstance(input_for_model, pl.DataFrame) and not _is_polars_native_model(model_obj):
-                input_for_model = _ensure_pandas_view(input_for_model, _pandas_view_cache)
-            # Shared with predict_from_models: text/embedding passthrough stash + feature-subset
-            # fallback + the value-transform re-raise safety net (a FITTED value-transforming
-            # pre_pipeline that fails to transform must drop the model, not silently serve it
-            # un-transformed columns).
-            input_for_model = _apply_pre_pipeline_with_passthrough(
-                input_for_model,
-                model=model,
-                model_obj=model_obj,
-                pipeline=pipeline,
-                df=df,
-                df_pre_pipeline=df_pre_pipeline,
-                metadata=metadata,
-                model_name=model_name,
-                verbose=verbose,
+            _primary_for_model = _prepare_suite_model_input(
+                df, model, model_obj, pipeline, df_pre_pipeline, metadata, model_name, verbose, _pandas_view_cache,
             )
-
-            input_for_model = _coerce_cat_dtypes_from_metadata(input_for_model, model, metadata)
-
-            # Subset + reorder to the model's own expected feature schema. Without this, a model
-            # trained on a NARROWER feature set than what reaches this point (e.g. a
-            # fairness_features-tracking column like "group" that the training pipeline routes
-            # into fairness reporting but never adds to the actual model's feature matrix) still
-            # carries that extra column here, and CatBoost's positional Pool auto-detection from a
-            # bare DataFrame then misreads a later numeric feature's slot as that extra column --
-            # "Cannot convert 'A' to float" with no indication the real cause is an unsubset frame.
-            # Mirrors predict_from_models's equivalent step in _predict_main_from_models.py.
-            _expected = None
-            if hasattr(model_obj, "pre_pipeline") and model_obj.pre_pipeline is not None:
-                _expected = getattr(model_obj.pre_pipeline, "feature_names_in_", None)
-            if _expected is None:
-                _expected = getattr(model, "feature_names_in_", None)
-            if _expected is None:
-                _expected = getattr(model, "feature_names_", None)
-            input_for_model = _predict_mlframe_mo_expected_none_hasattr_input(_expected, input_for_model)
-            # A genuine schema mismatch (expected column absent entirely) is left for the
-            # model's own predict call to raise on -- this step only removes/reorders EXTRA
-            # columns, it never invents a missing one.
-
-            _primary_for_model = input_for_model
 
             if return_probabilities and hasattr(model, "predict_proba"):
                 # Route through _predict_with_fallback so the same predict-time guards used at training (CB val Pool
@@ -454,6 +454,65 @@ def _predict_mlframe_mo_quantile_bundles_skipped_fix(metadata, model_files, mode
     _soft_fail = take_extensions_soft_fail_taint()
     if _soft_fail:
         results["extensions_soft_fail"] = _soft_fail
+
+
+def _prepare_suite_model_input(
+    df: Any,
+    model: Any,
+    model_obj: Any,
+    pipeline: Any,
+    df_pre_pipeline: Any,
+    metadata: dict,
+    model_name: str,
+    verbose: int,
+    _pandas_view_cache: dict[int, pd.DataFrame],
+) -> Any:
+    """Build the frame one loaded model predicts on: lazy pandas view, pre-pipeline replay, categorical dtypes, and the expected-schema subset."""
+    from mlframe.training.core.predict import _apply_pre_pipeline_with_passthrough, _ensure_pandas_view, _is_polars_native_model
+
+    input_for_model = df
+    # Lazy polars->pandas only when this specific model is NOT polars-native (mirrors the training pattern
+    # in ``_phase_train_one_target`` so two non-native models hit the cache after the first conversion).
+    if isinstance(input_for_model, pl.DataFrame) and not _is_polars_native_model(model_obj):
+        input_for_model = _ensure_pandas_view(input_for_model, _pandas_view_cache)
+    # Shared with predict_from_models: text/embedding passthrough stash + feature-subset
+    # fallback + the value-transform re-raise safety net (a FITTED value-transforming
+    # pre_pipeline that fails to transform must drop the model, not silently serve it
+    # un-transformed columns).
+    input_for_model = _apply_pre_pipeline_with_passthrough(
+        input_for_model,
+        model=model,
+        model_obj=model_obj,
+        pipeline=pipeline,
+        df=df,
+        df_pre_pipeline=df_pre_pipeline,
+        metadata=metadata,
+        model_name=model_name,
+        verbose=verbose,
+    )
+
+    input_for_model = _coerce_cat_dtypes_from_metadata(input_for_model, model, metadata)
+
+    # Subset + reorder to the model's own expected feature schema. Without this, a model
+    # trained on a NARROWER feature set than what reaches this point (e.g. a
+    # fairness_features-tracking column like "group" that the training pipeline routes
+    # into fairness reporting but never adds to the actual model's feature matrix) still
+    # carries that extra column here, and CatBoost's positional Pool auto-detection from a
+    # bare DataFrame then misreads a later numeric feature's slot as that extra column --
+    # "Cannot convert 'A' to float" with no indication the real cause is an unsubset frame.
+    # Mirrors predict_from_models's equivalent step in _predict_main_from_models.py.
+    _expected = None
+    if hasattr(model_obj, "pre_pipeline") and model_obj.pre_pipeline is not None:
+        _expected = getattr(model_obj.pre_pipeline, "feature_names_in_", None)
+    if _expected is None:
+        _expected = getattr(model, "feature_names_in_", None)
+    if _expected is None:
+        _expected = getattr(model, "feature_names_", None)
+    input_for_model = _predict_mlframe_mo_expected_none_hasattr_input(_expected, input_for_model)
+    # A genuine schema mismatch (expected column absent entirely) is left for the
+    # model's own predict call to raise on -- this step only removes/reorders EXTRA
+    # columns, it never invents a missing one.
+    return input_for_model
 
 
 def _predict_mlframe_mo_input_polars_model_files(_input_is_polars, _model_files_for_native_probe, _loaded_models_cache, _all_polars_native):

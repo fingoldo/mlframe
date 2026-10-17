@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Any, ClassVar, List, Optional, cast
+from typing import Any, ClassVar, cast
 
 from mlframe._output_paths import ensure_parent_dir
 import numpy as np
@@ -41,6 +41,7 @@ from ._kaleido import (
     write_image_via_kaleido,
 )
 from ._plotly_interactivity import apply_interactivity, html_config
+from ._plotly_render_layout import _apply_legend_layout, _subplot_specs, _subplot_titles
 from ._plotly_spacing import horizontal_spacing_fraction, row_bottom_furniture_px, vertical_spacing_fraction
 from ._plotly_color import _mpl_to_plotly_cmap
 from ._shared_helpers import (  # noqa: F401 -- _HEATMAP_MAX_TICKS re-exported for callers importing the tick-thinning constant from this module
@@ -284,42 +285,9 @@ class PlotlyRenderer:
         if rows == 0 or cols == 0:
             raise ValueError("FigureSpec has no panels")
 
-        # Per-panel subplot spec: heatmap needs no shared axes; default ``xy`` works for everything else. A line
-        # panel that requests a secondary y-axis must declare ``secondary_y=True`` at subplot-creation time (plotly
-        # can't add a right axis after the grid is built), so detect that here.
-        sub_specs: List[List[Optional[dict]]] = []
-        for _r, row in enumerate(spec.panels):
-            row_specs: List[Optional[dict]] = []  # None means "no subplot in this cell"
-            for c in range(cols):
-                if c >= len(row) or row[c] is None:
-                    # ``None`` means "no subplot here". An empty dict is NOT that -- plotly reads it as a
-                    # default ``xy`` cell, so a 2x2 grid with one None produced 4 axes for 3 traces and drew
-                    # an empty framed panel where matplotlib draws nothing at all.
-                    row_specs.append(None)
-                else:
-                    cell: dict = {"type": "xy"}
-                    if isinstance(row[c], LinePanelSpec) and _line_uses_secondary_y(row[c]):
-                        cell["secondary_y"] = True
-                    row_specs.append(cell)
-            sub_specs.append(row_specs)
+        sub_specs = _subplot_specs(spec, cols)
 
-        # Subplot titles are HTML annotations: wrap long panel titles (~46 chars/line, matching matplotlib) so they fold instead of bleeding into the adjacent subplot, and convert ``\n`` -> ``<br>`` (plotly drops a raw newline).
-        # Measured against the font rather than counted in characters, for the reason the matplotlib twin
-        # documents: a diagnostic title is digits and CamelCase identifiers, not average-width characters.
-        _panel_wrap = panel_title_wrap_chars(spec.figsize, cols)
-        _panel_w_in = float(spec.figsize[0]) / max(cols, 1)
-        subplot_titles = []
-        for row in spec.panels:
-            for c in range(cols):
-                if c >= len(row) or row[c] is None:
-                    subplot_titles.append("")
-                else:
-                    subplot_titles.append(
-                        _wrap_text_to_figure(
-                            getattr(row[c], "title", "") or "",
-                            fontsize=_PANEL_TITLE_FONTSIZE, width_in=_panel_w_in, fallback_chars=_panel_wrap,
-                        )
-                    )
+        subplot_titles = _subplot_titles(spec, cols)
 
         # A colorbar is pinned just outside its own subplot's right edge, and its TICK LABELS stick out further
         # still -- straight into the next column's y-axis title. The gap has to hold the bar, its labels and the
@@ -417,32 +385,7 @@ class PlotlyRenderer:
             # cannot tell apart at a glance. A static export has no hover at all, so it always gets the legend.
             showlegend=True if static_legend else (True if _single_panel_has_labelled_series(spec) else _any_panel_needs_a_legend(spec)),
         )
-        if static_legend:
-            # Park the legend BELOW the plot area (horizontal, centred) so it never overlaps subplot titles / the suptitle the way a default top-right in-plot legend does on multi-panel figures.
-            fig.update_layout(legend=dict(
-                font=dict(size=9), itemsizing="constant",
-                bgcolor="rgba(255,255,255,0.6)",
-                orientation="h", yanchor="top", y=-_below_axis_px / max(spec.figsize[1] * _PX_PER_INCH, 1.0), xanchor="center", x=0.5,
-            ))
-        elif any(getattr(pn, "legend_outside", False) for row in spec.panels for pn in row if pn is not None):
-            # legend_outside / legend_ncol were matplotlib-only, so the many-series overlays they exist for got an
-            # in-axes legend covering the very curves on the HTML backend.
-            _ncol = max((int(getattr(pn, "legend_ncol", 1)) for row in spec.panels for pn in row if pn is not None), default=1)
-            fig.update_layout(legend=dict(
-                font=dict(size=9), itemsizing="constant", bgcolor="rgba(255,255,255,0.6)",
-                yanchor="middle", y=0.5, xanchor="left", x=1.02,
-                # plotly has no column count; a legend the caller wanted in N columns is at least made to
-                # TRACK across instead of running one very tall single file down the side.
-                orientation="h" if _ncol > 1 else "v",
-            ))
-        elif any(getattr(pn, "legend_loc", None) == "lower right" for row in spec.panels for pn in row if pn is not None):
-            # Mirrors the matplotlib ``legend_loc="lower right"`` placement (e.g. the calibration reliability
-            # scatter, whose most informative points sit near the origin) -- plotly's own default in-axes
-            # legend corner is top-right, which would sit on top of that region instead of the empty one.
-            fig.update_layout(legend=dict(
-                font=dict(size=9), itemsizing="constant", bgcolor="rgba(255,255,255,0.7)",
-                yanchor="bottom", y=0.02, xanchor="right", x=0.98,
-            ))
+        _apply_legend_layout(fig, spec, static_legend, _below_axis_px, _PX_PER_INCH)
         # Plotly's cartesian gridlines are drawn at full strength; matplotlib's are alpha=0.3 over the same
         # data, so the two backends printed the same chart at two visual densities. Pin the weight here, once,
         # rather than on every axis call.

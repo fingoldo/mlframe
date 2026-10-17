@@ -50,6 +50,7 @@ from ._phase_fit_pipeline_blocks import (
     _phase_fit_pipeline_string_object_category_columns,
 )
 from ._phase_fit_result import FitPipelineResult
+from ._phase_fit_pipeline_composite import _composite_fe_supervised_target, _run_composite_fe_stages  # noqa: F401
 from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger("mlframe.training.core._phase_helpers_fit_split")
@@ -115,25 +116,6 @@ def _row_wise_replay_config(preprocessing_extensions, fitted: dict) -> dict | No
     return config
 
 
-def _composite_fe_supervised_target(target_by_type, metadata) -> Any:
-    """The target whose labels supervise the suite-level composite-FE steps, recorded in ``metadata`` and logged.
-
-    These steps are fitted once per suite, so they see ONE target: the first one ``target_by_type`` yields. In a
-    multi-target suite the target-encoded / MI-grouped features every other target's model consumes are built from
-    that target's labels, so which one it was must be visible - it shifts with the extractor's target order.
-    """
-    names = [(str(t), str(n)) for t, d in target_by_type.items() for n in (d.keys() if hasattr(d, "keys") else [t])]
-    for _t, _v in target_by_type.items():
-        _name, _cand = next(iter(_v.items())) if hasattr(_v, "items") else (_t, _v)
-        if _cand is not None:
-            if isinstance(metadata, dict):
-                metadata["composite_fe_supervised_target"] = {"target_type": str(_t), "target_name": str(_name)}
-            if len(names) > 1:
-                logger.info("Composite-FE steps are supervised by target %s/%s for all %d targets of this suite.", _t, _name, len(names))
-            return _cand.to_numpy() if hasattr(_cand, "to_numpy") else np.asarray(_cand)
-    return None
-
-
 def _phase_fit_pipeline(
     *,
     train_df: pl.DataFrame | pd.DataFrame | None,
@@ -166,177 +148,49 @@ def _phase_fit_pipeline(
     the fastpath, runs ``fit_and_transform_pipeline``, then applies any
     ``PreprocessingExtensionsConfig``. Mutates ``metadata`` in-place.
     """
-    val_df_polars_pre: Any = None
-    train_df_polars_pre: Any = None
-    test_df_polars_pre: Any = None
-    cat_features_polars: Any = None
     t0_phase3 = timer()
     if verbose:
         log_phase("PHASE 3: Pipeline Fitting & Transformation")
 
     was_polars_input = isinstance(train_df, pl.DataFrame)
 
-    # Capture the RAW input column list BEFORE the main pipeline transform or extensions stage runs. ``metadata["columns"]`` (set later, post-pipeline +
-    # post-extensions) is the *output* schema the trained model was fit on; the predict-time input-validation step needs the *input* schema instead. Without
-    # this snapshot, ``_validate_input_columns_against_metadata`` filters predict inputs against post-pipeline column names (truncatedsvd0..9 from a
-    # PreprocessingExtensionsConfig dim_reducer, or sklearn one-hot expansions cat_low_A / cat_low_B / ...) and drops every raw user column as "extra" - leaving
-    # a (N, 0) frame that crashes the extensions transform with ``Found array with 0 sample(s)`` before any model can run. Surfaced by fuzz iter#189 (binary
-    # classification x lgb,linear,ridge x cat_enc=onehot x dim_reducer=TruncatedSVD x 1M rows).
     _phase_fit_pipeline_classification_lgb_linear_ridge(train_df, metadata)
 
-    _strategies_for_polars_check = [get_strategy(m) for m in mlframe_models] if mlframe_models else []
-    all_models_polars_native = bool(_strategies_for_polars_check) and all(s.supports_polars for s in _strategies_for_polars_check)
-
-    # CatBoost-specific footgun warning: when CB is in the model suite AND categorical_encoding="ordinal" AND the input frame carries categorical columns
-    # (polars Categorical/Enum, or pandas category dtype), the ordinal encoder converts those columns to integer codes BEFORE CatBoost sees them. CatBoost then
-    # loses its native categorical handling (combinations, target-statistics, one-hot small-cardinality fast-path) and treats the int codes as ordered numerics,
-    # which silently degrades accuracy on high-cardinality cats. Detection here is preventive (warning only; no code-path change). Fire the WARN BEFORE the
-    # polars-fastpath auto-flip below otherwise the auto-flip silences the check on the most common polars input path. Cat columns are detected directly from
-    # the train_df schema because FeatureTypesConfig doesn't carry a cat_features list (the public surface is text_features + embedding_features; cat_features
-    # are auto-detected downstream).
-    _has_cb, _all_models_native_cat = _detect_native_cat_models(_strategies_for_polars_check)
-    _ordinal = getattr(pipeline_config, "categorical_encoding", None) == "ordinal" and not getattr(pipeline_config, "skip_categorical_encoding", False)
-    # Skip the cat-schema scan entirely when CatBoost isn't in the suite -- the only consumer of ``_declared_cats`` below is the CB+ordinal warning block and
-    # the CB-native auto-flip; a non-CB suite cannot trip either branch so the pandas ``select_dtypes`` / polars schema iteration is pure waste.
-    _declared_cats: list[str] = []
-    _declared_cats = _phase_fit_pipeline_cb_native_auto_flip(_has_cb, train_df, _declared_cats)
-    # Only auto-flip when EVERY suite model supports native categorical input. If a non-CB / non-native model is also in the suite (e.g. ``ridge``), the ordinal
-    # encoder is required for that model to consume the cats and the auto-flip would crash the non-CB legs downstream with raw strings.
-    if _has_cb and _ordinal and _declared_cats and _all_models_native_cat:
-        # Previously a WARN-only check. Surfaced by the diverse-harness fuzz profile (iter#36 with cat_low + text_col + cb): the ordinal encoder turned text_col
-        # into ints, which CatBoost then refused with "Invalid type for text_feature ... must have string type". Auto-flip skip_categorical_encoding=True so CB
-        # sees the original categorical/text columns and uses its native handling. Caller can still force the old behaviour via
-        # PreprocessingBackendConfig(skip_categorical_encoding=False).
-        logger.warning(
-            "  CatBoost in mlframe_models + categorical_encoding='ordinal' + %d "
-            "categorical column(s) detected. Auto-flipping "
-            "skip_categorical_encoding=True so CB keeps native cat-handling "
-            "(combinations, target-statistics) and text_features stay string-typed. "
-            "Set skip_categorical_encoding=False explicitly to restore the previous "
-            "ordinal-then-CB behaviour.",
-            len(_declared_cats),
-        )
-        pipeline_config = pipeline_config.model_copy(update={"skip_categorical_encoding": True})
-        _ordinal = False
-
-    # Auto-skip categorical encoding when all models handle categoricals natively. Runs AFTER the CB+ordinal WARN above so the warning fires on the user's
-    # *requested* config rather than the auto-flipped one.
-    pipeline_config = _phase_fit_pipeline_requested_config_rather_than(was_polars_input, pipeline_config, all_models_polars_native, verbose, mlframe_models)
+    pipeline_config, all_models_polars_native = _resolve_pipeline_config_for_models(
+        train_df=train_df,
+        mlframe_models=mlframe_models,
+        pipeline_config=pipeline_config,
+        was_polars_input=was_polars_input,
+        verbose=verbose,
+    )
 
     # Datetime columns must be decomposed BEFORE the pre-pipeline clone, otherwise the cloned frames retain raw datetimes and reach downstream where
     # numpy/sklearn/CB raise.
-    def _detect_datetime_cols(df_):
-        """List column names with a datetime/date dtype in ``df_`` (polars or pandas); empty list for a None frame or one exposing neither a polars schema nor pandas dtypes."""
-        if df_ is None:
-            return []
-        if isinstance(df_, pl.DataFrame):
-            return [name for name, dt in df_.schema.items() if isinstance(dt, (pl.Datetime, pl.Date))]
-        if hasattr(df_, "dtypes"):
-            return [c for c in df_.columns if pd.api.types.is_datetime64_any_dtype(df_[c])]
-        return []
+    train_df, val_df, test_df = _decompose_datetime_columns(train_df, val_df, test_df, metadata, feature_types_config, verbose)
 
-    _dt_cols = _detect_datetime_cols(train_df)
-    # Skip datetime sources already decomposed by the FTE (it keeps the original via ``delete_original_cols=False``, so the suite would otherwise re-decompose and emit duplicate / overwriting cols on top of FTE's). The raw source is still removed below so downstream consumers (LGB / XGB / sklearn) don't see a leftover datetime64 column they can't dtype-promote.
-    _fte_emitted_map = metadata.get("ftextractor_emitted_columns") or {}
-    _fte_owned_dt_sources = [c for c in _dt_cols if c in _fte_emitted_map] if _fte_emitted_map else []
-    if _fte_emitted_map:
-        _dt_cols = [c for c in _dt_cols if c not in _fte_emitted_map]
-    test_df, train_df, val_df = _phase_fit_pipeline_fte_owned_dt_sources(_fte_owned_dt_sources, train_df, val_df, test_df)
-    test_df, train_df, val_df = _phase_fit_pipeline_dt_cols(_dt_cols, feature_types_config, verbose, train_df, val_df, test_df, metadata)
+    train_df_polars_pre, val_df_polars_pre, test_df_polars_pre, cat_features_polars = _alias_polars_pre_frames(train_df, val_df, test_df, was_polars_input)
 
-    # Pre-pipeline polars-pre frames are unconditionally ALIASED to the input frames -- never cloned. Audit-time concern (CONV-HIGH-1) was that polars-ds
-    # Blueprint.ordinal_encode / one_hot_encode might mutate the source frame in place. Verified non-issue: ``bp.ordinal_encode(...)`` returns a new Blueprint;
-    # ``bp.materialize()`` produces a pipeline; ``pipeline.transform(df)`` returns a new DataFrame (see pipeline.py:1037). Polars frames are conceptually
-    # immutable through the public API; Arrow buffers are Arc-counted (clone is a refcount bump, not a deep copy). The global string cache (memory note: "polars
-    # 1.x global string cache") grows monotonically -- codes
-    # for existing strings never shift, so aliasing the pre-encoding frame is safe even when the
-    # encoder later sees additional strings. Downstream rebindings of ``train_df_polars_pre`` (via ``_drop_cols_df`` at L645 / ``_precast_strings`` at L674) all
-    # return NEW frames and reassign, so the aliased input is never mutated either.
-    if was_polars_input and isinstance(train_df, pl.DataFrame):
-        train_df_polars_pre = train_df
-        val_df_polars_pre = val_df if isinstance(val_df, pl.DataFrame) else None
-        test_df_polars_pre = test_df if isinstance(test_df, pl.DataFrame) else None
-        cat_features_polars = get_polars_cat_columns(train_df)
-    else:
-        train_df_polars_pre = None
-        val_df_polars_pre = None
-        test_df_polars_pre = None
-        cat_features_polars = []
-
-    # Snapshot a pandas-input train_df BEFORE fit_pipeline applies ordinal / one-hot encoding so the downstream auto-detect phase can see the raw string /
-    # object dtypes. Without this snapshot the ordinal encoder runs first, converts all string columns to integer codes, and the subsequent auto-detect step
-    # (run on the post-pipeline frame) silently classifies everything as numeric -- text columns never get promoted to text_features. Polars input already has
-    # ``train_df_polars_pre`` for this purpose. Gated on ``FeatureTypesConfig.feature_types_first`` so byte-for-byte legacy reproductions can disable. fix audit
-    # row FE-P1-2.
-    _feature_types_first = bool(getattr(feature_types_config, "feature_types_first", True) if feature_types_config is not None else True)
-    # Mutation-immune snapshot for the downstream auto-detect phase. A frame-level snapshot (even ``.copy(deep=False)``) shares the source block-manager and
-    # leaks any in-place numpy poke (``df[col].values[i] = x``) into the snapshot, silently corrupting auto-detect's view of pre-encoding dtypes / cardinality.
-    # The dict captures every datum auto-detect needs (column names, dtype strings, cardinality + non-null counts on text-candidate cols, embedding-shape sniff
-    # result on object cols) at snapshot time so the recorded values are baked and immune to any later mutation on ``train_df``. 100 GB frame discipline: only
-    # string/object/category columns get nunique / count scans; numeric blocks are never touched.
-    train_df_pandas_pre_meta: dict | None = None
-    train_df_pandas_pre_meta = _phase_fit_pipeline_string_object_category_columns(_feature_types_first, was_polars_input, train_df, train_df_pandas_pre_meta)
+    train_df_pandas_pre_meta = _snapshot_pandas_pre_meta(feature_types_config, was_polars_input, train_df)
 
     # Normalize preprocessing_extensions BEFORE the categorical-composite check below (needs a real
     # PreprocessingExtensionsConfig instance, not a raw dict/None) -- hoisted from its original
     # post-fit_and_transform_pipeline position so this earlier, pre-encoding step can read it too.
     preprocessing_extensions = _phase_fit_pipeline_post_fit_transform_pipeline(preprocessing_extensions)
-
-    # Shared train-only y extraction for the composite-FE steps below (categorical auto-group
-    # discovery + two-step target encoding) that need a supervised signal. Cheap no-op when unused.
-    # target_by_type carries the PRE-split full target -- slice to train_idx (mirrors the PySR
-    # extraction below) so these steps never see val/test rows' targets.
-    # Columns the composite-FE steps below add are replayed at predict; the input validator must accept them.
-    _cols_before_composite = list(train_df.columns) if train_df is not None and hasattr(train_df, "columns") else []
-
-    # More than one target: the label-supervised composite steps are fitted per target (``_per_target_supervised_fe``);
-    # the suite-level blocks below then run only their unsupervised parts.
-    from mlframe.training.pipeline.shared import apply_per_target_supervised_fe, iter_targets, supervised_steps_enabled
-
-    _per_target_targets = iter_targets(target_by_type) if supervised_steps_enabled(preprocessing_extensions) and hasattr(target_by_type, "items") else []
-    _per_target_mode = len(_per_target_targets) > 1
-    if _per_target_mode:
-        train_df, val_df, test_df = apply_per_target_supervised_fe(
-            train_df,
-            val_df,
-            test_df,
-            preprocessing_extensions,
-            _per_target_targets,
-            train_idx,
-            group_ids,
-            timestamps,
-            val_idx,
-            test_idx,
-            metadata,
-            verbose=verbose,
-        )
-        _extensions_as_configured = preprocessing_extensions
-        preprocessing_extensions = preprocessing_extensions.model_copy(
-            update={"categorical_group_concat_auto_enabled": False, "two_step_target_encode_columns": None}
-        )
-
-    test_df, train_df, val_df = _phase_fit_pipeline_composite_none(
-        _per_target_mode,
-        target_by_type,
-        metadata,
-        train_idx,
+    train_df, val_df, test_df, preprocessing_extensions = _run_composite_fe_stages(
         train_df,
-        preprocessing_extensions,
         val_df,
         test_df,
-        verbose,
-        group_ids,
-        timestamps,
-        val_idx,
-        test_idx,
-        auxiliary_events_df,
+        preprocessing_extensions,
+        target_by_type=target_by_type,
+        metadata=metadata,
+        train_idx=train_idx,
+        val_idx=val_idx,
+        test_idx=test_idx,
+        group_ids=group_ids,
+        timestamps=timestamps,
+        auxiliary_events_df=auxiliary_events_df,
+        verbose=verbose,
     )
-
-    if _per_target_mode:  # the shared blocks above are done; everything after (and the caller) sees the config as configured
-        preprocessing_extensions = _extensions_as_configured
-    if train_df is not None and hasattr(train_df, "columns"):
-        _before = set(_cols_before_composite)
-        metadata["composite_fe_emitted_columns"] = [c for c in train_df.columns if c not in _before]
 
     t0_fit_pipeline = timer()
     train_df, val_df, test_df, pipeline, cat_features = fit_and_transform_pipeline(
@@ -354,79 +208,28 @@ def _phase_fit_pipeline(
 
     polars_pipeline_applied = was_polars_input and pipeline_config.prefer_polarsds and pipeline is not None
 
-    # PySR symbolic regression (inside apply_preprocessing_extensions) needs a
-    # 1-D y_train. Multi-target pipelines pass a target_by_type dict; pick the
-    # first regression target as the supervised signal for symbolic feature
-    # discovery. Classification-only setups: PySR is regression-only, falls
-    # back to None and the function logs a warning.
-    _y_train_for_ext = None
-    _y_train_for_ext = _phase_fit_pipeline_back_none_function_logs(preprocessing_extensions, target_by_type, verbose, train_idx, train_df, _y_train_for_ext)
-    t0_ext = timer()
     # Snapshot the train_df_polars_pre column set so we can detect which new
     # columns the extensions produced and back-merge them into the polars-pre
     # frames. fix audit row FE-P1-3.
     _pre_polars_columns_snapshot = list(train_df_polars_pre.columns) if isinstance(train_df_polars_pre, pl.DataFrame) else None
-    # Capture PySR's equation -> column-name map so predict can replay symbolic features against the same content-hashed column names that training emitted.
-    _pysr_equations_out: dict = {}
-    _row_wise_replay_out: dict = {}
-    train_df, val_df, test_df, extensions_pipeline = apply_preprocessing_extensions(
+    train_df, val_df, test_df, extensions_pipeline = _run_preprocessing_extensions(
         train_df,
         val_df,
         test_df,
         preprocessing_extensions,
+        target_by_type=target_by_type,
+        metadata=metadata,
+        train_idx=train_idx,
         verbose=verbose,
-        y_train=_y_train_for_ext,
-        out_pysr_equations=_pysr_equations_out,
-        out_row_wise_replay=_row_wise_replay_out,
     )
-    if _pysr_equations_out:
-        metadata["pysr_equations"] = dict(_pysr_equations_out)
-    _rw_replay_config = _row_wise_replay_config(preprocessing_extensions, _row_wise_replay_out)
-    if _rw_replay_config is not None:
-        metadata["row_wise_extensions_config"] = _rw_replay_config
-    if verbose and preprocessing_extensions is not None:
-        logger.info("  apply_preprocessing_extensions done in %s", _elapsed_str(t0_ext))
+
     if extensions_pipeline is not None:
         cat_features = []
-    # Polars-fastpath consumers (CB / XGB polars-native path) only see the
-    # polars-pre frames; copy the extension-produced new columns onto them
-    # so models downstream see consistent feature sets. We use a pandas
-    # bridge for the new columns only (existing polars-pre columns are kept
-    # as-is to preserve native dtypes / categorical metadata). Gated on
-    # new columns actually existing, NOT on extensions_pipeline: row-wise
-    # summary/extreme columns are added to train_df/val_df/test_df even when
-    # no sklearn-bridge stage (scaler/pysr/tfidf/kbins/dim_reducer) is
-    # configured, in which case extensions_pipeline stays None and this
-    # back-merge would otherwise never run, silently dropping those columns
-    # from the polars-native fastpath (e.g. MRMR fit on polars-sourced input).
     test_df_polars_pre, train_df_polars_pre, val_df_polars_pre = _phase_fit_pipeline_polars_native_fastpath_mrmr(
         train_df, _pre_polars_columns_snapshot, was_polars_input, train_df_polars_pre, val_df_polars_pre, test_df_polars_pre, val_df, test_df, verbose
     )
 
-    metadata["pipeline"] = pipeline
-    metadata["extensions_pipeline"] = extensions_pipeline
-    metadata["cat_features"] = cat_features
-    try:
-        from mlframe.training.provenance import record_provenance as _record_provenance
-
-        _record_provenance(
-            metadata,
-            "preprocessing_pipeline",
-            source="train",
-            n_rows=int(train_df.shape[0]) if hasattr(train_df, "shape") else None,
-            extra={"n_features_out": int(train_df.shape[1]) if hasattr(train_df, "shape") and len(train_df.shape) > 1 else None},
-        )
-    except Exception as e:
-        logger.debug("swallowed exception in _phase_helpers_fit_pipeline.py: %s", e)
-        pass
-    _post_cols = train_df.columns.tolist() if isinstance(train_df, pd.DataFrame) else list(train_df.columns)
-    # On a polars run the pandas-tier frame here does not carry the categorical columns (polars-native models read them from
-    # the polars frames), so they were missing from the recorded schema although the model is fitted on them; list them.
-    _post_cols = _post_cols + [c for c in (cat_features or []) if c not in set(_post_cols)]
-    # SKEW-COL-ORDER: write the explicit "post_pipeline_columns" name AND the legacy "columns" alias. ``_post_cols`` is already a freshly built list; reuse
-    # the same reference under both keys so an in-place mutation by one downstream consumer is visible under the other (the historical aliasing contract).
-    metadata["post_pipeline_columns"] = _post_cols
-    metadata["columns"] = _post_cols
+    _stamp_post_pipeline_metadata(metadata, pipeline, extensions_pipeline, cat_features, train_df)
 
     _phase_fit_pipeline_verbose(verbose, train_df, cat_features, was_polars_input, cat_features_polars, t0_phase3)
 
@@ -450,178 +253,14 @@ def _phase_fit_pipeline(
     )
 
 
-def _phase_fit_pipeline_composite_none(
-    _per_target_mode,
-    target_by_type,
-    metadata,
-    train_idx,
-    train_df,
-    preprocessing_extensions,
-    val_df,
-    test_df,
-    verbose,
-    group_ids,
-    timestamps,
-    val_idx,
-    test_idx,
-    auxiliary_events_df,
-):
-    """Block of _phase_fit_pipeline starting at ``_y_for_composite = None``."""
-    _y_for_composite = None
-    _y_for_composite = _phase_fit_pipeline_per_target_mode_target(_per_target_mode, target_by_type, metadata, _y_for_composite)
-    _y_for_composite = _phase_fit_pipeline_block(_y_for_composite, train_idx, train_df)
-
-    # Categorical composite FE (powerset concat / auto MI-grouped concat) -- MUST run before
-    # fit_and_transform_pipeline's categorical encoding: a composite column produced after encoding
-    # would be dropped by apply_preprocessing_extensions' numeric-only gate before any downstream
-    # step saw it. See PreprocessingExtensionsConfig's docstring.
-    if preprocessing_extensions is not None and (
-        getattr(preprocessing_extensions, "categorical_powerset_concat_enabled", False)
-        or getattr(preprocessing_extensions, "categorical_group_concat_auto_enabled", False)
-    ):
-        from mlframe.training.pipeline.shared import apply_categorical_composite_fe
-
-        train_df, val_df, test_df = apply_categorical_composite_fe(
-            train_df,
-            val_df,
-            test_df,
-            preprocessing_extensions,
-            _y_for_composite,
-            metadata,
-            verbose=verbose,
-        )
-
-    # Entity/time-keyed FE (state_duration / recency_aggregation) -- same pre-encoding point, needs
-    # group_ids (threaded through from the FeaturesAndTargetsExtractor's own group-key resolution).
-    if preprocessing_extensions is not None and (
-        getattr(preprocessing_extensions, "state_duration_columns", None) or getattr(preprocessing_extensions, "recency_aggregation_columns", None)
-    ):
-        from mlframe.training.pipeline.shared import apply_entity_time_composite_fe
-
-        train_df, val_df, test_df = apply_entity_time_composite_fe(
-            train_df,
-            val_df,
-            test_df,
-            preprocessing_extensions,
-            group_ids,
-            timestamps,
-            train_idx,
-            val_idx,
-            test_idx,
-            metadata=metadata,
-            verbose=verbose,
-        )
-
-    # Cross-sectional-neighbor FE -- column-declaration-driven (snapshot key is a frame column, not
-    # a side-array), same pre-encoding point.
-    if preprocessing_extensions is not None and getattr(preprocessing_extensions, "cross_sectional_neighbors_snapshot_col", None):
-        from mlframe.training.pipeline.shared import apply_cross_sectional_composite_fe
-
-        train_df, val_df, test_df = apply_cross_sectional_composite_fe(
-            train_df,
-            val_df,
-            test_df,
-            preprocessing_extensions,
-            metadata=metadata,
-            verbose=verbose,
-        )
-
-    # Two-step recency-weighted target encoding -- needs group_ids AND train-only y (real fit-time
-    # state: a per-entity lookup table persisted onto metadata for val/test/predict).
-    if preprocessing_extensions is not None and getattr(preprocessing_extensions, "two_step_target_encode_columns", None):
-        from mlframe.training.pipeline.shared import apply_target_encoding_composite_fe
-
-        train_df, val_df, test_df = apply_target_encoding_composite_fe(
-            train_df,
-            val_df,
-            test_df,
-            preprocessing_extensions,
-            group_ids,
-            timestamps,
-            _y_for_composite,
-            train_idx,
-            val_idx,
-            test_idx,
-            metadata=metadata,
-            verbose=verbose,
-        )
-
-    # MA-crossover FE -- no rolling-MA step of its own in the suite; computed here from declared
-    # numeric columns before feeding the underlying pairwise-crossover function.
-    if preprocessing_extensions is not None and getattr(preprocessing_extensions, "ma_crossover_columns", None):
-        from mlframe.training.pipeline.shared import apply_ma_crossover_composite_fe
-
-        train_df, val_df, test_df = apply_ma_crossover_composite_fe(
-            train_df,
-            val_df,
-            test_df,
-            preprocessing_extensions,
-            group_ids,
-            timestamps,
-            train_idx,
-            val_idx,
-            test_idx,
-            metadata=metadata,
-            verbose=verbose,
-        )
-
-    # SVD latent-interaction embeddings -- needs a SEPARATE auxiliary events table, not columns on
-    # train/val/test. Real fit-time state (the fitted TF-IDF/SVD basis) persisted onto metadata.
-    if preprocessing_extensions is not None and getattr(preprocessing_extensions, "latent_interaction_svd_row_entity", None):
-        from mlframe.training.pipeline.shared import apply_latent_interaction_svd_composite_fe
-
-        train_df, val_df, test_df = apply_latent_interaction_svd_composite_fe(
-            train_df,
-            val_df,
-            test_df,
-            preprocessing_extensions,
-            auxiliary_events_df,
-            group_ids,
-            train_idx,
-            val_idx,
-            test_idx,
-            metadata=metadata,
-            verbose=verbose,
-        )
-
-    # Nearest-past as-of join -- needs the SAME SEPARATE auxiliary events table, no fit-time state
-    # (the backward as-of match is inherently leak-safe by construction).
-    if preprocessing_extensions is not None and getattr(preprocessing_extensions, "nearest_past_join_on", None):
-        from mlframe.training.pipeline.shared import apply_nearest_past_join_composite_fe
-
-        train_df, val_df, test_df = apply_nearest_past_join_composite_fe(
-            train_df,
-            val_df,
-            test_df,
-            preprocessing_extensions,
-            auxiliary_events_df,
-            metadata=metadata,
-            verbose=verbose,
-        )
-
-    # Event-proximity decay -- caller-supplied literal event dates (domain knowledge); dates come
-    # from timestamps (captured before the earlier datetime-column-decomposition phase), not a
-    # train/val/test column.
-    if preprocessing_extensions is not None and getattr(preprocessing_extensions, "event_proximity_decay_event_dates", None):
-        from mlframe.training.pipeline.shared import apply_event_proximity_decay_composite_fe
-
-        train_df, val_df, test_df = apply_event_proximity_decay_composite_fe(
-            train_df,
-            val_df,
-            test_df,
-            preprocessing_extensions,
-            timestamps,
-            train_idx,
-            val_idx,
-            test_idx,
-            metadata=metadata,
-            verbose=verbose,
-        )
-    return test_df, train_df, val_df
-
-
 def _phase_fit_pipeline_classification_lgb_linear_ridge(train_df, metadata):
     """Block of _phase_fit_pipeline starting at ``if train_df is not None and hasattr(train_df, "columns"):``."""
+    # Capture the RAW input column list BEFORE the main pipeline transform or extensions stage runs. ``metadata["columns"]`` (set later, post-pipeline +
+    # post-extensions) is the *output* schema the trained model was fit on; the predict-time input-validation step needs the *input* schema instead. Without
+    # this snapshot, ``_validate_input_columns_against_metadata`` filters predict inputs against post-pipeline column names (truncatedsvd0..9 from a
+    # PreprocessingExtensionsConfig dim_reducer, or sklearn one-hot expansions cat_low_A / cat_low_B / ...) and drops every raw user column as "extra" - leaving
+    # a (N, 0) frame that crashes the extensions transform with ``Found array with 0 sample(s)`` before any model can run. Surfaced by fuzz iter#189 (binary
+    # classification x lgb,linear,ridge x cat_enc=onehot x dim_reducer=TruncatedSVD x 1M rows).
     if train_df is not None and hasattr(train_df, "columns"):
         if isinstance(train_df, pl.DataFrame):
             _raw_cols = list(train_df.columns)
@@ -677,38 +316,6 @@ def _phase_fit_pipeline_post_fit_transform_pipeline(preprocessing_extensions):
         # callers are unaffected (they already construct their own instance upstream).
         preprocessing_extensions = PreprocessingExtensionsConfig()
     return preprocessing_extensions
-
-
-def _phase_fit_pipeline_per_target_mode_target(_per_target_mode, target_by_type, metadata, _y_for_composite):
-    """Block of _phase_fit_pipeline starting at ``if not _per_target_mode and target_by_type is not None and hasattr(tar``."""
-    if not _per_target_mode and target_by_type is not None and hasattr(target_by_type, "items"):
-        try:
-            _y_for_composite = _composite_fe_supervised_target(target_by_type, metadata)
-        except Exception as e:
-            logger.debug("y_for_composite extraction failed: %s", e)
-            _y_for_composite = None
-    return _y_for_composite
-
-
-def _phase_fit_pipeline_block(_y_for_composite, train_idx, train_df):
-    """Block of _phase_fit_pipeline starting at ``if (``."""
-    if (
-        _y_for_composite is not None
-        and train_idx is not None
-        and train_df is not None
-        and hasattr(train_df, "shape")
-        and len(_y_for_composite) != train_df.shape[0]
-    ):
-        try:
-            _idx_arr_composite = np.asarray(train_idx)
-            if train_df is not None and len(_idx_arr_composite) == train_df.shape[0] and int(_idx_arr_composite.max()) < len(_y_for_composite):
-                _y_for_composite = _y_for_composite[_idx_arr_composite]
-            else:
-                _y_for_composite = None
-        except Exception as e:
-            logger.debug("y_for_composite index-alignment failed: %s", e)
-            _y_for_composite = None
-    return _y_for_composite
 
 
 def _phase_fit_pipeline_back_none_function_logs(preprocessing_extensions, target_by_type, verbose, train_idx, train_df, _y_train_for_ext):
@@ -796,6 +403,17 @@ def _phase_fit_pipeline_polars_native_fastpath_mrmr(
     train_df, _pre_polars_columns_snapshot, was_polars_input, train_df_polars_pre, val_df_polars_pre, test_df_polars_pre, val_df, test_df, verbose
 ):
     """Block of _phase_fit_pipeline starting at ``try:``."""
+    # Polars-fastpath consumers (CB / XGB polars-native path) only see the
+    # polars-pre frames; copy the extension-produced new columns onto them
+    # so models downstream see consistent feature sets. We use a pandas
+    # bridge for the new columns only (existing polars-pre columns are kept
+    # as-is to preserve native dtypes / categorical metadata). Gated on
+    # new columns actually existing, NOT on extensions_pipeline: row-wise
+    # summary/extreme columns are added to train_df/val_df/test_df even when
+    # no sklearn-bridge stage (scaler/pysr/tfidf/kbins/dim_reducer) is
+    # configured, in which case extensions_pipeline stays None and this
+    # back-merge would otherwise never run, silently dropping those columns
+    # from the polars-native fastpath (e.g. MRMR fit on polars-sourced input).
     try:
         if isinstance(train_df, pd.DataFrame) and _pre_polars_columns_snapshot is not None and was_polars_input:
             _new_cols = [c for c in train_df.columns if c not in set(_pre_polars_columns_snapshot)]
@@ -874,3 +492,198 @@ def _phase_fit_pipeline_verbose(verbose, train_df, cat_features, was_polars_inpu
         if was_polars_input and cat_features_polars and list(cat_features_polars) != list(cat_features or []):
             logger.info("  Pre-pipeline Polars cat_features: %s", cat_features_polars)
         logger.info("  PHASE 3 total: %s", _elapsed_str(t0_phase3))
+
+
+def _detect_datetime_cols(df_: Any) -> list[str]:
+    """List column names with a datetime/date dtype in ``df_`` (polars or pandas); empty list for a None frame or one exposing neither a polars schema nor pandas dtypes."""
+    if df_ is None:
+        return []
+    if isinstance(df_, pl.DataFrame):
+        return [name for name, dt in df_.schema.items() if isinstance(dt, (pl.Datetime, pl.Date))]
+    if hasattr(df_, "dtypes"):
+        return [c for c in df_.columns if pd.api.types.is_datetime64_any_dtype(df_[c])]
+    return []
+
+
+def _resolve_pipeline_config_for_models(
+    *,
+    train_df: Any,
+    mlframe_models: list[str],
+    pipeline_config: Any,
+    was_polars_input: bool,
+    verbose: bool,
+) -> tuple[Any, bool]:
+    """Apply the CB+ordinal auto-flip and the all-native auto-skip of categorical encoding; return ``(pipeline_config, all_models_polars_native)``."""
+    _strategies_for_polars_check = [get_strategy(m) for m in mlframe_models] if mlframe_models else []
+    all_models_polars_native = bool(_strategies_for_polars_check) and all(s.supports_polars for s in _strategies_for_polars_check)
+
+    # CatBoost-specific footgun warning: when CB is in the model suite AND categorical_encoding="ordinal" AND the input frame carries categorical columns
+    # (polars Categorical/Enum, or pandas category dtype), the ordinal encoder converts those columns to integer codes BEFORE CatBoost sees them. CatBoost then
+    # loses its native categorical handling (combinations, target-statistics, one-hot small-cardinality fast-path) and treats the int codes as ordered numerics,
+    # which silently degrades accuracy on high-cardinality cats. Detection here is preventive (warning only; no code-path change). Fire the WARN BEFORE the
+    # polars-fastpath auto-flip below otherwise the auto-flip silences the check on the most common polars input path. Cat columns are detected directly from
+    # the train_df schema because FeatureTypesConfig doesn't carry a cat_features list (the public surface is text_features + embedding_features; cat_features
+    # are auto-detected downstream).
+    _has_cb, _all_models_native_cat = _detect_native_cat_models(_strategies_for_polars_check)
+    _ordinal = getattr(pipeline_config, "categorical_encoding", None) == "ordinal" and not getattr(pipeline_config, "skip_categorical_encoding", False)
+    # Skip the cat-schema scan entirely when CatBoost isn't in the suite -- the only consumer of ``_declared_cats`` below is the CB+ordinal warning block and
+    # the CB-native auto-flip; a non-CB suite cannot trip either branch so the pandas ``select_dtypes`` / polars schema iteration is pure waste.
+    _declared_cats: list[str] = []
+    _declared_cats = _phase_fit_pipeline_cb_native_auto_flip(_has_cb, train_df, _declared_cats)
+    # Only auto-flip when EVERY suite model supports native categorical input. If a non-CB / non-native model is also in the suite (e.g. ``ridge``), the ordinal
+    # encoder is required for that model to consume the cats and the auto-flip would crash the non-CB legs downstream with raw strings.
+    if _has_cb and _ordinal and _declared_cats and _all_models_native_cat:
+        # Previously a WARN-only check. Surfaced by the diverse-harness fuzz profile (iter#36 with cat_low + text_col + cb): the ordinal encoder turned text_col
+        # into ints, which CatBoost then refused with "Invalid type for text_feature ... must have string type". Auto-flip skip_categorical_encoding=True so CB
+        # sees the original categorical/text columns and uses its native handling. Caller can still force the old behaviour via
+        # PreprocessingBackendConfig(skip_categorical_encoding=False).
+        logger.warning(
+            "  CatBoost in mlframe_models + categorical_encoding='ordinal' + %d "
+            "categorical column(s) detected. Auto-flipping "
+            "skip_categorical_encoding=True so CB keeps native cat-handling "
+            "(combinations, target-statistics) and text_features stay string-typed. "
+            "Set skip_categorical_encoding=False explicitly to restore the previous "
+            "ordinal-then-CB behaviour.",
+            len(_declared_cats),
+        )
+        pipeline_config = pipeline_config.model_copy(update={"skip_categorical_encoding": True})
+        _ordinal = False
+
+    # Auto-skip categorical encoding when all models handle categoricals natively. Runs AFTER the CB+ordinal WARN above so the warning fires on the user's
+    # *requested* config rather than the auto-flipped one.
+    pipeline_config = _phase_fit_pipeline_requested_config_rather_than(was_polars_input, pipeline_config, all_models_polars_native, verbose, mlframe_models)
+    return pipeline_config, all_models_polars_native
+
+
+def _decompose_datetime_columns(
+    train_df: Any,
+    val_df: Any,
+    test_df: Any,
+    metadata: dict,
+    feature_types_config: Any,
+    verbose: bool,
+) -> tuple[Any, Any, Any]:
+    """Decompose datetime columns of the splits (those not already owned by the FTE) and return ``(train_df, val_df, test_df)``."""
+    # Datetime columns must be decomposed BEFORE the pre-pipeline clone, otherwise the cloned frames retain raw datetimes and reach downstream where
+    # numpy/sklearn/CB raise.
+    _dt_cols = _detect_datetime_cols(train_df)
+    # Skip datetime sources already decomposed by the FTE (it keeps the original via ``delete_original_cols=False``, so the suite would otherwise re-decompose and emit duplicate / overwriting cols on top of FTE's). The raw source is still removed below so downstream consumers (LGB / XGB / sklearn) don't see a leftover datetime64 column they can't dtype-promote.
+    _fte_emitted_map = metadata.get("ftextractor_emitted_columns") or {}
+    _fte_owned_dt_sources = [c for c in _dt_cols if c in _fte_emitted_map] if _fte_emitted_map else []
+    if _fte_emitted_map:
+        _dt_cols = [c for c in _dt_cols if c not in _fte_emitted_map]
+    test_df, train_df, val_df = _phase_fit_pipeline_fte_owned_dt_sources(_fte_owned_dt_sources, train_df, val_df, test_df)
+    test_df, train_df, val_df = _phase_fit_pipeline_dt_cols(_dt_cols, feature_types_config, verbose, train_df, val_df, test_df, metadata)
+    return train_df, val_df, test_df
+
+
+def _alias_polars_pre_frames(train_df: Any, val_df: Any, test_df: Any, was_polars_input: bool) -> tuple[Any, Any, Any, Any]:
+    """Return ``(train_pre, val_pre, test_pre, cat_features_polars)``: the polars pre-pipeline frames (aliases, never clones) and polars cat columns."""
+    # Pre-pipeline polars-pre frames are unconditionally ALIASED to the input frames -- never cloned. Audit-time concern (CONV-HIGH-1) was that polars-ds
+    # Blueprint.ordinal_encode / one_hot_encode might mutate the source frame in place. Verified non-issue: ``bp.ordinal_encode(...)`` returns a new Blueprint;
+    # ``bp.materialize()`` produces a pipeline; ``pipeline.transform(df)`` returns a new DataFrame (see pipeline.py:1037). Polars frames are conceptually
+    # immutable through the public API; Arrow buffers are Arc-counted (clone is a refcount bump, not a deep copy). The global string cache (memory note: "polars
+    # 1.x global string cache") grows monotonically -- codes
+    # for existing strings never shift, so aliasing the pre-encoding frame is safe even when the
+    # encoder later sees additional strings. Downstream rebindings of ``train_df_polars_pre`` (via ``_drop_cols_df`` at L645 / ``_precast_strings`` at L674) all
+    # return NEW frames and reassign, so the aliased input is never mutated either.
+    if was_polars_input and isinstance(train_df, pl.DataFrame):
+        train_df_polars_pre = train_df
+        val_df_polars_pre = val_df if isinstance(val_df, pl.DataFrame) else None
+        test_df_polars_pre = test_df if isinstance(test_df, pl.DataFrame) else None
+        cat_features_polars = get_polars_cat_columns(train_df)
+    else:
+        train_df_polars_pre = None
+        val_df_polars_pre = None
+        test_df_polars_pre = None
+        cat_features_polars = []
+    return train_df_polars_pre, val_df_polars_pre, test_df_polars_pre, cat_features_polars
+
+
+def _run_preprocessing_extensions(
+    train_df: Any,
+    val_df: Any,
+    test_df: Any,
+    preprocessing_extensions: Any,
+    *,
+    target_by_type: Any,
+    metadata: dict,
+    train_idx: np.ndarray | None,
+    verbose: bool,
+) -> tuple[Any, Any, Any, Any]:
+    """Extract the PySR y_train, run ``apply_preprocessing_extensions`` and stamp its replay state; return ``(train_df, val_df, test_df, extensions_pipeline)``."""
+    # PySR symbolic regression (inside apply_preprocessing_extensions) needs a
+    # 1-D y_train. Multi-target pipelines pass a target_by_type dict; pick the
+    # first regression target as the supervised signal for symbolic feature
+    # discovery. Classification-only setups: PySR is regression-only, falls
+    # back to None and the function logs a warning.
+    _y_train_for_ext = None
+    _y_train_for_ext = _phase_fit_pipeline_back_none_function_logs(preprocessing_extensions, target_by_type, verbose, train_idx, train_df, _y_train_for_ext)
+    t0_ext = timer()
+    # Capture PySR's equation -> column-name map so predict can replay symbolic features against the same content-hashed column names that training emitted.
+    _pysr_equations_out: dict = {}
+    _row_wise_replay_out: dict = {}
+    train_df, val_df, test_df, extensions_pipeline = apply_preprocessing_extensions(
+        train_df,
+        val_df,
+        test_df,
+        preprocessing_extensions,
+        verbose=verbose,
+        y_train=_y_train_for_ext,
+        out_pysr_equations=_pysr_equations_out,
+        out_row_wise_replay=_row_wise_replay_out,
+    )
+    if _pysr_equations_out:
+        metadata["pysr_equations"] = dict(_pysr_equations_out)
+    _rw_replay_config = _row_wise_replay_config(preprocessing_extensions, _row_wise_replay_out)
+    if _rw_replay_config is not None:
+        metadata["row_wise_extensions_config"] = _rw_replay_config
+    if verbose and preprocessing_extensions is not None:
+        logger.info("  apply_preprocessing_extensions done in %s", _elapsed_str(t0_ext))
+    return train_df, val_df, test_df, extensions_pipeline
+
+
+def _snapshot_pandas_pre_meta(feature_types_config: Any, was_polars_input: bool, train_df: Any) -> dict | None:
+    """Mutation-immune pre-encoding snapshot of a pandas-input ``train_df`` for the downstream auto-detect phase (None when not applicable)."""
+    # Snapshot a pandas-input train_df BEFORE fit_pipeline applies ordinal / one-hot encoding so the downstream auto-detect phase can see the raw string /
+    # object dtypes. Without this snapshot the ordinal encoder runs first, converts all string columns to integer codes, and the subsequent auto-detect step
+    # (run on the post-pipeline frame) silently classifies everything as numeric -- text columns never get promoted to text_features. Polars input already has
+    # ``train_df_polars_pre`` for this purpose. Gated on ``FeatureTypesConfig.feature_types_first`` so byte-for-byte legacy reproductions can disable. fix audit
+    # row FE-P1-2.
+    _feature_types_first = bool(getattr(feature_types_config, "feature_types_first", True) if feature_types_config is not None else True)
+    # Mutation-immune snapshot for the downstream auto-detect phase. A frame-level snapshot (even ``.copy(deep=False)``) shares the source block-manager and
+    # leaks any in-place numpy poke (``df[col].values[i] = x``) into the snapshot, silently corrupting auto-detect's view of pre-encoding dtypes / cardinality.
+    # The dict captures every datum auto-detect needs (column names, dtype strings, cardinality + non-null counts on text-candidate cols, embedding-shape sniff
+    # result on object cols) at snapshot time so the recorded values are baked and immune to any later mutation on ``train_df``. 100 GB frame discipline: only
+    # string/object/category columns get nunique / count scans; numeric blocks are never touched.
+    train_df_pandas_pre_meta: dict | None = None
+    train_df_pandas_pre_meta = _phase_fit_pipeline_string_object_category_columns(_feature_types_first, was_polars_input, train_df, train_df_pandas_pre_meta)
+    return train_df_pandas_pre_meta
+
+
+def _stamp_post_pipeline_metadata(metadata: dict, pipeline: Any, extensions_pipeline: Any, cat_features: Any, train_df: Any) -> None:
+    """Record the fitted pipelines, categorical features, provenance and the post-pipeline column schema into ``metadata``."""
+    metadata["pipeline"] = pipeline
+    metadata["extensions_pipeline"] = extensions_pipeline
+    metadata["cat_features"] = cat_features
+    try:
+        from mlframe.training.provenance import record_provenance as _record_provenance
+
+        _record_provenance(
+            metadata,
+            "preprocessing_pipeline",
+            source="train",
+            n_rows=int(train_df.shape[0]) if hasattr(train_df, "shape") else None,
+            extra={"n_features_out": int(train_df.shape[1]) if hasattr(train_df, "shape") and len(train_df.shape) > 1 else None},
+        )
+    except Exception as e:
+        logger.debug("swallowed exception in _phase_helpers_fit_pipeline.py: %s", e)
+        pass
+    _post_cols = train_df.columns.tolist() if isinstance(train_df, pd.DataFrame) else list(train_df.columns)
+    # On a polars run the pandas-tier frame here does not carry the categorical columns (polars-native models read them from
+    # the polars frames), so they were missing from the recorded schema although the model is fitted on them; list them.
+    _post_cols = _post_cols + [c for c in (cat_features or []) if c not in set(_post_cols)]
+    # SKEW-COL-ORDER: write the explicit "post_pipeline_columns" name AND the legacy "columns" alias. ``_post_cols`` is already a freshly built list; reuse
+    # the same reference under both keys so an in-place mutation by one downstream consumer is visible under the other (the historical aliasing contract).
+    metadata["post_pipeline_columns"] = _post_cols
+    metadata["columns"] = _post_cols

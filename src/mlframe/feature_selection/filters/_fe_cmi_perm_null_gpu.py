@@ -46,7 +46,7 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Optional
+from typing import Any, Optional
 
 import numpy as np
 
@@ -95,6 +95,61 @@ def perm_null_gpu_resident_enabled() -> bool:
     except Exception as e:
         logger.debug("perm-null GPU gate: fe_gpu_strict_resident_enabled() check failed, defaulting to CPU path: %s", e)
         return False
+
+
+def _sparse_perm_null(
+    cp: Any, y_h: np.ndarray, dx: Any, n: int, nperm: int, _nrank: int, z_rank_d: Any, order_d: Any, x_sorted_d: Any, within: Any, quantile: float
+) -> Optional[tuple[float, float]]:
+    """Sparse sort/run-length CMI null over the z-sorted domain; ``None`` when the dense joint is small enough or the sparse path failed."""
+    try:
+        # `isinstance(y_h, cp.ndarray)` can never be True -
+        # y_h is unconditionally built via np.ascontiguousarray at this function's call site, always a
+        # host numpy array. Removed the dead resident-y branch it guarded (misleading: implied a
+        # resident-y fast path that does not exist).
+        from ._fe_resident_operands import resident_operand
+        dyd = resident_operand(np.ascontiguousarray(y_h, dtype=np.int64).ravel(), "cmi_y", dtype=np.int64)
+        Kx = int(dx.max()) + 1
+        Ky = int(dyd.max()) + 1
+        _Kz_est = _nrank  # occupied stratum count (dense rank max + 1)
+        dense_joint_bytes = Kx * Ky * _Kz_est * 8  # span upper bound of the dense (Kx*Kyz) joint
+        sparse_ws_bytes = 4 * n * nperm * 8  # sort + boundary/scan temporaries
+        if dense_joint_bytes > max(sparse_ws_bytes, 64 << 20):
+            inv_n = 1.0 / float(max(1, n))
+            zr = z_rank_d[:, 0].astype(cp.int64)  # (n,) monotone stratum id (z-sorted domain)
+            ys = dyd[order_d]  # fixed target in z-sorted order
+            xs_p = x_sorted_d[within]  # (n, nperm) permuted candidate, z-sorted order
+            key_xz = (zr * np.int64(Kx))[:, None] + xs_p
+            h_xz, k_xz = _sparse_batched_entropy_k(cp, key_xz, inv_n)
+            del key_xz
+            key_xyz = (zr * np.int64(Kx * Ky))[:, None] + xs_p * np.int64(Ky) + ys[:, None]
+            h_xyz, k_xyz = _sparse_batched_entropy_k(cp, key_xyz, inv_n)
+            del key_xyz, xs_p
+            # fixed y/z terms, ONCE per null: zr is already sorted (monotone) and (zr*Ky + ys) sorts cheap.
+            h_z, k_z = _sparse_batched_entropy_k(cp, zr[:, None], inv_n)
+            h_yz, k_yz = _sparse_batched_entropy_k(cp, (zr * np.int64(Ky) + ys)[:, None], inv_n)
+            cmi = cp.maximum((h_xz + float(h_yz[0]) - float(h_z[0]) - h_xyz) - (k_xyz + float(k_z[0]) - k_xz - float(k_yz[0])) * (0.5 * inv_n), 0.0)
+            return _floor_mean_from_nulls_dev(cp, cmi, quantile)  # cmi stays resident
+    except Exception:
+        logger.debug("sparse perm-null CMI failed; dense chunked path", exc_info=True)
+    return None
+
+
+def _stratum_layout(cp: Any, z_i: Any, order: Optional[np.ndarray], z_rank: Optional[np.ndarray], n: int) -> tuple:
+    """Support codes, stratum order and dense stratum rank on the device (derived on-device for a device-born ``z_i``); returns ``(z_for_cmi, order_d, z_rank_d)``."""
+    if isinstance(z_i, cp.ndarray):
+        z_for_cmi = z_i.astype(cp.int64, copy=False).ravel()
+        order_d = cp.argsort(z_for_cmi)  # stratum grouping on device (ties broken by sort)
+        _sorted_z = z_for_cmi[order_d]
+        z_rank_1d = cp.zeros(n, dtype=cp.float64)
+        if n > 1:
+            z_rank_1d[1:] = cp.cumsum((_sorted_z[1:] != _sorted_z[:-1]).astype(cp.float64))  # dense block index
+        z_rank_d = z_rank_1d[:, None]
+        del _sorted_z, z_rank_1d
+    else:
+        z_for_cmi = np.ascontiguousarray(z_i, dtype=np.int64).ravel()
+        order_d = cp.asarray(np.ascontiguousarray(order, dtype=np.int64).ravel())
+        z_rank_d = cp.asarray(np.ascontiguousarray(z_rank, dtype=np.float64).ravel())[:, None]  # (n, 1)
+    return z_for_cmi, order_d, z_rank_d
 
 
 def conditional_perm_null_gpu(
@@ -179,19 +234,7 @@ def conditional_perm_null_gpu(
     # equivalent (its shuffle keys are device-RNG, not numpy's), and any valid stratum grouping yields the same
     # conditional null in distribution -> the floor/mean agree within the gate's razor tolerance. Host z_i keeps
     # the passed-in host order/z_rank (byte path unchanged).
-    if isinstance(z_i, cp.ndarray):
-        z_for_cmi = z_i.astype(cp.int64, copy=False).ravel()
-        order_d = cp.argsort(z_for_cmi)  # stratum grouping on device (ties broken by sort)
-        _sorted_z = z_for_cmi[order_d]
-        z_rank_1d = cp.zeros(n, dtype=cp.float64)
-        if n > 1:
-            z_rank_1d[1:] = cp.cumsum((_sorted_z[1:] != _sorted_z[:-1]).astype(cp.float64))  # dense block index
-        z_rank_d = z_rank_1d[:, None]
-        del _sorted_z, z_rank_1d
-    else:
-        z_for_cmi = np.ascontiguousarray(z_i, dtype=np.int64).ravel()
-        order_d = cp.asarray(np.ascontiguousarray(order, dtype=np.int64).ravel())
-        z_rank_d = cp.asarray(np.ascontiguousarray(z_rank, dtype=np.float64).ravel())[:, None]  # (n, 1)
+    z_for_cmi, order_d, z_rank_d = _stratum_layout(cp, z_i, order, z_rank, n)
     x_sorted_d = dx[order_d]  # x reordered into contiguous stratum blocks
 
     # WITHIN-STRATUM shuffle keys. INT32 RANK-PACK fast path (nsys-driven): the argsort of the
@@ -223,36 +266,9 @@ def conditional_perm_null_gpu(
     # Engaged only when the dense joint would exceed the sparse working set (huge-joint predicate); the dense
     # atomic path (faster at small joints) is otherwise unchanged. Opt-out MLFRAME_FE_CMI_PERM_NULL_SPARSE=0.
     if _perm_null_sparse_enabled():
-        try:
-            # `isinstance(y_h, cp.ndarray)` can never be True -
-            # y_h is unconditionally built via np.ascontiguousarray at this function's call site, always a
-            # host numpy array. Removed the dead resident-y branch it guarded (misleading: implied a
-            # resident-y fast path that does not exist).
-            from ._fe_resident_operands import resident_operand
-            dyd = resident_operand(np.ascontiguousarray(y_h, dtype=np.int64).ravel(), "cmi_y", dtype=np.int64)
-            Kx = int(dx.max()) + 1
-            Ky = int(dyd.max()) + 1
-            _Kz_est = _nrank  # occupied stratum count (dense rank max + 1)
-            dense_joint_bytes = Kx * Ky * _Kz_est * 8  # span upper bound of the dense (Kx*Kyz) joint
-            sparse_ws_bytes = 4 * n * nperm * 8  # sort + boundary/scan temporaries
-            if dense_joint_bytes > max(sparse_ws_bytes, 64 << 20):
-                inv_n = 1.0 / float(max(1, n))
-                zr = z_rank_d[:, 0].astype(cp.int64)  # (n,) monotone stratum id (z-sorted domain)
-                ys = dyd[order_d]  # fixed target in z-sorted order
-                xs_p = x_sorted_d[within]  # (n, nperm) permuted candidate, z-sorted order
-                key_xz = (zr * np.int64(Kx))[:, None] + xs_p
-                h_xz, k_xz = _sparse_batched_entropy_k(cp, key_xz, inv_n)
-                del key_xz
-                key_xyz = (zr * np.int64(Kx * Ky))[:, None] + xs_p * np.int64(Ky) + ys[:, None]
-                h_xyz, k_xyz = _sparse_batched_entropy_k(cp, key_xyz, inv_n)
-                del key_xyz, xs_p
-                # fixed y/z terms, ONCE per null: zr is already sorted (monotone) and (zr*Ky + ys) sorts cheap.
-                h_z, k_z = _sparse_batched_entropy_k(cp, zr[:, None], inv_n)
-                h_yz, k_yz = _sparse_batched_entropy_k(cp, (zr * np.int64(Ky) + ys)[:, None], inv_n)
-                cmi = cp.maximum((h_xz + float(h_yz[0]) - float(h_z[0]) - h_xyz) - (k_xyz + float(k_z[0]) - k_xz - float(k_yz[0])) * (0.5 * inv_n), 0.0)
-                return _floor_mean_from_nulls_dev(cp, cmi, quantile)  # cmi stays resident
-        except Exception:
-            logger.debug("sparse perm-null CMI failed; dense chunked path", exc_info=True)
+        _sparse = _sparse_perm_null(cp, y_h, dx, n, nperm, _nrank, z_rank_d, order_d, x_sorted_d, within, quantile)
+        if _sparse is not None:
+            return _sparse
 
     Xp_d = cp.empty((n, nperm), dtype=cp.int64)
     Xp_d[order_d, :] = x_sorted_d[within]  # xp[order] = x_sorted[within], per perm

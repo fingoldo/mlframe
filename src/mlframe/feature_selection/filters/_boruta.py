@@ -62,6 +62,27 @@ def _resolve_undecided_features_for_round(resolved, hit_counts, rounds_run, n_fe
 
 
 @logs_selection("boruta_select", _summ_boruta)
+def _resolve_feature_layout(X: Any, feature_names: Optional[Sequence[str]]) -> tuple:
+    """Column names, feature count, reported names and pandas-ness of ``X``; returns ``(cols, n_features, names, is_pandas_frame)``."""
+    import pandas as pd
+
+    cols: list = []
+    if hasattr(X, "columns"):
+        cols = list(X.columns)
+        n_features = len(cols)
+        names = list(feature_names) if feature_names is not None else cols
+        # ``hasattr(X, "columns")`` also matches polars.DataFrame, which has no ``.reset_index()``
+        # / isn't accepted by ``pd.concat`` - only route through the pandas-specific shadow
+        # construction below for an actual pandas.DataFrame; every other columned frame type
+        # (polars, etc.) falls through to the dtype-agnostic numpy path, which needs no index.
+        is_pandas_frame = isinstance(X, pd.DataFrame)
+    else:
+        n_features = np.asarray(X).shape[1]
+        names = list(feature_names) if feature_names is not None else [f"f{i}" for i in range(n_features)]
+        is_pandas_frame = False
+    return cols, n_features, names, is_pandas_frame
+
+
 def boruta_select(
     X: Any,
     y: np.ndarray,
@@ -132,19 +153,7 @@ def boruta_select(
     if n_iterations < 1:
         raise ValueError(f"boruta_select: n_iterations must be >= 1; got {n_iterations}")
 
-    if hasattr(X, "columns"):
-        cols = list(X.columns)
-        n_features = len(cols)
-        names = list(feature_names) if feature_names is not None else cols
-        # ``hasattr(X, "columns")`` also matches polars.DataFrame, which has no ``.reset_index()``
-        # / isn't accepted by ``pd.concat`` - only route through the pandas-specific shadow
-        # construction below for an actual pandas.DataFrame; every other columned frame type
-        # (polars, etc.) falls through to the dtype-agnostic numpy path, which needs no index.
-        is_pandas_frame = isinstance(X, pd.DataFrame)
-    else:
-        n_features = np.asarray(X).shape[1]
-        names = list(feature_names) if feature_names is not None else [f"f{i}" for i in range(n_features)]
-        is_pandas_frame = False
+    cols, n_features, names, is_pandas_frame = _resolve_feature_layout(X, feature_names)
 
     rng = np.random.default_rng(random_state)
     hit_counts = np.zeros(n_features, dtype=np.int64)

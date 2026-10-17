@@ -91,6 +91,127 @@ def format_suite_end_summary(
     return "\n".join(lines)
 
 
+def _raw_y_dummy_override(
+    dummy_baselines_metadata: dict, composite_to_raw_target_map: Any, target_type: Any, target_name: Any, strongest: Any, dummy_val: Any,
+) -> tuple[Any, Any, bool]:
+    """For composite targets swap in the raw-y trivial dummy: ``(dummy_val, strongest, used_raw_y_dummy)``."""
+    # For composite targets the verdict
+    # baseline must be a TRULY trivial baseline -- i.e. the
+    # raw-y dummy (``median(y_raw)`` constant prediction on
+    # the original y-scale), NOT the inverted T-dummy. Previous
+    # impl inverted ``median(T_train)`` through fitted
+    # ``alpha * base + beta`` to a y-scale value, but that
+    # uses fitted-alpha information from training -- not a
+    # "trivial" baseline. The composite then "barely beat" it
+    # because they're both non-trivial baselines on y-scale.
+    #
+    # Correct comparison: composite y-scale model RMSE vs
+    # raw target's strongest dummy RMSE (same scale, same
+    # honesty). Lookup via composite_to_raw_target_map.
+    _used_raw_y_dummy = False
+    if composite_to_raw_target_map is not None:
+        _raw_tname = composite_to_raw_target_map.get((str(target_type), str(target_name)))
+        if _raw_tname is not None:
+            _raw_rep = dummy_baselines_metadata.get(target_type, {}).get(_raw_tname)
+            if _raw_rep is not None:
+                _raw_strongest = _raw_rep.get("strongest")
+                _raw_pm = _raw_rep.get("primary_metric")
+                _raw_data = _raw_rep.get("data", {})
+                if _raw_strongest and _raw_pm and _raw_strongest in _raw_data:
+                    _raw_dummy_val = _raw_data[_raw_strongest].get(_raw_pm)
+                    if _raw_dummy_val is not None:
+                        dummy_val = _raw_dummy_val
+                        # Override strongest name in the
+                        # output for clarity (the raw-y dummy
+                        # is conceptually different).
+                        strongest = f"{_raw_strongest} [raw-y trivial]"
+                        _used_raw_y_dummy = True
+    return dummy_val, strongest, _used_raw_y_dummy
+
+
+def _best_model_for_target(
+    best_model_metrics_by_target: Any, cross_target_ensemble_metrics: Any, target_type: Any, target_name: Any, primary_metric: Any,
+) -> tuple[float | None, str, bool]:
+    """Best of the single best model and the cross-target ensemble on the primary metric: ``(model_val, best_model_name, val_selected)``."""
+    # Best model metric lookup (optional). Considers BOTH the single best
+    # individual model AND the cross-target ensemble (NNLS-stack etc.), then
+    # picks whichever is stronger on the primary metric. On strong-AR targets
+    # the ensemble often beats every single model by stacking on top of
+    # lag_predict; before this change the verdict ignored the ensemble and
+    # falsely flagged BEST_MODEL_BELOW_DUMMY even when CT_ENSEMBLE clearly
+    # cleared the dummy floor.
+    best_model_name, _val_selected = "-", False  # _val_selected: the shown CT-ensemble metric was chosen on this split
+    model_val: float | None = None
+    from mlframe.training.metrics_registry import metric_name_higher_is_better as _mhb_pick
+    _direction_pick = _mhb_pick(primary_metric)
+    _is_min_for_pick = True if _direction_pick is None else (not _direction_pick)
+    def _better(a: float | None, b: float | None, _is_min_for_pick: bool = _is_min_for_pick) -> bool:
+        """Direction-aware comparison for the primary metric: ``a`` beats ``b`` if lower (min metrics) or higher (max metrics); a non-finite ``b`` always loses so the first candidate wins."""
+        if a is None or not np.isfinite(a):
+            return False
+        if b is None or not np.isfinite(b):
+            return True
+        return (a < b) if _is_min_for_pick else (a > b)
+    if best_model_metrics_by_target is not None:
+        key = (str(target_type), str(target_name))
+        model_metrics = best_model_metrics_by_target.get(key, {})
+        if model_metrics:
+            # Map the dummy primary_metric to the model's analogue
+            # (e.g. val_RMSE -> RMSE_val or vice versa). Caller is
+            # expected to pass model_metrics keyed compatibly.
+            model_val = model_metrics.get(primary_metric)
+            best_model_name = str(model_metrics.get("model_name", "--"))
+    if cross_target_ensemble_metrics is not None:
+        _ens_key = (str(target_type), str(target_name))
+        _ens_m = cross_target_ensemble_metrics.get(_ens_key, {})
+        _ens_val = _ens_m.get(primary_metric) if _ens_m else None
+        if _better(_ens_val, model_val):
+            model_val, best_model_name = _ens_val, str(_ens_m.get("model_name", "CT_ENSEMBLE"))
+            _val_selected = bool(_ens_m.get("val_selection_biased")) and str(primary_metric).startswith("val_")
+    return model_val, best_model_name, _val_selected
+
+
+def _lift_and_verdict(
+    model_val: float | None, dummy_val: float, is_minimize: bool, min_lift: float, target_name: Any, warn_lines: list,
+) -> tuple[str, str, bool]:
+    """``(lift_str, verdict, is_healthy)`` of the model vs the dummy floor; appends WARN lines for weak / below-dummy models."""
+    healthy = False
+    lift_str = "-"
+    verdict = "-"
+    if model_val is not None and np.isfinite(dummy_val) and np.isfinite(model_val):
+        if is_minimize and model_val > 0:
+            lift = dummy_val / model_val
+        elif not is_minimize and dummy_val > 0:
+            lift = model_val / dummy_val
+        else:
+            lift = float("nan")
+        if np.isfinite(lift):
+            lift_str = f"{lift:.2f}x"
+            if lift >= min_lift:
+                verdict = "TASK_NON_TRIVIAL_AND_MODELS_HEALTHY"
+                healthy = True
+            elif lift < 1.0:
+                verdict = "BEST_MODEL_BELOW_DUMMY"
+                warn_lines.append(
+                    f"[DUMMY_BASELINES] WARN BEST_MODEL_BELOW_DUMMY "
+                    f"target='{target_name}' lift={lift:.2f}x -- the trained model is WORSE than a "
+                    f"trivial baseline. Investigate label encoding, target leak, train/test contamination."
+                )
+            else:
+                # lift in [1.0, min_lift): the model DOES beat the baseline, just not by the margin
+                # worth deploying for. Calling that BEST_MODEL_BELOW_DUMMY -- as this did at
+                # lift=1.34x -- states the opposite of the measurement and sends the reader hunting
+                # for a label-encoding bug that is not there.
+                verdict = "MODELS_BARELY_BEAT_TRIVIAL"
+                warn_lines.append(
+                    f"[DUMMY_BASELINES] WARN BEST_MODEL_LIFT_BELOW_THRESHOLD "
+                    f"target='{target_name}' lift={lift:.2f}x (beats the baseline, but below the "
+                    f"{min_lift:.2f}x bar) -- the signal is real but thin: check whether the features "
+                    f"carry more than the baseline already exploits before shipping this."
+                )
+    return lift_str, verdict, healthy
+
+
 def _summarise_target_reports(dummy_baselines_metadata, n_total, composite_to_raw_target_map, best_model_metrics_by_target, cross_target_ensemble_metrics, min_lift, n_healthy, warn_lines, lines):
     """Format the summary lines of every target report."""
     for target_type, by_name in dummy_baselines_metadata.items():
@@ -105,37 +226,9 @@ def _summarise_target_reports(dummy_baselines_metadata, n_total, composite_to_ra
             dummy_val = strongest_row.get(primary_metric)
             if dummy_val is None:
                 continue
-            # For composite targets the verdict
-            # baseline must be a TRULY trivial baseline -- i.e. the
-            # raw-y dummy (``median(y_raw)`` constant prediction on
-            # the original y-scale), NOT the inverted T-dummy. Previous
-            # impl inverted ``median(T_train)`` through fitted
-            # ``alpha * base + beta`` to a y-scale value, but that
-            # uses fitted-alpha information from training -- not a
-            # "trivial" baseline. The composite then "barely beat" it
-            # because they're both non-trivial baselines on y-scale.
-            #
-            # Correct comparison: composite y-scale model RMSE vs
-            # raw target's strongest dummy RMSE (same scale, same
-            # honesty). Lookup via composite_to_raw_target_map.
-            _used_raw_y_dummy = False
-            if composite_to_raw_target_map is not None:
-                _raw_tname = composite_to_raw_target_map.get((str(target_type), str(target_name)))
-                if _raw_tname is not None:
-                    _raw_rep = dummy_baselines_metadata.get(target_type, {}).get(_raw_tname)
-                    if _raw_rep is not None:
-                        _raw_strongest = _raw_rep.get("strongest")
-                        _raw_pm = _raw_rep.get("primary_metric")
-                        _raw_data = _raw_rep.get("data", {})
-                        if _raw_strongest and _raw_pm and _raw_strongest in _raw_data:
-                            _raw_dummy_val = _raw_data[_raw_strongest].get(_raw_pm)
-                            if _raw_dummy_val is not None:
-                                dummy_val = _raw_dummy_val
-                                # Override strongest name in the
-                                # output for clarity (the raw-y dummy
-                                # is conceptually different).
-                                strongest = f"{_raw_strongest} [raw-y trivial]"
-                                _used_raw_y_dummy = True
+            dummy_val, strongest, _used_raw_y_dummy = _raw_y_dummy_override(
+                dummy_baselines_metadata, composite_to_raw_target_map, target_type, target_name, strongest, dummy_val,
+            )
 
             # No raw-y trivial baseline available (raw target not separately
             # registered / name mismatch): fall back to this composite's OWN
@@ -147,41 +240,9 @@ def _summarise_target_reports(dummy_baselines_metadata, n_total, composite_to_ra
             # ``<split>_<metric>`` (e.g. ``val_RMSE`` -> split ``val``, metric ``RMSE``).
             dummy_val, strongest = _y_scale_strongest_metric(_used_raw_y_dummy, rep_dict, primary_metric, strongest, dummy_val)
 
-            # Best model metric lookup (optional). Considers BOTH the single best
-            # individual model AND the cross-target ensemble (NNLS-stack etc.), then
-            # picks whichever is stronger on the primary metric. On strong-AR targets
-            # the ensemble often beats every single model by stacking on top of
-            # lag_predict; before this change the verdict ignored the ensemble and
-            # falsely flagged BEST_MODEL_BELOW_DUMMY even when CT_ENSEMBLE clearly
-            # cleared the dummy floor.
-            best_model_name, _val_selected = "-", False  # _val_selected: the shown CT-ensemble metric was chosen on this split
-            model_val: float | None = None
-            from mlframe.training.metrics_registry import metric_name_higher_is_better as _mhb_pick
-            _direction_pick = _mhb_pick(primary_metric)
-            _is_min_for_pick = True if _direction_pick is None else (not _direction_pick)
-            def _better(a: float | None, b: float | None, _is_min_for_pick: bool = _is_min_for_pick) -> bool:
-                """Direction-aware comparison for the primary metric: ``a`` beats ``b`` if lower (min metrics) or higher (max metrics); a non-finite ``b`` always loses so the first candidate wins."""
-                if a is None or not np.isfinite(a):
-                    return False
-                if b is None or not np.isfinite(b):
-                    return True
-                return (a < b) if _is_min_for_pick else (a > b)
-            if best_model_metrics_by_target is not None:
-                key = (str(target_type), str(target_name))
-                model_metrics = best_model_metrics_by_target.get(key, {})
-                if model_metrics:
-                    # Map the dummy primary_metric to the model's analogue
-                    # (e.g. val_RMSE -> RMSE_val or vice versa). Caller is
-                    # expected to pass model_metrics keyed compatibly.
-                    model_val = model_metrics.get(primary_metric)
-                    best_model_name = str(model_metrics.get("model_name", "--"))
-            if cross_target_ensemble_metrics is not None:
-                _ens_key = (str(target_type), str(target_name))
-                _ens_m = cross_target_ensemble_metrics.get(_ens_key, {})
-                _ens_val = _ens_m.get(primary_metric) if _ens_m else None
-                if _better(_ens_val, model_val):
-                    model_val, best_model_name = _ens_val, str(_ens_m.get("model_name", "CT_ENSEMBLE"))
-                    _val_selected = bool(_ens_m.get("val_selection_biased")) and str(primary_metric).startswith("val_")
+            model_val, best_model_name, _val_selected = _best_model_for_target(
+                best_model_metrics_by_target, cross_target_ensemble_metrics, target_type, target_name, primary_metric,
+            )
 
             # registry dispatcher. The previous substring
             # whitelist missed val_MAPE (MAPE not in 'MAE' substring),
@@ -193,39 +254,9 @@ def _summarise_target_reports(dummy_baselines_metadata, n_total, composite_to_ra
             _direction = _mhb(primary_metric)
             # Unknown -> default to minimize (the prior heuristic-default).
             is_minimize = True if _direction is None else (not _direction)
-            lift_str = "-"
-            verdict = "-"
-            if model_val is not None and np.isfinite(dummy_val) and np.isfinite(model_val):
-                if is_minimize and model_val > 0:
-                    lift = dummy_val / model_val
-                elif not is_minimize and dummy_val > 0:
-                    lift = model_val / dummy_val
-                else:
-                    lift = float("nan")
-                if np.isfinite(lift):
-                    lift_str = f"{lift:.2f}x"
-                    if lift >= min_lift:
-                        verdict = "TASK_NON_TRIVIAL_AND_MODELS_HEALTHY"
-                        n_healthy += 1
-                    elif lift < 1.0:
-                        verdict = "BEST_MODEL_BELOW_DUMMY"
-                        warn_lines.append(
-                            f"[DUMMY_BASELINES] WARN BEST_MODEL_BELOW_DUMMY "
-                            f"target='{target_name}' lift={lift:.2f}x -- the trained model is WORSE than a "
-                            f"trivial baseline. Investigate label encoding, target leak, train/test contamination."
-                        )
-                    else:
-                        # lift in [1.0, min_lift): the model DOES beat the baseline, just not by the margin
-                        # worth deploying for. Calling that BEST_MODEL_BELOW_DUMMY -- as this did at
-                        # lift=1.34x -- states the opposite of the measurement and sends the reader hunting
-                        # for a label-encoding bug that is not there.
-                        verdict = "MODELS_BARELY_BEAT_TRIVIAL"
-                        warn_lines.append(
-                            f"[DUMMY_BASELINES] WARN BEST_MODEL_LIFT_BELOW_THRESHOLD "
-                            f"target='{target_name}' lift={lift:.2f}x (beats the baseline, but below the "
-                            f"{min_lift:.2f}x bar) -- the signal is real but thin: check whether the features "
-                            f"carry more than the baseline already exploits before shipping this."
-                        )
+            lift_str, verdict, _is_healthy = _lift_and_verdict(model_val, dummy_val, is_minimize, min_lift, target_name, warn_lines)
+            if _is_healthy:
+                n_healthy += 1
 
             # TS_BEATS_TREES heuristic: strongest baseline name contains
             # 'naive' / 'seasonal' / 'rolling' / 'linear_extrap', AND

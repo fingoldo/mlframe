@@ -30,17 +30,8 @@ from mlframe.utils.log_throttle import log_throttle
 logger = logging.getLogger(__name__)
 
 
-def apply_multi_base_forward_stepwise(
-    self: "CompositeTargetDiscovery",
-    kept_specs: list[CompositeSpec],
-    df: Any,
-    target_col: str,
-    train_idx: np.ndarray,
-    y_train: np.ndarray,
-) -> list[CompositeSpec]:
-    """Greedily upgrade single-base ``linear_residual`` specs to multi-base, then dedup by base set."""
-    from .screening import _extract_column_array
-
+def _pool_corr_skip(self: "CompositeTargetDiscovery", kept_specs: list[CompositeSpec]) -> bool:
+    """True when the base pool is uniformly highly-correlated so multi-base promotion must be skipped."""
     # Auto-skip multi-base promotion when the base pool is uniformly highly-correlated: stacking two
     # near-identical bases into a multi-base residual adds NO orthogonal signal but DOUBLES the
     # base-shift amplification of the inverse on unseen groups. (On the prod TVT pool every base was
@@ -71,6 +62,100 @@ def apply_multi_base_forward_stepwise(
             except Exception as e:  # -- the corr guard is a heuristic; never abort discovery on it
                 logger.warning("multibase pool-corr heuristic guard failed: %s", e)
                 _multibase_pool_corr_skip = False
+    return _multibase_pool_corr_skip
+
+
+def _multibase_groups(self: "CompositeTargetDiscovery", train_idx: np.ndarray) -> np.ndarray | None:
+    """Train-row group ids for the group-aware CV of the forward-stepwise search (``None`` when unavailable)."""
+    # Mirrors _tiny_rerank.py / _yscale_holdout_gate.py's own group-aware CV wiring: without this,
+    # forward_stepwise_multi_base's CV always used its own hardcoded seed=42 (not the caller's
+    # configured random_state) and was group-blind (its own time_aware=True default always won over
+    # the group-aware branch since groups was never even passed), so a grouped dataset's greedy
+    # "does this base help?" decision could be driven by within-group memorization rather than
+    # genuine orthogonal signal.
+    _groups_full_for_multibase = getattr(self, "_group_ids_for_rerank", None)
+    _groups_train_for_multibase = None
+    if _groups_full_for_multibase is not None:
+        try:
+            _ga = np.asarray(_groups_full_for_multibase)
+            if _ga.shape[0] >= int(np.max(train_idx) + 1):
+                _groups_train_for_multibase = _ga[train_idx]
+        except (TypeError, ValueError, IndexError):
+            _groups_train_for_multibase = None
+    return _groups_train_for_multibase
+
+
+def _upgrade_spec(
+    self: "CompositeTargetDiscovery", _spec: CompositeSpec, _kept_bases: list[str], _fwd_diag: list, _pool_arrays: dict[str, np.ndarray],
+    _y_train_local: np.ndarray, target_col: str,
+) -> CompositeSpec:
+    """Fit the joint-OLS ``linear_residual_multi`` on the kept bases and build the upgraded spec (carrying the seed's rerank score)."""
+    # Upgrade: fit the linear_residual_multi joint OLS on the kept base set and stamp a NEW spec with extra_base_columns populated.
+    _base_matrix = np.column_stack([_pool_arrays[n] for n in _kept_bases])
+    _multi_params = _linear_residual_multi_fit(_y_train_local, _base_matrix)
+    _new_name = compose_target_name(target_col, "linear_residual_multi", "+".join(_kept_bases))
+    _upgraded_spec = CompositeSpec(
+        name=_new_name,
+        target_col=target_col,
+        transform_name="linear_residual_multi",
+        base_column=_kept_bases[0],
+        fitted_params=_multi_params,
+        mi_gain=float("nan"),  # the screen measured the seed, not this transform (see CompositeSpec.stats_measured_for)
+        mi_y=float("nan"), mi_t=float("nan"),
+        valid_domain_frac=float(np.mean(np.all(np.isfinite(_base_matrix), axis=1) & np.isfinite(_y_train_local))),
+        n_train_rows=int(np.asarray(_y_train_local).size),
+        extra_base_columns=tuple(_kept_bases[1:]),
+        stats_measured_for=_spec.name,
+    )
+    # The upgraded spec carries a NEW name (``...-linear_residual_multi-<bases>``); carry the
+    # seed's tiny-rerank CV-RMSE over to it so the raw-y baseline gate and the public
+    # ``tiny_rerank_scores_`` diagnostic can look it up by the new name. The multi-base composite
+    # is built by ADDING bases to a seed that already cleared the raw-y baseline gate, and every
+    # added base only reduced the joint-OLS residual, so the seed's score is a valid conservative
+    # stand-in. Without this the new name has no score entry and any ``tiny_rerank_scores_[name]``
+    # lookup KeyErrors (regressed the sklearn-matrix composite sweep).
+    _seed_score = getattr(self, "_tiny_rerank_scores", None)
+    if isinstance(_seed_score, dict) and _spec.name in _seed_score:
+        _seed_score[_new_name] = _seed_score[_spec.name]
+    _accepted_steps = [d for d in _fwd_diag if d.get("accepted")]
+    logger.info(
+        "[CompositeTargetDiscovery.multi_base] upgraded spec='%s' -> '%s' with %d base(s); accepted_steps=%s",
+        _spec.name,
+        _new_name,
+        len(_kept_bases),
+        [(d["candidate_added"], f"{d['marginal_gain'] * 100:.1f}%") for d in _accepted_steps],
+    )
+    return _upgraded_spec
+
+
+def _dedup_by_base_set(_upgraded_specs: list[CompositeSpec]) -> list[CompositeSpec]:
+    """Drop specs that repeat an earlier spec's (transform, unordered base set)."""
+    _seen_base_sets: set[tuple[str, frozenset]] = set()
+    _deduped_specs: list[CompositeSpec] = []
+    for _s in _upgraded_specs:
+        _set_key = (
+            _s.transform_name,
+            frozenset((_s.base_column, *tuple(getattr(_s, "extra_base_columns", ()) or ()))),
+        )
+        if _set_key in _seen_base_sets:
+            continue
+        _seen_base_sets.add(_set_key)
+        _deduped_specs.append(_s)
+    return _deduped_specs
+
+
+def apply_multi_base_forward_stepwise(
+    self: "CompositeTargetDiscovery",
+    kept_specs: list[CompositeSpec],
+    df: Any,
+    target_col: str,
+    train_idx: np.ndarray,
+    y_train: np.ndarray,
+) -> list[CompositeSpec]:
+    """Greedily upgrade single-base ``linear_residual`` specs to multi-base, then dedup by base set."""
+    from .screening import _extract_column_array
+
+    _multibase_pool_corr_skip = _pool_corr_skip(self, kept_specs)
     if not (kept_specs and getattr(self.config, "multi_base_enabled", True) and getattr(self, "_auto_base_pool", None) and not _multibase_pool_corr_skip):
         return kept_specs
 
@@ -91,21 +176,7 @@ def apply_multi_base_forward_stepwise(
     _pool_arrays_cache: dict[tuple[str, frozenset], dict[str, np.ndarray]] = {}
     _base_pool_keys_frozen = frozenset(self._auto_base_pool.keys())
     _y_train_local = y_train
-    # Mirrors _tiny_rerank.py / _yscale_holdout_gate.py's own group-aware CV wiring: without this,
-    # forward_stepwise_multi_base's CV always used its own hardcoded seed=42 (not the caller's
-    # configured random_state) and was group-blind (its own time_aware=True default always won over
-    # the group-aware branch since groups was never even passed), so a grouped dataset's greedy
-    # "does this base help?" decision could be driven by within-group memorization rather than
-    # genuine orthogonal signal.
-    _groups_full_for_multibase = getattr(self, "_group_ids_for_rerank", None)
-    _groups_train_for_multibase = None
-    if _groups_full_for_multibase is not None:
-        try:
-            _ga = np.asarray(_groups_full_for_multibase)
-            if _ga.shape[0] >= int(np.max(train_idx) + 1):
-                _groups_train_for_multibase = _ga[train_idx]
-        except (TypeError, ValueError, IndexError):
-            _groups_train_for_multibase = None
+    _groups_train_for_multibase = _multibase_groups(self, train_idx)
     _time_aware_for_multibase = bool(getattr(self, "_screen_time_ordered_", False))
     for _spec in kept_specs:
         if _spec.transform_name != "linear_residual":
@@ -154,52 +225,6 @@ def apply_multi_base_forward_stepwise(
             # No additional bases survived the gate; keep the original single-base spec.
             _upgraded_specs.append(_spec)
             continue
-        # Upgrade: fit the linear_residual_multi joint OLS on the kept base set and stamp a NEW spec with extra_base_columns populated.
-        _base_matrix = np.column_stack([_pool_arrays[n] for n in _kept_bases])
-        _multi_params = _linear_residual_multi_fit(_y_train_local, _base_matrix)
-        _new_name = compose_target_name(target_col, "linear_residual_multi", "+".join(_kept_bases))
-        _upgraded_spec = CompositeSpec(
-            name=_new_name,
-            target_col=target_col,
-            transform_name="linear_residual_multi",
-            base_column=_kept_bases[0],
-            fitted_params=_multi_params,
-            mi_gain=float("nan"),  # the screen measured the seed, not this transform (see CompositeSpec.stats_measured_for)
-            mi_y=float("nan"), mi_t=float("nan"),
-            valid_domain_frac=float(np.mean(np.all(np.isfinite(_base_matrix), axis=1) & np.isfinite(_y_train_local))),
-            n_train_rows=int(np.asarray(_y_train_local).size),
-            extra_base_columns=tuple(_kept_bases[1:]),
-            stats_measured_for=_spec.name,
-        )
-        _upgraded_specs.append(_upgraded_spec)
-        # The upgraded spec carries a NEW name (``...-linear_residual_multi-<bases>``); carry the
-        # seed's tiny-rerank CV-RMSE over to it so the raw-y baseline gate and the public
-        # ``tiny_rerank_scores_`` diagnostic can look it up by the new name. The multi-base composite
-        # is built by ADDING bases to a seed that already cleared the raw-y baseline gate, and every
-        # added base only reduced the joint-OLS residual, so the seed's score is a valid conservative
-        # stand-in. Without this the new name has no score entry and any ``tiny_rerank_scores_[name]``
-        # lookup KeyErrors (regressed the sklearn-matrix composite sweep).
-        _seed_score = getattr(self, "_tiny_rerank_scores", None)
-        if isinstance(_seed_score, dict) and _spec.name in _seed_score:
-            _seed_score[_new_name] = _seed_score[_spec.name]
-        _accepted_steps = [d for d in _fwd_diag if d.get("accepted")]
-        logger.info(
-            "[CompositeTargetDiscovery.multi_base] upgraded spec='%s' -> '%s' with %d base(s); accepted_steps=%s",
-            _spec.name,
-            _new_name,
-            len(_kept_bases),
-            [(d["candidate_added"], f"{d['marginal_gain'] * 100:.1f}%") for d in _accepted_steps],
-        )
+        _upgraded_specs.append(_upgrade_spec(self, _spec, _kept_bases, _fwd_diag, _pool_arrays, _y_train_local, target_col))
     # Two seeds can converge on the same multi-base set yet emit name 'X+Y' vs 'Y+X' for one identical joint-OLS transform; dedup on the unordered base set so we don't train + ensemble two perfectly-correlated members.
-    _seen_base_sets: set[tuple[str, frozenset]] = set()
-    _deduped_specs: list[CompositeSpec] = []
-    for _s in _upgraded_specs:
-        _set_key = (
-            _s.transform_name,
-            frozenset((_s.base_column, *tuple(getattr(_s, "extra_base_columns", ()) or ()))),
-        )
-        if _set_key in _seen_base_sets:
-            continue
-        _seen_base_sets.add(_set_key)
-        _deduped_specs.append(_s)
-    return _deduped_specs
+    return _dedup_by_base_set(_upgraded_specs)

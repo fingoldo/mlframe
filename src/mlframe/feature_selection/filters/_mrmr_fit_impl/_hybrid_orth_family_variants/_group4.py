@@ -7,6 +7,7 @@ section this fans out from and the ``self``/``X`` threading contract (mirrors th
 
 from __future__ import annotations
 
+from typing import Any
 import logging
 
 import numpy as np
@@ -92,6 +93,15 @@ def _hybrid_orth_family_variants_group4(
                 type(_cmim_exc).__name__,
                 _cmim_exc,
             )
+    _ret_hybrid_orth_family_variants_group4_part3 = _hybrid_orth_family_variants_group4_part3(_fe_family_on, _y_np, self, X, _hybrid_orth_pre_recipes, verbose, y)
+    if _ret_hybrid_orth_family_variants_group4_part3[0]:
+        return _ret_hybrid_orth_family_variants_group4_part3[1]
+
+
+def _hybrid_orth_family_variants_group4_part3(
+    _fe_family_on: Any, _y_np: Any, self: Any, X: Any, _hybrid_orth_pre_recipes: Any, verbose: Any, y: Any,
+) -> tuple[Any, ...]:
+    """Extracted block of ``_hybrid_orth_family_variants_group4`` (part 3); returns the names the caller still uses."""
     # Layer 68 — PER-COLUMN SCORER AUTO-SELECTION across the
     # Layer 21 / 65 / 66 / 67 scorer family (independent opt-in; does NOT
     # require fe_hybrid_orth_enable). For each engineered column the
@@ -173,6 +183,16 @@ def _hybrid_orth_family_variants_group4(
                 type(_auto_exc).__name__,
                 _auto_exc,
             )
+    _ret_hybrid_orth_family_variants_group4_part2 = _hybrid_orth_family_variants_group4_part2(_fe_family_on, y, self, X, _hybrid_orth_pre_recipes, verbose, _y_np)
+    if _ret_hybrid_orth_family_variants_group4_part2[0]:
+        return True, (_ret_hybrid_orth_family_variants_group4_part2[1])
+    return False, None
+
+
+def _hybrid_orth_family_variants_group4_part2(
+    _fe_family_on: Any, y: Any, self: Any, X: Any, _hybrid_orth_pre_recipes: Any, verbose: Any, _y_np: Any,
+) -> tuple[Any, ...]:
+    """Extracted block of ``_hybrid_orth_family_variants_group4`` (part 2); returns the names the caller still uses."""
     # Layer 69 — ENSEMBLE-OF-SCORERS rank-fusion across the
     # Layer 21 / 65 / 66 / 67 scorer family (independent opt-in; does NOT
     # require fe_hybrid_orth_enable). Each requested scorer ranks every
@@ -262,6 +282,16 @@ def _hybrid_orth_family_variants_group4(
                 type(_ens_exc).__name__,
                 _ens_exc,
             )
+    _ret_hybrid_orth_family_variants_group4_part1 = _hybrid_orth_family_variants_group4_part1(_fe_family_on, _y_np, self, X, _hybrid_orth_pre_recipes, verbose)
+    if _ret_hybrid_orth_family_variants_group4_part1[0]:
+        return True, (_ret_hybrid_orth_family_variants_group4_part1[1])
+    return False, None
+
+
+def _hybrid_orth_family_variants_group4_part1(
+    _fe_family_on: Any, _y_np: Any, self: Any, X: Any, _hybrid_orth_pre_recipes: Any, verbose: Any,
+) -> tuple[Any, ...]:
+    """Extracted block of ``_hybrid_orth_family_variants_group4`` (part 1); returns the names the caller still uses."""
     # Layer 76 — META-SCORER auto-selection that LEARNS from
     # cheap signal characteristics ("data fingerprints") and dispatches
     # to the predicted-best scorer of the Layer 21 / 65 / 66 / 67 / 71 /
@@ -351,4 +381,5 @@ def _hybrid_orth_family_variants_group4(
                 _meta_exc,
             )
 
-    return X
+    return True, (X)
+    return False, None

@@ -109,6 +109,52 @@ def _proxy_idx_to_names(idx, unit_to_members, working_cols, X_cols) -> list:
     return [str(X_cols[i]) for i in cols]
 
 
+def _residual_regression_template(self: Any) -> Any:
+    """Build the regression booster template pass 2 fits on the continuous residual target."""
+    from mlframe.feature_selection.shap_proxied_fs._shap_proxy_explain import make_default_estimator
+
+    # Pass 2 ALWAYS runs as a REGRESSION booster on continuous residuals, regardless of the outer
+    # task: a classifier fit on a continuous pseudo-residual target would misinterpret it as discrete
+    # labels. When the caller supplied a custom classifier, derive an xgboost regressor with the same
+    # tree budget rather than attempt a generic classifier->regressor clone.
+    if self.model is not None:
+        _n_est_raw = getattr(self.model, "n_estimators", None)
+        n_est = int(_n_est_raw) if _n_est_raw is not None else 300
+        model_template_regression = make_default_estimator(False, random_state=int(self.random_state), n_estimators=n_est)
+    else:
+        booster_kind = self._resolve_booster_kind()
+        model_template_regression = make_default_estimator(
+            False, random_state=int(self.random_state), booster_kind=booster_kind, cat_features=self.cat_features
+        )
+    return model_template_regression
+
+
+def _residual_pass2_shap(
+    self: Any, model_template_regression: Any, X_pass2: pd.DataFrame, residual: np.ndarray, _stage: Callable
+) -> tuple[np.ndarray, Any, Any, Any]:
+    """Run the pass-2 OOF-SHAP fit on the residual; returns ``(phi2, base2, y2, per_fold_phi_mean2)``."""
+    from mlframe.feature_selection.shap_proxied_fs._shap_proxy_explain import compute_shap_matrix
+
+    with _stage("residual_pass"):
+        phi2, base2, y2, per_fold_phi_mean2 = compute_shap_matrix(
+            model_template_regression,
+            X_pass2,
+            residual,
+            classification=False,
+            out_of_fold=True,
+            n_splits=self.n_splits,
+            n_models=1,
+            rng=self._rng,
+            tqdm_desc=("shap-residual" if self.tqdm else None),
+            n_jobs=self.n_jobs,
+            n_estimators_cap=self.oof_shap_n_estimators,
+            inner_n_jobs_cap=self.inner_n_jobs_cap,
+            return_per_fold_phi_mean=True,
+            cache_dir=self.cache_dir,
+        )
+    return phi2, base2, y2, per_fold_phi_mean2
+
+
 def run_residual_pass(
     self: Any,
     phi: np.ndarray,
@@ -146,8 +192,6 @@ def run_residual_pass(
     if n_passes <= 0:
         return rescue_proxy_idx, blend_importance, protected_working_cols
 
-    from mlframe.feature_selection.shap_proxied_fs._shap_proxy_explain import compute_shap_matrix, make_default_estimator
-
     n_proxy = phi.shape[1]
     importance1 = np.abs(phi).mean(axis=0)
     residual = compute_residual_target(phi, base, y_phi, classification=self.classification)
@@ -181,37 +225,8 @@ def run_residual_pass(
     # float64 matrix.
     X_pass2 = X_proxy.iloc[:, kept_proxy_idx] if kept_proxy_idx.size < n_proxy else X_proxy
 
-    # Pass 2 ALWAYS runs as a REGRESSION booster on continuous residuals, regardless of the outer
-    # task: a classifier fit on a continuous pseudo-residual target would misinterpret it as discrete
-    # labels. When the caller supplied a custom classifier, derive an xgboost regressor with the same
-    # tree budget rather than attempt a generic classifier->regressor clone.
-    if self.model is not None:
-        _n_est_raw = getattr(self.model, "n_estimators", None)
-        n_est = int(_n_est_raw) if _n_est_raw is not None else 300
-        model_template_regression = make_default_estimator(False, random_state=int(self.random_state), n_estimators=n_est)
-    else:
-        booster_kind = self._resolve_booster_kind()
-        model_template_regression = make_default_estimator(
-            False, random_state=int(self.random_state), booster_kind=booster_kind, cat_features=self.cat_features
-        )
-
-    with _stage("residual_pass"):
-        phi2, base2, _y2, per_fold_phi_mean2 = compute_shap_matrix(
-            model_template_regression,
-            X_pass2,
-            residual,
-            classification=False,
-            out_of_fold=True,
-            n_splits=self.n_splits,
-            n_models=1,
-            rng=self._rng,
-            tqdm_desc=("shap-residual" if self.tqdm else None),
-            n_jobs=self.n_jobs,
-            n_estimators_cap=self.oof_shap_n_estimators,
-            inner_n_jobs_cap=self.inner_n_jobs_cap,
-            return_per_fold_phi_mean=True,
-            cache_dir=self.cache_dir,
-        )
+    model_template_regression = _residual_regression_template(self)
+    phi2, base2, _y2, per_fold_phi_mean2 = _residual_pass2_shap(self, model_template_regression, X_pass2, residual, _stage)
 
     importance2 = np.abs(phi2).mean(axis=0)
     residual_pred = np.asarray(base2, dtype=np.float64) + phi2.sum(axis=1)

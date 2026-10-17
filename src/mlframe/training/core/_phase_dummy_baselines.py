@@ -62,6 +62,152 @@ def _slice_group_ids_to_splits(group_ids, filtered_train_idx, filtered_val_idx, 
     return _gid_train, _gid_val, _gid_test
 
 
+def _reattach_dropped_high_card_cols(
+    filtered_train_df: Any,
+    filtered_val_df: Any,
+    test_df_pd: Any,
+    cat_features: list[str] | None,
+    _dropped_high_card_data: dict | None,
+    train_od_idx: Any,
+    val_od_idx: Any,
+) -> tuple[Any, Any, Any, list[str]]:
+    """Re-attach high-card cat cols dropped earlier so per_group_mean can use them as group keys: (train_X, val_X, test_X, cat_features)."""
+    _dummy_train_X = filtered_train_df
+    _dummy_val_X = filtered_val_df
+    _dummy_test_X = test_df_pd
+    _dummy_cat_features = list(cat_features or [])
+    if _dropped_high_card_data:
+        try:
+            _dummy_train_X, _dummy_val_X, _dummy_test_X, _added = _augment_with_dropped_high_card_cols(
+                _dropped_high_card_data,
+                filtered_train_df, filtered_val_df, test_df_pd,
+                train_od_idx=train_od_idx, val_od_idx=val_od_idx,
+            )
+            if _added:
+                _dummy_cat_features.extend(_added)
+                logger.debug(
+                    "[dummy-baselines] re-attached %d auto-dropped high-card cat col(s) for per_group_mean: %s",
+                    len(_added), _added,
+                )
+        except Exception as _aug_err:
+            logger.debug(
+                "[dummy-baselines] failed to re-attach dropped high-card cat cols (%s); per_group_mean may be missing",
+                _aug_err,
+            )
+    return _dummy_train_X, _dummy_val_X, _dummy_test_X, _dummy_cat_features
+
+
+def _report_strongest_dummy(
+    db_report: Any,
+    *,
+    cur_target_name: str,
+    target_name: str,
+    model_name: str,
+    target_type: Any,
+    metadata: dict,
+    current_train_target: Any,
+    current_val_target: Any,
+    current_test_target: Any,
+    filtered_train_df: Any,
+    reporting_config: Any,
+    q_alphas: list[float] | None,
+    plot_file: str,
+    split_preds_probs: Any,
+) -> None:
+    """Report the strongest dummy baseline through the same report_model_perf pipeline as real models (best-effort)."""
+    try:
+        _strongest_val_raw = db_report.extras.get("strongest_val_preds")
+        _strongest_test_raw = db_report.extras.get("strongest_test_preds")
+
+        _dummy_is_composite = is_composite_target(cur_target_name, composite_target_names(metadata))
+        _dummy_mt_tag = "MTRESID" if _dummy_is_composite else "MTTR"
+        try:
+            if current_train_target is not None and len(current_train_target) > 0:
+                _dummy_mt_val = float(np.asarray(current_train_target).mean())
+                _dummy_mt_suffix = f" {_dummy_mt_tag}={_dummy_fmt(_dummy_mt_val)}"
+            else:
+                _dummy_mt_suffix = ""
+        except Exception as e:
+            log_throttle(logger, "_phase_dummy_baselines.run_dummy_baselines", logging.WARNING, "dummy multi-target suffix formatting failed: %s", e)
+            _dummy_mt_suffix = ""
+        _dummy_name = f"DummyBaseline:{db_report.strongest} " f"{target_name} {model_name} {cur_target_name}" f"{_dummy_mt_suffix}"
+
+        # ``X or []`` triggers pd.Index.__bool__ which raises ValueError; use an
+        # explicit None/empty check instead. Was: ``getattr(..., "columns", []) or []``.
+        _columns_attr = getattr(filtered_train_df, "columns", None)
+        # Train envelope stats so the dummy report's val/test
+        # charts share the same prediction-clip bound as the
+        # real-model reports (constant-predictor dummies never
+        # exceed the train bound by construction; the wiring
+        # is mostly for consistency + non-dummy callsites that
+        # forward through the same helper).
+        _dummy_envelope_stats = None
+        if current_train_target is not None:
+            try:
+                from .._prediction_envelope_clip import compute_train_envelope_stats
+                _dummy_envelope_stats = compute_train_envelope_stats(current_train_target)
+            except Exception as e:
+                logger.debug("compute_train_envelope_stats failed: %s", e)
+                _dummy_envelope_stats = None
+        _common = dict(
+            columns=list(_columns_attr) if _columns_attr is not None else [],
+            df=None, model=None,
+            model_name=_dummy_name,
+            plot_outputs=getattr(reporting_config, "plot_outputs", None),
+            plot_dpi=getattr(reporting_config, "plot_dpi", None),
+            show_fi=False,
+            target_type=str(target_type),
+            y_train_envelope_stats=_dummy_envelope_stats,
+            # Threaded so report_regression_model_perf can read
+            # regression_title_metrics_tokens; before this the dummy
+            # report path raised NameError on every regression run.
+            reporting_config=reporting_config,
+            quantile_alphas=q_alphas,
+        )
+        _emit_val = bool(getattr(reporting_config, "compute_valset_metrics", True))
+        _emit_test = bool(getattr(reporting_config, "compute_testset_metrics", True))
+        _emit_val_dummy_baselines(_emit_val, _strongest_val_raw, current_val_target, split_preds_probs, target_type, _common, plot_file, db_report)
+        _emit_test_dummy_baselines(_emit_test, _strongest_test_raw, current_test_target, split_preds_probs, target_type, _common, plot_file, db_report)
+    except Exception as _plot_err:  # best-effort: the dummy report path is non-critical; training continues regardless
+        # Include input types in the warning so the "truth value of a Index is
+        # ambiguous"-style pandas booleanness errors can be triaged without
+        # repro. The dummy report path is non-critical; training continues
+        # regardless.
+        _val_t = type(current_val_target).__name__ if current_val_target is not None else "None"
+        _test_t = type(current_test_target).__name__ if current_test_target is not None else "None"
+        _strong_val_t = type(_strongest_val_raw).__name__ if _strongest_val_raw is not None else "None"
+        _strong_test_t = type(_strongest_test_raw).__name__ if _strongest_test_raw is not None else "None"
+        logger.warning(
+            "[dummy-baselines] target='%s' report_model_perf for dummy "
+            "failed: %s [val_target=%s test_target=%s strong_val_preds=%s strong_test_preds=%s]. "
+            "Training continues without pre-training floor report.",
+            cur_target_name, _plot_err,
+            _val_t, _test_t, _strong_val_t, _strong_test_t,
+        )
+
+
+def _record_dummy_baselines_failure(metadata: dict, target_type: Any, cur_target_name: str, err: Exception) -> None:
+    """Stamp a dummy-baselines failure into metadata so CI gates can detect it without scanning logs."""
+    # Surface failure on TWO keys so CI gates can detect "baselines silently failed"
+    # without having to scan logs:
+    #   - dummy_baselines_failures[tt][target_name] = error message (rich detail)
+    #   - dummy_baselines_status                    = "failed" (top-level boolean-like sentinel)
+    # Pre-fix only the deep-nested failures key was set; a CI assertion checking
+    # ``"dummy_baselines" in metadata`` for release-gating saw the slot remain absent on
+    # failure (which read as "step never ran" rather than "step failed") AND the failure
+    # key was easy to miss because it's not part of the standard happy-path key set.
+    metadata.setdefault("dummy_baselines_failures", {}).setdefault(str(target_type), {})[cur_target_name] = str(err)
+    # Top-level status sentinel: any failure flips this from missing/"ok" to "failed".
+    # Callers can gate on ``metadata.get("dummy_baselines_status") != "failed"``.
+    metadata["dummy_baselines_status"] = "failed"
+    metadata.setdefault("dummy_baselines_status_detail", []).append({
+        "target_type": str(target_type),
+        "target_name": cur_target_name,
+        "error_type": type(err).__name__,
+        "error": str(err),
+    })
+
+
 def run_dummy_baselines(
     *,
     target_type: Any,
@@ -127,29 +273,9 @@ def run_dummy_baselines(
         _ts_val = timestamps[filtered_val_idx] if timestamps is not None and filtered_val_idx is not None else None
         _ts_test = timestamps[test_idx] if timestamps is not None and test_idx is not None else None
 
-        # Re-attach high-card cat cols dropped earlier so per_group_mean can use them as group keys.
-        _dummy_train_X = filtered_train_df
-        _dummy_val_X = filtered_val_df
-        _dummy_test_X = test_df_pd
-        _dummy_cat_features = list(cat_features or [])
-        if _dropped_high_card_data:
-            try:
-                _dummy_train_X, _dummy_val_X, _dummy_test_X, _added = _augment_with_dropped_high_card_cols(
-                    _dropped_high_card_data,
-                    filtered_train_df, filtered_val_df, test_df_pd,
-                    train_od_idx=train_od_idx, val_od_idx=val_od_idx,
-                )
-                if _added:
-                    _dummy_cat_features.extend(_added)
-                    logger.debug(
-                        "[dummy-baselines] re-attached %d auto-dropped high-card cat col(s) for per_group_mean: %s",
-                        len(_added), _added,
-                    )
-            except Exception as _aug_err:
-                logger.debug(
-                    "[dummy-baselines] failed to re-attach dropped high-card cat cols (%s); per_group_mean may be missing",
-                    _aug_err,
-                )
+        _dummy_train_X, _dummy_val_X, _dummy_test_X, _dummy_cat_features = _reattach_dropped_high_card_cols(
+            filtered_train_df, filtered_val_df, test_df_pd, cat_features, _dropped_high_card_data, train_od_idx, val_od_idx,
+        )
 
         _q_alphas = None
         if str(target_type) == "quantile_regression":
@@ -192,75 +318,22 @@ def run_dummy_baselines(
 
         # Report strongest dummy through the same report_model_perf pipeline as real models. Gated on plot_strongest.
         if getattr(dummy_baselines_config, "plot_strongest", True) and _db_report.strongest is not None:
-            try:
-                _strongest_val_raw = _db_report.extras.get("strongest_val_preds")
-                _strongest_test_raw = _db_report.extras.get("strongest_test_preds")
-
-                _dummy_is_composite = is_composite_target(cur_target_name, composite_target_names(metadata))
-                _dummy_mt_tag = "MTRESID" if _dummy_is_composite else "MTTR"
-                try:
-                    if current_train_target is not None and len(current_train_target) > 0:
-                        _dummy_mt_val = float(np.asarray(current_train_target).mean())
-                        _dummy_mt_suffix = f" {_dummy_mt_tag}={_dummy_fmt(_dummy_mt_val)}"
-                    else:
-                        _dummy_mt_suffix = ""
-                except Exception as e:
-                    log_throttle(logger, "_phase_dummy_baselines.run_dummy_baselines", logging.WARNING, "dummy multi-target suffix formatting failed: %s", e)
-                    _dummy_mt_suffix = ""
-                _dummy_name = f"DummyBaseline:{_db_report.strongest} " f"{target_name} {model_name} {cur_target_name}" f"{_dummy_mt_suffix}"
-
-                # ``X or []`` triggers pd.Index.__bool__ which raises ValueError; use an
-                # explicit None/empty check instead. Was: ``getattr(..., "columns", []) or []``.
-                _columns_attr = getattr(filtered_train_df, "columns", None)
-                # Train envelope stats so the dummy report's val/test
-                # charts share the same prediction-clip bound as the
-                # real-model reports (constant-predictor dummies never
-                # exceed the train bound by construction; the wiring
-                # is mostly for consistency + non-dummy callsites that
-                # forward through the same helper).
-                _dummy_envelope_stats = None
-                if current_train_target is not None:
-                    try:
-                        from .._prediction_envelope_clip import compute_train_envelope_stats
-                        _dummy_envelope_stats = compute_train_envelope_stats(current_train_target)
-                    except Exception as e:
-                        logger.debug("compute_train_envelope_stats failed: %s", e)
-                        _dummy_envelope_stats = None
-                _common = dict(
-                    columns=list(_columns_attr) if _columns_attr is not None else [],
-                    df=None, model=None,
-                    model_name=_dummy_name,
-                    plot_outputs=getattr(reporting_config, "plot_outputs", None),
-                    plot_dpi=getattr(reporting_config, "plot_dpi", None),
-                    show_fi=False,
-                    target_type=str(target_type),
-                    y_train_envelope_stats=_dummy_envelope_stats,
-                    # Threaded so report_regression_model_perf can read
-                    # regression_title_metrics_tokens; before this the dummy
-                    # report path raised NameError on every regression run.
-                    reporting_config=reporting_config,
-                    quantile_alphas=_q_alphas,
-                )
-                _emit_val = bool(getattr(reporting_config, "compute_valset_metrics", True))
-                _emit_test = bool(getattr(reporting_config, "compute_testset_metrics", True))
-                _emit_val_dummy_baselines(_emit_val, _strongest_val_raw, current_val_target, _split_preds_probs, target_type, _common, plot_file, _db_report)
-                _emit_test_dummy_baselines(_emit_test, _strongest_test_raw, current_test_target, _split_preds_probs, target_type, _common, plot_file, _db_report)
-            except Exception as _plot_err:  # best-effort: the dummy report path is non-critical; training continues regardless
-                # Include input types in the warning so the "truth value of a Index is
-                # ambiguous"-style pandas booleanness errors can be triaged without
-                # repro. The dummy report path is non-critical; training continues
-                # regardless.
-                _val_t = type(current_val_target).__name__ if current_val_target is not None else "None"
-                _test_t = type(current_test_target).__name__ if current_test_target is not None else "None"
-                _strong_val_t = type(_strongest_val_raw).__name__ if _strongest_val_raw is not None else "None"
-                _strong_test_t = type(_strongest_test_raw).__name__ if _strongest_test_raw is not None else "None"
-                logger.warning(
-                    "[dummy-baselines] target='%s' report_model_perf for dummy "
-                    "failed: %s [val_target=%s test_target=%s strong_val_preds=%s strong_test_preds=%s]. "
-                    "Training continues without pre-training floor report.",
-                    cur_target_name, _plot_err,
-                    _val_t, _test_t, _strong_val_t, _strong_test_t,
-                )
+            _report_strongest_dummy(
+                _db_report,
+                cur_target_name=cur_target_name,
+                target_name=target_name,
+                model_name=model_name,
+                target_type=target_type,
+                metadata=metadata,
+                current_train_target=current_train_target,
+                current_val_target=current_val_target,
+                current_test_target=current_test_target,
+                filtered_train_df=filtered_train_df,
+                reporting_config=reporting_config,
+                q_alphas=_q_alphas,
+                plot_file=plot_file,
+                split_preds_probs=_split_preds_probs,
+            )
 
         metadata.setdefault("dummy_baselines", {}).setdefault(str(target_type), {})[cur_target_name] = _db_report.to_dict()
 
@@ -276,24 +349,7 @@ def run_dummy_baselines(
             "Training continues without baseline floor.",
             cur_target_name, target_type, _db_err,
         )
-        # Surface failure on TWO keys so CI gates can detect "baselines silently failed"
-        # without having to scan logs:
-        #   - dummy_baselines_failures[tt][target_name] = error message (rich detail)
-        #   - dummy_baselines_status                    = "failed" (top-level boolean-like sentinel)
-        # Pre-fix only the deep-nested failures key was set; a CI assertion checking
-        # ``"dummy_baselines" in metadata`` for release-gating saw the slot remain absent on
-        # failure (which read as "step never ran" rather than "step failed") AND the failure
-        # key was easy to miss because it's not part of the standard happy-path key set.
-        metadata.setdefault("dummy_baselines_failures", {}).setdefault(str(target_type), {})[cur_target_name] = str(_db_err)
-        # Top-level status sentinel: any failure flips this from missing/"ok" to "failed".
-        # Callers can gate on ``metadata.get("dummy_baselines_status") != "failed"``.
-        metadata["dummy_baselines_status"] = "failed"
-        metadata.setdefault("dummy_baselines_status_detail", []).append({
-            "target_type": str(target_type),
-            "target_name": cur_target_name,
-            "error_type": type(_db_err).__name__,
-            "error": str(_db_err),
-        })
+        _record_dummy_baselines_failure(metadata, target_type, cur_target_name, _db_err)
 
     return metadata
 

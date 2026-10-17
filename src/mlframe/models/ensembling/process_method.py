@@ -8,7 +8,7 @@ threshold. ``_process_single_ensemble_method`` is the per-method worker that
 from __future__ import annotations
 
 import logging
-from typing import Callable, Optional, Sequence
+from typing import Any, Callable, Optional, Sequence
 
 import numpy as np
 import pandas as pd
@@ -115,35 +115,12 @@ def _process_single_ensemble_method(
     use_ap12_calibrated_probs: bool = True,
 ) -> tuple:
     """Process a single ensemble method. Returns (method_name, results, conf_results, next_level_pred)."""
-    # E1.1 opt-out: these lazy imports break a circular dep with mlframe.training.
-    # The Parallel dispatch at line 2539 uses ``backend="loky"`` (process workers,
-    # not threads), so each fork has its own Python interpreter -- no shared
-    # import state to race against. Safe to keep lazy here.
-    from mlframe.training import train_and_evaluate_model  # joblib-import-race-ok
-    from mlframe.training.shared import build_configs_from_params as _build_configs_from_params  # joblib-import-race-ok
-
-    # val_preds / test_preds may be ``None`` when the
-    # corresponding split metric computation was disabled at suite level
-    # (``ReportingConfig.compute_valset_metrics=False`` /
-    # ``compute_testset_metrics=False``). Pre-fix the bare
-    # ``el.val_preds.reshape(-1, 1)`` raised AttributeError on the first
-    # ``None``-valued member. Mirrors the existing train-side guard at
-    # the bottom of this function (line ~870). When NO members have val
-    # preds, the ensemble call gets an empty tuple; downstream
-    # ``ensemble_probabilistic_predictions`` already returns
-    # ``(None, None, None)`` for that case (line ~438).
-    # NNLS-weight alignment: when ``precomputed_weights`` is supplied it is length-M aligned to
-    # ``level_models_and_predictions``. Each per-split branch below filters None members so we
-    # build a parallel mask + slice the weights before handing them to ``ensemble_probabilistic_predictions``.
+    # val_preds / test_preds may be ``None`` when the corresponding split metric computation was disabled at suite level
+    # (``ReportingConfig.compute_valset_metrics=False`` / ``compute_testset_metrics=False``); members without preds are skipped.
+    # When NO members have preds for a split, that split's ensemble is ``None``.
+    # NNLS-weight alignment: when ``precomputed_weights`` is supplied it is length-M aligned to ``level_models_and_predictions``.
+    # Each per-split branch filters None members, so a parallel mask slices the weights before the ensemble call.
     _pcw_full = np.asarray(precomputed_weights, dtype=np.float64).reshape(-1) if precomputed_weights is not None else None
-
-    def _slice_weights(mask: list[bool]) -> Optional[np.ndarray]:
-        """Slice ``_pcw_full`` down to the members present in this split (dropping ``None``-prediction members), returning ``None`` when there are no precomputed weights or the mask length doesn't match (weights not aligned to this call's member set)."""
-        if _pcw_full is None:
-            return None
-        if _pcw_full.shape[0] != len(mask):
-            return None
-        return np.asarray(_pcw_full[np.asarray(mask, dtype=bool)])
 
     # RRF is rank-based and scale-invariant by construction (per ``rrf_ensemble`` docstring at
     # _ensembling_base.py:493). Calibrating before rank fusion is a no-op on rank order and a small loss on the
@@ -151,134 +128,29 @@ def _process_single_ensemble_method(
     # RRF regardless of the knob so the historical RRF semantics are preserved bit-for-bit.
     _use_cal = use_ap12_calibrated_probs and ensemble_method != "rrf"
 
-    if not is_regression:
-        _val_probs_list = _select_split_probs(level_models_and_predictions, "val", _use_cal)
-        _val_mask = [p is not None for p in _val_probs_list]
-        _val_preds = [p for p in _val_probs_list if p is not None]
-        predictions = iter(_val_preds)
-    else:
-        _val_mask = [el.val_preds is not None for el in level_models_and_predictions]
-        _val_preds = [el.val_preds for el in level_models_and_predictions if el.val_preds is not None]
-        # reshape(shape[0], -1) keeps the ROW axis: (N,)->(N,1) for single-target regression
-        # (bit-identical to the old reshape(-1,1)), (N,K)->(N,K) for multi_target_regression.
-        # The old reshape(-1,1) flattened (N,K)->(N*K,1), so ensemble_probabilistic_predictions
-        # saw N*K "rows" and returned confident_indices up to N*K, which then IndexError'd when
-        # indexing the per-row test_idx / *_target / *_ensembled_predictions arrays (size N).
-        predictions = (p.reshape(p.shape[0], -1) for p in _val_preds)
+    ens_kw: dict = dict(
+        ensemble_method=ensemble_method,
+        max_mae=max_mae,
+        max_std=max_std,
+        max_mae_relative=max_mae_relative,
+        max_std_relative=max_std_relative,
+        ensure_prob_limits=ensure_prob_limits,
+        uncertainty_quantile=uncertainty_quantile,
+        normalize_stds_by_mean_preds=normalize_stds_by_mean_preds,
+        verbose=verbose,
+        sample_weight=sample_weight,
+        rrf_k=rrf_k,
+    )
 
-    # No member carries this split's preds (e.g. compute_valset_metrics=False): skip the ensemble call.
-    # ensemble_probabilistic_predictions now raises on empty input, so the empty case is guarded here.
-    if len(_val_preds) == 0:
-        val_ensembled_predictions, val_confident_indices = None, None
-    else:
-        val_ensembled_predictions, _, val_confident_indices = ensemble_probabilistic_predictions(
-            *predictions,
-            ensemble_method=ensemble_method,
-            max_mae=max_mae,
-            max_std=max_std,
-            max_mae_relative=max_mae_relative,
-            max_std_relative=max_std_relative,
-            ensure_prob_limits=ensure_prob_limits,
-            uncertainty_quantile=uncertainty_quantile,
-            normalize_stds_by_mean_preds=normalize_stds_by_mean_preds,
-            verbose=verbose,
-            sample_weight=sample_weight,
-            rrf_k=rrf_k,
-            precomputed_weights=_slice_weights(_val_mask),
-        )
+    _val_mask, _val_preds = _split_member_predictions(level_models_and_predictions, "val", is_regression, _use_cal)
+    val_ensembled_predictions, val_confident_indices = _ensemble_one_split(_val_preds, is_regression, _slice_weights(_pcw_full, _val_mask), ens_kw)
 
-    # same ``None``-guard for test_preds / test_probs.
-    if not is_regression:
-        _test_probs_list = _select_split_probs(level_models_and_predictions, "test", _use_cal)
-        _test_mask = [p is not None for p in _test_probs_list]
-        _test_preds = [p for p in _test_probs_list if p is not None]
-        predictions = iter(_test_preds)
-    else:
-        _test_mask = [el.test_preds is not None for el in level_models_and_predictions]
-        _test_preds = [el.test_preds for el in level_models_and_predictions if el.test_preds is not None]
-        predictions = (p.reshape(p.shape[0], -1) for p in _test_preds)  # preserve row axis for multi-target (see val-branch note)
+    _test_mask, _test_preds = _split_member_predictions(level_models_and_predictions, "test", is_regression, _use_cal)
+    test_ensembled_predictions, test_confident_indices = _ensemble_one_split(_test_preds, is_regression, _slice_weights(_pcw_full, _test_mask), ens_kw)
 
-    if len(_test_preds) == 0:
-        test_ensembled_predictions, test_confident_indices = None, None
-    else:
-        test_ensembled_predictions, _, test_confident_indices = ensemble_probabilistic_predictions(
-            *predictions,
-            ensemble_method=ensemble_method,
-            max_mae=max_mae,
-            max_std=max_std,
-            max_mae_relative=max_mae_relative,
-            max_std_relative=max_std_relative,
-            ensure_prob_limits=ensure_prob_limits,
-            uncertainty_quantile=uncertainty_quantile,
-            normalize_stds_by_mean_preds=normalize_stds_by_mean_preds,
-            verbose=verbose,
-            sample_weight=sample_weight,
-            rrf_k=rrf_k,
-            precomputed_weights=_slice_weights(_test_mask),
-        )
-
-    # Level-1 aggregation reads OOF predictions when present (the K-fold cross_val_predict output stamped by the trainer), not in-sample ``train_preds``/``train_probs`` -- the latter are produced by predicting on rows the model already saw during fit and leak that fit's residual structure into a meta-learner. Falling back to ``train_*`` keeps the path alive when OOF was unavailable (e.g. tiny datasets, multi-output paths where ``cross_val_predict`` skipped); a higher-level guard in ``score_ensemble`` raises when ``max_ensembling_level > 1`` AND any member is missing OOF.
-    #
-    # Existence check uses ``isinstance(..., np.ndarray)`` rather than ``is not None`` because MagicMock-based test doubles auto-fabricate any attribute access (mock.oof_probs returns a MagicMock, never None); falling back on the array-instance check keeps the production path identical while letting test mocks still hit the train_*/branch when they only stamp train_*/val_* arrays.
-    #
-    # ``_fallback_used`` collects member indices where the OOF attribute was absent and we silently consumed ``train_*``. Surfaced as a single WARN below so operators can audit suites running with cross_val_predict disabled -- pre-fix shape was completely silent and the level-1 "train" branch of every ensemble flavour got evaluated on leaked rows.
-    _fallback_used: list[int] = []
-
-    def _oof_or_train(el, oof_attr, train_attr, _idx, _prefer_calibrated: bool = False):
-        """Return this member's OOF predictions (preferring the AP12-calibrated variant when requested), falling back to in-sample train predictions when OOF is absent -- recording ``_idx`` in ``_fallback_used`` so the leaked-row fallback can be surfaced in a single WARN below."""
-        # Prefer AP12-calibrated OOF / train probs when the knob is on; transparent fall-through to raw when the
-        # stamp is missing (legacy / opt-out callers). OOF is the calibrator's fit source so most members will not
-        # carry calibrated_oof_probs -- that's expected; the lookup is a no-op for them.
-        if _prefer_calibrated:
-            _cal_oof = getattr(el, f"calibrated_{oof_attr}", None)
-            if isinstance(_cal_oof, np.ndarray):
-                return _cal_oof
-        _oof = getattr(el, oof_attr, None)
-        if isinstance(_oof, np.ndarray):
-            return _oof
-        if _prefer_calibrated:
-            _cal_train = getattr(el, f"calibrated_{train_attr}", None)
-            if isinstance(_cal_train, np.ndarray):
-                _fallback_used.append(_idx)
-                return _cal_train
-        _train = getattr(el, train_attr, None)
-        if isinstance(_train, np.ndarray):
-            _fallback_used.append(_idx)
-        return _train
-
-    train_predictions = _collect_train_predictions(is_regression, level_models_and_predictions, _oof_or_train, _use_cal, _fallback_used)
-
-    if _fallback_used:
-        logger.warning(
-            "ensemble '%s' L%d: OOF preds missing on members %s; silently fell back to in-sample train_* arrays. "
-            "Train-branch metrics for this ensemble are computed on LEAKED rows and will look optimistically biased. "
-            "Re-train with oof_n_splits>=2 (cross_val_predict) so OOF preds are stamped on every model, or call "
-            "score_ensemble(max_ensembling_level=1) accepting the train-fallback explicitly.",
-            ensemble_method, ensembling_level, _fallback_used,
-        )
-
-    # train branch: ``predictions`` was built via ``_oof_or_train`` which preserves the per-member
-    # order but may contain ``None`` entries when neither OOF nor train_* was available. Build the
-    # alignment mask to slice precomputed_weights consistently with the per-split branches above.
-    _train_mask = [(p is not None) for p in train_predictions] if train_predictions else []
-    if not any(_train_mask):
-        train_ensembled_predictions, train_confident_indices = None, None
-    else:
-        train_ensembled_predictions, _, train_confident_indices = ensemble_probabilistic_predictions(
-            *train_predictions,
-            ensemble_method=ensemble_method,
-            max_mae=max_mae,
-            max_std=max_std,
-            max_mae_relative=max_mae_relative,
-            max_std_relative=max_std_relative,
-            ensure_prob_limits=ensure_prob_limits,
-            uncertainty_quantile=uncertainty_quantile,
-            normalize_stds_by_mean_preds=normalize_stds_by_mean_preds,
-            verbose=verbose,
-            sample_weight=sample_weight,
-            rrf_k=rrf_k,
-            precomputed_weights=_slice_weights(_train_mask) if _train_mask and _pcw_full is not None and len(_train_mask) == _pcw_full.shape[0] else None,
-        )
+    train_ensembled_predictions, train_confident_indices = _ensemble_train_split(
+        level_models_and_predictions, is_regression, _use_cal, _pcw_full, ens_kw, ensemble_method, ensembling_level
+    )
 
     internal_ensemble_method = f"{ensemble_method} L{ensembling_level}" if ensembling_level > 0 else ensemble_method
 
@@ -291,6 +163,169 @@ def _process_single_ensemble_method(
     else:
         target_kwargs = dict(train_target=train_target, test_target=test_target, val_target=val_target)
 
+    kwargs_copy, _caller_compute_trainset_metrics, _caller_compute_valset_metrics, _caller_compute_testset_metrics = _prepare_ensemble_kwargs(kwargs)
+    common_cfg: dict = dict(
+        target_label_encoder=target_label_encoder,
+        nbins=nbins,
+        custom_ice_metric=custom_ice_metric,
+        custom_rice_metric=custom_rice_metric,
+        subgroups=subgroups,
+        n_features=n_features,
+    )
+
+    # Build config objects from flat params
+    flat_params = dict(
+        df=None,
+        drop_columns=[],
+        model_name_prefix=f"Ens{internal_ensemble_method.upper()} {ensemble_name}",
+        train_idx=train_idx,
+        test_idx=test_idx,
+        val_idx=val_idx,
+        compute_trainset_metrics=(_caller_compute_trainset_metrics and _has_split_predictions(predictive_kwargs, "train")),
+        compute_valset_metrics=(_caller_compute_valset_metrics and _has_split_predictions(predictive_kwargs, "val")),
+        compute_testset_metrics=(_caller_compute_testset_metrics and _has_split_predictions(predictive_kwargs, "test")),
+        **common_cfg,
+        **target_kwargs,
+        **predictive_kwargs,
+        **kwargs_copy,
+    )
+    next_ens_results = _train_ensemble_from_flat_params(flat_params)
+
+    # Stash the per-member test-split predictions as an (n_rows, n_members) matrix so the suite finalize can render the
+    # ensemble prediction-stability (member-disagreement) panel. Test arrays already materialised above; for
+    # classification members carry probs (positive-class column), for regression the point preds.
+    _stack_member_predictions(_test_preds, next_ens_results)
+
+    conf_results = None
+    if uncertainty_quantile:
+        conf_results = _run_confident_ensemble(
+            target=target,
+            is_regression=is_regression,
+            internal_ensemble_method=internal_ensemble_method,
+            ensemble_name=ensemble_name,
+            flag_degenerate_conf_subset=flag_degenerate_conf_subset,
+            degenerate_class_ratio=degenerate_class_ratio,
+            splits={
+                "train": (train_ensembled_predictions, train_confident_indices, train_target, train_idx),
+                "test": (test_ensembled_predictions, test_confident_indices, test_target, test_idx),
+                "val": (val_ensembled_predictions, val_confident_indices, val_target, val_idx),
+            },
+            common_cfg=common_cfg,
+            kwargs_copy=kwargs_copy,
+            caller_compute_flags=(_caller_compute_trainset_metrics, _caller_compute_valset_metrics, _caller_compute_testset_metrics),
+        )
+
+    return (internal_ensemble_method, next_ens_results, conf_results)
+
+
+def _slice_weights(pcw_full: Optional[np.ndarray], mask: list[bool]) -> Optional[np.ndarray]:
+    """Slice ``pcw_full`` to the members present in this split; ``None`` when there are no precomputed weights or the mask length doesn't match."""
+    if pcw_full is None:
+        return None
+    if pcw_full.shape[0] != len(mask):
+        return None
+    return np.asarray(pcw_full[np.asarray(mask, dtype=bool)])
+
+
+def _has_split_predictions(_kwargs: dict, _split: str) -> bool:
+    """True when ``_kwargs`` carries either raw predictions or probabilities for ``_split`` (e.g. "train"/"val"/"test")."""
+    return _kwargs.get(f"{_split}_preds") is not None or _kwargs.get(f"{_split}_probs") is not None
+
+
+def _split_member_predictions(members: Sequence, split: str, is_regression: bool, use_cal: bool) -> tuple[list[bool], list]:
+    """Return ``(mask, preds)`` for ``split``: which members carry predictions, and those predictions (None members dropped)."""
+    if not is_regression:
+        probs_list = _select_split_probs(members, split, use_cal)
+        return [p is not None for p in probs_list], [p for p in probs_list if p is not None]
+    attr = f"{split}_preds"
+    mask = [getattr(el, attr) is not None for el in members]
+    return mask, [getattr(el, attr) for el in members if getattr(el, attr) is not None]
+
+
+def _ensemble_one_split(preds: list, is_regression: bool, weights: Optional[np.ndarray], ens_kw: dict) -> tuple:
+    """Ensemble one split's member predictions; ``(None, None)`` when no member carries predictions for it."""
+    # No member carries this split's preds (e.g. compute_valset_metrics=False): skip the ensemble call.
+    # ensemble_probabilistic_predictions raises on empty input, so the empty case is guarded here.
+    if len(preds) == 0:
+        return None, None
+    # reshape(shape[0], -1) keeps the ROW axis: (N,)->(N,1) for single-target regression
+    # (bit-identical to the old reshape(-1,1)), (N,K)->(N,K) for multi_target_regression.
+    # The old reshape(-1,1) flattened (N,K)->(N*K,1), so ensemble_probabilistic_predictions
+    # saw N*K "rows" and returned confident_indices up to N*K, which then IndexError'd when
+    # indexing the per-row test_idx / *_target / *_ensembled_predictions arrays (size N).
+    members = [p.reshape(p.shape[0], -1) for p in preds] if is_regression else preds
+    ensembled, _, confident_indices = ensemble_probabilistic_predictions(*members, precomputed_weights=weights, **ens_kw)
+    return ensembled, confident_indices
+
+
+def _oof_or_train(el: object, oof_attr: str, train_attr: str, _idx: int, fallback_used: list[int], _prefer_calibrated: bool = False) -> Any:
+    """Return a member's OOF predictions (AP12-calibrated variant first when requested), else its in-sample train predictions.
+
+    The train fallback records ``_idx`` in ``fallback_used`` so the leaked-row fallback can be surfaced in a single WARN.
+    """
+    # Prefer AP12-calibrated OOF / train probs when the knob is on; transparent fall-through to raw when the
+    # stamp is missing (legacy / opt-out callers). OOF is the calibrator's fit source so most members will not
+    # carry calibrated_oof_probs -- that's expected; the lookup is a no-op for them.
+    if _prefer_calibrated:
+        _cal_oof = getattr(el, f"calibrated_{oof_attr}", None)
+        if isinstance(_cal_oof, np.ndarray):
+            return _cal_oof
+    _oof = getattr(el, oof_attr, None)
+    if isinstance(_oof, np.ndarray):
+        return _oof
+    if _prefer_calibrated:
+        _cal_train = getattr(el, f"calibrated_{train_attr}", None)
+        if isinstance(_cal_train, np.ndarray):
+            fallback_used.append(_idx)
+            return _cal_train
+    _train = getattr(el, train_attr, None)
+    if isinstance(_train, np.ndarray):
+        fallback_used.append(_idx)
+    return _train
+
+
+def _ensemble_train_split(
+    members: Sequence,
+    is_regression: bool,
+    use_cal: bool,
+    pcw_full: Optional[np.ndarray],
+    ens_kw: dict,
+    ensemble_method: str,
+    ensembling_level: int,
+) -> tuple:
+    """Ensemble the train-split predictions, reading OOF predictions when present and warning on the in-sample fallback."""
+    # Level-1 aggregation reads OOF predictions when present (the K-fold cross_val_predict output stamped by the trainer), not in-sample ``train_preds``/``train_probs`` -- the latter are produced by predicting on rows the model already saw during fit and leak that fit's residual structure into a meta-learner. Falling back to ``train_*`` keeps the path alive when OOF was unavailable (e.g. tiny datasets, multi-output paths where ``cross_val_predict`` skipped); a higher-level guard in ``score_ensemble`` raises when ``max_ensembling_level > 1`` AND any member is missing OOF.
+    #
+    # Existence check uses ``isinstance(..., np.ndarray)`` rather than ``is not None`` because MagicMock-based test doubles auto-fabricate any attribute access (mock.oof_probs returns a MagicMock, never None); falling back on the array-instance check keeps the production path identical while letting test mocks still hit the train_*/branch when they only stamp train_*/val_* arrays.
+    #
+    # ``_fallback_used`` collects member indices where the OOF attribute was absent and we silently consumed ``train_*``. Surfaced as a single WARN below so operators can audit suites running with cross_val_predict disabled -- pre-fix shape was completely silent and the level-1 "train" branch of every ensemble flavour got evaluated on leaked rows.
+    _fallback_used: list[int] = []
+    train_predictions = _collect_train_predictions(is_regression, members, _fallback_used, use_cal)
+
+    if _fallback_used:
+        logger.warning(
+            "ensemble '%s' L%d: OOF preds missing on members %s; silently fell back to in-sample train_* arrays. "
+            "Train-branch metrics for this ensemble are computed on LEAKED rows and will look optimistically biased. "
+            "Re-train with oof_n_splits>=2 (cross_val_predict) so OOF preds are stamped on every model, or call "
+            "score_ensemble(max_ensembling_level=1) accepting the train-fallback explicitly.",
+            ensemble_method, ensembling_level, _fallback_used,
+        )
+
+    # train branch: ``train_predictions`` preserves the per-member order but may contain ``None`` entries when neither OOF nor
+    # train_* was available. Build the alignment mask to slice precomputed_weights consistently with the per-split branches.
+    _train_mask = [(p is not None) for p in train_predictions] if train_predictions else []
+    if not any(_train_mask):
+        return None, None
+    ensembled, _, confident_indices = ensemble_probabilistic_predictions(
+        *train_predictions,
+        precomputed_weights=_slice_weights(pcw_full, _train_mask) if _train_mask and pcw_full is not None and len(_train_mask) == pcw_full.shape[0] else None,
+        **ens_kw,
+    )
+    return ensembled, confident_indices
+
+
+def _prepare_ensemble_kwargs(kwargs: dict) -> tuple:
+    """Copy ``kwargs`` minus the entries ``_build_configs_from_params`` cannot take; returns ``(kwargs_copy, train, val, test metric switches)``."""
     # Pop params not accepted by _build_configs_from_params (they come from common_params in core.py)
     kwargs_copy = kwargs.copy()
     kwargs_copy.pop("trainset_features_stats", None)
@@ -298,8 +333,8 @@ def _process_single_ensemble_method(
     kwargs_copy.pop("val_od_idx", None)
     # ``common_params`` frequently carries ``drop_columns`` when the user
     # passes ``init_common_params={"drop_columns": [...]}``. The literal
-    # ``drop_columns=[]`` below then collides with the ``**kwargs_copy``
-    # splat two positions later, raising
+    # ``drop_columns=[]`` in the flat params then collides with the ``**kwargs_copy``
+    # splat, raising
     # ``TypeError: dict() got multiple values for keyword argument 'drop_columns'``.
     # Pop the caller's value -- the ensemble scorer intentionally sets
     # ``drop_columns=[]`` to avoid dropping anything its sub-models
@@ -335,34 +370,20 @@ def _process_single_ensemble_method(
     _caller_compute_trainset_metrics = bool(kwargs_copy.pop("compute_trainset_metrics", False))
     _caller_compute_valset_metrics = bool(kwargs_copy.pop("compute_valset_metrics", True))
     _caller_compute_testset_metrics = bool(kwargs_copy.pop("compute_testset_metrics", True))
+    return kwargs_copy, _caller_compute_trainset_metrics, _caller_compute_valset_metrics, _caller_compute_testset_metrics
 
-    def _has_split_predictions(_kwargs: dict, _split: str) -> bool:
-        """True when ``_kwargs`` carries either raw predictions or probabilities for ``_split`` (e.g. "train"/"val"/"test") -- used to decide whether that split's metrics can be computed at all."""
-        return _kwargs.get(f"{_split}_preds") is not None or _kwargs.get(f"{_split}_probs") is not None
 
-    # Build config objects from flat params
-    flat_params = dict(
-        df=None,
-        drop_columns=[],
-        model_name_prefix=f"Ens{internal_ensemble_method.upper()} {ensemble_name}",
-        train_idx=train_idx,
-        test_idx=test_idx,
-        val_idx=val_idx,
-        target_label_encoder=target_label_encoder,
-        compute_trainset_metrics=(_caller_compute_trainset_metrics and _has_split_predictions(predictive_kwargs, "train")),
-        compute_valset_metrics=(_caller_compute_valset_metrics and _has_split_predictions(predictive_kwargs, "val")),
-        compute_testset_metrics=(_caller_compute_testset_metrics and _has_split_predictions(predictive_kwargs, "test")),
-        nbins=nbins,
-        custom_ice_metric=custom_ice_metric,
-        custom_rice_metric=custom_rice_metric,
-        subgroups=subgroups,
-        n_features=n_features,
-        **target_kwargs,
-        **predictive_kwargs,
-        **kwargs_copy,
-    )
+def _train_ensemble_from_flat_params(flat_params: dict) -> tuple:
+    """Build the config objects from ``flat_params`` and run ``train_and_evaluate_model`` on the ensembled predictions."""
+    # E1.1 opt-out: these lazy imports break a circular dep with mlframe.training.
+    # The Parallel dispatch uses ``backend="loky"`` (process workers,
+    # not threads), so each fork has its own Python interpreter -- no shared
+    # import state to race against. Safe to keep lazy here.
+    from mlframe.training import train_and_evaluate_model  # joblib-import-race-ok
+    from mlframe.training.shared import build_configs_from_params as _build_configs_from_params  # joblib-import-race-ok
+
     data, control, metrics_cfg, reporting_cfg, naming, confidence, predictions_cfg, output_cfg = _build_configs_from_params(**flat_params)
-    next_ens_results = train_and_evaluate_model(
+    result: tuple = train_and_evaluate_model(
         model=None,
         data=data,
         control=control,
@@ -373,121 +394,111 @@ def _process_single_ensemble_method(
         confidence=confidence,
         predictions=predictions_cfg,
     )
+    return result
 
-    # Stash the per-member test-split predictions as an (n_rows, n_members) matrix so the suite finalize can render the
-    # ensemble prediction-stability (member-disagreement) panel. Test arrays already materialised above; for
-    # classification members carry probs (positive-class column), for regression the point preds.
-    _stack_member_predictions(_test_preds, next_ens_results)
 
-    conf_results = None
-    if uncertainty_quantile:
-        if target is not None:
-            conf_target_kwargs = dict(target=target)
-        else:
-            conf_target_kwargs = dict(
-                train_target=train_target[train_confident_indices] if (train_target is not None and train_confident_indices is not None) else None,
-                test_target=test_target[test_confident_indices] if (test_target is not None and test_confident_indices is not None) else None,
-                val_target=val_target[val_confident_indices] if (val_target is not None and val_confident_indices is not None) else None,
-            )
+def _take_confident(arr: Optional[np.ndarray], conf_idx: Optional[np.ndarray]) -> Optional[np.ndarray]:
+    """``arr[conf_idx]`` when both are present, else ``None``."""
+    return arr[conf_idx] if (arr is not None and conf_idx is not None) else None
 
-        conf_predictive_kwargs = build_predictive_kwargs(
-            train_data=(
-                train_ensembled_predictions[train_confident_indices]
-                if (train_ensembled_predictions is not None and train_confident_indices is not None)
-                else None
-            ),
-            test_data=(
-                test_ensembled_predictions[test_confident_indices] if (test_ensembled_predictions is not None and test_confident_indices is not None) else None
-            ),
-            val_data=(
-                val_ensembled_predictions[val_confident_indices] if (val_ensembled_predictions is not None and val_confident_indices is not None) else None
-            ),
-            is_regression=is_regression,
+
+def _run_confident_ensemble(
+    *,
+    target: object,
+    is_regression: bool,
+    internal_ensemble_method: str,
+    ensemble_name: str,
+    flag_degenerate_conf_subset: bool,
+    degenerate_class_ratio: float,
+    splits: dict,
+    common_cfg: dict,
+    kwargs_copy: dict,
+    caller_compute_flags: tuple,
+) -> tuple:
+    """Train/evaluate the confidence-filtered ensemble; ``splits`` maps split -> (ensembled preds, confident idx, target, idx)."""
+    train_ens, train_conf, train_target, train_idx = splits["train"]
+    test_ens, test_conf, test_target, test_idx = splits["test"]
+    val_ens, val_conf, val_target, val_idx = splits["val"]
+    _caller_compute_trainset_metrics, _caller_compute_valset_metrics, _caller_compute_testset_metrics = caller_compute_flags
+    if target is not None:
+        conf_target_kwargs = dict(target=target)
+    else:
+        conf_target_kwargs = dict(
+            train_target=train_target[train_conf] if (train_target is not None and train_conf is not None) else None,
+            test_target=test_target[test_conf] if (test_target is not None and test_conf is not None) else None,
+            val_target=val_target[val_conf] if (val_target is not None and val_conf is not None) else None,
         )
 
-        # Report the confidence-filter coverage right in the model name so
-        # log-grep immediately shows that e.g. "Conf Ensemble ... [VAL
-        # COV=10%]" is computed on just 10 % of VAL rows -- previously the
-        # 99.77 % accuracy number in the Conf Ensemble block was easy to
-        # misread as a headline, because coverage only appeared inside the
-        # calibration subsection as ``COV=XX%`` (review finding).
-        # Prefer VAL coverage as the headline (early-stopping + calibration
-        # both key on VAL); fall back to TEST coverage then TRAIN.
-        # Evaluate (label, full_preds, conf_idx, target_for_label) for each split
-        # in priority order. We need the target slice as well because the
-        # degenerate-class-balance check (below) operates on the filtered target,
-        # not on the prediction array.
-        _cov_src = None
-        _conf_target = None
-        _conf_target, _cov_src = _confident_coverage_source(val_ensembled_predictions, val_confident_indices, val_target, test_ensembled_predictions, test_confident_indices, test_target, train_ensembled_predictions, train_confident_indices, train_target, _conf_target, _cov_src)
+    conf_predictive_kwargs = build_predictive_kwargs(
+        train_data=_take_confident(train_ens, train_conf),
+        test_data=_take_confident(test_ens, test_conf),
+        val_data=_take_confident(val_ens, val_conf),
+        is_regression=is_regression,
+    )
 
-        # Degenerate-class-balance check on the filtered target. A confidence
-        # filter that "keeps the rows the ensemble agrees on" tends to keep
-        # almost-all-positive (or almost-all-negative) subsets on imbalanced
-        # data — one prod log showed 21 negatives vs 81_815 positives in the
-        # 10 % VAL slice, and the resulting ``BR=0.026 %`` looked like a
-        # headline win until you noticed it was reporting on a degenerate
-        # split. Marker is binary-classification only; regression has no
-        # class balance to check.
-        _degenerate_marker = ""
-        _degenerate_marker = _flag_degenerate_confident_subset(flag_degenerate_conf_subset, is_regression, _conf_target, degenerate_class_ratio, _degenerate_marker)
+    # Report the confidence-filter coverage right in the model name so
+    # log-grep immediately shows that e.g. "Conf Ensemble ... [VAL
+    # COV=10%]" is computed on just 10 % of VAL rows -- previously the
+    # 99.77 % accuracy number in the Conf Ensemble block was easy to
+    # misread as a headline, because coverage only appeared inside the
+    # calibration subsection as ``COV=XX%`` (review finding).
+    # Prefer VAL coverage as the headline (early-stopping + calibration
+    # both key on VAL); fall back to TEST coverage then TRAIN.
+    # Evaluate (label, full_preds, conf_idx, target_for_label) for each split
+    # in priority order. We need the target slice as well because the
+    # degenerate-class-balance check (below) operates on the filtered target,
+    # not on the prediction array.
+    _cov_src = None
+    _conf_target = None
+    _conf_target, _cov_src = _confident_coverage_source(val_ens, val_conf, val_target, test_ens, test_conf, test_target, train_ens, train_conf, train_target, _conf_target, _cov_src)
 
-        # Trailing space so the downstream concat ``f"...{ensemble_name}{_cov_tag}"``
-        # doesn't slam the next token onto the closing bracket -- the
-        # prod log showed ``[VAL COV=10%]notext prod_jobsdetails ...`` (no space
-        # before "notext"). Empty tag stays empty (no double-space when off).
-        # One coverage number goes into a name that then labels every split's line, so a bare "[COV=10%]" on a
-        # TEST row reads as though it were that row's own coverage. It is not: the confident subset is selected
-        # per split, and the number here is whichever split came first in the priority order above. Say which.
-        _cov_tag = f" {_degenerate_marker}[COV={_cov_src[1]:.0f}% measured on {_cov_src[0]}] " if _cov_src else ""
+    # Degenerate-class-balance check on the filtered target. A confidence
+    # filter that "keeps the rows the ensemble agrees on" tends to keep
+    # almost-all-positive (or almost-all-negative) subsets on imbalanced
+    # data — one prod log showed 21 negatives vs 81_815 positives in the
+    # 10 % VAL slice, and the resulting ``BR=0.026 %`` looked like a
+    # headline win until you noticed it was reporting on a degenerate
+    # split. Marker is binary-classification only; regression has no
+    # class balance to check.
+    _degenerate_marker = ""
+    _degenerate_marker = _flag_degenerate_confident_subset(flag_degenerate_conf_subset, is_regression, _conf_target, degenerate_class_ratio, _degenerate_marker)
 
-        # Build config objects from flat params for confidence ensemble
-        conf_flat_params = dict(
-            df=None,
-            drop_columns=[],
-            model_name_prefix=f"Conf Ensemble {internal_ensemble_method} {ensemble_name}{_cov_tag}",
-            train_idx=train_idx[train_confident_indices] if (train_idx is not None and train_confident_indices is not None) else None,
-            test_idx=test_idx[test_confident_indices] if (test_idx is not None and test_confident_indices is not None) else None,
-            val_idx=val_idx[val_confident_indices] if (val_idx is not None and val_confident_indices is not None) else None,
-            target_label_encoder=target_label_encoder,
-            compute_trainset_metrics=(_caller_compute_trainset_metrics and _has_split_predictions(conf_predictive_kwargs, "train")),
-            compute_valset_metrics=(_caller_compute_valset_metrics and _has_split_predictions(conf_predictive_kwargs, "val")),
-            compute_testset_metrics=(_caller_compute_testset_metrics and _has_split_predictions(conf_predictive_kwargs, "test")),
-            nbins=nbins,
-            custom_ice_metric=custom_ice_metric,
-            custom_rice_metric=custom_rice_metric,
-            subgroups=subgroups,
-            n_features=n_features,
-            **conf_predictive_kwargs,
-            **conf_target_kwargs,
-            **kwargs_copy,
-        )
-        conf_data, conf_control, conf_metrics, conf_reporting, conf_naming, conf_confidence, conf_predictions, conf_output = _build_configs_from_params(
-            **conf_flat_params
-        )
-        conf_results = train_and_evaluate_model(
-            model=None,
-            data=conf_data,
-            control=conf_control,
-            metrics=conf_metrics,
-            reporting=conf_reporting,
-            naming=conf_naming,
-            output=conf_output,
-            confidence=conf_confidence,
-            predictions=conf_predictions,
-        )
+    # Trailing space so the downstream concat ``f"...{ensemble_name}{_cov_tag}"``
+    # doesn't slam the next token onto the closing bracket -- the
+    # prod log showed ``[VAL COV=10%]notext prod_jobsdetails ...`` (no space
+    # before "notext"). Empty tag stays empty (no double-space when off).
+    # One coverage number goes into a name that then labels every split's line, so a bare "[COV=10%]" on a
+    # TEST row reads as though it were that row's own coverage. It is not: the confident subset is selected
+    # per split, and the number here is whichever split came first in the priority order above. Say which.
+    _cov_tag = f" {_degenerate_marker}[COV={_cov_src[1]:.0f}% measured on {_cov_src[0]}] " if _cov_src else ""
 
-    return (internal_ensemble_method, next_ens_results, conf_results)
+    # Build config objects from flat params for confidence ensemble
+    conf_flat_params = dict(
+        df=None,
+        drop_columns=[],
+        model_name_prefix=f"Conf Ensemble {internal_ensemble_method} {ensemble_name}{_cov_tag}",
+        train_idx=train_idx[train_conf] if (train_idx is not None and train_conf is not None) else None,
+        test_idx=test_idx[test_conf] if (test_idx is not None and test_conf is not None) else None,
+        val_idx=val_idx[val_conf] if (val_idx is not None and val_conf is not None) else None,
+        compute_trainset_metrics=(_caller_compute_trainset_metrics and _has_split_predictions(conf_predictive_kwargs, "train")),
+        compute_valset_metrics=(_caller_compute_valset_metrics and _has_split_predictions(conf_predictive_kwargs, "val")),
+        compute_testset_metrics=(_caller_compute_testset_metrics and _has_split_predictions(conf_predictive_kwargs, "test")),
+        **common_cfg,
+        **conf_predictive_kwargs,
+        **conf_target_kwargs,
+        **kwargs_copy,
+    )
+    return _train_ensemble_from_flat_params(conf_flat_params)
 
 
-def _collect_train_predictions(is_regression, level_models_and_predictions, _oof_or_train, _use_cal, _fallback_used):
+def _collect_train_predictions(is_regression, level_models_and_predictions, _fallback_used, _use_cal):
     """Collect the train-time predictions of the ensemble members."""
     if not is_regression:
-        train_predictions = [_oof_or_train(el, "oof_probs", "train_probs", _i, _prefer_calibrated=_use_cal) for _i, el in enumerate(level_models_and_predictions)]
-    elif _oof_or_train(level_models_and_predictions[0], "oof_preds", "train_preds", 0) is not None:
+        train_predictions = [_oof_or_train(el, "oof_probs", "train_probs", _i, _fallback_used, _prefer_calibrated=_use_cal) for _i, el in enumerate(level_models_and_predictions)]
+    elif _oof_or_train(level_models_and_predictions[0], "oof_preds", "train_preds", 0, _fallback_used) is not None:
         # Re-walk so every member's fallback decision is recorded (probe call above counts index 0 only if it fell back; clear and re-probe symmetrically across all members).
         _fallback_used.clear()
-        train_predictions = [_oof_or_train(el, "oof_preds", "train_preds", _i) for _i, el in enumerate(level_models_and_predictions)]
+        train_predictions = [_oof_or_train(el, "oof_preds", "train_preds", _i, _fallback_used) for _i, el in enumerate(level_models_and_predictions)]
         train_predictions = [el.reshape(el.shape[0], -1) if (el is not None) else el for el in train_predictions]  # preserve row axis for multi-target (see val-branch note)
     else:
         train_predictions = []

@@ -530,6 +530,74 @@ def _choose_pair_subchunk_rows(max_joint: int, n_classes_y: int, free_bytes: int
     return int(np.clip(n, 1, 2_000_000))
 
 
+def _validate_row_chunked_inputs(
+    factors_data: np.ndarray, pair_a: np.ndarray, pair_b: np.ndarray, nbins: np.ndarray, classes_y: np.ndarray, n_pairs: int, n_classes_y: int
+) -> tuple[np.ndarray, int]:
+    """Host-side precondition checks for the row-chunked kernel; returns ``(joint_cards, max_joint)``."""
+    joint_cards = np.empty(n_pairs, dtype=np.int64)
+    max_joint = 0
+    for idx in range(n_pairs):
+        a, b = int(pair_a[idx]), int(pair_b[idx])
+        nb_a, nb_b = int(nbins[a]), int(nbins[b])
+        if nb_a < 1 or nb_b < 1:
+            raise ValueError(f"degenerate pair ({a}, {b}): nbins=({nb_a}, {nb_b}); at least one column has zero cardinality (skip the pair host-side)")
+        jc = nb_a * nb_b
+        joint_cards[idx] = jc
+        if jc > max_joint:
+            max_joint = jc
+
+    if classes_y.size > 0:
+        cy_max = int(classes_y.max())
+        cy_min = int(classes_y.min())
+        if cy_max >= n_classes_y or cy_min < 0:
+            raise ValueError(f"classes_y values must be in [0, n_classes_y={n_classes_y}); got [min={cy_min}, max={cy_max}]")
+    if factors_data.size > 0:
+        fd_min = int(factors_data.min())
+        if fd_min < 0:
+            raise ValueError(f"factors_data must be non-negative; got min={fd_min} (merge_vars output should be >= 0 by contract)")
+    return joint_cards, max_joint
+
+
+def _plan_row_chunked_launches(n_samples: int, n_cols: int, n_pairs: int, n_classes_y: int, max_joint: int) -> tuple[int, int, int, int]:
+    """Probe free VRAM and choose the row / pair chunk sizes; returns ``(row_chunk_rows, pair_subchunk_rows, n_row_chunks, n_pair_subchunks)``."""
+    try:
+        import cupy as cp
+
+        free_b, _total_b = cp.cuda.runtime.memGetInfo()
+    except Exception as e:
+        logger.warning("cp.cuda.runtime.memGetInfo() probe failed, using the conservative 512MiB fallback: %s", e)
+        free_b = 512 * 1024 * 1024  # conservative fallback if the probe is unavailable
+
+    row_chunk_rows = _choose_row_chunk_rows(n_cols, free_b)
+    pair_subchunk_rows = _choose_pair_subchunk_rows(max_joint, n_classes_y, free_b)
+    n_row_chunks = -(-n_samples // row_chunk_rows)
+    n_pair_subchunks = -(-n_pairs // pair_subchunk_rows)
+    total_launches = n_row_chunks * n_pair_subchunks
+    logger.info(
+        "batch_pair_mi_cuda_row_chunked: n_samples=%d n_cols=%d n_pairs=%d n_classes_y=%d max_joint=%d "
+        "-> row_chunk_rows=%d (%d row-chunk(s)) x pair_subchunk_rows=%d (%d pair-subchunk(s)) = %d launch(es), "
+        "free_vram=%.2fGB",
+        n_samples, n_cols, n_pairs, n_classes_y, max_joint, row_chunk_rows, n_row_chunks,
+        pair_subchunk_rows, n_pair_subchunks, total_launches, free_b / 1024**3,
+    )
+    if total_launches > _MAX_REASONABLE_ROW_CHUNK_LAUNCHES:
+        # Found live (wellbore 1M-row profiling): when free VRAM is itself near-zero (a
+        # cupy pool cap + other resident allocations can leave <5MB), both chunk-size choosers clamp to
+        # their floor (row_chunk_rows=1000, pair_subchunk_rows=1) - individually "safe" (never over-
+        # allocates), but together that's `ceil(n_samples/1000) * n_pairs` kernel launches, e.g.
+        # 796 x 89,676 = ~71M at a real production shape. Per-launch overhead (upload + dispatch) alone
+        # would take many HOURS for work a CPU kernel finishes in seconds. There is no useful amount of
+        # GPU chunking left to try once granularity degrades this far - raise so the caller's existing
+        # fallback (``dispatch_batch_pair_mi``'s ``_try_cuda_row_chunked`` -> CPU njit) takes over
+        # immediately instead of grinding through a pathological launch count.
+        raise RuntimeError(
+            f"batch_pair_mi_cuda_row_chunked: would need {total_launches} kernel launches "
+            f"(row_chunks={n_row_chunks} x pair_subchunks={n_pair_subchunks}) at free_vram={free_b / 1024**3:.3f}GB "
+            f"-- too fragmented to be worthwhile; use the CPU kernel instead",
+        )
+    return row_chunk_rows, pair_subchunk_rows, n_row_chunks, n_pair_subchunks
+
+
 def batch_pair_mi_cuda_row_chunked(
     factors_data: np.ndarray,
     pair_a: np.ndarray,
@@ -578,27 +646,7 @@ def batch_pair_mi_cuda_row_chunked(
     # the row-chunked kernel could handle it fine.
     n_classes_y = int(freqs_y.shape[0])
 
-    joint_cards = np.empty(n_pairs, dtype=np.int64)
-    max_joint = 0
-    for idx in range(n_pairs):
-        a, b = int(pair_a[idx]), int(pair_b[idx])
-        nb_a, nb_b = int(nbins[a]), int(nbins[b])
-        if nb_a < 1 or nb_b < 1:
-            raise ValueError(f"degenerate pair ({a}, {b}): nbins=({nb_a}, {nb_b}); at least one column has zero cardinality (skip the pair host-side)")
-        jc = nb_a * nb_b
-        joint_cards[idx] = jc
-        if jc > max_joint:
-            max_joint = jc
-
-    if classes_y.size > 0:
-        cy_max = int(classes_y.max())
-        cy_min = int(classes_y.min())
-        if cy_max >= n_classes_y or cy_min < 0:
-            raise ValueError(f"classes_y values must be in [0, n_classes_y={n_classes_y}); got [min={cy_min}, max={cy_max}]")
-    if factors_data.size > 0:
-        fd_min = int(factors_data.min())
-        if fd_min < 0:
-            raise ValueError(f"factors_data must be non-negative; got min={fd_min} (merge_vars output should be >= 0 by contract)")
+    joint_cards, max_joint = _validate_row_chunked_inputs(factors_data, pair_a, pair_b, nbins, classes_y, n_pairs, n_classes_y)
 
     n_samples = int(factors_data.shape[0])
     n_cols = int(factors_data.shape[1])
@@ -608,41 +656,7 @@ def batch_pair_mi_cuda_row_chunked(
         # _mi_from_joint_counts's `inv_n = 1.0 / n_samples` raises ZeroDivisionError for an empty input.
         return np.zeros(n_pairs, dtype=np.float64)
 
-    try:
-        import cupy as cp
-
-        free_b, _total_b = cp.cuda.runtime.memGetInfo()
-    except Exception as e:
-        logger.warning("cp.cuda.runtime.memGetInfo() probe failed, using the conservative 512MiB fallback: %s", e)
-        free_b = 512 * 1024 * 1024  # conservative fallback if the probe is unavailable
-
-    row_chunk_rows = _choose_row_chunk_rows(n_cols, free_b)
-    pair_subchunk_rows = _choose_pair_subchunk_rows(max_joint, n_classes_y, free_b)
-    n_row_chunks = -(-n_samples // row_chunk_rows)
-    n_pair_subchunks = -(-n_pairs // pair_subchunk_rows)
-    total_launches = n_row_chunks * n_pair_subchunks
-    logger.info(
-        "batch_pair_mi_cuda_row_chunked: n_samples=%d n_cols=%d n_pairs=%d n_classes_y=%d max_joint=%d "
-        "-> row_chunk_rows=%d (%d row-chunk(s)) x pair_subchunk_rows=%d (%d pair-subchunk(s)) = %d launch(es), "
-        "free_vram=%.2fGB",
-        n_samples, n_cols, n_pairs, n_classes_y, max_joint, row_chunk_rows, n_row_chunks,
-        pair_subchunk_rows, n_pair_subchunks, total_launches, free_b / 1024**3,
-    )
-    if total_launches > _MAX_REASONABLE_ROW_CHUNK_LAUNCHES:
-        # Found live (wellbore 1M-row profiling): when free VRAM is itself near-zero (a
-        # cupy pool cap + other resident allocations can leave <5MB), both chunk-size choosers clamp to
-        # their floor (row_chunk_rows=1000, pair_subchunk_rows=1) - individually "safe" (never over-
-        # allocates), but together that's `ceil(n_samples/1000) * n_pairs` kernel launches, e.g.
-        # 796 x 89,676 = ~71M at a real production shape. Per-launch overhead (upload + dispatch) alone
-        # would take many HOURS for work a CPU kernel finishes in seconds. There is no useful amount of
-        # GPU chunking left to try once granularity degrades this far - raise so the caller's existing
-        # fallback (``dispatch_batch_pair_mi``'s ``_try_cuda_row_chunked`` -> CPU njit) takes over
-        # immediately instead of grinding through a pathological launch count.
-        raise RuntimeError(
-            f"batch_pair_mi_cuda_row_chunked: would need {total_launches} kernel launches "
-            f"(row_chunks={n_row_chunks} x pair_subchunks={n_pair_subchunks}) at free_vram={free_b / 1024**3:.3f}GB "
-            f"-- too fragmented to be worthwhile; use the CPU kernel instead",
-        )
+    row_chunk_rows, pair_subchunk_rows, n_row_chunks, n_pair_subchunks = _plan_row_chunked_launches(n_samples, n_cols, n_pairs, n_classes_y, max_joint)
 
     factors_data_c = np.ascontiguousarray(factors_data, dtype=np.int32)
     classes_y_c = np.ascontiguousarray(classes_y, dtype=np.int32)

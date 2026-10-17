@@ -192,6 +192,25 @@ def run_polynom_pair_fe(
         fe_smart_polynom_optimization_steps, st._polynom_n_jobs,
     )
 
+    X_ndarr, _uncoercible = _pp_prepare_x_ndarr(X, is_polars_input)
+    st.X_ndarr = X_ndarr
+
+    _eval_one_pair_impl = _run_polynom_pair_fe_step2_existing_np_memmap(_uncoercible, shared_subsample_idx, subsample_n, subsample_seed, fe_subsample_stratify, fe_mi_estimator, poly_cheap_skip_ratio, _pair_mi_ceiling, poly_cheap_skip_min_corr, fe_polynomial_basis, fe_smart_polynom_iters, fe_max_polynom_degree, fe_min_polynom_degree, fe_smart_polynom_optimization_steps, fe_min_polynom_coeff, fe_max_polynom_coeff, fe_hermite_l2_penalty, fe_optimizer, fe_warm_start, fe_multi_fidelity)
+
+    _eval_one_pair = _pp_make_eval_one_pair(_eval_one_pair_impl)
+
+    # Read on the MAIN thread, where the thread-local actually lives, and passed down explicitly from here.
+    from ._fe_deadline import _state as _fe_deadline_state
+
+    st._fe_deadline_value = getattr(_fe_deadline_state, "deadline", None)
+
+    X, cols, data, nbins = _run_polynom_pair_f_poly_t0_time_perf(st._polynom_n_jobs, st._n_pairs_to_eval, verbose, st._pair_keys, _eval_one_pair, st.X_ndarr, classes_y, st._fe_deadline_value, fe_min_engineered_mi_prevalence, cols, quantization_nbins, quantization_method, quantization_dtype, is_polars_input, X, pl, engineered_features, hermite_features_list, engineered_recipes, data, nbins, poly_cheap_skip_ratio, rejection_records)
+    return data, nbins, cols, X
+
+
+def _pp_prepare_x_ndarr(X: Any, is_polars_input: bool) -> Tuple[Any, Optional[np.ndarray]]:
+    """Convert ``X`` to one contiguous double-precision ndarray (object columns pre-coerced) and memmap it; returns ``(X_ndarr, uncoercible_mask)``."""
+    X_ndarr: Any
     # loky-memmap fix: convert X to a single contiguous ndarray
     # ONCE so joblib can memmap it across loky workers. The previous
     # closure-captured X path would have cloudpickled the full 4M-row
@@ -202,9 +221,9 @@ def run_polynom_pair_fe(
     # Per-pair tasks then index into the shared X_ndarr by column number
     # without pulling a fresh copy.
     if is_polars_input:
-        st.X_ndarr = X.to_numpy()  # polars -> (N, F) contiguous ndarray
+        X_ndarr = X.to_numpy()  # polars -> (N, F) contiguous ndarray
     else:
-        st.X_ndarr = X.values if hasattr(X, "values") else np.asarray(X)
+        X_ndarr = X.values if hasattr(X, "values") else np.asarray(X)
     # A frame with ANY non-numeric column makes the WHOLE .values array object-dtype (the per-pair worker's
     # own docstring documents this trap) - and an object ndarray can neither be memmapped by joblib NOR
     # content-hashed by fit_constant_memmap, so it was CLOUDPICKLED WHOLESALE into the pool on every call:
@@ -213,17 +232,19 @@ def run_polynom_pair_fe(
     # become NaN placeholders and their positions are recorded so the per-pair guard skips exactly the
     # same pairs the old per-worker ValueError/TypeError path skipped.
     _uncoercible: Optional[np.ndarray] = None
-    st.X_ndarr, _uncoercible = _run_polynom_pair_f_same_pairs_old_per(st.X_ndarr, _uncoercible)
+    X_ndarr, _uncoercible = _run_polynom_pair_f_same_pairs_old_per(X_ndarr, _uncoercible)
     # run_polynom_pair_fe is called once per FE round (up to fe_max_steps times per fit) with the SAME
     # X content each time - a fresh Parallel(...) call below re-triggers joblib's memmapping reducer's
     # OWN dump of X_ndarr per call (it only dedups WITHIN one Parallel() invocation's tasks, not ACROSS
     # separate calls). fit_constant_memmap (shared with _step_pairmi.py's identical fix) dumps content
     # ONCE per process and hands back the read-only memmap on every subsequent round - joblib passes an
     # existing np.memmap to loky workers by filename with no re-dump at all.
-    st.X_ndarr = fit_constant_memmap(st.X_ndarr)
+    X_ndarr = fit_constant_memmap(X_ndarr)
+    return X_ndarr, _uncoercible
 
-    _eval_one_pair_impl = _run_polynom_pair_fe_step2_existing_np_memmap(_uncoercible, shared_subsample_idx, subsample_n, subsample_seed, fe_subsample_stratify, fe_mi_estimator, poly_cheap_skip_ratio, _pair_mi_ceiling, poly_cheap_skip_min_corr, fe_polynomial_basis, fe_smart_polynom_iters, fe_max_polynom_degree, fe_min_polynom_degree, fe_smart_polynom_optimization_steps, fe_min_polynom_coeff, fe_max_polynom_coeff, fe_hermite_l2_penalty, fe_optimizer, fe_warm_start, fe_multi_fidelity)
 
+def _pp_make_eval_one_pair(_eval_one_pair_impl: Any) -> Any:
+    """Build the worker entry point that runs ``_eval_one_pair_impl`` on a big-stack sub-thread."""
     def _eval_one_pair(raw_vars_pair, X_arr, y_arr, fe_deadline=None):
         """Worker entry point: runs :func:`_eval_one_pair_impl` on a big-stack sub-thread to dodge the Windows loky 1MB-stack numba crash."""
         # Windows loky workers have a 1MB main-thread stack - numba's
@@ -233,14 +254,7 @@ def run_polynom_pair_fe(
         return run_in_big_stack_thread(
             _eval_one_pair_impl, raw_vars_pair, X_arr, y_arr, fe_deadline,
         )
-
-    # Read on the MAIN thread, where the thread-local actually lives, and passed down explicitly from here.
-    from ._fe_deadline import _state as _fe_deadline_state
-
-    st._fe_deadline_value = getattr(_fe_deadline_state, "deadline", None)
-
-    X, cols, data, nbins = _run_polynom_pair_f_poly_t0_time_perf(st._polynom_n_jobs, st._n_pairs_to_eval, verbose, st._pair_keys, _eval_one_pair, st.X_ndarr, classes_y, st._fe_deadline_value, fe_min_engineered_mi_prevalence, cols, quantization_nbins, quantization_method, quantization_dtype, is_polars_input, X, pl, engineered_features, hermite_features_list, engineered_recipes, data, nbins, poly_cheap_skip_ratio, rejection_records)
-    return data, nbins, cols, X
+    return _eval_one_pair
 
 
 def _run_polynom_pair_fe_step1_synergy_kept_operand(st):
@@ -280,171 +294,200 @@ def _run_polynom_pair_fe_step2_existing_np_memmap(_uncoercible, shared_subsample
             return None
         if np.std(vals_a_full) < 1e-12 or np.std(vals_b_full) < 1e-12:
             return None
-        # subsample for CMA-ES inner search. Final transform on
-        # FULL source array preserves precision; only the optimiser's MI
-        # evaluation uses the slice.
-        _poly_shared_idx = None
-        if shared_subsample_idx is not None:
-            try:
-                _psi = np.asarray(shared_subsample_idx)
-                if _psi.ndim == 1 and 0 < _psi.shape[0] < len(vals_a_full) and int(_psi.max()) < len(vals_a_full):
-                    _poly_shared_idx = _psi.astype(np.int64, copy=False)
-            except Exception as e:
-                logger.warning("shared_subsample_idx validation failed, falling back to no shared subsample: %s", e)
-                _poly_shared_idx = None
-        if _poly_shared_idx is not None:
-            # Reuse the fit's ONE shared draw (same rows as the pair-search / sufficiency floor).
-            _ss_idx = _poly_shared_idx
-            vals_a_sub = vals_a_full[_ss_idx]
-            vals_b_sub = vals_b_full[_ss_idx]
-            classes_y_sub = y_arr[_ss_idx] if hasattr(y_arr, "__getitem__") else y_arr
-        elif subsample_n and 0 < subsample_n < len(vals_a_full):
-            _ss_rng = np.random.default_rng(subsample_seed + int(raw_vars_pair[0]) * 1000 + int(raw_vars_pair[1]))
-            if fe_subsample_stratify and hasattr(y_arr, "__getitem__"):
-                # ``classes_y`` (y_arr) is the discrete target the inner MI scores against -> classification
-                # stratification keeps the rare class in every per-pair subsample.
-                from mlframe.feature_selection.filters._fe_subsample import stratified_subsample_idx
-                _ss_idx = stratified_subsample_idx(_ss_rng, np.asarray(y_arr), int(subsample_n), is_clf=True)
-            else:
-                _ss_idx = _ss_rng.choice(len(vals_a_full), size=subsample_n, replace=False)
-            vals_a_sub = vals_a_full[_ss_idx]
-            vals_b_sub = vals_b_full[_ss_idx]
-            classes_y_sub = y_arr[_ss_idx] if hasattr(y_arr, "__getitem__") else y_arr
-        else:
-            vals_a_sub = vals_a_full
-            vals_b_sub = vals_b_full
-            classes_y_sub = y_arr
-        # NEW-A: compute trivial baseline ONCE per pair (was
-        # silently re-computed once per ``fe_smart_polynom_iters`` restart
-        # inside ``optimise_hermite_pair``). On the n=200k production
-        # config ``best_trivial_pair`` is ~50-150ms; with the default
-        # ``fe_smart_polynom_iters=5`` and 12 pairs that adds up to ~60
-        # redundant calls, saving 3-9 seconds without changing the
-        # numerical result (baseline is a deterministic fn of (x_a, x_b, y)).
-        _trivial_baseline = None
-        _trivial_name = None
-        _trivial_feat = None
-        try:
-            from mlframe.feature_selection.filters.fe_baselines import best_trivial_pair as _best_trivial_pair
-            _t = _best_trivial_pair(
-                np.asarray(vals_a_sub, dtype=np.float64),
-                np.asarray(vals_b_sub, dtype=np.float64),
-                classes_y_sub,
-                discrete_target=True,
-                mi_estimator=fe_mi_estimator,
-                plugin_n_bins=20,
-            )
-            if _t is not None:
-                _trivial_name, _trivial_feat, _trivial_baseline = _t
-        except Exception as _e:
-            logger.debug(
-                "best_trivial_pair precompute failed for pair %s: %r; " "optimise_hermite_pair will recompute internally.",
-                raw_vars_pair,
-                _e,
-            )
-
-        # CHEAP-FIRST DISPATCH: skip the expensive CMA/Optuna search when the
-        # cheap trivial baseline already captures >= ``poly_cheap_skip_ratio`` of
-        # this pair's joint-MI ceiling. A 1-D engineered feature cannot exceed
-        # the pair's joint MI, so once the trivial feature is that close to the
-        # ceiling the optimiser has no headroom - the trivial feature (which the
-        # always-on unary/binary path materialises) is as good as it gets. Hard
-        # pairs whose non-monotone inner the trivial set cannot express (trivial
-        # MI << ceiling) fall through and DO optimise, so recovery on the cases
-        # that need the orthogonal-poly basis is unaffected.
-        if poly_cheap_skip_ratio < 1.0 and _trivial_baseline is not None and _trivial_baseline > 0.0:
-            _ceiling = _pair_mi_ceiling.get(raw_vars_pair)
-            if _ceiling is not None and _ceiling > 0.0 and _trivial_baseline >= _ceiling * poly_cheap_skip_ratio:
-                # LINEAR-USABILITY GUARD: MI saturation is necessary but not
-                # sufficient. A trivial feature can hit the MI ceiling while being
-                # nearly orthogonal to y in LINEAR terms (atan2 on a bilinear
-                # target: MI 0.37, |corr| 0.10), in which case the orthogonal-poly
-                # optimiser still produces a far more linearly-usable feature.
-                # Only skip when the trivial feature is ALSO linearly useful.
-                _trivial_corr = 0.0
-                if _trivial_feat is not None and poly_cheap_skip_min_corr > 0.0:
-                    try:
-                        _tf = np.asarray(_trivial_feat, dtype=np.float64).reshape(-1)
-                        _yv = np.asarray(classes_y_sub, dtype=np.float64).reshape(-1)
-                        if _tf.size == _yv.size and float(np.std(_tf)) > 1e-12 and float(np.std(_yv)) > 1e-12:
-                            _trivial_corr = abs(float(np.corrcoef(_tf, _yv)[0, 1]))
-                    except Exception as e:
-                        logger.warning("trivial-correlation pre-check failed, falling back to MI-only skip: %s", e)
-                        _trivial_corr = 1.0  # corr unavailable -> fall back to MI-only skip
-                if poly_cheap_skip_min_corr <= 0.0 or _trivial_corr >= poly_cheap_skip_min_corr:
-                    return (raw_vars_pair, _POLY_CHEAP_SKIP, vals_a_full, vals_b_full)
-
-        # Precompute the basis fit (z_a/preprocess_a/z_b/preprocess_b) + the identity baseline ONCE per pair -
-        # the SAME bug class as the trivial-baseline hoist above (_trivial_baseline), just for the basis fit +
-        # _baseline_mi_pair that optimise_hermite_pair would otherwise redo byte-for-byte on every one of the
-        # fe_smart_polynom_iters restarts (only ``seed`` differs; vals_a_sub/vals_b_sub/classes_y_sub are identical).
-        _pz_a = _pp_a = _pz_b = _pp_b = _pib = None
-        try:
-            _pz_a, _pp_a, _pz_b, _pp_b, _pib = precompute_hermite_pair_basis(
-                vals_a_sub, vals_b_sub, classes_y_sub,
-                discrete_target=True,
-                basis=fe_polynomial_basis,
-                mi_estimator=fe_mi_estimator,
-            )
-        except Exception as _e:
-            logger.debug(
-                "precompute_hermite_pair_basis failed for pair %s: %r; " "optimise_hermite_pair will recompute internally.",
-                raw_vars_pair,
-                _e,
-            )
-
-        best_res = None
-        from mlframe.feature_selection.filters._fe_deadline import fe_deadline_passed, fe_deadline_scope
-
-        # Scoped, not just published: this runs in a loky worker, and loky REUSES its worker processes across
-        # `Parallel(...)` invocations. A deadline written here and left behind outlives the call, so once that
-        # absolute timestamp elapses every `fe_deadline_passed()` consumer in the worker returns True for the
-        # rest of its life -- truncating enrichment in later fits that were given no budget at all. The
-        # `finally` in `MRMR.fit` clears the main thread's copy and cannot reach a worker process.
-        # No deadline to publish means nothing to scope: leave whatever the worker already had alone.
-        _budget = fe_deadline_scope(fe_deadline) if fe_deadline is not None else nullcontext()
-        with _budget:
-            for seed_offset in range(fe_smart_polynom_iters):
-                # Optional-enrichment wall-clock budget: stop the multi-seed re-optimisation for this pair once
-                # MRMR.fit's deadline passes; keep the best result found so far. No-op without a budget. Live in every
-                # configuration now that the deadline arrives as an explicit argument and is re-published above.
-                if fe_deadline_passed():
-                    break
-                res = optimise_hermite_pair(
-                    x_a=vals_a_sub, x_b=vals_b_sub, y=classes_y_sub,
-                    discrete_target=True,
-                    max_degree=fe_max_polynom_degree,
-                    min_degree=fe_min_polynom_degree,
-                    n_trials=fe_smart_polynom_optimization_steps,
-                    coef_range=(fe_min_polynom_coeff, fe_max_polynom_coeff),
-                    l2_penalty=fe_hermite_l2_penalty,
-                    n_neighbors=None,
-                    seed=subsample_seed + seed_offset,
-                    sweep_degrees=True,
-                    basis=fe_polynomial_basis,
-                    mi_estimator=fe_mi_estimator,
-                    optimizer=fe_optimizer,
-                    warm_start=fe_warm_start,
-                    multi_fidelity=fe_multi_fidelity,
-                    precomputed_trivial_baseline=_trivial_baseline,
-                    precomputed_trivial_name=_trivial_name,
-                    precomputed_z_a=_pz_a,
-                    precomputed_preprocess_a=_pp_a,
-                    precomputed_z_b=_pz_b,
-                    precomputed_preprocess_b=_pp_b,
-                    precomputed_identity_baseline=_pib,
-                )
-                if res is not None and (best_res is None or res.mi > best_res.mi):
-                    best_res = res
+        vals_a_sub, vals_b_sub, classes_y_sub = _pp_subsample_pair_rows(raw_vars_pair, vals_a_full, vals_b_full, y_arr, shared_subsample_idx, subsample_n, subsample_seed, fe_subsample_stratify)
+        _trivial = _pp_trivial_baseline_once(vals_a_sub, vals_b_sub, classes_y_sub, fe_mi_estimator, raw_vars_pair)
+        if poly_cheap_skip_ratio < 1.0 and _pp_cheap_skip_applies(raw_vars_pair, _trivial[2], _trivial[1], classes_y_sub, poly_cheap_skip_ratio, poly_cheap_skip_min_corr, _pair_mi_ceiling):
+            return (raw_vars_pair, _POLY_CHEAP_SKIP, vals_a_full, vals_b_full)
+        _basis_pre = _pp_precompute_basis(vals_a_sub, vals_b_sub, classes_y_sub, fe_polynomial_basis, fe_mi_estimator, raw_vars_pair)
+        best_res = _pp_multi_seed_optimise(vals_a_sub, vals_b_sub, classes_y_sub, fe_deadline, fe_smart_polynom_iters, fe_max_polynom_degree, fe_min_polynom_degree, fe_smart_polynom_optimization_steps, fe_min_polynom_coeff, fe_max_polynom_coeff, fe_hermite_l2_penalty, subsample_seed, fe_polynomial_basis, fe_mi_estimator, fe_optimizer, fe_warm_start, fe_multi_fidelity, _trivial, _basis_pre)
         # Return FULL arrays so the injection step applies the polynomial
         # to all rows (subsampling was only for the optimiser's MI loop).
         return (raw_vars_pair, best_res, vals_a_full, vals_b_full)
     return _eval_one_pair_impl
 
 
-def _run_polynom_pair_f_poly_t0_time_perf(_polynom_n_jobs, _n_pairs_to_eval, verbose, _pair_keys, _eval_one_pair, X_ndarr, classes_y, _fe_deadline_value, fe_min_engineered_mi_prevalence, cols, quantization_nbins, quantization_method, quantization_dtype, is_polars_input, X, pl, engineered_features, hermite_features_list, engineered_recipes, data, nbins, poly_cheap_skip_ratio, rejection_records=None):
-    """Block of run_polynom_pair_fe starting at ``_poly_t0 = time.perf_counter()``."""
-    _poly_t0 = time.perf_counter()
+def _pp_subsample_pair_rows(raw_vars_pair: Any, vals_a_full: np.ndarray, vals_b_full: np.ndarray, y_arr: Any, shared_subsample_idx: Optional[np.ndarray], subsample_n: int, subsample_seed: int, fe_subsample_stratify: bool) -> Tuple[np.ndarray, np.ndarray, Any]:
+    """Pick the rows the optimiser's MI loop scores on (shared draw, per-pair draw, or all rows); returns ``(vals_a_sub, vals_b_sub, classes_y_sub)``."""
+    # subsample for CMA-ES inner search. Final transform on
+    # FULL source array preserves precision; only the optimiser's MI
+    # evaluation uses the slice.
+    _poly_shared_idx = None
+    if shared_subsample_idx is not None:
+        try:
+            _psi = np.asarray(shared_subsample_idx)
+            if _psi.ndim == 1 and 0 < _psi.shape[0] < len(vals_a_full) and int(_psi.max()) < len(vals_a_full):
+                _poly_shared_idx = _psi.astype(np.int64, copy=False)
+        except Exception as e:
+            logger.warning("shared_subsample_idx validation failed, falling back to no shared subsample: %s", e)
+            _poly_shared_idx = None
+    if _poly_shared_idx is not None:
+        # Reuse the fit's ONE shared draw (same rows as the pair-search / sufficiency floor).
+        _ss_idx = _poly_shared_idx
+        vals_a_sub = vals_a_full[_ss_idx]
+        vals_b_sub = vals_b_full[_ss_idx]
+        classes_y_sub = y_arr[_ss_idx] if hasattr(y_arr, "__getitem__") else y_arr
+    elif subsample_n and 0 < subsample_n < len(vals_a_full):
+        _ss_rng = np.random.default_rng(subsample_seed + int(raw_vars_pair[0]) * 1000 + int(raw_vars_pair[1]))
+        if fe_subsample_stratify and hasattr(y_arr, "__getitem__"):
+            # ``classes_y`` (y_arr) is the discrete target the inner MI scores against -> classification
+            # stratification keeps the rare class in every per-pair subsample.
+            from mlframe.feature_selection.filters._fe_subsample import stratified_subsample_idx
+            _ss_idx = stratified_subsample_idx(_ss_rng, np.asarray(y_arr), int(subsample_n), is_clf=True)
+        else:
+            _ss_idx = _ss_rng.choice(len(vals_a_full), size=subsample_n, replace=False)
+        vals_a_sub = vals_a_full[_ss_idx]
+        vals_b_sub = vals_b_full[_ss_idx]
+        classes_y_sub = y_arr[_ss_idx] if hasattr(y_arr, "__getitem__") else y_arr
+    else:
+        vals_a_sub = vals_a_full
+        vals_b_sub = vals_b_full
+        classes_y_sub = y_arr
+    return vals_a_sub, vals_b_sub, classes_y_sub
+
+
+def _pp_trivial_baseline_once(vals_a_sub: np.ndarray, vals_b_sub: np.ndarray, classes_y_sub: Any, fe_mi_estimator: str, raw_vars_pair: Any) -> Tuple[Any, Any, Any]:
+    """Compute the trivial-feature baseline once per pair; returns ``(name, feature, baseline_mi)``, each None when unavailable."""
+    # NEW-A: compute trivial baseline ONCE per pair (was
+    # silently re-computed once per ``fe_smart_polynom_iters`` restart
+    # inside ``optimise_hermite_pair``). On the n=200k production
+    # config ``best_trivial_pair`` is ~50-150ms; with the default
+    # ``fe_smart_polynom_iters=5`` and 12 pairs that adds up to ~60
+    # redundant calls, saving 3-9 seconds without changing the
+    # numerical result (baseline is a deterministic fn of (x_a, x_b, y)).
+    _trivial_baseline = None
+    _trivial_name = None
+    _trivial_feat = None
+    try:
+        from mlframe.feature_selection.filters.fe_baselines import best_trivial_pair as _best_trivial_pair
+        _t = _best_trivial_pair(
+            np.asarray(vals_a_sub, dtype=np.float64),
+            np.asarray(vals_b_sub, dtype=np.float64),
+            classes_y_sub,
+            discrete_target=True,
+            mi_estimator=fe_mi_estimator,
+            plugin_n_bins=20,
+        )
+        if _t is not None:
+            _trivial_name, _trivial_feat, _trivial_baseline = _t
+    except Exception as _e:
+        logger.debug(
+            "best_trivial_pair precompute failed for pair %s: %r; " "optimise_hermite_pair will recompute internally.",
+            raw_vars_pair,
+            _e,
+        )
+    return _trivial_name, _trivial_feat, _trivial_baseline
+
+
+def _pp_cheap_skip_applies(raw_vars_pair: Any, _trivial_baseline: Any, _trivial_feat: Any, classes_y_sub: Any, poly_cheap_skip_ratio: float, poly_cheap_skip_min_corr: float, _pair_mi_ceiling: Dict[Any, Any]) -> bool:
+    """True when the cheap trivial baseline already saturates the pair's joint-MI ceiling and is linearly useful, so the optimiser can be skipped."""
+    # CHEAP-FIRST DISPATCH: skip the expensive CMA/Optuna search when the
+    # cheap trivial baseline already captures >= ``poly_cheap_skip_ratio`` of
+    # this pair's joint-MI ceiling. A 1-D engineered feature cannot exceed
+    # the pair's joint MI, so once the trivial feature is that close to the
+    # ceiling the optimiser has no headroom - the trivial feature (which the
+    # always-on unary/binary path materialises) is as good as it gets. Hard
+    # pairs whose non-monotone inner the trivial set cannot express (trivial
+    # MI << ceiling) fall through and DO optimise, so recovery on the cases
+    # that need the orthogonal-poly basis is unaffected.
+    if poly_cheap_skip_ratio < 1.0 and _trivial_baseline is not None and _trivial_baseline > 0.0:
+        _ceiling = _pair_mi_ceiling.get(raw_vars_pair)
+        if _ceiling is not None and _ceiling > 0.0 and _trivial_baseline >= _ceiling * poly_cheap_skip_ratio:
+            # LINEAR-USABILITY GUARD: MI saturation is necessary but not
+            # sufficient. A trivial feature can hit the MI ceiling while being
+            # nearly orthogonal to y in LINEAR terms (atan2 on a bilinear
+            # target: MI 0.37, |corr| 0.10), in which case the orthogonal-poly
+            # optimiser still produces a far more linearly-usable feature.
+            # Only skip when the trivial feature is ALSO linearly useful.
+            _trivial_corr = 0.0
+            if _trivial_feat is not None and poly_cheap_skip_min_corr > 0.0:
+                try:
+                    _tf = np.asarray(_trivial_feat, dtype=np.float64).reshape(-1)
+                    _yv = np.asarray(classes_y_sub, dtype=np.float64).reshape(-1)
+                    if _tf.size == _yv.size and float(np.std(_tf)) > 1e-12 and float(np.std(_yv)) > 1e-12:
+                        _trivial_corr = abs(float(np.corrcoef(_tf, _yv)[0, 1]))
+                except Exception as e:
+                    logger.warning("trivial-correlation pre-check failed, falling back to MI-only skip: %s", e)
+                    _trivial_corr = 1.0  # corr unavailable -> fall back to MI-only skip
+            if poly_cheap_skip_min_corr <= 0.0 or _trivial_corr >= poly_cheap_skip_min_corr:
+                return True
+    return False
+
+
+def _pp_precompute_basis(vals_a_sub: np.ndarray, vals_b_sub: np.ndarray, classes_y_sub: Any, fe_polynomial_basis: str, fe_mi_estimator: str, raw_vars_pair: Any) -> Tuple[Any, Any, Any, Any, Any]:
+    """Precompute the per-pair basis fit and identity baseline; all-None when the precompute fails (the optimiser then recomputes)."""
+    # Precompute the basis fit (z_a/preprocess_a/z_b/preprocess_b) + the identity baseline ONCE per pair -
+    # the SAME bug class as the trivial-baseline hoist above (_trivial_baseline), just for the basis fit +
+    # _baseline_mi_pair that optimise_hermite_pair would otherwise redo byte-for-byte on every one of the
+    # fe_smart_polynom_iters restarts (only ``seed`` differs; vals_a_sub/vals_b_sub/classes_y_sub are identical).
+    _pz_a = _pp_a = _pz_b = _pp_b = _pib = None
+    try:
+        _pz_a, _pp_a, _pz_b, _pp_b, _pib = precompute_hermite_pair_basis(
+            vals_a_sub, vals_b_sub, classes_y_sub,
+            discrete_target=True,
+            basis=fe_polynomial_basis,
+            mi_estimator=fe_mi_estimator,
+        )
+    except Exception as _e:
+        logger.debug(
+            "precompute_hermite_pair_basis failed for pair %s: %r; " "optimise_hermite_pair will recompute internally.",
+            raw_vars_pair,
+            _e,
+        )
+    return _pz_a, _pp_a, _pz_b, _pp_b, _pib
+
+
+def _pp_multi_seed_optimise(vals_a_sub: np.ndarray, vals_b_sub: np.ndarray, classes_y_sub: Any, fe_deadline: Optional[float], fe_smart_polynom_iters: int, fe_max_polynom_degree: int, fe_min_polynom_degree: int, fe_smart_polynom_optimization_steps: int, fe_min_polynom_coeff: float, fe_max_polynom_coeff: float, fe_hermite_l2_penalty: float, subsample_seed: int, fe_polynomial_basis: str, fe_mi_estimator: str, fe_optimizer: str, fe_warm_start: bool, fe_multi_fidelity: bool, trivial: Tuple[Any, Any, Any], basis_pre: Tuple[Any, Any, Any, Any, Any]) -> Any:
+    """Run ``optimise_hermite_pair`` for each restart seed under the caller's deadline and return the best-MI result (None if none)."""
+    _trivial_name, _trivial_feat, _trivial_baseline = trivial
+    _pz_a, _pp_a, _pz_b, _pp_b, _pib = basis_pre
+    best_res = None
+    from mlframe.feature_selection.filters._fe_deadline import fe_deadline_passed, fe_deadline_scope
+
+    # Scoped, not just published: this runs in a loky worker, and loky REUSES its worker processes across
+    # `Parallel(...)` invocations. A deadline written here and left behind outlives the call, so once that
+    # absolute timestamp elapses every `fe_deadline_passed()` consumer in the worker returns True for the
+    # rest of its life -- truncating enrichment in later fits that were given no budget at all. The
+    # `finally` in `MRMR.fit` clears the main thread's copy and cannot reach a worker process.
+    # No deadline to publish means nothing to scope: leave whatever the worker already had alone.
+    _budget = fe_deadline_scope(fe_deadline) if fe_deadline is not None else nullcontext()
+    with _budget:
+        for seed_offset in range(fe_smart_polynom_iters):
+            # Optional-enrichment wall-clock budget: stop the multi-seed re-optimisation for this pair once
+            # MRMR.fit's deadline passes; keep the best result found so far. No-op without a budget. Live in every
+            # configuration now that the deadline arrives as an explicit argument and is re-published above.
+            if fe_deadline_passed():
+                break
+            res = optimise_hermite_pair(
+                x_a=vals_a_sub, x_b=vals_b_sub, y=classes_y_sub,
+                discrete_target=True,
+                max_degree=fe_max_polynom_degree,
+                min_degree=fe_min_polynom_degree,
+                n_trials=fe_smart_polynom_optimization_steps,
+                coef_range=(fe_min_polynom_coeff, fe_max_polynom_coeff),
+                l2_penalty=fe_hermite_l2_penalty,
+                n_neighbors=None,
+                seed=subsample_seed + seed_offset,
+                sweep_degrees=True,
+                basis=fe_polynomial_basis,
+                mi_estimator=fe_mi_estimator,
+                optimizer=fe_optimizer,
+                warm_start=fe_warm_start,
+                multi_fidelity=fe_multi_fidelity,
+                precomputed_trivial_baseline=_trivial_baseline,
+                precomputed_trivial_name=_trivial_name,
+                precomputed_z_a=_pz_a,
+                precomputed_preprocess_a=_pp_a,
+                precomputed_z_b=_pz_b,
+                precomputed_preprocess_b=_pp_b,
+                precomputed_identity_baseline=_pib,
+            )
+            if res is not None and (best_res is None or res.mi > best_res.mi):
+                best_res = res
+    return best_res
+
+
+def _pp_dispatch_pair_evals(_polynom_n_jobs: int, _n_pairs_to_eval: int, verbose: int, _pair_keys: list, _eval_one_pair: Any, X_ndarr: np.ndarray, classes_y: np.ndarray, _fe_deadline_value: Optional[float]) -> list:
+    """Evaluate every prospective pair, in a loky pool when there are enough pairs, otherwise serially; returns the per-pair result list."""
     # threshold: at n=1M, 15 pairs, joblib worker spin-up
     # exceeded the per-pair work (11s parallel vs 5.75s serial). At 50+
     # pairs (typical 10-feature problem) parallel wins.
@@ -529,14 +572,25 @@ def _run_polynom_pair_f_poly_t0_time_perf(_polynom_n_jobs, _n_pairs_to_eval, ver
                 _PARALLEL_PAIR_THRESHOLD,
             )
         _poly_pair_results = [_eval_one_pair(rv, X_ndarr, classes_y, _fe_deadline_value) for rv in _pair_keys]
-    _eval_elapsed = time.perf_counter() - _poly_t0
-    logger.info(
-        "Polynomial-pair FE eval phase done in %.1fs (%d pairs, " "%.2fs/pair median).",
-        _eval_elapsed,
-        _n_pairs_to_eval,
-        _eval_elapsed / max(_n_pairs_to_eval, 1),
-    )
+    return _poly_pair_results
 
+
+def _pp_append_prevalence_rejection(rejection_records: list, best_res: Any, raw_vars_pair: Any, cols: List[str], _uplift_gate: float) -> None:
+    """Append the ledger record for a pair whose best MI failed the ``fe_min_engineered_mi_prevalence`` uplift gate."""
+    rejection_records.append({
+        "gate": "engineered_mi_prevalence",
+        "candidate": f"_polynom_{best_res.basis}_{best_res.bin_func_name}__{raw_vars_pair[0]}__{raw_vars_pair[1]}",
+        "operands": tuple(raw_vars_pair),
+        "operand_names": "(" + ", ".join(str(cols[_i]) for _i in raw_vars_pair) + ")",
+        "operator": best_res.bin_func_name,
+        "observed": float(best_res.mi),
+        "threshold": float(best_res.baseline_mi * _uplift_gate),
+        "reason": "polynom_mi_below_baseline_times_prevalence",
+    })
+
+
+def _pp_reduce_pair_results(_poly_pair_results: list, _n_pairs_to_eval: int, verbose: int, fe_min_engineered_mi_prevalence: float, cols: List[str], quantization_nbins: int, quantization_method: str, quantization_dtype: Any, is_polars_input: bool, X: Any, pl: Any, engineered_features: Set[str], hermite_features_list: List[Dict[str, Any]], engineered_recipes: Dict[str, Any], data: np.ndarray, nbins: np.ndarray, poly_cheap_skip_ratio: float, rejection_records: Optional[list]) -> Tuple[Any, List[str], np.ndarray, np.ndarray]:
+    """Serial reduce: log, apply the uplift gate and inject the surviving engineered columns into ``data``/``cols``/``X``; returns ``(X, cols, data, nbins)``."""
     # Serial reduce: log + uplift gate + inject into data/cols/X.
     _uplift_gate = float(fe_min_engineered_mi_prevalence)
     _n_cheap_skipped = 0
@@ -574,16 +628,7 @@ def _run_polynom_pair_f_poly_t0_time_perf(_polynom_n_jobs, _n_pairs_to_eval, ver
         if best_res.mi <= best_res.baseline_mi * _uplift_gate:
             # Ledger record: this gate uses fe_min_engineered_mi_prevalence and was previously silent.
             if rejection_records is not None:
-                rejection_records.append({
-                    "gate": "engineered_mi_prevalence",
-                    "candidate": f"_polynom_{best_res.basis}_{best_res.bin_func_name}__{raw_vars_pair[0]}__{raw_vars_pair[1]}",
-                    "operands": tuple(raw_vars_pair),
-                    "operand_names": "(" + ", ".join(str(cols[_i]) for _i in raw_vars_pair) + ")",
-                    "operator": best_res.bin_func_name,
-                    "observed": float(best_res.mi),
-                    "threshold": float(best_res.baseline_mi * _uplift_gate),
-                    "reason": "polynom_mi_below_baseline_times_prevalence",
-                })
+                _pp_append_prevalence_rejection(rejection_records, best_res, raw_vars_pair, cols, _uplift_gate)
             continue
         try:
             _t_vals = np.asarray(
@@ -668,6 +713,20 @@ def _run_polynom_pair_f_poly_t0_time_perf(_polynom_n_jobs, _n_pairs_to_eval, ver
             _n_pairs_to_eval - _n_cheap_skipped,
         )
     return X, cols, data, nbins
+
+
+def _run_polynom_pair_f_poly_t0_time_perf(_polynom_n_jobs, _n_pairs_to_eval, verbose, _pair_keys, _eval_one_pair, X_ndarr, classes_y, _fe_deadline_value, fe_min_engineered_mi_prevalence, cols, quantization_nbins, quantization_method, quantization_dtype, is_polars_input, X, pl, engineered_features, hermite_features_list, engineered_recipes, data, nbins, poly_cheap_skip_ratio, rejection_records=None):
+    """Block of run_polynom_pair_fe starting at ``_poly_t0 = time.perf_counter()``."""
+    _poly_t0 = time.perf_counter()
+    _poly_pair_results = _pp_dispatch_pair_evals(_polynom_n_jobs, _n_pairs_to_eval, verbose, _pair_keys, _eval_one_pair, X_ndarr, classes_y, _fe_deadline_value)
+    _eval_elapsed = time.perf_counter() - _poly_t0
+    logger.info(
+        "Polynomial-pair FE eval phase done in %.1fs (%d pairs, " "%.2fs/pair median).",
+        _eval_elapsed,
+        _n_pairs_to_eval,
+        _eval_elapsed / max(_n_pairs_to_eval, 1),
+    )
+    return _pp_reduce_pair_results(_poly_pair_results, _n_pairs_to_eval, verbose, fe_min_engineered_mi_prevalence, cols, quantization_nbins, quantization_method, quantization_dtype, is_polars_input, X, pl, engineered_features, hermite_features_list, engineered_recipes, data, nbins, poly_cheap_skip_ratio, rejection_records)
 
 
 def _run_polynom_pair_f_synergy_kept_operand_indices(X, _numeric_pos):

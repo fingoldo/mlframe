@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from timeit import default_timer as timer
-from typing import Any
+from typing import Any, NamedTuple
 
 try:
     import polars as pl
@@ -97,17 +97,349 @@ def _model_entry_name(model_entry) -> str:
     return type(model_entry).__name__
 
 
-def _train_one_target_ste_step1_model_entry_tqdmu(sorted_models, target_type, st, cur_target_name, _model_idx_in_run, _total_models_in_run, ctx, pre_pipeline_name, strategy_by_model, tier_dfs_cache, tier_enum_map_cache, orig_pre_pipeline, prepared_frames_cache, weight_schemas, ens_models, cur_target_values, _pp_name_stripped, prev_tier, pre_pipeline):
-    """Step 1 of _train_one_target_step1_progress_long_suites: lines starting at ``for _model_entry in tqdmu_lazy_start(sorted_models, desc="mlframe mode``."""
+class _ModelEntryPrep(NamedTuple):
+    """Per-(model, pre_pipeline) invariants computed once outside the weight loop."""
+
+    pre_pipeline: Any
+    cache_key: str
+    polars_fastpath_active: bool
+    prepared_train: Any
+    prepared_val: Any
+    prepared_test: Any
+    tier_pandas: Any
+    schema_hash: Any
+    input_schema: Any
+    ngb_fallback_snapshot: dict | None
+    cb_extra_fit_invariant: dict[str, Any] | None
+    neural_extra_fit_invariant: dict[str, Any] | None
+
+
+def _log_model_start(mlframe_model_name: str, model_idx_in_run: int, total_models_in_run: int) -> None:
+    """Log the process_model START line with the current RAM sample (verbose runs only)."""
+    _model_idx_in_run = model_idx_in_run
+    _total_models_in_run = total_models_in_run
+    # Per-model RSS sample is intentional: localising OOM-blame to a specific
+    # model+target+pre_pipeline tuple in the verbose-suite log saves hours of post-mortem
+    # log-correlation. The ~3ms/call Windows cost is dwarfed by per-model fit times.
+    # PSUTIL-IMPORT-HOT: ``psutil`` is now imported at module level (``_ps_module``);
+    # the prior in-loop import paid ImportError lookup costs on every iter.
+    try:
+        # Same measure as every other "RAM usage" line: a raw rss read here reported 6.2GB one line
+        # after the suite printed 45.2GB, because on Windows rss is the working set and clean_ram
+        # evicts it.
+        from mlframe.training._ram_helpers import get_reported_memory_gb, memory_measure_name
+
+        _ram_gb_now = get_reported_memory_gb()
+        _ram_measure = memory_measure_name()
+    except Exception as e:
+        logger.debug("memory probe failed: %s", e)
+        _ram_gb_now = 0.0
+        _ram_measure = "?"
+    logger.info(
+        "  process_model(%s) START -- model %d/%d, RAM=%.1fGB (%s)",
+        mlframe_model_name,
+        _model_idx_in_run,
+        _total_models_in_run,
+        _ram_gb_now,
+        _ram_measure,
+    )
+
+
+def _prepare_model_entry(
+    *, st: Any, ctx: Any, strategy: Any, mlframe_model_name: str, cur_target_name: str, pre_pipeline_name: Any, orig_pre_pipeline: Any,
+    prepared_frames_cache: dict, tier_dfs_cache: dict, tier_enum_map_cache: dict,
+) -> _ModelEntryPrep:
+    """Build the per-(model, pre_pipeline) pipeline, cache key, prepared frames, schema fingerprint and fit-param invariants."""
+    from mlframe.training.core._phase_train_one_target import _compute_pipeline_cache_key
+
+    # Drop pre-pipeline Polars originals as soon as we hit the first non-Polars strategy. The
+    # post-iteration release fires only on tier transitions, but same-tier siblings (e.g. XGB and
+    # LGB share tier=(False,False)) would keep Polars frames alive into a lazy pandas conversion,
+    # doubling peak RAM. Releasing upfront halves peak in mixed suites.
+    _train_one_target_ste_step1_doubling_peak_ram(strategy, st, tier_dfs_cache, tier_enum_map_cache, ctx, mlframe_model_name)
+    # Clone the base_pipeline per model so each iteration gets a fresh, un-fitted selector. Sharing a
+    # fitted MRMR/RFECV across strategies caused `_is_fitted` to misreport True for a partially-fit
+    # pipeline (selector fitted but encoder/imputer/scaler not), tripping imputer.transform on a
+    # feature-names mismatch.
+    _base_for_strategy = _clone_base_pipeline_for_strategy(orig_pre_pipeline)
+    pre_pipeline = strategy.build_pipeline(
+        base_pipeline=_base_for_strategy,
+        cat_features=st.cat_features,
+        category_encoder=st.category_encoder if st.cat_features else None,
+        imputer=st.imputer,
+        scaler=st.scaler,
+        embedding_features=st.embedding_features,
+        text_features=st.text_features,
+    )
+    # Cache key = strategy.cache_key + pre_pipeline_name + feature_tier + container kind + feature-list digest.
+    # feature_tier is required because CB/LGB/XGB all share cache_key="tree" but have different
+    # tiers; without it, CB's text/embedding-bearing frame would be served to LGB/XGB.
+    # Kind suffix prevents Polars-native (XGB) and pandas-only (LGB) consumers from sharing entries
+    # within a tier, which would otherwise undo the lazy pandas conversion downstream.
+    # See _compute_pipeline_cache_key for the features-digest contract (frozenset, order-invariant).
+    # Pass the polars train frame (if present) so dtype changes between targets / runs
+    # invalidate the cache; for a non-polars strategy, train_df_pd is passed instead so the
+    # same dtype/schema discriminator applies to pandas-consuming strategies too (see
+    # compute_model_pipeline_cache_key's docstring for the incident this closes).
+    cache_key = compute_model_pipeline_cache_key(
+        strategy=strategy,
+        pre_pipeline_name=pre_pipeline_name,
+        cat_features=st.cat_features,
+        text_features=st.text_features,
+        embedding_features=st.embedding_features,
+        train_df_polars=st.train_df_polars,
+        train_df_pd=st.train_df_pd,
+        cur_target_name=cur_target_name,
+        current_train_target=st.current_train_target,
+        _compute_pipeline_cache_key=_compute_pipeline_cache_key,
+        pre_pipeline_digest=pre_pipeline_params_digest(pre_pipeline),
+    )
+
+    # Polars fastpath substitutes original Polars DataFrames for natively-Polars consumers
+    # (CatBoost >= 1.2.7, HGB). Polars DFs are prepared once per model (outside the weight loop)
+    # because prepare_polars_dataframe() allocates via .with_columns().
+    polars_fastpath_active = st.train_df_polars is not None and strategy.supports_polars
+
+    _prep_out = _prepare_strategy_inputs(
+        polars_fastpath_active=polars_fastpath_active,
+        mlframe_model_name=mlframe_model_name,
+        strategy=strategy,
+        cat_features=st.cat_features,
+        text_features=st.text_features,
+        embedding_features=st.embedding_features,
+        train_df_polars=st.train_df_polars,
+        val_df_polars=st.val_df_polars,
+        test_df_polars=st.test_df_polars,
+        prepared_frames_cache=prepared_frames_cache,
+        tier_dfs_cache=tier_dfs_cache,
+        tier_enum_map_cache=tier_enum_map_cache,
+        common_params=st.common_params,
+        pre_pipeline_name=pre_pipeline_name,
+        ctx=ctx,
+        verbose=st.verbose,
+    )
+    prepared_train = _prep_out["prepared_train"]
+    prepared_val = _prep_out["prepared_val"]
+    prepared_test = _prep_out["prepared_test"]
+    _xgb_category_map = _prep_out["xgb_category_map"]
+    _cat_features = _prep_out["cat_features"]
+    tier_pandas = _prep_out["tier_pandas"]
+
+    # CODE-P1-10: compute input-schema fingerprint ONCE per (model, pre_pipeline) outside the
+    # weight loop. The fingerprinted train_df is the same across all weight schemas (only
+    # sample_weight changes inside the weight loop), so the previous per-iteration call was
+    # pure waste. Cache key is purely feature-side (strategy+tier+kind+pp_name) - dropping
+    # ``target_type`` / ``cur_target_name`` from the key was the per-target hoist: the
+    # schema hash depends on column names/dtypes, NOT on y, so target N reuses target 1's
+    # fingerprint without recomputation. Audit-checked vs compute_model_input_fingerprint:
+    # signature takes train_df + cat/text/embedding_features only, no target.
+    # FP-KEY-OMITS-CONTENT: the key folds ``id(train_df)`` (strong-ref-pinned at this point) so
+    # two different per-target frames hitting the same strategy/tier/kind/pp_name combination
+    # never replay target 1's stale schema hash for target 2.
+    _schema_hash, _input_schema = compute_cached_model_input_fingerprint(
+        ctx=ctx,
+        polars_fastpath_active=polars_fastpath_active,
+        prepared_train=prepared_train,
+        tier_pandas=tier_pandas,
+        strategy=strategy,
+        pre_pipeline_name=pre_pipeline_name,
+        cat_features=st.cat_features,
+        text_features=st.text_features,
+        embedding_features=st.embedding_features,
+        compute_model_input_fingerprint=compute_model_input_fingerprint,
+    )
+
+    # Per-PP NGBoost-fallback invariant: when ``clone(original_model)`` raises ``TypeError`` (NGBoost: ``get_params`` exposes non-constructor
+    # attrs), the fallback path re-pays ``original_model.get_params(deep=False)`` + ``{k:v for k in sig}`` once per weight iteration. The snapshot
+    # is invariant across weights (only ``sample_weight`` differs at fit-time), so cache it once outside the loop. Lazy: compute on first use to
+    # avoid paying for models that don't hit the TypeError path.
+    _ngb_fallback_snapshot: dict | None = None
+
+    # Per-PP CB extras invariants: ``_filter_polars_cat_features_by_dtype`` + ``filter_existing(text/embedding)`` depend only on ``prepared_train`` +
+    # the (cat/text/embedding) feature lists -- all invariant across the weight loop. Compute once here so the inner loop only stitches the result
+    # into ``current_model_params["fit_params"]`` (avoids paying the dtype filter + ``filter_existing`` 3 scans per weight iteration).
+    _cb_extra_fit_invariant: dict[str, Any] | None = None
+    _cb_extra_fit_invariant = _train_one_target_ste_step2_into_current_model(polars_fastpath_active, mlframe_model_name, _cat_features, prepared_train, st, _cb_extra_fit_invariant)
+
+    # Neural (MLP / ranker): the tabular Lightning models have no native embedding/text input layers, so the
+    # estimator expands embedding-List + HF-embeds text columns itself at fit/predict. Thread the (prepared-frame
+    # present) feature lists into fit_params so the estimator knows which columns to encode; invariant across the
+    # weight loop. ``_encode_emb_text_fit`` pops these keys before they reach Lightning.
+    # ``cat_features`` is threaded for the flat MLP (mlframe_model_name=="mlp") AND the recurrent tabular models (lstm/gru/rnn/transformer):
+    # both factorize raw cats + learn an nn.Embedding per cat at their fit boundary when the strategy left them un-encoded
+    # (requires_encoding=False via the learnable-cat-embeddings knob). For recurrent, this only matters in HYBRID / FEATURES_ONLY where a
+    # tabular block exists; SEQUENCE_ONLY has no aux cats so the wrapper no-ops cleanly even if the kwarg is threaded. NGB shares the neural
+    # strategy but cannot consume learnable embeddings, so it must NOT receive raw cat_features.
+    _RECURRENT_MODEL_NAMES = ("lstm", "gru", "rnn", "transformer")
+    _neural_threads_cats = mlframe_model_name in ("mlp", *_RECURRENT_MODEL_NAMES) and not getattr(strategy, "requires_encoding", True)
+    _neural_extra_fit_invariant: dict[str, Any] | None = None
+    _neural_extra_fit_invariant = _train_one_target_ste_step3_strategy_but_cannot(strategy, st, _neural_threads_cats, prepared_train, _neural_extra_fit_invariant)
+    return _ModelEntryPrep(
+        pre_pipeline, cache_key, polars_fastpath_active, prepared_train, prepared_val, prepared_test, tier_pandas, _schema_hash, _input_schema,
+        _ngb_fallback_snapshot, _cb_extra_fit_invariant, _neural_extra_fit_invariant,
+    )
+
+
+def _run_process_model_step(
+    st: Any, mlframe_model_name: str, weight_name: Any, process_model_kwargs: dict, pre_pipeline: Any, is_neural: bool,
+) -> tuple[Any, Any, Any] | None:
+    """Run process_model for one weight schema; return (pre_pipeline, val_df_transformed, test_df_transformed), or None when the failure is tolerated."""
+    _is_neural = is_neural
+    t0_model = timer()
+    try:
+        with phase("process_model", model=mlframe_model_name, weight=weight_name):
+            st.trainset_features_stats, pre_pipeline, st.train_df_transformed, val_df_transformed, test_df_transformed = process_model(**process_model_kwargs)
+    except Exception as model_err:
+        # Skip-and-continue is opt-in. KeyboardInterrupt is intentionally not caught here;
+        # native SIGSEGV that kills the process won't be caught either.
+        if not st.behavior_config.continue_on_model_failure:
+            raise
+        log_throttle(
+            logger, "train_one_target_process_model_failed", logging.ERROR,
+            "  process_model(%s, w=%s) FAILED after %s -- %s: %s. continue_on_model_failure=True -> skipping and moving on.",
+            mlframe_model_name,
+            weight_name,
+            _elapsed_str(t0_model),
+            type(model_err).__name__,
+            model_err,
+            exc_info=True,
+        )
+        st.metadata.setdefault("failed_models", []).append(
+            {
+                "model": mlframe_model_name,
+                "weighting": weight_name,
+                "error_type": type(model_err).__name__,
+                "error_message": str(model_err),
+            }
+        )
+    return None
+    if st.verbose:
+        logger.info("  process_model(%s, w=%s) done -- %s", mlframe_model_name, weight_name, _elapsed_str(t0_model))
+    if not _is_neural and t0_model is not None:
+        st._non_neural_train_times.append(timer() - t0_model)
+    return pre_pipeline, val_df_transformed, test_df_transformed
+
+
+def _record_weight_iteration(
+    *, st: Any, ctx: Any, target_type: Any, cur_target_name: str, cur_target_values: Any, mlframe_model_name: str, weight_name: Any,
+    strategy: Any, pre_pipeline: Any, pre_pipeline_name: Any, cloned_model: Any, original_model: Any, model_file_name: Any, cached_dfs: Any,
+    cache_key: str, _schema_hash: Any, _input_schema: Any, val_df_transformed: Any, test_df_transformed: Any,
+) -> None:
+    """Post-train tail, dataset-reuse cache hand-back, model-schema record and pipeline-cache store for one weight iteration."""
     from mlframe.training.core._phase_train_one_target import (
         _build_feature_selection_report,
-        _capture_dataset_reuse_cache,
-        _compute_pipeline_cache_key,
         _forward_dataset_reuse_cache,
-        _restore_dataset_reuse_cache,
         _selector_params_hash,
         _unwrap_selector,
     )
+
+    # Per-model post-train tail (TTA uncertainty eval + composite
+    # y-scale emit + adaptive RAM reclaim) carved into
+    # ``_run_per_model_post_train_tail``; it mutates ``metadata`` /
+    # ``ctx.models`` in place so nothing is returned.
+    _run_per_model_post_train_tail(
+        behavior_config=st.behavior_config,
+        test_df_transformed=test_df_transformed,
+        current_test_target=st.current_test_target,
+        ctx=ctx,
+        target_type=target_type,
+        cur_target_name=cur_target_name,
+        mlframe_model_name=mlframe_model_name,
+        metadata=st.metadata,
+        test_df_pd=st.test_df_pd,
+        _train_idx=st._train_idx,
+    )
+
+    # Hand the dataset-reuse cache from cloned_model back to the template so the next
+    # weight-schema iteration's clone() carries it forward (symmetric to the forward-transfer
+    # block above). Without this the cache would be born and die in a single iteration.
+    _forward_dataset_reuse_cache(cloned_model, original_model, skip_none=True)
+
+    _build_and_record_model_schema(
+        ctx=ctx,
+        metadata=st.metadata,
+        model_file_name=model_file_name,
+        mlframe_model_name=mlframe_model_name,
+        weight_name=weight_name,
+        target_type=target_type,
+        strategy=strategy,
+        cur_target_name=cur_target_name,
+        cur_target_values=cur_target_values,
+        _train_idx=st._train_idx,
+        pre_pipeline=pre_pipeline,
+        pre_pipeline_name=pre_pipeline_name,
+        train_df_transformed=st.train_df_transformed,
+        _schema_hash=_schema_hash,
+        _input_schema=_input_schema,
+        _build_feature_selection_report=_build_feature_selection_report,
+        _selector_params_hash=_selector_params_hash,
+        _unwrap_selector=_unwrap_selector,
+    )
+
+    if cached_dfs is None and st.train_df_transformed is not None:
+        st.pipeline_cache.set(cache_key, st.train_df_transformed, val_df_transformed, test_df_transformed)
+        st.pipeline_cache.set_fitted_pipeline(cache_key, pre_pipeline)
+
+
+def _should_break_on_identity_equivalent(
+    *, st: Any, pre_pipeline: Any, model_idx_in_run: int, total_models_in_run: int, pp_name_stripped: Any,
+) -> bool:
+    """True when the first model's pre_pipeline kept every column, so the remaining models of this target would see identical data."""
+    _model_idx_in_run = model_idx_in_run
+    _total_models_in_run = total_models_in_run
+    _pp_name_stripped = pp_name_stripped
+    if (
+        _model_idx_in_run == 1
+        and _pp_name_stripped
+        and st.use_ordinary_models
+        and st.feature_selection_config.skip_identity_equivalent_pre_pipelines
+        and getattr(pre_pipeline, "_mlframe_identity_equivalent", False)
+    ):
+        _skip_remaining = _total_models_in_run - 1
+        if _skip_remaining > 0:
+            logger.info(
+                "[Dedup] pre_pipeline '%s' is " "identity-equivalent to ordinary (kept " "all %d columns); skipping remaining " "%d model(s) for this target.",
+                _pp_name_stripped,
+                st.train_df_transformed.shape[1] if st.train_df_transformed is not None else 0,
+                _skip_remaining,
+            )
+        return True
+    return False
+
+
+def _release_after_model(
+    *, strategy: Any, st: Any, ctx: Any, mlframe_model_name: str, original_model: Any, pre_pipeline_name: Any, ens_models: Any,
+    prev_tier: Any, tier_dfs_cache: dict, tier_enum_map_cache: dict,
+) -> Any:
+    """Release dataset-reuse caches at strategy-iter end and handle the tier transition; return the strategy's feature tier."""
+    from mlframe.training.core._phase_train_one_target import _capture_dataset_reuse_cache
+
+    # Release dataset-reuse caches at strategy-iter end. Both shims park the heavy binned dataset
+    # on ``_cached_train_*`` / ``_cached_val_*`` as a weight-schema-loop scratchpad; nothing
+    # downstream reads them (.predict goes through _Booster, ensemble uses pre-computed probs,
+    # save strips via __getstate__). Releasing here frees ~30% of peak RAM between strategies.
+    # Capture the binned-dataset references off the template BEFORE clearing so the next
+    # target's _restore_dataset_reuse_cache can re-attach them. Without this snapshot the
+    # clear below frees the dataset and the cross-target hoist degrades to a no-op (same
+    # behaviour as before the hoist). Storing references only - the binned dataset is
+    # shared with whatever held it before; the clear merely drops the template's pointer.
+    _capture_dataset_reuse_cache(ctx, mlframe_model_name, original_model, pp_name=pre_pipeline_name)
+    _maybe_clear_shim_cache(original_model)
+    # ens_models snapshots may also hold the cache by reference (forward-transfer at clone() copied
+    # the reference rather than moving it); release on each so the binned dataset can be freed.
+    if ens_models:
+        for _ens_ns in ens_models:
+            _maybe_clear_shim_cache(getattr(_ens_ns, "model", None))
+
+    # On a tier transition into a non-Polars strategy, release the pre-pipeline Polars originals.
+    cur_tier = strategy.feature_tier()
+    _train_one_target_ste_step4_tier_transition_into(prev_tier, cur_tier, strategy, st, tier_dfs_cache, tier_enum_map_cache, ctx)
+    return cur_tier
+
+
+def _train_one_target_ste_step1_model_entry_tqdmu(sorted_models, target_type, st, cur_target_name, _model_idx_in_run, _total_models_in_run, ctx, pre_pipeline_name, strategy_by_model, tier_dfs_cache, tier_enum_map_cache, orig_pre_pipeline, prepared_frames_cache, weight_schemas, ens_models, cur_target_values, _pp_name_stripped, prev_tier, pre_pipeline):
+    """Step 1 of _train_one_target_step1_progress_long_suites: lines starting at ``for _model_entry in tqdmu_lazy_start(sorted_models, desc="mlframe mode``."""
+    from mlframe.training.core._phase_train_one_target import _restore_dataset_reuse_cache
 
     _break_model_loop = False
     for _model_entry in tqdmu_lazy_start(sorted_models, desc="mlframe model"):
@@ -135,31 +467,7 @@ def _train_one_target_ste_step1_model_entry_tqdmu(sorted_models, target_type, st
             continue
         _model_idx_in_run += 1
         if st.verbose:
-            # Per-model RSS sample is intentional: localising OOM-blame to a specific
-            # model+target+pre_pipeline tuple in the verbose-suite log saves hours of post-mortem
-            # log-correlation. The ~3ms/call Windows cost is dwarfed by per-model fit times.
-            # PSUTIL-IMPORT-HOT: ``psutil`` is now imported at module level (``_ps_module``);
-            # the prior in-loop import paid ImportError lookup costs on every iter.
-            try:
-                # Same measure as every other "RAM usage" line: a raw rss read here reported 6.2GB one line
-                # after the suite printed 45.2GB, because on Windows rss is the working set and clean_ram
-                # evicts it.
-                from mlframe.training._ram_helpers import get_reported_memory_gb, memory_measure_name
-
-                _ram_gb_now = get_reported_memory_gb()
-                _ram_measure = memory_measure_name()
-            except Exception as e:
-                logger.debug("memory probe failed: %s", e)
-                _ram_gb_now = 0.0
-                _ram_measure = "?"
-            logger.info(
-                "  process_model(%s) START -- model %d/%d, RAM=%.1fGB (%s)",
-                mlframe_model_name,
-                _model_idx_in_run,
-                _total_models_in_run,
-                _ram_gb_now,
-                _ram_measure,
-            )
+            _log_model_start(mlframe_model_name, _model_idx_in_run, _total_models_in_run)
 
         if _model_entry not in st.models_params:
             log_throttle(logger, "train_one_target_model_not_known", logging.WARNING, "mlframe model %s not known, skipping...", mlframe_model_name)
@@ -181,129 +489,15 @@ def _train_one_target_ste_step1_model_entry_tqdmu(sorted_models, target_type, st
 
         strategy = strategy_by_model[id(_model_entry)]
 
-        # Drop pre-pipeline Polars originals as soon as we hit the first non-Polars strategy. The
-        # post-iteration release fires only on tier transitions, but same-tier siblings (e.g. XGB and
-        # LGB share tier=(False,False)) would keep Polars frames alive into a lazy pandas conversion,
-        # doubling peak RAM. Releasing upfront halves peak in mixed suites.
-        _train_one_target_ste_step1_doubling_peak_ram(strategy, st, tier_dfs_cache, tier_enum_map_cache, ctx, mlframe_model_name)
-
-        # Clone the base_pipeline per model so each iteration gets a fresh, un-fitted selector. Sharing a
-        # fitted MRMR/RFECV across strategies caused `_is_fitted` to misreport True for a partially-fit
-        # pipeline (selector fitted but encoder/imputer/scaler not), tripping imputer.transform on a
-        # feature-names mismatch.
-        _base_for_strategy = _clone_base_pipeline_for_strategy(orig_pre_pipeline)
-        pre_pipeline = strategy.build_pipeline(
-            base_pipeline=_base_for_strategy,
-            cat_features=st.cat_features,
-            category_encoder=st.category_encoder if st.cat_features else None,
-            imputer=st.imputer,
-            scaler=st.scaler,
-            embedding_features=st.embedding_features,
-            text_features=st.text_features,
+        prep = _prepare_model_entry(
+            st=st, ctx=ctx, strategy=strategy, mlframe_model_name=mlframe_model_name, cur_target_name=cur_target_name,
+            pre_pipeline_name=pre_pipeline_name, orig_pre_pipeline=orig_pre_pipeline, prepared_frames_cache=prepared_frames_cache,
+            tier_dfs_cache=tier_dfs_cache, tier_enum_map_cache=tier_enum_map_cache,
         )
-        # Cache key = strategy.cache_key + pre_pipeline_name + feature_tier + container kind + feature-list digest.
-        # feature_tier is required because CB/LGB/XGB all share cache_key="tree" but have different
-        # tiers; without it, CB's text/embedding-bearing frame would be served to LGB/XGB.
-        # Kind suffix prevents Polars-native (XGB) and pandas-only (LGB) consumers from sharing entries
-        # within a tier, which would otherwise undo the lazy pandas conversion downstream.
-        # See _compute_pipeline_cache_key for the features-digest contract (frozenset, order-invariant).
-        # Pass the polars train frame (if present) so dtype changes between targets / runs
-        # invalidate the cache; for a non-polars strategy, train_df_pd is passed instead so the
-        # same dtype/schema discriminator applies to pandas-consuming strategies too (see
-        # compute_model_pipeline_cache_key's docstring for the incident this closes).
-        cache_key = compute_model_pipeline_cache_key(
-            strategy=strategy,
-            pre_pipeline_name=pre_pipeline_name,
-            cat_features=st.cat_features,
-            text_features=st.text_features,
-            embedding_features=st.embedding_features,
-            train_df_polars=st.train_df_polars,
-            train_df_pd=st.train_df_pd,
-            cur_target_name=cur_target_name,
-            current_train_target=st.current_train_target,
-            _compute_pipeline_cache_key=_compute_pipeline_cache_key,
-            pre_pipeline_digest=pre_pipeline_params_digest(pre_pipeline),
-        )
-
-        # Polars fastpath substitutes original Polars DataFrames for natively-Polars consumers
-        # (CatBoost >= 1.2.7, HGB). Polars DFs are prepared once per model (outside the weight loop)
-        # because prepare_polars_dataframe() allocates via .with_columns().
-        polars_fastpath_active = st.train_df_polars is not None and strategy.supports_polars
-
-        _prep_out = _prepare_strategy_inputs(
-            polars_fastpath_active=polars_fastpath_active,
-            mlframe_model_name=mlframe_model_name,
-            strategy=strategy,
-            cat_features=st.cat_features,
-            text_features=st.text_features,
-            embedding_features=st.embedding_features,
-            train_df_polars=st.train_df_polars,
-            val_df_polars=st.val_df_polars,
-            test_df_polars=st.test_df_polars,
-            prepared_frames_cache=prepared_frames_cache,
-            tier_dfs_cache=tier_dfs_cache,
-            tier_enum_map_cache=tier_enum_map_cache,
-            common_params=st.common_params,
-            pre_pipeline_name=pre_pipeline_name,
-            ctx=ctx,
-            verbose=st.verbose,
-        )
-        prepared_train = _prep_out["prepared_train"]
-        prepared_val = _prep_out["prepared_val"]
-        prepared_test = _prep_out["prepared_test"]
-        _xgb_category_map = _prep_out["xgb_category_map"]
-        _cat_features = _prep_out["cat_features"]
-        tier_pandas = _prep_out["tier_pandas"]
-
-        # CODE-P1-10: compute input-schema fingerprint ONCE per (model, pre_pipeline) outside the
-        # weight loop. The fingerprinted train_df is the same across all weight schemas (only
-        # sample_weight changes inside the weight loop), so the previous per-iteration call was
-        # pure waste. Cache key is purely feature-side (strategy+tier+kind+pp_name) - dropping
-        # ``target_type`` / ``cur_target_name`` from the key was the per-target hoist: the
-        # schema hash depends on column names/dtypes, NOT on y, so target N reuses target 1's
-        # fingerprint without recomputation. Audit-checked vs compute_model_input_fingerprint:
-        # signature takes train_df + cat/text/embedding_features only, no target.
-        # FP-KEY-OMITS-CONTENT: the key folds ``id(train_df)`` (strong-ref-pinned at this point) so
-        # two different per-target frames hitting the same strategy/tier/kind/pp_name combination
-        # never replay target 1's stale schema hash for target 2.
-        _schema_hash, _input_schema = compute_cached_model_input_fingerprint(
-            ctx=ctx,
-            polars_fastpath_active=polars_fastpath_active,
-            prepared_train=prepared_train,
-            tier_pandas=tier_pandas,
-            strategy=strategy,
-            pre_pipeline_name=pre_pipeline_name,
-            cat_features=st.cat_features,
-            text_features=st.text_features,
-            embedding_features=st.embedding_features,
-            compute_model_input_fingerprint=compute_model_input_fingerprint,
-        )
-
-        # Per-PP NGBoost-fallback invariant: when ``clone(original_model)`` raises ``TypeError`` (NGBoost: ``get_params`` exposes non-constructor
-        # attrs), the fallback path re-pays ``original_model.get_params(deep=False)`` + ``{k:v for k in sig}`` once per weight iteration. The snapshot
-        # is invariant across weights (only ``sample_weight`` differs at fit-time), so cache it once outside the loop. Lazy: compute on first use to
-        # avoid paying for models that don't hit the TypeError path.
-        _ngb_fallback_snapshot: dict | None = None
-
-        # Per-PP CB extras invariants: ``_filter_polars_cat_features_by_dtype`` + ``filter_existing(text/embedding)`` depend only on ``prepared_train`` +
-        # the (cat/text/embedding) feature lists -- all invariant across the weight loop. Compute once here so the inner loop only stitches the result
-        # into ``current_model_params["fit_params"]`` (avoids paying the dtype filter + ``filter_existing`` 3 scans per weight iteration).
-        _cb_extra_fit_invariant: dict[str, Any] | None = None
-        _cb_extra_fit_invariant = _train_one_target_ste_step2_into_current_model(polars_fastpath_active, mlframe_model_name, _cat_features, prepared_train, st, _cb_extra_fit_invariant)
-
-        # Neural (MLP / ranker): the tabular Lightning models have no native embedding/text input layers, so the
-        # estimator expands embedding-List + HF-embeds text columns itself at fit/predict. Thread the (prepared-frame
-        # present) feature lists into fit_params so the estimator knows which columns to encode; invariant across the
-        # weight loop. ``_encode_emb_text_fit`` pops these keys before they reach Lightning.
-        # ``cat_features`` is threaded for the flat MLP (mlframe_model_name=="mlp") AND the recurrent tabular models (lstm/gru/rnn/transformer):
-        # both factorize raw cats + learn an nn.Embedding per cat at their fit boundary when the strategy left them un-encoded
-        # (requires_encoding=False via the learnable-cat-embeddings knob). For recurrent, this only matters in HYBRID / FEATURES_ONLY where a
-        # tabular block exists; SEQUENCE_ONLY has no aux cats so the wrapper no-ops cleanly even if the kwarg is threaded. NGB shares the neural
-        # strategy but cannot consume learnable embeddings, so it must NOT receive raw cat_features.
-        _RECURRENT_MODEL_NAMES = ("lstm", "gru", "rnn", "transformer")
-        _neural_threads_cats = mlframe_model_name in ("mlp", *_RECURRENT_MODEL_NAMES) and not getattr(strategy, "requires_encoding", True)
-        _neural_extra_fit_invariant: dict[str, Any] | None = None
-        _neural_extra_fit_invariant = _train_one_target_ste_step3_strategy_but_cannot(strategy, st, _neural_threads_cats, prepared_train, _neural_extra_fit_invariant)
+        (
+            pre_pipeline, cache_key, polars_fastpath_active, prepared_train, prepared_val, prepared_test, tier_pandas, _schema_hash, _input_schema,
+            _ngb_fallback_snapshot, _cb_extra_fit_invariant, _neural_extra_fit_invariant,
+        ) = prep
 
         for weight_name, weight_values in tqdmu_lazy_start(weight_schemas.items(), desc="weighting schema"):
             cached_dfs, cloned_model, model_file_name, model_name_with_weight, original_model, pre_pipeline = _train_one_target_ste_step1_model_name_weight(st, mlframe_model_name, weight_name, weight_values, polars_fastpath_active, prepared_train, prepared_val, prepared_test, tier_pandas, cur_target_name, _schema_hash, cache_key, _model_entry, _ngb_fallback_snapshot, pre_pipeline)
@@ -329,87 +523,17 @@ def _train_one_target_ste_step1_model_entry_tqdmu(sorted_models, target_type, st
             _is_neural, _timeout, cloned_model, current_model_params, process_model_kwargs = _train_one_target_ste_step2_supports_native_multi(target_type, _model_entry, cloned_model, mlframe_model_name, st, _cb_extra_fit_invariant, _neural_extra_fit_invariant, _mlp_extreme_ar_fired, model_name_with_weight, model_file_name, pre_pipeline, pre_pipeline_name, cur_target_name, ens_models, cached_dfs, strategy, polars_fastpath_active)
             _train_one_target_ste_step3_timeout_none(_timeout, current_model_params, st, mlframe_model_name)
 
-            t0_model = timer()
-            try:
-                with phase("process_model", model=mlframe_model_name, weight=weight_name):
-                    st.trainset_features_stats, pre_pipeline, st.train_df_transformed, val_df_transformed, test_df_transformed = process_model(
-                        **process_model_kwargs
-                    )
-            except Exception as model_err:
-                # Skip-and-continue is opt-in. KeyboardInterrupt is intentionally not caught here;
-                # native SIGSEGV that kills the process won't be caught either.
-                if not st.behavior_config.continue_on_model_failure:
-                    raise
-                log_throttle(
-                    logger, "train_one_target_process_model_failed", logging.ERROR,
-                    "  process_model(%s, w=%s) FAILED after %s -- %s: %s. continue_on_model_failure=True -> skipping and moving on.",
-                    mlframe_model_name,
-                    weight_name,
-                    _elapsed_str(t0_model),
-                    type(model_err).__name__,
-                    model_err,
-                    exc_info=True,
-                )
-                st.metadata.setdefault("failed_models", []).append(
-                    {
-                        "model": mlframe_model_name,
-                        "weighting": weight_name,
-                        "error_type": type(model_err).__name__,
-                        "error_message": str(model_err),
-                    }
-                )
+            _step = _run_process_model_step(st, mlframe_model_name, weight_name, process_model_kwargs, pre_pipeline, _is_neural)
+            if _step is None:
                 continue  # next weight_name in the inner loop
-            if st.verbose:
-                logger.info("  process_model(%s, w=%s) done -- %s", mlframe_model_name, weight_name, _elapsed_str(t0_model))
-            if not _is_neural and t0_model is not None:
-                st._non_neural_train_times.append(timer() - t0_model)
-            # Per-model post-train tail (TTA uncertainty eval + composite
-            # y-scale emit + adaptive RAM reclaim) carved into
-            # ``_run_per_model_post_train_tail``; it mutates ``metadata`` /
-            # ``ctx.models`` in place so nothing is returned.
-            _run_per_model_post_train_tail(
-                behavior_config=st.behavior_config,
-                test_df_transformed=test_df_transformed,
-                current_test_target=st.current_test_target,
-                ctx=ctx,
-                target_type=target_type,
-                cur_target_name=cur_target_name,
-                mlframe_model_name=mlframe_model_name,
-                metadata=st.metadata,
-                test_df_pd=st.test_df_pd,
-                _train_idx=st._train_idx,
+            pre_pipeline, val_df_transformed, test_df_transformed = _step
+            _record_weight_iteration(
+                st=st, ctx=ctx, target_type=target_type, cur_target_name=cur_target_name, cur_target_values=cur_target_values,
+                mlframe_model_name=mlframe_model_name, weight_name=weight_name, strategy=strategy, pre_pipeline=pre_pipeline,
+                pre_pipeline_name=pre_pipeline_name, cloned_model=cloned_model, original_model=original_model, model_file_name=model_file_name,
+                cached_dfs=cached_dfs, cache_key=cache_key, _schema_hash=_schema_hash, _input_schema=_input_schema,
+                val_df_transformed=val_df_transformed, test_df_transformed=test_df_transformed,
             )
-
-            # Hand the dataset-reuse cache from cloned_model back to the template so the next
-            # weight-schema iteration's clone() carries it forward (symmetric to the forward-transfer
-            # block above). Without this the cache would be born and die in a single iteration.
-            _forward_dataset_reuse_cache(cloned_model, original_model, skip_none=True)
-
-            _build_and_record_model_schema(
-                ctx=ctx,
-                metadata=st.metadata,
-                model_file_name=model_file_name,
-                mlframe_model_name=mlframe_model_name,
-                weight_name=weight_name,
-                target_type=target_type,
-                strategy=strategy,
-                cur_target_name=cur_target_name,
-                cur_target_values=cur_target_values,
-                _train_idx=st._train_idx,
-                pre_pipeline=pre_pipeline,
-                pre_pipeline_name=pre_pipeline_name,
-                train_df_transformed=st.train_df_transformed,
-                _schema_hash=_schema_hash,
-                _input_schema=_input_schema,
-                _build_feature_selection_report=_build_feature_selection_report,
-                _selector_params_hash=_selector_params_hash,
-                _unwrap_selector=_unwrap_selector,
-            )
-
-            if cached_dfs is None and st.train_df_transformed is not None:
-                st.pipeline_cache.set(cache_key, st.train_df_transformed, val_df_transformed, test_df_transformed)
-                st.pipeline_cache.set_fitted_pipeline(cache_key, pre_pipeline)
-
             # After the first model trains, if the pre_pipeline is identity-equivalent (kept all
             # columns) AND the ordinary branch is in the suite, the remaining models would see
             # identical data - skip them. Checked AFTER _build_and_record_model_schema /
@@ -418,24 +542,10 @@ def _train_one_target_ste_step1_model_entry_tqdmu(sorted_models, target_type, st
             # recorded and its transformed frames cached like every other model does -- breaking
             # before those calls silently left it with no metadata['model_schemas'] entry,
             # disabling predict-time schema-drift hard-fail protection for it specifically.
-            if (
-                _model_idx_in_run == 1
-                and _pp_name_stripped
-                and st.use_ordinary_models
-                and st.feature_selection_config.skip_identity_equivalent_pre_pipelines
-                and getattr(pre_pipeline, "_mlframe_identity_equivalent", False)
+            if _should_break_on_identity_equivalent(
+                st=st, pre_pipeline=pre_pipeline, model_idx_in_run=_model_idx_in_run, total_models_in_run=_total_models_in_run,
+                pp_name_stripped=_pp_name_stripped,
             ):
-                _skip_remaining = _total_models_in_run - 1
-                if _skip_remaining > 0:
-                    logger.info(
-                        "[Dedup] pre_pipeline '%s' is "
-                        "identity-equivalent to ordinary (kept "
-                        "all %d columns); skipping remaining "
-                        "%d model(s) for this target.",
-                        _pp_name_stripped,
-                        st.train_df_transformed.shape[1] if st.train_df_transformed is not None else 0,
-                        _skip_remaining,
-                    )
                 _break_model_loop = True
                 break  # exit weight_schema loop
 
@@ -448,27 +558,11 @@ def _train_one_target_ste_step1_model_entry_tqdmu(sorted_models, target_type, st
         if _break_model_loop:
             break
 
-        # Release dataset-reuse caches at strategy-iter end. Both shims park the heavy binned dataset
-        # on ``_cached_train_*`` / ``_cached_val_*`` as a weight-schema-loop scratchpad; nothing
-        # downstream reads them (.predict goes through _Booster, ensemble uses pre-computed probs,
-        # save strips via __getstate__). Releasing here frees ~30% of peak RAM between strategies.
-        # Capture the binned-dataset references off the template BEFORE clearing so the next
-        # target's _restore_dataset_reuse_cache can re-attach them. Without this snapshot the
-        # clear below frees the dataset and the cross-target hoist degrades to a no-op (same
-        # behaviour as before the hoist). Storing references only - the binned dataset is
-        # shared with whatever held it before; the clear merely drops the template's pointer.
-        _capture_dataset_reuse_cache(ctx, mlframe_model_name, original_model, pp_name=pre_pipeline_name)
-        _maybe_clear_shim_cache(original_model)
-        # ens_models snapshots may also hold the cache by reference (forward-transfer at clone() copied
-        # the reference rather than moving it); release on each so the binned dataset can be freed.
-        if ens_models:
-            for _ens_ns in ens_models:
-                _maybe_clear_shim_cache(getattr(_ens_ns, "model", None))
-
-        # On a tier transition into a non-Polars strategy, release the pre-pipeline Polars originals.
-        cur_tier = strategy.feature_tier()
-        _train_one_target_ste_step4_tier_transition_into(prev_tier, cur_tier, strategy, st, tier_dfs_cache, tier_enum_map_cache, ctx)
-        prev_tier = cur_tier
+        prev_tier = _release_after_model(
+            strategy=strategy, st=st, ctx=ctx, mlframe_model_name=mlframe_model_name, original_model=original_model,
+            pre_pipeline_name=pre_pipeline_name, ens_models=ens_models, prev_tier=prev_tier, tier_dfs_cache=tier_dfs_cache,
+            tier_enum_map_cache=tier_enum_map_cache,
+        )
     return pre_pipeline
 
 

@@ -89,6 +89,27 @@ def _honest_lag_floor(df, target_col, eval_idx, y_eval) -> float:
         return float("nan")
 
 
+def _subsample_rows(rng: np.random.Generator, idx: np.ndarray, n_cap: int) -> np.ndarray:
+    """Cap ``idx`` to ``n_cap`` rows via a sorted random draw (sorted so downstream gathers stay cache-friendly), leaving it unchanged when already within budget."""
+    if n_cap <= 0 or idx.size <= n_cap:
+        return idx
+    return np.sort(rng.choice(idx, size=n_cap, replace=False))
+
+
+def _reconstruction_score(y_hat: np.ndarray, y_fit: np.ndarray, y_eval: np.ndarray, y_eval_std: float) -> float:
+    """Honest RMSE of an inverted prediction, or ``+inf`` when it is a genuine collapse (mostly non-finite, ~constant or non-finite RMSE)."""
+    finite = np.isfinite(y_hat)
+    if int(finite.sum()) < max(50, int(0.5 * y_hat.size)):
+        return float("inf")  # non-finite inverse -> genuine collapse
+    y_hat, pred_std = median_filled_with_std(y_hat, y_fit)  # score what predict() ships, on every eval row
+    if y_eval_std > 0 and pred_std < 1e-4 * y_eval_std:
+        return float("inf")  # collapsed to ~constant -> genuine collapse
+    rmse_y = rmse(y_eval, y_hat)
+    if not np.isfinite(rmse_y):
+        return float("inf")
+    return float(rmse_y)
+
+
 def honest_oof_reconstruction_rmse(
     self,
     df: Any,
@@ -127,14 +148,8 @@ def honest_oof_reconstruction_rmse(
     cap = int(getattr(cfg, "yscale_holdout_gate_sample_n", 30_000))
     rng = np.random.default_rng(int(getattr(cfg, "random_state", 42)))
 
-    def _subsample(idx: np.ndarray, n_cap: int) -> np.ndarray:
-        """Cap ``idx`` to ``n_cap`` rows via a sorted random draw (sorted so downstream gathers stay cache-friendly), leaving it unchanged when already within budget."""
-        if n_cap <= 0 or idx.size <= n_cap:
-            return idx
-        return np.sort(rng.choice(idx, size=n_cap, replace=False))
-
-    fit_idx = _subsample(screen_idx, cap)
-    eval_idx = _subsample(holdout_idx, cap)
+    fit_idx = _subsample_rows(rng, screen_idx, cap)
+    eval_idx = _subsample_rows(rng, holdout_idx, cap)
     feats = list(usable_features)
     x_fit = self._build_feature_matrix(df, feats, fit_idx)
     x_eval = self._build_feature_matrix(df, feats, eval_idx)
@@ -216,16 +231,7 @@ def honest_oof_reconstruction_rmse(
         except Exception as exc:  # -- fit/inverse blew up -> fall back
             logger.debug("[honest_oof_select] fit/inverse failed for %s: %s", spec.name, exc)
             return spec.name, None
-        finite = np.isfinite(y_hat)
-        if int(finite.sum()) < max(50, int(0.5 * y_hat.size)):
-            return spec.name, float("inf")  # non-finite inverse -> genuine collapse
-        y_hat, pred_std = median_filled_with_std(y_hat, y_fit)  # score what predict() ships, on every eval row
-        if y_eval_std > 0 and pred_std < 1e-4 * y_eval_std:
-            return spec.name, float("inf")  # collapsed to ~constant -> genuine collapse
-        rmse_y = rmse(y_eval, y_hat)
-        if not np.isfinite(rmse_y):
-            return spec.name, float("inf")
-        return spec.name, float(rmse_y)
+        return spec.name, _reconstruction_score(y_hat, y_fit, y_eval, y_eval_std)
 
     # Per-spec scores are independent (each fits its own tiny model, reads shared read-only arrays). LightGBM releases
     # the GIL, so thread across physical cores. Each fit is capped to inner_n_jobs=1 above (via ``_inner_n_jobs``)

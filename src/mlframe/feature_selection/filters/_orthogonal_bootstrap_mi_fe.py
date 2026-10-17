@@ -134,6 +134,30 @@ def baseline_lcb_by_bootstrap_mi(raw_X: pd.DataFrame, y: np.ndarray, *, n_boot: 
     return np.asarray(mat.mean(axis=0) - _LCB_Z * std)
 
 
+def _bootstrap_summary_table(eng_cols, src_map, baseline_mean, baseline_std, baseline_lcb,
+                             engineered_mean, engineered_std, engineered_lcb, uplift_mean, uplift_std, uplift_lcb) -> pd.DataFrame:
+    """One row per engineered column (bootstrap means, stds and lower bounds), sorted by the uplift lower bound."""
+    rows = []
+    for j, eng_name in enumerate(eng_cols):
+        rows.append({
+            "engineered_col": eng_name,
+            "source_col": src_map[eng_name],
+            "baseline_mi_mean": float(baseline_mean[j]),
+            "baseline_mi_std": float(baseline_std[j]),
+            "baseline_mi_lcb": float(baseline_lcb[j]),
+            "engineered_mi_mean": float(engineered_mean[j]),
+            "engineered_mi_std": float(engineered_std[j]),
+            "engineered_mi_lcb": float(engineered_lcb[j]),
+            "uplift_mean": float(uplift_mean[j]),
+            "uplift_std": float(uplift_std[j]),
+            "uplift_lcb": float(uplift_lcb[j]),
+        })
+    df = pd.DataFrame(rows)
+    if not df.empty:
+        df = df.sort_values("uplift_lcb", ascending=False).reset_index(drop=True)
+    return df
+
+
 def score_features_by_bootstrap_mi(
     raw_X: pd.DataFrame,
     engineered_X: pd.DataFrame,
@@ -268,25 +292,8 @@ def score_features_by_bootstrap_mi(
     engineered_lcb = engineered_mean - _LCB_Z * engineered_std
     uplift_lcb = uplift_mean - _LCB_Z * uplift_std
 
-    rows = []
-    for j, eng_name in enumerate(eng_cols):
-        rows.append({
-            "engineered_col": eng_name,
-            "source_col": src_map[eng_name],
-            "baseline_mi_mean": float(baseline_mean[j]),
-            "baseline_mi_std": float(baseline_std[j]),
-            "baseline_mi_lcb": float(baseline_lcb[j]),
-            "engineered_mi_mean": float(engineered_mean[j]),
-            "engineered_mi_std": float(engineered_std[j]),
-            "engineered_mi_lcb": float(engineered_lcb[j]),
-            "uplift_mean": float(uplift_mean[j]),
-            "uplift_std": float(uplift_std[j]),
-            "uplift_lcb": float(uplift_lcb[j]),
-        })
-    df = pd.DataFrame(rows)
-    if not df.empty:
-        df = df.sort_values("uplift_lcb", ascending=False).reset_index(drop=True)
-    return df
+    return _bootstrap_summary_table(eng_cols, src_map, baseline_mean, baseline_std, baseline_lcb,
+                                    engineered_mean, engineered_std, engineered_lcb, uplift_mean, uplift_std, uplift_lcb)
 
 def hybrid_orth_mi_bootstrap_fe(
     X: pd.DataFrame,

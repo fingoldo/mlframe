@@ -328,8 +328,11 @@ class _PredictAccelMixin(_PredictAccelBase):
                 self._cuda_graph_predict_cache.pop(_key, None)
                 return cast(torch.Tensor, self(x))
 
-        # First time seeing this shape on this device + dtype. Try a
-        # capture via the LOW-LEVEL CUDAGraph() API (non-destructive).
+        # First time seeing this shape on this device + dtype: capture via the LOW-LEVEL CUDAGraph() API (non-destructive).
+        return self._capture_cuda_graph_forward(x, _key)
+
+    def _capture_cuda_graph_forward(self, x: torch.Tensor, _key: tuple[Any, ...]) -> torch.Tensor:
+        """Capture a CUDA graph for the (shape, dtype, device) key, cache it and return the primed output (eager forward on failure)."""
         try:
             # 3 warmup forwards on a side stream. wait_stream chains so
             # the side stream sees the caller's prior work; current

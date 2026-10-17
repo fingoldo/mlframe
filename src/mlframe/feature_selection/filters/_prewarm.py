@@ -14,6 +14,7 @@ Lazy by design: kernels are imported only when ``prewarm_fs_numba_cache()`` is c
 from __future__ import annotations
 
 import warnings
+from typing import Any
 
 import numpy as np
 import logging
@@ -172,6 +173,25 @@ def _prewarm_fs_numba_cache_impl(verbose: bool = False) -> None:
         logger.debug("suppressed: %s", e)
         pass
 
+    _prewarm_info_theory_primitives(classes_x1, classes_x2, K_x, dtype, logger, merge_vars, entropy, entropy_miller_madow, mi, conditional_mi, arr2str, count_cand_nbins, unpack_and_sort)
+
+    # Screening permutation kernels. ``mi_direct`` calls one of these per candidate during MRMR screening; first call on a fresh process eats the entire ~17s
+    # JIT-compile budget. Prewarm both the prange variant AND the joblib-worker variant so neither caller path pays the cost during a real fit.
+    _prewarm_fs_numba_c_jit_compile_budget_prewarm(parallel_mi_prange, classes_pair, freqs_pair, classes_y, freqs_y, dtype, logger, parallel_mi, parallel_mi_prange_with_null, shuffle_arr, rng, n, discretize_2d_array, discretize_array)
+
+    # Layer-95 periodic/modular kernel (warm all three op codes).
+    _prewarm_fs_numba_c_layer_periodic_modular_kernel(logger)
+
+    _wall = time.perf_counter() - _t0
+    if verbose:
+        logger.info("prewarm_fs_numba_cache: warmed FS kernels in %.2fs", _wall)
+
+
+def _prewarm_info_theory_primitives(
+    classes_x1: np.ndarray, classes_x2: np.ndarray, K_x: int, dtype: type, logger: logging.Logger, merge_vars: Any, entropy: Any, entropy_miller_madow: Any, mi: Any,
+    conditional_mi: Any, arr2str: Any, count_cand_nbins: Any, unpack_and_sort: Any,
+) -> None:
+    """Exercise the info-theory primitives ``screen_predictors`` calls for every candidate so their JIT compile is paid up front; each kernel failure is swallowed."""
     # Info-theory primitives. ``screen_predictors`` calls ``merge_vars`` / ``entropy`` / ``mi`` / ``conditional_mi`` / ``entropy_miller_madow`` for every
     # candidate; first call from a fresh process eats ~5-8s of JIT compile. ``arr2str`` / ``count_cand_nbins`` / ``unpack_and_sort`` are called from inside
     # ``conditional_mi`` so they must compile too.
@@ -234,17 +254,6 @@ def _prewarm_fs_numba_cache_impl(verbose: bool = False) -> None:
     except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
         logger.debug("suppressed: %s", e)
         pass
-
-    # Screening permutation kernels. ``mi_direct`` calls one of these per candidate during MRMR screening; first call on a fresh process eats the entire ~17s
-    # JIT-compile budget. Prewarm both the prange variant AND the joblib-worker variant so neither caller path pays the cost during a real fit.
-    _prewarm_fs_numba_c_jit_compile_budget_prewarm(parallel_mi_prange, classes_pair, freqs_pair, classes_y, freqs_y, dtype, logger, parallel_mi, parallel_mi_prange_with_null, shuffle_arr, rng, n, discretize_2d_array, discretize_array)
-
-    # Layer-95 periodic/modular kernel (warm all three op codes).
-    _prewarm_fs_numba_c_layer_periodic_modular_kernel(logger)
-
-    _wall = time.perf_counter() - _t0
-    if verbose:
-        logger.info("prewarm_fs_numba_cache: warmed FS kernels in %.2fs", _wall)
 
 
 def _prewarm_fs_numba_c_jit_compile_budget_prewarm(parallel_mi_prange, classes_pair, freqs_pair, classes_y, freqs_y, dtype, logger, parallel_mi, parallel_mi_prange_with_null, shuffle_arr, rng, n, discretize_2d_array, discretize_array):

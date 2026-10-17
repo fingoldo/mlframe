@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from mlframe.utils.budgets import active_budget
 
+import functools
 import logging
 import textwrap
 from dataclasses import dataclass, field
@@ -168,16 +169,9 @@ def run_outer_loop_iteration(
 
     # Defer the selected_features_per_nfeatures write until after we know whether this exploration's score beats the existing best at the same N. An unconditional write silently downgrades a winning subset whenever MBH revisits the same N with a worse one.
 
-    # Each split must be different: even with a fixed random_state, the per-iter CV random_state is derived deterministically.
     scores: list = []
 
-    splitter = cv.split(X=X, y=y, groups=groups)
-
-    # Pre-materialise fold args so we can dispatch sequentially or in parallel from the same code path. Each fold gets its own pre-derived RNG seed rather than sharing self._rng, which would race in a parallel context.
-    _fold_args: list = []
-    for _nfold, (_tr_idx, _te_idx) in enumerate(splitter):
-        _fold_seed = int(self._rng.integers(0, 2**31 - 1))
-        _fold_args.append((_nfold, _tr_idx, _te_idx, _fold_seed))
+    _fold_args = _materialize_fold_args(self, cv, X, y, groups)
 
     # F9: snapshot FI keys BEFORE the fold loop so we
     # can roll the just-added runs back if store_averaged_cv_scores rejects
@@ -189,49 +183,22 @@ def run_outer_loop_iteration(
     # Opt-out via self.keep_loser_subset_fi (default False = new behaviour).
     _fi_keys_before = set(state.feature_importances.keys())
 
-    # ``current_features`` and ``scores`` are passed as default args so they bind at def-time to the current outer-iter values; this is safe because the closure is created fresh each outer iter and consumed within that iter (sequentially or via joblib.Parallel).
-    def _eval_fold(nfold, train_index, test_index, fold_seed, _current_features=current_features, _scores=scores):
-        """Evaluate a single CV fold at this outer iteration, forwarding the current subset/state to ``_eval_fold_body``; default args bind the outer-iter closure values at def-time (safe since a fresh closure is created every outer iteration)."""
-        return _eval_fold_body(
-            nfold, train_index, test_index, fold_seed,
-            self=self,
-            current_features=_current_features,
-            frac=frac,
-            must_include_resolved=must_include_resolved,
-            X=X, y=y,
-            X_estimator=X_estimator, col_pos=col_pos,
-            val_cv=val_cv,
-            estimator_type=estimator_type,
-            groups=groups,
-            verbose=verbose,
-            cat_features=cat_features,
-            early_stopping_rounds=early_stopping_rounds,
-            fit_params=fit_params,
-            estimators_list=estimators_list,
-            estimator=estimator,
-            scoring=scoring,
-            importance_getter=importance_getter,
-            keep_estimators=keep_estimators,
-            evaluated_scores_mean=state.evaluated_scores_mean,
-            scores=_scores,
-            feature_importances=state.feature_importances,
-            fitted_estimators=state.fitted_estimators,
-            dummy_scores=state.dummy_scores,
-        )
+    # ``current_features`` and ``scores`` are bound here to the current outer-iter values; the evaluator is created fresh each outer iter and consumed within that iter (sequentially or via joblib.Parallel).
+    # Evaluates a single CV fold at this outer iteration, forwarding the current subset/state to ``_eval_fold_body``.
+    _eval_fold = functools.partial(
+        _eval_fold_body,
+        self=self, current_features=current_features, frac=frac, must_include_resolved=must_include_resolved, X=X, y=y,
+        X_estimator=X_estimator, col_pos=col_pos, val_cv=val_cv, estimator_type=estimator_type, groups=groups, verbose=verbose,
+        cat_features=cat_features, early_stopping_rounds=early_stopping_rounds, fit_params=fit_params, estimators_list=estimators_list,
+        estimator=estimator, scoring=scoring, importance_getter=importance_getter, keep_estimators=keep_estimators,
+        evaluated_scores_mean=state.evaluated_scores_mean, scores=scores, feature_importances=state.feature_importances,
+        fitted_estimators=state.fitted_estimators, dummy_scores=state.dummy_scores,
+    )
 
     # Dispatch _eval_fold sequentially or in parallel. n_jobs>1 uses prefer="threads" so we don't pickle X/y across workers (datasets stay in shared memory) and the closure can keep mutating outer state under the GIL. When n_jobs>1 AND the estimator is multi-threaded AND force_parallel=True, pin inner threads to 1.
-    _fold_runner: Callable
+    _fold_runner: Callable = _eval_fold
     if n_jobs_effective > 1 and _is_multithreaded and self.force_parallel:
-        # Pin ONCE, before dispatch -- not from inside the per-fold closure. joblib's threaded folds would
-        # otherwise all call pin_threads_to_one(estimator) concurrently on the single shared outer estimator;
-        # today every thread writes the identical value so it happens to be harmless, but that's an unguarded
-        # concurrent-mutation pattern with no lock, fragile to any future change that makes the pinned value
-        # fold-dependent. The closure clones the estimator inside its body so we can't reach in; clone()
-        # preserves params so each fold's clone inherits thread_count=1 / n_jobs=1 from this single pin.
-        pin_threads_to_one(estimator)
-        _fold_runner = _eval_fold
-    else:
-        _fold_runner = _eval_fold
+        _pin_estimator_threads_once(estimator, pin_threads_to_one)
 
     _run_folds_parallel(n_jobs_effective, _fold_args, _fold_runner, verbose)
 
@@ -260,6 +227,40 @@ def run_outer_loop_iteration(
     # Persist outer-loop state so a crash mid-run is recoverable. fitted_estimators is intentionally NOT pickled (CB / RF ensembles dominate file size); they are re-fit on resume when needed. Save errors are logged but do not abort the fit.
     _save_outer_loop_checkpoint(self, signature, state, verbose)
 
+    if _outer_loop_should_stop(
+        self, state, final_score, len(current_features), _iter_t0, start_time, max_runtime_mins, max_refits, best_desired_score,
+        max_noimproving_iters, len(original_features), verbose, ndigits,
+    ):
+        return IterationOutcome.BREAK
+
+    # Abort early if every iter so far produced a NaN final_score. The most common cause is a custom scorer returning NaN on every fold (e.g. ROC AUC on single-class CV folds). Without this, the noimproving counter would consume max_noimproving_iters worth of useless CV fits. Detect 5 consecutive NaN iters and bail.
+    _abort_on_consecutive_nan_scores(self, final_score)
+
+    if self.special_feature_indices is not None:
+        if verbose:
+            logger.info("Quitting as special_feature_indices were checked.")
+        state.stop_reason = "special_feature_indices evaluated"
+        return IterationOutcome.BREAK
+
+    return IterationOutcome.CONTINUE
+
+
+def _outer_loop_should_stop(
+    self: Any,
+    state: OuterLoopState,
+    final_score: float,
+    n_current: int,
+    iter_t0: float,
+    start_time: float,
+    max_runtime_mins: float | None,
+    max_refits: Any,
+    best_desired_score: float | None,
+    max_noimproving_iters: int,
+    n_original: int,
+    verbose: int,
+    ndigits: int,
+) -> bool:
+    """Evaluate the post-iteration stop conditions in order; True (with ``state.stop_reason`` set) when the outer loop must break."""
     if len(state.evaluated_scores_mean) == 2:
         # If the first explored subset (whatever MBH seeded; default seed = 2 features) is already worse than the dummy at 0 features, there's no point continuing.
         if final_score < state.nofeatures_score:
@@ -267,29 +268,29 @@ def run_outer_loop_iteration(
                 "Stopping RFECV early: dummy baseline at 0 features (%s) already beats the first "
                 "explored subset of %d features (%s). The model can't learn anything from this data.",
                 f"{state.nofeatures_score:.{ndigits}f}",
-                len(current_features),
+                n_current,
                 f"{final_score:.{ndigits}f}",
             )
             state.stop_reason = "the dummy baseline at 0 features beat the first explored subset"
-            return IterationOutcome.BREAK
+            return True
 
-    if runtime_budget_exhausted(state, max_runtime_mins, start_time, _iter_t0, timer(), verbose):
-        return IterationOutcome.BREAK
+    if runtime_budget_exhausted(state, max_runtime_mins, start_time, iter_t0, timer(), verbose):
+        return True
 
     if active_budget(max_refits) is not None and state.nsteps >= max_refits:
         if verbose:
             logger.info("max_refits=%s reached.", f"{max_refits:_}")
         state.stop_reason = f"max_refits={max_refits:_} reached"
-        return IterationOutcome.BREAK
+        return True
 
     if best_desired_score is not None and final_score > best_desired_score:
         if verbose:
             logger.info("best_desired_score %s reached.", f"{best_desired_score:_.{ndigits}f}")
         state.stop_reason = f"best_desired_score={best_desired_score} reached"
-        return IterationOutcome.BREAK
+        return True
 
-    if _stop_without_progress(self, state, max_noimproving_iters, len(original_features), max_refits, max_runtime_mins, timer() - start_time, verbose):
-        return IterationOutcome.BREAK
+    if _stop_without_progress(self, state, max_noimproving_iters, n_original, max_refits, max_runtime_mins, timer() - start_time, verbose):
+        return True
 
     # S7: tolerance-based convergence. ``n_noimproving_iters``
     # resets on ANY new-best even when the improvement is CV noise (e.g. 1e-6
@@ -313,18 +314,33 @@ def run_outer_loop_iteration(
                         _spread, _tol, _scale,
                     )
                 state.stop_reason = f"convergence_tol={_tol} reached"
-                return IterationOutcome.BREAK
+                return True
+    return False
 
-    # Abort early if every iter so far produced a NaN final_score. The most common cause is a custom scorer returning NaN on every fold (e.g. ROC AUC on single-class CV folds). Without this, the noimproving counter would consume max_noimproving_iters worth of useless CV fits. Detect 5 consecutive NaN iters and bail.
-    _abort_on_consecutive_nan_scores(self, final_score)
 
-    if self.special_feature_indices is not None:
-        if verbose:
-            logger.info("Quitting as special_feature_indices were checked.")
-        state.stop_reason = "special_feature_indices evaluated"
-        return IterationOutcome.BREAK
+def _materialize_fold_args(self: Any, cv: Any, X: Any, y: Any, groups: Any) -> list:
+    """Pre-materialise ``(nfold, train_idx, test_idx, fold_seed)`` tuples for every CV split of this iteration."""
+    # Each split must be different: even with a fixed random_state, the per-iter CV random_state is derived deterministically.
+    splitter = cv.split(X=X, y=y, groups=groups)
 
-    return IterationOutcome.CONTINUE
+    # Pre-materialise fold args so we can dispatch sequentially or in parallel from the same code path. Each fold gets its own pre-derived RNG seed rather than sharing self._rng, which would race in a parallel context.
+    _fold_args: list = []
+    for _nfold, (_tr_idx, _te_idx) in enumerate(splitter):
+        _fold_seed = int(self._rng.integers(0, 2**31 - 1))
+        _fold_args.append((_nfold, _tr_idx, _te_idx, _fold_seed))
+
+    return _fold_args
+
+
+def _pin_estimator_threads_once(estimator: Any, pin_threads_to_one: Callable[..., Any]) -> None:
+    """Pin the shared outer estimator to one inner thread before the folds are dispatched."""
+    # Pin ONCE, before dispatch -- not from inside the per-fold closure. joblib's threaded folds would
+    # otherwise all call pin_threads_to_one(estimator) concurrently on the single shared outer estimator;
+    # today every thread writes the identical value so it happens to be harmless, but that's an unguarded
+    # concurrent-mutation pattern with no lock, fragile to any future change that makes the pinned value
+    # fold-dependent. The closure clones the estimator inside its body so we can't reach in; clone()
+    # preserves params so each fold's clone inherits thread_count=1 / n_jobs=1 from this single pin.
+    pin_threads_to_one(estimator)
 
 
 def _commit_winning_subset(self, was_stored, current_features, state, scores, _fi_keys_before):

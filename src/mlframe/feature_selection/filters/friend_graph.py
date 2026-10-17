@@ -323,6 +323,7 @@ def _layout(sel: List[int], edges: List[FriendGraphEdge], seed) -> Dict[int, Tup
     angles = np.linspace(0.0, 2.0 * np.pi, n, endpoint=False)
     return {int(v): (float(np.cos(a)), float(np.sin(a))) for v, a in zip(sel, angles)}
 
+
 def build_friend_graph(
     selected_vars: Sequence[int],
     factors_data: np.ndarray,
@@ -396,6 +397,59 @@ def build_friend_graph(
 
     # Per-node entropy + target relevance (from GPU stats when present, else CPU
     # primitives). GPU H/rel are bit-identical to ``_node_entropy`` / ``node_relevance``.
+    H, rel = _friend_node_stats(sel, gpu_stats, factors_data, factors_nbins, target, entropy_cache, dtype)
+
+    edges: List[FriendGraphEdge] = []
+    neighbors: Dict[int, List[Tuple[int, float]]] = {i: [] for i in sel}
+    weighted_degree: Dict[int, float] = {i: 0.0 for i in sel}
+
+    if not edges_skipped:
+        _friend_edge_pass(
+            sel, H, gpu_stats, factors_data, factors_nbins, mi_eps, edge_significance, dtype, edges, neighbors, weighted_degree,
+        )
+
+    shared_frac = {i: (weighted_degree[i] / H[i] if H[i] > 0 else 0.0) for i in sel}
+
+    neighbors_unique, klass = _friend_garbage_classify(
+        graph, sel, edges_skipped, neighbors, rel, factors_data, factors_nbins, target, dtype,
+        mi_eps, garbage_min_degree, garbage_unique_ratio, unique_max_degree,
+    )
+
+    # Inf-FS (Roffo et al. 2017 ICCV) eigenvector-style centrality re-rank on the MI-weighted
+    # adjacency: a global structural score (walks of all lengths) the local degree/garbage
+    # heuristics above never compute. Diagnostic only - it does not change ``selected_vars``,
+    # just flags nodes whose influence on the rest of the selected set is negligible.
+    centrality: Dict[int, float] = {}
+    if compute_centrality and not edges_skipped:
+        centrality = _inf_fs_centrality(sel, edges)
+
+    for i in sel:
+        graph.nodes.append(FriendGraphNode(
+            idx=i, name=names[i], entropy=H[i], relevance=rel[i],
+            weighted_degree=weighted_degree[i], shared_frac=shared_frac[i],
+            neighbors_unique_target=neighbors_unique[i], klass=klass[i],
+            centrality=centrality.get(i, 0.0),
+        ))
+    graph.edges = edges
+    graph.suspected_garbage = [names[i] for i in sel if klass[i] == "red"]
+    if centrality:
+        cutoff = float(np.percentile(list(centrality.values()), centrality_percentile))
+        graph.low_centrality = [names[i] for i in sel if centrality.get(i, 0.0) <= cutoff]
+    if compute_layout:
+        graph.pos = _layout(sel, edges, seed)
+    return graph
+
+
+def _friend_node_stats(
+    sel: List[int],
+    gpu_stats: Any,
+    factors_data: np.ndarray,
+    factors_nbins: np.ndarray,
+    target: np.ndarray,
+    entropy_cache: Optional[dict],
+    dtype: type,
+) -> Tuple[Dict[int, float], Dict[int, float]]:
+    """Per-node entropy ``H`` and target relevance ``rel`` (from the GPU stats when present, else the CPU primitives)."""
     H: Dict[int, float] = {}
     rel: Dict[int, float] = {}
     gpu_rel = gpu_stats.rel if (gpu_stats is not None) else None
@@ -410,54 +464,80 @@ def build_friend_graph(
             rel[i] = gpu_rel[i]
         else:
             rel[i] = node_relevance(factors_data, i, target, factors_nbins, dtype=dtype)
+    return H, rel
 
-    edges: List[FriendGraphEdge] = []
-    neighbors: Dict[int, List[Tuple[int, float]]] = {i: [] for i in sel}
-    weighted_degree: Dict[int, float] = {i: 0.0 for i in sel}
 
-    if not edges_skipped:
-        n_samples = max(1, int(factors_data.shape[0]))
-        gpu_edges = gpu_stats.edge_mi if (gpu_stats is not None) else None
-        for a, b in combinations(sel, 2):
-            # Pairwise feature-feature MI gated by the finite-sample significance floor (see
-            # ``pairwise_mi_edge``): suppresses spurious links between independent features.
-            # iter469: pass the cached per-node marginals so the edge MI only
-            # computes the joint entropy (1 merge_vars vs mi()'s 3). On
-            # k selected features this drops the O(k^2) edge pass from
-            # 3*C(k,2) marginal+joint passes to C(k,2)+k.
-            #
-            # GPU path: the raw I(X_a; X_b) is the bit-identical GPU value
-            # (H_a + H_b - H_ab, clamped >=0); the SAME significance floor is then
-            # applied here so the keep/drop decision + topology are unchanged.
-            if gpu_edges is not None:
-                m = _apply_edge_floor(
-                    gpu_edges.get((a, b)), a, b, factors_nbins, n_samples,
-                    mi_eps=mi_eps, edge_significance=edge_significance,
-                )
-            else:
-                m = pairwise_mi_edge(
-                    factors_data, a, b, factors_nbins, n_samples,
-                    mi_eps=mi_eps, edge_significance=edge_significance, dtype=dtype,
-                    h_a=H[a], h_b=H[b],
-                )
-            if m is None:
-                continue
-            # ADC / uncertainty-coefficient direction: arrow points to the more-explained
-            # node (larger I/H). The explainer is the lower-coefficient (higher-entropy) end.
-            u_a = m / H[a] if H[a] > 0 else 0.0
-            u_b = m / H[b] if H[b] > 0 else 0.0
-            if u_a >= u_b:
-                src, dst = b, a  # b explains a more -> arrow b -> a
-            else:
-                src, dst = a, b
-            edges.append(FriendGraphEdge(a=src, b=dst, mi=m))
-            neighbors[a].append((b, m))
-            neighbors[b].append((a, m))
-            weighted_degree[a] += m
-            weighted_degree[b] += m
+def _friend_edge_pass(
+    sel: List[int],
+    H: Dict[int, float],
+    gpu_stats: Any,
+    factors_data: np.ndarray,
+    factors_nbins: np.ndarray,
+    mi_eps: float,
+    edge_significance: float,
+    dtype: type,
+    edges: List[FriendGraphEdge],
+    neighbors: Dict[int, List[Tuple[int, float]]],
+    weighted_degree: Dict[int, float],
+) -> None:
+    """O(k^2) pairwise-MI edge pass: appends to ``edges`` and fills ``neighbors`` / ``weighted_degree`` in place."""
+    n_samples = max(1, int(factors_data.shape[0]))
+    gpu_edges = gpu_stats.edge_mi if (gpu_stats is not None) else None
+    for a, b in combinations(sel, 2):
+        # Pairwise feature-feature MI gated by the finite-sample significance floor (see
+        # ``pairwise_mi_edge``): suppresses spurious links between independent features.
+        # iter469: pass the cached per-node marginals so the edge MI only
+        # computes the joint entropy (1 merge_vars vs mi()'s 3). On
+        # k selected features this drops the O(k^2) edge pass from
+        # 3*C(k,2) marginal+joint passes to C(k,2)+k.
+        #
+        # GPU path: the raw I(X_a; X_b) is the bit-identical GPU value
+        # (H_a + H_b - H_ab, clamped >=0); the SAME significance floor is then
+        # applied here so the keep/drop decision + topology are unchanged.
+        if gpu_edges is not None:
+            m = _apply_edge_floor(
+                gpu_edges.get((a, b)), a, b, factors_nbins, n_samples,
+                mi_eps=mi_eps, edge_significance=edge_significance,
+            )
+        else:
+            m = pairwise_mi_edge(
+                factors_data, a, b, factors_nbins, n_samples,
+                mi_eps=mi_eps, edge_significance=edge_significance, dtype=dtype,
+                h_a=H[a], h_b=H[b],
+            )
+        if m is None:
+            continue
+        # ADC / uncertainty-coefficient direction: arrow points to the more-explained
+        # node (larger I/H). The explainer is the lower-coefficient (higher-entropy) end.
+        u_a = m / H[a] if H[a] > 0 else 0.0
+        u_b = m / H[b] if H[b] > 0 else 0.0
+        if u_a >= u_b:
+            src, dst = b, a  # b explains a more -> arrow b -> a
+        else:
+            src, dst = a, b
+        edges.append(FriendGraphEdge(a=src, b=dst, mi=m))
+        neighbors[a].append((b, m))
+        neighbors[b].append((a, m))
+        weighted_degree[a] += m
+        weighted_degree[b] += m
 
-    shared_frac = {i: (weighted_degree[i] / H[i] if H[i] > 0 else 0.0) for i in sel}
 
+def _friend_garbage_classify(
+    graph: FriendGraph,
+    sel: List[int],
+    edges_skipped: bool,
+    neighbors: Dict[int, List[Tuple[int, float]]],
+    rel: Dict[int, float],
+    factors_data: np.ndarray,
+    factors_nbins: np.ndarray,
+    target: np.ndarray,
+    dtype: type,
+    mi_eps: float,
+    garbage_min_degree: int,
+    garbage_unique_ratio: float,
+    unique_max_degree: int,
+) -> Tuple[Dict[int, float], Dict[int, str]]:
+    """Garbage classification: returns ``(neighbors_unique, klass)`` and stores each suspect's detail on ``graph``."""
     # Garbage classification. A node is a sink suspect when it is connected to many
     # others (degree >= garbage_min_degree - "связан с множеством других"). Only
     # suspects pay the conditional-MI pass, which measures how much UNIQUE target
@@ -515,30 +595,8 @@ def build_friend_graph(
             klass[i] = "green"
         else:
             klass[i] = "yellow"
+    return neighbors_unique, klass
 
-    # Inf-FS (Roffo et al. 2017 ICCV) eigenvector-style centrality re-rank on the MI-weighted
-    # adjacency: a global structural score (walks of all lengths) the local degree/garbage
-    # heuristics above never compute. Diagnostic only - it does not change ``selected_vars``,
-    # just flags nodes whose influence on the rest of the selected set is negligible.
-    centrality: Dict[int, float] = {}
-    if compute_centrality and not edges_skipped:
-        centrality = _inf_fs_centrality(sel, edges)
-
-    for i in sel:
-        graph.nodes.append(FriendGraphNode(
-            idx=i, name=names[i], entropy=H[i], relevance=rel[i],
-            weighted_degree=weighted_degree[i], shared_frac=shared_frac[i],
-            neighbors_unique_target=neighbors_unique[i], klass=klass[i],
-            centrality=centrality.get(i, 0.0),
-        ))
-    graph.edges = edges
-    graph.suspected_garbage = [names[i] for i in sel if klass[i] == "red"]
-    if centrality:
-        cutoff = float(np.percentile(list(centrality.values()), centrality_percentile))
-        graph.low_centrality = [names[i] for i in sel if centrality.get(i, 0.0) <= cutoff]
-    if compute_layout:
-        graph.pos = _layout(sel, edges, seed)
-    return graph
 
 def _dispatch_gpu_friend_stats(edges_skipped, gpu_backend, sel, factors_data, factors_nbins, target, dtype, gpu_stats):
     """Offload the friend-graph statistics to the GPU backend when one is selected."""

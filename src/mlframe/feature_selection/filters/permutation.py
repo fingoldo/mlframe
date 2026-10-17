@@ -14,7 +14,6 @@ confidence ``0.0`` from the caller) to avoid ``UnboundLocalError`` on ``i`` when
 from __future__ import annotations
 
 import logging
-import math
 from typing import Optional, cast
 
 import numpy as np
@@ -37,6 +36,8 @@ from ._numba_utils import _DEFAULT_BASE_SEED, distribute_permutations  # noqa: F
 from .info_theory import (
     merge_vars, compute_relevance_score, use_su_normalization, use_mi_miller_madow, use_mi_chao_shen,
 )
+# Analytic-null fast path and its fused 1-var kernel live in a sibling module; re-exported so existing imports keep resolving.
+from ._permutation_mi_direct_paths import _mi_direct_analytic_null, _relevance_mi_1var_fused  # noqa: F401
 
 logger = logging.getLogger(__name__)
 
@@ -79,70 +80,6 @@ def null_mean_min_perms() -> int:
     from mlframe.utils.env_flags import env_int
 
     return env_int("MLFRAME_MRMR_NULL_PERMS", _NULL_MEAN_MIN_PERMS, minimum=2)
-
-
-@njit(nogil=True, cache=True)
-def _relevance_mi_1var_fused(
-    factors_data: np.ndarray,
-    ix: int,
-    nb_x: int,
-    classes_y: np.ndarray,
-    freqs_y: np.ndarray,
-) -> tuple:
-    """Fused single-variable raw MI I(X_ix; Y) + occupied-x-bin count in ONE O(n) pass.
-
-    Returns ``(mi, bx)`` where ``mi`` is BIT-IDENTICAL to
-    ``compute_mi_from_classes(*merge_vars(factors_data, [ix], ...)[:2], classes_y, freqs_y)``
-    and ``bx`` equals the pruned ``len(freqs_x)`` (occupied x-bins) that
-    ``merge_vars`` returns - exactly the two quantities the ANALYTIC-null branch of
-    ``mi_direct`` consumes (``_ax_freqs.shape[0]`` and the MI). The legacy path built the
-    length-n ``classes_x`` relabel array via ``merge_vars`` (one O(n) accumulate pass plus a
-    second O(n) lookup-remap pass when any x-bin is empty) and then walked all n samples AGAIN
-    inside ``compute_mi_from_classes`` to build the joint histogram - and the analytic branch
-    DISCARDS ``classes_x`` entirely (it needs only ``len(freqs_x)`` and the MI scalar). This
-    kernel builds the ``(nb_x, K_y)`` joint histogram directly from ``factors_data[:, ix]`` and
-    ``classes_y`` in a SINGLE row pass, then derives ``freqs_x`` from the row sums - eliminating
-    the separate ``merge_vars(x)`` pass + its ``final_classes``/lookup allocations. Mirrors the
-    ``joint_freqs_2var`` / ``joint_entropy_2var`` pruned-fast-path wins on the DCD pairwise path.
-
-    BIT-IDENTITY to ``compute_mi_from_classes(merge_vars(...))`` (raw MI, no SU/MM):
-      * ``merge_vars`` renumbers OCCUPIED x-bins densely in ASCENDING original-bin order, so
-        ``compute_mi_from_classes`` visits x-classes ``i in range(len(freqs_x))`` in that same
-        ascending order. Iterating ``i in range(nb_x)`` here and SKIPPING empty rows
-        (``rowcount == 0``) visits the identical occupied bins in the identical order.
-      * ``prob_x = rowcount / n`` reproduces ``merge_vars``'s ``freqs / n_rows`` (int64 count,
-        float64 true division); ``prob_y = freqs_y[j]`` is passed through unchanged; and
-        ``jf = jc * inv_n`` with ``inv_n = 1.0 / n`` matches ``compute_mi_from_classes`` exactly
-        - same operands, same order, so the ``jf*log(jf/(prob_x*prob_y))`` terms accumulate
-        bit-for-bit.
-      * Empty x-bins (and empty joint cells) contribute nothing to MI in EITHER path, so pruning
-        vs skipping is numerically inert.
-    """
-    n = factors_data.shape[0]
-    K_y = len(freqs_y)
-    if n == 0:
-        return 0.0, 0
-    joint = np.zeros((nb_x, K_y), dtype=np.int64)
-    for k in range(n):
-        joint[factors_data[k, ix], classes_y[k]] += 1
-    inv_n = 1.0 / n
-    total = 0.0
-    bx = 0
-    for i in range(nb_x):
-        rowcount = 0
-        for j in range(K_y):
-            rowcount += joint[i, j]
-        if rowcount == 0:
-            continue
-        bx += 1
-        prob_x = rowcount / n
-        for j in range(K_y):
-            jc = joint[i, j]
-            if jc != 0:
-                prob_y = freqs_y[j]
-                jf = jc * inv_n
-                total += jf * math.log(jf / (prob_x * prob_y))
-    return total, bx
 
 
 def _addone_pvalue_enabled() -> bool:
@@ -602,7 +539,6 @@ def mi_direct(
       distinct for caller-site clarity, not because they dispatch differently.
     * ``"bc"``: Besag-Clifford sequential permutation test with adaptive early stopping. Sequential but typically 5-10x fewer permutations than fixed budget.
     * ``"none"``: sequential, no parallelism (used by golden tests)."""
-    global _MI_DIRECT_GPU_FAILED
     if parallel_kwargs is None:
         parallel_kwargs = {}
 
@@ -616,70 +552,11 @@ def mi_direct(
     # MI is raw (NOT SU-normalised - the 2N*MI~chi2 identity requires it) AND n >= a threshold; below
     # it the legacy permutation path runs byte-for-byte unchanged. Covers BOTH the 2-tuple confidence
     # and 4-tuple null-mean contracts, so it also bypasses the GPU permutation branch below.
-    try:
-        from ._analytic_mi_null import (
-            analytic_mi_null, analytic_null_enabled, analytic_null_min_n, analytic_null_applicable,
-        )
-
-        # The analytic-null fast path returned RAW plug-in
-        # MI unconditionally (compute_relevance_score(False, ...), no use_mm/use_cs) while the sub-threshold
-        # permutation path below always applies the active mi_correction - a silent formula discontinuity
-        # in the reported relevance value exactly at the analytic_null_min_n() threshold whenever
-        # mi_correction='miller_madow'/'chao_shen' is active. Fall through to the exact permutation path
-        # (unchanged) when either correction is active, matching the existing SU/sparsity fall-through pattern.
-        _analytic_ok = (
-            analytic_null_enabled()
-            and int(factors_data.shape[0]) >= analytic_null_min_n()
-            and not use_su_normalization()
-            and not use_mi_miller_madow()
-            and not use_mi_chao_shen()
-        )
-    except Exception as e:
-        logger.warning("analytic-null availability check failed, defaulting to False: %s", e)
-        _analytic_ok = False
-    if _analytic_ok:
-        if classes_y is None:
-            classes_y, freqs_y, _ = merge_vars(
-                factors_data=factors_data, vars_indices=y,
-                var_is_nominal=None, factors_nbins=factors_nbins, dtype=dtype,
-            )
-        assert freqs_y is not None  # the None branch above always sets classes_y/freqs_y together
-        _n_rows = int(factors_data.shape[0])
-        _by = int(freqs_y.shape[0])
-        # FUSED single-var fast path (wasted-per-call-work audit): the analytic branch
-        # needs only the MI scalar + the occupied-x-bin count - it DISCARDS the length-n classes_x
-        # that merge_vars(x) builds. For the single-variable relevance x (every MRMR/FE caller passes
-        # x=(var,) / x=[0]), ``_relevance_mi_1var_fused`` builds the joint histogram + MI + bx in ONE
-        # O(n) pass, skipping the separate merge_vars(x) accumulate (+ remap) pass entirely.
-        # Bit-identical to the legacy merge_vars + compute_relevance_score(False, ...) below (proven
-        # in test_mi_direct_fused_1var_relevance). Mirrors the joint_freqs_2var DCD win.
-        if len(x) == 1:
-            _ix = int(x[0])
-            _nb_x = int(factors_nbins[_ix])
-            _ax_mi, _ax_bx = _relevance_mi_1var_fused(factors_data, _ix, _nb_x, classes_y, freqs_y)
-            if analytic_null_applicable(_n_rows, _ax_bx, _by):
-                _ax_nm, _ax_p = analytic_mi_null(_ax_mi, _n_rows, _ax_bx, _by)
-                if return_null_mean:
-                    return _ax_mi, 1.0 - _ax_p, _ax_nm, _ax_p
-                return _ax_mi, 1.0 - _ax_p
-            # Sparse cells -> analytic null unreliable; FALL THROUGH to the permutation path below
-            # (which rebuilds merge_vars(x); rare high-cardinality case, not the dense hot path).
-        else:
-            _ax_classes, _ax_freqs, _ = merge_vars(
-                factors_data=factors_data, vars_indices=x,
-                var_is_nominal=None, factors_nbins=factors_nbins, dtype=dtype,
-            )
-            # Occupancy safe-condition: the chi-square / Miller-Madow approximation is only trustworthy
-            # when the contingency cells are not sparse (a high-cardinality x can have sparse cells even at
-            # large n). When sparse, FALL THROUGH to the sparsity-correct permutation path below.
-            if analytic_null_applicable(int(_ax_classes.shape[0]), int(_ax_freqs.shape[0]), _by):
-                _ax_mi = compute_relevance_score(False, _ax_classes, _ax_freqs, classes_y, freqs_y, dtype=dtype)
-                _ax_nm, _ax_p = analytic_mi_null(
-                    _ax_mi, int(_ax_classes.shape[0]), int(_ax_freqs.shape[0]), _by,
-                )
-                if return_null_mean:
-                    return _ax_mi, 1.0 - _ax_p, _ax_nm, _ax_p
-                return _ax_mi, 1.0 - _ax_p
+    _analytic_result, classes_y, freqs_y = _mi_direct_analytic_null(
+        factors_data, x, y, factors_nbins, dtype, classes_y, freqs_y, return_null_mean,
+    )
+    if _analytic_result is not None:
+        return _analytic_result
 
     # Transparent route to the GPU permutation path when CUDA is available AND
     # the caller is asking for a high enough permutation count to amortise the
@@ -705,70 +582,11 @@ def mi_direct(
     # surface the empirical null, and the screen's relevance-baseline budget (``npermutations<32``) never reaches the GPU branch anyway, so routing-to-CPU here costs nothing
     # in practice; it only guards the unusual case of a caller asking for the null mean with a large budget on a CUDA host.
     if prefer_gpu and npermutations >= 32 and parallelism in ("outer", "none") and not return_null_mean and not _MI_DIRECT_GPU_FAILED:
-        # This internal fastpath gate never consulted
-        # gpu_globally_disabled()/MLFRAME_DISABLE_GPU - only is_cuda_available() (honors
-        # CUDA_VISIBLE_DEVICES but not the mlframe-specific opt-out). A caller that decided NOT to use
-        # GPU (e.g. confirm_candidate's _confirm_use_gpu=False fallback, which calls plain mi_direct()
-        # with no prefer_gpu=False) could have mi_direct silently re-route to GPU anyway once
-        # npermutations>=32, overriding the caller's explicit opt-out.
-        try:
-            from pyutilz.core.pythonlib import is_cuda_available
-            from ._gpu_policy import gpu_globally_disabled
-            _gpu_ok = (not gpu_globally_disabled()) and is_cuda_available()
-        except Exception as e:
-            logger.warning("GPU availability check failed, defaulting to False: %s", e)
-            _gpu_ok = False
-        if _gpu_ok:
-            # Proactive VRAM headroom check: before this,
-            # ``mi_direct``'s GPU fastpath had no upfront capacity guard - unlike the CMI path
-            # (``_cmi_cuda._should_use_cuda``), which already probes ``memGetInfo`` + calls this SAME
-            # ``fe_gpu_has_vram_cushion`` helper before launching. The dominant device buffer here is the
-            # batched-permutation y-matrix (``max(npermutations, 64)`` int32 rows of length ``n``, per the
-            # ``mi_direct_gpu_batched`` delegation above); a near-full card (another process sharing the
-            # GPU, or VRAM eaten by a prior stage) would otherwise only be caught reactively by the
-            # circuit breaker AFTER an actual launch fault. Permissive on probe failure/no-cupy (see the
-            # helper's own docstring), so this can only DECLINE an already-risky launch, never block a
-            # healthy one.
-            try:
-                _n = int(np.asarray(x).shape[0])
-                _bytes_needed = _n * max(int(npermutations), 64) * 4 + _n * 8
-                from mlframe.feature_selection.filters._fe_gpu_vram import fe_gpu_has_vram_cushion
-                _gpu_ok = fe_gpu_has_vram_cushion(_bytes_needed)
-            except Exception as e:
-                logger.warning("fe_gpu_has_vram_cushion() probe failed, not blocking the GPU launch: %s", e)
-                _gpu_ok = True  # probe failure must not block an otherwise-eligible launch
-        if _gpu_ok:
-            try:
-                from mlframe.feature_selection.filters.gpu import mi_direct_gpu
-                return mi_direct_gpu(
-                    factors_data=factors_data,
-                    x=x,
-                    y=y,
-                    factors_nbins=factors_nbins,
-                    min_occupancy=min_occupancy,
-                    dtype=dtype,
-                    npermutations=npermutations,
-                    max_failed=max_failed,
-                    min_nonzero_confidence=min_nonzero_confidence,
-                    classes_y=classes_y,
-                    freqs_y=freqs_y,
-                    use_gpu=True,
-                    # The caller's seed reaches all four njit kernels on the CPU path; dropping it here made
-                    # the identical public call reproducible on CPU and run-varying on GPU.
-                    base_seed=base_seed,
-                )
-            except Exception as _exc:
-                # Promoted DEBUG -> WARNING + trips the circuit breaker: a launch fault poisons
-                # the CUDA context (see the breaker's module-level docstring), so silently retrying at DEBUG on
-                # every future call was both invisible in a normal INFO-level log AND wasted a repeated failed
-                # launch. First fault routes every subsequent mi_direct call straight to CPU for the rest of the
-                # process; only the FIRST fault is logged at WARNING to avoid spamming on every later call.
-                _MI_DIRECT_GPU_FAILED = True
-                logger.warning(
-                    "mi_direct: GPU fastpath failed (%s: %s); falling back to CPU for the rest of the process "
-                    "(circuit breaker tripped; call reset_mi_direct_gpu_circuit_breaker() to re-arm).",
-                    type(_exc).__name__, _exc,
-                )
+        _gpu_result = _mi_direct_try_gpu(
+            factors_data, x, y, factors_nbins, min_occupancy, dtype, npermutations, max_failed, min_nonzero_confidence, classes_y, freqs_y, base_seed,
+        )
+        if _gpu_result is not None:
+            return _gpu_result
 
     # Read SU toggle once per call; threaded into every njit branch
     # below so cardinality-bias correction stays consistent across the permutation
@@ -799,47 +617,149 @@ def mi_direct(
         # legacy budget-absolute ``nfailed >= max_failed`` test at ``n_checked == npermutations``, but correct when the null budget is larger. The screen calls with
         # ``min_nonzero_confidence=0.0`` so the rate floor is 1.0 (reject only if EVERY shuffle ties/beats observed - pure noise), keeping the Wave-9.1 unanimous-rejection semantics
         # intact. ``p_value = nfailed / n_checked`` is surfaced so the screen can SIGNIFICANCE-GATE the null-mean subtraction (subtract only when the feature is NOT significant).
-        null_mean = 0.0
-        confidence = 0.0
-        p_value = 1.0  # default for the original_mi == 0 / no-perm path: an uninformative feature is maximally non-significant.
-        if original_mi > 0 and npermutations > 0:
-            _null_nperms = max(int(npermutations), null_mean_min_perms())
-            _cy = classes_y_safe if classes_y_safe is not None else classes_y
-            # Reached from the FE pair sweep's threaded chunk pipeline, where a producer thread runs
-            # while the main thread scores. Two threads inside one prange region aborts the process on
-            # macOS; see mlframe._numba_parallel_guard.
-            with parallel_kernel_entry():
-                nfailed, n_checked, sum_perm_mi = parallel_mi_prange_with_null(
-                    classes_x=classes_x,
-                    freqs_x=freqs_x,
-                    classes_y=_cy,
-                    freqs_y=freqs_y,
-                    npermutations=_null_nperms,
-                    original_mi=original_mi,
-                    base_seed=np.uint64(base_seed),
-                    dtype=dtype,
-                    use_su=_use_su,
-                    use_mm=(use_mi_miller_madow() and not _use_su),  # N-F1: null uses the SAME estimator as original_mi
-                    use_cs=(use_mi_chao_shen() and not _use_su),
-                )
-            if n_checked > 0:
-                null_mean = sum_perm_mi / float(n_checked)
-                # The rejection gate uses the RAW exceedance rate (legacy unanimous-rejection semantics on the screen's tiny budget), while the surfaced p_value / confidence use
-                # the add-one Monte-Carlo estimator - the gate decision is unchanged, only the reported confidence is calibrated. ``_null_nperms`` is the full budget for P2.
-                _raw_rate = nfailed / float(n_checked)
-                p_value = _perm_pvalue(nfailed, n_checked, full_budget=_null_nperms)
-                confidence = 1.0 - p_value
-                _rate_floor = float(1.0 - float(min_nonzero_confidence))
-                if _raw_rate >= _rate_floor:
-                    original_mi = 0.0
-        return original_mi, confidence, null_mean, p_value
+        return _mi_direct_null_mean_path(
+            original_mi, npermutations, min_nonzero_confidence, classes_x, freqs_x, classes_y, freqs_y, classes_y_safe, base_seed, dtype, _use_su,
+        )
 
     confidence = 0.0
-    nfailed = 0
 
     confidence, original_mi = _permutation_test_mi(original_mi, npermutations, max_failed, min_nonzero_confidence, parallelism, classes_x, freqs_x, classes_y_safe, classes_y, freqs_y, base_seed, dtype, _use_su, confidence)
 
     return original_mi, confidence
+
+
+def _mi_direct_try_gpu(
+    factors_data: np.ndarray,
+    x: tuple,
+    y: tuple,
+    factors_nbins: np.ndarray,
+    min_occupancy: Optional[int],
+    dtype: type,
+    npermutations: int,
+    max_failed: Optional[int],
+    min_nonzero_confidence: float,
+    classes_y: Optional[np.ndarray],
+    freqs_y: Optional[np.ndarray],
+    base_seed: int,
+) -> Optional[tuple]:
+    """Try the GPU permutation fastpath of ``mi_direct``; returns its result, or ``None`` when the GPU is unavailable, declined or faulted (circuit breaker trips)."""
+    global _MI_DIRECT_GPU_FAILED
+    # This internal fastpath gate never consulted
+    # gpu_globally_disabled()/MLFRAME_DISABLE_GPU - only is_cuda_available() (honors
+    # CUDA_VISIBLE_DEVICES but not the mlframe-specific opt-out). A caller that decided NOT to use
+    # GPU (e.g. confirm_candidate's _confirm_use_gpu=False fallback, which calls plain mi_direct()
+    # with no prefer_gpu=False) could have mi_direct silently re-route to GPU anyway once
+    # npermutations>=32, overriding the caller's explicit opt-out.
+    try:
+        from pyutilz.core.pythonlib import is_cuda_available
+        from ._gpu_policy import gpu_globally_disabled
+        _gpu_ok = (not gpu_globally_disabled()) and is_cuda_available()
+    except Exception as e:
+        logger.warning("GPU availability check failed, defaulting to False: %s", e)
+        _gpu_ok = False
+    if _gpu_ok:
+        # Proactive VRAM headroom check: before this,
+        # ``mi_direct``'s GPU fastpath had no upfront capacity guard - unlike the CMI path
+        # (``_cmi_cuda._should_use_cuda``), which already probes ``memGetInfo`` + calls this SAME
+        # ``fe_gpu_has_vram_cushion`` helper before launching. The dominant device buffer here is the
+        # batched-permutation y-matrix (``max(npermutations, 64)`` int32 rows of length ``n``, per the
+        # ``mi_direct_gpu_batched`` delegation above); a near-full card (another process sharing the
+        # GPU, or VRAM eaten by a prior stage) would otherwise only be caught reactively by the
+        # circuit breaker AFTER an actual launch fault. Permissive on probe failure/no-cupy (see the
+        # helper's own docstring), so this can only DECLINE an already-risky launch, never block a
+        # healthy one.
+        try:
+            _n = int(np.asarray(x).shape[0])
+            _bytes_needed = _n * max(int(npermutations), 64) * 4 + _n * 8
+            from mlframe.feature_selection.filters._fe_gpu_vram import fe_gpu_has_vram_cushion
+            _gpu_ok = fe_gpu_has_vram_cushion(_bytes_needed)
+        except Exception as e:
+            logger.warning("fe_gpu_has_vram_cushion() probe failed, not blocking the GPU launch: %s", e)
+            _gpu_ok = True  # probe failure must not block an otherwise-eligible launch
+    if _gpu_ok:
+        try:
+            from mlframe.feature_selection.filters.gpu import mi_direct_gpu
+            return mi_direct_gpu(
+                factors_data=factors_data,
+                x=x,
+                y=y,
+                factors_nbins=factors_nbins,
+                min_occupancy=min_occupancy,
+                dtype=dtype,
+                npermutations=npermutations,
+                max_failed=max_failed,
+                min_nonzero_confidence=min_nonzero_confidence,
+                classes_y=classes_y,
+                freqs_y=freqs_y,
+                use_gpu=True,
+                # The caller's seed reaches all four njit kernels on the CPU path; dropping it here made
+                # the identical public call reproducible on CPU and run-varying on GPU.
+                base_seed=base_seed,
+            )
+        except Exception as _exc:
+            # Promoted DEBUG -> WARNING + trips the circuit breaker: a launch fault poisons
+            # the CUDA context (see the breaker's module-level docstring), so silently retrying at DEBUG on
+            # every future call was both invisible in a normal INFO-level log AND wasted a repeated failed
+            # launch. First fault routes every subsequent mi_direct call straight to CPU for the rest of the
+            # process; only the FIRST fault is logged at WARNING to avoid spamming on every later call.
+            _MI_DIRECT_GPU_FAILED = True
+            logger.warning(
+                "mi_direct: GPU fastpath failed (%s: %s); falling back to CPU for the rest of the process "
+                "(circuit breaker tripped; call reset_mi_direct_gpu_circuit_breaker() to re-arm).",
+                type(_exc).__name__, _exc,
+            )
+    return None
+
+
+def _mi_direct_null_mean_path(
+    original_mi: float,
+    npermutations: int,
+    min_nonzero_confidence: float,
+    classes_x: np.ndarray,
+    freqs_x: np.ndarray,
+    classes_y: np.ndarray,
+    freqs_y: Optional[np.ndarray],
+    classes_y_safe: Optional[np.ndarray],
+    base_seed: int,
+    dtype: type,
+    use_su: bool,
+) -> tuple:
+    """Empirical-null sub-path of ``mi_direct`` (``return_null_mean=True``): returns ``(original_mi, confidence, null_mean, p_value)``."""
+    _use_su = use_su
+    null_mean = 0.0
+    confidence = 0.0
+    p_value = 1.0  # default for the original_mi == 0 / no-perm path: an uninformative feature is maximally non-significant.
+    if original_mi > 0 and npermutations > 0:
+        _null_nperms = max(int(npermutations), null_mean_min_perms())
+        _cy = classes_y_safe if classes_y_safe is not None else classes_y
+        # Reached from the FE pair sweep's threaded chunk pipeline, where a producer thread runs
+        # while the main thread scores. Two threads inside one prange region aborts the process on
+        # macOS; see mlframe._numba_parallel_guard.
+        with parallel_kernel_entry():
+            nfailed, n_checked, sum_perm_mi = parallel_mi_prange_with_null(
+                classes_x=classes_x,
+                freqs_x=freqs_x,
+                classes_y=_cy,
+                freqs_y=freqs_y,
+                npermutations=_null_nperms,
+                original_mi=original_mi,
+                base_seed=np.uint64(base_seed),
+                dtype=dtype,
+                use_su=_use_su,
+                use_mm=(use_mi_miller_madow() and not _use_su),  # N-F1: null uses the SAME estimator as original_mi
+                use_cs=(use_mi_chao_shen() and not _use_su),
+            )
+        if n_checked > 0:
+            null_mean = sum_perm_mi / float(n_checked)
+            # The rejection gate uses the RAW exceedance rate (legacy unanimous-rejection semantics on the screen's tiny budget), while the surfaced p_value / confidence use
+            # the add-one Monte-Carlo estimator - the gate decision is unchanged, only the reported confidence is calibrated. ``_null_nperms`` is the full budget for P2.
+            _raw_rate = nfailed / float(n_checked)
+            p_value = _perm_pvalue(nfailed, n_checked, full_budget=_null_nperms)
+            confidence = 1.0 - p_value
+            _rate_floor = float(1.0 - float(min_nonzero_confidence))
+            if _raw_rate >= _rate_floor:
+                original_mi = 0.0
+    return original_mi, confidence, null_mean, p_value
 
 
 def _permutation_test_mi(original_mi, npermutations, max_failed, min_nonzero_confidence, parallelism, classes_x, freqs_x, classes_y_safe, classes_y, freqs_y, base_seed, dtype, _use_su, confidence):

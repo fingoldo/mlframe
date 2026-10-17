@@ -619,6 +619,111 @@ def _linear_residual_multi_domain(
     return np.asarray(base_ok & np.isfinite(y))
 
 
+def _group_segments(
+    y: np.ndarray, base: np.ndarray, sample_weight: np.ndarray | None, inverse_idx: np.ndarray, n_groups: int
+) -> tuple[np.ndarray, np.ndarray, np.ndarray | None, np.ndarray, np.ndarray]:
+    """Rows sorted by group so each group is a contiguous segment; returns ``(y_sorted, base_sorted, sw_sorted, counts, offsets)``."""
+    # Sort rows once by group label so each group is a contiguous segment, instead
+    # of re-scanning the whole length-n ``inverse_idx`` with a boolean mask per
+    # group (the historic ``inverse_idx == i`` pattern is O(K*n) -- 13x slower at
+    # K=2000/n=200k, see _benchmarks/bench_grouped_fit_segment.py). A STABLE argsort
+    # preserves the original ascending row order within each group, so the per-group
+    # ``y_g`` / ``base_g`` views are the SAME arrays (same values, same order) the
+    # mask path produced -> the per-group OLS (lstsq) result is bit-identical.
+    _order = np.argsort(inverse_idx, kind="stable")
+    _y_sorted = np.asarray(y)[_order]
+    _base_sorted = np.asarray(base)[_order]
+    _sw_sorted = np.asarray(sample_weight)[_order] if sample_weight is not None else None
+    _counts = np.bincount(inverse_idx, minlength=n_groups)
+    _offsets = np.empty(n_groups + 1, dtype=np.int64)
+    _offsets[0] = 0
+    np.cumsum(_counts, out=_offsets[1:])
+    return _y_sorted, _base_sorted, _sw_sorted, _counts, _offsets
+
+
+def _fit_one_group(
+    y_g: np.ndarray, base_g: np.ndarray, sw_g: np.ndarray | None, g_key: str, alpha_global: float, beta_global: float
+) -> tuple[float, float, bool]:
+    """OLS fit of one group; on failure falls back to the global fit and reports ``fit_ok=False`` so the group stays out of the shrinkage statistics."""
+    _fit_ok = True
+    try:
+        params_g = _linear_residual_fit(y_g, base_g, sample_weight=sw_g)
+        a_g = float(params_g["alpha"])
+        b_g = float(params_g["beta"])
+    except Exception as e:  # pragma: no cover - defensive
+        log_throttle(
+            logger, "composite_linear_per_group_ols_failed", logging.WARNING,
+            "composite linear transform: per-group OLS fit failed for group %s (%s: %s); using the global "
+            "alpha/beta for that group's PREDICTIONS, but excluding it from the James-Stein shrinkage "
+            "statistics, since a copy of the global fit is not an independent per-group observation.",
+            g_key,
+            type(e).__name__,
+            e,
+        )
+        a_g, b_g = alpha_global, beta_global
+        _fit_ok = False
+    return a_g, b_g, _fit_ok
+
+
+def _js_shrinkage_for_groups(
+    alphas_for_shrink: list[float],
+    sizes_for_shrink: list[float],
+    base_vars_for_shrink: list[float],
+    alpha_global: float,
+    total_resid_sq: float,
+    total_n: int,
+) -> float:
+    """James-Stein shrinkage factor of the eligible per-group alphas (0.0 when fewer than 4 groups ran their own OLS)."""
+    # Lazy import of parent-resident helpers (see ``_linear_residual_grouped_fit``).
+    from . import _james_stein_shrinkage_factor
+
+    c: float
+    if len(alphas_for_shrink) >= 4 and total_n > 0:
+        sigma2 = total_resid_sq / max(total_n - 2 * len(alphas_for_shrink), 1)
+        c = _james_stein_shrinkage_factor(
+            np.asarray(alphas_for_shrink, dtype=np.float64),
+            alpha_global,
+            np.asarray(sizes_for_shrink, dtype=np.float64),
+            sigma2,
+            base_vars=np.asarray(base_vars_for_shrink, dtype=np.float64),
+        )
+    else:
+        c = 0.0
+    return c
+
+
+def _apply_js_shrinkage(
+    c: float,
+    alpha_global: float,
+    per_group_alphas: dict[str, float],
+    per_group_betas: dict[str, float],
+    group_sizes: dict[str, int],
+    base_mean_for_shrink: dict[str, float],
+    min_group_size: int,
+) -> None:
+    """Shrink eligible per-group alphas toward the global alpha, re-centring each beta in lockstep."""
+    # Apply shrinkage to eligible groups (ones that ran their own OLS).
+    # Re-centre beta_g in lockstep: shrinking alpha alone tilts the fitted
+    # line about base=0, so the per-group residual mean drifts to
+    # c·(a_g - alpha_global)·mean(base_g) (manufactured per-group bias).
+    # Because the per-group OLS fixes mean(y_g) = a_g·mean(base_g) + b_g,
+    # the bias-free intercept for the shrunk slope alpha_s is
+    # b_g_new = mean(y_g) - alpha_s·mean(base_g)
+    #         = b_g + (a_g - alpha_s)·mean(base_g)
+    #         = b_g + c·(a_g - alpha_global)·mean(base_g),
+    # which restores mean(y_g - alpha_s·base_g - b_g_new) == 0.
+    if c > 0:
+        for g_key, a_g in list(per_group_alphas.items()):
+            n_g = group_sizes[g_key]
+            if n_g < min_group_size:
+                continue
+            alpha_shrunk = (1.0 - c) * a_g + c * alpha_global
+            base_mean_g = base_mean_for_shrink.get(g_key)
+            if base_mean_g is not None:
+                per_group_betas[g_key] = per_group_betas[g_key] + (a_g - alpha_shrunk) * base_mean_g
+            per_group_alphas[g_key] = alpha_shrunk
+
+
 def _linear_residual_grouped_fit(
     y: np.ndarray,
     base: np.ndarray,
@@ -656,7 +761,7 @@ def _linear_residual_grouped_fit(
     # Lazy import of parent-resident helpers: ``.predict`` re-imports
     # this sibling at its bottom, so a top-level ``from .predict
     # import ...`` would create a hard cycle the meta-test flags.
-    from . import _canonical_group_key, _james_stein_shrinkage_factor, _unique_group_labels
+    from . import _canonical_group_key, _unique_group_labels
 
     if groups is None:
         raise ValueError(
@@ -678,22 +783,8 @@ def _linear_residual_grouped_fit(
     per_group_betas: dict[str, float] = {}
     group_sizes: dict[str, int] = {}
     unique_groups, inverse_idx = _unique_group_labels(groups)
-    # Sort rows once by group label so each group is a contiguous segment, instead
-    # of re-scanning the whole length-n ``inverse_idx`` with a boolean mask per
-    # group (the historic ``inverse_idx == i`` pattern is O(K*n) -- 13x slower at
-    # K=2000/n=200k, see _benchmarks/bench_grouped_fit_segment.py). A STABLE argsort
-    # preserves the original ascending row order within each group, so the per-group
-    # ``y_g`` / ``base_g`` views are the SAME arrays (same values, same order) the
-    # mask path produced -> the per-group OLS (lstsq) result is bit-identical.
     n_groups = unique_groups.size
-    _order = np.argsort(inverse_idx, kind="stable")
-    _y_sorted = np.asarray(y)[_order]
-    _base_sorted = np.asarray(base)[_order]
-    _sw_sorted = np.asarray(sample_weight)[_order] if sample_weight is not None else None
-    _counts = np.bincount(inverse_idx, minlength=n_groups)
-    _offsets = np.empty(n_groups + 1, dtype=np.int64)
-    _offsets[0] = 0
-    np.cumsum(_counts, out=_offsets[1:])
+    _y_sorted, _base_sorted, _sw_sorted, _counts, _offsets = _group_segments(y, base, sample_weight, inverse_idx, n_groups)
 
     # Cache residual squared sum across all groups to estimate σ² for
     # James-Stein. Computed against the per-group OLS predictions (the
@@ -742,22 +833,7 @@ def _linear_residual_grouped_fit(
             per_group_alphas[g_key] = a_g
             per_group_betas[g_key] = b_g
             continue
-        try:
-            params_g = _linear_residual_fit(y_g, base_g, sample_weight=sw_g)
-            a_g = float(params_g["alpha"])
-            b_g = float(params_g["beta"])
-        except Exception as e:  # pragma: no cover - defensive
-            log_throttle(
-                logger, "composite_linear_per_group_ols_failed", logging.WARNING,
-                "composite linear transform: per-group OLS fit failed for group %s (%s: %s); using the global "
-                "alpha/beta for that group's PREDICTIONS, but excluding it from the James-Stein shrinkage "
-                "statistics, since a copy of the global fit is not an independent per-group observation.",
-                g_key,
-                type(e).__name__,
-                e,
-            )
-            a_g, b_g = alpha_global, beta_global
-            _fit_ok = False
+        a_g, b_g, _fit_ok = _fit_one_group(y_g, base_g, sw_g, g_key, alpha_global, beta_global)
         per_group_alphas[g_key] = a_g
         per_group_betas[g_key] = b_g
         # Substituting the global fit for a group that could not be fit is a defensible PREDICTION fallback, but
@@ -778,37 +854,8 @@ def _linear_residual_grouped_fit(
         total_n += n_g
 
     # James-Stein shrinkage of the eligible per-group alphas.
-    if len(alphas_for_shrink) >= 4 and total_n > 0:
-        sigma2 = total_resid_sq / max(total_n - 2 * len(alphas_for_shrink), 1)
-        c = _james_stein_shrinkage_factor(
-            np.asarray(alphas_for_shrink, dtype=np.float64),
-            alpha_global,
-            np.asarray(sizes_for_shrink, dtype=np.float64),
-            sigma2,
-            base_vars=np.asarray(base_vars_for_shrink, dtype=np.float64),
-        )
-    else:
-        c = 0.0
-    # Apply shrinkage to eligible groups (ones that ran their own OLS).
-    # Re-centre beta_g in lockstep: shrinking alpha alone tilts the fitted
-    # line about base=0, so the per-group residual mean drifts to
-    # c·(a_g - alpha_global)·mean(base_g) (manufactured per-group bias).
-    # Because the per-group OLS fixes mean(y_g) = a_g·mean(base_g) + b_g,
-    # the bias-free intercept for the shrunk slope alpha_s is
-    # b_g_new = mean(y_g) - alpha_s·mean(base_g)
-    #         = b_g + (a_g - alpha_s)·mean(base_g)
-    #         = b_g + c·(a_g - alpha_global)·mean(base_g),
-    # which restores mean(y_g - alpha_s·base_g - b_g_new) == 0.
-    if c > 0:
-        for g_key, a_g in list(per_group_alphas.items()):
-            n_g = group_sizes[g_key]
-            if n_g < min_group_size:
-                continue
-            alpha_shrunk = (1.0 - c) * a_g + c * alpha_global
-            base_mean_g = base_mean_for_shrink.get(g_key)
-            if base_mean_g is not None:
-                per_group_betas[g_key] = per_group_betas[g_key] + (a_g - alpha_shrunk) * base_mean_g
-            per_group_alphas[g_key] = alpha_shrunk
+    c = _js_shrinkage_for_groups(alphas_for_shrink, sizes_for_shrink, base_vars_for_shrink, alpha_global, total_resid_sq, total_n)
+    _apply_js_shrinkage(c, alpha_global, per_group_alphas, per_group_betas, group_sizes, base_mean_for_shrink, min_group_size)
 
     return {
         "alpha_global": alpha_global,

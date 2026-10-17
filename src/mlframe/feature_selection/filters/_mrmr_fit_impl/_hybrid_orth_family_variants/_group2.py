@@ -7,6 +7,7 @@ section this fans out from and the ``self``/``X`` threading contract (mirrors th
 
 from __future__ import annotations
 
+from typing import Any
 import logging
 
 
@@ -92,6 +93,15 @@ def _hybrid_orth_family_variants_group2(
                 type(_df_exc).__name__,
                 _df_exc,
             )
+    _ret_hybrid_orth_family_variants_group2_part1 = _hybrid_orth_family_variants_group2_part1(self, _fe_family_on, _y_np, X, _hybrid_orth_pre_recipes, verbose)
+    if _ret_hybrid_orth_family_variants_group2_part1[0]:
+        return _ret_hybrid_orth_family_variants_group2_part1[1]
+
+
+def _hybrid_orth_family_variants_group2_part1(
+    self: Any, _fe_family_on: Any, _y_np: Any, X: Any, _hybrid_orth_pre_recipes: Any, verbose: Any,
+) -> tuple[Any, ...]:
+    """Extracted block of ``_hybrid_orth_family_variants_group2`` (part 1); returns the names the caller still uses."""
     # Layer 61 — PER-CLUSTER SHARED-BASIS FE. Independent opt-in
     # (does NOT require fe_hybrid_orth_enable). When active, an internal
     # correlation-based cluster detector finds connected components of the
@@ -220,7 +230,8 @@ def _hybrid_orth_family_variants_group2(
     # one bin and hides genuine dependence. Engineered VALUES bit-equal to
     # Layer 21 -> recipes reuse the ``orth_univariate`` kind.
 
-    return X
+    return True, (X)
+    return False, None
 
 
 def _stage_cluster_basis(self, _fe_family_on, _y_np, X, _hybrid_orth_pre_recipes, verbose):

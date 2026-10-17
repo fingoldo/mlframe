@@ -143,6 +143,270 @@ from ._feature_importances import (  # noqa: F401
 logger = logging.getLogger(__name__)
 
 
+_Calibrated8 = Tuple[Any, np.ndarray, np.ndarray, np.ndarray, np.ndarray, Sequence[str], Any, Dict]
+
+
+def _post_calibrate_multi_output(
+    model: Any,
+    test_preds: np.ndarray,
+    test_probs: np.ndarray,
+    val_preds: np.ndarray,
+    val_probs: np.ndarray,
+    columns: Sequence[str],
+    pre_pipeline: Any,
+    metrics: Dict,
+    target_series: pd.Series,
+    test_idx: np.ndarray,
+    calib_probs: Optional[np.ndarray],
+    calib_target: Optional[np.ndarray],
+) -> _Calibrated8:
+    """Multi-output (MULTICLASS / MULTILABEL) branch of ``post_calibrate_model``: per-class isotonic calibration, returns the 8-tuple."""
+    from mlframe.training.trainer import (
+        _PerClassIsotonicCalibrator, _PostHocMultiCalibratedModel,
+    )
+    from mlframe.training.configs import TargetTypes
+    # Infer target_type from labels: if y_true is (N, K) indicator
+    # matrix -> multilabel; otherwise multiclass.
+    y_test_full = target_series.iloc[test_idx].values
+    if y_test_full.ndim == 2 or (hasattr(y_test_full, "dtype") and y_test_full.dtype == object):
+        _target_type = TargetTypes.MULTILABEL_CLASSIFICATION
+    else:
+        _target_type = TargetTypes.MULTICLASS_CLASSIFICATION
+    from mlframe.training._calibration_oof_mask import mask_nonfinite_oof_rows, multi_output_calibration_source
+
+    _calib_p, _calib_y = multi_output_calibration_source(model, calib_probs, calib_target)
+    _calib_p, _calib_y = mask_nonfinite_oof_rows(_calib_p, _calib_y, metrics=metrics, where="post_calibrate_model (multi-output)")
+    calibrator = _PerClassIsotonicCalibrator.fit(
+        _calib_p, _calib_y, _target_type,
+    )
+    # Produce calibrated val/test probs.
+    meta_val_probs = calibrator.predict_proba(val_probs)
+    meta_test_probs = calibrator.predict_proba(test_probs)
+    # Wrap model for transparent predict_proba delegation at
+    # downstream serving time.
+    wrapped_model = _PostHocMultiCalibratedModel(
+        model, calibrator, _target_type,
+        classes_=getattr(model, "classes_", None),
+    )
+    # Stamp calibrated probs onto the underlying model so downstream consumers (ensembling blend via
+    # use_ap12_calibrated_probs, honest diagnostics, dashboards) can consume the AP12-calibrated surface
+    # without re-running the calibrator. RRF is rank-based and intentionally bypasses this on the read side.
+    try:
+        model.calibrated_val_probs = meta_val_probs
+        model.calibrated_test_probs = meta_test_probs
+        wrapped_model.calibrated_val_probs = meta_val_probs
+        wrapped_model.calibrated_test_probs = meta_test_probs
+    except (AttributeError, TypeError):
+        # Slot-only / read-only model objects (rare) just skip the stamp; the ensembling
+        # read-side falls back to raw .<split>_probs without crashing.
+        pass
+    # Copy val_preds/test_preds forward -- they're caller-provided and
+    # decoupled from the probability calibration.
+    return (
+        wrapped_model, test_preds, meta_test_probs,
+        val_preds, meta_val_probs, columns, pre_pipeline, metrics,
+    )
+
+
+def _binary_calibration_source(model: Any, calib_probs: Optional[np.ndarray], calib_target: Optional[np.ndarray]) -> Tuple[np.ndarray, np.ndarray]:
+    """Source the binary calibration ``(X, y)`` pair from caller-provided OOF inputs or ``model.oof_probs``; never from test rows."""
+    if calib_probs is not None:
+        _binary_calib_probs = np.asarray(calib_probs)
+        # Accept either (M, 2) or (M,) for the positive-class column.
+        if _binary_calib_probs.ndim == 2 and _binary_calib_probs.shape[1] >= 2:
+            _binary_fit_X = _binary_calib_probs[:, 1].reshape(-1, 1)
+        else:
+            _binary_fit_X = _binary_calib_probs.reshape(-1, 1)
+        _binary_fit_y = np.asarray(calib_target).ravel()
+    else:
+        _oof_probs_attr = getattr(model, "oof_probs", None)
+        if _oof_probs_attr is None:
+            raise ValueError(
+                "post_calibrate_model: no calibration source available. Pass calib_probs+calib_target (OOF-train probs "
+                "preferred) or train the model with oof_n_splits>=2 so model.oof_probs is stamped on the model object."
+            )
+        _oof_arr = np.asarray(_oof_probs_attr)
+        if _oof_arr.ndim == 2 and _oof_arr.shape[1] >= 2:
+            _binary_fit_X = _oof_arr[:, 1].reshape(-1, 1)
+        else:
+            _binary_fit_X = _oof_arr.reshape(-1, 1)
+        # OOF y must be the train-aligned target stamped alongside oof_probs
+        # (cross_val_predict order), NOT a positional ``target_series[:len(oof)]``
+        # slice -- the latter is correct only when train is the leading
+        # contiguous block, so under a shuffled / group-aware split it paired
+        # OOF probs with unrelated rows' labels and learned a scrambled mapping.
+        _oof_y_bin = getattr(model, "oof_target", None)
+        if _oof_y_bin is None:
+            raise ValueError(
+                "post_calibrate_model: model.oof_probs is present but model.oof_target is "
+                "missing, so OOF probs cannot be aligned to their labels. Retrain so "
+                "oof_target is stamped, or pass calib_probs+calib_target."
+            )
+        _binary_fit_y = np.asarray(_oof_y_bin)[: _binary_fit_X.shape[0]].ravel()
+    return _binary_fit_X, _binary_fit_y
+
+
+def _record_post_calibrate_provenance(metrics: Dict, fit_X: np.ndarray, from_oof: bool) -> None:
+    """Best-effort provenance stamp for the ``post_calibrate`` stage; failures are swallowed at debug level."""
+    try:
+        from mlframe.training.provenance import record_provenance as _record_provenance
+        _n_calib_fit = int(fit_X.shape[0]) if hasattr(fit_X, "shape") else None
+        _record_provenance(
+            metrics if isinstance(metrics, dict) else None,
+            "post_calibrate",
+            source="oof" if from_oof else "calib",
+            n_rows=_n_calib_fit,
+        )
+    except Exception as e:
+        logger.debug("swallowed exception in evaluation.py: %s", e)
+        pass
+
+
+def _run_calibration_policy(configs: Any, metrics: Dict, fit_X: np.ndarray, fit_y: np.ndarray) -> None:
+    """Run ``pick_best_calibrator`` on the OOF source and store the verdict in ``metrics["calibration_policy"]`` (best-effort)."""
+    # CalibrationConfig.policy_auto_pick: run pick_best_calibrator on the OOF source so the metrics dict carries the auto-pick verdict (chosen method + ECE CI) alongside the legacy meta-model output. Enabled by default; opt-out via configs.calibration.policy_auto_pick = False.
+    _calib_cfg = getattr(configs, "calibration", None) if configs is not None else None
+    _policy_on = True if _calib_cfg is None else bool(getattr(_calib_cfg, "policy_auto_pick", True))
+    if _policy_on and isinstance(metrics, dict):
+        try:
+            from mlframe.calibration.policy import pick_best_calibrator
+            _emit_plot = bool(getattr(_calib_cfg, "emit_plot", False)) if _calib_cfg is not None else False
+            _plot_path = getattr(_calib_cfg, "plot_path", None) if _calib_cfg is not None else None
+            _n_boot = int(getattr(_calib_cfg, "n_bootstrap", 1000)) if _calib_cfg is not None else 1000
+            _alpha = float(getattr(_calib_cfg, "alpha", 0.05)) if _calib_cfg is not None else 0.05
+            _cand = getattr(_calib_cfg, "candidates", None) if _calib_cfg is not None else None
+            _selection = str(getattr(_calib_cfg, "selection", "inner_cv")) if _calib_cfg is not None else "inner_cv"
+            _inner_splits = int(getattr(_calib_cfg, "inner_cv_splits", 5)) if _calib_cfg is not None else 5
+            _policy = pick_best_calibrator(
+                probs=None,
+                y=None,
+                oof_probs=fit_X.ravel(),
+                oof_y=fit_y,
+                alpha=_alpha,
+                candidates=_cand,
+                n_bootstrap=_n_boot,
+                selection=_selection,
+                inner_cv_splits=_inner_splits,
+                emit_plot=_emit_plot,
+                plot_path=_plot_path,
+            )
+            metrics["calibration_policy"] = {k: v for k, v in _policy.items() if k != "calibrated_probs"}
+        except Exception as _policy_err:  # best-effort: metrics["calibration_policy"] simply stays absent
+            logger.warning("post_calibrate_model: calibration policy auto-pick failed: %s", _policy_err)
+
+
+def _report_calibration_slice(
+    targets: pd.Series,
+    columns: Sequence[str],
+    model_name: str,
+    target_label_encoder: Optional[LabelEncoder],
+    preds: np.ndarray,
+    probs: np.ndarray,
+    nbins: int,
+    configs: Any,
+    print_report: bool,
+) -> None:
+    """Thin wrapper over ``report_model_perf`` with the fixed arguments every ``post_calibrate_model`` report shares."""
+    _ = report_model_perf(
+        targets=targets,
+        columns=columns,
+        df=None,
+        model_name=model_name,
+        model=None,
+        target_label_encoder=target_label_encoder,
+        preds=preds,
+        probs=probs,
+        report_title="",
+        nbins=nbins,
+        print_report=print_report,
+        show_fi=False,
+        custom_ice_metric=configs.integral_calibration_error,
+    )
+
+
+def _default_calibration_meta_model(configs: Any) -> Any:
+    """Build the default GPU CatBoost meta-model whose early-stopping metric is the configured integral calibration error."""
+    from catboost import CatBoostClassifier
+    from mlframe.metrics.core import ICE
+
+    return CatBoostClassifier(
+        iterations=3000,
+        verbose=False,
+        has_time=False,
+        learning_rate=0.2,
+        eval_fraction=0.1,
+        task_type="GPU",
+        early_stopping_rounds=400,
+        eval_metric=ICE(metric=configs.integral_calibration_error, higher_is_better=False),
+        custom_metric="AUC",
+    )
+
+
+def _validate_original_model(original_model: Any) -> None:
+    """Raise ``ValueError`` unless ``original_model`` is an 8-element tuple/list."""
+    if not isinstance(original_model, (tuple, list)) or len(original_model) != 8:
+        raise ValueError(
+            f"original_model must be an 8-element tuple/list containing "
+            f"(model, test_preds, test_probs, val_preds, val_probs, columns, pre_pipeline, metrics), "
+            f"got {type(original_model).__name__} with {len(original_model) if hasattr(original_model, '__len__') else 'unknown'} elements"
+        )
+
+
+def _check_calibration_leak_guard(
+    calib_idx: Optional[np.ndarray],
+    test_idx: Optional[np.ndarray],
+    calib_probs: Optional[np.ndarray],
+    calib_target: Optional[np.ndarray],
+) -> None:
+    """Raise ``ValueError`` when the calibration index overlaps ``test_idx`` or ``calib_probs`` is given without ``calib_target``."""
+    # Test-row leak guard: any path into ``meta_model.fit(...)`` that includes a row from ``test_idx`` re-prices the
+    # test slice as a calibration tuning surface, inflates the reported test metric, and silently invalidates the
+    # holdout estimate. Compute the intersection between the calibration index (if user provided one) and the test
+    # index once up front; raise before any fit call ever runs.
+    if calib_idx is not None and test_idx is not None:
+        _calib_arr = np.asarray(calib_idx).ravel()
+        _test_arr = np.asarray(test_idx).ravel()
+        _overlap = np.intersect1d(_calib_arr, _test_arr, assume_unique=False)
+        if _overlap.size > 0:
+            raise ValueError(f"calibration must not touch test_idx rows; got {int(_overlap.size)} test rows in calibrator input")
+
+    # When the user supplied a direct (calib_probs, calib_target) pair, validate it doesn't degenerate to test rows
+    # via a length collision -- a common foot-gun is passing ``test_probs[:k]`` as ``calib_probs`` and assuming the
+    # function will route it correctly. We can't compare row IDs without indices, so the contract is: callers either
+    # pass an explicit ``calib_idx`` (and we verify disjointness above) OR pass ``calib_probs`` that they have
+    # constructed independently of the test slice (OOF-train probs are the canonical source).
+    if calib_probs is not None and calib_target is None:
+        raise ValueError("post_calibrate_model: calib_probs supplied without calib_target; both required.")
+
+
+def _fit_binary_meta_model(
+    model: Any,
+    meta_model: Any,
+    calib_probs: Optional[np.ndarray],
+    calib_target: Optional[np.ndarray],
+    metrics: Dict,
+    configs: Any,
+    fit_params: Dict[str, Any],
+) -> None:
+    """Fit the binary meta-calibrator on the OOF source, then record provenance and the calibration-policy verdict."""
+    # Binary path. Source the calibration (probs, y) pair from caller-provided OOF inputs OR model.oof_probs;
+    # NEVER from test_probs / test_idx. Historical default ``test_probs[:calib_set_size]`` is removed: it leaks the
+    # test slice into the calibrator fit and inflates the reported test metric. See the test-row leak guard above.
+    _binary_fit_X, _binary_fit_y = _binary_calibration_source(model, calib_probs, calib_target)
+
+    # Final leak assertion at the fit boundary: when an explicit calib_idx was passed, the disjointness check above
+    # already cleared this. When (calib_probs, calib_target) were passed instead, the caller asserted independence at
+    # source. Here we double-check the shape contract before letting any data hit ``meta_model.fit``.
+    if _binary_fit_X.shape[0] != _binary_fit_y.shape[0]:
+        raise ValueError(f"calibration X / y row counts diverge: X.shape[0]={_binary_fit_X.shape[0]} vs y.shape[0]={_binary_fit_y.shape[0]}")
+
+    from mlframe.training._calibration_oof_mask import mask_nonfinite_oof_rows
+
+    _binary_fit_X, _binary_fit_y = mask_nonfinite_oof_rows(_binary_fit_X, _binary_fit_y, metrics=metrics)
+    meta_model.fit(_binary_fit_X, _binary_fit_y, **fit_params)
+
+    _record_post_calibrate_provenance(metrics, _binary_fit_X, calib_probs is not None)
+    _run_calibration_policy(configs, metrics, _binary_fit_X, _binary_fit_y)
 def post_calibrate_model(
     original_model: Tuple[Any, np.ndarray, np.ndarray, np.ndarray, np.ndarray, Sequence[str], Any, Dict],
     target_series: pd.Series,
@@ -216,9 +480,6 @@ def post_calibrate_model(
         Same 8-element structure as input, but with calibrated probabilities:
         (model, test_preds, meta_test_probs, val_preds, meta_val_probs, columns, pre_pipeline, metrics)
     """
-    from catboost import CatBoostClassifier
-    from mlframe.metrics.core import ICE
-
     if calib_set_size != 2000:
         logger.warning(
             "post_calibrate_model: calib_set_size=%r has no effect -- this parameter is dead (kept only for "
@@ -228,45 +489,12 @@ def post_calibrate_model(
         )
 
     if meta_model is None:
-        meta_model = CatBoostClassifier(
-            iterations=3000,
-            verbose=False,
-            has_time=False,
-            learning_rate=0.2,
-            eval_fraction=0.1,
-            task_type="GPU",
-            early_stopping_rounds=400,
-            eval_metric=ICE(metric=configs.integral_calibration_error, higher_is_better=False),
-            custom_metric="AUC",
-        )
+        meta_model = _default_calibration_meta_model(configs)
 
-    # Validate original_model structure
-    if not isinstance(original_model, (tuple, list)) or len(original_model) != 8:
-        raise ValueError(
-            f"original_model must be an 8-element tuple/list containing "
-            f"(model, test_preds, test_probs, val_preds, val_probs, columns, pre_pipeline, metrics), "
-            f"got {type(original_model).__name__} with {len(original_model) if hasattr(original_model, '__len__') else 'unknown'} elements"
-        )
+    _validate_original_model(original_model)
     model, test_preds, test_probs, val_preds, val_probs, columns, pre_pipeline, metrics = original_model
 
-    # Test-row leak guard: any path into ``meta_model.fit(...)`` that includes a row from ``test_idx`` re-prices the
-    # test slice as a calibration tuning surface, inflates the reported test metric, and silently invalidates the
-    # holdout estimate. Compute the intersection between the calibration index (if user provided one) and the test
-    # index once up front; raise before any fit call ever runs.
-    if calib_idx is not None and test_idx is not None:
-        _calib_arr = np.asarray(calib_idx).ravel()
-        _test_arr = np.asarray(test_idx).ravel()
-        _overlap = np.intersect1d(_calib_arr, _test_arr, assume_unique=False)
-        if _overlap.size > 0:
-            raise ValueError(f"calibration must not touch test_idx rows; got {int(_overlap.size)} test rows in calibrator input")
-
-    # When the user supplied a direct (calib_probs, calib_target) pair, validate it doesn't degenerate to test rows
-    # via a length collision -- a common foot-gun is passing ``test_probs[:k]`` as ``calib_probs`` and assuming the
-    # function will route it correctly. We can't compare row IDs without indices, so the contract is: callers either
-    # pass an explicit ``calib_idx`` (and we verify disjointness above) OR pass ``calib_probs`` that they have
-    # constructed independently of the test slice (OOF-train probs are the canonical source).
-    if calib_probs is not None and calib_target is None:
-        raise ValueError("post_calibrate_model: calib_probs supplied without calib_target; both required.")
+    _check_calibration_leak_guard(calib_idx, test_idx, calib_probs, calib_target)
 
     # Multi-output path (MULTICLASS / MULTILABEL).
     # When probs are (N, K) with K != 2, route through per-class isotonic
@@ -276,142 +504,12 @@ def post_calibrate_model(
     # probability matrices.
     is_multi_output = hasattr(test_probs, "shape") and len(test_probs.shape) == 2 and test_probs.shape[1] != 2
     if is_multi_output:
-        from mlframe.training.trainer import (
-            _PerClassIsotonicCalibrator, _PostHocMultiCalibratedModel,
-        )
-        from mlframe.training.configs import TargetTypes
-        # Infer target_type from labels: if y_true is (N, K) indicator
-        # matrix -> multilabel; otherwise multiclass.
-        y_test_full = target_series.iloc[test_idx].values
-        if y_test_full.ndim == 2 or (hasattr(y_test_full, "dtype") and y_test_full.dtype == object):
-            _target_type = TargetTypes.MULTILABEL_CLASSIFICATION
-        else:
-            _target_type = TargetTypes.MULTICLASS_CLASSIFICATION
-        from mlframe.training._calibration_oof_mask import mask_nonfinite_oof_rows, multi_output_calibration_source
-
-        _calib_p, _calib_y = multi_output_calibration_source(model, calib_probs, calib_target)
-        _calib_p, _calib_y = mask_nonfinite_oof_rows(_calib_p, _calib_y, metrics=metrics, where="post_calibrate_model (multi-output)")
-        calibrator = _PerClassIsotonicCalibrator.fit(
-            _calib_p, _calib_y, _target_type,
-        )
-        # Produce calibrated val/test probs.
-        meta_val_probs = calibrator.predict_proba(val_probs)
-        meta_test_probs = calibrator.predict_proba(test_probs)
-        # Wrap model for transparent predict_proba delegation at
-        # downstream serving time.
-        wrapped_model = _PostHocMultiCalibratedModel(
-            model, calibrator, _target_type,
-            classes_=getattr(model, "classes_", None),
-        )
-        # Stamp calibrated probs onto the underlying model so downstream consumers (ensembling blend via
-        # use_ap12_calibrated_probs, honest diagnostics, dashboards) can consume the AP12-calibrated surface
-        # without re-running the calibrator. RRF is rank-based and intentionally bypasses this on the read side.
-        try:
-            model.calibrated_val_probs = meta_val_probs
-            model.calibrated_test_probs = meta_test_probs
-            wrapped_model.calibrated_val_probs = meta_val_probs
-            wrapped_model.calibrated_test_probs = meta_test_probs
-        except (AttributeError, TypeError):
-            # Slot-only / read-only model objects (rare) just skip the stamp; the ensembling
-            # read-side falls back to raw .<split>_probs without crashing.
-            pass
-        # Copy val_preds/test_preds forward -- they're caller-provided and
-        # decoupled from the probability calibration.
-        return (
-            wrapped_model, test_preds, meta_test_probs,
-            val_preds, meta_val_probs, columns, pre_pipeline, metrics,
+        return _post_calibrate_multi_output(
+            model, test_preds, test_probs, val_preds, val_probs, columns, pre_pipeline, metrics,
+            target_series, test_idx, calib_probs, calib_target,
         )
 
-    # Binary path. Source the calibration (probs, y) pair from caller-provided OOF inputs OR model.oof_probs;
-    # NEVER from test_probs / test_idx. Historical default ``test_probs[:calib_set_size]`` is removed: it leaks the
-    # test slice into the calibrator fit and inflates the reported test metric. See the test-row leak guard above.
-    if calib_probs is not None:
-        _binary_calib_probs = np.asarray(calib_probs)
-        # Accept either (M, 2) or (M,) for the positive-class column.
-        if _binary_calib_probs.ndim == 2 and _binary_calib_probs.shape[1] >= 2:
-            _binary_fit_X = _binary_calib_probs[:, 1].reshape(-1, 1)
-        else:
-            _binary_fit_X = _binary_calib_probs.reshape(-1, 1)
-        _binary_fit_y = np.asarray(calib_target).ravel()
-    else:
-        _oof_probs_attr = getattr(model, "oof_probs", None)
-        if _oof_probs_attr is None:
-            raise ValueError(
-                "post_calibrate_model: no calibration source available. Pass calib_probs+calib_target (OOF-train probs "
-                "preferred) or train the model with oof_n_splits>=2 so model.oof_probs is stamped on the model object."
-            )
-        _oof_arr = np.asarray(_oof_probs_attr)
-        if _oof_arr.ndim == 2 and _oof_arr.shape[1] >= 2:
-            _binary_fit_X = _oof_arr[:, 1].reshape(-1, 1)
-        else:
-            _binary_fit_X = _oof_arr.reshape(-1, 1)
-        # OOF y must be the train-aligned target stamped alongside oof_probs
-        # (cross_val_predict order), NOT a positional ``target_series[:len(oof)]``
-        # slice -- the latter is correct only when train is the leading
-        # contiguous block, so under a shuffled / group-aware split it paired
-        # OOF probs with unrelated rows' labels and learned a scrambled mapping.
-        _oof_y_bin = getattr(model, "oof_target", None)
-        if _oof_y_bin is None:
-            raise ValueError(
-                "post_calibrate_model: model.oof_probs is present but model.oof_target is "
-                "missing, so OOF probs cannot be aligned to their labels. Retrain so "
-                "oof_target is stamped, or pass calib_probs+calib_target."
-            )
-        _binary_fit_y = np.asarray(_oof_y_bin)[: _binary_fit_X.shape[0]].ravel()
-
-    # Final leak assertion at the fit boundary: when an explicit calib_idx was passed, the disjointness check above
-    # already cleared this. When (calib_probs, calib_target) were passed instead, the caller asserted independence at
-    # source. Here we double-check the shape contract before letting any data hit ``meta_model.fit``.
-    if _binary_fit_X.shape[0] != _binary_fit_y.shape[0]:
-        raise ValueError(f"calibration X / y row counts diverge: X.shape[0]={_binary_fit_X.shape[0]} vs y.shape[0]={_binary_fit_y.shape[0]}")
-
-    from mlframe.training._calibration_oof_mask import mask_nonfinite_oof_rows
-
-    _binary_fit_X, _binary_fit_y = mask_nonfinite_oof_rows(_binary_fit_X, _binary_fit_y, metrics=metrics)
-    meta_model.fit(_binary_fit_X, _binary_fit_y, **fit_params)
-
-    try:
-        from mlframe.training.provenance import record_provenance as _record_provenance
-        _n_calib_fit = int(_binary_fit_X.shape[0]) if hasattr(_binary_fit_X, "shape") else None
-        _record_provenance(
-            metrics if isinstance(metrics, dict) else None,
-            "post_calibrate",
-            source="oof" if calib_probs is not None else "calib",
-            n_rows=_n_calib_fit,
-        )
-    except Exception as e:
-        logger.debug("swallowed exception in evaluation.py: %s", e)
-        pass
-
-    # CalibrationConfig.policy_auto_pick: run pick_best_calibrator on the OOF source so the metrics dict carries the auto-pick verdict (chosen method + ECE CI) alongside the legacy meta-model output. Enabled by default; opt-out via configs.calibration.policy_auto_pick = False.
-    _calib_cfg = getattr(configs, "calibration", None) if configs is not None else None
-    _policy_on = True if _calib_cfg is None else bool(getattr(_calib_cfg, "policy_auto_pick", True))
-    if _policy_on and isinstance(metrics, dict):
-        try:
-            from mlframe.calibration.policy import pick_best_calibrator
-            _emit_plot = bool(getattr(_calib_cfg, "emit_plot", False)) if _calib_cfg is not None else False
-            _plot_path = getattr(_calib_cfg, "plot_path", None) if _calib_cfg is not None else None
-            _n_boot = int(getattr(_calib_cfg, "n_bootstrap", 1000)) if _calib_cfg is not None else 1000
-            _alpha = float(getattr(_calib_cfg, "alpha", 0.05)) if _calib_cfg is not None else 0.05
-            _cand = getattr(_calib_cfg, "candidates", None) if _calib_cfg is not None else None
-            _selection = str(getattr(_calib_cfg, "selection", "inner_cv")) if _calib_cfg is not None else "inner_cv"
-            _inner_splits = int(getattr(_calib_cfg, "inner_cv_splits", 5)) if _calib_cfg is not None else 5
-            _policy = pick_best_calibrator(
-                probs=None,
-                y=None,
-                oof_probs=_binary_fit_X.ravel(),
-                oof_y=_binary_fit_y,
-                alpha=_alpha,
-                candidates=_cand,
-                n_bootstrap=_n_boot,
-                selection=_selection,
-                inner_cv_splits=_inner_splits,
-                emit_plot=_emit_plot,
-                plot_path=_plot_path,
-            )
-            metrics["calibration_policy"] = {k: v for k, v in _policy.items() if k != "calibrated_probs"}
-        except Exception as _policy_err:  # best-effort: metrics["calibration_policy"] simply stays absent
-            logger.warning("post_calibrate_model: calibration policy auto-pick failed: %s", _policy_err)
+    _fit_binary_meta_model(model, meta_model, calib_probs, calib_target, metrics, configs, fit_params)
 
     # Always materialise calibrated val probs so the return tuple is consistent regardless of show_val. Without this
     # the pre-existing ``return ..., meta_val_probs, ...`` raises NameError whenever the caller leaves show_val=False
@@ -419,53 +517,17 @@ def post_calibrate_model(
     meta_val_probs = meta_model.predict_proba(val_probs[:, 1].reshape(-1, 1)) if val_probs is not None else None
 
     if show_val:
-        _ = report_model_perf(
-            targets=target_series.iloc[val_idx],
-            columns=columns,
-            df=None,
-            model_name="VAL",
-            model=None,
-            target_label_encoder=target_label_encoder,
-            preds=val_preds,
-            probs=val_probs,
-            report_title="",
-            nbins=nbins,
-            print_report=False,
-            show_fi=False,
-            custom_ice_metric=configs.integral_calibration_error,
+        _report_calibration_slice(
+            target_series.iloc[val_idx], columns, "VAL", target_label_encoder, val_preds, val_probs, nbins, configs, False,
         )
-        _ = report_model_perf(
-            targets=target_series.iloc[val_idx],
-            columns=columns,
-            df=None,
-            model_name="VAL fixed",
-            model=None,
-            target_label_encoder=target_label_encoder,
-            preds=val_preds,
-            probs=meta_val_probs,
-            report_title="",
-            nbins=nbins,
-            print_report=False,
-            show_fi=False,
-            custom_ice_metric=configs.integral_calibration_error,
+        _report_calibration_slice(
+            target_series.iloc[val_idx], columns, "VAL fixed", target_label_encoder, val_preds, meta_val_probs, nbins, configs, False,
         )
 
     meta_test_probs = meta_model.predict_proba(test_probs[:, 1].reshape(-1, 1))
 
-    _ = report_model_perf(
-        targets=target_series.iloc[test_idx],
-        columns=columns,
-        df=None,
-        model_name="TEST original",
-        model=None,
-        target_label_encoder=target_label_encoder,
-        preds=test_preds,
-        probs=test_probs,
-        report_title="",
-        nbins=nbins,
-        print_report=False,
-        show_fi=False,
-        custom_ice_metric=configs.integral_calibration_error,
+    _report_calibration_slice(
+        target_series.iloc[test_idx], columns, "TEST original", target_label_encoder, test_preds, test_probs, nbins, configs, False,
     )
 
     # Stamp calibrated probs onto the underlying model so downstream consumers (ensembling blend via
@@ -482,20 +544,9 @@ def post_calibrate_model(
     # [:calib_set_size]" two-bucket reporting reflected the old behaviour where the calibrator was fit on the first
     # ``calib_set_size`` test rows and evaluated on the remainder; now the calibrator never touches test, so every
     # test row is an honest holdout and the buckets collapse.
-    _ = report_model_perf(
-        targets=target_series.iloc[test_idx],
-        columns=columns,
-        df=None,
-        model_name="TEST fixed",
-        model=None,
-        target_label_encoder=target_label_encoder,
-        preds=(meta_test_probs[:, 1] > DEFAULT_BINARY_THRESHOLD).astype(int),
-        probs=meta_test_probs,
-        report_title="",
-        nbins=nbins,
-        print_report=True,
-        show_fi=False,
-        custom_ice_metric=configs.integral_calibration_error,
+    _report_calibration_slice(
+        target_series.iloc[test_idx], columns, "TEST fixed", target_label_encoder,
+        (meta_test_probs[:, 1] > DEFAULT_BINARY_THRESHOLD).astype(int), meta_test_probs, nbins, configs, True,
     )
 
     return model, test_preds, meta_test_probs, val_preds, meta_val_probs, columns, pre_pipeline, metrics

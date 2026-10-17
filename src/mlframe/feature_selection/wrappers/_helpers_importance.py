@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from typing import cast
 import logging
-from typing import Callable, Union
+from typing import Any, Callable, Union
 
 import numpy as np
 import pandas as pd
@@ -178,6 +178,60 @@ def _make_fast_default_scorer(model: object) -> Callable:
     return _scorer
 
 
+def _is_discrete_v2(col: np.ndarray) -> bool:
+    """Tighter discrete-vs-continuous detection than the legacy proxy: integer dtype is canonical discrete; for
+    floats, both low unique-count AND cardinality far below the row count are required, so decile-binned
+    continuous columns route to the regressor conditioning tree instead of mis-triggering the classifier."""
+    # F11: tighter discrete detection. Integer dtype is canonical discrete. For floats, require BOTH (a) low unique count AND (b) cardinality << n_rows.
+    # Decile-binned continuous variables (10 unique values across 100k rows) now correctly route to regression instead of classification.
+    if np.issubdtype(col.dtype, np.integer):
+        return True
+    try:
+        mask = ~np.isnan(col.astype(float, copy=False))
+        uniq = np.unique(col[mask])
+    except (TypeError, ValueError):
+        uniq = np.unique(col)
+    _n = max(int(mask.sum()) if hasattr(mask, "sum") else len(col), 1)
+    return cast("bool", uniq.size <= max(5, int(np.sqrt(_n))) and uniq.size <= 0.5 * _n)
+
+
+def _cpi_single_feature_importance(
+    model: Any,
+    y: pd.Series | np.ndarray,
+    X_arr: np.ndarray,
+    X_perm: np.ndarray,
+    j: int,
+    n_repeats: int,
+    rng: np.random.Generator,
+    baseline: float,
+    is_dataframe: bool,
+    cols: pd.Index | None,
+    idx: pd.Index | None,
+) -> float:
+    """Vanilla-shuffle importance of column ``j`` when there is no conditioning set (single-feature X).
+
+    Mutates ``X_perm[:, j]`` and restores it in a finally; returns NaN when every repeat's scoring failed."""
+    score_losses: list[float] = []
+    orig_col = X_arr[:, j].copy()
+    try:
+        for _ in range(n_repeats):
+            X_perm[:, j] = rng.permutation(orig_col)
+            X_for_score = pd.DataFrame(X_perm, columns=cols, index=idx) if is_dataframe else X_perm
+            # E11 ext (mirrors the general p>1 branch below): wrap model.score in try/except so a
+            # custom scorer crash on the permuted X doesn't abort the whole per-fold FI computation.
+            # NaN signals the failure to the consumer instead of propagating the exception.
+            try:
+                score_losses.append(baseline - float(model.score(X_for_score, y)))
+            except Exception as e:
+                logger.debug("permutation-importance score() failed (single-feature branch), recording NaN: %s", e)
+                score_losses.append(np.nan)
+    finally:
+        X_perm[:, j] = orig_col
+    # NaN, not 0.0, when nothing could be measured: real importances are ``baseline - score`` and routinely
+    # negative, so a neutral 0.0 outranks every feature measured to be harmful.
+    return float(np.nanmean(score_losses)) if any(not np.isnan(s) for s in score_losses) else np.nan
+
+
 def _conditional_permutation_importance(
     model,
     X: pd.DataFrame | np.ndarray,
@@ -242,22 +296,6 @@ def _conditional_permutation_importance(
             uniq = np.unique(col)
         return cast("bool", uniq.size <= 10)
 
-    def _is_discrete_v2(col: np.ndarray) -> bool:
-        """Tighter discrete-vs-continuous detection than ``_is_discrete``: integer dtype is canonical discrete; for
-        floats, both low unique-count AND cardinality far below the row count are required, so decile-binned
-        continuous columns route to the regressor conditioning tree instead of mis-triggering the classifier."""
-        # F11: tighter discrete detection. Integer dtype is canonical discrete. For floats, require BOTH (a) low unique count AND (b) cardinality << n_rows.
-        # Decile-binned continuous variables (10 unique values across 100k rows) now correctly route to regression instead of classification.
-        if np.issubdtype(col.dtype, np.integer):
-            return True
-        try:
-            mask = ~np.isnan(col.astype(float, copy=False))
-            uniq = np.unique(col[mask])
-        except (TypeError, ValueError):
-            uniq = np.unique(col)
-        _n = max(int(mask.sum()) if hasattr(mask, "sum") else len(col), 1)
-        return cast("bool", uniq.size <= max(5, int(np.sqrt(_n))) and uniq.size <= 0.5 * _n)
-
     # Copy the matrix ONCE; every iteration mutates only column j and restores it in a
     # try/finally so the buffer re-enters each iteration identical to X_arr. The prior
     # per-repeat ``X_arr.copy()`` allocated a full p-column copy on every (j x repeat).
@@ -283,25 +321,7 @@ def _conditional_permutation_importance(
 
         if Xnotj.shape[1] == 0:
             # Single-feature case: no conditioning set; fall back to vanilla shuffle.
-            score_losses = []
-            orig_col = X_arr[:, j].copy()
-            try:
-                for _ in range(n_repeats):
-                    X_perm[:, j] = rng.permutation(orig_col)
-                    X_for_score = pd.DataFrame(X_perm, columns=cols, index=idx) if is_dataframe else X_perm
-                    # E11 ext (mirrors the general p>1 branch below): wrap model.score in try/except so a
-                    # custom scorer crash on the permuted X doesn't abort the whole per-fold FI computation.
-                    # NaN signals the failure to the consumer instead of propagating the exception.
-                    try:
-                        score_losses.append(baseline - float(model.score(X_for_score, y)))
-                    except Exception as e:
-                        logger.debug("permutation-importance score() failed (single-feature branch), recording NaN: %s", e)
-                        score_losses.append(np.nan)
-            finally:
-                X_perm[:, j] = orig_col
-            # NaN, not 0.0, when nothing could be measured: real importances are ``baseline - score`` and routinely
-            # negative, so a neutral 0.0 outranks every feature measured to be harmful.
-            importances[j] = float(np.nanmean(score_losses)) if any(not np.isnan(s) for s in score_losses) else np.nan
+            importances[j] = _cpi_single_feature_importance(model, y, X_arr, X_perm, j, n_repeats, rng, baseline, is_dataframe, cols, idx)
             continue
 
         # F10/F11: pass max_depth + min_samples_leaf. max_depth=None grows the tree

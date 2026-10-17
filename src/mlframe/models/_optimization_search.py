@@ -440,72 +440,9 @@ class MBHOptimizer:
                 # Fit surrogate model to known points & their evaluations
                 # ----------------------------------------------------------------------------------------------------------------------------
 
-                if len(self.known_candidates) > self.last_retrain_ninputs:
-
-                    # First need to check that targets are not all the same:
-                    if len(self.known_evaluations) == 0:
-                        logger.warning("No known evaluations available; can't train the underlying process model.")
-                        return NOT_READY
-                    if np.all(self.known_evaluations == self.known_evaluations[0]):
-                        logger.warning("All targets are the same! Can't train the underlying process model.")
-                        return NOT_READY
-
-                    if not hasattr(self.model, "partial_fit"):
-                        # S1: dedup (x, y) by max(y) within each x.
-                        # RFECV legitimately submits multiple scores at the SAME x (= same N)
-                        # when MBH re-explores a count with a different feature subset
-                        # (the FI voting layer can produce a different ranking each iter).
-                        # Without dedup, CatBoost sees conflicting targets at the same x
-                        # and the surrogate biases toward the most-recent score (whose
-                        # subset is NOT guaranteed to be the winning one). For Maximize
-                        # direction, the right collapse is max(y_at_x); for Minimize, min.
-                        # Opt-out via dedup_known_evaluations=False (legacy behaviour).
-                        if getattr(self, "dedup_known_evaluations", True):
-                            _xs = self.known_candidates
-                            _ys = self.known_evaluations
-                            _unique_x, _inv = np.unique(_xs, return_inverse=True)
-                            if len(_unique_x) < len(_xs):
-                                _agg = (
-                                    np.full(len(_unique_x), -np.inf, dtype=_ys.dtype)
-                                    if self.direction == OptimizationDirection.Maximize
-                                    else np.full(len(_unique_x), np.inf, dtype=_ys.dtype)
-                                )
-                                _cmp = np.maximum if self.direction == OptimizationDirection.Maximize else np.minimum
-                                for _i, _y in zip(_inv, _ys):
-                                    _agg[_i] = _cmp(_agg[_i], _y)
-                                self.model.fit(_unique_x.reshape(-1, 1), _agg)
-                            else:
-                                self.model.fit(_xs.reshape(-1, 1), _ys)
-                        else:
-                            self.model.fit(self.known_candidates.reshape(-1, 1), self.known_evaluations)
-                    else:
-                        n = max(1, len(self.known_candidates) - self.last_retrain_ninputs)
-                        self.model.partial_fit(
-                            self.known_candidates[-n:].reshape(-1, 1),
-                            self.known_evaluations[-n:],
-                        )
-                    self.last_retrain_ninputs = len(self.known_candidates)
-
-                    # ----------------------------------------------------------------------------------------------------------------------------
-                    # Make predictions for all points
-                    # ----------------------------------------------------------------------------------------------------------------------------
-
-                    if self.model_name == "CBQ":
-                        res = self.model.predict(self.search_space.reshape(-1, 1))
-                        y_pred = res[:, 1]
-                        y_std = np.abs(res[:, 0] - res[:, 2]) + SMALL_VALUE
-                    elif self.model_name == "CB":
-                        res = self.model.predict(self.search_space.reshape(-1, 1))
-                        y_pred = res
-                        y_std = np.zeros_like(res)
-                    else:
-                        y_pred, y_std = self.model.predict(self.search_space.reshape(-1, 1), return_std=True)
-
-                    self.y_pred = y_pred
-                    self.y_std = y_std
-                else:
-                    y_pred = self.y_pred
-                    y_std = self.y_std
+                _surrogate_ready, y_pred, y_std = self._refresh_surrogate_predictions()
+                if not _surrogate_ready:
+                    return NOT_READY
 
                 if y_pred is None:
                     # Surrogate not ready yet (e.g., all known targets equal at previous retrain).
@@ -549,6 +486,76 @@ class MBHOptimizer:
                                 continue
                         self.suggested_candidates[next_candidate] = eval_start_time
                         return next_candidate
+
+    def _refresh_surrogate_predictions(self) -> tuple:
+        """Retrain the surrogate when new evaluations arrived and predict over the search space; ``(False, None, None)`` when it cannot be trained yet."""
+        if len(self.known_candidates) > self.last_retrain_ninputs:
+
+            # First need to check that targets are not all the same:
+            if len(self.known_evaluations) == 0:
+                logger.warning("No known evaluations available; can't train the underlying process model.")
+                return False, None, None
+            if np.all(self.known_evaluations == self.known_evaluations[0]):
+                logger.warning("All targets are the same! Can't train the underlying process model.")
+                return False, None, None
+
+            if not hasattr(self.model, "partial_fit"):
+                # S1: dedup (x, y) by max(y) within each x.
+                # RFECV legitimately submits multiple scores at the SAME x (= same N)
+                # when MBH re-explores a count with a different feature subset
+                # (the FI voting layer can produce a different ranking each iter).
+                # Without dedup, CatBoost sees conflicting targets at the same x
+                # and the surrogate biases toward the most-recent score (whose
+                # subset is NOT guaranteed to be the winning one). For Maximize
+                # direction, the right collapse is max(y_at_x); for Minimize, min.
+                # Opt-out via dedup_known_evaluations=False (legacy behaviour).
+                if getattr(self, "dedup_known_evaluations", True):
+                    _xs = self.known_candidates
+                    _ys = self.known_evaluations
+                    _unique_x, _inv = np.unique(_xs, return_inverse=True)
+                    if len(_unique_x) < len(_xs):
+                        _agg = (
+                            np.full(len(_unique_x), -np.inf, dtype=_ys.dtype)
+                            if self.direction == OptimizationDirection.Maximize
+                            else np.full(len(_unique_x), np.inf, dtype=_ys.dtype)
+                        )
+                        _cmp = np.maximum if self.direction == OptimizationDirection.Maximize else np.minimum
+                        for _i, _y in zip(_inv, _ys):
+                            _agg[_i] = _cmp(_agg[_i], _y)
+                        self.model.fit(_unique_x.reshape(-1, 1), _agg)
+                    else:
+                        self.model.fit(_xs.reshape(-1, 1), _ys)
+                else:
+                    self.model.fit(self.known_candidates.reshape(-1, 1), self.known_evaluations)
+            else:
+                n = max(1, len(self.known_candidates) - self.last_retrain_ninputs)
+                self.model.partial_fit(
+                    self.known_candidates[-n:].reshape(-1, 1),
+                    self.known_evaluations[-n:],
+                )
+            self.last_retrain_ninputs = len(self.known_candidates)
+
+            # ----------------------------------------------------------------------------------------------------------------------------
+            # Make predictions for all points
+            # ----------------------------------------------------------------------------------------------------------------------------
+
+            if self.model_name == "CBQ":
+                res = self.model.predict(self.search_space.reshape(-1, 1))
+                y_pred = res[:, 1]
+                y_std = np.abs(res[:, 0] - res[:, 2]) + SMALL_VALUE
+            elif self.model_name == "CB":
+                res = self.model.predict(self.search_space.reshape(-1, 1))
+                y_pred = res
+                y_std = np.zeros_like(res)
+            else:
+                y_pred, y_std = self.model.predict(self.search_space.reshape(-1, 1), return_std=True)
+
+            self.y_pred = y_pred
+            self.y_std = y_std
+        else:
+            y_pred = self.y_pred
+            y_std = self.y_std
+        return True, y_pred, y_std
 
     def _suggest_exploration_candidate(self, y_std: Any, distances: Any, y_pred: Any, known_candidates_set: Any) -> Any:
         """Pick the next candidate in exploration mode."""

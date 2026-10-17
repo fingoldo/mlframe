@@ -6,6 +6,7 @@ Carved out of ``_screen_predictors`` (module size limit); the parent re-exports 
 from __future__ import annotations
 
 import logging
+from typing import Any
 from itertools import combinations
 from os.path import exists
 from pyutilz.system import tqdmu
@@ -35,32 +36,51 @@ def _short_name(name, maxlen: int = 28) -> str:
     return s[:head] + ".." + s[-tail:]
 
 
+def _log_no_more_predictors(interactions_order: Any, total_checked: int, total_disproved: int) -> None:
+    """Log why the current interactions order stopped adding predictors."""
+    if total_checked > 0:
+        details = f" Total candidates disproved: {total_disproved:_}/{total_checked:_} ({total_disproved*100/total_checked:.2f}%)"
+    else:
+        details = ""
+    logger.info("Can't add anything valuable anymore for interactions_order=%s.%s", interactions_order, details)
+
+
+def _log_added_predictor(cand_name: Any, best_gain: Any, confidence: Any, full_npermutations: Any, ndigits: int, candidates: list, selected_vars: list, ctx: Any) -> None:
+    """Log the newly added predictor with its expected gain, confidence and the pool_size x |Z| scaling counters."""
+    mes = f"Added new predictor {cand_name} to the list with expected gain={best_gain:.{ndigits}f}"
+    if full_npermutations:
+        mes += f" and confidence={confidence:.3f}"
+    # Surface the pool_size x |Z| scaling this predictor's confirmation cost right
+    # alongside the pick itself - pool shrinks as candidates fail while |Z| only grows, so a
+    # later predictor with a SMALLER remaining pool can still be slower than an earlier one.
+    mes += f" [pool={len(candidates)} |Z|={len(selected_vars)} " f"cum_score_candidates_wall={ctx.sc_wall:.1f}s calls={ctx.sc_calls}]"
+    logger.info(mes)
+
+
+def _update_confirmed_postfix(predictors_pbar: Any, cand_name: Any, best_gain: Any, best_confirmed_gain: float, best_confirmed_name: Any, ndigits: int) -> tuple:
+    """Surface the winning feature + its mrmr_gain on the "Confirmed predictors" bar; returns the updated running ``(best_gain, best_name)`` leader."""
+    # Live progress: surface the winning feature + its mrmr_gain on the
+    # "Confirmed predictors" bar. ``best_gain`` was just computed by
+    # confirm_one_predictor - display-only, zero extra MI work. Track the
+    # strongest-confirmed so the postfix always names the current leader.
+    try:
+        _g = float(best_gain)
+        if _g > best_confirmed_gain:
+            best_confirmed_gain = _g
+            best_confirmed_name = cand_name
+        _pf = {"last": _short_name(cand_name), "gain": f"{_g:.{ndigits}f}"}
+        if best_confirmed_name is not None and best_confirmed_name != cand_name:
+            _pf["top"] = f"{_short_name(best_confirmed_name)}={best_confirmed_gain:.{ndigits}f}"
+        predictors_pbar.set_postfix(_pf, refresh=False)
+    except (TypeError, ValueError):
+        pass
+    return best_confirmed_gain, best_confirmed_name
+
+
 def _screen_predictors_step2_interactions_order_subsets(
-    subsets,
-    verbose,
-    st,
-    num_possible_candidates,
-    ctx,
-    stop_file,
-    patience_triggered,
-    min_relevance_gain,
-    cardinality_bias_correction,
-    factors_data,
-    y,
-    factors_nbins,
-    min_relevance_gain_relative_to_first,
-    selected_vars,
-    predictors,
-    _fdr_gain_floor,
-    cached_MIs,
-    selected_interactions_vars,
-    dcd_state,
-    factors_names,
-    data_copy,
-    entropy_cache,
-    full_npermutations,
-    engineered_recipes,
-    ndigits,
+    subsets, verbose, st, num_possible_candidates, ctx, stop_file, patience_triggered, min_relevance_gain, cardinality_bias_correction, factors_data, y,
+    factors_nbins, min_relevance_gain_relative_to_first, selected_vars, predictors, _fdr_gain_floor, cached_MIs, selected_interactions_vars, dcd_state,
+    factors_names, data_copy, entropy_cache, full_npermutations, engineered_recipes, ndigits,
 ):
     """Step 2 of screen_predictors: lines starting at ``for interactions_order in (subsets_pbar := tqdmu(subsets, desc="Intera``."""
     for interactions_order in (subsets_pbar := tqdmu(subsets, desc="Interactions order", leave=False, disable=not verbose)):
@@ -112,21 +132,8 @@ def _screen_predictors_step2_interactions_order_subsets(
             # expected-gain order with partial-gain recompute/retry + patience accounting) lives in the
             # ``confirm_one_predictor`` primitive (``_confirm_predictor.py``), keeping this file below the
             # 1k-line monolith threshold and the frequently patched confirmation math in one place.
-            (
-                best_candidate,
-                best_gain,
-                confidence,
-                st.run_out_of_time,
-                nconsec_unconfirmed,
-                total_checked,
-                total_disproved,
-                patience_triggered,
-            ) = confirm_one_predictor(
-                ctx,
-                nconsec_unconfirmed=nconsec_unconfirmed,
-                total_checked=total_checked,
-                total_disproved=total_disproved,
-                patience_triggered=patience_triggered,
+            (best_candidate, best_gain, confidence, st.run_out_of_time, nconsec_unconfirmed, total_checked, total_disproved, patience_triggered) = confirm_one_predictor(
+                ctx, nconsec_unconfirmed=nconsec_unconfirmed, total_checked=total_checked, total_disproved=total_disproved, patience_triggered=patience_triggered
             )
 
             # ---------------------------------------------------------------------------------------------------------------
@@ -137,19 +144,10 @@ def _screen_predictors_step2_interactions_order_subsets(
             # returns relative floor, and the maxT permutation-null floor all live in
             # ``compute_selection_gate`` (``_screen_predictors_gate.py``).
             _gate_passed, _best_gain_for_gate = compute_selection_gate(
-                min_relevance_gain=min_relevance_gain,
-                interactions_order=interactions_order,
-                best_candidate=best_candidate,
-                best_gain=best_gain,
-                cardinality_bias_correction=cardinality_bias_correction,
-                factors_data=factors_data,
-                y=y,
-                factors_nbins=factors_nbins,
-                min_relevance_gain_relative_to_first=min_relevance_gain_relative_to_first,
-                selected_vars=selected_vars,
-                predictors=predictors,
-                fdr_gain_floor=_fdr_gain_floor,
-                cached_MIs=cached_MIs,
+                min_relevance_gain=min_relevance_gain, interactions_order=interactions_order, best_candidate=best_candidate, best_gain=best_gain,
+                cardinality_bias_correction=cardinality_bias_correction, factors_data=factors_data, y=y, factors_nbins=factors_nbins,
+                min_relevance_gain_relative_to_first=min_relevance_gain_relative_to_first, selected_vars=selected_vars, predictors=predictors,
+                fdr_gain_floor=_fdr_gain_floor, cached_MIs=cached_MIs,
             )
             if _gate_passed:
                 for var in best_candidate:
@@ -195,40 +193,17 @@ def _screen_predictors_step2_interactions_order_subsets(
                     res["confidence"] = confidence
                 predictors.append(res)
 
-                # Live progress: surface the winning feature + its mrmr_gain on the
-                # "Confirmed predictors" bar. ``best_gain`` was just computed by
-                # confirm_one_predictor - display-only, zero extra MI work. Track the
-                # strongest-confirmed so the postfix always names the current leader.
                 if verbose:
-                    try:
-                        _g = float(best_gain)
-                        if _g > _best_confirmed_gain:
-                            _best_confirmed_gain = _g
-                            _best_confirmed_name = cand_name
-                        _pf = {"last": _short_name(cand_name), "gain": f"{_g:.{ndigits}f}"}
-                        if _best_confirmed_name is not None and _best_confirmed_name != cand_name:
-                            _pf["top"] = f"{_short_name(_best_confirmed_name)}={_best_confirmed_gain:.{ndigits}f}"
-                        predictors_pbar.set_postfix(_pf, refresh=False)
-                    except (TypeError, ValueError):
-                        pass
+                    _best_confirmed_gain, _best_confirmed_name = _update_confirmed_postfix(
+                        predictors_pbar, cand_name, best_gain, _best_confirmed_gain, _best_confirmed_name, ndigits
+                    )
 
                 if verbose >= 2:
-                    mes = f"Added new predictor {cand_name} to the list with expected gain={best_gain:.{ndigits}f}"
-                    if full_npermutations:
-                        mes += f" and confidence={confidence:.3f}"
-                    # Surface the pool_size x |Z| scaling this predictor's confirmation cost right
-                    # alongside the pick itself - pool shrinks as candidates fail while |Z| only grows, so a
-                    # later predictor with a SMALLER remaining pool can still be slower than an earlier one.
-                    mes += f" [pool={len(candidates)} |Z|={len(selected_vars)} " f"cum_score_candidates_wall={ctx.sc_wall:.1f}s calls={ctx.sc_calls}]"
-                    logger.info(mes)
+                    _log_added_predictor(cand_name, best_gain, confidence, full_npermutations, ndigits, candidates, selected_vars, ctx)
 
             else:
                 if verbose >= 2:
-                    if total_checked > 0:
-                        details = f" Total candidates disproved: {total_disproved:_}/{total_checked:_} ({total_disproved*100/total_checked:.2f}%)"
-                    else:
-                        details = ""
-                    logger.info("Can't add anything valuable anymore for interactions_order=%s.%s", interactions_order, details)
+                    _log_no_more_predictors(interactions_order, total_checked, total_disproved)
                 predictors_pbar.total = len(candidates)
                 predictors_pbar.close()
                 break

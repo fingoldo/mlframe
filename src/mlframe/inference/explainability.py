@@ -59,6 +59,60 @@ def init_model_instance(model_class: Any, params: dict) -> Any:
         return model_class(**params)
 
 
+def _fit_fold_model(model_instance: Any, pipeline_cls: type, X_train: Any, X_test: Any, y_train: Any, y_test: Any, generated_params: dict, plot: bool) -> None:
+    """Fit one fold's model, passing CatBoost its eval set / plot flag and concatenating train+test when ``eval_fraction`` is set."""
+    if isinstance(model_instance, pipeline_cls):
+        if "CatBoost" in type(model_instance.named_steps["est"]).__name__:
+            if "eval_fraction" in generated_params:
+                model_instance.fit(pd.concat([X_train, X_test]), pd.concat([y_train, y_test]), est__plot=plot)
+            else:
+                model_instance.fit(X_train, y_train, est__eval_set=(X_test, y_test), est__plot=plot)
+        else:
+            if "eval_fraction" in generated_params:
+                model_instance.fit(pd.concat([X_train, X_test]), pd.concat([y_train, y_test]))
+            else:
+                model_instance.fit(X_train, y_train)
+    else:
+        if "CatBoost" in type(model_instance).__name__:
+            model_instance.fit(X_train, y_train, eval_set=(X_test, y_test), plot=plot)
+        else:
+            model_instance.fit(X_train, y_train)
+
+
+def _ts_oos_predict(model_instance: Any, X: Any, y: Any, test_ind: Any, L: int, oos_ts_max_size: Optional[int], all_probs: list, all_true_values: list) -> None:
+    """Predict on the free out-of-sample tail after this fold's last test row (time-series cv) and append probs / true values."""
+    max_test_ind = np.array(test_ind).max() + 1
+    if max_test_ind < L:
+        pred_ind = np.arange(max_test_ind, L)
+
+        if oos_ts_max_size is not None and oos_ts_max_size != 0:
+            pred_ind = pred_ind[: oos_ts_max_size + 1]
+
+        probs = model_instance.predict_proba(X.iloc[pred_ind])
+        all_probs.append(probs)
+        all_true_values.append(y.iloc[pred_ind])
+
+
+def _report_ts_oos(all_probs: list, all_true_values: Any, show_classification_report: bool, display_labels: dict) -> None:
+    """Stack the time-series OOS predictions, optionally log the classification report and show the calibration plot."""
+    all_true_values = np.hstack(all_true_values)
+    probs = np.vstack(all_probs)
+    # Derive nclasses from the stacked probs so it is defined even when the final TS fold
+    # contributed no OOS rows (the per-fold ``nclasses = probs.shape[1]`` assignment is skipped then).
+    nclasses = probs.shape[1]
+    if show_classification_report:
+        # Binary: threshold the positive-class column at 0.5; multiclass: take the argmax class.
+        hard_pred = _hard_labels_from_probs(probs, nclasses)
+        classification_report_text = format_classification_report(all_true_values, hard_pred, nclasses=nclasses, target_names=list(display_labels.values()))
+        logger.info(classification_report_text)
+    show_custom_calibration_plot(
+        y=all_true_values,
+        probs=probs,
+        nclasses=nclasses,
+        display_labels=display_labels,
+    )
+
+
 def compute_shap_on_cv(
     X: Any,
     y: Any,
@@ -135,37 +189,12 @@ def compute_shap_on_cv(
 
         logger.info("Fitting...")
 
-        if isinstance(model_instance, Pipeline):
-            if "CatBoost" in type(model_instance.named_steps["est"]).__name__:
-                if "eval_fraction" in generated_params:
-                    model_instance.fit(pd.concat([X_train, X_test]), pd.concat([y_train, y_test]), est__plot=plot)
-                else:
-                    model_instance.fit(X_train, y_train, est__eval_set=(X_test, y_test), est__plot=plot)
-            else:
-                if "eval_fraction" in generated_params:
-                    model_instance.fit(pd.concat([X_train, X_test]), pd.concat([y_train, y_test]))
-                else:
-                    model_instance.fit(X_train, y_train)
-        else:
-            if "CatBoost" in type(model_instance).__name__:
-                model_instance.fit(X_train, y_train, eval_set=(X_test, y_test), plot=plot)
-            else:
-                model_instance.fit(X_train, y_train)
+        _fit_fold_model(model_instance, Pipeline, X_train, X_test, y_train, y_test, generated_params, plot)
         logger.info("Fitted. Explaining...")
 
         # make oos predictions
         if do_ts_oos:
-            max_test_ind = np.array(test_ind).max() + 1
-            if max_test_ind < L:
-                pred_ind = np.arange(max_test_ind, L)
-
-                if oos_ts_max_size is not None and oos_ts_max_size != 0:
-                    pred_ind = pred_ind[: oos_ts_max_size + 1]
-
-                probs = model_instance.predict_proba(X.iloc[pred_ind])
-                all_probs.append(probs)
-                all_true_values.append(y.iloc[pred_ind])
-                nclasses = probs.shape[1]
+            _ts_oos_predict(model_instance, X, y, test_ind, L, oos_ts_max_size, all_probs, all_true_values)
 
         # Use SHAP to explain predictions
         if isinstance(model_instance, Pipeline):
@@ -209,22 +238,7 @@ def compute_shap_on_cv(
         predictions.append(y_pred)
 
     if do_ts_oos:
-        all_true_values = np.hstack(all_true_values)
-        probs = np.vstack(all_probs)
-        # Derive nclasses from the stacked probs so it is defined even when the final TS fold
-        # contributed no OOS rows (the per-fold ``nclasses = probs.shape[1]`` assignment is skipped then).
-        nclasses = probs.shape[1]
-        if show_classification_report:
-            # Binary: threshold the positive-class column at 0.5; multiclass: take the argmax class.
-            hard_pred = _hard_labels_from_probs(probs, nclasses)
-            classification_report_text = format_classification_report(all_true_values, hard_pred, nclasses=nclasses, target_names=list(display_labels.values()))
-            logger.info(classification_report_text)
-        show_custom_calibration_plot(
-            y=all_true_values,
-            probs=probs,
-            nclasses=nclasses,
-            display_labels=display_labels,
-        )
+        _report_ts_oos(all_probs, all_true_values, show_classification_report, display_labels)
     if shap_oof and not catboost_native_feature_importance:
         out_values = np.array(oof_shap)
         out_base_values = np.array(oof_base)

@@ -156,22 +156,103 @@ def _prewarm_numba_cache_body(include_feature_selection: bool = True, include_he
     # the three tail groups) summed to 0.0s, so the metric-kernel compiles that dominate it were invisible.
     _group_times: dict = {}
     _t_body = _perf_counter()
-    from .core import (
-        fast_brier_score_loss, fast_log_loss,
-        integral_calibration_error_from_metrics,
-        compute_ece_and_brier_decomposition, compute_ece_debiased, compute_brier_decomposition_debiased,
-        compute_ece_brier_full_and_debiased,
-        fast_aucs_per_group_optimized,
-        fast_ice_only, format_classification_report,
-        cb_logits_to_probs_binary, cb_logits_to_probs_multiclass,
-        _cb_logits_to_probs_binary_par,
-        _cb_logits_to_probs_multiclass_par, _max_abs_pct_error_kernel_par,
-        is_gpu_metrics_available,
-    )
 
     # Kick the loky/wmic physical-core-count probe in a background thread before numba JIT. The probe is a Windows wmic subprocess (~1.5s wall) that loky caches per-process; running it in parallel with the JIT compile overlaps the wait so the suite never pays the 1.5s when it later asks for cpu_count via joblib.
     _prewarm_numba_cach_kick_loky_wmic_physical()
 
+    _prewarm_stage_polars_group_by()
+
+    # Numba compiles for each dtype separately. Isolated per-dtype try/except: this loop -- including
+    # the base (non-`_par`) maximum_absolute_percentage_error warmup -- had NO exception protection at
+    # all, unlike every later block in this function (see the "isolated into independent try/except
+    # groups" fix a few dozen lines below). A single kernel in here failing to compile on a numba wheel
+    # this dev box doesn't reproduce (CI resolves a materially newer wheel per that same fix's own
+    # comment) would silently abort the ENTIRE prewarm from this point on -- including every later
+    # isolated group -- reproducing exactly the "warmup never reached kernel X" symptom those groups
+    # were split out to prevent, just one level up. Same defensive philosophy already established in
+    # this file: a bad numba cache / runtime hiccup on an exotic build should degrade later kernels to
+    # lazy (first-real-call) compilation, not abort every kernel that comes after it in this function.
+    _prewarm_numba_cach_lazy_first_real_call()
+
+    _prewarm_numba_cach_int_dtype_np_int32()
+
+    _prewarm_stage_calibration_kernels()
+
+    _prewarm_stage_cb_logits()
+
+    # Prewarm parallel-numba variants. Each `_par` variant is a separate numba compilation; the `parallel=True` IR adds ~1-3s per kernel on first call from a fresh process -- ~22 kernels in
+    # this block + the hamming/jaccard block below account for most of prewarm's total cost (measured ~50s of a 100k-row wellbore run's wall time). Every `_par` kernel here is dispatched to
+    # ONLY when n >= _PARALLEL_REDUCTION_THRESHOLD (100_000, see the size-gated dispatchers in mlframe.metrics.regression/classification) -- a caller whose training data is known to stay
+    # below that threshold for the whole run gains nothing from pre-warming these (the `_seq` fallback, warmed unconditionally alongside them, is all that will ever be called) yet pays the
+    # full compile cost anyway. `MLFRAME_NUMBA_WARMUP_SKIP_PARALLEL=1` skips ONLY the individual `_par` calls below (the interleaved `_seq` calls always still run) -- opt-in, default OFF, so
+    # any caller that doesn't know or doesn't set this keeps today's behavior (both variants warmed, matching the >=100k-row case where the parallel path genuinely gets used and a mid-fit
+    # lazy-compile stall must be avoided).
+    _skip_par_prewarm = _os.environ.get("MLFRAME_NUMBA_WARMUP_SKIP_PARALLEL") == "1"
+    _yt_f64 = np.array([0, 1, 0, 1, 0, 1, 0, 1, 0, 1], dtype=np.float64)
+    _yp_f64 = np.array([0.1, 0.9, 0.2, 0.8, 0.3, 0.7, 0.4, 0.6, 0.5, 0.5], dtype=np.float64)
+    # This used to be ONE big try/except spanning brier/log_loss/pr_recall/subset_accuracy/
+    # jaccard/logits/mape/prob_separation/mae/mse/r2 -- every CI Linux shard's numba build failed to
+    # compile ONE of the earlier kernels (exact culprit unconfirmed; not reproducible on this dev box's
+    # numba 0.60.0 -- pyproject pins no numba ceiling below py3.13, so CI resolves a materially newer
+    # wheel where a parfor-lowering issue this file's jaccard/hamming block already worked around for a
+    # DIFFERENT call site may still bite here too), silently aborting every kernel AFTER it in the same
+    # block -- including the mae/mse/r2 kernels 3 dedicated tests assert get warmed
+    # (test_warmup_calls_mape_par_kernel_with_nthr, test_skip_flag_*_warms_both_seq_and_par). Isolated
+    # into independent try/except groups, matching this file's own established per-group pattern used
+    # everywhere else (see the calibration/ECE/heavy-lib/GPU blocks above and below) -- one group's
+    # compile failure no longer takes any other group down with it.
+    _prewarm_numba_cach_compile_failure_no_longer(_skip_par_prewarm, _yt_f64, _yp_f64)
+
+    _prewarm_numba_cach_try_3(_skip_par_prewarm)
+
+    _prewarm_numba_cach_try_2(_skip_par_prewarm)
+
+    _prewarm_stage_cb_logits_par(_skip_par_prewarm)
+
+    _log_mape_warmup_diag(_skip_par_prewarm)
+    _prewarm_numba_cach_try(_skip_par_prewarm, _yt_f64, _yp_f64)
+
+    _prewarm_numba_cach_exception_one_must_repeat(_skip_par_prewarm)
+
+    # Wrapped in try/except for the same defensive reason as the regression block above: a bad numba
+    # cache or runtime hiccup on an exotic build should degrade to seq, not abort the whole prewarm.
+    # The parallel multilabel kernels (``_fast_hamming_loss_par`` / ``_fast_jaccard_score_par``) were
+    # rewritten to a per-row MAP + serial final reduction so they compile cleanly on numba 0.63.x,
+    # which previously aborted them with ``AssertionError: unexpected cycle in lookup()`` from
+    # ``numba/parfors/parfor.py`` (the public dispatcher would then crash on the large-N path).
+    # Same MLFRAME_NUMBA_WARMUP_SKIP_PARALLEL gate as above -- only the `_par` calls are skipped.
+    _prewarm_numba_cach_same_mlframe_numba_warmup(_skip_par_prewarm)
+
+    # Verify nogil=True actually stuck; silent fallback would make parallel val/test metric evaluation secretly sequential.
+    _assert_numba_nogil_active()
+
+    _prewarm_stage_ice_kernels()
+
+    # Warm feature_selection numba kernels. Without this, the first MRMR.fit call pays a large cumulative JIT
+    # compile -- but a run with no MRMR and no RFECV never makes that call, so the whole cost is waste. The
+    # suite gates this on whether feature selection was actually requested; a caller that cannot tell leaves
+    # the default on, because paying the warm-up needlessly is a slow run while skipping it wrongly is a slow
+    # first fit plus a confusing profile. Lazy import keeps this module's import cost unchanged.
+    _prewarm_stage_fs_and_baselines(include_feature_selection, include_heavy_libs, _group_times, _t_body)
+
+    _prewarm_stage_heavy_libs(include_heavy_libs, _group_times)
+
+    _prewarm_stage_gpu_kernels(_group_times)
+
+    _prewarm_stage_ranking_kernel(_group_times)
+
+    # A production log once showed this whole step at 511.71s with nothing saying which group spent it, which
+    # left "is the prewarm warming things this run never calls?" unanswerable from the log alone.
+    if _group_times:
+        logger.info(
+            "  [JIT prewarm] total=%.1fs, per-group: %s",
+            _perf_counter() - _t_body,
+            ", ".join(f"{_name}={_secs:.1f}s" for _name, _secs in sorted(_group_times.items(), key=lambda kv: -kv[1])),
+        )
+
+
+def _prewarm_stage_polars_group_by() -> None:
+    """Warm the polars group_by + join path so the first per-group baseline call does not pay the cold-start cost."""
     # Pre-warm polars group_by + agg path. c0042 binary
     # profile attributed 2.557s to a single group_by(...).agg(...) call in
     # _per_group_predict_polars on the first invocation per process. polars'
@@ -199,19 +280,14 @@ def _prewarm_numba_cache_body(include_feature_selection: bool = True, include_he
     except Exception as e:  # nosec B110 - non-trivial body
         logger.warning("polars group_by/join warmup failed, skipping: %s", e, exc_info=True)
 
-    # Numba compiles for each dtype separately. Isolated per-dtype try/except: this loop -- including
-    # the base (non-`_par`) maximum_absolute_percentage_error warmup -- had NO exception protection at
-    # all, unlike every later block in this function (see the "isolated into independent try/except
-    # groups" fix a few dozen lines below). A single kernel in here failing to compile on a numba wheel
-    # this dev box doesn't reproduce (CI resolves a materially newer wheel per that same fix's own
-    # comment) would silently abort the ENTIRE prewarm from this point on -- including every later
-    # isolated group -- reproducing exactly the "warmup never reached kernel X" symptom those groups
-    # were split out to prevent, just one level up. Same defensive philosophy already established in
-    # this file: a bad numba cache / runtime hiccup on an exotic build should degrade later kernels to
-    # lazy (first-real-call) compilation, not abort every kernel that comes after it in this function.
-    _prewarm_numba_cach_lazy_first_real_call()
 
-    _prewarm_numba_cach_int_dtype_np_int32()
+def _prewarm_stage_calibration_kernels() -> None:
+    """Warm the calibration-report, ECE/Brier-decomposition, grouped-AUC and classification-report kernels."""
+    from .core import (
+        compute_ece_and_brier_decomposition, compute_ece_debiased, compute_brier_decomposition_debiased,
+        compute_ece_brier_full_and_debiased, fast_aucs_per_group_optimized, fast_brier_score_loss, fast_ice_only, fast_log_loss,
+        format_classification_report, integral_calibration_error_from_metrics,
+    )
 
     try:
         _ = integral_calibration_error_from_metrics(0.01, 0.01, 0.9, 0.25, 0.7, 0.7)
@@ -266,6 +342,11 @@ def _prewarm_numba_cache_body(include_feature_selection: bool = True, include_he
     except Exception as e:  # nosec B110 - non-trivial body
         logger.warning("format_classification_report warmup failed, skipping: %s", e, exc_info=True)
 
+
+def _prewarm_stage_cb_logits() -> None:
+    """Warm the CatBoost logits-to-probabilities kernels (sequential variants)."""
+    from .core import cb_logits_to_probs_binary, cb_logits_to_probs_multiclass
+
     # Isolated: this pair had NO exception protection, unlike every other block in this
     # function -- confirmed via test_warmup_calls_mape_par_kernel_with_nthr/test_warmup_skip_flag_*
     # failing under the full tests/metrics/ suite (order-dependent, not reproducible calling these two
@@ -281,32 +362,10 @@ def _prewarm_numba_cache_body(include_feature_selection: bool = True, include_he
     except Exception as e:  # nosec B110 - non-trivial body
         logger.warning("cb_logits_to_probs kernels warmup failed, skipping: %s", e, exc_info=True)
 
-    # Prewarm parallel-numba variants. Each `_par` variant is a separate numba compilation; the `parallel=True` IR adds ~1-3s per kernel on first call from a fresh process -- ~22 kernels in
-    # this block + the hamming/jaccard block below account for most of prewarm's total cost (measured ~50s of a 100k-row wellbore run's wall time). Every `_par` kernel here is dispatched to
-    # ONLY when n >= _PARALLEL_REDUCTION_THRESHOLD (100_000, see the size-gated dispatchers in mlframe.metrics.regression/classification) -- a caller whose training data is known to stay
-    # below that threshold for the whole run gains nothing from pre-warming these (the `_seq` fallback, warmed unconditionally alongside them, is all that will ever be called) yet pays the
-    # full compile cost anyway. `MLFRAME_NUMBA_WARMUP_SKIP_PARALLEL=1` skips ONLY the individual `_par` calls below (the interleaved `_seq` calls always still run) -- opt-in, default OFF, so
-    # any caller that doesn't know or doesn't set this keeps today's behavior (both variants warmed, matching the >=100k-row case where the parallel path genuinely gets used and a mid-fit
-    # lazy-compile stall must be avoided).
-    _skip_par_prewarm = _os.environ.get("MLFRAME_NUMBA_WARMUP_SKIP_PARALLEL") == "1"
-    _yt_f64 = np.array([0, 1, 0, 1, 0, 1, 0, 1, 0, 1], dtype=np.float64)
-    _yp_f64 = np.array([0.1, 0.9, 0.2, 0.8, 0.3, 0.7, 0.4, 0.6, 0.5, 0.5], dtype=np.float64)
-    # This used to be ONE big try/except spanning brier/log_loss/pr_recall/subset_accuracy/
-    # jaccard/logits/mape/prob_separation/mae/mse/r2 -- every CI Linux shard's numba build failed to
-    # compile ONE of the earlier kernels (exact culprit unconfirmed; not reproducible on this dev box's
-    # numba 0.60.0 -- pyproject pins no numba ceiling below py3.13, so CI resolves a materially newer
-    # wheel where a parfor-lowering issue this file's jaccard/hamming block already worked around for a
-    # DIFFERENT call site may still bite here too), silently aborting every kernel AFTER it in the same
-    # block -- including the mae/mse/r2 kernels 3 dedicated tests assert get warmed
-    # (test_warmup_calls_mape_par_kernel_with_nthr, test_skip_flag_*_warms_both_seq_and_par). Isolated
-    # into independent try/except groups, matching this file's own established per-group pattern used
-    # everywhere else (see the calibration/ECE/heavy-lib/GPU blocks above and below) -- one group's
-    # compile failure no longer takes any other group down with it.
-    _prewarm_numba_cach_compile_failure_no_longer(_skip_par_prewarm, _yt_f64, _yp_f64)
 
-    _prewarm_numba_cach_try_3(_skip_par_prewarm)
-
-    _prewarm_numba_cach_try_2(_skip_par_prewarm)
+def _prewarm_stage_cb_logits_par(_skip_par_prewarm: bool) -> None:
+    """Warm the parallel CatBoost logits-to-probabilities kernels unless ``_skip_par_prewarm``."""
+    from .core import _cb_logits_to_probs_binary_par, _cb_logits_to_probs_multiclass_par
 
     try:
         if not _skip_par_prewarm:
@@ -316,6 +375,11 @@ def _prewarm_numba_cache_body(include_feature_selection: bool = True, include_he
             _ = _cb_logits_to_probs_multiclass_par(_logits_mc)
     except Exception as e:  # nosec B110 - non-trivial body
         logger.warning("cb_logits_to_probs _par kernels warmup failed, skipping: %s", e, exc_info=True)
+
+
+def _log_mape_warmup_diag(_skip_par_prewarm: bool) -> None:
+    """Log the MAPE-kernel identity diagnostic when ``MLFRAME_WARMUP_MAPE_DIAG=1``."""
+    from .core import _max_abs_pct_error_kernel_par
 
     # Diagnostic (MLFRAME_WARMUP_MAPE_DIAG): CI (both ci.yml and numba-coverage-nightly,
     # every shard so far) shows the 3 dedicated tests for this block failing with the _par kernel
@@ -336,22 +400,10 @@ def _prewarm_numba_cache_body(include_feature_selection: bool = True, include_he
             type(_max_abs_pct_error_kernel_par).__name__,
             type(_core_attr).__name__,
         )
-    _prewarm_numba_cach_try(_skip_par_prewarm, _yt_f64, _yp_f64)
 
-    _prewarm_numba_cach_exception_one_must_repeat(_skip_par_prewarm)
 
-    # Wrapped in try/except for the same defensive reason as the regression block above: a bad numba
-    # cache or runtime hiccup on an exotic build should degrade to seq, not abort the whole prewarm.
-    # The parallel multilabel kernels (``_fast_hamming_loss_par`` / ``_fast_jaccard_score_par``) were
-    # rewritten to a per-row MAP + serial final reduction so they compile cleanly on numba 0.63.x,
-    # which previously aborted them with ``AssertionError: unexpected cycle in lookup()`` from
-    # ``numba/parfors/parfor.py`` (the public dispatcher would then crash on the large-N path).
-    # Same MLFRAME_NUMBA_WARMUP_SKIP_PARALLEL gate as above -- only the `_par` calls are skipped.
-    _prewarm_numba_cach_same_mlframe_numba_warmup(_skip_par_prewarm)
-
-    # Verify nogil=True actually stuck; silent fallback would make parallel val/test metric evaluation secretly sequential.
-    _assert_numba_nogil_active()
-
+def _prewarm_stage_ice_kernels() -> None:
+    """Warm the batched per-class ICE kernels (parallel and serial)."""
     # Prewarm `_batch_per_class_ice_kernel` (parallel) and its serial twin -- both are live dispatch
     # targets of `_ice_kernel_dispatch` inside `compute_probabilistic_multiclass_error` (see
     # `_ICE_KERNEL_PARALLEL_MIN_TOTAL_WORK`: the serial kernel is what small/realistic (N, K) calls
@@ -374,11 +426,9 @@ def _prewarm_numba_cache_body(include_feature_selection: bool = True, include_he
     except Exception as e:  # nosec B110 - non-trivial body
         logger.warning("_batch_per_class_ice_kernel warmup failed, skipping: %s", e, exc_info=True)
 
-    # Warm feature_selection numba kernels. Without this, the first MRMR.fit call pays a large cumulative JIT
-    # compile -- but a run with no MRMR and no RFECV never makes that call, so the whole cost is waste. The
-    # suite gates this on whether feature selection was actually requested; a caller that cannot tell leaves
-    # the default on, because paying the warm-up needlessly is a slow run while skipping it wrongly is a slow
-    # first fit plus a confusing profile. Lazy import keeps this module's import cost unchanged.
+
+def _prewarm_stage_fs_and_baselines(include_feature_selection: bool, include_heavy_libs: bool | None, _group_times: dict, _t_body: float) -> None:
+    """Warm the feature-selection and dummy-baselines numba kernels, recording per-group timings (the metric-kernel group is closed here)."""
     _group_times["metric_kernels"] = _perf_counter() - _t_body
     if include_feature_selection:
         _t_fs = _perf_counter()
@@ -405,6 +455,9 @@ def _prewarm_numba_cache_body(include_feature_selection: bool = True, include_he
         logger.debug("training.baselines numba-kernel warmup failed, skipping: %s", e)
     _group_times["dummy_baselines"] = _perf_counter() - _t_base
 
+
+def _prewarm_stage_heavy_libs(include_heavy_libs: bool | None, _group_times: dict) -> None:
+    """Prewarm-import the heavy neural-net stack unless the env var or the caller opts out, recording the group time."""
     # Prewarm-import the heavy neural-net stack. `mlframe.lightninglib` / `mlframe.training.neural` pulls in PyTorch Lightning, which is a ~275s cold-import on Windows. The cost otherwise lands inside the suite call because the import is deferred until `mlp` is in the model list. Triggered ONLY when lightning is already discoverable; otherwise the import attempt itself would be a 5-10s ModuleNotFoundError walk through sys.path.
     #
     # iter604 (perf gate): the heavy-lib prewarm here ALWAYS fires when
@@ -453,6 +506,11 @@ def _prewarm_numba_cache_body(include_feature_selection: bool = True, include_he
     # line said dummy_baselines=0.0s, feature_selection=0.0s, because the import cascade was timed by nothing.
     _group_times["heavy_lib_imports"] = 0.0 if _skip_heavy else _perf_counter() - _t_heavy
 
+
+def _prewarm_stage_gpu_kernels(_group_times: dict) -> None:
+    """Warm the cupy GPU AUC/RMSE kernels when GPU metrics are available, recording the group time."""
+    from .core import is_gpu_metrics_available
+
     # Warm cupy GPU AUC kernels. `compute_batch_aucs` dispatches to `gpu_multiple_roc_auc_scores` / `gpu_multiple_pr_auc_scores` when N>=100k AND M>=5. cupy compiles CUDA kernels via NVRTC on first call (~128s per fresh process). No-op when cupy isn't installed.
     # Gate the WHOLE block on is_gpu_metrics_available() (which now probes
     # via an NVRTC compile, so it returns False on broken cupy / mismatched
@@ -480,6 +538,9 @@ def _prewarm_numba_cache_body(include_feature_selection: bool = True, include_he
 
     _group_times["gpu_metric_kernels"] = _perf_counter() - _t_gpu
 
+
+def _prewarm_stage_ranking_kernel(_group_times: dict) -> None:
+    """Warm the ranking summary kernel, recording the group time."""
     _t_rank = _perf_counter()
     # Warm `ranking_metrics._summary_batched_kernel` (parallel njit). On LTR combos `compute_ranking_summary` is called once per dummy baseline; the first call eats the entire JIT-compile budget. Compile with the canonical dtype combo used by `compute_ranking_summary` itself.
     try:
@@ -492,15 +553,6 @@ def _prewarm_numba_cache_body(include_feature_selection: bool = True, include_he
     except Exception as e:  # nosec B110 - non-trivial body
         logger.warning("ranking _summary_batched_kernel warmup failed, skipping: %s", e, exc_info=True)
     _group_times["ranking"] = _perf_counter() - _t_rank
-
-    # A production log once showed this whole step at 511.71s with nothing saying which group spent it, which
-    # left "is the prewarm warming things this run never calls?" unanswerable from the log alone.
-    if _group_times:
-        logger.info(
-            "  [JIT prewarm] total=%.1fs, per-group: %s",
-            _perf_counter() - _t_body,
-            ", ".join(f"{_name}={_secs:.1f}s" for _name, _secs in sorted(_group_times.items(), key=lambda kv: -kv[1])),
-        )
 
 
 def _prewarm_numba_cach_kick_loky_wmic_physical():

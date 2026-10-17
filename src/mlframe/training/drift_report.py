@@ -217,6 +217,75 @@ def _regression_shape_warnings(split_name: str, splits: dict[str, Any], drifts: 
     return out
 
 
+def _is_object_of_arrays(_a: Any) -> bool:
+    """Detect a 1-D object-dtype array whose cells are themselves array-likes (the polars ``pl.List`` -> object-cell roundtrip signature), so multilabel routing catches it even when ``target_type`` misreports "binary_classification"."""
+    try:
+        if not hasattr(_a, "dtype"):
+            return False
+        if _a.dtype != object or _a.ndim != 1 or _a.shape[0] == 0:
+            return False
+        _first = _a[0]
+        return hasattr(_first, "shape") or (hasattr(_first, "__len__") and not isinstance(_first, (str, bytes)))
+    except Exception as exc:
+        log_throttle(logger, "drift_report._is_object_of_arrays", logging.WARNING, "drift: object-of-arrays probe failed, treating as not object-of-arrays: %s", exc)
+        return False
+
+
+def _regression_mean_drift(
+    splits: dict[str, Any],
+    drifts: dict[str, Any],
+    warnings: list[str],
+    regression_mean_z_threshold: float,
+    regression_rel_shift_threshold: float,
+) -> None:
+    """Record the val/test mean shift (in train sigma) and shape drift against train into ``drifts`` and warn past the thresholds."""
+    train_mean = splits["train"]["mean"]
+    train_std = splits["train"]["std"]
+    if train_std is None or train_std == 0:
+        train_std = float("nan")
+    for split_name in ("val", "test"):
+        if splits.get(split_name) is None:
+            continue
+        split_mean = splits[split_name]["mean"]
+        delta = split_mean - train_mean
+        z = (delta / train_std) if (train_std and not np.isnan(train_std) and train_std > 0) else float("nan")
+        drifts[f"{split_name}_mean_minus_train"] = float(delta)
+        drifts[f"{split_name}_mean_z_vs_train"] = float(z)
+        if not np.isnan(z) and abs(z) > regression_mean_z_threshold:
+            warnings.append(
+                f"{split_name.upper()} mean={split_mean:.4g} vs train {train_mean:.4g} (Δ={delta:+.4g}, z={z:+.2f}σ "
+                f"vs train σ={train_std:.4g}); regression target shift suspected."
+            )
+        warnings.extend(_regression_shape_warnings(split_name, splits, drifts, regression_rel_shift_threshold))
+
+
+def _binary_prior_drift(splits: dict[str, Any], drifts: dict[str, Any], warnings: list[str], warn_threshold_pp: float) -> None:
+    """Record the val/test positive-rate drift in pp against train (plus val-vs-test and the max) into ``drifts`` and warn past the threshold."""
+    train_p = splits["train"]["p_positive"]
+    for split_name in ("val", "test"):
+        if splits.get(split_name) is None:
+            continue
+        split_p = splits[split_name]["p_positive"]
+        delta_pp = (split_p - train_p) * 100
+        drifts[f"{split_name}_minus_train_pp"] = float(delta_pp)
+        if abs(delta_pp) > warn_threshold_pp:
+            warnings.append(
+                f"{split_name.upper()} P(y=1)={split_p:.3f} vs train {train_p:.3f} (Δ={delta_pp:+.1f}pp); selection-bias / "
+                f"prior-shift suspected - model will be miscalibrated on {split_name}. The remedy is a held-out calibration split "
+                f"(TrainingSplitConfig.calib_size); without one the suite can measure the miscalibration but cannot correct it."
+            )
+    # Track val-vs-test as a separate diagnostic (val-test mismatch
+    # is common with shuffled val + temporal test).
+    if splits.get("val") is not None and splits.get("test") is not None:
+        v = splits["val"]["p_positive"]
+        t = splits["test"]["p_positive"]
+        drifts["test_minus_val_pp"] = float((t - v) * 100)
+    drifts["max_abs_drift_pp"] = max(
+        (abs(d) for k, d in drifts.items() if k.endswith("_minus_train_pp")),
+        default=0.0,
+    )
+
+
 def compute_label_distribution_drift(
     train_target: Any,
     val_target: Any,
@@ -297,19 +366,6 @@ def compute_label_distribution_drift(
     # per-row label vectors). Without the third clause, the routing
     # fell into ``_binary_split_summary``'s ``arr == 1`` and raised
     # ``truth value of an array ambiguous``.
-    def _is_object_of_arrays(_a) -> bool:
-        """Detect a 1-D object-dtype array whose cells are themselves array-likes (the polars ``pl.List`` -> object-cell roundtrip signature), so multilabel routing catches it even when ``target_type`` misreports "binary_classification"."""
-        try:
-            if not hasattr(_a, "dtype"):
-                return False
-            if _a.dtype != object or _a.ndim != 1 or _a.shape[0] == 0:
-                return False
-            _first = _a[0]
-            return hasattr(_first, "shape") or (hasattr(_first, "__len__") and not isinstance(_first, (str, bytes)))
-        except Exception as exc:
-            log_throttle(logger, "drift_report._is_object_of_arrays", logging.WARNING, "drift: object-of-arrays probe failed, treating as not object-of-arrays: %s", exc)
-            return False
-
     is_multilabel = target_type == "multilabel_classification" or (hasattr(train, "ndim") and train.ndim == 2) or _is_object_of_arrays(train)
     is_regression = target_type == "regression"
     is_multiclass = target_type == "multiclass_classification"
@@ -329,24 +385,7 @@ def compute_label_distribution_drift(
     elif is_regression:
         for name, arr in (("train", train), ("val", val), ("test", test)):
             splits[name] = _regression_split_summary(arr) if arr is not None else None
-        train_mean = splits["train"]["mean"]
-        train_std = splits["train"]["std"]
-        if train_std is None or train_std == 0:
-            train_std = float("nan")
-        for split_name in ("val", "test"):
-            if splits.get(split_name) is None:
-                continue
-            split_mean = splits[split_name]["mean"]
-            delta = split_mean - train_mean
-            z = (delta / train_std) if (train_std and not np.isnan(train_std) and train_std > 0) else float("nan")
-            drifts[f"{split_name}_mean_minus_train"] = float(delta)
-            drifts[f"{split_name}_mean_z_vs_train"] = float(z)
-            if not np.isnan(z) and abs(z) > regression_mean_z_threshold:
-                warnings.append(
-                    f"{split_name.upper()} mean={split_mean:.4g} vs train {train_mean:.4g} (Δ={delta:+.4g}, z={z:+.2f}σ "
-                    f"vs train σ={train_std:.4g}); regression target shift suspected."
-                )
-            warnings.extend(_regression_shape_warnings(split_name, splits, drifts, regression_rel_shift_threshold))
+        _regression_mean_drift(splits, drifts, warnings, regression_mean_z_threshold, regression_rel_shift_threshold)
 
     elif is_multiclass:
         # Discover class labels from the union of all three splits.
@@ -361,29 +400,7 @@ def compute_label_distribution_drift(
         # Binary classification (default).
         for name, arr in (("train", train), ("val", val), ("test", test)):
             splits[name] = _binary_split_summary(arr) if arr is not None else None
-        train_p = splits["train"]["p_positive"]
-        for split_name in ("val", "test"):
-            if splits.get(split_name) is None:
-                continue
-            split_p = splits[split_name]["p_positive"]
-            delta_pp = (split_p - train_p) * 100
-            drifts[f"{split_name}_minus_train_pp"] = float(delta_pp)
-            if abs(delta_pp) > warn_threshold_pp:
-                warnings.append(
-                    f"{split_name.upper()} P(y=1)={split_p:.3f} vs train {train_p:.3f} (Δ={delta_pp:+.1f}pp); selection-bias / "
-                    f"prior-shift suspected - model will be miscalibrated on {split_name}. The remedy is a held-out calibration split "
-                    f"(TrainingSplitConfig.calib_size); without one the suite can measure the miscalibration but cannot correct it."
-                )
-        # Track val-vs-test as a separate diagnostic (val-test mismatch
-        # is common with shuffled val + temporal test).
-        if splits.get("val") is not None and splits.get("test") is not None:
-            v = splits["val"]["p_positive"]
-            t = splits["test"]["p_positive"]
-            drifts["test_minus_val_pp"] = float((t - v) * 100)
-        drifts["max_abs_drift_pp"] = max(
-            (abs(d) for k, d in drifts.items() if k.endswith("_minus_train_pp")),
-            default=0.0,
-        )
+        _binary_prior_drift(splits, drifts, warnings, warn_threshold_pp)
 
     # Report target_type that matches the splits format the formatter
     # expects: when shape detection routed to the multilabel branch but

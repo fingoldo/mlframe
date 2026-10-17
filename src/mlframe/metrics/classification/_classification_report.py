@@ -254,6 +254,160 @@ def _tuned_threshold_prf(tuned_threshold: Optional[float], title_metrics_tokens:
     return precision_recall_f1_from_counts(tp, fp, fn)
 
 
+def _degenerate_calibration_report() -> "CalibrationReport":
+    """Empty / all-non-finite input: degenerate metrics, no crash.
+
+    roc_auc is PINNED at 0.5 here (the no-skill / coin-flip AUC) and precision/recall/f1 at 0.0.
+    On a rare-event target whose split happens to be single-class (no positives, or no negatives)
+    the ranking AUC is genuinely undefined; the 0.5 pin is a neutral placeholder, NOT a measured
+    score -- treat a 0.5 from this path as "AUC not computable on this split", not as a real
+    random-ranking result.
+    """
+    return CalibrationReport(
+        1.0, 1.0, 1.0, 0.0,            # brier, cal_mae, cal_std, cal_cov
+        1.0, 1.0, 0.0, 0.0,            # ece, rel, res, unc
+        0.5, 0.0, 1.0, 1.0, 0.0, 0.0, 0.0,  # roc, pr, ice, ll, precision, recall, f1
+        "", None,                      # metrics_string, fig
+    )
+
+
+def _drop_nonfinite_probs(y_true: np.ndarray, y_pred: np.ndarray) -> Optional[Tuple[np.ndarray, np.ndarray]]:
+    """Drop non-finite scores (and their labels) before binning; returns ``(y_true, y_pred)``, or None when every probability was non-finite."""
+    # NaN / inf pre-mask. The preds path is NaN-guarded upstream (argmax_classes_safe)
+    # but the probs path is not, and floor(nan) under numba (boundscheck off) yields an
+    # undefined index -> out-of-bounds write in the binning kernel (silent corruption).
+    # Drop non-finite scores here (cheap vectorized check, house "fastmath + Python NaN-gate"
+    # pattern) so the whole report runs on finite data; log the dropped count once.
+    _y_pred_arr = np.asarray(y_pred, dtype=np.float64)
+    _finite_mask = np.isfinite(_y_pred_arr)
+    if not _finite_mask.all():
+        _n_dropped = int((~_finite_mask).sum())
+        logger.warning(
+            "fast_calibration_report: dropped %d/%d non-finite probabilities before binning.",
+            _n_dropped, len(_y_pred_arr),
+        )
+        y_pred = _y_pred_arr[_finite_mask]
+        y_true = np.asarray(y_true)[_finite_mask]
+        if len(y_true) == 0:
+            logger.warning("fast_calibration_report: all probabilities were non-finite; skipping calibration.")
+            return None
+    return y_true, y_pred
+
+
+def _ece_brier_decomposition(y_true: np.ndarray, y_pred: np.ndarray, nbins: int, ece_debiased: bool, brier_debiased: bool) -> Tuple[float, float, float, float]:
+    """ECE plus Brier reliability/resolution/uncertainty, bias-corrected per the two flags; returns ``(ece, reliability, resolution, uncertainty)``."""
+    # Always compute ECE + Brier decomposition. Same data-adaptive bin grid as
+    # CMAEW (kernel re-bins internally so it can capture per-bin pred_means,
+    # which fast_calibration_binning doesn't expose). Cost is one short pass.
+    #
+    # Headline ECE/Brier default to the bias-corrected estimators (ece_debiased / brier_debiased): the plug-in
+    # binned ECE/REL positively overstate miscalibration by the per-bin Bernoulli sampling noise (a perfectly
+    # calibrated model reports a spurious positive value growing with nbins). compute_ece_debiased /
+    # compute_brier_decomposition_debiased subtract that noise floor (Kumar et al. NeurIPS 2019; Broecker 2009);
+    # bench_ece_debiased / bench_brier_decomp_debiased show they more than halve the bias-vs-truth on calibrated
+    # scenarios. brier debiasing subtracts Var(acc_b) from BOTH REL and RES, so REL-RES, UNC and BinnedBrier are
+    # all preserved exactly (Murphy identity still holds). Set ece_debiased / brier_debiased False for the legacy
+    # plug-in values.
+    #
+    # When both debiased flags are on (the default), the plug-in decomposition + both debiased estimators share
+    # the IDENTICAL counts/pred_sum/true_sum binning histogram -- so compute_ece_brier_full_and_debiased bins ONCE
+    # and emits every reduction (bit-identical to three separate kernels by construction; ~2.7-3x faster, see
+    # bench_fused_ece_brier_calibration). The split-kernel path stays for the opt-out combinations.
+    if ece_debiased and brier_debiased:
+        (
+            _ece_plugin, _rel_plugin, _res_plugin, brier_uncertainty, _brier_binned_plugin,
+            ece, brier_reliability, brier_resolution, _brier_binned,
+        ) = compute_ece_brier_full_and_debiased(y_true=y_true, y_pred=y_pred, nbins=nbins)
+    else:
+        ece, brier_reliability, brier_resolution, brier_uncertainty, _brier_binned = compute_ece_and_brier_decomposition(
+            y_true=y_true, y_pred=y_pred, nbins=nbins,
+        )
+        if ece_debiased:
+            ece = compute_ece_debiased(y_true=y_true, y_pred=y_pred, nbins=nbins)
+        if brier_debiased:
+            brier_reliability, brier_resolution, brier_uncertainty, _brier_binned = compute_brier_decomposition_debiased(
+                y_true=y_true, y_pred=y_pred, nbins=nbins,
+            )
+    return ece, brier_reliability, brier_resolution, brier_uncertainty
+
+
+def _render_title_fragments(title_metrics_tokens: Sequence[str], ndigits: int, ice: float, brier_loss: float, ece: float, brier_reliability: float, brier_resolution: float, brier_uncertainty: float, calibration_mae: float, calibration_std: float, use_weights: bool, calibration_coverage: float, nbins: int, ll: Optional[float], max_hits: int, min_hits: int, roc_auc: float, mean_group_roc_auc: Optional[float], pr_auc: float, mean_group_pr_auc: Optional[float], precision: float, recall: float, f1: float, ks_val: Any, mcc_val: Any, bss_val: Any, binary_threshold: float, tuned_threshold: Optional[float], tuned_prf: Any) -> str:
+    """Render each requested title token and join the non-empty fragments into the single metrics string."""
+    fragments = []
+    for token in title_metrics_tokens:
+        rendered = render_title_metric_token(
+            token,
+            ndigits=ndigits,
+            ice=ice,
+            brier_loss=brier_loss,
+            ece=ece,
+            brier_reliability=brier_reliability,
+            brier_resolution=brier_resolution,
+            brier_uncertainty=brier_uncertainty,
+            calibration_mae=calibration_mae,
+            calibration_std=calibration_std,
+            use_weights=use_weights,
+            calibration_coverage=calibration_coverage,
+            nbins=nbins,
+            ll=ll,
+            max_hits=int(max_hits),
+            min_hits=int(min_hits),
+            roc_auc=roc_auc,
+            mean_group_roc_auc=mean_group_roc_auc,
+            pr_auc=pr_auc,
+            mean_group_pr_auc=mean_group_pr_auc,
+            precision=precision,
+            recall=recall,
+            f1=f1,
+            ks=ks_val, mcc=mcc_val, bss=bss_val,
+            binary_threshold=binary_threshold,
+            tuned_threshold=tuned_threshold, tuned_precision=tuned_prf[0], tuned_recall=tuned_prf[1], tuned_f1=tuned_prf[2],
+        )
+        if rendered:
+            fragments.append(rendered)
+
+    # One string, no hard break. The break that used to be forced after ``LL=`` predates the renderers
+    # measuring text: it split the headline at a fixed point regardless of how wide the figure was, so a wide
+    # figure got two short ragged lines instead of one full-width one. The renderers now wrap to the real
+    # canvas width, which is the only place that knows where the line actually has to end.
+    return ", ".join(fragments)
+
+
+def _render_calibration_plot(freqs_predicted: np.ndarray, freqs_true: np.ndarray, hits: np.ndarray, metrics_string: str, title: str, show_plots: bool, plot_file: str, plot_outputs: Optional[str], base_path: Optional[str], figsize: tuple, backend: str, show_prob_histogram: bool, prob_histogram_yscale: str, show_inline_population_labels: bool, reliability_show_ci: bool, reliability_smoothed: bool, y_pred: np.ndarray, y_true: np.ndarray, dpi: Optional[int]) -> Any:
+    """Build the calibration figure (or None when nothing consumes a plot)."""
+    fig = None
+
+    _dsl_render = bool(plot_outputs and base_path)
+    if plot_file or show_plots or _dsl_render:
+
+        plot_title = metrics_string
+
+        if title:
+            plot_title = title.strip() + "\n" + plot_title
+
+        fig = show_calibration_plot(
+            freqs_predicted=freqs_predicted,
+            freqs_true=freqs_true,
+            hits=hits,
+            plot_title=plot_title,
+            show_plots=show_plots,
+            plot_file=plot_file,
+            plot_outputs=plot_outputs,
+            base_path=base_path,
+            figsize=figsize,
+            backend=backend,
+            show_prob_histogram=show_prob_histogram,
+            prob_histogram_yscale=prob_histogram_yscale,
+            show_inline_population_labels=show_inline_population_labels,
+            show_wilson_ci=reliability_show_ci,
+            reliability_smoothed=reliability_smoothed,
+            raw_probs=y_pred,
+            raw_labels=y_true,
+            dpi=dpi,
+        )
+    return fig
+
+
 def fast_calibration_report(
     y_true: np.ndarray,
     y_pred: np.ndarray,
@@ -320,43 +474,13 @@ def fast_calibration_report(
     if backend not in ("plotly", "matplotlib"):
         raise ValueError(f"backend must be 'plotly' or 'matplotlib'; got {backend!r}.")
 
-    def _degenerate_result() -> "CalibrationReport":
-        """Empty / all-non-finite input: degenerate metrics, no crash.
-
-        roc_auc is PINNED at 0.5 here (the no-skill / coin-flip AUC) and precision/recall/f1 at 0.0.
-        On a rare-event target whose split happens to be single-class (no positives, or no negatives)
-        the ranking AUC is genuinely undefined; the 0.5 pin is a neutral placeholder, NOT a measured
-        score -- treat a 0.5 from this path as "AUC not computable on this split", not as a real
-        random-ranking result.
-        """
-        return CalibrationReport(
-            1.0, 1.0, 1.0, 0.0,            # brier, cal_mae, cal_std, cal_cov
-            1.0, 1.0, 0.0, 0.0,            # ece, rel, res, unc
-            0.5, 0.0, 1.0, 1.0, 0.0, 0.0, 0.0,  # roc, pr, ice, ll, precision, recall, f1
-            "", None,                      # metrics_string, fig
-        )
-
     if len(y_true) == 0:
-        return _degenerate_result()
+        return _degenerate_calibration_report()
 
-    # NaN / inf pre-mask. The preds path is NaN-guarded upstream (argmax_classes_safe)
-    # but the probs path is not, and floor(nan) under numba (boundscheck off) yields an
-    # undefined index -> out-of-bounds write in the binning kernel (silent corruption).
-    # Drop non-finite scores here (cheap vectorized check, house "fastmath + Python NaN-gate"
-    # pattern) so the whole report runs on finite data; log the dropped count once.
-    _y_pred_arr = np.asarray(y_pred, dtype=np.float64)
-    _finite_mask = np.isfinite(_y_pred_arr)
-    if not _finite_mask.all():
-        _n_dropped = int((~_finite_mask).sum())
-        logger.warning(
-            "fast_calibration_report: dropped %d/%d non-finite probabilities before binning.",
-            _n_dropped, len(_y_pred_arr),
-        )
-        y_pred = _y_pred_arr[_finite_mask]
-        y_true = np.asarray(y_true)[_finite_mask]
-        if len(y_true) == 0:
-            logger.warning("fast_calibration_report: all probabilities were non-finite; skipping calibration.")
-            return _degenerate_result()
+    _filtered = _drop_nonfinite_probs(y_true, y_pred)
+    if _filtered is None:
+        return _degenerate_calibration_report()
+    y_true, y_pred = _filtered
 
     brier_loss = fast_brier_score_loss(y_true=y_true, y_prob=y_pred)
 
@@ -371,38 +495,7 @@ def fast_calibration_report(
         freqs_predicted=freqs_predicted, freqs_true=freqs_true, hits=hits, nbins=nbins, use_weights=use_weights
     )
 
-    # Always compute ECE + Brier decomposition. Same data-adaptive bin grid as
-    # CMAEW (kernel re-bins internally so it can capture per-bin pred_means,
-    # which fast_calibration_binning doesn't expose). Cost is one short pass.
-    #
-    # Headline ECE/Brier default to the bias-corrected estimators (ece_debiased / brier_debiased): the plug-in
-    # binned ECE/REL positively overstate miscalibration by the per-bin Bernoulli sampling noise (a perfectly
-    # calibrated model reports a spurious positive value growing with nbins). compute_ece_debiased /
-    # compute_brier_decomposition_debiased subtract that noise floor (Kumar et al. NeurIPS 2019; Broecker 2009);
-    # bench_ece_debiased / bench_brier_decomp_debiased show they more than halve the bias-vs-truth on calibrated
-    # scenarios. brier debiasing subtracts Var(acc_b) from BOTH REL and RES, so REL-RES, UNC and BinnedBrier are
-    # all preserved exactly (Murphy identity still holds). Set ece_debiased / brier_debiased False for the legacy
-    # plug-in values.
-    #
-    # When both debiased flags are on (the default), the plug-in decomposition + both debiased estimators share
-    # the IDENTICAL counts/pred_sum/true_sum binning histogram -- so compute_ece_brier_full_and_debiased bins ONCE
-    # and emits every reduction (bit-identical to three separate kernels by construction; ~2.7-3x faster, see
-    # bench_fused_ece_brier_calibration). The split-kernel path stays for the opt-out combinations.
-    if ece_debiased and brier_debiased:
-        (
-            _ece_plugin, _rel_plugin, _res_plugin, brier_uncertainty, _brier_binned_plugin,
-            ece, brier_reliability, brier_resolution, _brier_binned,
-        ) = compute_ece_brier_full_and_debiased(y_true=y_true, y_pred=y_pred, nbins=nbins)
-    else:
-        ece, brier_reliability, brier_resolution, brier_uncertainty, _brier_binned = compute_ece_and_brier_decomposition(
-            y_true=y_true, y_pred=y_pred, nbins=nbins,
-        )
-        if ece_debiased:
-            ece = compute_ece_debiased(y_true=y_true, y_pred=y_pred, nbins=nbins)
-        if brier_debiased:
-            brier_reliability, brier_resolution, brier_uncertainty, _brier_binned = compute_brier_decomposition_debiased(
-                y_true=y_true, y_pred=y_pred, nbins=nbins,
-            )
+    ece, brier_reliability, brier_resolution, brier_uncertainty = _ece_brier_decomposition(y_true, y_pred, nbins, ece_debiased, brier_debiased)
 
     _auc_desc_order = None
     _ks_fused = None
@@ -442,75 +535,9 @@ def fast_calibration_report(
     ks_val, mcc_val, bss_val = _title_token_extras(_yt_int, y_pred, (_tp, _fp, _tn, _fn), brier_loss, _ks_fused, _auc_desc_order)
     tuned_prf = _tuned_threshold_prf(tuned_threshold, title_metrics_tokens, _yt_int, y_pred)
 
-    fragments = []
-    for token in title_metrics_tokens:
-        rendered = render_title_metric_token(
-            token,
-            ndigits=ndigits,
-            ice=ice,
-            brier_loss=brier_loss,
-            ece=ece,
-            brier_reliability=brier_reliability,
-            brier_resolution=brier_resolution,
-            brier_uncertainty=brier_uncertainty,
-            calibration_mae=calibration_mae,
-            calibration_std=calibration_std,
-            use_weights=use_weights,
-            calibration_coverage=calibration_coverage,
-            nbins=nbins,
-            ll=ll,
-            max_hits=int(max_hits),
-            min_hits=int(min_hits),
-            roc_auc=roc_auc,
-            mean_group_roc_auc=mean_group_roc_auc,
-            pr_auc=pr_auc,
-            mean_group_pr_auc=mean_group_pr_auc,
-            precision=precision,
-            recall=recall,
-            f1=f1,
-            ks=ks_val, mcc=mcc_val, bss=bss_val,
-            binary_threshold=binary_threshold,
-            tuned_threshold=tuned_threshold, tuned_precision=tuned_prf[0], tuned_recall=tuned_prf[1], tuned_f1=tuned_prf[2],
-        )
-        if rendered:
-            fragments.append(rendered)
+    metrics_string = _render_title_fragments(title_metrics_tokens, ndigits, ice, brier_loss, ece, brier_reliability, brier_resolution, brier_uncertainty, calibration_mae, calibration_std, use_weights, calibration_coverage, nbins, ll, int(max_hits), int(min_hits), roc_auc, mean_group_roc_auc, pr_auc, mean_group_pr_auc, precision, recall, f1, ks_val, mcc_val, bss_val, binary_threshold, tuned_threshold, tuned_prf)
 
-    # One string, no hard break. The break that used to be forced after ``LL=`` predates the renderers
-    # measuring text: it split the headline at a fixed point regardless of how wide the figure was, so a wide
-    # figure got two short ragged lines instead of one full-width one. The renderers now wrap to the real
-    # canvas width, which is the only place that knows where the line actually has to end.
-    metrics_string = ", ".join(fragments)
-
-    fig = None
-
-    _dsl_render = bool(plot_outputs and base_path)
-    if plot_file or show_plots or _dsl_render:
-
-        plot_title = metrics_string
-
-        if title:
-            plot_title = title.strip() + "\n" + plot_title
-
-        fig = show_calibration_plot(
-            freqs_predicted=freqs_predicted,
-            freqs_true=freqs_true,
-            hits=hits,
-            plot_title=plot_title,
-            show_plots=show_plots,
-            plot_file=plot_file,
-            plot_outputs=plot_outputs,
-            base_path=base_path,
-            figsize=figsize,
-            backend=backend,
-            show_prob_histogram=show_prob_histogram,
-            prob_histogram_yscale=prob_histogram_yscale,
-            show_inline_population_labels=show_inline_population_labels,
-            show_wilson_ci=reliability_show_ci,
-            reliability_smoothed=reliability_smoothed,
-            raw_probs=y_pred,
-            raw_labels=y_true,
-            dpi=dpi,
-        )
+    fig = _render_calibration_plot(freqs_predicted, freqs_true, hits, metrics_string, title, show_plots, plot_file, plot_outputs, base_path, figsize, backend, show_prob_histogram, prob_histogram_yscale, show_inline_population_labels, reliability_show_ci, reliability_smoothed, y_pred, y_true, dpi)
 
     return CalibrationReport(
         brier_loss, calibration_mae, calibration_std, calibration_coverage,

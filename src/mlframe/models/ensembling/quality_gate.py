@@ -36,65 +36,23 @@ def _exclude_if_non_finite(i: int, tot_mae: float, tot_std: float, excluded: lis
     return True
 
 
-def compute_member_quality_gate(
-    preds_list: Sequence,
-    *,
-    max_mae: float = 0.0,
-    max_std: float = 0.0,
-    max_mae_relative: float = 2.5,
-    max_std_relative: float = 2.5,
-    sample_weight: Optional[np.ndarray] = None,
-    group_ids: Optional[np.ndarray] = None,
-) -> Tuple[List[int], List[Tuple[int, str]], dict]:
-    """Cross-member outlier filter for ensemble preds.
-
-    Computes per-member MAE / STD against the cross-member median and
-    returns the indices to keep + a list of (excluded_index, reason)
-    tuples + a stats dict (median_mae, median_std, rel_mae_threshold,
-    rel_std_threshold). Pure: no logging, no side effects.
-
-    Use this from a SUITE-level scorer (e.g. ``score_ensemble``) to do
-    the gate ONCE before iterating ensemble flavors -- the previous
-    behaviour ran the same filter inside ``ensemble_probabilistic_
-    predictions`` once per flavor x split, printing the same
-    "ens member ... excluded ..." line ~20 times per suite call on
-    a 4-model x 5-flavor x 2-split layout (regression suite, 2026-05
-    prod log).
-
-    Returns
-    -------
-    kept_indices : list[int]
-        Indices into ``preds_list`` to keep. May equal all indices.
-    excluded : list[tuple[int, str]]
-        (member_index, human-readable-reason) for each dropped member.
-    stats : dict
-        ``{"median_mae", "median_std", "rel_mae_threshold",
-          "rel_std_threshold", "per_member_mae", "per_member_std"}``.
-    """
-    n = len(preds_list)
-    if n <= 1:
-        # K=1 has no peer to compare against; gate is trivially a no-op.
-        return list(range(n)), [], {}
-    if n == 2:
-        # C-P2-12: K=2 cannot drop an outlier (both members get identical |a-b|/2 distance from the
-        # 2-element median, so no member is "more outlier" than the other). The legacy gate just
-        # returned (kept-all, no-stats); this branch additionally stamps a ``k2_disagreement``
-        # observability scalar = mean(|a-b|) so the suite caller / downstream metadata can surface
-        # when the two members disagreed heavily even though no drop is possible. The blend
-        # downstream is still arithmetic mean / harm / etc. of both members.
-        try:
-            _a = np.asarray(preds_list[0], dtype=np.float64)
-            _b = np.asarray(preds_list[1], dtype=np.float64)
-            if _a.shape == _b.shape:
-                _disagreement = float(np.mean(np.abs(_a - _b)))
-            else:
-                _disagreement = float("nan")
-        except Exception as e:
-            logger.debug("disagreement computation failed: %s", e)
+def _k2_disagreement(preds_list: Sequence) -> float:
+    """Mean absolute difference between the two members (``nan`` on shape mismatch or failure)."""
+    try:
+        _a = np.asarray(preds_list[0], dtype=np.float64)
+        _b = np.asarray(preds_list[1], dtype=np.float64)
+        if _a.shape == _b.shape:
+            _disagreement = float(np.mean(np.abs(_a - _b)))
+        else:
             _disagreement = float("nan")
-        return list(range(n)), [], {"k2_disagreement": _disagreement, "filter_too_restrictive": False}
+    except Exception as e:
+        logger.debug("disagreement computation failed: %s", e)
+        _disagreement = float("nan")
+    return _disagreement
 
-    arr = np.asarray(preds_list, dtype=np.float64)
+
+def _collapse_to_groups(arr: np.ndarray, sample_weight: Optional[np.ndarray], group_ids: Optional[np.ndarray]) -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
+    """Collapse each ``group_ids`` group to one weighted row; returns ``(arr_by_group, sw_by_group)`` or ``(None, None)`` when not applicable."""
     # ``sample_weight`` is per-row; ``group_ids`` (when supplied) is the grouping vector used to
     # de-duplicate dense groups so a single group with 100 rows doesn't dominate the per-member
     # MAE aggregation. Pre-fix the collapse computed ``_group_sum / _group_size`` then broadcast
@@ -147,23 +105,19 @@ def compute_member_quality_gate(
                     _denom = np.where(_w_sum > 0, _w_sum, 1.0)
                     arr_by_group = _wsum / _denom[None, :, None]
                 sw_by_group = _group_w_mean
-    # ``np.nanmedian`` over ``np.nanquantile(arr, 0.5, ...)``: the q=0.5 codepath
-    # in nanquantile dispatches through ``apply_along_axis``, which iterates the
-    # non-axis dimensions in Python (200k rows -> 200k 1-D calls); nanmedian
-    # uses numpy's dedicated C reduction. Bench at (K=3, N=200_000): 13.5 s ->
-    # 49 ms (~275x); 3-D (K=3, N=200_000, C=4): 54 s -> 250 ms (~215x). Output
-    # matches at machine epsilon (max abs diff 2.22e-16) since both ignore
-    # NaNs by definition; we still drop into the unweighted path because the
-    # cross-member median is uniformly weighted across the K-axis by
-    # construction (row-level sample_weight only affects the downstream
-    # per-member MAE aggregation, not this median).
-    median_preds = np.nanmedian(arr, axis=0)
-    # Vectorised per-member MAE/STD: collapses the explicit Python loop to a single broadcast
-    # over (K, N, ...). diffs has shape (K, N[, C]); collapse all non-member axes to a per-member
-    # scalar via mean / population-std. LOOP-MAE / PER-MEMBER-MAE-LOOP fix; bench script in
-    # `_benchmarks/bench_ensemble_mae.py` shows ~5-50x speedup over the Python loop for K>=4.
-    per_member_mae, per_member_std = _per_member_mae_std(arr, median_preds)
+    return arr_by_group, sw_by_group
 
+
+def _weighted_member_stats(
+    arr: np.ndarray,
+    median_preds: np.ndarray,
+    sample_weight: Optional[np.ndarray],
+    arr_by_group: Optional[np.ndarray],
+    sw_by_group: Optional[np.ndarray],
+    per_member_mae: np.ndarray,
+    per_member_std: np.ndarray,
+) -> Tuple[np.ndarray, np.ndarray]:
+    """Recompute per-member MAE / STD with ``sample_weight`` (per-group aggregates when ``arr_by_group`` is set); unchanged when not applicable."""
     # NO-SW: weighted aggregation of the per-member MAE / STD when sample_weight supplied. The
     # statistic is "how far is THIS member from the cross-member median, averaged over rows". When
     # rows carry weights we use the same weights to average per-row absolute deviations -- this
@@ -200,6 +154,79 @@ def compute_member_quality_gate(
                     per_member_std = np.array(
                         [float(np.sqrt(np.average((diffs[i].mean(axis=-1) - per_member_mae[i]) ** 2, weights=_sw_b))) for i in range(diffs.shape[0])]
                     )
+
+    return per_member_mae, per_member_std
+
+
+def compute_member_quality_gate(
+    preds_list: Sequence,
+    *,
+    max_mae: float = 0.0,
+    max_std: float = 0.0,
+    max_mae_relative: float = 2.5,
+    max_std_relative: float = 2.5,
+    sample_weight: Optional[np.ndarray] = None,
+    group_ids: Optional[np.ndarray] = None,
+) -> Tuple[List[int], List[Tuple[int, str]], dict]:
+    """Cross-member outlier filter for ensemble preds.
+
+    Computes per-member MAE / STD against the cross-member median and
+    returns the indices to keep + a list of (excluded_index, reason)
+    tuples + a stats dict (median_mae, median_std, rel_mae_threshold,
+    rel_std_threshold). Pure: no logging, no side effects.
+
+    Use this from a SUITE-level scorer (e.g. ``score_ensemble``) to do
+    the gate ONCE before iterating ensemble flavors -- the previous
+    behaviour ran the same filter inside ``ensemble_probabilistic_
+    predictions`` once per flavor x split, printing the same
+    "ens member ... excluded ..." line ~20 times per suite call on
+    a 4-model x 5-flavor x 2-split layout (regression suite, 2026-05
+    prod log).
+
+    Returns
+    -------
+    kept_indices : list[int]
+        Indices into ``preds_list`` to keep. May equal all indices.
+    excluded : list[tuple[int, str]]
+        (member_index, human-readable-reason) for each dropped member.
+    stats : dict
+        ``{"median_mae", "median_std", "rel_mae_threshold",
+          "rel_std_threshold", "per_member_mae", "per_member_std"}``.
+    """
+    n = len(preds_list)
+    if n <= 1:
+        # K=1 has no peer to compare against; gate is trivially a no-op.
+        return list(range(n)), [], {}
+    if n == 2:
+        # C-P2-12: K=2 cannot drop an outlier (both members get identical |a-b|/2 distance from the
+        # 2-element median, so no member is "more outlier" than the other). The legacy gate just
+        # returned (kept-all, no-stats); this branch additionally stamps a ``k2_disagreement``
+        # observability scalar = mean(|a-b|) so the suite caller / downstream metadata can surface
+        # when the two members disagreed heavily even though no drop is possible. The blend
+        # downstream is still arithmetic mean / harm / etc. of both members.
+        _disagreement = _k2_disagreement(preds_list)
+        return list(range(n)), [], {"k2_disagreement": _disagreement, "filter_too_restrictive": False}
+
+    arr = np.asarray(preds_list, dtype=np.float64)
+    arr_by_group, sw_by_group = _collapse_to_groups(arr, sample_weight, group_ids)
+    # ``np.nanmedian`` over ``np.nanquantile(arr, 0.5, ...)``: the q=0.5 codepath
+    # in nanquantile dispatches through ``apply_along_axis``, which iterates the
+    # non-axis dimensions in Python (200k rows -> 200k 1-D calls); nanmedian
+    # uses numpy's dedicated C reduction. Bench at (K=3, N=200_000): 13.5 s ->
+    # 49 ms (~275x); 3-D (K=3, N=200_000, C=4): 54 s -> 250 ms (~215x). Output
+    # matches at machine epsilon (max abs diff 2.22e-16) since both ignore
+    # NaNs by definition; we still drop into the unweighted path because the
+    # cross-member median is uniformly weighted across the K-axis by
+    # construction (row-level sample_weight only affects the downstream
+    # per-member MAE aggregation, not this median).
+    median_preds = np.nanmedian(arr, axis=0)
+    # Vectorised per-member MAE/STD: collapses the explicit Python loop to a single broadcast
+    # over (K, N, ...). diffs has shape (K, N[, C]); collapse all non-member axes to a per-member
+    # scalar via mean / population-std. LOOP-MAE / PER-MEMBER-MAE-LOOP fix; bench script in
+    # `_benchmarks/bench_ensemble_mae.py` shows ~5-50x speedup over the Python loop for K>=4.
+    per_member_mae, per_member_std = _per_member_mae_std(arr, median_preds)
+
+    per_member_mae, per_member_std = _weighted_member_stats(arr, median_preds, sample_weight, arr_by_group, sw_by_group, per_member_mae, per_member_std)
 
     # nanmedian so a NaN-bearing per-member statistic doesn't
     # silently make the threshold NaN -- pre-fix that NaN threshold then

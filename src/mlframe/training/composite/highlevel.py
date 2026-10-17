@@ -329,28 +329,37 @@ def discover_and_wrap(
     # ---- 5. optional conformal calibration on held-out rows ----------------
     cal_alpha: Optional[float] = None
     if calibrate_conformal:
-        cal_pos = _resolve_calibration_rows(
-            holdout_pos, discovery, train_pos,
-        )
-        if cal_pos is not None and cal_pos.size:
-            X_cal = _select_cols(_select_rows(df, cal_pos), wrapper_cols)
-            y_cal = _extract_target(df, target_col, cal_pos)
-            try:
-                estimator.calibrate_conformal(X_cal, y_cal, alpha=conformal_alpha)
-                cal_alpha = float(conformal_alpha)
-            except Exception as exc:  # pragma: no cover - best-effort: estimator returned without an interval
-                logger.warning(
-                    "[discover_and_wrap] conformal calibration failed: %s; " "estimator returned without an interval.",
-                    exc,
-                )
-        else:
-            logger.info("[discover_and_wrap] calibrate_conformal requested but no " "disjoint held-out rows available; skipping calibration.")
+        cal_alpha = _calibrate_conformal_on_holdout(estimator, df, target_col, wrapper_cols, holdout_pos, discovery, train_pos, conformal_alpha)
 
     return DiscoverAndWrapResult(
         estimator=estimator, spec=spec, config=config,
         report_markdown=report_markdown, discovery=discovery,
         config_rationale=rationale, conformal_alpha=cal_alpha,
     )
+
+
+def _calibrate_conformal_on_holdout(
+    estimator: Any, df: Any, target_col: str, wrapper_cols: Sequence[str], holdout_pos: Any, discovery: Any, train_pos: np.ndarray, conformal_alpha: float
+) -> Optional[float]:
+    """Calibrate a split-conformal radius on held-out rows; returns the alpha used, or None when skipped or failed."""
+    cal_alpha: Optional[float] = None
+    cal_pos = _resolve_calibration_rows(
+        holdout_pos, discovery, train_pos,
+    )
+    if cal_pos is not None and cal_pos.size:
+        X_cal = _select_cols(_select_rows(df, cal_pos), wrapper_cols)
+        y_cal = _extract_target(df, target_col, cal_pos)
+        try:
+            estimator.calibrate_conformal(X_cal, y_cal, alpha=conformal_alpha)
+            cal_alpha = float(conformal_alpha)
+        except Exception as exc:  # pragma: no cover - best-effort: estimator returned without an interval
+            logger.warning(
+                "[discover_and_wrap] conformal calibration failed: %s; " "estimator returned without an interval.",
+                exc,
+            )
+    else:
+        logger.info("[discover_and_wrap] calibrate_conformal requested but no " "disjoint held-out rows available; skipping calibration.")
+    return cal_alpha
 
 
 def _select_cols(frame: Any, cols: Sequence[str]) -> Any:

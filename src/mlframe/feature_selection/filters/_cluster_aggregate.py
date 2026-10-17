@@ -464,6 +464,104 @@ def compact_stack_mi(target_block: np.ndarray, binned: np.ndarray, n_t: int, com
     return float(mi(compact, np.array([n_t], dtype=np.int64), np.arange(n_t, dtype=np.int64), compact_nbins, dtype=dtype))
 
 
+def _score_aggregate_method(
+    Z: np.ndarray,
+    method: str,
+    _svd_cache: dict,
+    member_names: list,
+    mean: Any,
+    std: Any,
+    signs: Any,
+    quantization: dict | None,
+    cols: list,
+    rep: int,
+    X: Any,
+    data: np.ndarray,
+    _target_block: np.ndarray,
+    _n_t: int,
+    _compact_nbins: np.ndarray,
+    dtype: type,
+) -> tuple:
+    """Build one cluster's aggregate with ``method``, bin it with fit-time edges and score its MI with the target; returns ``(agg_mi, recipe, binned)``."""
+    weights = _derive_weights(Z, method, svd_cache=_svd_cache)
+    agg_name = f"clusteragg_{method}({'+'.join(member_names)})"
+    # Compute the
+    # continuous aggregate FIRST so the recipe can persist the
+    # fit-time quantile edges. Pre-fix the recipe was built
+    # without edges and ``apply_recipe`` later re-quantiled on
+    # test data, silently shifting bin codes between fit and
+    # transform under distribution drift. Sibling of iter 28.
+    if method in _NONLINEAR_METHODS:
+        # Layer 44: row-reduction for non-linear combiners; replay uses
+        # the same ``_apply_method_nonlinear`` so fit/transform parity
+        # holds without persisting weights for these methods.
+        _agg_continuous = _apply_method_nonlinear(Z, method)
+    else:
+        _agg_continuous = Z @ np.asarray(weights, dtype=np.float64)
+    _agg_continuous = np.nan_to_num(
+        _agg_continuous, copy=False, nan=0.0, posinf=0.0, neginf=0.0,
+    )
+    # Build a per-recipe quantization dict with fit-time edges
+    # (deep-copy the caller's base dict so we don't mutate it
+    # across loop iterations).
+    if quantization is not None:
+        _q_local = dict(quantization)
+        _nb = int(cast(int, _q_local.get("nbins", 0)))
+        if _nb >= 2:
+            if str(_q_local.get("method", "quantile")) == "quantile":
+                _q_arr = np.linspace(0.0, 100.0, _nb + 1)
+                _edges = np.nanpercentile(_agg_continuous, _q_arr)
+            else:
+                _finite = _agg_continuous[np.isfinite(_agg_continuous)]
+                if _finite.size:
+                    _edges = np.linspace(
+                        float(_finite.min()), float(_finite.max()),
+                        _nb + 1,
+                    )
+                else:
+                    _edges = np.linspace(0.0, 0.0, _nb + 1)
+            _q_local["edges"] = _edges.tolist()
+    else:
+        _q_local = None
+    recipe = build_cluster_aggregate_recipe(
+        name=agg_name, src_names=tuple(member_names), method=method,
+        member_mean=mean, member_std=std, signs=signs, weights=weights,
+        quantization=_q_local, diagnostics={"representative": cols[rep]},
+    )
+    # Fit-time column IS the replay output (parity by construction). The
+    # discarded-work fast path: ``apply_recipe`` would re-extract the
+    # member columns from ``X``, re-nan_to_num, re-standardize with the
+    # stored mean/std/signs, re-combine into the SAME ``_agg_continuous``
+    # we already hold, then bin it. We already have ``_agg_continuous``
+    # and the fit-time ``edges``, so bin directly with the SAME
+    # ``searchsorted(edges[1:-1], side="right")`` reduction
+    # ``_apply_cluster_aggregate`` uses -> bit-identical column, skipping
+    # the full member re-extract/re-standardize/re-combine round trip
+    # (9 methods x k cols of pandas getitem + nan_to_num + column_stack
+    # per cluster). Only the edges path (the default whenever
+    # quantization nbins>=2) is shortcut; the no-quantization / no-edges
+    # branch still defers to ``apply_recipe`` for exact behaviour.
+    _edges_local = None if _q_local is None else _q_local.get("edges")
+    if _edges_local is not None:
+        _edges_arr = np.asarray(_edges_local, dtype=np.float64)
+        binned = np.searchsorted(
+            _edges_arr[1:-1] if _edges_arr.size >= 2 else _edges_arr,
+            _agg_continuous, side="right",
+        ).astype(np.dtype(cast(str, cast(dict, _q_local)["dtype"])))
+    else:
+        binned = apply_recipe(recipe, X)
+    # ``mi`` reads ONLY columns x (the binned aggregate) and y (``target``)
+    # via ``merge_vars``; the rest of ``data`` is copied-then-discarded.
+    # Stack just the target columns + the binned aggregate into a compact
+    # (n, |target|+1) matrix and remap x/y into it -> bit-identical MI
+    # (merge_vars depends only on the read columns' per-sample values + their
+    # nbins, not on column position), skipping the full (n, n_features) copy
+    # that was rebuilt EVERY method-iteration. ~25-89x on this score at
+    # realistic shapes (bench: _benchmarks/bench_cluster_aggregate_mi_compact_stack.py).
+    agg_mi = compact_stack_mi(_target_block, binned.astype(data.dtype), _n_t, _compact_nbins, dtype=dtype)
+    return agg_mi, recipe, binned
+
+
 def run_cluster_aggregate_step(
     *, data: np.ndarray, cols: list[str], nbins: np.ndarray, X: Any, target_indices: Sequence[int] | np.ndarray,
     feature_names_in_: Sequence[str], categorical_idx: Any,
@@ -526,82 +624,9 @@ def run_cluster_aggregate_step(
         # from the identical ``Z``. Discarded after the cluster finishes.
         _svd_cache: dict = {}
         for method in methods:
-            weights = _derive_weights(Z, method, svd_cache=_svd_cache)
-            agg_name = f"clusteragg_{method}({'+'.join(member_names)})"
-            # Compute the
-            # continuous aggregate FIRST so the recipe can persist the
-            # fit-time quantile edges. Pre-fix the recipe was built
-            # without edges and ``apply_recipe`` later re-quantiled on
-            # test data, silently shifting bin codes between fit and
-            # transform under distribution drift. Sibling of iter 28.
-            if method in _NONLINEAR_METHODS:
-                # Layer 44: row-reduction for non-linear combiners; replay uses
-                # the same ``_apply_method_nonlinear`` so fit/transform parity
-                # holds without persisting weights for these methods.
-                _agg_continuous = _apply_method_nonlinear(Z, method)
-            else:
-                _agg_continuous = Z @ np.asarray(weights, dtype=np.float64)
-            _agg_continuous = np.nan_to_num(
-                _agg_continuous, copy=False, nan=0.0, posinf=0.0, neginf=0.0,
+            agg_mi, recipe, binned = _score_aggregate_method(
+                Z, method, _svd_cache, member_names, mean, std, signs, quantization, cols, rep, X, data, _target_block, _n_t, _compact_nbins, dtype,
             )
-            # Build a per-recipe quantization dict with fit-time edges
-            # (deep-copy the caller's base dict so we don't mutate it
-            # across loop iterations).
-            if quantization is not None:
-                _q_local = dict(quantization)
-                _nb = int(cast(int, _q_local.get("nbins", 0)))
-                if _nb >= 2:
-                    if str(_q_local.get("method", "quantile")) == "quantile":
-                        _q_arr = np.linspace(0.0, 100.0, _nb + 1)
-                        _edges = np.nanpercentile(_agg_continuous, _q_arr)
-                    else:
-                        _finite = _agg_continuous[np.isfinite(_agg_continuous)]
-                        if _finite.size:
-                            _edges = np.linspace(
-                                float(_finite.min()), float(_finite.max()),
-                                _nb + 1,
-                            )
-                        else:
-                            _edges = np.linspace(0.0, 0.0, _nb + 1)
-                    _q_local["edges"] = _edges.tolist()
-            else:
-                _q_local = None
-            recipe = build_cluster_aggregate_recipe(
-                name=agg_name, src_names=tuple(member_names), method=method,
-                member_mean=mean, member_std=std, signs=signs, weights=weights,
-                quantization=_q_local, diagnostics={"representative": cols[rep]},
-            )
-            # Fit-time column IS the replay output (parity by construction). The
-            # discarded-work fast path: ``apply_recipe`` would re-extract the
-            # member columns from ``X``, re-nan_to_num, re-standardize with the
-            # stored mean/std/signs, re-combine into the SAME ``_agg_continuous``
-            # we already hold, then bin it. We already have ``_agg_continuous``
-            # and the fit-time ``edges``, so bin directly with the SAME
-            # ``searchsorted(edges[1:-1], side="right")`` reduction
-            # ``_apply_cluster_aggregate`` uses -> bit-identical column, skipping
-            # the full member re-extract/re-standardize/re-combine round trip
-            # (9 methods x k cols of pandas getitem + nan_to_num + column_stack
-            # per cluster). Only the edges path (the default whenever
-            # quantization nbins>=2) is shortcut; the no-quantization / no-edges
-            # branch still defers to ``apply_recipe`` for exact behaviour.
-            _edges_local = None if _q_local is None else _q_local.get("edges")
-            if _edges_local is not None:
-                _edges_arr = np.asarray(_edges_local, dtype=np.float64)
-                binned = np.searchsorted(
-                    _edges_arr[1:-1] if _edges_arr.size >= 2 else _edges_arr,
-                    _agg_continuous, side="right",
-                ).astype(np.dtype(cast(str, _q_local["dtype"])))
-            else:
-                binned = apply_recipe(recipe, X)
-            # ``mi`` reads ONLY columns x (the binned aggregate) and y (``target``)
-            # via ``merge_vars``; the rest of ``data`` is copied-then-discarded.
-            # Stack just the target columns + the binned aggregate into a compact
-            # (n, |target|+1) matrix and remap x/y into it -> bit-identical MI
-            # (merge_vars depends only on the read columns' per-sample values + their
-            # nbins, not on column position), skipping the full (n, n_features) copy
-            # that was rebuilt EVERY method-iteration. ~25-89x on this score at
-            # realistic shapes (bench: _benchmarks/bench_cluster_aggregate_mi_compact_stack.py).
-            agg_mi = compact_stack_mi(_target_block, binned.astype(data.dtype), _n_t, _compact_nbins, dtype=dtype)
             if best is None or agg_mi > best[0]:
                 best = (agg_mi, recipe, binned, method)
 

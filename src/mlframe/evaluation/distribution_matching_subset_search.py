@@ -12,7 +12,7 @@ structure that block-level resampling preserves.
 from __future__ import annotations
 
 import warnings
-from typing import List, Optional, Sequence
+from typing import Callable, List, Optional, Sequence
 
 import numpy as np
 import pandas as pd
@@ -122,6 +122,91 @@ def _energy_distance(sample_mat: np.ndarray, target_mat: np.ndarray, target_targ
     return 2.0 * d_xy - d_xx - target_target_dist
 
 
+def _build_joint_ctx(target_df: pd.DataFrame, cols: List) -> dict:
+    """Precompute the standardized target point cloud and its target-vs-itself energy term for the opt-in joint mode."""
+    # Precomputed once (target point cloud is invariant across trials) so the opt-in joint mode adds no
+    # per-trial setup cost beyond the energy-distance evaluation itself; None keeps the default path from
+    # doing ANY extra work, guaranteeing bit-identical scores to before this feature existed.
+    target_mat = target_df[cols].to_numpy(dtype=float)
+    target_mat = target_mat[np.all(np.isfinite(target_mat), axis=1)]
+    target_mean = target_mat.mean(axis=0)
+    target_std = target_mat.std(axis=0)
+    target_std = np.where(target_std > 1e-12, target_std, 1.0)
+    target_std_mat = (target_mat - target_mean) / target_std
+    target_target_dist = float(np.mean(np.linalg.norm(target_std_mat[:, None, :] - target_std_mat[None, :, :], axis=2)))
+    return {
+        "mean": target_mean,
+        "std": target_std,
+        "target_std_mat": target_std_mat,
+        "target_target_dist": target_target_dist,
+    }
+
+
+def _score_subset(sample_df: pd.DataFrame, target_df: pd.DataFrame, cols: List, _joint_ctx: Optional[dict], joint_weight: float) -> float:
+    """Score a candidate block subset by mean KS statistic, plus an optional joint-distribution penalty term."""
+    base = _mean_ks_statistic(sample_df, target_df, cols)
+    if _joint_ctx is None:
+        return base
+    sample_mat = sample_df[cols].to_numpy(dtype=float)
+    sample_mat = sample_mat[np.all(np.isfinite(sample_mat), axis=1)]
+    if len(sample_mat) < 2:
+        return base + joint_weight  # degenerate/empty joint sample -- maximally penalize, no crash.
+    sample_std_mat = (sample_mat - _joint_ctx["mean"]) / _joint_ctx["std"]
+    energy = _energy_distance(sample_std_mat, _joint_ctx["target_std_mat"], _joint_ctx["target_target_dist"])
+    return base + joint_weight * energy
+
+
+def _greedy_swap_hill_climb(
+    train_df: pd.DataFrame,
+    block_col: str,
+    unique_blocks: np.ndarray,
+    rng: np.random.Generator,
+    _score: Callable[[pd.DataFrame], float],
+    remaining: int,
+    best_score: float,
+    best_blocks: List,
+    scores_list: List[float],
+) -> tuple[float, List]:
+    """Hill-climb from the best random subset for ``remaining`` budget units; appends swap scores to ``scores_list`` and returns ``(best_score, best_blocks)``."""
+    current_blocks: List = list(best_blocks)
+    current_score = best_score
+    used_blocks = set(current_blocks)
+    unused_blocks = [b for b in unique_blocks if b not in used_blocks]
+    block_scores: dict = {}  # per-block mean KS vs target_df in isolation, computed lazily and cached.
+
+    spent = 0
+    while spent < remaining:
+        missing = [b for b in current_blocks if b not in block_scores]
+        if missing:
+            b = missing[0]
+            block_df = train_df[train_df[block_col] == b]
+            block_scores[b] = _score(block_df)
+            spent += 1
+            continue
+        if not unused_blocks:
+            break  # no unused blocks left to swap in -- stop early, remaining budget goes unused.
+        worst_block = max(current_blocks, key=lambda b: block_scores[b])
+        replacement = unused_blocks[int(rng.integers(len(unused_blocks)))]
+        swapped_blocks: List = [replacement if b == worst_block else b for b in current_blocks]
+        candidate_df = train_df[train_df[block_col].isin(swapped_blocks)]
+        score = _score(candidate_df)
+        scores_list.append(score)
+        spent += 1
+        if score < current_score:
+            current_score = score
+            current_blocks = swapped_blocks
+            used_blocks.discard(worst_block)
+            used_blocks.add(replacement)
+            unused_blocks.remove(replacement)
+            unused_blocks.append(worst_block)
+            del block_scores[worst_block]  # left the subset; rescored lazily if it ever re-enters.
+            if score < best_score:
+                best_score = score
+                best_blocks = list(swapped_blocks)
+        # else: swap rejected, swapped_blocks discarded -- current_blocks/current_score stay as-is (revert).
+    return best_score, best_blocks
+
+
 def distribution_matching_subset_search(
     train_df: pd.DataFrame,
     target_df: pd.DataFrame,
@@ -205,34 +290,11 @@ def distribution_matching_subset_search(
     # Precomputed once (target point cloud is invariant across trials) so the opt-in joint mode adds no
     # per-trial setup cost beyond the energy-distance evaluation itself; None keeps the default path from
     # doing ANY extra work, guaranteeing bit-identical scores to before this feature existed.
-    _joint_ctx: Optional[dict] = None
-    if joint_distance_mode == "energy":
-        target_mat = target_df[cols].to_numpy(dtype=float)
-        target_mat = target_mat[np.all(np.isfinite(target_mat), axis=1)]
-        target_mean = target_mat.mean(axis=0)
-        target_std = target_mat.std(axis=0)
-        target_std = np.where(target_std > 1e-12, target_std, 1.0)
-        target_std_mat = (target_mat - target_mean) / target_std
-        target_target_dist = float(np.mean(np.linalg.norm(target_std_mat[:, None, :] - target_std_mat[None, :, :], axis=2)))
-        _joint_ctx = {
-            "mean": target_mean,
-            "std": target_std,
-            "target_std_mat": target_std_mat,
-            "target_target_dist": target_target_dist,
-        }
+    _joint_ctx = _build_joint_ctx(target_df, cols) if joint_distance_mode == "energy" else None
 
     def _score(sample_df: pd.DataFrame) -> float:
         """Score a candidate block subset by mean KS statistic, plus an optional joint-distribution penalty term."""
-        base = _mean_ks_statistic(sample_df, target_df, cols)
-        if _joint_ctx is None:
-            return base
-        sample_mat = sample_df[cols].to_numpy(dtype=float)
-        sample_mat = sample_mat[np.all(np.isfinite(sample_mat), axis=1)]
-        if len(sample_mat) < 2:
-            return base + joint_weight  # degenerate/empty joint sample -- maximally penalize, no crash.
-        sample_std_mat = (sample_mat - _joint_ctx["mean"]) / _joint_ctx["std"]
-        energy = _energy_distance(sample_std_mat, _joint_ctx["target_std_mat"], _joint_ctx["target_target_dist"])
-        return base + joint_weight * energy
+        return _score_subset(sample_df, target_df, cols, _joint_ctx, joint_weight)
 
     rng = np.random.default_rng(random_state)
 
@@ -269,44 +331,9 @@ def distribution_matching_subset_search(
             best_score = score
             best_blocks = list(candidate_blocks)
 
-    # --- phase 2: hill-climb from the best random subset for the remaining budget. ---
-    remaining = n_trials - init_trials
-    current_blocks: List = list(best_blocks)
-    current_score = best_score
-    used_blocks = set(current_blocks)
-    unused_blocks = [b for b in unique_blocks if b not in used_blocks]
-    block_scores: dict = {}  # per-block mean KS vs target_df in isolation, computed lazily and cached.
-
-    spent = 0
-    while spent < remaining:
-        missing = [b for b in current_blocks if b not in block_scores]
-        if missing:
-            b = missing[0]
-            block_df = train_df[train_df[block_col] == b]
-            block_scores[b] = _score(block_df)
-            spent += 1
-            continue
-        if not unused_blocks:
-            break  # no unused blocks left to swap in -- stop early, remaining budget goes unused.
-        worst_block = max(current_blocks, key=lambda b: block_scores[b])
-        replacement = unused_blocks[int(rng.integers(len(unused_blocks)))]
-        swapped_blocks: List = [replacement if b == worst_block else b for b in current_blocks]
-        candidate_df = train_df[train_df[block_col].isin(swapped_blocks)]
-        score = _score(candidate_df)
-        scores_list.append(score)
-        spent += 1
-        if score < current_score:
-            current_score = score
-            current_blocks = swapped_blocks
-            used_blocks.discard(worst_block)
-            used_blocks.add(replacement)
-            unused_blocks.remove(replacement)
-            unused_blocks.append(worst_block)
-            del block_scores[worst_block]  # left the subset; rescored lazily if it ever re-enters.
-            if score < best_score:
-                best_score = score
-                best_blocks = list(swapped_blocks)
-        # else: swap rejected, swapped_blocks discarded -- current_blocks/current_score stay as-is (revert).
+    best_score, best_blocks = _greedy_swap_hill_climb(
+        train_df, block_col, unique_blocks, rng, _score, n_trials - init_trials, best_score, best_blocks, scores_list
+    )
 
     return {
         "best_blocks": best_blocks,

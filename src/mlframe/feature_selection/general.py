@@ -155,7 +155,6 @@ def estimate_features_relevancy(
     # ----------------------------------------------------------------------------------------------------------------------------
 
     start_time = timer()
-    ran_out_of_time = False
 
     columns_to_drop = []
 
@@ -217,6 +216,34 @@ def estimate_features_relevancy(
         for target_name, permuted_mis in permuted_mutual_informations.items():
             all_permuted_mis[target_name].append(permuted_mis)
 
+    _run_target_permutations(arr, target_indices, target_columns, mi_algorithms_ranking, _rng, num_randomized_permutations, leave_progressbar, max_runtime_mins, start_time, verbose, all_permuted_mis, current_permuted_mis)
+
+    # ----------------------------------------------------------------------------------------------------------------------------
+    # Decide what features have no influence & report them.
+    # ----------------------------------------------------------------------------------------------------------------------------
+
+    features_usefulness = np.zeros(bins.shape[1], dtype=np.int32)
+
+    n_samples = arr.shape[0]
+    # Per-column occupied-bin counts drive both the Miller-Madow bias floor and the G-test df. Computed
+    # once here (not per target) since the codes are the same across targets.
+    occupied_bins_per_col = np.array([_occupied_bins(arr[:, j]) for j in range(bins.shape[1])], dtype=np.int64)
+
+    features_usefulness = _aggregate_permuted_mis_per_target(target_indices, target_columns, all_permuted_mis, current_permuted_mis, verbose, occupied_bins_per_col, original_mi_results, n_samples, bins, permuted_max_mi_quantile, min_mi_prevalence, max_permuted_prevalence_percent, fdr_alpha, features_usefulness)
+
+    for feature_idx, feature_name in enumerate(bins.columns):
+        if features_usefulness[feature_idx] == 0 and feature_idx not in target_indices:
+            columns_to_drop.append(feature_name)
+
+    _warn_on_dropped_columns(columns_to_drop, verbose, max_log_text_width)
+
+    return columns_to_drop, original_mi_results, all_permuted_mis, mi_algorithms_ranking
+
+
+def _run_target_permutations(arr: np.ndarray, target_indices: list, target_columns: list, mi_algorithms_ranking: list, _rng: np.random.Generator, num_randomized_permutations: int, leave_progressbar: bool, max_runtime_mins: float | None, start_time: float, verbose: int, all_permuted_mis: dict, current_permuted_mis: dict) -> None:
+    """Shuffle each target column in turn, score the original features against it and record the permuted MIs (stops early on ``max_runtime_mins``)."""
+    ran_out_of_time = False
+
     # Actual permutations
 
     for _permutation_id in tqdmu(range(num_randomized_permutations), desc="Permutation", leave=leave_progressbar):
@@ -251,27 +278,6 @@ def estimate_features_relevancy(
                 if verbose:
                     logger.info("max_runtime_mins=%s reached.", f"{max_runtime_mins:_.1f}")
                 break
-
-    # ----------------------------------------------------------------------------------------------------------------------------
-    # Decide what features have no influence & report them.
-    # ----------------------------------------------------------------------------------------------------------------------------
-
-    features_usefulness = np.zeros(bins.shape[1], dtype=np.int32)
-
-    n_samples = arr.shape[0]
-    # Per-column occupied-bin counts drive both the Miller-Madow bias floor and the G-test df. Computed
-    # once here (not per target) since the codes are the same across targets.
-    occupied_bins_per_col = np.array([_occupied_bins(arr[:, j]) for j in range(bins.shape[1])], dtype=np.int64)
-
-    features_usefulness = _aggregate_permuted_mis_per_target(target_indices, target_columns, all_permuted_mis, current_permuted_mis, verbose, occupied_bins_per_col, original_mi_results, n_samples, bins, permuted_max_mi_quantile, min_mi_prevalence, max_permuted_prevalence_percent, fdr_alpha, features_usefulness)
-
-    for feature_idx, feature_name in enumerate(bins.columns):
-        if features_usefulness[feature_idx] == 0 and feature_idx not in target_indices:
-            columns_to_drop.append(feature_name)
-
-    _warn_on_dropped_columns(columns_to_drop, verbose, max_log_text_width)
-
-    return columns_to_drop, original_mi_results, all_permuted_mis, mi_algorithms_ranking
 
 
 def _default_mi_algorithms(mi_algorithms_ranking, benchmark_mi_algorithms, verbose):

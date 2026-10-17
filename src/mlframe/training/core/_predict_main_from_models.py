@@ -5,6 +5,7 @@ brings _predict_main below 1k LOC.
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass, field
 
 from scipy import stats
 from typing import Any, Optional
@@ -28,6 +29,67 @@ from mlframe.utils.log_throttle import log_throttle
 from ._predict_composite_routing import composite_predict, is_composite_wrapper, register_spec_transforms
 
 logger = logging.getLogger("mlframe.training.core.predict")
+
+
+def _empty_predict_results() -> dict[str, Any]:
+    """Fresh ``results`` dict of ``predict_from_models``."""
+    return {
+        "predictions": {},
+        "probabilities": {},
+        "ensemble_predictions": None,
+        "ensemble_probabilities": None,
+        "models_used": [],
+    }
+
+
+def _replay_feature_engineering(
+    df: Any, metadata: dict, verbose: Any, group_ids: Any, timestamps: Any, auxiliary_events_df: Any,
+) -> Any:
+    """Replay the suite-owned datetime decomposition and every composite-FE stage on the predict frame, in training order."""
+    from .predict import _replay_suite_datetime_decomposition
+    from mlframe.training.pipeline.shared import replay_categorical_composite_fe
+    from mlframe.training.pipeline.shared import replay_entity_time_composite_fe
+    from mlframe.training.pipeline.shared import replay_cross_sectional_composite_fe
+    from mlframe.training.pipeline.shared import replay_target_encoding_composite_fe
+    from mlframe.training.pipeline.shared import replay_per_target_supervised_fe
+    from mlframe.training.pipeline.shared import replay_ma_crossover_composite_fe
+    from mlframe.training.pipeline.shared import replay_latent_interaction_svd_composite_fe
+    from mlframe.training.pipeline.shared import replay_nearest_past_join_composite_fe
+    from mlframe.training.pipeline.shared import replay_event_proximity_decay_composite_fe
+
+    df = _replay_suite_datetime_decomposition(df, metadata, verbose=verbose)
+    df = replay_categorical_composite_fe(df, metadata, verbose=verbose)
+    df = replay_entity_time_composite_fe(df, metadata, group_ids, timestamps, verbose=verbose)
+    df = replay_cross_sectional_composite_fe(df, metadata, verbose=verbose)
+    df = replay_target_encoding_composite_fe(df, metadata, group_ids, verbose=verbose)
+    df = replay_per_target_supervised_fe(df, metadata, group_ids, verbose=verbose)
+    df = replay_ma_crossover_composite_fe(df, metadata, group_ids, timestamps, verbose=verbose)
+    df = replay_latent_interaction_svd_composite_fe(df, metadata, auxiliary_events_df, group_ids, verbose=verbose)
+    df = replay_nearest_past_join_composite_fe(df, metadata, auxiliary_events_df, verbose=verbose)
+    df = replay_event_proximity_decay_composite_fe(df, metadata, timestamps, verbose=verbose)
+    return df
+
+
+def _apply_row_wise_and_extensions(df: Any, metadata: dict, extensions_pipeline: Any, verbose: Any) -> Any:
+    """Recompute the stateless row-wise extension columns, then replay the fitted extensions pipeline (fit-time order)."""
+    from .predict import _apply_row_wise_extensions
+
+    # Row-wise extension columns (row_summary_*/row_extreme_*, default ON) are stateless per-row
+    # functions with no fitted object to persist -- recompute them directly from the frame's own
+    # numeric columns. MUST run BEFORE the sklearn-bridge ``extensions_pipeline`` below: fit time
+    # applies them as "step 1.5" in ``apply_preprocessing_extensions``, strictly BEFORE
+    # scaler/kbins/polynomial/dim_reducer, specifically so those steps' fitted ``feature_names_in_``
+    # already includes the row-wise columns (DEFAULTS_CHANGELOG.md). Reversing the order here
+    # leaves ``extensions_pipeline.transform()`` missing exactly those columns and raises "feature
+    # names seen at fit time, yet now missing".
+    _row_wise_cfg = metadata.get("row_wise_extensions_config")
+    if _row_wise_cfg is not None:
+        df = _apply_row_wise_extensions(df, _row_wise_cfg, verbose=verbose)
+
+    # Extensions pipeline replay (Fix 2). PySR / TF-IDF / polynomial / scaler / KBins / RBF / PCA stack, applied AFTER
+    # the main pipeline (same order as training); without this models trained with ``preprocessing_extensions`` see
+    # raw columns at predict and produce garbage.
+    return _apply_extensions_pipeline_if_any(extensions_pipeline, verbose, df)
 
 
 def predict_from_models(
@@ -87,16 +149,7 @@ def predict_from_models(
     """
     # Lazy import of parent-resident helpers: ``.predict`` re-imports this sibling at its bottom, so a top-level ``from .predict
     # import ...`` would create a hard cycle the meta-test flags.
-    from .predict import _apply_row_wise_extensions, _ensure_pandas_view, _replay_suite_datetime_decomposition, _run_batched
-    from mlframe.training.pipeline.shared import replay_categorical_composite_fe
-    from mlframe.training.pipeline.shared import replay_entity_time_composite_fe
-    from mlframe.training.pipeline.shared import replay_cross_sectional_composite_fe
-    from mlframe.training.pipeline.shared import replay_target_encoding_composite_fe
-    from mlframe.training.pipeline.shared import replay_per_target_supervised_fe
-    from mlframe.training.pipeline.shared import replay_ma_crossover_composite_fe
-    from mlframe.training.pipeline.shared import replay_latent_interaction_svd_composite_fe
-    from mlframe.training.pipeline.shared import replay_nearest_past_join_composite_fe
-    from mlframe.training.pipeline.shared import replay_event_proximity_decay_composite_fe
+    from .predict import _ensure_pandas_view, _run_batched
     # Validate inputs
     if not isinstance(df, (pd.DataFrame, pl.DataFrame)):
         raise TypeError(f"df must be pandas or polars DataFrame, got {type(df).__name__}")
@@ -116,13 +169,7 @@ def predict_from_models(
             df, predict_batch_rows,
         )
 
-    results: dict[str, Any] = {
-        "predictions": {},
-        "probabilities": {},
-        "ensemble_predictions": None,
-        "ensemble_probabilities": None,
-        "models_used": [],
-    }
+    results: dict[str, Any] = _empty_predict_results()
     # Track per-model failures so we can raise a single aggregated
     # RuntimeError when EVERY supplied model failed at predict. Without
     # this, the per-model ``except Exception: continue`` swallow at the
@@ -153,16 +200,7 @@ def predict_from_models(
     _all_polars_native_inmem = _predict_from_model_input_polars(_input_is_polars, models, _all_polars_native_inmem)
 
     # Replay suite-owned datetime decomposition before validation/pipeline so the predict frame has the SAME derived columns as training; FTE already handled its own ts_field on the line above.
-    df = _replay_suite_datetime_decomposition(df, metadata, verbose=verbose)
-    df = replay_categorical_composite_fe(df, metadata, verbose=verbose)
-    df = replay_entity_time_composite_fe(df, metadata, _predict_group_ids, _predict_timestamps, verbose=verbose)
-    df = replay_cross_sectional_composite_fe(df, metadata, verbose=verbose)
-    df = replay_target_encoding_composite_fe(df, metadata, _predict_group_ids, verbose=verbose)
-    df = replay_per_target_supervised_fe(df, metadata, _predict_group_ids, verbose=verbose)
-    df = replay_ma_crossover_composite_fe(df, metadata, _predict_group_ids, _predict_timestamps, verbose=verbose)
-    df = replay_latent_interaction_svd_composite_fe(df, metadata, auxiliary_events_df, _predict_group_ids, verbose=verbose)
-    df = replay_nearest_past_join_composite_fe(df, metadata, auxiliary_events_df, verbose=verbose)
-    df = replay_event_proximity_decay_composite_fe(df, metadata, _predict_timestamps, verbose=verbose)
+    df = _replay_feature_engineering(df, metadata, verbose, _predict_group_ids, _predict_timestamps, auxiliary_events_df)
 
     df = _validate_input_columns_against_metadata(df, metadata, verbose=bool(verbose))
     register_spec_transforms(metadata)
@@ -181,22 +219,7 @@ def predict_from_models(
     extensions_pipeline = metadata.get("extensions_pipeline")
     df = _predict_from_model_pipeline_none(pipeline, verbose, df)
 
-    # Row-wise extension columns (row_summary_*/row_extreme_*, default ON) are stateless per-row
-    # functions with no fitted object to persist -- recompute them directly from the frame's own
-    # numeric columns. MUST run BEFORE the sklearn-bridge ``extensions_pipeline`` below: fit time
-    # applies them as "step 1.5" in ``apply_preprocessing_extensions``, strictly BEFORE
-    # scaler/kbins/polynomial/dim_reducer, specifically so those steps' fitted ``feature_names_in_``
-    # already includes the row-wise columns (DEFAULTS_CHANGELOG.md). Reversing the order here
-    # leaves ``extensions_pipeline.transform()`` missing exactly those columns and raises "feature
-    # names seen at fit time, yet now missing".
-    _row_wise_cfg = metadata.get("row_wise_extensions_config")
-    if _row_wise_cfg is not None:
-        df = _apply_row_wise_extensions(df, _row_wise_cfg, verbose=verbose)
-
-    # Extensions pipeline replay (Fix 2). PySR / TF-IDF / polynomial / scaler / KBins / RBF / PCA stack, applied AFTER
-    # the main pipeline (same order as training); without this models trained with ``preprocessing_extensions`` see
-    # raw columns at predict and produce garbage.
-    df = _apply_extensions_pipeline_if_any(extensions_pipeline, verbose, df)
+    df = _apply_row_wise_and_extensions(df, metadata, extensions_pipeline, verbose)
 
     # Polars fastpath: keep polars when every model is CB / XGB; otherwise pay one shared pandas conversion now
     # so downstream models don't each pay their own. Extensions pipeline always returns pandas so by here the
@@ -220,11 +243,210 @@ def predict_from_models(
     return results
 
 
+@dataclass
+class _PredAccum:
+    """Per-call accumulators of the in-memory predict loop."""
+
+    all_probs: list[np.ndarray] = field(default_factory=list)
+    all_preds: list[np.ndarray] = field(default_factory=list)
+    per_target_probs: dict[tuple[Any, Any], list[np.ndarray]] = field(default_factory=dict)
+    per_target_member_names: dict[tuple[Any, Any], list[str]] = field(default_factory=dict)
+    per_target_preds: dict[tuple[Any, Any], list[np.ndarray]] = field(default_factory=dict)
+    all_calib_flags: list[bool] = field(default_factory=list)
+    per_target_calib_flags: dict[tuple[Any, Any], list[bool]] = field(default_factory=dict)
+
+
+def _unique_model_name(model_obj: Any, target_type: Any, target_name: Any, results: dict[str, Any]) -> str:
+    """Result key of a model: ``{type}_{target}[_{pre_pipeline class}]``, de-duplicated with a numeric suffix."""
+    model_name = f"{target_type}_{target_name}"
+    if hasattr(model_obj, "pre_pipeline") and model_obj.pre_pipeline is not None:
+        pipeline_name = type(model_obj.pre_pipeline).__name__
+        model_name = f"{model_name}_{pipeline_name}"
+
+    # Disambiguate when multiple models in this target share a name.
+    base_name = model_name
+    counter = 1
+    while model_name in results["predictions"]:
+        model_name = f"{base_name}_{counter}"
+        counter += 1
+    return model_name
+
+
+def _prepare_model_input(
+    model: Any, model_obj: Any, df: Any, df_pre_pipeline: Any, pipeline: Any, metadata: dict, model_name: str, verbose: Any,
+    _cat_features: Any, _pandas_view_cache: dict[int, pd.DataFrame], _col_diff_cache: dict[tuple[int, int], dict[str, Any]],
+) -> tuple[Any, Any]:
+    """Frame handed to one model: polars/pandas view, raw-cat restore, expected-column subset, pre_pipeline replay, cat-dtype coercion; also returns the expected feature list."""
+    from mlframe.training.core.predict import _apply_pre_pipeline_with_passthrough, _coerce_cat_dtype_for_lgb_xgb, _ensure_pandas_view, _is_polars_native_model
+
+    input_for_model = df
+    # Lazy polars->pandas when this specific model is NOT polars-native; mirrors the training
+    # _phase_train_one_target pattern (cached view shared across models on the same source frame).
+    if isinstance(input_for_model, pl.DataFrame) and not _is_polars_native_model(model_obj):
+        input_for_model = _ensure_pandas_view(input_for_model, _pandas_view_cache)
+
+    # Restore RAW cat_features from df_pre_pipeline for any model with its own
+    # per-model pre_pipeline (e.g. sklearn HGB's CatBoostEncoder step). The shared
+    # ``pipeline`` above may already have numerically encoded cat_features under
+    # the SAME column name (e.g. the polars-ds LGB-oriented pipeline casts cat_low
+    # to Float64) -- that survives the "_missing" column check below (the name is
+    # still present, just holding the wrong values/dtype), so the existing
+    # df_pre_pipeline fallback (name-presence-only) never triggers. A per-model
+    # pre_pipeline's own feature_names_in_ was fit on the RAW pre-pipeline frame
+    # (see the comment above ``_expected`` below), so it needs the raw cat values,
+    # not whatever the shared pipeline encoded them into for a DIFFERENT model
+    # family. Surfaced by fuzz iter#80 (lgb+hgb mixed on Polars+cat): HGB's own
+    # OrdinalEncoder compares Float64 input against its fitted string vocabulary
+    # via ``xp.isnan(known_values)``, which trips on the fitted string categories.
+    input_for_model = _predict_from_model_via_xp_isnan_known(model_obj, _cat_features, df_pre_pipeline, input_for_model, _pandas_view_cache)
+
+    # Subset to the per-model expected feature list BEFORE
+    # routing through pre_pipeline (sklearn pipelines for
+    # linear / ridge / sgd reject text/embedding columns at
+    # transform time with "Feature names unseen at fit
+    # time"). The shared metadata["columns"] keeps every
+    # column the suite saw at fit time (including text /
+    # embedding cols routed to CB-only text_features /
+    # embedding_features), but each fitted model exposes
+    # its own ``feature_names_in_`` (sklearn API used by
+    # XGB / LGB / linear) or ``feature_names_`` (CatBoost).
+    # Prefer the pre_pipeline's feature_names_in_ when a
+    # pre_pipeline is present (it sees raw input before
+    # the imputer / scaler reshape feature names); fall
+    # back to the model's own feature_names_in_ otherwise.
+    # Surfaced by fuzz iter#52 (xgb + text_col) and iter#64
+    # (linear + text_col -> pre_pipeline.transform crash).
+    _expected = None
+    if hasattr(model_obj, "pre_pipeline") and model_obj.pre_pipeline is not None:
+        _expected = getattr(model_obj.pre_pipeline, "feature_names_in_", None)
+    if _expected is None:
+        _expected = getattr(model, "feature_names_in_", None)
+    if _expected is None:
+        _expected = getattr(model, "feature_names_", None)
+    if _expected is None:
+        # LightGBM's own sklearn API (LGBMModel) never sets the sklearn-convention
+        # ``feature_names_in_``/``feature_names_`` -- it exposes its fit-time column
+        # list as ``feature_name_`` (singular, LGBM-specific). Missing this meant
+        # ``_expected`` stayed None for every LGB model, so the extra-column drop below
+        # never ran for LGB: a fit-time column dropped by an upstream filter (e.g. a
+        # near-constant datetime-derived column pruned only on the TRAIN split) that
+        # survives replay at predict time reached ``booster.predict()`` unfiltered,
+        # raising LightGBMError "number of features ... not the same as ... training".
+        _expected = getattr(model, "feature_name_", None)
+    input_for_model = _predict_from_model_raising_lightgbmerror_number_features(_expected, input_for_model, _col_diff_cache, df_pre_pipeline, model_obj, _pandas_view_cache, verbose, model_name)
+
+    # per-model pre_pipeline.transform
+    # (with text/embedding passthrough stashing + feature-
+    # subset fallback on NotFittedError) lifted to the
+    # module-level _apply_pre_pipeline_with_passthrough.
+    # Same 192 lines, one call -- behaviour preserved.
+    input_for_model = _apply_pre_pipeline_with_passthrough(
+        input_for_model,
+        model=model,
+        model_obj=model_obj,
+        pipeline=pipeline,
+        df=df,
+        df_pre_pipeline=df_pre_pipeline,
+        metadata=metadata,
+        model_name=model_name,
+        verbose=verbose,
+    )
+
+    # LGB + XGB cat dtype coercion lifted
+    # to module-level _coerce_cat_dtype_for_lgb_xgb. Same logic,
+    # one call instead of two adjacent ~40-line blocks.
+    # Thread persisted enum_domains (train-time Enum dictionaries) through so the polars XGB cat-cast lands on pl.Enum (per-Series, no global-string-cache widening). Out-of-domain values cast to null via strict=False (matches training treatment of truly-unseen test categories). Legacy bundles without enum_domains key fall back to pl.Categorical with WARN.
+    _enum_domains = metadata.get("enum_domains") if isinstance(metadata, dict) else None
+    input_for_model = _coerce_cat_dtype_for_lgb_xgb(
+        input_for_model, model=model, cat_features=_cat_features,
+        enum_domains=_enum_domains,
+    )
+    return input_for_model, _expected
+
+
+def _predict_with_model(
+    model: Any, model_obj: Any, model_name: str, key: tuple[Any, Any], input_for_model: Any, _expected: Any, df: Any, df_pre_pipeline: Any,
+    metadata: dict, results: dict[str, Any], acc: _PredAccum, return_probabilities: bool, verbose: Any, _pandas_view_cache: dict[int, pd.DataFrame],
+) -> None:
+    """Predict (probabilities + hard labels, or labels only) with one model and record the outputs in ``results`` / ``acc``."""
+    from mlframe.training.core.predict import _ensure_pandas_view, _is_post_hoc_calibrated_model, _try_predict_with_pp_fallback
+    from mlframe.training._classif_helpers import _canonical_predict_proba_shape
+
+    target_type, target_name = key
+    # Pre-main-pipeline fallback. Models with internal
+    # categorical handling fitted on string categories
+    # (sklearn HGB built an OrdinalEncoder over the raw
+    # cat_low strings via ``categorical_features='from_dtype'``)
+    # crash on the encoded post-pipeline frame: the encoder
+    # tries ``xp.isnan(known_values)`` on its string
+    # vocabulary and TypeErrors. Try post-pipeline first
+    # (correct for LGB / linear / etc.) and fall back to
+    # pre-pipeline on the specific isnan-on-strings TypeError.
+    # Surfaced by fuzz iter#80 (lgb+hgb on Polars+cat).
+    # the 90-line nested _try_predict closure
+    # was extracted to the module-level _try_predict_with_pp_fallback.
+    # Behaviour identical; the per-iteration def overhead is gone and
+    # the function is now unit-testable in isolation.
+    _exp_list_for_fallback = list(_expected) if _expected is not None else None
+
+    def _try_predict(fn, primary, fallback, model=model, _exp_list_for_fallback=_exp_list_for_fallback, model_name=model_name):
+        """Call ``fn`` (predict / predict_proba) on ``primary``, retrying on ``fallback`` when the post-pipeline frame trips a pre-pipeline-only estimator (e.g. an isnan-on-strings TypeError from a sklearn encoder)."""
+        return _try_predict_with_pp_fallback(
+            fn, primary, fallback,
+            model=model,
+            expected_list=_exp_list_for_fallback,
+            pandas_view_cache=_pandas_view_cache,
+            model_name=model_name,
+            verbose=verbose,
+        )
+
+    _primary_for_model = input_for_model
+    if return_probabilities and hasattr(model, "predict_proba"):
+        probs = _try_predict(model.predict_proba, _primary_for_model, df_pre_pipeline)
+        _ml_classes = getattr(model_obj, "classes_", None)
+        if _ml_classes is None:
+            _estimators = getattr(model_obj, "estimators_", None)
+            if _estimators is not None:
+                _ml_classes = [getattr(_e, "classes_", None) for _e in _estimators]
+        # Canonicalise to (N, K) BEFORE storing. _predict_with_fallback's own
+        # _wrap_predict_result already does this on the normal (non-retry) path, but
+        # _try_predict_with_pp_fallback's TypeError/encoder-mismatch retry branch calls
+        # model.predict_proba() directly and can still hand back the raw
+        # MultiOutputClassifier list form -- canonicalising unconditionally here
+        # (a no-op on an already-(N, K) array) guarantees every consumer of
+        # results["probabilities"][model_name] sees one consistent shape.
+        probs = _canonical_predict_proba_shape(probs, classes_=_ml_classes)
+        results["probabilities"][model_name] = probs
+        acc.all_probs.append(probs)
+        acc.per_target_probs.setdefault((target_type, target_name), []).append(probs)
+        acc.per_target_member_names.setdefault((target_type, target_name), []).append(str(getattr(model_obj, "model_name", None) or model_name))
+        _is_cal = _is_post_hoc_calibrated_model(model_obj)
+        acc.all_calib_flags.append(_is_cal)
+        acc.per_target_calib_flags.setdefault((target_type, target_name), []).append(_is_cal)
+
+        # Binary threshold from val/OOF-tuned metadata (never test); 0.5 fallback.
+        preds = _probs_to_hard_preds(probs, metadata, target_type, target_name, model_obj, model_name)
+        results["predictions"][model_name] = preds
+        acc.all_preds.append(preds)
+        acc.per_target_preds.setdefault((target_type, target_name), []).append(preds)
+    else:
+        preds = _try_predict(model.predict, _primary_for_model, df_pre_pipeline)
+        from ...feature_selection.filters import mix_offset_record
+
+        _mixoff = mix_offset_record(metadata, target_type, target_name)
+        if _mixoff is not None:
+            from ...feature_selection.filters import add_back_mix_offset
+
+            preds = add_back_mix_offset(preds, _ensure_pandas_view(df, _pandas_view_cache), _mixoff)
+        results["predictions"][model_name] = preds
+        acc.all_preds.append(preds)
+        acc.per_target_preds.setdefault((target_type, target_name), []).append(preds)
+
+
 def _predict_from_model_all_native_path_only(df_pre_pipeline, _all_polars_native_inmem, _pandas_view_cache, extensions_pipeline, df, metadata, verbose, models, _models_attempted, results, pipeline, return_probabilities, _predict_errors):
     """Block of predict_from_models starting at ``if isinstance(df_pre_pipeline, pl.DataFrame) and not _all_polars_nativ``."""
     model_obj: Any = None
-    from mlframe.training.core.predict import _apply_pre_pipeline_with_passthrough, _coerce_cat_dtype_for_lgb_xgb, _ensure_pandas_view, _is_polars_native_model, _is_post_hoc_calibrated_model, _try_predict_with_pp_fallback
-    from mlframe.training._classif_helpers import _canonical_predict_proba_shape
+    from mlframe.training.core.predict import _ensure_pandas_view
 
     if isinstance(df_pre_pipeline, pl.DataFrame) and not _all_polars_native_inmem:
         df_pre_pipeline = _ensure_pandas_view(df_pre_pipeline, _pandas_view_cache)
@@ -260,17 +482,10 @@ def _predict_from_model_all_native_path_only(df_pre_pipeline, _all_polars_native
     if verbose:
         logger.info("Running predictions on in-memory models...")
 
-    all_probs = []
-    all_preds = []
+    acc = _PredAccum()
     # Per-target accumulator so Fix 3 can replay the chosen ensemble flavour separately for each
     # (target_type, target_name) -- the suite-wide np.mean previously blended every model's prediction across
     # targets, which silently ignored the per-target flavour choice.
-    per_target_probs: dict[tuple[Any, Any], list[np.ndarray]] = {}
-    per_target_member_names: dict[tuple[Any, Any], list[str]] = {}
-    per_target_preds: dict[tuple[Any, Any], list[np.ndarray]] = {}
-    # Arch-4: per-member calibration flags for mix detection in _combine_probs.
-    all_calib_flags: list[bool] = []
-    per_target_calib_flags: dict[tuple[Any, Any], list[bool]] = {}
 
     # Caches keyed by (id(df), id(_expected)) and (id(df), id(_expected)) -> precomputed drop / order lists.
     # Many models in a suite carry IDENTICAL feature_names_in_ (same family fit on same FE step); recomputing
@@ -285,185 +500,32 @@ def _predict_from_model_all_native_path_only(df_pre_pipeline, _all_polars_native
                     continue
                 _models_attempted += 1
 
-                model_name = f"{target_type}_{target_name}"
-                if hasattr(model_obj, "pre_pipeline") and model_obj.pre_pipeline is not None:
-                    pipeline_name = type(model_obj.pre_pipeline).__name__
-                    model_name = f"{model_name}_{pipeline_name}"
-
-                # Disambiguate when multiple models in this target share a name.
-                base_name = model_name
-                counter = 1
-                while model_name in results["predictions"]:
-                    model_name = f"{base_name}_{counter}"
-                    counter += 1
+                model_name = _unique_model_name(model_obj, target_type, target_name, results)
 
                 if verbose:
                     logger.info("Predicting with model: %s", model_name)
 
                 try:
                     model = model_obj.model
+                    _key = (target_type, target_name)
 
                     if is_composite_wrapper(model):
                         # The wrapper reads its base from the suite-stage frame and applies its own inner pipeline to it, so it
                         # skips the per-model subset + pre_pipeline step raw models get below.
                         preds = composite_predict(model, model_obj, df, df_pre_pipeline, lambda _f: _ensure_pandas_view(_f, _pandas_view_cache))
                         results["predictions"][model_name] = preds
-                        all_preds.append(preds)
-                        per_target_preds.setdefault((target_type, target_name), []).append(preds)
+                        acc.all_preds.append(preds)
+                        acc.per_target_preds.setdefault(_key, []).append(preds)
                         results["models_used"].append(model_name)
                         continue
 
-                    input_for_model = df
-                    # Lazy polars->pandas when this specific model is NOT polars-native; mirrors the training
-                    # _phase_train_one_target pattern (cached view shared across models on the same source frame).
-                    if isinstance(input_for_model, pl.DataFrame) and not _is_polars_native_model(model_obj):
-                        input_for_model = _ensure_pandas_view(input_for_model, _pandas_view_cache)
-
-                    # Restore RAW cat_features from df_pre_pipeline for any model with its own
-                    # per-model pre_pipeline (e.g. sklearn HGB's CatBoostEncoder step). The shared
-                    # ``pipeline`` above may already have numerically encoded cat_features under
-                    # the SAME column name (e.g. the polars-ds LGB-oriented pipeline casts cat_low
-                    # to Float64) -- that survives the "_missing" column check below (the name is
-                    # still present, just holding the wrong values/dtype), so the existing
-                    # df_pre_pipeline fallback (name-presence-only) never triggers. A per-model
-                    # pre_pipeline's own feature_names_in_ was fit on the RAW pre-pipeline frame
-                    # (see the comment above ``_expected`` below), so it needs the raw cat values,
-                    # not whatever the shared pipeline encoded them into for a DIFFERENT model
-                    # family. Surfaced by fuzz iter#80 (lgb+hgb mixed on Polars+cat): HGB's own
-                    # OrdinalEncoder compares Float64 input against its fitted string vocabulary
-                    # via ``xp.isnan(known_values)``, which trips on the fitted string categories.
-                    input_for_model = _predict_from_model_via_xp_isnan_known(model_obj, _cat_features, df_pre_pipeline, input_for_model, _pandas_view_cache)
-
-                    # Subset to the per-model expected feature list BEFORE
-                    # routing through pre_pipeline (sklearn pipelines for
-                    # linear / ridge / sgd reject text/embedding columns at
-                    # transform time with "Feature names unseen at fit
-                    # time"). The shared metadata["columns"] keeps every
-                    # column the suite saw at fit time (including text /
-                    # embedding cols routed to CB-only text_features /
-                    # embedding_features), but each fitted model exposes
-                    # its own ``feature_names_in_`` (sklearn API used by
-                    # XGB / LGB / linear) or ``feature_names_`` (CatBoost).
-                    # Prefer the pre_pipeline's feature_names_in_ when a
-                    # pre_pipeline is present (it sees raw input before
-                    # the imputer / scaler reshape feature names); fall
-                    # back to the model's own feature_names_in_ otherwise.
-                    # Surfaced by fuzz iter#52 (xgb + text_col) and iter#64
-                    # (linear + text_col -> pre_pipeline.transform crash).
-                    _expected = None
-                    if hasattr(model_obj, "pre_pipeline") and model_obj.pre_pipeline is not None:
-                        _expected = getattr(model_obj.pre_pipeline, "feature_names_in_", None)
-                    if _expected is None:
-                        _expected = getattr(model, "feature_names_in_", None)
-                    if _expected is None:
-                        _expected = getattr(model, "feature_names_", None)
-                    if _expected is None:
-                        # LightGBM's own sklearn API (LGBMModel) never sets the sklearn-convention
-                        # ``feature_names_in_``/``feature_names_`` -- it exposes its fit-time column
-                        # list as ``feature_name_`` (singular, LGBM-specific). Missing this meant
-                        # ``_expected`` stayed None for every LGB model, so the extra-column drop below
-                        # never ran for LGB: a fit-time column dropped by an upstream filter (e.g. a
-                        # near-constant datetime-derived column pruned only on the TRAIN split) that
-                        # survives replay at predict time reached ``booster.predict()`` unfiltered,
-                        # raising LightGBMError "number of features ... not the same as ... training".
-                        _expected = getattr(model, "feature_name_", None)
-                    input_for_model = _predict_from_model_raising_lightgbmerror_number_features(_expected, input_for_model, _col_diff_cache, df_pre_pipeline, model_obj, _pandas_view_cache, verbose, model_name)
-
-                    # per-model pre_pipeline.transform
-                    # (with text/embedding passthrough stashing + feature-
-                    # subset fallback on NotFittedError) lifted to the
-                    # module-level _apply_pre_pipeline_with_passthrough.
-                    # Same 192 lines, one call -- behaviour preserved.
-                    input_for_model = _apply_pre_pipeline_with_passthrough(
-                        input_for_model,
-                        model=model,
-                        model_obj=model_obj,
-                        pipeline=pipeline,
-                        df=df,
-                        df_pre_pipeline=df_pre_pipeline,
-                        metadata=metadata,
-                        model_name=model_name,
-                        verbose=verbose,
+                    input_for_model, _expected = _prepare_model_input(
+                        model, model_obj, df, df_pre_pipeline, pipeline, metadata, model_name, verbose, _cat_features, _pandas_view_cache, _col_diff_cache,
                     )
-
-                    # LGB + XGB cat dtype coercion lifted
-                    # to module-level _coerce_cat_dtype_for_lgb_xgb. Same logic,
-                    # one call instead of two adjacent ~40-line blocks.
-                    # Thread persisted enum_domains (train-time Enum dictionaries) through so the polars XGB cat-cast lands on pl.Enum (per-Series, no global-string-cache widening). Out-of-domain values cast to null via strict=False (matches training treatment of truly-unseen test categories). Legacy bundles without enum_domains key fall back to pl.Categorical with WARN.
-                    _enum_domains = metadata.get("enum_domains") if isinstance(metadata, dict) else None
-                    input_for_model = _coerce_cat_dtype_for_lgb_xgb(
-                        input_for_model, model=model, cat_features=_cat_features,
-                        enum_domains=_enum_domains,
+                    _predict_with_model(
+                        model, model_obj, model_name, _key, input_for_model, _expected, df, df_pre_pipeline, metadata, results, acc, return_probabilities,
+                        verbose, _pandas_view_cache,
                     )
-
-                    # Pre-main-pipeline fallback. Models with internal
-                    # categorical handling fitted on string categories
-                    # (sklearn HGB built an OrdinalEncoder over the raw
-                    # cat_low strings via ``categorical_features='from_dtype'``)
-                    # crash on the encoded post-pipeline frame: the encoder
-                    # tries ``xp.isnan(known_values)`` on its string
-                    # vocabulary and TypeErrors. Try post-pipeline first
-                    # (correct for LGB / linear / etc.) and fall back to
-                    # pre-pipeline on the specific isnan-on-strings TypeError.
-                    # Surfaced by fuzz iter#80 (lgb+hgb on Polars+cat).
-                    # the 90-line nested _try_predict closure
-                    # was extracted to the module-level _try_predict_with_pp_fallback.
-                    # Behaviour identical; the per-iteration def overhead is gone and
-                    # the function is now unit-testable in isolation.
-                    _exp_list_for_fallback = list(_expected) if _expected is not None else None
-
-                    def _try_predict(fn, primary, fallback, model=model, _exp_list_for_fallback=_exp_list_for_fallback, model_name=model_name):
-                        """Call ``fn`` (predict / predict_proba) on ``primary``, retrying on ``fallback`` when the post-pipeline frame trips a pre-pipeline-only estimator (e.g. an isnan-on-strings TypeError from a sklearn encoder)."""
-                        return _try_predict_with_pp_fallback(
-                            fn, primary, fallback,
-                            model=model,
-                            expected_list=_exp_list_for_fallback,
-                            pandas_view_cache=_pandas_view_cache,
-                            model_name=model_name,
-                            verbose=verbose,
-                        )
-
-                    _primary_for_model = input_for_model
-                    if return_probabilities and hasattr(model, "predict_proba"):
-                        probs = _try_predict(model.predict_proba, _primary_for_model, df_pre_pipeline)
-                        _ml_classes = getattr(model_obj, "classes_", None)
-                        if _ml_classes is None:
-                            _estimators = getattr(model_obj, "estimators_", None)
-                            if _estimators is not None:
-                                _ml_classes = [getattr(_e, "classes_", None) for _e in _estimators]
-                        # Canonicalise to (N, K) BEFORE storing. _predict_with_fallback's own
-                        # _wrap_predict_result already does this on the normal (non-retry) path, but
-                        # _try_predict_with_pp_fallback's TypeError/encoder-mismatch retry branch calls
-                        # model.predict_proba() directly and can still hand back the raw
-                        # MultiOutputClassifier list form -- canonicalising unconditionally here
-                        # (a no-op on an already-(N, K) array) guarantees every consumer of
-                        # results["probabilities"][model_name] sees one consistent shape.
-                        probs = _canonical_predict_proba_shape(probs, classes_=_ml_classes)
-                        results["probabilities"][model_name] = probs
-                        all_probs.append(probs)
-                        per_target_probs.setdefault((target_type, target_name), []).append(probs)
-                        per_target_member_names.setdefault((target_type, target_name), []).append(str(getattr(model_obj, "model_name", None) or model_name))
-                        _is_cal = _is_post_hoc_calibrated_model(model_obj)
-                        all_calib_flags.append(_is_cal)
-                        per_target_calib_flags.setdefault((target_type, target_name), []).append(_is_cal)
-
-                        # Binary threshold from val/OOF-tuned metadata (never test); 0.5 fallback.
-                        preds = _probs_to_hard_preds(probs, metadata, target_type, target_name, model_obj, model_name)
-                        results["predictions"][model_name] = preds
-                        all_preds.append(preds)
-                        per_target_preds.setdefault((target_type, target_name), []).append(preds)
-                    else:
-                        preds = _try_predict(model.predict, _primary_for_model, df_pre_pipeline)
-                        from ...feature_selection.filters import mix_offset_record
-
-                        _mixoff = mix_offset_record(metadata, target_type, target_name)
-                        if _mixoff is not None:
-                            from ...feature_selection.filters import add_back_mix_offset
-
-                            preds = add_back_mix_offset(preds, _ensure_pandas_view(df, _pandas_view_cache), _mixoff)
-                        results["predictions"][model_name] = preds
-                        all_preds.append(preds)
-                        per_target_preds.setdefault((target_type, target_name), []).append(preds)
 
                     results["models_used"].append(model_name)
 
@@ -475,7 +537,7 @@ def _predict_from_model_all_native_path_only(df_pre_pipeline, _all_polars_native
                     _predict_errors.append((model_name, f"{type(e).__name__}: {e}"))
                     continue
 
-    _predict_from_model_len_all_probs(all_probs, verbose, results, per_target_probs, metadata, models, per_target_member_names, per_target_calib_flags, all_calib_flags, all_preds, per_target_preds)
+    _predict_from_model_len_all_probs(acc.all_probs, verbose, results, acc.per_target_probs, metadata, models, acc.per_target_member_names, acc.per_target_calib_flags, acc.all_calib_flags, acc.all_preds, acc.per_target_preds)
     return _models_attempted
 
 

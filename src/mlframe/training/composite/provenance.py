@@ -274,6 +274,101 @@ def _spec_metric(
     return getattr(spec, attr, None)
 
 
+def _append_metrics_matrix(
+    lines: list[str],
+    specs: Sequence[CompositeSpec],
+    failures: Sequence[dict[str, Any]],
+    spec_metrics: dict[str, dict[str, Any]],
+) -> None:
+    """Append the metrics-matrix and decision-trail sections to ``lines``."""
+    # Metrics matrix + decision trail: kept specs AND rejected candidates in one
+    # at-a-glance view, so a user sees WHY each candidate survived or was dropped.
+    if specs or failures:
+        lines.append("## Metrics matrix")
+        lines.append("")
+        lines.append(
+            "Per-candidate decision metrics. `raw_delta` is composite-vs-raw-baseline "
+            "tiny-CV RMSE (negative = composite wins); `tiny_cv_rmse` is the "
+            "composite's own y-scale tiny-CV RMSE. `-` = metric not recorded."
+        )
+        lines.append("")
+        lines.append("| name | status | mi_gain | raw_delta | tiny_cv_rmse | gate | reason |")
+        lines.append("|------|--------|---------|-----------|--------------|------|--------|")
+        for spec in specs:
+            extra = spec_metrics.get(spec.name)
+            raw_delta = _spec_metric(spec.name, "raw_delta", spec, extra)
+            tiny_rmse = _spec_metric(spec.name, "tiny_cv_rmse", spec, extra)
+            lines.append(
+                f"| `{spec.name}` | kept | {spec.mi_gain:+.4f} | " f"{_fmt_metric(raw_delta, '{:+.4f}')} | " f"{_fmt_metric(tiny_rmse)} | gate-passed | - |"
+            )
+        for f in failures:
+            _f_name = f.get("name")
+            name = _f_name if _f_name else (f"__{f.get('transform_name', '?')}__{f.get('base_column', '?')}")
+            extra = spec_metrics.get(name)
+            reason = f.get("reason", "")
+            mi_gain = f.get("mi_gain")
+            raw_delta = extra.get("raw_delta") if extra else f.get("raw_delta")
+            tiny_rmse = extra.get("tiny_cv_rmse") if extra else f.get("tiny_cv_rmse")
+            lines.append(
+                f"| `{name}` | rejected | {_fmt_metric(mi_gain, '{:+.4f}')} | "
+                f"{_fmt_metric(raw_delta, '{:+.4f}')} | "
+                f"{_fmt_metric(tiny_rmse)} | {_classify_gate(reason)} | {reason if reason else '-'} |"
+            )
+        lines.append("")
+
+        if failures:
+            lines.append("## Decision trail")
+            lines.append("")
+            lines.append("Which gate each rejected candidate failed (first failing gate).")
+            lines.append("")
+            lines.append("| candidate | failed_gate | detail |")
+            lines.append("|-----------|-------------|--------|")
+            for f in failures:
+                _f_name2 = f.get("name")
+                name = _f_name2 if _f_name2 else (f"__{f.get('transform_name', '?')}__{f.get('base_column', '?')}")
+                reason = f.get("reason", "")
+                lines.append(f"| `{name}` | {_classify_gate(reason)} | {reason if reason else '-'} |")
+            lines.append("")
+
+
+def _append_per_spec_audit(
+    lines: list[str],
+    specs: Sequence[CompositeSpec],
+    ensemble_metadata: dict[str, Any] | None,
+    random_state: int | None,
+) -> None:
+    """Append one provenance audit paragraph per spec to ``lines``."""
+    if specs:
+        lines.append("## Per-spec audit")
+        lines.append("")
+        for spec in specs:
+            ensemble_w = None
+            ensemble_strat = None
+            if ensemble_metadata:
+                # The spec contributes one component per ensemble model, named ``{spec.name}#{i}``; its true mass is the SUM over those, not the first match.
+                _w_sum = 0.0
+                _k = 0
+                for nm, w in zip(
+                    ensemble_metadata.get("component_names", []),
+                    ensemble_metadata.get("weights", []),
+                ):
+                    if nm.rsplit("#", 1)[0] == spec.name:
+                        _w_sum += float(w)
+                        _k += 1
+                if _k:
+                    ensemble_w = _w_sum
+                    ensemble_strat = ensemble_metadata.get("strategy")
+            prov = CompositeProvenance.from_spec(
+                spec=spec, random_state=random_state,
+                ensemble_weight=ensemble_w,
+                ensemble_strategy=ensemble_strat,
+            )
+            lines.append(f"### `{spec.name}`")
+            lines.append("")
+            lines.append(prov.to_audit_trail())
+            lines.append("")
+
+
 def report_to_markdown(
     *,
     target_col: str,
@@ -329,84 +424,9 @@ def report_to_markdown(
         )
         lines.append("")
 
-    # Metrics matrix + decision trail: kept specs AND rejected candidates in one
-    # at-a-glance view, so a user sees WHY each candidate survived or was dropped.
-    if specs or failures:
-        lines.append("## Metrics matrix")
-        lines.append("")
-        lines.append(
-            "Per-candidate decision metrics. `raw_delta` is composite-vs-raw-baseline "
-            "tiny-CV RMSE (negative = composite wins); `tiny_cv_rmse` is the "
-            "composite's own y-scale tiny-CV RMSE. `-` = metric not recorded."
-        )
-        lines.append("")
-        lines.append("| name | status | mi_gain | raw_delta | tiny_cv_rmse | gate | reason |")
-        lines.append("|------|--------|---------|-----------|--------------|------|--------|")
-        for spec in specs:
-            extra = spec_metrics.get(spec.name)
-            raw_delta = _spec_metric(spec.name, "raw_delta", spec, extra)
-            tiny_rmse = _spec_metric(spec.name, "tiny_cv_rmse", spec, extra)
-            lines.append(
-                f"| `{spec.name}` | kept | {spec.mi_gain:+.4f} | " f"{_fmt_metric(raw_delta, '{:+.4f}')} | " f"{_fmt_metric(tiny_rmse)} | gate-passed | - |"
-            )
-        for f in failures:
-            _f_name = f.get("name")
-            name = _f_name if _f_name else (f"__{f.get('transform_name', '?')}__{f.get('base_column', '?')}")
-            extra = spec_metrics.get(name)
-            reason = f.get("reason", "")
-            mi_gain = f.get("mi_gain")
-            raw_delta = extra.get("raw_delta") if extra else f.get("raw_delta")
-            tiny_rmse = extra.get("tiny_cv_rmse") if extra else f.get("tiny_cv_rmse")
-            lines.append(
-                f"| `{name}` | rejected | {_fmt_metric(mi_gain, '{:+.4f}')} | "
-                f"{_fmt_metric(raw_delta, '{:+.4f}')} | "
-                f"{_fmt_metric(tiny_rmse)} | {_classify_gate(reason)} | {reason if reason else '-'} |"
-            )
-        lines.append("")
+    _append_metrics_matrix(lines, specs, failures, spec_metrics)
 
-        if failures:
-            lines.append("## Decision trail")
-            lines.append("")
-            lines.append("Which gate each rejected candidate failed (first failing gate).")
-            lines.append("")
-            lines.append("| candidate | failed_gate | detail |")
-            lines.append("|-----------|-------------|--------|")
-            for f in failures:
-                _f_name2 = f.get("name")
-                name = _f_name2 if _f_name2 else (f"__{f.get('transform_name', '?')}__{f.get('base_column', '?')}")
-                reason = f.get("reason", "")
-                lines.append(f"| `{name}` | {_classify_gate(reason)} | {reason if reason else '-'} |")
-            lines.append("")
-
-    if specs:
-        lines.append("## Per-spec audit")
-        lines.append("")
-        for spec in specs:
-            ensemble_w = None
-            ensemble_strat = None
-            if ensemble_metadata:
-                # The spec contributes one component per ensemble model, named ``{spec.name}#{i}``; its true mass is the SUM over those, not the first match.
-                _w_sum = 0.0
-                _k = 0
-                for nm, w in zip(
-                    ensemble_metadata.get("component_names", []),
-                    ensemble_metadata.get("weights", []),
-                ):
-                    if nm.rsplit("#", 1)[0] == spec.name:
-                        _w_sum += float(w)
-                        _k += 1
-                if _k:
-                    ensemble_w = _w_sum
-                    ensemble_strat = ensemble_metadata.get("strategy")
-            prov = CompositeProvenance.from_spec(
-                spec=spec, random_state=random_state,
-                ensemble_weight=ensemble_w,
-                ensemble_strategy=ensemble_strat,
-            )
-            lines.append(f"### `{spec.name}`")
-            lines.append("")
-            lines.append(prov.to_audit_trail())
-            lines.append("")
+    _append_per_spec_audit(lines, specs, ensemble_metadata, random_state)
 
     if failures:
         lines.append("## Rejected candidates")

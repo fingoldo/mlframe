@@ -8,6 +8,7 @@ section this fans out from and the ``(selected_vars, cols, data, nbins)`` thread
 
 from __future__ import annotations
 
+from typing import Any
 from mlframe.utils.log_throttle import log_throttle
 
 import logging
@@ -47,6 +48,48 @@ def _friend_graph_and_redundancy_passes_group3(
 ):
     """Run the usability-aware-raw-readd, post-DCD-cluster-pruning pass(es) and return ``(selected_vars, cols, data, nbins)``.
     See the package docstring for the full section this carves out."""
+    selected_vars, data, cols, nbins = _friend_graph_and_redundancy_passes_group3_part1(
+        self, X, selected_vars, _y_np, data, cols, _eng_continuous_snapshot, verbose, _persisted_dcd_state, nbins, target_indices, engineered_recipes,
+    )
+
+    # PSEUDO-CHILD MASKED-RAW RESCUE. The default-ON conditional-gate / binned-
+    # numeric-agg / row-argmax FE families append THRESHOLD/BINNING re-mixes of a raw operand
+    # (``gate_mask__a__b`` / ``binagg_skew(c|qbin(a))`` / ``argmax__a__b``) into the screening pool
+    # BEFORE the greedy screen. A re-mix of ``a`` can marginally OUT-SCORE raw ``a`` and is selected
+    # first; raw ``a``'s conditional relevance given that re-mix then collapses (the re-mix is a lossy
+    # function of ``a`` - the data-processing-inequality trap), so the greedy screen drops ``a``
+    # EVEN WHEN ``a`` carries a dominant private LINEAR term (``y += 10*a``) the re-mix only partially
+    # tracks. Re-add such a masked raw - one consumed by a selected pseudo-remix child but itself
+    # dropped - IFF it retains >= RAW_SELF_RETAIN_FRAC of its marginal debiased excess under the
+    # keep-rule conditioned ONLY on its GENUINE (non-pseudo) selected children (an ``a**2/b`` ratio /
+    # composite - the real potential subsumers, with the masking pseudo re-mixes EXCLUDED from the
+    # conditioning). A private LINEAR term keeps ~50% -> RESCUE; a fully-subsumed operand keeps ~0.6%
+    # -> NOT rescued (so a raw genuinely subsumed by an elementary child is never resurrected). The
+    # downstream raw-redundancy DROP sweep still runs after with the SAME pseudo-exclusion, so the two
+    # passes agree. Byte-identical when no pseudo-remix child is selected (the candidate set is empty).
+    # Off when the drop sweep is disabled (shares the ``fe_drop_redundant_raw_operands`` toggle).
+    selected_vars = _drop_redundant_raw_operands_sweep(self, selected_vars, cols, classes_y, _y_np, data, _eng_continuous_snapshot, target_indices, nbins, verbose)
+
+    # RAW-VS-ENGINEERED CONDITIONAL-REDUNDANCY DROP: the greedy MRMR order
+    # selects a raw operand on its high MARGINAL relevance BEFORE the engineered child built
+    # from it is in support, so the redundancy penalty never fires against it, and the
+    # retention / augmentation passes above then re-add it. The result is a subsumed operand
+    # admitted alongside the engineered feature that fully determines y from it (e.g. raw
+    # ``a, b`` beside ``div(neg(a),sqrt(b))`` for ``y=(a**2)/b``, since
+    # ``(a/sqrt(b))**2 = a**2/b``). This final sweep removes such operands using the SAME
+    # debiased excess-CMI idea the engineered-vs-engineered S5 gate validated, so the verdict
+    # is n-INVARIANT (identical at n=1000 and n=50000) and never drops a raw carrying genuine
+    # independent signal (a private additive term keeps a large excess and is KEPT). On by
+    # default; ``fe_drop_redundant_raw_operands=False`` restores the pre-fix behaviour.
+
+    return selected_vars, cols, data, nbins
+
+
+def _friend_graph_and_redundancy_passes_group3_part1(
+    self: Any, X: Any, selected_vars: Any, _y_np: Any, data: Any, cols: Any, _eng_continuous_snapshot: Any, verbose: Any, _persisted_dcd_state: Any,
+    nbins: Any, target_indices: Any, engineered_recipes: Any,
+) -> tuple[Any, ...]:
+    """Extracted block of ``_friend_graph_and_redundancy_passes_group3`` (part 1); returns the names the caller still uses."""
     selected_vars = _encoded_feature_gate_pass(self, X, selected_vars, _y_np, data, cols, _eng_continuous_snapshot, verbose)
 
     # POST-SELECTION DCD CLUSTER DISCOVERY. DCD's in-screen hook (``screen_dcd_discover_and_swap``) anchors a cluster ONLY on a column the greedy screen actually SELECTED. On a duplicate-feature
@@ -178,38 +221,7 @@ def _friend_graph_and_redundancy_passes_group3(
     # (pinned by layer28). The audit / pickle-replay paths, however, need to recover WHICH mechanism produced each engineered column even when the screen dropped it, so snapshot the full produced set here
     # as a separate read-only ledger. fe_provenance_ reads this to emit one row per produced engineered column (survivors get their real greedy gain/rank, screened-out ones get NaN gain / rank -1).
     self._produced_recipes_ = list(engineered_recipes.values())
-
-    # PSEUDO-CHILD MASKED-RAW RESCUE. The default-ON conditional-gate / binned-
-    # numeric-agg / row-argmax FE families append THRESHOLD/BINNING re-mixes of a raw operand
-    # (``gate_mask__a__b`` / ``binagg_skew(c|qbin(a))`` / ``argmax__a__b``) into the screening pool
-    # BEFORE the greedy screen. A re-mix of ``a`` can marginally OUT-SCORE raw ``a`` and is selected
-    # first; raw ``a``'s conditional relevance given that re-mix then collapses (the re-mix is a lossy
-    # function of ``a`` - the data-processing-inequality trap), so the greedy screen drops ``a``
-    # EVEN WHEN ``a`` carries a dominant private LINEAR term (``y += 10*a``) the re-mix only partially
-    # tracks. Re-add such a masked raw - one consumed by a selected pseudo-remix child but itself
-    # dropped - IFF it retains >= RAW_SELF_RETAIN_FRAC of its marginal debiased excess under the
-    # keep-rule conditioned ONLY on its GENUINE (non-pseudo) selected children (an ``a**2/b`` ratio /
-    # composite - the real potential subsumers, with the masking pseudo re-mixes EXCLUDED from the
-    # conditioning). A private LINEAR term keeps ~50% -> RESCUE; a fully-subsumed operand keeps ~0.6%
-    # -> NOT rescued (so a raw genuinely subsumed by an elementary child is never resurrected). The
-    # downstream raw-redundancy DROP sweep still runs after with the SAME pseudo-exclusion, so the two
-    # passes agree. Byte-identical when no pseudo-remix child is selected (the candidate set is empty).
-    # Off when the drop sweep is disabled (shares the ``fe_drop_redundant_raw_operands`` toggle).
-    selected_vars = _drop_redundant_raw_operands_sweep(self, selected_vars, cols, classes_y, _y_np, data, _eng_continuous_snapshot, target_indices, nbins, verbose)
-
-    # RAW-VS-ENGINEERED CONDITIONAL-REDUNDANCY DROP: the greedy MRMR order
-    # selects a raw operand on its high MARGINAL relevance BEFORE the engineered child built
-    # from it is in support, so the redundancy penalty never fires against it, and the
-    # retention / augmentation passes above then re-add it. The result is a subsumed operand
-    # admitted alongside the engineered feature that fully determines y from it (e.g. raw
-    # ``a, b`` beside ``div(neg(a),sqrt(b))`` for ``y=(a**2)/b``, since
-    # ``(a/sqrt(b))**2 = a**2/b``). This final sweep removes such operands using the SAME
-    # debiased excess-CMI idea the engineered-vs-engineered S5 gate validated, so the verdict
-    # is n-INVARIANT (identical at n=1000 and n=50000) and never drops a raw carrying genuine
-    # independent signal (a private additive term keeps a large excess and is KEPT). On by
-    # default; ``fe_drop_redundant_raw_operands=False`` restores the pre-fix behaviour.
-
-    return selected_vars, cols, data, nbins
+    return selected_vars, data, cols, nbins
 
 
 def _encoded_feature_gate_pass(self, X, selected_vars, _y_np, data, cols, _eng_continuous_snapshot, verbose):

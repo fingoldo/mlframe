@@ -433,6 +433,133 @@ def _rerun_ensemble_with_recurrent(
     return True
 
 
+def _build_recurrent_fit_kwargs(
+    model_clone: Any, ctx: Any, cur_target_name: str, train_sequences: Any, train_df_pd: Any, train_target: Any, eval_set: tuple | None
+) -> dict:
+    """Assemble the ``fit`` kwargs of a recurrent wrapper: data, eval_set, per-target sample_weight from ctx and tabular cat_features."""
+    # Thread per-target sample_weight from ctx so the recurrent model
+    # trains on the same weighted loss surface every other suite member
+    # uses. Pre-fix the recurrent wrapper trained UNWEIGHTED even on
+    # recency- / fairness-weighted suites, so the ensemble blend was
+    # silently biased toward the unweighted recurrent member. Defensive
+    # try/except per fit-call signature inspection: older wrapper
+    # versions may not accept sample_weight; fall back to unweighted
+    # fit + WARN so the caller sees the path was taken.
+    _ctx_sw_dict = getattr(ctx, "sample_weights", None) or {}
+    _sw_for_target = _ctx_sw_dict.get(cur_target_name) if isinstance(_ctx_sw_dict, dict) and _ctx_sw_dict else None
+    # Slice weights to train_idx so length matches train_target.
+    if _sw_for_target is not None and hasattr(ctx, "train_idx") and ctx.train_idx is not None:
+        try:
+            _sw_for_target = np.asarray(_sw_for_target)[ctx.train_idx]
+        except (TypeError, IndexError):
+            _sw_for_target = None
+    _fit_kwargs = dict(
+        sequences=train_sequences,
+        features=train_df_pd if train_df_pd is not None else None,
+        labels=train_target,
+        eval_set=eval_set,
+    )
+    if _sw_for_target is not None:
+        _fit_kwargs["sample_weight"] = _sw_for_target
+
+    # Thread tabular ``cat_features`` so the recurrent wrapper factorizes them + learns an nn.Embedding per cat on the aux block
+    # (mirrors the flat MLP). Gated on: a tabular features frame is present (SEQUENCE_ONLY passes features=None -> no aux block, the
+    # wrapper no-ops cleanly), the wrapper accepts the kwarg AND has learnable-cat-embeddings on, the cat columns exist in the frame,
+    # and the model's input_mode keeps a tabular block. Falls back to an unweighted/unencoded fit if the wrapper signature is older.
+    _cat_feats = list(getattr(ctx, "cat_features", None) or []) if ctx is not None else []
+    _features_frame = _fit_kwargs["features"]
+    if _cat_feats and _features_frame is not None and hasattr(_features_frame, "columns") and getattr(model_clone, "use_learnable_cat_embeddings", False):
+        _cfg = getattr(model_clone, "config", None)
+        _input_mode = getattr(_cfg, "input_mode", None)
+        _input_mode_val = getattr(_input_mode, "value", _input_mode)
+        if _input_mode_val != "sequence":
+            _present_cats = [c for c in _cat_feats if c in _features_frame.columns]
+            if _present_cats:
+                _fit_kwargs["cat_features"] = _present_cats
+    return _fit_kwargs
+
+
+def _fit_recurrent_with_fallbacks(model_clone: Any, _fit_kwargs: dict, recurrent_model_name: str, cur_target_name: str) -> bool:
+    """Fit the recurrent wrapper, retrying without the optional kwargs (cat_features, sample_weight) an older wrapper rejects; False when training failed."""
+    try:
+        try:
+            model_clone.fit(**_fit_kwargs)
+        except TypeError as _fit_te:
+            _te_msg = str(_fit_te)
+            # Drop optional kwargs an older wrapper signature rejects, then retry. ``cat_features`` and ``sample_weight`` are both
+            # additive; without them the fit still runs (unencoded cats route through the strategy CatBoostEncoder path / unweighted).
+            _dropped_any = False
+            if "cat_features" in _te_msg and "cat_features" in _fit_kwargs:
+                log_throttle(
+                    logger, "recurrent_wrapper_no_cat_features", logging.WARNING,
+                    "Recurrent wrapper %s did not accept cat_features (%s); falling back to a fit without learnable cat "
+                    "embeddings. Categorical columns must be encoded upstream. Upgrade the wrapper for native cat embeddings.",
+                    type(model_clone).__name__, _fit_te,
+                )
+                _fit_kwargs.pop("cat_features", None)
+                _dropped_any = True
+            if "sample_weight" in _te_msg and "sample_weight" in _fit_kwargs:
+                log_throttle(
+                    logger, "recurrent_wrapper_no_sample_weight", logging.WARNING,
+                    "Recurrent wrapper %s did not accept sample_weight (%s); "
+                    "falling back to unweighted fit. Ensemble blend may be biased on "
+                    "weighted suites. Upgrade the wrapper or remove weighting.",
+                    type(model_clone).__name__, _fit_te,
+                )
+                _fit_kwargs.pop("sample_weight", None)
+                _dropped_any = True
+            if _dropped_any:
+                model_clone.fit(**_fit_kwargs)
+            else:
+                raise
+    except Exception:
+        log_throttle(
+            logger, "recurrent_train_failed", logging.ERROR,
+            "Failed to train %s for %s", recurrent_model_name, cur_target_name,
+            exc_info=True,
+        )
+        return False
+    return True
+
+
+def _predict_recurrent_splits(
+    model_clone: Any,
+    *,
+    train_sequences: Any,
+    val_sequences: Any,
+    test_sequences: Any,
+    train_df_pd: Any,
+    val_df_pd: Any,
+    test_df_pd: Any,
+    is_classification: bool,
+    ctx: Any,
+) -> tuple[Any, Any, Any]:
+    """Predict train/val/test with a fitted recurrent member; a split whose prediction fails (or has no data) comes back None."""
+    # ctx-aware path: compute preds on each split, build a member entry, append.
+    # test_df_pd is threaded through the kwarg (main.py passes it); fallback to None if missing.
+    # POLARS-PANDAS-CHURN: ``ctx`` + ``split`` enable the per-frame numpy-coercion cache
+    # so the (train/val/test) features arrays aren't re-coerced for each recurrent member.
+    train_preds = _safe_predict_recurrent(
+        model=model_clone, sequences=train_sequences,
+        features=train_df_pd if train_df_pd is not None else None,
+        is_classification=is_classification,
+        ctx=ctx, split="train",
+    )
+    val_preds_arr = _safe_predict_recurrent(
+        model=model_clone, sequences=val_sequences,
+        features=val_df_pd if val_df_pd is not None else None,
+        is_classification=is_classification,
+        ctx=ctx, split="val",
+    ) if (val_sequences is not None or val_df_pd is not None) else None
+    test_preds_arr = _safe_predict_recurrent(
+        model=model_clone, sequences=test_sequences,
+        features=test_df_pd if test_df_pd is not None else None,
+        is_classification=is_classification,
+        ctx=ctx, split="test",
+    ) if (test_sequences is not None or test_df_pd is not None) else None
+    return train_preds, val_preds_arr, test_preds_arr
+
+
 def train_recurrent_models(
     *,
     models: dict,
@@ -520,119 +647,21 @@ def train_recurrent_models(
                 eval_set: tuple | None = None
                 eval_set = _build_recurrent_eval_set(val_target, val_sequences, val_df_pd, eval_set)
 
-                # Thread per-target sample_weight from ctx so the recurrent model
-                # trains on the same weighted loss surface every other suite member
-                # uses. Pre-fix the recurrent wrapper trained UNWEIGHTED even on
-                # recency- / fairness-weighted suites, so the ensemble blend was
-                # silently biased toward the unweighted recurrent member. Defensive
-                # try/except per fit-call signature inspection: older wrapper
-                # versions may not accept sample_weight; fall back to unweighted
-                # fit + WARN so the caller sees the path was taken.
-                _ctx_sw_dict = getattr(ctx, "sample_weights", None) or {}
-                _sw_for_target = _ctx_sw_dict.get(cur_target_name) if isinstance(_ctx_sw_dict, dict) and _ctx_sw_dict else None
-                # Slice weights to train_idx so length matches train_target.
-                if _sw_for_target is not None and hasattr(ctx, "train_idx") and ctx.train_idx is not None:
-                    try:
-                        _sw_for_target = np.asarray(_sw_for_target)[ctx.train_idx]
-                    except (TypeError, IndexError):
-                        _sw_for_target = None
-                _fit_kwargs = dict(
-                    sequences=train_sequences,
-                    features=train_df_pd if train_df_pd is not None else None,
-                    labels=train_target,
-                    eval_set=eval_set,
-                )
-                if _sw_for_target is not None:
-                    _fit_kwargs["sample_weight"] = _sw_for_target
-
-                # Thread tabular ``cat_features`` so the recurrent wrapper factorizes them + learns an nn.Embedding per cat on the aux block
-                # (mirrors the flat MLP). Gated on: a tabular features frame is present (SEQUENCE_ONLY passes features=None -> no aux block, the
-                # wrapper no-ops cleanly), the wrapper accepts the kwarg AND has learnable-cat-embeddings on, the cat columns exist in the frame,
-                # and the model's input_mode keeps a tabular block. Falls back to an unweighted/unencoded fit if the wrapper signature is older.
-                _cat_feats = list(getattr(ctx, "cat_features", None) or []) if ctx is not None else []
-                _features_frame = _fit_kwargs["features"]
-                if (
-                    _cat_feats
-                    and _features_frame is not None
-                    and hasattr(_features_frame, "columns")
-                    and getattr(model_clone, "use_learnable_cat_embeddings", False)
-                ):
-                    _cfg = getattr(model_clone, "config", None)
-                    _input_mode = getattr(_cfg, "input_mode", None)
-                    _input_mode_val = getattr(_input_mode, "value", _input_mode)
-                    if _input_mode_val != "sequence":
-                        _present_cats = [c for c in _cat_feats if c in _features_frame.columns]
-                        if _present_cats:
-                            _fit_kwargs["cat_features"] = _present_cats
-                try:
-                    try:
-                        model_clone.fit(**_fit_kwargs)
-                    except TypeError as _fit_te:
-                        _te_msg = str(_fit_te)
-                        # Drop optional kwargs an older wrapper signature rejects, then retry. ``cat_features`` and ``sample_weight`` are both
-                        # additive; without them the fit still runs (unencoded cats route through the strategy CatBoostEncoder path / unweighted).
-                        _dropped_any = False
-                        if "cat_features" in _te_msg and "cat_features" in _fit_kwargs:
-                            log_throttle(
-                                logger, "recurrent_wrapper_no_cat_features", logging.WARNING,
-                                "Recurrent wrapper %s did not accept cat_features (%s); falling back to a fit without learnable cat "
-                                "embeddings. Categorical columns must be encoded upstream. Upgrade the wrapper for native cat embeddings.",
-                                type(model_clone).__name__, _fit_te,
-                            )
-                            _fit_kwargs.pop("cat_features", None)
-                            _dropped_any = True
-                        if "sample_weight" in _te_msg and "sample_weight" in _fit_kwargs:
-                            log_throttle(
-                                logger, "recurrent_wrapper_no_sample_weight", logging.WARNING,
-                                "Recurrent wrapper %s did not accept sample_weight (%s); "
-                                "falling back to unweighted fit. Ensemble blend may be biased on "
-                                "weighted suites. Upgrade the wrapper or remove weighting.",
-                                type(model_clone).__name__, _fit_te,
-                            )
-                            _fit_kwargs.pop("sample_weight", None)
-                            _dropped_any = True
-                        if _dropped_any:
-                            model_clone.fit(**_fit_kwargs)
-                        else:
-                            raise
-                except Exception:
-                    log_throttle(
-                        logger, "recurrent_train_failed", logging.ERROR,
-                        "Failed to train %s for %s", recurrent_model_name, cur_target_name,
-                        exc_info=True,
-                    )
+                _fit_kwargs = _build_recurrent_fit_kwargs(model_clone, ctx, cur_target_name, train_sequences, train_df_pd, train_target, eval_set)
+                if not _fit_recurrent_with_fallbacks(model_clone, _fit_kwargs, recurrent_model_name, cur_target_name):
                     continue
 
-                if ctx is None:
-                    # Legacy back-compat: caller did not thread ctx, so we cannot compute predictions against
-                    # the same train/val/test splits the booster path used. Keep the original raw-model append.
-                    models[target_type][cur_target_name].append(model_clone)
-                    if verbose:
-                        logger.info("Successfully trained %s for %s (legacy append, no ensemble rerun)", recurrent_model_name, cur_target_name)
-                    continue
-
-                # ctx-aware path: compute preds on each split, build a member entry, append.
-                # test_df_pd is threaded through the kwarg (main.py passes it); fallback to None if missing.
-                # POLARS-PANDAS-CHURN: ``ctx`` + ``split`` enable the per-frame numpy-coercion cache
-                # so the (train/val/test) features arrays aren't re-coerced for each recurrent member.
-                train_preds = _safe_predict_recurrent(
-                    model=model_clone, sequences=train_sequences,
-                    features=train_df_pd if train_df_pd is not None else None,
+                train_preds, val_preds_arr, test_preds_arr = _predict_recurrent_splits(
+                    model_clone,
+                    train_sequences=train_sequences,
+                    val_sequences=val_sequences,
+                    test_sequences=test_sequences,
+                    train_df_pd=train_df_pd,
+                    val_df_pd=val_df_pd,
+                    test_df_pd=test_df_pd,
                     is_classification=is_classification,
-                    ctx=ctx, split="train",
+                    ctx=ctx,
                 )
-                val_preds_arr = _safe_predict_recurrent(
-                    model=model_clone, sequences=val_sequences,
-                    features=val_df_pd if val_df_pd is not None else None,
-                    is_classification=is_classification,
-                    ctx=ctx, split="val",
-                ) if (val_sequences is not None or val_df_pd is not None) else None
-                test_preds_arr = _safe_predict_recurrent(
-                    model=model_clone, sequences=test_sequences,
-                    features=test_df_pd if test_df_pd is not None else None,
-                    is_classification=is_classification,
-                    ctx=ctx, split="test",
-                ) if (test_sequences is not None or test_df_pd is not None) else None
 
                 # ``use_ordinary_models=False`` + ``recurrent_models=[lstm]`` is a
                 # valid suite combo where the recurrent branch is the only producer

@@ -84,6 +84,26 @@ from ._pairs_score_steps import (  # noqa: F401  -- carved helpers
 )
 
 
+# Notes on the parameters of _score_one_pair (kept verbatim from the signature; [name] marks the parameter each block belongs to):
+# [X]
+# --- frames / candidate tables ---
+# [final_transformed_vals_shared]
+# --- buffer / chunk dispatch ---
+# [_gpu_mat_on]
+# --- per-call hoists (env-gate / op-code table / MI tie-band): resolved ONCE by the caller (invariant for the whole ``check_prospective_fe_pairs`` call),
+# NOT recomputed per pair ---
+# [classes_y]
+# --- target / estimator ---
+# [num_fs_steps]
+# --- gates / thresholds ---
+# [cols]
+# --- cols / subsample / fitted state ---
+# [_rng_extval]
+# --- rng / timing / misc ---
+# [_extval_raw_col]
+# --- per-call memo helpers (closures from the parent frame) ---
+# [batch_mi_with_noise_gate]
+# --- framework callables (lazily imported in the parent) ---
 def _score_one_pair(
     *,
     raw_vars_pair,
@@ -92,14 +112,12 @@ def _score_one_pair(
     chunk_state,
     rejection_records,
     rejection_ledger_out,
-    # --- frames / candidate tables ---
     X,
     transformed_vars,
     vars_transformations,
     binary_transformations,
     unary_transformations,
     pair_combs,
-    # --- buffer / chunk dispatch ---
     final_transformed_vals_shared,
     _need_recompute_map,
     _chunk_global_batch,
@@ -108,14 +126,11 @@ def _score_one_pair(
     _fe_chunks,
     _pair_valid_combs,
     _fe_defer_float,
-    # --- per-call hoists (env-gate / op-code table / MI tie-band): resolved ONCE by the caller (invariant for the whole ``check_prospective_fe_pairs`` call),
-    # NOT recomputed per pair ---
     _gpu_mat_on,
     _op_code_arr,
     _op_code_arr_all,
     _mi_band,
     _fe_env_gate,
-    # --- target / estimator ---
     classes_y,
     classes_y_safe,
     freqs_y,
@@ -124,7 +139,6 @@ def _score_one_pair(
     quantization_nbins,
     quantization_method,
     quantization_dtype,
-    # --- gates / thresholds ---
     num_fs_steps,
     fe_min_engineered_mi_prevalence,
     fe_good_to_best_feature_mi_threshold,
@@ -146,7 +160,6 @@ def _score_one_pair(
     fe_pair_usability_admission_enable=True,
     fe_pair_usability_admission_min_corr=0.6,
     fe_pair_usability_admission_pairness_margin=1.05,
-    # --- cols / subsample / fitted state ---
     cols,
     original_cols,
     _use_subsample,
@@ -155,20 +168,17 @@ def _score_one_pair(
     _prewarp_spec_by_var,
     _gate_med_median_by_var,
     engineered_operand_values,
-    # --- rng / timing / misc ---
     _rng_extval,
     _n_workers,
     times_spent,
     verbose,
     serial_main_thread,
-    # --- per-call memo helpers (closures from the parent frame) ---
     _extval_raw_col,
     _safe_abs_corr,
     _raw_operand_abs_corr,
     _transformed_operand_abs_corr,
     _operand_marginal_mi,
     _operand_discretized,
-    # --- framework callables (lazily imported in the parent) ---
     batch_mi_with_noise_gate,
     use_su_normalization,
     discretize_array,
@@ -187,6 +197,228 @@ def _score_one_pair(
     the pair was rejected (no feature emitted). Mutates ``chunk_state`` (lazy
     chunk load/reset, shared across pairs), ``rejection_records`` /
     ``rejection_ledger_out`` (drops), and ``times_spent`` (per-bin_func wall)."""
+    st, final_transformed_vals, _this_chunk_deferred = _score_one_pair_part2(
+        pair_combs, raw_vars_pair, _chunk_global_batch, _chunk_buffer, _pair_to_chunk, chunk_state, _fe_chunks, _pair_valid_combs, vars_transformations,
+        transformed_vars, binary_transformations, quantization_nbins, quantization_dtype, classes_y, classes_y_safe, freqs_y, fe_npermutations,
+        fe_min_nonzero_confidence, batch_mi_with_noise_gate, use_su_normalization, _PREWARP_UNARY, discretize_2d_quantile_batch, serial_main_thread,
+        _fe_defer_float, _op_code_arr_all, _gpu_mat_on, _fe_env_gate,
+    )
+    _this_chunk_deferred, final_transformed_vals, _config_by_i, _resolve_col = _score_one_pair_part7(
+        st, _this_chunk_deferred, chunk_state, _chunk_buffer, final_transformed_vals_shared, _need_recompute_map, X, transformed_vars, quantization_method,
+        _fe_defer_float, _op_code_arr, binary_transformations, vars_transformations, _PREWARP_UNARY, quantization_nbins, quantization_dtype,
+        _fe_gpu_discretize_enabled, classes_y, classes_y_safe, freqs_y, fe_npermutations, fe_min_nonzero_confidence, use_su_normalization,
+        discretize_2d_quantile_batch, serial_main_thread, batch_mi_with_noise_gate, _fe_env_gate, fe_print_best_mis_only, verbose, pair_mi, discretize_array,
+        mi_direct,
+    )
+
+    _score_one_pair_part4(
+        st, times_spent, verbose, raw_vars_pair, _corr_y_cont, _PREWARP_UNARY, fe_good_to_best_feature_mi_threshold, final_transformed_vals,
+        _this_chunk_deferred, _resolve_col, _config_by_i, transformed_vars, vars_transformations, binary_transformations, _safe_abs_corr, pair_mi,
+        fe_mm_debias_prevalence, classes_y, freqs_y, quantization_nbins, discretize_array, quantization_method, quantization_dtype, _operand_discretized,
+        fe_min_engineered_mi_prevalence, num_fs_steps, _operand_marginal_mi, _prewarp_active, prewarp_uplift_threshold,
+    )
+    _any_accept = _score_one_pair_part1(
+        fe_pair_usability_admission_enable, _corr_y_cont, pair_mi, st, final_transformed_vals, _this_chunk_deferred, _extval_raw_col, raw_vars_pair,
+        fe_pair_usability_admission_min_corr, fe_pair_usability_admission_pairness_margin, _resolve_col, _safe_abs_corr, _raw_operand_abs_corr, _mi_band,
+        verbose, vars_transformations, _transformed_operand_abs_corr, _NOISE_WRAP_MIN_OPERAND_CORR, _NOISE_WRAP_CORR_COLLAPSE_FRAC, transformed_vars,
+        fe_min_engineered_mi_prevalence, num_fs_steps, cols, rejection_records, rejection_ledger_out,
+    )
+    if _any_accept and apply_pair_family_gate_from_state(st, classes_y, quantization_nbins, pair_family_alpha):
+        st._passes_joint_gate = st._prewarp_accept = st._marginal_uplift_accept = st._usability_accept = False
+
+    if st._passes_joint_gate or st._prewarp_accept or st._marginal_uplift_accept or st._usability_accept:  # Best transformation is good enough
+        st._pair_res_entry = _emit_pair_features(
+            raw_vars_pair=raw_vars_pair, pair_mi=pair_mi, best_mi=st.best_mi, best_config=st.best_config, var_pairs_perf=st.var_pairs_perf,
+            this_pair_features=st.this_pair_features, _passes_joint_gate=st._passes_joint_gate, _prewarp_accept=st._prewarp_accept,
+            _marginal_uplift_accept=st._marginal_uplift_accept, _usability_primary=st._usability_primary, final_transformed_vals=final_transformed_vals,
+            _this_chunk_deferred=_this_chunk_deferred, _config_by_i=_config_by_i, _resolve_col=_resolve_col, _corr_y_cont=_corr_y_cont,
+            _safe_abs_corr=_safe_abs_corr, transformed_vars=transformed_vars, vars_transformations=vars_transformations,
+            binary_transformations=binary_transformations, unary_transformations=unary_transformations, numeric_vars_to_consider=numeric_vars_to_consider,
+            fe_good_to_best_feature_mi_threshold=fe_good_to_best_feature_mi_threshold, fe_max_external_validation_factors=fe_max_external_validation_factors,
+            fe_max_steps=fe_max_steps, fe_multi_emit_max_per_pair=fe_multi_emit_max_per_pair, fe_multi_emit_mi_floor=fe_multi_emit_mi_floor,
+            fe_multi_emit_diversity_corr=fe_multi_emit_diversity_corr, quantization_nbins=quantization_nbins, quantization_method=quantization_method,
+            quantization_dtype=quantization_dtype, classes_y=classes_y, classes_y_safe=classes_y_safe, freqs_y=freqs_y, fe_npermutations=fe_npermutations,
+            fe_min_nonzero_confidence=fe_min_nonzero_confidence, _mi_band=_mi_band, _op_code_arr=_op_code_arr_all, _fe_env_gate=_fe_env_gate, cols=cols,
+            original_cols=original_cols, _use_subsample=_use_subsample, _X_full=_X_full, _full_n_rows=_full_n_rows, _prewarp_spec_by_var=_prewarp_spec_by_var,
+            _gate_med_median_by_var=_gate_med_median_by_var, engineered_operand_values=engineered_operand_values, _extval_raw_col=_extval_raw_col,
+            _rng_extval=_rng_extval, _n_workers=_n_workers, serial_main_thread=serial_main_thread, verbose=verbose, messages=st.messages,
+            discretize_array=discretize_array, discretize_2d_quantile_batch=discretize_2d_quantile_batch, mi_direct=mi_direct,
+            get_new_feature_name=get_new_feature_name, _rebuild_full_survivor_col=_rebuild_full_survivor_col,
+            _can_hoist_shared_buffer=_can_hoist_shared_buffer, _narrow_code_dtype=_narrow_code_dtype, _materialise_extval_njit=_materialise_extval_njit,
+            _fe_use_parallel_kernels=_fe_use_parallel_kernels, _dispatch_batch_mi_with_noise_gate=_dispatch_batch_mi_with_noise_gate,
+            batch_mi_with_noise_gate=batch_mi_with_noise_gate, use_su_normalization=use_su_normalization, X=X,
+        )
+    return st._pair_res_entry, st.best_config, st.best_mi
+
+
+def _score_one_pair_part7(
+    st: Any, _this_chunk_deferred: Any, chunk_state: Any, _chunk_buffer: Any, final_transformed_vals_shared: Any, _need_recompute_map: Any, X: Any,
+    transformed_vars: Any, quantization_method: Any, _fe_defer_float: Any, _op_code_arr: Any, binary_transformations: Any, vars_transformations: Any,
+    _PREWARP_UNARY: Any, quantization_nbins: Any, quantization_dtype: Any, _fe_gpu_discretize_enabled: Any, classes_y: Any, classes_y_safe: Any, freqs_y: Any,
+    fe_npermutations: Any, fe_min_nonzero_confidence: Any, use_su_normalization: Any, discretize_2d_quantile_batch: Any, serial_main_thread: Any,
+    batch_mi_with_noise_gate: Any, _fe_env_gate: Any, fe_print_best_mis_only: Any, verbose: Any, pair_mi: Any, discretize_array: Any, mi_direct: Any,
+) -> tuple[Any, ...]:
+    """Extracted block of ``_score_one_pair`` (part 7); returns the names the caller still uses."""
+    final_transformed_vals, _config_by_i, _resolve_col = _score_one_pair_part6(
+        st, _this_chunk_deferred, chunk_state, _chunk_buffer, final_transformed_vals_shared, _need_recompute_map, X, transformed_vars,
+    )
+
+    _score_one_pair_part3(
+        st, _this_chunk_deferred, quantization_method, final_transformed_vals, _fe_defer_float, _op_code_arr, binary_transformations, vars_transformations,
+        _PREWARP_UNARY, quantization_nbins, quantization_dtype, transformed_vars, _fe_gpu_discretize_enabled, classes_y, classes_y_safe, freqs_y,
+        fe_npermutations, fe_min_nonzero_confidence, use_su_normalization, discretize_2d_quantile_batch, serial_main_thread, batch_mi_with_noise_gate,
+        _fe_env_gate, _need_recompute_map, _config_by_i, fe_print_best_mis_only, verbose, pair_mi, discretize_array, mi_direct,
+    )
+    if st._pair_defer_state is not None:
+        final_transformed_vals, _this_chunk_deferred, _resolve_col = _score_one_pair_part5(st, transformed_vars)
+    return _this_chunk_deferred, final_transformed_vals, _config_by_i, _resolve_col
+
+
+def _score_one_pair_part6(
+    st: Any, _this_chunk_deferred: Any, chunk_state: Any, _chunk_buffer: Any, final_transformed_vals_shared: Any, _need_recompute_map: Any, X: Any,
+    transformed_vars: Any,
+) -> tuple[Any, ...]:
+    """Extracted block of ``_score_one_pair`` (part 6); returns the names the caller still uses."""
+    if st._chunk_entry is not None:
+        final_transformed_vals = None if _this_chunk_deferred else chunk_state.get("active_buffer", _chunk_buffer)
+    else:
+        final_transformed_vals = final_transformed_vals_shared
+    st._col_buf_1d = np.empty(len(X), dtype=np.float32) if _need_recompute_map else None
+    _config_by_i: dict[int, tuple] | None = {} if _need_recompute_map else None
+
+    _resolve_col = _score_one_pair_step2_def_resolve_col(final_transformed_vals, chunk_state, transformed_vars)
+    return final_transformed_vals, _config_by_i, _resolve_col
+
+
+def _score_one_pair_part5(st: Any, transformed_vars: Any) -> tuple[Any, ...]:
+    """Extracted block of ``_score_one_pair`` (part 5); returns the names the caller still uses."""
+    # The GPU fused materialise left the float candidate matrix on the device: nothing is copied to the host, and the survivor / usability / emit reads below
+    # take the same deferred path a deferred chunk does, re-materialising only the columns they touch.
+    final_transformed_vals = None
+    _this_chunk_deferred = True
+    _resolve_col = _score_one_pair_step2_def_resolve_col(None, st._pair_defer_state, transformed_vars)
+    return final_transformed_vals, _this_chunk_deferred, _resolve_col
+
+
+def _score_one_pair_part4(
+    st: Any, times_spent: Any, verbose: Any, raw_vars_pair: Any, _corr_y_cont: Any, _PREWARP_UNARY: Any, fe_good_to_best_feature_mi_threshold: Any,
+    final_transformed_vals: Any, _this_chunk_deferred: Any, _resolve_col: Any, _config_by_i: Any, transformed_vars: Any, vars_transformations: Any,
+    binary_transformations: Any, _safe_abs_corr: Any, pair_mi: Any, fe_mm_debias_prevalence: Any, classes_y: Any, freqs_y: Any, quantization_nbins: Any,
+    discretize_array: Any, quantization_method: Any, quantization_dtype: Any, _operand_discretized: Any, fe_min_engineered_mi_prevalence: Any,
+    num_fs_steps: Any, _operand_marginal_mi: Any, _prewarp_active: Any, prewarp_uplift_threshold: Any,
+) -> None:
+    """Extracted block of ``_score_one_pair`` (part 4); returns the names the caller still uses."""
+    # Merge this pair's per-bin_func timings into the shared accumulator in
+    # ONE locked pass (the increment was previously locked per inner
+    # iteration - a serialization point under the parallel pair dispatch).
+    _score_one_pair_step4_iteration_serialization_point(
+        st,
+        times_spent,
+        verbose,
+        raw_vars_pair,
+        _corr_y_cont,
+        _PREWARP_UNARY,
+        fe_good_to_best_feature_mi_threshold,
+        final_transformed_vals,
+        _this_chunk_deferred,
+        _resolve_col,
+        _config_by_i,
+        transformed_vars,
+        vars_transformations,
+        binary_transformations,
+        _safe_abs_corr,
+        pair_mi,
+        fe_mm_debias_prevalence,
+        classes_y,
+        freqs_y,
+        quantization_nbins,
+        discretize_array,
+        quantization_method,
+        quantization_dtype,
+        _operand_discretized,
+        fe_min_engineered_mi_prevalence,
+        num_fs_steps,
+        _operand_marginal_mi,
+        _prewarp_active,
+        prewarp_uplift_threshold,
+    )
+
+
+def _score_one_pair_part3(
+    st: Any, _this_chunk_deferred: Any, quantization_method: Any, final_transformed_vals: Any, _fe_defer_float: Any, _op_code_arr: Any,
+    binary_transformations: Any, vars_transformations: Any, _PREWARP_UNARY: Any, quantization_nbins: Any, quantization_dtype: Any, transformed_vars: Any,
+    _fe_gpu_discretize_enabled: Any, classes_y: Any, classes_y_safe: Any, freqs_y: Any, fe_npermutations: Any, fe_min_nonzero_confidence: Any,
+    use_su_normalization: Any, discretize_2d_quantile_batch: Any, serial_main_thread: Any, batch_mi_with_noise_gate: Any, _fe_env_gate: Any,
+    _need_recompute_map: Any, _config_by_i: Any, fe_print_best_mis_only: Any, verbose: Any, pair_mi: Any, discretize_array: Any, mi_direct: Any,
+) -> None:
+    """Extracted block of ``_score_one_pair`` (part 3); returns the names the caller still uses."""
+    st.i = 0
+    # Per-pair thread-local timing accumulator; merged into the shared
+    # ``times_spent`` under the lock once per pair (see end of pair loop).
+    st._local_times = {}
+
+    # BATCHED-DISCRETIZE dispatch: per-candidate ``discretize_array``
+    # (np.linspace + np.nanpercentile->partition + searchsorted) is the FE-pair-search
+    # hotspot - millions of tiny per-column numpy calls -> serial-dispatch-bound,
+    # idle CPU. On the HOIST path (shared buffer present) with the quantile method we
+    # split this pair's sweep into 3 phases: (1) materialise ALL candidate columns into
+    # the buffer + nan_to_num + record (config, idx, uses_pw); (2) batch-discretise the
+    # filled buffer slice in ONE ``np.nanpercentile(axis=0)`` (amortises dispatch over K
+    # columns - bit-identical to per-column, see ``discretize_2d_quantile_batch``);
+    # (3) replay the EXACT per-candidate mi_direct + best/prewarp/config tracking.
+    # MI stays per-candidate (mi_direct's permutation confidence is NOT batched). The
+    # recompute-fallback (no buffer) and the uniform method keep the original
+    # per-candidate path verbatim - only the hoist+quantile case is batched.
+    # A deferred chunk has final_transformed_vals=None (buffer not filled) but still drives the
+    # cross-pair replay path (its MI is precomputed, its columns re-materialise on demand via
+    # _resolve_col) - so treat a present _chunk_entry as batch-disc-eligible even when deferred.
+    _deferred_chunk_entry = st._chunk_entry is not None and _this_chunk_deferred
+    st._use_batch_disc = False
+    if quantization_method == "quantile":
+        st._use_batch_disc = _deferred_chunk_entry if final_transformed_vals is None else True
+
+    st._fe_defer_float = _fe_defer_float
+    st._pair_defer_state = None
+    _score_one_pair_step3_resolve_col_treat(
+        st,
+        final_transformed_vals,
+        _op_code_arr,
+        binary_transformations,
+        vars_transformations,
+        _PREWARP_UNARY,
+        quantization_nbins,
+        quantization_dtype,
+        transformed_vars,
+        _fe_gpu_discretize_enabled,
+        classes_y,
+        classes_y_safe,
+        freqs_y,
+        fe_npermutations,
+        fe_min_nonzero_confidence,
+        use_su_normalization,
+        discretize_2d_quantile_batch,
+        serial_main_thread,
+        batch_mi_with_noise_gate,
+        _fe_env_gate,
+        _need_recompute_map,
+        _config_by_i,
+        fe_print_best_mis_only,
+        verbose,
+        pair_mi,
+        discretize_array,
+        quantization_method,
+        mi_direct,
+    )
+
+
+def _score_one_pair_part2(
+    pair_combs: Any, raw_vars_pair: Any, _chunk_global_batch: Any, _chunk_buffer: Any, _pair_to_chunk: Any, chunk_state: Any, _fe_chunks: Any,
+    _pair_valid_combs: Any, vars_transformations: Any, transformed_vars: Any, binary_transformations: Any, quantization_nbins: Any, quantization_dtype: Any,
+    classes_y: Any, classes_y_safe: Any, freqs_y: Any, fe_npermutations: Any, fe_min_nonzero_confidence: Any, batch_mi_with_noise_gate: Any,
+    use_su_normalization: Any, _PREWARP_UNARY: Any, discretize_2d_quantile_batch: Any, serial_main_thread: Any, _fe_defer_float: Any, _op_code_arr_all: Any,
+    _gpu_mat_on: Any, _fe_env_gate: Any,
+) -> tuple[Any, ...]:
+    """Extracted block of ``_score_one_pair`` (part 2); returns the names the caller still uses."""
     st = _SimpleNamespace()  # long-lived locals of this function (see the stage helpers below)
     final_transformed_vals: Any = None
     st._pair_res_entry = None
@@ -247,113 +479,17 @@ def _score_one_pair(
     # When the chunk DEFERRED its float D2H the buffer is unfilled - point the reads at None so they
     # take the GPU re-materialise branch in ``_resolve_col`` (bit-identical to the buffer value).
     _this_chunk_deferred = (st._chunk_entry is not None) and chunk_state["float_deferred"]
-    if st._chunk_entry is not None:
-        final_transformed_vals = None if _this_chunk_deferred else chunk_state.get("active_buffer", _chunk_buffer)
-    else:
-        final_transformed_vals = final_transformed_vals_shared
-    st._col_buf_1d = np.empty(len(X), dtype=np.float32) if _need_recompute_map else None
-    _config_by_i: dict[int, tuple] | None = {} if _need_recompute_map else None
+    return st, final_transformed_vals, _this_chunk_deferred
 
-    _resolve_col = _score_one_pair_step2_def_resolve_col(final_transformed_vals, chunk_state, transformed_vars)
 
-    st.i = 0
-    # Per-pair thread-local timing accumulator; merged into the shared
-    # ``times_spent`` under the lock once per pair (see end of pair loop).
-    st._local_times = {}
-
-    # BATCHED-DISCRETIZE dispatch: per-candidate ``discretize_array``
-    # (np.linspace + np.nanpercentile->partition + searchsorted) is the FE-pair-search
-    # hotspot - millions of tiny per-column numpy calls -> serial-dispatch-bound,
-    # idle CPU. On the HOIST path (shared buffer present) with the quantile method we
-    # split this pair's sweep into 3 phases: (1) materialise ALL candidate columns into
-    # the buffer + nan_to_num + record (config, idx, uses_pw); (2) batch-discretise the
-    # filled buffer slice in ONE ``np.nanpercentile(axis=0)`` (amortises dispatch over K
-    # columns - bit-identical to per-column, see ``discretize_2d_quantile_batch``);
-    # (3) replay the EXACT per-candidate mi_direct + best/prewarp/config tracking.
-    # MI stays per-candidate (mi_direct's permutation confidence is NOT batched). The
-    # recompute-fallback (no buffer) and the uniform method keep the original
-    # per-candidate path verbatim - only the hoist+quantile case is batched.
-    # A deferred chunk has final_transformed_vals=None (buffer not filled) but still drives the
-    # cross-pair replay path (its MI is precomputed, its columns re-materialise on demand via
-    # _resolve_col) - so treat a present _chunk_entry as batch-disc-eligible even when deferred.
-    _deferred_chunk_entry = st._chunk_entry is not None and _this_chunk_deferred
-    st._use_batch_disc = False
-    if quantization_method == "quantile":
-        st._use_batch_disc = _deferred_chunk_entry if final_transformed_vals is None else True
-
-    st._fe_defer_float = _fe_defer_float
-    st._pair_defer_state = None
-    _score_one_pair_step3_resolve_col_treat(
-        st,
-        final_transformed_vals,
-        _op_code_arr,
-        binary_transformations,
-        vars_transformations,
-        _PREWARP_UNARY,
-        quantization_nbins,
-        quantization_dtype,
-        transformed_vars,
-        _fe_gpu_discretize_enabled,
-        classes_y,
-        classes_y_safe,
-        freqs_y,
-        fe_npermutations,
-        fe_min_nonzero_confidence,
-        use_su_normalization,
-        discretize_2d_quantile_batch,
-        serial_main_thread,
-        batch_mi_with_noise_gate,
-        _fe_env_gate,
-        _need_recompute_map,
-        _config_by_i,
-        fe_print_best_mis_only,
-        verbose,
-        pair_mi,
-        discretize_array,
-        quantization_method,
-        mi_direct,
-    )
-    if st._pair_defer_state is not None:
-        # The GPU fused materialise left the float candidate matrix on the device: nothing is copied to the host, and the survivor / usability / emit reads below
-        # take the same deferred path a deferred chunk does, re-materialising only the columns they touch.
-        final_transformed_vals = None
-        _this_chunk_deferred = True
-        _resolve_col = _score_one_pair_step2_def_resolve_col(None, st._pair_defer_state, transformed_vars)
-
-    # Merge this pair's per-bin_func timings into the shared accumulator in
-    # ONE locked pass (the increment was previously locked per inner
-    # iteration - a serialization point under the parallel pair dispatch).
-    _score_one_pair_step4_iteration_serialization_point(
-        st,
-        times_spent,
-        verbose,
-        raw_vars_pair,
-        _corr_y_cont,
-        _PREWARP_UNARY,
-        fe_good_to_best_feature_mi_threshold,
-        final_transformed_vals,
-        _this_chunk_deferred,
-        _resolve_col,
-        _config_by_i,
-        transformed_vars,
-        vars_transformations,
-        binary_transformations,
-        _safe_abs_corr,
-        pair_mi,
-        fe_mm_debias_prevalence,
-        classes_y,
-        freqs_y,
-        quantization_nbins,
-        discretize_array,
-        quantization_method,
-        quantization_dtype,
-        _operand_discretized,
-        fe_min_engineered_mi_prevalence,
-        num_fs_steps,
-        _operand_marginal_mi,
-        _prewarp_active,
-        prewarp_uplift_threshold,
-    )
+def _score_one_pair_part1(
+    fe_pair_usability_admission_enable: Any, _corr_y_cont: Any, pair_mi: Any, st: Any, final_transformed_vals: Any, _this_chunk_deferred: Any,
+    _extval_raw_col: Any, raw_vars_pair: Any, fe_pair_usability_admission_min_corr: Any, fe_pair_usability_admission_pairness_margin: Any, _resolve_col: Any,
+    _safe_abs_corr: Any, _raw_operand_abs_corr: Any, _mi_band: Any, verbose: Any, vars_transformations: Any, _transformed_operand_abs_corr: Any,
+    _NOISE_WRAP_MIN_OPERAND_CORR: Any, _NOISE_WRAP_CORR_COLLAPSE_FRAC: Any, transformed_vars: Any, fe_min_engineered_mi_prevalence: Any, num_fs_steps: Any,
+    cols: Any, rejection_records: Any, rejection_ledger_out: Any,
+) -> Any:
+    """Extracted block of ``_score_one_pair`` (part 1); returns the names the caller still uses."""
     _score_one_pair_step5_any_error_leaves(
         fe_pair_usability_admission_enable,
         _corr_y_cont,
@@ -424,75 +560,4 @@ def _score_one_pair(
     # maximum, not only its own null. A winner that fails the family gate rejects the pair (no engineered feature is emitted for it).
     # The gate can only switch the accept flags off, so a pair no earlier gate accepted skips it: its outcome is already "emit nothing".
     _any_accept = st._passes_joint_gate or st._prewarp_accept or st._marginal_uplift_accept or st._usability_accept
-    if _any_accept and apply_pair_family_gate_from_state(st, classes_y, quantization_nbins, pair_family_alpha):
-        st._passes_joint_gate = st._prewarp_accept = st._marginal_uplift_accept = st._usability_accept = False
-
-    if st._passes_joint_gate or st._prewarp_accept or st._marginal_uplift_accept or st._usability_accept:  # Best transformation is good enough
-        st._pair_res_entry = _emit_pair_features(
-            raw_vars_pair=raw_vars_pair,
-            pair_mi=pair_mi,
-            best_mi=st.best_mi,
-            best_config=st.best_config,
-            var_pairs_perf=st.var_pairs_perf,
-            this_pair_features=st.this_pair_features,
-            _passes_joint_gate=st._passes_joint_gate,
-            _prewarp_accept=st._prewarp_accept,
-            _marginal_uplift_accept=st._marginal_uplift_accept,
-            _usability_primary=st._usability_primary,
-            final_transformed_vals=final_transformed_vals,
-            _this_chunk_deferred=_this_chunk_deferred,
-            _config_by_i=_config_by_i,
-            _resolve_col=_resolve_col,
-            _corr_y_cont=_corr_y_cont,
-            _safe_abs_corr=_safe_abs_corr,
-            transformed_vars=transformed_vars,
-            vars_transformations=vars_transformations,
-            binary_transformations=binary_transformations,
-            unary_transformations=unary_transformations,
-            numeric_vars_to_consider=numeric_vars_to_consider,
-            fe_good_to_best_feature_mi_threshold=fe_good_to_best_feature_mi_threshold,
-            fe_max_external_validation_factors=fe_max_external_validation_factors,
-            fe_max_steps=fe_max_steps,
-            fe_multi_emit_max_per_pair=fe_multi_emit_max_per_pair,
-            fe_multi_emit_mi_floor=fe_multi_emit_mi_floor,
-            fe_multi_emit_diversity_corr=fe_multi_emit_diversity_corr,
-            quantization_nbins=quantization_nbins,
-            quantization_method=quantization_method,
-            quantization_dtype=quantization_dtype,
-            classes_y=classes_y,
-            classes_y_safe=classes_y_safe,
-            freqs_y=freqs_y,
-            fe_npermutations=fe_npermutations,
-            fe_min_nonzero_confidence=fe_min_nonzero_confidence,
-            _mi_band=_mi_band,
-            _op_code_arr=_op_code_arr_all,
-            _fe_env_gate=_fe_env_gate,
-            cols=cols,
-            original_cols=original_cols,
-            _use_subsample=_use_subsample,
-            _X_full=_X_full,
-            _full_n_rows=_full_n_rows,
-            _prewarp_spec_by_var=_prewarp_spec_by_var,
-            _gate_med_median_by_var=_gate_med_median_by_var,
-            engineered_operand_values=engineered_operand_values,
-            _extval_raw_col=_extval_raw_col,
-            _rng_extval=_rng_extval,
-            _n_workers=_n_workers,
-            serial_main_thread=serial_main_thread,
-            verbose=verbose,
-            messages=st.messages,
-            discretize_array=discretize_array,
-            discretize_2d_quantile_batch=discretize_2d_quantile_batch,
-            mi_direct=mi_direct,
-            get_new_feature_name=get_new_feature_name,
-            _rebuild_full_survivor_col=_rebuild_full_survivor_col,
-            _can_hoist_shared_buffer=_can_hoist_shared_buffer,
-            _narrow_code_dtype=_narrow_code_dtype,
-            _materialise_extval_njit=_materialise_extval_njit,
-            _fe_use_parallel_kernels=_fe_use_parallel_kernels,
-            _dispatch_batch_mi_with_noise_gate=_dispatch_batch_mi_with_noise_gate,
-            batch_mi_with_noise_gate=batch_mi_with_noise_gate,
-            use_su_normalization=use_su_normalization,
-            X=X,
-        )
-    return st._pair_res_entry, st.best_config, st.best_mi
+    return _any_accept

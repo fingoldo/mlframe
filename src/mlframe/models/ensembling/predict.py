@@ -155,6 +155,140 @@ def _compute_outlier_gate(
     return result
 
 
+def _drop_none_members(preds: tuple, precomputed_weights: Optional[np.ndarray]) -> tuple:
+    """Drop ``None`` members, keeping ``precomputed_weights`` aligned; raises ``ValueError`` when nothing remains."""
+    # Filter out None preds while keeping ``precomputed_weights`` aligned with the surviving
+    # member ordering. Without this re-alignment a None member would push every later weight
+    # one position upstream of its actual prediction.
+    _orig_preds = list(preds)
+    _keep_mask = [p is not None for p in _orig_preds]
+    preds_list: list = [p for p, k in zip(_orig_preds, _keep_mask) if k]
+    if precomputed_weights is not None and len(_orig_preds) != len(preds_list):
+        precomputed_weights = np.asarray(precomputed_weights, dtype=np.float64).reshape(-1)
+        if precomputed_weights.shape[0] == len(_orig_preds):
+            precomputed_weights = precomputed_weights[np.asarray(_keep_mask, dtype=bool)]
+    if len(preds_list) == 0:
+        raise ValueError(
+            "ensemble_probabilistic_predictions: no non-None member predictions to ensemble "
+            f"(received {len(_orig_preds)} member(s), all None). Provide at least one non-None prediction."
+        )
+    return preds_list, precomputed_weights
+
+
+def _drop_outlier_members(
+    preds_list: list,
+    _preds_arr: np.ndarray,
+    precomputed_weights: Optional[np.ndarray],
+    max_mae: float,
+    max_std: float,
+    max_mae_relative: float,
+    max_std_relative: float,
+    verbose: bool,
+) -> tuple:
+    """Exclude members that deviate from the cross-member median too much; returns ``(preds_list, preds_arr, precomputed_weights)``."""
+    skipped_preds_indices: set[int] = set()
+
+    # -----------------------------------------------------------------------------------------------------------------------------------------------------
+    # Disregard whole predictions deviating from the median too much
+    # -----------------------------------------------------------------------------------------------------------------------------------------------------
+
+    # Cross-member median used as outlier-filter anchor: take the median along the MEMBER axis
+    # (axis=0 of (M, N, K)). ``sample_weight`` is a per-ROW vector (length N), not a per-member
+    # vector, so applying it directly to ``np.quantile(axis=0)`` is meaningless -- the member
+    # axis is uniformly weighted by construction. Pre-fix the code claimed "weighted via
+    # ``inverted_cdf``" but never passed a ``weights=`` kwarg in either try/except branch, so
+    # the supposed weighting silently degraded to unweighted; the comment was a no-op promise.
+    # If the gate ever needs per-row weighting it must aggregate along axis=1 separately, not
+    # via this anchor. Document the choice here so downstream readers don't re-add the broken
+    # weighted-quantile call. The downstream per-member MAE in ``_per_member_mae_std`` still
+    # weights rows when sample_weight is propagated via ``_ensembling_quality_gate``.
+    # CPX17: median + per-member MAE/STD + threshold decision are flavour-invariant; computed once per member-set and
+    # memoised so the n_flavours fan-out in ``score_ensemble`` reuses one gate per split instead of recomputing it.
+    (
+        _gate_skipped,
+        median_mae,
+        median_std,
+        rel_mae_threshold,
+        rel_std_threshold,
+        per_member_mae,
+        per_member_std,
+    ) = _compute_outlier_gate(preds_list, _preds_arr, max_mae, max_std, max_mae_relative, max_std_relative)
+    skipped_preds_indices = set(_gate_skipped)
+
+    if verbose and skipped_preds_indices:
+        for i in sorted(skipped_preds_indices):
+            tot_mae = float(per_member_mae[i])
+            tot_std = float(per_member_std[i])
+            abs_violation = (max_mae > 0 and tot_mae > max_mae) or (max_std > 0 and tot_std > max_std)
+            rel_violation = (rel_mae_threshold > 0 and tot_mae > rel_mae_threshold) or (rel_std_threshold > 0 and tot_std > rel_std_threshold)
+            reason_parts = []
+            if abs_violation:
+                reason_parts.append(f"abs(mae>{max_mae}|std>{max_std})")
+            if rel_violation:
+                reason_parts.append(
+                    f"rel(mae>{rel_mae_threshold:.4f}|std>{rel_std_threshold:.4f}; " f"median_mae={median_mae:.4f},median_std={median_std:.4f})"
+                )
+            logger.info(
+                "ens member %d excluded due to high distance from the median: mae=%.4f, std=%.4f [%s]",
+                i,
+                tot_mae,
+                tot_std,
+                "; ".join(reason_parts),
+            )
+    if skipped_preds_indices:
+        if len(skipped_preds_indices) < len(preds_list):
+            _kept_mask = np.array([i not in skipped_preds_indices for i in range(len(preds_list))], dtype=bool)
+            preds_list = [el for i, el in enumerate(preds_list) if _kept_mask[i]]
+            if precomputed_weights is not None:
+                _pw = np.asarray(precomputed_weights, dtype=np.float64).reshape(-1)
+                if _pw.shape[0] == _kept_mask.shape[0]:
+                    precomputed_weights = _pw[_kept_mask]
+            if verbose:
+                logger.info("Using %d members of ensemble", len(preds_list))
+            # Members were dropped -- re-materialise the cached tensor
+            # so downstream aggregations see only kept members.
+            _preds_arr = np.asarray(preds_list, dtype=np.float64)
+        else:
+            if verbose:
+                logger.info(
+                    "ensemble_probabilistic_predictions filters too restrictive (%d vs %d), skipping them",
+                    len(skipped_preds_indices),
+                    len(preds_list),
+                )
+    return preds_list, _preds_arr, precomputed_weights
+
+
+def _confidence_estimates(
+    _preds_arr: np.ndarray,
+    uncertainty_quantile: float,
+    normalize_stds_by_mean_preds: bool,
+) -> tuple:
+    """Per-row member-disagreement ``uncertainty`` and the indices of rows at or below its ``uncertainty_quantile`` (``(None, None)`` when off)."""
+    confident_indices = None
+    uncertainty: Optional[np.ndarray]
+    if uncertainty_quantile:
+
+        # ddof=1 (sample std across members) to match the streaming path's _WelfordAccumulator.result(), which
+        # reports std = sqrt(M2 / max(n-1, 1)). Both paths now report the same Bessel-corrected member spread.
+        # With a single member (M=1) ddof=1 would divide by zero; mirror Welford's max(n-1,1) by reporting 0.
+        std_preds = np.std(_preds_arr, axis=0, ddof=1) if _preds_arr.shape[0] > 1 else np.zeros(_preds_arr.shape[1:], dtype=np.float64)
+        if normalize_stds_by_mean_preds:
+            mean_preds = np.mean(_preds_arr, axis=0)
+            # A class whose mean prediction is ~0 would yield inf/nan from the
+            # division and poison the quantile threshold + confident-index
+            # selection for every row; treat its relative spread as 0 instead.
+            rel_std = np.where(np.abs(mean_preds) > 1e-12, std_preds / np.where(np.abs(mean_preds) > 1e-12, mean_preds, 1.0), 0.0)
+            uncertainty = rel_std.mean(axis=1)
+        else:
+            uncertainty = std_preds.mean(axis=1)
+
+        threshold = np.quantile(uncertainty, uncertainty_quantile)
+        confident_indices = np.where(uncertainty <= threshold)[0]
+    else:
+        uncertainty = None
+    return uncertainty, confident_indices
+
+
 def ensemble_probabilistic_predictions(
     *preds,
     ensemble_method: str = "harm",
@@ -207,21 +341,8 @@ def ensemble_probabilistic_predictions(
         raise ValueError(f"unknown ensemble_method {ensemble_method!r}; expected one of " f"{SIMPLE_ENSEMBLING_METHODS + RANK_FUSION_METHODS}")
     confident_indices = None
 
-    # Filter out None preds while keeping ``precomputed_weights`` aligned with the surviving
-    # member ordering. Without this re-alignment a None member would push every later weight
-    # one position upstream of its actual prediction.
-    _orig_preds = list(preds)
-    _keep_mask = [p is not None for p in _orig_preds]
-    preds_list: list = [p for p, k in zip(_orig_preds, _keep_mask) if k]
-    if precomputed_weights is not None and len(_orig_preds) != len(preds_list):
-        precomputed_weights = np.asarray(precomputed_weights, dtype=np.float64).reshape(-1)
-        if precomputed_weights.shape[0] == len(_orig_preds):
-            precomputed_weights = precomputed_weights[np.asarray(_keep_mask, dtype=bool)]
-    if len(preds_list) == 0:
-        raise ValueError(
-            "ensemble_probabilistic_predictions: no non-None member predictions to ensemble "
-            f"(received {len(_orig_preds)} member(s), all None). Provide at least one non-None prediction."
-        )
+    # Filter out None preds while keeping ``precomputed_weights`` aligned with the surviving member ordering.
+    preds_list, precomputed_weights = _drop_none_members(preds, precomputed_weights)
 
     # Materialise the (M, N, K) tensor ONCE -- the prior pattern allocated
     # this ~9x across ensemble flavours / outlier-filter / confidence paths,
@@ -234,76 +355,9 @@ def ensemble_probabilistic_predictions(
     _preds_arr = np.asarray(preds_list, dtype=np.float64)
 
     if len(preds_list) > 2:
-
-        skipped_preds_indices = set()
-
-        # -----------------------------------------------------------------------------------------------------------------------------------------------------
-        # Disregard whole predictions deviating from the median too much
-        # -----------------------------------------------------------------------------------------------------------------------------------------------------
-
-        # Cross-member median used as outlier-filter anchor: take the median along the MEMBER axis
-        # (axis=0 of (M, N, K)). ``sample_weight`` is a per-ROW vector (length N), not a per-member
-        # vector, so applying it directly to ``np.quantile(axis=0)`` is meaningless -- the member
-        # axis is uniformly weighted by construction. Pre-fix the code claimed "weighted via
-        # ``inverted_cdf``" but never passed a ``weights=`` kwarg in either try/except branch, so
-        # the supposed weighting silently degraded to unweighted; the comment was a no-op promise.
-        # If the gate ever needs per-row weighting it must aggregate along axis=1 separately, not
-        # via this anchor. Document the choice here so downstream readers don't re-add the broken
-        # weighted-quantile call. The downstream per-member MAE in ``_per_member_mae_std`` still
-        # weights rows when sample_weight is propagated via ``_ensembling_quality_gate``.
-        # CPX17: median + per-member MAE/STD + threshold decision are flavour-invariant; computed once per member-set and
-        # memoised so the n_flavours fan-out in ``score_ensemble`` reuses one gate per split instead of recomputing it.
-        (
-            _gate_skipped,
-            median_mae,
-            median_std,
-            rel_mae_threshold,
-            rel_std_threshold,
-            per_member_mae,
-            per_member_std,
-        ) = _compute_outlier_gate(preds_list, _preds_arr, max_mae, max_std, max_mae_relative, max_std_relative)
-        skipped_preds_indices = set(_gate_skipped)
-
-        if verbose and skipped_preds_indices:
-            for i in sorted(skipped_preds_indices):
-                tot_mae = float(per_member_mae[i])
-                tot_std = float(per_member_std[i])
-                abs_violation = (max_mae > 0 and tot_mae > max_mae) or (max_std > 0 and tot_std > max_std)
-                rel_violation = (rel_mae_threshold > 0 and tot_mae > rel_mae_threshold) or (rel_std_threshold > 0 and tot_std > rel_std_threshold)
-                reason_parts = []
-                if abs_violation:
-                    reason_parts.append(f"abs(mae>{max_mae}|std>{max_std})")
-                if rel_violation:
-                    reason_parts.append(
-                        f"rel(mae>{rel_mae_threshold:.4f}|std>{rel_std_threshold:.4f}; " f"median_mae={median_mae:.4f},median_std={median_std:.4f})"
-                    )
-                logger.info(
-                    "ens member %d excluded due to high distance from the median: mae=%.4f, std=%.4f [%s]",
-                    i,
-                    tot_mae,
-                    tot_std,
-                    "; ".join(reason_parts),
-                )
-        if skipped_preds_indices:
-            if len(skipped_preds_indices) < len(preds_list):
-                _kept_mask = np.array([i not in skipped_preds_indices for i in range(len(preds_list))], dtype=bool)
-                preds_list = [el for i, el in enumerate(preds_list) if _kept_mask[i]]
-                if precomputed_weights is not None:
-                    _pw = np.asarray(precomputed_weights, dtype=np.float64).reshape(-1)
-                    if _pw.shape[0] == _kept_mask.shape[0]:
-                        precomputed_weights = _pw[_kept_mask]
-                if verbose:
-                    logger.info("Using %d members of ensemble", len(preds_list))
-                # Members were dropped -- re-materialise the cached tensor
-                # so downstream aggregations see only kept members.
-                _preds_arr = np.asarray(preds_list, dtype=np.float64)
-            else:
-                if verbose:
-                    logger.info(
-                        "ensemble_probabilistic_predictions filters too restrictive (%d vs %d), skipping them",
-                        len(skipped_preds_indices),
-                        len(preds_list),
-                    )
+        preds_list, _preds_arr, precomputed_weights = _drop_outlier_members(
+            preds_list, _preds_arr, precomputed_weights, max_mae, max_std, max_mae_relative, max_std_relative, verbose
+        )
 
     # -----------------------------------------------------------------------------------------------------------------------------------------------------
     # Actual ensembling
@@ -327,26 +381,7 @@ def ensemble_probabilistic_predictions(
     # Confidence estimates
     # -----------------------------------------------------------------------------------------------------------------------------------------------------
 
-    if uncertainty_quantile:
-
-        # ddof=1 (sample std across members) to match the streaming path's _WelfordAccumulator.result(), which
-        # reports std = sqrt(M2 / max(n-1, 1)). Both paths now report the same Bessel-corrected member spread.
-        # With a single member (M=1) ddof=1 would divide by zero; mirror Welford's max(n-1,1) by reporting 0.
-        std_preds = np.std(_preds_arr, axis=0, ddof=1) if _preds_arr.shape[0] > 1 else np.zeros(_preds_arr.shape[1:], dtype=np.float64)
-        if normalize_stds_by_mean_preds:
-            mean_preds = np.mean(_preds_arr, axis=0)
-            # A class whose mean prediction is ~0 would yield inf/nan from the
-            # division and poison the quantile threshold + confident-index
-            # selection for every row; treat its relative spread as 0 instead.
-            rel_std = np.where(np.abs(mean_preds) > 1e-12, std_preds / np.where(np.abs(mean_preds) > 1e-12, mean_preds, 1.0), 0.0)
-            uncertainty = rel_std.mean(axis=1)
-        else:
-            uncertainty = std_preds.mean(axis=1)
-
-        threshold = np.quantile(uncertainty, uncertainty_quantile)
-        confident_indices = np.where(uncertainty <= threshold)[0]
-    else:
-        uncertainty = None
+    uncertainty, confident_indices = _confidence_estimates(_preds_arr, uncertainty_quantile, normalize_stds_by_mean_preds)
 
     return ensembled_predictions, uncertainty, confident_indices
 

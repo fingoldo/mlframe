@@ -190,6 +190,156 @@ def detect_correlated_pairs(
         out = out[: int(max_pairs)]
     return out
 
+def _diff_winners_output(index: pd.Index, winners: list, cand_values: list) -> tuple[pd.DataFrame, dict]:
+    """Materialise the winning diff-basis columns and their replay meta."""
+    out_cols: dict = {}
+    meta: dict = {}
+    for info in winners:
+        name = str(info["engineered_col"])
+        vals = cand_values[int(info["values_idx"])]
+        out_cols[name] = vals
+        meta[name] = {
+            "col_a": info["col_a"],
+            "col_b": info["col_b"],
+            "basis": info["basis"],
+            "degree": int(info["degree"]),
+            "pair_corr": float(info["pair_corr"]),
+            "engineered_mi": float(info["engineered_mi"]),
+            "baseline_mi": float(info["baseline_mi"]),
+            "uplift": float(info["uplift"]),
+            "basis_params": info.get("basis_params"),
+        }
+    return pd.DataFrame(out_cols, index=index), meta
+
+
+def _diff_survivors(
+    cand_cols: list, cand_meta: list, eng_mi: np.ndarray, raw_mi_map: dict, pair_corr_map: dict, basis: str, min_abs_mi_frac: float, min_uplift: float,
+) -> list:
+    """Uplift gate (vs the BEST source baseline) plus the noise-aware absolute floor; returns the surviving candidates."""
+    # ---- Step 5: uplift gate (vs BEST source baseline) + noise-aware
+    # absolute floor + global top-K.
+    raw_baselines = np.asarray(list(raw_mi_map.values()), dtype=np.float64)
+    max_raw_baseline = float(raw_baselines.max()) if raw_baselines.size else 0.0
+    legacy_floor = float(min_abs_mi_frac) * max_raw_baseline
+    n_baselines = int(raw_baselines.size)
+    # Mirror Layer 21's adaptive sigma so an all-noise frame trips the MAD
+    # floor while a small-p signal frame still emits winners.
+    sigma_thresh = max(
+        5.0,
+        float(np.sqrt(2.0 * np.log(max(2.0, 2.0 * max(n_baselines, 1)))) + 1.5),
+    )
+    if n_baselines >= 16:
+        med = float(np.median(raw_baselines))
+        mad = float(np.median(np.abs(raw_baselines - med)))
+        noise_floor = med + sigma_thresh * 1.4826 * mad
+    else:
+        noise_floor = 0.0
+    abs_floor = max(legacy_floor, noise_floor)
+
+    survivors: list[dict] = []
+    for j, (col_a, col_b, deg, basis_params_d) in enumerate(cand_meta):
+        emi = float(eng_mi[j])
+        if not np.isfinite(emi):
+            continue
+        baseline_a = float(raw_mi_map.get(col_a, 0.0))
+        baseline_b = float(raw_mi_map.get(col_b, 0.0))
+        baseline = max(baseline_a, baseline_b)
+        uplift = relative_uplift(emi, baseline)
+        if uplift < float(min_uplift):
+            continue
+        if emi < abs_floor:
+            continue
+        survivors.append({
+            "engineered_col": cand_cols[j],
+            "values_idx": j,
+            "col_a": col_a,
+            "col_b": col_b,
+            "basis": str(basis),
+            "degree": int(deg),
+            "engineered_mi": emi,
+            "baseline_mi": baseline,
+            "uplift": float(uplift),
+            "pair_corr": float(pair_corr_map.get((col_a, col_b), 0.0)),
+            "basis_params": basis_params_d,
+        })
+    return survivors
+
+
+def _enumerate_diff_cells(X: pd.DataFrame, pairs_norm: list, degrees: tuple, basis: str, _dt: type) -> tuple[list, list, list]:
+    """Enumerate (pair, degree) cells; returns ``(cand_cols, cand_values, cand_meta)`` with ``cand_meta`` = ``(col_a, col_b, degree, basis_params)``."""
+    # ---- Step 3: enumerate (pair, degree) cells.
+    cand_cols: list[str] = []
+    cand_values: list[np.ndarray] = []
+    cand_meta: list[tuple[str, str, int, Optional[dict]]] = []  # (col_a, col_b, degree, basis_params)
+
+    for col_a, col_b in pairs_norm:
+        x_a: np.ndarray = np.asarray(X[col_a].to_numpy(), dtype=_dt)
+        x_b: np.ndarray = np.asarray(X[col_b].to_numpy(), dtype=_dt)
+        finite_ab = np.isfinite(x_a) & np.isfinite(x_b)
+        if not finite_ab.all():
+            # Per-column mean-fill keeps the diff well-defined elementwise.
+            if finite_ab.any():
+                a_fill = float(np.nanmean(x_a[finite_ab])) if finite_ab.any() else 0.0
+                b_fill = float(np.nanmean(x_b[finite_ab])) if finite_ab.any() else 0.0
+            else:
+                a_fill = 0.0
+                b_fill = 0.0
+            x_a = np.where(np.isfinite(x_a), x_a, a_fill)
+            x_b = np.where(np.isfinite(x_b), x_b, b_fill)
+        diff = x_a - x_b
+        if not np.isfinite(diff).all():
+            finite_d = np.isfinite(diff)
+            fill_d = float(np.nanmean(diff[finite_d])) if finite_d.any() else 0.0
+            diff = np.where(finite_d, diff, fill_d)
+        if float(np.std(diff)) <= 1e-12:
+            # Constant diff (identical sources after fill) - no signal.
+            continue
+        for d in degrees:
+            try:
+                # return_params=True: capture the fit-time basis-preprocess params here, at
+                # the ONE place the diff array + basis are both already in hand, so the recipe-build step
+                # below can thread them straight into build_orth_diff_basis_recipe instead of rebuilding
+                # ``x_a - x_b`` and re-evaluating the basis a second time purely to recover them.
+                vals, basis_params_d = _evaluate_basis_column(diff, basis, int(d), return_params=True)
+            except Exception as exc:
+                log_throttle(
+                    logger, "diff_basis_eval_raised", logging.WARNING,
+                    "generate_diff_basis_features: basis=%r degree=%d on "
+                    "pair (%r, %r) raised %r; skipping cell.",
+                    basis, d, col_a, col_b, exc,
+                )
+                continue
+            if not np.isfinite(vals).all():
+                continue
+            if float(np.std(vals)) <= 1e-12:
+                continue
+            cand_cols.append(_diff_col_name(col_a, col_b, basis, int(d)))
+            cand_values.append(vals)
+            cand_meta.append((col_a, col_b, int(d), dict(basis_params_d) if basis_params_d is not None else None))
+    return cand_cols, cand_values, cand_meta
+
+
+def _pair_source_baselines(X: pd.DataFrame, pairs_norm: list, y_arr: np.ndarray, nbins: int) -> dict:
+    """Raw MI baselines for every column touched by a pair: ``{column: MI(column; y)}``."""
+    # ---- Step 2: raw baselines for every column touched by a pair.
+    touched = sorted({c for pair in pairs_norm for c in pair})
+    raw_mat = X[touched].to_numpy(dtype=np.float64, copy=False)
+    # NaN-safe fill mirrors fit-side basis evaluation.
+    finite = np.isfinite(raw_mat)
+    if not finite.all():
+        col_means = np.where(
+            finite.any(axis=0),
+            np.where(finite, raw_mat, 0.0).sum(axis=0) / np.maximum(finite.sum(axis=0), 1),
+            0.0,
+        )
+        raw_mat = np.where(finite, raw_mat, col_means[None, :])
+    # Fit-scoped memo: no-op passthrough outside an active orth_scoring_memo_scope() (byte-for-byte the
+    # same _mi_classif_batch call on this already NaN-mean-filled matrix); inside a scope, shares
+    # per-column MI with sibling opt-in layers requesting the same (content, dtype) column.
+    raw_mi_map = cached_raw_mi_baseline(touched, raw_mat, y_arr, nbins=nbins)
+    return raw_mi_map
+
+
 def generate_diff_basis_features(
     X: pd.DataFrame,
     y: np.ndarray,
@@ -273,72 +423,9 @@ def generate_diff_basis_features(
         return pd.DataFrame(index=X.index), {}
 
     y_arr = coerce_y_classif(y)
-    # ---- Step 2: raw baselines for every column touched by a pair.
-    touched = sorted({c for pair in pairs_norm for c in pair})
-    raw_mat = X[touched].to_numpy(dtype=np.float64, copy=False)
-    # NaN-safe fill mirrors fit-side basis evaluation.
-    finite = np.isfinite(raw_mat)
-    if not finite.all():
-        col_means = np.where(
-            finite.any(axis=0),
-            np.where(finite, raw_mat, 0.0).sum(axis=0) / np.maximum(finite.sum(axis=0), 1),
-            0.0,
-        )
-        raw_mat = np.where(finite, raw_mat, col_means[None, :])
-    # Fit-scoped memo: no-op passthrough outside an active orth_scoring_memo_scope() (byte-for-byte the
-    # same _mi_classif_batch call on this already NaN-mean-filled matrix); inside a scope, shares
-    # per-column MI with sibling opt-in layers requesting the same (content, dtype) column.
-    raw_mi_map = cached_raw_mi_baseline(touched, raw_mat, y_arr, nbins=nbins)
+    raw_mi_map = _pair_source_baselines(X, pairs_norm, y_arr, nbins)
 
-    # ---- Step 3: enumerate (pair, degree) cells.
-    cand_cols: list[str] = []
-    cand_values: list[np.ndarray] = []
-    cand_meta: list[tuple[str, str, int, Optional[dict]]] = []  # (col_a, col_b, degree, basis_params)
-
-    for col_a, col_b in pairs_norm:
-        x_a = np.asarray(X[col_a].to_numpy(), dtype=_dt)
-        x_b = np.asarray(X[col_b].to_numpy(), dtype=_dt)
-        finite_ab = np.isfinite(x_a) & np.isfinite(x_b)
-        if not finite_ab.all():
-            # Per-column mean-fill keeps the diff well-defined elementwise.
-            if finite_ab.any():
-                a_fill = float(np.nanmean(x_a[finite_ab])) if finite_ab.any() else 0.0
-                b_fill = float(np.nanmean(x_b[finite_ab])) if finite_ab.any() else 0.0
-            else:
-                a_fill = 0.0
-                b_fill = 0.0
-            x_a = np.where(np.isfinite(x_a), x_a, a_fill)
-            x_b = np.where(np.isfinite(x_b), x_b, b_fill)
-        diff = x_a - x_b
-        if not np.isfinite(diff).all():
-            finite_d = np.isfinite(diff)
-            fill_d = float(np.nanmean(diff[finite_d])) if finite_d.any() else 0.0
-            diff = np.where(finite_d, diff, fill_d)
-        if float(np.std(diff)) <= 1e-12:
-            # Constant diff (identical sources after fill) - no signal.
-            continue
-        for d in degrees:
-            try:
-                # return_params=True: capture the fit-time basis-preprocess params here, at
-                # the ONE place the diff array + basis are both already in hand, so the recipe-build step
-                # below can thread them straight into build_orth_diff_basis_recipe instead of rebuilding
-                # ``x_a - x_b`` and re-evaluating the basis a second time purely to recover them.
-                vals, basis_params_d = _evaluate_basis_column(diff, basis, int(d), return_params=True)
-            except Exception as exc:
-                log_throttle(
-                    logger, "diff_basis_eval_raised", logging.WARNING,
-                    "generate_diff_basis_features: basis=%r degree=%d on "
-                    "pair (%r, %r) raised %r; skipping cell.",
-                    basis, d, col_a, col_b, exc,
-                )
-                continue
-            if not np.isfinite(vals).all():
-                continue
-            if float(np.std(vals)) <= 1e-12:
-                continue
-            cand_cols.append(_diff_col_name(col_a, col_b, basis, int(d)))
-            cand_values.append(vals)
-            cand_meta.append((col_a, col_b, int(d), dict(basis_params_d) if basis_params_d is not None else None))
+    cand_cols, cand_values, cand_meta = _enumerate_diff_cells(X, pairs_norm, degrees, basis, _dt)
 
     if not cand_cols:
         return pd.DataFrame(index=X.index), {}
@@ -347,74 +434,12 @@ def generate_diff_basis_features(
     cand_mat = np.column_stack(cand_values).astype(np.float64, copy=False)
     eng_mi = _mi_classif_batch(cand_mat, y_arr, nbins=nbins)
 
-    # ---- Step 5: uplift gate (vs BEST source baseline) + noise-aware
-    # absolute floor + global top-K.
-    raw_baselines = np.asarray(list(raw_mi_map.values()), dtype=np.float64)
-    max_raw_baseline = float(raw_baselines.max()) if raw_baselines.size else 0.0
-    legacy_floor = float(min_abs_mi_frac) * max_raw_baseline
-    n_baselines = int(raw_baselines.size)
-    # Mirror Layer 21's adaptive sigma so an all-noise frame trips the MAD
-    # floor while a small-p signal frame still emits winners.
-    sigma_thresh = max(
-        5.0,
-        float(np.sqrt(2.0 * np.log(max(2.0, 2.0 * max(n_baselines, 1)))) + 1.5),
-    )
-    if n_baselines >= 16:
-        med = float(np.median(raw_baselines))
-        mad = float(np.median(np.abs(raw_baselines - med)))
-        noise_floor = med + sigma_thresh * 1.4826 * mad
-    else:
-        noise_floor = 0.0
-    abs_floor = max(legacy_floor, noise_floor)
-
-    survivors: list[dict] = []
-    for j, (col_a, col_b, deg, basis_params_d) in enumerate(cand_meta):
-        emi = float(eng_mi[j])
-        if not np.isfinite(emi):
-            continue
-        baseline_a = float(raw_mi_map.get(col_a, 0.0))
-        baseline_b = float(raw_mi_map.get(col_b, 0.0))
-        baseline = max(baseline_a, baseline_b)
-        uplift = relative_uplift(emi, baseline)
-        if uplift < float(min_uplift):
-            continue
-        if emi < abs_floor:
-            continue
-        survivors.append({
-            "engineered_col": cand_cols[j],
-            "values_idx": j,
-            "col_a": col_a,
-            "col_b": col_b,
-            "basis": str(basis),
-            "degree": int(deg),
-            "engineered_mi": emi,
-            "baseline_mi": baseline,
-            "uplift": float(uplift),
-            "pair_corr": float(pair_corr_map.get((col_a, col_b), 0.0)),
-            "basis_params": basis_params_d,
-        })
+    survivors = _diff_survivors(cand_cols, cand_meta, eng_mi, raw_mi_map, pair_corr_map, basis, min_abs_mi_frac, min_uplift)
 
     survivors.sort(key=lambda d: d["uplift"], reverse=True)
     winners = survivors[: int(top_k)]
 
-    out_cols: dict = {}
-    meta: dict = {}
-    for info in winners:
-        name = str(info["engineered_col"])
-        vals = cand_values[int(info["values_idx"])]
-        out_cols[name] = vals
-        meta[name] = {
-            "col_a": info["col_a"],
-            "col_b": info["col_b"],
-            "basis": info["basis"],
-            "degree": int(info["degree"]),
-            "pair_corr": float(info["pair_corr"]),
-            "engineered_mi": float(info["engineered_mi"]),
-            "baseline_mi": float(info["baseline_mi"]),
-            "uplift": float(info["uplift"]),
-            "basis_params": info.get("basis_params"),
-        }
-    return pd.DataFrame(out_cols, index=X.index), meta
+    return _diff_winners_output(X.index, winners, cand_values)
 
 def _resolve_pairs_and_corr(pairs, X, cols, pair_corr_threshold, max_pairs, _dt):
     """Step 1: the pair list (the explicit one, or the auto-detected correlated pairs) and the pair -> correlation map."""

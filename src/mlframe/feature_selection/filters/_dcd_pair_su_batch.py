@@ -118,54 +118,8 @@ def _validate_batch_joint_entropy_pairs_inputs(a_arr: np.ndarray, b_arr: np.ndar
     _batch_joint_entropy_pairs = None
 
 
-def pair_su_batch(
-    state: Any,
-    pair_indices: Iterable[tuple[int, int]],
-    factors_data: Optional[np.ndarray] = None,
-    factors_nbins: Optional[np.ndarray] = None,
-    entropy_cache: Optional[dict] = None,
-    dtype: type = np.int32,
-) -> np.ndarray:
-    """Compute SU(a, b) for every (a, b) in ``pair_indices`` via a
-    batched marginal-entropy warmup + per-pair joint dispatch.
-
-    Parameters
-    ----------
-    state
-        ``DCDState`` instance owning the pairwise-SU cache + column
-        entropy cache.
-    pair_indices
-        Iterable of (a, b) integer pairs. Order preserved in the output.
-        Duplicate pairs are allowed; each returns the same cached value.
-        Self-pairs ``a == b`` return ``1.0`` for ``distance in ('su',
-        'vi', 'auto', 'sotoca_pla')`` (matches ``pair_su``).
-    factors_data, factors_nbins, dtype
-        Optional overrides for the state-owned data / bin counts /
-        per-sample class-id dtype. Default to ``state.factors_data`` /
-        ``state.factors_nbins`` / ``np.int32`` - mirrors ``pair_su``.
-    entropy_cache
-        Forwarded to the single-pair ``pair_su`` dispatch (unused by
-        the SU/VI branches that consume the per-column cache on state,
-        accepted for symmetric API with ``pair_su``).
-
-    Returns
-    -------
-    np.ndarray
-        ``float64`` array of shape ``(len(pair_indices),)`` holding
-        ``SU(a, b)`` for each input pair in the input order.
-    """
-    # Lazy-import to break the circular dep with the parent module.
-    from ._dynamic_cluster_discovery import pair_su
-
-    pairs_list = list(pair_indices)
-    n_pairs = len(pairs_list)
-    out = np.empty(n_pairs, dtype=np.float64)
-    if n_pairs == 0:
-        return out
-
-    fd = factors_data if factors_data is not None else state.factors_data
-    fn = factors_nbins if factors_nbins is not None else state.factors_nbins
-
+def _warm_marginal_entropies(state: Any, pairs_list: list, fd: Optional[np.ndarray], fn: Optional[np.ndarray], dtype: type) -> None:
+    """Populate ``state.column_entropy_cache`` for every column of the requested pairs that is not cached yet (best-effort; ``pair_su`` fills misses itself)."""
     # Batched marginal-entropy warmup: collect the unique column indices
     # that participate in any pair AND are not already in
     # state.column_entropy_cache, then compute their marginal entropies
@@ -218,6 +172,9 @@ def pair_su_batch(
                 # populated the same entries on miss.
                 pass
 
+
+def _precompute_joint_entropies(state: Any, pairs_list: list, fd: Optional[np.ndarray], fn: Optional[np.ndarray]) -> Optional[dict]:
+    """Compute every not-yet-cached joint entropy in one prange-over-pairs kernel and stash it on ``state``; returns the cache dict (``None`` when not applicable)."""
     # Batch-over-pairs joint-entropy precompute (distance == 'su' only).
     # The genuinely per-pair term is H(X_a, X_b); every other quantity is
     # state-cached. Compute all the not-yet-cached joints in ONE
@@ -265,6 +222,60 @@ def pair_su_batch(
                 logger.warning("batched joint-entropy computation failed, falling back to serial joints: %s", e)
                 _joint_cache = None
                 state._joint_entropy_batch_cache = None
+    return _joint_cache
+
+
+def pair_su_batch(
+    state: Any,
+    pair_indices: Iterable[tuple[int, int]],
+    factors_data: Optional[np.ndarray] = None,
+    factors_nbins: Optional[np.ndarray] = None,
+    entropy_cache: Optional[dict] = None,
+    dtype: type = np.int32,
+) -> np.ndarray:
+    """Compute SU(a, b) for every (a, b) in ``pair_indices`` via a
+    batched marginal-entropy warmup + per-pair joint dispatch.
+
+    Parameters
+    ----------
+    state
+        ``DCDState`` instance owning the pairwise-SU cache + column
+        entropy cache.
+    pair_indices
+        Iterable of (a, b) integer pairs. Order preserved in the output.
+        Duplicate pairs are allowed; each returns the same cached value.
+        Self-pairs ``a == b`` return ``1.0`` for ``distance in ('su',
+        'vi', 'auto', 'sotoca_pla')`` (matches ``pair_su``).
+    factors_data, factors_nbins, dtype
+        Optional overrides for the state-owned data / bin counts /
+        per-sample class-id dtype. Default to ``state.factors_data`` /
+        ``state.factors_nbins`` / ``np.int32`` - mirrors ``pair_su``.
+    entropy_cache
+        Forwarded to the single-pair ``pair_su`` dispatch (unused by
+        the SU/VI branches that consume the per-column cache on state,
+        accepted for symmetric API with ``pair_su``).
+
+    Returns
+    -------
+    np.ndarray
+        ``float64`` array of shape ``(len(pair_indices),)`` holding
+        ``SU(a, b)`` for each input pair in the input order.
+    """
+    # Lazy-import to break the circular dep with the parent module.
+    from ._dynamic_cluster_discovery import pair_su
+
+    pairs_list = list(pair_indices)
+    n_pairs = len(pairs_list)
+    out = np.empty(n_pairs, dtype=np.float64)
+    if n_pairs == 0:
+        return out
+
+    fd = factors_data if factors_data is not None else state.factors_data
+    fn = factors_nbins if factors_nbins is not None else state.factors_nbins
+
+    _warm_marginal_entropies(state, pairs_list, fd, fn, dtype)
+
+    _joint_cache = _precompute_joint_entropies(state, pairs_list, fd, fn)
 
     # Per-pair joint dispatch. ``pair_su`` honours the same cache the
     # warmup populated, so this is the bit-equivalent fall-through.

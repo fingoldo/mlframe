@@ -30,6 +30,7 @@ from .base import (
 from .process_method import _process_single_ensemble_method
 from .flavour_policy import resolve_flavours_for_target_type
 from .score_levels import run_ensembling_levels
+from .score_stages import _GateState, _resolve_effective_n_jobs
 from .score_validate import _validate_score_ensemble_inputs
 from .score_gate import (
     catastrophic_drop_k2,
@@ -50,8 +51,7 @@ from .score_flavours import (
 # ``_build_votenrank_leaderboard_from_results`` lives in ``ensembling.py``
 # (defined after this sibling is loaded), so it can only be imported lazily
 # inside the call site that uses it.
-from pyutilz.parallel import cpu_count_physical, parallel_run
-from pyutilz.pythonlib import is_jupyter_notebook
+from pyutilz.parallel import parallel_run
 
 # Use the parent module's logger name so caplog filters on
 # ``"mlframe.models.ensembling"`` continue to capture our records.
@@ -61,6 +61,268 @@ from pyutilz.pythonlib import is_jupyter_notebook
 logger = logging.getLogger("mlframe.models.ensembling")
 
 
+def _run_quality_gates(
+    *,
+    members_in: Sequence,
+    ensemble_name: str,
+    ensembling_methods: Sequence[str],
+    res: dict,
+    verbose: bool,
+    require_oof_for_gate: bool,
+    coarse_gate_max_mae_relative: float,
+    coarse_gate_max_std_relative: float,
+    max_mae: float,
+    max_std: float,
+    max_mae_relative: float,
+    max_std_relative: float,
+    k2_catastrophic_mae_ratio: float,
+    train_target_arr: Any,
+    val_target_arr: Any,
+    test_target_arr: Any,
+    sample_weight: Optional[np.ndarray],
+    group_ids: Optional[np.ndarray],
+) -> _GateState:
+    """Run the ONE-pass member quality gates (select source split, K>=3 / K=2 catastrophic drop, peer-median gate) before the flavour loop."""
+    members: list = list(members_in)
+    # ONE-pass member quality gate before iterating ensemble flavors. The previous behaviour ran the same outlier
+    # filter inside ``ensemble_probabilistic_predictions`` once per flavor x split, which on a 4-model x 5-flavor x
+    # (full+conf) x 2-split layout printed the same "ens member N excluded ..." line ~20x per suite call. Compute
+    # ONCE here, log the decision once, then pass only kept members to the flavor loop and disable the embedded
+    # filter so no duplicate prints fire.
+    #
+    # Source ordering: OOF preds/probs come FIRST -- the gate's job is to drop members whose preds are outliers vs
+    # the ensemble median, and val_preds are already burned for early-stopping (gating on them double-dips val).
+    # OOF / calib are the ES-free surfaces; else val at a coarse threshold only; never test (``select_gate_source_split``).
+    (
+        _gate_preds_for_check,
+        _gate_source_split,
+        _coarse_gate_active,
+        max_mae,
+        max_std,
+        max_mae_relative,
+        max_std_relative,
+    ) = select_gate_source_split(
+        level_models_and_predictions=members,
+        require_oof_for_gate=require_oof_for_gate,
+        coarse_gate_max_mae_relative=coarse_gate_max_mae_relative,
+        coarse_gate_max_std_relative=coarse_gate_max_std_relative,
+        max_mae=max_mae,
+        max_std=max_std,
+        max_mae_relative=max_mae_relative,
+        max_std_relative=max_std_relative,
+        verbose=verbose,
+    )
+
+    # TWO tag lists:
+    # 1. ``_ensemble_member_tags`` -- full (shim-stripped) class / model names for the per-member quality-gate log line (operators want to see which exact model class was excluded).
+    # 2. ``_ensemble_short_tags`` -- collapsed short tags (``cb`` / ``xgb`` / ``lgb`` / ``hgb`` / non-tree class name) for the rebuilt ensemble label after the gate. Without the short-collapse, the rebuilt label reads ``[CatBoostRegressor+XGBRegressor+LGBMRegressor]`` (38 chars) instead of ``[cb+xgb+lgb]`` (12 chars) -- bloated chart titles + breaks the original short-label contract from core.py.
+    _ensemble_member_tags, _ensemble_short_tags = build_member_tag_lists(members)
+
+    (
+        members,
+        _gate_preds_for_check,
+        _ensemble_member_tags,
+        _ensemble_short_tags,
+    ) = catastrophic_drop_kn(
+        level_models_and_predictions=members,
+        _gate_preds_for_check=_gate_preds_for_check,
+        _gate_source_split=_gate_source_split,
+        _ensemble_member_tags=_ensemble_member_tags,
+        _ensemble_short_tags=_ensemble_short_tags,
+        train_target_arr=train_target_arr,
+        val_target_arr=val_target_arr,
+        test_target_arr=test_target_arr,
+        k2_catastrophic_mae_ratio=k2_catastrophic_mae_ratio,
+        verbose=verbose,
+        res=res,
+    )
+
+    (
+        members,
+        _ensemble_member_tags,
+        _ensemble_short_tags,
+        ensemble_name,
+        _k2_early_return,
+    ) = catastrophic_drop_k2(
+        level_models_and_predictions=members,
+        _gate_preds_for_check=_gate_preds_for_check,
+        _gate_source_split=_gate_source_split,
+        _ensemble_member_tags=_ensemble_member_tags,
+        _ensemble_short_tags=_ensemble_short_tags,
+        ensemble_name=ensemble_name,
+        train_target_arr=train_target_arr,
+        val_target_arr=val_target_arr,
+        test_target_arr=test_target_arr,
+        k2_catastrophic_mae_ratio=k2_catastrophic_mae_ratio,
+        verbose=verbose,
+        res=res,
+    )
+    if _k2_early_return:
+        return _GateState(
+            members, _gate_preds_for_check, _gate_source_split, _ensemble_member_tags, _ensemble_short_tags,
+            ensemble_name, max_mae, max_std, max_mae_relative, max_std_relative, early_return=True,
+        )
+
+    _pre_gate_members = members
+    (
+        members,
+        _ensemble_member_tags,
+        _ensemble_short_tags,
+        ensemble_name,
+        max_mae,
+        max_std,
+        max_mae_relative,
+        max_std_relative,
+        _gate_stats,
+    ) = apply_quality_gate_kn(
+        level_models_and_predictions=members,
+        _gate_preds_for_check=_gate_preds_for_check,
+        _gate_source_split=_gate_source_split,
+        _ensemble_member_tags=_ensemble_member_tags,
+        _ensemble_short_tags=_ensemble_short_tags,
+        ensemble_name=ensemble_name,
+        max_mae=max_mae,
+        max_std=max_std,
+        max_mae_relative=max_mae_relative,
+        max_std_relative=max_std_relative,
+        sample_weight=sample_weight,
+        group_ids=group_ids,
+        ensembling_methods=ensembling_methods,
+        res=res,
+        verbose=verbose,
+    )
+    _gate_preds_for_check = realign_gate_preds(_pre_gate_members, members, _gate_preds_for_check)
+    return _GateState(
+        members, _gate_preds_for_check, _gate_source_split, _ensemble_member_tags, _ensemble_short_tags,
+        ensemble_name, max_mae, max_std, max_mae_relative, max_std_relative, gate_stats=_gate_stats,
+    )
+
+
+def _apply_diversity_and_flavour_filters(
+    gate: _GateState,
+    ensembling_methods: Sequence[str],
+    *,
+    is_regression: bool,
+    verbose: bool,
+    res: dict,
+    diversity_corr_warn_threshold: float,
+    auto_drop_diversity_above: Optional[float],
+    early_exit_if_identical: bool,
+) -> list:
+    """Diversity check/auto-drop (updates ``gate`` members and tags in place) then flavour sign-filter and identical-members collapse."""
+    # Observational diversity check: pairs of kept members whose val-pred Pearson correlation exceeds the threshold are
+    # surfaced via WARN + persisted to the returned dict under ``_diversity.high_correlation_pairs``. Defaults to
+    # observational-only (no member removed); pass ``auto_drop_diversity_above`` to actually drop one of each pair.
+    _high_corr_pairs, _div_split_used = compute_high_correlation_pairs(
+        gate.members,
+        gate.member_tags,
+        threshold=diversity_corr_warn_threshold,
+    )
+    (
+        gate.members,
+        gate.member_tags,
+        gate.short_tags,
+        _auto_dropped,
+    ) = apply_diversity_drop(
+        level_models_and_predictions=gate.members,
+        _ensemble_member_tags=gate.member_tags,
+        _ensemble_short_tags=gate.short_tags,
+        _high_corr_pairs=_high_corr_pairs,
+        _gate_stats=gate.gate_stats,
+        auto_drop_diversity_above=auto_drop_diversity_above,
+        diversity_corr_warn_threshold=diversity_corr_warn_threshold,
+        _div_split_used=_div_split_used,
+        res=res,
+    )
+
+    flavours = filter_sign_sensitive_flavours(
+        ensembling_methods=list(ensembling_methods),
+        is_regression=is_regression,
+        level_models_and_predictions=gate.members,
+        verbose=verbose,
+    )
+
+    return collapse_to_single_flavour_if_identical(
+        ensembling_methods=flavours,
+        early_exit_if_identical=early_exit_if_identical,
+        _gate_preds_for_check=gate.gate_preds,
+        level_models_and_predictions=gate.members,
+        _gate_source_split=gate.source_split,
+        res=res,
+        verbose=verbose,
+    )
+
+
+# Design notes for the ``score_ensemble`` parameters (moved out of the signature, in parameter order):
+# Outlier-member-filter thresholds. The historical absolute defaults
+# (``max_mae=0.05``, ``max_std=0.06``) excluded all 6 members of a
+# uniform tree-model suite (CB / XGB / LGB x 2 weight schemas) on
+# the prod log -- turning the filter into a no-op + 36
+# noisy WARN lines per ensemble. Defaults flipped to relative
+# (``2.5xmedian``); pass non-zero ``max_mae`` / ``max_std`` to keep
+# the legacy behaviour.
+# NO-SW / NO-GROUPS: per-row weights and group identifiers, plumbed through the quality gate,
+# diversity check, member-quality metric aggregation, and downstream weight-fit. Both default
+# to None to preserve legacy unweighted-i.i.d. semantics; ctx auto-passes when available.
+# TargetTypes (or its value): rank-fusion flavours are built only for learning-to-rank (``flavour_policy``); None = infer from members.
+# NO-GUARD-IDENTICAL: short-circuit when every member's predictions on the gate split match
+# numerically (Pearson corr == 1.0 AND elementwise close). One arithmetic-mean ensemble is
+# returned to skip every redundant flavour. Disabled by default so legacy reports keep their
+# shape; opt in via the suite caller.
+# GATE-DOUBLE-DIP: when True, the quality-gate source is restricted to OOF predictions; legacy
+# callers that only stamped val_/test_/train_ preds fall through to the disabled gate path.
+# C-P1-1: default flipped to True. Pre-fix the gate silently fell through to ``val_preds``
+# (the same surface early-stopping already burned) for any member without OOF, biasing the
+# gate-survivors selection. The suite caller (_phase_train_one_target.py) NEVER overrode this
+# so every default suite ran with a val-biased gate. Setting to False explicitly re-enables
+# the legacy fallback chain (oof -> val -> test -> train) when the suite has not stamped OOF.
+# COARSE-GATE-FALLBACK: when require_oof_for_gate=True AND OOF is unavailable, the strict gate
+# skips entirely. That's the right call for FINE thresholds (2.5x median), but it lets
+# CATASTROPHIC outliers survive: prod log had an MLP with R^2=-4.75 sitting in the
+# ensemble alongside three R^2~0.99 members because no member stamped OOF. This fallback runs
+# a SECOND gate at a much higher relative threshold (5x median by default) against the
+# val/test/train fallback chain -- enough to drop the catastrophic disasters while leaving
+# honest near-median members alone. Setting to <=0 disables the coarse fallback entirely.
+# K2-CATASTROPHIC-DROPOUT: when K == 2, the peer-median gate is symmetric
+# (both members are equidistant from (a+b)/2 by construction), so the
+# legacy K=2 branch returned kept-all unconditionally. Observed prod failure
+# had Ridge MAE=7.89 alongside MLP MAE=11442 (ratio = 1450x); the ensemble
+# arithm-mean was MAE=5720 -- half-broken. When true target is available
+# for the gate-source split, this NEW gate compares per-member MAE-to-target
+# directly and drops the obvious catastrophic outlier (ratio >= threshold).
+# Conservative default 20.0 -- only catches disasters, not normal variance
+# between honest models (Ridge vs LightGBM typically differ by <2x MAE).
+# Set <= 1.0 to disable.
+# VOTENRANK: build a votenrank.Leaderboard over the resulting per-flavour metrics and stamp it
+# in the returned dict under ``_leaderboard``. Defaults True for classification; regression-only
+# flavours skip rank-based methods automatically.
+# Stacking-aware gate hook. When True, runs the NNLS-weight gate from composite_stacking on the
+# ensemble's OOF predictions and persists the survivors / weights under ``_stacking_gate``. The
+# gate is observational unless the suite caller wires it into a follow-up linear stack.
+# C-P1-5: default flipped to True. The gate is observational (does not drop members) and
+# surfaces per-member NNLS-weight info operators want for audit; previously this required the
+# suite caller to opt in, so the default suite path lost the diagnostics entirely.
+# AP7: when True, the NNLS weights computed by ``stacking_aware_gate`` are fed into
+# ``combine_probs`` as ``precomputed_weights`` (replacing the uniform 1/M weight on
+# arithm / harm / quad / qube / geo flavours). Default True -- the gate already runs
+# observationally so wiring its output into the blend is the natural finalisation. Set
+# False to restore the legacy uniform-mean behaviour while keeping the NNLS diagnostic.
+# Alternative to NNLS: when True, the blend weights are fit by Caruana greedy selection (metric-direct, hill-climbs
+# AUC on the OOF member preds) instead of the squared-error NNLS fit, fed into ``combine_probs`` via the same
+# ``precomputed_weights`` path. OFF by default (NNLS stays the default weight fit); takes precedence when enabled.
+# Auto-drop one member from each high-correlation pair. The MEMBER WITH HIGHER MEAN ABSOLUTE GATE-METRIC
+# (mae from the gate) is dropped, so the surviving one is the closer to the median.
+#
+# 0.99, not None: the observational-only default meant a production run WARNed that two members correlated at
+# 0.996 and then built five aggregations of them anyway -- all four numeric flavours returned identical test
+# AUC 0.71 and Brier 20.75%, i.e. minutes spent confirming that the mean of two equal numbers is that number.
+# A pair above 0.99 carries no independent information; 0.95-0.98 still does, so the floor leaves genuine
+# diversity untouched. Set None to restore the observe-and-warn behaviour.
+# W16D / A3#3: when True, the simple-ensembling blends (arithm / harm / quad / qube / geo / median) consume
+# AP12-calibrated probs stamped by ``post_calibrate_model`` (``member.calibrated_val_probs`` /
+# ``calibrated_test_probs``) when available, falling back transparently to raw probs on members without the
+# stamp. RRF is rank-based and is bypassed (scale-invariant). Default True per user directive.
+# Set False to restore the legacy raw-probs blend behaviour.
 def score_ensemble(
     models_and_predictions: Sequence,
     ensemble_name: str,
@@ -73,13 +335,6 @@ def score_ensemble(
     test_target: Optional[pd.Series] = None,
     val_target: Optional[pd.Series] = None,
     target_label_encoder: object = None,
-    # Outlier-member-filter thresholds. The historical absolute defaults
-    # (``max_mae=0.05``, ``max_std=0.06``) excluded all 6 members of a
-    # uniform tree-model suite (CB / XGB / LGB x 2 weight schemas) on
-    # the prod log -- turning the filter into a no-op + 36
-    # noisy WARN lines per ensemble. Defaults flipped to relative
-    # (``2.5xmedian``); pass non-zero ``max_mae`` / ``max_std`` to keep
-    # the legacy behaviour.
     max_mae: float = 0.0,
     max_std: float = 0.0,
     max_mae_relative: float = 2.5,
@@ -100,83 +355,21 @@ def score_ensemble(
     flag_degenerate_conf_subset: bool = True,
     degenerate_class_ratio: float = 0.01,
     diversity_corr_warn_threshold: float = 0.98,
-    # NO-SW / NO-GROUPS: per-row weights and group identifiers, plumbed through the quality gate,
-    # diversity check, member-quality metric aggregation, and downstream weight-fit. Both default
-    # to None to preserve legacy unweighted-i.i.d. semantics; ctx auto-passes when available.
     sample_weight: Optional[np.ndarray] = None,
     group_ids: Optional[np.ndarray] = None,
     rrf_k: int = 60,
-    # TargetTypes (or its value): rank-fusion flavours are built only for learning-to-rank (``flavour_policy``); None = infer from members.
     target_type: Any = None,
-    # NO-GUARD-IDENTICAL: short-circuit when every member's predictions on the gate split match
-    # numerically (Pearson corr == 1.0 AND elementwise close). One arithmetic-mean ensemble is
-    # returned to skip every redundant flavour. Disabled by default so legacy reports keep their
-    # shape; opt in via the suite caller.
     early_exit_if_identical: bool = False,
-    # GATE-DOUBLE-DIP: when True, the quality-gate source is restricted to OOF predictions; legacy
-    # callers that only stamped val_/test_/train_ preds fall through to the disabled gate path.
-    # C-P1-1: default flipped to True. Pre-fix the gate silently fell through to ``val_preds``
-    # (the same surface early-stopping already burned) for any member without OOF, biasing the
-    # gate-survivors selection. The suite caller (_phase_train_one_target.py) NEVER overrode this
-    # so every default suite ran with a val-biased gate. Setting to False explicitly re-enables
-    # the legacy fallback chain (oof -> val -> test -> train) when the suite has not stamped OOF.
     require_oof_for_gate: bool = True,
-    # COARSE-GATE-FALLBACK: when require_oof_for_gate=True AND OOF is unavailable, the strict gate
-    # skips entirely. That's the right call for FINE thresholds (2.5x median), but it lets
-    # CATASTROPHIC outliers survive: prod log had an MLP with R^2=-4.75 sitting in the
-    # ensemble alongside three R^2~0.99 members because no member stamped OOF. This fallback runs
-    # a SECOND gate at a much higher relative threshold (5x median by default) against the
-    # val/test/train fallback chain -- enough to drop the catastrophic disasters while leaving
-    # honest near-median members alone. Setting to <=0 disables the coarse fallback entirely.
     coarse_gate_max_mae_relative: float = 5.0,
     coarse_gate_max_std_relative: float = 5.0,
-    # K2-CATASTROPHIC-DROPOUT: when K == 2, the peer-median gate is symmetric
-    # (both members are equidistant from (a+b)/2 by construction), so the
-    # legacy K=2 branch returned kept-all unconditionally. Observed prod failure
-    # had Ridge MAE=7.89 alongside MLP MAE=11442 (ratio = 1450x); the ensemble
-    # arithm-mean was MAE=5720 -- half-broken. When true target is available
-    # for the gate-source split, this NEW gate compares per-member MAE-to-target
-    # directly and drops the obvious catastrophic outlier (ratio >= threshold).
-    # Conservative default 20.0 -- only catches disasters, not normal variance
-    # between honest models (Ridge vs LightGBM typically differ by <2x MAE).
-    # Set <= 1.0 to disable.
     k2_catastrophic_mae_ratio: float = 20.0,
-    # VOTENRANK: build a votenrank.Leaderboard over the resulting per-flavour metrics and stamp it
-    # in the returned dict under ``_leaderboard``. Defaults True for classification; regression-only
-    # flavours skip rank-based methods automatically.
     build_votenrank_leaderboard: bool = True,
-    # Stacking-aware gate hook. When True, runs the NNLS-weight gate from composite_stacking on the
-    # ensemble's OOF predictions and persists the survivors / weights under ``_stacking_gate``. The
-    # gate is observational unless the suite caller wires it into a follow-up linear stack.
-    # C-P1-5: default flipped to True. The gate is observational (does not drop members) and
-    # surfaces per-member NNLS-weight info operators want for audit; previously this required the
-    # suite caller to opt in, so the default suite path lost the diagnostics entirely.
     enable_stacking_aware_gate: bool = True,
     stacking_gate_min_weight: float = 0.05,
-    # AP7: when True, the NNLS weights computed by ``stacking_aware_gate`` are fed into
-    # ``combine_probs`` as ``precomputed_weights`` (replacing the uniform 1/M weight on
-    # arithm / harm / quad / qube / geo flavours). Default True -- the gate already runs
-    # observationally so wiring its output into the blend is the natural finalisation. Set
-    # False to restore the legacy uniform-mean behaviour while keeping the NNLS diagnostic.
     use_nnls_weights: bool = True,
-    # Alternative to NNLS: when True, the blend weights are fit by Caruana greedy selection (metric-direct, hill-climbs
-    # AUC on the OOF member preds) instead of the squared-error NNLS fit, fed into ``combine_probs`` via the same
-    # ``precomputed_weights`` path. OFF by default (NNLS stays the default weight fit); takes precedence when enabled.
     use_caruana_weights: bool = False,
-    # Auto-drop one member from each high-correlation pair. The MEMBER WITH HIGHER MEAN ABSOLUTE GATE-METRIC
-    # (mae from the gate) is dropped, so the surviving one is the closer to the median.
-    #
-    # 0.99, not None: the observational-only default meant a production run WARNed that two members correlated at
-    # 0.996 and then built five aggregations of them anyway -- all four numeric flavours returned identical test
-    # AUC 0.71 and Brier 20.75%, i.e. minutes spent confirming that the mean of two equal numbers is that number.
-    # A pair above 0.99 carries no independent information; 0.95-0.98 still does, so the floor leaves genuine
-    # diversity untouched. Set None to restore the observe-and-warn behaviour.
     auto_drop_diversity_above: Optional[float] = 0.99,
-    # W16D / A3#3: when True, the simple-ensembling blends (arithm / harm / quad / qube / geo / median) consume
-    # AP12-calibrated probs stamped by ``post_calibrate_model`` (``member.calibrated_val_probs`` /
-    # ``calibrated_test_probs``) when available, falling back transparently to raw probs on members without the
-    # stamp. RRF is rank-based and is bypassed (scale-invariant). Default True per user directive.
-    # Set False to restore the legacy raw-probs blend behaviour.
     use_ap12_calibrated_probs: bool = True,
     **kwargs,
 ) -> dict:
@@ -210,202 +403,51 @@ def score_ensemble(
         return res
     ensembling_methods = resolve_flavours_for_target_type(ensembling_methods, target_type, is_regression, verbose)
 
-    # Determine sample count for parallelization decision
-    first_pred = level_models_and_predictions[0]
-    if first_pred.val_probs is not None:
-        n_samples = len(first_pred.val_probs)
-    elif first_pred.val_preds is not None:
-        n_samples = len(first_pred.val_preds)
-    else:
-        n_samples = 0
-
-    # Determine n_jobs if not specified
-    effective_n_jobs = n_jobs
-    if effective_n_jobs is None:
-        if n_samples >= min_samples_for_parallel and not is_jupyter_notebook():
-            effective_n_jobs = min(len(ensembling_methods), cpu_count_physical())
-        else:
-            effective_n_jobs = 1
+    effective_n_jobs = _resolve_effective_n_jobs(level_models_and_predictions[0], len(ensembling_methods), n_jobs, min_samples_for_parallel)
 
     # Convert pandas Series to numpy arrays before parallel section to avoid pickling issues
-    train_target_arr = train_target.to_numpy() if isinstance(train_target, pd.Series) else train_target
-    test_target_arr = test_target.to_numpy() if isinstance(test_target, pd.Series) else test_target
-    val_target_arr = val_target.to_numpy() if isinstance(val_target, pd.Series) else val_target
-    target_arr = target.to_numpy() if isinstance(target, pd.Series) else target
+    train_target_arr, test_target_arr, val_target_arr, target_arr = (
+        t.to_numpy() if isinstance(t, pd.Series) else t for t in (train_target, test_target, val_target, target)
+    )
 
-    # ONE-pass member quality gate before iterating ensemble flavors. The previous behaviour ran the same outlier
-    # filter inside ``ensemble_probabilistic_predictions`` once per flavor x split, which on a 4-model x 5-flavor x
-    # (full+conf) x 2-split layout printed the same "ens member N excluded ..." line ~20x per suite call. Compute
-    # ONCE here, log the decision once, then pass only kept members to the flavor loop and disable the embedded
-    # filter so no duplicate prints fire.
-    #
-    # Source ordering: OOF preds/probs come FIRST -- the gate's job is to drop members whose preds are outliers vs
-    # the ensemble median, and val_preds are already burned for early-stopping (gating on them double-dips val).
-    # OOF / calib are the ES-free surfaces; else val at a coarse threshold only; never test (``select_gate_source_split``).
-    (
-        _gate_preds_for_check,
-        _gate_source_split,
-        _coarse_gate_active,
-        max_mae,
-        max_std,
-        max_mae_relative,
-        max_std_relative,
-    ) = select_gate_source_split(
-        level_models_and_predictions=level_models_and_predictions,
+    gate = _run_quality_gates(
+        members_in=level_models_and_predictions,
+        ensemble_name=ensemble_name, ensembling_methods=ensembling_methods, res=res, verbose=verbose,
         require_oof_for_gate=require_oof_for_gate,
-        coarse_gate_max_mae_relative=coarse_gate_max_mae_relative,
-        coarse_gate_max_std_relative=coarse_gate_max_std_relative,
-        max_mae=max_mae,
-        max_std=max_std,
-        max_mae_relative=max_mae_relative,
-        max_std_relative=max_std_relative,
-        verbose=verbose,
-    )
-
-    # TWO tag lists:
-    # 1. ``_ensemble_member_tags`` -- full (shim-stripped) class / model names for the per-member quality-gate log line (operators want to see which exact model class was excluded).
-    # 2. ``_ensemble_short_tags`` -- collapsed short tags (``cb`` / ``xgb`` / ``lgb`` / ``hgb`` / non-tree class name) for the rebuilt ensemble label after the gate. Without the short-collapse, the rebuilt label reads ``[CatBoostRegressor+XGBRegressor+LGBMRegressor]`` (38 chars) instead of ``[cb+xgb+lgb]`` (12 chars) -- bloated chart titles + breaks the original short-label contract from core.py.
-    _ensemble_member_tags, _ensemble_short_tags = build_member_tag_lists(level_models_and_predictions)
-
-    (
-        level_models_and_predictions,
-        _gate_preds_for_check,
-        _ensemble_member_tags,
-        _ensemble_short_tags,
-    ) = catastrophic_drop_kn(
-        level_models_and_predictions=level_models_and_predictions,
-        _gate_preds_for_check=_gate_preds_for_check,
-        _gate_source_split=_gate_source_split,
-        _ensemble_member_tags=_ensemble_member_tags,
-        _ensemble_short_tags=_ensemble_short_tags,
-        train_target_arr=train_target_arr,
-        val_target_arr=val_target_arr,
-        test_target_arr=test_target_arr,
+        coarse_gate_max_mae_relative=coarse_gate_max_mae_relative, coarse_gate_max_std_relative=coarse_gate_max_std_relative,
+        max_mae=max_mae, max_std=max_std, max_mae_relative=max_mae_relative, max_std_relative=max_std_relative,
         k2_catastrophic_mae_ratio=k2_catastrophic_mae_ratio,
-        verbose=verbose,
-        res=res,
+        train_target_arr=train_target_arr, val_target_arr=val_target_arr, test_target_arr=test_target_arr,
+        sample_weight=sample_weight, group_ids=group_ids,
     )
-
-    (
-        level_models_and_predictions,
-        _ensemble_member_tags,
-        _ensemble_short_tags,
-        ensemble_name,
-        _k2_early_return,
-    ) = catastrophic_drop_k2(
-        level_models_and_predictions=level_models_and_predictions,
-        _gate_preds_for_check=_gate_preds_for_check,
-        _gate_source_split=_gate_source_split,
-        _ensemble_member_tags=_ensemble_member_tags,
-        _ensemble_short_tags=_ensemble_short_tags,
-        ensemble_name=ensemble_name,
-        train_target_arr=train_target_arr,
-        val_target_arr=val_target_arr,
-        test_target_arr=test_target_arr,
-        k2_catastrophic_mae_ratio=k2_catastrophic_mae_ratio,
-        verbose=verbose,
-        res=res,
-    )
-    if _k2_early_return:
+    if gate.early_return:
         return res
 
-    _pre_gate_members = level_models_and_predictions
-    (
-        level_models_and_predictions,
-        _ensemble_member_tags,
-        _ensemble_short_tags,
-        ensemble_name,
-        max_mae,
-        max_std,
-        max_mae_relative,
-        max_std_relative,
-        _gate_stats,
-    ) = apply_quality_gate_kn(
-        level_models_and_predictions=level_models_and_predictions,
-        _gate_preds_for_check=_gate_preds_for_check,
-        _gate_source_split=_gate_source_split,
-        _ensemble_member_tags=_ensemble_member_tags,
-        _ensemble_short_tags=_ensemble_short_tags,
-        ensemble_name=ensemble_name,
-        max_mae=max_mae,
-        max_std=max_std,
-        max_mae_relative=max_mae_relative,
-        max_std_relative=max_std_relative,
-        sample_weight=sample_weight,
-        group_ids=group_ids,
-        ensembling_methods=ensembling_methods,
-        res=res,
-        verbose=verbose,
-    )
-    _gate_preds_for_check = realign_gate_preds(_pre_gate_members, level_models_and_predictions, _gate_preds_for_check)
-
-    # Observational diversity check: pairs of kept members whose val-pred Pearson correlation exceeds the threshold are
-    # surfaced via WARN + persisted to the returned dict under ``_diversity.high_correlation_pairs``. Defaults to
-    # observational-only (no member removed); pass ``auto_drop_diversity_above`` to actually drop one of each pair.
-    _high_corr_pairs, _div_split_used = compute_high_correlation_pairs(
-        level_models_and_predictions,
-        _ensemble_member_tags,
-        threshold=diversity_corr_warn_threshold,
-    )
-    (
-        level_models_and_predictions,
-        _ensemble_member_tags,
-        _ensemble_short_tags,
-        _auto_dropped,
-    ) = apply_diversity_drop(
-        level_models_and_predictions=level_models_and_predictions,
-        _ensemble_member_tags=_ensemble_member_tags,
-        _ensemble_short_tags=_ensemble_short_tags,
-        _high_corr_pairs=_high_corr_pairs,
-        _gate_stats=_gate_stats,
-        auto_drop_diversity_above=auto_drop_diversity_above,
-        diversity_corr_warn_threshold=diversity_corr_warn_threshold,
-        _div_split_used=_div_split_used,
-        res=res,
-    )
-
-    ensembling_methods = filter_sign_sensitive_flavours(
-        ensembling_methods=list(ensembling_methods),
-        is_regression=is_regression,
-        level_models_and_predictions=level_models_and_predictions,
-        verbose=verbose,
-    )
-
-    ensembling_methods = collapse_to_single_flavour_if_identical(
-        ensembling_methods=ensembling_methods,
+    ensembling_methods = _apply_diversity_and_flavour_filters(
+        gate, ensembling_methods, is_regression=is_regression, verbose=verbose, res=res,
+        diversity_corr_warn_threshold=diversity_corr_warn_threshold, auto_drop_diversity_above=auto_drop_diversity_above,
         early_exit_if_identical=early_exit_if_identical,
-        _gate_preds_for_check=_gate_preds_for_check,
-        level_models_and_predictions=level_models_and_predictions,
-        _gate_source_split=_gate_source_split,
-        res=res,
-        verbose=verbose,
     )
+    level_models_and_predictions = gate.members
 
     _nnls_weights_for_blend = run_stacking_aware_gate(
-        enable_stacking_aware_gate=enable_stacking_aware_gate,
-        _gate_preds_for_check=_gate_preds_for_check,
-        target_arr=resolve_gate_target_arr(_gate_source_split, train_target_arr, val_target_arr, test_target_arr, level_models_and_predictions),
+        enable_stacking_aware_gate=enable_stacking_aware_gate, _gate_preds_for_check=gate.gate_preds,
+        target_arr=resolve_gate_target_arr(gate.source_split, train_target_arr, val_target_arr, test_target_arr, level_models_and_predictions),
         level_models_and_predictions=level_models_and_predictions,
-        _ensemble_member_tags=_ensemble_member_tags,
+        _ensemble_member_tags=gate.member_tags,
         stacking_gate_min_weight=stacking_gate_min_weight,
-        use_nnls_weights=use_nnls_weights,
-        use_caruana_weights=use_caruana_weights,
-        res=res,
-        verbose=verbose,
+        use_nnls_weights=use_nnls_weights, use_caruana_weights=use_caruana_weights, res=res, verbose=verbose,
     )
 
     run_ensembling_levels(
-        res=res,
-        level_models_and_predictions=level_models_and_predictions,
-        ensembling_methods=ensembling_methods,
-        max_ensembling_level=max_ensembling_level,
-        effective_n_jobs=effective_n_jobs,
+        res=res, level_models_and_predictions=level_models_and_predictions, ensembling_methods=ensembling_methods,
+        max_ensembling_level=max_ensembling_level, effective_n_jobs=effective_n_jobs,
         base_params=dict(
-            is_regression=is_regression, ensemble_name=ensemble_name, target=target_arr,
+            is_regression=is_regression, ensemble_name=gate.ensemble_name, target=target_arr,
             train_idx=train_idx, test_idx=test_idx, val_idx=val_idx,
             train_target=train_target_arr, test_target=test_target_arr, val_target=val_target_arr,
-            target_label_encoder=target_label_encoder, max_mae=max_mae, max_std=max_std,
-            max_mae_relative=max_mae_relative, max_std_relative=max_std_relative, ensure_prob_limits=ensure_prob_limits,
+            target_label_encoder=target_label_encoder, max_mae=gate.max_mae, max_std=gate.max_std,
+            max_mae_relative=gate.max_mae_relative, max_std_relative=gate.max_std_relative, ensure_prob_limits=ensure_prob_limits,
             nbins=nbins, uncertainty_quantile=uncertainty_quantile, normalize_stds_by_mean_preds=normalize_stds_by_mean_preds,
             custom_ice_metric=custom_ice_metric, custom_rice_metric=custom_rice_metric, subgroups=subgroups,
             n_features=n_features, verbose=verbose, kwargs=kwargs,

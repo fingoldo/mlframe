@@ -186,6 +186,179 @@ def _shannon_entropy_nats(codes: np.ndarray, nbins_hint: int = 0) -> float:
     return float(-(p * np.log(p)).sum())
 
 
+def _validated_target(v: Any, data: np.ndarray, nbins: np.ndarray, y_continuous: np.ndarray, target_col_idx: int, sel: list, raws: list) -> tuple:
+    """Degenerate-input guards plus the ``H(y)`` check on the discretised target; ``y`` is ``None`` (with ``v.reason`` set) when sufficiency cannot be tested."""
+    # --- Degenerate-input guards: never skip when we cannot prove sufficiency. ---
+    if len(sel) == 0 or len(raws) == 0:
+        v.reason = "no selected features or no raw pool"
+        return None, 0
+    n = int(data.shape[0])
+    if n < 16:
+        v.reason = "too few rows for a reliable residual test"
+        return None, 0
+
+    y = np.asarray(y_continuous, dtype=np.float64).reshape(-1)
+    if y.shape[0] != n or not np.all(np.isfinite(y)):
+        v.reason = "continuous target unavailable / non-finite"
+        return None, 0
+    if float(np.std(y)) <= 1e-12:
+        v.reason = "constant target"
+        return None, 0
+
+    # --- H(y) on the discretised target (the resolution the screen used). ---
+    y_nbins = int(nbins[int(target_col_idx)]) if 0 <= int(target_col_idx) < len(nbins) else 0
+    y_codes = np.ascontiguousarray(data[:, int(target_col_idx)]).astype(np.int64, copy=False)
+    h_y = _shannon_entropy_nats(y_codes, nbins_hint=y_nbins)
+    if h_y <= 1e-9:
+        v.reason = "degenerate (single-class) target"
+        return None, 0
+    return y, n
+
+
+def _ridge_residual(v: Any, design_cols: list, y: np.ndarray, n: int, ridge_alpha: float) -> Optional[np.ndarray]:
+    """Residual ``y - E_hat[y | selected]`` of the cheap standardised ridge fit; ``None`` (with ``v.reason`` set) when the fit is unusable."""
+    Z = np.column_stack(design_cols)  # (n, k)
+    # Standardise columns (zero mean / unit std) so the single ridge_alpha is scale-free
+    # and collinear columns are handled by the L2 term rather than by an ill-conditioned
+    # normal matrix (adversarial case (e): redundant / collinear selected features).
+    mu = Z.mean(axis=0)
+    sd = Z.std(axis=0)
+    sd_safe = np.where(sd > 1e-12, sd, 1.0)
+    Zs = (Z - mu) / sd_safe
+    # Drop columns that are constant after centring (std 0) - they carry no fit signal
+    # and would only add a zero column.
+    keep = sd > 1e-12
+    if not np.any(keep):
+        v.reason = "all selected design columns constant"
+        return None
+    Zs = Zs[:, keep]
+    k = Zs.shape[1]
+
+    # Ridge closed form on the standardised design with an intercept handled by centring
+    # y. r = y - (y_bar + Zs @ beta).  beta = (Zs^T Zs + alpha*I)^-1 Zs^T (y - y_bar).
+    y_bar = float(y.mean())
+    yc = y - y_bar
+    ZtZ = Zs.T @ Zs
+    reg = float(ridge_alpha) * float(n) * np.eye(k)  # scale alpha by n so it tracks ZtZ's magnitude
+    try:
+        beta = np.linalg.solve(ZtZ + reg, Zs.T @ yc)
+    except np.linalg.LinAlgError:
+        beta, *_ = np.linalg.lstsq(ZtZ + reg, Zs.T @ yc, rcond=None)
+    y_hat = y_bar + Zs @ beta
+    r = y - y_hat
+    if not np.all(np.isfinite(r)):
+        v.reason = "non-finite residual from the cheap fit"
+        return None
+    v.residual = r  # surface the continuous residual for the residual-targeted FE step (when blocked below)
+    return np.asarray(r)
+
+
+def _residual_too_large(v: Any, y: np.ndarray, r: np.ndarray, residual_entropy_frac: float, verbose: int) -> bool:
+    """H(y)-relative residual-size guard: ``True`` (with ``v.reason`` set) when the residual still carries too much of ``Var(y)`` to stop FE."""
+    # --- H(y)-RELATIVE RESIDUAL-SIZE GUARD: the residual must be SMALL relative to y. ---
+    # The size measure is the UNEXPLAINED VARIANCE FRACTION ``Var(r)/Var(y)`` (== 1 - R^2),
+    # which is the faithful, GRID-FREE realisation of "residual small relative to H(y)":
+    # for matched (e.g. Gaussian) families the differential entropy is
+    # ``H = 0.5*log(2*pi*e*Var)``, so ``Var(r)/Var(y) = exp(2*(H(r) - H(y)))`` - the
+    # variance ratio is a strictly-monotone transform of the H(y)-relative entropy gap, and
+    # unlike a binned-entropy ratio it does NOT suffer the equi-frequency artefact (any
+    # non-constant residual fills equal-occupancy bins -> ratio ~1.0) NOR the fixed-grid
+    # edge-straddle artefact (a tiny residual splitting across one bin boundary spuriously
+    # reads H=log 2). A pure-noise / under-fit target keeps ``Var(r) ~ Var(y)`` -> ratio
+    # ~1.0 -> the guard BLOCKS the stop (the load-bearing protection against a false stop on
+    # a target with no signal left to find). ``residual_entropy_frac`` names the knob for
+    # continuity with the design; it gates on this variance fraction.
+    var_y = float(np.var(y))
+    var_r = float(np.var(r))
+    v.residual_entropy_frac = float(var_r / var_y) if var_y > 1e-18 else float("inf")
+
+    # Tested FIRST and as a hard precondition: a pure-noise / under-fit target keeps a
+    # large residual, so we never stop there even if all raws sit at the null.
+    if v.residual_entropy_frac > float(residual_entropy_frac):
+        v.reason = (
+            f"residual still carries {v.residual_entropy_frac:.3f} of Var(y) " f"(1 - R^2 > guard {float(residual_entropy_frac):.3f}); not a sufficient summary"
+        )
+        if verbose:
+            logger.info("MRMR sufficient-summary: %s -> continue FE.", v.reason)
+        return True
+    return False
+
+
+def _raw_code_matrix(data: np.ndarray, nbins: np.ndarray, raws: list, n: int) -> tuple:
+    """Int64 codes and bin counts of the raw pool columns; returns ``(raw_codes, raw_nbins)``."""
+    raw_codes = np.empty((n, len(raws)), dtype=np.int64)
+    raw_nbins = np.empty(len(raws), dtype=np.int64)
+    for j, ci in enumerate(raws):
+        raw_codes[:, j] = np.ascontiguousarray(data[:, ci]).astype(np.int64, copy=False)
+        raw_nbins[j] = int(nbins[ci])
+    return raw_codes, raw_nbins
+
+
+def _maxt_residual_test(
+    v: Any, raws: list, raw_codes: np.ndarray, raw_nbins: np.ndarray, r_codes: np.ndarray, n: int, maxt_permutations: int, maxt_quantile: float,
+    cardinality_bias_correction: bool, random_seed: Optional[int],
+) -> tuple:
+    """maxT test of the residual against every raw: the best-of-pool permutation floor and the per-raw debiased MI; returns ``(floor, max_mi, blocking_raw)``."""
+    from ._permutation_null import pooled_permutation_null_gain_floor
+
+    # --- maxT residual test: MI(r; x_j) vs the best-of-pool permutation null. ---
+    # Build a temporary matrix [raws..., r] so the SHIPPED order-1 floor + the per-raw MI
+    # are scored on the IDENTICAL discretised arrays (consistent estimator on both sides).
+    # Append the residual codes as the "target" column.
+    mat = np.empty((n, len(raws) + 1), dtype=np.int64)
+    mat[:, : len(raws)] = raw_codes
+    mat[:, len(raws)] = r_codes
+    mat_nbins = np.empty(len(raws) + 1, dtype=np.int64)
+    mat_nbins[: len(raws)] = raw_nbins
+    mat_nbins[len(raws)] = int(r_codes.max()) + 1 if r_codes.size else 1
+    r_target_idx = len(raws)
+    cand_idx = np.arange(len(raws), dtype=np.int64)
+
+    floor = pooled_permutation_null_gain_floor(
+        mat, mat_nbins, cand_idx, r_target_idx,
+        n_permutations=int(maxt_permutations),
+        quantile=float(maxt_quantile),
+        cardinality_bias_correction=bool(cardinality_bias_correction),
+        random_seed=random_seed,
+    )
+    v.maxt_floor = float(floor)
+
+    # Per-raw observed MI(r; x_j), Miller-Madow debiased to match the floor's scale.
+    r_counts = np.bincount(r_codes, minlength=int(r_codes.max()) + 1).astype(np.float64)
+    kr = int((r_counts > 0).sum())
+    inv_n = 1.0 / n
+    pr = r_counts[r_counts > 0] * inv_n
+    h_r_nats = float(-(pr * np.log(pr)).sum())
+
+    max_mi = 0.0
+    blocking = -1
+    per_raw = {}
+    for j, ci in enumerate(raws):
+        xc = raw_codes[:, j]
+        nbx = int(raw_nbins[j])
+        if nbx < 2:
+            per_raw[ci] = 0.0
+            continue
+        xcounts = np.bincount(xc, minlength=nbx).astype(np.float64)
+        px = xcounts[xcounts > 0] * inv_n
+        h_x = float(-(px * np.log(px)).sum())
+        joint = xc.astype(np.int64) * (int(r_codes.max()) + 1) + r_codes
+        jc = np.bincount(joint).astype(np.float64)
+        jc = jc[jc > 0] * inv_n
+        h_xr = float(-(jc * np.log(jc)).sum())
+        mi = h_x + h_r_nats - h_xr
+        if cardinality_bias_correction:
+            mi -= (nbx - 1) * (kr - 1) / (2.0 * n)
+        mi = max(0.0, mi)
+        per_raw[ci] = float(mi)
+        if mi > max_mi:
+            max_mi = mi
+            blocking = ci
+    v.per_raw_mi = per_raw
+    v.max_raw_mi = float(max_mi)
+    return floor, max_mi, blocking
+
+
 def sufficient_summary_reached(
     *,
     data: np.ndarray,
@@ -244,37 +417,14 @@ def sufficient_summary_reached(
     SufficientSummaryVerdict
         ``reached=True`` only when the entropy guard AND the all-raws maxT test both pass.
     """
-    from ._permutation_null import pooled_permutation_null_gain_floor
-
     v = SufficientSummaryVerdict()
     sel = [int(i) for i in selected_cols_idx]
     raws = [int(i) for i in raw_cols_idx]
     v.n_selected = len(sel)
     v.n_raw_tested = len(raws)
 
-    # --- Degenerate-input guards: never skip when we cannot prove sufficiency. ---
-    if len(sel) == 0 or len(raws) == 0:
-        v.reason = "no selected features or no raw pool"
-        return v
-    n = int(data.shape[0])
-    if n < 16:
-        v.reason = "too few rows for a reliable residual test"
-        return v
-
-    y = np.asarray(y_continuous, dtype=np.float64).reshape(-1)
-    if y.shape[0] != n or not np.all(np.isfinite(y)):
-        v.reason = "continuous target unavailable / non-finite"
-        return v
-    if float(np.std(y)) <= 1e-12:
-        v.reason = "constant target"
-        return v
-
-    # --- H(y) on the discretised target (the resolution the screen used). ---
-    y_nbins = int(nbins[int(target_col_idx)]) if 0 <= int(target_col_idx) < len(nbins) else 0
-    y_codes = np.ascontiguousarray(data[:, int(target_col_idx)]).astype(np.int64, copy=False)
-    h_y = _shannon_entropy_nats(y_codes, nbins_hint=y_nbins)
-    if h_y <= 1e-9:
-        v.reason = "degenerate (single-class) target"
+    y, n = _validated_target(v, data, nbins, y_continuous, target_col_idx, sel, raws)
+    if y is None:
         return v
 
     # --- Build the SMALL design matrix for E_hat[y | selected]. ---
@@ -288,37 +438,8 @@ def sufficient_summary_reached(
         v.reason = "no usable design columns for the cheap fit"
         return v
 
-    Z = np.column_stack(design_cols)  # (n, k)
-    # Standardise columns (zero mean / unit std) so the single ridge_alpha is scale-free
-    # and collinear columns are handled by the L2 term rather than by an ill-conditioned
-    # normal matrix (adversarial case (e): redundant / collinear selected features).
-    mu = Z.mean(axis=0)
-    sd = Z.std(axis=0)
-    sd_safe = np.where(sd > 1e-12, sd, 1.0)
-    Zs = (Z - mu) / sd_safe
-    # Drop columns that are constant after centring (std 0) - they carry no fit signal
-    # and would only add a zero column.
-    keep = sd > 1e-12
-    if not np.any(keep):
-        v.reason = "all selected design columns constant"
-        return v
-    Zs = Zs[:, keep]
-    k = Zs.shape[1]
-
-    # Ridge closed form on the standardised design with an intercept handled by centring
-    # y. r = y - (y_bar + Zs @ beta).  beta = (Zs^T Zs + alpha*I)^-1 Zs^T (y - y_bar).
-    y_bar = float(y.mean())
-    yc = y - y_bar
-    ZtZ = Zs.T @ Zs
-    reg = float(ridge_alpha) * float(n) * np.eye(k)  # scale alpha by n so it tracks ZtZ's magnitude
-    try:
-        beta = np.linalg.solve(ZtZ + reg, Zs.T @ yc)
-    except np.linalg.LinAlgError:
-        beta, *_ = np.linalg.lstsq(ZtZ + reg, Zs.T @ yc, rcond=None)
-    y_hat = y_bar + Zs @ beta
-    r = y - y_hat
-    if not np.all(np.isfinite(r)):
-        v.reason = "non-finite residual from the cheap fit"
+    r = _ridge_residual(v, design_cols, y, n, ridge_alpha)
+    if r is None:
         return v
     v.residual = r  # surface the continuous residual for the residual-targeted FE step (when blocked below)
 
@@ -342,93 +463,13 @@ def sufficient_summary_reached(
     edges_eqf = np.nanpercentile(r, np.linspace(0, 100, q_nbins + 1))
     r_codes = np.searchsorted(edges_eqf[1:-1], r, side="right").astype(np.int64)
 
-    # --- H(y)-RELATIVE RESIDUAL-SIZE GUARD: the residual must be SMALL relative to y. ---
-    # The size measure is the UNEXPLAINED VARIANCE FRACTION ``Var(r)/Var(y)`` (== 1 - R^2),
-    # which is the faithful, GRID-FREE realisation of "residual small relative to H(y)":
-    # for matched (e.g. Gaussian) families the differential entropy is
-    # ``H = 0.5*log(2*pi*e*Var)``, so ``Var(r)/Var(y) = exp(2*(H(r) - H(y)))`` - the
-    # variance ratio is a strictly-monotone transform of the H(y)-relative entropy gap, and
-    # unlike a binned-entropy ratio it does NOT suffer the equi-frequency artefact (any
-    # non-constant residual fills equal-occupancy bins -> ratio ~1.0) NOR the fixed-grid
-    # edge-straddle artefact (a tiny residual splitting across one bin boundary spuriously
-    # reads H=log 2). A pure-noise / under-fit target keeps ``Var(r) ~ Var(y)`` -> ratio
-    # ~1.0 -> the guard BLOCKS the stop (the load-bearing protection against a false stop on
-    # a target with no signal left to find). ``residual_entropy_frac`` names the knob for
-    # continuity with the design; it gates on this variance fraction.
-    var_y = float(np.var(y))
-    var_r = float(np.var(r))
-    v.residual_entropy_frac = float(var_r / var_y) if var_y > 1e-18 else float("inf")
-
-    # Tested FIRST and as a hard precondition: a pure-noise / under-fit target keeps a
-    # large residual, so we never stop there even if all raws sit at the null.
-    if v.residual_entropy_frac > float(residual_entropy_frac):
-        v.reason = (
-            f"residual still carries {v.residual_entropy_frac:.3f} of Var(y) " f"(1 - R^2 > guard {float(residual_entropy_frac):.3f}); not a sufficient summary"
-        )
-        if verbose:
-            logger.info("MRMR sufficient-summary: %s -> continue FE.", v.reason)
+    if _residual_too_large(v, y, r, residual_entropy_frac, verbose):
         return v
 
-    # --- maxT residual test: MI(r; x_j) vs the best-of-pool permutation null. ---
-    # Build a temporary matrix [raws..., r] so the SHIPPED order-1 floor + the per-raw MI
-    # are scored on the IDENTICAL discretised arrays (consistent estimator on both sides).
-    raw_codes = np.empty((n, len(raws)), dtype=np.int64)
-    raw_nbins = np.empty(len(raws), dtype=np.int64)
-    for j, ci in enumerate(raws):
-        raw_codes[:, j] = np.ascontiguousarray(data[:, ci]).astype(np.int64, copy=False)
-        raw_nbins[j] = int(nbins[ci])
-    # Append the residual codes as the "target" column.
-    mat = np.empty((n, len(raws) + 1), dtype=np.int64)
-    mat[:, : len(raws)] = raw_codes
-    mat[:, len(raws)] = r_codes
-    mat_nbins = np.empty(len(raws) + 1, dtype=np.int64)
-    mat_nbins[: len(raws)] = raw_nbins
-    mat_nbins[len(raws)] = int(r_codes.max()) + 1 if r_codes.size else 1
-    r_target_idx = len(raws)
-    cand_idx = np.arange(len(raws), dtype=np.int64)
-
-    floor = pooled_permutation_null_gain_floor(
-        mat, mat_nbins, cand_idx, r_target_idx,
-        n_permutations=int(maxt_permutations),
-        quantile=float(maxt_quantile),
-        cardinality_bias_correction=bool(cardinality_bias_correction),
-        random_seed=random_seed,
+    raw_codes, raw_nbins = _raw_code_matrix(data, nbins, raws, n)
+    floor, max_mi, blocking = _maxt_residual_test(
+        v, raws, raw_codes, raw_nbins, r_codes, n, maxt_permutations, maxt_quantile, cardinality_bias_correction, random_seed,
     )
-    v.maxt_floor = float(floor)
-
-    # Per-raw observed MI(r; x_j), Miller-Madow debiased to match the floor's scale.
-    r_counts = np.bincount(r_codes, minlength=int(r_codes.max()) + 1).astype(np.float64)
-    kr = int((r_counts > 0).sum())
-    inv_n = 1.0 / n
-    pr = r_counts[r_counts > 0] * inv_n
-    h_r_nats = float(-(pr * np.log(pr)).sum())
-
-    max_mi = 0.0
-    blocking = -1
-    per_raw = {}
-    for j, ci in enumerate(raws):
-        xc = raw_codes[:, j]
-        nbx = int(raw_nbins[j])
-        if nbx < 2:
-            per_raw[ci] = 0.0
-            continue
-        xcounts = np.bincount(xc, minlength=nbx).astype(np.float64)
-        px = xcounts[xcounts > 0] * inv_n
-        h_x = float(-(px * np.log(px)).sum())
-        joint = xc.astype(np.int64) * (int(r_codes.max()) + 1) + r_codes
-        jc = np.bincount(joint).astype(np.float64)
-        jc = jc[jc > 0] * inv_n
-        h_xr = float(-(jc * np.log(jc)).sum())
-        mi = h_x + h_r_nats - h_xr
-        if cardinality_bias_correction:
-            mi -= (nbx - 1) * (kr - 1) / (2.0 * n)
-        mi = max(0.0, mi)
-        per_raw[ci] = float(mi)
-        if mi > max_mi:
-            max_mi = mi
-            blocking = ci
-    v.per_raw_mi = per_raw
-    v.max_raw_mi = float(max_mi)
 
     if max_mi > floor:
         # A raw still carries leftover information about the residual -> a future

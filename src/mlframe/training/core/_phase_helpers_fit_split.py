@@ -19,8 +19,6 @@ from typing import (
 import numpy as np
 import pandas as pd
 
-from ..phases import phase
-
 try:
     import polars as pl
 except ImportError:
@@ -42,17 +40,20 @@ from ._misc_helpers import (
 )
 from ..preprocessing import (
     create_split_dataframes,
-    save_split_artifacts,
 )
 from ..utils import (
-    get_process_rss_mb,
     log_phase,
     log_ram_usage,
-    maybe_clean_ram_and_gpu,
 )
-from ..splitting import make_train_test_split
 from .._chronological_order import apply_chronological_train_order
-from .._fixed_splits import has_pinned_splits, pinned_train_val_test_split, record_split_membership, split_dir_for
+from ._phase_helpers_split_steps import (
+    _carve_calib_df,
+    _log_group_stratify_mode,
+    _post_split_cleanup,
+    _record_split_outputs,
+    _run_split_data,
+    _split_sequences,
+)
 from ._setup_helpers import _compute_fairness_subgroups
 
 
@@ -259,128 +260,43 @@ def _phase_train_val_test_split(
     # Group-aware splitting opt-in: when the extractor produced ``group_ids`` and
     # ``split_config.use_groups`` is set, route through GroupShuffleSplit.
     _groups = group_ids if (split_config.use_groups and group_ids is not None and len(group_ids) > 0) else None
-    # Group + bucket combination: ``make_train_test_split`` now routes
-    # the 1-D case through sklearn's ``StratifiedGroupKFold`` (sklearn
-    # >=1.0) which preserves the class / regression-bucket distribution
-    # while keeping whole groups together -- both invariants honoured by
-    # the same splitter. The 2-D multilabel case still requires
-    # ``MultilabelStratifiedGroupKFold`` from iterative-stratification;
-    # the splitter detects + falls back to GroupShuffleSplit when that
-    # package is absent.
-    if _groups is not None and _stratify_y is not None:
-        _strat_arr = np.asarray(_stratify_y)
-        if _strat_arr.ndim == 2:
-            try:
-                from iterstrat.ml_stratifiers import (  # noqa: F401
-                    MultilabelStratifiedGroupKFold,
-                )
-
-                _has_multilabel_iterstrat = True
-            except ImportError:
-                _has_multilabel_iterstrat = False
-            if not _has_multilabel_iterstrat:
-                logger.warning(
-                    "Bucket-stratify: 2-D (multilabel) stratify_y + groups; "
-                    "iterative-stratification not installed. Splitter will "
-                    "stratify on a derived 1-D composite label-combination id "
-                    "(joint balance preserved) when feasible, else fall back to "
-                    "GroupShuffleSplit with NO multilabel proportion guarantee. "
-                    "pip install iterative-stratification for exact "
-                    "MultilabelStratifiedGroupKFold.",
-                )
-        else:
-            logger.info(
-                "Bucket-stratify: groups + 1-D stratify_y; using "
-                "StratifiedGroupKFold (both invariants honoured: whole "
-                "groups stay in one split AND class/bucket proportions "
-                "preserved across train/val/test).",
-            )
-    with phase("split_data"):
-        # Dynamically derive the kwargs the splitter accepts by inspecting
-        # its signature, then drop any TrainingSplitConfig field not in
-        # that set. Static exclude lists drift: observed in prod two
-        # consecutive TypeErrors (composite_cardinality_cap
-        # then bucket_stratify) because new caller-side fields shipped
-        # without exclude updates. Caller-side fields documented:
-        #   use_groups -- derives _groups upstream
-        #   calib_size -- carves a disjoint calibration slice from train (return_calib=True below)
-        #   composite_cardinality_cap -- bucket-stratify gate (line ~139)
-        #   bucket_stratify -- selects the bucket-stratify branch
-        # Signature-derived filtering catches future additions automatically.
-        import inspect as _inspect
-
-        _splitter_kwargs = set(_inspect.signature(make_train_test_split).parameters)
-        _explicit_kwargs = {"df", "timestamps", "stratify_y", "groups", "return_calib"}
-        _cfg_dict = {k: v for k, v in split_config.model_dump().items() if k in _splitter_kwargs and k not in _explicit_kwargs}
-        if has_pinned_splits(split_config):
-            # Some splits are fixed by an id file / date windows; the rest is carved by the same splitter on the remaining rows.
-            train_idx, val_idx, test_idx, train_details, val_details, test_details, calib_idx, calib_details, _pin_info = pinned_train_val_test_split(
-                n_rows=len(df) if df is not None else 0,
-                row_ids=row_ids,
-                timestamps=timestamps,
-                split_config=split_config,
-                stratify_y=_stratify_y,
-                groups=_groups,
-                splitter=make_train_test_split,
-                splitter_kwargs=_cfg_dict,
-            )
-            metadata["split_pinning"] = _pin_info
-        else:
-            train_idx, val_idx, test_idx, train_details, val_details, test_details, calib_idx, calib_details = make_train_test_split(
-                df=df,
-                timestamps=timestamps,
-                stratify_y=_stratify_y,
-                groups=_groups,
-                return_calib=True,
-                **_cfg_dict,
-            )
-        train_idx, val_idx = _apply_purged_embargoes(train_idx, val_idx, timestamps, split_config, verbose)
+    _log_group_stratify_mode(_groups, _stratify_y)
+    train_idx, val_idx, test_idx, train_details, val_details, test_details, calib_idx, calib_details = _run_split_data(
+        df=df,
+        timestamps=timestamps,
+        stratify_y=_stratify_y,
+        groups=_groups,
+        split_config=split_config,
+        row_ids=row_ids,
+        metadata=metadata,
+        verbose=verbose,
+    )
     # Order ONLY the train index array by time (val/test keep the splitter's membership and order): the frames below are
     # materialised by a take with these arrays anyway, so every row-aligned artifact indexed by train_idx follows for free.
     train_idx = apply_chronological_train_order(train_idx, timestamps, split_config, metadata, verbose)
     if verbose:
         log_ram_usage()
 
-    if data_dir:
-        save_split_artifacts(
-            train_idx=train_idx,
-            val_idx=val_idx,
-            test_idx=test_idx,
-            timestamps=timestamps,
-            group_ids_raw=group_ids_raw,
-            artifacts=artifacts,
-            data_dir=data_dir,
-            models_dir=models_dir,
-            target_name=target_name,
-            model_name=model_name,
-        )
-
-    _id_column = getattr(split_config, "id_column", None)
-    if _id_column and row_ids is not None:
-        metadata["split_membership"] = record_split_membership(
-            row_ids=row_ids,
-            id_column=_id_column,
-            train_idx=train_idx,
-            val_idx=val_idx,
-            test_idx=test_idx,
-            calib_idx=calib_idx,
-            timestamps=timestamps,
-            split_dir=split_dir_for(data_dir, models_dir, target_name, model_name) if data_dir else None,
-        )
-
-    metadata.update(
-        {
-            "train_details": train_details,
-            "val_details": val_details,
-            "test_details": test_details,
-            "train_size": len(train_idx),
-            "val_size": len(val_idx),
-            "test_size": len(test_idx),
-        }
+    _record_split_outputs(
+        train_idx=train_idx,
+        val_idx=val_idx,
+        test_idx=test_idx,
+        calib_idx=calib_idx,
+        train_details=train_details,
+        val_details=val_details,
+        test_details=test_details,
+        calib_details=calib_details,
+        timestamps=timestamps,
+        group_ids_raw=group_ids_raw,
+        artifacts=artifacts,
+        split_config=split_config,
+        row_ids=row_ids,
+        data_dir=data_dir,
+        models_dir=models_dir,
+        target_name=target_name,
+        model_name=model_name,
+        metadata=metadata,
     )
-    if calib_idx is not None and len(calib_idx) > 0:
-        metadata["calib_details"] = calib_details
-        metadata["calib_size_rows"] = len(calib_idx)
 
     # Compute fairness subgroups from full df BEFORE splitting.
     fairness_subgroups, fairness_features = _compute_fairness_subgroups(df, behavior_config)
@@ -396,46 +312,15 @@ def _phase_train_val_test_split(
         val_idx=val_idx,
         test_idx=test_idx,
     )
-    # Carve the disjoint calib slice (calib_size>0) as its own raw frame, same schema as train_df, while ``df`` is still
-    # alive (the caller nulls ``ctx.df`` right after this phase). The slice is a small fraction of train; subsetting is a
-    # format-native ``df[calib_idx]`` / ``.iloc`` view, never a full-frame clone. The trainer transforms it through the
-    # same fitted pre_pipeline as test and runs predict_proba so finalize can auto-calibrate.
-    calib_df = None
-    if calib_idx is not None and len(calib_idx) > 0 and df is not None:
-        if isinstance(df, pl.DataFrame):
-            calib_df = df[calib_idx]
-        else:
-            calib_df = df.iloc[calib_idx]
+    calib_df = _carve_calib_df(df, calib_idx)
     if verbose:
         logger.info("  Split shapes -- train: %s, val: %s, test: %s", _df_shape_str(train_df), _df_shape_str(val_df), _df_shape_str(test_df))
         logger.info("  PHASE 2 total: %s", _elapsed_str(t0_phase2))
 
-    # Split sequences by train/val/test indices (for recurrent models).
-    train_sequences, val_sequences, test_sequences = None, None, None
-    if sequences is not None:
-        train_sequences = [sequences[i] for i in train_idx]
-        val_sequences = [sequences[i] for i in val_idx] if val_idx is not None else None
-        test_sequences = [sequences[i] for i in test_idx]
-        if verbose:
-            logger.info("Split sequences: train=%d, val=%d, test=%d", len(train_sequences), len(val_sequences) if val_sequences else 0, len(test_sequences))
+    train_sequences, val_sequences, test_sequences = _split_sequences(sequences, train_idx, val_idx, test_idx, verbose)
 
     # Refresh baseline so the next maybe_clean_ram_and_gpu in the caller sees the post-del state.
-    _rss_before_mb = get_process_rss_mb()
-    baseline_rss_mb = maybe_clean_ram_and_gpu(_rss_before_mb, df_size_mb, verbose=verbose, reason="post-split (del df)")
-    if verbose:
-        # Report what the cleanup ACTUALLY released rather than announcing an intention: a production log printed
-        # "Deleting original DataFrame to free RAM..." and then the same 45.4GB it printed before, because the
-        # split frames are views over the source buffers and the source name is dropped by the caller, not here.
-        _freed_mb = _rss_before_mb - get_process_rss_mb()
-        if _freed_mb >= 64.0:
-            logger.info("Post-split cleanup released %.1fGB.", _freed_mb / 1024.0)
-        else:
-            logger.info(
-                "Post-split cleanup released no measurable RAM (%.0fMB): the split frames reference the same "
-                "buffers as the source, so dropping the source name alone frees nothing.",
-                max(_freed_mb, 0.0),
-            )
-        log_ram_usage()
+    baseline_rss_mb = _post_split_cleanup(df_size_mb, verbose)
 
     return TrainValTestSplitResult(
         train_idx=train_idx,
@@ -650,21 +535,7 @@ def _phase_auto_detect_feature_types(
         detect_df = train_df_polars_pre
     else:
         detect_df = train_df
-    # Auto-flip path: when ``skip_categorical_encoding`` was flipped to True because CB+ordinal+declared-cats was the requested config, the pipeline returns an
-    # empty ``cat_features`` (no encoder was fitted). The downstream CB Pool builder still needs to know which columns carry pandas ``category`` dtype -
-    # otherwise CatBoost detects them and raises "has dtype 'category' but is not in cat_features list". Recover the list from the pre-pipeline dtype snapshot
-    # (mutation-immune) when available, falling back to a live ``select_dtypes`` probe on detect_df.
-    _post_flip_pandas_cats: list[str] = []
-    if not was_polars_input:
-        _pre_meta_dtypes = (train_df_pandas_pre_meta or {}).get("dtypes") if isinstance(train_df_pandas_pre_meta, dict) else None
-        if _pre_meta_dtypes:
-            _post_flip_pandas_cats = [c for c, dt in _pre_meta_dtypes.items() if "category" in str(dt).lower()]
-        elif detect_df is not None and hasattr(detect_df, "select_dtypes"):
-            try:
-                _post_flip_pandas_cats = detect_df.select_dtypes(include=["category"]).columns.tolist()
-            except Exception as e:
-                logger.debug("select_dtypes for post-flip pandas categoricals failed: %s", e)
-                _post_flip_pandas_cats = []
+    _post_flip_pandas_cats = _recover_post_flip_pandas_cats(was_polars_input, train_df_pandas_pre_meta, detect_df)
     # Order-preserving dedup: ``metadata["cat_features"]`` feeds CatBoost/Pool and is
     # serialised into the recipe -- ``list(set(...))`` would reorder per PYTHONHASHSEED,
     # making a fixed-random_state run non-reproducible. Keep first-seen input order.
@@ -721,77 +592,10 @@ def _phase_auto_detect_feature_types(
     metadata["cat_features"] = cat_features
 
     # One-time Polars string->Enum cast so XGB's arrow bridge doesn't choke on large_string.
-    # Use pl.Enum (per-Series, no global cache impact); the domain and the strictness are described at the
-    # cast site below, which is where they are decided. pl.Categorical would widen the process-wide string
-    # cache (memory rule:
-    # reference_polars_global_string_cache). Fixes audit B-P0-3 / Low-B11.
     if was_polars_input and all_models_polars_native and pipeline_config.skip_categorical_encoding and train_df is not None:
-        _string_types = (pl.Utf8, pl.String) if hasattr(pl, "String") else (pl.Utf8,)
-        _keep_as_string = text_emb_set
-        _str_cols = [c for c, dt in zip(train_df.columns, train_df.dtypes) if dt in _string_types and c not in _keep_as_string]
-        if _str_cols:
-            # build per-column Enum domain from train+val
-            # uniques (NOT train-only). val is the early-stopping detector --
-            # if a val-only categorical value gets cast to null silently, ES is
-            # biased away from val-rare-cat-sensitive splits. test stays
-            # unseen (built from train+val ONLY). Symmetric with dict-alignment
-            # in _phase_polars_fixes.py.
-            _enum_domains: dict[str, list[str]] = {}
-            # Track per-column val-only category counts so operators see the implicit Enum-domain widening (memory: feedback_observability_loud).
-            # Without this log the train+val union is silent. Behaviour stays unchanged; only observability improves.
-            _val_only_diag: dict[str, tuple[int, list]] = {}
-            _log_string_column_unions(_str_cols, train_df, val_df, _enum_domains, _val_only_diag)
-            if _val_only_diag:
-                # INFO-level. This widening is intentional (val=ES detector must not silently null-cast); the log only surfaces what was previously invisible.
-                _summary = ", ".join(f"{c}:{n}" for c, (n, _) in _val_only_diag.items())
-                _samples = ", ".join(f"{c}={vs}" for c, (_, vs) in list(_val_only_diag.items())[:3])
-                logger.info(
-                    "[enum-domain] Enum domain widened to include val-only categories on %d col(s): %s. Sample val-only values: %s",
-                    len(_val_only_diag),
-                    _summary,
-                    _samples,
-                )
-
-            def _enum_cast(df, strict: bool, split_name: str | None = None):
-                """Cast this split's string columns to the shared (train+val union) ``pl.Enum`` domains computed above, so categorical codes agree across splits; ``strict`` controls whether an out-of-domain value raises or nulls."""
-                if df is None:
-                    return df
-                _existing = set(df.columns)
-                _exprs = []
-                _affected_cols = []
-                for _c in _str_cols:
-                    if _c not in _existing or _c not in _enum_domains:
-                        continue
-                    _exprs.append(pl.col(_c).cast(pl.Enum(_enum_domains[_c]), strict=strict))
-                    _affected_cols.append(_c)
-                if not _exprs:
-                    return df
-                # quantify silent OOV-nulling so operators
-                # can see how many rows got cast-failed (was invisible before).
-                _null_pre = {c: int(df[c].null_count()) for c in _affected_cols}
-                out = df.with_columns(_exprs)
-                if split_name is not None and not strict:
-                    _null_deltas = {c: int(out[c].null_count()) - _null_pre[c] for c in _affected_cols}
-                    _nonzero = {c: d for c, d in _null_deltas.items() if d > 0}
-                    if _nonzero:
-                        logger.info(
-                            "[enum-cast] %s split: %d col(s) had OOV nulls cast-failed (cols=%s)",
-                            split_name,
-                            len(_nonzero),
-                            _nonzero,
-                        )
-                return out
-
-            train_df = _enum_cast(train_df, strict=True)
-            # val cast is now strict-but-domain-includes-val by construction;
-            # any cast failure here would be a logic bug, so strict=True.
-            val_df = _enum_cast(val_df, strict=True)
-            test_df = _enum_cast(test_df, strict=False, split_name="test")
-            train_df_polars_pre = _enum_cast(train_df_polars_pre, strict=True)
-            val_df_polars_pre = _enum_cast(val_df_polars_pre, strict=True)
-            test_df_polars_pre = _enum_cast(test_df_polars_pre, strict=False, split_name="test (polars_pre)")
-            if verbose:
-                logger.info("  Cast Polars string columns -> Enum once (shared across model loop)")
+        train_df, val_df, test_df, train_df_polars_pre, val_df_polars_pre, test_df_polars_pre = _cast_polars_strings_to_enum(
+            train_df, val_df, test_df, train_df_polars_pre, val_df_polars_pre, test_df_polars_pre, text_emb_set, verbose
+        )
 
     if verbose and (text_features or embedding_features):
         logger.info("  Feature types -- text: %s, embedding: %s, cat: %s", text_features, embedding_features, "(none)" if cat_features is None or len(cat_features) == 0 else cat_features)
@@ -809,6 +613,111 @@ def _phase_auto_detect_feature_types(
         text_emb_set,
         dropped_high_card_data,
     )
+
+
+def _recover_post_flip_pandas_cats(was_polars_input: bool, train_df_pandas_pre_meta: dict | None, detect_df: Any) -> list[str]:
+    """Pandas ``category`` columns to redeclare as cat_features after the CB+ordinal auto-flip skipped categorical encoding."""
+    # Auto-flip path: when ``skip_categorical_encoding`` was flipped to True because CB+ordinal+declared-cats was the requested config, the pipeline returns an
+    # empty ``cat_features`` (no encoder was fitted). The downstream CB Pool builder still needs to know which columns carry pandas ``category`` dtype -
+    # otherwise CatBoost detects them and raises "has dtype 'category' but is not in cat_features list". Recover the list from the pre-pipeline dtype snapshot
+    # (mutation-immune) when available, falling back to a live ``select_dtypes`` probe on detect_df.
+    _post_flip_pandas_cats: list[str] = []
+    if not was_polars_input:
+        _pre_meta_dtypes = (train_df_pandas_pre_meta or {}).get("dtypes") if isinstance(train_df_pandas_pre_meta, dict) else None
+        if _pre_meta_dtypes:
+            _post_flip_pandas_cats = [c for c, dt in _pre_meta_dtypes.items() if "category" in str(dt).lower()]
+        elif detect_df is not None and hasattr(detect_df, "select_dtypes"):
+            try:
+                _post_flip_pandas_cats = detect_df.select_dtypes(include=["category"]).columns.tolist()
+            except Exception as e:
+                logger.debug("select_dtypes for post-flip pandas categoricals failed: %s", e)
+                _post_flip_pandas_cats = []
+    return _post_flip_pandas_cats
+
+
+def _cast_polars_strings_to_enum(
+    train_df: Any,
+    val_df: Any,
+    test_df: Any,
+    train_df_polars_pre: Any,
+    val_df_polars_pre: Any,
+    test_df_polars_pre: Any,
+    text_emb_set: set[str],
+    verbose: bool,
+) -> tuple[Any, Any, Any, Any, Any, Any]:
+    """Cast the polars string columns of every split (and the polars-pre frames) to one shared train+val ``pl.Enum`` domain."""
+    # One-time Polars string->Enum cast so XGB's arrow bridge doesn't choke on large_string.
+    # Use pl.Enum (per-Series, no global cache impact); the domain and the strictness are described at the
+    # cast site below, which is where they are decided. pl.Categorical would widen the process-wide string
+    # cache (memory rule:
+    # reference_polars_global_string_cache). Fixes audit B-P0-3 / Low-B11.
+    _string_types = (pl.Utf8, pl.String) if hasattr(pl, "String") else (pl.Utf8,)
+    _keep_as_string = text_emb_set
+    _str_cols = [c for c, dt in zip(train_df.columns, train_df.dtypes) if dt in _string_types and c not in _keep_as_string]
+    if _str_cols:
+        # build per-column Enum domain from train+val
+        # uniques (NOT train-only). val is the early-stopping detector --
+        # if a val-only categorical value gets cast to null silently, ES is
+        # biased away from val-rare-cat-sensitive splits. test stays
+        # unseen (built from train+val ONLY). Symmetric with dict-alignment
+        # in _phase_polars_fixes.py.
+        _enum_domains: dict[str, list[str]] = {}
+        # Track per-column val-only category counts so operators see the implicit Enum-domain widening (memory: feedback_observability_loud).
+        # Without this log the train+val union is silent. Behaviour stays unchanged; only observability improves.
+        _val_only_diag: dict[str, tuple[int, list]] = {}
+        _log_string_column_unions(_str_cols, train_df, val_df, _enum_domains, _val_only_diag)
+        if _val_only_diag:
+            # INFO-level. This widening is intentional (val=ES detector must not silently null-cast); the log only surfaces what was previously invisible.
+            _summary = ", ".join(f"{c}:{n}" for c, (n, _) in _val_only_diag.items())
+            _samples = ", ".join(f"{c}={vs}" for c, (_, vs) in list(_val_only_diag.items())[:3])
+            logger.info(
+                "[enum-domain] Enum domain widened to include val-only categories on %d col(s): %s. Sample val-only values: %s",
+                len(_val_only_diag),
+                _summary,
+                _samples,
+            )
+
+        def _enum_cast(df, strict: bool, split_name: str | None = None):
+            """Cast this split's string columns to the shared (train+val union) ``pl.Enum`` domains computed above, so categorical codes agree across splits; ``strict`` controls whether an out-of-domain value raises or nulls."""
+            if df is None:
+                return df
+            _existing = set(df.columns)
+            _exprs = []
+            _affected_cols = []
+            for _c in _str_cols:
+                if _c not in _existing or _c not in _enum_domains:
+                    continue
+                _exprs.append(pl.col(_c).cast(pl.Enum(_enum_domains[_c]), strict=strict))
+                _affected_cols.append(_c)
+            if not _exprs:
+                return df
+            # quantify silent OOV-nulling so operators
+            # can see how many rows got cast-failed (was invisible before).
+            _null_pre = {c: int(df[c].null_count()) for c in _affected_cols}
+            out = df.with_columns(_exprs)
+            if split_name is not None and not strict:
+                _null_deltas = {c: int(out[c].null_count()) - _null_pre[c] for c in _affected_cols}
+                _nonzero = {c: d for c, d in _null_deltas.items() if d > 0}
+                if _nonzero:
+                    logger.info(
+                        "[enum-cast] %s split: %d col(s) had OOV nulls cast-failed (cols=%s)",
+                        split_name,
+                        len(_nonzero),
+                        _nonzero,
+                    )
+            return out
+
+        train_df = _enum_cast(train_df, strict=True)
+        # val cast is now strict-but-domain-includes-val by construction;
+        # any cast failure here would be a logic bug, so strict=True.
+        val_df = _enum_cast(val_df, strict=True)
+        test_df = _enum_cast(test_df, strict=False, split_name="test")
+        train_df_polars_pre = _enum_cast(train_df_polars_pre, strict=True)
+        val_df_polars_pre = _enum_cast(val_df_polars_pre, strict=True)
+        test_df_polars_pre = _enum_cast(test_df_polars_pre, strict=False, split_name="test (polars_pre)")
+        if verbose:
+            logger.info("  Cast Polars string columns -> Enum once (shared across model loop)")
+    return train_df, val_df, test_df, train_df_polars_pre, val_df_polars_pre, test_df_polars_pre
 
 
 def _log_auto_high_card_drop(train_df, val_df, test_df, auto_high_card_drop, _per_split_views):

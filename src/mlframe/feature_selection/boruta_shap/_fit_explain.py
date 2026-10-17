@@ -300,6 +300,197 @@ def _margin_gated_tail_stop(self, trial, _acc, _rej, _accepted_history, _n_total
     return True
 
 
+def _coerce_polars_inputs(X: Any, y: Any) -> tuple:
+    """Convert polars ``X`` / ``y`` to their pandas counterparts; other inputs pass through unchanged."""
+    # polars input convert-on-the-spot; the rest of BorutaShap calls pandas idioms (``.copy()``, ``.columns.to_numpy()``, ``.apply``, ``.drop(inplace=True)``) and shap.TreeExplainer expects a pandas frame to read ``feature_names_in_``.
+    if pl is not None and isinstance(X, pl.DataFrame):
+        try:
+            from mlframe.training.utils import get_pandas_view_of_polars_df
+            X = get_pandas_view_of_polars_df(X)
+        except ImportError:
+            X = X.to_pandas(use_pyarrow_extension_array=True)
+    if pl is not None and isinstance(y, pl.Series):
+        y = y.to_pandas()
+    return X, y
+
+
+def _prepare_fit_state(self, X: Any, y: Any) -> None:
+    """Install the working frame / target on ``self`` (shallow copy, ordinal-encoded object columns) and reset the per-fit selection state."""
+    # Memory: frames here can be 100+ GB. ``self.X_`` is the working frame - BorutaShap ordinal-encodes its object/category
+    # columns and drops rejected columns on it - and it shares the caller's column buffers, so neither step mutates the caller's ``X``.
+    # ``starting_X`` keeps the ORIGINAL-dtype frame for ``Subset()`` (__init__.py): since encoding now
+    # happens only on the independent ``self.X_`` copy, the untouched caller ``X`` already IS that
+    # snapshot, so we reference it rather than taking a second copy. ``self.y_`` is never mutated (only
+    # read for splits / model fit), so it is referenced, not copied.
+    self.starting_X_ = X
+    # Below this many rows the default surrogate's per-trial forest is cheaper single-threaded: joblib's worker
+    # dispatch on every trial costs more than the tree fits themselves (measured at 300 rows: n_jobs=-1 1.8x slower,
+    # 3000 rows: 2.4x faster, 30000 rows: 6.9x faster; crossover between 300 and 3000).
+    if self.model is None and getattr(self, "model_", None) is not None and len(X) < _SERIAL_SURROGATE_MAX_ROWS:
+        self.model_.set_params(n_jobs=1)
+    # The encoder below only REPLACES whole columns and rejected columns are dropped into a new frame, so no cell of the caller's data is ever
+    # written: a shallow copy gives the working frame its own column set while sharing the untouched column buffers.
+    self.X_ = X.copy(deep=False) if isinstance(X, pd.DataFrame) else X.copy()
+    self.y_ = y
+    # Duplicate column names make ``df[label]`` return a DataFrame (not a Series), whose ``.dtype`` access raises in the object-col encoder below, and break the column -> accepted-feature mapping. Surface a clear error before the encoder runs.
+    if hasattr(self.X_, "columns") and self.X_.columns.has_duplicates:
+        dup_names = self.X_.columns[self.X_.columns.duplicated()].unique().tolist()
+        raise ValueError(
+            f"BorutaShap.fit: duplicate column names not supported: {dup_names[:10]}. "
+            f"De-duplicate (e.g. ``X.loc[:, ~X.columns.duplicated()]`` or rename) before fitting."
+        )
+    # Ordinal-encode object / pandas-Categorical columns in self.X_ so the internal surrogate fit (Train_model) and
+    # the SHAP step downstream both see numeric features. Pre-fix iter-179 / iter-237 path: when the suite's main
+    # cat-encoder is bypassed (polars- fastpath models / cat_enc=ordinal where the encoder ran on the polars-pre
+    # frame only), BorutaShap is fed a raw pandas frame with object dtype cat cols; LGB / XGB surrogates raise
+    # ``ValueError: could not convert string to float: 'A'`` and the entire feature-selection branch is lost. The
+    # codes are private to BorutaShap internals: ``transform`` returns ``X.iloc[:, indices]`` of the CALLER-
+    # supplied frame (not self.X_), so the encoding never leaks into the downstream model's input. The CB path also
+    # benefits because cat_features=col_names still works on int codes (CB treats them as ordinal-encoded
+    # categories).
+    _self_x_encoded_cols = self._ordinal_encode_object_cols_inplace(
+        self.X_,
+    )
+    if _self_x_encoded_cols:
+        logger.debug(
+            "BorutaShap: ordinal-encoded %d object/category col(s) " "for internal surrogate fit: %s",
+            len(_self_x_encoded_cols),
+            _self_x_encoded_cols,
+        )
+
+    self.ncols_ = self.X_.shape[1]
+    self.all_columns_ = self.X_.columns.to_numpy()
+    self.rejected_columns_ = []
+    self.accepted_columns_ = []
+
+    self.check_X()
+
+    self.features_to_remove_ = []
+    self.hits_ = np.zeros(self.ncols_)
+    self._null_hit_p_sum, self._null_hit_p_trials = 0.0, 0
+    self.order_ = self.create_mapping_between_cols_and_indices()
+    self.create_importance_history()
+
+    if self.sample:
+        self.preds_ = self.isolation_forest(self.X_)
+
+
+def _run_boruta_trials(self) -> Any:
+    """Run the shadow-feature trial loop (with its early-stop / budget / stop-file exits) and return the progress bar."""
+    # Control/safety budget (parity with MRMR / RFECV): a wall-clock timer + a
+    # filesystem stop-flag, both checked at the top of each trial below so an
+    # over-budget or stop-flagged run returns the features classified so far rather
+    # than running the remaining (dominant-cost) trials. ``getattr`` keeps old
+    # pickled instances (without the new attrs) working.
+    from os.path import exists as _stop_file_exists
+    from time import perf_counter as _budget_timer
+    _fit_start_t = _budget_timer()
+    _max_runtime_mins = getattr(self, "max_runtime_mins", None)
+    _stop_file = getattr(self, "stop_file", None)
+    self.n_trials_run_ = 0  # defensive: every early-break path leaves this set
+
+    # Margin-gated adaptive trial-stop (opt-in; see __init__ doc + _should_stop_tentative_tail). Off by default
+    # so the loop is byte-identical to the fixed-cap run. When on we track the cumulative accepted set after
+    # each trial and stop once it has plateaued AND the residual tentative tail is provably stuck.
+    _early_stop_tentative = bool(getattr(self, "early_stop_tentative", False))
+    _early_stop_patience = int(getattr(self, "early_stop_patience", 20))
+    _early_stop_margin = float(getattr(self, "early_stop_margin", 0.15))
+    _accepted_history: list = []
+    _n_total_cols = len(self.all_columns_)  # full original count -> matches the validated bench Bonferroni base
+
+    if self.n_trials < 1:
+        # range(self.n_trials) never executes the loop body when n_trials<=0, leaving the `trial` loop
+        # variable (read unconditionally below in the periodic progress log and the post-loop
+        # finalization) unbound -> NameError instead of a clear validation error.
+        raise ValueError(f"BorutaShap.fit: n_trials must be >= 1, got {self.n_trials}.")
+    pbar = tqdmu(range(self.n_trials), desc="Feature selection", disable=not self.verbose)
+    for trial in pbar:
+        self._current_trial_ = trial  # seeds the opt-in per-trial holdout redraw
+        self.remove_features_if_rejected()
+        self.columns_ = self.X_.columns.to_numpy()
+        self.create_shadow_features()
+
+        # early stopping
+        if self.X_.shape[1] == 0:
+            break
+
+        else:
+            self.Check_if_chose_train_or_test_and_train_model()
+
+            self.X_feature_import_, self.Shadow_feature_import_ = self.feature_importance(normalize=self.normalize)
+            self.update_importance_history()
+            hits = self.calculate_hits()
+            self.hits_ += hits
+            self.history_hits_ = np.vstack((self.history_hits_, self.hits_))
+            self.test_features(iteration=trial + 1)
+            self.n_trials_run_ = trial + 1  # actual trials executed (< n_trials when early-terminated)
+
+            # Early-termination: once NO feature is still tentative (every feature is confirmed or rejected)
+            # the remaining trials only re-test already-confirmed features and cannot change the outcome.
+            # Canonical Boruta stops here; this loop previously always ran all n_trials (the dominant cost).
+            # Mirrors calculate_rejected_accepted_tentative's accepted/rejected/tentative partition exactly,
+            # so the final support_ is identical to running every trial - this is a pure speedup.
+            _acc = set(self.flatten_list(self.accepted_columns_))
+            _rej = set(self.flatten_list(self.rejected_columns_)) - _acc
+            _n_tentative_live = len(self.all_columns_) - len(_acc) - len(_rej)
+            # Periodic progress log: was dedented out of this loop (ran once, after the last trial,
+            # instead of every 5 trials as the message implies) -- moved back in, using the accepted/
+            # rejected counts already computed above for the early-stop check rather than calling
+            # calculate_rejected_accepted_tentative() mid-loop (which would also emit its own
+            # empty-accepted-set warning on every early trial before anything is decided).
+            if trial % 5 == 0 or _n_tentative_live == 0:
+                logger.info("Undecided features: %s", f"{_n_tentative_live:_}")
+            if _n_tentative_live == 0:
+                if self.verbose:
+                    logger.info("BorutaShap: all features decided after %d/%d trials; stopping early.", trial + 1, self.n_trials)
+                break
+
+            # Margin-gated adaptive trial-stop (opt-in) for the residual TENTATIVE TAIL that the all-decided
+            # stop above never resolves. Stop only when the accepted set has plateaued for the patience window
+            # AND no still-tentative feature can still cross a binomial threshold within the margin (the tail is
+            # provably stuck). This is decision-equivalent to running the full cap; the naive 'plateau-only' rule
+            # is deliberately NOT used (it locks a wrong set on a transient plateau - see helper docstrings).
+            if _early_stop_tentative and _margin_gated_tail_stop(
+                self, trial, _acc, _rej, _accepted_history, _n_total_cols, _early_stop_patience, _early_stop_margin,
+            ):
+                break
+
+        # Control/safety budget + stop-flag (parity with MRMR / RFECV), checked at the END of each
+        # trial so the just-completed trial's state is valid (>=1 trial always runs): an over-budget
+        # or stop-flagged run returns the features decided so far rather than starting the next
+        # (dominant-cost) trial. ``n_trials_run_`` was set above to the count completed.
+        if (minutes := active_budget(_max_runtime_mins)) is not None and (_budget_timer() - _fit_start_t) > minutes * 60.0:
+            if self.verbose:
+                logger.info("BorutaShap: runtime budget %.1f min exceeded after trial %d/%d; stopping with features decided so far.", _max_runtime_mins, trial + 1, self.n_trials)
+            break
+        if _stop_file and _stop_file_exists(_stop_file):
+            if self.verbose:
+                logger.info("BorutaShap: stop_file %r found after trial %d/%d; stopping with features decided so far.", _stop_file, trial + 1, self.n_trials)
+            break
+    return pbar
+
+
+def _finalize_selection(self) -> None:
+    """Publish the sklearn-style fit outputs (``support_``, ``selected_features_``, ``feature_names_in_``, ``n_features_in_``)."""
+    # sklearn-style outputs so callers can treat BorutaShap like any other selector: ``support_`` is the boolean mask aligned with the input column order, ``selected_features_`` is the list of kept names (accepted + tentative when ``optimistic``).
+    kept = set(self.accepted_)
+    if self.optimistic:
+        kept |= set(self.tentative_)
+    if getattr(self, "_premerge_active_", False):  # re-expand accepted representatives to their cluster members
+        kept, self.support_ = _premerge_expand(kept, self._premerge_members_, self._premerge_original_cols_)
+        _final_columns = self._premerge_original_cols_
+    else:
+        self.support_ = np.array([c in kept for c in self.all_columns_], dtype=bool)
+        _final_columns = self.all_columns_
+    self.selected_features_ = [c for c in _final_columns if c in kept]
+    # sklearn convention: feature_names_in_ + n_features_in_ are the canonical
+    # discoverable attributes for downstream report builders. Without them the
+    # FS report's ``dropped_features`` field is None for BorutaShap and
+    # asymmetric vs MRMR / RFECV.
+    self.feature_names_in_ = np.asarray(_final_columns)
+    self.n_features_in_ = len(_final_columns)
+
+
 @logs_fit("BorutaShap", _selection_summary)
 def fit(self, X: pd.DataFrame | pl.DataFrame, y: pd.Series | pl.Series | np.ndarray) -> Any:
     """
@@ -366,15 +557,7 @@ def fit(self, X: pd.DataFrame | pl.DataFrame, y: pd.Series | pl.Series | np.ndar
 
     """
 
-    # polars input convert-on-the-spot; the rest of BorutaShap calls pandas idioms (``.copy()``, ``.columns.to_numpy()``, ``.apply``, ``.drop(inplace=True)``) and shap.TreeExplainer expects a pandas frame to read ``feature_names_in_``.
-    if pl is not None and isinstance(X, pl.DataFrame):
-        try:
-            from mlframe.training.utils import get_pandas_view_of_polars_df
-            X = get_pandas_view_of_polars_df(X)
-        except ImportError:
-            X = X.to_pandas(use_pyarrow_extension_array=True)
-    if pl is not None and isinstance(y, pl.Series):
-        y = y.to_pandas()
+    X, y = _coerce_polars_inputs(X, y)
 
     # Deferred from __init__ (sklearn clone-ability): resolve model=None -> default RF and validate fit/predict here,
     # before either the stability orchestration (which clones self.model) or the single-pass body uses it.
@@ -403,155 +586,9 @@ def fit(self, X: pd.DataFrame | pl.DataFrame, y: pd.Series | pl.Series | np.ndar
         warnings.filterwarnings("ignore", category=FutureWarning, module="sklearn")
         warnings.filterwarnings("ignore", category=DeprecationWarning, module="sklearn")
 
-        # Memory: frames here can be 100+ GB. ``self.X_`` is the working frame - BorutaShap ordinal-encodes its object/category
-        # columns and drops rejected columns on it - and it shares the caller's column buffers, so neither step mutates the caller's ``X``.
-        # ``starting_X`` keeps the ORIGINAL-dtype frame for ``Subset()`` (__init__.py): since encoding now
-        # happens only on the independent ``self.X_`` copy, the untouched caller ``X`` already IS that
-        # snapshot, so we reference it rather than taking a second copy. ``self.y_`` is never mutated (only
-        # read for splits / model fit), so it is referenced, not copied.
-        self.starting_X_ = X
-        # Below this many rows the default surrogate's per-trial forest is cheaper single-threaded: joblib's worker
-        # dispatch on every trial costs more than the tree fits themselves (measured at 300 rows: n_jobs=-1 1.8x slower,
-        # 3000 rows: 2.4x faster, 30000 rows: 6.9x faster; crossover between 300 and 3000).
-        if self.model is None and getattr(self, "model_", None) is not None and len(X) < _SERIAL_SURROGATE_MAX_ROWS:
-            self.model_.set_params(n_jobs=1)
-        # The encoder below only REPLACES whole columns and rejected columns are dropped into a new frame, so no cell of the caller's data is ever
-        # written: a shallow copy gives the working frame its own column set while sharing the untouched column buffers.
-        self.X_ = X.copy(deep=False) if isinstance(X, pd.DataFrame) else X.copy()
-        self.y_ = y
-        # Duplicate column names make ``df[label]`` return a DataFrame (not a Series), whose ``.dtype`` access raises in the object-col encoder below, and break the column -> accepted-feature mapping. Surface a clear error before the encoder runs.
-        if hasattr(self.X_, "columns") and self.X_.columns.has_duplicates:
-            dup_names = self.X_.columns[self.X_.columns.duplicated()].unique().tolist()
-            raise ValueError(
-                f"BorutaShap.fit: duplicate column names not supported: {dup_names[:10]}. "
-                f"De-duplicate (e.g. ``X.loc[:, ~X.columns.duplicated()]`` or rename) before fitting."
-            )
-        # Ordinal-encode object / pandas-Categorical columns in self.X_ so the internal surrogate fit (Train_model) and
-        # the SHAP step downstream both see numeric features. Pre-fix iter-179 / iter-237 path: when the suite's main
-        # cat-encoder is bypassed (polars- fastpath models / cat_enc=ordinal where the encoder ran on the polars-pre
-        # frame only), BorutaShap is fed a raw pandas frame with object dtype cat cols; LGB / XGB surrogates raise
-        # ``ValueError: could not convert string to float: 'A'`` and the entire feature-selection branch is lost. The
-        # codes are private to BorutaShap internals: ``transform`` returns ``X.iloc[:, indices]`` of the CALLER-
-        # supplied frame (not self.X_), so the encoding never leaks into the downstream model's input. The CB path also
-        # benefits because cat_features=col_names still works on int codes (CB treats them as ordinal-encoded
-        # categories).
-        _self_x_encoded_cols = self._ordinal_encode_object_cols_inplace(
-            self.X_,
-        )
-        if _self_x_encoded_cols:
-            logger.debug(
-                "BorutaShap: ordinal-encoded %d object/category col(s) " "for internal surrogate fit: %s",
-                len(_self_x_encoded_cols),
-                _self_x_encoded_cols,
-            )
+        _prepare_fit_state(self, X, y)
 
-        self.ncols_ = self.X_.shape[1]
-        self.all_columns_ = self.X_.columns.to_numpy()
-        self.rejected_columns_ = []
-        self.accepted_columns_ = []
-
-        self.check_X()
-
-        self.features_to_remove_ = []
-        self.hits_ = np.zeros(self.ncols_)
-        self._null_hit_p_sum, self._null_hit_p_trials = 0.0, 0
-        self.order_ = self.create_mapping_between_cols_and_indices()
-        self.create_importance_history()
-
-        if self.sample:
-            self.preds_ = self.isolation_forest(self.X_)
-
-        # Control/safety budget (parity with MRMR / RFECV): a wall-clock timer + a
-        # filesystem stop-flag, both checked at the top of each trial below so an
-        # over-budget or stop-flagged run returns the features classified so far rather
-        # than running the remaining (dominant-cost) trials. ``getattr`` keeps old
-        # pickled instances (without the new attrs) working.
-        from os.path import exists as _stop_file_exists
-        from time import perf_counter as _budget_timer
-        _fit_start_t = _budget_timer()
-        _max_runtime_mins = getattr(self, "max_runtime_mins", None)
-        _stop_file = getattr(self, "stop_file", None)
-        self.n_trials_run_ = 0  # defensive: every early-break path leaves this set
-
-        # Margin-gated adaptive trial-stop (opt-in; see __init__ doc + _should_stop_tentative_tail). Off by default
-        # so the loop is byte-identical to the fixed-cap run. When on we track the cumulative accepted set after
-        # each trial and stop once it has plateaued AND the residual tentative tail is provably stuck.
-        _early_stop_tentative = bool(getattr(self, "early_stop_tentative", False))
-        _early_stop_patience = int(getattr(self, "early_stop_patience", 20))
-        _early_stop_margin = float(getattr(self, "early_stop_margin", 0.15))
-        _accepted_history: list = []
-        _n_total_cols = len(self.all_columns_)  # full original count -> matches the validated bench Bonferroni base
-
-        if self.n_trials < 1:
-            # range(self.n_trials) never executes the loop body when n_trials<=0, leaving the `trial` loop
-            # variable (read unconditionally below in the periodic progress log and the post-loop
-            # finalization) unbound -> NameError instead of a clear validation error.
-            raise ValueError(f"BorutaShap.fit: n_trials must be >= 1, got {self.n_trials}.")
-        pbar = tqdmu(range(self.n_trials), desc="Feature selection", disable=not self.verbose)
-        for trial in pbar:
-            self._current_trial_ = trial  # seeds the opt-in per-trial holdout redraw
-            self.remove_features_if_rejected()
-            self.columns_ = self.X_.columns.to_numpy()
-            self.create_shadow_features()
-
-            # early stopping
-            if self.X_.shape[1] == 0:
-                break
-
-            else:
-                self.Check_if_chose_train_or_test_and_train_model()
-
-                self.X_feature_import_, self.Shadow_feature_import_ = self.feature_importance(normalize=self.normalize)
-                self.update_importance_history()
-                hits = self.calculate_hits()
-                self.hits_ += hits
-                self.history_hits_ = np.vstack((self.history_hits_, self.hits_))
-                self.test_features(iteration=trial + 1)
-                self.n_trials_run_ = trial + 1  # actual trials executed (< n_trials when early-terminated)
-
-                # Early-termination: once NO feature is still tentative (every feature is confirmed or rejected)
-                # the remaining trials only re-test already-confirmed features and cannot change the outcome.
-                # Canonical Boruta stops here; this loop previously always ran all n_trials (the dominant cost).
-                # Mirrors calculate_rejected_accepted_tentative's accepted/rejected/tentative partition exactly,
-                # so the final support_ is identical to running every trial - this is a pure speedup.
-                _acc = set(self.flatten_list(self.accepted_columns_))
-                _rej = set(self.flatten_list(self.rejected_columns_)) - _acc
-                _n_tentative_live = len(self.all_columns_) - len(_acc) - len(_rej)
-                # Periodic progress log: was dedented out of this loop (ran once, after the last trial,
-                # instead of every 5 trials as the message implies) -- moved back in, using the accepted/
-                # rejected counts already computed above for the early-stop check rather than calling
-                # calculate_rejected_accepted_tentative() mid-loop (which would also emit its own
-                # empty-accepted-set warning on every early trial before anything is decided).
-                if trial % 5 == 0 or _n_tentative_live == 0:
-                    logger.info("Undecided features: %s", f"{_n_tentative_live:_}")
-                if _n_tentative_live == 0:
-                    if self.verbose:
-                        logger.info("BorutaShap: all features decided after %d/%d trials; stopping early.", trial + 1, self.n_trials)
-                    break
-
-                # Margin-gated adaptive trial-stop (opt-in) for the residual TENTATIVE TAIL that the all-decided
-                # stop above never resolves. Stop only when the accepted set has plateaued for the patience window
-                # AND no still-tentative feature can still cross a binomial threshold within the margin (the tail is
-                # provably stuck). This is decision-equivalent to running the full cap; the naive 'plateau-only' rule
-                # is deliberately NOT used (it locks a wrong set on a transient plateau - see helper docstrings).
-                if _early_stop_tentative and _margin_gated_tail_stop(
-                    self, trial, _acc, _rej, _accepted_history, _n_total_cols, _early_stop_patience, _early_stop_margin,
-                ):
-                    break
-
-            # Control/safety budget + stop-flag (parity with MRMR / RFECV), checked at the END of each
-            # trial so the just-completed trial's state is valid (>=1 trial always runs): an over-budget
-            # or stop-flagged run returns the features decided so far rather than starting the next
-            # (dominant-cost) trial. ``n_trials_run_`` was set above to the count completed.
-            if (minutes := active_budget(_max_runtime_mins)) is not None and (_budget_timer() - _fit_start_t) > minutes * 60.0:
-                if self.verbose:
-                    logger.info("BorutaShap: runtime budget %.1f min exceeded after trial %d/%d; stopping with features decided so far.", _max_runtime_mins, trial + 1, self.n_trials)
-                break
-            if _stop_file and _stop_file_exists(_stop_file):
-                if self.verbose:
-                    logger.info("BorutaShap: stop_file %r found after trial %d/%d; stopping with features decided so far.", _stop_file, trial + 1, self.n_trials)
-                break
-
+        pbar = _run_boruta_trials(self)
         self.store_feature_importance()
         self.calculate_rejected_accepted_tentative(verbose=self.verbose)
         pbar.set_description(f"Undecided features: {len(self.tentative_):_}")
@@ -559,23 +596,7 @@ def fit(self, X: pd.DataFrame | pl.DataFrame, y: pd.Series | pl.Series | np.ndar
 
         release_large_working_frames(self)
 
-    # sklearn-style outputs so callers can treat BorutaShap like any other selector: ``support_`` is the boolean mask aligned with the input column order, ``selected_features_`` is the list of kept names (accepted + tentative when ``optimistic``).
-    kept = set(self.accepted_)
-    if self.optimistic:
-        kept |= set(self.tentative_)
-    if getattr(self, "_premerge_active_", False):  # re-expand accepted representatives to their cluster members
-        kept, self.support_ = _premerge_expand(kept, self._premerge_members_, self._premerge_original_cols_)
-        _final_columns = self._premerge_original_cols_
-    else:
-        self.support_ = np.array([c in kept for c in self.all_columns_], dtype=bool)
-        _final_columns = self.all_columns_
-    self.selected_features_ = [c for c in _final_columns if c in kept]
-    # sklearn convention: feature_names_in_ + n_features_in_ are the canonical
-    # discoverable attributes for downstream report builders. Without them the
-    # FS report's ``dropped_features`` field is None for BorutaShap and
-    # asymmetric vs MRMR / RFECV.
-    self.feature_names_in_ = np.asarray(_final_columns)
-    self.n_features_in_ = len(_final_columns)
+    _finalize_selection(self)
 
     # sklearn fit-returns-self contract: the stability path already returns self, so this single-fit path
     # must too, otherwise ``selector.fit(X, y).transform(X)`` (used across this codebase) yields None ->

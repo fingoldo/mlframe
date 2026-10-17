@@ -106,6 +106,242 @@ def _warn_if_model_tripped_sensors(model: object, file: str) -> None:
         logger.debug("sensor-trip lookup at save time failed (%s); artefact is unaffected", exc)
 
 
+# Name-based strip for the canonical attrs. Broadened beyond the original
+# ("_trainer", "prediction_datamodule") because a 2.4 GB MLP dump survived
+# the name-only strip: a Lightning Trainer / DataModule / DataLoader that
+# carries the whole 4M-row training dataset was held under a DIFFERENT
+# attr name (e.g. the Lightning ``.trainer`` backref, a retained
+# ``datamodule`` / ``*_dataloader``). The TYPE-based check below is the
+# robust catch-all; these names are the cheap fast path.
+_BLOAT_ATTR_NAMES = (
+    "_trainer", "trainer", "prediction_datamodule", "datamodule",
+    "_datamodule", "train_dataloader", "val_dataloader",
+    "test_dataloader", "predict_dataloader",
+)
+
+
+def _looks_like_training_bloat(v: object) -> bool:
+    """True for objects that carry the training dataset but are never
+    needed for INFERENCE: a Lightning Trainer / *DataModule, or a torch
+    DataLoader / Dataset. Duck-typed by module + class name so io.py does
+    not hard-import torch / lightning. The fitted network weights live on
+    the LightningModule (NOT matched here), so nulling these is safe."""
+    try:
+        cls = type(v)
+        mod = getattr(cls, "__module__", "") or ""
+        name = cls.__name__
+    except Exception as exc:
+        log_throttle(logger, "_io_save._looks_like_training_bloat", logging.WARNING, "_looks_like_training_bloat: type introspection failed: %s", exc)
+        return False
+    if mod.startswith(("lightning", "pytorch_lightning")):
+        # endswith (not ==) so Trainer subclasses / custom DataModules match.
+        if name.endswith("Trainer") or name.endswith("DataModule"):
+            return True
+    if mod.startswith("torch.utils.data"):
+        if name.endswith("DataLoader") or name.endswith("Dataset"):
+            return True
+    return False
+
+
+def _collect_pre_dump_swaps(obj: object, walk_seen: set, compile_swaps: list, bloat_strips: list) -> None:
+    """Recursively walk ``obj.__dict__`` (cycle-guarded via ``walk_seen``), temporarily stripping FS-internal suite markers, swapping ``torch.compile``-wrapped modules for their original, and nulling heavy Lightning training-only attributes so none of them reach the pickle; each mutation is recorded for restoration in the caller's ``finally`` block."""
+    if id(obj) in walk_seen:
+        return
+    walk_seen.add(id(obj))
+    _d = getattr(obj, "__dict__", None)
+    if not isinstance(_d, dict):
+        return
+    for _k, _v in list(_d.items()):
+        # FS suite-runtime markers: ``_build_pre_pipelines`` stamps selectors with private ``_mlframe_*`` attributes (selector-kind dispatch tag, weight-aware fit flag, the cross-target identity-cache override) purely so the in-process training loop can route report-build / weight-forwarding / cache reuse. None is needed for INFERENCE, so strip them from the pickle (temp-remove + restore-after-dump, same mechanism as the Lightning bloat strip) so the saved model carries no FS-internal suite state; restored on the caller's in-memory object in the finally block.
+        if _k.startswith("_mlframe_") and (
+            _k.endswith("_selector_kind_") or _k.endswith("_use_sample_weights_in_fs_") or _k.endswith("_identity_cache_override_") or _k.endswith("_cv_policy_")
+        ):
+            bloat_strips.append((obj, _k, _v))
+            del _d[_k]
+            continue
+        # torch.compile: swap to the un-compiled underlying nn.Module.
+        _orig = getattr(_v, "_orig_mod", None)
+        if _orig is not None and _orig is not _v:
+            compile_swaps.append((obj, _k, _v))
+            _d[_k] = _orig
+            # Recurse INTO the swapped-in original; the wrapper itself isn't
+            # part of the dumped graph any more.
+            _collect_pre_dump_swaps(_orig, walk_seen, compile_swaps, bloat_strips)
+            continue
+        # Lightning bloat strip: temp-null the heavy training-only objects
+        # (by canonical name OR by type) so the 4M-row dataset they hold
+        # never reaches the pickle. Don't recurse INTO them -- the whole
+        # subtree is about to be discarded for the pickle pass.
+        if _v is not None and (_k in _BLOAT_ATTR_NAMES or _looks_like_training_bloat(_v)):
+            bloat_strips.append((obj, _k, _v))
+            _d[_k] = None
+            continue
+        _collect_pre_dump_swaps(_v, walk_seen, compile_swaps, bloat_strips)
+
+
+def _collect_swaps_guarded(payload: object) -> tuple[list, list]:
+    """Run the pre-dump strip/swap walk over ``payload``; returns ``(compile_swaps, bloat_strips)``, both empty if the walk itself fails."""
+    # torch.compile produces an OptimizedModule wrapper that carries a non-picklable
+    # ConfigModuleInstance closure (torch._dynamo). dill.dump raises TypeError
+    # "cannot pickle 'ConfigModuleInstance' object". Walk the payload, locate any
+    # attribute whose value carries ``_orig_mod`` (the un-compiled underlying
+    # nn.Module that torch.compile preserves), temp-swap to the original for the
+    # duration of dump, then restore. This keeps the caller's compile state intact
+    # after save returns and avoids invasive changes to the model class hierarchy.
+    #
+    # also strips the Lightning bloat attrs. LightningModule._trainer
+    # and PytorchLightningEstimator.prediction_datamodule both hold DataLoader
+    # references that carry the whole training dataset. On 4M-row regression
+    # this inflated MLP dumps to 311 MB for a network with 14k parameters.
+    # Neither is needed for inference. Previously each walk ran independently
+    # (2x recursion / seen-set churn for ~2400 mixed entries on c0024 / 1k LTR);
+    # merged into one pass below.
+    compile_swaps: list = []
+    bloat_strips: list = []
+    walk_seen: set = set()
+    try:
+        _collect_pre_dump_swaps(payload, walk_seen, compile_swaps, bloat_strips)
+    except Exception as e:
+        logger.debug("pre-dump swap collection failed, proceeding with an unswapped dump attempt: %s", e)
+        # Defensive: a malformed payload should still attempt the dump; the
+        # wrapping try/except below catches dump-time errors. Reset the swap
+        # lists so the restore loop at the bottom is a no-op.
+        compile_swaps = []
+        bloat_strips = []
+    return compile_swaps, bloat_strips
+
+
+def _serialize_payload(payload: object, file: str) -> bytes:
+    """Serialize ``payload`` with pickle, falling back to dill (with a WARNING naming the culprit) when pickle rejects it."""
+    # Atomic write prevents corruption when two train runs save to
+    # the same file concurrently (probe finding).
+    #
+    # Serialize to bytes BEFORE writing to disk so a pickle-vs-dill
+    # fallback decision is made cleanly: dumping straight to the
+    # zstd stream would leave the stream half-written if pickle.dump
+    # raises mid-graph on an unpicklable closure/lambda, and the
+    # subsequent dill.dump would corrupt the output. Worst case the
+    # whole bundle lives briefly in RAM at ~payload-size; the dill
+    # path is rare so this is a small extra alloc for the typical
+    # pickle-fast path.
+    import pickle as _pickle  # nosec B403 - pickle used only for trusted same-process/dev-local round-trips, see call sites in this file
+    try:
+        payload_bytes = _pickle.dumps(payload, protocol=_pickle.HIGHEST_PROTOCOL)
+    except (TypeError, AttributeError, _pickle.PicklingError) as _pickle_err:
+        # Non-picklable object in the graph -- dill handles closures /
+        # lambdas / generators that vanilla pickle rejects.
+        # WARNING, not INFO: dill is slower, produces a larger artefact and is far more fragile to load in
+        # another environment, so a silent downgrade is a liability the operator should get to act on. The
+        # message names the offending attribute, because "AttributeError" alone gave nothing to fix -- and
+        # an unpicklable attribute is usually a runtime cache that belongs in ``__getstate__``'s exclusions.
+        logger.warning(
+            "save_mlframe_model: pickle rejected the payload (%s: %s); falling back to dill for %s. dill is "
+            "slower and less portable across environments -- exclude the offending attribute in the object's "
+            "__getstate__ (a warmed kernel, memo dict, device buffer or open handle) to stay on pickle.",
+            type(_pickle_err).__name__,
+            _describe_unpicklable(payload, _pickle_err),
+            file,
+        )
+        payload_bytes = dill.dumps(payload)
+    return payload_bytes
+
+
+def _write_bundle(file: str, payload_bytes: bytes, zstd_kwargs: Dict[str, Any], durable: bool, verbose: int, model: object) -> float:
+    """Atomically write the zstd-compressed bytes plus the version sidecar, log the result and return the file size in MB."""
+    from mlframe.training.io import atomic_write_bytes, _write_save_meta_sidecar
+
+    def _writer(f):
+        """Write the pre-serialized payload bytes through a zstd stream compressor into the atomic-write temp file handle."""
+        compressor = import_optional("zstandard", "db", "writing compressed model bundles").ZstdCompressor(**zstd_kwargs)
+        # closefd=False: stream_writer.__exit__ would otherwise close the wrapped
+        # file (deterministic on Windows when threads=-1 hands the descriptor to
+        # a background flush thread). atomic_write_bytes still needs the fd open
+        # for its post-write f.flush() / os.fsync(fileno()) -- the durability
+        # invariant established for the same-FS atomic rename.
+        #
+        # BufferedWriter wrapping (64KB/256KB/1MB/4MB) was benchmarked
+        # on a fitted RandomForest + 1M-element ndarray payload --
+        # all sizes landed within +/-5% of the direct write (high variance).
+        # Direct write retained.
+        with compressor.stream_writer(f, closefd=False) as zf:
+            zf.write(payload_bytes)
+
+    atomic_write_bytes(file, _writer, fsync=durable)
+    # write a sidecar .meta.json next to the .dump bundle
+    # so the load side can refuse / WARN on version skew. Sidecar approach
+    # (vs payload-wrapping) is non-invasive: old loaders simply ignore the
+    # extra file; new loaders read it before unpickling.
+    try:
+        _write_save_meta_sidecar(file, durable=durable)
+    except Exception as _meta_err:
+        # Sidecar is best-effort: a failure here MUST NOT block the save
+        # (the .dump is already on disk). Log at WARN so the operator
+        # sees the version-stamp gap.
+        logger.warning(
+            "save_mlframe_model: failed to write .meta.json sidecar for "
+            "%s: %s. Bundle saved; load-time version validation will "
+            "fall through to back-compat path.",
+            file, _meta_err,
+        )
+    size_mb = os.path.getsize(file) / (1024 * 1024)
+    if verbose > 0:
+        logger.info("Model saved successfully to %s. Size: %.2f Mb", file, size_mb)
+    _warn_if_model_tripped_sensors(model, file)
+    return size_mb
+
+
+def _lean_retry_if_oversized(
+    model: object, file: str, size_mb: float, lean: bool, auto_lean_retry: bool, zstd_kwargs: Dict[str, Any], verbose: int, durable: bool
+) -> Optional[bool]:
+    """Warn when the saved dump is suspiciously large and, for a non-lean SimpleNamespace, redo the save lean; None when no retry ran."""
+    # Suspicious-size sensor. Tabular ML model bundles (CB / XGB / LGB / MLP / Linear) post-zstd should typically
+    # land at <50 MB even on million-row training. Anything above the threshold below is almost always an unstripped DataLoader /
+    # trainer / optimizer state OR a forgotten OOF blob -- one observed prod MLP dump was 311 MB because
+    # ``LightningModule._trainer`` + ``prediction_datamodule`` held refs to the 4M-row training frame (the strip step now nullifies
+    # them during pickle). Emit a HARD WARNING so operators see oversized dumps in their run log instead of having to ``ls -lh``
+    # the artefact dir.
+    _SIZE_SUSPICIOUS_MB = 50.0
+    if size_mb > _SIZE_SUSPICIOUS_MB:
+        logger.warning(
+            "[save-size-sensor] %s: dump is %.1f MB (> %.0f MB suspicious "
+            "threshold). Tabular ML bundles should be <50 MB even on million-"
+            "row training. Likely cause: a heavy attribute slipped past the "
+            "strip layer (e.g. LightningModule.trainer / "
+            "prediction_datamodule / fitted OOF preds / trainset_features_stats). "
+            "If MLP: confirm save_mlframe_model nullified ``_trainer`` and "
+            "``prediction_datamodule`` (added 2026-05-21). If tree booster: "
+            "check that ``compute_trainset_metrics`` isn't holding the train "
+            "frame on the fitted estimator. If you're saving forensics on "
+            "purpose pass ``lean=False`` and ignore this warning.",
+            file, size_mb, _SIZE_SUSPICIOUS_MB,
+        )
+        # Auto-retry with lean=True when the sensor fires on a
+        # non-lean save. The default lean=False preserves forensic round-trip
+        # parity but lets large per-split arrays leak (~16-32 MB each on 4M
+        # rows). When auto_lean_retry=True (default) AND the payload is a
+        # SimpleNamespace (lean is a no-op otherwise) AND lean wasn't already on,
+        # rewrite the dump in lean form. Caller can disable per-call to keep the
+        # original behaviour (e.g. forensic snapshot intentionally kept fat).
+        if auto_lean_retry and not lean and isinstance(model, SimpleNamespace):
+            if verbose > 0:
+                logger.warning(
+                    "[save-size-sensor] %s: auto-retrying with lean=True to "
+                    "strip per-split + OOF + trainset_features_stats fields. "
+                    "Pass ``auto_lean_retry=False`` if you need the full bundle.",
+                    file,
+                )
+            # Note: we call ourselves recursively; auto_lean_retry=False guards
+            # against an infinite loop (the lean save can't trip the sensor again
+            # under a strip set that's correctly maintained).
+            return save_mlframe_model(
+                model, file,
+                zstd_kwargs=zstd_kwargs, verbose=verbose,
+                lean=True, durable=durable,
+                auto_lean_retry=False,
+            )
+    return None
+
+
 def save_mlframe_model(
     model: object,
     file: str,
@@ -189,11 +425,7 @@ def save_mlframe_model(
     """
     # lazy: parent-defined helpers, imported here to avoid the
     # _io_save <-> io module-level import cycle.
-    from mlframe.training.io import (
-        _LEAN_STRIP_FIELDS,
-        atomic_write_bytes,
-        _write_save_meta_sidecar,
-    )
+    from mlframe.training.io import _LEAN_STRIP_FIELDS
 
     if zstd_kwargs is None:
         zstd_kwargs = dict(
@@ -225,221 +457,17 @@ def save_mlframe_model(
     else:
         _payload = model
 
-    # torch.compile produces an OptimizedModule wrapper that carries a non-picklable
-    # ConfigModuleInstance closure (torch._dynamo). dill.dump raises TypeError
-    # "cannot pickle 'ConfigModuleInstance' object". Walk the payload, locate any
-    # attribute whose value carries ``_orig_mod`` (the un-compiled underlying
-    # nn.Module that torch.compile preserves), temp-swap to the original for the
-    # duration of dump, then restore. This keeps the caller's compile state intact
-    # after save returns and avoids invasive changes to the model class hierarchy.
-    #
-    # also strips the Lightning bloat attrs. LightningModule._trainer
-    # and PytorchLightningEstimator.prediction_datamodule both hold DataLoader
-    # references that carry the whole training dataset. On 4M-row regression
-    # this inflated MLP dumps to 311 MB for a network with 14k parameters.
-    # Neither is needed for inference. Previously each walk ran independently
-    # (2x recursion / seen-set churn for ~2400 mixed entries on c0024 / 1k LTR);
-    # merged into one pass below.
-    _compile_swaps: list = []
-    _bloat_strips: list = []
-    _walk_seen: set = set()
-    # Name-based strip for the canonical attrs. Broadened beyond the original
-    # ("_trainer", "prediction_datamodule") because a 2.4 GB MLP dump survived
-    # the name-only strip: a Lightning Trainer / DataModule / DataLoader that
-    # carries the whole 4M-row training dataset was held under a DIFFERENT
-    # attr name (e.g. the Lightning ``.trainer`` backref, a retained
-    # ``datamodule`` / ``*_dataloader``). The TYPE-based check below is the
-    # robust catch-all; these names are the cheap fast path.
-    _BLOAT_ATTR_NAMES = (
-        "_trainer", "trainer", "prediction_datamodule", "datamodule",
-        "_datamodule", "train_dataloader", "val_dataloader",
-        "test_dataloader", "predict_dataloader",
-    )
-
-    def _looks_like_training_bloat(v: object) -> bool:
-        """True for objects that carry the training dataset but are never
-        needed for INFERENCE: a Lightning Trainer / *DataModule, or a torch
-        DataLoader / Dataset. Duck-typed by module + class name so io.py does
-        not hard-import torch / lightning. The fitted network weights live on
-        the LightningModule (NOT matched here), so nulling these is safe."""
-        try:
-            cls = type(v)
-            mod = getattr(cls, "__module__", "") or ""
-            name = cls.__name__
-        except Exception as exc:
-            log_throttle(logger, "_io_save._looks_like_training_bloat", logging.WARNING, "_looks_like_training_bloat: type introspection failed: %s", exc)
-            return False
-        if mod.startswith(("lightning", "pytorch_lightning")):
-            # endswith (not ==) so Trainer subclasses / custom DataModules match.
-            if name.endswith("Trainer") or name.endswith("DataModule"):
-                return True
-        if mod.startswith("torch.utils.data"):
-            if name.endswith("DataLoader") or name.endswith("Dataset"):
-                return True
-        return False
-
-    def _collect_pre_dump_swaps(obj: object) -> None:
-        """Recursively walk ``obj.__dict__`` (cycle-guarded via ``_walk_seen``), temporarily stripping FS-internal suite markers, swapping ``torch.compile``-wrapped modules for their original, and nulling heavy Lightning training-only attributes so none of them reach the pickle; each mutation is recorded for restoration in the caller's ``finally`` block."""
-        if id(obj) in _walk_seen:
-            return
-        _walk_seen.add(id(obj))
-        _d = getattr(obj, "__dict__", None)
-        if not isinstance(_d, dict):
-            return
-        for _k, _v in list(_d.items()):
-            # FS suite-runtime markers: ``_build_pre_pipelines`` stamps selectors with private ``_mlframe_*`` attributes (selector-kind dispatch tag, weight-aware fit flag, the cross-target identity-cache override) purely so the in-process training loop can route report-build / weight-forwarding / cache reuse. None is needed for INFERENCE, so strip them from the pickle (temp-remove + restore-after-dump, same mechanism as the Lightning bloat strip) so the saved model carries no FS-internal suite state; restored on the caller's in-memory object in the finally block.
-            if _k.startswith("_mlframe_") and (
-                _k.endswith("_selector_kind_") or _k.endswith("_use_sample_weights_in_fs_") or _k.endswith("_identity_cache_override_") or _k.endswith("_cv_policy_")
-            ):
-                _bloat_strips.append((obj, _k, _v))
-                del _d[_k]
-                continue
-            # torch.compile: swap to the un-compiled underlying nn.Module.
-            _orig = getattr(_v, "_orig_mod", None)
-            if _orig is not None and _orig is not _v:
-                _compile_swaps.append((obj, _k, _v))
-                _d[_k] = _orig
-                # Recurse INTO the swapped-in original; the wrapper itself isn't
-                # part of the dumped graph any more.
-                _collect_pre_dump_swaps(_orig)
-                continue
-            # Lightning bloat strip: temp-null the heavy training-only objects
-            # (by canonical name OR by type) so the 4M-row dataset they hold
-            # never reaches the pickle. Don't recurse INTO them -- the whole
-            # subtree is about to be discarded for the pickle pass.
-            if _v is not None and (_k in _BLOAT_ATTR_NAMES or _looks_like_training_bloat(_v)):
-                _bloat_strips.append((obj, _k, _v))
-                _d[_k] = None
-                continue
-            _collect_pre_dump_swaps(_v)
-
     # Acquired here (not via `with`, to avoid re-indenting the whole strip/dump/restore body below) and
     # released at the very end of the `finally:` block further down -- see _SAVE_MUTATION_LOCK's docstring.
     _SAVE_MUTATION_LOCK.acquire()
-    try:
-        _collect_pre_dump_swaps(_payload)
-    except Exception as e:
-        logger.debug("pre-dump swap collection failed, proceeding with an unswapped dump attempt: %s", e)
-        # Defensive: a malformed payload should still attempt the dump; the
-        # wrapping try/except below catches dump-time errors. Reset the swap
-        # lists so the restore loop at the bottom is a no-op.
-        _compile_swaps = []
-        _bloat_strips = []
+    _compile_swaps, _bloat_strips = _collect_swaps_guarded(_payload)
 
     try:
-        # Atomic write prevents corruption when two train runs save to
-        # the same file concurrently (probe finding).
-        #
-        # Serialize to bytes BEFORE writing to disk so a pickle-vs-dill
-        # fallback decision is made cleanly: dumping straight to the
-        # zstd stream would leave the stream half-written if pickle.dump
-        # raises mid-graph on an unpicklable closure/lambda, and the
-        # subsequent dill.dump would corrupt the output. Worst case the
-        # whole bundle lives briefly in RAM at ~payload-size; the dill
-        # path is rare so this is a small extra alloc for the typical
-        # pickle-fast path.
-        import pickle as _pickle  # nosec B403 - pickle used only for trusted same-process/dev-local round-trips, see call sites in this file
-        try:
-            _payload_bytes = _pickle.dumps(_payload, protocol=_pickle.HIGHEST_PROTOCOL)
-        except (TypeError, AttributeError, _pickle.PicklingError) as _pickle_err:
-            # Non-picklable object in the graph -- dill handles closures /
-            # lambdas / generators that vanilla pickle rejects.
-            # WARNING, not INFO: dill is slower, produces a larger artefact and is far more fragile to load in
-            # another environment, so a silent downgrade is a liability the operator should get to act on. The
-            # message names the offending attribute, because "AttributeError" alone gave nothing to fix -- and
-            # an unpicklable attribute is usually a runtime cache that belongs in ``__getstate__``'s exclusions.
-            logger.warning(
-                "save_mlframe_model: pickle rejected the payload (%s: %s); falling back to dill for %s. dill is "
-                "slower and less portable across environments -- exclude the offending attribute in the object's "
-                "__getstate__ (a warmed kernel, memo dict, device buffer or open handle) to stay on pickle.",
-                type(_pickle_err).__name__,
-                _describe_unpicklable(_payload, _pickle_err),
-                file,
-            )
-            _payload_bytes = dill.dumps(_payload)
-
-        def _writer(f):
-            """Write the pre-serialized payload bytes through a zstd stream compressor into the atomic-write temp file handle."""
-            compressor = import_optional("zstandard", "db", "writing compressed model bundles").ZstdCompressor(**zstd_kwargs)
-            # closefd=False: stream_writer.__exit__ would otherwise close the wrapped
-            # file (deterministic on Windows when threads=-1 hands the descriptor to
-            # a background flush thread). atomic_write_bytes still needs the fd open
-            # for its post-write f.flush() / os.fsync(fileno()) -- the durability
-            # invariant established for the same-FS atomic rename.
-            #
-            # BufferedWriter wrapping (64KB/256KB/1MB/4MB) was benchmarked
-            # on a fitted RandomForest + 1M-element ndarray payload --
-            # all sizes landed within +/-5% of the direct write (high variance).
-            # Direct write retained.
-            with compressor.stream_writer(f, closefd=False) as zf:
-                zf.write(_payload_bytes)
-
-        atomic_write_bytes(file, _writer, fsync=durable)
-        # write a sidecar .meta.json next to the .dump bundle
-        # so the load side can refuse / WARN on version skew. Sidecar approach
-        # (vs payload-wrapping) is non-invasive: old loaders simply ignore the
-        # extra file; new loaders read it before unpickling.
-        try:
-            _write_save_meta_sidecar(file, durable=durable)
-        except Exception as _meta_err:
-            # Sidecar is best-effort: a failure here MUST NOT block the save
-            # (the .dump is already on disk). Log at WARN so the operator
-            # sees the version-stamp gap.
-            logger.warning(
-                "save_mlframe_model: failed to write .meta.json sidecar for "
-                "%s: %s. Bundle saved; load-time version validation will "
-                "fall through to back-compat path.",
-                file, _meta_err,
-            )
-        size_mb = os.path.getsize(file) / (1024 * 1024)
-        if verbose > 0:
-            logger.info("Model saved successfully to %s. Size: %.2f Mb", file, size_mb)
-        _warn_if_model_tripped_sensors(model, file)
-        # Suspicious-size sensor. Tabular ML model bundles (CB / XGB / LGB / MLP / Linear) post-zstd should typically
-        # land at <50 MB even on million-row training. Anything above the threshold below is almost always an unstripped DataLoader /
-        # trainer / optimizer state OR a forgotten OOF blob -- one observed prod MLP dump was 311 MB because
-        # ``LightningModule._trainer`` + ``prediction_datamodule`` held refs to the 4M-row training frame (the strip step now nullifies
-        # them during pickle). Emit a HARD WARNING so operators see oversized dumps in their run log instead of having to ``ls -lh``
-        # the artefact dir.
-        _SIZE_SUSPICIOUS_MB = 50.0
-        if size_mb > _SIZE_SUSPICIOUS_MB:
-            logger.warning(
-                "[save-size-sensor] %s: dump is %.1f MB (> %.0f MB suspicious "
-                "threshold). Tabular ML bundles should be <50 MB even on million-"
-                "row training. Likely cause: a heavy attribute slipped past the "
-                "strip layer (e.g. LightningModule.trainer / "
-                "prediction_datamodule / fitted OOF preds / trainset_features_stats). "
-                "If MLP: confirm save_mlframe_model nullified ``_trainer`` and "
-                "``prediction_datamodule`` (added 2026-05-21). If tree booster: "
-                "check that ``compute_trainset_metrics`` isn't holding the train "
-                "frame on the fitted estimator. If you're saving forensics on "
-                "purpose pass ``lean=False`` and ignore this warning.",
-                file, size_mb, _SIZE_SUSPICIOUS_MB,
-            )
-            # Auto-retry with lean=True when the sensor fires on a
-            # non-lean save. The default lean=False preserves forensic round-trip
-            # parity but lets large per-split arrays leak (~16-32 MB each on 4M
-            # rows). When auto_lean_retry=True (default) AND the payload is a
-            # SimpleNamespace (lean is a no-op otherwise) AND lean wasn't already on,
-            # rewrite the dump in lean form. Caller can disable per-call to keep the
-            # original behaviour (e.g. forensic snapshot intentionally kept fat).
-            if auto_lean_retry and not lean and isinstance(model, SimpleNamespace):
-                if verbose > 0:
-                    logger.warning(
-                        "[save-size-sensor] %s: auto-retrying with lean=True to "
-                        "strip per-split + OOF + trainset_features_stats fields. "
-                        "Pass ``auto_lean_retry=False`` if you need the full bundle.",
-                        file,
-                    )
-                # Note: we call ourselves recursively; auto_lean_retry=False guards
-                # against an infinite loop (the lean save can't trip the sensor again
-                # under a strip set that's correctly maintained).
-                return save_mlframe_model(
-                    model, file,
-                    zstd_kwargs=zstd_kwargs, verbose=verbose,
-                    lean=True, durable=durable,
-                    auto_lean_retry=False,
-                )
+        _payload_bytes = _serialize_payload(_payload, file)
+        size_mb = _write_bundle(file, _payload_bytes, zstd_kwargs, durable, verbose, model)
+        _retried = _lean_retry_if_oversized(model, file, size_mb, lean, auto_lean_retry, zstd_kwargs, verbose, durable)
+        if _retried is not None:
+            return _retried
         return True
     except Exception:
         # The caller sees only a False return; without the traceback,

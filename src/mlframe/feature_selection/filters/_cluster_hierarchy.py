@@ -223,6 +223,56 @@ def _components_from_pair_sus(
     return [sorted(g) for g in groups.values()]
 
 
+def _level_pair_sus(resolved: dict, resolved_names: list, cal_state: Any, pair_su: Any, pair_su_batch: Any, level: int) -> tuple:
+    """Pairwise SU of the resolved anchors at one hierarchy level (batched, falling back to per-pair); returns ``(pair_sus, n_failed_pairs)``."""
+    n_failed_pairs = 0
+    pair_sus: dict = {}
+    # Layer 51: batched pairwise-SU dispatch. The (a, b) name pairs
+    # are mapped to their resolved column indices in one pass; the
+    # batch call pre-warms per-column entropies for every anchor
+    # column once instead of paying the marginal cost per pair.
+    index_pairs: list = []
+    name_pairs: list = []
+    for i in range(len(resolved_names)):
+        for j in range(i + 1, len(resolved_names)):
+            a_name, b_name = resolved_names[i], resolved_names[j]
+            a_idx = int(resolved[a_name])
+            b_idx = int(resolved[b_name])
+            index_pairs.append((a_idx, b_idx))
+            name_pairs.append((a_name, b_name))
+    try:
+        scores = pair_su_batch(cal_state, index_pairs)
+    except Exception as exc:
+        log_throttle(
+            logger,
+            "cluster_hierarchy_batched_pair_su_failed",
+            logging.WARNING,
+            "build_cluster_hierarchy: batched pair-SU dispatch failed at "
+            "level %d (%r); falling back to per-pair scoring.", level, exc,
+        )
+        scores = None
+    if scores is None:
+        for (a_name, b_name), (a_idx, b_idx) in zip(name_pairs, index_pairs):
+            try:
+                s = pair_su(cal_state, a_idx, b_idx)
+            except Exception as exc:
+                s = float("nan")
+                n_failed_pairs += 1
+                log_throttle(
+                    logger,
+                    "cluster_hierarchy_per_pair_su_failed",
+                    logging.WARNING,
+                    "build_cluster_hierarchy: per-pair SU failed (e.g. "
+                    "(%s,%s): %r); affected pairs are left out of this "
+                    "level. Further failures suppressed for this build.", a_name, b_name, exc,
+                )
+            _record_pair_su(pair_sus, a_name, b_name, s)
+    else:
+        for (a_name, b_name), s in zip(name_pairs, scores):
+            _record_pair_su(pair_sus, a_name, b_name, s)
+    return pair_sus, n_failed_pairs
+
+
 def build_cluster_hierarchy(
     dcd_summary: Optional[dict],
     X: Any,
@@ -317,50 +367,8 @@ def build_cluster_hierarchy(
         if len(resolved) < 2:
             break
         resolved_names = sorted(resolved.keys())
-        pair_sus: dict = {}
-        # Layer 51: batched pairwise-SU dispatch. The (a, b) name pairs
-        # are mapped to their resolved column indices in one pass; the
-        # batch call pre-warms per-column entropies for every anchor
-        # column once instead of paying the marginal cost per pair.
-        index_pairs: list = []
-        name_pairs: list = []
-        for i in range(len(resolved_names)):
-            for j in range(i + 1, len(resolved_names)):
-                a_name, b_name = resolved_names[i], resolved_names[j]
-                a_idx = int(resolved[a_name])
-                b_idx = int(resolved[b_name])
-                index_pairs.append((a_idx, b_idx))
-                name_pairs.append((a_name, b_name))
-        try:
-            scores = pair_su_batch(cal_state, index_pairs)
-        except Exception as exc:
-            log_throttle(
-                logger,
-                "cluster_hierarchy_batched_pair_su_failed",
-                logging.WARNING,
-                "build_cluster_hierarchy: batched pair-SU dispatch failed at "
-                "level %d (%r); falling back to per-pair scoring.", level, exc,
-            )
-            scores = None
-        if scores is None:
-            for (a_name, b_name), (a_idx, b_idx) in zip(name_pairs, index_pairs):
-                try:
-                    s = pair_su(cal_state, a_idx, b_idx)
-                except Exception as exc:
-                    s = float("nan")
-                    n_failed_pairs += 1
-                    log_throttle(
-                        logger,
-                        "cluster_hierarchy_per_pair_su_failed",
-                        logging.WARNING,
-                        "build_cluster_hierarchy: per-pair SU failed (e.g. "
-                        "(%s,%s): %r); affected pairs are left out of this "
-                        "level. Further failures suppressed for this build.", a_name, b_name, exc,
-                    )
-                _record_pair_su(pair_sus, a_name, b_name, s)
-        else:
-            for (a_name, b_name), s in zip(name_pairs, scores):
-                _record_pair_su(pair_sus, a_name, b_name, s)
+        pair_sus, n_failed_level = _level_pair_sus(resolved, resolved_names, cal_state, pair_su, pair_su_batch, level)
+        n_failed_pairs += n_failed_level
         components = _components_from_pair_sus(
             resolved_names, pair_sus, super_tau,
         )

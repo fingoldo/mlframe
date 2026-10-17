@@ -113,55 +113,8 @@ def _screen_matrices(self, df, _usable_features_list, train_idx_screen, *, _bin_
             _phase_ram_report(_ram_state, "prebin_features_done")
     return _use_lazy_prebin, _full_x_matrix, _full_x_prebinned, _streamed_dedup
 
-def fit(
-    self: "CompositeTargetDiscovery",
-    df: Any,
-    target_col: str,
-    feature_cols: Sequence[str],
-    train_idx: np.ndarray,
-    val_idx: np.ndarray | None = None,
-    test_idx: np.ndarray | None = None,
-    time_ordering: Any = None,
-    val_df: Any = None,
-    val_y: np.ndarray | None = None,
-) -> "CompositeTargetDiscovery":
-    """Discover composite-target specs.
-
-    Parameters
-    ----------
-    df
-        Pandas or polars frame containing ``target_col`` and
-        ``feature_cols`` as columns.
-    target_col
-        Column name of the regression target.
-    feature_cols
-        Candidate feature columns. Base candidates are drawn from
-        this set when ``config.base_candidates="auto"``.
-    train_idx
-        Row indices to use for fitting transform params and
-        scoring. **Required** -- no implicit "use full df" shortcut.
-    val_idx, test_idx
-        Stored on the instance for later integrity checks; never
-        touched during fit.
-    time_ordering
-        Optional per-row sortable key (timestamps / a monotone index)
-        aligned to ``df`` rows. When given, the MI-screening sample is
-        SORTED by time so the tiny-model CV uses a forward-walk
-        (TimeSeriesSplit) instead of a shuffled K-fold -- the canonical
-        ``lag(y)`` base is non-monotone so the old base-monotonicity
-        heuristic never fired and the screen leaked future->past on
-        temporal data. ``None`` keeps the legacy base-monotonicity
-        auto-detection.
-    """
-    st = _SimpleNamespace()  # long-lived locals of this function (see the stage helpers below)
-    if not self.config.enabled:
-        self.specs_ = []
-        self.report_ = []
-        self.train_idx_ = np.asarray(train_idx)
-        self._df_ref = df
-        self._target_col = target_col
-        return self
-
+def _fit_normalise_indices(df: Any, train_idx: Any, val_idx: Any, test_idx: Any) -> tuple[np.ndarray, np.ndarray | None, np.ndarray | None]:
+    """Normalise train/val/test indices to integer positions and run the leakage / bounds checks of ``fit``."""
     train_idx = np.asarray(train_idx)
     # A boolean mask is a common idiom but detonates later with a cryptic IndexError (sampling reads the mask LENGTH as the row count); normalise it up front and reject non-integer dtypes loudly.
     if train_idx.dtype == bool:
@@ -190,7 +143,11 @@ def fit(
         logger.warning("[CompositeTargetDiscovery] duplicated train_idx rows bias MI estimates.")
     if train_idx.size and int(train_idx.max()) >= len(df):
         raise ValueError("[CompositeTargetDiscovery] train_idx max %d out of bounds for df of %d rows." % (int(train_idx.max()), len(df)))
+    return train_idx, val_idx, test_idx
 
+
+def _fit_carve_holdout(self: "CompositeTargetDiscovery", st: _SimpleNamespace, df: Any, target_col: str, train_idx: np.ndarray) -> np.ndarray:
+    """Stash identifiers, init per-fit ledger state and carve the honest holdout; returns the screening-pool ``train_idx``."""
     # Stash the identifiers BEFORE the early-return paths so
     # _filter_features (which reads ``self._target_col``) and
     # iter_transform (which reads ``self._df_ref``) work even on
@@ -218,16 +175,13 @@ def fit(
     st._orig_train_idx = train_idx
 
     train_idx, st._honest_holdout_idx = carve_screening_holdout(self, train_idx)
+    return train_idx
 
-    if train_idx.size < 50:
-        logger.warning(
-            "[CompositeTargetDiscovery] train_idx has only %d rows; " "MI estimates unreliable. Discovery yields no specs.",
-            train_idx.size,
-        )
-        self.specs_ = []
-        self.report_ = []
-        return self
 
+def _fit_resolve_bases(
+    self: "CompositeTargetDiscovery", st: _SimpleNamespace, df: Any, target_col: str, feature_cols: Sequence[str], train_idx: np.ndarray, time_ordering: Any
+) -> Any:
+    """Pull y, filter features and resolve base candidates into ``st``; returns the (possibly augmented) frame."""
     st.t0 = timer()
     # Per-fit() RAM telemetry state. Each sub-phase report logs delta vs
     # prev + cumulative vs entry; opt out by setting
@@ -289,16 +243,11 @@ def fit(
     from ._interaction_specs import add_interaction_bases
     df, st.usable_features, st.base_candidates = add_interaction_bases(self, df, st.usable_features, st.base_candidates, train_idx, st.y_train)
     self._df_ref = df  # engineered columns must be visible to downstream gates that read self._df_ref.
+    return df
 
-    if not st.base_candidates:
-        logger.warning(
-            "[CompositeTargetDiscovery] no usable base candidates after " "forbidden-pattern / corr / ptp / numeric filters. " "Discovery yields no specs."
-        )
-        self.specs_ = []
-        # Never return a silent, unexplained empty report: one diagnostic entry says WHY discovery found nothing.
-        self.report_ = no_base_candidates_report_entry()
-        return self
 
+def _fit_sample_screen(self: "CompositeTargetDiscovery", st: _SimpleNamespace, train_idx: np.ndarray, time_ordering: Any) -> None:
+    """Draw the MI-screening sample (time-sorted when ``time_ordering`` is given) and warn on a too-small bin-MI sample."""
     # Down-sample for MI screening. Stratified-quantile when
     # configured -- guarantees per-bin coverage on heavy-tail y.
     st.sample_idx = _sample_indices(
@@ -342,6 +291,9 @@ def fit(
                 int(self.config.mi_nbins),
             )
 
+
+def _fit_mi_baseline_vectors(self: "CompositeTargetDiscovery", df: Any, st: _SimpleNamespace) -> None:
+    """Build the screen feature matrices and the base-invariant per-feature MI(y, x_j) vectors into ``st``."""
     # mi_y baseline is computed PER-BASE because the X-without-base
     # feature set differs per candidate. Comparing MI(T, X_no_base)
     # against MI(y, X) (full X) confounds two effects: target
@@ -434,15 +386,12 @@ def fit(
     # same de-duplicated feature set. Gated + threshold-tunable via config; a
     # strict no-op when no surviving pair exceeds the threshold.
     st._dedup_corr_thr = float(getattr(self.config, "dedup_x_remaining_corr_threshold", 0.99))
-    st._base_contexts = {}
-    _fit_step1_strict_no_op(self, st, df, train_idx)
-    _fit_step2_full_column_count(self, st, train_idx, target_col, df)
 
-    # Opt-in discovery steps (region-adaptive / interaction-base / auto-chain). Gated by config flags defaulting True (each has test-confirmed value); set all False for a no-op leaving kept_specs byte-identical to the pre-hook flow. Heavy logic lives in the ``_opt_in_steps`` sibling (LOC threshold); it returns extra appendable specs (auto-chain) + stashes per-step artefacts on the instance. The cheap gate check + no-op artefact init both live in the sibling.
-    _fit_step3_opt_discovery_steps(self, st, df, target_col, train_idx, val_df, val_y)
-    st._multi_seed_primaries = {s.base_column for s in st.kept_specs if s.transform_name == "linear_residual_multi"}
-    _fit_step4_seed_entry_recorded(self, st)
 
+def _fit_record_results(
+    self: "CompositeTargetDiscovery", st: _SimpleNamespace, df: Any, target_col: str, feature_cols: Sequence[str], val_idx: np.ndarray | None, test_idx: np.ndarray | None
+) -> None:
+    """Record the data-signature inputs and publish ``specs_`` / ``report_`` and bookkeeping attributes."""
     # The data signature the specs were fit on is read only by ``discover_incremental``, but it cost 84-308 ms at 200k x 50
     # (seconds on wide polars frames) on every fit, stability replicate and per-group fit. Record what it needs and let
     # ``fit_data_signature()`` compute it on first use; pickling computes it before the frame reference is dropped. The row count lets it re-score only appended rows.
@@ -459,6 +408,90 @@ def fit(
     self.val_idx_ = val_idx
     self.test_idx_ = test_idx
     self.elapsed_seconds_ = st.elapsed
+
+
+def fit(
+    self: "CompositeTargetDiscovery",
+    df: Any,
+    target_col: str,
+    feature_cols: Sequence[str],
+    train_idx: np.ndarray,
+    val_idx: np.ndarray | None = None,
+    test_idx: np.ndarray | None = None,
+    time_ordering: Any = None,
+    val_df: Any = None,
+    val_y: np.ndarray | None = None,
+) -> "CompositeTargetDiscovery":
+    """Discover composite-target specs.
+
+    Parameters
+    ----------
+    df
+        Pandas or polars frame containing ``target_col`` and
+        ``feature_cols`` as columns.
+    target_col
+        Column name of the regression target.
+    feature_cols
+        Candidate feature columns. Base candidates are drawn from
+        this set when ``config.base_candidates="auto"``.
+    train_idx
+        Row indices to use for fitting transform params and
+        scoring. **Required** -- no implicit "use full df" shortcut.
+    val_idx, test_idx
+        Stored on the instance for later integrity checks; never
+        touched during fit.
+    time_ordering
+        Optional per-row sortable key (timestamps / a monotone index)
+        aligned to ``df`` rows. When given, the MI-screening sample is
+        SORTED by time so the tiny-model CV uses a forward-walk
+        (TimeSeriesSplit) instead of a shuffled K-fold -- the canonical
+        ``lag(y)`` base is non-monotone so the old base-monotonicity
+        heuristic never fired and the screen leaked future->past on
+        temporal data. ``None`` keeps the legacy base-monotonicity
+        auto-detection.
+    """
+    st = _SimpleNamespace()  # long-lived locals of this function (see the stage helpers below)
+    if not self.config.enabled:
+        self.specs_ = []
+        self.report_ = []
+        self.train_idx_ = np.asarray(train_idx)
+        self._df_ref = df
+        self._target_col = target_col
+        return self
+
+    train_idx, val_idx, test_idx = _fit_normalise_indices(df, train_idx, val_idx, test_idx)
+    train_idx = _fit_carve_holdout(self, st, df, target_col, train_idx)
+    if train_idx.size < 50:
+        logger.warning(
+            "[CompositeTargetDiscovery] train_idx has only %d rows; " "MI estimates unreliable. Discovery yields no specs.",
+            train_idx.size,
+        )
+        self.specs_ = []
+        self.report_ = []
+        return self
+
+    df = _fit_resolve_bases(self, st, df, target_col, feature_cols, train_idx, time_ordering)
+    if not st.base_candidates:
+        logger.warning(
+            "[CompositeTargetDiscovery] no usable base candidates after " "forbidden-pattern / corr / ptp / numeric filters. " "Discovery yields no specs."
+        )
+        self.specs_ = []
+        # Never return a silent, unexplained empty report: one diagnostic entry says WHY discovery found nothing.
+        self.report_ = no_base_candidates_report_entry()
+        return self
+
+    _fit_sample_screen(self, st, train_idx, time_ordering)
+    _fit_mi_baseline_vectors(self, df, st)
+    st._base_contexts = {}
+    _fit_step1_strict_no_op(self, st, df, train_idx)
+    _fit_step2_full_column_count(self, st, train_idx, target_col, df)
+
+    # Opt-in discovery steps (region-adaptive / interaction-base / auto-chain). Gated by config flags defaulting True (each has test-confirmed value); set all False for a no-op leaving kept_specs byte-identical to the pre-hook flow. Heavy logic lives in the ``_opt_in_steps`` sibling (LOC threshold); it returns extra appendable specs (auto-chain) + stashes per-step artefacts on the instance. The cheap gate check + no-op artefact init both live in the sibling.
+    _fit_step3_opt_discovery_steps(self, st, df, target_col, train_idx, val_df, val_y)
+    st._multi_seed_primaries = {s.base_column for s in st.kept_specs if s.transform_name == "linear_residual_multi"}
+    _fit_step4_seed_entry_recorded(self, st)
+
+    _fit_record_results(self, st, df, target_col, feature_cols, val_idx, test_idx)
 
     # Opt-in per-group/per-cluster discovery (reopened REJECTED decision -- see the module docstring
     # near the "Per-cluster composite" comment in ``discovery/__init__.py``). Runs AFTER the global fit

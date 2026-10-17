@@ -323,6 +323,43 @@ def _column_to_str(col: pd.Series) -> np.ndarray:
             out[i] = canonical_group_token(v)
     return out
 
+def _oof_encode_column(
+    stats: Sequence[str], global_stats: dict, n: int, n_folds: int, fold_test_idx: list, fold_ne: list, moment_stats: list, order_stats_wanted: list,
+    inverse: np.ndarray, y_arr: np.ndarray, n_cats: int, smoothing: float,
+) -> dict[str, np.ndarray]:
+    """Out-of-fold encoding of one column: for each fold, per-category statistics from the other folds are applied to that fold's rows; returns ``{stat: oof_values}``."""
+    # OOF encoding: for each fold f, compute per-category statistics from rows in folds != f and apply to
+    # rows in fold f.
+    oof = {s: np.full(n, global_stats[s], dtype=np.float64) for s in stats}
+    for f in range(int(n_folds)):
+        test_idx = fold_test_idx[f]
+        # Equivalent to the old ``fold_ne[f].any()`` full-array-scan gate (O(n), done once per
+        # (col, fold)) without touching the array: train is empty iff every row fell into this
+        # fold's test set, i.e. test_idx (already computed) covers the whole dataset.
+        if test_idx.size == n:
+            continue
+        train_mask = fold_ne[f]
+        per_cat: dict = {}
+        if moment_stats:
+            # Direct O(n_train) pass on the TRAIN subset via train_mask (already available) -- NOT the old
+            # full-minus-test raw-sum subtraction (see _smooth_moments_from_centered's docstring for why
+            # that shortcut can't carry over to centred moments: the train subset's own mean differs from
+            # the full-data mean, so centred moments aren't additive/subtractable the way raw power sums
+            # were).
+            t_cnt, t_mean, t_m2, t_m3, t_m4 = _per_cat_centered_moments_njit(
+                np.ascontiguousarray(inverse[train_mask]), np.ascontiguousarray(y_arr[train_mask], dtype=np.float64), n_cats,
+            )
+            per_cat.update(_smooth_moments_from_centered(t_cnt, t_mean, t_m2, t_m3, t_m4, moment_stats, global_stats, smoothing))
+        if order_stats_wanted:
+            # Order stats need y actually sorted within each TRAIN category (not expressible from additive
+            # sums), so this branch still rescans the train rows - unchanged from the pre-existing behaviour.
+            per_cat.update(per_category_order_stats(inverse[train_mask], y_arr[train_mask], n_cats, order_stats_wanted, global_stats))
+        inv_test = inverse[test_idx]
+        for s in stats:
+            oof[s][test_idx] = per_cat[s][inv_test]
+    return oof
+
+
 def kfold_target_encode_fit(
     X: pd.DataFrame,
     y: np.ndarray,
@@ -428,35 +465,7 @@ def kfold_target_encode_fit(
         # Full-data counts, needed for order stats + the persisted replay lookup below.
         full_counts = np.bincount(inverse, minlength=n_cats) if (moment_stats or order_stats_wanted) else None
 
-        # OOF encoding: for each fold f, compute per-category statistics from rows in folds != f and apply to
-        # rows in fold f.
-        oof = {s: np.full(n, global_stats[s], dtype=np.float64) for s in stats}
-        for f in range(int(n_folds)):
-            test_idx = _fold_test_idx[f]
-            # Equivalent to the old ``_fold_ne[f].any()`` full-array-scan gate (O(n), done once per
-            # (col, fold)) without touching the array: train is empty iff every row fell into this
-            # fold's test set, i.e. test_idx (already computed) covers the whole dataset.
-            if test_idx.size == n:
-                continue
-            train_mask = _fold_ne[f]
-            per_cat: dict = {}
-            if moment_stats:
-                # Direct O(n_train) pass on the TRAIN subset via train_mask (already available) -- NOT the old
-                # full-minus-test raw-sum subtraction (see _smooth_moments_from_centered's docstring for why
-                # that shortcut can't carry over to centred moments: the train subset's own mean differs from
-                # the full-data mean, so centred moments aren't additive/subtractable the way raw power sums
-                # were).
-                t_cnt, t_mean, t_m2, t_m3, t_m4 = _per_cat_centered_moments_njit(
-                    np.ascontiguousarray(inverse[train_mask]), np.ascontiguousarray(y_arr[train_mask], dtype=np.float64), n_cats,
-                )
-                per_cat.update(_smooth_moments_from_centered(t_cnt, t_mean, t_m2, t_m3, t_m4, moment_stats, global_stats, smoothing))
-            if order_stats_wanted:
-                # Order stats need y actually sorted within each TRAIN category (not expressible from additive
-                # sums), so this branch still rescans the train rows - unchanged from the pre-existing behaviour.
-                per_cat.update(per_category_order_stats(inverse[train_mask], y_arr[train_mask], n_cats, order_stats_wanted, global_stats))
-            inv_test = inverse[test_idx]
-            for s in stats:
-                oof[s][test_idx] = per_cat[s][inv_test]
+        oof = _oof_encode_column(stats, global_stats, n, n_folds, _fold_test_idx, _fold_ne, moment_stats, order_stats_wanted, inverse, y_arr, n_cats, smoothing)
 
         # Full-data lookups for transform-time replay (one table per statistic).
         full_per_cat: dict = {}

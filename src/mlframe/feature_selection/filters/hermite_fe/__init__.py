@@ -951,11 +951,11 @@ from ._hermite_prewarp import (
     fit_pair_prewarp_als,
     warm_start_als_seed,
 )
+from .._hermite_fe_diverse import _select_diverse_topm
 from .._hermite_fe_optimise import (
     _baseline_mi_pair,
     _eval_coef_pair,
     _run_cma_search,
-    _select_diverse_topm,
     detect_pair_symmetry,
     optimise_hermite_pair,
     precompute_hermite_pair_basis,

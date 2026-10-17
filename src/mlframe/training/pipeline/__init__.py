@@ -603,6 +603,83 @@ def _apply_safe_scaler(
     return bp.scale(safe, method=scaler_name)
 
 
+def _add_categorical_encoding_step(config, train_df, bp, excluded, verbose):
+    """Append the configured categorical encoder (ordinal / onehot) to the pipeline builder; returns the extended builder."""
+    # Pre-compute the list of cat-like columns that SHOULD be encoded
+    # (text/embedding features excluded). We pass this list explicitly
+    # when ``excluded`` is non-empty so polars-ds never touches the
+    # reserved columns. When ``excluded`` is empty, keep the historical
+    # ``cols=None`` (auto-detect) behaviour for byte-for-byte
+    # compatibility with the legacy fastpath behaviour.
+    def _encodable_cols() -> List[str]:
+        """Categorical-like column names eligible for encoding, excluding text/embedding features."""
+        out: List[str] = []
+        for name, dtype in train_df.schema.items():
+            if name in excluded:
+                continue
+            # Mirror polars-ds's auto-detection for string-like dtypes.
+            if dtype == pl.Utf8 or dtype == pl.String or dtype == pl.Categorical or dtype == pl.Boolean or (hasattr(pl, "Enum") and isinstance(dtype, pl.Enum)):
+                out.append(name)
+        return out
+
+    # Add categorical encoding (skip when downstream models handle categoricals natively)
+    if config.skip_categorical_encoding:
+        if verbose:
+            logger.info("  Skipping categorical encoding (downstream models handle categoricals natively)")
+    elif config.categorical_encoding in ("ordinal", "onehot"):
+        # Pre-check: polars-ds raises "Provided columns either do not exist or are not
+        # string/categorical/enum types" when no cat-like columns exist. Skip the
+        # encoding step in that case rather than letting polars-ds crash.
+        candidate_cols = _encodable_cols()
+        if not candidate_cols:
+            if verbose:
+                logger.info("  No string/categorical/enum columns to encode; skipping categorical encoding step")
+        else:
+            # polars-ds's ordinal_encode / one_hot_encode reject ``pl.Enum`` columns
+            # ("not string/categorical types") -- it recognises only String / Categorical.
+            # Cast any Enum candidate to Categorical first so Enum-typed inputs
+            # (input_type='polars_enum') encode instead of crashing the pipeline build.
+            _enum_cls = getattr(pl, "Enum", None)
+            _enum_to_cast = [name for name in candidate_cols if _enum_cls is not None and isinstance(train_df.schema.get(name), _enum_cls)]
+            if _enum_to_cast:
+                bp = bp.with_columns(*[pl.col(_c).cast(pl.Categorical) for _c in _enum_to_cast])
+            cols_arg = candidate_cols if excluded else None
+            if config.categorical_encoding == "ordinal":
+                bp = bp.ordinal_encode(cols=cols_arg, null_value=-1, unknown_value=-2)
+            else:
+                bp = bp.one_hot_encode(cols=cols_arg, drop_first=False, drop_cols=True)
+    # Add more encoding methods as needed
+    return bp
+
+
+def _add_int_to_float_step(train_df, bp):
+    """Append the narrow-int-aware int to float32 cast to the pipeline builder; returns the extended builder."""
+    # Convert int to float32 for better compatibility.
+    # Skip already-narrow Int8/Int16 columns (typically datetime decomposition
+    # outputs: day/weekday/month/hour all fit Int8); widening them to float32
+    # quadruples memory for zero downstream benefit since tree models accept
+    # int8 directly. We cast only Int32/Int64/UInt32/UInt64 to f32. fix audit
+    # row FE-L-3.
+    try:
+        _narrow_int_dtypes = {pl.Int8, pl.Int16, pl.UInt8, pl.UInt16}
+        _wide_int_cols = [name for name, dtype in train_df.schema.items() if dtype.is_integer() and dtype not in _narrow_int_dtypes]
+        if _wide_int_cols:
+            _cast_exprs = [pl.col(c).cast(pl.Float32) for c in _wide_int_cols]
+            # polars-ds Blueprint.with_columns is ``*exprs`` style; unpack.
+            bp = bp.with_columns(*_cast_exprs)
+    except Exception as _exc:  # pragma: no cover - polars-ds API drift fallback
+        # If the per-column path errors (older polars-ds without with_columns,
+        # schema dtype detection failure, ...) fall back to the legacy
+        # whole-frame cast so we never silently emit raw int to consumers that
+        # historically expected float.
+        logger.debug(
+            "Narrow-int-aware int_to_float gating failed (%s); falling back to legacy int_to_float(f32=True).",
+            _exc,
+        )
+        bp = bp.int_to_float(f32=True)
+    return bp
+
+
 def create_polarsds_pipeline(
     train_df: pl.DataFrame,
     config: PreprocessingBackendConfig,
@@ -676,74 +753,9 @@ def create_polarsds_pipeline(
             verbose=verbose,
         )
 
-    # Pre-compute the list of cat-like columns that SHOULD be encoded
-    # (text/embedding features excluded). We pass this list explicitly
-    # when ``excluded`` is non-empty so polars-ds never touches the
-    # reserved columns. When ``excluded`` is empty, keep the historical
-    # ``cols=None`` (auto-detect) behaviour for byte-for-byte
-    # compatibility with the legacy fastpath behaviour.
-    def _encodable_cols() -> List[str]:
-        """Categorical-like column names eligible for encoding, excluding text/embedding features."""
-        out: List[str] = []
-        for name, dtype in train_df.schema.items():
-            if name in excluded:
-                continue
-            # Mirror polars-ds's auto-detection for string-like dtypes.
-            if dtype == pl.Utf8 or dtype == pl.String or dtype == pl.Categorical or dtype == pl.Boolean or (hasattr(pl, "Enum") and isinstance(dtype, pl.Enum)):
-                out.append(name)
-        return out
+    bp = _add_categorical_encoding_step(config, train_df, bp, excluded, verbose)
 
-    # Add categorical encoding (skip when downstream models handle categoricals natively)
-    if config.skip_categorical_encoding:
-        if verbose:
-            logger.info("  Skipping categorical encoding (downstream models handle categoricals natively)")
-    elif config.categorical_encoding in ("ordinal", "onehot"):
-        # Pre-check: polars-ds raises "Provided columns either do not exist or are not
-        # string/categorical/enum types" when no cat-like columns exist. Skip the
-        # encoding step in that case rather than letting polars-ds crash.
-        candidate_cols = _encodable_cols()
-        if not candidate_cols:
-            if verbose:
-                logger.info("  No string/categorical/enum columns to encode; skipping categorical encoding step")
-        else:
-            # polars-ds's ordinal_encode / one_hot_encode reject ``pl.Enum`` columns
-            # ("not string/categorical types") -- it recognises only String / Categorical.
-            # Cast any Enum candidate to Categorical first so Enum-typed inputs
-            # (input_type='polars_enum') encode instead of crashing the pipeline build.
-            _enum_cls = getattr(pl, "Enum", None)
-            _enum_to_cast = [name for name in candidate_cols if _enum_cls is not None and isinstance(train_df.schema.get(name), _enum_cls)]
-            if _enum_to_cast:
-                bp = bp.with_columns(*[pl.col(_c).cast(pl.Categorical) for _c in _enum_to_cast])
-            cols_arg = candidate_cols if excluded else None
-            if config.categorical_encoding == "ordinal":
-                bp = bp.ordinal_encode(cols=cols_arg, null_value=-1, unknown_value=-2)
-            else:
-                bp = bp.one_hot_encode(cols=cols_arg, drop_first=False, drop_cols=True)
-    # Add more encoding methods as needed
-
-    # Convert int to float32 for better compatibility.
-    # Skip already-narrow Int8/Int16 columns (typically datetime decomposition
-    # outputs: day/weekday/month/hour all fit Int8); widening them to float32
-    # quadruples memory for zero downstream benefit since tree models accept
-    # int8 directly. We cast only Int32/Int64/UInt32/UInt64 to f32. fix audit
-    # row FE-L-3.
-    try:
-        _narrow_int_dtypes = {pl.Int8, pl.Int16, pl.UInt8, pl.UInt16}
-        _wide_int_cols = [name for name, dtype in train_df.schema.items() if dtype.is_integer() and dtype not in _narrow_int_dtypes]
-        if _wide_int_cols:
-            _cast_exprs = [pl.col(c).cast(pl.Float32) for c in _wide_int_cols]
-            # polars-ds Blueprint.with_columns is ``*exprs`` style; unpack.
-            bp = bp.with_columns(*_cast_exprs)
-    except Exception as _exc:  # pragma: no cover - polars-ds API drift fallback
-        # If the per-column path errors (older polars-ds without with_columns,
-        # schema dtype detection failure, ...) fall back to the legacy
-        # whole-frame cast so we never silently emit raw int to consumers that
-        # historically expected float.
-        logger.debug(
-            "Narrow-int-aware int_to_float gating failed (%s); falling back to legacy int_to_float(f32=True).",
-            _exc,
-        )
-        bp = bp.int_to_float(f32=True)
+    bp = _add_int_to_float_step(train_df, bp)
 
     # Materialize the pipeline
     pipeline = bp.materialize()

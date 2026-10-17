@@ -27,6 +27,130 @@ from ._ensemble_chooser import _choose_ensemble_flavour, _choose_ensemble_flavou
 logger = logging.getLogger("mlframe.training.core._phase_train_one_target")
 
 
+def _build_ensemble_kwargs(behavior_config: object, common_params: dict | None) -> tuple[dict, bool]:
+    """Build the extra ``score_ensemble`` kwargs from ``common_params`` + behavior knobs; return (kwargs, use_ap12_calibrated_probs)."""
+    # Spread common_params first, then explicitly set group_ids/sample_weight.
+    # If common_params happened to already carry either key (unlikely on the
+    # current build but defensive against future schema drift), the explicit
+    # set wins. Avoid TypeError "multiple values for kw" by removing first.
+    _ens_kwargs = dict(common_params or {})
+    _ens_kwargs.pop("group_ids", None)
+    _ens_kwargs.pop("sample_weight", None)
+    _ens_kwargs.pop("target_type", None)
+    # W16D / A3#3: surface ``TrainingBehaviorConfig.use_ap12_calibrated_probs_in_ensemble`` as the
+    # explicit ``use_ap12_calibrated_probs`` kwarg on ``score_ensemble``. Default True so the suite
+    # default benefits from AP12-calibrated probs in arithm / harm / quad / qube / geo / median blends;
+    # opt-out by setting False on the behavior config. RRF is rank-based and ignores the knob.
+    _use_ap12_cal = bool(getattr(behavior_config, "use_ap12_calibrated_probs_in_ensemble", True))
+    _ens_kwargs.pop("use_ap12_calibrated_probs", None)
+    # PZAD blend knobs (behavior_config): Caruana metric-direct weights (alternative to NNLS) + extra flavours
+    # (e.g. rank_average) appended to the default SIMPLE_ENSEMBLING_METHODS set. Both OFF/empty by default.
+    if bool(getattr(behavior_config, "use_caruana_weights_in_ensemble", False)):
+        _ens_kwargs["use_caruana_weights"] = True
+    _extra_methods = tuple(getattr(behavior_config, "extra_ensembling_methods", ()) or ())
+    if _extra_methods:
+        from mlframe.models.ensembling.base import SIMPLE_ENSEMBLING_METHODS as _SIMPLE_METHODS
+        _base_methods = _ens_kwargs.get("ensembling_methods")
+        if not isinstance(_base_methods, (list, tuple)) or not _base_methods:
+            _base_methods = list(_SIMPLE_METHODS)
+        _ens_kwargs["ensembling_methods"] = list(dict.fromkeys(list(_base_methods) + list(_extra_methods)))
+    return _ens_kwargs, _use_ap12_cal
+
+
+def _append_ensemble_entries(_ensembles: dict, models: dict, target_type: object, cur_target_name: str, pre_pipeline_name: str, _members_label: str) -> None:
+    """Unwrap each ensemble flavour result, stamp its name and append it to the per-target model list (sentinel keys skipped)."""
+    _target_models = models.setdefault(target_type, {}).setdefault(cur_target_name, [])
+    for _ens_method, _ens_result in _ensembles.items():
+        # K2-CATASTROPHIC-DROPOUT sentinel filter: ``score_ensemble`` short-circuits
+        # with sentinel-only result entries (``_reason``, ``_n_members``,
+        # ``_dropped_member``, ``_kept_member``, ``_k2_mae_ratio``) when the K=2
+        # catastrophic-dropout fires (or any other early-exit branch returns a
+        # leading-underscore key). Those are METADATA, not model entries; appending
+        # them into the per-target model list pollutes downstream predict / metric /
+        # ensemble code with strings / ints / floats where it expects model objects.
+        # Skip any key starting with ``_`` to leave the model list clean.
+        if isinstance(_ens_method, str) and _ens_method.startswith("_"):
+            continue
+        # ``score_ensemble``'s values are the raw ``train_and_evaluate_model`` return --
+        # ``(entry_namespace, train_df, val_df, test_df)`` -- not a bare namespace (mirrors the
+        # same unwrap ``process_method.py`` already does to stamp ``member_test_preds``). Every
+        # OTHER entry in this per-target model list (the raw per-family models) is a bare
+        # namespace, so appending the 4-tuple as-is here silently broke any consumer of
+        # ``models[target_type][target_name]`` expecting namespace-like ``.model``/``.test_preds``
+        # attributes on an ensemble entry. Unwrap to the namespace before appending; the full
+        # tuple (incl. the split frames) stays available via ``ctx.ensembles``.
+        _entry_ns = _ens_result[0] if isinstance(_ens_result, tuple) else _ens_result
+        # Stamp the flavour name onto the result object itself. Before this, the dict key
+        # (the only place the flavour lived) was dropped the moment the value went into the
+        # flat per-target model list -- a caller holding one of these entries had no way to
+        # tell WHICH ensemble flavour it was short of parsing the flavour token back out of a
+        # saved chart filename (``metrics[...]['charts']['paths']``), which silently stopped
+        # working the moment chart rendering was disabled (``OutputConfig.save_charts=False``).
+        try:
+            _entry_ns.name = _ens_method
+            # Unique identity among the target's models (flavour + pre-pipeline + members, as in the chart name);
+            # metadata blocks key results by ``model_name``, and without it every ensemble keyed as "NoneType".
+            _entry_ns.model_name = f"Ens{str(_ens_method).upper()} {pre_pipeline_name}{_members_label}".strip()
+        except Exception as _name_stamp_err:
+            logger.debug("could not stamp flavour name %r onto ensemble result: %s", _ens_method, _name_stamp_err)
+        _target_models.append(_entry_ns)
+
+
+def _stamp_ensemble_metadata(_ensembles: dict, metadata: dict, common_params: dict, target_type: object, cur_target_name: str) -> str | None:
+    """Stamp the chosen flavour, blend weights, member set and rrf_k into ``metadata``; return the chosen flavour (or None)."""
+    _chosen = None
+    # Stamp the winning ensemble flavour so the predict path picks the same flavour the
+    # training selection rule would have picked. Predict reads ``ensembles_chosen``
+    # (see core/predict.py::_resolve_chosen_flavour) which expects the nested layout
+    # ``{target_type: {target_name: flavour}}``. A None winner (no candidate exposed a
+    # ranking metric) is intentionally NOT stamped so the predict-side fallback fires.
+    try:
+        _chosen, _surface = _choose_ensemble_flavour_and_surface(_ensembles)
+        if _chosen is not None:
+            # Sub-key per ensemble family: simple per-target ensembles live under
+            # ``ensembles_chosen["simple"]``; cross-target ensembles are stamped by
+            # _phase_composite_post under ``ensembles_chosen["cross_target"]``.
+            stamp_ensemble_choice(metadata, target_type, cur_target_name, _chosen, _surface)
+    except Exception as _choose_err:
+        logger.warning("ensembles_chosen stamp failed for %s/%s: %s", target_type, cur_target_name, _choose_err)
+    # Persist ``rrf_k`` only when RRF was actually iterated for this target -- otherwise
+    # the metadata stamps a stale-but-default ``rrf_k`` for regression-only suites (where
+    # score_ensemble filters RRF out) which pollutes regression-review diffs without ever
+    # affecting predict (which only reads rrf_k for the rrf flavour). Detection: look at
+    # ``ensembling_methods`` in common_params AND the keys actually emitted into
+    # ``_ensembles`` -- a flavour is in the iteration when it appears in either.
+    # Blend weights must survive into predict. Training used to fit NNLS/Caruana weights, score a WEIGHTED blend,
+    # stamp that flavour as the winner -- and persist nothing, so deployment replayed the same members as an
+    # unweighted mean. That is a different estimator from the one whose metrics were reported.
+    try:
+        _saw = _ensembles.get("_stacking_gate") if isinstance(_ensembles, dict) else None
+        if isinstance(_saw, dict) and _saw.get("applied_to_blend") and _saw.get("aligned_weights"):
+            metadata.setdefault("ensembles_chosen_params", {}).setdefault(str(target_type), {}).setdefault(str(cur_target_name), {})["blend_weights"] = [
+                float(w) for w in _saw["aligned_weights"]
+            ]
+    except Exception as _w_err:
+        logger.warning("blend-weight stamp failed for %s/%s: %s", target_type, cur_target_name, _w_err)
+    # And the member set those weights belong to, so predict blends exactly the models training scored.
+    _members = _ensembles.get("_surviving_members") if isinstance(_ensembles, dict) else None
+    if isinstance(_members, list) and _members:
+        metadata.setdefault("ensembles_chosen_params", {}).setdefault(str(target_type), {}).setdefault(str(cur_target_name), {})["members"] = [
+            str(_n) for _n in _members
+        ]
+    _ens_methods_used = common_params.get("ensembling_methods") if isinstance(common_params, dict) else None
+    _rrf_in_iter = False
+    if isinstance(_ens_methods_used, (list, tuple)):
+        _rrf_in_iter = "rrf" in _ens_methods_used
+    if not _rrf_in_iter:
+        _rrf_in_iter = any(isinstance(k, str) and k == "rrf" for k in _ensembles.keys())
+    if _rrf_in_iter:
+        try:
+            _rrf_k_used = int(common_params.get("rrf_k", 60))
+        except (TypeError, ValueError):
+            _rrf_k_used = 60
+        metadata.setdefault("ensembles_chosen_params", {}).setdefault(str(target_type), {}).setdefault(str(cur_target_name), {})["rrf_k"] = _rrf_k_used
+    return _chosen
+
+
 def _finalize_per_target_ensembling(
     *,
     ens_models,
@@ -94,31 +218,7 @@ def _finalize_per_target_ensembling(
         if isinstance(_ctx_sw_dict, dict) and _ctx_sw_dict
         else (current_common_params.get("sample_weight") if isinstance(current_common_params, dict) else None)
     )
-    # Spread common_params first, then explicitly set group_ids/sample_weight.
-    # If common_params happened to already carry either key (unlikely on the
-    # current build but defensive against future schema drift), the explicit
-    # set wins. Avoid TypeError "multiple values for kw" by removing first.
-    _ens_kwargs = dict(common_params or {})
-    _ens_kwargs.pop("group_ids", None)
-    _ens_kwargs.pop("sample_weight", None)
-    _ens_kwargs.pop("target_type", None)
-    # W16D / A3#3: surface ``TrainingBehaviorConfig.use_ap12_calibrated_probs_in_ensemble`` as the
-    # explicit ``use_ap12_calibrated_probs`` kwarg on ``score_ensemble``. Default True so the suite
-    # default benefits from AP12-calibrated probs in arithm / harm / quad / qube / geo / median blends;
-    # opt-out by setting False on the behavior config. RRF is rank-based and ignores the knob.
-    _use_ap12_cal = bool(getattr(behavior_config, "use_ap12_calibrated_probs_in_ensemble", True))
-    _ens_kwargs.pop("use_ap12_calibrated_probs", None)
-    # PZAD blend knobs (behavior_config): Caruana metric-direct weights (alternative to NNLS) + extra flavours
-    # (e.g. rank_average) appended to the default SIMPLE_ENSEMBLING_METHODS set. Both OFF/empty by default.
-    if bool(getattr(behavior_config, "use_caruana_weights_in_ensemble", False)):
-        _ens_kwargs["use_caruana_weights"] = True
-    _extra_methods = tuple(getattr(behavior_config, "extra_ensembling_methods", ()) or ())
-    if _extra_methods:
-        from mlframe.models.ensembling.base import SIMPLE_ENSEMBLING_METHODS as _SIMPLE_METHODS
-        _base_methods = _ens_kwargs.get("ensembling_methods")
-        if not isinstance(_base_methods, (list, tuple)) or not _base_methods:
-            _base_methods = list(_SIMPLE_METHODS)
-        _ens_kwargs["ensembling_methods"] = list(dict.fromkeys(list(_base_methods) + list(_extra_methods)))
+    _ens_kwargs, _use_ap12_cal = _build_ensemble_kwargs(behavior_config, common_params)
     _ensembles = score_ensemble(
         models_and_predictions=ens_models,
         ensemble_name=f"{pre_pipeline_name}{_members_label} ",
@@ -140,90 +240,8 @@ def _finalize_per_target_ensembling(
         # Mirror into the per-target model list (same slot the per-family training loop
         # uses) so any code iterating ``models[target_type][target_name]`` picks the
         # ensembles up without needing a separate dispatch.
-        _target_models = models.setdefault(target_type, {}).setdefault(cur_target_name, [])
-        for _ens_method, _ens_result in _ensembles.items():
-            # K2-CATASTROPHIC-DROPOUT sentinel filter: ``score_ensemble`` short-circuits
-            # with sentinel-only result entries (``_reason``, ``_n_members``,
-            # ``_dropped_member``, ``_kept_member``, ``_k2_mae_ratio``) when the K=2
-            # catastrophic-dropout fires (or any other early-exit branch returns a
-            # leading-underscore key). Those are METADATA, not model entries; appending
-            # them into the per-target model list pollutes downstream predict / metric /
-            # ensemble code with strings / ints / floats where it expects model objects.
-            # Skip any key starting with ``_`` to leave the model list clean.
-            if isinstance(_ens_method, str) and _ens_method.startswith("_"):
-                continue
-            # ``score_ensemble``'s values are the raw ``train_and_evaluate_model`` return --
-            # ``(entry_namespace, train_df, val_df, test_df)`` -- not a bare namespace (mirrors the
-            # same unwrap ``process_method.py`` already does to stamp ``member_test_preds``). Every
-            # OTHER entry in this per-target model list (the raw per-family models) is a bare
-            # namespace, so appending the 4-tuple as-is here silently broke any consumer of
-            # ``models[target_type][target_name]`` expecting namespace-like ``.model``/``.test_preds``
-            # attributes on an ensemble entry. Unwrap to the namespace before appending; the full
-            # tuple (incl. the split frames) stays available via ``ctx.ensembles``.
-            _entry_ns = _ens_result[0] if isinstance(_ens_result, tuple) else _ens_result
-            # Stamp the flavour name onto the result object itself. Before this, the dict key
-            # (the only place the flavour lived) was dropped the moment the value went into the
-            # flat per-target model list -- a caller holding one of these entries had no way to
-            # tell WHICH ensemble flavour it was short of parsing the flavour token back out of a
-            # saved chart filename (``metrics[...]['charts']['paths']``), which silently stopped
-            # working the moment chart rendering was disabled (``OutputConfig.save_charts=False``).
-            try:
-                _entry_ns.name = _ens_method
-                # Unique identity among the target's models (flavour + pre-pipeline + members, as in the chart name);
-                # metadata blocks key results by ``model_name``, and without it every ensemble keyed as "NoneType".
-                _entry_ns.model_name = f"Ens{str(_ens_method).upper()} {pre_pipeline_name}{_members_label}".strip()
-            except Exception as _name_stamp_err:
-                logger.debug("could not stamp flavour name %r onto ensemble result: %s", _ens_method, _name_stamp_err)
-            _target_models.append(_entry_ns)
-        # Stamp the winning ensemble flavour so the predict path picks the same flavour the
-        # training selection rule would have picked. Predict reads ``ensembles_chosen``
-        # (see core/predict.py::_resolve_chosen_flavour) which expects the nested layout
-        # ``{target_type: {target_name: flavour}}``. A None winner (no candidate exposed a
-        # ranking metric) is intentionally NOT stamped so the predict-side fallback fires.
-        try:
-            _chosen, _surface = _choose_ensemble_flavour_and_surface(_ensembles)
-            if _chosen is not None:
-                # Sub-key per ensemble family: simple per-target ensembles live under
-                # ``ensembles_chosen["simple"]``; cross-target ensembles are stamped by
-                # _phase_composite_post under ``ensembles_chosen["cross_target"]``.
-                stamp_ensemble_choice(metadata, target_type, cur_target_name, _chosen, _surface)
-        except Exception as _choose_err:
-            logger.warning("ensembles_chosen stamp failed for %s/%s: %s", target_type, cur_target_name, _choose_err)
-        # Persist ``rrf_k`` only when RRF was actually iterated for this target -- otherwise
-        # the metadata stamps a stale-but-default ``rrf_k`` for regression-only suites (where
-        # score_ensemble filters RRF out) which pollutes regression-review diffs without ever
-        # affecting predict (which only reads rrf_k for the rrf flavour). Detection: look at
-        # ``ensembling_methods`` in common_params AND the keys actually emitted into
-        # ``_ensembles`` -- a flavour is in the iteration when it appears in either.
-        # Blend weights must survive into predict. Training used to fit NNLS/Caruana weights, score a WEIGHTED blend,
-        # stamp that flavour as the winner -- and persist nothing, so deployment replayed the same members as an
-        # unweighted mean. That is a different estimator from the one whose metrics were reported.
-        try:
-            _saw = _ensembles.get("_stacking_gate") if isinstance(_ensembles, dict) else None
-            if isinstance(_saw, dict) and _saw.get("applied_to_blend") and _saw.get("aligned_weights"):
-                metadata.setdefault("ensembles_chosen_params", {}).setdefault(str(target_type), {}).setdefault(str(cur_target_name), {})["blend_weights"] = [
-                    float(w) for w in _saw["aligned_weights"]
-                ]
-        except Exception as _w_err:
-            logger.warning("blend-weight stamp failed for %s/%s: %s", target_type, cur_target_name, _w_err)
-        # And the member set those weights belong to, so predict blends exactly the models training scored.
-        _members = _ensembles.get("_surviving_members") if isinstance(_ensembles, dict) else None
-        if isinstance(_members, list) and _members:
-            metadata.setdefault("ensembles_chosen_params", {}).setdefault(str(target_type), {}).setdefault(str(cur_target_name), {})["members"] = [
-                str(_n) for _n in _members
-            ]
-        _ens_methods_used = common_params.get("ensembling_methods") if isinstance(common_params, dict) else None
-        _rrf_in_iter = False
-        if isinstance(_ens_methods_used, (list, tuple)):
-            _rrf_in_iter = "rrf" in _ens_methods_used
-        if not _rrf_in_iter:
-            _rrf_in_iter = any(isinstance(k, str) and k == "rrf" for k in _ensembles.keys())
-        if _rrf_in_iter:
-            try:
-                _rrf_k_used = int(common_params.get("rrf_k", 60))
-            except (TypeError, ValueError):
-                _rrf_k_used = 60
-            metadata.setdefault("ensembles_chosen_params", {}).setdefault(str(target_type), {}).setdefault(str(cur_target_name), {})["rrf_k"] = _rrf_k_used
+        _append_ensemble_entries(_ensembles, models, target_type, cur_target_name, pre_pipeline_name, _members_label)
+        _chosen = _stamp_ensemble_metadata(_ensembles, metadata, common_params, target_type, cur_target_name)
 
     # Per-target binary decision thresholds (val, never test): one per member, tuned on that member's own val
     # probabilities, and one for the ensemble, tuned on the BLEND's. See _tune_decision_thresholds.

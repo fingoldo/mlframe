@@ -7,6 +7,7 @@ existing imports continue to work.
 """
 from __future__ import annotations
 
+from typing import Any
 import logging
 import threading
 
@@ -80,6 +81,105 @@ def mi_direct_gpu_batched_pairs(
     Preconditions: CuPy installed and a GPU available; ``classes_y`` / ``freqs_y`` precomputed by the caller. Raises a clear error if CuPy is missing - callers
     must resolve ``backend`` before calling.
     """
+    _ret_mi_direct_gpu_batched_pairs_part1 = _mi_direct_gpu_batched_pairs_part1(
+        pairs_a, factors_data, pairs_b, factors_nbins, classes_y, freqs_y, dtype,
+    )
+    if _ret_mi_direct_gpu_batched_pairs_part1[0]:
+        _early_mi_direct_gpu_batched_pairs_part1: np.ndarray = _ret_mi_direct_gpu_batched_pairs_part1[1]
+        return _early_mi_direct_gpu_batched_pairs_part1
+    cp, _gpu_module, n_pairs, n_rows, nbins_y, pair_merged_sizes, pair_joint_sizes, joint_offsets, factors_data_T_gpu, classes_y_gpu, pairs_a_gpu, pairs_b_gpu, nbins_a_gpu, joint_offsets_gpu, joint_counts_flat, block_size, grid_x = _ret_mi_direct_gpu_batched_pairs_part1[1:]
+
+    # Kernel-variant dispatch: shared-mem multi-pair kernel wins for small
+    # per-pair joint_size_y. Pre-fix the 4096-cell cap was a hardcoded
+    # cc 6.x 16 KB assumption; cc 7+ opt-in shared memory reaches 96-227 KB.
+    # probe live device's shared-mem budget
+    # via pyutilz.system.gpu_dispatch.get_shared_mem_budget_per_block
+    # (the helper that batch_pair_mi_gpu._derive_max_joint_bins already
+    # uses); fall back to 4096 only when the probe is unavailable.
+    #
+    # BUG (found, fixed here): the probe call below was ``_shared_budget`` with NO
+    # arguments, but ``get_shared_mem_budget_per_block`` requires ``(cc_major, cc_minor,
+    # allow_opt_in=False)`` - every call raised TypeError, silently caught by the bare except, so this
+    # "fix" never actually engaged on ANY host; every dispatch fell back to the previous 4096-cell
+    # default regardless of hardware. Also switched to ``allow_opt_in=True`` (the comment above already
+    # says cc7+ opt-in reaches 96-227 KB, matching this kernel's own opt-in ``max_dynamic_shared_size_bytes``
+    # wiring below - see ``_batch_pair_mi_cuda_shared_fused.py`` for the sibling fix and the verified-live
+    # opt-in numbers on this host, 48KB static vs 99KB opt-in on an RTX 500 Ada).
+    max_joint_size_y = int(pair_joint_sizes.max()) if len(pair_joint_sizes) else 0
+    try:
+        from pyutilz.system.gpu_dispatch import gpu_capability_summary, get_shared_mem_budget_per_block
+
+        _summary = gpu_capability_summary(0)
+        if _summary is None:
+            raise RuntimeError("gpu_capability_summary returned None")
+        # Reserve 1/8th of the shared budget per pair (matches the
+        # _derive_max_joint_bins partitioning in batch_pair_mi_gpu).
+        # Each cell is int32 (4 bytes), so capacity in CELLS = budget // 4 // 8.
+        _budget_bytes = get_shared_mem_budget_per_block(_summary["cc_major"], _summary["cc_minor"], allow_opt_in=True)
+        _SHARED_MULTI_PAIR_MAX = max(4096, _budget_bytes // 4 // 8)
+    except Exception as e:
+        logger.warning("shared-mem budget probe failed, falling back to pre-2026-05-20 default: %s", e)
+        # No probe available -> fall back to the previous default.
+        _budget_bytes = 0
+        _SHARED_MULTI_PAIR_MAX = 4096
+    use_shared_multi_pair = max_joint_size_y > 0 and max_joint_size_y <= _SHARED_MULTI_PAIR_MAX
+
+    # SINGLE kernel launch processes all pairs via 3D grid (rows along X, pairs along Y); per-pair launch overhead amortised to zero.
+    if use_shared_multi_pair:
+        _needed_shared_bytes = max_joint_size_y * 4
+        # Opt into extended dynamic shared memory (cp.RawKernel-native; verified working, see
+        # _batch_pair_mi_cuda_shared_fused.py) only when the STATIC 48KB-per-block default would not
+        # cover this call's actual shared-memory need - avoids touching the property (which some
+        # driver versions reject below the static default) on the common small-shape path.
+        # The property set + launch must be atomic together -
+        # otherwise a concurrent call with a different _needed_shared_bytes could overwrite the budget
+        # between this thread's set and its own launch enqueuing (see _SHARED_MEM_SET_LOCK's module note).
+        with _SHARED_MEM_SET_LOCK:
+            if _needed_shared_bytes > 49152 - 2048 and _budget_bytes > 0:
+                try:
+                    _gpu_module.compute_joint_hist_multi_pair_shared_cuda.max_dynamic_shared_size_bytes = _needed_shared_bytes
+                except Exception:
+                    logger.debug("compute_joint_hist_multi_pair_shared_cuda: opt-in shared-mem set failed; launch may fail and fall back", exc_info=True)
+            _gpu_module.compute_joint_hist_multi_pair_shared_cuda(
+                (grid_x, n_pairs),
+                (block_size,),
+                (
+                    factors_data_T_gpu, classes_y_gpu, pairs_a_gpu, pairs_b_gpu,
+                    nbins_a_gpu, joint_offsets_gpu,
+                    joint_counts_flat, n_rows, n_pairs, nbins_y,
+                    np.int32(max_joint_size_y),
+                ),
+                shared_mem=_needed_shared_bytes,
+            )
+    else:
+        _gpu_module.compute_joint_hist_multi_pair_cuda(
+            (grid_x, n_pairs),
+            (block_size,),
+            (
+                factors_data_T_gpu, classes_y_gpu, pairs_a_gpu, pairs_b_gpu,
+                nbins_a_gpu, joint_offsets_gpu,
+                joint_counts_flat, n_rows, n_pairs, nbins_y,
+            ),
+        )
+    joint_counts_host = cp.asnumpy(joint_counts_flat)
+
+    # Per-pair MI from joint counts (numpy). joint shape = (merged_size, nbins_y); marg_m = joint.sum(axis=1); marg_y = joint.sum(axis=0); total = n_rows.
+    # MI = sum over non-zero cells of (jc/n) * log(jc * n / (marg_m * marg_y)), in nats.
+    n_total = float(n_rows)
+    joint_mi_out = np.zeros(n_pairs, dtype=np.float64)
+    # The per-pair reduction below used to be a pure-Python
+    # triple-nested loop (for k / for m / for y), i.e. O(total joint cells) at native Python speed - up to
+    # ~1.07e9 cells (the 4GB guard elsewhere in this module), which would dominate wall-clock and defeat the
+    # point of collapsing per-pair kernel launches into one batched launch. Vectorized per-pair with numpy;
+    # SAME formula (sum over non-zero cells of jf * log(jc*n/(mm*my))), zero semantic change.
+    joint_mi_from_flat_counts(joint_counts_host, joint_offsets, pair_merged_sizes, nbins_y, n_pairs, n_total, joint_mi_out)
+    return joint_mi_out
+
+
+def _mi_direct_gpu_batched_pairs_part1(
+    pairs_a: np.ndarray, factors_data: np.ndarray, pairs_b: np.ndarray, factors_nbins: np.ndarray, classes_y: np.ndarray, freqs_y: np.ndarray, dtype: type,
+) -> tuple[Any, ...]:
+    """Extracted block of ``mi_direct_gpu_batched_pairs`` (part 1); returns the names the caller still uses."""
     try:
         import cupy as cp
     except ImportError as e:
@@ -100,14 +200,14 @@ def mi_direct_gpu_batched_pairs(
     n_pairs = len(pairs_a)
     n_rows = factors_data.shape[0]
     if n_pairs == 0:
-        return np.zeros(0, dtype=np.float64)
+        return True, (np.zeros(0, dtype=np.float64))
 
     if n_pairs > _MAX_PAIRS_PER_LAUNCH:
         pa, pb = np.asarray(pairs_a), np.asarray(pairs_b)
-        return np.concatenate([
+        return True, (np.concatenate([
             mi_direct_gpu_batched_pairs(factors_data, pa[s:e], pb[s:e], factors_nbins, classes_y, freqs_y, dtype=dtype)
             for s, e in pair_chunk_bounds(n_pairs, _MAX_PAIRS_PER_LAUNCH)
-        ])
+        ]))
 
     # A5 fix (Critic 1): validate factors_data values are within their
     # declared bin range. Out-of-range values produce a ``merged`` index
@@ -200,89 +300,4 @@ def mi_direct_gpu_batched_pairs(
             logger.debug("suppressed: %s", e)
             pass
     grid_x = (n_rows + block_size - 1) // block_size
-
-    # Kernel-variant dispatch: shared-mem multi-pair kernel wins for small
-    # per-pair joint_size_y. Pre-fix the 4096-cell cap was a hardcoded
-    # cc 6.x 16 KB assumption; cc 7+ opt-in shared memory reaches 96-227 KB.
-    # probe live device's shared-mem budget
-    # via pyutilz.system.gpu_dispatch.get_shared_mem_budget_per_block
-    # (the helper that batch_pair_mi_gpu._derive_max_joint_bins already
-    # uses); fall back to 4096 only when the probe is unavailable.
-    #
-    # BUG (found, fixed here): the probe call below was ``_shared_budget`` with NO
-    # arguments, but ``get_shared_mem_budget_per_block`` requires ``(cc_major, cc_minor,
-    # allow_opt_in=False)`` - every call raised TypeError, silently caught by the bare except, so this
-    # "fix" never actually engaged on ANY host; every dispatch fell back to the previous 4096-cell
-    # default regardless of hardware. Also switched to ``allow_opt_in=True`` (the comment above already
-    # says cc7+ opt-in reaches 96-227 KB, matching this kernel's own opt-in ``max_dynamic_shared_size_bytes``
-    # wiring below - see ``_batch_pair_mi_cuda_shared_fused.py`` for the sibling fix and the verified-live
-    # opt-in numbers on this host, 48KB static vs 99KB opt-in on an RTX 500 Ada).
-    max_joint_size_y = int(pair_joint_sizes.max()) if len(pair_joint_sizes) else 0
-    try:
-        from pyutilz.system.gpu_dispatch import gpu_capability_summary, get_shared_mem_budget_per_block
-
-        _summary = gpu_capability_summary(0)
-        if _summary is None:
-            raise RuntimeError("gpu_capability_summary returned None")
-        # Reserve 1/8th of the shared budget per pair (matches the
-        # _derive_max_joint_bins partitioning in batch_pair_mi_gpu).
-        # Each cell is int32 (4 bytes), so capacity in CELLS = budget // 4 // 8.
-        _budget_bytes = get_shared_mem_budget_per_block(_summary["cc_major"], _summary["cc_minor"], allow_opt_in=True)
-        _SHARED_MULTI_PAIR_MAX = max(4096, _budget_bytes // 4 // 8)
-    except Exception as e:
-        logger.warning("shared-mem budget probe failed, falling back to pre-2026-05-20 default: %s", e)
-        # No probe available -> fall back to the previous default.
-        _budget_bytes = 0
-        _SHARED_MULTI_PAIR_MAX = 4096
-    use_shared_multi_pair = max_joint_size_y > 0 and max_joint_size_y <= _SHARED_MULTI_PAIR_MAX
-
-    # SINGLE kernel launch processes all pairs via 3D grid (rows along X, pairs along Y); per-pair launch overhead amortised to zero.
-    if use_shared_multi_pair:
-        _needed_shared_bytes = max_joint_size_y * 4
-        # Opt into extended dynamic shared memory (cp.RawKernel-native; verified working, see
-        # _batch_pair_mi_cuda_shared_fused.py) only when the STATIC 48KB-per-block default would not
-        # cover this call's actual shared-memory need - avoids touching the property (which some
-        # driver versions reject below the static default) on the common small-shape path.
-        # The property set + launch must be atomic together -
-        # otherwise a concurrent call with a different _needed_shared_bytes could overwrite the budget
-        # between this thread's set and its own launch enqueuing (see _SHARED_MEM_SET_LOCK's module note).
-        with _SHARED_MEM_SET_LOCK:
-            if _needed_shared_bytes > 49152 - 2048 and _budget_bytes > 0:
-                try:
-                    _gpu_module.compute_joint_hist_multi_pair_shared_cuda.max_dynamic_shared_size_bytes = _needed_shared_bytes
-                except Exception:
-                    logger.debug("compute_joint_hist_multi_pair_shared_cuda: opt-in shared-mem set failed; launch may fail and fall back", exc_info=True)
-            _gpu_module.compute_joint_hist_multi_pair_shared_cuda(
-                (grid_x, n_pairs),
-                (block_size,),
-                (
-                    factors_data_T_gpu, classes_y_gpu, pairs_a_gpu, pairs_b_gpu,
-                    nbins_a_gpu, joint_offsets_gpu,
-                    joint_counts_flat, n_rows, n_pairs, nbins_y,
-                    np.int32(max_joint_size_y),
-                ),
-                shared_mem=_needed_shared_bytes,
-            )
-    else:
-        _gpu_module.compute_joint_hist_multi_pair_cuda(
-            (grid_x, n_pairs),
-            (block_size,),
-            (
-                factors_data_T_gpu, classes_y_gpu, pairs_a_gpu, pairs_b_gpu,
-                nbins_a_gpu, joint_offsets_gpu,
-                joint_counts_flat, n_rows, n_pairs, nbins_y,
-            ),
-        )
-    joint_counts_host = cp.asnumpy(joint_counts_flat)
-
-    # Per-pair MI from joint counts (numpy). joint shape = (merged_size, nbins_y); marg_m = joint.sum(axis=1); marg_y = joint.sum(axis=0); total = n_rows.
-    # MI = sum over non-zero cells of (jc/n) * log(jc * n / (marg_m * marg_y)), in nats.
-    n_total = float(n_rows)
-    joint_mi_out = np.zeros(n_pairs, dtype=np.float64)
-    # The per-pair reduction below used to be a pure-Python
-    # triple-nested loop (for k / for m / for y), i.e. O(total joint cells) at native Python speed - up to
-    # ~1.07e9 cells (the 4GB guard elsewhere in this module), which would dominate wall-clock and defeat the
-    # point of collapsing per-pair kernel launches into one batched launch. Vectorized per-pair with numpy;
-    # SAME formula (sum over non-zero cells of jf * log(jc*n/(mm*my))), zero semantic change.
-    joint_mi_from_flat_counts(joint_counts_host, joint_offsets, pair_merged_sizes, nbins_y, n_pairs, n_total, joint_mi_out)
-    return joint_mi_out
+    return False, cp, _gpu_module, n_pairs, n_rows, nbins_y, pair_merged_sizes, pair_joint_sizes, joint_offsets, factors_data_T_gpu, classes_y_gpu, pairs_a_gpu, pairs_b_gpu, nbins_a_gpu, joint_offsets_gpu, joint_counts_flat, block_size, grid_x

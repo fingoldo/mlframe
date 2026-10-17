@@ -153,6 +153,79 @@ def _recipe_clears_fold(
     return eng_mi > sum_marg * prevalence
 
 
+def _slice_fold(X: Any, idx: np.ndarray) -> Any:
+    """Row-slice ``X`` at ``idx`` while preserving its pandas/polars/ndarray type so downstream ``apply_recipe`` calls see the expected frame kind."""
+    # Helper: row-slice X for one fold, preserving the frame type apply_recipe expects.
+    if hasattr(X, "iloc"):
+        return X.iloc[idx]
+    return X[idx]
+
+
+def _raw_fold_codes(X: Any, name: str, idx: np.ndarray, raw_set: set, n: int, nbins: int, _raw_col_cache: dict) -> Optional[np.ndarray]:
+    """Return quantile-binned codes for raw source column ``name`` restricted to fold rows ``idx``, caching the full-frame float extraction across folds; ``None`` for engineered parents or extraction failures."""
+    # Pre-extract per-source RAW column codes per fold is wasteful; instead bin
+    # the fold's source operand on demand. Cache the full-frame raw column float
+    # values once per source name so each fold only re-bins its slice.
+    from ._mi_greedy_cmi_fe import _quantile_bin
+    from mlframe.feature_selection.filters.engineered_recipes.shared import extract_column as _extract_column
+
+    if name not in raw_set:
+        return None  # engineered parent: scored with a None leg
+    vals = _raw_col_cache.get(name)
+    if vals is None:
+        try:
+            vals = np.asarray(_extract_column(X, name), dtype=np.float64).ravel()
+        except Exception as e:
+            logger.debug("_raw_codes: could not extract raw source column %r, scoring it as a None leg: %s", name, e)
+            return None
+        _raw_col_cache[name] = vals
+    if vals.shape[0] != n:
+        return None
+    return _quantile_bin(vals[idx], nbins=nbins)
+
+
+def _vote_recipe_over_folds(
+    eng_name: str, recipe: Any, folds: list, X: Any, y_codes: np.ndarray, src_a: Optional[str], src_b: Optional[str], _alt_acceptance: bool,
+    raw_set: set, n: int, nbins: int, _raw_col_cache: dict,
+) -> tuple:
+    """Replay one recipe on every held-out fold and count the folds whose uplift gate it clears; returns ``(passes, evaluated)``."""
+    from ._mi_greedy_cmi_fe import _quantile_bin
+    from .engineered_recipes import apply_recipe
+
+    passes = 0
+    evaluated = 0
+    for idx in folds:
+        X_fold = _slice_fold(X, idx)
+        try:
+            eng_fold = np.asarray(apply_recipe(recipe, X_fold)).ravel()
+        except Exception as exc:
+            # A recipe that cannot replay on a fold is not penalised here -
+            # transform()-time replay safety is a separate concern. Skip the
+            # fold; if every fold fails to replay the recipe is left admitted.
+            logger.debug(
+                "Stability vote: recipe '%s' failed to replay on a fold (%s: %s); skipping fold.",
+                eng_name, type(exc).__name__, exc,
+            )
+            continue
+        if eng_fold.shape[0] != idx.shape[0]:
+            continue
+        eng_codes = _quantile_bin(np.asarray(eng_fold, dtype=np.float64), nbins=nbins)
+        a_codes = _raw_fold_codes(X, src_a, idx, raw_set, n, nbins, _raw_col_cache) if src_a is not None else None
+        b_codes = _raw_fold_codes(X, src_b, idx, raw_set, n, nbins, _raw_col_cache) if src_b is not None else None
+        y_fold = y_codes[idx]
+        evaluated += 1
+        if _recipe_clears_fold(
+            eng_codes=eng_codes,
+            src_a_codes=a_codes,
+            src_b_codes=b_codes,
+            y_codes=y_fold,
+            prevalence=1.0,
+            alt_acceptance=_alt_acceptance,
+        ):
+            passes += 1
+    return passes, evaluated
+
+
 def confirm_recipes_cross_fold(
     *,
     recipes: dict,
@@ -209,7 +282,6 @@ def confirm_recipes_cross_fold(
     when voting is a no-op (k < 2, quorum <= 0, fewer than 2 unary_binary
     recipes, or n too small to fold).
     """
-    from .engineered_recipes import apply_recipe
 
     failed: set = set()
     if not recipes or k is None or int(k) < 2:
@@ -259,40 +331,7 @@ def confirm_recipes_cross_fold(
 
     raw_set = set(feature_names_in or [])
 
-    # Helper: row-slice X for one fold, preserving the frame type apply_recipe expects.
-    _is_pandas = hasattr(X, "iloc")
-    _is_polars = hasattr(X, "schema") and not _is_pandas
-
-    def _slice(idx: np.ndarray):
-        """Row-slice ``X`` at ``idx`` while preserving its pandas/polars/ndarray type so downstream ``apply_recipe`` calls see the expected frame kind."""
-        if _is_pandas:
-            return X.iloc[idx]
-        if _is_polars:
-            return X[idx]
-        return X[idx]
-
-    # Pre-extract per-source RAW column codes per fold is wasteful; instead bin
-    # the fold's source operand on demand. Cache the full-frame raw column float
-    # values once per source name so each fold only re-bins its slice.
-    from mlframe.feature_selection.filters.engineered_recipes.shared import extract_column as _extract_column
-
     _raw_col_cache: dict = {}
-
-    def _raw_codes(name: str, idx: np.ndarray) -> Optional[np.ndarray]:
-        """Return quantile-binned codes for raw source column ``name`` restricted to fold rows ``idx``, caching the full-frame float extraction across folds; ``None`` for engineered parents or extraction failures."""
-        if name not in raw_set:
-            return None  # engineered parent: scored with a None leg
-        vals = _raw_col_cache.get(name)
-        if vals is None:
-            try:
-                vals = np.asarray(_extract_column(X, name), dtype=np.float64).ravel()
-            except Exception as e:
-                logger.debug("_raw_codes: could not extract raw source column %r, scoring it as a None leg: %s", name, e)
-                return None
-            _raw_col_cache[name] = vals
-        if vals.shape[0] != n:
-            return None
-        return _quantile_bin(vals[idx], nbins=nbins)
 
     for eng_name, recipe in voted.items():
         src = tuple(getattr(recipe, "src_names", ()) or ())
@@ -311,37 +350,9 @@ def confirm_recipes_cross_fold(
                 "gate_med_a_median", "gate_med_b_median",
             )
         )
-        passes = 0
-        evaluated = 0
-        for idx in folds:
-            X_fold = _slice(idx)
-            try:
-                eng_fold = np.asarray(apply_recipe(recipe, X_fold)).ravel()
-            except Exception as exc:
-                # A recipe that cannot replay on a fold is not penalised here -
-                # transform()-time replay safety is a separate concern. Skip the
-                # fold; if every fold fails to replay the recipe is left admitted.
-                logger.debug(
-                    "Stability vote: recipe '%s' failed to replay on a fold (%s: %s); skipping fold.",
-                    eng_name, type(exc).__name__, exc,
-                )
-                continue
-            if eng_fold.shape[0] != idx.shape[0]:
-                continue
-            eng_codes = _quantile_bin(np.asarray(eng_fold, dtype=np.float64), nbins=nbins)
-            a_codes = _raw_codes(src_a, idx) if src_a is not None else None
-            b_codes = _raw_codes(src_b, idx) if src_b is not None else None
-            y_fold = y_codes[idx]
-            evaluated += 1
-            if _recipe_clears_fold(
-                eng_codes=eng_codes,
-                src_a_codes=a_codes,
-                src_b_codes=b_codes,
-                y_codes=y_fold,
-                prevalence=1.0,
-                alt_acceptance=_alt_acceptance,
-            ):
-                passes += 1
+        passes, evaluated = _vote_recipe_over_folds(
+            eng_name, recipe, folds, X, y_codes, src_a, src_b, _alt_acceptance, raw_set, n, nbins, _raw_col_cache,
+        )
         # No fold could be evaluated (replay failed everywhere) -> leave admitted.
         if evaluated == 0:
             continue

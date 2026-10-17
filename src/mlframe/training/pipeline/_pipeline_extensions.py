@@ -393,6 +393,41 @@ def apply_preprocessing_extensions(
     st.tfidf_pipes = {}
     st.test, st.train, st.val = _apply_preprocessin_aligned_user_typo_typo(config, st.train, st.val, st.test, st.tfidf_pipes, verbose)
 
+    _apply_preprocessing_numeric_filter(st, verbose)
+
+    # Row-wise summary stats / top-k extreme columns (step 1.5) live in a sibling module; see apply_row_wise_steps.
+    st.train, st.val, st.test, st._pre_row_wise_ncols = apply_row_wise_steps(st.train, st.val, st.test, config, verbose, out_row_wise_replay)
+    st._row_wise_active = st.train.shape[1] != st._pre_row_wise_ncols
+
+    config = _apply_preprocessing_clamp_config_and_seed(st, config)
+    steps = _build_extension_steps(config, n_features=st.n_features, random_state=st._ext_random_state)
+    if not steps:
+        if st._pysr_transformer is not None or st.tfidf_pipes:
+            # PySR / TF-IDF applied but no sklearn pipeline. Bundle so predict-time
+            # replay sees the PySR transformer; legacy raw-dict shape is used only
+            # when PySR is absent so untouched persisted artefacts keep loading.
+            st.train, st.val, st.test = _with_passthrough((st.train, st.val, st.test), st._pre_filter, st._passthrough)
+            if st._pysr_transformer is not None:
+                return st.train, st.val, st.test, PreprocessingExtensionsBundle(
+                    pysr=st._pysr_transformer, tfidf=st.tfidf_pipes or None, sklearn_pipe=None,
+                )
+            return st.train, st.val, st.test, st.tfidf_pipes
+        if st._row_wise_active:
+            # Row-wise summary-stats / extreme-columns steps added columns but no PySR / TF-IDF /
+            # sklearn-bridge stage ran. Return the augmented ``train``/``val``/``test`` (NOT the
+            # original ``train_df``/``val_df``/``test_df``) so the new columns survive -- the prior
+            # early-return here unconditionally discarded them since it only checked for PySR/TF-IDF.
+            st.train, st.val, st.test = _with_passthrough((st.train, st.val, st.test), st._pre_filter, st._passthrough)
+            return st.train, st.val, st.test, None
+        return train_df, val_df, test_df, None
+
+    return _apply_preprocessing_fit_sklearn_bridge(st, steps, config, y_train, verbose)
+
+
+def _apply_preprocessing_numeric_filter(st: _SimpleNamespace, verbose: int) -> None:
+    """Set aside non-numeric columns, pin the numeric column set and drop all-null columns on ``st.train`` / ``st.val`` / ``st.test`` in place."""
+    # Lazy cross-package import: ``mlframe.training.core`` imports this module, so a top-level import here would risk a cycle at module-load time.
+    from mlframe.training.core.shared import elapsed_str as _elapsed_str
     # Numeric-only gate for the sklearn-bridge pipeline. The downstream extensions (scaler / kbins / polynomial / nonlinear / dim_reducer and the median-imputer in front) all reject object/string dtypes with errors that range from clear (``Cannot use median strategy with non-numeric data``) to opaque (``ValueError: The truth value of an array with more than one element is ambiguous`` from inside PolynomialFeatures or RobustScaler). The contract is "if you turn on the sklearn-bridge, your frame should be numeric". When non-numeric columns survived (unencoded cat_mid, embedding object dtypes that the upstream cat-encoder skipped, etc.), drop them here with a single-line WARN. Surfaced by 1M-harness seed=11.
     #
     # Note: the cat-encoder pre-pipeline normally runs BEFORE this function, so under standard configs this drop is a no-op. The gate exists to keep production callers + the 1M profiler harness robust against axis combinations where cat_encoding canonicalised to a path that bypassed the encoder.
@@ -437,10 +472,9 @@ def apply_preprocessing_extensions(
     if verbose:
         logger.info("    apply_preprocessing_extensions.numeric_filter_and_null_drop done in %s", _elapsed_str(st.t0_numeric_filter))
 
-    # Row-wise summary stats / top-k extreme columns (step 1.5) live in a sibling module; see apply_row_wise_steps.
-    st.train, st.val, st.test, st._pre_row_wise_ncols = apply_row_wise_steps(st.train, st.val, st.test, config, verbose, out_row_wise_replay)
-    st._row_wise_active = st.train.shape[1] != st._pre_row_wise_ncols
 
+def _apply_preprocessing_clamp_config_and_seed(st: _SimpleNamespace, config: Any) -> Any:
+    """Clamp the dim-reducer / polynomial settings to the post-filter frame and derive ``st._ext_random_state``; returns the adjusted config."""
     st.n_features = st.train.shape[1]
     # Dim-reducer n_components clamp. PCA / TruncatedSVD / KernelPCA / NMF
     # / FastICA / LDA etc. raise
@@ -470,27 +504,14 @@ def apply_preprocessing_extensions(
     # random_seed=0 is a legitimate seed, not a sentinel -- an ``or`` here would silently rewrite it to 42.
     st._ext_seed_raw = getattr(config, "random_seed", None)
     st._ext_random_state = int(st._ext_seed_raw) if st._ext_seed_raw is not None else 42
-    steps = _build_extension_steps(config, n_features=st.n_features, random_state=st._ext_random_state)
-    if not steps:
-        if st._pysr_transformer is not None or st.tfidf_pipes:
-            # PySR / TF-IDF applied but no sklearn pipeline. Bundle so predict-time
-            # replay sees the PySR transformer; legacy raw-dict shape is used only
-            # when PySR is absent so untouched persisted artefacts keep loading.
-            st.train, st.val, st.test = _with_passthrough((st.train, st.val, st.test), st._pre_filter, st._passthrough)
-            if st._pysr_transformer is not None:
-                return st.train, st.val, st.test, PreprocessingExtensionsBundle(
-                    pysr=st._pysr_transformer, tfidf=st.tfidf_pipes or None, sklearn_pipe=None,
-                )
-            return st.train, st.val, st.test, st.tfidf_pipes
-        if st._row_wise_active:
-            # Row-wise summary-stats / extreme-columns steps added columns but no PySR / TF-IDF /
-            # sklearn-bridge stage ran. Return the augmented ``train``/``val``/``test`` (NOT the
-            # original ``train_df``/``val_df``/``test_df``) so the new columns survive -- the prior
-            # early-return here unconditionally discarded them since it only checked for PySR/TF-IDF.
-            st.train, st.val, st.test = _with_passthrough((st.train, st.val, st.test), st._pre_filter, st._passthrough)
-            return st.train, st.val, st.test, None
-        return train_df, val_df, test_df, None
+    return config
 
+
+def _apply_preprocessing_fit_sklearn_bridge(st: _SimpleNamespace, steps: list, config: Any, y_train: Any, verbose: int) -> tuple[Any, Any, Any, Any]:
+    """Fit the sklearn bridge pipeline on train, transform val/test, re-attach passthrough columns and return ``(train, val, test, artefact)``."""
+    from . import PreprocessingExtensionsBundle
+    # Lazy cross-package import: ``mlframe.training.core`` imports this module, so a top-level import here would risk a cycle at module-load time.
+    from mlframe.training.core.shared import elapsed_str as _elapsed_str
     from sklearn.pipeline import Pipeline as SkPipeline
     pipe = SkPipeline(steps=steps)
     st.t0 = timer()

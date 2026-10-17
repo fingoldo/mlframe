@@ -17,22 +17,9 @@ logger = logging.getLogger(__name__)
 
 
 def compose_pair_fe(
-    X: np.ndarray,
-    y: np.ndarray,
-    *,
-    n_rounds: int = 2,
-    top_k_per_round: int = 3,
-    discrete_target: bool = True,
-    basis: str = "chebyshev",
-    n_trials: int = 30,
-    max_degree: int = 3,
-    mi_estimator: str = "plugin",
-    plugin_n_bins: int = 20,
-    optimizer: str = "cma",
-    use_trivial_baseline: bool = True,
-    baseline_uplift_threshold: float = 1.05,
-    feature_names: list | None = None,
-    verbose: bool = False,
+    X: np.ndarray, y: np.ndarray, *, n_rounds: int = 2, top_k_per_round: int = 3, discrete_target: bool = True, basis: str = "chebyshev", n_trials: int = 30,
+    max_degree: int = 3, mi_estimator: str = "plugin", plugin_n_bins: int = 20, optimizer: str = "cma", use_trivial_baseline: bool = True,
+    baseline_uplift_threshold: float = 1.05, feature_names: list | None = None, verbose: bool = False,
 ) -> dict:
     """Run cascaded pair-FE for ``n_rounds`` rounds. Returns the final augmented feature matrix plus engineered-feature provenance.
 

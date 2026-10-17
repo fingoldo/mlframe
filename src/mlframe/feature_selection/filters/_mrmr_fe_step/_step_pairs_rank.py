@@ -495,7 +495,7 @@ def score_prospective_pairs(
 ) -> tuple:
     """Rank the gate-surviving candidate pairs; return (prospective_pairs, _prevalence_failed_synergy)."""
     vars_usage_counter: defaultdict = defaultdict(int)
-    prospective_pairs = {}
+    prospective_pairs: dict = {}
     # Per-call memoization for ``_usability_operand_continuous``: both loops below call
     # it twice per candidate PAIR, but each raw operand appears in O(n_candidates) pairs, so the SAME column
     # gets re-extracted from ``X`` (pandas getitem + dtype cast + ravel) once per pair it participates in.
@@ -551,6 +551,22 @@ def score_prospective_pairs(
     # (a,b) term (esc_poly candidate MI 0.032 ~ the simple a**2/b, downstream R^2
     # 0.947 -> 0.997) while cross-mix/noise pairs propose nothing or are gated out.
     _prevalence_failed_synergy: dict = {}
+    _score_prospective_pairs_part2(
+        data, numeric_vars_to_consider, sort_dict_by_value, cached_MIs, self, num_fs_steps, verbose, fe_min_pair_mi_prevalence, _cached_operand, classes_y,
+        _pair_mm_bias, _pair_maxt_floor, _synergy_added_idx, _synergy_prev_resolved, _prevalence_debias_auto, checked_pairs, _cached_single_corr,
+        vars_usage_counter, prospective_pairs, cols, _prevalence_failed_synergy,
+    )
+
+    return prospective_pairs, _prevalence_failed_synergy
+
+
+def _score_prospective_pairs_part2(
+    data: np.ndarray, numeric_vars_to_consider: set, sort_dict_by_value: Callable[[dict], Any], cached_MIs: dict, self: Any, num_fs_steps: int, verbose: int,
+    fe_min_pair_mi_prevalence: float, _cached_operand: Any, classes_y: np.ndarray, _pair_mm_bias: Any, _pair_maxt_floor: Any, _synergy_added_idx: Any,
+    _synergy_prev_resolved: Any, _prevalence_debias_auto: bool, checked_pairs: set, _cached_single_corr: Any, vars_usage_counter: Any, prospective_pairs: Any,
+    cols: list[str], _prevalence_failed_synergy: Any,
+) -> None:
+    """Extracted block of ``score_prospective_pairs`` (part 2); returns the names the caller still uses."""
     # DEVICE-BORN candidate-code residency for the conditional-MI gates below (asymmetric-synergy relaxation +
     # the data-driven perm-null admission). Both read a candidate operand's ALREADY-BINNED int codes from
     # ``data`` and score CMI / conditional-perm-null on them; under residency the SCORED candidate is uploaded
@@ -647,7 +663,6 @@ def score_prospective_pairs(
                     # genuine pure-synergy (XOR / sign product) joint MI is FAR above
                     # the chance ceiling, so it survives. No-op when floor==0.0.
                     if pair_mi > 0 and _pair_mi_floor_cmp >= _pair_maxt_floor:
-                        uplift = float("inf")
                         if verbose >= 2:
                             logger.info(
                                 "Factors pair %s has zero individual MI but pair_mi=%.4f -- canonical hidden-pair case (e.g. XOR), keeping for FE",
@@ -682,141 +697,153 @@ def score_prospective_pairs(
                         "MRMR FE: no pre-pass gate state for pair %s (the pre-pass and scoring filter chains disagree); skipping it", raw_vars_pair,
                     )
                     continue
-                _passes_prevalence, _passes_maxt, _is_synergy_pair, _prev_thresh, _pair_mi_floor_cmp = _gate_state
-                # DATA-DRIVEN PREVALENCE (EXPERIMENTAL, default OFF pending the
-                # 3-model RMSE A/B/C): the HARDCODED ratio bar over the MM-debiased joint MI
-                # under-admits an ASYMMETRIC interaction whose one operand has a strong
-                # marginal (the joint's analytic bias subtraction exceeds the marginals',
-                # dropping the ratio below the bar even when the OTHER operand adds genuine
-                # conditional signal - F2's (c,d): MM-ratio ~1.03 < 1.05 yet CMI(d;y|c)
-                # clears its within-stratum permutation null by +0.085, while noise (c,e)
-                # sits ON the null). When the ratio bar fails but the pair cleared the maxT
-                # floor, re-decide with a CONDITIONAL-PERMUTATION NULL (cancels the
-                # finite-sample bias by construction). CAVEAT under measurement: CMI cannot
-                # separate a multiplicative interaction (c,d) from an additive cross-mix
-                # (a,c) - both show CMI>0 - so this over-admits cross-mix; whether the
-                # resulting fused features HELP or HURT downstream is being decided by RMSE,
-                # not assumed. ``fe_pair_perm_null_admission_enable`` (default False).
-                _admit_via_perm = False
-                _admit_via_perm = _pair_perm_null_admission(self, _passes_prevalence, _passes_maxt, raw_vars_pair, cached_MIs, data, classes_y, _pair_resident, verbose, _admit_via_perm)
-                # bench-attempt-rejected : the cheap proxy below (2-operand joint OLS R^2 of the
-                # CONTINUOUS y on the BINNED operand codes) does NOT recover with_outliers at any threshold
-                # (0.05/0.15/0.3 all leave the selection byte-identical to OFF). The signal is too diluted:
-                # y = a**2/b + f/5 + log(c)*sin(d), so a 2-var LINEAR fit on binned a,b captures only the linear
-                # projection of ONE nonlinear third of y -> R^2 stays below any useful bar. The true
-                # distinguisher (the materialised form div(sqr(a),b) vs y, |corr| 0.986) lives DOWNSTREAM of
-                # this admission gate; a residual-target fit (y minus the already-captured c/d half) or actual
-                # form materialisation is required, not an operand proxy. Kept default-OFF + wired (reject =
-                # not-default, never deleted) so the next attempt builds on it instead of re-trying the proxy.
-                # USABILITY ADMISSION (tail-concentrated ratio credit, default ON). Under heavy
-                # operand outliers a genuine ratio (a**2/b) is TAIL-CONCENTRATED: its rank-MI collapses (bulk
-                # Spearman ~0, signal only in the 5% tail) so it fails BOTH prevalence and maxT, and the
-                # rank-CMI perm path is gated behind maxT too - yet it carries strong LINEAR usability the
-                # rank gates never see. Unlike the prior binned-code OLS proxy (bench note above, which failed
-                # because binning CLIPS the outlier tail that carries the a**2 magnitude), this scores the pair
-                # on the RAW CONTINUOUS operands (outliers intact) via the max |Pearson corr(continuous y)|
-                # over a small scale/sign-robust bivariate form dictionary - the header-validated
-                # distinguisher (div(sqr(a),b) reads 0.986 vs y while the spurious rank-MI winner reads 0.371).
-                # Fires ONLY when the rank-MI gates did not BOTH pass (can only ADD pairs the rank path dropped,
-                # never remove) AND the best PAIR form beats the best SINGLE-operand form by a pairness margin,
-                # so a cross-mix / noise pair where ONE operand dominates (no genuine pairness) is rejected -
-                # this protects the 'e' noise operand and the canonical fixtures WITHOUT touching the rank-MI
-                # decision on any pair the rank path admitted (the 4 passing profiles never enter this branch:
-                # their (a,b) pair clears the rank gates). A false admit only PROPOSES; the full downstream FE
-                # winner-selection + escalation |corr| re-test + redundancy gates still decide the final form.
-                # Best-effort: any error leaves the strict rank-MI rejection in place (canonical never loosened
-                # on failure). Toggle ``fe_pair_usability_admission_enable`` (default True; set False for the
-                # legacy rank-MI-only, byte-identical admission).
-                #
-                # BUG FOUND AND FIXED: `_admit_via_usability` was computed below (via
-                # `_pair_is_tail_concentrated_rankaware`, ~85k calls, one of the largest hotspots in a
-                # 100k-row production profile) but its result was NEVER consulted in the accept condition -
-                # it read `(_passes_prevalence and _passes_maxt) or _admit_via_perm`, missing
-                # `or _admit_via_usability` entirely (grepped the whole file: no reassignment of
-                # `_passes_prevalence`/`_passes_maxt` inside this block, no other reader of the variable, no
-                # test anywhere references `fe_pair_usability_admission_enable` by name - this bug had zero
-                # test coverage). Wiring it in (below) was verified NOT to change the canonical
-                # `ratio_sqr/with_outliers` fixture this block's own comments target (identical selected-
-                # feature lists with and without, at both n=10000 and n=30000) - that fixture's (a,b)
-                # recovery comes from the SEPARATE first-sweep prevalence-relaxation prescan (this file's
-                # dominant-pair rank-aware scan, above), which already relaxes the bar for the whole sweep
-                # whenever the POOL's dominant pair is tail-concentrated. This per-pair block's real,
-                # currently-untested value is the case the prescan structurally cannot reach: a NON-dominant
-                # pair in the scan pool that is individually tail-concentrated while the pool's dominant pair
-                # is not, so no global relaxation ever fires for it - exactly the gap the two-test check
-                # above cannot exercise (both fixtures happen to have their tail-concentrated pair already be
-                # the dominant one). Fixed rather than removed.
-                # RANK-AWARE (not the loose |corr| check): admit via usability ONLY when the pair is linearly
-                # usable AND its RANK association has COLLAPSED (the tail-concentration signature). A
-                # genuinely usable ratio that also tracks y in rank (naturally-heavy-tailed / balanced data)
-                # is NOT admitted here - the rank-MI gates already judge it, so canonical + the 4 passing
-                # profiles stay byte-identical. Computed via the batched pre-pass above (``_usability_verdict``,
-                # keyed by ``raw_vars_pair``) instead of an inline per-pair call - a pair absent from the
-                # dict (trigger condition false, an operand failed to resolve, or the whole batch failed)
-                # defaults to False here exactly as the original inline try/except's failure mode did.
-                _admit_via_usability = False
-                if (not (_passes_prevalence and _passes_maxt)) and pair_mi > 0 and bool(getattr(self, "fe_pair_usability_admission_enable", True)):
-                    _admit_via_usability = _usability_verdict.get(raw_vars_pair, False)
-                    if _admit_via_usability and verbose >= 2:
-                        logger.info(
-                            "Factors pair %s ADMITTED via usability (rank-collapsed tail-concentrated " "linear signal) despite rank-MI rejection.",
-                            raw_vars_pair,
-                        )
-                if (_passes_prevalence and _passes_maxt) or _admit_via_perm or _admit_via_usability:
-                    uplift = pair_mi / ind_elems_mi_sum if ind_elems_mi_sum > 0 else float("inf")
-                    if verbose >= 2 and not _admit_via_perm:
-                        logger.info(
-                            "Factors pair %s will be considered for Feature Engineering, %.4f->%.4f, rat=%.2f",
-                            raw_vars_pair, ind_elems_mi_sum, pair_mi, uplift,
-                        )
-                    prospective_pairs[(raw_vars_pair, pair_mi)] = vars_usage_counter[raw_vars_pair[0]] + vars_usage_counter[raw_vars_pair[1]]
-                    for var in raw_vars_pair:
-                        vars_usage_counter[var] += 1
-                else:
-                    # REJECTION LEDGER (additive): the pair failed the marginal pair-MI prevalence
-                    # pre-screen and/or the order-2 max-T null floor. Attribute to whichever leg
-                    # failed (prevalence first - it is the primary screen the session diagnoses).
-                    if not _passes_prevalence:
-                        # observed = joint MI; threshold = marginal-sum * prevalence bar.
-                        _record_fe_rejection(
-                            self, gate="marginal_pair_mi_prescreen",
-                            candidate=str(raw_vars_pair), operands=raw_vars_pair, operator="pair",
-                            operand_names="(" + ", ".join(str(cols[_i]) for _i in raw_vars_pair) + ")",
-                            observed=pair_mi, threshold=ind_elems_mi_sum * _prev_thresh,
-                            reason=("synergy_prevalence" if _is_synergy_pair else "prevalence_ratio"),
-                            step=int(num_fs_steps),
-                        )
-                        # SECOND-CHANCE RESCUE (see ``_prevalence_failed_synergy`` above):
-                        # a SYNERGY pair that cleared the order-2 maxT floor but only missed
-                        # the stricter raw-MI synergy ratio is handed to the auto-escalation,
-                        # where a leak-safe held-out ALS pair-warp test (not the raw-MI ratio)
-                        # re-decides. Gated on ``fe_synergy_prevalence_rescue_enable`` (default
-                        # on); only synergy pairs (selected-selected prevalence misses are
-                        # genuinely additive and stay out), only when the joint MI cleared the
-                        # maxT null (a pure-chance noise pair never reaches escalation).
-                        # PAIRNESS-ROUTED RESCUE: synergy pairs always route here
-                        # (existing behaviour). With ``fe_prevalence_rescue_all_pairs`` ON, a
-                        # SELECTED-SELECTED pair that cleared the maxT floor ALSO routes here, so
-                        # the escalation's held-out ALS pairness test (which separates a genuine
-                        # multiplicative interaction from an additive cross-mix) re-decides it.
-                        _route_to_rescue = (
-                            (True if _is_synergy_pair else bool(getattr(self, "fe_prevalence_rescue_all_pairs", False)))
-                            and _passes_maxt
-                            and bool(getattr(self, "fe_synergy_prevalence_rescue_enable", True))
-                        )
-                        if _route_to_rescue:
-                            _prevalence_failed_synergy[tuple(raw_vars_pair)] = float(pair_mi)
-                    else:
-                        # prevalence passed but the MM-debiased joint MI missed the max-T floor.
-                        _record_fe_rejection(
-                            self, gate="order2_maxt_floor",
-                            candidate=str(raw_vars_pair), operands=raw_vars_pair, operator="pair",
-                            operand_names="(" + ", ".join(str(cols[_i]) for _i in raw_vars_pair) + ")",
-                            observed=_pair_mi_floor_cmp, threshold=_pair_maxt_floor,
-                            reason="below_maxt_floor", step=int(num_fs_steps),
-                        )
+                _pair_mi_floor_cmp, var = _score_prospective_pairs_part1(
+                    _gate_state, self, raw_vars_pair, cached_MIs, data, classes_y, _pair_resident, verbose, pair_mi, _usability_verdict, ind_elems_mi_sum,
+                    vars_usage_counter, prospective_pairs, cols, num_fs_steps, _prevalence_failed_synergy, _pair_maxt_floor,
+                )
 
-    return prospective_pairs, _prevalence_failed_synergy
+
+def _score_prospective_pairs_part1(
+    _gate_state: Any, self: Any, raw_vars_pair: Any, cached_MIs: dict, data: np.ndarray, classes_y: np.ndarray, _pair_resident: Any, verbose: int,
+    pair_mi: Any, _usability_verdict: Any, ind_elems_mi_sum: Any, vars_usage_counter: Any, prospective_pairs: Any, cols: list[str], num_fs_steps: int,
+    _prevalence_failed_synergy: Any, _pair_maxt_floor: Any,
+) -> tuple[Any, ...]:
+    """Extracted block of ``score_prospective_pairs`` (part 1); returns the names the caller still uses."""
+    var: Any = None
+    _passes_prevalence, _passes_maxt, _is_synergy_pair, _prev_thresh, _pair_mi_floor_cmp = _gate_state
+    # DATA-DRIVEN PREVALENCE (EXPERIMENTAL, default OFF pending the
+    # 3-model RMSE A/B/C): the HARDCODED ratio bar over the MM-debiased joint MI
+    # under-admits an ASYMMETRIC interaction whose one operand has a strong
+    # marginal (the joint's analytic bias subtraction exceeds the marginals',
+    # dropping the ratio below the bar even when the OTHER operand adds genuine
+    # conditional signal - F2's (c,d): MM-ratio ~1.03 < 1.05 yet CMI(d;y|c)
+    # clears its within-stratum permutation null by +0.085, while noise (c,e)
+    # sits ON the null). When the ratio bar fails but the pair cleared the maxT
+    # floor, re-decide with a CONDITIONAL-PERMUTATION NULL (cancels the
+    # finite-sample bias by construction). CAVEAT under measurement: CMI cannot
+    # separate a multiplicative interaction (c,d) from an additive cross-mix
+    # (a,c) - both show CMI>0 - so this over-admits cross-mix; whether the
+    # resulting fused features HELP or HURT downstream is being decided by RMSE,
+    # not assumed. ``fe_pair_perm_null_admission_enable`` (default False).
+    _admit_via_perm = False
+    _admit_via_perm = _pair_perm_null_admission(self, _passes_prevalence, _passes_maxt, raw_vars_pair, cached_MIs, data, classes_y, _pair_resident, verbose, _admit_via_perm)
+    # bench-attempt-rejected : the cheap proxy below (2-operand joint OLS R^2 of the
+    # CONTINUOUS y on the BINNED operand codes) does NOT recover with_outliers at any threshold
+    # (0.05/0.15/0.3 all leave the selection byte-identical to OFF). The signal is too diluted:
+    # y = a**2/b + f/5 + log(c)*sin(d), so a 2-var LINEAR fit on binned a,b captures only the linear
+    # projection of ONE nonlinear third of y -> R^2 stays below any useful bar. The true
+    # distinguisher (the materialised form div(sqr(a),b) vs y, |corr| 0.986) lives DOWNSTREAM of
+    # this admission gate; a residual-target fit (y minus the already-captured c/d half) or actual
+    # form materialisation is required, not an operand proxy. Kept default-OFF + wired (reject =
+    # not-default, never deleted) so the next attempt builds on it instead of re-trying the proxy.
+    # USABILITY ADMISSION (tail-concentrated ratio credit, default ON). Under heavy
+    # operand outliers a genuine ratio (a**2/b) is TAIL-CONCENTRATED: its rank-MI collapses (bulk
+    # Spearman ~0, signal only in the 5% tail) so it fails BOTH prevalence and maxT, and the
+    # rank-CMI perm path is gated behind maxT too - yet it carries strong LINEAR usability the
+    # rank gates never see. Unlike the prior binned-code OLS proxy (bench note above, which failed
+    # because binning CLIPS the outlier tail that carries the a**2 magnitude), this scores the pair
+    # on the RAW CONTINUOUS operands (outliers intact) via the max |Pearson corr(continuous y)|
+    # over a small scale/sign-robust bivariate form dictionary - the header-validated
+    # distinguisher (div(sqr(a),b) reads 0.986 vs y while the spurious rank-MI winner reads 0.371).
+    # Fires ONLY when the rank-MI gates did not BOTH pass (can only ADD pairs the rank path dropped,
+    # never remove) AND the best PAIR form beats the best SINGLE-operand form by a pairness margin,
+    # so a cross-mix / noise pair where ONE operand dominates (no genuine pairness) is rejected -
+    # this protects the 'e' noise operand and the canonical fixtures WITHOUT touching the rank-MI
+    # decision on any pair the rank path admitted (the 4 passing profiles never enter this branch:
+    # their (a,b) pair clears the rank gates). A false admit only PROPOSES; the full downstream FE
+    # winner-selection + escalation |corr| re-test + redundancy gates still decide the final form.
+    # Best-effort: any error leaves the strict rank-MI rejection in place (canonical never loosened
+    # on failure). Toggle ``fe_pair_usability_admission_enable`` (default True; set False for the
+    # legacy rank-MI-only, byte-identical admission).
+    #
+    # BUG FOUND AND FIXED: `_admit_via_usability` was computed below (via
+    # `_pair_is_tail_concentrated_rankaware`, ~85k calls, one of the largest hotspots in a
+    # 100k-row production profile) but its result was NEVER consulted in the accept condition -
+    # it read `(_passes_prevalence and _passes_maxt) or _admit_via_perm`, missing
+    # `or _admit_via_usability` entirely (grepped the whole file: no reassignment of
+    # `_passes_prevalence`/`_passes_maxt` inside this block, no other reader of the variable, no
+    # test anywhere references `fe_pair_usability_admission_enable` by name - this bug had zero
+    # test coverage). Wiring it in (below) was verified NOT to change the canonical
+    # `ratio_sqr/with_outliers` fixture this block's own comments target (identical selected-
+    # feature lists with and without, at both n=10000 and n=30000) - that fixture's (a,b)
+    # recovery comes from the SEPARATE first-sweep prevalence-relaxation prescan (this file's
+    # dominant-pair rank-aware scan, above), which already relaxes the bar for the whole sweep
+    # whenever the POOL's dominant pair is tail-concentrated. This per-pair block's real,
+    # currently-untested value is the case the prescan structurally cannot reach: a NON-dominant
+    # pair in the scan pool that is individually tail-concentrated while the pool's dominant pair
+    # is not, so no global relaxation ever fires for it - exactly the gap the two-test check
+    # above cannot exercise (both fixtures happen to have their tail-concentrated pair already be
+    # the dominant one). Fixed rather than removed.
+    # RANK-AWARE (not the loose |corr| check): admit via usability ONLY when the pair is linearly
+    # usable AND its RANK association has COLLAPSED (the tail-concentration signature). A
+    # genuinely usable ratio that also tracks y in rank (naturally-heavy-tailed / balanced data)
+    # is NOT admitted here - the rank-MI gates already judge it, so canonical + the 4 passing
+    # profiles stay byte-identical. Computed via the batched pre-pass above (``_usability_verdict``,
+    # keyed by ``raw_vars_pair``) instead of an inline per-pair call - a pair absent from the
+    # dict (trigger condition false, an operand failed to resolve, or the whole batch failed)
+    # defaults to False here exactly as the original inline try/except's failure mode did.
+    _admit_via_usability = False
+    if (not (_passes_prevalence and _passes_maxt)) and pair_mi > 0 and bool(getattr(self, "fe_pair_usability_admission_enable", True)):
+        _admit_via_usability = _usability_verdict.get(raw_vars_pair, False)
+        if _admit_via_usability and verbose >= 2:
+            logger.info(
+                "Factors pair %s ADMITTED via usability (rank-collapsed tail-concentrated " "linear signal) despite rank-MI rejection.",
+                raw_vars_pair,
+            )
+    if (_passes_prevalence and _passes_maxt) or _admit_via_perm or _admit_via_usability:
+        uplift = pair_mi / ind_elems_mi_sum if ind_elems_mi_sum > 0 else float("inf")
+        if verbose >= 2 and not _admit_via_perm:
+            logger.info(
+                "Factors pair %s will be considered for Feature Engineering, %.4f->%.4f, rat=%.2f",
+                raw_vars_pair, ind_elems_mi_sum, pair_mi, uplift,
+            )
+        prospective_pairs[(raw_vars_pair, pair_mi)] = vars_usage_counter[raw_vars_pair[0]] + vars_usage_counter[raw_vars_pair[1]]
+        for var in raw_vars_pair:
+            vars_usage_counter[var] += 1
+    else:
+        # REJECTION LEDGER (additive): the pair failed the marginal pair-MI prevalence
+        # pre-screen and/or the order-2 max-T null floor. Attribute to whichever leg
+        # failed (prevalence first - it is the primary screen the session diagnoses).
+        if not _passes_prevalence:
+            # observed = joint MI; threshold = marginal-sum * prevalence bar.
+            _record_fe_rejection(
+                self, gate="marginal_pair_mi_prescreen",
+                candidate=str(raw_vars_pair), operands=raw_vars_pair, operator="pair",
+                operand_names="(" + ", ".join(str(cols[_i]) for _i in raw_vars_pair) + ")",
+                observed=pair_mi, threshold=ind_elems_mi_sum * _prev_thresh,
+                reason=("synergy_prevalence" if _is_synergy_pair else "prevalence_ratio"),
+                step=int(num_fs_steps),
+            )
+            # SECOND-CHANCE RESCUE (see ``_prevalence_failed_synergy`` above):
+            # a SYNERGY pair that cleared the order-2 maxT floor but only missed
+            # the stricter raw-MI synergy ratio is handed to the auto-escalation,
+            # where a leak-safe held-out ALS pair-warp test (not the raw-MI ratio)
+            # re-decides. Gated on ``fe_synergy_prevalence_rescue_enable`` (default
+            # on); only synergy pairs (selected-selected prevalence misses are
+            # genuinely additive and stay out), only when the joint MI cleared the
+            # maxT null (a pure-chance noise pair never reaches escalation).
+            # PAIRNESS-ROUTED RESCUE: synergy pairs always route here
+            # (existing behaviour). With ``fe_prevalence_rescue_all_pairs`` ON, a
+            # SELECTED-SELECTED pair that cleared the maxT floor ALSO routes here, so
+            # the escalation's held-out ALS pairness test (which separates a genuine
+            # multiplicative interaction from an additive cross-mix) re-decides it.
+            _route_to_rescue = (
+                (True if _is_synergy_pair else bool(getattr(self, "fe_prevalence_rescue_all_pairs", False)))
+                and _passes_maxt
+                and bool(getattr(self, "fe_synergy_prevalence_rescue_enable", True))
+            )
+            if _route_to_rescue:
+                _prevalence_failed_synergy[tuple(raw_vars_pair)] = float(pair_mi)
+        else:
+            # prevalence passed but the MM-debiased joint MI missed the max-T floor.
+            _record_fe_rejection(
+                self, gate="order2_maxt_floor",
+                candidate=str(raw_vars_pair), operands=raw_vars_pair, operator="pair",
+                operand_names="(" + ", ".join(str(cols[_i]) for _i in raw_vars_pair) + ")",
+                observed=_pair_mi_floor_cmp, threshold=_pair_maxt_floor,
+                reason="below_maxt_floor", step=int(num_fs_steps),
+            )
+    return _pair_mi_floor_cmp, var
 
 
 def _pair_perm_null_admission(self, _passes_prevalence, _passes_maxt, raw_vars_pair, cached_MIs, data, classes_y, _pair_resident, verbose, _admit_via_perm):

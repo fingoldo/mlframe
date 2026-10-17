@@ -763,6 +763,58 @@ def _cb_reuse_capable() -> bool:
     return callable(getattr(_Pool, "set_label", None)) and callable(getattr(_Pool, "set_weight", None))
 
 
+def _swap_cached_val_pool(cached: Any, key: tuple, val_target: Any, cat_features: tuple, text_features: tuple, embedding_features: tuple) -> bool:
+    """Swap the label on a cached val Pool in place; True when reusable, False (after evicting it from the cache) when the swap failed."""
+    # Content fingerprint, not id() -- CPython can reuse a just-freed array's memory
+    # address for a new allocation of matching size (same id-reuse bug class already
+    # fixed for the cache KEY above); an id() collision here would silently keep a
+    # stale val label on the reused Pool. See _full_target_content_hash's docstring.
+    from mlframe.training.pipeline.shared import target_label_changed, full_target_content_hash as _full_target_content_hash
+    last_target_sig = getattr(cached, "_mlframe_last_target_sig", None)
+    try:
+        _target_sig = _full_target_content_hash(val_target)
+        _label_changed = target_label_changed(last_target_sig, _target_sig)
+        if _label_changed:
+            try:
+                _lab = _coerce_label_for_cb_pool(val_target)
+            except Exception as e:
+                logger.debug("_coerce_label_for_cb_pool failed, using val_target as-is: %s", e)
+                _lab = val_target
+            cached.set_label(_lab)
+            cached._mlframe_last_target_sig = _target_sig
+        logger.info(
+            "[cb-val-pool-reuse] hit key=(cols=%d,n=%d,cat=%d,text=%d,emb=%d) " "swapped%s without rebuild",
+            len(key[0]) if key[0] is not None else 0,
+            key[1] if key[1] is not None else 0,
+            len(cat_features),
+            len(text_features),
+            len(embedding_features),
+            " label" if _label_changed else "",
+        )
+        return True
+    except Exception as exc:
+        logger.info("[cb-val-pool-reuse] swap failed (%s: %s); rebuilding val Pool.", type(exc).__name__, str(exc).splitlines()[0][:120])
+        _CB_VAL_POOL_CACHE.pop(key, None)
+    return False
+
+
+def _stamp_val_pool_dtypes_sig(val_pool: Any, val_df: Any) -> None:
+    """Stash the val frame's dtypes signature on the Pool so the predict-side lookup can match by content when ``id(val_df)`` has shifted."""
+    # Stash a content-fingerprint on the Pool so the predict-side lookup in ``_predict_with_fallback`` can do a cols + shape +
+    # dtypes content match when ``id(val_df)`` has shifted between fit and metrics phases (a production regression -- same
+    # frame, different Python object due to upstream pre_pipeline transforms).
+    try:
+        if hasattr(val_df, "dtypes"):
+            val_pool._mlframe_dtypes_sig = tuple(str(d) for d in val_df.dtypes)
+        elif hasattr(val_df, "schema"):
+            val_pool._mlframe_dtypes_sig = tuple(str(d) for d in val_df.schema.values())
+        else:
+            val_pool._mlframe_dtypes_sig = None
+    except Exception as e:
+        logger.debug("val_pool dtypes signature computation failed, leaving it None: %s", e)
+        val_pool._mlframe_dtypes_sig = None
+
+
 def _maybe_rewrite_eval_set_as_cb_pool(fit_params: dict[str, Any]) -> None:
     """Fix Orch-1 (2026-04-21): for CatBoost, rewrite
     ``fit_params['eval_set']`` from ``[(val_df, val_target)]`` /
@@ -825,39 +877,10 @@ def _maybe_rewrite_eval_set_as_cb_pool(fit_params: dict[str, Any]) -> None:
         )
 
         cached = _CB_VAL_POOL_CACHE.get(key)
-        if cached is not None:
-            # Content fingerprint, not id() -- CPython can reuse a just-freed array's memory
-            # address for a new allocation of matching size (same id-reuse bug class already
-            # fixed for the cache KEY above); an id() collision here would silently keep a
-            # stale val label on the reused Pool. See _full_target_content_hash's docstring.
-            from mlframe.training.pipeline.shared import target_label_changed, full_target_content_hash as _full_target_content_hash
-            last_target_sig = getattr(cached, "_mlframe_last_target_sig", None)
-            try:
-                _target_sig = _full_target_content_hash(val_target)
-                _label_changed = target_label_changed(last_target_sig, _target_sig)
-                if _label_changed:
-                    try:
-                        _lab = _coerce_label_for_cb_pool(val_target)
-                    except Exception as e:
-                        logger.debug("_coerce_label_for_cb_pool failed, using val_target as-is: %s", e)
-                        _lab = val_target
-                    cached.set_label(_lab)
-                    cached._mlframe_last_target_sig = _target_sig
-                logger.info(
-                    "[cb-val-pool-reuse] hit key=(cols=%d,n=%d,cat=%d,text=%d,emb=%d) " "swapped%s without rebuild",
-                    len(key[0]) if key[0] is not None else 0,
-                    key[1] if key[1] is not None else 0,
-                    len(cat_features),
-                    len(text_features),
-                    len(embedding_features),
-                    " label" if _label_changed else "",
-                )
-                rewritten.append(cached)
-                changed = True
-                continue
-            except Exception as exc:
-                logger.info("[cb-val-pool-reuse] swap failed (%s: %s); rebuilding val Pool.", type(exc).__name__, str(exc).splitlines()[0][:120])
-                _CB_VAL_POOL_CACHE.pop(key, None)
+        if cached is not None and _swap_cached_val_pool(cached, key, val_target, cat_features, text_features, embedding_features):
+            rewritten.append(cached)
+            changed = True
+            continue
 
         # Miss: build fresh val Pool with float32-cast label.
         from ._cb_pool_budget import POOL_CACHE_LOCK
@@ -892,19 +915,7 @@ def _maybe_rewrite_eval_set_as_cb_pool(fit_params: dict[str, Any]) -> None:
 
         from mlframe.training.pipeline.shared import full_target_content_hash as _full_target_content_hash
         val_pool._mlframe_last_target_sig = _full_target_content_hash(val_target)
-        # Stash a content-fingerprint on the Pool so the predict-side lookup in ``_predict_with_fallback`` can do a cols + shape +
-        # dtypes content match when ``id(val_df)`` has shifted between fit and metrics phases (a production regression -- same
-        # frame, different Python object due to upstream pre_pipeline transforms).
-        try:
-            if hasattr(val_df, "dtypes"):
-                val_pool._mlframe_dtypes_sig = tuple(str(d) for d in val_df.dtypes)
-            elif hasattr(val_df, "schema"):
-                val_pool._mlframe_dtypes_sig = tuple(str(d) for d in val_df.schema.values())
-            else:
-                val_pool._mlframe_dtypes_sig = None
-        except Exception as e:
-            logger.debug("val_pool dtypes signature computation failed, leaving it None: %s", e)
-            val_pool._mlframe_dtypes_sig = None
+        _stamp_val_pool_dtypes_sig(val_pool, val_df)
         from ._cb_pool_budget import admit_pool
 
         if admit_pool(_CB_VAL_POOL_CACHE, "val", key, val_pool):

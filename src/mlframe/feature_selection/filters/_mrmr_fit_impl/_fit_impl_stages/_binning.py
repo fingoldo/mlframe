@@ -6,7 +6,7 @@ from __future__ import annotations
 import numpy as np
 import os
 from mlframe.feature_selection.filters._mrmr_fit_impl._fit_impl_core import logger
-from typing import Optional
+from typing import Optional, Any
 
 # --- end imports ---
 
@@ -113,6 +113,15 @@ def _discretize_inputs(self, _is_polars_input, X, target_names):
     # OptimalJoint, ...) actually take effect inside fit(). When None,
     # categorize_dataset uses the legacy fixed ``quantization_nbins``.
     _nbins_strategy = getattr(self, "nbins_strategy", None)
+    _ret_discretize_inputs_part1 = _discretize_inputs_part1(self, _nbins_strategy, target_names, _x_for_cat, categorize_dataset, _strategy_for_categorize)
+    if _ret_discretize_inputs_part1[0]:
+        return _ret_discretize_inputs_part1[1]
+
+
+def _discretize_inputs_part1(
+    self: Any, _nbins_strategy: Any, target_names: Any, _x_for_cat: Any, categorize_dataset: Any, _strategy_for_categorize: Any,
+) -> tuple[Any, ...]:
+    """Extracted block of ``_discretize_inputs`` (part 1); returns the names the caller still uses."""
     _nbins_strategy_kwargs = getattr(self, "nbins_strategy_kwargs", None)
     # When capping cardinality for the compact-codes int8 goal, also bound the NUMERIC side: the supervised MDLP
     # (fayyad_irani) recursion can emit up to 2**max_depth intervals (default max_depth=8 -> ~256), which would exceed
@@ -246,4 +255,5 @@ def _discretize_inputs(self, _is_polars_input, X, target_names):
         self._honest_null_codes_fn = _honest_null_codes
     else:
         self._honest_null_codes_fn = None
-    return _nbins_strategy, _x_for_cat, cols, data, nbins
+    return True, (_nbins_strategy, _x_for_cat, cols, data, nbins)
+    return False, None

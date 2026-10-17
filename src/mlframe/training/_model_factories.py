@@ -146,6 +146,46 @@ def make_lgb_dataset(*args: Any, **kwargs: Any) -> Any:
     return _lgb.Dataset(*args, **kwargs)
 
 
+def _infer_shape(args: Any, kwargs: Any) -> tuple[int, int] | None:
+    """Best-effort ``(rows, cols)`` of the dataset payload (first positional arg or ``data`` kwarg) for the build-event log line; falls back to ``(len(payload), -1)`` or ``None`` when no shape is inferable."""
+    # First positional or the ``data`` kwarg is the payload; try shape.
+    payload = kwargs.get("data")
+    if payload is None and args:
+        payload = args[0]
+    if payload is None:
+        return None
+    try:
+        shp = getattr(payload, "shape", None)
+        if shp is not None and len(shp) >= 1:
+            rows = int(shp[0])
+            cols = int(shp[1]) if len(shp) > 1 else -1
+            return (rows, cols)
+    except Exception as e:
+        logger.debug("swallowed exception in _model_factories.py: %s", e)
+        pass
+    try:
+        return (len(payload), -1)
+    except Exception as exc:
+        logger.debug("_model_factories: len(payload) fallback failed, shape unknown: %s", exc)
+        return None
+
+def _active_phase_name() -> str:
+    """Innermost open suite phase, or "" -- best-effort, never raises into the instrumented constructor."""
+    try:
+        from mlframe.training.phases import active_phase
+
+        return active_phase()
+    except Exception as exc:
+        logger.debug("active_phase() unavailable (%s: %s); dataset built without a phase label", type(exc).__name__, exc)
+        return ""
+
+def _infer_callsite() -> str:
+    """Delegates to the module-level walk so it can be tested directly rather than through a monkey-patched constructor."""
+    from ._dataset_build_stats import infer_build_callsite
+
+    return infer_build_callsite(skip_frames=3)
+
+
 def _patch_dataset_constructors_with_logging() -> None:
     """Wrap ``catboost.Pool.__init__`` / ``xgboost.DMatrix.__init__`` /
     ``lightgbm.Dataset.__init__`` so every construction emits one INFO
@@ -166,45 +206,6 @@ def _patch_dataset_constructors_with_logging() -> None:
     # rather than chasing the internal module that happens to host the
     # patcher (was trainer.py pre-migration, now _model_factories.py).
     _build_logger = logging.getLogger("mlframe.training.trainer")
-
-    def _infer_shape(args, kwargs):
-        """Best-effort ``(rows, cols)`` of the dataset payload (first positional arg or ``data`` kwarg) for the build-event log line; falls back to ``(len(payload), -1)`` or ``None`` when no shape is inferable."""
-        # First positional or the ``data`` kwarg is the payload; try shape.
-        payload = kwargs.get("data")
-        if payload is None and args:
-            payload = args[0]
-        if payload is None:
-            return None
-        try:
-            shp = getattr(payload, "shape", None)
-            if shp is not None and len(shp) >= 1:
-                rows = int(shp[0])
-                cols = int(shp[1]) if len(shp) > 1 else -1
-                return (rows, cols)
-        except Exception as e:
-            logger.debug("swallowed exception in _model_factories.py: %s", e)
-            pass
-        try:
-            return (len(payload), -1)
-        except Exception as exc:
-            logger.debug("_model_factories: len(payload) fallback failed, shape unknown: %s", exc)
-            return None
-
-    def _active_phase_name() -> str:
-        """Innermost open suite phase, or "" -- best-effort, never raises into the instrumented constructor."""
-        try:
-            from mlframe.training.phases import active_phase
-
-            return active_phase()
-        except Exception as exc:
-            logger.debug("active_phase() unavailable (%s: %s); dataset built without a phase label", type(exc).__name__, exc)
-            return ""
-
-    def _infer_callsite() -> str:
-        """Delegates to the module-level walk so it can be tested directly rather than through a monkey-patched constructor."""
-        from ._dataset_build_stats import infer_build_callsite
-
-        return infer_build_callsite(skip_frames=3)
 
     def _wrap_init(cls, label: str):
         """Monkey-patch ``cls.__init__`` in place to emit a build-event log line after construction; idempotent per concrete class via the ``_mlframe_build_logger_installed`` own-``__dict__`` marker."""

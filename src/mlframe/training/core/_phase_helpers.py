@@ -33,6 +33,13 @@ from ..strategies import get_strategy
 from ..pipeline import prepare_dfs_for_catboost_joint
 from ._setup_helpers import _apply_outlier_detection_global, _convert_dfs_to_pandas
 from mlframe.utils.env_flags import env_float
+from ._phase_helpers_pandas_prep import (
+    _cache_pandas_frame_sizes,
+    _log_conversion_reasons,
+    _log_deferred_conversion,
+    _make_cat_heavy_size,
+    _resolve_defer_pandas_conv,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -482,124 +489,42 @@ def _phase_pandas_conversion_and_cat_prep(
         if strategy_by_model:
             return [get_strategy(m) if strategy_by_model.get(id(m)) is None else strategy_by_model[id(m)] for m in models]
         return [get_strategy(m) for m in models]
-    # The earlier disjunction ``all_models_polars_native OR _has_non_native_mlframe_strategy`` was always True
-    # given ``was_polars_input`` (the second disjunct collapses to ``was_polars_input AND NOT first``), so
-    # the whole conjunction reduces to the three real gates: had a polars input, no recurrent model, no RFECV.
-    # ``polars_pipeline_applied`` captures whether a polars-aware pipeline actually fitted on the polars frame;
-    # when False the downstream pipeline state lives only in pandas representation, so the lazy-pandas fastpath
-    # cannot keep frames as polars without losing that state.
-    #
-    # But "not applied" and "not requested" are different things, and conflating them cost a production run a
-    # multi-GB conversion for nothing: a caller asking for no encoder, no scaler and no imputer has NO pipeline
-    # state in either representation, so there is nothing for pandas to carry and the polars frames can stay.
-    # That configuration is the normal one for a CatBoost-only run, which needs none of those transforms.
-    #
-    # Deferring needs BOTH halves though. ``polars_pipeline_applied`` used to imply "some model reads polars"
-    # on its own, so relaxing the first half alone started deferring for an XGB-only run -- whose models cannot
-    # read a polars frame, so each fit converted its own copy, and the cross-clone DMatrix cache (keyed on the
-    # frame signature) missed on every weight schema. Ask about the models explicitly instead of inferring it.
-    _pipeline_state_lives_in_pandas = pipeline_stages_requested and not polars_pipeline_applied
-    _needs_pandas_frames = bool(_pipeline_state_lives_in_pandas or not all_models_polars_native)
-    defer_pandas_conv = was_polars_input and not _needs_pandas_frames and not recurrent_models and not _has_rfecv
+    _pipeline_state_lives_in_pandas: bool
+    defer_pandas_conv, _pipeline_state_lives_in_pandas = _resolve_defer_pandas_conv(
+        was_polars_input=was_polars_input,
+        all_models_polars_native=all_models_polars_native,
+        polars_pipeline_applied=polars_pipeline_applied,
+        pipeline_stages_requested=pipeline_stages_requested,
+        recurrent_models=recurrent_models,
+        has_rfecv=_has_rfecv,
+    )
 
     train_df_size_bytes_cached: float | None = None
     val_df_size_bytes_cached: float | None = None
-    # CACHE-P1-7: cat-heavy frames inflate roughly 1.4-1.6x when going
-    # polars->pandas (string columns gain per-row object overhead, category
-    # columns lose dictionary compression). Apply a 1.5x safety factor when
-    # the pre-conversion size is the pandas-sizing input; downstream GPU /
-    # RAM heuristics over-allocate slightly rather than starving allocators.
-    _CAT_SIZE_SAFETY_FACTOR = 1.5
-
-    def _cat_heavy_size(df, raw_bytes):
-        """Inflate a polars frame's raw byte size by up to ``_CAT_SIZE_SAFETY_FACTOR`` proportional to its categorical-column fraction, approximating the pandas-conversion size increase; non-polars frames pass through unchanged."""
-        try:
-            if not isinstance(df, pl.DataFrame):
-                return raw_bytes
-            cat_cols = [c for c in (cat_features or []) if c in df.columns]
-            n_cols = max(len(df.columns), 1)
-            cat_frac = float(len(cat_cols)) / n_cols
-            # Linear interp between 1.0x (no cat cols) and 1.5x (>=50% cat).
-            scale = 1.0 + (_CAT_SIZE_SAFETY_FACTOR - 1.0) * min(cat_frac / 0.5, 1.0)
-            return float(raw_bytes) * float(scale)
-        except Exception as exc:
-            logger.debug("_cat_heavy_size: categorical-fraction size estimate failed, using raw bytes: %s", exc)
-            return raw_bytes
+    _cat_heavy_size = _make_cat_heavy_size(cat_features)
 
     train_df_size_bytes_cached, val_df_size_bytes_cached = _polars_to_pandas_for_cat_prep(was_polars_input, train_df, _cat_heavy_size, val_df, train_df_size_bytes_cached, val_df_size_bytes_cached)
 
     if defer_pandas_conv:
         train_df_pd, val_df_pd, test_df_pd = train_df, val_df, test_df
         if verbose:
-            if all_models_polars_native:
-                logger.info("  Skipped pandas conversion -- all models are Polars-native")
-            else:
-                _strats = _strategies_for(mlframe_models or [])
-                non_native = [m for m, s in zip(mlframe_models or [], _strats) if not s.supports_polars]
-                logger.info(
-                    "  Deferred pandas conversion -- Polars-native models run on the fastpath; " "non-native %s will convert lazily at their strategy branch.",
-                    non_native,
-                )
+            _log_deferred_conversion(all_models_polars_native, mlframe_models, _strategies_for)
     else:
         if verbose:
-            # These must mirror the ``defer_pandas_conv`` gate above TERM FOR TERM. They previously did
-            # not: the gate gives up deferral when ``polars_pipeline_applied`` is False, but that term was
-            # missing from the list, while ``all_models_polars_native`` -- which the gate never consults --
-            # was in it. So the one genuinely common case (a caller passing
-            # PreprocessingBackendConfig(prefer_polarsds=False), which leaves the polars-ds pipeline
-            # unapplied) matched no listed reason and printed "unknown", leaving a multi-GB conversion with
-            # no stated cause.
-            reasons = []
-            if not was_polars_input:
-                reasons.append("input is not a Polars DataFrame")
-            if _pipeline_state_lives_in_pandas:
-                reasons.append(
-                    "transform stages were requested (encoder / scaler / imputer) but the polars-ds pipeline did "
-                    "not apply them, so the fitted state exists only in pandas representation"
-                )
-            if recurrent_models:
-                reasons.append(f"recurrent_models={recurrent_models}")
-            if _has_rfecv:
-                reasons.append(f"rfecv_models={rfecv_models}")
-            if not all_models_polars_native:
-                _strats = _strategies_for(mlframe_models or [])
-                non_native = [m for m, s in zip(mlframe_models or [], _strats) if not s.supports_polars]
-                if non_native:
-                    reasons.append(f"non-Polars-native models requested: {non_native}")
-            logger.info(
-                "  polars->pandas conversion needed because: %s",
-                "; ".join(reasons) if len(reasons) > 0 else "unknown",
+            _log_conversion_reasons(
+                was_polars_input=was_polars_input,
+                pipeline_state_lives_in_pandas=_pipeline_state_lives_in_pandas,
+                recurrent_models=recurrent_models,
+                has_rfecv=_has_rfecv,
+                rfecv_models=rfecv_models,
+                all_models_polars_native=all_models_polars_native,
+                mlframe_models=mlframe_models,
+                strategies_for=_strategies_for,
             )
         train_df_pd, val_df_pd, test_df_pd = _convert_dfs_to_pandas(train_df, val_df, test_df, verbose=verbose)
-        # Sizing for downstream GPU / RAM heuristics. Two-tier strategy:
-        # 1. If ``was_polars_input`` already populated ``train_df_size_bytes_cached`` via
-        #    ``estimated_size()`` + cat-heavy inflation (lines ~473-483 above), KEEP that value.
-        #    On a 4M-row x 25-col object-heavy frame ``memory_usage(deep=True)`` scans every cell
-        #    and takes ~17.6s (); the polars estimate plus the 1.5x cat-heavy
-        #    factor is accurate enough for GPU-sizing heuristics that already over-allocate.
-        # 2. Otherwise fall back to ``memory_usage(deep=False)`` -- shallow scan returns in <1ms
-        #    by reading buffer-block sizes per column. The object-dtype undercount that
-        #    ``deep=True`` was guarding against (5GB vs 0.72GB on the test fixture) is acceptable
-        #    given how much wall-time the deep scan costs; downstream consumers can request the
-        #    exact value via a follow-up ``deep=True`` call if needed (none currently do).
-        _t0_memsize = timer()
-        try:
-            if isinstance(train_df_pd, pd.DataFrame) and train_df_size_bytes_cached is None:
-                train_df_size_bytes_cached = float(train_df_pd.memory_usage(deep=False, index=False).sum())
-            if val_df_pd is not None and isinstance(val_df_pd, pd.DataFrame) and val_df_size_bytes_cached is None:
-                val_df_size_bytes_cached = float(val_df_pd.memory_usage(deep=False, index=False).sum())
-        except Exception as e:
-            logger.debug("swallowed exception in _phase_helpers.py: %s", e)
-            pass
-        if verbose:
-            _memsize_elapsed = timer() - _t0_memsize
-            if _memsize_elapsed > 1.0:
-                logger.info(
-                    "  trainset_features_stats memory_usage: %.1fs " "(train=%.1fMB, val=%.1fMB) -- runs once per suite",
-                    _memsize_elapsed,
-                    (train_df_size_bytes_cached or 0) / 1e6,
-                    (val_df_size_bytes_cached or 0) / 1e6,
-                )
+        train_df_size_bytes_cached, val_df_size_bytes_cached = _cache_pandas_frame_sizes(
+            train_df_pd, val_df_pd, train_df_size_bytes_cached, val_df_size_bytes_cached, verbose,
+        )
 
     # bench-attempt-rejected: gated joint cat prep on
     # mlframe_models containing CB/HGB/LGB/XGB/*_rfecv. Verified on a

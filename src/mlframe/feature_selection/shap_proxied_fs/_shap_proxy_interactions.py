@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import itertools
 import logging
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from typing import Any, cast
 
 import numpy as np
@@ -390,6 +390,56 @@ def _pair_synergy_bins_njit(bins_a: np.ndarray, bins_b: np.ndarray, nb_a: int, n
     return joint_su - marg, joint_su
 
 
+def _synergy_null_gate(
+    pairs: list,
+    yb: np.ndarray,
+    joint_marg: Callable[[Any, Any], tuple[np.ndarray, np.ndarray]],
+    *,
+    n_permutations: int,
+    rng: np.random.Generator,
+    snr_null_quantile: float,
+    snr_z: float,
+    snr_abs_floor: float,
+) -> tuple[float, float, float]:
+    """Permutation-null SNR gate for ``su_synergy_screen``; returns ``(gate, null_quantile, null_std)``."""
+    # --- SNR gate: target-shuffle permutation null on the synergy ----------------------------------
+    # Re-score a bounded sample of pairs against shuffled targets so the null reflects the SAME joint
+    # binning + cardinality as the observed pairs (a permutation of y destroys any real dependence but
+    # preserves the spurious synergy a high-cardinality joint can manufacture on finite samples).
+    null_vals: list[float] = []
+    if pairs:
+        sample_n = min(len(pairs), 40)
+        sample_pairs = pairs[:sample_n]
+        n = yb.shape[0]
+        # Precompute each sample pair's joint marginals ONCE (they do not depend on the permutation,
+        # only y is shuffled) instead of re-binning per permutation.
+        sample_joint = []
+        for _syn, _jsu, col_a, col_b in sample_pairs:
+            jcls, jfreq = joint_marg(col_a, col_b)
+            if jfreq.size > 1:
+                sample_joint.append((jcls, jfreq))
+        for _ in range(max(1, int(n_permutations))):
+            perm = rng.permutation(n)
+            yb_perm = yb[perm]
+            yp_cls, yp_freq = _su_marginals(yb_perm)
+            for jcls, jfreq in sample_joint:
+                joint_su_perm = float(compute_su_from_classes(jcls, jfreq, yp_cls, yp_freq))
+                # marginal SU under permutation is ~0 for both operands; the spurious synergy is
+                # dominated by the joint's finite-sample SU vs shuffled y, so use the joint directly
+                # as the null synergy proxy (max(marg) under shuffle is also pure noise).
+                null_vals.append(joint_su_perm)
+
+    if null_vals:
+        null_arr = np.asarray(null_vals, dtype=np.float64)
+        null_q = float(np.quantile(null_arr, float(snr_null_quantile)))
+        null_std = float(null_arr.std())
+    else:
+        null_q = 0.0
+        null_std = 0.0
+    gate = max(float(snr_abs_floor), null_q + float(snr_z) * null_std)
+    return gate, null_q, null_std
+
+
 def su_synergy_screen(
     X: pd.DataFrame,
     y: np.ndarray,
@@ -499,41 +549,8 @@ def su_synergy_screen(
         pairs.append((syn, joint_su, col_a, col_b))
     pairs.sort(key=lambda t: -t[0])
 
-    # --- SNR gate: target-shuffle permutation null on the synergy ----------------------------------
-    # Re-score a bounded sample of pairs against shuffled targets so the null reflects the SAME joint
-    # binning + cardinality as the observed pairs (a permutation of y destroys any real dependence but
-    # preserves the spurious synergy a high-cardinality joint can manufacture on finite samples).
-    null_vals: list[float] = []
-    if pairs:
-        sample_n = min(len(pairs), 40)
-        sample_pairs = pairs[:sample_n]
-        n = yb.shape[0]
-        # Precompute each sample pair's joint marginals ONCE (they do not depend on the permutation,
-        # only y is shuffled) instead of re-binning per permutation.
-        sample_joint = []
-        for _syn, _jsu, col_a, col_b in sample_pairs:
-            jcls, jfreq = _joint_marg(col_a, col_b)
-            if jfreq.size > 1:
-                sample_joint.append((jcls, jfreq))
-        for _ in range(max(1, int(n_permutations))):
-            perm = rng.permutation(n)
-            yb_perm = yb[perm]
-            yp_cls, yp_freq = _su_marginals(yb_perm)
-            for jcls, jfreq in sample_joint:
-                joint_su_perm = float(compute_su_from_classes(jcls, jfreq, yp_cls, yp_freq))
-                # marginal SU under permutation is ~0 for both operands; the spurious synergy is
-                # dominated by the joint's finite-sample SU vs shuffled y, so use the joint directly
-                # as the null synergy proxy (max(marg) under shuffle is also pure noise).
-                null_vals.append(joint_su_perm)
-
-    if null_vals:
-        null_arr = np.asarray(null_vals, dtype=np.float64)
-        null_q = float(np.quantile(null_arr, float(snr_null_quantile)))
-        null_std = float(null_arr.std())
-    else:
-        null_q = 0.0
-        null_std = 0.0
-    gate = max(float(snr_abs_floor), null_q + float(snr_z) * null_std)
+    gate, null_q, null_std = _synergy_null_gate(
+        pairs, yb, _joint_marg, n_permutations=n_permutations, rng=rng, snr_null_quantile=snr_null_quantile, snr_z=snr_z, snr_abs_floor=snr_abs_floor)
 
     kept = [(syn, jsu, a, b) for syn, jsu, a, b in pairs if syn >= gate]
     kept = kept[: int(top_k)]

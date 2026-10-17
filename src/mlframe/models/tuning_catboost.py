@@ -17,6 +17,135 @@ from .tuning_rules import ParamsOptimizer, create_ctr_params
 __all__ = ["CatboostParamsOptimizer"]
 
 
+def _catboost_default_params(GPU_ENABLED: bool, groups: bool) -> dict:
+    """Default CatBoost hyperparameter search space (float/int/categorical/bool distributions), gated on device and ``groups``."""
+    params = {
+        # Special params
+        # monotone-constraints = "Feature2:1,Feature4:-1"
+        # feature_weights = [0.1, 1, 3]
+        # first_feature_use_penalties = "2:1.1,4:0.1"
+        # per_object_feature_penalties = "2:1.1,4:0.1"
+        # ----------------------------------------------------------------------------------------------------------------------------
+        # Float params
+        # ----------------------------------------------------------------------------------------------------------------------------
+        "subsample": [None, uniform(0.5, 1.0 - 0.5)],
+        "learning_rate": loguniform(1e-3, 0.3),  # Alias: eta
+        "bagging_temperature": [
+            0,
+            1,
+            loguniform(0.01, 2),
+        ],  # Defines the settings of the Bayesian bootstrap. It is used by default in classification and regression modes. Possible values are in the range [0, +inf]. can be used if the selected bootstrap type is Bayesian.
+        # "bayesian_matrix_reg": uniform(0.01, 0.9-0.01),
+        "eval_fraction": loguniform(0.01, 0.3 - 0.01),
+        "rsm": [1, uniform(0.8, 1.0 - 0.8)] if not GPU_ENABLED else [1],  # Alias:colsample_bylevel # rsm on GPU is supported for pairwise modes only
+        "target_border": [
+            None,
+            uniform(0.35 - 0.15, 0.5 + 0.15 - 0.35),
+        ],  # If set, defines the border for converting target values to 0 and 1. Depending on the specified value:target_value≤border_value the target is converted to 0; target_value>border_value the target is converted to 1.
+        "mvs_reg": [
+            None,
+            loguniform(0.01, 100),
+        ],  # Affects the weight of the denominator and can be used for balancing between the importance and Bernoulli sampling (setting it to 0 implies importance sampling and to ∞ - Bernoulli). This parameter is supported only for the MVS sampling method, so drop_if_not_rules removes it whenever bootstrap_type is anything else.
+        "fold_len_multiplier": [2, loguniform(1.1, 2.9)],
+        "diffusion_temperature": [10000, loguniform(1_000, 100_000)],
+        "penalties_coefficient": [1, loguniform(1, 3)],
+        # ----------------------------------------------------------------------------------------------------------------------------
+        # Int params
+        # ----------------------------------------------------------------------------------------------------------------------------
+        "depth": randint(1, 16),  # Maximum tree depth is 16
+        "max_leaves": randint(2, 70),
+        "l2_leaf_reg": randint(1, 10),  # Any positive value is allowed.
+        "border_count": [None, randint(30, 300)],
+        "model_size_reg": randint(1, 10),
+        "one_hot_max_size": [None, randint(2, 300)],
+        "ctr_leaf_count_limit": (
+            [
+                None,
+                randint(10, 100),
+            ]
+            if not GPU_ENABLED
+            else [None]
+        ),  # The maximum number of leaves with categorical features. If the quantity exceeds the specified value a part of leaves is discarded. This option reduces the resulting model size and the amount of memory required for training. Note that the resulting quality of the model can be affected.
+        "random_strength": [
+            1,
+            randint(1, 5),
+        ],  # The amount of randomness to use for scoring splits when the tree structure is selected. Use this parameter to avoid overfitting the model. The value of this parameter is used when selecting splits. On every iteration each possible split gets a score (for example, the score indicates how much adding this split will improve the loss function for the training dataset). The split with the highest score is selected.
+        "max_ctr_complexity": [None, randint(1, 10)],
+        "min_data_in_leaf": [
+            1,
+            randint(1, 10),
+        ],  # Alias: min_child_samples. The minimum number of training samples in a leaf. CatBoost does not search for new splits in leaves with samples count less than the specified value. Can be used only with the Lossguide and Depthwise growing policies.
+        "leaf_estimation_iterations": [
+            None,
+            randint(1, 30),
+        ],  # CatBoost might calculate leaf values using several gradient or newton steps instead of a single one. This parameter regulates how many steps are done in every tree when calculating leaf values.
+        "iterations": randint(100, 1000),  # Aliases: num_boost_round, n_estimators, num_trees
+        "fold_permutation_block": [1, randint(1, 256)],
+        # ----------------------------------------------------------------------------------------------------------------------------
+        # Cat params
+        # ----------------------------------------------------------------------------------------------------------------------------
+        "sampling_unit": (
+            ["Object", "Group"] if groups else ["Object"]
+        ),  # The sampling scheme. #No groups in dataset. Please disable sampling or use per object sampling
+        "boosting_type": [
+            None,
+            "Plain",
+            "Ordered",
+        ],  # ,  It is set to Ordered by default for datasets with less then 50 thousand objects. TheOrdered scheme requires a lot of memory.
+        "sampling_frequency": ["PerTree", "PerTreeLevel"],  # Frequency to sample weights and objects when building trees.
+        "leaf_estimation_method": ["Newton", "Gradient", "Exact"],  # The method used to calculate the values in leaves.
+        "nan_mode": ["Min", "Max"],
+        "counter_calc_method": ["SkipTest", "Full"],
+        "feature_border_type": "Median Uniform UniformAndQuantiles MaxLogSum MinEntropy GreedyLogSum".split(),  # The quantization mode for numerical features.
+        "grow_policy": [
+            "SymmetricTree",
+            "Depthwise",
+            "Lossguide",
+        ],  # Tree growing policy. Required as a rule-DSL companion field: allow_if_values_or requires SymmetricTree when boosting_type=='Ordered', and drop_if_not_rules only keeps max_leaves when this is 'Lossguide'.
+        "model_shrink_mode": [
+            "Constant",
+            "Decreasing",
+        ],  # How the model shrink rate is applied. Required as a rule-DSL companion field: allow_if_values_and requires 'Constant' when posterior_sampling=True. Dropped again for GPU via drop_if_rules (unimplemented there).
+        # ----------------------------------------------------------------------------------------------------------------------------
+        # Bool params
+        # ----------------------------------------------------------------------------------------------------------------------------
+        "langevin": [False, True],
+        "posterior_sampling": [False, True],
+        "has_time": [
+            False,
+            True,
+        ],  # Use this option if the objects in your dataset are given in the required order. In this case, random permutations are not performed during the Transforming categorical features to numerical features and Choosing the tree structure stages.
+        "approx_on_full_history": [False, True] if not GPU_ENABLED else [False],
+        "store_all_simple_ctr": [
+            False,
+            True,
+        ]
+        if not GPU_ENABLED
+        else [False],  # Ignore categorical features, which are not used in feature combinations, when choosing candidates for exclusion.
+        # Device specific params
+        "leaf_estimation_backtracking": [
+            "AnyImprovement",
+            "No",
+            "Armijo",
+        ],  # Armijo -gpu only. When the value of the leaf_estimation_iterations parameter is greater than 1, CatBoost makes several gradient or newton steps when calculating the resulting leaf values of a tree.
+        "score_function": [
+            "Cosine",  # (do not use this score type with the Lossguide tree growing policy)
+            "NewtonCosine",  # (do not use this score type with the Lossguide tree growing policy)
+            "L2",
+            "NewtonL2",
+        ],  # GPU — All score types, CPU — Cosine, L2
+        "bootstrap_type": [
+            "Bayesian",
+            "Bernoulli",
+            "MVS",
+            "No",
+            "Poisson",  # (supported for GPU only)
+        ],  # Bootstrap type. Defines the method for sampling the weights of objects.
+        "task_type": ["GPU" if GPU_ENABLED else "CPU"],
+    }
+    return params
+
+
 class CatboostParamsOptimizer(ParamsOptimizer):
     """Concrete ``ParamsOptimizer`` for CatBoost.
 
@@ -62,130 +191,7 @@ class CatboostParamsOptimizer(ParamsOptimizer):
 
         # --per-float-feature-quantization 0:border_count=1024
 
-        self.params = {
-            # Special params
-            # monotone-constraints = "Feature2:1,Feature4:-1"
-            # feature_weights = [0.1, 1, 3]
-            # first_feature_use_penalties = "2:1.1,4:0.1"
-            # per_object_feature_penalties = "2:1.1,4:0.1"
-            # ----------------------------------------------------------------------------------------------------------------------------
-            # Float params
-            # ----------------------------------------------------------------------------------------------------------------------------
-            "subsample": [None, uniform(0.5, 1.0 - 0.5)],
-            "learning_rate": loguniform(1e-3, 0.3),  # Alias: eta
-            "bagging_temperature": [
-                0,
-                1,
-                loguniform(0.01, 2),
-            ],  # Defines the settings of the Bayesian bootstrap. It is used by default in classification and regression modes. Possible values are in the range [0, +inf]. can be used if the selected bootstrap type is Bayesian.
-            # "bayesian_matrix_reg": uniform(0.01, 0.9-0.01),
-            "eval_fraction": loguniform(0.01, 0.3 - 0.01),
-            "rsm": [1, uniform(0.8, 1.0 - 0.8)] if not GPU_ENABLED else [1],  # Alias:colsample_bylevel # rsm on GPU is supported for pairwise modes only
-            "target_border": [
-                None,
-                uniform(0.35 - 0.15, 0.5 + 0.15 - 0.35),
-            ],  # If set, defines the border for converting target values to 0 and 1. Depending on the specified value:target_value≤border_value the target is converted to 0; target_value>border_value the target is converted to 1.
-            "mvs_reg": [
-                None,
-                loguniform(0.01, 100),
-            ],  # Affects the weight of the denominator and can be used for balancing between the importance and Bernoulli sampling (setting it to 0 implies importance sampling and to ∞ - Bernoulli). This parameter is supported only for the MVS sampling method, so drop_if_not_rules removes it whenever bootstrap_type is anything else.
-            "fold_len_multiplier": [2, loguniform(1.1, 2.9)],
-            "diffusion_temperature": [10000, loguniform(1_000, 100_000)],
-            "penalties_coefficient": [1, loguniform(1, 3)],
-            # ----------------------------------------------------------------------------------------------------------------------------
-            # Int params
-            # ----------------------------------------------------------------------------------------------------------------------------
-            "depth": randint(1, 16),  # Maximum tree depth is 16
-            "max_leaves": randint(2, 70),
-            "l2_leaf_reg": randint(1, 10),  # Any positive value is allowed.
-            "border_count": [None, randint(30, 300)],
-            "model_size_reg": randint(1, 10),
-            "one_hot_max_size": [None, randint(2, 300)],
-            "ctr_leaf_count_limit": (
-                [
-                    None,
-                    randint(10, 100),
-                ]
-                if not GPU_ENABLED
-                else [None]
-            ),  # The maximum number of leaves with categorical features. If the quantity exceeds the specified value a part of leaves is discarded. This option reduces the resulting model size and the amount of memory required for training. Note that the resulting quality of the model can be affected.
-            "random_strength": [
-                1,
-                randint(1, 5),
-            ],  # The amount of randomness to use for scoring splits when the tree structure is selected. Use this parameter to avoid overfitting the model. The value of this parameter is used when selecting splits. On every iteration each possible split gets a score (for example, the score indicates how much adding this split will improve the loss function for the training dataset). The split with the highest score is selected.
-            "max_ctr_complexity": [None, randint(1, 10)],
-            "min_data_in_leaf": [
-                1,
-                randint(1, 10),
-            ],  # Alias: min_child_samples. The minimum number of training samples in a leaf. CatBoost does not search for new splits in leaves with samples count less than the specified value. Can be used only with the Lossguide and Depthwise growing policies.
-            "leaf_estimation_iterations": [
-                None,
-                randint(1, 30),
-            ],  # CatBoost might calculate leaf values using several gradient or newton steps instead of a single one. This parameter regulates how many steps are done in every tree when calculating leaf values.
-            "iterations": randint(100, 1000),  # Aliases: num_boost_round, n_estimators, num_trees
-            "fold_permutation_block": [1, randint(1, 256)],
-            # ----------------------------------------------------------------------------------------------------------------------------
-            # Cat params
-            # ----------------------------------------------------------------------------------------------------------------------------
-            "sampling_unit": (
-                ["Object", "Group"] if groups else ["Object"]
-            ),  # The sampling scheme. #No groups in dataset. Please disable sampling or use per object sampling
-            "boosting_type": [
-                None,
-                "Plain",
-                "Ordered",
-            ],  # ,  It is set to Ordered by default for datasets with less then 50 thousand objects. TheOrdered scheme requires a lot of memory.
-            "sampling_frequency": ["PerTree", "PerTreeLevel"],  # Frequency to sample weights and objects when building trees.
-            "leaf_estimation_method": ["Newton", "Gradient", "Exact"],  # The method used to calculate the values in leaves.
-            "nan_mode": ["Min", "Max"],
-            "counter_calc_method": ["SkipTest", "Full"],
-            "feature_border_type": "Median Uniform UniformAndQuantiles MaxLogSum MinEntropy GreedyLogSum".split(),  # The quantization mode for numerical features.
-            "grow_policy": [
-                "SymmetricTree",
-                "Depthwise",
-                "Lossguide",
-            ],  # Tree growing policy. Required as a rule-DSL companion field: allow_if_values_or requires SymmetricTree when boosting_type=='Ordered', and drop_if_not_rules only keeps max_leaves when this is 'Lossguide'.
-            "model_shrink_mode": [
-                "Constant",
-                "Decreasing",
-            ],  # How the model shrink rate is applied. Required as a rule-DSL companion field: allow_if_values_and requires 'Constant' when posterior_sampling=True. Dropped again for GPU via drop_if_rules (unimplemented there).
-            # ----------------------------------------------------------------------------------------------------------------------------
-            # Bool params
-            # ----------------------------------------------------------------------------------------------------------------------------
-            "langevin": [False, True],
-            "posterior_sampling": [False, True],
-            "has_time": [
-                False,
-                True,
-            ],  # Use this option if the objects in your dataset are given in the required order. In this case, random permutations are not performed during the Transforming categorical features to numerical features and Choosing the tree structure stages.
-            "approx_on_full_history": [False, True] if not GPU_ENABLED else [False],
-            "store_all_simple_ctr": [
-                False,
-                True,
-            ]
-            if not GPU_ENABLED
-            else [False],  # Ignore categorical features, which are not used in feature combinations, when choosing candidates for exclusion.
-            # Device specific params
-            "leaf_estimation_backtracking": [
-                "AnyImprovement",
-                "No",
-                "Armijo",
-            ],  # Armijo -gpu only. When the value of the leaf_estimation_iterations parameter is greater than 1, CatBoost makes several gradient or newton steps when calculating the resulting leaf values of a tree.
-            "score_function": [
-                "Cosine",  # (do not use this score type with the Lossguide tree growing policy)
-                "NewtonCosine",  # (do not use this score type with the Lossguide tree growing policy)
-                "L2",
-                "NewtonL2",
-            ],  # GPU — All score types, CPU — Cosine, L2
-            "bootstrap_type": [
-                "Bayesian",
-                "Bernoulli",
-                "MVS",
-                "No",
-                "Poisson",  # (supported for GPU only)
-            ],  # Bootstrap type. Defines the method for sampling the weights of objects.
-            "task_type": ["GPU" if GPU_ENABLED else "CPU"],
-        }
+        self.params = _catboost_default_params(GPU_ENABLED, groups)
         # CatBoost per-task loss_function/eval_metric options are not swept here; see CatBoost docs for the full menu per task type:
         #   Regression: MAE/MAPE/Poisson/Quantile/RMSE/LogLinQuantile/LogCosh/Lq/Expectile/Tweedie/Huber (eval also FairLoss/SMAPE/R2/MSLE/MedianAbsoluteError/NumErrors)
         #   Multiregression: MultiRMSE/MultiRMSEWithMissingValues
@@ -208,6 +214,10 @@ class CatboostParamsOptimizer(ParamsOptimizer):
         for key in delete_params:
             if key in self.params:
                 del self.params[key]
+        self._init_rules(GPU_ENABLED)
+
+    def _init_rules(self, GPU_ENABLED: bool) -> None:
+        """Populate the drop/skip/allow rule sets encoding CatBoost's parameter-compatibility constraints."""
         self.drop_if_rules = [
             {
                 "conditions": [GPU_ENABLED],

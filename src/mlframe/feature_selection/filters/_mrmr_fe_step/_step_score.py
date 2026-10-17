@@ -104,6 +104,99 @@ def materialise_and_finalise_fe_candidates(
     Returns ``(prospective_additions, data, cols, nbins, X, selected_vars, n_recommended_features)``.
     ``engineered_features`` / ``checked_pairs`` / ``engineered_recipes`` are mutated in place.
     """
+    X, st, prospective_additions, discretize_array = _materialise_and_finalise_fe_candidates_part1(
+        self, _is_polars_input, X, cols, prospective_additions, discretize_array, classes_y, verbose, num_fs_steps, engineered_recipes,
+        _polynom_engineered_indices,
+    )
+    X, cols, n_recommended_features, nbins = _materialise_and_fina_step3_cols_space_index(self, prospective_additions, engineered_features, verbose, fe_max_steps, X, discretize_array, cols, st, nbins, _is_polars_input, engineered_recipes, get_new_feature_name, _poly_coefs, fe_unary_preset, fe_binary_preset, n_recommended_features, checked_pairs)
+
+    # Flush the accumulated per-pair code blocks into ``data`` in a SINGLE concatenate (column order
+    # matches the loop's append order, so it is byte-identical to the prior per-pair ``np.append``).
+    # Must run before the escalation block below reads / appends ``data``.
+    if st._data_chunks:
+        data = np.concatenate([data, *st._data_chunks], axis=1)
+
+    # AUTO-ESCALATION to the richer SHIPPED bases (backlog idea B,
+    # default-ON). A pair that PASSED the pair-MI prescreen (ratio gate + order-2
+    # maxT floor) but for which the unary/binary search above admitted NOTHING used
+    # to end in the log_fe_summary WARNING below - detected signal, silently
+    # abandoned. Escalate instead: PROPOSE candidates from the richer shipped basis
+    # families (signal-adaptive orth-poly ALS warp across the 4 polynomial bases at
+    # a higher degree + DEMODULATED adaptive-frequency Fourier/chirp warps - e.g.
+    # the sin(3.7*a)*b inner frequency no library unary can express) and let the
+    # EXISTING gates decide (maxT floor on MM-debiased MI + marginal-permutation
+    # floor + the S5 conditional-MI redundancy gate vs the admitted engineered
+    # support). Structurally a no-op (one set-difference) when every surviving pair
+    # produced an admitted column - the common case. See ``_fe_auto_escalation``.
+    X, cols, data, n_recommended_features, nbins = _materialise_and_fina_step2_produced_admitted_column(self, prospective_pairs, _prevalence_failed_synergy, verbose, num_fs_steps, prospective_additions, X, cols, classes_y, st, _pair_maxt_floor, _is_polars_input, discretize_array, data, nbins, n_recommended_features, engineered_recipes)
+
+    # Promote the freshly-appended engineered
+    # columns directly into ``selected_vars`` (cols-space). They already
+    # cleared every FE gate (pair-MI prevalence, engineered-MI prevalence,
+    # external validation) - the gates ARE the selection criterion for FE
+    # survivors. Without this, the only path to ``support_`` was the
+    # screening re-run at the top of the NEXT outer-loop iteration, which
+    # never executes under the default ``fe_max_steps=1`` (the loop breaks
+    # first), so ``_engineered_features_`` stayed empty. On multi-step the
+    # re-screen still re-evaluates them and may prune weak ones. Mirrors the
+    # cluster_aggregate self-selection pattern below.
+    selected_vars = _materialise_and_fina_step3_cluster_aggregate_self(st, selected_vars)
+
+    # C2 ADDITIVE-FUSION (default-ON). MUST RUN BEFORE the cross-fold stability vote
+    # below (ordering fix for the F2 DOMINANT-CAPTURE / weak-half class): the weak c/d half
+    # ``mul(log(c),sin(d))`` alone FAILS the cross-fold vote (its uplift is carried by too few
+    # rows to clear the per-fold quorum), so if the vote ran first it would DROP that half before
+    # C2 ever saw it - leaving no clean half to fuse. Running C2 first fuses the two surviving
+    # engineered halves with DISJOINT raw-token sets + GENUINE additive separability (the fused
+    # ``add`` MI exceeds both halves OR the 2-half OLS multiple-R beats the best single half) into
+    # the single ``add(half_a, half_b)`` compound via the EXISTING unary_binary + nested-parent
+    # recipe (no new recipe kind; byte-exact replay); the FUSED compound is registered in
+    # ``engineered_recipes`` so it then FACES the stability vote (the fused compound passes the
+    # vote - it reconstructs the whole target - while the bare weak half it subsumed does not
+    # matter). The two now-subsumed fragments are popped from the recipe dict + dropped from
+    # selection BEFORE the vote, so the vote never sees them. Self-gates to a no-op (byte-identical)
+    # when fewer than two relevant disjoint engineered halves are present - the common case.
+    # ``fe_max_engineered_operands == 0`` is the documented raw-only-pool contract (no composites
+    # whose operands are themselves engineered features). Additive fusion combines two engineered
+    # halves into ``add(half_a, half_b)``, i.e. a composite of engineered operands, so it must honor
+    # that contract and stay off when the feed-forward cap is 0.
+    X, cols, data, n_recommended_features, nbins, selected_vars = _materialise_and_fina_step4_contract_stay_off(self, engineered_recipes, st, verbose, cols, classes_y, X, _is_polars_input, discretize_array, data, nbins, n_recommended_features, selected_vars)
+
+    # CROSS-FOLD RECIPE STABILITY VOTING. A near-free
+    # consensus layer OVER the existing FE gates. The expensive search above ran
+    # ONCE on the full data; here we add a cheap K-fold CONFIRMATION - each
+    # surviving unary_binary recipe is REPLAYED (leak-safe: the recipe is frozen,
+    # only the rows change) on K held-out folds, its uplift gate statistic
+    # recomputed per fold, and the recipe ADMITTED only if it clears the gate in
+    # >= ceil(q*K) folds. This complements the order-2/order-3 maxT floors: maxT
+    # kills the chance-MAX candidate WITHIN a fold (best-of-pool selection bias);
+    # this kills a recipe that won only on a fold-specific QUIRK of the full-data
+    # split (its uplift carried by a few rows in the train split, collapses on the
+    # held-out folds). NO REFIT - only K plug-in-MI replays per recipe, so the
+    # cost is negligible. Failed recipes are dropped from BOTH ``engineered_recipes``
+    # (so they never reach ``self._engineered_recipes_`` at fit-end) and from
+    # ``selected_vars`` (so they never reach ``support_``). Default-ON; self-gates
+    # to a no-op below 2 unary_binary survivors / k<2 / tiny n. ``fe_stability_vote_enable=False``
+    # byte-reproduces the pre-vote support.
+    selected_vars = _materialise_and_fina_step5_byte_reproduces_pre(self, engineered_recipes, st, verbose, X, classes_y, num_fs_steps, selected_vars, cols)
+
+    # GROUP-AWARE FE DEMOTION: NOT done here. An early attempt at this check (dropping a zero-within-
+    # group-MI engineered survivor right after the plain pair-search, before "usability-aware retention"
+    # runs later in ``_fit_impl``) was found to be UNDONE: retention re-attaches recipes it judges
+    # linearly-useful by its OWN criterion, independent of any earlier group-aware verdict, from its own
+    # cached recompute - bypassing ``cols``/``data`` (and this early strip) entirely. The group-aware
+    # demotion therefore runs ONCE, as the LAST thing before ``_fit_impl`` returns (after every
+    # retention/UAED/escalation pass that could still mutate ``self._engineered_recipes_``), covering
+    # both materialised columns and retention-only recipes uniformly - see ``_fit_impl_core.py``'s
+    # "final choke point" block.
+    return prospective_additions, data, cols, nbins, X, selected_vars, n_recommended_features
+
+
+def _materialise_and_finalise_fe_candidates_part1(
+    self: Any, _is_polars_input: bool, X: Any, cols: list[str], prospective_additions: dict, discretize_array: Callable[..., Any], classes_y: np.ndarray,
+    verbose: int, num_fs_steps: int, engineered_recipes: Any, _polynom_engineered_indices: Any,
+) -> tuple[Any, ...]:
+    """Extracted block of ``materialise_and_finalise_fe_candidates`` (part 1); returns the names the caller still uses."""
     st = _materialise_and_fina_step1_st_simplenamespace_long(self, _is_polars_input, X, cols)
     if st._fe_acceptance == "conditional_mi" and prospective_additions:
         from .._fe_cmi_redundancy_gate import apply_cmi_redundancy_gate
@@ -227,85 +320,4 @@ def materialise_and_finalise_fe_candidates(
     # ``data``, O(pairs * n * K)). ``cols`` / ``nbins`` still grow per iteration (cheap), so the
     # cols-space index bookkeeping is unchanged; ``data`` itself is not read inside the loop.
     st._data_chunks = []
-    X, cols, n_recommended_features, nbins = _materialise_and_fina_step3_cols_space_index(self, prospective_additions, engineered_features, verbose, fe_max_steps, X, discretize_array, cols, st, nbins, _is_polars_input, engineered_recipes, get_new_feature_name, _poly_coefs, fe_unary_preset, fe_binary_preset, n_recommended_features, checked_pairs)
-
-    # Flush the accumulated per-pair code blocks into ``data`` in a SINGLE concatenate (column order
-    # matches the loop's append order, so it is byte-identical to the prior per-pair ``np.append``).
-    # Must run before the escalation block below reads / appends ``data``.
-    if st._data_chunks:
-        data = np.concatenate([data, *st._data_chunks], axis=1)
-
-    # AUTO-ESCALATION to the richer SHIPPED bases (backlog idea B,
-    # default-ON). A pair that PASSED the pair-MI prescreen (ratio gate + order-2
-    # maxT floor) but for which the unary/binary search above admitted NOTHING used
-    # to end in the log_fe_summary WARNING below - detected signal, silently
-    # abandoned. Escalate instead: PROPOSE candidates from the richer shipped basis
-    # families (signal-adaptive orth-poly ALS warp across the 4 polynomial bases at
-    # a higher degree + DEMODULATED adaptive-frequency Fourier/chirp warps - e.g.
-    # the sin(3.7*a)*b inner frequency no library unary can express) and let the
-    # EXISTING gates decide (maxT floor on MM-debiased MI + marginal-permutation
-    # floor + the S5 conditional-MI redundancy gate vs the admitted engineered
-    # support). Structurally a no-op (one set-difference) when every surviving pair
-    # produced an admitted column - the common case. See ``_fe_auto_escalation``.
-    X, cols, data, n_recommended_features, nbins = _materialise_and_fina_step2_produced_admitted_column(self, prospective_pairs, _prevalence_failed_synergy, verbose, num_fs_steps, prospective_additions, X, cols, classes_y, st, _pair_maxt_floor, _is_polars_input, discretize_array, data, nbins, n_recommended_features, engineered_recipes)
-
-    # Promote the freshly-appended engineered
-    # columns directly into ``selected_vars`` (cols-space). They already
-    # cleared every FE gate (pair-MI prevalence, engineered-MI prevalence,
-    # external validation) - the gates ARE the selection criterion for FE
-    # survivors. Without this, the only path to ``support_`` was the
-    # screening re-run at the top of the NEXT outer-loop iteration, which
-    # never executes under the default ``fe_max_steps=1`` (the loop breaks
-    # first), so ``_engineered_features_`` stayed empty. On multi-step the
-    # re-screen still re-evaluates them and may prune weak ones. Mirrors the
-    # cluster_aggregate self-selection pattern below.
-    selected_vars = _materialise_and_fina_step3_cluster_aggregate_self(st, selected_vars)
-
-    # C2 ADDITIVE-FUSION (default-ON). MUST RUN BEFORE the cross-fold stability vote
-    # below (ordering fix for the F2 DOMINANT-CAPTURE / weak-half class): the weak c/d half
-    # ``mul(log(c),sin(d))`` alone FAILS the cross-fold vote (its uplift is carried by too few
-    # rows to clear the per-fold quorum), so if the vote ran first it would DROP that half before
-    # C2 ever saw it - leaving no clean half to fuse. Running C2 first fuses the two surviving
-    # engineered halves with DISJOINT raw-token sets + GENUINE additive separability (the fused
-    # ``add`` MI exceeds both halves OR the 2-half OLS multiple-R beats the best single half) into
-    # the single ``add(half_a, half_b)`` compound via the EXISTING unary_binary + nested-parent
-    # recipe (no new recipe kind; byte-exact replay); the FUSED compound is registered in
-    # ``engineered_recipes`` so it then FACES the stability vote (the fused compound passes the
-    # vote - it reconstructs the whole target - while the bare weak half it subsumed does not
-    # matter). The two now-subsumed fragments are popped from the recipe dict + dropped from
-    # selection BEFORE the vote, so the vote never sees them. Self-gates to a no-op (byte-identical)
-    # when fewer than two relevant disjoint engineered halves are present - the common case.
-    # ``fe_max_engineered_operands == 0`` is the documented raw-only-pool contract (no composites
-    # whose operands are themselves engineered features). Additive fusion combines two engineered
-    # halves into ``add(half_a, half_b)``, i.e. a composite of engineered operands, so it must honor
-    # that contract and stay off when the feed-forward cap is 0.
-    X, cols, data, n_recommended_features, nbins, selected_vars = _materialise_and_fina_step4_contract_stay_off(self, engineered_recipes, st, verbose, cols, classes_y, X, _is_polars_input, discretize_array, data, nbins, n_recommended_features, selected_vars)
-
-    # CROSS-FOLD RECIPE STABILITY VOTING. A near-free
-    # consensus layer OVER the existing FE gates. The expensive search above ran
-    # ONCE on the full data; here we add a cheap K-fold CONFIRMATION - each
-    # surviving unary_binary recipe is REPLAYED (leak-safe: the recipe is frozen,
-    # only the rows change) on K held-out folds, its uplift gate statistic
-    # recomputed per fold, and the recipe ADMITTED only if it clears the gate in
-    # >= ceil(q*K) folds. This complements the order-2/order-3 maxT floors: maxT
-    # kills the chance-MAX candidate WITHIN a fold (best-of-pool selection bias);
-    # this kills a recipe that won only on a fold-specific QUIRK of the full-data
-    # split (its uplift carried by a few rows in the train split, collapses on the
-    # held-out folds). NO REFIT - only K plug-in-MI replays per recipe, so the
-    # cost is negligible. Failed recipes are dropped from BOTH ``engineered_recipes``
-    # (so they never reach ``self._engineered_recipes_`` at fit-end) and from
-    # ``selected_vars`` (so they never reach ``support_``). Default-ON; self-gates
-    # to a no-op below 2 unary_binary survivors / k<2 / tiny n. ``fe_stability_vote_enable=False``
-    # byte-reproduces the pre-vote support.
-    selected_vars = _materialise_and_fina_step5_byte_reproduces_pre(self, engineered_recipes, st, verbose, X, classes_y, num_fs_steps, selected_vars, cols)
-
-    # GROUP-AWARE FE DEMOTION: NOT done here. An early attempt at this check (dropping a zero-within-
-    # group-MI engineered survivor right after the plain pair-search, before "usability-aware retention"
-    # runs later in ``_fit_impl``) was found to be UNDONE: retention re-attaches recipes it judges
-    # linearly-useful by its OWN criterion, independent of any earlier group-aware verdict, from its own
-    # cached recompute - bypassing ``cols``/``data`` (and this early strip) entirely. The group-aware
-    # demotion therefore runs ONCE, as the LAST thing before ``_fit_impl`` returns (after every
-    # retention/UAED/escalation pass that could still mutate ``self._engineered_recipes_``), covering
-    # both materialised columns and retention-only recipes uniformly - see ``_fit_impl_core.py``'s
-    # "final choke point" block.
-    return prospective_additions, data, cols, nbins, X, selected_vars, n_recommended_features
+    return X, st, prospective_additions, discretize_array

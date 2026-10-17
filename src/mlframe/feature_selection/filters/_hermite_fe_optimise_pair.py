@@ -152,6 +152,106 @@ def optimise_hermite_pair(
 
     Returns HermiteResult or None if the search failed to beat the baseline.
     """
+    _ret_optimise_hermite_pair_part2 = _optimise_hermite_pair_part2(
+        mi_estimator, optimizer, l2_penalty_saturation, y, n_neighbors, bin_funcs, basis, precomputed_z_a, precomputed_preprocess_a, precomputed_z_b,
+        precomputed_preprocess_b, x_a, x_b, precomputed_identity_baseline, discrete_target, plugin_n_bins, precomputed_trivial_name, use_trivial_baseline,
+        precomputed_trivial_baseline, sweep_degrees, min_degree, max_degree, seed, multi_fidelity, l2_penalty, warm_start_als, coef_range, warm_start,
+        cross_fit_prior_seeds, early_stop_no_improve, n_trials, direction_only, baseline_uplift_threshold, noise_floor_perm_ratio, noise_floor_n_perms,
+    )
+    _early_optimise_hermite_pair_part2: HermiteResult | None = _ret_optimise_hermite_pair_part2[1]
+    return _early_optimise_hermite_pair_part2
+
+
+def _optimise_hermite_pair_part2(
+    mi_estimator: str, optimizer: str, l2_penalty_saturation: float | None, y: np.ndarray, n_neighbors: int | None, bin_funcs: dict | None, basis: str,
+    precomputed_z_a: np.ndarray | None, precomputed_preprocess_a: Any | None, precomputed_z_b: np.ndarray | None, precomputed_preprocess_b: Any | None,
+    x_a: np.ndarray, x_b: np.ndarray, precomputed_identity_baseline: float | None, discrete_target: bool, plugin_n_bins: int,
+    precomputed_trivial_name: str | None, use_trivial_baseline: bool, precomputed_trivial_baseline: float | None, sweep_degrees: bool, min_degree: int,
+    max_degree: int, seed: int, multi_fidelity: bool, l2_penalty: float, warm_start_als: bool, coef_range: tuple, warm_start: bool,
+    cross_fit_prior_seeds: list | None, early_stop_no_improve: int, n_trials: int, direction_only: bool, baseline_uplift_threshold: float,
+    noise_floor_perm_ratio: float, noise_floor_n_perms: int,
+) -> tuple[Any, ...]:
+    """Extracted block of ``optimise_hermite_pair`` (part 2); returns the names the caller still uses."""
+    st, l2_penalty_saturation, n_neighbors, optuna, TPESampler, bin_funcs = _optimise_hermite_pair_part1(
+        mi_estimator, optimizer, l2_penalty_saturation, y, n_neighbors, bin_funcs, basis, precomputed_z_a, precomputed_preprocess_a, precomputed_z_b,
+        precomputed_preprocess_b, x_a, x_b,
+    )
+    _optimise_hermite_pai_step3_saves_us_call(st, basis, precomputed_identity_baseline, y, discrete_target, n_neighbors, mi_estimator, plugin_n_bins, precomputed_trivial_name, use_trivial_baseline, precomputed_trivial_baseline, x_a, x_b, sweep_degrees, min_degree, max_degree, bin_funcs, seed)
+    eval_func_b = _optimise_hermite_pai_step4_st_bf_callables(st, bin_funcs, multi_fidelity, seed, y, basis, max_degree)
+
+    _optimise_hermite_pai_step5_degree_st_degree(st, eval_func_b, mi_estimator, plugin_n_bins, n_neighbors, discrete_target, l2_penalty, l2_penalty_saturation, warm_start_als, basis, coef_range, warm_start, cross_fit_prior_seeds, optimizer, early_stop_no_improve, n_trials, seed, direction_only, TPESampler, optuna, multi_fidelity, y, bin_funcs)
+
+    if st.best is None or st.best.mi <= st.baseline * baseline_uplift_threshold:
+        # Failed to beat baseline by enough - don't recommend an engineered feature.
+        return True, (None)
+
+    # Permutation-null noise floor. The high-capacity optimiser can overfit the plug-in MI estimator's binning-bias floor on a
+    # target independent of (x_a, x_b): the winning engineered MI then sits just above the trivial baseline and clears the uplift
+    # gate, fabricating a spurious feature. Re-evaluate the winning column's MI against shuffles of y (which destroy any real
+    # dependence but preserve the binning bias) and reject when the real MI does not clear the null p95 by ``noise_floor_perm_ratio``.
+    if noise_floor_perm_ratio > 0.0 and noise_floor_n_perms > 0 and mi_estimator == "plugin":
+        try:
+            from mlframe.feature_selection.filters.hermite_fe.shared import plugin_mi_classif_njit as _plugin_mi_classif_njit, plugin_mi_regression_njit as _plugin_mi_regression_njit
+            # Run the noise-floor null on a STRIDED subsample of the operands (cap 30k). The permutation p95 is a COARSE
+            # floor (compared against a 1.5x ratio), well-estimated on ~30k, while mi_real + the 50 shuffles on the FULL
+            # n were the dominant per-pair cost at large n (measured: per-pair 12.5s@100k -> 68s@1M, ~all of it here) -
+            # and the SEARCH itself already runs on a 1500-row multi-fidelity draw, so the full-n null was inconsistent
+            # with the fit anyway. mi_real + the null share the SAME subsample so the reject comparison stays consistent;
+            # strided preserves the outlier proportion the plug-in null floor depends on. Env-tunable.
+            _NF_MAX = int(os.environ.get("MLFRAME_FE_NOISE_FLOOR_MAX_ROWS", "30000") or 0)
+            if _NF_MAX > 0 and x_a.shape[0] > _NF_MAX:
+                _nf_st = x_a.shape[0] // _NF_MAX
+                _xa_nf = np.ascontiguousarray(x_a[::_nf_st]); _xb_nf = np.ascontiguousarray(x_b[::_nf_st])
+                _y_nf = y[::_nf_st]
+            else:
+                _xa_nf, _xb_nf, _y_nf = x_a, x_b, y
+            comb = np.ascontiguousarray(st.best.transform(_xa_nf, _xb_nf), dtype=np.float64).reshape(-1)
+            if np.all(np.isfinite(comb)) and float(np.std(comb)) > 1e-12:
+                if discrete_target:
+                    y_perm_src = np.asarray(_y_nf, dtype=np.int64)
+                    mi_real = float(_plugin_mi_classif_njit(comb, y_perm_src, plugin_n_bins))
+                    mi_fn = _plugin_mi_classif_njit
+                else:
+                    y_perm_src = np.asarray(_y_nf, dtype=np.float64)
+                    mi_real = float(_plugin_mi_regression_njit(comb, y_perm_src, plugin_n_bins))
+                    mi_fn = _plugin_mi_regression_njit
+                rng_null = np.random.default_rng(seed if seed and seed > 0 else 0)
+                nlen = comb.shape[0]
+                null_mis = np.empty(int(noise_floor_n_perms), dtype=np.float64)
+                if discrete_target:
+                    # ``comb`` is FIXED across the shuffles, so its quantile binning (the argsort - ~3/4 of a plugin-MI
+                    # call per the from-binned kernel's own bench) is identical every permutation: bin ONCE and reuse.
+                    # Bit-identical to ``mi_fn(comb, yp)`` because ``_plugin_mi_from_binned_njit(_quantile_bin_njit(comb), y)``
+                    # is byte-for-byte ``_plugin_mi_classif_njit(comb, y)`` (same histogram + plug-in MI, only the binning is hoisted).
+                    from mlframe.feature_selection.filters.hermite_fe.shared import plugin_mi_from_binned_njit as _plugin_mi_from_binned_njit, quantile_bin_njit as _qbin
+                    _comb_binned = _qbin(comb, plugin_n_bins)
+                    for _p in range(int(noise_floor_n_perms)):
+                        yp = np.ascontiguousarray(y_perm_src[rng_null.permutation(nlen)])
+                        null_mis[_p] = float(_plugin_mi_from_binned_njit(_comb_binned, yp, plugin_n_bins))
+                else:
+                    for _p in range(int(noise_floor_n_perms)):
+                        yp = np.ascontiguousarray(y_perm_src[rng_null.permutation(nlen)])
+                        null_mis[_p] = float(mi_fn(comb, yp, plugin_n_bins))
+                null_p95 = float(np.quantile(null_mis, 0.95))
+                if mi_real < null_p95 * noise_floor_perm_ratio:
+                    logger.debug(
+                        "noise-floor reject: engineered MI %.4f < null p95 %.4f * %.2f (%s on independent target)",
+                        mi_real, null_p95, noise_floor_perm_ratio, st.best.bin_func_name,
+                    )
+                    return True, (None)
+        except Exception as _nf_err:
+            logger.debug("noise-floor permutation guard skipped: %s", _nf_err)
+
+    return True, (st.best)  # read from the untyped state namespace / cache the stage helpers share
+    return False, None
+
+
+def _optimise_hermite_pair_part1(
+    mi_estimator: str, optimizer: str, l2_penalty_saturation: float | None, y: np.ndarray, n_neighbors: int | None, bin_funcs: dict | None, basis: str,
+    precomputed_z_a: np.ndarray | None, precomputed_preprocess_a: Any | None, precomputed_z_b: np.ndarray | None, precomputed_preprocess_b: Any | None,
+    x_a: np.ndarray, x_b: np.ndarray,
+) -> tuple[Any, ...]:
+    """Extracted block of ``optimise_hermite_pair`` (part 1); returns the names the caller still uses."""
     # Lazy import of parent-resident helpers: ``.hermite_fe`` re-imports
     # this sibling at its bottom, so a top-level ``from .hermite_fe
     # import ...`` would create a hard cycle the meta-test flags.
@@ -221,73 +321,7 @@ def optimise_hermite_pair(
     # Saves ~4us/call closure overhead, ~5ms over 1000+ trials.
     st.n_eval = st.z_a.shape[0]
     st.factory_top = st.basis_info.get("eval_njit_factory")
-    _optimise_hermite_pai_step3_saves_us_call(st, basis, precomputed_identity_baseline, y, discrete_target, n_neighbors, mi_estimator, plugin_n_bins, precomputed_trivial_name, use_trivial_baseline, precomputed_trivial_baseline, x_a, x_b, sweep_degrees, min_degree, max_degree, bin_funcs, seed)
-    eval_func_b = _optimise_hermite_pai_step4_st_bf_callables(st, bin_funcs, multi_fidelity, seed, y, basis, max_degree)
-
-    _optimise_hermite_pai_step5_degree_st_degree(st, eval_func_b, mi_estimator, plugin_n_bins, n_neighbors, discrete_target, l2_penalty, l2_penalty_saturation, warm_start_als, basis, coef_range, warm_start, cross_fit_prior_seeds, optimizer, early_stop_no_improve, n_trials, seed, direction_only, TPESampler, optuna, multi_fidelity, y, bin_funcs)
-
-    if st.best is None or st.best.mi <= st.baseline * baseline_uplift_threshold:
-        # Failed to beat baseline by enough - don't recommend an engineered feature.
-        return None
-
-    # Permutation-null noise floor. The high-capacity optimiser can overfit the plug-in MI estimator's binning-bias floor on a
-    # target independent of (x_a, x_b): the winning engineered MI then sits just above the trivial baseline and clears the uplift
-    # gate, fabricating a spurious feature. Re-evaluate the winning column's MI against shuffles of y (which destroy any real
-    # dependence but preserve the binning bias) and reject when the real MI does not clear the null p95 by ``noise_floor_perm_ratio``.
-    if noise_floor_perm_ratio > 0.0 and noise_floor_n_perms > 0 and mi_estimator == "plugin":
-        try:
-            from mlframe.feature_selection.filters.hermite_fe.shared import plugin_mi_classif_njit as _plugin_mi_classif_njit, plugin_mi_regression_njit as _plugin_mi_regression_njit
-            # Run the noise-floor null on a STRIDED subsample of the operands (cap 30k). The permutation p95 is a COARSE
-            # floor (compared against a 1.5x ratio), well-estimated on ~30k, while mi_real + the 50 shuffles on the FULL
-            # n were the dominant per-pair cost at large n (measured: per-pair 12.5s@100k -> 68s@1M, ~all of it here) -
-            # and the SEARCH itself already runs on a 1500-row multi-fidelity draw, so the full-n null was inconsistent
-            # with the fit anyway. mi_real + the null share the SAME subsample so the reject comparison stays consistent;
-            # strided preserves the outlier proportion the plug-in null floor depends on. Env-tunable.
-            _NF_MAX = int(os.environ.get("MLFRAME_FE_NOISE_FLOOR_MAX_ROWS", "30000") or 0)
-            if _NF_MAX > 0 and x_a.shape[0] > _NF_MAX:
-                _nf_st = x_a.shape[0] // _NF_MAX
-                _xa_nf = np.ascontiguousarray(x_a[::_nf_st]); _xb_nf = np.ascontiguousarray(x_b[::_nf_st])
-                _y_nf = y[::_nf_st]
-            else:
-                _xa_nf, _xb_nf, _y_nf = x_a, x_b, y
-            comb = np.ascontiguousarray(st.best.transform(_xa_nf, _xb_nf), dtype=np.float64).reshape(-1)
-            if np.all(np.isfinite(comb)) and float(np.std(comb)) > 1e-12:
-                if discrete_target:
-                    y_perm_src = np.asarray(_y_nf, dtype=np.int64)
-                    mi_real = float(_plugin_mi_classif_njit(comb, y_perm_src, plugin_n_bins))
-                    mi_fn = _plugin_mi_classif_njit
-                else:
-                    y_perm_src = np.asarray(_y_nf, dtype=np.float64)
-                    mi_real = float(_plugin_mi_regression_njit(comb, y_perm_src, plugin_n_bins))
-                    mi_fn = _plugin_mi_regression_njit
-                rng_null = np.random.default_rng(seed if seed and seed > 0 else 0)
-                nlen = comb.shape[0]
-                null_mis = np.empty(int(noise_floor_n_perms), dtype=np.float64)
-                if discrete_target:
-                    # ``comb`` is FIXED across the shuffles, so its quantile binning (the argsort - ~3/4 of a plugin-MI
-                    # call per the from-binned kernel's own bench) is identical every permutation: bin ONCE and reuse.
-                    # Bit-identical to ``mi_fn(comb, yp)`` because ``_plugin_mi_from_binned_njit(_quantile_bin_njit(comb), y)``
-                    # is byte-for-byte ``_plugin_mi_classif_njit(comb, y)`` (same histogram + plug-in MI, only the binning is hoisted).
-                    from mlframe.feature_selection.filters.hermite_fe.shared import plugin_mi_from_binned_njit as _plugin_mi_from_binned_njit, quantile_bin_njit as _qbin
-                    _comb_binned = _qbin(comb, plugin_n_bins)
-                    for _p in range(int(noise_floor_n_perms)):
-                        yp = np.ascontiguousarray(y_perm_src[rng_null.permutation(nlen)])
-                        null_mis[_p] = float(_plugin_mi_from_binned_njit(_comb_binned, yp, plugin_n_bins))
-                else:
-                    for _p in range(int(noise_floor_n_perms)):
-                        yp = np.ascontiguousarray(y_perm_src[rng_null.permutation(nlen)])
-                        null_mis[_p] = float(mi_fn(comb, yp, plugin_n_bins))
-                null_p95 = float(np.quantile(null_mis, 0.95))
-                if mi_real < null_p95 * noise_floor_perm_ratio:
-                    logger.debug(
-                        "noise-floor reject: engineered MI %.4f < null p95 %.4f * %.2f (%s on independent target)",
-                        mi_real, null_p95, noise_floor_perm_ratio, st.best.bin_func_name,
-                    )
-                    return None
-        except Exception as _nf_err:
-            logger.debug("noise-floor permutation guard skipped: %s", _nf_err)
-
-    return st.best  # type: ignore[no-any-return]  # read from the untyped state namespace / cache the stage helpers share
+    return st, l2_penalty_saturation, n_neighbors, optuna, TPESampler, bin_funcs
 
 
 def _optimise_hermite_pai_step1_auto_pick_neighbors(n_neighbors, n):

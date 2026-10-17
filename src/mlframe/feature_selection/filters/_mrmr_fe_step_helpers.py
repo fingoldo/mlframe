@@ -49,6 +49,17 @@ def apply_synergy_bootstrap(
     """
     synergy_cap = int(getattr(self, "fe_synergy_screen_max_features", 0) or 0)
     synergy_added_idx: set = set()
+    numeric_vars_to_consider, synergy_added_idx = _apply_synergy_bootstrap_part1(
+        self, data, synergy_cap, num_fs_steps, target_indices, categorical_vars, cols, non_numeric_idx, verbose, numeric_vars_to_consider, synergy_added_idx,
+    )
+    return numeric_vars_to_consider, synergy_added_idx
+
+
+def _apply_synergy_bootstrap_part1(
+    self: Any, data: np.ndarray, synergy_cap: Any, num_fs_steps: int, target_indices: Sequence[int] | np.ndarray, categorical_vars: Any, cols: list[str],
+    non_numeric_idx: set, verbose: int, numeric_vars_to_consider: set, synergy_added_idx: Any,
+) -> tuple[Any, ...]:
+    """Extracted block of ``apply_synergy_bootstrap`` (part 1); returns the names the caller still uses."""
     # Reset per call so the exhaustive-active flag never leaks across FE steps / fits.
     self._fe_synergy_exhaustive_active_ = False
     synergy_min_rows = int(getattr(self, "fe_synergy_min_rows", 300) or 0)

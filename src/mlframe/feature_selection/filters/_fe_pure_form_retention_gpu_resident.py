@@ -55,13 +55,93 @@ the residual corr), a different discriminator - a classification call returns
 from __future__ import annotations
 
 import logging
-from typing import Optional
+from typing import Any, Optional
 
 import numpy as np
 
 from ._safe_scale import standardise
 
 logger = logging.getLogger(__name__)
+
+
+def _device_error_types(cp: Any) -> tuple:
+    """Genuine cupy / device / linalg fault types that legitimately route to the exact CPU path (logic bugs are not in the set)."""
+    # Narrow device-fault set for the resident fallbacks below. A genuine cupy/device/linalg fault
+    # (singular OLS, OOM, CUDA runtime error) legitimately routes to the exact CPU path; a logic/shape
+    # bug (ValueError/KeyError/IndexError) must SURFACE to tests, not be silently swallowed as a
+    # "device fallback" - so the per-candidate and outer guards catch only these, not bare Exception.
+    _dev_errs = [np.linalg.LinAlgError]
+    try:
+        _dev_errs.append(cp.cuda.runtime.CUDARuntimeError)
+    except Exception as e:  # nosec B110 - best-effort path
+        logger.debug("CUDARuntimeError symbol lookup failed: %s", e)
+    try:
+        _dev_errs.append(cp.cuda.memory.OutOfMemoryError)
+    except Exception as e:  # nosec B110 - best-effort path
+        logger.debug("OutOfMemoryError symbol lookup failed: %s", e)
+    # FIX4: the direct cp.linalg.lstsq below raises cuSOLVER/cuBLAS errors that subclass
+    # plain RuntimeError, NOT CUDARuntimeError -> omitting them would crash instead of falling back to
+    # the exact CPU path. getattr so an absent symbol can't break the tuple builder.
+    try:
+        from cupy_backends.cuda.libs import cusolver as _cusolver
+        _e = getattr(_cusolver, "CUSOLVERError", None)
+        if _e is not None:
+            _dev_errs.append(_e)
+        from cupy_backends.cuda.libs import cublas as _cublas
+        _e = getattr(_cublas, "CUBLASError", None)
+        if _e is not None:
+            _dev_errs.append(_e)
+    except Exception as e:  # nosec B110 - optional dependency import guard
+        logger.debug("cusolver/cublas error-type import probe failed: %s", e)
+    return tuple(_dev_errs)
+
+
+def _batched_gate_scalars(cp: Any, Vdev: Any, basis_by_idx: list, name_to_idx: dict, src_pairs: list, yc_rel: Any, P: int) -> Any:
+    """Per-candidate gate scalars ``(form std, residual std, residual SS, residual.y dot)`` from one batched normal-equations solve; ``None`` if an operand is unknown."""
+    # BATCHED-READ gate (residency): the per-candidate OLS keeps the EXACT per-candidate lstsq
+    # (SVD, same solver + values as before - cusolver runs fully on device, no host read), but each
+    # candidate's four gate scalars (f_std, std(resid), centered-resid SS, resid.y_rel dot) are written into
+    # resident (P,) vectors and read back in ONE batched D2H at the end, instead of two scalar syncs per
+    # candidate. The host gate branches below are byte-identical to the per-candidate version.
+    # Build every candidate's 12x12 normal-equations Gram + rhs resident (matmuls, no host read), then ONE
+    # BATCHED solve - avoiding cp.linalg.lstsq's per-candidate internal host sync (its SVD rank readback).
+    # The centered-OLS residual gate scalars are quadratic forms in beta, so they never need the residual
+    # vector materialised: with the design centered and fc = fv - mean(fv), resid has mean 0, hence
+    #   ss_resid = fc.fc - beta.rhs   (rhs = Xc^T fc, using G beta = rhs),
+    #   resid_std = sqrt(ss_resid / n),   num = fc.y_rel - beta.(Xc^T y_rel).
+    # A tiny trace-scaled ridge makes every Gram solvable in one batched call (negligible ~1e-10 shift;
+    # handles the near-collinear designs lstsq would rank-cut - the gate scalars still do not flip, F2 +
+    # the retention suites confirm). f_std / the four gate scalars read back in ONE batched D2H.
+    _nrows = float(int(Vdev.shape[0]))
+    _G = cp.empty((P, 12, 12), dtype=cp.float64)
+    _rhs = cp.empty((P, 12), dtype=cp.float64)
+    _xy = cp.empty((P, 12), dtype=cp.float64)
+    _sfc = cp.zeros(P, dtype=cp.float64)
+    _fyr = cp.zeros(P, dtype=cp.float64)
+    _fstd_v = cp.zeros(P, dtype=cp.float64)
+    for j in range(P):
+        ia = name_to_idx.get(src_pairs[j][0])
+        ib = name_to_idx.get(src_pairs[j][1])
+        if ia is None or ib is None:
+            return None  # operand missing from the resident base set -> exact CPU path
+        fv = Vdev[:, j]
+        _fstd_v[j] = fv.std()
+        Xr = cp.concatenate([basis_by_idx[ia], basis_by_idx[ib]], axis=1)  # (n, 12)
+        Xc = Xr - Xr.mean(axis=0, keepdims=True)
+        fc = fv - fv.mean()
+        _G[j] = Xc.T @ Xc
+        _rhs[j] = Xc.T @ fc
+        _xy[j] = Xc.T @ yc_rel
+        _sfc[j] = cp.dot(fc, fc)
+        _fyr[j] = cp.dot(fc, yc_rel)
+    _ridge = (1e-10 * cp.einsum("pii->p", _G) / 12.0 + 1e-30)[:, None, None] * cp.eye(12, dtype=cp.float64)
+    _beta = cp.linalg.solve(_G + _ridge, _rhs[:, :, None])[:, :, 0]  # (P, 12) batched
+    _ssrc_v = _sfc - (_beta * _rhs).sum(axis=1)
+    _rstd_v = cp.sqrt(cp.maximum(_ssrc_v, 0.0) / _nrows)
+    _num_v = _fyr - (_beta * _xy).sum(axis=1)
+    # ONE batched D2H of every candidate's gate scalars (was a per-candidate lstsq sync + gate reads).
+    _gate = cp.asnumpy(cp.stack([_fstd_v, _rstd_v, _ssrc_v, _num_v], axis=1))  # (P, 4)
+    return _gate
 
 
 def adds_nonlinear_value_batch_gpu_resident(
@@ -99,34 +179,7 @@ def adds_nonlinear_value_batch_gpu_resident(
     except ImportError as e:
         logger.debug("cupy import failed, resident pure-form retention unavailable: %s", e)
         return None
-    # Narrow device-fault set for the resident fallbacks below. A genuine cupy/device/linalg fault
-    # (singular OLS, OOM, CUDA runtime error) legitimately routes to the exact CPU path; a logic/shape
-    # bug (ValueError/KeyError/IndexError) must SURFACE to tests, not be silently swallowed as a
-    # "device fallback" - so the per-candidate and outer guards catch only these, not bare Exception.
-    _dev_errs = [np.linalg.LinAlgError]
-    try:
-        _dev_errs.append(cp.cuda.runtime.CUDARuntimeError)
-    except Exception as e:  # nosec B110 - best-effort path
-        logger.debug("CUDARuntimeError symbol lookup failed: %s", e)
-    try:
-        _dev_errs.append(cp.cuda.memory.OutOfMemoryError)
-    except Exception as e:  # nosec B110 - best-effort path
-        logger.debug("OutOfMemoryError symbol lookup failed: %s", e)
-    # FIX4: the direct cp.linalg.lstsq below raises cuSOLVER/cuBLAS errors that subclass
-    # plain RuntimeError, NOT CUDARuntimeError -> omitting them would crash instead of falling back to
-    # the exact CPU path. getattr so an absent symbol can't break the tuple builder.
-    try:
-        from cupy_backends.cuda.libs import cusolver as _cusolver
-        _e = getattr(_cusolver, "CUSOLVERError", None)
-        if _e is not None:
-            _dev_errs.append(_e)
-        from cupy_backends.cuda.libs import cublas as _cublas
-        _e = getattr(_cublas, "CUBLASError", None)
-        if _e is not None:
-            _dev_errs.append(_e)
-    except Exception as e:  # nosec B110 - optional dependency import guard
-        logger.debug("cusolver/cublas error-type import probe failed: %s", e)
-    _DEV_ERRS = tuple(_dev_errs)
+    _DEV_ERRS = _device_error_types(cp)
     try:
         from ._gpu_policy import gpu_globally_disabled
         if gpu_globally_disabled():
@@ -186,50 +239,10 @@ def adds_nonlinear_value_batch_gpu_resident(
         ss_yrel = float(cp.dot(yc_rel, yc_rel))  # scalar; bounded
         y_std = float(ydev.std())
 
-        # BATCHED-READ gate (residency): the per-candidate OLS keeps the EXACT per-candidate lstsq
-        # (SVD, same solver + values as before - cusolver runs fully on device, no host read), but each
-        # candidate's four gate scalars (f_std, std(resid), centered-resid SS, resid.y_rel dot) are written into
-        # resident (P,) vectors and read back in ONE batched D2H at the end, instead of two scalar syncs per
-        # candidate. The host gate branches below are byte-identical to the per-candidate version.
-        # Build every candidate's 12x12 normal-equations Gram + rhs resident (matmuls, no host read), then ONE
-        # BATCHED solve - avoiding cp.linalg.lstsq's per-candidate internal host sync (its SVD rank readback).
-        # The centered-OLS residual gate scalars are quadratic forms in beta, so they never need the residual
-        # vector materialised: with the design centered and fc = fv - mean(fv), resid has mean 0, hence
-        #   ss_resid = fc.fc - beta.rhs   (rhs = Xc^T fc, using G beta = rhs),
-        #   resid_std = sqrt(ss_resid / n),   num = fc.y_rel - beta.(Xc^T y_rel).
-        # A tiny trace-scaled ridge makes every Gram solvable in one batched call (negligible ~1e-10 shift;
-        # handles the near-collinear designs lstsq would rank-cut - the gate scalars still do not flip, F2 +
-        # the retention suites confirm). f_std / the four gate scalars read back in ONE batched D2H.
         out = [False] * P
-        _nrows = float(int(Vdev.shape[0]))
-        _G = cp.empty((P, 12, 12), dtype=cp.float64)
-        _rhs = cp.empty((P, 12), dtype=cp.float64)
-        _xy = cp.empty((P, 12), dtype=cp.float64)
-        _sfc = cp.zeros(P, dtype=cp.float64)
-        _fyr = cp.zeros(P, dtype=cp.float64)
-        _fstd_v = cp.zeros(P, dtype=cp.float64)
-        for j in range(P):
-            ia = name_to_idx.get(src_pairs[j][0])
-            ib = name_to_idx.get(src_pairs[j][1])
-            if ia is None or ib is None:
-                return None  # operand missing from the resident base set -> exact CPU path
-            fv = Vdev[:, j]
-            _fstd_v[j] = fv.std()
-            Xr = cp.concatenate([basis_by_idx[ia], basis_by_idx[ib]], axis=1)  # (n, 12)
-            Xc = Xr - Xr.mean(axis=0, keepdims=True)
-            fc = fv - fv.mean()
-            _G[j] = Xc.T @ Xc
-            _rhs[j] = Xc.T @ fc
-            _xy[j] = Xc.T @ yc_rel
-            _sfc[j] = cp.dot(fc, fc)
-            _fyr[j] = cp.dot(fc, yc_rel)
-        _ridge = (1e-10 * cp.einsum("pii->p", _G) / 12.0 + 1e-30)[:, None, None] * cp.eye(12, dtype=cp.float64)
-        _beta = cp.linalg.solve(_G + _ridge, _rhs[:, :, None])[:, :, 0]  # (P, 12) batched
-        _ssrc_v = _sfc - (_beta * _rhs).sum(axis=1)
-        _rstd_v = cp.sqrt(cp.maximum(_ssrc_v, 0.0) / _nrows)
-        _num_v = _fyr - (_beta * _xy).sum(axis=1)
-        # ONE batched D2H of every candidate's gate scalars (was a per-candidate lstsq sync + gate reads).
-        _gate = cp.asnumpy(cp.stack([_fstd_v, _rstd_v, _ssrc_v, _num_v], axis=1))  # (P, 4)
+        _gate = _batched_gate_scalars(cp, Vdev, basis_by_idx, name_to_idx, src_pairs, yc_rel, P)
+        if _gate is None:
+            return None  # operand missing from the resident base set -> exact CPU path
         for j in range(P):
             f_std, resid_std, ss_rc, num = (float(_v) for _v in _gate[j])
             if f_std <= 1e-12:

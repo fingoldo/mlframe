@@ -18,6 +18,7 @@ loss everywhere, to match the proxy objective.
 from __future__ import annotations
 
 import logging
+from typing import Any, Optional
 
 import numpy as np
 
@@ -42,6 +43,112 @@ logger = logging.getLogger(__name__)
 
 
 _FIDELITY_FLOOR_UNSET = object()
+
+
+def _resolve_fidelity_floor(fidelity_floor: float, spearman_floor: Any) -> float:
+    """Resolve the deprecated ``spearman_floor`` alias into ``fidelity_floor`` (warns; raises when both are supplied)."""
+    # iter18: ``spearman_floor`` is a deprecated alias of ``fidelity_floor`` (renamed because the
+    # gate has been the composite ``proxy_fidelity_score`` since iter16; the legacy name was a
+    # misnomer). Resolve here so the rest of the body only deals with ``fidelity_floor``.
+    if spearman_floor is not _FIDELITY_FLOOR_UNSET:
+        import warnings
+        if fidelity_floor != 0.5:
+            # Both supplied - ambiguous; refuse rather than silently picking one.
+            raise ValueError("proxy_trust_guard: pass either `fidelity_floor` (new name) or `spearman_floor` " "(deprecated alias), not both.")
+        warnings.warn(
+            "`spearman_floor` is deprecated since iter18; use `fidelity_floor` (same semantics). "
+            "The kwarg name was inherited from the iter15 raw-Spearman gate but the gate has been "
+            "the composite `proxy_fidelity_score` since iter16.",
+            DeprecationWarning, stacklevel=3,
+        )
+        fidelity_floor = spearman_floor
+    return fidelity_floor
+
+
+def _composite_gate(sp: float, recall: float, fidelity_weights: Any, trustworthy_metric: str) -> tuple[float, float, float, str, float]:
+    """Composite fidelity and gate value; returns ``(w_sp, w_rc, fidelity, gate_metric_name, gate_value)``."""
+    # Composite fidelity: weighted convex combination of Spearman and recall@k. Both live on [0, 1]
+    # for non-degenerate inputs; Spearman is clipped to [0, 1] for the composite so a broken-proxy
+    # negative Spearman doesn't get "credited" by a high recall@k (the recall@k of a 1-anchor top-k
+    # is trivially 1.0). The raw spearman field is kept unchanged for diagnostics.
+    w_sp, w_rc = float(fidelity_weights[0]), float(fidelity_weights[1])
+    total = w_sp + w_rc
+    if total <= 0:
+        raise ValueError(f"fidelity_weights must sum to a positive value, got {fidelity_weights!r}")
+    w_sp, w_rc = w_sp / total, w_rc / total
+    sp_pos = max(0.0, sp) if np.isfinite(sp) else 0.0
+    rc_pos = recall if np.isfinite(recall) else 0.0
+    fidelity = float(w_sp * sp_pos + w_rc * rc_pos)
+    gate_metric_name = str(trustworthy_metric).lower()
+    if gate_metric_name == "spearman":
+        gate_value = sp
+    elif gate_metric_name in ("proxy_fidelity_score", "fidelity", "composite"):
+        gate_metric_name = "proxy_fidelity_score"
+        gate_value = fidelity
+    else:
+        raise ValueError(f"trustworthy_metric must be 'proxy_fidelity_score' or 'spearman', got {trustworthy_metric!r}")
+    return w_sp, w_rc, fidelity, gate_metric_name, gate_value
+
+
+def _log_trust_verdict(trustworthy: bool, gate_metric_name: str, gate_value: float, fidelity_floor: float, sp: float, kt: float, k: int, recall: float) -> None:
+    """Log the proxy-fidelity verdict (WARNING when below the floor, INFO otherwise)."""
+    if not trustworthy:
+        logger.warning(
+            "ShapProxiedFS: proxy fidelity LOW (%s=%.3f < floor=%.2f; spearman=%.3f, recall@%d=%.2f). "
+            "The SHAP-coalition proxy may mis-rank subsets on this data; treat the result with caution "
+            "(consider a smaller exhaustive honest search or more selected features).",
+            gate_metric_name, gate_value, fidelity_floor, sp, int(k), recall,
+        )
+    else:
+        logger.info(
+            "ShapProxiedFS: proxy fidelity OK (%s=%.3f; spearman=%.3f, kendall=%.3f, recall@%d=%.2f).",
+            gate_metric_name, gate_value, sp, kt, int(k), recall,
+        )
+
+
+def _trust_report(
+    proxy_losses: np.ndarray, honest_losses: np.ndarray, cards: np.ndarray, redunds: np.ndarray, weights: Optional[np.ndarray], *,
+    sp: float, kt: float, recall: float, k: int, fidelity_floor: float, fidelity: float, w_sp: float, w_rc: float,
+    gate_metric_name: str, trustworthy: bool, anchor_uniform_tail_frac: float, cardinality_dist: str, zipf_alpha: float,
+) -> dict:
+    """Assemble the proxy-trust report dict (including the raw anchor pairs consumed by the bias corrector)."""
+    report = dict(n_anchors=len(proxy_losses), spearman=sp, kendall=kt,
+                  recall_at_k=recall, k=int(k),
+                  # iter18: ``fidelity_floor`` is the canonical key for the gate threshold.
+                  # ``spearman_floor`` is kept as a deprecated alias in the report so legacy
+                  # downstream consumers that inspect the dict by the old name don't break.
+                  fidelity_floor=fidelity_floor, spearman_floor=fidelity_floor,
+                  # iter16: composite gate (default) - raw spearman / recall stay above as diagnostics.
+                  proxy_fidelity_score=fidelity,
+                  fidelity_weights=(w_sp, w_rc),
+                  trustworthy_metric=gate_metric_name,
+                  trustworthy=bool(trustworthy),
+                  # Anchor sampling mode: 'stratified' when F-score weights were supplied + applied,
+                  # else 'uniform' (legacy). Diagnostic so downstream consumers can see when the
+                  # F-score-aware prior was active without inspecting kwargs.
+                  anchor_sampling=("stratified" if weights is not None else "uniform"),
+                  anchor_uniform_tail_frac=float(anchor_uniform_tail_frac) if weights is not None else None,
+                  # Cardinality prior: 'zipf' (iter15 default) or 'uniform' (legacy). Recorded so
+                  # downstream diagnostics / bench scripts can see which prior generated the anchors.
+                  anchor_cardinality_dist=str(cardinality_dist).lower(),
+                  anchor_zipf_alpha=float(zipf_alpha) if str(cardinality_dist).lower() == "zipf" else None,
+                  # Raw anchor pairs (proxy, honest, cardinality, redundancy) for the bias corrector.
+                  _corrector_data=dict(proxy=proxy_losses.tolist(), honest=honest_losses.tolist(),
+                                       cards=cards.tolist(), redund=redunds.tolist()))
+    return report
+
+
+def _anchor_weights(unit_f_scores: Any, f: int) -> Optional[np.ndarray]:
+    """Per-unit anchor-sampling weights from ``unit_f_scores`` (None when absent or of the wrong length)."""
+    weights: Optional[np.ndarray] = None
+    if unit_f_scores is not None:
+        weights = np.asarray(unit_f_scores, dtype=np.float64)
+        if weights.shape[0] != f:
+            logger.warning(
+                "ShapProxiedFS trust-guard: unit_f_scores length %d != phi.shape[1] %d; "
+                "falling back to uniform anchor sampling.", int(weights.shape[0]), int(f))
+            weights = None
+    return weights
 
 
 def proxy_trust_guard(
@@ -138,33 +245,12 @@ def proxy_trust_guard(
     Zipf to uniform."""
     from scipy.stats import kendalltau, spearmanr
 
-    # iter18: ``spearman_floor`` is a deprecated alias of ``fidelity_floor`` (renamed because the
-    # gate has been the composite ``proxy_fidelity_score`` since iter16; the legacy name was a
-    # misnomer). Resolve here so the rest of the body only deals with ``fidelity_floor``.
-    if spearman_floor is not _FIDELITY_FLOOR_UNSET:
-        import warnings
-        if fidelity_floor != 0.5:
-            # Both supplied - ambiguous; refuse rather than silently picking one.
-            raise ValueError("proxy_trust_guard: pass either `fidelity_floor` (new name) or `spearman_floor` " "(deprecated alias), not both.")
-        warnings.warn(
-            "`spearman_floor` is deprecated since iter18; use `fidelity_floor` (same semantics). "
-            "The kwarg name was inherited from the iter15 raw-Spearman gate but the gate has been "
-            "the composite `proxy_fidelity_score` since iter16.",
-            DeprecationWarning, stacklevel=2,
-        )
-        fidelity_floor = spearman_floor
+    fidelity_floor = _resolve_fidelity_floor(fidelity_floor, spearman_floor)
 
     metric = resolve_metric(classification, metric)
     rng = np.random.default_rng(0) if rng is None else rng
     f = phi.shape[1]
-    weights = None
-    if unit_f_scores is not None:
-        weights = np.asarray(unit_f_scores, dtype=np.float64)
-        if weights.shape[0] != f:
-            logger.warning(
-                "ShapProxiedFS trust-guard: unit_f_scores length %d != phi.shape[1] %d; "
-                "falling back to uniform anchor sampling.", int(weights.shape[0]), int(f))
-            weights = None
+    weights = _anchor_weights(unit_f_scores, f)
     anchors = _sample_anchor_subsets(f, n_anchors, rng, min_card, max_card,
                                      weights=weights, uniform_tail_frac=anchor_uniform_tail_frac,
                                      cardinality_dist=cardinality_dist, zipf_alpha=zipf_alpha)
@@ -204,62 +290,13 @@ def proxy_trust_guard(
     honest_best = set(np.argsort(honest_losses)[:k].tolist())
     recall = len(proxy_best & honest_best) / k if k else float("nan")
 
-    # Composite fidelity: weighted convex combination of Spearman and recall@k. Both live on [0, 1]
-    # for non-degenerate inputs; Spearman is clipped to [0, 1] for the composite so a broken-proxy
-    # negative Spearman doesn't get "credited" by a high recall@k (the recall@k of a 1-anchor top-k
-    # is trivially 1.0). The raw spearman field is kept unchanged for diagnostics.
-    w_sp, w_rc = float(fidelity_weights[0]), float(fidelity_weights[1])
-    total = w_sp + w_rc
-    if total <= 0:
-        raise ValueError(f"fidelity_weights must sum to a positive value, got {fidelity_weights!r}")
-    w_sp, w_rc = w_sp / total, w_rc / total
-    sp_pos = max(0.0, sp) if np.isfinite(sp) else 0.0
-    rc_pos = recall if np.isfinite(recall) else 0.0
-    fidelity = float(w_sp * sp_pos + w_rc * rc_pos)
-    gate_metric_name = str(trustworthy_metric).lower()
-    if gate_metric_name == "spearman":
-        gate_value = sp
-    elif gate_metric_name in ("proxy_fidelity_score", "fidelity", "composite"):
-        gate_metric_name = "proxy_fidelity_score"
-        gate_value = fidelity
-    else:
-        raise ValueError(f"trustworthy_metric must be 'proxy_fidelity_score' or 'spearman', got {trustworthy_metric!r}")
+    w_sp, w_rc, fidelity, gate_metric_name, gate_value = _composite_gate(sp, recall, fidelity_weights, trustworthy_metric)
     trustworthy = np.isfinite(gate_value) and gate_value >= fidelity_floor
-    report = dict(n_anchors=len(proxy_losses), spearman=sp, kendall=kt,
-                  recall_at_k=recall, k=int(k),
-                  # iter18: ``fidelity_floor`` is the canonical key for the gate threshold.
-                  # ``spearman_floor`` is kept as a deprecated alias in the report so legacy
-                  # downstream consumers that inspect the dict by the old name don't break.
-                  fidelity_floor=fidelity_floor, spearman_floor=fidelity_floor,
-                  # iter16: composite gate (default) - raw spearman / recall stay above as diagnostics.
-                  proxy_fidelity_score=fidelity,
-                  fidelity_weights=(w_sp, w_rc),
-                  trustworthy_metric=gate_metric_name,
-                  trustworthy=bool(trustworthy),
-                  # Anchor sampling mode: 'stratified' when F-score weights were supplied + applied,
-                  # else 'uniform' (legacy). Diagnostic so downstream consumers can see when the
-                  # F-score-aware prior was active without inspecting kwargs.
-                  anchor_sampling=("stratified" if weights is not None else "uniform"),
-                  anchor_uniform_tail_frac=float(anchor_uniform_tail_frac) if weights is not None else None,
-                  # Cardinality prior: 'zipf' (iter15 default) or 'uniform' (legacy). Recorded so
-                  # downstream diagnostics / bench scripts can see which prior generated the anchors.
-                  anchor_cardinality_dist=str(cardinality_dist).lower(),
-                  anchor_zipf_alpha=float(zipf_alpha) if str(cardinality_dist).lower() == "zipf" else None,
-                  # Raw anchor pairs (proxy, honest, cardinality, redundancy) for the bias corrector.
-                  _corrector_data=dict(proxy=proxy_losses.tolist(), honest=honest_losses.tolist(),
-                                       cards=cards.tolist(), redund=redunds.tolist()))
-    if not trustworthy:
-        logger.warning(
-            "ShapProxiedFS: proxy fidelity LOW (%s=%.3f < floor=%.2f; spearman=%.3f, recall@%d=%.2f). "
-            "The SHAP-coalition proxy may mis-rank subsets on this data; treat the result with caution "
-            "(consider a smaller exhaustive honest search or more selected features).",
-            gate_metric_name, gate_value, fidelity_floor, sp, int(k), recall,
-        )
-    else:
-        logger.info(
-            "ShapProxiedFS: proxy fidelity OK (%s=%.3f; spearman=%.3f, kendall=%.3f, recall@%d=%.2f).",
-            gate_metric_name, gate_value, sp, kt, int(k), recall,
-        )
+    report = _trust_report(
+        proxy_losses, honest_losses, cards, redunds, weights, sp=sp, kt=kt, recall=recall, k=int(k), fidelity_floor=fidelity_floor,
+        fidelity=fidelity, w_sp=w_sp, w_rc=w_rc, gate_metric_name=gate_metric_name, trustworthy=bool(trustworthy),
+        anchor_uniform_tail_frac=anchor_uniform_tail_frac, cardinality_dist=cardinality_dist, zipf_alpha=zipf_alpha)
+    _log_trust_verdict(bool(trustworthy), gate_metric_name, gate_value, fidelity_floor, sp, kt, int(k), recall)
     return report
 
 # Re-exported for external importers after the sampling / loss / refine carve.
