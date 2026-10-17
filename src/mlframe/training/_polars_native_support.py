@@ -16,6 +16,7 @@ import subprocess
 import sys
 import threading
 from typing import Dict, Optional, Tuple
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -93,7 +94,7 @@ def _probe(library: str) -> bool:
             check=False,
         )
     except (subprocess.TimeoutExpired, OSError) as exc:
-        logger.debug("%s polars-native probe did not complete (%s: %s)", library, type(exc).__name__, exc)
+        log_throttle(logger, "_polars_native_support._probe", logging.WARNING, "%s polars-native probe did not complete (%s: %s)", library, type(exc).__name__, exc)
         return False
     if completed.returncode != 0:
         logger.debug(

@@ -3,6 +3,7 @@ LOC limit. Pure helpers (colormap-name mapping, rgba coercion, subplot axis-ref)
 from __future__ import annotations
 
 import logging
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +31,7 @@ def _axis_ref(fig, row: int, col: int) -> str:
     try:
         n_cols = len(fig._grid_ref[0])
     except Exception as e:
-        logger.debug("subplot grid width unreadable, assuming a single column: %s", e)
+        log_throttle(logger, "_plotly_color._axis_ref", logging.WARNING, "subplot grid width unreadable, assuming a single column: %s", e)
         n_cols = 1
     return "x" + plotly_axis_suffix(fig, row, col, n_cols)
 

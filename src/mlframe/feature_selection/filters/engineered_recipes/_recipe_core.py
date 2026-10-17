@@ -13,8 +13,16 @@ from dataclasses import dataclass, field
 from typing import Literal
 
 import numpy as np
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
+
+
+def _arrays_equal_nan_manual(va: np.ndarray, vb: np.ndarray) -> bool:
+    """NaN-aware array equality without ``equal_nan`` (older numpy): same shape and equal everywhere, both-NaN counting as equal."""
+    if va.shape != vb.shape:
+        return False
+    return bool(((va == vb) | ((va != va) & (vb != vb))).all())
 
 
 def _extra_equal(a: dict, b: dict) -> bool:
@@ -47,16 +55,12 @@ def _extra_equal(a: dict, b: dict) -> bool:
             # NaN-aware (equal_nan=True) for float arrays; harmless for
             # integer arrays (numpy ignores the kwarg there).
             try:
-                if not np.array_equal(va, vb, equal_nan=True):
-                    return False
+                arrays_equal = bool(np.array_equal(va, vb, equal_nan=True))
             except TypeError:
-                # Older numpy without equal_nan; fall back to manual
-                # NaN-aware check.
-                if va.shape != vb.shape:
-                    return False
-                _eq = (va == vb) | ((va != va) & (vb != vb))  # both NaN -> equal
-                if not bool(_eq.all()):
-                    return False
+                # Older numpy without equal_nan; fall back to manual NaN-aware check.
+                arrays_equal = _arrays_equal_nan_manual(va, vb)
+            if not arrays_equal:
+                return False
         else:
             # Scalar NaN: float('nan') != float('nan') is True under
             # standard comparison, so treat both-NaN as equal.
@@ -70,7 +74,7 @@ def _extra_equal(a: dict, b: dict) -> bool:
                 # Nested list-of-arrays / ambiguous truth value: be
                 # conservative and report unequal rather than raising
                 # from inside __eq__.
-                logger.debug("_extra_equal fell back to its default after %s", type(_exc).__name__)
+                log_throttle(logger, "_recipe_core._extra_equal", logging.WARNING, "_extra_equal fell back to its default after %s", type(_exc).__name__)
                 return False
     return True
 

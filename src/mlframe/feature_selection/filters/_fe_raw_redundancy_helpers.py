@@ -14,6 +14,7 @@ import os
 from typing import Any, Optional, Sequence
 
 import numpy as np
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -446,7 +447,7 @@ def raw_is_tail_concentrated_subsumed(
                 s_lin = max(s_lin, _abs_pearson(yc, svc))
         return bool(s_lin >= float(min_corr) and r_lin < s_lin and r_rank <= float(rank_frac) * r_lin)
     except Exception as e:
-        logger.debug("raw_is_tail_concentrated_subsumed: probe failed, treating as not-proven-subsumed: %s", e)
+        log_throttle(logger, "_fe_raw_redundancy_helpers.raw_is_tail_concentrated_subsumed", logging.WARNING, "raw_is_tail_concentrated_subsumed: probe failed, treating as not-proven-subsumed: %s", e)
         return False
 
 

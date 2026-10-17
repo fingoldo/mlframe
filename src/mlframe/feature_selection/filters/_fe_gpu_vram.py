@@ -220,7 +220,7 @@ def ensure_fe_gpu_pool_limit() -> bool:
             logger.info("fe_gpu_pool: capped cupy default pool at fraction=%.2f", frac)
         return True
     except Exception as exc:
-        logger.debug("fe_gpu_pool: set_limit failed (%s); pool uncapped", exc)
+        log_throttle(logger, "_fe_gpu_vram.ensure_fe_gpu_pool_limit", logging.WARNING, "fe_gpu_pool: set_limit failed (%s); pool uncapped", exc)
         return False
 
 

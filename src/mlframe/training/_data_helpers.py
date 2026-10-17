@@ -45,6 +45,14 @@ def _validate_trusted_path(path: str, trusted_root: str | None) -> None:
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
 
 
+def _finite_mask_or_none(arr) -> "np.ndarray | None":
+    """``np.isfinite(arr)``, or None when ``arr`` has a dtype isfinite does not support (object / string targets cannot hold NaN or inf)."""
+    try:
+        return np.isfinite(arr)
+    except TypeError:
+        return None
+
+
 def get_function_param_names(func: Callable) -> list[str]:
     """Get parameter names from a function signature.
 
@@ -260,20 +268,15 @@ def _validate_target_values(target, subset_name="train", is_classification=None)
                 arr = np.asarray(target)
         except ImportError:
             arr = np.asarray(target)
-    try:
-        # Single-pass finiteness check; only re-scan the (typically empty)
-        # non-finite subset to split nan_count vs inf_count. Two separate
-        # isnan/isinf .sum() calls walked the full array twice on the
-        # common all-finite case.
-        finite_mask = np.isfinite(arr)
-        if finite_mask.all():
-            nan_count = inf_count = 0
-        else:
-            non_finite = arr[~finite_mask]
-            nan_count = int(np.isnan(non_finite).sum())
-            inf_count = int(np.isinf(non_finite).sum())
-    except TypeError:
-        nan_count = inf_count = 0  # non-numeric target (e.g., categorical)
+    # Single-pass finiteness check; only re-scan the (typically empty) non-finite subset to split nan_count vs inf_count.
+    # Two separate isnan/isinf .sum() calls walked the full array twice on the common all-finite case.
+    finite_mask = _finite_mask_or_none(arr)
+    if finite_mask is None or finite_mask.all():
+        nan_count = inf_count = 0  # all finite, or a non-numeric target (e.g., categorical) that cannot hold NaN/inf
+    else:
+        non_finite = arr[~finite_mask]
+        nan_count = int(np.isnan(non_finite).sum())
+        inf_count = int(np.isinf(non_finite).sum())
     if nan_count > 0 or inf_count > 0:
         parts = []
         if nan_count > 0:

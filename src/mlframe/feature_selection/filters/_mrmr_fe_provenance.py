@@ -61,6 +61,8 @@ from typing import Any, Iterable, Optional
 import numpy as np
 import pandas as pd
 
+from mlframe.utils.log_throttle import log_throttle
+
 # Canonical origin labels. Public surface; tests pin the membership.
 FE_ORIGIN_LABELS = (
     "raw",
@@ -267,7 +269,7 @@ def _safe_str(value: Any) -> str:
             return f"ndarray(shape={value.shape}, dtype={value.dtype})"
         return repr(value)
     except Exception as e:
-        logging.getLogger(__name__).debug("_safe_str: could not stringify value of type %r: %s", type(value), e)
+        log_throttle(logging.getLogger(__name__), "_mrmr_fe_provenance._safe_str", logging.WARNING, "_safe_str: could not stringify value of type %r: %s", type(value), e)
         return "<unstringifiable>"
 
 

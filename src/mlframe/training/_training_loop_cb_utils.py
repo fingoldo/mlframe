@@ -14,6 +14,7 @@ except ImportError:
 
 
 from mlframe.config import CATBOOST_MODEL_TYPES
+from mlframe.utils.log_throttle import log_throttle
 
 # Refit helpers + their module-level constants moved to sibling
 # ``_training_loop_refit.py`` to drop this file below the 1k-LOC
@@ -140,7 +141,7 @@ def _ensure_cb_mtr_loss(model, train_target, pool=None) -> None:
             model._init_params["loss_function"] = "MultiRMSE"
             model._init_params["eval_metric"] = "MultiRMSE"
         except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-            logger.debug("suppressed: %s", e)
+            log_throttle(logger, "_training_loop_cb_utils._ensure_cb_mtr_loss", logging.WARNING, "suppressed: %s", e)
             pass
 
 
@@ -211,7 +212,7 @@ def _ensure_cb_multilabel_loss(model, train_target, pool=None) -> None:
             model._init_params["loss_function"] = "MultiLogloss"
             model._init_params["eval_metric"] = "HammingLoss"
         except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-            logger.debug("suppressed: %s", e)
+            log_throttle(logger, "_training_loop_cb_utils._ensure_cb_multilabel_loss", logging.WARNING, "suppressed: %s", e)
             pass
 
 

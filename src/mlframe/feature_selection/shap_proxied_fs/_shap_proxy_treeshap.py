@@ -39,6 +39,7 @@ from typing import Any, Optional
 
 import numpy as np
 from numba import njit, prange
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -559,7 +560,7 @@ def is_supported_xgboost(estimator: Any) -> bool:
     try:
         booster = estimator.get_booster()
     except Exception as e:
-        logger.debug("is_supported_xgboost: get_booster() failed, estimator is not eligible for the fast TreeSHAP path: %s", e)
+        log_throttle(logger, "_shap_proxy_treeshap.is_supported_xgboost", logging.WARNING, "is_supported_xgboost: get_booster() failed, estimator is not eligible for the fast TreeSHAP path: %s", e)
         return False
     if booster is None:
         return False
@@ -585,7 +586,7 @@ def is_supported_lightgbm(estimator: Any) -> bool:
     try:
         booster = estimator if name == "Booster" else estimator.booster_
     except Exception as e:
-        logger.debug("is_supported_lightgbm: booster_ attribute lookup failed, estimator is not eligible for the fast TreeSHAP path: %s", e)
+        log_throttle(logger, "_shap_proxy_treeshap.is_supported_lightgbm", logging.WARNING, "is_supported_lightgbm: booster_ attribute lookup failed, estimator is not eligible for the fast TreeSHAP path: %s", e)
         return False
     if booster is None:
         return False
@@ -594,7 +595,7 @@ def is_supported_lightgbm(estimator: Any) -> bool:
         if int(md.get("num_tree_per_iteration", 1)) > 1 or int(md.get("num_class", 1)) > 1:
             return False
     except Exception as e:
-        logger.debug("is_supported_lightgbm: dump_model() failed, estimator is not eligible for the fast TreeSHAP path: %s", e)
+        log_throttle(logger, "_shap_proxy_treeshap.is_supported_lightgbm", logging.WARNING, "is_supported_lightgbm: dump_model() failed, estimator is not eligible for the fast TreeSHAP path: %s", e)
         return False
     return True
 

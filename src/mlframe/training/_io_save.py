@@ -23,6 +23,7 @@ from typing import Optional, Dict, Any
 import dill  # nosec B403 - pickle used only for trusted same-process/dev-local round-trips, see call sites in this file
 
 from mlframe._optional_imports import import_optional
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger("mlframe.training.io")
 
@@ -266,7 +267,7 @@ def save_mlframe_model(
             mod = getattr(cls, "__module__", "") or ""
             name = cls.__name__
         except Exception as exc:
-            logger.debug("_looks_like_training_bloat: type introspection failed: %s", exc)
+            log_throttle(logger, "_io_save._looks_like_training_bloat", logging.WARNING, "_looks_like_training_bloat: type introspection failed: %s", exc)
             return False
         if mod.startswith(("lightning", "pytorch_lightning")):
             # endswith (not ==) so Trainer subclasses / custom DataModules match.

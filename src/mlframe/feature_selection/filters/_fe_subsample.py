@@ -22,6 +22,7 @@ from typing import Optional
 import logging
 
 import numpy as np
+from mlframe.utils.log_throttle import log_throttle
 
 _logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
@@ -176,7 +177,7 @@ def _derive_seed(rng) -> int:
     try:
         return int(rng.integers(0, 2**31 - 1))
     except Exception as e:
-        _logger.debug("_derive_seed: rng.integers() failed, using fixed seed 0: %s", e)
+        log_throttle(_logger, "_fe_subsample._derive_seed", logging.WARNING, "_derive_seed: rng.integers() failed, using fixed seed 0: %s", e)
         return 0
 
 
@@ -444,5 +445,5 @@ def _resolve_fe_subsample_stratify(stratify_knob, y, *, is_clf: bool) -> bool:
         tail = max(float(finite.max() - med), float(med - finite.min()))
         return bool(tail / iqr >= _FE_STRATIFY_REG_TAIL_IQR_RATIO)
     except Exception as e:
-        _logger.debug("_resolve_fe_subsample_stratify: auto-stratify heuristic failed, defaulting to OFF (legacy uniform draw): %s", e)
+        log_throttle(_logger, "_fe_subsample._resolve_fe_subsample_stratify", logging.WARNING, "_resolve_fe_subsample_stratify: auto-stratify heuristic failed, defaulting to OFF (legacy uniform draw): %s", e)
         return False

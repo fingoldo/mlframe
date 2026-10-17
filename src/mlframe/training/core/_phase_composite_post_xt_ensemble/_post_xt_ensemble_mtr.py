@@ -11,6 +11,7 @@ from typing import Any
 import numpy as np
 
 from ...composite.post_shim import PrePipelinePredictShim
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger("mlframe.training.core._phase_composite_post")
 
@@ -249,7 +250,7 @@ def _build_mtr_per_column_ensemble(
         _y_arr = np.asarray(_y_full) if _y_full is not None else None
         _K = int(_y_arr.shape[1]) if _y_arr is not None and _y_arr.ndim == 2 else 1
     except Exception as e:
-        logger.debug("target-width resolution failed, defaulting K=1: %s", e)
+        log_throttle(logger, "_post_xt_ensemble_mtr._build_mtr_per_column_ensemble", logging.WARNING, "target-width resolution failed, defaulting K=1: %s", e)
         _K = 1
 
     # Honest-OOF NNLS when valid precomputed weights are supplied; equal_mean otherwise.

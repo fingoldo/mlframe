@@ -52,6 +52,8 @@ from ._orth_extra_basis_fe_helpers import (  # noqa: F401  -- carved helpers
     _deflate_sincos,
     _greedy_fourier_frequency_search,
 )
+import logging
+from mlframe.utils.log_throttle import log_throttle
 
 
 def _fit_spline_for_col(x: np.ndarray, n_inner_knots: int):
@@ -548,7 +550,7 @@ def _heldout_smooth_r2(x: np.ndarray, y: np.ndarray) -> float:
         except np.linalg.LinAlgError:
             coef, *_ = np.linalg.lstsq(_Vtr, y[tr], rcond=None)
     except Exception as e:
-        logger.debug("_heldout_smooth_r2: cubic Vandermonde fit failed, returning R2=0.0: %s", e)
+        log_throttle(logger, "_orth_extra_basis_fe._heldout_smooth_r2", logging.WARNING, "_heldout_smooth_r2: cubic Vandermonde fit failed, returning R2=0.0: %s", e)
         return 0.0
     pred = np.vander(zx[va], 4) @ coef
     yv = y[va]
@@ -609,7 +611,7 @@ def _heldout_smooth_r2_fast(x: np.ndarray, prep: tuple) -> float:
         except np.linalg.LinAlgError:
             coef, *_ = np.linalg.lstsq(_Vtr, y_tr, rcond=None)
     except Exception as e:
-        logger.debug("_heldout_smooth_r2_fast: cubic Vandermonde fit failed, returning R2=0.0: %s", e)
+        log_throttle(logger, "_orth_extra_basis_fe._heldout_smooth_r2_fast", logging.WARNING, "_heldout_smooth_r2_fast: cubic Vandermonde fit failed, returning R2=0.0: %s", e)
         return 0.0
     pred = np.vander(zx[va], 4) @ coef
     sse = float(np.sum((yv - pred) ** 2))

@@ -6,6 +6,7 @@ import os
 import sys
 from collections import OrderedDict
 from typing import Any, Dict, Optional, Tuple
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger("mlframe.training.strategies")
 
@@ -108,7 +109,7 @@ def _estimate_slot_nbytes(slot: Any) -> int:
     try:
         return int(sys.getsizeof(slot))
     except Exception as exc:
-        logger.debug("_estimate_slot_nbytes: sys.getsizeof fallback failed, reporting 0: %s", exc)
+        log_throttle(logger, "pipeline_cache._estimate_slot_nbytes", logging.WARNING, "_estimate_slot_nbytes: sys.getsizeof fallback failed, reporting 0: %s", exc)
         return 0
 
 

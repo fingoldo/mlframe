@@ -288,7 +288,7 @@ def default_fingerprint(args: Sequence[Any], kwargs: Mapping[str, Any]) -> dict:
         try:
             card = float(np.mean([len(np.unique(arr2d[:, j].astype(str))) for j in range(arr2d.shape[1])]))
         except Exception as e:
-            logger.debug("categorical cardinality computation failed: %s", e)
+            log_throttle(logger, "_param_oracle.default_fingerprint", logging.WARNING, "categorical cardinality computation failed: %s", e)
             card = 0.0
         return {
             "n": n, "p": p, "dtype_kind": "O", "sparsity": 0.0,
@@ -436,6 +436,7 @@ from ._param_oracle_store import (  # noqa: F401
     stable_json,
 )
 from .gpu_sync import synchronize_gpu_if_available
+from mlframe.utils.log_throttle import log_throttle
 
 # ---------------------------------------------------------------------------
 # ParamOracle

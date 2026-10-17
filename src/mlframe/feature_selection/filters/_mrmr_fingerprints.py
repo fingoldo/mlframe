@@ -558,7 +558,7 @@ def _full_x_content_hash(X) -> str:
             try:
                 arr = X.to_numpy()
             except Exception as e:
-                logger.debug("_full_x_content_hash: to_numpy() failed, skipping the full-content cache disambiguator: %s", e)
+                log_throttle(logger, "_mrmr_fingerprints._full_x_content_hash", logging.WARNING, "_full_x_content_hash: to_numpy() failed, skipping the full-content cache disambiguator: %s", e)
                 return ""
         elif hasattr(X, "values"):
             arr = X.values
@@ -598,7 +598,7 @@ def _full_x_content_hash(X) -> str:
             _MRMR_LAST_X_HASH_CACHE["id_shape"] = id_shape
         return result
     except Exception as e:
-        logger.debug("_full_x_content_hash: full-content hash failed, skipping the full-content cache disambiguator: %s", e)
+        log_throttle(logger, "_mrmr_fingerprints._full_x_content_hash", logging.WARNING, "_full_x_content_hash: full-content hash failed, skipping the full-content cache disambiguator: %s", e)
         return ""
 
 
@@ -650,7 +650,7 @@ def _full_y_content_hash(y) -> str:
         h.update(str(arr.dtype).encode())
         return h.hexdigest()
     except Exception as e:
-        logger.debug("_full_y_content_hash: full-content hash failed, skipping the full-content cache disambiguator: %s", e)
+        log_throttle(logger, "_mrmr_fingerprints._full_y_content_hash", logging.WARNING, "_full_y_content_hash: full-content hash failed, skipping the full-content cache disambiguator: %s", e)
         return ""
 
 

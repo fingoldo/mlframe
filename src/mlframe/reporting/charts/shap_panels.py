@@ -154,7 +154,7 @@ def _is_multi_output_catboost(model: Any) -> bool:
     try:
         loss = str(get_params().get("loss_function", "")).lower()
     except Exception as e:
-        logger.debug("get_all_params() probe failed (%s: %s) -- treating as not the CatBoost multi-output risky case", type(e).__name__, e)
+        log_throttle(logger, "shap_panels._is_multi_output_catboost", logging.WARNING, "get_all_params() probe failed (%s: %s) -- treating as not the CatBoost multi-output risky case", type(e).__name__, e)
         return False
     return loss.startswith(_CATBOOST_MULTI_OUTPUT_LOSS_PREFIXES)
 
@@ -172,7 +172,7 @@ def _model_has_catboost_embedding_features(model: Any) -> bool:
     try:
         return bool(get_indices())
     except Exception as e:
-        logger.debug("get_embedding_feature_indices() probe failed (%s: %s) -- treating as not the risky case", type(e).__name__, e)
+        log_throttle(logger, "shap_panels._model_has_catboost_embedding_features", logging.WARNING, "get_embedding_feature_indices() probe failed (%s: %s) -- treating as not the risky case", type(e).__name__, e)
         return False
 
 

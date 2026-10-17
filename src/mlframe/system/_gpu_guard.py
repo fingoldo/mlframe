@@ -15,6 +15,7 @@ from __future__ import annotations
 import inspect
 import logging
 from typing import Any, Callable, Optional, Tuple
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -66,5 +67,5 @@ def callable_looks_gpu_bound(fn: Optional[Callable]) -> bool:
             pass
         return any(any(token in name for token in _GPU_BOUND_TOKENS) for name in names)
     except Exception as exc:
-        logger.debug("callable_looks_gpu_bound: introspection failed, assuming CPU-safe: %s", exc)
+        log_throttle(logger, "_gpu_guard.callable_looks_gpu_bound", logging.WARNING, "callable_looks_gpu_bound: introspection failed, assuming CPU-safe: %s", exc)
         return False

@@ -25,6 +25,7 @@ from mlframe.utils.safe_pickle import (
     safe_load as _safe_pickle_load,
     write_sidecar as _safe_pickle_write_sidecar,
 )
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -250,7 +251,7 @@ class DiscoveryCache:
         try:
             size = os.path.getsize(path)
         except OSError as _exc:
-            logger.debug("_entry_size_on_disk fell back to its default after %s", type(_exc).__name__)
+            log_throttle(logger, "cache_store._entry_size_on_disk", logging.WARNING, "_entry_size_on_disk fell back to its default after %s", type(_exc).__name__)
             return 0
         try:
             size += os.path.getsize(path + ".sha256")
@@ -424,7 +425,7 @@ class DiscoveryCache:
         try:
             return os.path.getsize(path)
         except OSError as _exc:
-            logger.debug("_entry_size_bytes fell back to its default after %s", type(_exc).__name__)
+            log_throttle(logger, "cache_store._entry_size_bytes", logging.WARNING, "_entry_size_bytes fell back to its default after %s", type(_exc).__name__)
             return 0
 
     def _evict_to_caps(self) -> int:
@@ -731,6 +732,6 @@ def _discovery_cache_bytes_total(cache: DiscoveryCache) -> int:
                 except OSError:
                     pass
     except FileNotFoundError as _exc:
-        logger.debug("_discovery_cache_bytes_total fell back to its default after %s", type(_exc).__name__)
+        log_throttle(logger, "cache_store._discovery_cache_bytes_total", logging.WARNING, "_discovery_cache_bytes_total fell back to its default after %s", type(_exc).__name__)
         return 0
     return total

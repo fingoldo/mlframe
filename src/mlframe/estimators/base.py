@@ -18,6 +18,7 @@ from sklearn.base import RegressorMixin, ClassifierMixin, BaseEstimator, clone, 
 from sklearn.utils import check_random_state
 
 from sklearn.model_selection import train_test_split
+from mlframe.utils.log_throttle import log_throttle
 
 class EstimatorWithEarlyStopping(BaseEstimator):
     """
@@ -43,7 +44,7 @@ class EstimatorWithEarlyStopping(BaseEstimator):
         try:
             is_clf_estimator = is_classifier(self.base_estimator)
         except Exception as e:
-            logger.debug("is_classifier() probe failed on base_estimator: %s", e)
+            log_throttle(logger, "base._resolve_stratify", logging.WARNING, "is_classifier() probe failed on base_estimator: %s", e)
             is_clf_estimator = False
         low_cardinality = y_arr.dtype.kind in "OUS" or np.unique(y_arr).size <= max(2, min(20, n // 10))
         if not (is_clf_estimator or low_cardinality):

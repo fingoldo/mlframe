@@ -57,6 +57,7 @@ rate in any split differs from train's by more than this many pp."""
 
 
 from .utils import coerce_to_numpy as _coerce_to_numpy
+from mlframe.utils.log_throttle import log_throttle
 
 
 def _to_numpy_or_none(arr: Any) -> np.ndarray | None:
@@ -306,7 +307,7 @@ def compute_label_distribution_drift(
             _first = _a[0]
             return hasattr(_first, "shape") or (hasattr(_first, "__len__") and not isinstance(_first, (str, bytes)))
         except Exception as exc:
-            logger.debug("drift: object-of-arrays probe failed, treating as not object-of-arrays: %s", exc)
+            log_throttle(logger, "drift_report._is_object_of_arrays", logging.WARNING, "drift: object-of-arrays probe failed, treating as not object-of-arrays: %s", exc)
             return False
 
     is_multilabel = target_type == "multilabel_classification" or (hasattr(train, "ndim") and train.ndim == 2) or _is_object_of_arrays(train)

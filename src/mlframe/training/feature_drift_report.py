@@ -55,6 +55,7 @@ from typing import Any, Optional
 import numpy as np
 
 from mlframe.training._prediction_envelope_clip import _finite_min_max_std_kernel
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -452,7 +453,7 @@ def _is_unhashable_object_column(df: Any, col: str) -> bool:
             return False
         return isinstance(cell0, (np.ndarray, list, dict, set, tuple))
     except Exception as exc:
-        logger.debug("drift: unhashable-object probe on column %r failed, treating as hashable: %s", col, exc)
+        log_throttle(logger, "feature_drift_report._is_unhashable_object_column", logging.WARNING, "drift: unhashable-object probe on column %r failed, treating as hashable: %s", col, exc)
         return False
 
 

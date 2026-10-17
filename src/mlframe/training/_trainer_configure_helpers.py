@@ -66,6 +66,7 @@ from ._data_helpers import (  # noqa: F401  -- carved helpers
 from ._model_factories import (
     GPU_VRAM_SAFE_FREE_LIMIT_GB, GPU_VRAM_SAFE_SATURATION_LIMIT,
 )
+from mlframe.utils.log_throttle import log_throttle
 
 # Optional model backends mirrored from parent: defaults to None when the
 # library is not installed; downstream branches gate on that.
@@ -316,7 +317,7 @@ def _configure_training_use_regression_2(use_regression, config_params, target, 
                     _first = target_arr[0]
                     nlabels = (len(_first) if hasattr(_first, "__len__") else int(np.asarray(_first).size)) + 1
                 except Exception as e:
-                    logger.debug("inferring nlabels from target_arr failed, defaulting to 3: %s", e)
+                    log_throttle(logger, "_trainer_configure_helpers._configure_training_use_regression_2", logging.WARNING, "inferring nlabels from target_arr failed, defaulting to 3: %s", e)
                     nlabels = 3
             elif target_arr is not None:
                 nlabels = len(np.unique(target_arr))
@@ -494,7 +495,9 @@ def _configure_training_mlframe_models_default_allowlist(mlframe_models_is_defau
                 _tt_vals, _tt_counts = np.unique(_tt_arr, return_counts=True)
                 if _tt_counts.size:
                     _auto_detected_point_mass = bool((_tt_counts.max() / _tt_arr.size) >= 0.05)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError) as _pm_exc:
+            log_throttle(logger, "_trainer_configure_helpers.point_mass", logging.WARNING,
+                         "point-mass auto-detection failed on the train target (%s: %s); treating it as not point-mass", type(_pm_exc).__name__, _pm_exc)
             _auto_detected_point_mass = False
     return _auto_detected_point_mass
 

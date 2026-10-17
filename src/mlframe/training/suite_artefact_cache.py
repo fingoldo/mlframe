@@ -209,7 +209,7 @@ class SuiteArtefactCache:
         try:
             return os.path.getsize(path)
         except OSError as _exc:
-            logger.debug("_file_size fell back to its default after %s", type(_exc).__name__)
+            log_throttle(logger, "suite_artefact_cache._file_size", logging.WARNING, "_file_size fell back to its default after %s", type(_exc).__name__)
             return 0
 
     def _init_lru_from_disk(self) -> None:
@@ -228,7 +228,11 @@ class SuiteArtefactCache:
                     key = de.name[:-4]
                     try:
                         mt = de.stat().st_mtime
-                    except OSError:
+                    except FileNotFoundError:
+                        mt = 0.0  # removed by a concurrent process between scandir and stat
+                    except OSError as _mt_exc:
+                        log_throttle(logger, "suite_artefact_cache.init_lru", logging.WARNING,
+                                     "SuiteArtefactCache: cannot stat %s (%s); ranking it oldest for eviction", de.name, _mt_exc)
                         mt = 0.0
                     entries.append((key, mt))
             entries.sort(key=lambda kv: kv[1])
@@ -256,7 +260,7 @@ class SuiteArtefactCache:
                     except OSError:
                         pass
         except FileNotFoundError as _exc:
-            logger.debug("_total_bytes_locked fell back to its default after %s", type(_exc).__name__)
+            log_throttle(logger, "suite_artefact_cache._total_bytes_locked", logging.WARNING, "_total_bytes_locked fell back to its default after %s", type(_exc).__name__)
             return 0
         return total
 
@@ -328,7 +332,11 @@ class SuiteArtefactCache:
                 # Disk-only entry we didn't know about (other process wrote it). Record it now.
                 try:
                     self._lru[key] = os.path.getmtime(path)
-                except OSError:
+                except FileNotFoundError:
+                    self._lru[key] = 0.0  # removed by a concurrent process between load and stat
+                except OSError as _mt_exc:
+                    log_throttle(logger, "suite_artefact_cache.get_mtime", logging.WARNING,
+                                 "SuiteArtefactCache.get: cannot stat %s (%s); ranking it oldest for eviction", key, _mt_exc)
                     self._lru[key] = 0.0
         return value
 
@@ -359,7 +367,7 @@ class SuiteArtefactCache:
             logger.warning("SuiteArtefactCache.put %s write failed: %s", key, exc)
             return False
         except Exception as exc:  # pickle failures (unpicklable object): not fatal
-            logger.debug("SuiteArtefactCache.put %s pickle failed: %s", key, exc)
+            log_throttle(logger, "suite_artefact_cache.put", logging.WARNING, "SuiteArtefactCache.put %s pickle failed: %s", key, exc)
             # Best-effort cleanup of any partial file safe_dump may have left behind.
             for p in (path, path + ".sha256"):
                 try:

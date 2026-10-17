@@ -511,7 +511,7 @@ def _apply_pre_pipeline_with_passthrough(
         check_is_fitted(model_obj.pre_pipeline)
         _pp_fitted = True
     except Exception as e:
-        logger.debug("check_is_fitted(pre_pipeline) failed: %s", e)
+        log_throttle(logger, "_predict_pre_pipeline._apply_pre_pipeline_with_passthrough", logging.WARNING, "check_is_fitted(pre_pipeline) failed: %s", e)
         _pp_fitted = False
 
     if not _pp_fitted:

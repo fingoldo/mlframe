@@ -44,6 +44,29 @@ _NATIVE_NAN_ESTIMATOR_NAMES = frozenset({
 INDICATOR_PREFIX = "is_missing__"
 
 
+def _array_has_nan(X) -> bool:
+    """True iff the array-like ``X`` holds a NaN; an input that cannot be coerced to an array, or an integer/bool/string one, holds none."""
+    try:
+        arr = np.asarray(X)
+    except (TypeError, ValueError):
+        return False
+    if arr.dtype.kind in "fc":
+        return bool(np.isnan(arr).any())
+    if arr.dtype.kind == "O":
+        # Object-dtype ndarrays can hold embedded ``float('nan')``; np.isnan rejects object dtype, so coerce to float
+        # (non-numeric -> not NaN, harmless here) and scan. Integer kinds can't hold NaN.
+        return _object_array_has_nan(arr)
+    return False
+
+
+def _object_array_has_nan(arr: np.ndarray) -> bool:
+    """True iff an object-dtype array holds a NaN once coerced to float; non-numeric content cannot be coerced and so holds none."""
+    try:
+        return bool(np.isnan(arr.astype(float, copy=False)).any())
+    except (TypeError, ValueError):
+        return False
+
+
 def _estimator_tolerates_nan(estimator) -> bool:
     """True iff ``estimator`` can be fit on X containing NaN without raising.
 
@@ -101,18 +124,7 @@ def apply_nan_in_X_policy(self, X: Union[pd.DataFrame, np.ndarray]) -> Union[pd.
         nan_cols = [c for c in X.columns if X[c].isna().any()]
         has_nan = bool(nan_cols)
     else:
-        try:
-            _arr = np.asarray(X)
-            if _arr.dtype.kind in "fc":
-                has_nan = bool(np.isnan(_arr).any())
-            elif _arr.dtype.kind == "O":
-                # Object-dtype ndarrays can hold embedded ``float('nan')``; np.isnan rejects object dtype,
-                # so coerce to float (non-numeric -> NaN, harmless here) and scan. Integer kinds can't hold NaN.
-                has_nan = bool(np.isnan(_arr.astype(float, copy=False)).any())
-            else:
-                has_nan = False
-        except (TypeError, ValueError):
-            has_nan = False
+        has_nan = _array_has_nan(X)
         nan_cols = []
 
     if not has_nan:

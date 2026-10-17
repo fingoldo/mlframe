@@ -24,6 +24,7 @@ import numpy as np
 import polars as pl
 
 from ._utils import require_seed, validate_numeric_input
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -132,7 +133,7 @@ def compute_local_curvature_features(
                 # Singular matrix or other numerical issue; use zeros. Logged (matching the sibling
                 # local_linear.py's identical per-row fallback) so a real failure rate is visible
                 # instead of only ever surfacing as unexplained all-zero rows downstream.
-                logger.info("local_curvature: fit failed on row %d (%s); leaving zeros", int(q), exc)
+                log_throttle(logger, "local_curvature._process", logging.WARNING, "local_curvature: fit failed on row %d (%s); leaving zeros", int(q), exc)
                 out[q] = 0.0
         return out
 

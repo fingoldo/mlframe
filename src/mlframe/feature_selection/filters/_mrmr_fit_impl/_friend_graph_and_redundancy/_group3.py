@@ -394,7 +394,7 @@ def _drop_redundant_raw_operands_sweep(self, selected_vars, cols, classes_y, _y_
                         )
                         return float(_sig[3]) < _pcr_signif_alpha
                     except Exception as e:
-                        logger.debug("Marginal-MI significance re-add probe failed (%s: %s) -- permissive re-add", type(e).__name__, e)
+                        log_throttle(logger, "_group3._pcr_raw_is_significant", logging.WARNING, "Marginal-MI significance re-add probe failed (%s: %s) -- permissive re-add", type(e).__name__, e)
                         return True
                 _pcr_readd = []
                 # name -> index map built once (O(F)) instead of a ``.index()`` rescan of ``cols`` per

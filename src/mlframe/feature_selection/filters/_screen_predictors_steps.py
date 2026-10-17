@@ -26,7 +26,7 @@ def _short_name(name, maxlen: int = 28) -> str:
     try:
         s = str(name)
     except Exception as e:
-        logger.debug("_short_name: str(name) failed for progress-display truncation, showing '?': %s", e)
+        log_throttle(logger, "_screen_predictors_steps._short_name", logging.WARNING, "_short_name: str(name) failed for progress-display truncation, showing '?': %s", e)
         return "?"
     if len(s) <= maxlen:
         return s

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import logging
 from typing import Any, Callable, Iterable
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -85,7 +86,7 @@ def _is_fitted_pipeline(pp: Any) -> bool:
         check_is_fitted(pp)
         return True
     except NotFittedError as exc:
-        logger.debug("check_is_fitted(pre_pipeline) says unfitted: %s", exc)
+        log_throttle(logger, "_predict_composite_routing._is_fitted_pipeline", logging.WARNING, "check_is_fitted(pre_pipeline) says unfitted: %s", exc)
         return False
     except TypeError as exc:
         # Not an sklearn estimator at all, so fittedness cannot be read. Treating it as unfitted routes the frame past

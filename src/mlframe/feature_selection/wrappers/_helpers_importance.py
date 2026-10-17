@@ -16,6 +16,7 @@ from mlframe.votenrank import Leaderboard
 
 from ._enums import VotesAggregation
 from ._importance_methods import named_importance
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +36,7 @@ def _fold_is_all_finite(arr) -> bool:
     try:
         a = arr.to_numpy(copy=False) if hasattr(arr, "to_numpy") else np.asarray(arr)
     except Exception as exc:
-        logger.debug("_fold_is_all_finite: coercion failed, conservatively assuming not-finite: %s", exc)
+        log_throttle(logger, "_helpers_importance._fold_is_all_finite", logging.WARNING, "_fold_is_all_finite: coercion failed, conservatively assuming not-finite: %s", exc)
         return False
     if a.dtype.kind in ("f", "c"):
         return bool(np.isfinite(a).all())

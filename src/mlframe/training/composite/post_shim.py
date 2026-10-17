@@ -21,6 +21,7 @@ from sklearn.base import BaseEstimator, clone
 from sklearn.exceptions import NotFittedError
 from sklearn.utils.metaestimators import available_if
 from sklearn.utils.validation import check_is_fitted
+from mlframe.utils.log_throttle import log_throttle
 
 try:
     # sklearn's canonical "does this estimator's fit accept <param>" check.
@@ -238,7 +239,7 @@ class PrePipelinePredictShim(BaseEstimator):
             check_is_fitted(model)
             return True
         except NotFittedError as _exc:
-            logger.debug("__sklearn_is_fitted__ fell back to its default after %s", type(_exc).__name__)
+            log_throttle(logger, "post_shim.__sklearn_is_fitted__", logging.WARNING, "__sklearn_is_fitted__ fell back to its default after %s", type(_exc).__name__)
             return False
         except (TypeError, ValueError) as _exc:
             # Inner does not follow the sklearn fitted-attribute convention

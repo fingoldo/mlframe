@@ -20,6 +20,7 @@ import logging
 
 import numpy as np
 from typing import cast
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -57,7 +58,7 @@ def rescand_use_resident(n: int, k: int) -> bool:
     try:
         choice = _RESCAND_SPEC.choose(n_samples=int(n), k=int(k_bucket))
     except Exception as e:
-        logger.debug("rescand_use_resident: KTC choose() failed, caller stays on the exact host njit batch-MI: %s", e)
+        log_throttle(logger, "_resident_candidate_mi_ktc.rescand_use_resident", logging.WARNING, "rescand_use_resident: KTC choose() failed, caller stays on the exact host njit batch-MI: %s", e)
         return False
     return bool(choice == "resident")
 

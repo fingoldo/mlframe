@@ -14,6 +14,7 @@ from ..transforms import UnknownTransformError, get_transform
 from ._rejection_ledger import RejectStage, ledger_append
 from ._score import Score, rank_specs
 from mlframe.training.composite.transforms.shared import call_transform
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -170,7 +171,7 @@ def _additive_in_t(spec) -> bool:
     try:
         return bool(getattr(get_transform(spec.transform_name), "additive_in_t", False))
     except UnknownTransformError as _exc:  # an unregistered transform is simply not WAIC-comparable; anything else is a real bug
-        logger.debug("_additive_in_t fell back to its default after %s", type(_exc).__name__)
+        log_throttle(logger, "_tiny_rerank_waic._additive_in_t", logging.WARNING, "_additive_in_t fell back to its default after %s", type(_exc).__name__)
         return False
 
 

@@ -37,6 +37,7 @@ from typing import Any, Callable, Optional, cast
 import torch
 
 from ._triton_bootstrap import ensure_triton_loaded
+from mlframe.utils.log_throttle import log_throttle
 
 NS5_COEFFS = (3.4445, -4.7750, 2.0315)
 
@@ -281,7 +282,7 @@ def _calibrate_triton_vs_eager(fn, shape, dtype, device, steps) -> float:
         triton_t = time.perf_counter() - t0
         return (eager_t / triton_t) if triton_t > 0 else 0.0
     except Exception as _cal_err:
-        logger.debug("Muon Triton calibration failed (%s); using eager.", _cal_err)
+        log_throttle(logger, "_muon_triton_kernel._calibrate_triton_vs_eager", logging.WARNING, "Muon Triton calibration failed (%s); using eager.", _cal_err)
         return 0.0
 
 

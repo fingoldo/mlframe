@@ -178,7 +178,7 @@ def _hinge_slope_change_plausible(
     try:
         cuts = np.unique(np.quantile(x, np.asarray(qs, dtype=np.float64)))
     except Exception as e:
-        logger.debug("hinge candidate cut-quantile computation failed, no hinge candidate produced: %s", e)
+        log_throttle(logger, "_hinge_basis_fe._hinge_slope_change_plausible", logging.WARNING, "hinge candidate cut-quantile computation failed, no hinge candidate produced: %s", e)
         return False
     best_drop = 0.0
     # PERF FIX (incidental to a profiling cycle): this loop used to call ``_segmented_sse`` (a
@@ -264,7 +264,7 @@ def _heldout_hinge_r2_uplift(
         try:
             coef, *_ = np.linalg.lstsq(A_tr, y_tr, rcond=None)
         except Exception as e:
-            logger.debug("_val_r2: train-split lstsq failed, returning -inf so this design loses the comparison: %s", e)
+            log_throttle(logger, "_hinge_basis_fe._val_r2", logging.WARNING, "_val_r2: train-split lstsq failed, returning -inf so this design loses the comparison: %s", e)
             return -np.inf
         pred = A_va @ coef
         sse = float(np.sum((y_va - pred) ** 2))
@@ -752,7 +752,7 @@ def _heldout_incremental_r2_prep(x: np.ndarray, y: np.ndarray) -> Optional[dict]
         try:
             coef = _ols_coef(A_tr, y[tr])
         except Exception as e:
-            logger.debug("_val_r2: train-split lstsq failed, returning -inf so this design loses the comparison: %s", e)
+            log_throttle(logger, "_hinge_basis_fe._val_r2", logging.WARNING, "_val_r2: train-split lstsq failed, returning -inf so this design loses the comparison: %s", e)
             return -np.inf
         pred = A_va @ coef
         sse = float(np.sum((yv - pred) ** 2))

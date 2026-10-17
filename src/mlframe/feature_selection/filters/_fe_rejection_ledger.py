@@ -55,6 +55,8 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
+import logging
+from mlframe.utils.log_throttle import log_throttle
 
 logger = _logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
@@ -121,7 +123,7 @@ def _operands_str(operands: Any) -> str:
             return "(" + ", ".join(str(o) for o in operands) + ")"
         return str(operands)
     except Exception as e:
-        logger.debug("_operands_str: could not stringify operand collection %r: %s", type(operands), e)
+        log_throttle(logger, "_fe_rejection_ledger._operands_str", logging.WARNING, "_operands_str: could not stringify operand collection %r: %s", type(operands), e)
         return "<unstringifiable>"
 
 

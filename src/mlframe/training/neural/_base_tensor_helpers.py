@@ -14,6 +14,7 @@ import numpy as np
 import pandas as pd
 import polars as pl
 import torch
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -162,7 +163,7 @@ def _run_cuda_usability_probe() -> bool:
             torch.cuda.empty_cache()
             ok = True
     except Exception as e:
-        logger.debug("CUDA context probe failed, treating device as unusable: %s", e)
+        log_throttle(logger, "_base_tensor_helpers._run_cuda_usability_probe", logging.WARNING, "CUDA context probe failed, treating device as unusable: %s", e)
         ok = False
         # Best-effort: try empty_cache once more inside the failure handler
         # so a downstream caller isn't surprised by a half-poisoned context.

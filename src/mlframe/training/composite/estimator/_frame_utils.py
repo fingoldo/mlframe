@@ -19,6 +19,7 @@ import numpy as np
 import pandas as pd
 
 from .._composite_utils import is_polars_df as _is_polars_df
+from mlframe.utils.log_throttle import log_throttle
 
 try:
     import polars as pl
@@ -79,13 +80,13 @@ def _drop_columns(X: Any, columns: Sequence[str]) -> Any:
         try:
             _cow = bool(pd.get_option("mode.copy_on_write"))
         except Exception as e:  # best-effort: the fallback only chooses the copy strategy
-            logger.debug("pd.get_option('mode.copy_on_write') failed, assuming CoW off: %s", e)
+            log_throttle(logger, "_frame_utils._drop_columns", logging.WARNING, "pd.get_option('mode.copy_on_write') failed, assuming CoW off: %s", e)
             _cow = False
         if not _cow:
             try:
                 _sz = int(X.memory_usage(index=False, deep=False).sum())
             except Exception as e:  # best-effort: only a size warning is skipped
-                logger.debug("memory_usage() failed, skipping large-frame drop warning: %s", e)
+                log_throttle(logger, "_frame_utils._drop_columns", logging.WARNING, "memory_usage() failed, skipping large-frame drop warning: %s", e)
                 _sz = 0
             if _sz > 2 * 1024**3:
                 logger.warning(

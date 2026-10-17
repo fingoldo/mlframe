@@ -220,7 +220,7 @@ def _is_monotone_nondecreasing(arr: np.ndarray) -> bool:
     try:
         a = np.asarray(arr).ravel()
     except Exception as exc:
-        logger.debug("_is_monotone_nondecreasing: np.asarray coercion failed: %s", exc)
+        log_throttle(logger, "__init__._is_monotone_nondecreasing", logging.WARNING, "_is_monotone_nondecreasing: np.asarray coercion failed: %s", exc)
         return False
     if a.size < 2:
         return False
@@ -228,7 +228,7 @@ def _is_monotone_nondecreasing(arr: np.ndarray) -> bool:
     try:
         af = a.astype(np.float64, copy=False)
     except Exception as exc:
-        logger.debug("_is_monotone_nondecreasing: float cast failed, non-numeric column: %s", exc)
+        log_throttle(logger, "__init__._is_monotone_nondecreasing", logging.WARNING, "_is_monotone_nondecreasing: float cast failed, non-numeric column: %s", exc)
         return False
     if not np.all(np.isfinite(af)):
         return False
@@ -362,7 +362,7 @@ def _spec_is_recurrent(spec: Any) -> bool:
     try:
         return bool(getattr(get_transform(spec["transform_name"]), "recurrent", False))
     except UnknownTransformError as _exc:  # an unregistered transform is simply not recurrent; anything else is a real bug
-        logger.debug("_spec_is_recurrent fell back to its default after %s", type(_exc).__name__)
+        log_throttle(logger, "__init__._spec_is_recurrent", logging.WARNING, "_spec_is_recurrent fell back to its default after %s", type(_exc).__name__)
         return False
 
 

@@ -38,6 +38,7 @@ from typing import ContextManager, List, Protocol, runtime_checkable
 from mlframe.training.feature_handling.locking import PIDAwareFileLock
 from mlframe.training.feature_handling.system import long_path_safe
 from mlframe.training.io import atomic_write_bytes
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -304,7 +305,7 @@ class LocalDiskBackend:
         try:
             names = os.listdir(self.root)
         except OSError as _exc:
-            logger.debug("_evict_to_caps fell back to its default after %s", type(_exc).__name__)
+            log_throttle(logger, "cache_backend._evict_to_caps", logging.WARNING, "_evict_to_caps fell back to its default after %s", type(_exc).__name__)
             return 0
         for name in names:
             if name.startswith(".") or not name.endswith(".bin"):
@@ -312,7 +313,11 @@ class LocalDiskBackend:
             key = name[:-4]
             try:
                 size = os.path.getsize(os.path.join(self.root, name))
-            except OSError:
+            except FileNotFoundError:
+                size = 0  # evicted by a concurrent process between listdir and getsize
+            except OSError as _sz_exc:
+                log_throttle(logger, "cache_backend._evict_to_caps.getsize", logging.WARNING,
+                             "cache_backend: cannot stat %s (%s); counting it as 0 bytes toward the size cap", name, _sz_exc)
                 size = 0
             entries.append((key, float(lru.get(key, 0.0)), size))
         entries.sort(key=lambda e: e[1])

@@ -37,6 +37,7 @@ from ._dummy_report_type import BaselineReport
 # ``dummy_baselines -> _dummy_metrics_pick_plot -> dummy_baselines`` import
 # cycle.
 from ._dummy_numba_kernels import _NUMBA_AVAILABLE
+from mlframe.utils.log_throttle import log_throttle
 if _NUMBA_AVAILABLE:
     from ._dummy_numba_kernels import _numba_macro_log_loss, _numba_micro_log_loss
 
@@ -558,5 +559,5 @@ def _safe_metric_for_title(report: BaselineReport) -> str:
             return f"{val:.4g}"
         return "?"
     except Exception as exc:
-        logger.debug("_safe_metric_for_title: metric lookup failed: %s", exc)
+        log_throttle(logger, "_dummy_metrics_pick_plot._safe_metric_for_title", logging.WARNING, "_safe_metric_for_title: metric lookup failed: %s", exc)
         return "?"

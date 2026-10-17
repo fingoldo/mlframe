@@ -495,7 +495,7 @@ class TorchDataModule(LightningDataModule):
         # AttributeError is already a subclass of Exception; the prior (AttributeError, Exception) tuple
         # was dead/pointless.
         except Exception as exc:
-            logger.debug("neural.data: CUDAAccelerator detection failed, treating as non-CUDA: %s", exc)
+            log_throttle(logger, "data.on_gpu", logging.WARNING, "neural.data: CUDAAccelerator detection failed, treating as non-CUDA: %s", exc)
             return False
 
     def _get_device(self) -> Optional[str]:

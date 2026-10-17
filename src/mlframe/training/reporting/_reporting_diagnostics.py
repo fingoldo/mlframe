@@ -24,6 +24,7 @@ from ._reporting_common import (
     display_estimator_name,
     model_name_for_title,
 )
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -281,7 +282,7 @@ def _predictions_worse_than_the_mean(y_arr: Any, y_pred: Any) -> bool:
         ss_tot = float(np.sum((ya[finite] - ya[finite].mean()) ** 2))
         return (ss_tot > 0) and (1.0 - ss_res / ss_tot < 0.0)
     except Exception as e:  # -- collapse gate is a perf heuristic; never abort reporting
-        logger.debug("collapse-gate R^2 computation failed: %s", e)
+        log_throttle(logger, "_reporting_diagnostics._predictions_worse_than_the_mean", logging.WARNING, "collapse-gate R^2 computation failed: %s", e)
         return False
 
 

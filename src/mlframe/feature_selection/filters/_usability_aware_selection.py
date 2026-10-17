@@ -744,7 +744,9 @@ def usability_greedy(
                     rhs[:k] = bs; rhs[k] = bn
                     try:
                         beta_vec = np.linalg.solve(G, rhs)
-                    except np.linalg.LinAlgError:
+                    except np.linalg.LinAlgError as _sing_exc:
+                        log_throttle(logger, "_usability_aware_selection.loo_solve", logging.WARNING,
+                                     "usability LOO solve hit a singular Gram matrix (%s); candidate falls back to the exact refit", _sing_exc)
                         singular = True; break
                     pred = ybar + Sc_va @ beta_vec[:k] + cc_va * beta_vec[k]
                 errs[fo] = float(np.mean(np.abs(y_cont[va] - pred)))

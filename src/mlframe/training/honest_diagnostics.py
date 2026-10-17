@@ -40,6 +40,7 @@ import numpy as np
 
 from ._format import unwrap_target_wrapper
 from ._honest_decision_threshold import decision_threshold_block, format_decision_threshold_line
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -65,7 +66,7 @@ def _is_binary_classif(y: np.ndarray) -> bool:
     try:
         u = np.unique(y[np.isfinite(y) if y.dtype.kind in "fc" else slice(None)])
     except Exception as exc:
-        logger.debug("_is_binary_classif: unique-value probe failed: %s", exc)
+        log_throttle(logger, "honest_diagnostics._is_binary_classif", logging.WARNING, "_is_binary_classif: unique-value probe failed: %s", exc)
         return False
     return u.size == 2 and set(u.tolist()).issubset({0, 1})
 

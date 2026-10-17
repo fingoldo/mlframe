@@ -15,6 +15,7 @@ import logging
 import numpy as np
 from sklearn.base import clone as _clone
 from sklearn.compose import TransformedTargetRegressor
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -62,7 +63,7 @@ class _TTRWithEvalSetScaling(TransformedTargetRegressor):
             self._y_train_clip_high_ = float("+inf")
             self._y_train_mean_ = 0.0
             self._y_train_std_ = 0.0
-            logger.debug(
+            log_throttle(logger, "_ttr_eval_set_scaling.fit", logging.WARNING,
                 "ttr y-train-clip bound computation failed (non-fatal, defensive predict-time clip disabled): %s",
                 _clip_bound_err,
             )

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 from typing import Any
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +36,7 @@ def any_pipeline_stage_requested(pipeline_config: Any) -> bool:
     try:
         return any(_config_get(pipeline_config, name) is not None for name in _STAGE_KEYS)
     except Exception as exc:
-        logger.debug("unreadable pipeline_config (%s: %s); assuming a stage was requested", type(exc).__name__, exc)
+        log_throttle(logger, "_main_train_suite_polars_gate.any_pipeline_stage_requested", logging.WARNING, "unreadable pipeline_config (%s: %s); assuming a stage was requested", type(exc).__name__, exc)
         return True
 
 

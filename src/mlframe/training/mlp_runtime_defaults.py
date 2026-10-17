@@ -17,6 +17,7 @@ import os
 import platform
 import threading
 from typing import Any, Optional
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -200,7 +201,7 @@ def _probe_cuda_precision_cached(device_id: int) -> str:
                 cc_major, _ = torch.cuda.get_device_capability(int(device_id))
                 result = "bf16-mixed" if cc_major >= _BF16_MIN_CC_MAJOR else "32-true"
             except Exception as e:
-                logger.debug("torch.cuda.get_device_capability() failed, defaulting to 32-true: %s", e)
+                log_throttle(logger, "mlp_runtime_defaults._probe_cuda_precision_cached", logging.WARNING, "torch.cuda.get_device_capability() failed, defaulting to 32-true: %s", e)
                 result = "32-true"
     except Exception as e:
         logger.debug("precision probe failed, defaulting to 32-true: %s", e)

@@ -331,13 +331,13 @@ def _permutation_feature_importances(
             try:
                 return float(fast_r2_score(y_arr_local, preds_arr, sample_weight=sample_weight))
             except Exception as exc:
-                logger.debug("permutation FI: fast_r2_score scoring failed; scoring as -inf: %r", exc, exc_info=True)
+                log_throttle(logger, "_feature_importances._adaptive_scorer", logging.WARNING, "permutation FI: fast_r2_score scoring failed; scoring as -inf: %r", exc, exc_info=True)
                 return -np.inf
         from mlframe.metrics.core import accuracy_ratio
         try:
             return float(accuracy_ratio(y_arr_local, preds_arr))
         except Exception as exc:
-            logger.debug("permutation FI: accuracy_ratio scoring failed; scoring as -inf: %r", exc, exc_info=True)
+            log_throttle(logger, "_feature_importances._adaptive_scorer", logging.WARNING, "permutation FI: accuracy_ratio scoring failed; scoring as -inf: %r", exc, exc_info=True)
             return -np.inf
     # Threading backend (NOT loky / multiprocessing):
     # ``profiling/bench_permutation_fi_nn.py`` measured a

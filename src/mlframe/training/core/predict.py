@@ -442,7 +442,7 @@ def _is_post_hoc_calibrated_model(model_obj: Any) -> bool:
         # not: the mixed-calibration WARN could never fire. Both levels are checked, the inner one first.
         _names = [type(getattr(model_obj, "model", model_obj)).__name__, type(model_obj).__name__]
     except Exception as exc:
-        logger.debug("_is_post_hoc_calibrated_model: type introspection failed: %s", exc)
+        log_throttle(logger, "predict._is_post_hoc_calibrated_model", logging.WARNING, "_is_post_hoc_calibrated_model: type introspection failed: %s", exc)
         return False
     return any(_n in _WRAPPERS for _n in _names)
 

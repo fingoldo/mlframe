@@ -237,7 +237,7 @@ def _is_integral(vals) -> bool:
     try:
         return bool(np.all(np.equal(np.mod(vals, 1.0), 0.0)))
     except Exception as _int_exc:
-        logger.debug("_is_integral: probe failed (%s); treating column as non-integral.", _int_exc)
+        log_throttle(logger, "_meta_fe_recommender._is_integral", logging.WARNING, "_is_integral: probe failed (%s); treating column as non-integral.", _int_exc)
         return False
 
 
@@ -248,7 +248,7 @@ def _is_monotone(vals) -> bool:
         d = np.diff(vals)
         return True if np.all(d >= 0) else bool(np.all(d <= 0))
     except Exception as _mono_exc:
-        logger.debug("_is_monotone: probe failed (%s); treating column as non-monotone.", _mono_exc)
+        log_throttle(logger, "_meta_fe_recommender._is_monotone", logging.WARNING, "_is_monotone: probe failed (%s); treating column as non-monotone.", _mono_exc)
         return False
 
 

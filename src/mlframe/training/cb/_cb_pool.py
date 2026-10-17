@@ -128,7 +128,7 @@ def _polars_schema_diagnostic(
                     ordering = getattr(dt, "ordering", "?")
                     variant = f"Categorical(ordering={ordering!r})"
                 except Exception as e:
-                    logger.debug("schema diagnostic: reading Categorical ordering failed: %s", e)
+                    log_throttle(logger, "_cb_pool._polars_schema_diagnostic", logging.WARNING, "schema diagnostic: reading Categorical ordering failed: %s", e)
                     variant = "Categorical"
             try:
                 nu = df[col].n_unique()

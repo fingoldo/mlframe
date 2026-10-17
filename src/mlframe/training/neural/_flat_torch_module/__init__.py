@@ -18,6 +18,7 @@ from lightning.pytorch.callbacks import ModelCheckpoint
 from ..base import MetricSpec
 from ._flat_torch_loss import _LossMixin
 from ._flat_torch_predict_accel import _PredictAccelMixin
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger("mlframe.training.neural.flat")
 
@@ -428,7 +429,7 @@ class MLPTorchModel(_PredictAccelMixin, _LossMixin, L.LightningModule):
             try:
                 _any_cuda = any(p.is_cuda for p in self.parameters())
             except Exception as e:
-                logger.debug("parameter CUDA-residency probe failed: %s", e)
+                log_throttle(logger, "__init__.configure_optimizers", logging.WARNING, "parameter CUDA-residency probe failed: %s", e)
                 _any_cuda = False
             # A fused Adam/AdamW unscales gradients internally, so under AMP Lightning's automatic gradient clipping raises "optimizer does not allow for gradient clipping". When the trainer will clip, skip fused — the per-param launch cost is negligible next to losing clip safety.
             # ``self.trainer`` is a Lightning PROPERTY that RAISES RuntimeError("not attached to a Trainer") when the

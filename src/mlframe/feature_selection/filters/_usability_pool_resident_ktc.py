@@ -26,6 +26,7 @@ import logging
 
 import numpy as np
 from typing import cast
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -68,7 +69,7 @@ def pool_table_use_resident(n_rows: int, npairs: int, n_combos: int) -> bool:
     try:
         choice = _POOLRES_SPEC.choose(n_rows=int(n_rows), npairs=int(pb), n_combos=int(cb))
     except Exception as e:
-        logger.debug("pool_table_use_resident: KTC choose() failed, caller stays on the exact host per-pair njit kernel: %s", e)
+        log_throttle(logger, "_usability_pool_resident_ktc.pool_table_use_resident", logging.WARNING, "pool_table_use_resident: KTC choose() failed, caller stays on the exact host per-pair njit kernel: %s", e)
         return False
     return bool(choice == "resident")
 

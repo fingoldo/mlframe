@@ -356,7 +356,7 @@ def compute_model_input_fingerprint(
             else:
                 dt = df_at_fit[col].dtype
         except Exception as e:
-            logger.debug("failed to read dtype for column %r, using placeholder '?' in the fingerprint schema: %s", col, e)
+            log_throttle(logger, "utils.compute_model_input_fingerprint", logging.WARNING, "failed to read dtype for column %r, using placeholder '?' in the fingerprint schema: %s", col, e)
             dt = "?"
         if col in cat_set:
             role = "cat"
