@@ -159,3 +159,10 @@ member_sel
 X_drop
 seed_indices
 models_and_predictions
+
+# --- monkeypatch replacement-function / stub parameters kept to match the replaced signature (2026-10-17 CI vulture run). ---
+max_devices  # tests/feature_selection/filters/test_mi_path_chooser.py
+sigma0  # tests/feature_selection/regression/test_mrmr_core.py (CMA-ES stub __init__)
+solutions  # tests/feature_selection/regression/test_mrmr_core.py (CMA-ES stub tell)
+n_pool  # tests/feature_selection/regression/test_mrmr_fe_orthogonal.py
+url  # tests/scripts/test_ci_version_matrix.py (urlopen stub)

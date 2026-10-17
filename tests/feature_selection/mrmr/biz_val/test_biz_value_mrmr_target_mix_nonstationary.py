@@ -7,6 +7,7 @@ the past and scores on the next block.
 """
 
 import numpy as np
+import pytest
 import pandas as pd
 from sklearn.ensemble import HistGradientBoostingRegressor
 from sklearn.model_selection import TimeSeriesSplit
@@ -43,7 +44,8 @@ def _out_of_time_rmse(model_factory, X, y):
     return float(np.mean(scores))
 
 
-def test_target_mix_beats_the_raw_target_out_of_time(strict_mode):
+@pytest.mark.usefixtures("strict_mode")
+def test_target_mix_beats_the_raw_target_out_of_time():
     """The mixed-target model has a far lower out-of-time error than the same regressor on the raw target."""
     seed = 0
     X, y = _frame(seed)
