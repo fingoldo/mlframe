@@ -18,6 +18,16 @@ def test_unique_columns_maps_every_row_to_its_first_equal_row():
     assert unique_columns(base[:1]) is None
 
 
+def test_columns_with_relabelled_or_reversed_codes_share_one_partition():
+    """A decreasing transform (codes reversed) and any relabelling induce the partition of the original column; a different partition is kept."""
+    rng = np.random.default_rng(2)
+    a = rng.integers(0, 6, 500).astype(np.int8)
+    cols = np.vstack([a, 5 - a, (a * 3 + 1) % 7, rng.integers(0, 6, 500).astype(np.int8)])
+    keep, inverse = unique_columns(cols)
+    assert keep.tolist() == [0, 3]
+    assert inverse.tolist() == [0, 0, 0, 1]
+
+
 def _family(seed):
     """One strong column, many noise columns, and exact repeats of both."""
     rng = np.random.default_rng(seed)

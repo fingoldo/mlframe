@@ -39,7 +39,6 @@ extern "C" __global__ void root_split_stats(const int* __restrict__ order, const
     const int b = (int)(idx - (long long)j * B);
     const int* ord = order + (long long)j * n;
     const unsigned char* tj = tie + (long long)j * n;
-    const signed char* yb = ylab + (long long)b * n;
     long long cl[16], cr[16];
     for (int c = 0; c < K; ++c) { cl[c] = 0; cr[c] = ctot[c]; }
     double s_left = 0.0, s_right = 0.0;
@@ -48,7 +47,7 @@ extern "C" __global__ void root_split_stats(const int* __restrict__ order, const
     double best_gain = -1e300;
     int best_idx = -1, ncand = 0;
     for (int i = 0; i < n - 1; ++i) {
-        const int yi = yb[ord[i]];
+        const int yi = ylab[(long long)ord[i] * B + b];
         const long long c_l = cl[yi], c_r = cr[yi];
         s_left += ((c_l + 1 < 32768) ? tab[c_l + 1] : (double)(c_l + 1) * log((double)(c_l + 1))) - ((c_l < 32768) ? tab[c_l] : (double)c_l * log((double)c_l));
         s_right += ((c_r - 1 < 32768) ? tab[c_r - 1] : (double)(c_r - 1) * log((double)(c_r - 1))) - ((c_r < 32768) ? tab[c_r] : (double)c_r * log((double)c_r));
@@ -56,7 +55,7 @@ extern "C" __global__ void root_split_stats(const int* __restrict__ order, const
         cr[yi] = c_r - 1;
         const int n_l = i + 1, n_r = n - n_l;
         if (n_l < min_split || n_r < min_split) continue;
-        if (yi == (int)yb[ord[i + 1]]) continue;
+        if (yi == (int)ylab[(long long)ord[i + 1] * B + b]) continue;
         if (tj[i]) continue;
         ++ncand;
         const double xl_l = (n_l < 32768) ? tab[n_l] : (double)n_l * log((double)n_l);
@@ -83,9 +82,14 @@ def _get_kernel(cp):
 
 _SOURCE_K2 = r"""
 #define XL(v) (((v) < 32768) ? tab[(v)] : (double)(v) * log((double)(v)))
+// n * binary entropy of a side with m rows of which c are class 1: m ln m - c ln c - (m - c) ln(m - c), evaluated as m * h(c / m) so every term stays below n ln 2
+#define ENT2(m, c) (((c) > 0.f && (c) < (m)) ? -((c) * __logf((c) / (m)) + ((m) - (c)) * __logf(((m) - (c)) / (m))) : 0.f)
+// Two passes over the sorted rows. Pass 1 scores every candidate cut with the float32 entropy sums (no double arithmetic: the device has 1/32 double throughput, and the scan was bound
+// by the dependency chain of the double additions) and keeps the smallest. Pass 2 evaluates the exact double gain only for the candidates whose float score is within the float error
+// bound (0.5 nats of row-weighted entropy; the float error of one score is about 0.02 at 50 000 rows) of that minimum, with the host kernel's tie rule (the first strictly greater gain wins).
 extern "C" __global__ void root_split_stats_k2(const int* __restrict__ order, const unsigned char* __restrict__ tie, const unsigned char* __restrict__ ybits,
-                                               const double* __restrict__ tab, const long long* __restrict__ ctot, const int n, const int B, const int Kc,
-                                               const int min_split, const double h_full, const int words, double* __restrict__ out_gain,
+                                               const double* __restrict__ tab, const long long* __restrict__ ctot, const int n, const int B,
+                                               const int Kc, const int min_split, const double h_full, const int words, double* __restrict__ out_gain,
                                                int* __restrict__ out_ncand, int* __restrict__ out_idx) {
     const long long idx = (long long)blockDim.x * blockIdx.x + threadIdx.x;
     if (idx >= (long long)B * Kc) return;
@@ -93,41 +97,45 @@ extern "C" __global__ void root_split_stats_k2(const int* __restrict__ order, co
     const int b = (int)(idx - (long long)j * B);
     const int* ord = order + (long long)j * n;
     const unsigned char* tj = tie + (long long)j * n;
-    const unsigned int* yb = (const unsigned int*)ybits + (long long)b * words;
-    long long l0 = 0, l1 = 0, r0 = ctot[0], r1 = ctot[1];
-    double s_left = 0.0, s_right = XL(r0) + XL(r1);
+    const unsigned int* yb = (const unsigned int*)ybits;
     const double n_f = (double)n;
-    double best_gain = -1e300;
-    int best_idx = -1, ncand = 0;
-    // The labels of the next eight sorted positions are loaded before they are used: the addresses depend only on the order, not on the running counts, so the loads overlap.
     const int TILE = 8;
     int ybuf[TILE + 1];
-    for (int i0 = 0; i0 < n - 1; i0 += TILE) {
-        const int cnt = min(TILE + 1, n - i0);
+    float w_min = 3.0e38f;
+    int ncand = 0;
+    for (int pass = 0; pass < 2; ++pass) {
+        long long l0 = 0, l1 = 0, r0 = ctot[0], r1 = ctot[1];
+        double best_gain = -1e300;
+        int best_idx = -1;
+        for (int i0 = 0; i0 < n - 1; i0 += TILE) {
+            const int cnt = min(TILE + 1, n - i0);
 #pragma unroll
-        for (int t = 0; t < TILE + 1; ++t) {
-            if (t < cnt) { const int pos = ord[i0 + t]; ybuf[t] = (yb[pos >> 5] >> (pos & 31)) & 1; }
-        }
-        for (int t = 0; t < TILE && i0 + t < n - 1; ++t) {
-            const int i = i0 + t;
-            const int yi = ybuf[t];
-            const int y_next = ybuf[t + 1];
-            long long c_l, c_r;
-            if (yi) { c_l = l1; c_r = r1; } else { c_l = l0; c_r = r0; }
-            s_left += XL(c_l + 1) - XL(c_l);
-            s_right += XL(c_r - 1) - XL(c_r);
-            if (yi) { l1 = c_l + 1; r1 = c_r - 1; } else { l0 = c_l + 1; r0 = c_r - 1; }
-            const int n_l = i + 1, n_r = n - n_l;
-            if (n_l >= min_split && n_r >= min_split && yi != y_next && !tj[i]) {
-                ++ncand;
-                const double gain = h_full - (XL(n_l) - s_left + XL(n_r) - s_right) / n_f;
-                if (gain > best_gain) { best_gain = gain; best_idx = i; }
+            for (int t = 0; t < TILE + 1; ++t) {
+                if (t < cnt) { const int pos = ord[i0 + t]; ybuf[t] = (yb[(long long)(pos >> 5) * B + b] >> (pos & 31)) & 1; }
+            }
+            for (int t = 0; t < TILE && i0 + t < n - 1; ++t) {
+                const int i = i0 + t;
+                const int yi = ybuf[t];
+                if (yi) { ++l1; --r1; } else { ++l0; --r0; }
+                const int n_l = i + 1, n_r = n - n_l;
+                if (n_l >= min_split && n_r >= min_split && yi != ybuf[t + 1] && !tj[i]) {
+                    const float w_f = ENT2((float)n_l, (float)l1) + ENT2((float)n_r, (float)r1);
+                    if (pass == 0) {
+                        ++ncand;
+                        if (w_f < w_min) w_min = w_f;
+                    } else if (w_f <= w_min + 0.5f) {
+                        const double gain = h_full - (XL(n_l) - (XL(l0) + XL(l1)) + XL(n_r) - (XL(r0) + XL(r1))) / n_f;
+                        if (gain > best_gain) { best_gain = gain; best_idx = i; }
+                    }
+                }
             }
         }
+        if (pass == 1) {
+            out_gain[idx] = best_gain;
+            out_ncand[idx] = ncand;
+            out_idx[idx] = best_idx;
+        }
     }
-    out_gain[idx] = best_gain;
-    out_ncand[idx] = ncand;
-    out_idx[idx] = best_idx;
 }
 """
 
@@ -147,7 +155,7 @@ def _pack_bits(y_perm: np.ndarray) -> np.ndarray:
     n = y_perm.shape[1]
     pad = (-n) % 32
     bits = np.pad((y_perm == 1).astype(np.uint8), ((0, 0), (0, pad)))
-    return np.packbits(bits, axis=1, bitorder="little").view(np.uint32)
+    return np.packbits(bits, axis=1, bitorder="little").view(np.uint32)  # (permutations, words)
 
 
 @njit(cache=True, parallel=True)
@@ -354,7 +362,7 @@ def honest_null_columns_device(
                     (
                         cp.asarray(order),
                         cp.asarray(tie),
-                        cp.asarray(ybits.view(np.uint8)),
+                        cp.asarray(np.ascontiguousarray(ybits.T).view(np.uint8)),  # (words, permutations): a warp of consecutive permutations reads consecutive words
                         cp.asarray(tab),
                         cp.asarray(counts.astype(np.int64)),
                         np.int32(n),
@@ -375,7 +383,7 @@ def honest_null_columns_device(
                     (
                         cp.asarray(order),
                         cp.asarray(tie),
-                        cp.asarray(np.ascontiguousarray(y_raw_perm, dtype=np.int8)),
+                        cp.asarray(np.ascontiguousarray(np.asarray(y_raw_perm, dtype=np.int8).T)),  # (rows, permutations): coalesced across a warp
                         cp.asarray(tab),
                         cp.asarray(counts.astype(np.int64)),
                         np.int32(n_classes_total),
