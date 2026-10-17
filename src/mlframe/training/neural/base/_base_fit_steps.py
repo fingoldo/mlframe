@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import os
-from typing import Any, Callable, Optional
+from typing import TYPE_CHECKING, Any, Callable, Optional
 
 import numpy as np
 import pandas as pd
@@ -27,6 +27,28 @@ logger = __import__("logging").getLogger("mlframe.training.neural.base")
 
 class _FitStepsMixin:
     """Coherent blocks of the training run, called in order by ``_FitMixin._fit_common``."""
+
+    if TYPE_CHECKING:
+        # Attributes and sibling-mixin methods the owning estimator provides at runtime; declared for mypy only.
+        datamodule_params: Any
+        _binary_sigmoid_head: Any
+        model_class: Any
+        model_params: Any
+        network_params: Any
+        example_input_array: Any
+        swa_params: Any
+        trainer_params: Any
+        use_ema: Any
+        use_swa: Any
+        _fit_common_bleed_multilabel_config_into: Any
+        _fit_common_chrome_trace_export_mlframe: Any
+        _fit_common_enable_tf32_float32_matmul: Any
+        _fit_common_explicit_user_set_scale: Any
+        _fit_common_has_validation: Any
+        _fit_common_idempotent_re_seeding_before: Any
+        _fit_common_reject_those_further_down: Any
+        _fit_common_self_use_ema: Any
+        _fit_common_unaffected_because_bf16_mixed: Any
 
     def _fit_step_dm_params(self, y: Any) -> "tuple[bool, dict]":
         """Detect a multilabel target and build the per-fit datamodule kwargs; returns ``(is_multilabel_target, dm_params)``."""
@@ -388,6 +410,7 @@ class _FitStepsMixin:
             data_slice = X.iloc[0:2, :].values if isinstance(X, pd.DataFrame) else X[0:2, :]
 
             try:
-                self.model.example_input_array = to_tensor_any(data_slice, dtype=features_dtype, safe=True)
+                _fit_model: Any = self.model
+                _fit_model.example_input_array = to_tensor_any(data_slice, dtype=features_dtype, safe=True)
             except Exception:
                 logger.warning("Failed to prepare example_input_array", exc_info=True)

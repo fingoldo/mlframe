@@ -275,7 +275,7 @@ def compute_probabilistic_multiclass_error(
     # of the legacy fast_ice_only K-loop -- verified in
     # ``profiling/bench_compute_multiclass_error.py``.
     if method == "multicrit" and not verbose and _every_class_bins_uniform(probs, y_true, labels, multilabel):
-        _fast_result = _try_batched_ice_fastpath(
+        _fast_result: float | tuple[float, dict[Any, Any]] | None = _try_batched_ice_fastpath(
             probs, y_true, labels, multilabel, nbins, use_weighted_calibration, mae_weight, std_weight, brier_loss_weight, roc_auc_weight, pr_auc_weight,
             min_roc_auc, roc_auc_penalty, coverage_weight, weight_by_class_npositives, return_per_class,
         )

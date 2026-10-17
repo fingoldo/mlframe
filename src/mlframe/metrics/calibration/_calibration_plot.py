@@ -672,13 +672,14 @@ def show_calibration_plot(
         _draw_histogram_axes = _show_calibration_plo_step3_def_draw_histogram(hits, freqs_predicted, _bar_width, label_prob, label_histogram, _resolve_yscale)
 
         if plot_file and not show_plots:
-            return save_only_calibration_fig(figsize, dpi, plot_file, show_prob_histogram, _draw_calibration_axes, _draw_histogram_axes, plot_title)
+            _saved: Figure | None = save_only_calibration_fig(figsize, dpi, plot_file, show_prob_histogram, _draw_calibration_axes, _draw_histogram_axes, plot_title)
+            return _saved
 
         # Interactive path (show_plots=True) -- keep pyplot so the GUI window is managed.
         # layout="constrained" -> layout=None (same rationale as the
         # save-only path above: 1.67x faster, visually equivalent on this
         # 12x6 figsize + multi-axis colorbar + 2-line title geometry).
-        fig = _show_calibration_p_x6_figsize_multi_axis(show_prob_histogram, figsize, dpi, _draw_calibration_axes, _draw_histogram_axes, plot_title)
+        fig: Figure | None = _show_calibration_p_x6_figsize_multi_axis(show_prob_histogram, figsize, dpi, _draw_calibration_axes, _draw_histogram_axes, plot_title)
 
         finish_interactive_calibration_fig(fig, plot_file, show_plots)
 

@@ -32,7 +32,7 @@ class GroupBatchSampler(Sampler):
         # accepted the kwarg as a no-op; the bare call is correct under both.
         # Older torch's Sampler stub declares data_source as required -- the ignore is only
         # "needed" against that stub; see the warn_unused_ignores override for this module.
-        super().__init__()  # type: ignore[call-arg]
+        super().__init__()
         self.group_ids = np.asarray(group_ids)
         self.relevance = np.asarray(relevance)
         self.shuffle = shuffle

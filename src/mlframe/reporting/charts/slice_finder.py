@@ -386,7 +386,7 @@ def _build_combos(
     pairs = list(itertools.combinations(range(p), 2))
     _cap_combos_with_pairs(max_arity, combos, pairs, max_combos, capped)
     if max_arity >= 3 and p > 3:
-        top = _top_split_features(mat, err, names, max_depth=3, n_features=min(three_way_top_features, p), seed=seed)
+        top = _top_split_features(mat, err, list(names), max_depth=3, n_features=min(three_way_top_features, p), seed=seed)
         if len(top) < p:
             capped.append(f"3-way restricted to top {len(top)} error-discriminating features")
         triples = list(itertools.combinations(sorted(top), 3))
