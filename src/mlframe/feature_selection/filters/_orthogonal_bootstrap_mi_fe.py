@@ -78,25 +78,6 @@ __all__ = [
 # callers will pattern-match.
 _LCB_Z = 1.96
 
-def _all_columns_distinct(arr: np.ndarray) -> bool:
-    """True iff every column of ``arr`` (n, k) has all-distinct values.
-
-    Gate for the sorted-resample-gather optimisation in
-    :func:`score_features_by_bootstrap_mi`. The downstream MI uses
-    equi-frequency argsort binning whose tie-breaking is positional, so
-    reordering the bootstrap rows is bit-identical ONLY when there are no tied
-    values to split at a bin boundary - i.e. when each column is all-distinct
-    (continuous). For such matrices the only ties under with-replacement
-    resampling are exact-equal duplicate rows, which bin together. Low-card /
-    discrete columns must keep the original random-order gather (sorting them
-    shifts MI ~1e-3 and drifts selection). Short-circuits on the first column
-    that has a duplicate so discrete matrices bail cheaply."""
-    n = arr.shape[0]
-    for j in range(arr.shape[1]):
-        if np.unique(arr[:, j]).size < n:
-            return False
-    return True
-
 def _bootstrap_rows(rng: np.random.Generator, y_arr: np.ndarray, n: int, sample_n: int) -> np.ndarray:
     """Row indices of one bootstrap replicate: ``sample_n`` rows drawn with replacement.
 
@@ -113,6 +94,25 @@ def _bootstrap_rows(rng: np.random.Generator, y_arr: np.ndarray, n: int, sample_
     return idx
 
 
+def _replicate_mi(arr: np.ndarray, y_arr: np.ndarray, rep_rows: "list[np.ndarray]", nbins: int) -> np.ndarray:
+    """``(B, k)`` rank-binned MI of every column of ``arr`` on every resample in ``rep_rows``.
+
+    Columns that are finite and (almost) all distinct are scored by :func:`bootstrap_rank_mi` (sort once, walk the order with the resample's multiplicities; bit-identical to the sorted-gather
+    path for a fully distinct column); the other columns are gathered per resample in random order and scored by the batch MI, as before."""
+    from ._bootstrap_rank_mi_njit import bootstrap_rank_mi
+
+    k = arr.shape[1]
+    out = np.zeros((len(rep_rows), k), dtype=np.float64)  # Intentional float64: statistic vector (MI / null max / p-value inputs)
+    mi, fast = bootstrap_rank_mi(arr, y_arr, rep_rows, nbins)
+    out[:, fast] = mi[:, fast]
+    slow_idx = np.flatnonzero(~fast)
+    if slow_idx.size:
+        sub = arr if slow_idx.size == k else arr[:, slow_idx]
+        for b, idx in enumerate(rep_rows):
+            out[b, slow_idx] = np.asarray(_mi_classif_batch(sub[idx, :], y_arr[idx], nbins=nbins), dtype=np.float64)  # Intentional float64: statistic vector
+    return out
+
+
 def baseline_lcb_by_bootstrap_mi(raw_X: pd.DataFrame, y: np.ndarray, *, n_boot: int = 10, sample_fraction: float = 0.8, seed: int = 0, nbins: int = 10) -> np.ndarray:
     """``baseline_mi_lcb`` of every column of ``raw_X``, exactly as :func:`score_features_by_bootstrap_mi` reports it for the engineered columns built from that column.
 
@@ -124,16 +124,11 @@ def baseline_lcb_by_bootstrap_mi(raw_X: pd.DataFrame, y: np.ndarray, *, n_boot: 
     from ._fe_usability_signal import _crit_np_dtype
 
     raw_arr = raw_X.to_numpy(dtype=_crit_np_dtype())
-    raw_sort_safe = _all_columns_distinct(raw_arr)
     n_boot_eff = max(1, int(n_boot))
     sample_n = max(2, round(float(sample_fraction) * n))
     rng = np.random.default_rng(int(seed))
-    reps = []
-    for _ in range(n_boot_eff):
-        idx = _bootstrap_rows(rng, y_arr, n, sample_n)
-        idx_raw = np.sort(idx) if raw_sort_safe else idx
-        reps.append(np.asarray(_mi_classif_batch(raw_arr[idx_raw, :], y_arr[idx_raw], nbins=nbins), dtype=np.float64))  # Intentional float64: statistic vector (MI / null max / p-value inputs)
-    mat = np.vstack(reps)
+    reps = [_bootstrap_rows(rng, y_arr, n, sample_n) for _ in range(n_boot_eff)]
+    mat = _replicate_mi(raw_arr, y_arr, reps, nbins)
     ddof = 1 if n_boot_eff >= 2 else 0
     std = mat.std(axis=0, ddof=ddof) if n_boot_eff >= 2 else np.zeros(mat.shape[1])
     return np.asarray(mat.mean(axis=0) - _LCB_Z * std)
@@ -229,56 +224,26 @@ def score_features_by_bootstrap_mi(
     raw_arr = raw_X.to_numpy(dtype=_dt)
     eng_arr = engineered_X.to_numpy(dtype=_dt)
 
-    # The wide (sample_n, n_eng) gathers in the bootstrap loop dominate this
-    # function's self-time, and a random with-replacement ``idx`` scatters the
-    # reads across the whole matrix (cache-miss bound). Sorting ``idx`` makes
-    # the gather near-sequential (~6-7x faster here), but the downstream MI uses
-    # equi-frequency argsort binning whose tie-breaking is positional, so the
-    # sort is bit-identical only when a matrix's columns are all-distinct (see
-    # _all_columns_distinct). Gate per matrix: the engineered matrix is
-    # continuous by construction (polynomial/basis transforms) so it almost
-    # always qualifies and gets the win; raw_X is narrow (cheap gather either
-    # way) and may carry discrete columns, in which case it keeps random order.
-    raw_sort_safe = _all_columns_distinct(raw_arr)
-    eng_sort_safe = _all_columns_distinct(eng_arr)
-
     n_boot_eff = max(1, int(n_boot))
     sample_n = max(2, round(float(sample_fraction) * n))
     rng = np.random.default_rng(int(seed))
 
-    # Precompute engineered-col -> raw-col position ONCE so each replicate's
-    # baseline vector is a vectorised gather ``raw_mi_b[src_idx]`` instead of
-    # rebuilding ``dict(zip(raw_cols, raw_mi_b.tolist()))`` + a per-eng-col
-    # Python listcomp every replicate (the per-replicate dict+listcomp was a
-    # measurable slice of this function's self-time at n_boot=10). Engineered
-    # cols whose source is absent from raw_X map to -1 -> 0.0 baseline (matches
-    # the listcomp's ``.get(..., 0.0)`` fallback).
+    # Precompute engineered-col -> raw-col position ONCE so the baseline matrix is a vectorised column gather ``raw_mi[:, src_idx]``. Engineered cols whose source is absent from raw_X
+    # map to -1 -> 0.0 baseline.
     _raw_pos = {c: i for i, c in enumerate(raw_cols)}
     _src_idx = np.array([_raw_pos.get(src_map[ec], -1) for ec in eng_cols], dtype=np.int64)
     _src_valid = _src_idx >= 0
     _src_idx_clipped = np.where(_src_valid, _src_idx, 0)
 
+    reps = [_bootstrap_rows(rng, y_arr, n, sample_n) for _ in range(n_boot_eff)]
+    raw_mi = _replicate_mi(raw_arr, y_arr, reps, nbins)
+    eng_mi = _replicate_mi(eng_arr, y_arr, reps, nbins)
     baseline_replicates: list[np.ndarray] = []  # one (n_eng,) vector per boot
     engineered_replicates: list[np.ndarray] = []
     uplift_replicates: list[np.ndarray] = []
-
-    for _ in range(n_boot_eff):
-        idx = _bootstrap_rows(rng, y_arr, n, sample_n)
-        # Sort the resample indices ONLY for matrices whose columns are all
-        # distinct (continuous), where the gather is bit-identical (see the
-        # raw_sort_safe / eng_sort_safe precompute). The two MI calls are
-        # independent, so raw and eng can use different row orders of the same
-        # resample multiset without affecting their pairing in ``uplift_b``.
-        idx_raw = np.sort(idx) if raw_sort_safe else idx
-        idx_eng = np.sort(idx) if eng_sort_safe else idx
-        sub_raw = raw_arr[idx_raw, :]
-        sub_eng = eng_arr[idx_eng, :]
-        raw_mi_b = _mi_classif_batch(sub_raw, y_arr[idx_raw], nbins=nbins)
-        eng_mi_b = _mi_classif_batch(sub_eng, y_arr[idx_eng], nbins=nbins)
-        # Vectorised baseline gather (see _src_idx precompute above).
-        raw_mi_arr = np.asarray(raw_mi_b, dtype=np.float64)
-        baseline_b = np.where(_src_valid, raw_mi_arr[_src_idx_clipped], 0.0)
-        engineered_b = np.asarray(eng_mi_b, dtype=np.float64)
+    for b in range(n_boot_eff):
+        baseline_b = np.where(_src_valid, raw_mi[b][_src_idx_clipped], 0.0)
+        engineered_b = eng_mi[b]
         uplift_b = relative_uplift_array(engineered_b, baseline_b)
         baseline_replicates.append(baseline_b)
         engineered_replicates.append(engineered_b)

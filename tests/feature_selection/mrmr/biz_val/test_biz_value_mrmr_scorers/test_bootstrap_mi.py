@@ -380,10 +380,11 @@ class TestEnableAppendsEngineered:
         _X, _y, m = _bootstrap_enabled_fit(seed)
         added = list(getattr(m, "hybrid_orth_features_", []) or [])
         assert added, f"seed={seed}: bootstrap flag ON should append at least one engineered column to hybrid_orth_features_; got {added}"
-        # The He_2(x1) signal must enter the support.
+        # The He_2(x1) signal must enter the support through an engineered column of x1: its Hermite basis column, or the out-of-fold warp of x1 (a monotone-free encoding of the same
+        # even dependence, which the default pipeline now offers ahead of the basis column).
         assert any(
-            c == "x1__He2" or c.startswith("x1__") for c in added
-        ), f"seed={seed}: bootstrap winners should include an x1 basis column for a clean He_2 signal; got {added}"
+            c.startswith("x1__") or "(x1)" in c for c in added
+        ), f"seed={seed}: bootstrap winners should include an x1 engineered column for a clean He_2 signal; got {added}"
 
 
 class TestCategoricalDoesNotSwallowBootstrap:
@@ -420,7 +421,7 @@ class TestCategoricalDoesNotSwallowBootstrap:
             f"seed={seed}: bootstrap-stable FE must still append engineered column(s) on a categorical-bearing "
             f"frame (numeric cols scoped, cat dropped); got {added}"
         )
-        assert any(c == "x1__He2" or c.startswith("x1__") for c in added), f"seed={seed}: the He_2(x1) winner must survive categorical scoping; got {added}"
+        assert any(c.startswith("x1__") or "(x1)" in c for c in added), f"seed={seed}: an x1 engineered winner (basis column or its out-of-fold warp) must survive categorical scoping; got {added}"
 
 
 # ---------------------------------------------------------------------------
@@ -527,26 +528,59 @@ class TestRecipeReplay:
 class TestSortedGatherGate:
     """The bootstrap loop sorts the resample indices before the wide
     (sample_n, n_eng) gather (cache-locality win, ~6-7x on this function's
-    self-time). MI uses equi-frequency argsort binning whose tie-breaking is
+    self-time; the scorers now sort each column once instead). MI uses equi-frequency argsort binning whose tie-breaking is
     POSITIONAL, so the sort is bit-identical ONLY when a matrix's columns are
     all-distinct (continuous); on tied/discrete columns reordering rows shifts
     MI ~1e-3 and drifts selection. ``_all_columns_distinct`` gates the sort per
-    matrix. These pin the gate + the bit-identity invariant it protects."""
+    column. These pin the bit-identity invariants."""
 
-    def test_all_columns_distinct_gate(self):
-        """_all_columns_distinct correctly flags distinct vs duplicated column sets."""
-        from mlframe.feature_selection.filters._orthogonal_bootstrap_mi_fe import (
-            _all_columns_distinct,
-        )
+    @pytest.mark.parametrize("dtype", [np.float32, np.float64])
+    def test_bootstrap_rank_mi_equals_the_gather_path_bit_for_bit_ties_included(self, dtype):
+        """One rank per column and a counting sort of the draws give the MI of ``_mi_classif_batch(X[idx], y[idx])`` exactly: continuous, tied, binary, -0.0 columns and a full-sample resample."""
+        from mlframe.feature_selection.filters._bootstrap_rank_mi_njit import bootstrap_rank_mi
+        from mlframe.feature_selection.filters._orthogonal_bootstrap_mi_fe import _bootstrap_rows
+        from mlframe.feature_selection.filters._orthogonal_univariate_fe import _mi_classif_batch
+
+        rng = np.random.default_rng(5)
+        n = 4000
+        X = rng.normal(size=(n, 6)).astype(dtype)
+        X[:, 2] = rng.integers(0, 9, n)
+        X[:, 3] = np.round(X[:, 3], 1)  # produces -0.0
+        X[:, 4] = X[:, 4] > 0
+        y = (X[:, 0] + rng.normal(size=n) > 0).astype(np.int64) + (X[:, 1] > 1)
+        draw = np.random.default_rng(1)
+        reps = [_bootstrap_rows(draw, y, n, int(0.8 * n)) for _ in range(4)] + [np.arange(n)]
+        got, ok = bootstrap_rank_mi(X, y, reps, 10)
+        assert ok.all()
+        for b, idx in enumerate(reps):
+            assert np.array_equal(got[b], np.asarray(_mi_classif_batch(X[idx], y[idx], nbins=10), dtype=np.float64))
+
+    def test_bootstrap_rank_mi_flags_non_finite_columns_instead_of_scoring_them(self):
+        """A column with a NaN is left to the batch MI (which masks it to its finite rows): ``ok`` is False and its MI is 0."""
+        from mlframe.feature_selection.filters._bootstrap_rank_mi_njit import bootstrap_rank_mi
 
         rng = np.random.default_rng(0)
-        cont = rng.normal(size=(2000, 4))  # all-distinct floats
-        disc = rng.integers(0, 12, size=(2000, 4)).astype(np.float64)  # heavy ties
-        mixed = cont.copy()
-        mixed[:, 2] = rng.integers(0, 12, size=2000)  # one discrete column
-        assert _all_columns_distinct(cont) is True
-        assert _all_columns_distinct(disc) is False
-        assert _all_columns_distinct(mixed) is False, "one discrete column must disqualify the whole matrix (the gather shares a single idx across all columns)"
+        X = rng.normal(size=(500, 3)).astype(np.float32)
+        X[7, 1] = np.nan
+        y = rng.integers(0, 2, 500)
+        mi, ok = bootstrap_rank_mi(X, y, [np.arange(500)], 10)
+        assert ok.tolist() == [True, False, True] and mi[0, 1] == 0.0
+
+    def test_replicate_mi_scores_the_non_finite_columns_through_the_batch_path(self):
+        """``_replicate_mi`` returns the batch MI for every column, finite or not."""
+        from mlframe.feature_selection.filters._orthogonal_bootstrap_mi_fe import _bootstrap_rows, _replicate_mi
+        from mlframe.feature_selection.filters._orthogonal_univariate_fe import _mi_classif_batch
+
+        rng = np.random.default_rng(5)
+        n = 3000
+        X = rng.normal(size=(n, 4)).astype(np.float32)
+        X[11, 2] = np.nan
+        y = rng.integers(0, 3, n).astype(np.int64)
+        draw = np.random.default_rng(1)
+        reps = [_bootstrap_rows(draw, y, n, int(0.8 * n)) for _ in range(3)]
+        got = _replicate_mi(X, y, reps, 10)
+        for b, idx in enumerate(reps):
+            assert np.array_equal(got[b], np.asarray(_mi_classif_batch(X[idx], y[idx], nbins=10), dtype=np.float64))
 
     def test_sorted_gather_bit_identical_on_continuous(self, monkeypatch):
         """The optimisation's safety invariant: on all-distinct columns the MI
