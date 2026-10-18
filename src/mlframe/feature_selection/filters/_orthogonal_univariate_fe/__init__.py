@@ -180,22 +180,22 @@ def _evaluate_basis_column(
     if preprocess_params is not None:
         # REPLAY: apply the stored fit-time params; never refit on test x.
         apply_fn = basis_info["apply"]
-        z = apply_fn(np.asarray(x, dtype=np.float64), preprocess_params)
+        z = apply_fn(np.asarray(x, dtype=np.float64), preprocess_params)  # Intentional float64: fit/replay bit-identity contract (basis axis)
         params = preprocess_params
     elif aux_for_fit is not None and len(aux_for_fit) > 0:
         # Build params from the concatenated pool, then apply to ``x`` only.
-        aux = np.asarray(aux_for_fit, dtype=np.float64)
+        aux = np.asarray(aux_for_fit, dtype=np.float64)  # Intentional float64: fit/replay bit-identity contract (basis axis)
         finite_aux = aux[np.isfinite(aux)]
         if finite_aux.size > 0:
-            pool = np.concatenate([np.asarray(x, dtype=np.float64), finite_aux])
+            pool = np.concatenate([np.asarray(x, dtype=np.float64), finite_aux])  # Intentional float64: fit/replay bit-identity contract (basis axis)
             _z_pool, params = fit_fn(pool)
             apply_fn = basis_info["apply"]
-            z = apply_fn(np.asarray(x, dtype=np.float64), params)
+            z = apply_fn(np.asarray(x, dtype=np.float64), params)  # Intentional float64: fit/replay bit-identity contract (basis axis)
         else:
             z, params = fit_fn(x)
     else:
         z, params = fit_fn(x)
-    z = np.ascontiguousarray(z, dtype=np.float64)
+    z = np.ascontiguousarray(z, dtype=np.float64)  # Intentional float64: fit/replay bit-identity contract (basis axis)
     # One-hot coefficient vector: He_n / L_n / T_n / L^Lag_n at the chosen degree.
     coef = np.zeros(degree + 1, dtype=np.float64)  # Intentional float64: accumulator or output buffer; statistic at float64
     coef[degree] = 1.0

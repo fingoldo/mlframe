@@ -172,7 +172,7 @@ def _residue_grid_mi(c: np.ndarray, y: np.ndarray, mods: Sequence[int], nbins: i
     res = residue_grid_mis_resident(c, yi, mods, nbins=nbins)
     if res is not None:
         return res
-    out = np.empty(len(mods), dtype=_crit_np_dtype())
+    out = np.empty(len(mods), dtype=np.float64)  # Intentional float64: grid MI buffer; float32 truncates the residue MI the naive reference keeps exact
     groups: dict[int, list[int]] = {}
     for idx, k in enumerate(mods):
         groups.setdefault(max(nbins, int(k)), []).append(idx)
@@ -181,7 +181,7 @@ def _residue_grid_mi(c: np.ndarray, y: np.ndarray, mods: Sequence[int], nbins: i
         # contiguous row, no strided column copy), then pass the ``.T`` F-view to the batched MI kernel -
         # bit-identical to the (n, |group|) column-build (same float64 residues, same per-column binning) but
         # avoids the strided writes + the result->column double-copy (1.19x on the host residue-grid path).
-        matT = np.empty((len(idxs), c.shape[0]), dtype=_crit_np_dtype())
+        matT = np.empty((len(idxs), c.shape[0]), dtype=np.float64)  # Intentional float64: exact residues for the batched grid (bit-identity with naive)
         for j, idx in enumerate(idxs):
             matT[j] = np.mod(c, mods[idx])
         mis = _mi_classif_batch(matT.T, yi, nbins=eff_nbins)
