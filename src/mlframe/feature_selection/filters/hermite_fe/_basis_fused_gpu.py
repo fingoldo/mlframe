@@ -13,6 +13,7 @@ from __future__ import annotations
 from typing import Any, Optional
 
 from .._gpu_raw_module import LazyRawModule
+from .._fe_gpu_batch._devices import crit_float_dtype
 
 _BASIS_CODE = {"hermite": 0, "legendre": 1, "chebyshev": 2, "laguerre": 3}
 MAX_COLUMNS = 40  # register budget of the unrolled recurrence
@@ -58,12 +59,12 @@ _KERNEL = LazyRawModule(_SRC, ("-std=c++14", "--fmad=false"))  # --fmad=false: e
 
 
 def build_basis_fused(cp: Any, basis: str, x: Any, n_columns: int) -> Optional[Any]:
-    """``(n, n_columns)`` design of the named basis for the float64 resident column ``x``, or ``None`` when the fused kernel does not cover the request (unknown basis, too wide)."""
+    """``(n, n_columns)`` design of the named basis for the double precision resident column ``x``, or ``None`` when the fused kernel does not cover the request (unknown basis, too wide)."""
     code = _BASIS_CODE.get(basis)
     if code is None or n_columns < 1 or n_columns > MAX_COLUMNS:
         return None
     n = int(x.shape[0])
-    B = cp.empty((n, n_columns), dtype=cp.float64)
+    B = cp.empty((n, n_columns), dtype=crit_float_dtype())
     blocks = max(1, min(4096, (n + 255) // 256))
     _KERNEL.get(cp).get_function("build_basis")((blocks,), (256,), (x, B, cp.int64(n), cp.int32(n_columns), cp.int32(code)))
     return B

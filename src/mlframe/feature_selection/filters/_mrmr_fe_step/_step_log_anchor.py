@@ -7,6 +7,7 @@ import logging
 from typing import Any, Optional
 
 import numpy as np
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 
 logger = logging.getLogger(__name__)
 
@@ -31,10 +32,10 @@ def smart_log_anchor(src_name: str, nested: Any, X: Any, memo: dict) -> Optional
             parent = nested
             if getattr(parent, "quantization", None) is not None:
                 parent = dataclasses.replace(parent, quantization=None)
-            operand = np.asarray(apply_recipe(parent, X), dtype=np.float64)
+            operand = np.asarray(apply_recipe(parent, X), dtype=_crit_np_dtype())
         else:
             col = X[src_name]
-            operand = np.asarray(col.values if hasattr(col, "values") else col, dtype=np.float64)
+            operand = np.asarray(col.values if hasattr(col, "values") else col, dtype=_crit_np_dtype())
         mn = float(np.nanmin(operand))
         value = (1e-5 - mn) if mn <= 0 else 0.0
     except Exception as e:

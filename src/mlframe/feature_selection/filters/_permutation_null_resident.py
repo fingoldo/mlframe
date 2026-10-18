@@ -65,7 +65,7 @@ _PERMNULL_TILE_CELLS = 24_000_000  # cc * pb * n upper bound (int64 cells); ~192
 
 def pooled_gain_floor_perms_cupy(scaled_flat: np.ndarray, offsets: np.ndarray, joint_card: np.ndarray, h_x: np.ndarray, mm_bias: np.ndarray, h_y: float, y_perms: Any, inv_n: float) -> np.ndarray:
     """Resident cupy twin of :func:`_permutation_null._pooled_gain_floor_perms_njit`. Same signature; returns
-    a host ``(nperm,)`` float64 array of the per-shuffle MAX corrected marginal MI over the candidate pool.
+    a host ``(nperm,)`` double array of the per-shuffle MAX corrected marginal MI over the candidate pool.
 
     All heavy arrays are uploaded ONCE and the whole (perm x cand) histogram + MI + per-shuffle-max runs on
     the device. ``joint_card`` may be ragged across candidates, so candidates are processed in chunks of a
@@ -78,20 +78,20 @@ def pooled_gain_floor_perms_cupy(scaled_flat: np.ndarray, offsets: np.ndarray, j
     n = int(y_perms.shape[1])
     ncand = int(offsets.shape[0] - 1)
     if nperm == 0 or ncand == 0:
-        return np.zeros(nperm, dtype=np.float64)
+        return np.zeros(nperm, dtype=np.float64)  # Intentional float64: MI statistic output compared at full precision
 
     d_scaled = cp.asarray(scaled_flat)  # (ncand*n,) int (>=0 joint base codes)
     d_yperms = cp.asarray(y_perms)  # (nperm, n) int (>=0 class codes)
     d_off = cp.asarray(offsets, dtype=cp.int64)  # (ncand+1,) int64 flat segment offsets
     jc_host = np.asarray(joint_card, dtype=np.int64)  # (ncand,) per-candidate joint cardinality (host)
-    d_hx = cp.asarray(h_x, dtype=cp.float64)  # (ncand,) marginal H(x)
-    d_mm = cp.asarray(mm_bias, dtype=cp.float64)  # (ncand,) Miller-Madow bias
+    d_hx = cp.asarray(h_x, dtype=cp.float64)  # Intentional float64: plug-in entropy terms accumulated in f64 (ncand,) marginal H(x)
+    d_mm = cp.asarray(mm_bias, dtype=cp.float64)  # Intentional float64: plug-in entropy terms accumulated in f64 (ncand,) Miller-Madow bias
     h_y = float(h_y)
     inv_n = float(inv_n)
 
     # Per-shuffle running max corrected MI over the pool (starts at 0.0 -> the njit ``best=0.0`` floor; MI is
     # clamped implicitly by the running max never dropping below 0, matching ``if mi>best``).
-    d_best = cp.zeros(nperm, dtype=cp.float64)
+    d_best = cp.zeros(nperm, dtype=cp.float64)  # Intentional float64: plug-in entropy terms accumulated in f64
 
     # Tile both candidates and perms so the (cc * pb * n) joint-code intermediate fits a small card.
     cand_chunk = max(1, min(ncand, _PERMNULL_TILE_CELLS // max(1, n)))
@@ -175,7 +175,7 @@ def gen_target_shuffles_cupy(y_codes: np.ndarray, nperm: int, dtype: type, rando
         # of being a uniform draw. The bias is conservative (the null band inflates, so the maxT floor is slightly
         # too strict and rejects marginal true candidates), but it makes the GPU floor a different estimator from
         # the CPU Fisher-Yates one, which the docstring's "statistically equivalent" claim does not cover.
-        keys = _rng.random((nperm, n), dtype=cp.float64)  # (nperm, n) i.i.d. sort keys, on device
+        keys = _rng.random((nperm, n), dtype=cp.float64)  # Intentional float64: plug-in entropy terms accumulated in f64 # (nperm, n) i.i.d. sort keys, on device
         order = cp.argsort(keys, axis=1)  # per-row permutation indices
         del keys
         out = d_y[order]  # (nperm, n) gathered shuffles, on device

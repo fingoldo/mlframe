@@ -37,6 +37,7 @@ from typing import Any, Optional, Sequence
 import numpy as np
 import pandas as pd
 
+from ._fe_usability_signal import _crit_np_dtype
 from ._grouped_coerce_shared import auto_detect_num_cols_plain as _auto_detect_num_cols
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
@@ -190,12 +191,16 @@ def _broadcast_lookup(
         uniq, inverse = _unique_inverse(keys)
     if uniq is not None and inverse is not None:
         uniq_vals = np.array(
-            [lookup.get(str(_k), global_value) for _k in uniq], dtype=np.float64,
+            [lookup.get(str(_k), global_value) for _k in uniq],
+            # Intentional float64: group statistics come from the f64 recipe lookup; the output column stays f64 to match the stored values.
+            dtype=np.float64,
         )
         out = uniq_vals[inverse]
     else:
         out = np.array(
-            [lookup.get(str(_k), global_value) for _k in keys], dtype=np.float64,
+            [lookup.get(str(_k), global_value) for _k in keys],
+            # Intentional float64: group statistics come from the f64 recipe lookup; the output column stays f64 to match the stored values.
+            dtype=np.float64,
         )
     return np.asarray(np.nan_to_num(
         out, nan=global_value, posinf=global_value, neginf=global_value,
@@ -227,7 +232,7 @@ def _emit_num_col_features(
     raw_recipes: dict,
 ) -> None:
     """Compute one numeric column's per-composite-group broadcasts plus its z-within-group and ratio residuals into ``encoded`` / ``raw_recipes``."""
-    x = np.asarray(X[num_col].to_numpy(), dtype=np.float64)
+    x = np.asarray(X[num_col].to_numpy(), dtype=_crit_np_dtype())
     tmp = pd.DataFrame({"_g": keys, "_v": x}, index=X.index)
     grouped = tmp.groupby("_g", observed=True, sort=False)["_v"]
     mean_series = grouped.mean()
@@ -422,7 +427,7 @@ def apply_composite_group_agg(X_test: pd.DataFrame, recipe: dict) -> np.ndarray:
     if missing or num_col not in X_test.columns:
         raise KeyError(f"apply_composite_group_agg: missing column(s) {missing or num_col!r} " f"from X_test")
     keys = build_composite_keys(X_test, group_cols)
-    x = np.asarray(X_test[num_col].to_numpy(), dtype=np.float64)
+    x = np.asarray(X_test[num_col].to_numpy(), dtype=_crit_np_dtype())
 
     if op == "broadcast":
         lookup = dict(recipe["group_lookup_dict"])

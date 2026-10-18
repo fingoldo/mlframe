@@ -48,6 +48,7 @@ import logging
 from typing import Optional, Sequence
 
 import numpy as np
+from ._fe_usability_signal import _crit_np_dtype
 import pandas as pd
 
 from ._internals import canonical_group_token, group_key_strings
@@ -122,7 +123,7 @@ def _broadcast_lookup(
         inverse = np.asarray(inverse).reshape(-1)
         uniq_vals = np.array(
             [lookup.get(str(_k), global_value) for _k in uniq],
-            dtype=np.float64,
+            dtype=_crit_np_dtype(),
         )
         out = uniq_vals[inverse]
     except (TypeError, ValueError):
@@ -130,7 +131,7 @@ def _broadcast_lookup(
         # to the per-row mapping (correct, just slower) so we never crash.
         out = np.array(
             [lookup.get(str(_k), global_value) for _k in group_keys],
-            dtype=np.float64,
+            dtype=_crit_np_dtype(),
         )
     return cast("np.ndarray", np.nan_to_num(out, nan=global_value, posinf=global_value, neginf=global_value))
 
@@ -167,7 +168,7 @@ def generate_grouped_agg_features(
         gb = X.groupby(group_col, observed=True, sort=False)
         cur_num_cols = [c for c in num_cols if c in X.columns and c != group_col and pd.api.types.is_numeric_dtype(X[c])]
         for num_col in cur_num_cols:
-            x = np.asarray(X[num_col].to_numpy(), dtype=np.float64)
+            x = np.asarray(X[num_col].to_numpy(), dtype=_crit_np_dtype())
             grouped = gb[num_col]
             # Mean / std lookups are always needed for the residual variants
             # even if the user didn't request them as broadcast stats.
@@ -276,7 +277,7 @@ def apply_grouped_agg(X_test: pd.DataFrame, recipe: dict) -> np.ndarray:
     if group_col not in X_test.columns or num_col not in X_test.columns:
         raise KeyError(f"apply_grouped_agg: missing column(s) {group_col!r}/{num_col!r} " f"from X_test")
     g_keys = group_key_strings(X_test[group_col])
-    x = np.asarray(X_test[num_col].to_numpy(), dtype=np.float64)
+    x = np.asarray(X_test[num_col].to_numpy(), dtype=_crit_np_dtype())
 
     if op == "broadcast":
         lookup = dict(recipe["group_lookup_dict"])

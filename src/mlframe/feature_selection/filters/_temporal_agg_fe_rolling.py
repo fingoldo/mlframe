@@ -15,6 +15,7 @@ from typing import Any, Sequence
 
 import numba
 import numpy as np
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 import pandas as pd
 
 from mlframe._welford_njit import welford_push, welford_std
@@ -45,6 +46,7 @@ def _rolling_stat_past_only_njit(times, vals, group_codes, td, stat_code, n_grou
     (O(n*window) with Python objects) - same reduction, bit-identical incl NaN. ``times``/``td`` are int64 ns for a
     datetime column or float for numeric (numba specialises); ``stat_code``: 0=count 1=mean 2=std 3=min 4=max."""
     n = vals.size
+    # Intentional float64: numba kernel accumulator; numba cannot call the Python crit-dtype helper and the sums need exact f64.
     out = np.full(n, np.nan, dtype=np.float64)
     prev = np.full(n, -1, dtype=np.int64)
     last = np.full(n_groups, -1, dtype=np.int64)
@@ -114,7 +116,7 @@ def _rolling_stat_past_only(
 
     n = vals.size
     if n == 0:
-        return np.full(0, np.nan, dtype=np.float64)
+        return np.full(0, np.nan, dtype=_crit_np_dtype())
     td_num: Any
     if _is_datetime_like(times):
         # int64 nanoseconds so the window comparison keeps full datetime precision (float64 would lose ns on
@@ -122,12 +124,12 @@ def _rolling_stat_past_only(
         t_num = np.ascontiguousarray(np.asarray(times, dtype="datetime64[ns]").view("int64"))
         td_num = np.int64(pd.Timedelta(window).value)
     else:
-        t_num = np.ascontiguousarray(times, dtype=np.float64)
+        t_num = np.ascontiguousarray(times, dtype=_crit_np_dtype())
         td_num = float(_numeric_window(window))
     gc = np.ascontiguousarray(group_codes, dtype=np.int64)
     n_groups = int(gc.max()) + 1 if gc.size else 1
     return np.asarray(_rolling_stat_past_only_njit(
-        t_num, np.ascontiguousarray(vals, dtype=np.float64), gc, td_num, _EXPANDING_STAT_CODE[stat], n_groups,
+        t_num, np.ascontiguousarray(vals, dtype=_crit_np_dtype()), gc, td_num, _EXPANDING_STAT_CODE[stat], n_groups,
     ))
 
 
@@ -183,15 +185,15 @@ def generate_rolling_window_agg_features(
     row_slices = _group_row_slices(codes_sorted, n_codes)
 
     for value_col in value_cols:
-        vals = np.asarray(X[value_col].to_numpy(), dtype=np.float64)
+        vals = np.asarray(X[value_col].to_numpy(), dtype=_crit_np_dtype())
         vals_sorted = vals[order]
         history: dict[str, dict] = {}
         for rows in row_slices:
             ent_key = str(key_sorted[rows[0]])
             t_list = times_sorted[rows]
             history[ent_key] = {
-                "t": (t_list.astype("datetime64[ns]").astype(np.int64).tolist() if _is_datetime_like(t_list) else t_list.astype(np.float64).tolist()),
-                "v": vals_sorted[rows].astype(np.float64).tolist(),
+                "t": (t_list.astype("datetime64[ns]").astype(np.int64).tolist() if _is_datetime_like(t_list) else t_list.astype(_crit_np_dtype()).tolist()),
+                "v": vals_sorted[rows].astype(_crit_np_dtype()).tolist(),
                 "is_datetime": bool(_is_datetime_like(t_list)),
             }
         for window in windows:
@@ -260,17 +262,17 @@ def apply_temporal_rolling(X_test: pd.DataFrame, recipe_extra: dict) -> np.ndarr
     history = recipe_extra["history"]
     X_test = _coerce_replay_frame(X_test, entity_cols, value_col, time_col, "temporal_rolling")
     key, times = _replay_keys_times(X_test, entity_cols, time_col)
-    vals = np.asarray(X_test[value_col].to_numpy(), dtype=np.float64)
+    vals = np.asarray(X_test[value_col].to_numpy(), dtype=_crit_np_dtype())
     is_dt = _is_datetime_like(times)
     td: Any
     if is_dt:
         times_num = times.astype("datetime64[ns]").astype(np.int64)
         td = int(pd.Timedelta(window).value)
     else:
-        times_num = np.asarray(times, dtype=np.float64)
+        times_num = np.asarray(times, dtype=_crit_np_dtype())
         td = _numeric_window(window)
     n = len(X_test)
-    out = np.full(n, prior, dtype=np.float64)
+    out = np.full(n, prior, dtype=_crit_np_dtype())
     order = _stable_time_order(times_num)
     # FUTURE (perf): this per-row concatenate+mask reduce is O(N^2) per entity,
     # same shape as the expanding replay that was converted to O(N) accumulators.
@@ -288,10 +290,10 @@ def apply_temporal_rolling(X_test: pd.DataFrame, recipe_extra: dict) -> np.ndarr
         # (~1.6e18 > 2^53) loses ~hundreds of ns, so rows within a few hundred ns of the window bound ``lo``/``t``
         # could be mis-included/excluded. times_num above is already int64-ns for datetime; match it here.
         h_t = np.asarray(h.get("t", []))
-        h_v = np.asarray(h.get("v", []), dtype=np.float64)
+        h_v = np.asarray(h.get("v", []), dtype=_crit_np_dtype())
         seen = test_hist.get(ent, {"t": [], "v": []})
         all_t = np.concatenate([h_t, np.asarray(seen["t"])]) if seen["t"] else h_t
-        all_v = np.concatenate([h_v, np.asarray(seen["v"], dtype=np.float64)]) if seen["v"] else h_v
+        all_v = np.concatenate([h_v, np.asarray(seen["v"], dtype=_crit_np_dtype())]) if seen["v"] else h_v
         if all_t.size:
             lo = t - td
             mask = (all_t >= lo) & (all_t < t) & np.isfinite(all_v)

@@ -11,6 +11,7 @@ from functools import cmp_to_key, partial
 from typing import Callable
 
 import numpy as np
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 import pandas as pd
 
 from .._fe_frame_ops import FE_EAGER_MATERIALIZE_MAX_BYTES
@@ -19,6 +20,7 @@ from .._fe_frame_ops import FE_EAGER_MATERIALIZE_MAX_BYTES
 _RANK_BUF_MAX_BYTES = FE_EAGER_MATERIALIZE_MAX_BYTES
 # Raw-value near-constant test, relative to the column's own magnitude (an absolute std floor treats tiny-scale columns as constant).
 # Rank vectors keep their absolute floor: ranks are >= 1, so it cannot misfire there, and it matches the batched kernel.
+# Intentional float64: relative tolerance defined against float64 machine epsilon
 _REL_TOL = 32.0 * np.finfo(np.float64).eps
 
 
@@ -88,7 +90,7 @@ class _RankRowBuffer:
         buf = self.matrix
         if buf is None or self.used == self._cap:
             new_cap = min(self._hard_cap, max(4, self._cap * 2))
-            grown = np.empty((new_cap, self._n_rows), dtype=np.float64)
+            grown = np.empty((new_cap, self._n_rows), dtype=_crit_np_dtype())
             if buf is not None and self.used:
                 grown[: self.used] = buf[: self.used]
             buf = grown
@@ -159,7 +161,7 @@ def scan_engineered_duplicates(
             if isinstance(_col_view_a, pd.DataFrame):
                 _col_view_a = _col_view_a.iloc[:, 0]
             _eng_keep.append(_c)
-            _eng_arrs[_c] = np.asarray(_col_view_a.to_numpy(), dtype=np.float64)
+            _eng_arrs[_c] = np.asarray(_col_view_a.to_numpy(), dtype=_crit_np_dtype())
             continue
         # Defense in depth: if X carries duplicate column labels (a
         # caller-side data-quality issue we don't want to silently
@@ -170,7 +172,7 @@ def scan_engineered_duplicates(
         _col_view = X[_c]
         if isinstance(_col_view, pd.DataFrame):
             _col_view = _col_view.iloc[:, 0]
-        _arr_c = np.asarray(_col_view.to_numpy(), dtype=np.float64)
+        _arr_c = np.asarray(_col_view.to_numpy(), dtype=_crit_np_dtype())
         _fin_c = np.isfinite(_arr_c)
         _eng_fully_finite[_c] = bool(_fin_c.all())
         if not _fin_c.any() or _arr_c[_fin_c].std() <= _REL_TOL * float(np.abs(_arr_c[_fin_c]).max()):
@@ -273,8 +275,8 @@ def _masked_corr_prefilter(_active_mask, _ranks_c, _rank_rows, _row_to_kc, _fast
             _ranks_c,
             _rank_rows.matrix[: _rank_rows.used],
             _active_mask,
-            np.asarray(_rank_rows.means[: _rank_rows.used], dtype=np.float64),
-            np.asarray(_rank_rows.ss[: _rank_rows.used], dtype=np.float64),
+            np.asarray(_rank_rows.means[: _rank_rows.used], dtype=_crit_np_dtype()),
+            np.asarray(_rank_rows.ss[: _rank_rows.used], dtype=_crit_np_dtype()),
         )
         for _r, _kc in _row_to_kc.items():
             _fast_kept_set.add(_kc)

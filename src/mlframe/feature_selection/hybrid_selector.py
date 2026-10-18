@@ -27,6 +27,7 @@ from collections import defaultdict
 from typing import Any, Literal, Optional
 
 import numpy as np
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 import pandas as pd
 
 from mlframe.feature_selection._selection_log import logs_fit
@@ -84,7 +85,7 @@ def corr_clusters(X: pd.DataFrame, thr: float = 0.92, block_threshold: int = COR
     for the common all-singleton frame where each row has few/no above-threshold candidates (measured 3.83x on the
     p=240 mostly-singleton hybrid frame; the glue floor's single largest item, ~86% of the hybrid's own tottime).
 
-    WIDE-DATA path (p > ``block_threshold``): the full p x p ``np.corrcoef`` materializes an O(p^2) float64 matrix
+    WIDE-DATA path (p > ``block_threshold``): the full p x p ``np.corrcoef`` materializes an O(p^2) dense matrix
     (~800 MB at p=10k) - the one uncapped super-linear-in-p hotspot among the FS paths. Above the threshold we never
     build the dense matrix: columns are z-standardized once, then for each rep we compute ONLY its row of correlations
     (a single 1 x p GEMV: z_i @ Z / (n-1)) and threshold that, so peak extra memory is O(n*p) for Z plus O(p) per row.
@@ -125,7 +126,7 @@ def corr_clusters(X: pd.DataFrame, thr: float = 0.92, block_threshold: int = COR
     # never the full p x p. The greedy reads each rep's slab row exactly as it would the dense matrix row, so the
     # assignment is identical to the full-matrix path. bs trades speed (bigger = fewer, larger matmuls) vs the slab's
     # memory (bs*p*8 bytes); 512 keeps the slab modest (e.g. 512*10000*8 ~= 41 MB) while recovering near-BLAS speed.
-    M = np.asarray(X.values, dtype=np.float64)
+    M = np.asarray(X.values, dtype=_crit_np_dtype())
     n = M.shape[0]
     mu = M.mean(axis=0)
     sd = M.std(axis=0)

@@ -152,8 +152,9 @@ def _column_perm_pvalue(feat_col, yb, nbins: int, n_perm: int, seed: int) -> flo
     if int(n_perm) <= 0:
         return float("nan")
     from mlframe.feature_selection.filters.shared import mi as _mi
+    from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 
-    col = np.ascontiguousarray(np.asarray(feat_col, dtype=np.float64))
+    col = np.ascontiguousarray(np.asarray(feat_col, dtype=_crit_np_dtype()))
     yb = np.asarray(yb)
     obs = _mi(col, yb, nbins=nbins)
     if not np.isfinite(obs):

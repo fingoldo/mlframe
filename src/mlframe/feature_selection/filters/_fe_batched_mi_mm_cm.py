@@ -13,6 +13,7 @@ import threading
 from typing import Any
 
 import numpy as np
+from mlframe.feature_selection.filters._fe_gpu_batch._devices import crit_float_dtype
 
 from ._fe_batched_mi import (
     _MI_FROM_CODES_MAX_SHARED,
@@ -52,12 +53,12 @@ def binned_mm_mi_from_cm_gpu(
     import cupy as cp
 
     is_f32 = getattr(x_cm, "dtype", None) == cp.float32
-    Xc = cp.ascontiguousarray(x_cm if is_f32 else x_cm.astype(cp.float64, copy=False))
+    Xc = cp.ascontiguousarray(x_cm if is_f32 else x_cm.astype(crit_float_dtype(), copy=False))
     K, n = int(Xc.shape[0]), int(Xc.shape[1])
     Ky = int(ky)
     if int(nbins) * Ky * 4 > _MI_FROM_CODES_MAX_SHARED:
         return None
-    E = cp.ascontiguousarray(interior_edges.astype(cp.float64, copy=False))
+    E = cp.ascontiguousarray(interior_edges.astype(crit_float_dtype(), copy=False))
     if isinstance(y_codes, cp.ndarray):
         yv = y_codes.astype(cp.int64, copy=False).ravel()
     else:
@@ -66,15 +67,16 @@ def binned_mm_mi_from_cm_gpu(
         yv = resident_operand(np.asarray(y_codes).ravel(), "binned_mm_ycodes", dtype=np.int64)
     _assert_codes_in_range(yv, Ky, "binned_mm_mi_from_cm_gpu y codes", codes_trusted)
     ne = int(E.shape[0])
-    cmin = cp.ascontiguousarray(Xc.min(axis=1).astype(cp.float64, copy=False))
-    cmax = cp.ascontiguousarray(Xc.max(axis=1).astype(cp.float64, copy=False))
-    Ec = cp.empty((ne + 1, K), dtype=cp.float64)  # the dedup kernel's transient trailing row, as in the row-major twin
+    cmin = cp.ascontiguousarray(Xc.min(axis=1).astype(crit_float_dtype(), copy=False))
+    cmax = cp.ascontiguousarray(Xc.max(axis=1).astype(crit_float_dtype(), copy=False))
+    Ec = cp.empty((ne + 1, K), dtype=crit_float_dtype())  # the dedup kernel's transient trailing row, as in the row-major twin
     ne_k = cp.empty(K, dtype=cp.int32)
     threads = 256
     _get_dedup_edges_kernel()(((K + threads - 1) // threads,), (threads,), (E, cmin, cmax, np.int32(ne), np.int32(K), Ec, ne_k))
-    mi_out = cp.empty(K, dtype=cp.float64)
+    mi_out = cp.empty(K, dtype=crit_float_dtype())
     _kernel(cp, is_f32)(
         (K,), (256,),
+        # Intentional float64: RawKernel scalar args are declared double; the kernel signature requires f64 here.
         (Xc, Ec, yv, np.int64(n), np.int32(K), np.int32(int(nbins)), np.int32(Ky), np.float64(1.0 / float(max(1, n))), np.float64(float(h_y)), np.int32(int(k_y)), ne_k, mi_out),
         shared_mem=int(nbins) * Ky * 4,
     )

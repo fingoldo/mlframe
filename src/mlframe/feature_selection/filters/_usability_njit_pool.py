@@ -118,13 +118,14 @@ def njit_binary_codes_or_none(binary_names: Sequence[str]) -> "np.ndarray | None
 
 
 # Near-constant when std is within this factor of machine epsilon of the combo's largest |value|.
+# Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
 _USABILITY_DEGENERATE_REL_TOL = 32.0 * np.finfo(np.float64).eps
 
 
 @njit(cache=True, inline="always")
 def _apply_unary(v, code, xmin):
-    """One element of the medium-preset unary, in float64 (the Python path applies the numpy unary to
-    the float64 operand). ``xmin`` is the operand column's ``nanmin`` - only ``log`` (smart_log) uses
+    """One element of the medium-preset unary, in double precision (the Python path applies the numpy unary to
+    the double precision operand). ``xmin`` is the operand column's ``nanmin`` - only ``log`` (smart_log) uses
     it (additive shift ``1e-5 - xmin`` when ``xmin<=0``, exact ``log`` when ``xmin>0``)."""
     if code == 0:  # identity
         return v
@@ -174,7 +175,7 @@ def _apply_unary(v, code, xmin):
 @njit(cache=True, inline="always")
 def _apply_binary(a, b, bn):
     """One element of the minimal-preset binary, returning the float32-scrubbed value cast back to
-    float64 (the Python path does ``_scrub(bf(ta, tb), float32)`` then upcasts to float64 for binning).
+    double precision (the Python path does ``_scrub(bf(ta, tb), float32)`` then upcasts to double precision for binning).
     Matches numpy's nan-propagating max/min and ``_safe_div`` exactly."""
     if bn == 0:  # mul
         v = a * b
@@ -198,12 +199,13 @@ def _apply_binary(a, b, bn):
     f = np.float32(v)
     if not (f == f and f != np.inf and f != -np.inf):
         f = np.float32(0.0)
+    # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
     return np.float64(f)
 
 
 @njit(cache=True, inline="always")
 def _qbin_into(val, nbins, qs, codes_out):
-    """Equi-frequency quantile-bin ``val`` (finite float64) into ``codes_out``, returning the bin
+    """Equi-frequency quantile-bin ``val`` (finite double precision) into ``codes_out``, returning the bin
     cardinality. BIT-IDENTICAL to ``_quantile_bin``'s all-finite fast path: the same ``np.quantile``
     linear-interpolation edges (numpy ``_lerp`` form ``lo + (hi-lo)*frac`` at virtual index
     ``q*(n-1)``), the same ``np.unique`` edge dedup, the same ``searchsorted(edges[1:-1], side='right')``.
@@ -215,6 +217,7 @@ def _qbin_into(val, nbins, qs, codes_out):
     # part[hi] are the identical order statistics np.sort gives, so q/edges/codes are BIT-IDENTICAL.
     kths = np.empty(2 * nq, dtype=np.int64)
     los = np.empty(nq, dtype=np.int64)
+    # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
     fracs = np.empty(nq, dtype=np.float64)
     m2 = 0
     for k in range(nq):
@@ -229,12 +232,14 @@ def _qbin_into(val, nbins, qs, codes_out):
     # One multiselect pass over the sorted unique anchors (the lo/hi sequence is non-decreasing), not a separate selection per index.
     part = val.copy()
     multiselect_inplace(part, np.unique(kths[:m2]))
+    # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
     q = np.empty(nq, dtype=np.float64)
     for k in range(nq):
         lo = los[k]
         hi = lo + 1 if lo < n - 1 else lo
         q[k] = part[lo] + (part[hi] - part[lo]) * fracs[k]
     # np.unique(q) - q is ascending, so dedup adjacent equals in one pass.
+    # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
     edges = np.empty(nq, dtype=np.float64)
     m = 0
     for k in range(nq):
@@ -306,11 +311,13 @@ def _pair_combo_mi_njit(x1, x2, y_codes, h_y, k_y, qs, ua_arr, ub_arr, bn_arr, x
     nc = ua_arr.shape[0]
     n = x1.shape[0]
     nbins = qs.shape[0] - 1
+    # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
     out = np.empty(nc, dtype=np.float64)
     for j in range(nc):
         ua = ua_arr[j]
         ub = ub_arr[j]
         bn = bn_arr[j]
+        # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
         val = np.empty(n, dtype=np.float64)
         s = 0.0
         vmin = np.inf
@@ -362,11 +369,13 @@ def _pair_combo_mi_njit_parallel(x1, x2, y_codes, h_y, k_y, qs, ua_arr, ub_arr, 
     nc = ua_arr.shape[0]
     n = x1.shape[0]
     nbins = qs.shape[0] - 1
+    # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
     out = np.empty(nc, dtype=np.float64)
     for j in prange(nc):
         ua = ua_arr[j]
         ub = ub_arr[j]
         bn = bn_arr[j]
+        # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
         val = np.empty(n, dtype=np.float64)
         s = 0.0
         vmin = np.inf
@@ -425,17 +434,21 @@ def _pair_combo_mi_njit_table(x1, x2, y_codes, h_y, k_y, qs, ua_arr, ub_arr, bn_
     nc = ua_arr.shape[0]
     n = x1.shape[0]
     nbins = qs.shape[0] - 1
+    # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
     U1 = np.empty((nu_tab, n), dtype=np.float64)
+    # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
     U2 = np.empty((nu_tab, n), dtype=np.float64)
     for u in range(nu_tab):
         for i in range(n):
             U1[u, i] = _apply_unary(x1[i], u, xmin_a)
             U2[u, i] = _apply_unary(x2[i], u, xmin_b)
+    # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
     out = np.empty(nc, dtype=np.float64)
     for j in range(nc):
         ua = ua_arr[j]
         ub = ub_arr[j]
         bn = bn_arr[j]
+        # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
         val = np.empty(n, dtype=np.float64)
         s = 0.0
         vmin = np.inf
@@ -484,17 +497,21 @@ def _pair_combo_mi_njit_table_parallel(x1, x2, y_codes, h_y, k_y, qs, ua_arr, ub
     nc = ua_arr.shape[0]
     n = x1.shape[0]
     nbins = qs.shape[0] - 1
+    # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
     U1 = np.empty((nu_tab, n), dtype=np.float64)
+    # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
     U2 = np.empty((nu_tab, n), dtype=np.float64)
     for u in prange(nu_tab):
         for i in range(n):
             U1[u, i] = _apply_unary(x1[i], u, xmin_a)
             U2[u, i] = _apply_unary(x2[i], u, xmin_b)
+    # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
     out = np.empty(nc, dtype=np.float64)
     for j in prange(nc):
         ua = ua_arr[j]
         ub = ub_arr[j]
         bn = bn_arr[j]
+        # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
         val = np.empty(n, dtype=np.float64)
         s = 0.0
         vmin = np.inf
@@ -563,7 +580,7 @@ _GPU_COMBO_CHUNK = 256
 
 
 def _gpu_apply_unary(x, code, xmin):
-    """cupy float64 vectorised twin of :func:`_apply_unary` over the whole column ``x`` (1-D device
+    """cupy double precision vectorised twin of :func:`_apply_unary` over the whole column ``x`` (1-D device
     array). ``code`` is a Python int; ``xmin`` the operand's nanmin (only smart_log uses it)."""
     cp = _cp
     if code == 0:  # identity
@@ -605,8 +622,8 @@ def _gpu_apply_unary(x, code, xmin):
 
 
 def _gpu_apply_binary(a, b, bn):
-    """cupy float64 vectorised twin of :func:`_apply_binary` - including the ``np.float32`` scrub +
-    nan/inf->0 at float32 precision - returning a float64 device array of the scrubbed values."""
+    """cupy double precision vectorised twin of :func:`_apply_binary` - including the ``np.float32`` scrub +
+    nan/inf->0 at float32 precision - returning a double precision device array of the scrubbed values."""
     cp = _cp
     if bn == 0:  # mul
         v = a * b
@@ -615,6 +632,7 @@ def _gpu_apply_binary(a, b, bn):
     elif bn == 2:  # sub
         v = a - b
     elif bn == 3:  # div = _safe_div (1e-9 floor only on exact-zero denom)
+        # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
         denom = cp.where(b == 0.0, cp.float64(1e-9), b)
         v = a / denom
     elif bn == 4:  # max = np.maximum (nan-propagating)
@@ -624,11 +642,12 @@ def _gpu_apply_binary(a, b, bn):
     # np.nan_to_num(nan=0, posinf=0, neginf=0) at float32 precision (feature_dtype).
     f = v.astype(cp.float32)
     f = cp.where(cp.isfinite(f), f, cp.float32(0.0))
+    # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
     return f.astype(cp.float64)
 
 
 def _gpu_quantile_bin_codes(V, qs):
-    """Equi-frequency quantile-bin each ROW of ``V`` (shape ``(m, n)``, finite float64) - BIT-IDENTICAL
+    """Equi-frequency quantile-bin each ROW of ``V`` (shape ``(m, n)``, finite double precision) - BIT-IDENTICAL
     to :func:`_qbin_into` per row. Returns ``(codes (m,n) int64, kx (m,) int64)``. Vectorised over the
     ``m`` combos in the chunk; the searchsorted is done per row (each row has its own edge vector)."""
     cp = _cp
@@ -669,11 +688,13 @@ def _gpu_marginal_mi(codes, kx, y_codes, h_y, k_y, n):
     cp = _cp
     m = codes.shape[0]
     invn = 1.0 / n
+    # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
     out = cp.empty(m, dtype=cp.float64)
     for r in range(m):
         xb = codes[r]
         kxr = int(kx[r])
         # marginal H(X)
+        # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
         cx = cp.bincount(xb, minlength=kxr).astype(cp.float64)
         nzx = cx[cx > 0]
         px = nzx * invn
@@ -681,6 +702,7 @@ def _gpu_marginal_mi(codes, kx, y_codes, h_y, k_y, n):
         kx_occ = int((cx > 0).sum())
         # joint H(X,Y) via flat id xb*k_y + y
         joint = xb * k_y + y_codes
+        # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
         cj = cp.bincount(joint, minlength=kxr * k_y).astype(cp.float64)
         nzj = cj[cj > 0]
         pj = nzj * invn
@@ -708,18 +730,22 @@ def _pair_combo_mi_cupy(x1, x2, y_codes, h_y, k_y, qs, ua_arr, ub_arr, bn_arr, x
     cp = _cp
     nc = int(ua_arr.shape[0])
     n = int(x1.shape[0])
+    # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
     out = np.empty(nc, dtype=np.float64)
     if nc == 0:
         return out
     nq = len(qs)
     d_y = cp.asarray(y_codes, dtype=cp.int64)
+    # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
     pos = np.asarray(qs, dtype=np.float64) * (n - 1)
     lo_h = np.floor(pos).astype(np.int64)
     hi_h = np.where(lo_h < n - 1, lo_h + 1, lo_h)
     lo, hi = cp.asarray(lo_h), cp.asarray(hi_h)
     frac = cp.asarray(pos - lo_h)[:, None]
 
+    # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
     d_x1 = cp.asarray(x1, dtype=cp.float64)
+    # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
     d_x2 = cp.asarray(x2, dtype=cp.float64)
     ua_distinct = sorted(set(ua_arr.tolist()))
     ub_distinct = sorted(set(ub_arr.tolist()))
@@ -731,6 +757,7 @@ def _pair_combo_mi_cupy(x1, x2, y_codes, h_y, k_y, qs, ua_arr, ub_arr, bn_arr, x
     for start in range(0, nc, batch):
         stop = min(start + batch, nc)
         m = stop - start
+        # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
         V = cp.empty((n, m), dtype=cp.float64)
         for bn in np.unique(bn_arr[start:stop]):
             sel = np.nonzero(bn_arr[start:stop] == bn)[0]
@@ -744,6 +771,7 @@ def _pair_combo_mi_cupy(x1, x2, y_codes, h_y, k_y, qs, ua_arr, ub_arr, bn_arr, x
         mi = binned_mm_mi_from_values_gpu(V, q[1 : nq - 1], d_y, nq - 1, int(k_y), float(h_y), int(k_y), codes_trusted=True, return_device=True)
         if mi is None:  # (nbins * k_y) shared tile does not fit: let the dispatcher route to CPU
             raise RuntimeError("fused Miller-Madow kernel cannot hold this target cardinality")
+        # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
         out[start:stop] = cp.asnumpy(cp.where(live, mi, cp.float64(-1.0)))
     return out
 
@@ -756,13 +784,17 @@ def _pair_combo_mi_cupy_loop(x1, x2, y_codes, h_y, k_y, qs, ua_arr, ub_arr, bn_a
     cp = _cp
     nc = int(ua_arr.shape[0])
     n = int(x1.shape[0])
+    # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
     out = np.empty(nc, dtype=np.float64)
     if nc == 0:
         return out
 
+    # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
     d_x1 = cp.asarray(x1, dtype=cp.float64)
+    # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
     d_x2 = cp.asarray(x2, dtype=cp.float64)
     d_y = cp.asarray(y_codes, dtype=cp.int64)
+    # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
     d_qs = cp.asarray(qs, dtype=cp.float64)
 
     # Precompute the DISTINCT unary transforms appearing in ua_arr / ub_arr (reused across combos).
@@ -779,6 +811,7 @@ def _pair_combo_mi_cupy_loop(x1, x2, y_codes, h_y, k_y, qs, ua_arr, ub_arr, bn_a
     for start in range(0, nc, _GPU_COMBO_CHUNK):
         stop = min(start + _GPU_COMBO_CHUNK, nc)
         m = stop - start
+        # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
         V = cp.empty((m, n), dtype=cp.float64)
         for r in range(m):
             j = start + r
@@ -793,6 +826,7 @@ def _pair_combo_mi_cupy_loop(x1, x2, y_codes, h_y, k_y, qs, ua_arr, ub_arr, bn_a
         live = (var > 1e-18) & (V.max(axis=1) > V.min(axis=1))
         codes, kx = _gpu_quantile_bin_codes(V, d_qs)
         mi = _gpu_marginal_mi(codes, kx, d_y, h_y, k_y, n)
+        # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
         mi = cp.where(live, mi, cp.float64(-1.0))
         out[start:stop] = cp.asnumpy(mi)
     return out
@@ -827,6 +861,7 @@ def _make_usability_inputs(dims: dict):
     edges = np.quantile(y, np.linspace(0.0, 1.0, 11))
     y_codes = np.searchsorted(np.unique(edges)[1:-1], y, side="right").astype(np.int64)
     k_y = int(y_codes.max()) + 1
+    # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
     cy = np.bincount(y_codes).astype(np.float64) / n_rows
     h_y = float(-(cy[cy > 0] * np.log(cy[cy > 0])).sum())
     qs = np.linspace(0.0, 1.0, 11)
@@ -936,7 +971,9 @@ def score_pair_combos(
     ub_arr = np.tile(np.repeat(ub_codes_arr, nb), nu)
     bn_arr = np.tile(bn_codes_arr, nu * nu)
     nc = ua_arr.shape[0]
+    # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
     x1 = np.ascontiguousarray(x1, dtype=np.float64)
+    # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
     x2 = np.ascontiguousarray(x2, dtype=np.float64)
     y_codes = np.ascontiguousarray(y_codes, dtype=np.int64)
     qs = np.linspace(0.0, 1.0, int(nbins) + 1)

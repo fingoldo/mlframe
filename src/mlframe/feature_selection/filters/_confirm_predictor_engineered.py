@@ -15,6 +15,7 @@ from typing import Dict, List
 import numpy as np
 
 from .info_theory import merge_vars
+from ._fe_usability_signal import _crit_np_dtype
 
 logger = logging.getLogger(__name__)
 
@@ -148,7 +149,7 @@ def _prefer_engineered_order(order, expected_gains, ctx) -> np.ndarray:
     if rel_eps <= 0.0 or len(order) < 2:
         return np.asarray(order)
 
-    gains = np.asarray(expected_gains, dtype=np.float64)
+    gains = np.asarray(expected_gains, dtype=_crit_np_dtype())
     top_idx = order[0]
     top_gain = gains[top_idx]
     # Only meaningful when the leader carries a positive gain; near-ties at or

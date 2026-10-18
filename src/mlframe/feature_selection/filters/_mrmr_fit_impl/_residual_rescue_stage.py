@@ -65,8 +65,8 @@ def _cell_table_candidates(self, X, y, design, raw_cols, design_sources, pool) -
         if not screened:
             break
         ca, cb, _t = screened[0]
-        a = np.asarray(X[ca].to_numpy(), dtype=np.float64)
-        b = np.asarray(X[cb].to_numpy(), dtype=np.float64)
+        a = np.asarray(X[ca].to_numpy(), dtype=_crit_np_dtype())
+        b = np.asarray(X[cb].to_numpy(), dtype=_crit_np_dtype())
         fit = fit_oof_cell2d(a, b, resid)
         name = f"oofcell({ca},{cb})"
         pool[name] = fit["oof"]
@@ -104,7 +104,7 @@ def _target_mix_candidates(self, X, y, design, raw_cols, classify, pool, linear_
         if name in design or name in pool or name in X.columns or kind == "skip":
             continue
         try:
-            pool[name] = np.nan_to_num(np.asarray(apply_recipe(recipe, X), dtype=np.float64).ravel(), nan=0.0, posinf=0.0, neginf=0.0)
+            pool[name] = np.nan_to_num(np.asarray(apply_recipe(recipe, X), dtype=_crit_np_dtype()).ravel(), nan=0.0, posinf=0.0, neginf=0.0)
         except Exception:
             log_throttle(logger, "residual_rescue_stage.target_mix_replay_failed", logging.WARNING, "MRMR target-mix candidate %r failed to replay; skipped.", name, exc_info=True)
             continue
@@ -194,11 +194,11 @@ def run_residual_rescue(self, X: Any, selected_vars: Any, cols: Any, engineered_
         from .._y_encoding import FEW_CLASSES_MAX
         from ..engineered_recipes.shared import apply_recipe
 
-        y = np.asarray(y_cont, dtype=np.float64).ravel()
+        y = np.asarray(y_cont, dtype=_crit_np_dtype()).ravel()
         if len(y) != len(X) or np.unique(y).size <= FEW_CLASSES_MAX:  # class labels are not a regression target
             return False
         n = len(y)
-        if n > DEFAULT_SCAN_ROWS:  # the scan rows are taken before any column is converted: no full-length float64 copy of the frame
+        if n > DEFAULT_SCAN_ROWS:  # the scan rows are taken before any column is converted: no full-length dtype copy of the frame
             rows = np.linspace(0, n - 1, DEFAULT_SCAN_ROWS).astype(np.int64)
             X, y = X.iloc[rows], y[rows]
         sel_names = {str(cols[i]) for i in selected_vars}
@@ -206,9 +206,9 @@ def run_residual_rescue(self, X: Any, selected_vars: Any, cols: Any, engineered_
         design = {}
         for name in sel_names:
             if name in X.columns and name not in engineered_recipes and np.issubdtype(X[name].dtype, np.number):
-                design[name] = np.asarray(X[name].to_numpy(), dtype=np.float64)
+                design[name] = np.asarray(X[name].to_numpy(), dtype=_crit_np_dtype())
         for name, rec in zip(eng_names, self._engineered_recipes_ or []):
-            design[name] = np.nan_to_num(np.asarray(apply_recipe(rec, X), dtype=np.float64).ravel(), nan=0.0, posinf=0.0, neginf=0.0)
+            design[name] = np.nan_to_num(np.asarray(apply_recipe(rec, X), dtype=_crit_np_dtype()).ravel(), nan=0.0, posinf=0.0, neginf=0.0)
         _names = getattr(self, "feature_names_in_", None)
         _cols_src = _names if _names is not None else cols
         raw_cols = frozenset(str(c) for c in _cols_src if str(c) not in engineered_recipes)
@@ -279,7 +279,7 @@ def run_residual_rescue(self, X: Any, selected_vars: Any, cols: Any, engineered_
     dropped = [col_index[n] for n in prune_names if n in col_index and col_index[n] in selected_vars and n not in eng_set]
     if dropped and not [i for i in selected_vars if i not in dropped] and not [f for f in self._engineered_features_ if str(f) not in prune_names]:
         # a selection never ends up with no column at all: the pruned raw that tracks the target best stays
-        corr = {i: abs(float(np.corrcoef(np.asarray(X[cols[i]].to_numpy(), dtype=np.float64), y)[0, 1])) for i in dropped if cols[i] in X.columns}
+        corr = {i: abs(float(np.corrcoef(np.asarray(X[cols[i]].to_numpy(), dtype=_crit_np_dtype()), y)[0, 1])) for i in dropped if cols[i] in X.columns}
         corr = {i: (c if np.isfinite(c) else 0.0) for i, c in corr.items()}
         if corr:
             dropped.remove(max(corr, key=lambda k: corr[k]))

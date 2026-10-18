@@ -85,7 +85,7 @@ def heldout_r2_scorer(base_mat: np.ndarray | Sequence[np.ndarray], y: np.ndarray
             if coef_base is not None:
                 return 1.0 - float(np.sum((yv - base_va @ coef_base) ** 2)) / ss
             return _lstsq_r2(base_tr, base_va)
-        extra = np.asarray(extra, dtype=np.float64)
+        extra = np.asarray(extra, dtype=np.float64)  # Intentional float64: rank-deficiency and exact-copy fallbacks need f64 lstsq precision
         extra = extra.reshape(-1, 1) if extra.ndim == 1 else extra
         extra_tr = extra[tr_idx]
         extra_va = extra[va_idx]

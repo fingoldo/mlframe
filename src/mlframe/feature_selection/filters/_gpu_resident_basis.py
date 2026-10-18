@@ -17,6 +17,7 @@ from __future__ import annotations
 
 from mlframe.utils.log_throttle import log_throttle
 import numpy as np
+from ._fe_gpu_batch._devices import crit_float_dtype
 
 from mlframe.feature_selection.filters._safe_scale import guarded_scale
 
@@ -25,7 +26,7 @@ from mlframe.feature_selection.filters._safe_scale import guarded_scale
 # the device (from the resident raw input + the tiny stored spec) instead of COPYING the host-computed column
 # (the 1.68 MB non-plain H2D floor). The preprocess (z-score / min-max / shift, all elementwise + a clip) and
 # the Clenshaw polynomial recurrences below replicate NUMPY's chebval/legval/hermeval(He)/lagval to fp
-# round-off (same Clenshaw algorithm + float64 op order). SELECTION-EQUIVALENCE NOTE (P2-2): the production
+# round-off (same Clenshaw algorithm + double precision op order). SELECTION-EQUIVALENCE NOTE (P2-2): the production
 # HOST path (polyeval_dispatch -> njit) evaluates these three (cheb/leg/herme) by a FORWARD recurrence, which
 # differs from numpy/GPU-Clenshaw by ~1e-12 at degree>=3 (laguerre is forward on both, so it is bit-consistent
 # across device+host). So a candidate MI-RANKED on GPU-Clenshaw values and later REPLAYED via host-forward
@@ -123,7 +124,7 @@ _BASIS_ID = {"chebyshev": 0, "legendre": 1, "hermite": 2, "laguerre": 3}
 # (n, m*nd) in the concatenate layout [deg0: all m cols][deg1: ...]. Replaces the per-degree clen() cupy
 # chains (~nd*degree elementwise ops -> the measured #1 launch source _gpu_evaluate_basis_matrix). Each
 # in-kernel recurrence reproduces _{cheb,leg,herme}_clenshaw_gpu (backward Clenshaw, one-hot coef) and
-# _lag_clenshaw_gpu (forward) op-for-op in float64 -> bit-identical basis values.
+# _lag_clenshaw_gpu (forward) op-for-op in double precision -> bit-identical basis values.
 _CLENSHAW_SRC = r"""
 __device__ double eval_basis(int basis, int d, double x) {
     if (d == 0) return 1.0;
@@ -181,11 +182,11 @@ def _clenshaw_basis_block_gpu(cp, Zg, basis, degrees):
     bid = _BASIS_ID.get(basis)
     if bid is None:
         return None
-    Z = cp.ascontiguousarray(Zg.astype(cp.float64, copy=False))
+    Z = cp.ascontiguousarray(Zg.astype(crit_float_dtype(), copy=False))
     n, m = int(Z.shape[0]), int(Z.shape[1])
     nd = len(degrees)
     degs = cp.asarray(np.asarray([int(d) for d in degrees], dtype=np.int32))
-    out = cp.empty((n, m * nd), dtype=cp.float64)
+    out = cp.empty((n, m * nd), dtype=crit_float_dtype())
     total = n * m * nd
     threads = 256
     _get_clenshaw_kernel()(((total + threads - 1) // threads,), (threads,), (Z, degs, np.int64(n), np.int32(m), np.int32(nd), np.int32(bid), out))
@@ -298,13 +299,13 @@ def _gpu_basis_preprocess(cp, x, basis, *, robust: bool):
 
 
 def _gpu_evaluate_basis_column(cp, x, basis, degree, *, robust_axis: bool):
-    """Device port of _evaluate_basis_column (no-aux / no-replay path). ``x`` is an (n,) cupy float64
-    operand; returns the (n,) cupy float64 basis-column values. ``robust_axis`` = _robust_axis_enabled()
+    """Device port of _evaluate_basis_column (no-aux / no-replay path). ``x`` is an (n,) cupy double precision
+    operand; returns the (n,) cupy double precision basis-column values. ``robust_axis`` = _robust_axis_enabled()
     (host env, passed in to avoid a per-call import). Heavy-tail is detected on-device. Raises for an
     unported basis so the caller falls back to the host _evaluate_basis_column (never a correctness loss)."""
-    xf64 = x.astype(cp.float64)
+    xf64 = x.astype(crit_float_dtype())
     use_robust = bool(robust_axis) and _gpu_detect_heavy_tail(cp, xf64[cp.isfinite(xf64)])
-    z = cp.ascontiguousarray(_gpu_basis_preprocess(cp, xf64, basis, robust=use_robust), dtype=cp.float64)
+    z = cp.ascontiguousarray(_gpu_basis_preprocess(cp, xf64, basis, robust=use_robust), dtype=crit_float_dtype())
     clen = _PREWARP_CLENSHAW_GPU.get(basis)
     if clen is None:
         raise ValueError(f"basis {basis!r} not GPU-ported")
@@ -357,12 +358,12 @@ def _gpu_robust_scale_batched(cp, M, med, *, q25=None, q75=None):
     # the scale + iqr + where + where chain. Same f64 ops -> bit-identical; cupy chain fallback on error.
     try:
         K = int(mad.shape[0])
-        out = cp.empty(K, dtype=cp.float64)
+        out = cp.empty(K, dtype=crit_float_dtype())
         threads = 128
         _get_robust_scale_combine_kernel(cp)(((K + threads - 1) // threads,), (threads,),
-            (cp.ascontiguousarray(mad.astype(cp.float64, copy=False)),
-             cp.ascontiguousarray(q25.astype(cp.float64, copy=False)),
-             cp.ascontiguousarray(q75.astype(cp.float64, copy=False)), np.int32(K), out))
+            (cp.ascontiguousarray(mad.astype(crit_float_dtype(), copy=False)),
+             cp.ascontiguousarray(q25.astype(crit_float_dtype(), copy=False)),
+             cp.ascontiguousarray(q75.astype(crit_float_dtype(), copy=False)), np.int32(K), out))
         return out
     except Exception as e:
         import logging
@@ -447,12 +448,12 @@ def _gpu_detect_heavy_tail_batched(cp, M):
     med = q[1]
     scale = _gpu_robust_scale_batched(cp, M, med, q25=q[0], q75=q[2])
     try:
-        Mc = cp.ascontiguousarray(M.astype(cp.float64, copy=False))
+        Mc = cp.ascontiguousarray(M.astype(crit_float_dtype(), copy=False))
         K = int(Mc.shape[1])
         out_v = cp.empty(K, dtype=cp.int8)
         _get_heavy_tail_stats_kernel(cp)((K,), (256,),
-            (Mc, cp.ascontiguousarray(med.astype(cp.float64, copy=False)),
-             cp.ascontiguousarray(scale.astype(cp.float64, copy=False)),
+            (Mc, cp.ascontiguousarray(med.astype(crit_float_dtype(), copy=False)),
+             cp.ascontiguousarray(scale.astype(crit_float_dtype(), copy=False)),
              float(_GPU_ROBUST_AXIS_OUTER_K), float(_GPU_ROBUST_AXIS_GAP),
              float(_GPU_ROBUST_AXIS_MAX_FRAC), np.int64(n), np.int32(K), out_v))
         return out_v.astype(cp.bool_)
@@ -584,8 +585,8 @@ def _col_meanstd(cp, Mc):
     if _COL_MEANSTD_KERNEL is None:
         _COL_MEANSTD_KERNEL = cp.RawKernel(_COL_MEANSTD_SRC, "col_meanstd")
     n, K = int(Mc.shape[0]), int(Mc.shape[1])
-    mean = cp.empty(K, dtype=cp.float64)
-    std = cp.empty(K, dtype=cp.float64)
+    mean = cp.empty(K, dtype=crit_float_dtype())
+    std = cp.empty(K, dtype=crit_float_dtype())
     _COL_MEANSTD_KERNEL((K,), (256,), (Mc, np.int64(n), np.int32(K), mean, std))
     return mean, std
 
@@ -595,7 +596,7 @@ def _gpu_basis_preprocess_nonrobust_fused(cp, M, basis):
     mean/std or min/max reductions + the per-element transform) - bit-identical to the cupy chain."""
     code = _BASIS_PREPROCESS_CODE[basis]
     n, g = int(M.shape[0]), int(M.shape[1])
-    Mc = cp.ascontiguousarray(M.astype(cp.float64, copy=False))
+    Mc = cp.ascontiguousarray(M.astype(crit_float_dtype(), copy=False))
     if code == 0:                                  # hermite: (M-mean)/std
         _mean, _std = _col_meanstd(cp, Mc)         # mean + std in ONE launch
         p0 = _mean; p1 = guarded_scale(_std, cp.abs(Mc).max(axis=0), xp=cp)
@@ -604,12 +605,12 @@ def _gpu_basis_preprocess_nonrobust_fused(cp, M, basis):
         p0 = lo; p1 = guarded_scale(hi - lo, cp.maximum(cp.abs(lo), cp.abs(hi)), xp=cp)
     else:                                          # laguerre: M-lo+1e-9 (p1 unused)
         p0 = Mc.min(axis=0); p1 = p0
-    out = cp.empty((n, g), dtype=cp.float64)
+    out = cp.empty((n, g), dtype=crit_float_dtype())
     total = n * g
     threads = 256
     _get_basis_preprocess_nr_kernel(cp)(((total + threads - 1) // threads,), (threads,),
-        (Mc, cp.ascontiguousarray(p0.astype(cp.float64, copy=False)),
-         cp.ascontiguousarray(p1.astype(cp.float64, copy=False)),
+        (Mc, cp.ascontiguousarray(p0.astype(crit_float_dtype(), copy=False)),
+         cp.ascontiguousarray(p1.astype(crit_float_dtype(), copy=False)),
          np.int32(code), np.int64(n), np.int32(g), out))
     return out
 
@@ -644,8 +645,8 @@ def _col_minmax(cp, Mc):
     if _COL_MINMAX_KERNEL is None:
         _COL_MINMAX_KERNEL = cp.RawKernel(_COL_MINMAX_SRC, "col_minmax")
     n, K = int(Mc.shape[0]), int(Mc.shape[1])
-    mn = cp.empty(K, dtype=cp.float64)
-    mx = cp.empty(K, dtype=cp.float64)
+    mn = cp.empty(K, dtype=crit_float_dtype())
+    mx = cp.empty(K, dtype=crit_float_dtype())
     _COL_MINMAX_KERNEL((K,), (256,), (Mc, np.int64(n), np.int32(K), mn, mx))
     return mn, mx
 
@@ -659,18 +660,18 @@ def _gpu_basis_preprocess_robust_fused(cp, M, basis):
     scale = _gpu_robust_scale_batched(cp, M, med)
     code = _BASIS_PREPROCESS_CODE[basis]
     n, g = int(M.shape[0]), int(M.shape[1])
-    Mc = cp.ascontiguousarray(M.astype(cp.float64, copy=False))
+    Mc = cp.ascontiguousarray(M.astype(crit_float_dtype(), copy=False))
     mn, mx = _col_minmax(cp, Mc)  # min + max in ONE launch (bit-identical)
     stdcol = Mc.std(axis=0) if code == 0 else scale  # std only used by the hermite fallback; else unused
-    out = cp.empty((n, g), dtype=cp.float64)
+    out = cp.empty((n, g), dtype=crit_float_dtype())
     total = n * g
     threads = 256
     _get_basis_preprocess_kernel(cp)(((total + threads - 1) // threads,), (threads,),
-        (Mc, cp.ascontiguousarray(med.astype(cp.float64, copy=False)),
-         cp.ascontiguousarray(scale.astype(cp.float64, copy=False)),
-         cp.ascontiguousarray(mn.astype(cp.float64, copy=False)),
-         cp.ascontiguousarray(mx.astype(cp.float64, copy=False)),
-         cp.ascontiguousarray(stdcol.astype(cp.float64, copy=False)),
+        (Mc, cp.ascontiguousarray(med.astype(crit_float_dtype(), copy=False)),
+         cp.ascontiguousarray(scale.astype(crit_float_dtype(), copy=False)),
+         cp.ascontiguousarray(mn.astype(crit_float_dtype(), copy=False)),
+         cp.ascontiguousarray(mx.astype(crit_float_dtype(), copy=False)),
+         cp.ascontiguousarray(stdcol.astype(crit_float_dtype(), copy=False)),
          np.int32(code), float(_GPU_ROBUST_AXIS_K), np.int64(n), np.int32(g), out))
     return out
 
@@ -818,12 +819,13 @@ def _gpu_batched_abs_corr(cp, cand, y_cont):
     try:
         cand2 = cand if cand.ndim == 2 else cand[:, None]
         n, m = int(cand2.shape[0]), int(cand2.shape[1])
-        cand2 = cp.ascontiguousarray(cand2.astype(cp.float64, copy=False))
-        yv = y_cont.astype(cp.float64, copy=False).ravel()
+        cand2 = cp.ascontiguousarray(cand2.astype(crit_float_dtype(), copy=False))
+        yv = y_cont.astype(crit_float_dtype(), copy=False).ravel()
         yc = cp.ascontiguousarray(yv - yv.mean())
         mu = cp.ascontiguousarray(cand2.mean(axis=0))
         Syy = float((yc * yc).sum())
-        out = cp.empty(m, dtype=cp.float64)
+        out = cp.empty(m, dtype=crit_float_dtype())
+        # Intentional float64: scalar kernel argument contract (must match the CUDA kernel signature)
         _get_abs_corr_kernel()((m,), (256,), (cand2, yc, mu, np.int64(n), np.int32(m), np.float64(Syy), out), shared_mem=2 * 8)
         return out
     except Exception as e:
@@ -861,6 +863,7 @@ def _gpu_route_bases_batched(cp, M, y_cont, candidate_bases, degrees, *, robust_
     # corr_by_basis[basis] = (K,) host array of bcorr (max over degrees, degenerate-skipped), init 0.0
     corr_by_basis: dict = {}
     for basis in candidate_bases:
+        # Intentional float64: accumulator kept f64 (statistic / count sums need full precision)
         bcorr = np.zeros(K, dtype=np.float64)
         cand, meta = _gpu_evaluate_basis_matrix(cp, M, [basis] * K, list(degrees), robust_axis=robust_axis, heavy_host=_heavy)
         if cand is not None:

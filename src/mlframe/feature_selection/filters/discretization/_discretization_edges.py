@@ -121,7 +121,7 @@ def _knuth_bin_edges(a: np.ndarray, edge_type: str = "quantile", m_max_cap: int 
     Reference: Knuth, K.H. (2006) "Optimal data-based binning for histograms",
     arXiv:physics/0605197.
     """
-    a = np.asarray(a, dtype=np.float64).ravel()
+    a = np.asarray(a, dtype=np.float64).ravel()  # Intentional float64: Bayesian-block likelihood accumulators need f64 precision
     a = a[np.isfinite(a)]
     n = a.size
     if n < 2:
@@ -160,7 +160,7 @@ def _bayesian_blocks_inner(t: np.ndarray, ncp_prior: float) -> np.ndarray:
     """
     N = t.shape[0]
     # Cell boundaries: midpoints between consecutive points + extrapolated end caps.
-    edges = np.empty(N + 1, dtype=np.float64)
+    edges = np.empty(N + 1, dtype=np.float64)  # Intentional float64: block edges compared at full precision against the native-dtype data
     edges[0] = t[0]
     for i in range(1, N):
         edges[i] = 0.5 * (t[i - 1] + t[i])
@@ -173,7 +173,7 @@ def _bayesian_blocks_inner(t: np.ndarray, ncp_prior: float) -> np.ndarray:
     _span = block_length[0]
     _t_floor = 1e-12 * _span if _span > 0.0 else 0.0
     # DP: best[i] = max log-likelihood reachable ending at point i.
-    best = np.full(N, -1e300, dtype=np.float64)
+    best = np.full(N, -1e300, dtype=np.float64)  # Intentional float64: Bayesian-block likelihood accumulators need f64 precision
     last = np.zeros(N, dtype=np.int64)
     for R in range(N):
         # For each possible block start R+1..R+1, compute log-likelihood of single block.
@@ -209,7 +209,7 @@ def _bayesian_blocks_midpoints(t_sorted: np.ndarray) -> np.ndarray:
     astropy convention. ``edges[0]=t[0]``, ``edges[N]=t[N-1]``, internal points
     are ``0.5*(t[i-1]+t[i])``."""
     N = t_sorted.shape[0]
-    edges = np.empty(N + 1, dtype=np.float64)
+    edges = np.empty(N + 1, dtype=np.float64)  # Intentional float64: block edges compared at full precision against the native-dtype data
     edges[0] = t_sorted[0]
     for i in range(1, N):
         edges[i] = 0.5 * (t_sorted[i - 1] + t_sorted[i])
@@ -259,7 +259,7 @@ def _bayesian_blocks_bin_edges(
     Returns:
         1-D array of Bayesian Blocks bin edges.
     """
-    a = np.asarray(a, dtype=np.float64).ravel()
+    a = np.asarray(a, dtype=np.float64).ravel()  # Intentional float64: Bayesian-block likelihood accumulators need f64 precision
     a = a[np.isfinite(a)]
     if a.size < 2:
         return np.array([a.min() if a.size else 0.0, a.max() + 1e-9 if a.size else 1.0])
@@ -289,13 +289,13 @@ def _bayesian_blocks_bin_edges(
     if edge_placement == "midpoint":
         # Scargle 2013 / astropy convention: edges at cell-boundary midpoints.
         cell_edges = _bayesian_blocks_midpoints(a_sorted_dp)
-        edges_internal = np.empty(cp_idx.size + 1, dtype=np.float64)
+        edges_internal = np.empty(cp_idx.size + 1, dtype=np.float64)  # Intentional float64: block edges compared at full precision against the native-dtype data
         for i in range(cp_idx.size):
             edges_internal[i] = cell_edges[int(cp_idx[i])]
         edges_internal[-1] = cell_edges[-1]
     else:
         # Legacy 'start' placement (previous behaviour).
-        edges_internal = np.empty(cp_idx.size + 1, dtype=np.float64)
+        edges_internal = np.empty(cp_idx.size + 1, dtype=np.float64)  # Intentional float64: block edges compared at full precision against the native-dtype data
         for i, ci in enumerate(cp_idx):
             edges_internal[i] = a_sorted_dp[ci]
         edges_internal[-1] = a_sorted_dp[-1]
@@ -380,7 +380,7 @@ def get_binning_edges(arr: np.ndarray, n_bins: int = 10, method: str = "uniform"
             # the same single bin - a single-element edges array makes ``quantize_search``'s
             # ``bins[1:-1]`` empty, so ``np.searchsorted`` returns 0 for every row regardless
             # of NaN, deterministically and without ever calling percentile on empty input.
-            return np.zeros(1, dtype=np.float64)
+            return np.zeros(1, dtype=np.float64)  # Intentional float64: block edges compared at full precision against the native-dtype data
         quantiles = np.linspace(0, 100, n_bins + 1)
         bin_edges = np.asarray(np.percentile(arr_finite, quantiles))
     else:

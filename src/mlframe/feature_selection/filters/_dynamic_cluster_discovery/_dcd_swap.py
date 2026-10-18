@@ -17,6 +17,8 @@ from mlframe.utils.log_throttle import log_throttle
 
 import numpy as np
 
+from .._fe_usability_signal import _crit_np_dtype
+
 from ._dcd_metrics import _binarize_aggregate
 from types import SimpleNamespace as _SimpleNamespace
 
@@ -143,6 +145,7 @@ def _select_swap_method_auto(
                         continue
                     rep_test = _apply_method_nonlinear(Z_test, method)
                 else:
+                    # Intentional float64: stored recipe parameters (mean/std/signs/weights) keep their f64 contract, so transforms match the persisted payload.
                     rep_test = Z_test @ np.asarray(w, dtype=np.float64)
                 rep_test = np.nan_to_num(rep_test, nan=0.0, posinf=0.0, neginf=0.0)
                 # Bin rep_test with the recipe's quantization (uses test-fold
@@ -516,7 +519,7 @@ def _register_engineered_recipe(state: DCDState, decision: SwapDecision, enginee
                         # directly instead of re-deriving M/Z from X_raw + the recipe's stored
                         # mean/std/signs (own comment below).
                         _cont = np.nan_to_num(
-                            np.asarray(decision.rep_continuous, dtype=np.float64),
+                            np.asarray(decision.rep_continuous, dtype=_crit_np_dtype()),
                             copy=False, nan=0.0, posinf=0.0, neginf=0.0,
                         )
                         _edges = np.nanpercentile(_cont, _q_arr)
@@ -525,11 +528,14 @@ def _register_engineered_recipe(state: DCDState, decision: SwapDecision, enginee
                         # Fallback: reconstruct the standardized + sign-aligned matrix the swap
                         # was evaluated against. X_raw_ref + src_names are the canonical sources.
                         _M = state.X_raw_ref[list(_src_names)].to_numpy(
-                            dtype=np.float64, copy=True,
+                            dtype=_crit_np_dtype(), copy=True,
                         )
+                        # Intentional float64: stored recipe parameters (mean/std/signs/weights) keep their f64 contract, so transforms match the persisted payload.
                         _mean = np.asarray(_recipe["mean"], dtype=np.float64)
+                        # Intentional float64: stored recipe parameters (mean/std/signs/weights) keep their f64 contract, so transforms match the persisted payload.
                         _std_raw = np.asarray(_recipe["std"], dtype=np.float64)
                         _std = np.where(_std_raw > 0.0, _std_raw, 1.0)
+                        # Intentional float64: stored recipe parameters (mean/std/signs/weights) keep their f64 contract, so transforms match the persisted payload.
                         _signs = np.asarray(_recipe["signs"], dtype=np.float64)
                         _Z = ((_M - _mean) / _std) * _signs
                         # Layer 44: non-linear / row-reduction methods
@@ -543,6 +549,7 @@ def _register_engineered_recipe(state: DCDState, decision: SwapDecision, enginee
                         if _m in _NONLINEAR_METHODS:
                             _cont = _apply_method_nonlinear(_Z, _m)
                         else:
+                            # Intentional float64: stored recipe parameters (mean/std/signs/weights) keep their f64 contract, so transforms match the persisted payload.
                             _cont = _Z @ np.asarray(_recipe["weights"], dtype=np.float64)
                         _cont = np.nan_to_num(
                             _cont, copy=False, nan=0.0, posinf=0.0, neginf=0.0,
@@ -556,9 +563,13 @@ def _register_engineered_recipe(state: DCDState, decision: SwapDecision, enginee
                 name=str(decision.aggregate_name),
                 src_names=_src_names,
                 method=str(_recipe.get("method", "pca_pc1")),
+                # Intentional float64: stored recipe parameters keep their f64 contract (see the transform path above).
                 member_mean=np.asarray(_recipe["mean"], dtype=np.float64),
+                # Intentional float64: stored recipe parameters keep their f64 contract (see the transform path above).
                 member_std=np.asarray(_recipe["std"], dtype=np.float64),
+                # Intentional float64: stored recipe parameters keep their f64 contract (see the transform path above).
                 signs=np.asarray(_recipe["signs"], dtype=np.float64),
+                # Intentional float64: stored recipe parameters keep their f64 contract (see the transform path above).
                 weights=(np.asarray(_recipe["weights"], dtype=np.float64) if "weights" in _recipe else None),
                 quantization=_quant,
             )

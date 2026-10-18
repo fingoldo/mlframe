@@ -22,6 +22,7 @@ def _mi_mm_njit(a: np.ndarray, b: np.ndarray, K_a: int, K_b: int) -> float:
 
         return 0.0
 
+    # Intentional float64: njit joint-table accumulator; numba cannot call _crit_np_dtype, and the MI sums need exact f64 ties.
     joint = np.zeros((K_a, K_b), dtype=np.float64)
 
     for i in range(n):
@@ -79,16 +80,20 @@ def _cmi_mm_njit(x: np.ndarray, y: np.ndarray, z: np.ndarray, K_x: int, K_y: int
 
         return 0.0
 
+    # Intentional float64: njit joint-table accumulator; numba cannot call _crit_np_dtype, and the MI sums need exact f64 ties.
     joint = np.zeros((K_x, K_y, K_z), dtype=np.float64)
 
     for i in range(n):
 
         joint[x[i], y[i], z[i]] += 1.0
 
+    # Intentional float64: njit joint-table accumulator; numba cannot call _crit_np_dtype, and the MI sums need exact f64 ties.
     Pz = np.zeros(K_z, dtype=np.float64)
 
+    # Intentional float64: njit joint-table accumulator; numba cannot call _crit_np_dtype, and the MI sums need exact f64 ties.
     Pxz = np.zeros((K_x, K_z), dtype=np.float64)
 
+    # Intentional float64: njit joint-table accumulator; numba cannot call _crit_np_dtype, and the MI sums need exact f64 ties.
     Pyz = np.zeros((K_y, K_z), dtype=np.float64)
 
     m_xyz = 0

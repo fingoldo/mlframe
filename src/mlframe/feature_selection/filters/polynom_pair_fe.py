@@ -31,6 +31,7 @@ import time
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 import numpy as np
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 from joblib import Parallel, delayed
 from joblib._parallel_backends import LokyBackend
 
@@ -287,8 +288,8 @@ def _run_polynom_pair_fe_step2_existing_np_memmap(_uncoercible, shared_subsample
         if _uncoercible is not None and (_uncoercible[raw_vars_pair[0]] or _uncoercible[raw_vars_pair[1]]):
             return None
         try:
-            vals_a_full = np.ascontiguousarray(X_arr[:, raw_vars_pair[0]], dtype=np.float64)
-            vals_b_full = np.ascontiguousarray(X_arr[:, raw_vars_pair[1]], dtype=np.float64)
+            vals_a_full = np.ascontiguousarray(X_arr[:, raw_vars_pair[0]], dtype=_crit_np_dtype())
+            vals_b_full = np.ascontiguousarray(X_arr[:, raw_vars_pair[1]], dtype=_crit_np_dtype())
         except (ValueError, TypeError) as _exc:
             logger.debug("_eval_one_pair_impl fell back to its default after %s", type(_exc).__name__)
             return None
@@ -360,8 +361,8 @@ def _pp_trivial_baseline_once(vals_a_sub: np.ndarray, vals_b_sub: np.ndarray, cl
     try:
         from mlframe.feature_selection.filters.fe_baselines import best_trivial_pair as _best_trivial_pair
         _t = _best_trivial_pair(
-            np.asarray(vals_a_sub, dtype=np.float64),
-            np.asarray(vals_b_sub, dtype=np.float64),
+            np.asarray(vals_a_sub, dtype=_crit_np_dtype()),
+            np.asarray(vals_b_sub, dtype=_crit_np_dtype()),
             classes_y_sub,
             discrete_target=True,
             mi_estimator=fe_mi_estimator,
@@ -401,8 +402,8 @@ def _pp_cheap_skip_applies(raw_vars_pair: Any, _trivial_baseline: Any, _trivial_
             _trivial_corr = 0.0
             if _trivial_feat is not None and poly_cheap_skip_min_corr > 0.0:
                 try:
-                    _tf = np.asarray(_trivial_feat, dtype=np.float64).reshape(-1)
-                    _yv = np.asarray(classes_y_sub, dtype=np.float64).reshape(-1)
+                    _tf = np.asarray(_trivial_feat, dtype=np.float64).reshape(-1)  # Intentional float64: trivial-feature statistic input
+                    _yv = np.asarray(classes_y_sub, dtype=np.float64).reshape(-1)  # Intentional float64: target statistic input
                     if _tf.size == _yv.size and float(np.std(_tf)) > 1e-12 and float(np.std(_yv)) > 1e-12:
                         _trivial_corr = abs(float(np.corrcoef(_tf, _yv)[0, 1]))
                 except Exception as e:
@@ -632,7 +633,7 @@ def _pp_reduce_pair_results(_poly_pair_results: list, _n_pairs_to_eval: int, ver
             continue
         try:
             _t_vals = np.asarray(
-                best_res.transform(vals_a, vals_b), dtype=np.float64,
+                best_res.transform(vals_a, vals_b), dtype=np.float64,  # Intentional float64: transform output contract
             ).reshape(-1)
             if not np.all(np.isfinite(_t_vals)):
                 continue
@@ -758,11 +759,11 @@ def _run_polynom_pair_f_trivial_baseline_already_captures(prospective_pairs, _pa
 def _run_polynom_pair_f_same_pairs_old_per(X_ndarr, _uncoercible):
     """Block of run_polynom_pair_fe starting at ``if X_ndarr.dtype == object:``."""
     if X_ndarr.dtype == object:
-        _Xf = np.empty(X_ndarr.shape, dtype=np.float64)
+        _Xf = np.empty(X_ndarr.shape, dtype=np.float64)  # Intentional float64: accumulator or output buffer; statistic at float64
         _uncoercible = np.zeros(X_ndarr.shape[1], dtype=bool)
         for _j in range(X_ndarr.shape[1]):
             try:
-                _Xf[:, _j] = np.asarray(X_ndarr[:, _j], dtype=np.float64)
+                _Xf[:, _j] = np.asarray(X_ndarr[:, _j], dtype=_crit_np_dtype())
             except (ValueError, TypeError):  # noqa: PERF203 - per-column coercion needs its own try; runs once per FE round, not hot
                 _Xf[:, _j] = np.nan
                 _uncoercible[_j] = True

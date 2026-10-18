@@ -11,6 +11,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 
 if TYPE_CHECKING:
     from . import EngineeredRecipe
@@ -29,10 +30,10 @@ def _apply_mi_greedy_transform(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
     from .._mi_greedy_fe import apply_mi_greedy_transform
 
     def _numeric_source(n: str) -> np.ndarray:
-        """Extract column ``n`` from ``X`` and coerce it to float64, raising a recipe-scoped ``ValueError`` (naming the column) instead of an opaque deep numpy error when the column isn't numeric."""
+        """Extract column ``n`` from ``X`` and coerce it to the float dtype, raising a recipe-scoped ``ValueError`` (naming the column) instead of an opaque deep numpy error when the column isn't numeric."""
         col = _extract_column(X, n)
         try:
-            return np.asarray(col, dtype=np.float64)
+            return np.asarray(col, dtype=_crit_np_dtype())
         except (ValueError, TypeError) as e:
             # The mi_greedy registry is numeric-only; a non-numeric source otherwise raises deep in np.asarray at
             # TRANSFORM time only (fit/serve asymmetry). Surface a clear, recipe-scoped error naming the column.

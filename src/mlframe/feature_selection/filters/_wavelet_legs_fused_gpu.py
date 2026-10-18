@@ -15,6 +15,7 @@ from __future__ import annotations
 from typing import Any, Optional
 
 from mlframe.feature_selection.filters._raw_module_cache import RawModuleCache
+from mlframe.feature_selection.filters._fe_gpu_batch._devices import crit_float_dtype
 
 _SRC = r"""
 // Leg value of row value z for level j, cell k: +1 left half, -1 right half, 0 outside the cell (also for z outside [0, 1) and NaN).
@@ -65,7 +66,7 @@ def leg_code_matrices(cp: Any, z_g: Any, max_scale: int, min_half_rows: int) -> 
     if max_scale < 0 or max_scale > 12:
         return None
     n = int(z_g.shape[0])
-    z = cp.ascontiguousarray(z_g, dtype=cp.float64)
+    z = cp.ascontiguousarray(z_g, dtype=crit_float_dtype())
     n_legs_all = (1 << (int(max_scale) + 1)) - 1
     mod = _MODULES.get(cp)
     counts = cp.zeros(2 * n_legs_all, dtype=cp.int32)

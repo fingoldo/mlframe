@@ -50,11 +50,11 @@ def _premerge_collapse(X, thr):
     cols = list(X.columns)
     # Factor-code non-numeric columns: ``np.corrcoef`` divides/means over the raw
     # values and would raise on string categorical levels (e.g. ``"NA"`` / ``""``).
-    _num = np.empty((len(X), len(cols)), dtype=np.float64)
+    _num = np.empty((len(X), len(cols)), dtype=np.float64)  # Intentional float64: pairwise |Pearson| dedup input matrix; exact corrcoef threshold
     for _j, _c in enumerate(cols):
         _s = X[_c]
         if pd.api.types.is_numeric_dtype(_s.dtype):
-            _num[:, _j] = _s.to_numpy(dtype=np.float64, na_value=np.nan)
+            _num[:, _j] = _s.to_numpy(dtype=np.float64, na_value=np.nan)  # Intentional float64: pairwise |Pearson| dedup input matrix; exact corrcoef threshold
         else:
             _num[:, _j] = pd.factorize(_s, use_na_sentinel=True)[0]
     C = np.nan_to_num(np.corrcoef(_num, rowvar=False))

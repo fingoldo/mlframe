@@ -68,16 +68,16 @@ def raws_linearly_explain_y(
             # REGRESSION path - byte-identical to the original contract.
             if yraw.dtype.kind not in "fiu":
                 return False  # non-numeric target -> classification-like; keep the passes
-            yc = yraw.astype(np.float64)
+            yc = yraw.astype(np.float64)  # Intentional float64: sklearn LinearRegression R^2 gate target; solved in float64
             if not np.isfinite(yc).all():
                 return False
             if n > max_rows:
                 rg = np.random.default_rng(int(seed) + 11)
                 idx = np.sort(rg.choice(n, size=max_rows, replace=False))
-                Xn = X.iloc[idx][num_cols].to_numpy(dtype=np.float64, copy=False)
+                Xn = X.iloc[idx][num_cols].to_numpy(dtype=np.float64, copy=False)  # Intentional float64: sklearn LinearRegression R^2 gate design; solved in float64
                 yy = yc[idx]
             else:
-                Xn = X[num_cols].to_numpy(dtype=np.float64, copy=False)
+                Xn = X[num_cols].to_numpy(dtype=np.float64, copy=False)  # Intentional float64: sklearn LinearRegression R^2 gate design; solved in float64
                 yy = yc
             Xn = np.nan_to_num(Xn, nan=0.0, posinf=0.0, neginf=0.0)
             from sklearn.linear_model import LinearRegression

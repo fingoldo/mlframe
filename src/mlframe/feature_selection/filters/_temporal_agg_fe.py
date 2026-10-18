@@ -49,6 +49,7 @@ from typing import Sequence
 
 import numba
 import numpy as np
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 import pandas as pd
 
 from mlframe._welford_njit import welford_push, welford_std
@@ -244,11 +245,11 @@ def _expanding_stat_past_only(
     """
     n = sorted_vals.size
     if n == 0:
-        return np.full(0, np.nan, dtype=np.float64)
+        return np.full(0, np.nan, dtype=_crit_np_dtype())
     gc = np.ascontiguousarray(group_codes, dtype=np.int64)
     n_groups = int(gc.max()) + 1 if gc.size else 1
     return np.asarray(_expanding_stat_past_only_njit(
-        np.ascontiguousarray(sorted_vals, dtype=np.float64), gc, _EXPANDING_STAT_CODE[stat], n_groups,
+        np.ascontiguousarray(sorted_vals, dtype=_crit_np_dtype()), gc, _EXPANDING_STAT_CODE[stat], n_groups,
     ))
 
 def generate_expanding_agg_features(
@@ -289,7 +290,7 @@ def generate_expanding_agg_features(
 
     # Persist the per-entity sorted history (train snapshot) once per value col.
     for value_col in value_cols:
-        vals = np.asarray(X[value_col].to_numpy(), dtype=np.float64)
+        vals = np.asarray(X[value_col].to_numpy(), dtype=_crit_np_dtype())
         vals_sorted = vals[order]
         # History snapshot: per-entity sorted (time, value) lists.
         history: dict[str, dict] = {}
@@ -414,7 +415,7 @@ def generate_lag_features(
     lags_arr = np.asarray(lags, dtype=np.int64)
 
     for value_col in value_cols:
-        vals = np.asarray(X[value_col].to_numpy(), dtype=np.float64)
+        vals = np.asarray(X[value_col].to_numpy(), dtype=_crit_np_dtype())
         vals_sorted = vals[order]
         prior = _global_prior(vals, "mean")
         history: dict[str, dict] = {}
@@ -423,8 +424,8 @@ def generate_lag_features(
             ent_key = str(key_sorted[rows[0]])
             t_list = times_sorted[rows]
             history[ent_key] = {
-                "t": (t_list.astype("datetime64[ns]").astype(np.int64).tolist() if _is_datetime_like(t_list) else t_list.astype(np.float64).tolist()),
-                "v": vals_sorted[rows].astype(np.float64).tolist(),
+                "t": (t_list.astype("datetime64[ns]").astype(np.int64).tolist() if _is_datetime_like(t_list) else t_list.astype(_crit_np_dtype()).tolist()),
+                "v": vals_sorted[rows].astype(_crit_np_dtype()).tolist(),
                 "is_datetime": bool(_is_datetime_like(t_list)),
             }
         # One pass over the time-sorted sequence emits EVERY requested lag via a max(lags)-sized per-entity ring
@@ -540,15 +541,15 @@ def apply_temporal_expanding(X_test: pd.DataFrame, recipe_extra: dict) -> np.nda
     history = recipe_extra["history"]
     X_test = _coerce_replay_frame(X_test, entity_cols, value_col, time_col, "temporal_expanding")
     key, times = _replay_keys_times(X_test, entity_cols, time_col)
-    vals = np.asarray(X_test[value_col].to_numpy(), dtype=np.float64)
+    vals = np.asarray(X_test[value_col].to_numpy(), dtype=_crit_np_dtype())
     n = len(X_test)
-    out = np.full(n, prior, dtype=np.float64)
+    out = np.full(n, prior, dtype=_crit_np_dtype())
     # Process test rows in time order so within-test history accumulates.
     order = _stable_time_order(times)
     # Numeric time axis for the strict-past comparison. Datetime is compared in int64-ns (NOT float64: epoch-ns
     # ~1.6e18 exceeds float64's 2^53 exact-integer range, so a float cast loses ~hundreds of ns at the boundary).
     _is_dt = _is_datetime_like(times)
-    times_num = times.astype("datetime64[ns]").astype(np.int64) if _is_dt else np.asarray(times, dtype=np.float64)
+    times_num = times.astype("datetime64[ns]").astype(np.int64) if _is_dt else np.asarray(times, dtype=_crit_np_dtype())
     # Running per-entity accumulators (count / sum / Welford-M2 / min / max). Train history is MERGED into the
     # time-ordered stream via a per-entity pointer: before scoring a test row at time t, only train rows STRICTLY
     # EARLIER than t are folded in. The previous implementation seeded the accumulator with the entity's ENTIRE train
@@ -583,13 +584,13 @@ def apply_temporal_expanding(X_test: pd.DataFrame, recipe_extra: dict) -> np.nda
     def _init(ent: str) -> None:
         """Lazily seed entity ``ent``'s sorted train-history arrays and zeroed accumulators the first time it is seen in the test time-ordered scan."""
         h = history.get(ent, {})
-        _hv = np.asarray(h.get("v", []), dtype=np.float64)
+        _hv = np.asarray(h.get("v", []), dtype=_crit_np_dtype())
         _ht = np.asarray(h.get("t", []))
         if _ht.size != _hv.size:
             # Legacy / hand-built recipe without stored train timestamps: fall back to the historical positional
             # seed-all (times = -inf so every train row folds before the first test row). Leak-safe only under the
             # old non-overlapping assumption; recipes produced by generate_expanding_agg_features carry "t".
-            _ht = np.full(_hv.size, -np.inf, dtype=np.float64)
+            _ht = np.full(_hv.size, -np.inf, dtype=_crit_np_dtype())
         elif _ht.size and not np.all(_ht[1:] >= _ht[:-1]):
             _o = np.argsort(_ht, kind="mergesort")
             _ht = _ht[_o]
@@ -657,11 +658,11 @@ def apply_temporal_lag(X_test: pd.DataFrame, recipe_extra: dict) -> np.ndarray:
     history = recipe_extra["history"]
     X_test = _coerce_replay_frame(X_test, entity_cols, value_col, time_col, "temporal_lag")
     key, times = _replay_keys_times(X_test, entity_cols, time_col)
-    vals = np.asarray(X_test[value_col].to_numpy(), dtype=np.float64)
+    vals = np.asarray(X_test[value_col].to_numpy(), dtype=_crit_np_dtype())
     is_dt = _is_datetime_like(times)
-    times_num = times.astype("datetime64[ns]").astype(np.int64) if is_dt else np.asarray(times, dtype=np.float64)
+    times_num = times.astype("datetime64[ns]").astype(np.int64) if is_dt else np.asarray(times, dtype=_crit_np_dtype())
     n = len(X_test)
-    out = np.full(n, prior, dtype=np.float64)
+    out = np.full(n, prior, dtype=_crit_np_dtype())
     order = _stable_time_order(times_num)
     # Per-entity time-sorted train history + a merge pointer, so a test row's positional lag counts ONLY train rows
     # STRICTLY EARLIER in time (plus earlier within-test rows). The previous implementation pre-seeded the buffer with
@@ -675,13 +676,13 @@ def apply_temporal_lag(X_test: pd.DataFrame, recipe_extra: dict) -> np.ndarray:
     def _hist(ent: str) -> tuple:
         """Return entity ``ent``'s time-sorted (times, values) train-history arrays, falling back to an all-``-inf`` time axis for legacy recipes without stored timestamps."""
         h = history.get(ent, {})
-        _v = np.asarray(h.get("v", []), dtype=np.float64)
+        _v = np.asarray(h.get("v", []), dtype=_crit_np_dtype())
         _t = np.asarray(h.get("t", []))
         if _t.size != _v.size:
             # Legacy / hand-built recipe without stored train timestamps: positional seed-all (times = -inf so the
             # whole train buffer folds before the first test row), the historical behaviour. Recipes produced by
             # generate_lag_features carry "t".
-            _t = np.full(_v.size, -np.inf, dtype=np.float64)
+            _t = np.full(_v.size, -np.inf, dtype=_crit_np_dtype())
         elif _t.size and not np.all(_t[1:] >= _t[:-1]):
             _o = np.argsort(_t, kind="mergesort")
             _t = _t[_o]
@@ -716,7 +717,7 @@ def apply_temporal_lag(X_test: pd.DataFrame, recipe_extra: dict) -> np.ndarray:
 def _mi_score(col: np.ndarray, y_bin: np.ndarray, n_bins: int = 10) -> float:
     """Quantile-bin a candidate temporal feature and compute its mutual information against the pre-binned target; used by :func:`hybrid_temporal_agg_fe` to rank/gate candidates before they enter the recipe pool."""
     from ._mi_greedy_cmi_fe import _quantile_bin, _cmi_from_binned
-    x_bin = _quantile_bin(np.asarray(col, dtype=np.float64), nbins=n_bins)
+    x_bin = _quantile_bin(np.asarray(col, dtype=_crit_np_dtype()), nbins=n_bins)
     return float(_cmi_from_binned(x_bin, y_bin, None))
 
 def hybrid_temporal_agg_fe(

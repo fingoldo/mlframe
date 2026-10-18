@@ -18,6 +18,8 @@ if TYPE_CHECKING:
 
 from mlframe.utils.log_throttle import log_throttle
 
+from .._fe_usability_signal import _crit_np_dtype
+
 logger = logging.getLogger(__name__)
 
 def _is_foreign(state, factors_data, factors_nbins) -> bool:
@@ -430,7 +432,7 @@ def _binarize_aggregate(values: np.ndarray, *, method: str, n_bins: int, dtype) 
     """Discretise a continuous aggregate to integer bin codes matching the
     MRMR quantization style. Conservative fallback: uniform binning when
     quantile produces degenerate edges."""
-    values = np.asarray(values, dtype=np.float64).ravel()
+    values = np.asarray(values, dtype=_crit_np_dtype()).ravel()
     n_bins = max(2, int(n_bins))
     if values.size == 0:
         return np.zeros(0, dtype=dtype)

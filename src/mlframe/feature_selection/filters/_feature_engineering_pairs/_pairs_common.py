@@ -8,6 +8,7 @@ import threading
 import numpy as np
 
 # Relative variance floor below which a column counts as constant in the |corr| kernels (host and device share it).
+# Intentional float64: a tolerance constant; the f64 machine epsilon is the reference floor for the variance test, not a data dtype.
 _DEGENERATE_REL_TOL = 32.0 * np.finfo(np.float64).eps
 
 # Module-level logger for module-scope helpers (e.g. _dispatch_batch_mi_with_noise_gate).

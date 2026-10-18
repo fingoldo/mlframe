@@ -114,23 +114,23 @@ def _fused_observed_mi_and_bins(device_codes: Any, yc: np.ndarray, ky: int) -> "
     from mlframe.feature_selection.filters._fe_resident_operands import resident_operand
 
     y32 = resident_operand(yc.astype(np.int32), "analytic_gate_y32", dtype=np.int32).ravel()
-    mi = cp.empty(k_total, dtype=cp.float64)
+    mi = cp.empty(k_total, dtype=cp.float64)  # Intentional float64: MI statistic output compared at full precision
     bins = cp.empty(k_total, dtype=cp.int32)
     threads = tile * max(1, 256 // tile)
     blocks = (k_total + tile - 1) // tile
     _fused_kernel()(
         (blocks,), (threads,),
-        (codes, y32, np.int64(n), np.int32(k_total), np.int32(kx), np.int32(ky_eff), np.int32(tile), np.float64(1.0 / float(max(1, n))), mi, bins),
+        (codes, y32, np.int64(n), np.int32(k_total), np.int32(kx), np.int32(ky_eff), np.int32(tile), np.float64(1.0 / float(max(1, n))), mi, bins),  # Intentional float64: the CUDA kernel signature declares double, so this must stay float64
         shared_mem=tile * kx * ky_eff * 4,
     )
-    return np.asarray(mi.get(), dtype=np.float64), np.asarray(bins.get(), dtype=np.int64)
+    return np.asarray(mi.get(), dtype=np.float64), np.asarray(bins.get(), dtype=np.int64)  # Intentional float64: MI statistic output compared at full precision
 
 
 def resident_observed_mi_and_bins(device_codes: Any, classes_y: np.ndarray, by: int) -> "tuple[np.ndarray, np.ndarray]":
     """Observed plug-in MI (nats) and occupied-bin count of every column of the resident ``(n, K)`` code matrix, against the target codes ``classes_y``.
 
     An int8 matrix goes through the fused single-pass kernel; anything else (or a histogram too large for shared memory) takes the generic block-wise path.
-    Both return host ``(K,)`` float64 / int64 arrays - the same quantities the CPU ``npermutations=0`` kernel and ``_occupied_bins_per_col`` give.
+    Both return host ``(K,)`` double / int64 arrays - the same quantities the CPU ``npermutations=0`` kernel and ``_occupied_bins_per_col`` give.
     """
     import cupy as cp
 
@@ -146,7 +146,7 @@ def resident_observed_mi_and_bins(device_codes: Any, classes_y: np.ndarray, by: 
         return fused
     n, k_total = int(device_codes.shape[0]), int(device_codes.shape[1])
     step = max(1, min(k_total, _BLOCK_ELEMENTS // max(1, n)))
-    observed = np.empty(k_total, dtype=np.float64)
+    observed = np.empty(k_total, dtype=np.float64)  # Intentional float64: MI statistic output compared at full precision
     bins = np.empty(k_total, dtype=np.int64)
     for start in range(0, k_total, step):
         block = device_codes[:, start : start + step]

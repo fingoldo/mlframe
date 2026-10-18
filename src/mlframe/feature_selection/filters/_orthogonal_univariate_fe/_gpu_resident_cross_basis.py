@@ -181,12 +181,12 @@ def build_leg_product_matrix_gpu(cp: Any, X: pd.DataFrame, col_specs: Sequence[d
             h = _leg(col, int(degree), explicit_basis)
             prod = h if prod is None else (prod * h)
         if prod is None:
-            prod = cp.ones(n, dtype=cp.float64)
+            prod = cp.ones(n, dtype=cp.float64)  # Intentional float64: GPU cross-basis accumulator; kernel contract is float64
         out_cols.append(prod)
 
     if not out_cols:
-        return cp.empty((n, 0), dtype=cp.float64)
-    return cp.ascontiguousarray(cp.stack(out_cols, axis=1).astype(cp.float64, copy=False))
+        return cp.empty((n, 0), dtype=cp.float64)  # Intentional float64: accumulator or output buffer; statistic at float64
+    return cp.ascontiguousarray(cp.stack(out_cols, axis=1).astype(cp.float64, copy=False))  # Intentional float64: GPU cross-basis output; kernel contract is float64
 
 
 def _resident_mi(cp, mat_gpu, y, nbins: int) -> np.ndarray:
@@ -198,14 +198,14 @@ def _resident_mi(cp, mat_gpu, y, nbins: int) -> np.ndarray:
     from .._fe_resident_operands import resident_operand
 
     if mat_gpu.shape[1] == 0:
-        return np.empty((0,), dtype=np.float64)
+        return np.empty((0,), dtype=np.float64)  # Intentional float64: accumulator or output buffer; statistic at float64
     _yi = np.ascontiguousarray(np.asarray(y)).astype(np.int64).ravel()
     y_gpu = resident_operand(_yi, "y_mi_classif", dtype=np.int64)
     _ymin = int(_yi.min()) if _yi.size else 0
     _ncls = (int(_yi.max()) - _ymin + 1) if _yi.size else 1
     return np.asarray(
         _plugin_mi_classif_batch_cuda_resident(mat_gpu, y_gpu, int(nbins), y_min=_ymin, n_classes=_ncls),
-        dtype=np.float64,
+        dtype=np.float64,  # Intentional float64: host cross-basis output contract
     )
 
 

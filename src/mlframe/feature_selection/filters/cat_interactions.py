@@ -52,6 +52,7 @@ logger = logging.getLogger(__name__)
 def _column_signature(values: np.ndarray, nbins: int) -> np.ndarray:
     """Per-column distribution signature ``bincount / n``, used for KL-based cache invalidation."""
     n = max(len(values), 1)
+    # Intentional float64: exact integer counts / MI statistic accumulator
     counts = np.bincount(values.astype(np.int64), minlength=nbins).astype(np.float64)
     return counts / n
 
@@ -92,6 +93,7 @@ def _restore_cached_marginal_mis(
     Reuse additionally REQUIRES the cached target signature to match ``target_sig``: the cached value is ``MI(X; Y)``, so a changed Y must invalidate every column even when X's distribution is unchanged (otherwise a stale MI is reused and columns are mis-pruned).
     """
     reusable_mask = np.zeros(len(candidate_idxs), dtype=bool)
+    # Intentional float64: MI statistic output vector, exact-tie ranking
     marginal_mi_reused = np.full(len(candidate_idxs), np.nan, dtype=np.float64)
     new_signatures: dict = {}
     cached_sigs = cache.get("col_signatures", {})
@@ -263,6 +265,7 @@ def _marginal_screen_weighted(
     is known True, on the SAME candidate set the unweighted screen already narrowed.
     """
     n_candidates = len(candidate_idxs)
+    # Intentional float64: exact integer counts / MI statistic accumulator
     out = np.zeros(n_candidates, dtype=np.float64)
     for k in range(n_candidates):
         idx = int(candidate_idxs[k])

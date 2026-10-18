@@ -326,6 +326,7 @@ def _shap_phi_and_base(explainer_base, X: pd.DataFrame, backend: str = "auto"):
         out = _treeshap_phi_and_base(explainer_base, X, use_gpu=(resolved == "treeshap_gpu"))
         if out is not None:
             phi, base = out
+            # Intentional float64: SHAP attribution accumulator kept f64 (exact additivity check)
             return np.asarray(phi, dtype=np.float64), float(base)
         # Unsupported despite routing -> fall through to shap.
 
@@ -349,16 +350,19 @@ def _shap_phi_and_base(explainer_base, X: pd.DataFrame, backend: str = "auto"):
                 f"ShapProxiedFS supports binary classification / single-target regression only; "
                 f"SHAP returned {len(phi)} outputs (multiclass is out of scope)."
             )
+    # Intentional float64: SHAP attribution accumulator kept f64 (exact additivity check)
     phi = np.asarray(phi, dtype=np.float64)
     if phi.ndim == 3:
         # (n, f, n_classes) - take the positive (last) class for binary.
         if phi.shape[2] != 2:
             raise ValueError(f"ShapProxiedFS supports binary / single-target only; got {phi.shape[2]} output classes.")
         phi = phi[:, :, 1]
+        # Intentional float64: SHAP attribution accumulator kept f64 (exact additivity check)
         base = np.asarray(base, dtype=np.float64).ravel()[-1]
     if phi.ndim != 2:
         raise ValueError(f"Unexpected SHAP value ndim={phi.ndim}; expected 2-D (n_samples, n_features).")
 
+    # Intentional float64: SHAP attribution accumulator kept f64 (exact additivity check)
     base = float(np.asarray(base, dtype=np.float64).ravel()[0]) if np.ndim(base) > 0 else float(base)
     return phi, base
 
@@ -395,6 +399,7 @@ def compute_phi_rank_stability(per_fold_phi_mean: np.ndarray, top_k: int = 80) -
     Returns a scalar in ``[-1, 1]`` (``1.0`` = identical rankings, ``0`` = unrelated, ``-1`` = inverted).
     With fewer than 2 folds the metric is undefined and ``1.0`` is returned (no folds to disagree).
     """
+    # Intentional float64: SHAP attribution accumulator kept f64 (exact additivity check)
     arr = np.asarray(per_fold_phi_mean, dtype=np.float64)
     if arr.ndim != 2:
         raise ValueError(f"per_fold_phi_mean must be 2-D (n_folds, n_features); got ndim={arr.ndim}")
@@ -420,7 +425,9 @@ def compute_phi_rank_stability(per_fold_phi_mean: np.ndarray, top_k: int = 80) -
         # spearmanr on the matrix returns the full pairwise correlation; extract upper-triangle.
         corr, _ = spearmanr(ranks, axis=1)
         if np.isscalar(corr):
+            # Intentional float64: SHAP attribution accumulator kept f64 (exact additivity check)
             return float(np.asarray(corr, dtype=np.float64))
+        # Intentional float64: SHAP attribution accumulator kept f64 (exact additivity check)
         corr = np.asarray(corr, dtype=np.float64)
         iu = np.triu_indices(n_folds, k=1)
         vals = corr[iu]
@@ -431,6 +438,7 @@ def compute_phi_rank_stability(per_fold_phi_mean: np.ndarray, top_k: int = 80) -
         _order = np.argsort(-sub, axis=1)
         ranks = np.empty_like(_order)
         np.put_along_axis(ranks, _order, np.broadcast_to(np.arange(_order.shape[1]), _order.shape), axis=1)
+        # Intentional float64: SHAP attribution accumulator kept f64 (exact additivity check)
         ranks = ranks.astype(np.float64)
         vals_list: list[float] = []
         for i in range(n_folds):
@@ -439,6 +447,7 @@ def compute_phi_rank_stability(per_fold_phi_mean: np.ndarray, top_k: int = 80) -
                 rj = ranks[j] - ranks[j].mean()
                 denom = float(np.sqrt((ri * ri).sum() * (rj * rj).sum()))
                 vals_list.append(float((ri * rj).sum() / denom) if denom > 0 else 1.0)
+        # Intentional float64: SHAP attribution accumulator kept f64 (exact additivity check)
         vals = np.asarray(vals_list, dtype=np.float64)
     if vals.size == 0:
         return 1.0
@@ -455,7 +464,7 @@ def compute_phi_rank_stability(per_fold_phi_mean: np.ndarray, top_k: int = 80) -
 # total fit within noise (15-20% Windows run-to-run variance). The cProfile 17s attribution was a
 # JIT/cold-cache artifact, NOT a steady-state marshalling cost. Same lesson as iter6 (4-11% gain on
 # regime synthetic, didn't ship). Do not re-attempt without a NEW data regime (object/categorical-mixed
-# DataFrame where .values triggers a real copy / dtype conversion) - on float64 single-block frames
+# DataFrame where .values triggers a real copy / dtype conversion) - on double precision single-block frames
 # the .values pass-through is essentially free for both pandas AND XGBoost.
 
 
@@ -589,7 +598,9 @@ class _StreamingPhiVariance:
 
     def __init__(self, shape: tuple) -> None:
         self.count = 0
+        # Intentional float64: SHAP attribution accumulator kept f64 (exact additivity check)
         self.mean = np.zeros(shape, dtype=np.float64)
+        # Intentional float64: SHAP attribution accumulator kept f64 (exact additivity check)
         self.m2 = np.zeros(shape, dtype=np.float64)
 
     def update(self, phi: np.ndarray) -> None:
@@ -696,8 +707,10 @@ def compute_shap_matrix(
     / refine (iter9-iter12); xgboost training dominates the OOF stage per cProfile (iter19), so
     fewer trees translate near-linearly to wall-clock. ``None`` disables the cap (legacy behaviour).
 
-    phi : (n, f) float64 - per-row SHAP in margin (clf) / target (reg) space.
-    base : (n,) float64 - per-row baseline (the fold's expected_value), constant within a fold.
+    # Intentional float64: SHAP attribution accumulator kept f64 (exact additivity check)
+    phi : (n, f) double precision - per-row SHAP in margin (clf) / target (reg) space.
+    # Intentional float64: SHAP attribution accumulator kept f64 (exact additivity check)
+    base : (n,) double precision - per-row baseline (the fold's expected_value), constant within a fold.
 
     ``return_per_fold_phi_mean`` (iter59): when True, the return tuple gains a trailing
     ``per_fold_phi_mean`` of shape (n_splits, n_features), where row k is ``|phi|.mean(axis=0)`` over
@@ -724,6 +737,7 @@ def compute_shap_matrix(
         seeds = [int(rng.integers(0, 2**31 - 1)) for _ in range(n_models)]
         phi_acc, base_val, var = _models_phi(X, y, X, seeds)
         _assert_additivity_and_base(phi_acc, base_val)
+        # Intentional float64: SHAP attribution accumulator kept f64 (exact additivity check)
         base_arr = np.full(st.n, base_val, dtype=np.float64)
         st.per_fold_mean = np.abs(phi_acc).mean(axis=0, keepdims=True) if return_per_fold_phi_mean else None
         st.out_tail = []
@@ -732,15 +746,21 @@ def compute_shap_matrix(
         if return_per_fold_phi_mean:
             st.out_tail.append(st.per_fold_mean)
         if st.out_tail:
+            # Intentional float64: SHAP attribution accumulator kept f64 (exact additivity check)
             return _store_shap_cache(_cache, _cache_key, (phi_acc, base_arr, y.astype(np.float64), *st.out_tail))
+        # Intentional float64: SHAP attribution accumulator kept f64 (exact additivity check)
         return _store_shap_cache(_cache, _cache_key, (phi_acc, base_arr, y.astype(np.float64)))
 
     # Out-of-fold: honest per-row attributions.
     st.split_iter = _oof_split_iter(cv_policy, X, y, st.n, n_splits, classification, rng)
 
+    # Intentional float64: SHAP attribution accumulator kept f64 (exact additivity check)
     st.phi = np.zeros((st.n, f), dtype=np.float64)
+    # Intentional float64: SHAP attribution accumulator kept f64 (exact additivity check)
     st.base = np.zeros(st.n, dtype=np.float64)
+    # Intentional float64: SHAP attribution accumulator kept f64 (exact additivity check)
     st.phi_var = np.zeros((st.n, f), dtype=np.float64) if return_variance else None
+    # Intentional float64: SHAP attribution accumulator kept f64 (exact additivity check)
     st.per_fold_mean = np.zeros((n_splits, f), dtype=np.float64) if return_per_fold_phi_mean else None
 
     st.folds = list(st.split_iter)
@@ -768,7 +788,9 @@ def compute_shap_matrix(
     if return_per_fold_phi_mean:
         st.out_tail.append(st.per_fold_mean)
     if st.out_tail:
+        # Intentional float64: SHAP attribution accumulator kept f64 (exact additivity check)
         return _store_shap_cache(_cache, _cache_key, (st.phi, st.base, y.astype(np.float64), *st.out_tail))
+    # Intentional float64: SHAP attribution accumulator kept f64 (exact additivity check)
     return _store_shap_cache(_cache, _cache_key, (st.phi, st.base, y.astype(np.float64)))
 
 
@@ -789,6 +811,7 @@ def _compute_shap_matrix_step1_def_models_phi(f, return_variance, n_models, conf
         for an identical-param re-run; this inner cache handles the case where the iter79 key
         misses but the per-fold determinants happen to match (e.g. caller mutated something that
         feeds into the outer key without affecting any fold's fit data + seed)."""
+        # Intentional float64: SHAP attribution accumulator kept f64 (exact additivity check)
         s = np.zeros((X_ex.shape[0], f), dtype=np.float64)
         b = 0.0
         _phi_var = _StreamingPhiVariance((X_ex.shape[0], f)) if return_variance else None

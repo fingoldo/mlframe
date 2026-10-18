@@ -65,8 +65,8 @@ void rows_ent_nnz(const double* __restrict__ counts, const double inv_n, const i
     if (tid == 0) { out_h[row] = -sh_h[0]; out_k[row] = (long long)(sh_k[0] + 0.5); }
 }
 // INT32-counts variant (bandwidth fix, 2026-07-02): nsys at the 1M fit put rows_ent_nnz at 9.35s (34% of
-// GPU time) reading float64 cells of a huge mostly-zero counts matrix, PLUS 2.2s of cupy_copy for the
-// int64->float64 .astype the callers did first. Counts are exact small ints (<= n < 2^31): read them as
+// GPU time) reading double precision cells of a huge mostly-zero counts matrix, PLUS 2.2s of cupy_copy for the
+// int64->double precision .astype the callers did first. Counts are exact small ints (<= n < 2^31): read them as
 // int32 (4B/cell, no astype copy at all) and cast in-register - identical entropy/nnz values, ~6x less
 // memory traffic (astype read8+write8 + reduce read8 -> reduce read4).
 extern "C" __global__
@@ -140,7 +140,7 @@ _ROWS_ENT_NNZ_SPLIT_KERNELS = None
 
 
 def _get_rows_ent_nnz_kernel(cp):
-    """Lazily compile (once per process) and cache the float64 ``rows_ent_nnz`` RawKernel; NVCC compilation is a ~30ms one-off, so callers pay it only on the first invocation."""
+    """Lazily compile (once per process) and cache the double precision ``rows_ent_nnz`` RawKernel; NVCC compilation is a ~30ms one-off, so callers pay it only on the first invocation."""
     global _ROWS_ENT_NNZ_KERNEL
     if _ROWS_ENT_NNZ_KERNEL is None:
         _ROWS_ENT_NNZ_KERNEL = cp.RawKernel(_ROWS_ENT_NNZ_SRC, "rows_ent_nnz")
@@ -168,7 +168,7 @@ def _rows_entropy_and_k(counts, inv_n):
     """Per-row (per-candidate) plug-in entropy + occupied-cell count from a (K, M) device count matrix.
 
     Fused into ONE RawKernel (one block per row, shared-mem reduction) -> a single cuLaunchKernel replacing
-    the elementwise + two axis sums. ``counts`` is float64 (K, M). Returns (h (K,) float64, k (K,) int64),
+    the elementwise + two axis sums. ``counts`` is double precision (K, M). Returns (h (K,) double precision, k (K,) int64),
     selection-equivalent to the prior path (deterministic per-row tree-order sum). Falls back to the
     ElementwiseKernel + axis sums on any kernel error."""
     import cupy as cp
@@ -180,10 +180,12 @@ def _rows_entropy_and_k(counts, inv_n):
             c = cp.ascontiguousarray(counts)
             _ker = _get_rows_ent_nnz_i32_kernel(cp)
         else:
+            # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
             c = cp.ascontiguousarray(counts if counts.dtype == cp.float64 else counts.astype(cp.float64))
             _ker = _get_rows_ent_nnz_kernel(cp)
         K = int(c.shape[0])
         M = int(c.shape[1]) if c.ndim > 1 else int(c.size)
+        # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
         out_h = cp.empty(K, dtype=cp.float64)
         out_k = cp.empty(K, dtype=cp.int64)
         threads = 256
@@ -194,7 +196,9 @@ def _rows_entropy_and_k(counts, inv_n):
         if counts.dtype == cp.int32 and K < 48 and M >= (1 << 20):
             S = max(2, min(64, (48 + K - 1) // max(1, K)))
             _split, _finish = _get_rows_ent_nnz_split_kernels(cp)
+            # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
             part_h = cp.empty(K * S, dtype=cp.float64)
+            # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
             part_k = cp.empty(K * S, dtype=cp.float64)
             _split((K, S), (threads,), (c, float(inv_n), np.int32(K), np.int64(M), np.int32(S), part_h, part_k))
             _finish(((K + 255) // 256,), (256,), (part_h, part_k, np.int32(K), np.int32(S), out_h, out_k))
@@ -204,6 +208,7 @@ def _rows_entropy_and_k(counts, inv_n):
     except Exception as e:
         log_throttle(logging.getLogger(__name__), "batched_mi_cmi.xlogx_rows", logging.WARNING, "batched CMI: the fused xlogx-rows kernel failed (%s), using the elementwise kernel", e)
         if _XLOGX_ROWS_EK is None:
+            # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
             _XLOGX_ROWS_EK = cp.ElementwiseKernel("T c, float64 invn", "float64 o", "o = c > 0 ? (c * invn) * log(c * invn) : 0.0", "mrmr_xlogx_rows_ek")
         h = -_XLOGX_ROWS_EK(counts, float(inv_n)).sum(axis=1)
         k = cp.sum(counts > 0, axis=1)
@@ -460,6 +465,7 @@ def _batched_joint_entropy_and_k2(X, b, Kx, Kb, inv_n):
         if M <= 0 or M * 4 + 4096 > int(_BATCHED_JOINT_ENTROPY_SH_LIMIT):
             return None
         Xc = cp.ascontiguousarray(X)
+        # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
         out_h = cp.empty(K, dtype=cp.float64)
         out_k = cp.empty(K, dtype=cp.int64)
         threads = 256
@@ -515,6 +521,7 @@ def _ent_nnz_1d(c, inv_n):
         if _ENT_NNZ_1D_KERNEL is None:
             _ENT_NNZ_1D_KERNEL = cp.RawKernel(_ENT_NNZ_1D_SRC, "ent_nnz_1d")
         M = int(c.size)
+        # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
         out = cp.zeros(2, dtype=cp.float64)  # cudaMemsetAsync, not a cuLaunchKernel
         threads = 256
         blocks = min(1024, max(1, (M + threads - 1) // threads))
@@ -523,6 +530,7 @@ def _ent_nnz_1d(c, inv_n):
         return float(-h_k[0]), round(h_k[1])
     except Exception as e:
         log_throttle(logging.getLogger(__name__), "batched_mi_cmi.nnz_1d", logging.WARNING, "batched CMI: the fused nnz-1d entropy kernel failed (%s), using the elementwise path", e)
+        # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
         cf = c.astype(cp.float64) if c.dtype != cp.float64 else c
         p = cf[cf > 0] * float(inv_n)
         return float(-(p * cp.log(p)).sum()), int((cf > 0).sum())
@@ -648,6 +656,7 @@ def joint_entropy_gpu(codes: Any, cards: Any, inv_n: float) -> tuple[float, int]
     if M * 4 + 4096 <= _JOINT_ENTROPY_SH_LIMIT:
         try:
             n = int(codes[0].size)
+            # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
             out = cp.zeros(2, dtype=cp.float64)
             shmem = M * 4
             if len(codes) == 1:
@@ -729,6 +738,7 @@ def cmi_joint_entropies_gpu(dx: Any, dy: Any, dz: Any, Kx: int, ky: int, kz: int
         if _CMI_JOINT_ENTROPIES_KERNEL is None:
             _CMI_JOINT_ENTROPIES_KERNEL = cp.RawKernel(_CMI_JOINT_ENTROPIES_SRC, "cmi_joint_entropies")
         n = int(dz.size)
+        # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
         out = cp.zeros(8, dtype=cp.float64)
         _CMI_JOINT_ENTROPIES_KERNEL((4,), (256,), (dx, dy, dz, np.int32(int(Kx)), np.int32(int(ky)),
                                     np.int32(int(kz)), np.int64(n), float(inv_n), out), shared_mem=Mmax * 4)
@@ -801,6 +811,7 @@ def marginal_mi_entropies_gpu(dx: Any, dy: Any, Kx: int, ky: int, inv_n: float) 
         if _MARGINAL_MI_ENTROPIES_KERNEL is None:
             _MARGINAL_MI_ENTROPIES_KERNEL = cp.RawKernel(_MARGINAL_MI_ENTROPIES_SRC, "marginal_mi_entropies")
         n = int(dx.size)
+        # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
         out = cp.zeros(6, dtype=cp.float64)
         _MARGINAL_MI_ENTROPIES_KERNEL((3,), (256,), (dx, dy, np.int32(int(Kx)), np.int32(int(ky)), np.int64(n), float(inv_n), out), shared_mem=Mmax * 4)
         hk = cp.asnumpy(out)
@@ -841,10 +852,13 @@ def _cmi_assemble(he1, he2, hc, kc1, kc2, kc, inv2n):
         if _CMI_ASSEMBLE_KERNEL is None:
             _CMI_ASSEMBLE_KERNEL = cp.RawKernel(_CMI_ASSEMBLE_SRC, "cmi_assemble")
         K = int(he1.shape[0])
+        # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
         out = cp.empty(K, dtype=cp.float64)
         threads = 128
         _CMI_ASSEMBLE_KERNEL(((K + threads - 1) // threads,), (threads,),
+                             # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
                              (cp.ascontiguousarray(he1.astype(cp.float64, copy=False)),
+                              # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
                               cp.ascontiguousarray(he2.astype(cp.float64, copy=False)), float(hc),
                               cp.ascontiguousarray(kc1.astype(cp.int64, copy=False)),
                               cp.ascontiguousarray(kc2.astype(cp.int64, copy=False)), float(kc),

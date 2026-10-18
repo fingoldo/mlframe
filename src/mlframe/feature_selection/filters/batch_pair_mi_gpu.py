@@ -30,6 +30,8 @@ import logging
 from mlframe.utils.log_throttle import log_throttle
 
 import numpy as np
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
+from mlframe.feature_selection.filters._fe_gpu_batch._devices import crit_float_dtype
 
 # Re-export CPU baseline for callers who want a single import point.
 from .info_theory import batch_pair_mi_prange as batch_pair_mi_njit_prange
@@ -95,7 +97,7 @@ def batch_pair_mi_cupy(
     cp = _cp  # local alias
 
     if pair_a.shape[0] == 0:
-        return np.empty(0, dtype=np.float64)
+        return np.empty(0, dtype=_crit_np_dtype())
 
     # RESIDENT UPLOAD: factors_data/classes_y/freqs_y are fit-constant across the whole
     # greedy FE round (this kernel is reached once per pair-chunk of the SAME candidate pool, per
@@ -107,7 +109,7 @@ def batch_pair_mi_cupy(
     from ._fe_resident_operands import resident_operand
     d_data = resident_operand(factors_data, "bpmi_cupy_factors_data", dtype=np.int32)
     d_classes_y = resident_operand(classes_y, "bpmi_cupy_classes_y", dtype=np.int32)
-    d_freqs_y = resident_operand(freqs_y, "bpmi_cupy_freqs_y", dtype=np.float64)
+    d_freqs_y = resident_operand(freqs_y, "bpmi_cupy_freqs_y", dtype=_crit_np_dtype())
     nb_arr = np.asarray(nbins, dtype=np.int32)
     pa_arr = np.asarray(pair_a, dtype=np.int64)
     pb_arr = np.asarray(pair_b, dtype=np.int64)
@@ -117,12 +119,12 @@ def batch_pair_mi_cupy(
     n_classes_y = int(d_freqs_y.shape[0])
     # Empty factors_data divides by zero in inv_n; return zeros.
     if n_samples == 0:
-        return np.zeros(n_pairs, dtype=np.float64)
+        return np.zeros(n_pairs, dtype=_crit_np_dtype())
     inv_n = 1.0 / n_samples
     # Stage each pair's scalar MI into a RESIDENT (n_pairs,) device buffer and D2H it ONCE at the end, instead
     # of a blocking ``float(mi.get())`` per pair (n_pairs serialising syncs that drain the queue between pairs).
     # Bit-identical: same per-pair scalar written to out_dev[p]; only the transfer is batched into one .get().
-    out_dev = cp.empty(n_pairs, dtype=cp.float64)
+    out_dev = cp.empty(n_pairs, dtype=crit_float_dtype())
 
     for p in range(n_pairs):
         a = int(pa_arr[p])
@@ -138,7 +140,7 @@ def batch_pair_mi_cupy(
         joint_counts_flat = cp.bincount(
             joint_idx, minlength=joint_card * n_classes_y,
         )[: joint_card * n_classes_y]
-        joint_counts = joint_counts_flat.reshape(joint_card, n_classes_y).astype(cp.float64)
+        joint_counts = joint_counts_flat.reshape(joint_card, n_classes_y).astype(crit_float_dtype())
         joint_freqs = joint_counts * inv_n
         fx = joint_freqs.sum(axis=1)
         # MI reduction: sum where joint_freqs > 0
@@ -244,7 +246,7 @@ def _make_batch_pair_mi_inputs(dims: dict):
     pair_b = (pair_a + 1 + rng.integers(0, n_features - 1, size=n_pairs)) % n_features
     pair_b = pair_b.astype(np.int64)
     classes_y = rng.integers(0, _BPMI_SWEEP_N_CLASSES_Y, size=n_samples).astype(np.int32)
-    freqs_y = np.bincount(classes_y, minlength=_BPMI_SWEEP_N_CLASSES_Y).astype(np.float64) / max(1, n_samples)
+    freqs_y = np.bincount(classes_y, minlength=_BPMI_SWEEP_N_CLASSES_Y).astype(_crit_np_dtype()) / max(1, n_samples)
     return (factors_data, pair_a, pair_b, nbins, classes_y, freqs_y)
 
 
@@ -635,7 +637,7 @@ def _fallback_pair_chunk_size(free_bytes: int) -> int:
     """Measurement-backed default pairs-per-chunk from free RAM alone.
 
     Per chunk we hold, at most simultaneously: two int64 id arrays (``pair_a``/``pair_b``) and one
-    float64 output array, i.e. ``chunk_pairs * (8 + 8 + 8)`` bytes, plus per-backend transient overhead
+    double precision output array, i.e. ``chunk_pairs * (8 + 8 + 8)`` bytes, plus per-backend transient overhead
     (the CUDA/CuPy paths additionally stage a same-sized device-resident buffer). Budget conservatively
     at ~1/16 of free RAM for the transient so this never competes meaningfully with the caller's own
     ``data``/``cached_MIs`` state. Clamped to a sane [50_000, 20_000_000] pairs.
@@ -732,7 +734,7 @@ def dispatch_batch_pair_mi_chunked(
     k = int(ids_arr.shape[0])
     if k < 2:
         empty = np.empty(0, dtype=np.int64)
-        return empty, empty, np.empty(0, dtype=np.float64), {}
+        return empty, empty, np.empty(0, dtype=_crit_np_dtype()), {}
 
     chunk_pairs = int(max_pairs_per_chunk) if max_pairs_per_chunk is not None and max_pairs_per_chunk > 0 else _choose_pair_chunk_size(_free_ram_bytes_for_chunking())
     chunk_pairs = max(1, chunk_pairs)
@@ -761,7 +763,7 @@ def dispatch_batch_pair_mi_chunked(
 
     if not a_out:
         empty = np.empty(0, dtype=np.int64)
-        return empty, empty, np.empty(0, dtype=np.float64), {}
+        return empty, empty, np.empty(0, dtype=_crit_np_dtype()), {}
 
     return (
         np.concatenate(a_out),

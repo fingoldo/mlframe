@@ -28,6 +28,7 @@ import logging
 import threading
 
 import numpy as np
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 from mlframe._array_buffer import array_buffer
 from ._fast_host_ops import ContentMemo
 
@@ -100,8 +101,8 @@ def measure_feature_uplift(
 
     ``groups`` (per-row group ids) makes the probe folds group-disjoint (``GroupKFold``): with i.i.d. folds an engineered column that
     memorises group identity looks like held-out uplift on panel data and survives the gate."""
-    X_base = np.asarray(X_base, dtype=np.float64)
-    X_eng = np.asarray(X_eng, dtype=np.float64)
+    X_base = np.asarray(X_base, dtype=_crit_np_dtype())
+    X_eng = np.asarray(X_eng, dtype=_crit_np_dtype())
     y = np.asarray(y).ravel()
     if X_base.ndim == 1:
         X_base = X_base[:, None]
@@ -110,7 +111,7 @@ def measure_feature_uplift(
     n = X_base.shape[0]
     if n != X_eng.shape[0] or n != y.size or n < 40 or X_eng.shape[1] == 0:
         return None
-    yf = y.astype(np.float64, copy=False) if y.dtype.kind in ("f", "i", "u", "b") else np.zeros(n)
+    yf = y.astype(_crit_np_dtype(), copy=False) if y.dtype.kind in ("f", "i", "u", "b") else np.zeros(n, dtype=_crit_np_dtype())
     finite = np.isfinite(X_base).all(1) & np.isfinite(X_eng).all(1) & np.isfinite(yf)
     if int(finite.sum()) < 40:
         return None
@@ -139,7 +140,7 @@ def measure_feature_uplift(
         else:
             split_iter = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=seed).split(X_base, y_enc)
     else:
-        y_enc = y.astype(np.float64)
+        y_enc = y.astype(_crit_np_dtype())
         binary = False
         if groups is not None and np.unique(groups).size >= 2:
             n_splits = min(n_splits, int(np.unique(groups).size))
@@ -307,8 +308,8 @@ def keep_engineered_over_source(
     rather than evicting the raw signal. Subsamples to ``max_probe_n`` rows.
     Fail-open (True) on degenerate input so the gate never silently drops
     everything."""
-    src_vals = np.asarray(src_vals, dtype=np.float64)
-    eng_mat = np.asarray(eng_mat, dtype=np.float64)
+    src_vals = np.asarray(src_vals, dtype=_crit_np_dtype())
+    eng_mat = np.asarray(eng_mat, dtype=_crit_np_dtype())
     if src_vals.ndim == 1:
         src_vals = src_vals[:, None]
     if eng_mat.ndim == 1:
@@ -318,7 +319,7 @@ def keep_engineered_over_source(
     if n != eng_mat.shape[0] or n != y.size or eng_mat.shape[1] == 0:
         return True
     # Missingness-aware fail-closed: if the raw source carries non-trivial missingness, the signal often LIVES in the NaN pattern (MNAR). The held-out probe drops NaN rows and cannot assess that, so a Fourier/Hermite/chirp of such a column must NOT be allowed to out-rank the raw column or its is_missing__/missingness_* FE - drop it. (Those missingness FE columns are exempt: their source name is not a raw column, so the caller never routes them here.)
-    if float(np.mean(~np.isfinite(np.asarray(src_vals, dtype=np.float64)))) > 0.02:
+    if float(np.mean(~np.isfinite(np.asarray(src_vals, dtype=_crit_np_dtype())))) > 0.02:
         return False
     if n > max_probe_n:
         rng = np.random.default_rng(seed)

@@ -523,10 +523,10 @@ def discretize_2d_quantile_batch(arr2d: np.ndarray, n_bins: int = 10, dtype: typ
         NaN is present we fall back to ``np.nanpercentile(axis=0)`` (still bit-identical to the per-column 1-D
         ``nanpercentile``, just slower) - so the helper stays correct for any caller.
       * Codes: ``np.searchsorted(edges[1:-1, j], arr2d[:, j], side='right')`` is the identical call the 1-D path
-        makes; only the edges argument is sliced out of the 2-D edge matrix (same float64 values).
+        makes; only the edges argument is sliced out of the 2-D edge matrix (same double values).
       * dtype: NO cast is applied to ``arr2d`` - it is consumed at its native dtype (the FE buffer is float32).
-        ``np.percentile``/``np.nanpercentile`` upcast internally to float64 for a float32 input regardless of
-        1-D vs 2-D, so the float64 edges match; ``searchsorted(float64_edges, float32_col)`` is value-identical.
+        ``np.percentile``/``np.nanpercentile`` upcast internally to double for a float32 input regardless of
+        1-D vs 2-D, so the double edges match; ``searchsorted(f64_edges, float32_col)`` is value-identical.
 
     Performance note: ``np.nanpercentile(axis=0)`` routes through ``apply_along_axis`` (a
     Python-level per-column loop) and gives NO dispatch amortisation - it is as slow as (or slower than) the
@@ -566,7 +566,7 @@ def discretize_2d_quantile_batch(arr2d: np.ndarray, n_bins: int = 10, dtype: typ
     if not assume_finite and np.isnan(arr2d).any():
         edges = np.nanpercentile(arr2d, quantiles, axis=0)
     else:
-        edges = np.empty((quantiles.shape[0], n_cols), dtype=np.float64)
+        edges = np.empty((quantiles.shape[0], n_cols), dtype=np.float64)  # Intentional float64: percentile bin edges compared against the native-dtype column at full precision
         if n_cols > 0 and n_rows > 0:
             # Order-statistic indices the kernel's lerp actually reads (lo / lo+1 per
             # quantile, with the n-1 endpoint clamp). Partitioning at exactly these is O(n)
@@ -613,7 +613,7 @@ def discretize_2d_quantile_batch(arr2d: np.ndarray, n_bins: int = 10, dtype: typ
     # nothing from F-layout); only searchsorted reads strided, and enabling that via a
     # full-buffer transpose-copy regresses. Keep C-contiguous. (proto D:/Temp/q4_fcontig_proto.py)
     if n_cols > 0 and n_rows > 0:
-        edges_inner = np.ascontiguousarray(edges[1:-1], dtype=np.float64)
+        edges_inner = np.ascontiguousarray(edges[1:-1], dtype=np.float64)  # Intentional float64: percentile bin edges compared against the native-dtype column at full precision
         arr_c = np.ascontiguousarray(arr2d)
         # OPT-A: on the SERIAL-MAIN-THREAD FE path the searchsorted kernel
         # runs single-threaded on one core while the rest sit idle (the serial kernel is
@@ -696,12 +696,12 @@ _DISCRETIZE_SALT = 1
 
 
 def _make_discretize_inputs(dims: dict):
-    """A 2-D float64 frame of ~``n_cells`` cells (fixed 8 columns) - the operand
+    """A 2-D double frame of ~``n_cells`` cells (fixed 8 columns) - the operand
     discretize_2d_array bins per column."""
     rng = np.random.default_rng(0)
     cols = 8
     rows = max(1, int(dims["n_cells"]) // cols)
-    return (rng.standard_normal((rows, cols)).astype(np.float64),)
+    return (rng.standard_normal((rows, cols)).astype(np.float64),)  # Intentional float64: percentile bin edges compared against the native-dtype column at full precision
 
 
 def _run_discretize_sweep() -> list:

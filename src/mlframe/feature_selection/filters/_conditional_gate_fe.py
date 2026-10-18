@@ -55,6 +55,7 @@ from itertools import combinations
 from typing import Optional, Sequence
 
 import numpy as np
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 
 from mlframe.feature_selection.filters._y_encoding import encode_y_for_classif_mi
 
@@ -134,8 +135,8 @@ def apply_row_argmax(X: pd.DataFrame | pl.DataFrame, cols: Sequence[str]) -> np.
     float64 in ``{0, .., k-1}``; ties resolve to the first max (numpy ``argmax`` semantics), stable across fit / replay."""
     if len(cols) < 2:
         raise ValueError(f"row-argmax needs >= 2 source columns; got {tuple(cols)!r}")
-    stk = np.stack([np.asarray(X[c], dtype=np.float64) for c in cols], axis=1)
-    out = np.argmax(stk, axis=1).astype(np.float64)
+    stk = np.stack([np.asarray(X[c], dtype=_crit_np_dtype()) for c in cols], axis=1)
+    out = np.argmax(stk, axis=1).astype(_crit_np_dtype())
     # Serve-time NaN policy: eligible source columns are all-finite at FIT (see _is_argmax_eligible), but a row can
     # carry a NaN at SERVE. np.argmax would return the first-NaN index - a spurious in-distribution code the model
     # never learned. Propagate NaN instead so the downstream model treats the row as missing (LGBM/CatBoost native).
@@ -157,14 +158,14 @@ def apply_conditional_gate(X: pd.DataFrame | pl.DataFrame, mode: str, cols: Sequ
     if mode == "select":
         if len(cols) != 3:
             raise ValueError(f"conditional-gate 'select' needs exactly 3 source columns (a, b, c); got {tuple(cols)!r}")
-        a, b, c = (np.asarray(X[cn], dtype=np.float64) for cn in cols)
+        a, b, c = (np.asarray(X[cn], dtype=_crit_np_dtype()) for cn in cols)
         res = np.where(c > float(tau), a, b)
         return np.where(np.isfinite(c), res, np.nan)
     if mode == "mask":
         if len(cols) != 2:
             raise ValueError(f"conditional-gate 'mask' needs exactly 2 source columns (a, c); got {tuple(cols)!r}")
-        a, c = (np.asarray(X[cn], dtype=np.float64) for cn in cols)
-        res = (c > float(tau)).astype(np.float64) * a
+        a, c = (np.asarray(X[cn], dtype=_crit_np_dtype()) for cn in cols)
+        res = (c > float(tau)).astype(_crit_np_dtype()) * a
         return np.where(np.isfinite(c), res, np.nan)
     raise ValueError(f"conditional-gate mode must be one of {GATE_MODES}; got {mode!r}")
 
@@ -215,7 +216,7 @@ def best_existing_op_mi(arrs: dict, names: Sequence[str], yi: np.ndarray, nbins:
     except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
         logger.debug("suppressed: %s", e)
         pass
-    cols_arr = [np.asarray(arrs[c], dtype=np.float64) for c in names]
+    cols_arr = [np.asarray(arrs[c], dtype=_crit_np_dtype()) for c in names]
     cands = list(cols_arr)
     for i in range(len(names)):
         for j in range(i + 1, len(names)):
@@ -229,7 +230,7 @@ def best_existing_op_mi(arrs: dict, names: Sequence[str], yi: np.ndarray, nbins:
     cands.append(stk.min(axis=1))
     if len(cols_arr) >= 3:
         cands.append(stk.sum(axis=1))  # full additive sum a+b+c - the multi-driver additive signal the gate must not reconstruct
-    mat = np.column_stack(cands).astype(np.float64, copy=False)
+    mat = np.column_stack(cands).astype(_crit_np_dtype(), copy=False)
     mis = _mi_classif_batch(np.ascontiguousarray(mat), yi.astype(np.int64), nbins=nbins, rank_binning=_gate_rank)
     return float(np.max(mis))
 
@@ -264,13 +265,13 @@ def _resident_cand(feat: np.ndarray, role):
     NaN handling), or on ANY cupy fault -> the host MI path runs (selection-identical, no work hidden)."""
     if not _gate_cands_resident():
         return feat
-    host = np.ascontiguousarray(np.asarray(feat, dtype=np.float64)).ravel()
+    host = np.ascontiguousarray(np.asarray(feat, dtype=_crit_np_dtype())).ravel()
     if not np.all(np.isfinite(host)):
         return feat
     try:
         from ._fe_resident_operands import resident_operand
         import cupy as cp  # noqa: F401  (import guard: skip residency when cupy is absent)
-        return resident_operand(host, role, dtype=np.float64)
+        return resident_operand(host, role, dtype=_crit_np_dtype())
     except Exception:
         logger.debug("gate resident-candidate upload failed; host fallback", exc_info=True)
         return feat
@@ -293,7 +294,7 @@ def _argmax_resident(arrs, tri):
         from ._row_argmax_gpu import all_finite_cached, row_argmax_cm
         _ops = []
         for c in tri:
-            _h = np.ascontiguousarray(np.asarray(arrs[c], dtype=np.float64))
+            _h = np.ascontiguousarray(np.asarray(arrs[c], dtype=_crit_np_dtype()))
             if not all_finite_cached(_h):
                 return None  # host np.argmax NaN semantics differ -> keep the host path for a non-finite operand
             _ops.append(resident_operand(_h, ("argmax_op", str(c)), dtype=cp.float64))
@@ -323,7 +324,7 @@ def _perm_null_hi(feat, y: np.ndarray, nbins: int, n_perm: int = 12, seed: int =
     if not isinstance(feat, np.ndarray):
         # A resident cupy handle: `_mi` takes the resident-input branch and the fixed candidate is uploaded once
         # for all n_perm shuffles, so the per-perm loop already avoids the cost the batching below removes.
-        vals = np.empty(n_perm, dtype=np.float64)
+        vals = np.empty(n_perm, dtype=_crit_np_dtype())
         for _ in range(n_perm):
             vals[_] = _mi(feat, yi[rng.permutation(n)], nbins=nbins)
     else:
@@ -336,14 +337,14 @@ def _perm_null_hi(feat, y: np.ndarray, nbins: int, n_perm: int = 12, seed: int =
         # the gate / argmax detectors select identically either way (28 of 28 signal and control cases across seeds).
         from ._orthogonal_univariate_fe import _mi_classif_batch
 
-        mat = np.empty((n, n_perm), dtype=np.float64)
-        feat_host = np.ascontiguousarray(feat, dtype=np.float64).ravel()
+        mat = np.empty((n, n_perm), dtype=_crit_np_dtype())
+        feat_host = np.ascontiguousarray(feat, dtype=_crit_np_dtype()).ravel()
         for i in range(n_perm):
             perm = rng.permutation(n)
             # Scatter, not ``feat_host[np.argsort(perm)]``: for a duplicate-free permutation the two are bit-identical,
             # but argsort is an O(n log n) sort run n_perm times per candidate where one O(n) scatter suffices.
             mat[perm, i] = feat_host
-        vals = np.asarray(_mi_classif_batch(mat, yi, nbins=nbins), dtype=np.float64)
+        vals = np.asarray(_mi_classif_batch(mat, yi, nbins=nbins), dtype=_crit_np_dtype())
     return float(vals.mean() + z * vals.std())
 
 def _gate_rank_binning() -> bool:
@@ -367,7 +368,7 @@ def _gate_grid_mi(feats: np.ndarray, yi: np.ndarray, nbins: int) -> np.ndarray:
     ``_mi_classif_batch`` bins each column independently, only the per-call dispatch overhead is amortised)."""
     from ._orthogonal_univariate_fe import _mi_classif_batch
 
-    return np.asarray(_mi_classif_batch(np.ascontiguousarray(feats), yi, nbins=nbins, rank_binning=_gate_rank_binning()), dtype=np.float64)
+    return np.asarray(_mi_classif_batch(np.ascontiguousarray(feats), yi, nbins=nbins, rank_binning=_gate_rank_binning()), dtype=_crit_np_dtype())
 
 def _is_argmax_eligible(x: np.ndarray) -> bool:
     """True iff the column is finite numeric (int or float) - argmax / gate need an order, not an integer lattice."""
@@ -455,7 +456,7 @@ def cheap_row_argmax_scan(
     # so tau and the accept decision are made against a signal that is not the caller's. Every public entry point
     # here takes a raw y; the MRMR path was safe only because its cascade happens to pre-bin before calling in.
     yi = encode_y_for_classif_mi(y)
-    arrs = {c: np.asarray(X[c], dtype=np.float64) for c in cols}
+    arrs = {c: np.asarray(X[c], dtype=_crit_np_dtype()) for c in cols}
 
     hits: list[ArgmaxHit] = []
     budget = int(max_triples)
@@ -494,7 +495,7 @@ def cheap_row_argmax_scan(
         # is off / an operand is non-finite (host argmax NaN semantics) / any cupy fault.
         feat_r = _argmax_resident(arrs, tri)
         if feat_r is None:
-            feat = np.argmax(np.stack([arrs[c] for c in tri], axis=1), axis=1).astype(np.float64)
+            feat = np.argmax(np.stack([arrs[c] for c in tri], axis=1), axis=1).astype(_crit_np_dtype())
             feat_r = _resident_cand(feat, ("gate_cand_argmax", tuple(str(c) for c in tri)))
         feat_mi = _mi(feat_r, yi, nbins=nbins)
         # Early-reject: the null only matters for a triple already clearing the operand margin (``_responded`` needs BOTH).
@@ -530,7 +531,7 @@ def _rank_and_prune(X, cols: Sequence[str], yi: np.ndarray, nbins: int, k_gate: 
     cols = sorted(cols, key=lambda c: str(c))
     if not cols:
         return [], []
-    arrs = [np.asarray(X[c], dtype=np.float64) for c in cols]
+    arrs = [np.asarray(X[c], dtype=_crit_np_dtype()) for c in cols]
     mat = np.ascontiguousarray(np.column_stack(arrs))
     # Class-B :311 collapse: this ``mat`` is the FIT-CONSTANT raw column_stack of the (sorted)
     # candidate columns - a pure relevance baseline re-scored across the fit. Under STRICT-residency it already
@@ -543,7 +544,7 @@ def _rank_and_prune(X, cols: Sequence[str], yi: np.ndarray, nbins: int, k_gate: 
     mis = resident_raw_baseline_mi(mat, yi, ("gate_prune_raw", tuple(cols)), nbins=nbins, rank_binning=_rb)
     if mis is None:
         mis = _mi_classif_batch(mat, yi, nbins=nbins, rank_binning=_rb)
-    mis = np.asarray(mis, dtype=np.float64)
+    mis = np.asarray(mis, dtype=_crit_np_dtype())
     operand_order = list(np.argsort(mis)[::-1])  # marginal relevance, descending
     operand_cols = [cols[i] for i in operand_order][: max(2, int(k_operand))]
 
@@ -552,7 +553,7 @@ def _rank_and_prune(X, cols: Sequence[str], yi: np.ndarray, nbins: int, k_gate: 
     n_probe = min(len(operand_cols), 3)
     probe_idx = [operand_order[i] for i in range(n_probe)]
     probe = mat[:, probe_idx]  # (n, n_probe)
-    div = np.zeros(len(cols), dtype=np.float64)
+    div = np.zeros(len(cols), dtype=_crit_np_dtype())
     # DEVICE-BORN GATE RANK-PRUNE (Phase-1 residency). Each gate candidate splits the probe operand
     # matrix by ``cv > median(cv)`` and scores each side's MI. Without residency the probe SLICE (measured ~24 MB,
     # the _mi_classif_batch upload) AND the per-split y SUBSET (~38 MB, the 14+10 distinct hi/lo subsamples of the
@@ -585,16 +586,16 @@ def _rank_and_prune(X, cols: Sequence[str], yi: np.ndarray, nbins: int, k_gate: 
             _lo_idx = _cp.where(~_hi)[0]
             if int(_hi_idx.size) < nbins or int(_lo_idx.size) < nbins:
                 continue  # degenerate split (near-constant gate column) -> no usable regime
-            mi_hi = np.asarray(_mi_classif_batch(_probe_dev[_hi_idx], _yi_dev[_hi_idx], nbins=nbins, rank_binning=_rb), dtype=np.float64)
-            mi_lo = np.asarray(_mi_classif_batch(_probe_dev[_lo_idx], _yi_dev[_lo_idx], nbins=nbins, rank_binning=_rb), dtype=np.float64)
+            mi_hi = np.asarray(_mi_classif_batch(_probe_dev[_hi_idx], _yi_dev[_hi_idx], nbins=nbins, rank_binning=_rb), dtype=_crit_np_dtype())
+            mi_lo = np.asarray(_mi_classif_batch(_probe_dev[_lo_idx], _yi_dev[_lo_idx], nbins=nbins, rank_binning=_rb), dtype=_crit_np_dtype())
         else:
             cv = arrs[gi]
             hi = cv > np.median(cv)
             lo = ~hi
             if hi.sum() < nbins or lo.sum() < nbins:
                 continue  # degenerate split (near-constant gate column) -> no usable regime
-            mi_hi = np.asarray(_mi_classif_batch(np.ascontiguousarray(probe[hi]), yi[hi], nbins=nbins, rank_binning=_rb), dtype=np.float64)
-            mi_lo = np.asarray(_mi_classif_batch(np.ascontiguousarray(probe[lo]), yi[lo], nbins=nbins, rank_binning=_rb), dtype=np.float64)
+            mi_hi = np.asarray(_mi_classif_batch(np.ascontiguousarray(probe[hi]), yi[hi], nbins=nbins, rank_binning=_rb), dtype=_crit_np_dtype())
+            mi_lo = np.asarray(_mi_classif_batch(np.ascontiguousarray(probe[lo]), yi[lo], nbins=nbins, rank_binning=_rb), dtype=_crit_np_dtype())
         div[gi] = float(np.abs(mi_hi - mi_lo).sum())
     gate_order = list(np.argsort(div)[::-1])
     gate_cols = [cols[i] for i in gate_order][: max(1, int(k_gate))]
@@ -606,12 +607,12 @@ def _gate_build_feats(mode, operands, taus):
     cv = operands[0]
     n = cv.shape[0]
     if n >= _GATE_BUILD_NJIT_MIN_N:
-        _t = np.ascontiguousarray(taus, dtype=np.float64)
-        _cv = np.ascontiguousarray(cv, dtype=np.float64)
+        _t = np.ascontiguousarray(taus, dtype=_crit_np_dtype())
+        _cv = np.ascontiguousarray(cv, dtype=_crit_np_dtype())
         if mode == "mask":
-            return _gate_mask_grid_njit(_cv, np.ascontiguousarray(operands[1], dtype=np.float64), _t)
-        return _gate_select_grid_njit(_cv, np.ascontiguousarray(operands[1], dtype=np.float64), np.ascontiguousarray(operands[2], dtype=np.float64), _t)
-    feats = np.empty((n, len(taus)), dtype=np.float64)
+            return _gate_mask_grid_njit(_cv, np.ascontiguousarray(operands[1], dtype=_crit_np_dtype()), _t)
+        return _gate_select_grid_njit(_cv, np.ascontiguousarray(operands[1], dtype=_crit_np_dtype()), np.ascontiguousarray(operands[2], dtype=_crit_np_dtype()), _t)
+    feats = np.empty((n, len(taus)), dtype=_crit_np_dtype())
     if mode == "mask":
         av = operands[1]
         # ``av * (cv > tau)`` (bool upcast) preserves the off-region NaN semantics of the prior
@@ -674,7 +675,7 @@ def _gate_flush_pending(_pending: list, yi: np.ndarray, nbins: int, seed: int, _
             # (`np.ascontiguousarray(big[:, bstart+best_j])`) measured 0.3x (SLOWER, 0.692ms vs 0.214ms/spec @100k)
             # - ``big`` is row-major so a single column is strided and copies cache-unfriendly, while the fused
             # njit single-tau rebuild is contiguous + parallel. The rebuild is cheaper than the slice; kept.
-            best_col = _gate_build_feats(mode, operands, np.asarray([taus[best_j]], dtype=np.float64))[:, 0]
+            best_col = _gate_build_feats(mode, operands, np.asarray([taus[best_j]], dtype=_crit_np_dtype()))[:, 0]
             # The best-tau column is fit-constant across the 12-perm null: upload it ONCE and thread the
             # resident handle so it never re-crosses H2D at the :318 MI upload site (host array unchanged when
             # residency is off / non-finite / cupy fault).
@@ -756,7 +757,7 @@ def cheap_conditional_gate_scan(
     # and the operands a, b are drawn from these pools; their union is what we materialise into ``arrs``.
     gate_cols, operand_cols = _rank_and_prune(_X_for_scan, cols, yi, nbins, int(k_gate), int(k_operand))
     cols = list(dict.fromkeys(list(operand_cols) + list(gate_cols)))  # union, operands first, dedup, order-stable
-    arrs = {c: np.asarray(_X_for_scan[c], dtype=np.float64) for c in cols}
+    arrs = {c: np.asarray(_X_for_scan[c], dtype=_crit_np_dtype()) for c in cols}
     # Cache the hardened best-existing-op baseline per operand set (it does not depend on tau / mode).
     _baseline_cache: dict[tuple[str, ...], float] = {}
 

@@ -29,6 +29,7 @@ would batch the per-tau residue MIs into one ``_mi_classif_batch`` call (mirror 
 from __future__ import annotations
 
 import numpy as np
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 
 from ._pairwise_modular_fe import _mi
 from ._lattice_gate_proto_shared import perm_null_hi as _perm_null_hi
@@ -59,19 +60,19 @@ def apply_conditional_gate(a: np.ndarray, b: np.ndarray, c: np.ndarray, tau: flo
     """One gate column. ``select``: ``c>tau ? a : b`` (regime switch). ``mask``: ``1[c>tau]*a`` (a active only where c>tau).
 
     Pure function of (a, b, c, tau) - no y, so replay is leak-free. ``b`` is ignored for ``mask`` (pass any array / a)."""
-    af = np.asarray(a, dtype=np.float64)
-    cf = np.asarray(c, dtype=np.float64)
+    af = np.asarray(a, dtype=_crit_np_dtype())
+    cf = np.asarray(c, dtype=_crit_np_dtype())
     hi = cf > tau
     if mode == "select":
-        return np.where(hi, af, np.asarray(b, dtype=np.float64))
+        return np.where(hi, af, np.asarray(b, dtype=_crit_np_dtype()))
     if mode == "mask":
-        return hi.astype(np.float64) * af
+        return hi.astype(_crit_np_dtype()) * af
     raise ValueError(f"apply_conditional_gate: unknown mode {mode!r}; expected one of {GATE_MODES}")
 
 def apply_row_argmax(cols: list[np.ndarray]) -> np.ndarray:
     """``argmax`` over a row's columns -> the integer index of the largest. Pure function of X (no y); leak-free at replay."""
-    stk = np.stack([np.asarray(c, dtype=np.float64) for c in cols], axis=1)
-    return np.asarray(np.argmax(stk, axis=1).astype(np.float64))
+    stk = np.stack([np.asarray(c, dtype=_crit_np_dtype()) for c in cols], axis=1)
+    return np.asarray(np.argmax(stk, axis=1).astype(np.float64))  # Intentional float64: argmax index output contract
 
 def scan_conditional_gate(
     X: pd.DataFrame | pl.DataFrame,
@@ -90,7 +91,7 @@ def scan_conditional_gate(
 
     ``cols`` are the candidate column names (continuous or integer). The gating column ``c`` ranges over all cols; (a, b) over the
     remaining ordered pairs for ``select`` and over the single masked column for ``mask``. Budgeted by ``max_triples``."""
-    arrs = {cn: np.asarray(X[cn], dtype=np.float64) for cn in cols}
+    arrs = {cn: np.asarray(X[cn], dtype=_crit_np_dtype()) for cn in cols}
     yi = np.asarray(y).astype(np.int64)
     raw_mi = {cn: _mi(arrs[cn], yi, nbins=nbins) for cn in cols}
     rng = np.random.default_rng(rng_seed)
@@ -160,7 +161,7 @@ def scan_row_argmax(
     on the diff list); triples are the smallest genuinely-new arity."""
     from itertools import combinations
 
-    arrs = {cn: np.asarray(X[cn], dtype=np.float64) for cn in cols}
+    arrs = {cn: np.asarray(X[cn], dtype=_crit_np_dtype()) for cn in cols}
     yi = np.asarray(y).astype(np.int64)
     raw_mi = {cn: _mi(arrs[cn], yi, nbins=nbins) for cn in cols}
     rng = np.random.default_rng(rng_seed)

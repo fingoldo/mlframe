@@ -233,7 +233,7 @@ def build_unit_matrix(
         apply_cluster_aggregate_nonlinear as _apply_nonlinear,
     )
 
-    X = np.ascontiguousarray(np.asarray(X, dtype=np.float64))
+    X = np.ascontiguousarray(np.asarray(X, dtype=np.float64))  # Intentional float64: shap-proxy clustering input; not the FE/MRMR path, float64 retained
     X = np.nan_to_num(X, nan=0.0, posinf=0.0, neginf=0.0)
     n = X.shape[0]
     n_clusters = int(labels.max()) + 1 if labels.size else 0
@@ -259,11 +259,11 @@ def build_unit_matrix(
         # canonical _cluster_aggregate dispatch. Route them through the shared
         # row-reducer so the requested non-linear aggregator is actually applied.
         agg = _apply_nonlinear(Z, weighting) if w is None else (Z @ w)
-        unit_cols.append(np.ascontiguousarray(agg, dtype=np.float64))
+        unit_cols.append(np.ascontiguousarray(agg, dtype=np.float64))  # Intentional float64: shap-proxy cluster unit aggregate; not the FE/MRMR path
         unit_to_members.append(np.array(members, dtype=np.int64))
         unit_kind.append(f"cluster:{len(members)}")
 
-    units = np.column_stack(unit_cols) if unit_cols else np.empty((n, 0), dtype=np.float64)
+    units = np.column_stack(unit_cols) if unit_cols else np.empty((n, 0), dtype=np.float64)  # Intentional float64: shap-proxy cluster unit matrix; not the FE/MRMR path
     return units, unit_to_members, unit_kind
 
 

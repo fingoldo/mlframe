@@ -27,6 +27,7 @@ from __future__ import annotations
 from typing import Optional, cast
 import numba
 import numpy as np
+from .._fe_usability_signal import _crit_np_dtype
 from numba import prange
 
 
@@ -65,6 +66,7 @@ def _one_vs_many_pearson_abs_masked_njit(a_centred, saa, mat, active, row_mean, 
     """
     n = a_centred.shape[0]
     k = mat.shape[0]
+    # Intentional float64: accumulator kept f64 (statistic / count sums need full precision)
     out = np.zeros(k, dtype=np.float64)
     if saa <= 1e-24 * n:
         return out
@@ -86,7 +88,7 @@ def _one_vs_many_pearson_abs_masked_njit(a_centred, saa, mat, active, row_mean, 
 
 def row_mean_and_centred_ss(row: np.ndarray) -> tuple[float, float]:
     """``(mean, centred sum-of-squares)`` of one buffer row, for the caller to cache when it appends the row."""
-    return cast(tuple[float, float], _row_mean_and_centred_ss_njit(np.asarray(row, dtype=np.float64)))
+    return cast(tuple[float, float], _row_mean_and_centred_ss_njit(np.asarray(row, dtype=_crit_np_dtype())))
 
 
 def one_vs_many_abs_corr_masked(a: np.ndarray, buf: np.ndarray, active: np.ndarray, row_mean: Optional[np.ndarray] = None, row_ss: Optional[np.ndarray] = None) -> np.ndarray:
@@ -98,12 +100,14 @@ def one_vs_many_abs_corr_masked(a: np.ndarray, buf: np.ndarray, active: np.ndarr
     old behaviour and costs the two extra passes per row this exists to avoid.
     """
     if buf.shape[0] == 0:
-        return np.empty(0, dtype=np.float64)
-    arr = np.asarray(a, dtype=np.float64)
-    mat = np.asarray(buf, dtype=np.float64)
+        return np.empty(0, dtype=_crit_np_dtype())
+    arr = np.asarray(a, dtype=_crit_np_dtype())
+    mat = np.asarray(buf, dtype=_crit_np_dtype())
     mean_a, saa = _row_mean_and_centred_ss_njit(arr)
     if row_mean is None or row_ss is None:
+        # Intentional float64: accumulator kept f64 (statistic / count sums need full precision)
         row_mean = np.empty(mat.shape[0], dtype=np.float64)
+        # Intentional float64: accumulator kept f64 (statistic / count sums need full precision)
         row_ss = np.empty(mat.shape[0], dtype=np.float64)
         for j in range(mat.shape[0]):
             row_mean[j], row_ss[j] = _row_mean_and_centred_ss_njit(mat[j])
@@ -113,7 +117,9 @@ def one_vs_many_abs_corr_masked(a: np.ndarray, buf: np.ndarray, active: np.ndarr
             saa,
             mat,
             np.asarray(active, dtype=np.bool_),
+            # Intentional float64: accumulator kept f64 (statistic / count sums need full precision)
             np.asarray(row_mean, dtype=np.float64),
+            # Intentional float64: accumulator kept f64 (statistic / count sums need full precision)
             np.asarray(row_ss, dtype=np.float64),
         )
     )

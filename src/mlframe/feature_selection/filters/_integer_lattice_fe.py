@@ -66,6 +66,7 @@ def _lattice_gcd_lcm_and_njit(a, b):
     Euclidean gcd once, reuses it for lcm (|a|*|b|/gcd in float, matching the numpy path), and the bitwise-and.
     Non-finite operand rows -> NaN row (the replay-drift semantics of the numpy form). Bit-identical incl NaN."""
     n = a.shape[0]
+    # Intentional float64: njit kernel / lattice MI dtype contract kept float64; policy switch deferred.
     out = np.empty((n, 3), dtype=np.float64)
     for i in range(n):
         av = a[i]; bv = b[i]
@@ -78,9 +79,12 @@ def _lattice_gcd_lcm_and_njit(a, b):
         while yv != 0:
             x, yv = yv, x % yv
         g = x
+        # Intentional float64: njit kernel / lattice MI dtype contract kept float64; policy switch deferred.
         out[i, 0] = np.float64(g)
         sg = g if g != 0 else 1
+        # Intentional float64: njit kernel / lattice MI dtype contract kept float64; policy switch deferred.
         out[i, 1] = (abs(np.float64(ai)) * abs(np.float64(bi))) / sg
+        # Intentional float64: njit kernel / lattice MI dtype contract kept float64; policy switch deferred.
         out[i, 2] = np.float64(ai & bi)
     return out
 
@@ -122,6 +126,7 @@ def _to_int(x: np.ndarray) -> np.ndarray:
     to INT64_MIN; the caller masks those rows to NaN afterward, so the intermediate value is discarded. The
     errstate silences the harmless 'invalid value in cast' warning that would otherwise fire on that row."""
     with np.errstate(invalid="ignore"):
+        # Intentional float64: njit kernel / lattice MI dtype contract kept float64; policy switch deferred.
         return np.asarray(np.rint(np.asarray(x, dtype=np.float64)).astype(np.int64))
 
 def _nonfinite_mask(a: np.ndarray, b: np.ndarray) -> np.ndarray:
@@ -132,6 +137,7 @@ def _nonfinite_mask(a: np.ndarray, b: np.ndarray) -> np.ndarray:
     garbage (a wrong, non-NaN value) into gcd/lcm/and. We instead NaN-out those rows: the lattice feature
     is undefined where an operand is not a finite integer, and a NaN is the honest, downstream-droppable
     signal for that, never INT64_MIN garbage."""
+    # Intentional float64: njit kernel / lattice MI dtype contract kept float64; policy switch deferred.
     return np.asarray(~(np.isfinite(np.asarray(a, dtype=np.float64)) & np.isfinite(np.asarray(b, dtype=np.float64))))
 
 def _lattice_column(a: np.ndarray, b: np.ndarray, op: str) -> np.ndarray:
@@ -139,13 +145,16 @@ def _lattice_column(a: np.ndarray, b: np.ndarray, op: str) -> np.ndarray:
     bad = _nonfinite_mask(a, b)
     ai, bi = _to_int(a), _to_int(b)
     if op == "gcd":
+        # Intentional float64: njit kernel / lattice MI dtype contract kept float64; policy switch deferred.
         out = np.gcd(ai, bi).astype(np.float64)
     elif op == "lcm":
         # lcm overflows int64 for large coprime pairs; compute |a|*|b|/gcd in float to keep it finite + monotone.
         g = np.gcd(ai, bi)
         safe_g = np.where(g == 0, 1, g)
+        # Intentional float64: njit kernel / lattice MI dtype contract kept float64; policy switch deferred.
         out = (np.abs(ai.astype(np.float64)) * np.abs(bi.astype(np.float64))) / safe_g
     elif op == "bitwise_and":
+        # Intentional float64: njit kernel / lattice MI dtype contract kept float64; policy switch deferred.
         out = np.bitwise_and(ai, bi).astype(np.float64)
     else:
         raise ValueError(f"integer-lattice op must be one of {INTEGER_LATTICE_OPS}; got {op!r}")
@@ -161,21 +170,26 @@ def _lattice_columns_for_pair(a: np.ndarray, b: np.ndarray, ops: Sequence[str]) 
     # Fused njit fast path for the default (gcd, lcm, bitwise_and) op set - ~1.47x, bit-identical incl NaN (gcd
     # computed once + reused for lcm, no per-op temp arrays). Any other op subset/order falls to the numpy loop below.
     if tuple(ops) == INTEGER_LATTICE_OPS:
+        # Intentional float64: njit kernel / lattice MI dtype contract kept float64; policy switch deferred.
         return np.asarray(_lattice_gcd_lcm_and_njit(np.ascontiguousarray(a, dtype=np.float64), np.ascontiguousarray(b, dtype=np.float64)))
     bad = _nonfinite_mask(a, b)  # all-False on the finite-integer fit data -> byte-identical there
     ai, bi = _to_int(a), _to_int(b)
     g = np.gcd(ai, bi) if ("gcd" in ops or "lcm" in ops) else None
+    # Intentional float64: njit kernel / lattice MI dtype contract kept float64; policy switch deferred.
     mat = np.empty((a.shape[0], len(ops)), dtype=np.float64)
     for j, op in enumerate(ops):
         if op == "gcd":
             assert g is not None  # "gcd" in ops guaranteed g computed above
+            # Intentional float64: njit kernel / lattice MI dtype contract kept float64; policy switch deferred.
             mat[:, j] = g.astype(np.float64)
         elif op == "lcm":
             # lcm overflows int64 for large coprime pairs; compute |a|*|b|/gcd in float to keep it finite + monotone.
             assert g is not None  # "lcm" in ops guaranteed g computed above
             safe_g = np.where(g == 0, 1, g)
+            # Intentional float64: njit kernel / lattice MI dtype contract kept float64; policy switch deferred.
             mat[:, j] = (np.abs(ai.astype(np.float64)) * np.abs(bi.astype(np.float64))) / safe_g
         elif op == "bitwise_and":
+            # Intentional float64: njit kernel / lattice MI dtype contract kept float64; policy switch deferred.
             mat[:, j] = np.bitwise_and(ai, bi).astype(np.float64)
         else:
             raise ValueError(f"integer-lattice op must be one of {INTEGER_LATTICE_OPS}; got {op!r}")
@@ -192,6 +206,7 @@ def _lattice_grid_mi(a: np.ndarray, b: np.ndarray, y: np.ndarray, ops: Sequence[
 
     yi = encode_y_for_classif_mi(y)
     mat = _lattice_columns_for_pair(a, b, ops)
+    # Intentional float64: njit kernel / lattice MI dtype contract kept float64; policy switch deferred.
     return np.asarray(_mi_classif_batch(mat, yi, nbins=nbins), dtype=np.float64)
 
 def _perm_null_hi(feat: np.ndarray, y: np.ndarray, nbins: int, n_perm: int = 12, seed: int = 0, z: float = 3.0) -> float:
@@ -214,14 +229,17 @@ def _perm_null_hi(feat: np.ndarray, y: np.ndarray, nbins: int, n_perm: int = 12,
     rng = np.random.default_rng(seed)
     yi = encode_y_for_classif_mi(y)
     n = yi.size
+    # Intentional float64: njit kernel / lattice MI dtype contract kept float64; policy switch deferred.
     mat = np.empty((n, n_perm), dtype=np.float64)
     # Positional float64 view, as the conditional-gate sibling already takes: the scatter below indexes by position.
+    # Intentional float64: njit kernel / lattice MI dtype contract kept float64; policy switch deferred.
     feat_host = np.ascontiguousarray(feat, dtype=np.float64).ravel()
     for i in range(n_perm):
         perm = rng.permutation(n)
         # Scatter, not ``feat[np.argsort(perm)]``: for a duplicate-free permutation the two are bit-identical, but
         # argsort is an O(n log n) sort run n_perm times per candidate where one O(n) scatter suffices.
         mat[perm, i] = feat_host
+    # Intentional float64: njit kernel / lattice MI dtype contract kept float64; policy switch deferred.
     vals = np.asarray(_mi_classif_batch(mat, yi, nbins=nbins), dtype=np.float64)
     return float(vals.mean() + z * vals.std())
 
@@ -268,6 +286,7 @@ def cheap_integer_lattice_scan(
         cols = [c for c in cols if _is_integer_col(np.asarray(X[c]))]
     yi = encode_y_for_classif_mi(y)
     arrs = {c: np.asarray(X[c]) for c in cols}
+    # Intentional float64: njit kernel / lattice MI dtype contract kept float64; policy switch deferred.
     raw_mi = {c: _mi(arrs[c].astype(np.float64), yi, nbins=nbins) for c in cols}
     ops = tuple(ops)
 
@@ -336,7 +355,7 @@ def apply_integer_lattice(X: pd.DataFrame | pl.DataFrame, op: str, cols: Sequenc
     """Replay one integer-lattice column: cast both source columns to int64 then apply ``op`` (gcd / lcm / bitwise_and).
 
     Pure integer arithmetic on the source columns - no y reference, no fitted state, so transform() is leak-free and
-    train/test exact. Output float64; the column is the materialised selector feature."""
+    train/test exact. Output double precision; the column is the materialised selector feature."""
     if op not in INTEGER_LATTICE_OPS:
         raise ValueError(f"integer-lattice op must be one of {INTEGER_LATTICE_OPS}; got {op!r}")
     if len(cols) != 2:

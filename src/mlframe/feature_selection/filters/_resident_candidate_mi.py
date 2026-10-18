@@ -139,13 +139,13 @@ def _build_best_existing_op_candidates_gpu_cm(cols_arr_gpu: list, cp, out_dtype=
     f32 = out_dtype is not None and np.dtype(out_dtype) == np.dtype(np.float32)
     try:
         n = int(cols_arr_gpu[0].shape[0])
-        M = cp.ascontiguousarray(cp.stack(cols_arr_gpu, axis=0).astype(cp.float64, copy=False))  # (m, n)
+        M = cp.ascontiguousarray(cp.stack(cols_arr_gpu, axis=0).astype(cp.float64, copy=False))  # (m, n)  # Intentional float64: GPU candidate-MI operand stack; kernel contract is float64
         pairs = [(i, j) for i in range(m) for j in range(i + 1, m)]
         npairs = len(pairs)
         has_sum = 1 if m >= 3 else 0
         k = m + 4 * npairs + 2 + has_sum
         pi, pj = _pair_index_arrays(cp, pairs)
-        out = cp.empty((k, n), dtype=cp.float32 if f32 else cp.float64)
+        out = cp.empty((k, n), dtype=cp.float32 if f32 else cp.float64)  # Intentional float64: GPU candidate-MI output buffer
         total = n * k
         threads = 256
         _get_build_opcands_cm_kernel(cp, f32)(
@@ -154,7 +154,7 @@ def _build_best_existing_op_candidates_gpu_cm(cols_arr_gpu: list, cp, out_dtype=
         return out
     except Exception as e:
         logger.debug("column-major batched-fill kernel failed, transposing the row-major build: %s", e)
-        return cp.ascontiguousarray(_build_best_existing_op_candidates_gpu(cols_arr_gpu, cp).T.astype(cp.float32 if f32 else cp.float64, copy=False))
+        return cp.ascontiguousarray(_build_best_existing_op_candidates_gpu(cols_arr_gpu, cp).T.astype(cp.float32 if f32 else cp.float64, copy=False))  # Intentional float64: GPU candidate-MI output cast
 
 
 def _get_build_opcands_kernel(cp):
@@ -185,13 +185,13 @@ def _build_best_existing_op_candidates_gpu(cols_arr_gpu: list, cp):
     m = len(cols_arr_gpu)
     try:
         n = int(cols_arr_gpu[0].shape[0])
-        M = cp.ascontiguousarray(cp.stack(cols_arr_gpu, axis=1).astype(cp.float64, copy=False))  # (n, m)
+        M = cp.ascontiguousarray(cp.stack(cols_arr_gpu, axis=1).astype(cp.float64, copy=False))  # (n, m)  # Intentional float64: GPU candidate-MI operand stack; kernel contract is float64
         pairs = [(i, j) for i in range(m) for j in range(i + 1, m)]
         npairs = len(pairs)
         has_sum = 1 if m >= 3 else 0
         k = m + 4 * npairs + 2 + has_sum
         pi, pj = _pair_index_arrays(cp, pairs)
-        out = cp.empty((n, k), dtype=cp.float64)
+        out = cp.empty((n, k), dtype=cp.float64)  # Intentional float64: GPU candidate-MI output buffer
         total = n * k
         threads = 256
         _get_build_opcands_kernel(cp)(
@@ -243,7 +243,7 @@ def best_existing_op_mi_resident(
         # fit (selection-equivalent: same f64 values, just not re-uploaded). The candidate MATRIX built from
         # them below is device-born + transient and is NOT cached.
         from ._fe_resident_operands import resident_operand
-        cols_arr_gpu = [resident_operand(arrs[c], ("op", c), dtype=cp.float64) for c in names]
+        cols_arr_gpu = [resident_operand(arrs[c], ("op", c), dtype=cp.float64) for c in names]  # Intentional float64: GPU resident operand dtype; kernel contract is float64
         # column-major block unless the rank-binning kernel (which takes the (n, k) matrix) is asked for
         from ._hermite_fe_mi import relaxed_candidate_dtype
 
@@ -309,7 +309,7 @@ def gate_grid_mi_resident(
         from ._fe_resident_operands import resident_operand
 
         if not specs:
-            return np.zeros(0, dtype=np.float64)
+            return np.zeros(0, dtype=np.float64)  # Intentional float64: empty MI statistic output
         # Column-major unless the rank-binning kernel (which takes the (n, k) matrix) is asked for: each combo's tau grid is then a (k_combo, n) block, the blocks concatenate along
         # the row axis, and the plug-in MI edge-selects and scores the result without a transpose. The elements are the same expressions on the same operands either way.
         cm = not rank_binning
@@ -318,20 +318,20 @@ def gate_grid_mi_resident(
         _gdt = relaxed_candidate_dtype(cp)  # each block is cast once, block by block, instead of the concatenated matrix afterwards
         blocks = []  # device (k_combo, n) [column-major] or (n, k_combo) matrices, built op-for-op like the host tau-grid
         for mode, ctup, cols, taus in specs:
-            taus_g = cp.asarray(np.ascontiguousarray(np.asarray(taus, dtype=np.float64)))  # (k,)
+            taus_g = cp.asarray(np.ascontiguousarray(np.asarray(taus, dtype=np.float64)))  # (k,)  # Intentional float64: gate threshold grid; compared at full precision
             if mode == "mask":
                 cv, av = cols
                 a_name, c_name = ctup  # mask ctup = (a, c); operands = (cv=c, av=a)
-                cv_g = resident_operand(cv, ("gate_op", c_name), dtype=cp.float64)
-                av_g = resident_operand(av, ("gate_op", a_name), dtype=cp.float64)
+                cv_g = resident_operand(cv, ("gate_op", c_name), dtype=cp.float64)  # Intentional float64: GPU gate operand; kernel contract is float64
+                av_g = resident_operand(av, ("gate_op", a_name), dtype=cp.float64)  # Intentional float64: GPU gate operand; kernel contract is float64
                 # column j = (cv > taus[j]) * av ; broadcast (n,1) > (k,) -> (n,k), * (n,1)
-                blk = (cv_g[None, :] > taus_g[:, None]).astype(cp.float64) * av_g[None, :] if cm else (cv_g[:, None] > taus_g[None, :]).astype(cp.float64) * av_g[:, None]
+                blk = (cv_g[None, :] > taus_g[:, None]).astype(cp.float64) * av_g[None, :] if cm else (cv_g[:, None] > taus_g[None, :]).astype(cp.float64) * av_g[:, None]  # Intentional float64: GPU gate block; kernel contract is float64
             elif mode == "select":
                 cv, av, bv = cols
                 a_name, b_name, c_name = ctup  # select ctup = (a, b, c); operands = (cv=c, av=a, bv=b)
-                cv_g = resident_operand(cv, ("gate_op", c_name), dtype=cp.float64)
-                av_g = resident_operand(av, ("gate_op", a_name), dtype=cp.float64)
-                bv_g = resident_operand(bv, ("gate_op", b_name), dtype=cp.float64)
+                cv_g = resident_operand(cv, ("gate_op", c_name), dtype=cp.float64)  # Intentional float64: GPU gate operand; kernel contract is float64
+                av_g = resident_operand(av, ("gate_op", a_name), dtype=cp.float64)  # Intentional float64: GPU gate operand; kernel contract is float64
+                bv_g = resident_operand(bv, ("gate_op", b_name), dtype=cp.float64)  # Intentional float64: GPU gate operand; kernel contract is float64
                 # column j = where(cv > taus[j], av, bv)
                 if cm:
                     blk = cp.where(cv_g[None, :] > taus_g[:, None], av_g[None, :], bv_g[None, :])
@@ -339,7 +339,7 @@ def gate_grid_mi_resident(
                     blk = cp.where(cv_g[:, None] > taus_g[None, :], av_g[:, None], bv_g[:, None])
             else:
                 return None  # unknown mode -> host fallback
-            blocks.append(cp.ascontiguousarray(blk.astype(_gdt if cm else cp.float64, copy=False)))
+            blocks.append(cp.ascontiguousarray(blk.astype(_gdt if cm else cp.float64, copy=False)))  # Intentional float64: GPU gate block; kernel contract is float64
         mat_gpu = cp.ascontiguousarray(cp.concatenate(blocks, axis=0 if cm else 1)) if len(blocks) > 1 else blocks[0]
         if y_gpu is None:
             y_gpu = resident_operand(yi, "y", dtype=np.int64)
@@ -354,7 +354,7 @@ def gate_grid_mi_resident(
             mis = _plugin_mi_classif_batch_cuda_resident(
                 mat_gpu, y_gpu, nbins, y_min=y_min, n_classes=n_classes, relax_binning=True, keep_dtype=True, x_is_cm=True,
             )
-        return np.asarray(mis, dtype=np.float64)
+        return np.asarray(mis, dtype=np.float64)  # Intentional float64: MI statistic output contract
     except Exception as _exc:
         logger.debug("gate_grid_mi_resident: GPU path failed (%s); host fallback", _exc)
         return None

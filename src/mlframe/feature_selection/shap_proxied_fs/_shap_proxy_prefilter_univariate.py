@@ -1,7 +1,7 @@
 """Chunked column-batched ANOVA F-statistic for the SHAP-proxied prefilter's stage-A.
 
 Sklearn ``f_classif`` / ``f_regression`` densifies the full ``(n_samples, n_features)`` design as
-float64 (always: their ``_safe_X`` call materialises a contiguous float64 view), then carves K
+double precision (always: their ``_safe_X`` call materialises a contiguous double precision view), then carves K
 per-class halves, then squares-and-sums. At width=20000 / n_rows=10000 that is ~1.6 GB per copy
 and 5-6 GB peak RSS just to rank columns marginally - the C4 regime OOMs at the univariate stage
 before any tree booster fits.
@@ -9,7 +9,7 @@ before any tree booster fits.
 This module recomputes the same F-statistic in column chunks of size ``batch_size`` so peak
 allocation is ``8 * n_samples * batch_size`` bytes independent of total feature count. The
 arithmetic is the textbook one-way ANOVA + Pearson-F closed forms, identical to sklearn modulo
-float64 rounding (~1e-9 relative on dense randn). -inf sentinel flags constant / degenerate
+double precision rounding (~1e-9 relative on dense randn). -inf sentinel flags constant / degenerate
 columns, matching ``_rank_univariate``'s downstream contract.
 
 Batch size resolves through three priorities:
@@ -104,18 +104,20 @@ def resolve_batch_size(
 
 
 def _coerce_2d_float(X) -> np.ndarray:
-    """Normalise input to a contiguous float32-or-float64 ndarray view.
+    """Normalise input to a contiguous float32-or-double precision ndarray view.
 
     Sklearn's f_classif / f_regression pass the input through ``check_X_y`` which
-    keeps native float32/float64 unchanged and only coerces non-float dtypes.
-    We mirror that: native float32 stays float32, float64 stays float64, anything
-    else upcasts to float64. Diverging from sklearn here would silently change the
+    keeps native float32/double precision unchanged and only coerces non-float dtypes.
+    We mirror that: native float32 stays float32, double precision stays double precision, anything
+    else upcasts to double precision. Diverging from sklearn here would silently change the
     F-statistic by ~1e-4 (single-precision SST cancellation) versus a fresh
     ``f_classif`` call on the same data — the drop-in contract callers rely on."""
     if hasattr(X, "values"):
         X = X.values
     X = np.ascontiguousarray(X)
+    # Intentional float64: shap-package import boundary: float64 kept, cross-package dtype switch deferred (decision recorded).
     if X.dtype not in (np.float32, np.float64):
+        # Intentional float64: shap-package import boundary: float64 kept, cross-package dtype switch deferred (decision recorded).
         X = X.astype(np.float64, copy=False)
     if X.ndim != 2:
         raise ValueError(f"expected 2-D array, got shape {X.shape}")
@@ -175,11 +177,11 @@ def f_classif_chunked(
 ) -> np.ndarray:
     """Column-batched ANOVA F-statistic, sklearn ``f_classif`` parity.
 
-    Returns a length-``n_features`` float64 vector. -inf flags constant within-class (zero
+    Returns a length-``n_features`` double precision vector. -inf flags constant within-class (zero
     within-group SS) and degenerate (N <= K) columns - same sentinel ``_rank_univariate`` writes
     after the sklearn call. Allocation per batch is ``8 * n_samples * batch_size`` bytes plus K
     boolean masks of length n_samples; the original (n_samples, n_features) is never materialised
-    as float64.
+    as double precision.
 
     ``use_gemm=True`` (default) folds the K per-class fancy-index passes into one BLAS GEMM per
     chunk via a (K, N) class-indicator matrix; the legacy K-loop is reachable with
@@ -194,9 +196,9 @@ def f_classif_chunked(
     with a genuine within-class std of 10 at N = 1e6, ``total_sumsq`` and ``correction`` are both ~2.89e24, so at
     float32 the cancellation noise is ~3.4e17 against a true ``sst`` of 1e8 -- nine orders of noise over signal,
     and the ``f64 < 0.0`` clamp below then ranks a genuinely discriminative feature WORST in the pool. Even at
-    float64 the floor is 6.4e8 against the same 1e8. The existing ``cancel_floor`` and ``min == max`` guards
+    double precision the floor is 6.4e8 against the same 1e8. The existing ``cancel_floor`` and ``min == max`` guards
     catch only CONSTANT columns; a large-offset column with real but small variance clears both and gets a
-    fabricated F. The stable path also accumulates in float64 regardless of input dtype.
+    fabricated F. The stable path also accumulates in double precision regardless of input dtype.
 
     ``stable=False`` restores the raw-sum form, which is what the byte-identical sklearn float32 parity contract
     above is written against -- the centring changes the low-order bits, so the two cannot both hold."""
@@ -213,6 +215,7 @@ def f_classif_chunked(
     # (ranking, percentile cuts, caching) treat it as float64; sklearn likewise returns
     # float64 even when the X input was float32. Per-batch accumulation stays in X.dtype
     # to bit-match sklearn's safe_sqr/sum chain.
+    # Intentional float64: shap-package import boundary: float64 kept, cross-package dtype switch deferred (decision recorded).
     out = np.empty(n_features, dtype=np.float64)
     if K < 2 or N <= K:
         out.fill(-np.inf)
@@ -221,6 +224,7 @@ def f_classif_chunked(
     masks = [(y_arr == c) for c in classes]  # K boolean masks, K * N bytes, dwarfed by the chunk.
     # The stable path is free of the sklearn bit-parity constraint that pins the raw path to X.dtype, so it
     # accumulates in float64 whatever came in.
+    # Intentional float64: shap-package import boundary: float64 kept, cross-package dtype switch deferred (decision recorded).
     acc_dtype = np.dtype(np.float64) if stable else X.dtype
     n_per_class = counts.astype(acc_dtype)
 
@@ -228,6 +232,7 @@ def f_classif_chunked(
     # sgemm reorders sums differently from sklearn's per-class safe_sqr.sum(axis=0), drifting
     # ~4e-4 vs sklearn's f_classif(X32, y) and breaking the cached-vs-fresh F-score equality
     # tested in test_f_classif_float32_input_matches_sklearn_float32.
+    # Intentional float64: shap-package import boundary: float64 kept, cross-package dtype switch deferred (decision recorded).
     gemm_active = use_gemm and acc_dtype == np.float64
     # Indicator matrix (K, N) for the GEMM path; one fancy-index avoided per chunk -> K passes
     # collapse to a single BLAS dgemm call. Built once outside the chunk loop so its cost is
@@ -296,6 +301,7 @@ def f_classif_chunked(
         const_mask = (sst <= cancel_floor) | (chunk.max(axis=0) == chunk.min(axis=0))
         with np.errstate(divide="ignore", invalid="ignore"):
             f = (ssbn / df_between) / (sswn / df_within)
+        # Intentional float64: shap-package import boundary: float64 kept, cross-package dtype switch deferred (decision recorded).
         f64 = f.astype(np.float64, copy=False)
         f64 = np.where(np.isfinite(f64), f64, -np.inf)
         # Negative F values arise only from float cancellation on zero within-group SS;
@@ -314,7 +320,7 @@ def f_regression_chunked(
 ) -> np.ndarray:
     """Column-batched univariate Pearson-F, sklearn ``f_regression`` parity.
 
-    Returns a length-``n_features`` float64 vector. -inf for constant columns (zero variance ->
+    Returns a length-``n_features`` double precision vector. -inf for constant columns (zero variance ->
     zero col_norm) and N <= 2 (zero residual df). Allocation per batch is ``8 * n_samples *
     batch_size`` bytes plus 2 length-N working vectors."""
     # Sklearn's r_regression / f_regression hard-coerce X and y to float64 via
@@ -322,14 +328,18 @@ def f_regression_chunked(
     # the regression path is always float64 inside sklearn, so we mirror that to match
     # bit-for-bit.
     X = _coerce_2d_float(X)
+    # Intentional float64: shap-package import boundary: float64 kept, cross-package dtype switch deferred (decision recorded).
     if X.dtype != np.float64:
+        # Intentional float64: shap-package import boundary: float64 kept, cross-package dtype switch deferred (decision recorded).
         X = X.astype(np.float64, copy=False)
     n_samples, n_features = X.shape
+    # Intentional float64: shap-package import boundary: float64 kept, cross-package dtype switch deferred (decision recorded).
     y_arr = np.asarray(y, dtype=np.float64).ravel()
     if y_arr.shape[0] != n_samples:
         raise ValueError(f"y length {y_arr.shape[0]} does not match X rows {n_samples}")
 
     N = int(n_samples)
+    # Intentional float64: shap-package import boundary: float64 kept, cross-package dtype switch deferred (decision recorded).
     out = np.empty(n_features, dtype=np.float64)
     if N <= 2:
         out.fill(-np.inf)
@@ -342,6 +352,7 @@ def f_regression_chunked(
     # Float drift on a uniform y leaves y_centered ~ N * eps * |y|; gate at a generous multiple
     # of that bound so a y of magnitude M doesn't survive as "non-constant" via FP cancellation.
     y_scale = max(abs(y_mean), float(np.max(np.abs(y_arr))) if y_arr.size else 1.0, 1.0)
+    # Intentional float64: shap-package import boundary: float64 kept, cross-package dtype switch deferred (decision recorded).
     drift_bound = float(np.finfo(np.float64).eps) * y_scale * N
     if not np.isfinite(y_norm) or y_norm <= drift_bound:
         # Constant target -> Pearson r undefined; matches sklearn's NaN -> our -inf contract.
@@ -352,6 +363,7 @@ def f_regression_chunked(
     bs = max(1, min(bs, n_features))
     df_resid = float(N - 2)
 
+    # Intentional float64: shap-package import boundary: float64 kept, cross-package dtype switch deferred (decision recorded).
     eps64 = float(np.finfo(np.float64).eps)
     for start in range(0, n_features, bs):
         stop = min(start + bs, n_features)

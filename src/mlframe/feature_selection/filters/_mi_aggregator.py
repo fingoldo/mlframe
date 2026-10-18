@@ -26,6 +26,7 @@ import logging
 from typing import Callable, Dict, Optional, Sequence
 
 import numpy as np
+from ._fe_usability_signal import _crit_np_dtype
 
 from mlframe.utils.log_throttle import log_throttle
 
@@ -60,7 +61,7 @@ def _genie_default_bias_rate(name: str, n: int) -> float:
 
 def median_mi(estimates: Sequence[float]) -> float:
     """Take the median of K MI estimates. Robust to outliers (e.g. FD's noise floor)."""
-    arr = np.asarray([e for e in estimates if e is not None and np.isfinite(e)], dtype=np.float64)
+    arr = np.asarray([e for e in estimates if e is not None and np.isfinite(e)], dtype=_crit_np_dtype())
     if arr.size == 0:
         return 0.0
     return float(np.median(arr))
@@ -102,13 +103,13 @@ def genie_weights(estimator_bias_rates: Sequence[float], estimator_variance: Seq
     Returns:
         weights of shape (K,), summing to 1.
     """
-    b = np.asarray(estimator_bias_rates, dtype=np.float64).ravel()
-    v = np.asarray(estimator_variance, dtype=np.float64).ravel()
+    b = np.asarray(estimator_bias_rates, dtype=_crit_np_dtype()).ravel()
+    v = np.asarray(estimator_variance, dtype=_crit_np_dtype()).ravel()
     K = b.size
     if K == 0:
-        return np.array([], dtype=np.float64)
+        return np.array([], dtype=_crit_np_dtype())
     if K == 1:
-        return np.array([1.0], dtype=np.float64)
+        return np.array([1.0], dtype=_crit_np_dtype())
     # System: [V + ridge*I | b | 1] * [w; lam1; lam2] = [0; 0; 1]
     # i.e. minimize w^T diag(v) w  s.t.  b^T w = 0,  1^T w = 1
     V = np.diag(v + ridge)
@@ -130,8 +131,8 @@ def genie_weights(estimator_bias_rates: Sequence[float], estimator_variance: Seq
 
 def genie_aggregate(estimates: Sequence[float], weights: np.ndarray) -> float:
     """Combine K MI estimates with GENIE weights."""
-    arr = np.asarray(estimates, dtype=np.float64).ravel()
-    w = np.asarray(weights, dtype=np.float64).ravel()
+    arr = np.asarray(estimates, dtype=_crit_np_dtype()).ravel()
+    w = np.asarray(weights, dtype=_crit_np_dtype()).ravel()
     if arr.size != w.size:
         raise ValueError(f"estimates ({arr.size}) and weights ({w.size}) size mismatch")
     return float((arr * w).sum())

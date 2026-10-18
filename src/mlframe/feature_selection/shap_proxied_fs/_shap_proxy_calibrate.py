@@ -67,7 +67,7 @@ def subset_redundancy_many(phi: np.ndarray, idx_list: Sequence[Iterable[int]], *
     here, preserving the existing behaviour for all other callers."""
     if phi_T is None:
         phi_T = np.ascontiguousarray(phi.T)
-    out = np.empty(len(idx_list), dtype=np.float64)
+    out = np.empty(len(idx_list), dtype=np.float64)  # Intentional float64: accumulator or output buffer; statistic at float64
     for i, idx in enumerate(idx_list):
         idx = list(idx)
         out[i] = _mean_abs_offdiag_corr(phi_T[idx]) if len(idx) >= 2 else 0.0
@@ -76,9 +76,9 @@ def subset_redundancy_many(phi: np.ndarray, idx_list: Sequence[Iterable[int]], *
 
 def _features(proxy, card, redund):
     """Build the calibration regressor's design matrix: [proxy_loss, cardinality, redundancy, proxy_loss*redundancy] (the last column is the bias-correction interaction term)."""
-    proxy = np.asarray(proxy, dtype=np.float64)
-    card = np.asarray(card, dtype=np.float64)
-    redund = np.asarray(redund, dtype=np.float64)
+    proxy = np.asarray(proxy, dtype=np.float64)  # Intentional float64: shap-proxy calibration statistic input (not the FE path)
+    card = np.asarray(card, dtype=np.float64)  # Intentional float64: shap-proxy calibration statistic input (not the FE path)
+    redund = np.asarray(redund, dtype=np.float64)  # Intentional float64: shap-proxy calibration statistic input (not the FE path)
     # proxy, cardinality, redundancy, and the proxy x redundancy interaction (the bias term).
     return np.column_stack([proxy, card, redund, proxy * redund])
 
@@ -95,7 +95,7 @@ class ProxyCorrector:
     def predict(self, proxy, card, redund):
         """Map (proxy_loss, cardinality, redundancy) to a calibrated honest-loss estimate; identity on ``proxy`` (rank-preserving) when in fallback mode or no model was fit."""
         if self.fallback or self.model is None:
-            return np.asarray(proxy, dtype=np.float64)
+            return np.asarray(proxy, dtype=np.float64)  # Intentional float64: shap-proxy calibration output contract
         F = (_features(proxy, card, redund) - self.mean) / self.std
         return self.model.predict(F)
 
@@ -103,10 +103,10 @@ class ProxyCorrector:
 def fit_proxy_corrector(proxy_losses: ArrayLike, honest_losses: ArrayLike, cards: ArrayLike, redunds: ArrayLike, *, min_anchors: int = 12) -> ProxyCorrector:
     """Fit ``honest ~ Ridge(proxy, card, redund, proxy*redund)``. Falls back to identity (proxy-only,
     rank-preserving) when too few finite anchors to fit reliably."""
-    proxy = np.asarray(proxy_losses, dtype=np.float64)
-    honest = np.asarray(honest_losses, dtype=np.float64)
-    cards = np.asarray(cards, dtype=np.float64)
-    redunds = np.asarray(redunds, dtype=np.float64)
+    proxy = np.asarray(proxy_losses, dtype=np.float64)  # Intentional float64: shap-proxy calibration statistic input
+    honest = np.asarray(honest_losses, dtype=np.float64)  # Intentional float64: shap-proxy calibration statistic input
+    cards = np.asarray(cards, dtype=np.float64)  # Intentional float64: shap-proxy calibration statistic input
+    redunds = np.asarray(redunds, dtype=np.float64)  # Intentional float64: shap-proxy calibration statistic input
     ok = np.isfinite(proxy) & np.isfinite(honest) & np.isfinite(cards) & np.isfinite(redunds)
     proxy, honest, cards, redunds = proxy[ok], honest[ok], cards[ok], redunds[ok]
     if proxy.size < min_anchors or np.unique(honest).size < 3:
@@ -165,8 +165,8 @@ def rerank_candidates(corrector: ProxyCorrector, candidates: list[tuple[float, S
     """
     if not candidates:
         return candidates
-    proxy = np.array([c[0] for c in candidates], dtype=np.float64)
-    cards = np.array([len(c[1]) for c in candidates], dtype=np.float64)
+    proxy = np.array([c[0] for c in candidates], dtype=np.float64)  # Intentional float64: shap-proxy candidate statistic
+    cards = np.array([len(c[1]) for c in candidates], dtype=np.float64)  # Intentional float64: shap-proxy candidate statistic
     redund = subset_redundancy_many(phi, [c[1] for c in candidates])
     pred = corrector.predict(proxy, cards, redund)
     order = np.argsort(pred, kind="stable")

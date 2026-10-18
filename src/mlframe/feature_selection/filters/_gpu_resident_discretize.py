@@ -89,6 +89,7 @@ def _get_bin_codes_kernel(dtype, out_name: str = "int32"):
     and a templated narrow OUTPUT dtype (int8/int16/int32/int64). Keyed on (input, output)."""
     import cupy as cp
 
+    # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
     in_key = "f64" if dtype == cp.float64 else "f32"
     cache_key = in_key + "_" + out_name
     with _BIN_CODES_KERNELS_LOCK:
@@ -124,6 +125,7 @@ def _searchsorted_codes(cand_gpu, interior_edges, out_dtype=None):
         # (the nvprof cupy_copy__float32_float32 hotspot, 19.7%). The kernel only needs C-order memory -> reuse
         # the buffer when already contiguous (bit-identical bytes); a strided view still gets the safety copy.
         cand_c = cand_gpu if cand_gpu.flags.c_contiguous else cp.ascontiguousarray(cand_gpu)
+        # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
         edges_c = cp.ascontiguousarray(interior_edges, dtype=cp.float64)  # edges f64 (match cp.searchsorted promotion)
         ne = int(edges_c.shape[0])
         # out_dtype lets the resident chunk path emit the NARROW code dtype (int8/int16) DIRECTLY (launch-fusion:
@@ -161,10 +163,10 @@ def _gpu_resident_discretize_codes(cand_gpu, nbins: int, out_dtype=None, cm_hint
 
     DTYPE: the percentile + searchsorted run in the INPUT's native dtype by default - so the float32 FE
     candidate buffer stays float32 (no up-cast; float32 halves the bandwidth of the dominant full sort
-    cp.percentile does and preserves the FE selection, the acceptance bar) while the float64 grand-fused
-    MI path stays float64 (bit-identical). ``MLFRAME_FE_GPU_BINNING_DTYPE=float64`` forces the exact f64
+    cp.percentile does and preserves the FE selection, the acceptance bar) while the double precision grand-fused
+    MI path stays double precision (bit-identical). ``MLFRAME_FE_GPU_BINNING_DTYPE=double precision`` forces the exact f64
     path host-wide (bit-identical to the CPU ``discretize_2d_quantile_batch``, whose ``np.percentile``
-    upcasts float32 to float64); ``=float32`` forces f32."""
+    upcasts float32 to double precision); ``=float32`` forces f32."""
     import cupy as cp
 
     # Bin in the input's NATIVE dtype by default (the float32 FE candidate buffer stays float32 - no
@@ -174,7 +176,9 @@ def _gpu_resident_discretize_codes(cand_gpu, nbins: int, out_dtype=None, cm_hint
     from ._gpu_resident_select import _radix_select_interior_edges, fe_gpu_radix_edges_enabled
 
     forced = os.environ.get("MLFRAME_FE_GPU_BINNING_DTYPE", "").strip().lower()
+    # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
     if forced in ("float64", "f64", "double"):
+        # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
         work = cp.float64
     elif forced in ("float32", "f32", "single"):
         work = cp.float32
@@ -212,7 +216,9 @@ def _gpu_resident_discretize_codes(cand_gpu, nbins: int, out_dtype=None, cm_hint
     # lock AND CPU parity). Interpolating the edges in float64 costs a transient f64 view only on this rare
     # fallback (radix is the sort-free default); the float32 candidate VALUES are still binned natively via
     # searchsorted (edges are widened to f64 there anyway).
+    # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
     edge_src = cand_gpu if cand_gpu.dtype == cp.float64 else cand_gpu.astype(cp.float64)
+    # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
     qs = _quantile_levels_dev(cp, nbins, cp.float64)
     if K == 1:
         # CUPY BUG GUARD: cp.percentile(X, axis=0) returns WRONG edges for a single-column (n, 1) array

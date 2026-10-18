@@ -7,6 +7,7 @@ import numpy as np
 import pandas as pd
 from mlframe.feature_selection.filters._mrmr_fit_impl._fe_roster_attrs import drop_from_fe_rosters
 from mlframe.feature_selection.filters._mrmr_fit_impl._fit_impl_core import logger
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 
 # --- end imports ---
 
@@ -128,11 +129,11 @@ def _gate_engineered_accuracy(self, X, recipes, _y_np, verbose, groups=None):
             _adaptive_set_now = set(getattr(self, "_adaptive_fourier_features_", None) or [])
 
             def _gate_col_arr(_name):
-                """Fetch column ``_name`` from ``X`` as a float64 1-D array for the held-out linear-probe accuracy gate (unwraps a duplicate-label DataFrame slice to its first column)."""
+                """Fetch column ``_name`` from ``X`` as a 1-D array for the held-out linear-probe accuracy gate (unwraps a duplicate-label DataFrame slice to its first column)."""
                 _v = X[_name]
                 if isinstance(_v, pd.DataFrame):
                     _v = _v.iloc[:, 0]
-                return np.asarray(_v.to_numpy(), dtype=np.float64)
+                return np.asarray(_v.to_numpy(), dtype=_crit_np_dtype())
 
             # Resolve each engineered column to its single raw source; split into the polynomial/base columns and the adaptive-Fourier/chirp columns (the latter are gated CONDITIONALLY
             # against their surviving base siblings, since a Fourier of x captures the SAME x**2 signal as its He2 sibling and must not dilute the support when the He2 already carries it).

@@ -3494,6 +3494,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # Persist user-supplied weights so cached _cat_fe_state_ / FE replay can introspect; cache key
         # below already excludes weights so the FS-cache reuse contract stays intact when the suite
         # caller decides to gate weight-aware MRMR behind FeatureSelectionConfig.use_sample_weights_in_fs.
+        # Intentional float64: caller sample_weight kept at full precision as the fitted attribute (sklearn parity)
         self._fit_sample_weight_ = None if sample_weight is None else np.asarray(sample_weight, dtype=np.float64)
         X, y = self._maybe_resample_for_sample_weight(X, y, self._fit_sample_weight_)
         X = self._fit_body_sis_and_isolate(X, y, st)

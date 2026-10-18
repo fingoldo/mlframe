@@ -48,7 +48,7 @@ def _relevance_mi_1var_fused(
         ascending order. Iterating ``i in range(nb_x)`` here and SKIPPING empty rows
         (``rowcount == 0``) visits the identical occupied bins in the identical order.
       * ``prob_x = rowcount / n`` reproduces ``merge_vars``'s ``freqs / n_rows`` (int64 count,
-        float64 true division); ``prob_y = freqs_y[j]`` is passed through unchanged; and
+        true division); ``prob_y = freqs_y[j]`` is passed through unchanged; and
         ``jf = jc * inv_n`` with ``inv_n = 1.0 / n`` matches ``compute_mi_from_classes`` exactly
         - same operands, same order, so the ``jf*log(jf/(prob_x*prob_y))`` terms accumulate
         bit-for-bit.

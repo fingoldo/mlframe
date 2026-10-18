@@ -93,7 +93,7 @@ def uplift_univariate_eng_mi_resident(
 
     Rebuilds the engineered poly-leg matrix ON the device from the small resident raw operand columns
     (collapsing the host engineered-matrix upload at ``_orth_mi_backends.py's `_mi_classif_batch` host-input `cp.asarray` upload site (dropped the exact line number, which had already gone stale)``) and scores it through the
-    SAME percentile-edge resident plug-in MI the host STRICT path uses. Returns the (K,) host float64 MI array
+    SAME percentile-edge resident plug-in MI the host STRICT path uses. Returns the (K,) host MI array
     in ``engineered_X.columns`` order, OR ``None`` when STRICT-residency is off / cupy is unavailable / any
     column is not a poly leg / any cupy fault - in which case the caller keeps the engineered matrix on the
     EXACT host ``mi_classif_batch_chunked`` scorer (byte-identical default path untouched)."""

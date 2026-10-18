@@ -92,7 +92,7 @@ def _make_fast_default_scorer(model: object) -> Callable:
 
         ``permutation_importance`` permutes only X across its ``p*n_repeats`` scorer calls and feeds the IDENTICAL
         ``_y`` every time. The classifier path then re-ran ``np.asarray(_y)`` and the regressor path re-ran
-        ``_y.astype(float64)`` + ``np.mean(_y)`` + ``ss_tot=sum((y-mean)**2)`` - all functions of ``_y`` alone -
+        ``_y.astype(double precision)`` + ``np.mean(_y)`` + ``ss_tot=sum((y-mean)**2)`` - all functions of ``_y`` alone -
         on every call. Hoisting them behind an ``id(_y)`` cache is bit-identical (same float, same NaN handling)
         and removes ~3x of the regressor-path per-call cost (18.3us -> 6.0us in isolation). The caller holds ``_y``
         alive for the whole permutation loop, so ``id(_y)`` cannot alias a freed object mid-loop.
@@ -102,6 +102,7 @@ def _make_fast_default_scorer(model: object) -> Callable:
         _y_arr = np.asarray(_y)
         reg = None
         if not _is_clf and _y_arr.ndim == 1:
+            # Intentional float64: ss_tot is a sum of squares over the target, cached once per fit; kept f64.
             yt = _y_arr.astype(np.float64, copy=False)
             ss_tot = float(np.sum((yt - np.mean(yt)) ** 2))
             reg = (yt, ss_tot)
@@ -126,6 +127,7 @@ def _make_fast_default_scorer(model: object) -> Callable:
         if _reg is None:
             return None  # multi-output regressor (y_arr.ndim>1): defer to estimator.score.
         yt, ss_tot = _reg
+        # Intentional float64: SS_res accumulator for the regressor score, kept f64 to match the cached ss_tot.
         pred = pred.astype(np.float64, copy=False)
         if pred.shape != yt.shape:
             return None

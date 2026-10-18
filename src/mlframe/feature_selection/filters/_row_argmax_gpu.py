@@ -1,7 +1,7 @@
 """Row-wise ``argmax`` over a handful of resident operand columns in one launch, and a per-column finiteness memo.
 
 ``cp.argmax(cp.stack(columns, axis=1), axis=1)`` interleaves the columns into an ``(n, m)`` matrix, runs cupy's segmented cub reduction over ``n`` segments of ``m`` elements (about
-15 ms per call at one million rows, for ``m = 3``) and the caller then casts the index to float64. The kernel here reads the ``m`` columns once and writes the float64 index of the
+15 ms per call at one million rows, for ``m = 3``) and the caller then casts the index to double. The kernel here reads the ``m`` columns once and writes the double index of the
 first maximum; ``>`` is strict, so ties resolve to the lowest operand index exactly as ``argmax`` does. NaN rows must be excluded by the caller (the host check that already guards the
 device path), since ``argmax`` and a comparison chain treat NaN differently.
 
@@ -39,13 +39,13 @@ _FINITE_MAX = 256
 
 
 def row_argmax_cm(cp: Any, columns: Sequence[Any]) -> Any:
-    """Float64 ``(n,)`` index of the first maximum across ``columns`` (resident float64 ``(n,)`` arrays)."""
+    """Double ``(n,)`` index of the first maximum across ``columns`` (resident double ``(n,)`` arrays)."""
     global _KERNEL
     if _KERNEL is None:
         _KERNEL = cp.RawKernel(_SRC, "row_argmax")
     n = int(columns[0].shape[0])
     M = cp.ascontiguousarray(cp.stack(columns, axis=0))  # (m, n)
-    out = cp.empty(n, dtype=cp.float64)
+    out = cp.empty(n, dtype=cp.float64)  # Intentional float64: index output matches the caller's float64 cast contract
     blocks = max(1, min(4096, (n + 255) // 256))
     _KERNEL((blocks,), (256,), (M, np.int64(n), np.int32(len(columns)), out))
     return out

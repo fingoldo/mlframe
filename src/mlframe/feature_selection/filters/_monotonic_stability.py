@@ -88,11 +88,13 @@ def monotonic_deviation_stability_filter(
         feature_cols = [c for c in df.select_dtypes(include=[np.number]).columns if c not in excluded]
     feature_cols = list(feature_cols)
 
+    # Intentional float64: Spearman correlation is a parity oracle compared to the float64 reference at tight tolerance
     y = np.asarray(y, dtype=np.float64)
     group_means = df.groupby(group_col, sort=False)[feature_cols].transform("mean")
     # Materialise the (n, p) deviation matrix ONCE - the loops below used to call ``.to_numpy()`` on a
     # single column per (subsample, feature)/(segment, feature) cell (30x500 = ~15,000 re-materialisations
     # by default); every consumer below slices ROWS out of this one array instead.
+    # Intentional float64: Spearman correlation is a parity oracle compared to the float64 reference at tight tolerance
     dev_matrix = np.asarray(df[feature_cols].to_numpy(), dtype=np.float64) - np.asarray(group_means.to_numpy(), dtype=np.float64)
 
     groups = df[group_col].to_numpy()
@@ -186,11 +188,14 @@ def _spearman_corr_batch(x: np.ndarray, y: np.ndarray) -> np.ndarray:
     (``scipy.stats.spearmanr`` propagates any NaN in either side to the WHOLE correlation, matching the
     isfinite-mask precheck here rather than a masked/partial-overlap correlation).
     """
+    # Intentional float64: Spearman correlation is a parity oracle compared to the float64 reference at tight tolerance
     x = np.asarray(x, dtype=np.float64)
     n, p = x.shape
+    # Intentional float64: Spearman correlation is a parity oracle compared to the float64 reference at tight tolerance
     out = np.zeros(p, dtype=np.float64)
     if n < 2:
         return out
+    # Intentional float64: Spearman correlation is a parity oracle compared to the float64 reference at tight tolerance
     y = np.asarray(y, dtype=np.float64)
     if y.shape[0] != n or not np.isfinite(y).all() or np.std(y) == 0.0:
         return out

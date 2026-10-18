@@ -12,6 +12,7 @@ from __future__ import annotations
 from typing import Optional, Sequence
 
 import numpy as np
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 import pandas as pd
 
 from mlframe.feature_selection._selection_log import logs_selection
@@ -101,8 +102,8 @@ def ks_stability_filter(
 
     rows = []
     for col in feature_cols:
-        train_vals = train_df[col].to_numpy(dtype=np.float64)
-        test_vals = test_df[col].to_numpy(dtype=np.float64)
+        train_vals = train_df[col].to_numpy(dtype=_crit_np_dtype())
+        test_vals = test_df[col].to_numpy(dtype=_crit_np_dtype())
         train_vals = train_vals[np.isfinite(train_vals)]
         test_vals = test_vals[np.isfinite(test_vals)]
         if train_vals.size == 0 or test_vals.size == 0:

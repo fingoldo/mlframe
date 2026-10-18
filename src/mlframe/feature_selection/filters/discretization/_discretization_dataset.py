@@ -15,6 +15,7 @@ import threading
 from typing import TYPE_CHECKING, Any, Callable, Optional, Sequence, Set
 
 import numpy as np
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 
 from mlframe._numba_parallel_guard import parallel_kernel_entry
 import pandas as pd
@@ -343,7 +344,7 @@ def _discretize_with_nbins_strategy(
     # ``categorize_dataset`` has exactly ONE call site (``_fit_impl_core.py``, ``MRMR.fit``'s top-level
     # entry, before any joblib worker spawns), so there is no nested-parallelism hazard.
     n_edges_max = max((int(e.size) for e in edges_per_col), default=0)
-    edges_padded = np.full((n_edges_max, n_cols), np.inf, dtype=np.float64)
+    edges_padded = np.full((n_edges_max, n_cols), np.inf, dtype=np.float64)  # Intentional float64: accumulator or output buffer; statistic at float64
     for j, ej in enumerate(edges_per_col):
         if ej.size:
             edges_padded[: ej.size, j] = ej
@@ -496,7 +497,7 @@ def _factorize_categorical_columns(_is_polars, categorical_cols_detected, df, pl
                 # Fold the rare-category tail so the polars path honors the cap exactly like the pandas branch below;
                 # cap_categorical_cardinality needs float64 to write the remapped codes (physical codes are unsigned).
                 from mlframe.feature_selection.filters.discretization import cap_categorical_cardinality
-                new_vals = cap_categorical_cardinality(new_vals.astype(np.float64, copy=False), int(max_categorical_cardinality))
+                new_vals = cap_categorical_cardinality(new_vals.astype(_crit_np_dtype(), copy=False), int(max_categorical_cardinality))
         else:
             categorical_cols = []
             new_vals = None

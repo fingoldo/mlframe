@@ -166,9 +166,10 @@ def _check_prospective_fe_pairs_part4(
     """Extracted block of ``check_prospective_fe_pairs`` (part 4); returns the names the caller still uses."""
     def _densify_nullable(_arr):
         """Cast a pandas nullable extension array (Int64/Float64/boolean + pd.NA) to a plain
-        float64 ndarray (pd.NA -> np.nan) so the numba/numpy unary-transform kernels can type it.
-        No-op for ordinary numpy float64/int64 input - only ExtensionArrays are converted."""
+        double precision ndarray (pd.NA -> np.nan) so the numba/numpy unary-transform kernels can type it.
+        No-op for ordinary numpy double precision/int64 input - only ExtensionArrays are converted."""
         if isinstance(getattr(_arr, "dtype", None), ExtensionDtype):
+            # Intentional float64: numba/numpy unary-transform kernels are typed for the float64 contract; operands must keep float64
             return _arr.to_numpy(dtype=np.float64, na_value=np.nan)
         return _arr
 

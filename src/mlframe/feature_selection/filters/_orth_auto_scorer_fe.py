@@ -16,6 +16,7 @@ import logging
 from typing import Callable, Optional, Sequence
 
 import numpy as np
+from ._fe_usability_signal import _crit_np_dtype
 
 from mlframe.feature_selection.filters._relative_uplift import relative_uplift
 import pandas as pd
@@ -54,7 +55,7 @@ def _score_plug_in(x: np.ndarray, y: np.ndarray, *, nbins: int = 10) -> float:
     """
     from ._orthogonal_univariate_fe import _mi_classif_batch
 
-    arr = np.asarray(x, dtype=np.float64).ravel()
+    arr = np.asarray(x, dtype=_crit_np_dtype()).ravel()
     if arr.size < 2:
         return 0.0
     if not np.isfinite(arr).any():
@@ -86,7 +87,7 @@ def _score_ksg(x: np.ndarray, y: np.ndarray, *, n_neighbors: int = 3, random_sta
     """
     from ._orthogonal_ksg_mi_fe import _ksg_mi_batch
 
-    arr = np.asarray(x, dtype=np.float64).ravel()
+    arr = np.asarray(x, dtype=_crit_np_dtype()).ravel()
     if arr.size < 2:
         return 0.0
     out = _ksg_mi_batch(
@@ -173,7 +174,7 @@ def _compute_lcb(values: np.ndarray) -> float:
     bootstrap variance dominates the mean, in which case 0 is the
     right "no detectable signal" reading.
     """
-    arr = np.asarray(values, dtype=np.float64).ravel()
+    arr = np.asarray(values, dtype=_crit_np_dtype()).ravel()
     if arr.size == 0:
         return 0.0
     if arr.size == 1:
@@ -229,6 +230,7 @@ def _bootstrap_lcb_per_scorer(x_full: np.ndarray, y_arr: np.ndarray, boot_idx: l
     """Bootstrap LCB of every scorer in ``SCORER_NAMES`` for one column: ``{scorer: lcb}``."""
     per_scorer = {}
     for s in SCORER_NAMES:
+        # Intentional float64: bootstrap accumulator kept f64 (exact resample statistics)
         vals = np.empty(len(boot_idx), dtype=np.float64)
         for b, idx in enumerate(boot_idx):
             vals[b] = scorer_call(
@@ -351,7 +353,7 @@ def select_best_scorer_per_column(
     # ONCE per source - many engineered columns share the same source.
     source_lcb = {}
     for src in raw_cols:
-        x_full = raw_X[src].to_numpy(dtype=np.float64)
+        x_full = raw_X[src].to_numpy(dtype=_crit_np_dtype())
         per_scorer = _bootstrap_lcb_per_scorer(x_full, y_arr, boot_idx, random_state, _scorer_call)
         source_lcb[src] = per_scorer
 
@@ -360,7 +362,7 @@ def select_best_scorer_per_column(
     rows = []
     for eng_name in eng_cols:
         src = eng_name.split("__", 1)[0] if "__" in eng_name else eng_name
-        x_full = engineered_X[eng_name].to_numpy(dtype=np.float64)
+        x_full = engineered_X[eng_name].to_numpy(dtype=_crit_np_dtype())
         per_scorer = _bootstrap_lcb_per_scorer(x_full, y_arr, boot_idx, random_state, _scorer_call)
         # Normalised score = per-scorer HEADROOM over its own raw baseline, on its own scale: ``(engineered_lcb - raw_max) / scale``. This is
         # dimensionless and self-calibrating, so the winner is the scorer that demonstrates the most REAL additional signal beyond the strongest
@@ -614,7 +616,7 @@ def hybrid_orth_mi_auto_scorer_fe_with_recipes(
         # the fit-time z-score/min-max axis instead of silently refitting it.
         _pp = None
         try:
-            _col_full = np.asarray(X[src].to_numpy(), dtype=np.float64)
+            _col_full = np.asarray(X[src].to_numpy(), dtype=_crit_np_dtype())
             _, _pp = _evaluate_basis_column(_col_full, chosen_basis, int(chosen_degree), return_params=True)
         except Exception as exc:
             log_throttle(logger, "orth_auto_scorer_fe.hot_loop_warning", logging.WARNING, "failed to freeze fit-time basis preprocess_params (falling back to refit-at-replay): %r", exc)

@@ -30,6 +30,8 @@ import math
 from typing import Any, Optional
 
 import numpy as np
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
+from mlframe.feature_selection.filters._fe_gpu_batch._devices import crit_float_dtype
 import pandas as pd
 
 logger = logging.getLogger(__name__)
@@ -72,7 +74,7 @@ def _bspline_col_gpu(cp, z_g, knots: np.ndarray, idx: int, degree: int = 3):
     same clip here (cp.clip lower/upper match the host's ``zi <= knots[degree]`` / ``zi >= knots[nk-degree-1]``
     branches). B_{idx,degree} is 0 outside its support ``[knots[idx], knots[idx+degree+1])`` - exactly the host's
     ``rel not in [0, degree] -> 0``."""
-    knots = np.asarray(knots, dtype=np.float64)
+    knots = np.asarray(knots, dtype=_crit_np_dtype())
     nk = int(knots.shape[0])
     lo_c = float(knots[degree]) + 1e-12
     hi_c = float(knots[nk - degree - 1]) - 1e-12
@@ -83,7 +85,7 @@ def _bspline_col_gpu(cp, z_g, knots: np.ndarray, idx: int, degree: int = 3):
     # collapsing the LAST basis function's degenerate recursion to 0 instead of its correct ~1.0 value
     # (found via test_extra_basis_device_born_parity.py: maxerr=1.0 on the *__sp8 column, pre-existing,
     # reproduces on a clean pre-wave-10 baseline).
-    z_g = cp.asarray(z_g, dtype=cp.float64)
+    z_g = cp.asarray(z_g, dtype=crit_float_dtype())
     zc = cp.clip(z_g, lo_c, hi_c)
     _cache: dict = {}
 
@@ -94,11 +96,11 @@ def _bspline_col_gpu(cp, z_g, knots: np.ndarray, idx: int, degree: int = 3):
         if v is not None:
             return v
         if p == 0:
-            v = ((zc >= float(knots[i])) & (zc < float(knots[i + 1]))).astype(cp.float64)
+            v = ((zc >= float(knots[i])) & (zc < float(knots[i + 1]))).astype(crit_float_dtype())
         else:
             d1 = float(knots[i + p]) - float(knots[i])
             d2 = float(knots[i + p + 1]) - float(knots[i + 1])
-            v = cp.zeros(zc.shape, dtype=cp.float64)
+            v = cp.zeros(zc.shape, dtype=crit_float_dtype())
             if d1 > 1e-12:
                 v = v + ((zc - float(knots[i])) / d1) * _N(i, p - 1)
             if d2 > 1e-12:
@@ -160,10 +162,10 @@ def _build_extra_basis_matrix_gpu(cp, raw_X: pd.DataFrame, names, meta: dict):
             col = _dyadic_haar_leg_gpu(cp, z, int(m["j"]), int(m["k"]))
         else:
             raise ValueError(f"extra-basis device build: unsupported basis {basis!r} for {name!r}")
-        cols.append(col.astype(cp.float64, copy=False))
+        cols.append(col.astype(crit_float_dtype(), copy=False))
     if not cols:
-        return cp.empty((n, 0), dtype=cp.float64)
-    return cp.ascontiguousarray(cp.stack(cols, axis=1).astype(cp.float64, copy=False))
+        return cp.empty((n, 0), dtype=crit_float_dtype())
+    return cp.ascontiguousarray(cp.stack(cols, axis=1).astype(crit_float_dtype(), copy=False))
 
 
 def extra_basis_eng_mi_resident(
@@ -177,7 +179,7 @@ def extra_basis_eng_mi_resident(
     """DEVICE-BORN twin of ``mi_classif_batch_chunked(engineered_X)`` for the EXTRA-BASIS uplift scorer.
 
     Rebuilds the WHOLE extra-basis engineered matrix on the device from the resident raw operands + ``meta`` and
-    scores it through the resident plug-in MI. Returns the (K,) host float64 MI array in ``engineered_X.columns``
+    scores it through the resident plug-in MI. Returns the (K,) host double precision MI array in ``engineered_X.columns``
     order, OR ``None`` (STRICT-residency off / no cupy / any unrecognised basis / any cupy fault) -> the caller
     keeps the WHOLE matrix on the exact host scorer (byte-identical)."""
     try:

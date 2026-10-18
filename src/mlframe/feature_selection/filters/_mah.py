@@ -88,11 +88,11 @@ def _compute_y_binning(y: np.ndarray, K: int) -> tuple[np.ndarray, int]:
     if uniq_y.size <= K:
         yb = np.searchsorted(uniq_y, y).astype(np.int64)
     else:
-        qy = np.quantile(y.astype(np.float64), np.linspace(0, 1, K + 1))
+        qy = np.quantile(y.astype(np.float64), np.linspace(0, 1, K + 1))  # Intentional float64: quantile edges of the target for the MAH statistic
         qy_unique = np.unique(qy)
         if qy_unique.size < 3:
             return np.array([], dtype=np.int64), 0
-        yb = np.searchsorted(qy_unique[1:-1], y.astype(np.float64), side="right").astype(np.int64)
+        yb = np.searchsorted(qy_unique[1:-1], y.astype(np.float64), side="right").astype(np.int64)  # Intentional float64: target bin search for the MAH statistic
     K_y = int(yb.max()) + 1 if yb.size else 0
     return yb, K_y
 
@@ -187,7 +187,7 @@ def _greedy_merge_bins(joint: np.ndarray) -> np.ndarray:
         for i in range(cur.shape[1] - 1):
             # Build candidate merged matrix by adding columns i and i+1.
             new_shape_c = cur.shape[1] - 1
-            cand = np.empty((cur.shape[0], new_shape_c), dtype=np.float64)
+            cand = np.empty((cur.shape[0], new_shape_c), dtype=np.float64)  # Intentional float64: MAH partition accumulator state
             for r in range(cur.shape[0]):
                 for c in range(new_shape_c):
                     if c < i:
@@ -203,7 +203,7 @@ def _greedy_merge_bins(joint: np.ndarray) -> np.ndarray:
                 best_i = i
         if best_i < 0:
             break
-        new = np.empty((cur.shape[0], cur.shape[1] - 1), dtype=np.float64)
+        new = np.empty((cur.shape[0], cur.shape[1] - 1), dtype=np.float64)  # Intentional float64: MAH partition accumulator state
         for r in range(cur.shape[0]):
             for c in range(cur.shape[1] - 1):
                 if c < best_i:
@@ -219,7 +219,7 @@ def _greedy_merge_bins(joint: np.ndarray) -> np.ndarray:
         best_i = -1
         for i in range(cur.shape[0] - 1):
             new_shape_r = cur.shape[0] - 1
-            cand = np.empty((new_shape_r, cur.shape[1]), dtype=np.float64)
+            cand = np.empty((new_shape_r, cur.shape[1]), dtype=np.float64)  # Intentional float64: MAH partition accumulator state
             for r in range(new_shape_r):
                 for c in range(cur.shape[1]):
                     if r < i:
@@ -235,7 +235,7 @@ def _greedy_merge_bins(joint: np.ndarray) -> np.ndarray:
                 best_i = i
         if best_i < 0:
             break
-        new = np.empty((cur.shape[0] - 1, cur.shape[1]), dtype=np.float64)
+        new = np.empty((cur.shape[0] - 1, cur.shape[1]), dtype=np.float64)  # Intentional float64: MAH partition accumulator state
         for r in range(cur.shape[0] - 1):
             for c in range(cur.shape[1]):
                 if r < best_i:
@@ -290,7 +290,7 @@ def _greedy_merge_with_history(joint: np.ndarray):
         best_delta = 0.0
         best_i = -1
         for i in range(cur.shape[1] - 1):
-            cand = np.empty((cur.shape[0], cur.shape[1] - 1), dtype=np.float64)
+            cand = np.empty((cur.shape[0], cur.shape[1] - 1), dtype=np.float64)  # Intentional float64: MAH partition accumulator state
             for r in range(cur.shape[0]):
                 for c in range(cur.shape[1] - 1):
                     if c < i:
@@ -307,7 +307,7 @@ def _greedy_merge_with_history(joint: np.ndarray):
         if best_i < 0:
             break
         col_merges.append(best_i)
-        new = np.empty((cur.shape[0], cur.shape[1] - 1), dtype=np.float64)
+        new = np.empty((cur.shape[0], cur.shape[1] - 1), dtype=np.float64)  # Intentional float64: MAH partition accumulator state
         for r in range(cur.shape[0]):
             for c in range(cur.shape[1] - 1):
                 if c < best_i:
@@ -322,7 +322,7 @@ def _greedy_merge_with_history(joint: np.ndarray):
         best_delta = 0.0
         best_i = -1
         for i in range(cur.shape[0] - 1):
-            cand = np.empty((cur.shape[0] - 1, cur.shape[1]), dtype=np.float64)
+            cand = np.empty((cur.shape[0] - 1, cur.shape[1]), dtype=np.float64)  # Intentional float64: MAH partition accumulator state
             for r in range(cur.shape[0] - 1):
                 for c in range(cur.shape[1]):
                     if r < i:
@@ -339,7 +339,7 @@ def _greedy_merge_with_history(joint: np.ndarray):
         if best_i < 0:
             break
         row_merges.append(best_i)
-        new = np.empty((cur.shape[0] - 1, cur.shape[1]), dtype=np.float64)
+        new = np.empty((cur.shape[0] - 1, cur.shape[1]), dtype=np.float64)  # Intentional float64: MAH partition accumulator state
         for r in range(cur.shape[0] - 1):
             for c in range(cur.shape[1]):
                 if r < best_i:
@@ -373,7 +373,7 @@ def _apply_merges_to_edges(initial_inner_edges: np.ndarray, row_merges) -> np.nd
     # Remaining inner edges: original index = ranges[i].end for i in 0..len-2.
     remaining_positions = [ranges[i][1] - 1 for i in range(len(ranges) - 1)]
     if not remaining_positions:
-        return np.array([], dtype=np.float64)
+        return np.array([], dtype=np.float64)  # Intentional float64: empty edge vector keeps the float64 edge contract
     return initial_inner_edges[np.asarray(remaining_positions, dtype=np.int64)]
 
 
@@ -401,17 +401,17 @@ def mah_bin_edges(x: np.ndarray, y: np.ndarray, *, initial_k: int = 16) -> np.nd
 
     Reference: Marx, Yang, van Leeuwen (2021), SDM 2021. arXiv:2101.05009.
     """
-    x = np.asarray(x, dtype=np.float64).ravel()
+    x = np.asarray(x, dtype=np.float64).ravel()  # Intentional float64: bin-edge computation input; edges compared at full precision
     y = np.asarray(y).ravel()
     n = x.size
     if n < 16:
-        return np.array([], dtype=np.float64)
+        return np.array([], dtype=np.float64)  # Intentional float64: empty edge vector keeps the float64 edge contract
     K = int(initial_k)
     qx = np.quantile(x, np.linspace(0, 1, K + 1))
     qx_unique = np.unique(qx)
     if qx_unique.size < 3:
-        return np.array([], dtype=np.float64)
-    initial_inner = qx_unique[1:-1].astype(np.float64)
+        return np.array([], dtype=np.float64)  # Intentional float64: empty edge vector keeps the float64 edge contract
+    initial_inner = qx_unique[1:-1].astype(np.float64)  # Intentional float64: initial inner edges for the MAH statistic
     xb = np.searchsorted(initial_inner, x, side="right").astype(np.int64)
     # y is fit-constant across the whole per_feature_edges column dispatch -> cached binning (see _get_y_binning).
     yb, K_y = _get_y_binning(y, K)
@@ -420,7 +420,7 @@ def mah_bin_edges(x: np.ndarray, y: np.ndarray, *, initial_k: int = 16) -> np.nd
     K_x = int(xb.max()) + 1
     if K_x < 2 or K_y < 2:
         return cast("np.ndarray", initial_inner)
-    joint = np.bincount(xb * K_y + yb, minlength=K_x * K_y).reshape(K_x, K_y).astype(np.float64)
+    joint = np.bincount(xb * K_y + yb, minlength=K_x * K_y).reshape(K_x, K_y).astype(np.float64)  # Intentional float64: joint-count accumulator for the MAH statistic
     _, row_merges, _ = _greedy_merge_with_history(joint)
     # Map row merges to drop the swallowed X edges.
     return _apply_merges_to_edges(initial_inner, row_merges)
@@ -431,7 +431,7 @@ def mah_mi(x: np.ndarray, y: np.ndarray, *, initial_k: int = 16, return_sci: boo
     docstring for the algorithm. Returns I(X; Y) in nats; for ``return_sci=True``
     returns the SCI difference (regret-normalised hypothesis test statistic).
     """
-    x = np.asarray(x, dtype=np.float64).ravel()
+    x = np.asarray(x, dtype=np.float64).ravel()  # Intentional float64: bin-edge computation input; edges compared at full precision
     y = np.asarray(y).ravel()
     n = x.size
     if n < 16:
@@ -449,7 +449,7 @@ def mah_mi(x: np.ndarray, y: np.ndarray, *, initial_k: int = 16, return_sci: boo
     K_x = int(xb.max()) + 1
     if K_x < 2 or K_y < 2:
         return 0.0
-    joint = np.bincount(xb * K_y + yb, minlength=K_x * K_y).reshape(K_x, K_y).astype(np.float64)
+    joint = np.bincount(xb * K_y + yb, minlength=K_x * K_y).reshape(K_x, K_y).astype(np.float64)  # Intentional float64: joint-count accumulator for the MAH statistic
     merged, _, _ = _greedy_merge_with_history(joint)
     if return_sci:
         sci_joint = _stochastic_complexity(merged.ravel())

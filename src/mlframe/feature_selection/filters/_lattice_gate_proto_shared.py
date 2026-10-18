@@ -12,7 +12,7 @@ from ._pairwise_modular_fe import _mi
 def perm_null_hi(feat: np.ndarray, yi: np.ndarray, nbins: int, n_perm: int, rng: np.random.Generator, z: float = 3.0) -> float:
     """Upper band (mean + z*std) of the fixed feature's MI under y permutation - the noise reference the
     feature must clear. The feature is fixed; only y is shuffled (cheap, n_perm small)."""
-    vals = np.empty(n_perm, dtype=np.float64)
+    vals = np.empty(n_perm, dtype=np.float64)  # Intentional float64: permutation-null statistic vector (exact tie-sensitive threshold)
     for i in range(n_perm):
         vals[i] = _mi(feat, yi[rng.permutation(yi.size)], nbins=nbins)
     return float(vals.mean() + z * vals.std())

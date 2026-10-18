@@ -18,6 +18,7 @@ import numpy as np
 from mlframe.feature_selection.filters._mrmr_fit_impl._friend_graph_and_redundancy._readd_protections import readd_protected_columns
 
 from mlframe.utils.log_throttle import log_throttle
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 
 logger = logging.getLogger(__name__)
 
@@ -259,7 +260,7 @@ def _synergy_screen_pass(self, _iac_max_order, cols, X, classes_y, fe_to_pandas,
                 _mrpc_syn = 5.0
                 _nbins_syn = int((float(_yc_syn.shape[0]) / (_mrpc_syn * 5.0)) ** (1.0 / max(1, _order_syn)))
                 _nbins_syn = max(2, min(int(self.quantization_nbins), _nbins_syn))
-                _code_cols_syn = {i: _quantile_bin(_X_pd_syn[cols[i]].to_numpy(dtype=np.float64), _nbins_syn).astype(np.int64) for i in _cand_syn}
+                _code_cols_syn = {i: _quantile_bin(_X_pd_syn[cols[i]].to_numpy(dtype=_crit_np_dtype()), _nbins_syn).astype(np.int64) for i in _cand_syn}
                 _iac_min_order = getattr(self, "interactions_min_order", None)
                 _combos_syn = detect_synergy_combos(
                     _code_cols_syn,

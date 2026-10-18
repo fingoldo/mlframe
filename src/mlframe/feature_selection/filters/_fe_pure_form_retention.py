@@ -29,6 +29,7 @@ import re
 from typing import Any
 
 import numpy as np
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 
 from ._safe_scale import standardise
 
@@ -146,10 +147,10 @@ def _raws_already_explain_y(X: Any, y_cont: np.ndarray, base_names: list, is_clf
         if _ng > 2000:
             _rg = np.random.default_rng(int(seed) + 5)
             _gi = np.sort(_rg.choice(_ng, size=2000, replace=False))
-            _Xg = X.iloc[_gi][base_names].to_numpy(dtype=np.float64, copy=False)
+            _Xg = X.iloc[_gi][base_names].to_numpy(dtype=_crit_np_dtype(), copy=False)
             _yg = y_cont[_gi]
         else:
-            _Xg = X[base_names].to_numpy(dtype=np.float64, copy=False)
+            _Xg = X[base_names].to_numpy(dtype=_crit_np_dtype(), copy=False)
             _yg = y_cont
         _Xg = np.nan_to_num(_Xg, nan=0.0, posinf=0.0, neginf=0.0)
         if is_clf:
@@ -381,7 +382,7 @@ def retain_usable_pure_forms(
 
         if not isinstance(X, pd.DataFrame):
             return []
-        y_cont = np.asarray(y_cont, dtype=np.float64).ravel()
+        y_cont = np.asarray(y_cont, dtype=_crit_np_dtype()).ravel()
         if y_cont.shape[0] != len(X) or not np.isfinite(y_cont).any():
             return []
 
@@ -417,7 +418,7 @@ def retain_usable_pure_forms(
             usability_greedy, _f64, _scrub,
         )
 
-        _yv = _scrub(np.asarray(y_fit, dtype=np.float64))
+        _yv = _scrub(np.asarray(y_fit, dtype=_crit_np_dtype()))
         _nrows = _yv.shape[0]
         # RELEVANCE TARGET for the non-separability gate's part (b). For REGRESSION this is the continuous y.
         # For CLASSIFICATION the analogue is the class-indicator (point-biserial correlation): a binary y
@@ -476,11 +477,11 @@ def _retain_usable_pure_f_step1_pair_recoverable_regression(X, _clf_classes, _y_
         """Replay ``recipe`` and test whether its values are class-relevant (|point-biserial corr with the class indicator| >= ``_CLF_COVER_CORR``); used to distinguish a genuinely-usable existing pure-pair form from a lossy one that should not count as coverage."""
         try:
             from mlframe.feature_selection.filters.engineered_recipes import apply_recipe
-            vals = np.asarray(apply_recipe(recipe, X), dtype=np.float64).ravel()
+            vals = np.asarray(apply_recipe(recipe, X), dtype=_crit_np_dtype()).ravel()
             if vals.shape[0] != len(X):
                 return False
             vals = np.nan_to_num(vals, nan=0.0, posinf=0.0, neginf=0.0)
-            pos = (_y_codes == 1).astype(np.float64) if _clf_classes.size == 2 else (_y_codes == int(np.argmax(np.bincount(_y_codes)))).astype(np.float64)
+            pos = (_y_codes == 1).astype(_crit_np_dtype()) if _clf_classes.size == 2 else (_y_codes == int(np.argmax(np.bincount(_y_codes)))).astype(_crit_np_dtype())
             u = vals - vals.mean()
             v = pos - pos.mean()
             du, dv = float(np.sqrt((u * u).sum())), float(np.sqrt((v * v).sum()))
@@ -644,10 +645,10 @@ def _retain_usable_pure_relevant_class_membership(is_clf, _yv):
     if is_clf:
         _codes_fit = np.unique(_yv, return_inverse=True)[1]
         if np.unique(_codes_fit).size == 2:
-            _rel_y = (_codes_fit == 1).astype(np.float64)
+            _rel_y = (_codes_fit == 1).astype(_crit_np_dtype())
         else:
             _maj_fit = int(np.argmax(np.bincount(_codes_fit)))
-            _rel_y = (_codes_fit == _maj_fit).astype(np.float64)
+            _rel_y = (_codes_fit == _maj_fit).astype(_crit_np_dtype())
     else:
         _rel_y = _yv
     return _rel_y
@@ -799,7 +800,7 @@ def retain_usable_raw_columns(
 
         if not isinstance(X, pd.DataFrame):
             return []
-        y_cont = np.asarray(y_cont, dtype=np.float64).ravel()
+        y_cont = np.asarray(y_cont, dtype=_crit_np_dtype()).ravel()
         if y_cont.shape[0] != len(X) or not np.isfinite(y_cont).any():
             return []
 
@@ -843,7 +844,7 @@ def retain_usable_raw_columns(
             build_usability_candidate_pool, usability_greedy, _scrub,
         )
 
-        _yv = _scrub(np.asarray(y_fit, dtype=np.float64))
+        _yv = _scrub(np.asarray(y_fit, dtype=_crit_np_dtype()))
         # max_pairs=0 -> the pool builds ONLY the raw passthrough candidates and skips the expensive
         # unary x unary x binary pair-form enumeration entirely. This pass uses raws only (below), so
         # building pair forms just to discard them was pure waste - it ran the full FE pool on every

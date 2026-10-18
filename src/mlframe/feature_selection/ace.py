@@ -29,6 +29,7 @@ from dataclasses import dataclass, field
 from typing import Any, Sequence
 
 import numpy as np
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 
 from mlframe.feature_selection.cv_policy import CVPolicy, get_cv_policy
 from sklearn.base import BaseEstimator, TransformerMixin
@@ -76,12 +77,12 @@ def _read_importances(model, importance: str, X, y, n_repeats: int, random_state
 
         pi = permutation_importance(model, X, y, n_repeats=n_repeats, random_state=random_state, n_jobs=1)
         # Negative permutation importance = "noise"; clip so it ties contrasts rather than flipping sign.
-        return np.clip(np.asarray(pi.importances_mean, dtype=np.float64), 0.0, None)
+        return np.clip(np.asarray(pi.importances_mean, dtype=_crit_np_dtype()), 0.0, None)
 
     if hasattr(model, "feature_importances_"):
-        return np.asarray(model.feature_importances_, dtype=np.float64)
+        return np.asarray(model.feature_importances_, dtype=_crit_np_dtype())
     if hasattr(model, "coef_"):
-        coef = np.abs(np.asarray(model.coef_, dtype=np.float64))
+        coef = np.abs(np.asarray(model.coef_, dtype=_crit_np_dtype()))
         return coef.max(axis=0) if coef.ndim > 1 else coef
     raise AttributeError(
         f"ACE importance='native' needs feature_importances_ or coef_ on the fitted " f"{type(model).__name__}; got neither. Use importance='permutation'."
@@ -93,7 +94,7 @@ def _benjamini_hochberg_reject(p_values: np.ndarray, alpha: float) -> np.ndarray
 
     ACE runs one test per feature, so without multiplicity control the per-feature alpha admits ~alpha*p
     false positives. BH controls the false-discovery rate across the whole feature battery."""
-    p = np.asarray(p_values, dtype=np.float64)
+    p = np.asarray(p_values, dtype=_crit_np_dtype())
     m = p.size
     if m == 0:
         return np.zeros(0, dtype=bool)
@@ -247,9 +248,9 @@ def ace_select(
     """
     if hasattr(X, "to_numpy"):
         names = list(X.columns) if feature_names is None and hasattr(X, "columns") else feature_names
-        X_arr = X.to_numpy(dtype=np.float64, copy=True)
+        X_arr = X.to_numpy(dtype=_crit_np_dtype(), copy=True)
     else:
-        X_arr = np.asarray(X, dtype=np.float64)
+        X_arr = np.asarray(X, dtype=_crit_np_dtype())
         names = feature_names
     y_arr = np.asarray(y)
 
@@ -266,9 +267,9 @@ def ace_select(
 
     estimator = estimator if estimator is not None else _default_estimator(y_arr, n, random_state)
 
-    imp_mean = np.zeros(p, dtype=np.float64)
-    contrast_bar = np.full(p, np.nan, dtype=np.float64)
-    p_values = np.ones(p, dtype=np.float64)
+    imp_mean = np.zeros(p, dtype=_crit_np_dtype())
+    contrast_bar = np.full(p, np.nan, dtype=_crit_np_dtype())
+    p_values = np.ones(p, dtype=_crit_np_dtype())
     accepted = np.zeros(p, dtype=bool)
 
     remaining = np.arange(p)  # column indices still competing (masking loop shrinks this)
@@ -329,7 +330,7 @@ def _run_ace_round(
     replicates and all contrast columns - a single scalar broadcast to every feature (Tuv 2009: the null is
     the distribution of importance for a variable known to be irrelevant, estimated from every contrast)."""
     p = X.shape[1]
-    real_imps = np.empty((n_replicates, p), dtype=np.float64)
+    real_imps = np.empty((n_replicates, p), dtype=_crit_np_dtype())
     contrast_pool: list[np.ndarray] = []
     for r in range(n_replicates):
         rng = np.random.default_rng(random_state + r)
@@ -341,7 +342,7 @@ def _run_ace_round(
         contrast_pool.append(contrast_r)
     pooled = np.concatenate(contrast_pool)
     bar = float(np.nanpercentile(pooled, contrast_percentile)) if pooled.size else 0.0
-    return real_imps, np.full(p, bar, dtype=np.float64)
+    return real_imps, np.full(p, bar, dtype=_crit_np_dtype())
 
 
 def _ttest_greater(real_imps: np.ndarray, threshold: np.ndarray) -> np.ndarray:
@@ -355,7 +356,7 @@ def _ttest_greater(real_imps: np.ndarray, threshold: np.ndarray) -> np.ndarray:
     n = x.shape[0]
     mean = x.mean(axis=0)
     sd = x.std(axis=0, ddof=1)
-    p = np.ones(x.shape[1], dtype=np.float64)
+    p = np.ones(x.shape[1], dtype=_crit_np_dtype())
     # Zero-dispersion features: the t-statistic is degenerate; decide by the sign of the mean margin.
     zero_var = sd <= 1e-15
     p[zero_var & (mean > 0)] = 0.0

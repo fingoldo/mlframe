@@ -9,6 +9,7 @@ import os
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 
 if TYPE_CHECKING:
     from .hermite_fe import HermiteResult
@@ -58,8 +59,8 @@ def precompute_hermite_pair_basis(
             n_neighbors = 7
     z_a, preprocess_a = basis_info["fit"](x_a)
     z_b, preprocess_b = basis_info["fit"](x_b)
-    z_a = np.ascontiguousarray(z_a, dtype=np.float64)
-    z_b = np.ascontiguousarray(z_b, dtype=np.float64)
+    z_a = np.ascontiguousarray(z_a, dtype=_crit_np_dtype())
+    z_b = np.ascontiguousarray(z_b, dtype=_crit_np_dtype())
     identity_baseline = _baseline_mi_pair(
         z_a, z_b, y, discrete_target=discrete_target, n_neighbors=n_neighbors,
         mi_estimator=mi_estimator, plugin_n_bins=plugin_n_bins,
@@ -205,19 +206,19 @@ def _optimise_hermite_pair_part2(
                 _y_nf = y[::_nf_st]
             else:
                 _xa_nf, _xb_nf, _y_nf = x_a, x_b, y
-            comb = np.ascontiguousarray(st.best.transform(_xa_nf, _xb_nf), dtype=np.float64).reshape(-1)
+            comb = np.ascontiguousarray(st.best.transform(_xa_nf, _xb_nf), dtype=_crit_np_dtype()).reshape(-1)
             if np.all(np.isfinite(comb)) and float(np.std(comb)) > 1e-12:
                 if discrete_target:
                     y_perm_src = np.asarray(_y_nf, dtype=np.int64)
                     mi_real = float(_plugin_mi_classif_njit(comb, y_perm_src, plugin_n_bins))
                     mi_fn = _plugin_mi_classif_njit
                 else:
-                    y_perm_src = np.asarray(_y_nf, dtype=np.float64)
+                    y_perm_src = np.asarray(_y_nf, dtype=_crit_np_dtype())
                     mi_real = float(_plugin_mi_regression_njit(comb, y_perm_src, plugin_n_bins))
                     mi_fn = _plugin_mi_regression_njit
                 rng_null = np.random.default_rng(seed if seed and seed > 0 else 0)
                 nlen = comb.shape[0]
-                null_mis = np.empty(int(noise_floor_n_perms), dtype=np.float64)
+                null_mis = np.empty(int(noise_floor_n_perms), dtype=_crit_np_dtype())
                 if discrete_target:
                     # ``comb`` is FIXED across the shuffles, so its quantile binning (the argsort - ~3/4 of a plugin-MI
                     # call per the from-binned kernel's own bench) is identical every permutation: bin ONCE and reuse.
@@ -314,8 +315,8 @@ def _optimise_hermite_pair_part1(
     else:
         st.z_a, st.preprocess_a = st.basis_info["fit"](x_a)
         st.z_b, st.preprocess_b = st.basis_info["fit"](x_b)
-    st.z_a = np.ascontiguousarray(st.z_a, dtype=np.float64)
-    st.z_b = np.ascontiguousarray(st.z_b, dtype=np.float64)
+    st.z_a = np.ascontiguousarray(st.z_a, dtype=_crit_np_dtype())
+    st.z_b = np.ascontiguousarray(st.z_b, dtype=_crit_np_dtype())
     # Hoist size-aware dispatch out of the hot trial loop: pick the backend ONCE per call (n is fixed across trials).
     # Saves ~4us/call closure overhead, ~5ms over 1000+ trials.
     st.n_eval = st.z_a.shape[0]
@@ -375,8 +376,8 @@ def _optimise_hermite_pai_step3_saves_us_call(st, basis, precomputed_identity_ba
         try:
             from mlframe.feature_selection.filters.fe_baselines import best_trivial_pair
             trivial = best_trivial_pair(
-                np.asarray(x_a, dtype=np.float64),
-                np.asarray(x_b, dtype=np.float64), y,
+                np.asarray(x_a, dtype=_crit_np_dtype()),
+                np.asarray(x_b, dtype=_crit_np_dtype()), y,
                 discrete_target=discrete_target,
                 mi_estimator=mi_estimator,
                 plugin_n_bins=plugin_n_bins,
@@ -403,7 +404,7 @@ def _optimise_hermite_pai_step3_saves_us_call(st, basis, precomputed_identity_ba
 
     # Pre-cast y once for the njit fast path.
     if mi_estimator == "plugin":
-        st.y_njit = np.asarray(y, dtype=np.int64) if discrete_target else np.asarray(y, dtype=np.float64)
+        st.y_njit = np.asarray(y, dtype=np.int64) if discrete_target else np.asarray(y, dtype=_crit_np_dtype())
     else:
         st.y_njit = None  # KSG path does not need it
 
@@ -426,8 +427,8 @@ def _optimise_hermite_pai_step4_st_bf_callables(st, bin_funcs, multi_fidelity, s
     if multi_fidelity and st.n_full >= 4000:
         rng_mf = np.random.default_rng(seed if seed > 0 else 0)
         sub_idx = rng_mf.choice(st.n_full, size=1500, replace=False)
-        st.z_a_search = np.ascontiguousarray(st.z_a[sub_idx], dtype=np.float64)
-        st.z_b_search = np.ascontiguousarray(st.z_b[sub_idx], dtype=np.float64)
+        st.z_a_search = np.ascontiguousarray(st.z_a[sub_idx], dtype=_crit_np_dtype())
+        st.z_b_search = np.ascontiguousarray(st.z_b[sub_idx], dtype=_crit_np_dtype())
         st.y_search = st.y_njit[sub_idx] if st.y_njit is not None else None
         st.y_search_any = y[sub_idx] if isinstance(y, np.ndarray) else np.asarray(y)[sub_idx]
     else:
@@ -526,8 +527,8 @@ def _optimise_hermite_pai_step5_degree_st_degree(st, eval_func_b, mi_estimator, 
             try:
                 bf_idx_best = study.best_trial.user_attrs.get("bf_idx", -1)
                 raw_mi_best = study.best_trial.user_attrs.get("raw_mi", -np.inf)
-                coef_a_best = np.array([study.best_params[f"a_{i}"] for i in range(ca_size)], dtype=np.float64)
-                coef_b_best = np.array([study.best_params[f"b_{i}"] for i in range(cb_size)], dtype=np.float64)
+                coef_a_best = np.array([study.best_params[f"a_{i}"] for i in range(ca_size)], dtype=_crit_np_dtype())
+                coef_b_best = np.array([study.best_params[f"b_{i}"] for i in range(cb_size)], dtype=_crit_np_dtype())
             except (ValueError, KeyError):
                 continue
 
@@ -711,8 +712,8 @@ def _optimise_hermite_pai_step2_def_optuna_obj(degree, ca_size, cb_size, eval_kw
 
     def _optuna_obj(trial, _degree=degree, _ca_size=ca_size, _cb_size=cb_size, _eval_pair_fn=eval_pair_fn, _eval_kwargs=eval_kwargs):
         """Optuna trial objective: sample a (coef_a, coef_b) pair, score it via the eval function, and stash bf_idx/raw_mi as trial user attrs for post-hoc inspection."""
-        coef_a = np.array([trial.suggest_float(f"a_{i}", *coef_range) for i in range(_ca_size)], dtype=np.float64)
-        coef_b = np.array([trial.suggest_float(f"b_{i}", *coef_range) for i in range(_cb_size)], dtype=np.float64)
+        coef_a = np.array([trial.suggest_float(f"a_{i}", *coef_range) for i in range(_ca_size)], dtype=_crit_np_dtype())
+        coef_b = np.array([trial.suggest_float(f"b_{i}", *coef_range) for i in range(_cb_size)], dtype=_crit_np_dtype())
         score, raw_mi, bf_idx = (_eval_pair_fn or _eval_coef_pair)(
             coef_a, coef_b, direction_only=direction_only,
             **_eval_kwargs,
@@ -783,7 +784,7 @@ def _optimise_hermite_pai_step1_like_rbf_wrap(st, eval_func_b, mi_estimator, plu
                     valid_idx.append(k)
             if not cols:
                 return -np.inf, 0.0, -1
-            X_batch = ascontiguousarray(column_stack(cols), dtype=np.float64)
+            X_batch = ascontiguousarray(column_stack(cols), dtype=_crit_np_dtype())
             if kw["mi_estimator"] == "plugin":
                 if kw["discrete_target"]:
                     mi_arr = _plugin_mi_classif_batch_njit(X_batch, kw["y_njit"], kw["plugin_n_bins"])
@@ -909,7 +910,7 @@ def _optimise_hermite_pai_step2_basis_matrix_factory(warm_start_als, st, ca_size
     # versions; do NOT flip default-on without a regime that ALS cannot seed.
     if cross_fit_prior_seeds:
         for _ps in cross_fit_prior_seeds:
-            _ps = np.asarray(_ps, dtype=np.float64).reshape(-1)
+            _ps = np.asarray(_ps, dtype=_crit_np_dtype()).reshape(-1)
             if _ps.size == ca_size + cb_size:
                 # Clip into the optimiser's bounds so the seed is not silently
                 # truncated (mirrors the ALS-seed rescale rationale above).

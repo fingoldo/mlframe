@@ -19,6 +19,7 @@ import numpy as np
 
 from .cat_fe_state import CatFEConfig
 from .info_theory import compute_mi_from_classes, compute_mi_from_classes_weighted, merge_vars
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 
 logger = logging.getLogger("mlframe.feature_selection.filters._cat_confirm_permutation")  # matches the pre-carve logger name; preserves log-filter/caplog compatibility for existing callers/tests
 
@@ -103,7 +104,7 @@ def _compute_westfall_young_corrected_p(
         marginal_freqs[ci] = fq_c
 
     # Permutation loop: for each shuffle, compute max II across all m pairs
-    max_ii_per_perm = np.zeros(n_perms, dtype=np.float64)
+    max_ii_per_perm = np.zeros(n_perms, dtype=_crit_np_dtype())
     for b in range(n_perms):
         wy_rng.shuffle(classes_y_safe)
         # Compute MI(merged; Y_shuffled) for all pairs, and marginals for

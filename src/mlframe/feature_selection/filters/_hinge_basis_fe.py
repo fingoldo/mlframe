@@ -161,7 +161,9 @@ def _hinge_slope_change_plausible(
     ``qr_out``, when passed an empty dict, is populated with ``{"Q", "r_y", "sse_B"}`` - the round-0 QR
     factorization of ``B=[1,x]`` this precheck already computes for ``sse_lin`` - so
     ``_detect_hinge_breakpoints`` can reuse it for round 0 instead of re-factoring the identical design."""
+    # Intentional float64: hinge FWL/recipe replay is pinned bit-exact by test_detect_hinge_fwl_rank1_taus_bit_identical_*.
     x = np.asarray(x, dtype=np.float64).ravel()
+    # Intentional float64: hinge FWL/recipe replay is pinned bit-exact by test_detect_hinge_fwl_rank1_taus_bit_identical_*.
     y = np.asarray(y, dtype=np.float64).ravel()
     n = x.size
     if n != y.size or n < _HINGE_MIN_ROWS:
@@ -176,6 +178,7 @@ def _hinge_slope_change_plausible(
         qr_out["r_y"] = r_y
         qr_out["sse_B"] = sse_lin
     try:
+        # Intentional float64: hinge FWL/recipe replay is pinned bit-exact by test_detect_hinge_fwl_rank1_taus_bit_identical_*.
         cuts = np.unique(np.quantile(x, np.asarray(qs, dtype=np.float64)))
     except Exception as e:
         log_throttle(logger, "_hinge_basis_fe._hinge_slope_change_plausible", logging.WARNING, "hinge candidate cut-quantile computation failed, no hinge candidate produced: %s", e)
@@ -386,7 +389,9 @@ def _detect_hinge_breakpoints(
     on the n=4000 / 24-cut scan (bench: profiling/bench_hinge_fwl_rank1.py). bench-attempt-rejected (2026-06-09): a normal-equations 3x3 solve (``A.T@A`` / ``np.linalg.solve``)
     was 2.2x SLOWER than the original lstsq because it rebuilt + re-formed ``A.T@A`` per cut; the FWL update wins precisely by NOT rebuilding the fixed block per cut.
     """
+    # Intentional float64: hinge FWL/recipe replay is pinned bit-exact by test_detect_hinge_fwl_rank1_taus_bit_identical_*.
     x = np.asarray(x, dtype=np.float64).ravel()
+    # Intentional float64: hinge FWL/recipe replay is pinned bit-exact by test_detect_hinge_fwl_rank1_taus_bit_identical_*.
     y = np.asarray(y, dtype=np.float64).ravel()
     n = x.size
     if n != y.size or n < _HINGE_MIN_ROWS:
@@ -460,9 +465,12 @@ def _detect_hinge_breakpoints(
         # Fused prange-parallel scan over every candidate cut (see _hinge_cut_scan_njit's docstring for the
         # rationale and A/B): replaces the per-cut Python loop (count_nonzero + two matrix-vector products +
         # two dot products, all at Python-level dispatch cost per cut) with ONE compiled call.
+        # Intentional float64: hinge FWL/recipe replay is pinned bit-exact by test_detect_hinge_fwl_rank1_taus_bit_identical_*.
         found_arr = np.asarray(found, dtype=np.float64)
         raw_tau, _best_sse = _hinge_cut_scan_njit(
+            # Intentional float64: hinge FWL/recipe replay is pinned bit-exact by test_detect_hinge_fwl_rank1_taus_bit_identical_*.
             np.ascontiguousarray(Q, dtype=np.float64), np.ascontiguousarray(r_y, dtype=np.float64), float(sse_B),
+            # Intentional float64: hinge FWL/recipe replay is pinned bit-exact by test_detect_hinge_fwl_rank1_taus_bit_identical_*.
             np.ascontiguousarray(x, dtype=np.float64), np.ascontiguousarray(cand, dtype=np.float64),
             int(_HINGE_MIN_SEG_ROWS), found_arr,
         )
@@ -609,6 +617,7 @@ def generate_hinge_features(
         cols = _dedup_collinear_source_cols(
             X, list(cols), corr_threshold=dedup_corr_threshold,
         )
+    # Intentional float64: hinge FWL/recipe replay is pinned bit-exact by test_detect_hinge_fwl_rank1_taus_bit_identical_*.
     y_arr = np.asarray(y, dtype=np.float64).ravel()
     if y_arr.size != len(X) or not np.all(np.isfinite(y_arr)):
         return pd.DataFrame(index=X.index), {}
@@ -616,6 +625,7 @@ def generate_hinge_features(
     for col in cols:
         if col not in X.columns or not pd.api.types.is_numeric_dtype(X[col]):
             continue
+        # Intentional float64: hinge FWL/recipe replay is pinned bit-exact by test_detect_hinge_fwl_rank1_taus_bit_identical_*.
         x = np.asarray(X[col].to_numpy(), dtype=np.float64)
         finite_mask = np.isfinite(x)
         if not finite_mask.any():
@@ -644,6 +654,7 @@ def generate_hinge_features(
                 out_cols[name_lt] = relu_lt
                 meta[name_lt] = {"src": col, "tau": float(tau), "side": "lt"}
             if emit_indicator:
+                # Intentional float64: hinge FWL/recipe replay is pinned bit-exact by test_detect_hinge_fwl_rank1_taus_bit_identical_*.
                 ind = (x > tau).astype(np.float64)
                 if float(np.std(ind)) > 1e-12:
                     name_ind = f"{col}__ind_gt{tau:g}"
@@ -687,6 +698,7 @@ def _apply_hinge_basis(recipe, X) -> np.ndarray:
     name = recipe.src_names[0]
     tau = float(recipe.extra["tau"])
     side = str(recipe.extra["side"])
+    # Intentional float64: hinge FWL/recipe replay is pinned bit-exact by test_detect_hinge_fwl_rank1_taus_bit_identical_*.
     vals = np.asarray(_extract_column(X, name), dtype=np.float64)
     finite = np.isfinite(vals)
     if not finite.all():
@@ -697,6 +709,7 @@ def _apply_hinge_basis(recipe, X) -> np.ndarray:
     if side == "lt":
         return np.maximum(tau - vals, 0.0)
     if side == "ind":
+        # Intentional float64: hinge FWL/recipe replay is pinned bit-exact by test_detect_hinge_fwl_rank1_taus_bit_identical_*.
         return (vals > tau).astype(np.float64)
     raise ValueError(f"hinge_basis recipe '{recipe.name}': unknown side {side!r}")
 
@@ -729,7 +742,9 @@ def _heldout_incremental_r2_prep(x: np.ndarray, y: np.ndarray) -> Optional[dict]
     groups legs by source column) and reuse via :func:`_heldout_incremental_r2_from_prep`. Returns ``None`` on
     the same guards :func:`_heldout_incremental_r2` used to return ``0.0`` for - the caller then scores every
     leg of this column as ``0.0``."""
+    # Intentional float64: hinge FWL/recipe replay is pinned bit-exact by test_detect_hinge_fwl_rank1_taus_bit_identical_*.
     x = np.asarray(x, dtype=np.float64).ravel()
+    # Intentional float64: hinge FWL/recipe replay is pinned bit-exact by test_detect_hinge_fwl_rank1_taus_bit_identical_*.
     y = np.asarray(y, dtype=np.float64).ravel()
     n = x.size
     if n != y.size or n < _HINGE_MIN_ROWS:
@@ -768,6 +783,7 @@ def _heldout_incremental_r2_from_prep(prep: Optional[dict], leg: np.ndarray) -> 
     if prep is None:
         return 0.0
     tr = prep["tr"]
+    # Intentional float64: hinge FWL/recipe replay is pinned bit-exact by test_detect_hinge_fwl_rank1_taus_bit_identical_*.
     leg = np.asarray(leg, dtype=np.float64).ravel()
     if leg.size != tr.size:
         return 0.0
@@ -849,6 +865,7 @@ def hybrid_hinge_fe_with_recipes(
             "engineered_col", "source_col", "incr_r2", "passed",
         ])
         return X, empty_scores, []
+    # Intentional float64: hinge FWL/recipe replay is pinned bit-exact by test_detect_hinge_fwl_rank1_taus_bit_identical_*.
     y_arr = np.asarray(y, dtype=np.float64).ravel()
     rows = []
     # r2_base (the held-out R^2 of [1, x] alone) and the extracted/filled x_src don't depend on the LEG, only
@@ -861,6 +878,7 @@ def hybrid_hinge_fe_with_recipes(
         leg_vals = engineered[name].to_numpy()
         if src in X.columns and pd.api.types.is_numeric_dtype(X[src]):
             if src not in _prep_cache:
+                # Intentional float64: hinge FWL/recipe replay is pinned bit-exact by test_detect_hinge_fwl_rank1_taus_bit_identical_*.
                 x_src = np.asarray(X[src].to_numpy(), dtype=np.float64)
                 finite = np.isfinite(x_src)
                 if not finite.all():
@@ -873,6 +891,7 @@ def hybrid_hinge_fe_with_recipes(
         else:
             # src isn't a real numeric column in X (rare/defensive): each leg scores against ITS OWN values,
             # exactly as the pre-grouping code did, so nothing is cacheable across legs in this branch.
+            # Intentional float64: hinge FWL/recipe replay is pinned bit-exact by test_detect_hinge_fwl_rank1_taus_bit_identical_*.
             x_src_fallback = engineered[name].to_numpy(dtype=np.float64)
             incr = _heldout_incremental_r2(x_src_fallback, leg_vals, y_arr)
         rows.append({

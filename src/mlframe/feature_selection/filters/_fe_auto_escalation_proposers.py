@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import logging
 import numpy as np
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 
 from mlframe.feature_selection.filters._safe_scale import guarded_scale, scale_is_usable
 
@@ -34,7 +35,7 @@ def _finite_filled(x: np.ndarray) -> np.ndarray:
     finite entries). Used ONLY for detector / ALS FITTING; candidate VALUES are always
     computed from the RAW column through the replay path (warp -> mul -> nan_to_num),
     so fit-time and transform-time values agree bit-for-bit."""
-    x = np.asarray(x, dtype=np.float64)
+    x = np.asarray(x, dtype=_crit_np_dtype())
     finite = np.isfinite(x)
     if finite.all():
         return np.asarray(x)
@@ -56,7 +57,7 @@ def _identity_prewarp_spec(x: np.ndarray) -> dict | None:
     if float(np.std(xf)) < 1e-12:
         return None
     _, params = bi["fit"](xf)
-    coef = np.zeros(2, dtype=np.float64)
+    coef = np.zeros(2, dtype=np.float64)  # Intentional float64: accumulator or output buffer; statistic at float64
     coef[1] = 1.0
     return {"basis": _IDENTITY_BASIS, "degree": 1, "coef": coef, "preprocess": dict(params)}
 
@@ -66,8 +67,8 @@ def _candidate_values(x_a: np.ndarray, spec_a: dict, x_b: np.ndarray, spec_b: di
     - the same chain ``_apply_unary_binary`` executes at transform() time."""
     from .hermite_fe import apply_operand_prewarp
     try:
-        wa = apply_operand_prewarp(np.asarray(x_a, dtype=np.float64), spec_a)
-        wb = apply_operand_prewarp(np.asarray(x_b, dtype=np.float64), spec_b)
+        wa = apply_operand_prewarp(np.asarray(x_a, dtype=_crit_np_dtype()), spec_a)
+        wb = apply_operand_prewarp(np.asarray(x_b, dtype=_crit_np_dtype()), spec_b)
     except Exception as exc:
         # Was unlogged, unlike every other except-block in
         # this file (which all log via logger.debug); low blast radius (degrades to skipping this
@@ -84,7 +85,7 @@ def _candidate_values(x_a: np.ndarray, spec_a: dict, x_b: np.ndarray, spec_b: di
 
 def _heldout_abs_corr(vals_va, y_va) -> float:
     """Absolute correlation between candidate values ``vals_va`` and the held-out (mean-centered) target ``y_va``, sanitizing non-finite inputs and returning 0.0 for a constant/degenerate candidate."""
-    vals_va = np.nan_to_num(np.asarray(vals_va, dtype=np.float64), copy=False, nan=0.0, posinf=0.0, neginf=0.0)
+    vals_va = np.nan_to_num(np.asarray(vals_va, dtype=_crit_np_dtype()), copy=False, nan=0.0, posinf=0.0, neginf=0.0)
     if float(np.std(vals_va)) < 1e-12:
         return 0.0
     cc = float(np.corrcoef(vals_va, y_va)[0, 1])
@@ -113,7 +114,7 @@ def _best_pair_basis(_blocks_a, _blocks_b, y_tr, y_va, xa_tr, xb_tr):
             coef_a, coef_b = warm_start_als_seed(Ba_tr, Bb_tr, y_tr, iters=3, x_a=xa_tr, x_b=xb_tr, z_a=za_tr, z_b=zb_tr, basis=basis)
             if coef_a is None or coef_b is None:
                 continue
-            c = _heldout_abs_corr((Ba_va @ np.ascontiguousarray(coef_a, dtype=np.float64)) * (Bb_va @ np.ascontiguousarray(coef_b, dtype=np.float64)), y_va)
+            c = _heldout_abs_corr((Ba_va @ np.ascontiguousarray(coef_a, dtype=np.float64)) * (Bb_va @ np.ascontiguousarray(coef_b, dtype=np.float64)), y_va)  # Intentional float64: held-out correlation statistic input
         except Exception as e:  # nosec B112 - swallow converted to debug-log, non-fatal by design
             logger.debug("suppressed: %s", e)
             continue
@@ -196,8 +197,8 @@ def _propose_poly(x_a, x_b, y_f, *, degree: int, min_val_corr: float, pairness_m
         zc = _zmap_cache.get(key)
         if zc is None:
             z_tr, params = fit_fn(x_tr)
-            z_tr = np.ascontiguousarray(z_tr, dtype=np.float64)
-            z_va = np.ascontiguousarray(apply_fn(x_va, dict(params)), dtype=np.float64)
+            z_tr = np.ascontiguousarray(z_tr, dtype=_crit_np_dtype())
+            z_va = np.ascontiguousarray(apply_fn(x_va, dict(params)), dtype=_crit_np_dtype())
             _zmap_cache[key] = (z_tr, params, z_va)
         else:
             z_tr, params, z_va = zc
@@ -238,7 +239,7 @@ def _propose_poly(x_a, x_b, y_f, *, degree: int, min_val_corr: float, pairness_m
                     coef, _rb, _wn = fit_basis_coef_robust(B_tr, _y_tr_c, x_tr)
                     if coef is None or not np.all(np.isfinite(coef)):
                         continue
-                    single_best = max(single_best, _heldout_abs_corr(B_va @ np.ascontiguousarray(coef, dtype=np.float64), y_va))
+                    single_best = max(single_best, _heldout_abs_corr(B_va @ np.ascontiguousarray(coef, dtype=np.float64), y_va))  # Intentional float64: held-out correlation statistic input
                 except Exception as e:  # nosec B112 - swallow converted to debug-log, non-fatal by design
                     logger.debug("suppressed: %s", e)
                     continue
@@ -269,7 +270,7 @@ def _fit_fourier_amplitude_spec(axis01: np.ndarray, t: np.ndarray, freqs, prepro
     K = len(freqs)
     if K == 0:
         return None
-    D = np.empty((axis01.size, 2 * K), dtype=np.float64)
+    D = np.empty((axis01.size, 2 * K), dtype=np.float64)  # Intentional float64: accumulator or output buffer; statistic at float64
     for i, f in enumerate(freqs):
         ang = 2.0 * np.pi * float(f) * axis01
         D[:, 2 * i] = np.sin(ang)

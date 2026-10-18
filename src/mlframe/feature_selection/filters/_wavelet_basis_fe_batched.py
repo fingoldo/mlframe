@@ -25,6 +25,7 @@ from __future__ import annotations
 import logging
 
 import numpy as np
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 
 from ._fe_env_switch import fused_switch_enabled
 
@@ -65,7 +66,7 @@ def batched_binned_mi_gpu(code_cols: np.ndarray, y_codes: np.ndarray, kx_per_col
     # flat = k*(Kx*Ky) + cx*Ky + cy ; ONE bincount -> (K, Kx, Ky) joint counts for all columns at once.
     col_off = (cp.arange(K, dtype=cp.int64) * (Kx * Ky))[None, :]  # (1, K)
     flat = C * Ky + y[:, None] + col_off  # (n, K)
-    counts = cp.bincount(flat.ravel(), minlength=K * Kx * Ky).astype(cp.float64).reshape(K, Kx, Ky)
+    counts = cp.bincount(flat.ravel(), minlength=K * Kx * Ky).astype(cp.float64).reshape(K, Kx, Ky)  # Intentional float64: accumulator or output buffer; statistic at float64
     pij = counts * inv_n  # joint p(x,y) per column
     pi = pij.sum(axis=2)  # (K, Kx) p(x)
     pj = pij.sum(axis=1)  # (K, Ky) p(y)
@@ -174,7 +175,7 @@ def _select_wavelet_legs_batched_device(x, y, lo, span, *, max_scale, max_legs, 
         _bin_y_codes,
     )
 
-    x = np.asarray(x, dtype=np.float64).ravel()
+    x = np.asarray(x, dtype=_crit_np_dtype()).ravel()
     y = np.asarray(y).ravel()
     n = x.size
     if n != y.size or n < _WAVELET_MIN_ROWS:
@@ -197,7 +198,7 @@ def _select_wavelet_legs_batched_device(x, y, lo, span, *, max_scale, max_legs, 
         # Key on the ROLE only (NOT id(x) - the host x is re-derived per call as a fresh object, so an id-based
         # key would miss every time); the operand cache folds shape + content fingerprint into the key, so a
         # different column with the same role re-uploads while the SAME column hits.
-        z_g = resident_operand(np.ascontiguousarray(x), "wavelet_x", dtype=cp.float64)
+        z_g = resident_operand(np.ascontiguousarray(x), "wavelet_x", dtype=cp.float64)  # Intentional float64: GPU operand upload; kernel contract is float64
         z_g = cp.clip((z_g - float(lo)) / float(span), 0.0, 1.0)
         fused = _fused_leg_matrices(cp, z_g, int(max_scale), _WAVELET_MIN_HALF_ROWS) if fused_switch_enabled(_FUSED_ENV) else None
         if fused is not None:
@@ -223,7 +224,7 @@ def _select_wavelet_legs_batched_device(x, y, lo, span, *, max_scale, max_legs, 
         logger.debug("_select_wavelet_legs_batched_device: device batched-MI path failed, caller falls back to the host leg selection: %s", e)
         return None
 
-    heldout = np.asarray(mi_va, dtype=np.float64)
+    heldout = np.asarray(mi_va, dtype=np.float64)  # Intentional float64: held-out MI statistic output
     if heldout.size >= 4:
         med = float(np.median(heldout))
         mad = float(np.median(np.abs(heldout - med)))
@@ -270,7 +271,7 @@ def select_wavelet_legs_batched(x: np.ndarray, y: np.ndarray, lo: float, span: f
         _dyadic_haar_leg,
     )
 
-    x = np.asarray(x, dtype=np.float64).ravel()
+    x = np.asarray(x, dtype=_crit_np_dtype()).ravel()
     y = np.asarray(y).ravel()
     n = x.size
     if n != y.size or n < _WAVELET_MIN_ROWS:
@@ -317,7 +318,7 @@ def select_wavelet_legs_batched(x: np.ndarray, y: np.ndarray, lo: float, span: f
     mi_tr = binned_mi_from_codes_gpu(tr_mat, np.asarray(yb_tr), kx_per_col=tr_kx, ky=ky_tr)
     mi_va = binned_mi_from_codes_gpu(va_mat, np.asarray(yb_va), kx_per_col=va_kx, ky=ky_va)
 
-    heldout = np.asarray(mi_va, dtype=np.float64)
+    heldout = np.asarray(mi_va, dtype=np.float64)  # Intentional float64: held-out MI statistic output
     if heldout.size >= 4:
         med = float(np.median(heldout))
         mad = float(np.median(np.abs(heldout - med)))

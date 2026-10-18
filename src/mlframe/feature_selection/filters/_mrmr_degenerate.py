@@ -37,6 +37,7 @@ import numpy as np
 import pandas as pd
 
 from ._xxh3_hash import resolve_xxh3_64
+from ._fe_usability_signal import _crit_np_dtype
 from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
@@ -246,11 +247,11 @@ def audit_degenerate_columns(X: Any, max_collinearity_cols: int = _COLLINEARITY_
             "exceeds max_collinearity_cols=%d) -- all_nan/constant/duplicate reasons are unaffected.",
             len(live), max_collinearity_cols,
         )
-    elif len(live) >= 2 and len(live) * n_rows * 8 > max_collinearity_bytes:
+    elif len(live) >= 2 and len(live) * n_rows * np.dtype(_crit_np_dtype()).itemsize > max_collinearity_bytes:
         logger.info(
-            "mrmr degenerate-column audit: skipping the collinearity pass (a %d x %d float64 matrix is %.1f GiB, above "
+            "mrmr degenerate-column audit: skipping the collinearity pass (a %d x %d matrix is %.1f GiB, above "
             "max_collinearity_bytes=%.1f GiB) -- all_nan/constant/duplicate reasons are unaffected.",
-            len(live), n_rows, len(live) * n_rows * 8 / 1024**3, max_collinearity_bytes / 1024**3,
+            len(live), n_rows, len(live) * n_rows * np.dtype(_crit_np_dtype()).itemsize / 1024**3, max_collinearity_bytes / 1024**3,
         )
     elif len(live) >= 2:
         names = live
@@ -260,10 +261,10 @@ def audit_degenerate_columns(X: Any, max_collinearity_cols: int = _COLLINEARITY_
         # ~13ms/column on a 99401x~500 wellbore-shaped frame, 15% of this whole scan's wall). The GEMM
         # below is transposed to match (``M @ M.T`` instead of ``M.T @ M``) - same Gram matrix, same
         # BLAS call, just the operand layout that lets each per-column write stay contiguous.
-        M = np.empty((len(live), n_rows), dtype=np.float64)
+        M = np.empty((len(live), n_rows), dtype=_crit_np_dtype())
         for k, name in enumerate(live):
             row = M[k]
-            row[:] = _column_values(X, name)  # casts into the row; no separate float64 copy of the column
+            row[:] = _column_values(X, name)  # casts into the row; no separate dtype copy of the column
             fin = np.isfinite(row)
             if not fin.all():
                 col_mean = float(np.nanmean(row)) if fin.any() else 0.0
@@ -273,6 +274,7 @@ def audit_degenerate_columns(X: Any, max_collinearity_cols: int = _COLLINEARITY_
         with np.errstate(invalid="ignore"):  # a non-finite-derived col_mean can make the centre subtract NaN; the std floor below handles it
             M -= M.mean(axis=1, keepdims=True)
             # Row by row: the same per-row pairwise sum as (M * M).sum(axis=1), without a second (K, n) temporary.
+            # Intentional float64: per-row sum of squares for the standardisation scale; kept f64 so the floor is precision-stable.
             stds = np.sqrt(np.fromiter(((row * row).sum() for row in M), dtype=np.float64, count=M.shape[0]))
         good = stds > 0
         with np.errstate(invalid="ignore", divide="ignore"):

@@ -194,7 +194,7 @@ def _bootstrap_rank_mi_f32(
     sort of the draws by dense rank (:func:`_replicate_mis`)."""
     n, k = bits.shape
     n_rep = idx.shape[0]
-    out = np.zeros((n_rep, k), dtype=np.float64)
+    out = np.zeros((n_rep, k), dtype=np.float64)  # Intentional float64: bootstrap rank-MI output statistic (compared across replicates)
     ok = np.zeros(k, dtype=np.bool_)
     max_ties = int(_TIE_FRACTION_MAX * n)
     n_tiles = (k + _TILE - 1) // _TILE
@@ -253,7 +253,7 @@ def _bootstrap_rank_mi_generic(arr: np.ndarray, y_codes: np.ndarray, n_classes: 
     """:func:`_bootstrap_rank_mi_f32` for any float dtype: the dense ranks come from a stable argsort of the column, every column takes the counting sort of the draws."""
     n, k = arr.shape
     n_rep = idx.shape[0]
-    out = np.zeros((n_rep, k), dtype=np.float64)
+    out = np.zeros((n_rep, k), dtype=np.float64)  # Intentional float64: bootstrap rank-MI output statistic (compared across replicates)
     ok = np.zeros(k, dtype=np.bool_)
     for j in prange(k):
         col = np.empty(n, dtype=arr.dtype)

@@ -14,6 +14,8 @@ from typing import Any, Callable, Optional
 
 import numpy as np
 
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
+
 logger = logging.getLogger("mlframe.feature_selection.filters._adaptive_nbins")
 
 __all__ = ["compute_col_edges"]
@@ -255,7 +257,7 @@ def compute_col_edges(col: np.ndarray, method_resolved: str, base: str, kwargs: 
     if _finite.size > 0:
         _uniq, _uniq_counts = np.unique(_finite, return_counts=True)
     else:
-        _uniq = np.empty(0, dtype=np.float64)
+        _uniq = np.empty(0, dtype=_crit_np_dtype())
         _uniq_counts = np.empty(0, dtype=np.int64)
     if 1 < _uniq.size <= low_card_cap:
         # Use midpoints between consecutive uniques as edges so

@@ -50,6 +50,8 @@ from typing import TYPE_CHECKING, Any, Dict, Iterator, Mapping, Optional, cast
 import numpy as np
 import pandas as pd
 
+from ._fe_usability_signal import _crit_np_dtype
+
 if TYPE_CHECKING:
     from .mrmr import MRMR
 
@@ -89,11 +91,11 @@ def set_unlabeled_pool(pool: Optional[Mapping[str, np.ndarray]]) -> None:
         if hasattr(_LOCAL, "pool"):
             del _LOCAL.pool
         return
-    # Normalise to a plain dict of float64 ndarrays so consumers can rely on
+    # Normalise to a plain dict of policy-float (float32 by default) ndarrays so consumers can rely on
     # ``np.concatenate`` working without per-call asarray coercion.
     norm: Dict[str, np.ndarray] = {}
     for k, v in pool.items():
-        arr = np.asarray(v, dtype=np.float64).ravel()
+        arr = np.asarray(v, dtype=_crit_np_dtype()).ravel()
         norm[str(k)] = arr
     _LOCAL.pool = norm
 
@@ -137,7 +139,7 @@ def _build_pool_mapping(
             continue
         if not pd.api.types.is_numeric_dtype(X_unlabeled[col]):
             continue
-        arr = np.asarray(X_unlabeled[col].to_numpy(), dtype=np.float64).ravel()
+        arr = np.asarray(X_unlabeled[col].to_numpy(), dtype=_crit_np_dtype()).ravel()
         finite = arr[np.isfinite(arr)]
         if finite.size == 0:
             # All-NaN column in the unlabeled pool: nothing to augment, skip.

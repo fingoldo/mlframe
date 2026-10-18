@@ -61,6 +61,7 @@ import logging
 from typing import Any, Sequence
 
 import numpy as np
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 
 from mlframe.utils.log_throttle import log_throttle
 
@@ -87,12 +88,12 @@ def _resolve_operand(X, name: str, engineered_continuous: dict | None) -> np.nda
     if engineered_continuous:
         v = engineered_continuous.get(name)
         if v is not None and np.asarray(v).shape[0] == len(X):
-            return np.asarray(v, dtype=np.float64)
+            return np.asarray(v, dtype=_crit_np_dtype())
     try:
         if hasattr(X, "columns") and name in list(X.columns):
             col = X[name]
             vals = col.to_numpy() if hasattr(col, "to_numpy") else np.asarray(col)
-            return np.asarray(vals, dtype=np.float64)
+            return np.asarray(vals, dtype=_crit_np_dtype())
     except Exception as exc:
         # See _candidate_values's matching fix above.
         logger.debug("_resolve_operand: column extraction failed for %r; skipping: %r", name, exc)
@@ -218,7 +219,7 @@ def find_underdelivering_pairs(
             for j in range(min(len(ncols_names), int(tvals.shape[1]))):
                 vj = tvals[sl, j]
                 if not hasattr(vj, "dev"):
-                    vj = np.asarray(vj, dtype=np.float64)
+                    vj = np.asarray(vj, dtype=_crit_np_dtype())
                 cj = _codes_of(vj, nbq, _quantile_bin)
                 mij = float(_cmi_from_binned(cj, y_dense, None))
                 if mij > best_mi:
@@ -248,7 +249,7 @@ def find_underdelivering_pairs(
 
 def _codes_of(values, nbins: int, quantile_bin) -> np.ndarray:
     """Host int64 equi-frequency codes of ``values``. A device-backed column is binned ON the device and only the narrow int8 codes are copied back (an
-    eighth of the float64 column); a host column takes the host binner."""
+    eighth of the double precision column); a host column takes the host binner."""
     if hasattr(values, "dev") and nbins <= 127:
         try:
             import cupy as cp
@@ -260,7 +261,7 @@ def _codes_of(values, nbins: int, quantile_bin) -> np.ndarray:
                 return np.asarray(cp.asnumpy(_quantile_bin_device(x, nbins).astype(cp.int8))).astype(np.int64)
         except Exception as e:
             logger.debug("device binning of the escalation capture failed, binning on the host: %s", e)
-    return np.array(quantile_bin(np.asarray(values, dtype=np.float64), nbins=nbins, host_only=True), dtype=np.int64)
+    return np.array(quantile_bin(np.asarray(values, dtype=_crit_np_dtype()), nbins=nbins, host_only=True), dtype=np.int64)
 
 
 def _slice_admitted_pool(admitted_pool: dict, idx, classes_y_sub, nbins: int) -> dict:
@@ -281,7 +282,7 @@ def _slice_admitted_pool(admitted_pool: dict, idx, classes_y_sub, nbins: int) ->
     out: dict = {}
     for name, (values, _full_frame_marginal) in admitted_pool.items():
         sliced = np.asarray(values)[idx]
-        out[name] = (sliced, float(_cmi_from_binned(_quantile_bin(np.asarray(sliced, dtype=np.float64), nbins=nbins, host_only=True), y_dense, None)))
+        out[name] = (sliced, float(_cmi_from_binned(_quantile_bin(np.asarray(sliced, dtype=_crit_np_dtype()), nbins=nbins, host_only=True), y_dense, None)))
     return out
 
 
@@ -331,9 +332,9 @@ def _subsample_decision_inputs(self: Any, X: Any, classes_y: Any, capture_vals: 
     # codes when the stash is unavailable (multi-output / non-numeric y).
     _y_rank = _y_rank_eff
     if _y_rank is not None and np.asarray(_y_rank).shape[0] == n_rows:
-        y_f = np.ascontiguousarray(_y_rank, dtype=np.float64)
+        y_f = np.ascontiguousarray(_y_rank, dtype=_crit_np_dtype())
     else:
-        y_f = np.ascontiguousarray(np.asarray(classes_y), dtype=np.float64)
+        y_f = np.ascontiguousarray(np.asarray(classes_y), dtype=_crit_np_dtype())
     y_arr = np.asarray(classes_y)
     if not np.issubdtype(y_arr.dtype, np.integer):
         y_arr = y_arr.astype(np.int64)
@@ -425,7 +426,7 @@ def _propose_pair_candidates(
         _propose_fourier_both_warps(x_a, x_b, na, nb, y_pair, min_val_corr, max_freqs, pair_cands)
         # Score by the SAME MM-debiased plug-in MI the gates use; cap per pair.
         for c in pair_cands:
-            vb = _quantile_bin(np.asarray(c["values"], dtype=np.float64), nbins=nbins, host_only=True)
+            vb = _quantile_bin(np.asarray(c["values"], dtype=_crit_np_dtype()), nbins=nbins, host_only=True)
             c["_binned"] = vb
             c["mi"] = float(_cmi_from_binned(vb, y_dense, None))
         pair_cands.sort(key=lambda c: c["mi"], reverse=True)
@@ -439,9 +440,9 @@ def _cmi_gate_accepted(self: Any, admitted_pool: dict, survivors: list, y_dense:
 
     pool: dict = {}
     for nm, (vals, marg) in (admitted_pool or {}).items():
-        pool[nm] = (np.asarray(vals, dtype=np.float64), float(marg))
+        pool[nm] = (np.asarray(vals, dtype=_crit_np_dtype()), float(marg))
     for c in survivors:
-        pool[c["name"]] = (np.asarray(c["values"], dtype=np.float64), c["mi"])
+        pool[c["name"]] = (np.asarray(c["values"], dtype=_crit_np_dtype()), c["mi"])
     accepted, _diag = apply_cmi_redundancy_gate(
         pool, y_dense, nbins=nbins,
         retain_frac=float(getattr(self, "fe_engineered_cmi_retain_frac", 0.15)),
@@ -613,7 +614,7 @@ def _admit_cmi_survivors(self, survivors, accepted, info, admitted):
             quantization_nbins=self.quantization_nbins,
             quantization_method=self.quantization_method,
             quantization_dtype=self.quantization_dtype,
-            fit_values_for_edges=np.asarray(c["values"], dtype=np.float64),
+            fit_values_for_edges=np.asarray(c["values"], dtype=_crit_np_dtype()),
             prewarp_a=c["spec_a"], prewarp_b=c["spec_b"],
         )
         c.pop("_binned", None)
@@ -652,8 +653,8 @@ def _pairwise_control_matrix(_cv, n_rows, y_f, y_pair):
 
     if _cv is not None:
         try:
-            _A = np.asarray(_cv, dtype=np.float64).reshape(n_rows, -1)[:, :8]
-            _r = np.asarray(y_f, dtype=np.float64).copy()
+            _A = np.asarray(_cv, dtype=_crit_np_dtype()).reshape(n_rows, -1)[:, :8]
+            _r = np.asarray(y_f, dtype=_crit_np_dtype()).copy()
             _nb_res = int(min(32, max(8, n_rows // 64)))
             for _j in range(_A.shape[1]):
                 _cb = _quantile_bin(np.nan_to_num(_A[:, _j], nan=0.0, posinf=0.0, neginf=0.0), nbins=_nb_res, host_only=True).astype(np.int64)
@@ -728,7 +729,7 @@ def _rebuild_admitted_substitutes(_esc_do_sub, admitted, _X_full):
 def _replay_candidate(c, X_full, apply_recipe):
     """The candidate's full-n values through its recipe replay, or ``None`` (logged at WARNING) when the replay fails and the candidate must be dropped."""
     try:
-        return np.asarray(apply_recipe(c["recipe"], X_full), dtype=np.float64)
+        return np.asarray(apply_recipe(c["recipe"], X_full), dtype=_crit_np_dtype())
     except Exception:
         log_throttle(
             logger,

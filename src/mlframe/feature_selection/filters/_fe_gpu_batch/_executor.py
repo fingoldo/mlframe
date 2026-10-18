@@ -24,6 +24,7 @@ from __future__ import annotations
 from typing import Any
 
 import numpy as np
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 from mlframe.utils.env_flags import env_int
 
 # Column blocks per device for the packer's load-balancing granularity (more blocks -> finer makespan
@@ -47,10 +48,10 @@ def gpu_fe_batch_mi(
     device: int | None = None,
     free_blocks: bool = True,
     scrub: bool = True,
-    dtype: "np.dtype | type" = np.float64,
+    dtype: "np.dtype | type | None" = None,
 ) -> np.ndarray:
     """Edge-binned plain plug-in MI of every column of ``X_cands`` (n, K) vs discrete ``y_codes`` (n,),
-    computed on a single GPU. Returns a host (K,) float64 MI array. ``device`` selects the CUDA device
+    computed on a single GPU. Returns a host (K,) double MI array. ``device`` selects the CUDA device
     (default: current). Raises if cupy / CUDA is unavailable - the dispatcher gates that upstream.
     """
     import cupy as cp
@@ -58,15 +59,17 @@ def gpu_fe_batch_mi(
     from mlframe.utils.cupy_pinned import install_pinned_policy
 
     install_pinned_policy()
+    if dtype is None:
+        dtype = _crit_np_dtype()
     _f32 = np.dtype(dtype) == np.float32  # f32: half the H2D + f32 radix-select (selection-equivalent, not 1e-9)
     # No whole-matrix cast/copy: each VRAM chunk is cast on its own below. A full (n, K) float64 copy of a wide FE batch (50000 x 3795 is
     # 1.5 GB) on top of the caller's matrix exhausted host RAM mid-fit, and the failed allocations then left the CUDA context erroring.
-    _cast = np.float32 if _f32 else np.float64
+    _cast = np.float32 if _f32 else np.float64  # Intentional float64: explicit f64 branch when the caller requests float64
     X = np.asarray(X_cands)
     if X.ndim == 1:
         X = X.reshape(-1, 1)
     n, k = X.shape
-    out = np.zeros(k, dtype=np.float64)
+    out = np.zeros(k, dtype=np.float64)  # Intentional float64: MI statistic output compared at full precision
     if n == 0 or k == 0:
         return out
 
@@ -130,7 +133,7 @@ def multi_gpu_fe_batch_mi(
     *,
     profiles: Any = None,
     scrub: bool = True,
-    dtype: "np.dtype | type" = np.float64,
+    dtype: "np.dtype | type | None" = None,
 ) -> np.ndarray:
     """Edge-binned plug-in MI of (n, K) ``X_cands`` spread across HETEROGENEOUS GPUs to minimise wall time.
 
@@ -151,7 +154,7 @@ def multi_gpu_fe_batch_mi(
     if X.ndim == 1:
         X = X.reshape(-1, 1)
     n, k = X.shape
-    out = np.zeros(k, dtype=np.float64)
+    out = np.zeros(k, dtype=np.float64)  # Intentional float64: MI statistic output compared at full precision
     if n == 0 or k == 0:
         return out
 

@@ -135,6 +135,7 @@ def _grok_compute_mutual_information_kernel(
 
 
 def grok_compute_mutual_information(
+    # Intentional float64: public out_dtype default; callers rely on a float64 MI matrix
     data: np.ndarray, target_indices: np.ndarray | list[int], n_bins: int = 15, hist_dtype: type = np.int64, out_dtype: type = np.float64
 ) -> np.ndarray:
     """
@@ -148,7 +149,7 @@ def grok_compute_mutual_information(
 
     Returns
     -------
-    mi_matrix       : float64 ndarray, shape (n_targets, n_cols)
+    mi_matrix       : float ndarray of dtype out_dtype, shape (n_targets, n_cols)
                       Row k = MI(target_indices[k], all columns)
     """
     data = _validate_bin_codes(data, "grok_compute_mutual_information")
@@ -218,6 +219,7 @@ def _chatgpt_mi_one_target(
 
 # Public API: many targets vs. all features
 def chatgpt_compute_mutual_information(
+    # Intentional float64: public out_dtype default; callers rely on a float64 MI matrix
     data: np.ndarray, target_indices: np.ndarray | list[int], n_bins: int = 15, hist_dtype: type = np.int64, out_dtype: type = np.float64
 ) -> np.ndarray:
     """
@@ -231,7 +233,7 @@ def chatgpt_compute_mutual_information(
 
     Returns
     -------
-    mi_matrix       : float64 ndarray, shape (n_targets, n_cols)
+    mi_matrix       : float ndarray of dtype out_dtype, shape (n_targets, n_cols)
                       Row k = MI(target_indices[k], all columns)
     """
     # Validate the input range BEFORE the int8 cast: a bin code >127 (e.g. bin_dtype=Int16 + num_bins>128)
@@ -315,6 +317,7 @@ def _deepseek_compute_mutual_information_kernel(
 
 
 def deepseek_compute_mutual_information(
+    # Intentional float64: public out_dtype default; callers rely on a float64 MI matrix
     data: np.ndarray, target_indices: np.ndarray | list[int], n_bins: int = 15, hist_dtype: type = np.int64, out_dtype: type = np.float64
 ) -> np.ndarray:
     """
@@ -328,7 +331,7 @@ def deepseek_compute_mutual_information(
 
     Returns
     -------
-    mi_matrix       : float64 ndarray, shape (n_targets, n_cols)
+    mi_matrix       : float ndarray of dtype out_dtype, shape (n_targets, n_cols)
                       Row k = MI(target_indices[k], all columns)
     """
     data = _validate_bin_codes(data, "deepseek_compute_mutual_information")

@@ -10,6 +10,7 @@ from __future__ import annotations
 from typing import cast
 
 import numpy as np
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 from numba import njit, prange
 
 from mlframe._numba_parallel_guard import parallel_kernel_entry
@@ -43,8 +44,8 @@ def searchsorted_right(edges: np.ndarray, x: np.ndarray) -> np.ndarray:
     x = np.asarray(x)
     if x.size < _PARALLEL_MIN_N or x.dtype.kind != "f":
         return np.searchsorted(edges, x, side="right")
-    e = np.ascontiguousarray(edges, dtype=np.float64)
-    xc = np.ascontiguousarray(x, dtype=np.float64)
+    e = np.ascontiguousarray(edges, dtype=_crit_np_dtype())
+    xc = np.ascontiguousarray(x, dtype=_crit_np_dtype())
     out = np.empty(xc.shape[0], dtype=np.int64)
     with parallel_kernel_entry():
         _searchsorted_right_par(e, xc, out)

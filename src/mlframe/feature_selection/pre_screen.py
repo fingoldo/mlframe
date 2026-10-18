@@ -4,7 +4,7 @@ Drops columns that are trivially useless BEFORE the expensive per-target FS pipe
 (MRMR / RFECV / BorutaShap) runs. Conservative defaults only:
 
   - variance below ``max(variance_threshold, 1e-24)`` (default 0.0): constant / no-information columns.
-    The 1e-24 floor catches float64 FP noise on literal-constant columns (where ``np.full(n, c).var()`` lands
+    The 1e-24 floor catches double precision FP noise on literal-constant columns (where ``np.full(n, c).var()`` lands
     at ~1e-28); without it ``var() == 0`` literally never matches for non-integer constants.
   - null fraction > ``null_fraction_threshold`` (default 0.99): columns that are almost entirely missing.
 
@@ -182,7 +182,7 @@ def _scan_columns_for_unsupervised_drops(col_labels, protected, train_df, n_rows
                 # without touching the data at all. Every other dtype (object/None, datetime/NaT,
                 # nullable Int/Float ext, category, etc.) falls back to the exact ``isna().sum()``.
                 _np_dt = col.dtype
-                if _np_dt == np.float64 or _np_dt == np.float32:
+                if np.issubdtype(_np_dt, np.floating):
                     null_count = int(np.isnan(col.to_numpy()).sum())
                 elif _np_dt == np.int64 or _np_dt == np.int32 or _np_dt == np.int16 or _np_dt == np.int8 or _np_dt == bool:  # noqa: E721 - numpy dtype `==` comparison is intended
                     null_count = 0
@@ -213,6 +213,7 @@ def _scan_columns_for_unsupervised_drops(col_labels, protected, train_df, n_rows
             # population variance over the FULL column (stored cells + implicit fill-value cells)
             # instead, ignoring NaN cells the same way plain nanvar does.
             if _is_sparse:
+                # Intentional float64: closed-form variance from sums of squares; cancellation at policy f32 would corrupt the constant-column floor.
                 sp_vals = np.asarray(col.values.sp_values, dtype=np.float64)
                 finite_sp = sp_vals[~np.isnan(sp_vals)]
                 fill_value = float(col.values.fill_value)

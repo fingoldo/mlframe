@@ -77,7 +77,9 @@ def gpu_resident_pair_candidate_mi_vram_fraction(
         _unary_stack_cm,
     )
 
+    # Intentional float64: cupy f64 operands for the reference k-chunk oracle (accumulator)
     a_gpu = cp.asarray(a, dtype=cp.float64)
+    # Intentional float64: cupy f64 operands for the reference k-chunk oracle (accumulator)
     b_gpu = cp.asarray(b, dtype=cp.float64)
     n = int(a_gpu.shape[0])
     y_i64 = np.ascontiguousarray(y_codes, dtype=np.int64)
@@ -93,6 +95,7 @@ def gpu_resident_pair_candidate_mi_vram_fraction(
         block = _COMBOS[start : start + k_chunk]
         cand = _fused_generate_block(ua_cm, ub_cm, block)
         mi_parts.append(
+            # Intentional float64: reference oracle output kept f64
             np.asarray(_plugin_mi_classif_batch_cuda_resident(cand, y_gpu, nbins, y_min=_ymin, n_classes=_ncls, relax_binning=True), dtype=np.float64)
         )
         del cand
@@ -103,7 +106,9 @@ def _make_gpu_k_chunk_inputs(dims: dict):
     """Synthesize a (two continuous predictors + one 4-class label) workload of size ``dims["n_samples"]`` for the GPU-resident k-chunk VRAM-fraction sweep."""
     n = int(dims["n_samples"])
     rng = np.random.default_rng(0)
+    # Intentional float64: synthetic reference input for the oracle
     a = rng.normal(size=n).astype(np.float64)
+    # Intentional float64: synthetic reference input for the oracle
     b = rng.normal(size=n).astype(np.float64)
     y = rng.integers(0, 4, size=n).astype(np.int64)
     return (a, b, y)

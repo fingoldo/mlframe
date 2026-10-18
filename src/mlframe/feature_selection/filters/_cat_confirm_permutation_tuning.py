@@ -13,6 +13,7 @@ import logging
 from typing import Any
 
 import numpy as np
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 
 logger = logging.getLogger("mlframe.feature_selection.filters.cat_interactions")
 
@@ -68,13 +69,13 @@ def _make_perm_kernel_inputs(dims: dict):
     n = int(dims["n_samples"])
     n_perms = int(dims["n_perms"])
     classes_pair = rng.integers(0, _PERM_SWEEP_K_PAIR, size=n).astype(np.int64)
-    freqs_pair = np.bincount(classes_pair, minlength=_PERM_SWEEP_K_PAIR).astype(np.float64) / max(1, n)
+    freqs_pair = np.bincount(classes_pair, minlength=_PERM_SWEEP_K_PAIR).astype(_crit_np_dtype()) / max(1, n)
     classes_x1 = rng.integers(0, _PERM_SWEEP_K_X, size=n).astype(np.int64)
-    freqs_x1 = np.bincount(classes_x1, minlength=_PERM_SWEEP_K_X).astype(np.float64) / max(1, n)
+    freqs_x1 = np.bincount(classes_x1, minlength=_PERM_SWEEP_K_X).astype(_crit_np_dtype()) / max(1, n)
     classes_x2 = rng.integers(0, _PERM_SWEEP_K_X, size=n).astype(np.int64)
-    freqs_x2 = np.bincount(classes_x2, minlength=_PERM_SWEEP_K_X).astype(np.float64) / max(1, n)
+    freqs_x2 = np.bincount(classes_x2, minlength=_PERM_SWEEP_K_X).astype(_crit_np_dtype()) / max(1, n)
     classes_y = rng.integers(0, _PERM_SWEEP_K_Y, size=n).astype(np.int64)
-    freqs_y = np.bincount(classes_y, minlength=_PERM_SWEEP_K_Y).astype(np.float64) / max(1, n)
+    freqs_y = np.bincount(classes_y, minlength=_PERM_SWEEP_K_Y).astype(_crit_np_dtype()) / max(1, n)
     # Below any attainable II (a signed quantity), so EVERY permutation counts on EVERY backend: n_failed == n_perms exactly, whatever the RNG stream.
     # With the old 0.0 the cupy stream and the numba stream counted different permutations (e.g. 5 vs 7 of 10), so the equivalence check dropped cupy
     # on almost every cell and the tuned crossover could never pick it.

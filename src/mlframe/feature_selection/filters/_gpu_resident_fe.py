@@ -444,7 +444,7 @@ def _gpu_apply_prewarp(cp, x, spec):
     returns a device float64 column. Raises for any basis/path not ported so the caller falls back to the
     host copy."""
     basis = str(spec["basis"])
-    xf = x.astype(cp.float64, copy=False)
+    xf = x.astype(cp.float64, copy=False)  # Intentional float64: GPU operand cast; kernel contract is float64
     if basis == "fourier_adaptive":
         pp = dict(spec["preprocess"])
         if str(pp.get("arg", "linear")) == "quadratic":
@@ -453,7 +453,7 @@ def _gpu_apply_prewarp(cp, x, spec):
             axis = (u - float(pp["lo"])) / float(pp["span"])
         else:
             axis = (xf - float(pp["lo"])) / float(pp["span"])
-        coef = np.asarray(spec["coef"], dtype=np.float64).reshape(-1)
+        coef = np.asarray(spec["coef"], dtype=np.float64).reshape(-1)  # Intentional float64: stored basis coefficient read for GPU replay
         out = cp.zeros_like(axis)
         for i, f in enumerate(pp["freqs"]):
             if 2 * i + 1 >= coef.size:
@@ -494,7 +494,7 @@ def _gpu_apply_prewarp(cp, x, spec):
     try:
         xfc = cp.ascontiguousarray(xf)
         nrow = int(xfc.size)
-        z = cp.empty(nrow, dtype=cp.float64)
+        z = cp.empty(nrow, dtype=cp.float64)  # Intentional float64: GPU output buffer; kernel contract is float64
         threads = 256
         _get_prewarp_transform_kernel(cp)(
             ((nrow + threads - 1) // threads,),
@@ -502,12 +502,12 @@ def _gpu_apply_prewarp(cp, x, spec):
             (
                 xfc,
                 np.int32(code),
-                np.float64(lo),
-                np.float64(span),
-                np.float64(mean),
-                np.float64(std_safe),
-                np.float64(clip_lo),
-                np.float64(clip_hi),
+                np.float64(lo),  # Intentional float64: GPU kernel scalar argument (float64 normalisation)
+                np.float64(span),  # Intentional float64: GPU kernel scalar argument (float64 normalisation)
+                np.float64(mean),  # Intentional float64: GPU kernel scalar argument (float64 normalisation)
+                np.float64(std_safe),  # Intentional float64: GPU kernel scalar argument (float64 normalisation)
+                np.float64(clip_lo),  # Intentional float64: GPU kernel scalar argument (float64 normalisation)
+                np.float64(clip_hi),  # Intentional float64: GPU kernel scalar argument (float64 normalisation)
                 np.int32(1 if has_clip else 0),
                 np.int64(nrow),
                 z,
@@ -527,7 +527,7 @@ def _gpu_apply_prewarp(cp, x, spec):
             z = xf - pp["lo"] + 1e-9
             if clip is not None:
                 z = cp.clip(z, 0.0, float(clip) + 1e-9)
-    coef_list = [float(v) for v in np.asarray(spec["coef"], dtype=np.float64).reshape(-1)]
+    coef_list = [float(v) for v in np.asarray(spec["coef"], dtype=np.float64).reshape(-1)]  # Intentional float64: stored basis coefficient read for GPU replay
     return clen(cp, z, coef_list)
 
 
@@ -615,8 +615,8 @@ def gpu_resident_pair_candidate_mi(a: np.ndarray, b: np.ndarray, y_codes: np.nda
     # f32 = 1.00x; see _hermite_fe_mi._plugin_mi_classif_batch_cuda note) but in the BINNING sort, which is
     # captured separately via MLFRAME_FE_GPU_BINNING_DTYPE. So this path stays f64. (proto
     # D:/Temp/_bench_resident_f32.py)
-    a_gpu = cp.asarray(a, dtype=cp.float64)  # the ONE H2D of the raw operands
-    b_gpu = cp.asarray(b, dtype=cp.float64)
+    a_gpu = cp.asarray(a, dtype=cp.float64)  # the ONE H2D of the raw operands  # Intentional float64: GPU operand upload; kernel contract is float64
+    b_gpu = cp.asarray(b, dtype=cp.float64)  # Intentional float64: GPU operand upload; kernel contract is float64
     n = int(a_gpu.shape[0])
     y_i64 = np.ascontiguousarray(y_codes, dtype=np.int64)
     # (U, n) unary caches (U=len(_MINIMAL_UNARY)) stay resident + reused across every chunk; the FUSED kernel generates
@@ -640,7 +640,7 @@ def gpu_resident_pair_candidate_mi(a: np.ndarray, b: np.ndarray, y_codes: np.nda
         # H2D-free resident MI scores the chunk with no per-chunk transfer (bit-identical to the host-input
         # variant - test_resident_batch_cuda_matches_host_input pins maxdiff 0). y_min/n_classes hoisted.
         mi_parts.append(
-            np.asarray(_plugin_mi_classif_batch_cuda_resident(cand, y_gpu, nbins, y_min=_ymin, n_classes=_ncls, relax_binning=True), dtype=np.float64)
+            np.asarray(_plugin_mi_classif_batch_cuda_resident(cand, y_gpu, nbins, y_min=_ymin, n_classes=_ncls, relax_binning=True), dtype=np.float64)  # Intentional float64: MI statistic output contract
         )
         del cand
     return _candidate_names(), np.concatenate(mi_parts) if mi_parts else np.empty(0)

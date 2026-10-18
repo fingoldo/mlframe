@@ -11,6 +11,7 @@ import threading
 import weakref
 from collections import OrderedDict
 import numpy as np
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 
 logger = logging.getLogger("mlframe.feature_selection.filters._gpu_resident_fe")
 
@@ -628,7 +629,7 @@ def _fused_generate_block(ua_cm, ub_cm, combos_block, *, column_major: bool = Fa
     ``ua_cm`` / ``ub_cm`` are the (U, n) C-CONTIGUOUS post-unary caches for operands a / b, where
     U = len(_MINIMAL_UNARY) (row u = _UNARY_IDX[name]). This layout lets the kernel address column u
     via ``ua[u*n + i]``; the caller builds them ONCE and reuses across chunks. Returns a row-major
-    (n, K) cupy float64 matrix, bit-equal to the cupy elementwise path (same ops, same safe-div, same
+    (n, K) cupy double matrix, bit-equal to the cupy elementwise path (same ops, same safe-div, same
     nan_to_num - validated maxdiff 0).
 
     ``column_major=True`` runs the COLUMN-MAJOR twin kernel instead: same per-cell value, written into a
@@ -661,10 +662,10 @@ def _fused_generate_block(ua_cm, ub_cm, combos_block, *, column_major: bool = Fa
     threads = 256
     blocks = (total + threads - 1) // threads
     if column_major:
-        out = cp.empty((K, n), dtype=cp.float64)  # (K, n) C-order == column-major over the (n, K) matrix
+        out = cp.empty((K, n), dtype=cp.float64)  # Intentional float64: bit-equal to the cupy elementwise f64 path this matrix is checked against  # (K, n) C-order == column-major over the (n, K) matrix
         _get_fused_gen_cm_kernel()((blocks,), (threads,), (ua_cm, ub_cm, ua_idx, ub_idx, bop, np.int64(n), np.int32(K), out))
         return out
-    out = cp.empty((n, K), dtype=cp.float64)
+    out = cp.empty((n, K), dtype=cp.float64)  # Intentional float64: bit-equal to the cupy elementwise f64 path this matrix is checked against
     _get_fused_gen_kernel()((blocks,), (threads,), (ua_cm, ub_cm, ua_idx, ub_idx, bop, np.int64(n), np.int32(K), out))
     return out
 
@@ -678,7 +679,7 @@ def _unary_stack_cm(xp, x):
     temporary at a time (peak = 1 + the output), dropping the stack copy AND the U-fold transient VRAM. The
     plane is C-contiguous by construction (``xp.empty`` default order), so the prior ``ascontiguousarray`` is a
     no-op removed. Row values are byte-identical to the stack path (same ``_unary_apply`` output, copied into
-    row u). ``x`` is a float64 device operand here (both callers pass ``cp.asarray(.., float64)``); every
+    row u). ``x`` is a double device operand here (both callers pass ``cp.asarray(.., double)``); every
     minimal unary preserves that dtype, so ``plane`` dtype = ``x.dtype`` matches what stack would infer."""
     plane = xp.empty((len(_MINIMAL_UNARY), x.shape[0]), dtype=x.dtype)
     for u in _MINIMAL_UNARY:
@@ -694,7 +695,7 @@ def _build_candidate_matrix(xp, a, b):
     ub_cache = {u: _unary_apply(xp, u, b) for u in _MINIMAL_UNARY}
     n = a.shape[0]
     K = len(_MINIMAL_UNARY) * len(_MINIMAL_UNARY) * len(_MINIMAL_BINARY)
-    out = xp.empty((n, K), dtype=xp.float64)
+    out = xp.empty((n, K), dtype=xp.float64)  # Intentional float64: bit-equal to the cupy elementwise f64 path this matrix is checked against
     j = 0
     for ua in _MINIMAL_UNARY:
         for ub in _MINIMAL_UNARY:
@@ -710,8 +711,8 @@ def cpu_pair_candidate_mi(a: np.ndarray, b: np.ndarray, y_codes: np.ndarray, *, 
     ``(names, mi)`` - the baseline the GPU-resident path must match (ranking + values to fp round-off)."""
     from mlframe.feature_selection.filters.hermite_fe.shared import plugin_mi_classif_batch_njit as _plugin_mi_classif_batch_njit
 
-    a = np.ascontiguousarray(a, dtype=np.float64)
-    b = np.ascontiguousarray(b, dtype=np.float64)
+    a = np.ascontiguousarray(a, dtype=_crit_np_dtype())
+    b = np.ascontiguousarray(b, dtype=_crit_np_dtype())
     cand = np.ascontiguousarray(_build_candidate_matrix(np, a, b))
     mi = _plugin_mi_classif_batch_njit(cand, np.ascontiguousarray(y_codes, dtype=np.int64), nbins)
-    return _candidate_names(), np.asarray(mi, dtype=np.float64)
+    return _candidate_names(), np.asarray(mi, dtype=np.float64)  # Intentional float64: MI statistic output compared at full precision

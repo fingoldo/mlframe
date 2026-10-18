@@ -67,7 +67,9 @@ def per_fold_majority_accept(
         ``fraction_folds_improved``, ``mean_delta`` (candidate mean - baseline mean, sign per ``maximize``),
         ``accept`` (bool), plus ``agreement_score`` when ``compute_agreement_score`` is ``True``.
     """
+    # Intentional float64: fold-score accumulator; the majority decision compares exact per-fold means
     baseline = np.asarray(baseline_fold_scores, dtype=np.float64)
+    # Intentional float64: fold-score accumulator; the majority decision compares exact per-fold means
     candidate = np.asarray(candidate_fold_scores, dtype=np.float64)
     if baseline.shape != candidate.shape:
         raise ValueError("per_fold_majority_accept: baseline_fold_scores and candidate_fold_scores must have the same shape")
@@ -118,7 +120,9 @@ def seed_averaged_fold_scores(
     runs = []
     for i in range(n_repeats):
         seed = None if base_seed is None else base_seed + i
+        # Intentional float64: seed-averaged score accumulator
         runs.append(np.asarray(score_fn(seed), dtype=np.float64))
+    # Intentional float64: seed-averaged score accumulator
     return np.asarray(np.mean(np.stack(runs, axis=0), axis=0), dtype=np.float64)
 
 

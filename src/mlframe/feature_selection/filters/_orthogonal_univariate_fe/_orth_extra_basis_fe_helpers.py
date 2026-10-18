@@ -7,6 +7,7 @@ from mlframe.utils.log_throttle import log_throttle
 
 import numba
 import numpy as np
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 from mlframe._numerical_floors import VARIANCE_FLOOR
 from numba import prange
 
@@ -62,7 +63,7 @@ def _corr_sq_centered(v: np.ndarray, y_centered: np.ndarray, y_ss: float) -> flo
     (:func:`_corr_sq_reductions_njit`); the reduction-order shift is ~1e-14 (single
     ULP), far below any selection-altering scale."""
     n = v.shape[0]
-    sv, vv, vy = _corr_sq_reductions_njit(np.ascontiguousarray(v, dtype=np.float64), y_centered)
+    sv, vv, vy = _corr_sq_reductions_njit(np.ascontiguousarray(v, dtype=_crit_np_dtype()), y_centered)
     v_ss = vv - sv * sv / n
     # RELATIVE degeneracy guard (P1-4): the raw-moment form ``vv - sv^2/n`` catastrophically cancels for a
     # near-constant ``v`` - it can land at a tiny positive residual (e.g. 1e-23) that clears an absolute
@@ -217,7 +218,7 @@ def _power_centered_batch_njit(z: np.ndarray, yc: np.ndarray, y_ss: float, freqs
         partials[fi, b, 3] = psumc
         partials[fi, b, 4] = pss_c
         partials[fi, b, 5] = pcy
-    out = np.zeros(nf, dtype=np.float64)
+    out = np.zeros(nf, dtype=np.float64)  # Intentional float64: accumulator or output buffer; statistic at float64
     for fi in range(nf):
         sums = 0.0
         ss_s = 0.0
@@ -253,7 +254,7 @@ def _power_centered(z: np.ndarray, yc: np.ndarray, y_ss: float, freq: float) -> 
     # for small n. bench: _benchmarks/bench_power_centered_njit.py.
     if z.shape[0] >= _POWER_CENTERED_PAR_MIN_N:
         return float(_power_centered_fused_par_njit(
-            np.ascontiguousarray(z, dtype=np.float64), np.ascontiguousarray(yc, dtype=np.float64),
+            np.ascontiguousarray(z, dtype=_crit_np_dtype()), np.ascontiguousarray(yc, dtype=_crit_np_dtype()),
             float(y_ss), float(freq),
         ))
     ang = 2.0 * np.pi * float(freq) * z
@@ -284,8 +285,8 @@ def _refine_peak_freq(
         # kernel, so the small-n numpy fallback (never worth batching) is untouched.
         if z_tr.shape[0] >= _POWER_CENTERED_PAR_MIN_N:
             powers = _power_centered_batch_njit(
-                np.ascontiguousarray(z_tr, dtype=np.float64), np.ascontiguousarray(yc, dtype=np.float64),
-                float(y_ss), np.asarray(cand_freqs, dtype=np.float64),
+                np.ascontiguousarray(z_tr, dtype=_crit_np_dtype()), np.ascontiguousarray(yc, dtype=_crit_np_dtype()),
+                float(y_ss), np.asarray(cand_freqs, dtype=np.float64),  # Intentional float64: frequency vector for the Fourier replay
             )
         else:
             powers = [_power_centered(z_tr, yc, y_ss, f) for f in cand_freqs]

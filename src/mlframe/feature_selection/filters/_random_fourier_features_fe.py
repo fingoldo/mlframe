@@ -25,6 +25,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Callable, Optional, Sequence
 
 import numpy as np
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 import pandas as pd
 
 if TYPE_CHECKING:
@@ -56,12 +57,12 @@ def _draw_rff_params(p: int, m: int, random_state: int) -> "tuple[np.ndarray, np
 def _apply_rff_params(X: np.ndarray, W: np.ndarray, b: np.ndarray, bandwidth: float) -> np.ndarray:
     """Closed-form RFF expansion given already-drawn (frozen) ``W``/``b``/``bandwidth`` - the
     replay half of the fit/transform contract; no RNG involved."""
-    X = np.asarray(X, dtype=np.float64)
+    X = np.asarray(X, dtype=_crit_np_dtype())
     if X.ndim == 1:
         X = X[:, None]
     m = W.shape[1]
     if X.shape[0] < 1:
-        return np.empty((0, m), dtype=np.float64)
+        return np.empty((0, m), dtype=_crit_np_dtype())
     Z = (X @ W) / bandwidth + b
     return np.asarray(np.sqrt(2.0 / m) * np.cos(Z))
 
@@ -117,18 +118,18 @@ def random_fourier_features(
 
     Returns
     -------
-    (n, m) float64 array. Degenerate input (n<1, p<1, or m<1) returns an ``(n, 0)`` array rather
+    (n, m) float array. Degenerate input (n<1, p<1, or m<1) returns an ``(n, 0)`` array rather
     than raising - callers treat zero emitted columns as "nothing to add", the same convention
     the audit's own sketch documents for a top_k=0-style empty family output.
     """
-    X = np.asarray(X, dtype=np.float64)
+    X = np.asarray(X, dtype=_crit_np_dtype())
     if X.ndim == 1:
         X = X[:, None]
     n, p = X.shape
     if n < 1 or p < 1 or m < 1:
-        return np.empty((n, 0), dtype=np.float64)
+        return np.empty((n, 0), dtype=_crit_np_dtype())
     if not np.isfinite(X).all():
-        return np.empty((n, 0), dtype=np.float64)
+        return np.empty((n, 0), dtype=_crit_np_dtype())
 
     bw = float(bandwidth) if bandwidth is not None else _median_pairwise_distance(X, random_state=random_state)
     bw = bw if bw > 1e-12 else 1.0
@@ -151,7 +152,7 @@ def generate_random_fourier_features_block(
     cols = [c for c in cols if c in X.columns]
     if len(cols) < 1:
         return pd.DataFrame(index=X.index), {}
-    X_cols = X[cols].to_numpy(dtype=np.float64)
+    X_cols = X[cols].to_numpy(dtype=_crit_np_dtype())
     n, p = X_cols.shape
     if n < 1 or p < 1 or m < 1 or not np.isfinite(X_cols).all():
         return pd.DataFrame(index=X.index), {}
@@ -173,7 +174,7 @@ def apply_random_fourier_block(X_test: "pd.DataFrame", payload: dict) -> "pd.Dat
     missing = [c for c in cols if c not in X_test.columns]
     if missing:
         raise KeyError(f"apply_random_fourier_block: missing column(s) {missing} from X_test")
-    X_cols = X_test[cols].to_numpy(dtype=np.float64)
+    X_cols = X_test[cols].to_numpy(dtype=_crit_np_dtype())
     Z = _apply_rff_params(X_cols, payload["W"], payload["b"], payload["bandwidth"])
     names = [engineered_name_random_fourier(cols, i) for i in range(Z.shape[1])]
     return pd.DataFrame(Z, columns=names, index=X_test.index)
@@ -193,7 +194,7 @@ def build_random_fourier_recipe(*, name: str, idx: int, cols: Sequence[str], W: 
         extra={
             "cols": tuple(str(c) for c in cols),
             "idx": int(idx),
-            "W": np.asarray(W, dtype=np.float64).copy(),
+            "W": np.asarray(W, dtype=_crit_np_dtype()).copy(),
             "m_total": int(W.shape[1]),
             "b": float(b[idx]),
             "bandwidth": float(bandwidth),
@@ -209,17 +210,17 @@ def _apply_random_fourier_recipe(recipe, X) -> np.ndarray:
     training column."""
     cols = list(recipe.extra["cols"])
     if isinstance(X, pd.DataFrame):
-        X_cols = X[cols].to_numpy(dtype=np.float64)
+        X_cols = X[cols].to_numpy(dtype=_crit_np_dtype())
     else:
         try:
             import polars as _pl
 
             if isinstance(X, _pl.DataFrame):
-                X_cols = X.select(cols).to_numpy().astype(np.float64)
+                X_cols = X.select(cols).to_numpy().astype(_crit_np_dtype())
             else:
-                X_cols = np.column_stack([np.asarray(X[c], dtype=np.float64) for c in cols])
+                X_cols = np.column_stack([np.asarray(X[c], dtype=_crit_np_dtype()) for c in cols])
         except ImportError:
-            X_cols = np.column_stack([np.asarray(X[c], dtype=np.float64) for c in cols])
+            X_cols = np.column_stack([np.asarray(X[c], dtype=_crit_np_dtype()) for c in cols])
     W = recipe.extra["W"]
     idx = int(recipe.extra["idx"])
     m_total = int(recipe.extra["m_total"])

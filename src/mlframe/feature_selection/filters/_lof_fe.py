@@ -20,6 +20,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Callable, Optional, Sequence
 
 import numpy as np
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 import pandas as pd
 
 if TYPE_CHECKING:
@@ -58,7 +59,7 @@ def lof_scores(X: np.ndarray, *, k: int = 20) -> np.ndarray:
 
     Returns
     -------
-    (n,) float64 array of LOF scores. ``LOF ~= 1`` means a row's local density matches its
+    (n,) float array of LOF scores. ``LOF ~= 1`` means a row's local density matches its
     neighbors' (ordinary); ``LOF >> 1`` means a row sits in a locally sparse region relative to its
     neighborhood (a local outlier). Degenerate input (n < 3, non-finite X) returns an all-NaN
     ``(n,)`` array rather than raising.
@@ -66,18 +67,18 @@ def lof_scores(X: np.ndarray, *, k: int = 20) -> np.ndarray:
     Cost: brute-force O(n^2) pairwise distances (the matmul trick) - fine for moderate n; very
     large n (>~200k) would need chunking or an approximate k-NN library, per the audit's own note.
     """
-    X = np.asarray(X, dtype=np.float64)
+    X = np.asarray(X, dtype=_crit_np_dtype())
     if X.ndim == 1:
         X = X[:, None]
     n = X.shape[0]
     if n < 3:
-        return np.full(n, np.nan, dtype=np.float64)
+        return np.full(n, np.nan, dtype=_crit_np_dtype())
     if not np.isfinite(X).all():
-        return np.full(n, np.nan, dtype=np.float64)
+        return np.full(n, np.nan, dtype=_crit_np_dtype())
 
     k_eff = min(k, n - 1)
     if k_eff < 1:
-        return np.full(n, np.nan, dtype=np.float64)
+        return np.full(n, np.nan, dtype=_crit_np_dtype())
 
     d2 = _pairwise_sq_dist(X)
     dist = np.sqrt(d2)
@@ -146,7 +147,7 @@ def generate_lof_features(X: "pd.DataFrame", cols: Sequence[str], *, k: int = 20
     cols = [c for c in cols if c in X.columns]
     if len(cols) < 1:
         return pd.DataFrame(index=X.index), {}
-    X_cols = X[cols].to_numpy(dtype=np.float64)
+    X_cols = X[cols].to_numpy(dtype=_crit_np_dtype())
     n, p = X_cols.shape
     if n < 3 or p < 1 or not np.isfinite(X_cols).all():
         return pd.DataFrame(index=X.index), {}
@@ -176,7 +177,7 @@ def apply_lof_block(X_test: "pd.DataFrame", payload: dict) -> "pd.DataFrame":
     missing = [c for c in cols if c not in X_test.columns]
     if missing:
         raise KeyError(f"apply_lof_block: missing column(s) {missing} from X_test")
-    X_cols = X_test[cols].to_numpy(dtype=np.float64)
+    X_cols = X_test[cols].to_numpy(dtype=_crit_np_dtype())
     lof_new = _lof_transform(X_cols, payload["X_ref"], payload["lrd_ref"], payload["k_distance_ref"], payload["k_eff"])
     name = engineered_name_lof(cols)
     return pd.DataFrame({name: lof_new}, index=X_test.index)
@@ -193,9 +194,9 @@ def build_lof_recipe(*, name: str, cols: Sequence[str], X_ref: np.ndarray, lrd_r
         src_names=tuple(str(c) for c in cols),
         extra={
             "cols": tuple(str(c) for c in cols),
-            "X_ref": np.asarray(X_ref, dtype=np.float64).copy(),
-            "lrd_ref": np.asarray(lrd_ref, dtype=np.float64).copy(),
-            "k_distance_ref": np.asarray(k_distance_ref, dtype=np.float64).copy(),
+            "X_ref": np.asarray(X_ref, dtype=_crit_np_dtype()).copy(),
+            "lrd_ref": np.asarray(lrd_ref, dtype=_crit_np_dtype()).copy(),
+            "k_distance_ref": np.asarray(k_distance_ref, dtype=_crit_np_dtype()).copy(),
             "k_eff": int(k_eff),
         },
     )
@@ -205,17 +206,17 @@ def _apply_lof_recipe(recipe, X) -> np.ndarray:
     """Adapter consumed by ``engineered_recipes.apply_recipe``."""
     cols = list(recipe.extra["cols"])
     if isinstance(X, pd.DataFrame):
-        X_cols = X[cols].to_numpy(dtype=np.float64)
+        X_cols = X[cols].to_numpy(dtype=_crit_np_dtype())
     else:
         try:
             import polars as _pl
 
             if isinstance(X, _pl.DataFrame):
-                X_cols = X.select(cols).to_numpy().astype(np.float64)
+                X_cols = X.select(cols).to_numpy().astype(_crit_np_dtype())
             else:
-                X_cols = np.column_stack([np.asarray(X[c], dtype=np.float64) for c in cols])
+                X_cols = np.column_stack([np.asarray(X[c], dtype=_crit_np_dtype()) for c in cols])
         except ImportError:
-            X_cols = np.column_stack([np.asarray(X[c], dtype=np.float64) for c in cols])
+            X_cols = np.column_stack([np.asarray(X[c], dtype=_crit_np_dtype()) for c in cols])
     return _lof_transform(X_cols, recipe.extra["X_ref"], recipe.extra["lrd_ref"], recipe.extra["k_distance_ref"], recipe.extra["k_eff"])
 
 

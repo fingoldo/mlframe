@@ -14,6 +14,7 @@ from typing import Any
 import logging
 
 import numpy as np
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 
 from ._helpers import _dispatch_default_scorer, fe_decide_on_subsample
 from .._fe_frame_ops import fe_append_columns, fe_extract_columns, fe_is_numeric_col
@@ -391,7 +392,7 @@ def _fe_stage_cascade_early_a_part1(
             # scale/shift invariant). y carries no leak: the recipe stores only
             # {tau, side}, never y.
             _y_for_hinge = _y_np
-            _y_for_hinge = np.asarray(_y_for_hinge, dtype=np.float64).ravel()
+            _y_for_hinge = np.asarray(_y_for_hinge, dtype=np.float64).ravel()  # Intentional float64: hinge fit target; FWL identity validated at float64 (selection-critical)
             # Seed pool restricted to RAW source columns: a hinge built on a
             # prior-stage engineered column would create a recipe whose
             # src_name references an engineered column absent at transform
@@ -435,7 +436,7 @@ def _fe_stage_cascade_early_a_part1(
                 # untouched). This keeps the hidden-champion win (a pure
                 # slope-change column with no competing composite still gets
                 # its leg) without regressing multi-signal pair recovery.
-                _hinge_deferred_values = {c: np.asarray(X_h[c].to_numpy(), dtype=np.float64) for c in _h_appended}
+                _hinge_deferred_values = {c: np.asarray(X_h[c].to_numpy(), dtype=_crit_np_dtype()) for c in _h_appended}
                 _hinge_deferred_recipes = {_r.name: _r for _r in _h_recipes if _r.name in set(_h_appended)}
                 if verbose:
                     logger.info(

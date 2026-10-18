@@ -38,7 +38,7 @@ def _gains_paired_with_output(self, predictors_log) -> "np.ndarray | None":
     recipes = getattr(self, "_engineered_recipes_", None) or []
     advertised = [r for r in recipes if r.extra.get("chain_lookups") is not None or not r.extra.get("requires_refit_for_replay")]
     engineered = [by_name.get(str(r.name), 0.0) for r in advertised]
-    return np.asarray(raw + engineered, dtype=np.float64)
+    return np.asarray(raw + engineered, dtype=np.float64)  # Intentional float64: public mrmr_gains_ output contract
 
 
 def _align_mrmr_gains(self) -> None:
@@ -57,13 +57,13 @@ def _align_mrmr_gains(self) -> None:
             if _repaired.shape[0] > _nf_final:
                 _repaired = _repaired[:_nf_final]
             elif _repaired.shape[0] < _nf_final:
-                _repaired = np.concatenate([_repaired, np.zeros(_nf_final - _repaired.shape[0], dtype=np.float64)])
+                _repaired = np.concatenate([_repaired, np.zeros(_nf_final - _repaired.shape[0], dtype=np.float64)])  # Intentional float64: public mrmr_gains_ output contract
             self.mrmr_gains_ = _repaired
         elif _g is not None and _nf_final >= 0 and _g.shape[0] != _nf_final:
             if _g.shape[0] > _nf_final:
                 self.mrmr_gains_ = _g[:_nf_final]
             else:
-                self.mrmr_gains_ = np.concatenate([_g, np.zeros(_nf_final - _g.shape[0], dtype=np.float64)])
+                self.mrmr_gains_ = np.concatenate([_g, np.zeros(_nf_final - _g.shape[0], dtype=np.float64)])  # Intentional float64: public mrmr_gains_ output contract
     except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
         logger.debug("mrmr: mrmr_gains_ finalisation failed: %r", e, exc_info=True)
 

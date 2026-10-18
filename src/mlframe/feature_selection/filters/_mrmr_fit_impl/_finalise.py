@@ -32,6 +32,7 @@ from typing import Any
 from collections.abc import Iterable
 
 import numpy as np
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 
 from ._helpers import _engineered_recipe_name
 
@@ -408,7 +409,7 @@ def _apply_uaed_elbow_trim(self):
         try:
             from .._cmi_perm_stop import uaed_elbow
 
-            gains = np.asarray(getattr(self, "mrmr_gains_", []), dtype=np.float64)
+            gains = np.asarray(getattr(self, "mrmr_gains_", []), dtype=_crit_np_dtype())
             # UAED runs BEFORE the mrmr_gains_ length-alignment below, so at this point ``gains`` is the
             # raw GREEDY log (one entry per confirmed greedy round) - often SHORTER than n_features_ when
             # FE/retention appended features the greedy never scored. The public ``mrmr_gains_`` the caller
@@ -417,7 +418,7 @@ def _apply_uaed_elbow_trim(self):
             # the elbow (uaed_elbow_ never set, support never trimmed). Zero-extend to n_features_ to match.
             _nf_uaed = int(getattr(self, "n_features_", gains.size) or gains.size)
             if 0 < gains.size < _nf_uaed:
-                gains = np.concatenate([gains, np.zeros(_nf_uaed - gains.size, dtype=np.float64)])
+                gains = np.concatenate([gains, np.zeros(_nf_uaed - gains.size, dtype=_crit_np_dtype())])
             if gains.size >= 3:
                 elbow = int(uaed_elbow(gains))
                 if 0 < elbow < gains.size and hasattr(self, "support_"):

@@ -16,6 +16,7 @@ from typing import Optional, Sequence
 
 import numba
 import numpy as np
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 from numba import prange
 
 from mlframe.feature_selection.filters.hermite_fe.shared import (
@@ -91,7 +92,7 @@ def _fit_fourier_for_col(x: np.ndarray):
     and sin/cos simply wrap them (bounded, harmless), no longer stretching the scale for everyone. Byte-identical to the
     legacy raw min/max path on clean columns (gate OFF). The returned (lo, span) are baked into the recipe and replayed
     verbatim at transform time, so fit and replay stay consistent automatically."""
-    x = np.asarray(x, dtype=np.float64)
+    x = np.asarray(x, dtype=_crit_np_dtype())
     finite = np.isfinite(x)
     if not finite.any():
         return 0.0, 1.0
@@ -125,7 +126,7 @@ def _fit_chirp_warp_for_col(x: np.ndarray):
 
     All four are baked into the recipe at fit time and replayed verbatim at
     transform time (no y, so leakage-free)."""
-    x = np.asarray(x, dtype=np.float64)
+    x = np.asarray(x, dtype=_crit_np_dtype())
     finite = np.isfinite(x)
     if not finite.any():
         return 0.0, 1.0, 0.0, 1.0
@@ -166,7 +167,7 @@ def _chirp_axis(x: np.ndarray, mean: float, std: float, lo: float, span: float) 
     bit-identical axis. The per-element math is a fused njit loop
     (:func:`_chirp_axis_njit`, no fastmath) - bit-identical to the numpy
     expression but with no length-n intermediate temporaries."""
-    x = np.ascontiguousarray(np.asarray(x, dtype=np.float64).ravel())
+    x = np.ascontiguousarray(np.asarray(x, dtype=_crit_np_dtype()).ravel())
     return np.asarray(_chirp_axis_njit(x, float(mean), float(std), float(lo), float(span)))
 
 
@@ -253,7 +254,7 @@ def _build_coarse_basis(z_tr: np.ndarray, grid: list[float]) -> list:
     _coarse_basis = []  # (sin_centered, sin_ss, cos_centered, cos_ss) per grid freq
     _use_exact_basis = os.environ.get("MLFRAME_FOURIER_COARSE_BASIS_EXACT", "") == "1"
     if not _use_exact_basis and len(grid) > 0 and z_tr.size > 0:
-        _sc_m, _cc_m, _sss, _css = _coarse_basis_njit(np.ascontiguousarray(z_tr), np.asarray(grid, dtype=np.float64))
+        _sc_m, _cc_m, _sss, _css = _coarse_basis_njit(np.ascontiguousarray(z_tr), np.asarray(grid, dtype=_crit_np_dtype()))
         _coarse_basis = [(_sc_m[gi], float(_sss[gi]), _cc_m[gi], float(_css[gi])) for gi in range(len(grid))]
     else:
         for f in grid:
@@ -443,8 +444,8 @@ def _detect_fourier_freqs_for_col(
     _gpu_result = _try_gpu_fourier_detect(z01, y, f_grid, min_val_corr, min_rows, max_freqs)
     if _gpu_result is not None:
         return _gpu_result
-    z01 = np.asarray(z01, dtype=np.float64).ravel()
-    y = np.asarray(y, dtype=np.float64).ravel()
+    z01 = np.asarray(z01, dtype=_crit_np_dtype()).ravel()
+    y = np.asarray(y, dtype=_crit_np_dtype()).ravel()
     n = z01.size
     if n != y.size or n < int(min_rows):
         return []
@@ -541,14 +542,14 @@ def _is_int_as_cat_axis(x: np.ndarray, *, max_card: int = _FOURIER_INT_AS_CAT_MA
     column bails at the first fractional value and a high-card integer column bails
     at its ``max_card+1``-th distinct value, both without the full ``np.unique`` sort
     the numpy form paid on every 1M-row column."""
-    x = np.ascontiguousarray(np.asarray(x, dtype=np.float64).ravel())
+    x = np.ascontiguousarray(np.asarray(x, dtype=_crit_np_dtype()).ravel())
     return bool(_is_int_as_cat_njit(x, int(max_card)))
 
 
 def _heldout_smooth_r2(x: np.ndarray, y: np.ndarray) -> float:
     """Held-out R^2 of y on a cubic in x ([1, x, x^2, x^3]); val = every 3rd row (the same stride the frequency detector uses). Scale/shift-invariant, so it reads identically on raw x or its normalised z. Returns 0.0 on degenerate input."""
-    x = np.asarray(x, dtype=np.float64).ravel()
-    y = np.asarray(y, dtype=np.float64).ravel()
+    x = np.asarray(x, dtype=_crit_np_dtype()).ravel()
+    y = np.asarray(y, dtype=_crit_np_dtype()).ravel()
     n = x.size
     if n != y.size or n < 32:
         return 0.0
@@ -569,8 +570,8 @@ def _heldout_smooth_r2(x: np.ndarray, y: np.ndarray) -> float:
     # identical), ~1.7x faster (32.5ms -> 19.0ms @ n=99401): argsort once for the sort order, then scatter
     # 0..n-1 into that order's positions, instead of sorting the sort-order array a second time.
     _order = np.argsort(x, kind="stable")
-    ranks = np.empty(x.size, dtype=np.float64)
-    ranks[_order] = np.arange(x.size, dtype=np.float64)
+    ranks = np.empty(x.size, dtype=_crit_np_dtype())
+    ranks[_order] = np.arange(x.size, dtype=_crit_np_dtype())
     zx = (ranks / max(n - 1, 1)) * 2.0 - 1.0
     try:
         _Vtr = np.vander(zx[tr], 4)
@@ -599,7 +600,7 @@ def _heldout_smooth_r2_prep(y: np.ndarray) -> Optional[tuple]:
     so it was PROVABLY the same mask each time, not just coincidentally reproducible. Returns ``None`` on
     degenerate ``y`` (caller then uses the exact original per-column function, which returns 0.0 the same
     way). Use with :func:`_heldout_smooth_r2_fast`."""
-    y = np.asarray(y, dtype=np.float64).ravel()
+    y = np.asarray(y, dtype=_crit_np_dtype()).ravel()
     n = y.size
     if n < 32 or not np.all(np.isfinite(y)) or float(np.std(y)) < 1e-12:
         return None
@@ -621,7 +622,7 @@ def _heldout_smooth_r2_fast(x: np.ndarray, prep: tuple) -> float:
     x-dependent rank-normalise + cubic Vandermonde fit/predict re-runs per call. Bit-identical to the
     original (verified: same split mask, same y-side sums, same formula, just hoisted out of the loop)."""
     va, tr, y_tr, yv, sst = prep
-    x = np.asarray(x, dtype=np.float64).ravel()
+    x = np.asarray(x, dtype=_crit_np_dtype()).ravel()
     if x.size != va.size or not np.all(np.isfinite(x)) or float(np.std(x)) < 1e-12:
         return 0.0
     # single argsort + scatter (cProfile-driven: this rank computation was the dominant cost of
@@ -629,8 +630,8 @@ def _heldout_smooth_r2_fast(x: np.ndarray, prep: tuple) -> float:
     # identical), ~1.7x faster (32.5ms -> 19.0ms @ n=99401): argsort once for the sort order, then scatter
     # 0..n-1 into that order's positions, instead of sorting the sort-order array a second time.
     _order = np.argsort(x, kind="stable")
-    ranks = np.empty(x.size, dtype=np.float64)
-    ranks[_order] = np.arange(x.size, dtype=np.float64)
+    ranks = np.empty(x.size, dtype=_crit_np_dtype())
+    ranks[_order] = np.arange(x.size, dtype=_crit_np_dtype())
     n = x.size
     zx = (ranks / max(n - 1, 1)) * 2.0 - 1.0
     try:

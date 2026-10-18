@@ -280,6 +280,7 @@ def _inf_fs_centrality(sel: List[int], edges: List[FriendGraphEdge]) -> Dict[int
     if n < 2 or not edges:
         return {}
     idx_of = {v: i for i, v in enumerate(sel)}
+    # Intentional float64: eigendecomposition (eigvalsh) of the MI adjacency; the centrality ranking needs full-precision eigenvalues
     A = np.zeros((n, n), dtype=np.float64)
     for e in edges:
         i, j = idx_of[e.a], idx_of[e.b]

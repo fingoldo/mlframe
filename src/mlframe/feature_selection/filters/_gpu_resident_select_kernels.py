@@ -406,8 +406,8 @@ def _transpose_to_cm(cand_gpu):
         return cand_gpu.reshape(K, n)
     if cand_gpu.dtype == cp.float32 and cand_gpu.flags.c_contiguous:
         _ker, _dt = _get_transpose_f32_kernel(), cp.float32
-    elif cand_gpu.dtype == cp.float64 and cand_gpu.flags.c_contiguous:
-        _ker, _dt = _get_transpose_f64_kernel(), cp.float64  # f64 twin: kills the 0.5 GB/s .T-copy fallback
+    elif cand_gpu.dtype == cp.float64 and cand_gpu.flags.c_contiguous:  # Intentional float64: dtype dispatch selects the f64 kernel, no cast
+        _ker, _dt = _get_transpose_f64_kernel(), cp.float64  # Intentional float64: f64 twin dispatched by input dtype (no forced cast); kills the 0.5 GB/s .T-copy fallback
     else:
         return cp.ascontiguousarray(cand_gpu.T)
     try:

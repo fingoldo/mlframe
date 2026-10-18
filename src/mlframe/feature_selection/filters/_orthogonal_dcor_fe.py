@@ -65,6 +65,7 @@ import logging
 from typing import Optional, Sequence
 
 import numpy as np
+from ._fe_usability_signal import _crit_np_dtype
 
 from mlframe.feature_selection.filters._relative_uplift import relative_uplift
 import pandas as pd
@@ -94,7 +95,7 @@ def _u_centered_distance_matrix(z: np.ndarray) -> np.ndarray:
     a valid covariance-like measure: independent ``z`` and ``w`` give
     ``mean(A * B) = 0``.
     """
-    arr = np.asarray(z, dtype=np.float64).ravel()
+    arr = np.asarray(z, dtype=_crit_np_dtype()).ravel()
     # Pairwise absolute differences - the 1-D Euclidean distance.
     a = np.abs(arr[:, None] - arr[None, :])
     row_mean = a.mean(axis=1, keepdims=True)
@@ -145,7 +146,7 @@ def distance_correlation(
     n_sample : int
         Cap on the working sample size. Naive dCor is ``O(n^2)`` memory;
         ``n_sample = 500`` keeps the per-pair distance matrices at 2 MB
-        each (float64). When ``n > n_sample`` a deterministic random
+        each (double precision). When ``n > n_sample`` a deterministic random
         subsample is drawn; the dCor estimator is asymptotically
         consistent and 500 samples are sufficient at the typical SNR
         seen by Layer 21's downstream gates.
@@ -153,7 +154,8 @@ def distance_correlation(
         Seed for the deterministic subsample. Ignored when
         ``n <= n_sample``.
     """
-    x_arr = np.asarray(x, dtype=np.float64).ravel()
+    x_arr = np.asarray(x, dtype=_crit_np_dtype()).ravel()
+    # Intentional float64: target labels kept f64 (exact binning / comparison contract)
     y_arr = np.asarray(y, dtype=np.float64).ravel()
     if x_arr.shape[0] != y_arr.shape[0]:
         raise ValueError(f"distance_correlation: x has {x_arr.shape[0]} rows, " f"y has {y_arr.shape[0]}; row alignment required.")
@@ -197,6 +199,7 @@ def _dcor_y_side_prep(y: np.ndarray, n_total: int, *, n_sample: int, random_stat
     build it once and thread it into both ``_dcor_batch`` calls via the ``y_side`` param, instead of each
     call rebuilding the identical y-side distance matrix.
     """
+    # Intentional float64: target labels kept f64 (exact binning / comparison contract)
     y_arr = np.asarray(y, dtype=np.float64).ravel()
     idx = _subsample_indices(n_total, int(n_sample), int(random_state))
     ys = y_arr[idx]
@@ -221,7 +224,7 @@ def _dcor_batch(
     caller already built it for an identical ``(y, n_sample, random_state)``. ``None`` (default) preserves
     the exact self-contained behavior.
     """
-    X_arr = np.asarray(X, dtype=np.float64)
+    X_arr = np.asarray(X, dtype=_crit_np_dtype())
     if X_arr.ndim == 1:
         X_arr = X_arr.reshape(-1, 1)
     n = X_arr.shape[0]
@@ -229,6 +232,7 @@ def _dcor_batch(
         idx, B, dvar2_y = y_side
     else:
         idx, B, dvar2_y = _dcor_y_side_prep(y, n, n_sample=n_sample, random_state=random_state)
+    # Intentional float64: accumulator kept f64 (statistic / count sums need full precision)
     out = np.empty(X_arr.shape[1], dtype=np.float64)
     for j in range(X_arr.shape[1]):
         xs = X_arr[idx, j]
@@ -306,12 +310,12 @@ def score_features_by_dcor_uplift(
     # batch right after it. Build it ONCE and thread it into both _dcor_batch calls.
     _y_side = _dcor_y_side_prep(y_arr, len(raw_X), n_sample=int(n_sample), random_state=int(random_state))
     raw_mi = _dcor_batch(
-        raw_X.to_numpy(dtype=np.float64), y_arr,
+        raw_X.to_numpy(dtype=_crit_np_dtype()), y_arr,
         n_sample=int(n_sample), random_state=int(random_state), y_side=_y_side,
     )
     raw_mi_map = dict(zip(raw_cols, raw_mi.tolist()))
     eng_mi = _dcor_batch(
-        engineered_X.to_numpy(dtype=np.float64), y_arr,
+        engineered_X.to_numpy(dtype=_crit_np_dtype()), y_arr,
         n_sample=int(n_sample), random_state=int(random_state), y_side=_y_side,
     )
     rows = []
@@ -470,7 +474,7 @@ def hybrid_orth_mi_dcor_fe_with_recipes(
         # source column is safe/exact - it reproduces, not refits, the fit-time params.
         _pp = None
         try:
-            _col_full = np.asarray(X[src].to_numpy(), dtype=np.float64)
+            _col_full = np.asarray(X[src].to_numpy(), dtype=_crit_np_dtype())
             _, _pp = _evaluate_basis_column(_col_full, chosen_basis, int(chosen_degree), return_params=True)
         except Exception as exc:
             # Was a bare except with zero logging,

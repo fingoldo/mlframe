@@ -42,6 +42,7 @@ import re
 from typing import Any, Optional
 
 import numpy as np
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
@@ -64,15 +65,15 @@ def _multiple_r(cols_2d: np.ndarray, y: np.ndarray) -> float:
     almost no binned-MI margin, even though it materially improves the LINEAR usability of
     the compound). NaN-safe; returns 0.0 on a degenerate (constant-y / singular) fit.
     """
-    X2 = np.asarray(cols_2d, dtype=np.float64)
-    yv = np.asarray(y, dtype=np.float64).ravel()
+    X2 = np.asarray(cols_2d, dtype=_crit_np_dtype())
+    yv = np.asarray(y, dtype=_crit_np_dtype()).ravel()
     if X2.ndim == 1:
         X2 = X2.reshape(-1, 1)
     X2 = np.nan_to_num(X2, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
     yv = np.nan_to_num(yv, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
     if yv.shape[0] < 3 or float(np.std(yv)) <= 1e-12:
         return 0.0
-    design = np.column_stack([X2, np.ones(X2.shape[0], dtype=np.float64)])
+    design = np.column_stack([X2, np.ones(X2.shape[0], dtype=_crit_np_dtype())])
     try:
         beta, *_ = np.linalg.lstsq(design, yv, rcond=None)
     except Exception as e:
@@ -189,7 +190,7 @@ def _collect_relevant_halves(
             _Xh = np.empty((int(n_rows), len(_pre)), dtype=np.int64)
             for _j, _t in enumerate(_pre):
                 _Xh[:, _j] = _t[4]
-            _mis = np.asarray(batched_cmi_gpu(_Xh, y_dense, None), dtype=np.float64)
+            _mis = np.asarray(batched_cmi_gpu(_Xh, y_dense, None), dtype=np.float64)  # Intentional float64: MI statistic output compared at full precision
     except Exception as e:
         logger.warning("batched_cmi_gpu failed, falling back to the per-candidate CPU path: %s", e)
         _mis = None
@@ -251,7 +252,7 @@ def _evaluate_fusion_pair(self: Any, ha: dict, hb: dict, y_dense: np.ndarray, nb
     # binned-MI path is not.
     _ols_passes = False
     if not _binned_mi_passes:
-        _yc = y_dense.astype(np.float64)
+        _yc = y_dense.astype(_crit_np_dtype())
         _r_a = _multiple_r(ha["vals"], _yc)
         _r_b = _multiple_r(hb["vals"], _yc)
         _r_fused = _multiple_r(np.column_stack([ha["vals"], hb["vals"]]), _yc)
@@ -422,7 +423,7 @@ def _collect_engineered_candidates(newly_engineered_names, engineered_recipes, e
         vals = engineered_continuous.get(nm)
         if rec is None or vals is None:
             continue
-        vals = np.asarray(vals, dtype=np.float64).ravel()
+        vals = np.asarray(vals, dtype=_crit_np_dtype()).ravel()
         if vals.shape[0] != n_rows:
             continue
         toks = _bare_tokens(nm, raw_name_set)
@@ -444,7 +445,7 @@ def _subsumed_raw_operand_check(self, ha, hb, subsumed_raws, X, _raw_bin_cache, 
         _rv = None
         try:
             if hasattr(X, "columns") and _rn in getattr(X, "columns", []):
-                _rv = np.asarray(X[_rn], dtype=np.float64).ravel()
+                _rv = np.asarray(X[_rn], dtype=_crit_np_dtype()).ravel()
         except Exception as e:
             log_throttle(logger, "fe_additive_fusion.hot_loop_warning", logging.WARNING, "reading raw column %r for the fusion residual failed: %s", _rn, e)
             _rv = None

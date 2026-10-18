@@ -488,7 +488,7 @@ def _permutation_importance_ranking(model_template, X_tr, y_tr, X_ev, y_ev, curr
     # swaps below never touch the caller's buffer; ``predict`` needs C-contiguous input anyway.
     X_perm = np.ascontiguousarray(X_ev_arr).copy()
     perm = rng.permutation(X_perm.shape[0])
-    importances = np.zeros(len(cols), dtype=np.float64)
+    importances = np.zeros(len(cols), dtype=np.float64)  # Intentional float64: permutation-importance accumulator, summed across repeats
     for j in range(len(cols)):
         orig = X_perm[:, j].copy()
         X_perm[:, j] = orig[perm]

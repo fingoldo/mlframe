@@ -27,6 +27,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Callable, Optional, Sequence
 
 import numpy as np
+from ._fe_usability_signal import _crit_np_dtype
 import pandas as pd
 
 if TYPE_CHECKING:
@@ -66,21 +67,22 @@ def conditional_quantile_rank_fe(
 
     Returns
     -------
-    (n,) float64 array in ``[0, 1]``: the row's percentile position within its conditioning bin's
+    (n,) double precision array in ``[0, 1]``: the row's percentile position within its conditioning bin's
     fitted value distribution (``searchsorted(sorted_bin_values, x_i[row]) / len(sorted_bin_values)``).
     NaN for a row whose ``x_j_bins`` value was never seen at fit time, or for non-finite input.
     """
-    x_i = np.asarray(x_i, dtype=np.float64).ravel()
+    x_i = np.asarray(x_i, dtype=_crit_np_dtype()).ravel()
     x_j_bins = np.asarray(x_j_bins).ravel()
     n = x_i.shape[0]
     if x_j_bins.shape[0] != n:
         raise ValueError(f"conditional_quantile_rank_fe: x_i has {n} rows but x_j_bins has {x_j_bins.shape[0]}")
 
-    fit_x = np.asarray(x_i_fit, dtype=np.float64).ravel() if x_i_fit is not None else x_i
+    fit_x = np.asarray(x_i_fit, dtype=_crit_np_dtype()).ravel() if x_i_fit is not None else x_i
     fit_bins = np.asarray(x_j_bins_fit).ravel() if x_j_bins_fit is not None else x_j_bins
     if fit_bins.shape[0] != fit_x.shape[0]:
         raise ValueError("conditional_quantile_rank_fe: x_i_fit and x_j_bins_fit must have the same length")
 
+    # Intentional float64: accumulator kept f64 (statistic / count sums need full precision)
     out = np.full(n, np.nan, dtype=np.float64)
     finite_mask = np.isfinite(x_i)
 
@@ -131,7 +133,7 @@ def generate_conditional_quantile_rank_features(
 
     from ._extra_fe_families import _digitize_with_edges, _quantile_edges  # lazy: break parent<->sibling cycle
 
-    col_vals = {c: np.asarray(X[c].to_numpy(), dtype=np.float64) for c in num_cols}
+    col_vals = {c: np.asarray(X[c].to_numpy(), dtype=_crit_np_dtype()) for c in num_cols}
     for x_j in num_cols:
         xj = col_vals[x_j]
         edges = _quantile_edges(xj, n_bins)
@@ -147,7 +149,7 @@ def generate_conditional_quantile_rank_features(
             if finite_vals.size == 0 or float(np.std(finite_vals)) <= 1e-12:
                 continue
             name = engineered_name_conditional_quantile_rank(x_i, x_j)
-            encoded[name] = vals.astype(np.float64)
+            encoded[name] = vals.astype(_crit_np_dtype())
             sorted_bins = []
             for b in range(int(codes_j.max()) + 1 if codes_j.size else 0):
                 bin_vals = xi[codes_j == b]
@@ -168,15 +170,17 @@ def apply_conditional_quantile_rank(X_test: "pd.DataFrame", recipe: dict) -> np.
     x_j = recipe["x_j"]
     if x_i not in X_test.columns or x_j not in X_test.columns:
         raise KeyError(f"apply_conditional_quantile_rank: missing column(s) {x_i!r}/{x_j!r} from X_test")
+    # Intentional float64: exact bin-edge contract kept f64
     edges = np.asarray(recipe["edges"], dtype=np.float64)
     sorted_bins = recipe["sorted_bins"]
 
     from ._extra_fe_families import _digitize_with_edges  # lazy: break parent<->sibling cycle
 
-    xi = np.asarray(X_test[x_i].to_numpy(), dtype=np.float64)
-    xj = np.asarray(X_test[x_j].to_numpy(), dtype=np.float64)
+    xi = np.asarray(X_test[x_i].to_numpy(), dtype=_crit_np_dtype())
+    xj = np.asarray(X_test[x_j].to_numpy(), dtype=_crit_np_dtype())
     codes_j = _digitize_with_edges(xj, edges)
 
+    # Intentional float64: accumulator kept f64 (statistic / count sums need full precision)
     out = np.full(xi.shape[0], np.nan, dtype=np.float64)
     finite_mask = np.isfinite(xi)
     for b, sorted_vals in enumerate(sorted_bins):
@@ -205,7 +209,9 @@ def build_conditional_quantile_rank_recipe(
         extra={
             "x_i": str(x_i),
             "x_j": str(x_j),
+            # Intentional float64: recipe bin-edge contract kept f64
             "edges": np.asarray(edges, dtype=np.float64).copy(),
+            # Intentional float64: recipe bin-edge contract kept f64
             "sorted_bins": [np.asarray(b, dtype=np.float64).copy() for b in sorted_bins],
         },
     )

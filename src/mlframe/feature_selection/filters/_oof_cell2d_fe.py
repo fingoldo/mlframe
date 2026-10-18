@@ -17,6 +17,7 @@ from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 if TYPE_CHECKING:
     import pandas as pd
     import polars as pl
@@ -61,9 +62,9 @@ def fit_oof_cell2d(a: np.ndarray, b: np.ndarray, y: np.ndarray, *, n_folds: int 
 
     ``oof`` is the cross-fitted value of every row (a row in fold ``f`` takes the table fitted on the other folds); ``tab`` is the full ``(len(ea)+1, len(eb)+1)`` table and ``fill`` the mean
     target, the value for a row with a non-finite coordinate. The edges depend on ``a`` and ``b`` only."""
-    a = np.asarray(a, dtype=np.float64)
-    b = np.asarray(b, dtype=np.float64)
-    y = np.asarray(y, dtype=np.float64)
+    a = np.asarray(a, dtype=_crit_np_dtype())
+    b = np.asarray(b, dtype=_crit_np_dtype())
+    y = np.asarray(y, dtype=_crit_np_dtype())
     ea, eb = _edges(a), _edges(b)
     cell, n_cell = _cells(a, b, ea, eb)
     shape = (len(ea) + 1, len(eb) + 1)
@@ -71,7 +72,7 @@ def fit_oof_cell2d(a: np.ndarray, b: np.ndarray, y: np.ndarray, *, n_folds: int 
     fold = (np.random.default_rng(seed).permutation(len(a)) % int(n_folds)).astype(np.int64)
     flat = fold[ok] * n_cell + cell[ok]
     S = np.bincount(flat, weights=y[ok], minlength=n_folds * n_cell).reshape(n_folds, *shape)
-    N = np.bincount(flat, minlength=n_folds * n_cell).reshape(n_folds, *shape).astype(np.float64)
+    N = np.bincount(flat, minlength=n_folds * n_cell).reshape(n_folds, *shape).astype(_crit_np_dtype())
     mu_all = float(y[ok].mean()) if ok.any() else 0.0
     tab_all = _table(S.sum(0), N.sum(0), mu_all, shrink)
     oof = np.full(len(a), mu_all)
@@ -93,7 +94,7 @@ def build_oof_cell2d_recipe(*, name: str, src: Sequence[str], ea: np.ndarray, eb
         kind="oof_cell2d",
         src_names=tuple(str(c) for c in src),
         extra={
-            "ea": np.asarray(ea, dtype=np.float64).copy(), "eb": np.asarray(eb, dtype=np.float64).copy(), "tab": np.asarray(tab, dtype=np.float64).copy(),
+            "ea": np.asarray(ea, dtype=_crit_np_dtype()).copy(), "eb": np.asarray(eb, dtype=_crit_np_dtype()).copy(), "tab": np.asarray(tab, dtype=_crit_np_dtype()).copy(),
             "fill": float(fill), "lo": float(lo), "hi": float(hi),
         },
     )
@@ -103,8 +104,8 @@ def apply_oof_cell2d_recipe(recipe: EngineeredRecipe, X: pd.DataFrame | pl.DataF
     from .engineered_recipes.shared import extract_column
 
     ex = recipe.extra
-    a = np.asarray(extract_column(X, recipe.src_names[0]), dtype=np.float64)
-    b = np.asarray(extract_column(X, recipe.src_names[1]), dtype=np.float64)
+    a = np.asarray(extract_column(X, recipe.src_names[0]), dtype=_crit_np_dtype())
+    b = np.asarray(extract_column(X, recipe.src_names[1]), dtype=_crit_np_dtype())
     cell, _ = _cells(a, b, ex["ea"], ex["eb"])
     out = np.where(cell >= 0, ex["tab"].reshape(-1)[np.maximum(cell, 0)], ex["fill"])
     return np.asarray(np.clip(out, ex["lo"], ex["hi"]))
@@ -121,7 +122,7 @@ def cell2d_pool_candidates(df: Any, y_cont: np.ndarray, base_names: Sequence[str
         pairs = pair_interaction_screen(df, y_cont, list(base_names), scan_rows=scan_rows)[:MAX_PAIRS]
         if not pairs:
             return []
-        y_arr = np.asarray(y_cont, dtype=np.float64).ravel()
+        y_arr = np.asarray(y_cont, dtype=_crit_np_dtype()).ravel()
         n = len(y_arr)
         rows = np.arange(n) if n <= scan_rows else np.linspace(0, n - 1, int(scan_rows)).astype(np.int64)
         yr = rankdata(y_arr[rows], method="average") / float(len(rows))
@@ -129,8 +130,8 @@ def cell2d_pool_candidates(df: Any, y_cont: np.ndarray, base_names: Sequence[str
         y_terms = precompute_marginal_y_terms(y_codes)
         out = []
         for ca, cb, _t in pairs:
-            a = np.asarray(df[ca].to_numpy(), dtype=np.float64)
-            b = np.asarray(df[cb].to_numpy(), dtype=np.float64)
+            a = np.asarray(df[ca].to_numpy(), dtype=_crit_np_dtype())
+            b = np.asarray(df[cb].to_numpy(), dtype=_crit_np_dtype())
             fit = fit_oof_cell2d(a[rows], b[rows], yr)
             cell, _ = _cells(a, b, fit["ea"], fit["eb"])
             col = np.where(cell >= 0, fit["tab"].reshape(-1)[np.maximum(cell, 0)], fit["fill"])

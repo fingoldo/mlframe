@@ -117,10 +117,12 @@ def benchmark_polyeval_cpu_backends(basis: str, sizes: Sequence[int] = (200, 500
     if oracle is None:
         oracle = get_polyeval_oracle()
     from . import _NJIT_FUNCS, _NJIT_PAR_FUNCS
+    # Intentional float64: fixed reference coefficients for the oracle timing grid, kept f64 so every backend sees identical inputs.
     c = np.array([0.3, -0.7, 0.2, 0.5, -0.1], dtype=np.float64)
     funcs = {"njit": _NJIT_FUNCS[basis], "njit_par": _NJIT_PAR_FUNCS[basis]}
     results: dict = {}
     for n in sizes:
+        # Intentional float64: reference oracle grid, the f64 ground truth the backends are compared against.
         x = np.linspace(-1.0, 1.0, int(n)).astype(np.float64)
         for backend, fn in funcs.items():
             fn(x, c)  # warm the numba compile so it doesn't pollute the timing

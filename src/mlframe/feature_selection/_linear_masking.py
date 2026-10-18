@@ -12,6 +12,8 @@ from typing import cast
 
 import numpy as np
 
+from .filters._fe_usability_signal import _crit_np_dtype
+
 # R^2 above which a candidate counts as linearly masked by the kept columns. 0.95 == VIF 20.
 DEFAULT_MASKING_R2 = 0.95
 
@@ -21,10 +23,10 @@ def linear_r2(kept: np.ndarray, candidate: np.ndarray) -> float:
 
     Returns 1.0 for a (finite-rows) constant candidate - an intercept model already carries it - and 0.0 when too
     few finite rows remain to fit."""
-    kept = np.asarray(kept, dtype=np.float64)
+    kept = np.asarray(kept, dtype=_crit_np_dtype())
     if kept.ndim == 1:
         kept = kept[:, None]
-    cand = np.asarray(candidate, dtype=np.float64)
+    cand = np.asarray(candidate, dtype=_crit_np_dtype())
     rows = np.isfinite(cand) & np.all(np.isfinite(kept), axis=1)
     if rows.sum() <= kept.shape[1] + 2:
         return 0.0
@@ -43,7 +45,7 @@ def drop_linearly_masked(X: np.ndarray, accepted: np.ndarray, importance: np.nda
     """Walk accepted columns by descending ``importance`` (ties by column order) and drop each one the more important
     kept columns explain with R^2 >= ``max_r2``. Returns a new bool mask."""
     out = np.asarray(accepted, dtype=bool).copy()
-    imp = np.nan_to_num(np.asarray(importance, dtype=np.float64), nan=-np.inf)
+    imp = np.nan_to_num(np.asarray(importance, dtype=_crit_np_dtype()), nan=-np.inf)
     order = sorted(np.nonzero(out)[0].tolist(), key=lambda j: (-float(imp[j]), j))
     kept: list[int] = []
     for j in order:

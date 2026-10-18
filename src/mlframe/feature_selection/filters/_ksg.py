@@ -113,7 +113,9 @@ def _mixed_ksg_aggregate_vec(k: int, n: int, n_x: np.ndarray, n_y: np.ndarray) -
     psi_k = _digamma_scalar(float(k))
     psi_n = _digamma_scalar(float(n))
     # Intentional float64: neighbour counts are the arguments of digamma, which the KSG estimate sums and subtracts
+    # Intentional float64: KSG estimator: kNN distances and digamma sums need f64 accuracy (accumulator)
     a = _digamma_vec(n_x.astype(np.float64) + 1.0)
+    # Intentional float64: KSG estimator: kNN distances and digamma sums need f64 accuracy (accumulator)
     b = _digamma_vec(n_y.astype(np.float64) + 1.0)
     s = (a.sum() + b.sum()) / float(n)
     mi = psi_k + psi_n - s
@@ -147,15 +149,18 @@ def _query_knn_chebyshev(arr_2d: np.ndarray, k: int) -> np.ndarray:
     """
     from sklearn.neighbors import KDTree
 
+    # Intentional float64: KSG estimator: kNN distances and digamma sums need f64 accuracy (accumulator)
     tree = KDTree(arr_2d.astype(np.float64), metric="chebyshev")
     # +1 because the closest is the point itself.
     d, _ = tree.query(arr_2d, k=k + 1)
+    # Intentional float64: KSG estimator: kNN distances and digamma sums need f64 accuracy (accumulator)
     return np.asarray(d[:, k].astype(np.float64))
 
 
 def _count_within_eps(arr_1d: np.ndarray, eps: np.ndarray) -> np.ndarray:
     """For each point i, count other points j with ``|x_j - x_i| < eps[i]``.
     Uses sorted array + binary search; O(N log N) total."""
+    # Intentional float64: KSG estimator: kNN distances and digamma sums need f64 accuracy (accumulator)
     arr = arr_1d.astype(np.float64).ravel()
     sorted_arr = np.sort(arr)
     # Fully vectorised: searchsorted accepts the whole bound array at once, so
@@ -203,7 +208,9 @@ def mixed_ksg_mi(x: np.ndarray, y: np.ndarray, k: int = 5, use_gpu: bool = False
     NeurIPS 2017. arXiv:1709.06212.
     """
     rng = np.random.default_rng(int(seed))
+    # Intentional float64: KSG estimator: kNN distances and digamma sums need f64 accuracy (accumulator)
     x = np.asarray(x, dtype=np.float64).ravel()
+    # Intentional float64: KSG estimator: kNN distances and digamma sums need f64 accuracy (accumulator)
     y = np.asarray(y, dtype=np.float64).ravel()
     n = x.size
     if n < 2 * k + 2:
@@ -231,6 +238,7 @@ def mixed_ksg_mi(x: np.ndarray, y: np.ndarray, k: int = 5, use_gpu: bool = False
         x = x + intens * rng.standard_normal(n)
     if np.unique(y).size < n:
         y = y + intens * rng.standard_normal(n)
+    # Intentional float64: KSG estimator: kNN distances and digamma sums need f64 accuracy (accumulator)
     xy = np.column_stack([x, y]).astype(np.float64)
     eps = _query_knn_chebyshev(xy, k=k)
     eps = np.maximum(eps, 1e-12)
@@ -420,7 +428,9 @@ def ksg_lnc_mi(
     from sklearn.neighbors import KDTree
 
     rng = np.random.default_rng(int(seed))
+    # Intentional float64: KSG estimator: kNN distances and digamma sums need f64 accuracy (accumulator)
     x = np.asarray(x, dtype=np.float64).ravel()
+    # Intentional float64: KSG estimator: kNN distances and digamma sums need f64 accuracy (accumulator)
     y = np.asarray(y, dtype=np.float64).ravel()
     n = x.size
     if n < 2 * k + 2:
@@ -440,12 +450,15 @@ def ksg_lnc_mi(
     # Tie-breaking noise (NPEET_LNC line 47).
     x = x + intens * rng.standard_normal(n)
     y = y + intens * rng.standard_normal(n)
+    # Intentional float64: KSG estimator: kNN distances and digamma sums need f64 accuracy (accumulator)
     xy = np.column_stack([x, y]).astype(np.float64)
     tree_xy = KDTree(xy, metric="chebyshev")
     _d_k, idx_k = tree_xy.query(xy, k=k + 1)
     # Per-axis marginal distances d_x, d_y to k-th nearest neighbour in joint
     # (NOT the joint L-inf radius). Reference lines 128-131.
+    # Intentional float64: KSG estimator: kNN distances and digamma sums need f64 accuracy (accumulator)
     dvec_x = np.zeros(n, dtype=np.float64)
+    # Intentional float64: KSG estimator: kNN distances and digamma sums need f64 accuracy (accumulator)
     dvec_y = np.zeros(n, dtype=np.float64)
     for i in range(n):
         for j in range(k + 1):
@@ -503,7 +516,9 @@ def mixed_ksg_mi_gpu(x: np.ndarray, y: np.ndarray, k: int = 5, intens: float = 1
     from sklearn.neighbors import KDTree
 
     rng = np.random.default_rng(int(seed))
+    # Intentional float64: KSG estimator: kNN distances and digamma sums need f64 accuracy (accumulator)
     x_np = np.asarray(x, dtype=np.float64).ravel()
+    # Intentional float64: KSG estimator: kNN distances and digamma sums need f64 accuracy (accumulator)
     y_np = np.asarray(y, dtype=np.float64).ravel()
     n = x_np.size
     if n < 2 * k + 2:
@@ -519,6 +534,7 @@ def mixed_ksg_mi_gpu(x: np.ndarray, y: np.ndarray, k: int = 5, intens: float = 1
         x_np = x_np + intens * rng.standard_normal(n)
     if np.unique(y_np).size < n:
         y_np = y_np + intens * rng.standard_normal(n)
+    # Intentional float64: KSG estimator: kNN distances and digamma sums need f64 accuracy (accumulator)
     xy = np.column_stack([x_np, y_np]).astype(np.float64)
     tree = KDTree(xy, metric="chebyshev")
     d, _ = tree.query(xy, k=k + 1)

@@ -67,5 +67,5 @@ def test_max_adaptive_nbins_kwarg_propagates_through_categorize_dataset():
         _, _, nbins_tight = categorize_dataset(
             df=X, method="quantile", n_bins=10, dtype=np.int32, nbins_strategy=method, nbins_strategy_kwargs={"max_adaptive_nbins": 8}, y_for_strategy=y,
         )
-        assert nbins_tight and max(nbins_tight) <= 8, f"{method}: max_adaptive_nbins=8 not respected, got {dict(zip(cols, nbins_tight))}"
+        assert np.size(nbins_tight) > 0 and max(nbins_tight) <= 8, f"{method}: max_adaptive_nbins=8 not respected, got {dict(zip(cols, nbins_tight))}"
         assert any(nb > 8 for nb in nbins_loose), f"{method}: fixture didn't exercise the cap (all columns already <=8 bins at cap=256)"

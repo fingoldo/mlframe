@@ -46,19 +46,23 @@ def _make_dense_inputs(dims: dict) -> tuple:
     return (np.ascontiguousarray(Z, dtype=np.float32),)
 
 
+# Intentional float64: exact integer count output (np.float64 contract)
 def _dense_edges_cpu_count(Z: np.ndarray) -> np.float64:
     """Edge count of the dense CPU path (the inline branch of ``cluster_correlated_features``)."""
     n, f = Z.shape
     C = (Z.T @ Z) / np.float32(n)
     iu = np.triu_indices(f, k=1)
+    # Intentional float64: exact integer count output
     return np.float64(np.count_nonzero(np.abs(C[iu]) > np.float32(_SWEEP_THRESHOLD_DENSE)))
 
 
+# Intentional float64: exact integer count output (np.float64 contract)
 def _dense_edges_gpu_count(Z: np.ndarray) -> np.float64:
     """Edge count of the dense GPU path."""
     from mlframe.feature_selection.shap_proxied_fs._shap_proxy_cluster import _edges_dense_gpu
 
     edges = _edges_dense_gpu(Z, _SWEEP_THRESHOLD_DENSE, 10**12)
+    # Intentional float64: exact integer count output
     return np.float64(0 if edges is None else edges[0].shape[0])
 
 
@@ -99,6 +103,7 @@ def _make_su_inputs(dims: dict) -> tuple:
     return packed
 
 
+# Intentional float64: exact integer count output (np.float64 contract)
 def _su_edges_cpu_count(bins_packed, nbins, freqs_packed, freqs_offsets, h_marginals, constant_mask) -> np.float64:
     """Edge count of the CPU pairwise SU scan (bitmap kernel when its gates pass, else the scalar prange kernel)."""
     from mlframe.feature_selection.shap_proxied_fs._shap_proxy_cluster_su import _run_cpu_pairwise_su
@@ -107,13 +112,16 @@ def _su_edges_cpu_count(bins_packed, nbins, freqs_packed, freqs_offsets, h_margi
         bins_packed, nbins, freqs_packed, freqs_offsets, h_marginals, constant_mask, _SWEEP_THRESHOLD_SU,
         use_bitmap=True, bitmap_min_features=None, bitmap_max_n_bins=None,
     )
+    # Intentional float64: exact integer count output
     return np.float64(np.count_nonzero(flags))
 
 
+# Intentional float64: exact integer count output (np.float64 contract)
 def _su_edges_gpu_count(bins_packed, nbins, freqs_packed, freqs_offsets, h_marginals, constant_mask) -> np.float64:
     """Edge count of the GPU pairwise SU scan."""
     from mlframe.feature_selection.shap_proxied_fs._shap_proxy_cluster_su import _pairwise_su_edges_gpu
 
+    # Intentional float64: exact integer count output
     return np.float64(np.count_nonzero(_pairwise_su_edges_gpu(bins_packed, nbins, h_marginals, constant_mask, _SWEEP_THRESHOLD_SU)))
 
 

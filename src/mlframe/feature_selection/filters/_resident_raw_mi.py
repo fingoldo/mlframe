@@ -33,6 +33,8 @@ import logging
 from typing import Any, Optional
 
 import numpy as np
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
+from mlframe.feature_selection.filters._fe_gpu_batch._devices import crit_float_dtype
 
 logger = logging.getLogger(__name__)
 
@@ -57,7 +59,7 @@ def resident_raw_baseline_mi(
     exact dispatch of ``_orth_mi_backends._mi_classif_batch:333`` so the resident MI matches the host STRICT MI
     the caller would otherwise compute.
 
-    Returns a host ``(k,)`` float64 MI array, OR ``None`` when STRICT-residency is off / cupy is unavailable /
+    Returns a host ``(k,)`` double precision MI array, OR ``None`` when STRICT-residency is off / cupy is unavailable /
     any cupy fault - in which case the caller MUST fall back to the EXACT host ``_mi_classif_batch`` (the
     byte-identical default path)."""
     try:
@@ -69,17 +71,17 @@ def resident_raw_baseline_mi(
         logger.debug("resident_raw_baseline_mi: fe_gpu_resident_raw_baseline_enabled() check failed, caller falls back to the exact host _mi_classif_batch: %s", e)
         return None
     try:
-        import cupy as cp
+        import cupy  # noqa: F401 - availability probe; crit_float_dtype() imports cupy lazily
     except ImportError as _exc:
         logger.debug("resident_raw_baseline_mi fell back to its default after %s", type(_exc).__name__)
         return None
     try:
-        host = np.ascontiguousarray(np.asarray(mat, dtype=np.float64))
+        host = np.ascontiguousarray(np.asarray(mat, dtype=_crit_np_dtype()))
         if host.ndim == 1:
             host = host[:, None]
         n, k = host.shape
         if n == 0 or k == 0:
-            return np.zeros(k, dtype=np.float64)
+            return np.zeros(k, dtype=_crit_np_dtype())
 
         from ._fe_resident_operands import resident_operand, assemble_resident_matrix
         from ._hermite_fe_mi import _plugin_mi_classif_batch_cuda_resident
@@ -92,7 +94,7 @@ def resident_raw_baseline_mi(
         # that column verbatim (the callers build ``raw_X[cols].to_numpy()``), so the per-column upload is the
         # SAME bytes -> content-keyed dedup -> selection-identical. Any shape/name mismatch -> upload the matrix.
         _names = role_key[1] if (isinstance(role_key, tuple) and len(role_key) >= 2 and isinstance(role_key[1], (tuple, list))) else None
-        Xd = assemble_resident_matrix(host, _names, role_key, dtype=cp.float64)
+        Xd = assemble_resident_matrix(host, _names, role_key, dtype=crit_float_dtype())
 
         _yi = np.ascontiguousarray(np.asarray(y)).astype(np.int64).ravel()
         yd = resident_operand(_yi, "y_mi_classif", dtype=np.int64)
@@ -104,12 +106,12 @@ def resident_raw_baseline_mi(
 
             rank_mi = plugin_mi_classif_batch_rank_cuda_resident(Xd, yd, int(nbins), y_min=_ymin, n_classes=_ncls)
             if rank_mi is not None:
-                return np.asarray(rank_mi, dtype=np.float64)
+                return np.asarray(rank_mi, dtype=_crit_np_dtype())
             # rank resident path unavailable -> host fallback (caller takes the CPU njit rank MI).
             return None
         return np.asarray(
             _plugin_mi_classif_batch_cuda_resident(Xd, yd, int(nbins), y_min=_ymin, n_classes=_ncls),
-            dtype=np.float64,
+            dtype=_crit_np_dtype(),
         )
     except Exception as _exc:
         logger.debug("resident_raw_baseline_mi: GPU path failed (%s); host fallback", _exc)

@@ -140,7 +140,7 @@ def align_precomputed_to_X(
         logger.warning("ShapProxiedFS(precomputed=...): missing 'su_to_target' or 'feature_names'; ignoring.")
         return None, report
 
-    su_arr = np.asarray(su, dtype=np.float64)
+    su_arr = np.asarray(su, dtype=np.float64)  # Intentional float64: MI / SU statistic vector ranked at full precision
     names = list(names)
     if su_arr.ndim != 1 or su_arr.shape[0] != len(names):
         report["reason"] = f"shape_mismatch_su={su_arr.shape}_names={len(names)}"
@@ -186,7 +186,7 @@ def align_precomputed_to_X(
             aligned["n_samples_at_fit"] = precomputed["n_samples_at_fit"]
         mi = precomputed.get("mi_to_target")
         if mi is not None:
-            mi_arr = np.asarray(mi, dtype=np.float64)
+            mi_arr = np.asarray(mi, dtype=np.float64)  # Intentional float64: MI / SU statistic vector ranked at full precision
             if mi_arr.shape == su_arr.shape:
                 aligned["mi_to_target"] = mi_arr[order]
         bins = precomputed.get("bins")
@@ -232,7 +232,7 @@ def su_to_prefilter_keep(
     with NaN handling that mirrors the F-statistic prefilter's behaviour
     (which returns 0.0 for constant columns and lets them sink).
     """
-    su = np.asarray(aligned["su_to_target"], dtype=np.float64).copy()
+    su = np.asarray(aligned["su_to_target"], dtype=np.float64).copy()  # Intentional float64: MI / SU statistic vector ranked at full precision
     su[~np.isfinite(su)] = -np.inf
     keep_top = int(min(keep_top, su.shape[0]))
     if keep_top <= 0:

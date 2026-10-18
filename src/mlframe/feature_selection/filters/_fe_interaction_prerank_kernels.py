@@ -42,6 +42,7 @@ import time
 from typing import TYPE_CHECKING
 
 import numpy as np
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 
 if TYPE_CHECKING:
     from pyutilz.performance.kernel_tuning.registry import TunerSpec
@@ -84,7 +85,7 @@ def _measure_gbm_cols_per_second(n_samples: int) -> float:
     n = int(n_samples)
     rng = np.random.default_rng(0)
     X = rng.standard_normal((n, _GBM_BENCH_P))
-    y = (rng.random(n) < 0.5).astype(np.float64)
+    y = (rng.random(n) < 0.5).astype(_crit_np_dtype())
     params = dict(objective="binary", num_leaves=31, learning_rate=0.1, verbose=-1, min_child_samples=20, feature_fraction=1.0)
     ds = lgb.Dataset(X, label=y)
     t0 = time.perf_counter()
@@ -209,7 +210,7 @@ def _standardize_indicators(yf: np.ndarray, classes: np.ndarray) -> np.ndarray:
     Each column is the centered, unit-L2 indicator 1[y==c]. A class present in every row
     (impossible here - classes are distinct values) or absent would give a zero column."""
     n = yf.shape[0]
-    Y = np.zeros((n, classes.size), dtype=np.float64)
+    Y = np.zeros((n, classes.size), dtype=_crit_np_dtype())
     for k, c in enumerate(classes):
         Y[:, k] = yf == c
     Yc = Y - Y.mean(axis=0)
@@ -333,7 +334,7 @@ def _make_inputs(work: int):
     rng = np.random.default_rng(0)
     ZV = _standardize_cols(rng.standard_normal((n, p)))
     ZV2 = _standardize_cols(ZV * ZV)
-    yf = (rng.random(n) < 0.5).astype(np.float64)
+    yf = (rng.random(n) < 0.5).astype(_crit_np_dtype())
     Yc = _standardize_indicators(yf, np.array([0.0, 1.0]))
     return (ZV, ZV2, Yc)
 

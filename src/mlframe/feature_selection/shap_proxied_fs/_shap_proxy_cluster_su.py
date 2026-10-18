@@ -28,6 +28,8 @@ import math
 from typing import Iterable
 
 import numpy as np
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
+from mlframe.feature_selection.filters._fe_gpu_batch._devices import crit_float_dtype
 from numba import njit, prange
 
 from mlframe.feature_selection.shap_proxied_fs._shap_proxy_cluster import _uf_labels
@@ -187,7 +189,7 @@ def _pairwise_su_edges_gpu(
          nothing to joints; constant columns are masked out before edge extraction.
       2. For each chunk of ``i`` rows compute the joint matrix against ALL ``j > i`` via
          ``einsum('ias,jbs->ijab', X_onehot[i_chunk], X_onehot)`` -> shape ``(chunk, f, mb, mb)``.
-         The on-device working tensor is ``chunk * f * mb^2 * 8 bytes`` (float64 for
+         The on-device working tensor is ``chunk * f * mb^2 * 8 bytes`` (crit dtype for
          numerically stable log) which we keep under the ``pair_chunk_size`` cap.
       3. Compute SU per pair entry-wise: ``mi = sum_{ab} joint_ab * log(joint_ab /
          (px_a * py_b))`` (skipping zero entries), ``su = 2*mi / (h_i + h_j)``.
@@ -198,10 +200,10 @@ def _pairwise_su_edges_gpu(
 
     n_features, n_samples = bins_packed.shape
     max_nb = int(nbins.max()) if nbins.size else 0
-    inv_n = cp.float64(1.0 / n_samples) if n_samples > 0 else cp.float64(0.0)
+    inv_n = crit_float_dtype()(1.0 / n_samples) if n_samples > 0 else crit_float_dtype()(0.0)
 
     bins_dev = cp.asarray(bins_packed, dtype=cp.int32)
-    h_dev = cp.asarray(h_marginals, dtype=cp.float64)
+    h_dev = cp.asarray(h_marginals, dtype=crit_float_dtype())
     constant_dev = cp.asarray(constant_mask, dtype=cp.bool_)
 
     # One-hot tensor: positions (f, b, s) = 1 iff bins_packed[f, s] == b. Padded rows
@@ -212,7 +214,7 @@ def _pairwise_su_edges_gpu(
 
     # Marginal probability vector per feature from the one-hot sums (axis=samples).
     # Shape: (n_features, max_nb) float64. Padded bins always sum to 0 -> px=0 -> skipped.
-    px_dev = onehot.sum(axis=2).astype(cp.float64) * inv_n
+    px_dev = onehot.sum(axis=2).astype(crit_float_dtype()) * inv_n
 
     flags = cp.zeros((n_features, n_features), dtype=cp.uint8)
 
@@ -246,7 +248,7 @@ def _pairwise_su_edges_gpu(
             onehot[i_start:i_end],
             onehot,
         )
-        joint_p = joint_counts.astype(cp.float64) * inv_n  # (chunk, f, mb, mb)
+        joint_p = joint_counts.astype(crit_float_dtype()) * inv_n  # (chunk, f, mb, mb)
 
         # mi = sum_{a,b} joint_p * log(joint_p / (px_i_a * px_j_b)) over a, b
         # We need px_outer[i_local, j, a, b] = px[i_global, a] * px[j, b].
@@ -255,18 +257,18 @@ def _pairwise_su_edges_gpu(
         px_outer = px_i * px_j  # (chunk, f, mb, mb)
 
         # log-ratio only where joint_p > 0 AND px_outer > 0; zero elsewhere
-        eps = cp.float64(1e-300)
+        eps = crit_float_dtype()(1e-300)
         safe_outer = cp.where(px_outer > 0.0, px_outer, eps)
-        ratio = cp.where(joint_p > 0.0, joint_p / safe_outer, cp.float64(1.0))
-        log_ratio = cp.where(joint_p > 0.0, cp.log(ratio), cp.float64(0.0))
+        ratio = cp.where(joint_p > 0.0, joint_p / safe_outer, crit_float_dtype()(1.0))
+        log_ratio = cp.where(joint_p > 0.0, cp.log(ratio), crit_float_dtype()(0.0))
         mi = (joint_p * log_ratio).sum(axis=(2, 3))  # (chunk, f)
 
         h_i_chunk = h_dev[i_start:i_end][:, None]  # (chunk, 1)
         denom = h_i_chunk + h_dev[None, :]  # (chunk, f)
         # denom == 0 happens iff BOTH columns have entropy 0 (both constant). For those
         # pairs ``constant_mask`` already excludes them below.
-        safe_denom = cp.where(denom > 1e-12, denom, cp.float64(1.0))
-        su = cp.where(denom > 1e-12, 2.0 * mi / safe_denom, cp.float64(0.0))
+        safe_denom = cp.where(denom > 1e-12, denom, crit_float_dtype()(1.0))
+        su = cp.where(denom > 1e-12, 2.0 * mi / safe_denom, crit_float_dtype()(0.0))
 
         # Mask: upper triangle only AND not constant on either side.
         i_idx = cp.arange(i_start, i_end)[:, None]  # (chunk, 1)
@@ -274,7 +276,7 @@ def _pairwise_su_edges_gpu(
         upper = j_idx > i_idx  # (chunk, f)
         not_const = (~constant_dev[i_start:i_end])[:, None] & (~constant_dev[None, :])
 
-        passes = (su >= cp.float64(threshold)) & upper & not_const
+        passes = (su >= crit_float_dtype()(threshold)) & upper & not_const
         flags[i_start:i_end] = passes.astype(cp.uint8)
 
         # Free chunk temporaries before next chunk to keep peak GPU memory bounded.
@@ -378,8 +380,8 @@ def _setup_su_kernel_inputs(
         offset += nb
     freqs_offsets[n_features] = offset
 
-    freqs_packed = np.empty(int(offset), dtype=np.float64)
-    h_marginals = np.empty(n_features, dtype=np.float64)
+    freqs_packed = np.empty(int(offset), dtype=_crit_np_dtype())
+    h_marginals = np.empty(n_features, dtype=_crit_np_dtype())
     constant_mask = np.empty(n_features, dtype=np.bool_)
 
     # Parallel sweep: bincount + normalize + entropy + constant-mask, all in one
@@ -418,13 +420,13 @@ def _pack_bins_for_kernel(
     bins_packed = np.empty((n_features, n_samples), dtype=np.int32, order="C")
     nbins = np.empty(n_features, dtype=np.int64)
     freqs_offsets = np.empty(n_features + 1, dtype=np.int64)
-    h_marginals = np.empty(n_features, dtype=np.float64)
+    h_marginals = np.empty(n_features, dtype=_crit_np_dtype())
     constant_mask = np.empty(n_features, dtype=np.bool_)
 
     total_freqs = 0
     for _i, (_classes_unused, freqs) in enumerate(marginals):
         total_freqs += int(freqs.shape[0])
-    freqs_packed = np.empty(total_freqs, dtype=np.float64)
+    freqs_packed = np.empty(total_freqs, dtype=_crit_np_dtype())
     offset = 0
     for i, (classes_i, freqs_i) in enumerate(marginals):
         # classes_i is int64 by construction in _column_marginal; downcast to the
@@ -469,7 +471,7 @@ def _column_marginal(
     classes: np.ndarray,
     n_bins_hint: int | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Return ``(classes_int64, freqs_float64)`` ready for ``compute_su_from_classes``.
+    """Return ``(classes_int64, freqs)`` ready for ``compute_su_from_classes``.
 
     The frequency array is a probability vector (sums to 1 if ``classes.size > 0``);
     its length matches the maximum observed bin id + 1, or ``n_bins_hint`` if that
@@ -478,7 +480,7 @@ def _column_marginal(
     """
     cls = np.ascontiguousarray(classes, dtype=np.int64)
     if cls.size == 0:
-        return cls, np.empty(0, dtype=np.float64)
+        return cls, np.empty(0, dtype=_crit_np_dtype())
     observed_max = int(cls.max()) + 1 if cls.size else 0
     if observed_max > SPARSE_CODE_RELABEL_MIN:
         # Wide code space (see ``_setup_su_kernel_inputs``): relabel densely; SU is unchanged.
@@ -487,7 +489,7 @@ def _column_marginal(
         cls = dense.astype(np.int64)
     else:
         nb = max(observed_max, int(n_bins_hint) if n_bins_hint is not None else 0)
-    counts = np.bincount(cls, minlength=nb).astype(np.float64)
+    counts = np.bincount(cls, minlength=nb).astype(_crit_np_dtype())
     total = counts.sum()
     if total <= 0.0:
         return cls, counts

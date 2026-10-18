@@ -20,6 +20,8 @@ from ._pairs_materialise import (
 )
 from mlframe.utils.log_throttle import log_throttle
 
+from .._fe_usability_signal import _crit_np_dtype
+
 logger = logging.getLogger(__name__)
 
 # DEGENERATE-PAIR |corr| threshold. A prospective pair is DEGENERATE when its winning
@@ -389,7 +391,7 @@ def _score_one_pair_computed_once_per_distinct(_tp, vars_transformations, _op_co
     return _op_corr
 
 
-def _score_one_pair_side(_tp2, vars_transformations, transformed_vars, _abs_corr_zerofill_njit, _win_vals_f64, _max_single_op_corr):
+def _score_one_pair_side(_tp2, vars_transformations, transformed_vars, _abs_corr_zerofill_njit, _win_vals_crit, _max_single_op_corr):
     """Block of _score_one_pair starting at ``for _side in (0, 1):``."""
     for _side in (0, 1):
         _opk = _tp2[_side] if isinstance(_tp2, (tuple, list)) and len(_tp2) > _side else None
@@ -398,7 +400,7 @@ def _score_one_pair_side(_tp2, vars_transformations, transformed_vars, _abs_corr
             # One-pass njit correlation (bit-equivalent to the previous
             # nan_to_num-then-np.corrcoef - see _abs_corr_zerofill_njit's docstring)
             # instead of 2 full-array nan_to_num allocations + a 2x2 corrcoef matrix.
-            _r = _abs_corr_zerofill_njit(_win_vals_f64, np.asarray(_ov, dtype=np.float64))
+            _r = _abs_corr_zerofill_njit(_win_vals_crit, np.asarray(_ov, dtype=_crit_np_dtype()))
             _max_single_op_corr = max(_max_single_op_corr, _r)
     return _max_single_op_corr
 

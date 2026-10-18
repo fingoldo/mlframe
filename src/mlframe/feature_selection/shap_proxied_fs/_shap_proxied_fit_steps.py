@@ -428,7 +428,7 @@ class ShapProxiedFitStepsMixin:
                 f_scores_orig = get_cached_f_scores(report.get("prefilter"))
                 if f_scores_orig is not None:
                     try:
-                        f_working = np.asarray(f_scores_orig, dtype=np.float64)[np.asarray(working_cols)]
+                        f_working = np.asarray(f_scores_orig, dtype=np.float64)[np.asarray(working_cols)]  # Intentional float64: shap-proxy fit statistic (not the FE path)
                     except (IndexError, TypeError):
                         f_working = None
                     if f_working is not None:
@@ -438,7 +438,7 @@ class ShapProxiedFitStepsMixin:
                                 unit_f_scores = f_working
                         else:
                             if all(int(m) < f_working.shape[0] for u in unit_to_members for m in u):
-                                unit_f_scores = np.array([float(np.mean(f_working[np.asarray(u, dtype=np.int64)])) for u in unit_to_members], dtype=np.float64)
+                                unit_f_scores = np.array([float(np.mean(f_working[np.asarray(u, dtype=np.int64)])) for u in unit_to_members], dtype=np.float64)  # Intentional float64: shap-proxy unit score statistic (not the FE path)
             # iter18: resolve fidelity_floor / spearman_floor (deprecated alias). Supplying both
             # at the facade level is an error; supplying only the legacy name emits a
             # DeprecationWarning and copies the value through. ``None`` is the "unset" sentinel for
@@ -486,14 +486,14 @@ class ShapProxiedFitStepsMixin:
 
     def _fit_step5_penalty_focuses_retrain(self, candidates, report, phi, phi_var, n_features):
         """Step 5 of fit: lines starting at ``score = np.array([c[0] for c in candidates], dtype=np.float64) # raw p``."""
-        score = np.array([c[0] for c in candidates], dtype=np.float64)  # raw proxy loss
+        score = np.array([c[0] for c in candidates], dtype=np.float64)  # raw proxy loss  # Intentional float64: shap-proxy candidate loss statistic
         if self.use_bias_corrector and self.trust_guard and report.get("trust", {}).get("_corrector_data"):
             from mlframe.feature_selection.shap_proxied_fs._shap_proxy_calibrate import fit_proxy_corrector, subset_redundancy_many
 
             cd = report["trust"]["_corrector_data"]
             corrector = fit_proxy_corrector(cd["proxy"], cd["honest"], cd["cards"], cd["redund"])
             if not corrector.fallback:
-                cards = np.array([len(c[1]) for c in candidates], dtype=np.float64)
+                cards = np.array([len(c[1]) for c in candidates], dtype=np.float64)  # Intentional float64: shap-proxy cardinality statistic
                 redund = subset_redundancy_many(phi, [c[1] for c in candidates])
                 score = corrector.predict(score, cards, redund)
                 report["bias_corrector"] = dict(applied=True, n_anchors=len(cd["proxy"]))

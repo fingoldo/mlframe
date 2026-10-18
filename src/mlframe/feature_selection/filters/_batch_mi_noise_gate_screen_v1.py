@@ -6,6 +6,7 @@ Moved VERBATIM; ``batch_mi_noise_gate_gpu`` re-exports every name here. This mod
 from __future__ import annotations
 
 import numpy as np
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 
 from ._batch_mi_noise_gate_kernels import (
     cupy,
@@ -82,7 +83,7 @@ def batch_mi_with_noise_gate_cupy_v1(
 
     n = int(disc_2d.shape[0])
     K = int(disc_2d.shape[1])
-    fe_mi = np.zeros(K, dtype=np.float64)
+    fe_mi = np.zeros(K, dtype=_crit_np_dtype())
     if K == 0 or n == 0:
         return fe_mi
     _screen_host_codes(disc_2d, factors_nbins, classes_y, freqs_y, "batch_mi_with_noise_gate_cupy_v1")
@@ -124,7 +125,7 @@ def batch_mi_with_noise_gate_cupy_v1(
 
     # Original MI. Per-column MI reduction batched into one njit call (bit-identical).
     _col_off = offsets[:K]
-    _all_pos = np.ones(K, dtype=np.float64)
+    _all_pos = np.ones(K, dtype=_crit_np_dtype())
     counts_orig = _joint_counts_for(np.asarray(classes_y, dtype=np.int64))
     original_mi = _mi_columns_from_counts_cpu(counts_orig, _col_off, nbins_arr, K_y, freqs_y, n, use_su, _all_pos)
 

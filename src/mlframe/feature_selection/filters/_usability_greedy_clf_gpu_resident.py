@@ -46,6 +46,8 @@ import math
 from typing import Optional
 
 import numpy as np
+from ._fe_gpu_batch._devices import crit_float_dtype
+from ._fe_usability_signal import _crit_np_dtype
 
 logger = logging.getLogger(__name__)
 
@@ -143,7 +145,7 @@ def usability_greedy_clf_gpu_resident(
 
         P = len(pool)
         # ---- ONE bulk H2D: the (n, P) candidate value matrix + the (n,) class codes. Resident hereafter. ----
-        Vhost = np.empty((n, P), dtype=np.float64)
+        Vhost = np.empty((n, P), dtype=_crit_np_dtype())
         for j in range(P):
             col = _f64(pool[j].values)
             if col.shape[0] != n:
@@ -151,7 +153,7 @@ def usability_greedy_clf_gpu_resident(
             Vhost[:, j] = col
         Vdev = cp.asarray(Vhost)  # (n, P) resident
         yenc_dev = cp.asarray(y_enc.astype(np.int64))  # (n,) resident class codes
-        ydev_f = yenc_dev.astype(cp.float64)  # binary positive-class indicator helper
+        ydev_f = yenc_dev.astype(crit_float_dtype())  # binary positive-class indicator helper
 
         # RAM GOVERNOR (mirror the CPU path so the resident selection matches under memory pressure).
         K, shortlist = _shrink_shortlist_to_ram_budget(K, P, n, shortlist)
@@ -165,6 +167,7 @@ def usability_greedy_clf_gpu_resident(
         mi_max = max((c.mi for c in pool), default=1.0)
         if mi_max == 0:
             mi_max = 1.0
+        # Intentional float64: accumulator kept f64 (statistic / count sums need full precision)
         mi_host = np.asarray([float(c.mi) for c in pool], dtype=np.float64)
 
         tr_masks = [folds_dev != fo for fo in range(nf)]
@@ -177,7 +180,7 @@ def usability_greedy_clf_gpu_resident(
         _bincount = np.bincount(y_enc, minlength=n_classes)
         maj = int(np.argmax(_bincount))
         pos_cls = 1 if n_classes == 2 else maj
-        pos_dev = (yenc_dev == pos_cls).astype(cp.float64)
+        pos_dev = (yenc_dev == pos_cls).astype(crit_float_dtype())
 
         # ---------- resident logistic fits (strictly-convex L2 Newton; the unique sklearn optimum) ----------
         def _standardize(Xtr, Xother):
@@ -200,6 +203,7 @@ def usability_greedy_clf_gpu_resident(
             """No-selection per-fold logloss: predict each val fold by its train-fold class PRIOR. Binary
             (multiclass is deferred to CPU above), so the prior is the SCALAR train-fold positive rate; the
             per-val proba is BROADCAST resident from that scalar - NO per-fold H2D tile (residency contract)."""
+            # Intentional float64: accumulator kept f64 (statistic / count sums need full precision)
             errs = np.empty(nf, dtype=np.float64)
             for fo in range(nf):
                 tr, va = tr_masks[fo], va_masks[fo]
@@ -213,6 +217,7 @@ def usability_greedy_clf_gpu_resident(
             """Per-fold logloss for the selected set + one candidate ``cand`` (a fresh fit per fold).
             Mirrors the CPU per-candidate refit; returns a bounded (nf,) result vector (one D2H/fold-scalar)."""
             full = [*sel_idx, cand]
+            # Intentional float64: accumulator kept f64 (statistic / count sums need full precision)
             errs = np.empty(nf, dtype=np.float64)
             for fo in range(nf):
                 tr, va = tr_masks[fo], va_masks[fo]
@@ -246,11 +251,11 @@ def _usability_greedy_clf_step1_def_fit_binary(cp, n_classes):
         """L2 Newton for binary logistic on standardized design ``Xs`` (intercept appended,
         unpenalised). ``yb`` is a resident {0,1} float vector. Returns w (k+1,) or raises."""
         nn, k = Xs.shape
-        A = cp.empty((nn, k + 1), dtype=cp.float64)
+        A = cp.empty((nn, k + 1), dtype=crit_float_dtype())
         A[:, :k] = Xs
         A[:, k] = 1.0
-        wv = cp.zeros(k + 1, dtype=cp.float64)
-        reg = cp.ones(k + 1, dtype=cp.float64)
+        wv = cp.zeros(k + 1, dtype=crit_float_dtype())
+        reg = cp.ones(k + 1, dtype=crit_float_dtype())
         reg[k] = 0.0
         lam = 1.0 / _C
         for _ in range(_NEWTON_MAX_ITER):
@@ -293,13 +298,13 @@ def _usability_greedy_clf_step1_def_fit_binary(cp, n_classes):
         either into the dispatch; multiclass stays on the exact CPU sklearn path."""
         nn, k = Xs.shape
         d = k + 1
-        A = cp.empty((nn, d), dtype=cp.float64)
+        A = cp.empty((nn, d), dtype=crit_float_dtype())
         A[:, :k] = Xs
         A[:, k] = 1.0
-        Y = cp.zeros((nn, n_classes), dtype=cp.float64)
+        Y = cp.zeros((nn, n_classes), dtype=crit_float_dtype())
         Y[cp.arange(nn), yc] = 1.0
-        Wm = cp.zeros((d, n_classes), dtype=cp.float64)
-        reg = cp.ones(d, dtype=cp.float64)
+        Wm = cp.zeros((d, n_classes), dtype=crit_float_dtype())
+        reg = cp.ones(d, dtype=crit_float_dtype())
         reg[k] = 0.0
         lam = 1.0 / _C
         regdiag = lam * cp.diag(reg)
@@ -310,7 +315,7 @@ def _usability_greedy_clf_step1_def_fit_binary(cp, n_classes):
             Pm = E / E.sum(axis=1, keepdims=True)
             G = A.T @ (Pm - Y) + lam * (reg[:, None] * Wm)
             grad = G.reshape(-1)
-            Hbig = cp.zeros((d * n_classes, d * n_classes), dtype=cp.float64)
+            Hbig = cp.zeros((d * n_classes, d * n_classes), dtype=crit_float_dtype())
             for c in range(n_classes):
                 for c2 in range(n_classes):
                     wgt = Pm[:, c] * ((1.0 if c == c2 else 0.0) - Pm[:, c2])
@@ -335,7 +340,7 @@ def _usability_greedy_clf_step1_def_fit_binary(cp, n_classes):
         """Softmax class-probability matrix from the fitted symmetric weight matrix ``Wm`` (last row is
         the unpenalised intercept), row-max-shifted for numerical stability before the exponential."""
         nn, k = Xs.shape
-        A = cp.empty((nn, k + 1), dtype=cp.float64)
+        A = cp.empty((nn, k + 1), dtype=crit_float_dtype())
         A[:, :k] = Xs
         A[:, k] = 1.0
         Z = A @ Wm
@@ -364,7 +369,7 @@ def _usability_greedy_clf_step2_def_fit_proba(n_classes, cp, _fit_binary, _proba
         """Fit on standardized train design, return list of eval-set probabilities (positive-class
         (m,) for binary, (m,C) for multinomial). Raises _ResidentClfFallbackError on a bad fit."""
         if n_classes == 2:
-            yb = (ytr_codes_dev == 1).astype(cp.float64)
+            yb = (ytr_codes_dev == 1).astype(crit_float_dtype())
             wv = _fit_binary(Xtr_s, yb)
             return [_proba_binary(Xe, wv) for Xe in Xeval_list]
         Wm = _fit_multinomial(Xtr_s, ytr_codes_dev)
@@ -376,7 +381,7 @@ def _usability_greedy_clf_step2_def_fit_proba(n_classes, cp, _fit_binary, _proba
         (a single (m, P) reduction), restricted to ``rows_mask`` when given. Degenerate (near-zero-variance
         residual or candidate) entries return 0.0 instead of NaN so the shortlist score stays well-defined."""
         M = Vdev if rows_mask is None else Vdev[rows_mask]
-        out = cp.zeros(P, dtype=cp.float64)
+        out = cp.zeros(P, dtype=crit_float_dtype())
         m = int(M.shape[0])
         if m == 0:
             return np.asarray(cp.asnumpy(out))

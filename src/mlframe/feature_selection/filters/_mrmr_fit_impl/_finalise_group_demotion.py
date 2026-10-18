@@ -52,8 +52,9 @@ def _demote_group_leaks_final(self, cols, classes_y, data, nbins, X, verbose):
                     try:
                         from mlframe.feature_selection.filters.engineered_recipes.shared import apply_recipe as _apply_recipe_final
                         from mlframe.feature_selection.filters.discretization import discretize_array as _discretize_array_final
+                        from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 
-                        _cv_f = np.asarray(_apply_recipe_final(_recipe, X), dtype=np.float64).ravel()
+                        _cv_f = np.asarray(_apply_recipe_final(_recipe, X), dtype=_crit_np_dtype()).ravel()
                         _cv_f = np.nan_to_num(_cv_f, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
                         if _cv_f.shape[0] != _classes_y_arr_f.shape[0]:
                             continue  # can't align - leave this recipe alone

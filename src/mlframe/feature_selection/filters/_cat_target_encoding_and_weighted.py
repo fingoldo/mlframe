@@ -38,8 +38,8 @@ logger = logging.getLogger(__name__)
 def _cell_sum_cnt_njit(classes, y, n_uniq):
     """Per-cell running (sum of y, count) over rows, in row order - bit-identical to the Python
     ``for row: cell_sum[c]+=y[row]; cell_cnt[c]+=1`` accumulator it replaces (~490x @100k). ``classes`` is int."""
-    cell_sum = np.zeros(n_uniq, dtype=np.float64)
-    cell_cnt = np.zeros(n_uniq, dtype=np.float64)
+    cell_sum = np.zeros(n_uniq, dtype=np.float64)  # Intentional float64: per-category sum accumulator for the target-encoding statistic
+    cell_cnt = np.zeros(n_uniq, dtype=np.float64)  # Intentional float64: per-category count accumulator for the target-encoding statistic
     for row in range(classes.shape[0]):
         c = classes[row]
         cell_sum[c] += y[row]
@@ -87,7 +87,7 @@ def _compute_target_encoding(
         var_is_nominal=None, factors_nbins=nbins, dtype=dtype,
     )
     # Y as numeric: take classes_y (already merged) and treat as float
-    y_numeric = classes_y.astype(np.float64)
+    y_numeric = classes_y.astype(np.float64)  # Intentional float64: numeric target for the encoding statistic
     te_global = float(y_numeric.mean())
 
     if n_oof_folds <= 0 and not allow_naive_leak:
@@ -106,9 +106,9 @@ def _compute_target_encoding(
         # Naive: per-cell mean across all rows
         cell_sum, cell_cnt = _cell_sum_cnt_njit(
             np.ascontiguousarray(classes_merged, dtype=np.int64),
-            np.ascontiguousarray(y_numeric, dtype=np.float64), int(n_uniq),
+            np.ascontiguousarray(y_numeric, dtype=np.float64), int(n_uniq),  # Intentional float64: numeric target input to the njit encoding kernel
         )
-        cell_means = np.zeros(int(n_uniq), dtype=np.float64)
+        cell_means = np.zeros(int(n_uniq), dtype=np.float64)  # Intentional float64: per-category mean accumulator
         for c in range(int(n_uniq)):
             if cell_cnt[c] > 0:
                 raw = cell_sum[c] / cell_cnt[c]
@@ -128,7 +128,7 @@ def _compute_target_encoding(
     _perm = np.random.default_rng(int(seed)).permutation(n_samples)
     fold_ids = np.empty(n_samples, dtype=np.int64)
     fold_ids[_perm] = np.arange(n_samples) % K
-    te_values = np.full(n_samples, te_global, dtype=np.float64)
+    te_values = np.full(n_samples, te_global, dtype=np.float64)  # Intentional float64: global-mean fill for the encoding statistic
     classes_merged_i64 = np.ascontiguousarray(classes_merged, dtype=np.int64)
     # Full-data cell sum/cnt, needed anyway for the transform()-time global lookup below. Both are additive
     # per-row partition sums (cnt: a row count; sum: sum of y), so a fold's TRAIN-only sum/cnt equal
@@ -136,16 +136,16 @@ def _compute_target_encoding(
     # replaces the O(n*(K-1)/K) TRAIN rescan per fold, and this same full pass is reused below instead of a
     # third identical recompute for the global replay lookup.
     full_sum, full_cnt = _cell_sum_cnt_njit(
-        classes_merged_i64, np.ascontiguousarray(y_numeric, dtype=np.float64), int(n_uniq),
+        classes_merged_i64, np.ascontiguousarray(y_numeric, dtype=np.float64), int(n_uniq),  # Intentional float64: numeric target input to the njit encoding kernel
     )
     for f in range(K):
         test_mask = fold_ids == f
         test_sum, test_cnt = _cell_sum_cnt_njit(
-            classes_merged_i64[test_mask], np.ascontiguousarray(y_numeric[test_mask], dtype=np.float64), int(n_uniq),
+            classes_merged_i64[test_mask], np.ascontiguousarray(y_numeric[test_mask], dtype=np.float64), int(n_uniq),  # Intentional float64: numeric target input to the njit encoding kernel
         )
         cell_sum = full_sum - test_sum
         cell_cnt = full_cnt - test_cnt
-        cell_means_fold = np.full(int(n_uniq), te_global, dtype=np.float64)
+        cell_means_fold = np.full(int(n_uniq), te_global, dtype=np.float64)  # Intentional float64: per-fold mean fill for the encoding statistic
         for c in range(int(n_uniq)):
             if cell_cnt[c] > 0:
                 raw = cell_sum[c] / cell_cnt[c]
@@ -155,7 +155,7 @@ def _compute_target_encoding(
 
     # Global (all-rows) cell means for transform()-time replay. At transform OOF doesn't make sense (test data
     # has no Y); we use the global mean per cell. Reuses full_sum/full_cnt computed above.
-    cell_means_global = np.full(int(n_uniq), te_global, dtype=np.float64)
+    cell_means_global = np.full(int(n_uniq), te_global, dtype=np.float64)  # Intentional float64: global-mean fill for the encoding statistic
     for c in range(int(n_uniq)):
         if full_cnt[c] > 0:
             raw = full_sum[c] / full_cnt[c]
@@ -190,8 +190,8 @@ def _pair_search_kernel_weighted_njit(
     n_pairs = len(pairs_a)
     n_samples = factors_data.shape[0]
     nbins_y = int(classes_y.max()) + 1 if classes_y.size > 0 else 1
-    joint_mi_out = np.zeros(n_pairs, dtype=np.float64)
-    ii_out = np.zeros(n_pairs, dtype=np.float64)
+    joint_mi_out = np.zeros(n_pairs, dtype=np.float64)  # Intentional float64: pairwise MI accumulator output
+    ii_out = np.zeros(n_pairs, dtype=np.float64)  # Intentional float64: pairwise interaction accumulator output
     n_uniq_out = np.zeros(n_pairs, dtype=np.int64)
     W = 0.0
     for r in range(n_samples):
@@ -205,9 +205,9 @@ def _pair_search_kernel_weighted_njit(
         nbb = int(nbins[j])
         merged_card = nba * nbb
 
-        joint_w = np.zeros(merged_card * nbins_y, dtype=np.float64)
-        marg_m_w = np.zeros(merged_card, dtype=np.float64)
-        marg_y_w = np.zeros(nbins_y, dtype=np.float64)
+        joint_w = np.zeros(merged_card * nbins_y, dtype=np.float64)  # Intentional float64: joint weight accumulator for the weighted MI statistic
+        marg_m_w = np.zeros(merged_card, dtype=np.float64)  # Intentional float64: marginal weight accumulator for the weighted MI statistic
+        marg_y_w = np.zeros(nbins_y, dtype=np.float64)  # Intentional float64: marginal weight accumulator for the weighted MI statistic
         for row in range(n_samples):
             va = factors_data[row, i]
             vb = factors_data[row, j]

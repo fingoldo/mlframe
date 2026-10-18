@@ -51,6 +51,7 @@ import logging
 from typing import Optional, Sequence
 
 import numpy as np
+from ._fe_usability_signal import _crit_np_dtype
 
 from mlframe.feature_selection.filters._relative_uplift import relative_uplift
 import pandas as pd
@@ -82,7 +83,7 @@ def _rank_to_uniform(x: np.ndarray) -> np.ndarray:
     (that's the whole point of the rank transform), so this is the engine
     that makes copula MI marginal-invariant.
     """
-    arr = np.asarray(x, dtype=np.float64).ravel()
+    arr = np.asarray(x, dtype=_crit_np_dtype()).ravel()
     n = arr.shape[0]
     if n == 0:
         return arr
@@ -104,8 +105,8 @@ def _bin_mi_uniform_pair(
     on the contingency table; the Miller-Madow correction reduces the
     well-known plug-in positive bias on small samples (Paninski 2003).
     """
-    u_arr = np.asarray(u, dtype=np.float64).ravel()
-    v_arr = np.asarray(v, dtype=np.float64).ravel()
+    u_arr = np.asarray(u, dtype=_crit_np_dtype()).ravel()
+    v_arr = np.asarray(v, dtype=_crit_np_dtype()).ravel()
     if u_arr.shape[0] != v_arr.shape[0]:
         raise ValueError(f"_bin_mi_uniform_pair: u has {u_arr.shape[0]} rows, " f"v has {v_arr.shape[0]}; row alignment required.")
     n = u_arr.shape[0]
@@ -124,6 +125,7 @@ def _bin_mi_uniform_pair(
     n_total = joint.sum()
     if n_total == 0:
         return 0.0
+    # Intentional float64: accumulator kept f64 (statistic / count sums need full precision)
     pxy = joint.astype(np.float64) / float(n_total)
     px = pxy.sum(axis=1, keepdims=True)
     py = pxy.sum(axis=0, keepdims=True)
@@ -174,7 +176,8 @@ def copula_mi(
         plug-in + Miller-Madow estimator to converge while keeping
         sensitivity to local structure inside the unit square.
     """
-    x_arr = np.asarray(x, dtype=np.float64).ravel()
+    x_arr = np.asarray(x, dtype=_crit_np_dtype()).ravel()
+    # Intentional float64: target labels kept f64 (exact binning / comparison contract)
     y_arr = np.asarray(y, dtype=np.float64).ravel()
     # Mask non-finite BEFORE ranking. rankdata assigns NaN the largest rank,
     # so a NaN would map to a valid high uniform bin and masquerade as real
@@ -204,9 +207,10 @@ def _copula_mi_batch(
     recomputing it. Ignored (recomputed) whenever this call's own ``y`` is not fully finite, so a
     mismatched/stale ``y_side`` can never silently apply to the wrong y.
     """
-    X_arr = np.asarray(X, dtype=np.float64)
+    X_arr = np.asarray(X, dtype=_crit_np_dtype())
     if X_arr.ndim == 1:
         X_arr = X_arr.reshape(-1, 1)
+    # Intentional float64: target labels kept f64 (exact binning / comparison contract)
     y_arr = np.asarray(y, dtype=np.float64).ravel()
     y_finite = np.isfinite(y_arr)
     y_all_finite = bool(y_finite.all())
@@ -220,6 +224,7 @@ def _copula_mi_batch(
         v_full = y_side if y_side is not None else _rank_to_uniform(y_arr)
     else:
         v_full = None
+    # Intentional float64: accumulator kept f64 (statistic / count sums need full precision)
     out = np.empty(X_arr.shape[1], dtype=np.float64)
     for j in range(X_arr.shape[1]):
         col = X_arr[:, j]
@@ -301,11 +306,11 @@ def score_features_by_copula_mi_uplift(
     # fully finite; None otherwise, matching _copula_mi_batch's own fallback) and thread it into both.
     _y_side = _rank_to_uniform(y_arr) if bool(np.isfinite(y_arr).all()) else None
     raw_mi = _copula_mi_batch(
-        raw_X.to_numpy(dtype=np.float64), y_arr, n_bins=int(n_bins), y_side=_y_side,
+        raw_X.to_numpy(dtype=_crit_np_dtype()), y_arr, n_bins=int(n_bins), y_side=_y_side,
     )
     raw_mi_map = dict(zip(raw_cols, raw_mi.tolist()))
     eng_mi = _copula_mi_batch(
-        engineered_X.to_numpy(dtype=np.float64), y_arr, n_bins=int(n_bins), y_side=_y_side,
+        engineered_X.to_numpy(dtype=_crit_np_dtype()), y_arr, n_bins=int(n_bins), y_side=_y_side,
     )
     rows = []
     for j, eng_name in enumerate(engineered_X.columns):
@@ -464,7 +469,7 @@ def hybrid_orth_mi_copula_fe_with_recipes(
         # source column is safe/exact - it reproduces, not refits, the fit-time params.
         _pp = None
         try:
-            _col_full = np.asarray(X[src].to_numpy(), dtype=np.float64)
+            _col_full = np.asarray(X[src].to_numpy(), dtype=_crit_np_dtype())
             _, _pp = _evaluate_basis_column(_col_full, chosen_basis, int(chosen_degree), return_params=True)
         except Exception as exc:
             # Was a bare except with zero logging,

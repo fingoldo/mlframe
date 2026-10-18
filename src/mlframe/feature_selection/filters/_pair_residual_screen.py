@@ -18,6 +18,7 @@ from __future__ import annotations
 from typing import Optional, Sequence
 
 import numpy as np
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 import pandas as pd
 from numba import njit, prange
 
@@ -105,10 +106,10 @@ def pair_interaction_screen(
     if n < _MIN_ROWS or len(cand) < 2 or y is None:
         return []
     rows = np.arange(n) if n <= scan_rows else np.linspace(0, n - 1, int(scan_rows)).astype(np.int64)
-    yr = _winsorised(np.asarray(y, dtype=np.float64).ravel()[rows])
+    yr = _winsorised(np.asarray(y, dtype=_crit_np_dtype()).ravel()[rows])
     names, codes, main_codes = [], [], []
     for c in cand:
-        x = np.asarray(X[c].to_numpy(), dtype=np.float64)[rows]
+        x = np.asarray(X[c].to_numpy(), dtype=_crit_np_dtype())[rows]
         finite = np.isfinite(x)
         if finite.sum() < _MIN_ROWS or np.unique(x[finite]).size <= FEW_CLASSES_MAX:
             continue

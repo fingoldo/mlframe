@@ -186,12 +186,14 @@ def parallel_fleuret(
 
     entropy_cache_dict = numba.typed.Dict.empty(
         key_type=types.unicode_type,
+        # Intentional float64: numba typed-dict value type must match the f64 values the @njit MI kernels store.
         value_type=types.float64,
     )
     python_dict_2_numba_dict(python_dict=entropy_cache, numba_dict=entropy_cache_dict)
 
     cached_cond_MIs_dict = numba.typed.Dict.empty(
         key_type=types.unicode_type,
+        # Intentional float64: numba typed-dict value type must match the f64 values the @njit MI kernels store.
         value_type=types.float64,
     )
     python_dict_2_numba_dict(python_dict=cached_cond_MIs, numba_dict=cached_cond_MIs_dict)

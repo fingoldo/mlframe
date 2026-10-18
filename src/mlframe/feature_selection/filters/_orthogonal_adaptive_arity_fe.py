@@ -64,6 +64,7 @@ from itertools import combinations
 from typing import Callable, Optional, Sequence
 
 import numpy as np
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 
 from mlframe.feature_selection.filters._relative_uplift import relative_uplift
 import pandas as pd
@@ -172,7 +173,7 @@ def _best_cell_per_tuple(eval_results: dict, X: pd.DataFrame, y_arr: np.ndarray,
         # cupy failure / unsupported basis. Selection-equivalent (device Clenshaw vs host forward ~1e-12).
         mi_block = _adaptive_arity_mi_resident_block(X, y_arr, eval_results[k], basis=basis, nbins=nbins)
         if mi_block is None:
-            cols_block = np.column_stack([r[3] for r in eval_results[k]]).astype(np.float64, copy=False)
+            cols_block = np.column_stack([r[3] for r in eval_results[k]]).astype(_crit_np_dtype(), copy=False)
             mi_block = _mi_classif_batch(cols_block, y_arr, nbins=nbins)
         for (tup, degs, name, prod), mi_val in zip(eval_results[k], mi_block.tolist()):
             key = frozenset(tup)
@@ -423,7 +424,7 @@ def _adaptive_arity_mi_resident_block(X, y_arr, eval_results_k, *, basis: str, n
     ``eval_results_k`` is the host list of ``(tup, degs, name, prod)`` for this arity. Rebuilds each tuple's
     ``prod_i basis(x_i)_deg_i`` ON the device from the small operand columns (collapsing the host cols_block
     upload at :311) and scores per-column MI with the SAME percentile-edge resident plug-in MI. Returns a host
-    (m,) float64 MI array in ``eval_results_k`` order, OR ``None`` on no-cupy / non-strict / cupy failure /
+    (m,) double MI array in ``eval_results_k`` order, OR ``None`` on no-cupy / non-strict / cupy failure /
     unsupported basis so the caller falls back to the exact host ``_mi_classif_batch``."""
     from ._orthogonal_univariate_fe._orth_pair_cross_fe import _crossbasis_device_born_on
 
@@ -657,7 +658,7 @@ def _adaptive_recipe_for_name(name: str, X: pd.DataFrame, _route_basis: Callable
         # source column is safe/exact - it reproduces, not refits, the fit-time params.
         _pp = None
         try:
-            _col_full = np.asarray(X[legs[0]].to_numpy(), dtype=np.float64)
+            _col_full = np.asarray(X[legs[0]].to_numpy(), dtype=_crit_np_dtype())
             _, _pp = _evaluate_basis_column(_col_full, chosen_basis, int(chosen_degree), return_params=True)
         except Exception as exc:
             # Was a bare except with zero logging.
@@ -822,7 +823,7 @@ def hybrid_orth_mi_adaptive_arity_fe_with_recipes(
             return _pp_cache[_key]
         _pp = None
         try:
-            _col_full = np.asarray(X[leg_name].to_numpy(), dtype=np.float64)
+            _col_full = np.asarray(X[leg_name].to_numpy(), dtype=_crit_np_dtype())
             _, _pp = _evaluate_basis_column(_col_full, str(basis), int(deg), return_params=True)
         except Exception as exc:
             logger.warning("adaptive-arity: failed to freeze preprocess_params for leg %r (refit-at-replay fallback): %r", leg_name, exc)

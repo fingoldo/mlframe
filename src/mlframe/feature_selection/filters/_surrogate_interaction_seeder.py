@@ -215,11 +215,11 @@ def _aggregate_cooccurrence(boosters: list, depth_discount: float, local_to_glob
 
 def _self_gate_z(real_scores: list, perm_scores: list, y: np.ndarray, is_classification: bool, info: dict) -> tuple[float, float, float, float]:
     """Self-gate statistics; fills ``info`` and returns ``(oof_real, perm_mean, perm_std, z)``."""
-    real_arr = np.asarray(real_scores, dtype=np.float64)
+    real_arr = np.asarray(real_scores, dtype=np.float64)  # Intentional float64: self-gate z-statistic input (mean/std of scores)
     oof_real = float(real_arr.mean())
     info["oof_real"] = oof_real
     if perm_scores:
-        perm_arr = np.asarray(perm_scores, dtype=np.float64)
+        perm_arr = np.asarray(perm_scores, dtype=np.float64)  # Intentional float64: self-gate z-statistic input (mean/std of scores)
         perm_mean = float(perm_arr.mean())
         perm_std = float(perm_arr.std())
         info["oof_perm"] = perm_mean

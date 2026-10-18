@@ -16,7 +16,7 @@ per-segment host round-trip) - then pulls back only the small ``(n_segments,)`` 
 the (potentially much larger) raw counts array. Validated against the CPU path at rtol=1e-9 (the
 codebase's own standard GPU/CPU parity bar; the module's own docstring already documents the domain
 this collapses - node-marginal / relevance / pairwise-edge entropy - as PURE-COUNT arithmetic, so a
-float64 device reduction agrees with the CPU njit reduction to FP-reorder noise, not a formula
+double-precision device reduction agrees with the CPU njit reduction to FP-reorder noise, not a formula
 difference).
 """
 
@@ -25,6 +25,8 @@ from __future__ import annotations
 from typing import Any
 
 import numpy as np
+from mlframe.feature_selection.filters._fe_gpu_batch._devices import crit_float_dtype
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 
 __all__ = ["entropy_segments_gpu"]
 
@@ -51,13 +53,13 @@ def entropy_segments_gpu(cp: Any, counts_dev: Any, n: int, offsets: np.ndarray) 
 
     Returns
     -------
-    (n_segments,) host float64 array of per-segment entropies, index-aligned with ``offsets``.
+    (n_segments,) host array of per-segment entropies, index-aligned with ``offsets``.
     Degenerate segments (all-zero counts, e.g. a genuinely empty joint) return ``0.0``, matching
     ``_entropy_from_counts``'s own explicit ``nz.size == 0 -> 0.0`` branch.
     """
     n_segments = int(offsets.shape[0]) - 1
     if n_segments <= 0:
-        return np.zeros(0, dtype=np.float64)
+        return np.zeros(0, dtype=_crit_np_dtype())
     total = int(offsets[-1])
     if counts_dev.shape[0] != total:
         raise ValueError(f"entropy_segments_gpu: counts_dev length {counts_dev.shape[0]} != offsets[-1] {total}")
@@ -69,7 +71,7 @@ def entropy_segments_gpu(cp: Any, counts_dev: Any, n: int, offsets: np.ndarray) 
     seg_id_host = np.repeat(np.arange(n_segments, dtype=np.int64), seg_lens)
     seg_id = cp.asarray(seg_id_host)
 
-    counts_f = counts_dev.astype(cp.float64, copy=False)
+    counts_f = counts_dev.astype(crit_float_dtype(), copy=False)
     freqs = counts_f * (1.0 / float(n))
     # -(freqs * log(freqs)) per nonzero element; zero elements contribute 0 (never a -inf*0 -> nan),
     # matching _entropy_from_counts's explicit nz = counts[counts > 0] prune before the log.
@@ -81,4 +83,4 @@ def entropy_segments_gpu(cp: Any, counts_dev: Any, n: int, offsets: np.ndarray) 
     # workload" discipline _wavelet_basis_fe_batched.py's batched_binned_mi_gpu already established
     # for this exact class of "many small per-entity reductions" problem.
     h_dev = cp.bincount(seg_id, weights=contrib, minlength=n_segments)[:n_segments]
-    return np.asarray(cp.asnumpy(h_dev), dtype=np.float64)
+    return np.asarray(cp.asnumpy(h_dev), dtype=_crit_np_dtype())

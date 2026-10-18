@@ -30,7 +30,7 @@ def _pair_interaction_terms_njit(x, y, sel_mat, K_sel, K_x, K_y, cmi_y_mm, marg_
     """Per-pair ``co_cond - co_uncond`` contributions, one slot per (i, j), left at zero where the pair is not estimable."""
     n = sel_mat.shape[1]
     n_pairs = pair_i.shape[0]
-    out = np.zeros(n_pairs, dtype=np.float64)
+    out = np.zeros(n_pairs, dtype=np.float64)  # Intentional float64: MI-scale accumulator output of the pair loop
     n_rows = float(n)
     for p in prange(n_pairs):
         # The (i, j) of each flat index are precomputed: decoding them here would reassign a variable derived from the loop index, which
@@ -90,8 +90,8 @@ def pair_interaction_sum(x_int: np.ndarray, y_int: np.ndarray, sel_int: Sequence
             np.asarray(K_sel, dtype=np.int64),
             np.int64(K_x),
             np.int64(K_y),
-            np.asarray(cmi_y_mm, dtype=np.float64),
-            np.asarray(marg_mm, dtype=np.float64),
+            np.asarray(cmi_y_mm, dtype=np.float64),  # Intentional float64: CMI/marginal accumulator input to the njit pair kernel
+            np.asarray(marg_mm, dtype=np.float64),  # Intentional float64: CMI/marginal accumulator input to the njit pair kernel
             float(min_rows_per_cell),
             scratch,
             np.ascontiguousarray(pair_i, dtype=np.int64),

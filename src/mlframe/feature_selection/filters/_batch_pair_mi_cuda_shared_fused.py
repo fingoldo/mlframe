@@ -213,7 +213,7 @@ def batch_pair_mi_cuda_shared_fused(
 
     n_pairs = int(pair_a.shape[0])
     if n_pairs == 0:
-        return np.empty(0, dtype=np.float64)
+        return np.empty(0, dtype=np.float64)  # Intentional float64: MI statistic output compared at full precision
 
     if threads_per_block % 32 != 0 or not 32 <= threads_per_block <= 1024:
         raise ValueError(f"threads_per_block must be a multiple of 32 in [32, 1024]; got {threads_per_block}")
@@ -225,7 +225,7 @@ def batch_pair_mi_cuda_shared_fused(
         # Mirrors batch_pair_mi_cupy's explicit
         # `if n_samples == 0: return zeros` guard - without it, `inv_n = 1.0 / float(n_samples)` below
         # raises ZeroDivisionError for an empty input.
-        return np.zeros(n_pairs, dtype=np.float64)
+        return np.zeros(n_pairs, dtype=np.float64)  # Intentional float64: MI statistic output compared at full precision
 
     nbins_i = np.ascontiguousarray(nbins, dtype=np.int32)
     joint_cards = nbins_i[np.ascontiguousarray(pair_a, dtype=np.int64)].astype(np.int64) * nbins_i[np.ascontiguousarray(pair_b, dtype=np.int64)].astype(np.int64)
@@ -248,8 +248,8 @@ def batch_pair_mi_cuda_shared_fused(
     d_pair_b = _cp.asarray(np.ascontiguousarray(pair_b, dtype=np.int64))
     d_nbins = _cp.asarray(nbins_i)
     d_classes_y = _cp.asarray(np.ascontiguousarray(classes_y, dtype=np.int32))
-    d_freqs_y = _cp.asarray(np.ascontiguousarray(freqs_y, dtype=np.float64))
-    d_mi_out = _cp.zeros(n_pairs, dtype=_cp.float64)
+    d_freqs_y = _cp.asarray(np.ascontiguousarray(freqs_y, dtype=np.float64))  # Intentional float64: the CUDA kernel signature declares double, so this must stay float64
+    d_mi_out = _cp.zeros(n_pairs, dtype=_cp.float64)  # Intentional float64: the CUDA kernel signature declares double, so this must stay float64
 
     inv_n = 1.0 / float(n_samples)
     # The property set + launch must be atomic together, or a
@@ -266,7 +266,7 @@ def batch_pair_mi_cuda_shared_fused(
             (
                 d_factors, d_pair_a, d_pair_b, d_nbins, d_classes_y, d_freqs_y,
                 np.int64(n_samples), np.int32(n_features), np.int32(n_pairs),
-                np.int32(max_joint), np.int32(n_classes_y), np.float64(inv_n),
+                np.int32(max_joint), np.int32(n_classes_y), np.float64(inv_n),  # Intentional float64: kernel ABI declares double inv_n
                 d_mi_out,
             ),
             shared_mem=shared_bytes,

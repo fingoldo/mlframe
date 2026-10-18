@@ -37,7 +37,7 @@ def _merge_vars_freqs(factors_data, vars_indices, factors_nbins, dtype=np.int32)
     """
     n_rows = len(factors_data)
     if n_rows == 0:
-        return np.zeros(0, dtype=np.float64)
+        return np.zeros(0, dtype=np.float64)  # Intentional float64: entropy count/probability vector; empty case keeps the non-empty dtype
     nvars = len(vars_indices)
     final_classes = np.zeros(n_rows, dtype=dtype)
     current_nclasses = 1

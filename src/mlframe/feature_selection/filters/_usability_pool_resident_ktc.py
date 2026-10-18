@@ -27,6 +27,7 @@ import logging
 import numpy as np
 from typing import cast
 from mlframe.utils.log_throttle import log_throttle
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 
 logger = logging.getLogger(__name__)
 
@@ -98,7 +99,7 @@ def _make_pooltable_inputs(dims: dict):
     edges = np.quantile(y, np.linspace(0.0, 1.0, 11))
     y_codes = np.searchsorted(np.unique(edges)[1:-1], y, side="right").astype(np.int64)
     k_y = int(y_codes.max()) + 1
-    cy = np.bincount(y_codes).astype(np.float64) / n
+    cy = np.bincount(y_codes).astype(_crit_np_dtype()) / n
     h_y = float(-(cy[cy > 0] * np.log(cy[cy > 0])).sum())
     y_terms = (y_codes, h_y, k_y)
     nbins = 10

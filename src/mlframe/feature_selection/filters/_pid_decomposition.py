@@ -247,6 +247,7 @@ def pid_decomposition(x1: np.ndarray, x2: np.ndarray, y: np.ndarray, K_x1: int, 
     K_x2_i = int(K_x2)
     K_y_i = int(K_y)
     flat_idx = (x1 * K_x2_i + x2) * K_y_i + y
+    # Intentional float64: probability / count accumulator tables, exact small-sum entropy terms
     joint = np.bincount(flat_idx, minlength=int(K_x1) * K_x2_i * K_y_i).reshape(int(K_x1), K_x2_i, K_y_i).astype(np.float64)
     # I_ccs redundancy.
     r = float(_i_ccs_redundancy_njit(joint))

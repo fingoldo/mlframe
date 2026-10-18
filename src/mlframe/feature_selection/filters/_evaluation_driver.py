@@ -89,7 +89,7 @@ def _prefill_cond_MIs_gpu(
 
     SELECTION-EQUIVALENCE (not bit-identical): the GPU CMI reduces the four entropies from the joint
     counts on-device (``_cmi_cuda._entropy_from_counts_axis``), parity ~1e-9 to the CPU scalar
-    ``conditional_mi`` (a different float64 reduction order over the nonzero bins). This is the SAME
+    ``conditional_mi`` (a different double precision reduction order over the nonzero bins). This is the SAME
     parity bound the rest of the GPU MI path carries and is treated identically: a ranking flip needs two
     candidates whose Fleuret gains sit within ~1e-9 - a pathological near-tie. Crucially the prefill is
     ALL-OR-NOTHING per round: if ANY candidate is multi-element it returns 0 and the WHOLE round stays on
@@ -351,12 +351,14 @@ def _seed_numba_caches(entropy_cache: Any, cached_cond_MIs: Any, cached_jmim_MIs
     """Seed the three per-call numba typed dicts from the callers' python dicts; returns ``(entropy, cond_MIs, jmim_MIs, jmim_hit_counter)``."""
     entropy_cache_dict = numba.typed.Dict.empty(
         key_type=types.unicode_type,
+        # Intentional float64: numba typed-dict value contract (must match the njit kernel signature)
         value_type=types.float64,
     )
     python_dict_2_numba_dict(python_dict=entropy_cache, numba_dict=entropy_cache_dict)
 
     cached_cond_MIs_dict = numba.typed.Dict.empty(
         key_type=types.unicode_type,
+        # Intentional float64: numba typed-dict value contract (must match the njit kernel signature)
         value_type=types.float64,
     )
     python_dict_2_numba_dict(python_dict=cached_cond_MIs, numba_dict=cached_cond_MIs_dict)
@@ -367,6 +369,7 @@ def _seed_numba_caches(entropy_cache: Any, cached_cond_MIs: Any, cached_jmim_MIs
     # instance). Keyed on arr2str({X} u Z); only the JMIM branch of evaluate_gain touches it.
     cached_jmim_MIs_dict = numba.typed.Dict.empty(
         key_type=types.unicode_type,
+        # Intentional float64: numba typed-dict value contract (must match the njit kernel signature)
         value_type=types.float64,
     )
     python_dict_2_numba_dict(python_dict=cached_jmim_MIs or {}, numba_dict=cached_jmim_MIs_dict)

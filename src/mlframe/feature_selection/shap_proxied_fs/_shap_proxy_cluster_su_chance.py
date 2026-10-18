@@ -16,6 +16,7 @@ from __future__ import annotations
 import math
 
 import numpy as np
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 from numba import njit, prange
 
 from mlframe.feature_selection.shap_proxied_fs._shap_proxy_cluster_su_joint import dense_relabel_codes
@@ -150,7 +151,7 @@ def veto_chance_edges(
     pos = {int(c): k for k, c in enumerate(cols)}
     dense = np.empty((cols.size, n), dtype=np.int32)
     nbins = np.empty(cols.size, dtype=np.int64)
-    ent = np.empty(cols.size, dtype=np.float64)
+    ent = np.empty(cols.size, dtype=_crit_np_dtype())
     cnts: list[np.ndarray] = []
     for k, c in enumerate(cols):
         arr = np.ascontiguousarray(arrays[int(c)], dtype=np.int64)
@@ -163,8 +164,8 @@ def veto_chance_edges(
 
     pa = np.array([pos[int(i)] for i in ei], dtype=np.int64)
     pb = np.array([pos[int(j)] for j in ej], dtype=np.int64)
-    ka = nbins[pa].astype(np.float64)
-    kb = nbins[pb].astype(np.float64)
+    ka = nbins[pa].astype(_crit_np_dtype())
+    kb = nbins[pb].astype(_crit_np_dtype())
     bias = (ka - 1.0) * (kb - 1.0) / (2.0 * n)
     hmin = np.minimum(ent[pa], ent[pb])
     in_scope = bias > scope_ratio * hmin

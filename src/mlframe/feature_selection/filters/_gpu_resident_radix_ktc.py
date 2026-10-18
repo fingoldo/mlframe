@@ -153,7 +153,7 @@ def _radix_edges_with_f32_variant(cand, nbins: int, variant: str):
     finally:
         _grsk._RADIX_F32_VARIANT_OVERRIDE = saved  # nosemgrep: module-global-write-via-reexport-alias - same, restoring the owning module's global
     if edges is None:
-        return np.empty(0, dtype=np.float64)
+        return np.empty(0, dtype=np.float64)  # Intentional float64: radix bin-edge vector compared against values at full precision
     return cp.asnumpy(edges)
 
 
@@ -195,7 +195,7 @@ def _radix_edges_with_threads(cand, nbins: int, threads: int):
     finally:
         _grsk._RADIX_THREADS_OVERRIDE = saved  # nosemgrep: module-global-write-via-reexport-alias - same, restoring the owning module's global
     if edges is None:
-        return np.empty(0, dtype=np.float64)
+        return np.empty(0, dtype=np.float64)  # Intentional float64: radix bin-edge vector compared against values at full precision
     return cp.asnumpy(edges)
 
 

@@ -21,6 +21,7 @@ import logging
 from typing import TYPE_CHECKING, Callable, Optional, cast, Sequence
 
 import numpy as np
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 import pandas as pd
 
 from ._fe_gain_stats import held_out_codes, paired_gain_se, pointwise_mi, quantile_codes
@@ -68,7 +69,7 @@ def _unary_funcs(preset: str) -> "dict[str, Callable]":
 def _unary_column(fn: Callable, x: np.ndarray) -> np.ndarray:
     """``fn(x)`` as float64 with the invalid-value warnings of the registry's domain-restricted maps silenced."""
     with np.errstate(all="ignore"):
-        return np.asarray(fn(x), dtype=np.float64)
+        return np.asarray(fn(x), dtype=_crit_np_dtype())
 
 def _log_anchor(x: np.ndarray) -> float:
     """The shift ``smart_log`` applies to the fit column (``1e-5 - min`` for a column with non-positive values, else 0), frozen so replay on another batch cannot shift differently."""
@@ -79,7 +80,7 @@ def _apply_unary(funcs: "dict[str, Callable]", name: str, x: np.ndarray, log_shi
     """Unary map ``name`` of ``x``; ``log`` uses the frozen ``log_shift`` instead of the batch-dependent shift of the registry's ``smart_log``."""
     if name == "log":
         with np.errstate(all="ignore"):
-            return np.asarray(np.log(x + log_shift) if log_shift != 0.0 else np.log(x), dtype=np.float64)
+            return np.asarray(np.log(x + log_shift) if log_shift != 0.0 else np.log(x), dtype=_crit_np_dtype())
     return _unary_column(funcs[name], x)
 
 def _finite_fill(u: np.ndarray) -> float:
@@ -140,8 +141,8 @@ def apply_offset_product_recipe(recipe: EngineeredRecipe, X: pd.DataFrame | pl.D
     for un in (ua, ub):
         if un not in funcs:
             raise KeyError(f"Unary function '{un}' not in '{recipe.unary_preset}' preset. Replay requires the same preset that was active at fit time.")
-    u = _apply_unary(funcs, ua, np.asarray(extract_column(X, recipe.src_names[0]), dtype=np.float64), ex["log_shift_u"])
-    v = _apply_unary(funcs, ub, np.asarray(extract_column(X, recipe.src_names[1]), dtype=np.float64), ex["log_shift_v"])
+    u = _apply_unary(funcs, ua, np.asarray(extract_column(X, recipe.src_names[0]), dtype=_crit_np_dtype()), ex["log_shift_u"])
+    v = _apply_unary(funcs, ub, np.asarray(extract_column(X, recipe.src_names[1]), dtype=_crit_np_dtype()), ex["log_shift_v"])
     out = _product(u, v, ex["s"], ex["t"], ex["fill_u"], ex["fill_v"])
     return np.asarray(np.clip(out, ex["clip_lo"], ex["clip_hi"]))
 
@@ -151,8 +152,8 @@ def _scan_inputs(cols: "list[np.ndarray]", funcs: "dict[str, Callable]", unaries
     ``log_shifts``: the frozen ``log`` anchor of each column (default: computed from the whole column, which is what the recipe stores)."""
     anchors = list(log_shifts) if log_shifts is not None else [_log_anchor(x) for x in cols]
     m, nu, n = len(cols), len(unaries), len(rows)
-    U = np.empty((m, nu, n), dtype=np.float64)
-    clips = np.empty((m, nu, 2), dtype=np.float64)
+    U = np.empty((m, nu, n), dtype=np.float64)  # Intentional float64: accumulator or output buffer; statistic at float64
+    clips = np.empty((m, nu, 2), dtype=np.float64)  # Intentional float64: accumulator or output buffer; statistic at float64
     for ci, x in enumerate(cols):
         xs = x[rows]
         for ui, un in enumerate(unaries):
@@ -165,7 +166,7 @@ def _scan_inputs(cols: "list[np.ndarray]", funcs: "dict[str, Callable]", unaries
 def _mm_mi(codes: np.ndarray, n_codes: int, y_codes: np.ndarray, ky: int) -> float:
     """Miller-Madow corrected plug-in MI (nats) of integer ``codes`` in ``[0, n_codes)`` and ``y_codes`` in ``[0, ky)``."""
     n = len(codes)
-    joint = np.bincount(codes * ky + y_codes, minlength=n_codes * ky).reshape(n_codes, ky).astype(np.float64)
+    joint = np.bincount(codes * ky + y_codes, minlength=n_codes * ky).reshape(n_codes, ky).astype(np.float64)  # Intentional float64: accumulator or output buffer; statistic at float64
     px = joint.sum(axis=1, keepdims=True)
     py = joint.sum(axis=0, keepdims=True)
     nz = joint > 0

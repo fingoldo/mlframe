@@ -6,6 +6,7 @@ in registers, reduces by warp shuffle and a fixed-order block reduction, and sum
 """
 
 from __future__ import annotations
+from mlframe.feature_selection.filters._fe_gpu_batch._devices import crit_float_dtype
 
 import threading
 from typing import Any
@@ -77,22 +78,22 @@ def _grid(cp, n: int) -> int:
 
 
 def design_matvec(cp: Any, B: Any, c: Any) -> Any:
-    """``B @ c`` for a C-contiguous float64 ``(n, d)`` design and a ``(d,)`` coefficient vector."""
+    """``B @ c`` for a C-contiguous double precision ``(n, d)`` design and a ``(d,)`` coefficient vector."""
     n, d = B.shape
-    out = cp.empty(n, dtype=cp.float64)
-    c = cp.ascontiguousarray(c, dtype=cp.float64)
+    out = cp.empty(n, dtype=crit_float_dtype())
+    c = cp.ascontiguousarray(c, dtype=crit_float_dtype())
     _MODULES.get(cp, d).get_function("design_matvec")((_grid(cp, n),), (256,), (B, c, out, cp.int64(n)))
     return out
 
 
 def weighted_gram(cp: Any, B: Any, w: Any, y: Any) -> "tuple[Any, Any]":
-    """``(A'A, A'y)`` for ``A = B * w[:, None]`` (``w=None`` means ``A = B``); ``B`` is C-contiguous float64 ``(n, d)``, ``y`` is ``(n,)``."""
+    """``(A'A, A'y)`` for ``A = B * w[:, None]`` (``w=None`` means ``A = B``); ``B`` is C-contiguous double precision ``(n, d)``, ``y`` is ``(n,)``."""
     n, d = B.shape
     nacc = d * (d + 1) // 2 + d
     blocks = _grid(cp, n)
-    part = cp.empty((blocks, nacc), dtype=cp.float64)
-    y64 = cp.ascontiguousarray(y, dtype=cp.float64)
-    w64 = y64 if w is None else cp.ascontiguousarray(w, dtype=cp.float64)
+    part = cp.empty((blocks, nacc), dtype=crit_float_dtype())
+    y64 = cp.ascontiguousarray(y, dtype=crit_float_dtype())
+    w64 = y64 if w is None else cp.ascontiguousarray(w, dtype=crit_float_dtype())
     _MODULES.get(cp, d).get_function("weighted_gram")((blocks,), (256,), (B, w64, y64, part, cp.int64(n), cp.int32(0 if w is None else 1)))
     out = part.sum(axis=0)
     ata_idx, atb_idx = _unpack_index(cp, d)

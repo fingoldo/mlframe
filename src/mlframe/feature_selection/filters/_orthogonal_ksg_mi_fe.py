@@ -49,6 +49,8 @@ import logging
 from typing import Optional, Sequence
 
 import numpy as np
+from ._fe_usability_signal import _crit_np_dtype
+
 import pandas as pd
 
 from ._orthogonal_univariate_fe import generate_univariate_basis_features
@@ -109,7 +111,7 @@ def _ksg_mi_batch(
         mutual_info_classif, mutual_info_regression,
     )
 
-    X = np.asarray(X, dtype=np.float64)
+    X = np.asarray(X, dtype=_crit_np_dtype())
     if X.ndim == 1:
         X = X.reshape(-1, 1)
     y_arr = np.asarray(y).ravel()
@@ -129,12 +131,13 @@ def _ksg_mi_batch(
         )
     else:
         mi = mutual_info_regression(
-            X, y_arr.astype(np.float64),
+            X, y_arr.astype(_crit_np_dtype()),
             discrete_features=False,
             n_neighbors=int(n_neighbors),
             copy=True,
             random_state=int(random_state),
         )
+    # Intentional float64: MI output vector returned as f64 (output contract for the ranking consumers).
     return np.asarray(mi, dtype=np.float64)
 
 def score_features_by_ksg_mi_uplift(
@@ -193,12 +196,12 @@ def score_features_by_ksg_mi_uplift(
         ])
     # f64 kept: distance/kernel-Gram stability (f32 sums lose precision here) - NOT routed through _crit_np_dtype.
     raw_mi = _ksg_mi_batch(
-        raw_X.to_numpy(dtype=np.float64), y_arr,
+        raw_X.to_numpy(dtype=_crit_np_dtype()), y_arr,
         n_neighbors=int(n_neighbors), random_state=int(random_state),
     )
     raw_mi_map = dict(zip(raw_cols, raw_mi.tolist()))
     eng_mi = _ksg_mi_batch(
-        engineered_X.to_numpy(dtype=np.float64), y_arr,
+        engineered_X.to_numpy(dtype=_crit_np_dtype()), y_arr,
         n_neighbors=int(n_neighbors), random_state=int(random_state),
     )
     rows = []
@@ -377,7 +380,7 @@ def hybrid_orth_mi_ksg_fe_with_recipes(
         # same preprocess params the fit path used, it does not refit on any transform-time slice.
         _pp = None
         try:
-            _col_full = np.asarray(X[src].values, dtype=np.float64)
+            _col_full = np.asarray(X[src].values, dtype=_crit_np_dtype())
             _, _pp = _evaluate_basis_column(_col_full, chosen_basis, int(chosen_degree), return_params=True)
         except Exception as exc:
             # Was a bare except with zero logging,

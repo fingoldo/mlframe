@@ -76,7 +76,7 @@ def combiner_mi_resident(
         cf = np.ascontiguousarray(np.asarray(c, dtype=np.int64)).ravel()
         cg = resident_operand(cf, ("modular_combiner", cf.shape[0]), dtype=np.int64)
         col = (cg % int(modulus)) if int(modulus) > 0 else cg
-        Xd = col.astype(cp.float64)[:, None]
+        Xd = col.astype(cp.float64)[:, None]  # Intentional float64: GPU operand upload; kernel contract is float64
         _yi = np.ascontiguousarray(encode_y_for_classif_mi(y))
         yd = resident_operand(_yi, "y_mi_classif", dtype=np.int64)
         _ymin = int(_yi.min()) if _yi.size else 0
@@ -84,7 +84,7 @@ def combiner_mi_resident(
         mi = plugin_mi_classif_batch_rank_cuda_resident(Xd, yd, int(nbins), y_min=_ymin, n_classes=_ncls)
         if mi is None:
             return None
-        return float(np.asarray(mi, dtype=np.float64)[0])
+        return float(np.asarray(mi, dtype=np.float64)[0])  # Intentional float64: MI statistic scalar output
     except Exception as _exc:
         logger.debug("combiner_mi_resident: GPU path failed (%s); host fallback", _exc)
         return None
@@ -119,7 +119,7 @@ def residue_grid_mis_resident(
         return None
     mods = [int(k) for k in mods]
     if not mods:
-        return np.empty((0,), dtype=np.float64)
+        return np.empty((0,), dtype=np.float64)  # Intentional float64: empty MI statistic output
     try:
         import cupy as cp
 
@@ -132,16 +132,16 @@ def residue_grid_mis_resident(
         yd = resident_operand(_yi, "y_mi_classif", dtype=np.int64)
         _ymin = int(_yi.min()) if _yi.size else 0
         _ncls = (int(_yi.max()) - _ymin + 1) if _yi.size else 1
-        out = np.empty(len(mods), dtype=np.float64)
+        out = np.empty(len(mods), dtype=np.float64)  # Intentional float64: MI statistic output buffer
         # Group moduli by effective nbins exactly as the host does, so each group is one resident plug-in call.
         groups: dict[int, list[int]] = {}
         for idx, k in enumerate(mods):
             groups.setdefault(max(int(nbins), k), []).append(idx)
         for eff_nbins, idxs in groups.items():
-            cols = [(cg % int(mods[idx])).astype(cp.float64) for idx in idxs]
+            cols = [(cg % int(mods[idx])).astype(cp.float64) for idx in idxs]  # Intentional float64: GPU residue operand; kernel contract is float64
             mat = cp.ascontiguousarray(cp.stack(cols, axis=1))
             mis = _plugin_mi_classif_batch_cuda_resident(mat, yd, int(eff_nbins), y_min=_ymin, n_classes=_ncls, relax_binning=True)
-            mis = np.asarray(mis, dtype=np.float64)
+            mis = np.asarray(mis, dtype=np.float64)  # Intentional float64: MI statistic output
             for j, idx in enumerate(idxs):
                 out[idx] = float(mis[j])
         return out
@@ -181,7 +181,7 @@ def perm_null_residue_mis_resident(
         return None
     perms = list(perms)
     if not perms:
-        return np.empty((0,), dtype=np.float64)
+        return np.empty((0,), dtype=np.float64)  # Intentional float64: empty MI statistic output
     try:
         import cupy as cp
 
@@ -189,14 +189,14 @@ def perm_null_residue_mis_resident(
         from ._fe_batched_mi import binned_mi_from_codes_gpu
         from ._gpu_resident_rank_bin import rank_bin_codes_batch_gpu_resident
 
-        rf = np.ascontiguousarray(np.asarray(r, dtype=np.float64)).ravel()
+        rf = np.ascontiguousarray(np.asarray(r, dtype=np.float64)).ravel()  # Intentional float64: residue operand for the permutation statistic, compared at full precision
         n = rf.size
         n_perm = len(perms)
         nb = int(eff_nbins)
         # Bin the residue ONCE on device (rank codes), exactly as the host STRICT ``_mi`` rank path does (same r,
         # same binner -> identical codes). The residue rides the resident-operand cache (keyed on its content
         # fingerprint -> re-uploads when r changes; the WIN is the codes-matrix replaces 12 residue uploads).
-        rg = resident_operand(rf, ("modular_perm_residue", nb), dtype=cp.float64)
+        rg = resident_operand(rf, ("modular_perm_residue", nb), dtype=cp.float64)  # Intentional float64: GPU residue operand; kernel contract is float64
         codes_r = rank_bin_codes_batch_gpu_resident(rg[:, None], nb)
         if codes_r is None:
             return None
@@ -228,7 +228,7 @@ def perm_null_residue_mis_resident(
         # 0..nb-1, range-preserving) and yd was shifted to dense 0-based above, so the in-range guard cannot
         # fire - skip its blocking min/max sync (FIX1).
         mis = binned_mi_from_codes_gpu(code_mat, yd, kx_per_col=[nb] * n_perm, ky=int(_ncls), codes_trusted=True)
-        return np.asarray(mis, dtype=np.float64)
+        return np.asarray(mis, dtype=np.float64)  # Intentional float64: MI statistic output contract
     except Exception as _exc:
         logger.debug("perm_null_residue_mis_resident: GPU path failed (%s); host fallback", _exc)
         return None

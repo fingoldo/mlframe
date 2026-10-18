@@ -31,6 +31,8 @@ from typing import Optional
 
 import numpy as np
 
+from ._fe_usability_signal import _crit_np_dtype
+
 logger = logging.getLogger(__name__)
 
 # Sentinel used for the legacy 0.7 default. The kernel_tuning_cache route
@@ -196,7 +198,7 @@ def _calibrate_tau_auto(
         "mode": "degenerate",
         "tau": float(fallback),
         "valley_su": None,
-        "su_scores": np.zeros(0, dtype=np.float64),
+        "su_scores": np.zeros(0, dtype=_crit_np_dtype()),
         "su_mean": float("nan"),
         "su_std": float("nan"),
     }
@@ -260,7 +262,7 @@ def _calibrate_tau_auto(
     diagnostics["n_pairs_finite"] = len(su_scores)
     if len(su_scores) < 10:
         return float(fallback), diagnostics
-    arr = np.asarray(su_scores, dtype=np.float64)
+    arr = np.asarray(su_scores, dtype=_crit_np_dtype())
     diagnostics["su_scores"] = arr
     diagnostics["su_mean"] = float(arr.mean())
     diagnostics["su_std"] = float(arr.std())

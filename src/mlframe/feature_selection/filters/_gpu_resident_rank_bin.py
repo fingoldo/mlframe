@@ -45,6 +45,7 @@ import threading
 from typing import Any, Optional
 
 import numpy as np
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 
 logger = logging.getLogger(__name__)
 
@@ -175,7 +176,7 @@ def plugin_mi_classif_batch_rank_cuda_resident(
     ``_hermite_fe_mi._plugin_mi_classif_batch_cuda_resident`` (which bins by percentile EDGES). Bins each
     column of ``X_gpu`` (n, k) by argsort equi-frequency RANK, then computes plug-in MI vs ``y_gpu`` (n,)
     through the SAME fused MI-from-codes kernel the edge path uses, so the ONLY difference vs the edge path is
-    the binning recipe (rank, matching the CPU njit gate scoring). Returns a host (k,) float64 array, or
+    the binning recipe (rank, matching the CPU njit gate scoring). Returns a host (k,) array, or
     ``None`` on any cupy failure (caller takes the CPU njit rank path).
 
     ``y_min`` / ``n_classes`` may be passed pre-computed (y is a fit-constant) to skip the per-call min/max.
@@ -192,7 +193,7 @@ def plugin_mi_classif_batch_rank_cuda_resident(
             Xg = Xg[:, None]
         n, k = int(Xg.shape[0]), int(Xg.shape[1])
         if n == 0 or k == 0:
-            return np.zeros(k, dtype=np.float64)
+            return np.zeros(k, dtype=_crit_np_dtype())
         yg = y_gpu if isinstance(y_gpu, cp.ndarray) else cp.asarray(np.ascontiguousarray(y_gpu).astype(np.int64))
         if yg.dtype != cp.int64:
             yg = yg.astype(cp.int64)

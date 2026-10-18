@@ -27,6 +27,7 @@ from collections.abc import Sequence
 from typing import Callable, Optional, Any
 
 import numpy as np
+from ._fe_usability_signal import _crit_np_dtype
 from ._y_encoding import FEW_CLASSES_MAX, _has_more_distinct_than
 import pandas as pd
 from numba import njit
@@ -57,7 +58,9 @@ def _per_cell_count_sum_njit(codes, v, n_cells):
     bit-identical to that kernel's first two outputs.
     """
     n_cells = int(n_cells)
+    # Intentional float64: moment accumulator (sum of powers) kept f64 for the centred-moment cancellation; the policy dtype would lose the higher moments.
     cnt = np.zeros(n_cells, dtype=np.float64)
+    # Intentional float64: moment accumulator (sum of powers) kept f64 for the centred-moment cancellation; the policy dtype would lose the higher moments.
     s1 = np.zeros(n_cells, dtype=np.float64)
     for i in range(codes.shape[0]):
         c = codes[i]
@@ -75,10 +78,15 @@ def _per_cell_raw_moments_njit(codes, v, n_cells):
     for s2 exactly; s3/s4 differ from numpy ``v**3``/``v**4`` only at the last ULP, far below the
     quantile-bin resolution the moments feed, so the engineered codes are unchanged."""
     n_cells = int(n_cells)
+    # Intentional float64: moment accumulator (sum of powers) kept f64 for the centred-moment cancellation; the policy dtype would lose the higher moments.
     cnt = np.zeros(n_cells, dtype=np.float64)
+    # Intentional float64: moment accumulator (sum of powers) kept f64 for the centred-moment cancellation; the policy dtype would lose the higher moments.
     s1 = np.zeros(n_cells, dtype=np.float64)
+    # Intentional float64: moment accumulator (sum of powers) kept f64 for the centred-moment cancellation; the policy dtype would lose the higher moments.
     s2 = np.zeros(n_cells, dtype=np.float64)
+    # Intentional float64: moment accumulator (sum of powers) kept f64 for the centred-moment cancellation; the policy dtype would lose the higher moments.
     s3 = np.zeros(n_cells, dtype=np.float64)
+    # Intentional float64: moment accumulator (sum of powers) kept f64 for the centred-moment cancellation; the policy dtype would lose the higher moments.
     s4 = np.zeros(n_cells, dtype=np.float64)
     for i in range(codes.shape[0]):
         c = codes[i]
@@ -99,8 +107,11 @@ def _per_cell_centered_moments_njit(codes, v, cell_mean, n_cells):
     :func:`_centered_moments_njit`, whose own docstring documents the measured catastrophic failure of
     the raw-moment binomial-expansion form this replaces in :func:`_derive_cell_stats`."""
     n_cells = int(n_cells)
+    # Intentional float64: moment accumulator (sum of powers) kept f64 for the centred-moment cancellation; the policy dtype would lose the higher moments.
     cm2 = np.zeros(n_cells, dtype=np.float64)
+    # Intentional float64: moment accumulator (sum of powers) kept f64 for the centred-moment cancellation; the policy dtype would lose the higher moments.
     cm3 = np.zeros(n_cells, dtype=np.float64)
+    # Intentional float64: moment accumulator (sum of powers) kept f64 for the centred-moment cancellation; the policy dtype would lose the higher moments.
     cm4 = np.zeros(n_cells, dtype=np.float64)
     for i in range(codes.shape[0]):
         c = codes[i]
@@ -117,6 +128,7 @@ def _per_cell_moments_stable(codes: np.ndarray, v: np.ndarray, n_cells: int) -> 
     safe from cancellation; pass 2 (:func:`_per_cell_centered_moments_njit`) accumulates CENTERED powers
     directly. Feeds :func:`_derive_cell_stats`."""
     codes_i = np.ascontiguousarray(codes, dtype=np.int64)
+    # Intentional float64: moment-kernel input (centred moments) kept f64, paired with the accumulators above.
     v_f = np.ascontiguousarray(v, dtype=np.float64)
     # The pruned twin: this pass needs only `cnt` and `s1`, and the full kernel also accumulated s2, s3 and s4
     # -- 2.5x the arithmetic and three unused `np.zeros(n_cells)` per call, on a kernel `fit_binned_numeric_agg`
@@ -295,6 +307,7 @@ def _global_stats_all(v: np.ndarray, needed: Sequence[str]) -> dict:
         if "kurt" in needed:
             out_const["kurt"] = 0.0
         return out_const
+    # Intentional float64: moment-kernel input (centred moments) kept f64, paired with the accumulators above.
     mean, s2, s3, s4 = _centered_moments_njit(np.ascontiguousarray(vf, dtype=np.float64))
     out: dict = {}
     if "mean" in needed:
@@ -332,7 +345,7 @@ def fit_binned_numeric_agg(
     by bin code) + ``global`` fallback, so transform replays leak-free via ``apply_binned_numeric_agg``.
     """
     n = len(X)
-    y_arr = np.asarray(y, dtype=np.float64).ravel()  # noqa: F841 (kept for parity / future y-aware gating)
+    y_arr = np.asarray(y, dtype=_crit_np_dtype()).ravel()  # noqa: F841 (kept for parity / future y-aware gating)
     rng = np.random.default_rng(int(random_state))
     fold_ids = np.empty(n, dtype=np.int64)
     fold_ids[rng.permutation(n)] = np.arange(n) % int(n_folds)
@@ -357,7 +370,7 @@ def fit_binned_numeric_agg(
         # (mirrors the orth-univariate/pair-cross/extra-basis generators' internal deadline check).
         if fe_deadline_passed():
             break
-        gvals = np.asarray(X[gcol].to_numpy(), dtype=np.float64)
+        gvals = np.asarray(X[gcol].to_numpy(), dtype=_crit_np_dtype())
         if not np.isfinite(gvals).all():
             continue  # v1 skips NaN-bearing group columns (quantile-edge replay has no NaN bin)
         nbins, kept_stats = resolve_nbins_and_stats(n, stats, nbins_base, k=1)
@@ -375,7 +388,7 @@ def fit_binned_numeric_agg(
                 continue  # PRE-CAP: only compute OOF for the kept top-max_pairs (bit-identical output)
             _avc = _av_cache.get(acol)
             if _avc is None:
-                av = np.asarray(X[acol].to_numpy(), dtype=np.float64)
+                av = np.asarray(X[acol].to_numpy(), dtype=_crit_np_dtype())
                 finite = np.isfinite(av)
                 finite_count = int(np.count_nonzero(finite))
                 _av_cache[acol] = (av, finite, finite_count)
@@ -396,7 +409,7 @@ def fit_binned_numeric_agg(
                 # dropped candidates is never computed. The ``full`` per-cell lookup + globals (the recipe
                 # fields) are cheap 1-pass njit and are always built.
                 assert _fold_test is not None and _ct_by_fold is not None  # populated whenever recipe_only is False
-                oof = {s: np.full(n, globals_[s], dtype=np.float64) for s in kept_stats}
+                oof = {s: np.full(n, globals_[s], dtype=_crit_np_dtype()) for s in kept_stats}
                 finite_idx = np.where(finite)[0]
                 fold_of_finite = fold_ids[finite_idx]
                 for f in range(int(n_folds)):
@@ -426,7 +439,7 @@ def fit_binned_numeric_agg(
                 name = engineered_name_binned_agg(acol, gcol, s)
                 if not recipe_only:
                     feat_cols[name] = oof[s]
-                lut = np.where(np.isfinite(full[s]), full[s], globals_[s]).astype(np.float64)
+                lut = np.where(np.isfinite(full[s]), full[s], globals_[s]).astype(_crit_np_dtype())
                 recipes[name] = {
                     "group_col": gcol, "agg_col": acol, "stat": s,
                     "edges": edges, "lookup": lut, "global": float(globals_[s]),
@@ -437,8 +450,10 @@ def fit_binned_numeric_agg(
 def apply_binned_numeric_agg(X: pd.DataFrame, recipe: dict) -> np.ndarray:
     """Leak-free replay: bin the raw group column through the stored quantile edges and gather the per-cell
     statistic; unseen / out-of-range / non-finite group values fall back to the global statistic."""
-    gv = np.asarray(X[recipe["group_col"]].to_numpy(), dtype=np.float64)
+    gv = np.asarray(X[recipe["group_col"]].to_numpy(), dtype=_crit_np_dtype())
+    # Intentional float64: stored recipe edges/lookup keep their f64 contract (persisted payload).
     edges = np.asarray(recipe["edges"], dtype=np.float64)
+    # Intentional float64: stored recipe edges/lookup keep their f64 contract (persisted payload).
     lut = np.asarray(recipe["lookup"], dtype=np.float64)
     g = float(recipe["global"])
     codes = np.searchsorted(edges, gv, side="right")
@@ -457,7 +472,9 @@ def build_binned_numeric_agg_recipe(name: str, info: dict) -> EngineeredRecipe:
         src_names=(info["group_col"], info["agg_col"]),
         extra={
             "group_col": info["group_col"], "agg_col": info["agg_col"], "stat": info["stat"],
+            # Intentional float64: stored recipe edges/lookup keep their f64 contract (persisted payload).
             "edges": np.asarray(info["edges"], dtype=np.float64),
+            # Intentional float64: stored recipe edges/lookup keep their f64 contract (persisted payload).
             "lookup": np.asarray(info["lookup"], dtype=np.float64),
             "global": float(info["global"]),
         },
@@ -470,7 +487,7 @@ def _auto_detect_numeric_cols(X: pd.DataFrame) -> list:
         if not pd.api.types.is_numeric_dtype(X[c]):
             continue
         v = X[c].to_numpy()
-        if not np.isfinite(np.asarray(v, dtype=np.float64)).all():
+        if not np.isfinite(np.asarray(v, dtype=_crit_np_dtype())).all():
             continue
         # non-constant check: min != max on an all-finite column == np.unique(v).size >= 2, without the
         # full-n unique SORT (O(n) vs O(n log n); the sort was a measurable host sink at 1M x many columns).
@@ -548,7 +565,7 @@ def _redundancy_gate_binagg(
         """Quantile-bin codes for a raw source column, memoized in ``_src_bin_cache`` since the same source column conditions many candidate binagg columns."""
         b = _src_bin_cache.get(col)
         if b is None:
-            b = _quantile_bin(X[col].to_numpy(dtype=np.float64), nbins=nbins_base)
+            b = _quantile_bin(X[col].to_numpy(dtype=_crit_np_dtype()), nbins=nbins_base)
             _src_bin_cache[col] = b
         return b
 
@@ -601,7 +618,7 @@ def binned_numeric_agg_with_recipes(
         return X, [], []
 
     # GROUP pre-selection by cheap MI(qbin(g); y). y discretised once (deciles) for the relevance proxy.
-    y_arr = np.asarray(y.to_numpy() if hasattr(y, "to_numpy") else y, dtype=np.float64).ravel()
+    y_arr = np.asarray(y.to_numpy() if hasattr(y, "to_numpy") else y, dtype=_crit_np_dtype()).ravel()
     if not _has_more_distinct_than(y_arr, FEW_CLASSES_MAX):  # already categorical / few classes
         _, y_codes = np.unique(y_arr, return_inverse=True)
     else:

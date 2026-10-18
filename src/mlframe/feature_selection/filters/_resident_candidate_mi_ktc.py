@@ -70,8 +70,8 @@ def _make_rescand_inputs(dims: dict):
     n = int(dims["n_samples"])
     k = int(dims["k"])
     rng = np.random.default_rng(0)
-    a = rng.uniform(0.1, 1.1, (n, k)).astype(np.float64)
-    b = rng.uniform(0.1, 1.1, (n, k)).astype(np.float64)
+    a = rng.uniform(0.1, 1.1, (n, k)).astype(np.float64)  # Intentional float64: KTC probe fixture mirrors the gate's float64 host matrix (keeps tuned crossover)
+    b = rng.uniform(0.1, 1.1, (n, k)).astype(np.float64)  # Intentional float64: KTC probe fixture mirrors the gate's float64 host matrix (keeps tuned crossover)
     mat = (a * a) / b  # heavy-tailed, the kind of engineered candidate column the gate scores
     y = rng.integers(0, 4, size=n).astype(np.int64)
     return (np.ascontiguousarray(mat), y)
@@ -91,7 +91,7 @@ def _rescand_resident(mat, y):
     from . import hermite_fe as _hf  # noqa: F401 - full-init parent before sibling import
     from ._hermite_fe_mi import _plugin_mi_classif_batch_cuda_resident
 
-    mat_gpu = cp.asarray(mat, dtype=cp.float64)
+    mat_gpu = cp.asarray(mat, dtype=cp.float64)  # Intentional float64: KTC probe device upload mirrors the gate's float64 host matrix
     y_gpu = cp.asarray(y, dtype=cp.int64)
     return _plugin_mi_classif_batch_cuda_resident(mat_gpu, y_gpu, 20)
 

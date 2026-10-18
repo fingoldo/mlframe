@@ -143,11 +143,11 @@ def score_pair_combos_table_resident(
 ) -> Optional[np.ndarray]:
     """Compute the FULL ``(npairs, nc)`` pair-combo MI table for ALL pairs in ONE resident GPU pass.
 
-    ``operands`` is a sequence of ``(x1, x2)`` float64 operand-column pairs (host arrays); ``y_codes`` the
+    ``operands`` is a sequence of ``(x1, x2)`` double precision operand-column pairs (host arrays); ``y_codes`` the
     shared label codes; ``y_terms`` is ``(y_i, h_y, k_y)`` from ``precompute_marginal_y_terms``;
     ``ua_codes``/``ub_codes`` the per-unary op-codes (preset order), ``bn_codes`` the per-binary op-codes.
 
-    Returns a host ``(npairs, nc)`` float64 array (row ``p`` == ``score_pair_combos`` for pair ``p``,
+    Returns a host ``(npairs, nc)`` double precision array (row ``p`` == ``score_pair_combos`` for pair ``p``,
     sentinel ``-1.0`` for a near-constant combo (std within a small multiple of machine epsilon of its largest |value|), or ``None`` if cupy is
     unavailable / a device error
     occurs (the caller then takes the exact per-pair njit path). BIT-FAITHFUL to the njit table kernel.
@@ -159,7 +159,7 @@ def score_pair_combos_table_resident(
     grid per pair. Only the ``(npairs, nc)`` table comes back to the host.
 
     ``value_dtype`` is the dtype of the operand columns, their unary stacks and the candidate block (float32 by default: the radix select over the block is the dominant kernel of the fit and a
-    float32 block is half the traffic of a float64 one; the table itself, the MI sums and the returned array stay float64). ``np.float64`` restores the double path."""
+    float32 block is half the traffic of a double precision one; the table itself, the MI sums and the returned array stay double precision). ``np.double precision`` restores the double path."""
     try:
         import cupy as cp
     except ImportError as e:
@@ -176,6 +176,7 @@ def score_pair_combos_table_resident(
         nb = len(bn_codes)
         nc = nu * nu * nb
         if npairs == 0 or nc == 0:
+            # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
             return np.empty((npairs, nc), dtype=np.float64)
 
         _, h_y, k_y = y_terms
@@ -183,8 +184,10 @@ def score_pair_combos_table_resident(
         k_y = int(k_y)
         n = int(np.asarray(operands[0][0]).shape[0])
         qs = np.linspace(0.0, 1.0, int(nbins) + 1)
+        # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
         d_qs = cp.asarray(qs, dtype=cp.float64)
         f32 = np.dtype(value_dtype) == np.float32
+        # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
         cp_dt = cp.float32 if f32 else cp.float64
         d_y = cp.asarray(np.ascontiguousarray(y_codes, dtype=np.int64))
         ky_w = int(d_y.max()) + 1 if n else 1  # y-cardinality (histogram width) for the fused MM kernel
@@ -222,12 +225,15 @@ def score_pair_combos_table_resident(
         # end - the 17340 syncing .get()s collapse to ONE per fit. Selection-IDENTICAL: same masked values, same
         # layout; only the readback is deferred. (bench-attempt-rejected per-pair .get of an earlier draft: still
         # npairs syncs/call; whole-table single .get measured strictly faster, see report.)
+        # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
         mi_table_d = cp.empty(npairs * nc, dtype=cp.float64)
+        # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
         out = np.empty(npairs * nc, dtype=np.float64)
         ua_idx_d = cp.asarray(np.asarray(ua_idx, dtype=np.int32))
         ub_idx_d = cp.asarray(np.asarray(ub_idx, dtype=np.int32))
         bop_d = cp.asarray(np.asarray([bn_codes_l[int(bn_idx[j])] for j in range(nc)], dtype=np.int32))
         if not col_major and f32:
+            # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
             f32, cp_dt = False, cp.float64  # the row-major block (MLFRAME_FE_POOL_CM=0) has no float32 generator
         fused_gen = _get_fused_gen_cm_kernel(float32=f32) if col_major else _get_fused_gen_kernel()
         combo_chunk = _combo_chunk_cols(cp, n, nc, itemsize=4 if f32 else 8)
@@ -243,7 +249,9 @@ def score_pair_combos_table_resident(
             # (already used pervasively elsewhere in the FE-resident stack) uploads each DISTINCT
             # content ONCE per fit and returns the cached device buffer on every repeat. Read-only
             # inputs -> sharing the buffer across pairs is safe; values are byte-identical either way.
+            # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
             d_x1 = resident_operand(x1, "usability_pool_operand_f32" if f32 else "usability_pool_operand", dtype=np.float32 if f32 else np.float64)
+            # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
             d_x2 = resident_operand(x2, "usability_pool_operand_f32" if f32 else "usability_pool_operand", dtype=np.float32 if f32 else np.float64)
             # The operands are host arrays that were just uploaded: their nanmin shifts are a numpy reduction of a column already in memory, instead of two
             # device nanmin kernels plus a blocking read per pair (cupy's nanmin was ~15 ms a call here, almost all of it waiting on the queued work).

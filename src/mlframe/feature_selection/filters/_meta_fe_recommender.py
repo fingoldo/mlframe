@@ -30,6 +30,7 @@ only scalar fingerprint stats, the flag-set, and the CV score touch disk; raw
 arrays never do.
 """
 from __future__ import annotations
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 
 from mlframe.utils.log_throttle import log_throttle
 
@@ -179,7 +180,8 @@ def _fe_structure(X, y=None) -> dict:
             # High-cardinality numeric -> a continuous feature.
             if card >= max(20, int(0.2 * n_finite)):
                 out["has_continuous"] = True
-                skew, exkurt = _skew_kurt(vals.astype(np.float64, copy=False))
+                # Intentional float64: skew/kurtosis are cancellation-prone 3rd/4th moments; the f64 accumulator guards the thresholds.
+                skew, exkurt = _skew_kurt(vals.astype(_crit_np_dtype(), copy=False))
                 if abs(skew) > _HEAVY_SKEW or exkurt > _HEAVY_KURTOSIS:
                     out["heavy_structure"] = True
 

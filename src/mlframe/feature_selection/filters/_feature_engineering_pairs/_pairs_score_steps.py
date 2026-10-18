@@ -18,6 +18,7 @@ from ._pairs_materialise import (
 )
 from .._fe_usability_signal import (  # shared leaf detectors (numpy-only, no cycle)
     pair_is_tail_concentrated_rankaware,
+    _crit_np_dtype,
     tail_concentration_form_override,
 )
 from mlframe.utils.log_throttle import log_throttle
@@ -913,9 +914,9 @@ def _score_one_pair_step6_wide_fraction_margin(
                     _corr_fn = partial(_zerofill_corr_dev, _win_dev)
                     _max_single_op_corr = _score_one_pair_side(_tp2, vars_transformations, transformed_vars, _corr_fn, None, _max_single_op_corr)
                 else:
-                    _win_vals_f64 = np.asarray(_win_vals, dtype=np.float64)
+                    _win_vals_crit = np.asarray(_win_vals, dtype=_crit_np_dtype())
                     _max_single_op_corr = _score_one_pair_side(
-                        _tp2, vars_transformations, transformed_vars, _abs_corr_zerofill_njit, _win_vals_f64, _max_single_op_corr
+                        _tp2, vars_transformations, transformed_vars, _abs_corr_zerofill_njit, _win_vals_crit, _max_single_op_corr
                     )
                 if _max_single_op_corr >= _DEGENERATE_PAIR_SINGLE_OPERAND_CORR:
                     st._passes_joint_gate = st._prewarp_accept = st._marginal_uplift_accept = False

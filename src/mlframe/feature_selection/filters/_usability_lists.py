@@ -32,6 +32,7 @@ import logging
 from typing import Any
 
 import numpy as np
+from ._fe_usability_signal import _crit_np_dtype
 
 from mlframe.utils.log_throttle import log_throttle
 from typing import TYPE_CHECKING
@@ -59,7 +60,7 @@ def _raw_numeric_frame(X: Any, feature_names: list[str]):
         if name not in df.columns:
             continue
         col = pd.to_numeric(df[name], errors="coerce")
-        v = np.asarray(col, dtype=np.float64)
+        v = np.asarray(col, dtype=_crit_np_dtype())
         if not np.isfinite(v).any():
             continue
         _n_coerced = int((~np.isfinite(v)).sum())
@@ -89,6 +90,7 @@ def _scope_base_names(df, y_cont: np.ndarray, max_base_features: int) -> list[st
     from ._usability_aware_selection import _binned_mi
     from ._mi_greedy_cmi_fe import _quantile_bin
 
+    # Intentional float64: target labels kept f64 (exact binning / comparison contract)
     y_codes = _quantile_bin(np.asarray(y_cont, dtype=np.float64), 10)
     scored = [(name, _binned_mi(df[name].to_numpy(), y_codes, 10)) for name in names]
     scored.sort(key=lambda t: t[1], reverse=True)
@@ -107,7 +109,7 @@ def build_usability_lists(mrmr: Any, X: Any, y_cont: "np.ndarray | None") -> Non
 
     if y_cont is None:
         return
-    y_cont = np.asarray(y_cont, dtype=np.float64).ravel()
+    y_cont = np.asarray(y_cont, dtype=_crit_np_dtype()).ravel()
     if y_cont.size == 0 or not np.isfinite(y_cont).any() or float(np.nanstd(y_cont)) < 1e-12:
         return
 
@@ -194,7 +196,7 @@ def materialize_usability_features(candidates: list, X: Any) -> pd.DataFrame:
             src = X[cand.name] if isinstance(X, pd.DataFrame) else None
             if src is None:
                 raise ValueError(f"raw usability feature {cand.name!r} needs a DataFrame X to replay")
-            _replayed = pd.to_numeric(src, errors="coerce").to_numpy(dtype=np.float64)
+            _replayed = pd.to_numeric(src, errors="coerce").to_numpy(dtype=_crit_np_dtype())
             _n_coerced = int((~np.isfinite(_replayed)).sum())
             if _n_coerced:
                 logger.warning(
@@ -202,7 +204,7 @@ def materialize_usability_features(candidates: list, X: Any) -> pd.DataFrame:
                     cand.name, _n_coerced, _replayed.size,
                 )
             return np.nan_to_num(_replayed, nan=0.0, posinf=0.0, neginf=0.0)
-        return np.nan_to_num(np.asarray(apply_recipe(cand.recipe, X), dtype=np.float64), nan=0.0, posinf=0.0, neginf=0.0)
+        return np.nan_to_num(np.asarray(apply_recipe(cand.recipe, X), dtype=_crit_np_dtype()), nan=0.0, posinf=0.0, neginf=0.0)
 
     data = {cand.name: _col(cand) for cand in candidates}
     return pd.DataFrame(data, index=getattr(X, "index", None))

@@ -73,7 +73,9 @@ def _bootstrap_selection_freqs(
     n_bootstrap: int, cluster_id: np.ndarray, n_clusters: int,
 ) -> tuple[np.ndarray, np.ndarray, int, int]:
     """Half-sample bootstrap selection; returns per-cluster and per-feature selection frequencies plus the success / failure counts."""
+    # Intentional float64: selection-frequency counters (integer tallies over resamples), exact in f64.
     cluster_sel_freq = np.zeros(n_clusters, dtype=np.float64)
+    # Intentional float64: selection-frequency counter (integer tally over resamples), exact in f64.
     feat_sel_freq = np.zeros(p, dtype=np.float64)
     half = n // 2
     # divide frequencies by the number
@@ -141,7 +143,7 @@ def _capped_numeric_idx(Xn: np.ndarray, y: np.ndarray, _num_ok: np.ndarray, _dty
         if _ysd > 0.0:
             _marg_corr = np.where(_good_sub, np.abs((_xc * _yv[:, None]).mean(axis=0)) / (np.where(_good_sub, _sd_sub, 1.0) * _ysd), 0.0)
         else:
-            _marg_corr = np.zeros(_numeric_idx.size, dtype=np.float64)
+            _marg_corr = np.zeros(_numeric_idx.size, dtype=_stability_corr_dtype())
         _kept_numeric_idx = _numeric_idx[np.argsort(-_marg_corr)[:_CLUSTER_MAX_FEATURES]]
         logger.info(
             "cluster_stability_selection: %d numeric columns > cap %d; clustering only the top %d by "
@@ -261,6 +263,7 @@ def cluster_stability_selection(
         _sd_k = _Xk.std(axis=0)
         _good_k = _sd_k > 32.0 * np.finfo(_Xk.dtype).eps * np.abs(_Xk).max(axis=0)
         Z = np.where(_good_k, (_Xk - _Xk.mean(axis=0)) / np.where(_good_k, _sd_k, 1.0), 0.0)
+        # Intentional float64: the threshold compare on the K x K correlation is kept in f64 by design.
         C = np.abs((Z.T @ Z / n).astype(np.float64))  # promote the K x K result to f64 for the threshold compare
     else:
         C = np.ones((1, 1))
@@ -341,7 +344,9 @@ def complementary_pairs_stability(
     n, p = X.shape
     rng = np.random.default_rng(int(rng_seed))
     half = n // 2
+    # Intentional float64: pair/union frequency counters (integer tallies over resamples), exact in f64.
     pair_complementary = np.zeros(p, dtype=np.float64)
+    # Intentional float64: union frequency counter (integer tally over resamples), exact in f64.
     union_freq = np.zeros(p, dtype=np.float64)
     # count SUCCESSFUL pairs so the
     # frequencies divide by the effective sample size (see the cluster variant).

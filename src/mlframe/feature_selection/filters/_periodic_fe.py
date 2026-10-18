@@ -83,7 +83,7 @@ def _modular_njit(arr: np.ndarray, p: float, op_code: int) -> np.ndarray:
     ``[0, p)``); matches the numpy form to <1e-9 (mod) / <1e-6 (trig), well
     within the MI-binning + model-fit tolerance the values feed into."""
     n = arr.size
-    out = np.empty(n, dtype=np.float64)
+    out = np.empty(n, dtype=np.float64)  # Intentional float64: numba kernel body, dtype fixed at compile time (crit helper is not callable under njit)
     k = 2.0 * math.pi / p
     for i in range(n):
         v = arr[i]
@@ -108,11 +108,11 @@ def _modular_all_ops_njit(arr: np.ndarray, p: float):
     The residue ``r = v - p*floor(v/p)`` and the phase ``k*r`` are computed ONCE per element and reused for all three
     outputs, instead of three separate passes (one per :func:`apply_modular` call) that each recompute the residue and
     re-walk the array. Bit-identical to three back-to-back ``_modular_njit`` calls (same residue formula, same NaN/inf
-    -> 0 scrub, same ``sin``/``cos`` of the same phase). Returns ``(mod, sin, cos)`` float64 arrays."""
+    -> 0 scrub, same ``sin``/``cos`` of the same phase). Returns ``(mod, sin, cos)`` double arrays."""
     n = arr.size
-    out_mod = np.empty(n, dtype=np.float64)
-    out_sin = np.empty(n, dtype=np.float64)
-    out_cos = np.empty(n, dtype=np.float64)
+    out_mod = np.empty(n, dtype=np.float64)  # Intentional float64: numba kernel body, dtype fixed at compile time (crit helper is not callable under njit)
+    out_sin = np.empty(n, dtype=np.float64)  # Intentional float64: numba kernel body, dtype fixed at compile time (crit helper is not callable under njit)
+    out_cos = np.empty(n, dtype=np.float64)  # Intentional float64: numba kernel body, dtype fixed at compile time (crit helper is not callable under njit)
     k = 2.0 * math.pi / p
     for i in range(n):
         v = arr[i]

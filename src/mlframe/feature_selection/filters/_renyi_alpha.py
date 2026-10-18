@@ -50,6 +50,7 @@ import logging
 from typing import Optional, Sequence
 
 import numpy as np
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 
 logger = logging.getLogger(__name__)
 
@@ -59,7 +60,8 @@ _DEFAULT_MAX_N = 1500
 
 def _as_2d(x: np.ndarray) -> np.ndarray:
     """Coerce a 1-D array to a (n, 1) column; pass a (n, d) array through unchanged."""
-    x = np.asarray(x, dtype=np.float64)
+    # Intentional float64: the Gram eigen-spectrum entropy must hold the 1e-9 offset-invariance contract, which f32 cannot meet.
+    x = np.asarray(x, dtype=_crit_np_dtype())
     return x.reshape(-1, 1) if x.ndim == 1 else x
 
 

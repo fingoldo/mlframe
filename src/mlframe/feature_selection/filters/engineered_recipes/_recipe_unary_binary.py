@@ -16,6 +16,8 @@ import logging
 from typing import Any, Callable, cast
 
 import numpy as np
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
+from mlframe.feature_selection.filters._fe_gpu_batch._devices import crit_float_dtype
 
 from ._recipe_core import EngineeredRecipe
 from ._recipe_extract import _extract_column
@@ -48,9 +50,9 @@ def _device_fit_edges(values: Any, method: str, nbins: int) -> "np.ndarray | Non
     try:
         import cupy as cp
 
-        x = values.dev.astype(cp.float64, copy=False).ravel()
+        x = values.dev.astype(crit_float_dtype(), copy=False).ravel()
         if method == "quantile":
-            return np.asarray(cp.percentile(x, cp.asarray(np.linspace(0.0, 100.0, nbins + 1))).get(), dtype=np.float64)
+            return np.asarray(cp.percentile(x, cp.asarray(np.linspace(0.0, 100.0, nbins + 1))).get(), dtype=_crit_np_dtype())
         finite = x[cp.isfinite(x)]
         if int(finite.size) == 0:
             return np.linspace(0.0, 0.0, nbins + 1)
@@ -97,7 +99,7 @@ def _apply_unary_side(recipe: EngineeredRecipe, side: str, uname: str, vals: Any
                     f"unary_binary recipe '{recipe.name}' uses a 'poly_' pseudo-unary on side {side!r} but "
                     f"'{_ckey}' is missing from extra. Re-fit MRMR to regenerate the recipe."
                 )
-            return hermval(np.asarray(vals, dtype=np.float64), np.asarray(recipe.extra[_ckey], dtype=np.float64))
+            return hermval(np.asarray(vals, dtype=_crit_np_dtype()), np.asarray(recipe.extra[_ckey], dtype=_crit_np_dtype()))
         # BUG2 FIX: ``smart_log`` (the registry ``log``) additively
         # shifts non-positive inputs by ``(1e-5 - nanmin(vals))`` - a
         # DATA-DEPENDENT anchor recomputed from ``vals`` each call. On a row-slice
@@ -110,7 +112,7 @@ def _apply_unary_side(recipe: EngineeredRecipe, side: str, uname: str, vals: Any
         _skey = f"log_shift_{side}"
         if uname == "log" and _skey in recipe.extra:
             _shift = float(recipe.extra[_skey])
-            return np.log(np.asarray(vals, dtype=np.float64) + _shift) if _shift != 0.0 else np.log(np.asarray(vals, dtype=np.float64))
+            return np.log(np.asarray(vals, dtype=_crit_np_dtype()) + _shift) if _shift != 0.0 else np.log(np.asarray(vals, dtype=_crit_np_dtype()))
         return unary_funcs[uname](vals)
     # Reconstruct the pre-warp spec from the flat ``extra`` fields and replay
     # it closed-form (no y) so the warped operand is bit-identical to fit.
@@ -126,7 +128,7 @@ def _apply_unary_side(recipe: EngineeredRecipe, side: str, uname: str, vals: Any
     _spec = {
         "basis": str(recipe.extra[f"prewarp_{side}_basis"]),
         "degree": int(recipe.extra[f"prewarp_{side}_degree"]),
-        "coef": np.asarray(recipe.extra[f"prewarp_{side}_coef"], dtype=np.float64),
+        "coef": np.asarray(recipe.extra[f"prewarp_{side}_coef"], dtype=_crit_np_dtype()),
         "preprocess": _orjson.loads(recipe.extra[f"prewarp_{side}_preprocess"]),
     }
     return apply_operand_prewarp(vals, _spec)
@@ -201,7 +203,7 @@ def _apply_unary_binary(recipe: EngineeredRecipe, X: Any, col_cache: "dict[str, 
             # Replay the parent WITHOUT quantization (continuous output).
             import dataclasses as _dc
             parent = _dc.replace(parent, quantization=None)
-        return np.asarray(apply_recipe(parent, X, col_cache=col_cache), dtype=np.float64)
+        return np.asarray(apply_recipe(parent, X, col_cache=col_cache), dtype=_crit_np_dtype())
 
     _np_a = recipe.extra.get("nested_parent_a")
     _np_b = recipe.extra.get("nested_parent_b")
@@ -243,6 +245,7 @@ def _apply_unary_binary(recipe: EngineeredRecipe, X: Any, col_cache: "dict[str, 
     try:
         from ._recipe_unary_binary_gpu import _vram_f32
 
+        # Intentional float64: dtype identity check on the f64 output before the f32 down-cast.
         if _vram_f32() and out_arr.dtype == np.float64:
             out_arr = out_arr.astype(np.float32)
     except Exception as _dtype_exc:  # pragma: no cover - the GPU module is optional
@@ -313,7 +316,7 @@ def build_unary_binary_recipe(
         # Persist fit-time edges so replay never re-quantiles on test data.
         if fit_values_for_edges is not None:
             _edges = _device_fit_edges(fit_values_for_edges, cast(str, quantization["method"]), int(quantization_nbins))
-            _arr = np.empty(0, dtype=np.float64) if _edges is not None else np.asarray(fit_values_for_edges, dtype=np.float64).ravel()
+            _arr = np.empty(0, dtype=_crit_np_dtype()) if _edges is not None else np.asarray(fit_values_for_edges, dtype=_crit_np_dtype()).ravel()
             if _edges is not None:
                 pass  # computed on the device: only the nbins + 1 edges crossed to the host
             elif quantization["method"] == "quantile":
@@ -341,13 +344,13 @@ def build_unary_binary_recipe(
     # list for JSON/pickle friendliness (mirrors prewarp_<side>_coef below).
     for _side, _coef in (("a", poly_a_coef), ("b", poly_b_coef)):
         if _coef is not None:
-            extra[f"poly_{_side}_coef"] = np.asarray(_coef, dtype=np.float64).tolist()
+            extra[f"poly_{_side}_coef"] = np.asarray(_coef, dtype=_crit_np_dtype()).tolist()
     for _side, _spec in (("a", prewarp_a), ("b", prewarp_b)):
         if _spec is None:
             continue
         extra[f"prewarp_{_side}_basis"] = str(_spec["basis"])
         extra[f"prewarp_{_side}_degree"] = int(_spec["degree"])
-        extra[f"prewarp_{_side}_coef"] = np.asarray(_spec["coef"], dtype=np.float64).copy()
+        extra[f"prewarp_{_side}_coef"] = np.asarray(_spec["coef"], dtype=_crit_np_dtype()).copy()
         extra[f"prewarp_{_side}_preprocess"] = _orjson_pp(_spec["preprocess"])
         # ROBUST WARP FIT: when the warp was fit with the Huber-IRLS
         # heavy-tail path, persist the robust flag + the MAD-anchored winsor bounds

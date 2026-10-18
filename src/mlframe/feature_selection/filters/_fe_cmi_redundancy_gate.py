@@ -111,6 +111,7 @@ logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
 # Significance-null primitives carved to a sibling; re-imported so this facade and apply_cmi_redundancy_gate resolve them unchanged.
 from ._lazy_host_codes import LazyHostCodes
+from ._fe_usability_signal import _crit_np_dtype
 from ._fe_cmi_redundancy_null import (  # noqa: F401
     _CMI_FLOOR_PERMUTATIONS,
     _CMI_FLOOR_QUANTILE,
@@ -398,7 +399,7 @@ def _gate_round_batched(g: Any, _rem_list: list, _z_scored: Any, quantile: float
                 for _j, _nm in enumerate(_rem_list):
                     _Xc[:, _j] = cand_bins[_nm]
             _cmis, _kz, _kxz, _kyz, _kxyz = batched_cmi_gpu(_Xc, y_dense, _z_scored, return_cards=True)
-            _cmis = np.asarray(_cmis, dtype=np.float64)
+            _cmis = np.asarray(_cmis, dtype=_crit_np_dtype())
             _round_cmi = {_nm: float(_cmis[_j]) for _j, _nm in enumerate(_rem_list)}
             # cards for EVERY candidate -> pass to the per-candidate permutation-null fallback so it never
             # recomputes joint_cardinalities_cupy (z_support is conditional here, so cards apply).
@@ -662,13 +663,13 @@ def _bin_candidates(names, candidates, nbins, gate_resident, quantile_bin) -> "t
     for nm in names:
         vals = candidates[nm][0]
         if not hasattr(vals, "dev"):
-            vals = np.asarray(vals, dtype=np.float64)
+            vals = np.asarray(vals, dtype=_crit_np_dtype())
         dev = _apply_cmi_redundan_gate_resident_np_isfinite(gate_resident, vals, nbins, None)
         if dev is not None:
             cand_bins_dev[nm] = dev
             cand_bins[nm] = LazyHostCodes(dev, np.int64)
         else:
-            cand_bins[nm] = quantile_bin(np.asarray(vals, dtype=np.float64), nbins=nbins)
+            cand_bins[nm] = quantile_bin(np.asarray(vals, dtype=_crit_np_dtype()), nbins=nbins)
     return cand_bins, cand_bins_dev
 
 

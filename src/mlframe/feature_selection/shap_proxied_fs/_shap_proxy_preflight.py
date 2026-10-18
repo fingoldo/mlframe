@@ -22,6 +22,7 @@ from typing import Any
 import logging
 
 import numpy as np
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 import pandas as pd
 from sklearn.model_selection import cross_val_score
 
@@ -119,11 +120,11 @@ def dataset_diagnostics(
     # pandas' pairwise-complete corr (each pair uses only rows where BOTH are present) instead.
     Xc_df = Xc_src.iloc[:, cols]
     if not isinstance(Xc_df, pd.DataFrame):
-        Xc_df = pd.DataFrame(np.asarray(Xc_df, dtype=np.float64))
+        Xc_df = pd.DataFrame(np.asarray(Xc_df, dtype=_crit_np_dtype()))
     with np.errstate(invalid="ignore", divide="ignore"):
         # copy=True: pandas Copy-on-Write mode returns a read-only view from .to_numpy() otherwise,
         # and np.fill_diagonal below mutates in place.
-        C = Xc_df.astype(np.float64).corr(method="pearson", min_periods=1).to_numpy(copy=True)
+        C = Xc_df.astype(_crit_np_dtype()).corr(method="pearson", min_periods=1).to_numpy(copy=True)
     if C.size:
         np.fill_diagonal(C, 0.0)
     max_abs_corr = float(np.nanmax(np.abs(C))) if C.size and np.isfinite(C).any() else 0.0

@@ -49,6 +49,7 @@ import logging
 from typing import Optional, Sequence
 
 import numpy as np
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 
 from mlframe.feature_selection.filters._relative_uplift import relative_uplift
 import pandas as pd
@@ -178,24 +179,24 @@ def _evaluate_basis_column(
     if preprocess_params is not None:
         # REPLAY: apply the stored fit-time params; never refit on test x.
         apply_fn = basis_info["apply"]
-        z = apply_fn(np.asarray(x, dtype=np.float64), preprocess_params)
+        z = apply_fn(np.asarray(x, dtype=_crit_np_dtype()), preprocess_params)
         params = preprocess_params
     elif aux_for_fit is not None and len(aux_for_fit) > 0:
         # Build params from the concatenated pool, then apply to ``x`` only.
-        aux = np.asarray(aux_for_fit, dtype=np.float64)
+        aux = np.asarray(aux_for_fit, dtype=_crit_np_dtype())
         finite_aux = aux[np.isfinite(aux)]
         if finite_aux.size > 0:
-            pool = np.concatenate([np.asarray(x, dtype=np.float64), finite_aux])
+            pool = np.concatenate([np.asarray(x, dtype=_crit_np_dtype()), finite_aux])
             _z_pool, params = fit_fn(pool)
             apply_fn = basis_info["apply"]
-            z = apply_fn(np.asarray(x, dtype=np.float64), params)
+            z = apply_fn(np.asarray(x, dtype=_crit_np_dtype()), params)
         else:
             z, params = fit_fn(x)
     else:
         z, params = fit_fn(x)
-    z = np.ascontiguousarray(z, dtype=np.float64)
+    z = np.ascontiguousarray(z, dtype=_crit_np_dtype())
     # One-hot coefficient vector: He_n / L_n / T_n / L^Lag_n at the chosen degree.
-    coef = np.zeros(degree + 1, dtype=np.float64)
+    coef = np.zeros(degree + 1, dtype=np.float64)  # Intentional float64: accumulator or output buffer; statistic at float64
     coef[degree] = 1.0
     out = polyeval_dispatch(basis, z, coef)
     return (out, params) if return_params else out
@@ -235,8 +236,8 @@ def basis_route_by_signal(
     (no y needed at transform -> leakage-free). Falls back to
     ``basis_route_by_moments`` when y is degenerate / size-mismatched / too small.
     """
-    x = np.asarray(x, dtype=np.float64)
-    yv = np.asarray(y, dtype=np.float64).ravel()
+    x = np.asarray(x, dtype=_crit_np_dtype())
+    yv = np.asarray(y, dtype=_crit_np_dtype()).ravel()
     if x.size < 30 or yv.size != x.size or not np.isfinite(yv).all() or float(np.std(yv)) < 1e-12:
         return basis_route_by_moments(x)
     best_basis = None
@@ -258,14 +259,14 @@ def basis_route_by_signal(
             if _route_no_aux:
                 try:
                     _zf, _ = _POLY_BASES[basis]["fit"](x)
-                    _zc = np.ascontiguousarray(_zf, dtype=np.float64)
+                    _zc = np.ascontiguousarray(_zf, dtype=_crit_np_dtype())
                 except Exception as e:
                     log_throttle(logger, "orth_basis_fit_failed_route", logging.WARNING, "basis fit for %r failed: %s", basis, e)
                     _zc = None
             for d in degrees:
                 try:
                     if _zc is not None:
-                        _coef = np.zeros(int(d) + 1, dtype=np.float64)
+                        _coef = np.zeros(int(d) + 1, dtype=np.float64)  # Intentional float64: accumulator or output buffer; statistic at float64
                         _coef[int(d)] = 1.0
                         v = polyeval_dispatch(basis, _zc, _coef)
                     else:
@@ -273,7 +274,7 @@ def basis_route_by_signal(
                 except Exception as e:  # nosec B112 - swallow converted to debug-log, non-fatal by design
                     logger.debug("suppressed: %s", e)
                     continue
-                v = np.asarray(v, dtype=np.float64)
+                v = np.asarray(v, dtype=_crit_np_dtype())
                 if v.size != yv.size or not np.all(np.isfinite(v)) or float(np.std(v)) < 1e-12:
                     continue
                 c = abs(float(np.corrcoef(v, yv)[0, 1]))
@@ -384,7 +385,7 @@ def generate_univariate_basis_features(
         # relaxation stays for the separate MI-uplift SCORING casts in ``score_features_by_mi_uplift`` (a
         # ranking decision, not a persisted value) - only this closed-form VALUE materialisation must match
         # replay bit-for-bit.
-        x = np.asarray(X[col].to_numpy(), dtype=np.float64)
+        x = np.asarray(X[col].to_numpy(), dtype=_crit_np_dtype())
         # Skip orthogonal-polynomial expansion on integer-valued low-cardinality categorical group keys: T_n / He_n of an
         # arbitrary label code (region 0..9) is spurious - it fits the label->target mapping, floods the candidate pool, and
         # displaces the genuinely useful grouped aggregates of that key. Continuous / high-card columns keep the expansion. The
@@ -431,14 +432,14 @@ def generate_univariate_basis_features(
             if aux_col is None or len(np.asarray(aux_col)) == 0:
                 try:
                     _z_fit, _ = _POLY_BASES[chosen_basis]["fit"](x)
-                    _z_cached = np.ascontiguousarray(_z_fit, dtype=np.float64)
+                    _z_cached = np.ascontiguousarray(_z_fit, dtype=_crit_np_dtype())
                 except Exception as e:
                     log_throttle(logger, "orth_basis_fit_failed_gen", logging.WARNING, "basis fit for %r failed: %s", chosen_basis, e)
                     _z_cached = None
         for d in degrees:
             try:
                 if _z_cached is not None:
-                    _coef = np.zeros(int(d) + 1, dtype=np.float64)
+                    _coef = np.zeros(int(d) + 1, dtype=np.float64)  # Intentional float64: accumulator or output buffer; statistic at float64
                     _coef[int(d)] = 1.0
                     vals = polyeval_dispatch(chosen_basis, _z_cached, _coef)
                 else:
@@ -501,7 +502,7 @@ def score_features_by_mi_uplift(
     raw_mi = resident_raw_baseline_mi(raw_np, y_arr, ("uplift_raw_baseline", tuple(raw_cols)), nbins=nbins)
     if raw_mi is None:
         raw_mi = _mi_classif_batch(raw_np, y_arr, nbins=nbins)
-    raw_mi = np.asarray(raw_mi, dtype=np.float64)
+    raw_mi = np.asarray(raw_mi, dtype=np.float64)  # Intentional float64: raw-MI statistic input
     raw_mi_map = dict(zip(raw_cols, raw_mi.tolist()))
     # SF1b/1c class-A/C :311 collapse: when EVERY engineered column is a poly leg (He/T/L/LL), the
     # engineered matrix is rebuilt DEVICE-BORN from the resident raw operands and scored through the SAME resident
@@ -526,7 +527,7 @@ def score_features_by_mi_uplift(
     if eng_mi is None:
         # Column-chunked MI scoring -> bit-identical, bounds peak RAM at scale (see mi_classif_batch_chunked).
         eng_mi = mi_classif_batch_chunked(engineered_X, y_arr, nbins=nbins)
-    eng_mi = np.asarray(eng_mi, dtype=np.float64)
+    eng_mi = np.asarray(eng_mi, dtype=np.float64)  # Intentional float64: engineered-MI statistic input
     rows = []
     _raw_cols_set = frozenset(raw_cols)  # O(1)-lookup fast path for _source_from_engineered_name, built ONCE
     for j, eng_name in enumerate(engineered_X.columns):
@@ -563,7 +564,7 @@ def _target_entropy_nats(y: np.ndarray) -> float:
         if arr.dtype.kind in "fc" and int(np.unique(arr).size) > 32:
             arr = np.asarray(pd.qcut(arr, q=10, labels=False, duplicates="drop"))
         _, counts = np.unique(arr, return_counts=True)
-        p = counts.astype(np.float64) / float(counts.sum())
+        p = counts.astype(np.float64) / float(counts.sum())  # Intentional float64: accumulator or output buffer; statistic at float64
         p = p[p > 0.0]
         return float(-np.sum(p * np.log(p)))
     except Exception as exc:
@@ -796,7 +797,7 @@ def hybrid_orth_mi_fe_with_recipes(
             # float64 (not _crit_np_dtype()'s f32 relaxation): match the transform()-time replay axis, which
             # _orth_basis_recipes._eval_orth_basis_column casts to float64 unconditionally - see the fit-time
             # column-extraction fix above for the full rationale.
-            _col_full = np.asarray(X[src].values, dtype=np.float64)
+            _col_full = np.asarray(X[src].values, dtype=_crit_np_dtype())
             _vals_full, _pp = _evaluate_basis_column(
                 _col_full, chosen_basis, int(chosen_degree), return_params=True,
             )

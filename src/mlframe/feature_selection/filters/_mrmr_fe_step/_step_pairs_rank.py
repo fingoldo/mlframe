@@ -56,6 +56,7 @@ def _resident_cand(codes):
 
 
 from .._fe_usability_signal import (  # shared leaf helpers (numpy-only, no cycle)
+    _crit_np_dtype,
     _single_operand_usability_corr,
     pair_is_tail_concentrated_rankaware as _pair_is_tail_concentrated_rankaware,
     usability_operand_continuous as _usability_operand_continuous,
@@ -85,7 +86,7 @@ def _batch_usability_admission_verdicts(self, *, need_usability, y_continuous, c
         _margin_m = float(getattr(self, "fe_pair_usability_admission_pairness_margin", 1.05))
         _rank_frac_m = float(getattr(self, "fe_pair_usability_admission_rank_frac", 0.7))
 
-        _ya_m = np.asarray(y_continuous, dtype=np.float64).reshape(-1)
+        _ya_m = np.asarray(y_continuous, dtype=_crit_np_dtype()).reshape(-1)
         _stride_m = _corr_stride(_ya_m.shape[0])
         _dtype_m = _crit_np_dtype()
         _y_batch_m = np.asarray(_ya_m[::_stride_m] if _stride_m > 1 else _ya_m, dtype=_dtype_m)
@@ -103,7 +104,7 @@ def _batch_usability_admission_verdicts(self, *, need_usability, y_continuous, c
                     _sc = cached_single_corr(_idx)
                     _sc_rows_m.append(float(_sc) if _sc is not None else 0.0)
         _operand_matrix_m = np.vstack(_op_rows_m)
-        _single_corr_m = np.asarray(_sc_rows_m, dtype=np.float64)
+        _single_corr_m = np.asarray(_sc_rows_m, dtype=_dtype_m)
         _pair_a_m = np.array([_op_row_of_m[_pk[0]] for _pk in need_usability], dtype=np.int64)
         _pair_b_m = np.array([_op_row_of_m[_pk[1]] for _pk in need_usability], dtype=np.int64)
 
@@ -152,7 +153,7 @@ def _maybe_relax_prevalence_for_tail_concentrated_pool(
         _yc_pre = getattr(self, "_fe_prewarp_y_continuous_", None)
         if _yc_pre is None or len(_yc_pre) != data.shape[0]:
             return fe_min_pair_mi_prevalence
-        _ya_pre = np.asarray(_yc_pre, dtype=np.float64).reshape(-1)
+        _ya_pre = np.asarray(_yc_pre, dtype=_crit_np_dtype()).reshape(-1)
         _min_corr_pre = float(getattr(self, "fe_pair_usability_admission_min_corr", 0.6))
         _margin_pre = float(getattr(self, "fe_pair_usability_admission_pairness_margin", 1.05))
         _rank_frac_pre = float(getattr(self, "fe_pair_usability_admission_rank_frac", 0.7))
@@ -210,7 +211,7 @@ def _maybe_relax_prevalence_for_tail_concentrated_pool(
                 continue
             _scan_pks.append(_pk)
         if _scan_pks:
-            from .._fe_usability_signal import _corr_stride, _crit_np_dtype
+            from .._fe_usability_signal import _corr_stride
             from ..batch_pair_usability_corr_gpu import ALL_PAIR_FORM_IDS, dispatch_batch_pair_usability_corr
 
             # Match usability_form_corrs's OWN internal _subsample_for_corr stride exactly - it

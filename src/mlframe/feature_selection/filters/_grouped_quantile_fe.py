@@ -48,6 +48,7 @@ import logging
 from typing import Optional, Sequence
 
 import numpy as np
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 import pandas as pd
 
 from ._internals import group_key_strings
@@ -106,7 +107,7 @@ def _pct_rank_in_sorted(sorted_vals: np.ndarray, x: np.ndarray) -> np.ndarray:
     """
     m = sorted_vals.size
     if m == 0:
-        return np.full(x.shape, 0.5, dtype=np.float64)
+        return np.full(x.shape, 0.5, dtype=_crit_np_dtype())
     lo = np.searchsorted(sorted_vals, x, side="left")
     hi = np.searchsorted(sorted_vals, x, side="right")
     # Average rank for ties; normalise by m so the result is a CDF position.
@@ -146,9 +147,9 @@ def generate_grouped_quantile_features(
         n = len(X)
         group_rows: dict[str, np.ndarray] = {str(gv): idx.to_numpy() for gv, idx in pd.Series(np.arange(n)).groupby(g_keys, sort=False)}
         for num_col in cur_num_cols:
-            x = np.asarray(X[num_col].to_numpy(), dtype=np.float64)
+            x = np.asarray(X[num_col].to_numpy(), dtype=_crit_np_dtype())
             finite_all = x[np.isfinite(x)]
-            global_sorted = np.sort(finite_all) if finite_all.size else np.array([], dtype=np.float64)
+            global_sorted = np.sort(finite_all) if finite_all.size else np.array([], dtype=_crit_np_dtype())
             global_iqr = float(np.quantile(finite_all, 0.75) - np.quantile(finite_all, 0.25)) if finite_all.size else 0.0
             global_p90p10 = float(np.quantile(finite_all, 0.90) - np.quantile(finite_all, 0.10)) if finite_all.size else 0.0
 
@@ -156,7 +157,7 @@ def generate_grouped_quantile_features(
             group_sorted: dict[str, list] = {}
             iqr_lookup: dict[str, float] = {}
             p90p10_lookup: dict[str, float] = {}
-            pct_out = np.empty(x.shape, dtype=np.float64)
+            pct_out = np.empty(x.shape, dtype=_crit_np_dtype())
 
             for gv, rows in group_rows.items():
                 vals = x[rows]
@@ -248,7 +249,7 @@ def apply_grouped_quantile(X_test: pd.DataFrame, recipe: dict) -> np.ndarray:
     if group_col not in X_test.columns or num_col not in X_test.columns:
         raise KeyError(f"apply_grouped_quantile: missing column(s) {group_col!r}/" f"{num_col!r} from X_test")
     g_keys = group_key_strings(X_test[group_col])
-    x = np.asarray(X_test[num_col].to_numpy(), dtype=np.float64)
+    x = np.asarray(X_test[num_col].to_numpy(), dtype=_crit_np_dtype())
 
     if op == "iqr":
         lookup = dict(recipe["iqr_lookup"])
@@ -260,17 +261,17 @@ def apply_grouped_quantile(X_test: pd.DataFrame, recipe: dict) -> np.ndarray:
         return _broadcast_lookup(g_keys, lookup, glob)
     if op == "pct_rank":
         group_sorted = recipe["group_sorted"]
-        global_sorted = np.asarray(recipe["global_sorted"], dtype=np.float64)
+        global_sorted = np.asarray(recipe["global_sorted"], dtype=_crit_np_dtype())
         # Cache per-group sorted ndarrays to avoid re-converting per row.
         cache: dict[str, np.ndarray] = {}
-        out = np.empty(x.shape, dtype=np.float64)
+        out = np.empty(x.shape, dtype=_crit_np_dtype())
         for gv, idx in pd.Series(np.arange(len(x))).groupby(g_keys, sort=False):
             rows = idx.to_numpy()
             key = str(gv)
             sv = cache.get(key)
             if sv is None:
                 if key in group_sorted:
-                    sv = np.asarray(group_sorted[key], dtype=np.float64)
+                    sv = np.asarray(group_sorted[key], dtype=_crit_np_dtype())
                 else:
                     sv = global_sorted
                 cache[key] = sv
@@ -293,18 +294,18 @@ def _fit_group_edges(vals: np.ndarray, yv: np.ndarray, n_bins: int) -> np.ndarra
     vals = vals[fin]
     yv = yv[fin]
     if vals.size < _MIN_GROUP_SIZE or np.unique(vals).size < 2:
-        return np.array([], dtype=np.float64)
+        return np.array([], dtype=_crit_np_dtype())
     try:
         edges = edges_fayyad_irani(vals, yv.astype(np.int64))
     except Exception as e:
         logger.warning("edges_fayyad_irani failed: %s", e)
-        edges = np.array([], dtype=np.float64)
+        edges = np.array([], dtype=_crit_np_dtype())
     if edges.size == 0:
         # Fallback: fixed quantile edges capped at n_bins.
         nb = max(2, int(n_bins))
         qs = np.linspace(0.0, 1.0, nb + 1)[1:-1]
         edges = np.unique(np.quantile(vals, qs))
-    return np.asarray(edges, dtype=np.float64)
+    return np.asarray(edges, dtype=_crit_np_dtype())
 
 def generate_target_aware_group_bins(
     X: pd.DataFrame,
@@ -360,9 +361,9 @@ def generate_target_aware_group_bins(
         # Precompute the row indices per group key once.
         group_rows: dict[str, np.ndarray] = {str(gv): idx.to_numpy() for gv, idx in pd.Series(np.arange(n)).groupby(g_keys, sort=False)}
         for num_col in cur_num_cols:
-            x = np.asarray(X[num_col].to_numpy(), dtype=np.float64)
+            x = np.asarray(X[num_col].to_numpy(), dtype=_crit_np_dtype())
             finite_all = x[np.isfinite(x)]
-            global_edges = _fit_group_edges(finite_all, y_arr[np.isfinite(x)], n_bins) if finite_all.size else np.array([], dtype=np.float64)
+            global_edges = _fit_group_edges(finite_all, y_arr[np.isfinite(x)], n_bins) if finite_all.size else np.array([], dtype=_crit_np_dtype())
 
             # ---- OOF bin assignment for leak-safe MI scoring ----
             # bench-attempt-FUTURE: capping the n_folds x n_groups MDLP refits below
@@ -376,7 +377,7 @@ def generate_target_aware_group_bins(
             # point of target-aware bins (within-group signal global edges miss), so the cap cannot
             # be made identity-preserving. Uncapped cost is bounded (0.36-0.48s @ n=100k here); revisit
             # only for pathologically high group counts, and then with a SIZE/COUNT gate, never a blanket cap.
-            oof_bin = np.zeros(n, dtype=np.float64)
+            oof_bin = np.zeros(n, dtype=_crit_np_dtype())
             for f in range(n_folds):
                 train_mask = _fold_masks[f]
                 test_mask = _fold_test_masks[f]
@@ -406,7 +407,7 @@ def generate_target_aware_group_bins(
                     edges = _fit_group_edges(x[rows], y_arr[rows], n_bins)
                 else:
                     edges = global_edges
-                group_edges[key] = np.asarray(edges, dtype=np.float64).tolist()
+                group_edges[key] = np.asarray(edges, dtype=_crit_np_dtype()).tolist()
 
             name = engineered_name_target_aware_bin(num_col, group_col)
             encoded[name] = np.nan_to_num(oof_bin, nan=0.0)
@@ -415,7 +416,7 @@ def generate_target_aware_group_bins(
                 "num_col": num_col,
                 "op": "target_aware_bin",
                 "group_edges": group_edges,
-                "global_edges": np.asarray(global_edges, dtype=np.float64).tolist(),
+                "global_edges": np.asarray(global_edges, dtype=_crit_np_dtype()).tolist(),
                 "n_bins": int(n_bins),
             }
 
@@ -434,10 +435,10 @@ def apply_target_aware_group_bin(X_test: pd.DataFrame, recipe: dict) -> np.ndarr
     if group_col not in X_test.columns or num_col not in X_test.columns:
         raise KeyError(f"apply_target_aware_group_bin: missing column(s) {group_col!r}/" f"{num_col!r} from X_test")
     g_keys = group_key_strings(X_test[group_col])
-    x = np.asarray(X_test[num_col].to_numpy(), dtype=np.float64)
+    x = np.asarray(X_test[num_col].to_numpy(), dtype=_crit_np_dtype())
     group_edges = recipe["group_edges"]
-    global_edges = np.asarray(recipe["global_edges"], dtype=np.float64)
-    out = np.zeros(x.shape, dtype=np.float64)
+    global_edges = np.asarray(recipe["global_edges"], dtype=_crit_np_dtype())
+    out = np.zeros(x.shape, dtype=_crit_np_dtype())
     cache: dict[str, np.ndarray] = {}
     for gv, idx in pd.Series(np.arange(len(x))).groupby(g_keys, sort=False):
         rows = idx.to_numpy()
@@ -445,7 +446,7 @@ def apply_target_aware_group_bin(X_test: pd.DataFrame, recipe: dict) -> np.ndarr
         edges = cache.get(key)
         if edges is None:
             if key in group_edges:
-                edges = np.asarray(group_edges[key], dtype=np.float64)
+                edges = np.asarray(group_edges[key], dtype=_crit_np_dtype())
             else:
                 edges = global_edges
             cache[key] = edges
@@ -531,7 +532,7 @@ def score_grouped_quantile_by_mi_uplift(
 
     def _bin(arr: np.ndarray) -> np.ndarray:
         """Quantile-bin (or pass through as-is if already low-cardinality integer-valued) a column into ``n_bins`` int codes for the plug-in MI estimator."""
-        a = np.asarray(arr, dtype=np.float64)
+        a = np.asarray(arr, dtype=_crit_np_dtype())
         # Compute the finite mask + finite subset ONCE (the original recomputed
         # np.isfinite(a) 4x and a[np.isfinite(a)] 3x). All-finite columns skip
         # the gather entirely. Bit-identical; ~1.18x at the L88 call volume.

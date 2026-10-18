@@ -32,6 +32,7 @@ logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
 from ._fe_synergy_screen import joint_synergy_mi  # noqa: F401
 from ._numba_utils import _pair_mm_mi_njit
+from ._fe_usability_signal import _crit_np_dtype
 
 
 def _pair_mm_mi(code_x: np.ndarray, code_y: np.ndarray, yc: np.ndarray, min_rows_per_cell: float = 5.0) -> float:
@@ -62,7 +63,7 @@ _DEFAULT_NULL_MULT = 3.0
 def _quantize(col: np.ndarray, nbins: int, rng: np.random.Generator) -> np.ndarray:
     """Integer-bin a 1-D column. Low-cardinality columns (<=nbins distinct) are factorised directly so
     XOR/parity bits keep their exact 0/1 codes; continuous columns get quantile bins."""
-    col = np.asarray(col, dtype=np.float64).ravel()
+    col = np.asarray(col, dtype=_crit_np_dtype()).ravel()
     finite = col[np.isfinite(col)]
     uniq = np.unique(finite)
     if uniq.size <= nbins:

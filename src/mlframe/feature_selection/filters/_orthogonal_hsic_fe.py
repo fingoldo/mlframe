@@ -100,6 +100,7 @@ import logging
 from typing import Optional, Sequence
 
 import numpy as np
+from ._fe_usability_signal import _crit_np_dtype
 import pandas as pd
 
 from ._orthogonal_univariate_fe import generate_univariate_basis_features
@@ -135,7 +136,7 @@ def median_heuristic_sigma(z: np.ndarray) -> float:
     defined (``exp(0) = 1`` on every entry; the resulting HSIC is 0,
     which is the right "no signal" reading for a constant column).
     """
-    arr = np.asarray(z, dtype=np.float64).ravel()
+    arr = np.asarray(z, dtype=_crit_np_dtype()).ravel()
     n = arr.shape[0]
     if n < 2:
         return 1.0
@@ -159,7 +160,7 @@ def _rbf_gram(z: np.ndarray, sigma: float) -> np.ndarray:
     and Gretton use); the variance scaling is ``2 * sigma^2`` in the
     exponent.
     """
-    arr = np.asarray(z, dtype=np.float64).ravel()
+    arr = np.asarray(z, dtype=_crit_np_dtype()).ravel()
     diff = arr[:, None] - arr[None, :]
     sq = diff * diff
     s = float(sigma) if float(sigma) > 0.0 else 1.0
@@ -205,7 +206,7 @@ def hsic(
     n_sample : int
         Cap on the working sample size. Naive HSIC is ``O(n^2)`` memory;
         ``n_sample = 500`` keeps the per-pair Gram matrices at 2 MB each
-        (float64). When ``n > n_sample`` a deterministic random
+        (policy float dtype). When ``n > n_sample`` a deterministic random
         subsample is drawn.
     random_state : int
         Seed for the deterministic subsample. Ignored when
@@ -226,8 +227,8 @@ def hsic(
         )
     if estimator not in ("biased", "unbiased"):
         raise ValueError(f"hsic: estimator must be 'biased' or 'unbiased', got " f"{estimator!r}")
-    x_arr = np.asarray(x, dtype=np.float64).ravel()
-    y_arr = np.asarray(y, dtype=np.float64).ravel()
+    x_arr = np.asarray(x, dtype=_crit_np_dtype()).ravel()
+    y_arr = np.asarray(y, dtype=_crit_np_dtype()).ravel()
     if x_arr.shape[0] != y_arr.shape[0]:
         raise ValueError(f"hsic: x has {x_arr.shape[0]} rows, y has {y_arr.shape[0]}; " f"row alignment required.")
     n_total = x_arr.shape[0]
@@ -298,7 +299,7 @@ def _hsic_y_side_prep(
     each call rebuilding the identical y-side Gram matrix. Returns ``None`` on the degenerate n<4 case
     (caller falls back to ``_hsic_batch``'s own zero-fill short-circuit).
     """
-    y_arr = np.asarray(y, dtype=np.float64).ravel()
+    y_arr = np.asarray(y, dtype=_crit_np_dtype()).ravel()
     if n_total < 4:
         return None
     idx = _subsample_indices(n_total, int(n_sample), int(random_state))
@@ -342,7 +343,7 @@ def _hsic_batch(
     skip rebuilding the y-side Gram matrix a second time. ``None`` (default) preserves the exact
     self-contained behavior - byte-identical to before this parameter existed.
     """
-    X_arr = np.asarray(X, dtype=np.float64)
+    X_arr = np.asarray(X, dtype=_crit_np_dtype())
     if X_arr.ndim == 1:
         X_arr = X_arr.reshape(-1, 1)
     n_total = X_arr.shape[0]
@@ -351,8 +352,10 @@ def _hsic_batch(
     else:
         prep = _hsic_y_side_prep(y, n_total, n_sample=n_sample, random_state=random_state, estimator=estimator)
         if prep is None:
+            # Intentional float64: HSIC score vector returned to the ranking (output contract, the scores are sums of Gram-matrix terms).
             return np.zeros(X_arr.shape[1], dtype=np.float64)
         idx, n, Lc, unbiased_terms = prep
+    # Intentional float64: HSIC score vector returned to the ranking (output contract, the scores are sums of Gram-matrix terms).
     out = np.empty(X_arr.shape[1], dtype=np.float64)
     if estimator == "biased":
         denom = float((n - 1) * (n - 1))
@@ -457,13 +460,13 @@ def score_features_by_hsic_uplift(
         y_arr, len(raw_X), n_sample=int(n_sample), random_state=int(random_state), estimator=estimator,
     )
     raw_mi = _hsic_batch(
-        raw_X.to_numpy(dtype=np.float64), y_arr,
+        raw_X.to_numpy(dtype=_crit_np_dtype()), y_arr,
         n_sample=int(n_sample), random_state=int(random_state),
         estimator=estimator, y_side=_y_side,
     )
     raw_mi_map = dict(zip(raw_cols, raw_mi.tolist()))
     eng_mi = _hsic_batch(
-        engineered_X.to_numpy(dtype=np.float64), y_arr,
+        engineered_X.to_numpy(dtype=_crit_np_dtype()), y_arr,
         n_sample=int(n_sample), random_state=int(random_state),
         estimator=estimator, y_side=_y_side,
     )
@@ -639,7 +642,7 @@ def hybrid_orth_mi_hsic_fe_with_recipes(
         # source column is safe/exact - it reproduces, not refits, the fit-time params.
         _pp = None
         try:
-            _col_full = np.asarray(X[src].to_numpy(), dtype=np.float64)
+            _col_full = np.asarray(X[src].to_numpy(), dtype=_crit_np_dtype())
             _, _pp = _evaluate_basis_column(_col_full, chosen_basis, int(chosen_degree), return_params=True)
         except Exception as exc:
             # Was a bare except with zero logging,

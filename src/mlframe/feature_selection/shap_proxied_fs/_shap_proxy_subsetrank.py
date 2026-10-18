@@ -77,7 +77,7 @@ def _subset_loss_scan_njit(phi, base, y, combos, metric_code, out):
     C = combos.shape[0]
     r = combos.shape[1]
     n = phi.shape[0]
-    margin = np.empty(n, dtype=np.float64)
+    margin = np.empty(n, dtype=np.float64)  # Intentional float64: accumulator or output buffer; statistic at float64
     for c in range(C):
         comb = combos[c]
         for t in range(n):
@@ -101,7 +101,7 @@ def _subset_loss_scan_njit_parallel(phi, base, y, combos, metric_code, out):
     n = phi.shape[0]
     for c in prange(C):
         comb = combos[c]
-        margin = np.empty(n, dtype=np.float64)
+        margin = np.empty(n, dtype=np.float64)  # Intentional float64: accumulator or output buffer; statistic at float64
         for t in range(n):
             m = base[t]
             for jj in range(r):
@@ -129,9 +129,9 @@ def brute_force_top_n_cpu_ref(
     if metric_name == "auc":
         raise ValueError("subset scan does not support metric='auc' (use brier/logloss); AUC is Python-path only.")
     metric_code = METRIC_CODES[metric_name]
-    phi = np.ascontiguousarray(phi, dtype=np.float64)
-    base = np.ascontiguousarray(base, dtype=np.float64)
-    y = np.ascontiguousarray(y, dtype=np.float64)
+    phi = np.ascontiguousarray(phi, dtype=np.float64)  # Intentional float64: shap-proxy subset-rank statistic (not the FE path)
+    base = np.ascontiguousarray(base, dtype=np.float64)  # Intentional float64: shap-proxy subset-rank statistic (not the FE path)
+    y = np.ascontiguousarray(y, dtype=np.float64)  # Intentional float64: shap-proxy subset-rank statistic (not the FE path)
     f = phi.shape[1]
     max_card = f if max_card is None else min(max_card, f)
     seq = np.arange(f, dtype=np.int32)
@@ -144,7 +144,7 @@ def brute_force_top_n_cpu_ref(
         C = combos.shape[0]
         if C == 0:
             continue
-        out = np.empty(C, dtype=np.float64)
+        out = np.empty(C, dtype=np.float64)  # Intentional float64: accumulator or output buffer; statistic at float64
         scan(phi, base, y, combos, metric_code, out)
         # SR1: argpartition ordering is undefined with NaN, so a NaN loss (degenerate single-class slice)
         # could be selected as "top" (lowest). Map non-finite losses to +inf (worst) so they sink, never

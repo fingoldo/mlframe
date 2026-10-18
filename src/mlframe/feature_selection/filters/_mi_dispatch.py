@@ -56,6 +56,7 @@ import math
 from typing import Any, Dict, Optional
 
 import numpy as np
+from ._fe_usability_signal import _crit_np_dtype
 
 logger = logging.getLogger(__name__)
 
@@ -94,7 +95,7 @@ def score_pair_mi(x: np.ndarray, y: np.ndarray, *,
         I(X; Y) in nats. Clamped at 0 for finite-sample negative noise.
     """
     estimator_kwargs = dict(estimator_kwargs or {})
-    x = np.asarray(x, dtype=np.float64).ravel()
+    x = np.asarray(x, dtype=_crit_np_dtype()).ravel()
     y_arr = np.asarray(y).ravel()
 
     if estimator == "plug_in":
@@ -102,20 +103,20 @@ def score_pair_mi(x: np.ndarray, y: np.ndarray, *,
     if estimator in ("mixed_ksg", "ksg_lnc"):
         from ._ksg import mixed_ksg_mi, ksg_lnc_mi
         fn = mixed_ksg_mi if estimator == "mixed_ksg" else ksg_lnc_mi
-        return float(fn(x, y_arr.astype(np.float64), **estimator_kwargs))
+        return float(fn(x, y_arr.astype(_crit_np_dtype()), **estimator_kwargs))
     if estimator in ("mine", "infonet", "mist"):
         from ._neural_mi import mine_mi, infonet_mi, mist_mi
         fn_map: dict = {"mine": mine_mi, "infonet": infonet_mi, "mist": mist_mi}
-        return float(fn_map[estimator](x, y_arr.astype(np.float64), **estimator_kwargs))
+        return float(fn_map[estimator](x, y_arr.astype(_crit_np_dtype()), **estimator_kwargs))
     if estimator == "fastmi":
         from ._fastmi import fastmi
-        return float(fastmi(x, y_arr.astype(np.float64), **estimator_kwargs))
+        return float(fastmi(x, y_arr.astype(_crit_np_dtype()), **estimator_kwargs))
     if estimator == "renyi_alpha":
         from ._renyi_alpha import renyi_alpha_mi
         # renyi_alpha_mi returns bits (its own module's documented, internally
         # self-consistent convention, log2-based); this dispatcher's contract is nats for every estimator
         # (see the docstring above) - convert at this boundary rather than changing the module's own units.
-        _mi_bits = float(renyi_alpha_mi(x, y_arr.astype(np.float64), **estimator_kwargs))
+        _mi_bits = float(renyi_alpha_mi(x, y_arr.astype(_crit_np_dtype()), **estimator_kwargs))
         return _mi_bits * math.log(2.0)
     if estimator in ("median", "genie"):
         return _score_aggregator(x, y_arr, kind=estimator, nbins_strategy=nbins_strategy, nbins_strategy_kwargs=nbins_strategy_kwargs)
@@ -137,7 +138,7 @@ def _score_plug_in(x: np.ndarray, y_arr: np.ndarray, *, nbins_strategy: Optional
     edges = edges_list[0]
     if edges.size == 0:
         return 0.0
-    xb = np.searchsorted(edges, x.astype(np.float64), side="right").astype(np.int64)
+    xb = np.searchsorted(edges, x.astype(_crit_np_dtype()), side="right").astype(np.int64)
     # Coerce low-cardinality float y (binary {0., 1.}, few-class) to int label-
     # codes BEFORE plug_in_mi. The internal quantile-bin-of-y path inside
     # _plug_in_mi treats float y as regression-like and collapses
@@ -160,7 +161,7 @@ def _score_aggregator(x: np.ndarray, y_arr: np.ndarray, *, kind: str, nbins_stra
     estimators = {
         "fd": lambda a, b: _score_plug_in(a, np.asarray(b), nbins_strategy="freedman_diaconis", nbins_strategy_kwargs={}, miller_madow=True),
         "qs": lambda a, b: _score_plug_in(a, np.asarray(b), nbins_strategy="qs", nbins_strategy_kwargs={}, miller_madow=True),
-        "mixed_ksg": lambda a, b: float(mixed_ksg_mi(a, np.asarray(b).astype(np.float64), k=5)),
+        "mixed_ksg": lambda a, b: float(mixed_ksg_mi(a, np.asarray(b).astype(_crit_np_dtype()), k=5)),
     }
     fn = median_mi_panel if kind == "median" else genie_mi_panel
     return float(fn(x, y_arr, estimators))

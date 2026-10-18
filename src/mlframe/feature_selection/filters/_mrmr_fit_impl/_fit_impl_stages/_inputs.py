@@ -4,6 +4,7 @@ from __future__ import annotations
 
 # --- imports (managed) ---
 import numpy as np
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 import pandas as pd
 from mlframe.feature_selection.filters._mrmr_fit_impl._fit_impl_core import _NULLABLE_DENSIFY_EAGER_MAX_BYTES
 from mlframe.feature_selection.filters._mrmr_fit_impl._fit_impl_core import logger
@@ -30,8 +31,8 @@ def _stash_fe_targets(self, _y_np, X):
         if _y_esc_arr.ndim == 1 and _y_esc_arr.dtype.kind in "fiub" and len(_y_esc_arr) == len(X):
             # rank = inverse of the stable sort permutation; a scatter gives it exactly, where a second argsort re-sorts a random-access permutation
             _y_order = np.argsort(_y_esc_arr, kind="stable")
-            _y_esc_rank = np.empty(len(_y_order), dtype=np.float64)
-            _y_esc_rank[_y_order] = np.arange(len(_y_order), dtype=np.float64)
+            _y_esc_rank = np.empty(len(_y_order), dtype=_crit_np_dtype())
+            _y_esc_rank[_y_order] = np.arange(len(_y_order), dtype=_crit_np_dtype())
             self._fe_escalation_y_rank_ = _y_esc_rank / max(len(_y_esc_rank) - 1, 1)
         else:
             self._fe_escalation_y_rank_ = None
@@ -53,7 +54,7 @@ def _stash_fe_targets(self, _y_np, X):
     try:
         _y_pw_arr = _y_np
         if _y_pw_arr.ndim == 1 and _y_pw_arr.dtype.kind in "fiub" and len(_y_pw_arr) == len(X):
-            self._fe_prewarp_y_continuous_ = np.ascontiguousarray(_y_pw_arr, dtype=np.float64)
+            self._fe_prewarp_y_continuous_ = np.ascontiguousarray(_y_pw_arr, dtype=_crit_np_dtype())
         else:
             self._fe_prewarp_y_continuous_ = None
     except Exception as exc:
@@ -165,13 +166,13 @@ def _prepare_input_frame(self, X, verbose):
             # each intermediate frame is freed and peak extra RAM stays ~one column. ``assign`` returns a new frame
             # either way, so the caller's frame is never mutated - the densification stays RAM-safe on 100+ GB frames.
             if len(X) * len(_nullable_num) * 8 <= _NULLABLE_DENSIFY_EAGER_MAX_BYTES:
-                X = X.assign(**{c: X[c].astype("float64") for c in _nullable_num})
+                X = X.assign(**{c: X[c].astype(_crit_np_dtype()) for c in _nullable_num})
             else:
                 for _nc in _nullable_num:
-                    X = X.assign(**{_nc: X[_nc].astype("float64")})
+                    X = X.assign(**{_nc: X[_nc].astype(_crit_np_dtype())})
             if verbose:
                 logger.info(
-                    "MRMR.fit: densified %d nullable masked column(s) to float64 (NaN-preserving): %s",
+                    "MRMR.fit: densified %d nullable masked column(s) to float (NaN-preserving): %s",
                     len(_nullable_num),
                     _nullable_num[:8],
                 )

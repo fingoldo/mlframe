@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 # --- imports (managed) ---
-import numpy as np
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 import pandas as pd
 from mlframe.feature_selection.filters._mrmr_fit_impl._fe_roster_attrs import drop_from_fe_rosters
 from mlframe.feature_selection.filters._mrmr_fit_impl._fit_impl_core import logger
@@ -127,7 +127,7 @@ def _dedup_engineered_across_stages(self, _y_np, X, recipes, verbose):
         if isinstance(X, pd.DataFrame) and len(_eng_cols_appended) >= 2:
             _mi_cols = [_c for _c in _eng_cols_appended if _c in X.columns]
             if _mi_cols:
-                _mi_mat = X[_mi_cols].to_numpy(dtype=np.float64)
+                _mi_mat = X[_mi_cols].to_numpy(dtype=_crit_np_dtype())
                 _mi_vals = _mi_classif_batch(_mi_mat, _y_for_eng_mi, nbins=10)
                 _eng_mi = {_name: float(_v) for _name, _v in zip(_mi_cols, _mi_vals)}
     except Exception as exc:

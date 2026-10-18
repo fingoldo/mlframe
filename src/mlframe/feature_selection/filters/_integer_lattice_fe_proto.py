@@ -25,6 +25,7 @@ cProfile (n=2000, 6 cols, 5 reps): ~99% of wall is the shipped ``_mi_classif_bat
 from __future__ import annotations
 
 import numpy as np
+from ._fe_usability_signal import _crit_np_dtype
 
 from ._pairwise_modular_fe import _is_integer_col, _mi
 from ._lattice_gate_proto_shared import perm_null_hi as _perm_null_hi
@@ -44,25 +45,25 @@ _MIN_MARGIN = 0.02
 
 def _to_int(x: np.ndarray) -> np.ndarray:
     """Round-to-nearest int64 view of an exactly-integer-valued column (eligibility already checked by caller)."""
-    return np.rint(np.asarray(x, dtype=np.float64)).astype(np.int64)
+    return np.rint(np.asarray(x, dtype=_crit_np_dtype())).astype(np.int64)
 
 
 def apply_integer_lattice(a: np.ndarray, b: np.ndarray, op: str) -> np.ndarray:
     """One integer-lattice column from a pair. Pure function of (a, b) - leak-free at replay (no y)."""
     ai, bi = _to_int(a), _to_int(b)
     if op == "gcd":
-        return np.asarray(np.gcd(ai, bi).astype(np.float64))
+        return np.asarray(np.gcd(ai, bi).astype(_crit_np_dtype()))
     if op == "lcm":
         # lcm can overflow int64 for large coprime pairs; clip the product term via float to keep it finite + monotone.
         g = np.gcd(ai, bi)
         safe_g = np.where(g == 0, 1, g)
-        return np.asarray((np.abs(ai.astype(np.float64)) * np.abs(bi.astype(np.float64))) / safe_g)
+        return np.asarray((np.abs(ai.astype(_crit_np_dtype())) * np.abs(bi.astype(_crit_np_dtype()))) / safe_g)
     if op == "and":
-        return np.asarray(np.bitwise_and(ai, bi).astype(np.float64))
+        return np.asarray(np.bitwise_and(ai, bi).astype(_crit_np_dtype()))
     if op == "or":
-        return np.asarray(np.bitwise_or(ai, bi).astype(np.float64))
+        return np.asarray(np.bitwise_or(ai, bi).astype(_crit_np_dtype()))
     if op == "xor":
-        return np.asarray(np.bitwise_xor(ai, bi).astype(np.float64))
+        return np.asarray(np.bitwise_xor(ai, bi).astype(_crit_np_dtype()))
     raise ValueError(f"apply_integer_lattice: unknown op {op!r}; expected one of {INTEGER_LATTICE_OPS}")
 
 

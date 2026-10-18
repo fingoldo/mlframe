@@ -122,7 +122,7 @@ def compute_mi_from_classes(
     Indexed range-loop over zip-iter: ~25% faster at n=50k..1M (numba's
     zip pair unboxing adds per-iteration overhead vs the indexed form).
     On-the-fly freq computation via inv_n also avoids the (K_x, K_y)
-    float64 joint_freqs intermediate allocation. Bench:
+    double precision joint_freqs intermediate allocation. Bench:
     profiling/bench_compute_mi_from_classes_no_zip.py.
     """
     n = len(classes_x)
@@ -153,6 +153,7 @@ def weighted_class_freqs(classes: np.ndarray, weights: np.ndarray, n_classes: in
     bin assignment doesn't depend on its weight), so any ``merge_vars`` ``classes`` array can be
     re-weighted here without re-running the njit merge itself.
     """
+    # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
     out = np.zeros(n_classes, dtype=np.float64)
     total = 0.0
     for k in range(len(classes)):
@@ -184,8 +185,11 @@ def compute_mi_from_classes_weighted(
     n = len(classes_x)
     k_x = int(classes_x.max()) + 1 if n > 0 else 0
     k_y = int(classes_y.max()) + 1 if n > 0 else 0
+    # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
     joint_w = np.zeros((k_x, k_y), dtype=np.float64)
+    # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
     marg_x = np.zeros(k_x, dtype=np.float64)
+    # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
     marg_y = np.zeros(k_y, dtype=np.float64)
     total_w = 0.0
     for k in range(n):

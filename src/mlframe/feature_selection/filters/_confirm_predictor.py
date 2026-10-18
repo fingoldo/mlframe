@@ -32,6 +32,7 @@ import os
 
 import numba
 import numpy as np
+from ._fe_usability_signal import _crit_np_dtype
 from numba.core import types
 
 
@@ -107,7 +108,9 @@ def score_candidates(ctx: ScreenContext, best_gain: float, best_candidate: Any, 
     jmim_hit_counter = getattr(ctx, "jmim_hit_counter", None)
     if cached_jmim_MIs is None:
         cached_jmim_MIs = numba.typed.Dict.empty(
-            key_type=types.unicode_type, value_type=types.float64,
+            key_type=types.unicode_type,
+            # Intentional float64: numba typed-dict value contract shared with the njit JMIM cache (must match warmup_typed_dict)
+            value_type=types.float64,
         )
         ctx.cached_jmim_MIs = cached_jmim_MIs
     if jmim_hit_counter is None:
@@ -338,7 +341,7 @@ def confirm_one_predictor(
 
     best_candidate = None
     best_gain = min_relevance_gain - 1
-    expected_gains = np.zeros(len(candidates), dtype=np.float64)
+    expected_gains = np.zeros(len(candidates), dtype=_crit_np_dtype())
     confidence = 1.0
     run_out_of_time = False
 

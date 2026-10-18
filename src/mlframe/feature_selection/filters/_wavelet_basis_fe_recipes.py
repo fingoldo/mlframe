@@ -11,6 +11,7 @@ import logging
 from typing import TYPE_CHECKING, Optional, Sequence
 
 import numpy as np
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 import numpy.typing as npt
 import pandas as pd
 
@@ -112,7 +113,7 @@ def generate_wavelet_features(
             break
         if col not in X.columns or not pd.api.types.is_numeric_dtype(X[col]):
             continue
-        x = np.asarray(X[col].to_numpy(), dtype=np.float64)
+        x = np.asarray(X[col].to_numpy(), dtype=_crit_np_dtype())
         finite_mask = np.isfinite(x)
         if not finite_mask.any():
             continue
@@ -195,7 +196,7 @@ def _apply_orth_wavelet(recipe, X) -> np.ndarray:
     k = int(recipe.extra["k"])
     lo = float(recipe.extra["lo"])
     span = max(float(recipe.extra["span"]), 1e-12)
-    vals = np.asarray(_extract_column(X, name), dtype=np.float64)
+    vals = np.asarray(_extract_column(X, name), dtype=_crit_np_dtype())
     finite = np.isfinite(vals)
     if not finite.all():
         fill = float(np.nanmean(vals[finite])) if finite.any() else 0.0
@@ -294,7 +295,7 @@ def hybrid_wavelet_fe_with_recipes(
         leg_vals = engineered[name].to_numpy()
         if src in X.columns and pd.api.types.is_numeric_dtype(X[src]):
             if src not in _prep_cache:
-                x_src = np.asarray(X[src].to_numpy(), dtype=np.float64)
+                x_src = np.asarray(X[src].to_numpy(), dtype=_crit_np_dtype())
                 finite = np.isfinite(x_src)
                 if not finite.all():
                     x_src = np.where(
@@ -306,7 +307,7 @@ def hybrid_wavelet_fe_with_recipes(
         else:
             # src isn't a real numeric column in X (rare/defensive): each leg scores against ITS OWN values,
             # exactly as the pre-grouping code did, so nothing is cacheable across legs in this branch.
-            x_src_fallback = engineered[name].to_numpy(dtype=np.float64)
+            x_src_fallback = engineered[name].to_numpy(dtype=_crit_np_dtype())
             incr, smooth_gain = _heldout_incremental_mi(x_src_fallback, leg_vals, y_codes, nbins=nbins)
         # Two-condition admission: (a) absolute incremental floor, (b) the leg
         # beats the smooth-refinement competitor (complementarity guard).

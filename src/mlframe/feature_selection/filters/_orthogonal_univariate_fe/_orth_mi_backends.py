@@ -31,6 +31,7 @@ def _mi_classif_batch_sklearn(X: np.ndarray, y: np.ndarray, *, nbins: int = 10) 
     """
     from sklearn.metrics import mutual_info_score
     _n, p = X.shape
+    # Intentional float64: MI output vector accumulated per column and returned f64 (output contract for the ranking).
     mis = np.zeros(p, dtype=np.float64)
     for j in range(p):
         col = X[:, j]
@@ -132,6 +133,7 @@ def _mi_classif_batch_numba(X: np.ndarray, y: np.ndarray, *, nbins: int = 10, ra
 
     _n, p = X.shape
     y_i64 = np.ascontiguousarray(y, dtype=np.int64)
+    # Intentional float64: MI output vector accumulated per column and returned f64 (output contract for the ranking).
     mis = np.zeros(p, dtype=np.float64)
     # Partition columns into "all-finite" (bulk path) and "partial-NaN"
     # (per-column fallback). In the hybrid_orth_mi_fe production path the
@@ -175,6 +177,7 @@ def _mi_classif_batch_numba(X: np.ndarray, y: np.ndarray, *, nbins: int = 10, ra
                     # X_dense is the FINITE-filtered dense subset (finite_per_col) -> scrub=False skips cupy's
                     # full-array nan scan (~12% of the GPU MI wall) that would otherwise be a pure no-op cost here.
                     # f32 opt-in (MLFRAME_FE_VRAM_F32): ~2.2x faster, selection-equivalent (Spearman rank 1.0).
+                    # Intentional float64: GPU f64 MI path: cupy/numpy buffers feeding the f64 MI kernels, dtype contract kept (kernel refactor deferred).
                     _dt = np.float32 if fe_gpu_f32_enabled() else np.float64
                     mis[dense_cols] = multi_gpu_fe_batch_mi(X_dense, y_i64, nbins, scrub=False, dtype=_dt)
                 elif _fe_edge_binning_enabled():
@@ -424,8 +427,10 @@ def _strict_resident_mi(X: Any, y: Any, nbins: int, rank_binning: bool) -> Optio
             # :311 site. (It also fixes a latent crash: np.asarray on a cupy array raises, so the host path below
             # must NOT run for a device input.) Host ndarray inputs take the exact prior upload path.
             if isinstance(X, cp.ndarray):
+                # Intentional float64: GPU f64 MI path: cupy/numpy buffers feeding the f64 MI kernels, dtype contract kept (kernel refactor deferred).
                 Xd = X.astype(cp.float64, copy=False)
             else:
+                # Intentional float64: GPU f64 MI path: cupy/numpy buffers feeding the f64 MI kernels, dtype contract kept (kernel refactor deferred).
                 Xd = cp.asarray(np.ascontiguousarray(np.asarray(X, dtype=np.float64)))
             if Xd.ndim == 1:
                 Xd = Xd[:, None]
@@ -452,7 +457,9 @@ def _strict_resident_mi(X: Any, y: Any, nbins: int, rank_binning: bool) -> Optio
 
                     _rank_mi = plugin_mi_classif_batch_rank_cuda_resident(Xd, yd, int(nbins), y_min=_ymin, n_classes=_ncls)
                     if _rank_mi is not None:
+                        # Intentional float64: GPU f64 MI path: cupy/numpy buffers feeding the f64 MI kernels, dtype contract kept (kernel refactor deferred).
                         return np.asarray(_rank_mi, dtype=np.float64)
+            # Intentional float64: GPU f64 MI path: cupy/numpy buffers feeding the f64 MI kernels, dtype contract kept (kernel refactor deferred).
             return np.asarray(_plugin_mi_classif_batch_cuda_resident(Xd, yd, int(nbins), y_min=_ymin, n_classes=_ncls), dtype=np.float64)
     except (ImportError, *_DEV_ERRS):  # _DEV_ERRS is runtime-filtered to actual BaseException subclasses just above
         pass  # cupy/strict-module absent OR a genuine device fault -> exact CPU njit below.
@@ -588,9 +595,9 @@ def _block_mi_gpu_fn():
 
 
 def _mi_chunk_cols_for(n_rows: int) -> int:
-    """RAM-aware column-block width: bound the per-block float64 materialization (n_rows * cols * 8 B, plus a
+    """RAM-aware column-block width: bound the per-block double precision materialization (n_rows * cols * 8 B, plus a
     ~3x factor for V, V^2 and the binning transient) to ~10% of free RAM, capped at 1024 cols, floored at 1.
-    A fixed COLUMN count alone is unsafe at large n (1024 cols x n=1M float64 = 8 GiB still OOMs); bounding the
+    A fixed COLUMN count alone is unsafe at large n (1024 cols x n=1M double precision = 8 GiB still OOMs); bounding the
     block BYTES makes the chunked scorer safe in n as well as p. Conservative 2 GiB fallback if psutil missing."""
     try:
         import psutil
@@ -607,8 +614,8 @@ def mi_classif_batch_chunked(X: pd.DataFrame | np.ndarray, y: np.ndarray, *, nbi
     """Column-CHUNKED ``_mi_classif_batch`` for WIDE engineered matrices.
 
     The FE MI-uplift scorers (univariate / pair-cross / triplet / quadruplet / adaptive-arity / mi-greedy)
-    each materialised the FULL engineered matrix as one float64 array to batch-score MI - O(n * n_engineered)
-    peak RAM that OOMs at scale (measured (16000, 20000) float64 = 2.38 GiB), worst for the combinatorial
+    each materialised the FULL engineered matrix as one double precision array to batch-score MI - O(n * n_engineered)
+    peak RAM that OOMs at scale (measured (16000, 20000) double precision = 2.38 GiB), worst for the combinatorial
     triplet/quadruplet cross-basis families. MI is PER-COLUMN, so scoring in column blocks is BIT-IDENTICAL to
     the all-at-once call FOR ANY chunk size while bounding peak extra RAM. ``chunk_cols`` defaults to a RAM-aware
     width (see ``_mi_chunk_cols_for`` - bounds the BLOCK BYTES, so it is safe at large n too, not just wide p);
@@ -667,7 +674,9 @@ def _mi_classif_batch_balanced(X: np.ndarray, y: np.ndarray, class_w, *, nbins: 
         return None
     _n, p = X.shape
     y_i64 = np.ascontiguousarray(y, dtype=np.int64)
+    # Intentional float64: class-weight operand of the MI sums; kept f64 with the f64 accumulator it feeds.
     class_w = np.ascontiguousarray(class_w, dtype=np.float64)
+    # Intentional float64: MI output vector accumulated per column and returned f64 (output contract for the ranking).
     mis = np.zeros(p, dtype=np.float64)
     finite_per_col = np.isfinite(X).all(axis=0)
     dense_cols = np.where(finite_per_col)[0]

@@ -21,6 +21,7 @@ from typing import Optional
 import numpy as np
 
 from .cat_fe_state import CatFEConfig
+from ._fe_usability_signal import _crit_np_dtype
 from .info_theory import entropy, entropy_miller_madow, merge_vars, weighted_class_freqs
 
 
@@ -33,7 +34,7 @@ def _freqs_for_weights(freqs: np.ndarray, classes: np.ndarray, weights: Optional
     """
     if weights is None:
         return freqs
-    return np.asarray(weighted_class_freqs(classes, weights, len(freqs)), dtype=np.float64)
+    return np.asarray(weighted_class_freqs(classes, weights, len(freqs)), dtype=_crit_np_dtype())
 
 logger = logging.getLogger(__name__)
 

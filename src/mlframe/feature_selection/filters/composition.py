@@ -11,6 +11,8 @@ import logging
 
 import numpy as np
 
+from ._fe_usability_signal import _crit_np_dtype
+
 from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
@@ -44,7 +46,7 @@ def compose_pair_fe(
     from .fe_baselines import _mi_1d
     from itertools import combinations
 
-    X = np.asarray(X, dtype=np.float64)
+    X = np.asarray(X, dtype=_crit_np_dtype())
     _n, p_orig = X.shape
     if feature_names is None:
         feature_names = [f"x{i}" for i in range(p_orig)]
@@ -209,8 +211,8 @@ def validate_pair_fe_cv(
     from .hermite_fe import optimise_hermite_pair
     from .fe_baselines import _mi_1d
 
-    x_a = np.asarray(x_a, dtype=np.float64)
-    x_b = np.asarray(x_b, dtype=np.float64)
+    x_a = np.asarray(x_a, dtype=_crit_np_dtype())
+    x_b = np.asarray(x_b, dtype=_crit_np_dtype())
     cv = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=seed) if discrete_target else KFold(n_splits=n_splits, shuffle=True, random_state=seed)
 
     # In-sample reference (full data).

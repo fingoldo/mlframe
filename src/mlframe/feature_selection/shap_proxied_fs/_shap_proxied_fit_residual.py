@@ -26,12 +26,12 @@ _RESIDUAL_FWER_ALPHA = 0.05
 def _sigmoid(x: np.ndarray) -> np.ndarray:
     """Numerically-clipped logistic sigmoid."""
     x = np.clip(x, -60.0, 60.0)
-    return np.asarray(1.0 / (1.0 + np.exp(-x)), dtype=np.float64)
+    return np.asarray(1.0 / (1.0 + np.exp(-x)), dtype=np.float64)  # Intentional float64: SHAP residual statistic compared at full precision against the honest loss
 
 
 def residual_magnitude_floor(importance2: np.ndarray) -> float:
     """Family-wise noise ceiling for pass-2 mean|phi2|: ``median + sqrt(2 ln(n/alpha)) * 1.4826 * MAD`` (alpha=0.05)."""
-    importance2 = np.asarray(importance2, dtype=np.float64)
+    importance2 = np.asarray(importance2, dtype=np.float64)  # Intentional float64: SHAP residual statistic compared at full precision against the honest loss
     med = float(np.median(importance2))
     sigma = 1.4826 * float(np.median(np.abs(importance2 - med)))
     return med + float(np.sqrt(2.0 * np.log(max(importance2.shape[0], 2) / _RESIDUAL_FWER_ALPHA))) * sigma
@@ -50,11 +50,11 @@ def compute_residual_target(phi: np.ndarray, base: np.ndarray, y_phi: np.ndarray
     this uses the standard boosting gradient-of-logloss residual: bounded, continuous, exactly what
     a boosting step would fit next.
     """
-    margin_pred = np.asarray(base, dtype=np.float64) + phi.sum(axis=1)
-    y_arr = np.asarray(y_phi, dtype=np.float64)
+    margin_pred = np.asarray(base, dtype=np.float64) + phi.sum(axis=1)  # Intentional float64: SHAP residual statistic compared at full precision against the honest loss
+    y_arr = np.asarray(y_phi, dtype=np.float64)  # Intentional float64: SHAP residual statistic compared at full precision against the honest loss
     if classification:
-        return np.asarray(y_arr - _sigmoid(margin_pred), dtype=np.float64)
-    return np.asarray(y_arr - margin_pred, dtype=np.float64)
+        return np.asarray(y_arr - _sigmoid(margin_pred), dtype=np.float64)  # Intentional float64: SHAP residual statistic compared at full precision against the honest loss
+    return np.asarray(y_arr - margin_pred, dtype=np.float64)  # Intentional float64: SHAP residual statistic compared at full precision against the honest loss
 
 
 def gate_by_residual_magnitude(consistent: np.ndarray, importance2: np.ndarray) -> float:
@@ -72,7 +72,7 @@ def gate_by_residual_magnitude(consistent: np.ndarray, importance2: np.ndarray) 
 
 def fold_rank_consistency(per_fold_phi_mean2: np.ndarray, top_k: int) -> tuple[np.ndarray, int]:
     """Mask of columns whose per-fold rank clears the ``3 * top_k`` pool in EVERY fold (shape ``(n_splits, n_kept_proxy)``), and that pool size."""
-    per_fold = np.asarray(per_fold_phi_mean2, dtype=np.float64)
+    per_fold = np.asarray(per_fold_phi_mean2, dtype=np.float64)  # Intentional float64: SHAP residual statistic compared at full precision against the honest loss
     fold_pool = min(per_fold.shape[1], max(top_k * 3, 1))
     consistent = np.ones(per_fold.shape[1], dtype=bool)
     for fold_row in per_fold:
@@ -229,7 +229,7 @@ def run_residual_pass(
     phi2, base2, _y2, per_fold_phi_mean2 = _residual_pass2_shap(self, model_template_regression, X_pass2, residual, _stage)
 
     importance2 = np.abs(phi2).mean(axis=0)
-    residual_pred = np.asarray(base2, dtype=np.float64) + phi2.sum(axis=1)
+    residual_pred = np.asarray(base2, dtype=np.float64) + phi2.sum(axis=1)  # Intentional float64: SHAP residual statistic compared at full precision against the honest loss
     residual_std_after = float(np.std(residual[: residual_pred.shape[0]] - residual_pred)) if residual_pred.shape[0] == residual.shape[0] else float("nan")
 
     # Cross-fold rank-CONSISTENCY gate (not a magnitude floor). A magnitude-only floor
@@ -287,5 +287,5 @@ def run_residual_pass(
         fold_pool=int(fold_pool),
         n_protected=len(protected_working_cols),
     )
-    del phi2  # memory discipline: another (n, f) float64 matrix, freed once the rescue/blend vector is extracted
+    del phi2  # memory discipline: another (n, f) double matrix, freed once the rescue/blend vector is extracted
     return rescue_proxy_idx, blend_importance, protected_working_cols

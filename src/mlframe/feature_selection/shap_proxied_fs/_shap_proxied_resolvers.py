@@ -151,6 +151,7 @@ def noise_floor_rescue_keep_set(importance_full: np.ndarray, keep_idx: np.ndarra
     prescreen (``_shap_proxied_fit.py``) so the two independent cut points share one calibrated
     rescue rule instead of drifting apart.
     """
+    # Intentional float64: shap-package import boundary: float64 kept, cross-package dtype switch deferred (decision recorded).
     imp = np.asarray(importance_full, dtype=np.float64)
     finite = imp[np.isfinite(imp)]
     if finite.size == 0:
@@ -193,6 +194,7 @@ def _resolve_knee_prescreen_cap(importance, default_cap: int, *, floor: int = _A
     ``(cap, info)``; ``info`` carries ``noise_floor`` and ``rescued`` (count of columns the rescue
     widened the cap to cover) for diagnostics.
     """
+    # Intentional float64: shap-package import boundary: float64 kept, cross-package dtype switch deferred (decision recorded).
     imp_full = np.abs(np.asarray(importance, dtype=np.float64))
     order = np.argsort(-imp_full)
     imp = imp_full[order]
@@ -212,6 +214,7 @@ def _resolve_knee_prescreen_cap(importance, default_cap: int, *, floor: int = _A
     # Normalised cumulative-importance curve; concave for sparse signal (mass front-loaded).
     cum = np.cumsum(head)
     cum = cum / cum[-1]
+    # Intentional float64: shap-package import boundary: float64 kept, cross-package dtype switch deferred (decision recorded).
     x = np.arange(1, head.shape[0] + 1, dtype=np.float64) / head.shape[0]
     # Distance above the y=x diagonal; the max-distance index is the kneedle knee.
     diff = cum - x
@@ -385,6 +388,7 @@ def unit_importance_to_feature_map(
     Returns:
         Mapping from original feature name to the unit-level mean |SHAP| the search ranked it by.
     """
+    # Intentional float64: shap-package import boundary: float64 kept, cross-package dtype switch deferred (decision recorded).
     imp = np.asarray(importance, dtype=np.float64).ravel()
     wcols = np.asarray(working_cols, dtype=np.int64).ravel()
     names = list(feature_names)

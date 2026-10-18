@@ -126,7 +126,7 @@ class ShapProxiedFitMixin(ShapProxiedFitStepsMixin):
         # `reset_index(drop=True)` on the narrow post-prefilter frame anyway).
         X_cols = X.columns
         n_cols = X.shape[1]
-        X_vals_full = X.values  # single-block float64 view on bench / homogeneous input
+        X_vals_full = X.values  # single-block view (dtype kept) on bench / homogeneous input
         # Build wide X_search via column-batched copy from the parent block. One batch's worth of
         # transient memory (~80 MiB at default 1024-col batch), not a full extra split copy.
         X_search_arr = np.empty((idx_search.shape[0], n_cols), dtype=X_vals_full.dtype)

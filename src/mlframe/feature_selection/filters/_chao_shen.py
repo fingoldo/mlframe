@@ -27,6 +27,7 @@ from __future__ import annotations
 import math
 
 import numpy as np
+from ._fe_usability_signal import _crit_np_dtype
 from numba import njit
 
 
@@ -112,11 +113,11 @@ def chao_shen_entropy(x: np.ndarray) -> float:
     if x.dtype.kind not in "iub":
         # Quantile-bin float input to 10 quantiles before Chao-Shen; matches
         # the dispatch policy of ``_plug_in_mi``.
-        q = np.quantile(x.astype(np.float64), np.linspace(0, 1, 11))
+        q = np.quantile(x.astype(_crit_np_dtype()), np.linspace(0, 1, 11))
         q = np.unique(q)
         if q.size < 2:
             return 0.0
-        x = np.searchsorted(q[1:-1], x.astype(np.float64), side="right")
+        x = np.searchsorted(q[1:-1], x.astype(_crit_np_dtype()), side="right")
     counts = np.bincount(x.astype(np.int64))
     return float(chao_shen_entropy_from_counts(counts.astype(np.int64)))
 
@@ -176,11 +177,11 @@ def chao_shen_mi(x_binned: np.ndarray, y: np.ndarray) -> float:
         return 0.0
     # Coerce y to int.
     if y.dtype.kind not in "iub":
-        q = np.quantile(y.astype(np.float64), np.linspace(0, 1, 11))
+        q = np.quantile(y.astype(_crit_np_dtype()), np.linspace(0, 1, 11))
         q = np.unique(q)
         if q.size < 2:
             return 0.0
-        y_b = np.searchsorted(q[1:-1], y.astype(np.float64), side="right").astype(np.int64)
+        y_b = np.searchsorted(q[1:-1], y.astype(_crit_np_dtype()), side="right").astype(np.int64)
     else:
         y_b = y.astype(np.int64)
     x_b = x_binned.astype(np.int64)

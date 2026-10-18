@@ -14,6 +14,7 @@ from mlframe.utils.log_throttle import log_throttle
 import logging
 
 import numpy as np
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 
 from ._raw_protect_r2 import heldout_r2_scorer
 import pandas as pd
@@ -234,7 +235,7 @@ def _encoded_feature_gate_pass(self, X, selected_vars, _y_np, data, cols, _eng_c
         if _cf_names:
             _cf_y = None
             try:
-                _cf_yv = np.asarray(_y_np, dtype=np.float64).reshape(-1)
+                _cf_yv = np.asarray(_y_np, dtype=_crit_np_dtype()).reshape(-1)
                 if _cf_yv.shape[0] == int(data.shape[0]) and np.all(np.isfinite(_cf_yv)):
                     _cf_y = _cf_yv
             except Exception as exc:
@@ -269,7 +270,7 @@ def _encoded_feature_gate_pass(self, X, selected_vars, _y_np, data, cols, _eng_c
                     if _cv is None:
                         continue
                     try:
-                        _cv = np.asarray(_cv, dtype=np.float64).reshape(-1)
+                        _cv = np.asarray(_cv, dtype=_crit_np_dtype()).reshape(-1)
                     except (TypeError, ValueError):
                         continue
                     if _cv.shape[0] == _cf_n and np.all(np.isfinite(_cv)):
@@ -305,12 +306,12 @@ def _score_encoded_features_heldout(_cf_tr, _cf_va, _cf_base, _cf_y, _cf_names, 
                     _cvv_raw = None
             if _cvv_raw is not None:
                 try:
-                    _cvv = np.asarray(_cvv_raw, dtype=np.float64).reshape(-1)
+                    _cvv = np.asarray(_cvv_raw, dtype=_crit_np_dtype()).reshape(-1)
                 except (TypeError, ValueError):
                     _cvv_raw = None
             if _cvv_raw is None:
                 try:
-                    _cvv = np.asarray(data[:, _cidx], dtype=np.float64).reshape(-1)
+                    _cvv = np.asarray(data[:, _cidx], dtype=_crit_np_dtype()).reshape(-1)
                 except (TypeError, ValueError, IndexError):
                     continue
             if _cvv.shape[0] != _cf_n or not np.all(np.isfinite(_cvv)):
@@ -364,7 +365,7 @@ def _drop_redundant_raw_operands_sweep(self, selected_vars, cols, classes_y, _y_
                     if (_pcr_yv.shape[0] == int(data.shape[0]) and np.issubdtype(_pcr_yv.dtype, np.number)
                             and int(np.unique(_pcr_yv).size) > max(20, 2 * int(np.unique(_pcr_y).size))):
                         _pcr_nb = int(min(max(10, int(np.unique(_pcr_y).size)), max(2, int(data.shape[0]) // 50)))
-                        _pcr_y = np.ascontiguousarray(_pcr_qbin(_pcr_yv.astype(np.float64), nbins=_pcr_nb)).astype(np.int64)
+                        _pcr_y = np.ascontiguousarray(_pcr_qbin(_pcr_yv.astype(_crit_np_dtype()), nbins=_pcr_nb)).astype(np.int64)
                 except Exception as e:
                     # Not neutral: the keep rule then runs on the coarser screening classes, which can change its verdict.
                     logger.warning(
@@ -433,7 +434,7 @@ def _drop_redundant_raw_operands_sweep(self, selected_vars, cols, classes_y, _y_
                         if _rn in {t for t in _TOKEN_SPLIT.split(cols[_gi]) if t}:
                             _cont = _pcr_eng_cont.get(cols[_gi])
                             if _cont is not None and np.asarray(_cont).shape[0] == int(data.shape[0]):
-                                _child_bins.append(_pcr_qbin(np.asarray(_cont, dtype=np.float64), nbins=10))
+                                _child_bins.append(_pcr_qbin(np.asarray(_cont, dtype=_crit_np_dtype()), nbins=10))
                             else:
                                 _child_bins.append(np.asarray(data[:, _gi]).astype(np.int64).ravel())
                     _rb = np.asarray(data[:, _ridx]).astype(np.int64).ravel()

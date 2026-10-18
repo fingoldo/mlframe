@@ -19,6 +19,7 @@ import logging
 from typing import Optional
 
 import numpy as np
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 
 from .cat_fe_state import CatFEConfig
 from ._cat_kway_materialize import _build_merge_prefix_states, _merge_vars_sorted_insert
@@ -83,7 +84,7 @@ def _bootstrap_ii_cis(
     for k in selected_idx:
         i = int(pairs_a[k])
         jj = int(pairs_b[k])
-        ii_replicates = np.empty(n_rep, dtype=np.float64)
+        ii_replicates = np.empty(n_rep, dtype=_crit_np_dtype())
         for r in range(n_rep):
             rng = np.random.default_rng(seed=int(jj) * 65537 + r)
             idx = rng.choice(n_samples, size=sub_size, replace=True)
@@ -115,7 +116,7 @@ def _bootstrap_ii_cis(
                 sub_nbins_y = int(sub_cls_y.max()) + 1 if sub_cls_y.size else 1
                 sub_fq_y = np.bincount(
                     sub_cls_y.astype(np.int64), minlength=sub_nbins_y,
-                ).astype(np.float64) / max(sub_size, 1)
+                ).astype(_crit_np_dtype()) / max(sub_size, 1)
                 i_a = compute_mi_from_classes(cls_a_s, fq_a_s, sub_cls_y, sub_fq_y, dtype)
                 i_b = compute_mi_from_classes(cls_b_s, fq_b_s, sub_cls_y, sub_fq_y, dtype)
                 i_pair = compute_mi_from_classes(cls_pair_s, fq_pair_s, sub_cls_y, sub_fq_y, dtype)

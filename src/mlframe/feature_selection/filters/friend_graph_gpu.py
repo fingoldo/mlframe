@@ -55,6 +55,7 @@ import logging
 from typing import Any, Callable, Optional, cast
 
 import numpy as np
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 
 from .info_theory import entropy as _entropy
 
@@ -119,7 +120,7 @@ def _entropy_resident_enabled() -> bool:
     module's own docstring documents its bit-identity contract as non-negotiable - the edge
     significance floor is a float comparison, and a divergence even at machine-epsilon could flip a
     genuinely borderline edge's admit/reject decision and change graph topology. Measured divergence
-    against the CPU path is ~1e-16 (float64 machine-epsilon) on the fixtures this module's own test
+    against the CPU path is ~1e-16 (double-precision machine epsilon) on the fixtures this module's own test
     suite exercises - well inside the codebase's standard ~1e-9 parity bar - but this module's
     OWN stricter contract is not overridden unilaterally; this flag lets it be validated broadly
     (a wider seed/shape sweep, explicitly checking near-floor edges) before a future change flips
@@ -699,14 +700,14 @@ def _friend_graph_cpu_stats(sel, factors_data, factors_nbins, target_indices, dt
 
 
 def _stats_to_vector(stats: "FriendGraphGPUStats") -> np.ndarray:
-    """Flatten node H, relevance, and (sorted) edge MIs into one float64 vector so the
+    """Flatten node H, relevance, and (sorted) edge MIs into one vector so the
     sweep's array-equivalence harness can compare backends."""
     H_keys = sorted(stats.H)
     vec = [stats.H[k_] for k_ in H_keys]
     if stats.rel is not None:
         vec += [stats.rel[k_] for k_ in sorted(stats.rel)]
     vec += [stats.edge_mi[e] for e in sorted(stats.edge_mi)]
-    return np.asarray(vec, dtype=np.float64)
+    return np.asarray(vec, dtype=_crit_np_dtype())
 
 
 def _run_friend_graph_sweep() -> list:

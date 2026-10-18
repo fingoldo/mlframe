@@ -102,7 +102,9 @@ def _detect_heavy_tail_njit(x: np.ndarray) -> bool:
     xf = x[np.isfinite(x)]
     if xf.size < 8:
         return False
+    # Intentional float64: heavy-tail gap detection on the tied core needs exact f64 comparisons (tie-sensitive)
     if xf.dtype != np.float64:
+        # Intentional float64: heavy-tail gap detection on the tied core needs exact f64 comparisons (tie-sensitive).
         xf = xf.astype(np.float64)
     verdict = _detect_heavy_tail_core_njit(xf, _ROBUST_AXIS_OUTER_K, _ROBUST_AXIS_GAP, _ROBUST_AXIS_MAX_FRAC)
     if verdict >= 0:
@@ -283,6 +285,7 @@ def _ols_lstsq(B: np.ndarray, y: np.ndarray) -> np.ndarray | None:
         return None
     if not np.all(np.isfinite(coef)):
         return None
+    # Intentional float64: least-squares solve (normal equations / IRLS) kept f64 for conditioning; the robust-fit gate depends on it (coefficient output)
     return np.ascontiguousarray(coef, dtype=np.float64)
 
 
@@ -319,12 +322,15 @@ def _huber_irls_lstsq(B: np.ndarray, y: np.ndarray, *, row_weight: np.ndarray | 
 
     Returns the coefficient vector, or ``None`` on a degenerate / non-finite solve
     (caller then falls back to the OLS result, which itself may be ``None``)."""
+    # Intentional float64: least-squares solve (normal equations / IRLS) kept f64 for conditioning; the robust-fit gate depends on it
     B = np.ascontiguousarray(B, dtype=np.float64)
+    # Intentional float64: least-squares solve (normal equations / IRLS) kept f64 for conditioning; the robust-fit gate depends on it
     y = np.ascontiguousarray(y, dtype=np.float64)
     if B.ndim != 2 or B.shape[0] != y.shape[0] or B.shape[0] < B.shape[1]:
         return None
     rw = None
     if row_weight is not None:
+        # Intentional float64: least-squares solve (normal equations / IRLS) kept f64 for conditioning; the robust-fit gate depends on it
         rw = np.ascontiguousarray(row_weight, dtype=np.float64).reshape(-1)
         if rw.shape[0] != y.shape[0]:
             rw = None
@@ -356,6 +362,7 @@ def _huber_irls_lstsq(B: np.ndarray, y: np.ndarray, *, row_weight: np.ndarray | 
         coef = new
     if not np.all(np.isfinite(coef)):
         return None
+    # Intentional float64: least-squares solve (normal equations / IRLS) kept f64 for conditioning; the robust-fit gate depends on it (coefficient output)
     return np.ascontiguousarray(coef, dtype=np.float64)
 
 
@@ -380,6 +387,8 @@ def fit_basis_coef_robust(B: np.ndarray, y: np.ndarray, x_operand: np.ndarray, *
         if coef is not None:
             return coef, True, _robust_lo_hi(np.asarray(x_operand))
     # Clean column, gate off, or robust solve failed -> legacy OLS (byte-identical).
+    # Intentional float64: least-squares solve (normal equations / IRLS) kept f64 for conditioning; the robust-fit gate depends on it
     Bw = B if row_weight is None else B * np.asarray(row_weight, dtype=np.float64).reshape(-1)[:, None]
+    # Intentional float64: least-squares solve (normal equations / IRLS) kept f64 for conditioning; the robust-fit gate depends on it
     yw = y if row_weight is None else y * np.asarray(row_weight, dtype=np.float64).reshape(-1)
     return _ols_lstsq(Bw, yw), False, None

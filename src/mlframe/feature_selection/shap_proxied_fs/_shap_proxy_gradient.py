@@ -56,9 +56,9 @@ def gradient_top_n(
     import torch
 
     metric = resolve_metric(classification, metric)
-    phi_np = np.ascontiguousarray(phi, dtype=np.float64)
-    base_np = np.ascontiguousarray(base, dtype=np.float64)
-    y_np = np.ascontiguousarray(y, dtype=np.float64)
+    phi_np = np.ascontiguousarray(phi, dtype=np.float64)  # Intentional float64: gradient fit of the proxy weights in f64 for optimizer convergence
+    base_np = np.ascontiguousarray(base, dtype=np.float64)  # Intentional float64: gradient fit of the proxy weights in f64 for optimizer convergence
+    y_np = np.ascontiguousarray(y, dtype=np.float64)  # Intentional float64: gradient fit of the proxy weights in f64 for optimizer convergence
     # Contiguous transpose for the per-candidate coalition gather in ``record`` (phi_np[:, idx] is a
     # strided column gather; phi_T[idx] is contiguous, ~4x at tall n). Computed once for the run.
     phi_T_np = np.ascontiguousarray(phi_np.T)
@@ -68,7 +68,7 @@ def gradient_top_n(
     phi_t = torch.as_tensor(phi_np, device=device)
     base_t = torch.as_tensor(base_np, device=device)
     y_t = torch.as_tensor(y_np, device=device)
-    logits = (0.1 * torch.randn(f, generator=gen, dtype=torch.float64, device=device)).requires_grad_(True)
+    logits = (0.1 * torch.randn(f, generator=gen, dtype=torch.float64, device=device)).requires_grad_(True)  # Intentional float64: gradient fit of the proxy weights in f64 for optimizer convergence
     opt = torch.optim.Adam([logits], lr=lr)
 
     candidates: dict[tuple[int, ...], float] = {}

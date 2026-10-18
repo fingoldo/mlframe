@@ -18,6 +18,8 @@ import logging
 
 import numpy as np
 
+from ._fe_usability_signal import _crit_np_dtype
+
 from ._numba_utils import _plugin_mi_classif_edge_njit, plugin_mi_classif_batch_edge_njit
 
 logger = logging.getLogger(__name__)
@@ -66,16 +68,17 @@ def cpu_fe_batch_mi(
 
     Identical math to the GPU resident edge MI -> the two FE-batcher backends select the same forms. Cores
     are used by the prange inside the kernel; ``max_cols_per_chunk`` (default: RAM-budget-resolved) caps the
-    transient scratch for very wide matrices. Returns a host (K,) float64 MI array.
+    transient scratch for very wide matrices. Returns a host (K,) double precision MI array.
     """
     # bench-attempt-rejected (2026-07-04): a "branch the f64 copy on dtype/flags" idea is redundant -
     # np.ascontiguousarray(X, float64) already returns the input UNCHANGED (same object, no copy) when it is
     # already f64 + C-contiguous; it only copies for a cast or a non-contiguous layout. See
     # _benchmarks/bench_fe_cpu_batch_copy_avoid.py.
-    X = np.ascontiguousarray(X_cands, dtype=np.float64)
+    X = np.ascontiguousarray(X_cands, dtype=_crit_np_dtype())
     if X.ndim == 1:
         X = X.reshape(-1, 1)
     n, k = X.shape
+    # Intentional float64: the MI output accumulator returned to callers as f64 (output contract, see docstring).
     out = np.zeros(k, dtype=np.float64)
     if n == 0 or k == 0:
         return out

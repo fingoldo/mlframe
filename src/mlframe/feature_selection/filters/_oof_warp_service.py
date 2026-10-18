@@ -136,8 +136,8 @@ def fit_oof_warp1d(x: np.ndarray, y: np.ndarray, *, n_bins: int = N_BINS, shrink
 
     ``oof`` is the cross-fitted value of every fitting row (a row in fold ``f`` takes the table fitted on the other folds); ``(cx, cy)`` is the full table and ``fill`` the mean target, used for a
     non-finite ``x``. The bin edges come from ``x`` alone. Rows outside the fitting rows should be given the full table (``apply_warp1d``): it never saw them."""
-    x = np.asarray(x, dtype=np.float64)
-    y = np.asarray(y, dtype=np.float64)
+    x = np.asarray(x, dtype=np.float64)  # Intentional float64: OOF warp fit inputs: fit-side precision left at float64 pending a per-stage selection validation
+    y = np.asarray(y, dtype=np.float64)  # Intentional float64: OOF warp fit inputs: fit-side precision left at float64 pending a per-stage selection validation
     edges = quantile_edges(x, n_bins)
     b = np.where(np.isfinite(y), _bin_codes(x, edges), -1)
     fold = (np.random.default_rng(seed).permutation(len(x)) % int(n_folds)).astype(np.int64)
@@ -158,4 +158,4 @@ def _apply(x, cx, cy, fill):
 
 def apply_warp1d(x: np.ndarray, cx: np.ndarray, cy: np.ndarray, fill: float) -> np.ndarray:
     """The warp table ``(cx, cy)`` applied to ``x``: piecewise-linear between the bin centres, clamped to the end values, ``fill`` for a non-finite ``x``."""
-    return np.asarray(_apply(np.ascontiguousarray(x, dtype=np.float64), np.ascontiguousarray(cx, dtype=np.float64), np.ascontiguousarray(cy, dtype=np.float64), float(fill)))
+    return np.asarray(_apply(np.ascontiguousarray(x, dtype=np.float64), np.ascontiguousarray(cx, dtype=np.float64), np.ascontiguousarray(cy, dtype=np.float64), float(fill)))  # Intentional float64: OOF warp fit inputs: fit-side precision left at float64 pending a per-stage selection validation

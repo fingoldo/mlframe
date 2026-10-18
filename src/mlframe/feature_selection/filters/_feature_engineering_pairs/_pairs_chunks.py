@@ -173,7 +173,7 @@ def _compute_one_fe_chunk(
         batch_mi_kernel=batch_mi_kernel,
         env_gate=env_gate,
     )
-    fe_mi_full = np.asarray(fe_mi_arr, dtype=np.float64)
+    fe_mi_full = np.asarray(fe_mi_arr, dtype=np.float64)  # Intentional float64: MI statistic vector compared at full precision for exact permutation ties
     for raw_vars_pair in chunk_pairs:
         candidates, local_times = chunk_records[raw_vars_pair]
         # The chunk's discretised codes travel with the MI so the pair-level family gate can read each configuration's bins (no copy: shared reference).

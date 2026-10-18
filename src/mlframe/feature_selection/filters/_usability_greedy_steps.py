@@ -1,4 +1,4 @@
-"""Scoring leaves and fold-CV steps of the usability-aware greedy: scrub / float64 casts, the |corr| diversity gate and the four ``usability_greedy`` steps.
+"""Scoring leaves and fold-CV steps of the usability-aware greedy: scrub / double precision casts, the |corr| diversity gate and the four ``usability_greedy`` steps.
 
 Carved out of ``_usability_aware_selection``, which re-exports every name so the historical import path keeps working.
 """
@@ -9,17 +9,19 @@ import logging
 from typing import Any
 
 import numpy as np
+from ._fe_usability_signal import _crit_np_dtype
 
 logger = logging.getLogger("mlframe.feature_selection.filters._usability_aware_selection")
 
+# Intentional float64: default dtype argument kept f64 (callers pass explicit dtype)
 def _scrub(v: np.ndarray, dtype: Any = np.float64) -> np.ndarray:
     """Cast ``v`` to ``dtype`` and replace every non-finite entry (NaN/+inf/-inf) with 0.0, returning a new array."""
     # ``np.where(isfinite, a, 0)`` is bit-identical to ``nan_to_num(nan=0, posinf=0, neginf=0)`` (isfinite
     # is False for exactly nan/+inf/-inf) but ~2.8x faster (no per-call isposinf/isneginf/_getmaxmin
     # machinery): 764us -> 269us on a 100k float32 column. _scrub is called ~17k+/retention fit on full-n
-    # columns, so this is a direct cut to the pool-build cost. Verified bit-identical over float32/float64 +
+    # columns, so this is a direct cut to the pool-build cost. Verified bit-identical over float32/double precision +
     # nan/inf fuzz.
-    # A cast to a narrower dtype (e.g. float64 -> float32) can overflow to +-inf on an extreme
+    # A cast to a narrower dtype (e.g. double precision -> float32) can overflow to +-inf on an extreme
     # input value -- numpy warns "overflow encountered in cast" even though that's exactly the
     # non-finite case this function's whole job is to zero out right below. Harmless, suppressed
     # locally rather than at every caller.
@@ -29,15 +31,15 @@ def _scrub(v: np.ndarray, dtype: Any = np.float64) -> np.ndarray:
 
 
 def _f64(v: np.ndarray) -> np.ndarray:
-    """Upcast a stored (possibly float32) candidate column to float64 for MI / correlation /
+    """Upcast a stored (possibly float32) candidate column to double precision for MI / correlation /
     recipe-edge computation where the heavy-tail precision matters (transient; not stored)."""
-    return np.asarray(v, dtype=np.float64)
+    return np.asarray(v, dtype=_crit_np_dtype())
 
 
 def _abscorr(u: np.ndarray, v: np.ndarray) -> float:
-    """Absolute Pearson correlation ``|corr(u, v)|`` in float64, used as the diversity / near-duplicate gate. Returns
+    """Absolute Pearson correlation ``|corr(u, v)|`` in double precision, used as the diversity / near-duplicate gate. Returns
     0.0 if either input is empty or near-constant (std < 1e-12), or if the raw correlation is non-finite."""
-    # GATED GPU PATH (MLFRAME_FE_GPU_USABILITY, default OFF). The cupy twin is float64 + the SAME
+    # GATED GPU PATH (MLFRAME_FE_GPU_USABILITY, default OFF). The cupy twin is double precision + the SAME
     # std<1e-12 guard, but a cupy reduction can reassociate the last bits vs numpy -> a |corr| drift
     # that, on the ULP-sensitive clean-form demotion, could flip a pin. So it is ENABLED only on a host
     # where the gate-on pytest verified the SAME selection; on ANY cupy/device error we fall through to
@@ -75,7 +77,7 @@ def _usability_greedy_step1_unchanged_selection_identical(K, pool, st, shortlist
         _k_eff = max(1, min(int(K), len(pool)))
         _can, _need, _avail = _can_hoist_shared_buffer(st.n * _k_eff * 8, n_workers=1)
         if (not _can) and _avail > 0:
-            # Cap K to the largest float64 (n, K) design that fits the SAME overhead-aware budget the
+            # Cap K to the largest double precision (n, K) design that fits the SAME overhead-aware budget the
             # gate used (not the raw available), flooring at 1 so the greedy always makes progress.
             _budget = _fe_effective_buffer_budget_bytes(_avail, n_workers=1)
             _k_fit = int(_budget // (st.n * 8)) if _budget > 0 else 1
@@ -103,11 +105,13 @@ def _usability_greedy_step2_def_cv_fold(classification, n_folds, folds, y_enc, n
                 errs = []
                 for fo in range(n_folds):
                     trm, vam = folds != fo, folds == fo
+                    # Intentional float64: accumulator kept f64 (statistic / count sums need full precision)
                     prior = np.bincount(y_enc[trm], minlength=n_classes).astype(np.float64)
                     prior = prior / max(prior.sum(), 1.0)
                     prior = np.clip(prior, 1e-12, 1.0)
                     proba = np.tile(prior, (int(vam.sum()), 1))
                     errs.append(_logloss(y_enc[vam], proba))
+                # Intentional float64: accumulator kept f64 (statistic / count sums need full precision)
                 return np.asarray(errs, dtype=np.float64)
             Xs = np.column_stack([_pv(i) for i in sel_idx])
             errs = []
@@ -119,6 +123,7 @@ def _usability_greedy_step2_def_cv_fold(classification, n_folds, folds, y_enc, n
                 m = _mk().fit(Xs[trm], y_enc[trm])
                 proba = m.predict_proba(Xs[vam])
                 errs.append(_logloss(y_enc[vam], proba))
+            # Intentional float64: accumulator kept f64 (statistic / count sums need full precision)
             return np.asarray(errs, dtype=np.float64)
         if not sel_idx:
             return np.array([float(np.mean(np.abs(y_cont[folds == fo] - float(np.mean(y_cont[folds != fo]))))) for fo in range(n_folds)])
@@ -128,6 +133,7 @@ def _usability_greedy_step2_def_cv_fold(classification, n_folds, folds, y_enc, n
             trm, vam = folds != fo, folds == fo
             m = _mk().fit(Xs[trm], y_cont[trm])
             errs.append(float(np.mean(np.abs(y_cont[vam] - m.predict(Xs[vam])))))
+        # Intentional float64: accumulator kept f64 (statistic / count sums need full precision)
         return np.asarray(errs, dtype=np.float64)
     return _cv_per_fold
 
@@ -154,10 +160,10 @@ def _usability_greedy_step3_cheap_residual_aware(classification, n_classes, y_en
             # fall back to the one-vs-rest indicator of the majority class (a cheap pre-rank only - the
             # COMMIT decision is always the CV-logloss improvement).
             if n_classes == 2:
-                pos = (y_enc == 1).astype(np.float64)
+                pos = (y_enc == 1).astype(_crit_np_dtype())
             else:
                 _maj = int(np.argmax(np.bincount(y_enc, minlength=n_classes)))
-                pos = (y_enc == _maj).astype(np.float64)
+                pos = (y_enc == _maj).astype(_crit_np_dtype())
             if sel_idx:
                 Xs = np.column_stack([_pv(i) for i in sel_idx])
                 ho = folds == 0
@@ -190,7 +196,7 @@ def _usability_greedy_step3_cheap_residual_aware(classification, n_classes, y_en
         # GATED GPU BATCH (MLFRAME_FE_GPU_USABILITY, default OFF): the per-candidate |corr(values,
         # resid)| is the n-scaling inner loop of the shortlist - batch all candidates' columns vs the
         # one resid in ONE cupy GEMV (centered dot / sqrt(ss)) instead of a Python loop of np.corrcoef.
-        # BIT-FAITHFUL to the per-candidate ``_abscorr`` (same float64 estimator + std<1e-12 guard), so
+        # BIT-FAITHFUL to the per-candidate ``_abscorr`` (same double precision estimator + std<1e-12 guard), so
         # the shortlist ORDER is unchanged. Any cupy/device error -> the exact per-candidate CPU loop.
         uses = None
         if _GPU_USABILITY() and cand_ids:

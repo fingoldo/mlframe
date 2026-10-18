@@ -65,6 +65,7 @@ import logging
 from typing import TYPE_CHECKING, Callable, Optional, Sequence
 
 import numpy as np
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 import pandas as pd
 from numba import njit
 
@@ -120,7 +121,9 @@ def _bin_sum_cnt_njit(xi_f, codes_f, n_bins):
     ``_per_bin_mean_std``): ``np.add.at`` runs an un-buffered Python-level ufunc reduction, ~10-50x slower than
     a compiled loop. Accumulates in the SAME row order as ``np.add.at`` (ascending i, same per-bucket float
     additions) so ``bin_sum``/``bin_cnt`` are BIT-IDENTICAL, not merely close."""
+    # Intentional float64: numba kernel accumulator; numba cannot call the Python crit-dtype helper and the sums need exact f64.
     bin_sum = np.zeros(n_bins, dtype=np.float64)
+    # Intentional float64: numba kernel accumulator; numba cannot call the Python crit-dtype helper and the sums need exact f64.
     bin_cnt = np.zeros(n_bins, dtype=np.float64)
     for i in range(xi_f.shape[0]):
         c = codes_f[i]
@@ -134,6 +137,7 @@ def _bin_css_njit(xi_f, codes_f, bin_mean, n_bins):
     """Per-bin centred sum of squares ``sum((x_i - bin_mean[bin])^2)`` in a single O(n) walk - the njit twin of
     the ``np.add.at(bin_css, codes_f, centred*centred)`` pass. Same per-row op (subtract bin mean, square) in the
     SAME ascending-i order as ``np.add.at``, so ``bin_css`` is BIT-IDENTICAL."""
+    # Intentional float64: numba kernel accumulator; numba cannot call the Python crit-dtype helper and the sums need exact f64.
     bin_css = np.zeros(n_bins, dtype=np.float64)
     for i in range(xi_f.shape[0]):
         c = codes_f[i]
@@ -144,7 +148,8 @@ def _bin_css_njit(xi_f, codes_f, bin_mean, n_bins):
 
 @njit(cache=True, nogil=True)
 def _std_njit(a):
-    """Population std of a float64 vector in two passes without temporaries (``np.std`` allocates a full-n deviation array per call)."""
+    # Intentional float64: numba kernel accumulator; numba cannot call the Python crit-dtype helper and the sums need exact f64.
+    """Population std of a double precision vector in two passes without temporaries (``np.std`` allocates a full-n deviation array per call)."""
     n = a.shape[0]
     if n == 0:
         return np.nan
@@ -189,21 +194,21 @@ def _per_bin_mean_std(
     grouped values (one ``np.add.at`` for the sum, one for the centred SS)."""
     finite_i, all_finite, xi_f, global_mean, global_std = col_stats if col_stats is not None else _column_finite_stats(xi)
     if xi_f.size == 0:
-        z = np.zeros(n_bins_eff, dtype=np.float64)
-        return z.copy(), np.ones(n_bins_eff, dtype=np.float64), 0.0, 1.0
+        z = np.zeros(n_bins_eff, dtype=_crit_np_dtype())
+        return z.copy(), np.ones(n_bins_eff, dtype=_crit_np_dtype()), 0.0, 1.0
     codes_f = codes_j if all_finite else codes_j[finite_i]
 
     # Per-bin sum + count in one compiled O(n) walk (bit-identical to the two ``np.add.at`` scatter-adds it
     # replaces - same ascending-i accumulation order - but ~10-50x faster; ``np.add.at`` was the tottime sink).
     codes_f = np.ascontiguousarray(codes_f, dtype=np.int64)
-    xi_f = np.ascontiguousarray(xi_f, dtype=np.float64)
+    xi_f = np.ascontiguousarray(xi_f, dtype=_crit_np_dtype())
     bin_sum, bin_cnt = _bin_sum_cnt_njit(xi_f, codes_f, int(n_bins_eff))
     bin_mean = np.where(
         bin_cnt > 0.0, bin_sum / np.maximum(bin_cnt, 1.0), global_mean,
     )
     # Centred sum of squares per bin: sum((x_i - bin_mean[bin])^2). Same compiled single-pass accumulation as the
     # ``np.add.at(bin_css, codes_f, centred*centred)`` it replaces (bit-identical order + per-row op).
-    bin_css = _bin_css_njit(xi_f, codes_f, np.ascontiguousarray(bin_mean, dtype=np.float64), int(n_bins_eff))
+    bin_css = _bin_css_njit(xi_f, codes_f, np.ascontiguousarray(bin_mean, dtype=_crit_np_dtype()), int(n_bins_eff))
     # Population std per bin (ddof=0): sqrt(CSS / count). Bins below the min-row
     # floor or with a (near-)constant x_i fall back to the global std.
     with np.errstate(invalid="ignore", divide="ignore"):
@@ -211,8 +216,8 @@ def _per_bin_mean_std(
     usable = (bin_cnt >= float(_DISPERSION_MIN_BIN_ROWS)) & (bin_std >= _DISPERSION_SIGMA_FLOOR)
     bin_std = np.where(usable, bin_std, global_std)
     return (
-        bin_mean.astype(np.float64),
-        bin_std.astype(np.float64),
+        bin_mean.astype(_crit_np_dtype()),
+        bin_std.astype(_crit_np_dtype()),
         float(global_mean),
         float(global_std),
     )
@@ -232,6 +237,7 @@ def _zscore_from_bins_njit(
     identical and per-element independent, so there is no reduction-order delta."""
     n = xi.shape[0]
     nb = bin_mean.shape[0]
+    # Intentional float64: numba kernel accumulator; numba cannot call the Python crit-dtype helper and the sums need exact f64.
     z = np.zeros(n, dtype=np.float64)
     for i in range(n):
         v = xi[i]
@@ -266,10 +272,10 @@ def _zscore_from_bins(
     frame in ``generate_conditional_dispersion_features``, called once per ordered
     (x_i, x_j) pair. Bench: ``_benchmarks/bench_dispersion_zscore_njit.py``."""
     return np.asarray(_zscore_from_bins_njit(
-        np.ascontiguousarray(xi, dtype=np.float64),
+        np.ascontiguousarray(xi, dtype=_crit_np_dtype()),
         np.ascontiguousarray(codes_j),
-        np.ascontiguousarray(bin_mean, dtype=np.float64),
-        np.ascontiguousarray(bin_std, dtype=np.float64),
+        np.ascontiguousarray(bin_mean, dtype=_crit_np_dtype()),
+        np.ascontiguousarray(bin_std, dtype=_crit_np_dtype()),
         _DISPERSION_SIGMA_FLOOR,
     ))
 
@@ -318,7 +324,7 @@ def generate_conditional_dispersion_features(
 
     from ._extra_fe_families import _digitize_with_edges, _quantile_edges  # lazy: break parent<->sibling cycle
     # Intentional float64: the device dispersion path must match these host columns to a 1e-6 band (tests/feature_selection/fe/gpu/test_conditional_dispersion_resident.py), which float32 breaks.
-    col_vals = {c: np.asarray(X[c].to_numpy(), dtype=np.float64) for c in num_cols}
+    col_vals = {c: np.asarray(X[c].to_numpy(), dtype=_crit_np_dtype()) for c in num_cols}
     col_stats: dict = {}  # x_i -> _column_finite_stats, shared by every pair that uses x_i
     for x_j in num_cols:
         xj = col_vals[x_j]
@@ -351,7 +357,7 @@ def generate_conditional_dispersion_features(
                 if _std_njit(vals) <= 1e-12:
                     continue
                 name = engineered_name_conditional_dispersion(x_i, x_j, kind)
-                encoded[name] = np.asarray(vals, dtype=np.float64)
+                encoded[name] = np.asarray(vals, dtype=_crit_np_dtype())
                 raw_recipes[name] = {**payload, "kind": kind}
 
     return pd.DataFrame(encoded, index=X.index), raw_recipes
@@ -366,16 +372,16 @@ def apply_conditional_dispersion(X_test: pd.DataFrame, recipe: dict) -> np.ndarr
     x_j = recipe["x_j"]
     if x_i not in X_test.columns or x_j not in X_test.columns:
         raise KeyError(f"apply_conditional_dispersion: missing column(s) {x_i!r}/{x_j!r} " f"from X_test")
-    edges = np.asarray(recipe["edges"], dtype=np.float64)
-    bin_mean = np.asarray(recipe["bin_mean"], dtype=np.float64)
-    bin_std = np.asarray(recipe["bin_std"], dtype=np.float64)
+    edges = np.asarray(recipe["edges"], dtype=_crit_np_dtype())
+    bin_mean = np.asarray(recipe["bin_mean"], dtype=_crit_np_dtype())
+    bin_std = np.asarray(recipe["bin_std"], dtype=_crit_np_dtype())
     kind = str(recipe.get("kind", "absz"))
     from ._extra_fe_families import _digitize_with_edges  # lazy: break parent<->sibling cycle
-    xi = np.asarray(X_test[x_i].to_numpy(), dtype=np.float64)
-    xj = np.asarray(X_test[x_j].to_numpy(), dtype=np.float64)
+    xi = np.asarray(X_test[x_i].to_numpy(), dtype=_crit_np_dtype())
+    xj = np.asarray(X_test[x_j].to_numpy(), dtype=_crit_np_dtype())
     codes_j = _digitize_with_edges(xj, edges)
     z = _zscore_from_bins(xi, codes_j, bin_mean, bin_std)
-    return _emit_kind(z, kind).astype(np.float64)
+    return _emit_kind(z, kind).astype(_crit_np_dtype())
 
 
 def build_conditional_dispersion_recipe(
@@ -398,9 +404,9 @@ def build_conditional_dispersion_recipe(
         extra={
             "x_i": str(x_i),
             "x_j": str(x_j),
-            "edges": np.asarray(edges, dtype=np.float64).copy(),
-            "bin_mean": np.asarray(bin_mean, dtype=np.float64).copy(),
-            "bin_std": np.asarray(bin_std, dtype=np.float64).copy(),
+            "edges": np.asarray(edges, dtype=_crit_np_dtype()).copy(),
+            "bin_mean": np.asarray(bin_mean, dtype=_crit_np_dtype()).copy(),
+            "bin_std": np.asarray(bin_std, dtype=_crit_np_dtype()).copy(),
             "global_mean": float(global_mean),
             "global_std": float(global_std),
             "disp_kind": str(kind),
@@ -431,9 +437,9 @@ def _apply_conditional_dispersion_recipe(recipe, X) -> np.ndarray:
         {
             "x_i": x_i,
             "x_j": x_j,
-            "edges": np.asarray(recipe.extra["edges"], dtype=np.float64),
-            "bin_mean": np.asarray(recipe.extra["bin_mean"], dtype=np.float64),
-            "bin_std": np.asarray(recipe.extra["bin_std"], dtype=np.float64),
+            "edges": np.asarray(recipe.extra["edges"], dtype=_crit_np_dtype()),
+            "bin_mean": np.asarray(recipe.extra["bin_mean"], dtype=_crit_np_dtype()),
+            "bin_std": np.asarray(recipe.extra["bin_std"], dtype=_crit_np_dtype()),
             "kind": str(recipe.extra.get("disp_kind", "absz")),
         },
     )
@@ -476,8 +482,8 @@ def _dual_uplift_filter(
 
     y_bin = _coerce_y_classes(y)
     # MI of the candidate dispersion columns.
-    cand_arr = enc_df[list(winners)].to_numpy(dtype=np.float64)
-    cand_mi_arr = np.asarray(_mi_classif_batch(cand_arr, y_bin, nbins=n_bins), dtype=np.float64)
+    cand_arr = enc_df[list(winners)].to_numpy(dtype=_crit_np_dtype())
+    cand_mi_arr = np.asarray(_mi_classif_batch(cand_arr, y_bin, nbins=n_bins), dtype=_crit_np_dtype())
     cand_mi: dict = {nm: float(cand_mi_arr[j]) for j, nm in enumerate(winners)}
 
     # Distinct (x_i, x_j) pairs among winners -> raw x_i MI + mean-residual sibling MI.
@@ -493,8 +499,8 @@ def _dual_uplift_filter(
         block_width = _mi_chunk_cols_for(len(X))
         for start in range(0, len(raw_cols), block_width):
             block = raw_cols[start : start + block_width]
-            block_arr = X[block].to_numpy(dtype=np.float64)
-            rmi = np.asarray(_mi_classif_batch(block_arr, y_bin, nbins=n_bins), dtype=np.float64)
+            block_arr = X[block].to_numpy(dtype=_crit_np_dtype())
+            rmi = np.asarray(_mi_classif_batch(block_arr, y_bin, nbins=n_bins), dtype=_crit_np_dtype())
             raw_mi.update({c: float(rmi[j]) for j, c in enumerate(block)})
 
     # Family-B mean-residual sibling MI per distinct pair.
@@ -557,13 +563,13 @@ def _dual_uplift_filter(
                         from ._extra_fe_families_dispersion_resident import dual_uplift_sibling_mi_resident
                         _dev = dual_uplift_sibling_mi_resident(X, y_bin, sib_specs, nbins=n_bins)
                         if _dev is not None:
-                            smi = np.asarray(_dev, dtype=np.float64)
+                            smi = np.asarray(_dev, dtype=_crit_np_dtype())
             except Exception as e:
                 logger.warning("dual_uplift_sibling_mi_resident failed, falling back to the host path: %s", e)
                 smi = None
             if smi is None:
-                sib_abs = np.abs(enc_b[list(sib_names.values())].to_numpy(dtype=np.float64))
-                smi = np.asarray(_mi_classif_batch(sib_abs, y_bin, nbins=n_bins), dtype=np.float64)
+                sib_abs = np.abs(enc_b[list(sib_names.values())].to_numpy(dtype=_crit_np_dtype()))
+                smi = np.asarray(_mi_classif_batch(sib_abs, y_bin, nbins=n_bins), dtype=_crit_np_dtype())
             sib_mi = {pair: float(smi[j]) for j, pair in enumerate(sib_pairs)}
 
     kept = []

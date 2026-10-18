@@ -99,7 +99,7 @@ def cascade_select(
         """Fit a fresh estimator on the (possibly shadow-augmented) features and return its feature importances."""
         model = estimator_factory()
         model.fit(X_shadowed, y_arr)
-        return np.asarray(model.feature_importances_, dtype=np.float64)
+        return np.asarray(model.feature_importances_, dtype=np.float64)  # Intentional float64: returned importance vector is an output contract for downstream ranking
 
     boruta_result = boruta_select(X, y, _importance_fn, n_iterations=n_boruta_iterations, alpha=boruta_alpha, random_state=random_state)
     boruta_confirmed = [name for name, decision in zip(boruta_result["feature_names"], boruta_result["decision"]) if decision in ("confirmed", "tentative")]

@@ -226,7 +226,7 @@ def _mrmr_instance_state_size_bytes(instance: Any) -> int:
 
 def _prune_engineered_continuous_store(instance: Any, cols: Sequence[str], selected_vars: Iterable[int]) -> int:
     """Drop ``_engineered_continuous_`` entries for engineered columns that did not survive the latest mRMR
-    redundancy screen, so the fit-time scratch store (full-length float64 arrays, one per engineered column
+    redundancy screen, so the fit-time scratch store (full-length arrays, one per engineered column
     ever produced) does not grow unboundedly across FE rounds instead of shrinking back down each round.
 
     Safe by construction (see ``_step_pool.build_fe_operand_pool``): the synergy-bootstrap / GBM-seeder /

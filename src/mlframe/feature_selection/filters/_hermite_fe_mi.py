@@ -15,6 +15,8 @@ import threading
 import weakref
 
 import numpy as np
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
+from mlframe.feature_selection.filters._fe_gpu_batch._devices import crit_float_dtype
 from types import ModuleType
 from typing import Any
 
@@ -176,7 +178,7 @@ def _plugin_mi_classif_batch_cuda(X_cols: np.ndarray, y: np.ndarray, n_bins: int
     # import ...`` would create a hard cycle the meta-test flags.
     import cupy as cp
 
-    X_gpu = cp.asarray(X_cols, dtype=cp.float64)
+    X_gpu = cp.asarray(X_cols, dtype=crit_float_dtype())
     # y is the fit-constant target: resident-cache it (same role string as the already-fixed
     # ``_orth_mi_backends.py`` / ``_binned_numeric_agg_fe.py`` sites) so it uploads ONCE per fit instead of
     # once per call, AND so the SAME device object comes back across calls - which lets the downstream
@@ -211,14 +213,16 @@ def _shifted_y_cached(y_gpu, y_min: int):
 
 def relaxed_candidate_dtype(cp: ModuleType) -> Any:
     """The dtype a selection-gate producer should emit its candidate block in: float32 when the relaxed criterion dtype is on (the plug-in MI would otherwise cast the finished
-    float64 block to float32 itself, a full extra pass and a double-width buffer), else float64. Casting each element at the store gives the same float32 values as casting the finished block.
+    double precision block to float32 itself, a full extra pass and a double-width buffer), else double precision. Casting each element at the store gives the same float32 values as casting the finished block.
     """
     try:
         from ._fe_gpu_batch._devices import crit_float_dtype
 
+        # Intentional float64: the policy-off branch of the crit-dtype helper; the strict default is f64.
         return cp.float32 if crit_float_dtype() == cp.float32 else cp.float64
     except Exception as e:  # nosec B110 - optional dependency import guard
-        logger.debug("crit_float_dtype() lookup failed, producers keep float64: %s", e)
+        logger.debug("crit_float_dtype() lookup failed, producers keep double precision: %s", e)
+        # Intentional float64: fallback when the crit-dtype lookup fails; producers keep the strict f64.
         return cp.float64
 
 
@@ -226,14 +230,14 @@ def _plugin_mi_classif_batch_cuda_resident(
     X_gpu, y_gpu, n_bins: int = 20, *, y_min=None, n_classes=None, keep_dtype: bool = False, relax_binning: bool = False, x_is_cm: bool = False
 ):
     """MATRIX-NATIVE plug-in MI on ALREADY-RESIDENT cupy arrays - the H2D-FREE core of
-    :func:`_plugin_mi_classif_batch_cuda`. ``X_gpu`` is an (n, k) cupy float64 candidate
+    :func:`_plugin_mi_classif_batch_cuda`. ``X_gpu`` is an (n, k) cupy double precision candidate
     matrix, ``y_gpu`` an (n,) cupy integer label vector, BOTH already on the device. This
     is the entry point a matrix-native caller uses when it built/holds its candidate
     columns on the GPU - it skips the per-call ``cp.asarray`` H2D that the dispatcher's
     ground-truth note records as the 2x-slowdown cause (measured: forcing the H2D path on
     is 52s -> 105s), so MI runs on the device with NO transfer. Math is identical to the
     host-input variant (same percentile-edge equi-frequency binning + plug-in MI).
-    Returns a host (k,) float64 array of MI values.
+    Returns a host (k,) double precision array of MI values.
 
     ``keep_dtype`` (default False -> the legacy f64 contract): when True AND ``X_gpu`` is float32,
     the f32 is kept through the radix-edge SELECT (the dominant ~67% kernel reads half the bytes ->
@@ -251,9 +255,10 @@ def _plugin_mi_classif_batch_cuda_resident(
     else:
         n, k = X_gpu.shape
     if n == 0 or k == 0:
-        return np.zeros(k, dtype=np.float64)
+        return np.zeros(k, dtype=_crit_np_dtype())
+    # Intentional float64: dtype identity check against the f64 producer output, not a compute dtype.
     if not (keep_dtype and X_gpu.dtype == cp.float32) and X_gpu.dtype != cp.float64:
-        X_gpu = X_gpu.astype(cp.float64)
+        X_gpu = X_gpu.astype(crit_float_dtype())
     # relax_binning (nvprof-driven): the radix-select quantile discretiser is the #1 GPU kernel on
     # the F2 STRICT profile (radix_select_interp_f64_v2, ~21%); a clean CUDA-event A/B shows the f32 radix reads
     # half the bytes and runs 1.3-1.8x on the real F2 candidate shapes (max|val| ~7.5e5, no f32 overflow) with
@@ -261,9 +266,9 @@ def _plugin_mi_classif_batch_cuda_resident(
     # relies on. OPT-IN only: the SELECTION callers (op-candidate / binagg / dispersion gates) pass True; the
     # generic entry stays f64 so the CUDA==njit bit-close contract (test_batch_cuda_matches_njit) is unchanged.
     # Gated on MLFRAME_CRIT_DTYPE_RELAXED (default ON) so =0 restores strict f64 everywhere.
+    # Intentional float64: dtype identity check against the f64 producer output.
     if relax_binning and X_gpu.dtype == cp.float64:
         try:
-            from ._fe_gpu_batch._devices import crit_float_dtype
 
             if crit_float_dtype() == cp.float32:
                 X_gpu = X_gpu.astype(cp.float32)
@@ -316,6 +321,7 @@ def _plugin_mi_classif_batch_cuda_resident(
                     x_cm = X_gpu
                     interior = _radix_select_interior_edges(X_gpu, n_bins, data_is_cm=True)
                 else:
+                    # Intentional float64: dtype identity check, both producer dtypes.
                     x_cm = _transpose_to_cm(X_gpu) if X_gpu.flags.c_contiguous and X_gpu.dtype in (cp.float32, cp.float64) else None
                     interior = _radix_select_interior_edges(X_gpu, n_bins, cm_hint=x_cm)  # (n_bins-1, k), sort-free, == edges[1:-1]
         except Exception as e:

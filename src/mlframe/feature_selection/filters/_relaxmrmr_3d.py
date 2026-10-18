@@ -38,6 +38,8 @@ from typing import Any
 
 import numpy as np
 
+from ._fe_usability_signal import _crit_np_dtype
+
 # The estimators moved to a sibling so the parallel pair loop shares them; re-exported here because callers and tests import them
 # from this module.
 from mlframe.feature_selection.filters._relaxmrmr_kernels import (  # noqa: F401
@@ -149,8 +151,8 @@ def relax_mrmr_score(
     inter = 0.0
     if n_S >= 2 and alpha > 0.0:
         norm = float(n_S * (n_S - 1)) / 2.0
-        marg_mm = np.empty(n_S, dtype=np.float64)
-        cmi_y_mm = np.empty(n_S, dtype=np.float64)
+        marg_mm = np.empty(n_S, dtype=_crit_np_dtype())
+        cmi_y_mm = np.empty(n_S, dtype=_crit_np_dtype())
         for j in range(n_S):
             marg_mm[j] = _mi_mm_njit(x_int, sel_int[j], K_x, K_sel[j])
             cmi_y_mm[j] = _cmi_mm_njit(x_int, sel_int[j], y_int, K_x, K_sel[j], K_y)

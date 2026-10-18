@@ -45,6 +45,7 @@ import logging
 from typing import Callable, Optional, Sequence
 
 import numpy as np
+from ._fe_usability_signal import _crit_np_dtype
 import pandas as pd
 
 from ._fold_cell_stats import fold_cell_sum_cnt
@@ -156,6 +157,7 @@ def frequency_encode_fit(
         unique_cats, inverse, counts = np.unique(
             cats, return_inverse=True, return_counts=True,
         )
+        # Intentional float64: accumulator kept f64 (statistic / count sums need full precision)
         freqs = counts.astype(np.float64) / float(n)
         row_freqs = freqs[inverse]
         encoded_cols[engineered_name_freq(col)] = row_freqs
@@ -204,13 +206,13 @@ def apply_frequency_encoding(
     lookup: dict = recipe["lookup"]
     default: float = float(recipe.get("default", 0.0))
     if cats.size == 0:
-        return np.empty(0, dtype=np.float64)
+        return np.empty(0, dtype=_crit_np_dtype())
     # Vectorized replay: pd.factorize (O(n) hashtable, no sort) + one
     # float(lookup.get(...)) per distinct category, gathered by code. ~6-8x over
     # the per-row loop; bit-identical. See apply_count_encoding for why factorize
     # beats both an np.unique(sort) map on string columns and an njit gather.
     codes, uniques = pd.factorize(cats)
-    vals = np.array([float(lookup.get(u, default)) for u in uniques], dtype=np.float64)
+    vals = np.array([float(lookup.get(u, default)) for u in uniques], dtype=_crit_np_dtype())
     return np.asarray(vals[codes])
 
 # ---------------------------------------------------------------------------
@@ -301,7 +303,7 @@ def cat_num_interaction_fit(
     num_vals = X[num_col].to_numpy()
     if not np.issubdtype(num_vals.dtype, np.number):
         raise ValueError(f"cat_num_interaction_fit: num_col {num_col!r} is not numeric " f"(dtype={num_vals.dtype!r})")
-    num_vals = num_vals.astype(np.float64, copy=False)
+    num_vals = num_vals.astype(_crit_np_dtype(), copy=False)
     n = len(X)
 
     # NaN handling for the numeric column: rows with NaN num contribute
@@ -323,6 +325,7 @@ def cat_num_interaction_fit(
         fold_ids = np.empty(n, dtype=np.int64)
         fold_ids[perm] = np.arange(n) % int(n_folds)
 
+    # Intentional float64: accumulator kept f64 (statistic / count sums need full precision)
     oof_pred = np.full(n, global_mean, dtype=np.float64)
     inv_arr = inverse.astype(np.int64, copy=False)
     for f in range(int(n_folds)):
@@ -331,6 +334,7 @@ def cat_num_interaction_fit(
             continue
         # Per-category sum / count from rows in folds != f (and finite num).
         cell_sum, cell_cnt = fold_cell_sum_cnt(inv_arr, num_vals, fold_ids, f, n_cats, valid=finite_mask)
+        # Intentional float64: accumulator kept f64 (statistic / count sums need full precision)
         cell_means_fold = np.full(n_cats, global_mean, dtype=np.float64)
         nz = cell_cnt > 0.0
         if nz.any():
@@ -343,7 +347,7 @@ def cat_num_interaction_fit(
 
     # Residual: num - OOF per-cell mean. Rows with NaN num get residual 0
     # (no information available for them).
-    residual = np.where(finite_mask, num_vals - oof_pred, 0.0).astype(np.float64, copy=False)
+    residual = np.where(finite_mask, num_vals - oof_pred, 0.0).astype(_crit_np_dtype(), copy=False)
 
     # Full-data lookup for transform-time replay (smoothed per-category mean
     # of num computed on the entire training set).
@@ -383,19 +387,19 @@ def apply_cat_num_residual(
     num_vals = X_test[num_col].to_numpy()
     if not np.issubdtype(num_vals.dtype, np.number):
         raise TypeError(f"apply_cat_num_residual: num_col {num_col!r} must be numeric " f"(dtype={num_vals.dtype!r})")
-    num_vals = num_vals.astype(np.float64, copy=False)
+    num_vals = num_vals.astype(_crit_np_dtype(), copy=False)
     lookup: dict = recipe["lookup"]
     global_mean = float(recipe["global_mean"])
     cats = np.asarray(cats)
     if cats.size == 0:
-        return np.empty(0, dtype=np.float64)
+        return np.empty(0, dtype=_crit_np_dtype())
     finite = np.isfinite(num_vals)
     # Vectorized replay: pd.factorize (O(n) hashtable, no sort) resolves one float(lookup.get(...)) per DISTINCT
     # category, gathered by code - bit-identical to the per-row loop (measured 9.36x @10M). Mirrors the count/freq
     # apply paths above; _column_to_str maps NaN -> "__nan__" so factorize never emits its -1 sentinel here.
     codes, uniques = pd.factorize(cats)
-    cell = np.array([float(lookup.get(u, global_mean)) for u in uniques], dtype=np.float64)
-    return np.where(finite, num_vals - cell[codes], 0.0).astype(np.float64, copy=False)
+    cell = np.array([float(lookup.get(u, global_mean)) for u in uniques], dtype=_crit_np_dtype())
+    return np.where(finite, num_vals - cell[codes], 0.0).astype(_crit_np_dtype(), copy=False)
 
 # ---------------------------------------------------------------------------
 # End-to-end wrappers for MRMR.fit auto-wiring (recipe-emitting variants)

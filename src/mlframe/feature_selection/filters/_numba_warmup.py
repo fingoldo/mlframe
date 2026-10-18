@@ -1,6 +1,6 @@
 """Synchronous pre-compilation of the hot numba ``typed.Dict`` machinery.
 
-``screen_predictors`` builds several ``numba.typed.Dict(unicode -> float64)``
+``screen_predictors`` builds several ``numba.typed.Dict(unicode -> double precision)``
 memoization caches and passes them into njit kernels (``evaluate_gain``, the
 entropy kernels, ``fleuret``, ``friend_graph``). Constructing the first such
 dict in a process JIT-compiles the whole typed-dict method suite (empty /
@@ -31,7 +31,7 @@ _warmup_done = False
 
 
 def warmup_typed_dict() -> None:
-    """Force-compile the ``unicode -> float64`` typed.Dict method suite once."""
+    """Force-compile the ``unicode -> double precision`` typed.Dict method suite once."""
     global _warmup_done
     if _warmup_done or os.environ.get("MLFRAME_SKIP_NUMBA_WARMUP") == "1":
         return
@@ -40,6 +40,7 @@ def warmup_typed_dict() -> None:
         import numba
         from numba.core import types
 
+        # Intentional float64: must match the unicode->float64 typed.Dict used by screen_predictors (numba contract)
         d = numba.typed.Dict.empty(key_type=types.unicode_type, value_type=types.float64)
         # Exercise every operation screen_predictors' caches use so each method
         # lowering is compiled now rather than on first fit.

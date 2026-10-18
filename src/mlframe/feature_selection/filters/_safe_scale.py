@@ -16,6 +16,7 @@ from typing import Any, Optional
 import numpy as np
 
 # A scale below this multiple of the data's own magnitude carries no information: 32 ULP of the largest absolute value.
+# Intentional float64: relative tolerance is scaled from the f64 machine epsilon; the tolerance constant is an exact-spec value, not a dtype choice
 _REL_TOL = 32.0 * float(np.finfo(np.float64).eps)
 
 

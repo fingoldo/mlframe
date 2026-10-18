@@ -14,6 +14,7 @@ from typing import Any, Optional
 import math
 
 import numpy as np
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 
 _UNDEFINED = float("nan")
 
@@ -30,6 +31,6 @@ def relative_uplift(engineered_mi: float, baseline_mi: Optional[float]) -> float
 
 def relative_uplift_array(engineered_mi: Any, baseline_mi: Any) -> np.ndarray:
     """The elementwise form of :func:`relative_uplift`, for a whole replicate of engineered columns at once."""
-    baseline = np.asarray(baseline_mi, dtype=np.float64)
+    baseline = np.asarray(baseline_mi, dtype=_crit_np_dtype())
     usable = np.isfinite(baseline) & (baseline > 0.0)
-    return np.where(usable, np.asarray(engineered_mi, dtype=np.float64) / np.where(usable, baseline, 1.0), _UNDEFINED)
+    return np.where(usable, np.asarray(engineered_mi, dtype=_crit_np_dtype()) / np.where(usable, baseline, 1.0), _UNDEFINED)

@@ -16,6 +16,7 @@ Use as the FE baseline instead of (or in addition to) the ``MI(x_a, x_b)`` joint
 from __future__ import annotations
 
 import numpy as np
+from ._fe_usability_signal import _crit_np_dtype
 
 from mlframe.utils.warning_filters import silenced_once
 
@@ -26,8 +27,8 @@ def trivial_pair_features(x_a: np.ndarray, x_b: np.ndarray) -> dict:
     All produce 1-D arrays the same length as ``x_a``. NaN/inf cells are masked by the consuming code; here we emit raw values plus a
     ratio with epsilon for safety.
     """
-    x_a = np.asarray(x_a, dtype=np.float64)
-    x_b = np.asarray(x_b, dtype=np.float64)
+    x_a = np.asarray(x_a, dtype=_crit_np_dtype())
+    x_b = np.asarray(x_b, dtype=_crit_np_dtype())
     eps = 1e-9
     feats = {}
     feats["mul"] = x_a * x_b
@@ -68,10 +69,12 @@ def _mi_1d(
             plugin_mi_classif_njit as _plugin_mi_classif_njit,
             plugin_mi_regression_njit as _plugin_mi_regression_njit,
         )
+        # Intentional float64: njit kernel operand contract (f64 signature)
         x_njit = np.ascontiguousarray(x, dtype=np.float64)
         if discrete_target:
             y_njit = np.asarray(y, dtype=np.int64)
             return float(_plugin_mi_classif_njit(x_njit, y_njit, plugin_n_bins))
+        # Intentional float64: njit kernel operand contract (f64 signature)
         y_njit = np.asarray(y, dtype=np.float64)
         return float(_plugin_mi_regression_njit(x_njit, y_njit, plugin_n_bins))
     # ksg path
@@ -124,12 +127,13 @@ def score_trivial_baselines(
             plugin_mi_regression_batch_njit as _plugin_mi_regression_batch_njit,
         )
         X_batch = np.ascontiguousarray(
-            np.column_stack(valid_cols), dtype=np.float64,
+            np.column_stack(valid_cols), dtype=_crit_np_dtype(),
         )
         if discrete_target:
             y_njit = np.asarray(y, dtype=np.int64)
             mi_arr = _plugin_mi_classif_batch_njit(X_batch, y_njit, plugin_n_bins)
         else:
+            # Intentional float64: njit kernel operand contract (f64 signature)
             y_njit = np.asarray(y, dtype=np.float64)
             mi_arr = _plugin_mi_regression_batch_njit(X_batch, y_njit, plugin_n_bins)
         scores = {name: float(mi_arr[i]) for i, name in enumerate(valid_names)}
@@ -162,7 +166,7 @@ def auto_unary_transforms(x: np.ndarray, y: np.ndarray, *,
     the unary step, which the pair optimizer can then express trivially.
     """
     eps = 1e-9
-    x = np.asarray(x, dtype=np.float64)
+    x = np.asarray(x, dtype=_crit_np_dtype())
     # x*x*x over x**3 avoids np.power dispatch (~3x; same antipattern
     # as iter138 fixes). x**2 stays (numpy special-cases it via np.square).
     transforms = {
@@ -198,9 +202,9 @@ def best_unary_transform(x: np.ndarray, y: np.ndarray, **kwargs) -> tuple:
 
 def triplet_pair_features(x_a: np.ndarray, x_b: np.ndarray, x_c: np.ndarray) -> dict:
     """3-way pair-style features. Captures ``y = sign(x_a * x_b * x_c)`` and similar 3-way interactions that pair-FE cannot represent."""
-    x_a = np.asarray(x_a, dtype=np.float64)
-    x_b = np.asarray(x_b, dtype=np.float64)
-    x_c = np.asarray(x_c, dtype=np.float64)
+    x_a = np.asarray(x_a, dtype=_crit_np_dtype())
+    x_b = np.asarray(x_b, dtype=_crit_np_dtype())
+    x_c = np.asarray(x_c, dtype=_crit_np_dtype())
     eps = 1e-9
     return {
         "abc_mul": x_a * x_b * x_c,
@@ -261,12 +265,13 @@ def best_trivial_pair(
             plugin_mi_regression_batch_njit as _plugin_mi_regression_batch_njit,
         )
         X_batch = np.ascontiguousarray(
-            np.column_stack(valid_cols), dtype=np.float64,
+            np.column_stack(valid_cols), dtype=_crit_np_dtype(),
         )
         if discrete_target:
             y_njit = np.asarray(y, dtype=np.int64)
             mi_arr = _plugin_mi_classif_batch_njit(X_batch, y_njit, plugin_n_bins)
         else:
+            # Intentional float64: njit kernel operand contract (f64 signature)
             y_njit = np.asarray(y, dtype=np.float64)
             mi_arr = _plugin_mi_regression_batch_njit(X_batch, y_njit, plugin_n_bins)
         # MI batch kernel may return NaN for degenerate

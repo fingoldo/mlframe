@@ -251,12 +251,14 @@ def _assign_support_part2(
     try:
         self.mrmr_gains_ = np.asarray(
             [float(p.get("gain", 0.0)) for p in (predictors or [])],
+            # Intentional float64: public mrmr_gains_ reporting attribute, a stable output contract independent of the FE dtype.
             dtype=np.float64,
         )
     except Exception as exc:
         logger.warning(
             "mrmr: mrmr_gains_ could not be built (%s: %s); it is left empty, which also makes uaed_auto_size a no-op for this fit", type(exc).__name__, exc
         )
+        # Intentional float64: public mrmr_gains_ reporting attribute (output contract, see above).
         self.mrmr_gains_ = np.array([], dtype=np.float64)
     # Layer 54: stash the greedy predictor log on ``self`` so the FE
     # provenance helper can map engineered feature names back to their

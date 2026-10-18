@@ -18,12 +18,13 @@ from __future__ import annotations
 from typing import Optional, cast, overload
 
 import numpy as np
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 
 
 def _fallback_edges(finite: np.ndarray, base: str, n_bins: int) -> np.ndarray:
     """Unsupervised inner edges matching ``_adaptive_nbins``'s collapsed-column fallback."""
     if n_bins < 2 or finite.size == 0:
-        return np.array([], dtype=np.float64)
+        return np.array([], dtype=_crit_np_dtype())
     if base == "quantile":
         full = np.percentile(finite, np.linspace(0.0, 100.0, n_bins + 1))
     else:
@@ -46,11 +47,11 @@ def refine_near_collapsed_supervised_edges(edges: Optional[np.ndarray], finite: 
     unsupervised fallback edges. ``finite`` is the column's finite values; ``edges`` are inner cuts."""
     if edges is None or not hasattr(edges, "size") or edges.size == 0 or finite.size == 0 or fallback_nbins < 2:
         return edges
-    inner = np.asarray(edges, dtype=np.float64)
+    inner = np.asarray(edges, dtype=_crit_np_dtype())
     counts = np.bincount(np.searchsorted(inner, finite, side="right"), minlength=inner.size + 1)
     if counts.max() <= (1.0 - 1.0 / (2.0 * fallback_nbins)) * finite.size:
         return edges
-    extra = _fallback_edges(np.asarray(finite, dtype=np.float64), base, fallback_nbins)
+    extra = _fallback_edges(np.asarray(finite, dtype=_crit_np_dtype()), base, fallback_nbins)
     if extra.size == 0:
         return edges
     return cast(np.ndarray, np.unique(np.concatenate([inner, extra])))

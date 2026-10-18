@@ -64,6 +64,7 @@ from itertools import combinations
 from typing import Any, Sequence
 
 import numpy as np
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
@@ -303,8 +304,8 @@ def rank_gradient_interaction_pairs(
         Xc, yc = X[rows], y[rows]
     else:
         Xc, yc = X, y
-    Xs = _standardize(np.asarray(Xc, dtype=np.float64))
-    yc = np.asarray(yc, dtype=np.float64).ravel()
+    Xs = _standardize(np.asarray(Xc, dtype=_crit_np_dtype()))
+    yc = np.asarray(yc, dtype=_crit_np_dtype()).ravel()
     # subset columns to the candidate pool, remembering the mapping back to original indices
     Xsub = Xs[:, cand]
     if gamma is None:
@@ -424,7 +425,7 @@ def propose_gradient_interaction_pairs(
     # target column: first target index (read the discretised ordinal target from ``data``)
     t0 = int(min(_target_idx_set) if _target_idx_set else 0)
     try:
-        Xfull = np.asarray(X_continuous, dtype=np.float64)  # RAW continuous features
+        Xfull = np.asarray(X_continuous, dtype=_crit_np_dtype())  # RAW continuous features
         X = Xfull[:, pool]
         y = np.asarray(data)[:, t0]  # discretised ordinal target
     except Exception as exc:  # not array-coercible -> skip silently (proposer is best-effort)

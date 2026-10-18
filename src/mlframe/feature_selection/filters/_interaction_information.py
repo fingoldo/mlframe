@@ -160,6 +160,7 @@ def pooled_pair_ii_null_floor(
 
     rng = np.random.default_rng(random_seed)
     y_perm = y0.copy()
+    # Intentional float64: permutation-null maxima accumulator compared against the f64 observed value.
     maxes = np.empty(int(n_permutations), dtype=np.float64)
     for s in range(int(n_permutations)):
         rng.shuffle(y_perm)
@@ -203,6 +204,7 @@ def _marginal_mi_codes(x_codes: np.ndarray, y_codes: np.ndarray, k_x: int, k_y: 
     design ``k_x`` over-corrects sparse / heavy-tailed columns, see :func:`pair_interaction_information`).
     """
     joint = x_codes.astype(np.int64) * k_y + y_codes.astype(np.int64)
+    # Intentional float64: plug-in MI count accumulator, the same scale as the joint-MI sums it mirrors.
     counts = np.bincount(joint, minlength=k_x * k_y).astype(np.float64)
     counts = counts.reshape(k_x, k_y)
     px = counts.sum(axis=1) * inv_n

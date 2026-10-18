@@ -72,6 +72,7 @@ def _fwl_relu_legs(cp, xg, cuts, n: int, min_seg_rows: int):
     ONCE and reused across the growing-design breakpoint rounds (only ``proj(R)`` / ``r_y`` change per
     round). Materialising the (n, C) relu block is the stage's largest device allocation; hoisting it
     out of the round loop removes one full (n, C) build + the segment-row count per breakpoint round."""
+    # Intentional float64: hinge FWL/recipe replay is pinned bit-exact by test_detect_hinge_fwl_rank1_taus_bit_identical_*.
     cuts_d = cp.asarray(np.ascontiguousarray(cuts, dtype=np.float64))
     R = cp.maximum(xg[:, None] - cuts_d[None, :], 0.0)  # (n, C) all relu legs at once
     n_right = (xg[:, None] > cuts_d[None, :]).sum(axis=0)
@@ -84,6 +85,7 @@ def _batched_fwl_sse(cp, R, ok, r_y, proj, sse_B: float, cuts, found):
 
     ``R`` / ``ok`` are the cut-invariant relu-leg block and row-guard mask from ``_fwl_relu_legs``;
     ``r_y`` is y residualised against the round's fixed block B (``proj`` projects onto span(B));
+    # Intentional float64: hinge FWL/recipe replay is pinned bit-exact by test_detect_hinge_fwl_rank1_taus_bit_identical_*.
     ``sse_B = r_y @ r_y``. Returns a host float64 (C,) SSE vector with ``inf`` at cuts failing the
     per-side segment-row guard / the found-tau dedup, and ``sse_B`` where relu lies in span(B)
     (``denom < 1e-24`` - the host detector's rank-deficiency skip)."""
@@ -92,8 +94,10 @@ def _batched_fwl_sse(cp, R, ok, r_y, proj, sse_B: float, cuts, found):
     num = Rres.T @ r_y
     sse = cp.where(denom < VARIANCE_FLOOR, sse_B, sse_B - num * num / cp.maximum(denom, 1e-300))
     sse = cp.where(ok, sse, cp.inf)
+    # Intentional float64: hinge FWL/recipe replay is pinned bit-exact by test_detect_hinge_fwl_rank1_taus_bit_identical_*.
     sse_h = cp.asnumpy(sse).astype(np.float64)
     if found:
+        # Intentional float64: hinge FWL/recipe replay is pinned bit-exact by test_detect_hinge_fwl_rank1_taus_bit_identical_*.
         for i, c in enumerate(np.asarray(cuts, dtype=np.float64)):
             if any(abs(float(c) - t) < 1e-9 for t in found):
                 sse_h[i] = np.inf
@@ -193,7 +197,9 @@ def detect_hinge_breakpoints_gpu(
 
         from ._fe_resident_operands import resident_operand
 
+        # Intentional float64: hinge FWL/recipe replay is pinned bit-exact by test_detect_hinge_fwl_rank1_taus_bit_identical_*.
         x = np.asarray(x, dtype=np.float64).ravel()
+        # Intentional float64: hinge FWL/recipe replay is pinned bit-exact by test_detect_hinge_fwl_rank1_taus_bit_identical_*.
         y = np.asarray(y, dtype=np.float64).ravel()
         n = x.size
         if n != y.size or n < min_rows:
@@ -232,6 +238,7 @@ def detect_hinge_breakpoints_gpu(
         # DIFFERENT filtered y per column (the mask depends on that column's own NaN pattern) - content
         # hashing handles this correctly: a genuinely different y just misses the cache (a fresh upload,
         # never a wrong reuse), it never merges non-identical content.
+        # Intentional float64: hinge FWL/recipe replay is pinned bit-exact by test_detect_hinge_fwl_rank1_taus_bit_identical_*.
         yg = resident_operand(y, "hinge_y", dtype=np.float64)
 
         # PLAUSIBILITY PRE-CHECK (device): plain-linear SSE via the same FWL machinery with B=[1, x]; the
@@ -244,6 +251,7 @@ def detect_hinge_breakpoints_gpu(
         sse_lin = float(r_y @ r_y)
         if not np.isfinite(sse_lin) or sse_lin <= VARIANCE_FLOOR:
             return []
+        # Intentional float64: hinge FWL/recipe replay is pinned bit-exact by test_detect_hinge_fwl_rank1_taus_bit_identical_*.
         pre_cuts = np.unique(cp.asnumpy(cp.quantile(xg, cp.asarray(np.asarray(precheck_qs, dtype=np.float64)))))
         if pre_cuts.size == 0:
             return []

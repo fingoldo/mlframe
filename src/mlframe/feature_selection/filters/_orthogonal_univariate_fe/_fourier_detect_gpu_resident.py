@@ -38,6 +38,8 @@ import threading
 from typing import Sequence
 
 import numpy as np
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
+from mlframe.feature_selection.filters._fe_gpu_batch._devices import crit_float_dtype
 from mlframe._numerical_floors import VARIANCE_FLOOR
 from .._fe_env_switch import fused_switch_enabled
 from ._fourier_core_cycles import core_span, freq_is_tail_aliased
@@ -124,7 +126,7 @@ def _power_centered_gpu(cp, z, yc, y_ss: float, freq: float) -> float:
     if fused_switch_enabled(_FUSED_ENV):
         from ._fourier_fused_gpu import power_sincos
 
-        return float(power_sincos(cp, cp.ascontiguousarray(z, dtype=cp.float64), cp.ascontiguousarray(yc, dtype=cp.float64), y_ss, cp.asarray([float(freq)]))[0])
+        return float(power_sincos(cp, cp.ascontiguousarray(z, dtype=crit_float_dtype()), cp.ascontiguousarray(yc, dtype=crit_float_dtype()), y_ss, cp.asarray([float(freq)]))[0])
     ang = (_TWO_PI * float(freq)) * z
     s = cp.sin(ang)
     c = cp.cos(ang)
@@ -141,7 +143,7 @@ def _power_grid_centered_gpu(cp, z, yc, y_ss: float, freqs_dev):
     if fused_switch_enabled(_FUSED_ENV):
         from ._fourier_fused_gpu import power_sincos
 
-        return power_sincos(cp, cp.ascontiguousarray(z, dtype=cp.float64), cp.ascontiguousarray(yc, dtype=cp.float64), y_ss, freqs_dev)
+        return power_sincos(cp, cp.ascontiguousarray(z, dtype=crit_float_dtype()), cp.ascontiguousarray(yc, dtype=crit_float_dtype()), y_ss, freqs_dev)
     n = z.shape[0]
     ang = (_TWO_PI * freqs_dev)[:, None] * z[None, :]  # (F, n)
     s = cp.sin(ang)
@@ -175,9 +177,9 @@ def _refine_peak_freq_gpu(cp, z_tr, yc, y_ss: float, coarse_f: float) -> float:
         n_steps = round((hi_r - lo_r) / step) + 1
         # freq order = [center, lo_r+0*step, ..., lo_r+(n_steps-1)*step]: the center is
         # the initial best, then strictly-greater earliest-wins -> argmax first-max.
-        freqs_host = np.empty(n_steps + 1, dtype=np.float64)
+        freqs_host = np.empty(n_steps + 1, dtype=_crit_np_dtype())
         freqs_host[0] = center
-        freqs_host[1:] = lo_r + step * np.arange(n_steps, dtype=np.float64)
+        freqs_host[1:] = lo_r + step * np.arange(n_steps, dtype=_crit_np_dtype())
         freqs_dev = cp.asarray(freqs_host)
         powers = _power_grid_centered_gpu(cp, z_tr, yc, y_ss, freqs_dev)
         bi = int(cp.argmax(powers))  # single scalar D2H per scan
@@ -195,7 +197,7 @@ def _deflate_sincos_gpu(cp, z, y, freq: float):
     if fused_switch_enabled(_FUSED_ENV):
         from ._fourier_fused_gpu import deflate_sincos
 
-        fused = deflate_sincos(cp, cp.ascontiguousarray(z, dtype=cp.float64), cp.ascontiguousarray(y, dtype=cp.float64), float(freq))
+        fused = deflate_sincos(cp, cp.ascontiguousarray(z, dtype=crit_float_dtype()), cp.ascontiguousarray(y, dtype=crit_float_dtype()), float(freq))
         if fused is not None:
             return fused
     ang = (_TWO_PI * float(freq)) * z
@@ -227,8 +229,8 @@ def _host_split_for_detect(z01: np.ndarray, y: np.ndarray, f_grid: Sequence[floa
 
     Returns ``(grid, z_tr, z_va, y_tr, y_va)`` as host arrays, or ``None`` when the column cannot carry a detection.
     """
-    z01 = np.asarray(z01, dtype=np.float64).ravel()
-    y = np.asarray(y, dtype=np.float64).ravel()
+    z01 = np.asarray(z01, dtype=_crit_np_dtype()).ravel()
+    y = np.asarray(y, dtype=_crit_np_dtype()).ravel()
     n = z01.size
     if n != y.size or n < int(min_rows):
         return None
@@ -283,7 +285,7 @@ def detect_fourier_freqs_for_col_gpu(
     resident."""
     import cupy as cp
 
-    z01 = np.asarray(z01, dtype=np.float64).ravel()
+    z01 = np.asarray(z01, dtype=_crit_np_dtype()).ravel()
     prepared = _host_split_for_detect(z01, y, f_grid, min_rows=min_rows, fourier_detect_max_n=fourier_detect_max_n)
     if prepared is None:
         return []
@@ -305,8 +307,9 @@ def detect_fourier_freqs_for_col_gpu(
         from .._fe_gpu_batch._devices import crit_float_dtype
         _zdt = crit_float_dtype()
     except Exception as e:
-        logger.warning("crit_float_dtype() resolution failed, defaulting to cp.float64: %s", e)
-        _zdt = cp.float64
+        logger.warning("crit_float_dtype() resolution failed, defaulting to cp.double precision: %s", e)
+        # Intentional float64: fallback when the crit-dtype lookup itself fails; the strict default is f64.
+    _zdt = cp.float64
     z_tr = cp.asarray(np.ascontiguousarray(np.asarray(z_tr_h, dtype=_zdt)))
     z_va = cp.asarray(np.ascontiguousarray(np.asarray(z_va_h, dtype=_zdt)))
     y_tr = resident_operand(y_tr_h, "fourier_y_tr", dtype=_zdt)
@@ -334,10 +337,10 @@ def detect_fourier_freqs_for_col_gpu(
     _core_span = core_span(z01)  # tail-aliasing guard, identical to the CPU detector
 
     # Coarse-grid sin/cos plane on TRAIN, built ONCE (depends only on z). Resident (nf, n).
-    grid_dev = cp.asarray(np.asarray(grid, dtype=np.float64))  # tiny H2D (grid is O(48))
+    grid_dev = cp.asarray(np.asarray(grid, dtype=_crit_np_dtype()))  # tiny H2D (grid is O(48))
     fused = fused_switch_enabled(_FUSED_ENV)
     if fused:
-        z_tr_64 = cp.ascontiguousarray(z_tr, dtype=cp.float64)  # the periodogram kernel reads float64
+        z_tr_64 = cp.ascontiguousarray(z_tr, dtype=crit_float_dtype())  # the periodogram kernel reads double precision
     else:
         ang_plane = (_TWO_PI * grid_dev)[:, None] * z_tr[None, :]  # (nf, n)
         sin_plane = cp.sin(ang_plane)
@@ -363,7 +366,7 @@ def detect_fourier_freqs_for_col_gpu(
         if fused:
             from ._fourier_fused_gpu import power_sincos
 
-            power_vec = power_sincos(cp, z_tr_64, cp.ascontiguousarray(yc, dtype=cp.float64), y_ss, grid_dev)
+            power_vec = power_sincos(cp, z_tr_64, cp.ascontiguousarray(yc, dtype=crit_float_dtype()), y_ss, grid_dev)
         else:
             num_s = sc_plane @ yc  # (nf,)
             num_c = cc_plane @ yc

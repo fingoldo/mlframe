@@ -362,14 +362,14 @@ def binned_mm_mi_from_values_gpu(x_vals: Any, interior_edges: Any, y_codes: Any,
     # via ``double v = X[i*K+c]`` (widening float->double promotion == the exact f64 the f64 path stored),
     # and cmin/cmax are order statistics of the same f32 values (max/min then exact f64 upcast, unchanged).
     _is_f32 = getattr(x_vals, "dtype", None) == cp.float32
-    Xd = x_vals if _is_f32 else x_vals.astype(cp.float64, copy=False)
+    Xd = x_vals if _is_f32 else x_vals.astype(cp.float64, copy=False)  # Intentional float64: GPU MI kernel operand; kernel contract is float64 (crit switch pending GPU helper review)
     if Xd.ndim == 1:
         Xd = Xd[:, None]
     n, K = int(Xd.shape[0]), int(Xd.shape[1])
     Ky = int(ky)
     if int(nbins) * Ky * 4 > _MI_FROM_CODES_MAX_SHARED:
         return None
-    E = cp.ascontiguousarray(interior_edges.astype(cp.float64, copy=False))
+    E = cp.ascontiguousarray(interior_edges.astype(cp.float64, copy=False))  # Intentional float64: GPU MI kernel edge vector; compared at full precision
     # x_vals / interior_edges are per-candidate (transient) -> NOT cached. A host y_codes is a fit-constant
     # re-uploaded on every candidate column's MM-MI -> resident operand cache (uploaded once per fit).
     if isinstance(y_codes, cp.ndarray):
@@ -378,13 +378,13 @@ def binned_mm_mi_from_values_gpu(x_vals: Any, interior_edges: Any, y_codes: Any,
         from ._fe_resident_operands import resident_operand
         yv = resident_operand(np.asarray(y_codes).ravel(), "binned_mm_ycodes", dtype=np.int64)
     _assert_codes_in_range(yv, Ky, "binned_mm_mi_from_values_gpu y codes", codes_trusted)
-    mi_out = cp.empty(K, dtype=cp.float64)
+    mi_out = cp.empty(K, dtype=cp.float64)  # Intentional float64: GPU MI output accumulator
     Xc = cp.ascontiguousarray(Xd)
     # NJIT-PARITY: dedup the per-column interior edges to njit's distinct-threshold set (drops duplicate +
     # boundary edges that over-bin low-cardinality columns), then bin on only each column's valid prefix.
     ne = int(E.shape[0])
-    cmin = cp.ascontiguousarray(Xc.min(axis=0).astype(cp.float64, copy=False))
-    cmax = cp.ascontiguousarray(Xc.max(axis=0).astype(cp.float64, copy=False))
+    cmin = cp.ascontiguousarray(Xc.min(axis=0).astype(cp.float64, copy=False))  # Intentional float64: GPU MI edge bounds; compared at full precision
+    cmax = cp.ascontiguousarray(Xc.max(axis=0).astype(cp.float64, copy=False))  # Intentional float64: GPU MI edge bounds; compared at full precision
     # cp.empty (not cp.zeros): the dedup kernel writes out[0:ne_k[c], c] for every column and the nek MI
     # kernel binary-searches ONLY each column's valid prefix (ne = ne_k[c]), so the uninitialised tail rows
     # of Ec are never read -> dropping the per-call (ne,K) zero-fill is bit-identical (was 17k zero-fills/fit).
@@ -393,14 +393,14 @@ def binned_mm_mi_from_values_gpu(x_vals: Any, interior_edges: Any, y_codes: Any,
     # That trailing row is written transiently but never read (after w-=1 always ne_k[c] <= ne, and the nek
     # MI kernel reads only rows 0..ne_k[c]-1), so ne_k and all downstream MI are bit-identical; the extra row
     # only stops the stray write from corrupting the adjacent pool block (was cudaErrorIllegalAddress).
-    Ec = cp.empty((ne + 1, K), dtype=cp.float64)
+    Ec = cp.empty((ne + 1, K), dtype=cp.float64)  # Intentional float64: GPU MI edge buffer; compared at full precision
     ne_k = cp.empty(K, dtype=cp.int32)
     threads = 256
     _get_dedup_edges_kernel()(((K + threads - 1) // threads,), (threads,), (E, cmin, cmax, np.int32(ne), np.int32(K), Ec, ne_k))
     _mm_nek = _get_mi_mm_from_values_nek_f32_kernel() if _is_f32 else _get_mi_mm_from_values_nek_kernel()
     _mm_nek((K,), (256,),
         (Xc, Ec, yv, np.int64(n), np.int32(K), np.int32(int(nbins)),
-         np.int32(Ky), np.float64(1.0 / float(max(1, n))), np.float64(float(h_y)), np.int32(int(k_y)),
+         np.int32(Ky), np.float64(1.0 / float(max(1, n))), np.float64(float(h_y)), np.int32(int(k_y)),  # Intentional float64: GPU MI kernel scalar argument (float64 normalisation)
          ne_k, mi_out),
         shared_mem=int(nbins) * Ky * 4)
     # return_device: hand the resident (K,) mi_out back so the caller can fuse a device-side mask + ONE D2H
@@ -471,17 +471,17 @@ def binned_mi_from_values_gpu(x_vals: Any, interior_edges: Any, y_codes: Any, nb
         K, n = int(x_cm.shape[0]), int(x_cm.shape[1])
     else:
         _is_f32 = getattr(x_vals, "dtype", None) == cp.float32
-        Xd = x_vals if _is_f32 else x_vals.astype(cp.float64, copy=False)
+        Xd = x_vals if _is_f32 else x_vals.astype(cp.float64, copy=False)  # Intentional float64: GPU MI kernel operand; kernel contract is float64
         if Xd.ndim == 1:
             Xd = Xd[:, None]
         n, K = int(Xd.shape[0]), int(Xd.shape[1])
-    E = cp.ascontiguousarray(interior_edges.astype(cp.float64, copy=False))  # (nbins-1, K)
+    E = cp.ascontiguousarray(interior_edges.astype(cp.float64, copy=False))  # (nbins-1, K)  # Intentional float64: GPU MI edge vector; compared at full precision
     yv = y_codes.astype(cp.int64, copy=False).ravel() if isinstance(y_codes, cp.ndarray) else cp.asarray(np.ascontiguousarray(y_codes).astype(np.int64).ravel())
     Ky = int(ky)
     if int(nbins) * Ky * 4 > _MI_FROM_CODES_MAX_SHARED:
         return None
     _assert_codes_in_range(yv, Ky, "binned_mi_from_values_gpu y codes", codes_trusted)
-    mi_out = cp.empty(K, dtype=cp.float64)
+    mi_out = cp.empty(K, dtype=cp.float64)  # Intentional float64: GPU MI output accumulator
     # COLUMN-MAJOR X for a COALESCED load (nvprof: the row-major X[i*K+c] scan was gld_efficiency
     # 28.9% - strided by K). One coalesced tiled transpose to (K,n) feeds both the single + split kernels,
     # which now index X[c*n+i] (consecutive threads -> consecutive addresses). The kernels' bin codes/MI are
@@ -489,12 +489,12 @@ def binned_mi_from_values_gpu(x_vals: Any, interior_edges: Any, y_codes: Any, nb
     # transpose can't apply (the kernels then need row-major - but _transpose_to_cm only returns (K,n) here).
     from ._gpu_resident_select import _transpose_to_cm
     if x_vals is None:
-        Xc = x_cm if x_cm.dtype == (cp.float32 if _is_f32 else cp.float64) and x_cm.flags.c_contiguous else cp.ascontiguousarray(x_cm, dtype=cp.float32 if _is_f32 else cp.float64)
+        Xc = x_cm if x_cm.dtype == (cp.float32 if _is_f32 else cp.float64) and x_cm.flags.c_contiguous else cp.ascontiguousarray(x_cm, dtype=cp.float32 if _is_f32 else cp.float64)  # Intentional float64: GPU MI operand; kernel contract is float64
     elif x_cm is not None and Xd is not None and x_cm.shape == (K, n) and x_cm.dtype == Xd.dtype and x_cm.flags.c_contiguous:
         Xc = x_cm
     else:
         Xc = _transpose_to_cm(cp.ascontiguousarray(Xd))  # (K, n) C-order == column-major over the (n,K) matrix
-    _inv = np.float64(1.0 / float(max(1, n)))
+    _inv = np.float64(1.0 / float(max(1, n)))  # Intentional float64: MI normalisation scalar (float64)
     # SPLIT-N when one-block-per-column can't fill the SMs (narrow K, big n): 60/66 of these launches were
     # K<=32 blocks on a 6-SM card (nsys) -> segment the n rows across S blocks/column into a merged
     # global histogram, then a per-column MI pass. Same codes + plug-in MI -> selection-equivalent. The
@@ -659,7 +659,7 @@ def binned_mi_from_codes_gpu(code_cols: Any, y_codes: Any, kx_per_col: Any = Non
         from ._wavelet_basis_fe_batched import batched_binned_mi_gpu
         out = batched_binned_mi_gpu(C, y, kx_per_col=kx_per_col, ky=Ky)
         return cp.asarray(out) if as_device else out
-    mi_out = cp.empty(K, dtype=cp.float64)
+    mi_out = cp.empty(K, dtype=cp.float64)  # Intentional float64: GPU MI output accumulator
     threads = 256
     v2 = _get_mi_from_codes_v2_kernels()
     if v2 is not None and Kx < 32768 and Ky < 32768:
@@ -668,13 +668,13 @@ def binned_mi_from_codes_gpu(code_cols: Any, y_codes: Any, kx_per_col: Any = Non
             codes_cm = transpose_codes_to_cm(cp.ascontiguousarray(C.astype(cp.int16, copy=False)))  # (K, n)
             y16 = y.astype(cp.int16, copy=False)
             v2((K,), (threads,), (codes_cm, y16, np.int64(n), np.int32(K), np.int32(Kx), np.int32(Ky),
-                                  np.float64(1.0 / float(max(1, n))), mi_out), shared_mem=Kx * Ky * 4)
+                                  np.float64(1.0 / float(max(1, n))), mi_out), shared_mem=Kx * Ky * 4)  # Intentional float64: GPU MI kernel scalar argument (float64 normalisation)
             return mi_out if as_device else np.asarray(cp.asnumpy(mi_out))
         except Exception:
             logger.debug("mi_from_codes v2 launch failed; one-kernel fallback", exc_info=True)
     self_kernel = _get_mi_from_codes_kernel()
     self_kernel((K,), (threads,), (C.ravel(), y, np.int64(n), np.int32(K), np.int32(Kx), np.int32(Ky),
-                                   np.float64(1.0 / float(max(1, n))), mi_out),
+                                   np.float64(1.0 / float(max(1, n))), mi_out),  # Intentional float64: GPU MI kernel scalar argument (float64 normalisation)
                 shared_mem=Kx * Ky * 4)
     return mi_out if as_device else np.asarray(cp.asnumpy(mi_out))
 
@@ -739,10 +739,10 @@ def batched_quantile_bin_gpu(x_cols: Any, nbins: int) -> Any:
     """
     import cupy as cp
 
-    Xd = x_cols if isinstance(x_cols, cp.ndarray) else cp.asarray(np.ascontiguousarray(np.asarray(x_cols, dtype=np.float64)))
+    Xd = x_cols if isinstance(x_cols, cp.ndarray) else cp.asarray(np.ascontiguousarray(np.asarray(x_cols, dtype=np.float64)))  # Intentional float64: GPU MI operand upload; kernel contract is float64
     if Xd.ndim == 1:
         Xd = Xd[:, None]
-    Xd = Xd.astype(cp.float64, copy=False)
+    Xd = Xd.astype(cp.float64, copy=False)  # Intentional float64: GPU MI operand upload; kernel contract is float64
     n, K = int(Xd.shape[0]), int(Xd.shape[1])
     # Sort-free radix-select edges first (default ON): cp.percentile(axis=0) implements the batched edge
     # computation as ONE FULL MERGE SORT of the whole (n, K) matrix - nsys on the wellbore-100k strict fit

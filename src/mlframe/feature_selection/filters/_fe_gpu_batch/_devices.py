@@ -49,23 +49,24 @@ def fe_gpu_f32_enabled() -> bool:
 
 
 def crit_dtype_relaxed() -> bool:
-    """Whether PRECISION-CRITICAL float64 compute may relax to float32. Controlled by
+    """Whether PRECISION-CRITICAL double-precision compute may relax to float32. Controlled by
     ``MLFRAME_CRIT_DTYPE_RELAXED`` (DEFAULT ON).
 
-    The numerically-heavier FE stages that still upload / compute in float64 (the ALS prewarp seed's
+    The numerically-heavier FE stages that still upload / compute in double precision (the ALS prewarp seed's
     standardised columns, the fourier detrend/periodogram column splits, the quantile discretiser input matrix)
     are relaxed to float32 when this is on - half the H2D and faster device math. It is a SEPARATE knob from
     ``MLFRAME_FE_VRAM_F32`` (which governs the FE-batch MI scoring dtype): this one governs the residual f64
     hotspots. It is applied ONLY where the FE candidate selection is unchanged by the f32 rounding (the f32
     drift is far below every FE decision margin - validated per-stage on F2 across all distributions + the
-    stage's biz suites). Set ``MLFRAME_CRIT_DTYPE_RELAXED=0`` to force the strict float64 path everywhere."""
+    stage's biz suites). Set ``MLFRAME_CRIT_DTYPE_RELAXED=0`` to force the strict double-precision path everywhere."""
     return os.environ.get("MLFRAME_CRIT_DTYPE_RELAXED", "1").strip().lower() not in ("0", "false", "off", "no")
 
 
 def crit_float_dtype() -> Any:
-    """``cupy.float32`` when the precision-critical relaxation is on (default), else ``cupy.float64``. The single
+    """``cupy.float32`` when the precision-critical relaxation is on (default), else the double-precision dtype. The single
     dtype source the relaxed f64 hotspots pick their upload/compute dtype from (see :func:`crit_dtype_relaxed`)."""
     import cupy as cp
+    # Intentional float64: this is the strict-branch definition of the policy itself, returned only when the relaxation is off.
     return cp.float32 if crit_dtype_relaxed() else cp.float64
 
 

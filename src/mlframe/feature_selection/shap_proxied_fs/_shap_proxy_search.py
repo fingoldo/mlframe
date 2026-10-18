@@ -2,7 +2,7 @@
 
 Ports the user's proven incremental-sum kernel (``find_top_n_combinations``) with three corrections:
   1. float64 accumulator (the research had to switch from float32 to avoid running-sum drift over
-     ~1e6+ combos - notebook cell re-ran with ``float_dtype=np.float64``).
+     ~1e6+ combos - notebook cell re-ran with ``float_dtype=_crit_np_dtype()``).
   2. per-row base value (OOF folds carry distinct base values) instead of a scalar.
   3. a *proper* objective (``score_margin``: Brier/log-loss/RMSE/MAE) applied per combo instead of
      MAE-of-0/1-labels-vs-log-odds-margin.
@@ -24,6 +24,7 @@ import math
 from typing import Any, cast
 
 import numpy as np
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 from numba import njit, prange
 
 logger = logging.getLogger(__name__)
@@ -335,9 +336,9 @@ def brute_force_top_n(
     if metric_name == "auc":  # AUC needs a per-subset sort -> not in the njit hot loop
         raise ValueError("brute_force_top_n does not support metric='auc' (use brier/logloss); AUC is Python-path only.")
     metric_code = METRIC_CODES[metric_name]
-    phi = np.ascontiguousarray(phi, dtype=np.float64)
-    base = np.ascontiguousarray(base, dtype=np.float64)
-    y = np.ascontiguousarray(y, dtype=np.float64)
+    phi = np.ascontiguousarray(phi, dtype=_crit_np_dtype())
+    base = np.ascontiguousarray(base, dtype=_crit_np_dtype())
+    y = np.ascontiguousarray(y, dtype=_crit_np_dtype())
     n_features = phi.shape[1]
     max_card = n_features if max_card is None else min(max_card, n_features)
     # Transpose once: column-major (f, n) layout turns the strided ``phi[t, fcol]`` reads inside the

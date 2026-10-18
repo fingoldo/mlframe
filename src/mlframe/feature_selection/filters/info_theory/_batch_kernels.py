@@ -272,7 +272,7 @@ def batch_pair_mi_prange(
     """
     n_samples = factors_data.shape[0]
     n_pairs = pair_a.shape[0]
-    out = np.empty(n_pairs, dtype=np.float64)
+    out = np.empty(n_pairs, dtype=np.float64)  # Intentional float64: accumulator or output buffer; statistic at float64
     n_classes_y = freqs_y.shape[0]
 
     # Empty factors_data divides by zero in `1/n_samples`
@@ -332,7 +332,7 @@ def batch_pair_mi_perm_batched(
     n_pairs = pair_a.shape[0]
     K = y_perms.shape[0]
     n_classes_y = freqs_y.shape[0]
-    out = np.empty((K, n_pairs), dtype=np.float64)
+    out = np.empty((K, n_pairs), dtype=np.float64)  # Intentional float64: accumulator or output buffer; statistic at float64
     if n == 0:
         out[:, :] = 0.0
         return out
@@ -403,7 +403,7 @@ def batch_triple_mi_prange(
     """
     n_samples = factors_data.shape[0]
     n_triples = triple_a.shape[0]
-    out = np.empty(n_triples, dtype=np.float64)
+    out = np.empty(n_triples, dtype=np.float64)  # Intentional float64: accumulator or output buffer; statistic at float64
     n_classes_y = freqs_y.shape[0]
 
     if n_samples == 0:
@@ -464,7 +464,7 @@ def batch_triple_mi_perm_batched(
     n = factors_data.shape[0]
     n_triples = triple_a.shape[0]
     K = y_perms.shape[0]
-    out = np.empty((K, n_triples), dtype=np.float64)
+    out = np.empty((K, n_triples), dtype=np.float64)  # Intentional float64: accumulator or output buffer; statistic at float64
     if n == 0:
         out[:, :] = 0.0
         return out
@@ -589,9 +589,9 @@ def _dense_encode_and_relevance(
     # this (n, K) buffer vs the old int32 default for EVERY caller (not just those that opted into int8),
     # value-identical. Callers with a known-narrower disc dtype (int8) still pass it and win further.
     classes_dense: np.ndarray = np.zeros((n, K), dtype=classes_dtype)
-    freqs_dense = np.zeros((K, max_nbins), dtype=np.float64)
+    freqs_dense = np.zeros((K, max_nbins), dtype=np.float64)  # Intentional float64: accumulator or output buffer; statistic at float64
     kx = np.zeros(K, dtype=np.int64)
-    original_mi = np.zeros(K, dtype=np.float64)
+    original_mi = np.zeros(K, dtype=np.float64)  # Intentional float64: accumulator or output buffer; statistic at float64
 
     for k in prange(K):
         nb_k = int(factors_nbins[k])
@@ -691,7 +691,7 @@ def batch_mi_with_noise_gate(
     """
     n = disc_2d.shape[0]
     K = disc_2d.shape[1]
-    fe_mi = np.zeros(K, dtype=np.float64)
+    fe_mi = np.zeros(K, dtype=np.float64)  # Intentional float64: accumulator or output buffer; statistic at float64
 
     if K == 0 or n == 0:
         return fe_mi
@@ -776,7 +776,7 @@ def batch_mi_with_noise_gate_v2(
     :func:`select_batch_mi_kernel` (KTC-gated); the original kernel remains the fallback / small-size path."""
     n = disc_2d.shape[0]
     K = disc_2d.shape[1]
-    fe_mi = np.zeros(K, dtype=np.float64)
+    fe_mi = np.zeros(K, dtype=np.float64)  # Intentional float64: accumulator or output buffer; statistic at float64
 
     if K == 0 or n == 0:
         return fe_mi
@@ -794,9 +794,9 @@ def batch_mi_with_noise_gate_v2(
         raise ValueError("batch_mi_with_noise_gate: factors_nbins exceeds classes_dtype capacity; widen classes_dtype (int32).")
 
     classes_dense: np.ndarray = np.zeros((n, K), dtype=classes_dtype)
-    freqs_dense = np.zeros((K, max_nbins), dtype=np.float64)
+    freqs_dense = np.zeros((K, max_nbins), dtype=np.float64)  # Intentional float64: accumulator or output buffer; statistic at float64
     kx = np.zeros(K, dtype=np.int64)
-    original_mi = np.zeros(K, dtype=np.float64)
+    original_mi = np.zeros(K, dtype=np.float64)  # Intentional float64: accumulator or output buffer; statistic at float64
 
     for k in prange(K):
         nb_k = int(factors_nbins[k])

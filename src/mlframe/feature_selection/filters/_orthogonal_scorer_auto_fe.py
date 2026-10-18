@@ -61,6 +61,7 @@ import logging
 from typing import Optional, Sequence
 
 import numpy as np
+from ._fe_usability_signal import _crit_np_dtype
 
 from mlframe.feature_selection.filters._relative_uplift import relative_uplift
 import pandas as pd
@@ -204,10 +205,12 @@ def _compute_per_scorer_rank_table(
                         # otherwise all collapse to class 0.
                         _, y_mi = np.unique(y_mi, return_inverse=True)
                         y_mi = y_mi.astype(np.int64, copy=False)
+                # Intentional float64: MI batch scores kept as an f64 accumulator vector (ranking ties)
                 res[s] = np.asarray(_mi_classif_batch(Xmat, y_mi, nbins=int(nbins)), dtype=np.float64)
             elif s == "copula":
                 from ._orthogonal_copula_mi_fe import _copula_mi_batch
 
+                # Intentional float64: copula MI batch scores kept as an f64 accumulator vector
                 res[s] = np.asarray(_copula_mi_batch(Xmat, y_arr, n_bins=int(copula_n_bins)), dtype=np.float64)
             elif s == "xi":
                 from ._orthogonal_xi_fe import xi_correlation_batch
@@ -640,7 +643,7 @@ def hybrid_orth_mi_ensemble_fe_with_recipes(
             continue
         _pp = None
         try:
-            _col_full = np.asarray(X[src].to_numpy(), dtype=np.float64)
+            _col_full = np.asarray(X[src].to_numpy(), dtype=_crit_np_dtype())
             _, _pp = _evaluate_basis_column(_col_full, chosen_basis, int(chosen_degree), return_params=True)
         except Exception as e:
             log_throttle(logger, "orthogonal_scorer_auto_fe.hot_loop_warning", logging.WARNING, "basis-params recompute failed for %s: %s", src, e)

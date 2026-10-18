@@ -107,7 +107,7 @@ def _rank_features_by_importance(
 
 def _top_k_by_score(scores, k: int) -> np.ndarray:
     """Indices of the ``k`` highest scores; equal scores resolve to the lowest index so the pick never depends on sort internals."""
-    arr = np.asarray(scores, dtype=np.float64)
+    arr = np.asarray(scores, dtype=np.float64)  # Intentional float64: exact score ties must resolve to the lowest index, so no precision downcast
     return np.asarray(np.lexsort((np.arange(len(arr)), -arr))[:k])
 
 

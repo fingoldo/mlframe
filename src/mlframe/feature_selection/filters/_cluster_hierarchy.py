@@ -36,6 +36,7 @@ import logging
 from typing import Any, Optional
 
 import numpy as np
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 
 from mlframe.utils.log_throttle import log_throttle
 
@@ -105,7 +106,7 @@ def _quantize_for_su(X) -> tuple:
     if hasattr(X, "columns"):
         col_iter = list(X.columns)
         for c in col_iter:
-            col = X[c].to_numpy(dtype=np.float64, copy=False)
+            col = X[c].to_numpy(dtype=_crit_np_dtype(), copy=False)
             names.append(str(c))
             edges = np.quantile(col[np.isfinite(col)] if np.isfinite(col).any() else col, np.linspace(0, 1, n_bins + 1))
             edges = np.unique(edges)
@@ -122,7 +123,7 @@ def _quantize_for_su(X) -> tuple:
         if arr.ndim != 2:
             return None, None, []
         for j in range(arr.shape[1]):
-            col = arr[:, j].astype(np.float64, copy=False)
+            col = arr[:, j].astype(_crit_np_dtype(), copy=False)
             names.append(f"col_{j}")
             # mirror the DataFrame
             # branch's finite-mask. np.quantile over a column containing any

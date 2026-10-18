@@ -61,6 +61,7 @@ from itertools import combinations
 from typing import TYPE_CHECKING, Any, Optional, Sequence
 
 import numpy as np
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 
 from ._y_encoding import encode_y_for_classif_mi
 
@@ -149,7 +150,7 @@ def _mi(col: np.ndarray, y: np.ndarray, nbins: int = 12) -> float:
     if _is_cupy_ndarray(col):
         arr = col  # resident (n,) or (n,1) cupy -> _mi_classif_batch reshapes 1-D to a column itself
     else:
-        arr = np.asarray(col, dtype=np.float64).reshape(-1, 1)
+        arr = np.asarray(col, dtype=_crit_np_dtype()).reshape(-1, 1)
     return float(_mi_classif_batch(arr, encode_y_for_classif_mi(y), nbins=nbins, rank_binning=_rb)[0])
 
 def _residue_grid_mi(c: np.ndarray, y: np.ndarray, mods: Sequence[int], nbins: int) -> np.ndarray:
@@ -171,7 +172,7 @@ def _residue_grid_mi(c: np.ndarray, y: np.ndarray, mods: Sequence[int], nbins: i
     res = residue_grid_mis_resident(c, yi, mods, nbins=nbins)
     if res is not None:
         return res
-    out = np.empty(len(mods), dtype=np.float64)
+    out = np.empty(len(mods), dtype=_crit_np_dtype())
     groups: dict[int, list[int]] = {}
     for idx, k in enumerate(mods):
         groups.setdefault(max(nbins, int(k)), []).append(idx)
@@ -180,7 +181,7 @@ def _residue_grid_mi(c: np.ndarray, y: np.ndarray, mods: Sequence[int], nbins: i
         # contiguous row, no strided column copy), then pass the ``.T`` F-view to the batched MI kernel -
         # bit-identical to the (n, |group|) column-build (same float64 residues, same per-column binning) but
         # avoids the strided writes + the result->column double-copy (1.19x on the host residue-grid path).
-        matT = np.empty((len(idxs), c.shape[0]), dtype=np.float64)
+        matT = np.empty((len(idxs), c.shape[0]), dtype=_crit_np_dtype())
         for j, idx in enumerate(idxs):
             matT[j] = np.mod(c, mods[idx])
         mis = _mi_classif_batch(matT.T, yi, nbins=eff_nbins)
@@ -231,7 +232,7 @@ def _residue_mi(c: np.ndarray, y: np.ndarray, k: int, nbins: int) -> float:
     mi = combiner_mi_resident(c, y, nbins=eff, rank_binning=_rb, modulus=int(k))
     if mi is not None:
         return mi
-    r = np.mod(c, k).astype(np.float64)
+    r = np.mod(c, k).astype(_crit_np_dtype())
     return _mi(r, y, nbins=eff)
 
 @dataclass(frozen=True)
@@ -269,7 +270,7 @@ def _responded(residue_mi: float, baseline_mi: float, null_hi: float, min_margin
 def _perm_null_hi(c: np.ndarray, y: np.ndarray, k: int, nbins: int, n_perm: int = 12, seed: int = 0, z: float = 3.0) -> float:
     """Upper band (mean + z*std) of ``c mod k`` MI under y permutation - the noise reference the
     residue MI must clear. Cheap: n_perm small, the residue is computed once and only y is shuffled."""
-    r = np.mod(c, k).astype(np.float64)
+    r = np.mod(c, k).astype(_crit_np_dtype())
     rng = np.random.default_rng(seed)
     yi = encode_y_for_classif_mi(y)
     eff_nbins = max(nbins, k)
@@ -294,10 +295,10 @@ def _perm_null_hi(c: np.ndarray, y: np.ndarray, k: int, nbins: int, n_perm: int 
         # bit-identical here. The residues are heavily tied, and rank binning splits ties by row order: the loop keeps r in its original
         # order and permutes y, so r bins identically every time, while each re-ordered column bins its ties differently. Measured on
         # 5000-row residues (k=3/7, two seeds) the null band moved by up to 31%. See test_pairwise_modular_perm_null_host_batched.py.
-        vals = np.empty(n_perm, dtype=np.float64)
+        vals = np.empty(n_perm, dtype=_crit_np_dtype())
         for i in range(n_perm):
             vals[i] = _mi(r, yi[perms[i]], nbins=eff_nbins)
-    vals = np.asarray(vals, dtype=np.float64)
+    vals = np.asarray(vals, dtype=_crit_np_dtype())
     return float(vals.mean() + z * vals.std())
 
 def cheap_modular_scan(
@@ -353,7 +354,7 @@ def cheap_modular_scan(
         # through the SAME rank resident estimator host ``_mi`` uses. None -> the EXACT host ``_mi`` below.
         base = combiner_mi_resident(c_arr, yi, nbins=nbins, rank_binning=_scan_rb, modulus=0)
         if base is None:
-            base = _mi(c_arr.astype(np.float64), yi, nbins=nbins)
+            base = _mi(c_arr.astype(_crit_np_dtype()), yi, nbins=nbins)
         grid = _residue_grid_mi(c_arr, yi, mods, nbins)
         best_i = int(np.argmax(grid))
         best_k, best_mi = mods[best_i], float(grid[best_i])
@@ -430,7 +431,7 @@ def escalate_modulus(
         mi = _residue_mi(c_arr, yi, m, nbins)
         if mi > best_mi:
             best_mi, best_m = mi, m
-    residue = np.mod(c_arr, best_m).astype(np.float64)
+    residue = np.mod(c_arr, best_m).astype(_crit_np_dtype())
     return best_m, best_mi, residue
 
 def detect_pairwise_modular(
@@ -483,7 +484,7 @@ def apply_pairwise_modular(X: pd.DataFrame | pl.DataFrame, op: str, cols: Sequen
     """Replay one pairwise/n-way modular residue: combine the source columns via ``op`` then take ``mod modulus``.
 
     Pure integer arithmetic on the source columns - no y reference, no fitted state, so transform() is leak-free and
-    train/test exact. Output float64 in ``[0, modulus)``; the residue is the materialised selector feature."""
+    train/test exact. Output float in ``[0, modulus)``; the residue is the materialised selector feature."""
     if op not in _RECIPE_VALID_OPS:
         raise ValueError(f"pairwise-modular op must be one of {_RECIPE_VALID_OPS}; got {op!r}")
     m = int(modulus)
@@ -497,10 +498,10 @@ def apply_pairwise_modular(X: pd.DataFrame | pl.DataFrame, op: str, cols: Sequen
     # operand is not a finite integer. On clean data the mask is all-False (byte-identical to before).
     bad = np.zeros(arrs[0].shape[0], dtype=bool)
     for arr in arrs:
-        bad |= ~np.isfinite(np.asarray(arr, dtype=np.float64))
+        bad |= ~np.isfinite(np.asarray(arr, dtype=_crit_np_dtype()))
     with np.errstate(invalid="ignore"):  # non-finite rows cast to INT64_MIN then get masked to NaN below
         c_arr = _combine(arrs, op)
-        out = np.mod(c_arr, m).astype(np.float64)
+        out = np.mod(c_arr, m).astype(_crit_np_dtype())
     if bad.any():
         out[bad] = np.nan
     return np.asarray(out)

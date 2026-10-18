@@ -130,9 +130,9 @@ def _fill_marginals_and_su(
         if _row is None:  # the batched pass skipped this column; fall back to the per-column histogram
             x_bins = data[:, data_col]
             _assert_nonneg_codes(x_bins, f"feature column {name!r} x_bins")
-            x_counts = np.bincount(x_bins, minlength=x_nb).astype(np.float64)
+            x_counts = np.bincount(x_bins, minlength=x_nb).astype(np.float64)  # Intentional float64: accumulator or output buffer; statistic at float64
         else:
-            x_counts = np.asarray(_row[:x_nb] if x_nb <= _row.shape[0] else np.pad(_row, (0, x_nb - _row.shape[0])), dtype=np.float64)
+            x_counts = np.asarray(_row[:x_nb] if x_nb <= _row.shape[0] else np.pad(_row, (0, x_nb - _row.shape[0])), dtype=np.float64)  # Intentional float64: count statistic for the MI artifact
         x_total = float(x_counts.sum())
         if x_total > 0:
             x_p = x_counts / x_total
@@ -240,7 +240,7 @@ def compute_mrmr_artifacts(
     y_bins = data[:, y_idx]
     y_nbins = int(nbins[y_idx])
     _assert_nonneg_codes(y_bins, "target column y_bins")
-    y_counts = np.bincount(y_bins, minlength=y_nbins).astype(np.float64)
+    y_counts = np.bincount(y_bins, minlength=y_nbins).astype(np.float64)  # Intentional float64: accumulator or output buffer; statistic at float64
     y_total = float(y_counts.sum())
     if y_total > 0:
         y_p = y_counts / y_total
@@ -249,8 +249,8 @@ def compute_mrmr_artifacts(
     else:
         h_y = 0.0
 
-    mi_to_target = np.full(n_features_in, np.nan, dtype=np.float64)
-    su_to_target = np.full(n_features_in, np.nan, dtype=np.float64)
+    mi_to_target = np.full(n_features_in, np.nan, dtype=np.float64)  # Intentional float64: accumulator or output buffer; statistic at float64
+    su_to_target = np.full(n_features_in, np.nan, dtype=np.float64)  # Intentional float64: accumulator or output buffer; statistic at float64
     bins_dict: dict[str, np.ndarray] | None = {} if retain_bins else None
     nbins_dict: dict[str, int] | None = {} if retain_bins else None
 

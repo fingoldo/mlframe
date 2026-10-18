@@ -8,6 +8,8 @@ from typing import Sequence
 
 import numpy as np
 
+from .._fe_usability_signal import _crit_np_dtype
+
 # MARGINAL-UPLIFT alternative acceptance for the per-pair engineered winner. The
 # primary joint-prevalence gate (``best_mi / pair_mi > fe_min_engineered_mi_prevalence``)
 # rejects a genuine signal pair whenever the 2-D JOINT MI is finite-sample-inflated
@@ -176,11 +178,11 @@ def _gate_med_apply(vals: np.ndarray, median: float) -> np.ndarray:
     """Replay the median-gate pseudo-unary closed-form: ``(x > train_median).astype(float)``.
 
     NaN inputs (``x > median`` is False for NaN) collapse to 0.0, matching the
-    downstream nan_to_num scrubbing. Returns float64 so the binary combine + MI
+    downstream nan_to_num scrubbing. Returns the policy float dtype so the binary combine + MI
     discretisation see a continuous-typed 0/1 column (same dtype contract as the
     real unaries). The ``median`` is the TRAIN-fitted float; passing it in keeps
     this function pure (no y, no recompute) -> leak-safe at transform time."""
-    return (np.asarray(vals, dtype=np.float64) > float(median)).astype(np.float64)
+    return (np.asarray(vals, dtype=_crit_np_dtype()) > float(median)).astype(_crit_np_dtype())
 
 
 def mi_tie_band(nbins: int, n_rows: int, k_y: int) -> float:

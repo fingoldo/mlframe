@@ -284,7 +284,7 @@ def _mi_from_counts(counts, nb, ky, n_tot):
 def scan_offset_products(U: np.ndarray, tasks: np.ndarray, yr: np.ndarray, ycodes: np.ndarray, ky: int, nb: int, clips: np.ndarray, out_shift: np.ndarray, out_mi: np.ndarray) -> None:
     """Score every ``(column pair, unary pair)`` task.
 
-    ``U``: ``(m, nu, n)`` float64 unary outputs of ``m`` columns (non-finite values already replaced). ``tasks``: ``(T, 4)`` int rows ``(col_u, col_v, unary_u, unary_v)``.
+    ``U``: ``(m, nu, n)`` unary outputs of ``m`` columns in the operand dtype (non-finite values already replaced). ``tasks``: ``(T, 4)`` int rows ``(col_u, col_v, unary_u, unary_v)``.
     ``yr``: rank-scaled target ``(n,)``; ``ycodes``: int class codes in ``[0, ky)``. ``clips``: ``(m, nu, 2)`` winsorisation bounds of each unary column.
     Writes ``out_shift[T, 2] = (s, t)`` and ``out_mi[T, 2, 1 + N_BASELINES]``: per split (0 = even rows the shifts were fitted on, 1 = odd held-out rows) the MI of the shifted
     product followed by the MI of ``u*v``, ``u+v``, ``u``, ``v``. All NaN for a task whose shifts could not be fitted."""

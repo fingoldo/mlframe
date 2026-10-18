@@ -53,6 +53,8 @@ from __future__ import annotations
 import logging
 
 import numpy as np
+from .._fe_gpu_batch._devices import crit_float_dtype
+from .._fe_usability_signal import _crit_np_dtype
 
 from mlframe.feature_selection.filters._safe_scale import guarded_scale
 
@@ -86,7 +88,7 @@ def _build_basis_matrix_gpu(cp, basis: str, z_gpu, max_degree: int):
     # not affect the H2D residency win - only the recurrence stability - so it stays f64. (The relaxed prewarp
     # path still halves the H2D by uploading the standardised COLUMN za/zb as f32; only this on-device recurrence
     # keeps f64.) A f32 input column is widened here.
-    x = cp.ascontiguousarray(cp.asarray(z_gpu, dtype=cp.float64)).reshape(-1)
+    x = cp.ascontiguousarray(cp.asarray(z_gpu, dtype=crit_float_dtype())).reshape(-1)
     n = x.shape[0]
     nc = int(max_degree) + 1
     if _fused_basis_enabled():
@@ -95,7 +97,7 @@ def _build_basis_matrix_gpu(cp, basis: str, z_gpu, max_degree: int):
         fused = build_basis_fused(cp, basis, x, nc)
         if fused is not None:
             return fused
-    B = cp.empty((n, nc), dtype=cp.float64)
+    B = cp.empty((n, nc), dtype=crit_float_dtype())
     B[:, 0] = 1.0
     if nc <= 1:
         return B
@@ -183,6 +185,7 @@ def _als_sweep_gpu(cp, Ba, Bb, yc, iters) -> tuple:
     cb_h = cp.asnumpy(cb)
     if not (np.all(np.isfinite(ca_h)) and np.all(np.isfinite(cb_h))):
         return None, None
+    # Intentional float64: prewarp coefficient output contract kept f64
     return np.ascontiguousarray(ca_h, dtype=np.float64), np.ascontiguousarray(cb_h, dtype=np.float64)
 
 
@@ -204,14 +207,15 @@ def warm_start_als_seed_gpu(B_a: np.ndarray, B_b: np.ndarray, y: np.ndarray, *, 
     uploaded ONCE to the device; the alternating sweep is then fully resident."""
     import cupy as cp
 
+    # Intentional float64: target labels kept f64 (exact binning / comparison contract)
     yc_h = np.ascontiguousarray(np.asarray(y, dtype=np.float64))
     yc_h = yc_h - yc_h.mean()
     if float(np.std(yc_h)) < 1e-12:
         return None, None
 
     # ---- ONE bulk H2D of the two designs + target; everything below stays resident ----
-    Ba = cp.asarray(np.ascontiguousarray(np.asarray(B_a, dtype=np.float64)))
-    Bb = cp.asarray(np.ascontiguousarray(np.asarray(B_b, dtype=np.float64)))
+    Ba = cp.asarray(np.ascontiguousarray(np.asarray(B_a, dtype=_crit_np_dtype())))
+    Bb = cp.asarray(np.ascontiguousarray(np.asarray(B_b, dtype=_crit_np_dtype())))
     yc = cp.asarray(yc_h)
 
     try:
@@ -237,6 +241,7 @@ def warm_start_als_seed_gpu_from_z(z_a: np.ndarray, z_b: np.ndarray, y: np.ndarr
     so the caller falls back to the CPU normal-eq path."""
     import cupy as cp
 
+    # Intentional float64: target labels kept f64 (exact binning / comparison contract)
     yc_h = np.ascontiguousarray(np.asarray(y, dtype=np.float64))
     yc_h = yc_h - yc_h.mean()
     if float(np.std(yc_h)) < 1e-12:
@@ -261,6 +266,7 @@ def warm_start_als_seed_gpu_from_z(z_a: np.ndarray, z_b: np.ndarray, y: np.ndarr
         _zdt = crit_float_dtype()
     except Exception as e:
         logger.warning("crit_float_dtype() lookup failed, using float64: %s", e)
+        # Intentional float64: fallback when the crit dtype lookup fails: stays strict f64
         _zdt = cp.float64
     # The standardisation is per COLUMN, so a column shared by several pairs of the seed scan is the same bytes every time: both ride the content-keyed
     # cache and upload once per distinct column instead of once per pair.

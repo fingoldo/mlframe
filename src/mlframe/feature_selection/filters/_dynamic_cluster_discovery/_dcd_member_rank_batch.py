@@ -32,7 +32,7 @@ def _mi_loop_parallel(factors_data: np.ndarray, cand_indices: np.ndarray, y: np.
     """``prange`` unconditional MI over candidates - the no-Z sibling of ``_cpu_cmi_loop_parallel``, same
     shape (one independent ``mi(X_j; Y)`` reduction per candidate, fanned across cores)."""
     p = cand_indices.shape[0]
-    out = np.empty(p, dtype=np.float64)
+    out = np.empty(p, dtype=np.float64)  # Intentional float64: MI statistic output vector, consumed as a score (not an FE operand)
     for i in prange(p):
         xi = np.empty(1, dtype=np.int64)
         xi[0] = cand_indices[i]

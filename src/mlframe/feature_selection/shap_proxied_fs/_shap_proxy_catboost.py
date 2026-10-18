@@ -141,7 +141,7 @@ def catboost_shap(model: Any, X: pd.DataFrame | np.ndarray, *, cat_features: Opt
     """
     pool = _build_pool(X, cat_features=cat_features)
     raw = model.get_feature_importance(type="ShapValues", data=pool)
-    arr = np.asarray(raw, dtype=np.float64)
+    arr = np.asarray(raw, dtype=np.float64)  # Intentional float64: catboost ShapValues output contract (booster emits float64)
     if arr.ndim == 3:
         # (n, n_classes, n_features+1) - multiclass. Out of scope for v1 (selector consumes a
         # single-output margin per row); explicit raise mirrors _shap_phi_and_base.

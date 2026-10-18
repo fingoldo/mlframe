@@ -30,6 +30,7 @@ from itertools import islice
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 import pandas as pd
 from mlframe.utils.log_throttle import log_throttle
 
@@ -110,7 +111,7 @@ def _mrmr_compute_y_fingerprint_sample(y, max_sample: int = 1000) -> str:
     """Cheap fingerprint of y's first ``max_sample`` values. Used by the identity cache when ``mrmr_identity_cache_include_y=True`` to distinguish legitimately different targets on the same X. Sample-based to keep the cost O(max_sample) even on 4M-row y.
 
     T2#11 2026-05-18 ``max_sample=1000`` rationale: on a 4M-row y with
-    ``blake2b`` of a 1000-element float64 buffer the hash cost is
+    ``blake2b`` of a 1000-element double buffer the hash cost is
     O(8KB) ~= 5us, which is well below the >88-min cost of a single MRMR
     fit (the cache hit avoids). Collision probability across distinct
     targets on the same X is dominated by the y-distribution stride
@@ -136,7 +137,7 @@ def _mrmr_compute_y_fingerprint_sample(y, max_sample: int = 1000) -> str:
             # A string/object/categorical target cannot be cast to float; hash its labels instead of disabling the cache on every fit.
             payload = "\x1f".join(map(str, np.asarray(sample).tolist())).encode("utf-8")
         else:
-            payload = sample.astype(np.float64).tobytes()
+            payload = sample.astype(np.float64).tobytes()  # Intentional float64: fingerprint payload bytes are a cache key, so the dtype must not change
         return hashlib.blake2b(payload, digest_size=10).hexdigest()
     except Exception as e:
         # Same reasoning as the X fingerprint below, and the same fix: CPython reuses object addresses after
@@ -442,14 +443,14 @@ def _mrmr_y_corr_sample(y, max_sample: int = 1000) -> np.ndarray:
         arr = arr.reshape(arr.shape[0], -1)[:, 0]
     n = arr.shape[0]
     if n == 0:
-        return np.zeros(0, dtype=np.float64)
+        return np.zeros(0, dtype=_crit_np_dtype())
     step = max(1, n // max_sample)
     sample = arr[::step][:max_sample]
     if not np.issubdtype(sample.dtype, np.number):
         # Factorize non-numeric (object/str/categorical) codes so the gate still has a numeric vector.
         _, codes = np.unique(sample.astype(str), return_inverse=True)
-        return cast("np.ndarray", codes.astype(np.float64))
-    return sample.astype(np.float64)
+        return cast("np.ndarray", codes.astype(_crit_np_dtype()))
+    return sample.astype(_crit_np_dtype())
 
 
 def _mrmr_y_corr(a: np.ndarray, b: np.ndarray):
@@ -460,8 +461,8 @@ def _mrmr_y_corr(a: np.ndarray, b: np.ndarray):
     """
     if a is None or b is None:
         return None
-    a = np.asarray(a, dtype=np.float64)
-    b = np.asarray(b, dtype=np.float64)
+    a = np.asarray(a, dtype=_crit_np_dtype())
+    b = np.asarray(b, dtype=_crit_np_dtype())
     if a.shape[0] != b.shape[0] or a.shape[0] < 2:
         return None
     if not np.isfinite(a).all() or not np.isfinite(b).all():

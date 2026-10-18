@@ -19,6 +19,7 @@ import logging
 import warnings
 
 import numpy as np
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 import pandas as pd
 
 from .._fe_frame_ops import fe_to_pandas, fe_append_columns, fe_extract_columns, fe_polars_exceeds
@@ -78,7 +79,7 @@ def _fe_stage_cascade_early_b(
                 # is (mean of {0,1} = P(y=1); mean of continuous = mean).
                 # Cast bool / object to float to avoid type errors inside
                 # the mean computation.
-                _y_for_te = np.asarray(_y_for_te, dtype=np.float64).ravel()
+                _y_for_te = np.asarray(_y_for_te, dtype=_crit_np_dtype()).ravel()
                 _X_before_te_cols = list(X.columns)
                 # W6 follow-up: record this family's unified local-MI abs-MAD
                 # floor kills into the FE rejection ledger (pure-record; the
@@ -326,7 +327,7 @@ def _stage_missingness_family(self, X, _fit_entry_nan_mask, _y_np, _raw_input_co
                     if _mc in X.columns and len(_mask) == len(X):
                         _col_now = X[_mc]
                         if not _col_now.isna().to_numpy().any():
-                            _restored = _col_now.to_numpy(dtype=np.float64, copy=True)
+                            _restored = _col_now.to_numpy(dtype=_crit_np_dtype(), copy=True)
                             _restored[_mask] = np.nan
                             _restored_cols[_mc] = _restored
 
@@ -718,7 +719,7 @@ def _stage_binned_numeric_agg(self, _fe_family_on, X, y, _binned_agg_pre_recipes
     elif _fe_family_on("fe_binned_numeric_agg_enable", False):
         try:
             from mlframe.feature_selection.filters._binned_numeric_agg_fe import binned_numeric_agg_with_recipes
-            _ba_y = np.asarray(y.to_numpy() if hasattr(y, "to_numpy") else y, dtype=np.float64).ravel()
+            _ba_y = np.asarray(y.to_numpy() if hasattr(y, "to_numpy") else y, dtype=_crit_np_dtype()).ravel()
             _X_before_ba = list(X.columns)
             _bas_raw = getattr(self, "fe_binned_numeric_agg_stats", None)
             X_ba, _ba_appended, _ba_recipes = binned_numeric_agg_with_recipes(
@@ -814,7 +815,7 @@ def _stage_cat_num_interaction(self, _fe_family_on, X, _y_np, _l34_reject_sink, 
             _cn_nums = tuple(c for c in _cn_nums if c in X.columns)
             if _cn_cats and _cn_nums:
                 _y_for_cn = _y_np
-                _y_for_cn = np.asarray(_y_for_cn, dtype=np.float64).ravel()
+                _y_for_cn = np.asarray(_y_for_cn, dtype=_crit_np_dtype()).ravel()
                 _X_before_cn_cols = list(X.columns)
                 X_cn, _cn_appended, _cn_recipes = cat_num_interaction_with_recipes(
                     fe_to_pandas(X),

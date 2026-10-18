@@ -26,6 +26,7 @@ from __future__ import annotations
 from typing import List, Optional, Sequence, Union
 
 import numpy as np
+from .filters._fe_usability_signal import _crit_np_dtype
 
 from ._selection_log import logs_selection
 
@@ -47,13 +48,13 @@ def _cluster_anchors(ranked_features: Sequence[str], data: FloatMatrix, corr_thr
 
         if isinstance(data, pd.DataFrame):
             cols = [c for c in ranked_features if c in data.columns]
-            mat = data[cols].to_numpy(dtype=np.float64)
+            mat = data[cols].to_numpy(dtype=_crit_np_dtype())
         else:
             cols = list(ranked_features)
-            mat = np.asarray(data, dtype=np.float64)
+            mat = np.asarray(data, dtype=_crit_np_dtype())
     except ImportError:
         cols = list(ranked_features)
-        mat = np.asarray(data, dtype=np.float64)
+        mat = np.asarray(data, dtype=_crit_np_dtype())
 
     n_cols = mat.shape[1] if mat.ndim == 2 else 0
     if n_cols != len(cols) or n_cols == 0:

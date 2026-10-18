@@ -12,6 +12,8 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
+from .._fe_usability_signal import _crit_np_dtype
+
 from ._recipe_core import EngineeredRecipe
 from ._recipe_extract import _coerce_to_int_with_nan_handling, _extract_column
 
@@ -60,20 +62,22 @@ def _apply_hermite_pair(recipe: EngineeredRecipe, X: Any, col_cache: "dict[str, 
         # validate-transform contract NaN-degrades chained-capable kinds (hermite_pair references engineered cols)
         # rather than crash the whole transform; mirror that here for the same missing-source class, re-raise else.
         if isinstance(_src_err, (KeyError, IndexError)) or "ColumnNotFound" in type(_src_err).__name__:
-            return np.full(len(X), np.nan, dtype=np.float64)
+            return np.full(len(X), np.nan, dtype=_crit_np_dtype())
         raise
 
     basis_info = _POLY_BASES[basis]
     z_a = np.ascontiguousarray(
         basis_info["apply"](vals_a, dict(recipe.extra["preprocess_a"])),
-        dtype=np.float64,
+        dtype=_crit_np_dtype(),
     )
     z_b = np.ascontiguousarray(
         basis_info["apply"](vals_b, dict(recipe.extra["preprocess_b"])),
-        dtype=np.float64,
+        dtype=_crit_np_dtype(),
     )
     eval_dispatch: Any = basis_info["eval_dispatch"]
+    # Intentional float64: persisted recipe payload (coefficients / member stats) keeps a fixed f64 contract across the policy switch.
     coef_a = np.ascontiguousarray(recipe.extra["coef_a"], dtype=np.float64)
+    # Intentional float64: persisted recipe payload (coefficients / member stats) keeps a fixed f64 contract across the policy switch.
     coef_b = np.ascontiguousarray(recipe.extra["coef_b"], dtype=np.float64)
     # Unbounded polynomial-basis tails (Hermite/Chebyshev/Laguerre) can overflow on a replay row the
     # fit-time optimizer never saw (it only screens candidates for np.isfinite on the FIT sample - see
@@ -85,7 +89,7 @@ def _apply_hermite_pair(recipe: EngineeredRecipe, X: Any, col_cache: "dict[str, 
         bin_func: Any = _DEFAULT_BIN_FUNCS[bin_func_name]
         out = bin_func(h_a, h_b)
     out = np.nan_to_num(out, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
-    return np.asarray(out, dtype=np.float64).reshape(-1)
+    return np.asarray(out, dtype=_crit_np_dtype()).reshape(-1)
 
 
 def build_hermite_pair_recipe(
@@ -102,7 +106,9 @@ def build_hermite_pair_recipe(
         kind="hermite_pair",
         src_names=src_names,
         extra={
+            # Intentional float64: persisted recipe payload (coefficients / member stats) keeps a fixed f64 contract across the policy switch.
             "coef_a": np.asarray(hermite_result.coef_a, dtype=np.float64).copy(),
+            # Intentional float64: persisted recipe payload (coefficients / member stats) keeps a fixed f64 contract across the policy switch.
             "coef_b": np.asarray(hermite_result.coef_b, dtype=np.float64).copy(),
             "basis": str(hermite_result.basis),
             "bin_func_name": str(hermite_result.bin_func_name),
@@ -129,11 +135,15 @@ def build_cluster_aggregate_recipe(
     values are flat ndarray / scalar / str (``_extra_equal`` is not deep)."""
     extra: dict = {
         "method": str(method),
+        # Intentional float64: persisted recipe payload (coefficients / member stats) keeps a fixed f64 contract across the policy switch.
         "member_mean": np.asarray(member_mean, dtype=np.float64).copy(),
+        # Intentional float64: persisted recipe payload (coefficients / member stats) keeps a fixed f64 contract across the policy switch.
         "member_std": np.asarray(member_std, dtype=np.float64).copy(),
+        # Intentional float64: persisted recipe payload (coefficients / member stats) keeps a fixed f64 contract across the policy switch.
         "signs": np.asarray(signs, dtype=np.float64).copy(),
     }
     if weights is not None:
+        # Intentional float64: persisted recipe payload (coefficients / member stats) keeps a fixed f64 contract across the policy switch.
         extra["weights"] = np.asarray(weights, dtype=np.float64).copy()
     extra.update({k: v for k, v in (diagnostics or {}).items()})  # e.g. pca_var_ratio, representative - scalars/str only
     # Build-time guard: _extra_equal compares values shallowly (np.array_equal / !=), so nested
@@ -162,8 +172,11 @@ def _apply_cluster_aggregate(recipe: EngineeredRecipe, X: Any, col_cache: "dict[
         if key not in recipe.extra:
             raise KeyError(f"cluster_aggregate recipe '{recipe.name}' missing '{key}' in extra. Re-fit to repopulate.")
     method = recipe.extra["method"]
+    # Intentional float64: persisted recipe payload (coefficients / member stats) keeps a fixed f64 contract across the policy switch.
     member_mean = np.asarray(recipe.extra["member_mean"], dtype=np.float64)
+    # Intentional float64: persisted recipe payload (coefficients / member stats) keeps a fixed f64 contract across the policy switch.
     member_std = np.asarray(recipe.extra["member_std"], dtype=np.float64)
+    # Intentional float64: persisted recipe payload (coefficients / member stats) keeps a fixed f64 contract across the policy switch.
     signs = np.asarray(recipe.extra["signs"], dtype=np.float64)
     if not (len(recipe.src_names) == len(member_mean) == len(member_std) == len(signs)):
         raise ValueError(f"cluster_aggregate recipe '{recipe.name}': src_names / stats length mismatch.")
@@ -180,7 +193,7 @@ def _apply_cluster_aggregate(recipe: EngineeredRecipe, X: Any, col_cache: "dict[
     # the very common case where TRAIN itself contains NaN.
     cols = [
         np.nan_to_num(
-            np.asarray(_extract_column(X, n, col_cache=col_cache), dtype=np.float64),
+            np.asarray(_extract_column(X, n, col_cache=col_cache), dtype=_crit_np_dtype()),
             nan=0.0, posinf=0.0, neginf=0.0,
         )
         for n in recipe.src_names
@@ -207,6 +220,7 @@ def _apply_cluster_aggregate(recipe: EngineeredRecipe, X: Any, col_cache: "dict[
     else:
         if "weights" not in recipe.extra:
             raise KeyError(f"cluster_aggregate recipe '{recipe.name}' (method={method!r}) missing 'weights' in extra.")
+        # Intentional float64: persisted recipe payload (coefficients / member stats) keeps a fixed f64 contract across the policy switch.
         out = Z @ np.asarray(recipe.extra["weights"], dtype=np.float64)
 
     out = np.nan_to_num(out, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
@@ -277,4 +291,5 @@ def _apply_target_encoding(recipe: EngineeredRecipe, X: Any, col_cache: "dict[st
             f"Set unknown_strategy='clip' or 'sentinel' to handle silently."
         )
     out = np.where(cell_idx >= 0, cell_means[np.maximum(cell_idx, 0)], global_mean)
+    # Intentional float64: persisted recipe payload (coefficients / member stats) keeps a fixed f64 contract across the policy switch.
     return out.astype(np.float64, copy=False)

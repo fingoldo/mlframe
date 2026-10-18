@@ -228,9 +228,9 @@ class ShapProxiedMethodsMixin:
             if len(classes) != 2:
                 raise ValueError(f"ShapProxiedFS(classification=True) supports binary targets only; got {len(classes)} classes.")
             self.classes_ = classes
-            y = (y == classes[1]).astype(np.float64)
+            y = (y == classes[1]).astype(np.float64)  # Intentional float64: booster and numba proxy-loss kernels require a float64 target
         else:
-            y = y.astype(np.float64)
+            y = y.astype(np.float64)  # Intentional float64: booster and numba proxy-loss kernels require a float64 target
         return y
 
     def _resolve_optimizer(self, n_features: int, n_rows: int | None = None) -> str:

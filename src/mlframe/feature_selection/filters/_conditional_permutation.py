@@ -43,6 +43,7 @@ import logging
 from typing import Callable, Optional
 
 import numpy as np
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
@@ -110,7 +111,8 @@ def conditional_permutation_test(
                 "permutation null is degenerate for most of the sample; treat the p-value as under-powered.",
                 100.0 * _excluded_frac, len(strata), _n_total,
             )
-    null_dist = np.empty(int(n_permutations), dtype=np.float64)
+    # Intentional float64: permutation null statistics feed an exact (1+#{null>=obs})/(B+1) count, so ties must not be rounded by an f32 cast.
+    null_dist = np.empty(int(n_permutations), dtype=_crit_np_dtype())
     for p in range(int(n_permutations)):
         x_perm = x.copy()
         for arr in stratum_arrs:

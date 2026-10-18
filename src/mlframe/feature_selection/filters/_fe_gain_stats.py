@@ -24,7 +24,7 @@ def quantile_codes(x: np.ndarray, n_bins: int = N_BINS) -> np.ndarray:
 
 def pointwise_mi(codes: np.ndarray, n_codes: int, y_codes: np.ndarray, ky: int) -> np.ndarray:
     """Per-row pointwise mutual information of integer ``codes`` (in ``[0, n_codes)``) and ``y_codes`` (in ``[0, ky)``); its mean is the plug-in MI in nats."""
-    joint = np.bincount(codes * ky + y_codes, minlength=n_codes * ky).reshape(n_codes, ky).astype(np.float64)
+    joint = np.bincount(codes * ky + y_codes, minlength=n_codes * ky).reshape(n_codes, ky).astype(np.float64)  # Intentional float64: plug-in MI joint-count matrix; exact integer-scale accumulation feeding entropy
     n = joint.sum()
     px, py = joint.sum(axis=1, keepdims=True), joint.sum(axis=0, keepdims=True)
     with np.errstate(divide="ignore", invalid="ignore"):

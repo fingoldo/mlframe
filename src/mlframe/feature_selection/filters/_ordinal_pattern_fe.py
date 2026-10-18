@@ -26,6 +26,7 @@ from itertools import combinations
 from typing import TYPE_CHECKING, Callable, Optional, Sequence
 
 import numpy as np
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 import pandas as pd
 
 if TYPE_CHECKING:
@@ -83,12 +84,12 @@ def ordinal_pattern_ids(X_cols: np.ndarray, *, tie_policy: str = "nan") -> np.nd
 
     Returns
     -------
-    (n,) float64 array of permutation ids in ``0 .. K!-1`` (NaN for tied rows under
+    (n,) double precision array of permutation ids in ``0 .. K!-1`` (NaN for tied rows under
     ``tie_policy="nan"``).
     """
     if tie_policy not in ("nan", "ignore"):
         raise ValueError(f"ordinal_pattern_ids: tie_policy must be 'nan' or 'ignore', got {tie_policy!r}")
-    X_cols = np.asarray(X_cols, dtype=np.float64)
+    X_cols = np.asarray(X_cols, dtype=_crit_np_dtype())
     if X_cols.ndim != 2:
         raise ValueError(f"ordinal_pattern_ids: X_cols must be 2-D (n, K); got shape {X_cols.shape}")
     n, k = X_cols.shape
@@ -105,7 +106,7 @@ def ordinal_pattern_ids(X_cols: np.ndarray, *, tie_policy: str = "nan") -> np.nd
     fact = [1] * (k + 1)
     for i in range(1, k + 1):
         fact[i] = fact[i - 1] * i
-    out = np.zeros(n, dtype=np.float64)
+    out = np.zeros(n, dtype=_crit_np_dtype())
     for i in range(k - 1):
         less_count = np.sum(order[:, i + 1 :] < order[:, i : i + 1], axis=1)
         out += less_count * fact[k - 1 - i]
@@ -132,7 +133,7 @@ def _fit_perm_id_te_lookup(perm_id: np.ndarray, y: np.ndarray, *, smoothing: flo
     matches the codebase's one canonical K-fold-TE shrinkage formula."""
     from ._target_encoding_fe import _smooth
 
-    y_arr = np.asarray(y, dtype=np.float64).ravel()
+    y_arr = np.asarray(y, dtype=_crit_np_dtype()).ravel()
     global_mean = float(np.nanmean(y_arr))
     finite = np.isfinite(perm_id)
     lookup: dict = {}
@@ -167,7 +168,7 @@ def generate_ordinal_pattern_te_features(
         raise TypeError(f"generate_ordinal_pattern_te_features: X must be a pandas DataFrame; got {type(X).__name__}")
     if len(X) == 0:
         raise ValueError("generate_ordinal_pattern_te_features: X is empty")
-    y_arr = np.asarray(y, dtype=np.float64).ravel()
+    y_arr = np.asarray(y, dtype=_crit_np_dtype()).ravel()
     if y_arr.shape[0] != len(X):
         raise ValueError(f"generate_ordinal_pattern_te_features: len(y)={y_arr.shape[0]} != len(X)={len(X)}")
 
@@ -178,7 +179,7 @@ def generate_ordinal_pattern_te_features(
         tup = [c for c in tup if c in X.columns and pd.api.types.is_numeric_dtype(X[c])]
         if len(tup) < 2:
             continue
-        X_cols = X[tup].to_numpy(dtype=np.float64)
+        X_cols = X[tup].to_numpy(dtype=_crit_np_dtype())
         perm_id = ordinal_pattern_ids(X_cols)
         finite = np.isfinite(perm_id)
         if finite.sum() < 2 or float(np.nanstd(perm_id[finite])) <= 1e-12:
@@ -190,7 +191,7 @@ def generate_ordinal_pattern_te_features(
         perm = rng.permutation(n)
         fold_ids = np.empty(n, dtype=np.int64)
         fold_ids[perm] = np.arange(n) % int(n_folds)
-        vals = np.full(n, np.nan, dtype=np.float64)
+        vals = np.full(n, np.nan, dtype=_crit_np_dtype())
         for f in range(int(n_folds)):
             train_mask = fold_ids != f
             test_mask = fold_ids == f
@@ -198,7 +199,7 @@ def generate_ordinal_pattern_te_features(
                 continue
             fold_lookup, fold_global = _fit_perm_id_te_lookup(perm_id[train_mask], y_arr[train_mask], smoothing=smoothing)
             test_pid = perm_id[test_mask]
-            test_vals = np.array([fold_lookup.get(int(p), fold_global) if np.isfinite(p) else np.nan for p in test_pid], dtype=np.float64)
+            test_vals = np.array([fold_lookup.get(int(p), fold_global) if np.isfinite(p) else np.nan for p in test_pid], dtype=_crit_np_dtype())
             vals[test_mask] = test_vals
 
         name = engineered_name_ordinal_pattern(tup)
@@ -223,11 +224,11 @@ def apply_ordinal_pattern_te(X_test: "pd.DataFrame", recipe: dict) -> np.ndarray
         raise KeyError(f"apply_ordinal_pattern_te: missing column(s) {missing} from X_test")
     lookup = recipe["lookup"]
     global_mean = float(recipe["global_mean"])
-    X_cols = X_test[cols].to_numpy(dtype=np.float64)
+    X_cols = X_test[cols].to_numpy(dtype=_crit_np_dtype())
     perm_id = ordinal_pattern_ids(X_cols)
-    out = np.full(perm_id.shape[0], global_mean, dtype=np.float64)
+    out = np.full(perm_id.shape[0], global_mean, dtype=_crit_np_dtype())
     finite = np.isfinite(perm_id)
-    out[finite] = np.array([lookup.get(int(p), global_mean) for p in perm_id[finite]], dtype=np.float64)
+    out[finite] = np.array([lookup.get(int(p), global_mean) for p in perm_id[finite]], dtype=_crit_np_dtype())
     out[~finite] = np.nan
     return out
 

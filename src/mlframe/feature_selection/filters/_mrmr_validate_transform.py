@@ -20,6 +20,7 @@ import numpy as np
 import pandas as pd
 
 from mlframe.utils.log_throttle import log_throttle
+from ._fe_usability_signal import _crit_np_dtype
 
 if TYPE_CHECKING:
     import polars as pl
@@ -47,7 +48,7 @@ from ._mrmr_validate_strings import (  # noqa: F401
 def _dtype_kind(canon: str) -> str:
     """Coarse LOGICAL kind of a canonical dtype string: numeric, bool, string, categorical, or the string itself for anything else.
 
-    Integer and float are one kind: a nullable integer column is a float64 with NaN in its pandas view and a native Int16 in polars, so the
+    Integer and float are one kind: a nullable integer column is a double precision with NaN in its pandas view and a native Int16 in polars, so the
     same logical column legitimately flips between them across representations, and the replay reads the same values either way.
     """
     if canon[:1] in ("i", "u", "f"):
@@ -782,7 +783,7 @@ def _replay_recipes_chained(recipes: list, _X_for_recipes: pd.DataFrame, _col_ca
                 # instead. A NaN placeholder (the prior behaviour) propagates into every downstream estimator and
                 # hard-crashes the ones that reject NaN (LogisticRegression et al.); a constant 0.0 carries no
                 # signal (so it is "dropped" in effect) yet is accepted by every estimator.
-                _results[r.name] = np.zeros(len(chained), dtype=np.float64)
+                _results[r.name] = np.zeros(len(chained), dtype=_crit_np_dtype())
                 chained[r.name] = _results[r.name]  # in-place append; see ownership comment above
                 _unresolved.add(r.name)
             _still = []

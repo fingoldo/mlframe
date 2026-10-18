@@ -67,6 +67,7 @@ import logging
 from typing import Optional, Sequence
 
 import numpy as np
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 
 from mlframe.feature_selection.filters._relative_uplift import relative_uplift
 import pandas as pd
@@ -191,7 +192,7 @@ def _routing_abs_floor(raw_mi_map: dict, best_per_source: dict, min_abs_mi_frac:
     # distribution has at most 1 row per source which preserves the
     # signal-vs-noise gap). The raw-baseline MAD floor is unchanged from
     # Layer 21 and remains the dominant safeguard on all-noise frames.
-    raw_baselines = np.asarray(list(raw_mi_map.values()), dtype=np.float64)
+    raw_baselines = np.asarray(list(raw_mi_map.values()), dtype=np.float64)  # Intentional float64: raw MI baseline statistic
     max_raw_baseline = float(raw_baselines.max()) if raw_baselines.size else 0.0
     legacy_floor = float(min_abs_mi_frac) * max_raw_baseline
     n_cands = int(raw_baselines.size)
@@ -223,7 +224,7 @@ def _routing_abs_floor(raw_mi_map: dict, best_per_source: dict, min_abs_mi_frac:
     # screens out noise-MI tail amplifications).
     best_emis = np.asarray(
         [float(info["engineered_mi"]) for info in best_per_source.values()],
-        dtype=np.float64,
+        dtype=np.float64,  # Intentional float64: routing statistic output
     )
     if best_emis.size >= 16:
         med_e = float(np.median(best_emis))
@@ -273,7 +274,7 @@ def _routing_scores(routing_criterion: str, y_arr: np.ndarray, cand_mat: np.ndar
     # question. ``routing_criterion="mi"`` restores the legacy argmax.
     route_score: np.ndarray
     if str(routing_criterion).lower() == "corr":
-        _yf = y_arr.astype(np.float64)
+        _yf = y_arr.astype(np.float64)  # Intentional float64: target statistic input
         _ystd = float(_yf.std())
         if _ystd > 1e-12:
             _Mz = standardise(cand_mat)
@@ -298,7 +299,7 @@ def _enumerate_routing_cells(X: pd.DataFrame, cols: Sequence[str], transform_var
         # Value-construction site (feeds the engineered column, not just an MI score): always
         # float64, matching _apply_orth_univariate's hardcoded replay dtype - a relaxed f32 cast
         # here reproduces the fit/replay drift bug fixed in _orthogonal_univariate_fe/__init__.py.
-        x_raw = np.asarray(X[col].to_numpy(), dtype=np.float64)
+        x_raw = np.asarray(X[col].to_numpy(), dtype=_crit_np_dtype())
         finite_mask = np.isfinite(x_raw)
         if not finite_mask.all():
             fill = float(np.nanmean(x_raw[finite_mask])) if finite_mask.any() else 0.0
@@ -425,7 +426,7 @@ def generate_conditional_basis_routing_features(
         return pd.DataFrame(index=X.index), {}
 
     # ---- Step 3: ONE batch MI call across every candidate
-    cand_mat = np.column_stack(cand_values).astype(np.float64, copy=False)
+    cand_mat = np.column_stack(cand_values).astype(_crit_np_dtype(), copy=False)
     eng_mi = _mi_classif_batch(cand_mat, y_arr, nbins=nbins)
 
     route_score = _routing_scores(routing_criterion, y_arr, cand_mat, eng_mi)
@@ -600,7 +601,7 @@ def hybrid_orth_mi_conditional_routing_fe_with_recipes(
         _pre_transform = str(row["pre_transform"])
         _pp = None
         try:
-            _col_full = np.asarray(X[_src_name].to_numpy(), dtype=np.float64)
+            _col_full = np.asarray(X[_src_name].to_numpy(), dtype=_crit_np_dtype())
             _col_full = apply_pre_transform(_col_full, _pre_transform)
             _, _pp = _evaluate_basis_column(_col_full, _basis, _degree, return_params=True)
         except Exception as e:

@@ -16,6 +16,8 @@ import logging
 from typing import Any, Optional
 
 import numpy as np
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
+from mlframe.feature_selection.filters._fe_gpu_batch._devices import crit_float_dtype
 from mlframe.utils.log_throttle import log_throttle
 
 from ._gpu_host_permutations import host_perm_batch_cap, host_permuted_y_batch
@@ -29,7 +31,7 @@ def _gpu_batched_bytes_per_perm(n: int) -> int:
     """True per-row VRAM cost of one batch iteration of ``mi_direct_gpu_batched`` / ``_streamed`` (2026-07-09
     fix; shared by both OOM guards so the formula lives in exactly one place).
 
-    Each iteration holds simultaneously: ``rand`` (b,n) float64 = 8 bytes/row, ``perm_idx`` (b,n) int64 =
+    Each iteration holds simultaneously: ``rand`` (b,n) double precision = 8 bytes/row, ``perm_idx`` (b,n) int64 =
     8 bytes/row (``cp.argsort`` output dtype), and ``perms_y`` (b,n) int32 = 4 bytes/row - 20 bytes/row.
     The prior formula used ``n * 4`` (only ``perms_y``), a ~5x undercount of actual peak VRAM need for a
     given ``batch_size``."""
@@ -49,7 +51,7 @@ def cap_batch_size(batch_size: int, free_bytes: int, n: int) -> int:
 
 def _mi_from_counts_cupy(cp, counts_2d, n, nbins_x, nbins_y, outer_safe):
     """(b, joint_size) int counts -> (b,) MI in nats via the noise-gate reduction (masked-safe ratio; shared by both mi_direct_gpu_batched twins)."""
-    jf = (counts_2d.astype(cp.float64) / n).reshape(-1, nbins_x, nbins_y)
+    jf = (counts_2d.astype(crit_float_dtype()) / n).reshape(-1, nbins_x, nbins_y)
     ratio = cp.where(jf > 0, jf / outer_safe, 1.0)
     return (jf * cp.log(ratio)).sum(axis=(1, 2))
 
@@ -151,8 +153,8 @@ def _mi_direct_gpu_batched_part1(
 ) -> tuple[Any, ...]:
     """Extracted block of ``mi_direct_gpu_batched`` (part 1); returns the names the caller still uses."""
     classes_y_gpu = resident_operand(classes_y, "mi_batched_classes_y", dtype=np.int32)
-    freqs_x_gpu = cp.asarray(freqs_x).astype(cp.float64)
-    freqs_y_gpu = resident_operand(freqs_y, "mi_batched_freqs_y", dtype=np.float64)
+    freqs_x_gpu = cp.asarray(freqs_x).astype(crit_float_dtype())
+    freqs_y_gpu = resident_operand(freqs_y, "mi_batched_freqs_y", dtype=_crit_np_dtype())
 
     # Joint-hist kernel dispatch via the per-host kernel_tuning_cache. The
     # cache is built on first use by a 30s sweep and persisted to
@@ -417,8 +419,8 @@ def _mi_direct_gpu_batched_streamed_part1(
     from ._fe_resident_operands import resident_operand
     classes_x_gpu = cp.asarray(classes_x.astype(np.int32))
     classes_y_gpu = resident_operand(classes_y, "mi_batched_classes_y", dtype=np.int32)
-    freqs_x_gpu = cp.asarray(freqs_x).astype(cp.float64)
-    freqs_y_gpu = resident_operand(freqs_y, "mi_batched_freqs_y", dtype=np.float64)
+    freqs_x_gpu = cp.asarray(freqs_x).astype(crit_float_dtype())
+    freqs_y_gpu = resident_operand(freqs_y, "mi_batched_freqs_y", dtype=_crit_np_dtype())
 
     joint_size = nbins_x * nbins_y
     # mirror the sibling lookup at L466-475

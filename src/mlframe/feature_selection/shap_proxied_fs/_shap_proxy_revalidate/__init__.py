@@ -21,6 +21,7 @@ import logging
 from typing import Any, Optional
 
 import numpy as np
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 
 from mlframe.feature_selection.shap_proxied_fs._shap_proxy_objective import coalition_margin_T, proxy_loss, resolve_metric
 from mlframe.feature_selection.shap_proxied_fs._shap_proxy_revalidate._shap_proxy_sampling import (
@@ -142,7 +143,7 @@ def _anchor_weights(unit_f_scores: Any, f: int) -> Optional[np.ndarray]:
     """Per-unit anchor-sampling weights from ``unit_f_scores`` (None when absent or of the wrong length)."""
     weights: Optional[np.ndarray] = None
     if unit_f_scores is not None:
-        weights = np.asarray(unit_f_scores, dtype=np.float64)
+        weights = np.asarray(unit_f_scores, dtype=_crit_np_dtype())
         if weights.shape[0] != f:
             logger.warning(
                 "ShapProxiedFS trust-guard: unit_f_scores length %d != phi.shape[1] %d; "
@@ -273,7 +274,7 @@ def proxy_trust_guard(
         X_holdout, y_holdout, classification, metric, n_jobs, cache=cache,
         n_estimators_cap=n_estimators_cap, template_id=tid, inner_n_jobs_cap=inner_n_jobs_cap,
         disk_cache=disk_cache)
-    cards = np.array([len(a) for a in anchors], dtype=np.float64)
+    cards = np.array([len(a) for a in anchors], dtype=_crit_np_dtype())
     # Reuse the contiguous _phi_T built above for the coalition margins instead of letting
     # subset_redundancy_many re-transpose phi (one fewer O(n_samples*n_units) copy per trust_guard call).
     redunds = subset_redundancy_many(phi, anchors, phi_T=_phi_T)

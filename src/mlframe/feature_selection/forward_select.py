@@ -45,7 +45,7 @@ class ForwardSelectReport:
 def _numeric_view(subset: Callable[[List[Any]], Any], cols: List[Any]) -> Optional[np.ndarray]:
     """Float view of ``cols`` for the masking test, or None when any of them is non-numeric."""
     try:
-        return np.asarray(subset(cols), dtype=np.float64)
+        return np.asarray(subset(cols), dtype=np.float64)  # Intentional float64: subset score is a metric value returned as an output contract
     except (TypeError, ValueError) as _exc:
         logger.debug("_numeric fell back to its default after %s", type(_exc).__name__)
         return None

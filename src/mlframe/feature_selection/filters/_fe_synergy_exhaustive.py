@@ -88,6 +88,7 @@ def _measure_exhaustive_throughput(dims: dict) -> float:
     pair_b = (pair_a + 1 + rng.integers(0, n_features - 1, size=n_pairs)) % n_features
     pair_b = pair_b.astype(np.int64)
     classes_y = rng.integers(0, 4, size=n_samples).astype(np.int32)
+    # Intentional float64: class-frequency vector feeds the MI entropy accumulator (full precision)
     freqs_y = np.bincount(classes_y, minlength=4).astype(np.float64) / max(1, n_samples)
 
     # Warm-up (JIT compile) not timed.
@@ -146,6 +147,7 @@ def _measure_exhaustive_cpu_throughput(dims: dict) -> float:
     pair_b = (pair_a + 1 + rng.integers(0, n_features - 1, size=n_pairs)) % n_features
     pair_b = pair_b.astype(np.int64)
     classes_y = rng.integers(0, 4, size=n_samples).astype(np.int32)
+    # Intentional float64: class-frequency vector feeds the MI entropy accumulator (full precision)
     freqs_y = np.bincount(classes_y, minlength=4).astype(np.float64) / max(1, n_samples)
 
     batch_pair_mi_njit_prange(factors_data, pair_a[:64], pair_b[:64], nbins, classes_y, freqs_y)  # warm-up (JIT)

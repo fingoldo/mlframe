@@ -154,6 +154,7 @@ def compute_class_weights(y: np.ndarray) -> np.ndarray | None:
         )
         return None
 
+    # Intentional float64: exact integer counts / MI statistic accumulator
     counts = np.bincount(y_arr, minlength=n_classes).astype(np.float64)
     populated = counts > 0
     n_populated = int(populated.sum())
@@ -172,6 +173,7 @@ def compute_class_weights(y: np.ndarray) -> np.ndarray | None:
 
     # Inverse-prior weights: each populated class -> equal total mass 1/K_pop.
     # Empty classes get weight 0 (they contribute nothing anyway).
+    # Intentional float64: exact integer counts / MI statistic accumulator
     w = np.zeros(n_classes, dtype=np.float64)
     inv_k = 1.0 / float(n_populated)
     for c in range(n_classes):

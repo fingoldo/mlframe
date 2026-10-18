@@ -34,11 +34,14 @@ def _mi_pair_njit(x: np.ndarray, y: np.ndarray, K_x: int, K_y: int) -> float:
     n = x.shape[0]
     if n <= 0:
         return 0.0
+    # Intentional float64: plug-in MI count/probability accumulator (sums of counts must stay exact in f64).
     joint = np.zeros((K_x, K_y), dtype=np.float64)
     for i in range(n):
         joint[x[i], y[i]] += 1.0
     n_f = float(n)
+    # Intentional float64: plug-in MI count/probability accumulator (sums of counts must stay exact in f64).
     Px = np.zeros(K_x, dtype=np.float64)
+    # Intentional float64: plug-in MI count/probability accumulator (sums of counts must stay exact in f64).
     Py = np.zeros(K_y, dtype=np.float64)
     for i in range(K_x):
         for j in range(K_y):

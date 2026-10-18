@@ -123,6 +123,7 @@ def _numeric_view_for_selection(X):
         out = X.copy()
         for c in non_numeric:
             codes, _ = pd.factorize(out[c], use_na_sentinel=True)
+            # Intentional float64: FE codes output contract (float64 frame returned to callers)
             out[c] = np.where(codes < 0, np.nan, codes).astype(np.float64)
         return out
     if hasattr(X, "dtypes") and hasattr(X, "with_columns"):
@@ -137,6 +138,7 @@ def _numeric_view_for_selection(X):
         out = X
         for c in non_numeric:
             codes, _ = pd.factorize(out[c].to_numpy(), use_na_sentinel=True)
+            # Intentional float64: FE codes output contract (float64 frame returned to callers)
             out = out.with_columns(pl.Series(c, np.where(codes < 0, np.nan, codes).astype(np.float64)))
         return out
     if isinstance(X, np.ndarray) and X.dtype.kind in "iufb":
@@ -144,9 +146,11 @@ def _numeric_view_for_selection(X):
     arr = np.asarray(X)
     if arr.dtype.kind in "iufb":
         return arr
+    # Intentional float64: FE codes output contract (float64 array returned to callers)
     out = np.empty(arr.shape, dtype=np.float64)
     for j in range(arr.shape[1]):
         codes, _ = pd.factorize(pd.Series(arr[:, j]), use_na_sentinel=True)
+        # Intentional float64: FE codes output contract (float64 array returned to callers)
         out[:, j] = np.where(codes < 0, np.nan, codes).astype(np.float64)
     return out
 

@@ -61,6 +61,7 @@ import logging
 from typing import Callable, Optional, Sequence
 
 import numpy as np
+from ._fe_usability_signal import _crit_np_dtype
 import pandas as pd
 from numba import njit
 
@@ -138,9 +139,11 @@ def _freq_band_codes(
     (very_rare / rare / common / dominant) via a single ``np.searchsorted``."""
     cuts = np.array(
         [float(rare_threshold), _RARE_BAND_MULT * float(rare_threshold), float(dominant_cut)],
+        # Intentional float64: accumulator kept f64 (statistic / count sums need full precision)
         dtype=np.float64,
     )
     cuts = np.maximum.accumulate(cuts)  # guard monotonicity for searchsorted
+    # Intentional float64: accumulator kept f64 (statistic / count sums need full precision)
     return np.searchsorted(cuts, np.asarray(freqs, dtype=np.float64), side="right").astype(np.float64)
 
 def generate_rare_category_features(
@@ -171,6 +174,7 @@ def generate_rare_category_features(
         unique_cats, inverse, counts = np.unique(
             cats, return_inverse=True, return_counts=True,
         )
+        # Intentional float64: accumulator kept f64 (statistic / count sums need full precision)
         freqs = counts.astype(np.float64) / float(n)
         freq_lookup = {str(unique_cats[c]): float(freqs[c]) for c in range(unique_cats.shape[0])}
         # Data-driven common/dominant split: 90th percentile of the per-category
@@ -184,7 +188,7 @@ def generate_rare_category_features(
             dominant_cut = _RARE_BAND_MULT * float(rare_threshold) + 1e-12
 
         row_freq = freqs[inverse]
-        is_rare = (row_freq < float(rare_threshold)).astype(np.float64)
+        is_rare = (row_freq < float(rare_threshold)).astype(_crit_np_dtype())
         band = _freq_band_codes(row_freq, float(rare_threshold), dominant_cut)
 
         common = {
@@ -219,10 +223,11 @@ def apply_rare_category(X_test: pd.DataFrame, recipe: dict) -> np.ndarray:
     cats = _column_to_str(X_test[src_col])
     # Resolve once per UNIQUE key, broadcast back (hot-path friendly).
     uniq, inverse = np.unique(cats, return_inverse=True)
+    # Intentional float64: accumulator kept f64 (statistic / count sums need full precision)
     uniq_freq = np.array([freq_lookup.get(str(k), 0.0) for k in uniq], dtype=np.float64)
     row_freq = uniq_freq[inverse]
     if kind == "is_rare":
-        return (row_freq < rare_threshold).astype(np.float64)
+        return (row_freq < rare_threshold).astype(_crit_np_dtype())
     if kind == "freq_band":
         return _freq_band_codes(row_freq, rare_threshold, dominant_cut)
     raise ValueError(f"apply_rare_category: unknown kind {kind!r}")
@@ -377,6 +382,7 @@ def _quantile_edges(x: np.ndarray, n_bins: int) -> np.ndarray:
     only). Deduped; degenerate columns collapse to a single bin."""
     finite = x[np.isfinite(x)]
     if finite.size == 0:
+        # Intentional float64: accumulator kept f64 (statistic / count sums need full precision)
         return np.array([0.0, 1.0], dtype=np.float64)
     qs = np.linspace(0.0, 1.0, int(n_bins) + 1)
     q = None
@@ -397,13 +403,15 @@ def _quantile_edges(x: np.ndarray, n_bins: int) -> np.ndarray:
     q = np.unique(q)
     if q.size < 2:
         lo = float(finite.min())
+        # Intentional float64: recipe bin-edge contract kept f64 (exact replay)
         q = np.array([lo, lo + 1.0], dtype=np.float64)
+    # Intentional float64: recipe bin-edge contract kept f64 (exact replay)
     return q.astype(np.float64)
 
 def _digitize_with_edges(x: np.ndarray, edges: np.ndarray) -> np.ndarray:
     """Assign each value to a bin in ``[0, len(edges)-2]`` using the interior
     edges (``edges[1:-1]``). NaN -> bin 0 (matches the fit-time fill)."""
-    x = np.asarray(x, dtype=np.float64)
+    x = np.asarray(x, dtype=_crit_np_dtype())
     from ._fast_host_ops import searchsorted_right
 
     codes = searchsorted_right(edges[1:-1], x)
@@ -420,7 +428,9 @@ def _bin_sum_count_masked_njit(codes_j: np.ndarray, xi: np.ndarray, finite_i: np
     (skipping non-finite rows) - identical to what ``np.bincount`` does on the pre-built finite-only
     subset, so results are bit-identical."""
     n = codes_j.shape[0]
+    # Intentional float64: accumulator kept f64 (statistic / count sums need full precision)
     bin_sum = np.zeros(n_bins_eff, dtype=np.float64)
+    # Intentional float64: accumulator kept f64 (statistic / count sums need full precision)
     bin_cnt = np.zeros(n_bins_eff, dtype=np.float64)
     for r in range(n):
         if finite_i[r]:
@@ -452,7 +462,7 @@ def generate_conditional_residual_features(
     if len(num_cols) < 2:
         return pd.DataFrame(index=X.index), raw_recipes
 
-    col_vals = {c: np.asarray(X[c].to_numpy(), dtype=np.float64) for c in num_cols}
+    col_vals = {c: np.asarray(X[c].to_numpy(), dtype=_crit_np_dtype()) for c in num_cols}
     # Per-x_i invariants (finiteness mask, global mean, masked values) depend only on x_i, so hoist them out of the inner x_j loop - recomputing them per (x_i, x_j) pair walked the full 10M array C-1 extra times each.
     finite_of: dict[str, np.ndarray] = {}
     global_mean_of: dict[str, float] = {}
@@ -479,7 +489,7 @@ def generate_conditional_residual_features(
                 bin_cnt > 0.0, bin_sum / np.maximum(bin_cnt, 1.0), global_mean,
             )
             per_row_mean = bin_mean[codes_j]
-            residual = np.where(finite_i, xi - per_row_mean, 0.0).astype(np.float64)
+            residual = np.where(finite_i, xi - per_row_mean, 0.0).astype(_crit_np_dtype())
             name = engineered_name_conditional_residual(x_i, x_j)
             encoded[name] = residual
             raw_recipes[name] = {
@@ -501,15 +511,17 @@ def apply_conditional_residual(X_test: pd.DataFrame, recipe: dict) -> np.ndarray
     x_j = recipe["x_j"]
     if x_i not in X_test.columns or x_j not in X_test.columns:
         raise KeyError(f"apply_conditional_residual: missing column(s) {x_i!r}/{x_j!r} " f"from X_test")
+    # Intentional float64: recipe bin-edge contract kept f64 (exact replay)
     edges = np.asarray(recipe["edges"], dtype=np.float64)
+    # Intentional float64: recipe bin-edge contract kept f64 (exact replay)
     bin_mean = np.asarray(recipe["bin_mean"], dtype=np.float64)
-    xi = np.asarray(X_test[x_i].to_numpy(), dtype=np.float64)
-    xj = np.asarray(X_test[x_j].to_numpy(), dtype=np.float64)
+    xi = np.asarray(X_test[x_i].to_numpy(), dtype=_crit_np_dtype())
+    xj = np.asarray(X_test[x_j].to_numpy(), dtype=_crit_np_dtype())
     codes_j = _digitize_with_edges(xj, edges)
     codes_j = np.clip(codes_j, 0, bin_mean.size - 1)
     per_row_mean = bin_mean[codes_j]
     finite_i = np.isfinite(xi)
-    return np.where(finite_i, xi - per_row_mean, 0.0).astype(np.float64)
+    return np.where(finite_i, xi - per_row_mean, 0.0).astype(_crit_np_dtype())
 
 def build_conditional_residual_recipe(
     *, name: str, x_i: str, x_j: str, edges: np.ndarray, bin_mean: np.ndarray,
@@ -527,7 +539,9 @@ def build_conditional_residual_recipe(
         extra={
             "x_i": str(x_i),
             "x_j": str(x_j),
+            # Intentional float64: recipe bin-edge contract kept f64 (exact replay)
             "edges": np.asarray(edges, dtype=np.float64).copy(),
+            # Intentional float64: recipe bin-edge contract kept f64 (exact replay)
             "bin_mean": np.asarray(bin_mean, dtype=np.float64).copy(),
             "global_mean": float(global_mean),
         },
@@ -556,7 +570,9 @@ def _apply_conditional_residual_recipe(recipe, X) -> np.ndarray:
         {
             "x_i": x_i,
             "x_j": x_j,
+            # Intentional float64: recipe bin-edge contract kept f64 (exact replay)
             "edges": np.asarray(recipe.extra["edges"], dtype=np.float64),
+            # Intentional float64: recipe bin-edge contract kept f64 (exact replay)
             "bin_mean": np.asarray(recipe.extra["bin_mean"], dtype=np.float64),
             "global_mean": float(recipe.extra.get("global_mean", 0.0)),
         },
@@ -575,7 +591,8 @@ def _top_mi_num_cols(
     from ._unified_fe_gate import _coerce_y_classes
 
     y_bin = _coerce_y_classes(y)
-    arr = X[num_cols].to_numpy(dtype=np.float64)
+    arr = X[num_cols].to_numpy(dtype=_crit_np_dtype())
+    # Intentional float64: accumulator kept f64 (statistic / count sums need full precision)
     mi = np.asarray(_mi_classif_batch(arr, y_bin, nbins=10), dtype=np.float64)
     order = np.argsort(-mi, kind="stable")  # plug-in MI is quantised, so ties are real: break them by position, reproducibly
     return [num_cols[i] for i in order[: int(max_cols)]]
@@ -679,9 +696,11 @@ def _rank_to_gauss(ranks: np.ndarray, n: int) -> np.ndarray:
     ``norm.ppf((rank + 0.5) / n)`` (the (r + 0.5)/n plotting position keeps the
     transform finite at the extremes - no +/-inf at rank 0 / n-1)."""
     from scipy.special import ndtri
+    # Intentional float64: accumulator kept f64 (statistic / count sums need full precision)
     u = (np.asarray(ranks, dtype=np.float64) + 0.5) / float(max(n, 1))
     u = np.clip(u, 1e-6, 1.0 - 1e-6)
     # ndtri == norm.ppf for the standard normal (bit-identical), ~2.4x faster - skips the rv_continuous broadcast/validation wrapper.
+    # Intentional float64: accumulator kept f64 (statistic / count sums need full precision)
     return np.asarray(ndtri(u).astype(np.float64))
 
 def _avg_tie_rank(fit_sorted: np.ndarray, vals: np.ndarray) -> np.ndarray:
@@ -721,6 +740,7 @@ def _self_avg_tie_rank(fit_finite: np.ndarray) -> np.ndarray:
     seg_ends = np.append(grp_start[1:], n)
     mid = (grp_start + seg_ends - 1) / 2.0  # mid rank per tie-group
     grp_id = np.cumsum(change) - 1
+    # Intentional float64: output / recipe contract kept f64
     out = np.empty(n, dtype=np.float64)
     out[order] = mid[grp_id]
     return out
@@ -754,7 +774,7 @@ def generate_rankgauss_features(
         return pd.DataFrame(index=X.index), raw_recipes
 
     for col in num_cols:
-        x = np.asarray(X[col].to_numpy(), dtype=np.float64)
+        x = np.asarray(X[col].to_numpy(), dtype=_crit_np_dtype())
         finite = np.isfinite(x)
         fit_sorted = np.sort(x[finite]) if finite.any() else np.array([0.0])
         n_fit = int(fit_sorted.size)
@@ -788,9 +808,10 @@ def apply_rankgauss(X_test: pd.DataFrame, recipe: dict) -> np.ndarray:
     src_col = recipe["src_col"]
     if src_col not in X_test.columns:
         raise KeyError(f"apply_rankgauss: missing source column {src_col!r} from X_test")
+    # Intentional float64: recipe bin-edge contract kept f64 (exact replay)
     fit_sorted = np.asarray(recipe["fit_sorted"], dtype=np.float64)
     n_fit = int(recipe["n_fit"])
-    x = np.asarray(X_test[src_col].to_numpy(), dtype=np.float64)
+    x = np.asarray(X_test[src_col].to_numpy(), dtype=_crit_np_dtype())
     out = np.zeros_like(x)
     finite = np.isfinite(x)
     if n_fit > 0 and finite.any():
@@ -817,6 +838,7 @@ def build_rankgauss_recipe(
         src_names=(str(src_col),),
         extra={
             "src_col": str(src_col),
+            # Intentional float64: output / recipe contract kept f64
             "fit_sorted": np.asarray(fit_sorted, dtype=np.float64).copy(),
             "n_fit": int(n_fit),
         },
@@ -843,6 +865,7 @@ def _apply_rankgauss_recipe(recipe, X) -> np.ndarray:
         X_view,
         {
             "src_col": src_col,
+            # Intentional float64: output / recipe contract kept f64
             "fit_sorted": np.asarray(recipe.extra["fit_sorted"], dtype=np.float64),
             "n_fit": int(recipe.extra.get("n_fit", 0)),
         },

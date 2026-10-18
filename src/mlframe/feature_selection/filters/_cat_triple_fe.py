@@ -507,7 +507,7 @@ def hybrid_cat_triple_fe(
                 encoding="target", te_lookup=te_lookup, global_mean=global_mean,
             ))
         else:
-            new_cols[name] = codes.astype(np.float64)
+            new_cols[name] = codes.astype(np.float64)  # Intentional float64: replay values must stay bit-identical to the per-row mapping loop (target-encoding means)
             recipes.append(build_cat_triple_cross_recipe(
                 name=name, cat_a=cat_a, cat_b=cat_b, cat_c=cat_c, mapping=mapping,
                 encoding="raw",
@@ -553,7 +553,7 @@ def apply_cat_triple_cross(
     n = len(cats_a)
     sentinel = len(mapping)
     if n == 0:
-        return np.empty(0, dtype=np.float64)
+        return np.empty(0, dtype=np.float64)  # Intentional float64: replay values must stay bit-identical to the per-row mapping loop (target-encoding means)
     lookup = te_lookup or {}
     is_target = encoding == "target"
     # Vectorized replay: factorize the three string columns (O(n) hashtable each, no sort), pack into a single joint
@@ -568,7 +568,7 @@ def apply_cat_triple_cross(
     nc = len(uniq_c)
     joint = codes_a.astype(np.int64) * (nb * nc) + codes_b.astype(np.int64) * nc + codes_c.astype(np.int64)
     cell_codes, joint_uniques = pd.factorize(joint)
-    vals = np.empty(len(joint_uniques), dtype=np.float64)
+    vals = np.empty(len(joint_uniques), dtype=np.float64)  # Intentional float64: replay values must stay bit-identical to the per-row mapping loop (target-encoding means)
     for i, k in enumerate(joint_uniques):
         k = int(k)
         ia = k // (nb * nc)

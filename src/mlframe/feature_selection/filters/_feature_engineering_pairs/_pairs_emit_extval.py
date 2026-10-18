@@ -28,7 +28,7 @@ _FAMILY_EXACT_MAX_CELLS = env_int("MLFRAME_PAIR_FAMILY_EXACT_MAX_MCELLS", 400, m
 def _extval_host_buffer(param_a, _ev_param_bs, _ev_op_codes, _ev_bin_funcs, _ev_K, n_rows, _materialise_extval_njit):
     """Materialise the (n, K) float64 external-validation candidate buffer on the host (njit kernel if every op is coded, else numpy);
     returns ``(buffer, n_columns)``."""
-    _ev_buf = np.empty((n_rows, _ev_K), dtype=np.float64)
+    _ev_buf = np.empty((n_rows, _ev_K), dtype=np.float64)  # Intentional float64: ext-val buffer keeps numpy bin_func native float64 precision (see note at line 294)
     if _ev_op_codes is not None:
         # NJIT materialise: ALL (ext x op) candidate columns in one nogil
         # kernel (bit-identical to the numpy bin_funcs; see
@@ -40,7 +40,7 @@ def _extval_host_buffer(param_a, _ev_param_bs, _ev_op_codes, _ev_bin_funcs, _ev_
         # (Q7). The external-factor columns are DISTINCT memoised arrays
         # (_extval_raw_col per var) so they genuinely must be assembled into
         # a 2-D matrix for the njit kernel; there is no view to substitute.
-        _ev_pb_mat = np.empty((n_rows, len(_ev_param_bs)), dtype=np.float64)
+        _ev_pb_mat = np.empty((n_rows, len(_ev_param_bs)), dtype=np.float64)  # Intentional float64: ext-val parameter buffer keeps native float64 precision (see note at line 294)
         for _ei, _pb_vals in enumerate(_ev_param_bs):
             _ev_pb_mat[:, _ei] = _pb_vals
         _materialise_extval_njit(

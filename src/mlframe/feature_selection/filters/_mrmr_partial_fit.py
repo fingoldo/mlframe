@@ -54,6 +54,7 @@ import logging
 from typing import Any, Sequence
 
 import numpy as np
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 import pandas as pd
 
 # Tiny floor on per-row weight to avoid zero-sum / all-zero degenerate
@@ -116,7 +117,7 @@ def _decay_weights(batch_sizes: list[int], decay: float) -> np.ndarray:
     ``(1 - decay) ** k`` clamped to ``_WEIGHT_FLOOR``.
     """
     if not batch_sizes:
-        return np.asarray([], dtype=np.float64)
+        return np.asarray([], dtype=_crit_np_dtype())
     n_batches = len(batch_sizes)
     parts = []
     for idx, size in enumerate(batch_sizes):
@@ -124,8 +125,8 @@ def _decay_weights(batch_sizes: list[int], decay: float) -> np.ndarray:
         # Age (in batches, from the most recent) = n_batches - 1 - idx.
         age = n_batches - 1 - idx
         w = max((1.0 - float(decay)) ** age, _WEIGHT_FLOOR)
-        parts.append(np.full(int(size), w, dtype=np.float64))
-    return np.concatenate(parts) if parts else np.asarray([], dtype=np.float64)
+        parts.append(np.full(int(size), w, dtype=_crit_np_dtype()))
+    return np.concatenate(parts) if parts else np.asarray([], dtype=_crit_np_dtype())
 
 
 def _apply_rolling_window(
@@ -279,10 +280,10 @@ def partial_fit(
     if decay > 0.0:
         weights = _decay_weights(batch_sizes, decay)
     else:
-        weights = np.ones(len(X_buf), dtype=np.float64)
+        weights = np.ones(len(X_buf), dtype=_crit_np_dtype())
 
     if sample_weight is not None:
-        sw_new = np.asarray(sample_weight, dtype=np.float64).ravel()
+        sw_new = np.asarray(sample_weight, dtype=_crit_np_dtype()).ravel()
         kept_new = batch_sizes[-1]
         # The trailing-slice recovery below is only a legitimate
         # recovery when the CURRENT batch was actually truncated by the rolling window (kept_new < len(X_df)

@@ -143,12 +143,12 @@ def _score_generation_gpu(cp, Ba, Bb, Ca, Cb, y_codes_dev, ky: int, n_bins: int,
         norm = cp.where(norm > 1e-12, norm, 1.0)
         Ca = Ca / norm[:, None]
         Cb = Cb / norm[:, None]
-        penalty = cp.zeros(P, dtype=cp.float64)
+        penalty = cp.zeros(P, dtype=cp.float64)  # Intentional float64: accumulator or output buffer; statistic at float64
     elif l2_penalty > 0.0:
         s_norm = (Ca * Ca).sum(axis=1) + (Cb * Cb).sum(axis=1)
         penalty = l2_penalty * s_norm / (s_norm + 1.0)  # saturating parity with _l2_penalty_value
     else:
-        penalty = cp.zeros(P, dtype=cp.float64)
+        penalty = cp.zeros(P, dtype=cp.float64)  # Intentional float64: accumulator or output buffer; statistic at float64
 
     HA = Ba @ Ca.T  # (n, P)
     HB = Bb @ Cb.T
@@ -227,7 +227,7 @@ def run_cupy_kernel_search(*, ca_size: int, cb_size: int, coef_range: tuple, n_t
     pop = rng.uniform(lo, hi, size=(batch_size, dim))
     if warm_start_seeds:
         for i, s in enumerate(warm_start_seeds[: min(len(warm_start_seeds), batch_size)]):
-            sv = np.asarray(s, dtype=np.float64).ravel()
+            sv = np.asarray(s, dtype=np.float64).ravel()  # Intentional float64: polynomial coefficient statistic (host)
             if sv.size == dim:
                 pop[i] = np.clip(sv, lo, hi)
 

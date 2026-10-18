@@ -12,6 +12,7 @@ from __future__ import annotations
 from typing import Any, Iterable, Sequence
 
 import numpy as np
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 
 from mlframe.feature_selection.filters import guarded_scale
 import pandas as pd
@@ -236,12 +237,12 @@ def calculate_Zscore(array: Any) -> np.ndarray:
     Calculates the Z-score of an array
 
     Args:
-        array: Array-like of numbers, converted to float64.
+        array: Array-like of numbers, converted to the feature-selection float dtype.
 
     Returns:
         normalised array
     """
-    array = np.asarray(array, dtype=np.float64)
+    array = np.asarray(array, dtype=_crit_np_dtype())
     mean_value = np.mean(array)
     std_value = float(guarded_scale(np.std(array), np.abs(array).max()))
     zscores: np.ndarray = (array - mean_value) / std_value

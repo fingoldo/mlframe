@@ -27,7 +27,7 @@ def _ucb_stop_remaining_cannot_win(
     """
     if len(remaining_proxy_losses) == 0:
         return True
-    lower_bounds = np.asarray(remaining_proxy_losses, dtype=np.float64) + float(ucb_slack)
+    lower_bounds = np.asarray(remaining_proxy_losses, dtype=np.float64) + float(ucb_slack)  # Intentional float64: proxy-loss statistic compared at full precision in the refine bounds
     threshold = float(best_stable_score) + float(parsimony_tol) * abs(float(best_stable_score))
     return bool(np.min(lower_bounds) > threshold)
 
@@ -45,8 +45,8 @@ def _ucb_auto_slack(evaluated_proxy, evaluated_honest_mean, stdev_multiplier=1.5
 
     Returns 0.0 when no evaluated pairs supplied (caller has not yet started; cannot stop).
     """
-    p = np.asarray(evaluated_proxy, dtype=np.float64)
-    h = np.asarray(evaluated_honest_mean, dtype=np.float64)
+    p = np.asarray(evaluated_proxy, dtype=np.float64)  # Intentional float64: proxy-loss statistic compared at full precision in the refine bounds
+    h = np.asarray(evaluated_honest_mean, dtype=np.float64)  # Intentional float64: proxy-loss statistic compared at full precision in the refine bounds
     if p.size == 0 or h.size == 0:
         return 0.0
     delta = h - p
@@ -96,7 +96,7 @@ def _collect_candidate_scores(candidates, per_candidate, ranked, member_cols, la
     for ci, (proxy_loss_val, idx) in enumerate(candidates):
         if ci not in per_candidate:
             continue
-        scores = np.asarray(per_candidate[ci], dtype=np.float64)
+        scores = np.asarray(per_candidate[ci], dtype=np.float64)  # Intentional float64: proxy-loss statistic compared at full precision in the refine bounds
         mean, std = float(scores.mean()), float(scores.std())
         # Parsimony cardinality = deployed feature count (expanded members), not unit count.
         ranked.append(dict(features=tuple(idx), n_members=len(member_cols[ci]),
@@ -379,7 +379,7 @@ def _within_cluster_ref_m_step3_range_st_rounds(st, current, parsimony_tol, prot
                                              X_holdout, y_holdout, classification, metric, n_jobs, cache=cache,
                                              n_estimators_cap=cap, template_id=tid,
                                              inner_n_jobs_cap=inner_n_jobs_cap, disk_cache=disk_cache)
-            losses_arr = np.asarray(st.losses, dtype=np.float64)
+            losses_arr = np.asarray(st.losses, dtype=np.float64)  # Intentional float64: proxy-loss statistic compared at full precision in the refine bounds
             best_i = int(np.argmin(losses_arr))
             if losses_arr[best_i] > st.cur_threshold:
                 break

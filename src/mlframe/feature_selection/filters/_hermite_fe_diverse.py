@@ -8,6 +8,7 @@ from __future__ import annotations
 import numpy as np
 
 from mlframe.feature_selection.filters._safe_scale import unit_vector
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 
 
 def _select_diverse_topm(history: list, top_m: int, min_l2_distance: float = 0.3) -> list:
@@ -26,7 +27,7 @@ def _select_diverse_topm(history: list, top_m: int, min_l2_distance: float = 0.3
 
     def _padded_vec(coef_a, coef_b):
         """Concatenate + zero-pad two coefficient vectors to a fixed ``max_a + max_b`` length for cross-degree comparison."""
-        v = np.zeros(max_a + max_b, dtype=np.float64)
+        v = np.zeros(max_a + max_b, dtype=_crit_np_dtype())
         v[: coef_a.shape[0]] = coef_a
         v[max_a : max_a + coef_b.shape[0]] = coef_b
         return v

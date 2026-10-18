@@ -60,6 +60,7 @@ import numpy as np
 from mlframe.utils.log_throttle import log_throttle
 
 from ._fe_stability_vote import _marginal_mi as _marginal_mi_codes
+from ._fe_usability_signal import _crit_np_dtype
 
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
@@ -193,7 +194,7 @@ def selection_stability_report(
             # One gather for the whole resample, then a view per candidate. Indexing ``cand_codes[idx, c]`` inside the loop allocated a fresh
             # full-length column for every candidate of every resample, K * n_cand gathers where K do.
             cand_b = cand_codes[idx]
-            rel = np.empty(n_cand, dtype=np.float64)
+            rel = np.empty(n_cand, dtype=_crit_np_dtype())
             for c in range(n_cand):
                 rel[c] = _marginal_mi_codes(cand_b[:, c], y_b)
             # Mirror the in-fit relevance ranking: top-n_selected by relevance MI. np.argpartition sorts NaN to the HIGH end, so a degenerate

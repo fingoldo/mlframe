@@ -47,6 +47,7 @@ from pathlib import Path
 from typing import Any, TypeVar
 
 import numpy as np
+from ._fe_usability_signal import _crit_np_dtype
 
 logger = logging.getLogger(__name__)
 
@@ -361,8 +362,8 @@ def infonet_mi(x: np.ndarray, y: np.ndarray, *, point_cloud_size: int = 4781, de
     import sys
     from scipy.stats import rankdata
     model = _get_infonet_model(device=device)
-    x = np.asarray(x, dtype=np.float64).ravel()
-    y = np.asarray(y, dtype=np.float64).ravel()
+    x = np.asarray(x, dtype=_crit_np_dtype()).ravel()
+    y = np.asarray(y, dtype=_crit_np_dtype()).ravel()
     if x.size != y.size:
         raise ValueError(f"len mismatch: x={x.size} y={y.size}")
     n = x.size
@@ -538,14 +539,14 @@ def _compute_mist_calibration(cache_key, device, N, seed, n_calibration_per_rho,
             for _ in range(int(n_calibration_per_rho)):
                 x_cal = rng.standard_normal(N)
                 noise = rng.standard_normal(N) * sigma
-                y_cal = (x_cal + noise > 0).astype(np.float64)
+                y_cal = (x_cal + noise > 0).astype(_crit_np_dtype())
                 Xc = x_cal.reshape(-1, 1).tolist()
                 Yc = y_cal.reshape(-1, 1).tolist()
                 per_sigma_raw.append(float(model.estimate_point(Xc, Yc)))
                 # Truth via Mixed-KSG on larger N for stability.
                 truth_x = rng.standard_normal(20000)
                 truth_noise = rng.standard_normal(20000) * sigma
-                truth_y = (truth_x + truth_noise > 0).astype(np.float64)
+                truth_y = (truth_x + truth_noise > 0).astype(_crit_np_dtype())
                 per_sigma_truth.append(float(mixed_ksg_mi(truth_x, truth_y, k=5)))
             raw_truth_pairs.append((float(np.mean(per_sigma_raw)), float(np.mean(per_sigma_truth))))
     elif y_kind == "multiclass":
@@ -561,7 +562,7 @@ def _compute_mist_calibration(cache_key, device, N, seed, n_calibration_per_rho,
                     # K equal-frequency classes from rank(x + noise).
                     z = x_cal + noise
                     ranks = np.argsort(np.argsort(z))
-                    y_cal = (ranks * K // N).astype(np.float64)
+                    y_cal = (ranks * K // N).astype(_crit_np_dtype())
                     Xc = x_cal.reshape(-1, 1).tolist()
                     Yc = y_cal.reshape(-1, 1).tolist()
                     per_run.append(float(model.estimate_point(Xc, Yc)))
@@ -570,7 +571,9 @@ def _compute_mist_calibration(cache_key, device, N, seed, n_calibration_per_rho,
     else:
         raise ValueError(f"_calibrate_mist: unknown y_kind={y_kind!r}")
     raw_truth_pairs.sort(key=lambda kv: kv[0])
+    # Intentional float64: calibration reference oracle (truth grid) compared against the f64 MI estimates.
     raw_sorted = np.asarray([rt[0] for rt in raw_truth_pairs], dtype=np.float64)
+    # Intentional float64: calibration reference oracle (truth grid) compared against the f64 MI estimates.
     nats_sorted = np.asarray([rt[1] for rt in raw_truth_pairs], dtype=np.float64)
     # Isotonic pass: enforce monotonicity.
     for i in range(1, nats_sorted.size):
@@ -649,8 +652,8 @@ def mist_mi(x: np.ndarray, y: np.ndarray, *, loss: str = "mse", calibrated: bool
     HuggingFace weights: grgera/MIST (MSE) and grgera/MIST-QR (QR).
     """
     model = _get_mist_hf_model(loss=loss, device=device)
-    x = np.asarray(x, dtype=np.float64).ravel()
-    y = np.asarray(y, dtype=np.float64).ravel()
+    x = np.asarray(x, dtype=_crit_np_dtype()).ravel()
+    y = np.asarray(y, dtype=_crit_np_dtype()).ravel()
     if x.size != y.size:
         raise ValueError(f"len mismatch: x={x.size} y={y.size}")
     if x.size < 16:

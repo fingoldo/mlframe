@@ -15,6 +15,7 @@ logger = logging.getLogger(__name__)
 
 
 import numpy as np, pandas as pd
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 import polars as pl, polars.selectors as cs
 
 import textwrap
@@ -316,7 +317,8 @@ def _aggregate_permuted_mis_per_target(target_indices, target_columns, all_permu
 
         # Raw observed MI against RAW permuted MI: a permutation keeps both marginals, so the null carries the same
         # Miller-Madow floor and the two share one scale. Debiasing only the observed side rejected real many-bin signals.
-        raw_mi_row = np.asarray(original_mi_results[target_idx], dtype=np.float64)
+        # Intentional float64: raw MI statistics feed the gammaincc p-value null; kept f64 so the observed-vs-null comparison matches the scalar reference.
+        raw_mi_row = np.asarray(original_mi_results[target_idx], dtype=_crit_np_dtype())
         # Vectorized over ALL candidate columns in one gammaincc (was a per-column analytic_mi_null loop -> 138k scalar
         # chi2.sf calls, the #1 MRMR-screen hotspot). Bit-identical to the scalar loop.
         _null_mean_row, p_values = analytic_mi_null_batch(raw_mi_row, n_samples, occupied_bins_per_col[: bins.shape[1]], by)

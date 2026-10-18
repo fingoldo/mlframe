@@ -59,6 +59,7 @@ def _winner_from_per_candidate(per_candidate, candidates, member_cols, lambda_st
     for ci, (_proxy_loss_val, idx) in enumerate(candidates):
         if ci not in per_candidate or not per_candidate[ci]:
             continue
+        # Intentional float64: shap-package import boundary: float64 kept, cross-package dtype switch deferred (decision recorded).
         scores = np.asarray(per_candidate[ci], dtype=np.float64)
         mean, std = float(scores.mean()), float(scores.std())
         ranked.append(dict(features=tuple(idx), n_members=len(member_cols[ci]), stable_score=mean + lambda_stab * std))
@@ -151,6 +152,7 @@ class _RevalRun:
         # (kind="stable" argsort), and ALL seeds are sampled BEFORE the gate decides any batch - so n_candidates_evaluated
         # is the only variable between UCB and the legacy path; ranked entries for evaluated candidates are bit-identical
         # given identical seed + cache state.
+        # Intentional float64: shap-package import boundary: float64 kept, cross-package dtype switch deferred (decision recorded).
         proxy_losses_arr = np.asarray([float(c[0]) for c in candidates], dtype=np.float64)
         # ``candidate_score`` (iter34): the caller's already-computed per-candidate score (corrector-
         # predicted honest loss when the bias corrector fit cleanly, raw proxy_loss otherwise). The
@@ -160,6 +162,7 @@ class _RevalRun:
         # the slack auto-calibrates the residual gap. When ``None`` (standalone tests, legacy callers),
         # falls back to raw proxy_loss - the gate still works but may rarely fire on regimes whose
         # proxy_loss spread is too tight to discriminate (corrector-aware score widens the spread).
+        # Intentional float64: shap-package import boundary: float64 kept, cross-package dtype switch deferred (decision recorded).
         self.score_arr = np.asarray(candidate_score, dtype=np.float64) if candidate_score is not None else proxy_losses_arr
         # Use the CALLER'S order (the facade already sorts top_n by bias-corrector + uncertainty score,
         # which is a strictly stronger ordering than raw proxy_loss alone). Re-sorting on proxy_loss
@@ -250,6 +253,7 @@ class _RevalRun:
             ev_proxy: list[float] = []
             ev_honest_mean: list[float] = []
             for ci in evaluated_idx_set:
+                # Intentional float64: shap-package import boundary: float64 kept, cross-package dtype switch deferred (decision recorded).
                 scores = np.asarray(self.per_candidate[ci], dtype=np.float64)
                 mean = float(scores.mean())
                 std = float(scores.std())
@@ -508,8 +512,10 @@ def active_learning_revalidate(
     # (cols, seed, template) tuple seen on a prior fit. Disabled when ``disk_cache_dir is None``.
     disk_cache = _open_disk_cache(disk_cache_dir)
     cd = {k: list(v) for k, v in corrector_data.items()}  # mutable copy we augment each round
+    # Intentional float64: shap-package import boundary: float64 kept, cross-package dtype switch deferred (decision recorded).
     proxy_all = np.array([c[0] for c in candidates], dtype=np.float64)
     idxs = [c[1] for c in candidates]
+    # Intentional float64: shap-package import boundary: float64 kept, cross-package dtype switch deferred (decision recorded).
     cards_all = np.array([len(i) for i in idxs], dtype=np.float64)
     redund_all = subset_redundancy_many(phi, idxs)
     member_cols = [_expand(i, unit_to_members) for i in idxs]

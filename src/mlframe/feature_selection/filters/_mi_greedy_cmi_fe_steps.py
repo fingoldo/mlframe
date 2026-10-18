@@ -8,6 +8,7 @@ import threading
 from typing import Callable, Optional
 
 import numpy as np
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 
 try:
     from numba import njit, prange
@@ -620,7 +621,7 @@ def _greedy_cmi_fe_constr_step1_content_hash_already(cand_names, engineered, nbi
             import cupy as _cp
 
             for _name in cand_names:
-                _codes_dev = _quantile_bin_gpu_resident(engineered[_name].to_numpy(dtype=np.float64), nbins)
+                _codes_dev = _quantile_bin_gpu_resident(engineered[_name].to_numpy(dtype=_crit_np_dtype()), nbins)
                 if _codes_dev is None:
                     cand_bins_dev = {}
                     break
@@ -707,7 +708,7 @@ def _greedy_cmi_fe_constr_step2_rng_raw_small(cand_names, rng_floor, y_bin, z_jo
                 _Xs = np.empty((int(y_shuf.shape[0]), len(sample_names)), dtype=np.int64)
                 for _j, _nm in enumerate(sample_names):
                     _Xs[:, _j] = _host_bins(_nm)
-                _cmis = np.asarray(batched_cmi_gpu(_Xs, y_shuf, _zc), dtype=np.float64)
+                _cmis = np.asarray(batched_cmi_gpu(_Xs, y_shuf, _zc), dtype=np.float64)  # Intentional float64: batched CMI statistic vector compared at full precision
                 return float(np.quantile(_cmis, 0.95))
         except Exception as e:
             # Same reasoning as the two kernel handlers above: the CPU path below keeps the answer correct, so

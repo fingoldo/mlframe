@@ -56,6 +56,7 @@ from itertools import combinations
 from typing import Optional, Sequence
 
 import numpy as np
+from ._fe_usability_signal import _crit_np_dtype
 import pandas as pd
 
 from ._fold_cell_stats import fold_cell_sum_cnt
@@ -219,10 +220,12 @@ def _bin_target(y: np.ndarray, n_bins: int = 10) -> np.ndarray:
         _, codes = np.unique(y_arr, return_inverse=True)
         return cast("np.ndarray", codes.astype(np.int64))
     if y_arr.dtype.kind in "fc" and int(np.unique(y_arr).size) > n_bins:
+        # Intentional float64: target labels kept f64 (exact binning / comparison contract)
         q = np.quantile(y_arr.astype(np.float64), np.linspace(0, 1, n_bins + 1))
         q = np.unique(q)
         if q.size < 2:
             return np.zeros(len(y_arr), dtype=np.int64)
+        # Intentional float64: target labels kept f64 (exact binning / comparison contract)
         return np.searchsorted(q[1:-1], y_arr.astype(np.float64), side="right").astype(np.int64)
     _, codes = np.unique(y_arr, return_inverse=True)
     return cast("np.ndarray", codes.astype(np.int64))
@@ -385,6 +388,7 @@ def _kfold_target_encode_codes(
     # all(False) and the loop never writes a non-default oof value) with no warning.
     if n_folds < 2:
         raise ValueError(f"n_folds must be >= 2; got {n_folds}")
+    # Intentional float64: target labels kept f64 (exact binning / comparison contract)
     y_arr = np.asarray(y, dtype=np.float64).ravel()
     n = len(codes)
     global_mean = float(y_arr.mean()) if n else 0.0
@@ -395,6 +399,7 @@ def _kfold_target_encode_codes(
     fold_ids = np.empty(n, dtype=np.int64)
     fold_ids[perm] = np.arange(n) % int(n_folds)
 
+    # Intentional float64: out-of-fold accumulator kept f64
     oof = np.full(n, global_mean, dtype=np.float64)
     codes64 = codes.astype(np.int64, copy=False)
     for f in range(int(n_folds)):
@@ -402,6 +407,7 @@ def _kfold_target_encode_codes(
         if not train_mask.any():
             continue
         cell_sum, cell_cnt = fold_cell_sum_cnt(codes64, y_arr, fold_ids, f, n_cells)
+        # Intentional float64: per-cell means accumulator kept f64
         means = np.full(n_cells, global_mean, dtype=np.float64)
         nz = cell_cnt > 0.0
         if nz.any():
@@ -507,7 +513,7 @@ def hybrid_cat_pair_fe(
                 encoding="target", te_lookup=te_lookup, global_mean=global_mean,
             ))
         else:
-            new_cols[name] = codes.astype(np.float64)
+            new_cols[name] = codes.astype(_crit_np_dtype())
             recipes.append(build_cat_pair_cross_recipe(
                 name=name, cat_i=cat_i, cat_j=cat_j, mapping=mapping,
                 encoding="raw",
@@ -562,7 +568,7 @@ def apply_cat_pair_cross(
         return float(mapping.get((si, sj), sentinel))
 
     if n == 0:
-        return np.empty(0, dtype=np.float64)
+        return np.empty(0, dtype=_crit_np_dtype())
     # bench-attempt-rejected (2026-06-02, n=200k, ki=kj=15): a pd.factorize-fold
     # vectorization (factorize cat_i + cat_j, fold the two dense codes into one
     # int key, factorize that, resolve mapping.get per distinct pair, gather)
@@ -579,5 +585,5 @@ def apply_cat_pair_cross(
     # across n=5k..1M, ki/kj=15/50.
     return np.array(
         [_value_for_pair(si, sj) for si, sj in zip(cats_i.tolist(), cats_j.tolist())],
-        dtype=np.float64,
+        dtype=_crit_np_dtype(),
     )

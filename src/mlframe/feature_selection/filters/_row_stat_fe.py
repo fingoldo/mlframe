@@ -17,6 +17,7 @@ import itertools
 from typing import TYPE_CHECKING, Any, Callable, Optional, Sequence
 
 import numpy as np
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 import pandas as pd
 
 from ._fe_gain_stats import held_out_codes, paired_gain_se, plugin_mi_of_codes, quantile_codes
@@ -50,7 +51,7 @@ def build_row_stat_recipe(*, name: str, src: Sequence[str], stat: str, mu: np.nd
         name=name,
         kind="row_stat",
         src_names=tuple(str(c) for c in src),
-        extra={"stat": str(stat), "mu": np.asarray(mu, dtype=np.float64).copy(), "sd": np.asarray(sd, dtype=np.float64).copy(), "lo": float(lo), "hi": float(hi)},
+        extra={"stat": str(stat), "mu": np.asarray(mu, dtype=_crit_np_dtype()).copy(), "sd": np.asarray(sd, dtype=_crit_np_dtype()).copy(), "lo": float(lo), "hi": float(hi)},
     )
 
 def _standardised_block(A: np.ndarray, mu: np.ndarray, sd: np.ndarray) -> np.ndarray:
@@ -68,7 +69,7 @@ def apply_row_stat_recipe(recipe: EngineeredRecipe, X: pd.DataFrame | pl.DataFra
     key = (tuple(recipe.src_names), ex["mu"].tobytes(), ex["sd"].tobytes())
     Zt = _block_cache.get(key) if _block_cache is not None else None
     if Zt is None:
-        A = np.column_stack([np.asarray(extract_column(X, c), dtype=np.float64) for c in recipe.src_names])
+        A = np.column_stack([np.asarray(extract_column(X, c), dtype=_crit_np_dtype()) for c in recipe.src_names])
         Zt = _standardised_block(A, ex["mu"], ex["sd"])
         if _block_cache is not None:
             _block_cache[key] = Zt
@@ -85,7 +86,7 @@ def _pool_columns(X: "pd.DataFrame", cols: Sequence[str], rows: np.ndarray, code
     """Up to ``MAX_POOL`` numeric columns, ranked by the larger of the MI of the column and the MI of its distance from the median (a spread effect is symmetric and invisible to the first)."""
     scored = []
     for c in cols:
-        x = np.asarray(X[c].to_numpy(), dtype=np.float64)[rows]
+        x = np.asarray(X[c].to_numpy(), dtype=_crit_np_dtype())[rows]
         finite = np.isfinite(x)
         if finite.sum() < _MIN_ROWS or np.unique(x[finite]).size <= FEW_CLASSES_MAX:
             continue
@@ -161,7 +162,7 @@ def row_stat_candidates(X: "pd.DataFrame", y: np.ndarray, cols: Sequence[str], *
     pool = _pool_columns(X, cols, rows, codes, ky)
     if len(pool) < 2:
         return []
-    A = np.column_stack([np.asarray(X[c].to_numpy(), dtype=np.float64)[rows] for c in pool])  # the scan rows only: the full columns are touched for the accepted statistics alone
+    A = np.column_stack([np.asarray(X[c].to_numpy(), dtype=_crit_np_dtype())[rows] for c in pool])  # the scan rows only: the full columns are touched for the accepted statistics alone
     mu = np.nanmean(A, axis=0)
     sd = np.nanstd(A, axis=0)
     sd = np.where(sd > 0, sd, 1.0)

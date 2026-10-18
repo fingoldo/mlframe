@@ -29,6 +29,7 @@ import logging
 from typing import Any, Sequence, cast
 
 import numpy as np
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
@@ -49,8 +50,8 @@ def _is_device(x) -> bool:
 
 
 def _flat(x):
-    """1-D float64 view of a host or device column."""
-    return x.astype("float64", copy=False).ravel() if _is_device(x) else np.asarray(x, dtype=np.float64).ravel()
+    """1-D double view of a host or device column."""
+    return x.astype(_crit_np_dtype(), copy=False).ravel() if _is_device(x) else np.asarray(x, dtype=_crit_np_dtype()).ravel()
 
 
 def _clean(x):
@@ -85,7 +86,7 @@ def replay_candidate_continuous(recipe: Any, X: Any, apply_fn: Any) -> Any:
                 return dev.ravel()
     except Exception as e:
         logger.debug("device replay of the retention candidate failed, using the host replay: %s", e)
-    host = np.asarray(apply_fn(recipe, X), dtype=np.float64).ravel()
+    host = np.asarray(apply_fn(recipe, X), dtype=_crit_np_dtype()).ravel()
     return np.nan_to_num(host, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
 
 
@@ -94,7 +95,7 @@ def _to_host(x) -> np.ndarray:
     if _is_device(x):
         import cupy as cp
 
-        return np.asarray(cp.asnumpy(x), dtype=np.float64)
+        return np.asarray(cp.asnumpy(x), dtype=_crit_np_dtype())
     return cast(np.ndarray, x)
 
 

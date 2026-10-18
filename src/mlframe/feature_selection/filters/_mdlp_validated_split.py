@@ -181,7 +181,7 @@ def _permutation_null_gain_njit(x_sorted: np.ndarray, y_compact: np.ndarray, n_c
     see ``bench_mdlp_permutation_null_parallel.py``.
     """
     n = y_compact.shape[0]
-    null_gains = np.empty(n_permutations, dtype=np.float64)
+    null_gains = np.empty(n_permutations, dtype=np.float64)  # Intentional float64: null-gain accumulator for the MDLP permutation test
     for p in numba.prange(n_permutations):
         np.random.seed(seed + p)
         y_perm = y_compact.copy()
@@ -321,7 +321,7 @@ def _mdlp_permutation_batch_njit(
     # level exactly one, and it is the LARGEST node), so a prange over nodes ran those levels' whole
     # n_permutations x O(n) scans on a single thread. Each draw seeds itself (base_seed + p) exactly as before,
     # so the null gains - and every accept decision - are bit-identical to the per-node loop.
-    null_all = np.empty((n_nodes, n_permutations), dtype=np.float64)
+    null_all = np.empty((n_nodes, n_permutations), dtype=np.float64)  # Intentional float64: null-gain accumulator for the MDLP permutation test
     for k in numba.prange(n_nodes * n_permutations):
         node = k // n_permutations
         p = k - node * n_permutations
@@ -446,10 +446,10 @@ def _mdlp_recurse_validated_bfs(
         if pending_permutation:
             max_n = max(len(p[0]) for p in pending_permutation)
             n_nodes = len(pending_permutation)
-            x_padded = np.zeros((n_nodes, max_n), dtype=np.float64)
+            x_padded = np.zeros((n_nodes, max_n), dtype=np.float64)  # Intentional float64: padded per-node operand; kernel contract is float64
             y_padded = np.zeros((n_nodes, max_n), dtype=np.int64)
             node_sizes = np.empty(n_nodes, dtype=np.int64)
-            node_gains = np.empty(n_nodes, dtype=np.float64)
+            node_gains = np.empty(n_nodes, dtype=np.float64)  # Intentional float64: per-node gain accumulator
             n_classes_arr = np.empty(n_nodes, dtype=np.int64)
             base_seeds = np.empty(n_nodes, dtype=np.int64)
             # Bonferroni alpha can differ per node (depth-decay) but is uniform within one BFS level
@@ -628,17 +628,17 @@ def mdlp_bin_edges_validated(
         _y_arr = _y_arr[_finite_mask]
     y_i = _y_arr.astype(np.int64)
     if x.size == 0:
-        return np.array([-np.inf, np.inf], dtype=np.float64)
+        return np.array([-np.inf, np.inf], dtype=np.float64)  # Intentional float64: empty split-edge vector keeps the float64 edge contract
     x, y_i = _dedupe_xy(x, y_i)
     sorter = np.argsort(x)
-    x_sorted = np.ascontiguousarray(x[sorter].astype(np.float64))
+    x_sorted = np.ascontiguousarray(x[sorter].astype(np.float64))  # Intentional float64: sorted operand for the MDLP split, compared at full precision
     y_sorted = np.ascontiguousarray(y_i[sorter])
     tree_wide_alpha = float(alpha) / max(1, x_sorted.size // int(min_split_size)) if tree_wide_bonferroni else None
     splits = _mdlp_recurse_validated_bfs(
         x_sorted, y_sorted, int(min_split_size), int(max_depth), float(alpha), int(n_permutations), int(seed), bool(bonferroni), tree_wide_alpha,
     )
     splits.sort()
-    edges = np.concatenate([[-np.inf], np.asarray(splits, dtype=np.float64), [np.inf]])
+    edges = np.concatenate([[-np.inf], np.asarray(splits, dtype=np.float64), [np.inf]])  # Intentional float64: split-edge output contract
     return edges
 
 
@@ -856,7 +856,7 @@ def mdlp_bin_edges_oos_validated(
         _y_arr = _y_arr[_finite_mask]
     y_i = _y_arr.astype(np.int64)
     if x.size == 0:
-        return np.array([-np.inf, np.inf], dtype=np.float64)
+        return np.array([-np.inf, np.inf], dtype=np.float64)  # Intentional float64: empty split-edge vector keeps the float64 edge contract
 
     # Confirmed by direct reproduction (the exact
     # duplicate-row fixture from test_duplicate_rows_do_not_over_split_pure_noise) that this function DID
@@ -879,17 +879,17 @@ def mdlp_bin_edges_oos_validated(
     x_holdout, y_holdout = x[holdout_idx], y_i[holdout_idx]
 
     sorter = np.argsort(x_train_raw)
-    x_train_sorted = np.ascontiguousarray(x_train_raw[sorter].astype(np.float64))
+    x_train_sorted = np.ascontiguousarray(x_train_raw[sorter].astype(np.float64))  # Intentional float64: sorted operand for the MDLP split, compared at full precision
     y_train_sorted = np.ascontiguousarray(y_train_raw[sorter])
 
     splits: list = []
     _mdlp_recurse_oos_validated(
-        x_train_sorted, y_train_sorted, np.asarray(x_holdout, dtype=np.float64), y_holdout,
+        x_train_sorted, y_train_sorted, np.asarray(x_holdout, dtype=np.float64), y_holdout,  # Intentional float64: holdout operand for the MDLP split, compared at full precision
         splits, 0, int(min_split_size), int(max_depth), float(oos_tolerance),
         val_min_split_size=(None if val_min_split_size is None else int(val_min_split_size)),
     )
     splits.sort()
-    edges = np.concatenate([[-np.inf], np.asarray(splits, dtype=np.float64), [np.inf]])
+    edges = np.concatenate([[-np.inf], np.asarray(splits, dtype=np.float64), [np.inf]])  # Intentional float64: split-edge output contract
     return edges
 
 
@@ -921,7 +921,7 @@ def edges_fayyad_irani_validated(
         holdout_frac=val_frac, seed=seed,
     )
     if full_edges.size <= 2:
-        return np.array([], dtype=np.float64)
+        return np.array([], dtype=np.float64)  # Intentional float64: empty split-edge vector keeps the float64 edge contract
     inner = full_edges[1:-1]
     inner = inner[np.isfinite(inner)]
-    return np.asarray(inner, dtype=np.float64)
+    return np.asarray(inner, dtype=np.float64)  # Intentional float64: split-edge output contract

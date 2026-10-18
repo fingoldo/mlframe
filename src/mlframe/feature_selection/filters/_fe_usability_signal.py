@@ -145,7 +145,7 @@ except (ValueError, TypeError):
     _ABS_PEARSON_MAX_ROWS = 30000
 
 
-def _crit_np_dtype():
+def _crit_np_dtype() -> type[np.floating]:
     """np.float32 when the precision-critical relaxation is on (``MLFRAME_CRIT_DTYPE_RELAXED``, DEFAULT ON),
     else np.float64 - the HOST/numpy mirror of ``_fe_gpu_batch._devices.crit_float_dtype`` (read directly here
     to keep this a numpy-only leaf module with no cupy import). The usability |corr| feeds WIDE-margin

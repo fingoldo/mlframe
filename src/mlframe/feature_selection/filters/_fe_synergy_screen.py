@@ -54,9 +54,9 @@ def _combo_mm_mi_njit(combo_codes, cards, target, kt, n_cells):
     order = combo_codes.shape[1]
     if n == 0 or kt <= 0 or n_cells <= 0:
         return 0.0
-    joint = np.zeros(n_cells * kt, dtype=np.float64)
-    px = np.zeros(n_cells, dtype=np.float64)
-    py = np.zeros(kt, dtype=np.float64)
+    joint = np.zeros(n_cells * kt, dtype=np.float64)  # Intentional float64: accumulator or output buffer; statistic at float64
+    px = np.zeros(n_cells, dtype=np.float64)  # Intentional float64: accumulator or output buffer; statistic at float64
+    py = np.zeros(kt, dtype=np.float64)  # Intentional float64: accumulator or output buffer; statistic at float64
     for r in range(n):
         cell = 0
         for c in range(order):
@@ -102,9 +102,9 @@ def _combo_mm_mi_cols_njit(c0, c1, c2, order, cards, target, kt, n_cells):
     n = c0.shape[0]
     if n == 0 or kt <= 0 or n_cells <= 0:
         return 0.0
-    joint = np.zeros(n_cells * kt, dtype=np.float64)
-    px = np.zeros(n_cells, dtype=np.float64)
-    py = np.zeros(kt, dtype=np.float64)
+    joint = np.zeros(n_cells * kt, dtype=np.float64)  # Intentional float64: accumulator or output buffer; statistic at float64
+    px = np.zeros(n_cells, dtype=np.float64)  # Intentional float64: accumulator or output buffer; statistic at float64
+    py = np.zeros(kt, dtype=np.float64)  # Intentional float64: accumulator or output buffer; statistic at float64
     card1 = cards[1]
     if order == 2:
         for r in range(n):
@@ -184,7 +184,7 @@ def joint_synergy_mi(code_x: np.ndarray, code_y: np.ndarray, target_codes: np.nd
     ky = int(yt.max()) + 1
     if min_rows_per_cell > 0.0 and n < min_rows_per_cell * float(kx) * float(ky):
         return 0.0
-    joint = np.zeros((kx, ky), dtype=np.float64)
+    joint = np.zeros((kx, ky), dtype=np.float64)  # Intentional float64: accumulator or output buffer; statistic at float64
     np.add.at(joint, (jc, yt), 1.0)
     joint /= n
     px = joint.sum(axis=1)

@@ -17,6 +17,7 @@ existing extra-basis families are evaluated).
 from __future__ import annotations
 
 import numpy as np
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 
 from mlframe.feature_selection.filters._safe_scale import unit_interval
 from scipy.special import comb, eval_jacobi, gegenbauer
@@ -31,7 +32,7 @@ __all__ = [
 
 def _to_unit(x: np.ndarray) -> np.ndarray:
     """Affinely map ``x`` to [0, 1] using its own min/range; +1e-12 guards against a zero-range (constant) column."""
-    c = np.asarray(x, dtype=np.float64)
+    c = np.asarray(x, dtype=_crit_np_dtype())
 
     return np.asarray(unit_interval(c))
 
@@ -64,5 +65,5 @@ def fit_basis_mi(design: np.ndarray, y: np.ndarray, nbins: int = 12) -> float:
     """Least-squares fit of the design matrix to y, return MI of the fitted column vs y."""
     from ._pairwise_modular_fe import _mi
 
-    coef, *_ = np.linalg.lstsq(design, np.asarray(y, dtype=np.float64), rcond=None)
+    coef, *_ = np.linalg.lstsq(design, np.asarray(y, dtype=_crit_np_dtype()), rcond=None)
     return _mi(design @ coef, np.asarray(y).astype(np.int64), nbins=nbins)

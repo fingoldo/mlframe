@@ -93,6 +93,7 @@ def _make_batch_mi_noise_gate_inputs(dims: dict):
     factors_nbins = np.full(K, nbins, dtype=np.int64)
     classes_y = rng.integers(0, _BMING_SWEEP_N_CLASSES_Y, size=n).astype(np.int32)
     classes_y_safe = classes_y.copy()
+    # Intentional float64: marginal class frequencies feed the MI entropy sums in the kernel (accumulator), kept at full precision
     freqs_y = np.bincount(classes_y, minlength=_BMING_SWEEP_N_CLASSES_Y).astype(np.float64) / max(1, n)
     return (
         disc_2d, factors_nbins, classes_y, classes_y_safe, freqs_y,

@@ -14,6 +14,8 @@ import threading
 from typing import Any, Optional
 
 import numpy as np
+from mlframe.feature_selection.filters._fe_gpu_batch._devices import crit_float_dtype
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +39,7 @@ def _interpolate(sorted_lo: np.ndarray, sorted_hi: np.ndarray, virtual: np.ndarr
 
 def _indices(n: int, qs: np.ndarray) -> "tuple[np.ndarray, np.ndarray, np.ndarray]":
     """Bracketing indices and virtual positions exactly as ``numpy.lib.function_base._get_indexes`` derives them for the linear method."""
-    virtual = np.asanyarray((n - 1) * np.asarray(qs, dtype=np.float64))
+    virtual = np.asanyarray((n - 1) * np.asarray(qs, dtype=_crit_np_dtype()))
     prev = np.asanyarray(np.floor(virtual)).astype(np.intp)
     nxt = prev + 1
     above = virtual >= n - 1
@@ -58,7 +60,7 @@ def _device_quantile_raw(x, qs: np.ndarray) -> Optional[np.ndarray]:
     n = int(x.size)
     if n == 0:
         return None
-    xs = cp.sort(x.astype(cp.float64, copy=False) if isinstance(x, cp.ndarray) else cp.asarray(np.ascontiguousarray(x, dtype=np.float64)))
+    xs = cp.sort(x.astype(crit_float_dtype(), copy=False) if isinstance(x, cp.ndarray) else cp.asarray(np.ascontiguousarray(x, dtype=crit_float_dtype())))
     virtual, prev, nxt = _indices(n, qs)
     idx = np.concatenate([prev, nxt, [n - 1]])
     vals = xs[cp.asarray(idx)].get()
@@ -72,7 +74,7 @@ def _self_check() -> bool:
     """Compare the device result with ``np.quantile`` on arrays with ties, negatives and heavy tails; any difference disables the device path."""
     rng = np.random.default_rng(12345)
     qs = np.linspace(0.0, 1.0, 11)[1:-1]
-    for arr in (rng.standard_normal(1001), np.round(rng.standard_normal(2000), 1), rng.standard_normal(777) ** 3, rng.integers(0, 3, 500).astype(np.float64)):
+    for arr in (rng.standard_normal(1001), np.round(rng.standard_normal(2000), 1), rng.standard_normal(777) ** 3, rng.integers(0, 3, 500).astype(_crit_np_dtype())):
         got = _device_quantile_raw(arr, qs)
         if got is None or not np.array_equal(got, np.quantile(arr, qs)):
             return False
@@ -94,7 +96,7 @@ def device_quantile(x: Any, qs: np.ndarray) -> Optional[np.ndarray]:
         if not _STATE["verified"]:
             return None
     try:
-        return _device_quantile_raw(x if hasattr(x, "__cuda_array_interface__") else np.asarray(x), np.asarray(qs, dtype=np.float64))
+        return _device_quantile_raw(x if hasattr(x, "__cuda_array_interface__") else np.asarray(x), np.asarray(qs, dtype=_crit_np_dtype()))
     except Exception as e:  # best-effort: the caller falls back to the bit-identical host np.quantile
         logger.debug("device quantile failed, using the host: %s", e)
         return None

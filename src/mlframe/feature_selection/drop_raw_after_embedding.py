@@ -21,6 +21,7 @@ from __future__ import annotations
 from typing import Dict, Optional, Sequence, Tuple
 
 import numpy as np
+from .filters._fe_usability_signal import _crit_np_dtype
 import pandas as pd
 
 from mlframe.preprocessing.align_feature_direction import batch_univariate_auc
@@ -29,7 +30,7 @@ from ._selection_log import logs_selection
 
 def _univariate_signal(values: np.ndarray, y_arr: np.ndarray) -> float:
     """Signal strength in [0, 1] from univariate AUC against ``y_arr`` (0 = chance, 1 = perfect separation)."""
-    auc = float(batch_univariate_auc(values.reshape(-1, 1).astype(np.float64), y_arr)[0])
+    auc = float(batch_univariate_auc(values.reshape(-1, 1).astype(_crit_np_dtype()), y_arr)[0])
     return 2.0 * abs(auc - 0.5)
 
 
@@ -49,11 +50,11 @@ def _raw_column_signal(df: pd.DataFrame, raw_col: str, y_arr: np.ndarray, n_fold
     """
     col = df[raw_col]
     if pd.api.types.is_numeric_dtype(col):
-        values = col.to_numpy(dtype=np.float64)
+        values = col.to_numpy(dtype=_crit_np_dtype())
     else:
         codes = pd.factorize(col, use_na_sentinel=False)[0]
         n = codes.shape[0]
-        values = np.full(n, float(np.mean(y_arr)), dtype=np.float64)
+        values = np.full(n, float(np.mean(y_arr)), dtype=_crit_np_dtype())
         rng = np.random.default_rng(random_state)
         folds = rng.permutation(n) % max(1, int(n_folds))
         for f in range(max(1, int(n_folds))):
@@ -61,10 +62,10 @@ def _raw_column_signal(df: pd.DataFrame, raw_col: str, y_arr: np.ndarray, n_fold
             fit_mask = ~oof_mask
             if not fit_mask.any() or not oof_mask.any():
                 continue
-            fit = pd.DataFrame({"c": codes[fit_mask], "y": np.asarray(y_arr, dtype=np.float64)[fit_mask]})
+            fit = pd.DataFrame({"c": codes[fit_mask], "y": np.asarray(y_arr, dtype=_crit_np_dtype())[fit_mask]})
             means = fit.groupby("c")["y"].mean()
             prior = float(fit["y"].mean())
-            values[oof_mask] = pd.Series(codes[oof_mask]).map(means).fillna(prior).to_numpy(dtype=np.float64)
+            values[oof_mask] = pd.Series(codes[oof_mask]).map(means).fillna(prior).to_numpy(dtype=_crit_np_dtype())
     return _univariate_signal(values, y_arr)
 
 
@@ -138,7 +139,7 @@ def drop_raw_after_embedding(
         if raw_signal <= 0.0:
             to_drop.append(raw_col)
             continue
-        derived_signal = max(_univariate_signal(df[c].to_numpy(dtype=np.float64), y_arr) for c in present_derived)
+        derived_signal = max(_univariate_signal(df[c].to_numpy(dtype=_crit_np_dtype()), y_arr) for c in present_derived)
         retained_fraction = derived_signal / raw_signal
         if retained_fraction >= min_retained_fraction:
             to_drop.append(raw_col)

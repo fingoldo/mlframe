@@ -27,6 +27,7 @@ import logging
 from typing import Any, Sequence
 
 import numpy as np
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 
 from .engineered_recipes import apply_recipe, build_cluster_aggregate_recipe
 from .friend_graph import node_relevance, pairwise_mi_edge
@@ -237,7 +238,7 @@ def _pc1_communalities(Z: np.ndarray, svd_cache: dict | None = None) -> np.ndarr
     score_c = score - score.mean()
     score_norm_sq = float(score_c @ score_c)
     if score_norm_sq <= 0.0:
-        comm = np.zeros(Z.shape[1], dtype=np.float64)
+        comm = np.zeros(Z.shape[1], dtype=np.float64)  # Intentional float64: accumulator or output buffer; statistic at float64
     else:
         # ``Zc`` is already centred (column-mean removed); per-column norm = sqrt(sum_i Zc_ij^2).
         col_norm_sq = (Zc * Zc).sum(axis=0)
@@ -269,7 +270,7 @@ def _derive_weights(Z: np.ndarray, method: str, svd_cache: dict | None = None):
     pre-Layer-50 behaviour (re-SVD every call)."""
     k = Z.shape[1]
     if method == "mean_z":
-        return np.full(k, 1.0 / k, dtype=np.float64)
+        return np.full(k, 1.0 / k, dtype=np.float64)  # Intentional float64: accumulator or output buffer; statistic at float64
     # Layer 44: ``median`` (legacy alias) and the four new non-linear methods
     # have no weight vector - the aggregate is a row-reduction handled by
     # ``_apply_method_nonlinear`` at fit and replay.
@@ -307,7 +308,7 @@ def _continuous_cols(X, names: Sequence[str]) -> np.ndarray:
     """Extract ``names`` columns from ``X`` as a float64 matrix with NaN/inf sanitized to 0.0, for distance/correlation-based cluster discovery."""
     from mlframe.feature_selection.filters.engineered_recipes.shared import extract_column as _extract_column
 
-    cols = [np.nan_to_num(np.asarray(_extract_column(X, n), dtype=np.float64), nan=0.0, posinf=0.0, neginf=0.0) for n in names]
+    cols = [np.nan_to_num(np.asarray(_extract_column(X, n), dtype=_crit_np_dtype()), nan=0.0, posinf=0.0, neginf=0.0) for n in names]
     return np.column_stack(cols)
 
 
@@ -497,7 +498,7 @@ def _score_aggregate_method(
         # holds without persisting weights for these methods.
         _agg_continuous = _apply_method_nonlinear(Z, method)
     else:
-        _agg_continuous = Z @ np.asarray(weights, dtype=np.float64)
+        _agg_continuous = Z @ np.asarray(weights, dtype=np.float64)  # Intentional float64: cluster weights statistic
     _agg_continuous = np.nan_to_num(
         _agg_continuous, copy=False, nan=0.0, posinf=0.0, neginf=0.0,
     )
@@ -543,7 +544,7 @@ def _score_aggregate_method(
     # branch still defers to ``apply_recipe`` for exact behaviour.
     _edges_local = None if _q_local is None else _q_local.get("edges")
     if _edges_local is not None:
-        _edges_arr = np.asarray(_edges_local, dtype=np.float64)
+        _edges_arr = np.asarray(_edges_local, dtype=np.float64)  # Intentional float64: edge vector output contract
         binned = np.searchsorted(
             _edges_arr[1:-1] if _edges_arr.size >= 2 else _edges_arr,
             _agg_continuous, side="right",

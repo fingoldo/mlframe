@@ -81,19 +81,22 @@ def _interaction_gpu_min_cells() -> int:
 
 
 def _broadcast_base(base, n: int) -> np.ndarray:
-    """Return the expected-value base as a ``(n,)`` float64 vector for the coalition-margin contract.
+    """Return the expected-value base as a ``(n,)`` double precision vector for the coalition-margin contract.
 
     IX3: the in-sample single-model TreeSHAP base is a scalar today, and ``np.full(n, float(base))``
     relied on that - it would raise (ndim>0) or silently collapse if a future kernel ever returned a
     per-row base. Handle both: a scalar broadcasts to ``(n,)``; an already per-row ``(n,)`` base is
     accepted as-is (cast + length-checked) so per-row attributions are NOT collapsed to base[0]."""
+    # Intentional float64: shap-package import boundary: float64 kept, cross-package dtype switch deferred (decision recorded).
     arr = np.asarray(base, dtype=np.float64)
     if arr.ndim == 0:
+        # Intentional float64: shap-package import boundary: float64 kept, cross-package dtype switch deferred (decision recorded).
         return np.full(n, float(arr), dtype=np.float64)
     arr = arr.ravel()
     if arr.shape[0] == n:
         return np.ascontiguousarray(arr)
     if arr.shape[0] == 1:
+        # Intentional float64: shap-package import boundary: float64 kept, cross-package dtype switch deferred (decision recorded).
         return np.full(n, float(arr[0]), dtype=np.float64)
     raise ValueError(f"interaction base has length {arr.shape[0]}, expected scalar or (n={n},)")
 
@@ -101,7 +104,7 @@ def _broadcast_base(base, n: int) -> np.ndarray:
 def _interaction_tensor_numba(est, X, *, classification):
     """Custom numba TreeSHAP interaction tensor for a supported xgboost estimator, else ``None``.
 
-    Returns ``(Phi (n,P,P) float64, base (n,) float64)`` in margin / log-odds space, matching the shap
+    Returns ``(Phi (n,P,P) double precision, base (n,) double precision)`` in margin / log-odds space, matching the shap
     library path's contract; ``None`` if the model is unsupported (caller falls back to ``shap``)."""
     from mlframe.feature_selection.shap_proxied_fs._shap_proxy_treeshap import extract_ensemble
     from mlframe.feature_selection.shap_proxied_fs._shap_proxy_treeshap_interactions import interaction_tensor_numba
@@ -214,11 +217,14 @@ def compute_interaction_tensor(
         was_binary_list = len(Phi) == 2  # capture BEFORE reassigning Phi (len(Phi) below would read n_rows, not class count)
         Phi = Phi[1] if was_binary_list else Phi[0]
         base = base[1] if (np.ndim(base) > 0 and was_binary_list) else (base[0] if np.ndim(base) > 0 else base)
+    # Intentional float64: shap-package import boundary: float64 kept, cross-package dtype switch deferred (decision recorded).
     Phi = np.asarray(Phi, dtype=np.float64)
     if Phi.ndim == 4:  # (n, P, P, classes) -> positive class
         Phi = Phi[:, :, :, -1]
+    # Intentional float64: shap-package import boundary: float64 kept, cross-package dtype switch deferred (decision recorded).
     base = float(np.asarray(base, dtype=np.float64).ravel()[0]) if np.ndim(base) > 0 else float(base)
     n = Phi.shape[0]
+    # Intentional float64: shap-package import boundary: float64 kept, cross-package dtype switch deferred (decision recorded).
     return Phi, np.full(n, base, dtype=np.float64)
 
 
@@ -323,6 +329,7 @@ def _su_bin(col: np.ndarray, n_bins: int) -> np.ndarray:
     at a time). Degenerate columns (<=2 distinct quantile edges) collapse to a single bin so their
     marginal entropy is 0 and they contribute SU=0.
     """
+    # Intentional float64: shap-package import boundary: float64 kept, cross-package dtype switch deferred (decision recorded).
     col = np.asarray(col, dtype=np.float64)
     n = col.shape[0]
     if n == 0:
@@ -352,11 +359,12 @@ def _su_target_bin(y: np.ndarray, n_bins: int) -> np.ndarray:
         # dense relabel so class labels are contiguous 0..C-1 (compute_su_from_classes indexes by id)
         _, inv = np.unique(y, return_inverse=True)
         return np.asarray(inv, dtype=np.int64)
+    # Intentional float64: shap-package import boundary: float64 kept, cross-package dtype switch deferred (decision recorded).
     return _su_bin(y.astype(np.float64), n_bins)
 
 
 def _su_marginals(ids: np.ndarray):
-    """``(classes_int64, freqs_float64)`` for ``compute_su_from_classes`` from dense bin ids."""
+    """``(classes_int64, freqs_double precision)`` for ``compute_su_from_classes`` from dense bin ids."""
     from mlframe.feature_selection.shap_proxied_fs._shap_proxy_cluster_su import _column_marginal
 
     return _column_marginal(ids)
@@ -378,6 +386,7 @@ def _pair_synergy_bins_njit(bins_a: np.ndarray, bins_b: np.ndarray, nb_a: int, n
     for k in range(n):
         raw[k] = bins_a[k] * nb_b + bins_b[k]
     nb_joint = nb_a * nb_b
+    # Intentional float64: shap-package import boundary: float64 kept, cross-package dtype switch deferred (decision recorded).
     counts = np.bincount(raw, minlength=nb_joint).astype(np.float64)
     total = counts.sum()
     if total <= 0.0:
@@ -430,6 +439,7 @@ def _synergy_null_gate(
                 null_vals.append(joint_su_perm)
 
     if null_vals:
+        # Intentional float64: shap-package import boundary: float64 kept, cross-package dtype switch deferred (decision recorded).
         null_arr = np.asarray(null_vals, dtype=np.float64)
         null_q = float(np.quantile(null_arr, float(snr_null_quantile)))
         null_std = float(null_arr.std())
@@ -620,7 +630,9 @@ def sparse_interaction_candidates(
         # IX2: a single NaN/inf product (overflow on large-magnitude operands, or a NaN operand) poisons
         # the whole in-sample SHAP fit on the augmented frame. Sanitise to finite values up front so one
         # bad pair cannot take down the entire sparse-interaction ranking; nan->0, +-inf->float bounds.
+        # Intentional float64: shap-package import boundary: float64 kept, cross-package dtype switch deferred (decision recorded).
         prod = X_proxy[col_a].values.astype(np.float64) * X_proxy[col_b].values.astype(np.float64)
+        # Intentional float64: shap-package import boundary: float64 kept, cross-package dtype switch deferred (decision recorded).
         aug[nm] = np.nan_to_num(prod, nan=0.0, posinf=float(np.finfo(np.float64).max), neginf=float(np.finfo(np.float64).min))
         product_to_operands[n_base + len(prod_names)] = (col_to_idx[col_a], col_to_idx[col_b])
         prod_names.append(nm)

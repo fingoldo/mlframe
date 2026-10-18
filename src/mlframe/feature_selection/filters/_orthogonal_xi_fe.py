@@ -29,6 +29,7 @@ Cost: O(n log n) (one argsort), not O(n^2) like dCor/HSIC - no subsampling neede
 from __future__ import annotations
 
 import numpy as np
+from ._fe_usability_signal import _crit_np_dtype
 
 __all__ = ["xi_correlation", "xi_correlation_batch"]
 
@@ -47,7 +48,9 @@ def _xi_from_order(y_ordered: np.ndarray) -> float:
     _uniq, inv, counts = np.unique(y_ordered, return_counts=True, return_inverse=True)
     le = np.cumsum(counts)  # per unique-group: #{y <= group value}
     ge = np.cumsum(counts[::-1])[::-1]  # per unique-group: #{y >= group value}
+    # Intentional float64: exact rank accumulator kept f64
     r = le[inv].astype(np.float64)  # r_i, already in x-induced order (y_ordered is x-sorted)
+    # Intentional float64: exact rank accumulator kept f64
     ll = ge[inv].astype(np.float64)  # l_i
     num = float(n) * float(np.sum(np.abs(np.diff(r))))
     den = 2.0 * float(np.sum(ll * (n - ll)))
@@ -62,7 +65,8 @@ def xi_correlation(x: np.ndarray, y: np.ndarray, *, random_state: int = 0) -> fl
     argsort's tie-breaking order. Returns 0.0 on degenerate input (n < 2, or ``y`` constant, since
     a constant y has zero variation to detect regardless of x).
     """
-    x = np.asarray(x, dtype=np.float64).ravel()
+    x = np.asarray(x, dtype=_crit_np_dtype()).ravel()
+    # Intentional float64: target labels kept f64 (exact binning / comparison contract)
     y = np.asarray(y, dtype=np.float64).ravel()
     n = x.size
     if n < 2 or y.size != n:
@@ -85,12 +89,14 @@ def xi_correlation_batch(X: np.ndarray, y: np.ndarray, *, random_state: int = 0)
     """Vectorized ``xi_correlation`` for every column of ``X`` (shape ``(n, K)``) against the same
     ``y`` - avoids re-deriving ``y``'s own rank array K times (the walk depends only on the
     ORDER x induces on y, so the ``y``-rank computation per column is the dominant repeated cost
-    otherwise). Returns a ``(K,)`` float64 array."""
-    X = np.asarray(X, dtype=np.float64)
+    otherwise). Returns a ``(K,)`` double precision array."""
+    X = np.asarray(X, dtype=_crit_np_dtype())
     if X.ndim == 1:
         X = X[:, None]
     n, k = X.shape
+    # Intentional float64: target labels kept f64 (exact binning / comparison contract)
     y = np.asarray(y, dtype=np.float64).ravel()
+    # Intentional float64: accumulator output kept f64
     out = np.zeros(k, dtype=np.float64)
     if n < 2 or y.size != n or float(np.std(y)) <= 1e-12:
         return out

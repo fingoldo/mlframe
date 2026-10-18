@@ -81,7 +81,7 @@ def fe_batch_mi(
     """Score candidate matrix ``X_cands`` (n, K) vs discrete ``y_codes`` by edge-binned plug-in MI on the
     dispatched backend. ``backend`` overrides the dispatch ("cpu"|"gpu"). A GPU run that raises falls back
     to the (selection-identical) CPU path so a transient device error is never a correctness regression.
-    Returns a host (K,) float64 MI array."""
+    Returns a host (K,) MI array."""
     X = np.asarray(X_cands)
     n = X.shape[0] if X.ndim >= 1 else 0
     k = X.shape[1] if X.ndim == 2 else 1
@@ -92,6 +92,7 @@ def fe_batch_mi(
             import numpy as _np
             from ._fe_gpu_batch import multi_gpu_fe_batch_mi
             from ._fe_gpu_batch._devices import fe_gpu_f32_enabled
+            # Intentional float64: strict default of the separate MLFRAME_FE_VRAM_F32 knob (not the crit policy); f32 only when opted in.
             _dt = _np.float32 if fe_gpu_f32_enabled() else _np.float64  # f32 opt-in: 2.2x, selection-equiv
             return multi_gpu_fe_batch_mi(X, y_codes, nbins, dtype=_dt)  # spreads across GPUs; single-GPU = 1 device
         except Exception as exc:

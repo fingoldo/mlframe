@@ -14,6 +14,7 @@ from __future__ import annotations
 import warnings
 
 import numpy as np
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 
 from mlframe.feature_selection.shap_proxied_fs._shap_proxy_objective import METRIC_CODES, resolve_metric, score_margin_batch
 
@@ -41,7 +42,7 @@ def banzhaf_msr(
     instead of a fresh sample per feature.
 
     Processes masks in chunks of ``batch`` (not the whole ``(n_coalitions, P)`` matrix -> ``(m, n)``
-    margins at once) to bound peak memory: at n_samples=3000 a full (4096, 3000) float64 margins
+    margins at once) to bound peak memory: at n_samples=3000 a full (4096, 3000) double precision margins
     matrix is ~98MB, cheap, but this stays O(batch * n_samples) regardless of ``n_coalitions`` so the
     estimator scales to large coalition counts without a memory cliff.
 
@@ -51,9 +52,9 @@ def banzhaf_msr(
     into every / no coalition (guarded against, though unlikely at m>=64, P>=2) get beta=0 and a
     warning is appended to ``info['degenerate_features']``.
     """
-    phi = np.ascontiguousarray(phi, dtype=np.float64)
-    base = np.ascontiguousarray(base, dtype=np.float64)
-    y = np.ascontiguousarray(y, dtype=np.float64)
+    phi = np.ascontiguousarray(phi, dtype=_crit_np_dtype())
+    base = np.ascontiguousarray(base, dtype=_crit_np_dtype())
+    y = np.ascontiguousarray(y, dtype=_crit_np_dtype())
     metric = resolve_metric(classification, metric)
     if metric == "auc":
         # score_margin_auto has no AUC kernel (needs a per-subset sort); route AUC callers to the
@@ -68,10 +69,10 @@ def banzhaf_msr(
     m = int(n_coalitions)
     masks = rng.random((m, n_features)) < 0.5  # (m, P) bool
 
-    v = np.empty(m, dtype=np.float64)  # v(S) = -loss(S) for every sampled coalition
+    v = np.empty(m, dtype=_crit_np_dtype())  # v(S) = -loss(S) for every sampled coalition
     for start in range(0, m, batch):
         end = min(start + batch, m)
-        chunk = masks[start:end].astype(np.float64)  # (b, P)
+        chunk = masks[start:end].astype(_crit_np_dtype())  # (b, P)
         margins_chunk = np.ascontiguousarray(base[None, :] + chunk @ phi_T)  # (b, n_samples)
         # score_margin_batch scores the whole chunk in ONE compiled call instead of one call per
         # coalition - njit call-dispatch overhead otherwise dominates at n_coalitions in the
@@ -81,8 +82,8 @@ def banzhaf_msr(
             losses = np.sqrt(losses)
         v[start:end] = -losses
 
-    beta = np.zeros(n_features, dtype=np.float64)
-    beta_stderr = np.zeros(n_features, dtype=np.float64)
+    beta = np.zeros(n_features, dtype=_crit_np_dtype())
+    beta_stderr = np.zeros(n_features, dtype=_crit_np_dtype())
     degenerate: list[int] = []
     for j in range(n_features):
         in_mask = masks[:, j]

@@ -15,6 +15,7 @@ from collections.abc import Iterable, Sequence
 
 import numba
 import numpy as np
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 from joblib import Parallel
 from numba.core import types
 
@@ -82,11 +83,11 @@ def _init_screen_caches(seed_caches):
         # as poor ROI (saves ~5s, already zero for multi-fit processes).
         entropy_cache = numba.typed.Dict.empty(
             key_type=types.unicode_type,
-            value_type=types.float64,
+            value_type=types.float64,  # Intentional float64: numba typed-dict value type must match the float64 values the kernel stores
         )
         cached_cond_MIs = numba.typed.Dict.empty(
             key_type=types.unicode_type,
-            value_type=types.float64,
+            value_type=types.float64,  # Intentional float64: numba typed-dict value type must match the float64 values the kernel stores
         )
     return entropy_cache, cached_MIs, cached_confident_MIs, cached_cond_MIs
 
@@ -147,7 +148,7 @@ def _resident_screen_targets(use_gpu, classes_y, freqs_y, classes_y_safe):
         from ._fe_resident_operands import resident_operand
 
         classes_y_safe = resident_operand(classes_y, "screen_classes_y", dtype=np.int32).copy()  # device buffer for ctx -> mi_direct_gpu
-        freqs_y_safe = resident_operand(freqs_y, "screen_freqs_y", dtype=np.float64)
+        freqs_y_safe = resident_operand(freqs_y, "screen_freqs_y", dtype=_crit_np_dtype())
     else:
         freqs_y_safe = None
     return classes_y_safe, freqs_y_safe
@@ -206,7 +207,7 @@ def _init_jmim_cache() -> tuple:
     """
     cached_jmim_MIs = numba.typed.Dict.empty(
         key_type=types.unicode_type,
-        value_type=types.float64,
+        value_type=types.float64,  # Intentional float64: numba typed-dict value type must match the float64 values the kernel stores
     )
     return cached_jmim_MIs, np.zeros(1, dtype=np.int64)
 

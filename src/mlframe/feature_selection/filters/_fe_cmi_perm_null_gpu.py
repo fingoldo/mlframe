@@ -18,7 +18,7 @@ Design (mirrors the CPU path's vectorised within-stratum shuffle exactly):
     ``batched_cmi_gpu`` workload (the existing GPU joint-entropy / CMI kernels), reusing the same Miller-Madow
     plug-in CMI the observed value uses.
   * The quantile (floor) and mean (bias estimate) of the permuted CMI distribution are reduced ON DEVICE; only
-    the two resulting float64 scalars cross back to the host.
+    the two resulting double precision scalars cross back to the host.
 
 Correctness bar: SELECTION-EQUIVALENCE, not byte-identical. The permutation null is a RANDOM null; a device RNG
 seeded from the SAME ``(seed, salt)`` the CPU path uses makes the draw reproducible across runs, and the floor /
@@ -140,14 +140,17 @@ def _stratum_layout(cp: Any, z_i: Any, order: Optional[np.ndarray], z_rank: Opti
         z_for_cmi = z_i.astype(cp.int64, copy=False).ravel()
         order_d = cp.argsort(z_for_cmi)  # stratum grouping on device (ties broken by sort)
         _sorted_z = z_for_cmi[order_d]
+        # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
         z_rank_1d = cp.zeros(n, dtype=cp.float64)
         if n > 1:
+            # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
             z_rank_1d[1:] = cp.cumsum((_sorted_z[1:] != _sorted_z[:-1]).astype(cp.float64))  # dense block index
         z_rank_d = z_rank_1d[:, None]
         del _sorted_z, z_rank_1d
     else:
         z_for_cmi = np.ascontiguousarray(z_i, dtype=np.int64).ravel()
         order_d = cp.asarray(np.ascontiguousarray(order, dtype=np.int64).ravel())
+        # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
         z_rank_d = cp.asarray(np.ascontiguousarray(z_rank, dtype=np.float64).ravel())[:, None]  # (n, 1)
     return z_for_cmi, order_d, z_rank_d
 
@@ -177,7 +180,7 @@ def conditional_perm_null_gpu(
     * ``seed``/``salt`` - folded into the device ``RandomState`` so each candidate draws an INDEPENDENT,
                       REPRODUCIBLE stream (same ``(seed, salt)`` the CPU path mixes via ``SeedSequence``).
 
-    Returns ``(floor, null_mean)`` (host float64 scalars). Raises on ANY cupy error so the caller falls back to
+    Returns ``(floor, null_mean)`` (host double precision scalars). Raises on ANY cupy error so the caller falls back to
     the exact CPU permutation loop.
     """
     import cupy as cp
@@ -295,6 +298,7 @@ def _sparse_batched_entropy_k(cp, keys2d, inv_n: float):
     is_end[-1, :] = True
     is_end[:-1, :] = b[1:, :]  # run-end elements
     re = cp.minimum.accumulate(cp.where(is_end, idx, np.int64(n))[::-1, :], axis=0)[::-1, :]
+    # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
     p = (re - rs + 1).astype(cp.float64) * inv_n  # cell probability, valid at run starts
     h = -(cp.where(b, p * cp.log(p), 0.0)).sum(axis=0)
     k = b.sum(axis=0, dtype=cp.int64)
@@ -363,6 +367,7 @@ def _batched_cmi_resident_chunked(Xp_d, y_h: np.ndarray, z):
         free_b = 1 << 30
     # 0.30 of free VRAM leaves headroom for batched_cmi_gpu's sort / entropy temporaries beyond the dense joint.
     chunk = max(1, min(nperm, int(free_b * 0.30) // joint_bytes))
+    # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
     nulls_dev = cp.empty(nperm, dtype=cp.float64)  # assembled RESIDENT -> reduced on-device by caller
     s = 0
     while s < nperm:

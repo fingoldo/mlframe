@@ -12,6 +12,7 @@ from typing import Any
 import logging
 
 import numpy as np
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 import pandas as pd
 
 logger = logging.getLogger(__name__)
@@ -196,15 +197,15 @@ def _friend_graph_and_redundancy_passes_group4_part1(
                     continue
                 _cv = (_eng_continuous_snapshot or {}).get(_enm)
                 if _cv is not None and np.asarray(_cv).shape[0] == int(data.shape[0]):
-                    _floor_child_vals.append(np.asarray(_cv, dtype=np.float64).ravel())
+                    _floor_child_vals.append(np.asarray(_cv, dtype=_crit_np_dtype()).ravel())
                 else:
-                    _floor_child_vals.append(np.asarray(data[:, _ei], dtype=np.float64).ravel())
+                    _floor_child_vals.append(np.asarray(data[:, _ei], dtype=_crit_np_dtype()).ravel())
             try:
                 _yv_floor = np.asarray(_y_np)
-                _yv_floor = np.asarray(_yv_floor, dtype=np.float64).reshape(-1)
+                _yv_floor = np.asarray(_yv_floor, dtype=_crit_np_dtype()).reshape(-1)
             except Exception as exc:
                 logger.warning("mrmr: y coercion failed for the floor-drop rescue; falling back to classes_y: %r", exc, exc_info=True)
-                _yv_floor = np.asarray(classes_y, dtype=np.float64).reshape(-1)
+                _yv_floor = np.asarray(classes_y, dtype=_crit_np_dtype()).reshape(-1)
             # name -> index map built once (O(F)) instead of a ``.index()`` rescan of
             # ``cols`` per ``_dn`` (O(F) each) - turns the O(K*F) loop below into O(K+F).
             _floor_cols_idx = {nm: i for i, nm in enumerate(cols)}
@@ -223,9 +224,9 @@ def _friend_graph_and_redundancy_passes_group4_part1(
                         """Whether this dropped raw carries private linear signal beyond the engineered survivors."""
                         _rawv = None
                         if isinstance(X, pd.DataFrame) and _dn in X.columns:
-                            _rawv = np.asarray(X[_dn], dtype=np.float64).ravel()
+                            _rawv = np.asarray(X[_dn], dtype=_crit_np_dtype()).ravel()
                         if _rawv is None:
-                            _rawv = np.asarray(data[:, _floor_ci], dtype=np.float64).ravel()
+                            _rawv = np.asarray(data[:, _floor_ci], dtype=_crit_np_dtype()).ravel()
                         return bool(_floor_lin(_rawv, _yv_floor, _floor_child_vals, seed=int(getattr(self, "random_seed", 0) or 0)))
 
                     # Ineligible on failure (conservative), but visible: a systematic fault here empties the whole floor pool.
@@ -288,7 +289,7 @@ def _drop_redundant_raw_operands_pass(self, X, selected_vars, cols, data, cached
                 _mt_ranks: dict[int, np.ndarray] = {}
                 for _v in _raw_sel_mt:
                     try:
-                        _cv = np.asarray(X[cols[_v]].to_numpy(), dtype=np.float64).reshape(-1)
+                        _cv = np.asarray(X[cols[_v]].to_numpy(), dtype=_crit_np_dtype()).reshape(-1)
                     except (TypeError, ValueError):
                         continue
                     if _cv.shape[0] == _mt_n and np.all(np.isfinite(_cv)) and _cv.std() > 1e-12:

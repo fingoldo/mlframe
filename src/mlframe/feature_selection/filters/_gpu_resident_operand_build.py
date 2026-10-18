@@ -169,7 +169,7 @@ def _build_resident_operand_table_part1(
             if _rk not in _raw_slot:
                 _rv = np.ascontiguousarray(raw_vals)
                 if not np.issubdtype(_rv.dtype, np.floating):
-                    _rv = _rv.astype(np.float64)  # CPU tr_func on a non-float would also promote
+                    _rv = _rv.astype(np.float64)  # CPU tr_func on a non-float would also promote  # Intentional float64: CPU-parity promotion to float64 (matches tr_func)
                 _dk = _rv.dtype.str
                 grp = _groups.setdefault(_dk, [])
                 _raw_slot[_rk] = (_dk, len(grp))
@@ -197,7 +197,7 @@ def _build_resident_operand_table_part1(
     # Only ops in _BATCH_UNARY_OPS and non-prewarp specs whose group loaded qualify; everything else stays on
     # the exact per-column path below (which skips the already-batched col_idx).
     _batched: set = set()
-    _f64_key = np.dtype(np.float64).str  # batch ONLY the float64 group: the kernel computes in f64, matching
+    _f64_key = np.dtype(np.float64).str  # batch ONLY the float64 group: the kernel computes in f64, matching  # Intentional float64: float64 batching key; kernel contract
     try:  # the CPU tr_func's f64 math; an f32 group must compute in f32 -> per-col
         _bg: dict = {}  # dtype_key -> (slots[], opcs[], out_cols[])
         for _spec_t in col_specs:
@@ -222,7 +222,7 @@ def _build_resident_operand_table_part1(
             for _dk, (s, o, oc) in _bg.items():
                 _dev = _dev_groups[_dk]
                 m = int(_dev.shape[1]) if _dev.ndim > 1 else 1
-                G = cp.ascontiguousarray(_dev.astype(cp.float64, copy=False))
+                G = cp.ascontiguousarray(_dev.astype(cp.float64, copy=False))  # Intentional float64: GPU operand; kernel contract is float64
                 slot = cp.asarray(np.asarray(s, dtype=np.int64))
                 opc = cp.asarray(np.asarray(o, dtype=np.int32))
                 out_col = cp.asarray(np.asarray(oc, dtype=np.int64))

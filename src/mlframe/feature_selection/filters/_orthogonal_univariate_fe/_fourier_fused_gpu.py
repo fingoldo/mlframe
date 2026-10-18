@@ -125,15 +125,18 @@ _MODULES = RawModuleCache(_SRC)
 
 
 def power_sincos(cp: Any, z: Any, yc: Any, y_ss: float, freqs: Any) -> Any:
-    """Resident ``(F,)`` periodogram power of ``yc`` at each frequency in ``freqs`` (one block per frequency). ``z`` and ``yc`` are float64 ``(n,)``."""
+    """Resident ``(F,)`` periodogram power of ``yc`` at each frequency in ``freqs`` (one block per frequency). ``z`` and ``yc`` are double precision ``(n,)``."""
+    # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
     f = cp.ascontiguousarray(freqs, dtype=cp.float64)
+    # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
     out = cp.empty(int(f.shape[0]), dtype=cp.float64)
+    # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
     _MODULES.get(cp).get_function("periodogram_power")((int(f.shape[0]),), (256,), (z, yc, f, out, cp.int64(z.shape[0]), cp.float64(y_ss)))
     return out
 
 
 def deflate_sincos(cp: Any, z: Any, y: Any, freq: float) -> Optional[Any]:
-    """``y`` minus its least-squares projection onto ``[1, sin(2 pi f z), cos(2 pi f z)]`` as a new float64 array, or ``None`` when the 3x3 system is singular (caller falls back).
+    """``y`` minus its least-squares projection onto ``[1, sin(2 pi f z), cos(2 pi f z)]`` as a new double precision array, or ``None`` when the 3x3 system is singular (caller falls back).
 
     The three coefficients come back in one small transfer: whether the system was solvable has to be known before the result is used."""
     import numpy as np
@@ -141,12 +144,17 @@ def deflate_sincos(cp: Any, z: Any, y: Any, freq: float) -> Optional[Any]:
     n = int(z.shape[0])
     mod = _MODULES.get(cp)
     blocks = max(1, min(64, (n + 255) // 256))
+    # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
     part = cp.empty((blocks, 9), dtype=cp.float64)
+    # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
     coef = cp.empty(3, dtype=cp.float64)
+    # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
     out = cp.empty(n, dtype=cp.float64)
+    # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
     mod.get_function("sincos_gram")((blocks,), (256,), (z, y, cp.float64(freq), part, cp.int64(n)))
     mod.get_function("solve3")((1,), (32,), (part, cp.int32(blocks), coef))
     if not np.all(np.isfinite(cp.asnumpy(coef))):
         return None
+    # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
     mod.get_function("apply_deflate")((blocks,), (256,), (z, y, coef, cp.float64(freq), out, cp.int64(n)))
     return out

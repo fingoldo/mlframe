@@ -46,7 +46,7 @@ def merge_vars(
     if n_rows == 0:
         # No samples: the per-row histogram is empty; freqs / n_rows would be a divide-by-zero producing NaN
         # frequencies that then silently poison downstream entropy / MI. Return an empty frequency vector instead.
-        return final_classes, np.zeros(0, dtype=np.float64), current_nclasses
+        return final_classes, np.zeros(0, dtype=np.float64), current_nclasses  # Intentional float64: numba kernel body, dtype fixed at compile time (crit helper is not callable under njit)
     for var_number, var_index in enumerate(vars_indices):
 
         expected_nclasses = current_nclasses * factors_nbins[var_index]
@@ -118,19 +118,19 @@ def joint_freqs_2var(factors_data: np.ndarray, ia: int, ib: int, nb_a: int, nb_b
       * ``freqs[freqs > 0]`` prunes empty bins in ASCENDING class-id order - the identical dense
         order ``merge_vars`` produces (its lookup-table renumber is monotone in oldclass), so the
         downstream ``-(log(p)*p).sum()`` reduces the SAME values in the SAME order -> bit-identical
-        float64 entropy (FP summation order preserved).
+        double entropy (FP summation order preserved).
       * Normalisation ``/ n`` matches ``merge_vars``'s ``freqs / len(factors_data)`` (both int64
-        counts divided by the same ``n`` in float64).
+        counts divided by the same ``n`` in double).
 
     ``nb_a`` / ``nb_b`` are ``factors_nbins[ia]`` / ``factors_nbins[ib]`` (the per-column bin
     counts). ``factors_data`` is the ``(n_samples, n_features)`` ordinal-encoded matrix; columns
-    ``ia`` / ``ib`` are read directly (no copy). Returns the float64 normalized nonzero freqs,
+    ``ia`` / ``ib`` are read directly (no copy). Returns the double normalized nonzero freqs,
     ready to hand straight to ``entropy`` (kept as a SEPARATE njit call so the canonical entropy
     reduction is reused verbatim - no re-derivation of the log-sum numerics here).
     """
     n = factors_data.shape[0]
     if n == 0:
-        return np.zeros(0, dtype=np.float64)
+        return np.zeros(0, dtype=np.float64)  # Intentional float64: numba kernel body, dtype fixed at compile time (crit helper is not callable under njit)
     size = nb_a * nb_b
     freqs = np.zeros(size, dtype=np.int64)
     for r in range(n):
@@ -165,7 +165,7 @@ def joint_entropy_2var(factors_data: np.ndarray, ia: int, ib: int, nb_a: int, nb
       * SAME joint class id ``cls = ca + cb * nb_a`` and SAME ascending-class-id scan order as
         ``joint_freqs_2var`` + ``entropy``'s ``freqs[freqs > 0]`` (which preserves ascending order),
         so the FP accumulation visits the IDENTICAL ``p`` values in the IDENTICAL order.
-      * SAME per-bin probability ``p = cnt / n`` (int64 count divided by ``n`` in float64), matching
+      * SAME per-bin probability ``p = cnt / n`` (int64 count divided by ``n`` in double), matching
         ``joint_freqs_2var``'s ``nz / n``.
       * SAME reduction: ``entropy`` is ``-(np.log(freqs) * freqs).sum()`` - numpy's ``.sum()`` over a
         contiguous 1-D array of < 128 elements (the joint nonzero-bin count, ``<= nb_a * nb_b``) is a

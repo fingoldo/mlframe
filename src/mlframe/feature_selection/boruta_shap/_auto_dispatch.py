@@ -39,6 +39,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
 from mlframe.utils.env_flags import env_float, env_int
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -57,7 +58,7 @@ _PROBE_MAX_ROWS = 2000
 
 def _probe_signals(X, y, classification: bool, random_state: int) -> dict:
     """Compute the cheap noise/overfit signals from a single small RandomForest fit (with OOB)."""
-    Xv = np.asarray(X, dtype=np.float64)
+    Xv = np.asarray(X, dtype=_crit_np_dtype())
     yv = np.asarray(y).ravel()
     n, p = Xv.shape
     max_rows = env_int("MLFRAME_BORUTA_AUTO_PROBE_ROWS", _PROBE_MAX_ROWS, minimum=2)

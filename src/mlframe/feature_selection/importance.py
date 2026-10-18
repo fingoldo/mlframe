@@ -147,6 +147,7 @@ def _pick_fi_bars(feature_importances: np.ndarray, columns_eff: Any, n: int, max
     # whisker sits on its own bar. Non-finite / negative entries -> 0 (errorbar rejects them).
     _picked_std = None
     if importances_std is not None:
+        # Intentional float64: public importance-std output contract (returned to callers as float64)
         _std_arr = np.asarray(importances_std, dtype=np.float64)
         if _std_arr.shape == feature_importances.shape:
             _picked_std = np.clip(np.nan_to_num(_std_arr[_abs_order], nan=0.0), 0.0, None)

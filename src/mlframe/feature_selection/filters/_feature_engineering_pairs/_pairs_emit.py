@@ -43,19 +43,22 @@ def _survivor_std(col) -> float:
     if type(col).__module__.split(".", 1)[0] == "cupy":
         import cupy as cp
 
+        # Intentional float64: std reference over the device column, kept f64 (the emitted-column contract below is f64 too).
         return float(cp.std(col.astype(cp.float64)))
     return float(np.std(col))
 
 
 def _stack_survivor_columns(cols, n_rows: int):
-    """The kept survivor columns as one float64 ``(n_rows, k)`` matrix: a device-backed lazy matrix when every column is on the device (nothing is copied
+    """The kept survivor columns as one double precision ``(n_rows, k)`` matrix: a device-backed lazy matrix when every column is on the device (nothing is copied
     back until a host consumer reads it), else the plain host buffer."""
     if cols and all(type(c).__module__.split(".", 1)[0] == "cupy" for c in cols):
         import cupy as cp
 
         from mlframe.feature_selection.filters._lazy_host_codes import LazyHostCodes
 
+        # Intentional float64: emitted-column contract: survivor columns are an f64 matrix (see the notes on the div/ratio upcast in the caller).
         return LazyHostCodes(cp.stack([c.astype(cp.float64, copy=False) for c in cols], axis=1), np.float64)
+    # Intentional float64: emitted-column contract: survivor columns are an f64 matrix (see the notes on the div/ratio upcast in the caller).
     buf = np.empty(shape=(n_rows, len(cols)), dtype=np.float64)
     for ci, cv in enumerate(cols):
         buf[:, ci] = cv if type(cv).__module__.split(".", 1)[0] != "cupy" else _device_to_host(cv)
@@ -71,19 +74,19 @@ def _device_to_host(col) -> np.ndarray:
 
 def _finalize_survivor_column(col_full: np.ndarray) -> np.ndarray:
     """Return the survivor column produced by any of the ``_col_full`` branches (rebuild / buffer-view /
-    GPU-resolve / recompute-fallback) unchanged, WITHOUT a second NaN/Inf scrub or a forced float64 upcast.
+    GPU-resolve / recompute-fallback) unchanged, WITHOUT a second NaN/Inf scrub or a forced double precision upcast.
 
     Every producing branch already scrubs NaN/Inf before returning (``_rebuild_full_survivor_col``'s own
     ``nan_to_num``, the buffer-fill scrub in ``_pairs_score._score_one_pair``, ``_resolve_col``'s D2H
     ``nan_to_num``, and the recompute-fallback's inline ``nan_to_num`` a few lines above this call site), so
     a second scrub here is provably dead work on every call. dtype is intentionally NOT forced to float32:
     most branches already yield float32 (matching ``transformed_vars`` / the resident buffers), but the
-    recompute-fallback's ``binary_transformations["div"]`` (``_safe_div``) internally upcasts to float64 for
-    its eps-floor division and returns float64 - forcing float32 here would silently truncate that result,
+    recompute-fallback's ``binary_transformations["div"]`` (``_safe_div``) internally upcasts to double precision for
+    its eps-floor division and returns double precision - forcing float32 here would silently truncate that result,
     which is NOT a pure redundancy removal. Passing the dtype through as-is keeps every branch bit-identical
-    to the pre-fix ``nan_to_num(asarray(..., float64))`` (a no-op scrub + a lossless upcast when the source
-    was float32, an exact no-op when it was already float64); the caller then assigns each column into a
-    float64 ``transformed_vals`` buffer via plain elementwise ``__setitem__``, which upcasts correctly
+    to the pre-fix ``nan_to_num(asarray(..., double precision))`` (a no-op scrub + a lossless upcast when the source
+    was float32, an exact no-op when it was already double precision); the caller then assigns each column into a
+    double precision ``transformed_vals`` buffer via plain elementwise ``__setitem__``, which upcasts correctly
     regardless of the source dtype, so no consumer needs this intermediate forced to any particular dtype."""
     return col_full if type(col_full).__module__.split(".", 1)[0] == "cupy" else np.asarray(col_full)
 
@@ -716,6 +719,7 @@ def _emit_pair_features_step2_than_single_best(
         # note at the survivor-packing loop below.
         for _c in sorted(_already, key=_cached_name):
             try:
+                # Intentional float64: emitted-column contract: survivor columns are an f64 matrix (see the notes on the div/ratio upcast in the caller).
                 _emitted_cols.append(np.asarray(_resolve_col(_c[2]), dtype=np.float64))
             except Exception as e:  # noqa: PERF203 -- per-iteration fault isolation is intentional
                 logger.debug("resolving already-emitted column %r failed, skipping: %s", _c, e)
@@ -727,6 +731,7 @@ def _emit_pair_features_step2_than_single_best(
             if _cfg in _already:
                 continue
             try:
+                # Intentional float64: emitted-column contract: survivor columns are an f64 matrix (see the notes on the div/ratio upcast in the caller).
                 st._col = np.asarray(_resolve_col(_cfg[2]), dtype=np.float64)
             except Exception as e:  # nosec B112 - best-effort path
                 logger.debug("resolving column %r failed, skipping: %s", _cfg, e)

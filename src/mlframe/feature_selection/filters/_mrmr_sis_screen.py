@@ -48,6 +48,7 @@ import logging
 from typing import Any, Optional
 
 import numpy as np
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 
 from mlframe.utils.log_throttle import log_throttle
 
@@ -123,7 +124,7 @@ def _choose_chunk_width(n_rows: int, p: int, free_bytes: int) -> int:
 # ----------------------------------------------------------------------------------------------------------
 def _zscore(a: np.ndarray) -> np.ndarray:
     """Standardize ``a`` to zero mean / unit std; returns all-zeros (not NaN) when the array has zero spread, so a constant score column contributes nothing to ``fuse_scores`` instead of poisoning it."""
-    a = np.asarray(a, dtype=np.float64)
+    a = np.asarray(a, dtype=_crit_np_dtype())
     mu = float(a.mean()) if a.size else 0.0
     sd = float(a.std())
     if sd <= 0.0:
@@ -284,7 +285,7 @@ def _sis_screen_part1(
         # under-ranking a real main-effect feature (kind 'iu' is NOT caught by the 'fc' continuous branch).
         _, y_mi = np.unique(y_mi, return_inverse=True)
     elif y_mi.dtype.kind in "fc" or _n_uniq > max(nbins, 2):
-        yf = np.nan_to_num(y_mi.astype(np.float64), nan=0.0, posinf=0.0, neginf=0.0)
+        yf = np.nan_to_num(y_mi.astype(np.float64), nan=0.0, posinf=0.0, neginf=0.0)  # Intentional float64: target statistic input for MI screen
         edges = np.quantile(yf, np.linspace(0.0, 1.0, nbins + 1)[1:-1])
         y_mi = np.searchsorted(edges, yf).astype(np.int64)  # continuous/high-card -> quantile bins
     else:
@@ -303,8 +304,8 @@ def _sis_screen_part1(
     # is tolerable because ``fuse_scores`` is a MAX over the per-channel z-scores (robust to scale differences) AND this gate only decides which survivors enter full MRMR; it
     # never sets the final selection. Aligning the two channels onto one y-grid would be over-engineering for a coarse pre-rank.
 
-    mi = np.zeros(p, dtype=np.float64)
-    prop = np.zeros(p, dtype=np.float64)
+    mi = np.zeros(p, dtype=np.float64)  # Intentional float64: accumulator or output buffer; statistic at float64
+    prop = np.zeros(p, dtype=np.float64)  # Intentional float64: accumulator or output buffer; statistic at float64
     # Columns whose block failed to score. A zero score is not neutral (fuse_scores z-scores each channel, so a zeroed block ranks at the
     # bottom and is cut), so these columns are kept as survivors instead of silently leaving the fit.
     failed_blocks: list[tuple[int, int]] = []
@@ -377,7 +378,7 @@ def _sis_screen_part1(
             # ``dedup_corr_thr`` is set; ``corr_clusters`` requires a DataFrame (it reads ``.columns``).
             _n_rows_all = int(Xarr.shape[0])
             _row_sel = slice(None) if _n_rows_all <= _SIS_DEDUP_MAX_ROWS else np.arange(0, _n_rows_all, int(np.ceil(_n_rows_all / _SIS_DEDUP_MAX_ROWS)))
-            surv_df = pd.DataFrame(np.asarray(Xarr[_row_sel][:, survivors], dtype=np.float64), columns=[str(int(s)) for s in survivors])
+            surv_df = pd.DataFrame(np.asarray(Xarr[_row_sel][:, survivors], dtype=np.float64), columns=[str(int(s)) for s in survivors])  # Intentional float64: survivor DataFrame output contract
             _, members = corr_clusters(surv_df, thr=float(dedup_corr_thr))
             pos = {str(int(s)): i for i, s in enumerate(survivors)}
             # representative = the cluster member with the highest fused screen score (signal-preserving).

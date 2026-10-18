@@ -61,6 +61,7 @@ def _stochastic_bandit_selection_core(
 
     columns = list(X.columns)
     n_features = len(columns)
+    # Intentional float64: bandit weights are multiplied across epochs (accumulator); kept at full precision
     weights = np.ones(n_features, dtype=np.float64)
     locked_in = np.zeros(n_features, dtype=bool)
 

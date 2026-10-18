@@ -40,6 +40,8 @@ import logging
 from typing import Optional, Sequence
 
 import numpy as np
+from ._fe_gpu_batch._devices import crit_float_dtype
+from ._fe_usability_signal import _crit_np_dtype
 
 logger = logging.getLogger(__name__)
 
@@ -64,9 +66,10 @@ def _batched_precheck_gpu(cp, X_batch, yg, precheck_qs, precheck_min_sse_drop: f
     sse_lin = syy - sxy * sxy / sxx_safe  # (K,)
     degenerate = sxx <= 1e-24
 
+    # Intentional float64: precheck quantile thresholds compared exactly (f64)
     qs = np.asarray(precheck_qs, dtype=np.float64)
     cuts = cp.quantile(X_batch, cp.asarray(qs), axis=0)  # (C, K) - per-column cut positions
-    best_drop = cp.zeros(K, dtype=cp.float64)
+    best_drop = cp.zeros(K, dtype=crit_float_dtype())
     for c_idx in range(cuts.shape[0]):
         cut_k = cuts[c_idx]  # (K,)
         relu = cp.maximum(X_batch - cut_k[None, :], 0.0)  # (n, K)
@@ -122,16 +125,18 @@ def detect_hinge_breakpoints_gpu_batch(
         from ._fe_resident_operands import resident_operand
 
         n = int(np.asarray(x_cols[0]).shape[0])
+        # Intentional float64: target labels kept f64 (exact binning / comparison contract)
         y_arr = np.asarray(y, dtype=np.float64).ravel()
         if y_arr.size != n or n < min_rows:
             return None
-        X_host = np.empty((n, len(x_cols)), dtype=np.float64)
+        X_host = np.empty((n, len(x_cols)), dtype=_crit_np_dtype())
         for j, xc in enumerate(x_cols):
-            xj = np.asarray(xc, dtype=np.float64).ravel()
+            xj = np.asarray(xc, dtype=_crit_np_dtype()).ravel()
             if xj.size != n:
                 return None  # ragged input - precondition violated, caller must use per-column path
             X_host[:, j] = xj
         X_batch = cp.asarray(X_host)
+        # Intentional float64: target labels kept f64 (exact binning / comparison contract)
         yg = resident_operand(y_arr, "hinge_y", dtype=np.float64)
 
         passes = _batched_precheck_gpu(cp, X_batch, yg, precheck_qs, precheck_min_sse_drop, min_seg_rows)

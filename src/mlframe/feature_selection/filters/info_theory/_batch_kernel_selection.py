@@ -102,6 +102,7 @@ def _run_batch_mi_kernel_sweep():
         y = a**2 / b
         edges = np.quantile(y, np.linspace(0, 1, nbins + 1)[1:-1])
         yc = np.searchsorted(edges, y).astype(np.int64)
+        # Intentional float64: class marginal feeding the MI entropy sums (an accumulator reference); the GPU kernels upload it as f64 too.
         fy = np.bincount(yc, minlength=int(yc.max()) + 1).astype(np.float64) / n
         return (disc, np.full(K, nbins, dtype=np.int64), yc, fy)
 

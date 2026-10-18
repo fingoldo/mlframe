@@ -32,7 +32,7 @@ def _fourier_adaptive_prewarp_njit(axis: np.ndarray, coef: np.ndarray, freqs: np
     elementwise pass per frequency) in favour of one allocation-light pass per row."""
     n = axis.shape[0]
     K = freqs.shape[0]
-    out = np.empty(n, dtype=np.float64)
+    out = np.empty(n, dtype=np.float64)  # Intentional float64: Hermite recurrence accumulator output
     two_pi = 2.0 * np.pi
     ncoef = coef.shape[0]
     for r in prange(n):
@@ -58,23 +58,23 @@ def _canonical_seeds(basis: str, degree: int) -> list:
     """Return canonical coefficient vectors (shape (degree+1,)) for warm-start, representing explicit low-degree polynomials."""
     seeds = []
     # Identity P_1: e_1 = [0, 1, 0, ..., 0]
-    e1 = np.zeros(degree + 1, dtype=np.float64)
+    e1 = np.zeros(degree + 1, dtype=np.float64)  # Intentional float64: Hermite recurrence accumulator
     if degree >= 1:
         e1[1] = 1.0
         seeds.append(e1)
     # Pure P_2 polynomial coefficient vector
     if degree >= 2:
-        e2 = np.zeros(degree + 1, dtype=np.float64)
+        e2 = np.zeros(degree + 1, dtype=np.float64)  # Intentional float64: Hermite recurrence accumulator
         e2[2] = 1.0
         seeds.append(e2)
         # Composite low-degree: P_0 + P_2 (captures mean + curvature)
-        e02 = np.zeros(degree + 1, dtype=np.float64)
+        e02 = np.zeros(degree + 1, dtype=np.float64)  # Intentional float64: Hermite recurrence accumulator
         e02[0] = -1.0
         e02[2] = 1.0
         seeds.append(e02)
     # Pure P_3
     if degree >= 3:
-        e3 = np.zeros(degree + 1, dtype=np.float64)
+        e3 = np.zeros(degree + 1, dtype=np.float64)  # Intentional float64: Hermite recurrence accumulator
         e3[3] = 1.0
         seeds.append(e3)
     return seeds
@@ -269,7 +269,7 @@ def warm_start_als_seed(B_a: np.ndarray, B_b: np.ndarray, y: np.ndarray,
     _gpu_seed = _als_seed_gpu_resident(B_a, B_b, y, iters, z_a, z_b, basis)
     if _gpu_seed is not None:
         return _gpu_seed
-    yc = np.ascontiguousarray(np.asarray(y, dtype=np.float64))
+    yc = np.ascontiguousarray(np.asarray(y, dtype=np.float64))  # Intentional float64: replay njit kernels are typed for float64 (fit/replay bit-identity)
     yc = yc - yc.mean()
     if float(np.std(yc)) < 1e-12:
         return None, None
@@ -323,7 +323,7 @@ def warm_start_als_seed(B_a: np.ndarray, B_b: np.ndarray, y: np.ndarray,
             g = B_b @ cb
         if ca is None or not (np.all(np.isfinite(ca)) and np.all(np.isfinite(cb))):
             return None, None
-        return np.ascontiguousarray(ca, dtype=np.float64), np.ascontiguousarray(cb, dtype=np.float64)
+        return np.ascontiguousarray(ca, dtype=np.float64), np.ascontiguousarray(cb, dtype=np.float64)  # Intentional float64: stored basis coefficient pair (fit output contract)
     except (np.linalg.LinAlgError, ValueError) as _exc:
         logger.warning("warm_start_als_seed fell back to its default after %s", type(_exc).__name__)
         return None, None
@@ -341,7 +341,7 @@ def _bounded_preprocess(basis: str, params: dict, z: np.ndarray) -> dict:
     pp = dict(params)
     if pp.get("clip") is not None:
         return pp
-    zf = np.asarray(z, dtype=np.float64)
+    zf = np.asarray(z, dtype=np.float64)  # Intentional float64: replay njit kernels are typed for float64 (fit/replay bit-identity)
     zf = zf[np.isfinite(zf)]
     if zf.size == 0:
         return pp
@@ -389,13 +389,13 @@ def fit_operand_prewarp(
         # form basis matrix + apply params); non-polynomial bases need per-call
         # eval closures that are not replay-portable here.
         return None
-    xf = np.ascontiguousarray(np.asarray(x, dtype=np.float64))
-    yf = np.ascontiguousarray(np.asarray(y, dtype=np.float64))
+    xf = np.ascontiguousarray(np.asarray(x, dtype=np.float64))  # Intentional float64: replay njit kernels are typed for float64 (fit/replay bit-identity)
+    yf = np.ascontiguousarray(np.asarray(y, dtype=np.float64))  # Intentional float64: replay njit kernels are typed for float64 (fit/replay bit-identity)
     if xf.size == 0 or float(np.std(xf)) < 1e-12 or float(np.std(yf)) < 1e-12:
         return None
     deg = max(1, int(max_degree))
     z, params = bi["fit"](xf)
-    z = np.ascontiguousarray(z, dtype=np.float64)
+    z = np.ascontiguousarray(z, dtype=np.float64)  # Intentional float64: replay njit kernels are typed for float64 (fit/replay bit-identity)
     try:
         B = build_basis_matrix(basis, z, deg)
         yc = yf - yf.mean()
@@ -413,7 +413,7 @@ def fit_operand_prewarp(
     spec = {
         "basis": str(basis),
         "degree": int(deg),
-        "coef": np.ascontiguousarray(coef, dtype=np.float64),
+        "coef": np.ascontiguousarray(coef, dtype=np.float64),  # Intentional float64: stored basis coefficient (fit output contract)
         "preprocess": _bounded_preprocess(basis, params, z),
     }
     if _robust_used:
@@ -456,16 +456,16 @@ def fit_pair_prewarp_als(
     bi = _POLY_BASES.get(basis)
     if bi is None or bi.get("kind") != "polynomial":
         return None, None
-    xa = np.ascontiguousarray(np.asarray(x_a, dtype=np.float64))
-    xb = np.ascontiguousarray(np.asarray(x_b, dtype=np.float64))
-    yf = np.ascontiguousarray(np.asarray(y, dtype=np.float64))
+    xa = np.ascontiguousarray(np.asarray(x_a, dtype=np.float64))  # Intentional float64: replay njit kernels are typed for float64 (fit/replay bit-identity)
+    xb = np.ascontiguousarray(np.asarray(x_b, dtype=np.float64))  # Intentional float64: replay njit kernels are typed for float64 (fit/replay bit-identity)
+    yf = np.ascontiguousarray(np.asarray(y, dtype=np.float64))  # Intentional float64: replay njit kernels are typed for float64 (fit/replay bit-identity)
     if xa.size == 0 or float(np.std(xa)) < 1e-12 or float(np.std(xb)) < 1e-12 or float(np.std(yf)) < 1e-12:
         return None, None
     deg = max(1, int(max_degree))
     za, pa = bi["fit"](xa)
     zb, pb = bi["fit"](xb)
-    za = np.ascontiguousarray(za, dtype=np.float64)
-    zb = np.ascontiguousarray(zb, dtype=np.float64)
+    za = np.ascontiguousarray(za, dtype=np.float64)  # Intentional float64: replay njit kernels are typed for float64 (fit/replay bit-identity)
+    zb = np.ascontiguousarray(zb, dtype=np.float64)  # Intentional float64: replay njit kernels are typed for float64 (fit/replay bit-identity)
     try:
         # build_basis_matrix guards its own numba parallel=True dispatch internally (see its docstring);
         # warm_start_als_seed is a plain OLS-ALS solve, not a numba kernel. Neither call here needs an
@@ -488,8 +488,8 @@ def fit_pair_prewarp_als(
         return None, None
     if coef_a is None or coef_b is None:
         return None, None
-    spec_a = {"basis": str(basis), "degree": int(deg), "coef": np.ascontiguousarray(coef_a, dtype=np.float64), "preprocess": _bounded_preprocess(basis, pa, za)}
-    spec_b = {"basis": str(basis), "degree": int(deg), "coef": np.ascontiguousarray(coef_b, dtype=np.float64), "preprocess": _bounded_preprocess(basis, pb, zb)}
+    spec_a = {"basis": str(basis), "degree": int(deg), "coef": np.ascontiguousarray(coef_a, dtype=np.float64), "preprocess": _bounded_preprocess(basis, pa, za)}  # Intentional float64: stored basis coefficient (fit output contract)
+    spec_b = {"basis": str(basis), "degree": int(deg), "coef": np.ascontiguousarray(coef_b, dtype=np.float64), "preprocess": _bounded_preprocess(basis, pb, zb)}  # Intentional float64: stored basis coefficient (fit output contract)
     return spec_a, spec_b
 
 
@@ -512,27 +512,27 @@ def apply_operand_prewarp(x: np.ndarray, spec: dict) -> np.ndarray:
     basis = str(spec["basis"])
     if basis == "fourier_adaptive":
         pp = dict(spec["preprocess"])
-        xf = np.asarray(x, dtype=np.float64).reshape(-1)
+        xf = np.asarray(x, dtype=np.float64).reshape(-1)  # Intentional float64: replay njit kernels are typed for float64 (fit/replay bit-identity)
         if str(pp.get("arg", "linear")) == "quadratic":
             z = (xf - float(pp["mean"])) / max(float(pp["std"]), 1e-12)
             u = np.sign(z) * (z * z)
             axis = (u - float(pp["lo"])) / float(pp["span"])
         else:
             axis = (xf - float(pp["lo"])) / float(pp["span"])
-        coef = np.asarray(spec["coef"], dtype=np.float64).reshape(-1)
-        freqs = np.asarray(pp["freqs"], dtype=np.float64).reshape(-1)
+        coef = np.asarray(spec["coef"], dtype=np.float64).reshape(-1)  # Intentional float64: stored basis coefficient read back for replay
+        freqs = np.asarray(pp["freqs"], dtype=np.float64).reshape(-1)  # Intentional float64: stored frequency vector read back for replay
         # Guarded: this replay is reached from inside the FE pair sweep's chunk pipeline, where a producer
         # thread runs while the main thread scores. Two threads inside one prange region aborts the process
         # on macOS -- see mlframe._numba_parallel_guard. Sole call site, so one guard covers every caller.
         with parallel_kernel_entry():
-            return np.asarray(_fourier_adaptive_prewarp_njit(np.ascontiguousarray(axis), coef, freqs), dtype=np.float64)
+            return np.asarray(_fourier_adaptive_prewarp_njit(np.ascontiguousarray(axis), coef, freqs), dtype=np.float64)  # Intentional float64: njit kernel output contract
     from . import _POLY_BASES
     bi = _POLY_BASES[basis]
-    xf = np.ascontiguousarray(np.asarray(x, dtype=np.float64))
-    z = np.ascontiguousarray(bi["apply"](xf, dict(spec["preprocess"])), dtype=np.float64)
-    coef = np.ascontiguousarray(spec["coef"], dtype=np.float64)
+    xf = np.ascontiguousarray(np.asarray(x, dtype=np.float64))  # Intentional float64: replay njit kernels are typed for float64 (fit/replay bit-identity)
+    z = np.ascontiguousarray(bi["apply"](xf, dict(spec["preprocess"])), dtype=np.float64)  # Intentional float64: replay njit kernels are typed for float64 (fit/replay bit-identity)
+    coef = np.ascontiguousarray(spec["coef"], dtype=np.float64)  # Intentional float64: stored basis coefficient read back for replay
     out = bi["eval_dispatch"](z, coef)
-    return np.asarray(out, dtype=np.float64).reshape(-1)
+    return np.asarray(out, dtype=np.float64).reshape(-1)  # Intentional float64: replay output contract
 
 
 def _ksg_mi_1d(x: np.ndarray, y: np.ndarray, *, discrete_target: bool, n_neighbors: int = 3, random_state: int = 42) -> float:

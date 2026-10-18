@@ -38,6 +38,7 @@ from dataclasses import dataclass, field
 from typing import Any, Optional
 
 import numpy as np
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 
 logger = logging.getLogger(__name__)
 
@@ -472,7 +473,7 @@ from ._dcd_swap import (
 
 
 def _raw_column(state: DCDState, idx: int) -> Optional[np.ndarray]:
-    """Pull raw column ``idx`` (by name from ``state.cols``) from ``X_raw_ref`` as a 1-D float64
+    """Pull raw column ``idx`` (by name from ``state.cols``) from ``X_raw_ref`` as a 1-D float
     array, or None when unavailable (no raw ref, name missing, ndarray out of range)."""
     X_raw = state.X_raw_ref
     if X_raw is None or state.cols is None or idx < 0 or idx >= len(state.cols):
@@ -485,12 +486,12 @@ def _raw_column(state: DCDState, idx: int) -> Optional[np.ndarray]:
             col = X_raw[name]
             if hasattr(col, "to_numpy"):
                 col = col.to_numpy()
-            arr = np.asarray(col, dtype=np.float64)
+            arr = np.asarray(col, dtype=_crit_np_dtype())
         else:
             arr = np.asarray(X_raw)
             if arr.ndim != 2 or idx >= arr.shape[1]:
                 return None
-            arr = arr[:, idx].astype(np.float64, copy=False)
+            arr = arr[:, idx].astype(_crit_np_dtype(), copy=False)
     except Exception as e:
         logger.debug("_raw_column: raw-column extraction failed for idx=%d, treating the column as unavailable: %s", idx, e)
         return None

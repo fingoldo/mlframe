@@ -58,6 +58,7 @@ import math
 from typing import Optional, Sequence
 
 import numpy as np
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 import pandas as pd
 
 from mlframe.utils.log_throttle import log_throttle
@@ -76,7 +77,7 @@ def _digit_extract_njit(arr: np.ndarray, scale: float) -> np.ndarray:
     numpy ``mul -> floor -> mod -> nan_to_num`` 4-pass (each allocating a
     temp) into one allocation-light C loop (~12x). Bit-identical."""
     n = arr.size
-    out = np.empty(n, dtype=np.float64)
+    out = np.empty(n, dtype=_crit_np_dtype())
     for i in range(n):
         v = arr[i] * scale
         if not np.isfinite(v):
@@ -121,27 +122,27 @@ def engineered_name_digit(col: str, digit_position: int) -> str:
     return f"{col}__{DIGIT_PREFIX}_{int(digit_position)}"
 
 def apply_rounding(x: np.ndarray, precision: float) -> np.ndarray:
-    """``round(x / precision) * precision`` as float64. NaN-preserving;
+    """``round(x / precision) * precision`` NaN-preserving;
     np.round uses banker's rounding (matches numpy semantics at fit + replay
     so train/test parity is exact)."""
     p = float(precision)
     if p <= 0.0:
         raise ValueError(f"rounding precision must be > 0; got {p!r}")
-    arr = np.asarray(x, dtype=np.float64)
+    arr = np.asarray(x, dtype=_crit_np_dtype())
     return cast("np.ndarray", np.round(arr / p) * p)
 
 def apply_digit_extract(x: np.ndarray, digit_position: int) -> np.ndarray:
     """``floor(x * 10^k) mod 10`` - the ``k``-th decimal digit (k=0 -> the
     ones digit of the integer part for k<=0 convention; here k counts decimal
     places: k=0 is the first decimal, etc. per the design spec
-    ``floor(x*10^k) mod 10``). Output float64 in ``{0..9}``; NaN rows map to 0.
+    ``floor(x*10^k) mod 10``). Output in ``{0..9}``; NaN rows map to 0.
 
     The transform is sign-insensitive in the sense that it operates on the
     scaled value directly; negative inputs produce the floor-mod digit of the
     negative scaled value, which is deterministic and reproducible at replay.
     """
     k = int(digit_position)
-    arr = np.ascontiguousarray(x, dtype=np.float64)
+    arr = np.ascontiguousarray(x, dtype=_crit_np_dtype())
     # Fused single-pass njit: floor(x*10^k) mod 10, NaN/inf -> 0 (matches the
     # nan_to_num scrubbing the rest of the FE pipeline applies). ~12x over the
     # numpy mul->floor->mod->nan_to_num 4-pass.

@@ -50,6 +50,8 @@ import logging
 from typing import Any, Callable, Optional, Sequence
 
 import numpy as np
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
+from mlframe.feature_selection.filters._fe_gpu_batch._devices import crit_float_dtype
 import pandas as pd
 
 logger = logging.getLogger(__name__)
@@ -100,7 +102,7 @@ def build_dispersion_matrix_gpu(cp: Any, X: pd.DataFrame, col_specs: Sequence[di
 
     ``col_specs`` is a list of per-output dicts ``{name, x_i, x_j, edges, bin_mean, bin_std, kind}`` (exactly
     the recipe fields) - the columns the host ``enc_df`` carries, in the SAME order. Returns an (n, K) cupy
-    float64 matrix whose columns are the device reconstructions, structurally bit-identical to the host (same
+    double precision matrix whose columns are the device reconstructions, structurally bit-identical to the host (same
     bin codes, same sigma-floor, same NaN-fold, same emission fold); only the f64 divide differs at ~1e-10 ULP.
 
     Operands (the two raw columns per pair) ride through the resident-operand cache so each distinct raw column
@@ -130,18 +132,18 @@ def build_dispersion_matrix_gpu(cp: Any, X: pd.DataFrame, col_specs: Sequence[di
         if z_g is None:
             codes_g = code_cache.get(x_j)
             if codes_g is None:
-                xj = np.asarray(X[x_j].to_numpy(), dtype=np.float64)
-                edges = np.asarray(spec["edges"], dtype=np.float64)
-                xj_g = resident_operand(np.ascontiguousarray(xj), ("disp_xj", x_j), dtype=cp.float64)
-                edges_g = resident_operand(np.ascontiguousarray(edges), ("disp_edges", x_j), dtype=cp.float64)
+                xj = np.asarray(X[x_j].to_numpy(), dtype=_crit_np_dtype())
+                edges = np.asarray(spec["edges"], dtype=_crit_np_dtype())
+                xj_g = resident_operand(np.ascontiguousarray(xj), ("disp_xj", x_j), dtype=crit_float_dtype())
+                edges_g = resident_operand(np.ascontiguousarray(edges), ("disp_edges", x_j), dtype=crit_float_dtype())
                 codes_g = _codes_from_edges_gpu(cp, xj_g, edges_g)
                 code_cache[x_j] = codes_g
-            xi = np.asarray(X[x_i].to_numpy(), dtype=np.float64)
-            xi_g = resident_operand(np.ascontiguousarray(xi), ("disp_xi", x_i), dtype=cp.float64)
-            bin_mean = np.asarray(spec["bin_mean"], dtype=np.float64)
-            bin_std = np.asarray(spec["bin_std"], dtype=np.float64)
-            mean_g = resident_operand(np.ascontiguousarray(bin_mean), ("disp_mean", x_i, x_j), dtype=cp.float64)
-            std_g = resident_operand(np.ascontiguousarray(bin_std), ("disp_std", x_i, x_j), dtype=cp.float64)
+            xi = np.asarray(X[x_i].to_numpy(), dtype=_crit_np_dtype())
+            xi_g = resident_operand(np.ascontiguousarray(xi), ("disp_xi", x_i), dtype=crit_float_dtype())
+            bin_mean = np.asarray(spec["bin_mean"], dtype=_crit_np_dtype())
+            bin_std = np.asarray(spec["bin_std"], dtype=_crit_np_dtype())
+            mean_g = resident_operand(np.ascontiguousarray(bin_mean), ("disp_mean", x_i, x_j), dtype=crit_float_dtype())
+            std_g = resident_operand(np.ascontiguousarray(bin_std), ("disp_std", x_i, x_j), dtype=crit_float_dtype())
             # Gather per-row mu/sigma by code; floor sigma EXACTLY as _zscore_from_bins_njit (s<floor -> 1.0);
             # divide; NaN x_i rows -> 0.0. Per-element independent f64 -> ULP-matches the host njit loop.
             mu = mean_g[codes_g]
@@ -153,7 +155,7 @@ def build_dispersion_matrix_gpu(cp: Any, X: pd.DataFrame, col_specs: Sequence[di
 
         out_cols.append(_emit_kind_gpu(cp, z_g, kind))
 
-    dt = cp.float64 if out_dtype is None else out_dtype
+    dt = crit_float_dtype() if out_dtype is None else out_dtype
     if not out_cols:
         return cp.empty((0, n) if column_major else (n, 0), dtype=dt)
     # column_major: the columns are the rows of the (K, n) block (a plain concatenation) - what the edge select and the MI kernel read, so no transpose follows;
@@ -169,7 +171,7 @@ def build_residual_abs_matrix_gpu(cp: Any, X: pd.DataFrame, col_specs: Sequence[
     NUMERATOR before the divide), then ``cp.abs``.
 
     ``col_specs`` is a list of per-output dicts ``{x_i, x_j, edges, bin_mean}`` (the Family-B recipe fields).
-    Returns an (n, K) cupy float64 matrix whose columns are ``|residual|``, structurally bit-identical to the
+    Returns an (n, K) cupy double precision matrix whose columns are ``|residual|``, structurally bit-identical to the
     host (same x_j bin codes via the SAME stored edges, same per-bin mean gather, same NaN ``x_i`` -> 0.0
     fold). There is NO divide here - only a per-element gather + subtract + abs - so the emitted values match
     the host to the last ULP (per-element independent f64).
@@ -195,16 +197,16 @@ def build_residual_abs_matrix_gpu(cp: Any, X: pd.DataFrame, col_specs: Sequence[
         if r_g is None:
             codes_g = code_cache.get(x_j)
             if codes_g is None:
-                xj = np.asarray(X[x_j].to_numpy(), dtype=np.float64)
-                edges = np.asarray(spec["edges"], dtype=np.float64)
-                xj_g = resident_operand(np.ascontiguousarray(xj), ("disp_xj", x_j), dtype=cp.float64)
-                edges_g = resident_operand(np.ascontiguousarray(edges), ("disp_edges", x_j), dtype=cp.float64)
+                xj = np.asarray(X[x_j].to_numpy(), dtype=_crit_np_dtype())
+                edges = np.asarray(spec["edges"], dtype=_crit_np_dtype())
+                xj_g = resident_operand(np.ascontiguousarray(xj), ("disp_xj", x_j), dtype=crit_float_dtype())
+                edges_g = resident_operand(np.ascontiguousarray(edges), ("disp_edges", x_j), dtype=crit_float_dtype())
                 codes_g = _codes_from_edges_gpu(cp, xj_g, edges_g)
                 code_cache[x_j] = codes_g
-            xi = np.asarray(X[x_i].to_numpy(), dtype=np.float64)
-            xi_g = resident_operand(np.ascontiguousarray(xi), ("disp_xi", x_i), dtype=cp.float64)
-            bin_mean = np.asarray(spec["bin_mean"], dtype=np.float64)
-            mean_g = resident_operand(np.ascontiguousarray(bin_mean), ("resid_mean", x_i, x_j), dtype=cp.float64)
+            xi = np.asarray(X[x_i].to_numpy(), dtype=_crit_np_dtype())
+            xi_g = resident_operand(np.ascontiguousarray(xi), ("disp_xi", x_i), dtype=crit_float_dtype())
+            bin_mean = np.asarray(spec["bin_mean"], dtype=_crit_np_dtype())
+            mean_g = resident_operand(np.ascontiguousarray(bin_mean), ("resid_mean", x_i, x_j), dtype=crit_float_dtype())
             # Gather per-row mean by code; subtract; NaN x_i rows -> 0.0 (the EXACT host fold), then abs. No
             # divide -> bit-identical to the host per-element op sequence.
             mu = mean_g[codes_g]
@@ -214,9 +216,9 @@ def build_residual_abs_matrix_gpu(cp: Any, X: pd.DataFrame, col_specs: Sequence[
         out_cols.append(r_g)
 
     if not out_cols:
-        return cp.empty((0, n) if column_major else (n, 0), dtype=cp.float64)
+        return cp.empty((0, n) if column_major else (n, 0), dtype=crit_float_dtype())
     # column_major: the columns are the rows of the (K, n) block (a plain concatenation) - what the edge select and the MI kernel read, so no transpose follows
-    return cp.ascontiguousarray(cp.stack(out_cols, axis=0 if column_major else 1).astype(cp.float64, copy=False))
+    return cp.ascontiguousarray(cp.stack(out_cols, axis=0 if column_major else 1).astype(crit_float_dtype(), copy=False))
 
 
 def dual_uplift_sibling_mi_resident(
@@ -232,7 +234,7 @@ def dual_uplift_sibling_mi_resident(
     Builds the ``sib_abs`` matrix ON the device from the SMALL resident operand columns (collapsing the
     ~120 MB host matrix upload at ``_extra_fe_families_dispersion.py:489``) and scores per-column MI with the
     SAME percentile-edge resident plug-in MI ``_plugin_mi_classif_batch_cuda_resident`` the host STRICT
-    ``_mi_classif_batch`` routes to (NO estimator switch). Returns a host (K,) float64 MI array in ``col_specs``
+    ``_mi_classif_batch`` routes to (NO estimator switch). Returns a host (K,) double precision MI array in ``col_specs``
     order, OR ``None`` on any cupy failure / no-cupy so the caller falls back to the exact host
     ``_mi_classif_batch`` over the host-built ``sib_abs`` (byte-identical default path untouched)."""
     try:
@@ -241,21 +243,21 @@ def dual_uplift_sibling_mi_resident(
         logger.debug("cupy import failed: %s", e)
         return None
     if not col_specs:
-        return np.empty((0,), dtype=np.float64)
+        return np.empty((0,), dtype=_crit_np_dtype())
     try:
         from ._hermite_fe_mi import _plugin_mi_classif_batch_cuda_resident, relaxed_candidate_dtype
         from ._fe_resident_operands import resident_operand
 
         mat_gpu = build_residual_abs_matrix_gpu(cp, raw_X, list(col_specs), column_major=True, out_dtype=relaxed_candidate_dtype(cp))
         if mat_gpu.shape[0] == 0:
-            return np.empty((0,), dtype=np.float64)
+            return np.empty((0,), dtype=_crit_np_dtype())
         _yi = np.ascontiguousarray(np.asarray(y_bin)).astype(np.int64).ravel()
         y_gpu = resident_operand(_yi, "y_mi_classif", dtype=np.int64)
         _ymin = int(_yi.min()) if _yi.size else 0
         _ncls = (int(_yi.max()) - _ymin + 1) if _yi.size else 1
         return np.asarray(
             _plugin_mi_classif_batch_cuda_resident(mat_gpu, y_gpu, int(nbins), y_min=_ymin, n_classes=_ncls, relax_binning=True, keep_dtype=True, x_is_cm=True),
-            dtype=np.float64,
+            dtype=_crit_np_dtype(),
         )
     except Exception as _exc:
         logger.debug("dual_uplift_sibling_mi_resident: GPU path failed (%s); host fallback", _exc)
@@ -328,7 +330,7 @@ def local_mi_gate_dispersion_resident(
         _ncls = (int(_yi.max()) - _ymin + 1) if _yi.size else 1
         cand_mi = np.asarray(
             _plugin_mi_classif_batch_cuda_resident(mat_gpu, y_gpu, int(nbins), y_min=_ymin, n_classes=_ncls, relax_binning=True, keep_dtype=True, x_is_cm=True),
-            dtype=np.float64,
+            dtype=_crit_np_dtype(),
         )
     except Exception as _exc:
         logger.debug("local_mi_gate_dispersion_resident: GPU path failed (%s); host fallback", _exc)

@@ -20,6 +20,7 @@ from __future__ import annotations
 from typing import Mapping, Optional
 
 import numpy as np
+from ._fe_usability_signal import _crit_np_dtype
 from numba import njit, prange
 
 from ._numba_utils import _backfit
@@ -117,7 +118,7 @@ def _code_columns(cols: "Mapping[str, np.ndarray]", rows: np.ndarray, n_bins: in
     names = list(cols)
     if not names:
         return [], np.empty((0, len(rows)), dtype=np.int64)
-    M = np.ascontiguousarray(np.stack([np.asarray(cols[k])[rows] for k in names]).astype(np.float64, copy=False))
+    M = np.ascontiguousarray(np.stack([np.asarray(cols[k])[rows] for k in names]).astype(_crit_np_dtype(), copy=False))
     codes, ok = _codes_matrix(M, n_bins, CODE_SAMPLE, MIN_ROWS, FEW_CLASSES_MAX)
     keep = np.flatnonzero(ok)
     return [names[k] for k in keep], np.ascontiguousarray(codes[keep])
@@ -125,7 +126,7 @@ def _code_columns(cols: "Mapping[str, np.ndarray]", rows: np.ndarray, n_bins: in
 
 def _standardised(v: np.ndarray) -> Optional[np.ndarray]:
     """``v`` with non-finite values set to the median, clipped to Tukey's far-out fences and standardised; ``None`` for a constant column."""
-    v = np.asarray(v, dtype=np.float64)
+    v = np.asarray(v, dtype=_crit_np_dtype())
     finite = np.isfinite(v)
     if not finite.any():
         return None
@@ -164,6 +165,7 @@ def linear_oos_gain(rest: Mapping[str, np.ndarray], candidate: np.ndarray, y: np
     ``d_i = e0_i^2 - e1_i^2``, its t statistic and its mean over the odd-row variance of the target. This is the question a linear downstream model asks of a column, whatever the free-form
     effects of the other columns could absorb: a raw ``a`` beside ``add(exp(a), ...)`` has no free-form gain (the compound is a proxy of ``a``) but a linear model can only use the compound as one
     block, so a private linear term of ``a`` is a real gain there."""
+    # Intentional float64: target labels kept f64 (exact binning / comparison contract)
     yr = _winsorised(np.asarray(y, dtype=np.float64).ravel())
     n = len(yr)
     even = np.arange(n) % 2 == 0
@@ -190,6 +192,7 @@ def design_residual(design: Mapping[str, np.ndarray], y: np.ndarray) -> np.ndarr
     rows are out of sample). The scale is the standardised target's, whatever the scale of ``y``."""
     n = len(y)
     rows = np.arange(n)
+    # Intentional float64: target labels kept f64 (exact binning / comparison contract)
     yr = _winsorised(np.asarray(y, dtype=np.float64).ravel())
     even = rows % 2 == 0
     n_main = main_effect_bins((n + 1) // 2)
@@ -205,7 +208,7 @@ def _linear_scores(Z: np.ndarray, L: np.ndarray, r0: np.ndarray, even: np.ndarra
     orthogonalised against ``L`` (also on the even rows); the paired per-row reduction ``r0^2 - (r0 - b x)^2`` on the odd rows is the evidence, exactly as in ``linear_oos_gain`` but for a whole block."""
     ts, gains = [], []
     for start in range(0, Z.shape[0], 64):
-        block = Z[start : start + 64].T.astype(np.float64)
+        block = Z[start : start + 64].T.astype(_crit_np_dtype())
         G, *_ = np.linalg.lstsq(L[even], block[even], rcond=None)
         P = block - L @ G
         den = np.maximum((P[even] ** 2).sum(0), 1e-12)
@@ -243,6 +246,7 @@ def residual_rescue(
     if n < MIN_ROWS or not len(pool) or int(max_admit) <= 0:
         return []
     rows = np.arange(n) if n <= scan_rows else np.linspace(0, n - 1, int(scan_rows)).astype(np.int64)
+    # Intentional float64: target labels kept f64 (exact binning / comparison contract)
     yr = _winsorised(np.asarray(y, dtype=np.float64).ravel()[rows])
     even = np.arange(len(rows)) % 2 == 0
     # Odd-row variance of the target: gains are relative to it, not to the shrinking residual. A zero variance (constant target) is a real value

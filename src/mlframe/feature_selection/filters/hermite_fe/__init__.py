@@ -37,6 +37,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, cast
 
 import numpy as np
+from .._fe_usability_signal import _crit_np_dtype
 
 from mlframe.feature_selection.filters._numba_utils import _quantile_bin_njit
 from mlframe.feature_selection.filters._safe_scale import _REL_TOL, guarded_scale
@@ -99,6 +100,7 @@ def _plugin_mi_classif_batch_njit(X_cols: np.ndarray, y: np.ndarray, n_bins: int
     #   saves only ~6ms/call @1M (4%, negative at 200k) -> ~70ms over the 24 k=1 calls = sub-0.1% of a ~90s fit,
     #   not worth the branch. Left as-is: optimal safe form.
     k = X_cols.shape[1]
+    # Intentional float64: coefficient / output contract kept f64
     out = np.zeros(k, dtype=np.float64)
     for j in prange(k):
         out[j] = _plugin_mi_classif_njit(X_cols[:, j].copy(), y, n_bins)
@@ -114,6 +116,7 @@ def _plugin_mi_classif_batch_rows_njit(X_rows: np.ndarray, y: np.ndarray, n_bins
     NOT a replacement for the (n, k) form: callers holding naturally column-major data keep the original
     (the measured-rejected transpose of an EXISTING (n, k) matrix is a different, losing lever - see above)."""
     k = X_rows.shape[0]
+    # Intentional float64: coefficient / output contract kept f64
     out = np.zeros(k, dtype=np.float64)
     for j in prange(k):
         out[j] = _plugin_mi_classif_njit(X_rows[j], y, n_bins)
@@ -151,6 +154,7 @@ def plugin_mi_classif_batch_fast(X_cols: np.ndarray, y: np.ndarray, n_bins: int 
     """
     _n, k = X_cols.shape
     y_i64 = np.asarray(y, dtype=np.int64)
+    # Intentional float64: coefficient / output contract kept f64
     out = np.empty(k, dtype=np.float64)
     for j in range(k):
         x_binned = _quantile_bin_numpy(
@@ -197,6 +201,7 @@ def _plugin_mi_classif_cuda(x: np.ndarray, y: np.ndarray, n_bins: int = 20) -> f
 def _plugin_mi_regression_batch_njit(X_cols: np.ndarray, y: np.ndarray, n_bins: int = 20) -> np.ndarray:
     """Plug-in MI of each column of X_cols (continuous) with continuous y."""
     k = X_cols.shape[1]
+    # Intentional float64: coefficient / output contract kept f64
     out = np.zeros(k, dtype=np.float64)
     for j in prange(k):
         out[j] = _plugin_mi_regression_njit(X_cols[:, j].copy(), y, n_bins)
@@ -255,9 +260,11 @@ def _polyeval_cuda(basis: str, x: np.ndarray, c: np.ndarray, device: int | None 
         # vary per trial - that is the thing being optimized - so it stays a raw per-call upload.
         from .._fe_resident_operands import resident_operand
 
-        x_gpu = resident_operand(x, "hermite_polyeval_x", dtype=np.float64)
+        x_gpu = resident_operand(x, "hermite_polyeval_x", dtype=_crit_np_dtype())
+        # Intentional float64: coefficient / output contract kept f64
         c_gpu = cp.asarray(c, dtype=cp.float64)
         n = x.shape[0]
+        # Intentional float64: coefficient / output contract kept f64
         out_gpu = cp.empty(n, dtype=cp.float64)
         block = 256
         grid = (n + block - 1) // block
@@ -513,6 +520,7 @@ def _minmax_neg1_1_njit(x: np.ndarray):
     mag = abs(lo) if abs(lo) > abs(hi) else abs(hi)
     if not (span > _REL_TOL * mag):  # a NaN span falls here too and still propagates through lo below
         span = 1.0
+    # Intentional float64: coefficient / output contract kept f64
     out = np.empty(n, dtype=np.float64)
     for i in range(n):
         out[i] = 2.0 * (x[i] - lo) / span - 1.0
@@ -528,7 +536,7 @@ def _preprocess_minmax_neg1_1(x):
         span = float(guarded_scale(hi - lo, max(abs(lo), abs(hi))))
         z = np.clip(2 * (x - lo) / span - 1, -1.0, 1.0)
         return z, dict(lo=lo, hi=hi, clip=1.0)
-    z, lo, hi = _minmax_neg1_1_njit(np.ascontiguousarray(x, dtype=np.float64))
+    z, lo, hi = _minmax_neg1_1_njit(np.ascontiguousarray(x, dtype=_crit_np_dtype()))
     return z, dict(lo=float(lo), hi=float(hi))
 
 
@@ -565,6 +573,7 @@ def _apply_minmax_njit(x: np.ndarray, lo: float, span: float, has_clip: bool, cl
     :func:`_apply_minmax`'s dispatch threshold for the measured crossover; this variant stays for that
     regime, but is NOT the default entry point any more."""
     n = x.shape[0]
+    # Intentional float64: coefficient / output contract kept f64
     out = np.empty(n, dtype=np.float64)
     for i in prange(n):
         z = 2 * (x[i] - lo) / span - 1
@@ -587,6 +596,7 @@ def _apply_minmax_njit_serial(x: np.ndarray, lo: float, span: float, has_clip: b
     2.4x-28x FASTER at n<=5,000,000; the crossover only appears between n=5M (parallel 2.41x SLOWER)
     and n=20M (parallel 1.56x faster) -- see :func:`_apply_minmax`'s threshold for where this is used."""
     n = x.shape[0]
+    # Intentional float64: coefficient / output contract kept f64
     out = np.empty(n, dtype=np.float64)
     for i in range(n):
         z = 2 * (x[i] - lo) / span - 1
@@ -613,6 +623,7 @@ def _make_minmax_inputs(dims: dict) -> tuple:
     """(x, lo, span, has_clip, clip_val) at the sweep's n cell."""
     n = int(dims["n"])
     rng = np.random.default_rng(0)
+    # Intentional float64: benchmark / warmup input kept f64
     x = np.ascontiguousarray(rng.random(n) * 10.0, dtype=np.float64)
     return (x, 0.0, 10.0, True, 1.0)
 
@@ -662,7 +673,7 @@ def _apply_minmax(x, params):
     span = float(guarded_scale(params["hi"] - params["lo"], max(abs(params["lo"]), abs(params["hi"]))))
     clip = params.get("clip")
     if _NUMBA_AVAILABLE:
-        xf = np.ascontiguousarray(x, dtype=np.float64)
+        xf = np.ascontiguousarray(x, dtype=_crit_np_dtype())
         try:
             choice = _MINMAX_PARALLELISM_SPEC.choose(n=int(xf.shape[0]))
         except Exception as e:
@@ -779,11 +790,13 @@ class HermiteResult:
     def transform(self, x_a: np.ndarray, x_b: np.ndarray) -> np.ndarray:
         """Apply the learned polynomial-pair transformation: preprocess to basis domain, eval polynomial, combine via bin_func. njit eval is 3-6x faster than numpy at n<5000."""
         basis_info = _POLY_BASES[self.basis]
-        z_a = np.ascontiguousarray(basis_info["apply"](x_a, self.preprocess_a), dtype=np.float64)
-        z_b = np.ascontiguousarray(basis_info["apply"](x_b, self.preprocess_b), dtype=np.float64)
+        z_a = np.ascontiguousarray(basis_info["apply"](x_a, self.preprocess_a), dtype=_crit_np_dtype())
+        z_b = np.ascontiguousarray(basis_info["apply"](x_b, self.preprocess_b), dtype=_crit_np_dtype())
         # eval_dispatch picks njit / njit_par / cuda based on len(z_a) and CUDA availability.
         eval_dispatch = basis_info["eval_dispatch"]
+        # Intentional float64: coefficient / output contract kept f64
         coef_a = np.ascontiguousarray(self.coef_a, dtype=np.float64)
+        # Intentional float64: coefficient / output contract kept f64
         coef_b = np.ascontiguousarray(self.coef_b, dtype=np.float64)
         h_a = eval_dispatch(z_a, coef_a)
         h_b = eval_dispatch(z_b, coef_b)
@@ -804,6 +817,7 @@ def _safe_div(a, b):
     # exactly. The prior ``np.where(b >= 0, b + eps, b - eps)`` guaranteed ``|denom| >= eps`` but perturbed EVERY
     # denominator by ``eps`` - negligible for ordinary ``b`` yet ~``eps/b`` relative error as ``b -> 0`` (a 0.1% error
     # at ``b=1e-6``), which on a heavy-tailed ratio target inflates a linear downstream's MAE on the small-``b`` tail.
+    # Intentional float64: coefficient / output contract kept f64
     b = np.asarray(b, dtype=np.float64)
     denom = np.where(b == 0.0, eps, b)
     with np.errstate(divide="ignore", invalid="ignore"):
@@ -904,7 +918,7 @@ def basis_route_by_moments(x: np.ndarray) -> str:
 
     Returns one of {hermite, legendre, chebyshev, laguerre}.
     """
-    x = np.asarray(x, dtype=np.float64)
+    x = np.asarray(x, dtype=_crit_np_dtype())
     if x.size < 30:
         return "chebyshev"
     # Single fused njit pass computes all six statistics without materialising the z / z2 / z3 / z4 temporaries the

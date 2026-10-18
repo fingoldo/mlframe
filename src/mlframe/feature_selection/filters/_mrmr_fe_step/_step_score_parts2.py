@@ -4,6 +4,7 @@ from __future__ import annotations
 import logging
 
 import numpy as np
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 
 from mlframe.feature_selection.cv_policy import get_cv_policy
 
@@ -355,7 +356,7 @@ def _materialise_and_fina_step3_cols_space_index(self, prospective_additions, en
                         # A device-backed survivor matrix hands over a lazy device column: the next FE step's pair search and the device stages read it
                         # in place, and a host consumer copies it back (once) only when it actually reads it.
                         _cv = transformed_vals[:, _jc]
-                        st._eng_cont_store[col] = _cv if hasattr(_cv, "dev") else np.asarray(_cv, dtype=np.float64)
+                        st._eng_cont_store[col] = _cv if hasattr(_cv, "dev") else np.asarray(_cv, dtype=_crit_np_dtype())
 
                 # Build EngineeredRecipe for each newly-appended column so transform() can replay it.
                 # Runs whenever columns were added (fe_max_steps >= 1). NESTED-ENGINEERED PARENTS
@@ -452,7 +453,7 @@ def _materialise_and_fina_step2_esc_failed(self, _esc_failed, classes_y, st, pro
                     if _tvals.shape[1] > _jc:
                         _e_names.append(_cname)
                         _ev = _tvals[:, _jc]
-                        _e_vals.append(_ev if hasattr(_ev, "dev") else np.asarray(_ev, dtype=np.float64))
+                        _e_vals.append(_ev if hasattr(_ev, "dev") else np.asarray(_ev, dtype=_crit_np_dtype()))
             _e_mi = batched_device_marginals(_e_vals, _esc_y_dense, int(self.quantization_nbins))
             if _e_mi is not None:
                 _esc_admitted_pool = {_nm: (_vv, _mm) for _nm, _vv, _mm in zip(_e_names, _e_vals, _e_mi)}
@@ -463,7 +464,7 @@ def _materialise_and_fina_step2_esc_failed(self, _esc_failed, classes_y, st, pro
             for _jc, _cname in enumerate(_ncols):
                 if _tvals.shape[1] <= _jc:
                     continue
-                _cv = np.asarray(_tvals[:, _jc], dtype=np.float64)
+                _cv = np.asarray(_tvals[:, _jc], dtype=_crit_np_dtype())
                 # DEVICE-BORN admitted-pool marginal MI (same residency contract as the gate's _cmi_cands
                 # build above): bin the admitted engineered column ONCE on device and score its marginal
                 # MI from the RESIDENT codes so the candidate float + codes never re-cross H2D. Host
@@ -523,7 +524,7 @@ def _materialise_and_fina_step2_esc_failed(self, _esc_failed, classes_y, st, pro
             )
             for _je, _ec in enumerate(_esc_admitted):
                 _esc_new_codes[:, _je] = discretize_array(
-                    arr=np.asarray(_ec["values"], dtype=np.float64),
+                    arr=np.asarray(_ec["values"], dtype=_crit_np_dtype()),
                     n_bins=self.quantization_nbins,
                     method=self.quantization_method,
                     dtype=self.quantization_dtype,
@@ -548,7 +549,7 @@ def _materialise_and_fina_step2_esc_failed(self, _esc_failed, classes_y, st, pro
             for _je, _ec in enumerate(_esc_admitted):
                 if not _is_polars_input:
                     X[_ec["name"]] = _esc_new_codes[:, _je]
-                st._eng_cont_store[_ec["name"]] = np.asarray(_ec["values"], dtype=np.float64)
+                st._eng_cont_store[_ec["name"]] = np.asarray(_ec["values"], dtype=_crit_np_dtype())
                 if engineered_recipes is not None:
                     engineered_recipes[_ec["name"]] = _ec["recipe"]
     return X, cols, data, n_recommended_features, nbins
@@ -601,7 +602,7 @@ def _materialise_and_fina_step4_contract_stay_off(self, engineered_recipes, st, 
                         _fz_codes[:, _jf] = _dev_codes[:, 0]
                         continue
                     _fz_codes[:, _jf] = discretize_array(
-                        arr=np.asarray(_fc["values"], dtype=np.float64),
+                        arr=np.asarray(_fc["values"], dtype=_crit_np_dtype()),
                         n_bins=self.quantization_nbins,
                         method=self.quantization_method,
                         dtype=self.quantization_dtype,
@@ -620,7 +621,7 @@ def _materialise_and_fina_step4_contract_stay_off(self, engineered_recipes, st, 
                 for _jf, _fc in enumerate(_fused):
                     if not _is_polars_input:
                         X[_fc["name"]] = _fz_codes[:, _jf]
-                    st._eng_cont_store[_fc["name"]] = _fc["values"] if hasattr(_fc["values"], "dev") else np.asarray(_fc["values"], dtype=np.float64)
+                    st._eng_cont_store[_fc["name"]] = _fc["values"] if hasattr(_fc["values"], "dev") else np.asarray(_fc["values"], dtype=_crit_np_dtype())
                     engineered_recipes[_fc["name"]] = _fc["recipe"]
                 self._engineered_continuous_ = st._eng_cont_store
                 # Promote the fused compounds into selection and DROP the subsumed fragments

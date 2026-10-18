@@ -9,6 +9,8 @@ from typing import cast
 from typing import Any
 
 import numpy as np
+
+from ._fe_usability_signal import _crit_np_dtype
 import pandas as pd
 
 
@@ -25,10 +27,10 @@ def broadcast_lookup(g_keys: np.ndarray, lookup: dict, glob: float) -> np.ndarra
     try:
         uniq, inverse = np.unique(g_keys, return_inverse=True)
         inverse = np.asarray(inverse).reshape(-1)
-        uniq_vals = np.array([lookup.get(str(_k), glob) for _k in uniq], dtype=np.float64)
+        uniq_vals = np.array([lookup.get(str(_k), glob) for _k in uniq], dtype=_crit_np_dtype())
         out = uniq_vals[inverse]
     except (TypeError, ValueError):
-        out = np.array([lookup.get(str(_k), glob) for _k in g_keys], dtype=np.float64)
+        out = np.array([lookup.get(str(_k), glob) for _k in g_keys], dtype=_crit_np_dtype())
     return cast("np.ndarray", np.nan_to_num(out, nan=glob, posinf=glob, neginf=glob))
 
 

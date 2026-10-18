@@ -16,6 +16,7 @@ from typing import Any, Callable, Optional, Sequence
 import logging
 
 import numpy as np
+from ..._fe_usability_signal import _crit_np_dtype
 import pandas as pd
 
 from mlframe.feature_selection.filters._mrmr_fit_impl._friend_graph_and_redundancy._raw_protect_r2 import heldout_r2_scorer
@@ -35,7 +36,7 @@ def selected_design_columns(*, X: Any, cols: Sequence[str], selected_vars: Seque
         if values is None:
             continue
         try:
-            values = np.asarray(values, dtype=np.float64).reshape(-1)
+            values = np.asarray(values, dtype=_crit_np_dtype()).reshape(-1)
         except (TypeError, ValueError):
             # A raw categorical/string selected column (e.g. under skip_categorical_encoding) is not a numeric R^2-baseline regressor.
             continue
@@ -45,8 +46,9 @@ def selected_design_columns(*, X: Any, cols: Sequence[str], selected_vars: Seque
 
 
 def coerce_gate_target(y_np: Any, n_rows: int) -> Optional[np.ndarray]:
-    """``y`` as a finite float64 vector of ``n_rows``, or None when it cannot serve as a regression target for the probe."""
+    """``y`` as a finite double precision vector of ``n_rows``, or None when it cannot serve as a regression target for the probe."""
     try:
+        # Intentional float64: target labels kept f64 (exact binning / comparison contract)
         y_vec = np.asarray(y_np, dtype=np.float64).reshape(-1)
     except Exception as exc:
         logger.debug("mrmr: y coercion for the held-out protection gate failed: %r", exc, exc_info=True)
@@ -102,13 +104,13 @@ def build_heldout_incr_probe(
 
     def _heldout_incr_over_selected(candidate_vals, src_vals=None) -> float:
         """Held-out R^2 gain of adding ``candidate_vals`` to the selected design plus the source and its degree-2 poly."""
-        cand = np.asarray(candidate_vals, dtype=np.float64)
+        cand = np.asarray(candidate_vals, dtype=_crit_np_dtype())
         cand = cand.reshape(-1, 1) if cand.ndim == 1 else cand.reshape(cand.shape[0], -1)
         if cand.shape[0] != n or not np.all(np.isfinite(cand)):
             return 0.0
         smooth: list = []
         if src_vals is not None:
-            sv = np.asarray(src_vals, dtype=np.float64).reshape(-1)
+            sv = np.asarray(src_vals, dtype=_crit_np_dtype()).reshape(-1)
             if sv.shape[0] == n and np.all(np.isfinite(sv)):
                 # The source is usually a selected column already; repeating it would make the design rank deficient, which the scorer
                 # handles by falling back to lstsq, but not adding the duplicate keeps the baseline meaningful in the first place.
@@ -136,7 +138,7 @@ def candidate_values(name: str, *, X: Any, eng_continuous_snapshot: dict, y_ref:
     if values is None or y_ref is None:
         return None
     try:
-        values = np.asarray(values, dtype=np.float64).reshape(-1)
+        values = np.asarray(values, dtype=_crit_np_dtype()).reshape(-1)
     except (TypeError, ValueError) as _exc:
         logger.debug("candidate_values fell back to its default after %s", type(_exc).__name__)
         return None

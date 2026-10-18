@@ -21,6 +21,8 @@ from typing import Any, Callable
 
 import numpy as np
 
+from .._fe_usability_signal import _crit_np_dtype
+
 
 from .._fe_rejection_ledger import record_fe_rejection as _record_fe_rejection
 from .._lazy_host_codes import strided
@@ -57,7 +59,7 @@ def _score_candidates_one_by_one(self, st, prospective_additions, _gate_stride, 
         for _jc, _cname in enumerate(_ncols):
             if _tvals.shape[1] <= _jc:
                 continue
-            _vals = np.asarray(_tvals[:, _jc], dtype=np.float64)
+            _vals = np.asarray(_tvals[:, _jc], dtype=_crit_np_dtype())
             if _gate_stride > 1:
                 _vals = _vals[::_gate_stride]
             _vb = None
@@ -246,7 +248,7 @@ def _materialise_and_finalise_fe_candidates_part1(
                     if _tvals.shape[1] <= _jc:
                         continue
                     _v = _tvals[:, _jc]
-                    _v = _v if hasattr(_v, "dev") else np.asarray(_v, dtype=np.float64)  # a device-backed survivor stays on the device
+                    _v = _v if hasattr(_v, "dev") else np.asarray(_v, dtype=_crit_np_dtype())  # a device-backed survivor stays on the device
                     _b_names.append(_cname)
                     _b_vals.append(strided(_v, _gate_stride))
             _b_mi = batched_device_marginals(_b_vals, _y_dense_g, int(self.quantization_nbins))

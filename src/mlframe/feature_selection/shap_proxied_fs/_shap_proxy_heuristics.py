@@ -18,6 +18,7 @@ which also supports AUC). A per-subset memo avoids re-scoring repeats.
 from __future__ import annotations
 
 import numpy as np
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 
 from mlframe.feature_selection.shap_proxied_fs._shap_proxy_objective import (
     METRIC_CODES,
@@ -57,7 +58,7 @@ class _Evaluator:
         # greedy callers populate via ``loss_from_margin`` so add-one-feature children are cheap.
         self.margin_cache: dict[tuple[int, ...], np.ndarray] = {}
         self.n_evals = 0
-        # iter102 hot-path optimisation: cache the metric integer code + y (already float64
+        # iter102 hot-path optimisation: cache the metric integer code + y (already crit-dtype
         # via ``_prep``) so the per-add/drop/swap step skips ``proxy_loss``'s METRIC_CODES dict
         # lookup, two ``np.asarray`` no-ops and the wrapper call. score_margin is the njit kernel
         # ``proxy_loss`` wraps; RMSE wraps the MSE code in ``math.sqrt`` (sqrt is monotone so any
@@ -265,16 +266,16 @@ def _is_sorted_tuple(t: tuple) -> bool:
 
 
 def _prep(phi, base, y, classification, metric):
-    """Coerce ``phi``/``base``/``y`` to contiguous float64 and resolve the metric name.
+    """Coerce ``phi``/``base``/``y`` to contiguous crit-dtype arrays and resolve the metric name.
 
     Shared entry-point setup for every search strategy in this module: normalises input dtype/
     layout once (so the ``_Evaluator`` and its ``coalition_margin_T`` calls never re-check it), and
     resolves ``metric`` (possibly ``None``) to the concrete metric string via ``resolve_metric``
     given the ``classification`` flag.
     """
-    phi = np.ascontiguousarray(phi, dtype=np.float64)
-    base = np.ascontiguousarray(base, dtype=np.float64)
-    y = np.ascontiguousarray(y, dtype=np.float64)
+    phi = np.ascontiguousarray(phi, dtype=_crit_np_dtype())
+    base = np.ascontiguousarray(base, dtype=_crit_np_dtype())
+    y = np.ascontiguousarray(y, dtype=_crit_np_dtype())
     return phi, base, y, resolve_metric(classification, metric)
 
 

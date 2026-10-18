@@ -12,6 +12,7 @@ from __future__ import annotations
 from typing import Any
 
 import numpy as np
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 
 try:
     import pandas as pd
@@ -145,7 +146,7 @@ def _coerce_to_int_with_nan_handling(
     ``unknown_strategy`` (sentinel bin ``n_bins - 1`` for clip/sentinel)."""
     # Numeric source binned at fit via stored quantile edges (include_numeric): reproduce the SAME codes.
     if bin_edges is not None and len(bin_edges) > 0:
-        v = np.asarray(vals, dtype=np.float64)
+        v = np.asarray(vals, dtype=_crit_np_dtype())
         nan_mask = ~np.isfinite(v)
         if nan_mask.any() and unknown_strategy == "raise":
             raise ValueError(
@@ -153,7 +154,7 @@ def _coerce_to_int_with_nan_handling(
                 f"{int(nan_mask.sum())} non-finite value(s) at transform time. Set "
                 f"unknown_strategy='clip' or 'sentinel' to handle silently."
             )
-        codes = np.searchsorted(np.asarray(bin_edges, dtype=np.float64), v, side="right").astype(np.int64)
+        codes = np.searchsorted(np.asarray(bin_edges, dtype=_crit_np_dtype()), v, side="right").astype(np.int64)
         if nan_mask.any():
             codes[nan_mask] = n_bins - 1  # clip non-finite to the top bin
         return np.clip(codes, 0, n_bins - 1)

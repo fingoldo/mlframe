@@ -369,6 +369,7 @@ def honest_null_columns_device(
                         np.int32(n_perm),
                         np.int32(kc),
                         np.int32(min_split_size),
+                        # Intentional float64: full-sample statistic handed to the device null kernel (must match the host gain)
                         np.float64(h_full),
                         np.int32(ybits.shape[1]),
                         d_gain,
@@ -391,6 +392,7 @@ def honest_null_columns_device(
                         np.int32(n_perm),
                         np.int32(kc),
                         np.int32(min_split_size),
+                        # Intentional float64: full-sample statistic handed to the device null kernel (must match the host gain)
                         np.float64(h_full),
                         d_gain,
                         d_ncand,

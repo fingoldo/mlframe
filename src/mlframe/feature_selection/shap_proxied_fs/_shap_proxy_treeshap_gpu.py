@@ -19,6 +19,7 @@ import multiprocessing
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
+from mlframe.feature_selection.filters._fe_gpu_batch._devices import crit_float_dtype
 
 if TYPE_CHECKING:
     from mlframe.feature_selection.shap_proxied_fs._shap_proxy_treeshap import TreeEnsemble
@@ -243,7 +244,8 @@ def treeshap_phi_base_gpu(ensemble: TreeEnsemble, X: np.ndarray) -> tuple[np.nda
     val_d = cp.asarray(ensemble.values)
     cover_d = cp.asarray(ensemble.node_sample_weight)
     roots_d = cp.asarray(ensemble.tree_roots)
-    phi_d = cp.zeros((n, f), dtype=cp.float64)
+    # Intentional float64: the treeshap CUDA kernel writes its phi output as double*, so this buffer must be f64.
+    phi_d = cp.zeros((n, f), dtype=crit_float_dtype())
 
     grid = ((n + block - 1) // block,)
     kernel(grid, (block,), (

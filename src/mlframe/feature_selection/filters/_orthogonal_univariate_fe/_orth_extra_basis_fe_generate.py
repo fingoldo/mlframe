@@ -14,6 +14,7 @@ import logging
 from typing import Optional, Sequence
 
 import numpy as np
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 import pandas as pd
 
 from mlframe.utils.log_throttle import log_throttle
@@ -92,7 +93,7 @@ def generate_extra_basis_features(
     _y_adapt = None
     _y_adapt_prep = None
     if (fourier_adaptive or fourier_chirp) and y is not None:
-        _y_adapt = np.asarray(y, dtype=np.float64).ravel()
+        _y_adapt = np.asarray(y, dtype=_crit_np_dtype()).ravel()
         if _y_adapt.size != len(X) or not np.all(np.isfinite(_y_adapt)):
             _y_adapt = None
         else:
@@ -120,7 +121,6 @@ def generate_extra_basis_features(
             break
         if col not in X.columns or not pd.api.types.is_numeric_dtype(X[col]):
             continue
-        from .._fe_usability_signal import _crit_np_dtype
         x = np.asarray(X[col].to_numpy(), dtype=_crit_np_dtype())  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); MI binning is scale-robust
         finite_mask = np.isfinite(x)
         if not finite_mask.any():
@@ -365,7 +365,7 @@ def _build_recipe_from_meta(name: str, meta_entry: dict):
     if basis == "spline":
         return build_orth_spline_recipe(
             name=name, src_name=str(meta_entry["src"]),
-            knots=np.asarray(meta_entry["knots"], dtype=np.float64),
+            knots=np.asarray(meta_entry["knots"], dtype=_crit_np_dtype()),
             idx=int(meta_entry["idx"]),
             lo=float(meta_entry["lo"]), hi=float(meta_entry["hi"]),
         )

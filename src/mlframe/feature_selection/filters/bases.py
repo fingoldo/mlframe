@@ -14,6 +14,7 @@ from __future__ import annotations
 import math
 
 import numpy as np
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 
 from mlframe.feature_selection.filters._safe_scale import silverman_bandwidth
 
@@ -41,7 +42,7 @@ def _fourier_fit(x: np.ndarray):
     # constant feature) rather than amplifying noise into structure.
     scale = abs(lo) + abs(hi) + 1.0
     if raw_span <= 1e-9 * scale:
-        return np.zeros_like(x, dtype=np.float64), dict(lo=lo, span=0.0, degenerate=True)
+        return np.zeros_like(x, dtype=_crit_np_dtype()), dict(lo=lo, span=0.0, degenerate=True)
     z = (x - lo) / raw_span
     return z, dict(lo=lo, span=raw_span, degenerate=False)
 
@@ -49,7 +50,7 @@ def _fourier_fit(x: np.ndarray):
 def _fourier_apply(x: np.ndarray, params: dict) -> np.ndarray:
     """Rescale x with the fitted ``lo``/``span`` (or return the degenerate all-zero z) - same mapping as ``_fourier_fit`` but for eval-time data (e.g. holdout/CV) that must reuse train-fold parameters instead of refitting."""
     if params.get("degenerate"):
-        return np.zeros_like(x, dtype=np.float64)
+        return np.zeros_like(x, dtype=_crit_np_dtype())
     return np.asarray((x - params["lo"]) / params["span"])
 
 
@@ -57,6 +58,7 @@ def _fourier_apply(x: np.ndarray, params: dict) -> np.ndarray:
 def _fourier_eval_njit(z: np.ndarray, c: np.ndarray) -> np.ndarray:
     """``sum_k a_k * sin(2*pi*k*z) + b_k * cos(2*pi*k*z)`` for k = 1..K. ``c`` packs ``[a_1, b_1, a_2, b_2, ..., a_K, b_K]`` - length 2K."""
     n = z.shape[0]
+    # Intentional float64: numba kernel accumulator; numba cannot call the Python crit-dtype helper and the sums need exact f64.
     out = np.zeros(n, dtype=np.float64)
     K = c.shape[0] // 2
     if K == 0:
@@ -92,10 +94,10 @@ def _fourier_canonical_seeds(degree: int) -> list:
     seeds = []
     K = max(1, degree)
     for k in range(1, K + 1):
-        s = np.zeros(2 * K, dtype=np.float64)
+        s = np.zeros(2 * K, dtype=_crit_np_dtype())
         s[2 * (k - 1)] = 1.0  # sin coefficient
         seeds.append(s)
-        c = np.zeros(2 * K, dtype=np.float64)
+        c = np.zeros(2 * K, dtype=_crit_np_dtype())
         c[2 * (k - 1) + 1] = 1.0  # cos coefficient
         seeds.append(c)
     return seeds
@@ -113,19 +115,19 @@ def _rbf_fit(x: np.ndarray):
     # _usability_aware_selection.py's _scrub).
     x = np.where(np.isfinite(x), x, 0.0)
     quantiles = np.linspace(0.1, 0.9, 9)
-    centres = np.quantile(x, quantiles).astype(np.float64)
+    centres = np.quantile(x, quantiles).astype(_crit_np_dtype())
 
     # A column with no usable spread has no density to estimate; fall back to its own magnitude rather than an absolute 1e-12, which
     # would make every RBF response a delta at the centres.
     bandwidth = silverman_bandwidth(x)
     if bandwidth is None:
         bandwidth = max(float(np.abs(x).max()), 1.0)
-    return x.astype(np.float64), dict(centres=centres, bandwidth=float(bandwidth))
+    return x.astype(_crit_np_dtype()), dict(centres=centres, bandwidth=float(bandwidth))
 
 
 def _rbf_apply(x: np.ndarray, params: dict) -> np.ndarray:
-    """RBF doesn't transform x for eval - centres + bandwidth come from params. Just ensure float64 contiguous."""
-    return np.ascontiguousarray(x, dtype=np.float64)
+    """RBF doesn't transform x for eval - centres + bandwidth come from params. Just ensure double precision contiguous."""
+    return np.ascontiguousarray(x, dtype=_crit_np_dtype())
 
 
 @njit(fastmath=True, cache=True)
@@ -133,6 +135,7 @@ def _rbf_eval_kernel_njit(z: np.ndarray, c: np.ndarray, centres: np.ndarray, ban
     """``sum_k c_k * exp(-((z - centres_k) / bandwidth)^2)``."""
     n = z.shape[0]
     K = centres.shape[0]
+    # Intentional float64: numba kernel accumulator; numba cannot call the Python crit-dtype helper and the sums need exact f64.
     out = np.zeros(n, dtype=np.float64)
     inv_bw_sq = 1.0 / (bandwidth * bandwidth)
     nc = c.shape[0]
@@ -170,11 +173,11 @@ def _rbf_canonical_seeds(degree: int) -> list:
     seeds = []
     K = _rbf_coef_size(degree)
     for k in range(K):
-        s = np.zeros(K, dtype=np.float64)
+        s = np.zeros(K, dtype=_crit_np_dtype())
         s[k] = 1.0
         seeds.append(s)
     # Constant offset (all centres equally weighted - approximates mean of data).
-    seeds.append(np.ones(K, dtype=np.float64) / K)
+    seeds.append(np.ones(K, dtype=_crit_np_dtype()) / K)
     return seeds
 
 
@@ -188,10 +191,10 @@ def _sigmoid_fit(x: np.ndarray):
     # np.quantile/np.std rather than silently propagating NaN into thresholds/slope.
     x = np.where(np.isfinite(x), x, 0.0)
     quantiles = np.linspace(0.1, 0.9, 9)
-    thresholds = np.quantile(x, quantiles).astype(np.float64)
+    thresholds = np.quantile(x, quantiles).astype(_crit_np_dtype())
     iqr = float(np.quantile(x, 0.9) - np.quantile(x, 0.1)) + 1e-12
     slope = 4.0 / (iqr / 9.0)  # 4 -> ~95% of sigmoid in iqr/9 width
-    return x.astype(np.float64), dict(thresholds=thresholds, slope=slope)
+    return x.astype(_crit_np_dtype()), dict(thresholds=thresholds, slope=slope)
 
 
 _sigmoid_apply = _rbf_apply
@@ -202,6 +205,7 @@ def _sigmoid_eval_kernel_njit(z: np.ndarray, c: np.ndarray, thresholds: np.ndarr
     """njit-compiled kernel for ``sum_k c_k * sigma(slope * (z - thresholds_k))``: a weighted sum of logistic bumps, one per quantile threshold, using a numerically stable sigmoid split on the sign of the argument to avoid overflow in ``exp``."""
     n = z.shape[0]
     K = thresholds.shape[0]
+    # Intentional float64: numba kernel accumulator; numba cannot call the Python crit-dtype helper and the sums need exact f64.
     out = np.zeros(n, dtype=np.float64)
     nc = c.shape[0]
     if nc == 0:
@@ -241,11 +245,11 @@ def _sigmoid_canonical_seeds(degree: int) -> list:
     seeds = []
     K = _sigmoid_coef_size(degree)
     for k in range(K):
-        s = np.zeros(K, dtype=np.float64)
+        s = np.zeros(K, dtype=_crit_np_dtype())
         s[k] = 1.0
         seeds.append(s)
     # Cumulative ramp - monotone increase across all thresholds.
-    seeds.append(np.linspace(0.0, 1.0, K).astype(np.float64))
+    seeds.append(np.linspace(0.0, 1.0, K).astype(_crit_np_dtype()))
     return seeds
 
 
@@ -264,15 +268,15 @@ def _pade_fit(x: np.ndarray):
     # own scale as constant and map it to z=0.
     scale = abs(mean) + 1.0
     if raw_std <= 1e-9 * scale:
-        return np.zeros_like(x, dtype=np.float64), dict(mean=mean, std=0.0, degenerate=True)
+        return np.zeros_like(x, dtype=_crit_np_dtype()), dict(mean=mean, std=0.0, degenerate=True)
     return (x - mean) / raw_std, dict(mean=mean, std=raw_std, degenerate=False)
 
 
 def _pade_apply(x: np.ndarray, params: dict) -> np.ndarray:
     """Standardize eval-time x with the fitted ``mean``/``std`` (or return the degenerate all-zero z) - same z-score mapping as ``_pade_fit`` but reusing train-fold parameters instead of refitting."""
     if params.get("degenerate"):
-        return np.zeros_like(x, dtype=np.float64)
-    return np.asarray(((x - params["mean"]) / params["std"]).astype(np.float64))
+        return np.zeros_like(x, dtype=_crit_np_dtype())
+    return np.asarray(((x - params["mean"]) / params["std"]).astype(_crit_np_dtype()))
 
 
 @njit(fastmath=True, cache=True)
@@ -285,6 +289,7 @@ def _pade_eval_njit(z: np.ndarray, c: np.ndarray) -> np.ndarray:
     """
     n = z.shape[0]
     nc = c.shape[0]
+    # Intentional float64: numba kernel accumulator; numba cannot call the Python crit-dtype helper and the sums need exact f64.
     out = np.zeros(n, dtype=np.float64)
     if nc < 2:
         return out
@@ -318,17 +323,17 @@ def _pade_canonical_seeds(degree: int) -> list:
     p = max(1, degree)
     seeds = []
     # Pure z -> a_0=0, a_1=1, b_*=0
-    s = np.zeros(2 * p + 1, dtype=np.float64)
+    s = np.zeros(2 * p + 1, dtype=_crit_np_dtype())
     if p >= 1:
         s[1] = 1.0
         seeds.append(s)
     # Pure z^2 -> a_2=1
     if p >= 2:
-        s2 = np.zeros(2 * p + 1, dtype=np.float64)
+        s2 = np.zeros(2 * p + 1, dtype=_crit_np_dtype())
         s2[2] = 1.0
         seeds.append(s2)
     # Reciprocal: 1 / (1 + z) -> a_0=1, b_1=1
-    s3 = np.zeros(2 * p + 1, dtype=np.float64)
+    s3 = np.zeros(2 * p + 1, dtype=_crit_np_dtype())
     s3[0] = 1.0
     s3[p + 1] = 1.0  # b_1
     seeds.append(s3)

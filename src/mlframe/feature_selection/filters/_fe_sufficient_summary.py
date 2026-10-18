@@ -78,6 +78,7 @@ from dataclasses import dataclass, field
 from typing import Any, Optional, Sequence
 
 import numpy as np
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
@@ -178,7 +179,7 @@ def _shannon_entropy_nats(codes: np.ndarray, nbins_hint: int = 0) -> float:
     if c.size == 0:
         return 0.0
     minlen = int(max(int(c.max()) + 1 if c.size else 1, int(nbins_hint)))
-    counts = np.bincount(c[c >= 0], minlength=minlen).astype(np.float64)
+    counts = np.bincount(c[c >= 0], minlength=minlen).astype(_crit_np_dtype())
     total = float(counts.sum())
     if total <= 0:
         return 0.0
@@ -197,7 +198,7 @@ def _validated_target(v: Any, data: np.ndarray, nbins: np.ndarray, y_continuous:
         v.reason = "too few rows for a reliable residual test"
         return None, 0
 
-    y = np.asarray(y_continuous, dtype=np.float64).reshape(-1)
+    y = np.asarray(y_continuous, dtype=_crit_np_dtype()).reshape(-1)
     if y.shape[0] != n or not np.all(np.isfinite(y)):
         v.reason = "continuous target unavailable / non-finite"
         return None, 0
@@ -324,7 +325,7 @@ def _maxt_residual_test(
     v.maxt_floor = float(floor)
 
     # Per-raw observed MI(r; x_j), Miller-Madow debiased to match the floor's scale.
-    r_counts = np.bincount(r_codes, minlength=int(r_codes.max()) + 1).astype(np.float64)
+    r_counts = np.bincount(r_codes, minlength=int(r_codes.max()) + 1).astype(_crit_np_dtype())
     kr = int((r_counts > 0).sum())
     inv_n = 1.0 / n
     pr = r_counts[r_counts > 0] * inv_n
@@ -339,11 +340,11 @@ def _maxt_residual_test(
         if nbx < 2:
             per_raw[ci] = 0.0
             continue
-        xcounts = np.bincount(xc, minlength=nbx).astype(np.float64)
+        xcounts = np.bincount(xc, minlength=nbx).astype(_crit_np_dtype())
         px = xcounts[xcounts > 0] * inv_n
         h_x = float(-(px * np.log(px)).sum())
         joint = xc.astype(np.int64) * (int(r_codes.max()) + 1) + r_codes
-        jc = np.bincount(joint).astype(np.float64)
+        jc = np.bincount(joint).astype(_crit_np_dtype())
         jc = jc[jc > 0] * inv_n
         h_xr = float(-(jc * np.log(jc)).sum())
         mi = h_x + h_r_nats - h_xr
@@ -503,8 +504,8 @@ def _selected_columns_summary(sel, selected_continuous, cols_names, data, n, des
             if col is None:
                 col = selected_continuous.get(ci)
         if col is None:
-            col = data[:, ci].astype(np.float64)
-        col = np.asarray(col, dtype=np.float64).reshape(-1)
+            col = data[:, ci].astype(_crit_np_dtype())
+        col = np.asarray(col, dtype=_crit_np_dtype()).reshape(-1)
         if col.shape[0] != n:
             continue
         # Replace any non-finite (a stray inf in an engineered column) with the column
@@ -542,7 +543,7 @@ def check_sufficient_summary_for_mrmr(
     try:
         # Continuous target.
         yv = y.values if hasattr(y, "values") else np.asarray(y)
-        yv = np.asarray(yv, dtype=np.float64).reshape(-1)
+        yv = np.asarray(yv, dtype=_crit_np_dtype()).reshape(-1)
 
         cols_list = list(cols)
         # feature_names_in_ is an ndarray; "or []" would test truthiness and raise on a multi-element array.
@@ -559,14 +560,14 @@ def check_sufficient_summary_for_mrmr(
             nm = cols_list[int(ci)]
             if x_is_df and nm in x_cols:
                 try:
-                    sel_cont[nm] = np.asarray(X[nm].values, dtype=np.float64).reshape(-1)
+                    sel_cont[nm] = np.asarray(X[nm].values, dtype=_crit_np_dtype()).reshape(-1)
                     continue
                 except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
                     logger.debug("_fe_sufficient_summary: probe failed: %s", e)
                     pass
             if nm in eng_cont:
                 try:
-                    sel_cont[nm] = np.asarray(eng_cont[nm], dtype=np.float64).reshape(-1)
+                    sel_cont[nm] = np.asarray(eng_cont[nm], dtype=_crit_np_dtype()).reshape(-1)
                 except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
                     logger.debug("_fe_sufficient_summary: probe failed: %s", e)
                     pass

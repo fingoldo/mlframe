@@ -91,7 +91,7 @@ void fe_materialise(const float* __restrict__ tv,
             float sgn = (a == 0.0f) ? 0.0f : ((a > 0.0f) ? 1.0f : -1.0f);
             v = sgn * fabsf(b);
         }
-    } else {                  // op == 8: ratio_abs = float64-promoted a/(|b|+1)
+    } else {                  // op == 8: ratio_abs = double precision-promoted a/(|b|+1)
         v = (float)((double)a / ((double)fabsf(b) + 1.0));
     }
     // np.nan_to_num(nan=0, posinf=0, neginf=0)
@@ -172,7 +172,7 @@ void fe_materialise_cm(const float* __restrict__ tv_cm,
             float sgn = (a == 0.0f) ? 0.0f : ((a > 0.0f) ? 1.0f : -1.0f);
             v = sgn * fabsf(b);
         }
-    } else {                  // op == 8: ratio_abs = float64-promoted a/(|b|+1)
+    } else {                  // op == 8: ratio_abs = double precision-promoted a/(|b|+1)
         v = (float)((double)a / ((double)fabsf(b) + 1.0));
     }
     if (isnan(v) || isinf(v)) v = 0.0f;
@@ -235,7 +235,7 @@ def _fe_materialise_block_gpu(tv_gpu, a_cols_block, b_cols_block, ops_block, ret
     launch, RESIDENT on the GPU. ``tv_gpu`` is the (n, n_operands) row-major float32 operand table already
     on the device. ``a_cols_block`` / ``b_cols_block`` (int64) / ``ops_block`` (int8) are host or device
     arrays of length K. Returns a row-major (n, K) cupy float32 matrix, BIT-EQUAL to
-    ``_materialise_chunk_njit`` (same float32 ops, same float64-promoted div/ratio_abs, same nan_to_num)."""
+    ``_materialise_chunk_njit`` (same float32 ops, same double precision-promoted div/ratio_abs, same nan_to_num)."""
     import cupy as cp
     from ._gpu_resident_select import _transpose_cm_to_rm  # parent transpose kernel (lazy: avoid cycle)
 
@@ -729,9 +729,9 @@ def gpu_discretize_codes_host(cand: np.ndarray, nbins: int, *, dtype: Any = np.i
     ``(n, K)`` array of ``dtype``. The FE candidate buffer is ALREADY float32, so the matrix is kept at
     its native dtype (NO f64 up-cast) and binned in float32 (the input's native dtype) - removing a
     needless cast AND halving the bandwidth-bound cp.percentile sort, while preserving the FE selection
-    (the acceptance bar; f32-vs-f64 codes agree ~100%). Set ``MLFRAME_FE_GPU_BINNING_DTYPE=float64`` for
+    (the acceptance bar; f32-vs-f64 codes agree ~100%). Set ``MLFRAME_FE_GPU_BINNING_DTYPE=double precision`` for
     the bit-identical fallback matching the CPU ``discretize_2d_quantile_batch`` (np.percentile upcasts
-    float32 to float64). Feeding the result into the UNCHANGED ``_dispatch_batch_mi_with_noise_gate``
+    float32 to double precision). Feeding the result into the UNCHANGED ``_dispatch_batch_mi_with_noise_gate``
     keeps the FE selection equivalent - this only moves the binning (CPU partition+searchsorted, the
     dominant per-pair cost at large n) onto the GPU. Inputs are assumed finite (caller scrubs NaN/inf).
 

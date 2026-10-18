@@ -13,6 +13,7 @@ Either one significant sends ``T`` to the child; neither skips it.
 from __future__ import annotations
 
 import numpy as np
+from ._fe_usability_signal import _crit_np_dtype
 import pandas as pd
 
 from ._fe_gain_stats import quantile_codes
@@ -30,6 +31,7 @@ def target_has_structure(X: "pd.DataFrame", target: np.ndarray, *, scan_rows: in
     if n < _MIN_ROWS:
         return True
     rows = np.arange(n) if n <= scan_rows else np.linspace(0, n - 1, int(scan_rows)).astype(np.int64)
+    # Intentional float64: target labels kept exact f64 for exact class comparison
     t = np.asarray(target, dtype=np.float64).ravel()[rows]
     t = np.nan_to_num(t, nan=0.0, posinf=0.0, neginf=0.0)
     cols = [c for c in X.columns if pd.api.types.is_numeric_dtype(X[c])]
@@ -38,7 +40,7 @@ def target_has_structure(X: "pd.DataFrame", target: np.ndarray, *, scan_rows: in
     bins = main_effect_bins(int(even.sum()))
     stats = []
     for c in cols:
-        x = np.asarray(X[c].to_numpy(), dtype=np.float64)[rows]
+        x = np.asarray(X[c].to_numpy(), dtype=_crit_np_dtype())[rows]
         finite = np.isfinite(x)
         if finite.sum() < _MIN_ROWS or np.unique(x[finite]).size <= FEW_CLASSES_MAX:
             continue
@@ -56,7 +58,7 @@ def target_has_structure(X: "pd.DataFrame", target: np.ndarray, *, scan_rows: in
 
 def _expand(t: np.ndarray, rows: np.ndarray, n: int) -> np.ndarray:
     """``t`` placed back at ``rows`` of an ``n``-row vector (the pair screen subsamples again by the same rule)."""
-    out = np.zeros(n, dtype=np.float64)
+    out = np.zeros(n, dtype=_crit_np_dtype())
     out[rows] = t
     return out
 

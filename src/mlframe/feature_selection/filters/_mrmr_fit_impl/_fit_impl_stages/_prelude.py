@@ -4,6 +4,8 @@ from __future__ import annotations
 
 # --- imports (managed) ---
 import numpy as np
+
+from ..._fe_usability_signal import _crit_np_dtype
 from mlframe.feature_selection.filters._mrmr_fit_impl._fit_impl_core import logger
 # --- end imports ---
 
@@ -42,7 +44,7 @@ def _record_fit_entry_nan_mask(X, _will_use_include_numeric_nan_guard, _will_use
         for _c in list(X.columns):
             try:
                 _cv = X[_c]
-                _cv_np = np.asarray(_cv.to_numpy() if hasattr(_cv, "to_numpy") else _cv, dtype=np.float64)
+                _cv_np = np.asarray(_cv.to_numpy() if hasattr(_cv, "to_numpy") else _cv, dtype=_crit_np_dtype())
             except (ValueError, TypeError):
                 continue
             _nan_mask_c = ~np.isfinite(_cv_np)
@@ -59,6 +61,7 @@ def _resolve_min_relevance_gain(self, target_indices, data, nbins, verbose):
         _target_col_idx = int(target_indices[0])
         _y_bins = data[:, _target_col_idx]
         _y_nbins = int(nbins[_target_col_idx])
+        # Intentional float64: class counts feed the MI entropy accumulator (full precision)
         _y_counts = np.bincount(_y_bins, minlength=_y_nbins).astype(np.float64)
         _y_total = float(_y_counts.sum())
         if _y_total > 0:

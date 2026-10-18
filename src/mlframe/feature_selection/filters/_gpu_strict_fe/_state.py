@@ -26,6 +26,7 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 import numpy as np
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 
 logger = logging.getLogger(__name__)
 
@@ -66,6 +67,7 @@ class ResidentFEState:
         if not profs:
             raise RuntimeError("ResidentFEState.build: no CUDA device profiles available")
 
+        # Intentional float64: strict default of the separate MLFRAME_FE_VRAM_F32 knob (not the crit policy); f32 only when opted in.
         dt = np.float32 if f32 else np.float64
         ops_h = np.ascontiguousarray(operands_host, dtype=dt)  # (n_sub, n_ops)
         if ops_h.ndim == 1:
@@ -74,7 +76,7 @@ class ResidentFEState:
         yc_h = np.ascontiguousarray(np.asarray(y_codes_host)).astype(np.int64).ravel()
         y_min = int(yc_h.min()) if yc_h.size else 0
         n_classes = (int(yc_h.max()) - y_min + 1) if yc_h.size else 1
-        ycont_h = np.ascontiguousarray(np.asarray(y_cont_host, dtype=np.float64).ravel()) if y_cont_host is not None else None
+        ycont_h = np.ascontiguousarray(np.asarray(y_cont_host, dtype=_crit_np_dtype()).ravel()) if y_cont_host is not None else None
 
         st = cls(profiles=profs, op_names=list(op_names), n_sub=n_sub, y_min=y_min, n_classes=n_classes, f32=bool(f32))
         for p in profs:

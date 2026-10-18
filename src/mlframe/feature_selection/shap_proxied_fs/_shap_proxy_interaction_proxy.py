@@ -28,6 +28,7 @@ from __future__ import annotations
 from collections.abc import Iterable, Sequence
 
 import numpy as np
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 from numba import njit
 
 from mlframe.feature_selection.shap_proxied_fs._shap_proxy_objective import (
@@ -63,7 +64,7 @@ def build_pair_table(Phi: np.ndarray, phi: np.ndarray, interaction_top_k: int) -
     gate_idx = np.argsort(-imp)[:k]
     in_gate = np.zeros(P, dtype=bool)
     in_gate[gate_idx] = True
-    pair_rows = np.zeros((P, P, n), dtype=np.float64)
+    pair_rows = np.zeros((P, P, n), dtype=_crit_np_dtype())
     if k >= 2:
         gi = np.sort(gate_idx)
         block = np.ascontiguousarray(np.transpose(Phi[:, gi][:, :, gi], (1, 2, 0)))  # (k, k, n)
@@ -116,9 +117,9 @@ def interaction_proxy_top_n(
     """
     metric = resolve_metric(classification, metric)
     code = METRIC_CODES.get(metric, 1)
-    phi = np.ascontiguousarray(phi, dtype=np.float64)
-    base = np.ascontiguousarray(base, dtype=np.float64)
-    y = np.ascontiguousarray(y, dtype=np.float64)
+    phi = np.ascontiguousarray(phi, dtype=_crit_np_dtype())
+    base = np.ascontiguousarray(base, dtype=_crit_np_dtype())
+    y = np.ascontiguousarray(y, dtype=_crit_np_dtype())
     _n, P = phi.shape
     max_card = P if max_card is None else min(max_card, P)
     phi_T = np.ascontiguousarray(phi.T)

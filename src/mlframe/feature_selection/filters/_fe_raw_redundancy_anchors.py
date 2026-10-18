@@ -19,6 +19,7 @@ from types import SimpleNamespace
 from typing import Any, Optional, Sequence
 
 import numpy as np
+from ._fe_usability_signal import _crit_np_dtype
 
 from ._fast_host_ops import count_distinct_int
 from ._lazy_host_codes import LazyHostCodes
@@ -176,7 +177,7 @@ def _build_raw_redundancy_step1_def_dev_cont(_gate_resident):
         if not _gate_resident:
             return None
         try:
-            _v = np.asarray(_vals, dtype=np.float64)
+            _v = np.asarray(_vals, dtype=_crit_np_dtype())
             if not np.isfinite(_v).all():
                 return None
             from mlframe.feature_selection.filters._mi_greedy_cmi_fe import _quantile_bin_gpu_resident
@@ -226,7 +227,7 @@ def _build_raw_redundancy_step2_def_raw_codes(_raw_codes_cache, data, raw_X, _en
             try:
                 _rc = None
                 if hasattr(raw_X, "columns") and _rname in getattr(raw_X, "columns", []):
-                    _rc = np.asarray(raw_X[_rname], dtype=np.float64).ravel()
+                    _rc = np.asarray(raw_X[_rname], dtype=_crit_np_dtype()).ravel()
                 if _rc is not None and _rc.shape[0] == n_rows and np.isfinite(_rc).any():
                     _clean = np.nan_to_num(_rc, nan=0.0, posinf=0.0, neginf=0.0)
                     _dev = _dev_from_cont(_clean, _eng_card)
@@ -339,6 +340,7 @@ def _build_raw_redundan_continuous_none(y_continuous, n_rows, _target_card, y_ar
         if _yc.shape[0] == n_rows and np.issubdtype(_yc.dtype, np.number):
             if _has_more_distinct_than(_yc, max(2 * _BINS, 2 * _target_card)):
                 _nb = int(min(max(_BINS, _target_card), max(2, n_rows // (_BINS * _SUPPORT_FRAG_DIVISOR))))
+                # Intentional float64: target labels kept f64 (exact binning / comparison contract)
                 y_arr = np.ascontiguousarray(_quantile_bin(_yc.astype(np.float64), nbins=_nb, host_only=True)).astype(np.int64)
                 _target_card = count_distinct_int(y_arr)
     return y_arr
@@ -349,7 +351,7 @@ def _build_raw_redundan_cont_none_np_asarray(_cont, n_rows, _dev_from_cont, _eng
     from mlframe.feature_selection.filters._mi_greedy_cmi_fe import _quantile_bin
 
     if _cont is not None and np.asarray(_cont).shape[0] == n_rows:
-        _cvals = np.asarray(_cont, dtype=np.float64)
+        _cvals = np.asarray(_cont, dtype=_crit_np_dtype())
         _eb_dev = _dev_from_cont(_cvals, _eng_card)
         if _eb_dev is not None:
             eb: Any = LazyHostCodes(_eb_dev, np.int64)
@@ -430,7 +432,7 @@ def _build_raw_redundan_recipes_raw_none(_recipes, raw_X, eng_idx, cols, raw_nam
                     _vals = _subexpr_continuous(_best_sub, raw_X)
                     if _vals is None or _vals.shape[0] != n_rows:
                         continue
-                    _cvals_clean = np.asarray(_vals, dtype=np.float64)
+                    _cvals_clean = np.asarray(_vals, dtype=_crit_np_dtype())
                     _cs_dev = _dev_from_cont(_cvals_clean, _eng_card)
                 if _cs_dev is not None:
                     _clean_subexpr_bin[(_rn, ei)] = LazyHostCodes(_cs_dev, np.int64)

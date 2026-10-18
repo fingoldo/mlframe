@@ -123,7 +123,7 @@ def freedman_diaconis_nbins(x: np.ndarray, max_bins: int = MAX_ADAPTIVE_NBINS) -
     large real datasets (sqrt(N)*4 alone is unbounded as N grows - e.g. ~895
     bins at N=50k, which is what MAX_ADAPTIVE_NBINS additionally clamps).
     """
-    x = np.asarray(x, dtype=np.float64).ravel()
+    x = np.asarray(x, dtype=np.float64).ravel()  # Intentional float64: bin-edge computation input; edges compared at full precision
     x = x[np.isfinite(x)]
     n = x.size
     if n < 4:
@@ -163,32 +163,32 @@ def _edges_from_quantiles(x: np.ndarray, n_bins: int) -> np.ndarray:
     ``edges_sturges`` / ``edges_optimal_joint`` inherits the fix.
     """
     if n_bins < 2:
-        return np.array([], dtype=np.float64)
-    x = np.asarray(x, dtype=np.float64).ravel()
+        return np.array([], dtype=np.float64)  # Intentional float64: empty edge vector keeps the float64 edge contract
+    x = np.asarray(x, dtype=np.float64).ravel()  # Intentional float64: bin-edge computation input; edges compared at full precision
     x = x[np.isfinite(x)]  # drop nan/+-inf: nanpercentile ignores nan but not inf, so an all/mostly-inf tail leaks an inf inner edge into searchsorted (phantom bin -> inflated K_x / MM bias)
     if x.size == 0:
-        return np.array([], dtype=np.float64)
+        return np.array([], dtype=np.float64)  # Intentional float64: empty edge vector keeps the float64 edge contract
     quantiles = np.linspace(0.0, 100.0, n_bins + 1)
     full_edges = np.percentile(x, quantiles)
     full_edges = np.unique(full_edges)
     if full_edges.size <= 2:
-        return np.array([], dtype=np.float64)
-    return np.asarray(full_edges[1:-1], dtype=np.float64)
+        return np.array([], dtype=np.float64)  # Intentional float64: empty edge vector keeps the float64 edge contract
+    return np.asarray(full_edges[1:-1], dtype=np.float64)  # Intentional float64: bin-edge output contract
 
 
 def _edges_from_uniform(x: np.ndarray, n_bins: int) -> np.ndarray:
     """Uniform binning helper. Returns INNER edges only (n_bins - 1 values)."""
     if n_bins < 2:
-        return np.array([], dtype=np.float64)
-    x = np.asarray(x, dtype=np.float64).ravel()
+        return np.array([], dtype=np.float64)  # Intentional float64: empty edge vector keeps the float64 edge contract
+    x = np.asarray(x, dtype=np.float64).ravel()  # Intentional float64: bin-edge computation input; edges compared at full precision
     x = x[np.isfinite(x)]  # nanmin/nanmax ignore nan but not inf: a single inf -> xmin/xmax +-inf -> linspace of all-NaN edges -> NaN in searchsorted = garbage codes
     if x.size == 0:
-        return np.array([], dtype=np.float64)
+        return np.array([], dtype=np.float64)  # Intentional float64: empty edge vector keeps the float64 edge contract
     xmin, xmax = float(np.min(x)), float(np.max(x))
     if xmax <= xmin:
-        return np.array([], dtype=np.float64)
+        return np.array([], dtype=np.float64)  # Intentional float64: empty edge vector keeps the float64 edge contract
     full_edges = np.linspace(xmin, xmax, n_bins + 1)
-    return np.asarray(full_edges[1:-1], dtype=np.float64)
+    return np.asarray(full_edges[1:-1], dtype=np.float64)  # Intentional float64: bin-edge output contract
 
 
 def qs_nbins(n: int, alpha: float = 0.30) -> int:
@@ -224,19 +224,19 @@ def edges_qs(x: np.ndarray, alpha: float = 0.30) -> np.ndarray:
     Returns:
         1-D float64 array of the inner quantile edges; empty when fewer than two distinct bins result.
     """
-    x = np.asarray(x, dtype=np.float64).ravel()
+    x = np.asarray(x, dtype=np.float64).ravel()  # Intentional float64: bin-edge computation input; edges compared at full precision
     x = x[np.isfinite(x)]
     n = x.size
     n_q = qs_nbins(n, alpha)
     if n_q < 2:
-        return np.array([], dtype=np.float64)
+        return np.array([], dtype=np.float64)  # Intentional float64: empty edge vector keeps the float64 edge contract
     q_pos = np.linspace(0.0, 100.0, n_q + 1)
     full_edges = np.nanpercentile(x, q_pos)
     # De-duplicate (ties / near-constant columns collapse).
     full_edges = np.unique(full_edges)
     if full_edges.size <= 2:
-        return np.array([], dtype=np.float64)
-    return np.asarray(full_edges[1:-1], dtype=np.float64)
+        return np.array([], dtype=np.float64)  # Intentional float64: empty edge vector keeps the float64 edge contract
+    return np.asarray(full_edges[1:-1], dtype=np.float64)  # Intentional float64: bin-edge output contract
 
 
 def edges_quantile(x: np.ndarray, n_bins: int) -> np.ndarray:
@@ -251,7 +251,7 @@ def edges_uniform(x: np.ndarray, n_bins: int) -> np.ndarray:
 
 def edges_sturges(x: np.ndarray, base: str = "quantile") -> np.ndarray:
     """Sturges nbins + quantile/uniform edges."""
-    n = np.isfinite(np.asarray(x, dtype=np.float64).ravel()).sum()
+    n = np.isfinite(np.asarray(x, dtype=np.float64).ravel()).sum()  # Intentional float64: finite-count statistic
     n_bins = sturges_nbins(int(n))
     return _edges_from_quantiles(x, n_bins) if base == "quantile" else _edges_from_uniform(x, n_bins)
 
@@ -277,8 +277,8 @@ def edges_knuth(x: np.ndarray, edge_type: str = "uniform", m_max_cap: int = MAX_
     """
     full_edges = _knuth_bin_edges(np.asarray(x), edge_type=edge_type, m_max_cap=int(m_max_cap))
     if full_edges.size <= 2:
-        return np.array([], dtype=np.float64)
-    return np.asarray(full_edges[1:-1], dtype=np.float64)
+        return np.array([], dtype=np.float64)  # Intentional float64: empty edge vector keeps the float64 edge contract
+    return np.asarray(full_edges[1:-1], dtype=np.float64)  # Intentional float64: bin-edge output contract
 
 
 def edges_bayesian_blocks(
@@ -302,8 +302,8 @@ def edges_bayesian_blocks(
         np.asarray(x), p0=p0, edge_placement=edge_placement, subsample_threshold=int(subsample_threshold), m_max_cap=int(m_max_cap),
     )
     if full_edges.size <= 2:
-        return np.array([], dtype=np.float64)
-    return np.asarray(full_edges[1:-1], dtype=np.float64)
+        return np.array([], dtype=np.float64)  # Intentional float64: empty edge vector keeps the float64 edge contract
+    return np.asarray(full_edges[1:-1], dtype=np.float64)  # Intentional float64: bin-edge output contract
 
 
 def edges_mah(x: np.ndarray, y: np.ndarray, *, initial_k: int = 16) -> np.ndarray:
@@ -315,7 +315,7 @@ def edges_mah(x: np.ndarray, y: np.ndarray, *, initial_k: int = 16) -> np.ndarra
     """
     from ._mah import mah_bin_edges
     inner = mah_bin_edges(np.asarray(x), np.asarray(y), initial_k=int(initial_k))
-    inner = np.asarray(inner, dtype=np.float64)
+    inner = np.asarray(inner, dtype=np.float64)  # Intentional float64: inner cut-point vector; edges compared at full precision
     return inner[np.isfinite(inner)] if inner.size else inner
 
 
@@ -367,10 +367,10 @@ def edges_fayyad_irani(
         validated_seed=validated_seed, y_pseudo_classes=y_pseudo_classes,
     )
     if full_edges.size <= 2:
-        return np.array([], dtype=np.float64)
+        return np.array([], dtype=np.float64)  # Intentional float64: empty edge vector keeps the float64 edge contract
     inner = full_edges[1:-1]
     inner = inner[np.isfinite(inner)]
-    return np.asarray(inner, dtype=np.float64)
+    return np.asarray(inner, dtype=np.float64)  # Intentional float64: inner cut-point output contract
 
 
 def edges_optimal_joint(
@@ -413,7 +413,7 @@ def edges_optimal_joint(
         1-D float64 array of inner bin edges for the winning bin count, built on the full finite data; falls back to
         Freedman-Diaconis edges when there is too little data to cross-validate.
     """
-    x = np.asarray(x, dtype=np.float64).ravel()
+    x = np.asarray(x, dtype=np.float64).ravel()  # Intentional float64: bin-edge computation input; edges compared at full precision
     y = np.asarray(y).ravel()
     mask = np.isfinite(x)
     # The mask used to check only x's finiteness - a
@@ -499,12 +499,12 @@ def _plug_in_mi_njit(x_binned: np.ndarray, y_b: np.ndarray, K_x: int, K_y: int, 
     n = x_binned.shape[0]
     if n == 0:
         return 0.0
-    joint = np.zeros((K_x, K_y), dtype=np.float64)
+    joint = np.zeros((K_x, K_y), dtype=np.float64)  # Intentional float64: joint-count accumulator for the MI statistic
     for i in range(n):
         joint[x_binned[i], y_b[i]] += 1.0
     n_f = float(n)
-    Px = np.zeros(K_x, dtype=np.float64)
-    Py = np.zeros(K_y, dtype=np.float64)
+    Px = np.zeros(K_x, dtype=np.float64)  # Intentional float64: marginal-count accumulator for the MI statistic
+    Py = np.zeros(K_y, dtype=np.float64)  # Intentional float64: marginal-count accumulator for the MI statistic
     for i in range(K_x):
         for j in range(K_y):
             v = joint[i, j]
@@ -552,11 +552,11 @@ def _bin_y_for_mi(y: np.ndarray, max_y_classes: int = 64) -> "tuple[np.ndarray, 
         binning of a continuous ``y`` degenerates to a single value.
     """
     if y.dtype.kind not in "iub" or np.unique(y).size > max_y_classes:
-        q = np.quantile(y.astype(np.float64), np.linspace(0, 1, 11))
+        q = np.quantile(y.astype(np.float64), np.linspace(0, 1, 11))  # Intentional float64: quantile edges of the target for the statistic
         q = np.unique(q)
         if q.size < 2:
             return np.zeros(0, dtype=np.int64), 0
-        y_b = np.searchsorted(q[1:-1], y.astype(np.float64), side="right").astype(np.int64)
+        y_b = np.searchsorted(q[1:-1], y.astype(np.float64), side="right").astype(np.int64)  # Intentional float64: target bin search for the statistic
     else:
         # ascontiguousarray (not astype) so an already-contiguous int64 code array is NOT re-copied every call.
         y_b = np.ascontiguousarray(y, np.int64)
@@ -741,7 +741,7 @@ def _per_feature_edges_no_lock_needed_hit(n_features, X, _cache, _y_key, _kw_key
     _miss_cols: list = []  # indices needing compute, in ascending order
     _cols: list = [None] * n_features  # float64 view per column (reused by phase 2)
     for j in range(n_features):
-        col = X[:, j].astype(np.float64, copy=False)
+        col = X[:, j].astype(np.float64, copy=False)  # Intentional float64: per-column float64 view consumed by the statistic loop
         _cols[j] = col
         _col_cache_key = None
         if _cache is not None:

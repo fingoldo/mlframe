@@ -79,7 +79,7 @@ try:
         8.55x @300k / 5.11x @1M (bench_pair_su_batch_over_pairs).
         """
         k = a_arr.shape[0]
-        out = np.empty(k, dtype=np.float64)
+        out = np.empty(k, dtype=np.float64)  # Intentional float64: symmetric-uncertainty output buffer (statistic)
         n = fd.shape[0]
         for i in prange(k):
             ia = a_arr[i]
@@ -266,7 +266,7 @@ def pair_su_batch(
 
     pairs_list = list(pair_indices)
     n_pairs = len(pairs_list)
-    out = np.empty(n_pairs, dtype=np.float64)
+    out = np.empty(n_pairs, dtype=np.float64)  # Intentional float64: symmetric-uncertainty output buffer (statistic)
     if n_pairs == 0:
         return out
 

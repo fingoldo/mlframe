@@ -98,8 +98,8 @@ def _replay_matches_on_device(recipe: Any, X_df: Any, values: np.ndarray, featur
         if dev is None:
             return None
         rep = dev.astype(feature_dtype)  # cast BEFORE the finite check, as _scrub does: a float64 value that overflows float32 scrubs to 0
-        rep = cp.where(cp.isfinite(rep), rep, cp.asarray(0, dtype=rep.dtype)).astype(cp.float64)
-        want = cp.asarray(np.asarray(values), dtype=cp.float64)
+        rep = cp.where(cp.isfinite(rep), rep, cp.asarray(0, dtype=rep.dtype)).astype(cp.float64)  # Intentional float64: GPU usability operand; kernel contract is float64
+        want = cp.asarray(np.asarray(values), dtype=cp.float64)  # Intentional float64: GPU usability operand; kernel contract is float64
         return bool(rep.shape == want.shape and bool(cp.allclose(rep, want, atol=1e-4, equal_nan=True)))
     except Exception as e:
         logger.debug("device replay verification failed, using the host replay: %s", e)
@@ -312,7 +312,7 @@ def _build_usability_cand_step1_rank_pairs_joint(rank_pairs_by_joint_mi, base_na
                 _base_dev = {nm: _cp.asarray(_pj_codes[nm]) for nm in base_names}
                 _joint = _cp.stack([_base_dev[a] * _nb + _base_dev[b] for a, b in pairs], axis=1)
                 _ky = int(np.asarray(y_codes).max()) + 1
-                _mis = np.asarray(binned_mi_from_codes_gpu(_joint, y_codes, ky=_ky, codes_trusted=True), dtype=np.float64)
+                _mis = np.asarray(binned_mi_from_codes_gpu(_joint, y_codes, ky=_ky, codes_trusted=True), dtype=np.float64)  # Intentional float64: MI statistic output
                 _pj = {p: quantize_mi_tiebreak(float(_mis[i])) for i, p in enumerate(pairs)}
             except Exception as e:
                 logger.warning("binned_mi_from_codes_gpu batch failed, falling back to the per-pair CPU path: %s", e)
@@ -625,7 +625,7 @@ def _cv_candidates_incremental(sel_idx, cand_list, n_folds: int, _fold_tr: list,
     out: dict = {}
     for i in cand_list:
         ci = _pv(i)
-        errs = np.empty(n_folds, dtype=np.float64)
+        errs = np.empty(n_folds, dtype=np.float64)  # Intentional float64: accumulator or output buffer; statistic at float64
         singular = False
         for fo in range(n_folds):
             tr, va, ybar, yc, Sc_tr, Sc_va, Gs, bs = per_fold[fo]
@@ -644,9 +644,9 @@ def _cv_candidates_incremental(sel_idx, cand_list, n_folds: int, _fold_tr: list,
                 d = float(cc_tr @ cc_tr)  # new diagonal
                 bn = float(cc_tr @ yc)  # new rhs entry
                 k = Gs.shape[0]
-                G = np.empty((k + 1, k + 1), dtype=np.float64)
+                G = np.empty((k + 1, k + 1), dtype=np.float64)  # Intentional float64: accumulator or output buffer; statistic at float64
                 G[:k, :k] = Gs; G[:k, k] = g; G[k, :k] = g; G[k, k] = d
-                rhs = np.empty(k + 1, dtype=np.float64)
+                rhs = np.empty(k + 1, dtype=np.float64)  # Intentional float64: accumulator or output buffer; statistic at float64
                 rhs[:k] = bs; rhs[k] = bn
                 try:
                     beta_vec = np.linalg.solve(G, rhs)

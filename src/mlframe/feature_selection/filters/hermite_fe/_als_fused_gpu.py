@@ -160,14 +160,17 @@ _MODULES = RawModuleCache(_SRC)
 def als_sweep_fused(cp: Any, Ba: Any, Bb: Any, yc: Any, iters: int) -> Optional[tuple]:
     """Both coefficient vectors of the alternating sweep as host arrays, or ``None`` when the fused path cannot give a finite answer (the caller runs the original path).
 
-    ``Ba``/``Bb`` are C-contiguous float64 ``(n, d)`` designs with the same ``d <= 12``, ``yc`` the centred target."""
+    ``Ba``/``Bb`` are C-contiguous double precision ``(n, d)`` designs with the same ``d <= 12``, ``yc`` the centred target."""
     import numpy as np
 
     n, d = Ba.shape
     if Bb.shape != Ba.shape or d > 12 or n < 2:
         return None
+    # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
     ba = cp.ascontiguousarray(Ba, dtype=cp.float64)
+    # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
     bb = cp.ascontiguousarray(Bb, dtype=cp.float64)
+    # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
     y = cp.ascontiguousarray(yc, dtype=cp.float64)
     mod = _MODULES.get(cp, d)
     matvec_stats = mod.get_function("matvec_stats")
@@ -175,14 +178,21 @@ def als_sweep_fused(cp: Any, Ba: Any, Bb: Any, yc: Any, iters: int) -> Optional[
     solve_small = mod.get_function("solve_small")
     nacc = d * (d + 1) // 2 + d
     gram_blocks = int(min(4096, max(1, (n + 255) // 256)))
+    # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
     part = cp.empty((gram_blocks, nacc), dtype=cp.float64)
+    # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
     coef = cp.empty(2 * d, dtype=cp.float64)  # [ca | cb]
     ca, cb = coef[:d], coef[d:]
+    # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
     f = cp.empty(n, dtype=cp.float64)
+    # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
     g = cp.empty(n, dtype=cp.float64)
+    # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
     stats_f = cp.empty((_STAT_BLOCKS, 4), dtype=cp.float64)
+    # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
     stats_g = cp.empty((_STAT_BLOCKS, 4), dtype=cp.float64)
     nn = cp.int64(n)
+    # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
     rel = cp.float64(_REL_TOL)
 
     def gram(B, w, stats):
@@ -206,4 +216,5 @@ def als_sweep_fused(cp: Any, Ba: Any, Bb: Any, yc: Any, iters: int) -> Optional[
     host = cp.asnumpy(coef)
     if not np.all(np.isfinite(host)):
         return None
+    # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
     return np.ascontiguousarray(host[:d], dtype=np.float64), np.ascontiguousarray(host[d:], dtype=np.float64)

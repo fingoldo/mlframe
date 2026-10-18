@@ -108,6 +108,7 @@ def score_margin_batch(margins: np.ndarray, y: np.ndarray, metric_code: int) -> 
     ``margins`` is ``(B, n_samples)``; returns the ``(B,)`` per-row loss vector, identical values to
     calling :func:`score_margin` once per row."""
     b, n = margins.shape
+    # Intentional float64: objective output kept f64 (metric accumulator)
     out = np.empty(b, dtype=np.float64)
     for r in range(b):
         s = 0.0
@@ -256,13 +257,16 @@ def proxy_loss(margin: np.ndarray, y: np.ndarray, metric: str) -> float:
         from mlframe.metrics.core import fast_roc_auc
 
         p = 1.0 / (1.0 + np.exp(-margin))
+        # Intentional float64: AUC metric kept f64
         auc = float(fast_roc_auc(np.asarray(y, dtype=np.float64), np.asarray(p, dtype=np.float64)))
         if not np.isfinite(auc):  # single-class slice -> uninformative; worst loss
             return 1.0
         return 1.0 - auc
     if metric == "rmse":
+        # Intentional float64: score margin kept f64 (exact objective)
         return float(np.sqrt(score_margin_auto(np.asarray(margin, np.float64), np.asarray(y, np.float64), 1)))
     code = METRIC_CODES[metric]
+    # Intentional float64: score margin kept f64 (exact objective)
     return float(score_margin_auto(np.asarray(margin, np.float64), np.asarray(y, np.float64), code))
 
 
@@ -293,8 +297,10 @@ def subset_uncertainty_many(phi_var: np.ndarray, idx_list: Sequence[Sequence[int
     bit-identical). Returns all-zeros when ``phi_var is None`` (n_models == 1, no per-model variance)."""
     n = len(idx_list)
     if phi_var is None:
+        # Intentional float64: objective output kept f64
         return np.zeros(n, dtype=np.float64)
     phi_var_T = np.ascontiguousarray(phi_var.T)
+    # Intentional float64: objective output kept f64
     out = np.empty(n, dtype=np.float64)
     for i, idx in enumerate(idx_list):
         ai = np.asarray(idx, dtype=np.int64)

@@ -22,6 +22,8 @@ from typing import Optional
 import logging
 
 import numpy as np
+from mlframe.feature_selection.filters._fe_gpu_batch._devices import crit_float_dtype
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 from mlframe.utils.log_throttle import log_throttle
 
 _logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
@@ -198,7 +200,7 @@ def _device_regression_bins(y_arr: np.ndarray, finite: np.ndarray) -> "tuple[np.
 
         from ._device_quantile import device_quantile
 
-        yd = cp.asarray(np.ascontiguousarray(y_arr, dtype=np.float64))
+        yd = cp.asarray(np.ascontiguousarray(y_arr, dtype=crit_float_dtype()))
         fin_d = cp.asarray(finite)
         edges = device_quantile(yd[fin_d], np.linspace(0.0, 1.0, _FE_STRATIFY_REG_BINS + 1))
         if edges is None:
@@ -295,7 +297,7 @@ def stratified_subsample_idx(rng: np.random.Generator, y: np.ndarray, size: int,
             # Proportional target per class, floored at the per-class minimum.
             alloc = np.maximum(
                 np.minimum(counts, 2),
-                np.floor(counts.astype(np.float64) / n * size).astype(np.int64),
+                np.floor(counts.astype(_crit_np_dtype()) / n * size).astype(np.int64),
             )
             alloc = np.minimum(alloc, counts)  # cannot draw more than a class holds
             picked = []
@@ -341,7 +343,7 @@ def stratified_subsample_idx(rng: np.random.Generator, y: np.ndarray, size: int,
             counts = np.array([m.shape[0] for m in members], dtype=np.int64)
             alloc = np.maximum(
                 np.minimum(counts, 1),
-                np.floor(counts.astype(np.float64) / n * size).astype(np.int64),
+                np.floor(counts.astype(_crit_np_dtype()) / n * size).astype(np.int64),
             )
             alloc = np.minimum(alloc, counts)
             picked = []
@@ -427,7 +429,7 @@ def _resolve_fe_subsample_stratify(stratify_knob, y, *, is_clf: bool) -> bool:
                 return False
             return bool(counts.min() / n < _FE_STRATIFY_MIN_CLASS_FRACTION)
         # Regression: heavy-tail / skew detection on the finite values.
-        finite = y_arr[np.isfinite(y_arr)] if y_arr.dtype.kind == "f" else y_arr.astype(np.float64)
+        finite = y_arr[np.isfinite(y_arr)] if y_arr.dtype.kind == "f" else y_arr.astype(_crit_np_dtype())
         finite = finite[np.isfinite(finite)]
         if finite.size < 8:
             return False

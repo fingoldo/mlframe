@@ -48,6 +48,7 @@ import logging
 from typing import Optional, Sequence
 
 import numpy as np
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 
 from mlframe.feature_selection.filters._relative_uplift import relative_uplift
 import pandas as pd
@@ -218,7 +219,7 @@ def _diff_survivors(
     """Uplift gate (vs the BEST source baseline) plus the noise-aware absolute floor; returns the surviving candidates."""
     # ---- Step 5: uplift gate (vs BEST source baseline) + noise-aware
     # absolute floor + global top-K.
-    raw_baselines = np.asarray(list(raw_mi_map.values()), dtype=np.float64)
+    raw_baselines = np.asarray(list(raw_mi_map.values()), dtype=_crit_np_dtype())
     max_raw_baseline = float(raw_baselines.max()) if raw_baselines.size else 0.0
     legacy_floor = float(min_abs_mi_frac) * max_raw_baseline
     n_baselines = int(raw_baselines.size)
@@ -323,7 +324,7 @@ def _pair_source_baselines(X: pd.DataFrame, pairs_norm: list, y_arr: np.ndarray,
     """Raw MI baselines for every column touched by a pair: ``{column: MI(column; y)}``."""
     # ---- Step 2: raw baselines for every column touched by a pair.
     touched = sorted({c for pair in pairs_norm for c in pair})
-    raw_mat = X[touched].to_numpy(dtype=np.float64, copy=False)
+    raw_mat = X[touched].to_numpy(dtype=_crit_np_dtype(), copy=False)
     # NaN-safe fill mirrors fit-side basis evaluation.
     finite = np.isfinite(raw_mat)
     if not finite.all():
@@ -411,6 +412,7 @@ def generate_diff_basis_features(
     # an MI score): always float64, matching _apply_orth_diff_basis's hardcoded replay dtype - a
     # relaxed f32 cast here reproduces the fit/replay drift bug fixed in
     # _orthogonal_univariate_fe/__init__.py. Hoisted so _dt is bound on every branch.
+    # Intentional float64: must match _apply_orth_diff_basis replay dtype, which is hardcoded float64
     _dt = np.float64
     if basis not in _POLY_BASES:
         raise ValueError(f"generate_diff_basis_features: unknown basis {basis!r}; " f"expected one of {sorted(_POLY_BASES.keys())}.")
@@ -431,7 +433,7 @@ def generate_diff_basis_features(
         return pd.DataFrame(index=X.index), {}
 
     # ---- Step 4: ONE batch MI call across every candidate.
-    cand_mat = np.column_stack(cand_values).astype(np.float64, copy=False)
+    cand_mat = np.column_stack(cand_values).astype(_crit_np_dtype(), copy=False)
     eng_mi = _mi_classif_batch(cand_mat, y_arr, nbins=nbins)
 
     survivors = _diff_survivors(cand_cols, cand_meta, eng_mi, raw_mi_map, pair_corr_map, basis, min_abs_mi_frac, min_uplift)
@@ -617,8 +619,8 @@ def hybrid_orth_mi_diff_basis_fe_with_recipes(
                 # Value-construction (recovers the basis preprocess params for legacy recipes
                 # predating `return_params=True`): always float64, matching the fresh-path's own
                 # dtype and _apply_orth_diff_basis's hardcoded replay dtype.
-                _va = np.asarray(X[_ca], dtype=np.float64)
-                _vb = np.asarray(X[_cb], dtype=np.float64)
+                _va = np.asarray(X[_ca], dtype=_crit_np_dtype())
+                _vb = np.asarray(X[_cb], dtype=_crit_np_dtype())
                 _fa = np.isfinite(_va)
                 if not _fa.all():
                     _va = np.where(_fa, _va, float(np.nanmean(_va[_fa])) if _fa.any() else 0.0)
@@ -657,8 +659,8 @@ def _apply_orth_diff_basis(recipe, X) -> np.ndarray:
     basis = str(recipe.extra["basis"])
     degree = int(recipe.extra["degree"])
     pre_transform = str(recipe.extra.get("pre_transform", "raw"))
-    vals_a = np.asarray(_extract_column(X, col_a), dtype=np.float64)
-    vals_b = np.asarray(_extract_column(X, col_b), dtype=np.float64)
+    vals_a = np.asarray(_extract_column(X, col_a), dtype=_crit_np_dtype())
+    vals_b = np.asarray(_extract_column(X, col_b), dtype=_crit_np_dtype())
     # NaN-safe mean-fill mirrors the fit-time pipeline so train/test parity
     # holds row-by-row even when the test frame has different NaN positions.
     finite_a = np.isfinite(vals_a)

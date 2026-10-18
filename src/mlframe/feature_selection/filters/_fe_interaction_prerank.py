@@ -36,6 +36,7 @@ import logging
 from typing import Any, Optional
 
 import numpy as np
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
@@ -75,7 +76,7 @@ def _prep_values_y(values: np.ndarray, y):
     """Shared standardisation for the propensity scorers: contiguous float64 ``V`` (+ ``V2``), factorised/nan-clean
     float ``yf``, ``classes = unique(yf)``, and the float-target flag. Extracted so fused_propensity does not
     re-derive V/yf/classes that second_moment_propensity already computed (~15% of the fused call). Bit-identical."""
-    V = np.ascontiguousarray(values, dtype=np.float64)
+    V = np.ascontiguousarray(values, dtype=_crit_np_dtype())
     if V.ndim != 2:
         raise ValueError(f"values must be 2-D (n, p); got shape {V.shape}")
     y_arr = np.asarray(y).ravel() if not hasattr(y, "to_numpy") else np.asarray(y.to_numpy()).ravel()
@@ -86,7 +87,7 @@ def _prep_values_y(values: np.ndarray, y):
     _y_is_float = y_arr.dtype.kind in "fc"
     if y_arr.dtype.kind in "USO" or y_arr.dtype == bool:
         _, y_arr = np.unique(y_arr, return_inverse=True)
-    yf = np.nan_to_num(np.asarray(y_arr, dtype=np.float64), nan=0.0, posinf=0.0, neginf=0.0)
+    yf = np.nan_to_num(np.asarray(y_arr, dtype=_crit_np_dtype()), nan=0.0, posinf=0.0, neginf=0.0)
     V = np.nan_to_num(V, nan=0.0, posinf=0.0, neginf=0.0)
     V2 = V * V
     classes = np.unique(yf)
@@ -104,7 +105,7 @@ def _second_moment_core(V: np.ndarray, V2: np.ndarray, yf: np.ndarray, classes: 
         classes = np.sort(vals[np.argsort(counts)[::-1][:_NOMINAL_MAX_CLASSES]])
     if classes.size <= 1:
         # degenerate single-class target: every indicator is constant -> corr undefined -> zero score.
-        return np.zeros(V.shape[1], dtype=np.float64)
+        return np.zeros(V.shape[1], dtype=np.float64)  # Intentional float64: accumulator or output buffer; statistic at float64
     # DISCRETE / nominal: relabel-invariant one-hot sum; V/V2 standardisation is class-independent (hoisted once),
     # the K classes reduce to a single (p,n)@(n,K) GEMM per matrix via compute_discrete_score (backend-dispatched).
     from mlframe.feature_selection.filters._fe_interaction_prerank_kernels import compute_discrete_score
@@ -147,9 +148,9 @@ def _discrete_score_numpy_loop(V: np.ndarray, V2: np.ndarray, yf: np.ndarray, cl
 
     Recomputes V/V2 column stats once per class; semantically identical to the hoisted GEMM dispatcher
     but K x more BLAS calls. Retained as the named, dependency-free correctness baseline."""
-    score = np.zeros(V.shape[1], dtype=np.float64)
+    score = np.zeros(V.shape[1], dtype=np.float64)  # Intentional float64: accumulator or output buffer; statistic at float64
     for c in classes:
-        ind = (yf == c).astype(np.float64)
+        ind = (yf == c).astype(np.float64)  # Intentional float64: class-indicator statistic input
         score += _abs_col_corr(V2, ind) + _abs_col_corr(V, ind)
     return score
 
@@ -176,45 +177,45 @@ def gbm_split_propensity(values: np.ndarray, y: np.ndarray, num_boost_round: int
         import lightgbm as lgb
     except ImportError as e:
         logger.debug("lightgbm import failed: %s", e)
-        return np.zeros(values.shape[1], dtype=np.float64)
-    X = np.ascontiguousarray(values, dtype=np.float64)
+        return np.zeros(values.shape[1], dtype=np.float64)  # Intentional float64: accumulator or output buffer; statistic at float64
+    X = np.ascontiguousarray(values, dtype=_crit_np_dtype())
     X = np.nan_to_num(X, nan=0.0, posinf=0.0, neginf=0.0)
     y_arr = np.asarray(y).ravel() if not hasattr(y, "to_numpy") else np.asarray(y.to_numpy()).ravel()
     if y_arr.dtype.kind in "USO" or y_arr.dtype == bool:
         _, y_arr = np.unique(y_arr, return_inverse=True)
-    yf = np.nan_to_num(np.asarray(y_arr, dtype=np.float64), nan=0.0, posinf=0.0, neginf=0.0)
+    yf = np.nan_to_num(np.asarray(y_arr, dtype=_crit_np_dtype()), nan=0.0, posinf=0.0, neginf=0.0)
     n_classes = int(np.unique(yf).size)
     if n_classes <= 1:
-        return np.zeros(X.shape[1], dtype=np.float64)
+        return np.zeros(X.shape[1], dtype=np.float64)  # Intentional float64: accumulator or output buffer; statistic at float64
     if n_classes <= _NOMINAL_MAX_CLASSES:
         codes = np.unique(yf, return_inverse=True)[1]
         if n_classes == 2:
             params = dict(objective="binary", num_leaves=31, learning_rate=0.1, verbose=-1, min_child_samples=20, feature_fraction=1.0)
         else:
             params = dict(objective="multiclass", num_class=n_classes, num_leaves=31, learning_rate=0.1, verbose=-1, min_child_samples=20, feature_fraction=1.0)
-        label = codes.astype(np.float64)
+        label = codes.astype(np.float64)  # Intentional float64: label statistic input
     else:  # continuous regression target
         params = dict(objective="regression", num_leaves=31, learning_rate=0.1, verbose=-1, min_child_samples=20, feature_fraction=1.0)
         label = yf
     try:
         ds = lgb.Dataset(X, label=label)
         booster = lgb.train(params, ds, num_boost_round=num_boost_round)
-        return booster.feature_importance(importance_type="split").astype(np.float64)
+        return booster.feature_importance(importance_type="split").astype(np.float64)  # Intentional float64: booster importance statistic output
     except Exception as exc:
         # Was unlogged, unlike the adjacent (and
         # reasonable) `import lightgbm` probe a few lines above - a genuine LightGBM bug (bad params, a
         # degenerate label after class-collapse, an internal assertion) silently degraded the
         # fused/gbm_splits interaction-propensity criterion to an all-zero ingredient with zero trace.
         logger.debug("gbm_split_propensity: lgb.train/feature_importance failed; falling back to zeros: %r", exc)
-        return np.zeros(X.shape[1], dtype=np.float64)
+        return np.zeros(X.shape[1], dtype=np.float64)  # Intentional float64: accumulator or output buffer; statistic at float64
 
 
 def _rank_desc(scores: np.ndarray) -> np.ndarray:
     """Competition-free dense ranks (0 = best) for descending ``scores``; ties get the same average-free
     ordinal rank by stable argsort. Lower rank = more interesting - the common scale for rank fusion."""
     order = np.argsort(-scores, kind="stable")
-    ranks = np.empty(scores.shape[0], dtype=np.float64)
-    ranks[order] = np.arange(scores.shape[0], dtype=np.float64)
+    ranks = np.empty(scores.shape[0], dtype=np.float64)  # Intentional float64: accumulator or output buffer; statistic at float64
+    ranks[order] = np.arange(scores.shape[0], dtype=np.float64)  # Intentional float64: rank statistic accumulator
     return ranks
 
 
@@ -235,10 +236,10 @@ def fused_propensity(values: np.ndarray, y: np.ndarray, use_gbm: bool = True) ->
     V, V2, yf, classes, _y_is_float = _prep_values_y(values, y)
     sm = _second_moment_core(V, V2, yf, classes, _y_is_float)
     # cheap main-effect channel: |corr(x, 1[y=c])| summed over classes (reuses the standardized machinery).
-    main = np.zeros(V.shape[1], dtype=np.float64)
+    main = np.zeros(V.shape[1], dtype=np.float64)  # Intentional float64: accumulator or output buffer; statistic at float64
     if classes.size > 1 and classes.size <= _NOMINAL_MAX_CLASSES:
         for c in classes:
-            main += _abs_col_corr(V, (yf == c).astype(np.float64))
+            main += _abs_col_corr(V, (yf == c).astype(np.float64))  # Intentional float64: absolute correlation statistic input
     else:
         main = _abs_col_corr(V, yf)
     ingredients = [_rank_desc(sm), _rank_desc(main)]

@@ -121,7 +121,7 @@ def _make_histgate_inputs(dims: dict):
     disc_2d = rng.integers(0, nbins, size=(n, K)).astype(np.int32)
     factors_nbins = np.full(K, nbins, dtype=np.int64)
     classes_y = rng.integers(0, n_classes_y, size=n).astype(np.int32)
-    freqs_y = np.bincount(classes_y, minlength=n_classes_y).astype(np.float64) / max(1, n)
+    freqs_y = np.bincount(classes_y, minlength=n_classes_y).astype(np.float64) / max(1, n)  # Intentional float64: synthetic benchmark probability vector; entropy input for the KTC fixture
     return (disc_2d, factors_nbins, classes_y, classes_y.copy(), freqs_y, 10, np.uint64(0), 0.95, False, np.int32)
 
 

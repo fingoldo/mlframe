@@ -50,6 +50,7 @@ from mlframe.utils.log_throttle import log_throttle
 from typing import Optional, Sequence
 
 import numpy as np
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 import pandas as pd
 
 try:
@@ -105,9 +106,9 @@ def _kl_divergence(group_vals: np.ndarray, global_edges: np.ndarray, global_hist
     if group_vals.size == 0 or global_edges.size < 2:
         return 0.0
     g_counts, _ = np.histogram(group_vals, bins=global_edges)
-    p = g_counts.astype(np.float64) + _KL_EPS
+    p = g_counts.astype(np.float64) + _KL_EPS  # Intentional float64: accumulator or output buffer; statistic at float64
     p /= p.sum()
-    q = global_hist.astype(np.float64) + _KL_EPS
+    q = global_hist.astype(np.float64) + _KL_EPS  # Intentional float64: KL divergence statistic input
     q /= q.sum()
     return float(np.sum(p * np.log(p / q)))
 
@@ -162,8 +163,8 @@ def _wasserstein1(group_vals: np.ndarray, global_sorted: np.ndarray) -> float:
     if _HAVE_NUMBA:
         return float(
             _wasserstein1_sorted_kernel(
-                np.sort(np.ascontiguousarray(group_vals, dtype=np.float64)),
-                np.ascontiguousarray(global_sorted, dtype=np.float64),
+                np.sort(np.ascontiguousarray(group_vals, dtype=np.float64)),  # Intentional float64: KS statistic sorted operand
+                np.ascontiguousarray(global_sorted, dtype=np.float64),  # Intentional float64: KS statistic sorted operand
             )
         )
     try:
@@ -237,14 +238,14 @@ def generate_group_distance_features(
         for num_col in cur_num_cols:
             _gc = _global_cache.get(num_col)
             if _gc is None:
-                x = np.asarray(X[num_col].to_numpy(), dtype=np.float64)
+                x = np.asarray(X[num_col].to_numpy(), dtype=_crit_np_dtype())
                 finite_all = x[np.isfinite(x)]
                 if finite_all.size == 0:
                     global_mean = 0.0
                     global_std = 1.0
-                    global_edges = np.array([0.0, 1.0], dtype=np.float64)
-                    global_hist = np.array([1.0], dtype=np.float64)
-                    global_sorted = np.array([], dtype=np.float64)
+                    global_edges = np.array([0.0, 1.0], dtype=np.float64)  # Intentional float64: empty global-edge vector keeps the float64 contract
+                    global_hist = np.array([1.0], dtype=np.float64)  # Intentional float64: global histogram statistic
+                    global_sorted = np.array([], dtype=np.float64)  # Intentional float64: accumulator or output buffer; statistic at float64
                 else:
                     global_mean = float(np.mean(finite_all))
                     _std = float(np.std(finite_all))
@@ -254,7 +255,7 @@ def generate_group_distance_features(
                         hi = lo + 1.0
                     global_edges = np.linspace(lo, hi, _DIST_NBINS + 1)
                     global_hist, _ = np.histogram(finite_all, bins=global_edges)
-                    global_hist = global_hist.astype(np.float64)
+                    global_hist = global_hist.astype(np.float64)  # Intentional float64: global histogram statistic
                     global_sorted = np.sort(finite_all)
                 _gc = (x, global_mean, global_std, global_edges, global_hist, global_sorted)
                 _global_cache[num_col] = _gc

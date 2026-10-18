@@ -5,10 +5,11 @@ from __future__ import annotations
 from typing import Any, Optional
 
 import numpy as np
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 
 
 def _resolve_member_matrix(X_raw: Any, members: list, member_names: list) -> Optional[tuple]:
-    """The float64 matrix of the cluster members' raw columns with its surviving ``members`` / ``member_names``, or ``None`` when fewer than two
+    """The matrix of the cluster members' raw columns with its surviving ``members`` / ``member_names``, or ``None`` when fewer than two
     usable columns remain (the swap is then declined)."""
     # Resolve raw columns; X_raw may be a DataFrame or ndarray.
     if hasattr(X_raw, "columns"):
@@ -24,12 +25,12 @@ def _resolve_member_matrix(X_raw: Any, members: list, member_names: list) -> Opt
             return None
         members = [members[i] for i in keep]
         member_names = [member_names[i] for i in keep]
-        M = X_raw[member_names].to_numpy(dtype=np.float64, copy=True)
+        M = X_raw[member_names].to_numpy(dtype=_crit_np_dtype(), copy=True)
     else:
         arr = np.asarray(X_raw)
         if arr.ndim != 2 or arr.shape[1] < max(members) + 1:
             return None
-        M = arr[:, members].astype(np.float64, copy=True)
+        M = arr[:, members].astype(_crit_np_dtype(), copy=True)
     # Drop columns containing NaN / Inf to keep PC1 stable. ``members``/``member_names`` are kept in
     # lockstep with M's surviving columns (they used to stay at their PRE-filter length while mean/
     # std/signs below were built from the post-filter M - a length mismatch that corrupted

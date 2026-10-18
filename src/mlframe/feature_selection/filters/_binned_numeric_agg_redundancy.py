@@ -65,7 +65,7 @@ def _build_binned_agg_recipes(cands, raw, X, _src_bins, nbins_base, y_cls, min_c
                     _Yp = np.empty((y_cls.shape[0], int(_n_perm)), dtype=np.int64)
                     for _i in range(int(_n_perm)):
                         _Yp[:, _i] = y_cls[_prng.permutation(y_cls.shape[0])]
-                    _null = np.asarray(batched_cmi_gpu(_Yp, cand_bin, z_joint), dtype=np.float64)
+                    _null = np.asarray(batched_cmi_gpu(_Yp, cand_bin, z_joint), dtype=np.float64)  # Intentional float64: permutation-null MI statistic
                     _null = np.where(np.isfinite(_null), _null, 0.0)
             except Exception as e:
                 log_throttle(
@@ -80,7 +80,7 @@ def _build_binned_agg_recipes(cands, raw, X, _src_bins, nbins_base, y_cls, min_c
                 _null = None
             if _null is None:
                 _prng = np.random.default_rng(_perm_seed)
-                _null = np.empty(_n_perm, dtype=np.float64)
+                _null = np.empty(_n_perm, dtype=np.float64)  # Intentional float64: permutation-null MI statistic
                 for _i in range(_n_perm):
                     yp = y_cls[_prng.permutation(y_cls.shape[0])]
                     c0 = _cmi_from_binned(cand_bin, yp, z_joint)

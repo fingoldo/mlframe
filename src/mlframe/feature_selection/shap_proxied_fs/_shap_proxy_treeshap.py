@@ -16,7 +16,7 @@ parity test). The numba kernel is the always-available fallback; an optional cup
 data size + HW. ALL kernel versions are kept (never in-place replaced) so we can re-bench per HW.
 
 Critical correctness invariants discovered while validating against xgboost 3.x:
-  * Feature values are compared as **float32** (xgboost casts internally); using float64 misroutes a
+  * Feature values are compared as **float32** (xgboost casts internally); using double precision misroutes a
     handful of rows near a split threshold and breaks additivity. We cast X to float32 for routing.
   * Routing is ``x < split_condition -> "yes"/left``; NaN follows the node's ``missing`` child.
   * The path-dependent conditional-expectation weight is the node ``cover`` (hessian-weighted sample
@@ -38,6 +38,7 @@ from dataclasses import dataclass
 from typing import Any, Optional
 
 import numpy as np
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 from numba import njit, prange
 from mlframe.utils.log_throttle import log_throttle
 
@@ -60,8 +61,8 @@ class TreeEnsemble:
     children_default: np.ndarray  # (N,) int32 global id of "missing" child
     features: np.ndarray  # (N,) int32  split feature index, or -1 for leaf
     thresholds: np.ndarray  # (N,) float32 split_condition (float32 to match xgboost routing)
-    values: np.ndarray  # (N,) float64 leaf output (0.0 for internal nodes)
-    node_sample_weight: np.ndarray  # (N,) float64 node cover (hessian-weighted count)
+    values: np.ndarray  # (N,) double-precision leaf output (0.0 for internal nodes)
+    node_sample_weight: np.ndarray  # (N,) double-precision node cover (hessian-weighted count)
     tree_roots: np.ndarray  # (T,) int32  global id of each tree's root node
     max_depth: int  # max tree depth across the ensemble (sizes the per-thread scratch)
     base_offset: float  # ensemble intercept (base_score) added once to the margin
@@ -163,8 +164,8 @@ def _extract_xgboost_ensemble(booster, n_features: int) -> TreeEnsemble:
 
     children_left = np.asarray(cl, dtype=np.int32)
     children_right = np.asarray(cr, dtype=np.int32)
-    values = np.asarray(val, dtype=np.float64)
-    node_sample_weight = np.asarray(cover, dtype=np.float64)
+    values = np.asarray(val, dtype=_crit_np_dtype())
+    node_sample_weight = np.asarray(cover, dtype=_crit_np_dtype())
     tree_roots_arr = np.asarray(tree_roots, dtype=np.int32)
 
     # SHAP's tree_path_dependent base value is NOT base_score: it is base_score plus, per tree, the
@@ -196,7 +197,7 @@ def _ensemble_expected_value(children_left, children_right, values, cover, tree_
     propagates leaf expectations upward. Returns the summed root expectation across all trees.
     """
     n_nodes = children_left.shape[0]
-    exp = values.astype(np.float64).copy()  # leaves already hold their value; internals overwritten
+    exp = values.astype(_crit_np_dtype()).copy()  # leaves already hold their value; internals overwritten
     # Reverse pass: when we reach an internal node, its children are already finalised.
     for nid in range(n_nodes - 1, -1, -1):
         lc = children_left[nid]
@@ -407,13 +408,18 @@ def _treeshap_batch(
     scratch = width * n_levels
     for i in prange(n):
         pf_feat = np.empty(scratch, dtype=np.int64)
+        # Intentional float64: numba kernel accumulator; numba cannot call the Python crit-dtype helper and the sums need exact f64.
         pf_zero = np.empty(scratch, dtype=np.float64)
+        # Intentional float64: numba kernel accumulator; numba cannot call the Python crit-dtype helper and the sums need exact f64.
         pf_one = np.empty(scratch, dtype=np.float64)
+        # Intentional float64: numba kernel accumulator; numba cannot call the Python crit-dtype helper and the sums need exact f64.
         pweight = np.empty(scratch, dtype=np.float64)
         st_node = np.empty(stack_size, dtype=np.int64)
         st_level = np.empty(stack_size, dtype=np.int64)
         st_ud = np.empty(stack_size, dtype=np.int64)
+        # Intentional float64: numba kernel accumulator; numba cannot call the Python crit-dtype helper and the sums need exact f64.
         st_zero = np.empty(stack_size, dtype=np.float64)
+        # Intentional float64: numba kernel accumulator; numba cannot call the Python crit-dtype helper and the sums need exact f64.
         st_one = np.empty(stack_size, dtype=np.float64)
         st_feat = np.empty(stack_size, dtype=np.int64)
         xi = X[i]
@@ -429,7 +435,7 @@ def _treeshap_batch(
 
 
 def treeshap_phi_base_numba(ensemble: TreeEnsemble, X: np.ndarray) -> tuple[np.ndarray, float]:
-    """Run the numba path-dependent TreeSHAP. Returns ``(phi (n,f) float64, base float)``.
+    """Run the numba path-dependent TreeSHAP. Returns ``(phi (n,f) double precision, base float)``.
 
     ``X`` is cast to float32 for routing (xgboost's internal comparison dtype). ``phi`` is in margin /
     log-odds space; ``base`` is the ensemble intercept so ``base + phi.sum(1)`` is the model margin.
@@ -445,7 +451,7 @@ def treeshap_phi_base_numba(ensemble: TreeEnsemble, X: np.ndarray) -> tuple[np.n
 
     Xf = np.ascontiguousarray(np.asarray(X, dtype=np.float32))
     n = Xf.shape[0]
-    phi = np.zeros((n, ensemble.n_features), dtype=np.float64)
+    phi = np.zeros((n, ensemble.n_features), dtype=_crit_np_dtype())
     with parallel_kernel_entry():
         _treeshap_batch(
             Xf, phi,
@@ -532,8 +538,8 @@ def _extract_lightgbm_ensemble(booster, n_features: int) -> TreeEnsemble:
 
     children_left = np.asarray(cl, dtype=np.int32)
     children_right = np.asarray(cr, dtype=np.int32)
-    values = np.asarray(val, dtype=np.float64)
-    node_sample_weight = np.asarray(cover, dtype=np.float64)
+    values = np.asarray(val, dtype=_crit_np_dtype())
+    node_sample_weight = np.asarray(cover, dtype=_crit_np_dtype())
     tree_roots_arr = np.asarray(tree_roots, dtype=np.int32)
     base_offset = _ensemble_expected_value(children_left, children_right, values, node_sample_weight, tree_roots_arr)
 

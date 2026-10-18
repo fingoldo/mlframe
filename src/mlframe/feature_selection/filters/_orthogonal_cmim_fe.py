@@ -106,6 +106,7 @@ import logging
 from typing import Optional, Sequence
 
 import numpy as np
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 
 from mlframe.feature_selection.filters._relative_uplift import relative_uplift
 import pandas as pd
@@ -328,7 +329,7 @@ def _reference_support_bins(raw_X: pd.DataFrame, engineered_X: pd.DataFrame, cur
     for c in use_support.columns:
         col = use_support[c].to_numpy()
         sel_bins.append(_quantile_bin(
-            np.ascontiguousarray(col, dtype=np.float64),
+            np.ascontiguousarray(col, dtype=_crit_np_dtype()),
             nbins=int(n_bins),
         ))
     return sel_bins, list(use_support.columns)
@@ -442,7 +443,7 @@ def score_features_by_cmim(
         baseline = float(raw_mi_map.get(source, 0.0))
         cand_col = engineered_X[eng_name].to_numpy()
         cand_bin = _quantile_bin(
-            np.ascontiguousarray(cand_col, dtype=np.float64),
+            np.ascontiguousarray(cand_col, dtype=_crit_np_dtype()),
             nbins=int(n_bins),
         )
         # Fleuret 2004 CMIM: min over support of CMI(cand; y | X_j).
@@ -620,7 +621,7 @@ def hybrid_orth_mi_cmim_fe_with_recipes(
         # source column is safe/exact - it reproduces, not refits, the fit-time params.
         _pp = None
         try:
-            _col_full = np.asarray(X[src].to_numpy(), dtype=np.float64)
+            _col_full = np.asarray(X[src].to_numpy(), dtype=_crit_np_dtype())
             _, _pp = _evaluate_basis_column(_col_full, chosen_basis, int(chosen_degree), return_params=True)
         except Exception as exc:
             # Was a bare except with zero logging,

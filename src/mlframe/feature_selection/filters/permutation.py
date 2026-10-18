@@ -120,7 +120,7 @@ def perm_pvalues(nfailed: np.ndarray, nchecked: int) -> np.ndarray:
     inline site still returned 1/51, and significance gates then disagreed about the same feature at any alpha
     between those values.
     """
-    counts = np.asarray(nfailed, dtype=np.float64)
+    counts = np.asarray(nfailed, dtype=np.float64)  # Intentional float64: p-value count arithmetic
     if nchecked <= 0:
         return np.ones_like(counts)
     if _addone_pvalue_enabled():
@@ -358,7 +358,7 @@ def parallel_mi_prange_with_null(
 
     n = len(classes_y)
     nfailed_arr = np.zeros(npermutations, dtype=np.int64)
-    mi_perm_arr = np.zeros(npermutations, dtype=np.float64)
+    mi_perm_arr = np.zeros(npermutations, dtype=np.float64)  # Intentional float64: permutation MI null statistic
 
     for i in prange(npermutations):
         state = np.uint64(base_seed) * np.uint64(2654435761) + np.uint64(i + 1)

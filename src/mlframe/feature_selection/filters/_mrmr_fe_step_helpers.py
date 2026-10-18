@@ -363,6 +363,7 @@ def _gate_seeded_triples_order3(
         _tb = np.fromiter((t[1] for t in seeded_triples), dtype=np.int64, count=len(seeded_triples))
         _tc = np.fromiter((t[2] for t in seeded_triples), dtype=np.int64, count=len(seeded_triples))
         _nb = np.ascontiguousarray(nbins)
+        # Intentional float64: class-frequency vector feeds the MI entropy accumulator in the njit kernel (full precision)
         _fy = np.ascontiguousarray(freqs_y, dtype=np.float64)
         _cy = np.ascontiguousarray(classes_y)
         _floor = pooled_triple_permutation_null_joint_mi_floor(

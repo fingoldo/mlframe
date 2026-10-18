@@ -37,6 +37,7 @@ def fold_cell_sum_cnt(
     v = valid if use_valid else np.ones(1, dtype=np.bool_)
     sums, counts = _cell_sum_cnt_kernel(
         np.ascontiguousarray(codes, dtype=np.int64),
+        # Intentional float64: bit-identical parity oracle against the float64 np.add.at reference
         np.ascontiguousarray(y, dtype=np.float64),
         np.ascontiguousarray(fold_ids, dtype=np.int64),
         int(skip_fold),

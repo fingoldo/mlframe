@@ -89,9 +89,13 @@ def _prewarm_fs_numba_cache_impl(verbose: bool = False) -> None:
     classes_x2 = rng.integers(0, K_x, n).astype(np.int32)
     classes_y = rng.integers(0, K_y, n).astype(np.int32)
     classes_y_safe = classes_y.copy()
+    # Intentional float64: accumulator kept f64 (statistic / count sums need full precision)
     freqs_pair = np.bincount(classes_pair, minlength=K_x * 2).astype(np.float64) / n
+    # Intentional float64: accumulator kept f64 (statistic / count sums need full precision)
     freqs_x1 = np.bincount(classes_x1, minlength=K_x).astype(np.float64) / n
+    # Intentional float64: accumulator kept f64 (statistic / count sums need full precision)
     freqs_x2 = np.bincount(classes_x2, minlength=K_x).astype(np.float64) / n
+    # Intentional float64: accumulator kept f64 (statistic / count sums need full precision)
     freqs_y = np.bincount(classes_y, minlength=K_y).astype(np.float64) / n
     nbins = np.array([K_x, K_x], dtype=np.int64)
     dtype = np.int32
@@ -144,6 +148,7 @@ def _prewarm_fs_numba_cache_impl(verbose: bool = False) -> None:
 
     # Marginal + pair-search MI kernels (entry points for cat-FE search).
     factors_data = np.column_stack([classes_x1, classes_x2]).astype(dtype)
+    # Intentional float64: accumulator kept f64 (statistic / count sums need full precision)
     marginal_mi = np.zeros(2, dtype=np.float64)
     candidate_idxs = np.arange(factors_data.shape[1], dtype=np.int64)
     try:
@@ -164,6 +169,7 @@ def _prewarm_fs_numba_cache_impl(verbose: bool = False) -> None:
         logger.debug("suppressed: %s", e)
         pass
     try:
+        # Intentional float64: accumulator kept f64 (statistic / count sums need full precision)
         weights = np.ones(n, dtype=np.float64)
         _ = _pair_search_kernel_weighted_njit(
             factors_data, pairs_a, pairs_b, marginal_mi, nbins,
@@ -211,12 +217,14 @@ def _prewarm_info_theory_primitives(
         logger.debug("suppressed: %s", e)
         pass
     try:
+        # Intentional float64: numba warmup / self-test input; must match the kernel's typed f64 signature
         _f10 = np.array([0.5, 0.3, 0.2], dtype=np.float64)
         _ = entropy(freqs=_f10)
     except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
         logger.debug("suppressed: %s", e)
         pass
     try:
+        # Intentional float64: numba warmup / self-test input; must match the kernel's typed f64 signature
         _f10 = np.array([0.5, 0.3, 0.2], dtype=np.float64)
         _ = entropy_miller_madow(freqs=_f10, n_samples=10)
     except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
@@ -321,9 +329,10 @@ def _prewarm_fs_numba_c_jit_compile_budget_prewarm(parallel_mi_prange, classes_p
     # Discretisation kernels. Cover the dominant production dtype combos: int8 (default + cat-FE path) and int16 (categorize_dataset default for the screening
     # path on regression combos). Each dtype is a SEPARATE numba compilation (~9s of cold JIT compile). Explicitly pass ``min_values=None, max_values=None`` to
     # match the categorize_dataset call signature exactly - without this, numba's per-signature cache misses and the kernel recompiles on first real use.
+    # Intentional float64: numba warmup / self-test input; must match the kernel's typed f64 signature
     cont = rng.normal(size=(n, 2)).astype(np.float64)
     # polars ``.to_numpy()`` returns F-contiguous (column-major) while pandas returns C-contiguous (row-major). Numba's array-layout dispatch treats these as
-    # DIFFERENT signatures (Array(float64, 2, 'C') vs Array(float64, 2, 'F')) and compiles separately - prewarming only C-contig leaves the polars path with
+    # DIFFERENT signatures (Array(double precision, 2, 'C') vs Array(double precision, 2, 'F')) and compiles separately - prewarming only C-contig leaves the polars path with
     # ~10s of cold JIT compile on first MRMR.fit(polars_df) at 1M rows. Cover BOTH layouts.
     cont_f = np.asfortranarray(cont)  # F-contiguous variant
     # int32 is MRMR's DEFAULT quantization_dtype (see ``MRMR.__init__: quantization_dtype: object = np.int32`` at mrmr.py:294) - prewarming only int8/int16
@@ -375,6 +384,7 @@ def _prewarm_fs_numba_c_jit_compile_budget_prewarm(parallel_mi_prange, classes_p
     # Layer-90 numeric-decompose digit-extract kernel.
     try:
         from mlframe.feature_selection.filters._numeric_decompose_fe import _digit_extract_njit
+        # Intentional float64: numba warmup / self-test input; must match the kernel's typed f64 signature
         _ = _digit_extract_njit(np.array([1.23, -4.56, np.nan], dtype=np.float64), 100.0)
     except Exception as e:  # nosec B110 - optional dependency import guard
         logger.debug("_numeric_decompose_fe digit-extract kernel warmup failed, skipping: %s", e)
@@ -459,6 +469,7 @@ def _prewarm_fs_numba_c_regardless_which_preset_caller(logger):
     """Block of _prewarm_fs_numba_cache_impl starting at ``try:``."""
     try:
         from mlframe.feature_selection.filters.feature_engineering import create_unary_transformations
+        # Intentional float64: numba warmup / self-test input; must match the kernel's typed f64 signature
         _warm_x = np.array([1.0, -2.0, 0.5, 0.0, 3.0], dtype=np.float64)
         _unary_warm = create_unary_transformations(preset="maximal")
         # The warm-up DISCARDS every result -- it exists to trigger the JIT compile, not to compute anything.
@@ -481,6 +492,7 @@ def _prewarm_fs_numba_c_layer_periodic_modular_kernel(logger):
     """Block of _prewarm_fs_numba_cache_impl starting at ``try:``."""
     try:
         from mlframe.feature_selection.filters._periodic_fe import _modular_njit, _modular_all_ops_njit
+        # Intentional float64: numba warmup / self-test input; must match the kernel's typed f64 signature
         _warm_mod = np.array([1.5, -2.5, np.nan, np.inf], dtype=np.float64)
         for _oc in (0, 1, 2):
             _ = _modular_njit(_warm_mod, 7.0, _oc)
@@ -591,6 +603,7 @@ def prewarm_fs_cupy_kernels(verbose: bool = False) -> None:
         data_pair = rng2.integers(0, nbins, size=(n_pair_warm, n_feat)).astype(np.int32)
         nbins_pair = np.full(n_feat, nbins, dtype=np.int32)
         classes_y_pair = rng2.integers(0, nbins, size=n_pair_warm).astype(np.int32)
+        # Intentional float64: accumulator kept f64 (statistic / count sums need full precision)
         freqs_y_pair = np.bincount(classes_y_pair, minlength=nbins).astype(np.float64) / n_pair_warm
         pairs_a = np.array([0], dtype=np.int64)
         pairs_b = np.array([1], dtype=np.int64)
@@ -626,7 +639,8 @@ def prewarm_fs_cupy_kernels(verbose: bool = False) -> None:
     try:
         from .discretization import discretize_2d_array
         # 600 rows x 1000 cols = 600_000 cells, above the 500_000 dispatch
-        # threshold; tiny in absolute terms (~5 MB float64).
+        # threshold; tiny in absolute terms (~5 MB double precision).
+        # Intentional float64: numba warmup / self-test input; must match the kernel's typed f64 signature
         cont_warm = rng.normal(size=(600, 1000)).astype(np.float64)
         _ = discretize_2d_array(arr=cont_warm, n_bins=10, method="quantile")
     except Exception as _exc:

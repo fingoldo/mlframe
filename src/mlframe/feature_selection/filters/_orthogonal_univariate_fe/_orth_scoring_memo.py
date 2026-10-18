@@ -20,6 +20,7 @@ import threading
 from typing import Iterator, Optional, Sequence, cast
 
 import numpy as np
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 import pandas as pd
 from numpy.typing import DTypeLike
 
@@ -39,12 +40,13 @@ def orth_scoring_memo_scope() -> Iterator[None]:
         _SCORING_MEMO.cache = None
 
 def _col_hash(X: pd.DataFrame, c: str) -> tuple:
-    """Content-hash key for one column, float64-normalized so two callers casting to different dtypes
+    """Content-hash key for one column, double precision-normalized so two callers casting to different dtypes
     for OTHER purposes still key identically here (the actual computation below still uses each caller's
     own ``dtype``, folded into the outer cache key separately)."""
     from .._fe_resident_operands import _content_hash
 
-    arr = np.ascontiguousarray(np.asarray(X[c].to_numpy(), dtype=np.float64))
+    # Intentional float64: the content-hash key must be identical for every caller dtype, so the key is normalised to f64 here.
+    arr = np.ascontiguousarray(np.asarray(X[c].to_numpy(), dtype=_crit_np_dtype()))
     return (arr.shape, _content_hash(arr))
 
 def cached_raw_mi_baseline(
@@ -137,11 +139,11 @@ def cached_dense_finite_corr_matrix(
             dense_arrays.append(arr)
             dense_names.append(c)
         if len(dense_names) < 2:
-            return dense_names, np.zeros((0, 0), dtype=np.float64)
+            return dense_names, np.zeros((0, 0), dtype=_crit_np_dtype())
         mat = np.vstack(dense_arrays)
         corr = np.corrcoef(mat)
         if corr.ndim == 0:
-            return dense_names, np.zeros((0, 0), dtype=np.float64)
+            return dense_names, np.zeros((0, 0), dtype=_crit_np_dtype())
         return dense_names, np.abs(corr)
 
     _memo = getattr(_SCORING_MEMO, "cache", None)

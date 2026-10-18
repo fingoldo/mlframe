@@ -95,6 +95,7 @@ def _init_fit_state(
     # sklearn scorer's ``__call__(..., sample_weight=fold_test_w)`` (if the scorer accepts the kwarg).
     # Default None preserves the legacy code path byte-for-byte (regression sentry); the gating flag
     # ``FeatureSelectionConfig.use_sample_weights_in_fs`` decides whether the caller forwards weights here.
+    # Intentional float64: caller sample_weight kept at full precision as the fitted attribute (sklearn parity)
     self._fit_sample_weight_ = None if sample_weight is None else np.asarray(sample_weight, dtype=np.float64)
     _validate_fit_sample_weight(self, X, y)
 

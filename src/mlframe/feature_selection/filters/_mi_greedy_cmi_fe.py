@@ -46,6 +46,7 @@ import threading
 from typing import Optional, Sequence, Any
 
 import numpy as np
+from ._fe_usability_signal import _crit_np_dtype
 import pandas as pd
 
 try:
@@ -283,7 +284,7 @@ _NNZ_RK = None
 # now reduces both: each thread accumulates (sum xlogx, nnz) over its strided cells, a block reduction in
 # shared memory folds the block, and one atomicAdd per block adds into a 2-slot output (out[0]=sum xlogx,
 # out[1]=nnz). out is cp.zeros(2) - a cudaMemsetAsync, NOT a cuLaunchKernel - so the call is ONE launch.
-# Same float64 plug-in entropy / same occupied-cell definition -> selection-equivalent (bit-identical sum
+# Same double precision plug-in entropy / same occupied-cell definition -> selection-equivalent (bit-identical sum
 # up to float reduction order, which the plug-in MI is already order-tolerant to).
 _ENT_NNZ_SRC = r"""
 extern "C" __global__
@@ -325,6 +326,7 @@ def _ent_from_counts(c, inv_n: float):
     global _ENT_RK, _NNZ_RK
     try:
         M = int(c.size)
+        # Intentional float64: entropy accumulator kept f64 (cudaMemset dtype)
         out = cp.zeros(2, dtype=cp.float64)  # cudaMemsetAsync, not a cuLaunchKernel
         threads = 256
         blocks = min(1024, max(1, (M + threads - 1) // threads))
@@ -334,6 +336,7 @@ def _ent_from_counts(c, inv_n: float):
     except Exception as e:
         logger.warning("fused entropy-nnz kernel failed, falling back to the reduction kernel path: %s", e)
         if _ENT_RK is None:
+            # Intentional float64: ReductionKernel signature contract (float64)
             _ENT_RK = cp.ReductionKernel("int64 c, float64 inv_n", "float64 h",
                                          "c > 0 ? (c * inv_n) * log(c * inv_n) : 0.0", "a + b", "h = -a", "0.0", "mrmr_ent_rk")
             _NNZ_RK = cp.ReductionKernel("int64 c", "int64 k", "c > 0 ? 1 : 0", "a + b", "k = a", "0", "mrmr_nnz_rk")
@@ -344,6 +347,7 @@ def _nnz_from_counts(c) -> int:
     import cupy as cp
     global _ENT_RK, _NNZ_RK
     if _NNZ_RK is None:
+        # Intentional float64: ReductionKernel signature contract (float64)
         _ENT_RK = cp.ReductionKernel("int64 c, float64 inv_n", "float64 h",
                                      "c > 0 ? (c * inv_n) * log(c * inv_n) : 0.0", "a + b", "h = -a", "0.0", "mrmr_ent_rk")
         _NNZ_RK = cp.ReductionKernel("int64 c", "int64 k", "c > 0 ? 1 : 0", "a + b", "k = a", "0", "mrmr_nnz_rk")
@@ -562,7 +566,7 @@ def score_candidates_by_cmi(
     pd.Series indexed by ``X_cand.columns`` holding the CMI value for each.
     """
     if X_cand.empty:
-        return pd.Series(dtype=np.float64)
+        return pd.Series(dtype=_crit_np_dtype())
     # This used to `.astype(np.int64)` (TRUNCATE) any
     # non-integer y BEFORE the np.unique densify below - for a continuous y confined to one integer
     # bucket (e.g. a [0,1) probability), truncation collapses every distinct value to the SAME integer
@@ -589,7 +593,7 @@ def score_candidates_by_cmi(
     if _cmi_gpu_enabled(n=int(y_bin.shape[0]), p=len(cand_cols)) and len(cand_cols) > 1:
         try:
             from ._fe_batched_mi import batched_cmi_gpu, batched_quantile_bin_gpu
-            X_float = np.empty((y_bin.shape[0], len(cand_cols)), dtype=np.float64)
+            X_float = np.empty((y_bin.shape[0], len(cand_cols)), dtype=_crit_np_dtype())
             for j, c in enumerate(cand_cols):
                 X_float[:, j] = X_cand[c].to_numpy()
             if np.isfinite(X_float).all():
@@ -606,6 +610,7 @@ def score_candidates_by_cmi(
                 for j in range(len(cand_cols)):
                     X_codes[:, j] = _quantile_bin(X_float[:, j], nbins=nbins)
                 cmis = batched_cmi_gpu(X_codes, y_bin, z_joint, codes_trusted=True)  # host equi-freq binner -> 0-based
+            # Intentional float64: score output contract kept f64 (exact comparison)
             return pd.Series({c: float(cmis[j]) for j, c in enumerate(cand_cols)}, dtype=np.float64)
         except Exception as e:  # nosec B110 - optional/best-effort path, rationale documented
             logger.debug("GPU-resident batched CMI path failed (%s: %s) -- falling back to exact CPU loop", type(e).__name__, e)
@@ -613,6 +618,7 @@ def score_candidates_by_cmi(
     for c in cand_cols:
         x_bin = _quantile_bin(X_cand[c].to_numpy(), nbins=nbins)
         out[c] = _cmi_from_binned(x_bin, y_bin, z_joint)
+    # Intentional float64: score output contract kept f64 (exact comparison)
     return pd.Series(out, dtype=np.float64)
 
 # ---------------------------------------------------------------------------
@@ -745,7 +751,7 @@ def _greedy_cmi_fe_construct_part1(
     # 1. Pick the top-N raw cols by marginal MI as the BINARY-pair source
     #    pool (controls the O(N^2 * |BINARY_TRANSFORMS|) explosion).
     #    Unary candidates still enumerate over the full pool below.
-    st.raw_arr = X[st.candidates_pool].to_numpy(dtype=np.float64)
+    st.raw_arr = X[st.candidates_pool].to_numpy(dtype=_crit_np_dtype())
     st.raw_mi = _mi_classif_batch(st.raw_arr, y_bin, nbins=nbins)
     st.order = np.argsort(-st.raw_mi, kind="stable")  # plug-in MI is quantised, so ties are real: break them by position, reproducibly
     st.binary_seed_cols = [st.candidates_pool[i] for i in st.order[: int(seed_cols_count)]] if int(seed_cols_count) > 0 else list(st.candidates_pool)

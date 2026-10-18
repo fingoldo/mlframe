@@ -252,7 +252,7 @@ class _MRMRFitHelpersMixin:
         )
         import pandas as pd
         # Pass the FRAME (not to_numpy()) so per-column dtypes survive: a mixed numeric+categorical frame -> to_numpy() is an object array that
-        # (a) crashed the cluster correlation's float64 coercion and (b) would feed the bootstrap sub-MRMR all-object columns. The stability helpers
+        # (a) crashed the cluster correlation's double precision coercion and (b) would feed the bootstrap sub-MRMR all-object columns. The stability helpers
         # cluster only the numeric columns (categoricals -> singletons) and hand the sub-selector dtype-preserved rows.
         # An ndarray gets the same ``feature_<i>`` placeholders the classic path synthesizes: pandas' default integer labels would store
         # non-string feature_names_in_ and defeat get_feature_names_out's placeholder detection.
@@ -338,6 +338,7 @@ class _MRMRFitHelpersMixin:
         and lets the FS cache reuse a single fit across uniform-weight callers)."""
         if sample_weight is None:
             return X, y
+        # Intentional float64: user sample_weight is accumulated exactly; contract is float64
         sw = np.asarray(sample_weight, dtype=np.float64)
         if sw.ndim != 1:
             raise ValueError(f"MRMR.fit sample_weight must be 1-D, got shape {sw.shape}")
@@ -495,6 +496,7 @@ class _MRMRFitHelpersMixin:
         self.cluster_members_ = None
         # Empty dict, not None: "DCD ran but found no super-structure" is a different state from "DCD disabled".
         self.cluster_hierarchy_: dict = {}
+        # Intentional float64: public mrmr_gains_ output contract (float64)
         self.mrmr_gains_ = np.array([], dtype=np.float64)
         self.friend_graph_ = None
         self.cluster_aggregate_ = None
@@ -603,6 +605,7 @@ class _MRMRFitHelpersMixin:
         # ``None`` makes that comparison False BY CONSTRUCTION (a later single-target fit on this instance always refits), rather than relying on
         # the str-vs-tuple type mismatch of a content-free ``f"_mrmr_multioutput_..."`` string to never collide.
         self.signature = None
+        # Intentional float64: stored fit sample-weight contract (float64)
         self._fit_sample_weight_ = None if sample_weight is None else np.asarray(sample_weight, dtype=np.float64)
         # This path returns before the legacy single-fit body runs, so the standard
         # single-target diagnostic surface (degenerate-column audit, provenance_,

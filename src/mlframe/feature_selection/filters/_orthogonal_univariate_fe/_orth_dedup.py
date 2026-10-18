@@ -11,6 +11,8 @@ import threading
 from typing import Iterator, Optional, Sequence
 
 import numpy as np
+from .._fe_gpu_batch._devices import crit_float_dtype
+from .._fe_usability_signal import _crit_np_dtype
 
 from mlframe.utils.env_flags import env_int
 import pandas as pd
@@ -76,7 +78,7 @@ def _dedup_cache_key(X: pd.DataFrame, cols: Sequence[str], corr_threshold: float
         if c not in X.columns or not pd.api.types.is_numeric_dtype(X[c]):
             parts.append((c, "non_numeric"))
             continue
-        arr = np.asarray(X[c].to_numpy(), dtype=np.float64)
+        arr = np.asarray(X[c].to_numpy(), dtype=_crit_np_dtype())
         if sample_idx is not None:
             arr = arr[sample_idx]
         arr = np.ascontiguousarray(arr)
@@ -90,8 +92,8 @@ def _pc_corr_numpy(Q: np.ndarray, R: np.ndarray) -> np.ndarray:
     Rm = np.isfinite(R)
     Q0 = np.where(Qm, Q, 0.0)
     R0 = np.where(Rm, R, 0.0)
-    Qmf = Qm.astype(np.float64)
-    Rmf = Rm.astype(np.float64)
+    Qmf = Qm.astype(_crit_np_dtype())
+    Rmf = Rm.astype(_crit_np_dtype())
     n = Qmf @ Rmf.T
     Sx = Q0 @ Rmf.T
     Sy = Qmf @ R0.T
@@ -117,6 +119,7 @@ def _pc_corr_njit(Q: np.ndarray, R: np.ndarray) -> np.ndarray:
     q = Q.shape[0]
     r = R.shape[0]
     n = Q.shape[1]
+    # Intentional float64: accumulator kept f64 (statistic / count sums need full precision)
     out = np.empty((q, r), dtype=np.float64)
     for i in prange(q):
         for j in range(r):
@@ -162,7 +165,7 @@ def _pc_corr_cupy(Q: np.ndarray, R: np.ndarray) -> np.ndarray:
     # the fix is correctness-neutral either way, only a possible win when content does recur. No ``dtype=``
     # override: Q/R keep their CALLER dtype (f32 under MLFRAME_CRIT_DTYPE_RELAXED), matching the original
     # ``cp.asarray(Q)``'s native-dtype passthrough exactly (unlike the njit backend, which explicitly
-    # upcasts to f64) - forcing float64 here would change the matmul precision, not just cache it.
+    # upcasts to f64) - forcing double precision here would change the matmul precision, not just cache it.
     from .._fe_resident_operands import resident_operand
     Qd = resident_operand(Q, "orth_dedup_Q")
     Rd = resident_operand(R, "orth_dedup_R")
@@ -170,8 +173,8 @@ def _pc_corr_cupy(Q: np.ndarray, R: np.ndarray) -> np.ndarray:
     Rm = cp.isfinite(Rd)
     Q0 = cp.where(Qm, Qd, 0.0)
     R0 = cp.where(Rm, Rd, 0.0)
-    Qmf = Qm.astype(cp.float64)
-    Rmf = Rm.astype(cp.float64)
+    Qmf = Qm.astype(crit_float_dtype())
+    Rmf = Rm.astype(crit_float_dtype())
     n = Qmf @ Rmf.T
     Sx = Q0 @ Rmf.T
     Sy = Qmf @ R0.T
@@ -196,21 +199,23 @@ def _row_center_finite(A: np.ndarray) -> np.ndarray:
     becomes ``nan``, and ``nan`` means "not a duplicate" here -- so genuinely collinear engineered columns
     survive dedup. Centring first is the cheap exact fix (one O(q*n) pass against six matmuls).
 
-    The mean is taken in float64 for accuracy, then cast back so the cupy backend's documented caller-dtype
+    The mean is taken in double precision for accuracy, then cast back so the cupy backend's documented caller-dtype
     passthrough is unaffected. All-NaN rows yield a NaN mean and stay all-NaN; they are excluded downstream by
     the ``n < 8`` common-row guard either way.
     """
     finite = np.isfinite(A)
     counts = finite.sum(axis=1, keepdims=True)
+    # Intentional float64: mean taken in f64 for accuracy, then cast back (documented)
     sums = np.where(finite, np.asarray(A, dtype=np.float64), 0.0).sum(axis=1, keepdims=True)
     with np.errstate(invalid="ignore", divide="ignore"):
         means = np.where(counts > 0, sums / np.maximum(counts, 1), 0.0)
+    # Intentional float64: mean taken in f64 for accuracy, then cast back (documented)
     return np.asarray(np.asarray(A, dtype=np.float64) - means, dtype=A.dtype)
 
 
 def _pairwise_complete_abs_corr(Q: np.ndarray, R: np.ndarray) -> np.ndarray:
     """``|Pearson r|`` between every row of ``Q`` and every row of ``R`` over PAIRWISE-COMPLETE (both-finite) rows,
-    vectorized instead of a Python per-pair ``np.corrcoef`` loop. ``Q``/``R``: ``(q, n)`` / ``(r, n)`` float64 with
+    vectorized instead of a Python per-pair ``np.corrcoef`` loop. ``Q``/``R``: ``(q, n)`` / ``(r, n)`` double precision with
     ``NaN`` for missing. Returns ``(q, r)``; entries with <8 common obs or zero variance -> ``nan`` ('not a duplicate').
 
     Backend dispatch (all three bit-identical to ~1e-16): numpy(BLAS) is the CPU default; ``cupy`` and ``njit`` are
@@ -223,6 +228,7 @@ def _pairwise_complete_abs_corr(Q: np.ndarray, R: np.ndarray) -> np.ndarray:
     R = _row_center_finite(R)
     backend = _resolve_pc_backend(Q.shape[0], R.shape[0], Q.shape[1])
     if backend == "njit":
+        # Intentional float64: njit kernel operand contract (f64 signature)
         return np.asarray(_pc_corr_njit(np.ascontiguousarray(Q, dtype=np.float64), np.ascontiguousarray(R, dtype=np.float64)))
     if backend == "cupy":
         try:
@@ -333,6 +339,7 @@ def _dense_abs_corr(dense_rows: list) -> tuple[Optional[np.ndarray], Optional[np
             corr_matrix = np.corrcoef(dense_matrix)
             # Single-row corrcoef returns a scalar 1.0 instead of (1, 1); normalize.
             if corr_matrix.ndim == 0:
+                # Intentional float64: accumulator kept f64 (statistic / count sums need full precision)
                 corr_matrix = np.array([[1.0]], dtype=np.float64)
             # Absolute corrs only; NaN -> not duplicate (matches legacy's
             # `if not np.isfinite(corr): continue` skip).
@@ -465,7 +472,7 @@ def _dedup_collinear_source_cols(
     pc_pp: np.ndarray | None
     if partial_order:
         partial_mat = np.vstack([partial_arrays[i] for i in partial_order])
-        dense_mat_for_pc = dense_matrix if dense_matrix is not None else np.empty((0, partial_mat.shape[1]), dtype=np.float64)
+        dense_mat_for_pc = dense_matrix if dense_matrix is not None else np.empty((0, partial_mat.shape[1]), dtype=_crit_np_dtype())
         pc_pd = _pairwise_complete_abs_corr(partial_mat, dense_mat_for_pc)  # (n_partial, n_dense)
         pc_pp = _pairwise_complete_abs_corr(partial_mat, partial_mat)  # (n_partial, n_partial)
     else:

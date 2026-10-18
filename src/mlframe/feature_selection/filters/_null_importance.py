@@ -15,6 +15,7 @@ from __future__ import annotations
 from typing import Any, Callable, Dict
 
 import numpy as np
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 
 from mlframe.feature_selection._selection_log import logs_selection
 
@@ -81,14 +82,14 @@ def null_importance_filter(
         raise ValueError(f"null_importance_filter: n_shuffles must be >= 1; got {n_shuffles}")
 
     rng = np.random.default_rng(random_state)
-    real_importance = np.asarray(importance_fn(X, y), dtype=np.float64)
+    real_importance = np.asarray(importance_fn(X, y), dtype=_crit_np_dtype())
     n_features = real_importance.shape[0]
 
     y_arr = np.asarray(y)
-    null_importances = np.empty((n_shuffles, n_features), dtype=np.float64)
+    null_importances = np.empty((n_shuffles, n_features), dtype=_crit_np_dtype())
     for i in range(n_shuffles):
         y_shuffled = rng.permutation(y_arr)
-        null_importances[i] = np.asarray(importance_fn(X, y_shuffled), dtype=np.float64)
+        null_importances[i] = np.asarray(importance_fn(X, y_shuffled), dtype=_crit_np_dtype())
 
     threshold = np.percentile(null_importances, percentile, axis=0)
     keep_mask = real_importance > threshold

@@ -83,6 +83,8 @@ import logging
 from typing import Optional, Sequence
 
 import numpy as np
+from ._fe_usability_signal import _crit_np_dtype
+
 
 from mlframe.feature_selection.filters._relative_uplift import relative_uplift
 import pandas as pd
@@ -120,6 +122,7 @@ def _entropy_from_classes(classes: np.ndarray) -> float:
     counts = counts[counts > 0]
     if counts.size <= 1:
         return 0.0
+    # Intentional float64: class-probability accumulator for the entropy/TC sums, kept f64.
     p = counts.astype(np.float64) / float(classes.size)
     return float(-(p * np.log(p)).sum())
 
@@ -176,13 +179,12 @@ def _bin_dataframe_batched(
     if arr.ndim == 1:
         arr = arr.reshape(-1, 1)
     try:
-        arr64 = np.ascontiguousarray(arr, dtype=np.float64)
+        arr64 = np.ascontiguousarray(arr, dtype=_crit_np_dtype())
     except (TypeError, ValueError):
         arr64 = None
     if arr64 is not None and np.isfinite(arr64).all():
         bins_arr = _quantile_bin_batched(arr64, nbins=int(nbins))
         return [np.ascontiguousarray(bins_arr[:, j]) for j in range(bins_arr.shape[1])]
-    from ._fe_usability_signal import _crit_np_dtype
     _dt = _crit_np_dtype()  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); MI binning is scale-robust
     return [
         _quantile_bin(
@@ -244,7 +246,7 @@ def total_correlation(
             _, inverse = np.unique(b, return_inverse=True)
             b = inverse.astype(np.int64)
         else:
-            b = _quantile_bin(np.ascontiguousarray(col, dtype=np.float64), nbins=int(n_bins))
+            b = _quantile_bin(np.ascontiguousarray(col, dtype=_crit_np_dtype()), nbins=int(n_bins))
         bins.append(b)
         sum_marginal_H += _entropy_from_classes(b)
     if d == 1:
@@ -279,7 +281,7 @@ def _build_support_bins(
     sum_H = 0.0
     for c in current_support.columns:
         col = current_support[c].to_numpy()
-        b = _quantile_bin(np.ascontiguousarray(col, dtype=np.float64), nbins=int(n_bins))
+        b = _quantile_bin(np.ascontiguousarray(col, dtype=_crit_np_dtype()), nbins=int(n_bins))
         bins.append(b)
         sum_H += _entropy_from_classes(b)
     return bins, sum_H
@@ -606,7 +608,7 @@ def hybrid_orth_mi_tc_fe_with_recipes(
             continue
         _pp = None
         try:
-            _col_full = np.asarray(X[src].to_numpy(), dtype=np.float64)
+            _col_full = np.asarray(X[src].to_numpy(), dtype=_crit_np_dtype())
             _, _pp = _evaluate_basis_column(_col_full, chosen_basis, int(chosen_degree), return_params=True)
         except Exception as exc:
             # Was a bare except with zero logging,

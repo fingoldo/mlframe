@@ -4,6 +4,7 @@ from __future__ import annotations
 
 # --- imports (managed) ---
 import numpy as np
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 import os
 from mlframe.feature_selection.filters._mrmr_fit_impl._fit_impl_core import logger
 from typing import Optional, Any
@@ -61,11 +62,11 @@ def _rebin_continuous_targets(self, _nbins_strategy, target_indices, cols, _x_fo
                 continue
             if _t_raw.dtype.kind not in "fiub" or _t_raw.ndim != 1:
                 continue
-            _t_finite = _t_raw[np.isfinite(_t_raw.astype(np.float64))] if _t_raw.dtype.kind == "f" else _t_raw
+            _t_finite = _t_raw[np.isfinite(_t_raw.astype(_crit_np_dtype()))] if _t_raw.dtype.kind == "f" else _t_raw
             if np.unique(_t_finite).size <= int(self.quantization_nbins):
                 continue  # discrete / classification target: keep its native classes
             _t_codes = _t_discretize(
-                arr=_t_raw.astype(np.float64),
+                arr=_t_raw.astype(_crit_np_dtype()),
                 n_bins=int(self.quantization_nbins),
                 method=str(self.quantization_method),
                 dtype=self.quantization_dtype,

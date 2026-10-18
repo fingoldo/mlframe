@@ -142,8 +142,8 @@ def _bin_with_train_edges(
     train only -> no leakage from test rows into the binning step.
     Constant columns (only 1 unique edge) collapse to bin 0 everywhere.
     """
-    train = np.ascontiguousarray(train_vals, dtype=np.float64)
-    test = np.ascontiguousarray(test_vals, dtype=np.float64)
+    train = np.ascontiguousarray(train_vals, dtype=np.float64)  # Intentional float64: train operand for the three-gate MI statistic
+    test = np.ascontiguousarray(test_vals, dtype=np.float64)  # Intentional float64: test operand for the three-gate MI statistic
     qs = np.linspace(0.0, 1.0, int(nbins) + 1)[1:-1]
     if qs.size == 0 or train.size == 0:
         return (
@@ -187,8 +187,8 @@ def _bin_with_train_edges_batched(
     train_arr, test_arr : (n_train, p) / (n_test, p) float arrays
         Positionally column-aligned. Edges are fitted on ``train_arr`` only.
     """
-    train = np.ascontiguousarray(train_arr, dtype=np.float64)
-    test = np.ascontiguousarray(test_arr, dtype=np.float64)
+    train = np.ascontiguousarray(train_arr, dtype=np.float64)  # Intentional float64: train operand for the three-gate MI statistic
+    test = np.ascontiguousarray(test_arr, dtype=np.float64)  # Intentional float64: test operand for the three-gate MI statistic
     n_train = train.shape[0]
     p = train.shape[1] if train.ndim == 2 else 0
     n_test = test.shape[0]
@@ -272,7 +272,7 @@ def _mi_from_binned_xy(x_bin: np.ndarray, y_bin: np.ndarray, *, clip_zero: bool 
         counts = counts[counts > 0]
         if counts.size == 0:
             return 0.0, 0
-        p = counts.astype(np.float64) / n
+        p = counts.astype(np.float64) / n  # Intentional float64: probability vector for the entropy statistic
         return float(-np.sum(p * np.log(p))), int(counts.size)
 
     h_x, k_x = _h_and_k(x_bin)
@@ -401,7 +401,7 @@ def score_features_by_kfold_oof_mi(
         )
         raw_mi_k = np.array(
             [_mi_from_binned_xy(raw_test_bins[:, j], y_test_bin, clip_zero=False) for j in range(len(raw_cols))],
-            dtype=np.float64,
+            dtype=np.float64,  # Intentional float64: score statistic output contract
         )
         raw_fold_mis.append(raw_mi_k)
 
@@ -411,7 +411,7 @@ def score_features_by_kfold_oof_mi(
         )
         eng_mi_k = np.array(
             [_mi_from_binned_xy(eng_test_bins[:, j], y_test_bin, clip_zero=False) for j in range(len(eng_cols))],
-            dtype=np.float64,
+            dtype=np.float64,  # Intentional float64: score statistic output contract
         )
         eng_fold_mis.append(eng_mi_k)
 
@@ -466,7 +466,7 @@ def _quantile_bin_batched(mat: np.ndarray, nbins: int) -> np.ndarray:
     Columns containing any non-finite value fall back to the scalar ``_quantile_bin`` per column
     (mirrors that function's own finite-mask branch, not worth vectorizing for the rare partial-NaN case).
     """
-    mat = np.ascontiguousarray(mat, dtype=np.float64)
+    mat = np.ascontiguousarray(mat, dtype=np.float64)  # Intentional float64: matrix operand for the MI statistic
     n_rows, p = mat.shape
     out = np.zeros((n_rows, p), dtype=np.int64)
     if n_rows == 0 or p == 0:
@@ -519,13 +519,13 @@ def _cmi_gate_scores(
     # Build the support joint key. Batched via _quantile_bin_batched - one np.quantile call
     # per matrix instead of one per column; bit-identical to the scalar _quantile_bin loop (see that
     # function's docstring for the verified-equivalence note).
-    sup_mat = current_support.to_numpy(dtype=np.float64)
+    sup_mat = current_support.to_numpy(dtype=np.float64)  # Intentional float64: support matrix for the CMI statistic
     sup_bins_mat = _quantile_bin_batched(sup_mat, nbins)
     sup_bins = [np.ascontiguousarray(sup_bins_mat[:, j]) for j in range(sup_bins_mat.shape[1])]
     z_joint, _ = _renumber_joint(*sup_bins)
     _, y_bin = np.unique(y_int, return_inverse=True)
     y_bin = y_bin.astype(np.int64)
-    eng_mat = engineered_X.to_numpy(dtype=np.float64)
+    eng_mat = engineered_X.to_numpy(dtype=np.float64)  # Intentional float64: engineered matrix for the CMI statistic
     eng_bins_mat = _quantile_bin_batched(eng_mat, nbins)
     out: dict[str, float] = {}
     for k, c in enumerate(engineered_X.columns):
@@ -603,7 +603,7 @@ def hybrid_orth_mi_three_gate_fe(
         cmi_map = _cmi_gate_scores(
             engineered, y_int, current_support, nbins=nbins,
         )
-        scores["cmi_support"] = scores["engineered_col"].map(cmi_map).astype(np.float64)
+        scores["cmi_support"] = scores["engineered_col"].map(cmi_map).astype(np.float64)  # Intentional float64: score statistic output contract
     else:
         scores["cmi_support"] = np.nan
 
@@ -693,7 +693,7 @@ def hybrid_orth_mi_three_gate_fe_with_recipes(
             continue
         _pp = None
         try:
-            _col_full = np.asarray(X[src].to_numpy(), dtype=np.float64)
+            _col_full = np.asarray(X[src].to_numpy(), dtype=np.float64)  # Intentional float64: engineered operand for the CMI statistic, compared at full precision
             _, _pp = _evaluate_basis_column(_col_full, chosen_basis, int(chosen_degree), return_params=True)
         except Exception as exc:
             # Was a bare except with zero logging,

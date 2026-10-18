@@ -33,13 +33,13 @@ def collect_and_score(matrices: Sequence[Any], y_codes: np.ndarray, nbins: int =
         if m is None or getattr(m, "size", 0) == 0:
             sizes.append(0)
             continue
-        a = np.asarray(m, dtype=np.float64)
+        a = np.asarray(m, dtype=np.float64)  # Intentional float64: MI statistic output arrays of the batch collector
         if a.ndim == 1:
             a = a.reshape(-1, 1)
         sizes.append(int(a.shape[1]))
         valid.append(a)
     if not valid:
-        return [np.zeros(0, dtype=np.float64) for _ in matrices]
+        return [np.zeros(0, dtype=np.float64) for _ in matrices]  # Intentional float64: empty MI statistic output (dtype matches non-empty path)
 
     big = np.ascontiguousarray(np.column_stack(valid))
     from .._fe_batch_dispatch import fe_batch_mi
@@ -48,7 +48,7 @@ def collect_and_score(matrices: Sequence[Any], y_codes: np.ndarray, nbins: int =
     out, off = [], 0
     for s in sizes:
         if s == 0:
-            out.append(np.zeros(0, dtype=np.float64))
+            out.append(np.zeros(0, dtype=np.float64))  # Intentional float64: empty MI statistic output (dtype matches non-empty path)
         else:
             out.append(mi[off : off + s])
             off += s

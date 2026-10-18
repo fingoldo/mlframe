@@ -23,6 +23,8 @@ import logging
 import math
 
 import numpy as np
+from ._fe_usability_signal import _crit_np_dtype
+
 from numba import njit
 
 from mlframe.utils.log_throttle import log_throttle
@@ -39,12 +41,16 @@ def _cmi_plugin_njit(x: np.ndarray, y: np.ndarray, z_comp: np.ndarray, K_x: int,
     n = x.shape[0]
     if n <= 0:
         return 0.0
+    # Intentional float64: plug-in CMI count accumulator (joint table), exact in f64.
     joint = np.zeros((K_x, K_y, K_z), dtype=np.float64)
     for i in range(n):
         joint[x[i], y[i], z_comp[i]] += 1.0
     n_f = float(n)
+    # Intentional float64: plug-in CMI probability accumulator, same scale as the joint table.
     Pz = np.zeros(K_z, dtype=np.float64)
+    # Intentional float64: plug-in CMI probability accumulator, same scale as the joint table.
     Pxz = np.zeros((K_x, K_z), dtype=np.float64)
+    # Intentional float64: plug-in CMI probability accumulator, same scale as the joint table.
     Pyz = np.zeros((K_y, K_z), dtype=np.float64)
     for i in range(K_x):
         for j in range(K_y):
@@ -151,6 +157,7 @@ def cmi_permutation_stop(x_cand: np.ndarray, y: np.ndarray,
     strata: dict[int, np.ndarray] = {}
     for zv in np.unique(z_comp):
         strata[int(zv)] = np.flatnonzero(z_comp == zv)
+    # Intentional float64: permutation-null accumulator compared against the f64 observed CMI.
     null_dist = np.empty(int(n_permutations), dtype=np.float64)
     for p in range(int(n_permutations)):
         x_perm = x_int.copy()
@@ -190,16 +197,18 @@ def uaed_elbow(curve: np.ndarray, sensitivity: float = 1.0) -> int:
     "A novel approach to feature selection: Spectral Information Criterion
     via UAED elbow detection", arXiv:2308.09102 / Signal Processing 2024.
     """
+    # Intentional float64: second differences of the curve cancel catastrophically at f32; kept f64.
     curve = np.asarray(curve, dtype=np.float64).ravel()
     n = curve.size
     if n < 3:
         return n - 1 if n > 0 else 0
     # Second derivative.
+    # Intentional float64: second-difference buffer, paired with the f64 curve above.
     second_deriv = np.zeros(n, dtype=np.float64)
     for i in range(1, n - 1):
         second_deriv[i] = curve[i + 1] - 2.0 * curve[i] + curve[i - 1]
     # Knee is where the curve flattens => second derivative most negative.
-    weights = (np.arange(n, dtype=np.float64) + 1.0) ** (-1.0 / max(sensitivity, 1e-6))
+    weights = (np.arange(n, dtype=_crit_np_dtype()) + 1.0) ** (-1.0 / max(sensitivity, 1e-6))
     score = -second_deriv * weights
     elbow = int(np.argmax(score[1:-1])) + 1  # exclude endpoints from search
     return elbow

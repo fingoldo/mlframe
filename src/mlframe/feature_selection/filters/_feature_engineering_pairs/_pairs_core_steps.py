@@ -9,6 +9,7 @@ import pandas as pd
 from pandas.api.extensions import ExtensionDtype
 
 # A column is near-constant when its std is within this factor of machine epsilon of its largest |value|: its spread is then rounding noise.
+# Intentional float64: degeneracy tolerance is defined on the f64 machine epsilon (32 * eps), a fixed constant.
 _DEGENERATE_REL_TOL = 32.0 * np.finfo(np.float64).eps
 
 
@@ -32,7 +33,9 @@ from ._pairs_core_helpers import (  # noqa: F401  -- carved helpers
 )
 import logging
 from mlframe.utils.log_throttle import log_throttle
+from .._fe_usability_signal import _crit_np_dtype
 
+# Intentional float64: degeneracy tolerance is defined on the f64 machine epsilon (32 * eps), a fixed constant.
 _DEGENERATE_REL_TOL = 32.0 * np.finfo(np.float64).eps
 
 
@@ -196,7 +199,7 @@ def _check_prospective_fe_step2_classes_codes_still(_corr_y_cont, _corr_y_cont_f
         if _corr_y_cont is None:
             return 0.0
         try:
-            _a = np.ascontiguousarray(np.asarray(_v, dtype=np.float64).ravel())
+            _a = np.ascontiguousarray(np.asarray(_v, dtype=_crit_np_dtype()).ravel())
             if _a.shape[0] != _corr_y_cont.shape[0]:
                 return 0.0
             # One-pass njit |corr| over jointly-finite rows - replaces isfinite-mask + boolean-index copies + two

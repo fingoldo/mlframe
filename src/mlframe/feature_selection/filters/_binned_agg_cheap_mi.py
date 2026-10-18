@@ -10,6 +10,8 @@ import logging
 from collections.abc import Sequence
 
 import numpy as np
+from ._fe_gpu_batch._devices import crit_float_dtype
+from ._fe_usability_signal import _crit_np_dtype
 import pandas as pd
 from numba import njit, prange
 
@@ -22,7 +24,7 @@ _DEVICE_QUANTILE_MIN_N = 200_000
 def quantile_edges(x: np.ndarray, nbins: int) -> np.ndarray:
     """Inner quantile cut points (unique-deduped); code = searchsorted(edges, v, side='right')."""
     qs = np.linspace(0.0, 1.0, nbins + 1)[1:-1]
-    x = np.asarray(x, dtype=np.float64)
+    x = np.asarray(x, dtype=_crit_np_dtype())
     if x.size >= _DEVICE_QUANTILE_MIN_N:
         # Large column under the strict-resident path: one device sort + the order statistics numpy would read, bit-identical to np.quantile (~115 ms
         # per 1M-row column on the host).
@@ -43,7 +45,7 @@ def quantile_edges(x: np.ndarray, nbins: int) -> np.ndarray:
 def _cheap_mi_with_y(col: np.ndarray, y_codes: np.ndarray, nbins: int = 10) -> float:
     """Cheap MI(qbin(col); y_codes) via a bincount joint histogram - the relevance proxy for GROUP pre-selection.
     A group column only helps if its quantile cells separate y; this scores exactly that in O(n)."""
-    cv = np.asarray(col, dtype=np.float64)
+    cv = np.asarray(col, dtype=_crit_np_dtype())
     # min != max on an all-finite column == unique().size >= 2 without the full-n unique SORT.
     if not np.isfinite(cv).all() or float(np.min(cv)) == float(np.max(cv)):
         return 0.0
@@ -86,7 +88,7 @@ def _cheap_mi_with_y(col: np.ndarray, y_codes: np.ndarray, nbins: int = 10) -> f
             yc_d = resident_operand(np.ascontiguousarray(y_codes), "y_mi_classif", dtype=np.int64)
             na = int(nbins)
             nb = int(yc_d.max()) + 1
-            joint = resident_bincount(cp, xc_d * nb + yc_d, na * nb, dtype=cp.float64).reshape(na, nb)
+            joint = resident_bincount(cp, xc_d * nb + yc_d, na * nb, dtype=crit_float_dtype()).reshape(na, nb)
             pj = joint / cv.size
             pa = pj.sum(axis=1, keepdims=True)
             pb = pj.sum(axis=0, keepdims=True)
@@ -121,7 +123,7 @@ def _cheap_mi_group_selection(X: pd.DataFrame, gcands: Sequence[str], y_codes: n
     valid_names: list = []
     valid_cols: list = []
     for g in gcands:
-        cv = np.asarray(X[g].to_numpy(), dtype=np.float64)
+        cv = np.asarray(X[g].to_numpy(), dtype=_crit_np_dtype())
         if not np.isfinite(cv).all() or float(np.min(cv)) == float(np.max(cv)):
             out[g] = 0.0
             continue
@@ -152,6 +154,7 @@ def _cheap_mi_edge_dedup_njit(cv: np.ndarray, y_codes: np.ndarray, nbins: int) -
     if nq <= 0 or n == 0:
         return 0.0
     los = np.empty(nq, dtype=np.int64)
+    # Intentional float64: quantile fraction accumulator kept f64
     fracs = np.empty(nq, dtype=np.float64)
     kths = np.empty(2 * nq, dtype=np.int64)
     m = 0
@@ -166,11 +169,13 @@ def _cheap_mi_edge_dedup_njit(cv: np.ndarray, y_codes: np.ndarray, nbins: int) -
         kths[m + 1] = hi
         m += 2
     part = np.partition(cv, kths[:m])
+    # Intentional float64: exact bin-edge contract kept f64
     raw_edges = np.empty(nq, dtype=np.float64)
     for k in range(nq):
         lo = los[k]
         hi = lo + 1 if lo < n - 1 else lo
         raw_edges[k] = part[lo] + (part[hi] - part[lo]) * fracs[k]
+    # Intentional float64: exact bin-edge contract kept f64
     edges = np.empty(nq, dtype=np.float64)
     ne = 0
     for k in range(nq):
@@ -234,6 +239,7 @@ def _cheap_mi_batch_njit(X_cols: np.ndarray, y_codes: np.ndarray, nbins: int) ->
     identical to the sequential loop (same per-column algorithm, see ``_cheap_mi_edge_dedup_njit``'s
     docstring), just computed concurrently."""
     k = X_cols.shape[1]
+    # Intentional float64: accumulator kept f64 (statistic / count sums need full precision)
     out = np.zeros(k, dtype=np.float64)
     for j in prange(k):
         out[j] = _cheap_mi_edge_dedup_njit(np.ascontiguousarray(X_cols[:, j]), y_codes, nbins)
@@ -244,6 +250,7 @@ def compute_mi_from_codes(a: np.ndarray, b: np.ndarray) -> float:
     """Plug-in MI of two integer-code arrays via a 2-D bincount joint histogram (nats)."""
     na, nb = int(a.max()) + 1, int(b.max()) + 1
     n = a.size
+    # Intentional float64: accumulator kept f64 (statistic / count sums need full precision)
     joint = np.bincount(a * nb + b, minlength=na * nb).astype(np.float64).reshape(na, nb)
     pj = joint / n
     pa = pj.sum(axis=1, keepdims=True)

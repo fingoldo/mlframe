@@ -39,6 +39,7 @@ import logging
 from typing import Optional, Sequence
 
 import numpy as np
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 import pandas as pd
 
 from mlframe.feature_selection.filters.hermite_fe.shared import POLY_BASES as _POLY_BASES
@@ -259,7 +260,7 @@ def generate_adaptive_degree_basis_features(
         return pd.DataFrame(index=X.index), {}
 
     # ---- Step 3: ONE batch MI call across all (col, degree) candidates
-    cand_mat = np.column_stack(cand_values).astype(np.float64, copy=False)
+    cand_mat = np.column_stack(cand_values).astype(_crit_np_dtype(), copy=False)
     eng_mi = _mi_classif_batch(cand_mat, y_arr, nbins=nbins)
 
     out_cols, meta = _gate_best_degree_per_source(cand_to_source, cand_cols, cand_values, eng_mi, raw_mi_map, min_uplift)
@@ -365,7 +366,7 @@ def hybrid_orth_mi_adaptive_degree_fe_with_recipes(
         # source column is safe/exact - it reproduces, not refits, the fit-time params.
         _pp = None
         try:
-            _col_full = np.asarray(X[str(row["source_col"])].to_numpy(), dtype=np.float64)
+            _col_full = np.asarray(X[str(row["source_col"])].to_numpy(), dtype=_crit_np_dtype())
             _, _pp = _evaluate_basis_column(_col_full, str(row["basis"]), int(row["degree"]), return_params=True)
         except Exception as exc:
             # Was a bare except with zero logging,

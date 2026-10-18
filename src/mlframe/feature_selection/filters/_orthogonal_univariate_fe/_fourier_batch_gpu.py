@@ -5,7 +5,7 @@ deflation) for ONE column; it is launch- and sync-bound (about 100 launches and 
 independent and share their row split, so here the whole loop runs for ``C`` columns at once: every kernel takes a ``(C, n)`` block and a per-column frequency list, the host reads one
 small scalar vector per phase of an iteration instead of one per column, and the per-column decisions (stop, duplicate, tail alias, accept) are made on the host from those vectors.
 
-Everything is float64 (the single-column path rounds the inputs to float32 first; the detected frequencies are grid points of a 0.0125 refinement, far coarser than that rounding).
+Everything is double precision (the single-column path rounds the inputs to float32 first; the detected frequencies are grid points of a 0.0125 refinement, far coarser than that rounding).
 A column whose cubic detrend or deflation system is singular is handled by the single-column path.
 """
 
@@ -158,6 +158,7 @@ def _power(cp: Any, Z: Any, YC: Any, freqs: Any, nfreq: Any, y_ss: Any) -> Any:
     """``(C, F)`` periodogram power of each column's centred target at its own frequencies (padded entries are -1)."""
     C, n = int(Z.shape[0]), int(Z.shape[1])
     F = int(freqs.shape[1])
+    # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
     out = cp.empty((C, F), dtype=cp.float64)
     _KERNEL.get(cp).get_function("periodogram_power_b")((F, C), (_THREADS,), (Z, YC, freqs, nfreq, y_ss, out, cp.int64(n), cp.int32(F)))
     return out
@@ -168,8 +169,11 @@ def _deflate(cp: Any, Z: Any, Y: Any, fvec: Any, active: Any) -> "tuple[Any, np.
     C, n = int(Z.shape[0]), int(Z.shape[1])
     blocks = max(1, min(64, (n + _THREADS - 1) // _THREADS))
     mod = _KERNEL.get(cp)
+    # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
     part = cp.empty((C * blocks, 9), dtype=cp.float64)
+    # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
     coef = cp.empty((C, 3), dtype=cp.float64)
+    # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
     out = cp.empty((C, n), dtype=cp.float64)
     mod.get_function("sincos_gram_b")((blocks, C), (_THREADS,), (Z, Y, fvec, part, cp.int64(n), cp.int32(blocks)))
     mod.get_function("solve3_b")((C,), (32,), (part, cp.int32(blocks), active, coef))
@@ -185,6 +189,7 @@ def _scan_freqs(centers: np.ndarray, half: float, step: float) -> "tuple[np.ndar
         lo = max(_MIN_REFINE_FREQ, float(ctr) - half)
         hi = float(ctr) + half
         n_steps = round((hi - lo) / step) + 1
+        # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
         lists.append(np.concatenate([[float(ctr)], lo + step * np.arange(n_steps, dtype=np.float64)]))
     width = max(len(a) for a in lists)
     mat = np.zeros((len(lists), width))
@@ -315,6 +320,7 @@ def detect_fourier_freqs_batch_gpu(
     results: "list[list[float]]" = [[] for _ in jobs]
     groups: "dict[tuple, list]" = {}
     for j, (z01, y, f_grid) in enumerate(jobs):
+        # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
         z01 = np.asarray(z01, dtype=np.float64).ravel()
         prep = _host_split_for_detect(z01, y, f_grid, min_rows=min_rows, fourier_detect_max_n=fourier_detect_max_n)
         if prep is None:

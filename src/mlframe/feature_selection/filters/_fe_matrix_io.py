@@ -13,7 +13,7 @@ Design (corrections folded in from the architecture/correctness review):
   spike memory at 1M rows). The ``dtype`` arg is honoured on every path.
 
 * float32 by default - an INTENTIONAL behaviour change (footprint + one reused contiguous block).
-  Parity gates must reference a float32-cast baseline, not the raw float64 frame.
+  Parity gates must reference a float32-cast baseline, not the raw wide frame.
 
 * Categorical codes live ONLY in a separate int plane, never in the float plane: a float32 mantissa
   is 24 bits, so high-cardinality codes (> 2**24) would alias and silently collapse distinct
@@ -40,6 +40,7 @@ from dataclasses import dataclass, field
 from typing import Any, Optional
 
 import numpy as np
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     import pandas as pd
@@ -243,7 +244,7 @@ def from_feature_matrix(fm: FeatureMatrix) -> np.ndarray | pl.DataFrame | pd.Dat
         if fm.col_kind[j] == "numeric":
             col = fm.numeric[:, fm.col_index[j]].copy()
             if fm.null_mask is not None:
-                col = col.astype(np.float64)
+                col = col.astype(_crit_np_dtype())
                 col[fm.null_mask[:, j]] = np.nan
             data[name] = col
             col_objs[name] = col
@@ -282,7 +283,7 @@ def from_feature_matrix(fm: FeatureMatrix) -> np.ndarray | pl.DataFrame | pd.Dat
                 # categories failed to materialise (e.g. a polars Categorical whose string-cache view
                 # was unavailable): clipping to len-1 == -1 would null EVERY value (silent data loss).
                 # Preserve the raw integer codes instead (-1 -> NaN), so no data is destroyed.
-                col = codes.astype(np.float64)
+                col = codes.astype(_crit_np_dtype())
                 col[codes < 0] = np.nan
                 out_pd[name] = col
             else:

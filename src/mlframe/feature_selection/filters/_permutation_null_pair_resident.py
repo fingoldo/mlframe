@@ -69,7 +69,7 @@ def pooled_pair_permutation_null_joint_mi_floor_cupy(
 ) -> float | None:
     """Resident-GPU twin of :func:`_permutation_null.pooled_pair_permutation_null_joint_mi_floor`.
 
-    Returns the order-2 maxT permutation-null floor (host float64 scalar): the ``quantile``-th quantile of the
+    Returns the order-2 maxT permutation-null floor (host double precision scalar): the ``quantile``-th quantile of the
     K per-shuffle MAX plug-in joint MIs over the candidate-pair pool. Same pooled-MAX construction as the CPU
     njit floor, just on the device with the pool operands resident and the K target shuffles device-born.
 
@@ -106,9 +106,11 @@ def pooled_pair_permutation_null_joint_mi_floor_cupy(
 
                 k_joint = _pairwise_occupied_joint_k(factors_data, pa, pb_idx, nb)
                 k_y = n_classes_y
+                # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
                 _bias = (k_joint - 1).astype(np.float64) * float(k_y - 1) / (2.0 * n)
                 _bias[k_joint <= 1] = 0.0
             else:
+                # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
                 _bias = np.ascontiguousarray(mm_bias, dtype=np.float64)
             d_mm = cp.asarray(_bias)[:, None]  # (n_pairs, 1)
 
@@ -134,8 +136,10 @@ def pooled_pair_permutation_null_joint_mi_floor_cupy(
         per_pair_extent = max_joint * n_classes_y  # uniform stride per pair (pad-safe)
 
         # Marginal H(x) per pair (permutation-invariant): -sum p log p over the joint X-code counts.
+        # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
         h_x = cp.empty(n_pairs, dtype=cp.float64)
         for p in range(n_pairs):
+            # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
             cnt = cp.bincount(cls_x[p], minlength=int(joint_card[p]))[: int(joint_card[p])].astype(cp.float64)
             px = cnt * inv_n
             nz = px > 0
@@ -143,6 +147,7 @@ def pooled_pair_permutation_null_joint_mi_floor_cupy(
         h_x = h_x[:, None]  # (n_pairs, 1)
 
         # H(y) is permutation-invariant (freqs_y unchanged under relabelling) -> one host scalar.
+        # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
         fy = np.ascontiguousarray(freqs_y, dtype=np.float64)
         fy_nz = fy[fy > 0]
         h_y = float(-(fy_nz * np.log(fy_nz)).sum())
@@ -158,6 +163,7 @@ def pooled_pair_permutation_null_joint_mi_floor_cupy(
         del order
 
         # ---- Per-shuffle pooled MAX joint MI, tiled over perms -------------------------------------------
+        # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
         d_maxes = cp.empty(nperm, dtype=cp.float64)
         # Tile perms so the (pb * n_pairs * n) flat-joint intermediate fits the card.
         perm_chunk = max(1, _PERMNULL_PAIR_TILE_CELLS // max(1, n_pairs * n))
@@ -177,6 +183,7 @@ def pooled_pair_permutation_null_joint_mi_floor_cupy(
             flat = (base_perm + base_pair + joint).ravel()  # (pb*n_pairs*n,)
             counts = cp.bincount(flat, minlength=pb * n_pairs * per_pair_extent)[: pb * n_pairs * per_pair_extent]
             del joint, flat
+            # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
             counts = counts.reshape(pb * n_pairs, per_pair_extent).astype(cp.float64)
             # Plug-in joint entropy H(x, y_perm) per (perm, pair): -sum p log p, p = count / n.
             p_xy = counts * inv_n

@@ -203,8 +203,11 @@ def _count_nfailed_joint_indep_weighted_serial(
             cy_local[i] = cy_local[j]
             cy_local[j] = tmp
 
+        # Intentional float64: accumulator kept f64 (statistic / count sums need full precision)
         joint_pair = np.zeros((K_pair, K_y), dtype=np.float64)
+        # Intentional float64: accumulator kept f64 (statistic / count sums need full precision)
         joint_x1 = np.zeros((K_x1, K_y), dtype=np.float64)
+        # Intentional float64: accumulator kept f64 (statistic / count sums need full precision)
         joint_x2 = np.zeros((K_x2, K_y), dtype=np.float64)
         for k in range(n):
             cy = cy_local[k]
@@ -277,12 +280,16 @@ def _count_nfailed_joint_indep_cupy(
     classes_pair_g = cp.asarray(classes_pair, dtype=cp.int64)
     classes_x1_g = cp.asarray(classes_x1, dtype=cp.int64)
     classes_x2_g = cp.asarray(classes_x2, dtype=cp.int64)
+    # Intentional float64: accumulator kept f64 (statistic / count sums need full precision)
     freqs_pair_g = cp.asarray(freqs_pair, dtype=cp.float64)
+    # Intentional float64: accumulator kept f64 (statistic / count sums need full precision)
     freqs_x1_g = cp.asarray(freqs_x1, dtype=cp.float64)
+    # Intentional float64: accumulator kept f64 (statistic / count sums need full precision)
     freqs_x2_g = cp.asarray(freqs_x2, dtype=cp.float64)
     # classes_y / freqs_y are the SAME target passed to EVERY survivor of the caller's confirmation loop
     # (~10-100 iterations/fit) - content-keyed resident upload instead of a fresh re-upload per pair.
     classes_y_g = resident_operand(classes_y, "cat_confirm_y", dtype=np.int64)
+    # Intentional float64: accumulator kept f64 (statistic / count sums need full precision)
     freqs_y_g = resident_operand(freqs_y, "cat_confirm_freqs_y", dtype=np.float64)
 
     K_pair = int(freqs_pair_g.size)
@@ -530,8 +537,11 @@ def _bulk_shuffle_and_compute_three_mis(
     K_x2 = len(freqs_x2)
     K_y = len(freqs_y)
 
+    # Intentional float64: accumulator kept f64 (statistic / count sums need full precision)
     out_i_pair = np.zeros(n_perms, dtype=np.float64)
+    # Intentional float64: accumulator kept f64 (statistic / count sums need full precision)
     out_i_x1 = np.zeros(n_perms, dtype=np.float64)
+    # Intentional float64: accumulator kept f64 (statistic / count sums need full precision)
     out_i_x2 = np.zeros(n_perms, dtype=np.float64)
 
     for p in prange(n_perms):
@@ -610,6 +620,7 @@ def _permutation_subsample_setup(cfg: CatFEConfig, n_samples: int, classes_y: np
         _ss_idx.sort()  # contiguous-friendly access for downstream indexing
         _ss_classes_y = classes_y[_ss_idx]
         _ss_n_y_classes_local = int(_ss_classes_y.max()) + 1 if _ss_classes_y.size else 1
+        # Intentional float64: accumulator kept f64 (statistic / count sums need full precision)
         _ss_freqs_y = np.bincount(_ss_classes_y, minlength=_ss_n_y_classes_local).astype(np.float64) / max(1, _ss_classes_y.size)
         if verbose:
             logger.info(
@@ -686,9 +697,11 @@ def _conditional_null_n_failed(
         # bit-identical across permutations. (We still subtract the same
         # marginal as the observed II.)
         # I(X2_shuffled; Y) - per the conditional-null property, this equals I(X2; Y) up to floating-point noise; we recompute for safety.
+        # Intentional float64: accumulator kept f64 (statistic / count sums need full precision)
         fq_x2_perm = np.bincount(classes_x2_safe.astype(np.int64), minlength=n_x2_classes).astype(np.float64) / n_samples_local
         i_x2_p = compute_mi_from_classes(
             classes_x=classes_x2_safe.astype(dtype, copy=False),
+            # Intentional float64: accumulator kept f64 (statistic / count sums need full precision)
             freqs_x=fq_x2_perm.astype(np.float64),
             classes_y=classes_y, freqs_y=freqs_y, dtype=dtype,
         )
@@ -716,13 +729,20 @@ def _joint_independence_n_failed(
         _k_cls_pair, _k_cls_x1, _k_cls_x2 = cls_pair, cls_x1, cls_x2
         _k_weights = weights if use_weights_conf else None
     if _k_weights is not None:
+        # Intentional float64: accumulator kept f64 (statistic / count sums need full precision)
         _k_fq_pair = np.asarray(weighted_class_freqs(_k_cls_pair, _k_weights, len(fq_pair)), dtype=np.float64)
+        # Intentional float64: accumulator kept f64 (statistic / count sums need full precision)
         _k_fq_x1 = np.asarray(weighted_class_freqs(_k_cls_x1, _k_weights, len(fq_x1)), dtype=np.float64)
+        # Intentional float64: accumulator kept f64 (statistic / count sums need full precision)
         _k_fq_x2 = np.asarray(weighted_class_freqs(_k_cls_x2, _k_weights, len(fq_x2)), dtype=np.float64)
+        # Intentional float64: accumulator kept f64 (statistic / count sums need full precision)
         _k_fq_y = np.asarray(weighted_class_freqs(_ss_classes_y, _k_weights, len(_ss_freqs_y)), dtype=np.float64)
     elif _ss_idx is not None:
+        # Intentional float64: accumulator kept f64 (statistic / count sums need full precision)
         _k_fq_pair = np.bincount(_k_cls_pair, minlength=len(fq_pair)).astype(np.float64) / max(1, _k_cls_pair.size)
+        # Intentional float64: accumulator kept f64 (statistic / count sums need full precision)
         _k_fq_x1 = np.bincount(_k_cls_x1, minlength=len(fq_x1)).astype(np.float64) / max(1, _k_cls_x1.size)
+        # Intentional float64: accumulator kept f64 (statistic / count sums need full precision)
         _k_fq_x2 = np.bincount(_k_cls_x2, minlength=len(fq_x2)).astype(np.float64) / max(1, _k_cls_x2.size)
         _k_fq_y = _ss_freqs_y
     else:

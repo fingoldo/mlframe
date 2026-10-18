@@ -72,7 +72,7 @@ def mi_direct_gpu_batched_pairs(
     freqs_y: np.ndarray,
     dtype: type = np.int32,
 ) -> np.ndarray:
-    """Compute ``I(X_i, X_j; Y)`` for every ``(i, j) in zip(pairs_a, pairs_b)`` on GPU. Returns a 1-D ``float64`` array of joint MIs aligned with the input order.
+    """Compute ``I(X_i, X_j; Y)`` for every ``(i, j) in zip(pairs_a, pairs_b)`` on GPU. Returns a 1-D double array of joint MIs aligned with the input order.
 
     Kernel-level batching via 3D grid: ONE launch processes all pairs in parallel through ``compute_joint_hist_multi_pair_cuda``. Joint MI per pair is then
     computed on CPU (cheap relative to histogram aggregation). Cuts per-pair kernel-launch overhead (~30us) to zero - at n_pairs=4950 that saves ~150ms vs the
@@ -166,7 +166,7 @@ def mi_direct_gpu_batched_pairs(
     # Per-pair MI from joint counts (numpy). joint shape = (merged_size, nbins_y); marg_m = joint.sum(axis=1); marg_y = joint.sum(axis=0); total = n_rows.
     # MI = sum over non-zero cells of (jc/n) * log(jc * n / (marg_m * marg_y)), in nats.
     n_total = float(n_rows)
-    joint_mi_out = np.zeros(n_pairs, dtype=np.float64)
+    joint_mi_out = np.zeros(n_pairs, dtype=np.float64)  # Intentional float64: MI / SU statistic vector ranked at full precision
     # The per-pair reduction below used to be a pure-Python
     # triple-nested loop (for k / for m / for y), i.e. O(total joint cells) at native Python speed - up to
     # ~1.07e9 cells (the 4GB guard elsewhere in this module), which would dominate wall-clock and defeat the
@@ -200,7 +200,7 @@ def _mi_direct_gpu_batched_pairs_part1(
     n_pairs = len(pairs_a)
     n_rows = factors_data.shape[0]
     if n_pairs == 0:
-        return True, (np.zeros(0, dtype=np.float64))
+        return True, (np.zeros(0, dtype=np.float64))  # Intentional float64: MI / SU statistic vector ranked at full precision
 
     if n_pairs > _MAX_PAIRS_PER_LAUNCH:
         pa, pb = np.asarray(pairs_a), np.asarray(pairs_b)

@@ -11,6 +11,8 @@ from typing import Any, Optional
 
 import numpy as np
 
+from ._fe_usability_signal import _crit_np_dtype
+
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
 # Conditional-permutation floor: within-stratum shuffles + the null-quantile used as the significance bar.
@@ -244,6 +246,7 @@ def _marginal_perm_null(inp: _NullInputs, n_permutations: int, quantile: float, 
     # every _cmi_from_binned(x_perm, y, None) call. Bit-identical (same plug-in entropies +
     # Miller-Madow bias, only the redundant per-perm H(Y) recompute + y int64 cast removed).
     y_i_m, h_y_m, k_y_m = precompute_marginal_y_terms(inp.y)
+    # Intentional float64: permutation-null accumulator compared against the f64 observed CMI.
     nulls = np.empty(nperm, dtype=np.float64)
     for i in range(nperm):
         x_perm = xh[inp.rng.permutation(xh.size)]
@@ -299,7 +302,7 @@ class _StratifiedSupport:
         # identical ``keys`` draw the resulting order is bit-identical (verified: ``sorted_z`` after
         # both reorderings is equal element-for-element), so the RNG draw sequence and every null
         # value are unchanged - selection is bit-identical, not merely equivalent.
-        self.z_rank = np.zeros(inp.n_size, dtype=np.float64)
+        self.z_rank = np.zeros(inp.n_size, dtype=_crit_np_dtype())
         if inp.n_size > 1:
             self.z_rank[1:] = np.cumsum(self.sorted_z[1:] != self.sorted_z[:-1])
 
@@ -363,6 +366,7 @@ def _conditional_batched_gpu_null(inp: _NullInputs, sup: _StratifiedSupport, npe
         # floor/null-mean -> bit-identical selection (NOT merely statistically equivalent). One batched
         # (n,nperm) device argsort replaces nperm host argsorts; codes stay resident for the CMI.
         x_sorted = inp.host_x()[sup.order]
+        # Intentional float64: sort keys for the (n, nperm) device argsort; f64 keeps tie order identical to the host path.
         keys = np.empty((inp.n_size, nperm), dtype=np.float64)
         for i in range(nperm):
             keys[:, i] = inp.rng.random(inp.n_size)  # per-perm draw -> SAME sequence as the CPU loop
@@ -409,6 +413,7 @@ def _conditional_cpu_null(inp: _NullInputs, sup: _StratifiedSupport, nperm: int,
     # concurrent load): batched median 1.43x SLOWER, 14/15 interleaved trials slower, min-of-trial ratio
     # 1.50x slower -- the earlier verdict holds regardless of machine load; the caveat is resolved, this
     # is final. Left as the simple per-perm loop.
+    # Intentional float64: permutation-null accumulator compared against the f64 observed CMI.
     nulls = np.empty(nperm, dtype=np.float64)
     for i in range(nperm):
         keys = inp.rng.random(inp.n_size)

@@ -22,6 +22,7 @@ import numpy as np
 import pandas as pd
 
 from ._fe_gain_stats import held_out_codes, paired_gain_se, plugin_mi_of_codes
+from ._fe_usability_signal import _crit_np_dtype
 from ._fe_scan_common import rank_scaled as _rank_scaled
 from ._fe_scan_common import scan_index as _scan_index
 from ._oof_warp_service import apply_warp1d, fit_oof_warp1d
@@ -49,6 +50,7 @@ def build_oof_warp1d_recipe(*, name: str, src: str, cx: np.ndarray, cy: np.ndarr
         name=name,
         kind="oof_warp1d",
         src_names=(str(src),),
+        # Intentional float64: stored recipe edges keep their f64 contract (persisted payload).
         extra={"cx": np.asarray(cx, dtype=np.float64).copy(), "cy": np.asarray(cy, dtype=np.float64).copy(), "fill": float(fill), "lo": float(lo), "hi": float(hi)},
     )
 
@@ -57,7 +59,7 @@ def apply_oof_warp1d_recipe(recipe: EngineeredRecipe, X: pd.DataFrame | pl.DataF
     from .engineered_recipes.shared import extract_column
 
     ex = recipe.extra
-    x = np.asarray(extract_column(X, recipe.src_names[0]), dtype=np.float64)
+    x = np.asarray(extract_column(X, recipe.src_names[0]), dtype=_crit_np_dtype())
     return np.asarray(np.clip(apply_warp1d(x, ex["cx"], ex["cy"], ex["fill"]), ex["lo"], ex["hi"]))
 
 def warp_candidates(X: "pd.DataFrame", y: np.ndarray, cols: Sequence[str], *, scan_rows: int = DEFAULT_SCAN_ROWS, seed: int = 0) -> "list[dict]":
@@ -79,7 +81,7 @@ def warp_candidates(X: "pd.DataFrame", y: np.ndarray, cols: Sequence[str], *, sc
     y_odd = codes[~even]
     out = []
     for c in cols:
-        x = np.asarray(X[c].to_numpy(), dtype=np.float64)
+        x = np.asarray(X[c].to_numpy(), dtype=_crit_np_dtype())
         xr = x[rows]
         finite = np.isfinite(xr)
         if finite.sum() < _MIN_ROWS or np.unique(xr[finite]).size <= FEW_CLASSES_MAX:

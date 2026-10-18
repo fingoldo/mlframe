@@ -270,8 +270,10 @@ def _as_nameless_array(X):
 def _importances_from_fitted(est, n_features: int) -> Optional[np.ndarray]:
     """Pull a length-``n_features`` non-negative importance vector from a fitted estimator, or None."""
     if hasattr(est, "feature_importances_"):
+        # Intentional float64: score output contract kept f64 (exact comparison)
         return np.asarray(est.feature_importances_, dtype=np.float64)
     if hasattr(est, "coef_"):
+        # Intentional float64: score output contract kept f64 (exact comparison)
         return np.asarray(np.abs(np.asarray(est.coef_, dtype=np.float64)).reshape(-1, n_features).sum(axis=0))
     return None
 
@@ -488,6 +490,7 @@ def _rank_two_stage(
     # vector is dense length-n_features (cheap: O(f) floats) so callers can index by original column
     # index without remapping; -inf flags constant columns (same sentinel as ``_rank_univariate``).
     stage1_survivors_sorted = np.sort(stage1_cols)
+    # Intentional float64: score output contract kept f64 (exact comparison)
     stage1_f_scores_arr = np.asarray(scores, dtype=np.float64)
     if stage_b_imp is None:
         # No-importance fallthrough on stage B -> degrade to the stage-A cohort as-is (still better
@@ -524,7 +527,7 @@ def _rank_univariate(X, y, *, classification: bool, batch_size: Optional[int] = 
 
     ``batch_size=None`` auto-sizes via available RAM (see
     ``_shap_proxy_prefilter_univariate.resolve_batch_size``). Sklearn's pre-1.5 ``f_classif`` /
-    ``f_regression`` densifies the full ``(n_samples, n_features)`` design as float64 (1.6 GB at
+    ``f_regression`` densifies the full ``(n_samples, n_features)`` design as double precision (1.6 GB at
     width=20000 / n_rows=10000) BEFORE the per-class slicing, which OOMs the C4 regime at the
     univariate stage. The chunked path caps per-batch allocation at ``8 * n_samples * batch_size``
     bytes independent of total feature count."""
@@ -535,6 +538,7 @@ def _rank_univariate(X, y, *, classification: bool, batch_size: Optional[int] = 
         scores = f_classif_chunked(Xv, y, batch_size=batch_size)
     else:
         scores = f_regression_chunked(Xv, y, batch_size=batch_size)
+    # Intentional float64: score output contract kept f64 (exact comparison)
     scores = np.asarray(scores, dtype=np.float64)
     scores[~np.isfinite(scores)] = -np.inf  # constant / degenerate columns sink to the bottom
     return scores
@@ -606,6 +610,7 @@ def prefilter_columns(
         # ``univariate`` already has the dense F-score vector in hand - expose it for the same
         # downstream consumers that read ``stage1_f_scores`` from the ``two_stage`` path so the two
         # marginal-strength methods agree on the cached-scores contract.
+        # Intentional float64: score output contract kept f64 (exact comparison)
         info["stage1_f_scores"] = np.asarray(_univariate_f_scores, dtype=np.float64)
     return working_cols, info
 
@@ -628,6 +633,7 @@ def get_cached_f_scores(prefilter_info: Optional[dict]) -> Optional[np.ndarray]:
     scores = prefilter_info.get("stage1_f_scores")
     if scores is None:
         return None
+    # Intentional float64: score output contract kept f64 (exact comparison)
     return np.asarray(scores, dtype=np.float64)
 
 

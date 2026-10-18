@@ -5,6 +5,7 @@ import logging
 from typing import Any, Callable, Optional, Sequence
 
 import numpy as np
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 from sklearn.feature_selection import mutual_info_classif, mutual_info_regression
 
 from mlframe.feature_selection.filters._hermite_fe_diverse import _select_diverse_topm
@@ -65,7 +66,7 @@ def _eval_coef_pair_batch_part1(
         _bf_name_to_id, _bf_dispatch_njit, _fill_bf_batch_njit = {}, None, None
     col_meta: list = []  # tuples (p, k)
     KBF = len(bf_callables)
-    X_batch = np.empty((P * KBF, n_rows), dtype=np.float64)  # ROW-major: contiguous writes + copy-free MI rows kernel
+    X_batch = np.empty((P * KBF, n_rows), dtype=_crit_np_dtype())  # ROW-major: contiguous writes + copy-free MI rows kernel
     nc = 0
     # The all-known-bfs case runs ONE parallel njit fill over every (candidate, bf) row - bf compute,
     # finiteness scan, and the row store all inside a single prange (no 120x Python->njit crossings, allocs,
@@ -97,8 +98,8 @@ def _eval_coef_pair_batch_part1(
                     col_meta.append((p, k))
                     nc += 1
 
-    best_scores = np.full(P, -np.inf, dtype=np.float64)
-    best_raws = np.zeros(P, dtype=np.float64)
+    best_scores = np.full(P, -np.inf, dtype=_crit_np_dtype())
+    best_raws = np.zeros(P, dtype=_crit_np_dtype())
     best_idxs = np.full(P, -1, dtype=np.int64)
     if nc == 0:
         return True, (best_scores, best_raws, best_idxs)
@@ -120,7 +121,7 @@ def _eval_coef_pair_batch_part1(
             mi_arr = mutual_info_regression(X_batch.T, y, n_neighbors=n_neighbors, random_state=ksg_random_state(random_state), discrete_features=False)
 
     # Phase 4: per-candidate l2 penalty + best-bf selection
-    penalties = np.zeros(P, dtype=np.float64)
+    penalties = np.zeros(P, dtype=_crit_np_dtype())
     if not direction_only and l2_penalty > 0:
         for p in range(P):
             penalties[p] = _l2_penalty_value(
@@ -151,8 +152,8 @@ def _optimise_pair_multimode_part1(
 
     z_a, preprocess_a = basis_info["fit"](x_a)
     z_b, preprocess_b = basis_info["fit"](x_b)
-    z_a = np.ascontiguousarray(z_a, dtype=np.float64)
-    z_b = np.ascontiguousarray(z_b, dtype=np.float64)
+    z_a = np.ascontiguousarray(z_a, dtype=_crit_np_dtype())
+    z_b = np.ascontiguousarray(z_b, dtype=_crit_np_dtype())
 
     # Pick eval_func via the size-aware ladder (mirrors optimise_hermite_pair). For factory bases (RBF/Sigmoid) eval_func_b is a separate closure over
     # preprocess_b so the b-side feature evaluates with its OWN centres/thresholds; for njit polynomial bases both are the same callable.
@@ -186,7 +187,7 @@ def _optimise_pair_multimode_part1(
     canonical_seeds_func = basis_info.get("canonical_seeds_func")
 
     if mi_estimator == "plugin":
-        y_njit = np.asarray(y, dtype=np.int64) if discrete_target else np.asarray(y, dtype=np.float64)
+        y_njit = np.asarray(y, dtype=np.int64) if discrete_target else np.asarray(y, dtype=_crit_np_dtype())
     else:
         y_njit = None
 

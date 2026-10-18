@@ -4,6 +4,7 @@ from __future__ import annotations
 import logging
 
 import numpy as np
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 
 try:
     from numba import njit
@@ -49,10 +50,10 @@ def _qbin_float_dtype():
     import cupy as cp
     try:
         from ._fe_gpu_batch._devices import fe_gpu_f32_enabled
-        return cp.float32 if fe_gpu_f32_enabled() else cp.float64
+        return cp.float32 if fe_gpu_f32_enabled() else cp.float64  # Intentional float64: dtype fallback for the f32 knob (kept on its own switch)
     except Exception as e:
         logger.debug("_qbin_float_dtype: fe_gpu_f32_enabled() probe failed, falling back to float64: %s", e)
-        return cp.float64
+        return cp.float64  # Intentional float64: dtype fallback when the probe fails (kept on float64)
 
 
 def _sync_free_qbin_codes(cp, xd, nbins: int):
@@ -198,7 +199,7 @@ def _quantile_bin(col: np.ndarray, nbins: int, *, host_only: bool = False) -> np
     # CMI-greedy selection. The "binning-tie-invariance" note at
     # _orthogonal_univariate_fe.py:451 applies only to that hermite MI kernel,
     # NOT to this CMI-greedy path. Keep the value-edge np.quantile binning.
-    a = np.asarray(col, dtype=np.float64)
+    a = np.asarray(col, dtype=_crit_np_dtype())
     qs = np.linspace(0.0, 1.0, nbins + 1)
     # Fast path: an all-finite column (the production nan-filled case) skips the
     # boolean-mask materialisation + the ``a[finite_mask]`` gather copy and bins

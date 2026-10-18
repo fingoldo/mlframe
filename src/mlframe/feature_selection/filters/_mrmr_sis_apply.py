@@ -12,6 +12,7 @@ from __future__ import annotations
 import logging
 
 import numpy as np
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 import pandas as pd
 
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
@@ -33,14 +34,14 @@ def _apply_sis_screen(self, X, y):
     # pass through unchanged (float). The 2nd-moment channel will score nominal codes ~uninformatively, which
     # is acceptable - categorical interaction is not what that channel targets.
     def _numeric_matrix(df):
-        """Coerce ``df`` to an all-float ndarray for the SIS scoring channels: numeric/bool-excluded columns pass through as float64, non-numeric columns are factorized to integer codes so they're scored (not silently dropped or crashed on)."""
+        """Coerce ``df`` to an all-float ndarray for the SIS scoring channels: numeric/bool-excluded columns pass through as double, non-numeric columns are factorized to integer codes so they're scored (not silently dropped or crashed on)."""
         cols_out = []
         for c in df.columns:
             s = df[c]
             if pd.api.types.is_numeric_dtype(s.dtype) and s.dtype != bool:
-                cols_out.append(np.asarray(s.to_numpy(), dtype=np.float64))
+                cols_out.append(np.asarray(s.to_numpy(), dtype=_crit_np_dtype()))
             else:
-                cols_out.append(pd.factorize(s, sort=False)[0].astype(np.float64))
+                cols_out.append(pd.factorize(s, sort=False)[0].astype(_crit_np_dtype()))
         return np.column_stack(cols_out) if cols_out else np.empty((len(df), 0))
 
     if isinstance(X, pd.DataFrame):

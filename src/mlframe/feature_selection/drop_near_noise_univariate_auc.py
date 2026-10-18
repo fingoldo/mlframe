@@ -15,6 +15,7 @@ from __future__ import annotations
 from typing import List, Optional, Sequence, Tuple
 
 import numpy as np
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 import pandas as pd
 
 from mlframe.preprocessing.align_feature_direction import batch_univariate_auc
@@ -77,7 +78,7 @@ def drop_near_noise_univariate_auc(
     """
     cols = list(columns) if columns is not None else list(df.select_dtypes(include=[np.number]).columns)
     y_arr = np.asarray(y)
-    X = df[cols].to_numpy(dtype=np.float64)
+    X = df[cols].to_numpy(dtype=_crit_np_dtype())
 
     if n_bootstrap is None:
         aucs = batch_univariate_auc(X, y_arr)
@@ -90,7 +91,7 @@ def drop_near_noise_univariate_auc(
     sample_size = max(2, round(n_rows * bootstrap_frac))
     rng = np.random.default_rng(random_state)
 
-    resampled_aucs = np.empty((n_bootstrap, len(cols)), dtype=np.float64)
+    resampled_aucs = np.empty((n_bootstrap, len(cols)), dtype=np.float64)  # Intentional float64: bootstrap AUC statistic vector compared at full precision
     for i in range(n_bootstrap):
         idx = rng.choice(n_rows, size=sample_size, replace=False)
         resampled_aucs[i, :] = batch_univariate_auc(X[idx, :], y_arr[idx])

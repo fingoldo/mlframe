@@ -23,6 +23,7 @@ import logging
 from mlframe.utils.log_throttle import log_throttle
 
 import numpy as np
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 
 from ._helpers import _pgn_raw_budget
 
@@ -333,7 +334,7 @@ def _assign_support_tai_signal_aware_subsumption(self, _rr_cand_subsumed, _rr_co
                 if _cci is not None:
                     _child_bins.append(np.asarray(data[:, _cci]).astype(np.int64).ravel())
                 elif _en_name in _rr_eng_cont:
-                    _child_bins.append(np.asarray(_rr_qbin(np.asarray(_rr_eng_cont[_en_name], dtype=np.float64), nbins=10)).astype(np.int64).ravel())
+                    _child_bins.append(np.asarray(_rr_qbin(np.asarray(_rr_eng_cont[_en_name], dtype=_crit_np_dtype()), nbins=10)).astype(np.int64).ravel())
             if not _child_bins:
                 continue  # no usable child to condition on -> not provably subsumed -> KEEP
             from mlframe.feature_selection.filters._fallback_probe import call_or_default
@@ -391,7 +392,7 @@ def _assign_support_tai_inc_names(_inc_names, _eng_continuous_snapshot, data, _i
     for _in in _inc_names:
         _iv = _eng_continuous_snapshot.get(_in)
         if _iv is not None and np.asarray(_iv).shape[0] == int(data.shape[0]):
-            _inc_cont.append(np.asarray(_iv, dtype=np.float64).ravel())
+            _inc_cont.append(np.asarray(_iv, dtype=_crit_np_dtype()).ravel())
 
 
 def _assign_support_tai_representative_exclude_every_cluster(self, _cm_rr, selected_vars, _raw_extra, _rr_excl_names):
@@ -506,7 +507,7 @@ def _assign_support_tai_g_step1_map_each_surviving(self, _post_recipes, _post_se
         for _enm, _erec in _post_recipes.items():
             if _enm not in _post_eng_cont:
                 try:
-                    _vals = np.asarray(_post_apply(_erec, X), dtype=np.float64).ravel()
+                    _vals = np.asarray(_post_apply(_erec, X), dtype=_crit_np_dtype()).ravel()
                     _vals = np.nan_to_num(_vals, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
                     if _vals.shape[0] == _n_rows_post:
                         _post_eng_cont[_enm] = _vals
@@ -514,7 +515,7 @@ def _assign_support_tai_g_step1_map_each_surviving(self, _post_recipes, _post_se
                     logger.debug("mrmr: post-selection engineered-continuous coercion failed for %r: %r", _enm, e, exc_info=True)
                     continue
             if _enm not in _post_cols and _enm in _post_eng_cont:
-                _post_extra_cols.append(_post_qbin(np.asarray(_post_eng_cont[_enm], dtype=np.float64), nbins=10))
+                _post_extra_cols.append(_post_qbin(np.asarray(_post_eng_cont[_enm], dtype=_crit_np_dtype()), nbins=10))
                 _post_cols.append(_enm)
         if _post_extra_cols:
             _post_data = np.column_stack([data] + [np.asarray(c).reshape(-1, 1) for c in _post_extra_cols])

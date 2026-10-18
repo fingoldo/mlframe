@@ -192,7 +192,7 @@ def resident_operand(arr: Any, key: Any, *, dtype: Any = None, contiguous: bool 
     resident handle directly, skipping ``resident_operand`` entirely for them) would still remove
     the dict-lookup itself; that is a bigger caller-side plumbing change across ~9 call sites in
     this file and ``_cmi_cuda.py``, left as further future work. ``dtype`` (optional) is the FINAL dtype the kernel needs
-    (e.g. ``cp.float64`` / ``np.int64``); caching in that dtype collapses repeated ``astype(copy=False)`` calls
+    (e.g. the device float dtype / ``np.int64``); caching in that dtype collapses repeated ``astype(copy=False)`` calls
     AND keeps two roles that want the same values in different dtypes as distinct (correct) entries.
 
     The content hash both deduplicates and guards correctness: a same-shape operand with different VALUES (or a

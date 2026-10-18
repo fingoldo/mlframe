@@ -18,6 +18,7 @@ from math import comb
 from typing import TYPE_CHECKING, Optional
 
 import numpy as np
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 
 if TYPE_CHECKING:
     from mlframe.feature_selection.shap_proxied_fs._shap_proxy_heuristics import _Evaluator
@@ -64,7 +65,7 @@ def faith_shap_order2(
     # the fixed-width cast entirely and are exact up to comb(n_features, n_features//2) for any
     # n_features this selector realistically sees (proxy widths in the hundreds, not thousands).
     sizes = list(range(1, n_features))
-    kernel_w = np.array([(n_features - 1) / float(comb(n_features, s) * s * (n_features - s)) for s in sizes], dtype=np.float64)
+    kernel_w = np.array([(n_features - 1) / float(comb(n_features, s) * s * (n_features - s)) for s in sizes], dtype=_crit_np_dtype())
     size_probs = kernel_w / kernel_w.sum()
 
     n_sampled = max(int(n_coalitions) - 2, 0)
@@ -94,8 +95,8 @@ def faith_shap_order2(
         v_empty = -worst_singleton_loss
 
     m = len(coalitions)
-    X_design = np.zeros((m, n_dims), dtype=np.float64)
-    y_target = np.empty(m, dtype=np.float64)
+    X_design = np.zeros((m, n_dims), dtype=_crit_np_dtype())
+    y_target = np.empty(m, dtype=_crit_np_dtype())
     X_design[:, 0] = 1.0
     for row, members in enumerate(coalitions):
         member_set = set(int(x) for x in members)
@@ -108,14 +109,14 @@ def faith_shap_order2(
         else:
             y_target[row] = -float(evaluator.loss(sorted(member_set)))
 
-    w = np.asarray(weights, dtype=np.float64)
+    w = np.asarray(weights, dtype=_crit_np_dtype())
     sqrt_w = np.sqrt(w)
     Xw = X_design * sqrt_w[:, None]
     yw = y_target * sqrt_w
 
-    ridge_rows = np.sqrt(ridge) * np.eye(n_dims, dtype=np.float64)
+    ridge_rows = np.sqrt(ridge) * np.eye(n_dims, dtype=_crit_np_dtype())
     Xw_aug = np.vstack([Xw, ridge_rows])
-    yw_aug = np.concatenate([yw, np.zeros(n_dims, dtype=np.float64)])
+    yw_aug = np.concatenate([yw, np.zeros(n_dims, dtype=_crit_np_dtype())])
 
     beta, _residuals, _rank, _sv = np.linalg.lstsq(Xw_aug, yw_aug, rcond=None)
 

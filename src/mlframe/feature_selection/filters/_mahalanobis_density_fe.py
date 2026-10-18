@@ -21,6 +21,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Callable, Optional, Sequence
 
 import numpy as np
+from ._fe_usability_signal import _crit_np_dtype
 import pandas as pd
 from sklearn.covariance import LedoitWolf
 
@@ -56,23 +57,23 @@ def mahalanobis_density_feature(
 
     Returns
     -------
-    (n,) float64 array of Mahalanobis distances (``>= 0``). Degenerate input (n_fit < p+1, p < 1,
+    (n,) policy-float array of Mahalanobis distances (``>= 0``). Degenerate input (n_fit < p+1, p < 1,
     non-finite X or X_fit) returns an all-NaN ``(n,)`` array rather than raising - Ledoit-Wolf
     itself needs at least a modest sample-to-dimension ratio to shrink meaningfully.
     """
-    X = np.asarray(X, dtype=np.float64)
+    X = np.asarray(X, dtype=_crit_np_dtype())
     if X.ndim == 1:
         X = X[:, None]
     n, p = X.shape
-    fit_arr = np.asarray(X_fit, dtype=np.float64) if X_fit is not None else X
+    fit_arr = np.asarray(X_fit, dtype=_crit_np_dtype()) if X_fit is not None else X
     if fit_arr.ndim == 1:
         fit_arr = fit_arr[:, None]
     n_fit = fit_arr.shape[0]
 
     if p < 1 or n_fit < p + 1:
-        return np.full(n, np.nan, dtype=np.float64)
+        return np.full(n, np.nan, dtype=_crit_np_dtype())
     if not (np.isfinite(X).all() and np.isfinite(fit_arr).all()):
-        return np.full(n, np.nan, dtype=np.float64)
+        return np.full(n, np.nan, dtype=_crit_np_dtype())
 
     lw = LedoitWolf().fit(fit_arr)
     mu = lw.location_
@@ -95,7 +96,7 @@ def generate_mahalanobis_density_features(X: "pd.DataFrame", cols: Sequence[str]
     cols = [c for c in cols if c in X.columns]
     if len(cols) < 1:
         return pd.DataFrame(index=X.index), {}
-    X_cols = X[cols].to_numpy(dtype=np.float64)
+    X_cols = X[cols].to_numpy(dtype=_crit_np_dtype())
     n, p = X_cols.shape
     if p < 1 or n < p + 1 or not np.isfinite(X_cols).all():
         return pd.DataFrame(index=X.index), {}
@@ -109,6 +110,7 @@ def generate_mahalanobis_density_features(X: "pd.DataFrame", cols: Sequence[str]
 
     name = engineered_name_mahalanobis_density(cols)
     enc = pd.DataFrame({name: scores}, index=X.index)
+    # Intentional float64: serialised recipe payload (mu / Sigma_inv) keeps a fixed f64 contract across the policy switch.
     payload = {"cols": tuple(cols), "mu": np.asarray(mu, dtype=np.float64).copy(), "Sigma_inv": np.asarray(Sigma_inv, dtype=np.float64).copy()}
     return enc, payload
 
@@ -120,7 +122,7 @@ def apply_mahalanobis_density(X_test: "pd.DataFrame", payload: dict) -> "pd.Data
     missing = [c for c in cols if c not in X_test.columns]
     if missing:
         raise KeyError(f"apply_mahalanobis_density: missing column(s) {missing} from X_test")
-    X_cols = X_test[cols].to_numpy(dtype=np.float64)
+    X_cols = X_test[cols].to_numpy(dtype=_crit_np_dtype())
     delta = X_cols - payload["mu"]
     d2 = np.einsum("ni,ij,nj->n", delta, payload["Sigma_inv"], delta)
     scores = np.sqrt(np.maximum(d2, 0.0))
@@ -137,6 +139,7 @@ def build_mahalanobis_density_recipe(*, name: str, cols: Sequence[str], mu: np.n
         name=name,
         kind="mahalanobis_density",
         src_names=tuple(str(c) for c in cols),
+        # Intentional float64: serialised recipe payload (mu / Sigma_inv) keeps a fixed f64 contract across the policy switch.
         extra={"cols": tuple(str(c) for c in cols), "mu": np.asarray(mu, dtype=np.float64).copy(), "Sigma_inv": np.asarray(Sigma_inv, dtype=np.float64).copy()},
     )
 
@@ -145,17 +148,17 @@ def _apply_mahalanobis_density_recipe(recipe, X) -> np.ndarray:
     """Adapter consumed by ``engineered_recipes.apply_recipe``."""
     cols = list(recipe.extra["cols"])
     if isinstance(X, pd.DataFrame):
-        X_cols = X[cols].to_numpy(dtype=np.float64)
+        X_cols = X[cols].to_numpy(dtype=_crit_np_dtype())
     else:
         try:
             import polars as _pl
 
             if isinstance(X, _pl.DataFrame):
-                X_cols = X.select(cols).to_numpy().astype(np.float64)
+                X_cols = X.select(cols).to_numpy().astype(_crit_np_dtype())
             else:
-                X_cols = np.column_stack([np.asarray(X[c], dtype=np.float64) for c in cols])
+                X_cols = np.column_stack([np.asarray(X[c], dtype=_crit_np_dtype()) for c in cols])
         except ImportError:
-            X_cols = np.column_stack([np.asarray(X[c], dtype=np.float64) for c in cols])
+            X_cols = np.column_stack([np.asarray(X[c], dtype=_crit_np_dtype()) for c in cols])
     delta = X_cols - recipe.extra["mu"]
     d2 = np.einsum("ni,ij,nj->n", delta, recipe.extra["Sigma_inv"], delta)
     return np.asarray(np.sqrt(np.maximum(d2, 0.0)))

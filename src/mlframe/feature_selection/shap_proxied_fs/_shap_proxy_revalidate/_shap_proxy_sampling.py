@@ -8,6 +8,7 @@ parent, so the loss / refine siblings can depend on it freely.
 from __future__ import annotations
 
 import numpy as np
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 
 
 def _softmax_weights(scores, temperature="auto"):
@@ -26,12 +27,12 @@ def _softmax_weights(scores, temperature="auto"):
     numeric ``temperature`` restores the legacy fixed-divisor behaviour (used by the unit-test fixture
     where weights have a calibrated [0,10] range).
 
-    Returns a length-N float64 vector that sums to 1; falls back to a uniform vector when every entry
+    Returns a length-N double precision vector that sums to 1; falls back to a uniform vector when every entry
     is non-finite (degenerate input, e.g. all-constant working frame) so callers never crash."""
-    s = np.asarray(scores, dtype=np.float64).copy()
+    s = np.asarray(scores, dtype=_crit_np_dtype()).copy()
     finite = np.isfinite(s)
     if not finite.any():
-        return np.full(s.shape, 1.0 / max(1, s.size), dtype=np.float64)
+        return np.full(s.shape, 1.0 / max(1, s.size), dtype=_crit_np_dtype())
     # Replace non-finite entries with the min finite (so they have negligible probability after softmax
     # but never NaN out the normalisation); subtract the max for numerical stability.
     s[~finite] = s[finite].min()
@@ -48,7 +49,7 @@ def _softmax_weights(scores, temperature="auto"):
     w = np.exp(s)
     total = w.sum()
     if not np.isfinite(total) or total <= 0:
-        return np.full(s.shape, 1.0 / max(1, s.size), dtype=np.float64)
+        return np.full(s.shape, 1.0 / max(1, s.size), dtype=_crit_np_dtype())
     return w / total
 
 
@@ -59,7 +60,7 @@ def _weighted_choice_no_replace(rng, n, k, probs):
     smallest. O(n) per call, correct under WRSwoR weights (numpy's ``rng.choice(..., replace=False)``
     with ``p=`` already implements this, but we wrap to handle zero-weight rows + degenerate cases
     without raising)."""
-    probs = np.asarray(probs, dtype=np.float64)
+    probs = np.asarray(probs, dtype=_crit_np_dtype())
     if probs.sum() <= 0 or not np.all(np.isfinite(probs)):
         return rng.choice(n, size=k, replace=False)
     # Mass might be concentrated on < k entries; expand zero-weight rows to a tiny epsilon so the
@@ -78,17 +79,17 @@ def _zipf_card_probs(min_card, max_card, alpha):
 
     Pulled out as a small helper so unit tests can inspect the prior directly (mean k under Zipf is a
     cheap structural assertion of "small-k-heavy"). ``alpha`` is clamped to ``>=0``; ``alpha=0`` is
-    mathematically uniform in ``k`` (every entry equals ``1/range``). Returns a float64 vector that
+    mathematically uniform in ``k`` (every entry equals ``1/range``). Returns a double precision vector that
     sums to 1; never NaN/zero for ``min_card>=1`` (we never raise ``0**alpha``)."""
     alpha = max(0.0, float(alpha))
-    ks = np.arange(int(min_card), int(max_card) + 1, dtype=np.float64)
+    ks = np.arange(int(min_card), int(max_card) + 1, dtype=_crit_np_dtype())
     # ``ks`` starts at ``min_card`` which the calling sampler clamps to ``>=1`` (semantics preserved),
     # so ``ks ** -alpha`` is finite for every entry.
     w = ks ** (-alpha) if alpha > 0 else np.ones_like(ks)
     total = w.sum()
     if not np.isfinite(total) or total <= 0:
         # Degenerate alpha or empty range -> uniform fallback so callers never crash.
-        return np.full(ks.shape, 1.0 / max(1, ks.size), dtype=np.float64)
+        return np.full(ks.shape, 1.0 / max(1, ks.size), dtype=_crit_np_dtype())
     return w / total
 
 
@@ -135,7 +136,7 @@ def _sample_anchor_subsets(
     max_card = n_features if max_card is None else min(max_card, n_features)
     use_weights = weights is not None
     if use_weights:
-        weights = np.asarray(weights, dtype=np.float64)
+        weights = np.asarray(weights, dtype=_crit_np_dtype())
         if weights.shape[0] != n_features:
             # Defensive: misaligned weights silently degrade to uniform rather than crash the guard.
             use_weights = False

@@ -20,6 +20,8 @@ import logging
 from typing import Any, Dict, Optional
 
 import numpy as np
+
+from ...filters._fe_usability_signal import _crit_np_dtype
 from sklearn.base import clone
 
 from mlframe.feature_selection.shap_proxied_fs._shap_proxy_revalidate._shap_proxy_loss import (
@@ -40,8 +42,8 @@ _NEAR_BEST_WINDOW = 0.20
 
 def _per_row_loss(pred, y, classification: bool, metric: str):
     """Per-row loss whose mean is the aggregate metric, or None when the metric does not decompose per row."""
-    y = np.asarray(y, dtype=np.float64)
-    pred = np.asarray(pred, dtype=np.float64)
+    y = np.asarray(y, dtype=_crit_np_dtype())
+    pred = np.asarray(pred, dtype=_crit_np_dtype())
     if classification:
         if pred.ndim != 1:
             return None

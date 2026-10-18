@@ -90,6 +90,7 @@ import logging
 from typing import Optional, Sequence
 
 import numpy as np
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 
 from mlframe.feature_selection.filters._relative_uplift import relative_uplift
 import pandas as pd
@@ -141,9 +142,9 @@ def _bin_columns(
     arr = df.to_numpy()
     if arr.ndim == 1:
         arr = arr.reshape(-1, 1)
-    # Convert to float64 for the batched quantile; downstream casts to int64.
+    # Convert to the crit float dtype for the batched quantile; downstream casts to int64.
     try:
-        arr64 = np.ascontiguousarray(arr, dtype=np.float64)
+        arr64 = np.ascontiguousarray(arr, dtype=_crit_np_dtype())
     except (TypeError, ValueError):
         arr64 = None
     if arr64 is not None and np.isfinite(arr64).all():
@@ -277,7 +278,7 @@ def score_features_by_jmim(
     # different source-marginal magnitudes.
     y_int = coerce_y_classif(y)
     raw_mi = _mi_classif_batch(
-        raw_X.to_numpy(dtype=np.float64), y_int, nbins=int(n_bins),
+        raw_X.to_numpy(dtype=_crit_np_dtype()), y_int, nbins=int(n_bins),
     )
     raw_mi_map = dict(zip(list(raw_X.columns), raw_mi.tolist()))
 
@@ -492,7 +493,7 @@ def hybrid_orth_mi_jmim_fe_with_recipes(
             continue
         _pp = None
         try:
-            _col_full = np.asarray(X[src].to_numpy(), dtype=np.float64)
+            _col_full = np.asarray(X[src].to_numpy(), dtype=_crit_np_dtype())
             _, _pp = _evaluate_basis_column(_col_full, chosen_basis, int(chosen_degree), return_params=True)
         except Exception as exc:
             # Was a bare except with zero logging,

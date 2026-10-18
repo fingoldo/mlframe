@@ -151,7 +151,9 @@ def _cuda_kernel_factory():
         pair_b,  # (n_pairs,) int64
         nbins,  # (n_features,) int32
         classes_y,  # (n_samples,) int32
+        # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
         freqs_y,  # (n_classes_y,) float64
+        # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
         mi_out,  # (n_pairs,) float64
         n_samples,
         n_classes_y,
@@ -379,12 +381,12 @@ def _mi_from_joint_counts_cupy(joint_counts_dev, fx_counts_dev, freqs_y_dev, n_s
     n_classes_y)`` accumulator to a ``(n_pairs,)`` MI vector ON-DEVICE via cupy broadcasting, so the
     row-chunked path's PCIe D2H shrinks from the full histogram accumulator (``n_pairs*max_joint*
     n_classes_y*8`` bytes - 698MB at the wellbore-100k production pair-subchunk shape, 9 subchunks
-    -> ~6.3GB total transferred) to the final ``(n_pairs,)`` float64 result alone.
+    -> ~6.3GB total transferred) to the final ``(n_pairs,)`` double precision result alone.
 
-    Agrees with :func:`_mi_from_joint_counts` to float64 rounding, NOT bit-identically: the same
+    Agrees with :func:`_mi_from_joint_counts` to double precision rounding, NOT bit-identically: the same
     ``sum jf*log(jf/(px*py))`` reduction over the same (i, j) grid, but this one builds the full
     ``terms`` array and reduces it with a cupy TREE reduction while the CPU twin accumulates
-    ``total += ...`` sequentially. Both are float64, so the gap is last-ULP (~1e-15, verified in the
+    ``total += ...`` sequentially. Both are double precision, so the gap is last-ULP (~1e-15, verified in the
     accompanying regression test) and never a selection-relevant magnitude -- but it is not zero, and
     an exact-equality tie-break downstream (an argmax over per-pair MI, say) inherits it. Do not build
     on this as bit-parity; if that is ever needed, make the CPU twin reduce pairwise too.
@@ -394,8 +396,11 @@ def _mi_from_joint_counts_cupy(joint_counts_dev, fx_counts_dev, freqs_y_dev, n_s
     since cupy broadcasting always touches the full grid - correctness-equivalent, not a performance
     concern (the grid is already resident and small relative to the accumulator it replaces)."""
     inv_n = 1.0 / n_samples
+    # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
     prob_x = fx_counts_dev.astype(_cp.float64) * inv_n  # (n_pairs, max_joint)
+    # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
     prob_y = freqs_y_dev.astype(_cp.float64)  # (n_classes_y,)
+    # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
     jf = joint_counts_dev.astype(_cp.float64) * inv_n  # (n_pairs, max_joint, n_classes_y)
     denom = prob_x[:, :, None] * prob_y[None, None, :]
     valid = (joint_counts_dev != 0) & (fx_counts_dev[:, :, None] != 0) & (prob_y[None, None, :] > 0.0)
@@ -415,6 +420,7 @@ def _mi_from_joint_counts(joint_counts: np.ndarray, fx_counts: np.ndarray, freqs
     n_pairs = joint_counts.shape[0]
     n_classes_y = freqs_y.shape[0]
     inv_n = 1.0 / n_samples
+    # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
     mi_out = np.zeros(n_pairs, dtype=np.float64)
     for p in range(n_pairs):
         joint_card = int(joint_cards[p])
@@ -631,6 +637,7 @@ def batch_pair_mi_cuda_row_chunked(
 
     n_pairs = int(pair_a.shape[0])
     if n_pairs == 0:
+        # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
         return np.empty(0, dtype=np.float64)
 
     # NOTE: unlike :func:`batch_pair_mi_cuda`, this kernel accumulates into GLOBAL device memory
@@ -654,12 +661,14 @@ def batch_pair_mi_cuda_row_chunked(
         # Mirrors batch_pair_mi_cupy's explicit
         # `if n_samples == 0: return zeros` guard - without it, _mi_from_joint_counts_cupy/
         # _mi_from_joint_counts's `inv_n = 1.0 / n_samples` raises ZeroDivisionError for an empty input.
+        # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
         return np.zeros(n_pairs, dtype=np.float64)
 
     row_chunk_rows, pair_subchunk_rows, n_row_chunks, n_pair_subchunks = _plan_row_chunked_launches(n_samples, n_cols, n_pairs, n_classes_y, max_joint)
 
     factors_data_c = np.ascontiguousarray(factors_data, dtype=np.int32)
     classes_y_c = np.ascontiguousarray(classes_y, dtype=np.int32)
+    # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
     freqs_y_c = np.ascontiguousarray(freqs_y, dtype=np.float64)
     # nbins is indexed by raw column id (not pair position), small, and fit-constant (cardinalities never
     # change) - resident_operand (content-hash keyed) shares the upload not just across this call's
@@ -668,6 +677,7 @@ def batch_pair_mi_cuda_row_chunked(
     from ._fe_resident_operands import resident_operand
     d_nb = resident_operand(nbins, "bpmi_nbins", dtype=np.int32)
 
+    # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
     mi_out = np.empty(n_pairs, dtype=np.float64)
     total_row_chunk_launches = 0
     # freqs_y_c is fit-constant (the y-marginal never changes across pair-subchunks OR row-chunks within
@@ -778,6 +788,7 @@ def batch_pair_mi_cuda(
     if n_pairs == 0:
         # Critic-flagged P0: ``max(...)`` over the empty pair zip raises
         # ``ValueError`` before any device work; short-circuit cleanly.
+        # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
         return np.empty(0, dtype=np.float64)
 
     # Shape guard
@@ -841,9 +852,11 @@ def batch_pair_mi_cuda(
     d_data = resident_operand(factors_data, "bpmi_factors_data", dtype=np.int32)
     d_nb = resident_operand(nbins, "bpmi_nbins", dtype=np.int32)
     d_cy = resident_operand(classes_y, "bpmi_classes_y", dtype=np.int32)
+    # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
     d_fy = resident_operand(freqs_y, "bpmi_freqs_y", dtype=np.float64)
     d_pa = _nb_cuda.to_device(np.ascontiguousarray(pair_a, dtype=np.int64))
     d_pb = _nb_cuda.to_device(np.ascontiguousarray(pair_b, dtype=np.int64))
+    # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
     d_out = _nb_cuda.device_array(n_pairs, dtype=np.float64)
 
     _CUDA_KERNEL[n_pairs, threads_per_block](

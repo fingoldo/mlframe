@@ -33,6 +33,7 @@ import logging
 from typing import Callable, Iterable, Iterator, Optional, Sequence
 
 import numpy as np
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 
 from mlframe.feature_selection.filters._relative_uplift import relative_uplift
 import pandas as pd
@@ -64,27 +65,27 @@ __all__ = [
 
 def _log_abs(x: np.ndarray) -> np.ndarray:
     """``log1p(|x|)`` - sign-agnostic log compression, good for heavy-tailed / power-law columns."""
-    return np.asarray(np.log1p(np.abs(np.asarray(x, dtype=np.float64))))
+    return np.asarray(np.log1p(np.abs(np.asarray(x, dtype=_crit_np_dtype()))))
 
 def _sqrt_abs(x: np.ndarray) -> np.ndarray:
     """``sqrt(|x|)`` - sign-agnostic square-root compression, milder than ``log_abs`` on the tail."""
-    return np.asarray(np.sqrt(np.abs(np.asarray(x, dtype=np.float64))))
+    return np.asarray(np.sqrt(np.abs(np.asarray(x, dtype=_crit_np_dtype()))))
 
 def _square(x: np.ndarray) -> np.ndarray:
     """``x**2`` - exposes magnitude / symmetric-around-zero relationships (e.g. ``y = sign(x**2 - c)``)."""
-    a = np.asarray(x, dtype=np.float64)
-    return a * a
+    a = np.asarray(x, dtype=_crit_np_dtype())
+    return np.asarray(a * a)
 
 def _cube(x: np.ndarray) -> np.ndarray:
     """``x**3`` - odd power, preserves sign while amplifying the tail (unlike ``square``)."""
-    a = np.asarray(x, dtype=np.float64)
-    return a * a * a
+    a = np.asarray(x, dtype=_crit_np_dtype())
+    return np.asarray(a * a * a)
 
 def _reciprocal_safe(x: np.ndarray) -> np.ndarray:
     """``1 / (x + eps_with_sign)``. ``eps`` matches the sign of x so the
     sign of the output mirrors the sign of x for tiny / zero entries
     (cleanest for downstream MI binning)."""
-    a = np.asarray(x, dtype=np.float64)
+    a = np.asarray(x, dtype=_crit_np_dtype())
     # 1e-12 floor with sign tracking. ``np.sign(0) = 0`` so coerce to +1
     # so the denom is non-zero.
     sgn = np.sign(a)
@@ -93,26 +94,26 @@ def _reciprocal_safe(x: np.ndarray) -> np.ndarray:
 
 def _tanh(x: np.ndarray) -> np.ndarray:
     """``tanh(x)`` - smooth saturating squash, captures threshold / diminishing-returns non-linearities."""
-    return np.tanh(np.asarray(x, dtype=np.float64))
+    return np.asarray(np.tanh(np.asarray(x, dtype=_crit_np_dtype())))
 
 def _expm1_clip(x: np.ndarray) -> np.ndarray:
     """``expm1`` with input clipped to [-20, 20] so ``expm1`` doesn't
     overflow on extreme inputs. The clip is wide enough to not lose any
     practical signal (expm1(20) ~= 4.85e8)."""
-    a = np.clip(np.asarray(x, dtype=np.float64), -20.0, 20.0)
-    return np.expm1(a)
+    a = np.clip(np.asarray(x, dtype=_crit_np_dtype()), -20.0, 20.0)
+    return np.asarray(np.expm1(a))
 
 def _abs(x: np.ndarray) -> np.ndarray:
     """``|x|`` - folds sign, exposing magnitude-only relationships (e.g. ``y = sign(|x| - c)``)."""
-    return np.abs(np.asarray(x, dtype=np.float64))
+    return np.asarray(np.abs(np.asarray(x, dtype=_crit_np_dtype())))
 
 def _sin(x: np.ndarray) -> np.ndarray:
     """``sin(x)`` - periodic transform; only enumerated on columns ``_is_bounded_column`` flags as bounded, since sin of an unbounded/heavy-tailed column is uninformative."""
-    return np.sin(np.asarray(x, dtype=np.float64))
+    return np.asarray(np.sin(np.asarray(x, dtype=_crit_np_dtype())))
 
 def _cos(x: np.ndarray) -> np.ndarray:
     """``cos(x)`` - periodic transform, ``sin``'s phase-shifted sibling; same bounded-column gating applies."""
-    return np.cos(np.asarray(x, dtype=np.float64))
+    return np.asarray(np.cos(np.asarray(x, dtype=_crit_np_dtype())))
 
 UNARY_TRANSFORMS: dict[str, Callable[[np.ndarray], np.ndarray]] = {
     "log_abs": _log_abs,
@@ -134,44 +135,44 @@ TRIG_BOUNDED_TRANSFORMS: dict[str, Callable[[np.ndarray], np.ndarray]] = {
 
 def _bin_add(a: np.ndarray, b: np.ndarray) -> np.ndarray:
     """``a + b`` - linear combination; catches additive interactions two raw columns don't expose alone."""
-    return np.asarray(a, dtype=np.float64) + np.asarray(b, dtype=np.float64)
+    return np.asarray(np.asarray(a, dtype=_crit_np_dtype()) + np.asarray(b, dtype=_crit_np_dtype()))
 
 def _bin_sub(a: np.ndarray, b: np.ndarray) -> np.ndarray:
     """``a - b`` - signed difference; useful when the target depends on the gap/spread between two columns."""
-    return np.asarray(a, dtype=np.float64) - np.asarray(b, dtype=np.float64)
+    return np.asarray(np.asarray(a, dtype=_crit_np_dtype()) - np.asarray(b, dtype=_crit_np_dtype()))
 
 def _bin_mul(a: np.ndarray, b: np.ndarray) -> np.ndarray:
     """``a * b`` - product interaction; catches multiplicative/AND-like relationships between two columns."""
-    return np.asarray(a, dtype=np.float64) * np.asarray(b, dtype=np.float64)
+    return np.asarray(np.asarray(a, dtype=_crit_np_dtype()) * np.asarray(b, dtype=_crit_np_dtype()))
 
 def _bin_div_safe(a: np.ndarray, b: np.ndarray) -> np.ndarray:
     """``a / (b + eps_with_sign)`` - mirrors ``_reciprocal_safe`` to keep
     sign monotonicity on small denominators."""
-    av = np.asarray(a, dtype=np.float64)
-    bv = np.asarray(b, dtype=np.float64)
+    av = np.asarray(a, dtype=_crit_np_dtype())
+    bv = np.asarray(b, dtype=_crit_np_dtype())
     sgn = np.sign(bv)
     sgn = np.where(sgn == 0.0, 1.0, sgn)
     return av / (bv + 1e-12 * sgn)
 
 def _bin_max(a: np.ndarray, b: np.ndarray) -> np.ndarray:
     """``max(a, b)`` - elementwise maximum; catches "worst/best of two" or OR-like decision boundaries (e.g. ``y = sign(max(x_i, x_j) > c)``)."""
-    return np.maximum(np.asarray(a, dtype=np.float64), np.asarray(b, dtype=np.float64))
+    return np.asarray(np.maximum(np.asarray(a, dtype=_crit_np_dtype()), np.asarray(b, dtype=_crit_np_dtype())))
 
 def _bin_min(a: np.ndarray, b: np.ndarray) -> np.ndarray:
     """``min(a, b)`` - elementwise minimum, the AND-like counterpart to ``_bin_max``."""
-    return np.minimum(np.asarray(a, dtype=np.float64), np.asarray(b, dtype=np.float64))
+    return np.asarray(np.minimum(np.asarray(a, dtype=_crit_np_dtype()), np.asarray(b, dtype=_crit_np_dtype())))
 
 def _bin_abs_diff(a: np.ndarray, b: np.ndarray) -> np.ndarray:
     """``|a - b|`` - unsigned gap between two columns; catches "how far apart" relationships regardless of which column is larger."""
-    return cast("np.ndarray", np.abs(np.asarray(a, dtype=np.float64) - np.asarray(b, dtype=np.float64)))
+    return cast("np.ndarray", np.abs(np.asarray(a, dtype=_crit_np_dtype()) - np.asarray(b, dtype=_crit_np_dtype())))
 
 def _bin_ratio_log(a: np.ndarray, b: np.ndarray) -> np.ndarray:
     """``log1p(|a|) - log1p(|b|)`` - scale-stable ratio surrogate that
     never overflows and gives the same sign as ``log(|a/b|)`` for finite
     inputs. Often outperforms raw ``a / b`` on heavy-tailed positive cols
     because MI binning of the bare ratio is dominated by the tail."""
-    av = np.asarray(a, dtype=np.float64)
-    bv = np.asarray(b, dtype=np.float64)
+    av = np.asarray(a, dtype=_crit_np_dtype())
+    bv = np.asarray(b, dtype=_crit_np_dtype())
     return np.asarray(np.log1p(np.abs(av)) - np.log1p(np.abs(bv)))
 
 BINARY_TRANSFORMS: dict[str, Callable[[np.ndarray, np.ndarray], np.ndarray]] = {
@@ -248,7 +249,7 @@ def _is_bounded_column(x: np.ndarray) -> bool:
     free in the MI ranking; emitting cos(noise) only adds noise to the
     candidate pool).
     """
-    a = np.asarray(x, dtype=np.float64)
+    a = np.asarray(x, dtype=_crit_np_dtype())
     finite = a[np.isfinite(a)]
     if finite.size < 8:
         return False
@@ -344,7 +345,7 @@ def _materialise_candidate(
             tname, src_cols, exc,
         )
         return None
-    out = np.asarray(out, dtype=np.float64)
+    out = np.asarray(out, dtype=_crit_np_dtype())
     return np.asarray(np.nan_to_num(out, copy=False, nan=0.0, posinf=0.0, neginf=0.0))
 
 def generate_mi_greedy_features(
@@ -424,7 +425,7 @@ def _greedy_score_and_select(
     _y_raw = np.asarray(y)
     _, y_arr = np.unique(_y_raw, return_inverse=True)
     y_arr = y_arr.astype(np.int64)
-    raw_mi = _mi_classif_batch(raw_X.to_numpy(dtype=np.float64), y_arr, nbins=nbins)
+    raw_mi = _mi_classif_batch(raw_X.to_numpy(dtype=_crit_np_dtype()), y_arr, nbins=nbins)
     raw_mi_map = dict(zip(list(raw_X.columns), raw_mi.tolist()))
     eng_mi = mi_classif_batch_chunked(engineered, y_arr, nbins=nbins)
 
@@ -553,7 +554,7 @@ def greedy_mi_fe_construct(
     _y_raw = np.asarray(y)
     _, y_arr = np.unique(_y_raw, return_inverse=True)
     y_arr = y_arr.astype(np.int64)
-    raw_arr = X[candidates_pool].to_numpy(dtype=np.float64)
+    raw_arr = X[candidates_pool].to_numpy(dtype=_crit_np_dtype())
     raw_mi = _mi_classif_batch(raw_arr, y_arr, nbins=nbins)
     order = np.argsort(-raw_mi, kind="stable")  # plug-in MI is quantised, so ties are real: break them by position, reproducibly
     seed_cols = [candidates_pool[i] for i in order[: int(seed_cols_count)]]
@@ -684,5 +685,5 @@ def apply_mi_greedy_transform(
         out = fn_b(src_values[0], src_values[1])
     else:
         raise ValueError(f"apply_mi_greedy_transform: src_values length {len(src_values)} " f"unsupported (only unary / binary registered).")
-    out = np.asarray(out, dtype=np.float64)
+    out = np.asarray(out, dtype=_crit_np_dtype())
     return np.asarray(np.nan_to_num(out, copy=False, nan=0.0, posinf=0.0, neginf=0.0))

@@ -661,7 +661,9 @@ def _numpy_view_of_numeric_X(_force_pandas, X, X_estimator, col_pos):
                 # ``to_numpy(dtype=float64)`` materialises pyarrow-backed nullable numerics into a plain C
                 # float64 array too (pd.NA -> nan); the try/except + shape guard below rejects any dtype
                 # that fails to cast cleanly, so those callers transparently keep the pandas path.
+                # Intentional float64: estimator input contract: the wrapped sklearn estimator receives float64 regardless of the FE policy.
                 _np = np.ascontiguousarray(X.to_numpy(dtype=np.float64))
+                # Intentional float64: estimator input contract: the wrapped sklearn estimator receives float64 regardless of the FE policy.
                 if _np.shape == (int(X.shape[0]), int(X.shape[1])) and _np.dtype == np.float64:
                     X_estimator = _np
                     col_pos = {name: i for i, name in enumerate(X.columns)}

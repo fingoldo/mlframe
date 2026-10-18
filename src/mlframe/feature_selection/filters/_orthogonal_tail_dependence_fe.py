@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import numpy as np
 
+from ._fe_usability_signal import _crit_np_dtype
 from ._orthogonal_copula_mi_fe import _rank_to_uniform
 
 __all__ = ["tail_dependence_score"]
@@ -73,8 +74,8 @@ def tail_dependence_score(
     """
     if tail not in ("upper", "lower"):
         raise ValueError(f"tail_dependence_score: tail must be 'upper' or 'lower', got {tail!r}")
-    x = np.asarray(x, dtype=np.float64).ravel()
-    y = np.asarray(y, dtype=np.float64).ravel()
+    x = np.asarray(x, dtype=_crit_np_dtype()).ravel()
+    y = np.asarray(y, dtype=_crit_np_dtype()).ravel()
     n = x.size
     if n < 2 or y.size != n:
         return 0.0
@@ -100,6 +101,7 @@ def tail_dependence_score(
     if n_perm <= 0:
         return max(0.0, raw_rate)
     rng = np.random.default_rng(random_state)
+    # Intentional float64: null-rate accumulator averaged into the floor; kept f64 so the null mean is precision-stable.
     null_rates = np.empty(n_perm, dtype=np.float64)
     for i in range(n_perm):
         v_perm = v[rng.permutation(n)]

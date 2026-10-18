@@ -84,14 +84,18 @@ def _make_permnull_inputs(dims: dict):
     offsets = np.arange(ncand + 1, dtype=np.int64) * n
     joint_card = np.full(ncand, nbins_x * nbins_y, dtype=np.int64)
     inv_n = 1.0 / n
+    # Intentional float64: plug-in entropy count accumulator (sums of log-probabilities) shared with the MI null.
     y_counts = np.bincount(y, minlength=nbins_y).astype(np.float64)
     py = y_counts[y_counts > 0] * inv_n
     h_y = float(-(py * np.log(py)).sum())
+    # Intentional float64: per-candidate entropy accumulator, same plug-in scale as h_y.
     h_x = np.empty(ncand, dtype=np.float64)
     for j in range(ncand):
+        # Intentional float64: plug-in count accumulator for the candidate marginal.
         xc = np.bincount(x[j], minlength=nbins_x).astype(np.float64)
         px = xc[xc > 0] * inv_n
         h_x[j] = float(-(px * np.log(px)).sum())
+    # Intentional float64: Miller-Madow bias term subtracted from f64 MI sums; same scale as the accumulators above.
     mm_bias = np.full(ncand, (nbins_x - 1) * (nbins_y - 1) / (2.0 * n), dtype=np.float64)
     y_perm = y.copy()
     y_perms = np.empty((nperm, n), dtype=np.int32)

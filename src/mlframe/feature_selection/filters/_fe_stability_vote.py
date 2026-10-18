@@ -45,6 +45,7 @@ import math
 from typing import Any, Optional
 
 import numpy as np
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
@@ -174,7 +175,7 @@ def _raw_fold_codes(X: Any, name: str, idx: np.ndarray, raw_set: set, n: int, nb
     vals = _raw_col_cache.get(name)
     if vals is None:
         try:
-            vals = np.asarray(_extract_column(X, name), dtype=np.float64).ravel()
+            vals = np.asarray(_extract_column(X, name), dtype=_crit_np_dtype()).ravel()
         except Exception as e:
             logger.debug("_raw_codes: could not extract raw source column %r, scoring it as a None leg: %s", name, e)
             return None
@@ -209,7 +210,7 @@ def _vote_recipe_over_folds(
             continue
         if eng_fold.shape[0] != idx.shape[0]:
             continue
-        eng_codes = _quantile_bin(np.asarray(eng_fold, dtype=np.float64), nbins=nbins)
+        eng_codes = _quantile_bin(np.asarray(eng_fold, dtype=_crit_np_dtype()), nbins=nbins)
         a_codes = _raw_fold_codes(X, src_a, idx, raw_set, n, nbins, _raw_col_cache) if src_a is not None else None
         b_codes = _raw_fold_codes(X, src_b, idx, raw_set, n, nbins, _raw_col_cache) if src_b is not None else None
         y_fold = y_codes[idx]
@@ -322,7 +323,7 @@ def confirm_recipes_cross_fold(
     # and the source operands share ONE balanced binning -> the ratio is faithful and
     # the genuine recipes clear the quorum. Monotone re-binning of integer codes
     # preserves the target's information ordering.
-    y_codes = _quantile_bin(np.asarray(y_codes, dtype=np.float64), nbins=nbins)
+    y_codes = _quantile_bin(np.asarray(y_codes, dtype=_crit_np_dtype()), nbins=nbins)
 
     if rng is None:
         rng = np.random.default_rng()

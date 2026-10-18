@@ -12,8 +12,9 @@ from __future__ import annotations
 import logging
 from typing import Any, Optional, Sequence
 
-import numpy as np
 import pandas as pd
+
+from ._fe_usability_signal import _crit_np_dtype
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +34,7 @@ class HostCandidates:
 
     def codes(self, name: str, nbins: int) -> Any:
         """Equi-frequency codes of the candidate *name* (resident under the strict-resident path)."""
-        return self._codes(self._df[name].to_numpy(dtype=np.float64), nbins, self._qbin)
+        return self._codes(self._df[name].to_numpy(dtype=_crit_np_dtype()), nbins, self._qbin)
 
 
 class DeviceOofCandidates:

@@ -300,6 +300,7 @@ def _conditional_gain_step(
     # purely local => never leaks onto an instance / breaks pickle.
     if cached_jmim_MIs is None:
         cached_jmim_MIs = numba.typed.Dict.empty(
+            # Intentional float64: numba typed-dict value type must match the f64 JMIM-cache values the @njit kernel writes.
             key_type=types.unicode_type, value_type=types.float64,
         )
     if jmim_hit_counter is None:

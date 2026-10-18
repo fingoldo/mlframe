@@ -41,7 +41,7 @@ except ImportError:  # numba is an optional dep; SU falls back to the pure-Pytho
 def _su_pairs_python(codes: np.ndarray, ncats: np.ndarray, h: np.ndarray) -> np.ndarray:
     """Pure-Python reference for the SU pair matrix (used when numba is absent). O(p^2 * n)."""
     p = codes.shape[1]
-    su = np.zeros((p, p), dtype=np.float64)
+    su = np.zeros((p, p), dtype=np.float64)  # Intentional float64: symmetric-uncertainty accumulator matrix
     for a in range(p):
         for b in range(a + 1, p):
             joint = np.bincount(codes[:, a] * int(ncats[b]) + codes[:, b], minlength=int(ncats[a] * ncats[b]))
@@ -61,7 +61,7 @@ if _HAVE_NUMBA:
         triangle (row a, cols > a) so no two threads touch the same cell; the caller symmetrises. Removes
         the per-pair ``np.bincount`` allocation of the Python path and scales across cores."""
         n, p = codes.shape
-        su = np.zeros((p, p), dtype=np.float64)
+        su = np.zeros((p, p), dtype=np.float64)  # Intentional float64: symmetric-uncertainty accumulator matrix
         for a in numba.prange(p):
             for b in range(a + 1, p):
                 nb = ncats[b]
@@ -133,7 +133,7 @@ def _su_redundancy_matrix(X, nbins: int = 10) -> np.ndarray:
     ncats = np.empty(p, dtype=np.int64)
     for j in range(p):
         col = arr[:, j]
-        col = np.asarray(col, dtype=np.float64)
+        col = np.asarray(col, dtype=np.float64)  # Intentional float64: correlation-threshold input column
         finite = np.isfinite(col)
         uniq = np.unique(col[finite]) if finite.any() else np.array([0.0])
         if uniq.shape[0] <= nbins:

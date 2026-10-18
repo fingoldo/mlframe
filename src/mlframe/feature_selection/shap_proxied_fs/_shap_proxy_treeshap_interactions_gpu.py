@@ -28,6 +28,7 @@ import multiprocessing
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
+from mlframe.feature_selection.filters._fe_gpu_batch._devices import crit_float_dtype
 
 if TYPE_CHECKING:
     from mlframe.feature_selection.shap_proxied_fs._shap_proxy_treeshap import TreeEnsemble
@@ -293,7 +294,7 @@ def _defines_header() -> str:
 
 def interaction_tensor_gpu(ensemble: TreeEnsemble, X: np.ndarray) -> tuple[np.ndarray, np.ndarray, float]:
     """cupy path-dependent TreeSHAP interaction tensor. Identical contract to
-    ``interaction_tensor_numba``: returns ``(Phi (n,P,P) float64, phi (n,P) float64, base float)``.
+    ``interaction_tensor_numba``: returns ``(Phi (n,P,P), phi (n,P), base float)`` in double precision.
 
     Raises ``ValueError`` if the ensemble depth or width exceeds the local-memory scratch caps (caller
     falls back to the numba kernel, which has no such caps)."""
@@ -328,8 +329,10 @@ def interaction_tensor_gpu(ensemble: TreeEnsemble, X: np.ndarray) -> tuple[np.nd
     cover_d = cp.asarray(ensemble.node_sample_weight)
     roots_d = cp.asarray(ensemble.tree_roots)
     cond_d = cp.asarray(cond_feats)
-    Phi_d = cp.zeros((n, P, P), dtype=cp.float64)
-    phi_d = cp.zeros((n, P), dtype=cp.float64)
+    # Intentional float64: the interaction CUDA kernel writes Phi as double*, so this buffer must be f64.
+    Phi_d = cp.zeros((n, P, P), dtype=crit_float_dtype())
+    # Intentional float64: the interaction CUDA kernel writes phi_main as double*, so this buffer must be f64.
+    phi_d = cp.zeros((n, P), dtype=crit_float_dtype())
 
     grid = ((n + block - 1) // block,)
     kernel(grid, (block,), (

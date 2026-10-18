@@ -34,16 +34,16 @@ def _quantile_edges_2d_njit_partition(arr2d: np.ndarray, quantiles: np.ndarray, 
     ``nogil`` per-column loop and reads ALL quantiles from the sorted column).
 
     BIT-IDENTITY to numpy's default ``method='linear'`` percentile (verified across
-    float32/float64, ties, constant + heavy-tail columns, and every nbins):
+    float32/double precision, ties, constant + heavy-tail columns, and every nbins):
       * SORT in the INPUT dtype: ``np.percentile(arr2d, axis=0)`` partitions the array in
         its OWN dtype (verified the 2-D ``axis=0`` float32 call equals the per-column 1-D
         float32 path), so the selected order statistics ``col[lo]`` / ``col[lo+1]`` must be
-        the float32 values - promoting to float64 BEFORE the sort can reorder float32 ties
-        at distinct float64 values and diverge by ~1 ULP.
-      * LERP in float64: numpy keeps the interpolation WEIGHT ``t`` in float64 even for a
-        float32 array, so ``col[lo]`` is promoted to float64 in the multiply and the
-        interpolation result is float64 - matched here via ``float(col[lo])`` + a float64
-        ``t``. (Net: select float32 order statistics, lerp them in float64 = numpy exactly.)
+        the float32 values - promoting to double precision BEFORE the sort can reorder float32 ties
+        at distinct double precision values and diverge by ~1 ULP.
+      * LERP in double precision: numpy keeps the interpolation WEIGHT ``t`` in double precision even for a
+        float32 array, so ``col[lo]`` is promoted to double precision in the multiply and the
+        interpolation result is double precision - matched here via ``float(col[lo])`` + a double precision
+        ``t``. (Net: select float32 order statistics, lerp them in double precision = numpy exactly.)
       * Full ``np.sort`` produces the exact ascending order statistics numpy's
         ``introselect`` partition selects at indices ``lo``/``lo+1`` (a sort IS a valid
         partition at every index), so ``col[lo]`` / ``col[lo+1]`` are identical values.
@@ -63,8 +63,8 @@ def _quantile_edges_2d_njit_partition(arr2d: np.ndarray, quantiles: np.ndarray, 
     (each column is reduced independently). bench (scene FE buffer 1500-2407 x 4000-8000 cols):
     serial 0.62-0.67x vs numpy; parallel restores the win on multi-core.
 
-    ``arr2d`` is ``(n_rows, n_cols)`` at its native dtype (float32/float64 - one numba
-    specialisation each). ``quantiles`` is float64 in [0, 100]. NaN handling is NOT done
+    ``arr2d`` is ``(n_rows, n_cols)`` at its native dtype (float32/double precision - one numba
+    specialisation each). ``quantiles`` is double precision in [0, 100]. NaN handling is NOT done
     here (the caller routes NaN-bearing buffers to ``np.nanpercentile``); a NaN in a column
     would sort last and bias the edges, exactly as a raw ``np.percentile`` (non-nan) would,
     so the caller's NaN guard is what preserves correctness, identically to before.
@@ -83,8 +83,8 @@ def _quantile_edges_2d_njit_partition(arr2d: np.ndarray, quantiles: np.ndarray, 
         # Sort each column in the INPUT dtype: numpy's ``np.percentile(axis=0)`` partitions the
         # array IN ITS OWN DTYPE (a float32 buffer is partitioned in float32 - verified that the
         # 2-D ``axis=0`` call equals the per-column 1-D float32 path), so the selected order
-        # statistics ``col[lo]`` / ``col[lo+1]`` must be the float32 values, not float64-promoted
-        # ones (promoting before the sort can reorder float32 ties at distinct float64 values).
+        # statistics ``col[lo]`` / ``col[lo+1]`` must be the float32 values, not double precision-promoted
+        # ones (promoting before the sort can reorder float32 ties at distinct double precision values).
         col = np.empty(n_rows, dtype=arr2d.dtype)
         for r in range(n_rows):
             col[r] = arr2d[r, j]
@@ -96,10 +96,10 @@ def _quantile_edges_2d_njit_partition(arr2d: np.ndarray, quantiles: np.ndarray, 
         # to O(n) per column. Measured ~20% faster at n=100k (447 vs 555 ms), widening with n.
         col = np.partition(col, kths)
         for qi in range(n_q):
-            # ``v`` / ``t`` are float64 (the quantile virtual index). numpy keeps the lerp
-            # WEIGHT in float64 even for a float32 array, so ``col[lo]`` (float32) is promoted
-            # to float64 in the multiply and the interpolation result is float64 - matching
-            # numpy bit-for-bit. (Sort in float32 order statistics, lerp them in float64.)
+            # ``v`` / ``t`` are double precision (the quantile virtual index). numpy keeps the lerp
+            # WEIGHT in double precision even for a float32 array, so ``col[lo]`` (float32) is promoted
+            # to double precision in the multiply and the interpolation result is double precision - matching
+            # numpy bit-for-bit. (Sort in float32 order statistics, lerp them in double precision.)
             v = (quantiles[qi] / 100.0) * (n_rows - 1)
             lo = math.floor(v)
             if lo >= n_rows - 1:
@@ -111,7 +111,7 @@ def _quantile_edges_2d_njit_partition(arr2d: np.ndarray, quantiles: np.ndarray, 
                 # numpy's exact ``_lerp`` (numpy/lib/function_base): ``a + (b-a)*t`` for
                 # t < 0.5 and ``b - (b-a)*(1-t)`` for t >= 0.5 - the asymmetric form numpy
                 # uses to keep the result monotone + endpoint-exact. Matching this branch
-                # (in float64) makes the edges bit-identical to ``np.percentile``.
+                # (in double precision) makes the edges bit-identical to ``np.percentile``.
                 diff_b_a = b - a
                 if t >= 0.5:
                     edges_out[qi, j] = b - diff_b_a * (1.0 - t)
@@ -184,11 +184,11 @@ def _searchsorted_2d_right_njit(edges_inner: np.ndarray, arr2d: np.ndarray, out:
     the per-column numpy dispatch overhead.
 
     ``edges_inner`` is ``edges[1:-1]`` (the interior bin edges), shape ``(n_edges, n_cols)``,
-    always float64; ``arr2d`` is ``(n_rows, n_cols)`` at its NATIVE dtype (float32 or float64 -
+    always double precision; ``arr2d`` is ``(n_rows, n_cols)`` at its NATIVE dtype (float32 or double precision -
     numba compiles a specialisation per dtype). The per-element ``arr2d[r,j] < edges_inner[mid,j]``
-    promotes a float32 value to float64 against the float64 edge, byte-identically to numpy's
-    ``searchsorted(float64_edges, float32_col)``; this lets the caller pass the full-width FE
-    buffer WITHOUT a float64 upcast copy (which would double a multi-GB float32 buffer and OOM).
+    promotes a float32 value to double precision against the double precision edge, byte-identically to numpy's
+    ``searchsorted(float_edges, float32_col)``; this lets the caller pass the full-width FE
+    buffer WITHOUT a double precision upcast copy (which would double a multi-GB float32 buffer and OOM).
     ``out`` is the pre-allocated ordinal-code array.
     """
     n_rows = arr2d.shape[0]
@@ -238,8 +238,8 @@ def _quantile_codes_1d_njit(arr: np.ndarray, quantiles: np.ndarray, kths: np.nda
         ``np.percentile == np.nanpercentile`` bit-for-bit.
       * Codes: ``side='right'`` binary search over the INTERIOR edges (``edges[1:-1]``) reproduces
         ``np.searchsorted(..., side='right')`` exactly (ties advance ``lo`` -> rightmost bin).
-      * dtype: ``arr`` (float32/64) promotes to float64 in the float64 edge compares, identical to
-        ``searchsorted(float64_edges, col)``. ``codes_out`` carries the caller's widened code dtype.
+      * dtype: ``arr`` (float32/64) promotes to double precision in the double precision edge compares, identical to
+        ``searchsorted(float_edges, col)``. ``codes_out`` carries the caller's widened code dtype.
 
     NaN is NOT handled here (caller routes NaN-bearing arrays to the numpy ``nanpercentile`` path);
     a NaN would sort last and bias the edges, exactly as a raw ``np.percentile`` would, so the
@@ -256,6 +256,7 @@ def _quantile_codes_1d_njit(arr: np.ndarray, quantiles: np.ndarray, kths: np.nda
     buf = arr.copy()
     buf = np.partition(buf, kths)
     # Compute the n_q quantile edges from the partitioned buffer (matches np.percentile linear).
+    # Intentional float64: numpy-exact quantile edges (float64 contract, see the module docstring)
     edges = np.empty(n_q, dtype=np.float64)
     for qi in range(n_q):
         v = (quantiles[qi] / 100.0) * (n - 1)
@@ -337,6 +338,7 @@ def _count_le_2d_njit(edges_inner: np.ndarray, arr2d: np.ndarray, out: np.ndarra
     n_rows = arr2d.shape[0]
     n_cols = arr2d.shape[1]
     n_edges = edges_inner.shape[0]
+    # Intentional float64: numpy-exact quantile edges (float64 contract, see the module docstring)
     e = np.empty(n_edges, dtype=np.float64)
     for j in range(n_cols):
         for k in range(n_edges):
@@ -359,6 +361,7 @@ def _count_le_2d_njit_parallel(edges_inner: np.ndarray, arr2d: np.ndarray, out: 
     n_cols = arr2d.shape[1]
     n_edges = edges_inner.shape[0]
     for j in prange(n_cols):
+        # Intentional float64: numpy-exact quantile edges (float64 contract, see the module docstring)
         e = np.empty(n_edges, dtype=np.float64)
         for k in range(n_edges):
             e[k] = edges_inner[k, j]

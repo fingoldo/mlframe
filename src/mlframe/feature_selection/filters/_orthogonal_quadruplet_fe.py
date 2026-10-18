@@ -566,10 +566,14 @@ def hybrid_orth_mi_quadruplet_fe_with_recipes(
                 continue
             col_i, col_j, col_k, col_l = legs
             # Value-construction (recovers the basis preprocess params for recipe replay): always
-            # float64, matching the fresh-path's own dtype (see generate_quadruplet_cross_basis_features).
+            # double precision, matching the fresh-path's own dtype (see generate_quadruplet_cross_basis_features).
+            # Intentional float64: value construction is always f64 by design (matches the fresh-path dtype)
             x_i = X[col_i].to_numpy(dtype=np.float64)
+            # Intentional float64: value construction is always f64 by design (matches the fresh-path dtype)
             x_j = X[col_j].to_numpy(dtype=np.float64)
+            # Intentional float64: value construction is always f64 by design (matches the fresh-path dtype)
             x_k = X[col_k].to_numpy(dtype=np.float64)
+            # Intentional float64: value construction is always f64 by design (matches the fresh-path dtype)
             x_l = X[col_l].to_numpy(dtype=np.float64)
             if basis == "auto":
                 try:
@@ -616,6 +620,7 @@ def hybrid_orth_mi_quadruplet_fe_with_recipes(
             # REPLAY-FIDELITY FIX: freeze the fit-time basis-preprocess params.
             _pp_u = None
             try:
+                # Intentional float64: value construction is always f64 by design (matches the fresh-path dtype)
                 _x_u = X[src].to_numpy(dtype=np.float64)  # value-construction: always float64, see above
                 _, _pp_u = _evaluate_basis_column(_x_u, chosen_basis, chosen_degree, return_params=True)
             except Exception as e:  # nosec B110 - optional dependency import guard

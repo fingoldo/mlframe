@@ -9,10 +9,12 @@ import os
 from itertools import combinations
 
 import numpy as np
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 from mlframe.utils.log_throttle import log_throttle
 import pandas as pd
 
 # A column is near-constant when its std is within this factor of machine epsilon of its largest |value|: its spread is then rounding noise.
+# Intentional float64: a tolerance constant; the f64 machine epsilon is the reference floor for the variance test, not a data dtype.
 _DEGENERATE_REL_TOL = 32.0 * np.finfo(np.float64).eps
 from ._pairs_chunks import _FE_CHUNK_MAX_COLS_HARD_CAP
 from ._pairs_gates import _GATE_MED_SPECS_RESULT_KEY
@@ -141,7 +143,7 @@ def _check_prospective__total_get_proportions_matching(classes_y, freqs_y):
         _counts = np.bincount(classes_y.astype(np.int64), minlength=_minlength)
         _total = _counts.sum()
         if _total > 0:
-            freqs_y = _counts.astype(np.float64) / float(_total)
+            freqs_y = _counts.astype(_crit_np_dtype()) / float(_total)
     return freqs_y
 
 
@@ -233,7 +235,7 @@ def _check_prospective__classes_codes_still_usable(usability_y_continuous, prewa
 
     try:
         _cyc_src = usability_y_continuous if usability_y_continuous is not None else (prewarp_y_continuous if prewarp_y_continuous is not None else classes_y)
-        _cyc = np.asarray(_cyc_src, dtype=np.float64).ravel()
+        _cyc = np.asarray(_cyc_src, dtype=_crit_np_dtype()).ravel()
         if _use_subsample and _cyc.shape[0] == _full_n_rows:
             _cyc = _cyc[_sample_idx]
         if _cyc.shape[0] == len(classes_y) and np.isfinite(_cyc).any() and float(np.nanstd(_cyc)) > 1e-12:

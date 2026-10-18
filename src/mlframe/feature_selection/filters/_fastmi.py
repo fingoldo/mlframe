@@ -36,6 +36,7 @@ import math
 from typing import Optional
 
 import numpy as np
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 
 logger = logging.getLogger(__name__)
 
@@ -47,10 +48,12 @@ logger = logging.getLogger(__name__)
 
 def _rank_to_uniform(x: np.ndarray) -> np.ndarray:
     """Empirical CDF transform: rank(x) / (N + 1) -> uniforms in (0, 1)."""
-    x = np.asarray(x, dtype=np.float64).ravel()
+    x = np.asarray(x, dtype=_crit_np_dtype()).ravel()
     n = x.size
     order = np.argsort(x, kind="mergesort")
+    # Intentional float64: integer ranks exceed exact float32 range beyond 2**24 rows
     ranks = np.empty(n, dtype=np.float64)
+    # Intentional float64: integer ranks exceed exact float32 range beyond 2**24 rows
     ranks[order] = np.arange(1, n + 1, dtype=np.float64)
     return ranks / (n + 1.0)
 
@@ -177,8 +180,8 @@ def fastmi(
     consistent copula-based nonparametric estimator of mutual information",
     *J. Multivariate Analysis* 201:105270. arXiv:2212.10268.
     """
-    x = np.asarray(x, dtype=np.float64).ravel()
-    y = np.asarray(y, dtype=np.float64).ravel()
+    x = np.asarray(x, dtype=_crit_np_dtype()).ravel()
+    y = np.asarray(y, dtype=_crit_np_dtype()).ravel()
     if x.size != y.size:
         raise ValueError(f"x ({x.size}) and y ({y.size}) size mismatch")
     n = x.size
@@ -197,7 +200,7 @@ def fastmi(
     edges = np.linspace(-pad, pad, M + 1)
     bin_edges: list[np.ndarray] = [edges, edges]
     counts, _, _ = np.histogram2d(zx, zy, bins=bin_edges)
-    samples = counts.astype(np.float64) / n  # normalised to sum to 1
+    samples = counts.astype(_crit_np_dtype()) / n  # normalised to sum to 1
     # KDE bandwidth via Silverman or MISE.
     if bandwidth == "silverman":
         sigma = 1.0  # probit marginals are unit-variance by construction

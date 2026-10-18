@@ -12,6 +12,7 @@ import math
 from typing import Tuple, Any
 
 import numpy as np
+from ._fe_usability_signal import _crit_np_dtype
 
 from ._fe_gpu_strict import _STRICT_MIN_CALL_P
 from .cat_fe_state import CatFEConfig, CatFEState
@@ -60,7 +61,7 @@ def _quantile_bin_with_edges(raw: np.ndarray, n_bins: int) -> tuple:
     no interaction signal). NaN-bearing columns must be filtered out by the caller - this v1 edge scheme has
     no dedicated NaN bin, so a NaN would ``searchsorted`` to the top real bin and silently corrupt the cross.
     """
-    arr = np.asarray(raw, dtype=np.float64)
+    arr = np.asarray(raw, dtype=_crit_np_dtype())
     qs = np.linspace(0.0, 1.0, n_bins + 1)[1:-1]
     edges = np.unique(np.quantile(arr, qs))
     if edges.size == 0:
@@ -409,7 +410,7 @@ def _run_cat_interactio_transform_reproduces_identical_bin(cfg, numeric_raw_valu
         _extra_blocks: list = []
         _extra_nbins: list = []
         for _orig_idx, _raw in numeric_raw_values.items():
-            _raw_arr = np.asarray(_raw, dtype=np.float64)
+            _raw_arr = np.asarray(_raw, dtype=_crit_np_dtype())
             if not np.isfinite(_raw_arr).all():
                 # v1 skips NaN/inf-bearing numerics (the quantile-edge replay has no dedicated NaN bin).
                 state.high_cardinality_warnings.append((int(_orig_idx), -1))
@@ -514,7 +515,7 @@ def _run_cat_interactio_usability_gpu_py_batch(cfg, _gpu_disabled, candidate_idx
 def _run_cat_interactio_kernel_costs_extra_ops(weights, n_samples, use_weights):
     """Block of run_cat_interaction_step starting at ``if weights is not None and len(weights) == n_samples:``."""
     if weights is not None and len(weights) == n_samples:
-        weights = np.asarray(weights, dtype=np.float64)
+        weights = np.asarray(weights, dtype=_crit_np_dtype())
         if weights.size > 0 and not np.allclose(weights, weights[0]):
             use_weights = True
     return use_weights, weights
@@ -556,6 +557,7 @@ def _gpu_pair_search_or_none(cfg, gpu_fn, data, pairs_a, pairs_b, nbins, classes
             raise
         logger.warning("cat-FE: GPU pair search failed (%s: %s); falling back to the CPU kernel", type(exc).__name__, exc)
         return False, None, None, None
+    # Intentional float64: interaction-information output accumulator returned to the MI ranking (output contract).
     ii_arr = np.zeros(len(pairs_a), dtype=np.float64)
     n_uniq_arr = np.zeros(len(pairs_a), dtype=np.int64)
     for k in range(len(pairs_a)):
@@ -580,7 +582,7 @@ def _run_cat_interactio_use_gpu(use_gpu, use_weights, verbose, data, pairs_a, pa
                 marginal_mi=marginal_mi_full,
                 nbins=nbins,
                 classes_y=classes_y,
-                weights=np.asarray(weights, dtype=np.float64),
+                weights=np.asarray(weights, dtype=_crit_np_dtype()),
                 dtype=dtype,
             )
         else:
@@ -694,7 +696,7 @@ def _run_cat_interactio_each_pair_recipe_additionally(cfg, selected_idx, pairs_a
                     unknown_strategy=cfg.unknown_strategy,
                     extra={
                         "cell_means": cell_means_global,
-                        "global_mean": float(classes_y.astype(np.float64).mean()),
+                        "global_mean": float(classes_y.astype(np.float64).mean()),  # Intentional float64: class-mean accumulator for the TE prior
                         "n_oof_folds": cfg.target_encoding_oof_folds,
                         "smoothing": cfg.target_encoding_smoothing,
                         # Need the factorize lookup to map (a, b) -> cell idx
@@ -703,7 +705,7 @@ def _run_cat_interactio_each_pair_recipe_additionally(cfg, selected_idx, pairs_a
                 )
             )
         if te_cols_list:
-            te_block = np.column_stack([v.astype(np.float64, copy=False) for v in te_cols_list])
+            te_block = np.column_stack([v.astype(_crit_np_dtype(), copy=False) for v in te_cols_list])
             # Target-encoded cols are FLOAT, not ordinal. Add as a separate block; downstream screening will discretize them again per quantization_method. nbins[te_col]
             # is unknown until then; leave a sentinel that categorize_dataset will overwrite. We store these in state.diagnostics but NOT in the main data block
             # (the cat-FE pipeline assumes ordinal-encoded data; TE cols would need a quantization round-trip).

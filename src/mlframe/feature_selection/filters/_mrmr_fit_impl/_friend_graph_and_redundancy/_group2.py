@@ -12,6 +12,7 @@ import logging
 from typing import Any
 
 import numpy as np
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 
 from mlframe.feature_selection.cv_policy import get_cv_policy
 
@@ -63,7 +64,7 @@ def _friend_graph_and_redundancy_passes_group2(
             for _hn, _vals in _hinge_deferred_values.items():
                 if _hn in X.columns:
                     continue  # already present (defensive)
-                _vals = np.asarray(_vals, dtype=np.float64)
+                _vals = np.asarray(_vals, dtype=_crit_np_dtype())
                 if _vals.shape[0] != data.shape[0]:
                     continue
                 _codes = discretize_array(
@@ -461,7 +462,7 @@ def _composite_subsumption_readd_pass(self, X, selected_vars, _y_np, data, cols,
                 if _cv is None:
                     continue
                 try:
-                    _cv = np.asarray(_cv, dtype=np.float64).reshape(-1)
+                    _cv = np.asarray(_cv, dtype=_crit_np_dtype()).reshape(-1)
                 except (TypeError, ValueError):
                     continue  # raw categorical/string selected column - not a numeric R^2 regressor
                 if _cv.shape[0] == _rp_n and np.all(np.isfinite(_cv)):
@@ -504,7 +505,7 @@ def _composite_subsumption_readd_pass(self, X, selected_vars, _y_np, data, cols,
                     if _rp_cand_mi <= _rp_floor:
                         continue  # within-null / below the screen's relevance floor -> not a genuine signal, do not resurrect
                     try:
-                        _rv = np.asarray(X[_rn].to_numpy(), dtype=np.float64).reshape(-1)
+                        _rv = np.asarray(X[_rn].to_numpy(), dtype=_crit_np_dtype()).reshape(-1)
                     except (TypeError, ValueError):
                         continue  # non-numeric raw (categorical/string) -> not a linear-usability candidate
                     if _rv.shape[0] != _rp_n or not np.all(np.isfinite(_rv)):
