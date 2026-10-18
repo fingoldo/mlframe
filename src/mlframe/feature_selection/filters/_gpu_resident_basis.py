@@ -150,8 +150,8 @@ __device__ double eval_basis(int basis, int d, double x) {
     return c0 + c1 * x;
 }
 extern "C" __global__
-void clenshaw_basis(const double* __restrict__ Z, const int* __restrict__ degs, const long long n,
-                    const int m, const int nd, const int basis, double* __restrict__ out) {
+void clenshaw_basis(const {REAL}* __restrict__ Z, const int* __restrict__ degs, const long long n,
+                    const int m, const int nd, const int basis, {REAL}* __restrict__ out) {
     long long t = (long long)blockIdx.x * blockDim.x + threadIdx.x;
     long long total = n * (long long)m * nd;
     if (t >= total) return;
@@ -159,20 +159,23 @@ void clenshaw_basis(const double* __restrict__ Z, const int* __restrict__ degs, 
     long long r = t / (long long)m;
     int k = (int)(r % (long long)nd);
     long long i = r / (long long)nd;
-    double z = Z[i * (long long)m + j];
-    out[i * ((long long)m * nd) + (long long)k * m + j] = eval_basis(basis, degs[k], z);
+    double z = (double)Z[i * (long long)m + j];
+    out[i * ((long long)m * nd) + (long long)k * m + j] = ({REAL})eval_basis(basis, degs[k], z);
 }
 """
-_CLENSHAW_KERNEL = None
 
 
-def _get_clenshaw_kernel():
-    """Lazily compile-and-cache the ``clenshaw_basis`` RawKernel on first call (CUDA compile is ~30ms; subsequent calls reuse the cached kernel handle)."""
-    global _CLENSHAW_KERNEL
-    if _CLENSHAW_KERNEL is None:
+_CLENSHAW_KERNELS: dict = {}
+
+
+def _get_clenshaw_kernel(real_t: str = "double"):
+    """Lazily compile-and-cache the ``clenshaw_basis`` RawKernel for the element type ``real_t`` (``"float"`` or ``"double"``); the recurrence runs in double either way."""
+    kern = _CLENSHAW_KERNELS.get(real_t)
+    if kern is None:
         import cupy as cp
-        _CLENSHAW_KERNEL = cp.RawKernel(_CLENSHAW_SRC, "clenshaw_basis")
-    return _CLENSHAW_KERNEL
+        kern = cp.RawKernel(_CLENSHAW_SRC.replace("{REAL}", real_t), "clenshaw_basis")
+        _CLENSHAW_KERNELS[real_t] = kern
+    return kern
 
 
 def _clenshaw_basis_block_gpu(cp, Zg, basis, degrees):
@@ -189,7 +192,7 @@ def _clenshaw_basis_block_gpu(cp, Zg, basis, degrees):
     out = cp.empty((n, m * nd), dtype=crit_float_dtype())
     total = n * m * nd
     threads = 256
-    _get_clenshaw_kernel()(((total + threads - 1) // threads,), (threads,), (Z, degs, np.int64(n), np.int32(m), np.int32(nd), np.int32(bid), out))
+    _get_clenshaw_kernel("float" if Z.dtype == cp.float32 else "double")(((total + threads - 1) // threads,), (threads,), (Z, degs, np.int64(n), np.int32(m), np.int32(nd), np.int32(bid), out))
     return out
 
 # --- GPU port of the orth-FE basis-column evaluation (matrix-native, Piece 2) --------------------------
@@ -764,8 +767,9 @@ def _gpu_evaluate_basis_matrix(cp, M, bases, degrees, *, robust_axis, heavy_host
 
 
 _ABS_CORR_SRC = r"""
+#define REAL_T {REAL}
 extern "C" __global__
-void abs_corr(const double* __restrict__ cand, const double* __restrict__ yc, const double* __restrict__ mu, const long long n,
+void abs_corr(const REAL_T* __restrict__ cand, const REAL_T* __restrict__ yc, const REAL_T* __restrict__ mu, const long long n,
               const int m, const double Syy, double* __restrict__ out) {
     // Centred accumulation: yc is the centred target and mu the per-column means, so the sums below are sum((v-mean)^2) and
     // sum((v-mean)*yc) directly. The raw-power-sum form n*sum(v^2) - (sum v)^2 cancels to rounding noise once a column's mean is far
@@ -777,10 +781,10 @@ void abs_corr(const double* __restrict__ cand, const double* __restrict__ yc, co
     if (tid < 2) sh[tid] = 0.0;
     __syncthreads();
     double pcc = 0.0, pcy = 0.0;
-    double muc = mu[c];
+    double muc = (double)mu[c];
     for (long long i = tid; i < n; i += nt) {
-        double d = cand[i * (long long)m + c] - muc;
-        pcc += d * d; pcy += d * yc[i];
+        double d = (double)cand[i * (long long)m + c] - muc;
+        pcc += d * d; pcy += d * (double)yc[i];
     }
     atomicAdd(&sh[0], pcc); atomicAdd(&sh[1], pcy);
     __syncthreads();
@@ -794,16 +798,17 @@ void abs_corr(const double* __restrict__ cand, const double* __restrict__ yc, co
     }
 }
 """
-_ABS_CORR_KERNEL = None
+_ABS_CORR_KERNELS: dict = {}
 
 
-def _get_abs_corr_kernel():
-    """Lazily compile-and-cache the ``abs_corr`` RawKernel (per-column |Pearson correlation| against a fixed target vector)."""
-    global _ABS_CORR_KERNEL
-    if _ABS_CORR_KERNEL is None:
+def _get_abs_corr_kernel(real_t: str = "double"):
+    """Lazily compile-and-cache the ``abs_corr`` RawKernel for the input element type ``real_t`` (``"float"`` or ``"double"``); the sums accumulate in double either way."""
+    kern = _ABS_CORR_KERNELS.get(real_t)
+    if kern is None:
         import cupy as cp
-        _ABS_CORR_KERNEL = cp.RawKernel(_ABS_CORR_SRC, "abs_corr")
-    return _ABS_CORR_KERNEL
+        kern = cp.RawKernel(_ABS_CORR_SRC.replace("{REAL}", real_t), "abs_corr")
+        _ABS_CORR_KERNELS[real_t] = kern
+    return kern
 
 
 def _gpu_batched_abs_corr(cp, cand, y_cont):
@@ -824,9 +829,10 @@ def _gpu_batched_abs_corr(cp, cand, y_cont):
         yc = cp.ascontiguousarray(yv - yv.mean())
         mu = cp.ascontiguousarray(cand2.mean(axis=0))
         Syy = float((yc * yc).sum())
-        out = cp.empty(m, dtype=crit_float_dtype())
+        out = cp.empty(m, dtype=cp.float64)  # Intentional float64: statistic vector (|corr|), accumulated in double
+        real_t = "float" if cand2.dtype == cp.float32 else "double"
         # Intentional float64: scalar kernel argument contract (must match the CUDA kernel signature)
-        _get_abs_corr_kernel()((m,), (256,), (cand2, yc, mu, np.int64(n), np.int32(m), np.float64(Syy), out), shared_mem=2 * 8)
+        _get_abs_corr_kernel(real_t)((m,), (256,), (cand2, yc, mu, np.int64(n), np.int32(m), np.float64(Syy), out), shared_mem=2 * 8)
         return out
     except Exception as e:
         import logging

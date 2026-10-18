@@ -205,6 +205,7 @@ def _collect_relevant_halves(
 
 def _evaluate_fusion_pair(self: Any, ha: dict, hb: dict, y_dense: np.ndarray, nbins: int, n_rows: int, _floor_margin: float) -> Optional[tuple]:
     """Pick the sign alignment (``add`` / ``sub``) of two disjoint halves and test additive separability; ``(binary, values, binned, mi)`` or ``None``."""
+    from ._fe_mi_contract import quantize_mi_tiebreak
     from ._mi_greedy_cmi_fe import _cmi_from_binned, _quantile_bin
 
     # SIGN-AWARE ALIGNMENT. The a/b (and c/d) pair search picks each half by SIGN-INVARIANT
@@ -226,8 +227,9 @@ def _evaluate_fusion_pair(self: Any, ha: dict, hb: dict, y_dense: np.ndarray, nb
     _fvb_add = _quantile_bin(_fv_add, nbins=int(nbins))
     _fvb_sub = _quantile_bin(_fv_sub, nbins=int(nbins))
     # kx=nbins: codes are nbins-binned -> [0, nbins-1], a safe upper bound that skips int(dx.max()).
-    _mi_add = float(_cmi_from_binned(_fvb_add, y_dense, None, kx=int(nbins)))
-    _mi_sub = float(_cmi_from_binned(_fvb_sub, y_dense, None, kx=int(nbins)))
+    # Snapped to the shared MI grid: the CPU and GPU MIs differ in the last bits, and a comparison that sits within that noise must not decide the sign differently per backend.
+    _mi_add = quantize_mi_tiebreak(float(_cmi_from_binned(_fvb_add, y_dense, None, kx=int(nbins))))
+    _mi_sub = quantize_mi_tiebreak(float(_cmi_from_binned(_fvb_sub, y_dense, None, kx=int(nbins))))
     if _mi_sub > _mi_add + _floor_margin * _strong["floor"]:
         _binary, fused_vals, fvb, fused_mi = "sub", _fv_sub, _fvb_sub, _mi_sub
     else:
@@ -236,7 +238,7 @@ def _evaluate_fusion_pair(self: Any, ha: dict, hb: dict, y_dense: np.ndarray, nb
     # information than the STRONGER half by more than that half's marginal-perm floor (a chance-
     # fluctuation scale). Two unrelated features whose combination has no genuine joint uplift
     # (fused_mi ~= the stronger half +/- noise) are NOT fused.
-    _binned_mi_passes = fused_mi > _strong["mi"] + _floor_margin * _strong["floor"]
+    _binned_mi_passes = quantize_mi_tiebreak(fused_mi) > quantize_mi_tiebreak(_strong["mi"] + _floor_margin * _strong["floor"])
     # OLS LINEAR-USABILITY SEPARABILITY (default-ON, ALONGSIDE the binned-MI
     # gate). Under variance imbalance the coarse binned-MI WRONGLY rejects a genuine
     # fusion: the dominant half saturates most bins, so the fused binned-MI barely exceeds
