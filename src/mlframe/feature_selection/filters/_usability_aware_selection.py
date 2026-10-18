@@ -599,6 +599,10 @@ def _usability_scorers(classification: bool, y_cont: np.ndarray) -> Optional[tup
     # singular (degenerate / collinear column) so correctness never depends on the fast path.
 
 
+# Opt-in (see usability_greedy): the bordered normal-equations CV-MAE path; the exact refit is the default.
+_USE_BORDERED_CV = False
+
+
 def _cv_candidates_incremental(sel_idx, cand_list, n_folds: int, _fold_tr: list, _fold_va: list, y_cont: np.ndarray, _pv, _cv_per_fold) -> dict:
     """Return {cand_i: per-fold MAE array} for the regression path via the bordered normal equations.
     Falls back to a per-candidate ``_cv_per_fold`` for any fold where the centered border is singular."""
@@ -773,7 +777,12 @@ def usability_greedy(
         return v
 
     def _cv_candidates_incremental_bound(sel_idx: Any, cand_list: Any) -> dict:
-        """Per-fold MAE of each candidate appended to ``sel_idx`` (bordered normal equations, exact refit fallback)."""
+        """Per-fold MAE of each candidate appended to ``sel_idx``.
+
+        Default: the exact per-candidate refit. The bordered normal-equations path agrees with it to ~1e-9, but on ULP-level ties between candidates
+        its rounding flips the greedy's pick (measured: a noise column entered the support on one hash seed and not another), so it is opt-in only."""
+        if not _USE_BORDERED_CV:
+            return {i: _cv_per_fold([*sel_idx, i]) for i in cand_list}
         return _cv_candidates_incremental(sel_idx, cand_list, n_folds, _fold_tr, _fold_va, y_cont, _pv, _cv_per_fold)
 
     _cv_per_fold = _usability_greedy_step2_def_cv_fold(classification, n_folds, folds, y_enc, n_classes, _logloss, _pv, _mk, y_cont)

@@ -73,7 +73,7 @@ def _fit_impl_part9(_ret_fit_impl_part7: Any, self: Any, y: pd.DataFrame | pd.Se
     )
     while True:
         n_recommended_features = 0
-        _persisted_dcd_state, selected_vars, predictors, cached_MIs, cached_confident_MIs, classes_y, classes_y_safe, freqs_y, _dcd_state, _attach_dcd_results = _fit_impl_part4(
+        _persisted_dcd_state, selected_vars, predictors, cached_MIs, cached_confident_MIs, classes_y, classes_y_safe, freqs_y, _dcd_state, _attach_dcd_results, _persisted_screen_caches = _fit_impl_part4(
             self, data, target_indices, screen_predictors, _nbins_strategy, cols, _numeric_names, nbins, _screen_factors_names_to_use,
             _effective_min_relevance_gain, _effective_max_confirmation_cand_nbins, _cat_fe_lineage, _dcd_config, X, engineered_recipes,
             _raw_input_cols_pre_fe, _persisted_dcd_state, _persisted_screen_caches, _persisted_maxt_floor_cache, _persisted_workers_pool,
@@ -505,7 +505,7 @@ def _fit_impl_part4(
     # stash DCD summary on the estimator for the
     # public ``dcd_`` attribute (None when DCD was disabled).
     from mlframe.feature_selection.filters._mrmr_fit_impl._fit_impl_stages._screen_round import _attach_dcd_results
-    return _persisted_dcd_state, selected_vars, predictors, cached_MIs, cached_confident_MIs, classes_y, classes_y_safe, freqs_y, _dcd_state, _attach_dcd_results
+    return _persisted_dcd_state, selected_vars, predictors, cached_MIs, cached_confident_MIs, classes_y, classes_y_safe, freqs_y, _dcd_state, _attach_dcd_results, _persisted_screen_caches
 
 
 def _fit_impl_part3(
