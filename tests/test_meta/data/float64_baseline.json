@@ -62,7 +62,6 @@
  "feature_selection/filters/engineered_recipes/_orth_basis_recipes.py": 19,
  "feature_selection/filters/engineered_recipes/_recipe_unary_binary_gpu.py": 3,
  "feature_selection/filters/gpu.py": 6,
- "feature_selection/filters/hermite_fe/_hermite_basis_eval.py": 22,
  "feature_selection/filters/hermite_fe/_hermite_prewarp_gpu_resident.py": 1,
  "feature_selection/filters/info_theory/_batch_kernels.py": 2,
  "feature_selection/filters/info_theory/_cmi_cuda.py": 16,

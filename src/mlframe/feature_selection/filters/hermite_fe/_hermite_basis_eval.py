@@ -45,7 +45,7 @@ def _hermeval_njit(x: np.ndarray, c: np.ndarray) -> np.ndarray:
     """Evaluate the probabilist's Hermite series ``sum_k c[k]*He_k(x)`` via the He recurrence, single-thread Horner form
     with the fused prologue (see the module-level perf note above). ``x`` and the returned array share length ``n``."""
     n = x.shape[0]
-    out = np.zeros(n, dtype=np.float64)
+    out = np.zeros(n, dtype=x.dtype)
     nc = c.shape[0]
     if nc == 0:
         return out
@@ -55,12 +55,12 @@ def _hermeval_njit(x: np.ndarray, c: np.ndarray) -> np.ndarray:
             out[i] = c0
         return out
     c1 = c[1]
-    p_prev = np.ones(n, dtype=np.float64)
+    p_prev = np.ones(n, dtype=x.dtype)
     p_curr = x
     for i in range(n):
         out[i] = c0 + c1 * x[i]
     for k in range(2, nc):
-        p_next = np.empty(n, dtype=np.float64)
+        p_next = np.empty(n, dtype=x.dtype)
         ck = c[k]
         km1 = k - 1
         for i in range(n):
@@ -75,7 +75,7 @@ def _hermeval_njit(x: np.ndarray, c: np.ndarray) -> np.ndarray:
 def _legval_njit(x: np.ndarray, c: np.ndarray) -> np.ndarray:
     """Evaluate the Legendre series ``sum_k c[k]*P_k(x)`` via Bonnet's recurrence, single-thread Horner form."""
     n = x.shape[0]
-    out = np.zeros(n, dtype=np.float64)
+    out = np.zeros(n, dtype=x.dtype)
     nc = c.shape[0]
     if nc == 0:
         return out
@@ -85,12 +85,12 @@ def _legval_njit(x: np.ndarray, c: np.ndarray) -> np.ndarray:
             out[i] = c0
         return out
     c1 = c[1]
-    p_prev = np.ones(n, dtype=np.float64)
+    p_prev = np.ones(n, dtype=x.dtype)
     p_curr = x
     for i in range(n):
         out[i] = c0 + c1 * x[i]
     for k in range(2, nc):
-        p_next = np.empty(n, dtype=np.float64)
+        p_next = np.empty(n, dtype=x.dtype)
         ck = c[k]
         inv_k = 1.0 / k
         two_km1 = 2 * k - 1
@@ -107,7 +107,7 @@ def _legval_njit(x: np.ndarray, c: np.ndarray) -> np.ndarray:
 def _chebval_njit(x: np.ndarray, c: np.ndarray) -> np.ndarray:
     """Evaluate the Chebyshev series ``sum_k c[k]*T_k(x)`` via ``T_{k+1} = 2x*T_k - T_{k-1}``, single-thread Horner form."""
     n = x.shape[0]
-    out = np.zeros(n, dtype=np.float64)
+    out = np.zeros(n, dtype=x.dtype)
     nc = c.shape[0]
     if nc == 0:
         return out
@@ -117,12 +117,12 @@ def _chebval_njit(x: np.ndarray, c: np.ndarray) -> np.ndarray:
             out[i] = c0
         return out
     c1 = c[1]
-    p_prev = np.ones(n, dtype=np.float64)
+    p_prev = np.ones(n, dtype=x.dtype)
     p_curr = x
     for i in range(n):
         out[i] = c0 + c1 * x[i]
     for k in range(2, nc):
-        p_next = np.empty(n, dtype=np.float64)
+        p_next = np.empty(n, dtype=x.dtype)
         ck = c[k]
         for i in range(n):
             p_next[i] = 2.0 * x[i] * p_curr[i] - p_prev[i]
@@ -137,7 +137,7 @@ def _lagval_njit(x: np.ndarray, c: np.ndarray) -> np.ndarray:
     """Evaluate the Laguerre series ``sum_k c[k]*L_k(x)`` via the Laguerre recurrence, single-thread Horner form. Unlike
     the other three kernels, ``L_1 = 1 - x`` so the prologue can't reuse ``x`` directly and computes ``p_curr`` explicitly."""
     n = x.shape[0]
-    out = np.zeros(n, dtype=np.float64)
+    out = np.zeros(n, dtype=x.dtype)
     nc = c.shape[0]
     if nc == 0:
         return out
@@ -147,14 +147,14 @@ def _lagval_njit(x: np.ndarray, c: np.ndarray) -> np.ndarray:
             out[i] = c0
         return out
     c1 = c[1]
-    p_prev = np.ones(n, dtype=np.float64)
-    p_curr = np.empty(n, dtype=np.float64)
+    p_prev = np.ones(n, dtype=x.dtype)
+    p_curr = np.empty(n, dtype=x.dtype)
     for i in range(n):
         pc = 1.0 - x[i]
         p_curr[i] = pc
         out[i] = c0 + c1 * pc
     for k in range(2, nc):
-        p_next = np.empty(n, dtype=np.float64)
+        p_next = np.empty(n, dtype=x.dtype)
         ck = c[k]
         inv_k = 1.0 / k
         two_km1 = 2 * k - 1
@@ -179,7 +179,7 @@ def _hermeval_njit_parallel(x: np.ndarray, c: np.ndarray) -> np.ndarray:
     p_curr arrays) so each output element is independent across threads; wins over the single-thread form for n>=50k."""
     n = x.shape[0]
     nc = c.shape[0]
-    out = np.zeros(n, dtype=np.float64)
+    out = np.zeros(n, dtype=x.dtype)
     if nc == 0:
         return out
     if nc == 1:
@@ -206,7 +206,7 @@ def _legval_njit_parallel(x: np.ndarray, c: np.ndarray) -> np.ndarray:
     """Prange variant of ``_legval_njit``: per-element register recurrence, parallelised across elements for n>=50k."""
     n = x.shape[0]
     nc = c.shape[0]
-    out = np.zeros(n, dtype=np.float64)
+    out = np.zeros(n, dtype=x.dtype)
     if nc == 0:
         return out
     if nc == 1:
@@ -236,7 +236,7 @@ def _chebval_njit_parallel(x: np.ndarray, c: np.ndarray) -> np.ndarray:
     """Prange variant of ``_chebval_njit``: per-element register recurrence, parallelised across elements for n>=50k."""
     n = x.shape[0]
     nc = c.shape[0]
-    out = np.zeros(n, dtype=np.float64)
+    out = np.zeros(n, dtype=x.dtype)
     if nc == 0:
         return out
     if nc == 1:
@@ -263,7 +263,7 @@ def _lagval_njit_parallel(x: np.ndarray, c: np.ndarray) -> np.ndarray:
     """Prange variant of ``_lagval_njit``: per-element register recurrence, parallelised across elements for n>=50k."""
     n = x.shape[0]
     nc = c.shape[0]
-    out = np.zeros(n, dtype=np.float64)
+    out = np.zeros(n, dtype=x.dtype)
     if nc == 0:
         return out
     if nc == 1:
@@ -312,7 +312,7 @@ def _build_basis_hermite(x: np.ndarray, max_degree: int) -> np.ndarray:
     """Build ``B[i, k] = He_k(x[i])`` for k=0..max_degree using the He recurrence."""
     n = x.shape[0]
     nc = max_degree + 1
-    B = np.empty((n, nc), dtype=np.float64)
+    B = np.empty((n, nc), dtype=x.dtype)
     for i in prange(n):
         xi = x[i]
         B[i, 0] = 1.0
@@ -328,7 +328,7 @@ def _build_basis_legendre(x: np.ndarray, max_degree: int) -> np.ndarray:
     """Build ``B[i, k] = P_k(x[i])`` via Bonnet's recurrence."""
     n = x.shape[0]
     nc = max_degree + 1
-    B = np.empty((n, nc), dtype=np.float64)
+    B = np.empty((n, nc), dtype=x.dtype)
     for i in prange(n):
         xi = x[i]
         B[i, 0] = 1.0
@@ -347,7 +347,7 @@ def _build_basis_chebyshev(x: np.ndarray, max_degree: int) -> np.ndarray:
     """Build ``B[i, k] = T_k(x[i])`` via T_{k+1} = 2x*T_k - T_{k-1}."""
     n = x.shape[0]
     nc = max_degree + 1
-    B = np.empty((n, nc), dtype=np.float64)
+    B = np.empty((n, nc), dtype=x.dtype)
     for i in prange(n):
         xi = x[i]
         two_xi = 2.0 * xi
@@ -364,7 +364,7 @@ def _build_basis_laguerre(x: np.ndarray, max_degree: int) -> np.ndarray:
     """Build ``B[i, k] = L_k(x[i])`` via the Laguerre recurrence."""
     n = x.shape[0]
     nc = max_degree + 1
-    B = np.empty((n, nc), dtype=np.float64)
+    B = np.empty((n, nc), dtype=x.dtype)
     for i in prange(n):
         xi = x[i]
         B[i, 0] = 1.0
@@ -401,7 +401,7 @@ def build_basis_matrix(basis: str, z: np.ndarray, max_degree: int) -> np.ndarray
         raise KeyError(
             f"build_basis_matrix: basis {basis!r} not in " f"{sorted(_BASIS_BUILDERS)}; factory-based bases must use " f"the per-call eval_func path."
         )
-    z_c = np.ascontiguousarray(z, dtype=np.float64)
+    z_c = np.ascontiguousarray(z, dtype=np.float64)  # Intentional float64: fit-side selection gates are calibrated on float64 fits (kept off the crit dtype)
     # Every builder in _BASIS_BUILDERS is itself a parallel=True kernel, and this is reached from the FE
     # pair sweep's threaded path (fit_pair_prewarp_als). Two threads inside one prange region aborts the
     # process on macOS; see mlframe._numba_parallel_guard.

@@ -18,6 +18,7 @@ oscillation / chirp spans many cycles over the core (a standard-normal chirp at 
 from __future__ import annotations
 
 import numpy as np
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 
 # Inner-quantile core of the working axis over which cycles are counted.
 CORE_Q_LO = 0.05
@@ -29,7 +30,7 @@ MIN_CORE_CYCLES = 0.25
 
 def core_span(z01: np.ndarray) -> float:
     """Width of the ``[CORE_Q_LO, CORE_Q_HI]`` inner-quantile core of the (finite) working axis ``z01``."""
-    z = np.asarray(z01, dtype=np.float64).ravel()  # Intentional float64: replay njit kernels are typed for float64 (fit/replay bit-identity)
+    z = np.asarray(z01, dtype=_crit_np_dtype()).ravel()
     z = z[np.isfinite(z)]
     if z.size < 2:
         return 0.0

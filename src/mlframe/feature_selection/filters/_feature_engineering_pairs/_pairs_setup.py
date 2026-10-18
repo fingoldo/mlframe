@@ -208,7 +208,7 @@ def _fit_prewarp_and_gate_med_part1(
     _pw_y = np.asarray(_pw_y_src)
     if _use_subsample and _pw_y.shape[0] == _full_n_rows:
         _pw_y = _pw_y[_sample_idx]
-    _prewarp_y_eff = winsorize_heavy_tailed_target(np.ascontiguousarray(_pw_y, dtype=_crit_np_dtype()))
+    _prewarp_y_eff = winsorize_heavy_tailed_target(np.ascontiguousarray(_pw_y, dtype=np.float64))  # Intentional float64: pair prewarp fit inputs stay float64 (heavy-tail strict fit-vs-spec comparison)
 
     # JOINT per-pair ALS pre-fit. For each prospective pair fit BOTH operand
     # warps together (rank-1 ALS); an independent 1-D fit cannot recover the
@@ -266,8 +266,8 @@ def _fit_prewarp_and_gate_med_part1(
         if not _pw_cv_ok:
             return True  # CV disabled / n too small -> accept (legacy behaviour)
         try:
-            _a = np.asarray(_va_full, dtype=_crit_np_dtype()).reshape(-1)
-            _b = np.asarray(_vb_full, dtype=_crit_np_dtype()).reshape(-1)
+            _a = np.asarray(_va_full, dtype=np.float64).reshape(-1)  # Intentional float64: pair prewarp fit inputs stay float64 (heavy-tail strict fit-vs-spec comparison)
+            _b = np.asarray(_vb_full, dtype=np.float64).reshape(-1)  # Intentional float64: pair prewarp fit inputs stay float64 (heavy-tail strict fit-vs-spec comparison)
             _sa_tr, _sb_tr = fit_pair_prewarp_als(
                 _a[_tr_mask], _b[_tr_mask], _y_tr,
                 basis=prewarp_basis, max_degree=prewarp_max_degree,

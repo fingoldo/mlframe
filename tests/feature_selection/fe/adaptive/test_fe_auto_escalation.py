@@ -307,7 +307,12 @@ def test_fourier_adaptive_prewarp_replay_bit_identical(arg):
     )
     df = pd.DataFrame({"xa": x, "xb": m})
     replayed = _apply_unary_binary(recipe, df)
-    np.testing.assert_array_equal(replayed, fit_vals)
+    # Tolerance is the f32 policy: fit and replay both follow _crit_np_dtype(), so under the default f32 relaxation the replay
+    # agrees with the fit column to float32 eps scale instead of bit-for-bit.
+    from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
+
+    tol = 1e-5 if _crit_np_dtype() is np.float32 else 0.0
+    np.testing.assert_allclose(replayed, fit_vals, rtol=tol, atol=tol)
 
 
 # ---------------------------------------------------------------------------
