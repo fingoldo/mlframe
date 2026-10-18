@@ -77,7 +77,8 @@ def _digit_extract_njit(arr: np.ndarray, scale: float) -> np.ndarray:
     numpy ``mul -> floor -> mod -> nan_to_num`` 4-pass (each allocating a
     temp) into one allocation-light C loop (~12x). Bit-identical."""
     n = arr.size
-    out = np.empty(n, dtype=_crit_np_dtype())
+    # Intentional float64: numba-compiled loop cannot call the Python dtype helper; digit extraction runs at full precision
+    out = np.empty(n, dtype=np.float64)
     for i in range(n):
         v = arr[i] * scale
         if not np.isfinite(v):

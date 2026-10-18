@@ -14,7 +14,6 @@ import threading
 from typing import TYPE_CHECKING, Any, Callable, Iterable, Sequence
 
 import numpy as np
-from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 import pandas as pd
 from numba import njit
 from numpy.polynomial.hermite import hermval
@@ -620,9 +619,10 @@ def _safe_div(x, y):
     # unavailable in the FE sweep, and (b) the Python-level allocation saving is irrelevant once
     # njit-compiled. ``np.asarray`` + ``np.where`` compile cleanly; keep them.
     eps = 1e-9
-    y = np.asarray(y, dtype=_crit_np_dtype())
+    # Intentional float64: numba-compiled body cannot call the Python dtype helper; the division runs at full precision
+    y = np.asarray(y, dtype=np.float64)
     safe_y = np.where(y == 0.0, eps, y)
-    return np.asarray(x, dtype=_crit_np_dtype()) / safe_y
+    return np.asarray(x, dtype=np.float64) / safe_y
 
 
 def create_binary_transformations(preset: str = "minimal") -> dict[str, Callable[..., Any]]:
