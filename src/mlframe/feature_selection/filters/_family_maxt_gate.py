@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from mlframe.feature_selection.filters._family_columns_dedupe import unique_columns
+from mlframe._numba_parallel_guard import parallel_kernel_entry
 from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 from numba import njit, prange
 
@@ -233,7 +234,9 @@ def family_null_max(cols: np.ndarray, n_x: np.ndarray, y: np.ndarray, n_y: int, 
     bit_prep = None
     dev_bits = None
     if cols.shape[0] and int(n_x.max()) <= BITSET_MAX_BINS and int(n_y) <= BITSET_MAX_CLASSES:
-        bit_prep = bitset_groups(cols, n_x)
+        # Parallel=True column-prange kernels: reachable from the pair sweep's joblib threads; see mlframe._numba_parallel_guard.
+        with parallel_kernel_entry():
+            bit_prep = bitset_groups(cols, n_x)
         if want_device:
             dev_bits = _device_bitsets(bit_prep, n_x, int(y.shape[0]))
     use_device = want_device and bit_prep is None and device_supported(n_x, int(n_y))
@@ -242,16 +245,19 @@ def family_null_max(cols: np.ndarray, n_x: np.ndarray, y: np.ndarray, n_y: int, 
     for start in range(0, int(n_perm), block):
         m = min(block, int(n_perm) - start)
         perms = y[_permutation_block(rng, y, m)]
-        if dev_bits is not None:
-            from ._family_maxt_cuda_bits import null_max_bits_device
+        # The bitset / njit branches run parallel=True prange kernels; the GPU branches do not, but holding the guard
+        # across the whole block keeps the null's kernel entries serialised with every other FE fan-out thread.
+        with parallel_kernel_entry():
+            if dev_bits is not None:
+                from ._family_maxt_cuda_bits import null_max_bits_device
 
-            out[start : start + m] = null_max_bits_device(dev_bits, label_bitsets_batch(perms, int(n_y), words), py_const)
-        elif bit_prep is not None:
-            out[start : start + m] = null_max_bitsets(bit_prep, n_x, perms, int(n_y))
-        elif use_device:
-            out[start : start + m] = family_null_max_device(cols, n_x, perms, int(n_y))
-        else:
-            out[start : start + m] = family_null_max_njit(cols, n_x, perms, int(n_y))
+                out[start : start + m] = null_max_bits_device(dev_bits, label_bitsets_batch(perms, int(n_y), words), py_const)
+            elif bit_prep is not None:
+                out[start : start + m] = null_max_bitsets(bit_prep, n_x, perms, int(n_y))
+            elif use_device:
+                out[start : start + m] = family_null_max_device(cols, n_x, perms, int(n_y))
+            else:
+                out[start : start + m] = family_null_max_njit(cols, n_x, perms, int(n_y))
     return out
 
 
@@ -328,7 +334,8 @@ def _family_codes(X, n_bins: int):
                 col = col.copy()
                 col[bad] = np.median(col[~bad]) if (~bad).any() else 0.0
             v[j - j0] = col
-        quantile_codes_block(v, int(n_bins), cols[j0:j1], nx[j0:j1])
+        with parallel_kernel_entry():
+            quantile_codes_block(v, int(n_bins), cols[j0:j1], nx[j0:j1])
     return cols, nx
 
 
@@ -356,7 +363,8 @@ def family_maxt_pass_codes(cols: np.ndarray, nx: np.ndarray, y: "ArrayLike", alp
     _, y_codes = np.unique(yv, return_inverse=True)
     y_codes = np.ascontiguousarray(y_codes.astype(np.int64).ravel())
     n_y = int(y_codes.max()) + 1
-    observed = mi_all_columns_njit(cols, nx, y_codes, n_y)
+    with parallel_kernel_entry():
+        observed = mi_all_columns_njit(cols, nx, y_codes, n_y)
     return np.asarray(_family_flags(cols, nx, y_codes, n_y, observed, np.arange(observed.shape[0] + 1), alpha, n_perm, seed), dtype=np.bool_)
 
 
@@ -409,7 +417,8 @@ def _analytic_triage(cols, n_x, y, n_y, observed, starts, alpha, inverse=None) -
     ny_occ = int(np.count_nonzero(np.bincount(y, minlength=int(n_y))))
     if ny_occ < 2 or n_rows <= 0:
         return None
-    nx_occ = _occupied_bins(cols, n_x)
+    with parallel_kernel_entry():
+        nx_occ = _occupied_bins(cols, n_x)
     if n_rows / float(max(int(nx_occ.max()), 1) * ny_occ) < _ANALYTIC_DENSITY * _min_expected_cell():
         return None
     df_distinct = (nx_occ - 1) * (ny_occ - 1)
@@ -535,7 +544,8 @@ def family_pass_batches(batches: "Sequence[np.ndarray]", y_codes: np.ndarray, al
     widths = [m.shape[1] for m in mats]
     cols = _stack_codes_transposed(mats, widths)
     n_x = cols.max(axis=1).astype(np.int64) + 1
-    observed = mi_all_columns_njit(cols, n_x, y, n_y)
+    with parallel_kernel_entry():
+        observed = mi_all_columns_njit(cols, n_x, y, n_y)
     return _family_flags(cols, n_x, y, n_y, observed, np.cumsum([0, *widths]), alpha, n_perm, seed)
 
 

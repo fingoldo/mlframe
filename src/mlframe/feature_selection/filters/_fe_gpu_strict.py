@@ -247,10 +247,10 @@ def _retry_cuda_available(first_error: Exception) -> bool:
     except ImportError as exc:
         logger.warning("numba.cuda import failed on retry (%s); treating CUDA as unusable.", exc)
         return False
-    _probe = getattr(_c, "is_available", lambda: False)
+    _cuda_is_available = getattr(_c, "is_available", lambda: False)
     for _ in range(_CUDA_PROBE_RETRIES):
         try:
-            return bool(_probe())
+            return bool(_cuda_is_available())
         except Exception as exc:  # noqa: PERF203 - the retry loop must catch each failed probe attempt
             logger.warning("numba.cuda.is_available() retry raised %s: %s", type(exc).__name__, exc)
     logger.warning("numba.cuda.is_available() failed every attempt; treating CUDA as unusable for this process so routing stays consistent.")
