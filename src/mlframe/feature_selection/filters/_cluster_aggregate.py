@@ -27,7 +27,6 @@ import logging
 from typing import Any, Sequence
 
 import numpy as np
-from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 
 from .engineered_recipes import apply_recipe, build_cluster_aggregate_recipe
 from .friend_graph import node_relevance, pairwise_mi_edge
@@ -308,7 +307,8 @@ def _continuous_cols(X, names: Sequence[str]) -> np.ndarray:
     """Extract ``names`` columns from ``X`` as a float64 matrix with NaN/inf sanitized to 0.0, for distance/correlation-based cluster discovery."""
     from mlframe.feature_selection.filters.engineered_recipes.shared import extract_column as _extract_column
 
-    cols = [np.nan_to_num(np.asarray(_extract_column(X, n), dtype=_crit_np_dtype()), nan=0.0, posinf=0.0, neginf=0.0) for n in names]
+    # Intentional float64: fit-side and replay-side cluster columns must agree to 1e-12, so the cast stays at full precision
+    cols = [np.nan_to_num(np.asarray(_extract_column(X, n), dtype=np.float64), nan=0.0, posinf=0.0, neginf=0.0) for n in names]
     return np.column_stack(cols)
 
 

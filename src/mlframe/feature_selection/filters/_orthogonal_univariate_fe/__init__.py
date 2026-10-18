@@ -174,27 +174,28 @@ def _evaluate_basis_column(
     row to the same engineered value as at fit. With ``return_params=True`` the
     fit path also returns the params it computed so the caller can persist them.
     """
+    # Intentional float64: the numba fit/apply kernels unify their array dtypes, so a float32 operand next to float64 params fails typing
     basis_info = _POLY_BASES[basis]
     fit_fn = basis_info["fit"]
     if preprocess_params is not None:
         # REPLAY: apply the stored fit-time params; never refit on test x.
         apply_fn = basis_info["apply"]
-        z = apply_fn(np.asarray(x, dtype=_crit_np_dtype()), preprocess_params)
+        z = apply_fn(np.asarray(x, dtype=np.float64), preprocess_params)
         params = preprocess_params
     elif aux_for_fit is not None and len(aux_for_fit) > 0:
         # Build params from the concatenated pool, then apply to ``x`` only.
-        aux = np.asarray(aux_for_fit, dtype=_crit_np_dtype())
+        aux = np.asarray(aux_for_fit, dtype=np.float64)
         finite_aux = aux[np.isfinite(aux)]
         if finite_aux.size > 0:
-            pool = np.concatenate([np.asarray(x, dtype=_crit_np_dtype()), finite_aux])
+            pool = np.concatenate([np.asarray(x, dtype=np.float64), finite_aux])
             _z_pool, params = fit_fn(pool)
             apply_fn = basis_info["apply"]
-            z = apply_fn(np.asarray(x, dtype=_crit_np_dtype()), params)
+            z = apply_fn(np.asarray(x, dtype=np.float64), params)
         else:
             z, params = fit_fn(x)
     else:
         z, params = fit_fn(x)
-    z = np.ascontiguousarray(z, dtype=_crit_np_dtype())
+    z = np.ascontiguousarray(z, dtype=np.float64)
     # One-hot coefficient vector: He_n / L_n / T_n / L^Lag_n at the chosen degree.
     coef = np.zeros(degree + 1, dtype=np.float64)  # Intentional float64: accumulator or output buffer; statistic at float64
     coef[degree] = 1.0

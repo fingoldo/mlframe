@@ -193,7 +193,8 @@ def _apply_cluster_aggregate(recipe: EngineeredRecipe, X: Any, col_cache: "dict[
     # the very common case where TRAIN itself contains NaN.
     cols = [
         np.nan_to_num(
-            np.asarray(_extract_column(X, n, col_cache=col_cache), dtype=_crit_np_dtype()),
+            # Intentional float64: replay columns must match the fit-side float64 cluster columns (train/test parity to 1e-12)
+            np.asarray(_extract_column(X, n, col_cache=col_cache), dtype=np.float64),
             nan=0.0, posinf=0.0, neginf=0.0,
         )
         for n in recipe.src_names
