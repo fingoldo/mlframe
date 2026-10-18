@@ -23,7 +23,6 @@
   "family_null_bits"
  ],
  "src/mlframe/feature_selection/filters/_fe_batched_mi.py": [
-  "dedup_njit_edges",
   "mi_from_codes",
   "mi_from_codes_cm_i16",
   "mi_from_counts_col",

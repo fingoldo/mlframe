@@ -19,7 +19,7 @@ from ._fe_batched_mi import (
     _MI_FROM_CODES_MAX_SHARED,
     _MI_MM_FROM_VALUES_NEK_F32_SRC,
     _MI_MM_FROM_VALUES_NEK_SRC,
-    _get_dedup_edges_kernel,
+    _launch_dedup_edges,
 )
 from ._fe_batched_mi_guards import _assert_codes_in_range
 
@@ -54,6 +54,7 @@ def binned_mm_mi_from_cm_gpu(
 
     is_f32 = getattr(x_cm, "dtype", None) == cp.float32
     Xc = cp.ascontiguousarray(x_cm if is_f32 else x_cm.astype(crit_float_dtype(), copy=False))
+    is_f32 = Xc.dtype == cp.float32  # the kernel variant follows the buffer actually launched, not the caller's input dtype
     K, n = int(Xc.shape[0]), int(Xc.shape[1])
     Ky = int(ky)
     if int(nbins) * Ky * 4 > _MI_FROM_CODES_MAX_SHARED:
@@ -69,11 +70,11 @@ def binned_mm_mi_from_cm_gpu(
     ne = int(E.shape[0])
     cmin = cp.ascontiguousarray(Xc.min(axis=1).astype(crit_float_dtype(), copy=False))
     cmax = cp.ascontiguousarray(Xc.max(axis=1).astype(crit_float_dtype(), copy=False))
-    Ec = cp.empty((ne + 1, K), dtype=crit_float_dtype())  # the dedup kernel's transient trailing row, as in the row-major twin
+    # Edge table and MI output are double by the MI kernel contract (edges and out are double*); the dedup kernel's transient trailing row, as in the row-major twin.
+    Ec = cp.empty((ne + 1, K), dtype=cp.float64)  # Intentional float64: MI kernel edge contract (double*)
     ne_k = cp.empty(K, dtype=cp.int32)
-    threads = 256
-    _get_dedup_edges_kernel()(((K + threads - 1) // threads,), (threads,), (E, cmin, cmax, np.int32(ne), np.int32(K), Ec, ne_k))
-    mi_out = cp.empty(K, dtype=crit_float_dtype())
+    _launch_dedup_edges(E, cmin, cmax, ne, K, Ec, ne_k)
+    mi_out = cp.empty(K, dtype=cp.float64)  # Intentional float64: MI kernel output contract (double*)
     _kernel(cp, is_f32)(
         (K,), (256,),
         # Intentional float64: RawKernel scalar args are declared double; the kernel signature requires f64 here.

@@ -268,34 +268,46 @@ _MI_MM_FROM_VALUES_KERNEL = None
 # binning -> MI is byte-for-byte unchanged from the no-dedup path.
 _DEDUP_EDGES_SRC = r"""
 extern "C" __global__
-void dedup_njit_edges(const double* __restrict__ edges, const double* __restrict__ cmin,
-                      const double* __restrict__ cmax, const int ne, const int K,
+void dedup_njit_edges(const {REAL}* __restrict__ edges, const {REAL}* __restrict__ cmin,
+                      const {REAL}* __restrict__ cmax, const int ne, const int K,
                       double* __restrict__ out, int* __restrict__ ne_out) {
     int c = blockIdx.x * blockDim.x + threadIdx.x;   // one thread per column
     if (c >= K) return;
     // de[0] is cmin; emit de[1:] (everything strictly AFTER the first distinct value) into out[*, c].
-    double prev = cmin[c];
+    double prev = (double)cmin[c];
     int w = 0;
     for (int e = 0; e < ne; ++e) {
-        double v = edges[(long long)e * K + c];
+        double v = (double)edges[(long long)e * K + c];
         if (v != prev) { out[(long long)w * K + c] = v; w++; prev = v; }
     }
-    double hv = cmax[c];
+    double hv = (double)cmax[c];
     if (hv != prev) { out[(long long)w * K + c] = hv; w++; prev = hv; }
     if (w >= 2) w -= 1;          // drop trailing de[-1] for m>=3 (njit de[1:-1]); keep [de[1]] for m==2
     ne_out[c] = w;
 }
 """
-_DEDUP_EDGES_KERNEL = None
+_DEDUP_EDGES_KERNELS: dict = {}
 
 
-def _get_dedup_edges_kernel():
-    """Lazy-compile + cache the ``dedup_njit_edges`` RawKernel (module-level singleton, pickle-safe)."""
-    global _DEDUP_EDGES_KERNEL
-    if _DEDUP_EDGES_KERNEL is None:
+def _get_dedup_edges_kernel(real_t: str = "double"):
+    """Lazy-compile + cache the ``dedup_njit_edges`` RawKernel for the edge/bound element type ``real_t`` (module-level, pickle-safe).
+
+    The edges and bounds are read as ``real_t`` (the buffers' own dtype, float32 under the crit default); the emitted edge table is always double."""
+    kern = _DEDUP_EDGES_KERNELS.get(real_t)
+    if kern is None:
         import cupy as cp
-        _DEDUP_EDGES_KERNEL = cp.RawKernel(_DEDUP_EDGES_SRC, "dedup_njit_edges")
-    return _DEDUP_EDGES_KERNEL
+        kern = cp.RawKernel(_DEDUP_EDGES_SRC.replace("{REAL}", real_t), "dedup_njit_edges")
+        _DEDUP_EDGES_KERNELS[real_t] = kern
+    return kern
+
+
+def _launch_dedup_edges(E, cmin, cmax, ne: int, K: int, Ec, ne_k) -> None:
+    """Run ``dedup_njit_edges`` over ``(ne, K)`` edges and ``(K,)`` bounds, reading each at its own dtype (``E.dtype``) and writing the double ``Ec`` / int32 ``ne_k``."""
+    import cupy as cp
+
+    real_t = "float" if E.dtype == cp.float32 else "double"
+    threads = 256
+    _get_dedup_edges_kernel(real_t)(((K + threads - 1) // threads,), (threads,), (E, cmin, cmax, np.int32(ne), np.int32(K), Ec, ne_k))
 
 
 # Length-aware twin of mi_mm_from_values: each column binary-searches only its VALID prefix ne_k[c] of the
@@ -395,8 +407,7 @@ def binned_mm_mi_from_values_gpu(x_vals: Any, interior_edges: Any, y_codes: Any,
     # only stops the stray write from corrupting the adjacent pool block (was cudaErrorIllegalAddress).
     Ec = cp.empty((ne + 1, K), dtype=cp.float64)  # Intentional float64: GPU MI edge buffer; compared at full precision
     ne_k = cp.empty(K, dtype=cp.int32)
-    threads = 256
-    _get_dedup_edges_kernel()(((K + threads - 1) // threads,), (threads,), (E, cmin, cmax, np.int32(ne), np.int32(K), Ec, ne_k))
+    _launch_dedup_edges(E, cmin, cmax, ne, K, Ec, ne_k)
     _mm_nek = _get_mi_mm_from_values_nek_f32_kernel() if _is_f32 else _get_mi_mm_from_values_nek_kernel()
     _mm_nek((K,), (256,),
         (Xc, Ec, yv, np.int64(n), np.int32(K), np.int32(int(nbins)),
