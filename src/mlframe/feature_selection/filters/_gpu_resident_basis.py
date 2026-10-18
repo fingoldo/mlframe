@@ -326,8 +326,8 @@ def _gpu_evaluate_basis_column(cp, x, basis, degree, *, robust_axis: bool):
 
 _ROBUST_SCALE_COMBINE_SRC = r"""
 extern "C" __global__
-void robust_scale_combine(const double* __restrict__ mad, const double* __restrict__ q25,
-                          const double* __restrict__ q75, const int K, double* __restrict__ out) {
+void robust_scale_combine(const {REAL}* __restrict__ mad, const {REAL}* __restrict__ q25,
+                          const {REAL}* __restrict__ q75, const int K, {REAL}* __restrict__ out) {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= K) return;
     double sc = 1.4826 * mad[i];
@@ -335,15 +335,16 @@ void robust_scale_combine(const double* __restrict__ mad, const double* __restri
     out[i] = sc > 1e-12 ? sc : (iqr > 1e-12 ? iqr : 0.0);
 }
 """
-_ROBUST_SCALE_COMBINE_KERNEL = None
+_ROBUST_SCALE_COMBINE_KERNELS: dict = {}
 
 
-def _get_robust_scale_combine_kernel(cp):
-    """Lazily compile-and-cache the ``robust_scale_combine`` RawKernel (fuses the MAD/IQR-fallback/degenerate combine into one launch)."""
-    global _ROBUST_SCALE_COMBINE_KERNEL
-    if _ROBUST_SCALE_COMBINE_KERNEL is None:
-        _ROBUST_SCALE_COMBINE_KERNEL = cp.RawKernel(_ROBUST_SCALE_COMBINE_SRC, "robust_scale_combine")
-    return _ROBUST_SCALE_COMBINE_KERNEL
+def _get_robust_scale_combine_kernel(cp, real_t: str = "double"):
+    """Lazily compile-and-cache the ``robust_scale_combine`` RawKernel for the element type ``real_t`` (fuses the MAD/IQR-fallback/degenerate combine into one launch)."""
+    kern = _ROBUST_SCALE_COMBINE_KERNELS.get(real_t)
+    if kern is None:
+        kern = cp.RawKernel(_ROBUST_SCALE_COMBINE_SRC.replace("{REAL}", real_t), "robust_scale_combine")
+        _ROBUST_SCALE_COMBINE_KERNELS[real_t] = kern
+    return kern
 
 
 def _gpu_robust_scale_batched(cp, M, med, *, q25=None, q75=None):
@@ -363,7 +364,7 @@ def _gpu_robust_scale_batched(cp, M, med, *, q25=None, q75=None):
         K = int(mad.shape[0])
         out = cp.empty(K, dtype=crit_float_dtype())
         threads = 128
-        _get_robust_scale_combine_kernel(cp)(((K + threads - 1) // threads,), (threads,),
+        _get_robust_scale_combine_kernel(cp, "float" if mad.dtype == cp.float32 else "double")(((K + threads - 1) // threads,), (threads,),
             (cp.ascontiguousarray(mad.astype(crit_float_dtype(), copy=False)),
              cp.ascontiguousarray(q25.astype(crit_float_dtype(), copy=False)),
              cp.ascontiguousarray(q75.astype(crit_float_dtype(), copy=False)), np.int32(K), out))
@@ -387,20 +388,20 @@ def _gpu_robust_lo_hi_batched(cp, M, med, scale):
 
 _HEAVY_TAIL_STATS_SRC = r"""
 extern "C" __global__
-void heavy_tail_stats(const double* __restrict__ M, const double* __restrict__ med,
-                      const double* __restrict__ scale, const double outerK, const double gapthr,
+void heavy_tail_stats(const {REAL}* __restrict__ M, const {REAL}* __restrict__ med,
+                      const {REAL}* __restrict__ scale, const double outerK, const double gapthr,
                       const double maxfrac, const long long n, const int K,
                       signed char* __restrict__ out_v) {
     int col = blockIdx.x;
     if (col >= K) return;
-    double mc = med[col];
-    double sc = scale[col];
+    double mc = (double)med[col];
+    double sc = (double)scale[col];
     double thr = outerK * sc;
     int tid = threadIdx.x;
     long long nloc = 0;
     double bulk = -1e308, omin = 1e308;
     for (long long i = tid; i < n; i += blockDim.x) {
-        double dev = fabs(M[i * (long long)K + col] - mc);
+        double dev = fabs((double)M[i * (long long)K + col] - mc);
         if (dev > thr) { nloc += 1; if (dev < omin) omin = dev; }
         else if (dev > bulk) bulk = dev;
     }
@@ -425,15 +426,16 @@ void heavy_tail_stats(const double* __restrict__ M, const double* __restrict__ m
     }
 }
 """
-_HEAVY_TAIL_STATS_KERNEL = None
+_HEAVY_TAIL_STATS_KERNELS: dict = {}
 
 
-def _get_heavy_tail_stats_kernel(cp):
-    """Lazily compile-and-cache the ``heavy_tail_stats`` RawKernel (per-column outlier-fraction/gap heavy-tail detector)."""
-    global _HEAVY_TAIL_STATS_KERNEL
-    if _HEAVY_TAIL_STATS_KERNEL is None:
-        _HEAVY_TAIL_STATS_KERNEL = cp.RawKernel(_HEAVY_TAIL_STATS_SRC, "heavy_tail_stats")
-    return _HEAVY_TAIL_STATS_KERNEL
+def _get_heavy_tail_stats_kernel(cp, real_t: str = "double"):
+    """Lazily compile-and-cache the ``heavy_tail_stats`` RawKernel for the element type ``real_t`` (``"float"`` or ``"double"``)."""
+    kern = _HEAVY_TAIL_STATS_KERNELS.get(real_t)
+    if kern is None:
+        kern = cp.RawKernel(_HEAVY_TAIL_STATS_SRC.replace("{REAL}", real_t), "heavy_tail_stats")
+        _HEAVY_TAIL_STATS_KERNELS[real_t] = kern
+    return kern
 
 
 def _gpu_detect_heavy_tail_batched(cp, M):
@@ -454,7 +456,8 @@ def _gpu_detect_heavy_tail_batched(cp, M):
         Mc = cp.ascontiguousarray(M.astype(crit_float_dtype(), copy=False))
         K = int(Mc.shape[1])
         out_v = cp.empty(K, dtype=cp.int8)
-        _get_heavy_tail_stats_kernel(cp)((K,), (256,),
+        real_t = "float" if Mc.dtype == cp.float32 else "double"
+        _get_heavy_tail_stats_kernel(cp, real_t)((K,), (256,),
             (Mc, cp.ascontiguousarray(med.astype(crit_float_dtype(), copy=False)),
              cp.ascontiguousarray(scale.astype(crit_float_dtype(), copy=False)),
              float(_GPU_ROBUST_AXIS_OUTER_K), float(_GPU_ROBUST_AXIS_GAP),
@@ -529,9 +532,9 @@ _BASIS_PREPROCESS_CODE = {"hermite": 0, "legendre": 1, "chebyshev": 1, "laguerre
 # clip); laguerre z = x-lo+1e-9. p0/p1 are the per-column params; ONE launch vs the cupy reduction+arith chain.
 _BASIS_PREPROCESS_NR_SRC = r"""
 extern "C" __global__
-void basis_preprocess_nr(const double* __restrict__ M, const double* __restrict__ p0,
-                         const double* __restrict__ p1, const int basis_code,
-                         const long long n, const int K, double* __restrict__ out) {
+void basis_preprocess_nr(const {REAL}* __restrict__ M, const {REAL}* __restrict__ p0,
+                         const {REAL}* __restrict__ p1, const int basis_code,
+                         const long long n, const int K, {REAL}* __restrict__ out) {
     long long t = (long long)blockIdx.x * blockDim.x + threadIdx.x;
     long long total = n * (long long)K;
     if (t >= total) return;
@@ -546,51 +549,54 @@ void basis_preprocess_nr(const double* __restrict__ M, const double* __restrict_
     out[row * (long long)K + col] = z;
 }
 """
-_BASIS_PREPROCESS_NR_KERNEL = None
+_BASIS_PREPROCESS_NR_KERNELS: dict = {}
 
 
-def _get_basis_preprocess_nr_kernel(cp):
+def _get_basis_preprocess_nr_kernel(cp, real_t: str = "double"):
     """Lazily compile-and-cache the non-robust ``basis_preprocess_nr`` RawKernel (unclipped per-basis rescale from precomputed p0/p1 params)."""
-    global _BASIS_PREPROCESS_NR_KERNEL
-    if _BASIS_PREPROCESS_NR_KERNEL is None:
-        _BASIS_PREPROCESS_NR_KERNEL = cp.RawKernel(_BASIS_PREPROCESS_NR_SRC, "basis_preprocess_nr")
-    return _BASIS_PREPROCESS_NR_KERNEL
+    kern = _BASIS_PREPROCESS_NR_KERNELS.get(real_t)
+    if kern is None:
+        kern = cp.RawKernel(_BASIS_PREPROCESS_NR_SRC.replace("{REAL}", real_t), "basis_preprocess_nr")
+        _BASIS_PREPROCESS_NR_KERNELS[real_t] = kern
+    return kern
 
 
 _COL_MEANSTD_SRC = r"""
 extern "C" __global__
-void col_meanstd(const double* __restrict__ M, const long long n, const int K,
-                 double* __restrict__ out_mean, double* __restrict__ out_std) {
+void col_meanstd(const {REAL}* __restrict__ M, const long long n, const int K,
+                 {REAL}* __restrict__ out_mean, {REAL}* __restrict__ out_std) {
     int col = blockIdx.x;
     if (col >= K) return;
     int tid = threadIdx.x, nt = blockDim.x;
     __shared__ double sh[256];
     double s = 0.0;
-    for (long long i = tid; i < n; i += nt) s += M[i * (long long)K + col];
+    for (long long i = tid; i < n; i += nt) s += (double)M[i * (long long)K + col];
     sh[tid] = s; __syncthreads();
     for (int j = nt >> 1; j > 0; j >>= 1) { if (tid < j) sh[tid] += sh[tid + j]; __syncthreads(); }
     double mean = sh[0] / (double)n;
     __syncthreads();
     double d2 = 0.0;
-    for (long long i = tid; i < n; i += nt) { double dv = M[i * (long long)K + col] - mean; d2 += dv * dv; }
+    for (long long i = tid; i < n; i += nt) { double dv = (double)M[i * (long long)K + col] - mean; d2 += dv * dv; }
     sh[tid] = d2; __syncthreads();
     for (int j = nt >> 1; j > 0; j >>= 1) { if (tid < j) sh[tid] += sh[tid + j]; __syncthreads(); }
-    if (tid == 0) { out_mean[col] = mean; out_std[col] = sqrt(sh[0] / (double)n); }
+    if (tid == 0) { out_mean[col] = ({REAL})mean; out_std[col] = ({REAL})sqrt(sh[0] / (double)n); }
 }
 """
-_COL_MEANSTD_KERNEL = None
+_COL_MEANSTD_KERNELS: dict = {}
 
 
 def _col_meanstd(cp, Mc):
     """Per-column mean AND std (ddof=0, two-pass) of a C-contiguous (n, K) f64 matrix in ONE launch (vs
     Mc.mean(axis=0) + Mc.std(axis=0)). Same two-pass formula as cupy std -> rel ~1e-13 (basis path tol 1e-6)."""
-    global _COL_MEANSTD_KERNEL
-    if _COL_MEANSTD_KERNEL is None:
-        _COL_MEANSTD_KERNEL = cp.RawKernel(_COL_MEANSTD_SRC, "col_meanstd")
+    real_t = "float" if Mc.dtype == cp.float32 else "double"
+    kern = _COL_MEANSTD_KERNELS.get(real_t)
+    if kern is None:
+        kern = cp.RawKernel(_COL_MEANSTD_SRC.replace("{REAL}", real_t), "col_meanstd")
+        _COL_MEANSTD_KERNELS[real_t] = kern
     n, K = int(Mc.shape[0]), int(Mc.shape[1])
-    mean = cp.empty(K, dtype=crit_float_dtype())
-    std = cp.empty(K, dtype=crit_float_dtype())
-    _COL_MEANSTD_KERNEL((K,), (256,), (Mc, np.int64(n), np.int32(K), mean, std))
+    mean = cp.empty(K, dtype=Mc.dtype)
+    std = cp.empty(K, dtype=Mc.dtype)
+    kern((K,), (256,), (Mc, np.int64(n), np.int32(K), mean, std))
     return mean, std
 
 
@@ -611,7 +617,7 @@ def _gpu_basis_preprocess_nonrobust_fused(cp, M, basis):
     out = cp.empty((n, g), dtype=crit_float_dtype())
     total = n * g
     threads = 256
-    _get_basis_preprocess_nr_kernel(cp)(((total + threads - 1) // threads,), (threads,),
+    _get_basis_preprocess_nr_kernel(cp, "float" if Mc.dtype == cp.float32 else "double")(((total + threads - 1) // threads,), (threads,),
         (Mc, cp.ascontiguousarray(p0.astype(crit_float_dtype(), copy=False)),
          cp.ascontiguousarray(p1.astype(crit_float_dtype(), copy=False)),
          np.int32(code), np.int64(n), np.int32(g), out))
@@ -620,8 +626,8 @@ def _gpu_basis_preprocess_nonrobust_fused(cp, M, basis):
 
 _COL_MINMAX_SRC = r"""
 extern "C" __global__
-void col_minmax(const double* __restrict__ M, const long long n, const int K,
-                double* __restrict__ out_min, double* __restrict__ out_max) {
+void col_minmax(const {REAL}* __restrict__ M, const long long n, const int K,
+                {REAL}* __restrict__ out_min, {REAL}* __restrict__ out_max) {
     int col = blockIdx.x;
     if (col >= K) return;
     int tid = threadIdx.x, nt = blockDim.x;
@@ -638,19 +644,21 @@ void col_minmax(const double* __restrict__ M, const long long n, const int K,
     if (tid == 0) { out_min[col] = sh_min[0]; out_max[col] = sh_max[0]; }
 }
 """
-_COL_MINMAX_KERNEL = None
+_COL_MINMAX_KERNELS: dict = {}
 
 
 def _col_minmax(cp, Mc):
     """Per-column min AND max of a C-contiguous (n, K) f64 matrix in ONE launch (vs Mc.min(axis=0) +
     Mc.max(axis=0)). min/max reduce order-independently -> bit-identical. Returns (mn (K,), mx (K,))."""
-    global _COL_MINMAX_KERNEL
-    if _COL_MINMAX_KERNEL is None:
-        _COL_MINMAX_KERNEL = cp.RawKernel(_COL_MINMAX_SRC, "col_minmax")
+    real_t = "float" if Mc.dtype == cp.float32 else "double"
+    kern = _COL_MINMAX_KERNELS.get(real_t)
+    if kern is None:
+        kern = cp.RawKernel(_COL_MINMAX_SRC.replace("{REAL}", real_t), "col_minmax")
+        _COL_MINMAX_KERNELS[real_t] = kern
     n, K = int(Mc.shape[0]), int(Mc.shape[1])
-    mn = cp.empty(K, dtype=crit_float_dtype())
-    mx = cp.empty(K, dtype=crit_float_dtype())
-    _COL_MINMAX_KERNEL((K,), (256,), (Mc, np.int64(n), np.int32(K), mn, mx))
+    mn = cp.empty(K, dtype=Mc.dtype)
+    mx = cp.empty(K, dtype=Mc.dtype)
+    kern((K,), (256,), (Mc, np.int64(n), np.int32(K), mn, mx))
     return mn, mx
 
 

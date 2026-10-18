@@ -25,7 +25,7 @@ __device__ __forceinline__ double power_term(double sv, double vv, double vy, do
     const double denom = v_ss * y_ss;
     return (ok && denom > 0.0) ? (vy * vy) / denom : 0.0;
 }
-__global__ void periodogram_power(const double* z, const double* yc, const double* freqs, double* out, const long long n, const double y_ss) {
+__global__ void periodogram_power(const {REAL}* z, const {REAL}* yc, const double* freqs, double* out, const long long n, const double y_ss) {
     const double w = 6.283185307179586 * freqs[blockIdx.x];
     double ss = 0.0, sc = 0.0, vvs = 0.0, vvc = 0.0, vys = 0.0, vyc = 0.0;
     for (long long i = threadIdx.x; i < n; i += blockDim.x) {
@@ -51,7 +51,7 @@ __global__ void periodogram_power(const double* z, const double* yc, const doubl
         out[blockIdx.x] = power_term(tot[0], tot[2], tot[4], (double)n, y_ss) + power_term(tot[1], tot[3], tot[5], (double)n, y_ss);
     }
 }
-__global__ void sincos_gram(const double* z, const double* y, const double f, double* part, const long long n) {
+__global__ void sincos_gram(const {REAL}* z, const {REAL}* y, const double f, double* part, const long long n) {
     // A = [1, sin, cos]: packed A'A (upper, 6) + A'y (3)
     double acc[9];
     #pragma unroll
@@ -106,7 +106,7 @@ __global__ void solve3(const double* part, const int nblocks, double* coef) {
     if (bad) { coef[0] = nan(""); coef[1] = nan(""); coef[2] = nan(""); return; }
     for (int r = 2; r >= 0; --r) { double s = M[r][3]; for (int k = r + 1; k < 3; ++k) s -= M[r][k] * coef[k]; coef[r] = s / M[r][r]; }
 }
-__global__ void apply_deflate(const double* z, const double* y, const double* coef, const double f, double* out, const long long n) {
+__global__ void apply_deflate(const {REAL}* z, const {REAL}* y, const double* coef, const double f, double* out, const long long n) {
     const double w = 6.283185307179586 * f;
     const double c0 = coef[0], c1 = coef[1], c2 = coef[2];
     for (long long i = blockIdx.x * (long long)blockDim.x + threadIdx.x; i < n; i += (long long)gridDim.x * blockDim.x) {
@@ -121,7 +121,13 @@ __global__ void apply_deflate(const double* z, const double* y, const double* co
 
 # The variance floor is filled in from the shared constant so the kernel and the host agree.
 _SRC = _SRC_TEMPLATE.replace("@VARIANCE_FLOOR@", repr(VARIANCE_FLOOR))
-_MODULES = RawModuleCache(_SRC)
+# One module per input element type: the samples arrive in the critical dtype (float32 by default) and the kernels read them as that type; the sums accumulate in double.
+_MODULES_BY_REAL = {"double": RawModuleCache(_SRC.replace("{REAL}", "double")), "float": RawModuleCache(_SRC.replace("{REAL}", "float"))}
+
+
+def _modules_for(z) -> Any:
+    """The module compiled for the element type of the sample buffer ``z``."""
+    return _MODULES_BY_REAL["float" if z.dtype.itemsize == 4 else "double"]
 
 
 def power_sincos(cp: Any, z: Any, yc: Any, y_ss: float, freqs: Any) -> Any:
@@ -131,7 +137,7 @@ def power_sincos(cp: Any, z: Any, yc: Any, y_ss: float, freqs: Any) -> Any:
     # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
     out = cp.empty(int(f.shape[0]), dtype=cp.float64)
     # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
-    _MODULES.get(cp).get_function("periodogram_power")((int(f.shape[0]),), (256,), (z, yc, f, out, cp.int64(z.shape[0]), cp.float64(y_ss)))
+    _modules_for(z).get(cp).get_function("periodogram_power")((int(f.shape[0]),), (256,), (z, yc, f, out, cp.int64(z.shape[0]), cp.float64(y_ss)))
     return out
 
 
@@ -142,7 +148,7 @@ def deflate_sincos(cp: Any, z: Any, y: Any, freq: float) -> Optional[Any]:
     import numpy as np
 
     n = int(z.shape[0])
-    mod = _MODULES.get(cp)
+    mod = _modules_for(z).get(cp)
     blocks = max(1, min(64, (n + 255) // 256))
     # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
     part = cp.empty((blocks, 9), dtype=cp.float64)

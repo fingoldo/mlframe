@@ -1,0 +1,133 @@
+{
+ "src/mlframe/feature_selection/_benchmarks/bench_poly_eval_backends.py": [
+  "chebval_kernel",
+  "hermeval_kernel",
+  "lagval_kernel",
+  "legval_kernel"
+ ],
+ "src/mlframe/feature_selection/_benchmarks/fe_operator_factory/kernel_prototypes/offset_fused_cuda.py": [
+  "argmax_first",
+  "offset_fused_mi",
+  "offset_fused_null"
+ ],
+ "src/mlframe/feature_selection/filters/_batch_pair_mi_cuda_shared_fused.py": [
+  "pair_mi_shared_fused"
+ ],
+ "src/mlframe/feature_selection/filters/_cell_moments_kernel.py": [
+  "cell_centred",
+  "cell_sums",
+  "fold_cell_centred",
+  "fold_cell_sums"
+ ],
+ "src/mlframe/feature_selection/filters/_family_maxt_cuda_bits.py": [
+  "family_null_bits"
+ ],
+ "src/mlframe/feature_selection/filters/_fe_batched_mi.py": [
+  "dedup_njit_edges",
+  "mi_from_codes",
+  "mi_from_codes_cm_i16",
+  "mi_from_counts_col",
+  "mi_from_values",
+  "mi_hist_split",
+  "mi_mm_from_values",
+  "qbin_code"
+ ],
+ "src/mlframe/feature_selection/filters/_fe_batched_mi_cmi.py": [
+  "batched_joint_entropy2",
+  "cmi_assemble",
+  "cmi_joint_entropies",
+  "ent_nnz_1d",
+  "joint_entropy1",
+  "joint_entropy2",
+  "joint_entropy3",
+  "marginal_mi_entropies",
+  "rows_ent_nnz",
+  "rows_ent_nnz_finish",
+  "rows_ent_nnz_i32",
+  "rows_ent_nnz_i32_split"
+ ],
+ "src/mlframe/feature_selection/filters/_feature_engineering_pairs/_pairs_analytic_gpu.py": [
+  "analytic_obs_mi_bins_i8"
+ ],
+ "src/mlframe/feature_selection/filters/_gpu_kernel_sources.py": [
+  "compute_mi_from_classes_cuda"
+ ],
+ "src/mlframe/feature_selection/filters/_gpu_resident_basis.py": [
+  "abs_corr",
+  "basis_preprocess"
+ ],
+ "src/mlframe/feature_selection/filters/_gpu_resident_discretize.py": [
+  "bin_codes_TYPENAME"
+ ],
+ "src/mlframe/feature_selection/filters/_gpu_resident_extval_fused.py": [
+  "extval_candidates"
+ ],
+ "src/mlframe/feature_selection/filters/_gpu_resident_fe.py": [
+  "prewarp_transform"
+ ],
+ "src/mlframe/feature_selection/filters/_gpu_resident_operand_build.py": [
+  "batch_unary"
+ ],
+ "src/mlframe/feature_selection/filters/_gpu_resident_select_kernels.py": [
+  "radix_interp",
+  "radix_select_f64",
+  "radix_select_interp_f64",
+  "radix_select_interp_f64_v2",
+  "radix_select_interp_f64_v3",
+  "transpose_f64"
+ ],
+ "src/mlframe/feature_selection/filters/_gpu_resident_shared.py": [
+  "fused_gen",
+  "fused_gen_bin_hist",
+  "fused_gen_cm"
+ ],
+ "src/mlframe/feature_selection/filters/_hermite_fe_mi.py": [
+  "chebval_kernel",
+  "hermeval_kernel",
+  "lagval_kernel",
+  "legval_kernel"
+ ],
+ "src/mlframe/feature_selection/filters/_honest_null_device.py": [
+  "root_split_stats",
+  "root_split_stats_k2"
+ ],
+ "src/mlframe/feature_selection/filters/_mi_greedy_cmi_fe.py": [
+  "ent_nnz"
+ ],
+ "src/mlframe/feature_selection/filters/_offset_product_gpu.py": [
+  "scan_offset_products"
+ ],
+ "src/mlframe/feature_selection/filters/_resident_candidate_mi.py": [
+  "build_op_cands",
+  "build_op_cands_cm"
+ ],
+ "src/mlframe/feature_selection/filters/_row_argmax_gpu.py": [
+  "row_argmax"
+ ],
+ "src/mlframe/feature_selection/filters/_wavelet_legs_fused_gpu.py": [
+  "leg_codes",
+  "leg_supports"
+ ],
+ "src/mlframe/feature_selection/filters/discretization/_discretization_cuda.py": [
+  "searchsorted_right_2d"
+ ],
+ "src/mlframe/feature_selection/filters/hermite_fe/_basis_fused_gpu.py": [
+  "build_basis"
+ ],
+ "src/mlframe/feature_selection/filters/info_theory/_cmi_cuda.py": [
+  "cmi_from_joint"
+ ],
+ "src/mlframe/feature_selection/shap_proxied_fs/_shap_proxy_gpu.py": [
+  "subset_loss"
+ ],
+ "src/mlframe/feature_selection/shap_proxied_fs/_shap_proxy_treeshap_gpu.py": [
+  "treeshap"
+ ],
+ "src/mlframe/feature_selection/shap_proxied_fs/_shap_proxy_treeshap_interactions_gpu.py": [
+  "treeshap_interactions"
+ ],
+ "src/mlframe/training/_benchmarks/bench_ewma_frac_diff_backends.py": [
+  "ewma_batched",
+  "frac_diff_inv_batched"
+ ]
+}
