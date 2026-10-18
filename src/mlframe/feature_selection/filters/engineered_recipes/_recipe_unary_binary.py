@@ -99,7 +99,7 @@ def _apply_unary_side(recipe: EngineeredRecipe, side: str, uname: str, vals: Any
                     f"unary_binary recipe '{recipe.name}' uses a 'poly_' pseudo-unary on side {side!r} but "
                     f"'{_ckey}' is missing from extra. Re-fit MRMR to regenerate the recipe."
                 )
-            return hermval(np.asarray(vals, dtype=_crit_np_dtype()), np.asarray(recipe.extra[_ckey], dtype=_crit_np_dtype()))
+            return hermval(np.asarray(vals, dtype=np.float64), np.asarray(recipe.extra[_ckey], dtype=np.float64))  # Intentional float64: replay must match the fit-side float64 prewarp and Hermite evaluation (bit-identity contract)
         # BUG2 FIX: ``smart_log`` (the registry ``log``) additively
         # shifts non-positive inputs by ``(1e-5 - nanmin(vals))`` - a
         # DATA-DEPENDENT anchor recomputed from ``vals`` each call. On a row-slice
@@ -112,7 +112,7 @@ def _apply_unary_side(recipe: EngineeredRecipe, side: str, uname: str, vals: Any
         _skey = f"log_shift_{side}"
         if uname == "log" and _skey in recipe.extra:
             _shift = float(recipe.extra[_skey])
-            return np.log(np.asarray(vals, dtype=_crit_np_dtype()) + _shift) if _shift != 0.0 else np.log(np.asarray(vals, dtype=_crit_np_dtype()))
+            return np.log(np.asarray(vals, dtype=np.float64) + _shift) if _shift != 0.0 else np.log(np.asarray(vals, dtype=np.float64))  # Intentional float64: replay must match the fit-side float64 prewarp and Hermite evaluation (bit-identity contract)
         return unary_funcs[uname](vals)
     # Reconstruct the pre-warp spec from the flat ``extra`` fields and replay
     # it closed-form (no y) so the warped operand is bit-identical to fit.
@@ -128,7 +128,7 @@ def _apply_unary_side(recipe: EngineeredRecipe, side: str, uname: str, vals: Any
     _spec = {
         "basis": str(recipe.extra[f"prewarp_{side}_basis"]),
         "degree": int(recipe.extra[f"prewarp_{side}_degree"]),
-        "coef": np.asarray(recipe.extra[f"prewarp_{side}_coef"], dtype=_crit_np_dtype()),
+        "coef": np.asarray(recipe.extra[f"prewarp_{side}_coef"], dtype=np.float64),  # Intentional float64: replay must match the fit-side float64 prewarp and Hermite evaluation (bit-identity contract)
         "preprocess": _orjson.loads(recipe.extra[f"prewarp_{side}_preprocess"]),
     }
     return apply_operand_prewarp(vals, _spec)
@@ -203,7 +203,7 @@ def _apply_unary_binary(recipe: EngineeredRecipe, X: Any, col_cache: "dict[str, 
             # Replay the parent WITHOUT quantization (continuous output).
             import dataclasses as _dc
             parent = _dc.replace(parent, quantization=None)
-        return np.asarray(apply_recipe(parent, X, col_cache=col_cache), dtype=_crit_np_dtype())
+        return np.asarray(apply_recipe(parent, X, col_cache=col_cache), dtype=np.float64)  # Intentional float64: replay must match the fit-side float64 prewarp and Hermite evaluation (bit-identity contract)
 
     _np_a = recipe.extra.get("nested_parent_a")
     _np_b = recipe.extra.get("nested_parent_b")
@@ -344,13 +344,13 @@ def build_unary_binary_recipe(
     # list for JSON/pickle friendliness (mirrors prewarp_<side>_coef below).
     for _side, _coef in (("a", poly_a_coef), ("b", poly_b_coef)):
         if _coef is not None:
-            extra[f"poly_{_side}_coef"] = np.asarray(_coef, dtype=_crit_np_dtype()).tolist()
+            extra[f"poly_{_side}_coef"] = np.asarray(_coef, dtype=np.float64).tolist()  # Intentional float64: replay must match the fit-side float64 prewarp and Hermite evaluation (bit-identity contract)
     for _side, _spec in (("a", prewarp_a), ("b", prewarp_b)):
         if _spec is None:
             continue
         extra[f"prewarp_{_side}_basis"] = str(_spec["basis"])
         extra[f"prewarp_{_side}_degree"] = int(_spec["degree"])
-        extra[f"prewarp_{_side}_coef"] = np.asarray(_spec["coef"], dtype=_crit_np_dtype()).copy()
+        extra[f"prewarp_{_side}_coef"] = np.asarray(_spec["coef"], dtype=np.float64).copy()  # Intentional float64: replay must match the fit-side float64 prewarp and Hermite evaluation (bit-identity contract)
         extra[f"prewarp_{_side}_preprocess"] = _orjson_pp(_spec["preprocess"])
         # ROBUST WARP FIT: when the warp was fit with the Huber-IRLS
         # heavy-tail path, persist the robust flag + the MAD-anchored winsor bounds
