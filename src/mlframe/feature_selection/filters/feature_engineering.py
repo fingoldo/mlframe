@@ -622,7 +622,7 @@ def _safe_div(x, y):
     # Intentional float64: numba-compiled body cannot call the Python dtype helper; the division runs at full precision
     y = np.asarray(y, dtype=np.float64)
     safe_y = np.where(y == 0.0, eps, y)
-    return np.asarray(x, dtype=np.float64) / safe_y
+    return np.asarray(x, dtype=np.float64) / safe_y  # Intentional float64: same numba-body constraint as the line above
 
 
 def create_binary_transformations(preset: str = "minimal") -> dict[str, Callable[..., Any]]:
