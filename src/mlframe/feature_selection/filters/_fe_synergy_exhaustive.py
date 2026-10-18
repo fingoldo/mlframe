@@ -411,9 +411,12 @@ def decide_exhaustive_sweep(
     # budget set (max_runtime_mins is None and no explicit override) p is NOT limited - auto always sweeps.
     # The prediction uses the AVAILABLE backend's throughput, so the affordability verdict is consistent
     # with what will actually run (CUDA where present, CPU prange otherwise).
-    if budget is not None and predicted > budget:
+    # The verdict is a function of the problem size only: a measured throughput (cold cache, machine load, GPU vs CPU) moved the verdict and so the selection itself, which is a
+    # result, not a performance choice. The decision therefore uses the single fixed CPU rate; the measured prediction is still reported.
+    predicted_det = float(n_pairs) / float(_EXHAUSTIVE_CPU_FALLBACK_PAIRS_PER_SEC)
+    if budget is not None and predicted_det > budget:
         return False, (
-            f"auto -> pre-rank: predicted exhaustive wall-time {predicted:.1f}s on the {backend} backend "
+            f"auto -> pre-rank: predicted exhaustive wall-time {predicted_det:.1f}s (fixed rate {_EXHAUSTIVE_CPU_FALLBACK_PAIRS_PER_SEC:.0f} pairs/s; measured {predicted:.1f}s on the {backend} backend) "
             f"(C({n_raw},2)={n_pairs} pairs @ {pps:.0f} pairs/s [{source}]) exceeds the MRMR time budget "
             f"{budget:.0f}s (from max_runtime_mins / fe_synergy_exhaustive_max_seconds); the O(p) pre-rank "
             f"recovers leaky interactions cheaply (only a perfectly-balanced L=0 interaction is missed). "

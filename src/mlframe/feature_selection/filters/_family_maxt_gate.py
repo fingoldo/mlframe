@@ -522,9 +522,25 @@ def _stack_codes_transposed(mats, widths) -> np.ndarray:
     cols = np.empty((int(sum(widths)), n), dtype=dt)
     at = 0
     for m, w in zip(mats, widths):
-        cols[at : at + w] = m.T
+        # A parallel blocked transpose into the shared buffer: numpy's strided ``m.T`` copy was the largest host cost of the family gate on a wide pair pool.
+        _transpose_into(np.ascontiguousarray(m), cols, at)
         at += w
     return cols
+
+
+@njit(cache=True, parallel=True)
+def _transpose_into(src, dst, at):
+    """``dst[at + j, i] = src[i, j]`` for every element of the ``(n, w)`` block ``src``, in cache-sized tiles, parallel over the rows of ``dst``."""
+    n, w = src.shape
+    tile = 64
+    for j0 in prange((w + tile - 1) // tile):
+        j_lo = j0 * tile
+        j_hi = min(j_lo + tile, w)
+        for i0 in range(0, n, tile):
+            i_hi = min(i0 + tile, n)
+            for j in range(j_lo, j_hi):
+                for i in range(i0, i_hi):
+                    dst[at + j, i] = src[i, j]
 
 
 def family_pass_batches(batches: "Sequence[np.ndarray]", y_codes: np.ndarray, alpha: float = 0.01, n_perm: int = FAMILY_MAXT_PERMUTATIONS, seed: int = 0) -> list:

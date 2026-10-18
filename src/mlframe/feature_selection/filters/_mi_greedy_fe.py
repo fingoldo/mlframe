@@ -90,7 +90,8 @@ def _reciprocal_safe(x: np.ndarray) -> np.ndarray:
     # so the denom is non-zero.
     sgn = np.sign(a)
     sgn = np.where(sgn == 0.0, 1.0, sgn)
-    return 1.0 / (a + 1e-12 * sgn)
+    out: np.ndarray = 1.0 / (a + 1e-12 * sgn)
+    return out
 
 def _tanh(x: np.ndarray) -> np.ndarray:
     """``tanh(x)`` - smooth saturating squash, captures threshold / diminishing-returns non-linearities."""
@@ -152,7 +153,8 @@ def _bin_div_safe(a: np.ndarray, b: np.ndarray) -> np.ndarray:
     bv = np.asarray(b, dtype=_crit_np_dtype())
     sgn = np.sign(bv)
     sgn = np.where(sgn == 0.0, 1.0, sgn)
-    return av / (bv + 1e-12 * sgn)
+    out: np.ndarray = av / (bv + 1e-12 * sgn)
+    return out
 
 def _bin_max(a: np.ndarray, b: np.ndarray) -> np.ndarray:
     """``max(a, b)`` - elementwise maximum; catches "worst/best of two" or OR-like decision boundaries (e.g. ``y = sign(max(x_i, x_j) > c)``)."""

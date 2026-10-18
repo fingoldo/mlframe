@@ -609,8 +609,6 @@ def _triplet_seed_sources(
         _missing = [c for c in raw_cols_all if c not in _baseline_map]
         if _missing:
             y_arr = coerce_y_classif(y)
-            from ._fe_usability_signal import _crit_np_dtype
-
             _dt = _crit_np_dtype()  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); MI binning is scale-robust
             # Fit-scoped memo: no-op passthrough outside an active orth_scoring_memo_scope(); inside a
             # scope, shares this residual MI batch with sibling opt-in layers.
