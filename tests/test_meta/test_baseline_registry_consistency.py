@@ -53,6 +53,8 @@ FLAG_EXEMPT: dict[str, str] = {
     "_drifted_duplicate_literals_baseline.json": "PY_CI_SHARED_REFRESH=duplicate-literals",
     "_drifted_threshold_literals_baseline.json": "PY_CI_SHARED_REFRESH=duplicate-literals",
     "_unresolved_module_attributes_baseline.json": "PY_CI_SHARED_REFRESH=unresolved_module_attributes (see test_shared_gates_adopted_pass2.py)",
+    # Hand-maintained: test_gpu_kernel_pointer_dtype.py names every stale or new kernel, and the list may only shrink.
+    "_gpu_kernel_pointer_dtype_baseline.json": "edit by hand (test_gpu_kernel_pointer_dtype.py lists stale and new kernels)",
 }
 
 
