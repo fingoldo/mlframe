@@ -292,7 +292,7 @@ def _resolve_pair_prevalence_gate(
     raw_vars_pair, pair_mi, ind_elems_mi_sum, *,
     self, data, classes_y, _pair_resident, _pair_mm_bias, _pair_maxt_floor,
     _synergy_added_idx, fe_min_pair_mi_prevalence, _synergy_prev_resolved, _prevalence_debias_auto,
-    _col_codes_cache=None,
+    _col_codes_cache=None, single_mis=(0.0, 0.0), conditional_gate=None,
 ):
     """Pure (no side effects on ``vars_usage_counter`` / ``prospective_pairs`` / the rejection ledger)
     resolution of the prevalence + order-2 maxT gate state for ONE pair - factored out of the main loop
@@ -383,6 +383,14 @@ def _resolve_pair_prevalence_gate(
     _obs_for_prevalence = _pair_mi_floor_cmp if _prevalence_debias_auto else pair_mi
     _passes_prevalence = _obs_for_prevalence > ind_elems_mi_sum * _prev_thresh
     _passes_maxt = _pair_mi_floor_cmp >= _pair_maxt_floor
+    # The floor is the chance-max of a pair's joint MI over the pool. When one operand clears it on its own (a selected composite), every partner clears it too, so the joint MI is no evidence for
+    # the PAIR: the weaker operand must stand out, as the best of all the candidate partners, in the information it carries beyond the stronger one.
+    if _passes_prevalence and _passes_maxt and conditional_gate is not None and _pair_maxt_floor > 0.0 and max(single_mis) >= _pair_maxt_floor:
+        _strong, _weak = (0, 1) if single_mis[0] >= single_mis[1] else (1, 0)
+        try:
+            _passes_maxt = conditional_gate.clears(raw_vars_pair[_weak], raw_vars_pair[_strong])
+        except Exception as e:  # nosec B110 - optional/best-effort path, rationale documented
+            logger.debug("family-wise partner test failed, keeping the floor verdict: %s", e)
     return _passes_prevalence, _passes_maxt, _is_synergy_pair, _prev_thresh, _pair_mi_floor_cmp
 
 
@@ -410,6 +418,9 @@ def _prepass_gate_and_usability_candidates(
     _gate_cache: dict = {}
     _need_usability: list = []
     _col_codes_cache: dict = {}
+    from ._conditional_maxt import ConditionalPartnerGate
+
+    _conditional_gate = ConditionalPartnerGate(data, gate_kwargs["classes_y"], sorted(numeric_vars_to_consider), int(getattr(gate_kwargs["self"], "random_seed", 0) or 0))
     if sorted_pairs is None:
         sorted_pairs = sort_dict_by_value(cached_MIs)
     for _pk, _pmi in sorted_pairs.items():
@@ -420,7 +431,9 @@ def _prepass_gate_and_usability_candidates(
         _ies = cached_MIs[(_pk[0],)] + cached_MIs[(_pk[1],)]
         if _ies <= 0:
             continue
-        _gate_cache[_pk] = _resolve_pair_prevalence_gate(_pk, _pmi, _ies, **gate_kwargs, _col_codes_cache=_col_codes_cache)
+        _gate_cache[_pk] = _resolve_pair_prevalence_gate(
+            _pk, _pmi, _ies, **gate_kwargs, _col_codes_cache=_col_codes_cache, single_mis=(cached_MIs[(_pk[0],)], cached_MIs[(_pk[1],)]), conditional_gate=_conditional_gate
+        )
         if not usability_enabled or not yc_shape_ok:
             continue
         _pp, _pt, _is_syn_ign, _prevt_ign, _floorcmp_ign = _gate_cache[_pk]
