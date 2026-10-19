@@ -54,3 +54,21 @@ Note: the 35 sites added to the baseline by the depth-2 and `self` rules are NOT
 - FIX in this wave: A1, A2, B1 (done earlier), D1 (done), D2 (with A1 and A2).
 - DEFER with a target: A3, B2, B3, the 49 entries in section C, E2.
 - DISMISS with reason: A4, E1.
+
+## F. Triage of the 84 new baseline entries
+
+Full per-site verdicts: `triage_a.md` (keys 1-42 of `/d/Temp/triage_a.txt`) and `triage_b.md` (keys 43-84). Verdicts were read from source, with callee bodies read where cited.
+
+Totals: REAL 25 (A 9, B 16), CHUNK 24 (A 13, B 11), FALSE_POSITIVE 27 (A 17, B 10), UNCLEAR 8 (A 3, B 5).
+
+Caveat for the FALSE_POSITIVE group: most are gated off by default (`_cmi_gpu_enabled`, `_gate_cands_resident()`, `fe_gpu_strict_resident_enabled()`, `MLFRAME_EXTVAL_FUSED`). The detector is right that the default host run does not launch them, but these gates are opt-in switches, not kernel-tuning-cache decisions. Per the project rule (dispatch by hardware and size via kernel_tuning_cache, not opt-in flags), those gates are a dispatch gap to fix, not a reason to dismiss. Status: OPEN, not dismissed.
+
+Example: `hermite_fe/__init__.py` `_polyeval_dispatch` (key 37 in the triage list). The CUDA crossover `_cuda_threshold` from kernel_tuning_cache is computed in `_lookup_polyeval_thresholds` but the default path ignores it and reaches CUDA only when `MLFRAME_POLYEVAL_BACKEND=cuda` is set. Disposition: FIX through KTC, not DISMISS.
+
+Shapes of FALSE_POSITIVE, to be recognised by the detector or fixed at source:
+1. Host function calling a helper whose cupy branch sits behind a config gate (about 13 sites).
+2. `xp` or `cp` parameter always bound to numpy by callers (keys 34, 36 in A).
+3. Env flag that returns early before the cupy loop (key 31 in A).
+4. Prewarp/spec branch in a callee that skips the cupy quantiser (key 19 in A).
+
+UNCLEAR, needs a further read: A 27, 28, 38; B 5 keys (see `triage_b.md`).
