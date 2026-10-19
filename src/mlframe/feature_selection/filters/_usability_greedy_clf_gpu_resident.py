@@ -65,6 +65,7 @@ class _ResidentClfFallbackError(Exception):
 # per-fold logloss agrees with sklearn lbfgs to the selection gate's tolerance.
 _NEWTON_MAX_ITER = 200
 _NEWTON_TOL = 1e-9
+_NEWTON_TOL_F32 = 2e-4  # a float32 Newton step cannot fall below ~1e-6 of the weights; 1e-9 is never reached, so every fit fell back to the CPU
 _C = 1.0  # sklearn LogisticRegression default inverse-regularisation strength
 _LOGLOSS_EPS = 1e-15
 
@@ -219,13 +220,15 @@ def usability_greedy_clf_gpu_resident(
             full = [*sel_idx, cand]
             # Intentional float64: accumulator kept f64 (statistic / count sums need full precision)
             errs = np.empty(nf, dtype=np.float64)
+            # The design columns are picked first and the fold rows second: ``Vdev[tr][:, full]`` copied every one of the pool's P columns of the fold's rows before keeping a few.
+            Vcols = Vdev[:, full]
             for fo in range(nf):
                 tr, va = tr_masks[fo], va_masks[fo]
                 if int(np.unique(y_enc[tr_masks_h[fo]]).size) < 2:
                     errs[fo] = np.inf
                     continue
-                Xtr = Vdev[tr][:, full]
-                Xva = Vdev[va][:, full]
+                Xtr = Vcols[tr]
+                Xva = Vcols[va]
                 Xtr_s, (Xva_s,) = _standardize(Xtr, [Xva])
                 proba = _fit_proba(Xtr_s, [Xva_s], yenc_dev[tr])[0]
                 errs[fo] = _logloss(yenc_dev[va], proba)
@@ -272,7 +275,7 @@ def _usability_greedy_clf_step1_def_fit_binary(cp, n_classes):
             wv = wv - step
             if not bool(cp.all(cp.isfinite(wv))):
                 raise _ResidentClfFallbackError()
-            if float(cp.max(cp.abs(step))) < _NEWTON_TOL:
+            if float(cp.max(cp.abs(step))) < (_NEWTON_TOL_F32 if A.dtype == cp.float32 else _NEWTON_TOL):
                 break
         else:
             raise _ResidentClfFallbackError()  # did not converge -> defer to CPU
@@ -330,7 +333,7 @@ def _usability_greedy_clf_step1_def_fit_binary(cp, n_classes):
             Wm = Wm - step.reshape(d, n_classes)
             if not bool(cp.all(cp.isfinite(Wm))):
                 raise _ResidentClfFallbackError()
-            if float(cp.max(cp.abs(step))) < _NEWTON_TOL:
+            if float(cp.max(cp.abs(step))) < (_NEWTON_TOL_F32 if A.dtype == cp.float32 else _NEWTON_TOL):
                 break
         else:
             raise _ResidentClfFallbackError()

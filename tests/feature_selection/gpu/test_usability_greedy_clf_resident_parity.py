@@ -173,3 +173,22 @@ def test_residency_one_matrix_h2d_no_per_candidate_d2h():
     assert len(r12.bulk_h2d) == len(r40.bulk_h2d)
     # The single largest bulk H2D is the value matrix and it GROWS with P (12 -> 40 cols).
     assert max(r40.bulk_h2d) > max(r12.bulk_h2d)
+
+
+def test_float32_newton_converges_at_realistic_size():
+    """A float32 Newton step cannot reach the float64 tolerance, so the twin used to defer to the CPU on every realistic-size pool; it now converges and selects the signal columns."""
+    pytest.importorskip("cupy")
+    from mlframe.feature_selection.filters._usability_aware_selection import UsableCandidate
+    from mlframe.feature_selection.filters._usability_greedy_clf_gpu_resident import usability_greedy_clf_gpu_resident
+
+    rng = np.random.default_rng(0)
+    n = 20000
+    base = rng.random((n, 3))
+    score = 2.0 * base[:, 0] - 1.5 * base[:, 1] + base[:, 2]
+    y = (rng.random(n) < 1 / (1 + np.exp(-3 * (score - score.mean())))).astype(int)
+    cols = {f"x{i}": rng.standard_normal(n) for i in range(20)}
+    cols.update({"a": base[:, 0], "b": base[:, 1], "c": base[:, 2]})
+    pool = [UsableCandidate(nm, v.astype(np.float64), float(abs(np.corrcoef(v, y)[0, 1])), None, (nm,), ()) for nm, v in cols.items()]
+    got = usability_greedy_clf_gpu_resident(pool, y)
+    assert got is not None
+    assert {c.name for c in got} == {"a", "b", "c"}
