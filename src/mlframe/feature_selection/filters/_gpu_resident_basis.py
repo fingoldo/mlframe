@@ -364,10 +364,13 @@ def _gpu_robust_scale_batched(cp, M, med, *, q25=None, q75=None):
         K = int(mad.shape[0])
         out = cp.empty(K, dtype=crit_float_dtype())
         threads = 128
-        _get_robust_scale_combine_kernel(cp, "float" if mad.dtype == cp.float32 else "double")(((K + threads - 1) // threads,), (threads,),
-            (cp.ascontiguousarray(mad.astype(crit_float_dtype(), copy=False)),
-             cp.ascontiguousarray(q25.astype(crit_float_dtype(), copy=False)),
-             cp.ascontiguousarray(q75.astype(crit_float_dtype(), copy=False)), np.int32(K), out))
+        # The kernel's element type follows the buffers actually launched (cast to the crit dtype), not the dtype ``mad`` arrived in:
+        # a float64 ``mad`` under a float32 crit dtype would otherwise read the float32 vectors as doubles.
+        mad_c = cp.ascontiguousarray(mad.astype(crit_float_dtype(), copy=False))
+        q25_c = cp.ascontiguousarray(q25.astype(crit_float_dtype(), copy=False))
+        q75_c = cp.ascontiguousarray(q75.astype(crit_float_dtype(), copy=False))
+        _get_robust_scale_combine_kernel(cp, "float" if out.dtype == cp.float32 else "double")(((K + threads - 1) // threads,), (threads,),
+            (mad_c, q25_c, q75_c, np.int32(K), out))
         return out
     except Exception as e:
         import logging

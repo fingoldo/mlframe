@@ -6,7 +6,6 @@ in registers, reduces by warp shuffle and a fixed-order block reduction, and sum
 """
 
 from __future__ import annotations
-from mlframe.feature_selection.filters._fe_gpu_batch._devices import crit_float_dtype
 
 import threading
 from typing import Any
@@ -17,24 +16,24 @@ _LOCK = threading.Lock()
 
 _SRC = r"""
 extern "C" {
-__global__ void design_matvec(const double* B, const double* c, double* out, const long long n) {
+__global__ void design_matvec(const {REAL}* B, const {REAL}* c, {REAL}* out, const long long n) {
     double cc[D];
     #pragma unroll
     for (int k = 0; k < D; ++k) cc[k] = c[k];
     for (long long i = blockIdx.x * (long long)blockDim.x + threadIdx.x; i < n; i += (long long)gridDim.x * blockDim.x) {
-        const double* r = B + i * D;
+        const {REAL}* r = B + i * D;
         double s = 0.0;
         #pragma unroll
         for (int k = 0; k < D; ++k) s += r[k] * cc[k];
         out[i] = s;
     }
 }
-__global__ void weighted_gram(const double* B, const double* w, const double* y, double* part, const long long n, const int use_w) {
+__global__ void weighted_gram(const {REAL}* B, const {REAL}* w, const {REAL}* y, double* part, const long long n, const int use_w) {
     double acc[NACC];
     #pragma unroll
     for (int t = 0; t < NACC; ++t) acc[t] = 0.0;
     for (long long i = blockIdx.x * (long long)blockDim.x + threadIdx.x; i < n; i += (long long)gridDim.x * blockDim.x) {
-        const double* r = B + i * D;
+        const {REAL}* r = B + i * D;
         const double wi = use_w ? w[i] : 1.0;
         double a[D];
         #pragma unroll
@@ -69,7 +68,12 @@ __global__ void weighted_gram(const double* B, const double* w, const double* y,
 """
 
 
-_MODULES = RawModuleCache(_SRC)
+_MODULES_BY_REAL = {"double": RawModuleCache(_SRC.replace("{REAL}", "double")), "float": RawModuleCache(_SRC.replace("{REAL}", "float"))}
+
+
+def _modules_for(B: Any) -> Any:
+    """The module compiled for the element type of the design ``B`` (accumulation stays in double precision)."""
+    return _MODULES_BY_REAL["float" if B.dtype.itemsize == 4 else "double"]
 
 
 def _grid(cp, n: int) -> int:
@@ -78,23 +82,23 @@ def _grid(cp, n: int) -> int:
 
 
 def design_matvec(cp: Any, B: Any, c: Any) -> Any:
-    """``B @ c`` for a C-contiguous double precision ``(n, d)`` design and a ``(d,)`` coefficient vector."""
+    """``B @ c`` for a C-contiguous ``(n, d)`` design and a ``(d,)`` coefficient vector; the result and the coefficients take the design's dtype, the products accumulate in double precision."""
     n, d = B.shape
-    out = cp.empty(n, dtype=crit_float_dtype())
-    c = cp.ascontiguousarray(c, dtype=crit_float_dtype())
-    _MODULES.get(cp, d).get_function("design_matvec")((_grid(cp, n),), (256,), (B, c, out, cp.int64(n)))
+    out = cp.empty(n, dtype=B.dtype)
+    c = cp.ascontiguousarray(c, dtype=B.dtype)
+    _modules_for(B).get(cp, d).get_function("design_matvec")((_grid(cp, n),), (256,), (B, c, out, cp.int64(n)))
     return out
 
 
 def weighted_gram(cp: Any, B: Any, w: Any, y: Any) -> "tuple[Any, Any]":
-    """``(A'A, A'y)`` for ``A = B * w[:, None]`` (``w=None`` means ``A = B``); ``B`` is C-contiguous double precision ``(n, d)``, ``y`` is ``(n,)``."""
+    """``(A'A, A'y)`` for ``A = B * w[:, None]`` (``w=None`` means ``A = B``); ``B`` is C-contiguous ``(n, d)`` and ``w``, ``y`` take its dtype; the sums accumulate in double precision."""
     n, d = B.shape
     nacc = d * (d + 1) // 2 + d
     blocks = _grid(cp, n)
-    part = cp.empty((blocks, nacc), dtype=crit_float_dtype())
-    y64 = cp.ascontiguousarray(y, dtype=crit_float_dtype())
-    w64 = y64 if w is None else cp.ascontiguousarray(w, dtype=crit_float_dtype())
-    _MODULES.get(cp, d).get_function("weighted_gram")((blocks,), (256,), (B, w64, y64, part, cp.int64(n), cp.int32(0 if w is None else 1)))
+    part = cp.empty((blocks, nacc), dtype=cp.float64)  # Intentional float64: normal-equation partial sums, solved in double precision
+    y64 = cp.ascontiguousarray(y, dtype=B.dtype)
+    w64 = y64 if w is None else cp.ascontiguousarray(w, dtype=B.dtype)
+    _modules_for(B).get(cp, d).get_function("weighted_gram")((blocks,), (256,), (B, w64, y64, part, cp.int64(n), cp.int32(0 if w is None else 1)))
     out = part.sum(axis=0)
     ata_idx, atb_idx = _unpack_index(cp, d)
     return out[ata_idx], out[atb_idx]

@@ -4,10 +4,15 @@ The package keeps the precision-critical buffers in the critical dtype (float32 
 buffer bound to a ``double*`` parameter is read past its end (a device-side illegal access that corrupts the CUDA context for the rest of the process), so the mismatch must not be
 introduced silently. A kernel with ``double*`` parameters must either take its element type from a ``{REAL}`` template (compiled per dtype) or be listed in the baseline below until its
 launch sites are reviewed; a new unlisted kernel fails this test.
+
+A templated kernel is only as safe as the type chosen at its call site. The type must follow the buffer that is actually launched, so the array whose ``dtype`` picks the
+instantiation (``"float" if X.dtype == cp.float32 else "double"``) has to be passed to the launch by name; probing the dtype of an array that is cast to another dtype before the launch
+compiles a ``double`` kernel for float32 buffers, which is the same out-of-bounds read the template exists to prevent.
 """
 
 from __future__ import annotations
 
+import ast
 import json
 import re
 from pathlib import Path
@@ -17,7 +22,7 @@ import pytest
 SRC_ROOT = Path(__file__).resolve().parents[2] / "src" / "mlframe"
 BASELINE = Path(__file__).with_name("_gpu_kernel_pointer_dtype_baseline.json")
 
-_KERNEL_RE = re.compile(r'extern\s+"C"\s+__global__\s+void\s+(\w+)\s*\((.*?)\)\s*\{', re.S)
+_KERNEL_RE = re.compile(r"__global__\s+void\s+(\w+)\s*\((.*?)\)\s*\{", re.S)  # with or without an ``extern "C"`` prefix: kernels inside an ``extern "C" { ... }`` block have none
 
 
 def _double_pointer_kernels():
@@ -66,3 +71,57 @@ def test_baseline_has_no_stale_entries():
 def test_baselined_module_exists(rel):
     """Every baseline path points at a real module, so a rename cannot hide a kernel."""
     assert (SRC_ROOT.parent.parent / rel).is_file(), rel
+
+
+def _launch_type_probe_violations(source: str) -> "list[str]":
+    """Functions whose ``"float" if X.dtype == <float32> else "double"`` probe names an array ``X`` that the same function never passes to a launch tuple by name."""
+    problems: list[str] = []
+    for fn in (n for n in ast.walk(ast.parse(source)) if isinstance(n, ast.FunctionDef)):
+        probes = {
+            ast.unparse(node.test.left.value)
+            for node in ast.walk(fn)
+            if isinstance(node, ast.IfExp)
+            and isinstance(node.test, ast.Compare)
+            and isinstance(node.test.left, ast.Attribute)
+            and node.test.left.attr == "dtype"
+            and "float32" in ast.unparse(node.test)
+        }
+        if not probes:
+            continue
+        named = {
+            ast.unparse(el)
+            for call in ast.walk(fn)
+            if isinstance(call, ast.Call)
+            for arg in call.args
+            if isinstance(arg, ast.Tuple)
+            for el in arg.elts
+            if isinstance(el, (ast.Name, ast.Attribute))
+        }
+        problems.extend(f"{fn.name}: the kernel type follows {p}.dtype but {p} is not a launch argument" for p in sorted(probes - named))
+    return problems
+
+
+def test_launch_type_probe_checker_flags_a_cast_before_launch():
+    """The checker reports a type probe on an array that is cast before the launch, and accepts one on the launched buffer."""
+    bad = "def f(cp, mad, out):\n" "    k = get(cp, 'float' if mad.dtype == cp.float32 else 'double')\n" "    k((1,), (1,), (mad.astype(cp.float32), out))\n"
+    good = (
+        "def f(cp, mad, out):\n"
+        "    mad_c = mad.astype(cp.float32)\n"
+        "    k = get(cp, 'float' if mad_c.dtype == cp.float32 else 'double')\n"
+        "    k((1,), (1,), (mad_c, out))\n"
+    )
+    assert _launch_type_probe_violations(bad)
+    assert not _launch_type_probe_violations(good)
+
+
+def test_kernel_type_follows_the_launched_buffer():
+    """Everywhere in the package, the array that picks a kernel's element type is one of the arrays the launch receives."""
+    found: dict[str, list[str]] = {}
+    for path in sorted(SRC_ROOT.rglob("*.py")):
+        text = path.read_text(encoding="utf-8", errors="replace")
+        if "float32" not in text or "dtype" not in text:
+            continue
+        problems = _launch_type_probe_violations(text)
+        if problems:
+            found[str(path.relative_to(SRC_ROOT.parent.parent)).replace("\\", "/")] = problems
+    assert not found, f"the element type of a kernel must follow the buffer actually launched: {found}"

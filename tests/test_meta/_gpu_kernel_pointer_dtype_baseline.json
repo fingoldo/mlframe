@@ -5,6 +5,11 @@
   "lagval_kernel",
   "legval_kernel"
  ],
+ "src/mlframe/feature_selection/_benchmarks/fe_operator_factory/kernel_prototypes/offset_closed_form.py": [
+  "gram4_partials",
+  "offset_gen_cm",
+  "solve4_shift"
+ ],
  "src/mlframe/feature_selection/_benchmarks/fe_operator_factory/kernel_prototypes/offset_fused_cuda.py": [
   "argmax_first",
   "offset_fused_mi",
@@ -96,6 +101,15 @@
  "src/mlframe/feature_selection/filters/_offset_product_gpu.py": [
   "scan_offset_products"
  ],
+ "src/mlframe/feature_selection/filters/_orthogonal_univariate_fe/_fourier_batch_gpu.py": [
+  "apply_deflate_b",
+  "periodogram_power_b",
+  "sincos_gram_b",
+  "solve3_b"
+ ],
+ "src/mlframe/feature_selection/filters/_orthogonal_univariate_fe/_fourier_fused_gpu.py": [
+  "solve3"
+ ],
  "src/mlframe/feature_selection/filters/_resident_candidate_mi.py": [
   "build_op_cands",
   "build_op_cands_cm"
@@ -109,6 +123,11 @@
  ],
  "src/mlframe/feature_selection/filters/discretization/_discretization_cuda.py": [
   "searchsorted_right_2d"
+ ],
+ "src/mlframe/feature_selection/filters/hermite_fe/_als_fused_gpu.py": [
+  "gram_scaled",
+  "matvec_stats",
+  "solve_small"
  ],
  "src/mlframe/feature_selection/filters/hermite_fe/_basis_fused_gpu.py": [
   "build_basis"
