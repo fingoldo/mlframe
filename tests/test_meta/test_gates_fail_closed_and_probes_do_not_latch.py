@@ -44,16 +44,29 @@ class _FakeMRMR:
 
 
 def _rescue(monkeypatch, *, sig_raises=False, pair_raises=False, p_value=0.001, pair_mi=0.0):
-    """Run the empty-support rescue with the two probes stubbed, and return the rescued support."""
+    """Run the empty-support rescue with its two probes stubbed, and return the rescued support.
+
+    The significance gate is one family-wise maxT over the scanned candidates (``fallback_maxt_floor`` + ``exact_pvalue_pass``),
+    so the stub sets the observed statistics against a null: ``p_value`` below 0.5 makes every candidate significant, otherwise none is.
+    """
     import mlframe.feature_selection.filters.info_theory as it
-    import mlframe.feature_selection.filters.permutation as perm
+    import mlframe.feature_selection.filters._mrmr_fit_impl._fallback_maxt as fallback_maxt
     from mlframe.feature_selection.filters._mrmr_fit_impl._finalise import _finalise_empty_support_fallback
 
     def _boom(*a, **k):
         """Stand in for a dtype mismatch, a numba typing failure, or a device fault inside the probe."""
         raise RuntimeError("probe blew up")
 
-    monkeypatch.setattr(perm, "mi_direct", _boom if sig_raises else (lambda *a, **k: (0, 0, 0, p_value)))
+    def _maxt(data, nbins, target_index, cols, alpha, **kwargs):
+        """Stand in for the family-wise maxT probe: raise, or call every scanned column significant or not."""
+        if sig_raises:
+            return _boom()
+        n = len(cols)
+        if p_value < 0.5:
+            return np.full(n, 1e6), np.zeros(256)
+        return np.zeros(n), np.full(256, 1.0)
+
+    monkeypatch.setattr(fallback_maxt, "fallback_maxt_floor", _maxt)
     monkeypatch.setattr(it, "mi", _boom if pair_raises else (lambda *a, **k: pair_mi))
 
     m = _FakeMRMR()

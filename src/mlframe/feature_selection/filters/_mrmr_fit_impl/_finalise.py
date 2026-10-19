@@ -196,10 +196,15 @@ def _accept_rescue_candidates(self, data, nbins, target_indices, cols, _above_fl
     _scan_cols = [_c for (_, _, _c) in _family_src[: max(_scan_limit, _FALLBACK_FAMILY_MIN)] if _c is not None]
     _maxt_obs: dict = {}
     if _scan_cols:
-        _obs, _null_max = fallback_maxt_floor(
-            data, nbins, int(target_indices[0]), _scan_cols, FAMILY_ALPHA, honest_codes_fn=getattr(self, "_honest_null_codes_fn", None)
-        )
-        _maxt_obs = dict(zip(_scan_cols, exact_pvalue_pass(_obs, _null_max, FAMILY_ALPHA).tolist()))
+        # FAIL CLOSED: a significance probe that cannot answer must read as "not significant", so the candidates it covers are dropped.
+        try:
+            _obs, _null_max = fallback_maxt_floor(
+                data, nbins, int(target_indices[0]), _scan_cols, FAMILY_ALPHA, honest_codes_fn=getattr(self, "_honest_null_codes_fn", None)
+            )
+        except Exception as e:
+            logger.warning("MRMR rescue: significance probe raised %s (%s); dropping the candidate(s) it covers.", type(e).__name__, e)
+        else:
+            _maxt_obs = dict(zip(_scan_cols, exact_pvalue_pass(_obs, _null_max, FAMILY_ALPHA).tolist()))
     for _i, _mi, _cols_idx in _above_floor[:_scan_limit]:
         if len(_accepted) >= _rescue_cap:
             break
