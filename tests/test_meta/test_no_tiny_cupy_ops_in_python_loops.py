@@ -10,7 +10,7 @@ literal tuple/list of at most 16 items is examined. The cupy calls counted for t
 1. direct calls through a cupy alias in the loop body (``cp``, ``cupy``, ``xp``, any ``import cupy as X`` alias), nested loops included;
 2. bare calls to names imported from cupy (``from cupy import bincount, sum as csum``);
 3. one level of callees: a call in the loop body whose target is a function defined in the same module, or imported from an mlframe module (``from mlframe.x import f``, a relative
-   ``from .x import f``, a re-export through a package ``__init__``, or ``import mlframe.x as m; m.f()``). The callee's own cupy calls are added, its callees are not followed further.
+   ``from .x import f``, a re-export through a package ``__init__``, or ``import mlframe.x as m; m.f()``). Callees are followed up to ``_CALL_DEPTH`` levels (loop, callee, callee of callee); ``self.f`` and ``cls.f`` resolve to a method of the same module.
 
 The loop is flagged when the count is at least 3, or at least 2 when one of them is a data-size-dependent routine (bincount, unique, argsort, sort, where, searchsorted, cumsum).
 Loops whose bound is small by construction (``range(nd)``, degrees, streams) are skipped only when the bound is a literal; others are reviewed by hand.
@@ -20,8 +20,8 @@ Severity. A chunk or tile loop (a 3-argument ``range(start, stop, step)``, or a 
 loop can run tens of thousands of times), and an exclusion would silently drop them. ``low`` hits are baselined and fail the test like any other new hit; the tag only tells the reviewer
 which worklist entries to take first.
 
-Known limitations, pinned by ``test_known_blind_spots_are_pinned`` so that a change in behaviour is a deliberate one: calls through ``self.`` or other attribute receivers other than a
-module alias are not followed; a callee is followed one level only; a loop with a single cupy call per iteration is not flagged even over a huge range; cupy operator launches
+Known limitations (findings A3, A4 and B2 in ``audits/tiny_cupy_detector_2026-10-19``): calls through attribute receivers other than ``self``, ``cls`` or a
+module alias are not followed; a loop with a single cupy call per iteration is not flagged even over a huge range; cupy operator launches
 (``a[p] * b[p]``) are not counted; a once-only branch inside the loop still counts (a known false positive, reviewed through the baseline).
 
 Benchmark scripts under ``_benchmarks`` are skipped: their loops time launches on purpose.
@@ -47,6 +47,8 @@ _HEAVY = {"bincount", "unique", "argsort", "sort", "where", "searchsorted", "cum
 _SMALL_RANGE = 16
 _CHUNK_SUFFIXES = ("chunk", "chunks", "tile", "tiles", "block", "blocks")
 _PKG = "mlframe"
+#: How many levels of calls a loop body is followed through (loop -> callee -> callee of callee).
+_CALL_DEPTH = 2
 
 
 def _is_small_literal_loop(loop: ast.For) -> bool:
@@ -120,14 +122,30 @@ def _import_target(node: ast.ImportFrom, pkg: "tuple[str, ...] | None") -> "tupl
     return base + tuple(node.module.split(".")) if node.module else base
 
 
+def _call_refs(stmts: list) -> "list[tuple]":
+    """Outgoing call references in ``stmts``: ``("name", f)`` for ``f(...)`` and ``("attr", base, attr)`` for ``base.attr(...)``; resolved later against a module summary."""
+    refs: list[tuple] = []
+    for stmt in stmts:
+        for node in ast.walk(stmt):
+            if not isinstance(node, ast.Call):
+                continue
+            func = node.func
+            if isinstance(func, ast.Name):
+                refs.append(("name", func.id))
+            elif isinstance(func, ast.Attribute) and isinstance(func.value, ast.Name):
+                refs.append(("attr", func.value.id, func.attr))
+    return refs
+
+
 def _summarise(tree: ast.AST, pkg: "tuple[str, ...] | None") -> dict:
-    """Per-module facts used for one level of call-following: each unique function's cupy calls, its import table, and module aliases into mlframe."""
+    """Per-module facts used for call-following: each unique function's cupy calls and outgoing call references, its import table, and module aliases into mlframe."""
     roots, bare = _cupy_names(tree)
-    defs: dict[str, list[list[str]]] = {}
+    nodes: dict[str, list] = {}
     for node in ast.walk(tree):
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            defs.setdefault(node.name, []).append(_cupy_calls(node.body, roots, bare))
-    funcs = {name: calls[0] for name, calls in defs.items() if len(calls) == 1}
+            nodes.setdefault(node.name, []).append(node)
+    funcs = {name: _cupy_calls(defs[0].body, roots, bare) for name, defs in nodes.items() if len(defs) == 1}
+    refs = {name: _call_refs(defs[0].body) for name, defs in nodes.items() if len(defs) == 1}
     imports: dict[str, tuple] = {}
     modalias: dict[str, tuple] = {}
     for node in ast.walk(tree):
@@ -140,7 +158,7 @@ def _summarise(tree: ast.AST, pkg: "tuple[str, ...] | None") -> dict:
             for alias in node.names:
                 if alias.asname and (alias.name == _PKG or alias.name.startswith(_PKG + ".")):
                     modalias[alias.asname] = tuple(alias.name.split("."))[1:]
-    return {"funcs": funcs, "imports": imports, "modalias": modalias}
+    return {"funcs": funcs, "refs": refs, "imports": imports, "modalias": modalias}
 
 
 def _module_file(root: Path, parts: tuple) -> "Path | None":
@@ -167,35 +185,49 @@ def _file_summary(root: str, parts: tuple) -> "dict | None":
     return _summarise(tree, parts if path.name == "__init__.py" else parts[:-1])
 
 
-def _resolve_function(name: str, summ: dict, root: str, depth: int = 2) -> "list[str] | None":
-    """Cupy calls of the function ``name`` as seen from a module summary: local def, or imported (following a package re-export up to ``depth`` hops)."""
-    if name in summ["funcs"]:
-        return summ["funcs"][name]
-    if name in summ["imports"] and depth:
-        target, orig = summ["imports"][name]
-        tsum = _file_summary(root, target)
-        if tsum is not None:
-            return _resolve_function(orig, tsum, root, depth - 1)
+def _locate(ref: tuple, summ: dict, root: str, hops: int = 2) -> "tuple[dict, str] | None":
+    """The module summary and function name a call reference denotes, or ``None`` when it is not an mlframe function.
+
+    ``self.f`` / ``cls.f`` resolve to a method of the same module; ``mod.f`` through a module alias into mlframe; a bare ``f`` through a local def or an import (following
+    a package re-export up to ``hops`` hops).
+    """
+    if ref[0] == "name":
+        name = ref[1]
+        if name in summ["funcs"]:
+            return summ, name
+        if name in summ["imports"] and hops:
+            target, orig = summ["imports"][name]
+            tsum = _file_summary(root, target)
+            if tsum is not None:
+                return _locate(("name", orig), tsum, root, hops - 1)
+        return None
+    _, base, attr = ref
+    if base in ("self", "cls") and attr in summ["funcs"]:
+        return summ, attr
+    if base in summ["modalias"]:
+        tsum = _file_summary(root, summ["modalias"][base])
+        if tsum is not None and attr in tsum["funcs"]:
+            return tsum, attr
     return None
 
 
-def _callee_calls(stmts: list, summ: dict, root: str) -> "list[str]":
-    """Cupy calls made by the callees invoked inside ``stmts`` (one level only)."""
+def _follow(refs: "list[tuple]", summ: dict, root: str, depth: int) -> "list[str]":
+    """Cupy calls made by the mlframe functions referenced in ``refs``, followed through ``depth`` levels of calls."""
     extra: list[str] = []
-    for stmt in stmts:
-        for node in ast.walk(stmt):
-            if not isinstance(node, ast.Call):
-                continue
-            func = node.func
-            callee = None
-            if isinstance(func, ast.Name):
-                callee = _resolve_function(func.id, summ, root)
-            elif isinstance(func, ast.Attribute) and isinstance(func.value, ast.Name) and func.value.id in summ["modalias"]:
-                tsum = _file_summary(root, summ["modalias"][func.value.id])
-                callee = tsum["funcs"].get(func.attr) if tsum is not None else None
-            if callee:
-                extra.extend(callee)
+    for ref in refs:
+        found = _locate(ref, summ, root)
+        if found is None:
+            continue
+        callee_summ, name = found
+        extra.extend(callee_summ["funcs"][name])
+        if depth > 1:
+            extra.extend(_follow(callee_summ["refs"].get(name, []), callee_summ, root, depth - 1))
     return extra
+
+
+def _callee_calls(stmts: list, summ: dict, root: str, depth: int = _CALL_DEPTH) -> "list[str]":
+    """Cupy calls made by the functions invoked inside ``stmts``, followed through up to ``depth`` levels."""
+    return _follow(_call_refs(stmts), summ, root, depth)
 
 
 def tiny_cupy_loops(source: str, rel: "tuple[str, ...] | None" = None, root: Path = SRC_ROOT) -> "list[tuple[str, int, str]]":
@@ -314,6 +346,52 @@ def test_checker_flags_per_pair_loop_and_accepts_batched_form():
     )
     assert tiny_cupy_loops(bad) == [("pair_floor", 3, "high")]
     assert not tiny_cupy_loops(good)
+
+
+def test_method_call_through_self_is_flagged():
+    """A loop that calls ``self._step(x)`` counts the cupy calls of the method ``_step`` defined in the same module (finding A1)."""
+    bad = (
+        "import cupy as cp\n"
+        "class K:\n"
+        "    def _step(self, x):\n"
+        "        return cp.log(cp.sum(cp.bincount(x)))\n"
+        "    def run(self, xs):\n"
+        "        for x in xs:\n"
+        "            self._step(x)\n"
+    )
+    assert tiny_cupy_loops(bad) == [("run", 6, "high")]
+
+
+def test_call_chain_two_levels_deep_is_flagged():
+    """Cupy calls two helper levels below the loop (loop -> helper -> helper) count against it (finding A2)."""
+    bad = (
+        "import cupy as cp\n"
+        "def _leaf(x):\n"
+        "    return cp.log(cp.sum(cp.bincount(x)))\n"
+        "def _mid(x):\n"
+        "    return _leaf(x)\n"
+        "def driver(xs):\n"
+        "    for x in xs:\n"
+        "        _mid(x)\n"
+    )
+    assert tiny_cupy_loops(bad) == [("driver", 7, "high")]
+
+
+def test_call_chain_beyond_the_depth_limit_is_not_followed():
+    """Three helper levels below the loop are past the depth limit, so the chain is not counted (the limit is the documented cost bound)."""
+    deep = (
+        "import cupy as cp\n"
+        "def _leaf(x):\n"
+        "    return cp.log(cp.sum(cp.bincount(x)))\n"
+        "def _mid2(x):\n"
+        "    return _leaf(x)\n"
+        "def _mid1(x):\n"
+        "    return _mid2(x)\n"
+        "def driver(xs):\n"
+        "    for x in xs:\n"
+        "        _mid1(x)\n"
+    )
+    assert tiny_cupy_loops(deep) == []
 
 
 def test_call_hidden_in_same_module_helper_is_flagged():
