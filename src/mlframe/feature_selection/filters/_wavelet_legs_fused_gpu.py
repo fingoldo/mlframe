@@ -26,7 +26,7 @@ __device__ __forceinline__ int leg_value(const double z, const int j, const int 
     if ((int)c != k) return 0;
     return (t - c < 0.5) ? 1 : -1;
 }
-extern "C" __global__ void leg_supports(const double* __restrict__ z, const long long n, const int max_scale, int* __restrict__ counts) {
+extern "C" __global__ void leg_supports(const {REAL}* __restrict__ z, const long long n, const int max_scale, int* __restrict__ counts) {
     for (long long i = blockIdx.x * (long long)blockDim.x + threadIdx.x; i < n; i += (long long)gridDim.x * blockDim.x) {
         const double zi = z[i];
         if (!(zi >= 0.0 && zi < 1.0)) continue;
@@ -39,7 +39,7 @@ extern "C" __global__ void leg_supports(const double* __restrict__ z, const long
         }
     }
 }
-extern "C" __global__ void leg_codes(const double* __restrict__ z, const long long n, const int* __restrict__ eligible_j, const int* __restrict__ eligible_k, const int n_legs,
+extern "C" __global__ void leg_codes(const {REAL}* __restrict__ z, const long long n, const int* __restrict__ eligible_j, const int* __restrict__ eligible_k, const int n_legs,
                                      long long* __restrict__ tr, long long* __restrict__ va) {
     for (long long i = blockIdx.x * (long long)blockDim.x + threadIdx.x; i < n; i += (long long)gridDim.x * blockDim.x) {
         const double zi = z[i];
@@ -53,7 +53,7 @@ extern "C" __global__ void leg_codes(const double* __restrict__ z, const long lo
 """
 
 
-_MODULES = RawModuleCache(_SRC)
+_MODULES_BY_REAL = {"double": RawModuleCache(_SRC.replace("{REAL}", "double")), "float": RawModuleCache(_SRC.replace("{REAL}", "float"))}
 
 
 def leg_code_matrices(cp: Any, z_g: Any, max_scale: int, min_half_rows: int) -> Optional[tuple]:
@@ -68,7 +68,7 @@ def leg_code_matrices(cp: Any, z_g: Any, max_scale: int, min_half_rows: int) -> 
     n = int(z_g.shape[0])
     z = cp.ascontiguousarray(z_g, dtype=crit_float_dtype())
     n_legs_all = (1 << (int(max_scale) + 1)) - 1
-    mod = _MODULES.get(cp)
+    mod = _MODULES_BY_REAL["float" if z.dtype.itemsize == 4 else "double"].get(cp)  # the kernels read ``z`` at its own dtype and compare in double precision
     counts = cp.zeros(2 * n_legs_all, dtype=cp.int32)
     blocks = max(1, min(4096, (n + 255) // 256))
     mod.get_function("leg_supports")((blocks,), (256,), (z, cp.int64(n), cp.int32(max_scale), counts))

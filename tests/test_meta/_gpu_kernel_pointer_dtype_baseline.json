@@ -57,8 +57,7 @@
   "compute_mi_from_classes_cuda"
  ],
  "src/mlframe/feature_selection/filters/_gpu_resident_basis.py": [
-  "abs_corr",
-  "basis_preprocess"
+  "abs_corr"
  ],
  "src/mlframe/feature_selection/filters/_gpu_resident_discretize.py": [
   "bin_codes_TYPENAME"
@@ -102,9 +101,6 @@
   "scan_offset_products"
  ],
  "src/mlframe/feature_selection/filters/_orthogonal_univariate_fe/_fourier_batch_gpu.py": [
-  "apply_deflate_b",
-  "periodogram_power_b",
-  "sincos_gram_b",
   "solve3_b"
  ],
  "src/mlframe/feature_selection/filters/_orthogonal_univariate_fe/_fourier_fused_gpu.py": [
@@ -117,10 +113,6 @@
  "src/mlframe/feature_selection/filters/_row_argmax_gpu.py": [
   "row_argmax"
  ],
- "src/mlframe/feature_selection/filters/_wavelet_legs_fused_gpu.py": [
-  "leg_codes",
-  "leg_supports"
- ],
  "src/mlframe/feature_selection/filters/discretization/_discretization_cuda.py": [
   "searchsorted_right_2d"
  ],
@@ -128,9 +120,6 @@
   "gram_scaled",
   "matvec_stats",
   "solve_small"
- ],
- "src/mlframe/feature_selection/filters/hermite_fe/_basis_fused_gpu.py": [
-  "build_basis"
  ],
  "src/mlframe/feature_selection/filters/info_theory/_cmi_cuda.py": [
   "cmi_from_joint"

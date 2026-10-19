@@ -5,7 +5,7 @@ deflation) for ONE column; it is launch- and sync-bound (about 100 launches and 
 independent and share their row split, so here the whole loop runs for ``C`` columns at once: every kernel takes a ``(C, n)`` block and a per-column frequency list, the host reads one
 small scalar vector per phase of an iteration instead of one per column, and the per-column decisions (stop, duplicate, tail alias, accept) are made on the host from those vectors.
 
-Everything is double precision (the single-column path rounds the inputs to float32 first; the detected frequencies are grid points of a 0.0125 refinement, far coarser than that rounding).
+The sample and target blocks keep the dtype they arrive in (the critical dtype, float32 by default) and the kernels are compiled for it; every sum, the frequencies and the power statistic are double precision. The detected frequencies are grid points of a 0.0125 refinement, far coarser than float32 rounding.
 A column whose cubic detrend or deflation system is singular is handled by the single-column path.
 """
 
@@ -42,11 +42,11 @@ __device__ __forceinline__ double power_term(double sv, double vv, double vy, do
     return (ok && denom > 0.0) ? (vy * vy) / denom : 0.0;
 }
 // grid (F, C): power of column c's centred target at its f-th frequency; padded frequencies (f >= nfreq[c]) get -1
-__global__ void periodogram_power_b(const double* Z, const double* YC, const double* freqs, const int* nfreq, const double* y_ss, double* out, const long long n, const int F) {
+__global__ void periodogram_power_b(const {REAL}* Z, const {REAL}* YC, const double* freqs, const int* nfreq, const {REAL}* y_ss, double* out, const long long n, const int F) {
     const int c = blockIdx.y, f = blockIdx.x;
     if (f >= nfreq[c]) { if (threadIdx.x == 0) out[(long long)c * F + f] = -1.0; return; }
-    const double* z = Z + (long long)c * n;
-    const double* yc = YC + (long long)c * n;
+    const {REAL}* z = Z + (long long)c * n;
+    const {REAL}* yc = YC + (long long)c * n;
     const double w = 6.283185307179586 * freqs[(long long)c * F + f];
     double ss = 0.0, sc = 0.0, vvs = 0.0, vvc = 0.0, vys = 0.0, vyc = 0.0;
     for (long long i = threadIdx.x; i < n; i += blockDim.x) {
@@ -73,10 +73,10 @@ __global__ void periodogram_power_b(const double* Z, const double* YC, const dou
     }
 }
 // grid (blocks, C): packed A'A (upper, 6) + A'y (3) of A = [1, sin, cos] per column and block
-__global__ void sincos_gram_b(const double* Z, const double* Y, const double* fvec, double* part, const long long n, const int blocks) {
+__global__ void sincos_gram_b(const {REAL}* Z, const {REAL}* Y, const double* fvec, double* part, const long long n, const int blocks) {
     const int c = blockIdx.y;
-    const double* z = Z + (long long)c * n;
-    const double* y = Y + (long long)c * n;
+    const {REAL}* z = Z + (long long)c * n;
+    const {REAL}* y = Y + (long long)c * n;
     double acc[9];
     #pragma unroll
     for (int t = 0; t < 9; ++t) acc[t] = 0.0;
@@ -136,7 +136,7 @@ __global__ void solve3_b(const double* part, const int blocks, const int* active
     coef[c * 3] = x[0]; coef[c * 3 + 1] = x[1]; coef[c * 3 + 2] = x[2];
 }
 // grid (blocks, C): y minus its projection (a zero coefficient vector leaves the column unchanged)
-__global__ void apply_deflate_b(const double* Z, const double* Y, const double* coef, const double* fvec, double* out, const long long n) {
+__global__ void apply_deflate_b(const {REAL}* Z, const {REAL}* Y, const double* coef, const double* fvec, {REAL}* out, const long long n) {
     const int c = blockIdx.y;
     const double w = 6.283185307179586 * fvec[c];
     const double c0 = coef[c * 3], c1 = coef[c * 3 + 1], c2 = coef[c * 3 + 2];
@@ -151,16 +151,23 @@ __global__ void apply_deflate_b(const double* Z, const double* Y, const double* 
 
 
 _SRC = _SRC_TEMPLATE.replace("@VARIANCE_FLOOR@", repr(VARIANCE_FLOOR))
-_KERNEL = LazyRawModule(_SRC, ("-std=c++14",))
+_MODULES_BY_REAL = {"double": LazyRawModule(_SRC.replace("{REAL}", "double"), ("-std=c++14",)), "float": LazyRawModule(_SRC.replace("{REAL}", "float"), ("-std=c++14",))}
+
+
+def _module_for(Z: Any) -> Any:
+    """The module compiled for the element type of the sample block ``Z``; the target blocks are cast to that type, the sums accumulate in double precision."""
+    return _MODULES_BY_REAL["float" if Z.dtype.itemsize == 4 else "double"]
 
 
 def _power(cp: Any, Z: Any, YC: Any, freqs: Any, nfreq: Any, y_ss: Any) -> Any:
     """``(C, F)`` periodogram power of each column's centred target at its own frequencies (padded entries are -1)."""
     C, n = int(Z.shape[0]), int(Z.shape[1])
     F = int(freqs.shape[1])
-    # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
+    YC = cp.ascontiguousarray(YC, dtype=Z.dtype)
+    y_ss = cp.ascontiguousarray(y_ss, dtype=Z.dtype)
+    # Intentional float64: the power statistic (a ratio of sums), accumulated and stored in double precision.
     out = cp.empty((C, F), dtype=cp.float64)
-    _KERNEL.get(cp).get_function("periodogram_power_b")((F, C), (_THREADS,), (Z, YC, freqs, nfreq, y_ss, out, cp.int64(n), cp.int32(F)))
+    _module_for(Z).get(cp).get_function("periodogram_power_b")((F, C), (_THREADS,), (Z, YC, freqs, nfreq, y_ss, out, cp.int64(n), cp.int32(F)))
     return out
 
 
@@ -168,13 +175,13 @@ def _deflate(cp: Any, Z: Any, Y: Any, fvec: Any, active: Any) -> "tuple[Any, np.
     """Deflate ``[1, sin, cos]`` at ``fvec[c]`` out of every ACTIVE column; returns the new block and the host mask of columns whose 3x3 system was singular (their rows hold NaN)."""
     C, n = int(Z.shape[0]), int(Z.shape[1])
     blocks = max(1, min(64, (n + _THREADS - 1) // _THREADS))
-    mod = _KERNEL.get(cp)
+    mod = _module_for(Z).get(cp)
+    Y = cp.ascontiguousarray(Y, dtype=Z.dtype)
     # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
     part = cp.empty((C * blocks, 9), dtype=cp.float64)
     # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
     coef = cp.empty((C, 3), dtype=cp.float64)
-    # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
-    out = cp.empty((C, n), dtype=cp.float64)
+    out = cp.empty((C, n), dtype=Z.dtype)  # the deflated target keeps the sample block's dtype; the projection is accumulated in double precision
     mod.get_function("sincos_gram_b")((blocks, C), (_THREADS,), (Z, Y, fvec, part, cp.int64(n), cp.int32(blocks)))
     mod.get_function("solve3_b")((C,), (32,), (part, cp.int32(blocks), active, coef))
     mod.get_function("apply_deflate_b")((blocks, C), (_THREADS,), (Z, Y, coef, fvec, out, cp.int64(n)))

@@ -482,11 +482,11 @@ def _gpu_detect_heavy_tail_batched(cp, M):
 _BASIS_PREPROCESS_SRC = r"""
 #define REL_TOL 7.105427357601002e-15   // 32 * DBL_EPSILON, the host _safe_scale._REL_TOL
 extern "C" __global__
-void basis_preprocess(const double* __restrict__ M, const double* __restrict__ med,
-                      const double* __restrict__ scale, const double* __restrict__ mn,
-                      const double* __restrict__ mx, const double* __restrict__ stdcol,
+void basis_preprocess(const {REAL}* __restrict__ M, const {REAL}* __restrict__ med,
+                      const {REAL}* __restrict__ scale, const {REAL}* __restrict__ mn,
+                      const {REAL}* __restrict__ mx, const {REAL}* __restrict__ stdcol,
                       const int basis_code, const double Kc, const long long n, const int K,
-                      double* __restrict__ out) {
+                      {REAL}* __restrict__ out) {
     long long t = (long long)blockIdx.x * blockDim.x + threadIdx.x;
     long long total = n * (long long)K;
     if (t >= total) return;
@@ -518,15 +518,16 @@ void basis_preprocess(const double* __restrict__ M, const double* __restrict__ m
     out[row * (long long)K + col] = z;
 }
 """
-_BASIS_PREPROCESS_KERNEL = None
+_BASIS_PREPROCESS_KERNELS: dict = {}
 
 
-def _get_basis_preprocess_kernel(cp):
-    """Lazily compile-and-cache the robust ``basis_preprocess`` RawKernel (per-basis clipped rescale: z-score/min-max/shift, robust lo/hi already computed)."""
-    global _BASIS_PREPROCESS_KERNEL
-    if _BASIS_PREPROCESS_KERNEL is None:
-        _BASIS_PREPROCESS_KERNEL = cp.RawKernel(_BASIS_PREPROCESS_SRC, "basis_preprocess")
-    return _BASIS_PREPROCESS_KERNEL
+def _get_basis_preprocess_kernel(cp, real_t: str = "double"):
+    """Lazily compile-and-cache the robust ``basis_preprocess`` RawKernel for the element type ``real_t`` (per-basis clipped rescale: z-score/min-max/shift, robust lo/hi already computed; arithmetic in double)."""
+    kern = _BASIS_PREPROCESS_KERNELS.get(real_t)
+    if kern is None:
+        kern = cp.RawKernel(_BASIS_PREPROCESS_SRC.replace("{REAL}", real_t), "basis_preprocess")
+        _BASIS_PREPROCESS_KERNELS[real_t] = kern
+    return kern
 
 
 _BASIS_PREPROCESS_CODE = {"hermite": 0, "legendre": 1, "chebyshev": 1, "laguerre": 2}
@@ -680,7 +681,7 @@ def _gpu_basis_preprocess_robust_fused(cp, M, basis):
     out = cp.empty((n, g), dtype=crit_float_dtype())
     total = n * g
     threads = 256
-    _get_basis_preprocess_kernel(cp)(((total + threads - 1) // threads,), (threads,),
+    _get_basis_preprocess_kernel(cp, "float" if Mc.dtype == cp.float32 else "double")(((total + threads - 1) // threads,), (threads,),
         (Mc, cp.ascontiguousarray(med.astype(crit_float_dtype(), copy=False)),
          cp.ascontiguousarray(scale.astype(crit_float_dtype(), copy=False)),
          cp.ascontiguousarray(mn.astype(crit_float_dtype(), copy=False)),

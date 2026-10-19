@@ -11,7 +11,6 @@ import logging
 from typing import Any, Optional
 
 from mlframe.utils.log_throttle import log_throttle
-from mlframe.feature_selection.filters._fe_gpu_batch._devices import crit_float_dtype
 from types import ModuleType
 
 logger = logging.getLogger(__name__)
@@ -98,13 +97,16 @@ def masked_cell_moments(cp: ModuleType, codes_g: Any, v_safe: Any, w: Any, n_cel
     threads = 256
     blocks = max(1, min((n + threads - 1) // threads, 4 * cp.cuda.Device().attributes["MultiProcessorCount"]))
     codes = codes_g if codes_g.dtype == cp.int64 else codes_g.astype(cp.int64)
-    cnt = cp.zeros(nc, dtype=crit_float_dtype())
-    s1 = cp.zeros(nc, dtype=crit_float_dtype())
+    # The kernels declare ``double*`` for the samples, the weights and every output, so each is a float64 buffer (the per-cell sums are double-precision atomic accumulators).
+    v_safe = v_safe if v_safe.dtype == cp.float64 else v_safe.astype(cp.float64)  # Intentional float64: kernel signature is double*
+    w = w if w.dtype == cp.float64 else w.astype(cp.float64)  # Intentional float64: kernel signature is double*
+    cnt = cp.zeros(nc, dtype=cp.float64)  # Intentional float64: double* atomic accumulator
+    s1 = cp.zeros(nc, dtype=cp.float64)  # Intentional float64: double* atomic accumulator
     k1((blocks,), (threads,), (codes, v_safe, w, cp.int64(n), cp.int32(nc), cnt, s1), shared_mem=2 * nc * 8)
     mean = s1 / cp.maximum(cnt, 1.0)
-    cm2 = cp.zeros(nc, dtype=crit_float_dtype())
-    cm3 = cp.zeros(nc, dtype=crit_float_dtype())
-    cm4 = cp.zeros(nc, dtype=crit_float_dtype())
+    cm2 = cp.zeros(nc, dtype=cp.float64)  # Intentional float64: double* atomic accumulator
+    cm3 = cp.zeros(nc, dtype=cp.float64)  # Intentional float64: double* atomic accumulator
+    cm4 = cp.zeros(nc, dtype=cp.float64)  # Intentional float64: double* atomic accumulator
     k2((blocks,), (threads,), (codes, v_safe, w, mean, cp.int64(n), cp.int32(nc), cm2, cm3, cm4), shared_mem=3 * nc * 8)
     return cnt, mean, cm2, cm3, cm4
 
@@ -207,12 +209,14 @@ def fold_cell_moments(cp: ModuleType, codes_g: Any, v_safe: Any, finite_f: Any, 
     blocks = max(1, min((n + threads - 1) // threads, 4 * cp.cuda.Device().attributes["MultiProcessorCount"]))
     codes = codes_g if codes_g.dtype == cp.int64 else codes_g.astype(cp.int64)
     folds = fold_g if fold_g.dtype == cp.int64 else fold_g.astype(cp.int64)
-    cnt = cp.zeros((nf, nc), dtype=crit_float_dtype())
-    s1 = cp.zeros((nf, nc), dtype=crit_float_dtype())
+    v_safe = v_safe if v_safe.dtype == cp.float64 else v_safe.astype(cp.float64)  # Intentional float64: kernel signature is double*
+    finite_f = finite_f if finite_f.dtype == cp.float64 else finite_f.astype(cp.float64)  # Intentional float64: kernel signature is double*
+    cnt = cp.zeros((nf, nc), dtype=cp.float64)  # Intentional float64: double* atomic accumulator
+    s1 = cp.zeros((nf, nc), dtype=cp.float64)  # Intentional float64: double* atomic accumulator
     k1((blocks,), (threads,), (codes, v_safe, finite_f, folds, cp.int64(n), cp.int32(nc), cp.int32(nf), cnt, s1), shared_mem=2 * nf * nc * 8)
     mean = s1 / cp.maximum(cnt, 1.0)
-    cm2 = cp.zeros((nf, nc), dtype=crit_float_dtype())
-    cm3 = cp.zeros((nf, nc), dtype=crit_float_dtype())
-    cm4 = cp.zeros((nf, nc), dtype=crit_float_dtype())
+    cm2 = cp.zeros((nf, nc), dtype=cp.float64)  # Intentional float64: double* atomic accumulator
+    cm3 = cp.zeros((nf, nc), dtype=cp.float64)  # Intentional float64: double* atomic accumulator
+    cm4 = cp.zeros((nf, nc), dtype=cp.float64)  # Intentional float64: double* atomic accumulator
     k2((blocks,), (threads,), (codes, v_safe, finite_f, folds, mean, cp.int64(n), cp.int32(nc), cp.int32(nf), cm2, cm3, cm4), shared_mem=3 * nf * nc * 8)
     return cnt, mean, cm2, cm3, cm4
