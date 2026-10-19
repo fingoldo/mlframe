@@ -16,13 +16,16 @@ the host kernel.
 
 from __future__ import annotations
 
+import logging
 import math
 
 import numpy as np
 from numba import njit, prange
 
 from ._mdlp_honest_bycol_njit import _codes_at_rows, _cuts_tie_free
-from ._mdlp_honest_njit import _analytic_p_value, _mdlp_cuts_presorted, _mi_codes, _n_unique_codes, _presort_columns, _supervised_edges
+from ._mdlp_honest_njit import _analytic_p_value, _mdlp_cuts_presorted, _mi_codes, _n_unique_codes, _supervised_edges
+
+logger = logging.getLogger(__name__)
 
 MAX_CLASSES = 16
 MAX_BINS = 32
@@ -326,7 +329,7 @@ def honest_null_columns_device(
 
         from ._family_maxt_cuda_bits import DeviceBitsets, mi_matrix_bits_device
         from ._family_maxt_null_v2_njit import bitset_groups, label_bitsets_batch, xlogx_table
-    except Exception:
+    except Exception:  # best-effort: without cupy the CPU null path computes the same statistic
         return None
     n_perm, n = y_raw_perm.shape
     k = is_cont.shape[0]
@@ -345,65 +348,8 @@ def honest_null_columns_device(
     tie = np.zeros((0, n), dtype=np.uint8)
     accepted_c = np.zeros((n_perm, 0), dtype=np.bool_)
     try:
-        if kc:
-            order = _presort_columns(raw_cont)
-            tie = _tie_flags(raw_cont, order)
-            counts = np.bincount(np.asarray(y_raw_perm[0], dtype=np.int64), minlength=n_classes_total)
-            h_full = _entropy(counts, n)
-            tab = xlogx_table(XLOGX_TABLE_SIZE)
-            d_gain = cp.empty(n_perm * kc, dtype=cp.float64)  # Intentional float64: statistic vector (best split gains, compared with the host's)
-            d_ncand = cp.empty(n_perm * kc, dtype=cp.int32)
-            d_idx = cp.empty(n_perm * kc, dtype=cp.int32)
-            if n_classes_total == 2:
-                ybits = _pack_bits(y_raw_perm)
-                _get_kernel_k2(cp)(
-                    ((n_perm * kc + 127) // 128,),
-                    (128,),
-                    (
-                        cp.asarray(order),
-                        cp.asarray(tie),
-                        cp.asarray(np.ascontiguousarray(ybits.T).view(np.uint8)),  # (words, permutations): a warp of consecutive permutations reads consecutive words
-                        cp.asarray(tab),
-                        cp.asarray(counts.astype(np.int64)),
-                        np.int32(n),
-                        np.int32(n_perm),
-                        np.int32(kc),
-                        np.int32(min_split_size),
-                        # Intentional float64: full-sample statistic handed to the device null kernel (must match the host gain)
-                        np.float64(h_full),
-                        np.int32(ybits.shape[1]),
-                        d_gain,
-                        d_ncand,
-                        d_idx,
-                    ),
-                )
-            else:
-                _get_kernel(cp)(
-                    ((n_perm * kc + 127) // 128,),
-                    (128,),
-                    (
-                        cp.asarray(order),
-                        cp.asarray(tie),
-                        cp.asarray(np.ascontiguousarray(np.asarray(y_raw_perm, dtype=np.int8).T)),  # (rows, permutations): coalesced across a warp
-                        cp.asarray(tab),
-                        cp.asarray(counts.astype(np.int64)),
-                        np.int32(n_classes_total),
-                        np.int32(n),
-                        np.int32(n_perm),
-                        np.int32(kc),
-                        np.int32(min_split_size),
-                        # Intentional float64: full-sample statistic handed to the device null kernel (must match the host gain)
-                        np.float64(h_full),
-                        d_gain,
-                        d_ncand,
-                        d_idx,
-                    ),
-                )
-            gain = np.ascontiguousarray(cp.asnumpy(d_gain).reshape(kc, n_perm).T)
-            ncand = np.ascontiguousarray(cp.asnumpy(d_ncand).reshape(kc, n_perm).T)
-            bidx = np.ascontiguousarray(cp.asnumpy(d_idx).reshape(kc, n_perm).T)
-            if h_full > 0.0:
-                accepted_c = _accepted(gain, ncand, bidx, n, n_classes_total, float(alpha))
+        from mlframe.feature_selection.filters._honest_null_accept import _continuous_accept_block
+        accepted_c, order, tie = _continuous_accept_block(kc, raw_cont, y_raw_perm, n_classes_total, n, xlogx_table, cp, n_perm, min_split_size, alpha, accepted_c, order, tie)
         words = (m + 63) // 64
         cls = label_bitsets_batch(ys, ny, words)
         prep = bitset_groups(np.ascontiguousarray(codes), nx)
@@ -411,7 +357,8 @@ def honest_null_columns_device(
         tab_m = xlogx_table(m)
         const_b = tab_m[m] - tab_m[counts_b].sum(axis=1)
         mi = mi_matrix_bits_device(DeviceBitsets(cp, prep, nx, m), cls, const_b)
-    except Exception:
+    except Exception as exc:
+        logger.warning("device honest-null failed (%s: %s); falling back to the host path", type(exc).__name__, exc)
         return None
     ky = (counts_b > 0).sum(axis=1).astype(np.float64)  # Intentional float64: effective class counts of the Miller-Madow correction
     plain = np.ascontiguousarray(mi, dtype=np.float64)  # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties

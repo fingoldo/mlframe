@@ -183,6 +183,7 @@ def estimate_features_relevancy(
     _rng = np.random.default_rng(random_state)
 
     original_mi_results = mi_algorithms_ranking[0](arr, target_indices)
+    synchronize_gpu_if_available()
 
     # ----------------------------------------------------------------------------------------------------------------------------
     # Start randomly shuffling targets, and computing MIs of original features with such shuffled targets.
@@ -260,6 +261,7 @@ def _run_target_permutations(arr: np.ndarray, target_indices: list, target_colum
                 arr[:, idx] = shuffled
 
             permuted_mi_results = mi_algorithms_ranking[0](arr, target_indices)
+            synchronize_gpu_if_available()
         finally:
             for idx, original in saved_targets.items():
                 arr[:, idx] = original

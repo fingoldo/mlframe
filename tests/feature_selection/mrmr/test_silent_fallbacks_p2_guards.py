@@ -153,7 +153,7 @@ def test_constant_target_of_unorderable_values_still_raises():
 
 def test_unreadable_target_is_not_guessed_single_output():
     """If y cannot be read as an array, the fit path must not be guessed."""
-    from mlframe.feature_selection.filters.mrmr._mrmr_class import _mrmr_y_is_multioutput
+    from mlframe.feature_selection.filters.mrmr._mrmr_y_multioutput import _mrmr_y_is_multioutput
 
     class _Unreadable:
         """A target container numpy cannot convert."""

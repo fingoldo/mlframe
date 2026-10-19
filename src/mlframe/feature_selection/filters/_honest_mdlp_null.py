@@ -74,7 +74,7 @@ def _device_honest_null_enabled() -> bool:
 
         has_device: bool = cp.cuda.runtime.getDeviceCount() > 0
         return has_device
-    except Exception:
+    except Exception:  # best-effort: no usable CUDA device means the CPU null path, which computes the same statistic
         return False
 
 

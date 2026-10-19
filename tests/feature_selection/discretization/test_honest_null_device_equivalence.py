@@ -70,6 +70,7 @@ def test_device_pipeline_matches_the_host_kernel(n_classes):
     host = honest_null_columns_bycol(*args)
     dev = honest_null_columns_device(*args)
     assert dev is not None
+    assert len(host) == len(dev) == 2, "plain and corrected null MI must both be compared"
     for a, b in zip(host, dev):
         assert np.allclose(a, b, rtol=0, atol=1e-12)
 

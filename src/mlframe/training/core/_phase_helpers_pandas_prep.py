@@ -165,7 +165,7 @@ def _cache_pandas_frame_sizes(
             logger.info(
                 "  trainset_features_stats memory_usage: %.1fs " "(train=%.1fMB, val=%.1fMB) -- runs once per suite",
                 _memsize_elapsed,
-                (train_df_size_bytes_cached or 0) / 1e6,
-                (val_df_size_bytes_cached or 0) / 1e6,
+                (train_df_size_bytes_cached if train_df_size_bytes_cached is not None else 0) / 1e6,
+                (val_df_size_bytes_cached if val_df_size_bytes_cached is not None else 0) / 1e6,
             )
     return train_df_size_bytes_cached, val_df_size_bytes_cached

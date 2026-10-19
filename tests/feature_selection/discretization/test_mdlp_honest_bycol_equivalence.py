@@ -40,6 +40,7 @@ def test_bycol_matches_the_permutation_parallel_reference(n_classes):
     ref = honest_null_columns(y_raw=y, y_codes=y, perms=perms, **common)
     y_raw_perm, y_codes_perm = permuted_labels(y, y, iter(perms), len(perms))
     got = honest_null_columns_bycol(y_raw_perm=y_raw_perm, y_codes_perm=y_codes_perm, **common)
+    assert len(ref) == len(got) == 2, "plain and corrected null MI must both be compared"
     for a, b in zip(ref, got):
         assert np.array_equal(a, b)
 

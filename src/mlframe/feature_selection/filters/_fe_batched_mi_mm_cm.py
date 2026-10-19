@@ -13,7 +13,6 @@ import threading
 from typing import Any
 
 import numpy as np
-from mlframe.feature_selection.filters._fe_gpu_batch._devices import crit_float_dtype
 
 from ._fe_batched_mi import (
     _MI_FROM_CODES_MAX_SHARED,
@@ -53,13 +52,13 @@ def binned_mm_mi_from_cm_gpu(
     import cupy as cp
 
     is_f32 = getattr(x_cm, "dtype", None) == cp.float32
-    Xc = cp.ascontiguousarray(x_cm if is_f32 else x_cm.astype(crit_float_dtype(), copy=False))
+    Xc = cp.ascontiguousarray(x_cm if is_f32 else x_cm.astype(cp.float64, copy=False))  # Intentional float64: GPU MI kernel operand; matches the row-major twin (a float32 downcast moves bin edges)
     is_f32 = Xc.dtype == cp.float32  # the kernel variant follows the buffer actually launched, not the caller's input dtype
     K, n = int(Xc.shape[0]), int(Xc.shape[1])
     Ky = int(ky)
     if int(nbins) * Ky * 4 > _MI_FROM_CODES_MAX_SHARED:
         return None
-    E = cp.ascontiguousarray(interior_edges.astype(crit_float_dtype(), copy=False))
+    E = cp.ascontiguousarray(interior_edges.astype(cp.float64, copy=False))  # Intentional float64: GPU MI kernel edge vector; compared at full precision
     if isinstance(y_codes, cp.ndarray):
         yv = y_codes.astype(cp.int64, copy=False).ravel()
     else:
@@ -68,8 +67,8 @@ def binned_mm_mi_from_cm_gpu(
         yv = resident_operand(np.asarray(y_codes).ravel(), "binned_mm_ycodes", dtype=np.int64)
     _assert_codes_in_range(yv, Ky, "binned_mm_mi_from_cm_gpu y codes", codes_trusted)
     ne = int(E.shape[0])
-    cmin = cp.ascontiguousarray(Xc.min(axis=1).astype(crit_float_dtype(), copy=False))
-    cmax = cp.ascontiguousarray(Xc.max(axis=1).astype(crit_float_dtype(), copy=False))
+    cmin = cp.ascontiguousarray(Xc.min(axis=1).astype(cp.float64, copy=False))  # Intentional float64: GPU MI edge bounds; compared at full precision
+    cmax = cp.ascontiguousarray(Xc.max(axis=1).astype(cp.float64, copy=False))  # Intentional float64: GPU MI edge bounds; compared at full precision
     # Edge table and MI output are double by the MI kernel contract (edges and out are double*); the dedup kernel's transient trailing row, as in the row-major twin.
     Ec = cp.empty((ne + 1, K), dtype=cp.float64)  # Intentional float64: MI kernel edge contract (double*)
     ne_k = cp.empty(K, dtype=cp.int32)

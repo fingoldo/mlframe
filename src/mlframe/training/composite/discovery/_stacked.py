@@ -97,7 +97,8 @@ def _slice_train_frame(df: Any, train_idx_arr: np.ndarray) -> Any:
             # unsorted train index paired each row with another row's target.
             return df[train_idx_arr.astype(np.int64)]
         raise TypeError(type(df).__name__)
-    except Exception:
+    except Exception as exc:
+        logger.warning("train-frame slice failed for %s (%s); the OOF columns are not augmented", type(df).__name__, exc)
         return None
 
 

@@ -152,8 +152,9 @@ def bayesian_alpha_fit(
         XtX_inv = np.linalg.lstsq(XtX, np.eye(XtX.shape[0], dtype=XtX.dtype), rcond=None)[0]
         if not np.all(np.isfinite(XtX_inv)):
             raise np.linalg.LinAlgError("non-finite pseudo-inverse")
-    except np.linalg.LinAlgError:
+    except np.linalg.LinAlgError as exc:
         # Degenerate design (constant base). Return a wide-but-finite posterior.
+        logger.warning("degenerate design in the conjugate posterior (%s); returning an infinite-spread posterior", exc)
         return _degenerate_alpha_posterior(y_f, base_f, ci_level, n, spread=float("inf"), kind="conjugate_normal_inverse_gamma_degenerate")
     coef = XtX_inv @ (X.T @ y_f)
     alpha_hat, beta_hat = float(coef[0]), float(coef[1])

@@ -28,6 +28,7 @@ logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 from .._mrmr_fe_step_helpers import compute_pair_maxt_floor
 from .._joblib_safe import disable_cuda_in_worker
 from .._fe_family_timing import record_fe_family_wall
+from mlframe.utils.gpu_sync import synchronize_gpu_if_available
 
 # Measured floor (7-site joblib.Parallel audit) for the loky pool built below: at the realistic
 # ``fe_npermutations=3`` production regime, the pool LOSES to serial at every pair count tested - n_pairs=190
@@ -405,6 +406,7 @@ def _compute_pair_mis_and_floor_part2(
             classes_y_safe, freqs_y, fe_min_nonzero_confidence, fe_npermutations, cached_confident_MIs, cached_MIs, fe_min_pair_mi, fe_min_pair_mi_prevalence,
             n_pairs, tqdmu,
         )
+    synchronize_gpu_if_available()
     record_fe_family_wall("pairwise_mi_legacy_sweep", perf_counter() - _legacy_sweep_t0)
 
     # ---------------------------------------------------------------------------------------------------------------

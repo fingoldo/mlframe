@@ -17,8 +17,8 @@ Source: read-only critique agent, 2026-10-14. Scope: `src/mlframe/feature_select
 - At n=330 with 16 target bins against 5 feature bins, the Miller-Madow term `(kx-1)(ky-1)/2n` is about 0.09, the same order as the floor (about 0.06). Weak features cannot clear it.
 
 ### F03 - Test checks a dead predicate
-- **Disposition**: OPEN
-- `TestDenseWeakSignalFloorStaysOff` (`tests/feature_selection/biz_val/test_biz_val_filters_screen_heavytail_floor.py:230`) exercises `target_oversplit_floor_applies` (`filters/_permutation_null.py:192`). Nothing in `src` calls it.
+- **Disposition**: RESOLVED (4b00c4c7c removed the dead predicate `target_oversplit_floor_applies` and the test class that exercised it (named TestDenseWeakSignalFloorStaysOff before its removal); nothing in `src` or `tests` names it now)
+- The dead predicate was `target_oversplit_floor_applies` (formerly `filters/_permutation_null.py:192`), which nothing in `src` called.
 - The live gate is `filters/_screen_predictors_prescreen.py:130-134`, which turns the floor on for any narrow pool of two or more candidates. The end-to-end test is the only test that covers the live path.
 
 ### F04 - Live gate applies to every narrow pool

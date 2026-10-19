@@ -552,6 +552,7 @@ class TestSortedGatherGate:
         reps = [_bootstrap_rows(draw, y, n, int(0.8 * n)) for _ in range(4)] + [np.arange(n)]
         got, ok = bootstrap_rank_mi(X, y, reps, 10)
         assert ok.all()
+        assert got.shape[0] == len(reps) == 5, "every replicate must be compared"
         for b, idx in enumerate(reps):
             assert np.array_equal(got[b], np.asarray(_mi_classif_batch(X[idx], y[idx], nbins=10), dtype=np.float64))
 
@@ -579,6 +580,7 @@ class TestSortedGatherGate:
         draw = np.random.default_rng(1)
         reps = [_bootstrap_rows(draw, y, n, int(0.8 * n)) for _ in range(3)]
         got = _replicate_mi(X, y, reps, 10)
+        assert got.shape[0] == len(reps) == 3, "every replicate must be compared"
         for b, idx in enumerate(reps):
             assert np.array_equal(got[b], np.asarray(_mi_classif_batch(X[idx], y[idx], nbins=10), dtype=np.float64))
 

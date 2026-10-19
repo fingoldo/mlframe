@@ -233,22 +233,20 @@ class TestZMergeCache:
         sel_cached = MRMR(**kw).fit(X, y)
         support_cached = sorted(sel_cached.feature_names_in_[sel_cached.support_])
 
-        import mlframe.feature_selection.filters._confirm_predictor_engineered as cpe
+        import mlframe.feature_selection.filters._confirm_predictor_helpers as cph
 
-        orig_fn = cpe._conditioning_rows_per_cell
+        orig_fn = cph._conditioning_rows_per_cell
 
         def uncached_conditioning_rows_per_cell(ctx, X):
             """Force ctx._z_merge_cache to miss on every call, exercising the pre-fix full-merge path."""
             ctx._z_merge_cache = None
             return orig_fn(ctx, X)
 
-        import mlframe.feature_selection.filters._confirm_predictor as cp
-
-        cp._conditioning_rows_per_cell = uncached_conditioning_rows_per_cell
+        cph._conditioning_rows_per_cell = uncached_conditioning_rows_per_cell
         try:
             sel_uncached = MRMR(**kw).fit(X, y)
         finally:
-            cp._conditioning_rows_per_cell = orig_fn
+            cph._conditioning_rows_per_cell = orig_fn
         support_uncached = sorted(sel_uncached.feature_names_in_[sel_uncached.support_])
 
         assert support_cached == support_uncached, f"Z-merge-cached path selected {support_cached}, forced-uncached path selected {support_uncached}"

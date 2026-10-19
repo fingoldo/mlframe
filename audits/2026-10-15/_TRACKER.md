@@ -53,3 +53,39 @@ Still open and not verified in this session:
 - F02-F07, F10, F12: not touched.
 - Heavy-tail floor file: 9 tests after the decorator fix; the run is in progress and its result is recorded below when available.
 - STRICT GPU mode (`MLFRAME_FE_GPU_STRICT=1`): not run.
+
+## Status by finding
+
+Generated from each report's `**Disposition**` line: OPEN is recorded as TODO and COMPLETED as RESOLVED, the vocabulary the countable-status check reads.
+
+| Status | Finding | Report | Title |
+|---|---|---|---|
+| **RESOLVED** | F01 | `family_gate_engineering_critique.md` | Noise fit selected a feature in the profiling run |
+| **TODO** | F02 | `family_gate_engineering_critique.md` | Family gate is a small share of fit time on that run |
+| **TODO** | F03 | `family_gate_engineering_critique.md` | Per-permutation kernel cost |
+| **RESOLVED** | F04 | `family_gate_engineering_critique.md` | Resolution of the quantile threshold at 999 permutations |
+| **TODO** | F05 | `family_gate_engineering_critique.md` | Sequential stopping cost estimate |
+| **TODO** | F06 | `family_gate_engineering_critique.md` | Reaching alpha = 1e-4 needs 1e4 permutations or an extreme-value approximation |
+| **TODO** | F07 | `family_gate_engineering_critique.md` | Narrow the family to configurations above the table floor |
+| **REJECTED** | F08 | `family_gate_engineering_critique.md` | Shared permutations across pairs of the same n |
+| **RESOLVED** | F09 | `family_gate_engineering_critique.md` | Code reuse |
+| **TODO** | F10 | `family_gate_engineering_critique.md` | cupy path for the family kernel |
+| **RESOLVED** | F11 | `family_gate_engineering_critique.md` | Bit-identity across thread counts |
+| **TODO** | F12 | `family_gate_engineering_critique.md` | Strict default hook |
+| **RESOLVED** | F13 | `family_gate_engineering_critique.md` | Claims in the brief that did not match the repository |
+| **TODO** | F14 | `family_gate_engineering_critique.md` | Raw screen floor at the 0.975 level admits noise (root cause of F01) |
+| **RESOLVED** | F15 | `family_gate_engineering_critique.md` | Strict screen level trades off against the dense weak-signal test |
+| **TODO** | F16 | `family_gate_engineering_critique.md` | False-selection rate is far above the designed level for a binary target |
+| **TODO** | F17 | `family_gate_engineering_critique.md` | Screen gain and its null floor are on different statistics (binary target) |
+| **RESOLVED** | F18 | `family_gate_engineering_critique.md` | Supervised MDLP binning is fitted on y, and the permutation null never refits it (root cause of F16/F17) |
+| **RESOLVED** | F19 | `family_gate_engineering_critique.md` | Honest MDLP null and its cost (follow-up of F18) |
+| **RESOLVED** | F20 | `family_gate_engineering_critique.md` | Honest MDLP null implemented (decision A: accepted cost) |
+| **RESOLVED** | F21 | `family_gate_engineering_critique.md` | Honest supervised null integrated (screen floor and fallback) |
+| **RESOLVED** | F01 | `family_gate_statistics_critique.md` | Quantile threshold does not give the stated level |
+| **TODO** | F02 | `family_gate_statistics_critique.md` | 1e-4 is not reachable with 999 permutations |
+| **TODO** | F03 | `family_gate_statistics_critique.md` | Sequential stopping (Besag-Clifford style) |
+| **TODO** | F04 | `family_gate_statistics_critique.md` | Early rejection changes the level only if its premise fails |
+| **TODO** | F05 | `family_gate_statistics_critique.md` | Table floor is a nearest-neighbour lookup, not a test |
+| **TODO** | F06 | `family_gate_statistics_critique.md` | Possible leakage through configuration construction |
+| **TODO** | F07 | `family_gate_statistics_critique.md` | Overall level is a union over gates |
+| **TODO** | F08 | `family_gate_statistics_critique.md` | Regression test for the level |

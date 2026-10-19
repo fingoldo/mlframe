@@ -34,7 +34,7 @@
 | D1, R1, G6 | Перебор всех троек при C(p,3) ≤ 200 000 (numba `_triple_mi_kernel`), иначе ранжирование с тай-брейком по имени; позиционная ветка удалена | `test_triplet_order_invariance_and_codes::test_enumeration_matches_python_reference_order` (passed); XOR-перестановки: `test_mrmr_recovers_3way_xor_under_column_permutation` (4 passed на Python-варианте; финальный прогон — см. «Ожидает прогона») |
 | D4, R8, G2 | Точные коды при ≤ nbins уровнях | `test_quantile_codes_keep_rare_binary_level` (passed) |
 | D7, R12 | Re-add: кандидаты перебираются по (−MI, имя) | код `_group2.py`; покрытие — перестановочные тесты conjunction и harder (ожидает прогона) |
-| D10 (PARTIAL) | n_perm 20 → 199 | замер 20 перестановок: P(ложный победитель)=0.220; для 199 только расчёт ≈0.04 |
+| **PARTIAL** D10 | n_perm 20 → 199 | замер 20 перестановок: P(ложный победитель)=0.220; для 199 только расчёт ≈0.04 |
 | P5 | Поток случайных чисел на кандидата по имени (`zlib.crc32`) | `test_gate_verdict_does_not_depend_on_candidate_position` (passed) |
 | D13 | Прокси стандартизованы, rho=0.7 | `test_proxy_correlation_matches_rho` (passed) |
 | D11 (часть) | Докстринг xor3 приведён к ассерту | правка `test_biz_value_mrmr_xor3_noise.py` |
@@ -66,3 +66,24 @@
 - Финальный прогон (в фоне): xor3_noise и harder (`-k "under_column_permutation or among_noise"`, таймаут 1500 с на тест), затем conjunction (native + перестановки 1, 2 при n=50000; `test_triplet_stage_pool_is_column_order_invariant`). Результаты — в scratchpad (`final_xor_harder.txt`, `final_conj.txt`).
 - Диспозиции D1, D7, R1, R12, edge 1, edge 13–16, Q1–Q2 перейдут в окончательный статус после зелёного финального прогона.
 - Коммит в worktree `mlframe-wt-ledger` (Q9, R19 — PARTIAL до коммита), ветка `fix/polynom-ledger-gate`; затем push в master и синхронизация основного checkout (см. ниже).
+
+## Status by item
+
+Status of each item as the sections above state it: FUTURE items wait for their trigger, PENDING items await the final run and commit.
+
+| Status | Item | Source |
+|---|---|---|
+| **FUTURE** | Базис для бинарных троек (D2, D3, G1, G3, G4, Q4, Q5): возврат, когда AND-кейс не выбирается при T1. Замер: AND 0.0249 против T1 0.0061 условной MI. | раздел «Открыто (FUTURE)» |
+| **FUTURE** | Роутер Laguerre для редких 0/1 (D5, R9): возврат при появлении редкого операнда в боевом кейсе. | раздел «Открыто (FUTURE)» |
+| **FUTURE** | Непрерывный продукт на сырых операндах (D12, R3, edge 2): возврат после ablation (`fe_hybrid_orth_triplet_enable=False` на непрерывном кадре). | раздел «Открыто (FUTURE)» |
+| **FUTURE** | Порог 0.05 и слабые партнёры (D9, R13): возврат после свипа пола 0 / 0.02 / 0.05. | раздел «Открыто (FUTURE)» |
+| **FUTURE** | Малый n (D14, R15, edge 5): возврат при тихом обнулении в боевом коде — нужна предупреждающая метка. | раздел «Открыто (FUTURE)» |
+| **FUTURE** | Двухоперандный композит в поддержке (Q7, edge 19, П4): решение по контракту. | раздел «Открыто (FUTURE)» |
+| **FUTURE** | Медианный центр и робастная нога (D6, G7, G9, R4, R5): возврат при провале гауссова-хвостового кейса. | раздел «Открыто (FUTURE)» |
+| **FUTURE** | Схема имён (D15d, R11) и replay с NaN (D15c, R10): отдельная правка рецептов. | раздел «Открыто (FUTURE)» |
+| **RESOLVED** | F-01 | строка таблицы исправлений |
+| **REJECTED** | F-02 | строка таблицы исправлений |
+| **PARTIAL** | D10 | строка таблицы исправлений |
+| **TODO** | Финальный прогон (в фоне): xor3_noise и harder (`-k "under_column_permutation or among_noise"`, таймаут 1500 с на тест), затем conjunction (native + перестановки 1, 2 при n=50000; `test_triplet_stage_pool_is_column_order_invariant`). Результаты — в scratchpad (`final_xor_harder.txt`, `final_conj.txt`). | раздел «Ожидает прогона / коммита» |
+| **TODO** | Диспозиции D1, D7, R1, R12, edge 1, edge 13–16, Q1–Q2 перейдут в окончательный статус после зелёного финального прогона. | раздел «Ожидает прогона / коммита» |
+| **TODO** | Коммит в worktree `mlframe-wt-ledger` (Q9, R19 — PARTIAL до коммита), ветка `fix/polynom-ledger-gate`; затем push в master и синхронизация основного checkout (см. ниже). | раздел «Ожидает прогона / коммита» |

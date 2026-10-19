@@ -489,7 +489,7 @@ def _inner_t_quantiles(inner: Any, X_for_inner: Any, alpha: Any) -> np.ndarray:
             inner.predict_quantile(X_for_inner, alpha),
             dtype=np.float64,
         )
-    except TypeError:
+    except TypeError:  # best-effort: retries with the keyword form; a real failure re-raises from the second call
         # Some libs name the kwarg differently (e.g. quantile=, q=).
         return np.asarray(
             inner.predict_quantile(X_for_inner, alpha=alpha),
