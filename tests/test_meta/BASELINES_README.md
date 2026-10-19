@@ -70,3 +70,6 @@ Run from the repository root. The script re-runs each meta-test in
 - `_drifted_duplicate_literals_baseline.json` - numeric tuples written in several modules, each with its reason (`drifted_duplicate_literals`)
 - `_drifted_threshold_literals_baseline.json` - one limit compared against similarly named operands in several modules, each with its reason (`drifted_duplicate_literals`, rule `threshold`)
 - `_unresolved_module_attributes_baseline.json` - `module.NAME` reads the gate cannot resolve (`unresolved_module_attributes`)
+- `_perm_loop_invariants_baseline.json` - functions that rebuild shuffle-independent array work inside a `for k in range(K)` permutation loop, as `module::function` (test_perm_loop_invariants_hoisted.py; edited by hand, may only shrink, hoisting the statement drops the entry)
+- `_gpu_uncoalesced_reads_baseline.json` - CUDA kernels that read a row-major matrix as `X[i * stride + col]` with a thread-strided `i`, as `module::kernel`; a worklist for column-major copies, some hits may be deliberate (test_gpu_coalesced_row_reads.py; edited by hand, may only shrink)
+- `_tiny_cupy_loops_baseline.json` - Python `for` loops issuing several small cupy calls per iteration (launch-bound), as `module::function`; a worklist for batched kernels (test_no_tiny_cupy_ops_in_python_loops.py; edited by hand, may only shrink)

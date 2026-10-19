@@ -1,0 +1,8 @@
+[
+ "src/mlframe/feature_selection/filters/_batch_pair_mi_cuda_shared_fused.py::pair_mi_shared_fused",
+ "src/mlframe/feature_selection/filters/_fe_batched_mi.py::mi_from_codes",
+ "src/mlframe/feature_selection/filters/_fe_batched_mi.py::mi_mm_from_values",
+ "src/mlframe/feature_selection/filters/_fe_batched_mi_cmi.py::batched_joint_entropy2",
+ "src/mlframe/feature_selection/filters/_feature_engineering_pairs/_pairs_analytic_gpu.py::analytic_obs_mi_bins_i8",
+ "src/mlframe/feature_selection/filters/_gpu_resident_basis.py::abs_corr"
+]
