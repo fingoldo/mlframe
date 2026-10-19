@@ -523,7 +523,8 @@ def _stack_codes_transposed(mats, widths) -> np.ndarray:
     at = 0
     for m, w in zip(mats, widths):
         # A parallel blocked transpose into the shared buffer: numpy's strided ``m.T`` copy was the largest host cost of the family gate on a wide pair pool.
-        _transpose_into(np.ascontiguousarray(m), cols, at)
+        with parallel_kernel_entry():
+            _transpose_into(np.ascontiguousarray(m), cols, at)
         at += w
     return cols
 
