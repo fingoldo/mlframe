@@ -72,3 +72,8 @@ Shapes of FALSE_POSITIVE, to be recognised by the detector or fixed at source:
 4. Prewarp/spec branch in a callee that skips the cupy quantiser (key 19 in A).
 
 UNCLEAR, needs a further read: A 27, 28, 38; B 5 keys (see `triage_b.md`).
+
+## G. Baseline changes after the polyeval KTC dispatch fix
+
+- `hermite_fe/__init__.py::polyeval_dispatch` left the baseline: its device loop moved into `_polyeval_try_cuda`, which is now the baselined key. The loop returns on the first device that succeeds, so it is at most one successful iteration (CHUNK-like, low severity).
+- `_orthogonal_univariate_fe/__init__.py::basis_route_by_signal` and `::generate_univariate_basis_features` left the baseline only because the call chain to the cupy calls is now one level longer than `_CALL_DEPTH`. The code did not get cheaper. They are tracked as detector limit A2 (depth bound), not as fixed sites.
