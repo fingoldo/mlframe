@@ -27,6 +27,7 @@ from ._family_maxt_null_v2_njit import (
     BITSET_MAX_CLASSES,
     bitset_groups,
     label_bitsets_batch,
+    label_bitsets_from_index,
     mi_all_columns_counts as mi_all_columns_njit,
     null_max_bitsets,
 )
@@ -244,15 +245,18 @@ def family_null_max(cols: np.ndarray, n_x: np.ndarray, y: np.ndarray, n_y: int, 
     words = (int(y.shape[0]) + 63) // 64
     for start in range(0, int(n_perm), block):
         m = min(block, int(n_perm) - start)
-        perms = y[_permutation_block(rng, y, m)]
+        perm_idx = _permutation_block(rng, y, m)
         # The bitset / njit branches run parallel=True prange kernels; the GPU branches do not, but holding the guard
         # across the whole block keeps the null's kernel entries serialised with every other FE fan-out thread.
         with parallel_kernel_entry():
             if dev_bits is not None:
                 from ._family_maxt_cuda_bits import null_max_bits_device
 
-                out[start : start + m] = null_max_bits_device(dev_bits, label_bitsets_batch(perms, int(n_y), words), py_const)
-            elif bit_prep is not None:
+                # The class bit sets are packed straight from the permutation indices: the (block, n) matrix of permuted labels is never built.
+                out[start : start + m] = null_max_bits_device(dev_bits, label_bitsets_from_index(y, perm_idx, int(n_y), words), py_const)
+                continue
+            perms = y[perm_idx]
+            if bit_prep is not None:
                 out[start : start + m] = null_max_bitsets(bit_prep, n_x, perms, int(n_y))
             elif use_device:
                 out[start : start + m] = family_null_max_device(cols, n_x, perms, int(n_y))

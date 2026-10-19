@@ -28,12 +28,15 @@ def permuted_labels(y_raw: np.ndarray, y_codes: np.ndarray, perm_rows, count: in
     """``(y_raw[perm], y_codes[perm])`` for the first ``count`` index vectors of ``perm_rows``, each ``(count, n)``, in the narrowest signed integer
     type that holds the labels. Rows are filled as they are drawn, so no ``(count, n)`` index matrix is ever held."""
     out = []
+    sources = []
     for labels in (y_raw, y_codes):
         top = int(np.asarray(labels).max(initial=0))
-        out.append(np.empty((count, labels.shape[0]), dtype=np.int8 if top < 127 else np.int16 if top < 32767 else np.int32))
+        dtype = np.int8 if top < 127 else np.int16 if top < 32767 else np.int32
+        out.append(np.empty((count, labels.shape[0]), dtype=dtype))
+        sources.append(np.asarray(labels).astype(dtype))  # gathered in the narrow type: no wide temporary per permutation
     for b, rp in zip(range(count), perm_rows):
-        out[0][b] = y_raw[rp]
-        out[1][b] = y_codes[rp]
+        out[0][b] = sources[0][rp]
+        out[1][b] = sources[1][rp]
     return out[0], out[1]
 
 

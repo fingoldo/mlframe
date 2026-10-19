@@ -163,3 +163,16 @@ def test_kernel_element_type_follows_the_resident_table(use_shared_kernel, monke
     got = fb.mi_matrix_bits_device(dev32, cls_host, const_b)
     assert got.dtype == np.float32
     np.testing.assert_allclose(got, ref, rtol=2e-4, atol=2e-4 * float(np.abs(ref).max()))
+
+
+@pytest.mark.parametrize("n,classes", [(999, 2), (4096, 5), (3001, 10)])
+def test_label_bitsets_from_index_equals_packing_the_permuted_labels(n, classes):
+    """Packing the class bit sets straight from the permutation indices gives exactly the bit sets of the permuted label matrix, for index widths the permutation cache uses."""
+    from mlframe.feature_selection.filters._family_maxt_null_v2_njit import label_bitsets_batch, label_bitsets_from_index
+
+    rng = np.random.default_rng(n)
+    y = rng.integers(0, classes, n).astype(np.int64)
+    words = (n + 63) // 64
+    for dtype in (np.uint16, np.int32):
+        idx = np.stack([rng.permutation(n) for _ in range(12)]).astype(dtype)
+        np.testing.assert_array_equal(label_bitsets_from_index(y, idx, classes, words), label_bitsets_batch(y[idx], classes, words))

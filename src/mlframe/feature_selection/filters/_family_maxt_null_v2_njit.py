@@ -136,6 +136,17 @@ def label_bitsets_batch(y_perms: np.ndarray, n_y: int, words: int) -> np.ndarray
 
 
 @njit(cache=True, parallel=True)
+def label_bitsets_from_index(y: np.ndarray, perm_idx: np.ndarray, n_y: int, words: int) -> np.ndarray:
+    """:func:`label_bitsets_batch` of ``y[perm_idx]`` without building the ``(permutations, n)`` label matrix: row ``b`` uses the labels ``y[perm_idx[b]]``."""
+    b_count = perm_idx.shape[0]
+    out = np.zeros((b_count, n_y, words), dtype=np.uint64)
+    for b in prange(b_count):
+        for i in range(perm_idx.shape[1]):
+            out[b, y[perm_idx[b, i]], i >> 6] |= np.uint64(1) << np.uint64(i & 63)
+    return out
+
+
+@njit(cache=True, parallel=True)
 def family_null_max_bitsets(bits: np.ndarray, n_x: np.ndarray, y_perms: np.ndarray, n_y: int, table: np.ndarray, c_a: np.ndarray, px: np.ndarray) -> np.ndarray:
     """Same result as :func:`family_null_max_counts` with the joint counts taken as popcounts of ``bin & class`` bitsets.
 
