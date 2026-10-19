@@ -17,7 +17,7 @@ Procedure per row (owner instruction, no stopping for questions): capture the re
 | B4 | `_mrmr_fe_step/_step_score.py::_score_candidates_one_by_one` 59 | TODO | |
 | B5 | `_mrmr_fe_step/_step_score_parts2.py::_materialise_and_fina_step2_esc_failed` 461 | TODO | |
 | B7 | `_mrmr_fe_step/_step_score_parts2.py::_register_pair_recipes` 154 | TODO | |
-| B11 | `_orthogonal_univariate_fe/_extra_basis_resident.py::_build_extra_basis_matrix_gpu` 142 | TODO | 0.72-0.85 s cum |
+| B11 | `_orthogonal_univariate_fe/_extra_basis_resident.py::_build_extra_basis_matrix_gpu` 142 | DONE | real pools are 800+ Fourier names per call; one block launch, bit-identical in both dtypes (a first attempt with `--fmad=false` changed double `sin` and was dropped for a rounded multiply on the chirp product); 63 ms to 1.4 ms per 256 names; also fixed the float32 right-boundary spline bug found by the failing parity tests |
 | B13 | `_orthogonal_univariate_fe/_gpu_resident_cross_basis.py::build_leg_product_matrix_gpu` 172 | TODO | |
 | B18 | `_pairwise_modular_resident.py::residue_grid_mis_resident` 140 | DONE | one broadcast launch for all residues, groups as row slices of the column-major block; 5.9 to 3.7 ms per call, noise pillar 46.4 to 45.5 s, bit-identical |
 | B19 | `_unified_fe_gate.py::local_mi_gate` 339 | TODO | |
