@@ -96,3 +96,18 @@ Source: `conj_strict.prof` (total 124.3 s) and `f2xor_strict.prof` (total 231.4 
 Disposition for the REAL group on the four-pillar workload: DEFER, not a speed lead. No single site reaches the 0.5% ship bar as attainable gain (the cumulative share is the ceiling, and `score_pair_combos_table_resident` already uses a fused generator with per-pair chunking, so the remaining launch overhead is a fraction of its 0.55%). The sites stay in the baseline as a worklist for larger-n or other workloads, where the same loops scale with n or pairs; they should be re-measured there before any rewrite.
 
 Where the pillar wall time actually is: see the profile summaries in the session notes; the pair-floor kernel (about -29 s on conj+xor3) was the one item of this class that paid.
+
+## I. GPU-profiler findings (nvprof, strict GPU) and what they changed
+
+Method: nvprof `--print-gpu-summary` through PowerShell (CUPTI on PATH), on a warm call at the shape captured from a real fit, plus a whole-fit run of the f2 pillar. nsys needs elevation in this session; nvprof does not. Shares are serialisation-distorted, so every candidate was confirmed with a bit-identity check and a paired timing before it counted.
+
+Whole f2 pillar (5 cases, 103.5 s wall, GPU busy 32.6 s): `family_null_bits` 14.7 s (45%, 183 calls), numba-CUDA `_cuda_hist_kernel` of the noise gate 10.0 s (30.6%, 66 calls), `_cuda_mi_from_*` 1.8 s, `radix_select_f32_v3` 1.6 s (4.9%). None of the 25 loop sites is among the top kernels.
+
+Real shapes: `score_pair_combos_table_resident` n=3000, 10 pairs, 17 unaries, 6 binaries, 5 distinct operands per call; `family_null_bits` B=256 permutations, 10 classes, 157 words (n=10 000), 10 bins, K 220 to 1270 columns.
+
+| Candidate | Result | Disposition |
+|-----------|--------|-------------|
+| One-launch unary stack plus per-call operand cache (`_unary_stack_cuda.py`) | bit-identical, 1.6 to 3.3% faster on `score_pair_combos_table_resident`; the kernel is 8 us per launch, the function is bound by `radix_select` (50%) and `mi_mm_from_values` (28%) | kept (correct, small win) |
+| Shared-memory bitonic sort in place of `radix_select_f32_v3` | bit-identical in all cases; faster only at n=1000 (3.4 vs 9.1 ms, 2.7x); slower at n=3000 (12.8 vs 9.7 ms), 6000 (16.3 vs 6.4 ms), 8000 (8.2 vs 3.5 ms) | rejected as a replacement; prototype in the scratch dir. Open: a register-blocked variant. The KTC variant sweep for the radix kernel covers n from 50 000 only, so small n has never been tuned |
+| `family_null_bits_v2`: bin word read once against all classes, class bits staged in shared memory | bit-identical; K=221: 21.1 to 5.8 ms; K=600: 55.1 to 15.3 ms; K=1245: 120.9 to 33.2 ms (3.6x). Staging in shared memory matters (global broadcast instead: 71.6 ms). More than one permutation per thread is slower (register pressure) | kept; applies while the class bit sets fit a block's shared memory, otherwise the first kernel |
+| Word-tiled `family_null_bits_v2` for n above the shared limit (about 35 000 rows with 10 classes) | not built | DEFER: large-n fits keep the first kernel |
