@@ -16,6 +16,8 @@ import math
 import numpy as np
 from numba import njit, prange
 
+from mlframe._numba_parallel_guard import parallel_kernel_entry
+
 __all__ = ["bootstrap_rank_mi"]
 
 _TILE = 16  # columns a thread ranks together; their buffers are reused
@@ -311,7 +313,9 @@ def bootstrap_rank_mi(arr: np.ndarray, y: np.ndarray, rep_rows: "list[np.ndarray
         for b, rows in enumerate(rep_rows):
             base, rem = divmod(len(rows), n_bins)
             cum[b] = np.cumsum([base + (1 if t < rem else 0) for t in range(n_bins)])
-        mi, ok = _bootstrap_rank_mi_f32(np.ascontiguousarray(arr).view(np.uint32), y_codes, n_classes, idx, lens, binpos, counts_t, rowptr, poslist, cum, int(n_bins))
+        with parallel_kernel_entry():
+            mi, ok = _bootstrap_rank_mi_f32(np.ascontiguousarray(arr).view(np.uint32), y_codes, n_classes, idx, lens, binpos, counts_t, rowptr, poslist, cum, int(n_bins))
     else:
-        mi, ok = _bootstrap_rank_mi_generic(np.ascontiguousarray(arr), y_codes, n_classes, idx, lens, binpos, int(n_bins))
+        with parallel_kernel_entry():
+            mi, ok = _bootstrap_rank_mi_generic(np.ascontiguousarray(arr), y_codes, n_classes, idx, lens, binpos, int(n_bins))
     return mi, np.asarray(ok)

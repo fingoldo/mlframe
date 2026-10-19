@@ -520,8 +520,12 @@ class TestRecipeReplay:
             )
             replayed = apply_recipe(r, X)
             fit_time = X_aug[r.name].to_numpy()
+            # The engineered column is stored at the critical dtype (float32 by default) while the replay is computed in double precision, so the two agree to the resolution of the stored dtype:
+            # a few ulps relative to each value and to the column's scale (a polynomial near its roots cancels to an absolute error of that order).
+            eps = float(np.finfo(fit_time.dtype).eps) if np.issubdtype(fit_time.dtype, np.floating) else 1e-12
+            scale = float(np.max(np.abs(fit_time))) if fit_time.size else 1.0
             assert np.allclose(
-                replayed, fit_time, rtol=1e-9, atol=1e-12
+                replayed, fit_time, rtol=4.0 * eps, atol=4.0 * eps * scale
             ), f"seed={seed}: recipe {r.name!r} replay drift: max|replayed - fit| = {float(np.max(np.abs(replayed - fit_time)))}; extra={dict(r.extra)}"
 
 

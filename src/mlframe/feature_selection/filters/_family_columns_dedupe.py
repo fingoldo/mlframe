@@ -11,6 +11,8 @@ from __future__ import annotations
 import numpy as np
 from numba import njit, prange
 
+from mlframe._numba_parallel_guard import parallel_kernel_entry
+
 __all__ = ["unique_columns"]
 
 
@@ -65,7 +67,8 @@ def unique_columns(cols: np.ndarray) -> "tuple[np.ndarray, np.ndarray] | None":
         return None
     cols = np.ascontiguousarray(cols)
     n_codes = int(cols.max()) + 1
-    hv = _partition_hashes(cols, n_codes)
+    with parallel_kernel_entry():
+        hv = _partition_hashes(cols, n_codes)
     order = np.argsort(hv, kind="stable")
     hs = hv[order]
     new_group = np.empty(k, dtype=np.bool_)
@@ -77,7 +80,9 @@ def unique_columns(cols: np.ndarray) -> "tuple[np.ndarray, np.ndarray] | None":
     first_row_of_group = order[new_group]  # stable sort: the first row (lowest index) of each hash group
     rep = np.empty(k, dtype=np.int64)
     rep[order] = first_row_of_group[group_of_sorted]
-    if not _same_partition_as_representative(cols, rep, n_codes):
+    with parallel_kernel_entry():
+        same = _same_partition_as_representative(cols, rep, n_codes)
+    if not same:
         return None
     keep = np.flatnonzero(rep == np.arange(k))
     slot = np.full(k, -1, dtype=np.int64)
