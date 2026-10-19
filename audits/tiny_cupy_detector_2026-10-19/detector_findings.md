@@ -54,3 +54,79 @@ Note: the 35 sites added to the baseline by the depth-2 and `self` rules are NOT
 - FIX in this wave: A1, A2, B1 (done earlier), D1 (done), D2 (with A1 and A2).
 - DEFER with a target: A3, B2, B3, the 49 entries in section C, E2.
 - DISMISS with reason: A4, E1.
+
+## F. Triage of the 84 new baseline entries
+
+Full per-site verdicts: `triage_a.md` (keys 1-42 of `/d/Temp/triage_a.txt`) and `triage_b.md` (keys 43-84). Verdicts were read from source, with callee bodies read where cited.
+
+Totals: REAL 25 (A 9, B 16), CHUNK 24 (A 13, B 11), FALSE_POSITIVE 27 (A 17, B 10), UNCLEAR 8 (A 3, B 5).
+
+Caveat for the FALSE_POSITIVE group: most are gated off by default (`_cmi_gpu_enabled`, `_gate_cands_resident()`, `fe_gpu_strict_resident_enabled()`, `MLFRAME_EXTVAL_FUSED`). The detector is right that the default host run does not launch them, but these gates are opt-in switches, not kernel-tuning-cache decisions. Per the project rule (dispatch by hardware and size via kernel_tuning_cache, not opt-in flags), those gates are a dispatch gap to fix, not a reason to dismiss. Status: OPEN, not dismissed.
+
+Example: `hermite_fe/__init__.py` `_polyeval_dispatch` (key 37 in the triage list). The CUDA crossover `_cuda_threshold` from kernel_tuning_cache is computed in `_lookup_polyeval_thresholds` but the default path ignores it and reaches CUDA only when `MLFRAME_POLYEVAL_BACKEND=cuda` is set. Disposition: FIX through KTC, not DISMISS.
+
+Shapes of FALSE_POSITIVE, to be recognised by the detector or fixed at source:
+1. Host function calling a helper whose cupy branch sits behind a config gate (about 13 sites).
+2. `xp` or `cp` parameter always bound to numpy by callers (keys 34, 36 in A).
+3. Env flag that returns early before the cupy loop (key 31 in A).
+4. Prewarp/spec branch in a callee that skips the cupy quantiser (key 19 in A).
+
+UNCLEAR, needs a further read: A 27, 28, 38; B 5 keys (see `triage_b.md`).
+
+## G. Baseline changes after the polyeval KTC dispatch fix
+
+- `hermite_fe/__init__.py::polyeval_dispatch` left the baseline: its device loop moved into `_polyeval_try_cuda`, which is now the baselined key. The loop returns on the first device that succeeds, so it is at most one successful iteration (CHUNK-like, low severity).
+- `_orthogonal_univariate_fe/__init__.py::basis_route_by_signal` and `::generate_univariate_basis_features` left the baseline only because the call chain to the cupy calls is now one level longer than `_CALL_DEPTH`. The code did not get cheaper. They are tracked as detector limit A2 (depth bound), not as fixed sites.
+
+## H. Measured weight of the REAL sites in the pillar profiles
+
+Source: `conj_strict.prof` (total 124.3 s) and `f2xor_strict.prof` (total 231.4 s), strict GPU, taken before the pair-floor kernel. Cumulative seconds, only functions above 0.5 s in either profile are listed; every other REAL site is below 0.5 s in both and is not separately measurable here. cProfile inflates async GPU-op time, so these numbers are upper bounds on the launch overhead, not the attainable gain.
+
+| Site | cum s | share of its profile |
+|------|-------|----------------------|
+| `_usability_pool_resident.py::score_pair_combos_table_resident` (7 calls) | 1.28 | 0.55% (f2xor) |
+| `_usability_greedy_gpu_resident.py::_cv_candidates` (35 calls) | 1.04 | 0.45% (f2xor) |
+| `_extra_basis_resident.py::_build_extra_basis_matrix_gpu` | 0.72 / 0.85 | 0.58% (conj), 0.37% (f2xor) |
+| `hermite_fe/_als_fused_gpu.py::als_sweep_fused` (542 calls) | 0.70 | 0.30% (f2xor) |
+| `_binned_numeric_agg_resident.py::_binagg_null_calibrated_floor` | 0.68 | 0.29% (f2xor) |
+| `_usability_greedy_gpu_resident.py::_shortlist` | 0.64 | 0.28% (f2xor) |
+| `_fe_additive_fusion_gpu_resident.py::propose_additive_fusions_gpu` | 0.59 | 0.26% (f2xor) |
+| `_usability_greedy_clf_gpu_resident.py::_usability_greedy_c_range_min` | 0.57 / 0.55 | 0.46% (conj), 0.24% (f2xor) |
+
+Disposition for the REAL group on the four-pillar workload: DEFER, not a speed lead. No single site reaches the 0.5% ship bar as attainable gain (the cumulative share is the ceiling, and `score_pair_combos_table_resident` already uses a fused generator with per-pair chunking, so the remaining launch overhead is a fraction of its 0.55%). The sites stay in the baseline as a worklist for larger-n or other workloads, where the same loops scale with n or pairs; they should be re-measured there before any rewrite.
+
+Where the pillar wall time actually is: see the profile summaries in the session notes; the pair-floor kernel (about -29 s on conj+xor3) was the one item of this class that paid.
+
+## I. GPU-profiler findings (nvprof, strict GPU) and what they changed
+
+Method: nvprof `--print-gpu-summary` through PowerShell (CUPTI on PATH), on a warm call at the shape captured from a real fit, plus a whole-fit run of the f2 pillar. nsys needs elevation in this session; nvprof does not. Shares are serialisation-distorted, so every candidate was confirmed with a bit-identity check and a paired timing before it counted.
+
+Whole f2 pillar (5 cases, 103.5 s wall, GPU busy 32.6 s): `family_null_bits` 14.7 s (45%, 183 calls), numba-CUDA `_cuda_hist_kernel` of the noise gate 10.0 s (30.6%, 66 calls), `_cuda_mi_from_*` 1.8 s, `radix_select_f32_v3` 1.6 s (4.9%). None of the 25 loop sites is among the top kernels.
+
+Real shapes: `score_pair_combos_table_resident` n=3000, 10 pairs, 17 unaries, 6 binaries, 5 distinct operands per call; `family_null_bits` B=256 permutations, 10 classes, 157 words (n=10 000), 10 bins, K 220 to 1270 columns.
+
+| Candidate | Result | Disposition |
+|-----------|--------|-------------|
+| One-launch unary stack plus per-call operand cache (`_unary_stack_cuda.py`) | bit-identical, 1.6 to 3.3% faster on `score_pair_combos_table_resident`; the kernel is 8 us per launch, the function is bound by `radix_select` (50%) and `mi_mm_from_values` (28%) | kept (correct, small win) |
+| Shared-memory bitonic sort in place of `radix_select_f32_v3` | bit-identical in all cases; faster only at n=1000 (3.4 vs 9.1 ms, 2.7x); slower at n=3000 (12.8 vs 9.7 ms), 6000 (16.3 vs 6.4 ms), 8000 (8.2 vs 3.5 ms) | rejected as a replacement; prototype in the scratch dir. Open: a register-blocked variant. The KTC variant sweep for the radix kernel covers n from 50 000 only, so small n has never been tuned |
+| `family_null_bits_v2`: bin word read once against all classes, class bits staged in shared memory | bit-identical; K=221: 21.1 to 5.8 ms; K=600: 55.1 to 15.3 ms; K=1245: 120.9 to 33.2 ms (3.6x). Staging in shared memory matters (global broadcast instead: 71.6 ms). More than one permutation per thread is slower (register pressure) | kept; applies while the class bit sets fit a block's shared memory, otherwise the first kernel |
+| Word-tiled `family_null_bits_v2` for n above the shared limit (about 35 000 rows with 10 classes) | not built | DEFER: large-n fits keep the first kernel |
+
+## J. Noise gate on bit sets (second GPU-profile win)
+
+After `family_null_bits_v2` the whole-f2 profile (GPU busy 21.6 s of 86.8 s) is led by the noise gate's histogram kernel: 10.0 s, 46% of GPU time, 12 big calls at n=10 000, K up to 9 720 columns, 10 bins, 10 classes, 100 permutations (about 0.83 s each; 972 000 blocks of 10 000 shared atomics).
+
+The gate needs the same quantity the family null computes: the plug-in MI of every column against every permuted target. `_batch_mi_noise_gate_bits.py` builds the bin and class bit sets on the device from the resident codes and the resident `(P, n)` target matrix and runs the shared-memory kernel, so only the `(P, K)` MI matrix leaves the device. The backend is a kernel-tuning-cache choice (`noise_gate_bits`, axes rows x columns x classes x bins), with the measured crossover `nbins * (classes - 1) <= 700` as the fallback.
+
+| Check | Result |
+|-------|--------|
+| Gate at the real shape (K=9 720, P=100) | 798 ms to 111 ms (7.2x); K=3 000: 238 ms to 33 ms (7.2x) |
+| MI values against the count-table formula | within 3.6e-15 on sampled (permutation, column) pairs, four shapes including n not a multiple of 64 |
+| Gate decisions on all 62 real f2 calls (both backends run on every call) | identical survivor set on every call (143 116 survivors in total), max value difference 8.5e-15 |
+| f2 pillar, paired A/B | 79.8 s to 68.1 s (-14.7%), 5/5 pass |
+
+Selection note: in the A/B, `f2[scaled_1_5]` recovered `add(div(sqr(a),abs(b)),mul(log(c),sin(d)))` instead of `sub(div(sqr(a),neg(b)),mul(log(c),sin(d)))`. These are the same feature up to sign (b > 0), mathematically equal in MI. With the histogram result returned to the fit, the formula is the original one, and all gate decisions are identical, so the change comes from the 1e-15 value differences breaking a tie between the two sign-equivalent candidates downstream. Recorded as an accepted tie-break, not a selection regression.
+
+Baseline: `_batch_mi_noise_gate_bits.py::bits_gate_mi` joins the tiny-cupy baseline at severity low: the loop is over column groups sized by a memory budget (usually one iteration).
+
+Tuning-cache lesson (kernel `noise_gate_bits`): the first sweep covered at most 4 000 columns and used `hist` as the reference backend. For a point outside the swept grid the cache returns the reference backend, so the real f2 shape (9 720 columns) was routed to `hist` once the cache had entries, which is slower than having no entry at all. Fixed: the column axis now reaches 12 000, the reference is the fast `bits` path (the gate falls back to the histogram pair by itself where the kernel declines), and the fallback is "the kernel applies" (up to 32 bins and 25 classes) instead of a `nbins * (classes - 1)` product. Result after the second sweep: 30 regions persisted, `bits` in every cell it can run (6 cells with 25 classes at 20 000 rows are skipped: the class bit sets do not fit a block's shared memory there), real f2 shape and 27 744-column and 100 000-row shapes choose `bits`.

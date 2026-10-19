@@ -240,10 +240,17 @@ def score_pair_combos_table_resident(
         threads = 256
 
         from ._fe_resident_operands import resident_operand
+        from ._unary_stack_cuda import UnaryStackCache
+
+        # Unary stacks of the operands, shared across the pairs of this call; one eighth of the free device memory is the cache budget.
+        ua_codes_d = cp.asarray(np.asarray(ua_codes_l, dtype=np.int32))
+        ub_codes_d = ua_codes_d if ub_codes_l == ua_codes_l else cp.asarray(np.asarray(ub_codes_l, dtype=np.int32))
+        unary_cache = UnaryStackCache(int(cp.cuda.runtime.memGetInfo()[0]) // 8)
 
         for p in range(npairs):
             from mlframe.feature_selection.filters._usability_pool_resident_pairs import _score_one_pair_combos
-            _score_one_pair_combos(operands, p, resident_operand, f32, n, cp, nu, _gpu_apply_unary, ua_codes_l, ub_codes_l, nc, combo_chunk, col_major, cp_dt, fused_gen, threads, ua_idx_d, ub_idx_d, bop_d, nbins, ky_w, h_y, k_y, d_y, d_qs, mi_table_d)
+            _score_one_pair_combos(operands, p, resident_operand, f32, n, cp, nu, _gpu_apply_unary, ua_codes_l, ub_codes_l, nc, combo_chunk, col_major, cp_dt, fused_gen, threads, ua_idx_d, ub_idx_d, bop_d, nbins, ky_w, h_y, k_y, d_y, d_qs, mi_table_d, unary_cache, ua_codes_d, ub_codes_d)
+        unary_cache.clear()
         # ONE D2H for the WHOLE table (was ~96/call, 17340/fit): all chunk MI accumulated resident above.
         out[:] = cp.asnumpy(mi_table_d)
         return out.reshape(npairs, nc)

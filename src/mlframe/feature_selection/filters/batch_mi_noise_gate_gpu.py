@@ -383,6 +383,32 @@ def _batch_mi_noise_gate_su_delegate(
     )
 
 
+_NOISE_GATE_BACKEND_OVERRIDE: "str | None" = None  # "bits" / "hist" while the kernel-tuning sweep times one backend; None -> the tuning-cache choice
+
+
+def force_noise_gate_backend(value: "str | None") -> "str | None":
+    """Force the resident gate's backend (``"bits"``, ``"hist"``) or release the force (``None``); returns the previous setting so a caller can restore it."""
+    global _NOISE_GATE_BACKEND_OVERRIDE
+    previous = _NOISE_GATE_BACKEND_OVERRIDE
+    _NOISE_GATE_BACKEND_OVERRIDE = value
+    return previous
+
+
+def _noise_gate_bits_matrix(d_disc, nbins_arr, d_y, K_y, n, K):
+    """``(P, K)`` MI matrix from device bit sets when the backend choice is the bit-set gate and the kernel applies, else ``None`` (the histogram pair then runs)."""
+    forced = _NOISE_GATE_BACKEND_OVERRIDE
+    if forced == "hist":
+        return None
+    from ._batch_mi_noise_gate_bits import bits_gate_mi, noise_gate_backend_choice
+
+    if forced is None and noise_gate_backend_choice(n, K, K_y, int(np.max(nbins_arr))) != "bits":
+        return None
+    mi = bits_gate_mi(d_disc, nbins_arr, d_y, K_y)
+    if mi is None and forced == "bits":
+        raise RuntimeError("the bit-set noise gate declined this shape")
+    return mi
+
+
 def batch_mi_with_noise_gate_cuda_resident(
     disc_2d: np.ndarray,
     factors_nbins: np.ndarray,
@@ -480,6 +506,11 @@ def batch_mi_with_noise_gate_cuda_resident(
     d_off = _histgate_upload(offsets[:K], "histgate_off", np.int64)
     d_nb = _histgate_upload(nbins_arr, "histgate_nb", np.int32)
     d_freq = _histgate_upload(freqs_y, "histgate_freq", np.float64)
+    # Bit-set gate (``_batch_mi_noise_gate_bits``): the (P, K) MI matrix from popcounts of device bit sets, 7x faster than the histogram pair at 10 bins x 10 classes; the tuning cache decides.
+    if not use_su:
+        _bits_mi = _noise_gate_bits_matrix(d_disc, nbins_arr, d_y, K_y, n, K)
+        if _bits_mi is not None:
+            return _gate_from_mi(_bits_mi[0], _bits_mi[1:], nperm, min_nonzero_confidence) if nperm > 0 else _gate_from_mi(_bits_mi[0], [], 0, min_nonzero_confidence)
     # Fused histogram + reduction: no (P, total_size) counts matrix (444 MB at 27744 candidates x 100 shuffles), one launch; falls through when it does not apply.
     _fused_mi = fused_gate_mi(d_disc, nbins_arr, d_nb, d_y, d_freq, freqs_y, n, K, K_y, P, threads_per_block, use_su)
     if _fused_mi is not None:

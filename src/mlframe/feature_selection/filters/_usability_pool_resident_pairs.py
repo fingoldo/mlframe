@@ -8,7 +8,7 @@ from mlframe.feature_selection.filters._usability_pool_resident import _write_co
 # --- end imports ---
 
 
-def _score_one_pair_combos(operands, p, resident_operand, f32, n, cp, nu, _gpu_apply_unary, ua_codes_l, ub_codes_l, nc, combo_chunk, col_major, cp_dt, fused_gen, threads, ua_idx_d, ub_idx_d, bop_d, nbins, ky_w, h_y, k_y, d_y, d_qs, mi_table_d):
+def _score_one_pair_combos(operands, p, resident_operand, f32, n, cp, nu, _gpu_apply_unary, ua_codes_l, ub_codes_l, nc, combo_chunk, col_major, cp_dt, fused_gen, threads, ua_idx_d, ub_idx_d, bop_d, nbins, ky_w, h_y, k_y, d_y, d_qs, mi_table_d, unary_cache=None, ua_codes_d=None, ub_codes_d=None):
     """Stage of ``score_pair_combos_table_resident``."""
     x1, x2 = operands[p]
     # Content-hash-keyed resident cache (cProfile-driven): a raw operand column
@@ -25,8 +25,14 @@ def _score_one_pair_combos(operands, p, resident_operand, f32, n, cp, nu, _gpu_a
     # device nanmin kernels plus a blocking read per pair (cupy's nanmin was ~15 ms a call here, almost all of it waiting on the queued work).
     xmin_a, xmin_b = (float(np.nanmin(x1)), float(np.nanmin(x2))) if n else (0.0, 0.0)
     # (nu, n) column-major stacks: each operand's nu unaries applied ONCE (reused across all combos).
-    ua_stack = cp.ascontiguousarray(cp.stack([_gpu_apply_unary(d_x1, ua_codes_l[ia], xmin_a) for ia in range(nu)]))
-    ub_stack = cp.ascontiguousarray(cp.stack([_gpu_apply_unary(d_x2, ub_codes_l[ib], xmin_b) for ib in range(nu)]))
+    # One elementwise launch builds the whole (nu, n) stack and an operand that recurs across pairs is transformed once (``unary_cache``); the per-unary cupy
+    # build below is the fallback when the kernel is unavailable.
+    ua_stack = unary_cache.get(d_x1, ua_codes_d, xmin_a) if unary_cache is not None else None
+    ub_stack = unary_cache.get(d_x2, ub_codes_d, xmin_b) if unary_cache is not None else None
+    if ua_stack is None:
+        ua_stack = cp.ascontiguousarray(cp.stack([_gpu_apply_unary(d_x1, ua_codes_l[ia], xmin_a) for ia in range(nu)]))
+    if ub_stack is None:
+        ub_stack = cp.ascontiguousarray(cp.stack([_gpu_apply_unary(d_x2, ub_codes_l[ib], xmin_b) for ib in range(nu)]))
     base = p * nc
     for c0 in range(0, nc, combo_chunk):
         c1 = min(c0 + combo_chunk, nc)

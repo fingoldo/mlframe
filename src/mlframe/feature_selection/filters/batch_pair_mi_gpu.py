@@ -35,6 +35,7 @@ from mlframe.feature_selection.filters._fe_gpu_batch._devices import crit_float_
 
 # Re-export CPU baseline for callers who want a single import point.
 from .info_theory import batch_pair_mi_prange as batch_pair_mi_njit_prange
+from ._content_memo import ContentMemo
 
 logger = logging.getLogger(__name__)
 
@@ -707,7 +708,7 @@ def _iter_upper_triangle_pair_chunks(k: int, chunk_pairs: int):
         yield a_pos, b_pos
 
 
-def dispatch_batch_pair_mi_chunked(
+def _dispatch_batch_pair_mi_chunked_uncached(
     factors_data: np.ndarray,
     ids: np.ndarray,
     nbins: np.ndarray,
@@ -771,6 +772,40 @@ def dispatch_batch_pair_mi_chunked(
         np.concatenate(mi_out),
         backend_counts,
     )
+
+
+_CHUNKED_MI_MEMO = ContentMemo(max_entries=4)  # (pair_a, pair_b, mi, backend_counts) of the newest large requests, by input content
+_CHUNKED_MI_MEMO_MIN_WORK = 50_000_000  # pairs x rows from which hashing the inputs to catch a repeat is worth it
+
+
+def dispatch_batch_pair_mi_chunked(
+    factors_data: np.ndarray,
+    ids: np.ndarray,
+    nbins: np.ndarray,
+    classes_y: np.ndarray,
+    freqs_y: np.ndarray,
+    force_backend: str | None = None,
+    max_pairs_per_chunk: int | None = None,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, dict]:
+    """:func:`_dispatch_batch_pair_mi_chunked_uncached` with the result of a large request remembered by the content of its inputs.
+
+    The adaptive retry of an FE step scores the same all-pairs table again over the same columns; the table is a pure function of the codes, the column ids, the bin counts and the target, so the
+    second request is answered from the first (a copy: a caller cannot change the stored table). Requests below ``_CHUNKED_MI_MEMO_MIN_WORK`` pair-rows are not hashed. See the uncached
+    function for the contract.
+    """
+    k = int(np.asarray(ids).shape[0])
+    if k * (k - 1) // 2 * int(factors_data.shape[0]) < _CHUNKED_MI_MEMO_MIN_WORK:
+        return _dispatch_batch_pair_mi_chunked_uncached(factors_data, ids, nbins, classes_y, freqs_y, force_backend, max_pairs_per_chunk)
+    from ._gpu_policy import gpu_globally_disabled
+
+    key = _CHUNKED_MI_MEMO.key([factors_data, ids, nbins, classes_y, freqs_y], force_backend, max_pairs_per_chunk, bool(gpu_globally_disabled()))
+    hit = _CHUNKED_MI_MEMO.get(key)
+    if hit is not None:
+        remembered: tuple[np.ndarray, np.ndarray, np.ndarray, dict] = hit
+        return remembered
+    result = _dispatch_batch_pair_mi_chunked_uncached(factors_data, ids, nbins, classes_y, freqs_y, force_backend, max_pairs_per_chunk)
+    _CHUNKED_MI_MEMO.put(key, result)
+    return result
 
 
 # Register with the @kernel_tuner registry so retune_all / mlframe-tune-kernels

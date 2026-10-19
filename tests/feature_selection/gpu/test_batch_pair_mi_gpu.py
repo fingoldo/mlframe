@@ -100,6 +100,12 @@ def test_batch_pair_mi_cuda_matches_cpu(n_samples, nbins_per_col, n_classes_y, s
     )
 
 
+def _result_tolerance(result):
+    """Comparison tolerance for a device result against the float64 CPU baseline: a few hundred machine epsilons of the result's own dtype (the device path returns the critical dtype, float32 by
+    default, whose sums over the joint cells differ from the double-precision baseline at that level; a float64 result keeps a tolerance of about 4e-14)."""
+    return 200.0 * float(np.finfo(result.dtype).eps)
+
+
 @pytest.mark.skipif(not _CUPY_AVAIL, reason="cupy not available on this host")
 @pytest.mark.parametrize("n_samples,nbins_per_col,n_classes_y,seed", PARAM_MATRIX)
 def test_batch_pair_mi_cupy_matches_cpu(n_samples, nbins_per_col, n_classes_y, seed):
@@ -112,11 +118,12 @@ def test_batch_pair_mi_cupy_matches_cpu(n_samples, nbins_per_col, n_classes_y, s
     )
     mi_cpu = batch_pair_mi_njit_prange(data, pa, pb, nbins, y, freqs_y)
     mi_cupy = batch_pair_mi_cupy(data, pa, pb, nbins, y, freqs_y)
+    tol = _result_tolerance(mi_cupy)
     np.testing.assert_allclose(
         mi_cupy,
         mi_cpu,
-        atol=1e-9,
-        rtol=1e-9,
+        atol=tol,
+        rtol=tol,
         err_msg=(
             f"batch_pair_mi_cupy diverged from CPU njit baseline: "
             f"shapes=(n={n_samples}, nbins={nbins_per_col}, ny={n_classes_y}). "
@@ -182,7 +189,8 @@ def test_dispatch_force_backend_cupy_matches_cpu():
         force_backend="cupy",
     )
     assert backend == "cupy"
-    np.testing.assert_allclose(mi_force, mi_cpu, atol=1e-9, rtol=1e-9)
+    tol = _result_tolerance(mi_force)
+    np.testing.assert_allclose(mi_force, mi_cpu, atol=tol, rtol=tol)
 
 
 def test_dispatch_force_unavailable_falls_back_to_cpu(monkeypatch):

@@ -43,6 +43,8 @@ import numba
 import numpy as np
 
 from mlframe._numba_parallel_guard import parallel_kernel_entry
+
+from ._content_memo import ContentMemo
 from numba import prange
 
 
@@ -508,6 +510,10 @@ def _validate_pair_floor_inputs(factors_data, nbins, pair_a, pair_b, classes_y, 
         raise ValueError(f"classes_y codes must lie in [0, {k_y}) to match freqs_y, got range [{int(y.min())}, {int(y.max())}]")
 
 
+_PAIR_FLOOR_MEMO = ContentMemo(max_entries=4)  # K per-shuffle maxima of a pool, by input content
+_PAIR_FLOOR_MEMO_MIN_WORK = 50_000_000  # pairs x shuffles x rows from which hashing the inputs to catch a repeat is worth it
+
+
 def pooled_pair_permutation_null_joint_mi_floor(
     factors_data: np.ndarray,
     nbins: np.ndarray,
@@ -619,8 +625,17 @@ def pooled_pair_permutation_null_joint_mi_floor(
         mm_bias = (k_joint - 1).astype(np.float64) * float(k_y - 1) / (2.0 * n)
         mm_bias[k_joint <= 1] = 0.0
 
-    rng = np.random.default_rng(random_seed)
     K = int(n_permutations)
+    # The retry of an FE step asks for the same floor over the same pool: remember the K per-shuffle maxima by the content of the inputs (the quantile is taken from them).
+    memo_key = None
+    if n_pairs * K * n >= _PAIR_FLOOR_MEMO_MIN_WORK:
+        from ._pair_mi_perm_cuda import floor_backend_choice as _backend_choice
+
+        memo_key = _PAIR_FLOOR_MEMO.key([factors_data, pa, pb, nb, classes_y, fy], K, random_seed, bool(mm_debias), bool(device_only), int(joint_cardinality_cap()), _backend_choice(n, n_pairs))
+        remembered = _PAIR_FLOOR_MEMO.get(memo_key)
+        if remembered is not None:
+            return float(np.quantile(remembered, float(quantile)))
+    rng = np.random.default_rng(random_seed)
     y_perm = np.ascontiguousarray(classes_y).astype(np.int64).copy()
     y_perms = np.empty((K, y_perm.shape[0]), dtype=np.int64)
     for k in range(K):
@@ -645,6 +660,8 @@ def pooled_pair_permutation_null_joint_mi_floor(
             mis = mis - mm_bias
         maxes[k] = float(np.max(mis)) if mis.size else 0.0
 
+    if memo_key is not None:
+        _PAIR_FLOOR_MEMO.put(memo_key, maxes)
     return float(np.quantile(maxes, float(quantile)))
 
 

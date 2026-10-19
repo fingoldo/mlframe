@@ -71,6 +71,7 @@ Numerical equivalence vs ``_abs_pearson_njit`` is verified by
 ``tests/feature_selection/gpu/test_batch_pair_usability_corr_gpu.py`` (CPU always; GPU variant when CUDA
 is available, auto-skip otherwise).
 """
+
 from __future__ import annotations
 
 import logging
@@ -81,12 +82,15 @@ import numba
 import numpy as np
 from numba import prange
 
+from ._content_memo import ContentMemo
+
 logger = logging.getLogger(__name__)
 
 from numba import cuda as _nb_cuda
 
 try:
     from pyutilz.core.pythonlib import is_cuda_available as _pyutilz_is_cuda_available
+
     _CUDA_AVAIL = _pyutilz_is_cuda_available()
 except ImportError as e:
     # pyutilz genuinely absent: expected on a lean install, permanent, quiet.
@@ -113,6 +117,7 @@ except Exception as e:
 # mismatch routes to CPU instead of raising NvvmSupportError mid-dispatch (mirrors batch_pair_mi_gpu.py).
 try:
     from ._internals import numba_cuda_can_compile as _numba_cuda_can_compile
+
     _CUDA_AVAIL = _CUDA_AVAIL and _numba_cuda_can_compile()
 except Exception as e:
     logger.warning("numba_cuda_can_compile() check failed, assuming CUDA unavailable: %s", e)
@@ -133,7 +138,8 @@ FORM_X0_MUL_X1 = 8
 
 ALL_SINGLE_FORM_IDS = np.array([FORM_X0, FORM_X1, FORM_X0_SQ, FORM_X1_SQ], dtype=np.int64)
 ALL_PAIR_FORM_IDS = np.array(
-    [FORM_X0_DIV_X1, FORM_X1_DIV_X0, FORM_X0SQ_DIV_X1, FORM_X1SQ_DIV_X0, FORM_X0_MUL_X1], dtype=np.int64,
+    [FORM_X0_DIV_X1, FORM_X1_DIV_X0, FORM_X0SQ_DIV_X1, FORM_X1SQ_DIV_X0, FORM_X0_MUL_X1],
+    dtype=np.int64,
 )
 ALL_FORM_IDS = np.concatenate([ALL_SINGLE_FORM_IDS, ALL_PAIR_FORM_IDS])
 
@@ -258,7 +264,13 @@ def batch_pair_usability_corr_njit_parallel(
         p = tid // n_forms
         f = tid - p * n_forms
         out[p, f] = _abs_pearson_form_reduction(
-            y, operand_matrix, pair_a[p], pair_b[p], form_ids[f], _EPS_DENOM_FLOOR, _CV2_DEGENERATE_FLOOR,
+            y,
+            operand_matrix,
+            pair_a[p],
+            pair_b[p],
+            form_ids[f],
+            _EPS_DENOM_FLOOR,
+            _CV2_DEGENERATE_FLOOR,
         )
     return out
 
@@ -419,6 +431,7 @@ def batch_pair_usability_corr_cuda_warp(y: np.ndarray, operand_matrix: np.ndarra
         raise RuntimeError("CUDA is not available for batch_pair_usability_corr_cuda_warp")
 
     from ._fe_resident_operands import resident_operand
+
     y_d = resident_operand(y, "batch_pair_usability_corr_y", dtype=None)
     operand_d = resident_operand(operand_matrix, "batch_pair_usability_corr_operand", dtype=None)
     pair_a_d = _nb_cuda.to_device(np.ascontiguousarray(pair_a, dtype=np.int64))
@@ -455,6 +468,7 @@ def batch_pair_usability_corr_cuda(y: np.ndarray, operand_matrix: np.ndarray, pa
     # with numba.cuda.to_device-produced arrays (verified on this host), so no new infra is needed here.
     # pair_a/pair_b/form_ids genuinely vary per call and stay raw uploads.
     from ._fe_resident_operands import resident_operand
+
     y_d = resident_operand(y, "batch_pair_usability_corr_y", dtype=None)
     operand_d = resident_operand(operand_matrix, "batch_pair_usability_corr_operand", dtype=None)
     pair_a_d = _nb_cuda.to_device(np.ascontiguousarray(pair_a, dtype=np.int64))
@@ -486,7 +500,7 @@ def _required_gpu_bytes(operand_matrix: np.ndarray, n_pairs: int, n_forms: int) 
     return int(operand_bytes + output_bytes + (1 << 20))  # +1MiB slack for y / index arrays
 
 
-def dispatch_batch_pair_usability_corr(
+def _dispatch_batch_pair_usability_corr_uncached(
     y: np.ndarray,
     operand_matrix: np.ndarray,
     pair_a: np.ndarray,
@@ -554,10 +568,12 @@ def dispatch_batch_pair_usability_corr(
     if use_cuda:
         try:
             from ._fe_gpu_vram import fe_gpu_has_vram_cushion
+
             if not fe_gpu_has_vram_cushion(_required_gpu_bytes(operand_matrix, n_pairs, n_forms)):
                 logger.warning(
                     "batch_pair_usability_corr: insufficient VRAM cushion for n_pairs=%d n_forms=%d -- falling back to CPU.",
-                    n_pairs, n_forms,
+                    n_pairs,
+                    n_forms,
                 )
                 use_cuda = False
         except Exception as exc:
@@ -573,7 +589,8 @@ def dispatch_batch_pair_usability_corr(
         except Exception as exc:
             logger.warning(
                 "batch_pair_usability_corr: CUDA backend failed (%s: %s) -- falling back to CPU.",
-                type(exc).__name__, exc,
+                type(exc).__name__,
+                exc,
             )
 
     # y/operand_matrix keep the CALLER's dtype (mirrors batch_pair_tail_concentration_rankaware's
@@ -590,6 +607,43 @@ def dispatch_batch_pair_usability_corr(
         form_ids,
     )
     return result, "cpu"
+
+
+_CORR_MEMO = ContentMemo(max_entries=4)  # (result, backend) of the newest large requests, by input content
+_CORR_MEMO_MIN_WORK = (
+    50_000_000  # n_pairs * n_forms * n_rows from which hashing the inputs to catch a repeat is worth it (a miss costs ~0.2 ms per MB of operands)
+)
+
+
+def dispatch_batch_pair_usability_corr(
+    y: np.ndarray,
+    operand_matrix: np.ndarray,
+    pair_a: np.ndarray,
+    pair_b: np.ndarray,
+    form_ids: np.ndarray | None = None,
+    force_backend: str | None = None,
+) -> tuple[np.ndarray, str]:
+    """:func:`_dispatch_batch_pair_usability_corr_uncached` with the result of a large call remembered by the content of its inputs.
+
+    A fit that runs the same FE step twice (the first sweep and a retry over the identical pool) asks for the identical ``|corr|`` table twice; at 30 000 pairs x 5 forms x 50 000 rows that is
+    6 s each time. The key is the content of ``y``, the operand matrix, both pair index arrays and the form ids, plus ``force_backend`` and the global GPU switch; the table is a pure function of
+    those. Only calls above ``_CORR_MEMO_MIN_WORK`` are hashed, and a copy is returned so a caller cannot change the stored table.
+    """
+    if form_ids is None:
+        form_ids = ALL_FORM_IDS
+    form_ids = np.asarray(form_ids, dtype=np.int64)
+    if int(pair_a.shape[0]) * int(form_ids.shape[0]) * int(y.shape[0]) < _CORR_MEMO_MIN_WORK:
+        return _dispatch_batch_pair_usability_corr_uncached(y, operand_matrix, pair_a, pair_b, form_ids, force_backend)
+    from ._gpu_policy import gpu_globally_disabled
+
+    key = _CORR_MEMO.key([y, operand_matrix, pair_a, pair_b, form_ids], force_backend, bool(gpu_globally_disabled()))
+    hit = _CORR_MEMO.get(key)
+    if hit is not None:
+        remembered: tuple[np.ndarray, str] = hit
+        return remembered
+    result = _dispatch_batch_pair_usability_corr_uncached(y, operand_matrix, pair_a, pair_b, form_ids, force_backend)
+    _CORR_MEMO.put(key, result)
+    return result
 
 
 # ---------------------------------------------------------------------------
