@@ -639,7 +639,8 @@ def dispatch_batch_pair_usability_corr(
     key = _CORR_MEMO.key([y, operand_matrix, pair_a, pair_b, form_ids], force_backend, bool(gpu_globally_disabled()))
     hit = _CORR_MEMO.get(key)
     if hit is not None:
-        return hit
+        remembered: tuple[np.ndarray, str] = hit
+        return remembered
     result = _dispatch_batch_pair_usability_corr_uncached(y, operand_matrix, pair_a, pair_b, form_ids, force_backend)
     _CORR_MEMO.put(key, result)
     return result

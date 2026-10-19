@@ -801,7 +801,8 @@ def dispatch_batch_pair_mi_chunked(
     key = _CHUNKED_MI_MEMO.key([factors_data, ids, nbins, classes_y, freqs_y], force_backend, max_pairs_per_chunk, bool(gpu_globally_disabled()))
     hit = _CHUNKED_MI_MEMO.get(key)
     if hit is not None:
-        return hit
+        remembered: tuple[np.ndarray, np.ndarray, np.ndarray, dict] = hit
+        return remembered
     result = _dispatch_batch_pair_mi_chunked_uncached(factors_data, ids, nbins, classes_y, freqs_y, force_backend, max_pairs_per_chunk)
     _CHUNKED_MI_MEMO.put(key, result)
     return result

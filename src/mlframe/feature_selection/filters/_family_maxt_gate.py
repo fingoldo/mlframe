@@ -509,9 +509,9 @@ def _family_flags(cols, n_x, y, n_y, observed, starts, alpha, n_perm, seed) -> l
     return [bool(f) for f in flags]
 
 
-def _columns_contiguous(a) -> bool:
+def _columns_contiguous(a: np.ndarray) -> bool:
     """Whether the columns of the 2-D block ``a`` follow each other in memory within a row; the stride of an axis of length 1 carries no meaning (a single-column view may report any value)."""
-    return a.shape[1] <= 1 or a.strides[1] == a.itemsize
+    return bool(a.shape[1] <= 1 or a.strides[1] == a.itemsize)
 
 
 def _column_runs(mats, widths) -> list:
