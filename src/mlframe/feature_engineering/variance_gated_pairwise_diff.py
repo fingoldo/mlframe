@@ -20,7 +20,6 @@ from typing import Dict, Optional, Sequence, Tuple
 import numpy as np
 import pandas as pd
 
-from mlframe.feature_selection.drop_near_noise_univariate_auc import drop_near_noise_univariate_auc
 import logging
 
 logger = logging.getLogger(__name__)
@@ -126,6 +125,9 @@ def variance_gated_pairwise_diff(
     if prune_against_target is not None and result.shape[1] > 0:
         y, tolerance = prune_against_target
         y_arr = np.asarray(y)
+        # Function-local: a top-level import closes the feature_engineering -> feature_selection -> models import cycle.
+        from mlframe.feature_selection.drop_near_noise_univariate_auc import drop_near_noise_univariate_auc
+
         dropped = drop_near_noise_univariate_auc(result, y_arr, columns=list(result.columns), tolerance=tolerance)
         if dropped:
             result = result.drop(columns=dropped)

@@ -30,7 +30,6 @@ import numpy as np
 import pandas as pd
 
 from mlframe.feature_engineering.categorical_group_concat import concat_categorical_group
-from mlframe.feature_selection.drop_near_noise_univariate_auc import drop_near_noise_univariate_auc
 
 
 def categorical_powerset_concat(
@@ -97,6 +96,10 @@ def categorical_powerset_concat(
         y, min_score = prune_against_target
         y_arr = np.asarray(y)
         encoded = pd.DataFrame(ordered_target_encode_batch({name: out[name].to_numpy() for name in composite_names}, y_arr, smoothing=prune_smoothing))
+        # Function-local: a top-level import would load the whole feature_selection stack while feature_engineering is still
+        # initialising, closing the feature_engineering -> feature_selection -> models -> feature_engineering import cycle.
+        from mlframe.feature_selection.drop_near_noise_univariate_auc import drop_near_noise_univariate_auc
+
         dropped = drop_near_noise_univariate_auc(encoded, y_arr, columns=composite_names, tolerance=min_score)
         if dropped:
             out = out.drop(columns=dropped)

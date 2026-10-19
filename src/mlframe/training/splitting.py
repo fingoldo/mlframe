@@ -19,7 +19,7 @@ from sklearn.model_selection import train_test_split
 
 logger = logging.getLogger(__name__)
 
-from mlframe.training._splitting_helpers import _build_details, _calculate_split_sizes, _perform_split, fmt_ts
+from mlframe.training._splitting_helpers import _calculate_split_sizes
 
 # Derived from the timestamps and the requested sizes, so it describes the layout BEFORE a random-row val top-up moves
 # the boundaries; the realised split is reported separately.
@@ -114,18 +114,8 @@ def make_train_test_split(
     # Previously negative ``val_size``/``test_size`` silently produced
     # empty splits; ``trainset_aging_limit=0`` silently no-op'd despite
     # the non-zero-only validator below contradicting that behaviour.
-    if not (0.0 <= test_size <= 1.0):
-        raise ValueError(f"test_size must be in [0, 1], got {test_size}")
-    if not (0.0 <= val_size <= 1.0):
-        raise ValueError(f"val_size must be in [0, 1], got {val_size}")
-    # trainset_aging_limit: None = no-aging; otherwise must be strictly in (0, 1).
-    # 0 is rejected explicitly because it would mean "keep zero of training
-    # data", which is unusable and used to silently fall through the
-    # ``if trainset_aging_limit:`` falsy short-circuit.
-    if trainset_aging_limit is not None and not (0 < trainset_aging_limit < 1.0):
-        raise ValueError(f"trainset_aging_limit must be in (0, 1), got {trainset_aging_limit}")
-    if val_placement not in ("forward", "backward"):
-        raise ValueError(f"val_placement must be 'forward' or 'backward', got {val_placement!r}")
+    from mlframe.training._splitting_validation import _validate_split_arguments
+    _validate_split_arguments(test_size, val_size, trainset_aging_limit, val_placement)
 
     # Session 7 batch 7: normalise ``timestamps`` to pd.Series
     # at function entry. Several downstream branches use ``timestamps.iloc``
@@ -266,178 +256,16 @@ def _make_train_test_sp_wholeday_splitting_timestamps_none(wholeday_splitting, t
 
     # Perform splitting
     if wholeday_splitting and timestamps is not None:
-        # Date-based splitting
-        sorted_dates = np.sort(unique_dates)
-        train_dates, val_dates, test_dates, val_dates_seq, test_dates_seq, eff_test_shuf, eff_val_shuf = _perform_split(
-            sorted_dates, n_test_seq, n_test_shuf, n_val_seq, n_val_shuf, rng, _effective_val_placement
-        )
-
-        # Apply aging limit BEFORE computing train_idx / train_details,
-        # so the printed train date range reflects the actually-used rows
-        # (consistent with the row-timestamp branch below).
-        train_dates = _make_train_test_sp_consistent_row_timestamp_branch(trainset_aging_limit, train_dates)
-
-        # Map dates -> split label once, then derive all index arrays from the cached
-        # label array. ``dates.map(dict)`` triggers a per-row Python apply path
-        # on pandas Series of datetime values when the lookup dict is small,
-        # measured ~6x slower than factorize+gather on a 1M-row daily span.
-        # We factorize once to get integer codes per unique date, then build
-        # a (n_unique,)-sized label LUT and gather labels[codes] in pure NumPy.
-        # Label convention: 0=train, 1=val, 2=test, -1=dropped by aging.
-        codes, uniq_index = pd.factorize(dates, sort=False)
-        # uniq_index is a pandas Index of unique dates in first-occurrence
-        # order; build a O(1) lookup from datetime -> position via a dict.
-        # normalise keys + lookups to int64 nanoseconds so the
-        # ``dict.get(d)`` calls below work regardless of whether ``train_dates``
-        # is a numpy datetime64 array (default on most pandas versions) or a
-        # pandas DatetimeIndex of Timestamps (pandas 3.0 path). The previous
-        # ``{d: i for i, d in enumerate(uniq_index)}`` keyed by Timestamps
-        # silently lost lookups when ``train_dates`` was np.datetime64 because
-        # Timestamp.__hash__ != np.datetime64.__hash__ on pandas 3.0; every
-        # label_lut entry stayed -1 and every split came out empty.
-        def _as_ns_int(_d):
-            """Normalises a single date-like value to an int64-nanosecond key, falling back to the raw value if it isn't Timestamp-convertible."""
-            try:
-                return int(pd.Timestamp(_d).value)
-            except (ValueError, TypeError, OverflowError) as _exc:
-                logger.debug("_as_ns_int fell back to its default after %s", type(_exc).__name__)
-                return _d
-
-        def _ns_keys(_arr):
-            """Batch-converts an array of date-likes to int64-ns keys via ``DatetimeIndex.asi8``, falling back to per-element ``_as_ns_int`` for non-datetime-convertible arrays."""
-            # Vectorised datetime -> int64-ns keys. ``pd.DatetimeIndex(...).asi8``
-            # is the batch equivalent of the per-element ``int(pd.Timestamp(_d).value)``
-            # (verified identical), ~10x faster on a 50k-date span by avoiding one
-            # Timestamp construction per date across uniq_index + train/val/test. The
-            # per-element ``_as_ns_int`` path is kept as the fallback for arrays that
-            # are not datetime-convertible: DatetimeIndex raises on any unconvertible
-            # element, so a successful conversion implies every element matches
-            # pd.Timestamp, and the fallback then reproduces the old value-as-is keys.
-            try:
-                return pd.DatetimeIndex(np.asarray(_arr)).asi8.tolist()
-            except (ValueError, TypeError, OverflowError) as _exc:
-                logger.debug("_ns_keys fell back to its default after %s", type(_exc).__name__)
-                return [_as_ns_int(_d) for _d in _arr]
-
-        date_to_code = {k: i for i, k in enumerate(_ns_keys(uniq_index))}
-        label_lut = np.full(len(uniq_index), -1, dtype=np.int8)
-        _make_train_test_sp_lbl_split_dates_train(train_dates, val_dates, test_dates, _ns_keys, date_to_code, label_lut)
-        # `codes` already aligned to `dates` order; gather is a single C-loop.
-        # Rows whose date was outside any of train/val/test dates retain -1
-        # (codes == -1 from factorize for unknown values; clamp via where).
-        labels = np.where(codes >= 0, label_lut[codes], -1)
-        train_idx = np.flatnonzero(labels == 0)
-        val_idx = np.flatnonzero(labels == 1)
-        test_idx = np.flatnonzero(labels == 2)
-
-        def _dates_to_idx(dates_subset):
-            """Maps a subset of dates to row positional indices via the shared ``date_to_code``/``codes`` LUT built above; returns ``None`` when ``dates_subset`` is ``None`` (no sequential portion requested)."""
-            if dates_subset is None:
-                return None
-            subset_mask = np.zeros(len(uniq_index), dtype=bool)
-            for d in dates_subset:
-                # Use the same int64-ns normalisation as the label-LUT loops
-                # so dict lookups work regardless of whether `dates_subset`
-                # is a numpy datetime64 array or a pandas DatetimeIndex.
-                _i = date_to_code.get(_as_ns_int(d))
-                if _i is not None:
-                    subset_mask[_i] = True
-            return np.flatnonzero(np.where(codes >= 0, subset_mask[codes], False))
-
-        val_seq_idx = _dates_to_idx(val_dates_seq)
-        test_seq_idx = _dates_to_idx(test_dates_seq)
-
-        # Build detail strings. ``.min()`` on empty index yields NaT, which
-        # then crashes the ``:%Y-%m-%d`` formatter. Guard for empty train.
-        if len(train_idx) > 0:
-            train_details = f"{fmt_ts(timestamps.iloc[train_idx].min())}/{fmt_ts(timestamps.iloc[train_idx].max())}"
-        else:
-            train_details = "(empty)"
-
-        val_details = _build_details(timestamps, val_idx, val_seq_idx, eff_val_shuf, "D")
-        test_details = _build_details(timestamps, test_idx, test_seq_idx, eff_test_shuf, "D")
+        from mlframe.training._splitting_wholeday import _split_by_wholeday
+        test_details, test_idx, train_details, train_idx, val_details, val_idx = _split_by_wholeday(unique_dates, n_test_seq, n_test_shuf, n_val_seq, n_val_shuf, rng, _effective_val_placement, trainset_aging_limit, dates, timestamps, test_idx, train_idx, val_idx)
 
     elif timestamps is not None:
-        # Row-based splitting with timestamps. Use ``kind="stable"`` so that
-        # ties keep their original positional order; default quicksort
-        # reshuffles ties run-to-run which makes seeded splits non-reproducible.
-        sorted_idx = np.argsort(timestamps.values, kind="stable")
-        train_idx, val_idx, test_idx, val_idx_seq, test_idx_seq, eff_test_shuf, eff_val_shuf = _perform_split(
-            sorted_idx, n_test_seq, n_test_shuf, n_val_seq, n_val_shuf, rng, _effective_val_placement
-        )
-
-        # Boundary de-leak: positional slicing cuts THROUGH a block of rows
-        # sharing one timestamp (common in multi-entity panels where many
-        # entities share each timestamp), leaving the same timestamp value in
-        # BOTH train and the later split -- a time leak (model validated/tested
-        # on a timestamp it trained on). Snap any boundary-tied rows to the
-        # LATER split so max(train_ts) < min(val_ts) <= min(test_ts) strictly.
-        # Only for the fully-sequential path: shuffled / partial-sequential
-        # portions intentionally interleave timestamps, so a tie split there is
-        # by request, not a bug. Uses the EFFECTIVE (post-clamp) counts: if the
-        # shuffled pool was exhausted and _perform_split clamped both to 0, the
-        # actual output IS fully sequential and needs the de-leak fix even
-        # though shuffling was originally requested.
-        _fully_sequential = eff_test_shuf == 0 and eff_val_shuf == 0
-        test_idx, train_idx, val_idx = _make_train_test_sp_though_shuffling_was_originally(_fully_sequential, train_idx, timestamps, _effective_val_placement, val_idx, test_idx)
-
-        # Apply aging limit
-        if trainset_aging_limit is not None:
-            train_idx = train_idx[int(len(train_idx) * (1 - trainset_aging_limit)) :]
-
-        # Build detail strings (same NaT-on-empty guard as above; also
-        # numeric-ts safe via the ``fmt_ts`` fallback).
-        if len(train_idx) > 0:
-            train_details = f"{fmt_ts(timestamps.iloc[train_idx].min())}/{fmt_ts(timestamps.iloc[train_idx].max())}"
-        else:
-            train_details = "(empty)"
-        val_details = _build_details(timestamps, val_idx, val_idx_seq, eff_val_shuf, "Rnd")
-        test_details = _build_details(timestamps, test_idx, test_idx_seq, eff_test_shuf, "Rnd")
+        from mlframe.training._splitting_rowbased import _split_row_based_with_timestamps
+        test_details, test_idx, train_details, train_idx, val_details, val_idx = _split_row_based_with_timestamps(timestamps, n_test_seq, n_test_shuf, n_val_seq, n_val_shuf, rng, _effective_val_placement, trainset_aging_limit, test_idx, train_idx, val_idx)
 
     else:
-        # Row-based splitting without timestamps (fallback to sklearn).
-        # stratify_y support -- when provided, route through
-        # sklearn StratifiedShuffleSplit (1-D y) or
-        # iterstrat.MultilabelStratifiedShuffleSplit (2-D y, multilabel).
-        # Both REQUIRE shuffle (cannot stratify a sequential split). When
-        # stratify_y is provided AND shuffle_test/shuffle_val is False,
-        # we emit a WARNING and stratify anyway (correctness > sequential
-        # nicety; user explicitly asked for class balance).
-        # ``groups`` support -- when provided (typically for
-        # learning-to-rank), route through sklearn ``GroupShuffleSplit`` so
-        # all rows belonging to one query land in the same split. Mutually
-        # exclusive with stratify_y (sklearn doesn't ship a stratified
-        # group-split out of the box; if a user really needs both, they
-        # can pre-bucket groups by stratum first).
-        all_idx = np.arange(len(df))
-
-        # ``StratifiedGroupKFold`` (sklearn >=1.0) preserves the class /
-        # bucket distribution of ``stratify_y`` ACROSS splits while keeping
-        # whole groups together. Multilabel + group is only supported via
-        # the optional ``iterative-stratification`` package
-        # (``MultilabelStratifiedGroupKFold``); when the user passes a 2-D
-        # stratify_y + groups without that package we fall back to
-        # ``GroupShuffleSplit`` (groups precedence) and warn.
-        _strat_groups_active = (groups is not None) and (stratify_y is not None)
-        _strat_groups_active, stratify_y = _make_train_test_sp_groupshufflesplit_groups_precedence_warn(_strat_groups_active, stratify_y, groups)
-
-        _stratify_active = _make_train_test_sp_stratify_none_timestamps_none(stratify_y, timestamps, df)
-
-        # Group-aware splitter: GroupShuffleSplit on the row-based path.
-        # Validate length once; the shape contract is per-row (len == len(df)).
-        _groups_arr = None
-        _groups_arr = _make_train_test_sp_validate_length_once_shape(groups, df, _groups_arr)
-
-        # Multilabel single greedy 3-way pass replaces two full O(n*K*iters) carves (no groups).
-        _ml_3way_done = _use_multilabel_3way(_groups_arr, _stratify_active, test_size, val_size)
-        test_idx, train_idx, val_idx = _make_train_test_sp_multilabel_single_greedy_way(_ml_3way_done, _stratify_active, all_idx, test_size, val_size, sklearn_seed, _groups_arr, _strat_groups_active, shuffle_test, val_idx)
-
-        train_idx, val_idx = _make_train_test_sp_ml_way_done(_ml_3way_done, val_size, _groups_arr, _strat_groups_active, _stratify_active, train_idx, sklearn_seed, shuffle_val, val_idx)
-
-        if trainset_aging_limit is not None:
-            train_idx = train_idx[int(len(train_idx) * (1 - trainset_aging_limit)) :]
-
-        train_details, val_details, test_details = "", "", ""
+        from mlframe.training._splitting_rowbased import _split_row_based_without_timestamps
+        test_details, test_idx, train_details, train_idx, val_details, val_idx = _split_row_based_without_timestamps(df, groups, stratify_y, timestamps, test_size, val_size, sklearn_seed, shuffle_test, val_idx, shuffle_val, trainset_aging_limit)
 
     # Group-spans-cutoff resolution for time-based splits.
     # When ``groups`` is supplied alongside ``timestamps`` (typical LTR
@@ -452,47 +280,8 @@ def _make_train_test_sp_wholeday_splitting_timestamps_none(wholeday_splitting, t
     # are also supplied.
     test_idx, train_idx, val_idx = _make_train_test_sp_also_supplied(groups, timestamps, train_idx, val_idx, test_idx, df)
 
-    # Empty-split guard: the user requested a non-zero val/test fraction but the
-    # split wound up with 0 rows. The splitter is the SOURCE of this defect --
-    # the sequential / aging path floors ``int(pool * frac)`` to 0 at low n, and
-    # the wholeday path can collapse to a single date -- so raise an actionable
-    # error here naming the offending config rather than handing a silent 0-row
-    # split downstream (where it surfaces far from the cause as e.g. CatBoost
-    # "Input data must have at least one feature" or an empty-eval-set crash).
-    # The fallback paths above already redirect the recoverable wholeday-collapse
-    # case to row-based; a still-empty split here is a genuine misconfiguration.
-    # test_size=1.0 (val_size=0.0) is a legitimate, explicitly-requested "evaluate-only, no
-    # training" configuration (see test_splitting_edges.py's
-    # NaT-strftime-on-empty-train sensor) and must NOT raise here, mirroring how the val/test
-    # guards below only fire when a POSITIVE requested size produced nothing. test_size < 1.0
-    # means the user did not claim the whole pool via test alone, so an empty train here is a
-    # genuine floor-to-zero / aging-limit surprise, not the user's explicit intent.
-    if test_size < 1.0 and len(train_idx) == 0:
-        raise ValueError(
-            f"Split produced 0 train rows on n={len(df)} rows (mode={'wholeday' if wholeday_splitting and timestamps is not None else 'sequential/row'}, "
-            f"val_size={val_size}, test_size={test_size}, trainset_aging_limit={trainset_aging_limit}). "
-            f"The same floor-to-zero / wholeday-collapse mechanisms that can empty val_idx/test_idx "
-            f"(guarded above) can also empty train_idx, most commonly a large trainset_aging_limit on "
-            f"a small n. Reduce val_size/test_size/trainset_aging_limit, or increase n."
-        )
-    if val_size > 0 and len(val_idx) == 0:
-        raise ValueError(
-            f"Split produced 0 validation rows from val_size={val_size} on "
-            f"n={len(df)} rows (mode={'wholeday' if wholeday_splitting and timestamps is not None else 'sequential/row'}, "
-            f"val_sequential_fraction={val_sequential_fraction}, "
-            f"trainset_aging_limit={trainset_aging_limit}). int(pool*val_size) "
-            f"floored to 0, or wholeday_splitting collapsed to a single date. "
-            f"Increase val_size, increase n, or disable wholeday_splitting."
-        )
-    if test_size > 0 and len(test_idx) == 0:
-        raise ValueError(
-            f"Split produced 0 test rows from test_size={test_size} on "
-            f"n={len(df)} rows (mode={'wholeday' if wholeday_splitting and timestamps is not None else 'sequential/row'}, "
-            f"test_sequential_fraction={test_sequential_fraction}). "
-            f"int(pool*test_size) floored to 0, or wholeday_splitting collapsed "
-            f"to a single date. Increase test_size, increase n, or disable "
-            f"wholeday_splitting."
-        )
+    from mlframe.training._splitting_validation import _assert_nonempty_splits
+    _assert_nonempty_splits(test_size, train_idx, df, wholeday_splitting, timestamps, val_size, trainset_aging_limit, val_idx, val_sequential_fraction, test_idx, test_sequential_fraction)
 
     # Calibration carve: take a disjoint slice from train ONLY, after all
     # train/val/test + group-spanning resolution, so it inherits the same
@@ -969,5 +758,4 @@ from ._split_helpers import (
     _deleak_tied_boundaries,
     _stratified_split,
     _stratified_split_3way,
-    _use_multilabel_3way,
 )

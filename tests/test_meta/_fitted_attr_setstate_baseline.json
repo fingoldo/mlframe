@@ -1,20 +1,8 @@
 [
-  "_effective_min_relevance_gain_",
-  "_engineered_continuous_",
-  "_passthrough_full_columns_",
-  "_pre_fit_ctor_params_snapshot_",
   "feature_names_in_",
-  "hybrid_orth_meta_chosen_scorer_",
-  "hybrid_orth_meta_fingerprint_",
   "mrmr_gains_",
-  "multioutput_strategy_",
-  "multioutput_supports_",
   "n_features_",
   "n_features_in_",
-  "stability_freq_",
-  "stability_info_",
   "support_",
-  "support_nonlinear_",
-  "uaed_elbow_",
-  "usability_feature_groups_"
+  "support_nonlinear_"
 ]

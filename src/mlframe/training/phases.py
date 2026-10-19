@@ -143,6 +143,7 @@ def active_phase() -> str:
 # thread-id -> that thread's live phase-name list (the SAME list object as the thread-local one). A watchdog / heartbeat thread
 # cannot read another thread's threading.local, yet it is exactly the thing that must report which step the suite was in when the process died.
 _ALL_PHASE_STACKS: dict[int, list] = {}
+_ALL_PHASE_STACKS_LOCK = threading.Lock()
 
 _BREADCRUMB: "Callable[[str], None] | None" = None
 """Writer for one line per phase entry and exit, set by ``crash_diagnostics`` while its faulthandler file is open.
@@ -294,8 +295,8 @@ def phase(name: str, level: int = logging.DEBUG, **context: Any) -> Iterator[Non
     if _names is None:
         _names = []
         _PHASE_STACK.names = _names
-        # unlocked-ok: each thread writes only its own ident key (an atomic dict store); readers iterate a list() copy
-        _ALL_PHASE_STACKS[threading.get_ident()] = _names
+        with _ALL_PHASE_STACKS_LOCK:
+            _ALL_PHASE_STACKS[threading.get_ident()] = _names
     _names.append(name)
     logger.log(level, f"[phase] {name} START {ctx_str}".rstrip())
     _breadcrumb(f"> {name} {ctx_str}".rstrip())

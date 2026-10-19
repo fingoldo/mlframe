@@ -496,6 +496,21 @@ _SETSTATE_LEGACY_DEFAULTS = {
     "parity_features_": [],
     "_final_subsumption_dropped_": [],
     "no_significant_features_": False,
+    # Fitted attributes that were baselined as having no neutral default. Each reader passes ``None`` (or ``{}``) to getattr, so an
+    # absent attribute and the injected value take the same branch; a fit that never reached the stage writes the same value.
+    "_effective_min_relevance_gain_": None,
+    "_engineered_continuous_": None,
+    "_passthrough_full_columns_": None,
+    "_pre_fit_ctor_params_snapshot_": None,  # readers fall back to ``get_params`` when this is None
+    "hybrid_orth_meta_chosen_scorer_": None,
+    "hybrid_orth_meta_fingerprint_": {},
+    "multioutput_strategy_": None,
+    "multioutput_supports_": None,
+    "stability_freq_": None,
+    "stability_info_": None,
+    "uaed_elbow_": None,
+    "usability_feature_groups_": None,
+    "_main_effects_restored_": [],
 }
 
 

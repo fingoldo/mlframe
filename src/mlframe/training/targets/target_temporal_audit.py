@@ -299,18 +299,8 @@ def audit_targets_over_time(
         return {}
 
     # Normalize target specs.
-    target_specs: list[tuple[str, str, str]] = []  # (col, type, alias)
-    name_to_alias: dict[str, str] = {}
-    for name, spec in targets.items():
-        if isinstance(spec, str):
-            col, ttype = spec, "binary_classification"
-        elif isinstance(spec, tuple) and len(spec) == 2:
-            col, ttype = spec[0], spec[1]
-        else:
-            raise ValueError(f"targets[{name!r}] must be str or (col, target_type) tuple; " f"got {type(spec).__name__}")
-        alias = f"__rate__{name}"
-        target_specs.append((col, ttype, alias))
-        name_to_alias[name] = alias
+    from mlframe.training.targets._target_temporal_aggregate import _collect_target_specs
+    name_to_alias, target_specs = _collect_target_specs(targets)
 
     # 1. Pick granularity. Pass (min, max) directly so _pick_granularity
     # can skip the O(N) pd.Series + pd.to_datetime materialisation that
@@ -335,38 +325,13 @@ def audit_targets_over_time(
 
     # 2. ONE aggregation pass — polars fastpath multi-agg, pandas
     #    fallback runs per-target (less efficient but correct).
-    if _HAS_POLARS and isinstance(df, pl.DataFrame):
-        agg = _aggregate_by_time_polars_multi(
-            df,
-            timestamp_col,
-            target_specs,
-            chosen,
-        )
-    else:
-        # Pandas fallback: still N passes, but at least one place to
-        # change later if we add a multi-agg pandas path.
-        agg = _aggregate_by_time_pandas(
-            df,
-            timestamp_col,
-            target_specs[0][0],
-            chosen,
-            target_type=target_specs[0][1],
-        )
-        agg = agg.rename(columns={"target_rate": target_specs[0][2]})
-        for col, ttype, alias in target_specs[1:]:
-            sub = _aggregate_by_time_pandas(
-                df,
-                timestamp_col,
-                col,
-                chosen,
-                target_type=ttype,
-            )
-            agg[alias] = sub["target_rate"].values
+    from mlframe.training.targets._target_temporal_aggregate import _aggregate_targets_by_period
+    agg = _aggregate_targets_by_period(df, timestamp_col, target_specs, chosen, _aggregate_by_time_polars_multi, _aggregate_by_time_pandas)
 
     # 3. Per-target downstream pipeline.
     results: dict[str, TemporalAuditResult] = {}
     for name, spec in targets.items():
-        col, ttype = (spec, "binary_classification") if isinstance(spec, str) else (spec[0], spec[1])
+        _col, ttype = (spec, "binary_classification") if isinstance(spec, str) else (spec[0], spec[1])
         alias = name_to_alias[name]
 
         sub = pd.DataFrame(

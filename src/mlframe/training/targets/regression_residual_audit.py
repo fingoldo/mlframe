@@ -543,44 +543,9 @@ def audit_residuals(
     # 2.4 ms numpy -> 0.21 ms numba seq (~11x); at n=500k: 35 ms -> 2.2 ms
     # seq (~16x), 0.96 ms par (~36x). Median / MAD / percentile / spearman
     # stay in numpy (sort-based; already C-optimal).
-    if _HAS_NUMBA_MOMENTS and n >= 2:
-        try:
-            if n >= _AUDIT_MOMENTS_PAR_THRESHOLD:
-                mean, std, skew, excess_kurt, pct_outliers_3sigma = _audit_moments_njit_par(y_true, y_pred)
-            else:
-                mean, std, skew, excess_kurt, pct_outliers_3sigma = _audit_moments_njit_seq(y_true, y_pred)
-            mean, std = float(mean), float(std)
-            skew, excess_kurt = float(skew), float(excess_kurt)
-            pct_outliers_3sigma = float(pct_outliers_3sigma)
-        except Exception as _moments_err:
-            logger.warning(
-                "audit_residuals: numba fused-moments kernel failed (%s); " "falling back to numpy path. n=%d.",
-                _moments_err,
-                n,
-            )
-            warnings.append(f"numba fused-moments kernel failed ({_moments_err}); fell back to the numpy moments path.")
-            mean = float(residuals.mean())
-            std = float(residuals.std(ddof=1)) if n > 1 else 0.0
-            if std > 0:
-                z = (residuals - mean) / std
-                z2 = z * z
-                skew = float(np.mean(z * z2))
-                excess_kurt = float(np.mean(z2 * z2) - 3.0)
-                pct_outliers_3sigma = float((np.abs(z) > 3.0).mean())
-            else:
-                skew, excess_kurt, pct_outliers_3sigma = 0.0, 0.0, 0.0
-    else:
-        # numba-less environment: same numpy-only path as the pre-iter129 code.
-        mean = float(residuals.mean())
-        std = float(residuals.std(ddof=1)) if n > 1 else 0.0
-        if std > 0:
-            z = (residuals - mean) / std
-            z2 = z * z
-            skew = float(np.mean(z * z2))
-            excess_kurt = float(np.mean(z2 * z2) - 3.0)
-            pct_outliers_3sigma = float((np.abs(z) > 3.0).mean())
-        else:
-            skew, excess_kurt, pct_outliers_3sigma = 0.0, 0.0, 0.0
+    mean = std = skew = excess_kurt = pct_outliers_3sigma = 0.0
+    from mlframe.training.targets._residual_audit_moments import _residual_moments
+    excess_kurt, mean, pct_outliers_3sigma, skew, std = _residual_moments(n, y_true, y_pred, warnings, residuals, excess_kurt, mean, pct_outliers_3sigma, skew, std)
 
     # Single ``np.percentile(residuals, [1, 50, 99])`` does one partial sort and extracts all three
     # quantiles at once. The median is percentile-50 (bit-identical to ``np.median`` up to ULP FP
@@ -623,18 +588,8 @@ def audit_residuals(
     )
 
     # Edge-case warnings.
-    if std > 0 and abs(mean) > 0.5 * std:
-        warnings.append(
-            f"residual mean is large ({mean:+.4g}) relative to std ({std:.4g}); "
-            "the model is biased - consider re-centering predictions or "
-            "checking for a regression-target offset bug."
-        )
-    if y_true_all_nonneg and y_pred.min() < 0:
-        warnings.append(
-            "y_true is non-negative but y_pred has negative values - model is "
-            "violating a domain constraint. Add a non-negativity constraint "
-            "(e.g. log-link, exp output, or clip)."
-        )
+    from mlframe.training.targets._residual_audit_flags import _residual_flags
+    _residual_flags(std, mean, warnings, y_true_all_nonneg, y_pred)
 
     return ResidualAudit(
         n=n, n_total=n_total, sampled=sampled,
@@ -805,45 +760,7 @@ def plot_residual_diagnostics(
         plot_pred = y_pred_f
 
     # Histogram panel
-    if ax_hist is not None:
-        n_bins = max(20, min(80, int(math.sqrt(plot_resid.size))))
-        ax_hist.hist(plot_resid, bins=n_bins, alpha=0.6, color="steelblue", edgecolor="white", linewidth=0.4, density=True)
-        # Overlay fitted Normal density (the baseline assumption). Guard
-        # against constant-residual inputs: when min == max, linspace
-        # collapses to a single point and the normal PDF is meaningless.
-        # The audit.std > 0 check covered most cases but ``residuals.std``
-        # uses ddof=1 on a SAMPLED subset, so the plot-time residual array
-        # can still be all-identical even when the population std is nonzero.
-        _r_min = float(plot_resid.min())
-        _r_max = float(plot_resid.max())
-        if audit.std > 0 and _r_max > _r_min:
-            x_grid = np.linspace(_r_min, _r_max, 200)
-            normal_pdf = 1 / (audit.std * math.sqrt(2 * math.pi)) * np.exp(-0.5 * ((x_grid - audit.mean) / audit.std) ** 2)
-            ax_hist.plot(x_grid, normal_pdf, color="red", linestyle="--", linewidth=1.4, label=f"Normal(mu={audit.mean:.2g}, sigma={audit.std:.2g})")
-            ax_hist.legend(loc="best", fontsize=8, framealpha=0.7)
-        ax_hist.axvline(0, color="green", linestyle=":", linewidth=1.0, alpha=0.7)
-        ax_hist.set_xlabel("Residual (y_true - y_pred)")
-        ax_hist.set_ylabel("Density")
-        # Residual hypothesis + suggested loss now live on the
-        # histogram title (was previously appended to the scatter title,
-        # crowding it). Self-contained: skew/kurt -> hypothesis -> suggested
-        # loss reads top-to-bottom on the same panel that visualises the
-        # residual distribution.
-        _suggested = audit.suggested_loss.split("(")[0].strip() if audit.suggested_loss else ""
-        _hyp_line = f"hypothesis: {audit.hypothesis}"
-        if _suggested:
-            _hyp_line += f" (suggested: {_suggested})"
-        ax_hist.set_title(f"Residuals (skew={audit.skew:+.2f}, excess_kurt={audit.excess_kurt:+.2f})\n" f"{_hyp_line}")
-        ax_hist.grid(True, alpha=0.3)
-
-    # Residuals vs predicted (heteroscedasticity panel)
-    if ax_resid_vs_pred is not None:
-        ax_resid_vs_pred.scatter(plot_pred, plot_resid, alpha=0.3, s=10, color="steelblue")
-        ax_resid_vs_pred.axhline(0, color="green", linestyle="--", linewidth=1.0, alpha=0.7)
-        ax_resid_vs_pred.set_xlabel("Predicted (y_hat)")
-        ax_resid_vs_pred.set_ylabel("Residual")
-        het_marker = "(!) heteroscedastic" if audit.hetero_significant else "homoscedastic"
-        ax_resid_vs_pred.set_title(f"Residuals vs predicted ({het_marker})\n" f"spearman(|resid|, y_hat) = {audit.hetero_spearman:+.3f}")
-        ax_resid_vs_pred.grid(True, alpha=0.3)
+    from mlframe.training.targets._residual_audit_draw import _draw_residual_axes
+    _draw_residual_axes(ax_hist, plot_resid, audit, ax_resid_vs_pred, plot_pred)
 
     return audit

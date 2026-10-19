@@ -1,22 +1,9 @@
 {
   "src/mlframe/feature_selection/filters/mrmr/_mrmr_class.py::MRMR.__init__": 2885,
-  "src/mlframe/training/reporting/_reporting_diagnostics.py::_render_post_fit_diagnostics": 315,
   "src/mlframe/training/reporting/_reporting_probabilistic.py::_report_probabilistic_step1_produced_single_most": 211,
   "src/mlframe/training/reporting/_reporting_probabilistic.py::report_probabilistic_model_perf": 320,
-  "src/mlframe/training/reporting/_reporting_regression/__init__.py::_report_regression__carry_per_output_aggregated": 178,
   "src/mlframe/training/reporting/_reporting_regression/__init__.py::report_regression_model_perf": 433,
-  "src/mlframe/training/splitting.py::_make_train_test_sp_wholeday_splitting_timestamps_none": 327,
-  "src/mlframe/training/splitting.py::make_train_test_split": 159,
-  "src/mlframe/training/strategies/base.py::ModelPipelineStrategy.build_pipeline": 202,
-  "src/mlframe/training/targets/_target_distribution_analyzer_features.py::_normalise_X": 169,
-  "src/mlframe/training/targets/_target_distribution_analyzer_target_fn.py::analyze_target_distribution": 254,
-  "src/mlframe/training/targets/_train_eval_select_target.py::select_target": 174,
-  "src/mlframe/training/targets/regression_residual_audit.py::audit_residuals": 194,
-  "src/mlframe/training/targets/regression_residual_audit.py::plot_residual_diagnostics": 172,
-  "src/mlframe/training/targets/target_temporal_audit.py::audit_targets_over_time": 180,
-  "src/mlframe/training/train_eval.py::process_model": 230,
-  "src/mlframe/training/trainer.py::_build_configs_from_params": 253,
-  "src/mlframe/training/trainer.py::_configure_mlp_params": 211,
+  "src/mlframe/training/targets/_target_distribution_analyzer_target_fn.py::analyze_target_distribution": 196,
   "src/mlframe/training/utils.py::get_pandas_view_of_polars_df": 357,
   "src/mlframe/training/xgb_shim.py::_DMatrixReuseMixin.fit": 251
 }

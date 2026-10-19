@@ -36,6 +36,7 @@ _FAULT_PATH: Optional[str] = None
 _HOOKS_INSTALLED = False
 _ATEXIT_REGISTERED = False
 _UNCAUGHT: Dict[str, Any] = {"exc": None}
+_UNCAUGHT_LOCK = threading.Lock()
 _HEARTBEAT: Optional["Heartbeat"] = None
 _START_TIME = time.time()
 
@@ -184,11 +185,12 @@ def _sys_excepthook(exc_type, exc, tb, _prev=None):
     """``sys.excepthook`` replacement: log the uncaught exception with its traceback, remember it for the exit line, then chain to ``_prev``."""
     try:
         if not issubclass(exc_type, KeyboardInterrupt):
-            # unlocked-ok: one key rebound to an immutable string by the interpreter's own excepthook; read once at exit
-            _UNCAUGHT["exc"] = f"{exc_type.__name__}: {exc}"
+            with _UNCAUGHT_LOCK:
+                _UNCAUGHT["exc"] = f"{exc_type.__name__}: {exc}"
             logger.critical("Uncaught exception in main thread:\n%s", "".join(traceback.format_exception(exc_type, exc, tb)))
         else:
-            _UNCAUGHT["exc"] = "KeyboardInterrupt"
+            with _UNCAUGHT_LOCK:
+                _UNCAUGHT["exc"] = "KeyboardInterrupt"
     except Exception as e:
         logger.debug("crash-diagnostics sys.excepthook could not log the exception: %s", e)
     prev = _prev or sys.__excepthook__
