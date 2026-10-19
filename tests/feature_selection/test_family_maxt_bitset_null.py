@@ -85,3 +85,87 @@ def test_continuous_target_is_binned_before_the_family_test():
     cols = np.stack([np.digitize(signal, np.quantile(signal, np.linspace(0, 1, 11)[1:-1])), rng.integers(0, 10, n)]).astype(np.int16)
     flags = family_maxt_pass_codes(cols, np.array([10, 10], dtype=np.int64), y, n_perm=999)
     assert flags.tolist() == [True, False]
+
+
+def _device_family(cp, classes, n=3000, k=40, bins=11, nperm=24):
+    """A device bit-set family and the label bit sets of ``nperm`` permutations, for comparing the two kernels."""
+    from mlframe.feature_selection.filters._family_maxt_cuda_bits import DeviceBitsets
+    from mlframe.feature_selection.filters._family_maxt_null_v2_njit import label_bitsets_batch
+
+    cols, n_x, y = _family(n, k, bins, classes, seed=classes)
+    rng = np.random.default_rng(5)
+    perms = y[np.stack([rng.permutation(len(y)) for _ in range(nperm)])]
+    prep = V.bitset_groups(cols, n_x)
+    dev = DeviceBitsets(cp, prep, n_x, len(y))
+    cls_host = label_bitsets_batch(perms, classes, (len(y) + 63) // 64)
+    const_b = np.linspace(0.5, 2.0, nperm)
+    return dev, cls_host, const_b
+
+
+@pytest.mark.parametrize("classes", [2, 3, 10, 24])
+def test_shared_memory_kernel_is_bit_identical_to_the_first_kernel(classes, monkeypatch):
+    """The shared-memory kernel returns exactly the bits of the first kernel, for the full MI matrix and for the per-permutation maxima."""
+    cp = pytest.importorskip("cupy")
+    try:
+        if cp.cuda.runtime.getDeviceCount() == 0:
+            pytest.skip("no CUDA device")
+    except Exception:
+        pytest.skip("no CUDA device")
+    from mlframe.feature_selection.filters import _family_maxt_cuda_bits as fb
+
+    dev, cls_host, const_b = _device_family(cp, classes)
+    assert fb._v2_applies(cp, classes, dev.words)
+    new_matrix = fb.mi_matrix_bits_device(dev, cls_host, const_b)
+    new_max = fb.null_max_bits_device(dev, cls_host, 1.25)
+    monkeypatch.setattr(fb, "_v2_applies", lambda cp_, n_y, words: False)
+    old_matrix = fb.mi_matrix_bits_device(dev, cls_host, const_b)
+    old_max = fb.null_max_bits_device(dev, cls_host, 1.25)
+    assert new_matrix.view(np.uint64).tolist() == old_matrix.view(np.uint64).tolist()
+    assert new_max.view(np.uint64).tolist() == old_max.view(np.uint64).tolist()
+
+
+def test_shared_memory_kernel_declines_what_it_cannot_hold():
+    """A single class, too many classes, or class bit sets larger than a block's shared memory keep the first kernel."""
+    cp = pytest.importorskip("cupy")
+    try:
+        if cp.cuda.runtime.getDeviceCount() == 0:
+            pytest.skip("no CUDA device")
+    except Exception:
+        pytest.skip("no CUDA device")
+    from mlframe.feature_selection.filters import _family_maxt_cuda_bits as fb
+
+    assert not fb._v2_applies(cp, 1, 100)
+    assert not fb._v2_applies(cp, fb._MAX_CLASSES_V2 + 2, 100)
+    assert not fb._v2_applies(cp, 10, 10_000_000)
+    assert fb._v2_applies(cp, 10, 157)
+
+
+@pytest.mark.parametrize("use_shared_kernel", [True, False])
+def test_kernel_element_type_follows_the_resident_table(use_shared_kernel, monkeypatch):
+    """A float32 table gives float32 buffers and a float32 kernel (no read past a buffer's end), and agrees with the float64 result to float32 precision, for both kernels."""
+    cp = pytest.importorskip("cupy")
+    try:
+        if cp.cuda.runtime.getDeviceCount() == 0:
+            pytest.skip("no CUDA device")
+    except Exception:
+        pytest.skip("no CUDA device")
+    from mlframe.feature_selection.filters import _family_maxt_cuda_bits as fb
+    from mlframe.feature_selection.filters._family_maxt_cuda_bits import DeviceBitsets
+    from mlframe.feature_selection.filters._family_maxt_null_v2_njit import label_bitsets_batch
+
+    classes = 5
+    cols, n_x, y = _family(3000, 30, 11, classes, seed=3)
+    rng = np.random.default_rng(1)
+    perms = y[np.stack([rng.permutation(len(y)) for _ in range(16)])]
+    prep = V.bitset_groups(cols, n_x)
+    cls_host = label_bitsets_batch(perms, classes, (len(y) + 63) // 64)
+    const_b = np.linspace(0.5, 2.0, 16)
+    if not use_shared_kernel:
+        monkeypatch.setattr(fb, "_v2_applies", lambda cp_, n_y, words: False)
+    ref = fb.mi_matrix_bits_device(DeviceBitsets(cp, prep, n_x, len(y)), cls_host, const_b)
+    table32 = prep[0].astype(np.float32)
+    dev32 = DeviceBitsets(cp, (table32, prep[1].astype(np.float32), prep[2], prep[3]), n_x, len(y))
+    assert dev32.table.dtype == cp.float32 and dev32.c_a.dtype == cp.float32
+    got = fb.mi_matrix_bits_device(dev32, cls_host, const_b)
+    assert got.dtype == np.float32
+    np.testing.assert_allclose(got, ref, rtol=2e-4, atol=2e-4 * float(np.abs(ref).max()))
