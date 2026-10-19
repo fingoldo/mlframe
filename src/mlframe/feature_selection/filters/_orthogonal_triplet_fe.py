@@ -51,7 +51,8 @@ from collections.abc import Sequence
 import numpy as np
 
 from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
-from numba import njit
+from mlframe._numba_parallel_guard import parallel_kernel_entry
+from numba import njit, prange
 
 from mlframe.feature_selection.filters._relative_uplift import relative_uplift
 import pandas as pd
@@ -195,7 +196,7 @@ def generate_triplet_cross_basis_features(
                 logger,
                 "triplet_unknown_basis",
                 logging.WARNING,
-                "generate_triplet_cross_basis_features: unknown basis %r/%r/%r " "for triplet (%r,%r,%r); skipping",
+                "generate_triplet_cross_basis_features: unknown basis %r/%r/%r for triplet (%r,%r,%r); skipping",
                 basis_i,
                 basis_j,
                 basis_k,
@@ -243,7 +244,7 @@ def generate_triplet_cross_basis_features(
                                 logger,
                                 "triplet_basis_eval_raised",
                                 logging.WARNING,
-                                "generate_triplet_cross_basis_features: basis=%r/%r/%r " "deg=%d/%d/%d on triplet (%r,%r,%r) raised %r; skipping",
+                                "generate_triplet_cross_basis_features: basis=%r/%r/%r deg=%d/%d/%d on triplet (%r,%r,%r) raised %r; skipping",
                                 basis_i,
                                 basis_j,
                                 basis_k,
@@ -479,9 +480,13 @@ TRIPLET_ENUM_MAX = 200_000  # enumerate every triple of eligible columns when C(
 TRIPLET_ENUM_TOP_M = 10  # triples carried to the gate from the exhaustive enumeration
 
 
-@njit(cache=False)
+@njit(cache=True, parallel=True)
 def _triple_mi_kernel(codes: np.ndarray, y: np.ndarray, base: int, n_y: int) -> tuple:
-    """Plug-in MI of every triple (i<j<k) of joint codes with y, in lexicographic index order."""
+    """Plug-in MI of every triple (i<j<k) of joint codes with y, in lexicographic index order.
+
+    The outer loop over the first index runs in parallel; each first index writes its triples at a precomputed offset, so the output order is the serial one.
+    The class marginal of a triple is summed once and reused for every cell, which replaces an O(n_cells) sum per occupied cell and class.
+    """
     p, n = codes.shape
     n_cells = base * base * base
     m = p * (p - 1) * (p - 2) // 6
@@ -489,15 +494,23 @@ def _triple_mi_kernel(codes: np.ndarray, y: np.ndarray, base: int, n_y: int) -> 
     out_j = np.empty(m, np.int64)
     out_k = np.empty(m, np.int64)
     out_mi = np.empty(m, np.float64)  # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
-    counts = np.zeros(n_cells * n_y, np.int64)
-    t = 0
+    offset = np.zeros(p + 1, np.int64)
     for i in range(p):
+        offset[i + 1] = offset[i] + (p - 1 - i) * (p - 2 - i) // 2
+    for i in prange(p):
+        counts = np.zeros(n_cells * n_y, np.int64)
+        pys = np.zeros(n_y, np.int64)
+        t = offset[i]
         for j in range(i + 1, p):
             for k in range(j + 1, p):
                 counts[:] = 0
                 for r in range(n):
                     code = (codes[i, r] * base + codes[j, r]) * base + codes[k, r]
                     counts[code * n_y + y[r]] += 1
+                pys[:] = 0
+                for c2 in range(n_cells):
+                    for v in range(n_y):
+                        pys[v] += counts[c2 * n_y + v]
                 mi = 0.0
                 for c in range(n_cells):
                     px = 0
@@ -509,10 +522,7 @@ def _triple_mi_kernel(codes: np.ndarray, y: np.ndarray, base: int, n_y: int) -> 
                         cnt = counts[c * n_y + v]
                         if cnt == 0:
                             continue
-                        py = 0
-                        for c2 in range(n_cells):
-                            py += counts[c2 * n_y + v]
-                        mi += (cnt / n) * np.log((cnt * n) / (px * py))
+                        mi += (cnt / n) * np.log((cnt * n) / (px * pys[v]))
                 out_i[t] = i
                 out_j[t] = j
                 out_k[t] = k
@@ -534,7 +544,8 @@ def _enumerate_triplet_candidates(
     names = sorted(columns)
     base = nbins + 1
     codes = np.vstack([_quantile_codes(X[c].to_numpy(dtype=_crit_np_dtype()), nbins) for c in names]).astype(np.int64)
-    out_i, out_j, out_k, out_mi = _triple_mi_kernel(codes, y_arr, base, n_y)
+    with parallel_kernel_entry():
+        out_i, out_j, out_k, out_mi = _triple_mi_kernel(codes, y_arr, base, n_y)
     order = np.lexsort((out_k, out_j, out_i, -out_mi))[: int(top_m)]
     return [(names[out_i[t]], names[out_j[t]], names[out_k[t]]) for t in order]
 
@@ -580,8 +591,13 @@ def _resolve_triplets(X: pd.DataFrame, explicit_triplets: Optional[Sequence[tupl
 
 
 def _triplet_seed_sources(
-    X: pd.DataFrame, y: np.ndarray, cols: Optional[Sequence[str]], uni_scores: pd.DataFrame, explicit_triplets: Optional[Sequence[tuple]],
-    top_triplet_seed_k: int, nbins: int,
+    X: pd.DataFrame,
+    y: np.ndarray,
+    cols: Optional[Sequence[str]],
+    uni_scores: pd.DataFrame,
+    explicit_triplets: Optional[Sequence[tuple]],
+    top_triplet_seed_k: int,
+    nbins: int,
 ) -> tuple[list, Optional[Sequence[tuple]]]:
     """Build the triplet seed pool; returns ``(seed_sources, explicit_triplets)`` where ``explicit_triplets`` may have been filled by full enumeration."""
     # Build the triplet seed pool. Critical bug class on 3-way XOR:
@@ -754,7 +770,7 @@ def _triplet_recipe_for_name(name: str, X: pd.DataFrame, basis: str) -> Optional
                 logger,
                 "triplet_recipe_cannot_parse_suffix",
                 logging.WARNING,
-                "hybrid_orth_mi_triplet_fe_with_recipes: cannot parse " "suffix in %r; skipping recipe.",
+                "hybrid_orth_mi_triplet_fe_with_recipes: cannot parse suffix in %r; skipping recipe.",
                 name,
             )
             return None
@@ -763,7 +779,7 @@ def _triplet_recipe_for_name(name: str, X: pd.DataFrame, basis: str) -> Optional
                 logger,
                 "triplet_recipe_bad_parts_count",
                 logging.WARNING,
-                "hybrid_orth_mi_triplet_fe_with_recipes: expected 3 deg " "parts in %r; skipping recipe.",
+                "hybrid_orth_mi_triplet_fe_with_recipes: expected 3 deg parts in %r; skipping recipe.",
                 name,
             )
             return None
@@ -775,7 +791,7 @@ def _triplet_recipe_for_name(name: str, X: pd.DataFrame, basis: str) -> Optional
                 logger,
                 "triplet_recipe_cannot_parse_code_deg",
                 logging.WARNING,
-                "hybrid_orth_mi_triplet_fe_with_recipes: cannot parse " "code/deg from %r; skipping recipe.",
+                "hybrid_orth_mi_triplet_fe_with_recipes: cannot parse code/deg from %r; skipping recipe.",
                 name,
             )
             return None
@@ -831,7 +847,7 @@ def _triplet_recipe_for_name(name: str, X: pd.DataFrame, basis: str) -> Optional
                 logger,
                 "triplet_recipe_cannot_parse_basis_degree",
                 logging.WARNING,
-                "hybrid_orth_mi_triplet_fe_with_recipes: cannot parse basis/" "degree from %r; skipping recipe.",
+                "hybrid_orth_mi_triplet_fe_with_recipes: cannot parse basis/degree from %r; skipping recipe.",
                 name,
             )
             return None
@@ -856,7 +872,7 @@ def _triplet_recipe_for_name(name: str, X: pd.DataFrame, basis: str) -> Optional
             logger,
             "triplet_recipe_unexpected_leg_count",
             logging.WARNING,
-            "hybrid_orth_mi_triplet_fe_with_recipes: unexpected leg count " "in %r (legs=%r); skipping recipe.",
+            "hybrid_orth_mi_triplet_fe_with_recipes: unexpected leg count in %r (legs=%r); skipping recipe.",
             name,
             legs,
         )
