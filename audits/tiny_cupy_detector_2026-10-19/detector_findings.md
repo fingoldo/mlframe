@@ -111,3 +111,20 @@ Real shapes: `score_pair_combos_table_resident` n=3000, 10 pairs, 17 unaries, 6 
 | Shared-memory bitonic sort in place of `radix_select_f32_v3` | bit-identical in all cases; faster only at n=1000 (3.4 vs 9.1 ms, 2.7x); slower at n=3000 (12.8 vs 9.7 ms), 6000 (16.3 vs 6.4 ms), 8000 (8.2 vs 3.5 ms) | rejected as a replacement; prototype in the scratch dir. Open: a register-blocked variant. The KTC variant sweep for the radix kernel covers n from 50 000 only, so small n has never been tuned |
 | `family_null_bits_v2`: bin word read once against all classes, class bits staged in shared memory | bit-identical; K=221: 21.1 to 5.8 ms; K=600: 55.1 to 15.3 ms; K=1245: 120.9 to 33.2 ms (3.6x). Staging in shared memory matters (global broadcast instead: 71.6 ms). More than one permutation per thread is slower (register pressure) | kept; applies while the class bit sets fit a block's shared memory, otherwise the first kernel |
 | Word-tiled `family_null_bits_v2` for n above the shared limit (about 35 000 rows with 10 classes) | not built | DEFER: large-n fits keep the first kernel |
+
+## J. Noise gate on bit sets (second GPU-profile win)
+
+After `family_null_bits_v2` the whole-f2 profile (GPU busy 21.6 s of 86.8 s) is led by the noise gate's histogram kernel: 10.0 s, 46% of GPU time, 12 big calls at n=10 000, K up to 9 720 columns, 10 bins, 10 classes, 100 permutations (about 0.83 s each; 972 000 blocks of 10 000 shared atomics).
+
+The gate needs the same quantity the family null computes: the plug-in MI of every column against every permuted target. `_batch_mi_noise_gate_bits.py` builds the bin and class bit sets on the device from the resident codes and the resident `(P, n)` target matrix and runs the shared-memory kernel, so only the `(P, K)` MI matrix leaves the device. The backend is a kernel-tuning-cache choice (`noise_gate_bits`, axes rows x columns x classes x bins), with the measured crossover `nbins * (classes - 1) <= 700` as the fallback.
+
+| Check | Result |
+|-------|--------|
+| Gate at the real shape (K=9 720, P=100) | 798 ms to 111 ms (7.2x); K=3 000: 238 ms to 33 ms (7.2x) |
+| MI values against the count-table formula | within 3.6e-15 on sampled (permutation, column) pairs, four shapes including n not a multiple of 64 |
+| Gate decisions on all 62 real f2 calls (both backends run on every call) | identical survivor set on every call (143 116 survivors in total), max value difference 8.5e-15 |
+| f2 pillar, paired A/B | 79.8 s to 68.1 s (-14.7%), 5/5 pass |
+
+Selection note: in the A/B, `f2[scaled_1_5]` recovered `add(div(sqr(a),abs(b)),mul(log(c),sin(d)))` instead of `sub(div(sqr(a),neg(b)),mul(log(c),sin(d)))`. These are the same feature up to sign (b > 0), mathematically equal in MI. With the histogram result returned to the fit, the formula is the original one, and all gate decisions are identical, so the change comes from the 1e-15 value differences breaking a tie between the two sign-equivalent candidates downstream. Recorded as an accepted tie-break, not a selection regression.
+
+Baseline: `_batch_mi_noise_gate_bits.py::bits_gate_mi` joins the tiny-cupy baseline at severity low: the loop is over column groups sized by a memory budget (usually one iteration).
