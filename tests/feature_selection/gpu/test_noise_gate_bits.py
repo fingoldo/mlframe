@@ -113,8 +113,10 @@ def test_backend_choice_decides_the_path_and_a_forced_decline_raises(monkeypatch
 
 
 def test_fallback_choice_follows_the_measured_crossover():
-    """Without a cache entry the bit-set gate is chosen while ``nbins * (classes - 1)`` is within the measured crossover."""
+    """Without a cache entry the bit-set gate is chosen wherever its kernel applies."""
     from mlframe.feature_selection.filters._batch_mi_noise_gate_bits import _fallback_choice
 
     assert _fallback_choice(10000, 9720, 10, 10) == "bits"
-    assert _fallback_choice(10000, 9720, 100, 32) == "hist"
+    assert _fallback_choice(10000, 9720, 25, 32) == "bits"
+    assert _fallback_choice(10000, 9720, 26, 10) == "hist"
+    assert _fallback_choice(10000, 9720, 10, 33) == "hist"

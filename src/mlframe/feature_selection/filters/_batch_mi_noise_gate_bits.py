@@ -20,6 +20,7 @@ import numpy as np
 
 logger = logging.getLogger(__name__)
 
+MAX_CLASSES = 25  # one class is the remainder of the others; the shared-memory kernel holds up to ``_MAX_CLASSES_V2`` stored classes
 MAX_BINS = 32  # the bin bit sets of one (column, word) are held in registers: ``MAX_BINS`` words per thread
 _C_TYPES = {
     np.dtype(np.int8): "signed char",
@@ -157,17 +158,16 @@ def bits_gate_mi(d_disc: Any, nbins_arr: np.ndarray, d_y_all: Any, n_y: int) -> 
 # --- backend choice (kernel tuning cache) -------------------------------------------------------------------------------------------------------------------
 
 _SWEEP_N_SAMPLES = [4000, 20000]
-_SWEEP_N_COLS = [400, 4000]
-_SWEEP_N_CLASSES = [2, 10, 30]
-_SWEEP_N_BINS = [6, 12, 24]
-_SWEEP_PERMUTATIONS = 99
-_FALLBACK_MAX_CELLS = 700  # nbins * (classes - 1) up to which the bit-set gate is the fallback choice (measured crossover on the GTX 1050 Ti: 10 bins x 10 classes is 8x faster)
-_SALT = 1
+_SWEEP_N_COLS = [400, 4000, 12000]  # the grid must reach the real column counts: outside it the sweep's reference backend is used
+_SWEEP_N_CLASSES = [2, 10, 25]  # 25 is the most classes the bit-set kernel holds; beyond it the gate declines and runs the histogram pair
+_SWEEP_N_BINS = [6, 16]
+_SWEEP_PERMUTATIONS = 49  # the histogram pair keeps a (P, total bins x classes) int64 counts matrix; fewer permutations keep the largest cell within a 4 GB card
+_SALT = 2
 
 
 def _fallback_choice(n_samples: int, n_cols: int, n_classes: int, nbins: int) -> str:
-    """The backend while the host has no tuning-cache entry: the bit-set gate while ``nbins * (classes - 1)`` is within the measured crossover, else the histogram pair."""
-    return "bits" if int(nbins) * (int(n_classes) - 1) <= _FALLBACK_MAX_CELLS else "hist"
+    """The backend while the host has no tuning-cache entry: the bit-set gate wherever its kernel applies (measured 7x faster at 10 bins x 10 classes, and ahead at every swept cell it can run), else the histogram pair."""
+    return "bits" if int(nbins) <= MAX_BINS and 2 <= int(n_classes) <= MAX_CLASSES else "hist"
 
 
 def _sweep_inputs(dims: dict) -> tuple:
@@ -211,7 +211,7 @@ def _run_sweep() -> list:
         {"hist": _call(False), "bits": _call(True)},
         {"n_samples": _SWEEP_N_SAMPLES, "n_cols": _SWEEP_N_COLS, "n_classes": _SWEEP_N_CLASSES, "nbins": _SWEEP_N_BINS},
         _sweep_inputs,
-        reference="hist",
+        reference="bits",  # outside the swept grid the reference backend is used: the faster path, which falls back to the histogram pair by itself where it declines
         repeats=3,
         equiv_rtol=1e-9,
         equiv_atol=1e-12,
