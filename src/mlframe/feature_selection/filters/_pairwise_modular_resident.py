@@ -137,10 +137,12 @@ def residue_grid_mis_resident(
         groups: dict[int, list[int]] = {}
         for idx, k in enumerate(mods):
             groups.setdefault(max(int(nbins), k), []).append(idx)
+        # Every residue in one broadcast launch, as the (len(mods), n) column-major block the plug-in MI reads as it is: the residues are the same integers as ``cg % k`` per modulus,
+        # and a group is a slice of rows, so there is no per-modulus mod / cast / stack / transpose.
+        residues = (cg[None, :] % cp.asarray(np.asarray(mods, dtype=np.int64))[:, None]).astype(cp.float64)  # Intentional float64: GPU residue operand; kernel contract is float64
         for eff_nbins, idxs in groups.items():
-            cols = [(cg % int(mods[idx])).astype(cp.float64) for idx in idxs]  # Intentional float64: GPU residue operand; kernel contract is float64
-            mat = cp.ascontiguousarray(cp.stack(cols, axis=1))
-            mis = _plugin_mi_classif_batch_cuda_resident(mat, yd, int(eff_nbins), y_min=_ymin, n_classes=_ncls, relax_binning=True)
+            block = residues[idxs[0] : idxs[-1] + 1] if idxs == list(range(idxs[0], idxs[-1] + 1)) else residues[cp.asarray(idxs)]
+            mis = _plugin_mi_classif_batch_cuda_resident(block, yd, int(eff_nbins), y_min=_ymin, n_classes=_ncls, relax_binning=True, x_is_cm=True)
             mis = np.asarray(mis, dtype=np.float64)  # Intentional float64: MI statistic output
             for j, idx in enumerate(idxs):
                 out[idx] = float(mis[j])

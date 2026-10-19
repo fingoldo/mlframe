@@ -14,6 +14,7 @@ import pytest
 
 import mlframe.feature_selection.filters._pairwise_modular_fe as pm
 import mlframe.feature_selection.filters._pairwise_modular_resident as pmr
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 from mlframe.feature_selection.filters._y_encoding import encode_y_for_classif_mi
 
 
@@ -37,7 +38,8 @@ def _reference(c, y, k, nbins, n_perm, seed, z):
     rng = np.random.default_rng(seed)
     yi = encode_y_for_classif_mi(y)
     perms = [rng.permutation(yi.size) for _ in range(n_perm)]
-    vals = np.array([pm._mi(r, yi[p], nbins=max(nbins, k)) for p in perms], dtype=np.float64)
+    # The band is aggregated in the critical dtype (float32 by default), exactly as the module does; only the draws and the per-permutation MI define what is pinned here.
+    vals = np.array([pm._mi(r, yi[p], nbins=max(nbins, k)) for p in perms], dtype=_crit_np_dtype())
     return float(vals.mean() + z * vals.std())
 
 
