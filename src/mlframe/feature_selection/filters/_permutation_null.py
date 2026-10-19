@@ -520,6 +520,7 @@ def pooled_pair_permutation_null_joint_mi_floor(
     quantile: float = 0.95,
     random_seed: int | None = None,
     mm_debias: bool = False,
+    device_only: bool = False,
 ) -> float:
     """Return the ORDER-2 maxT permutation-null floor for a prospective-pair pool.
 
@@ -552,6 +553,10 @@ def pooled_pair_permutation_null_joint_mi_floor(
     Returns ``0.0`` (a no-op floor) when the pool is degenerate (n too small,
     fewer than two candidate pairs, single-class target, or no permutations
     requested), so callers can unconditionally compare ``pair_mi >= floor``.
+
+    The K shuffled joint-MI matrices come from the one-launch device kernel (``_pair_mi_perm_cuda``) when the host's tuning-cache entry prefers it and the shape fits, else from the
+    permutation-batched CPU kernel; both read the same host shuffles. ``device_only`` skips the CPU kernel and raises ``DeviceKernelDeclinedError`` instead, so a caller with its own
+    fallback can take it.
 
     MM-DEBIAS (2026-06-09, IRON RULE). When ``mm_debias`` the FE
     joint-prevalence RATIO gate downstream subtracts the Miller-Madow joint-MI
@@ -621,9 +626,18 @@ def pooled_pair_permutation_null_joint_mi_floor(
     for k in range(K):
         rng.shuffle(y_perm)  # SAME sequential in-place shuffles as the per-shuffle loop -> identical permutations
         y_perms[k] = y_perm
-    # Reachable from the FE pair sweep's threaded paths; see mlframe._numba_parallel_guard.
-    with parallel_kernel_entry():
-        all_mis = batch_pair_mi_perm_batched(factors_data, pa, pb, nb, y_perms, fy, joint_cardinality_cap())  # (K, n_pairs)
+    # One device launch replays all K shuffles for every pair when the host's tuning-cache entry prefers it (and the shape fits); the shuffles above are the same host draws either way.
+    from ._pair_mi_perm_cuda import DeviceKernelDeclinedError, floor_backend_choice, pair_mi_perm_matrix_cuda
+
+    all_mis = None
+    if floor_backend_choice(n, n_pairs) == "cuda":
+        all_mis = pair_mi_perm_matrix_cuda(factors_data, pa, pb, nb, y_perms, fy, joint_cardinality_cap())
+    if all_mis is None:
+        if device_only:
+            raise DeviceKernelDeclinedError("the one-launch device kernel does not apply to this pool")
+        # Reachable from the FE pair sweep's threaded paths; see mlframe._numba_parallel_guard.
+        with parallel_kernel_entry():
+            all_mis = batch_pair_mi_perm_batched(factors_data, pa, pb, nb, y_perms, fy, joint_cardinality_cap())  # (K, n_pairs)
     maxes = np.empty(K, dtype=np.float64)
     for k in range(K):
         mis = all_mis[k]

@@ -79,6 +79,18 @@ def test_nominal_like_columns_are_skipped():
     assert hybrid_oof_warp_fe(X, y)[1] == []
 
 
+def test_nominal_like_skip_holds_at_the_threshold_level_count():
+    """At exactly FEW_CLASSES_MAX levels a warp of the column is accepted without the skip (20 levels outnumber the 10 MI bins, so the warp adds real gain); the skip must keep it out."""
+    from mlframe.feature_selection.filters._y_encoding import FEW_CLASSES_MAX
+
+    r = np.random.default_rng(3)
+    n = 20000
+    g = r.integers(0, FEW_CLASSES_MAX, n).astype(np.float64)
+    X = pd.DataFrame({"g": g, "u": r.random(n)})
+    y = np.sin(2.0 * g) + 0.2 * r.standard_normal(n)
+    assert hybrid_oof_warp_fe(X, y)[1] == []
+
+
 def test_replay_matches_the_training_column_survives_pickle_and_handles_nan():
     """Replay reproduces the fit column (cross-fit aside: correlation > 0.99), survives pickle and gives a finite fill for NaN input."""
     X, y = _sine_case(20000)

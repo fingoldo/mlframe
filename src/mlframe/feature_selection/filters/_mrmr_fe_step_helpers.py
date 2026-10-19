@@ -443,6 +443,26 @@ def compute_pair_maxt_floor(
             # shuffles, host-owned quantile). DEFAULT ON under the resident FE path / opt-out
             # MLFRAME_FE_PAIR_MAXT_PERM_NULL_GPU=0; returns None on any cupy fault -> exact CPU njit floor below.
             _pair_maxt_floor = None
+            # The one-launch device kernel replays every shuffle for each pair block (several times faster than the CPU kernel or the cupy twin below on a wide pool); when the host's
+            # tuning-cache entry or the shape rules it out, the twin and then the CPU kernel run as before.
+            try:
+                from ._pair_mi_perm_cuda import DeviceKernelDeclinedError
+
+                _pair_maxt_floor = pooled_pair_permutation_null_joint_mi_floor(
+                    factors_data=data,
+                    nbins=nbins,
+                    pair_a=_maxt_pa,
+                    pair_b=_maxt_pb,
+                    classes_y=classes_y,
+                    freqs_y=freqs_y,
+                    n_permutations=_pair_maxt_perms,
+                    quantile=float(getattr(self, "fe_pair_maxt_null_quantile", 0.95)),
+                    random_seed=getattr(self, "random_seed", None),
+                    mm_debias=_mm_debias,
+                    device_only=True,
+                )
+            except DeviceKernelDeclinedError:
+                _pair_maxt_floor = None
             try:
                 from ._permutation_null_pair_resident import (
                     pair_maxt_perm_null_gpu_enabled,
@@ -450,7 +470,7 @@ def compute_pair_maxt_floor(
                     trip_pair_maxt_gpu_circuit_breaker,
                 )
 
-                if pair_maxt_perm_null_gpu_enabled(int(data.shape[0]), len(_maxt_pa)):
+                if _pair_maxt_floor is None and pair_maxt_perm_null_gpu_enabled(int(data.shape[0]), len(_maxt_pa)):
                     _pair_maxt_floor = pooled_pair_permutation_null_joint_mi_floor_cupy(
                         factors_data=data,
                         pair_a=_maxt_pa,

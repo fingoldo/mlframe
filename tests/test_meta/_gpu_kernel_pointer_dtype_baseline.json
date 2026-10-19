@@ -106,6 +106,9 @@
  "src/mlframe/feature_selection/filters/_orthogonal_univariate_fe/_fourier_fused_gpu.py": [
   "solve3"
  ],
+ "src/mlframe/feature_selection/filters/_pair_mi_perm_cuda.py": [
+  "pair_mi_perm"
+ ],
  "src/mlframe/feature_selection/filters/_resident_candidate_mi.py": [
   "build_op_cands",
   "build_op_cands_cm"

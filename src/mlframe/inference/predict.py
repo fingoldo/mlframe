@@ -260,8 +260,20 @@ def read_trained_models(
 # ----------------------------------------------------------------------------------------------------------------------------
 
 
-def get_models_raw_predictions(trained_models: dict, X: pd.DataFrame, Y: Any = None, *, allow_unvalidatable_models: bool = False) -> Any:
+def get_models_raw_predictions(
+    trained_models: dict,
+    X: pd.DataFrame,
+    Y: Any = None,
+    *,
+    allow_unvalidatable_models: bool = False,
+    category_domains: Optional[dict] = None,
+) -> Any:
     """X should already contain only right features in right order.
+
+    ``category_domains`` is the ``{column: [categories, ...]}`` dict the training call produced
+    (``prepare_df_for_xgboost(..., out_category_domains=...)``). Passing it re-codes X's categorical columns against the
+    fit-time domain before predicting, so an XGBoost model splits on the codes it was trained on rather than codes
+    derived from X's own value set (where ``['a','c']`` codes ``c`` as 1 but ``['a','b','c']`` codes it as 2).
 
     ``Y`` is DEPRECATED and unused: nothing here is scored or aligned against ground truth, so a caller passing a
     misaligned ``Y`` got neither an error nor an effect. It is kept as an optional parameter so existing
@@ -287,6 +299,15 @@ def get_models_raw_predictions(trained_models: dict, X: pd.DataFrame, Y: Any = N
         if len(Y) != len(X):
             raise ValueError(f"get_models_raw_predictions: Y has {len(Y)} rows but X has {len(X)}.")
     predictions = {}
+    if category_domains:
+        from mlframe.preprocessing.transforms import prepare_df_for_xgboost
+
+        X = prepare_df_for_xgboost(
+            X,
+            cat_features=list(category_domains),
+            ensure_categorical=False,
+            category_domains=category_domains,
+        )
     expected_features = list(X.columns) if hasattr(X, "columns") else None
     for model_name, model in tqdmu(trained_models.items(), desc="Getting raw predictions"):
         if expected_features is not None:
