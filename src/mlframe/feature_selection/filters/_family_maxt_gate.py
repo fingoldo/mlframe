@@ -509,23 +509,64 @@ def _family_flags(cols, n_x, y, n_y, observed, starts, alpha, n_perm, seed) -> l
     return [bool(f) for f in flags]
 
 
+def _columns_contiguous(a) -> bool:
+    """Whether the columns of the 2-D block ``a`` follow each other in memory within a row; the stride of an axis of length 1 carries no meaning (a single-column view may report any value)."""
+    return a.shape[1] <= 1 or a.strides[1] == a.itemsize
+
+
+def _column_runs(mats, widths) -> list:
+    """``(block, merged)`` pairs: the batches as 2-D blocks, with every run of batches that are adjacent column blocks of one array merged into a single strided view (``merged`` True).
+
+    The pair family passes one single-column view per configuration, all cut from one code matrix in order; copying them one by one reads each column at the row stride of the whole matrix
+    and starts a parallel region per column. Two batches merge when they have the same dtype, row count and strides, the columns are contiguous within a row, and the second starts exactly one
+    batch width after the first in memory, so the merged view addresses nothing outside the batches' own memory. Anything else stays a block of its own.
+    """
+    runs: list = []
+    for m, w in zip(mats, widths):
+        if runs:
+            head, width = runs[-1]
+            if (
+                m.ndim == 2
+                and head.ndim == 2
+                and m.dtype == head.dtype
+                and m.shape[0] == head.shape[0]
+                and m.strides[0] == head.strides[0]
+                and _columns_contiguous(m)
+                and _columns_contiguous(head)
+                and m.__array_interface__["data"][0] == head.__array_interface__["data"][0] + width * head.itemsize
+            ):
+                runs[-1][1] = width + int(w)
+                continue
+        runs.append([m, int(w)])
+    blocks = []
+    for head, width in runs:
+        if width == head.shape[1]:
+            blocks.append((head, False))
+        else:
+            blocks.append((np.lib.stride_tricks.as_strided(head, shape=(head.shape[0], width), strides=(head.strides[0], head.itemsize), writeable=False), True))
+    return blocks
+
+
 def _stack_codes_transposed(mats, widths) -> np.ndarray:
     """The (K_total, n) code matrix of the batches in the narrowest integer width that holds their codes, built in one pass.
 
     The family of one pair spans every configuration scored for it (hundreds of batches of ~1500 columns at 30000 rows); upcasting each batch to
     int64 and then stacking and transposing it held that family three times at eight bytes a code, which exhausted host memory on a wide frame.
+    Batches that are adjacent column blocks of one array are transposed together (see :func:`_column_runs`).
     """
     # bench-attempt-rejected (2026-10-16): one np.concatenate + transposed copy instead of this loop: 0.27 s vs 0.19 s for 1944 single-column int8 batches at 10000 rows.
     n = int(mats[0].shape[0])
-    top = max((int(m.max()) for m in mats if m.size), default=0)
+    blocks = _column_runs(mats, widths)
+    top = max((int(b.max()) for b, _ in blocks if b.size), default=0)
     dt = np.int8 if top <= 127 else (np.int16 if top <= 32767 else np.int64)
     cols = np.empty((int(sum(widths)), n), dtype=dt)
     at = 0
-    for m, w in zip(mats, widths):
-        # A parallel blocked transpose into the shared buffer: numpy's strided ``m.T`` copy was the largest host cost of the family gate on a wide pair pool.
+    for b, merged in blocks:
+        # A parallel blocked transpose into the shared buffer: numpy's strided ``m.T`` copy was the largest host cost of the family gate on a wide pair pool. A merged strided block is read
+        # in place (rows of a tile are contiguous in memory); a batch on its own is made contiguous first, as before.
         with parallel_kernel_entry():
-            _transpose_into(np.ascontiguousarray(m), cols, at)
-        at += w
+            _transpose_into(b if merged else np.ascontiguousarray(b), cols, at)
+        at += int(b.shape[1])
     return cols
 
 
