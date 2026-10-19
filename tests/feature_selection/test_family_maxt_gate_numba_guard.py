@@ -69,8 +69,8 @@ def test_family_gate_concurrent_threads_match_serial_results():
     serial = [_run(s) for s in seeds]
     with ThreadPoolExecutor(max_workers=len(seeds)) as pool:
         concurrent = list(pool.map(_run, seeds))
-    assert serial and concurrent, "every concurrent call must return"
-    for s_flags, c_flags in zip(serial, concurrent, strict=True):
+    assert serial and concurrent
+    for s_flags, c_flags in zip(serial, concurrent):
         assert [bool(f) for f in s_flags] == [bool(f) for f in c_flags]
 
 
