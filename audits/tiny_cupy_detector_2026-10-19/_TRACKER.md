@@ -5,7 +5,7 @@ Procedure per row (owner instruction, no stopping for questions): capture the re
 | # | Site | Status | Measured / note |
 |---|------|--------|-----------------|
 | A2 | `_batch_mi_noise_gate_screen_v1.py::batch_mi_with_noise_gate_cupy_v1` loop at 139 | TODO | per permutation H2D, bincount, D2H |
-| A4 | `_binned_numeric_agg_resident.py::_binagg_null_calibrated_floor` 435 | TODO | per permutation MI call (0.68 s cum in f2) |
+| A4 | `_binned_numeric_agg_resident.py::_binagg_null_calibrated_floor` 435 | DONE | target-free candidate preparation (radix edges, casts, transpose) hoisted out of the permutation loop through `candidate_cache`; 1.5x to 2.0x isolated, floors bit-equal |
 | A10 | `_cupy_polynom_optimizer.py::run_cupy_kernel_search` 240 | TODO | generations are dependent; only uploads can merge |
 | A16 | `_fe_additive_fusion_gpu_resident.py::_gpu_relevant_halves` 195 | TODO | |
 | A17 | `_fe_additive_fusion_gpu_resident.py::_subsumed_raw_operand_check_gpu` 429 | TODO | |
@@ -19,7 +19,7 @@ Procedure per row (owner instruction, no stopping for questions): capture the re
 | B7 | `_mrmr_fe_step/_step_score_parts2.py::_register_pair_recipes` 154 | TODO | |
 | B11 | `_orthogonal_univariate_fe/_extra_basis_resident.py::_build_extra_basis_matrix_gpu` 142 | TODO | 0.72-0.85 s cum |
 | B13 | `_orthogonal_univariate_fe/_gpu_resident_cross_basis.py::build_leg_product_matrix_gpu` 172 | TODO | |
-| B18 | `_pairwise_modular_resident.py::residue_grid_mis_resident` 140 | TODO | |
+| B18 | `_pairwise_modular_resident.py::residue_grid_mis_resident` 140 | DONE | one broadcast launch for all residues, groups as row slices of the column-major block; 5.9 to 3.7 ms per call, noise pillar 46.4 to 45.5 s, bit-identical |
 | B19 | `_unified_fe_gate.py::local_mi_gate` 339 | TODO | |
 | B20 | `_unified_fe_gate.py::unified_second_pass_gate` 475 | TODO | |
 | B25 | `_usability_greedy_clf_gpu_resident.py::_usability_greedy_c_range_min` 462 | TODO | |

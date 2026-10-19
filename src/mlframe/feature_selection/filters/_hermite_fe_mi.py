@@ -226,36 +226,16 @@ def relaxed_candidate_dtype(cp: ModuleType) -> Any:
         return cp.float64
 
 
-def _plugin_mi_classif_batch_cuda_resident(
-    X_gpu, y_gpu, n_bins: int = 20, *, y_min=None, n_classes=None, keep_dtype: bool = False, relax_binning: bool = False, x_is_cm: bool = False
-):
-    """MATRIX-NATIVE plug-in MI on ALREADY-RESIDENT cupy arrays - the H2D-FREE core of
-    :func:`_plugin_mi_classif_batch_cuda`. ``X_gpu`` is an (n, k) cupy double precision candidate
-    matrix, ``y_gpu`` an (n,) cupy integer label vector, BOTH already on the device. This
-    is the entry point a matrix-native caller uses when it built/holds its candidate
-    columns on the GPU - it skips the per-call ``cp.asarray`` H2D that the dispatcher's
-    ground-truth note records as the 2x-slowdown cause (measured: forcing the H2D path on
-    is 52s -> 105s), so MI runs on the device with NO transfer. Math is identical to the
-    host-input variant (same percentile-edge equi-frequency binning + plug-in MI).
-    Returns a host (k,) double precision array of MI values.
+def _resident_mi_candidates(X_gpu, n_bins: int, *, keep_dtype: bool, relax_binning: bool, x_is_cm: bool):
+    """The target-free part of the resident plug-in MI: the candidate matrix cast to its working dtype and its per-column interior quantile edges.
 
-    ``keep_dtype`` (default False -> the legacy f64 contract): when True AND ``X_gpu`` is float32,
-    the f32 is kept through the radix-edge SELECT (the dominant ~67% kernel reads half the bytes ->
-    coalesced f32 select) instead of being upcast to f64. The interp edges and the plug-in MI math stay
-    f64 (counts are integers), so the only effect is f32-precision order statistics -> SELECTION-EQUIVALENT
-    (not bit-identical) to the f64 path: the edges differ from f64 only at ties, where f32 rounding can move
-    a boundary row. Use ONLY where the caller validates selection-equivalence (the f32 FE-batch path).
-
-    ``x_is_cm``: ``X_gpu`` is the ``(k, n)`` C-order column-major block (column ``j`` of the candidate matrix is row ``j``), which is what the edge select and the MI kernel read,
-    so a producer that builds it that way saves the transpose; the result is the same values in the same column order."""
+    Returns ``(X_gpu, x_is_cm, x_cm, interior)``: the matrix as the scoring kernel will read it, its layout flag, the ``(k, n)`` column-major copy when one was made, and the
+    ``(n_bins - 1, k)`` edges. None of it depends on the label vector, so a caller that scores the same candidates against many label vectors (a permutation null) prepares it once
+    and hands it back through ``candidate_cache``.
+    """
     import cupy as cp
 
-    if x_is_cm:
-        k, n = X_gpu.shape
-    else:
-        n, k = X_gpu.shape
-    if n == 0 or k == 0:
-        return np.zeros(k, dtype=_crit_np_dtype())
+    k = int(X_gpu.shape[0] if x_is_cm else X_gpu.shape[1])
     # Intentional float64: dtype identity check against the f64 producer output, not a compute dtype.
     if not (keep_dtype and X_gpu.dtype == cp.float32) and X_gpu.dtype != cp.float64:
         X_gpu = X_gpu.astype(crit_float_dtype())
@@ -274,25 +254,6 @@ def _plugin_mi_classif_batch_cuda_resident(
                 X_gpu = X_gpu.astype(cp.float32)
         except Exception as e:  # nosec B110 - optional dependency import guard
             logger.debug("crit_float_dtype() lookup failed, keeping the default dtype: %s", e)
-    if y_gpu.dtype != cp.int64:
-        y_gpu = y_gpu.astype(cp.int64)
-    # Class axis spans [y_min, y_max]; labels may be negative / non-dense. Offset by y_min so the bincount
-    # index never underflows. y's min/max are a fit-CONSTANT (the same label vector across every pair x
-    # chunk), so when the caller passes them (computed ONCE for the whole pair sweep) skip the per-call
-    # cp.min/cp.max + scalar D2H - nsys showed this exact line is the #1 source of the 71k
-    # cp.max reductions and a huge slice of the 100k tiny D2H in the per-pair x per-chunk MRMR loop.
-    # Bit-identical: y is invariant, so the offset + bincount layout are unchanged.
-    if y_min is None or n_classes is None:
-        _ymm = cp.asnumpy(cp.stack((cp.min(y_gpu), cp.max(y_gpu))))
-        y_min = int(_ymm[0])
-        n_classes = int(_ymm[1]) - y_min + 1  # == max(orig)-y_min+1, i.e. max of the shifted y plus 1
-    # y is a fit-CONSTANT and y_min a fit-CONSTANT, so ``y_gpu - y_min`` yields the IDENTICAL shifted vector on
-    # every per-chunk / per-candidate call. Skip it entirely when y_min == 0 (already 0-based dense labels, the
-    # common case -> the subtraction is a pure no-op that still launched), and memoize the shifted vector keyed
-    # on (id(y_gpu), y_min) otherwise so the launch happens ONCE per fit, not once per MI batch. Bit-identical.
-    if y_min:
-        y_gpu = _shifted_y_cached(y_gpu, int(y_min))
-
     # Per-column quantile binning via cp.percentile EDGES + searchsorted. Replaced the
     # argsort -> rank -> uncoalesced-scatter path (the dominant ~69%-of-MI cost). Measured 7.84x faster
     # (n=200k K=384: 7781ms -> 993ms) with the SAME feature ranking (Spearman 1.0, argmax match). Per-
@@ -340,6 +301,64 @@ def _plugin_mi_classif_batch_cuda_resident(
         else:
             edges = cp.percentile(X_gpu, qs, axis=0)  # (n_bins+1, k) per-column quantile edges
         interior = edges[1:-1]
+    return X_gpu, x_is_cm, x_cm, interior
+
+
+def _plugin_mi_classif_batch_cuda_resident(
+    X_gpu, y_gpu, n_bins: int = 20, *, y_min=None, n_classes=None, keep_dtype: bool = False, relax_binning: bool = False, x_is_cm: bool = False, candidate_cache: "dict | None" = None
+):
+    """MATRIX-NATIVE plug-in MI on ALREADY-RESIDENT cupy arrays - the H2D-FREE core of
+    :func:`_plugin_mi_classif_batch_cuda`. ``X_gpu`` is an (n, k) cupy double precision candidate
+    matrix, ``y_gpu`` an (n,) cupy integer label vector, BOTH already on the device. This
+    is the entry point a matrix-native caller uses when it built/holds its candidate
+    columns on the GPU - it skips the per-call ``cp.asarray`` H2D that the dispatcher's
+    ground-truth note records as the 2x-slowdown cause (measured: forcing the H2D path on
+    is 52s -> 105s), so MI runs on the device with NO transfer. Math is identical to the
+    host-input variant (same percentile-edge equi-frequency binning + plug-in MI).
+    Returns a host (k,) double precision array of MI values.
+
+    ``keep_dtype`` (default False -> the legacy f64 contract): when True AND ``X_gpu`` is float32,
+    the f32 is kept through the radix-edge SELECT (the dominant ~67% kernel reads half the bytes ->
+    coalesced f32 select) instead of being upcast to f64. The interp edges and the plug-in MI math stay
+    f64 (counts are integers), so the only effect is f32-precision order statistics -> SELECTION-EQUIVALENT
+    (not bit-identical) to the f64 path: the edges differ from f64 only at ties, where f32 rounding can move
+    a boundary row. Use ONLY where the caller validates selection-equivalence (the f32 FE-batch path).
+
+    ``x_is_cm``: ``X_gpu`` is the ``(k, n)`` C-order column-major block (column ``j`` of the candidate matrix is row ``j``), which is what the edge select and the MI kernel read,
+    so a producer that builds it that way saves the transpose; the result is the same values in the same column order."""
+    import cupy as cp
+
+    if x_is_cm:
+        k, n = X_gpu.shape
+    else:
+        n, k = X_gpu.shape
+    if n == 0 or k == 0:
+        return np.zeros(k, dtype=_crit_np_dtype())
+    candidate_state = candidate_cache.get("state") if candidate_cache is not None else None
+    if y_gpu.dtype != cp.int64:
+        y_gpu = y_gpu.astype(cp.int64)
+    # Class axis spans [y_min, y_max]; labels may be negative / non-dense. Offset by y_min so the bincount
+    # index never underflows. y's min/max are a fit-CONSTANT (the same label vector across every pair x
+    # chunk), so when the caller passes them (computed ONCE for the whole pair sweep) skip the per-call
+    # cp.min/cp.max + scalar D2H - nsys showed this exact line is the #1 source of the 71k
+    # cp.max reductions and a huge slice of the 100k tiny D2H in the per-pair x per-chunk MRMR loop.
+    # Bit-identical: y is invariant, so the offset + bincount layout are unchanged.
+    if y_min is None or n_classes is None:
+        _ymm = cp.asnumpy(cp.stack((cp.min(y_gpu), cp.max(y_gpu))))
+        y_min = int(_ymm[0])
+        n_classes = int(_ymm[1]) - y_min + 1  # == max(orig)-y_min+1, i.e. max of the shifted y plus 1
+    # y is a fit-CONSTANT and y_min a fit-CONSTANT, so ``y_gpu - y_min`` yields the IDENTICAL shifted vector on
+    # every per-chunk / per-candidate call. Skip it entirely when y_min == 0 (already 0-based dense labels, the
+    # common case -> the subtraction is a pure no-op that still launched), and memoize the shifted vector keyed
+    # on (id(y_gpu), y_min) otherwise so the launch happens ONCE per fit, not once per MI batch. Bit-identical.
+    if y_min:
+        y_gpu = _shifted_y_cached(y_gpu, int(y_min))
+
+    if candidate_state is None:
+        candidate_state = _resident_mi_candidates(X_gpu, n_bins, keep_dtype=keep_dtype, relax_binning=relax_binning, x_is_cm=x_is_cm)
+        if candidate_cache is not None:
+            candidate_cache["state"] = candidate_state
+    X_gpu, x_is_cm, x_cm, interior = candidate_state
     # MEGA-FUSION: bin (binary-search on interior edges) + joint histogram + plug-in MI in ONE RawKernel,
     # collapsing the separate _searchsorted_codes kernel + the (n,K) int code array + binned_mi_from_codes_gpu
     # into a single launch. Bin codes equal _searchsorted_codes bit-for-bit (same f64 edges, side='right') ->
