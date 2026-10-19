@@ -379,6 +379,23 @@ def _warn_polyeval_cuda_fallback_once(exc: Exception) -> None:
         )
 
 
+def _polyeval_try_cuda(basis: str, x: np.ndarray, c: np.ndarray) -> "np.ndarray | None":
+    """Evaluate on the GPU, trying the roomiest device first; ``None`` when every device failed so the caller takes the CPU path."""
+    # Per-column device CASCADE: try the roomiest GPU, then the next, then CPU - so on a multi-GPU box a busy/full
+    # device 0 does not block the eval, and an OOM (incl. host pinned-mem exhaustion) degrades instead of dropping
+    # the column. Empty candidate list (no device has room) -> straight to CPU.
+    _cuda_devs = _polyeval_cuda_pick_devices(x.shape[0])
+    for _dev in (_cuda_devs if _cuda_devs else [None]):
+        try:
+            return _polyeval_cuda(basis, x, c, device=_dev)
+        except (  # noqa: PERF203 -- per-iteration fault isolation is intentional
+            Exception
+        ) as _cuda_exc:  # OOM / driver error on this device -> try the next, then CPU
+            logger.debug("polyeval CUDA backend failed on device %s: %s", _dev, _cuda_exc)
+            _warn_polyeval_cuda_fallback_once(_cuda_exc)
+    return None
+
+
 def polyeval_dispatch(basis: str, x: np.ndarray, c: np.ndarray) -> np.ndarray:
     """Size + hardware-aware polynomial evaluator. Routes to njit / njit_par / cuda backend based on len(x)
     and CUDA availability. Override the chosen backend via MLFRAME_POLYEVAL_BACKEND env var (njit | njit_par | cuda).
@@ -410,20 +427,12 @@ def polyeval_dispatch(basis: str, x: np.ndarray, c: np.ndarray) -> np.ndarray:
     # the feature column to the GPU; the GPU polyeval is used ONLY when explicitly forced (MLFRAME_POLYEVAL_BACKEND=cuda),
     # e.g. for A/B or a genuinely device-resident caller. The STRICT resident builder keeps its device operands and does
     # NOT route through here (it uses _gpu_evaluate_basis_matrix), so that legitimately-resident path is unaffected.
-    if forced == "cuda" and _CUDA_AVAILABLE:
-        # Per-column device CASCADE: try the roomiest GPU, then the next, then CPU - so on a multi-GPU box a busy/full
-        # device 0 does not block the eval, and an OOM (incl. host pinned-mem exhaustion) degrades instead of dropping
-        # the column. Empty candidate list (no device has room) -> straight to CPU.
-        _cuda_devs = _polyeval_cuda_pick_devices(n)
-        for _dev in (_cuda_devs if _cuda_devs else [None]):
-            try:
-                return _polyeval_cuda(basis, x, c, device=_dev)
-            except (  # noqa: PERF203 -- per-iteration fault isolation is intentional
-                Exception
-            ) as _cuda_exc:  # OOM / driver error on this device -> try the next, then CPU
-                logger.debug("polyeval CUDA backend failed on device %s: %s", _dev, _cuda_exc)
-                _warn_polyeval_cuda_fallback_once(_cuda_exc)
-        # every device failed - fall through to the CPU njit / njit_par path.
+    # GPU route: forced by MLFRAME_POLYEVAL_BACKEND=cuda, or chosen by the kernel_tuning_cache crossover (``_cuda_threshold``) on the default path.
+    # The cache sweep persists a sentinel above the swept range on hosts where the host round trip never pays, so this is a no-op there.
+    if _CUDA_AVAILABLE and (forced == "cuda" or (forced == "" and n >= _cuda_threshold)):
+        out = _polyeval_try_cuda(basis, x, c)
+        if out is not None:
+            return out
     if forced == "njit_par":
         return _polyeval_njit_par(basis, x, c)
     # CPU njit/njit_par crossover: oracle-driven when enabled, else the legacy
