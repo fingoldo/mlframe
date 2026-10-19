@@ -13,6 +13,7 @@ import logging
 
 from .._helpers import _orth_fe_numeric_cols, fe_decide_on_subsample
 from ..._fe_frame_ops import fe_append_columns, fe_extract_columns
+from ._triplet_cell_columns import triplet_cell_columns
 from ..._y_encoding import encode_y_for_classif_mi
 
 logger = logging.getLogger(__name__)
@@ -208,6 +209,14 @@ def _hybrid_orth_family_variants_group1_part1(
                 for _r in _t_recipes:
                     if _r.name in _kept:
                         _hybrid_orth_pre_recipes[_r.name] = _r
+                # A triplet over few-level raw legs (binary flags, small categoricals) multiplies out to a parity, so the stage's own product misses a
+                # conjunction of the legs; the joint cell of the same three legs carries it and enters the pool beside the product.
+                _cell_cols, _cell_recipes = triplet_cell_columns(X, _t_triplet_only, _y_for_triplet, int(getattr(self, "random_seed", 0) or 0))
+                if _cell_cols:
+                    X = fe_append_columns(X, _cell_cols)
+                    self.hybrid_orth_features_ = list(self.hybrid_orth_features_ or []) + list(_cell_cols)
+                    _hybrid_orth_pre_recipes.update(_cell_recipes)
+                    _t_triplet_only = [*_t_triplet_only, *_cell_cols]
                 if verbose:
                     logger.info(
                         "MRMR.fit hybrid_orth triplet: appended %d " "engineered column(s): %s",

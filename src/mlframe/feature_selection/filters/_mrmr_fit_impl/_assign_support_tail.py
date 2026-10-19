@@ -109,6 +109,13 @@ def _assign_support_tail(
     if _compact_changed:
         self.n_features_ = len(selected_vars) + len(self._engineered_recipes_)
 
+    # HIERARCHY: the main effect a joint-cell composite only modulates stays beside it, however fully the composite subsumes it.
+    from ._main_effect_restore import run_main_effect_restore
+
+    _restore_changed, selected_vars = run_main_effect_restore(self, X, selected_vars, cols, data, classes_y, verbose)
+    if _restore_changed:
+        self.n_features_ = len(selected_vars) + len(self._engineered_recipes_)
+
 
 def _assign_support_tai_fe_max_steps(self, fe_max_steps, X, verbose, _eng_continuous_snapshot, data, classes_y, y, _retention_added_eng_names, selected_vars, cols, _allowed_raw_idx):
     """Block of _assign_support_tai_fe_max_steps starting at ``if fe_max_steps > 0:``."""
