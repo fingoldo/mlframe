@@ -20,12 +20,30 @@ from __future__ import annotations
 from tests.test_meta._comment_markers import comment_text
 
 
-def test_kaleido_chart_save_sites_marked_best_effort():
-    """Both chart-save except handlers carry a marker."""
+def test_kaleido_chart_save_failure_logs_error_and_does_not_raise(monkeypatch, caplog, tmp_path):
+    """When oneshot and the HTML fallback both fail, the save logs an error and returns without raising."""
+    import logging
+
     import mlframe.reporting.renderers._kaleido as kaleido
 
-    src = comment_text(kaleido)
-    assert src.count("# best-effort:") == 2
+    def _boom(*_a, **_k):
+        """Simulate a failing write."""
+        raise RuntimeError("disk full")
+
+    class _Fig:
+        """Figure whose HTML writer always fails."""
+
+        def write_html(self, *_a, **_k):
+            """Fail the HTML fallback."""
+            raise RuntimeError("html failed")
+
+    monkeypatch.setattr(kaleido, "_ensure_kaleido_server_started", lambda: False)
+    monkeypatch.setattr(kaleido, "_is_kaleido_persistent_burned", lambda: False)
+    monkeypatch.setattr(kaleido, "_oneshot_write_static", _boom)
+    target = str(tmp_path / "chart.png")
+    with caplog.at_level(logging.ERROR):
+        kaleido.write_image_via_kaleido(_Fig(), target, "png")
+    assert any("All save paths failed" in r.getMessage() for r in caplog.records)
 
 
 def test_training_loop_sites_marked_best_effort():
@@ -39,20 +57,79 @@ def test_training_loop_sites_marked_best_effort():
     assert src.count("# best-effort:") == 2
 
 
-def test_dummy_metrics_pick_plot_site_marked_best_effort():
-    """The baseline-overlay plot save except handler carries a marker."""
-    import mlframe.training.baselines._dummy_metrics_pick_plot as dmp
+def test_dummy_baseline_overlay_save_failure_logs_and_returns_figure(tmp_path, caplog):
+    """A failing plot save is logged as a warning and the figure is still returned."""
+    import logging
 
-    src = comment_text(dmp)
-    assert "# best-effort:" in src
+    import numpy as np
+    import pandas as pd
+
+    from mlframe.training.baselines.dummy import compute_dummy_baselines
+    from mlframe.training.baselines._dummy_metrics_pick_plot import plot_best_dummy_baseline_overlay
+    from mlframe.training.configs import DummyBaselinesConfig
+
+    rng = np.random.default_rng(0)
+    train_y = rng.normal(loc=10, scale=2, size=300)
+    val_y = rng.normal(loc=10, scale=2, size=120)
+    test_y = rng.normal(loc=10, scale=2, size=120)
+    frames = [pd.DataFrame({"x1": rng.normal(size=len(y))}) for y in (train_y, val_y, test_y)]
+    report = compute_dummy_baselines(
+        target_type="regression",
+        target_name="y",
+        train_X=frames[0],
+        val_X=frames[1],
+        test_X=frames[2],
+        train_y=train_y,
+        val_y=val_y,
+        test_y=test_y,
+        config=DummyBaselinesConfig(),
+    )
+    blocker = tmp_path / "not_a_dir"
+    blocker.write_text("x")
+    bad_path = str(blocker / "floor.png")  # parent is a regular file, so the save cannot succeed
+    with caplog.at_level(logging.WARNING):
+        fig = plot_best_dummy_baseline_overlay(report, val_y=val_y, test_y=test_y, save_path=bad_path, show=False)
+    assert fig is not None
+    assert any("baseline-overlay save" in r.getMessage() for r in caplog.records)
 
 
-def test_cache_store_sites_marked_best_effort():
-    """Both cache-miss/lock-release except handlers carry a marker."""
-    import mlframe.training.composite.cache_store as cache_store
+def test_cache_store_corrupt_entry_is_a_logged_miss(tmp_path, caplog):
+    """An unreadable entry returns the default and logs a warning instead of raising."""
+    import logging
 
-    src = comment_text(cache_store)
-    assert src.count("# best-effort:") == 2
+    from mlframe.training.composite.cache_store import DiscoveryCache
+
+    cache = DiscoveryCache(tmp_path)
+    with open(cache._path("k"), "wb") as fh:
+        fh.write(b"not a valid pickle payload")
+    with caplog.at_level(logging.WARNING):
+        assert cache.get("k", default="MISS") == "MISS"
+    assert any("treating as miss" in r.getMessage() for r in caplog.records)
+
+
+def test_cache_store_lock_release_failure_does_not_mask_eviction(tmp_path, caplog, monkeypatch):
+    """A filelock __exit__ error is logged and the eviction result is still returned."""
+    import logging
+
+    from mlframe.training.composite.cache_store import DiscoveryCache
+
+    class _BrokenLock:
+        """Lock context whose release fails."""
+
+        def __enter__(self):
+            """Acquire is a no-op."""
+            return self
+
+        def __exit__(self, *_exc):
+            """Release fails."""
+            raise OSError("lock file vanished")
+
+    cache = DiscoveryCache(tmp_path)
+    monkeypatch.setattr(DiscoveryCache, "_maybe_filelock", staticmethod(lambda _path: _BrokenLock()))
+    monkeypatch.setattr(DiscoveryCache, "_evict_to_caps_locked", lambda self: 3)
+    with caplog.at_level(logging.WARNING):
+        assert cache._evict_to_caps() == 3
+    assert any("eviction filelock __exit__ failed" in r.getMessage() for r in caplog.records)
 
 
 def test_screening_tiny_sites_marked_best_effort():

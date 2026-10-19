@@ -49,6 +49,31 @@ def _direct_fit_path(monkeypatch):
 # ---------------------------------------------------------------------------
 
 
+def _eval_pairs(fit_params):
+    """Return the (X, y) pairs of ``fit_params["eval_set"]`` as a list (empty when absent)."""
+    eval_set = fit_params.get("eval_set")
+    return [] if eval_set is None else (eval_set if isinstance(eval_set, list) else [eval_set])
+
+
+def _first_eval_X_type_name(fit_params):
+    """Return the class name of the first eval_set X frame, or None when there is no eval_set."""
+    pairs = _eval_pairs(fit_params)
+    return type(pairs[0][0]).__name__ if pairs else None
+
+
+def _eval_text_dtypes(fit_params, text_features):
+    """Return the dtype string of each text feature in the first eval_set X frame."""
+    pairs = _eval_pairs(fit_params)
+    X_val = pairs[0][0] if pairs else None
+    cols = getattr(X_val, "columns", [])
+    return {col: str(X_val[col].dtype) for col in text_features if col in cols}
+
+
+def _eval_has_missing_sentinel(fit_params):
+    """True when any cell of any eval_set frame, pandas or polars, holds the ``__MISSING__`` sentinel."""
+    return any("__MISSING__" in map(str, X_val[col]) for X_val, _y in _eval_pairs(fit_params) for col in X_val.columns)
+
+
 class FakeCatBoost:
     """Minimal stand-in for a CatBoostClassifier used by the fallback path.
 
@@ -76,8 +101,9 @@ class FakeCatBoost:
                 if hasattr(X, "__getitem__") and col in (X.columns if hasattr(X, "columns") else [])
             },
             "has_eval_set": "eval_set" in fit_params,
-            # The validation frame the model actually received (what the fallback handed to fit), not the caller's dict.
-            "eval_X": fit_params["eval_set"][0] if "eval_set" in fit_params else None,
+            "eval_X_type": _first_eval_X_type_name(fit_params),
+            "eval_text_dtypes": _eval_text_dtypes(fit_params, fit_params.get("text_features") or []),
+            "eval_has_missing_sentinel": _eval_has_missing_sentinel(fit_params),
         }
         self.calls.append(snapshot)
         if len(self.calls) == 1:
@@ -214,7 +240,8 @@ def test_fallback_rewrites_eval_set_to_pandas(polars_frame_with_text_cats):
     val_target = np.arange(val_df.height) % 2
 
     model = FakeCatBoost()
-    fit_params = {"cat_features": cat, "text_features": text, "eval_set": (val_df, val_target)}
+    eval_set = (val_df, val_target)
+    fit_params = {"cat_features": cat, "text_features": text, "eval_set": eval_set}
     _train_model_with_fallback(
         model=model,
         model_obj=model,
@@ -224,13 +251,16 @@ def test_fallback_rewrites_eval_set_to_pandas(polars_frame_with_text_cats):
         fit_params=fit_params,
         verbose=False,
     )
-    # The model's retry must receive the validation frame as pandas with no pd.Categorical text column.
-    # Asserted on what the model received, not on the caller's dict: fit_params is copied on entry to the fallback
-    # trainer so the rewrite cannot leak into the shared fit_params of the next model (commit 21dfc9ce1).
-    eval_X = model.calls[-1]["eval_X"]
-    assert isinstance(eval_X, pd.DataFrame), f"eval_set X must be pandas after fallback, got {type(eval_X).__name__}"
-    assert not isinstance(eval_X["skills_text"].dtype, pd.CategoricalDtype), "eval_set text column must also be decategorized"
-    assert isinstance(fit_params["eval_set"][0], pl.DataFrame), "the caller's fit_params must not be rewritten by the fallback"
+    # The retry (the second fit call) must receive a pandas, decategorised eval set.
+    assert len(model.calls) == 2, f"expected the polars fit to fail once and the pandas retry to run, got {len(model.calls)} fit calls"
+    retry = model.calls[1]
+    assert retry["eval_X_type"] == "DataFrame", f"eval_set X must be pandas on the retry, got {retry['eval_X_type']}"
+    assert "skills_text" in retry["eval_text_dtypes"], "eval_set must carry the text column into the retry"
+    assert not retry["eval_text_dtypes"]["skills_text"].startswith("category"), "eval_set text column must also be decategorized"
+    # The rewrite stays on the fallback's copy: the caller's dict and its eval frame are untouched, so the next model sees no __MISSING__ sentinel.
+    assert fit_params["eval_set"] is eval_set
+    assert fit_params["eval_set"][0] is val_df
+    assert not retry["eval_has_missing_sentinel"], "the retry's eval_set must not carry the __MISSING__ sentinel"
 
 
 def test_fallback_passes_when_polars_fastpath_succeeds(polars_frame_with_text_cats):
