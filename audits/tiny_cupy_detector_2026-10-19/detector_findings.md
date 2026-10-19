@@ -77,3 +77,22 @@ UNCLEAR, needs a further read: A 27, 28, 38; B 5 keys (see `triage_b.md`).
 
 - `hermite_fe/__init__.py::polyeval_dispatch` left the baseline: its device loop moved into `_polyeval_try_cuda`, which is now the baselined key. The loop returns on the first device that succeeds, so it is at most one successful iteration (CHUNK-like, low severity).
 - `_orthogonal_univariate_fe/__init__.py::basis_route_by_signal` and `::generate_univariate_basis_features` left the baseline only because the call chain to the cupy calls is now one level longer than `_CALL_DEPTH`. The code did not get cheaper. They are tracked as detector limit A2 (depth bound), not as fixed sites.
+
+## H. Measured weight of the REAL sites in the pillar profiles
+
+Source: `conj_strict.prof` (total 124.3 s) and `f2xor_strict.prof` (total 231.4 s), strict GPU, taken before the pair-floor kernel. Cumulative seconds, only functions above 0.5 s in either profile are listed; every other REAL site is below 0.5 s in both and is not separately measurable here. cProfile inflates async GPU-op time, so these numbers are upper bounds on the launch overhead, not the attainable gain.
+
+| Site | cum s | share of its profile |
+|------|-------|----------------------|
+| `_usability_pool_resident.py::score_pair_combos_table_resident` (7 calls) | 1.28 | 0.55% (f2xor) |
+| `_usability_greedy_gpu_resident.py::_cv_candidates` (35 calls) | 1.04 | 0.45% (f2xor) |
+| `_extra_basis_resident.py::_build_extra_basis_matrix_gpu` | 0.72 / 0.85 | 0.58% (conj), 0.37% (f2xor) |
+| `hermite_fe/_als_fused_gpu.py::als_sweep_fused` (542 calls) | 0.70 | 0.30% (f2xor) |
+| `_binned_numeric_agg_resident.py::_binagg_null_calibrated_floor` | 0.68 | 0.29% (f2xor) |
+| `_usability_greedy_gpu_resident.py::_shortlist` | 0.64 | 0.28% (f2xor) |
+| `_fe_additive_fusion_gpu_resident.py::propose_additive_fusions_gpu` | 0.59 | 0.26% (f2xor) |
+| `_usability_greedy_clf_gpu_resident.py::_usability_greedy_c_range_min` | 0.57 / 0.55 | 0.46% (conj), 0.24% (f2xor) |
+
+Disposition for the REAL group on the four-pillar workload: DEFER, not a speed lead. No single site reaches the 0.5% ship bar as attainable gain (the cumulative share is the ceiling, and `score_pair_combos_table_resident` already uses a fused generator with per-pair chunking, so the remaining launch overhead is a fraction of its 0.55%). The sites stay in the baseline as a worklist for larger-n or other workloads, where the same loops scale with n or pairs; they should be re-measured there before any rewrite.
+
+Where the pillar wall time actually is: see the profile summaries in the session notes; the pair-floor kernel (about -29 s on conj+xor3) was the one item of this class that paid.
