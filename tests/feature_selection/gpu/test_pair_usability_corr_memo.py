@@ -84,9 +84,9 @@ def test_memo_keeps_only_the_newest_results(spy):
     """More distinct requests than the memo holds evict the oldest, so the oldest is recomputed."""
     first_inputs = _inputs(seed=0)
     mod.dispatch_batch_pair_usability_corr(*first_inputs, force_backend="cpu")
-    for seed in range(1, mod._CORR_MEMO_MAX + 1):
+    for seed in range(1, mod._CORR_MEMO.max_entries + 1):
         mod.dispatch_batch_pair_usability_corr(*_inputs(seed=seed), force_backend="cpu")
     before = len(spy)
     mod.dispatch_batch_pair_usability_corr(*first_inputs, force_backend="cpu")
     assert len(spy) == before + 1
-    assert len(mod._CORR_MEMO) <= mod._CORR_MEMO_MAX
+    assert len(mod._CORR_MEMO) <= mod._CORR_MEMO.max_entries

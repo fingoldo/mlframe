@@ -76,13 +76,13 @@ from __future__ import annotations
 
 import logging
 import math
-import threading
-from collections import OrderedDict
 from typing import Any
 
 import numba
 import numpy as np
 from numba import prange
+
+from ._content_memo import ContentMemo
 
 logger = logging.getLogger(__name__)
 
@@ -609,12 +609,10 @@ def _dispatch_batch_pair_usability_corr_uncached(
     return result, "cpu"
 
 
-_CORR_MEMO: "OrderedDict" = OrderedDict()  # content key -> (result, backend)
-_CORR_MEMO_MAX = 4
+_CORR_MEMO = ContentMemo(max_entries=4)  # (result, backend) of the newest large requests, by input content
 _CORR_MEMO_MIN_WORK = (
     50_000_000  # n_pairs * n_forms * n_rows from which hashing the inputs to catch a repeat is worth it (a miss costs ~0.2 ms per MB of operands)
 )
-_CORR_MEMO_LOCK = threading.Lock()
 
 
 def dispatch_batch_pair_usability_corr(
@@ -628,32 +626,23 @@ def dispatch_batch_pair_usability_corr(
     """:func:`_dispatch_batch_pair_usability_corr_uncached` with the result of a large call remembered by the content of its inputs.
 
     A fit that runs the same FE step twice (the first sweep and a retry over the identical pool) asks for the identical ``|corr|`` table twice; at 30 000 pairs x 5 forms x 50 000 rows that is
-    6 s each time. The key is the content hash of ``y``, the operand matrix, both pair index arrays and the form ids, plus ``force_backend`` and the global GPU switch; the table is a pure function of
-    those. Only calls above ``_CORR_MEMO_MIN_WORK`` are hashed, the newest ``_CORR_MEMO_MAX`` results are kept, and a copy is returned so a caller cannot change the stored table.
+    6 s each time. The key is the content of ``y``, the operand matrix, both pair index arrays and the form ids, plus ``force_backend`` and the global GPU switch; the table is a pure function of
+    those. Only calls above ``_CORR_MEMO_MIN_WORK`` are hashed, and a copy is returned so a caller cannot change the stored table.
     """
     if form_ids is None:
         form_ids = ALL_FORM_IDS
     form_ids = np.asarray(form_ids, dtype=np.int64)
-    work = int(pair_a.shape[0]) * int(form_ids.shape[0]) * int(y.shape[0])
-    if work < _CORR_MEMO_MIN_WORK:
+    if int(pair_a.shape[0]) * int(form_ids.shape[0]) * int(y.shape[0]) < _CORR_MEMO_MIN_WORK:
         return _dispatch_batch_pair_usability_corr_uncached(y, operand_matrix, pair_a, pair_b, form_ids, force_backend)
-    from ._fe_resident_operands import _content_hash
     from ._gpu_policy import gpu_globally_disabled
 
-    arrays = [np.ascontiguousarray(a) for a in (y, operand_matrix, pair_a, pair_b, form_ids)]
-    key = (tuple((a.shape, a.dtype.str, _content_hash(a)) for a in arrays), force_backend, bool(gpu_globally_disabled()))
-    with _CORR_MEMO_LOCK:
-        hit = _CORR_MEMO.get(key)
-        if hit is not None:
-            _CORR_MEMO.move_to_end(key)
+    key = _CORR_MEMO.key([y, operand_matrix, pair_a, pair_b, form_ids], force_backend, bool(gpu_globally_disabled()))
+    hit = _CORR_MEMO.get(key)
     if hit is not None:
-        return hit[0].copy(), hit[1]
-    result, backend = _dispatch_batch_pair_usability_corr_uncached(y, operand_matrix, pair_a, pair_b, form_ids, force_backend)
-    with _CORR_MEMO_LOCK:
-        _CORR_MEMO[key] = (result.copy(), backend)
-        while len(_CORR_MEMO) > _CORR_MEMO_MAX:
-            _CORR_MEMO.popitem(last=False)
-    return result, backend
+        return hit
+    result = _dispatch_batch_pair_usability_corr_uncached(y, operand_matrix, pair_a, pair_b, form_ids, force_backend)
+    _CORR_MEMO.put(key, result)
+    return result
 
 
 # ---------------------------------------------------------------------------
