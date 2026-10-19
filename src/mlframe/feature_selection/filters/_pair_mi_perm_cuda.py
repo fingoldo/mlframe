@@ -31,6 +31,7 @@ _KERNEL_LOCK = threading.Lock()
 class DeviceKernelDeclinedError(RuntimeError):
     """Raised by a floor that was asked for the device kernel only when the kernel does not apply (no CUDA, the shape does not fit, the host prefers the CPU kernel)."""
 
+
 _SRC = r"""
 extern "C" __global__
 void pair_mi_perm(const unsigned char* __restrict__ cols, const long long* __restrict__ pair_a, const long long* __restrict__ pair_b,
@@ -149,8 +150,14 @@ def pair_mi_perm_matrix_cuda(
         d_fy = cp.asarray(np.ascontiguousarray(freqs_y, dtype=np.float64))
         out = cp.empty((K, n_pairs), dtype=cp.float64)
         shared = (max_joint * ky + max_joint) * 4
-        _kernel(cp)((n_pairs,), (_THREADS,), (cols, d_a, d_b, d_nb, d_y, d_fy, np.int64(n), np.int32(n_pairs), np.int32(K), np.int32(ky), np.int64(cap), np.float64(1.0 / n), out), shared_mem=shared)
-        return cp.asnumpy(out)
+        _kernel(cp)(
+            (n_pairs,),
+            (_THREADS,),
+            (cols, d_a, d_b, d_nb, d_y, d_fy, np.int64(n), np.int32(n_pairs), np.int32(K), np.int32(ky), np.int64(cap), np.float64(1.0 / n), out),
+            shared_mem=shared,
+        )
+        host: np.ndarray = cp.asnumpy(out)
+        return host
     except Exception as exc:  # nosec B110 - a device fault or an allocation failure falls back to the exact CPU kernel
         logger.warning("pair_mi_perm_matrix_cuda failed (%s: %s); using the CPU kernel", type(exc).__name__, exc)
         return None
