@@ -345,6 +345,7 @@ def prewarm(provider: FrozenFeaturizerProvider) -> Future:
             try:
                 exc = _fut.exception(timeout=0)
             except Exception as _probe_exc:
+                # best-effort: this done-callback probe only decides whether to log; if it fails the prewarm result is unaffected.
                 logger.debug("_log_unhandled: future.exception() probe failed: %s", _probe_exc)
                 return
             if exc is not None:

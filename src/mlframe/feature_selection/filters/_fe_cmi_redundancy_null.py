@@ -170,6 +170,7 @@ def _gpu_resident_flag() -> bool:
         from ._fe_cmi_perm_null_gpu import perm_null_gpu_resident_enabled
         return bool(perm_null_gpu_resident_enabled())
     except Exception as e:
+        # fallback: a failing flag check keeps the GPU-resident perm-null off, the host path that always works.
         logger.debug("perm_null_gpu_resident_enabled() check failed, defaulting to non-resident: %s", e)
         return False
 

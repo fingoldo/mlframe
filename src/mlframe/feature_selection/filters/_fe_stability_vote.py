@@ -173,7 +173,7 @@ def _raw_fold_codes(X: Any, name: str, idx: np.ndarray, raw_set: set, n: int, nb
         try:
             vals = np.asarray(_extract_column(X, name), dtype=_crit_np_dtype()).ravel()
         except Exception as e:
-            logger.debug("_raw_codes: could not extract raw source column %r, scoring it as a None leg: %s", name, e)
+            logger.warning("_raw_codes: could not extract raw source column %r, scoring it as a None leg: %s", name, e)
             return None
         _raw_col_cache[name] = vals
     if vals.shape[0] != n:

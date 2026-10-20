@@ -236,7 +236,7 @@ def _xgboost_base_score_patched_config_json(model: Any) -> Optional[str]:
         param["base_score"] = repr(float(values[0]))
         return orjson.dumps(cfg).decode("utf-8")
     except Exception as e:
-        logger.debug("XGBoost base_score config patch skipped (%s: %s)", type(e).__name__, e)
+        logger.warning("XGBoost base_score config patch skipped (%s: %s)", type(e).__name__, e)
         return None
 
 
@@ -476,6 +476,7 @@ def _write_skip_notice(reason: str, plot_file: Optional[str], plot_outputs: Opti
         plt.close(fig)
         return written
     except Exception as exc:  # a notice must never be the thing that breaks a report
+        # best-effort: the skip notice is cosmetic; if it cannot be written the report proceeds without it.
         logger.debug("shap skip-notice write failed (%s: %s)", type(exc).__name__, exc)
         return []
 

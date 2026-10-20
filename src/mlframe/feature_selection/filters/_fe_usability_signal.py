@@ -126,7 +126,7 @@ def usability_operand_continuous(self: Any, X: Any, cols: Any, var_idx: Any) -> 
             return np.asarray(X[:, _names.index(_nm)], dtype=_crit_np_dtype()).ravel()
         return None
     except Exception as e:
-        logger.debug("usability_operand_continuous: raw operand resolution failed for var_idx=%r, no usability credit claimed: %s", var_idx, e)
+        logger.warning("usability_operand_continuous: raw operand resolution failed for var_idx=%r, no usability credit claimed: %s", var_idx, e)
         return None
 
 
@@ -451,5 +451,5 @@ def tail_concentration_form_override(
             return None
         return _corr_leader
     except Exception as e:
-        logger.debug("tail_concentration_form_override: override decision failed, leaving the rank-MI winner untouched: %s", e)
+        logger.warning("tail_concentration_form_override: override decision failed, leaving the rank-MI winner untouched: %s", e)
         return None

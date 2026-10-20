@@ -55,6 +55,7 @@ def _git_sha() -> str:
         ).strip()
         return out or "nogit"
     except Exception as exc:
+        # best-effort: no git checkout (or git absent) only means the run is recorded as 'nogit'; the benchmark still runs.
         logger.debug("_git_sha: git rev-parse failed: %s", exc)
         return "nogit"
 
@@ -70,6 +71,7 @@ def _gpu_model() -> str:
         attrs = cp.cuda.runtime.getDeviceProperties(dev.id)
         return attrs["name"].decode() if isinstance(attrs.get("name"), bytes) else str(attrs.get("name", "unknown"))
     except Exception as exc:
+        # best-effort: no CUDA device or cupy only means the GPU name is recorded as 'no-gpu'; the benchmark still runs.
         logger.debug("_gpu_model: cupy device probe failed: %s", exc)
         return "no-gpu"
 

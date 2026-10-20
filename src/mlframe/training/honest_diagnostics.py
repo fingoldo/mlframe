@@ -55,6 +55,7 @@ def _safe_arr(x: Any) -> Optional[np.ndarray]:
             return None
         return a
     except Exception as exc:
+        # fallback: an uncoercible value is reported as absent (None), which the caller already handles.
         logger.debug("honest_diagnostics: _safe_arr coercion failed: %r", exc, exc_info=True)
         return None
 
@@ -233,6 +234,7 @@ def _run_binary_bootstrap(
                 y_true_f64, p_pos_f64, n_bootstrap=1000, alpha=0.05, stratify=y_true, random_state=rng_seed,
             )
         except Exception as exc:
+            # fallback: a failed fused bootstrap reruns through bootstrap_metrics, which yields the same CI quantities.
             logger.debug("honest_diagnostics: fused bootstrap bundle failed, falling back to bootstrap_metrics: %r", exc, exc_info=True)
             cis = None
     if cis is None:

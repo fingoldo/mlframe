@@ -165,6 +165,7 @@ def _opt_in_shared_mem_budget() -> int:
             return 49152
         return int(get_shared_mem_budget_per_block(summary["cc_major"], summary["cc_minor"], allow_opt_in=True))
     except Exception as e:
+        # fallback: a failed capability probe keeps the 49152-byte static default, so the fused kernel budget stays valid.
         logger.debug("_opt_in_shared_mem_budget: probe failed (%s); using the 49152B static default", e)
         return 49152
 

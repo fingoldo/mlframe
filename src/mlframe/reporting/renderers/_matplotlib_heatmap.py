@@ -98,6 +98,7 @@ def _heatmap(self, ax, p: HeatmapPanelSpec, fig) -> None:
             _w_in: Optional[float] = float(_pos.width) * _fig_w
             _h_in: Optional[float] = float(_pos.height) * _fig_h
         except Exception:
+            # fallback: unmeasurable axes fall back to the fixed tick cap; only tick density changes.
             logger.debug("could not measure heatmap axes for tick budgeting; falling back to the fixed cap", exc_info=True)
             _w_in = _h_in = None
         _xt = _thin_tick_positions(len(p.col_labels), ticks_that_fit(_w_in, len(p.col_labels), pitch_in=rotated_tick_pitch_in(_HEATMAP_TICK_FONTSIZE, 45)))

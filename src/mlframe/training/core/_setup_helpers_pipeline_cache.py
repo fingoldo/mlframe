@@ -188,6 +188,7 @@ def _load_pipeline_disk_cache_into_memory() -> None:
         with open(path, "rb") as fh:
             data = _orjson.loads(fh.read())
     except Exception as exc:
+        # best-effort: a corrupt or unreadable disk cache is a cache miss; the entry is rebuilt and overwritten on next save.
         logger.debug("pipeline disk cache: load failed, treating as absent: %s", exc)
         return  # corrupt file: ignore, will be overwritten on next save
     if not isinstance(data, dict) or data.get("version_tag") != _pipeline_disk_cache_version_tag():

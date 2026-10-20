@@ -103,6 +103,7 @@ def _measured_axis_in(ax, *, horizontal: bool) -> Optional[float]:
         _fig_w, _fig_h = (float(v) for v in ax.figure.get_size_inches())
         return float(_pos.height) * _fig_h if horizontal else float(_pos.width) * _fig_w
     except Exception:
+        # fallback: unmeasurable axes fall back to the fixed tick cap; only tick density changes.
         logger.debug("could not measure the category axis for tick budgeting; falling back to the fixed cap", exc_info=True)
         return None
 
@@ -215,6 +216,7 @@ def _set_panel_title(ax, title) -> None:
     try:
         panel_w = float(ax.get_position().width) * float(ax.figure.get_size_inches()[0])
     except Exception:
+        # fallback: an unmeasurable panel falls back to the unscaled title budget; only title wrapping changes.
         logger.debug("could not measure panel width for title wrapping; falling back to the unscaled budget", exc_info=True)
         panel_w = None
     fallback = panel_title_wrap_chars((panel_w, 0), 1) if panel_w else panel_title_wrap_chars(None, 1)
@@ -482,6 +484,7 @@ class MatplotlibRenderer:
             try:
                 ip = sys.modules["IPython"].get_ipython()
             except Exception as e:
+                # best-effort: IPython display hook probe; outside a notebook a missing hook is expected and means no display.
                 logger.debug("IPython.get_ipython() probe failed: %s", e)
                 ip = None
             if ip is not None:
@@ -917,6 +920,7 @@ class MatplotlibRenderer:
         try:
             _panel_w = float(ax.get_position().width) * float(ax.figure.get_size_inches()[0])
         except Exception:
+            # fallback: an unmeasurable violin panel falls back to the unscaled label budget; only label thinning changes.
             logger.debug("could not measure violin panel width for label thinning", exc_info=True)
             _panel_w = None
         _keep = _thin_tick_positions(len(labels), ticks_that_fit(_panel_w, len(labels), pitch_in=rotated_tick_pitch_in(_HEATMAP_TICK_FONTSIZE, 30)))

@@ -72,7 +72,7 @@ def _detect_budget_param(model_category: str, model_obj: Any) -> str | None:
     try:
         params = model_obj.get_params() if hasattr(model_obj, "get_params") else {}
     except Exception as exc:
-        logger.debug("budget param probe: get_params() failed, no usable budget knob detected: %s", exc)
+        logger.warning("budget param probe: get_params() failed, no usable budget knob detected: %s", exc)
         return None
     for cand in ("max_iter", "n_estimators", "max_trials"):
         if cand in params and isinstance(params.get(cand), int):
@@ -169,7 +169,7 @@ def _detect_max_iter(model_category: str, model_obj: Any) -> int | None:
     try:
         params = model_obj.get_params() if hasattr(model_obj, "get_params") else {}
     except Exception as e:
-        logger.debug("get_params() failed for %s, treating as empty: %s", type(model_obj).__name__, e)
+        logger.warning("get_params() failed for %s, treating as empty: %s", type(model_obj).__name__, e)
         params = {}
     if model_category == "cb":
         _iterations = params.get("iterations")
@@ -220,7 +220,7 @@ def _build_cb_iteration_metrics_callback(fit_params, model_obj, stride):
             model_obj.iteration_metrics_ = cb.iteration_metrics_  # bound by reference; filled during fit
         return cb
     except Exception as exc:
-        logger.debug("CatBoost iteration-metrics capture not wired: %s", exc)
+        logger.warning("CatBoost iteration-metrics capture not wired: %s", exc)
         return None
 
 

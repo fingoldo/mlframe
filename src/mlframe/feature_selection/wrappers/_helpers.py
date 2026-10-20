@@ -50,7 +50,7 @@ def _pin_threads_to_one(estimator: object) -> None:
     try:
         valid = set(estimator.get_params().keys())  # type: ignore[attr-defined]
     except Exception as exc:
-        logger.debug("thread-pinning: get_params() failed, no params pinned: %s", exc)
+        logger.warning("thread-pinning: get_params() failed, no params pinned: %s", exc)
         return
     pinned = {p: 1 for p in _THREAD_PARAMS if p in valid}
     if pinned:

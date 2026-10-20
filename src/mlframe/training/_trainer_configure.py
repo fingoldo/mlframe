@@ -279,7 +279,7 @@ def _wrap_for_multilabel_if_needed(
     try:
         params = estimator.get_params()
     except Exception as e:
-        logger.debug("estimator.get_params() failed, treating params as empty: %s", e)
+        logger.warning("estimator.get_params() failed, treating params as empty: %s", e)
         params = {}
     _patch: dict = {}
     if "early_stopping_rounds" in params and params.get("early_stopping_rounds") is not None:

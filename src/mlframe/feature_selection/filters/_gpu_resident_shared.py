@@ -45,6 +45,7 @@ def _cuda_present() -> bool:
 
             return bool(getattr(_c, "is_available", lambda: False)())
         except Exception as e2:
+            # fallback: no CUDA is reported when neither pyutilz nor numba can answer, so callers stay on the host path.
             logger.debug("_cuda_present: numba.cuda.is_available() also failed, defaulting to no CUDA: %s", e2)
             return False
 
