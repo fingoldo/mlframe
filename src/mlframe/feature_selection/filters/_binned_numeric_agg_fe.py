@@ -542,6 +542,7 @@ def _redundancy_gate_binagg(
     random_state: int,
     min_cmi_gain: float,
     reject_sink: Callable[..., None] | None,
+    linear_usability: bool = True,
 ) -> Any:
     """Keep the ``binagg_*`` candidates whose CMI against ``y`` given their own source columns clears the floor and the permutation null; ``None`` when none survive."""
     from ._mi_greedy_cmi_fe import _quantile_bin
@@ -584,7 +585,7 @@ def _redundancy_gate_binagg(
         return b
 
     kept_cols: list[Any] = []
-    _build_binned_agg_recipes(cands, raw, X, _src_bins, nbins_base, y_cls, min_cmi_gain, _rng, _n_perm, _NULL_Z, kept_cols, reject_sink)
+    _build_binned_agg_recipes(cands, raw, X, _src_bins, nbins_base, y_cls, min_cmi_gain, _rng, _n_perm, _NULL_Z, kept_cols, reject_sink, linear_usability)
     if _dev_cands is not None:
         # Host out-of-fold columns for the KEPT pairs only (usually none): same values the all-survivors fit would have produced for them.
         if not kept_cols:
@@ -611,7 +612,7 @@ def binned_numeric_agg_with_recipes(
     n_folds: int = 5, random_state: int = 0, max_pairs: int = 64,
     max_group_cols: int = 16, max_agg_cols: int = 16,
     mi_gate: bool = True, redundancy_gate: bool = True,
-    min_cmi_gain: float = 0.005, reject_sink: Callable[..., None] | None = None,
+    min_cmi_gain: float = 0.005, reject_sink: Callable[..., None] | None = None, linear_usability: bool = True,
 ) -> tuple:
     """End-to-end: relevance-select numeric group/aggregate columns, OOF-fit per-cell stats, append ``binagg_*``
     columns and build replay recipes. Returns ``(X_aug, appended, recipes)`` mirroring ``kfold_target_encode_with_recipes``.
@@ -718,9 +719,11 @@ def binned_numeric_agg_with_recipes(
     # its OWN sources (cheap: at most two raw columns). Collapses spurious appends to zero on data with no
     # residual per-cell structure while preserving genuine cell-conditional features (where the per-cell shape
     # adds information the raw marginals cannot).
+    # A column the CMI test rejects is still kept when it lifts an out-of-fold LINEAR fit over its sources by more than a shuffled-candidate null
+    # (``linear_usability``, default ON; see _binned_agg_linear_usability): the column is redundant for a model that can use the raw group, not for a linear one.
     assert raw is not None and (feat_df is not None or _dev_cands is not None)  # the host branch fills feat_df, the device branch fills it or leaves the lazy device source
     if redundancy_gate and (_dev_cands is not None or (feat_df is not None and feat_df.shape[1] > 0)):
-        feat_df = _redundancy_gate_binagg(X, y, raw, feat_df, _dev_cands, gsel, asel, stats, nbins_base, n_folds, random_state, min_cmi_gain, reject_sink)
+        feat_df = _redundancy_gate_binagg(X, y, raw, feat_df, _dev_cands, gsel, asel, stats, nbins_base, n_folds, random_state, min_cmi_gain, reject_sink, linear_usability)
         if feat_df is None:
             return X, [], []
     assert feat_df is not None

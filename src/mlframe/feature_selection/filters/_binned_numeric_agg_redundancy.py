@@ -3,8 +3,12 @@
 from __future__ import annotations
 
 import logging
+import zlib
+
 from mlframe.utils.log_throttle import log_throttle
 import numpy as np
+
+from ._binned_agg_linear_usability import linear_usability_keeps
 
 logger = logging.getLogger(__name__)
 
@@ -26,8 +30,8 @@ def _candidate_codes(col: np.ndarray, nbins: int, quantile_bin):
     return quantile_bin(col, nbins=nbins)
 
 
-def _build_binned_agg_recipes(cands, raw, X, _src_bins, nbins_base, y_cls, min_cmi_gain, _rng, _n_perm, _NULL_Z, kept_cols, reject_sink):
-    """Build the replayable recipe of every binned-aggregate column."""
+def _build_binned_agg_recipes(cands, raw, X, _src_bins, nbins_base, y_cls, min_cmi_gain, _rng, _n_perm, _NULL_Z, kept_cols, reject_sink, linear_usability=True):
+    """Build the replayable recipe of every binned-aggregate column; with ``linear_usability`` a column the CMI gate rejects is still kept when it lifts a linear fit."""
     from mlframe.feature_selection.filters._mi_greedy_cmi_fe import _cmi_from_binned, _cmi_gpu_enabled, _renumber_joint
 
     for nm in cands.names:
@@ -88,6 +92,11 @@ def _build_binned_agg_recipes(cands, raw, X, _src_bins, nbins_base, y_cls, min_c
             # Robust one-sided null upper tail (mean + z*std), not the noisy raw max.
             null_ceiling = float(_null.mean() + _NULL_Z * _null.std())
         keep = np.isfinite(cmi) and cmi >= float(min_cmi_gain) and cmi > null_ceiling
+        if not keep and linear_usability and srcs:
+            # The column is a function of its group's cell, which is the partition the CMI above conditions on, so it reads as redundant to
+            # any model that can use the raw group. A linear model cannot: keep the column when it lifts an out-of-fold linear fit over
+            # the raw sources by more than its shuffled-candidate null. The seed comes from the name so `_rng` is not consumed here.
+            keep = linear_usability_keeps(X[srcs].to_numpy(dtype=np.float64), cand_bin, y_cls, _NULL_Z, zlib.crc32(str(nm).encode("utf-8")))
         if keep:
             kept_cols.append(nm)
         elif reject_sink is not None:
