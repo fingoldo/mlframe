@@ -192,3 +192,32 @@ def test_float32_newton_converges_at_realistic_size():
     got = usability_greedy_clf_gpu_resident(pool, y)
     assert got is not None
     assert {c.name for c in got} == {"a", "b", "c"}
+
+
+def test_batched_candidate_logloss_matches_per_candidate_sklearn_fit():
+    """The batched Newton fit of all candidates of a fold gives each candidate's validation logloss of the per-candidate logistic fit (sklearn, L2 C=1 on standardized columns)."""
+    cp = pytest.importorskip("cupy")
+    from sklearn.linear_model import LogisticRegression
+    from sklearn.metrics import log_loss
+
+    from mlframe.feature_selection.filters._usability_greedy_clf_batched import cv_candidates_binary
+    from mlframe.feature_selection.filters._usability_greedy_clf_gpu_resident import _ResidentClfFallbackError
+
+    rng = np.random.default_rng(3)
+    n = 6000
+    V = rng.standard_normal((n, 9)).astype(np.float32)
+    y = (rng.random(n) < 1 / (1 + np.exp(-(V[:, 0] - 0.7 * V[:, 3])))).astype(np.int64)
+    folds_host = rng.permutation(n) % 3
+    specs = [(cp.asarray(folds_host != fo), cp.asarray(folds_host == fo), True) for fo in range(3)]
+    selected, cands = [0], [3, 5, 8, 1]
+    got = cv_candidates_binary(
+        cp, cp.asarray(V), selected, cands, specs, cp.asarray(y), dtype=cp.float32, newton_max_iter=200, tol=2e-4, lam=1.0, logloss_eps=1e-15, fallback_error=_ResidentClfFallbackError,
+    )
+    for ci, c in enumerate(cands):
+        cols = [*selected, c]
+        for fo in range(3):
+            tr, va = folds_host != fo, folds_host == fo
+            mu, sd = V[tr][:, cols].mean(0), V[tr][:, cols].std(0)
+            clf = LogisticRegression(C=1.0, tol=1e-10, max_iter=1000).fit((V[tr][:, cols] - mu) / sd, y[tr])
+            want = log_loss(y[va], clf.predict_proba((V[va][:, cols] - mu) / sd)[:, 1], labels=[0, 1])
+            assert abs(got[ci, fo] - want) < 2e-4
