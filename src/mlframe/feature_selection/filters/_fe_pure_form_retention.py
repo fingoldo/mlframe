@@ -47,6 +47,7 @@ def _gpu_usability_on() -> bool:
         from ._usability_gpu import fe_gpu_usability_enabled
         return fe_gpu_usability_enabled()
     except Exception as e:
+        # fallback: usability_gpu is an optional GPU module; when it cannot load the CPU sklearn path is used.
         logger.debug("_gpu_usability_on: usability_gpu check failed, staying on the CPU sklearn path: %s", e)
         return False
 
@@ -467,7 +468,7 @@ def retain_usable_pure_forms(
         _retain_usable_pure_cand_usable(usable, covered_pairs, existing_names, out, max_added)
         return out
     except Exception as e:
-        logger.debug("retain_usable_pure_forms: pure-form recovery pass failed, retaining nothing (default selection unaffected): %s", e)
+        logger.warning("retain_usable_pure_forms: pure-form recovery pass failed, retaining nothing (default selection unaffected): %s", e)
         return []
 
 
@@ -489,7 +490,7 @@ def _retain_usable_pure_f_step1_pair_recoverable_regression(X, _clf_classes, _y_
                 return False
             return bool(abs(float((u * v).sum()) / (du * dv)) >= _CLF_COVER_CORR)
         except Exception as e:
-            logger.debug("_clf_form_relevant: recipe replay/corr failed for %r, treating as not class-relevant (pair stays recoverable): %s", recipe, e)
+            logger.warning("_clf_form_relevant: recipe replay/corr failed for %r, treating as not class-relevant (pair stays recoverable): %s", recipe, e)
             return False
     return _clf_form_relevant
 
@@ -569,7 +570,7 @@ def _retain_usable_pure_f_step4_bench_benchmarks_fs(min_resid_frac, min_resid_co
             # (b) that joint structure must be RELEVANT to y (rejects a non-separable but useless form).
             return _abscorr(resid, _rel_y) >= min_resid_corr
         except Exception as e:
-            logger.debug("_adds_nonlinear_value: non-separability gate failed for (%r, %r), rejecting the candidate form: %s", nm_a, nm_b, e)
+            logger.warning("_adds_nonlinear_value: non-separability gate failed for (%r, %r), rejecting the candidate form: %s", nm_a, nm_b, e)
             return False
     return _adds_nonlinear_value
 
@@ -873,7 +874,7 @@ def retain_usable_raw_columns(
                 break
         return out
     except Exception as e:
-        logger.debug("retain_usable_raw_columns: raw-column linear-usability probe failed, retaining nothing (default selection unaffected): %s", e)
+        logger.warning("retain_usable_raw_columns: raw-column linear-usability probe failed, retaining nothing (default selection unaffected): %s", e)
         return []
 
 

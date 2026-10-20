@@ -173,7 +173,7 @@ def _restore_caller_frame_columns(X, original_cols):
     try:
         added = [c for c in X.columns if c not in original_cols]
     except Exception as exc:
-        logger.debug("_restore_caller_frame_columns: column diff failed, leaving frame untouched: %s", exc)
+        logger.warning("_restore_caller_frame_columns: column diff failed, leaving frame untouched: %s", exc)
         return
     if not added:
         return
@@ -220,7 +220,7 @@ def hygienic_fit(fit_method: Callable[..., Any]) -> Callable[..., Any]:
                 if isinstance(X, _pl.DataFrame):
                     original_cols = list(X.columns)
         except Exception as e:
-            logger.debug("capturing original polars column order failed: %s", e)
+            logger.warning("capturing original polars column order failed: %s", e)
             original_cols = None
         from mlframe.system.kernel_tuning_cache import kernel_tuning_fit_policy
 

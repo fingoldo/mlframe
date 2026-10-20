@@ -60,7 +60,7 @@ def _filter_feature_lists(train_df: Any, fit_params: dict[str, Any]) -> tuple[tu
     try:
         _df_cols = set(train_df.columns) if hasattr(train_df, "columns") else None
     except Exception as e:
-        logger.debug("reading train_df.columns failed: %s", e)
+        logger.warning("reading train_df.columns failed: %s", e)
         _df_cols = None
 
     def _filter_to_df(feats):

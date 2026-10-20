@@ -39,7 +39,7 @@ def _load_stdlib_signal():
     try:
         spec.loader.exec_module(mod)
     except Exception as exc:  # pragma: no cover - defensive
-        _logger.debug("_load_stdlib_signal: exec_module failed: %s", exc)
+        _logger.warning("_load_stdlib_signal: exec_module failed: %s", exc)
         return None
     finally:
         if _prev is None:

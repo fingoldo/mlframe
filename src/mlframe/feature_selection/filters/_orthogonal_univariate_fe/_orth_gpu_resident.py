@@ -36,7 +36,7 @@ def _raise_if_vram_insufficient(n_rows: int, k_cols: int) -> None:
 
         free, _total = cp.cuda.runtime.memGetInfo()
     except Exception as e:
-        logger.debug("_raise_if_vram_insufficient: VRAM query failed, assuming OK (the OOM try/except remains the backstop): %s", e)
+        logger.warning("_raise_if_vram_insufficient: VRAM query failed, assuming OK (the OOM try/except remains the backstop): %s", e)
         return
     try:
         from .._gpu_resident_fe import _gpu_k_chunk_vram_fraction

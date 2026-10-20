@@ -52,7 +52,7 @@ def downstream(Xtr, Xte, ytr, yte, cols):
             m.fit(Xtr[cols], ytr)
             out[name] = round(float(roc_auc_score(yte, m.predict_proba(Xte[cols])[:, 1])), 4)
         except Exception as e:
-            logger.debug("model %s fit/score failed: %s", name, e)
+            logger.warning("model %s fit/score failed: %s", name, e)
             out[name] = None
     return out
 

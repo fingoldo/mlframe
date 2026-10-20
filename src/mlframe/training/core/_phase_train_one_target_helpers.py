@@ -75,7 +75,7 @@ def _build_feature_selection_report(
         try:
             _all_in = getattr(selector, "feature_names_in_", None)
         except Exception as e:
-            logger.debug("reading selector.feature_names_in_ failed: %s", e)
+            logger.warning("reading selector.feature_names_in_ failed: %s", e)
             _all_in = None
     if _all_in is None:
         _all_in = fitted_columns_in
@@ -84,7 +84,7 @@ def _build_feature_selection_report(
             _kept_set = set(kept_columns)
             _report["dropped_features"] = [c for c in _all_in if c not in _kept_set]
         except Exception as e:
-            logger.debug("computing dropped_features failed: %s", e)
+            logger.warning("computing dropped_features failed: %s", e)
             _report["dropped_features"] = None
 
     _mrmr_selection_report(_kind, _report, _all_in, kept_columns, selector)
@@ -178,7 +178,7 @@ def _mrmr_selection_report(_kind, _report, _all_in, kept_columns, selector):
                 if hasattr(_means, "to_dict"):
                     _report["scores"] = {str(k): float(v) for k, v in _means.to_dict().items()}
         except Exception as e:
-            logger.debug("computing mean-history scores failed: %s", e)
+            logger.warning("computing mean-history scores failed: %s", e)
             _report["scores"] = None
         try:
             _accepted = set(getattr(selector, "accepted_", None) or [])
@@ -233,7 +233,7 @@ def _rfecv_importances_report(selector, _all_in, _report):
             if _scores:
                 _report["scores"] = _scores
     except Exception as e:
-        logger.debug("computing per-feature accumulated scores failed: %s", e)
+        logger.warning("computing per-feature accumulated scores failed: %s", e)
         _report["scores"] = None
 
 

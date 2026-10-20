@@ -284,7 +284,7 @@ def _maybe_refit_on_saturated_best_iter(
     try:
         _cur_params = model_obj.get_params() if hasattr(model_obj, "get_params") else {}
     except Exception as e:
-        logger.debug("get_params() failed during saturated-ES resolution: %s", e)
+        logger.warning("get_params() failed during saturated-ES resolution: %s", e)
         return None
 
     _max_iter = None

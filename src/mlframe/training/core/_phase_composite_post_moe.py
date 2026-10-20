@@ -46,7 +46,7 @@ def _extract_group_array(frame: Any, group_column: str) -> np.ndarray | None:
             col = frame[group_column]
             return np.asarray(col.to_numpy() if hasattr(col, "to_numpy") else col).reshape(-1)
     except Exception as exc:
-        logger.debug("_extract_group_array: column read failed for %r, group-aware path disabled: %s", group_column, exc)
+        logger.warning("_extract_group_array: column read failed for %r, group-aware path disabled: %s", group_column, exc)
         return None
     return None
 
@@ -103,7 +103,7 @@ def _resolve_lag_model(metadata: dict, tt_e: Any, orig_tname: str) -> _LagPredic
         if _lag_col:
             return _LagPredictDeployableModel(_lag_col)
     except Exception as exc:
-        logger.debug("_resolve_lag_model: dummy-baselines metadata walk failed, no lag model rebuilt: %s", exc)
+        logger.warning("_resolve_lag_model: dummy-baselines metadata walk failed, no lag model rebuilt: %s", exc)
         return None
     return None
 

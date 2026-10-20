@@ -54,7 +54,7 @@ def _device_codes_to_host(transformed_vals, nbins, dtype):
         codes = _gpu_resident_discretize_codes(dev.reshape(-1, 1) if dev.ndim == 1 else dev, int(nbins), out_dtype=code_dtype)
         return np.asarray(cp.asnumpy(codes.astype(cp.dtype(code_dtype), copy=False)))
     except Exception as e:
-        logger.debug("device binning of the survivor matrix failed, binning on the host: %s", e)
+        logger.warning("device binning of the survivor matrix failed, binning on the host: %s", e)
         return None
 
 
