@@ -128,7 +128,8 @@ def _gain(prep: dict, cand_sorted: np.ndarray) -> np.ndarray:
     u = np.add.reduceat(prep["base"] * cand_sorted[:, None], starts, axis=0)
     cc = np.add.reduceat(cand_sorted * cand_sorted, starts)
     cy = np.add.reduceat(cand_sorted[:, None] * prep["Y"], starts, axis=0)
-    return _gains_from_sums(prep, u[None], cc[None], cy[None])[0]
+    gains: np.ndarray = _gains_from_sums(prep, u[None], cc[None], cy[None])[0]
+    return gains
 
 
 def _cell_sums(prep: dict, cells_s: np.ndarray, n_cells: int) -> dict:
@@ -150,7 +151,8 @@ def _mean_gains_by_cell(prep: dict, sums: dict, cell_values: np.ndarray) -> np.n
     u = np.einsum("kcp,dc->dkp", sums["base"], cell_values)
     cc = (cell_values * cell_values) @ sums["count"].T
     cy = np.einsum("kcj,dc->dkj", sums["Y"], cell_values)
-    return _gains_from_sums(prep, u, cc, cy).mean(axis=1)
+    mean_gains: np.ndarray = _gains_from_sums(prep, u, cc, cy).mean(axis=1)
+    return mean_gains
 
 
 def _pair_state(X, srcs, y_cls, cell_ids, pair_key: str):

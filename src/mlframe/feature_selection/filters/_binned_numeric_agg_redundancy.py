@@ -75,7 +75,8 @@ def _labels_for_pair(cache: dict, key: tuple, y_cls, strata, n_perm: int, seed: 
     if cache.get("key") != key:
         cache["key"] = key
         cache["matrix"] = _strata_permuted_labels(y_cls, strata, n_perm, seed)
-    return cache["matrix"]
+    matrix: np.ndarray = cache["matrix"]
+    return matrix
 
 
 def _build_binned_agg_recipes(cands, raw, X, _src_bins, nbins_base, y_cls, min_cmi_gain, _rng, _n_perm, _NULL_Z, kept_cols, reject_sink, linear_usability=True):
