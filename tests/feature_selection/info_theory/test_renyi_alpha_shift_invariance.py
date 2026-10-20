@@ -37,3 +37,13 @@ def test_cmi_is_invariant_to_offsets_on_every_argument():
     x, y, z = _xy()
     base = renyi_alpha_cmi(x, y, z)
     assert renyi_alpha_cmi(x + 1e8, y - 3e7, z + 5e6) == pytest.approx(base, abs=1e-9)
+
+
+def test_dispatcher_mi_is_invariant_to_an_offset_on_x():
+    """The score_pair_mi renyi branch must not round the operands to float32 before the estimator centres them."""
+    from mlframe.feature_selection.filters._mi_dispatch import score_pair_mi
+
+    x, y, _ = _xy()
+    base = score_pair_mi(x, y, estimator="renyi_alpha")
+    assert base > 0.05, "fixture precondition: the pair must carry measurable MI"
+    assert score_pair_mi(x + 1e8, y, estimator="renyi_alpha") == pytest.approx(base, abs=1e-9)
