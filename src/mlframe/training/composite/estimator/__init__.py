@@ -16,7 +16,6 @@ from typing import (
 )
 
 import numpy as np
-import pandas as pd
 
 from .._composite_utils import is_polars_df as _is_polars_df
 
