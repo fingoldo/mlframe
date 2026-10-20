@@ -30,7 +30,6 @@ def cv_candidates_binary(
     s = len(selected)
     k = s + 1
     cand_arr = cp.asarray(np.asarray(cand_idx, dtype=np.int64))
-    sel_cols = Vdev[:, selected] if s else None
     cand_cols = Vdev[:, cand_arr]
     for fo, (tr, va, trainable) in enumerate(folds):
         if not trainable:
@@ -43,7 +42,7 @@ def cv_candidates_binary(
         ctr = cand_cols[tr]
         cva = cand_cols[va]
         if s:
-            str_, sva = sel_cols[tr], sel_cols[va]
+            str_, sva = Vdev[tr][:, selected], Vdev[va][:, selected]
             smu, ssd = str_.mean(axis=0), str_.std(axis=0)
             ssd = cp.where(ssd < 1e-12, 1.0, ssd)
             str_ = (str_ - smu) / ssd
