@@ -30,8 +30,14 @@ def _old_zscore(xi, codes_j, bin_mean, bin_std):
 
 @pytest.mark.parametrize("n", [37, 1000, 50_000])
 @pytest.mark.parametrize("nb", [1, 3, 10])
-def test_zscore_njit_bit_identical_to_numpy(n, nb):
-    """Zscore njit bit identical to numpy."""
+def test_zscore_njit_bit_identical_to_numpy(n, nb, monkeypatch):
+    """Zscore njit bit identical to numpy.
+
+    Pinned under strict float64 (MLFRAME_CRIT_DTYPE_RELAXED=0): with the default float32 operands numba's mixed
+    float32/float64 promotion rounds differently from numpy's operation order, and the default-precision error is
+    pinned by ``test_zscore_f32_operands_within_rounding_of_float64_body`` instead.
+    """
+    monkeypatch.setenv("MLFRAME_CRIT_DTYPE_RELAXED", "0")
     rng = np.random.default_rng(n * 100 + nb)
     xi = rng.standard_normal(n)
     # inject NaNs (the masked-to-0 path)
@@ -47,8 +53,9 @@ def test_zscore_njit_bit_identical_to_numpy(n, nb):
     np.testing.assert_array_equal(new, old)  # EXACT bit-identity
 
 
-def test_zscore_out_of_range_codes_clipped():
+def test_zscore_out_of_range_codes_clipped(monkeypatch):
     """A code >= nb (defensive at replay) clips to the last bin, == numpy clip."""
+    monkeypatch.setenv("MLFRAME_CRIT_DTYPE_RELAXED", "0")
     nb = 4
     xi = np.array([1.0, 2.0, 3.0, np.nan], dtype=np.float64)
     codes = np.array([0, nb + 5, -3, 1], dtype=np.int64)
@@ -61,7 +68,8 @@ def test_zscore_out_of_range_codes_clipped():
 
 def test_generate_full_output_bit_identical(monkeypatch):
     """End-to-end: full generate_conditional_dispersion_features output is
-    unchanged vs the numpy baseline."""
+    unchanged vs the numpy baseline (strict float64, see the operand test above)."""
+    monkeypatch.setenv("MLFRAME_CRIT_DTYPE_RELAXED", "0")
     rng = np.random.default_rng(7)
     n = 4000
     base = rng.standard_normal(n)
@@ -71,3 +79,28 @@ def test_generate_full_output_bit_identical(monkeypatch):
     enc_old, _ = M.generate_conditional_dispersion_features(X, list(X.columns), n_bins=10)
     assert list(enc_new.columns) == list(enc_old.columns)
     np.testing.assert_array_equal(enc_new.to_numpy(), enc_old.to_numpy())
+
+
+@pytest.mark.parametrize("n", [37, 1000, 50_000])
+@pytest.mark.parametrize("nb", [1, 3, 10])
+def test_zscore_f32_operands_within_rounding_of_float64_body(n, nb, monkeypatch):
+    """The default float32 operands stay within input rounding of the float64 numpy body.
+
+    Measured max abs error over this grid is 1.8e-6 at value scale ~31 (about 6e-8 relative to the largest |z|),
+    i.e. the float32 cast of the inputs and of the bin statistics. The bound is 1e-6 of the value scale, the project
+    float32-vs-float64 rule applied to the largest output.
+    """
+    monkeypatch.delenv("MLFRAME_CRIT_DTYPE_RELAXED", raising=False)
+    rng = np.random.default_rng(n * 100 + nb)
+    xi = rng.standard_normal(n)
+    xi[rng.random(n) < 0.07] = np.nan
+    codes = rng.integers(0, nb, size=n).astype(np.int64)
+    bin_mean = rng.standard_normal(nb)
+    bin_std = np.abs(rng.standard_normal(nb)) + 0.1
+    if nb >= 2:
+        bin_std[nb // 2] = 0.0
+    ref = _old_zscore(xi.astype(np.float64), codes, bin_mean.astype(np.float64), bin_std.astype(np.float64))
+    got = M._zscore_from_bins(xi, codes, bin_mean, bin_std)
+    finite = np.isfinite(ref)
+    scale = max(1.0, float(np.abs(ref[finite]).max()))
+    assert float(np.abs(got - ref)[finite].max()) <= 1e-6 * scale
