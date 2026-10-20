@@ -43,7 +43,6 @@ from ._binned_agg_cheap_mi import (  # noqa: F401  -- carved sibling, re-exporte
     quantile_edges,
 )
 from ._binned_numeric_agg_cands import HostCandidates, device_born_candidates
-from ._fe_usability_signal import _crit_np_dtype  # the shared precision-critical dtype policy (float32 by default)
 
 logger = logging.getLogger(__name__)
 

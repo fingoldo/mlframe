@@ -11,10 +11,9 @@ raw through ``selected_vars`` / ``support_``. Regression targets only (the conti
 from __future__ import annotations
 
 import dataclasses
-from typing import Any
-
 import logging
 import re
+from typing import Any
 
 import numpy as np
 

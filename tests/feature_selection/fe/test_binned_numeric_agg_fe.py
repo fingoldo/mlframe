@@ -289,12 +289,13 @@ def test_fit_binned_numeric_agg_matches_pre_fusion_reference():
 
     assert set(ref.columns) == set(feat_df.columns)
     assert feat_df.columns.size, "the all-finite fixture must emit columns, or the comparison below is vacuous"
-    # Stored columns take the precision-policy dtype (float32 by default). The reference is float64 with the same
-    # per-cell values, so casting it to that dtype must reproduce the stored column exactly, not merely closely.
+    # Stored columns take the precision-policy dtype (float32 by default) and so do the group and agg inputs, while the reference is float64 on the unrounded
+    # inputs: the two differ by the rounding of the inputs and of the output, so the bound is two machine epsilons of the stored dtype relative to max(|reference|, 1).
     for c in ref.columns:
         assert feat_df[c].dtype == _crit_np_dtype(), f"{c}: stored as {feat_df[c].dtype}, policy wants {_crit_np_dtype()}"
-        expected = ref[c].to_numpy().astype(feat_df[c].dtype)
-        assert np.array_equal(expected, feat_df[c].to_numpy()), f"{c}: differs from the pre-fusion reference after the policy cast"
+        reference = ref[c].to_numpy()
+        worst = float(np.max(np.abs(reference - feat_df[c].to_numpy().astype(np.float64)) / np.maximum(np.abs(reference), 1.0)))
+        assert worst <= 2 * np.finfo(feat_df[c].dtype).eps, f"{c}: diverges {worst:.3e} from the pre-fusion reference, more than two epsilons of {feat_df[c].dtype}"
 
     # A NaN-bearing group column: production skips it entirely, and the reference must agree. This is the
     # case the guards exist for and the one the all-finite fixture could never reach.
