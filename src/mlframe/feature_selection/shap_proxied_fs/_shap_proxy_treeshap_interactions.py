@@ -41,7 +41,6 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import numpy as np
-from mlframe.feature_selection.filters.shared import crit_np_dtype as _crit_np_dtype
 if TYPE_CHECKING:
     from mlframe.feature_selection.shap_proxied_fs._shap_proxy_treeshap import TreeEnsemble
 from numba import njit, prange
@@ -311,8 +310,8 @@ def interaction_tensor_numba(ensemble: TreeEnsemble, X: np.ndarray) -> tuple[np.
     Xf = np.ascontiguousarray(np.asarray(X, dtype=np.float32))
     n = Xf.shape[0]
     P = ensemble.n_features
-    Phi = np.zeros((n, P, P), dtype=_crit_np_dtype())
-    phi_main = np.zeros((n, P), dtype=_crit_np_dtype())
+    Phi = np.zeros((n, P, P), dtype=np.float64)
+    phi_main = np.zeros((n, P), dtype=np.float64)
 
     tree_feat_ptr, tree_feat_idx = _per_tree_split_features(ensemble)
 
