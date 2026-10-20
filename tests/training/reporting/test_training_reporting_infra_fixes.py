@@ -157,19 +157,19 @@ def test_f4_plotly_line_showlegend_is_per_series():
 
 
 def test_f5_reporting_field_default_narrowed_exception_handling():
-    """KeyError/ImportError are caught + logged + memoized to None; any OTHER exception (e.g. a real
-    pydantic API-shape bug) propagates instead of being silently and permanently swallowed."""
+    """KeyError/ImportError are caught and logged and return None without being cached, so the next call retries;
+    any OTHER exception (e.g. a real pydantic API-shape bug) propagates instead of being silently swallowed."""
     import mlframe.training.reporting._reporting as rep
     import mlframe.training._reporting_configs as configs_mod
 
     rep._reporting_field_default.__dict__.clear()
     try:
-        # A nonexistent field -> KeyError -> caught, memoized to None.
+        # A nonexistent field -> KeyError -> caught, returns None, and nothing is cached (a later call retries).
         result = rep._reporting_field_default("this_field_does_not_exist")
         assert result is None
-        assert rep._reporting_field_default.__dict__["this_field_does_not_exist"] is None
+        assert "this_field_does_not_exist" not in rep._reporting_field_default.__dict__
 
-        # A genuine unrelated bug (AttributeError) must propagate, not be swallowed into a cached None.
+        # A genuine unrelated bug (AttributeError) must propagate, not be swallowed into a None result.
         rep._reporting_field_default.__dict__.clear()
         orig_model_fields = configs_mod.ReportingConfig.model_fields
 
@@ -329,3 +329,30 @@ def test_pr4_per_series_flags_is_a_single_shared_implementation():
     assert shared_fn(None, 3) == [False, False, False]
     assert shared_fn(True, 3) == [True, True, True]
     assert shared_fn((True, False), 3) == [True, False, False]
+
+
+def test_reporting_field_default_does_not_cache_transient_import_failure(monkeypatch):
+    """A failed config import (import-cycle avoidance) must not pin None for the rest of the process.
+
+    The first call runs while ReportingConfig is unavailable, so it returns None. Once the config is importable
+    again the real default must come back. Caching the None would silently disable panel_emphasis="data_aware"'s
+    default detection for the whole process.
+    """
+    import mlframe.training.configs as cfg
+    import mlframe.training.reporting._reporting as rep
+
+    rep._reporting_field_default.__dict__.clear()
+    try:
+        with monkeypatch.context() as m:
+            m.delattr(cfg, "ReportingConfig")
+            assert rep._reporting_field_default("panel_emphasis") is None
+        assert "panel_emphasis" not in rep._reporting_field_default.__dict__
+        assert rep._reporting_field_default("panel_emphasis") == cfg.ReportingConfig.model_fields["panel_emphasis"].default
+    finally:
+        rep._reporting_field_default.__dict__.clear()
+
+
+# ---------------------------------------------------------------------------
+# F6 (P2): kaleido module-global state (server-started / burned / fail-count / oneshot counters)
+# had no lock guarding check-then-act transitions across concurrent render_and_save threads
+# ---------------------------------------------------------------------------
