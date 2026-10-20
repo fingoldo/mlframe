@@ -21,9 +21,15 @@ The gate scores `CMI(col; y | qbin(g), qbin(a))`. The column is a function of th
 
 ## The fix
 
-For a column the CMI gate rejects, fit class indicators of `y` linearly on the raw sources with and without the column, out of fold, and keep the column when the gain clears a shuffled-candidate null (`mean + z * std`, `z` the family-wise z the CMI gate uses). No fixed acceptance threshold. Rows are subsampled to 100000.
+For a column the CMI gate rejects, fit class indicators of `y` linearly on the raw sources with and without the column, out of fold, and keep the column when the gain clears a null (`mean + z * std`, `z` the family-wise z the CMI gate uses). No fixed acceptance threshold. Rows are subsampled to 100000.
+
+The null is the candidate with its per-cell values permuted among the cells of the group, not the candidate shuffled across rows. A first version shuffled across rows and kept 130 aggregates of pure-noise columns on a 30-column frame with an informative group (a random value per cell correlates with a target that varies by cell). With the cell-permuted null the same frame keeps one column, `binagg_std(aux|qbin(g))`, and no noise aggregate. A candidate that does not beat the largest of the first 4 null gains is dropped without running the other 28.
+
+## Cost
+
+200000 rows, 30 numeric columns, informative group, 4 alternating runs: 5.3 to 5.9 s without the check, 13.7 to 13.8 s with it. The base model's per-fold statistics are computed once per call, so each null draw costs only cross sums.
 
 ## Not verified
 
-- Cost at large n on a wide frame: the check runs only for columns the CMI gate rejected, but no timing at 1M rows with 256 candidates has been taken.
+- Cost at 1M rows: only 200000 was timed.
 - The probe covers one scenario family. A layout where a column survives the CMI gate on its own was not found, so the cap's effect on a gated column is unmeasured.

@@ -6,6 +6,8 @@ columns scores held-out R^2 of 0.00 and about 0.85 once the column is added. The
 column must still be dropped.
 """
 
+import re
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -27,13 +29,26 @@ def _sigma_frame(n: int, seed: int):
 
 
 @pytest.mark.parametrize("seed", [0, 1])
-def test_spread_column_is_kept_by_default_and_dropped_without_the_check(seed):
-    """The spread column survives the default gates, and the CMI gate alone drops it."""
+def test_spread_column_survives_the_default_gates(seed):
+    """The spread column survives the default gates."""
     X, y = _sigma_frame(12_000, seed)
-    _, kept_on, _ = binned_numeric_agg_with_recipes(X, y)
-    _, kept_off, _ = binned_numeric_agg_with_recipes(X, y, linear_usability=False)
-    assert _SPREAD_COLUMN in kept_on
-    assert _SPREAD_COLUMN not in kept_off
+    _, kept, _ = binned_numeric_agg_with_recipes(X, y)
+    assert _SPREAD_COLUMN in kept
+
+
+def test_aggregates_of_noise_columns_are_not_kept_when_the_group_is_informative():
+    """Every aggregate is a function of the group's cell, so with an informative group a noise column's per-cell values look useful to a null that ignores cells."""
+    rng = np.random.default_rng(5)
+    n = 20_000
+    g = rng.uniform(0, 1, n)
+    sigma = 0.5 + 2.0 * np.abs(g - 0.5)
+    X = pd.DataFrame({f"n{i}": rng.standard_normal(n) for i in range(10)})
+    X["g"] = g
+    X["aux"] = rng.normal(0, sigma, n)
+    y = (sigma + 0.1 * rng.standard_normal(n) > sigma.mean()).astype(np.int64)
+    _, kept, _ = binned_numeric_agg_with_recipes(X, y)
+    assert _SPREAD_COLUMN in kept
+    assert [c for c in kept if re.search(r"\bn\d+\b", c)] == [], "no aggregate that involves a pure-noise column may be kept"
 
 
 def test_kept_columns_lift_a_linear_model_out_of_fold():

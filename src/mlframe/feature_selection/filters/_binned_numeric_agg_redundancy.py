@@ -92,11 +92,14 @@ def _build_binned_agg_recipes(cands, raw, X, _src_bins, nbins_base, y_cls, min_c
             # Robust one-sided null upper tail (mean + z*std), not the noisy raw max.
             null_ceiling = float(_null.mean() + _NULL_Z * _null.std())
         keep = np.isfinite(cmi) and cmi >= float(min_cmi_gain) and cmi > null_ceiling
-        if not keep and linear_usability and srcs:
+        group_col = raw[nm].get("group_col")
+        if not keep and linear_usability and srcs and group_col in X.columns:
             # The column is a function of its group's cell, which is the partition the CMI above conditions on, so it reads as redundant to
             # any model that can use the raw group. A linear model cannot: keep the column when it lifts an out-of-fold linear fit over
             # the raw sources by more than its shuffled-candidate null. The seed comes from the name so `_rng` is not consumed here.
-            keep = linear_usability_keeps(X[srcs].to_numpy(dtype=np.float64), cand_bin, y_cls, _NULL_Z, zlib.crc32(str(nm).encode("utf-8")))
+            keep = linear_usability_keeps(
+                X[srcs].to_numpy(dtype=np.float64), cand_bin, y_cls, _src_bins(group_col), _NULL_Z, zlib.crc32(str(nm).encode("utf-8"))
+            )
         if keep:
             kept_cols.append(nm)
         elif reject_sink is not None:
