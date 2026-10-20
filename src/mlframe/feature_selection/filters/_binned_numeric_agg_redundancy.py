@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import math
 
 from mlframe.utils.log_throttle import log_throttle
 import numpy as np
@@ -29,11 +30,60 @@ def _candidate_codes(col: np.ndarray, nbins: int, quantile_bin):
     return quantile_bin(col, nbins=nbins)
 
 
+def _null_tail(null: np.ndarray, z: float) -> float:
+    """Upper tail point of a positive, right-skewed null at the one-sided level of the normal z: the quantile of a Gamma fitted to the null by moments, never below the null mean.
+
+    ``null`` is the vector of permutation-null CMI values; ``z`` the family-wise z. With a degenerate null (zero mean or variance) the normal bound ``mean + z * std`` is returned.
+    """
+    mean, var = float(null.mean()), float(null.var())
+    normal_bound = mean + float(z) * math.sqrt(var)
+    if not (mean > 0.0 and var > 0.0):
+        return normal_bound
+    from scipy.stats import gamma, norm
+
+    shape, scale = mean * mean / var, var / mean
+    return max(float(gamma.isf(float(norm.sf(float(z))), a=shape, scale=scale)), mean)
+
+
+def _strata_permuted_labels(y_cls, strata, n_perm: int, seed: int) -> np.ndarray:
+    """An (n, n_perm) matrix whose columns are ``y_cls`` permuted WITHIN the strata of ``strata`` (all rows in one stratum when it is None).
+
+    The null of a conditional MI, ``CMI(cand; y | z)``, must keep the dependence of ``y`` on ``z``: shuffling ``y`` over all rows removes it, the
+    plug-in estimate under that null sits far lower than the estimate for a candidate that is merely a function of ``z``'s partition (the null
+    mean was 0.0008 against 0.0032 within strata on a noise aggregate of an informative group), and every such candidate then looks significant.
+    A random permutation followed by a stable sort on the stratum code gives, per stratum, its rows in random order; assigning the labels of those
+    rows to the strata's rows in natural order is a uniform permutation within each stratum, in linear time for small integer codes.
+    """
+    y = np.asarray(y_cls)
+    n = y.shape[0]
+    if strata is None:
+        code = np.zeros(n, dtype=np.uint8)
+    else:
+        code = np.asarray(strata.get() if hasattr(strata, "get") else strata)
+        code = code.astype(np.uint16 if code.size and int(code.max()) < 65535 else np.int64, copy=False)
+    rng = np.random.default_rng(int(seed))
+    natural = np.argsort(code, kind="stable")
+    out = np.empty((n, int(n_perm)), dtype=y.dtype)
+    for i in range(int(n_perm)):
+        shuffled = rng.permutation(n)
+        out[natural, i] = y[shuffled[np.argsort(code[shuffled], kind="stable")]]
+    return out
+
+
+def _labels_for_pair(cache: dict, key: tuple, y_cls, strata, n_perm: int, seed: int) -> np.ndarray:
+    """The within-strata permuted labels of one (group, agg) pair, built from the seed of its first candidate and reused by the pair's other statistics (``cache`` holds the last pair only)."""
+    if cache.get("key") != key:
+        cache["key"] = key
+        cache["matrix"] = _strata_permuted_labels(y_cls, strata, n_perm, seed)
+    return cache["matrix"]
+
+
 def _build_binned_agg_recipes(cands, raw, X, _src_bins, nbins_base, y_cls, min_cmi_gain, _rng, _n_perm, _NULL_Z, kept_cols, reject_sink, linear_usability=True):
     """Build the replayable recipe of every binned-aggregate column; with ``linear_usability`` a column the CMI gate rejects is still kept when it lifts a linear fit."""
     from mlframe.feature_selection.filters._mi_greedy_cmi_fe import _cmi_from_binned, _cmi_gpu_enabled, _renumber_joint
 
     rejected: dict = {}
+    labels_cache: dict = {}
     for nm in cands.names:
         srcs = [c for c in (raw[nm].get("group_col"), raw[nm].get("agg_col")) if c in X.columns]
         z_joint = _renumber_joint(*[_src_bins(c) for c in srcs])[0] if srcs else None
@@ -60,16 +110,13 @@ def _build_binned_agg_recipes(cands, raw, X, _src_bins, nbins_base, y_cls, min_c
             # `_rng` equally advanced whichever path runs, so everything downstream is unaffected too, and it
             # costs no extra memory (the fallback still permutes one column at a time).
             _perm_seed = int(_rng.integers(0, 2**63 - 1))
+            _pair_key = (raw[nm].get("group_col"), raw[nm].get("agg_col"))
             _null = None
             try:
                 if _cmi_gpu_enabled(n=int(y_cls.shape[0]), p=int(_n_perm), min_p=2) and int(_n_perm) > 1:
                     from mlframe.feature_selection.filters._fe_batched_mi import batched_cmi_gpu
 
-                    _prng = np.random.default_rng(_perm_seed)
-                    _Yp = np.empty((y_cls.shape[0], int(_n_perm)), dtype=np.int64)
-                    for _i in range(int(_n_perm)):
-                        _Yp[:, _i] = y_cls[_prng.permutation(y_cls.shape[0])]
-                    _null = np.asarray(batched_cmi_gpu(_Yp, cand_bin, z_joint), dtype=np.float64)  # Intentional float64: permutation-null MI statistic
+                    _null = np.asarray(batched_cmi_gpu(_labels_for_pair(labels_cache, _pair_key, y_cls, z_joint, int(_n_perm), _perm_seed), cand_bin, z_joint), dtype=np.float64)  # Intentional float64: permutation-null MI statistic
                     _null = np.where(np.isfinite(_null), _null, 0.0)
             except Exception as e:
                 log_throttle(
@@ -83,14 +130,15 @@ def _build_binned_agg_recipes(cands, raw, X, _src_bins, nbins_base, y_cls, min_c
                 )
                 _null = None
             if _null is None:
-                _prng = np.random.default_rng(_perm_seed)
                 _null = np.empty(_n_perm, dtype=np.float64)  # Intentional float64: permutation-null MI statistic
+                _labels = _labels_for_pair(labels_cache, _pair_key, y_cls, z_joint, int(_n_perm), _perm_seed)
                 for _i in range(_n_perm):
-                    yp = y_cls[_prng.permutation(y_cls.shape[0])]
-                    c0 = _cmi_from_binned(cand_bin, yp, z_joint)
+                    c0 = _cmi_from_binned(cand_bin, _labels[:, _i], z_joint)
                     _null[_i] = c0 if np.isfinite(c0) else 0.0
-            # Robust one-sided null upper tail (mean + z*std), not the noisy raw max.
-            null_ceiling = float(_null.mean() + _NULL_Z * _null.std())
+            # One-sided upper tail of the null at the family-wise level. The plug-in CMI under the null is positive and skewed to the right (close to a
+            # scaled chi-square), so a normal bound ``mean + z * std`` sits below its true tail: a Gamma fitted to the null's mean and variance is used,
+            # and the normal bound stays as the floor when the null is degenerate.
+            null_ceiling = _null_tail(_null, _NULL_Z)
         if np.isfinite(cmi) and cmi >= float(min_cmi_gain) and cmi > null_ceiling:
             kept_cols.append(nm)
         else:

@@ -121,3 +121,27 @@ def test_power_and_calibration_over_a_seed_panel():
     assert power_lower >= _POWER_FLOOR, f"spread column found in {found} of {len(_PANEL_SEEDS)} runs, 90 percent lower bound {power_lower:.2f} < {_POWER_FLOOR}"
     noise_lower = _clopper_pearson_lower(len(noisy_runs), len(_PANEL_SEEDS))
     assert noise_lower <= _NOMINAL_FAMILY_WISE, f"noise aggregates added in {len(noisy_runs)} of {len(_PANEL_SEEDS)} runs, 90 percent lower bound {noise_lower:.2f} above {_NOMINAL_FAMILY_WISE}: {noisy_runs}"
+
+
+def test_the_cmi_gate_alone_does_not_keep_noise_aggregates_of_an_informative_group_above_the_nominal_rate():
+    """Without the linear check, the share of runs that keep an aggregate of a pure-noise column is not shown to exceed the nominal family-wise level.
+
+    The permutation null of the conditional MI must shuffle the target within the strata of the conditioning bins: shuffled over all rows it
+    loses the target's dependence on the group, its mean sits about four times lower than for a candidate that is a function of the group's
+    partition, and 7 of 30 runs kept a noise aggregate.
+    """
+    noisy_runs = 0
+    seeds = range(30)
+    for seed in seeds:
+        rng = np.random.default_rng(100 + seed)
+        n = 12_000
+        g = rng.uniform(0, 1, n)
+        sigma = 0.5 + 2.0 * np.abs(g - 0.5)
+        X = pd.DataFrame({f"n{i}": rng.standard_normal(n) for i in range(6)})
+        X["g"] = g
+        X["aux"] = rng.normal(0, sigma, n)
+        y = (sigma + 0.1 * rng.standard_normal(n) > sigma.mean()).astype(np.int64)
+        _, kept, _ = binned_numeric_agg_with_recipes(X, y, linear_usability=False)
+        noisy_runs += int(any(re.search(r"\bn\d+\b", c) for c in kept))
+    lower = _clopper_pearson_lower(noisy_runs, len(seeds))
+    assert lower <= _NOMINAL_FAMILY_WISE, f"noise aggregates kept in {noisy_runs} of {len(seeds)} runs, 90 percent lower bound {lower:.2f} above {_NOMINAL_FAMILY_WISE}"

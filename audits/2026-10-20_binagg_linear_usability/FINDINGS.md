@@ -13,6 +13,7 @@ Probe: `src/mlframe/feature_selection/_benchmarks/bench_binagg_cap_gate_probe.py
 | 1 | The cap removes the `(aux \| g)` pair when 11 decoy groups outrank `g` | 11 decoys: 0 columns at cap 64 before any gate, 4 at cap 400 | Not changed. No layout tried kept a column that survives the gates, so the cap cost nothing measurable. A layout where a gated column exists without the cap is still to be found |
 | 2 | The CMI redundancy gate rejected `binagg_std(aux\|qbin(g))` in every scenario tried, with or without the cap | Default gates keep 0 columns for regression and classification variants of the spread target, periods 1, 2, 3 and 5 of `sigma(g)`, and all decoy counts | Fixed: see 3 |
 | 3 | A rejected column is useful to a linear model | Ridge held-out R^2 on the raw columns 0.000, with the column 0.857 / 0.852 / 0.858 (seeds 0, 1, 2); boosted trees 0.893 / 0.889 / 0.893 raw, 0.891 / 0.888 / 0.892 with it | Fixed: `linear_usability` (default on) in `binned_numeric_agg_with_recipes`, module `_binned_agg_linear_usability.py` |
+| 5 | The CMI gate kept aggregates of noise columns of an informative group in 7 of 30 runs | permutation null shuffled `y` over all rows | Fixed: within-strata permutation and a Gamma tail |
 | 4 | Pure noise and a linear target that the raw columns explain keep nothing under the fix | `tests/feature_selection/fe/test_binagg_linear_usability.py` (noise: 3 seeds, 10 columns; linear target) | Pinned by tests |
 
 ## Why the CMI gate rejects the column
@@ -35,9 +36,14 @@ Measured, 30000 rows, informative group, 10 noise columns, 20 seeds: the real sp
 
 200000 rows, 30 numeric columns, informative group, minimum of three runs each: 5.8 s without the check and 9.5 s with it. The first version cost 24 s more; per-pair state (subsample, folds, base design, per-(fold, cell) sums, base inverse) is built once per pair, and the training normal equations are solved through the Schur complement of the base block, so a permutation needs a few small `einsum` products and no linear solve (the 4x4 solves had been 8 of the 12 s). The result is the same: 17 of 20 seeds, no noise column. The Schur form matches a direct solve to 2e-10.
 
-## Found on the way
+## The CMI gate itself kept noise aggregates (found on the way, fixed)
 
-The CMI gate alone keeps `binagg_mean(n5|qbin(g))` and `binagg_skew(n5|qbin(g))`, aggregates of a pure-noise column, at seed 5 of the 12000-row panel (6 noise columns). That is outside this change and unfixed; the panel test counts only columns the new check adds.
+Without the linear check, the CMI redundancy gate kept an aggregate of a pure-noise column in 7 of 30 runs (12000 rows, informative group, 6 noise columns; 9 columns, all aggregates over the cells of the group). The permutation null of `CMI(cand; y | joint(group bins, agg bins))` shuffled `y` over all rows, which removes `y`'s dependence on the conditioning bins; the plug-in estimate under that null had mean 0.0008, against 0.0032 when `y` is shuffled within the strata of the conditioning bins (one noise aggregate: observed 0.00517, ceiling 0.00439 under the old null and 0.00576 under the correct one). Two changes:
+
+- `y` is permuted within the strata of the conditioning bins (`_strata_permuted_labels`: a random permutation followed by a stable sort on the stratum code, linear time), once per (group, agg) pair and shared by its four statistics.
+- The tail is a Gamma fitted to the null by moments (`_null_tail`), at the same family-wise one-sided level, because the null is positive and right-skewed and `mean + z * std` sits below its tail. After the first change alone 4 of 30 runs still kept a noise aggregate; after both, 0 of 30.
+
+Pinned by `test_the_cmi_gate_alone_does_not_keep_noise_aggregates_of_an_informative_group_above_the_nominal_rate`. With the previous behaviour that test would fail (7 of 30, 90 percent lower bound 0.11 against 0.05).
 
 ## Not verified
 
