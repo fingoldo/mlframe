@@ -111,6 +111,7 @@ def resolve_mlp_dataloader_defaults(
             import torch
             cuda_ok = bool(torch.cuda.is_available())
         except Exception as e:
+            # fallback: a host without CUDA is the expected CPU-only case; CUDA is treated as unavailable.
             logger.debug("torch.cuda.is_available() probe failed, assuming CUDA unavailable: %s", e)
             cuda_ok = False
     else:
@@ -260,6 +261,7 @@ def resolve_mlp_precision_default(
             import torch
             cuda_ok = bool(torch.cuda.is_available())
         except Exception as e:
+            # fallback: a host without CUDA is the expected CPU-only case; CUDA is treated as unavailable.
             logger.debug("torch.cuda.is_available() probe failed, assuming CUDA unavailable: %s", e)
             cuda_ok = False
     else:
@@ -366,6 +368,7 @@ def _probe_available_memory_bytes(
             import torch
             cuda_ok = bool(torch.cuda.is_available())
         except Exception as e:
+            # fallback: a host without CUDA is the expected CPU-only case; CUDA is treated as unavailable.
             logger.debug("torch.cuda.is_available() probe failed, assuming CUDA unavailable: %s", e)
             cuda_ok = False
     else:

@@ -57,6 +57,7 @@ def cuda_available_for_run() -> bool:
 
             return bool(getattr(_c, "is_available", lambda: False)())
         except Exception as e2:
+            # fallback: numba.cuda raising on a host without CUDA is expected; the GPU is treated as unavailable.
             logger.debug("numba.cuda.is_available() probe failed, assuming CUDA unavailable: %s", e2)
             return False
 

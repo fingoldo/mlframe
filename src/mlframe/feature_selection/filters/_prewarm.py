@@ -540,6 +540,7 @@ def prewarm_fs_cupy_kernels(verbose: bool = False) -> None:
             logger.info("prewarm_fs_cupy_kernels: cupy/pyutilz not importable; skipping")
         return
     except Exception as e:
+        # fallback: cupy/CUDA missing is the normal CPU-only case; prewarm is an optimisation, so skipping it only defers kernel loading.
         logger.debug("prewarm_fs_cupy_kernels: cupy/CUDA availability probe failed, skipping prewarm: %s", e)
         return
 

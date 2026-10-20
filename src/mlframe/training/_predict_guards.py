@@ -128,6 +128,7 @@ def _cb_val_pool_cache_lookup(X: Any, method: str) -> Any | None:
         else:
             _dtypes_sig = None
     except Exception as e:
+        # best-effort: the dtype signature only narrows the cache match; without it the lookup skips the dtype check.
         logger.debug("computing X dtypes signature failed: %s", e)
         _dtypes_sig = None
 
@@ -140,6 +141,7 @@ def _cb_val_pool_cache_lookup(X: Any, method: str) -> Any | None:
 
         _sig = compute_signature(X)[:4]
     except Exception as e:
+        # best-effort: a failed signature only costs a cache miss, so the Pool is rebuilt and the predict stays correct.
         logger.debug("val-pool cache lookup: signature failed, skipping cache reuse: %s", e)
         return None
     # A snapshot: CatBoost fits on other threads insert and evict while this scans.

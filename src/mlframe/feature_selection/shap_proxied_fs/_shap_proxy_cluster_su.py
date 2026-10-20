@@ -125,6 +125,7 @@ def _gpu_free_memory_bytes() -> int:
         free, _total = cp.cuda.runtime.memGetInfo()
         return int(free)
     except Exception as exc:
+        # fallback: cupy missing or no device is the expected CPU-only case; 0 free bytes routes the SU work to CPU.
         logger.debug("cupy free-memory probe failed, treating as 0 free bytes: %s", exc)
         return 0
 
