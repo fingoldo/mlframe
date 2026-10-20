@@ -133,7 +133,7 @@ def _holdout_auc(X_tr, y_tr, X_ho, y_ho, sel_idx):
         m.fit(Xtr, y_tr)
         out["lgbm"] = float(roc_auc_score(y_ho, m.predict_proba(Xho)[:, 1]))
     except Exception as e:
-        logger.debug("lgbm fit/score failed: %s", e)
+        logger.warning("lgbm fit/score failed: %s", e)
         out["lgbm"] = None
     try:
         from sklearn.linear_model import LogisticRegression
@@ -143,7 +143,7 @@ def _holdout_auc(X_tr, y_tr, X_ho, y_ho, sel_idx):
         m.fit(Xs.transform(Xtr), y_tr)
         out["logit"] = float(roc_auc_score(y_ho, m.predict_proba(Xs.transform(Xho))[:, 1]))
     except Exception as e:
-        logger.debug("logit fit/score failed: %s", e)
+        logger.warning("logit fit/score failed: %s", e)
         out["logit"] = None
     return out
 

@@ -110,7 +110,7 @@ def compute_val_veto(
     try:
         yv = np.asarray(oof_y_full)[filtered_val_idx].astype(np.float64)
     except Exception as exc:
-        logger.debug("compute_val_veto: val target extraction failed, veto disabled: %s", exc)
+        logger.warning("compute_val_veto: val target extraction failed, veto disabled: %s", exc)
         return None
     cache: dict[int, float] = {}
 
@@ -131,5 +131,5 @@ def compute_val_veto(
     try:
         return decide_ar1_failsafe_val_veto(oof_names, oof_rmses, lag_failsafe_tol, _val_rmse_of)
     except Exception as exc:
-        logger.debug("compute_val_veto: veto decision failed, OOF-only failsafe runs unchanged: %s", exc)
+        logger.warning("compute_val_veto: veto decision failed, OOF-only failsafe runs unchanged: %s", exc)
         return None

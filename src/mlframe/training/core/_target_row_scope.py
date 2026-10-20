@@ -141,6 +141,7 @@ def _available_commit_bytes() -> Optional[int]:
 
         return int(psutil.virtual_memory().available)
     except Exception as exc:  # a probe must never stop training
+        # best-effort: the commit probe is advisory; None means the headroom check is skipped.
         logger.debug("commit probe failed: %s", exc)
         return None
 

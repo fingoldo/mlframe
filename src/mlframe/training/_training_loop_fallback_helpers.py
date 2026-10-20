@@ -571,7 +571,7 @@ def _train_model_with_f_text_processing_via_cb(model_type_name, fit_params, _cb_
                 try:
                     _user_text_proc = model.get_params().get("text_processing")
                 except Exception as e:
-                    logger.debug("model.get_params() failed, treating text_processing as unset: %s", e)
+                    logger.warning("model.get_params() failed, treating text_processing as unset: %s", e)
                     _user_text_proc = None
             if _user_text_proc is None:
                 _tp = compute_cb_text_processing(_cb_n_rows) if _cb_n_rows is not None else None

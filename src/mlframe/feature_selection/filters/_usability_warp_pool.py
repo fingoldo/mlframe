@@ -28,6 +28,7 @@ def warp_pool_candidates(df: Any, y_cont: np.ndarray, base_names: Sequence[str],
     try:
         cands = warp_candidates(df, y_cont, list(base_names))
     except Exception as e:  # an optional enrichment of the pool; never sink the usability pass
+        # best-effort: warp candidates are an optional enrichment; a failure only shrinks the usability pool.
         logger.debug("warp usability candidates skipped: %s", e)
         return []
     if not cands:

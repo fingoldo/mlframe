@@ -181,7 +181,7 @@ class ShapSel:
         try:
             self.report_ = {k: self.s_.shap_proxy_report_.get(k) for k in ("trust_guard", "cluster")}
         except Exception as e:
-            logger.debug("shap_proxy_report_ extraction failed: %s", e)
+            logger.warning("shap_proxy_report_ extraction failed: %s", e)
             self.report_ = {}
         return self
     def transform(self, X):
