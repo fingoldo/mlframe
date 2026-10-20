@@ -677,10 +677,11 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # Rung-0 keep fraction. None (default) routes per (n_rows, n_pairs) through the
         # per-host ``kernel_tuning_cache`` (the iron rule - never hardcode one threshold
         # across hardware / data shapes), with a measurement-backed fallback (0.34 large
-        # pool / 0.50 moderate / 1.0 small). A float in (0, 1] forces that fraction. The
+        # pool / 0.50 moderate / 1.0 small). A float in (0, 1] forces that fraction; "aggressive" selects the
+        # aggressive per-pool fraction (_optin_keep_frac). The
         # relative pair_mi floor below is applied REGARDLESS of this fraction, so a small
         # fraction never drops a genuine moderate-MI winner.
-        fe_rung_keep_frac: float | None = None,
+        fe_rung_keep_frac: float | str | None = None,
         # ALWAYS keep a prospective pair whose ``pair_mi >= fe_rung_rel_floor * max_pair_mi``
         # regardless of its rank, so a moderate-MI genuine winner survives the fractional
         # rung. 0.40 was the binding no-drop value in the benchmark (protects a pair at

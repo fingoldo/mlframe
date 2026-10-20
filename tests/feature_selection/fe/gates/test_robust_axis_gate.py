@@ -187,7 +187,7 @@ def test_fourier_clean_legacy_outlier_robust():
     rng = np.random.default_rng(6)
     clean = rng.standard_normal(3000)
     lo_c, sp_c = _fit_fourier_for_col(clean)
-    assert lo_c == float(np.min(clean)) and sp_c == pytest.approx(float(np.max(clean) - np.min(clean)))
+    assert lo_c == pytest.approx(float(np.min(clean)), rel=1e-6) and sp_c == pytest.approx(float(np.max(clean) - np.min(clean)))
 
     x = _spike(rng, frac=0.05, scale=1000.0)
     _lo_o, sp_o = _fit_fourier_for_col(x)

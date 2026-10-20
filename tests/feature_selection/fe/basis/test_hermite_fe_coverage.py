@@ -738,7 +738,7 @@ def test_optimise_hermite_pair_each_polynomial_basis(basis):
         use_trivial_baseline=False,
         baseline_uplift_threshold=0.0,  # accept any improvement
     )
-    # Either a valid result or None when search didn't beat baseline -- both legitimate paths.
+    # baseline_uplift_threshold=0.0 accepts any improvement, so the search must return a result on this input.
     assert isinstance(res, HermiteResult)
     if res is not None:
         assert res.basis == basis

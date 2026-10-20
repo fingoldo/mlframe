@@ -1,4 +1,4 @@
-"""Microbenchmarks for the pre_pipeline / PipelineCache key-build hot paths (Wave 8 A4 efficiency).
+"""Microbenchmarks for the pre_pipeline / PipelineCache key-build hot paths.
 
 Three measured levers, each cProfile/wall-time gated before being applied to prod:
 

@@ -1,4 +1,4 @@
-"""Dynamic Cluster Discovery (DCD) — Wave 9.
+"""Dynamic Cluster Discovery (DCD).
 
 Organic in-greedy-loop cluster discovery for MRMR. After each feature
 acceptance, the Pool is pruned by ``SU(x, just_selected) > tau_cluster``
@@ -225,7 +225,7 @@ class DCDState:
 
 
 def _kernel_tuning_cache_lookup_tau(factors_data, factors_nbins, fallback: float = 0.7) -> float:
-    """Wave 9.1: route ``dcd_tau_cluster`` through pyutilz kernel_tuning_cache.
+    """Route ``dcd_tau_cluster`` through pyutilz kernel_tuning_cache.
 
     Looks up a calibrated tau by ``(n_samples, n_features, mean_pairwise_su_proxy)``
     fingerprint. Falls back to the constructor-supplied value when the cache
@@ -348,7 +348,7 @@ def make_dcd_state(
     ``swap_method``, ``pairwise_cache_max``, ``min_cluster_size``,
     ``max_cluster_size``, ``suppress_legacy_postoc``.
 
-    Wave 9.1: ``tau_cluster`` is routed through ``kernel_tuning_cache``
+    ``tau_cluster`` is routed through ``kernel_tuning_cache``
     when the constructor value matches the dev-machine default 0.7 — lets
     per-host calibration override the dev constant without code edits.
     Pass an explicit non-0.7 value to bypass the cache lookup.

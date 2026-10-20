@@ -432,6 +432,8 @@ def _binagg_null_calibrated_floor(cp: Any, mat_gpu: Any, y_gpu: Any, _yi: np.nda
     # The shuffles cross the bus a few per transfer (as many as fit a 32 MB host buffer), drawn in the same order as one per permutation.
     _step = max(1, min(_LOCAL_GATE_NULL_PERMUTATIONS, (32 << 20) // (8 * max(_yi.size, 1))))
     _perm_blk = cp.zeros((0, 0), dtype=cp.int64)
+    # The candidates do not depend on the target: their working-dtype matrix and quantile edges are prepared by the first permutation and reused by the rest.
+    _candidate_cache: dict = {}
     for _b in range(_LOCAL_GATE_NULL_PERMUTATIONS):
         if _b % _step == 0:
             _perm_blk = cp.asarray(np.stack([_rng.permutation(_yi.size) for _ in range(min(_step, _LOCAL_GATE_NULL_PERMUTATIONS - _b))]))
@@ -448,6 +450,7 @@ def _binagg_null_calibrated_floor(cp: Any, mat_gpu: Any, y_gpu: Any, _yi: np.nda
                         relax_binning=True,
                         keep_dtype=True,
                         x_is_cm=True,
+                        candidate_cache=_candidate_cache,
                     ),
                     dtype=np.float64,  # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
                 )

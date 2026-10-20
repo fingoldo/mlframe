@@ -431,7 +431,7 @@ def _build_usability_cand_step1_ua_codes_none(_ua_codes, unary, binary, _residen
     else:
         # Default / fallback Python loop (``rank_pairs_by_joint_mi=False``, the shipped default).
         #
-        # bench-attempt-rejected (2026-07-13, Wave 11 audit item M11): swapping this branch to the
+        # bench-attempt-rejected: swapping this branch to the
         # SAME ``score_pair_combos`` njit kernel the ``True`` branch uses is NOT a safe drop-in here,
         # despite looking like one. ``score_pair_combos`` is documented "bit-faithful to the Python MI
         # (verified ~6e-15)" - NOT bit-identical - and this function's own docstring states the

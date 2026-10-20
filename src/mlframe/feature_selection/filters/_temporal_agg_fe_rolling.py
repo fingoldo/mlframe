@@ -15,7 +15,9 @@ from typing import Any, Sequence
 
 import numba
 import numpy as np
-from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
+
+# Intentional float64: running means / variances and epoch-scale values (a 1.7e9 timestamp resolves only to 128 in float32, which erases the variance); the statistic path never uses the critical dtype.
+_STAT_DTYPE = np.float64
 import pandas as pd
 
 from mlframe._welford_njit import welford_push, welford_std
@@ -116,7 +118,7 @@ def _rolling_stat_past_only(
 
     n = vals.size
     if n == 0:
-        return np.full(0, np.nan, dtype=_crit_np_dtype())
+        return np.full(0, np.nan, dtype=_STAT_DTYPE)
     td_num: Any
     if _is_datetime_like(times):
         # int64 nanoseconds so the window comparison keeps full datetime precision (float64 would lose ns on
@@ -124,12 +126,12 @@ def _rolling_stat_past_only(
         t_num = np.ascontiguousarray(np.asarray(times, dtype="datetime64[ns]").view("int64"))
         td_num = np.int64(pd.Timedelta(window).value)
     else:
-        t_num = np.ascontiguousarray(times, dtype=_crit_np_dtype())
+        t_num = np.ascontiguousarray(times, dtype=_STAT_DTYPE)
         td_num = float(_numeric_window(window))
     gc = np.ascontiguousarray(group_codes, dtype=np.int64)
     n_groups = int(gc.max()) + 1 if gc.size else 1
     return np.asarray(_rolling_stat_past_only_njit(
-        t_num, np.ascontiguousarray(vals, dtype=_crit_np_dtype()), gc, td_num, _EXPANDING_STAT_CODE[stat], n_groups,
+        t_num, np.ascontiguousarray(vals, dtype=_STAT_DTYPE), gc, td_num, _EXPANDING_STAT_CODE[stat], n_groups,
     ))
 
 
@@ -185,15 +187,15 @@ def generate_rolling_window_agg_features(
     row_slices = _group_row_slices(codes_sorted, n_codes)
 
     for value_col in value_cols:
-        vals = np.asarray(X[value_col].to_numpy(), dtype=_crit_np_dtype())
+        vals = np.asarray(X[value_col].to_numpy(), dtype=_STAT_DTYPE)
         vals_sorted = vals[order]
         history: dict[str, dict] = {}
         for rows in row_slices:
             ent_key = str(key_sorted[rows[0]])
             t_list = times_sorted[rows]
             history[ent_key] = {
-                "t": (t_list.astype("datetime64[ns]").astype(np.int64).tolist() if _is_datetime_like(t_list) else t_list.astype(_crit_np_dtype()).tolist()),
-                "v": vals_sorted[rows].astype(_crit_np_dtype()).tolist(),
+                "t": (t_list.astype("datetime64[ns]").astype(np.int64).tolist() if _is_datetime_like(t_list) else t_list.astype(_STAT_DTYPE).tolist()),
+                "v": vals_sorted[rows].astype(_STAT_DTYPE).tolist(),
                 "is_datetime": bool(_is_datetime_like(t_list)),
             }
         for window in windows:
@@ -262,17 +264,17 @@ def apply_temporal_rolling(X_test: pd.DataFrame, recipe_extra: dict) -> np.ndarr
     history = recipe_extra["history"]
     X_test = _coerce_replay_frame(X_test, entity_cols, value_col, time_col, "temporal_rolling")
     key, times = _replay_keys_times(X_test, entity_cols, time_col)
-    vals = np.asarray(X_test[value_col].to_numpy(), dtype=_crit_np_dtype())
+    vals = np.asarray(X_test[value_col].to_numpy(), dtype=_STAT_DTYPE)
     is_dt = _is_datetime_like(times)
     td: Any
     if is_dt:
         times_num = times.astype("datetime64[ns]").astype(np.int64)
         td = int(pd.Timedelta(window).value)
     else:
-        times_num = np.asarray(times, dtype=_crit_np_dtype())
+        times_num = np.asarray(times, dtype=_STAT_DTYPE)
         td = _numeric_window(window)
     n = len(X_test)
-    out = np.full(n, prior, dtype=_crit_np_dtype())
+    out = np.full(n, prior, dtype=_STAT_DTYPE)
     order = _stable_time_order(times_num)
     # FUTURE (perf): this per-row concatenate+mask reduce is O(N^2) per entity,
     # same shape as the expanding replay that was converted to O(N) accumulators.
@@ -290,10 +292,10 @@ def apply_temporal_rolling(X_test: pd.DataFrame, recipe_extra: dict) -> np.ndarr
         # (~1.6e18 > 2^53) loses ~hundreds of ns, so rows within a few hundred ns of the window bound ``lo``/``t``
         # could be mis-included/excluded. times_num above is already int64-ns for datetime; match it here.
         h_t = np.asarray(h.get("t", []))
-        h_v = np.asarray(h.get("v", []), dtype=_crit_np_dtype())
+        h_v = np.asarray(h.get("v", []), dtype=_STAT_DTYPE)
         seen = test_hist.get(ent, {"t": [], "v": []})
         all_t = np.concatenate([h_t, np.asarray(seen["t"])]) if seen["t"] else h_t
-        all_v = np.concatenate([h_v, np.asarray(seen["v"], dtype=_crit_np_dtype())]) if seen["v"] else h_v
+        all_v = np.concatenate([h_v, np.asarray(seen["v"], dtype=_STAT_DTYPE)]) if seen["v"] else h_v
         if all_t.size:
             lo = t - td
             mask = (all_t >= lo) & (all_t < t) & np.isfinite(all_v)

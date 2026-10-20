@@ -108,9 +108,12 @@ def test_sf1_uplift_poly_engineered_device_born_selection_identical(monkeypatch)
     monkeypatch.setenv("MLFRAME_FE_GPU_DEVICE_BORN_UPLIFT_UNIVARIATE", "1")
     sr = score_features_by_mi_uplift(Xp, eng, yp, nbins=10).set_index("engineered_col").sort_index()
 
-    # baseline (class B) is byte-identical; engineered (device-born poly) matches within ~1e-10 (Clenshaw vs
-    # forward recurrence) -- here the FP delta is below the binning edges so the MI is identical.
-    np.testing.assert_allclose(sh["baseline_mi"].to_numpy(), sr["baseline_mi"].to_numpy(), rtol=0, atol=0)
+    # baseline (class B) agrees to the precision of the critical dtype (float32 by default: the two paths sum the same counts in a different order); engineered (device-born poly) matches
+    # within ~1e-10 (Clenshaw vs forward recurrence) -- here the FP delta is below the binning edges so the codes, and the counts, are identical.
+    from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
+
+    dtype_eps = 4.0 * float(np.finfo(_crit_np_dtype()).eps)
+    np.testing.assert_allclose(sh["baseline_mi"].to_numpy(), sr["baseline_mi"].to_numpy(), rtol=dtype_eps, atol=0)
     np.testing.assert_allclose(sh["engineered_mi"].to_numpy(), sr["engineered_mi"].to_numpy(), rtol=1e-7, atol=1e-9)
     np.testing.assert_allclose(sh["uplift"].to_numpy(), sr["uplift"].to_numpy(), rtol=1e-7, atol=1e-9)
 

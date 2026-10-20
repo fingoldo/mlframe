@@ -103,15 +103,36 @@ def test_validate_symlink_escape_resolved(tmp_path):
     assert _validate_trusted_path(str(linkname), str(trusted)) is None
 
 
-@pytest.mark.skipif(not sys.platform.startswith("win"), reason="cross-drive only meaningful on Windows")
-def test_validate_cross_drive_rejected(tmp_path):
-    # Windows: commonpath raises ValueError across different drives. Code catches
-    # and re-raises as "not inside trusted_root".
+def test_validate_symlink_skips_when_symlink_unavailable(monkeypatch, tmp_path):
+    """Without symlink privilege the escape test must skip rather than error."""
+
+    def _no_symlink(*_args, **_kwargs):
+        """Stand in for os.symlink on a host without symlink privilege."""
+        raise OSError("symlink privilege not held")
+
+    monkeypatch.setattr(os, "symlink", _no_symlink)
+    with pytest.raises(pytest.skip.Exception, match="symlink unavailable"):
+        test_validate_symlink_escape_resolved(tmp_path)
+
+
+def test_load_metadata_missing_file_raises(tmp_path):
+    """A directory without a metadata file must raise FileNotFoundError, not return an empty dict."""
+    with pytest.raises(FileNotFoundError, match="No metadata file"):
+        _load_metadata(tmp_path)
+
+
+def test_validate_cross_drive_rejected(monkeypatch, tmp_path):
+    # commonpath raises ValueError across drives on Windows; simulate that failure on any OS so the
+    # wrapping into "not inside trusted_root" is exercised everywhere.
     """Validate cross drive rejected."""
-    trusted_drive = os.path.splitdrive(str(tmp_path))[0].upper()
-    other_drive = "Y:" if trusted_drive.startswith("Z") else "Z:"
+
+    def _cross_drive(_paths):
+        """Stand in for commonpath on a cross-drive comparison."""
+        raise ValueError("Paths don't have the same drive")
+
+    monkeypatch.setattr(os.path, "commonpath", _cross_drive)
     with pytest.raises(ValueError, match="not inside trusted_root"):
-        _validate_trusted_path(other_drive + r"\foo\bar.joblib", str(tmp_path / "trusted"))
+        _validate_trusted_path(str(tmp_path / "foo" / "bar.joblib"), str(tmp_path / "trusted"))
 
 
 # ----- _finalize_and_save_metadata -----

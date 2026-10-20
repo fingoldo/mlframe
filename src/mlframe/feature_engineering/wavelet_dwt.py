@@ -421,7 +421,7 @@ def set_wavedec_dispatch_threshold(n_signals: int) -> None:
 
 
 def wavedec_dispatch(
-    signals: np.ndarray, wavelet: str, max_level: int,
+    signals: np.ndarray, wavelet: str, max_level: int, path: str = "auto",
 ) -> Union[List[np.ndarray], List[List[np.ndarray]], Tuple[np.ndarray, np.ndarray, np.ndarray]]:
     """Auto-pick between single-signal loop and batched parallel DWT.
 
@@ -436,9 +436,11 @@ def wavedec_dispatch(
     it. The return annotation above is now honest about this; unifying the shapes is a
     real behavioral decision for whoever adds the first caller, not a type-only fix.
     """
+    if path not in ("auto", "loop", "batched"):
+        raise ValueError(f"wavedec_dispatch: path must be 'auto', 'loop' or 'batched', got {path!r}")
     if signals.ndim == 1:
         return wavedec(signals, wavelet, max_level)
-    if signals.shape[0] < _DISPATCH_BATCHED_MIN_N or not _HAS_NUMBA:
+    if path == "loop" or (path == "auto" and (signals.shape[0] < _DISPATCH_BATCHED_MIN_N or not _HAS_NUMBA)):
         return [wavedec(signals[i], wavelet, max_level) for i in range(signals.shape[0])]
     return wavedec_batched(signals, wavelet, max_level)
 

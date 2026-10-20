@@ -1,6 +1,6 @@
 """Post-hoc probability calibration wrappers.
 
-Wave 94 (2026-05-21): split out from `_training_loop.py` to keep that
+Split out from `_training_loop.py` to keep that
 file below the 1k-line threshold. Behaviour preserved bit-for-bit; every
 calibrator symbol is re-exported from `_training_loop` so existing
 ``from ._training_loop import _PostHocCalibratedModel`` (and the other

@@ -169,7 +169,7 @@ def apply_rung_schedule(
     prospective_pairs: dict,
     *,
     n_rows: int,
-    keep_frac: float | None = None,
+    keep_frac: float | str | None = None,
     rel_floor: float = _REL_FLOOR_DEFAULT,
     min_pairs: int = _MIN_PAIRS_DEFAULT,
     verbose: int = 0,
@@ -197,6 +197,10 @@ def apply_rung_schedule(
     n_pairs = n_in
     if keep_frac is None:
         keep_frac = _dispatch_keep_frac(int(n_rows), int(n_pairs))
+    elif isinstance(keep_frac, str):
+        if keep_frac != "aggressive":
+            raise ValueError(f"apply_rung_schedule: keep_frac must be a float, None or 'aggressive'; got {keep_frac!r}")
+        keep_frac = _optin_keep_frac(int(n_pairs))
     info["keep_frac"] = float(keep_frac)
     if keep_frac >= 1.0:
         return prospective_pairs, info

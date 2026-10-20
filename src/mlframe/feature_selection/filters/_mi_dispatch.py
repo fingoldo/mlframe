@@ -108,6 +108,10 @@ def score_pair_mi(x: np.ndarray, y: np.ndarray, *,
         from ._neural_mi import mine_mi, infonet_mi, mist_mi
         fn_map: dict = {"mine": mine_mi, "infonet": infonet_mi, "mist": mist_mi}
         return float(fn_map[estimator](x, y_arr.astype(_crit_np_dtype()), **estimator_kwargs))
+    if estimator in ("minde", "dpmine"):
+        from ._neural_mi import minde_mi, dpmine_mi
+        neural_map: dict = {"minde": minde_mi, "dpmine": dpmine_mi}
+        return float(neural_map[estimator](x, y_arr.astype(_crit_np_dtype()), **estimator_kwargs))
     if estimator == "fastmi":
         from ._fastmi import fastmi
         return float(fastmi(x, y_arr.astype(_crit_np_dtype()), **estimator_kwargs))

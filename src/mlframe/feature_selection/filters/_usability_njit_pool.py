@@ -56,14 +56,7 @@ except ImportError:
     _cp = None
     _CUPY_AVAIL = False
 
-# Unary op-code table for the ``medium`` preset (registry order is irrelevant - the caller maps each
-# preset name to its code and falls back to Python if any name is absent). Every entry below is
-# bit-exact (float32) to ``create_unary_transformations(preset='medium')[name]``; see ``_apply_unary``.
-from ._numba_utils import (  # noqa: F401 -- hosted in _numba_utils_usability; re-exported so existing imports keep working
-    _NJIT_UNARY_OP_CODES,
-    _NJIT_USABILITY_BINARY_OP_CODES,
-    njit_unary_codes_or_none,
-    njit_binary_codes_or_none,
+from ._numba_utils import (  # noqa: F401 -- kernels hosted in _numba_utils_usability; re-exported so existing imports keep working
     _USABILITY_DEGENERATE_REL_TOL,
     _apply_unary,
     _apply_binary,
@@ -74,11 +67,12 @@ from ._numba_utils import (  # noqa: F401 -- hosted in _numba_utils_usability; r
     _pair_combo_mi_njit_table,
     _pair_combo_mi_njit_table_parallel,
 )
-
-# Binary op-code table for the ``minimal`` preset (the pool's default binary set). Bit-exact to
-# ``create_binary_transformations(preset='minimal')`` - see ``_apply_binary``; ``div`` mirrors
-# ``_safe_div`` (exact x/y for y!=0, 1e-9 floor only on an exact-zero denominator).
-
+from ._usability_njit_pool_codes import (  # noqa: F401  re-export: the op-code tables moved out to keep this module under the size budget
+    _NJIT_UNARY_OP_CODES,
+    _NJIT_USABILITY_BINARY_OP_CODES,
+    njit_binary_codes_or_none,
+    njit_unary_codes_or_none,
+)
 
 # Near-constant when std is within this factor of machine epsilon of the combo's largest |value|.
 # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.

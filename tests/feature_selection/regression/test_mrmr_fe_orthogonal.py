@@ -196,7 +196,7 @@ def test_regression_adaptive_arity_pair_recipe_freezes_preprocess_params():
     ],
 )
 def test_regression_scorer_zoo_preprocess_params_except_is_logged(modname, funcname, monkeypatch, caplog):
-    """Pre-fix: `except Exception: _pp = None` with zero logging. Post-fix: a forced freeze failure is logged at debug."""
+    """Pre-fix: `except Exception: _pp = None` with zero logging. Post-fix: a forced freeze failure is logged (the scorers log it at WARNING through log_throttle)."""
     import importlib
     import logging
 
@@ -231,7 +231,7 @@ def test_regression_scorer_zoo_preprocess_params_except_is_logged(modname, funcn
     caplog.set_level(logging.DEBUG)
     result = fn(X, y, cols=None, **extra_kwargs)
     assert result[-1], f"{modname}.{funcname} emitted no recipes; the freeze path was never reached"
-    messages = [r.getMessage() for r in caplog.records if r.levelno == logging.DEBUG]
+    messages = [r.getMessage() for r in caplog.records if r.levelno >= logging.DEBUG]
     assert any("failed to freeze fit-time basis preprocess_params" in m for m in messages), f"{modname}: freeze failure not logged"
 
 

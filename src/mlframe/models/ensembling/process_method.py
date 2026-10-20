@@ -23,8 +23,7 @@ def _select_member_probs(member, split: str, use_calibrated: bool) -> Optional[n
     """Return AP12-calibrated probs when available + opt-in, else raw probs.
 
     AP12 ``post_calibrate_model`` stamps ``.calibrated_<split>_probs`` on the
-    inner model object when ``CalibrationConfig.policy_auto_pick=True`` (Wave 9
-    / 13 / 16). When opt-out OR no AP12 stamp on the member, falls back to raw
+    inner model object when ``CalibrationConfig.policy_auto_pick=True``. When opt-out OR no AP12 stamp on the member, falls back to raw
     ``.<split>_probs``. The RRF flavour is rank-based and intentionally bypasses
     this helper (scale-invariant by design).
 

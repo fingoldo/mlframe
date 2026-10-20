@@ -14,7 +14,7 @@ regardless of ``n_workers``?
 
 Bit-identity: ``parallel_mi_prange`` and ``parallel_mi`` implement the SAME per-iteration LCG seeding
 scheme (Knuth multiplicative hash keyed by absolute permutation index, not worker-partition-relative --
-see ``permutation.py`` Wave 9.1 iter-18 fix docstring), so ``(nfailed, n_checked)`` must match bit-for-bit
+see ``permutation.py`` fix docstring), so ``(nfailed, n_checked)`` must match bit-for-bit
 between the two dispatch paths for the same ``base_seed``/``npermutations``. Verified below.
 
 Run: python -m mlframe.feature_selection.filters._benchmarks.bench_permutation_njit_prange_vs_joblib

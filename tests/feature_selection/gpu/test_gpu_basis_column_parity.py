@@ -57,11 +57,15 @@ def _datasets(seed: int, n: int = 8000) -> dict:
 # the host<->GPU basis values stay selection-equivalent even where the recurrences differ the most.
 @pytest.mark.parametrize("degree", [2, 3, 4, 5, 6])
 def test_gpu_basis_column_parity(seed, basis, degree):
-    """GPU basis-column values agree with the host _evaluate_basis_column to rel<1e-6 across dataset shapes, even at degrees 4-6 where the host forward-recurrence diverges most from GPU/numpy Clenshaw."""
+    """GPU basis-column values agree with the host _evaluate_basis_column to a dtype- and degree-scaled relative tolerance across dataset shapes, even at degrees 4-6 where the host forward-recurrence diverges most from GPU/numpy Clenshaw."""
     ra = _robust_axis_enabled()
     for dname, x in _datasets(seed).items():
         host = np.asarray(_evaluate_basis_column(x, basis, degree), dtype=np.float64)
-        gpu = cp.asnumpy(_gpu_evaluate_basis_column(cp, cp.asarray(x), basis, degree, robust_axis=ra)).astype(np.float64)
+        gpu_raw = cp.asnumpy(_gpu_evaluate_basis_column(cp, cp.asarray(x), basis, degree, robust_axis=ra))
+        gpu = gpu_raw.astype(np.float64)
         denom = float(np.max(np.abs(host))) + 1e-12
         rel = float(np.max(np.abs(host - gpu))) / denom
-        assert rel < 1e-6, f"{dname}/{basis}/d={degree} GPU basis column drifted from host: rel={rel:.2e}"
+        # The recurrence runs in the dtype of the returned column (float32 by default) and its rounding error grows with the degree (a few machine epsilons per step);
+        # the floor covers the host forward recurrence vs device Clenshaw divergence seen with float64 columns.
+        tol = max(6.0 * (degree + 1) * float(np.finfo(gpu_raw.dtype).eps), 1e-9)
+        assert rel < tol, f"{dname}/{basis}/d={degree} GPU basis column drifted from host: rel={rel:.2e} (tolerance {tol:.2e})"

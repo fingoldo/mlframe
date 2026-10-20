@@ -597,7 +597,8 @@ def compose_multilabel_figure(
     tokens = parse_panel_template(panels_template)
     unknown = [t for t in tokens if t not in _TOKEN_BUILDERS]
     if unknown:
-        raise ValueError(f"Unknown multilabel panel tokens {unknown}. " f"Allowed: {sorted(ALLOWED_MULTILABEL_PANEL_TOKENS)}")
+        from mlframe.reporting.catalog import unknown_panel_tokens_message
+        raise ValueError(unknown_panel_tokens_message("multilabel_classification", "multilabel", unknown))
     K = y_true.shape[1]
     _OVERLAY_TOKENS = {"ROC", "CALIB_GRID"}
     label_subset = None

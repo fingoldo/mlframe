@@ -1,4 +1,4 @@
-"""Before/after wall-clock benchmarks for the Wave 11 (Category 3: njit/vectorization non-use) fixes.
+"""Before/after wall-clock benchmarks for the njit/vectorization fixes.
 
 Each section times the OLD (frozen reference copy of the pre-fix implementation) against the NEW (current
 shipped) code path at a realistic scale, and asserts the equivalence already proven by the paired pytest

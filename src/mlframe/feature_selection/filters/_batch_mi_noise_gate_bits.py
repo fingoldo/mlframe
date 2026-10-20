@@ -146,7 +146,7 @@ def bits_gate_mi(d_disc: Any, nbins_arr: np.ndarray, d_y_all: Any, n_y: int) -> 
             )
             out[:, lo:hi] = part
             del bits, px, part
-        host: np.ndarray = cp.asnumpy(out).astype(np.float64, copy=False)  # Intentional float64: host copy of the MI matrix, compared at full precision
+        host: np.ndarray = cp.asnumpy(out).astype(np.float64, copy=False)  # Intentional float64: MI output contract of the kernel is double precision
         return host
     except Exception as exc:  # nosec B110 - any device or compile failure falls back to the histogram gate
         logger.warning("bit-set noise gate unavailable (%s: %s); using the histogram gate", type(exc).__name__, exc)

@@ -70,7 +70,7 @@ class ShortlistTransformerAdapter(TransformerMixin, BaseEstimator):
 
     def __init__(
         self,
-        compute_fn: Callable[..., pl.DataFrame],
+        compute_fn: Callable[..., pl.DataFrame] | str,
         *,
         random_state: int = 42,
         needs_y: bool = True,
@@ -79,7 +79,17 @@ class ShortlistTransformerAdapter(TransformerMixin, BaseEstimator):
         seed: Optional[int] = None,
         splitter: Any = None,
     ):
-        self.compute_fn = compute_fn
+        resolved: Callable[..., pl.DataFrame]
+        if isinstance(compute_fn, str):
+            # Opt-in switch by name: ``ShortlistTransformerAdapter("compute_rff_features")`` resolves to the exported catalogue function.
+            from mlframe.feature_engineering import transformer as _pkg
+
+            if not compute_fn.startswith("compute_") or compute_fn not in getattr(_pkg, "__all__", ()):
+                raise KeyError(f"ShortlistTransformerAdapter: {compute_fn!r} is not an exported compute_* transformer")
+            resolved = getattr(_pkg, compute_fn)
+        else:
+            resolved = compute_fn
+        self.compute_fn = resolved
         if seed is not None:
             # Deprecated back-compat alias: every other BaseEstimator subclass in this codebase names its
             # RNG param random_state; seed is kept only so pre-existing callers don't get a TypeError.

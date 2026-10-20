@@ -38,6 +38,8 @@ logger = logging.getLogger(__name__)
 
 __all__ = ["extra_basis_eng_mi_resident"]
 
+_FOURIER_BLOCK_MIN_NAMES = 4  # measured break-even on the GTX 1050 Ti: 3 to 4 names (0.25 ms per name per column vs 0.75 ms fixed for the block); 256 names 63 ms vs 1.4 ms
+
 
 def _fourier_col_gpu(cp, xg, m: dict):
     """Device twin of the host Fourier/chirp emission ``sin|cos(2*pi*freq*z)``.
@@ -78,14 +80,12 @@ def _bspline_col_gpu(cp, z_g, knots: np.ndarray, idx: int, degree: int = 3):
     nk = int(knots.shape[0])
     lo_c = float(knots[degree]) + 1e-12
     hi_c = float(knots[nk - degree - 1]) - 1e-12
-    # Unconditional float64 (matches the host's `z = np.asarray(z, dtype=np.float64)`, NOT gated on
-    # MLFRAME_CRIT_DTYPE_RELAXED): the 1e-12 boundary-safety clip below is only representable in
-    # float64 - float32's epsilon near 1.0 is ~1.19e-7, so clipping a float32 z to hi_c=1.0-1e-12
-    # silently no-ops (rounds back to exactly 1.0), leaving z sitting ON a repeated boundary knot and
-    # collapsing the LAST basis function's degenerate recursion to 0 instead of its correct ~1.0 value
-    # (found via test_extra_basis_device_born_parity.py: maxerr=1.0 on the *__sp8 column, pre-existing,
-    # reproduces on a clean pre-wave-10 baseline).
     z_g = cp.asarray(z_g, dtype=crit_float_dtype())
+    if z_g.dtype == cp.float32:
+        # The host clips z to hi - 1e-12 in float64 so that z never sits ON the repeated right boundary knot (there the last basis function's degenerate recursion collapses to 0 instead of its
+        # limit ~1). float32's spacing near 1.0 is ~6e-8, so a clip to hi - 1e-12 rounds back to hi itself and does nothing; clip to the largest float32 below the boundary instead (the value
+        # then differs from the float64 host's by the float32 spacing, not by 1).
+        hi_c = float(np.nextafter(np.float32(knots[nk - degree - 1]), np.float32(-np.inf)))
     zc = cp.clip(z_g, lo_c, hi_c)
     _cache: dict = {}
 
@@ -138,8 +138,22 @@ def _build_extra_basis_matrix_gpu(cp, raw_X: pd.DataFrame, names, meta: dict):
             op_cache[src] = g
         return g
 
+    # Every Fourier / chirp name of a pool in ONE launch (bit-identical to the per-column build); the per-column loop below is the fallback and builds the other bases.
+    fourier_row: dict = {}
+    for pos, name in enumerate(names):
+        m = meta.get(name)
+        if m is not None and m.get("basis") == "fourier" and m.get("src") in raw_X.columns:
+            fourier_row[pos] = len(fourier_row)
+    fourier_block = None
+    if len(fourier_row) >= _FOURIER_BLOCK_MIN_NAMES:
+        from ._extra_basis_fourier_cuda import fourier_block_cuda
+
+        fourier_block = fourier_block_cuda(cp, [_raw(meta[names[pos]]["src"]) for pos in fourier_row], [meta[names[pos]] for pos in fourier_row])
+    if fourier_block is not None and len(fourier_row) == len(names):
+        return cp.ascontiguousarray(fourier_block.T.astype(crit_float_dtype(), copy=False))
+
     cols = []
-    for name in names:
+    for pos, name in enumerate(names):
         m = meta.get(name)
         if m is None:
             raise ValueError(f"extra-basis device build: no meta for {name!r}")
@@ -149,7 +163,7 @@ def _build_extra_basis_matrix_gpu(cp, raw_X: pd.DataFrame, names, meta: dict):
             raise ValueError(f"extra-basis device build: src {src!r} not in raw_X for {name!r}")
         xg = _raw(src)
         if basis == "fourier":
-            col = _fourier_col_gpu(cp, xg, m)
+            col = fourier_block[fourier_row[pos]] if fourier_block is not None else _fourier_col_gpu(cp, xg, m)
         elif basis == "spline":
             span = float(m["hi"]) - float(m["lo"])
             span = span if span > 1e-12 else 1e-12

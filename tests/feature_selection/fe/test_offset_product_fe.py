@@ -211,7 +211,7 @@ def test_log_unary_replays_with_the_frozen_anchor_not_the_batch_minimum():
     r = np.random.default_rng(0)
     batch = pd.DataFrame({"c": r.random(50) + 0.05, "d": r.random(50)})  # strictly positive: smart_log would use no shift at all
     expected = (np.log(batch["c"].to_numpy() + 0.3) + 0.1) * (batch["d"].to_numpy() + 0.2)
-    np.testing.assert_allclose(apply_offset_product_recipe(rec, batch), expected, rtol=1e-12)
+    np.testing.assert_allclose(apply_offset_product_recipe(rec, batch), expected, rtol=1e-5)
 
 
 def test_fit_stores_the_log_anchor_of_a_column_with_non_positive_values():

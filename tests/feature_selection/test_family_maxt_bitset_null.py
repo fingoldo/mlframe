@@ -7,6 +7,16 @@ from mlframe.feature_selection.filters import _family_maxt_null_v2_njit as V
 from mlframe.feature_selection.filters._family_maxt_gate import family_null_max, family_null_max_njit, mi_all_columns_njit
 
 
+def _require_cuda(cp) -> None:
+    """Skip the calling test unless CUDA reports a device; a runtime error counts as no device."""
+    try:
+        has_device = cp.cuda.runtime.getDeviceCount() > 0
+    except Exception:
+        has_device = False
+    if not has_device:
+        pytest.skip("no CUDA device")
+
+
 def _family(n, k, bins, classes, seed):
     """Random integer-coded family with uneven bin counts and a label vector."""
     rng = np.random.default_rng(seed)
@@ -55,8 +65,7 @@ def test_observed_and_null_values_of_the_same_labels_are_bit_equal():
 def test_device_bitset_null_matches_the_host_bitset_null():
     """The CUDA bit-set kernel returns the host maxima (skipped without a device)."""
     cp = pytest.importorskip("cupy")
-    if not cp.cuda.is_available():
-        pytest.skip("no CUDA device")
+    _require_cuda(cp)
     from mlframe.feature_selection.filters._family_maxt_cuda_bits import DeviceBitsets, null_max_bits_device
     from mlframe.feature_selection.filters._family_maxt_gate import _label_const
     from mlframe.feature_selection.filters._family_maxt_null_v2_njit import label_bitsets_batch
@@ -103,8 +112,7 @@ def _device_family(cp, classes, n=3000, k=40, bins=11, nperm=24):
 def test_shared_memory_kernel_is_bit_identical_to_the_first_kernel(classes, monkeypatch):
     """The shared-memory kernel returns exactly the bits of the first kernel, for the full MI matrix and for the per-permutation maxima."""
     cp = pytest.importorskip("cupy")
-    if not cp.cuda.is_available():
-        pytest.skip("no CUDA device")
+    _require_cuda(cp)
     from mlframe.feature_selection.filters import _family_maxt_cuda_bits as fb
 
     dev, cls_host, const_b = _device_family(cp, classes)
@@ -121,8 +129,7 @@ def test_shared_memory_kernel_is_bit_identical_to_the_first_kernel(classes, monk
 def test_shared_memory_kernel_declines_what_it_cannot_hold():
     """A single class, too many classes, or class bit sets larger than a block's shared memory keep the first kernel."""
     cp = pytest.importorskip("cupy")
-    if not cp.cuda.is_available():
-        pytest.skip("no CUDA device")
+    _require_cuda(cp)
     from mlframe.feature_selection.filters import _family_maxt_cuda_bits as fb
 
     assert not fb._v2_applies(cp, 1, 100)
@@ -135,8 +142,7 @@ def test_shared_memory_kernel_declines_what_it_cannot_hold():
 def test_kernel_element_type_follows_the_resident_table(use_shared_kernel, monkeypatch):
     """A float32 table gives float32 buffers and a float32 kernel (no read past a buffer's end), and agrees with the float64 result to float32 precision, for both kernels."""
     cp = pytest.importorskip("cupy")
-    if not cp.cuda.is_available():
-        pytest.skip("no CUDA device")
+    _require_cuda(cp)
     from mlframe.feature_selection.filters import _family_maxt_cuda_bits as fb
     from mlframe.feature_selection.filters._family_maxt_cuda_bits import DeviceBitsets
     from mlframe.feature_selection.filters._family_maxt_null_v2_njit import label_bitsets_batch
@@ -157,3 +163,16 @@ def test_kernel_element_type_follows_the_resident_table(use_shared_kernel, monke
     got = fb.mi_matrix_bits_device(dev32, cls_host, const_b)
     assert got.dtype == np.float32
     np.testing.assert_allclose(got, ref, rtol=2e-4, atol=2e-4 * float(np.abs(ref).max()))
+
+
+@pytest.mark.parametrize("n,classes", [(999, 2), (4096, 5), (3001, 10)])
+def test_label_bitsets_from_index_equals_packing_the_permuted_labels(n, classes):
+    """Packing the class bit sets straight from the permutation indices gives exactly the bit sets of the permuted label matrix, for index widths the permutation cache uses."""
+    from mlframe.feature_selection.filters._family_maxt_null_v2_njit import label_bitsets_batch, label_bitsets_from_index
+
+    rng = np.random.default_rng(n)
+    y = rng.integers(0, classes, n).astype(np.int64)
+    words = (n + 63) // 64
+    for dtype in (np.uint16, np.int32):
+        idx = np.stack([rng.permutation(n) for _ in range(12)]).astype(dtype)
+        np.testing.assert_array_equal(label_bitsets_from_index(y, idx, classes, words), label_bitsets_batch(y[idx], classes, words))

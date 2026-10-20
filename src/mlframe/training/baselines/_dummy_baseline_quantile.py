@@ -1,6 +1,6 @@
 """Quantile-regression dummy baseline computation.
 
-Wave 92 (2026-05-21): split out from `_dummy_baseline_compute.py` to keep
+Split out from `_dummy_baseline_compute.py` to keep
 that file below the 1k-line threshold. Behaviour preserved bit-for-bit;
 the function is re-exported from `_dummy_baseline_compute` so existing
 `from ._dummy_baseline_compute import _compute_quantile_baselines`

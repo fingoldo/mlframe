@@ -73,8 +73,12 @@ def test_binagg_device_born_parity(monkeypatch):
 
     assert appended_host == appended_dev, f"BINAGG selection differs: host {appended_host} vs device-born {appended_dev}"
     # the ~120MB+ host OOF matrix documented as the H2D this flag collapses must not appear as bulk D2H/H2D
-    # in the audited (flag-on) call.
-    assert not rep.bulk_h2d or all(b < 20 * n for b in rep.bulk_h2d), f"unexpected large H2D under BINAGG device-born: {rep.summary()}"
+    # in the audited (flag-on) call. The one legitimate larger upload is the block of host-drawn label permutations of the family-wise floor (one int32 row per permutation, drawn on the host
+    # to keep the permutation stream), which scales with n x permutations and not with the candidate matrix.
+    from mlframe.feature_selection.filters._unified_fe_gate import _LOCAL_GATE_NULL_PERMUTATIONS
+
+    bulk_limit = max(20 * n, _LOCAL_GATE_NULL_PERMUTATIONS * n * 4)
+    assert not rep.bulk_h2d or all(b <= bulk_limit for b in rep.bulk_h2d), f"unexpected large H2D under BINAGG device-born: {rep.summary()}"
 
 
 # ---------------------------------------------------------------------------

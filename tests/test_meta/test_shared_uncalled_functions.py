@@ -53,10 +53,8 @@ _PUBLIC_API = {
     "create_mlflow_run_label",
     "get_or_create_mlflow_run",
     "embed_website_to_mlflow",  # user-facing helpers of mlframe.integrations.mlflow, each pinned by tests/integrations/test_mlflow.py
-    "reset_throttle_counts",  # documented in mlframe.utils.log_throttle.__all__; the test-isolation reset for every throttle key, used by 30+ tests
     "clip_to_quantiles_hard",  # documented preset for choosing a target transform (1%/99% quantile clip)
     "clip_to_quantiles_winsor_quantile",  # documented preset for choosing a target transform (soft winsorise)
-    "set_wavedec_dispatch_threshold",  # documented tuning knob for the wavelet single/batched dispatch; a user sets it
     "reset_openmp_smoke",  # compatibility alias for the old hnswlib API; a no-op kept so old imports keep working
     "operand_uplift_null_bar",  # exported through the module's __all__ (feature_engineering_pairs operand floor); public surface
     "set_dtw_dispatch_threshold",  # documented tuning knob for the DTW GPU/CPU crossover; a user sets it
@@ -87,7 +85,6 @@ _REEXPORTED_PUBLIC_API = {
     "_ksg_mi_1d",
     "_polars_df_has_null_in_categorical",
     "_pre_pipeline_cache_clear",
-    "_pre_pipeline_cache_set",
     "_quantile_edges_2d_njit_partition",
     "_residualise",
     "_resolve_model_spec",
@@ -98,30 +95,22 @@ _REEXPORTED_PUBLIC_API = {
     "add_ohlcv_ta_indicators",
     "add_sentinel_missing_count_feature",
     "additive_interaction_diagnostic",
-    "adversarial_rebin_categorical",
     "adversarial_stochastic_blend",
     "adversarial_validation_feature_audit",
-    "align_feature_direction",
     "anchor_density_features",
     "anchor_ewm_features",
     "anchor_quadratic_extrapolation_features",
     "anchor_residual_rmse_features",
     "apply_calendar_anomaly_flag",
     "apply_cat_cooccurrence_svd",
-    "apply_decision_threshold",
-    "apply_feature_direction",
-    "apply_gaussian_power_transform",
     "apply_group_bias_correction",
     "apply_group_zero_sum_constraint_multi",
     "apply_logical_constraints",
-    "apply_outlier_policy",
     "apply_prediction_band_correction",
     "assembled_column_names",
     "assert_estimators_disjoint",
     "auc_ci",
     "audit_target_over_time",
-    "augment_temporal_drift",
-    "augment_to_match_test_distribution",
     "auto_aware_gate",
     "backtest_override",
     "bayesian_alpha_fit",
@@ -141,116 +130,16 @@ _REEXPORTED_PUBLIC_API = {
     "cmi_or_csu",
     "cohen_kappa_binary",
     "collapse_predictions_by_group",
-    "collapse_rare_categories",
     "collect_and_score",
     "compare_selectors",
     "compose_fuzzy_membership_figure",
     "compose_spectral_embedding_figure",
     "composite_model_card",
     "composite_report",
-    "compute_active_virtual_features",
-    "compute_adaptive_bandwidth_attention",
-    "compute_adasyn_smote_features",
-    "compute_adversarial_flip_features",
-    "compute_anchor_attention",
-    "compute_anomaly_score_features",
-    "compute_apriori_itemsets_features",
-    "compute_autoencoder_features",
-    "compute_aux_mlp_features",
     "compute_auxiliary_feature_prediction_features",
-    "compute_band_conditional_anchor_features",
-    "compute_baseline_disagreement_balanced_features",
-    "compute_baseline_disagreement_smote_features",
-    "compute_baseline_disagreement_v2_features",
-    "compute_baseline_surprise_features",
-    "compute_bgm_clustered_smote_features",
-    "compute_bgmm_density_ratio_features",
-    "compute_bgmm_dual_class_features",
-    "compute_bgmm_multiscale_features",
-    "compute_bgmm_quantile_bands_features",
-    "compute_bgmm_virtual_features",
-    "compute_bidir_residual_band_features",
-    "compute_boosted_attention",
-    "compute_boosting_leaf_features",
-    "compute_borderline_smote_features",
-    "compute_class_balanced_hard_row_features",
-    "compute_class_conditional_anchor_attention",
-    "compute_class_distance_features",
-    "compute_class_mahalanobis_features",
-    "compute_cluster_smote_features",
-    "compute_conformal_coverage_failure_features",
-    "compute_conformal_locally_adaptive_features",
-    "compute_counterfactual_substitution_features",
-    "compute_cross_feature_reconstruction_features",
-    "compute_cutmix_features",
-    "compute_decision_region_depth_features",
-    "compute_denoising_autoencoder_features",
-    "compute_density_ratio_features",
-    "compute_density_weighted_smote_features",
-    "compute_diffusion_noise_features",
-    "compute_disagreement_band_features",
-    "compute_distributional_moments_features",
-    "compute_fca_closed_concepts_features",
-    "compute_fisher_weighted_residual_features",
-    "compute_focal_lgb_features",
-    "compute_geodesic_kgraph_features",
-    "compute_gradient_direction_agreement_features",
-    "compute_hard_row_attention_features",
-    "compute_ib_baseline_codes_features",
-    "compute_inducing_attention_features",
-    "compute_jackknife_endpoint_stability_features",
-    "compute_ks_shift_features",
-    "compute_lda_projection_features",
-    "compute_local_classifier_features",
-    "compute_local_curvature_features",
-    "compute_local_density_gradient_features",
-    "compute_local_intrinsic_dim_features",
-    "compute_local_lift_features",
-    "compute_local_linear_attention",
-    "compute_mdl_binning_pairwise_features",
-    "compute_mixup_boundary_features",
-    "compute_multi_baseline_hard_row_features",
-    "compute_multi_temp_band_attention_features",
-    "compute_multi_temp_cbhr_features",
-    "compute_multi_temp_residual_band_features",
-    "compute_multi_temperature_attention",
-    "compute_multi_threshold_ordinal_features",
-    "compute_multiscale_rate_features",
-    "compute_multiscale_smote_features",
-    "compute_nca_projection_features",
-    "compute_neighbor_aggregate_features",
     "compute_numaggs_parallel",
-    "compute_pairwise_kl_features",
-    "compute_per_class_spectral_attention",
-    "compute_per_column_rff",
-    "compute_performer_attention_features",
-    "compute_persistence_diagram_features",
-    "compute_positional_encoding",
-    "compute_pred_augmented_attention",
-    "compute_prediction_band_attention_features",
-    "compute_predictive_info_delta_features",
-    "compute_pseudo_smote_features",
-    "compute_pure_pos_smote_features",
-    "compute_quantile_band_attention_features",
-    "compute_quantile_spread_fan_features",
-    "compute_residual_attention",
-    "compute_residual_band_attention_features",
-    "compute_residual_stratified_distance_features",
-    "compute_rf_proximity_attention",
-    "compute_rff_features",
-    "compute_robustness_budget_features",
     "compute_row_level_then_average_predictions",
-    "compute_sign_residual_baseline_features",
-    "compute_signed_residual_band_features",
-    "compute_smote_distance_features",
-    "compute_spectral_attention",
-    "compute_stacked_quantile_neighbours",
-    "compute_stacked_row_attention",
-    "compute_target_kmeans_codebook_features",
-    "compute_target_quantile_attention",
     "compute_test_likeness",
-    "compute_tree_path_boolean_features",
-    "compute_variance_baseline_features",
     "config_from_dict",
     "control_difference_augment",
     "create_experiment",
@@ -278,7 +167,6 @@ _REEXPORTED_PUBLIC_API = {
     "distribution_matching_subset_search",
     "dro_reweight_fit",
     "drop_noninformative_vs_reference",
-    "drop_rare_features",
     "drop_raw_after_embedding",
     "dual_optimizer_weight_blend",
     "embedding_only",
@@ -322,7 +210,6 @@ _REEXPORTED_PUBLIC_API = {
     "fuzzy_partition_encode",
     "g_mean_binary",
     "gains_table",
-    "gaussian_power_transform_search",
     "general_acf",
     "generate_modelling_data",
     "generate_pareto_artifact",
@@ -347,7 +234,6 @@ _REEXPORTED_PUBLIC_API = {
     "holiday_calendar_features",
     "holiday_name_target_encode_cross_locale",
     "imputation_sensitivity_check",
-    "impute_with_missing_indicator",
     "interval_quality_summary",
     "inverse_distance_weighted_aggregate",
     "is_catboost_model",
@@ -375,7 +261,6 @@ _REEXPORTED_PUBLIC_API = {
     "lock_differences",
     "magnitude_sample_weight",
     "make_composite_regressor",
-    "make_ensemble_outlier_scores",
     "make_per_column_specs",
     "make_purged_cv",
     "masked_multilabel_logloss_objective",
@@ -401,7 +286,6 @@ _REEXPORTED_PUBLIC_API = {
     "optimize_group_blend_weight",
     "optimize_persistence_floor",
     "orth_scoring_memo_scope",
-    "outlier_cap_or_missing",
     "overfit_verdict",
     "pair_vi",
     "particle_filter_posterior",
@@ -447,7 +331,6 @@ _REEXPORTED_PUBLIC_API = {
     "recency_weighted_rolling_mean",
     "recency_weighted_rolling_std",
     "recommend_transform_candidates",
-    "regime_conditioned_median_fill",
     "regime_headroom_map",
     "register_model_axis_support",
     "remediate_drifting_features",
@@ -491,17 +374,14 @@ _REEXPORTED_PUBLIC_API = {
     "safely_compute_mps",
     "scan_temporal_leak",
     "seed_averaged_fold_scores",
-    "select_column_transforms",
     "select_features_fdr",
     "select_features_noise_floor",
-    "select_outlier_threshold",
     "sequence2vec_entity_features",
     "shapley_blend",
     "shared_attribute_edges",
     "should_promote",
     "show_mps_regions",
     "showcase_pycaret_datasets",
-    "sibling_group_cold_start_fill",
     "sort_df_by_time_column",
     "specificity_npv_fpr_fnr",
     "spiegelhalter_z",
@@ -516,7 +396,6 @@ _REEXPORTED_PUBLIC_API = {
     "tmc_shapley",
     "top_k_accuracy",
     "train_automl_models_suite",
-    "train_test_support_screen",
     "training_sample_weight_from_valuation",
     "unanimous_permutation_prune",
     "update_routes_audiences",
@@ -534,8 +413,6 @@ _REEXPORTED_PUBLIC_API = {
     "_mark_kaleido_persistent_burned",
     "_optin_keep_frac",
     "adversarial_frame",
-    "analyse_and_clean_features",
-    "apply_features_cleaning",
     "apply_lof_block",
     "apply_mahalanobis_density",
     "apply_random_fourier_block",
@@ -551,16 +428,12 @@ _REEXPORTED_PUBLIC_API = {
     "categorical_series",
     "chao_shen_entropy",
     "chao_shen_mi",
-    "check_feature_direction_stability",
     "clean_mlframe_model",
     "clear_cmi_xc_resident_cache",
-    "clusterize",
     "cmim_score",
     "composite_group_agg_with_recipes",
     "compute_gp_smoothed_features",
     "compute_inverse_frequency_class_weights",
-    "compute_naive_outlier_score",
-    "compute_outlier_detector_score",
     "compute_simple_stats_numba_arr",
     "constant_series",
     "create_ts_features_parallel",
@@ -583,7 +456,6 @@ _REEXPORTED_PUBLIC_API = {
     "fit_basis_mi",
     "fit_composite_similarity",
     "flatten_masked_multilabel_class_weights",
-    "fragment_df_on_ram_usage_increase",
     "gap_fraction",
     "gegenbauer_design",
     "generate_cat_pair_crosses",
@@ -640,9 +512,7 @@ _REEXPORTED_PUBLIC_API = {
     "random_fourier_features",
     "rank_subpopulation_drift_severity",
     "recency_step_weight",
-    "recency_weights",
     "reconstruct_pseudo_group_ids",
-    "reject_outliers",
     "renyi_alpha_cmi",
     "required_n_for_proportion",
     "reset_cache",
@@ -654,13 +524,10 @@ _REEXPORTED_PUBLIC_API = {
     "scan_row_argmax",
     "score_pair_mi",
     "select_best_iteration_by_aggregate_cv",
-    "select_true_last_standardized",
     "sequence2vec_transform_new_entities",
     "sir_direction_features",
-    "smoothed_target_encode_column",
     "sparse_null_series",
     "standalone_diagnostics",
-    "suggest_non_outlying_data_indices",
     "to_pandas_or_array",
     "total_correlation",
     "triple_interaction_information",
@@ -742,9 +609,6 @@ _REEXPORTED_PUBLIC_API = {
     "compose_pair_fe",  # exported by mlframe.feature_selection.filters (__all__)
     "validate_pair_fe_cv",  # exported by mlframe.feature_selection.filters (__all__)
     "numpy_rng_scope",  # exported by its package (__all__ / lazy export map)
-    "curated_fe_pipelines",  # exported by its package (__all__ / lazy export map)
-    "recommended_curated_fe_names",  # exported by its package (__all__ / lazy export map)
-    "wavedec_dispatch",  # exported by its package (__all__ / lazy export map)
     "wavelet_denoise",  # exported by its package (__all__ / lazy export map)
     "benjamini_hochberg_reject",  # exported lazily through mlframe.training
     "list_registered_specs",  # exported lazily through mlframe.training
@@ -780,14 +644,12 @@ _TEST_UTILITIES = {
     "reset_fe_family_wall",  # test-isolation reset of the FE family wall-clock accumulator
     "_reset_fe_gpu_pool_limit_flag",  # test-isolation reset of the GPU pool-limit flag
     "_reset_for_tests",  # test-isolation reset of the kernel-tuning state
-    "_xgb_cache_clear",  # test-isolation reset of the xgboost shim cache
     "_lib_versions_cache_clear",  # test-isolation reset of the library-version cache
     "cache_bytes",  # recorded-size readout for tests and diagnostics of the CatBoost pool budget
     "is_triton_available",  # Triton availability probe for callers and tests
     "reset_gpu_probe",  # test hook that re-probes GPU availability after monkeypatching
     "reset_cmi_forder_cache",  # test/free-memory reset of cached F-order copies
     "reset_gpu_metrics_probe",  # test hook that re-probes GPU availability for metrics
-    "_lgb_cache_clear",  # test-isolation reset of the LightGBM dataset cache
     "_is_windows",  # single chokepoint for OS detection, monkeypatched by tests
     "_ranknet_pair_cache_clear",  # test-only reset of the RankNet pair cache
     "set_default_cache",  # test hook that replaces the process-wide cache singleton
@@ -874,7 +736,6 @@ _RETAINED_KERNELS = {
     # reference twin of the tiled radix quantile kernel (keep-all-kernels rule); parity pinned in
     # tests/feature_selection/discretization/test_multiselect_quantile_edges.py
     "_quantile_edges_2d_radix_njit",
-    "_lnc_correction",  # deprecated first-pass LNC kept behind a flag for A/B parity; no switch currently reaches it
     "_get_mi_mm_from_values_kernel",  # superseded by the length-aware _nek kernel; kept as the original, nothing switches to it
     # retained building block: the resampler now uses _fused_resample_auc, and this counting sort stays as the documented fallback primitive
     "_resample_desc_order_counting",
@@ -897,7 +758,6 @@ _RETAINED_KERNELS = {
     "kahan_two_pass_var_seq",  # compensated two-pass variance kept for the numerical-stability bench
     "welford_mean_var_seq",  # single-pass Welford kept for the numerical-stability bench
     "welford_moments_seq",  # single-pass Welford moments kept for the numerical-stability bench
-    "smote_synthesize_rowloop",  # row-loop SMOTE kept as the pre-vectorisation reference
     "_rff_analytic_mixed_partial_energy_loop",  # per-pair reference kernel kept for the exact RFF energy check
     "_combine_factorize_serial_njit",  # fully-serial reference of the combine-factorize kernel, kept as the baseline
     "_pack_for_bitmap_numpy",  # numpy reference packer kept for the bit-identity bench and test
@@ -989,6 +849,8 @@ _NAME_DISPATCHED = {
 #: Replaced by a faster or more efficient version and kept as the reference the replacement is checked against. Each entry
 #: names its replacement; a superseded function with no parity test is a gap, not a reference.
 _SUPERSEDED = {
+    "_lnc_correction",  # stub returning 0.0 superseded by _lnc_correction_v2, the canonical NPEET_LNC correction; no implementation to compare, so no parity test (see the docstring in _ksg.py)
+    "smote_synthesize_rowloop",  # row-loop SMOTE reference; replaced by smote_synthesize_vectorized (production via smote_synthesize_minority_vectorized)
     "subset_redundancy",  # scalar form of subset_redundancy_many; parity pinned in tests/feature_selection/shap_proxied/test_shap_proxy_calibrate.py
     "subset_uncertainty",  # scalar form of subset_uncertainty_many; parity pinned in tests/feature_selection/shap_proxied/test_shap_proxy_objective.py
     # per-column Python loop replaced by _compute_marginals_packed; parity pinned in
@@ -1004,6 +866,8 @@ _SUPERSEDED = {
     "_propose_fourier",  # predecessor of _propose_fourier_both_warps; parity pinned in tests/feature_selection/fe/adaptive/test_propose_fourier_parity.py
     # reference form of the honest-null cut search; the null kernels use the presorted twin, equality pinned in
     # tests/feature_selection/discretization/test_mdlp_presorted_cuts_parity.py
+    # dense reference for the fused per-group recency kernels in feature_engineering/recency_aggregation.py (same weight formulas); parity pinned in tests/core/test_recency_weights_fused_parity.py
+    "recency_weights",
     "mdlp_inner_cuts",
     # predecessor of score_triplet_cross_basis_by_cmi (the production scorer); kept public, pinned in
     # tests/feature_selection/mrmr/biz_val/test_biz_value_mrmr_scorers/test_triplet_cross_basis.py
@@ -1072,6 +936,140 @@ _OPT_IN_SLOW: set[str] = {
     "per_fold_stability_select",  # ShapProxiedFS once per outer fold (n_folds fits); opt-in via the function call, ~3-7x the default fit cost
     "proposal_generator",  # cheap-proxy candidate seeds for an external honest search; opt-in via the function call
     "_cv_candidates_incremental",  # bordered normal-equations regression CV path; opt-in by design, the greedy defaults to the exact per-candidate refit (ULP ties flip picks)
+    # preprocessing/opt_in_slow.py: each enabled by name via PreprocessingExtensionsConfig.opt_in_slow (default off)
+    "resolve_opt_in_slow",  # the dispatcher for the registry above; the config switch is its caller, reached by name
+    "adversarial_rebin_categorical",
+    "align_feature_direction",
+    "analyse_and_clean_features",
+    "apply_feature_direction",
+    "apply_features_cleaning",
+    "apply_gaussian_power_transform",
+    "apply_outlier_policy",
+    "augment_temporal_drift",
+    "augment_to_match_test_distribution",
+    "check_feature_direction_stability",
+    "clusterize",
+    "collapse_rare_categories",
+    "compute_naive_outlier_score",
+    "compute_outlier_detector_score",
+    "drop_rare_features",
+    "fragment_df_on_ram_usage_increase",
+    "gaussian_power_transform_search",
+    "impute_with_missing_indicator",
+    "make_ensemble_outlier_scores",
+    "outlier_cap_or_missing",
+    "regime_conditioned_median_fill",
+    "reject_outliers",
+    "select_column_transforms",
+    "select_outlier_threshold",
+    "select_true_last_standardized",
+    "sibling_group_cold_start_fill",
+    "smoothed_target_encode_column",
+    "suggest_non_outlying_data_indices",
+    "train_test_support_screen",
+    "compute_active_virtual_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_active_virtual_features") in transformer/_suite_adapter.py, off by default
+    "compute_adaptive_bandwidth_attention",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_adaptive_bandwidth_attention") in transformer/_suite_adapter.py, off by default
+    "compute_adasyn_smote_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_adasyn_smote_features") in transformer/_suite_adapter.py, off by default
+    "compute_adversarial_flip_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_adversarial_flip_features") in transformer/_suite_adapter.py, off by default
+    "compute_anchor_attention",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_anchor_attention") in transformer/_suite_adapter.py, off by default
+    "compute_anomaly_score_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_anomaly_score_features") in transformer/_suite_adapter.py, off by default
+    "compute_apriori_itemsets_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_apriori_itemsets_features") in transformer/_suite_adapter.py, off by default
+    "compute_autoencoder_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_autoencoder_features") in transformer/_suite_adapter.py, off by default
+    "compute_aux_mlp_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_aux_mlp_features") in transformer/_suite_adapter.py, off by default
+    "compute_band_conditional_anchor_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_band_conditional_anchor_features") in transformer/_suite_adapter.py, off by default
+    "compute_baseline_disagreement_balanced_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_baseline_disagreement_balanced_features") in transformer/_suite_adapter.py, off by default
+    "compute_baseline_disagreement_smote_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_baseline_disagreement_smote_features") in transformer/_suite_adapter.py, off by default
+    "compute_baseline_disagreement_v2_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_baseline_disagreement_v2_features") in transformer/_suite_adapter.py, off by default
+    "compute_baseline_surprise_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_baseline_surprise_features") in transformer/_suite_adapter.py, off by default
+    "compute_bgm_clustered_smote_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_bgm_clustered_smote_features") in transformer/_suite_adapter.py, off by default
+    "compute_bgmm_density_ratio_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_bgmm_density_ratio_features") in transformer/_suite_adapter.py, off by default
+    "compute_bgmm_dual_class_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_bgmm_dual_class_features") in transformer/_suite_adapter.py, off by default
+    "compute_bgmm_multiscale_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_bgmm_multiscale_features") in transformer/_suite_adapter.py, off by default
+    "compute_bgmm_quantile_bands_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_bgmm_quantile_bands_features") in transformer/_suite_adapter.py, off by default
+    "compute_bgmm_virtual_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_bgmm_virtual_features") in transformer/_suite_adapter.py, off by default
+    "compute_bidir_residual_band_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_bidir_residual_band_features") in transformer/_suite_adapter.py, off by default
+    "compute_boosted_attention",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_boosted_attention") in transformer/_suite_adapter.py, off by default
+    "compute_boosting_leaf_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_boosting_leaf_features") in transformer/_suite_adapter.py, off by default
+    "compute_borderline_smote_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_borderline_smote_features") in transformer/_suite_adapter.py, off by default
+    "compute_class_balanced_hard_row_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_class_balanced_hard_row_features") in transformer/_suite_adapter.py, off by default
+    "compute_class_conditional_anchor_attention",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_class_conditional_anchor_attention") in transformer/_suite_adapter.py, off by default
+    "compute_class_distance_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_class_distance_features") in transformer/_suite_adapter.py, off by default
+    "compute_class_mahalanobis_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_class_mahalanobis_features") in transformer/_suite_adapter.py, off by default
+    "compute_cluster_smote_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_cluster_smote_features") in transformer/_suite_adapter.py, off by default
+    "compute_conformal_coverage_failure_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_conformal_coverage_failure_features") in transformer/_suite_adapter.py, off by default
+    "compute_conformal_locally_adaptive_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_conformal_locally_adaptive_features") in transformer/_suite_adapter.py, off by default
+    "compute_counterfactual_substitution_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_counterfactual_substitution_features") in transformer/_suite_adapter.py, off by default
+    "compute_cross_feature_reconstruction_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_cross_feature_reconstruction_features") in transformer/_suite_adapter.py, off by default
+    "compute_cutmix_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_cutmix_features") in transformer/_suite_adapter.py, off by default
+    "compute_decision_region_depth_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_decision_region_depth_features") in transformer/_suite_adapter.py, off by default
+    "compute_denoising_autoencoder_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_denoising_autoencoder_features") in transformer/_suite_adapter.py, off by default
+    "compute_density_ratio_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_density_ratio_features") in transformer/_suite_adapter.py, off by default
+    "compute_density_weighted_smote_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_density_weighted_smote_features") in transformer/_suite_adapter.py, off by default
+    "compute_diffusion_noise_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_diffusion_noise_features") in transformer/_suite_adapter.py, off by default
+    "compute_disagreement_band_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_disagreement_band_features") in transformer/_suite_adapter.py, off by default
+    "compute_distributional_moments_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_distributional_moments_features") in transformer/_suite_adapter.py, off by default
+    "compute_fca_closed_concepts_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_fca_closed_concepts_features") in transformer/_suite_adapter.py, off by default
+    "compute_fisher_weighted_residual_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_fisher_weighted_residual_features") in transformer/_suite_adapter.py, off by default
+    "compute_focal_lgb_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_focal_lgb_features") in transformer/_suite_adapter.py, off by default
+    "compute_geodesic_kgraph_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_geodesic_kgraph_features") in transformer/_suite_adapter.py, off by default
+    "compute_gradient_direction_agreement_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_gradient_direction_agreement_features") in transformer/_suite_adapter.py, off by default
+    "compute_hard_row_attention_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_hard_row_attention_features") in transformer/_suite_adapter.py, off by default
+    "compute_ib_baseline_codes_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_ib_baseline_codes_features") in transformer/_suite_adapter.py, off by default
+    "compute_inducing_attention_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_inducing_attention_features") in transformer/_suite_adapter.py, off by default
+    "compute_jackknife_endpoint_stability_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_jackknife_endpoint_stability_features") in transformer/_suite_adapter.py, off by default
+    "compute_ks_shift_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_ks_shift_features") in transformer/_suite_adapter.py, off by default
+    "compute_lda_projection_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_lda_projection_features") in transformer/_suite_adapter.py, off by default
+    "compute_local_classifier_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_local_classifier_features") in transformer/_suite_adapter.py, off by default
+    "compute_local_curvature_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_local_curvature_features") in transformer/_suite_adapter.py, off by default
+    "compute_local_density_gradient_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_local_density_gradient_features") in transformer/_suite_adapter.py, off by default
+    "compute_local_intrinsic_dim_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_local_intrinsic_dim_features") in transformer/_suite_adapter.py, off by default
+    "compute_local_lift_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_local_lift_features") in transformer/_suite_adapter.py, off by default
+    "compute_local_linear_attention",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_local_linear_attention") in transformer/_suite_adapter.py, off by default
+    "compute_mdl_binning_pairwise_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_mdl_binning_pairwise_features") in transformer/_suite_adapter.py, off by default
+    "compute_mixup_boundary_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_mixup_boundary_features") in transformer/_suite_adapter.py, off by default
+    "compute_multi_baseline_hard_row_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_multi_baseline_hard_row_features") in transformer/_suite_adapter.py, off by default
+    "compute_multi_temp_band_attention_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_multi_temp_band_attention_features") in transformer/_suite_adapter.py, off by default
+    "compute_multi_temp_cbhr_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_multi_temp_cbhr_features") in transformer/_suite_adapter.py, off by default
+    "compute_multi_temp_residual_band_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_multi_temp_residual_band_features") in transformer/_suite_adapter.py, off by default
+    "compute_multi_temperature_attention",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_multi_temperature_attention") in transformer/_suite_adapter.py, off by default
+    "compute_multi_threshold_ordinal_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_multi_threshold_ordinal_features") in transformer/_suite_adapter.py, off by default
+    "compute_multiscale_rate_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_multiscale_rate_features") in transformer/_suite_adapter.py, off by default
+    "compute_multiscale_smote_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_multiscale_smote_features") in transformer/_suite_adapter.py, off by default
+    "compute_nca_projection_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_nca_projection_features") in transformer/_suite_adapter.py, off by default
+    "compute_neighbor_aggregate_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_neighbor_aggregate_features") in transformer/_suite_adapter.py, off by default
+    "compute_pairwise_kl_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_pairwise_kl_features") in transformer/_suite_adapter.py, off by default
+    "compute_per_class_spectral_attention",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_per_class_spectral_attention") in transformer/_suite_adapter.py, off by default
+    "compute_per_column_rff",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_per_column_rff") in transformer/_suite_adapter.py, off by default
+    "compute_performer_attention_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_performer_attention_features") in transformer/_suite_adapter.py, off by default
+    "compute_persistence_diagram_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_persistence_diagram_features") in transformer/_suite_adapter.py, off by default
+    "compute_positional_encoding",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_positional_encoding") in transformer/_suite_adapter.py, off by default
+    "compute_pred_augmented_attention",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_pred_augmented_attention") in transformer/_suite_adapter.py, off by default
+    "compute_prediction_band_attention_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_prediction_band_attention_features") in transformer/_suite_adapter.py, off by default
+    "compute_predictive_info_delta_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_predictive_info_delta_features") in transformer/_suite_adapter.py, off by default
+    "compute_pseudo_smote_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_pseudo_smote_features") in transformer/_suite_adapter.py, off by default
+    "compute_pure_pos_smote_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_pure_pos_smote_features") in transformer/_suite_adapter.py, off by default
+    "compute_quantile_band_attention_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_quantile_band_attention_features") in transformer/_suite_adapter.py, off by default
+    "compute_quantile_spread_fan_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_quantile_spread_fan_features") in transformer/_suite_adapter.py, off by default
+    "compute_residual_attention",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_residual_attention") in transformer/_suite_adapter.py, off by default
+    "compute_residual_band_attention_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_residual_band_attention_features") in transformer/_suite_adapter.py, off by default
+    "compute_residual_stratified_distance_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_residual_stratified_distance_features") in transformer/_suite_adapter.py, off by default
+    "compute_rf_proximity_attention",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_rf_proximity_attention") in transformer/_suite_adapter.py, off by default
+    "compute_rff_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_rff_features") in transformer/_suite_adapter.py, off by default
+    "compute_robustness_budget_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_robustness_budget_features") in transformer/_suite_adapter.py, off by default
+    "compute_sign_residual_baseline_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_sign_residual_baseline_features") in transformer/_suite_adapter.py, off by default
+    "compute_signed_residual_band_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_signed_residual_band_features") in transformer/_suite_adapter.py, off by default
+    "compute_smote_distance_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_smote_distance_features") in transformer/_suite_adapter.py, off by default
+    "compute_spectral_attention",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_spectral_attention") in transformer/_suite_adapter.py, off by default
+    "compute_stacked_quantile_neighbours",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_stacked_quantile_neighbours") in transformer/_suite_adapter.py, off by default
+    "compute_stacked_row_attention",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_stacked_row_attention") in transformer/_suite_adapter.py, off by default
+    "compute_target_kmeans_codebook_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_target_kmeans_codebook_features") in transformer/_suite_adapter.py, off by default
+    "compute_target_quantile_attention",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_target_quantile_attention") in transformer/_suite_adapter.py, off by default
+    "compute_tree_path_boolean_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_tree_path_boolean_features") in transformer/_suite_adapter.py, off by default
+    "compute_variance_baseline_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_variance_baseline_features") in transformer/_suite_adapter.py, off by default
+    "wavedec_dispatch",  # opt-in: wavedec_dispatch(..., path="batched") selects the batched DWT; default path="auto" keeps the current choice
+    "set_wavedec_dispatch_threshold",  # tunes the row threshold used only when path="auto" (the default)
+    "curated_fe_pipelines",  # opt-in: curated_fe_pipelines(...) output passed as FeatureSelectionConfig.custom_pre_pipelines
+    "recommended_curated_fe_names",  # opt-in: names to pass to curated_fe_pipelines(names=...)
 }
 
 #: PLUGIN_HOOK: an extension point a downstream package calls by name; no in-repo caller by design.

@@ -153,6 +153,15 @@ def _clear_catboost_pool_caches() -> None:
         )
 
 
+def _clear_gbdt_dataset_caches() -> None:
+    """Release the LightGBM Dataset and XGBoost DMatrix caches so a new suite does not hold the previous suite's C++ memory."""
+    from mlframe.training._lgb_shim_helpers import _lgb_cache_clear
+    from mlframe.training.xgb_shim import _xgb_cache_clear
+
+    _lgb_cache_clear()
+    _xgb_cache_clear()
+
+
 def setup_configuration(
     *,
     preprocessing_config: Any,
@@ -501,6 +510,7 @@ def _build_runtime_state(
     _log_dataset_reuse_capabilities()
 
     _clear_catboost_pool_caches()
+    _clear_gbdt_dataset_caches()
 
     _mlframe_models_is_default_allowlist = mlframe_models is None
     if mlframe_models is None:

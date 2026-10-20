@@ -13,6 +13,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 from mlframe.feature_selection.filters.hermite_fe import (
     _CUDA_AVAILABLE,
     _plugin_mi_classif_batch_njit,
@@ -60,6 +61,9 @@ class TestPluginMIClassifEquivalence:
         rng = np.random.default_rng(seed=11 + n + k + n_classes)
         X = rng.normal(size=(n, k))
         y = rng.integers(0, n_classes, size=n).astype(np.int64)
+        # The device path scores the columns in the critical dtype (float32 by default). Two estimators differ by design on TIED values (rank binning splits a tied group by row order, edge
+        # binning keeps it in one bin), and rounding 1e5 normals to float32 creates ties, so the equivalence is checked on tie-free columns that stay distinct in float32.
+        X = np.stack([(rng.permutation(n) + 0.5) / n for _ in range(k)], axis=1).astype(_crit_np_dtype()).astype(np.float64)
         njit_arr = _plugin_mi_classif_batch_njit(X, y, 20)
         cuda_arr = _plugin_mi_classif_batch_cuda(X, y, 20)
         np.testing.assert_allclose(

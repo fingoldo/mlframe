@@ -1,6 +1,6 @@
 """Knockoff-based feature importance (Barber-Candes 2015 et seq.) for RFECV.
 
-Carved out of _helpers.py in the Wave 5 sweep to keep _helpers.py below the 1k-LOC soft limit. Re-exported at the
+Carved out of _helpers.py to keep _helpers.py below the 1k-LOC soft limit. Re-exported at the
 parent's bottom so from mlframe.feature_selection.wrappers import knockoff_importance / select_features_fdr / make_gaussian_knockoffs
 keep resolving exactly as before.
 """

@@ -315,7 +315,9 @@ class ReportRenderQueue:
         if backend not in ("thread", "process"):
             raise ValueError(f"backend must be 'thread' or 'process', got {backend!r}")
         self.backend = backend
-        self.workers = default_worker_count() if workers is None or int(workers) == 0 else int(workers)
+        if workers is not None and int(workers) < 1:
+            raise ValueError(f"workers must be >= 1 (or None for the default pool); got {workers!r}")
+        self.workers = default_worker_count() if workers is None else int(workers)
         self.name = name
         self._shm_min = int(shm_min_bytes)
         self._snapshot_max = int(snapshot_max_mb * 1024 * 1024)

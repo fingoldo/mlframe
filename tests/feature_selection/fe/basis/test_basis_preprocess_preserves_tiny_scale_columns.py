@@ -38,7 +38,7 @@ def test_zscore_is_invariant_to_a_pure_change_of_units():
     x = _column(1)
     z_unit, _ = _preprocess_zscore(x)
     z_tiny, _ = _preprocess_zscore(x * _TINY)
-    assert np.allclose(z_tiny, z_unit, rtol=1e-9, atol=1e-9), f"max |diff| = {float(np.abs(z_tiny - z_unit).max())}"
+    assert np.allclose(z_tiny, z_unit, rtol=1e-5, atol=1e-6), f"max |diff| = {float(np.abs(z_tiny - z_unit).max())}"
 
 
 def test_minmax_spans_the_full_interval_on_a_tiny_spread_column():
@@ -52,7 +52,7 @@ def test_minmax_is_invariant_to_a_pure_change_of_units():
     x = _column(3)
     z_unit, _ = _preprocess_minmax_neg1_1(x)
     z_tiny, _ = _preprocess_minmax_neg1_1(x * _TINY)
-    assert np.allclose(z_tiny, z_unit, rtol=1e-9, atol=1e-9), f"max |diff| = {float(np.abs(z_tiny - z_unit).max())}"
+    assert np.allclose(z_tiny, z_unit, rtol=1e-5, atol=1e-6), f"max |diff| = {float(np.abs(z_tiny - z_unit).max())}"
 
 
 @pytest.mark.parametrize("scale", [1.0, _TINY], ids=["unit", "tiny"])

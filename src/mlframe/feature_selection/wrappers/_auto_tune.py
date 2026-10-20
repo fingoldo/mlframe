@@ -1,4 +1,4 @@
-"""Auto-parameter tuning skeleton for RFECV (TODO A, Wave 6 prelim 2026-05-28).
+"""Auto-parameter tuning skeleton for RFECV (TODO A).
 
 The full plan (see TODO.md section A) is to run a synthetic benchmark sweep
 across data distributions (normal / heavy-tailed / categorical / mixed),
@@ -15,8 +15,8 @@ This module ships a STARTING POINT:
    max abs Pearson corr to y, presence of nan).
 
 2. ``suggest_configs(fp)`` returns 3 Config objects based on a small
-   rule-based table (no ML classifier yet - that's the Wave 7+ work). The
-   rules encode the bench learnings from Wave 1-5:
+   rule-based table (no ML classifier yet - that's later work). The
+   rules encode the bench learnings:
       - p >> n -> prescreen='univariate_ht', init_design_size higher
       - flat/plateau curves (low max-MI) -> n_features_selection_rule='one_se_max'
       - balanced classification with strong signal -> argmax + parsimony bias
@@ -181,7 +181,7 @@ class DataFingerprint:
 def suggest_configs(fp: DataFingerprint) -> Tuple[SearchConfig, FIConfig, RobustnessConfig]:
     """Rule-based suggestion. Returns (search, fi, robustness).
 
-    Rules encode the bench learnings from Wave 1-5:
+    Rules encode the bench learnings:
       - p>>n (p_n_ratio > 1)        : prescreen='univariate_ht', larger init_design
       - p>=1000                     : larger init_design_size, prescreen top_k cap
       - flat curve (max corr < 0.3) : one_se_max rule; convergence_tol active

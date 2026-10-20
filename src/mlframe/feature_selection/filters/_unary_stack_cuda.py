@@ -2,7 +2,7 @@
 
 The pair-combo table builds, for every operand of every pair, ``nu`` unary transforms (identity, neg, abs, sqr, ... exp) and stacks them. Doing that with one cupy call per unary is ``nu`` kernel
 launches plus a ``stack`` copy per operand; this kernel evaluates all of them in a single elementwise pass whose output is already the stacked, contiguous block. The arithmetic is the one of
-``_usability_njit_pool._gpu_apply_unary`` operation by operation, in the element type of the operand column (float32 or double precision), so the result is bit-identical to that reference.
+``_usability_njit_pool._gpu_apply_unary`` operation by operation, in the element type of the operand column (single or double precision), so the result is bit-identical to that reference.
 
 A small per-call cache keyed by the operand's device buffer lets an operand that recurs across pairs (A with B, A with C, ...) be transformed once.
 """

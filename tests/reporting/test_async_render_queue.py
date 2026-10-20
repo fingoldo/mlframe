@@ -447,3 +447,20 @@ def test_hiding_main_is_serialised_across_threads(monkeypatch):
     b_release.set()
     tb.join(timeout=30)
     assert main.__file__ == "/x/main.py"
+
+
+@pytest.mark.parametrize("workers", [0, -1])
+def test_non_positive_worker_count_is_rejected_not_read_as_the_default(workers):
+    """``workers`` is optional: None means the default pool, 0 is a value, and an invalid one, as ``async_render_workers`` (ge=1) already says."""
+    with pytest.raises(ValueError, match="workers must be >= 1"):
+        ReportRenderQueue(workers=workers)
+
+
+def test_explicit_worker_count_is_kept_and_none_takes_the_default():
+    """An explicit count is used as given; None resolves to ``default_worker_count()``."""
+    from mlframe.reporting._async_render import default_worker_count
+
+    with ReportRenderQueue(workers=1) as q:
+        assert q.workers == 1
+    with ReportRenderQueue(workers=None) as q:
+        assert q.workers == default_worker_count()

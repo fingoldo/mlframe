@@ -1,6 +1,6 @@
 """Per-group categorical baseline: polars-native vs pandas wall-time bench.
 
-Measures the speedup obtained by ``_per_group_predict``'s polars-native branch (added 2026-05-16, Wave 6) over the legacy polars->pandas Arrow-bridge path on a
+Measures the speedup obtained by ``_per_group_predict``'s polars-native branch (added 2026-05-16) over the legacy polars->pandas Arrow-bridge path on a
 production-shape frame (n_rows=1M, n_groups=1000, single int64 cat column). The benchmark deliberately keeps the FRAME materialised once and re-runs both
 branches on the same data so the timing isolates the group_by + per-row prediction work, not the synthesis cost.
 

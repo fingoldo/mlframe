@@ -821,11 +821,13 @@ def get_fleuret_criteria_confidence(
     return nfailed, _i + 1
 
 # Usability-pool njit kernels hosted in _numba_utils_usability.py (re-exported so importers keep one path).
-from ._numba_utils_usability import (  # noqa: F401
+from ._usability_njit_pool_codes import (  # noqa: F401
     _NJIT_UNARY_OP_CODES,
     _NJIT_USABILITY_BINARY_OP_CODES,
     njit_unary_codes_or_none,
     njit_binary_codes_or_none,
+)
+from ._numba_utils_usability import (  # noqa: F401
     _USABILITY_DEGENERATE_REL_TOL,
     _apply_unary,
     _apply_binary,

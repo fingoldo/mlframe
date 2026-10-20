@@ -86,6 +86,8 @@
  "src/mlframe/feature_selection/filters/_usability_aware_selection.py::_build_usability_cand_step2_sub_quantum_cpu",
  "src/mlframe/feature_selection/filters/_usability_aware_selection.py::_build_usability_cand_step3_pidx_n1_n2",
  "src/mlframe/feature_selection/filters/_usability_aware_selection.py::build_usability_candidate_pool",
+ "src/mlframe/feature_selection/filters/_usability_greedy_clf_batched.py::_newton",
+ "src/mlframe/feature_selection/filters/_usability_greedy_clf_batched.py::cv_candidates_binary",
  "src/mlframe/feature_selection/filters/_usability_greedy_clf_gpu_resident.py::_usability_greedy_c_range_min",
  "src/mlframe/feature_selection/filters/_usability_greedy_clf_gpu_resident.py::_usability_greedy_clf_step1_def_fit_binary._fit_binary",
  "src/mlframe/feature_selection/filters/_usability_greedy_clf_gpu_resident.py::_usability_greedy_clf_step1_def_fit_binary._fit_multinomial",

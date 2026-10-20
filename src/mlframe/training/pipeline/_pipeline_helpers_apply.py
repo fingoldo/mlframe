@@ -39,13 +39,9 @@ logger = logging.getLogger(__name__)
 # re-export of _pipeline_cache.py -- imported once there, not duplicated here.
 from ._pipeline_selector_log import log_selector_retention
 from ._pipeline_cache import (
-    _PRE_PIPELINE_CACHE,
-    _PRE_PIPELINE_CACHE_LOCK,
-    _PRE_PIPELINE_CACHE_MAX,
-    _PRE_PIPELINE_CACHE_MAX_BYTES,
-    _approx_entry_bytes,
     _pre_pipeline_cache_get,
     _pre_pipeline_cache_key,
+    _pre_pipeline_cache_set,
 )
 from ._pipeline_fit_state import (
     _extract_feature_selector,
@@ -495,17 +491,7 @@ def _apply_pre_pipeline_p_step2_maybe_clean_ram(
         # Store the now-fitted pre_pipeline alongside (train_df, val_df); future cache hits
         # transfer fit state to the caller's cloned instance so test_df.transform works.
         try:
-            _cap = int(cache_max) if cache_max is not None else _PRE_PIPELINE_CACHE_MAX
-            with _PRE_PIPELINE_CACHE_LOCK:
-                _PRE_PIPELINE_CACHE[_cache_key_entry] = (train_df, val_df, pre_pipeline)
-                _PRE_PIPELINE_CACHE.move_to_end(_cache_key_entry)
-                while len(_PRE_PIPELINE_CACHE) > _cap:
-                    _PRE_PIPELINE_CACHE.popitem(last=False)  # evict-ok: a miss refits the pre-pipeline on the same frames; nothing is pending
-                if _PRE_PIPELINE_CACHE_MAX_BYTES > 0 and len(_PRE_PIPELINE_CACHE) > 1:
-                    _total = sum(_approx_entry_bytes(v) for v in _PRE_PIPELINE_CACHE.values())
-                    while _total > _PRE_PIPELINE_CACHE_MAX_BYTES and len(_PRE_PIPELINE_CACHE) > 1:
-                        _, _evicted = _PRE_PIPELINE_CACHE.popitem(last=False)  # evict-ok: a miss refits the pre-pipeline on the same frames
-                        _total -= _approx_entry_bytes(_evicted)
+            _pre_pipeline_cache_set(train_df, val_df, pre_pipeline, train_df, val_df, cache_max=cache_max, key=_cache_key_entry)
         except Exception as _cache_err:
             logger.debug(
                 "pre_pipeline cache populate skipped: %s",

@@ -5,61 +5,6 @@ from __future__ import annotations
 import numpy as np
 from numba import njit, prange
 from .discretization.shared import multiselect_inplace
-from collections.abc import Sequence
-
-_NJIT_UNARY_OP_CODES: dict = {
-    "identity": 0,
-    "neg": 1,
-    "abs": 2,
-    "sqr": 3,
-    "reciproc": 4,
-    "sqrt": 5,
-    "log": 6,
-    "sin": 7,
-    "sign": 8,
-    "rint": 9,
-    "qubed": 10,
-    "invsquared": 11,
-    "invqubed": 12,
-    "cbrt": 13,
-    "invcbrt": 14,
-    "invsqrt": 15,
-    "exp": 16,
-}
-
-
-_NJIT_USABILITY_BINARY_OP_CODES: dict = {
-    "mul": 0,
-    "add": 1,
-    "sub": 2,
-    "div": 3,
-    "max": 4,
-    "min": 5,
-}
-
-
-def njit_unary_codes_or_none(unary_names: Sequence[str]) -> "np.ndarray | None":
-    """Map each unary name (preset iteration order) to its op-code, or None if ANY name is not
-    njit-coded (the caller then uses the per-candidate numpy path - correctness first)."""
-    codes = []
-    for name in unary_names:
-        c = _NJIT_UNARY_OP_CODES.get(name)
-        if c is None:
-            return None
-        codes.append(c)
-    return np.asarray(codes, dtype=np.int64)
-
-
-def njit_binary_codes_or_none(binary_names: Sequence[str]) -> "np.ndarray | None":
-    """Map each binary name to its op-code, or None if ANY name is not njit-coded."""
-    codes = []
-    for name in binary_names:
-        c = _NJIT_USABILITY_BINARY_OP_CODES.get(name)
-        if c is None:
-            return None
-        codes.append(c)
-    return np.asarray(codes, dtype=np.int64)
-
 
 # Intentional float64: relative tolerance on the float64 statistics the degenerate-column test compares, so its scale is float64 epsilon.
 _USABILITY_DEGENERATE_REL_TOL = 32.0 * np.finfo(np.float64).eps

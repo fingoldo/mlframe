@@ -159,7 +159,7 @@ def compute_rff_features(
     seed = require_seed(seed)
     if n_features < 2 or n_features % 2 != 0:
         raise ValueError(f"n_features must be even and >= 2; got {n_features}.")
-    # Wave 28 P0 fix (2026-05-20): the strict ``is not True and is not False`` type-guard rejected ``np.bool_(True)`` / ``numpy.True_`` / ``int(1)`` from upstream config or sklearn output, all of which are semantically valid bools. isinstance covers Python bool + numpy bool uniformly.
+    # The strict ``is not True and is not False`` type-guard rejected ``np.bool_(True)`` / ``numpy.True_`` / ``int(1)`` from upstream config or sklearn output, all of which are semantically valid bools. isinstance covers Python bool + numpy bool uniformly.
     import numpy as _np_for_bool
     if not isinstance(standardize, (bool, _np_for_bool.bool_)):
         raise TypeError(f"standardize must be bool (or numpy bool); got {type(standardize).__name__}.")

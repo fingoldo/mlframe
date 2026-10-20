@@ -74,13 +74,13 @@ def _handle_missing(arr: np.ndarray, *, strategy: str = "fillna_zero", nan_mask:
     post-discretize bin-assignment so NaN rows land in a dedicated max+1 bin
     per column, making MI estimators see them as an honest category.
     ``"raise"``: refuse a column with NaN.
-    ``"propagate"``: alias of ``"separate_bin"`` since the Wave 9.1
+    ``"propagate"``: alias of ``"separate_bin"`` since the
     iter-11 fix. Previously documented as "leave NaN in place" but
     that silently merged NaN rows into the column's TOP real bin via
     ``np.searchsorted`` (NaN -> ej.size = max real code), destroying
     any missingness-as-signal. Now median-fills here and the caller
-    re-routes NaN positions to the dedicated NaN bin (2026-05-30 Wave 9.1
-    iter-11 fix: propagate used to return the NaN-bearing array unchanged,
+    re-routes NaN positions to the dedicated NaN bin
+    (iter-11 fix: propagate used to return the NaN-bearing array unchanged,
     silently merging NaN rows with the highest-value real category -
     verified a NaN-is-the-signal column dropped from MI=0.69 nats under
     separate_bin to MI=0.38 under the old propagate).

@@ -991,3 +991,18 @@ def test_audit_tracker_summaries_agree_with_rows(tracker):
     from py_ci_shared.tracker_summary_parity import assert_tracker_summaries_agree
 
     assert_tracker_summaries_agree(REPO_ROOT / "audits", REPO_ROOT / tracker, statuses=_TRACKER_STATUSES)
+
+
+def test_no_import_time_global_side_effects_in_benchmarks_imported_by_tests():
+    """A benchmark module that a test imports must not change the whole process when it is imported.
+
+    The gate flags module-level ``logging.disable``, root-logger surgery, blanket warning filters, ``sys.stdout``
+    assignment and similar statements. Each xdist worker imports every collected test module, so one such statement
+    silences or reconfigures every later test in that worker. Modules no test imports are scripts and are out of scope.
+    """
+    from py_ci_shared.import_time_global_side_effects import assert_import_time_global_side_effects
+
+    assert_import_time_global_side_effects(
+        REPO_ROOT / "src" / "mlframe" / "feature_selection" / "_benchmarks",
+        imported_by=REPO_ROOT / "tests",
+    )

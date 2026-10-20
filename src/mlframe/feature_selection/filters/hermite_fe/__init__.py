@@ -484,30 +484,25 @@ from ._hermite_robust import (
 )
 
 
-from ._preprocess_sweep import (
+from ._minmax_replay import (  # re-export: the replay kernels moved out to keep this module under the size budget
+    _MINMAX_PARALLELISM_SPEC,
+    _MINMAX_SALT,
+    _MINMAX_SWEEP_N,
+    _apply_minmax,
+    _apply_minmax_njit,
+    _apply_minmax_njit_serial,
+    _make_minmax_inputs,
+    _minmax_fallback_choice,
+    _run_minmax_sweep,
+)
+from ._preprocess_sweep import (  # re-export: the preprocess replays moved out to keep this module under the size budget
     _preprocess_zscore,
     _minmax_neg1_1_njit,
     _preprocess_minmax_neg1_1,
     _preprocess_shift_nonneg,
     _apply_zscore,
-    _apply_minmax_njit,
-    _apply_minmax_njit_serial,
-    _MINMAX_SWEEP_N,
-    _MINMAX_SALT,
-    _make_minmax_inputs,
-    _run_minmax_sweep,
-    _minmax_fallback_choice,
-    _MINMAX_PARALLELISM_SPEC,
-    _apply_minmax,
     _apply_shift,
 )
-
-# Per-host serial/parallel crossover via the canonical kernel_tuning_cache (NO hardcoded threshold --
-# feedback_use_kernel_tuning_cache_for_gpu / feedback_fastest_default_with_dispatch). Dev-box measurement
-# found the crossover between n=5M (parallel 2.41x SLOWER) and n=20M (parallel 1.56x faster) -- the
-# fallback threshold below (used only pre-sweep / on tuner failure) is deliberately close to the loss
-# side for that reason, but the REAL per-host decision comes from the tuner's measured sweep.
-# Capped at 4M rows, as the other row sweeps: a 15M-row cell repeats per variant for seconds of work the crossover does not need.
 
 
 def _make_dispatch(name):

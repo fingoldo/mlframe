@@ -542,7 +542,8 @@ def compose_ltr_figure(
     tokens = parse_panel_template(panels_template)
     unknown = [t for t in tokens if t not in _TOKEN_BUILDERS]
     if unknown:
-        raise ValueError(f"Unknown LTR panel tokens {unknown}. " f"Allowed: {sorted(ALLOWED_LTR_PANEL_TOKENS)}")
+        from mlframe.reporting.catalog import unknown_panel_tokens_message
+        raise ValueError(unknown_panel_tokens_message("learning_to_rank", "LTR", unknown))
     # One shared cache per figure: the group sort + per-query NDCG kernel results are reused by every panel that needs them.
     shared: Dict[str, object] = {}
     panels: List[PanelSpec] = [_TOKEN_BUILDERS[tok](y_true, y_score, group_ids, shared) for tok in tokens]

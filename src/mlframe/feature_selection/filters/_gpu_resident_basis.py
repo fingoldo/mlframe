@@ -18,6 +18,7 @@ from __future__ import annotations
 import threading
 
 from mlframe.utils.log_throttle import log_throttle
+
 import numpy as np
 from ._fe_gpu_batch._devices import crit_float_dtype
 

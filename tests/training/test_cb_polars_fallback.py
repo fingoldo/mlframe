@@ -23,7 +23,7 @@ so we can assert end-to-end invariants.
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Tuple
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -83,7 +83,7 @@ class FakeCatBoost:
     """
 
     def __init__(self):
-        self.calls: List[Dict[str, Any]] = []
+        self.calls: list[dict[str, Any]] = []
         self.fit_error_first_call: Exception = TypeError("No matching signature found")
 
     def fit(self, X, y, **fit_params):
@@ -119,7 +119,7 @@ class FakeCatBoost:
 
 
 @pytest.fixture
-def polars_frame_with_text_cats() -> Tuple[pl.DataFrame, pl.DataFrame, List[str], List[str]]:
+def polars_frame_with_text_cats() -> tuple[pl.DataFrame, pl.DataFrame, list[str], list[str]]:
     """Build train/val polars frames + cat/text feature lists.
 
     'skills_text' mimics the production high-cardinality auto-promoted
@@ -615,7 +615,7 @@ class _FakeCBPredict:
         self._feat_names = feature_names or []
         self._cat_idx = cat_idx or []
         self._text_idx = text_idx or []
-        self.calls: List[Dict[str, Any]] = []
+        self.calls: list[dict[str, Any]] = []
 
     # CatBoost exposes these as private-but-stable helpers.
     feature_names_ = property(lambda self: self._feat_names)

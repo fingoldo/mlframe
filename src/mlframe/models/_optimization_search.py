@@ -210,7 +210,7 @@ class MBHOptimizer:
 
     @staticmethod
     def _validate_params(search_space: np.ndarray, quantile: float, acquisition_method: str, skip_best_candidate_prob: float, dist_scaling_coefficient: float, exploitation_probability: float) -> None:
-        """Reject invalid constructor settings with explicit ``ValueError``s (Wave 31, 2026-05-20).
+        """Reject invalid constructor settings with explicit ``ValueError``s.
 
         The 6-assert "Params checks" block became ``ValueError``: under ``-O`` the whole block disappeared and invalid user config (e.g. quantile=0,
         empty search_space) slipped into the surrogate-model fit and crashed deeper with opaque messages.

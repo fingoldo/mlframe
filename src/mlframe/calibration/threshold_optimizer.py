@@ -85,7 +85,7 @@ def _threshold_stability_report(
         y_true_out, y_proba_out = y_true[test_idx], y_proba[test_idx]
         if len(np.unique(y_true_out)) >= 2:
             try:
-                heldout_scores[i] = float(metric_fn(y_true_out, (y_proba_out >= fold_thresholds[i]).astype(int)))
+                heldout_scores[i] = float(metric_fn(y_true_out, apply_decision_threshold(y_proba_out, fold_thresholds[i])))
             except Exception as exc:
                 logger.debug("threshold stability: held-out scoring failed on fold %d (%s); leaving it NaN.", i, exc)
 

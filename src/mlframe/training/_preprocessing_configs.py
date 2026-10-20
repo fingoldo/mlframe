@@ -558,6 +558,8 @@ class PreprocessingExtensionsConfig(BaseConfig):
     categorical_powerset_concat_max_order: int = 2
     categorical_group_concat_auto_enabled: bool = False
     categorical_group_concat_min_mi_gain: float = 0.0
+    #: Names from ``mlframe.preprocessing.opt_in_slow.OPT_IN_SLOW`` to enable. ``None`` keeps every opt-in-slow function off.
+    opt_in_slow: Optional[List[str]] = None
     categorical_group_concat_max_group_size: Optional[int] = None
     # Shared safety cap for BOTH steps: skip (WARN, don't raise) when the detected raw categorical
     # column count exceeds this, so a wide-schema caller can't accidentally trigger a

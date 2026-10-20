@@ -637,7 +637,8 @@ def compose_multiclass_figure(
     tokens = parse_panel_template(panels_template)
     unknown = [t for t in tokens if t not in _TOKEN_BUILDERS]
     if unknown:
-        raise ValueError(f"Unknown multiclass panel tokens {unknown}. " f"Allowed: {sorted(ALLOWED_MULTICLASS_PANEL_TOKENS)}")
+        from mlframe.reporting.catalog import unknown_panel_tokens_message
+        raise ValueError(unknown_panel_tokens_message("multiclass_classification", "multiclass", unknown))
     # ``y_true`` carries the RAW class labels (commonly ``model.classes_``
     # values), which are NOT guaranteed to be the positions 0..K-1 -- the
     # target is never label-encoded upstream. Every panel builder indexes a
