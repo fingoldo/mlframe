@@ -192,7 +192,7 @@ def _as_2d_numeric(obj: Any):
     if hasattr(obj, "to_numpy") and hasattr(obj, "shape"):
         try:
             raw = obj.to_numpy()
-        except Exception as e:
+        except Exception as e:  # fallback: np.asarray below is tried when to_numpy fails
             logger.debug("to_numpy() conversion failed: %s", e)
             raw = None
         if raw is not None:
@@ -204,7 +204,7 @@ def _as_2d_numeric(obj: Any):
             try:
                 arr = np.asarray(obj)
             except Exception as exc:
-                logger.debug("_param_oracle: np.asarray(obj) failed, cannot compute stats for %r: %s", type(obj).__name__, exc)
+                logger.warning("_param_oracle: np.asarray(obj) failed, cannot compute stats for %r: %s", type(obj).__name__, exc)
                 return None
     if arr.dtype == object:
         # object arrays: treat as categorical-ish, don't try numeric stats.
@@ -419,7 +419,7 @@ def _rss_mb() -> Optional[float]:
     try:
         import psutil
         return float(psutil.Process().memory_info().rss / (1024.0 * 1024.0))
-    except Exception as exc:
+    except Exception as exc:  # fallback: psutil is optional; RSS is reported as unknown
         logger.debug("_rss_mb: RSS probe unavailable: %s", exc)
         return None
 
@@ -915,7 +915,7 @@ def _loads(s: Optional[str]) -> dict:
     try:
         return dict(orjson.loads(s))
     except Exception as exc:
-        logger.debug("_loads: lenient JSON-object load failed, returning {}: %s", exc)
+        logger.warning("_loads: lenient JSON-object load failed, returning {}: %s", exc)
         return {}
 
 

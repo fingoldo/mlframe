@@ -129,7 +129,7 @@ def _derive_max_joint_bins(max_y_bins: int) -> int:
             joint *= 2
         return joint
     except Exception as e:
-        logger.debug("_derive_max_joint_bins: shared-mem budget derivation failed, falling back to 128: %s", e)
+        logger.warning("_derive_max_joint_bins: shared-mem budget derivation failed, falling back to 128: %s", e)
         return 128
 
 

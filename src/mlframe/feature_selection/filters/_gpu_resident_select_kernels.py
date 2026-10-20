@@ -833,7 +833,7 @@ def _resolve_radix_f32_variant(n: int) -> str:
         from ._gpu_resident_radix_ktc import radix_select_f32_variant
         return str(radix_select_f32_variant(int(n)))
     except Exception:
-        logging.getLogger(__name__).debug("radix-select f32 variant KTC lookup failed; using fixed default 'v3'", exc_info=True)
+        logging.getLogger(__name__).warning("radix-select f32 variant KTC lookup failed; using fixed default 'v3'", exc_info=True)
         return "v3"
 
 

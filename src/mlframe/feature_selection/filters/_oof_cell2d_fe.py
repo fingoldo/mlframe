@@ -144,5 +144,5 @@ def cell2d_pool_candidates(df: Any, y_cont: np.ndarray, base_names: Sequence[str
             out.append(UsableCandidate(name, values, _binned_mi(values, y_codes, quantization_nbins, y_terms), rec, (str(ca), str(cb)), ()))
         return out
     except Exception as e:  # an optional enrichment of the pool; never sink the usability pass
-        logger.debug("cell2d usability candidates skipped: %s", e)
+        logger.warning("cell2d usability candidates skipped: %s", e)
         return []

@@ -32,7 +32,7 @@ def _calib_target_of(members) -> Optional[np.ndarray]:
         _arr = np.asarray(_t.to_numpy() if hasattr(_t, "to_numpy") else _t)
         return _arr if _arr.dtype.kind in "biuf" else None
     except Exception:
-        logger.debug("could not materialise calib_target for the ensemble gate", exc_info=True)
+        logger.warning("could not materialise calib_target for the ensemble gate", exc_info=True)
         return None
 
 

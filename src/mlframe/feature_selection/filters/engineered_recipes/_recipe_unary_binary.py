@@ -58,7 +58,7 @@ def _device_fit_edges(values: Any, method: str, nbins: int) -> "np.ndarray | Non
             return np.linspace(0.0, 0.0, nbins + 1)
         lo, hi = (float(v) for v in cp.stack([finite.min(), finite.max()]).get())
         return np.linspace(lo, hi, nbins + 1)
-    except Exception as e:
+    except Exception as e:  # fallback: the device edge path needs cupy; host values are used when it is absent or fails
         logger.debug("device fit-edge computation failed, using the host values: %s", e)
         return None
 

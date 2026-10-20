@@ -535,7 +535,7 @@ def cache_artefact(
                 try:
                     est = int(size_estimate(value))
                 except Exception as e:
-                    logger.debug("size_estimate() callback failed: %s", e)
+                    logger.warning("size_estimate() callback failed: %s", e)
                     est = None
             try:
                 c.put(key, value, size_estimate=est)

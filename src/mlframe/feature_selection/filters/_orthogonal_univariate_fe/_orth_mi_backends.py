@@ -73,7 +73,7 @@ def _orth_mi_gpu_enabled(*, n: int | None = None, p: int | None = None) -> bool:
         from .._fe_gpu_strict import fe_gpu_strict_enabled
         return bool(fe_gpu_strict_enabled(n=n, p=p))
     except Exception as e:
-        logger.debug("_orth_mi_gpu_enabled: fe_gpu_strict_enabled() check failed, staying on the njit dispatcher: %s", e)
+        logger.warning("_orth_mi_gpu_enabled: fe_gpu_strict_enabled() check failed, staying on the njit dispatcher: %s", e)
         return False
 
 
@@ -573,7 +573,7 @@ def _streamed_block_mi(X_dense, y_i64, nbins, dtype):
         blocks = (X_dense[:, a : a + w] for a in range(0, p, w))
         return mi_classif_streamed(blocks, y_i64, nbins=int(nbins), n_rows=n, dtype=dtype)
     except Exception:
-        logger.debug("streamed GPU MI unavailable for this slice; using the CPU column blocks.", exc_info=True)
+        logger.warning("streamed GPU MI unavailable for this slice; using the CPU column blocks.", exc_info=True)
         return None
 
 
@@ -589,7 +589,7 @@ def _block_mi_gpu_fn():
             return None
         from .._hermite_fe_mi import _plugin_mi_classif_batch_cuda
         return _plugin_mi_classif_batch_cuda
-    except Exception as _exc:
+    except Exception as _exc:  # fallback: CUDA MI is optional; column blocks run on CPU when it is unavailable
         logger.debug("GPU MI block unavailable, falling back: %s", _exc)
         return None
 
@@ -657,7 +657,7 @@ def _maybe_class_weights(y: np.ndarray):
         from ._imbalance_mi import compute_class_weights
         return compute_class_weights(y)
     except Exception as e:
-        logger.debug("compute_class_weights failed (%s: %s) -- falling through to the plain-MI path unweighted", type(e).__name__, e)
+        logger.warning("compute_class_weights failed (%s: %s) -- falling through to the plain-MI path unweighted", type(e).__name__, e)
         return None
 
 

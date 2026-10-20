@@ -180,7 +180,7 @@ class CBIterationMetricsCallback:
                 return proba[:, 1]
             return proba
         except Exception as exc:
-            logger.debug("CBIterationMetricsCallback predict failed at ntree_end=%d: %s", ntree_end, exc)
+            logger.warning("CBIterationMetricsCallback predict failed at ntree_end=%d: %s", ntree_end, exc)
             return None
 
 

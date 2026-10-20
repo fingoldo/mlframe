@@ -131,7 +131,7 @@ def _log_model_start(mlframe_model_name: str, model_idx_in_run: int, total_model
 
         _ram_gb_now = get_reported_memory_gb()
         _ram_measure = memory_measure_name()
-    except Exception as e:
+    except Exception as e:  # best-effort: the RAM figure is log-only; zeros are logged when the probe fails
         logger.debug("memory probe failed: %s", e)
         _ram_gb_now = 0.0
         _ram_measure = "?"
