@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import zlib
 
 from mlframe.utils.log_throttle import log_throttle
 import numpy as np
@@ -34,6 +33,7 @@ def _build_binned_agg_recipes(cands, raw, X, _src_bins, nbins_base, y_cls, min_c
     """Build the replayable recipe of every binned-aggregate column; with ``linear_usability`` a column the CMI gate rejects is still kept when it lifts a linear fit."""
     from mlframe.feature_selection.filters._mi_greedy_cmi_fe import _cmi_from_binned, _cmi_gpu_enabled, _renumber_joint
 
+    rejected: dict = {}
     for nm in cands.names:
         srcs = [c for c in (raw[nm].get("group_col"), raw[nm].get("agg_col")) if c in X.columns]
         z_joint = _renumber_joint(*[_src_bins(c) for c in srcs])[0] if srcs else None
@@ -91,26 +91,47 @@ def _build_binned_agg_recipes(cands, raw, X, _src_bins, nbins_base, y_cls, min_c
                     _null[_i] = c0 if np.isfinite(c0) else 0.0
             # Robust one-sided null upper tail (mean + z*std), not the noisy raw max.
             null_ceiling = float(_null.mean() + _NULL_Z * _null.std())
-        keep = np.isfinite(cmi) and cmi >= float(min_cmi_gain) and cmi > null_ceiling
-        group_col = raw[nm].get("group_col")
-        if not keep and linear_usability and srcs and group_col in X.columns:
-            # The column is a function of its group's cell, which is the partition the CMI above conditions on, so it reads as redundant to
-            # any model that can use the raw group. A linear model cannot: keep the column when it lifts an out-of-fold linear fit over
-            # the raw sources by more than its shuffled-candidate null. The seed comes from the name so `_rng` is not consumed here.
-            keep = linear_usability_keeps(
-                X[srcs].to_numpy(dtype=np.float64), cand_bin, y_cls, _src_bins(group_col), _NULL_Z, zlib.crc32(str(nm).encode("utf-8"))
-            )
-        if keep:
+        if np.isfinite(cmi) and cmi >= float(min_cmi_gain) and cmi > null_ceiling:
             kept_cols.append(nm)
-        elif reject_sink is not None:
-            try:
-                reject_sink(
-                    gate="binagg_source_redundancy", candidate=str(nm),
-                    operands=tuple(srcs), operator="binned_numeric_agg_redundancy_gate",
-                    observed=float(cmi) if np.isfinite(cmi) else 0.0,
-                    threshold=max(float(min_cmi_gain), float(null_ceiling)),
-                    reason="binagg CMI about y given its sources does not clear the permutation-null ceiling",
-                )
-            except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-                logger.debug("suppressed: %s", e)
-                pass
+        else:
+            rejected[nm] = (srcs, cmi, null_ceiling)
+    if linear_usability and rejected:
+        _keep_linearly_usable(cands, raw, X, _src_bins, nbins_base, y_cls, rejected, kept_cols)
+        order = {name: i for i, name in enumerate(cands.names)}
+        kept_cols.sort(key=order.__getitem__)
+    if reject_sink is None:
+        return
+    kept_set = set(kept_cols)
+    for nm, (srcs, cmi, null_ceiling) in rejected.items():
+        if nm in kept_set:
+            continue
+        try:
+            reject_sink(
+                gate="binagg_source_redundancy", candidate=str(nm),
+                operands=tuple(srcs), operator="binned_numeric_agg_redundancy_gate",
+                observed=float(cmi) if np.isfinite(cmi) else 0.0,
+                threshold=max(float(min_cmi_gain), float(null_ceiling)),
+                reason="binagg CMI about y given its sources does not clear the permutation-null ceiling",
+            )
+        except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+            logger.debug("suppressed: %s", e)
+            pass
+
+
+def _keep_linearly_usable(cands, raw, X, _src_bins, nbins_base, y_cls, rejected, kept_cols) -> None:
+    """Add to ``kept_cols`` the columns the CMI gate rejected that lift an out-of-fold linear fit over their raw sources.
+
+    A binned-aggregate column is a function of its group's cell, which is the partition the CMI test conditions on, so it reads as redundant to
+    any model that can use the raw group. A linear model cannot. The columns of one (group, agg) pair are tested together and the family-wise
+    level 0.05 is split over the pairs (see ``_binned_agg_linear_usability``).
+    """
+    by_pair: dict = {}
+    for nm in rejected:
+        group_col, agg_col = raw[nm].get("group_col"), raw[nm].get("agg_col")
+        if rejected[nm][0] and group_col in X.columns:
+            by_pair.setdefault((group_col, agg_col), []).append(nm)
+    level = 0.05 / max(1, len({(raw[n].get("group_col"), raw[n].get("agg_col")) for n in cands.names}))
+    for (group_col, agg_col), names in by_pair.items():
+        srcs = rejected[names[0]][0]
+        codes = {nm: cands.codes(nm, nbins_base) for nm in names}
+        kept_cols.extend(sorted(linear_usability_keeps(X, srcs, codes, y_cls, _src_bins(group_col), level, f"{group_col}|{agg_col}"), key=names.index))

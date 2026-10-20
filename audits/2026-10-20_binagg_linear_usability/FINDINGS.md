@@ -21,15 +21,25 @@ The gate scores `CMI(col; y | qbin(g), qbin(a))`. The column is a function of th
 
 ## The fix
 
-For a column the CMI gate rejects, fit class indicators of `y` linearly on the raw sources with and without the column, out of fold, and keep the column when the gain clears a null (`mean + z * std`, `z` the family-wise z the CMI gate uses). No fixed acceptance threshold. Rows are subsampled to 100000.
+For a column the CMI gate rejects, fit class indicators of `y` linearly on the raw sources with and without the column, out of fold, and keep the column when its gain is higher than a random per-cell column's. No fixed acceptance threshold. Rows are subsampled to 100000.
 
-The null is the candidate with its per-cell values permuted among the cells of the group, not the candidate shuffled across rows. A first version shuffled across rows and kept 130 aggregates of pure-noise columns on a 30-column frame with an informative group (a random value per cell correlates with a target that varies by cell). With the cell-permuted null the same frame keeps one column, `binagg_std(aux|qbin(g))`, and no noise aggregate. A candidate that does not beat the largest of the first 4 null gains is dropped without running the other 28.
+Three versions were tried, and the first two were wrong:
+
+1. Null = the candidate shuffled across rows. It broke the link with the group's cell, so with an informative group a noise column's per-cell values passed: 130 noise aggregates kept on a 30-column, 200000-row frame.
+2. Null = per-cell values permuted among the cells, decided with a z bound on the null's mean and standard deviation. With about ten cells the correlation of a random per-cell column is bounded by one, so a family-wise z of four standard deviations lies outside what any permutation can reach: 0 of 12 seeds found the real column.
+3. Current: a permutation test. The p-value is `(hits + 1) / (draws + 1)`, with hits the permutations whose gain is at least the observed one, on about `2 / level` draws made in batches with an early stop. The mean, std, skew and kurt of one (group, agg) pair are tested together with a single-step max-T adjustment (every permutation of the cells is applied to all of them), and the level 0.05 is split over the pairs (Bonferroni). Splitting it over every column puts the level below what a genuine column reaches: with ten cells its p-value is near 1e-4 to 1e-3, the resolution of the test, and power fell to about half.
+
+Measured, 30000 rows, informative group, 10 noise columns, 20 seeds: the real spread column found in 17 of 20 runs, 0 noise columns kept in any run.
 
 ## Cost
 
-200000 rows, 30 numeric columns, informative group, 4 alternating runs: 5.3 to 5.9 s without the check, 13.7 to 13.8 s with it. The base model's per-fold statistics are computed once per call, so each null draw costs only cross sums.
+200000 rows, 30 numeric columns, informative group, minimum of three runs each: 5.8 s without the check and 9.5 s with it. The first version cost 24 s more; per-pair state (subsample, folds, base design, per-(fold, cell) sums, base inverse) is built once per pair, and the training normal equations are solved through the Schur complement of the base block, so a permutation needs a few small `einsum` products and no linear solve (the 4x4 solves had been 8 of the 12 s). The result is the same: 17 of 20 seeds, no noise column. The Schur form matches a direct solve to 2e-10.
+
+## Found on the way
+
+The CMI gate alone keeps `binagg_mean(n5|qbin(g))` and `binagg_skew(n5|qbin(g))`, aggregates of a pure-noise column, at seed 5 of the 12000-row panel (6 noise columns). That is outside this change and unfixed; the panel test counts only columns the new check adds.
 
 ## Not verified
 
-- Cost at 1M rows: only 200000 was timed.
+- Cost at 1M rows, and after the final per-pair rewrite: only 200000 rows and the earlier per-candidate version were timed.
 - The probe covers one scenario family. A layout where a column survives the CMI gate on its own was not found, so the cap's effect on a gated column is unmeasured.

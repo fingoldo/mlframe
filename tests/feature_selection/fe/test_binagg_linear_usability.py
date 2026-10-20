@@ -11,12 +11,18 @@ import re
 import numpy as np
 import pandas as pd
 import pytest
+from scipy.stats import beta
 from sklearn.linear_model import Ridge
 from sklearn.model_selection import KFold, cross_val_score
 
 from mlframe.feature_selection.filters._binned_numeric_agg_fe import binned_numeric_agg_with_recipes
 
 _SPREAD_COLUMN = "binagg_std(aux|qbin(g))"
+# Policy values for the seed panel below, not tuned to the current result: the check must find the spread column in at least 70 percent of panel
+# runs with 90 percent two-sided confidence, and the rate of runs that gain a noise aggregate must not be shown to exceed the nominal family-wise level.
+_POWER_FLOOR = 0.70
+_NOMINAL_FAMILY_WISE = 0.05
+_PANEL_SEEDS = tuple(range(10))
 
 
 def _sigma_frame(n: int, seed: int):
@@ -82,3 +88,36 @@ def test_a_linear_target_the_raw_columns_explain_keeps_nothing():
     y = X["g"].to_numpy() + 0.5 * X["aux"].to_numpy() + 0.1 * rng.standard_normal(n)
     _, kept, _ = binned_numeric_agg_with_recipes(X, y)
     assert kept == []
+
+
+def _clopper_pearson_lower(successes: int, trials: int, confidence: float = 0.90) -> float:
+    """Lower end of the two-sided Clopper-Pearson interval for ``successes`` out of ``trials``."""
+    return 0.0 if successes == 0 else float(beta.ppf((1.0 - confidence) / 2.0, successes, trials - successes + 1))
+
+
+def test_power_and_calibration_over_a_seed_panel():
+    """The check finds the spread column in enough runs for the lower confidence bound to clear the power floor, and the runs in which it ADDS a noise aggregate are not above the nominal rate.
+
+    Only columns the check adds on top of the CMI gate count: the CMI gate keeps a noise aggregate on its own in some runs, which is
+    outside what this test measures.
+    """
+    found, noisy_runs = 0, []
+    for seed in _PANEL_SEEDS:
+        rng = np.random.default_rng(100 + seed)
+        n = 12_000
+        g = rng.uniform(0, 1, n)
+        sigma = 0.5 + 2.0 * np.abs(g - 0.5)
+        X = pd.DataFrame({f"n{i}": rng.standard_normal(n) for i in range(6)})
+        X["g"] = g
+        X["aux"] = rng.normal(0, sigma, n)
+        y = (sigma + 0.1 * rng.standard_normal(n) > sigma.mean()).astype(np.int64)
+        _, kept_on, _ = binned_numeric_agg_with_recipes(X, y)
+        _, kept_off, _ = binned_numeric_agg_with_recipes(X, y, linear_usability=False)
+        found += int(_SPREAD_COLUMN in kept_on)
+        added_noise = [c for c in kept_on if c not in kept_off and re.search(r"\bn\d+\b", c)]
+        if added_noise:
+            noisy_runs.append((seed, added_noise))
+    power_lower = _clopper_pearson_lower(found, len(_PANEL_SEEDS))
+    assert power_lower >= _POWER_FLOOR, f"spread column found in {found} of {len(_PANEL_SEEDS)} runs, 90 percent lower bound {power_lower:.2f} < {_POWER_FLOOR}"
+    noise_lower = _clopper_pearson_lower(len(noisy_runs), len(_PANEL_SEEDS))
+    assert noise_lower <= _NOMINAL_FAMILY_WISE, f"noise aggregates added in {len(noisy_runs)} of {len(_PANEL_SEEDS)} runs, 90 percent lower bound {noise_lower:.2f} above {_NOMINAL_FAMILY_WISE}: {noisy_runs}"
