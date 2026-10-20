@@ -48,6 +48,7 @@ def test_biz_val_ovr_warp_is_accepted_and_rank_warp_is_rejected_on_non_monotone_
     assert appended_rank == []
     assert appended_ovr and all(name.startswith("oofwarp(a,ovr") for name in appended_ovr)
     assert list(enc_ovr.columns) == appended_ovr
+    assert len(recipes_ovr) == len(appended_ovr)
     assert all(r.kind == "oof_warp1d" for r in recipes_ovr)
 
 

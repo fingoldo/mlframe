@@ -6,11 +6,17 @@ release it between suite invocations, and the suite setup is the boundary where 
 
 from __future__ import annotations
 
+import pytest
+
 from mlframe.training._lgb_shim_helpers import _LGB_DATASET_CACHE, _LGB_DATASET_CACHE_LOCK
 from mlframe.training.core import _phase_config_setup as pcs
 from mlframe.training.xgb_shim import _XGB_DMATRIX_CACHE, _XGB_DMATRIX_CACHE_LOCK
 
 _STALE_KEY = ("stale-from-previous-suite",)
+
+
+class _StopAfterGbdtClear(Exception):
+    """Raised once the GBDT clear has run, so setup does not continue with stub configs."""
 
 
 def test_suite_setup_releases_previous_suite_gbdt_dataset_caches(monkeypatch):
@@ -29,8 +35,16 @@ def test_suite_setup_releases_previous_suite_gbdt_dataset_caches(monkeypatch):
             _XGB_DMATRIX_CACHE[_STALE_KEY] = object()
         seeded.append(True)
 
+    original_gbdt_clear = pcs._clear_gbdt_dataset_caches
+
+    def _clear_then_stop_setup() -> None:
+        """Run the real GBDT clear, then stop setup here: the stub configs cannot carry a suite past this point."""
+        original_gbdt_clear()
+        raise _StopAfterGbdtClear
+
     monkeypatch.setattr(pcs, "_clear_catboost_pool_caches", _seed_then_return_from_catboost_clear)
-    try:
+    monkeypatch.setattr(pcs, "_clear_gbdt_dataset_caches", _clear_then_stop_setup)
+    with pytest.raises(_StopAfterGbdtClear):
         pcs.setup_configuration(
             preprocessing_config=None,
             pipeline_config=None,
@@ -53,8 +67,6 @@ def test_suite_setup_releases_previous_suite_gbdt_dataset_caches(monkeypatch):
             mlframe_models=None,
             verbose=0,
         )
-    except Exception:
-        pass
     assert seeded, "setup never reached the CatBoost clear; the test observed nothing"
     try:
         assert _STALE_KEY not in _LGB_DATASET_CACHE
