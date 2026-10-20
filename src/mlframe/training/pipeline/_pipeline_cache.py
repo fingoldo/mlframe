@@ -1,6 +1,6 @@
 """Pre-pipeline structural-identity + content cache.
 
-Wave 93 (2026-05-21): split out from `_pipeline_helpers.py` to keep that
+Split out from `_pipeline_helpers.py` to keep that
 file below the 1k-line threshold. Behaviour preserved bit-for-bit; every
 cache symbol is re-exported from `_pipeline_helpers` so existing
 ``from ._pipeline_helpers import _content_fingerprint_for_cache`` etc.

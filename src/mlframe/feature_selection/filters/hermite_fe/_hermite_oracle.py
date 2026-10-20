@@ -27,7 +27,7 @@ _CUDA_THRESHOLD = env_int("MLFRAME_POLYEVAL_CUDA_THRESHOLD", 500000, minimum=0)
 
 
 def _lookup_polyeval_thresholds(basis: str, n: int) -> tuple[int, int]:
-    """Wave 23 P2 (2026-05-20): consult kernel_tuning_cache for HW-tuned
+    """Consult kernel_tuning_cache for HW-tuned
     (par_threshold, cuda_threshold) crossovers; fall back to the
     source-code defaults (which are env-var-overridable for tests)."""
     try:

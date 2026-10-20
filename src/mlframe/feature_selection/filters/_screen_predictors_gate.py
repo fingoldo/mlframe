@@ -36,7 +36,7 @@ def build_dcd_state(
     existing_dcd_state: DCDState | None,
     verbose: int,
 ) -> DCDState | None:
-    """Construct the Wave 9 Dynamic Cluster Discovery state from ``dcd_config``, or return
+    """Construct the Dynamic Cluster Discovery state from ``dcd_config``, or return
     ``None`` when DCD is not requested / config is missing / init fails (fallback to legacy
     path - DCD is an opt-in accelerator, never a hard requirement for screening to proceed)."""
     if dcd_config is None or not dcd_config.get("enable", False):

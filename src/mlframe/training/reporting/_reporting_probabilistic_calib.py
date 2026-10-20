@@ -1,6 +1,6 @@
 """report_probabilistic_model_perf -- moved out of _reporting.py.
 
-Wave 97 (2026-05-21): the ~520-line ``report_probabilistic_model_perf``
+The ~520-line ``report_probabilistic_model_perf``
 function lives here so its parent module stays below the 1k-line
 monolith threshold. Behaviour preserved bit-for-bit; the symbol is
 re-exported from ``_reporting`` so existing

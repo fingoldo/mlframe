@@ -1,6 +1,6 @@
 """Change-point detection helpers for ``target_temporal_audit``.
 
-Wave 106 (2026-05-21): split out from ``training/target_temporal_audit.py``
+Split out from ``training/target_temporal_audit.py``
 to keep that file below the 1k-line monolith threshold. Behaviour preserved
 bit-for-bit; every moved symbol is re-exported from ``target_temporal_audit``
 so existing imports continue to work.

@@ -265,7 +265,7 @@ class UniversalCallback:
         self._refresh_widget()
 
     def derive_mode(self, metric_name: str) -> str:
-        """Wave 20 fix: delegate to ``metric_name_higher_is_better`` instead
+        """Delegate to ``metric_name_higher_is_better`` instead
         of the prior heuristic ladder that ended in ``endswith("e") -> "min"``.
 
         The old fallback silently classified custom metric names (``gini``,

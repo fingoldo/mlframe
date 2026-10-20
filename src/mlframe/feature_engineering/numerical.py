@@ -110,7 +110,7 @@ from ._numerical_constants import (
 def cont_entropy(arr: np.ndarray, bins: str = "scott") -> float:
     """Shannon entropy of a continuous distribution (binned).
 
-    Wave 25 bonus fix (2026-05-20): pre-fix computed
+    Earlier versions computed
     ``-(hist * log(hist + eps)).sum()`` where ``hist`` was raw integer
     counts, not normalised probabilities. That formula is NOT Shannon
     entropy; it scales with bin count and total sample size, giving

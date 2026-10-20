@@ -1,4 +1,4 @@
-"""PID XOR synergy bench (2026-05-30 Wave 8).
+"""PID XOR synergy bench.
 
 Quantifies the Williams-Beer + Ince I_ccs PID decomposition on the
 canonical synergistic gate: ``y = x1 XOR x2``. Expected theoretical

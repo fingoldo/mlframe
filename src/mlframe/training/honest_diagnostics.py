@@ -1,4 +1,4 @@
-"""Honest-estimator diagnostics aggregator (Wave 9 AP13).
+"""Honest-estimator diagnostics aggregator.
 
 Produces four artefacts at suite-finalize time so every run carries the
 machine-checkable honest-evaluation trail demanded by the 2026-05-24

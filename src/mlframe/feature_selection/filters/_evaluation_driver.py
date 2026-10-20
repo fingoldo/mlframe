@@ -234,7 +234,7 @@ def evaluate_candidates(
     group_mi: Optional[tuple] = None,
     random_seed: Optional[int] = None,
 ) -> tuple:
-    """Thread-worker entry point: re-publish the Wave 8 ``threading.local`` toggles (SU/JMIM/Bur-lambda/relax-mrmr/PID/CMI-perm/CPT/Miller-Madow/group-MI) into this worker thread, run ``_evaluate_candidates_inner`` over the workload, then restore the prior thread-local values in ``finally`` so a reused worker doesn't leak this call's settings into the next dispatch."""
+    """Thread-worker entry point: re-publish the ``threading.local`` toggles (SU/JMIM/Bur-lambda/relax-mrmr/PID/CMI-perm/CPT/Miller-Madow/group-MI) into this worker thread, run ``_evaluate_candidates_inner`` over the workload, then restore the prior thread-local values in ``finally`` so a reused worker doesn't leak this call's settings into the next dispatch."""
     # Worker-thread re-publish of the SU/JMIM/BUR toggles. The
     # try/finally guarantees we don't pollute the worker thread's locals
     # if the same worker is re-used for a subsequent dispatch with

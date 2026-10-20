@@ -148,7 +148,7 @@ class EngineeredRecipe:
         self.__post_init__()
 
     def __post_init__(self):
-        """2026-05-30 Wave 9.1 fix: freeze ``extra``.
+        """Freeze ``extra``.
 
         ``frozen=True`` blocks attribute REBIND (``recipe.extra = {}``
         raises) but NOT in-place mutation of the dict itself. Caller-

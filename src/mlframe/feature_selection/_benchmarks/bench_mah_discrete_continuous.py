@@ -1,4 +1,4 @@
-"""MAH/SCI discrete-continuous focused bench (2026-05-29 Wave 7).
+"""MAH/SCI discrete-continuous focused bench.
 
 The Marx-Yang-van Leeuwen 2021 SDM paper's headline claim is that MAH/SCI
 DOMINATES on discrete-continuous mixtures (Tables 2-4 of the paper). My

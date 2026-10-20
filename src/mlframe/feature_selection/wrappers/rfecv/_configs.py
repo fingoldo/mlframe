@@ -1,6 +1,6 @@
 """Grouped pydantic configs for ``RFECV``.
 
-The ``RFECV.__init__`` accumulated ~50 flat parameters after the Wave 1-5
+The ``RFECV.__init__`` accumulated ~50 flat parameters after the early
 audit (correctness fixes, search-strategy knobs, FI semantics, robustness
 hardening, literature extensions). This module groups the implementation
 knobs into three focused configs following the canonical mlframe pattern

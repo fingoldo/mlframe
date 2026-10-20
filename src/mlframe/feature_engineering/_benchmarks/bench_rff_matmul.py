@@ -1,4 +1,4 @@
-"""Wave 65 (2026-05-20): RFF matmul CPU-vs-GPU crossover bench.
+"""RFF matmul CPU-vs-GPU crossover bench.
 
 Closes the wave-23 deferral on `random_features.py:_should_use_gpu_rff`. The
 auto-dispatch consults `kernel_tuning_cache.lookup("rff_matmul", work=...)` for

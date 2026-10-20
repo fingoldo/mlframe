@@ -1,6 +1,6 @@
 """NaN-guard impute+scale: polars-native vs sklearn-round-trip wall-time bench.
 
-Measures the speedup of ``_apply_nan_guard``'s polars-native branch (added 2026-05-16, Wave 6) over the legacy polars -> numpy -> SimpleImputer -> StandardScaler
+Measures the speedup of ``_apply_nan_guard``'s polars-native branch (added 2026-05-16) over the legacy polars -> numpy -> SimpleImputer -> StandardScaler
 -> pandas DataFrame round-trip. The benchmark exercises a representative production shape (n_rows=100k and 1M, n_cols=30, ~10% NaN entries) so the timing
 reflects the impute+scale work, not the synth cost.
 

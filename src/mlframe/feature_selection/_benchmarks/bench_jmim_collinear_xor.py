@@ -1,4 +1,4 @@
-"""JMIM vs Fleuret-CMIM on XOR + collinear-noise reflection (Wave 8).
+"""JMIM vs Fleuret-CMIM on XOR + collinear-noise reflection.
 
 Designed per the MRMR research survey (docs/MRMR_RESEARCH.md):
 
@@ -140,7 +140,7 @@ def main():
 
     # 5) JMIM + BUR bonus.
     r5 = run_one(
-        "JMIM + BUR (full Wave 8 combo)",
+        "JMIM + BUR (full combo)",
         redundancy_aggregator="jmim", bur_lambda=0.3,
     )
     results.append(r5)

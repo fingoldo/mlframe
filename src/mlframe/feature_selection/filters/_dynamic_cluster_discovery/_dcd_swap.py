@@ -219,8 +219,7 @@ def evaluate_swap_candidate(
     The branch with the highest CMI wins (tie-break order: aggregate >
     member > none, because aggregate already passed the explicit
     permutation null when present). Both the aggregate AND the member
-    branch run the permutation null when one is requested (B > 0): the
-    Wave 9.1 iter-3 follow-up closed the member-branch side door that
+    branch run the permutation null when one is requested (B > 0). A follow-up closed the member-branch side door that
     previously bypassed it. The null's draw count is sourced from
     ``state.swap_npermutations`` (NOT the screening-confidence
     ``full_npermutations``, which only acts as the on/off switch); see the

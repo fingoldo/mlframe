@@ -316,7 +316,7 @@ def metric_name_higher_is_better(name: str) -> Optional[bool]:
         identified as the root cause of training the WORST iteration on
         custom metric names.
 
-    Wave 20 fix: replaces 6 ad-hoc substring/whitelist tables in
+    Replaces 6 ad-hoc substring/whitelist tables in
     dummy_baselines.py / _callbacks.py / _phase_composite_post.py that
     disagreed with each other and missed common classification metrics
     (F1, accuracy, R2, precision, recall, AP) AND common regression

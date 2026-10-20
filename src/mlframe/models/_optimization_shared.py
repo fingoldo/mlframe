@@ -1,6 +1,6 @@
 """Constants, enums, and small helpers shared by ``optimization.py`` and ``_optimization_search.py``.
 
-Split out (2026-07-11) to break the import cycle the Wave 100 monolith split introduced: ``optimization.py``
+Split out (2026-07-11) to break the import cycle the monolith split introduced: ``optimization.py``
 defined these names and imported ``MBHOptimizer``/``_ETRWithStd`` back from ``_optimization_search.py`` at the
 bottom (for BC re-export), while ``_optimization_search.py`` imported these shared names from ``optimization``
 at the top -- two modules each partially importing the other. Both siblings now import from this leaf module

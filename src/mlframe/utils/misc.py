@@ -73,7 +73,7 @@ def seed_numba_in_this_thread(seed: int = 42) -> None:
 def set_random_seed(seed: int = 42, set_hash_seed: bool = False, set_torch_seed: bool = False) -> None:
     """Seed everything ml-related.
 
-    Wave 49 (2026-05-20): this function INTENTIONALLY mutates the process-global
+    This function INTENTIONALLY mutates the process-global
     RNG state across random / numpy / cupy / numba / torch. It is ONLY for use
     at top-of-script / notebook setup. NEVER call this from inside fit(), predict(),
     or any library code path -- it will break determinism for sibling code in

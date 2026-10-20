@@ -1,6 +1,6 @@
 """Cat-FE GPU dispatch - batched joint MI computation across many pairs.
 
-Wave 99: split out from ``gpu.py`` to keep that file
+Split out from ``gpu.py`` to keep that file
 below the 1k-line monolith threshold. Behaviour preserved bit-for-bit;
 ``mi_direct_gpu_batched_pairs`` is re-exported from ``gpu`` so
 existing imports continue to work.

@@ -1,6 +1,6 @@
 """``RecurrentTorchModel`` -- the PyTorch Lightning recurrent model.
 
-Wave 103 (2026-05-21): split out from ``training/neural/recurrent.py`` to
+Split out from ``training/neural/recurrent.py`` to
 keep that file below the 1k-line monolith threshold. Behaviour preserved
 bit-for-bit; the class is re-exported from ``recurrent`` so existing
 imports continue to work.
