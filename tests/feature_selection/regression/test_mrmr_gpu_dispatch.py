@@ -463,7 +463,10 @@ def test_regression_resident_operand_key_includes_device_id(monkeypatch):
     """resident_operand's cache is device-scoped: the same content requested while a different cupy device is
     active must get its own resident copy, never the buffer uploaded on the first device. Observed by switching
     the reported active device id between calls on the same host array."""
-    import cupy as cp
+    cp = pytest.importorskip(
+        "cupy",
+        reason="resource missing: cupy needs a CUDA GPU host (the gpu extra); must run on the GPU CI job, not the CPU deep suite",
+    )
 
     from mlframe.feature_selection.filters import _fe_resident_operands as mod
 
