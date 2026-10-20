@@ -400,7 +400,11 @@ def fit_binned_numeric_agg(
                 globals_ = _global_stats_all(av[finite], kept_stats)
                 _globals_cache[_gk] = globals_
             # Full-data moments, needed anyway for the ``full``/``lut`` recipe lookup below.
-            full_cnt, full_mean, full_cm2, full_cm3, full_cm4 = _per_cell_moments_stable(codes[finite], av[finite], n_cells)
+            # Finite rows gathered once per (gcol, acol): every fold's train subset is a boolean mask over these
+            # compact arrays, not a fresh fancy-index gather from the full-n columns.
+            codes_fin = codes[finite]
+            av_fin = av[finite]
+            full_cnt, full_mean, full_cm2, full_cm3, full_cm4 = _per_cell_moments_stable(codes_fin, av_fin, n_cells)
             if not recipe_only:
                 # RECIPE_ONLY (device-born binagg) skips the 5-fold OOF feat-column build - the
                 # per-fold gather + np.where over the full n rows, the FE scan's single largest GPU-idle host
@@ -428,8 +432,8 @@ def fit_binned_numeric_agg(
                     # raw-power form) -- compute TRAIN directly on its own rows instead of full-minus-test
                     # (mirrors the same correctness-over-the-old-buggy-optimization tradeoff already made
                     # for target-encoding's per-category moments -- see _target_encoding_fe.py).
-                    train_fin_idx = finite_idx[fold_of_finite != f]
-                    t_cnt, t_mean, t_cm2, t_cm3, t_cm4 = _per_cell_moments_stable(codes[train_fin_idx], av[train_fin_idx], n_cells)
+                    train_fin = fold_of_finite != f
+                    t_cnt, t_mean, t_cm2, t_cm3, t_cm4 = _per_cell_moments_stable(codes_fin[train_fin], av_fin[train_fin], n_cells)
                     per = _derive_cell_stats(t_cnt, t_mean, t_cm2, t_cm3, t_cm4, kept_stats)
                     for s in kept_stats:
                         vals = per[s][ct]
