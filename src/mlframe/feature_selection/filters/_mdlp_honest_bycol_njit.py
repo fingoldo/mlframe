@@ -9,6 +9,8 @@ inner loop over permutations only gathers the permuted labels. The results are i
 
 from __future__ import annotations
 
+from collections.abc import Iterable
+
 import numpy as np
 from numba import njit, prange
 
@@ -23,7 +25,7 @@ from ._mdlp_honest_njit import (
 )
 
 
-def permuted_labels(y_raw: np.ndarray, y_codes: np.ndarray, perm_rows: np.ndarray, count: int) -> "tuple[np.ndarray, np.ndarray]":
+def permuted_labels(y_raw: np.ndarray, y_codes: np.ndarray, perm_rows: Iterable[np.ndarray], count: int) -> "tuple[np.ndarray, np.ndarray]":
     """``(y_raw[perm], y_codes[perm])`` for the first ``count`` index vectors of ``perm_rows``, each ``(count, n)``, in the narrowest signed integer
     type that holds the labels. Rows are filled as they are drawn, so no ``(count, n)`` index matrix is ever held."""
     out = []
@@ -71,7 +73,7 @@ def root_null_gain_threshold(labels: np.ndarray, n_classes_total: int, min_split
         gains[d] = g
     gains.sort()
     q_idx = max(0, min(int(np.ceil((1.0 - alpha) * n_draws)) - 1, n_draws - 1))
-    return gains[q_idx]
+    return float(gains[q_idx])
 
 
 @njit(parallel=True, cache=True)
