@@ -38,6 +38,7 @@ def test_global_stat_matches_fused_global_stats_all(seed, stat):
 def test_global_stat_empty_column_is_zero_like_fused():
     """A column with no finite values yields 0.0 from both the reference and the fused form."""
     v = np.array([np.nan, np.inf, -np.inf])
+    assert STATS
     for stat in STATS:
         assert _global_stat(v, stat) == 0.0
         assert _global_stats_all(v[np.isfinite(v)], [stat])[stat] == 0.0
@@ -65,5 +66,6 @@ def test_per_cell_stats_bincount_matches_production_composition(seed):
     got = per_cell_stats_bincount(codes, v, n_cells, STATS)
     cnt, mean, cm2, cm3, cm4 = _per_cell_moments_stable(codes, v, n_cells)
     want = _derive_cell_stats(cnt, mean, cm2, cm3, cm4, STATS)
+    assert STATS
     for stat in STATS:
         assert np.array_equal(got[stat], want[stat], equal_nan=True), stat

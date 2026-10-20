@@ -48,9 +48,9 @@
       "count": 1,
       "note": "row axis of separate GPU kernel crossover sweeps; each kernel tunes independently"
     },
-    "literal-set::(1000000, 4000000)::feature_selection/filters/_wavelet_basis_fe.py feature_selection/filters/hermite_fe/_preprocess_sweep.py": {
+    "literal-set::(1000000, 4000000)::feature_selection/filters/_wavelet_basis_fe.py feature_selection/filters/hermite_fe/_minmax_replay.py": {
       "count": 1,
-      "note": "Row-count tail of two independent per-host tuning sweeps (the Haar leg and the min-max preprocess); the 4M cap is each sweep's own memory budget, so the two lists must not move together."
+      "note": "Two unrelated sweep bounds that happen to match (the wavelet FE's sample cap and the hermite minmax replay's sample count); each is tuned for its own kernel."
     },
     "literal-set::(127, 32767)::feature_selection/filters/_mrmr_fit_impl/_fit_impl_stages/_binning.py feature_selection/filters/supervised_binning.py": {
       "count": 1,
