@@ -70,10 +70,7 @@ class TestEvalFoldClosureCapture:
     """
 
     def _find_eval_fold(self) -> ast.FunctionDef:
-        """Locate the ``_eval_fold`` FunctionDef inside ``RFECV.fit`` by AST-walking every sibling
-        ``_rfecv*.py`` helper the fit-body was split into (post-monolith-split). Excludes the
-        ``_eval_fold_body`` top-level helper -- only the closure-shaped ``def _eval_fold(...)``
-        defined inside the outer-loop matters for the default-arg B023 contract."""
+        """Locate ``_eval_fold_body``, the module-level per-fold evaluator that replaced the nested ``_eval_fold`` closure."""
         import pathlib
         import mlframe.feature_selection.wrappers.rfecv as mod_rfecv
 
@@ -81,45 +78,29 @@ class TestEvalFoldClosureCapture:
         for _p in sorted(_dir.glob("*.py")):
             with open(_p, encoding="utf-8") as f:
                 tree = ast.parse(f.read())
-            for node in ast.walk(tree):
-                if isinstance(node, ast.FunctionDef) and node.name == "_eval_fold":
+            for node in tree.body:
+                if isinstance(node, ast.FunctionDef) and node.name == "_eval_fold_body":
                     return node
-        pytest.fail("could not locate _eval_fold FunctionDef in any _rfecv*.py sibling")
-
-    @staticmethod
-    def _normalize_param(name: str) -> str:
-        """Strip the leading underscore the post-split convention uses to mark default-arg
-        capture params (``_current_features`` <- outer ``current_features``)."""
-        return name.lstrip("_")
+        pytest.fail("could not locate _eval_fold_body FunctionDef in any rfecv/*.py module")
 
     def test_eval_fold_signature_uses_default_arg_capture(self):
-        """Eval fold signature uses default arg capture."""
+        """The per-fold state that used to be closure-captured is passed as explicit parameters, not free variables."""
         fn = self._find_eval_fold()
-        param_names = [self._normalize_param(a.arg) for a in fn.args.args]
-        # We don't assert positional order beyond presence; pytest can adapt if a wrapping layer renames positional args.
-        assert "current_features" in param_names, "B023 fix lost: current_features must be a parameter, not a free var"
-        assert "scores" in param_names, "B023 fix lost: scores must be a parameter, not a free var"
+        param_names = {a.arg for a in fn.args.kwonlyargs} | {a.arg for a in fn.args.args}
+        assert "current_features" in param_names, "B023 fix lost: current_features must be an explicit parameter, not a free variable"
+        assert "scores" in param_names, "B023 fix lost: scores must be an explicit parameter, not a free variable"
 
     def test_eval_fold_default_for_current_features_is_named_current_features(self):
-        """The default-arg expression must reference ``current_features`` from the enclosing scope (not, e.g., a literal
-        ``None``); that's what gives the def-time binding."""
-        fn = self._find_eval_fold()
-        defaults = fn.args.defaults
-        raw_param_names = [a.arg for a in fn.args.args]
-        # Defaults align right-to-left with params: the last len(defaults) params receive them.
-        n = len(defaults)
-        defaulted = dict(zip(raw_param_names[-n:], defaults))
-        # Normalize: a default-arg-capture param may be either ``current_features`` (legacy) or
-        # ``_current_features`` (post-split convention to differentiate from the outer-scope name).
-        normalized = {self._normalize_param(k): (k, v) for k, v in defaulted.items()}
-        assert "current_features" in normalized, "current_features (or _current_features) must have a default-arg value"
-        assert "scores" in normalized, "scores (or _scores) must have a default-arg value"
-        # Each default expression must reference the outer-scope ``Name(<normalized>)`` -- that's the def-time binding.
-        for outer_name in ("current_features", "scores"):
-            _, d = normalized[outer_name]
-            assert (
-                isinstance(d, ast.Name) and d.id == outer_name
-            ), f"default-arg for {outer_name} must reference outer-scope Name({outer_name!r}); got {ast.dump(d)}"
+        """The evaluator is module-level, so it cannot close over the fit-loop locals: no nested ``_eval_fold`` may reappear."""
+        import pathlib
+        import mlframe.feature_selection.wrappers.rfecv as mod_rfecv
+
+        _dir = pathlib.Path(mod_rfecv.__file__).resolve().parent
+        for _p in sorted(_dir.glob("*.py")):
+            tree = ast.parse(_p.read_text(encoding="utf-8"))
+            for node in ast.walk(tree):
+                if isinstance(node, ast.FunctionDef) and node.name == "_eval_fold":
+                    pytest.fail(f"nested _eval_fold closure reintroduced in {_p.name}; it must stay a module-level function with explicit captures")
 
 
 class TestEvalFoldBehavior:
