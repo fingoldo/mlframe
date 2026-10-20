@@ -46,7 +46,10 @@ def compose_pair_fe(
     from .fe_baselines import _mi_1d
     from itertools import combinations
 
-    X = np.asarray(X, dtype=_crit_np_dtype())
+    X_in = np.asarray(X)
+    if X_in.dtype.kind != "f":
+        X_in = X_in.astype(np.float64)  # Intentional float64: the returned originals keep the input values exactly
+    X = X_in.astype(_crit_np_dtype(), copy=False)
     _n, p_orig = X.shape
     if feature_names is None:
         feature_names = [f"x{i}" for i in range(p_orig)]
@@ -156,7 +159,7 @@ def compose_pair_fe(
             logger.debug("[compose] round %d added %d features: %s", r + 1, len(new_cols), new_names)
 
     return {
-        "X_aug": cur_X, "names": cur_names,
+        "X_aug": np.column_stack([X_in, cur_X[:, p_orig:]]) if cur_X.shape[1] > p_orig else X_in, "names": cur_names,
         "rounds": rounds_log,
     }
 

@@ -16,6 +16,8 @@ dispatch-threshold, residency, or selection behavior changed.
 from __future__ import annotations
 
 from mlframe.utils.log_throttle import log_throttle
+import threading
+
 import numpy as np
 from ._fe_gpu_batch._devices import crit_float_dtype
 
@@ -50,6 +52,8 @@ def _cheb_clenshaw_gpu(cp, x, c):
             c0 = c[-i] - c1
             c1 = tmp + c1 * x2
     return c0 + c1 * x
+
+_KERNEL_LOCK = threading.Lock()
 
 
 def _leg_clenshaw_gpu(cp, x, c):
@@ -170,11 +174,12 @@ _CLENSHAW_KERNELS: dict = {}
 
 def _get_clenshaw_kernel(real_t: str = "double"):
     """Lazily compile-and-cache the ``clenshaw_basis`` RawKernel for the element type ``real_t`` (``"float"`` or ``"double"``); the recurrence runs in double either way."""
-    kern = _CLENSHAW_KERNELS.get(real_t)
-    if kern is None:
-        import cupy as cp
-        kern = cp.RawKernel(_CLENSHAW_SRC.replace("{REAL}", real_t), "clenshaw_basis")
-        _CLENSHAW_KERNELS[real_t] = kern
+    with _KERNEL_LOCK:
+        kern = _CLENSHAW_KERNELS.get(real_t)
+        if kern is None:
+            import cupy as cp
+            kern = cp.RawKernel(_CLENSHAW_SRC.replace("{REAL}", real_t), "clenshaw_basis")
+            _CLENSHAW_KERNELS[real_t] = kern
     return kern
 
 
@@ -340,10 +345,11 @@ _ROBUST_SCALE_COMBINE_KERNELS: dict = {}
 
 def _get_robust_scale_combine_kernel(cp, real_t: str = "double"):
     """Lazily compile-and-cache the ``robust_scale_combine`` RawKernel for the element type ``real_t`` (fuses the MAD/IQR-fallback/degenerate combine into one launch)."""
-    kern = _ROBUST_SCALE_COMBINE_KERNELS.get(real_t)
-    if kern is None:
-        kern = cp.RawKernel(_ROBUST_SCALE_COMBINE_SRC.replace("{REAL}", real_t), "robust_scale_combine")
-        _ROBUST_SCALE_COMBINE_KERNELS[real_t] = kern
+    with _KERNEL_LOCK:
+        kern = _ROBUST_SCALE_COMBINE_KERNELS.get(real_t)
+        if kern is None:
+            kern = cp.RawKernel(_ROBUST_SCALE_COMBINE_SRC.replace("{REAL}", real_t), "robust_scale_combine")
+            _ROBUST_SCALE_COMBINE_KERNELS[real_t] = kern
     return kern
 
 
@@ -434,10 +440,11 @@ _HEAVY_TAIL_STATS_KERNELS: dict = {}
 
 def _get_heavy_tail_stats_kernel(cp, real_t: str = "double"):
     """Lazily compile-and-cache the ``heavy_tail_stats`` RawKernel for the element type ``real_t`` (``"float"`` or ``"double"``)."""
-    kern = _HEAVY_TAIL_STATS_KERNELS.get(real_t)
-    if kern is None:
-        kern = cp.RawKernel(_HEAVY_TAIL_STATS_SRC.replace("{REAL}", real_t), "heavy_tail_stats")
-        _HEAVY_TAIL_STATS_KERNELS[real_t] = kern
+    with _KERNEL_LOCK:
+        kern = _HEAVY_TAIL_STATS_KERNELS.get(real_t)
+        if kern is None:
+            kern = cp.RawKernel(_HEAVY_TAIL_STATS_SRC.replace("{REAL}", real_t), "heavy_tail_stats")
+            _HEAVY_TAIL_STATS_KERNELS[real_t] = kern
     return kern
 
 
@@ -523,10 +530,11 @@ _BASIS_PREPROCESS_KERNELS: dict = {}
 
 def _get_basis_preprocess_kernel(cp, real_t: str = "double"):
     """Lazily compile-and-cache the robust ``basis_preprocess`` RawKernel for the element type ``real_t`` (per-basis clipped rescale: z-score/min-max/shift, robust lo/hi already computed; arithmetic in double)."""
-    kern = _BASIS_PREPROCESS_KERNELS.get(real_t)
-    if kern is None:
-        kern = cp.RawKernel(_BASIS_PREPROCESS_SRC.replace("{REAL}", real_t), "basis_preprocess")
-        _BASIS_PREPROCESS_KERNELS[real_t] = kern
+    with _KERNEL_LOCK:
+        kern = _BASIS_PREPROCESS_KERNELS.get(real_t)
+        if kern is None:
+            kern = cp.RawKernel(_BASIS_PREPROCESS_SRC.replace("{REAL}", real_t), "basis_preprocess")
+            _BASIS_PREPROCESS_KERNELS[real_t] = kern
     return kern
 
 
@@ -558,10 +566,11 @@ _BASIS_PREPROCESS_NR_KERNELS: dict = {}
 
 def _get_basis_preprocess_nr_kernel(cp, real_t: str = "double"):
     """Lazily compile-and-cache the non-robust ``basis_preprocess_nr`` RawKernel (unclipped per-basis rescale from precomputed p0/p1 params)."""
-    kern = _BASIS_PREPROCESS_NR_KERNELS.get(real_t)
-    if kern is None:
-        kern = cp.RawKernel(_BASIS_PREPROCESS_NR_SRC.replace("{REAL}", real_t), "basis_preprocess_nr")
-        _BASIS_PREPROCESS_NR_KERNELS[real_t] = kern
+    with _KERNEL_LOCK:
+        kern = _BASIS_PREPROCESS_NR_KERNELS.get(real_t)
+        if kern is None:
+            kern = cp.RawKernel(_BASIS_PREPROCESS_NR_SRC.replace("{REAL}", real_t), "basis_preprocess_nr")
+            _BASIS_PREPROCESS_NR_KERNELS[real_t] = kern
     return kern
 
 
@@ -593,10 +602,11 @@ def _col_meanstd(cp, Mc):
     """Per-column mean AND std (ddof=0, two-pass) of a C-contiguous (n, K) f64 matrix in ONE launch (vs
     Mc.mean(axis=0) + Mc.std(axis=0)). Same two-pass formula as cupy std -> rel ~1e-13 (basis path tol 1e-6)."""
     real_t = "float" if Mc.dtype == cp.float32 else "double"
-    kern = _COL_MEANSTD_KERNELS.get(real_t)
-    if kern is None:
-        kern = cp.RawKernel(_COL_MEANSTD_SRC.replace("{REAL}", real_t), "col_meanstd")
-        _COL_MEANSTD_KERNELS[real_t] = kern
+    with _KERNEL_LOCK:
+        kern = _COL_MEANSTD_KERNELS.get(real_t)
+        if kern is None:
+            kern = cp.RawKernel(_COL_MEANSTD_SRC.replace("{REAL}", real_t), "col_meanstd")
+            _COL_MEANSTD_KERNELS[real_t] = kern
     n, K = int(Mc.shape[0]), int(Mc.shape[1])
     mean = cp.empty(K, dtype=Mc.dtype)
     std = cp.empty(K, dtype=Mc.dtype)
@@ -655,10 +665,11 @@ def _col_minmax(cp, Mc):
     """Per-column min AND max of a C-contiguous (n, K) f64 matrix in ONE launch (vs Mc.min(axis=0) +
     Mc.max(axis=0)). min/max reduce order-independently -> bit-identical. Returns (mn (K,), mx (K,))."""
     real_t = "float" if Mc.dtype == cp.float32 else "double"
-    kern = _COL_MINMAX_KERNELS.get(real_t)
-    if kern is None:
-        kern = cp.RawKernel(_COL_MINMAX_SRC.replace("{REAL}", real_t), "col_minmax")
-        _COL_MINMAX_KERNELS[real_t] = kern
+    with _KERNEL_LOCK:
+        kern = _COL_MINMAX_KERNELS.get(real_t)
+        if kern is None:
+            kern = cp.RawKernel(_COL_MINMAX_SRC.replace("{REAL}", real_t), "col_minmax")
+            _COL_MINMAX_KERNELS[real_t] = kern
     n, K = int(Mc.shape[0]), int(Mc.shape[1])
     mn = cp.empty(K, dtype=Mc.dtype)
     mx = cp.empty(K, dtype=Mc.dtype)
@@ -815,11 +826,12 @@ _ABS_CORR_KERNELS: dict = {}
 
 def _get_abs_corr_kernel(real_t: str = "double"):
     """Lazily compile-and-cache the ``abs_corr`` RawKernel for the input element type ``real_t`` (``"float"`` or ``"double"``); the sums accumulate in double either way."""
-    kern = _ABS_CORR_KERNELS.get(real_t)
-    if kern is None:
-        import cupy as cp
-        kern = cp.RawKernel(_ABS_CORR_SRC.replace("{REAL}", real_t), "abs_corr")
-        _ABS_CORR_KERNELS[real_t] = kern
+    with _KERNEL_LOCK:
+        kern = _ABS_CORR_KERNELS.get(real_t)
+        if kern is None:
+            import cupy as cp
+            kern = cp.RawKernel(_ABS_CORR_SRC.replace("{REAL}", real_t), "abs_corr")
+            _ABS_CORR_KERNELS[real_t] = kern
     return kern
 
 

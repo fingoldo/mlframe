@@ -105,15 +105,15 @@ class ConditionalPartnerGate:
         y = y - y.min()
         z = z - z.min()
         ky, kz = int(y.max()) + 1, int(z.max()) + 1
-        observed = np.empty(len(self._cand), dtype=np.float64)
+        observed = np.empty(len(self._cand), dtype=np.float64)  # Intentional float64: observed MI statistic
         with parallel_kernel_entry():
             _conditional_mi_columns(codes, widths, y, z, ky, kz, observed)
         order = np.argsort(z, kind="stable")
         bounds = np.flatnonzero(np.diff(z[order])) + 1
         strata = np.split(order, bounds)
         rng = np.random.default_rng(self._seed + 7919 * strong_idx)
-        maxima = np.empty(N_PERMUTATIONS, dtype=np.float64)
-        scratch = np.empty(len(self._cand), dtype=np.float64)
+        maxima = np.empty(N_PERMUTATIONS, dtype=np.float64)  # Intentional float64: per-permutation maxima, a statistic
+        scratch = np.empty(len(self._cand), dtype=np.float64)  # Intentional float64: MI scratch, a statistic
         for r in range(N_PERMUTATIONS):
             y_perm = y.copy()
             for idx in strata:

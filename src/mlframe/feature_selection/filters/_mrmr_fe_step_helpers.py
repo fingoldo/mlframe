@@ -390,6 +390,57 @@ def _gate_seeded_triples_order3(
         return list(seeded_triples)
 
 
+def _pair_maxt_floor_cupy_twin(self, floor, data, nbins, classes_y, freqs_y, pair_a, pair_b, n_perms, mm_debias, bias_vec):
+    """The resident cupy twin of the order-2 maxT floor, tried when the one-launch kernel declined (``floor`` is ``None``); a fault trips the process circuit breaker and returns ``None`` so the CPU floor runs."""
+    _pair_maxt_floor = floor
+    _maxt_pa, _maxt_pb, _pair_maxt_perms, _mm_debias, _bias_vec = pair_a, pair_b, n_perms, mm_debias, bias_vec
+    try:
+        from ._permutation_null_pair_resident import (
+            pair_maxt_perm_null_gpu_enabled,
+            pooled_pair_permutation_null_joint_mi_floor_cupy,
+            trip_pair_maxt_gpu_circuit_breaker,
+        )
+
+        if _pair_maxt_floor is None and pair_maxt_perm_null_gpu_enabled(int(data.shape[0]), len(_maxt_pa)):
+            _pair_maxt_floor = pooled_pair_permutation_null_joint_mi_floor_cupy(
+                factors_data=data,
+                pair_a=_maxt_pa,
+                pair_b=_maxt_pb,
+                nbins=nbins,
+                classes_y=classes_y,
+                freqs_y=freqs_y,
+                n_permutations=_pair_maxt_perms,
+                quantile=float(getattr(self, "fe_pair_maxt_null_quantile", 0.95)),
+                mm_debias=_mm_debias,
+                mm_bias=_bias_vec,
+                random_seed=getattr(self, "random_seed", None),
+            )
+    except Exception:
+        # A silent bare fallback here made a ~1h CPU floor invisible (the resident cupy path faults
+        # on WDDM-TDR / cudaErrorLaunchFailure on a 4 GB GTX 1050 Ti). WARN once and TRIP the process
+        # circuit breaker so every later pair-maxT floor skips the poisoned GPU context immediately
+        # and goes straight to the exact CPU njit floor below (no futile per-call re-fault).
+        logger.warning(
+            "MRMR FE: resident-GPU order-2 maxT permutation-null floor faulted; tripping the GPU "
+            "circuit breaker and falling back to the CPU njit floor for the rest of this process.",
+            exc_info=True,
+        )
+        try:
+            trip_pair_maxt_gpu_circuit_breaker()
+        except Exception as e:
+            # The breaker's whole job is to make the fault above recoverable: without it every later
+            # pair re-faults the same poisoned CUDA context and re-enters this handler, which is how a
+            # ~1h CPU floor went invisible once already. A failure to ARM it must not be quieter than
+            # the fault it guards against.
+            logger.warning(
+                "MRMR FE: failed to trip the pair-maxT GPU circuit breaker (%s: %s); every later pair "
+                "will re-fault the poisoned CUDA context instead of skipping straight to the CPU floor.",
+                type(e).__name__, e,
+            )
+        _pair_maxt_floor = None
+    return _pair_maxt_floor
+
+
 def compute_pair_maxt_floor(
     self,
     *,
@@ -463,50 +514,7 @@ def compute_pair_maxt_floor(
                 )
             except DeviceKernelDeclinedError:
                 _pair_maxt_floor = None
-            try:
-                from ._permutation_null_pair_resident import (
-                    pair_maxt_perm_null_gpu_enabled,
-                    pooled_pair_permutation_null_joint_mi_floor_cupy,
-                    trip_pair_maxt_gpu_circuit_breaker,
-                )
-
-                if _pair_maxt_floor is None and pair_maxt_perm_null_gpu_enabled(int(data.shape[0]), len(_maxt_pa)):
-                    _pair_maxt_floor = pooled_pair_permutation_null_joint_mi_floor_cupy(
-                        factors_data=data,
-                        pair_a=_maxt_pa,
-                        pair_b=_maxt_pb,
-                        nbins=nbins,
-                        classes_y=classes_y,
-                        freqs_y=freqs_y,
-                        n_permutations=_pair_maxt_perms,
-                        quantile=float(getattr(self, "fe_pair_maxt_null_quantile", 0.95)),
-                        mm_debias=_mm_debias,
-                        mm_bias=_bias_vec,
-                        random_seed=getattr(self, "random_seed", None),
-                    )
-            except Exception:
-                # A silent bare fallback here made a ~1h CPU floor invisible (the resident cupy path faults
-                # on WDDM-TDR / cudaErrorLaunchFailure on a 4 GB GTX 1050 Ti). WARN once and TRIP the process
-                # circuit breaker so every later pair-maxT floor skips the poisoned GPU context immediately
-                # and goes straight to the exact CPU njit floor below (no futile per-call re-fault).
-                logger.warning(
-                    "MRMR FE: resident-GPU order-2 maxT permutation-null floor faulted; tripping the GPU "
-                    "circuit breaker and falling back to the CPU njit floor for the rest of this process.",
-                    exc_info=True,
-                )
-                try:
-                    trip_pair_maxt_gpu_circuit_breaker()
-                except Exception as e:
-                    # The breaker's whole job is to make the fault above recoverable: without it every later
-                    # pair re-faults the same poisoned CUDA context and re-enters this handler, which is how a
-                    # ~1h CPU floor went invisible once already. A failure to ARM it must not be quieter than
-                    # the fault it guards against.
-                    logger.warning(
-                        "MRMR FE: failed to trip the pair-maxT GPU circuit breaker (%s: %s); every later pair "
-                        "will re-fault the poisoned CUDA context instead of skipping straight to the CPU floor.",
-                        type(e).__name__, e,
-                    )
-                _pair_maxt_floor = None
+            _pair_maxt_floor = _pair_maxt_floor_cupy_twin(self, _pair_maxt_floor, data, nbins, classes_y, freqs_y, _maxt_pa, _maxt_pb, _pair_maxt_perms, _mm_debias, _bias_vec)
             if _pair_maxt_floor is None:
                 _pair_maxt_floor = pooled_pair_permutation_null_joint_mi_floor(
                     factors_data=data,

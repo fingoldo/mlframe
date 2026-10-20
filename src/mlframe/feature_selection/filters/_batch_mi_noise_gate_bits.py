@@ -86,18 +86,16 @@ _LOCK = threading.Lock()
 def _pack_module(cp: Any, cap: int, n_y: int, c_type: str) -> Any:
     """The compiled packing kernels for ``cap`` bins, ``n_y`` classes and one code type, built once per process."""
     key = (cap, n_y, c_type)
-    mod = _modules.get(key)
-    if mod is None:
-        with _LOCK:
-            mod = _modules.get(key)
-            if mod is None:
-                mod = cp.RawModule(code=_PACK_SRC.replace("{DT}", c_type), options=(f"-DCAP={int(cap)}", f"-DNYC={int(n_y)}"))
-                _modules[key] = mod
-    return mod
+    with _LOCK:
+        mod = _modules.get(key)
+        if mod is None:
+            mod = cp.RawModule(code=_PACK_SRC.replace("{DT}", c_type), options=(f"-DCAP={int(cap)}", f"-DNYC={int(n_y)}"))
+            _modules[key] = mod
+        return mod
 
 
 def bits_gate_mi(d_disc: Any, nbins_arr: np.ndarray, d_y_all: Any, n_y: int) -> Optional[np.ndarray]:
-    """``(P, K)`` plug-in MI (host float64) of every column of the resident ``(n, K)`` codes against every row of the resident ``(P, n)`` target matrix, or ``None`` when the bit-set kernel does not apply.
+    """``(P, K)`` plug-in MI (host double precision) of every column of the resident ``(n, K)`` codes against every row of the resident ``(P, n)`` target matrix, or ``None`` when the bit-set kernel does not apply.
 
     It declines a code type it has no packing kernel for, more bins than ``MAX_BINS``, class bit sets that do not fit a block's shared memory, and any device failure (the caller then runs the histogram gate).
     """
@@ -148,7 +146,7 @@ def bits_gate_mi(d_disc: Any, nbins_arr: np.ndarray, d_y_all: Any, n_y: int) -> 
             )
             out[:, lo:hi] = part
             del bits, px, part
-        host: np.ndarray = cp.asnumpy(out).astype(np.float64, copy=False)
+        host: np.ndarray = cp.asnumpy(out).astype(np.float64, copy=False)  # Intentional float64: MI output contract of the kernel is double precision
         return host
     except Exception as exc:  # nosec B110 - any device or compile failure falls back to the histogram gate
         logger.warning("bit-set noise gate unavailable (%s: %s); using the histogram gate", type(exc).__name__, exc)

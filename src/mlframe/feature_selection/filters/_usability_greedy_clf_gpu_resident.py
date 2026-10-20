@@ -49,6 +49,8 @@ import numpy as np
 from ._fe_gpu_batch._devices import crit_float_dtype
 from ._fe_usability_signal import _crit_np_dtype
 
+from ._usability_greedy_clf_batched import make_cv_candidates_binary
+
 logger = logging.getLogger(__name__)
 
 
@@ -66,8 +68,14 @@ class _ResidentClfFallbackError(Exception):
 _NEWTON_MAX_ITER = 200
 _NEWTON_TOL = 1e-9
 _NEWTON_TOL_F32 = 2e-4  # a float32 Newton step cannot fall below ~1e-6 of the weights; 1e-9 is never reached, so every fit fell back to the CPU
+def _newton_tol(dtype) -> float:
+    """The Newton stop on the largest step for the element type of the fit."""
+    return _NEWTON_TOL_F32 if np.dtype(dtype) == np.dtype(np.float32) else _NEWTON_TOL
+
+
 _C = 1.0  # sklearn LogisticRegression default inverse-regularisation strength
 _LOGLOSS_EPS = 1e-15
+_FULL_CORR_MAX_COLS = 4096  # the P x P diversity matrix stays under ~70 MB in float32
 
 
 # Why MULTICLASS stays on the exact CPU path in ``usability_greedy_clf_gpu_resident`` (the in-function branch returns None for n_classes > 2):
@@ -234,11 +242,16 @@ def usability_greedy_clf_gpu_resident(
                 errs[fo] = _logloss(yenc_dev[va], proba)
             return errs
 
+        _cv_candidates = make_cv_candidates_binary(
+            cp, Vdev, yenc_dev, tr_masks, va_masks, [int(np.unique(y_enc[tr_masks_h[fo]]).size) >= 2 for fo in range(nf)], dtype=crit_float_dtype(), newton_max_iter=_NEWTON_MAX_ITER,
+            tol=_newton_tol(crit_float_dtype()), lam=1.0 / _C, logloss_eps=_LOGLOSS_EPS, fallback_error=_ResidentClfFallbackError,
+        )
+
         min_improving_folds = max(1, math.ceil(0.75 * nf))
         selected: list = []
         folds_cur = _cv_baseline()
         cur = float(folds_cur.mean())
-        _usability_greedy_c_range_min(K, P, _shortlist, selected, cur, folds_cur, _cv_candidate, min_improving_folds, mae_improve_rel)
+        _usability_greedy_c_range_min(K, P, _shortlist, selected, cur, folds_cur, _cv_candidate, min_improving_folds, mae_improve_rel, _cv_candidates)
         return [pool[i] for i in selected]
     except _ResidentClfFallbackError as e:
         logger.debug("usability_greedy_clf_gpu_resident: non-convergent/singular/degenerate device fit, falling back to the exact CPU greedy: %s", e)
@@ -275,7 +288,7 @@ def _usability_greedy_clf_step1_def_fit_binary(cp, n_classes):
             wv = wv - step
             if not bool(cp.all(cp.isfinite(wv))):
                 raise _ResidentClfFallbackError()
-            if float(cp.max(cp.abs(step))) < (_NEWTON_TOL_F32 if A.dtype == cp.float32 else _NEWTON_TOL):
+            if float(cp.max(cp.abs(step))) < _newton_tol(A.dtype):
                 break
         else:
             raise _ResidentClfFallbackError()  # did not converge -> defer to CPU
@@ -333,7 +346,7 @@ def _usability_greedy_clf_step1_def_fit_binary(cp, n_classes):
             Wm = Wm - step.reshape(d, n_classes)
             if not bool(cp.all(cp.isfinite(Wm))):
                 raise _ResidentClfFallbackError()
-            if float(cp.max(cp.abs(step))) < (_NEWTON_TOL_F32 if A.dtype == cp.float32 else _NEWTON_TOL):
+            if float(cp.max(cp.abs(step))) < _newton_tol(A.dtype):
                 break
         else:
             raise _ResidentClfFallbackError()
@@ -446,24 +459,50 @@ def _usability_greedy_clf_step3_def_shortlist_sel(va_masks, tr_masks, y_enc, tr_
         # genuinely different candidate. One GEMV per kept candidate via _abscorr_batch, resident.
         out_idx: list[int] = []
         corr_vs_kept: list[np.ndarray] = []
+        full_corr = _full_corr()
         for i, _s in scored:
             if any(float(cvk[i]) > shortlist_diversity_corr for cvk in corr_vs_kept):
                 continue
             out_idx.append(i)
             if len(out_idx) >= max(1, shortlist):
                 break
-            corr_vs_kept.append(_abscorr_batch(Vdev[:, i], None))
+            corr_vs_kept.append(full_corr[i] if full_corr is not None else _abscorr_batch(Vdev[:, i], None))
         return out_idx
+
+    _corr_cache: list = []
+
+    def _full_corr():
+        """Host ``(P, P)`` matrix of |Pearson corr| between every pair of pool columns (degenerate columns 0.0), built once by one GEMM; ``None`` when the pool is too wide for a P x P block.
+
+        The diversity filter compares a candidate with the kept ones over all rows, independent of the round, so every kept candidate's row is this matrix's row (the per-candidate
+        ``_abscorr_batch(Vdev[:, i], None)`` it replaces is a GEMV per kept candidate)."""
+        if _corr_cache:
+            return _corr_cache[0]
+        if P > _FULL_CORR_MAX_COLS:
+            _corr_cache.append(None)
+            return None
+        import cupy as cp
+
+        Mc = Vdev - Vdev.mean(axis=0, keepdims=True)
+        ssc = (Mc * Mc).sum(axis=0)
+        valid = (Vdev.std(axis=0) >= 1e-12) & (ssc > 0.0)
+        Z = cp.where(valid, Mc / cp.sqrt(cp.where(valid, ssc, 1.0)), 0.0)
+        C = cp.abs(Z.T @ Z)
+        C = cp.where(cp.isfinite(C), C, 0.0)
+        _corr_cache.append(np.asarray(cp.asnumpy(C)))
+        return _corr_cache[0]
     return _shortlist
 
 
-def _usability_greedy_c_range_min(K, P, _shortlist, selected, cur, folds_cur, _cv_candidate, min_improving_folds, mae_improve_rel):
+def _usability_greedy_c_range_min(K, P, _shortlist, selected, cur, folds_cur, _cv_candidate, min_improving_folds, mae_improve_rel, _cv_candidates=None):
     """Block of usability_greedy_clf_gpu_resident starting at ``for _ in range(min(K, P)):``."""
     for _ in range(min(K, P)):
         cand_idx = _shortlist(selected)
         best_i, best_mean, best_folds = -1, cur, folds_cur
-        for i in cand_idx:
-            mf = _cv_candidate(selected, i)
+        cand_list = [int(i) for i in cand_idx]
+        batch = _cv_candidates(selected, cand_list) if _cv_candidates is not None and cand_list else None
+        for pos, i in enumerate(cand_list):
+            mf = batch[pos] if batch is not None else _cv_candidate(selected, i)
             if int(np.sum(mf < folds_cur)) < min_improving_folds:
                 continue
             if float(mf.mean()) < best_mean:

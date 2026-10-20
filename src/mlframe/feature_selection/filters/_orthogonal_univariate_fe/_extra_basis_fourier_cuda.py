@@ -54,15 +54,13 @@ _LOCK = threading.Lock()
 
 def _kernel(cp: Any, real: str) -> Any:
     """The compiled kernel for one element type, built once per process."""
-    kern = _kernels.get(real)
-    if kern is None:
-        with _LOCK:
-            kern = _kernels.get(real)
-            if kern is None:
-                source = _SRC.replace("{MUL_RN}", "__fmul_rn" if real == "float" else "__dmul_rn").replace("{REAL}", real)
-                kern = cp.RawModule(code=source).get_function("fourier_block")
-                _kernels[real] = kern
-    return kern
+    with _LOCK:
+        kern = _kernels.get(real)
+        if kern is None:
+            source = _SRC.replace("{MUL_RN}", "__fmul_rn" if real == "float" else "__dmul_rn").replace("{REAL}", real)
+            kern = cp.RawModule(code=source).get_function("fourier_block")
+            _kernels[real] = kern
+        return kern
 
 
 def _axis_params(m: dict) -> "tuple[float, float, float, float, int, int]":
@@ -80,13 +78,13 @@ def _axis_params(m: dict) -> "tuple[float, float, float, float, int, int]":
 def fourier_block_cuda(cp: Any, columns: "list[Any]", metas: "list[dict]") -> Optional[Any]:
     """``(len(metas), n)`` block of the Fourier / chirp columns, row ``j`` built from the device column ``columns[j]`` with ``metas[j]``, or ``None`` when the kernel is unavailable.
 
-    ``columns`` are resident ``(n,)`` operands of one floating dtype (float32 or float64); the block is in that dtype.
+    ``columns`` are resident ``(n,)`` operands of one floating dtype (single or double precision); the block is in that dtype.
     """
     try:
         if not columns:
             return None
         dtype = columns[0].dtype
-        if dtype not in (np.dtype(np.float32), np.dtype(np.float64)) or any(c.dtype != dtype for c in columns):
+        if dtype not in (np.dtype(np.float32), np.dtype(np.float64)) or any(c.dtype != dtype for c in columns):  # Intentional float64: the two element types the kernel is templated for
             return None
         n = int(columns[0].shape[0])
         if any(int(c.shape[0]) != n for c in columns):
@@ -101,7 +99,7 @@ def fourier_block_cuda(cp: Any, columns: "list[Any]", metas: "list[dict]") -> Op
                 index[id(col)] = slot
                 stacked.append(col)
             src[j] = slot
-        params = np.array([_axis_params(m) for m in metas], dtype=np.float64)
+        params = np.array([_axis_params(m) for m in metas], dtype=np.float64)  # Intentional float64: axis parameters are formed in double precision and rounded once to the element type
         cosine = np.array([1 if m.get("kind") != "sin" else 0 for m in metas], dtype=np.int32)
         # Intentional float64: the angle weight 2 pi freq is formed in double precision (as in the per-column function) and rounded once to the element type
         weight = np.array([(2.0 * math.pi) * float(m["freq"]) for m in metas], dtype=np.float64)

@@ -129,6 +129,12 @@ def _product(u: np.ndarray, v: np.ndarray, s: float, t: float, fill_u: float, fi
     v = np.where(np.isfinite(v), v, fill_v)
     return (u + s) * (v + t)
 
+def _replay_column(col) -> np.ndarray:
+    """A source column in the frame's own floating dtype, as the fit reads it (so a replayed column equals the fitted one); other dtypes go to the critical dtype."""
+    arr = np.asarray(col)
+    return arr if arr.dtype.kind == "f" else arr.astype(_crit_np_dtype())
+
+
 def apply_offset_product_recipe(recipe: EngineeredRecipe, X: pd.DataFrame | pl.DataFrame) -> np.ndarray:
     """Replay one offset-product column from the stored shifts; a pure function of the two source columns."""
     from .engineered_recipes.shared import extract_column
@@ -141,8 +147,8 @@ def apply_offset_product_recipe(recipe: EngineeredRecipe, X: pd.DataFrame | pl.D
     for un in (ua, ub):
         if un not in funcs:
             raise KeyError(f"Unary function '{un}' not in '{recipe.unary_preset}' preset. Replay requires the same preset that was active at fit time.")
-    u = _apply_unary(funcs, ua, np.asarray(extract_column(X, recipe.src_names[0]), dtype=_crit_np_dtype()), ex["log_shift_u"])
-    v = _apply_unary(funcs, ub, np.asarray(extract_column(X, recipe.src_names[1]), dtype=_crit_np_dtype()), ex["log_shift_v"])
+    u = _apply_unary(funcs, ua, _replay_column(extract_column(X, recipe.src_names[0])), ex["log_shift_u"])
+    v = _apply_unary(funcs, ub, _replay_column(extract_column(X, recipe.src_names[1])), ex["log_shift_v"])
     out = _product(u, v, ex["s"], ex["t"], ex["fill_u"], ex["fill_v"])
     return np.asarray(np.clip(out, ex["clip_lo"], ex["clip_hi"]))
 

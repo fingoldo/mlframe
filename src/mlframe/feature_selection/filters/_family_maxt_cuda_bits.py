@@ -8,6 +8,8 @@ block of permutations; only the ``B x classes x words`` class bit sets of a bloc
 
 from __future__ import annotations
 
+import threading
+
 import numpy as np
 
 _SOURCE = r"""
@@ -38,6 +40,7 @@ extern "C" __global__ void family_null_bits(const unsigned long long* __restrict
 """
 
 _kernels: dict = {}
+_LOCK = threading.Lock()
 _THREADS = 128
 
 # One block per (permutation, tile of columns). The permutation's class bit sets sit in shared memory (every thread of the block reads the same word: a broadcast), and each thread reads a word of its
@@ -83,11 +86,12 @@ _SHARED_MARGIN = 1024
 
 def _get_kernel_v2(cp, ny1: int, real: str):
     """Compile the shared-memory kernel for ``ny1 = n_y - 1`` stored classes and one element type (one binary per pair)."""
-    kern = _kernels_v2.get((ny1, real))
-    if kern is None:
-        kern = cp.RawModule(code=_SOURCE_V2.replace("{REAL}", real), options=(f"-DNY1={int(ny1)}",)).get_function("family_null_bits_v2")
-        _kernels_v2[(ny1, real)] = kern
-    return kern
+    with _LOCK:
+        kern = _kernels_v2.get((ny1, real))
+        if kern is None:
+            kern = cp.RawModule(code=_SOURCE_V2.replace("{REAL}", real), options=(f"-DNY1={int(ny1)}",)).get_function("family_null_bits_v2")
+            _kernels_v2[(ny1, real)] = kern
+        return kern
 
 
 def _v2_applies(cp, n_y: int, words: int) -> bool:
@@ -103,11 +107,12 @@ def _v2_applies(cp, n_y: int, words: int) -> bool:
 
 def _get_kernel(cp, real: str):
     """Compile the kernel once per element type (``"float"`` or ``"double"``)."""
-    kern = _kernels.get(real)
-    if kern is None:
-        kern = cp.RawKernel(_SOURCE.replace("{REAL}", real), "family_null_bits")
-        _kernels[real] = kern
-    return kern
+    with _LOCK:
+        kern = _kernels.get(real)
+        if kern is None:
+            kern = cp.RawKernel(_SOURCE.replace("{REAL}", real), "family_null_bits")
+            _kernels[real] = kern
+        return kern
 
 
 class DeviceBitsets:

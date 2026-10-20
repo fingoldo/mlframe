@@ -113,7 +113,7 @@ def pair_mi_perm_matrix_cuda(
     """
     try:
         import cupy as cp
-    except ImportError:
+    except ImportError:  # best-effort: without cupy the caller takes the CPU kernel
         return None
     from ._gpu_policy import gpu_globally_disabled
 
@@ -128,7 +128,7 @@ def pair_mi_perm_matrix_cuda(
     b = np.ascontiguousarray(pair_b, dtype=np.int64)
     valid = (nb[a] > 0) & (nb[b] > 0) & (nb[b] <= cap // ky) & (nb[a] <= cap // np.maximum(nb[b] * ky, 1))
     if not bool(valid.any()):
-        return np.zeros((K, n_pairs), dtype=np.float64)
+        return np.zeros((K, n_pairs), dtype=np.float64)  # Intentional float64: MI output contract of the kernel
     max_joint = int((nb[a][valid] * nb[b][valid]).max())
     if (max_joint * ky + max_joint) * 4 > _SHARED_BUDGET_BYTES:
         return None
@@ -147,13 +147,13 @@ def pair_mi_perm_matrix_cuda(
         d_a, d_b = cp.asarray(a), cp.asarray(b)
         d_nb = cp.asarray(nb.astype(np.int32))
         d_y = cp.asarray(np.ascontiguousarray(y_perms, dtype=np.uint8))
-        d_fy = cp.asarray(np.ascontiguousarray(freqs_y, dtype=np.float64))
-        out = cp.empty((K, n_pairs), dtype=cp.float64)
+        d_fy = cp.asarray(np.ascontiguousarray(freqs_y, dtype=np.float64))  # Intentional float64: class frequencies read as double by the kernel
+        out = cp.empty((K, n_pairs), dtype=cp.float64)  # Intentional float64: MI output contract of the kernel
         shared = (max_joint * ky + max_joint) * 4
         _kernel(cp)(
             (n_pairs,),
             (_THREADS,),
-            (cols, d_a, d_b, d_nb, d_y, d_fy, np.int64(n), np.int32(n_pairs), np.int32(K), np.int32(ky), np.int64(cap), np.float64(1.0 / n), out),
+            (cols, d_a, d_b, d_nb, d_y, d_fy, np.int64(n), np.int32(n_pairs), np.int32(K), np.int32(ky), np.int64(cap), np.float64(1.0 / n), out),  # Intentional float64: 1/n scalar read as double by the kernel
             shared_mem=shared,
         )
         host: np.ndarray = cp.asnumpy(out)
@@ -189,7 +189,7 @@ def _floor_sweep_inputs(dims: dict) -> tuple:
     pair_a = rng.integers(0, n_cols, n_pairs).astype(np.int64)
     pair_b = ((pair_a + 1 + rng.integers(0, n_cols - 1, n_pairs)) % n_cols).astype(np.int64)
     y = rng.integers(0, ky, n).astype(np.int64)
-    freqs = np.bincount(y, minlength=ky).astype(np.float64) / n
+    freqs = np.bincount(y, minlength=ky).astype(np.float64) / n  # Intentional float64: class frequencies, a statistic
     y_perms = np.stack([rng.permutation(y) for _ in range(_FLOOR_SWEEP_PERMUTATIONS)])
     return data, pair_a, pair_b, np.full(n_cols, n_bins, dtype=np.int64), y_perms, freqs, joint_cardinality_cap()
 

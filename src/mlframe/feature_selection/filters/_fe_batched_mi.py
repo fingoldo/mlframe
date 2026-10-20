@@ -24,9 +24,13 @@ from mlframe.utils.log_throttle import log_throttle
 import os
 from typing import Any
 
+import threading
+
 import numpy as np
 
 logger = logging.getLogger(__name__)
+
+_KERNEL_LOCK = threading.Lock()
 
 
 # The device-code range guard lives in a sibling (file-size carve only); re-exported because the parent is
@@ -293,11 +297,12 @@ def _get_dedup_edges_kernel(real_t: str = "double"):
     """Lazy-compile + cache the ``dedup_njit_edges`` RawKernel for the edge/bound element type ``real_t`` (module-level, pickle-safe).
 
     The edges and bounds are read as ``real_t`` (the buffers' own dtype, float32 under the crit default); the emitted edge table is always double."""
-    kern = _DEDUP_EDGES_KERNELS.get(real_t)
-    if kern is None:
-        import cupy as cp
-        kern = cp.RawKernel(_DEDUP_EDGES_SRC.replace("{REAL}", real_t), "dedup_njit_edges")
-        _DEDUP_EDGES_KERNELS[real_t] = kern
+    with _KERNEL_LOCK:
+        kern = _DEDUP_EDGES_KERNELS.get(real_t)
+        if kern is None:
+            import cupy as cp
+            kern = cp.RawKernel(_DEDUP_EDGES_SRC.replace("{REAL}", real_t), "dedup_njit_edges")
+            _DEDUP_EDGES_KERNELS[real_t] = kern
     return kern
 
 
