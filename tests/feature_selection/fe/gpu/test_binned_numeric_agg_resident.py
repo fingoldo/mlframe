@@ -86,9 +86,13 @@ def test_device_oof_matrix_matches_host_columns():
     dev = cp.asnumpy(mat)
     host = feat_df.to_numpy(dtype=np.float64)
     assert dev.shape == host.shape
-    # ULP-level value parity (raw-moment from bincount vs numpy njit accumulator).
-    maxdiff = float(np.max(np.abs(dev - host)))
-    assert maxdiff < 1e-10, f"device OOF columns differ from host by {maxdiff} (> 1e-10 ULP band)"
+    # The device computes in float64 while the stored host columns take the precision-policy dtype (float32 by
+    # default). Allow one float32 ULP of each column's scale: the raw-moment bincount and the numpy accumulator agree
+    # in float64 to ~1e-15, so any larger gap is a real divergence, not rounding.
+    scale = np.maximum(np.abs(host).max(axis=0), 1.0)
+    band = np.finfo(feat_df.to_numpy().dtype).eps * scale
+    excess = np.abs(dev - host) - band
+    assert (excess <= 0).all(), f"device OOF columns differ from host beyond one ULP: worst excess {excess.max():.3e}"
 
 
 def test_structural_fold_gather_fallback_bit_exact():

@@ -43,6 +43,7 @@ from ._binned_agg_cheap_mi import (  # noqa: F401  -- carved sibling, re-exporte
     quantile_edges,
 )
 from ._binned_numeric_agg_cands import HostCandidates, device_born_candidates
+from ._fe_usability_signal import _crit_np_dtype  # the shared precision-critical dtype policy (float32 by default)
 
 logger = logging.getLogger(__name__)
 
@@ -345,12 +346,19 @@ def fit_binned_numeric_agg(
     by bin code) + ``global`` fallback, so transform replays leak-free via ``apply_binned_numeric_agg``.
     """
     n = len(X)
+    # Moments and per-cell accumulators stay float64; only the stored feature columns and the recipe lookup take the
+    # policy dtype (float32 by default, MLFRAME_CRIT_DTYPE_RELAXED=0 restores float64), which halves the output frame.
+    out_dtype = _crit_np_dtype()
     y_arr = np.asarray(y, dtype=_crit_np_dtype()).ravel()  # noqa: F841 (kept for parity / future y-aware gating)
     rng = np.random.default_rng(int(random_state))
     fold_ids = np.empty(n, dtype=np.int64)
     fold_ids[rng.permutation(n)] = np.arange(n) % int(n_folds)
 
-    feat_cols: dict[str, np.ndarray] = {}
+    # Stored columns are written straight into one preallocated (feature, row) block, so the output is a single copy:
+    # no per-name dict alongside a stacked frame. k_max is the upper bound (every group x agg x stat), the view is trimmed below.
+    k_max = 0 if recipe_only else len(group_num_cols) * len(agg_num_cols) * len(stats)
+    feat_block = np.empty((k_max, n), dtype=out_dtype)
+    feat_names: list[str] = []
     recipes: dict[str, dict] = {}
     # Per-agg-column caches, shared ACROSS group columns: the agg values / finite mask / GLOBAL stats depend
     # only on ``acol`` yet were recomputed for every (gcol, acol) pair - and ``_global_stat``'s scipy
@@ -413,7 +421,7 @@ def fit_binned_numeric_agg(
                 # dropped candidates is never computed. The ``full`` per-cell lookup + globals (the recipe
                 # fields) are cheap 1-pass njit and are always built.
                 assert _fold_test is not None and _ct_by_fold is not None  # populated whenever recipe_only is False
-                oof = {s: np.full(n, globals_[s], dtype=_crit_np_dtype()) for s in kept_stats}
+                oof = {s: np.full(n, globals_[s], dtype=out_dtype) for s in kept_stats}
                 finite_idx = np.where(finite)[0]
                 fold_of_finite = fold_ids[finite_idx]
                 for f in range(int(n_folds)):
@@ -442,13 +450,15 @@ def fit_binned_numeric_agg(
             for s in kept_stats:
                 name = engineered_name_binned_agg(acol, gcol, s)
                 if not recipe_only:
-                    feat_cols[name] = oof[s]
-                lut = np.where(np.isfinite(full[s]), full[s], globals_[s]).astype(_crit_np_dtype())
+                    feat_block[len(feat_names)] = oof[s]
+                    feat_names.append(name)
+                lut = np.where(np.isfinite(full[s]), full[s], globals_[s]).astype(out_dtype)
                 recipes[name] = {
                     "group_col": gcol, "agg_col": acol, "stat": s,
                     "edges": edges, "lookup": lut, "global": float(globals_[s]),
                 }
-    feat_df = pd.DataFrame(feat_cols, index=X.index)
+    # The (rows, features) view of the first k rows is Fortran-ordered, which pandas wraps without another copy.
+    feat_df = pd.DataFrame(feat_block[: len(feat_names)].T, columns=feat_names, index=X.index)
     return feat_df, recipes
 
 def apply_binned_numeric_agg(X: pd.DataFrame, recipe: dict) -> np.ndarray:

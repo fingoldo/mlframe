@@ -12,6 +12,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 from mlframe.feature_selection.filters._binned_numeric_agg_fe import (
     apply_binned_numeric_agg,
     engineered_name_binned_agg,
@@ -288,9 +289,12 @@ def test_fit_binned_numeric_agg_matches_pre_fusion_reference():
 
     assert set(ref.columns) == set(feat_df.columns)
     assert feat_df.columns.size, "the all-finite fixture must emit columns, or the comparison below is vacuous"
+    # Stored columns take the precision-policy dtype (float32 by default). The reference is float64 with the same
+    # per-cell values, so casting it to that dtype must reproduce the stored column exactly, not merely closely.
     for c in ref.columns:
-        worst = float(np.max(np.abs(ref[c].to_numpy() - feat_df[c].to_numpy())))
-        assert worst < 1e-9, f"{c}: diverges {worst:.3e} from the pre-fusion reference"
+        assert feat_df[c].dtype == _crit_np_dtype(), f"{c}: stored as {feat_df[c].dtype}, policy wants {_crit_np_dtype()}"
+        expected = ref[c].to_numpy().astype(feat_df[c].dtype)
+        assert np.array_equal(expected, feat_df[c].to_numpy()), f"{c}: differs from the pre-fusion reference after the policy cast"
 
     # A NaN-bearing group column: production skips it entirely, and the reference must agree. This is the
     # case the guards exist for and the one the all-finite fixture could never reach.
