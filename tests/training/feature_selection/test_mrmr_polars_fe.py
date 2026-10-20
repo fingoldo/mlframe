@@ -72,7 +72,12 @@ def test_mrmr_fe_runs_on_polars_and_pandas(frame_type):
     sel = MRMR(**_mrmr_kwargs_quick_fe())
     sel.fit(df, y)
     assert sel.support_ is not None, "MRMR.fit must set support_"
-    assert len(sel.support_) >= 1, "MRMR must select at least one feature"
+    # support_ indexes raw input columns only. When the engineered product feature already carries the whole signal, no raw
+    # operand adds information beyond it and the selection is engineered-only (support_ empty by design, see xor3 commit
+    # 465ffaf6c). The selection is therefore judged on the full output, raw plus engineered.
+    names_out = [str(n) for n in sel.get_feature_names_out()]
+    assert len(names_out) >= 1, "MRMR must select at least one feature (raw or engineered)"
+    assert any("num_a" in n and "num_b" in n for n in names_out), f"the num_a*num_b interaction must be recovered; got {names_out}"
 
 
 def test_mrmr_fe_zero_copy_polars():
