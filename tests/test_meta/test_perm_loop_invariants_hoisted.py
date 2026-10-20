@@ -22,6 +22,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.test_meta._scan_guard import assert_scanned_enough
+
 SRC_ROOT = Path(__file__).resolve().parents[2] / "src" / "mlframe"
 BASELINE = Path(__file__).with_name("_perm_loop_invariants_baseline.json")
 
@@ -139,7 +141,9 @@ def perm_loop_invariants(source: str) -> "list[tuple[str, int]]":
 def _current() -> "set[str]":
     """``{"<module path>::<function>"}`` over the package source."""
     found: set[str] = set()
-    for path in sorted(SRC_ROOT.rglob("*.py")):
+    files = sorted(SRC_ROOT.rglob("*.py"))
+    assert_scanned_enough(len(files), str(SRC_ROOT))
+    for path in files:
         if "_benchmarks" in path.parts:
             continue
         text = path.read_text(encoding="utf-8", errors="replace")

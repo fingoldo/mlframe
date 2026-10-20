@@ -472,14 +472,13 @@ class TestQuantileReliabilityPerf:
     def test_corp_decomp_fits_on_capped_subsample_at_large_n(self, monkeypatch):
         # Regression sensor for the uncapped-CORP perf bug: at n=1e6 every decomposition fit must see only _CORP_FIT_CAP rows.
         """Corp decomp fits on a capped subsample at large n."""
-        md = _model_diagnostics_decompose()
-        if md is None:
+        if _model_diagnostics_decompose() is None:
             pytest.skip("model-diagnostics not importable")
         from scipy.stats import norm
 
         from mlframe.reporting.charts import quantile as qmod
 
-        decompose, pinball_loss = md
+        decompose, pinball_loss = _model_diagnostics_decompose()
         fit_sizes = []
 
         def _spy_decompose(y_fit, p_fit, **kwargs):

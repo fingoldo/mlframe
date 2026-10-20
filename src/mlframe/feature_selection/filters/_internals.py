@@ -6,6 +6,9 @@ from typing import Any, Iterator, cast
 import logging
 from typing import Sequence
 
+import math
+import threading
+
 import numpy as np
 import numba
 
@@ -244,12 +247,10 @@ def group_key_strings(col: pd.Series) -> np.ndarray:
 # compiled dispatcher. Closure-bound lambdas (e.g. ``_order=order`` in the maximal preset)
 # carry distinct closure cells; we include ``__defaults__``/``__closure__`` cell ids in the
 # key so two captures with different bound constants never collide.
-# Deliberately UNLOCKED. A concurrent get-or-compute here races only to compile the same function twice
-# and let one dict write win; both racers then hold dispatchers compiled from the identical code object,
-# defaults and closure cells -- the key is built from exactly those -- so the loser's work is wasted, not
-# wrong. There is no eviction, so no entry can be pulled out from under a reader either. A lock here
-# would serialise every dispatch on the hot path to prevent a duplicated compile.
+# Guarded by ``_NJIT_DISPATCHER_CACHE_LOCK``: get-or-compile-or-store runs under one lock, so two registry builds in
+# threads never race on the same key. The lock is taken once per registry entry at build time, not on the dispatch path.
 _NJIT_DISPATCHER_CACHE: dict = {}
+_NJIT_DISPATCHER_CACHE_LOCK = threading.Lock()
 
 def _njit_cache_key(func):
     """Build a hashable key identifying ``func``'s compiled form for ``_NJIT_DISPATCHER_CACHE`` (code object + defaults + closure-cell identities); returns ``None`` when the function is not cacheable (no ``__code__``, or an unhashable default)."""
@@ -283,10 +284,11 @@ def njit_functions_dict(
             try:
                 ck = _njit_cache_key(func)
                 if ck is not None:
-                    cached = _NJIT_DISPATCHER_CACHE.get(ck)
-                    if cached is None:
-                        cached = njit(cache=True)(func)
-                        _NJIT_DISPATCHER_CACHE[ck] = cached
+                    with _NJIT_DISPATCHER_CACHE_LOCK:
+                        cached = _NJIT_DISPATCHER_CACHE.get(ck)
+                        if cached is None:
+                            cached = njit(cache=True)(func)
+                            _NJIT_DISPATCHER_CACHE[ck] = cached
                     dict_[key] = cached
                 else:
                     dict_[key] = njit(cache=True)(func)
@@ -306,3 +308,18 @@ def sanitize(obj: Any) -> Any:
     if isinstance(obj, np.ndarray):
         return np.array(obj, copy=True)
     return obj
+
+
+@njit(nogil=True, cache=True)
+def _entropy_from_counts_njit(counts: np.ndarray, n: int) -> float:
+    """Shannon entropy in nats from already-tabulated label counts."""
+    if n <= 0:
+        return 0.0
+    h = 0.0
+    n_f = float(n)
+    for k in range(counts.shape[0]):
+        c = counts[k]
+        if c > 0:
+            p = c / n_f
+            h -= p * math.log(p)
+    return h

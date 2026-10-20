@@ -22,6 +22,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.test_meta._scan_guard import assert_scanned_enough
+
 SRC_ROOT = Path(__file__).resolve().parents[2] / "src" / "mlframe"
 BASELINE = Path(__file__).with_name("_gpu_uncoalesced_reads_baseline.json")
 
@@ -84,7 +86,9 @@ def uncoalesced_kernels(text: str) -> "list[str]":
 def _current() -> "set[str]":
     """``{"<module path>::<kernel>"}`` over the package source."""
     found: set[str] = set()
-    for path in sorted(SRC_ROOT.rglob("*.py")):
+    files = sorted(SRC_ROOT.rglob("*.py"))
+    assert_scanned_enough(len(files), str(SRC_ROOT))
+    for path in files:
         text = path.read_text(encoding="utf-8", errors="replace")
         if "__global__" not in text:
             continue

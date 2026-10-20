@@ -13,11 +13,9 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
-import mlframe
-
 from tests.test_meta._shared_ast_cache import parsed_ast
 
-_CORE = Path(mlframe.__file__).resolve().parent / "training" / "core"
+_CORE = Path(__file__).resolve().parents[2] / "src" / "mlframe" / "training" / "core"
 _PERSIST = {"finalize_suite", "_finalize_and_save_metadata", "_persist_ct_ensemble_entries", "persist_after_composite_post"}
 _MUTATED = {"models", "metadata"}
 # A mutation after the last save that is intentionally not persisted, with the reason. Empty: none is known.
@@ -70,13 +68,20 @@ def _classify(funcs: dict[str, list[ast.AST]]) -> tuple[set[str], set[str]]:
     """``(mutators, persisters)``: mutation is closed transitively over calls; a persister saves after it mutates."""
     direct = {name for name, defs in funcs.items() if any(_assigns_into_suite_state(fn) for fn in defs)}
     persisters = set(_PERSIST)
-    for name, defs in funcs.items():
-        for fn in defs:
-            calls = _calls(fn)
-            saves = [ln for ln, c in calls if c in _PERSIST]
-            muts = [ln for ln, c in calls if c in direct] + ([fn.lineno] if name in direct else [])
-            if saves and (not muts or max(saves) >= max(muts)):
-                persisters.add(name)
+    changed = True
+    while changed:
+        changed = False
+        for name, defs in funcs.items():
+            if name in persisters:
+                continue
+            for fn in defs:
+                calls = _calls(fn)
+                saves = [ln for ln, c in calls if c in persisters]
+                muts = [ln for ln, c in calls if c in direct] + ([fn.lineno] if name in direct else [])
+                if saves and (not muts or max(saves) >= max(muts)):
+                    persisters.add(name)
+                    changed = True
+                    break
     mutators, changed = set(direct), True
     while changed:
         changed = False
@@ -109,6 +114,25 @@ def test_no_orchestrator_mutates_after_its_last_save():
     assert len(orchestrators) >= 3
     late = [f"{p.name}:{x}" for p in orchestrators for x in _late_mutations(parsed_ast(p), mutators, persisters)]
     assert not late, f"models / metadata mutated after the last save (the saved suite will not match the returned one): {late}"
+
+
+def test_a_save_through_a_persisting_callee_counts_as_a_save():
+    """Canary: a function whose last save is a call to a persisting helper is a persister, so a later mutation is still flagged."""
+
+    def _fn(src: str) -> ast.AST:
+        """The first statement of *src* as an AST node."""
+        return ast.parse(src).body[0]
+
+    funcs = {
+        "save_all": [_fn("def save_all(ctx):\n    finalize_suite(ctx)\n")],
+        "mutate": [_fn("def mutate(ctx):\n    models[0] = ctx\n")],
+        "outer": [_fn("def outer(ctx):\n    mutate(ctx)\n    save_all(ctx)\n    mutate(ctx)\n")],
+        "clean": [_fn("def clean(ctx):\n    mutate(ctx)\n    save_all(ctx)\n")],
+    }
+    mutators, persisters = _classify(funcs)
+    assert "save_all" in persisters and "clean" in persisters and "outer" not in persisters
+    late = _late_mutations(ast.parse("def wrap(ctx):\n    save_all(ctx)\n    mutate(ctx)\n"), mutators, persisters)
+    assert late == ["wrap:3:mutate"]
 
 
 def test_the_scan_sees_a_save_before_post_processing():

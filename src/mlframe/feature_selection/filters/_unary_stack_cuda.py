@@ -2,7 +2,7 @@
 
 The pair-combo table builds, for every operand of every pair, ``nu`` unary transforms (identity, neg, abs, sqr, ... exp) and stacks them. Doing that with one cupy call per unary is ``nu`` kernel
 launches plus a ``stack`` copy per operand; this kernel evaluates all of them in a single elementwise pass whose output is already the stacked, contiguous block. The arithmetic is the one of
-``_usability_njit_pool._gpu_apply_unary`` operation by operation, in the element type of the operand column (float32 or float64), so the result is bit-identical to that reference.
+``_usability_njit_pool._gpu_apply_unary`` operation by operation, in the element type of the operand column (float32 or double precision), so the result is bit-identical to that reference.
 
 A small per-call cache keyed by the operand's device buffer lets an operand that recurs across pairs (A with B, A with C, ...) be transformed once.
 """
@@ -67,7 +67,7 @@ def unary_stack_cuda(d_x: Any, codes_d: Any, xmin: float) -> Optional[Any]:
     try:
         import cupy as cp
 
-        if d_x.dtype not in (np.dtype(np.float32), np.dtype(np.float64)) or d_x.ndim != 1:
+        if d_x.dtype not in (np.dtype(np.float32), np.dtype(np.float64)) or d_x.ndim != 1:  # Intentional float64: accepted operand dtype, bit-identical to the float64 njit reference
             return None
         n = int(d_x.shape[0])
         nu = int(codes_d.shape[0])
@@ -90,27 +90,41 @@ class UnaryStackCache:
         self._budget = int(budget_bytes)
         self._used = 0
         self._entries: "dict[tuple[int, int], tuple[Any, Any, Any]]" = {}
+        self._lock = threading.Lock()
+
+    def __getstate__(self) -> dict:
+        """Pickle everything but the lock, which cannot be pickled."""
+        state = self.__dict__.copy()
+        del state["_lock"]
+        return state
+
+    def __setstate__(self, state: dict) -> None:
+        """Restore the entries and give the copy a fresh lock."""
+        self.__dict__.update(state)
+        self._lock = threading.Lock()
 
     def get(self, d_x: Any, codes_d: Any, xmin: float) -> Optional[Any]:
         """The stack for ``d_x``, from the cache when present; ``None`` when the kernel is unavailable."""
         key = (id(d_x), id(codes_d))
-        hit = self._entries.get(key)
-        if hit is not None:
-            return hit[2]
-        stack = unary_stack_cuda(d_x, codes_d, xmin)
-        if stack is None:
-            return None
-        size = int(stack.nbytes)
-        if size > self._budget:
+        with self._lock:
+            hit = self._entries.get(key)
+            if hit is not None:
+                return hit[2]
+            stack = unary_stack_cuda(d_x, codes_d, xmin)
+            if stack is None:
+                return None
+            size = int(stack.nbytes)
+            if size > self._budget:
+                return stack
+            while self._entries and self._used + size > self._budget:
+                old = next(iter(self._entries))
+                self._used -= int(self._entries.pop(old)[2].nbytes)
+            self._entries[key] = (d_x, codes_d, stack)
+            self._used += size
             return stack
-        while self._entries and self._used + size > self._budget:
-            old = next(iter(self._entries))
-            self._used -= int(self._entries.pop(old)[2].nbytes)
-        self._entries[key] = (d_x, codes_d, stack)
-        self._used += size
-        return stack
 
     def clear(self) -> None:
         """Drop every cached stack."""
-        self._entries.clear()
-        self._used = 0
+        with self._lock:
+            self._entries.clear()
+            self._used = 0

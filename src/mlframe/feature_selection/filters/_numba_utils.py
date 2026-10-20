@@ -819,3 +819,47 @@ def get_fleuret_criteria_confidence(
             data_copy[:, x[_sj]] = _saved_x[_sj, :]
 
     return nfailed, _i + 1
+
+# Usability-pool njit kernels hosted in _numba_utils_usability.py (re-exported so importers keep one path).
+from ._numba_utils_usability import (  # noqa: F401
+    _NJIT_UNARY_OP_CODES,
+    _NJIT_USABILITY_BINARY_OP_CODES,
+    njit_unary_codes_or_none,
+    njit_binary_codes_or_none,
+    _USABILITY_DEGENERATE_REL_TOL,
+    _apply_unary,
+    _apply_binary,
+    _qbin_into,
+    _marginal_mi_njit,
+    _pair_combo_mi_njit,
+    _pair_combo_mi_njit_parallel,
+    _pair_combo_mi_njit_table,
+    _pair_combo_mi_njit_table_parallel,
+)
+
+# Cross-module @njit helpers hosted in _numba_utils_cross_module.py (re-exported so importers keep one path).
+from ._numba_utils_cross_module import (  # noqa: F401
+    _accept_split_serial,
+    _analytic_p_value,
+    _cmi_from_counts,
+    _codes_at_rows,
+    _codes_from_cuts,
+    _compact_labels,
+    _conditional_shuffle_within_strata,
+    _count_candidates_njit,
+    _cuts_tie_free,
+    _edge_value,
+    _full_conditional_shuffle_ipf,
+    _gammaincc_nb,
+    _mdlp_cuts_presorted,
+    _mdlp_dfs,
+    _mi_codes,
+    _mi_codes_njit,
+    _n_unique_codes,
+    _presorted_dedup,
+    _relevance_mi_1var_fused,
+    _supervised_edges,
+    quantile_codes_block,
+    stratified_cmi,
+    stratified_cmi_null,
+)

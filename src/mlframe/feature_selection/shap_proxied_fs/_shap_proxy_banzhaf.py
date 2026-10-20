@@ -14,8 +14,7 @@ from __future__ import annotations
 import warnings
 
 import numpy as np
-from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
-
+from mlframe.feature_selection.filters.shared import crit_np_dtype as _crit_np_dtype
 from mlframe.feature_selection.shap_proxied_fs._shap_proxy_objective import METRIC_CODES, resolve_metric, score_margin_batch
 
 

@@ -45,6 +45,17 @@ ZERO_TOLERANCE_BASELINES: tuple[str, ...] = (
     "_unprotected_treeexplainer_baseline.json",
     "_vacuous_loop_baseline.json",
     "_tested_but_uncalled_baseline.json",
+    "_annotation_baseline.json",
+    "_audit_metadata_baseline.json",
+    "_cache_mutation_lock_baseline.json",
+    "_cross_module_dict_mutation_baseline.json",
+    "_fe_budget_conflict_baseline.json",
+    "_module_env_mutation_baseline.json",
+    "_orth_fe_recipes_no_freeze_baseline.json",
+    "_stale_comment_baseline.json",
+    "_stale_not_wired_docstring_baseline.json",
+    "_value_bearing_asserts_baseline.json",
+    "_verbose_gated_except_baseline.json",
 )
 
 

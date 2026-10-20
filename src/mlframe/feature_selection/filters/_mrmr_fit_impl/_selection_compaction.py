@@ -14,6 +14,8 @@ a replacement must save at least one feature, and sets whose joint table is too 
 from __future__ import annotations
 
 import logging
+from collections.abc import Collection, Iterable, Mapping
+from typing import Any
 
 import numpy as np
 
@@ -50,7 +52,15 @@ def _equivalence_tolerance(extra_cells: int, n_y: int, n: int) -> float:
     return float(max(extra_cells, 0) * df / (2.0 * n) + np.sqrt(2.0 * abs(extra_cells) * df) / (2.0 * n)) + 1e-12  # the floor absorbs summation-order rounding of equal partitions
 
 
-def choose_compaction(columns, selected, engineered_selected, sources, pool, y_codes, consumers=None):
+def choose_compaction(
+    columns: Mapping[str, np.ndarray],
+    selected: Collection[str],
+    engineered_selected: Collection[str],
+    sources: Mapping[str, frozenset[str]],
+    pool: Iterable[str],
+    y_codes: np.ndarray,
+    consumers: Mapping[str, set[str]] | None = None,
+) -> tuple[str, list[str]] | None:
     """The single replacement that shrinks the selection without losing corrected information, as ``(candidate, replaced)``, or ``None``.
 
     ``columns`` maps a name to its integer codes; ``selected`` is every selected name (raw and engineered); ``engineered_selected`` the engineered part;
@@ -105,7 +115,13 @@ def _best_triple(sel_eng, sources) -> "frozenset | None":
     return best
 
 
-def prune_redundant(columns, selected, engineered_selected, y_codes, consumers=None) -> "list[str]":
+def prune_redundant(
+    columns: Mapping[str, np.ndarray],
+    selected: Collection[str],
+    engineered_selected: Collection[str],
+    y_codes: np.ndarray,
+    consumers: Mapping[str, Collection[str]] | None = None,
+) -> list[str]:
     """Engineered features whose removal does not lower the bias-corrected joint information of the selection beyond its standard error, dropped one at a time (a feature that another selected
     recipe reads is kept). A copy of information the rest of the selection already holds, such as a fragment built on a proxy of a selected column, goes."""
     consumers = consumers or {}
@@ -203,7 +219,9 @@ def _recipe_sources(name: str, recipes: dict, raw_set: frozenset, _depth: int = 
     return _raw_sources(name, raw_set)
 
 
-def run_selection_compaction(self, X, selected_vars, cols, data, classes_y, engineered_recipes, verbose):
+def run_selection_compaction(
+    self, X: Any, selected_vars: list[int], cols: list[str], data: np.ndarray, classes_y: np.ndarray, engineered_recipes: dict[str, Any], verbose: bool
+) -> tuple[bool, list[int]]:
     """Apply :func:`choose_compaction` to the finished selection; returns ``(changed, selected_vars)``."""
     self._selection_compaction_ = []
     try:
@@ -229,7 +247,9 @@ def run_selection_compaction(self, X, selected_vars, cols, data, classes_y, engi
         engineered_recipes = dict(engineered_recipes)
         spanned = _best_triple(sel_eng, sources)
         if spanned is not None and not any(nm.startswith("cell3(") and sources[nm] >= spanned for nm in pool):
-            made = _synthesized_cell_triple(X[sorted(spanned)], spanned) or _synthesized_triplet(X, np.asarray(classes_y).ravel(), spanned)
+            made = _synthesized_cell_triple(X[sorted(spanned)], spanned)
+            if made is None:
+                made = _synthesized_triplet(X, np.asarray(classes_y).ravel(), spanned)
             if made is not None:
                 name, rec, codes = made
                 pool.append(name)

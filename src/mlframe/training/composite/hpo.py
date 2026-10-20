@@ -53,6 +53,7 @@ from .cv import PurgedTimeSeriesSplit
 from .estimator import CompositeTargetEstimator
 from ._hpo_metrics import rmse as _rmse
 from ..utils import coerce_to_1d_numpy as _to_1d_numpy
+from mlframe.utils.frame_rows import take_rows
 
 logger = logging.getLogger(__name__)
 
@@ -227,16 +228,7 @@ class CompositeHPOResult:
 # without a module-level import cycle.
 
 
-def _iloc_rows(X: Any, idx: np.ndarray) -> Any:
-    """Frame-native row subset by integer positions -- NO whole-frame copy.
-
-    Polars: ``X[idx]`` (gather on row index). Pandas: ``X.iloc[idx]``. Both
-    return a view/new-frame of only the selected rows, never a clone of the
-    full carrier (CLAUDE.md 100 GB rule)."""
-    if hasattr(X, "iloc"):
-        return X.iloc[idx]
-    # polars DataFrame supports positional gather via __getitem__ on an int array.
-    return X[idx]
+_iloc_rows = take_rows
 
 
 def _default_inner_spaces(inner: Any) -> Optional[Dict[str, HPOSpace]]:

@@ -12,6 +12,7 @@ that the composite adds to ``X`` (``excess(X; y) > excess(cell; y | X)``), that 
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 import numpy as np
 
@@ -20,7 +21,9 @@ logger = logging.getLogger(__name__)
 _CELL_PREFIX = "cell3("
 
 
-def run_main_effect_restore(self, X, selected_vars, cols, data, classes_y, verbose) -> "tuple[bool, list[int]]":
+def run_main_effect_restore(
+    self, X: Any, selected_vars: list[int], cols: list[str], data: np.ndarray, classes_y: np.ndarray, verbose: bool
+) -> tuple[bool, list[int]]:
     """Re-attach the raw operands of a selected ``cell3`` composite that carry more of its information than it adds on top of them; returns ``(changed, selected_vars)``."""
     try:
         cells = [r for r in (self._engineered_recipes_ or []) if str(getattr(r, "name", "")).startswith(_CELL_PREFIX)]

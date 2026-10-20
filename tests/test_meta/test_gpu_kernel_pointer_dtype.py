@@ -19,6 +19,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.test_meta._scan_guard import assert_scanned_enough
+
 SRC_ROOT = Path(__file__).resolve().parents[2] / "src" / "mlframe"
 BASELINE = Path(__file__).with_name("_gpu_kernel_pointer_dtype_baseline.json")
 
@@ -28,7 +30,9 @@ _KERNEL_RE = re.compile(r"__global__\s+void\s+(\w+)\s*\((.*?)\)\s*\{", re.S)  # 
 def _double_pointer_kernels():
     """``{relative path: [kernel names with a double* parameter, not templated]}`` over the package source."""
     found: dict[str, list[str]] = {}
-    for path in sorted(SRC_ROOT.rglob("*.py")):
+    files = sorted(SRC_ROOT.rglob("*.py"))
+    assert_scanned_enough(len(files), str(SRC_ROOT))
+    for path in files:
         text = path.read_text(encoding="utf-8", errors="replace")
         if "__global__" not in text:
             continue
@@ -117,7 +121,9 @@ def test_launch_type_probe_checker_flags_a_cast_before_launch():
 def test_kernel_type_follows_the_launched_buffer():
     """Everywhere in the package, the array that picks a kernel's element type is one of the arrays the launch receives."""
     found: dict[str, list[str]] = {}
-    for path in sorted(SRC_ROOT.rglob("*.py")):
+    files = sorted(SRC_ROOT.rglob("*.py"))
+    assert_scanned_enough(len(files), str(SRC_ROOT))
+    for path in files:
         text = path.read_text(encoding="utf-8", errors="replace")
         if "float32" not in text or "dtype" not in text:
             continue

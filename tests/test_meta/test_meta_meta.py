@@ -121,7 +121,6 @@ _PERMITTED_PRIVATE_IMPORTS: set[str] = {
     "test_broad_except_logging_composite_panel_and_core_predict::mlframe.training.diagnostics.learning_curve._supports_warm_start",
     "test_broad_except_logging_composite_panel_and_core_predict::mlframe.training.pipeline._categorical_composite_fe._detect_cat_columns",
     "test_broad_except_logging_composite_panel_and_core_predict::mlframe.training.pipeline._pipeline_fit_transform",
-    "test_broad_except_logging_composite_panel_and_core_predict::mlframe.training.targets._train_eval_select_target",
     "test_broad_except_logging_discovery_and_wrappers::mlframe.feature_selection.wrappers._helpers._pin_threads_to_one",
     "test_broad_except_logging_discovery_and_wrappers::mlframe.feature_selection.wrappers._helpers_importance._fold_is_all_finite",
     "test_broad_except_logging_discovery_and_wrappers::mlframe.feature_selection.wrappers.rfecv._fit_init._current_params_signature",
@@ -166,6 +165,7 @@ _PERMITTED_PRIVATE_IMPORTS: set[str] = {
     "test_log_only_except_registry_and_phase_setup_best_effort::mlframe.training.core._phase_train_one_target_model_setup",
     "test_log_only_except_reports_and_phase_composite_best_effort::mlframe.training._feature_importances",
     "test_log_only_except_reports_and_phase_composite_best_effort::mlframe.training.core._phase_composite_discovery",
+    "test_log_only_except_reports_and_phase_composite_best_effort::mlframe.training.core._phase_composite_discovery_target",  # reads the comments of this carved module to count its best-effort markers
     "test_log_only_except_reports_and_phase_composite_best_effort::mlframe.training.core._phase_dummy_baselines",
     "test_log_only_except_reports_and_phase_composite_best_effort::mlframe.training.core._phase_train_one_target_schema",
     "test_log_only_except_reports_and_phase_composite_best_effort::mlframe.training.pipeline._pipeline_extensions",
@@ -177,7 +177,6 @@ _PERMITTED_PRIVATE_IMPORTS: set[str] = {
     "test_log_only_except_registry_and_phase_setup_best_effort::mlframe.training.core._phase_composite_post_xt_ensemble._xt_ensemble_helpers",
     "test_x_security_robustness_fixes::mlframe.training._trainer_train_and_evaluate_parts._train_and_evaluate_use_cache_exists_model",
     "test_log_only_except_final_best_effort_sweep::mlframe.training._training_loop_fallback_helpers",
-    "test_log_only_except_final_best_effort_sweep::mlframe.training.baselines._dummy_metrics_pick_plot",
     "test_log_only_except_final_best_effort_sweep::mlframe.training.composite.discovery._screening_tiny",
     "test_log_only_except_final_best_effort_sweep::mlframe.training.core._main_train_suite_target_distribution",
     "test_log_only_except_final_best_effort_sweep::mlframe.training.core._predict_main_from_models",
@@ -185,7 +184,6 @@ _PERMITTED_PRIVATE_IMPORTS: set[str] = {
     "test_log_only_except_final_best_effort_sweep::mlframe.training.neural._flat_torch_module._flat_torch_loss",
     "test_log_only_except_final_best_effort_sweep::mlframe.training.neural._flat_torch_module._flat_torch_predict_accel",
     "test_log_only_except_final_best_effort_sweep::mlframe.training.neural.base._cuda_fallback",
-    "test_log_only_except_final_best_effort_sweep::mlframe.training.reporting._reporting",
     "test_config_dataclass_defaults_match_ctor::mlframe.feature_selection.filters.mrmr._mrmr_config_dataclasses._CONFIG_ATTR_FIELD_MAPS",
     "test_config_dataclass_defaults_match_ctor::mlframe.feature_selection.filters.mrmr._mrmr_config_dataclasses._HYBRID_ORTH_FIELD_MAP",
     "test_config_dataclass_defaults_match_ctor::mlframe.feature_selection.filters.mrmr._mrmr_config_dataclasses._HYBRID_ORTH_SCORERS_FIELD_MAP",
@@ -213,6 +211,23 @@ _PERMITTED_PRIVATE_IMPORTS: set[str] = {
     "test_broad_except_logging_benchmarks_harness::mlframe.training._benchmarks.bench_content_fingerprint._rss_mb",
     "test_broad_except_logging_benchmarks_harness::mlframe.training._benchmarks.bench_drift_value_counts_microbench._is_object_array_col",
     "test_broad_except_logging_benchmarks_harness::mlframe.training._benchmarks.bench_lgb_dataset_polars_bridge._rss_mb",
+    # Each name below is a private helper whose except handler is the surface under test: the handler's log record or
+    # substituted value is only observable by driving that helper directly, not by a public fit or predict call.
+    "test_broad_except_logging_composite_panel_and_core_predict::mlframe.training.targets._train_eval_select_target._select_regression_target",
+    "test_broad_except_logging_gpu_ktc_and_composite_models::mlframe.training.composite.meta._fit_nnls_2col",
+    "test_gates_fail_closed_and_probes_do_not_latch::mlframe.feature_selection.filters._mrmr_fit_impl._fallback_maxt",
+    "test_log_only_except_final_best_effort_sweep::mlframe.training.composite.discovery._screening_tiny_shared",
+    "test_log_only_except_final_best_effort_sweep::mlframe.training.reporting._reporting_common",
+    # Module-level locks and caches are the object whose thread-safety is under test; the cache is only reachable
+    # through its module attribute, not through a public getter.
+    "test_module_cache_locks_under_threads::mlframe.feature_selection.filters._family_maxt_gate",
+    "test_module_cache_locks_under_threads::mlframe.metrics.regression._regression_deviance",
+    "test_module_cache_locks_under_threads::mlframe.training.core._setup_helpers_pipeline_cache",
+    "test_non_neutral_except_audible::mlframe.feature_selection.filters._fe_subsample._derive_seed",
+    "test_non_neutral_except_audible::mlframe.feature_selection.filters.engineered_recipes._recipe_core._arrays_equal_nan_manual",
+    "test_non_neutral_except_audible::mlframe.feature_selection.filters.engineered_recipes._recipe_core._extra_equal",
+    "test_non_neutral_except_audible::mlframe.feature_selection.wrappers.rfecv._nan_policy._array_has_nan",
+    "test_non_neutral_except_audible::mlframe.training._data_helpers._finite_mask_or_none",
 }
 
 

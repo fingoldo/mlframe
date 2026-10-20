@@ -29,8 +29,7 @@ from dataclasses import dataclass, field
 from typing import Any, Sequence
 
 import numpy as np
-from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
-
+from mlframe.feature_selection.filters.shared import crit_np_dtype as _crit_np_dtype
 from mlframe.feature_selection.cv_policy import CVPolicy, get_cv_policy
 from sklearn.base import BaseEstimator, TransformerMixin
 

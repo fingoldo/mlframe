@@ -94,5 +94,5 @@ GENERATE_EXTRA_BASIS_FEATURES_DOC = """For each column in cols and each requeste
     downstream (deltas +/-0.008, inconsistent sign); on a mixed frame the gate
     declines to fire (different columns have different winners). The existing
     Fleuret redundancy + Spearman cross-stage dedup already remove the only real
-    redundancy. Don't add a competition gate. (D:/Temp/item3_poly_fourier_findings.md)
+    redundancy. Don't add a competition gate.
     """

@@ -13,6 +13,8 @@ import weakref
 from collections import OrderedDict
 from typing import Any, Hashable, Optional
 
+from mlframe.feature_selection.filters.shared import ContentMemo
+
 
 class MatrixKeyedCache:
     """``key -> value`` for values computed from a matrix, valid while that matrix object is alive; LRU-bounded."""
@@ -54,10 +56,7 @@ class MatrixKeyedCache:
         with self._lock:
             self._drop_dead()
 
-    def clear(self) -> None:
-        """Drop every entry."""
-        with self._lock:
-            self._entries.clear()
+    clear = ContentMemo.clear
 
     def __len__(self) -> int:
         with self._lock:

@@ -8,8 +8,8 @@ Context: a 7-site joblib.Parallel audit (2026-07-19, gpu-utilization worktree) f
 (1.9-3.4x at n_jobs=4). The question this bench answers: at that SAME >=64-permutation regime where
 joblib already wins over serial, does the ALREADY-EXISTING ``parallel_mi_prange`` njit(parallel=True)
 kernel (used today only for the ``n_workers<=1`` / ``parallelism="inner"`` fallback path, see
-``permutation.py:972``) beat the joblib outer-pool dispatch outright -- i.e. is the joblib branch at
-``permutation.py:883-940`` obsolete and replaceable by always routing through ``parallel_mi_prange``
+``permutation.py``) beat the joblib outer-pool dispatch outright -- i.e. is the joblib branch at
+``permutation.py-940`` obsolete and replaceable by always routing through ``parallel_mi_prange``
 regardless of ``n_workers``?
 
 Bit-identity: ``parallel_mi_prange`` and ``parallel_mi`` implement the SAME per-iteration LCG seeding
@@ -44,7 +44,7 @@ def make_classes(n: int, k_x: int = 5, k_y: int = 2, seed: int = 0):
 
 
 def outer_joblib(classes_x, freqs_x, classes_y, freqs_y, npermutations, original_mi, base_seed, n_jobs):
-    """Mirror the real ``mi_direct`` outer-parallel branch (permutation.py:890-940): distribute
+    """Mirror the real ``mi_direct`` outer-parallel branch (permutation.py-940): distribute
     permutations across a joblib(backend="threading") pool of ``parallel_mi`` (njit nogil) workers."""
     pool = Parallel(n_jobs=n_jobs, backend="threading")
     worker_loads = distribute_permutations(npermutations=npermutations, n_workers=n_jobs)

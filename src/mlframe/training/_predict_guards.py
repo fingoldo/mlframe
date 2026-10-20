@@ -39,6 +39,7 @@ Motivation for each guard (condensed from production incident reports):
 from __future__ import annotations
 
 import logging
+import threading
 from typing import Any, Callable
 
 import numpy as np
@@ -102,6 +103,7 @@ def _ensure_lgbm_gets_pandas(model: Any, X: Any, method: str) -> Any:
 # ═══════════════════════════════════════════════════════════════════════════
 
 _CB_VAL_POOL_CACHE: dict[tuple, Any] = {}
+_CB_VAL_POOL_CACHE_LOCK = threading.RLock()
 """Module-level cache: ``compute_signature(val_df, extra=(cat, text, emb))`` → catboost.Pool for val frames.
 
 Populated at fit time by ``trainer._maybe_get_or_build_cb_pool``;

@@ -516,7 +516,7 @@ def _grand_fusion_block_counts(ua_cm, ub_cm, block, edges_int, y_all_dev, nbins,
             ua_idx, ub_idx, bop = _cc
     col_off = cp.arange(K, dtype=cp.int64) * (int(nbins) * int(K_y))
     P1 = int(y_all_dev.shape[0])
-    # OOB SCREEN (FIX2): the grand-fusion kernel (_gpu_resident_fe.py:744) uses the y code
+    # OOB SCREEN (FIX2): the grand-fusion kernel (_gpu_resident_fe.py) uses the y code
     # DIRECTLY as a shared-mem offset (``sh[p*nbky + slot + yp]``); the X side is generated + binned
     # in-kernel (slot bounded by nbins by construction) so only ``y_all`` can drive an illegal address.
     # A y code < 0 or >= K_y indexes outside the (P1,nbins,K_y) shared histogram -> cudaErrorIllegalAddress.

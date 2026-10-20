@@ -26,8 +26,7 @@ from __future__ import annotations
 from typing import List, Optional, Sequence, Union
 
 import numpy as np
-from .filters._fe_usability_signal import _crit_np_dtype
-
+from mlframe.feature_selection.filters.shared import crit_np_dtype as _crit_np_dtype
 from ._selection_log import logs_selection
 
 FloatMatrix = Union[np.ndarray, "object"]  # ndarray or a pandas DataFrame with columns named like ranked_features

@@ -46,28 +46,9 @@ def _replay_feature_engineering(
     df: Any, metadata: dict, verbose: Any, group_ids: Any, timestamps: Any, auxiliary_events_df: Any,
 ) -> Any:
     """Replay the suite-owned datetime decomposition and every composite-FE stage on the predict frame, in training order."""
-    from .predict import _replay_suite_datetime_decomposition
-    from mlframe.training.pipeline.shared import replay_categorical_composite_fe
-    from mlframe.training.pipeline.shared import replay_entity_time_composite_fe
-    from mlframe.training.pipeline.shared import replay_cross_sectional_composite_fe
-    from mlframe.training.pipeline.shared import replay_target_encoding_composite_fe
-    from mlframe.training.pipeline.shared import replay_per_target_supervised_fe
-    from mlframe.training.pipeline.shared import replay_ma_crossover_composite_fe
-    from mlframe.training.pipeline.shared import replay_latent_interaction_svd_composite_fe
-    from mlframe.training.pipeline.shared import replay_nearest_past_join_composite_fe
-    from mlframe.training.pipeline.shared import replay_event_proximity_decay_composite_fe
+    from ._predict_fe_replay import replay_composite_fe_chain
 
-    df = _replay_suite_datetime_decomposition(df, metadata, verbose=verbose)
-    df = replay_categorical_composite_fe(df, metadata, verbose=verbose)
-    df = replay_entity_time_composite_fe(df, metadata, group_ids, timestamps, verbose=verbose)
-    df = replay_cross_sectional_composite_fe(df, metadata, verbose=verbose)
-    df = replay_target_encoding_composite_fe(df, metadata, group_ids, verbose=verbose)
-    df = replay_per_target_supervised_fe(df, metadata, group_ids, verbose=verbose)
-    df = replay_ma_crossover_composite_fe(df, metadata, group_ids, timestamps, verbose=verbose)
-    df = replay_latent_interaction_svd_composite_fe(df, metadata, auxiliary_events_df, group_ids, verbose=verbose)
-    df = replay_nearest_past_join_composite_fe(df, metadata, auxiliary_events_df, verbose=verbose)
-    df = replay_event_proximity_decay_composite_fe(df, metadata, timestamps, verbose=verbose)
-    return df
+    return replay_composite_fe_chain(df, metadata, group_ids=group_ids, timestamps=timestamps, auxiliary_events_df=auxiliary_events_df, verbose=verbose)
 
 
 def _apply_row_wise_and_extensions(df: Any, metadata: dict, extensions_pipeline: Any, verbose: Any) -> Any:

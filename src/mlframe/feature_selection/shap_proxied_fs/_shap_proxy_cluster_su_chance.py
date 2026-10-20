@@ -16,7 +16,7 @@ from __future__ import annotations
 import math
 
 import numpy as np
-from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
+from mlframe.feature_selection.filters.shared import crit_np_dtype as _crit_np_dtype
 from numba import njit, prange
 
 from mlframe.feature_selection.shap_proxied_fs._shap_proxy_cluster_su_joint import dense_relabel_codes

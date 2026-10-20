@@ -12,8 +12,7 @@ from __future__ import annotations
 from typing import Any, Iterable, Sequence
 
 import numpy as np
-from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
-
+from mlframe.feature_selection.filters.shared import crit_np_dtype as _crit_np_dtype
 from mlframe.feature_selection.filters import guarded_scale
 import pandas as pd
 from numpy.random import choice

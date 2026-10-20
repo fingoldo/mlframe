@@ -126,7 +126,7 @@ def _reuse_cached_train_pool(
     embedding_features: tuple,
 ) -> Any | None:
     """Swap label and weight on a cached train Pool in place; returns it, or None (after evicting it) when the swap is not usable."""
-    from ._cb_pool import _CB_POOL_CACHE, _coerce_label_for_cb_pool
+    from ._cb_pool import _CB_POOL_CACHE, _CB_POOL_CACHE_LOCK, _coerce_label_for_cb_pool
 
     # Installed CatBoost 1.2.10 rejects ``Pool.set_label`` on a
     # classification Pool (target type ``Integer``) -- the C++
@@ -181,7 +181,8 @@ def _reuse_cached_train_pool(
             _post_label = cached.get_label()
             if _post_label is not None and hasattr(_post_label, "__len__") and len(_post_label) == 0:
                 logger.info("[cb-pool-reuse] cached Pool ended up with empty label after swap " "-- evicting and rebuilding.")
-                _CB_POOL_CACHE.pop(key, None)
+                with _CB_POOL_CACHE_LOCK:
+                    _CB_POOL_CACHE.pop(key, None)
                 raise RuntimeError("empty cached label after set_label")
         except Exception as _verify_exc:
             if "empty cached label" in str(_verify_exc):
@@ -207,7 +208,8 @@ def _reuse_cached_train_pool(
             type(exc).__name__,
             str(exc).splitlines()[0][:120],
         )
-        _CB_POOL_CACHE.pop(key, None)
+        with _CB_POOL_CACHE_LOCK:
+            _CB_POOL_CACHE.pop(key, None)
     return None
 
 

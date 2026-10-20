@@ -4,10 +4,11 @@ Self-contained (numpy, math and numba only). ``_numba_utils`` re-exports every n
 """
 from __future__ import annotations
 
-import math
 
 import numpy as np
 from numba import njit, prange
+
+from ._internals import _entropy_from_counts_njit  # noqa: F401 -- defined in _internals so supervised_binning can import it without a cycle
 
 # Row-statistic operator kernels (moved from _row_stat_kernels.py).
 STAT_NAMES = ("min", "max", "med", "rng", "std", "lse_pos", "lse_neg")
@@ -429,16 +430,3 @@ def _backfit(Q, y, even, n_bins, sweeps):
 
 
 # Entropy from tabulated counts (moved from supervised_binning.py).
-@njit(nogil=True, cache=True)
-def _entropy_from_counts_njit(counts: np.ndarray, n: int) -> float:
-    """Shannon entropy in nats from already-tabulated label counts."""
-    if n <= 0:
-        return 0.0
-    h = 0.0
-    n_f = float(n)
-    for k in range(counts.shape[0]):
-        c = counts[k]
-        if c > 0:
-            p = c / n_f
-            h -= p * math.log(p)
-    return h

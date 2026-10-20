@@ -55,10 +55,7 @@ def test_observed_and_null_values_of_the_same_labels_are_bit_equal():
 def test_device_bitset_null_matches_the_host_bitset_null():
     """The CUDA bit-set kernel returns the host maxima (skipped without a device)."""
     cp = pytest.importorskip("cupy")
-    try:
-        if cp.cuda.runtime.getDeviceCount() == 0:
-            pytest.skip("no CUDA device")
-    except Exception:
+    if not cp.cuda.is_available():
         pytest.skip("no CUDA device")
     from mlframe.feature_selection.filters._family_maxt_cuda_bits import DeviceBitsets, null_max_bits_device
     from mlframe.feature_selection.filters._family_maxt_gate import _label_const
@@ -106,10 +103,7 @@ def _device_family(cp, classes, n=3000, k=40, bins=11, nperm=24):
 def test_shared_memory_kernel_is_bit_identical_to_the_first_kernel(classes, monkeypatch):
     """The shared-memory kernel returns exactly the bits of the first kernel, for the full MI matrix and for the per-permutation maxima."""
     cp = pytest.importorskip("cupy")
-    try:
-        if cp.cuda.runtime.getDeviceCount() == 0:
-            pytest.skip("no CUDA device")
-    except Exception:
+    if not cp.cuda.is_available():
         pytest.skip("no CUDA device")
     from mlframe.feature_selection.filters import _family_maxt_cuda_bits as fb
 
@@ -127,10 +121,7 @@ def test_shared_memory_kernel_is_bit_identical_to_the_first_kernel(classes, monk
 def test_shared_memory_kernel_declines_what_it_cannot_hold():
     """A single class, too many classes, or class bit sets larger than a block's shared memory keep the first kernel."""
     cp = pytest.importorskip("cupy")
-    try:
-        if cp.cuda.runtime.getDeviceCount() == 0:
-            pytest.skip("no CUDA device")
-    except Exception:
+    if not cp.cuda.is_available():
         pytest.skip("no CUDA device")
     from mlframe.feature_selection.filters import _family_maxt_cuda_bits as fb
 
@@ -144,10 +135,7 @@ def test_shared_memory_kernel_declines_what_it_cannot_hold():
 def test_kernel_element_type_follows_the_resident_table(use_shared_kernel, monkeypatch):
     """A float32 table gives float32 buffers and a float32 kernel (no read past a buffer's end), and agrees with the float64 result to float32 precision, for both kernels."""
     cp = pytest.importorskip("cupy")
-    try:
-        if cp.cuda.runtime.getDeviceCount() == 0:
-            pytest.skip("no CUDA device")
-    except Exception:
+    if not cp.cuda.is_available():
         pytest.skip("no CUDA device")
     from mlframe.feature_selection.filters import _family_maxt_cuda_bits as fb
     from mlframe.feature_selection.filters._family_maxt_cuda_bits import DeviceBitsets

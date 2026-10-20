@@ -8,7 +8,12 @@ block of permutations; only the ``B x classes x words`` class bit sets of a bloc
 
 from __future__ import annotations
 
+import logging
+import threading
+
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 _SOURCE = r"""
 extern "C" __global__ void family_null_bits(const unsigned long long* __restrict__ bits, const long long* __restrict__ n_x, const unsigned long long* __restrict__ cls,
@@ -38,6 +43,7 @@ extern "C" __global__ void family_null_bits(const unsigned long long* __restrict
 """
 
 _kernels: dict = {}
+_KERNEL_CACHE_LOCK = threading.RLock()
 _THREADS = 128
 
 # One block per (permutation, tile of columns). The permutation's class bit sets sit in shared memory (every thread of the block reads the same word: a broadcast), and each thread reads a word of its
@@ -83,10 +89,11 @@ _SHARED_MARGIN = 1024
 
 def _get_kernel_v2(cp, ny1: int, real: str):
     """Compile the shared-memory kernel for ``ny1 = n_y - 1`` stored classes and one element type (one binary per pair)."""
-    kern = _kernels_v2.get((ny1, real))
-    if kern is None:
-        kern = cp.RawModule(code=_SOURCE_V2.replace("{REAL}", real), options=(f"-DNY1={int(ny1)}",)).get_function("family_null_bits_v2")
-        _kernels_v2[(ny1, real)] = kern
+    with _KERNEL_CACHE_LOCK:
+        kern = _kernels_v2.get((ny1, real))
+        if kern is None:
+            kern = cp.RawModule(code=_SOURCE_V2.replace("{REAL}", real), options=(f"-DNY1={int(ny1)}",)).get_function("family_null_bits_v2")
+            _kernels_v2[(ny1, real)] = kern
     return kern
 
 
@@ -96,17 +103,19 @@ def _v2_applies(cp, n_y: int, words: int) -> bool:
         return False
     try:
         limit = int(cp.cuda.Device().attributes.get("MaxSharedMemoryPerBlock", 48 * 1024))
-    except Exception:
+    except Exception as e:
+        logger.warning("Could not read MaxSharedMemoryPerBlock (%s: %s); assuming 48 KiB", type(e).__name__, e)
         limit = 48 * 1024
     return (n_y - 1) * words * 8 <= limit - _SHARED_MARGIN
 
 
 def _get_kernel(cp, real: str):
     """Compile the kernel once per element type (``"float"`` or ``"double"``)."""
-    kern = _kernels.get(real)
-    if kern is None:
-        kern = cp.RawKernel(_SOURCE.replace("{REAL}", real), "family_null_bits")
-        _kernels[real] = kern
+    with _KERNEL_CACHE_LOCK:
+        kern = _kernels.get(real)
+        if kern is None:
+            kern = cp.RawKernel(_SOURCE.replace("{REAL}", real), "family_null_bits")
+            _kernels[real] = kern
     return kern
 
 

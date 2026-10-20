@@ -7,6 +7,9 @@ helper can move inside the package without breaking its users, and the private-i
 from ._boruta import (
     boruta_select,
 )
+from ._content_memo import (
+    ContentMemo,
+)
 from ._conditional_gate_fe import (
     apply_conditional_gate,
     apply_row_argmax,
@@ -17,9 +20,18 @@ from ._fe_accuracy_gate import (
     bin_y_for_class_mi,
     class_mi_fe_applicable,
 )
+from ._fe_gpu_batch._devices import (
+    crit_float_dtype,
+)
+from ._fe_usability_signal import (
+    _crit_np_dtype as crit_np_dtype,
+)
 from ._integer_lattice_fe import (
     apply_integer_lattice,
     cheap_integer_lattice_scan,
+)
+from ._mrmr_artifacts import (
+    validate_artifact_dict,
 )
 from ._mrmr_fingerprints import (
     _hashable_params_signature as hashable_params_signature,
@@ -39,6 +51,7 @@ from .permutation import (
 )
 
 __all__ = [
+    "ContentMemo",
     "apply_conditional_gate",
     "apply_integer_lattice",
     "apply_pairwise_modular",
@@ -50,10 +63,13 @@ __all__ = [
     "cheap_modular_scan",
     "cheap_row_argmax_scan",
     "class_mi_fe_applicable",
+    "crit_float_dtype",
+    "crit_np_dtype",
     "escalate_modulus",
     "hashable_params_signature",
     "is_integer_col",
     "mi",
     "perm_pvalue",
     "su_redundancy_matrix",
+    "validate_artifact_dict",
 ]

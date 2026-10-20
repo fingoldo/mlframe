@@ -339,7 +339,7 @@ def _copy_confidence_fit_params(fit_params, fit_params_copy):
         fit_params_copy.pop("callbacks", None)
         # The main CatBoost fit's eval-weight carrier is consumed by the main model's own fit wrapper; the confidence regressor is a
         # plain CatBoostRegressor and rejects the key as an unexpected keyword argument.
-        from .cb._cb_eval_weights import CB_EVAL_WEIGHTS_KEY  # lazy: cb package imports this module's dependencies
+        from .cb.shared import CB_EVAL_WEIGHTS_KEY  # lazy: cb package imports this module's dependencies
 
         fit_params_copy.pop(CB_EVAL_WEIGHTS_KEY, None)
     return fit_params_copy

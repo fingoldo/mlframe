@@ -46,6 +46,7 @@ from typing import Any, Optional
 
 import numpy as np
 from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
+from mlframe.utils.frame_rows import take_rows
 
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
@@ -154,12 +155,7 @@ def _recipe_clears_fold(
     return eng_mi > sum_marg * prevalence
 
 
-def _slice_fold(X: Any, idx: np.ndarray) -> Any:
-    """Row-slice ``X`` at ``idx`` while preserving its pandas/polars/ndarray type so downstream ``apply_recipe`` calls see the expected frame kind."""
-    # Helper: row-slice X for one fold, preserving the frame type apply_recipe expects.
-    if hasattr(X, "iloc"):
-        return X.iloc[idx]
-    return X[idx]
+_slice_fold = take_rows
 
 
 def _raw_fold_codes(X: Any, name: str, idx: np.ndarray, raw_set: set, n: int, nbins: int, _raw_col_cache: dict) -> Optional[np.ndarray]:

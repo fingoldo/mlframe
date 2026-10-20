@@ -1071,6 +1071,7 @@ _SUPERSEDED = {
 _OPT_IN_SLOW: set[str] = {
     "per_fold_stability_select",  # ShapProxiedFS once per outer fold (n_folds fits); opt-in via the function call, ~3-7x the default fit cost
     "proposal_generator",  # cheap-proxy candidate seeds for an external honest search; opt-in via the function call
+    "_cv_candidates_incremental",  # bordered normal-equations regression CV path; opt-in by design, the greedy defaults to the exact per-candidate refit (ULP ties flip picks)
 }
 
 #: PLUGIN_HOOK: an extension point a downstream package calls by name; no in-repo caller by design.

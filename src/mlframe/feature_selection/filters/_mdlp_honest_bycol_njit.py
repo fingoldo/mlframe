@@ -12,11 +12,10 @@ from __future__ import annotations
 import numpy as np
 from numba import njit, prange
 
+from .supervised_binning import _mdlp_best_split_inc_njit as _mdlp_best_split_njit
 from ._mdlp_honest_njit import (
     _compact_labels,
-    _mdlp_best_split_njit,
     _mdlp_cuts_presorted,
-    _mdlp_dfs,
     _mi_codes,
     _n_unique_codes,
     _presort_columns,
@@ -24,7 +23,7 @@ from ._mdlp_honest_njit import (
 )
 
 
-def permuted_labels(y_raw: np.ndarray, y_codes: np.ndarray, perm_rows, count: int) -> "tuple[np.ndarray, np.ndarray]":
+def permuted_labels(y_raw: np.ndarray, y_codes: np.ndarray, perm_rows: np.ndarray, count: int) -> "tuple[np.ndarray, np.ndarray]":
     """``(y_raw[perm], y_codes[perm])`` for the first ``count`` index vectors of ``perm_rows``, each ``(count, n)``, in the narrowest signed integer
     type that holds the labels. Rows are filled as they are drawn, so no ``(count, n)`` index matrix is ever held."""
     out = []
@@ -37,23 +36,16 @@ def permuted_labels(y_raw: np.ndarray, y_codes: np.ndarray, perm_rows, count: in
     return out[0], out[1]
 
 
-@njit(cache=True)
-def _cuts_tie_free(xs, ys, n_classes_total, min_split_size, max_depth, alpha, n_permutations, seed, analytic_min_n, analytic_min_cell, root_crit):
-    """``_mdlp_cuts_presorted`` for a column without tied values: the sorted points are already the deduplicated (x, y) pairs, so nothing is copied, and
-    the cut buffer holds the most cuts a tree of ``max_depth`` can accept instead of one slot per row."""
-    out = np.empty(min(xs.shape[0], (1 << max_depth)) + 1, dtype=np.float64)  # Intentional float64: MDLP cut points at the production binning width
-    n_out = np.zeros(1, dtype=np.int64)
-    _mdlp_dfs(xs, ys, n_classes_total, min_split_size, max_depth, alpha, n_permutations, seed, analytic_min_n, analytic_min_cell, out, n_out, root_crit)
-    cuts = out[: n_out[0]].copy()
-    cuts.sort()
-    return cuts
-
+from ._numba_utils import (  # helpers hosted in _numba_utils_cross_module for the cross-module njit invariant
+    _codes_at_rows,
+    _cuts_tie_free,
+)
 
 ROOT_NULL_DRAWS = 2000
 
 
 @njit(parallel=True, cache=True)
-def root_null_gain_threshold(labels, n_classes_total, min_split_size, alpha, n_draws, seed):
+def root_null_gain_threshold(labels: np.ndarray, n_classes_total: int, min_split_size: int, alpha: float, n_draws: int, seed: int) -> float:
     """The ``(1 - alpha)`` order statistic of the best-split gain of ``n_draws`` random labellings of ``len(labels)`` distinct points with the class counts
     of ``labels``. A tied-free column's root split is accepted when its gain exceeds it; every column and every permutation shares the class counts, so the
     sample is drawn once instead of once per tree. ``inf`` when fewer than two classes are present."""
@@ -79,22 +71,6 @@ def root_null_gain_threshold(labels, n_classes_total, min_split_size, alpha, n_d
     return gains[q_idx]
 
 
-@njit(cache=True)
-def _codes_at_rows(col, rows, cuts, out):
-    """``out[t]`` = number of cuts <= ``col[rows[t]]`` (``searchsorted(side='right')``), filled in place."""
-    for t in range(rows.shape[0]):
-        v = col[rows[t]]
-        lo = 0
-        hi = cuts.shape[0]
-        while lo < hi:
-            mid = (lo + hi) // 2
-            if cuts[mid] <= v:
-                lo = mid + 1
-            else:
-                hi = mid
-        out[t] = lo
-
-
 @njit(parallel=True, cache=True)
 def honest_null_columns_bycol(
     raw_cont: np.ndarray,
@@ -117,7 +93,7 @@ def honest_null_columns_bycol(
     q_refine_len: np.ndarray,
     eval_rows: np.ndarray,
     col_slot: np.ndarray,
-):
+) -> tuple[np.ndarray, np.ndarray]:
     """Same result as ``honest_null_columns`` (``(plain, corrected)``, each ``(permutations, k)``), prange over columns.
 
     ``y_raw_perm[b]`` / ``y_codes_perm[b]`` are the raw labels and the screen's target codes under permutation ``b`` (``y[perms[b]]``), stored in the

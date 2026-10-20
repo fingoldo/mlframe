@@ -28,8 +28,8 @@ import math
 from typing import Iterable
 
 import numpy as np
-from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
-from mlframe.feature_selection.filters._fe_gpu_batch._devices import crit_float_dtype
+from mlframe.feature_selection.filters.shared import crit_np_dtype as _crit_np_dtype
+from mlframe.feature_selection.filters.shared import crit_float_dtype
 from numba import njit, prange
 
 from mlframe.feature_selection.shap_proxied_fs._shap_proxy_cluster import _uf_labels

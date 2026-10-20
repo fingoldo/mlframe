@@ -17,6 +17,8 @@ import math
 import numpy as np
 from numba import njit, prange
 
+from ._batch_kernels import _shuffled_y_matrix
+
 
 @njit(parallel=True, nogil=True, cache=True)
 def _transpose_blocked(src: np.ndarray, dst: np.ndarray) -> None:
@@ -159,24 +161,6 @@ def _observed_column(disc_t, k, nb_k, classes_y, freqs_y, n, use_su, classes_den
         original_mi[k] = 2.0 * mi_xy / denom
 
 
-@njit(nogil=True, cache=True)
-def _permutation_locals(classes_y_safe, base_seed, npermutations):
-    """Shuffled y-vectors for permutations ``0..npermutations-1`` of ``base_seed`` (the shared LCG Fisher-Yates stream)."""
-    ny = classes_y_safe.shape[0]
-    locals_mat = np.empty((npermutations, ny), dtype=classes_y_safe.dtype)
-    for i in range(npermutations):
-        state = np.uint64(base_seed) * np.uint64(2654435761) + np.uint64(i + 1)
-        local = classes_y_safe.copy()
-        for j in range(ny - 1, 0, -1):
-            state = state * np.uint64(6364136223846793005) + np.uint64(1442695040888963407)
-            kk = int(state >> np.uint64(33)) % (j + 1)
-            tmp = local[j]
-            local[j] = local[kk]
-            local[kk] = tmp
-        locals_mat[i] = local
-    return locals_mat
-
-
 @njit(parallel=True, nogil=True, cache=True)
 def batch_mi_with_noise_gate_v3(
     disc_2d: np.ndarray,
@@ -226,7 +210,7 @@ def batch_mi_with_noise_gate_v3(
     if max_failed <= 1:
         max_failed = 1
     nfailed = np.zeros(K, dtype=np.int64)
-    locals_mat = _permutation_locals(classes_y_safe, base_seed, npermutations)
+    locals_mat = _shuffled_y_matrix(classes_y_safe, npermutations, base_seed)
     for k in prange(K):
         if original_mi[k] <= 0.0:
             continue

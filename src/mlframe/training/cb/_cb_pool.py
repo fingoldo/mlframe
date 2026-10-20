@@ -594,7 +594,7 @@ def _predict_with_fallback(
 # refactor: _CB_VAL_POOL_CACHE lives in _predict_guards.py
 # (shared between fit-time populate in _maybe_get_or_build_cb_pool and
 # predict-time lookup in _predict_with_fallback).
-from .._predict_guards import _CB_VAL_POOL_CACHE
+from .._predict_guards import _CB_VAL_POOL_CACHE, _CB_VAL_POOL_CACHE_LOCK
 from mlframe.training.pipeline.shared import (  # noqa: F401
     apply_pre_pipeline_transforms as _apply_pre_pipeline_transforms,
     extract_feature_selector as _extract_feature_selector,
@@ -612,6 +612,7 @@ from mlframe.training.pipeline.shared import (  # noqa: F401
 )
 
 _CB_POOL_CACHE: dict[tuple, Any] = {}
+_CB_POOL_CACHE_LOCK = threading.RLock()
 _CB_POOL_CACHE_MAX_ENTRIES = 16  # hard cap per cache; ring-buffer eviction oldest-first
 
 
@@ -794,7 +795,8 @@ def _swap_cached_val_pool(cached: Any, key: tuple, val_target: Any, cat_features
         return True
     except Exception as exc:
         logger.info("[cb-val-pool-reuse] swap failed (%s: %s); rebuilding val Pool.", type(exc).__name__, str(exc).splitlines()[0][:120])
-        _CB_VAL_POOL_CACHE.pop(key, None)
+        with _CB_VAL_POOL_CACHE_LOCK:
+            _CB_VAL_POOL_CACHE.pop(key, None)
     return False
 
 

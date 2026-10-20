@@ -21,8 +21,7 @@ import logging
 from typing import Any, Optional
 
 import numpy as np
-from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
-
+from mlframe.feature_selection.filters.shared import crit_np_dtype as _crit_np_dtype
 from mlframe.feature_selection.shap_proxied_fs._shap_proxy_objective import coalition_margin_T, proxy_loss, resolve_metric
 from mlframe.feature_selection.shap_proxied_fs._shap_proxy_revalidate._shap_proxy_sampling import (
     _sample_anchor_subsets, _softmax_weights, _zipf_card_probs,

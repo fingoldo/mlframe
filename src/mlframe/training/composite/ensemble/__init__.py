@@ -37,7 +37,6 @@ from ._oof_split import (
     _slice_rows,
 )
 from mlframe.utils.log_throttle import log_throttle
-from ._oof_branches import _oof_kfold_branch, _oof_single_split_branch
 
 
 def _unwrap_shim(model: Any) -> tuple[Any, Any]:
@@ -528,6 +527,9 @@ def _oof_holdout_predictions_with_rows(
             "time (so time_ordering is monotone) to get a K-fold forward walk.",
             int(kfold),
         )
+    # Function-local: _oof_branches imports this package back, so a module-level import would form a cycle.
+    from ._oof_branches import _oof_kfold_branch, _oof_single_split_branch
+
     if int(kfold) > 1 and (time_ordering is None or _time_monotone):
         return _oof_kfold_branch(
             train_X, y_train_full, component_models, component_names, component_specs, base_train_full_per_spec, group_ids,

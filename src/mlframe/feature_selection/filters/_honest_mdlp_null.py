@@ -10,11 +10,14 @@ With a spec the permutations run in a numba prange kernel; otherwise the product
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable, Sequence
 
 import numpy as np
 
 from ._parity_fe import _mi_codes_njit
+
+logger = logging.getLogger(__name__)
 
 
 def _honest_perm_best(honest_codes_fn, factors_data, factors_nbins, y_codes, cols, n, row_perm, eval_rows=None):
@@ -74,7 +77,8 @@ def _device_honest_null_enabled() -> bool:
 
         has_device: bool = cp.cuda.runtime.getDeviceCount() > 0
         return has_device
-    except Exception:  # best-effort: no usable CUDA device means the CPU null path, which computes the same statistic
+    except Exception as e:
+        logger.warning("CUDA device probe for the honest MDLP null failed (%s: %s); using the CPU null path", type(e).__name__, e)
         return False
 
 

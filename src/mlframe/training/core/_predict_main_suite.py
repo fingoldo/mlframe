@@ -121,29 +121,11 @@ def _replay_suite_feature_engineering(
     verbose: int,
 ) -> Any:
     """Replay the suite-owned datetime decomposition and every composite FE family on the predict frame, in training order."""
-    # Lazy import of parent-resident helpers: ``.predict`` re-imports this sibling at its bottom, so a top-level ``from .predict
-    # import ...`` would create a hard cycle the meta-test flags.
-    from .predict import _replay_suite_datetime_decomposition
-    from mlframe.training.pipeline.shared import replay_categorical_composite_fe
-    from mlframe.training.pipeline.shared import replay_entity_time_composite_fe
-    from mlframe.training.pipeline.shared import replay_cross_sectional_composite_fe
-    from mlframe.training.pipeline.shared import replay_target_encoding_composite_fe
-    from mlframe.training.pipeline.shared import replay_per_target_supervised_fe
-    from mlframe.training.pipeline.shared import replay_ma_crossover_composite_fe
-    from mlframe.training.pipeline.shared import replay_latent_interaction_svd_composite_fe
-    from mlframe.training.pipeline.shared import replay_nearest_past_join_composite_fe
-    from mlframe.training.pipeline.shared import replay_event_proximity_decay_composite_fe
-    df = _replay_suite_datetime_decomposition(df, metadata, verbose=verbose)
-    df = replay_categorical_composite_fe(df, metadata, verbose=verbose)
-    df = replay_entity_time_composite_fe(df, metadata, _predict_group_ids, _predict_timestamps, verbose=verbose)
-    df = replay_cross_sectional_composite_fe(df, metadata, verbose=verbose)
-    df = replay_target_encoding_composite_fe(df, metadata, _predict_group_ids, verbose=verbose)
-    df = replay_per_target_supervised_fe(df, metadata, _predict_group_ids, verbose=verbose)
-    df = replay_ma_crossover_composite_fe(df, metadata, _predict_group_ids, _predict_timestamps, verbose=verbose)
-    df = replay_latent_interaction_svd_composite_fe(df, metadata, auxiliary_events_df, _predict_group_ids, verbose=verbose)
-    df = replay_nearest_past_join_composite_fe(df, metadata, auxiliary_events_df, verbose=verbose)
-    df = replay_event_proximity_decay_composite_fe(df, metadata, _predict_timestamps, verbose=verbose)
-    return df
+    from ._predict_fe_replay import replay_composite_fe_chain
+
+    return replay_composite_fe_chain(
+        df, metadata, group_ids=_predict_group_ids, timestamps=_predict_timestamps, auxiliary_events_df=auxiliary_events_df, verbose=verbose,
+    )
 
 
 def _predict_suite_in_batches(

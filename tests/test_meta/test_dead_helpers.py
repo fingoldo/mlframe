@@ -72,6 +72,8 @@ _SKIP_FILENAMES = {
 _PUBLIC_API_WHITELIST: set[str] = {
     # Tracked classes/functions re-exported from mlframe.training.__init__
     # are matched dynamically below; only add here for non-trainer modules.
+    # Vendored infonet demo, run by hand as a sanity check of the sliced-MI estimator on independent samples.
+    "example_highd",
 }
 
 # Helpers the maintainer surfaced and explicitly deferred deletion on

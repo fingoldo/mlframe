@@ -8,9 +8,7 @@ parent, so the loss / refine siblings can depend on it freely.
 from __future__ import annotations
 
 import numpy as np
-from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
-
-
+from mlframe.feature_selection.filters.shared import crit_np_dtype as _crit_np_dtype
 def _softmax_weights(scores, temperature="auto"):
     """Normalise ``scores`` to a length-N probability vector via softmax with a temperature knob.
 

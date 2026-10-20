@@ -47,9 +47,7 @@ REPO_ROOT = MLFRAME_DIR.parent.parent
 _EXEMPT_PATH_FRAGMENTS = ("__pycache__", "legacy", "profiling", "explore", "_benchmarks")
 
 # "relpath:DICT_NAME" -> the test file that overflows that registry past its cap, concurrently.
-OVERFLOW_TESTS = {
-    "feature_selection/filters/_gpu_resident_fe.py:_DEFERRED_HOST_FILL": "tests/feature_selection/gpu/test_deferred_host_fill_never_dropped_unfilled.py",
-}
+OVERFLOW_TESTS = {}
 
 
 def _sources():

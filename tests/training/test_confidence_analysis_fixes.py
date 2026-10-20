@@ -302,7 +302,7 @@ def test_confidence_analysis_completes_within_time_budget():
     )
     assert result.is_fitted()
     assert result.get_params().get("iterations") == 200
-    assert 1 <= result.tree_count_ <= 200
+    assert 1 <= result.tree_count_ <= 10
 
 
 def test_confidence_analysis_accepts_iterations_synonym():

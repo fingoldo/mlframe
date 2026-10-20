@@ -27,7 +27,7 @@ from collections import defaultdict
 from typing import Any, Literal, Optional
 
 import numpy as np
-from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
+from mlframe.feature_selection.filters.shared import crit_np_dtype as _crit_np_dtype
 import pandas as pd
 
 from mlframe.feature_selection._selection_log import logs_fit
@@ -507,7 +507,7 @@ class HybridSelector:
         # relevant column is covered (the pure-selection case) - otherwise let the shap member recompute cleanly.
         if artifacts is not None:
             try:
-                from mlframe.feature_selection.filters._mrmr_artifacts import validate_artifact_dict
+                from mlframe.feature_selection.filters.shared import validate_artifact_dict
                 from mlframe.feature_selection.shap_proxied_fs import restrict_artifacts
                 if not validate_artifact_dict(artifacts, n_samples=len(X)):
                     raise ValueError("shared MRMR artifacts failed structural validation")

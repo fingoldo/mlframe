@@ -39,8 +39,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
 from mlframe.utils.env_flags import env_float, env_int
-from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
-
+from mlframe.feature_selection.filters.shared import crit_np_dtype as _crit_np_dtype
 if TYPE_CHECKING:
     import pandas as pd
 

@@ -285,7 +285,7 @@ def _fallback_codes(raw_cont, is_cont, fixed_codes, fixed_nbins, col_slot, q_fal
     return codes, nx, kx
 
 
-def eligible(n, n_classes_total, analytic_min_n, analytic_min_cell) -> bool:
+def eligible(n: int, n_classes_total: int, analytic_min_n: int, analytic_min_cell: float) -> bool:
     """The root split is decided analytically (enough rows, enough rows per cell) and the target has few enough classes for the kernel."""
     return bool(n >= int(analytic_min_n) and (float(n) / max(1.0, 2.0 * n_classes_total)) >= float(analytic_min_cell) and 2 <= n_classes_total <= MAX_CLASSES)
 
@@ -302,34 +302,35 @@ def _entropy(counts: np.ndarray, n: int) -> float:
 
 
 def honest_null_columns_device(
-    raw_cont,
-    is_cont,
-    fixed_codes,
-    fixed_nbins,
-    y_raw_perm,
-    y_codes_perm,
-    n_classes_total,
-    min_split_size,
-    max_depth,
-    alpha,
-    n_permutations,
-    seed,
-    analytic_min_n,
-    analytic_min_cell,
-    q_fallback,
-    q_fallback_len,
-    q_refine,
-    q_refine_len,
-    eval_rows,
-    col_slot,
-):
+    raw_cont: np.ndarray,
+    is_cont: np.ndarray,
+    fixed_codes: np.ndarray,
+    fixed_nbins: np.ndarray,
+    y_raw_perm: np.ndarray,
+    y_codes_perm: np.ndarray,
+    n_classes_total: int,
+    min_split_size: int,
+    max_depth: int,
+    alpha: float,
+    n_permutations: int,
+    seed: int,
+    analytic_min_n: int,
+    analytic_min_cell: float,
+    q_fallback: np.ndarray,
+    q_fallback_len: np.ndarray,
+    q_refine: np.ndarray,
+    q_refine_len: np.ndarray,
+    eval_rows: np.ndarray,
+    col_slot: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray] | None:
     """``(plain, corrected)`` as ``honest_null_columns_bycol`` returns them, or ``None`` when the device path does not apply (see the module docstring)."""
     try:
         import cupy as cp
 
         from ._family_maxt_cuda_bits import DeviceBitsets, mi_matrix_bits_device
         from ._family_maxt_null_v2_njit import bitset_groups, label_bitsets_batch, xlogx_table
-    except Exception:  # best-effort: without cupy the CPU null path computes the same statistic
+    except Exception as e:
+        logger.warning("Device honest-null imports failed (%s: %s); using the CPU null path", type(e).__name__, e)
         return None
     n_perm, n = y_raw_perm.shape
     k = is_cont.shape[0]

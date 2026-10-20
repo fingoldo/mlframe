@@ -21,7 +21,7 @@ from __future__ import annotations
 from typing import Dict, Optional, Sequence, Tuple
 
 import numpy as np
-from .filters._fe_usability_signal import _crit_np_dtype
+from mlframe.feature_selection.filters.shared import crit_np_dtype as _crit_np_dtype
 import pandas as pd
 
 from mlframe.preprocessing.align_feature_direction import batch_univariate_auc

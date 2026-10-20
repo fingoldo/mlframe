@@ -28,7 +28,7 @@ import multiprocessing
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
-from mlframe.feature_selection.filters._fe_gpu_batch._devices import crit_float_dtype
+from mlframe.feature_selection.filters.shared import crit_float_dtype
 
 if TYPE_CHECKING:
     from mlframe.feature_selection.shap_proxied_fs._shap_proxy_treeshap import TreeEnsemble

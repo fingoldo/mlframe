@@ -24,7 +24,7 @@ import math
 from typing import Any, cast
 
 import numpy as np
-from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
+from mlframe.feature_selection.filters.shared import crit_np_dtype as _crit_np_dtype
 from numba import njit, prange
 
 logger = logging.getLogger(__name__)

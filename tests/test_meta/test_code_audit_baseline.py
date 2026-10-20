@@ -38,6 +38,9 @@ _EXCLUDE_DIRS = frozenset({"legacy", "benchmarks", "profiling", "_benchmarks"})
 
 def test_no_new_code_audit_findings(request):
     """Fail only on NEW pyutilz.dev.code_audit findings vs the committed baseline."""
+    # Accepted structural matches (no duplicated logic): _pairs_emit.py parent functions call their own extracted parts and
+    # score_step4 / _try_gpu_fourier_detect are one-call wrappers around another function, so the scanner matches their
+    # delegating call sequences, not copied statements.
     assert_no_new_code_audit_findings(
         root=MLFRAME_DIR,
         baseline_path=_BASELINE_PATH,

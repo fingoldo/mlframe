@@ -63,25 +63,9 @@ def _parity_mi_grid_njit(v: np.ndarray, y_codes: np.ndarray, n_classes: int, per
     return out
 
 
-@njit(cache=True)
-def _mi_codes_njit(x_codes: np.ndarray, n_x: int, y_codes: np.ndarray, n_y: int) -> float:
-    """Plug-in MI (nats) of two integer-coded vectors from one contingency pass; equals ``sklearn.metrics.mutual_info_score``."""
-    n = x_codes.shape[0]
-    joint = np.zeros((n_x, n_y), dtype=np.int64)
-    for i in range(n):
-        joint[x_codes[i], y_codes[i]] += 1
-    px = joint.sum(axis=1)
-    py = joint.sum(axis=0)
-    mi = 0.0
-    for a in range(n_x):
-        if px[a] == 0:
-            continue
-        for b in range(n_y):
-            nab = joint[a, b]
-            if nab == 0:
-                continue
-            mi += (nab / n) * np.log((nab * n) / (px[a] * py[b]))
-    return mi
+from ._numba_utils import (
+    _mi_codes_njit,
+)
 
 
 def _parity_grid(v: np.ndarray) -> np.ndarray:

@@ -22,7 +22,7 @@ from typing import Any
 import logging
 
 import numpy as np
-from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
+from mlframe.feature_selection.filters.shared import crit_np_dtype as _crit_np_dtype
 import pandas as pd
 from sklearn.model_selection import cross_val_score
 

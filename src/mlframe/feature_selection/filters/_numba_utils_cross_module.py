@@ -1,0 +1,698 @@
+"""@njit helpers formerly defined in sibling filters modules and imported across them.
+
+Hosted here so every cross-module @njit import goes through ``_numba_utils``. Re-exported by ``_numba_utils``.
+"""
+
+from __future__ import annotations
+
+import math
+import numpy as np
+from numba import njit, prange
+
+
+@njit(cache=True)
+def _accept_split_serial(
+    x_i: np.ndarray, y_i: np.ndarray, n_classes: int, gain: float, min_split_size: int, n_permutations: int, base_seed: int, alpha: float
+) -> bool:
+    """Per-node permutation test (serial twin of ``_mdlp_permutation_batch_njit``): accept when the observed gain exceeds the
+    ``ceil((1 - alpha) * B) - 1`` order statistic of the null gains, seeded per permutation."""
+    ni = x_i.shape[0]
+    q_idx = min(math.ceil((1.0 - alpha) * n_permutations) - 1, n_permutations - 1)
+    q_idx = max(0, q_idx)
+    # gain > sorted_null[q_idx] holds exactly when at most (n_permutations - 1 - q_idx) draws reach the gain, so the scan stops as soon as
+    # that many draws have reached it: the decision is the same as sorting all draws, and each draw is seeded on its own.
+    max_reach = n_permutations - 1 - q_idx
+    reach = 0
+    y_perm = np.empty(ni, dtype=np.int64)
+    for p in range(n_permutations):
+        np.random.seed(base_seed + p)
+        for i in range(ni):
+            y_perm[i] = y_i[i]
+        for i in range(ni - 1, 0, -1):
+            j = int(np.random.randint(0, i + 1))
+            tmp = y_perm[i]
+            y_perm[i] = y_perm[j]
+            y_perm[j] = tmp
+        _, g, _, _, _ = _mdlp_best_split_njit(x_i, y_perm, n_classes, min_split_size)
+        if g >= gain:
+            reach += 1
+            if reach > max_reach:
+                return False
+    return True
+
+
+@njit(cache=True)
+def _analytic_p_value(mi: float, n: int, n_classes: int) -> float:
+    """G-test tail of a 2 x n_classes table (df = n_classes - 1), as ``analytic_mi_null`` computes it."""
+    df = n_classes - 1
+    if df <= 0 or n <= 0 or mi <= 0.0:
+        return 1.0
+    p = _gammaincc_nb(0.5 * df, 0.5 * 2.0 * float(n) * mi)
+    return min(1.0, max(0.0, float(p)))
+
+
+@njit(cache=True)
+def _cmi_from_counts(counts: np.ndarray, n: int, min_rows: int) -> float:
+    """Sum over strata with at least ``min_rows`` rows of (m / n) * plug-in MI (nats) of that stratum's x-y table, clipped at zero as scikit-learn does."""
+    n_s, n_x, n_y = counts.shape
+    total = 0.0
+    px = np.zeros(n_x, dtype=np.int64)
+    py = np.zeros(n_y, dtype=np.int64)
+    for sv in range(n_s):
+        m = 0
+        for a in range(n_x):
+            px[a] = 0
+        for b in range(n_y):
+            py[b] = 0
+        for a in range(n_x):
+            for b in range(n_y):
+                c = counts[sv, a, b]
+                px[a] += c
+                py[b] += c
+                m += c
+        if m < min_rows:
+            continue
+        mi = 0.0
+        for a in range(n_x):
+            if px[a] == 0:
+                continue
+            for b in range(n_y):
+                c = counts[sv, a, b]
+                if c == 0:
+                    continue
+                mi += (c / m) * math.log((c * m) / (px[a] * py[b]))
+        if mi > 0.0:
+            total += (m / n) * mi
+    return total
+
+
+@njit(cache=True)
+def _codes_at_rows(col, rows, cuts, out):
+    """``out[t]`` = number of cuts <= ``col[rows[t]]`` (``searchsorted(side='right')``), filled in place."""
+    for t in range(rows.shape[0]):
+        v = col[rows[t]]
+        lo = 0
+        hi = cuts.shape[0]
+        while lo < hi:
+            mid = (lo + hi) // 2
+            if cuts[mid] <= v:
+                lo = mid + 1
+            else:
+                hi = mid
+        out[t] = lo
+
+
+@njit(cache=True)
+def _codes_from_cuts(col: np.ndarray, cuts: np.ndarray) -> np.ndarray:
+    """Bin code of each value: number of inner cut points <= value (``searchsorted(side='right')``)."""
+    out = np.empty(col.shape[0], dtype=np.int64)
+    for i in range(col.shape[0]):
+        v = col[i]
+        lo = 0
+        hi = cuts.shape[0]
+        while lo < hi:
+            mid = (lo + hi) // 2
+            if cuts[mid] <= v:
+                lo = mid + 1
+            else:
+                hi = mid
+        out[i] = lo
+    return out
+
+
+@njit(cache=True)
+def _compact_labels(y: np.ndarray, n_classes_total: int):
+    """Rank-compact labels among the classes present. Returns (compact labels, number of present classes)."""
+    present = np.zeros(n_classes_total, dtype=np.bool_)
+    for i in range(y.shape[0]):
+        present[y[i]] = True
+    rank = np.full(n_classes_total, -1, dtype=np.int64)
+    k = 0
+    for c in range(n_classes_total):
+        if present[c]:
+            rank[c] = k
+            k += 1
+    out = np.empty(y.shape[0], dtype=np.int64)
+    for i in range(y.shape[0]):
+        out[i] = rank[y[i]]
+    return out, k
+
+
+@njit(cache=True)
+def _conditional_shuffle_within_strata(
+    classes_x2_safe: np.ndarray,
+    classes_y: np.ndarray,
+    n_y_classes: int,
+    base_seed: int,
+) -> None:
+    """Conditional permutation: shuffle ``classes_x2_safe`` IN PLACE, restricting the shuffle to within each stratum of ``classes_y``.
+
+    This is the correct null distribution for testing ``H0: X1 ⊥ X2 | Y`` (no synergy beyond marginals). Plain shuffle-Y tests ``H0: Y ⊥ (X1, X2)`` (joint independence) instead.
+
+    Implementation: for each Y-stratum, collect the indices where ``classes_y[i] == c``, Fisher-Yates shuffle the corresponding slice of ``classes_x2_safe`` in place.
+    Per Anderson & ter Braak 2003 ("Permutation tests for multi-factorial analysis of variance").
+
+    Preserves ``P(X2 | Y)`` - so each marginal ``I(X2; Y)`` is
+    unchanged under the shuffle, but the conditional ``I(X1; X2 | Y)``
+    is broken. The orchestrator combines this with three-MI calls
+    above to compute II_perm under the conditional null.
+
+    The Fisher-Yates RNG is a seeded inline LCG (same PCG-style step as ``_count_nfailed_joint_indep_prange``) so the permutation is reproducible at a fixed
+    ``base_seed`` and never touches numpy's process-global RNG.
+    """
+    n = len(classes_y)
+    state = np.uint64(base_seed) * np.uint64(2654435761) + np.uint64(1)
+    # For each Y class, gather positions and Fisher-Yates within the slice.
+    for c in range(n_y_classes):
+        # Collect indices manually (numba doesn't support boolean masks
+        # for in-place writes the same way numpy does).
+        positions = np.empty(n, dtype=np.int64)
+        pos_count = 0
+        for i in range(n):
+            if classes_y[i] == c:
+                positions[pos_count] = i
+                pos_count += 1
+        # Fisher-Yates shuffle within the stratum
+        for idx in range(pos_count - 1, 0, -1):
+            state = state * np.uint64(6364136223846793005) + np.uint64(1442695040888963407)
+            j = int(state >> np.uint64(33)) % (idx + 1)
+            a = positions[idx]
+            b = positions[j]
+            tmp = classes_x2_safe[a]
+            classes_x2_safe[a] = classes_x2_safe[b]
+            classes_x2_safe[b] = tmp
+
+
+@njit(nogil=True, cache=True)
+def _count_candidates_njit(x_sorted: np.ndarray, y_sorted: np.ndarray, min_split_size: int) -> int:
+    """Count class-boundary candidate cut points a node's scan actually considers (mirrors the skip
+    conditions inside ``_mdlp_best_split_njit`` exactly, without doing the entropy work) - needed for
+    the Bonferroni multiplicity correction on the analytic significance path."""
+    n = x_sorted.shape[0]
+    count = 0
+    for i in range(n - 1):
+        n_l = i + 1
+        n_r = n - n_l
+        if n_l < min_split_size or n_r < min_split_size:
+            continue
+        if y_sorted[i] == y_sorted[i + 1]:
+            continue
+        if x_sorted[i] == x_sorted[i + 1]:
+            continue
+        count += 1
+    return count
+
+
+@njit(cache=True)
+def _cuts_tie_free(xs, ys, n_classes_total, min_split_size, max_depth, alpha, n_permutations, seed, analytic_min_n, analytic_min_cell, root_crit):
+    """``_mdlp_cuts_presorted`` for a column without tied values: the sorted points are already the deduplicated (x, y) pairs, so nothing is copied, and
+    the cut buffer holds the most cuts a tree of ``max_depth`` can accept instead of one slot per row."""
+    out = np.empty(min(xs.shape[0], (1 << max_depth)) + 1, dtype=np.float64)  # Intentional float64: MDLP cut points at the production binning width
+    n_out = np.zeros(1, dtype=np.int64)
+    _mdlp_dfs(xs, ys, n_classes_total, min_split_size, max_depth, alpha, n_permutations, seed, analytic_min_n, analytic_min_cell, out, n_out, root_crit)
+    cuts = out[: n_out[0]].copy()
+    cuts.sort()
+    return cuts
+
+
+@njit(cache=True)
+def _edge_value(s: np.ndarray, q: float) -> float:
+    """``np.quantile(s_unsorted, q)`` (method ``linear``) read off the sorted copy ``s``, in numpy's arithmetic order."""
+    n = s.shape[0]
+    virtual = (n - 1) * q
+    lo = np.floor(virtual)
+    if virtual >= n - 1:
+        i0 = n - 1
+        i1 = n - 1
+    elif virtual < 0:
+        i0 = 0
+        i1 = 0
+    else:
+        i0 = int(lo)
+        i1 = i0 + 1
+    gamma = virtual - i0
+    a = float(s[i0])
+    b = float(s[i1])
+    diff = b - a
+    out = a + diff * gamma
+    if gamma >= 0.5:
+        out = b - diff * (1.0 - gamma)
+    return float(out)
+
+
+@njit(cache=True)
+def _full_conditional_shuffle_ipf(
+    classes_x2_safe: np.ndarray,
+    classes_x1: np.ndarray,
+    classes_y: np.ndarray,
+    n_x1_classes: int,
+    n_y_classes: int,
+    base_seed: int,
+) -> None:
+    """Full conditional permutation via IPF-style double-stratification. Shuffle X2 within strata of (X1, Y) so that P(X2 | X1, Y) is preserved on average across
+    permutations - the strictest synergy null that holds both marginals fixed while breaking X1-X2 conditional dependence.
+
+    Reference: Patefield 1981 (R x C contingency tables with fixed marginals); Anderson & ter Braak 2003 (multi-factorial permutation).
+
+    Implementation: for each unique (X1, Y) stratum, Fisher-Yates shuffle classes_x2_safe restricted to rows in that stratum.
+    The Fisher-Yates RNG is a seeded inline LCG (same PCG-style step as ``_count_nfailed_joint_indep_prange``) so the permutation is reproducible at a fixed
+    ``base_seed`` and never touches numpy's process-global RNG.
+    """
+    n = len(classes_y)
+    state = np.uint64(base_seed) * np.uint64(2654435761) + np.uint64(1)
+    for cx1 in range(n_x1_classes):
+        for cy in range(n_y_classes):
+            # Gather indices in this (X1, Y) stratum
+            positions = np.empty(n, dtype=np.int64)
+            pos_count = 0
+            for i in range(n):
+                if classes_x1[i] == cx1 and classes_y[i] == cy:
+                    positions[pos_count] = i
+                    pos_count += 1
+            # Fisher-Yates within stratum
+            for idx in range(pos_count - 1, 0, -1):
+                state = state * np.uint64(6364136223846793005) + np.uint64(1442695040888963407)
+                j = int(state >> np.uint64(33)) % (idx + 1)
+                a = positions[idx]
+                b = positions[j]
+                tmp = classes_x2_safe[a]
+                classes_x2_safe[a] = classes_x2_safe[b]
+                classes_x2_safe[b] = tmp
+
+
+@njit(cache=True)
+def _gammaincc_nb(a: float, x: float) -> float:
+    """Regularised upper incomplete gamma Q(a, x); the chi-square survival is Q(df/2, g/2). Matches scipy to ~3e-14."""
+    if x <= 0.0:
+        return 1.0
+    gln = math.lgamma(a)
+    if x < a + 1.0:
+        ap = a
+        s = 1.0 / a
+        d = s
+        for _ in range(10000):
+            ap += 1.0
+            d *= x / ap
+            s += d
+            if abs(d) < abs(s) * 1e-16:
+                break
+        return 1.0 - s * math.exp(-x + a * math.log(x) - gln)
+    b = x + 1.0 - a
+    c = 1.0 / 1e-300
+    d = 1.0 / b
+    h = d
+    for i in range(1, 10000):
+        an = -i * (i - a)
+        b += 2.0
+        d = an * d + b
+        if abs(d) < 1e-300:
+            d = 1e-300
+        c = b + an / c
+        if abs(c) < 1e-300:
+            c = 1e-300
+        d = 1.0 / d
+        de = d * c
+        h *= de
+        if abs(de - 1.0) < 1e-16:
+            break
+    return math.exp(-x + a * math.log(x) - gln)
+
+
+@njit(cache=True)
+def _mdlp_cuts_presorted(
+    xs: np.ndarray,
+    ys: np.ndarray,
+    n_classes_total: int,
+    min_split_size: int,
+    max_depth: int,
+    alpha: float,
+    n_permutations: int,
+    seed: int,
+    analytic_min_n: int,
+    analytic_min_cell: float,
+) -> np.ndarray:
+    """``mdlp_inner_cuts`` on a column presorted by x (see ``_presorted_dedup``); same cuts."""
+    xd, yd = _presorted_dedup(xs, ys, n_classes_total)
+    # Intentional float64: MDLP cut search at the production binning width (cut points must match supervised_binning)
+    out = np.empty(max(1, xd.shape[0]), dtype=np.float64)
+    n_out = np.zeros(1, dtype=np.int64)
+    _mdlp_dfs(xd, yd, n_classes_total, min_split_size, max_depth, alpha, n_permutations, seed, analytic_min_n, analytic_min_cell, out, n_out)
+    cuts: np.ndarray = out[: n_out[0]].copy()
+    cuts.sort()
+    return cuts
+
+
+@njit(cache=True)
+def _mdlp_dfs(
+    xs: np.ndarray,
+    ys: np.ndarray,
+    n_classes_total: int,
+    min_split_size: int,
+    max_depth: int,
+    alpha: float,
+    n_permutations: int,
+    seed: int,
+    analytic_min_n: int,
+    analytic_min_cell: float,
+    out: np.ndarray,
+    n_out: np.ndarray,
+    root_crit: float = np.nan,
+) -> None:
+    """Validated split search on sorted, deduplicated (x, y), iterative (explicit stack of index ranges): numba cannot cache a recursive
+    function, and every process would otherwise recompile the search. Node decisions are those of the depth-first recursion: a node's
+    permutation seed depends only on the root seed, its depth and its split index, and the child labels are rank-compacted within the
+    node exactly as before.
+
+    ``root_crit`` (finite) replaces the permutation test of the root node by ``best_gain > root_crit``: for a column without tied values the null
+    gain of a random labelling depends only on the labels' class counts, so the caller draws one large null sample for all columns."""
+    n_total = xs.shape[0]
+    cap = 2 * max_depth + 8  # DFS pops one range and pushes two children one level deeper: the stack never holds more than max_depth + 2 ranges
+    st_s = np.empty(cap, dtype=np.int64)
+    st_e = np.empty(cap, dtype=np.int64)
+    st_d = np.empty(cap, dtype=np.int64)
+    top = 0
+    st_s[0] = 0
+    st_e[0] = n_total
+    st_d[0] = 0
+    top = 1
+    while top > 0:
+        top -= 1
+        s = st_s[top]
+        e = st_e[top]
+        depth = st_d[top]
+        x = xs[s:e]
+        n = e - s
+        if n < 2 * min_split_size or depth >= max_depth:
+            continue
+        y_c, n_classes_full = _compact_labels(ys[s:e], n_classes_total)
+        if n_classes_full <= 1:
+            continue
+        best_idx, best_gain, _h, _nl, _nr = _mdlp_best_split_njit(x, y_c, n_classes_full, min_split_size)
+        if best_idx < 0 or best_gain <= 0.0:
+            continue
+        best_split = 0.5 * (x[best_idx] + x[best_idx + 1])
+        node_seed = seed + depth * 7919 + best_idx
+        if n >= analytic_min_n and (float(n) / max(1.0, 2.0 * n_classes_full)) >= analytic_min_cell:
+            n_candidates = _count_candidates_njit(x, y_c, min_split_size)
+            p_value = min(1.0, _analytic_p_value(best_gain, n, n_classes_full) * max(1, n_candidates))
+            accepted = p_value < alpha
+        elif depth == 0 and root_crit == root_crit:
+            accepted = best_gain > root_crit
+        else:
+            accepted = _accept_split_serial(x, y_c, n_classes_full, best_gain, min_split_size, n_permutations, node_seed, alpha)
+        if not accepted:
+            continue
+        out[n_out[0]] = best_split
+        n_out[0] += 1
+        left_end = best_idx + 1
+        st_s[top] = s
+        st_e[top] = s + left_end
+        st_d[top] = depth + 1
+        top += 1
+        st_s[top] = s + left_end
+        st_e[top] = e
+        st_d[top] = depth + 1
+        top += 1
+
+
+@njit(cache=True)
+def _mi_codes(x: np.ndarray, n_x: int, y: np.ndarray, n_y: int) -> float:
+    """Plug-in MI (nats) of two integer-coded vectors; the same contingency formula as ``_parity_fe._mi_codes_njit``."""
+    n = x.shape[0]
+    joint = np.zeros((n_x, n_y), dtype=np.int64)
+    for i in range(n):
+        joint[x[i], y[i]] += 1
+    px = joint.sum(axis=1)
+    py = joint.sum(axis=0)
+    mi = 0.0
+    for a in range(n_x):
+        if px[a] == 0:
+            continue
+        for b in range(n_y):
+            nab = joint[a, b]
+            if nab == 0:
+                continue
+            mi += (nab / n) * math.log((nab * n) / (px[a] * py[b]))
+    return mi
+
+
+@njit(cache=True)
+def _mi_codes_njit(x_codes: np.ndarray, n_x: int, y_codes: np.ndarray, n_y: int) -> float:
+    """Plug-in MI (nats) of two integer-coded vectors from one contingency pass; equals ``sklearn.metrics.mutual_info_score``."""
+    n = x_codes.shape[0]
+    joint = np.zeros((n_x, n_y), dtype=np.int64)
+    for i in range(n):
+        joint[x_codes[i], y_codes[i]] += 1
+    px = joint.sum(axis=1)
+    py = joint.sum(axis=0)
+    mi = 0.0
+    for a in range(n_x):
+        if px[a] == 0:
+            continue
+        for b in range(n_y):
+            nab = joint[a, b]
+            if nab == 0:
+                continue
+            mi += (nab / n) * np.log((nab * n) / (px[a] * py[b]))
+    return mi
+
+
+@njit(cache=True)
+def _n_unique_codes(x: np.ndarray) -> int:
+    """Number of distinct codes (occupied bins)."""
+    seen = np.zeros(int(x.max()) + 1, dtype=np.bool_)
+    cnt = 0
+    for i in range(x.shape[0]):
+        if not seen[x[i]]:
+            seen[x[i]] = True
+            cnt += 1
+    return cnt
+
+
+@njit(cache=True)
+def _presorted_dedup(xs: np.ndarray, ys: np.ndarray, n_classes_total: int):
+    """``_sorted_dedup`` for a column already sorted by x, ``ys`` the labels in that sorted order. Within each run of equal x the distinct
+    labels are emitted ascending, which is the (x, y) order and duplicate removal of the two stable passes, without sorting: only the
+    labels change between permutations, the order of x does not. Runs are found by comparing neighbours, so nothing per column is stored."""
+    n = xs.shape[0]
+    xd = np.empty(n, dtype=xs.dtype)
+    yd = np.empty(n, dtype=np.int64)
+    seen = np.zeros(n_classes_total, dtype=np.bool_)
+    m = 0
+    a = 0
+    while a < n:
+        e = a + 1
+        while e < n and xs[e] == xs[a]:
+            e += 1
+        if e - a == 1:
+            xd[m] = xs[a]
+            yd[m] = ys[a]
+            m += 1
+        else:
+            for i in range(a, e):
+                seen[ys[i]] = True
+            for c in range(n_classes_total):
+                if seen[c]:
+                    xd[m] = xs[a]
+                    yd[m] = c
+                    m += 1
+                    seen[c] = False
+        a = e
+    return xd[:m], yd[:m]
+
+
+@njit(nogil=True, cache=True)
+def _relevance_mi_1var_fused(
+    factors_data: np.ndarray,
+    ix: int,
+    nb_x: int,
+    classes_y: np.ndarray,
+    freqs_y: np.ndarray,
+) -> tuple:
+    """Fused single-variable raw MI I(X_ix; Y) + occupied-x-bin count in ONE O(n) pass.
+
+    Returns ``(mi, bx)`` where ``mi`` is BIT-IDENTICAL to
+    ``compute_mi_from_classes(*merge_vars(factors_data, [ix], ...)[:2], classes_y, freqs_y)``
+    and ``bx`` equals the pruned ``len(freqs_x)`` (occupied x-bins) that
+    ``merge_vars`` returns - exactly the two quantities the ANALYTIC-null branch of
+    ``mi_direct`` consumes (``_ax_freqs.shape[0]`` and the MI). The legacy path built the
+    length-n ``classes_x`` relabel array via ``merge_vars`` (one O(n) accumulate pass plus a
+    second O(n) lookup-remap pass when any x-bin is empty) and then walked all n samples AGAIN
+    inside ``compute_mi_from_classes`` to build the joint histogram - and the analytic branch
+    DISCARDS ``classes_x`` entirely (it needs only ``len(freqs_x)`` and the MI scalar). This
+    kernel builds the ``(nb_x, K_y)`` joint histogram directly from ``factors_data[:, ix]`` and
+    ``classes_y`` in a SINGLE row pass, then derives ``freqs_x`` from the row sums - eliminating
+    the separate ``merge_vars(x)`` pass + its ``final_classes``/lookup allocations. Mirrors the
+    ``joint_freqs_2var`` / ``joint_entropy_2var`` pruned-fast-path wins on the DCD pairwise path.
+
+    BIT-IDENTITY to ``compute_mi_from_classes(merge_vars(...))`` (raw MI, no SU/MM):
+      * ``merge_vars`` renumbers OCCUPIED x-bins densely in ASCENDING original-bin order, so
+        ``compute_mi_from_classes`` visits x-classes ``i in range(len(freqs_x))`` in that same
+        ascending order. Iterating ``i in range(nb_x)`` here and SKIPPING empty rows
+        (``rowcount == 0``) visits the identical occupied bins in the identical order.
+      * ``prob_x = rowcount / n`` reproduces ``merge_vars``'s ``freqs / n_rows`` (int64 count,
+        true division); ``prob_y = freqs_y[j]`` is passed through unchanged; and
+        ``jf = jc * inv_n`` with ``inv_n = 1.0 / n`` matches ``compute_mi_from_classes`` exactly
+        - same operands, same order, so the ``jf*log(jf/(prob_x*prob_y))`` terms accumulate
+        bit-for-bit.
+      * Empty x-bins (and empty joint cells) contribute nothing to MI in EITHER path, so pruning
+        vs skipping is numerically inert.
+    """
+    n = factors_data.shape[0]
+    K_y = len(freqs_y)
+    if n == 0:
+        return 0.0, 0
+    joint = np.zeros((nb_x, K_y), dtype=np.int64)
+    for k in range(n):
+        joint[factors_data[k, ix], classes_y[k]] += 1
+    inv_n = 1.0 / n
+    total = 0.0
+    bx = 0
+    for i in range(nb_x):
+        rowcount = 0
+        for j in range(K_y):
+            rowcount += joint[i, j]
+        if rowcount == 0:
+            continue
+        bx += 1
+        prob_x = rowcount / n
+        for j in range(K_y):
+            jc = joint[i, j]
+            if jc != 0:
+                prob_y = freqs_y[j]
+                jf = jc * inv_n
+                total += jf * math.log(jf / (prob_x * prob_y))
+    return total, bx
+
+
+@njit(cache=True)
+def _supervised_edges(v: np.ndarray, cuts: np.ndarray, q_fallback: np.ndarray, q_refine: np.ndarray) -> np.ndarray:
+    """Final inner edges of a supervised column, as ``compute_col_edges`` produces them: the MDLP cuts; when none were accepted, the
+    unsupervised collapse fallback; otherwise the refine step (adds the fallback cuts when one bin holds more than
+    ``1 - 1/(2 * fallback_nbins)`` of the rows). ``q_fallback`` / ``q_refine`` are the target-free fallback cuts, precomputed per column."""
+    if cuts.shape[0] == 0:
+        return q_fallback
+    n = v.shape[0]
+    counts = np.zeros(cuts.shape[0] + 1, dtype=np.int64)
+    for i in range(n):
+        lo = 0
+        hi = cuts.shape[0]
+        while lo < hi:
+            mid = (lo + hi) // 2
+            if cuts[mid] <= v[i]:
+                lo = mid + 1
+            else:
+                hi = mid
+        counts[lo] += 1
+    cmax = 0
+    for c in range(counts.shape[0]):
+        if counts[c] > cmax:
+            cmax = counts[c]
+    if cmax <= (1.0 - 1.0 / (2.0 * 5)) * n:
+        return cuts
+    if q_refine.shape[0] == 0:
+        return cuts
+    merged = np.concatenate((cuts, q_refine))
+    merged.sort()
+    out = np.empty(merged.shape[0], dtype=np.float64)  # Intentional float64: bin-edge / cut vector, compared against values at full precision
+    m = 0
+    for i in range(merged.shape[0]):
+        if m == 0 or merged[i] != out[m - 1]:
+            out[m] = merged[i]
+            m += 1
+    return out[:m]
+
+
+@njit(cache=True, parallel=True)
+def quantile_codes_block(v: np.ndarray, n_bins: int, codes: np.ndarray, nx: np.ndarray) -> None:
+    """Fill ``codes[j]`` (int16) and ``nx[j]`` for every row ``j`` of ``v`` ``(columns, n)`` exactly as ``_quantile_codes`` does for a finite column."""
+    k = v.shape[0]
+    n = v.shape[1]
+    step = 1.0 / n_bins
+    for j in prange(k):
+        s = np.sort(v[j])
+        d = 1
+        for i in range(1, n):
+            if s[i] != s[i - 1]:
+                d += 1
+        if d <= n_bins:
+            levels = np.empty(d, dtype=s.dtype)
+            levels[0] = s[0]
+            m = 1
+            for i in range(1, n):
+                if s[i] != s[i - 1]:
+                    levels[m] = s[i]
+                    m += 1
+            for i in range(n):
+                lo = 0
+                hi = d
+                x = v[j, i]
+                while lo < hi:
+                    mid = (lo + hi) // 2
+                    if levels[mid] < x:
+                        lo = mid + 1
+                    else:
+                        hi = mid
+                codes[j, i] = lo
+            nx[j] = d
+            continue
+        edges = np.empty(n_bins + 1, dtype=np.float64)  # Intentional float64: quantile edges in numpy's arithmetic (equal codes to the numpy path)
+        m = 0
+        for b in range(n_bins + 1):
+            q = 1.0 if b == n_bins else b * step
+            e = _edge_value(s, q)
+            if m == 0 or e != edges[m - 1]:
+                edges[m] = e
+                m += 1
+        hi_code = max(m - 2, 0)
+        top = 0
+        for i in range(n):
+            x = v[j, i]
+            lo = 0
+            hi = m
+            while lo < hi:
+                mid = (lo + hi) // 2
+                if edges[mid] <= x:
+                    lo = mid + 1
+                else:
+                    hi = mid
+            c = lo - 1
+            if c < 0:
+                c = 0
+            elif c > hi_code:
+                c = hi_code
+            codes[j, i] = c
+            if c > top:
+                top = c
+        nx[j] = top + 1
+
+
+@njit(cache=True)
+def stratified_cmi(x: np.ndarray, y: np.ndarray, s: np.ndarray, min_rows: int) -> float:
+    """Plug-in I(x; y | s) summed over the strata of ``s`` (non-negative integer codes), skipping strata below ``min_rows`` rows."""
+    n = x.shape[0]
+    counts = np.zeros((int(s.max()) + 1, int(x.max()) + 1, int(y.max()) + 1), dtype=np.int64)
+    for i in range(n):
+        counts[s[i], x[i], y[i]] += 1
+    cmi: float = _cmi_from_counts(counts, n, min_rows)
+    return cmi
+
+
+@njit(cache=True, parallel=True)
+def stratified_cmi_null(x: np.ndarray, y: np.ndarray, s: np.ndarray, sources: np.ndarray, min_rows: int) -> np.ndarray:
+    """I(x_p; y | s) for every row ``p`` of ``sources``, where ``x_p[i] = x[sources[p, i]]`` is x permuted inside each stratum of ``s``."""
+    n_perm = sources.shape[0]
+    n = x.shape[0]
+    n_s = int(s.max()) + 1
+    n_x = int(x.max()) + 1
+    n_y = int(y.max()) + 1
+    out = np.zeros(n_perm, dtype=np.float64)  # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
+    for p in prange(n_perm):
+        counts = np.zeros((n_s, n_x, n_y), dtype=np.int64)
+        for i in range(n):
+            counts[s[i], x[sources[p, i]], y[i]] += 1
+        out[p] = _cmi_from_counts(counts, n, min_rows)
+    return out
+
+
+from .supervised_binning import _mdlp_best_split_inc_njit as _mdlp_best_split_njit

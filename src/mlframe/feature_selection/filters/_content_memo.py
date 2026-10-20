@@ -18,7 +18,9 @@ import numpy as np
 def copy_value(value: Any) -> Any:
     """A copy of ``value`` that shares no array or dict with it: arrays are copied, tuples, lists and dicts are copied element-wise, anything else is returned as is."""
     if isinstance(value, np.ndarray):
-        return value.copy()
+        # The copy is the contract: both ``get`` and ``put`` hand callers a value that shares no buffer with the memo.
+        copied = value.copy()
+        return copied
     if isinstance(value, tuple):
         return tuple(copy_value(v) for v in value)
     if isinstance(value, list):
@@ -34,6 +36,17 @@ class ContentMemo:
     def __init__(self, max_entries: int):
         self.max_entries = int(max_entries)
         self._entries: "OrderedDict[Any, Any]" = OrderedDict()
+        self._lock = threading.Lock()
+
+    def __getstate__(self) -> dict:
+        """Pickle everything but the lock, which cannot be pickled."""
+        state = self.__dict__.copy()
+        del state["_lock"]
+        return state
+
+    def __setstate__(self, state: dict) -> None:
+        """Restore the entries and give the copy a fresh lock."""
+        self.__dict__.update(state)
         self._lock = threading.Lock()
 
     def key(self, arrays: "list[np.ndarray]", *extras: Any) -> tuple:

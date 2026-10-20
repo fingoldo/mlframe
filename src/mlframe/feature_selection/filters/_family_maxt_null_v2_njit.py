@@ -179,7 +179,7 @@ BITSET_MAX_CLASSES = 16  # label vectors with more classes are counted with the 
 BITSET_BUDGET_BYTES = 128 * 1024 * 1024  # column bitsets held at a time
 
 
-def bitset_groups(cols: np.ndarray, n_x: np.ndarray):
+def bitset_groups(cols: np.ndarray, n_x: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray, list[tuple[int, int, np.ndarray]]]:
     """``(table, c_a, px, groups)`` for the bitset null: the xlogx table, the per-column ``sum_a xlogx(px_a)`` and bin counts, and ``[(lo, hi, bits)]`` column groups within the memory budget."""
     k, n = cols.shape
     cap = int(n_x.max())
@@ -191,7 +191,7 @@ def bitset_groups(cols: np.ndarray, n_x: np.ndarray):
     return table, c_a, px, groups
 
 
-def null_max_bitsets(prep, n_x: np.ndarray, y_perms: np.ndarray, n_y: int) -> np.ndarray:
+def null_max_bitsets(prep: tuple, n_x: np.ndarray, y_perms: np.ndarray, n_y: int) -> np.ndarray:
     """Per-permutation maximum MI over every column, from the prepared bitset groups (see :func:`bitset_groups`)."""
     table, c_a, px, groups = prep
     out = np.zeros(y_perms.shape[0], dtype=np.float64)  # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties

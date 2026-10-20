@@ -123,7 +123,7 @@ def test_phase_helpers_cat_heavy_size_logs_on_failure(caplog):
             raise RuntimeError("boom")
 
     train = pl.DataFrame({"a": [1.0, 2.0, 3.0], "b": [1, 2, 3]})
-    with caplog.at_level(logging.DEBUG, logger="mlframe.training.core._phase_helpers"):
+    with caplog.at_level(logging.DEBUG, logger="mlframe.training.core._phase_helpers_pandas_prep"):
         out = ph._phase_pandas_conversion_and_cat_prep(
             train_df=train,
             val_df=None,

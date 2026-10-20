@@ -7,6 +7,8 @@ kernel per (external factor, operand) pair: about 1.3 million launches in a 50k-
 
 from __future__ import annotations
 
+from typing import Any
+
 _SOURCE = r"""
 #define NAN __longlong_as_double(0x7ff8000000000000LL)
 extern "C" __global__ void extval_candidates(const double* __restrict__ pa, const double* __restrict__ ext, const int* __restrict__ ops,
@@ -37,7 +39,7 @@ extern "C" __global__ void extval_candidates(const double* __restrict__ pa, cons
 _kernel = None
 
 
-def fused_extval_candidates(cp, pa, ext_stack, ops):
+def fused_extval_candidates(cp: Any, pa: Any, ext_stack: Any, ops: Any) -> Any:
     """``(n, n_ext * n_ops)`` double-precision device matrix of every ``op(pa, ext_e)``; ``ext_stack`` is ``(n_ext, n)`` double precision, ``ops`` the int32 op codes."""
     global _kernel
     if _kernel is None:

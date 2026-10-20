@@ -136,24 +136,9 @@ def _dedupe_xy(x: np.ndarray, y_i: np.ndarray) -> "tuple[np.ndarray, np.ndarray]
     return x_s[keep], y_s[keep]
 
 
-@njit(nogil=True, cache=True)
-def _count_candidates_njit(x_sorted: np.ndarray, y_sorted: np.ndarray, min_split_size: int) -> int:
-    """Count class-boundary candidate cut points a node's scan actually considers (mirrors the skip
-    conditions inside ``_mdlp_best_split_njit`` exactly, without doing the entropy work) - needed for
-    the Bonferroni multiplicity correction on the analytic significance path."""
-    n = x_sorted.shape[0]
-    count = 0
-    for i in range(n - 1):
-        n_l = i + 1
-        n_r = n - n_l
-        if n_l < min_split_size or n_r < min_split_size:
-            continue
-        if y_sorted[i] == y_sorted[i + 1]:
-            continue
-        if x_sorted[i] == x_sorted[i + 1]:
-            continue
-        count += 1
-    return count
+from ._numba_utils import (  # helpers hosted in _numba_utils_cross_module for the cross-module njit invariant
+    _count_candidates_njit,
+)
 
 
 @njit(nogil=True, cache=True, parallel=True)

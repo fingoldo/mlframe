@@ -5,11 +5,9 @@ Re-exported from ``permutation`` so existing ``from ...permutation import X`` ca
 from __future__ import annotations
 
 import logging
-import math
 from typing import Optional
 
 import numpy as np
-from numba import njit
 
 from .info_theory import (
     merge_vars, compute_relevance_score, use_su_normalization, use_mi_miller_madow, use_mi_chao_shen,
@@ -18,68 +16,9 @@ from .info_theory import (
 logger = logging.getLogger(__name__)
 
 
-@njit(nogil=True, cache=True)
-def _relevance_mi_1var_fused(
-    factors_data: np.ndarray,
-    ix: int,
-    nb_x: int,
-    classes_y: np.ndarray,
-    freqs_y: np.ndarray,
-) -> tuple:
-    """Fused single-variable raw MI I(X_ix; Y) + occupied-x-bin count in ONE O(n) pass.
-
-    Returns ``(mi, bx)`` where ``mi`` is BIT-IDENTICAL to
-    ``compute_mi_from_classes(*merge_vars(factors_data, [ix], ...)[:2], classes_y, freqs_y)``
-    and ``bx`` equals the pruned ``len(freqs_x)`` (occupied x-bins) that
-    ``merge_vars`` returns - exactly the two quantities the ANALYTIC-null branch of
-    ``mi_direct`` consumes (``_ax_freqs.shape[0]`` and the MI). The legacy path built the
-    length-n ``classes_x`` relabel array via ``merge_vars`` (one O(n) accumulate pass plus a
-    second O(n) lookup-remap pass when any x-bin is empty) and then walked all n samples AGAIN
-    inside ``compute_mi_from_classes`` to build the joint histogram - and the analytic branch
-    DISCARDS ``classes_x`` entirely (it needs only ``len(freqs_x)`` and the MI scalar). This
-    kernel builds the ``(nb_x, K_y)`` joint histogram directly from ``factors_data[:, ix]`` and
-    ``classes_y`` in a SINGLE row pass, then derives ``freqs_x`` from the row sums - eliminating
-    the separate ``merge_vars(x)`` pass + its ``final_classes``/lookup allocations. Mirrors the
-    ``joint_freqs_2var`` / ``joint_entropy_2var`` pruned-fast-path wins on the DCD pairwise path.
-
-    BIT-IDENTITY to ``compute_mi_from_classes(merge_vars(...))`` (raw MI, no SU/MM):
-      * ``merge_vars`` renumbers OCCUPIED x-bins densely in ASCENDING original-bin order, so
-        ``compute_mi_from_classes`` visits x-classes ``i in range(len(freqs_x))`` in that same
-        ascending order. Iterating ``i in range(nb_x)`` here and SKIPPING empty rows
-        (``rowcount == 0``) visits the identical occupied bins in the identical order.
-      * ``prob_x = rowcount / n`` reproduces ``merge_vars``'s ``freqs / n_rows`` (int64 count,
-        true division); ``prob_y = freqs_y[j]`` is passed through unchanged; and
-        ``jf = jc * inv_n`` with ``inv_n = 1.0 / n`` matches ``compute_mi_from_classes`` exactly
-        - same operands, same order, so the ``jf*log(jf/(prob_x*prob_y))`` terms accumulate
-        bit-for-bit.
-      * Empty x-bins (and empty joint cells) contribute nothing to MI in EITHER path, so pruning
-        vs skipping is numerically inert.
-    """
-    n = factors_data.shape[0]
-    K_y = len(freqs_y)
-    if n == 0:
-        return 0.0, 0
-    joint = np.zeros((nb_x, K_y), dtype=np.int64)
-    for k in range(n):
-        joint[factors_data[k, ix], classes_y[k]] += 1
-    inv_n = 1.0 / n
-    total = 0.0
-    bx = 0
-    for i in range(nb_x):
-        rowcount = 0
-        for j in range(K_y):
-            rowcount += joint[i, j]
-        if rowcount == 0:
-            continue
-        bx += 1
-        prob_x = rowcount / n
-        for j in range(K_y):
-            jc = joint[i, j]
-            if jc != 0:
-                prob_y = freqs_y[j]
-                jf = jc * inv_n
-                total += jf * math.log(jf / (prob_x * prob_y))
-    return total, bx
+from ._numba_utils import (
+    _relevance_mi_1var_fused,
+)
 
 
 def _mi_direct_analytic_null(

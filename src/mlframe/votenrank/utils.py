@@ -63,6 +63,7 @@ def _parse_tracker_dirname(dirname: str, known_models: Iterable[str]) -> tuple[s
     KNOWN model name in ``known_models`` -- the only source of truth for where the model/task boundary
     actually is (task names may themselves contain underscores; model names are the closed, known set).
     """
+    known_models = tuple(known_models)
     parts = dirname.rsplit("_", 1)
     if len(parts) != 2 or not parts[1].isdigit():
         return None

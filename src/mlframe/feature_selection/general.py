@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 
 import numpy as np, pandas as pd
-from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
+from mlframe.feature_selection.filters.shared import crit_np_dtype as _crit_np_dtype
 import polars as pl, polars.selectors as cs
 
 import textwrap

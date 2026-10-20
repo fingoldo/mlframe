@@ -39,10 +39,15 @@ def test_feature_importances_sites_marked_best_effort():
 
 
 def test_phase_composite_discovery_sites_marked_best_effort():
-    """Every composite-discovery except handler carries a marker."""
-    import mlframe.training.core._phase_composite_discovery as disc
+    """Every composite-discovery except handler carries a marker.
 
-    src = comment_text(disc)
+    The third site (the per-target discovery handler) was carved into ``_phase_composite_discovery_target.py``, so both
+    modules are scanned.
+    """
+    import mlframe.training.core._phase_composite_discovery as disc
+    import mlframe.training.core._phase_composite_discovery_target as disc_target
+
+    src = comment_text(disc, disc_target)
     assert src.count("# best-effort:") == 3
 
 

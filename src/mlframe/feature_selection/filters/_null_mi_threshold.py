@@ -8,7 +8,7 @@ log n, bins, entropy and log N.
 
 from __future__ import annotations
 
-import json
+import orjson
 import math
 from functools import lru_cache
 from pathlib import Path
@@ -23,7 +23,7 @@ def _entries() -> tuple:
     """The table's entries as a tuple of dicts, read once per process; empty when the table file is absent."""
     if not _TABLE_PATH.exists():
         return ()
-    data = json.loads(_TABLE_PATH.read_text(encoding="utf-8"))
+    data = orjson.loads(_TABLE_PATH.read_text(encoding="utf-8"))
     return tuple(data.get("entries", {}).values())
 
 

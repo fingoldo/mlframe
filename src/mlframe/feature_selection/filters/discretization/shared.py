@@ -8,6 +8,9 @@ from . import (
     _discretize_array_impl as discretize_array_impl,
     _safe_code_dtype as safe_code_dtype,
 )
+from ._multiselect import (
+    multiselect_inplace,
+)
 from ._discretization_edges import (
     _bayesian_blocks_bin_edges as bayesian_blocks_bin_edges,
     _knuth_bin_edges as knuth_bin_edges,
@@ -17,5 +20,6 @@ __all__ = [
     "bayesian_blocks_bin_edges",
     "discretize_array_impl",
     "knuth_bin_edges",
+    "multiselect_inplace",
     "safe_code_dtype",
 ]

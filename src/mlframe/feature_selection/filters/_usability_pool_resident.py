@@ -1,6 +1,6 @@
 """GPU-RESIDENT batched pair-combo MI TABLE for the usability candidate pool (iter17, 2026-06-23).
 
-THE TRAP (iter13/iter16, documented in _usability_njit_pool.py:737-749): forcing the per-PAIR
+THE TRAP (iter13/iter16, documented at ``score_pair_combos`` in _usability_njit_pool.py): forcing the per-PAIR
 ``score_pair_combos`` onto its cupy twin (``_pair_combo_mi_cupy``) is a 3x LOSS end-to-end - F2 100k
 wall 34.8s -> 102.5s. Each pair enumerates a SMALL ``nu x nu x nb`` combo grid, so per-pair invocation
 pays a fresh operand H2D + many tiny launches that swamp the ~1.0s ``_pair_combo_mi_njit_table_parallel``

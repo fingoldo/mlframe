@@ -12,8 +12,7 @@ from typing import cast
 
 import numpy as np
 
-from .filters._fe_usability_signal import _crit_np_dtype
-
+from mlframe.feature_selection.filters.shared import crit_np_dtype as _crit_np_dtype
 # R^2 above which a candidate counts as linearly masked by the kept columns. 0.95 == VIF 20.
 DEFAULT_MASKING_R2 = 0.95
 

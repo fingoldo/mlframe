@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
+from typing import Any
 
 import numpy as np
 
@@ -19,7 +20,20 @@ def fused_gate_enabled() -> bool:
     return os.environ.get("MLFRAME_FE_GPU_FUSED_GATE", "0").strip().lower() in ("1", "true", "on", "yes")
 
 
-def fused_gate_mi(d_disc, nbins_arr, d_nb, d_y, d_freq, freqs_y, n, K, K_y, P, threads, use_su):
+def fused_gate_mi(
+    d_disc: Any,
+    nbins_arr: np.ndarray,
+    d_nb: Any,
+    d_y: Any,
+    d_freq: Any,
+    freqs_y: np.ndarray,
+    n: int,
+    K: int,
+    K_y: int,
+    P: int,
+    threads: int,
+    use_su: bool,
+) -> np.ndarray | None:
     """``(P, K)`` MI (or SU) matrix on the host from one fused launch, or ``None`` when the fused gate does not apply (disabled, too many bins for the block,
     no CUDA, or a launch / transpose failure: the caller then runs the two-kernel gate)."""
     global _FUSED_KERNEL

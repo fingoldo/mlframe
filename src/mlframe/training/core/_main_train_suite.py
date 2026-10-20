@@ -370,7 +370,31 @@ def _suite_stage_load_and_split(ctx: Any, st: SimpleNamespace) -> Optional[Suite
     # ctx-form where phases write straight to ctx. Until every phase is converted the
     # bulk-copy keeps the existing return-tuple shape working while ctx-form readers
     # downstream see the same values.
-    _publish_to_ctx_and_state(ctx, st, _SPLIT_NAMES, locals())
+    _publish_to_ctx_and_state(
+        ctx,
+        st,
+        _SPLIT_NAMES,
+        {
+            "train_idx": train_idx,
+            "val_idx": val_idx,
+            "test_idx": test_idx,
+            "train_details": train_details,
+            "val_details": val_details,
+            "test_details": test_details,
+            "train_df": train_df,
+            "val_df": val_df,
+            "test_df": test_df,
+            "fairness_subgroups": fairness_subgroups,
+            "fairness_features": fairness_features,
+            "train_sequences": train_sequences,
+            "val_sequences": val_sequences,
+            "test_sequences": test_sequences,
+            "baseline_rss_mb": baseline_rss_mb,
+            "calib_idx": calib_idx,
+            "calib_details": calib_details,
+            "calib_df": calib_df,
+        },
+    )
     return None
 
 
@@ -419,7 +443,29 @@ def _suite_stage_analyze_and_fit_pipeline(ctx: Any, st: SimpleNamespace) -> None
         timestamps=st.timestamps,
         auxiliary_events_df=st.auxiliary_events_df,
     )
-    _publish_to_ctx_and_state(ctx, st, _FIT_PIPELINE_NAMES, locals())
+    _publish_to_ctx_and_state(
+        ctx,
+        st,
+        _FIT_PIPELINE_NAMES,
+        {
+            "train_df": train_df,
+            "val_df": val_df,
+            "test_df": test_df,
+            "pipeline": pipeline,
+            "extensions_pipeline": extensions_pipeline,
+            "cat_features": cat_features,
+            "cat_features_polars": cat_features_polars,
+            "was_polars_input": was_polars_input,
+            "all_models_polars_native": all_models_polars_native,
+            "polars_pipeline_applied": polars_pipeline_applied,
+            "train_df_polars_pre": train_df_polars_pre,
+            "val_df_polars_pre": val_df_polars_pre,
+            "test_df_polars_pre": test_df_polars_pre,
+            "pipeline_config": pipeline_config,
+            "preprocessing_extensions": preprocessing_extensions,
+            "train_df_pandas_pre_meta": train_df_pandas_pre_meta,
+        },
+    )
 
 
 def _suite_stage_detect_feature_types(ctx: Any, st: SimpleNamespace) -> None:
@@ -466,7 +512,24 @@ def _suite_stage_detect_feature_types(ctx: Any, st: SimpleNamespace) -> None:
 
     metadata["text_features"] = text_features
     metadata["embedding_features"] = embedding_features
-    _publish_to_ctx_and_state(ctx, st, _FEATURE_TYPE_NAMES, locals())
+    _publish_to_ctx_and_state(
+        ctx,
+        st,
+        _FEATURE_TYPE_NAMES,
+        {
+            "train_df": train_df,
+            "val_df": val_df,
+            "test_df": test_df,
+            "train_df_polars_pre": train_df_polars_pre,
+            "val_df_polars_pre": val_df_polars_pre,
+            "test_df_polars_pre": test_df_polars_pre,
+            "text_features": text_features,
+            "embedding_features": embedding_features,
+            "cat_features": cat_features,
+            "text_emb_set": text_emb_set,
+            "_dropped_high_card_data": _dropped_high_card_data,
+        },
+    )
 
 
 def _suite_stage_defaults_and_conversion(ctx: Any, st: SimpleNamespace) -> None:

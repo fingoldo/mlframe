@@ -319,7 +319,7 @@
   },
   "TemporalAuditResult": {
     "kind": "class",
-    "module": "mlframe.training.targets.target_temporal_audit",
+    "module": "mlframe.training.targets._target_temporal_types",
     "mro": [
       "builtins.object"
     ]
@@ -388,6 +388,11 @@
     "module": "mlframe.training",
     "signature": "()"
   },
+  "attach_grouped_causal_bases": {
+    "kind": "callable",
+    "module": "mlframe.training.composite.discovery._grouped_causal_bases",
+    "signature": "(df:any:0:, target_col:any:0:, group_field:any:0:, time_column:any:1:None, existing_columns:kw:1:None, kwargs:**kw:0:)"
+  },
   "audit_residuals": {
     "kind": "callable",
     "module": "mlframe.training.targets.regression_residual_audit",
@@ -404,6 +409,20 @@
     "signature": "(df:any:0:, timestamp_col:any:0:, targets:any:0:, granularity:kw:1:'auto', min_bin_fraction:kw:1:0.5, method:kw:1:'pelt', pelt_model:kw:1:'l2', pelt_penalty:kw:1:None, pelt_min_segment_size:kw:1:2, z_threshold:kw:1:3.0, z_window:kw:1:None, min_anomaly_run:kw:1:2, drift_warn_threshold:kw:1:0.1)"
   },
   "baselines": {
+    "kind": "value",
+    "type": "module"
+  },
+  "benjamini_hochberg_reject": {
+    "kind": "callable",
+    "module": "mlframe.training.composite.discovery._eval_stats",
+    "signature": "(p_values:any:0:, alpha:any:0:)"
+  },
+  "calibration_adjusted_score": {
+    "kind": "callable",
+    "module": "mlframe.training.composite.discovery._calibration_gate",
+    "signature": "(gain:any:0:, oof_residuals:any:0:, infold_residuals:any:1:None, scale:kw:1:None, penalty_weight:kw:1:1.0, bias_weight:kw:1:1.0, var_weight:kw:1:1.0)"
+  },
+  "calibration_params": {
     "kind": "value",
     "type": "module"
   },
@@ -424,6 +443,11 @@
     "kind": "callable",
     "module": "mlframe.training._ram_helpers",
     "signature": "(verbose:any:1:False)"
+  },
+  "compare_targets_performance": {
+    "kind": "callable",
+    "module": "mlframe.training.targets_performance",
+    "signature": "(runs:any:0:, split:kw:1:'test', normalisation:kw:1:'rank')"
   },
   "composite": {
     "kind": "value",
@@ -606,6 +630,11 @@
     "module": "mlframe.training._nan_processing",
     "signature": "(df:any:0:, include_string:any:1:True)"
   },
+  "get_metric_direction": {
+    "kind": "callable",
+    "module": "mlframe.training.metrics_registry",
+    "signature": "(target_type:any:0:, name:any:0:)"
+  },
   "get_numeric_columns": {
     "kind": "callable",
     "module": "mlframe.training._nan_processing",
@@ -668,6 +697,16 @@
     "kind": "value",
     "type": "module"
   },
+  "list_registered": {
+    "kind": "callable",
+    "module": "mlframe.training.metrics_registry",
+    "signature": "(target_type:any:0:)"
+  },
+  "list_registered_specs": {
+    "kind": "callable",
+    "module": "mlframe.training.metrics_registry",
+    "signature": "(target_type:any:0:)"
+  },
   "load_and_prepare_dataframe": {
     "kind": "callable",
     "module": "mlframe.training.preprocessing",
@@ -692,6 +731,21 @@
     "kind": "value",
     "type": "module"
   },
+  "make_dmatrix": {
+    "kind": "callable",
+    "module": "mlframe.training._model_factories",
+    "signature": "(args:*args:0:, kwargs:**kw:0:)"
+  },
+  "make_lgb_dataset": {
+    "kind": "callable",
+    "module": "mlframe.training._model_factories",
+    "signature": "(args:*args:0:, kwargs:**kw:0:)"
+  },
+  "make_pool": {
+    "kind": "callable",
+    "module": "mlframe.training._model_factories",
+    "signature": "(args:*args:0:, kwargs:**kw:0:)"
+  },
   "make_train_test_split": {
     "kind": "callable",
     "module": "mlframe.training.splitting",
@@ -715,6 +769,11 @@
     "kind": "callable",
     "module": "mlframe.training.helpers",
     "signature": "(devices:any:0:, all_gpus:any:1:None)"
+  },
+  "phase_ram_snapshot": {
+    "kind": "callable",
+    "module": "mlframe.training.phases",
+    "signature": "()"
   },
   "phases": {
     "kind": "value",
@@ -792,10 +851,30 @@
     "kind": "value",
     "type": "module"
   },
+  "rank_transforms_by_waic": {
+    "kind": "callable",
+    "module": "mlframe.training.composite.discovery._eval_waic",
+    "signature": "(candidates:any:0:, x_matrix:any:0:, n_folds:kw:1:4, random_state:kw:1:0, model_factory:kw:1:None)"
+  },
+  "recalibration_rmse_gain": {
+    "kind": "callable",
+    "module": "mlframe.training._regression_calibration",
+    "signature": "(recall:any:0:, y_pred_test:any:0:, y_true_test:any:0:)"
+  },
   "reconstruct_pseudo_group_ids": {
     "kind": "callable",
     "module": "mlframe.training._pseudo_group_reconstruction",
     "signature": "(X:any:0:, feature_cols:any:1:None, decimals:any:1:6, fuzzy_radius:any:1:None, fuzzy_metric:any:1:'euclidean')"
+  },
+  "record_phase": {
+    "kind": "callable",
+    "module": "mlframe.training.phases",
+    "signature": "(name:any:0:, seconds:any:0:, ram_delta_gb:any:1:0.0)"
+  },
+  "recover_composite_y_scale_metrics": {
+    "kind": "callable",
+    "module": "mlframe.training.core._phase_composite_post",
+    "signature": "(models:kw:0:, metadata:kw:0:, target_by_type:kw:0:, composite_specs_by_target_type:kw:0:, filtered_train_idx:kw:0:, filtered_train_df:kw:0:, filtered_val_idx:kw:0:, filtered_val_df:kw:0:, test_idx:kw:0:, test_df_pd:kw:0:, enable_watchdog:kw:1:True)"
   },
   "remove_constant_columns": {
     "kind": "callable",
@@ -825,6 +904,11 @@
     "kind": "callable",
     "module": "mlframe.training.preprocessing",
     "signature": "(train_idx:any:0:, val_idx:any:0:, test_idx:any:0:, timestamps:any:0:, group_ids_raw:any:0:, artifacts:any:0:, data_dir:any:0:, models_dir:any:0:, target_name:any:0:, model_name:any:0:, compression:any:1:'zstd')"
+  },
+  "screen_base_pool": {
+    "kind": "callable",
+    "module": "mlframe.training.composite.discovery._leakage",
+    "signature": "(y:any:0:, candidates:any:0:, time_ordering:kw:1:None, kwargs:**kw:0:)"
   },
   "select_best_iteration_by_aggregate_cv": {
     "kind": "callable",
@@ -915,6 +999,11 @@
     "kind": "callable",
     "module": "mlframe.training._tta",
     "signature": "(predict_fn:any:0:, X:any:0:, n:kw:1:16, sigma_scale:kw:1:0.02, feature_std:kw:1:None, seed:kw:1:0)"
+  },
+  "unregister_metric": {
+    "kind": "callable",
+    "module": "mlframe.training.metrics_registry",
+    "signature": "(target_type:any:0:, name:any:0:)"
   },
   "utils": {
     "kind": "value",

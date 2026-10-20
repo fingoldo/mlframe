@@ -12,7 +12,6 @@ lazy-imports helpers from ``_reporting`` / ``.evaluation`` inside the function t
 from __future__ import annotations
 
 import logging
-import os
 from typing import Any, Sequence
 
 from mlframe._output_paths import ensure_parent_dir

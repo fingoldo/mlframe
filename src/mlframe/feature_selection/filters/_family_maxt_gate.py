@@ -228,7 +228,10 @@ def family_null_max(cols: np.ndarray, n_x: np.ndarray, y: np.ndarray, n_y: int, 
     # pair family gate runs 9999 permutations; on the CPU an n=30000 fit exceeded the 600 s test watchdog). The floor is a measured
     # crossover on the dev GPU and belongs in the kernel-tuning cache; TODO(KTC).
     _work = int(n_perm) * int(cols.shape[0]) * int(y.shape[0])
-    want_device = bool(fe_gpu_strict_enabled()) or _family_null_backend(int(y.shape[0]), int(cols.shape[0]), _work) == "device"
+    if fe_gpu_strict_enabled():
+        want_device = True
+    else:
+        want_device = _family_null_backend(int(y.shape[0]), int(cols.shape[0]), _work) == "device"
     # Bin x class counts as popcounts of bit sets (host and device): the column bit sets are built once per call and reused by every block;
     # columns with many bins or labels with many classes keep the histogram kernels.
     bit_prep = None

@@ -183,7 +183,7 @@ def test_external_val_set_used_when_fit_called_without_x_val(reg_data) -> None:
         max_iter=20,
     )
     explicit.fit(X_tr, y_tr, X_val=X_val, y_val=y_val)
-    assert 1 <= len(wrapper.history) <= 21
+    assert 10 <= len(wrapper.history) <= 20
     assert np.isfinite(np.asarray(wrapper.history, dtype=float)).all()
     np.testing.assert_allclose(wrapper.history, explicit.history)
     assert wrapper.best_iter == explicit.best_iter

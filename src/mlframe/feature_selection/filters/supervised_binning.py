@@ -27,7 +27,7 @@ import math
 import numpy as np
 from numba import njit
 
-from ._numba_utils import _entropy_from_counts_njit
+from ._internals import _entropy_from_counts_njit
 
 logger = logging.getLogger(__name__)
 

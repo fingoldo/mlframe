@@ -18,6 +18,8 @@ one H2D of the (n,K) candidate code matrix. Same Miller-Madow plug-in CMI as the
 """
 from __future__ import annotations
 
+import threading
+
 import logging
 
 from mlframe.utils.log_throttle import log_throttle
@@ -287,17 +289,19 @@ void dedup_njit_edges(const {REAL}* __restrict__ edges, const {REAL}* __restrict
 }
 """
 _DEDUP_EDGES_KERNELS: dict = {}
+_KERNEL_CACHE_LOCK = threading.RLock()
 
 
 def _get_dedup_edges_kernel(real_t: str = "double"):
     """Lazy-compile + cache the ``dedup_njit_edges`` RawKernel for the edge/bound element type ``real_t`` (module-level, pickle-safe).
 
     The edges and bounds are read as ``real_t`` (the buffers' own dtype, float32 under the crit default); the emitted edge table is always double."""
-    kern = _DEDUP_EDGES_KERNELS.get(real_t)
-    if kern is None:
-        import cupy as cp
-        kern = cp.RawKernel(_DEDUP_EDGES_SRC.replace("{REAL}", real_t), "dedup_njit_edges")
-        _DEDUP_EDGES_KERNELS[real_t] = kern
+    with _KERNEL_CACHE_LOCK:
+        kern = _DEDUP_EDGES_KERNELS.get(real_t)
+        if kern is None:
+            import cupy as cp
+            kern = cp.RawKernel(_DEDUP_EDGES_SRC.replace("{REAL}", real_t), "dedup_njit_edges")
+            _DEDUP_EDGES_KERNELS[real_t] = kern
     return kern
 
 
