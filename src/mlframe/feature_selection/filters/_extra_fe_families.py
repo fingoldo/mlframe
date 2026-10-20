@@ -578,6 +578,11 @@ def _apply_conditional_residual_recipe(recipe, X) -> np.ndarray:
         },
     )
 
+
+
+_TOP_MI_CHUNK_COLS = 64
+
+
 def _top_mi_num_cols(
     X: pd.DataFrame, num_cols: Sequence[str], y: np.ndarray, max_cols: int,
 ) -> list[str]:
@@ -591,9 +596,12 @@ def _top_mi_num_cols(
     from ._unified_fe_gate import _coerce_y_classes
 
     y_bin = _coerce_y_classes(y)
-    arr = X[num_cols].to_numpy(dtype=_crit_np_dtype())
-    # Intentional float64: accumulator kept f64 (statistic / count sums need full precision)
-    mi = np.asarray(_mi_classif_batch(arr, y_bin, nbins=10), dtype=np.float64)
+    # MI is computed per column, so scoring column blocks gives the same value per column as one full matrix.
+    # One copy of the whole numeric block is the frame's size (1M rows x 500 cols = 1.9 GB even in float32), so blocks keep the peak small.
+    mi = np.empty(len(num_cols), dtype=np.float64)  # Intentional float64: accumulator kept f64 (statistic / count sums need full precision)
+    for start in range(0, len(num_cols), _TOP_MI_CHUNK_COLS):
+        block = X[num_cols[start : start + _TOP_MI_CHUNK_COLS]].to_numpy(dtype=_crit_np_dtype())
+        mi[start : start + block.shape[1]] = np.asarray(_mi_classif_batch(block, y_bin, nbins=10), dtype=np.float64)
     order = np.argsort(-mi, kind="stable")  # plug-in MI is quantised, so ties are real: break them by position, reproducibly
     return [num_cols[i] for i in order[: int(max_cols)]]
 
