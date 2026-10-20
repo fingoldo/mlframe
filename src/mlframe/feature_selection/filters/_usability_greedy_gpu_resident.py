@@ -183,7 +183,7 @@ def usability_greedy_gpu_resident(
         logger.debug("usability_greedy_gpu_resident: singular border / degenerate device fit, falling back to the exact CPU greedy: %s", e)
         return None
     except Exception as e:
-        logger.debug("usability_greedy_gpu_resident: cupy/device error, falling back to the exact CPU greedy: %s", e)
+        logger.warning("usability_greedy_gpu_resident: cupy/device error, falling back to the exact CPU greedy: %s", e)
         return None
 
 

@@ -315,7 +315,7 @@ def _gpu_available() -> bool:
         import cupy as cp
 
         return bool(cp.cuda.runtime.getDeviceCount() > 0)
-    except Exception as exc:
+    except Exception as exc:  # fallback: no cupy or no visible CUDA device selects the CPU path
         logger.debug("cupy/CUDA probe failed, treating as no GPU available (%s: %s)", type(exc).__name__, exc)
         return False
 

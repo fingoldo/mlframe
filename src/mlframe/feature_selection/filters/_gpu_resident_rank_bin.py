@@ -116,7 +116,7 @@ def rank_bin_codes_gpu_resident(x_gpu: Any, n_bins: int) -> Any:
         out[si] = binid
         return out
     except Exception as _exc:
-        logger.debug("rank_bin_codes_gpu_resident: cupy failed (%s)", _exc)
+        logger.warning("rank_bin_codes_gpu_resident: cupy failed (%s)", _exc)
         return None
 
 
@@ -165,7 +165,7 @@ def rank_bin_codes_batch_gpu_resident(X_gpu: Any, n_bins: int) -> Any:
         out[si, cols] = binid[:, None]
         return out
     except Exception as _exc:
-        logger.debug("rank_bin_codes_batch_gpu_resident: cupy failed (%s)", _exc)
+        logger.warning("rank_bin_codes_batch_gpu_resident: cupy failed (%s)", _exc)
         return None
 
 

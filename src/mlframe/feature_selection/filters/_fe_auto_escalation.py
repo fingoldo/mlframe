@@ -96,7 +96,7 @@ def _resolve_operand(X, name: str, engineered_continuous: dict | None) -> np.nda
             return np.asarray(vals, dtype=_crit_np_dtype())
     except Exception as exc:
         # See _candidate_values's matching fix above.
-        logger.debug("_resolve_operand: column extraction failed for %r; skipping: %r", name, exc)
+        logger.warning("_resolve_operand: column extraction failed for %r; skipping: %r", name, exc)
         return None
     return None
 

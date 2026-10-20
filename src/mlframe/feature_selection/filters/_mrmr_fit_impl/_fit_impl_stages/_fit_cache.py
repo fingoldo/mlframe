@@ -113,7 +113,7 @@ def _fit_cache_key(self, X, y, _y_hash_for_sig, groups):
         else:
             _cache_key = (_x_sig, _y_sig, _y_name, _y_full_hash, _x_full_hash, _params_sig, _groups_sig)
     # best-effort: a None key only skips the fit-cache lookup and the fit runs normally; output is unchanged.
-    except Exception as exc:
+    except Exception as exc:  # best-effort: a missing cache key only skips the fit-cache lookup, the fit runs normally
         logger.debug("mrmr: fit-cache key construction failed; skipping cache lookup for this fit: %r", exc, exc_info=True)
         _cache_key = None
     return _cache_key
