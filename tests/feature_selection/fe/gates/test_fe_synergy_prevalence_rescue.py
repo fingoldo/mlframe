@@ -30,7 +30,7 @@ import pandas as pd
 warnings.filterwarnings("ignore")
 
 # Disable the newer default-on FE families that ALSO recover the (a,b) multiplicative
-# synergy (pairwise-modular / integer-lattice / binned-agg / conditional-gate): with them
+# synergy (pairwise-modular / integer-lattice / binned-agg / conditional-gate / oof-cell2d): with them
 # ON the rescue-OFF baseline already reconstructs the synergy (R^2 0.97), compressing the
 # rescue's marginal improvement below the floor even though rescue ON surfaces the (a,b)
 # feature and lifts R^2. Isolating them measures the rescue's OWN contribution -- the
@@ -45,6 +45,7 @@ _LEAN = dict(
     fe_integer_lattice_enable=False,
     fe_binned_numeric_agg_enable=False,
     fe_conditional_gate_enable=False,
+    fe_oof_cell2d_enable=False,
 )
 
 

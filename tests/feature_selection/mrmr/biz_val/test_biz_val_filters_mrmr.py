@@ -535,7 +535,10 @@ def test_biz_val_mrmr_fe_max_steps_parametrized_completes(max_steps, expected_mi
         fe_max_polynom_degree=3,
     )
     sel.fit(df, ys)
-    assert len(sel.support_) >= expected_min_support
+    # ``support_`` lists RAW column indices only and is legitimately empty when the whole selection is engineered composites
+    # (the raw operands are fused into them and dropped as subsumed), which is what a polynomial target produces once FE runs;
+    # ``n_features_`` counts raw and engineered columns and is the total the contract is about.
+    assert sel.n_features_ >= expected_min_support
 
 
 @pytest.mark.parametrize("max_consec", [3, 10, 50])
