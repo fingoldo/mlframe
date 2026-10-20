@@ -10,6 +10,7 @@ raw through ``selected_vars`` / ``support_``. Regression targets only (the conti
 
 from __future__ import annotations
 
+import dataclasses
 from typing import Any
 
 import logging
@@ -77,7 +78,36 @@ def _cell_table_candidates(self, X, y, design, raw_cols, design_sources, pool) -
     return recipes
 
 
-def _target_mix_candidates(self, X, y, design, raw_cols, classify, pool, linear_only) -> dict:
+def _replayable_from_input(recipe, X, raw_cols, parents):
+    """``recipe`` made replayable from the input columns alone, or None when that cannot be done.
+
+    The second pass of the target mix is fitted on a frame that already holds the engineered columns of the outer fit, which it treats as raw inputs: a pair recipe may read one of them
+    (for example a target-encoding column) and then cannot be replayed at ``transform``, where only the input columns exist, so ``transform`` filled the column with zeros. A pair recipe gets the
+    recipe of each engineered operand attached as its nested parent (the operand is then recomputed from the input on replay); any other recipe that reads an engineered column is dropped. The
+    result is checked by replaying it on the input columns of ``X`` alone and comparing with the replay on the full frame.
+    """
+    from ..engineered_recipes.shared import apply_recipe
+
+    sources = [str(s) for s in (getattr(recipe, "src_names", ()) or ())]
+    if any(s not in raw_cols for s in sources):
+        if getattr(recipe, "kind", None) != "unary_binary" or len(sources) != 2:
+            return None
+        extra = dict(recipe.extra or {})
+        for position, key in enumerate(("nested_parent_a", "nested_parent_b")):
+            if sources[position] in raw_cols:
+                continue
+            parent = parents.get(sources[position])
+            if parent is None:
+                return None
+            extra[key] = parent
+        recipe = dataclasses.replace(recipe, extra=extra)
+    input_frame = X[[c for c in X.columns if str(c) in raw_cols]]
+    on_input = np.asarray(apply_recipe(recipe, input_frame), dtype=np.float64).ravel()
+    on_full = np.asarray(apply_recipe(recipe, X), dtype=np.float64).ravel()
+    return recipe if on_input.shape == on_full.shape and np.allclose(on_input, on_full, atol=1e-6, equal_nan=True) else None
+
+
+def _target_mix_candidates(self, X, y, design, raw_cols, classify, pool, linear_only, parents) -> dict:
     """Engineered candidates of the feature-base target mix (``_target_mix_fe``), added to ``pool``; returns their recipes (attached only if the rescue admits them). Empty when the mix is off."""
     self.fe_target_mix_provenance_ = []
     if not getattr(self, "fe_target_mix_enable", False):
@@ -104,6 +134,9 @@ def _target_mix_candidates(self, X, y, design, raw_cols, classify, pool, linear_
         if name in design or name in pool or name in X.columns or kind == "skip":
             continue
         try:
+            recipe = _replayable_from_input(recipe, X, raw_cols, parents)
+            if recipe is None:
+                continue
             pool[name] = np.nan_to_num(np.asarray(apply_recipe(recipe, X), dtype=_crit_np_dtype()).ravel(), nan=0.0, posinf=0.0, neginf=0.0)
         except Exception:
             log_throttle(logger, "residual_rescue_stage.target_mix_replay_failed", logging.WARNING, "MRMR target-mix candidate %r failed to replay; skipped.", name, exc_info=True)
@@ -244,7 +277,7 @@ def run_residual_rescue(self, X: Any, selected_vars: Any, cols: Any, engineered_
         }
         linear_only = {name for name in pool if classify(_raw_sources(name, raw_cols)) == "linear"}
         cell_recipes = _cell_table_candidates(self, X, y, design, raw_cols, design_sources, pool)
-        cell_recipes.update(_target_mix_candidates(self, X, y, design, raw_cols, classify, pool, linear_only))
+        cell_recipes.update(_target_mix_candidates(self, X, y, design, raw_cols, classify, pool, linear_only, engineered_recipes))
         admitted = residual_rescue(
             design,
             pool,
