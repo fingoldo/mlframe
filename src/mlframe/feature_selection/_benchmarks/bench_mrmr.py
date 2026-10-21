@@ -56,7 +56,7 @@ def _git_sha() -> str:
         return out if out else "nogit"
     except Exception as exc:
         # best-effort: no git checkout (or git absent) only means the run is recorded as 'nogit'; the benchmark still runs.
-        logger.debug("_git_sha: git rev-parse failed: %s", exc)
+        logger.warning("_git_sha: git rev-parse failed, run recorded as 'nogit': %s", exc)
         return "nogit"
 
 
@@ -116,8 +116,9 @@ def _stage_timer():
     def record(name: str) -> None:
         try:
             current, peak = tracemalloc.get_traced_memory()
-        except RuntimeError:
-            _current, peak = 0, 0
+        except RuntimeError as exc:
+            logger.warning("_stage_timer: tracemalloc unavailable, stage peak memory recorded as 0: %s", exc)
+            peak = 0
         boundaries.append((name, time.perf_counter(), peak))
 
     def breakdown() -> dict[str, dict[str, float]]:

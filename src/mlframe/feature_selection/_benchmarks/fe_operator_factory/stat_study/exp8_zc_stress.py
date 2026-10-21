@@ -65,7 +65,7 @@ def estimators(u, v, y, yb, yr, nbs):
         if m > best[0]:
             best = (m, t)
     est["grid9"] = best[1]
-    for k_, t in est.items():
+    for k_, t in list(est.items()):
         if np.isnan(t):
             est[k_] = 0.0
     return est

@@ -33,6 +33,12 @@ def _interaction_frame(n=2000, seed=0, p_noise=25):
     return X, pd.Series(y)
 
 
+@pytest.fixture(scope="module")
+def interaction_frame():
+    """Default interaction frame, built once for the module; the tests only read it."""
+    return _interaction_frame()
+
+
 # ----------------------------------------------------------------- gate logic (deterministic, no model fit)
 def _gate(gate, fi, pairs, relevant, raw_cols):
     h = HybridSelector(tree_prod_gate=gate)
@@ -79,8 +85,8 @@ def test_gate_empty_when_no_products():
 
 
 # ----------------------------------------------------------------- tree signals + augment + pickle
-def test_tree_signals_finds_interaction_pair():
-    X, y = _interaction_frame()
+def test_tree_signals_finds_interaction_pair(interaction_frame):
+    X, y = interaction_frame
     h = HybridSelector(use_tree_member=True, tree_cooccur_pairs=12)
     h.random_state = 0
     h._tree_signals(X, y)
@@ -91,9 +97,9 @@ def test_tree_signals_finds_interaction_pair():
     assert frozenset({"a", "b"}) in flat, "the true a*b pair should be among co-occurrence pairs"
 
 
-def test_augment_replays_tree_ops_leakage_free():
+def test_augment_replays_tree_ops_leakage_free(interaction_frame):
     from mlframe.feature_selection.hybrid_selector import _TREE_OPS
-    X, y = _interaction_frame()
+    X, y = interaction_frame
     h = HybridSelector(use_tree_member=True).fit(X, y)
     # tree op columns present in the augmented frame (named t{op}_N: tmul_/tabsd_/tsign_/trat_)
     aug = h._augment(X)
@@ -107,11 +113,11 @@ def test_augment_replays_tree_ops_leakage_free():
             np.testing.assert_allclose(aug[nm].values[:50], expected[:50], rtol=1e-6)
 
 
-def test_tree_signals_expands_rich_ops():
+def test_tree_signals_expands_rich_ops(interaction_frame):
     """Default tree_rich_ops engineers one candidate column PER operator per co-occurrence pair, each tagged with
     its (a, b, op) in _tree_op_ so _augment replays it. products-only (tree_rich_ops=('mul',)) yields just tmul_."""
     from mlframe.feature_selection.hybrid_selector import _TREE_OPS
-    X, y = _interaction_frame()
+    X, y = interaction_frame
     h = HybridSelector(use_tree_member=True, tree_rich_ops=("mul", "absd", "sign", "rat"))
     h.random_state = 0
     h._tree_signals(X, y)
@@ -123,9 +129,9 @@ def test_tree_signals_expands_rich_ops():
     assert {h2._tree_op_[nm][2] for nm in h2._tree_prod_names_} == {"mul"}, "products-only config should yield just the mul op"
 
 
-def test_pickle_keeps_tree_attrs_drops_transient():
+def test_pickle_keeps_tree_attrs_drops_transient(interaction_frame):
     import pickle  # nosec B403 - pickle used only for trusted same-process/dev-local round-trips, see call sites in this file
-    X, y = _interaction_frame()
+    X, y = interaction_frame
     h = HybridSelector(use_tree_member=True).fit(X, y)
     h2 = pickle.loads(pickle.dumps(h))  # nosec B301 - round-trips a same-process object, no external input
     # Spec: the round-trip reproduces the tree replay state exactly (pairs are needed to replay op columns at transform).
