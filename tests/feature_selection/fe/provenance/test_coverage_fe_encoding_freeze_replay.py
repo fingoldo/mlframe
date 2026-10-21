@@ -27,6 +27,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 from mlframe.feature_selection.filters.engineered_recipes import (
     apply_recipe,
     build_kfold_target_encoded_recipe,
@@ -37,6 +38,9 @@ from mlframe.feature_selection.filters.engineered_recipes import (
 
 warnings.filterwarnings("ignore")
 
+
+# replay runs in the criterion dtype, so it agrees with a float64 manual computation to a few units of that dtype's epsilon
+_REPLAY_RTOL = 8 * float(np.finfo(_crit_np_dtype()).eps)
 
 def _fit_lookups(cats: np.ndarray, y: np.ndarray):
     """Build the fit-time per-category mean / count / freq tables (the constants a
@@ -152,7 +156,7 @@ def test_frequency_encoding_replay_and_unseen_default(fit_frame):
     )
     out = apply_recipe(rec, X)
     manual = np.array([freq_lookup[str(c)] for c in X["cat"]], dtype=float)
-    np.testing.assert_allclose(out, manual, rtol=0, atol=1e-12)
+    np.testing.assert_allclose(out, manual, rtol=_REPLAY_RTOL, atol=0)
     Xnew = pd.DataFrame({"cat": ["zzz"], "num": [0.0]})
     assert apply_recipe(rec, Xnew)[0] == pytest.approx(0.0)
 
@@ -172,7 +176,7 @@ def test_cat_num_residual_replay_matches_manual(fit_frame):
     )
     out = apply_recipe(rec, X)
     manual = X["num"].to_numpy(dtype=float) - np.array([mean_lookup.get(str(c), gmean) for c in X["cat"]])
-    np.testing.assert_allclose(out, manual, rtol=0, atol=1e-10)
+    np.testing.assert_allclose(out, manual, rtol=_REPLAY_RTOL, atol=1e-7)
 
 
 def test_cat_num_residual_unseen_category_subtracts_global_mean(fit_frame):

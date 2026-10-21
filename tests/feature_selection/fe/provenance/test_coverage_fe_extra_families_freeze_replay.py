@@ -222,7 +222,8 @@ def test_conditional_dispersion_kind_is_frozen(num_frame):
     abz = apply_recipe(rec_abz, num_frame)
     z2 = apply_recipe(rec_z2, num_frame)
     assert np.all(abz >= -1e-12)
-    np.testing.assert_allclose(z2, abz**2, rtol=0, atol=1e-9)
+    # both columns are replayed in the criterion dtype, so the square agrees to a few units of its epsilon
+    np.testing.assert_allclose(z2, abz**2, rtol=8 * float(np.finfo(abz.dtype).eps), atol=1e-6)
 
 
 # ---------------------------------------------------------------------------

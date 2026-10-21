@@ -91,11 +91,14 @@ def test_device_basis_matrix_matches_host_all_bases():
                 # On the high-degree Chebyshev/Hermite columns the entries reach magnitude
                 # 1e2+, so a relative 1e-11 (atol 1e-12 for the ~0 entries) is the correct
                 # selection-equivalent bar -- far below any decision boundary downstream.
+                # the device matrix is built in the criterion dtype, the host one in float64: agreement is a few hundred units of the device dtype's epsilon,
+                # scaled by the largest entry (high-degree columns reach 1e2+)
+                eps = float(np.finfo(dev.dtype).eps)
                 np.testing.assert_allclose(
                     dev,
                     host,
-                    rtol=1e-11,
-                    atol=1e-12,
+                    rtol=256 * eps,
+                    atol=256 * eps * float(np.max(np.abs(host), initial=1.0)),
                     err_msg=f"basis={basis} deg={deg} n={n}",
                 )
 

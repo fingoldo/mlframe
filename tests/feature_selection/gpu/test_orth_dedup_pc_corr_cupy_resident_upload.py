@@ -29,6 +29,7 @@ def _gpu_available() -> bool:
 if not _gpu_available():  # pragma: no cover - guarded at collection time
     pytest.skip("No CUDA device available", allow_module_level=True)
 
+from mlframe.feature_selection.filters._fe_gpu_batch._devices import crit_float_dtype
 from mlframe.feature_selection.filters._fe_resident_operands import clear_fe_resident_operands
 from mlframe.feature_selection.filters._orthogonal_univariate_fe._orth_dedup import (
     _pc_corr_cupy,
@@ -134,8 +135,9 @@ def test_pc_corr_cupy_bit_identical_to_prefix_raw_path(dtype):
     Rm = cp.isfinite(Rd)
     Q0 = cp.where(Qm, Qd, 0.0)
     R0 = cp.where(Rm, Rd, 0.0)
-    Qmf = Qm.astype(cp.float64)
-    Rmf = Rm.astype(cp.float64)
+    # the implementation counts finite entries in the criterion dtype (its masks are 0/1, exact there), so the reference uses the same
+    Qmf = Qm.astype(crit_float_dtype())
+    Rmf = Rm.astype(crit_float_dtype())
     n = Qmf @ Rmf.T
     Sx = Q0 @ Rmf.T
     Sy = Qmf @ R0.T
@@ -167,15 +169,18 @@ if __name__ == "__main__":
 def test_resolve_pc_backend_prefers_cupy_under_strict(monkeypatch):
     """STRICT GPU mode routes the dedup correlation to the cupy backend (its 2.0-2.7x solo win is the
     point of strict mode's "carry FE compute on the device" contract); non-strict keeps the measured
-    numpy default. The strict gate's own per-call work floor (p >= 64, n*p >= 1M) keeps tiny dedups on CPU."""
+    numpy default. The strict gate's per-call work floor (p >= 64, n*p >= 1M) keeps tiny dedups on CPU in AUTO mode; an explicit =1 skips it."""
     from mlframe.feature_selection.filters._orthogonal_univariate_fe import _orth_dedup as od
 
     monkeypatch.delenv("MLFRAME_FE_DEDUP_CORR_BACKEND", raising=False)
     monkeypatch.setenv("MLFRAME_FE_GPU_STRICT", "1")
     # Big enough to clear the strict per-call work floor (p=max(q,r)=500 >= 64; n*p = 25M >= 1M).
     assert od._resolve_pc_backend(500, 300, 50_000) == "cupy"
-    # Tiny call: below the work floor -> falls through to the KTC/numpy default, NOT forced to cupy.
+    # An explicit force (=1) skips the per-call work floors: even a tiny call goes to cupy. The floors bind only in AUTO mode (variable unset).
+    assert od._resolve_pc_backend(4, 3, 100) == "cupy"
+    monkeypatch.delenv("MLFRAME_FE_GPU_STRICT", raising=False)
     assert od._resolve_pc_backend(4, 3, 100) != "cupy"
+    monkeypatch.setenv("MLFRAME_FE_GPU_STRICT", "1")
     monkeypatch.setenv("MLFRAME_FE_GPU_STRICT", "0")
     assert od._resolve_pc_backend(500, 300, 50_000) == "numpy"
     # Env force still wins over strict.

@@ -348,7 +348,7 @@ class TestNoLeakage:
             expected = expected[np.isfinite(expected)]
             np.testing.assert_array_equal(
                 pool[col],
-                expected.astype(np.float64),
+                expected.astype(pool[col].dtype),  # the pool is stored in the criterion dtype; the axis parameters it feeds are frozen into the recipe at fit
                 err_msg=(f"seed={seed}: pool[{col!r}] not the unlabeled values"),
             )
 

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import numpy as np
+
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 import pytest
 
 cp = pytest.importorskip("cupy")
@@ -77,7 +79,10 @@ def test_well_conditioned_designs_agree_with_the_original_closely(basis):
     want = _original(Ba, Bb, yc, 3)
     got = als_sweep_fused(cp, Ba, Bb, yc, 3)
     for g, w in zip(got, want):
-        np.testing.assert_allclose(g, w, rtol=1e-8, atol=1e-10)
+        # the fused kernels accumulate in the criterion dtype although the coefficients come back as float64: agreement to solver round-off is a few dozen units of that epsilon,
+        # scaled by the largest coefficient
+        eps = float(np.finfo(_crit_np_dtype()).eps)
+        np.testing.assert_allclose(g, w, rtol=64 * eps, atol=1e3 * eps * float(np.max(np.abs(w))))
 
 
 def test_the_public_sweep_uses_the_fused_path_by_default(monkeypatch):

@@ -235,6 +235,8 @@ def _friend_graph_and_redundancy_passes_group2_part1(
                     _src_vals_gate = X[_src_h[0]].to_numpy()
                 if _leg_vals is not None:
                     if _heldout_incr_over_selected(_leg_vals, _src_vals_gate) < _HINGE_PROTECT_MIN_INCR_R2:
+                        # remembered so the residual rescue does not admit, on a weaker test, a leg this smooth-curve guard has just rejected
+                        self._hinge_rejected_ = [*(getattr(self, "_hinge_rejected_", None) or []), _hn]
                         continue
                 _readd_hinge.append(_idx)
                 _sv_set.add(_idx)

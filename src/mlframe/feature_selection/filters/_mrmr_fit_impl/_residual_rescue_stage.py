@@ -264,6 +264,8 @@ def run_residual_rescue(self, X: Any, selected_vars: Any, cols: Any, engineered_
         # A raw operand the redundancy sweep already dropped as subsumed by a surviving compound is not re-admitted here:
         # the rescue's linear gain for it is the same information the compound carries, not a new term.
         redundancy_dropped = set(getattr(self, "_raw_redundancy_dropped_", None) or set())
+        # a hinge leg the protection's smooth-curve guard rejected, or a candidate built on one, is not admitted here on the weaker residual t-test
+        rejected_legs = [str(n) for n in (getattr(self, "_hinge_rejected_", None) or [])]
         pool = {
             str(c): _pool_values(X, c, engineered_recipes, apply_recipe)
             for c in X.columns
@@ -271,6 +273,7 @@ def run_residual_rescue(self, X: Any, selected_vars: Any, cols: Any, engineered_
             and str(c) not in sel_names
             and str(c) not in prune_names
             and str(c) not in redundancy_dropped
+            and not any(leg in str(c) for leg in rejected_legs)
             and np.issubdtype(X[c].dtype, np.number)
             and classify(_raw_sources(str(c), raw_cols)) != "skip"
         }

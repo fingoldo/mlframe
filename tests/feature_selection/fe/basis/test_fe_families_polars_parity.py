@@ -25,7 +25,10 @@ def _clear_mrmr_fit_cache():
     MRMR._FIT_CACHE.clear()
 
 
+# ``hybrid_orth_candidates_`` is everything the FE stages produced; the survivor rosters below it are empty whenever the greedy screen drops the engineered column (an
+# encoding of a category that adds nothing over the category itself), and the cross-format invariant is that both formats produce the same columns.
 _FEATURE_LIST_ATTRS = (
+    "hybrid_orth_candidates_",
     "hybrid_orth_features_",
     "mi_greedy_features_",
     "kfold_te_features_",
