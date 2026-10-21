@@ -123,7 +123,7 @@ def test_meta_fit_uses_only_passed_oof_matrix():
 
 def test_ridge_non_negative_constraint():
     """Ridge non negative constraint."""
-    from mlframe.training.composite.ensemble import fit_ridge_meta_stacker
+    from mlframe.training.composite.ensemble._stackers import fit_ridge_meta_stacker
 
     rng = np.random.default_rng(3)
     n = 400
@@ -168,7 +168,7 @@ def test_component_dropout_graceful_degradation():
 
 def test_sample_weight_validation():
     """Sample weight validation."""
-    from mlframe.training.composite.ensemble import fit_ridge_meta_stacker
+    from mlframe.training.composite.ensemble._stackers import fit_ridge_meta_stacker
 
     X, y = _toy()
     with pytest.raises(ValueError, match="sample_weight length"):
@@ -209,7 +209,7 @@ def test_degenerate_too_few_rows_falls_back_to_mean():
 
 def test_matrix_shape_mismatch_raises():
     """Matrix shape mismatch raises."""
-    from mlframe.training.composite.ensemble import fit_gbm_meta_stacker
+    from mlframe.training.composite.ensemble._stackers import fit_gbm_meta_stacker
 
     X, y = _toy(k=3)
     with pytest.raises(ValueError, match="expected"):

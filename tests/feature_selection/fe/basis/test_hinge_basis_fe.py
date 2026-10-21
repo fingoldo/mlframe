@@ -108,8 +108,8 @@ def test_recipe_replay_is_leak_safe_and_bit_exact():
     apply_recipe dispatcher."""
     from mlframe.feature_selection.filters.engineered_recipes import (
         apply_recipe,
-        build_hinge_basis_recipe,
     )
+    from mlframe.feature_selection.filters._hinge_basis_fe import build_hinge_basis_recipe
 
     rng = np.random.default_rng(3)
     x = rng.uniform(-2, 3, N)
@@ -130,8 +130,8 @@ def test_recipe_replay_independent_of_y():
     frame with a totally different target (proves no y leak)."""
     from mlframe.feature_selection.filters.engineered_recipes import (
         apply_recipe,
-        build_hinge_basis_recipe,
     )
+    from mlframe.feature_selection.filters._hinge_basis_fe import build_hinge_basis_recipe
 
     rng = np.random.default_rng(9)
     x = rng.uniform(0, 1, N)

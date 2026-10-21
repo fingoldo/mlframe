@@ -97,13 +97,11 @@ from .._temporal_agg_fe import (
 from .._periodic_fe import build_modular_recipe  # public facade re-export (F401 already blanket-ignored for __init__.py)
 
 # Per-group distribution-distance recipe builder (sibling FE module); apply is dispatched inline.
-from .._group_distance_fe import build_group_distance_recipe  # public facade re-export (F401 already blanket-ignored for __init__.py)
 
 # Hinge / piecewise-linear change-point basis recipe builder + replay (sibling
 # FE module). Apply path dispatched lazily in the dispatcher;
 # re-exported so external importers resolve the builder from this module.
 from .._hinge_basis_fe import (
-    build_hinge_basis_recipe,
     _apply_hinge_basis,
 )
 

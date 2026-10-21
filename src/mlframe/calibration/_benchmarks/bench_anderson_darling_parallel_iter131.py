@@ -1,4 +1,5 @@
-import sys; sys.modules['cupy'] = None  # type: ignore[assignment]
+import sys
+sys.modules['cupy'] = None  # type: ignore[assignment]
 import time, numpy as np
 from typing import Callable
 
