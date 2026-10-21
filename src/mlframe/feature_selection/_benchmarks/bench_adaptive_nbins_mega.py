@@ -194,14 +194,14 @@ def run_mega_bench(
     random_state: int = 0,
     verbose: int = 1,
 ) -> Dict:
-    distributions = distributions or [
+    distributions = distributions if distributions else [
         "gaussian", "lognormal", "bimodal", "heavy_tail_t",
         "uniform", "exponential", "discrete_low_card", "near_constant",
     ]
-    signal_kinds = signal_kinds or [
+    signal_kinds = signal_kinds if signal_kinds else [
         "no_signal", "linear", "monotone", "threshold", "xor", "sin",
     ]
-    sample_sizes = sample_sizes or [500, 2000]
+    sample_sizes = sample_sizes if sample_sizes else [500, 2000]
     scorers = _make_scorers()
     if methods_subset is not None:
         scorers = {k: v for k, v in scorers.items() if k in methods_subset}

@@ -207,15 +207,15 @@ def run_benchmark(
     random_state: int = 0,
     verbose: int = 1,
 ) -> Dict:
-    distributions = distributions or [
+    distributions = distributions if distributions else [
         "gaussian", "lognormal", "bimodal", "heavy_tail_t",
         "uniform", "exponential", "discrete_low_card", "near_constant",
     ]
-    signal_kinds = signal_kinds or [
+    signal_kinds = signal_kinds if signal_kinds else [
         "no_signal", "linear", "monotone", "threshold", "xor", "sin",
     ]
-    sample_sizes = sample_sizes or [500, 2000, 10000]
-    methods = methods or ([LEGACY_BASELINE, *METHODS])
+    sample_sizes = sample_sizes if sample_sizes else [500, 2000, 10000]
+    methods = methods if methods else ([LEGACY_BASELINE, *METHODS])
 
     rng_master = np.random.default_rng(random_state)
     all_results: List[FoldResult] = []

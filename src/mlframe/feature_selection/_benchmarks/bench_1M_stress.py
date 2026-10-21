@@ -176,9 +176,9 @@ def _measure_truth(distribution: str, signal_kind: str, n_truth: int = 200_000, 
 
 
 def run_stress_bench(N: int = 1_000_000, distributions=None, signal_kinds=None, estimators=None, seed: int = 0, verbose: int = 1) -> Dict:
-    distributions = distributions or ["gaussian", "lognormal", "heavy_tail_t", "discrete_low_card"]
-    signal_kinds = signal_kinds or ["no_signal", "linear", "threshold", "xor"]
-    estimators = estimators or ESTIMATORS
+    distributions = distributions if distributions else ["gaussian", "lognormal", "heavy_tail_t", "discrete_low_card"]
+    signal_kinds = signal_kinds if signal_kinds else ["no_signal", "linear", "threshold", "xor"]
+    estimators = estimators if estimators else ESTIMATORS
     rng = np.random.default_rng(int(seed))
 
     results: List[StressFold] = []
@@ -218,7 +218,7 @@ def run_stress_bench(N: int = 1_000_000, distributions=None, signal_kinds=None, 
                     error_msg=err_msg,
                 ))
                 if verbose:
-                    status = err_msg or f"MI={mi:.4f}"
+                    status = err_msg if err_msg else f"MI={mi:.4f}"
                     print(f"  [{counter}/{total}] {est_name:<18} {dist:<18} "
                           f"{sig:<10}: {status} truth={truth:.4f} "
                           f"rt={runtime:.1f}s peak={peak/1024/1024:.0f}MB")

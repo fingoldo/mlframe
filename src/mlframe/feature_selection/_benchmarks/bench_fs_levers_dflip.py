@@ -130,7 +130,7 @@ def main() -> None:
     )
 
     if args.out:
-        os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
+        os.makedirs(os.path.dirname(args.out) if os.path.dirname(args.out) else ".", exist_ok=True)
         with open(args.out, "w", encoding="utf-8") as fh:
             json.dump({k: {c: list(map(float, v)) for c, v in d.items()} for k, d in results.items()}, fh, indent=2)
 
