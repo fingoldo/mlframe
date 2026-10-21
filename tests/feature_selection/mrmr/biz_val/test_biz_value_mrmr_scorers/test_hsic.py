@@ -36,6 +36,7 @@ import pickle  # nosec B403 -- test-only local pickle round-trip, never untruste
 import warnings
 
 import numpy as np
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 import pandas as pd
 import pytest
 
@@ -111,6 +112,10 @@ def _build_non_monotone_classif(seed: int, n: int = 1500, n_noise: int = 4):
 
 
 from tests.feature_selection._biz_val_synth import _build_linear, _build_quadratic_classif
+
+# Values are stored and replayed at the precision-policy dtype (float32 by default), so a replay agrees with the fit-time column to a few machine epsilons of that dtype;
+# in the strict float64 mode this is tighter than the 1e-9 the checks used before.
+_REPLAY_RTOL = max(1e-9, 8 * float(np.finfo(_crit_np_dtype()).eps))
 
 # ---------------------------------------------------------------------------
 # Contract 1: HSIC near zero on independent noise pairs
@@ -286,7 +291,7 @@ class TestMedianHeuristicBandwidth:
         z = rng.standard_normal(300)
         s1 = float(median_heuristic_sigma(z))
         s2 = float(median_heuristic_sigma(10.0 * z))
-        assert s2 == pytest.approx(10.0 * s1, rel=1e-9), f"median-heuristic sigma not scale-equivariant: sigma(z) = {s1}, sigma(10z) = {s2}, expected {10 * s1}"
+        assert s2 == pytest.approx(10.0 * s1, rel=_REPLAY_RTOL), f"median-heuristic sigma not scale-equivariant: sigma(z) = {s1}, sigma(10z) = {s2}, expected {10 * s1}"
 
 
 # ---------------------------------------------------------------------------

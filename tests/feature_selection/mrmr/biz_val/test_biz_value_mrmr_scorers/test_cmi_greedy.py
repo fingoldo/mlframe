@@ -87,6 +87,9 @@ def _make_mrmr(**overrides):
         # combined behaviour, basis-recovers + greedy-dedups, is exercised by the
         # univariate-basis FE tests).
         fe_univariate_basis_enable=False,
+        # The default-on modular family also describes this square signal (periodic residues of x) and its columns are appended first, so
+        # the CMI-greedy stage correctly finds nothing left to add; isolate it for the same reason as the basis FE above.
+        fe_modular_enable=False,
     )
     kwargs.update(overrides)
     return MRMR(**kwargs)

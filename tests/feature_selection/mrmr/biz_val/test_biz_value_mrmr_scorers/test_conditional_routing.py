@@ -56,6 +56,7 @@ import pickle  # nosec B403 -- test-only local pickle round-trip, never untruste
 import warnings
 
 import numpy as np
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 import pandas as pd
 import pytest
 
@@ -86,6 +87,10 @@ def _import_routing_fe():
 
 
 from tests.feature_selection.conftest import make_fast_mrmr as _make_mrmr
+
+# Values are stored and replayed at the precision-policy dtype (float32 by default), so a replay agrees with the fit-time column to a few machine epsilons of that dtype;
+# in the strict float64 mode this is tighter than the 1e-9 the checks used before.
+_REPLAY_RTOL = max(1e-9, 8 * float(np.finfo(_crit_np_dtype()).eps))
 # ---------------------------------------------------------------------------
 # Data builders
 # ---------------------------------------------------------------------------
@@ -484,9 +489,7 @@ class TestRecipeReplay:
             assert r.name in appended, f"seed={seed}: recipe {r.name!r} not in appended columns {appended}"
             replayed = apply_recipe(r, X)
             fit_time = X_aug[r.name].to_numpy()
-            assert np.allclose(
-                replayed, fit_time, rtol=1e-9, atol=1e-12
-            ), f"seed={seed}: recipe {r.name!r} replay drift: max|replayed - fit| = {float(np.max(np.abs(replayed - fit_time)))}; extra={dict(r.extra)}"
+            assert np.allclose(replayed, fit_time, rtol=_REPLAY_RTOL, atol=_REPLAY_RTOL * max(1.0, float(np.max(np.abs(fit_time))))), f"seed={seed}: recipe {r.name!r} replay drift: max|replayed - fit| = {float(np.max(np.abs(replayed - fit_time)))}; extra={dict(r.extra)}"
 
 
 class TestRoutingCriterionCorrDefault:
