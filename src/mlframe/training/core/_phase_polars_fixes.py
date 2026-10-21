@@ -332,7 +332,7 @@ def _apply_polars_categ_t_step3_col_sync_calls(verbose, test_df_polars, _eligibl
             _pre_df = test_df_polars.lazy().select([pl.col(c).null_count().alias(c) for c in _eligible_cols if c in test_df_polars.columns]).collect()
             _test_nulls_pre = {c: int(_pre_df[c][0]) for c in _pre_df.columns}
         except Exception as e:
-            logger.debug("pre-fix null-count collection failed: %s", e)
+            logger.warning("pre-fix null-count collection failed: %s", e)
             _test_nulls_pre = {}
     return _test_nulls_pre
 

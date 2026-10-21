@@ -108,6 +108,7 @@ def _to_pandas_for_baseline(X: Any) -> pd.DataFrame | None:
         try:
             _cols = tuple(X.columns) if hasattr(X, "columns") else None
         except Exception as e:
+            # best-effort: the baseline view cache is an optimisation; an unresolved column key just skips caching.
             logger.debug("could not resolve columns for cache key: %s", e)
             _cols = None
         _shape = getattr(X, "shape", None)

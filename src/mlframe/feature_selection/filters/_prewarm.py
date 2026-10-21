@@ -563,7 +563,7 @@ def prewarm_fs_cupy_kernels(verbose: bool = False) -> None:
     try:
         init_kernels()
     except Exception as e:
-        logger.debug("prewarm_fs_cupy_kernels: init_kernels() failed, skipping the remaining prewarm steps: %s", e)
+        logger.warning("prewarm_fs_cupy_kernels: init_kernels() failed, skipping the remaining prewarm steps: %s", e)
         return
 
     # Step 2: tiny end-to-end mi_direct_gpu_batched call - triggers the cupy

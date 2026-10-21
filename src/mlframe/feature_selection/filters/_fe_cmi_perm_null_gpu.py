@@ -93,6 +93,7 @@ def perm_null_gpu_resident_enabled() -> bool:
         from ._gpu_strict_fe import fe_gpu_strict_resident_enabled
         return bool(fe_gpu_strict_resident_enabled())
     except Exception as e:
+        # fallback: the GPU residency gate is an optional probe; any failure keeps the CPU permutation-null path.
         logger.debug("perm-null GPU gate: fe_gpu_strict_resident_enabled() check failed, defaulting to CPU path: %s", e)
         return False
 

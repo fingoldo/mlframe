@@ -206,7 +206,7 @@ def auto_text_color(value: float, colormap: str, vmin: float = 0.0, vmax: float 
         luminance = 0.299 * r + 0.587 * g + 0.114 * b
         return "black" if luminance > 0.5 else "white"
     except Exception as exc:
-        logger.debug("auto_text_color: colormap lookup for %r failed, falling back to 'black': %s", colormap, exc)
+        logger.warning("auto_text_color: colormap lookup for %r failed, falling back to 'black': %s", colormap, exc)
         return "black"
 
 

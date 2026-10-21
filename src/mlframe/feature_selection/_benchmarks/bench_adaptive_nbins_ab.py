@@ -179,7 +179,7 @@ def _run_fold_ab(
             edges_list = per_feature_edges(X_train, y_train, method=method, **method_kwargs)
             edges = edges_list[0]
         except Exception as exc:
-            logger.debug("bench_adaptive_nbins_ab: edge computation failed for method=%r: %s", method, exc)
+            logger.warning("bench_adaptive_nbins_ab: edge computation failed for method=%r: %s", method, exc)
             return None
     t_ms = (time.perf_counter() - t0) * 1000.0
     val_binned = _bin_with_edges(x_val, edges)

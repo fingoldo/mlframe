@@ -98,6 +98,7 @@ def _fe_gpu_discretize_enabled_uncached(n_rows: int, n_cands: int) -> bool:
 
         return bool(fe_gpu_pairs_mi_backend_choice(int(n_rows), int(n_cands)) == "gpu")
     except Exception as e:
+        # fallback: the KTC backend choice is an optional probe; any failure keeps the CPU discretize path.
         logger.debug("_fe_gpu_discretize_enabled_uncached: KTC backend-choice lookup failed, defaulting to CPU: %s", e)
         return False
 
@@ -152,5 +153,6 @@ def _fe_gpu_binning_enabled_uncached(n_rows: int, n_cands: int) -> bool:
 
         return bool(fe_gpu_binning_backend_choice(int(n_rows), int(n_cands)) == "gpu")
     except Exception as e:
+        # fallback: the KTC binning choice is an optional probe; any failure keeps the CPU binning path.
         logger.debug("_fe_gpu_binning_enabled_uncached: KTC binning backend-choice lookup failed, defaulting to CPU: %s", e)
         return False

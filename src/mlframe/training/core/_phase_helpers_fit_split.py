@@ -500,7 +500,7 @@ def _classification_stratify_labels(_multilabel_target, _classification_targets,
                         _MAX_COMPOSITE_CARDINALITY,
                     )
         except Exception as e:
-            logger.debug("classification stratify_y construction failed: %s", e)
+            logger.warning("classification stratify_y construction failed: %s", e)
             _stratify_y = None
     return _stratify_y
 
@@ -630,7 +630,7 @@ def _recover_post_flip_pandas_cats(was_polars_input: bool, train_df_pandas_pre_m
             try:
                 _post_flip_pandas_cats = detect_df.select_dtypes(include=["category"]).columns.tolist()
             except Exception as e:
-                logger.debug("select_dtypes for post-flip pandas categoricals failed: %s", e)
+                logger.warning("select_dtypes for post-flip pandas categoricals failed: %s", e)
                 _post_flip_pandas_cats = []
     return _post_flip_pandas_cats
 
@@ -776,7 +776,7 @@ def _log_string_column_unions(_str_cols, train_df, val_df, _enum_domains, _val_o
                 try:
                     _u_val = val_df.select(pl.col(_c).drop_nulls().unique())[_c].to_list()
                 except Exception as e:
-                    logger.debug("computing val-side unique domain for column %r failed: %s", _c, e)
+                    logger.warning("computing val-side unique domain for column %r failed: %s", _c, e)
                     _u_val = []
             _enum_domains[_c] = sorted(set(_u_train) | set(_u_val), key=str)
             _train_set = set(_u_train)

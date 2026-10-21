@@ -97,7 +97,7 @@ class HGBStrategy(ModelPipelineStrategy):
             try:
                 vals = df[col].drop_nulls().unique().cast(pl.String).to_list()
             except Exception as e:
-                logger.debug("could not resolve unique values for column %s: %s", col, e)
+                logger.warning("could not resolve unique values for column %s: %s", col, e)
                 vals = []
             local_enum = pl.Enum(sorted(set(vals))) if vals else None
             if local_enum is None:

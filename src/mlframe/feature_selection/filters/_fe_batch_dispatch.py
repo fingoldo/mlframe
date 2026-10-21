@@ -51,6 +51,7 @@ def _ktc_backend_choice(n_rows: int, n_cands: int) -> str | None:
             return "gpu"
         return "cpu"
     except Exception as e:
+        # fallback: the kernel-tuning cache is an optional hint, so a failed lookup is not fatal.
         logger.debug("_ktc_backend_choice: kernel-tuning cache lookup failed, falling back to conservative CPU default: %s", e)
         return None
 

@@ -210,6 +210,7 @@ def _probe_cuda_precision_uncached(device_id: int) -> str:
                 log_throttle(logger, "mlp_runtime_defaults._probe_cuda_precision_cached", logging.WARNING, "torch.cuda.get_device_capability() failed, defaulting to 32-true: %s", e)
                 result = "32-true"
     except Exception as e:
+        # fallback: a failed precision probe defaults to 32-true; the inner CUDA capability failure is already logged above.
         logger.debug("precision probe failed, defaulting to 32-true: %s", e)
         result = "32-true"
     return result

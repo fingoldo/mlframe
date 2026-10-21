@@ -239,7 +239,7 @@ def _frame_has_non_finite(X) -> bool:
         arr = np.asarray(X)
         return bool(np.issubdtype(arr.dtype, np.number) and not np.isfinite(arr).all())
     except Exception as e:  # a probe failure must not turn into "clean": report it and let the real error surface
-        logger.debug("full-frame non-finite probe failed: %s", e)
+        logger.warning("full-frame non-finite probe failed: %s", e)
         return False
 
 
@@ -255,6 +255,7 @@ def _frame_is_all_numeric(X) -> bool:
             return all(pd.api.types.is_numeric_dtype(_d) for _d in X.dtypes)
         return bool(np.issubdtype(np.asarray(X).dtype, np.number))
     except Exception as e:  # unknown container: leave the existing paths to decide
+        # fallback: the all-numeric check is a probe; an unknown container is left to the existing paths.
         logger.debug("all-numeric probe failed: %s", e)
         return True
 

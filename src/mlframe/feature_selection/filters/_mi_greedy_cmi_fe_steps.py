@@ -549,6 +549,7 @@ def _cmi_gpu_enabled(*, n: Optional[int] = None, p: Optional[int] = None, min_p:
         from ._fe_gpu_strict import fe_gpu_strict_enabled
         return bool(fe_gpu_strict_enabled(n=n, p=p, min_p=min_p))
     except Exception as e:
+        # fallback: the strict-GPU gate is an optional probe; any failure keeps the CPU host path.
         logger.debug("fe_gpu_strict_enabled probe failed (%s: %s) -- defaulting to CPU host path", type(e).__name__, e)
         return False
 
