@@ -260,7 +260,7 @@ def _polyeval_cuda(basis: str, x: np.ndarray, c: np.ndarray, device: int | None 
         # vary per trial - that is the thing being optimized - so it stays a raw per-call upload.
         from .._fe_resident_operands import resident_operand
 
-        x_gpu = resident_operand(x, "hermite_polyeval_x", dtype=_crit_np_dtype())
+        x_gpu = resident_operand(x, "hermite_polyeval_x", dtype=cp.float64)  # Intentional float64: the CUDA kernels declare ``const double* x``, a float32 buffer would be read as doubles
         # Intentional float64: coefficient / output contract kept f64
         c_gpu = cp.asarray(c, dtype=cp.float64)
         n = x.shape[0]

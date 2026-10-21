@@ -11,6 +11,7 @@ Usage::
 
     python -m mlframe.feature_selection._benchmarks.bench_four_pillars [--only f2,noise,xor3,conj] [--profile out.prof]
         [--f2-default]   # also run F2 with default MRMR() instead of the test's tuned parameters
+        [--extra all|name,name] [--panel R] [--strict-extra]   # the hard cases of ``four_pillars_cases`` over a seed panel, judged by Clopper-Pearson bounds
 
 Run once with ``MLFRAME_FE_GPU_STRICT=1`` for the GPU path and once without for the CPU path.
 """
@@ -109,6 +110,57 @@ def _conj_case(perm_seed):
     return ok, dt, names
 
 
+# ----------------------------------------------------------------------------------------------- extended hard cases over a seed panel
+def _extra_row(case, seed: int):
+    """Fit one seed of an extended case and return its contract verdict plus the fit wall."""
+    from mlframe.feature_selection._benchmarks import four_pillars_contracts as contracts
+    from mlframe.feature_selection.filters.mrmr import MRMR
+
+    kwargs = dict(case.gen_kwargs)
+    out = case.gen(seed, **kwargs)
+    X, y = out[0], out[1]
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        t = time.perf_counter()
+        sel = MRMR(verbose=0, random_state=seed, n_workers=1).fit(X, y)
+        dt = time.perf_counter() - t
+    if case.kind == "f2":
+        verdict = contracts.f2_verdict(sel, lambda sd, n: case.gen(sd, n, **kwargs), seed, **case.contract)
+    elif case.kind == "null":
+        verdict = contracts.null_verdict(sel)
+    else:
+        verdict = contracts.cover_verdict(sel, **case.contract)
+    verdict["seconds"] = dt
+    verdict["selected"] = contracts.selected_names(sel)[:6]
+    return verdict
+
+
+def _run_extra(names: set[str], panel_override: int | None, mode: str) -> list[dict]:
+    """Run the selected extended cases (``all`` for every one), print one panel verdict line each and return the rows."""
+    from mlframe.feature_selection._benchmarks import four_pillars_contracts as contracts
+    from mlframe.feature_selection._benchmarks.four_pillars_cases import CASES
+
+    rows = []
+    for case in CASES:
+        if "all" not in names and case.name not in names:
+            continue
+        seeds = panel_override or case.seeds
+        per_seed = []
+        for seed in range(seeds):
+            try:
+                per_seed.append(_extra_row(case, seed))
+            except Exception as exc:
+                warnings.warn(f"extra case {case.name} seed {seed} raised {type(exc).__name__}: {exc}; counted as a failure", stacklevel=1)
+                per_seed.append({"ok": False, "n_forbidden": 0, "seconds": float("nan"), "selected": [], "error": f"{type(exc).__name__}: {exc}"})
+        pv = contracts.panel(per_seed, power_gate=case.power_gate, fp_gate=case.fp_gate)
+        print(f"[{mode}] {contracts.format_panel(case.name, pv)}{'  (report only)' if case.report_only else ''}", flush=True)
+        for r in per_seed:
+            if not r["ok"]:
+                print(f"    miss: selected={r['selected']} {r.get('forbidden', r.get('noise', ''))} {r.get('error', '')}", flush=True)
+        rows.append({"case": case.name, "report_only": case.report_only, **pv, "per_seed": per_seed})
+    return rows
+
+
 def _cases(only: set[str], f2_default: bool):
     """Cases."""
     if "f2" in only:
@@ -135,8 +187,11 @@ def main(argv=None):
     ap.add_argument("--f2-default", action="store_true")
     ap.add_argument("--json", default=None)
     ap.add_argument("--families", action="store_true", help="print the per-family FE wall of every case")
+    ap.add_argument("--extra", default=None, help="run the hard cases of four_pillars_cases: 'all' or comma-separated case names")
+    ap.add_argument("--panel", type=int, default=None, help="seeds per extended case, overriding each case's own panel size")
+    ap.add_argument("--strict-extra", action="store_true", help="exit non-zero when a gating (not report-only) extended case does not PASS")
     args = ap.parse_args(argv)
-    only = set(args.only.split(","))
+    only = set(args.only.split(",")) if not (args.extra and args.only == "f2,noise,xor3,conj") else set()
     mode = "gpu_strict" if os.environ.get("MLFRAME_FE_GPU_STRICT", "") == "1" else "cpu"
     pr = cProfile.Profile() if args.profile else None
     rows = []
@@ -162,11 +217,14 @@ def main(argv=None):
     total = sum(r["seconds"] for r in rows if np.isfinite(r["seconds"]))
     n_ok = sum(r["ok"] for r in rows)
     print(f"[{mode}] SUMMARY {n_ok}/{len(rows)} pass, total fit time {total:.1f}s", flush=True)
+    extra_rows = _run_extra(set(args.extra.split(",")), args.panel, mode) if args.extra else []
     if pr:
         pr.dump_stats(args.profile)
     if args.json:
         with open(args.json, "w", encoding="utf-8") as fh:
-            json.dump({"mode": mode, "rows": rows, "total_seconds": total}, fh, indent=1)
+            json.dump({"mode": mode, "rows": rows, "extra": extra_rows, "total_seconds": total}, fh, indent=1, default=str)
+    if args.strict_extra and any(r["verdict"] != "PASS" for r in extra_rows if not r["report_only"]):
+        sys.exit(1)
 
 
 if __name__ == "__main__":

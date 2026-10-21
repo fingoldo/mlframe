@@ -379,7 +379,7 @@ def generate_univariate_basis_features(
         # whatever was engineered so far (the core selection still produces a usable partial). No-op when no budget is set.
         if fe_deadline_passed():
             break
-        # BUG FIX (test_layer23::test_replay_matches_fit_time_values): must be float64, NOT
+        # BUG FIX (test_layer23::test_replay_matches_fit_time_values): the fit axis must have the replay's precision (float64), NOT
         # _crit_np_dtype()'s f32 relaxation. The basis-preprocess params computed from ``x`` here get frozen
         # into an EngineeredRecipe and replayed at transform() time by
         # engineered_recipes._orth_basis_recipes._eval_orth_basis_column, which unconditionally casts its
@@ -389,7 +389,7 @@ def generate_univariate_basis_features(
         # relaxation stays for the separate MI-uplift SCORING casts in ``score_features_by_mi_uplift`` (a
         # ranking decision, not a persisted value) - only this closed-form VALUE materialisation must match
         # replay bit-for-bit.
-        x = np.asarray(X[col].to_numpy(), dtype=_crit_np_dtype())
+        x = np.asarray(X[col].to_numpy(), dtype=np.float64)  # Intentional float64: fit/replay bit-identity contract (basis axis)
         # Skip orthogonal-polynomial expansion on integer-valued low-cardinality categorical group keys: T_n / He_n of an
         # arbitrary label code (region 0..9) is spurious - it fits the label->target mapping, floods the candidate pool, and
         # displaces the genuinely useful grouped aggregates of that key. Continuous / high-card columns keep the expansion. The
@@ -436,7 +436,7 @@ def generate_univariate_basis_features(
             if aux_col is None or len(np.asarray(aux_col)) == 0:
                 try:
                     _z_fit, _ = _POLY_BASES[chosen_basis]["fit"](x)
-                    _z_cached = np.ascontiguousarray(_z_fit, dtype=_crit_np_dtype())
+                    _z_cached = np.ascontiguousarray(_z_fit, dtype=np.float64)  # Intentional float64: fit/replay bit-identity contract (basis axis)
                 except Exception as e:
                     log_throttle(logger, "orth_basis_fit_failed_gen", logging.WARNING, "basis fit for %r failed: %s", chosen_basis, e)
                     _z_cached = None
@@ -445,7 +445,7 @@ def generate_univariate_basis_features(
                 if _z_cached is not None:
                     _coef = np.zeros(int(d) + 1, dtype=np.float64)  # Intentional float64: accumulator or output buffer; statistic at float64
                     _coef[int(d)] = 1.0
-                    vals = polyeval_dispatch(chosen_basis, _z_cached, _coef)
+                    vals = np.asarray(polyeval_dispatch(chosen_basis, _z_cached, _coef)).astype(_crit_np_dtype(), copy=False)  # one rounding to the output dtype, as the replay's cast
                 else:
                     vals = _evaluate_basis_column(
                         x, chosen_basis, int(d), aux_for_fit=aux_col,
@@ -804,7 +804,7 @@ def hybrid_orth_mi_fe_with_recipes(
             # float64 (not _crit_np_dtype()'s f32 relaxation): match the transform()-time replay axis, which
             # _orth_basis_recipes._eval_orth_basis_column casts to float64 unconditionally - see the fit-time
             # column-extraction fix above for the full rationale.
-            _col_full = np.asarray(X[src].values, dtype=_crit_np_dtype())
+            _col_full = np.asarray(X[src].values, dtype=np.float64)  # Intentional float64: fit/replay bit-identity contract (basis axis)
             _vals_full, _pp = _evaluate_basis_column(
                 _col_full, chosen_basis, int(chosen_degree), return_params=True,
             )

@@ -86,17 +86,17 @@ def _make_mnar(seed: int = 0, n: int = 1200):
 
 
 def _make_redundancy_chain(seed: int = 0, n: int = 3000):
-    """Graded transitive redundancy chain a~b~c: ``b = a + 0.6*e1`` (a bridge carrying NO new signal); ``c = b +
-    0.6*e2 + 1.0*d`` (c is the only path to the independent signal component ``d``); ``y = (a + d > 0)``. The right
-    answer is ``{a, c}`` -- ``b`` is a wasted slot. corr(a,b)=0.86 sits just under HybridSelector's default
-    ``corr_thr=0.92`` so the bridge is not clustered away. Returns ``(df, y)``."""
+    """Redundant bridge: ``b = a + 0.6*e1`` is a noisy copy of ``a`` carrying NO signal beyond it; ``c = a + 0.6*e2 + 1.0*d`` is the only path to the independent signal component ``d``;
+    ``y = (a + d > 0)``. The right answer is ``{a, c}`` -- ``b`` is a wasted slot (a logistic fit on ``a, b, c`` scores the same AUC as on ``a, c``). corr(a,b)=0.86 sits just under HybridSelector's
+    default ``corr_thr=0.92`` so the bridge is not clustered away. (An earlier version built ``c`` from ``b``; there ``b`` removed the ``e1`` noise from the estimate of ``d`` and was informative:
+    AUC 0.938 with it, 0.913 without.) Returns ``(df, y)``."""
     rng = np.random.default_rng(seed)
     a = rng.normal(size=n)
     e1 = rng.normal(size=n)
     e2 = rng.normal(size=n)
     d = rng.normal(size=n)
     b = a + 0.6 * e1
-    c = b + 0.6 * e2 + 1.0 * d
+    c = a + 0.6 * e2 + 1.0 * d
     y = ((a + d + 0.4 * rng.normal(size=n)) > 0).astype(np.int64)
     cols = {"a": a, "b": b, "c": c}
     for j in range(5):
