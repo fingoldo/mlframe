@@ -38,7 +38,8 @@ def main(payload: dict) -> None:
     use_mrmr = bool(payload["use_mrmr"])
     seed = int(payload["seed"])
 
-    case = GENERATORS[gen](seed=seed, distribution=dist)
+    gen_kwargs = {"n": int(payload["n"])} if "n" in payload else {}
+    case = GENERATORS[gen](seed=seed, distribution=dist, **gen_kwargs)
     # MRMR.fit consumes the GLOBAL np.random stream (independent of random_seed); seed it
     # for a deterministic single fit per process (mirrors the endtoend-invariants worker).
     np.random.seed(seed)
