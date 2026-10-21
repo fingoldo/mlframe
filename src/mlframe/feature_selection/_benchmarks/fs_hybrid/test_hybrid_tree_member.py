@@ -164,8 +164,11 @@ def test_bizvalue_tree_member_lifts_interaction_auc():
         m = make_pipeline(StandardScaler(), LogisticRegression(max_iter=2000)).fit(Ztr, ytr)
         return roc_auc_score(yte, m.predict_proba(Zte)[:, 1])
 
-    a_off = auc(HybridSelector(vote=1, use_fe=True, use_tree_member=False, random_state=1))
-    a_on = auc(HybridSelector(vote=1, use_fe=True, use_tree_member=True, random_state=1))
+    # Both arms set mrmr_synergy_cap=0: MRMR's synergy bootstrap is off in each, so the product a*b is reachable only
+    # through the tree member. Without this, MRMR's own engineering recovers the product on the 303-column frame
+    # (measured: off-AUC 0.961 with the default cap), and the claim's premise (off-AUC near chance) no longer holds.
+    a_off = auc(HybridSelector(vote=1, use_fe=True, use_tree_member=False, mrmr_synergy_cap=0, random_state=1))
+    a_on = auc(HybridSelector(vote=1, use_fe=True, use_tree_member=True, mrmr_synergy_cap=0, random_state=1))
     # The pure-interaction a*b is invisible to a LINEAR model unless the product is engineered; in the wide regime
     # only the tree member supplies it, so off-AUC is near chance for logit and on-AUC recovers it -- a clear lift.
     # Spec: the tree member must lift linear-downstream AUC by at least 0.03 on wide interaction data.
