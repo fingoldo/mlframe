@@ -96,11 +96,14 @@ class TestEvalFoldClosureCapture:
         import mlframe.feature_selection.wrappers.rfecv as mod_rfecv
 
         _dir = pathlib.Path(mod_rfecv.__file__).resolve().parent
-        for _p in sorted(_dir.glob("*.py")):
-            tree = ast.parse(_p.read_text(encoding="utf-8"))
-            for node in ast.walk(tree):
-                if isinstance(node, ast.FunctionDef) and node.name == "_eval_fold":
-                    pytest.fail(f"nested _eval_fold closure reintroduced in {_p.name}; it must stay a module-level function with explicit captures")
+        _sources = sorted(_dir.glob("*.py"))
+        _trees = {_p: ast.parse(_p.read_text(encoding="utf-8")) for _p in _sources}
+        # Anti-vacuity: the scan must reach the real module-level evaluator, else the zero-match loop below proves nothing.
+        assert any(
+            isinstance(n, ast.FunctionDef) and n.name == "_eval_fold_body" for t in _trees.values() for n in t.body
+        ), "scanner did not see the module-level _eval_fold_body; the package layout changed"
+        nested = [_p.name for _p, tree in _trees.items() for node in ast.walk(tree) if isinstance(node, ast.FunctionDef) and node.name == "_eval_fold"]
+        assert not nested, f"nested _eval_fold closure reintroduced in {nested}; it must stay a module-level function with explicit captures"
 
 
 class TestEvalFoldBehavior:
