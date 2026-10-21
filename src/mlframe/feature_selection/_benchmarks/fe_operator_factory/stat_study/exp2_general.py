@@ -6,6 +6,7 @@ import itertools
 import warnings
 
 import numpy as np
+from mlframe.feature_engineering._safe_ratio import safe_div
 
 warnings.simplefilter("ignore")
 from mlframe.feature_selection.filters.feature_engineering import create_binary_transformations, create_unary_transformations
@@ -154,15 +155,16 @@ def als_rank1(x, z, y, rows_fit, B=16, iters=8):
     for _ in range(iters):
         gz = g[bz]
         num = np.bincount(bx[r], gz[r] * yc[r], B)
-        den = np.bincount(bx[r], gz[r] ** 2, B) + 1e-9
-        f = num / den
+        den = np.bincount(bx[r], gz[r] ** 2, B)
+        f = safe_div(num, den)
         fx = f[bx]
         num = np.bincount(bz[r], fx[r] * yc[r], B)
-        den = np.bincount(bz[r], fx[r] ** 2, B) + 1e-9
-        g = num / den
-        s = np.abs(f).max() + 1e-12
-        f /= s
-        g *= s
+        den = np.bincount(bz[r], fx[r] ** 2, B)
+        g = safe_div(num, den)
+        s = np.abs(f).max()
+        if s > 0:
+            f /= s
+            g *= s
     return f[bx] * g[bz], f[bx] + g[bz]
 
 

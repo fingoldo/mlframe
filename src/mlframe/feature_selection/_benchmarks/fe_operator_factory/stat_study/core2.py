@@ -23,8 +23,10 @@ def ols_st(u, v, yr, winsor, huber):
         v = np.minimum(np.maximum(v, lo), hi)
     mu = u.mean()
     mv = v.mean()
-    su = u.std() + 1e-12
-    sv = v.std() + 1e-12
+    su = u.std()
+    su = su if su > 0 else 1.0
+    sv = v.std()
+    sv = sv if sv > 0 else 1.0
     X = np.empty((n, 4))
     for i in range(n):
         a = (u[i] - mu) / su
@@ -51,9 +53,9 @@ def ols_st(u, v, yr, winsor, huber):
             res = np.empty(n)
             for i in range(n):
                 res[i] = yr[i] - (X[i, 0] * beta[0] + X[i, 1] * beta[1] + X[i, 2] * beta[2] + X[i, 3] * beta[3])
-            s = 1.4826 * _median_njit(np.abs(res - _median_njit(res))) + 1e-12
+            s = 1.4826 * _median_njit(np.abs(res - _median_njit(res)))
             for i in range(n):
-                a = np.abs(res[i]) / s
+                a = np.abs(res[i]) / s if s > 0 else (0.0 if res[i] == 0.0 else np.inf)
                 w[i] = 1.0 if a <= 1.345 else 1.345 / a
     if np.abs(beta[3]) < 1e-12:
         return np.nan, np.nan

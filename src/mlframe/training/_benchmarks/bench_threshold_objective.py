@@ -25,6 +25,7 @@ import sys
 from pathlib import Path
 
 import numpy as np
+from mlframe.feature_engineering._safe_ratio import safe_div
 from sklearn.metrics import balanced_accuracy_score, f1_score
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "src"))
@@ -79,7 +80,7 @@ def _gen(rng: np.random.Generator, n: int, pos_rate: float, sep: float, hetero: 
 
     d_neg = norm.pdf(s, 0.0, 1.0) * (1 - pos_rate)
     d_pos = norm.pdf(s, sep, hetero) * pos_rate
-    p = d_pos / (d_pos + d_neg + 1e-300)
+    p = safe_div(d_pos, d_pos + d_neg)
     idx = rng.permutation(n)
     return y[idx], p[idx]
 

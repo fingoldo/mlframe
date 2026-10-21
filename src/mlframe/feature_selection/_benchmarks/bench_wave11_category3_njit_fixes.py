@@ -11,6 +11,7 @@ from __future__ import annotations
 import time
 
 import numpy as np
+from mlframe.feature_engineering._safe_ratio import safe_div
 import pandas as pd
 
 
@@ -109,18 +110,18 @@ def bench_ratio_delta_redundancy():
     cols = [rng.normal(size=n) for _ in range(p)]
     pairs = [(i, j) for i in range(p) for j in range(p) if i != j]
 
-    _a0 = np.nan_to_num(cols[0] / (cols[1] + 1e-9))
+    _a0 = np.nan_to_num(safe_div(cols[0], cols[1]))
     _passes_redundancy(_a0.copy(), cols[0].copy(), cols[1].copy(), 0.99)
 
     t0 = time.perf_counter()
     for i, j in pairs:
-        cand = np.nan_to_num(cols[i] / (cols[j] + 1e-9), nan=0.0, posinf=0.0, neginf=0.0)
+        cand = np.nan_to_num(safe_div(cols[i], cols[j]), nan=0.0, posinf=0.0, neginf=0.0)
         _passes_redundancy(cand, cols[i], cols[j], 0.99)
     t_new = time.perf_counter() - t0
 
     t0 = time.perf_counter()
     for i, j in pairs:
-        cand = np.nan_to_num(cols[i] / (cols[j] + 1e-9), nan=0.0, posinf=0.0, neginf=0.0)
+        cand = np.nan_to_num(safe_div(cols[i], cols[j]), nan=0.0, posinf=0.0, neginf=0.0)
         ref(cand, cols[i], cols[j], 0.99)
     t_old = time.perf_counter() - t0
 

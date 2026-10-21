@@ -3,6 +3,7 @@
 import warnings
 
 import numpy as np
+from mlframe.feature_engineering._safe_ratio import safe_div
 from numba import njit, prange
 import logging
 
@@ -164,8 +165,10 @@ def ols_t(u, v, yr, winsor, huber):
         v = np.minimum(np.maximum(v, lo), hi)
     mu = u.mean()
     mv = v.mean()
-    su = u.std() + 1e-12
-    sv = v.std() + 1e-12
+    su = u.std()
+    su = su if su > 0 else 1.0
+    sv = v.std()
+    sv = sv if sv > 0 else 1.0
     X = np.empty((n, 4))
     for i in range(n):
         a = (u[i] - mu) / su
@@ -192,9 +195,9 @@ def ols_t(u, v, yr, winsor, huber):
             res = np.empty(n)
             for i in range(n):
                 res[i] = yr[i] - (X[i, 0] * beta[0] + X[i, 1] * beta[1] + X[i, 2] * beta[2] + X[i, 3] * beta[3])
-            s = 1.4826 * _median_njit(np.abs(res - _median_njit(res))) + 1e-12
+            s = 1.4826 * _median_njit(np.abs(res - _median_njit(res)))
             for i in range(n):
-                a = np.abs(res[i]) / s
+                a = np.abs(res[i]) / s if s > 0 else (0.0 if res[i] == 0.0 else np.inf)
                 w[i] = 1.0 if a <= 1.345 else 1.345 / a
     if np.abs(beta[3]) < 1e-12:
         return np.nan
@@ -346,10 +349,11 @@ def als_rank1(x, z, y, rows_fit, B=16, iters=8):
     r = rows_fit
     for _ in range(iters):
         gz = g[bz]
-        f = np.bincount(bx[r], gz[r] * yc[r], B) / (np.bincount(bx[r], gz[r] ** 2, B) + 1e-9)
+        f = safe_div(np.bincount(bx[r], gz[r] * yc[r], B), np.bincount(bx[r], gz[r] ** 2, B))
         fx = f[bx]
-        g = np.bincount(bz[r], fx[r] * yc[r], B) / (np.bincount(bz[r], fx[r] ** 2, B) + 1e-9)
-        s = np.abs(f).max() + 1e-12
-        f /= s
-        g *= s
+        g = safe_div(np.bincount(bz[r], fx[r] * yc[r], B), np.bincount(bz[r], fx[r] ** 2, B))
+        s = np.abs(f).max()
+        if s > 0:
+            f /= s
+            g *= s
     return f[bx] * g[bz]

@@ -34,7 +34,10 @@ _DEG = 8
 
 def _to_pm1(x):
     c = x.astype(np.float64)
-    return 2 * (c - c.min()) / (np.ptp(c) + 1e-12) - 1
+    span = np.ptp(c)
+    if not span > 0:
+        return np.full_like(c, -1.0)
+    return 2 * (c - c.min()) / span - 1
 
 
 def _rbf_mi(x, y, n_centres=9):
@@ -42,7 +45,9 @@ def _rbf_mi(x, y, n_centres=9):
     from mlframe.feature_selection.filters._extra_basis_fe_proto import fit_basis_mi as _f
     c = x.astype(np.float64)
     centres = np.quantile(c, np.linspace(0.1, 0.9, n_centres))
-    bw = 1.06 * c.std() * len(c) ** (-1 / 5) + 1e-9
+    bw = 1.06 * c.std() * len(c) ** (-1 / 5)
+    if not bw > 0:
+        bw = 1.0
     design = np.column_stack([np.exp(-(((c - ce) / bw) ** 2)) for ce in centres] + [np.ones_like(c)])
     return _f(design, y, nbins=_NBINS)
 

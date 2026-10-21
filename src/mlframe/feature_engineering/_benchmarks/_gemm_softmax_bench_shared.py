@@ -26,7 +26,9 @@ def dists_gemm(X, anchors):
 
 def softmax_from_dists(dists, temp):
     """Row-softmax of ``-dists / temp``, numerically stabilized (max-subtraction), cast to float32."""
-    logits = -dists / (temp + 1e-9)
+    if not temp > 0:
+        raise ValueError(f"temp must be > 0, got {temp!r}")
+    logits = -dists / temp
     logits -= logits.max(axis=1, keepdims=True)
     e = np.exp(logits)
     return (e / e.sum(axis=1, keepdims=True)).astype(np.float32)

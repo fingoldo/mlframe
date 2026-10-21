@@ -21,6 +21,7 @@ import pstats
 from io import StringIO
 
 import numpy as np
+from mlframe.feature_engineering._safe_ratio import safe_div
 
 from mlframe.training.composite._regime_headroom import regime_headroom_map
 from mlframe._bench_timing_shared import best_of_seconds_with_output as _best_of
@@ -91,7 +92,7 @@ def main():
 
     print("=== bin SSE reduction A/B (n=1M, k=10) ===")
     k = 10
-    codes = np.clip((axis - axis.min()) / (np.ptp(axis) + 1e-12) * k, 0, k - 1).astype(np.int64)
+    codes = np.clip(safe_div(axis - axis.min(), np.ptp(axis)) * k, 0, k - 1).astype(np.int64)
     w = np.ones_like(y)
     t_bc, _ = _best_of(_bin_stats_bincount, codes, w, y, raw, comp, lag, k)
     print(f"bincount (DEFAULT): {1e3 * t_bc:.2f} ms")
