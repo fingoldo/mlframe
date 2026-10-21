@@ -257,7 +257,7 @@ def scan_offset_products_gpu(U: Any, tasks: np.ndarray, yr: Any, ycodes: Any, ky
 
     if nb > 32 or nb < 2 or _shared_bytes(nb, ky) > _SHARED_BUDGET:
         return None
-    Ud = cp.ascontiguousarray(cp.asarray(U, dtype=cp.float64))
+    Ud = cp.ascontiguousarray(cp.asarray(U, dtype=cp.float64))  # Intentional float64: operand tables, ranks and clips feed the 4x4 normal-equation solve (kernel contract double*)
     m, nu, n = (int(d) for d in Ud.shape)
     T = int(tasks.shape[0])
     td = cp.asarray(np.ascontiguousarray(tasks, dtype=np.int32))

@@ -121,7 +121,7 @@ def brute_force_top_n_gpu(
     kernel = _ensure_kernel()
     block = _block_size()
 
-    phi_d = cp.asarray(np.ascontiguousarray(phi, dtype=np.float64))
+    phi_d = cp.asarray(np.ascontiguousarray(phi, dtype=np.float64))  # Intentional float64: SHAP values are summed over feature subsets in the loss (kernel contract double*)
     base_d = cp.asarray(np.ascontiguousarray(base, dtype=np.float64))
     y_d = cp.asarray(np.ascontiguousarray(y, dtype=np.float64))
     n, f = phi.shape

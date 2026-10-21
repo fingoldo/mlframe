@@ -26,6 +26,6 @@ Parity tolerances written for float64 (`1e-9`, `1e-12`) now derive from the crit
 
 ## Open
 
-- A static gate against a hard `const double*` in kernel sources is not written. There are 46 such parameters in 30 kernels; a third are statistics, coefficients or partial sums that are double on purpose, the rest are data columns (`pa`, `ext`, `x`, `G`, `M`, `arr`, `B`, `phi`, ...) whose callers should be checked with the launch audit before each is either templated on `{REAL}` or marked with its reason.
+- A static gate (`tests/feature_selection/test_no_unmarked_double_kernels.py`) requires every kernel module with a `const double*` parameter to carry an `Intentional float64` reason. It checks per file, not per parameter: a data column bound to `double*` inside a file that has some other marked site is not caught. The per-parameter caller check (template on `{REAL}` or mark) is still open for the larger kernel modules.
 - The launch audit covers only the kernels that the GPU test directory reaches; kernels exercised elsewhere (the SHAP proxy kernels, for one) have not been audited.
 - `test_f32_nameset_matches_f64` (three cases) still fails: the f32 and the f64 fit each select a different composite that takes a noise column as one operand (tracker row 2).
