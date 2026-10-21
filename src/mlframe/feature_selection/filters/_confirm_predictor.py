@@ -48,6 +48,7 @@ from .evaluation import (
 )
 from .gpu import mi_direct_gpu
 from .permutation import mi_direct
+from ._honest_mdlp_null import honest_candidate_nfailed
 
 logger = logging.getLogger(__name__)
 
@@ -297,6 +298,18 @@ def confirm_candidate(ctx: ScreenContext, X: tuple, next_best_gain: float) -> tu
                 )
                 if verbose and len(selected_vars) < MAX_ITERATIONS_TO_TRACK:
                     logger.debug("mi_direct bootstrapped eval took %.1f sec.", timer() - eval_start)
+            if ctx.honest_null_codes_fn is not None and len(X) == 1 and full_npermutations:
+                # Supervised binning: the fixed-codes null above keeps the cut points fitted on the real target, so a column whose cuts
+                # happened to fit the target beats every shuffle. Re-test it against the honest null, which refits the cuts per shuffle.
+                _honest = honest_candidate_nfailed(
+                    ctx.honest_null_codes_fn, ctx.honest_full_factors, factors_nbins, int(y[0]), int(X[0]),
+                    int(full_npermutations), int(random_seed), ctx.honest_eval_rows,
+                )
+                if _honest is not None:
+                    _nfailed_honest, _ = _honest
+                    confidence = 1.0 - (1.0 + _nfailed_honest) / (int(full_npermutations) + 1.0)
+                    if confidence < min_nonzero_confidence:
+                        bootstrapped_gain = 0.0
             cached_confident_MIs[X] = bootstrapped_gain, confidence
     else:
         if X in cached_confident_MIs:
