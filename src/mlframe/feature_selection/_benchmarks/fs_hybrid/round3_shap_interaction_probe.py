@@ -57,7 +57,7 @@ def main():
                 logger.debug("case=%s_sd%s config=%s failed: %s: %s", name, sd, cname, type(e).__name__, e)
                 row = dict(case=f"{name}_sd{sd}", config=cname, error=f"{type(e).__name__}: {e}")
             rows.append(row)
-            print(f"{row['case']:16s} {cname:15s} " + (row.get("error") or
+            print(f"{row['case']:16s} {cname:15s} " + (row.get("error") if row.get("error") else
                   f"n={row['n']:2d} base={row['base']}/{len(base)} oper={row['oper']}/{row['n_oper']} {row['fit_s']:5.1f}s mean={row['auc_mean']} auc={row['auc']}"), flush=True)
     df = pd.DataFrame([r for r in rows if not r.get("error")])
     print("\n=== mean over cases ===")

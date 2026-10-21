@@ -52,7 +52,7 @@ def main():
                     logger.debug("scenario=%s seed=%s config=%s failed: %s: %s", sc, sd, name, type(e).__name__, e)
                     row = dict(scenario=sc, seed=sd, config=name, error=f"{type(e).__name__}: {e}")
                 rows.append(row)
-                print(f"{sc:14s} sd{sd} {name:16s} " + (row.get("error") or f"n={row['n']:2d} base={row['base']}/{len(base)} {row['fit_s']:5.1f}s auc={row['auc']} mean={row['auc_mean']}"), flush=True)
+                print(f"{sc:14s} sd{sd} {name:16s} " + (row.get("error") if row.get("error") else f"n={row['n']:2d} base={row['base']}/{len(base)} {row['fit_s']:5.1f}s auc={row['auc']} mean={row['auc_mean']}"), flush=True)
     with open(os.path.join(OUT, "round2_shap.jsonl"), "w", encoding="utf-8") as f:
         for r in rows:
             f.write(json.dumps(r) + "\n")

@@ -34,7 +34,8 @@ class HybridRFECV(HybridSelector):
             self.member_selections_["rfecv"] = [c for c in r.get_feature_names_out() if c in self._Xaug_.columns]
             sel = self._combine(self.member_selections_, list(self._Xaug_.columns))
             eng = set(self._eng_rename.values())
-            self.raw_selected_ = [c for c in self._Xaug_.columns if c in set(sel)] or list(self._Xaug_.columns[:1])
+            _picked = [c for c in self._Xaug_.columns if c in set(sel)]
+            self.raw_selected_ = _picked if _picked else list(self._Xaug_.columns[:1])
             self.n_engineered_ = sum(1 for c in self.raw_selected_ if c in eng)
         except Exception as e:
             warnings.warn(f"HybridRFECV degraded ({type(e).__name__}: {e})", stacklevel=2)

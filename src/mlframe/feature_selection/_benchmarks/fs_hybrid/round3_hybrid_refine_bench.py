@@ -44,7 +44,8 @@ class H32(HybridSelector):  # vote weighted by each member's subset OOF-AUC
             for f in set(self.cluster_of_.get(c) for c in sel):
                 if f is not None:
                     cl_w[f] += w.get(m, 0.0)
-        tot = sum(w.values()) or 1.0
+        tot = sum(w.values())
+        tot = tot if tot != 0 else 1.0
         chosen = [r for r, wt in cl_w.items() if wt / tot >= 0.33]  # >= a third of the total skill-weight
         if not chosen:
             chosen = list(cl_w)
@@ -86,7 +87,8 @@ class H34(HybridSelector):  # add RFECV as a 4th member
             rf = self._run_rfecv(self._Xaug_, self._y_, self.relevant_)
             self.member_selections_["rfecv"] = rf
             selected = self._combine(self.member_selections_, list(self._Xaug_.columns))
-            self.raw_selected_ = [c for c in self._Xaug_.columns if c in set(selected)] or list(self._Xaug_.columns[:1])
+            _picked = [c for c in self._Xaug_.columns if c in set(selected)]
+            self.raw_selected_ = _picked if _picked else list(self._Xaug_.columns[:1])
             self.n_engineered_ = sum(1 for c in self.raw_selected_ if c in set(self._eng_rename.values()))
         except Exception as e:
             warnings.warn(f"H34 rfecv member degraded ({type(e).__name__}: {e})", stacklevel=2)
@@ -107,7 +109,8 @@ class H35(HybridSelector):  # auto-pick (vote, expand) by internal OOF-AUC
                     best_auc, best = au, (vote, expand)
         self.vote, self.expand_clusters = best
         selected = self._combine(self.member_selections_, list(Xa.columns))
-        self.raw_selected_ = [c for c in Xa.columns if c in set(selected)] or list(Xa.columns[:1])
+        _picked = [c for c in Xa.columns if c in set(selected)]
+        self.raw_selected_ = _picked if _picked else list(Xa.columns[:1])
         self.n_engineered_ = sum(1 for c in self.raw_selected_ if c in set(self._eng_rename.values()))
         return self
 
@@ -121,7 +124,8 @@ class H36(HybridSelector):  # cluster confirmed by any vote; emit engineered mem
                 r = self.cluster_of_.get(f)
                 if r is not None:
                     votes[r].add(m)
-        chosen = [r for r, v in votes.items() if len(v) >= self.vote] or list(votes)
+        _picked = [r for r, v in votes.items() if len(v) >= self.vote]
+        chosen = _picked if _picked else list(votes)
         out = []
         for r in chosen:
             ms = [m for m in self.members_[r] if m in cols]

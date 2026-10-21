@@ -50,7 +50,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
-    out = args.out or os.path.join(RESULTS_DIR, f"phase0_{args.mode}.jsonl")
+    out = args.out if args.out else os.path.join(RESULTS_DIR, f"phase0_{args.mode}.jsonl")
     os.makedirs(os.path.dirname(out), exist_ok=True)
     seeds = _seeds(args.mode, args.seeds)
     beds = real_bed_scenarios(include_ineligible=args.include_ineligible)

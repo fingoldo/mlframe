@@ -196,7 +196,7 @@ def run(process: str, n_train: int, seed: int) -> dict:
             sc = StandardScaler().fit(tr)
             m = make().fit(sc.transform(tr), ytr)
             row[name] = _rmse(m.predict(sc.transform(te)), yte)
-        row["recovery"] = float("nan") if weak_te is None else max([abs(np.corrcoef(te[c], weak_te)[0, 1]) for c in te.columns if te[c].std() > 0] or [0.0])
+        row["recovery"] = float("nan") if weak_te is None else max(_cs if (_cs := [abs(np.corrcoef(te[c], weak_te)[0, 1]) for c in te.columns if te[c].std() > 0]) else [0.0])
         row["covers"] = int(truth <= {t for c in tr.columns for t in str(c).replace("(", " ").replace(")", " ").replace(",", " ").split()})
         arms[arm] = row
     res["arms"] = arms

@@ -87,7 +87,7 @@ def rfecv_backward_union(Xtr_aug, ytr, union, seed):
     r = RFECV(estimator=est, cv=3, scoring=None, verbose=0, fi_config=fi, search_config=sc, n_jobs=1, random_state=seed)
     r.fit(Xtr_aug[union], ytr)
     surv = [c for c in r.get_feature_names_out() if c in Xtr_aug.columns]
-    return surv or list(union)
+    return surv if surv else list(union)
 
 
 def run_bed(name, X, y, seed):

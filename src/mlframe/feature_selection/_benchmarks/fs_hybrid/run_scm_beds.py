@@ -43,9 +43,9 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
-    out = args.out or os.path.join(RESULTS_DIR, "scm_beds.jsonl")
+    out = args.out if args.out else os.path.join(RESULTS_DIR, "scm_beds.jsonl")
     os.makedirs(os.path.dirname(out), exist_ok=True)
-    beds = scm_bed_scenarios(include_null=args.include_null, n_samples=int(args.rows) or SCM_BED_ROWS)
+    beds = scm_bed_scenarios(include_null=args.include_null, n_samples=int(args.rows) if int(args.rows) != 0 else SCM_BED_ROWS)
     seeds = list(range(int(args.seeds)))
 
     logger.info("scm leg: seeds=%s beds=%s out=%s", len(seeds), [name for name, _ in beds], out)

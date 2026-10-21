@@ -173,7 +173,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             recalls = [float(r["recall"]) for r in done if np.isfinite(float(r["recall"]))]
             print(f"n={n_samples:<7} {arm_name:<16} recall={np.mean(recalls) if recalls else float('nan'):.3f} over {len(recalls)} seeds")
 
-    out = args.out or os.path.join(RESULTS_DIR, f"sweep_recovery_vs_n_{args.bed}.json")
+    out = args.out if args.out else os.path.join(RESULTS_DIR, f"sweep_recovery_vs_n_{args.bed}.json")
     os.makedirs(os.path.dirname(out), exist_ok=True)
     with open(out, "w", encoding="utf-8") as handle:
         json.dump(rows, handle, indent=2, sort_keys=True)
