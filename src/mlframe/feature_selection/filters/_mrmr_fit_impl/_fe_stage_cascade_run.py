@@ -15,16 +15,24 @@ from ._fe_stage_cascade_early_b import _fe_stage_cascade_early_b
 from ._fe_stage_cascade_mid_a import _fe_stage_cascade_mid_a
 from ._fe_stage_cascade_mid_b import _fe_stage_cascade_mid_b
 from ._fe_stage_merge import _fe_merge_new_columns
+from .._fe_frame_ops import fe_drop_columns
 
 
 def _run_fe_stage_cascades(self, X, y, verbose, fe_max_steps, _y_np, _fe_family_on, _fe_budget_ok, _fit_entry_nan_mask, recipes):
     """Run early_a, early_b, mid_a and mid_b on the same step-input frame; return the merged frame and the raw input columns recorded before FE."""
-    _X_step_input = X
+    # A constant or all-NaN input column carries no signal, and as an operand it only dilutes the candidate pools (the orth triplet seeds, the pair budget): the stages read the step input without
+    # them, and the frame that continues keeps every column, so the support indices and the recorded raw columns are unchanged.
+    _X_full = X
+    _dead = [c for c, reason in (getattr(self, "degenerate_columns_", None) or {}).items() if reason in ("constant", "all_nan")]
+    _X_step_input = fe_drop_columns(_X_full, _dead)
     X, _raw_input_cols_pre_fe, recipes.hinge_deferred_values, recipes.hinge_deferred = _fe_stage_cascade_early_a(
         self, X=_X_step_input, y=y, verbose=verbose, fe_max_steps=fe_max_steps, _y_np=_y_np, _fe_family_on=_fe_family_on,
         _fe_budget_ok=_fe_budget_ok,
         _hybrid_orth_pre_recipes=recipes.hybrid_orth, _mi_greedy_pre_recipes=recipes.mi_greedy,
     )
+    if _X_step_input is not _X_full:
+        X = _fe_merge_new_columns(_X_full, X, _X_step_input)
+        _raw_input_cols_pre_fe = list(_X_full.columns) if hasattr(_X_full, "columns") else _raw_input_cols_pre_fe
     X = _fe_merge_new_columns(X, _fe_stage_cascade_early_b(
         self, X=_X_step_input, y=y, verbose=verbose, fe_max_steps=fe_max_steps, _y_np=_y_np, _fe_family_on=_fe_family_on,
         _fit_entry_nan_mask=_fit_entry_nan_mask, _raw_input_cols_pre_fe=_raw_input_cols_pre_fe,

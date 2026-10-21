@@ -76,6 +76,8 @@ class LazyHostCodes:
         """Indexing reads the host copy, except a (row-slice, column) pick of a 2-D array (``[:, j]``, ``[::k, j]``), which stays a lazy device view."""
         if self._host is None and len(self.shape) == 2 and isinstance(key, tuple) and len(key) == 2 and isinstance(key[0], slice) and isinstance(key[1], (int, np.integer)):
             return LazyHostCodes(self._dev[key[0], int(key[1])], self._dtype)
+        if self._host is None and len(self.shape) == 2 and isinstance(key, tuple) and len(key) == 2 and isinstance(key[0], slice) and isinstance(key[1], slice):
+            return LazyHostCodes(self._dev[key[0], key[1]], self._dtype)  # a row / column range stays a lazy device view as well
         return self.host()[key]
 
     def __getattr__(self, name: str) -> Any:

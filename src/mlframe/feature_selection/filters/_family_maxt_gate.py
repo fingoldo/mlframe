@@ -416,16 +416,25 @@ def _analytic_triage(cols, n_x, y, n_y, observed, starts, alpha, inverse=None) -
     of ``observed`` to its row in them (``None``: no repeated columns). The Bonferroni sum keeps counting every column of the family: the chi-square tail is an approximation, and the pass margin
     was calibrated against that count (summing over the distinct columns only let the batches through that the exact test rejects).
     """
-    from ._analytic_mi_null import _chi2_sf, _min_expected_cell, analytic_null_enabled
+    from ._analytic_mi_null import analytic_null_enabled
 
     if not analytic_null_enabled():
         return None
     n_rows = int(cols.shape[1])
-    ny_occ = int(np.count_nonzero(np.bincount(y, minlength=int(n_y))))
-    if ny_occ < 2 or n_rows <= 0:
+    if n_rows <= 0:
         return None
     with parallel_kernel_entry():
         nx_occ = _occupied_bins(cols, n_x)
+    return _analytic_triage_core(n_rows, nx_occ, y, n_y, observed, starts, alpha, inverse)
+
+
+def _analytic_triage_core(n_rows, nx_occ, y, n_y, observed, starts, alpha, inverse=None) -> "np.ndarray | None":
+    """:func:`_analytic_triage` from the row count and the occupied-bin count of every distinct column, so a caller that holds the columns on the device needs no host copy of them."""
+    from ._analytic_mi_null import _chi2_sf, _min_expected_cell
+
+    ny_occ = int(np.count_nonzero(np.bincount(y, minlength=int(n_y))))
+    if ny_occ < 2 or n_rows <= 0:
+        return None
     if n_rows / float(max(int(nx_occ.max()), 1) * ny_occ) < _ANALYTIC_DENSITY * _min_expected_cell():
         return None
     df_distinct = (nx_occ - 1) * (ny_occ - 1)
@@ -466,15 +475,20 @@ def _analytic_triage(cols, n_x, y, n_y, observed, starts, alpha, inverse=None) -
 
 def _permutation_pass_flags(cols, n_x, y, n_y, observed_max, alpha, n_perm, seed) -> np.ndarray:
     """Exact family-wise permutation test for batches with the given observed maxima (the null spans every column of ``cols``)."""
+    return _permutation_pass_flags_with(lambda m, rng: family_null_max(cols, n_x, y, n_y, m, rng), observed_max, alpha, n_perm, seed)
+
+
+def _permutation_pass_flags_with(null_max, observed_max, alpha, n_perm, seed) -> np.ndarray:
+    """:func:`_permutation_pass_flags` with the null supplied as ``null_max(m, rng)``: the ``m`` next null maxima over the whole family, drawn from ``rng``."""
     rng = np.random.default_rng(seed)
     B = int(n_perm)
     # Probe: when every batch's best MI is at or below the median of the first few null maxima, at least half of the permutations reach it, so the
     # exceedance rate is far above alpha and every batch fails. Half of FAMILY_PROBE_BLOCK draws at or above it is what a true rate under
     # 5% produces with probability about 1e-11, so a small block decides the weak families at a fraction of a full block's cost.
-    probe = family_null_max(cols, n_x, y, n_y, min(B, FAMILY_PROBE_BLOCK), rng)
+    probe = null_max(min(B, FAMILY_PROBE_BLOCK), rng)
     if observed_max.size and float(observed_max.max()) <= float(np.median(probe)):
         return np.zeros(observed_max.shape[0], dtype=np.bool_)
-    first = np.concatenate([probe, family_null_max(cols, n_x, y, n_y, max(min(B, FAMILY_EARLY_BLOCK) - probe.shape[0], 0), rng)])
+    first = np.concatenate([probe, null_max(max(min(B, FAMILY_EARLY_BLOCK) - probe.shape[0], 0), rng)])
     # Exact early stop per batch: the pass test is (1 + R) / (B + 1) <= alpha with R the count of null maxima at or above the batch's
     # observed maximum. R only grows, so a batch whose count already violates the bound fails for every B; the null still spans the whole
     # family, but the permutation loop ends as soon as no batch is alive.
@@ -484,7 +498,7 @@ def _permutation_pass_flags(cols, n_x, y, n_y, observed_max, alpha, n_perm, seed
     alive = (1.0 + R) / (B + 1.0) <= float(alpha)
     while done < B and alive.any():
         m = min(FAMILY_EARLY_BLOCK, B - done)
-        blk = family_null_max(cols, n_x, y, n_y, m, rng)
+        blk = null_max(m, rng)
         done += m
         R += (blk[:, None] >= observed_max[None, :]).sum(axis=0)
         alive &= (1.0 + R) / (B + 1.0) <= float(alpha)
@@ -603,6 +617,12 @@ def family_pass_batches(batches: "Sequence[np.ndarray]", y_codes: np.ndarray, al
     Early rejection: when every undecided batch's best observed MI is at or below the median of the first ``FAMILY_PROBE_BLOCK`` null
     maxima, the remaining permutations are skipped and those batches are rejected.
     """
+    # Resident device batches are scored on the device without copying them back; the host gate below answers whenever that path does not apply.
+    from ._family_maxt_gate_device import family_pass_batches_device
+
+    on_device = family_pass_batches_device(batches, y_codes, alpha, n_perm, seed)
+    if on_device is not None:
+        return on_device
     y = np.ascontiguousarray(np.asarray(y_codes, dtype=np.int64).ravel())
     n_y = int(y.max()) + 1
     mats = [np.asarray(c) for c in batches]

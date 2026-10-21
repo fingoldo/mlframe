@@ -62,6 +62,17 @@ def _extval_host_buffer(param_a, _ev_param_bs, _ev_op_codes, _ev_bin_funcs, _ev_
     return _ev_buf, _ev_col
 
 
+def _hstack_chunk_codes(chunks):
+    """Column-wise concatenation of the code chunks of one batch: device-side for resident (lazy) chunks, so they are not copied back, ``np.hstack`` otherwise."""
+    if all(hasattr(c, "dev") for c in chunks):
+        import cupy as cp
+
+        from mlframe.feature_selection.filters._lazy_host_codes import LazyHostCodes
+
+        return LazyHostCodes(cp.concatenate([c.dev for c in chunks], axis=1), chunks[0].dtype)
+    return np.hstack([np.asarray(c) for c in chunks])
+
+
 def _emit_pair_features_step2_read_here_once(
     _ev_configs,
     final_transformed_vals,
@@ -137,13 +148,14 @@ def _emit_pair_features_step2_read_here_once(
                     _k_seen += int(_ev_col)
                 if _family_exact and _ev_mi is not None and len(_ev_mi) and _ev_disc is not None:
                     _host_codes = _ev_disc[:, : int(_ev_col)]
-                    _ev_chunk_codes.append(_host_codes.get() if hasattr(_host_codes, "get") else np.asarray(_host_codes))
+                    # resident codes stay lazy device views (the family gate scores them on the device); anything else is copied to the host as before
+                    _ev_chunk_codes.append(_host_codes if hasattr(_host_codes, "dev") else (_host_codes.get() if hasattr(_host_codes, "get") else np.asarray(_host_codes)))
                 if _ev_mi is not None and len(_ev_mi):
                     best_valid_mi = max(best_valid_mi, float(np.max(_ev_mi)))
             _ev_param_bs = _ev_all_param_bs
             # The family gate needs every candidate of the pair; a chunk without scores leaves the pair out of it, as the one-batch path did.
             if _family_exact and _ev_chunk_codes and _ev_all_scored:
-                _pair_batches.append((config, _ev_chunk_codes[0] if len(_ev_chunk_codes) == 1 else np.hstack(_ev_chunk_codes)))
+                _pair_batches.append((config, _ev_chunk_codes[0] if len(_ev_chunk_codes) == 1 else _hstack_chunk_codes(_ev_chunk_codes)))
         else:
             if param_a is None:
                 param_a = _resolve_col(i)
@@ -374,12 +386,16 @@ def _emit_pair_features_step2_read_here_once_part1(
                 # byte-identical column-prange twin here too (no joblib nest).
                 parallel=_fe_use_parallel_kernels(_ev_col, serial_main_thread),
             )
+    _family_dev = None
     if _family_exact and isinstance(_ev_disc, np.ndarray):
-        # The family gate reads these codes on the host after the dispatch; an unfilled deferred GPU buffer would read as zeros (the
-        # dispatch drops the deferred-fill record when it ends), so fill it before. A family past the budget is never read: skip the D2H.
-        from mlframe.feature_selection.filters._gpu_resident_fe import ensure_host_codes_filled
+        # The family gate reads these codes after the dispatch, and the dispatch drops the deferred-fill record when it ends (an unfilled host buffer would then read as zeros). When the
+        # codes are resident they stay on the device: the family gate scores them there (``family_pass_batches_device``) and any host reader gets them through ``LazyHostCodes``. Without
+        # a resident copy the host buffer is filled now. A family past the budget is never read: skip the D2H.
+        from mlframe.feature_selection.filters._gpu_resident_fe import ensure_host_codes_filled, peek_resident_codes
 
-        ensure_host_codes_filled(_ev_disc)
+        _family_dev = peek_resident_codes(_ev_disc)
+        if _family_dev is None:
+            ensure_host_codes_filled(_ev_disc)
     _ev_mi = _dispatch_batch_mi_with_noise_gate(
         disc_2d=_ev_disc,
         quantization_nbins=quantization_nbins,
@@ -392,4 +408,8 @@ def _emit_pair_features_step2_read_here_once_part1(
         batch_mi_kernel=batch_mi_with_noise_gate,
         env_gate=_fe_env_gate,
     )
+    if _family_dev is not None:
+        from mlframe.feature_selection.filters._lazy_host_codes import LazyHostCodes
+
+        return _ev_col, LazyHostCodes(_family_dev, _ev_disc.dtype), param_a, _ev_mi
     return _ev_col, _ev_disc, param_a, _ev_mi

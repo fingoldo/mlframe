@@ -25,7 +25,6 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 import pytest
-from py_ci_shared.pytest_known_gap import known_gap
 
 from tests.conftest import fast_n_estimators
 from tests.feature_selection.conftest import fast_subset, is_fast_mode
@@ -366,7 +365,7 @@ def test_biz_val_hybrid_redundancy_chain_keeps_both_signal_paths():
 
 @pytest.mark.slow
 def test_biz_val_hybrid_redundancy_chain_drops_redundant_bridge():
-    """HybridSelector should drop the redundant bridge b of a graded chain a~b~c; recorded as a known gap while b survives on the majority of seeds."""
+    """HybridSelector drops the redundant bridge b of a graded chain a~b~c (the conditional-twin pass) and keeps the signal paths a and c."""
     seeds = _seeds((0, 1, 2))
     b_dropped = []
     ac_ok = []
@@ -376,10 +375,9 @@ def test_biz_val_hybrid_redundancy_chain_drops_redundant_bridge():
         b_dropped.append("b" not in sel)
         ac_ok.append({"a", "c"}.issubset(sel))
     assert _majority(ac_ok), f"HybridSelector dropped a signal path (a and/or c) on the majority of seeds: {ac_ok}"
-    known_gap(
-        "(KG-3) PROD GAP: HybridSelector keeps the redundant bridge b in a graded chain a~b~c (corr(a,b)=0.86 < default corr_thr=0.92, so b is never "
-        f"clustered away); b dropped per seed: {b_dropped}.",
-        gap_closed=_majority(b_dropped),
+    assert _majority(b_dropped), (
+        "HybridSelector keeps the redundant bridge b of a graded chain a~b~c (corr(a,b)=0.86 < default corr_thr=0.92, so b is never clustered away); "
+        f"b dropped per seed: {b_dropped}"
     )
 
 

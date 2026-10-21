@@ -37,12 +37,14 @@ def heldout_r2_scorer(base_mat: np.ndarray | Sequence[np.ndarray], y: np.ndarray
     yv = y[va_idx]
     ss = float(np.sum((yv - yv.mean()) ** 2))
     y_tr = y[tr_idx]
+    # Intentional float64: the design of a least-squares probe. The columns arrive in the criterion dtype, where the rounding noise (about 1e-7) is far above the ``_RCOND`` rank test (1e-10),
+    # so a column collinear with the base looked well conditioned and entered the fast QR update as noise; a float64 design keeps the rank test meaningful.
     if isinstance(base_mat, np.ndarray):
-        base_tr = base_mat[tr_idx]
-        base_va = base_mat[va_idx]
+        base_tr = np.asarray(base_mat[tr_idx], dtype=np.float64)
+        base_va = np.asarray(base_mat[va_idx], dtype=np.float64)
     else:
-        base_tr = np.column_stack([np.asarray(c)[tr_idx] for c in base_mat])
-        base_va = np.column_stack([np.asarray(c)[va_idx] for c in base_mat])
+        base_tr = np.column_stack([np.asarray(c, dtype=np.float64)[tr_idx] for c in base_mat])
+        base_va = np.column_stack([np.asarray(c, dtype=np.float64)[va_idx] for c in base_mat])
 
     def _lstsq_r2(a_tr: np.ndarray, a_va: np.ndarray) -> float:
         """Held-out R^2 from the rank-revealing least-squares solution."""

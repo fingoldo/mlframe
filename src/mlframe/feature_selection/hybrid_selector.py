@@ -178,7 +178,7 @@ class HybridSelector:
                  mrmr_synergy_cap: int = 250,
                  hybrid_corr_max_features: int = 2000,
                  random_state: int = 42, classification: "Optional[bool]" = None, name: str = "hybrid",
-                 keep_augmented_data: bool = True):
+                 keep_augmented_data: bool = True, twin_corr: "Optional[float]" = 0.8):
         # cooccur_weight (default "gain" - MEASURED win on interaction beds): how the tree member ranks candidate
         # co-occurrence PAIRS proposed from GBM split co-occurrence. "count" weights a pair by raw frequency (how many
         # trees split on both a and b); "gain" weights it by the summed split GAIN the two features contribute within
@@ -215,6 +215,9 @@ class HybridSelector:
         # own singleton cluster and never be voted/selected anyway, so dropping them before clustering is selection-
         # neutral on the kept set. Set very high (or None) to cluster the full augmented frame (legacy behaviour).
         self.hybrid_corr_max_features = hybrid_corr_max_features
+        # twin_corr (default 0.8): the conditional-redundancy pass after the vote. A kept column whose |corr| with another kept column reaches this value is dropped when it adds nothing to a held-out
+        # fit given the rest (see ``_hybrid_twin_prune``); it catches the noisy copy that sits just below ``corr_thr`` and so is never clustered with the column it copies. ``None`` turns the pass off.
+        self.twin_corr = twin_corr
         self.vote = vote
         self.prescreen = prescreen
         self.expand_clusters = expand_clusters
@@ -748,6 +751,10 @@ class HybridSelector:
 
         # STAGE 3 - cluster-aware vote over the shared clusters (pure, deterministic; extracted for unit testing)
         selected = self._combine(member_sel, cols)
+        if self.twin_corr is not None and len(selected) > 1:
+            from mlframe.feature_selection._hybrid_twin_prune import prune_conditional_twins
+
+            selected = prune_conditional_twins(X_aug, y, selected, self.fi_, twin_corr=float(self.twin_corr), classification=self.classification, seed=int(self.random_state))
         self.raw_selected_ = [c for c in cols if c in set(selected)] or cols[:1]  # zero-vote degenerate case -> keep one column rather than an empty selector output, not a caller-supplied-empty trap
         self.n_engineered_ = sum(1 for c in self.raw_selected_ if c in engineered)
         # sklearn-style fitted attributes (raw_selected_ may include engineered eng_N names from X_aug)
