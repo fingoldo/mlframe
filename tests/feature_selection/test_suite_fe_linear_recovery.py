@@ -47,7 +47,7 @@ _TEST_DIR = os.path.dirname(os.path.abspath(__file__))
 _REPO_ROOT = os.path.dirname(os.path.dirname(_TEST_DIR))
 
 
-def _run_fit(*, gen: str, dist: str, model: str, use_mrmr: bool, seed: int = 0, timeout: int = 1200) -> dict:
+def _run_fit(*, gen: str, dist: str, model: str, use_mrmr: bool, seed: int = 0, timeout: int = 1200, n: int | None = None) -> dict:
     """Run ONE suite fit in a fresh subprocess; return ``{"R2","span","n","structure"}``.
 
     Retries once on a Windows OOM / paging-file transient (the repo's concurrent-load
@@ -67,7 +67,10 @@ def _run_fit(*, gen: str, dist: str, model: str, use_mrmr: bool, seed: int = 0, 
     if extra:
         env["PYTHONPATH"] = os.pathsep.join(extra + ([pp] if pp else []))
 
-    payload = json.dumps(dict(gen=gen, dist=dist, model=model, use_mrmr=use_mrmr, seed=seed))
+    payload_fields = dict(gen=gen, dist=dist, model=model, use_mrmr=use_mrmr, seed=seed)
+    if n is not None:
+        payload_fields["n"] = int(n)
+    payload = json.dumps(payload_fields)
     worker = os.path.join(_TEST_DIR, "_suite_fe_worker.py")
 
     last_err = ""
@@ -150,7 +153,10 @@ def test_linear_magnitude_recovery(gen, dist, r2_floor, span_floor, slow, reques
     prediction signature of the quantized-engineered-feature bug."""
     if slow:
         request.node.add_marker(pytest.mark.slow)
-    res = _run_fit(gen=gen, dist=dist, model="linear", use_mrmr=True, seed=0)
+    # bilinear runs at n=2000 (the generator's n=8000 default): one fit measured 529 s at n=8000 vs 168 s at n=2000 on the same box, with
+    # R2 0.960 (floor 0.75) and span 0.978 (floor 0.80). The MRMR validated MDLP binning default dominates the fit and scales with n.
+    fit_n = 2000 if gen == "bilinear" else None
+    res = _run_fit(gen=gen, dist=dist, model="linear", use_mrmr=True, seed=0, n=fit_n)
     assert res["R2"] >= r2_floor, (
         f"linear+MRMR test-R2={res['R2']:.4f} < floor {r2_floor} on {gen}/{dist} "
         f"({res['structure']}); a collapse here means the synthesized feature reached the "
