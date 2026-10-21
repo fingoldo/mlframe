@@ -12,6 +12,7 @@ magnitudes, signed sum, L2 norm.
 """
 from __future__ import annotations
 
+import functools
 import logging
 from typing import Any, Literal, Optional
 
@@ -25,6 +26,17 @@ logger = logging.getLogger(__name__)
 # Cap on the vertically-stacked perturbation matrix (in float32 elements ~ 4 bytes each).
 # 64M elems ~ 256MB; above this we fall back to the per-feature loop to avoid an oversized copy.
 _MAX_STACK_ELEMS = 64_000_000
+
+
+def _counterfactual_feats_to_cols(feats: np.ndarray, column_prefix: str, dtype: type) -> dict[str, np.ndarray]:
+    """Reshape the flat ``_process`` output block into named ``{prefix}_max_abs`` / ``_signed_sum`` / ``_l2_norm`` / ``_topk_abs_mean`` / ``_argmax_feat`` columns."""
+    cols: dict[str, np.ndarray] = {}
+    cols[f"{column_prefix}_max_abs"] = feats[:, 0].astype(dtype, copy=False)
+    cols[f"{column_prefix}_signed_sum"] = feats[:, 1].astype(dtype, copy=False)
+    cols[f"{column_prefix}_l2_norm"] = feats[:, 2].astype(dtype, copy=False)
+    cols[f"{column_prefix}_topk_abs_mean"] = feats[:, 3].astype(dtype, copy=False)
+    cols[f"{column_prefix}_argmax_feat"] = feats[:, 4].astype(dtype, copy=False)
+    return cols
 
 
 def compute_counterfactual_substitution_features(
@@ -119,15 +131,7 @@ def compute_counterfactual_substitution_features(
         argmax_feature = abs_deltas.argmax(axis=1).astype(np.float32)
         return np.column_stack([max_abs_delta, signed_sum, l2_norm, top_k_abs_mean, argmax_feature])
 
-    def _make_df(feats: np.ndarray) -> dict[str, np.ndarray]:
-        """Reshape the flat ``_process`` output block into named ``{prefix}_max_abs`` / ``_signed_sum`` / ``_l2_norm`` / ``_topk_abs_mean`` / ``_argmax_feat`` columns."""
-        cols: dict[str, np.ndarray] = {}
-        cols[f"{column_prefix}_max_abs"] = feats[:, 0].astype(dtype, copy=False)
-        cols[f"{column_prefix}_signed_sum"] = feats[:, 1].astype(dtype, copy=False)
-        cols[f"{column_prefix}_l2_norm"] = feats[:, 2].astype(dtype, copy=False)
-        cols[f"{column_prefix}_topk_abs_mean"] = feats[:, 3].astype(dtype, copy=False)
-        cols[f"{column_prefix}_argmax_feat"] = feats[:, 4].astype(dtype, copy=False)
-        return cols
+    _make_df = functools.partial(_counterfactual_feats_to_cols, column_prefix=column_prefix, dtype=dtype)
 
     if X_query is not None:
         Xq = np.asarray(X_query, dtype=np.float32)

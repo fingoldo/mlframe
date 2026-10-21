@@ -10,6 +10,7 @@ Emit aggregates: top-k Δ magnitudes, signed sum, L2 norm.
 """
 from __future__ import annotations
 
+import functools
 import logging
 from typing import Any, Literal, Optional
 
@@ -17,6 +18,7 @@ import numpy as np
 import polars as pl
 
 from mlframe.feature_engineering.transformer._utils import require_seed, validate_numeric_input
+from mlframe.feature_engineering.transformer.counterfactual_substitution import _counterfactual_feats_to_cols
 
 logger = logging.getLogger(__name__)
 
@@ -93,14 +95,7 @@ def compute_counterfactual_substitution_features(
         argmax_feature = abs_deltas.argmax(axis=1).astype(np.float32)
         return np.column_stack([max_abs_delta, signed_sum, l2_norm, top_k_abs_mean, argmax_feature])
 
-    def _make_df(feats: np.ndarray) -> dict[str, np.ndarray]:
-        cols: dict[str, np.ndarray] = {}
-        cols[f"{column_prefix}_max_abs"] = feats[:, 0].astype(dtype, copy=False)
-        cols[f"{column_prefix}_signed_sum"] = feats[:, 1].astype(dtype, copy=False)
-        cols[f"{column_prefix}_l2_norm"] = feats[:, 2].astype(dtype, copy=False)
-        cols[f"{column_prefix}_topk_abs_mean"] = feats[:, 3].astype(dtype, copy=False)
-        cols[f"{column_prefix}_argmax_feat"] = feats[:, 4].astype(dtype, copy=False)
-        return cols
+    _make_df = functools.partial(_counterfactual_feats_to_cols, column_prefix=column_prefix, dtype=dtype)
 
     if X_query is not None:
         Xq = np.asarray(X_query, dtype=np.float32)

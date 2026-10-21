@@ -2,6 +2,7 @@
 Family per selector = best over the K=5 base pairs (top plain-mul MI) of: 1-D grid (G=9), closed-form 1-param (ols), closed-form 2-param (ols2), 2-D grid (7x7).
 Delta_s = MI(best shifted candidate) - MI(best preset combo).  Nulls: y-permutation (whole selection re-run) and conditional permutation (within strata of preset-best bin)."""
 
+import functools
 import json
 import sys
 import time
@@ -9,7 +10,8 @@ import time
 import numpy as np
 
 from ..common._paths import scratch_dir
-from .core import bins_batch, bins_of, family_eval, get_presets, mi_bins, mi_cnt, mi_feats, preset_cands, qbin, rank01, unary_mat
+from ..common.binning import qbin
+from .core import bins_batch, bins_of, family_eval, get_presets, mi_bins, mi_cnt, mi_feats, pair_operands, preset_cands, rank01, unary_mat
 from .core2 import family_eval2
 
 n = int(sys.argv[1])
@@ -42,11 +44,7 @@ def target(x, z, rng):
     return tr + rng.standard_normal(len(x)) * tr.std()
 
 
-def pair_uv(UX, UZ, p):
-    """The (u, v) operand pair of pair index ``p`` (role, unary, unary)."""
-    role, rem = divmod(p, nu * nu)
-    iu, iv = divmod(rem, nu)
-    return (UX[iu], UZ[iv]) if role == 0 else (UZ[iu], UX[iv])
+pair_uv = functools.partial(pair_operands, nu=nu)
 
 
 def prep(x, z):

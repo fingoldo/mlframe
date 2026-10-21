@@ -41,6 +41,15 @@ _POS_COLOR: str = "#2ca02c"
 _NEG_COLOR: str = "#d62728"
 
 
+def _numpy_level_counts(codes: np.ndarray, y: np.ndarray, n_levels: int):
+    """numpy fallback (bit-identical accumulation to the njit path) when numba is unavailable: per-category-level positive-count + total-count via two ``np.bincount`` calls."""
+    keep = codes >= 0
+    kc = codes[keep]
+    tot = np.bincount(kc, minlength=n_levels).astype(np.float64)
+    pos = np.bincount(kc, weights=y[keep], minlength=n_levels)
+    return pos, tot
+
+
 try:
     import numba
 
@@ -62,13 +71,7 @@ try:
 except ImportError:  # numba unavailable: two-bincount numpy fallback (bit-identical accumulation, just slower).
     _HAS_NUMBA = False
 
-    def _level_counts_njit(codes: np.ndarray, y: np.ndarray, n_levels: int):
-        """numpy fallback (bit-identical accumulation to the njit path) when numba is unavailable: per-category-level positive-count + total-count via two ``np.bincount`` calls."""
-        keep = codes >= 0
-        kc = codes[keep]
-        tot = np.bincount(kc, minlength=n_levels).astype(np.float64)
-        pos = np.bincount(kc, weights=y[keep], minlength=n_levels)
-        return pos, tot
+    _level_counts_njit = _numpy_level_counts
 
 
 # Rows probed when deciding whether an object column holds non-scalar (unhashable) elements. The probe is a

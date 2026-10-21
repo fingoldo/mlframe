@@ -2,6 +2,7 @@
 Run: ``python -m mlframe.feature_selection._benchmarks.fe_operator_factory.stat_study.exp2_general``."""
 
 # Generality: synthetic targets, preset-best vs offset-grid vs alternatives, prevalence ceiling, held-out selection
+import functools
 import itertools
 import warnings
 
@@ -12,17 +13,13 @@ warnings.simplefilter("ignore")
 from mlframe.feature_selection.filters.feature_engineering import create_binary_transformations, create_unary_transformations
 
 from ..common.binning import mi, mi_b, qbin
+from .core import clean, interior_quantile_edges
 import logging
 
 logger = logging.getLogger(__name__)
 
 UN = create_unary_transformations("minimal")
 BI = create_binary_transformations("minimal")
-
-
-def clean(a):
-    """NaN and inf to 0."""
-    return np.nan_to_num(np.asarray(a, float), nan=0.0, posinf=0.0, neginf=0.0)
 
 
 QG = np.linspace(0.1, 0.9, 9)
@@ -141,9 +138,7 @@ def als_rank1(x, z, y, rows_fit, B=16, iters=8):
     # f(x)*g(z) piecewise-linear on B quantile bins, fit to y by ALS
     """Binned rank-1 ALS fit; returns the product and the sum feature."""
 
-    def ed(a):
-        """Interior quantile edges of ``a`` on the fit rows."""
-        return np.quantile(a[rows_fit], np.linspace(0, 1, B + 1)[1:-1])
+    ed = functools.partial(interior_quantile_edges, rows_fit=rows_fit, B=B)
 
     ex, ez = ed(x), ed(z)
     bx = np.searchsorted(ex, x)

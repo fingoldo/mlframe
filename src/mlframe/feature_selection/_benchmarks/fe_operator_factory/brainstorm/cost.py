@@ -3,7 +3,6 @@ Run: ``python -m mlframe.feature_selection._benchmarks.fe_operator_factory.brain
 
 import itertools
 import json
-import time
 
 import numpy as np
 
@@ -12,20 +11,13 @@ from . import ops_M as MM
 from . import ops_multi as M
 from . import ops_O as O
 from . import ops_pair as P
-from .h import UN, _best, clean, ybins
+from .h import UN, T, _best, clean, ybins
 
 n = 100000
 rng = np.random.default_rng(0)
 X2 = rng.random((n, 2))
 y = X2[:, 0] * X2[:, 1] + 0.1 * rng.standard_normal(n)
 Xte2 = rng.random((10000, 2))
-
-
-def T(f, *a):
-    """Wall time of one call ``f(*a)``."""
-    t = time.time()
-    f(*a)
-    return time.time() - t
 
 
 yb = ybins(y, y)

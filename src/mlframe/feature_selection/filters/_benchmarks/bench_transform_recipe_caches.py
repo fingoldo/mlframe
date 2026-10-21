@@ -8,13 +8,13 @@ Run: PYTHONPATH=src python -m mlframe.feature_selection.filters._benchmarks.benc
 
 from __future__ import annotations
 
-import time
 import tracemalloc
 
 import numpy as np
 import pandas as pd
 
 from mlframe.feature_selection.filters import engineered_recipes
+from mlframe.feature_selection.filters._benchmarks.bench_encode_y_memo import _best
 from mlframe.feature_selection.filters.mrmr import MRMR
 
 
@@ -26,16 +26,6 @@ def _hub_frame(n: int, seed: int = 0):
     c = rng.normal(size=n)
     y = ((hub**2 + np.sin(2 * hub) + hub * b + 0.5 * hub * c + 0.3 * rng.normal(size=n)) > 1.0).astype(np.int64)
     return pd.DataFrame({"hub": hub, "b": b, "c": c, "noise": rng.normal(size=n)}), y
-
-
-def _best(fn, reps):
-    """Best wall time of ``reps`` calls."""
-    best = float("inf")
-    for _ in range(reps):
-        t0 = time.perf_counter()
-        fn()
-        best = min(best, time.perf_counter() - t0)
-    return best
 
 
 def _peak(fn):

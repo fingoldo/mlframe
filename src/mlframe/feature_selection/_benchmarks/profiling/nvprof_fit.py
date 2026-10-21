@@ -1,5 +1,6 @@
 """The profiled fit with the CUDA profiler window opened only around one warm fit (``nvprof --profile-from-start off``)."""
 import os, sys, time, warnings
+import functools
 import sys
 from pathlib import Path
 
@@ -13,24 +14,12 @@ for k, v in {
 }.items():
     os.environ[k] = v
 import numpy as np, pandas as pd, cupy as cp
-from mlframe.feature_selection.filters.mrmr import MRMR
+from mlframe.feature_selection._benchmarks.profiling._fe_fit_fixture import fit as _fe_fit
 
 n = int(sys.argv[1]) if len(sys.argv) > 1 else 100000
 
 
-def make(seed):
-    """Novel data per call: MRMR memoises by content hash, so a repeated frame would time the cache replay."""
-    rng = np.random.default_rng(seed)
-    a, b, c, d, e, f = (rng.uniform(0.1, 1.1, n) for _ in range(6))
-    df = pd.DataFrame({k: v for k, v in zip("abcde", (a, b, c, d, e))})
-    y = a**2 / b + f / 5.0 + np.log(np.abs(c) + 1e-9) * np.sin(d)
-    return df, y
-
-
-def fit(seed):
-    df, y = make(seed)
-    return MRMR(full_npermutations=10, baseline_npermutations=20, fe_max_steps=2, fe_min_pair_mi_prevalence=1.05, verbose=0, n_jobs=1, random_seed=seed).fit(df, y)
-
+fit = functools.partial(_fe_fit, n=n)
 
 
 fit(1)

@@ -22,24 +22,9 @@ import time
 
 import numpy as np
 
+from mlframe.training.composite.conformal_online import _rolling_quantile_radius as _old_radius, _sorted_quantile_radius as _new_radius
+
 # ---- OLD kernel (vendored pre-CPX27: full np.sort per step) ----------------
-
-
-def _old_radius(residuals, alpha):
-    r = np.abs(np.asarray(residuals, dtype=np.float64).reshape(-1))
-    r = r[np.isfinite(r)]
-    m = int(r.size)
-    if m == 0:
-        return float("inf")
-    if alpha <= 0.0:
-        return float("inf")
-    if alpha >= 1.0:
-        return 0.0
-    rank = math.ceil((m + 1) * (1.0 - alpha))
-    if rank > m:
-        return float("inf")
-    r_sorted = np.sort(r)
-    return float(r_sorted[rank - 1])
 
 
 def _run_old(residuals, alphas, buffer_n):
@@ -55,18 +40,6 @@ def _run_old(residuals, alphas, buffer_n):
 
 
 # ---- NEW kernel (incremental sorted buffer) --------------------------------
-
-def _new_radius(r_sorted, m, alpha):
-    if m == 0:
-        return float("inf")
-    if alpha <= 0.0:
-        return float("inf")
-    if alpha >= 1.0:
-        return 0.0
-    rank = math.ceil((m + 1) * (1.0 - alpha))
-    if rank > m:
-        return float("inf")
-    return float(r_sorted[rank - 1])
 
 
 def _run_new(residuals, alphas, buffer_n):

@@ -19,6 +19,7 @@ import numpy as np
 from numba import njit, prange
 
 from mlframe.feature_selection.shap_proxied_fs._shap_proxy_cluster_su_joint import dense_relabel_codes
+from mlframe.feature_selection.shap_proxied_fs._shap_proxy_cluster_su_chance import _entropy
 
 CHANCE_SCOPE_RATIO: float = 0.1
 """An edge is re-scored when ``(K_i-1)(K_j-1)/(2n) > CHANCE_SCOPE_RATIO * min(H_i, H_j)`` (bias vs entropy, both in nats)."""
@@ -27,15 +28,6 @@ CHANCE_N_PERM: int = 2
 
 
 @njit(nogil=True, cache=True)
-def _entropy(counts: np.ndarray, n: int) -> float:
-    h = 0.0
-    for c in counts:
-        if c > 0:
-            p = c / n
-            h -= p * math.log(p)
-    return h
-
-
 @njit(nogil=True, cache=True)
 def _mi_sorted(a: np.ndarray, b: np.ndarray, nb_b: int, ca: np.ndarray, cb: np.ndarray, keys: np.ndarray) -> float:
     n = a.shape[0]
@@ -70,8 +62,8 @@ def _score_edges(
     for e in prange(m):
         a = packed[ea[e]]
         b = packed[eb[e]]
-        ca = counts[offs[ea[e]]: offs[ea[e]] + nbins[ea[e]]]
-        cb = counts[offs[eb[e]]: offs[eb[e]] + nbins[eb[e]]]
+        ca = counts[offs[ea[e]] : offs[ea[e]] + nbins[ea[e]]]
+        cb = counts[offs[eb[e]] : offs[eb[e]] + nbins[eb[e]]]
         nb_b = nbins[eb[e]]
         denom = ent[ea[e]] + ent[eb[e]]
         keys = np.empty(n, dtype=np.int64)

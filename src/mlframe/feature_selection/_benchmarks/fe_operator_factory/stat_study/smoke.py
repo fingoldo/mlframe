@@ -5,7 +5,8 @@ import time
 
 import numpy as np
 
-from .core import family_eval, get_presets, preset_matrix_best, qbin, rank01, unary_mat
+from .core import family_eval, get_presets, preset_matrix_best, rank01, unary_mat
+from ..common.binning import qbin
 
 UN, BI = get_presets("medium")
 print(len(UN), len(BI), list(BI))
