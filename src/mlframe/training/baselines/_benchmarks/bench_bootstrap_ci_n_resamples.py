@@ -173,7 +173,7 @@ def main():
 
     maj = total_cells // 2 + 1
     flips = [B for B, w in chal_wins.items() if w >= maj]
-    print(f"\nMajority threshold = {maj}. Flip candidates: {flips or 'NONE -> KEEP 1000'}")
+    print(f"\nMajority threshold = {maj}. Flip candidates: {flips if flips else 'NONE -> KEEP 1000'}")
 
 
 if __name__ == "__main__":

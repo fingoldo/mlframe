@@ -137,7 +137,7 @@ def main(argv: List[str] | None = None) -> int:
             for k in (only_off + only_arm + diff)[:10]:
                 print("   ", k)
         leftovers = _leftovers()
-        print("\n== leftovers after the suite:", leftovers or "none")
+        print("\n== leftovers after the suite:", leftovers if leftovers else "none")
     finally:
         shutil.rmtree(root, ignore_errors=True)
     return 0

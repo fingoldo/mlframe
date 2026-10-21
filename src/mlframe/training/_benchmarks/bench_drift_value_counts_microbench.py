@@ -73,7 +73,7 @@ def main():
     # ndarray cell -- super-linear). That non-completion IS the result. The bench
     # runs only n=2000 by default; pass larger n on the CLI to re-witness the hang.
     import sys
-    _ns = [int(x) for x in sys.argv[1:]] or [2_000]
+    _ns = [int(x) for x in sys.argv[1:]] if sys.argv[1:] else [2_000]
     for n in _ns:
         df = _make_synthetic_frame("regression", n, seed=11)
         cat_cols = _categorical_columns(df)

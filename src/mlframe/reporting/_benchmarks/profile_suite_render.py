@@ -102,7 +102,7 @@ def main(argv: List[str] | None = None) -> int:
     a = ap.parse_args(argv)
     from mlframe.reporting.renderers._render_timings import chart_timings_snapshot
 
-    out = a.out or tempfile.mkdtemp(prefix="mlframe_render_prof_")
+    out = a.out if a.out else tempfile.mkdtemp(prefix="mlframe_render_prof_")
     os.makedirs(out, exist_ok=True)
     ar: Any = {"on": True, "off": False, "auto": "auto"}[a.async_render]
     prof = cProfile.Profile() if a.profile else None

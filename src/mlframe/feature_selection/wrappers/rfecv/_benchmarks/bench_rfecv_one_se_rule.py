@@ -186,7 +186,8 @@ def run_one(dataset: str, seed: int, est_kind: str, max_refits: int = 12) -> lis
     for rule in RULES:
         t1 = time.process_time()
         mask = _replay(sel, rule)
-        kept = [c for c, m in zip(X.columns, mask) if m] or list(X.columns)
+        _picked = [c for c, m in zip(X.columns, mask) if m]
+        kept = _picked if _picked else list(X.columns)
         est = make_estimator(est_kind, task, seed)
         est.fit(Xtr[kept], ytr)
         rows.append({

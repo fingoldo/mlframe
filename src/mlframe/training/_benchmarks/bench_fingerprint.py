@@ -71,7 +71,7 @@ def _bench(fn, sub: pl.DataFrame, trials: int = 7) -> float:
 
 
 def run(combinations: List[Tuple[int, int]] | None = None, trials: int = 7) -> None:
-    combinations = combinations or [
+    combinations = combinations if combinations else [
         (256, 8),
         (4096, 16),
         (4096, 64),

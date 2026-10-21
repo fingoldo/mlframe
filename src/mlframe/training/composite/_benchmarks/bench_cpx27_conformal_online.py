@@ -108,7 +108,7 @@ def main():
         t_old, out_old = _bench(_run_old, residuals, alphas, buffer_n)
         t_new, out_new = _bench(_run_new, residuals, alphas, buffer_n)
 
-        identical = all((a == b) or (math.isinf(a) and math.isinf(b)) for a, b in zip(out_old, out_new))
+        identical = all((True if a == b else (math.isinf(a) and math.isinf(b))) for a, b in zip(out_old, out_new))
         print(f"steps={steps} window={buffer_n}: OLD={t_old*1e3:8.1f}ms  NEW={t_new*1e3:8.1f}ms" f"  speedup={t_old/t_new:5.2f}x  identical={identical}")
 
 

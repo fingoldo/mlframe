@@ -30,7 +30,7 @@ from mlframe.feature_selection.wrappers.rfecv._benchmarks.bench_rfecv_one_se_rul
 
 logger = logging.getLogger(__name__)
 RESULTS_DIR = Path(__file__).parent / "_results"
-GRID = tuple(itertools.product(('full', 'pick'), (3, 5, 7), (0.01, 0.05, 0.2), (0.0, 0.1, 0.25)))  # (anchor, min_iters, alpha, patience_frac)
+GRID = tuple(itertools.product(("full", "pick"), (3, 5, 7), (0.01, 0.05, 0.2), (0.0, 0.1, 0.25)))  # (anchor, min_iters, alpha, patience_frac)
 
 
 # Production-like arm: many rows (tiny SE), every column carries signal or is a weak decoy, tree ensemble -- the regime where the full set is the pick.
@@ -83,6 +83,12 @@ def pick_one_se_max(curve: dict) -> int:
     return int(max(n for n, m in means.items() if m >= thr))
 
 
+def _kept_features(sel, n: int, columns) -> list:
+    """Features kept at subset size n: an empty selection at that size stays empty, only a missing size falls back to all columns."""
+    selected = sel.selected_features_.get(n)
+    return list(selected) if selected is not None else list(columns)
+
+
 def collect_one(dataset: str, seed: int, est_kind: str, max_refits: int) -> dict:
     """Run one un-stopped RFECV and record its trace plus the OOS score of every evaluated subset size."""
     from sklearn.model_selection import train_test_split
@@ -99,7 +105,7 @@ def collect_one(dataset: str, seed: int, est_kind: str, max_refits: int) -> dict
     trace = [(int(n), [float(v) for v in s]) for n, s in sel.eval_trace_]
     oos = {}
     for n in {n for n, _ in trace}:
-        kept = list(sel.selected_features_.get(n, [])) or list(X.columns)
+        kept = _kept_features(sel, n, X.columns)
         est = make_estimator(est_kind, task, seed)
         est.fit(Xtr[kept], ytr)
         oos[str(n)] = oos_score(est, Xte[kept], yte, task)

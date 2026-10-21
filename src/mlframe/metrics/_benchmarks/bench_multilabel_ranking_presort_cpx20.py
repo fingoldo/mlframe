@@ -119,7 +119,7 @@ def _check_identity():
         for name, old, new in (("lrap", _lrap_old, _lrap_new), ("rloss", _ranking_loss_old, _ranking_loss_new)):
             o = old(yt, sc)
             v = new(yt, sc)
-            same = (o == v) or (np.isnan(o) and np.isnan(v))
+            same = True if o == v else (np.isnan(o) and np.isnan(v))
             if not same:
                 ok = False
                 print(f"  DIVERGE case={idx} {name}: old={o!r} new={v!r}")

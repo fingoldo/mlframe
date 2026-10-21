@@ -92,3 +92,23 @@ def test_acceptance_rules_and_classification_labels():
     yb, y4 = make_labels(rng, z, "bin"), make_labels(rng, z, "4c")
     assert set(np.unique(y4)) == {0, 1, 2, 3} and np.corrcoef(z, yb)[0, 1] > 0.3 and np.corrcoef(z, y4)[0, 1] > 0.3
     assert abs(np.corrcoef(rng.standard_normal(20000), yb)[0, 1]) < 0.05
+
+
+def test_wave2_label_keeps_a_zero_shrinkage_cell_m() -> None:
+    """cell_m == 0.0 is a real shrinkage setting; only a missing field falls back to the legacy 20."""
+    from mlframe.feature_selection._benchmarks.fe_operator_factory.wave2.aggregate import label
+
+    assert label({"op": "B", "cell_m": 0.0}) == "B(m=0)"
+    assert label({"op": "B", "cell_m": 5.0}) == "B(m=5)"
+    assert label({"op": "B"}) == "B(m=20)"
+
+
+def test_futility_kept_features_keeps_an_empty_selection_empty() -> None:
+    """A subset size that selected nothing stays empty; only a size with no entry falls back to every column."""
+    import types
+
+    from mlframe.feature_selection.wrappers.rfecv._benchmarks.bench_rfecv_futility_stop import _kept_features
+
+    sel = types.SimpleNamespace(selected_features_={3: []})
+    assert _kept_features(sel, 3, ["a", "b"]) == []
+    assert _kept_features(sel, 5, ["a", "b"]) == ["a", "b"]
