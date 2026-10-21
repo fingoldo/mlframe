@@ -83,7 +83,9 @@ def test_biz_val_banzhaf_ranking_seed_stability_low_snr():
     (default stays "mean_abs_phi" per gt_03 sec 7's own acceptance rule), so this test pins the
     measured direction honestly instead of asserting the plan's unconfirmed hypothesis.
     """
-    X, y, _roles = _make_low_snr_fixture()
+    # n=1000, p=250 (was n=2000, p=500): one ShapProxiedFS fit at the old size measured 174 s (cProfile, 8 fits per test, 281 honest-loss
+    # retrains), which exceeds the CI budget. The assertions are relative (Jaccard gap, floor, rescue bound), not pinned to the old values.
+    X, y, _roles = _make_low_snr_fixture(n=1000, p=250)
     seeds = (0, 1, 2, 3)
 
     def _fit_sets(ranking):
