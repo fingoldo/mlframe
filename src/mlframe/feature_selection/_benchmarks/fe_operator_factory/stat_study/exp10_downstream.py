@@ -6,6 +6,7 @@ improvement over the raw-columns baseline. R^2 is not a decision metric and is n
 """
 
 import argparse
+import functools
 import json
 import time
 
@@ -13,8 +14,9 @@ import numpy as np
 from sklearn.model_selection import KFold
 
 from ..common._paths import scratch_dir
+from ..common.binning import qbin
 from ..common.downstream import METRICS, REFERENCE_METRICS, errors_by_feature_set
-from .core import clean, family_eval, get_presets, preset_matrix_best, qbin, rank01, unary_mat
+from .core import clean, family_eval, get_presets, preset_matrix_best, pair_operands, rank01, unary_mat
 from .core2 import family_eval2
 
 UN, BI = get_presets("minimal")
@@ -49,11 +51,7 @@ def truth(i, x, z):
     ][i]
 
 
-def pair_uv(UX, UZ, p):
-    """The (u, v) operand pair of pair index ``p`` (role, unary, unary)."""
-    role, rem = divmod(p, nu * nu)
-    iu, iv = divmod(rem, nu)
-    return (UX[iu], UZ[iv]) if role == 0 else (UZ[iu], UX[iv])
+pair_uv = functools.partial(pair_operands, nu=nu)
 
 
 def run(i, n, seed):

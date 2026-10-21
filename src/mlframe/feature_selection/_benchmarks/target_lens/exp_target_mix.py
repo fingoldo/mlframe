@@ -29,6 +29,8 @@ from sklearn.linear_model import Ridge
 from sklearn.model_selection import KFold
 from sklearn.preprocessing import StandardScaler
 
+from mlframe._bench_rmse_shared import rmse_asarray as _rmse
+
 warnings.simplefilter("ignore")
 
 N_TEST = 20000
@@ -131,10 +133,6 @@ def _union(frames):
         for c in f.columns:
             cols.setdefault(str(c), np.asarray(f[c], dtype=np.float64))
     return pd.DataFrame(cols)
-
-
-def _rmse(a, b):
-    return float(np.sqrt(np.mean((np.asarray(a) - np.asarray(b)) ** 2)))
 
 
 def _oof_pred(F, y, seed):

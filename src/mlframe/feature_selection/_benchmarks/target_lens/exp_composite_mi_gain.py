@@ -21,6 +21,8 @@ from sklearn.ensemble import HistGradientBoostingRegressor
 from sklearn.linear_model import Ridge
 from sklearn.preprocessing import StandardScaler
 
+from mlframe._bench_rmse_shared import rmse as _rmse
+
 warnings.simplefilter("ignore")
 
 N_BINS = 16
@@ -92,10 +94,6 @@ def _mi_gain(X_no_base: np.ndarray, y: np.ndarray, T: np.ndarray) -> float:
 
     kw = dict(n_neighbors=3, random_state=0, estimator="bin", nbins=N_BINS, aggregation="mean")
     return float(_mi_to_target(X_no_base, T, **kw) - _mi_to_target(X_no_base, y, **kw))
-
-
-def _rmse(a, b) -> float:
-    return float(np.sqrt(np.mean((a - b) ** 2)))
 
 
 def _fit_predict(make, Xtr, ytr, Xte):

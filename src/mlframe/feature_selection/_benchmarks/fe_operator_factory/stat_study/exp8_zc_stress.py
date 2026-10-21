@@ -5,7 +5,8 @@ import sys
 
 import numpy as np
 
-from .core import bins_of, mi_cnt, ols_t, qbin, rank01, zc_t
+from .core import bins_of, mi_cnt, ols_t, rank01, zc_t
+from ..common.binning import qbin
 
 REPS = int(sys.argv[1]) if len(sys.argv) > 1 else 30
 rng = np.random.default_rng(77)

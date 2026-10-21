@@ -17,6 +17,7 @@ import numpy as np
 
 from ..brainstorm.h import MI, clean, existing_pair, mi_pair
 from ..common._paths import results_dir
+from .aggregate import ms
 from .harness import top_cols
 from .rowstats import fit_rowstat, replay_rowstat
 from .warp_service import oof_fit, replay
@@ -134,12 +135,6 @@ def read_rows(pattern: str) -> list:
     for f in sorted(results_dir("wave2").glob(pattern)):
         rows += [json.loads(line) for line in f.read_text().splitlines() if line.strip()]
     return rows
-
-
-def ms(v) -> str:
-    """``mean+-sd`` text of a list (NaN and None ignored)."""
-    a = np.array([x for x in v if x is not None and np.isfinite(x)], float)
-    return f"{a.mean():+.3f}+-{a.std():.3f}" if len(a) else "nan"
 
 
 def timer() -> float:

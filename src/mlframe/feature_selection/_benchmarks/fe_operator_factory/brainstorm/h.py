@@ -55,6 +55,18 @@ def ybins(ytr, yte):
     return np.searchsorted(e, ytr, side="right").astype(np.int64), np.searchsorted(e, yte, side="right").astype(np.int64), len(e) + 1
 
 
+def UP(p):
+    """Generator of ``p`` uniform columns."""
+    return lambda rng, n: rng.random((n, p))
+
+
+def T(f, *a):
+    """Wall time of one call ``f(*a)``."""
+    t = time.time()
+    f(*a)
+    return time.time() - t
+
+
 def MI(ftr, fte, yb):
     """Held-out MI helper: ``mi_pair`` on cleaned train / test features and the ``ybins`` tuple."""
     return mi_pair(clean(ftr), clean(fte), yb[0], yb[1], yb[2])
