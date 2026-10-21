@@ -23,17 +23,6 @@ from mlframe.data_valuation._benchmarks._dv_bench_shared import make_blob_fixtur
 _make_fixture = functools.partial(make_blob_fixture, n_features=8, seed=0)
 
 
-def _numpy_reference_recursion(match: np.ndarray, k: int) -> np.ndarray:
-    """Pure-Python/numpy reference implementation of the recursion, for the njit-vs-numpy wall comparison."""
-    n = match.shape[0]
-    value = np.empty(n, dtype=np.float64)
-    value[n - 1] = match[n - 1] / n
-    for p in range(n - 2, -1, -1):
-        i = p + 1
-        value[p] = value[p + 1] + (match[p] - match[p + 1]) / k * min(k, i) / i
-    return value
-
-
 def bench_wall_grid():
     """Wall-clock ``knn_shapley`` across the plan's (n_train, n_val) grid; report seconds per point."""
     from mlframe.data_valuation import knn_shapley
@@ -66,7 +55,7 @@ def bench_njit_vs_numpy_recursion():
 
         t0 = time.perf_counter()
         for _ in range(50):
-            _numpy_reference_recursion(match, k)
+            _knn_shapley_recursion.py_func(match, k)
         wall_numpy = (time.perf_counter() - t0) / 50
 
         print(f"n_train={n_train}: njit={wall_njit * 1000:.4f}ms, numpy_loop={wall_numpy * 1000:.4f}ms, speedup={wall_numpy / wall_njit:.2f}x")

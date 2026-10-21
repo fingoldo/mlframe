@@ -10,6 +10,7 @@ weighted residuals; emit weighted band id + per-band agg_y + raw Fisher + raw re
 """
 from __future__ import annotations
 
+import functools
 import logging
 from typing import Any, Literal, Optional
 
@@ -17,7 +18,7 @@ import numpy as np
 import polars as pl
 
 from mlframe.feature_engineering.transformer._utils import require_seed, validate_numeric_input
-from mlframe.feature_engineering.transformer.fisher_weighted_residual import _oof_train_predictions
+from mlframe.feature_engineering.transformer.fisher_weighted_residual import _fisher_feature_frame, _oof_train_predictions
 
 logger = logging.getLogger(__name__)
 
@@ -152,14 +153,7 @@ def compute_fisher_weighted_residual_features(
             weighted_query.astype(np.float32),
         ])
 
-    def _make_df(feats: np.ndarray) -> dict[str, np.ndarray]:
-        cols: dict[str, np.ndarray] = {}
-        cols[f"{column_prefix}_band"] = feats[:, 0].astype(dtype, copy=False)
-        cols[f"{column_prefix}_band_y_mean"] = feats[:, 1].astype(dtype, copy=False)
-        cols[f"{column_prefix}_fisher_norm"] = feats[:, 2].astype(dtype, copy=False)
-        cols[f"{column_prefix}_residual_proxy"] = feats[:, 3].astype(dtype, copy=False)
-        cols[f"{column_prefix}_weighted_residual"] = feats[:, 4].astype(dtype, copy=False)
-        return cols
+    _make_df = functools.partial(_fisher_feature_frame, column_prefix=column_prefix, dtype=dtype)
 
     if X_query is not None:
         Xq = np.asarray(X_query, dtype=np.float32)

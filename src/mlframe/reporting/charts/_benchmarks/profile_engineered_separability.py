@@ -24,29 +24,10 @@ from io import StringIO
 import numpy as np
 import pandas as pd
 
-from mlframe.reporting.charts.engineered_separability import separability_panel, separability_score
+from mlframe.reporting.charts.engineered_separability import _numpy_fisher_2d, separability_panel, separability_score
 from mlframe._bench_timing_shared import best_of_seconds_zero_arg as _walltime
 
-
-def _numpy_score(z0, z1, y):
-    mask1 = y > 0.5
-    n1 = int(mask1.sum())
-    n0 = int(y.shape[0] - n1)
-    if n0 == 0 or n1 == 0:
-        return 0.0
-    m1 = np.array([z0[mask1].mean(), z1[mask1].mean()])
-    mask0 = ~mask1
-    m0 = np.array([z0[mask0].mean(), z1[mask0].mean()])
-    d0 = np.column_stack([z0[mask0] - m0[0], z1[mask0] - m0[1]])
-    d1 = np.column_stack([z0[mask1] - m1[0], z1[mask1] - m1[1]])
-    denom = max(n0 + n1 - 2, 1)
-    cov = (d0.T @ d0 + d1.T @ d1) / denom
-    det = cov[0, 0] * cov[1, 1] - cov[0, 1] * cov[1, 0]
-    if det < 1e-12:
-        det = 1e-12
-    inv = np.array([[cov[1, 1], -cov[0, 1]], [-cov[1, 0], cov[0, 0]]]) / det
-    dd = m1 - m0
-    return float(dd @ inv @ dd)
+_numpy_score = _numpy_fisher_2d
 
 
 def main() -> None:
