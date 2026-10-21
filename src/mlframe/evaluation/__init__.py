@@ -51,6 +51,39 @@ from mlframe.evaluation.blend_source_selection import check_pairwise_score_corre
 # ``calibration``, so eager-importing it here is safe.
 from mlframe.evaluation._bootstrap_metric_adapters import brier, brier_per_row, log_loss, ll_per_row
 
+__all__ = [
+    "AdversarialValidator",
+    "adversarial_validation_feature_audit",
+    "assert_no_group_leakage",
+    "auc_ci",
+    "auc_variance",
+    "bootstrap_metric",
+    "bootstrap_metrics",
+    "brier",
+    "brier_per_row",
+    "build_test_like_validation_fold",
+    "check_pairwise_score_correlation",
+    "compare_cv_schemes",
+    "constant_group_target_scan",
+    "cv_informativeness_check",
+    "cv_score_equivalence_band",
+    "detect_correlated_label_groups",
+    "detect_correlated_label_pairs",
+    "detect_expanding_window_feature_leakage",
+    "distribution_matching_subset_search",
+    "flag_subgroup_only_feature_overfit_risk",
+    "imputation_sensitivity_check",
+    "is_within_noise_band",
+    "jackknife_ece",
+    "ll_per_row",
+    "log_loss",
+    "optimize_group_blend_weight",
+    "rank_subgroup_feature_overfit_risk",
+    "scan_temporal_leak",
+    "subpopulation_ratio_drift_check",
+    "triage_cv_delta",
+]
+
 # ``bootstrap_auc_brier_ll_ece_batch`` (in ``_bootstrap_fused_binary_bundle``) is re-exported
 # LAZILY via __getattr__ below, NOT eager-imported: that module imports from
 # ``mlframe.calibration.policy``, which itself imports from ``mlframe.evaluation.bootstrap`` --
