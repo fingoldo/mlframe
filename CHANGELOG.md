@@ -10,6 +10,9 @@ record (per-commit kernel tuning, profiling numbers, audit notes) see the git
 history.
 
 ## [Unreleased]
+### Fixed
+- Selection compaction no longer drops hinge legs that the held-out linear-usability protection re-added: a monotone leg of a selected source carries no binned joint information, so the information-based prune removed every leg on some seeds (hinge detection on the survival panel 12 of 14 to 14 of 14).
+
 
 ### Added
 - `kernel_arg_dtype_audit` (`_benchmarks`): wraps `cupy.RawKernel` / `RawModule`, parses each kernel's signature and reports every launch whose array argument has a different element type than the pointer it is bound to (`python -m mlframe.feature_selection._benchmarks.kernel_arg_dtype_audit --small`, exit code 1 on a mismatch). A float32 buffer under a `double*` parameter corrupts neighbouring pool blocks and surfaces later as an unrelated `cudaErrorIllegalAddress`; a test runs the audit on a small strict-GPU fit.

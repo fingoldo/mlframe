@@ -18,7 +18,6 @@ cat_num_interaction, conditional_dispersion, conditional_gate, integer_lattice, 
 |---|---|---|
 | binned_numeric_agg | created, lift, power | detected in 10 of 14 seeds, lower bound 0.46 (seed 0 creates nothing; the lift is present on 2 of 3 seeds, R^2 0.85 against 0.00). The 14-seed fixture is below what a 10-cell permutation test resolves at the pair-wise family level (17 of 20 on the 30000-row fixture of the gate work) |
 | pair_cross | created, power | the orthogonal pair-cross recipe is never created: the always-on generic pair search finds `mul(prewarp(x0),prewarp(x1))` first on a product scenario; detected 5 of 14. The scenario is expressible by a cheaper mechanism, so it needs a target only the tensor basis can express |
-| hinge | power | 12 of 14 seeds (seeds 5 and 11 create nothing and keep the raw `x0`), lower bound 0.61 |
 | row_argmax | power | 11 of 14, lower bound 0.53; the panel takes about 940 s |
 | pairwise_log_ratio | power | 17 of 20, lower bound 0.66; on seeds 6, 10 and 11 the generic pair search selects an equivalent form (`div(invsqrt(revenue),invsqrt(cost))`, `mul(sqrt(revenue),invsqrt(cost))`) |
 | missingness_indicator | power | 18 of 20, lower bound 0.72 |
@@ -35,6 +34,7 @@ cat_num_interaction, conditional_dispersion, conditional_gate, integer_lattice, 
 | univariate_fourier | created, power failed (0 of 20) | descriptor: the Fourier basis runs inside the univariate-basis dispatch and needs `fe_univariate_basis_enable`; the isolation had switched it off. Now 20 of 20 |
 | grouped_delta, lagged_diff | power 19 and 18 of 20 | detection counted only a family column that stands alone in the output; on the missed seeds the column reached the output as an operand of a composite (`sub(temperature, invcbrt(lagged_diff_temperature__period1))`). The mechanism-axis tests already count that as reaching the output. Now 20 of 20 |
 | wavelet, pairwise_ratio | power 16 of 20, 0 of 20 | same operand rule for wavelet; `pairwise_ratio` had a wrong expected recipe kind (`div` instead of `pairwise_ratio`). Both 20 of 20 |
+| hinge | power 12 of 14 (seeds 5 and 11 created nothing) | `prune_redundant` in the selection compaction dropped the legs: a monotone leg of a selected source adds no binned joint information. The detector, the admission gate and the held-out protection gate (gain 0.04 to 0.08 against the 0.003 floor) all passed. Legs in `_hinge_features_` are now exempt from the compaction. Now 14 of 14, 0 of 14 on noise |
 | all | `hybrid_orth_mi_fe` and the univariate basis generator raised on a string column in an explicit column list (`could not convert string to float: 'R_4'`), caught and logged, which dropped the stage for such frames | explicit lists are now filtered to numeric columns, as the docstring promised |
 
 ## What is a finding and what may be the fixture

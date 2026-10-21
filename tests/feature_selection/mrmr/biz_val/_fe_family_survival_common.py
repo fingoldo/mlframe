@@ -45,7 +45,7 @@ TEST_FRACTION = 0.3
 OPEN_FINDINGS = {
     "created": frozenset({"binned_numeric_agg", "pair_cross"}),
     "lift": frozenset({"binned_numeric_agg", "count_encoding", "frequency_encoding", "pairwise_ratio", "wavelet"}),
-    "power": frozenset({"binned_numeric_agg", "hinge", "missingness_indicator", "missingness_pattern", "pair_cross", "pairwise_log_ratio", "row_argmax"}),
+    "power": frozenset({"binned_numeric_agg", "missingness_indicator", "missingness_pattern", "pair_cross", "pairwise_log_ratio", "row_argmax"}),
 }
 
 
