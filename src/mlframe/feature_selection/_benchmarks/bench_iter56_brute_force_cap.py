@@ -70,50 +70,47 @@ def main(argv=None):
     ap.add_argument("--out_file", default=None)
     args = ap.parse_args(argv)
 
-    if args.out_file:
-        import atexit
-        import builtins
-        _fp = open(args.out_file, "w", buffering=1, encoding="utf-8")
-        atexit.register(_fp.close)
-        _orig = builtins.print
+    import builtins
+    import contextlib
+    with (open(args.out_file, "w", buffering=1, encoding="utf-8") if args.out_file else contextlib.nullcontext()) as _fp:
+        if _fp is not None:
+            _orig = builtins.print
+            builtins.print = make_tee_print(_orig, _fp)
 
-        builtins.print = make_tee_print(_orig, _fp)
+        requested = [c.strip() for c in args.configs.split(",") if c.strip()]
+        for c in requested:
+            if c not in CONFIGS:
+                raise SystemExit(f"unknown config {c}; known: {sorted(CONFIGS)}")
 
-    requested = [c.strip() for c in args.configs.split(",") if c.strip()]
-    for c in requested:
-        if c not in CONFIGS:
-            raise SystemExit(f"unknown config {c}; known: {sorted(CONFIGS)}")
+        print(f"iter56 brute_force_max_features A/B: configs={requested}", flush=True)
+        overall = {}
+        for name in requested:
+            cfg = CONFIGS[name]
+            print(f"\n[{name}] cfg={cfg}", flush=True)
+            t_data = time.perf_counter()
+            X, y, roles = make_dataset(cfg)
+            print(f"[{name}] dataset shape={X.shape} in {time.perf_counter()-t_data:.1f}s", flush=True)
+            # Run cap22 (legacy) first so JIT warmup is amortised against the slower path. The lever
+            # only changes the search stage; all other stages share warmed kernels across runs.
+            r22 = run_one(name, cfg, brute_force_max_features=22, X=X, y=y, roles=roles)
+            r28 = run_one(name, cfg, brute_force_max_features=28, X=X, y=y, roles=roles)
+            overall[name] = dict(cap22=r22, cap28=r28)
 
-    print(f"iter56 brute_force_max_features A/B: configs={requested}", flush=True)
-    overall = {}
-    for name in requested:
-        cfg = CONFIGS[name]
-        print(f"\n[{name}] cfg={cfg}", flush=True)
-        t_data = time.perf_counter()
-        X, y, roles = make_dataset(cfg)
-        print(f"[{name}] dataset shape={X.shape} in {time.perf_counter()-t_data:.1f}s", flush=True)
-        # Run cap22 (legacy) first so JIT warmup is amortised against the slower path. The lever
-        # only changes the search stage; all other stages share warmed kernels across runs.
-        r22 = run_one(name, cfg, brute_force_max_features=22, X=X, y=y, roles=roles)
-        r28 = run_one(name, cfg, brute_force_max_features=28, X=X, y=y, roles=roles)
-        overall[name] = dict(cap22=r22, cap28=r28)
+            d_e2e = (r28["total"] - r22["total"]) / r22["total"]
+            d_search = None
+            if r22["search_wall"] and r28["search_wall"]:
+                d_search = (r28["search_wall"] - r22["search_wall"]) / r22["search_wall"]
+            print(f"\n  [{name}] e2e: cap22={r22['total']:.2f}s  cap28={r28['total']:.2f}s  " f"delta={d_e2e*100:+.1f}% (positive = lever is slower)", flush=True)
+            if d_search is not None:
+                print(f"  [{name}] search wall: cap22={r22['search_wall']:.2f}s  " f"cap28={r28['search_wall']:.2f}s  delta={d_search*100:+.1f}%", flush=True)
+            print(f"  [{name}] recall: cap22={r22['recall']}  cap28={r28['recall']}", flush=True)
+            print(f"  [{name}] n_selected: cap22={r22['n_selected']}  cap28={r28['n_selected']}", flush=True)
+            subset_equal = r22["chosen_subset"] == r28["chosen_subset"]
+            print(f"  [{name}] chosen_subset_equal={subset_equal}", flush=True)
+            if r22["chosen_honest_loss"] is not None and r28["chosen_honest_loss"] is not None:
+                print(f"  [{name}] chosen_honest_loss: cap22={r22['chosen_honest_loss']:.6f}  " f"cap28={r28['chosen_honest_loss']:.6f}", flush=True)
 
-        d_e2e = (r28["total"] - r22["total"]) / r22["total"]
-        d_search = None
-        if r22["search_wall"] and r28["search_wall"]:
-            d_search = (r28["search_wall"] - r22["search_wall"]) / r22["search_wall"]
-        print(f"\n  [{name}] e2e: cap22={r22['total']:.2f}s  cap28={r28['total']:.2f}s  " f"delta={d_e2e*100:+.1f}% (positive = lever is slower)", flush=True)
-        if d_search is not None:
-            print(f"  [{name}] search wall: cap22={r22['search_wall']:.2f}s  " f"cap28={r28['search_wall']:.2f}s  delta={d_search*100:+.1f}%", flush=True)
-        print(f"  [{name}] recall: cap22={r22['recall']}  cap28={r28['recall']}", flush=True)
-        print(f"  [{name}] n_selected: cap22={r22['n_selected']}  cap28={r28['n_selected']}", flush=True)
-        subset_equal = r22["chosen_subset"] == r28["chosen_subset"]
-        print(f"  [{name}] chosen_subset_equal={subset_equal}", flush=True)
-        if r22["chosen_honest_loss"] is not None and r28["chosen_honest_loss"] is not None:
-            print(f"  [{name}] chosen_honest_loss: cap22={r22['chosen_honest_loss']:.6f}  " f"cap28={r28['chosen_honest_loss']:.6f}", flush=True)
-
-    return overall
-
+        return overall
 
 if __name__ == "__main__":
     main()

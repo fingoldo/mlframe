@@ -41,7 +41,7 @@ g = _r.standard_normal(N); h = _r.standard_normal(N) * (1 + 2 * (_r.random(N) < 
 CASES["ratio_regime"] = (g, h, ((g / np.where(np.abs(h) < 0.05, 0.05, h)) > 1.0).astype(np.int64))  # ratio threshold
 i_ = _r.standard_normal(N); j = _r.standard_normal(N)
 _saddle = np.sign((i_**2 - 1) - (j**2 - 1))
-_flip = _r.random(N) < 0.2                                                        # 20% label noise
+_flip = _r.random(N) < 0.2  # 20% label noise
 CASES["saddle_noisy"] = (i_, j, np.where(_flip, -_saddle, _saddle).astype(np.int64).clip(0))  # noisy saddle
 k = _r.standard_normal(N); l_ = _r.standard_normal(N)
 CASES["cross_cheb"] = (k, l_, (((2*k**2 - 1) * (4*l_**3 - 3*l_) + 0.5*k) > 0).astype(np.int64))  # cross-term product
@@ -61,6 +61,17 @@ class _CpuSampler(threading.Thread):
     def __init__(self):
         super().__init__(daemon=True)
         self.samples: list = []
+        self._stop = threading.Event()
+
+    def __getstate__(self) -> dict:
+        """Pickle everything but the stop event, which cannot be pickled."""
+        state = self.__dict__.copy()
+        del state["_stop"]
+        return state
+
+    def __setstate__(self, state: dict) -> None:
+        """Restore the entries and give the copy a fresh stop event."""
+        self.__dict__.update(state)
         self._stop = threading.Event()
 
     def run(self):
