@@ -19,7 +19,7 @@ hinge                  fe_hinge_enable                                     hinge
 univariate_basis       fe_hybrid_orth_enable + fe_univariate_basis_enable  orth_univariate              y = x0 squared, ridge
 univariate_fourier     fe_hybrid_orth_enable + fe_univariate_fourier_...   orth_fourier                 y = sin(2 pi 6 u), ridge
 wavelet                fe_wavelet_enable                                   orth_wavelet                 y = localised dyadic step of u, ridge
-pair_cross             fe_hybrid_orth_enable + fe_hybrid_orth_pair_enable  orth_pair_cross/hermite_pair  y = x0 * x1, ridge
+pair_cross             fe_hybrid_orth_enable + fe_hybrid_orth_pair_enable  orth_pair_cross/hermite_pair  y = He2(x0)He1(x1)+He1(x0)He2(x1), ridge
 modular                fe_modular_enable                                   modular                      y = cos(2 pi x / 7), ridge
 pairwise_modular       discrete master + fe_pairwise_modular_enable        pairwise_modular             y = ((a + b) mod 7 < 2), boosted tree
 integer_lattice        discrete master + fe_integer_lattice_enable         pairwise_integer_lattice     y = gcd(a, b) >= 4, boosted tree
@@ -92,10 +92,11 @@ def build_bump(seed: int):
     return X, ((u > 0.25) & (u < 0.375)) * 1.0 + 0.1 * r.standard_normal(len(X))
 
 
-def build_product(seed: int):
-    """``y = x0 * x1`` plus noise: two columns with flat marginals."""
+def build_tensor_cross(seed: int):
+    """``y = He2(x0) He1(x1) + He1(x0) He2(x1)`` plus noise: a sum of two Hermite tensor terms, which no single generic pair operation expresses (``x0 * x1`` is, and the generic search finds it first)."""
     X, r = _normal_frame(seed, p=4)
-    return X, X["x0"].to_numpy() * X["x1"].to_numpy() + 0.2 * r.standard_normal(len(X))
+    a, b = X["x0"].to_numpy(), X["x1"].to_numpy()
+    return X, (a * a - 1.0) * b + a * (b * b - 1.0) + 0.2 * r.standard_normal(len(X))
 
 
 def build_cyclic(seed: int):
@@ -203,7 +204,7 @@ FAMILIES = [
     # The Fourier basis runs inside the univariate-basis dispatch (the extra-basis stage needs both flags), so the basis flag is part of the family.
     Family("univariate_fourier", {**_ORTH, "fe_univariate_fourier_enable": True, "fe_univariate_basis_enable": True}, ("orth_fourier",), build_sine),
     Family("wavelet", {**_ORTH, "fe_wavelet_enable": True}, ("orth_wavelet",), build_bump),
-    Family("pair_cross", {**_ORTH, "fe_hybrid_orth_pair_enable": True}, ("orth_pair_cross", "hermite_pair"), build_product, panel=14),
+    Family("pair_cross", {**_ORTH, "fe_hybrid_orth_pair_enable": True}, ("orth_pair_cross", "hermite_pair"), build_tensor_cross, panel=14),
     Family("modular", {"fe_modular_enable": True}, ("modular",), build_cyclic),
     Family("pairwise_modular", {**_DISCRETE, "fe_pairwise_modular_enable": True}, ("pairwise_modular",), build_pairwise_modular, "classification", "tree", panel=14),
     Family("integer_lattice", {**_DISCRETE, "fe_integer_lattice_enable": True}, ("pairwise_integer_lattice",), build_gcd, "classification", "tree"),
