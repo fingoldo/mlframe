@@ -12,24 +12,30 @@ Failing checks are not xfailed and no threshold was widened. They are listed in 
 
 cat_num_interaction, conditional_dispersion, conditional_gate, integer_lattice, kfold_target_encoding, missingness_count, offset_product, oof_cell2d, oof_warp, pairwise_modular, row_stat, univariate_basis.
 
-## Open findings
+## Open findings (after the fixes below)
 
 | Family | Check | Observed |
 |---|---|---|
-| binned_numeric_agg | created, lift, power | seed 0 creates no recipe (selected `g` only); held-out lift present on 2 of 3 seeds (R^2 0.85 against 0.00) and absent on seed 0; detected in 10 of 14 seeds, lower bound 0.46. This fixture has 14 seeds and a smaller n than the one used for the gate work (17 of 20 at 30000 rows), so the power floor of 0.8 is above what a 10-cell permutation test can reach here |
-| modular | power (created and lift fixed) | Was: no recipe created, 0 of 20 seeds. Cause found and fixed: `coerce_y_classif` gave every distinct value of a continuous target its own class, so the bootstrap-MI of any binned feature equalled its entropy (raw counter 2.294 nats, best engineered column 2.294, uplift 0.9997 against a requirement above 1). With the target cut into 10 quantile classes the period-7 columns reach an uplift of about 50, the family creates and selects its columns and the held-out lift of a linear model is 0.12 (against 0.00). The power panel has not been re-run |
-| univariate_fourier | created, power | no recipe whose name carries `__sin` or `__cos` is created; the selection is `a` and `a__L3` (a Legendre column), 0 of 20 seeds. A cubic polynomial column recovers the sine scenario instead |
-| pair_cross | created, power | the orthogonal pair-cross recipe is never created; the generic pair search produces `mul(prewarp(x0),prewarp(x1))` instead, detected 5 of 14 seeds, lower bound 0.15 |
-| wavelet | lift, power | lift on seeds 1 and 2 is about 0.50 (R^2 0.55 against 0.05) and negative on seed 0; detected in 16 of 20 seeds, lower bound 0.60 |
-| hinge | power | 12 of 14 seeds, lower bound 0.61 |
-| row_argmax | power | 11 of 14 seeds, lower bound 0.53; this panel also takes 943 s on the benchmark host |
-| missingness_indicator | power | 17 of 20, lower bound 0.66 |
-| missingness_pattern | power | 14 of 20, lower bound 0.49 |
-| grouped_delta | power | 19 of 20, lower bound 0.78 (just under the floor) |
-| lagged_diff | power | 18 of 20, lower bound 0.72 |
-| pairwise_log_ratio | power | 16 of 20, lower bound 0.60 |
+| binned_numeric_agg | created, lift, power | detected in 10 of 14 seeds, lower bound 0.46 (seed 0 creates nothing; the lift is present on 2 of 3 seeds, R^2 0.85 against 0.00). The 14-seed fixture is below what a 10-cell permutation test resolves at the pair-wise family level (17 of 20 on the 30000-row fixture of the gate work) |
+| pair_cross | created, power | the orthogonal pair-cross recipe is never created: the always-on generic pair search finds `mul(prewarp(x0),prewarp(x1))` first on a product scenario; detected 5 of 14. The scenario is expressible by a cheaper mechanism, so it needs a target only the tensor basis can express |
+| hinge | power | 12 of 14 seeds (seeds 5 and 11 create nothing and keep the raw `x0`), lower bound 0.61 |
+| row_argmax | power | 11 of 14, lower bound 0.53; the panel takes about 940 s |
+| pairwise_log_ratio | power | 17 of 20, lower bound 0.66; on seeds 6, 10 and 11 the generic pair search selects an equivalent form (`div(invsqrt(revenue),invsqrt(cost))`, `mul(sqrt(revenue),invsqrt(cost))`) |
+| missingness_indicator | power | 18 of 20, lower bound 0.72 |
+| missingness_pattern | power | 17 of 20, lower bound 0.66 |
 | pairwise_ratio | lift | held-out R^2 with the selection is below the raw columns on all three seeds (0.50, 0.51, 0.49 against 0.55, 0.52, 0.52) although the ratio column is selected |
-| count_encoding, frequency_encoding | lift | lifts are small and positive (0.015 and 0.024 on two seeds, about 0 on the third) on a baseline of 0.86 to 0.88: the scenario leaves almost no headroom, so this may be the fixture and not the families |
+| count_encoding, frequency_encoding | lift | lifts are small and positive (0.015, 0.024, about 0) on a baseline of 0.86 to 0.88: the scenario leaves almost no headroom, so this may be the fixture |
+| wavelet | lift | on seeds 1 and 2 the lift is about 0.50 (R^2 0.55 against 0.05) and it is negative on seed 0 |
+
+## Closed since the first run
+
+| Family | Was | Cause |
+|---|---|---|
+| modular | created, lift, power failed (0 of 20) | `coerce_y_classif` gave every distinct value of a continuous target its own class, so the bootstrap-MI of any binned feature equalled its entropy and every uplift was about 1. Fixed (10 quantile classes); now 20 of 20 |
+| univariate_fourier | created, power failed (0 of 20) | descriptor: the Fourier basis runs inside the univariate-basis dispatch and needs `fe_univariate_basis_enable`; the isolation had switched it off. Now 20 of 20 |
+| grouped_delta, lagged_diff | power 19 and 18 of 20 | detection counted only a family column that stands alone in the output; on the missed seeds the column reached the output as an operand of a composite (`sub(temperature, invcbrt(lagged_diff_temperature__period1))`). The mechanism-axis tests already count that as reaching the output. Now 20 of 20 |
+| wavelet, pairwise_ratio | power 16 of 20, 0 of 20 | same operand rule for wavelet; `pairwise_ratio` had a wrong expected recipe kind (`div` instead of `pairwise_ratio`). Both 20 of 20 |
+| all | `hybrid_orth_mi_fe` and the univariate basis generator raised on a string column in an explicit column list (`could not convert string to float: 'R_4'`), caught and logged, which dropped the stage for such frames | explicit lists are now filtered to numeric columns, as the docstring promised |
 
 ## What is a finding and what may be the fixture
 

@@ -43,14 +43,9 @@ TEST_FRACTION = 0.3
 # (family, check) pairs that fail today. Each is a finding documented in audits/2026-10-20_fe_family_survival/FINDINGS.md, not a tolerance to widen: the check is left out of
 # the parametrization until the family is fixed, and this registry is the list of what is left out. A family that is fixed is removed from here and the test then covers it.
 OPEN_FINDINGS = {
-    "created": frozenset({"binned_numeric_agg", "pair_cross", "univariate_fourier"}),
+    "created": frozenset({"binned_numeric_agg", "pair_cross"}),
     "lift": frozenset({"binned_numeric_agg", "count_encoding", "frequency_encoding", "pairwise_ratio", "wavelet"}),
-    "power": frozenset(
-        {
-            "binned_numeric_agg", "grouped_delta", "hinge", "lagged_diff", "missingness_indicator", "missingness_pattern", "modular", "pair_cross",
-            "pairwise_log_ratio", "row_argmax", "univariate_fourier", "wavelet",
-        }
-    ),
+    "power": frozenset({"binned_numeric_agg", "hinge", "missingness_indicator", "missingness_pattern", "pair_cross", "pairwise_log_ratio", "row_argmax"}),
 }
 
 
@@ -150,11 +145,46 @@ def fit_family(family: Family, seed: int, noise: bool = False) -> FitResult:
     return FitResult(m, Xtr, ytr, Xte, yte, time.perf_counter() - t0)
 
 
+# Name patterns of the columns a family creates. A column of the family that the selector folds into a composite (``sub(temperature, invcbrt(lagged_diff_temperature__period1))``)
+# has reached the output as much as one that stands alone: the selector is allowed to prefer the composite, as the mechanism-axis tests already state. Families listed here are
+# credited for a selected recipe that reads one of their columns, directly or through a nested parent recipe.
+OPERAND_PATTERNS = {
+    "hinge": r"__relu_",
+    "wavelet": r"__haar_|__wav",
+    "row_argmax": r"^argmax__",
+    "missingness_indicator": r"^is_missing__",
+    "missingness_pattern": r"^missingness_pattern",
+    "grouped_delta": r"^grouped_delta_",
+    "lagged_diff": r"^lagged_diff_",
+    "pairwise_log_ratio": r"^log_ratio__",
+    "pairwise_ratio": r"^ratio__",
+    "binned_numeric_agg": r"^binagg_",
+    "modular": r"__mod",
+}
+
+
+def _operand_names(recipe) -> set:
+    """Names a recipe reads: its source names and, through ``nested_parent_a/b``, those of its engineered parents (and the parents' own names)."""
+    names = {str(s) for s in (getattr(recipe, "src_names", ()) or ())}
+    for key in ("nested_parent_a", "nested_parent_b"):
+        parent = (getattr(recipe, "extra", None) or {}).get(key)
+        if parent is not None:
+            names |= _operand_names(parent) | {str(parent.name)}
+    return names
+
+
 def family_columns(fit: FitResult, family: Family) -> tuple:
-    """(recipes of the family's kinds, names of those recipes that are in the selected output)."""
-    mine = [r for r in recipes_of(fit.model) if r.kind in family.kinds and (not family.pattern or re.search(family.pattern, str(r.name)))]
+    """(recipes of the family's kinds, or selected recipes that read one of its columns; names of those that are in the selected output)."""
+    recipes = recipes_of(fit.model)
+    mine = [r for r in recipes if r.kind in family.kinds and (not family.pattern or re.search(family.pattern, str(r.name)))]
     selected = set(map(str, fit.model.get_feature_names_out()))
-    return mine, [r.name for r in mine if str(r.name) in selected]
+    kept = [r.name for r in mine if str(r.name) in selected]
+    operand = OPERAND_PATTERNS.get(family.name)
+    if operand:
+        direct = {str(r.name) for r in mine}
+        via = [r for r in recipes if str(r.name) in selected and str(r.name) not in direct and any(re.search(operand, n) for n in _operand_names(r))]
+        mine, kept = mine + via, kept + [r.name for r in via]
+    return mine, kept
 
 
 def _downstream(family: Family):

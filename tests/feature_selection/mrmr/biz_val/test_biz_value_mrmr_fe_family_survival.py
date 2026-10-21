@@ -200,7 +200,8 @@ _ORTH = {"fe_hybrid_orth_enable": True}
 FAMILIES = [
     Family("hinge", {"fe_hinge_enable": True}, ("hinge_basis",), build_hinge, panel=14),
     Family("univariate_basis", {**_ORTH, "fe_univariate_basis_enable": True}, ("orth_univariate",), build_square, panel=14),
-    Family("univariate_fourier", {**_ORTH, "fe_univariate_fourier_enable": True}, ("orth_fourier", "orth_univariate", "orth_extra_basis"), build_sine, pattern=r"__(sin|cos)"),
+    # The Fourier basis runs inside the univariate-basis dispatch (the extra-basis stage needs both flags), so the basis flag is part of the family.
+    Family("univariate_fourier", {**_ORTH, "fe_univariate_fourier_enable": True, "fe_univariate_basis_enable": True}, ("orth_fourier",), build_sine),
     Family("wavelet", {**_ORTH, "fe_wavelet_enable": True}, ("orth_wavelet",), build_bump),
     Family("pair_cross", {**_ORTH, "fe_hybrid_orth_pair_enable": True}, ("orth_pair_cross", "hermite_pair"), build_product, panel=14),
     Family("modular", {"fe_modular_enable": True}, ("modular",), build_cyclic),
