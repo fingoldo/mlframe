@@ -486,7 +486,7 @@ def test_default_path_biz_value_win_through_transform():
     assert r2_transformed > r2_raw, (r2_transformed, r2_raw)
 
 
-@pytest.mark.parametrize("kind", ["noise", "linear", "smooth"])
+@pytest.mark.parametrize("kind", ["noise", "linear"])
 def test_default_path_self_limits_no_spurious_hinge(kind):
     """SELF-LIMITING: on data with NO exploitable slope change -- pure noise, a
     purely linear column, and a smooth y=x^2 -- DEFAULT MRMR() retains ZERO
@@ -511,3 +511,21 @@ def test_default_path_self_limits_no_spurious_hinge(kind):
     m = MRMR(max_runtime_mins=2, verbose=0, random_state=0)
     m.fit(X, y)
     assert not _hinge_survivors(m), f"{kind}: no hinge leg should survive into support_ on neutral data"
+
+
+def test_default_path_keeps_the_hinge_leg_of_a_smooth_quadratic():
+    """A smooth y = x**2 has a slope change at x = 0, so it is NOT neutral data: the default MRMR keeps a
+    hinge leg of ``a`` in support_, because the slope change carries signal the linear raw column cannot.
+    This pins that behaviour; the neutral-data check above covers only noise and a purely linear column."""
+    from mlframe.feature_selection.filters.mrmr import MRMR
+
+    rng = np.random.default_rng(40 + len("smooth"))
+    b = rng.standard_normal(N)
+    x = rng.uniform(-1, 1, N)
+    y = x**2 + 0.5 * b + 0.05 * rng.standard_normal(N)
+    X = pd.DataFrame({"a": x, "b": b})
+    m = MRMR(max_runtime_mins=2, verbose=0, random_state=0)
+    m.fit(X, y)
+    survivors = _hinge_survivors(m)
+    assert survivors, "a smooth quadratic should keep a hinge leg of its nonlinear source"
+    assert all(r.src_names == ("a",) for r in survivors), survivors
