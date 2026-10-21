@@ -1014,3 +1014,21 @@ def test_regression_no_copy_idiom_removed_from_fe_constructors():
 # regression test that actually passes random_state= (the existing test file only ever uses
 # random_seed=), so it structurally cannot detect the bug class it claims to guard.
 # ---------------------------------------------------------------------------
+
+
+def test_regression_cat_interactions_no_mojibake_comment():
+    """Post-fix: the corrupted comment is repaired; no other file in the repo shares the same corruption
+    signature."""
+    import inspect
+
+    from mlframe.feature_selection.filters import cat_interactions as mod
+
+    src = inspect.getsource(mod)
+    assert "n/30 + 1" in src
+    assert "РІР‚В°РІвЂљВ¬" not in src
+
+
+# ---------------------------------------------------------------------------
+# CAT_INTERACTION_A-7 (P2): cat_num_interaction_fit's docstring falsely claimed y-stratified fold
+# assignment for binary targets; the implementation always uses a plain random permutation split.
+# ---------------------------------------------------------------------------

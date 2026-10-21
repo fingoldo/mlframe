@@ -777,3 +777,26 @@ def test_regression_pyproject_pins_pyutilz_commit():
 # copy of X as their no-candidate/no-op early-exit path, even though the orchestrator's own
 # _appended-then-conditional-merge calling convention never reads the returned frame on that path.
 # ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "modname",
+    [
+        "_fe_raw_redundancy_drop",
+        "_fe_sufficient_summary",
+        "_fe_cmi_redundancy_null",
+        "_extra_fe_families_dispersion_resident",
+        "_meta_fe_recommender",
+        "_conditional_gate_fe",
+    ],
+)
+def test_regression_no_stale_self_referential_log_line_numbers(modname):
+    """Post-fix: none of the 6 files' debug-log messages embed a self-referential '<file>.py:<N>' string
+    that can go stale relative to the file's actual current length."""
+    import importlib
+    import inspect
+    import re
+
+    mod = importlib.import_module(f"mlframe.feature_selection.filters.{modname}")
+    src = inspect.getsource(mod)
+    assert not re.search(r"suppressed in \S+\.py:\d+", src), f"{modname} still has a stale line-number log string"

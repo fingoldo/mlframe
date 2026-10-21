@@ -514,3 +514,20 @@ def test_regression_fe_batch_mi_logs_gpu_fallback(caplog, monkeypatch):
         result = mod.fe_batch_mi(X_cands, y_codes, backend="gpu")
     assert result is not None
     assert any("fake-multi-gpu-failure" in rec.message for rec in caplog.records)
+
+
+def test_regression_fe_cmi_perm_null_gpu_no_dead_resident_y_isinstance_check():
+    """Post-fix: the dead `isinstance(y_h, cp.ndarray)` branches are removed."""
+    import inspect
+
+    from mlframe.feature_selection.filters import _fe_cmi_perm_null_gpu as cmi_gpu
+
+    src = inspect.getsource(cmi_gpu)
+    assert not any(line.strip().startswith("if isinstance(y_h, cp.ndarray)") for line in src.splitlines())
+
+
+# ---------------------------------------------------------------------------
+# DISCRETIZATION-1 (P1): discretize_2d_array_cuda_row_chunked's uniform/quantile branches never received
+# the B-12 NaN-parity fix its non-chunked twin discretize_2d_array_cuda got -- plain cp.min/cp.max /
+# cp.percentile propagated NaN, silently collapsing a whole NaN-bearing column to one degenerate bucket.
+# ---------------------------------------------------------------------------
