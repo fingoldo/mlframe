@@ -101,7 +101,7 @@ def _honest_score(name, seed, importance_agg):
         importance_getter="permutation" if name == "kernel" else None,
     )
     sel.fit(X_tr, y_tr)
-    kept = sel._selected_cols_cache or list(Xdf.columns)
+    kept = sel._selected_cols_cache if sel._selected_cols_cache else list(Xdf.columns)
     from sklearn.base import clone
     m = clone(est)
     m.fit(X_tr[kept], y_tr)

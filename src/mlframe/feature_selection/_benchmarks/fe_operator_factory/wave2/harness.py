@@ -39,7 +39,7 @@ def cv_relative(sets: dict, y: np.ndarray, seed: int = 0, folds: int = 5, models
     """5-fold CV on the held-out half. ``sets`` maps a name to a feature matrix (recipes already frozen, no selection inside the folds). Returns
     ``{'<metric>|<model>|<set>': value}`` with metric in mae / rmse (relative improvement over the ``raw`` set of the same model, positive = better) and ``r2`` (absolute difference, reference only).
     """
-    models = models or make_models()
+    models = models if models else make_models()
     kf = KFold(folds, shuffle=True, random_state=seed)
     err = {}
     for name, X in sets.items():
@@ -57,7 +57,7 @@ def cv_relative(sets: dict, y: np.ndarray, seed: int = 0, folds: int = 5, models
 
 def leak_ablation(sets_ab: dict, ya: np.ndarray, yb_: np.ndarray, models: dict | None = None) -> dict:
     """Train on the fit half with each feature set, test on the held-out half; ``sets_ab = {name: (XA, XB)}``. Relative MAE / RMSE improvement over ``raw`` per model."""
-    models = models or make_models()
+    models = models if models else make_models()
     err = {(mn, nm): fit_errors(model, a, ya, b, yb_) for nm, (a, b) in sets_ab.items() for mn, model in models.items()}
     return {f"{m}|{mn}|{nm}": rel_improvement(e[m], err[(mn, "raw")][m]) for (mn, nm), e in err.items() for m in METRICS}
 

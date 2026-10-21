@@ -53,7 +53,7 @@ def _git_sha() -> str:
             stderr=subprocess.DEVNULL,
             text=True,
         ).strip()
-        return out or "nogit"
+        return out if out else "nogit"
     except Exception as exc:
         # best-effort: no git checkout (or git absent) only means the run is recorded as 'nogit'; the benchmark still runs.
         logger.debug("_git_sha: git rev-parse failed: %s", exc)
@@ -61,7 +61,9 @@ def _git_sha() -> str:
 
 
 def _cpu_model() -> str:
-    return platform.processor() or platform.machine() or "unknown"
+    proc = platform.processor()
+    machine = platform.machine()
+    return proc if proc else (machine if machine else "unknown")
 
 
 def _gpu_model() -> str:

@@ -46,7 +46,7 @@ def errors_by_feature_set(feature_sets: dict, ytr, yte, models: dict | None = No
     """``{'<model>|<set>': {'mae':..., 'rmse':..., 'r2':...}}`` for ``feature_sets = {name: (Xtr, Xte)}`` (every model refit per set)."""
     out = {}
     for name, (Xtr, Xte) in feature_sets.items():
-        for mname, model in (models or make_models()).items():
+        for mname, model in (models if models else make_models()).items():
             out[f"{mname}|{name}"] = fit_errors(model, Xtr, ytr, Xte, yte)
     return out
 

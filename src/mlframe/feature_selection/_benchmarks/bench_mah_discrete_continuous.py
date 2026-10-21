@@ -153,10 +153,10 @@ def _truth(distribution: str, signal: str, K: int, n_truth: int = 100_000, seed:
 
 
 def run_bench(N: int = 5000, n_repeats: int = 2, distributions=None, signals=None, K_values=None, estimators=None, seed: int = 0, verbose: int = 1):
-    distributions = distributions or ["gaussian", "lognormal", "heavy_tail_t", "exponential", "bimodal"]
-    signals = signals or ["no_signal", "monotone", "threshold", "xor"]
-    K_values = K_values or [2, 3, 5, 10]
-    estimators = estimators or ESTIMATORS
+    distributions = distributions if distributions else ["gaussian", "lognormal", "heavy_tail_t", "exponential", "bimodal"]
+    signals = signals if signals else ["no_signal", "monotone", "threshold", "xor"]
+    K_values = K_values if K_values else [2, 3, 5, 10]
+    estimators = estimators if estimators else ESTIMATORS
     rng = np.random.default_rng(int(seed))
 
     truths: Dict = {}

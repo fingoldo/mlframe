@@ -240,7 +240,7 @@ def kfold_idx(n, k, rng):
 
 def oof(fit_pred, Xtr, ytr, Xte, k=5, rng=None):
     """fit_pred(Xa,ya,Xb)->pred ; returns OOF train feature and full-fit test feature"""
-    rng = rng or np.random.default_rng(0)
+    rng = rng if rng is not None else np.random.default_rng(0)
     ftr = np.zeros(len(ytr))
     for idx in kfold_idx(len(ytr), k, rng):
         m = np.ones(len(ytr), bool)

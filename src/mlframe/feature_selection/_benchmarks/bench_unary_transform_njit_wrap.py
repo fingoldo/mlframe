@@ -66,7 +66,7 @@ def _bench_one(name: str, npfunc, n: int, reps: int = 50) -> tuple[float, float,
     t_np = float(np.median([_time_call(npfunc, x) for _ in range(reps)]))
     t_jit = float(np.median([_time_call(jfunc, x) for _ in range(reps)]))
     a, b = npfunc(x), jfunc(x)
-    bit_ok = bool(np.array_equal(a, b, equal_nan=True)) or bool(np.nanmax(np.abs(a - b)) < 1e-9)
+    bit_ok = True if np.array_equal(a, b, equal_nan=True) else bool(np.nanmax(np.abs(a - b)) < 1e-9)
     return t_np, t_jit, bit_ok
 
 

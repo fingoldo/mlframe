@@ -38,7 +38,8 @@ def label(r: dict) -> str:
     """Operator label of a row; operator B rows carry the shrinkage (rows written before the field existed used 20)."""
     if r["op"] != "B":
         return r["op"]
-    m = r.get("cell_m") or 20.0
+    m = r.get("cell_m")
+    m = 20.0 if m is None else m
     return f"B(m={m:g})"
 
 

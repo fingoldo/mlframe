@@ -285,4 +285,4 @@ if __name__ == "__main__":
     with (scratch_dir("brainstorm") / "results_multi.jsonl").open("a") as out:
         for nm in args.names:
             g, f, cols, pairs = C[nm]
-            run_case(nm, g, f, cols or [0, 1], seeds=args.seeds, n=args.n, out=out, pairs=pairs)
+            run_case(nm, g, f, cols if cols else [0, 1], seeds=args.seeds, n=args.n, out=out, pairs=pairs)
