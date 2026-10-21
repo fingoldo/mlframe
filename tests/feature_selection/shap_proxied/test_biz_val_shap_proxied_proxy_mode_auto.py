@@ -166,18 +166,20 @@ def test_biz_val_proxy_mode_auto_gate_silent_on_additive_bed():
     X, y = _pure_additive_bed(n=2000, p_noise=194, n_informative=6, seed=0)
     n_features = X.shape[1]
 
-    def _best_of_three(mode):
-        """The last fitted selector and the fastest of three fit walls (one shared-runner hiccup must not decide the ratio)."""
-        walls = []
-        for _ in range(3):
+    # Interleaved pairs: machine load drifts over seconds on a shared runner, so measuring all additive fits before all auto fits
+    # put the drift on one side of the ratio (measured: additive 34 s / 61 s on consecutive identical fits). Each pair runs both modes
+    # back to back, and the ratio uses the fastest wall per mode. The 1.25x bound is unchanged.
+    walls = {"additive": [], "auto": []}
+    sels = {}
+    for _ in range(3):
+        for mode in ("additive", "auto"):
             sel = _shap_sel(mode, n_features)
             t0 = time.perf_counter()
             sel.fit(X, y)
-            walls.append(time.perf_counter() - t0)
-        return sel, min(walls)
-
-    sel_add, add_wall = _best_of_three("additive")
-    sel_auto, auto_wall = _best_of_three("auto")
+            walls[mode].append(time.perf_counter() - t0)
+            sels[mode] = sel
+    sel_add, add_wall = sels["additive"], min(walls["additive"])
+    sel_auto, auto_wall = sels["auto"], min(walls["auto"])
 
     rep = sel_auto.shap_proxy_report_.get("su_seeded_interactions", {})
     assert rep.get("n_kept_pairs", -1) == 0, f"screen unexpectedly kept pairs on a purely additive bed: {rep}"
