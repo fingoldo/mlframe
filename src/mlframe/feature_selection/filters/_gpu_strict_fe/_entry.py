@@ -46,7 +46,7 @@ def fe_gpu_strict_resident_enabled() -> bool:
         from .._fe_gpu_strict import fe_gpu_strict_enabled
         return bool(fe_gpu_strict_enabled())
     except Exception as e:
-        logger.debug("fe_gpu_strict_resident_enabled: fe_gpu_strict_enabled() check failed, resident FE stages stay off: %s", e)
+        logger.warning("fe_gpu_strict_resident_enabled: fe_gpu_strict_enabled() check failed, resident FE stages stay off: %s", e)
         return False
 
 

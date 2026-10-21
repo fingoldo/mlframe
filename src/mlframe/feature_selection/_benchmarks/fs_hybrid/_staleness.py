@@ -110,14 +110,14 @@ def assess(manifest_path: str, repo: Optional[str] = None, warn_at: int = WARN_C
         ``unknown``. ``unknown`` is a real answer: a manifest with no commit recorded, or a checkout with
         no history, cannot be aged, and guessing would be worse than saying so.
     """
-    root = repo or os.path.dirname(os.path.abspath(__file__))
+    root = repo if repo else os.path.dirname(os.path.abspath(__file__))
     try:
         with open(manifest_path, encoding="utf-8") as handle:
             manifest = json.load(handle)
     except (OSError, ValueError) as exc:
         return Staleness(manifest_sha=None, head_sha=None, commits_behind=None, verdict="unknown", reason=f"no readable manifest at {manifest_path}: {exc}")
 
-    sha = str(manifest.get("git_sha") or manifest.get("git_commit") or "")
+    sha = str(manifest.get("git_sha") if manifest.get("git_sha") else (manifest.get("git_commit") if manifest.get("git_commit") else ""))
     head = _git(["rev-parse", "HEAD"], root)
     if not sha:
         return Staleness(manifest_sha=None, head_sha=head, commits_behind=None, verdict="unknown", reason="the manifest records no commit, so the result cannot be dated against the code")

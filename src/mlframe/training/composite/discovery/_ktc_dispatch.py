@@ -106,7 +106,7 @@ def _run_sweep_composite_corr(n_iters: int = 3) -> list[dict]:
     try:
         _abs_corr_all_kernel(_wx, _wy, float(np.dot(_wy, _wy)), 1e-9)
     except Exception as exc:
-        logger.debug("composite corr sweep warmup failed: %s", exc)
+        logger.warning("composite corr sweep warmup failed: %s", exc)
         return []
 
     def _corr_cell(n: int, k: int) -> dict | None:
@@ -126,7 +126,7 @@ def _run_sweep_composite_corr(n_iters: int = 3) -> list[dict]:
                 "backend_choice": backend, "numpy_ms": round(t_numpy, 4), "numba_ms": round(t_numba, 4),
             }
         except Exception as exc:
-            logger.debug("composite corr sweep skipped n=%d k=%d: %s", n, k, exc)
+            logger.warning("composite corr sweep skipped n=%d k=%d: %s", n, k, exc)
             return None
 
     regions: list[dict] = [r for n in n_axis for k in col_axis if (r := _corr_cell(n, k)) is not None]
@@ -152,7 +152,7 @@ def _run_sweep_composite_collinear(n_iters: int = 3) -> list[dict]:
         _wmean, _wvar = _column_stats_allfinite(_wfm)
         _keep_mask_kernel_allfinite(_wfm, _wmean, _wvar, 0.98, 1e-9)
     except Exception as exc:
-        logger.debug("composite collinear sweep warmup failed: %s", exc)
+        logger.warning("composite collinear sweep warmup failed: %s", exc)
         return []
 
     def _collinear_cell(n: int, k: int) -> dict | None:
@@ -172,7 +172,7 @@ def _run_sweep_composite_collinear(n_iters: int = 3) -> list[dict]:
                 "backend_choice": backend, "numpy_ms": round(t_numpy, 4), "numba_ms": round(t_numba, 4),
             }
         except Exception as exc:
-            logger.debug("composite collinear sweep skipped n=%d k=%d: %s", n, k, exc)
+            logger.warning("composite collinear sweep skipped n=%d k=%d: %s", n, k, exc)
             return None
 
     regions: list[dict] = [r for n in n_axis for k in col_axis if (r := _collinear_cell(n, k)) is not None]

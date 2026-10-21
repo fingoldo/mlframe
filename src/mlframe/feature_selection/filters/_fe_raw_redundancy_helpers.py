@@ -234,7 +234,7 @@ def _subexpr_continuous(recipe, raw_X) -> Optional[np.ndarray]:
         vals = np.nan_to_num(vals, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
         return vals
     except Exception as e:
-        logger.debug("_subexpr_continuous: recipe replay failed, falling back to the fused-composite continuous values (conservative KEEP): %s", e)
+        logger.warning("_subexpr_continuous: recipe replay failed, falling back to the fused-composite continuous values (conservative KEEP): %s", e)
         return None
 
 
@@ -328,7 +328,7 @@ def _residualize(target: np.ndarray, design: np.ndarray) -> Optional[np.ndarray]
             return None
         return np.asarray(resid)
     except Exception as e:
-        logger.debug("_residualize: OLS projection failed (degenerate/non-finite fit), treating as no residual signal: %s", e)
+        logger.warning("_residualize: OLS projection failed (degenerate/non-finite fit), treating as no residual signal: %s", e)
         return None
 
 
@@ -475,5 +475,5 @@ def _heldout_ridge_r2(X: np.ndarray, y: np.ndarray, frac: float = 0.7) -> Option
         model = make_pipeline(StandardScaler(), Ridge(alpha=1.0)).fit(X[:sp], y[:sp])
         return float(fast_r2_score(y[sp:], model.predict(X[sp:])))
     except Exception as e:
-        logger.debug("_heldout_ridge_r2: Ridge fit/score failed, caller leaves its decision unchanged: %s", e)
+        logger.warning("_heldout_ridge_r2: Ridge fit/score failed, caller leaves its decision unchanged: %s", e)
         return None

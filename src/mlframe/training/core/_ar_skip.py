@@ -109,5 +109,5 @@ def _recompute_lag1_ar_per_group(y_full, group_ids, train_idx) -> Optional[float
         ar = float(ar)
         return ar if np.isfinite(ar) else None
     except Exception as exc:  # -- a recompute failure must never abort discovery
-        logger.debug("_recompute_lag1_ar_per_group: recompute failed, autocorr unavailable: %s", exc)
+        logger.warning("_recompute_lag1_ar_per_group: recompute failed, autocorr unavailable: %s", exc)
         return None

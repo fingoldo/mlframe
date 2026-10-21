@@ -143,7 +143,7 @@ def _is_multi_target_regression(_tt_e: Any) -> bool:
 
         return bool(str(_tt_e) == str(TargetTypes.MULTI_TARGET_REGRESSION) or (hasattr(_tt_e, "is_multi_target_regression") and _tt_e.is_multi_target_regression))
     except Exception as e:
-        logger.debug("multi-target-regression detection failed, defaulting to False: %s", e)
+        logger.warning("multi-target-regression detection failed, defaulting to False: %s", e)
         return False
 
 
@@ -866,6 +866,3 @@ def _build_cross_target_e_step3_optional_top_cap(composite_target_discovery_conf
             "stored at models[%s][%s] for downstream consumers.",
             _orig_tname, _ens_report_err, _tt_e, st._ens_key,
         )
-
-
-from ._post_xt_ensemble_mtr import MTRPerColumnEqualMeanEnsemble

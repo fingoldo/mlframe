@@ -110,6 +110,17 @@ class FitCounter:
         self._lock = threading.Lock()
         self._restore: List[Tuple[Type[Any], bool, Any]] = []
 
+    def __getstate__(self) -> dict:
+        """Pickle everything but the lock, which cannot be pickled."""
+        state = self.__dict__.copy()
+        del state["_lock"]
+        return state
+
+    def __setstate__(self, state: dict) -> None:
+        """Restore the entries and give the copy a fresh lock."""
+        self.__dict__.update(state)
+        self._lock = threading.Lock()
+
     @property
     def total(self) -> int:
         """Total number of counted `fit` calls."""
@@ -762,7 +773,8 @@ def _rfecv_internal_optimum(model: Any) -> Tuple[Optional[float], Optional[str]]
 
     scorer = getattr(model, "scoring", None)
     func = getattr(scorer, "_score_func", None)
-    metric = getattr(func, "__name__", None) or (scorer if isinstance(scorer, str) else None)
+    fname = getattr(func, "__name__", None)
+    metric = fname if fname else (scorer if isinstance(scorer, str) else None)
     return score, (str(metric) if metric else None)
 
 

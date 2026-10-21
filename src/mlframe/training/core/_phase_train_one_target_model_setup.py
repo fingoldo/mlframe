@@ -78,7 +78,7 @@ def _render_per_target_diagnostics(
         try:
             return v.to_numpy() if hasattr(v, "to_numpy") else np.asarray(v)
         except Exception as exc:
-            logger.debug("plot-target coercion failed, skipping this split: %s", exc)
+            logger.warning("plot-target coercion failed, skipping this split: %s", exc)
             return None
 
     y_by_split = {}
@@ -107,7 +107,7 @@ def _render_per_target_diagnostics(
         try:
             _ts_test = np.asarray(timestamps)[test_idx]
         except Exception as e:
-            logger.debug("timestamp indexing for test split failed: %s", e)
+            logger.warning("timestamp indexing for test split failed: %s", e)
             _ts_test = None
 
     if train_df is not None and test_df is not None:

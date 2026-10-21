@@ -32,7 +32,7 @@ def is_polars_df_logged(x: Any) -> bool:
         import polars as pl
 
         return isinstance(x, pl.DataFrame)
-    except Exception as exc:
+    except Exception as exc:  # fallback: polars missing or the isinstance check failed, the input is treated as non-polars
         logger.debug("is_polars_df_logged: polars unavailable or isinstance check failed: %s", exc)
         return False
 

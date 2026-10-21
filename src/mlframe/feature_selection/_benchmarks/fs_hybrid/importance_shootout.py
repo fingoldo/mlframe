@@ -28,6 +28,12 @@ import lightgbm as lgb
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from scenarios import SCENARIOS, make
 
+
+def _lgbm_auc_rank(record: dict) -> float:
+    """Rank key for the per-cell winner: a real lgbm AUC of 0.0 must rank as 0.0, not fall back to -1."""
+    auc = record["auc"].get("lgbm")
+    return auc if auc is not None else -1
+
 OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "_results")
 os.makedirs(OUT, exist_ok=True)
 RES = os.path.join(OUT, "importance_shootout.jsonl")
@@ -52,7 +58,7 @@ def downstream(Xtr, Xte, ytr, yte, cols):
             m.fit(Xtr[cols], ytr)
             out[name] = round(float(roc_auc_score(yte, m.predict_proba(Xte[cols])[:, 1])), 4)
         except Exception as e:
-            logger.debug("model %s fit/score failed: %s", name, e)
+            logger.warning("model %s fit/score failed: %s", name, e)
             out[name] = None
     return out
 
@@ -64,8 +70,10 @@ def log(msg):
 
 
 def main():
-    open(RES, "w", encoding="utf-8").close()
-    open(PROG, "w", encoding="utf-8").close()
+    with open(RES, "w", encoding="utf-8"):
+        pass
+    with open(PROG, "w", encoding="utf-8"):
+        pass
     from mlframe.feature_selection.wrappers import RFECV, FIConfig, SearchConfig
 
     cells = [(sc, sd, ig) for sc in SCENARIOS for sd in SEEDS for ig in IMPORTANCE]
@@ -103,7 +111,8 @@ def main():
 
 
 def summarize():
-    rows = [json.loads(l) for l in open(RES, encoding="utf-8") if l.strip()]
+    with open(RES, encoding="utf-8") as fh:
+        rows = [json.loads(l) for l in fh if l.strip()]
     ok = [r for r in rows if not r.get("error")]
     if not ok:
         log("no successful cells")
@@ -123,7 +132,7 @@ def summarize():
     log("\n=== win counts (best lgbm AUC per scenario,seed) ===")
     wins = {ig: 0 for ig in IMPORTANCE}
     for (_sc, _sd), grp in df.groupby(["scenario", "seed"]):
-        best = max(grp.to_dict("records"), key=lambda r: (r["auc"].get("lgbm") or -1))
+        best = max(grp.to_dict("records"), key=_lgbm_auc_rank)
         wins[best["importance"]] += 1
     log(str(wins))
 

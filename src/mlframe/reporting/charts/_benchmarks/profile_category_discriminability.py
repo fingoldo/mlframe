@@ -29,12 +29,7 @@ def _make(n: int, n_levels: int = 50):
     return codes, y
 
 
-def _numpy_counts(codes, y, n_levels):
-    keep = codes >= 0
-    kc = codes[keep]
-    tot = np.bincount(kc, minlength=n_levels).astype(np.float64)
-    pos = np.bincount(kc, weights=y[keep], minlength=n_levels)
-    return pos, tot
+_numpy_counts = cd._numpy_level_counts
 
 
 def _best(fn, *args, repeats: int = 5) -> float:

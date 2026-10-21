@@ -5,7 +5,8 @@ import sys
 
 import numpy as np
 
-from .core import bins_of, mi_cnt, ols_t, qbin, rank01, zc_t
+from .core import bins_of, mi_cnt, ols_t, rank01, zc_t
+from ..common.binning import qbin
 
 REPS = int(sys.argv[1]) if len(sys.argv) > 1 else 30
 rng = np.random.default_rng(77)
@@ -64,7 +65,7 @@ def estimators(u, v, y, yb, yr, nbs):
         if m > best[0]:
             best = (m, t)
     est["grid9"] = best[1]
-    for k_, t in est.items():
+    for k_, t in list(est.items()):
         if np.isnan(t):
             est[k_] = 0.0
     return est

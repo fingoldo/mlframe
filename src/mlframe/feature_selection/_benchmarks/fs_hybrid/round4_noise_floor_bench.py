@@ -60,7 +60,8 @@ def fit_rfecv_full(Xtr, ytr):
     """
     if os.path.exists(FULL_CACHE):
         checkpoint(f"loading cached full RFECV from {FULL_CACHE}")
-        return pickle.load(open(FULL_CACHE, "rb"))  # nosec B301 - dev-only benchmark cache; local file this script itself wrote
+        with open(FULL_CACHE, "rb") as fh:
+            return pickle.load(fh)  # nosec B301 - dev-only benchmark cache; local file this script itself wrote
     checkpoint("no full cache -> fitting RFECVSel('lgbm_perm') on madelon (~220s)")
     t0 = time.time()
     sel = S.RFECVSel("lgbm_perm")
@@ -77,7 +78,8 @@ def fit_rfecv_full(Xtr, ytr):
         feature_names_in=[str(c) for c in r.feature_names_in_],
         fit_s=round(time.time() - t0, 1),
     )
-    pickle.dump(out, open(FULL_CACHE, "wb"))
+    with open(FULL_CACHE, "wb") as fh:
+        pickle.dump(out, fh)
     checkpoint(f"fitted + cached full RFECV in {out['fit_s']}s; |support|={len(support)}, "
                f"|cv_results N|={len(cvres.get('nfeatures', []))}, |selected_features N|={len(sel_by_n)}")
     return out

@@ -7,6 +7,7 @@ over the actual edges only. Same clusters. Run: python this.py
 from __future__ import annotations
 
 import numpy as np
+from mlframe.feature_engineering._safe_ratio import safe_div
 
 from mlframe.feature_selection._bench_timing_shared import best_of
 from mlframe.feature_selection.filters._stability_cluster import _find_factory
@@ -50,7 +51,7 @@ def main():
         # induce some correlated blocks
         for b in range(0, p, 10):
             X[:, b + 1 : b + 5] = X[:, b : b + 1] + 0.01 * rng.standard_normal((n, min(4, p - b - 1)))
-        Z = (X - X.mean(0)) / (X.std(0) + 1e-12)
+        Z = safe_div(X - X.mean(0), X.std(0))
         C = np.abs(Z.T @ Z / n)
         num_ok = np.ones(p, dtype=bool)
         thr = 0.8

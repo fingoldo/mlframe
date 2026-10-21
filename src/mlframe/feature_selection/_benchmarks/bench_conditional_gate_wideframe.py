@@ -217,7 +217,7 @@ def main():
         if op == "gate":
             print("== ADDITIVE FALSE-POSITIVE (multi-driver additive y, must be 0; binary + 10-bin reg) ==")
             add_fp = _additive_fp_gate()
-        safe = bool(fp["zero_fp_at_p30"]) and bool(mixed["real_signal_caught_with_25_noise"]) and (add_fp is None or bool(add_fp["zero_fp_on_additive"]))
+        safe = bool(fp["zero_fp_at_p30"]) and bool(mixed["real_signal_caught_with_25_noise"]) and (True if add_fp is None else bool(add_fp["zero_fp_on_additive"]))
         out[op] = {"cost_table": cost, "fp_at_scale": fp, "mixed_realism": mixed, "additive_fp": add_fp, "gate_verdict_measured_safe": safe}
         print(f"  [{op}] gate_verdict_measured_safe={safe}")
 

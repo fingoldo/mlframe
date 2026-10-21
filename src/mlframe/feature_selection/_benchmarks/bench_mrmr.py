@@ -53,14 +53,17 @@ def _git_sha() -> str:
             stderr=subprocess.DEVNULL,
             text=True,
         ).strip()
-        return out or "nogit"
+        return out if out else "nogit"
     except Exception as exc:
-        logger.debug("_git_sha: git rev-parse failed: %s", exc)
+        # best-effort: no git checkout (or git absent) only means the run is recorded as 'nogit'; the benchmark still runs.
+        logger.warning("_git_sha: git rev-parse failed, run recorded as 'nogit': %s", exc)
         return "nogit"
 
 
 def _cpu_model() -> str:
-    return platform.processor() or platform.machine() or "unknown"
+    proc = platform.processor()
+    machine = platform.machine()
+    return proc if proc else (machine if machine else "unknown")
 
 
 def _gpu_model() -> str:
@@ -70,6 +73,7 @@ def _gpu_model() -> str:
         attrs = cp.cuda.runtime.getDeviceProperties(dev.id)
         return attrs["name"].decode() if isinstance(attrs.get("name"), bytes) else str(attrs.get("name", "unknown"))
     except Exception as exc:
+        # best-effort: no CUDA device or cupy only means the GPU name is recorded as 'no-gpu'; the benchmark still runs.
         logger.debug("_gpu_model: cupy device probe failed: %s", exc)
         return "no-gpu"
 
@@ -112,8 +116,9 @@ def _stage_timer():
     def record(name: str) -> None:
         try:
             current, peak = tracemalloc.get_traced_memory()
-        except RuntimeError:
-            _current, peak = 0, 0
+        except RuntimeError as exc:
+            logger.warning("_stage_timer: tracemalloc unavailable, stage peak memory recorded as 0: %s", exc)
+            peak = 0
         boundaries.append((name, time.perf_counter(), peak))
 
     def breakdown() -> dict[str, dict[str, float]]:

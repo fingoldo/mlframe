@@ -30,7 +30,7 @@ def torch_available() -> bool:
         import torch  # noqa: F401
 
         return True
-    except Exception as e:
+    except Exception as e:  # fallback: the torch backend is optional; its absence is an expected install state
         logger.debug("torch_available: PyTorch import failed, gradient-relaxation backend stays unavailable: %s", e)
         return False
 

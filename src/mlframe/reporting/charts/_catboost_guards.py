@@ -28,7 +28,7 @@ def _indices(model: Any, getter: str) -> List[int]:
     try:
         return list(fn() or [])
     except Exception as exc:
-        logger.debug("%s() probe failed (%s: %s) -- treating as not the risky case", getter, type(exc).__name__, exc)
+        logger.warning("%s() probe failed (%s: %s) -- treating as not the risky case", getter, type(exc).__name__, exc)
         return []
 
 

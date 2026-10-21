@@ -33,6 +33,7 @@ def deployed_round_budget(model: Any) -> Optional[int]:
         try:
             cb_best = getter()
         except Exception as exc:
+            # fallback: estimators without get_best_iteration (non-CatBoost) have no best round, so the budget stays unset.
             logger.debug("get_best_iteration unavailable on %s: %r", type(model).__name__, exc)
             return None
         if isinstance(cb_best, int) and cb_best >= 0:

@@ -57,6 +57,7 @@ def _cuda_present() -> bool:
 
         return bool(is_cuda_available())
     except Exception as exc:  # no pyutilz helper / no driver: treat as no CUDA, but say why at debug level
+        # fallback: without a usable CUDA device the spec tuning treats CUDA as absent and tunes the CPU-only set.
         logger.debug("CUDA availability probe failed, assuming no CUDA: %s", exc)
         return False
 

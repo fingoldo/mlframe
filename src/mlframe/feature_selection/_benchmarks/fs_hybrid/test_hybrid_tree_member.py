@@ -18,12 +18,6 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from hybrid_selector import HybridSelector
 
 
-def _require(ok: bool, msg: str) -> None:
-    """Explicit value check; unlike ``assert`` it is not stripped under ``python -O``."""
-    if not ok:
-        raise AssertionError(msg)
-
-
 def _interaction_frame(n=2000, seed=0, p_noise=25):
     """y driven by a PURE interaction a*b (zero-marginal operands) + a linear term, amid p_noise noise columns.
 
@@ -37,6 +31,12 @@ def _interaction_frame(n=2000, seed=0, p_noise=25):
     y = ((a * b + 0.6 * c + 0.3 * rng.normal(size=n)) > 0).astype(int)
     X = pd.DataFrame(np.column_stack([a, b, c, noise]), columns=["a", "b", "c"] + [f"n{i}" for i in range(p_noise)])
     return X, pd.Series(y)
+
+
+@pytest.fixture(scope="module")
+def interaction_frame():
+    """Default interaction frame, built once for the module; the tests only read it."""
+    return _interaction_frame()
 
 
 # ----------------------------------------------------------------- gate logic (deterministic, no model fit)
@@ -54,7 +54,7 @@ def test_gate_synergy_admits_only_superadditive_products():
     raw = ["a", "b", "c", "d"]
     admitted = _gate("synergy", fi, [("a", "b"), ("c", "d")], [*raw, "tprod_0", "tprod_1"], raw)
     # Spec: a*b is the only super-additive product; c*d fails the synergy bar, so tprod_0 is the single admitted column.
-    _require(admitted == {"tprod_0"}, f"synergy gate should admit only the super-additive a*b product, got {admitted}")
+    assert admitted == {"tprod_0"}, f"synergy gate should admit only the super-additive a*b product, got {admitted}"
 
 
 def test_gate_raw_median_is_looser_than_synergy_on_noise_heavy_frame():
@@ -62,10 +62,10 @@ def test_gate_raw_median_is_looser_than_synergy_on_noise_heavy_frame():
     fi = {"a": 0.5, "b": 0.5, "tprod_0": 0.02}
     fi.update({f"n{i}": 0.0 for i in range(20)})
     raw = ["a", "b"] + [f"n{i}" for i in range(20)]
-    rel = [*raw, "tprod_0"]
+    rel = ["a", "b", "tprod_0"]  # survivors only: the relevant median (0.5) must differ from the raw median (~0)
     # Spec: the raw-median bar sits near 0 on this frame, so the weak product (0.02) is admitted; synergy (0.5 operands) rejects it.
-    _require(_gate("raw_median", fi, [("a", "b")], rel, raw) == {"tprod_0"}, "raw_median gate should admit the weak product")
-    _require(_gate("synergy", fi, [("a", "b")], rel, raw) == set(), "synergy gate should reject a 0.02 product against 0.5 operands")
+    assert _gate("raw_median", fi, [("a", "b")], rel, raw) == {"tprod_0"}, "raw_median gate should admit the weak product"
+    assert _gate("synergy", fi, [("a", "b")], rel, raw) == set(), "synergy gate should reject a 0.02 product against 0.5 operands"
 
 
 def test_gate_relevant_median_uses_survivor_bar_not_raw():
@@ -74,32 +74,32 @@ def test_gate_relevant_median_uses_survivor_bar_not_raw():
     fi.update({f"n{i}": 0.0 for i in range(10)})
     raw = ["a", "b"] + [f"n{i}" for i in range(10)]
     # Spec: the survivor median is 0.5, so a 0.3 product fails relevant_median but clears the near-zero raw median.
-    _require(_gate("relevant_median", fi, [("a", "b")], ["a", "b", "tprod_0"], raw) == set(), "relevant_median should reject the 0.3 product")
-    _require(_gate("raw_median", fi, [("a", "b")], ["a", "b", "tprod_0"], raw) == {"tprod_0"}, "raw_median should admit the 0.3 product")
+    assert _gate("relevant_median", fi, [("a", "b")], ["a", "b", "tprod_0"], raw) == set(), "relevant_median should reject the 0.3 product"
+    assert _gate("raw_median", fi, [("a", "b")], ["a", "b", "tprod_0"], raw) == {"tprod_0"}, "raw_median should admit the 0.3 product"
 
 
 def test_gate_empty_when_no_products():
     h = HybridSelector(); h.fi_ = {}; h._tree_prod_pairs_ = []; h._tree_prod_names_ = []
     # Spec: with no co-occurrence pairs there is nothing to admit.
-    _require(h._admit_tree_products(["a"], ["a"]) == [], "no co-occurrence pairs should admit no products")
+    assert h._admit_tree_products(["a"], ["a"]) == [], "no co-occurrence pairs should admit no products"
 
 
 # ----------------------------------------------------------------- tree signals + augment + pickle
-def test_tree_signals_finds_interaction_pair():
-    X, y = _interaction_frame()
+def test_tree_signals_finds_interaction_pair(interaction_frame):
+    X, y = interaction_frame
     h = HybridSelector(use_tree_member=True, tree_cooccur_pairs=12)
     h.random_state = 0
     h._tree_signals(X, y)
     assert h._tree_ranked_, "tree should rank some features"  # nosec B101 - internal invariant check in src/mlframe/feature_selection/_benchmarks/fs_hybrid, not reachable with untrusted input
     # Spec: both operands of the a*b interaction land in the top 6 of the 28 candidate columns.
-    _require({"a", "b"}.issubset(set(h._tree_ranked_[:6])), "the interaction operands should rank high")
+    assert {"a", "b"}.issubset(set(h._tree_ranked_[:6])), "the interaction operands should rank high"
     flat = {frozenset(p) for p in h._tree_prod_pairs_}
-    _require(frozenset({"a", "b"}) in flat, "the true a*b pair should be among co-occurrence pairs")
+    assert frozenset({"a", "b"}) in flat, "the true a*b pair should be among co-occurrence pairs"
 
 
-def test_augment_replays_tree_ops_leakage_free():
+def test_augment_replays_tree_ops_leakage_free(interaction_frame):
     from mlframe.feature_selection.hybrid_selector import _TREE_OPS
-    X, y = _interaction_frame()
+    X, y = interaction_frame
     h = HybridSelector(use_tree_member=True).fit(X, y)
     # tree op columns present in the augmented frame (named t{op}_N: tmul_/tabsd_/tsign_/trat_)
     aug = h._augment(X)
@@ -113,38 +113,35 @@ def test_augment_replays_tree_ops_leakage_free():
             np.testing.assert_allclose(aug[nm].values[:50], expected[:50], rtol=1e-6)
 
 
-def test_tree_signals_expands_rich_ops():
+def test_tree_signals_expands_rich_ops(interaction_frame):
     """Default tree_rich_ops engineers one candidate column PER operator per co-occurrence pair, each tagged with
     its (a, b, op) in _tree_op_ so _augment replays it. products-only (tree_rich_ops=('mul',)) yields just tmul_."""
     from mlframe.feature_selection.hybrid_selector import _TREE_OPS
-    X, y = _interaction_frame()
+    X, y = interaction_frame
     h = HybridSelector(use_tree_member=True, tree_rich_ops=("mul", "absd", "sign", "rat"))
     h.random_state = 0
     h._tree_signals(X, y)
     ops_seen = {h._tree_op_[nm][2] for nm in h._tree_prod_names_}
     # Mirrors the production _TREE_OPS table: every rich operator it defines is engineered when all are requested.
-    _require(ops_seen == set(_TREE_OPS), f"all rich ops should be engineered, got {ops_seen}")
+    assert ops_seen == set(_TREE_OPS), f"all rich ops should be engineered, got {ops_seen}"
     h2 = HybridSelector(use_tree_member=True, tree_rich_ops=("mul",)); h2.random_state = 0
     h2._tree_signals(X, y)
-    _require({h2._tree_op_[nm][2] for nm in h2._tree_prod_names_} == {"mul"}, "products-only config should yield just the mul op")
+    assert {h2._tree_op_[nm][2] for nm in h2._tree_prod_names_} == {"mul"}, "products-only config should yield just the mul op"
 
 
-def test_pickle_keeps_tree_attrs_drops_transient():
+def test_pickle_keeps_tree_attrs_drops_transient(interaction_frame):
     import pickle  # nosec B403 - pickle used only for trusted same-process/dev-local round-trips, see call sites in this file
-    X, y = _interaction_frame()
+    X, y = interaction_frame
     h = HybridSelector(use_tree_member=True).fit(X, y)
     h2 = pickle.loads(pickle.dumps(h))  # nosec B301 - round-trips a same-process object, no external input
     # Spec: the round-trip reproduces the tree replay state exactly (pairs are needed to replay op columns at transform).
-    _require(h2._tree_prod_pairs_ == h._tree_prod_pairs_, "pickle round-trip should keep the tree product pairs")
-    _require(h2._tree_prod_names_ == h._tree_prod_names_, "pickle round-trip should keep the tree product names")
-    _require(h2._tree_op_ == h._tree_op_, "pickle round-trip should keep the (a, b, op) spec per column")
+    assert h2._tree_prod_pairs_ == h._tree_prod_pairs_, "pickle round-trip should keep the tree product pairs"
+    assert h2._tree_prod_names_ == h._tree_prod_names_, "pickle round-trip should keep the tree product names"
+    assert h2._tree_op_ == h._tree_op_, "pickle round-trip should keep the (a, b, op) spec per column"
     # Spec: the transient training data is dropped from the pickled state.
-    _require(not hasattr(h2, "_Xaug_") and not hasattr(h2, "_y_"), "transient training data should be dropped on pickle")
+    assert not hasattr(h2, "_Xaug_") and not hasattr(h2, "_y_"), "transient training data should be dropped on pickle"
     # Transform still works after the round-trip.
-    _require(
-        list(h2.transform(X.iloc[:10]).columns) == list(h.transform(X.iloc[:10]).columns),
-        "transform after pickle round-trip should yield the same columns",
-    )
+    assert list(h2.transform(X.iloc[:10]).columns) == list(h.transform(X.iloc[:10]).columns), "transform after pickle round-trip should yield the same columns"
 
 
 # ----------------------------------------------------------------- biz_value: quantitative win on interaction data
@@ -167,19 +164,22 @@ def test_bizvalue_tree_member_lifts_interaction_auc():
         m = make_pipeline(StandardScaler(), LogisticRegression(max_iter=2000)).fit(Ztr, ytr)
         return roc_auc_score(yte, m.predict_proba(Zte)[:, 1])
 
-    a_off = auc(HybridSelector(vote=1, use_fe=True, use_tree_member=False, random_state=1))
-    a_on = auc(HybridSelector(vote=1, use_fe=True, use_tree_member=True, random_state=1))
+    # Both arms set mrmr_synergy_cap=0: MRMR's synergy bootstrap is off in each, so the product a*b is reachable only
+    # through the tree member. Without this, MRMR's own engineering recovers the product on the 303-column frame
+    # (measured: off-AUC 0.961 with the default cap), and the claim's premise (off-AUC near chance) no longer holds.
+    a_off = auc(HybridSelector(vote=1, use_fe=True, use_tree_member=False, mrmr_synergy_cap=0, random_state=1))
+    a_on = auc(HybridSelector(vote=1, use_fe=True, use_tree_member=True, mrmr_synergy_cap=0, random_state=1))
     # The pure-interaction a*b is invisible to a LINEAR model unless the product is engineered; in the wide regime
     # only the tree member supplies it, so off-AUC is near chance for logit and on-AUC recovers it -- a clear lift.
     # Spec: the tree member must lift linear-downstream AUC by at least 0.03 on wide interaction data.
-    _require(a_on >= a_off + 0.03, f"tree member should lift linear-downstream AUC on wide interaction data: {a_off:.3f} -> {a_on:.3f}")
+    assert a_on >= a_off + 0.03, f"tree member should lift linear-downstream AUC on wide interaction data: {a_off:.3f} -> {a_on:.3f}"
 
 
 # ----------------------------------------------------------------- mrmr_synergy_cap (default-raise of MRMR's bootstrap cap)
 def test_mrmr_synergy_cap_default_is_250():
     import inspect
     # Spec: the hybrid default raises MRMR's synergy-bootstrap cap from its own default of 60 to 250.
-    _require(inspect.signature(HybridSelector.__init__).parameters["mrmr_synergy_cap"].default == 250, "mrmr_synergy_cap default should be 250")
+    assert inspect.signature(HybridSelector.__init__).parameters["mrmr_synergy_cap"].default == 250, "mrmr_synergy_cap default should be 250"
 
 
 def test_mrmr_synergy_cap_does_not_regress_on_wide_interaction_frame():
@@ -200,7 +200,7 @@ def test_mrmr_synergy_cap_does_not_regress_on_wide_interaction_frame():
 
     a60, a250 = auc(60), auc(250)
     # Spec: raising the cap may cost at most 0.01 AUC on a wide interaction frame.
-    _require(a250 >= a60 - 0.01, f"raising mrmr_synergy_cap must not regress on a wide interaction frame: cap60={a60:.3f} cap250={a250:.3f}")
+    assert a250 >= a60 - 0.01, f"raising mrmr_synergy_cap must not regress on a wide interaction frame: cap60={a60:.3f} cap250={a250:.3f}"
 
 
 if __name__ == "__main__":

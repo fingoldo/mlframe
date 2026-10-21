@@ -77,7 +77,7 @@ def build_raw_redundancy_anchors(
         try:
             from ._fe_resident_operands import resident_code_operand
             return resident_code_operand(np.asarray(_codes).ravel(), "cmi_cand_x")
-        except Exception as exc:
+        except Exception as exc:  # fallback: hot per-candidate path, debug-only; the caller re-uploads host codes
             # Hot per-candidate path: debug-only. Caller re-uploads host codes as before.
             logger.debug("resident code-operand upload failed, falling back to host codes: %s", exc)
             return None
@@ -202,7 +202,7 @@ def _build_raw_redundancy_step1_def_dev_cont(_gate_resident):
             _dev = apply_unary_binary_gpu_resident(_r, _raw_X)
             return None if _dev is None else _quantile_bin_device(_dev, int(_eng_card_local))
         except Exception as exc:
-            logger.debug("device sub-expression replay + binning failed, falling back to the host replay: %s", exc)
+            logger.warning("device sub-expression replay + binning failed, falling back to the host replay: %s", exc)
             return None
 
     _dev_from_cont.from_recipe = _from_recipe  # type: ignore[attr-defined]  # optional capability probed with getattr by the clean-sub-expression builder

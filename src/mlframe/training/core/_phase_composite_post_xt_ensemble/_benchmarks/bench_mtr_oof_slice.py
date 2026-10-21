@@ -171,7 +171,8 @@ def _divergence(X, folds, y) -> dict:
             n_noreset_nonzero += 1
         max_div_noreset = max(max_div_noreset, dv)
         max_div_contig = max(max_div_contig, dc)
-    scale = float(np.max(np.abs(y))) or 1.0
+    scale = float(np.max(np.abs(y)))
+    scale = scale if scale != 0 else 1.0
     return {
         "values_byte_equal": True,  # asserted below; layouts differ, contents do not
         "carrier_layout": layouts,

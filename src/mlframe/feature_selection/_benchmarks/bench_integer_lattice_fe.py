@@ -44,7 +44,8 @@ def _cheb_fit_mi(a, b, y, degree=6):
     best = 0.0
     for col in (a, b):
         c = col.astype(np.float64)
-        z = 2 * (c - c.min()) / (np.ptp(c) + 1e-9) - 1
+        span = np.ptp(c)
+        z = 2 * (c - c.min()) / span - 1 if span > 0 else np.full_like(c, -1.0)
         V = chebvander(z, degree)
         coef, *_ = np.linalg.lstsq(V, y.astype(np.float64), rcond=None)
         best = max(best, _mi(V @ coef, y, nbins=_NBINS))
@@ -118,8 +119,7 @@ def main():
 
     print(f"{'target':28s} {'proto':>7s} {'exist':>7s} {'lift':>6s} {'hits':>5s} {'op':>5s}  verdict")
     for r in rows:
-        print(f"{r['target']:28s} {r['proto_mi']:7.3f} {r['best_existing_mi']:7.3f} {r['lift']:6.2f} "
-              f"{r['n_hits']:5d} {r['top_hit']!s:>5s}  {r['verdict']}")
+        print(f"{r['target']:28s} {r['proto_mi']:7.3f} {r['best_existing_mi']:7.3f} {r['lift']:6.2f} " f"{r['n_hits']:5d} {r['top_hit']!s:>5s}  {r['verdict']}")
     print(f"\ntotal {total_s:.2f}s")
 
     _RESULTS.mkdir(exist_ok=True)

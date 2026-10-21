@@ -4,6 +4,7 @@ Usage: ``python profile_fit_gpu.py <n_rows>``. Runs a warm-up fit and two timed 
 ``PROF_FILE`` (``MLFRAME_PROFILE_DIR``/gpu_fit.prof); the other profiling scripts read that file. Run it on a quiet box: a concurrent GPU job moves every number.
 """
 import cProfile, pstats, os, sys, time, io, warnings
+import functools
 import sys
 from pathlib import Path
 
@@ -15,24 +16,13 @@ for k, v in {
     "MLFRAME_FE_GPU_DISCRETIZE": "1", "MLFRAME_FE_GPU_BINNING": "1", "PYTHONUNBUFFERED": "1",
 }.items():
     os.environ[k] = v
-import numpy as np, pandas as pd, cupy as cp
-from mlframe.feature_selection.filters.mrmr import MRMR
+import cupy as cp
+from mlframe.feature_selection._benchmarks.profiling._fe_fit_fixture import fit as _fe_fit
 
 n = int(sys.argv[1]) if len(sys.argv) > 1 else 100000
 
 
-def make(seed):
-    """Novel data per call: MRMR memoises by content hash, so a repeated frame would time the cache replay."""
-    rng = np.random.default_rng(seed)
-    a, b, c, d, e, f = (rng.uniform(0.1, 1.1, n) for _ in range(6))
-    df = pd.DataFrame({k: v for k, v in zip("abcde", (a, b, c, d, e))})
-    y = a**2 / b + f / 5.0 + np.log(np.abs(c) + 1e-9) * np.sin(d)
-    return df, y
-
-
-def fit(seed):
-    df, y = make(seed)
-    return MRMR(full_npermutations=10, baseline_npermutations=20, fe_max_steps=2, fe_min_pair_mi_prevalence=1.05, verbose=0, n_jobs=1, random_seed=seed).fit(df, y)
+fit = functools.partial(_fe_fit, n=n)
 
 
 fit(1)  # warm: jit + KTC + cupy kernels

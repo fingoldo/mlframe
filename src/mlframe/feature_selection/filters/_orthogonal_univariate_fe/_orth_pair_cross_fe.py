@@ -219,7 +219,7 @@ def _crossbasis_device_born_on() -> bool:
     try:
         from .._gpu_strict_fe import fe_gpu_device_born_crossbasis_enabled
         return bool(fe_gpu_device_born_crossbasis_enabled())
-    except Exception as e:
+    except Exception as e:  # fallback: the device-born probe failed, the host cross-basis path runs
         logger.debug("_crossbasis_device_born_on: fe_gpu_device_born_crossbasis_enabled() check failed, staying on the host path: %s", e)
         return False
 

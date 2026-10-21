@@ -53,6 +53,7 @@ def _devices(max_devices: Optional[int] = None) -> list[tuple[int, int]]:
             out.append((d, int(free)))
         return out[:max_devices] if max_devices is not None else out
     except Exception:
+        # fallback: no usable CUDA device is the expected CPU-only case; no streamed GPU devices are returned.
         logger.debug("streamed GPU MI: no CUDA device", exc_info=True)
         return []
 

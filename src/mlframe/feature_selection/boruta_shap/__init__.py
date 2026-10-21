@@ -40,7 +40,6 @@ import random
 import pandas as pd
 import numpy as np
 from numpy.random import choice
-import os
 
 try:
     import polars as pl

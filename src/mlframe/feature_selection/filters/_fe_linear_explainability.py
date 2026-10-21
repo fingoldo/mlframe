@@ -105,6 +105,7 @@ def raws_linearly_explain_y(
             r2 = float(np.mean(cv_r2))
             return r2 >= thresh
     except Exception as e:
+        # best-effort: the linear probe is an optimisation; on failure the nonlinear FE passes run instead, slower but correct.
         logger.debug("raws_linearly_explain_y: CV linear-fit probe failed, running the nonlinear FE passes (correctness over speed): %s", e)
         return False
 

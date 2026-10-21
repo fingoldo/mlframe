@@ -895,12 +895,43 @@ def _oof_holdout_predic_model_name_spec_zip(component_models, component_names, c
 from ._cross_target import CompositeCrossTargetEnsemble
 from ._calibration import OutputCalibrator, fit_output_calibrator
 from ._stackers import (
-    META_STACKER_KINDS,  # public facade re-export (F401 already blanket-ignored for __init__.py)
     build_meta_stack_ensemble,
-    fit_gbm_meta_stacker,
     fit_lasso_meta_stacker,
-    fit_ridge_meta_stacker,
 )
+
+__all__ = [
+    "Any",
+    "CompositeCrossTargetEnsemble",
+    "CompositeTargetEstimator",
+    "Dict",
+    "List",
+    "Optional",
+    "OrderedDict",
+    "OutputCalibrator",
+    "PrePipelinePredictShim",
+    "Ridge",
+    "RidgeCV",
+    "Sequence",
+    "Tuple",
+    "Union",
+    "UnknownTransformError",
+    "_align_fit_sw",
+    "_carve_inner_eval_split",
+    "_compute_oof_with_external_holdout",
+    "_disable_early_stopping",
+    "_is_polars_df",
+    "_slice_rows",
+    "annotations",
+    "build_meta_stack_ensemble",
+    "call_transform",
+    "cast",
+    "clone",
+    "fit_lasso_meta_stacker",
+    "fit_output_calibrator",
+    "get_transform",
+    "log_throttle",
+    "subset_to_fit_columns",
+]
 
 
 def compute_oof_holdout_predictions(*args: Any, return_rows: bool = False, **kwargs: Any) -> tuple:

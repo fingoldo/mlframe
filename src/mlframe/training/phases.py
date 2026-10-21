@@ -199,6 +199,7 @@ def _try_get_rss_gb() -> float:
 
         return get_reported_memory_gb()
     except Exception as exc:
+        # fallback: an unavailable memory probe reports 0.0 GB, so the phase summary shows no RSS figure.
         logger.debug("_try_get_rss_gb: memory probe unavailable: %s", exc)
         return 0.0
 

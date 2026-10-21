@@ -136,6 +136,7 @@ def _discovery_config_signature(config: Any) -> ConfigSignatureV1:
         from mlframe import __version__ as _mlv
         versions["mlframe"] = _mlv
     except Exception as e:
+        # fallback: a source checkout without installed package metadata has no version; '?' marks it unknown in the cache key.
         logger.debug("could not resolve mlframe version: %s", e)
         versions["mlframe"] = "?"
     from importlib.metadata import PackageNotFoundError, version as _dist_version

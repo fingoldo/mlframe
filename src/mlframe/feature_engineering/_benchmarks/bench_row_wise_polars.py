@@ -491,7 +491,7 @@ def bench(n_rows: int = 400_000, n_cols: int = 85, repeats: int = 3) -> None:
 
 
 if __name__ == "__main__":
-    sizes = [int(a) for a in sys.argv[1:]] or [400_000]
+    sizes = [int(a) for a in sys.argv[1:]] if sys.argv[1:] else [400_000]
     for size in sizes:
         bench(size)
     run_single_expression_trap()

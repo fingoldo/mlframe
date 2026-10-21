@@ -183,6 +183,7 @@ def _supports_warm_start(est: Any) -> Optional[str]:
     try:
         params = est.get_params()
     except Exception as exc:
+        # fallback: an estimator whose params cannot be read is treated as not warm-startable.
         logger.debug("_supports_warm_start: get_params() failed: %s", exc)
         return None
     if "warm_start" not in params:

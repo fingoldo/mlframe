@@ -92,6 +92,7 @@ def _build_honest_loss_disk_key(model_template, X_tr, y_tr, X_ev, y_ev, idx, cla
         })
         return _HONEST_LOSS_CACHE_PREFIX + compose_key(x_tr_key, y_tr_key, x_ev_key, y_ev_key, state_key)
     except Exception as exc:
+        # best-effort: the disk cache is an optional speedup; without a key the fit runs uncached.
         logger.debug("_honest_loss: disk-cache key build failed (%s); skipping cache", exc)
         return None
 
@@ -128,6 +129,7 @@ def _build_perm_fit_disk_key(model_template, X_tr, y_tr, idx, n_estimators_cap, 
         })
         return _PERM_IMP_FIT_CACHE_PREFIX + compose_key(x_tr_key, y_tr_key, state_key)
     except Exception as exc:
+        # best-effort: the disk cache is an optional speedup; without a key the fit runs uncached.
         logger.debug("_permutation_importance_ranking: disk-cache key build failed (%s); skipping cache", exc)
         return None
 
@@ -145,6 +147,7 @@ def _open_disk_cache(disk_cache_dir):
 
         return DiskCache(disk_cache_dir)
     except Exception as exc:
+        # best-effort: the disk cache is an optional speedup; without a cache object the fit runs uncached.
         logger.debug("_honest_loss: disk-cache open failed for %r (%s); skipping cache", disk_cache_dir, exc)
         return None
 
@@ -502,6 +505,11 @@ def _permutation_importance_ranking(model_template, X_tr, y_tr, X_ev, y_ev, curr
     return base_loss, importances
 
 
+# Fits with at least this many cells (rows x columns) keep xgboost's own thread pool (n_jobs=-1); smaller fits
+# run single-threaded because per-fit thread oversubscription dominates them (see _parallel_honest_losses).
+_HONEST_INNER_THREADS_MIN_CELLS = 1_000_000
+
+
 def _parallel_honest_losses(tasks, model_template, X_tr, y_tr, X_ev, y_ev, classification, metric, n_jobs,
                             cache=None, n_estimators_cap=None, template_id=None,
                             inner_n_jobs_cap=False, disk_cache=None):
@@ -527,7 +535,15 @@ def _parallel_honest_losses(tasks, model_template, X_tr, y_tr, X_ev, y_ev, class
         n_jobs = 1
     outer = n_cores if n_jobs == -1 else n_jobs
     outer = max(1, min(outer, len(tasks), n_cores))
-    inner = max(1, n_cores // outer) if inner_n_jobs_cap else -1
+    if inner_n_jobs_cap:
+        inner = max(1, n_cores // outer)
+    else:
+        # Size-keyed thread rule. Interleaved A/B (5 pairs each, box at ~90% load from other agents):
+        # 1500x6 fits ran 16x faster at n_jobs=1 than n_jobs=-1 (median 0.28s vs 5.15s), while
+        # 10000x400 fits ran 1.5x faster at n_jobs=-1 (median 29.1s vs 42.9s, iter54 regime). The
+        # crossover between those two points is not measured; the cutoff sits between them.
+        n_cells = int(np.shape(X_tr)[0]) * int(np.shape(X_tr)[1])
+        inner = -1 if n_cells >= _HONEST_INNER_THREADS_MIN_CELLS else 1
     if outer == 1:
         return [_honest_loss(model_template, X_tr, y_tr, X_ev, y_ev, idx, classification, metric,
                              seed=seed, inner_n_jobs=inner, cache=cache,

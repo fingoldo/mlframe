@@ -60,7 +60,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
-    out = args.out or os.path.join(RESULTS_DIR, "phase0_synth_control.jsonl")
+    out = args.out if args.out else os.path.join(RESULTS_DIR, "phase0_synth_control.jsonl")
     os.makedirs(os.path.dirname(out), exist_ok=True)
     seeds = list(range(int(args.seeds)))
     beds = control_bed_scenarios(include_gates=args.include_gates)

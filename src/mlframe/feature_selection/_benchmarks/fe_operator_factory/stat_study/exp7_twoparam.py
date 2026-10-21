@@ -7,7 +7,8 @@ import sys
 import numpy as np
 
 from ..common._paths import scratch_dir
-from .core import bins_of, family_eval, get_presets, mi_cnt, preset_matrix_best, qbin, rank01, unary_mat
+from .core import bins_of, family_eval, get_presets, mi_cnt, preset_matrix_best, rank01, unary_mat
+from ..common.binning import qbin
 from .core2 import family_eval2
 
 seed = int(sys.argv[1])

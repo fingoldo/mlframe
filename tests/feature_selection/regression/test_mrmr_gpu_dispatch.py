@@ -463,7 +463,10 @@ def test_regression_resident_operand_key_includes_device_id(monkeypatch):
     """resident_operand's cache is device-scoped: the same content requested while a different cupy device is
     active must get its own resident copy, never the buffer uploaded on the first device. Observed by switching
     the reported active device id between calls on the same host array."""
-    import cupy as cp
+    cp = pytest.importorskip(
+        "cupy",
+        reason="resource missing: cupy needs a CUDA GPU host (the gpu extra); must run on the GPU CI job, not the CPU deep suite",
+    )
 
     from mlframe.feature_selection.filters import _fe_resident_operands as mod
 
@@ -511,3 +514,20 @@ def test_regression_fe_batch_mi_logs_gpu_fallback(caplog, monkeypatch):
         result = mod.fe_batch_mi(X_cands, y_codes, backend="gpu")
     assert result is not None
     assert any("fake-multi-gpu-failure" in rec.message for rec in caplog.records)
+
+
+def test_regression_fe_cmi_perm_null_gpu_no_dead_resident_y_isinstance_check():
+    """Post-fix: the dead `isinstance(y_h, cp.ndarray)` branches are removed."""
+    import inspect
+
+    from mlframe.feature_selection.filters import _fe_cmi_perm_null_gpu as cmi_gpu
+
+    src = inspect.getsource(cmi_gpu)
+    assert not any(line.strip().startswith("if isinstance(y_h, cp.ndarray)") for line in src.splitlines())
+
+
+# ---------------------------------------------------------------------------
+# DISCRETIZATION-1 (P1): discretize_2d_array_cuda_row_chunked's uniform/quantile branches never received
+# the B-12 NaN-parity fix its non-chunked twin discretize_2d_array_cuda got -- plain cp.min/cp.max /
+# cp.percentile propagated NaN, silently collapsing a whole NaN-bearing column to one degenerate bucket.
+# ---------------------------------------------------------------------------

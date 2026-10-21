@@ -74,7 +74,7 @@ def _candidate_values(x_a: np.ndarray, spec_a: dict, x_b: np.ndarray, spec_b: di
         # this file (which all log via logger.debug); low blast radius (degrades to skipping this
         # escalation candidate, per the file's own "never raises" design), but a real regression in
         # apply_operand_prewarp would be invisible in logs otherwise.
-        logger.debug("_candidate_values: apply_operand_prewarp failed; skipping candidate: %r", exc)
+        logger.warning("_candidate_values: apply_operand_prewarp failed; skipping candidate: %r", exc)
         return None
     out = np.multiply(wa, wb)
     out = np.nan_to_num(out, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
@@ -255,7 +255,7 @@ def _propose_poly(x_a, x_b, y_f, *, degree: int, min_val_corr: float, pairness_m
         sa, sb = fit_pair_prewarp_als(xa, xb, y_f, basis=best_basis, max_degree=degree)
     except Exception as exc:
         # See _candidate_values's matching fix above.
-        logger.debug("_propose_poly: fit_pair_prewarp_als failed; skipping candidate: %r", exc)
+        logger.warning("_propose_poly: fit_pair_prewarp_als failed; skipping candidate: %r", exc)
         return None
     if sa is None or sb is None:
         return None
@@ -278,7 +278,7 @@ def _fit_fourier_amplitude_spec(axis01: np.ndarray, t: np.ndarray, freqs, prepro
     try:
         coef, *_ = np.linalg.lstsq(D, t - float(np.mean(t)), rcond=None)
     except Exception as e:
-        logger.debug("_fit_fourier_amplitude_spec: lstsq failed for freqs=%s, no prewarp spec produced: %s", freqs, e)
+        logger.warning("_fit_fourier_amplitude_spec: lstsq failed for freqs=%s, no prewarp spec produced: %s", freqs, e)
         return None
     if coef is None or not np.all(np.isfinite(coef)) or float(np.max(np.abs(coef))) < 1e-12:
         return None

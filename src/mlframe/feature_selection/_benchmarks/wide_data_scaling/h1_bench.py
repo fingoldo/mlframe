@@ -103,7 +103,7 @@ if __name__ == "__main__":
         results.append((p, npairs, cpu_s, cuda_s, cupy_s, mem_codes_mb, cuda_err, cupy_err))
         ck(
             "p=%d pairs=%d cpu=%.3fs cuda=%s cupy=%s codes=%.1fMB"
-            % (p, npairs, cpu_s, ("%.3fs" % cuda_s) if cuda_s else cuda_err or "skip", ("%.3fs" % cupy_s) if cupy_s else (cupy_err or "skip"), mem_codes_mb)
+            % (p, npairs, cpu_s, ("%.3fs" % cuda_s) if cuda_s else cuda_err if cuda_err else "skip", ("%.3fs" % cupy_s) if cupy_s else (cupy_err if cupy_err else "skip"), mem_codes_mb)
         )
 
     # Fit O(p^2) curve on CPU pairs/sec to extrapolate

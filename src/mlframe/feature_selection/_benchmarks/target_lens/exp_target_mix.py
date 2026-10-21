@@ -29,6 +29,8 @@ from sklearn.linear_model import Ridge
 from sklearn.model_selection import KFold
 from sklearn.preprocessing import StandardScaler
 
+from mlframe._bench_rmse_shared import rmse_asarray as _rmse
+
 warnings.simplefilter("ignore")
 
 N_TEST = 20000
@@ -133,10 +135,6 @@ def _union(frames):
     return pd.DataFrame(cols)
 
 
-def _rmse(a, b):
-    return float(np.sqrt(np.mean((np.asarray(a) - np.asarray(b)) ** 2)))
-
-
 def _oof_pred(F, y, seed):
     pred = np.zeros(len(y))
     for tr, te in KFold(4, shuffle=True, random_state=seed).split(F):
@@ -190,13 +188,13 @@ def run(process: str, n_train: int, seed: int) -> dict:
         fe = _fit_mrmr(Xtr, ytr, seed, fe_max_steps=3)
         arms["A+E"] = (_union([A_tr, _frame(fe, Xtr)]), _union([A_te, _frame(fe, Xte)]))
     res = {"time": {"A": t_a, "B": t_b, "C": t_c}}
-    for arm, (tr, te) in arms.items():
+    for arm, (tr, te) in list(arms.items()):
         row = {"n_feat": tr.shape[1], "n_extra": tr.shape[1] - A_tr.shape[1]}
         for name, make in _models().items():
             sc = StandardScaler().fit(tr)
             m = make().fit(sc.transform(tr), ytr)
             row[name] = _rmse(m.predict(sc.transform(te)), yte)
-        row["recovery"] = float("nan") if weak_te is None else max([abs(np.corrcoef(te[c], weak_te)[0, 1]) for c in te.columns if te[c].std() > 0] or [0.0])
+        row["recovery"] = float("nan") if weak_te is None else max(_cs if (_cs := [abs(np.corrcoef(te[c], weak_te)[0, 1]) for c in te.columns if te[c].std() > 0]) else [0.0])
         row["covers"] = int(truth <= {t for c in tr.columns for t in str(c).replace("(", " ").replace(")", " ").replace(",", " ").split()})
         arms[arm] = row
     res["arms"] = arms

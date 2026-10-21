@@ -128,6 +128,7 @@ def _cb_val_pool_cache_lookup(X: Any, method: str) -> Any | None:
         else:
             _dtypes_sig = None
     except Exception as e:
+        # best-effort: the dtype signature only narrows the cache match; without it the lookup skips the dtype check.
         logger.debug("computing X dtypes signature failed: %s", e)
         _dtypes_sig = None
 
@@ -140,6 +141,7 @@ def _cb_val_pool_cache_lookup(X: Any, method: str) -> Any | None:
 
         _sig = compute_signature(X)[:4]
     except Exception as e:
+        # best-effort: a failed signature only costs a cache miss, so the Pool is rebuilt and the predict stays correct.
         logger.debug("val-pool cache lookup: signature failed, skipping cache reuse: %s", e)
         return None
     # A snapshot: CatBoost fits on other threads insert and evict while this scans.
@@ -237,7 +239,7 @@ def _frame_has_non_finite(X) -> bool:
         arr = np.asarray(X)
         return bool(np.issubdtype(arr.dtype, np.number) and not np.isfinite(arr).all())
     except Exception as e:  # a probe failure must not turn into "clean": report it and let the real error surface
-        logger.debug("full-frame non-finite probe failed: %s", e)
+        logger.warning("full-frame non-finite probe failed: %s", e)
         return False
 
 
@@ -253,6 +255,7 @@ def _frame_is_all_numeric(X) -> bool:
             return all(pd.api.types.is_numeric_dtype(_d) for _d in X.dtypes)
         return bool(np.issubdtype(np.asarray(X).dtype, np.number))
     except Exception as e:  # unknown container: leave the existing paths to decide
+        # fallback: the all-numeric check is a probe; an unknown container is left to the existing paths.
         logger.debug("all-numeric probe failed: %s", e)
         return True
 

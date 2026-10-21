@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import itertools
 import logging
+from mlframe.utils.log_throttle import log_throttle
 import os
 import uuid
 from collections import OrderedDict
@@ -350,7 +351,7 @@ def _collect_lib_versions() -> Dict[str, str]:
             except _md.PackageNotFoundError:
                 _ver = None
             except Exception as e:
-                logger.debug("package-version resolution failed: %s", e)
+                log_throttle(logger, "io:353", logging.WARNING, "package-version resolution failed: %s", e)
                 _ver = None
             if _ver is None:
                 # Fallback for libs whose import-name != dist-name lookup failed

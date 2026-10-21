@@ -394,6 +394,7 @@ def _operand_cache_budget_bytes() -> int:
 
         return int(cp.cuda.runtime.memGetInfo()[1] * _OPERAND_CACHE_VRAM_FRACTION)
     except Exception as e:  # no cupy / no device / bad env value: entry-count cap only
+        # fallback: no cupy or no CUDA device leaves no byte budget, so only the entry-count cap applies.
         logger.debug("operand cache byte budget unavailable (%s: %s)", type(e).__name__, e)
         return 0
 
@@ -719,6 +720,7 @@ def _gpu_materialise_discretize_codes_host_part1(
             _copy_stream = cp.cuda.Stream(non_blocking=True)
         # best-effort: a synchronous copy gives the same bytes, only without overlapping the GPU work
         except Exception as e:
+            # best-effort: a synchronous copy gives the same bytes, only without overlapping the GPU work.
             logger.debug("non-blocking copy stream creation failed, falling back to synchronous copy: %s", e)
             _copy_stream = None
     return cp, _gpu_resident_discretize_codes, a_cols, b_cols, op_codes, K, tv_gpu, out, dev_codes, _defer_host_codes, k_chunk, _db_slot, _copy_stream

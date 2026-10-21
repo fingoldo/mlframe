@@ -102,7 +102,7 @@ def _run_one(
         )
     else:
         from mlframe.feature_engineering.pysr_operators import get_preset_kwargs
-        preset = get_preset_kwargs(preset_name or "standard")
+        preset = get_preset_kwargs(preset_name if preset_name else "standard")
         params = dict(
             # Mirrors pipeline.py:_apply_pysr_fe defaults exactly so the bench reflects what users see.
             niterations=400,

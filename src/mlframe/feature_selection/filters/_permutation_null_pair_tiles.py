@@ -8,17 +8,17 @@ from __future__ import annotations
 
 def _pooled_pair_null_perm_tiles(nperm, perm_chunk, y_perms, cp, n_pairs, per_pair_extent, cls_x, n_classes_y, inv_n, h_x, h_y, d_mm, d_maxes):
     """Stage of ``pooled_pair_permutation_null_joint_mi_floor_cupy``."""
+    # Flat joint index per (perm, pair, sample): the pad-safe layout mirrors the order-1 resident floor.
+    # base_pair[pair] = pair * per_pair_extent gives each pair its own contiguous histogram block; within
+    # a pair the cell is cls_x * n_classes_y + y_perm (the exact 1-D collapse batch_pair_mi_cupy uses).
+    # Per-perm slabs are offset by (perm_local * n_pairs * per_pair_extent). Padding cells (joint code in
+    # [joint_card[pair], max_joint)) cannot occur (x < joint_card by construction) -> trailing zero-count
+    # cells per (perm, pair) block contribute 0 to the entropy, exactly like the njit ``if c>0`` guard.
+    base_pair = (cp.arange(n_pairs, dtype=cp.int64) * per_pair_extent)[None, :, None]  # (1, n_pairs, 1)
     for p0 in range(0, nperm, perm_chunk):
         p1 = min(p0 + perm_chunk, nperm)
         pb = p1 - p0
         yp = y_perms[p0:p1]  # (pb, n)
-        # Flat joint index per (perm, pair, sample): the pad-safe layout mirrors the order-1 resident floor.
-        # base_pair[pair] = pair * per_pair_extent gives each pair its own contiguous histogram block; within
-        # a pair the cell is cls_x * n_classes_y + y_perm (the exact 1-D collapse batch_pair_mi_cupy uses).
-        # Per-perm slabs are offset by (perm_local * n_pairs * per_pair_extent). Padding cells (joint code in
-        # [joint_card[pair], max_joint)) cannot occur (x < joint_card by construction) -> trailing zero-count
-        # cells per (perm, pair) block contribute 0 to the entropy, exactly like the njit ``if c>0`` guard.
-        base_pair = (cp.arange(n_pairs, dtype=cp.int64) * per_pair_extent)[None, :, None]  # (1, n_pairs, 1)
         base_perm = (cp.arange(pb, dtype=cp.int64) * (n_pairs * per_pair_extent))[:, None, None]  # (pb,1,1)
         joint = cls_x[None, :, :] * n_classes_y + yp[:, None, :]  # (pb, n_pairs, n) cell within pair block
         flat = (base_perm + base_pair + joint).ravel()  # (pb*n_pairs*n,)

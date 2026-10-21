@@ -115,10 +115,10 @@ def test_evaluate_candidate_unpacks_cached_confident_tuple():
 
 def test_confirm_predictor_primitive_wired():
     """screen_predictors imports and delegates to the extracted confirm_one_predictor primitive."""
-    from mlframe.feature_selection.filters import _screen_predictors as sp
     from mlframe.feature_selection.filters import _confirm_predictor as cp
+    from mlframe.feature_selection.filters import _screen_predictors_steps as steps
 
-    assert sp.confirm_one_predictor is cp.confirm_one_predictor
+    assert steps.confirm_one_predictor is cp.confirm_one_predictor
     assert hasattr(cp, "score_candidates") and hasattr(cp, "confirm_candidate")
 
 

@@ -111,6 +111,7 @@ def resolve_mlp_dataloader_defaults(
             import torch
             cuda_ok = bool(torch.cuda.is_available())
         except Exception as e:
+            # fallback: a host without CUDA is the expected CPU-only case; CUDA is treated as unavailable.
             logger.debug("torch.cuda.is_available() probe failed, assuming CUDA unavailable: %s", e)
             cuda_ok = False
     else:
@@ -209,6 +210,7 @@ def _probe_cuda_precision_uncached(device_id: int) -> str:
                 log_throttle(logger, "mlp_runtime_defaults._probe_cuda_precision_cached", logging.WARNING, "torch.cuda.get_device_capability() failed, defaulting to 32-true: %s", e)
                 result = "32-true"
     except Exception as e:
+        # fallback: a failed precision probe defaults to 32-true; the inner CUDA capability failure is already logged above.
         logger.debug("precision probe failed, defaulting to 32-true: %s", e)
         result = "32-true"
     return result
@@ -260,6 +262,7 @@ def resolve_mlp_precision_default(
             import torch
             cuda_ok = bool(torch.cuda.is_available())
         except Exception as e:
+            # fallback: a host without CUDA is the expected CPU-only case; CUDA is treated as unavailable.
             logger.debug("torch.cuda.is_available() probe failed, assuming CUDA unavailable: %s", e)
             cuda_ok = False
     else:
@@ -366,6 +369,7 @@ def _probe_available_memory_bytes(
             import torch
             cuda_ok = bool(torch.cuda.is_available())
         except Exception as e:
+            # fallback: a host without CUDA is the expected CPU-only case; CUDA is treated as unavailable.
             logger.debug("torch.cuda.is_available() probe failed, assuming CUDA unavailable: %s", e)
             cuda_ok = False
     else:

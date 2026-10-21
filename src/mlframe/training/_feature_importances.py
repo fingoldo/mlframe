@@ -328,7 +328,7 @@ def _permutation_feature_importances(
             if sw_arr.shape[0] != X_arr.shape[0]:
                 sw_arr = None
         except Exception as exc:
-            logger.debug("permutation FI: sample_weight coercion failed; proceeding unweighted: %r", exc, exc_info=True)
+            logger.warning("permutation FI: sample_weight coercion failed; proceeding unweighted: %r", exc, exc_info=True)
             sw_arr = None
     n = X_arr.shape[0]
     if n > max_samples:
@@ -616,7 +616,7 @@ def _captum_integrated_gradients_importance(
     try:
         X_arr = X.to_numpy() if isinstance(X, pd.DataFrame) else np.asarray(X)
     except Exception as exc:
-        logger.debug("Integrated Gradients: X coercion failed, skipping attribution: %s", exc)
+        logger.warning("Integrated Gradients: X coercion failed, skipping attribution: %s", exc)
         return None
     if X_arr.ndim != 2 or X_arr.shape[0] == 0:
         return None
@@ -860,7 +860,7 @@ def _importances_from_inner_estimator(inner, X, y, sample_weight, feature_import
             try:
                 y_arr = y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
             except Exception as e:
-                logger.debug("converting y to a numpy array failed: %s", e)
+                logger.warning("converting y to a numpy array failed: %s", e)
                 y_arr = None
             if y_arr is not None and y_arr.ndim == 2 and y_arr.shape[1] >= len(children):
                 for j in needs_perm:

@@ -260,7 +260,7 @@ def detect_text_columns(
         try:
             candidate_columns = list(df.columns)
         except Exception as e:  # pragma: no cover
-            logger.debug("could not resolve df.columns: %s", e)
+            logger.warning("could not resolve df.columns: %s", e)
             candidate_columns = []
 
     text_cols: List[str] = []

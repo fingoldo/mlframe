@@ -353,6 +353,7 @@ def _binnedmi_gpu_enabled(*, n: int | None = None, p: int | None = None) -> bool
         from ._fe_gpu_strict import fe_gpu_strict_enabled
         return bool(fe_gpu_strict_enabled(n=n, p=p))
     except Exception as e:
+        # fallback: the GPU-strict probe is unavailable (typically no cupy); the host binned-MI path runs.
         logger.debug("_binnedmi_gpu_enabled: fe_gpu_strict_enabled() check failed, staying on the host binned-MI path: %s", e)
         return False
 

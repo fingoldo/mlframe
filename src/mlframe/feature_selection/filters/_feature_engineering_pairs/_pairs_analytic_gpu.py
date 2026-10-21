@@ -167,5 +167,5 @@ def resident_analytic_gate(device_codes: Any, classes_y: np.ndarray, by: int, n_
         observed, bins = resident_observed_mi_and_bins(device_codes, classes_y, by)
         return analytic_batch_noise_gate(None, observed, classes_y, int(n_rows), float(min_nonzero_confidence), bx_per_col=bins, by=int(by))
     except Exception as e:
-        logger.debug("resident analytic noise gate failed, using the host path: %s", e)
+        logger.warning("resident analytic noise gate failed, using the host path: %s", e)
         return None

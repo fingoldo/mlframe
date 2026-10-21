@@ -19,7 +19,7 @@ import time
 
 import numpy as np
 
-from ..brainstorm.h import clean, ybins
+from ..brainstorm.h import UP, clean, ybins
 from ..common._paths import results_dir
 from .harness import heldout_mi
 from .stress import accept, cap_columns, cheap_existing, fit_op, read_rows, replay_op, write_rows
@@ -32,9 +32,7 @@ def _std(v: np.ndarray) -> np.ndarray:
     return (v - v.mean()) / v.std()
 
 
-def _unif(p):
-    """Generator of ``p`` uniform columns."""
-    return lambda rng, n: rng.random((n, p))
+_unif = UP
 
 
 def _tails(rng, n):

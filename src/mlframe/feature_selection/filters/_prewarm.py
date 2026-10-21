@@ -540,6 +540,7 @@ def prewarm_fs_cupy_kernels(verbose: bool = False) -> None:
             logger.info("prewarm_fs_cupy_kernels: cupy/pyutilz not importable; skipping")
         return
     except Exception as e:
+        # fallback: cupy/CUDA missing is the normal CPU-only case; prewarm is an optimisation, so skipping it only defers kernel loading.
         logger.debug("prewarm_fs_cupy_kernels: cupy/CUDA availability probe failed, skipping prewarm: %s", e)
         return
 
@@ -562,7 +563,7 @@ def prewarm_fs_cupy_kernels(verbose: bool = False) -> None:
     try:
         init_kernels()
     except Exception as e:
-        logger.debug("prewarm_fs_cupy_kernels: init_kernels() failed, skipping the remaining prewarm steps: %s", e)
+        logger.warning("prewarm_fs_cupy_kernels: init_kernels() failed, skipping the remaining prewarm steps: %s", e)
         return
 
     # Step 2: tiny end-to-end mi_direct_gpu_batched call - triggers the cupy

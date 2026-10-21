@@ -200,6 +200,7 @@ def _normalise_X(
                 # broken-dispatch shapes (test layer's intent) still surface.
                 _source_had_numeric = True
         except Exception as e:
+            # fallback: an unknown dtype is assumed numeric, so the WARN surfaces rather than being silently missed.
             # If the probe itself fails, assume there could be numeric data
             # and surface the WARN -- prefer false positive over silent miss.
             logger.debug("numeric-dtype probe failed, assuming numeric data may be present: %s", e)

@@ -112,7 +112,7 @@ class ShapProxiedFSParams(BaseModel):
     revalidation_ucb_stdev_multiplier: float | None = None
     revalidation_adaptive_n_models: bool = True
     revalidation_mmr_jaccard_threshold: float | None = None
-    trust_guard_n_estimators: int | None = 25
+    trust_guard_n_estimators: int | None = 100
     trust_guard_stratified_anchors: bool = False
     trust_guard_uniform_tail_frac: float = 0.2
     trust_guard_cardinality_dist: str = "zipf"

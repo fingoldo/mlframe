@@ -104,7 +104,7 @@ def run(name: str, seed: int = 0) -> None:
 
 def main() -> None:
     """Run the named datasets (default: all); ``name@seed`` picks the seed (default 0)."""
-    for arg in sys.argv[1:] or list(DATASETS):
+    for arg in (sys.argv[1:] if sys.argv[1:] else list(DATASETS)):
         name, _, seed = arg.partition("@")
         run(name, int(seed or 0))
 

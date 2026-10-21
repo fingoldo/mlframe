@@ -67,7 +67,7 @@ def main():
     print(out)
     agg_lines = [ln for ln in out.splitlines() if "importance_agg" in ln or "aggregate_" in ln]
     print("=== aggregation-helper attribution (should be tiny) ===")
-    print("\n".join(agg_lines) or "(no aggregate_* frames in top 25 -> not a hot path)")
+    print("\n".join(agg_lines) if "\n".join(agg_lines) else "(no aggregate_* frames in top 25 -> not a hot path)")
 
 
 if __name__ == "__main__":

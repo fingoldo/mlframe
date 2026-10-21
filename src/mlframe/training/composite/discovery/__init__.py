@@ -11,7 +11,6 @@ from typing import (
 )
 
 import numpy as np
-import pandas as pd
 
 # Module-level scipy import so external introspection (e.g. the
 # test_m3_spearman_demoter_uses_rankdata regression sensor) can confirm the
@@ -577,9 +576,6 @@ from ._filter import _filter_features as _filter_features_impl
 from ._stacked import (
     fit_stacked as _fit_stacked_impl,
     fit_stacked_on_residual as _fit_stacked_on_residual_impl,
-)
-from ._per_group_discovery import (
-    route_spec_column_by_group as route_spec_column_by_group,
 )
 from ._stability_check import fit_with_stability_check as _fit_with_stability_check_impl
 CompositeTargetDiscovery._tiny_model_rerank = _tiny_model_rerank_impl

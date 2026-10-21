@@ -43,7 +43,12 @@ def test_corr_sq_centered_matches_centered_reference(n):
         got = _corr_sq_centered(v, yc, y_ss)
         ref = _ref_corr_sq(v, yc, y_ss)
         max_diff = max(max_diff, abs(got - ref))
-    assert max_diff < 1e-12, f"no-alloc corr_sq diverged {max_diff:.2e} from centered reference at n={n}"
+    # Tolerance: under the default MLFRAME_CRIT_DTYPE_RELAXED=1 the operands are cast to float32 before the fused
+    # reduction, so the no-alloc form differs from the float64 reference by rounding. Measured max abs error over the
+    # 50 draws: n=16 6.3e-9, n=533 6.5e-9, n=1100 1.0e-9, n=1667 8.9e-10, n=3333 6.9e-10, n=20000 2.9e-10. With the
+    # strict float64 mode (MLFRAME_CRIT_DTYPE_RELAXED=0) the error is <=1.5e-15, so the algebra is exact. 1e-6 is the
+    # project float32-vs-float64 tolerance and sits ~150x above the worst measured error.
+    assert max_diff < 1e-6, f"no-alloc corr_sq diverged {max_diff:.2e} from centered reference at n={n}"
 
 
 def test_corr_sq_centered_degenerate_constant_v_returns_zero():
@@ -72,7 +77,9 @@ def test_power_centered_parallel_path_matches_serial_reference(n):
         ref = _periodogram_power(z, y, f)
         got = _power_centered(z, yc, y_ss, f)
         max_rel = max(max_rel, abs(ref - got) / max(abs(ref), 1e-30))
-    assert max_rel < 1e-10, f"_power_centered diverged {max_rel:.2e} from the centered reference at n={n}"
+    # Tolerance: float32 operand cast under the default relaxed dtype (see the no-alloc test above). Measured max
+    # relative error: n=4000 3.1e-7, n=20000 1.7e-7 (1e-6 is the project float32 bound, the measured error is ~3x below it).
+    assert max_rel < 1e-6, f"_power_centered diverged {max_rel:.2e} from the centered reference at n={n}"
 
 
 @pytest.mark.parametrize("n", [4000, 4096, 20000])  # at + above the parallel gate

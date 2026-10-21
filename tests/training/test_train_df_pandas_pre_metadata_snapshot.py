@@ -99,53 +99,36 @@ def test_metadata_dict_snapshot_immune_to_column_add():
 
 
 def test_metadata_dict_snapshot_construction_in_phase_helpers():
-    """End-to-end: the snapshot block at ``_phase_helpers.py`` lines ~920-950 must
-    populate ``train_df_pandas_pre_meta`` with the expected keys when invoked
-    through the same code path the auto-detect phase exercises.
+    """The production snapshot helper must return the metadata dict with the public keys and stay put when the source frame mutates.
 
-    We probe the module source via ast rather than running the full phase to
-    keep the test light. The construction lives inside a deep helper that
-    expects a populated TrainingContext; the metadata dict shape is the public
-    contract we can lock down here.
+    Calls the real ``_snapshot_pandas_pre_meta`` (the code path the auto-detect phase consumes) rather than inspecting source text.
     """
-    import ast
-    import importlib.util
-    from pathlib import Path
+    import pandas as _pd
 
-    # Wave-105 (2026-05-21) split _phase_helpers.py into multiple sibling
-    # files under mlframe.training.core. The dict-literal landed in
-    # _phase_helpers_fit_split.py. Search both so the test survives the
-    # refactor.
-    # 2026-05-22 split: _phase_helpers_fit_split itself was split again into
-    # _phase_helpers_fit_pipeline.py. Walk all three so the test survives.
-    candidate_modules = [
-        "mlframe.training.core._phase_helpers",
-        "mlframe.training.core._phase_helpers_fit_split",
-        "mlframe.training.core._phase_helpers_fit_pipeline",
-    ]
+    from mlframe.training.core._phase_helpers_fit_pipeline import _snapshot_pandas_pre_meta
 
-    found_meta_assign = False
-    for mod_name in candidate_modules:
-        spec = importlib.util.find_spec(mod_name)
-        if spec is None or spec.origin is None:
-            continue
-        src = Path(spec.origin).read_text(encoding="utf-8")
-        tree = ast.parse(src)
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Assign):
-                for tgt in node.targets:
-                    if isinstance(tgt, ast.Name) and tgt.id == "train_df_pandas_pre_meta":
-                        if isinstance(node.value, ast.Dict):
-                            keys = {k.value for k in node.value.keys if isinstance(k, ast.Constant)}
-                            if {"columns", "dtypes", "n_unique", "shape"}.issubset(keys):
-                                found_meta_assign = True
-                                break
-                if found_meta_assign:
-                    break
-        if found_meta_assign:
-            break
-    assert found_meta_assign, (
-        "train_df_pandas_pre_meta dict-literal assignment with keys "
-        "{columns, dtypes, n_unique, shape} not found in any of "
-        f"{candidate_modules}; Wave-7 metadata-dict snapshot fix not landed."
+    train_df = _pd.DataFrame(
+        {
+            "text": [f"tok_{i % 7}" for i in range(40)],
+            "score": np.arange(40, dtype=np.float64),
+            "cat": _pd.Categorical([f"c{i % 3}" for i in range(40)]),
+        }
     )
+
+    meta = _snapshot_pandas_pre_meta(None, False, train_df)
+
+    assert meta is not None, "pandas input with feature_types_first (default) must produce a snapshot"
+    for key in ("columns", "dtypes", "n_unique", "non_null", "shape"):
+        assert key in meta, f"snapshot is missing {key!r}: {sorted(meta)}"
+    assert meta["columns"] == ["text", "score", "cat"]
+    assert meta["shape"] == (40, 3)
+    assert meta["n_unique"] == {"text": 7, "cat": 3}
+    assert meta["non_null"] == {"text": 40, "cat": 40}
+
+    frozen = {k: (list(v) if isinstance(v, list) else dict(v) if isinstance(v, dict) else v) for k, v in meta.items()}
+    train_df.iat[0, train_df.columns.get_loc("score")] = -1.0
+    train_df["text"] = train_df["text"].astype("category")
+    train_df["extra"] = 1
+    assert meta == frozen, "snapshot must not change when the source frame is mutated afterwards"
+
+    assert _snapshot_pandas_pre_meta(None, True, train_df) is None, "polars input must not produce a pandas snapshot"

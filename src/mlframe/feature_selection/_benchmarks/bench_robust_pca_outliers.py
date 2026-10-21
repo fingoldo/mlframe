@@ -38,7 +38,8 @@ def _lw_pc1(Z):
     cov = LedoitWolf().fit(Z).covariance_
     w, V = np.linalg.eigh(cov)
     v = V[:, int(np.argmax(w))]
-    v = v * np.sign(v[int(np.argmax(np.abs(v)))] or 1.0)
+    pivot = v[int(np.argmax(np.abs(v)))]
+    v = v * np.sign(pivot if pivot != 0 else 1.0)
     return Z @ v
 
 

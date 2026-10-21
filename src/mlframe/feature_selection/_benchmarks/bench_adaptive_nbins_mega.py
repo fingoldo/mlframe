@@ -25,7 +25,7 @@ import time
 logger = logging.getLogger(__name__)
 from dataclasses import dataclass, asdict
 from pathlib import Path
-from typing import Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import numpy as np
 
@@ -137,24 +137,23 @@ BINNING_KWARGS = {
     "optimal_joint": {},
 }
 
+def _binning_scorer(method: str, kw: Dict[str, Any], *, miller_madow: bool) -> Callable:
+    def _score(x_tr, y_tr, x_va, y_va):
+        return _score_binning(x_tr, y_tr, x_va, y_va, method, miller_madow=miller_madow, **kw)
+
+    return _score
+
+
 # Mapping method -> (label, scoring callable). All binning methods use the
 # same _score_binning; KSG / MINE / fastMI / aggregator each have their own.
 def _make_scorers() -> Dict[str, Callable]:
     scorers: Dict[str, Callable] = {}
     for method in ["quantile10", "sturges", "freedman_diaconis", "qs", "knuth", "blocks", "fayyad_irani", "optimal_joint"]:
         kw = BINNING_KWARGS[method]
-        def make(m=method, mkw=kw):
-            def _score(x_tr, y_tr, x_va, y_va):
-                return _score_binning(x_tr, y_tr, x_va, y_va, m, miller_madow=True, **mkw)
-            return _score
-        scorers[f"{method}_w1fixes"] = make()
+        scorers[f"{method}_w1fixes"] = _binning_scorer(method, kw, miller_madow=True)
         # Also include the no-MM legacy for reference on the same row.
         if method in ("freedman_diaconis", "quantile10"):
-            def make_nomm(m=method, mkw=kw):
-                def _score(x_tr, y_tr, x_va, y_va):
-                    return _score_binning(x_tr, y_tr, x_va, y_va, m, miller_madow=False, **mkw)
-                return _score
-            scorers[f"{method}_legacy"] = make_nomm()
+            scorers[f"{method}_legacy"] = _binning_scorer(method, kw, miller_madow=False)
     scorers["mixed_ksg"] = lambda xt, yt, xv, yv: _score_mixed_ksg(xt, yt, xv, yv)
     scorers["ksg_lnc"] = lambda xt, yt, xv, yv: _score_ksg_lnc(xt, yt, xv, yv)
     scorers["mine"] = lambda xt, yt, xv, yv: _score_mine(xt, yt, xv, yv, n_epochs=200)
@@ -194,14 +193,14 @@ def run_mega_bench(
     random_state: int = 0,
     verbose: int = 1,
 ) -> Dict:
-    distributions = distributions or [
+    distributions = distributions if distributions else [
         "gaussian", "lognormal", "bimodal", "heavy_tail_t",
         "uniform", "exponential", "discrete_low_card", "near_constant",
     ]
-    signal_kinds = signal_kinds or [
+    signal_kinds = signal_kinds if signal_kinds else [
         "no_signal", "linear", "monotone", "threshold", "xor", "sin",
     ]
-    sample_sizes = sample_sizes or [500, 2000]
+    sample_sizes = sample_sizes if sample_sizes else [500, 2000]
     scorers = _make_scorers()
     if methods_subset is not None:
         scorers = {k: v for k, v in scorers.items() if k in methods_subset}

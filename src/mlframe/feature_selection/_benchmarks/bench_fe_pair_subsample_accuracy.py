@@ -39,6 +39,7 @@ from collections import defaultdict
 from datetime import datetime
 
 import numpy as np
+from mlframe.feature_engineering._safe_ratio import safe_div
 import pandas as pd
 
 warnings.filterwarnings("ignore")
@@ -82,7 +83,7 @@ def _build_synthetic(n: int, seed: int = 0, noise_scale: float = 1.0) -> tuple[p
     b = df["b"].to_numpy()
     c = df["c"].to_numpy()
     d = df["d"].to_numpy()
-    signal = 1.2 * (a * b) + 0.7 * (c + d) + 0.3 * (a / (c + 1e-3))  # strongest  # medium  # weak (a/c)
+    signal = 1.2 * (a * b) + 0.7 * (c + d) + 0.3 * safe_div(a, c)  # strongest  # medium  # weak (a/c)
     noise = noise_scale * rng.standard_normal(n)
     target = (signal + noise > np.median(signal + noise)).astype(np.int32)
     return df, target

@@ -47,7 +47,7 @@ def _kf_old(observations, prior_traj, *, transition_sigma, observation_sigma, in
         if np.isfinite(observations[t]):
             innovation = float(observations[t] - mean_pred)
             innovation_var = var_pred + R
-            K = var_pred / (innovation_var + 1e-12)
+            K = var_pred / innovation_var if innovation_var > 0 else 0.0
             mean = mean_pred + K * innovation
             var = (1.0 - K) * var_pred
             log_lik = -0.5 * (math.log(2.0 * math.pi * innovation_var) + (innovation * innovation) / innovation_var)

@@ -313,7 +313,7 @@ def _phase_fit_pipeline_per_target_mode_target(_per_target_mode, target_by_type,
         try:
             _y_for_composite = _composite_fe_supervised_target(target_by_type, metadata)
         except Exception as e:
-            logger.debug("y_for_composite extraction failed: %s", e)
+            logger.warning("y_for_composite extraction failed: %s", e)
             _y_for_composite = None
     return _y_for_composite
 
@@ -334,6 +334,6 @@ def _phase_fit_pipeline_block(_y_for_composite, train_idx, train_df):
             else:
                 _y_for_composite = None
         except Exception as e:
-            logger.debug("y_for_composite index-alignment failed: %s", e)
+            logger.warning("y_for_composite index-alignment failed: %s", e)
             _y_for_composite = None
     return _y_for_composite

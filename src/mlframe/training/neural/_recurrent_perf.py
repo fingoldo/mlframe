@@ -80,6 +80,7 @@ def maybe_enable_cudnn_rnn_autotune(rnn_type: RNNType) -> "bool | None":
     try:
         cc = torch.cuda.get_device_capability()
     except Exception as exc:
+        # fallback: an unreadable compute capability means cuDNN autotune is not enabled; the RNN keeps the prior setting.
         logger.debug("maybe_enable_cudnn_rnn_autotune: compute-capability probe failed: %s", exc)
         return None
     if cc < (8, 0):

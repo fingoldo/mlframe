@@ -147,7 +147,7 @@ def _report_strongest_dummy(
                 from .._prediction_envelope_clip import compute_train_envelope_stats
                 _dummy_envelope_stats = compute_train_envelope_stats(current_train_target)
             except Exception as e:
-                logger.debug("compute_train_envelope_stats failed: %s", e)
+                logger.warning("compute_train_envelope_stats failed: %s", e)
                 _dummy_envelope_stats = None
         _common = dict(
             columns=list(_columns_attr) if _columns_attr is not None else [],

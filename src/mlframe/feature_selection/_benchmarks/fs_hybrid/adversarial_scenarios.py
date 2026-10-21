@@ -434,9 +434,7 @@ def latent_replicates_private_delta(
 # ---------------------------------------------------------------------------
 
 
-def linear_gaussian_lowdim_n200(
-    seed: int = 0, n: int = 200, n_informative: int = 5, n_noise: int = 15
-) -> Tuple[pd.DataFrame, pd.Series, Dict[str, object]]:
+def linear_gaussian_lowdim_n200(seed: int = 0, n: int = 200, n_informative: int = 5, n_noise: int = 15) -> Tuple[pd.DataFrame, pd.Series, Dict[str, object]]:
     """5 informative, 15 noise, Gaussian, n=200: parametric structure that binning throws away.
 
     A plain univariate t-test filter exploits the Gaussian/linear form and should beat a binned-MI selector
@@ -488,7 +486,7 @@ ADVERSARIAL_SCENARIOS: Dict[str, ScenarioFn] = {
 def expected_to_break_index(names: Sequence[str] = ()) -> Dict[str, Tuple[str, ...]]:
     """Return ``arm -> scenarios it is expected to break``, for the pre-registration coverage meta-test."""
     index: Dict[str, List[str]] = {}
-    for scenario in names or tuple(ADVERSARIAL_SCENARIOS):
+    for scenario in names if names else tuple(ADVERSARIAL_SCENARIOS):
         _, _, truth = ADVERSARIAL_SCENARIOS[scenario](0)
         arms = cast(Tuple[str, ...], truth["expected_to_break"])
         for arm in arms:

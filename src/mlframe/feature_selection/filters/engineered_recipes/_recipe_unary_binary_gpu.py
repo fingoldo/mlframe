@@ -68,6 +68,7 @@ def _vram_f32() -> bool:
         from .._fe_gpu_batch._devices import fe_gpu_f32_enabled
         return bool(fe_gpu_f32_enabled())
     except Exception as e:
+        # fallback: a failing flag check keeps the f64 dtype discipline, the default path.
         logger.debug("_vram_f32: fe_gpu_f32_enabled() check failed, staying on the f64 dtype discipline: %s", e)
         return False
 

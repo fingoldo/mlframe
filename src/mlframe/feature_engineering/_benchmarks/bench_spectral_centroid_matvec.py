@@ -11,6 +11,7 @@ Run: CUDA_VISIBLE_DEVICES="" python bench_spectral_centroid_matvec.py
 """
 import time
 import numpy as np
+from mlframe.feature_engineering._safe_ratio import safe_rel_err
 
 RNG = np.random.default_rng(0)
 
@@ -29,7 +30,7 @@ def bench(rows, n_freq, iters=200):
 
     o = old_reduce(spec, k)
     n = new_reduce(spec, k)
-    max_rel = np.max(np.abs(o - n) / (np.abs(o) + 1e-30))
+    max_rel = np.max(safe_rel_err(np.abs(o - n), np.abs(o)))
 
     # warm
     for _ in range(5):

@@ -33,6 +33,7 @@ import argparse
 import itertools
 import json
 import logging
+from mlframe.utils.log_throttle import log_throttle
 import os
 from typing import Any, Dict, List, Sequence, Tuple
 
@@ -195,14 +196,14 @@ def main(argv: Sequence[str] | None = None) -> int:
                 try:
                     record = run_one(bed, seed, rule, policy, int(args.rows))
                 except Exception as exc:  # a configuration that cannot run is a finding, not a gap in the table
-                    logger.warning("bed=%s rule=%s policy=%s seed=%s failed: %s", bed, rule, policy, seed, exc)
+                    log_throttle(logger, "ablation_rfecv_aggregation:198", logging.WARNING, "bed=%s rule=%s policy=%s seed=%s failed: %s", bed, rule, policy, seed, exc)
                     record = {"bed": bed, "seed": seed, "voting_rule": rule, "missing_policy": policy, "error": f"{type(exc).__name__}: {exc}", "recall": float("nan"), "precision": float("nan"), "n_selected": 0}
                 rows.append(record)
             done = [r for r in rows if r["bed"] == bed and r["voting_rule"] == rule and r["missing_policy"] == policy]
             recalls = [float(r["recall"]) for r in done if np.isfinite(float(r["recall"]))]
             print(f"{bed:<28} {rule:<10} {policy:<7} recall={np.mean(recalls) if recalls else float('nan'):.3f} n={len(done)}")
 
-    out = args.out or os.path.join(RESULTS_DIR, "ablation_rfecv_aggregation.json")
+    out = args.out if args.out else os.path.join(RESULTS_DIR, "ablation_rfecv_aggregation.json")
     os.makedirs(os.path.dirname(out), exist_ok=True)
     with open(out, "w", encoding="utf-8") as handle:
         json.dump(rows, handle, indent=2, sort_keys=True)

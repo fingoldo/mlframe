@@ -42,7 +42,7 @@ def _ensure_xgb_classification_objective(model, train_target) -> None:
     try:
         params = model.get_params() if hasattr(model, "get_params") else {}
     except Exception as _params_exc:
-        logger.debug("_ensure_xgb_classification_objective: get_params() raised %s; skipping objective adjust.", _params_exc)
+        logger.warning("_ensure_xgb_classification_objective: get_params() raised %s; skipping objective adjust.", _params_exc)
         return
     obj = params.get("objective")
     if isinstance(obj, str) and ("multi" in obj or "multilabel" in obj):
@@ -56,7 +56,7 @@ def _ensure_xgb_classification_objective(model, train_target) -> None:
             try:
                 arr = np.stack([np.asarray(c) for c in arr], axis=0)
             except Exception as _stack_exc:
-                logger.debug("_ensure_xgb_classification_objective: object-dtype stack raised %s; skipping.", _stack_exc)
+                logger.warning("_ensure_xgb_classification_objective: object-dtype stack raised %s; skipping.", _stack_exc)
                 return
     if arr.ndim == 2 and arr.shape[1] >= 2:
         model.set_params(objective="binary:logistic", eval_metric="logloss")

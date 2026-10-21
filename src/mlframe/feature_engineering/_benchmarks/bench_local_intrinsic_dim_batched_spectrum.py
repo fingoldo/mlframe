@@ -21,6 +21,7 @@ from __future__ import annotations
 import time
 
 import numpy as np
+from mlframe.feature_engineering._safe_ratio import safe_rel_err
 
 N_FEATURES = 5
 
@@ -94,7 +95,7 @@ def main():
         old = _old_loop(dev, k_eff)
         new = _new_batched(dev, k_eff)
         max_abs = float(np.max(np.abs(old - new)))
-        rel = max_abs / (float(np.max(np.abs(old))) + 1e-12)
+        rel = float(safe_rel_err(max_abs, float(np.max(np.abs(old)))))
         t_old = _bestof(_old_loop, dev, k_eff)
         t_new = _bestof(_new_batched, dev, k_eff)
         print(f"n_q={n_q:6d} k={k_eff} d={d:3d} | OLD={t_old*1e3:8.2f}ms NEW={t_new*1e3:8.2f}ms "

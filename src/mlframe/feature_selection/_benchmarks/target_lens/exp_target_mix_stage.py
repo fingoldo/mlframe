@@ -40,7 +40,7 @@ def one(process: str, n_train: int, seed: int) -> dict:
         sc = StandardScaler().fit(tr)
         for name, make in _models().items():
             row[name] = _rmse(make().fit(sc.transform(tr), ytr).predict(sc.transform(te)), yte)
-        row["recovery"] = float("nan") if weak_te is None else max([abs(np.corrcoef(te[c], weak_te)[0, 1]) for c in te.columns if te[c].std() > 0] or [0.0])
+        row["recovery"] = float("nan") if weak_te is None else max(_cs if (_cs := [abs(np.corrcoef(te[c], weak_te)[0, 1]) for c in te.columns if te[c].std() > 0]) else [0.0])
         out[flag] = row
     return out
 

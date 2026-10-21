@@ -41,6 +41,7 @@ import time
 from dataclasses import dataclass, field
 
 import numpy as np
+from mlframe.feature_engineering._safe_ratio import safe_div
 import pandas as pd
 
 from mlframe.feature_selection.filters.supervised_binning import mdlp_bin_edges
@@ -189,7 +190,7 @@ def scen_multicolumn(n: int, n_relevant: int, n_irrelevant: int, n_redundant: in
             x = rng.integers(0, 500, n).astype(np.float64)  # high-cardinality categorical
             categorical_cols.append(name)
         relevant_data[name] = x
-        xz = (x - x.mean()) / (x.std() + 1e-9)
+        xz = safe_div(x - x.mean(), x.std())
         y += weights[i] * xz
     y += rng.standard_normal(n) * 0.5
 
@@ -292,7 +293,7 @@ def scen_wellbore100k(n_relevant: int, n_redundant: int, seed: int = 0, n: int =
     for i, name in enumerate(relevant_names):
         x = rng.standard_normal(n_rows) * (10.0 ** rng.uniform(-1, 2))
         relevant_data[name] = x
-        xz = (x - x.mean()) / (x.std() + 1e-9)
+        xz = safe_div(x - x.mean(), x.std())
         y += weights[i] * xz
     y += rng.standard_normal(n_rows) * 0.5
     cols.update(relevant_data)

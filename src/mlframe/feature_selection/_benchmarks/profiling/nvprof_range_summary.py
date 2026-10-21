@@ -1,6 +1,7 @@
 """Per-NVTX-range kernel launches and GPU time from an ``nvprof --print-gpu-summary`` log. Usage: ``python nvprof_range_summary.py out.txt [kernel-name-substring]``; with a substring it lists, per range, the launches and GPU ms of the kernels whose name contains it (for example ``cupy_copy__float64_float64``, the same-dtype copies)."""
 import re, sys
-txt = open(sys.argv[1], encoding="utf-8", errors="ignore").read().splitlines()
+with open(sys.argv[1], encoding="utf-8", errors="ignore") as _fh:
+    txt = _fh.read().splitlines()
 def tms(s):
     m = re.match(r"([\d.]+)(ns|us|ms|s)$", s); return float(m.group(1)) * {"ns": 1e-6, "us": 1e-3, "ms": 1, "s": 1000}[m.group(2)]
 cur = None; res = {}

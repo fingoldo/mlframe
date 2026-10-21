@@ -19,7 +19,6 @@ import argparse
 import time
 import warnings
 
-
 warnings.filterwarnings("ignore")
 
 
@@ -87,56 +86,53 @@ def main(argv=None):
     ap.add_argument("--out_file", default=None)
     args = ap.parse_args(argv)
 
-    if args.out_file:
-        import atexit
-        import builtins
-        _fp = open(args.out_file, "w", buffering=1, encoding="utf-8")
-        atexit.register(_fp.close)
-        _orig = builtins.print
+    import builtins
+    import contextlib
+    with (open(args.out_file, "w", buffering=1, encoding="utf-8") if args.out_file else contextlib.nullcontext()) as _fp:
+        if _fp is not None:
+            _orig = builtins.print
+            builtins.print = make_tee_print(_orig, _fp)
 
-        builtins.print = make_tee_print(_orig, _fp)
+        requested = [c.strip() for c in args.configs.split(",") if c.strip()]
+        for c in requested:
+            if c not in CONFIGS:
+                raise SystemExit(f"unknown config {c}; known: {sorted(CONFIGS)}")
 
-    requested = [c.strip() for c in args.configs.split(",") if c.strip()]
-    for c in requested:
-        if c not in CONFIGS:
-            raise SystemExit(f"unknown config {c}; known: {sorted(CONFIGS)}")
+        print(f"iter54 inner_n_jobs_cap A/B: configs={requested}", flush=True)
+        overall = {}
+        for name in requested:
+            cfg = CONFIGS[name]
+            print(f"\n[{name}] cfg={cfg}", flush=True)
+            t_data = time.perf_counter()
+            X, y, roles = make_dataset(cfg)
+            print(f"[{name}] dataset shape={X.shape} in {time.perf_counter()-t_data:.1f}s", flush=True)
+            # Run cap_off (NEW default) first so any JIT warmup is amortised against the slower legacy
+            # path. Then cap_on. iter53 used the same warm-then-warm ordering so reported deltas are
+            # the steady-state perf gap, not first-fit JIT cost.
+            r_off = run_one(name, cfg, inner_n_jobs_cap=False, X=X, y=y, roles=roles)
+            r_on = run_one(name, cfg, inner_n_jobs_cap=True, X=X, y=y, roles=roles)
+            overall[name] = dict(cap_off=r_off, cap_on=r_on)
 
-    print(f"iter54 inner_n_jobs_cap A/B: configs={requested}", flush=True)
-    overall = {}
-    for name in requested:
-        cfg = CONFIGS[name]
-        print(f"\n[{name}] cfg={cfg}", flush=True)
-        t_data = time.perf_counter()
-        X, y, roles = make_dataset(cfg)
-        print(f"[{name}] dataset shape={X.shape} in {time.perf_counter()-t_data:.1f}s", flush=True)
-        # Run cap_off (NEW default) first so any JIT warmup is amortised against the slower legacy
-        # path. Then cap_on. iter53 used the same warm-then-warm ordering so reported deltas are
-        # the steady-state perf gap, not first-fit JIT cost.
-        r_off = run_one(name, cfg, inner_n_jobs_cap=False, X=X, y=y, roles=roles)
-        r_on = run_one(name, cfg, inner_n_jobs_cap=True, X=X, y=y, roles=roles)
-        overall[name] = dict(cap_off=r_off, cap_on=r_on)
+            print_stage_table(name, "cap_off", r_off["stage_timings"], r_off["total"])
+            print_stage_table(name, "cap_on", r_on["stage_timings"], r_on["total"])
+            d_e2e = (r_on["total"] - r_off["total"]) / r_off["total"]
+            print(f"\n  [{name}] e2e: cap_off={r_off['total']:.2f}s  cap_on={r_on['total']:.2f}s  "
+                  f"delta={d_e2e*100:+.1f}% (positive = cap is slower)", flush=True)
+            print(f"  [{name}] recall: cap_off={r_off['recall']}  cap_on={r_on['recall']}", flush=True)
+            print(f"  [{name}] n_selected: cap_off={r_off['n_selected']}  cap_on={r_on['n_selected']}", flush=True)
+            subset_equal = r_off["chosen_subset"] == r_on["chosen_subset"]
+            print(f"  [{name}] chosen_subset_equal={subset_equal}", flush=True)
+            if r_off["chosen_honest_loss"] is not None and r_on["chosen_honest_loss"] is not None:
+                print(f"  [{name}] chosen_honest_loss: cap_off={r_off['chosen_honest_loss']:.6f}  " f"cap_on={r_on['chosen_honest_loss']:.6f}", flush=True)
+            # Per-stage deltas (positive = cap is slower)
+            print(f"  [{name}] per-stage walls (delta = cap_on/cap_off - 1):")
+            for k in _STAGE_ORDER:
+                a = r_off["stage_timings"].get(k)
+                b = r_on["stage_timings"].get(k)
+                if a and b:
+                    print(f"    {k:24s} cap_off={a:7.3f}s  cap_on={b:7.3f}s  " f"delta={(b/a - 1)*100:+.1f}%")
 
-        print_stage_table(name, "cap_off", r_off["stage_timings"], r_off["total"])
-        print_stage_table(name, "cap_on", r_on["stage_timings"], r_on["total"])
-        d_e2e = (r_on["total"] - r_off["total"]) / r_off["total"]
-        print(f"\n  [{name}] e2e: cap_off={r_off['total']:.2f}s  cap_on={r_on['total']:.2f}s  "
-              f"delta={d_e2e*100:+.1f}% (positive = cap is slower)", flush=True)
-        print(f"  [{name}] recall: cap_off={r_off['recall']}  cap_on={r_on['recall']}", flush=True)
-        print(f"  [{name}] n_selected: cap_off={r_off['n_selected']}  cap_on={r_on['n_selected']}", flush=True)
-        subset_equal = r_off["chosen_subset"] == r_on["chosen_subset"]
-        print(f"  [{name}] chosen_subset_equal={subset_equal}", flush=True)
-        if r_off["chosen_honest_loss"] is not None and r_on["chosen_honest_loss"] is not None:
-            print(f"  [{name}] chosen_honest_loss: cap_off={r_off['chosen_honest_loss']:.6f}  " f"cap_on={r_on['chosen_honest_loss']:.6f}", flush=True)
-        # Per-stage deltas (positive = cap is slower)
-        print(f"  [{name}] per-stage walls (delta = cap_on/cap_off - 1):")
-        for k in _STAGE_ORDER:
-            a = r_off["stage_timings"].get(k)
-            b = r_on["stage_timings"].get(k)
-            if a and b:
-                print(f"    {k:24s} cap_off={a:7.3f}s  cap_on={b:7.3f}s  " f"delta={(b/a - 1)*100:+.1f}%")
-
-    return overall
-
+        return overall
 
 if __name__ == "__main__":
     main()

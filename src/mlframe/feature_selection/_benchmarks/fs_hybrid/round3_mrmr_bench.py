@@ -66,7 +66,7 @@ def main():
                 logger.debug("seed=%s config=%s failed: %s: %s", sd, name, type(e).__name__, e)
                 row = dict(seed=sd, config=name, error=f"{type(e).__name__}: {e}")
             rows.append(row)
-            print(f"sd{sd} {name:14s} " + (row.get("error") or
+            print(f"sd{sd} {name:14s} " + (row.get("error") if row.get("error") else
                   f"n={row['n']:2d} eng={row['n_eng']:2d} spur={row['spurious_eng']:2d} base={row['base']}/{len(base)} "
                   f"rec={row['base_recall']} noise={row['noise']} {row['fit_s']:5.1f}s mean={row['auc_mean']}"), flush=True)
     df = pd.DataFrame([r for r in rows if not r.get("error")])

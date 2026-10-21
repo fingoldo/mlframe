@@ -548,6 +548,7 @@ def _psi_cache_key(test_frame: Any, timestamps: Any, names: Any) -> Optional[tup
             tuple(str(n) for n in names) if names is not None else None,
         )
     except Exception as exc:  # an unhashable frame only means "do not cache": the heatmap is recomputed, never wrong
+        # fallback: an unhashable frame only skips the memo; the heatmap is recomputed
         logger.debug("PSI cache key unavailable (%s); computing the heatmap uncached", exc)
         return None
 

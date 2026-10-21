@@ -68,7 +68,7 @@ def _selector_output_columns(selector):
         try:
             support = selector.get_support()
         except Exception as exc:
-            logger.debug("selector.get_support() failed, feature names unresolvable: %s", exc)
+            logger.warning("selector.get_support() failed, feature names unresolvable: %s", exc)
             support = None
     if support is None:
         return None
@@ -79,7 +79,7 @@ def _selector_output_columns(selector):
             return [c for c, keep in zip(names_in, support) if keep]
         return [names_in[int(i)] for i in support]
     except Exception as exc:
-        logger.debug("selector support -> feature-name mapping failed: %s", exc)
+        logger.warning("selector support -> feature-name mapping failed: %s", exc)
         return None
 
 

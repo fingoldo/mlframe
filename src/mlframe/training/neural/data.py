@@ -364,7 +364,7 @@ class TorchDataModule(LightningDataModule):
             if hasattr(features, "columns"):
                 return len(features.columns)
         except Exception as exc:
-            logger.debug("neural.data: feature-width introspection failed: %s", exc)
+            logger.warning("neural.data: feature-width introspection failed: %s", exc)
             return None
         return None
 
@@ -718,7 +718,7 @@ class TorchDataModule(LightningDataModule):
             elif torch.is_tensor(labels):
                 return len(torch.unique(labels))
         except Exception as e:
-            logger.debug("num_classes probe failed on labels of type %s (%s: %s)", type(labels).__name__, type(e).__name__, e)
+            logger.warning("num_classes probe failed on labels of type %s (%s: %s)", type(labels).__name__, type(e).__name__, e)
             return None
 
         return None

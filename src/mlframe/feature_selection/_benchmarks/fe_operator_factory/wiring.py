@@ -90,7 +90,7 @@ def _edits(new: Operator, prev: Operator, params: "list[tuple[str, str]]", comme
 def plan(new: Operator, prev: Operator, params: "Optional[list[tuple[str, str]]]" = None, comment: str = "", root: Optional[Path] = None) -> "list[str]":
     """Check every anchor (a dry run) and return the problems found: an empty list means ``apply`` will succeed. ``root`` re-bases the repository (tests use a copy)."""
     problems = []
-    for path, anchor, _repl, expected in _edits(new, prev, params or [], comment or f"{new.family} operator"):
+    for path, anchor, _repl, expected in _edits(new, prev, params if params else [], comment if comment else f"{new.family} operator"):
         target = _rebase(path, root)
         if not target.exists():
             problems.append(f"missing file {target}")
@@ -112,7 +112,7 @@ def apply(new: Operator, prev: Operator, params: "Optional[list[tuple[str, str]]
     if problems:
         raise RuntimeError("cannot wire the operator:\n  " + "\n  ".join(problems))
     count = 0
-    for path, anchor, repl, _expected in _edits(new, prev, params or [], comment or f"{new.family} operator"):
+    for path, anchor, repl, _expected in _edits(new, prev, params if params else [], comment if comment else f"{new.family} operator"):
         target = _rebase(path, root)
         raw = target.read_bytes().decode("utf-8")
         nl = "\r\n" if "\r\n" in raw else "\n"

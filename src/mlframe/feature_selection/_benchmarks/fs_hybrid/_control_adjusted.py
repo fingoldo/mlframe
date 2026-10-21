@@ -177,7 +177,7 @@ def format_control_block(records: Sequence[Dict[str, Any]], model: str, k_label:
     for row in table:
         by_scenario.setdefault(str(row["scenario"]), []).append(row)
     for scenario in sorted(by_scenario):
-        rows = sorted(by_scenario[scenario], key=lambda r: (r["delta_vs_random"] is None, -(r["delta_vs_random"] or -9e9)))
+        rows = sorted(by_scenario[scenario], key=lambda r: (r["delta_vs_random"] is None, -(r["delta_vs_random"] if r["delta_vs_random"] is not None else -9e9)))
         shown = rows[:top]
         # The denominator is stated on the header, not left to be inferred from the number of rows printed.
         lines.append(f"  [{scenario}] showing {len(shown)} of {len(rows)} arm(s), best adjusted skill first")

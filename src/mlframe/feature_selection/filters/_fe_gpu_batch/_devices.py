@@ -112,6 +112,7 @@ def _visible_device_ids() -> list[int]:
         import cupy as cp
         count = int(cp.cuda.runtime.getDeviceCount())
     except Exception as e:
+        # best-effort: cupy missing or no CUDA runtime is the normal CPU-only case; the caller then sees no GPU devices.
         logger.debug("_visible_device_ids: cupy import/device-count query failed, no CUDA devices are visible: %s", e)
         return []
     ids = list(range(count))

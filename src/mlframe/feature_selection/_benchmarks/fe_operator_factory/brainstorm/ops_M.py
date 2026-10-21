@@ -90,40 +90,39 @@ def main(argv=None) -> None:
     args = ap.parse_args(argv)
     pairs = list(itertools.combinations(range(8), 2))
     tp = pairs.index((4, 5))
-    out = (scratch_dir("brainstorm") / "results_M.jsonl").open("a")
-    for kind in ("W", "N", "0"):
-        R = []
-        for s in range(args.seeds):
-            rng = np.random.default_rng(2000 + s)
-            X, y = gen(rng, args.n, kind)
-            r = resid_oof(X, y, rng)
-            sy, sr = screen(X, y, pairs), screen(X, r, pairs)
-            perm = rng.permutation(len(r))
-            sn = screen(X, r[perm], pairs)
+    with (scratch_dir("brainstorm") / "results_M.jsonl").open("a") as out:
+        for kind in ("W", "N", "0"):
+            R = []
+            for s in range(args.seeds):
+                rng = np.random.default_rng(2000 + s)
+                X, y = gen(rng, args.n, kind)
+                r = resid_oof(X, y, rng)
+                sy, sr = screen(X, y, pairs), screen(X, r, pairs)
+                perm = rng.permutation(len(r))
+                sn = screen(X, r[perm], pairs)
 
-            def rk(sc):
-                """Rank of the true pair among the screened pairs (1 = best)."""
-                return int((sc > sc[tp]).sum()) + 1
+                def rk(sc):
+                    """Rank of the true pair among the screened pairs (1 = best)."""
+                    return int((sc > sc[tp]).sum()) + 1
 
-            R.append(
-                dict(
-                    rank_y=rk(sy),
-                    rank_r=rk(sr),
-                    top_y=sy.max(),
-                    top_r=sr.max(),
-                    true_y=sy[tp],
-                    true_r=sr[tp],
-                    null_top=sn.max(),
-                    top_r_pair=str(pairs[int(sr.argmax())]),
-                    top_y_pair=str(pairs[int(sy.argmax())]),
+                R.append(
+                    dict(
+                        rank_y=rk(sy),
+                        rank_r=rk(sr),
+                        top_y=sy.max(),
+                        top_r=sr.max(),
+                        true_y=sy[tp],
+                        true_r=sr[tp],
+                        null_top=sn.max(),
+                        top_r_pair=str(pairs[int(sr.argmax())]),
+                        top_y_pair=str(pairs[int(sy.argmax())]),
+                    )
                 )
+            m = {k: float(np.mean([r[k] for r in R])) for k in R[0] if not k.endswith("pair")}
+            print(
+                kind, {k: round(v, 4) for k, v in m.items()}, "top_y pairs", [r["top_y_pair"] for r in R], "top_r pairs", [r["top_r_pair"] for r in R], flush=True
             )
-        m = {k: float(np.mean([r[k] for r in R])) for k in R[0] if not k.endswith("pair")}
-        print(
-            kind, {k: round(v, 4) for k, v in m.items()}, "top_y pairs", [r["top_y_pair"] for r in R], "top_r pairs", [r["top_r_pair"] for r in R], flush=True
-        )
-        out.write(json.dumps(dict(kind=kind, mean=m)) + "\n")
-    out.close()
+            out.write(json.dumps(dict(kind=kind, mean=m)) + "\n")
 
 
 if __name__ == "__main__":

@@ -57,7 +57,7 @@ def _eval(seed, rule):
     sel = RFECV(estimator=_mk(), n_features_selection_rule=rule, cv=3, random_state=seed, max_refits=12, verbose=0)
     t0 = time.perf_counter()
     sel.fit(Xtr, ytr)
-    kept = list(getattr(sel, "support_names_", [])) or [c for c, m in zip(X.columns, sel.support_) if m]
+    kept = [c for c, m in zip(X.columns, sel.support_) if m]
     if not kept:
         kept = list(X.columns)
     model = _mk()

@@ -317,7 +317,7 @@ class _PredictMixin:
                         _n_features = int(X.shape[1])
                     elif hasattr(X, "columns"):
                         _n_features = len(X.columns)
-                except Exception as e:
+                except Exception as e:  # best-effort: the width only tunes the predict batch size; the default size is used
                     logger.debug("could not probe input width for predict batch-size auto-tune: %s", e)
                     _n_features = None
                 pred_batch_size = resolve_mlp_predict_batch_size(

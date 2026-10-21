@@ -34,7 +34,7 @@ def _polars_to_pandas_frame(X, feature_names):
             try:
                 df = _pl2pd(X.collect())
             except Exception as e:
-                logger.debug("_pl2pd(X.collect()) failed: %s", e)
+                logger.warning("_pl2pd(X.collect()) failed: %s", e)
                 df = None
         elif _typename == "Series":
             # 1-D series -> single-column frame. Use the series name if
@@ -45,7 +45,7 @@ def _polars_to_pandas_frame(X, feature_names):
             try:
                 df = pd.DataFrame({_name: X.to_pandas()})
             except Exception as e:
-                logger.debug("building a DataFrame from a polars Series failed: %s", e)
+                logger.warning("building a DataFrame from a polars Series failed: %s", e)
                 df = None
         else:
             try:

@@ -55,7 +55,8 @@ DATA_DIR = r"C:\Users\Admin\Machine learning\data\Competitions\ROGII - Wellbore 
 _lf = pl.scan_parquet(join(DATA_DIR, "train_df.parquet")).filter(~pl.col("TVT").is_null())
 _counts = _lf.group_by("well_id").agg(pl.len().alias("n")).sort("well_id").collect()
 _counts = _counts.with_columns(pl.col("n").cum_sum().alias("cum"))
-_keep = _counts.filter(pl.col("cum") <= TARGET_ROWS)["well_id"].to_list() or [_counts["well_id"][0]]
+_keep = _ids = _counts.filter(pl.col("cum") <= TARGET_ROWS)["well_id"].to_list()
+_keep = _ids if _ids else [_counts["well_id"][0]]
 df = _lf.filter(pl.col("well_id").is_in(_keep)).with_columns(pl.col(pl.Float64).cast(pl.Float32)).collect()
 
 _drop = ["TVT_input", "ANCC", "ASTNL", "ASTNU", "BUDA", "EGFDL", "EGFDU", "well_id"]  # codespell:ignore buda

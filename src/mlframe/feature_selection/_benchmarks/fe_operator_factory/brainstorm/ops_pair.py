@@ -7,6 +7,7 @@ from sklearn.tree import DecisionTreeRegressor
 
 from ..common._paths import scratch_dir
 from .h import case_args, mi_pair, oof, run_case, ybins
+from ..wave2.targets import bumps
 
 
 def mk(Xf, sf, tf=None, nz=0.3, null=False):
@@ -119,16 +120,6 @@ def E_new(Xtr, ytr, Xte, rng):
     return a, b, 0
 
 
-def bumps(X):
-    """Two-Gaussian-bump signal on the unit square."""
-
-    def f(c1, c2):
-        """One Gaussian bump centred at ``(c1, c2)``."""
-        return np.exp(-((X[:, 0] - c1) ** 2 + (X[:, 1] - c2) ** 2) / 0.02)
-
-    return f(0.25, 0.25) + f(0.75, 0.7)
-
-
 # ---- C : 1-D cross-fitted binned warp (X col0 signal, col1 noise)
 def warp_fp(Xa, ya, Xb, nb_=20):
     """Fit-predict function: piecewise-linear interpolation of per-bin mean y over the first column."""
@@ -188,9 +179,7 @@ def H_new(Xtr, ytr, Xte, rng):
 def I_new(Xtr, ytr, Xte, rng):
     """Operator I: circular distance (period 24) to the best phase on a half-hour grid."""
 
-    def cd(x, p):
-        """Circular distance of ``x`` to the phase ``p`` for period 24."""
-        return np.minimum(np.abs(x - p), 24 - np.abs(x - p))
+    cd = cd_t  # same circular distance as the module-level cd_t
 
     yb = ybins(ytr, ytr)
     best = None

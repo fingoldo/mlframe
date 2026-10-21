@@ -19,7 +19,7 @@ import numpy as np
 import pytest
 from sklearn.metrics import mean_squared_error
 
-from mlframe.training.core._phase_composite_post_xt_ensemble import MTRPerColumnEqualMeanEnsemble
+from mlframe.training.core._phase_composite_post_xt_ensemble._post_xt_ensemble_mtr import MTRPerColumnEqualMeanEnsemble
 
 
 def _macro_rmse(y_true: np.ndarray, y_pred: np.ndarray) -> float:
@@ -60,9 +60,10 @@ def test_biz_val_mtr_shared_trunk_matches_independent(seed):
     X_te, y_te = _make_shared_latent(800, 8, 3, seed + 1000)
 
     kw = CatBoostStrategy().get_multi_target_objective_kwargs()
-    # `eval_metric` moves with the loss: the clone these kwargs land on already carries a single-output
-    # `eval_metric="RMSE"` from `_cb_sklearn_clone`, and CatBoost refuses that pair at fit time.
-    assert kw == {"loss_function": "MultiRMSE", "eval_metric": "MultiRMSE"}
+    # `eval_metric` and `custom_metric` move with the loss: the clone these kwargs land on already carries a
+    # single-output `eval_metric="RMSE"` and the regressor default `custom_metric` ("RMSE", "MAPE") from
+    # `_cb_sklearn_clone`, and CatBoost refuses either beside MultiRMSE at fit time.
+    assert kw == {"loss_function": "MultiRMSE", "eval_metric": "MultiRMSE", "custom_metric": ("MultiRMSE",)}
     shared = catboost.CatBoostRegressor(iterations=120, learning_rate=0.1, depth=4, verbose=False, **kw)
     shared.fit(X_tr, y_tr)
     rmse_shared = _macro_rmse(y_te, shared.predict(X_te))

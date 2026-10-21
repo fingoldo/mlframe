@@ -24,6 +24,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+from mlframe.utils.log_throttle import log_throttle
 import os
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
@@ -167,13 +168,13 @@ def main(argv: Sequence[str] | None = None) -> int:
                 try:
                     rows.append(run_point(str(args.bed), arm_name, n_samples, seed))
                 except Exception as exc:
-                    logger.warning("n=%s arm=%s seed=%s failed: %s", n_samples, arm_name, seed, exc)
+                    log_throttle(logger, "sweep_recovery_vs_n:170", logging.WARNING, "n=%s arm=%s seed=%s failed: %s", n_samples, arm_name, seed, exc)
                     rows.append({"bed": str(args.bed), "arm": arm_name, "n_samples": n_samples, "seed": seed, "recall": float("nan"), "precision": float("nan"), "n_selected": 0, "error": f"{type(exc).__name__}: {exc}"})
             done = [r for r in rows if r["n_samples"] == n_samples and r["arm"] == arm_name]
             recalls = [float(r["recall"]) for r in done if np.isfinite(float(r["recall"]))]
             print(f"n={n_samples:<7} {arm_name:<16} recall={np.mean(recalls) if recalls else float('nan'):.3f} over {len(recalls)} seeds")
 
-    out = args.out or os.path.join(RESULTS_DIR, f"sweep_recovery_vs_n_{args.bed}.json")
+    out = args.out if args.out else os.path.join(RESULTS_DIR, f"sweep_recovery_vs_n_{args.bed}.json")
     os.makedirs(os.path.dirname(out), exist_ok=True)
     with open(out, "w", encoding="utf-8") as handle:
         json.dump(rows, handle, indent=2, sort_keys=True)

@@ -181,7 +181,7 @@ class ShapSel:
         try:
             self.report_ = {k: self.s_.shap_proxy_report_.get(k) for k in ("trust_guard", "cluster")}
         except Exception as e:
-            logger.debug("shap_proxy_report_ extraction failed: %s", e)
+            logger.warning("shap_proxy_report_ extraction failed: %s", e)
             self.report_ = {}
         return self
     def transform(self, X):
@@ -258,7 +258,7 @@ class Ensemble:
         sa, sb = set(self.a.raw_selected_), set(self.b.raw_selected_)
         merged = (sa | sb) if self.op == "union" else (sa & sb)
         if not merged:
-            merged = sa or sb or set(list(X.columns)[:1])
+            merged = sa if sa else (sb if sb else set(list(X.columns)[:1]))
         self.raw_selected_ = [c for c in X.columns if c in merged]
         self.n_engineered_ = 0
         return self

@@ -40,6 +40,7 @@ def model_text_feature_names(model: Any) -> list[str]:
         indices = list(model.get_text_feature_indices() or [])
         names = list(getattr(model, "feature_names_", None) or [])
     except Exception as exc:  # not a fitted CatBoost model: nothing to protect
+        # fallback: a model without CatBoost text features is the normal case, so no text columns need protecting.
         logger.debug("model_text_feature_names: %s", exc, exc_info=True)
         return []
     return [names[i] for i in indices if 0 <= i < len(names)]

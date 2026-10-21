@@ -49,11 +49,13 @@ def test_pipeline_helpers_apply_import_does_not_raise() -> None:
     at all is the regression guard; the module-split rule is: every symbol the sibling needs back from the
     facade must be re-exported here, not just the ones present when the split first happened.
     """
+    import mlframe.training.pipeline._pipeline_cache as cache_leaf
     import mlframe.training.pipeline._pipeline_helpers as facade
     import mlframe.training.pipeline._pipeline_helpers_apply as apply_module
 
-    assert apply_module._PRE_PIPELINE_CACHE_MAX_BYTES == facade._PRE_PIPELINE_CACHE_MAX_BYTES
-    assert apply_module._approx_entry_bytes is facade._approx_entry_bytes
+    assert facade._PRE_PIPELINE_CACHE_MAX_BYTES == cache_leaf._PRE_PIPELINE_CACHE_MAX_BYTES
+    assert facade._approx_entry_bytes is cache_leaf._approx_entry_bytes
+    assert apply_module._pre_pipeline_cache_set is cache_leaf._pre_pipeline_cache_set
 
 
 def test_pipeline_ops_symbols_still_importable_from_facade() -> None:

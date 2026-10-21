@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import time
 import numpy as np
+from mlframe.feature_engineering._safe_ratio import safe_rel_err
 
 from mlframe.feature_engineering.transformer.density_ratio import _gaussian_kde_log as _kde_gemm
 
@@ -40,7 +41,7 @@ def bench(n_q, n_t, d, h=1.5, reps=5):
     a = _kde_broadcast(Xq, Xt, h)
     b = _kde_gemm(Xq, Xt, h)
     max_abs = float(np.max(np.abs(a - b)))
-    max_rel = float(np.max(np.abs(a - b) / (np.abs(a) + 1e-6)))
+    max_rel = float(np.max(safe_rel_err(np.abs(a - b), np.abs(a))))
 
     def best(fn):
         t = []

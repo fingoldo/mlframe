@@ -254,6 +254,7 @@ def _gate_cands_resident() -> bool:
         from ._mi_greedy_cmi_fe import _cmi_gpu_enabled
         return bool(fe_gpu_strict_resident_enabled()) and bool(_cmi_gpu_enabled())
     except Exception as _flag_exc:
+        # fallback: the GPU-strict flag probe is False on CPU-only hosts, so resident candidates stay disabled.
         logger.debug("gate GPU-strict-resident flag probe failed (%s); resident candidates disabled.", _flag_exc)
         return False
 
@@ -360,6 +361,7 @@ def _gate_rank_binning() -> bool:
         from ._gpu_strict_fe import fe_gpu_strict_bytematch_enabled
         return bool(fe_gpu_strict_bytematch_enabled())
     except Exception as _flag_exc:
+        # fallback: an unreadable GPU-strict bytematch flag keeps the default fast rank binning.
         logger.debug("gate GPU-strict-bytematch flag probe failed (%s); bytematch binning disabled.", _flag_exc)
         return False
 

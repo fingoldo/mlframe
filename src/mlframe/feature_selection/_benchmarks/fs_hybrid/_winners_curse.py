@@ -130,7 +130,7 @@ def optimism_table(records: Sequence[Dict[str, Any]], model: str = "lightgbm", m
         lines.append("")
         lines.append(f"  NOT COMPARABLE -- these arms score internally on a different metric than {metric!r}, so no difference is taken:")
         for row in sorted(mismatched, key=lambda item: (item.scenario, item.arm)):
-            named = row.selection_metric or "unnamed metric"
+            named = row.selection_metric if row.selection_metric else "unnamed metric"
             lines.append(
                 f"  {row.arm:<28} [{row.scenario}] claimed={row.mean_selection_score:+.4f} ({named})  "
                 f"honest={row.mean_holdout:+.4f} ({metric})  m={row.n_seeds}"

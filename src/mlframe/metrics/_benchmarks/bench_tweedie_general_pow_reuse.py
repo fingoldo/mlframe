@@ -10,7 +10,8 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-import sys; sys.modules['cupy'] = None
+import sys
+sys.modules['cupy'] = None
 import numpy as np, time
 from numba import njit
 from mlframe.utils.gpu_sync import synchronize_gpu_if_available

@@ -302,7 +302,7 @@ def _alpha_drift_stats_for_spec(self, df, spec, train_idx, half, y_train_for_dri
         params1 = {"alpha": float(_alphas[0]), "beta": float(_betas[0])}
         params2 = {"alpha": float(_alphas[1]), "beta": float(_betas[1])}
     except Exception as e:
-        logger.debug("split-window param extraction failed for drift check: %s", e)
+        logger.warning("split-window param extraction failed for drift check: %s", e)
         return None
     a1 = float(params1.get("alpha", 0.0))
     a2 = float(params2.get("alpha", 0.0))

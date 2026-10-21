@@ -199,7 +199,7 @@ def _run_suite_profiled(
 
     if target_type == "regression":
         target_col = "y"
-        fte_kwargs = dict(regression_targets=_reg_targets or ["y"])
+        fte_kwargs = dict(regression_targets=_reg_targets if _reg_targets else ["y"])
         if _cls_targets:
             fte_kwargs["classification_targets"] = _cls_targets
             fte_kwargs["classification_exact_values"] = _cls_exact
@@ -212,15 +212,15 @@ def _run_suite_profiled(
         # binary suite actually trains end-to-end instead of suite-returning
         # empty target_by_type and looking like a 0.1s "OK" run.
         fte_kwargs = dict(
-            classification_targets=_cls_targets or ["y"],
-            classification_exact_values=_cls_exact or {"y": 1},
+            classification_targets=_cls_targets if _cls_targets else ["y"],
+            classification_exact_values=_cls_exact if _cls_exact else {"y": 1},
         )
         if _reg_targets:
             fte_kwargs["regression_targets"] = _reg_targets
         _tt = TargetTypes.BINARY_CLASSIFICATION
     elif target_type == "multiclass_classification":
         target_col = "y"
-        fte_kwargs = dict(classification_targets=_cls_targets or ["y"])
+        fte_kwargs = dict(classification_targets=_cls_targets if _cls_targets else ["y"])
         if _reg_targets:
             fte_kwargs["regression_targets"] = _reg_targets
         _tt = TargetTypes.MULTICLASS_CLASSIFICATION

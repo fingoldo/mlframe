@@ -79,7 +79,7 @@ def main():
     g["delta_vs_boruta"] = (g["auc_mean"] - b).round(4)
     print(g.to_string())
     print(f"\nR2b-3/R2b-8 verdict: any hetero variant beats boruta ({b})? " +
-          str({v: round(g.loc[v, 'auc_mean'] - b, 4) for v in g.index if v != 'boruta_ref' and g.loc[v, 'auc_mean'] > b} or "NONE"))
+          str(_flips if (_flips := {v: round(g.loc[v, 'auc_mean'] - b, 4) for v in g.index if v != 'boruta_ref' and g.loc[v, 'auc_mean'] > b}) else "NONE"))
 
 
 if __name__ == "__main__":

@@ -224,7 +224,7 @@ def _iter_columns(X):
     try:
         arr = np.asarray(X)
     except Exception as _arr_exc:
-        logger.debug("_iter_columns: np.asarray(X) failed (%s); treating X as un-introspectable.", _arr_exc)
+        logger.warning("_iter_columns: np.asarray(X) failed (%s); treating X as un-introspectable.", _arr_exc)
         return []
     if arr.ndim == 1:
         return [("0", arr)]

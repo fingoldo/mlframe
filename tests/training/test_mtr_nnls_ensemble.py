@@ -24,8 +24,8 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from mlframe.training import TargetTypes
+from mlframe.training.core._phase_composite_post_xt_ensemble._post_xt_ensemble_mtr import MTRPerColumnEqualMeanEnsemble
 from mlframe.training.core._phase_composite_post_xt_ensemble import (
-    MTRPerColumnEqualMeanEnsemble,
     _build_cross_target_ensemble_for_target,
 )
 

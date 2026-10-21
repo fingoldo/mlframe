@@ -170,7 +170,7 @@ def test_per_group_discovery_default_path_byte_identical_to_flag_off():
 def test_per_group_route_spec_column_by_group_routes_each_row_to_its_own_group_spec():
     """``route_spec_column_by_group`` must apply group A's spec to group A's rows and group B's spec to
     group B's rows -- i.e. produce a lower-error T-scale reconstruction than forcing one global spec."""
-    from mlframe.training.composite.discovery import route_spec_column_by_group
+    from mlframe.training.composite.discovery._per_group_discovery import route_spec_column_by_group
 
     df = _make_panel_df(seed=5)
     disc = _fit_per_group(df, _fast_config())

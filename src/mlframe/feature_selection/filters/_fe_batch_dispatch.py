@@ -30,6 +30,7 @@ def _cuda_available() -> bool:
         from ._fe_gpu_strict import _cuda_usable
         return bool(_cuda_usable())
     except Exception as e:
+        # fallback: a host without a usable CUDA runtime is the normal CPU-only case, not a fault.
         logger.debug("_cuda_available: usability check failed, treating as no CUDA: %s", e)
         return False
 
@@ -50,6 +51,7 @@ def _ktc_backend_choice(n_rows: int, n_cands: int) -> str | None:
             return "gpu"
         return "cpu"
     except Exception as e:
+        # fallback: the kernel-tuning cache is an optional hint, so a failed lookup is not fatal.
         logger.debug("_ktc_backend_choice: kernel-tuning cache lookup failed, falling back to conservative CPU default: %s", e)
         return None
 

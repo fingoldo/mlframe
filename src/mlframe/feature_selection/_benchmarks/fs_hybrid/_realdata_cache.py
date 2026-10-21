@@ -21,6 +21,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+from mlframe.utils.log_throttle import log_throttle
 import os
 from datetime import datetime, timezone
 from pathlib import Path
@@ -166,7 +167,7 @@ def fill_cache(
             logger.info("cached %s: shape=%s bytes=%s", name, matrix.shape, npz_path.stat().st_size)
             report.append(dict(meta, ok=True, skipped=False, bytes=npz_path.stat().st_size))
         except Exception as exc:
-            logger.warning("failed to cache %s: %s: %s", name, type(exc).__name__, exc)
+            log_throttle(logger, "_realdata_cache:169", logging.WARNING, "failed to cache %s: %s: %s", name, type(exc).__name__, exc)
             report.append(dict(name=name, ok=False, error=f"{type(exc).__name__}: {exc}"))
     return report
 
@@ -213,7 +214,7 @@ def available(cache_dir: Optional[PathLike] = None) -> List[Dict[str, Any]]:
         try:
             meta = json.loads(json_path.read_text(encoding="utf-8"))
         except Exception as exc:
-            logger.warning("unreadable cache sidecar %s: %s: %s", json_path, type(exc).__name__, exc)
+            log_throttle(logger, "_realdata_cache:216", logging.WARNING, "unreadable cache sidecar %s: %s: %s", json_path, type(exc).__name__, exc)
             continue
         meta["bytes"] = npz_path.stat().st_size
         out.append(meta)

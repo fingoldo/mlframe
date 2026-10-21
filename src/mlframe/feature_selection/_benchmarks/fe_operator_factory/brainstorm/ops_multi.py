@@ -6,13 +6,8 @@ import itertools
 import numpy as np
 
 from ..common._paths import scratch_dir
-from .h import case_args, clean, mi_pair, run_case, ybins
+from .h import UP, case_args, clean, mi_pair, run_case, ybins
 from .ops_pair import mk
-
-
-def UP(p):
-    """Generator of ``p`` uniform columns."""
-    return lambda rng, n: rng.random((n, p))
 
 
 def topk_cols(Xtr, yb):
@@ -222,9 +217,7 @@ def SX(rng, n):
     return np.column_stack([rng.integers(0, 1024, n).astype(float), rng.random(n)])
 
 
-def XM(rng, n):
-    """Generator: same as ``SX`` (kept for the original case table)."""
-    return np.column_stack([rng.integers(0, 1024, n).astype(float), rng.random(n)])
+XM = SX  # same generator as SX (kept for the original case table)
 
 
 def P(f, p):
@@ -285,4 +278,4 @@ if __name__ == "__main__":
     with (scratch_dir("brainstorm") / "results_multi.jsonl").open("a") as out:
         for nm in args.names:
             g, f, cols, pairs = C[nm]
-            run_case(nm, g, f, cols or [0, 1], seeds=args.seeds, n=args.n, out=out, pairs=pairs)
+            run_case(nm, g, f, cols if cols else [0, 1], seeds=args.seeds, n=args.n, out=out, pairs=pairs)

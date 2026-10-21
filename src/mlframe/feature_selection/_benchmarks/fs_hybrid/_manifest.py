@@ -83,7 +83,7 @@ def _git_sha() -> str:
         logger.warning("git sha unavailable: %s", exc)
         return "unavailable"
     sha = out.stdout.strip()
-    return sha or "unavailable"
+    return sha if sha else "unavailable"
 
 
 def _repo_root() -> str:
@@ -120,7 +120,7 @@ def environment_tuple() -> Dict[str, Any]:
     """Return the tuple timings are only comparable within."""
     return {
         "platform": platform.platform(),
-        "processor": platform.processor() or "unknown",
+        "processor": platform.processor() if platform.processor() else "unknown",
         "cpu_count": os.cpu_count(),
         "versions": _versions(),
     }
@@ -206,7 +206,7 @@ def check_run_against_manifest(manifest: Optional[Dict[str, Any]], records: Sequ
         notes.append(f"OPTIONAL STOPPING: {len(extra)} dataset seed(s) beyond the declared set were run ({extra[:8]}{'...' if len(extra) > 8 else ''})")
 
     declared_arms = set(manifest.get("arms", []))
-    declared_families = set(manifest.get("arm_families", [])) or {arm_family(a) for a in declared_arms}
+    declared_families = set(manifest.get("arm_families", [])) if manifest.get("arm_families", []) else {arm_family(a) for a in declared_arms}
     present_arms = {str(r["arm"]) for r in records if "arm" in r}
     undeclared = sorted(arm for arm in present_arms - declared_arms if arm_family(arm) not in declared_families)
     if declared_arms and undeclared:

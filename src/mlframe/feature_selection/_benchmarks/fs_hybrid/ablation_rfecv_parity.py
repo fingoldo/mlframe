@@ -100,7 +100,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             rows.append(record)
             print(f"{kind:<10} seed={seed:<3} |S|={record['n_selected']:<3} recall={record['recall']:.3f} precision={record['precision']:.3f}")
 
-    out = args.out or os.path.join(RESULTS_DIR, f"ablation_rfecv_parity_{args.bed}.json")
+    out = args.out if args.out else os.path.join(RESULTS_DIR, f"ablation_rfecv_parity_{args.bed}.json")
     os.makedirs(os.path.dirname(out), exist_ok=True)
     with open(out, "w", encoding="utf-8") as handle:
         json.dump(rows, handle, indent=2, sort_keys=True)

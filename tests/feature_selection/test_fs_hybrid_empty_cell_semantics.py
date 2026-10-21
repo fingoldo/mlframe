@@ -233,3 +233,31 @@ def test_each_empty_status_maps_to_exactly_one_token(status: str) -> None:
     assert status in EMPTY_CELL_TOKENS
     assert len(set(EMPTY_CELL_TOKENS.values())) == len(EMPTY_CELL_TOKENS)
     assert EMPTY_CELL_TOKENS[status] not in AMBIGUOUS_PLACEHOLDERS
+
+
+def test_format_control_block_ranks_a_zero_adjusted_delta_above_a_negative_one(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A computed adjusted delta of exactly 0.0 is a real score; it must rank above a negative one, not be treated as missing."""
+    from mlframe.feature_selection._benchmarks.fs_hybrid import _control_adjusted
+
+    def row(arm: str, delta: float) -> Dict[str, Any]:
+        """One computed adjusted-delta row for the fake control table."""
+        return {
+            "scenario": "bed", "arm": arm, "m": 3, "delta_vs_null": 0.0,
+            "delta_vs_random": delta, "delta_vs_random_status": STATUS_COMPUTED, "delta_vs_random_reason": "",
+            "delta_vs_variance": delta, "delta_vs_variance_status": STATUS_COMPUTED, "delta_vs_variance_reason": "",
+        }
+
+    fake_table = [row("negative-arm", -0.5), row("zero-arm", 0.0)]
+    monkeypatch.setattr(_control_adjusted, "control_adjusted_table", lambda *a, **k: fake_table)
+
+    lines = _control_adjusted.format_control_block([], model="m", k_label="k", top=5)
+    arm_lines = [line for line in lines if "vs_null=" in line]
+    assert [line.split()[0] for line in arm_lines] == ["zero-arm", "negative-arm"]
+
+
+def test_lgbm_auc_of_zero_ranks_above_a_missing_score() -> None:
+    """A real lgbm AUC of 0.0 must rank above a cell with no lgbm score; the old `or -1` ranked it below."""
+    from mlframe.feature_selection._benchmarks.fs_hybrid.importance_shootout import _lgbm_auc_rank
+
+    assert _lgbm_auc_rank({"auc": {"lgbm": 0.0}}) == 0.0
+    assert _lgbm_auc_rank({"auc": {}}) == -1

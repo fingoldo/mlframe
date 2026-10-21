@@ -37,7 +37,9 @@ def _is_numeric_column(X, name):
 
     dtype = X[name].dtype
     if hasattr(dtype, "is_numeric"):
-        return bool(dtype.is_numeric()) or str(dtype) == "Boolean"
+        if bool(dtype.is_numeric()):
+            return True
+        return str(dtype) == "Boolean"
     return bool(pd.api.types.is_numeric_dtype(dtype) or pd.api.types.is_bool_dtype(dtype))
 
 

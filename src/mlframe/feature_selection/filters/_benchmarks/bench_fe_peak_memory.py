@@ -56,6 +56,21 @@ class _RSSPoller(threading.Thread):
         import psutil  # local import so the module loads without psutil
         self._proc = psutil.Process()
 
+    def __getstate__(self) -> dict:
+        """Pickle everything but the stop event and the process handle, which cannot be pickled."""
+        state = self.__dict__.copy()
+        del state["_stop"]
+        del state["_proc"]
+        return state
+
+    def __setstate__(self, state: dict) -> None:
+        """Restore the entries and rebuild the stop event and the process handle."""
+        import psutil  # local import so the module loads without psutil
+
+        self.__dict__.update(state)
+        self._stop = threading.Event()
+        self._proc = psutil.Process()
+
     def run(self):
         while not self._stop.is_set():
             rss = self._proc.memory_info().rss / 1e6

@@ -57,7 +57,7 @@ def _cached_warm(df: pd.DataFrame, trials: int) -> float:
 
 
 def run(combinations=None, trials: int = 7) -> None:
-    combinations = combinations or [
+    combinations = combinations if combinations else [
         (10_000, 16),
         (100_000, 16),
         (100_000, 64),

@@ -96,7 +96,7 @@ def _fp_cache_key(df: Any, n_sample: int) -> "Optional[Tuple[int, int, int, int]
     """
     try:
         cols = list(df.columns)
-    except Exception as exc:
+    except Exception as exc:  # fallback: the memo is an optimisation; an uncached fingerprint is still correct
         logger.debug("_fp_cache_key: df.columns read failed, skipping memo: %s", exc)
         return None
     # Hash the tuple of column names so two same-id-same-count frames with different schemas
@@ -104,7 +104,7 @@ def _fp_cache_key(df: Any, n_sample: int) -> "Optional[Tuple[int, int, int, int]
     # which is exactly the scope this memo lives in.
     try:
         col_sig = hash(tuple(cols))
-    except Exception as exc:
+    except Exception as exc:  # fallback: the memo is an optimisation; a failed signature hash only skips it
         logger.debug("_fp_cache_key: column-signature hash failed, skipping memo: %s", exc)
         return None
     return (id(df), len(cols), col_sig, int(n_sample))
@@ -349,7 +349,7 @@ def fingerprint_df(
         try:
             cols = list(df.columns)
         except Exception as e:
-            logger.debug("reading df.columns failed: %s", e)
+            logger.warning("reading df.columns failed: %s", e)
             cols = []
     else:
         cols = list(columns)

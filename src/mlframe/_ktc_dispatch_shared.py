@@ -29,7 +29,7 @@ def get_ktc_cache() -> Any:
     try:
         return get_kernel_tuning_cache()
     except Exception as exc:  # pragma: no cover - defensive; singleton already guards.
-        logger.debug("get_ktc_cache: get_kernel_tuning_cache() failed: %s", exc)
+        logger.warning("get_ktc_cache: get_kernel_tuning_cache() failed: %s", exc)
         return None
 
 

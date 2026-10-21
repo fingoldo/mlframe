@@ -26,7 +26,7 @@ def offset_product_candidates(df: Any, y_cont: np.ndarray, base_names: Sequence[
     try:
         _, appended, recipes, enc = hybrid_offset_product_fe(df, y_cont, num_cols=list(base_names))
     except Exception as e:  # the family is an optional enrichment of the pool; never sink the usability pass
-        logger.debug("offset-product usability candidates skipped: %s", e)
+        logger.warning("offset-product usability candidates skipped: %s", e)
         return []
     if not appended:
         return []

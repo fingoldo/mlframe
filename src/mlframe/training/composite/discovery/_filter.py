@@ -160,6 +160,7 @@ def _leak_corr_buffer(n_rows: int, n_cols: int) -> np.ndarray | None:
 
         available_bytes = int(_psutil.virtual_memory().available)
     except Exception as exc:
+        # fallback: a failed psutil probe gathers per column instead of allocating one block, needing no memory estimate.
         logger.debug("leak-corr block sizing: psutil probe failed, gathering per column: %s", exc)
         return None
     if n_rows * n_cols * 4 > _LEAK_CORR_ALLOC_AVAIL_FRACTION * available_bytes:

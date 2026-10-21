@@ -60,6 +60,7 @@ def _warn_if_cold() -> None:
     try:
         cold = cold_kernel_names()
     except Exception as exc:  # the notice is advice; it must never break a fit
+        # best-effort: the cold-cache notice is advisory; a failed check only means no advice is printed.
         logger.debug("kernel tuning cold-cache check failed: %s", exc)
         return
     if cold:

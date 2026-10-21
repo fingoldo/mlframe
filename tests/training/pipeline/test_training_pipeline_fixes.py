@@ -173,11 +173,11 @@ def test_f3_apply_pre_pipeline_transforms_respects_byte_budget(monkeypatch):
 
 def test_f3_helpers_apply_now_imports_byte_budget_symbols():
     """_pipeline_helpers_apply.py must have the byte-budget eviction symbols in scope (F3's fix)."""
-    from mlframe.training.pipeline import _pipeline_helpers_apply as pha
+    from mlframe.training.pipeline import _pipeline_cache as pc
 
-    assert hasattr(pha, "_PRE_PIPELINE_CACHE_MAX_BYTES")
-    assert hasattr(pha, "_approx_entry_bytes")
-    assert callable(pha._approx_entry_bytes)
+    assert hasattr(pc, "_PRE_PIPELINE_CACHE_MAX_BYTES")
+    assert hasattr(pc, "_approx_entry_bytes")
+    assert callable(pc._approx_entry_bytes)
 
 
 def test_f3_populate_call_site_enforces_byte_budget(monkeypatch):
@@ -190,12 +190,13 @@ def test_f3_populate_call_site_enforces_byte_budget(monkeypatch):
     from sklearn.pipeline import Pipeline
     from sklearn.preprocessing import StandardScaler
 
+    from mlframe.training.pipeline import _pipeline_cache as ppc
     from mlframe.training.pipeline import _pipeline_helpers_apply as pha
 
-    cache = pha._PRE_PIPELINE_CACHE
+    cache = ppc._PRE_PIPELINE_CACHE
     saved = list(cache.items())
-    monkeypatch.setattr(pha, "_PRE_PIPELINE_CACHE_MAX_BYTES", 1)
-    monkeypatch.setattr(pha, "_PRE_PIPELINE_CACHE_MAX", 100)
+    monkeypatch.setattr(ppc, "_PRE_PIPELINE_CACHE_MAX_BYTES", 1)
+    monkeypatch.setattr(ppc, "_PRE_PIPELINE_CACHE_MAX", 100)
     try:
         cache.clear()
         old = pd.DataFrame({"a": np.arange(50_000, dtype=np.float64)})

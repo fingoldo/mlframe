@@ -91,7 +91,7 @@ def _build_oof_fold_fit_disk_key(model_template, X_tr_fold, y_tr_fold, classific
         })
         return _OOF_FOLD_FIT_CACHE_PREFIX + compose_key(x_tr_key, y_tr_key, state_key)
     except Exception as exc:
-        logger.debug("compute_shap_matrix: per-fold fit disk-cache key build failed (%s); skipping", exc)
+        logger.warning("compute_shap_matrix: per-fold fit disk-cache key build failed (%s); skipping", exc)
         return None
 
 
@@ -827,7 +827,7 @@ def _compute_shap_matrix_step1_def_models_phi(f, return_variance, n_models, conf
                     try:
                         cached_est = _cache.get(fold_fit_key)
                     # best-effort: a failed cache read is a miss; the fold is fitted instead
-                    except Exception as exc:
+                    except Exception as exc:  # best-effort: a failed cache read is a miss; the fold is fitted instead
                         logger.debug("compute_shap_matrix: per-fold disk cache get failed (%s); skipping", exc)
                         cached_est = None
                     if cached_est is not None:

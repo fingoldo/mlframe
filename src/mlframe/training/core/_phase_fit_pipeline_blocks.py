@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from mlframe.utils.log_throttle import log_throttle
 
 import numpy as np
 import pandas as pd
@@ -125,7 +126,7 @@ def _phase_fit_pipeline_string_object_category_columns(_feature_types_first, was
                     try:
                         _first = next((v for v in train_df[_c].head(8) if v is not None), None)
                     except Exception as e:
-                        logger.debug("peeking column %r's first non-null value failed: %s", _c, e)
+                        log_throttle(logger, "_phase_fit_pipeline_blocks:128", logging.WARNING, "peeking column %r's first non-null value failed: %s", _c, e)
                         _first = None
                     if _first is not None and (hasattr(_first, "shape") or (hasattr(_first, "__len__") and not isinstance(_first, (str, bytes)))):
                         _embedding_object_cols.append(_c)
@@ -146,6 +147,6 @@ def _phase_fit_pipeline_string_object_category_columns(_feature_types_first, was
                 "shape": tuple(train_df.shape),
             }
         except Exception as e:
-            logger.debug("train_df_pandas_pre_meta computation failed: %s", e)
+            logger.warning("train_df_pandas_pre_meta computation failed: %s", e)
             train_df_pandas_pre_meta = None
     return train_df_pandas_pre_meta

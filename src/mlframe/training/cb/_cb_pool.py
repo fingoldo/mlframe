@@ -254,7 +254,7 @@ def _polars_nullable_categorical_cols(df: Any, cat_features: list[str] | None = 
         counts_row = df.select(candidate).null_count().row(0)
         return [c for c, n in zip(candidate, counts_row) if n > 0]
     except Exception as exc:
-        logger.debug("_polars_nullable_categorical_cols: nullable-categorical scan failed, treating as no nullable cat columns: %s", exc)
+        logger.warning("_polars_nullable_categorical_cols: nullable-categorical scan failed, treating as no nullable cat columns: %s", exc)
         return []
 
 
@@ -448,7 +448,7 @@ def _sticky_pandas_detail(model: Any) -> str:
 
         _native = accepts_polars("catboost")
     except Exception as exc:
-        logger.debug("polars-native probe failed (%s: %s); the message omits the library's own answer", type(exc).__name__, exc)
+        logger.warning("polars-native probe failed (%s: %s); the message omits the library's own answer", type(exc).__name__, exc)
         _native = None
     _miss_observed = bool(getattr(model, "_mlframe_polars_fastpath_miss_observed", False))
     if _miss_observed and _native:
@@ -813,7 +813,7 @@ def _stamp_val_pool_dtypes_sig(val_pool: Any, val_df: Any) -> None:
         else:
             val_pool._mlframe_dtypes_sig = None
     except Exception as e:
-        logger.debug("val_pool dtypes signature computation failed, leaving it None: %s", e)
+        logger.warning("val_pool dtypes signature computation failed, leaving it None: %s", e)
         val_pool._mlframe_dtypes_sig = None
 
 

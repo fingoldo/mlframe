@@ -95,50 +95,47 @@ def main(argv=None):
     ap.add_argument("--out_file", default=None)
     args = ap.parse_args(argv)
 
-    if args.out_file:
-        import atexit
-        import builtins
-        _fp = open(args.out_file, "w", buffering=1, encoding="utf-8")
-        atexit.register(_fp.close)
-        _orig = builtins.print
+    import builtins
+    import contextlib
+    with (open(args.out_file, "w", buffering=1, encoding="utf-8") if args.out_file else contextlib.nullcontext()) as _fp:
+        if _fp is not None:
+            _orig = builtins.print
+            builtins.print = make_tee_print(_orig, _fp)
 
-        builtins.print = make_tee_print(_orig, _fp)
+        requested = [c.strip() for c in args.configs.split(",") if c.strip()]
+        for c in requested:
+            if c not in CONFIGS:
+                raise SystemExit(f"unknown config {c}; known: {sorted(CONFIGS)}")
+        widths = tuple(int(w.strip()) for w in args.widths.split(",") if w.strip())
 
-    requested = [c.strip() for c in args.configs.split(",") if c.strip()]
-    for c in requested:
-        if c not in CONFIGS:
-            raise SystemExit(f"unknown config {c}; known: {sorted(CONFIGS)}")
-    widths = tuple(int(w.strip()) for w in args.widths.split(",") if w.strip())
+        print(f"iter58 beam-width sweep: configs={requested} widths={widths}", flush=True)
+        overall = {}
+        # Single-process JIT warmup on a tiny synthetic so the cap-sweep wall is steady-state, not
+        # dominated by first-call compile. Without this the first measured config absorbs ~3 min of
+        # numba compile that the later configs see cached, badly skewing the cross-cap delta.
+        print("\n[warmup] tiny fit to amortise JIT compile across the sweep...", flush=True)
+        t_warm = time.perf_counter()
+        _warm_X, _warm_y, _warm_roles = make_dataset(dict(width=200, n_rows=400, n_informative=10, n_redundant=5, redundancy_rho=0.5, snr=4.0, seed=0))
+        _warm_sel = _build_selector(seed=0, brute_force_max_features=22)
+        _warm_sel.fit(_warm_X, _warm_y)
+        print(f"[warmup] done in {time.perf_counter()-t_warm:.1f}s", flush=True)
 
-    print(f"iter58 beam-width sweep: configs={requested} widths={widths}", flush=True)
-    overall = {}
-    # Single-process JIT warmup on a tiny synthetic so the cap-sweep wall is steady-state, not
-    # dominated by first-call compile. Without this the first measured config absorbs ~3 min of
-    # numba compile that the later configs see cached, badly skewing the cross-cap delta.
-    print("\n[warmup] tiny fit to amortise JIT compile across the sweep...", flush=True)
-    t_warm = time.perf_counter()
-    _warm_X, _warm_y, _warm_roles = make_dataset(dict(width=200, n_rows=400, n_informative=10, n_redundant=5, redundancy_rho=0.5, snr=4.0, seed=0))
-    _warm_sel = _build_selector(seed=0, brute_force_max_features=22)
-    _warm_sel.fit(_warm_X, _warm_y)
-    print(f"[warmup] done in {time.perf_counter()-t_warm:.1f}s", flush=True)
+        for name in requested:
+            cfg = CONFIGS[name]
+            print(f"\n[{name}] cfg={cfg}", flush=True)
+            t_data = time.perf_counter()
+            X, y, roles = make_dataset(cfg)
+            print(f"[{name}] dataset shape={X.shape} in {time.perf_counter()-t_data:.1f}s", flush=True)
+            results = []
+            for cap in widths:
+                t_one = time.perf_counter()
+                r = run_one(name, cfg, brute_force_max_features=cap, X=X, y=y, roles=roles)
+                print(f"  [{name}/cap{cap}] done in {time.perf_counter()-t_one:.1f}s " f"(e2e={r['total']:.2f}s, recall={r['recall']})", flush=True)
+                results.append(r)
+            overall[name] = results
+            _print_summary(name, results)
 
-    for name in requested:
-        cfg = CONFIGS[name]
-        print(f"\n[{name}] cfg={cfg}", flush=True)
-        t_data = time.perf_counter()
-        X, y, roles = make_dataset(cfg)
-        print(f"[{name}] dataset shape={X.shape} in {time.perf_counter()-t_data:.1f}s", flush=True)
-        results = []
-        for cap in widths:
-            t_one = time.perf_counter()
-            r = run_one(name, cfg, brute_force_max_features=cap, X=X, y=y, roles=roles)
-            print(f"  [{name}/cap{cap}] done in {time.perf_counter()-t_one:.1f}s " f"(e2e={r['total']:.2f}s, recall={r['recall']})", flush=True)
-            results.append(r)
-        overall[name] = results
-        _print_summary(name, results)
-
-    return overall
-
+        return overall
 
 if __name__ == "__main__":
     main()

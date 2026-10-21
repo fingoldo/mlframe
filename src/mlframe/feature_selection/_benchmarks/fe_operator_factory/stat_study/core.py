@@ -1,8 +1,10 @@
 """Numba kernels and helpers of the offset-product statistics study: rank-bin MI, shift estimators (median, zero-crossing, interaction OLS, quantile grid) evaluated over all unary x unary pairs, the preset candidate scorer and a binned rank-1 ALS."""
 
+import functools
 import warnings
 
 import numpy as np
+from mlframe.feature_engineering._safe_ratio import safe_div
 from numba import njit, prange
 import logging
 
@@ -164,8 +166,10 @@ def ols_t(u, v, yr, winsor, huber):
         v = np.minimum(np.maximum(v, lo), hi)
     mu = u.mean()
     mv = v.mean()
-    su = u.std() + 1e-12
-    sv = v.std() + 1e-12
+    su = u.std()
+    su = su if su > 0 else 1.0
+    sv = v.std()
+    sv = sv if sv > 0 else 1.0
     X = np.empty((n, 4))
     for i in range(n):
         a = (u[i] - mu) / su
@@ -192,9 +196,9 @@ def ols_t(u, v, yr, winsor, huber):
             res = np.empty(n)
             for i in range(n):
                 res[i] = yr[i] - (X[i, 0] * beta[0] + X[i, 1] * beta[1] + X[i, 2] * beta[2] + X[i, 3] * beta[3])
-            s = 1.4826 * _median_njit(np.abs(res - _median_njit(res))) + 1e-12
+            s = 1.4826 * _median_njit(np.abs(res - _median_njit(res)))
             for i in range(n):
-                a = np.abs(res[i]) / s
+                a = np.abs(res[i]) / s if s > 0 else (0.0 if res[i] == 0.0 else np.inf)
                 w[i] = 1.0 if a <= 1.345 else 1.345 / a
     if np.abs(beta[3]) < 1e-12:
         return np.nan
@@ -277,14 +281,6 @@ def unary_mat(UN, x):
     return np.ascontiguousarray(np.stack([clean(f(x)) for f in UN.values()]))
 
 
-def qbin(x, k=10):
-    """Equal-frequency bin codes (re-exported from ``common.binning``)."""
-    n = len(x)
-    r = np.empty(n, np.int64)
-    r[np.argsort(x, kind="stable")] = np.arange(n)
-    return np.minimum((r * k) // n, k - 1)
-
-
 def rank01(y):
     """Rank of ``y`` scaled to (0, 1)."""
     return (np.argsort(np.argsort(y)) + 0.5) / len(y)
@@ -331,12 +327,22 @@ def preset_matrix_best(UX, UZ, BI, yb, k=10, mm=False):
     return best, bi
 
 
+def interior_quantile_edges(a, rows_fit, B):
+    """Interior quantile edges of ``a`` on the fit rows."""
+    return np.quantile(a[rows_fit], np.linspace(0, 1, B + 1)[1:-1])
+
+
+def pair_operands(UX, UZ, p, nu):
+    """The (u, v) operand pair of pair index ``p`` (role, unary, unary)."""
+    role, rem = divmod(p, nu * nu)
+    iu, iv = divmod(rem, nu)
+    return (UX[iu], UZ[iv]) if role == 0 else (UZ[iu], UX[iv])
+
+
 def als_rank1(x, z, y, rows_fit, B=16, iters=8):
     """Binned rank-1 fit ``f(x) g(z)`` of ``y`` by alternating least squares on ``B`` quantile bins, fitted on ``rows_fit``."""
 
-    def ed(a):
-        """Interior quantile edges of ``a`` on the fit rows."""
-        return np.quantile(a[rows_fit], np.linspace(0, 1, B + 1)[1:-1])
+    ed = functools.partial(interior_quantile_edges, rows_fit=rows_fit, B=B)
 
     bx = np.searchsorted(ed(x), x)
     bz = np.searchsorted(ed(z), z)
@@ -346,10 +352,11 @@ def als_rank1(x, z, y, rows_fit, B=16, iters=8):
     r = rows_fit
     for _ in range(iters):
         gz = g[bz]
-        f = np.bincount(bx[r], gz[r] * yc[r], B) / (np.bincount(bx[r], gz[r] ** 2, B) + 1e-9)
+        f = safe_div(np.bincount(bx[r], gz[r] * yc[r], B), np.bincount(bx[r], gz[r] ** 2, B))
         fx = f[bx]
-        g = np.bincount(bz[r], fx[r] * yc[r], B) / (np.bincount(bz[r], fx[r] ** 2, B) + 1e-9)
-        s = np.abs(f).max() + 1e-12
-        f /= s
-        g *= s
+        g = safe_div(np.bincount(bz[r], fx[r] * yc[r], B), np.bincount(bz[r], fx[r] ** 2, B))
+        s = np.abs(f).max()
+        if s > 0:
+            f /= s
+            g *= s
     return f[bx] * g[bz]

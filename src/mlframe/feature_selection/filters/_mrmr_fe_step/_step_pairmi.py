@@ -66,6 +66,7 @@ def _kill_reusable_loky_workers() -> bool:
         get_reusable_executor().shutdown(kill_workers=True)
         return True
     except Exception as exc:
+        # best-effort: worker teardown at shutdown; a failure only leaves idle loky workers alive until process exit.
         logger.debug("could not terminate the reusable loky workers (%s: %s); they may linger.", type(exc).__name__, exc)
         return False
 

@@ -65,6 +65,7 @@ def _GPU_USABILITY() -> bool:
         from ._usability_gpu import fe_gpu_usability_enabled
         return fe_gpu_usability_enabled()
     except Exception as e:
+        # fallback: the usability GPU gate is an optional probe; any failure keeps the CPU path.
         logger.debug("_GPU_USABILITY: fe_gpu_usability_enabled() check failed, staying on the CPU path: %s", e)
         return False
 

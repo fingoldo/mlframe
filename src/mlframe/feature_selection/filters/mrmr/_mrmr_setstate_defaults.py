@@ -512,6 +512,9 @@ _SETSTATE_LEGACY_DEFAULTS = {
     "uaed_elbow_": None,
     "usability_feature_groups_": None,
     "_main_effects_restored_": [],
+    # Fitted feature count. Every reader already falls back to 0 (``or 0`` / ``getattr(..., 0)``), so an old pickle without it
+    # reads the same value as a fresh estimator that selected nothing.
+    "n_features_": 0,
 }
 
 

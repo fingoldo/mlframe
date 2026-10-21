@@ -18,6 +18,7 @@ Emit per row:
 """
 from __future__ import annotations
 
+import functools
 import logging
 from typing import Any, Literal, Optional
 
@@ -25,6 +26,7 @@ import numpy as np
 import polars as pl
 
 from mlframe.feature_engineering.transformer._utils import require_seed, validate_numeric_input
+from mlframe.feature_engineering.transformer.adversarial_flip import _adversarial_feats_to_cols
 
 logger = logging.getLogger(__name__)
 
@@ -111,14 +113,7 @@ def compute_adversarial_flip_features(
         frac_flippable = (flip_dists < 2.5).mean(axis=1).astype(np.float32)
         return np.column_stack([min_dist, mean_dist, max_dist, argmin_feat, frac_flippable])
 
-    def _make_df(feats: np.ndarray) -> dict[str, np.ndarray]:
-        cols: dict[str, np.ndarray] = {}
-        cols[f"{column_prefix}_min_dist"] = feats[:, 0].astype(dtype, copy=False)
-        cols[f"{column_prefix}_mean_dist"] = feats[:, 1].astype(dtype, copy=False)
-        cols[f"{column_prefix}_max_dist"] = feats[:, 2].astype(dtype, copy=False)
-        cols[f"{column_prefix}_argmin_feat"] = feats[:, 3].astype(dtype, copy=False)
-        cols[f"{column_prefix}_frac_flippable"] = feats[:, 4].astype(dtype, copy=False)
-        return cols
+    _make_df = functools.partial(_adversarial_feats_to_cols, column_prefix=column_prefix, dtype=dtype)
 
     if X_query is not None:
         Xq = np.asarray(X_query, dtype=np.float32)

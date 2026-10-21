@@ -15,8 +15,8 @@ def qbin(x, k=10):
 
 def mi_b(xb, yb, kx=None, ky=None, mm=False):
     """Plug-in MI of two integer code vectors; ``mm`` subtracts the Miller-Madow bias ``(kx-1)(ky-1)/(2n)``."""
-    kx = kx or xb.max() + 1
-    ky = ky or yb.max() + 1
+    kx = kx if kx is not None else xb.max() + 1
+    ky = ky if ky is not None else yb.max() + 1
     jc = np.bincount(xb * ky + yb, minlength=kx * ky).reshape(kx, ky).astype(float)
     n = jc.sum()
     p = jc / n

@@ -51,7 +51,7 @@ def coerce_gate_target(y_np: Any, n_rows: int) -> Optional[np.ndarray]:
         # Intentional float64: target labels kept f64 (exact binning / comparison contract)
         y_vec = np.asarray(y_np, dtype=np.float64).reshape(-1)
     except Exception as exc:
-        logger.debug("mrmr: y coercion for the held-out protection gate failed: %r", exc, exc_info=True)
+        logger.warning("mrmr: y coercion for the held-out protection gate failed: %r", exc, exc_info=True)
         return None
     if y_vec.shape[0] == int(n_rows) and np.all(np.isfinite(y_vec)):
         return y_vec

@@ -25,6 +25,7 @@ def row_stat_pool_candidates(df: Any, y_cont: np.ndarray, base_names: Sequence[s
     try:
         _, appended, recipes, enc = hybrid_row_stat_fe(df, y_cont, num_cols=list(base_names))
     except Exception as e:  # an optional enrichment of the pool; never sink the usability pass
+        # best-effort: optional enrichment of the candidate pool; a failure only drops these candidates, the usability pass goes on.
         logger.debug("row-statistic usability candidates skipped: %s", e)
         return []
     if not appended:

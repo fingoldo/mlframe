@@ -41,7 +41,7 @@ except ImportError:
 try:
     import cupy as _cp
     _HAS_CP = _cp.cuda.runtime.getDeviceCount() > 0
-except Exception as e:
+except Exception as e:  # fallback: cupy absent or no device, the benchmark runs CPU-only
     logger.debug("cupy import/device-count probe failed: %s", e)
     _cp = None
     _HAS_CP = False

@@ -360,7 +360,7 @@ def pandas_column_stats(s: pd.Series, token: str) -> bytes:
             valid = arr[~mask] if n_null else arr
             return format_stats(int(np.min(valid)), int(np.max(valid)), n_null)
         except Exception as exc:
-            logger.debug("cache: int/bool column min/max digest failed, using opaque marker: %s", exc)
+            logger.warning("cache: int/bool column min/max digest failed, using opaque marker: %s", exc)
             return b"int_opaque"
     if _is_temporal(token):
         try:
@@ -372,7 +372,7 @@ def pandas_column_stats(s: pd.Series, token: str) -> bytes:
             valid = i8[valid_mask] if n_null else i8
             return format_stats(int(np.min(valid)) * factor, int(np.max(valid)) * factor, n_null)
         except Exception as exc:
-            logger.debug("cache: temporal column min/max digest failed, using opaque marker: %s", exc)
+            logger.warning("cache: temporal column min/max digest failed, using opaque marker: %s", exc)
             return b"temporal_opaque"
     n_null = int(s.isna().sum())
     if n_null == n:

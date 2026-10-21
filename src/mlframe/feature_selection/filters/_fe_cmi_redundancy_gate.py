@@ -239,7 +239,7 @@ def _gate_prepare(
         with _Y_DENSE_MEMO_LOCK:
             _yhit = _Y_DENSE_MEMO.get(_yk)
     # best-effort: the memo only saves recomputation; without it the dense target is rebuilt with the same result
-    except Exception as e:
+    except Exception as e:  # best-effort: the memo only saves recomputation; a failed key falls back to a rebuild
         logger.debug("y-dense memo key computation failed, skipping the memo: %s", e)
         _yhit = None
     y_dense = _apply_cmi_redundan_yhit_none(_yhit, y_arr, _yk)

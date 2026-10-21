@@ -22,6 +22,7 @@ from datetime import datetime
 from pathlib import Path
 
 import numpy as np
+from mlframe.feature_engineering._safe_ratio import safe_div
 import pandas as pd
 
 from mlframe.feature_selection.filters._pairwise_modular_fe import _mi
@@ -96,7 +97,7 @@ def gate_baselines(X, cols):
             u, v = names[i], names[j]
             out[f"prod_{u}_{v}"] = arrs[u] * arrs[v]
             out[f"diff_{u}_{v}"] = arrs[u] - arrs[v]
-            out[f"ratio_{u}_{v}"] = arrs[u] / (np.abs(arrs[v]) + 1e-6)
+            out[f"ratio_{u}_{v}"] = safe_div(arrs[u], np.abs(arrs[v]))
     for cn in cols:
         out[f"hinge_{cn}"] = _hinge(arrs[cn])
     if "a" in arrs and "c" in arrs:

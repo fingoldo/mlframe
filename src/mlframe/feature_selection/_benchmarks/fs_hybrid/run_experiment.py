@@ -188,6 +188,19 @@ def _declared_relevant(truth: Dict[str, Any]) -> Optional[List[str]]:
     return sorted(names) if names else None
 
 
+def _recordable_cell_errors() -> tuple:
+    """Exceptions a cell records as its status: ordinary errors plus the pytest outcomes a platform guard raises.
+
+    ``pytest.skip`` raises ``Skipped``, a ``BaseException``, and the skip must reach the test that ran the cell
+    (see ``tests/feature_selection/_fs_hybrid_cell_skip.py``). ``KeyboardInterrupt`` and ``SystemExit`` are not recorded.
+    """
+    try:
+        import pytest
+    except ImportError:
+        return (Exception,)
+    return (Exception, pytest.skip.Exception, pytest.fail.Exception)
+
+
 def run_cell(
     spec: CellSpec,
     factory: Callable[[], Any],
@@ -197,7 +210,7 @@ def run_cell(
     y_test: np.ndarray,
     truth: Dict[str, Any],
 ) -> Dict[str, Any]:
-    """Run one cell and return its record. Never raises: a failure is recorded with its status."""
+    """Run one cell and return its record. A failure is recorded with its status; an interrupt propagates."""
     record: Dict[str, Any] = dict(spec.as_dict())
     record["cell_key"] = spec.key()
     record["host_contended"] = True
@@ -289,7 +302,7 @@ def run_cell(
         record["n_model_fits_arm"] = own_fits if arm_fits_known else None
         record["n_model_fits_panel"] = total_fits - own_fits
         record["status"] = "ok"
-    except BaseException as exc:  # a crashed cell is data, not an absence -- record and continue
+    except _recordable_cell_errors() as exc:  # a crashed cell is data, not an absence -- record and continue
         record["status"] = classify_exception(exc)
         record["error"] = f"{type(exc).__name__}: {exc}"
         record["traceback"] = traceback.format_exc()[-2000:]

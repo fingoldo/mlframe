@@ -98,7 +98,7 @@ def _assert_numba_nogil_active() -> bool:
                     return False
         return True
     except Exception as e:
-        logger.debug("_assert_numba_nogil_active: inspection failed", exc_info=e)
+        logger.warning("_assert_numba_nogil_active: inspection failed", exc_info=e)
         return True
 
 

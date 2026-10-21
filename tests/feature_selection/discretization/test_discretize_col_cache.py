@@ -14,10 +14,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from mlframe.feature_selection.filters.discretization import (
-    categorize_dataset,
-    clear_numeric_code_cache,
-)
+from mlframe.feature_selection.filters.discretization import categorize_dataset
+from mlframe.feature_selection.filters.discretization._discretization_dataset import clear_numeric_code_cache
 
 
 def _frame(seed, n=400, target_vals=None):

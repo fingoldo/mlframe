@@ -607,6 +607,7 @@ def _dispatch_batch_pair__step1_def_try_cuda(nbins, n_pairs, pair_a, pair_b, fre
             nbins_i = np.asarray(nbins)
             max_joint = int((nbins_i[pair_a].astype(np.int64) * nbins_i[pair_b].astype(np.int64)).max()) if n_pairs else 0
         except Exception as e:
+            # best-effort: the shared-fused CUDA path is optional; a failed cardinality probe skips it and the row-chunked path runs.
             logger.debug("batch_pair_mi: max-joint-cardinality probe failed (%s: %s) -- skipping shared-fused CUDA", type(e).__name__, e)
             return None
         if shared_fused_kernel_fits_budget(max_joint, int(freqs_y.shape[0])) == 0:

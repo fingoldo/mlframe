@@ -415,7 +415,7 @@ def _score_one_pair_all_values_were_already(_passes_joint_gate, _prewarp_accept,
                 try:
                     _rej_op = best_config[1]  # binary func name of the best engineered form
                 # best-effort: the binary op name only labels the rejection record; the decision does not read it
-                except Exception as e:
+                except Exception as e:  # best-effort: the op name only labels the rejection record, the decision does not read it
                     logger.debug("reading the best-config binary op name failed: %s", e)
                     _rej_op = None
             if not _passes_joint_gate:

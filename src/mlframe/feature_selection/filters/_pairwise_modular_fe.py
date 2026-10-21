@@ -87,6 +87,7 @@ def _is_cupy_ndarray(x) -> bool:
         import cupy as cp
         return isinstance(x, cp.ndarray)
     except Exception as e:
+        # fallback: without an importable cupy the array is treated as a host array, the only correct choice then.
         logger.debug("_is_cupy_ndarray: cupy import/isinstance check failed, treating as a host array: %s", e)
         return False
 

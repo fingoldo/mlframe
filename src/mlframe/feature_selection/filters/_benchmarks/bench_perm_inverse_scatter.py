@@ -14,23 +14,13 @@ Run: ``python -m mlframe.feature_selection.filters._benchmarks.bench_perm_invers
 
 from __future__ import annotations
 
-import time
-from typing import Callable
 
 import numpy as np
 
+from mlframe.feature_selection.filters._benchmarks.bench_encode_y_memo import _best as _best_of
+
 _SIZES: tuple[int, ...] = (10_000, 200_000, 1_000_000, 5_000_000)
 _N_PERM = 12
-
-
-def _best_of(fn: Callable[[], object], reps: int) -> float:
-    """Minimum wall time of ``reps`` calls to ``fn``, in seconds."""
-    best = float("inf")
-    for _ in range(reps):
-        t0 = time.perf_counter()
-        fn()
-        best = min(best, time.perf_counter() - t0)
-    return best
 
 
 def _build(feat: np.ndarray, n_perm: int, *, scatter: bool) -> np.ndarray:

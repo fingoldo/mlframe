@@ -179,7 +179,7 @@ def _run_fold_ab(
             edges_list = per_feature_edges(X_train, y_train, method=method, **method_kwargs)
             edges = edges_list[0]
         except Exception as exc:
-            logger.debug("bench_adaptive_nbins_ab: edge computation failed for method=%r: %s", method, exc)
+            logger.warning("bench_adaptive_nbins_ab: edge computation failed for method=%r: %s", method, exc)
             return None
     t_ms = (time.perf_counter() - t0) * 1000.0
     val_binned = _bin_with_edges(x_val, edges)
@@ -207,16 +207,16 @@ def run_ab_benchmark(
     random_state: int = 0,
     verbose: int = 1,
 ) -> Dict:
-    distributions = distributions or [
+    distributions = distributions if distributions else [
         "gaussian", "lognormal", "bimodal", "heavy_tail_t",
         "uniform", "exponential", "discrete_low_card", "near_constant",
     ]
-    signal_kinds = signal_kinds or [
+    signal_kinds = signal_kinds if signal_kinds else [
         "no_signal", "linear", "monotone", "threshold", "xor", "sin",
     ]
-    sample_sizes = sample_sizes or [500, 2000, 10000]
-    treatments = treatments or list(TREATMENTS.keys())
-    methods = methods or METHODS_BASE
+    sample_sizes = sample_sizes if sample_sizes else [500, 2000, 10000]
+    treatments = treatments if treatments else list(TREATMENTS.keys())
+    methods = methods if methods else METHODS_BASE
 
     rng_master = np.random.default_rng(random_state)
     all_results: List[ABFoldResult] = []
