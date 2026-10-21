@@ -428,6 +428,9 @@ def screen_predictors(
             cached_MIs=cached_MIs, cached_confident_MIs=cached_confident_MIs, cached_cond_MIs=cached_cond_MIs,
             cached_jmim_MIs=cached_jmim_MIs, jmim_hit_counter=jmim_hit_counter, entropy_cache=entropy_cache,
             selected_vars=selected_vars, selected_interactions_vars=selected_interactions_vars,
+            honest_null_codes_fn=honest_null_codes_fn,
+            honest_full_factors=(_screen_full_factors if _screen_full_factors is not None else factors_data),
+            honest_eval_rows=(np.asarray(subsample_idx, dtype=np.int64) if _screen_full_factors is not None else None),
         )
 
         subsets = range(interactions_min_order, interactions_max_order + 1)

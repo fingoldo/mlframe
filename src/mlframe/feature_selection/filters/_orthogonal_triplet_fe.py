@@ -356,12 +356,21 @@ def score_triplet_cross_basis_by_cmi(
     """
     y_codes = np.asarray(coerce_y_classif(y))
     raw_codes = {c: _quantile_codes(raw_X[c].to_numpy(dtype=_crit_np_dtype()), nbins) for c in raw_X.columns}
-    rows = []
+    legs_of = {}
     for eng_name in engineered_X.columns:
         head = eng_name.split("__", 1)[0] if "__" in eng_name else eng_name
         legs = head.split("*")
-        if len(legs) != 3 or not all(leg in raw_codes for leg in legs):
-            continue
+        if len(legs) == 3 and all(leg in raw_codes for leg in legs):
+            legs_of[eng_name] = legs
+    # Every scored triplet is one test against its own null, so the per-candidate level is Bonferroni-corrected by the candidate
+    # count. Without it the best of m pure-noise triplets clears its 0.99 null by chance: a pure-noise triplet sat at the 99th
+    # percentile of its own null under every permutation count tried (cmi 0.00891 vs null 0.0080-0.0094 across n_perm 199/999/1999).
+    # A corrected quantile needs at least 1/(1-quantile_eff) permutations to resolve, so the permutation count scales with m too.
+    _m = max(1, len(legs_of))
+    n_perm = max(int(n_perm), int(np.ceil(_m / (1.0 - quantile))))
+    quantile = 1.0 - (1.0 - quantile) / _m
+    rows = []
+    for eng_name, legs in legs_of.items():
         leg_mi = {leg: _stratified_cmi(raw_codes[leg], y_codes, np.zeros_like(y_codes)) for leg in legs}
         best_leg = max(legs, key=lambda leg: (leg_mi[leg], leg))
         strata = raw_codes[best_leg]
