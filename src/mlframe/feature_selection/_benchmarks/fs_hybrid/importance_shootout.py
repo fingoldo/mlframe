@@ -28,6 +28,12 @@ import lightgbm as lgb
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from scenarios import SCENARIOS, make
 
+
+def _lgbm_auc_rank(record: dict) -> float:
+    """Rank key for the per-cell winner: a real lgbm AUC of 0.0 must rank as 0.0, not fall back to -1."""
+    auc = record["auc"].get("lgbm")
+    return auc if auc is not None else -1
+
 OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "_results")
 os.makedirs(OUT, exist_ok=True)
 RES = os.path.join(OUT, "importance_shootout.jsonl")
@@ -123,7 +129,7 @@ def summarize():
     log("\n=== win counts (best lgbm AUC per scenario,seed) ===")
     wins = {ig: 0 for ig in IMPORTANCE}
     for (_sc, _sd), grp in df.groupby(["scenario", "seed"]):
-        best = max(grp.to_dict("records"), key=lambda r: (r["auc"].get("lgbm") or -1))
+        best = max(grp.to_dict("records"), key=_lgbm_auc_rank)
         wins[best["importance"]] += 1
     log(str(wins))
 

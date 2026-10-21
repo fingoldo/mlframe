@@ -762,7 +762,8 @@ def _rfecv_internal_optimum(model: Any) -> Tuple[Optional[float], Optional[str]]
 
     scorer = getattr(model, "scoring", None)
     func = getattr(scorer, "_score_func", None)
-    metric = getattr(func, "__name__", None) or (scorer if isinstance(scorer, str) else None)
+    fname = getattr(func, "__name__", None)
+    metric = fname if fname else (scorer if isinstance(scorer, str) else None)
     return score, (str(metric) if metric else None)
 
 

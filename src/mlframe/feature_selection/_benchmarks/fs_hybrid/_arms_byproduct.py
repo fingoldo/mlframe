@@ -98,7 +98,8 @@ class ByProductEnsembleArm(BaseArm):
         scores, _p = f_classif(np.nan_to_num(X.to_numpy(dtype=np.float64), nan=0.0), np.asarray(y))
         ranked = [names[index] for index in np.argsort(-np.nan_to_num(scores, nan=0.0))]
 
-        sizes = [size for size in SUBSET_SIZES if size <= len(names)] or [min(2, len(names))]
+        sizes = [size for size in SUBSET_SIZES if size <= len(names)]
+        sizes = sizes if sizes else [min(2, len(names))]
         subsets = varying_size_top_k_subsets(ranked, sizes)
         predictions = subset_predictions(X, y, subsets, random_state=self.random_state, n_splits=self.n_splits)
 

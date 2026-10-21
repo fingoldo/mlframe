@@ -190,7 +190,7 @@ def scenarios_for(source: str, n_samples: int = 0) -> List[Tuple[str, Any]]:
     if source == "scm":
         from ._scm_beds import SCM_BED_ROWS, scm_bed_scenarios
 
-        return list(scm_bed_scenarios(include_null=True, n_samples=int(n_samples) or SCM_BED_ROWS))
+        return list(scm_bed_scenarios(include_null=True, n_samples=int(n_samples) if int(n_samples) != 0 else SCM_BED_ROWS))
     if source == "adversarial":
         from .scenarios import ADVERSARIAL_SCENARIOS, make
 

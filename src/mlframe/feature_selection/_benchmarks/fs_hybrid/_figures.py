@@ -156,7 +156,8 @@ def pareto_figure(
     )
     # The frontier arms are named in the caption rather than labelled on the points: at a dozen arms the
     # labels collide, and a short ordered list carries the same identity without the collision.
-    named = ", ".join(points[i].arm for i in frontier) or "none"
+    named = ", ".join(points[i].arm for i in frontier)
+    named = named if named else "none"
     return FigureSpec(
         suptitle=f"What did the advantage cost? {scenario}",
         panels=((panel,),),
@@ -254,7 +255,8 @@ def save_benchmark_figures(
     from mlframe.reporting.renderers.save import render_and_save
 
     os.makedirs(out_dir, exist_ok=True)
-    beds = list(scenarios) or sorted({str(record["scenario"]) for record in records if record.get("status") == "ok"})
+    beds = list(scenarios)
+    beds = beds if beds else sorted({str(record["scenario"]) for record in records if record.get("status") == "ok"})
     output = parse_plot_output_dsl(backends)
 
     written: List[str] = []

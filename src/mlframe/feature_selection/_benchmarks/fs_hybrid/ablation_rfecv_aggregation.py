@@ -202,7 +202,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             recalls = [float(r["recall"]) for r in done if np.isfinite(float(r["recall"]))]
             print(f"{bed:<28} {rule:<10} {policy:<7} recall={np.mean(recalls) if recalls else float('nan'):.3f} n={len(done)}")
 
-    out = args.out or os.path.join(RESULTS_DIR, "ablation_rfecv_aggregation.json")
+    out = args.out if args.out else os.path.join(RESULTS_DIR, "ablation_rfecv_aggregation.json")
     os.makedirs(os.path.dirname(out), exist_ok=True)
     with open(out, "w", encoding="utf-8") as handle:
         json.dump(rows, handle, indent=2, sort_keys=True)
