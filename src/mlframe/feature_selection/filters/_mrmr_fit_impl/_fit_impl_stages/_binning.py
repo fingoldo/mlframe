@@ -222,9 +222,10 @@ def _discretize_inputs_part1(
 
         # Only the columns whose codes depend on the target are re-binned per permutation; the others keep their observed codes (copied now, so a later in-place
         # edit of ``data`` cannot change them).
-        _dependent = _target_dependent_columns(_x_for_cat, cols)
+        _dependent_names = _target_dependent_columns(_x_for_cat, cols)
+        _dependent: set = _dependent_names if _dependent_names is not None else set()
         _fixed_codes = None
-        if _dependent is not None and len(_dependent) < len(cols):
+        if _dependent_names is not None and len(_dependent) < len(cols):
             _fixed_codes = {str(c): (np.array(data[:, j]), int(nbins[j])) for j, c in enumerate(cols) if str(c) not in _dependent}
 
         def _honest_null_codes_uncached(row_perm):
