@@ -510,7 +510,8 @@ def batch_mi_with_noise_gate_cuda_resident(
     if not use_su:
         _bits_gated = _noise_gate_bits_matrix(d_disc, nbins_arr, d_y, K_y, n, K, gate=(min_nonzero_confidence,))
         if _bits_gated is not None:
-            return _bits_gated
+            gated: np.ndarray = np.asarray(_bits_gated)
+            return gated
     # Fused histogram + reduction: no (P, total_size) counts matrix (444 MB at 27744 candidates x 100 shuffles), one launch; falls through when it does not apply.
     _fused_mi = fused_gate_mi(d_disc, nbins_arr, d_nb, d_y, d_freq, freqs_y, n, K, K_y, P, threads_per_block, use_su)
     if _fused_mi is not None:

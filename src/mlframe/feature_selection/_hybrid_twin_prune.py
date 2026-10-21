@@ -54,7 +54,7 @@ def _gain_is_significant(without: np.ndarray, with_x: np.ndarray, alpha: float, 
     mean = float(d.mean())
     if sd <= 1e-15:
         return mean > 0.0
-    return mean / (sd / np.sqrt(d.size)) >= float(norm.isf(float(alpha) / max(1, int(n_candidates))))
+    return bool(mean / (sd / np.sqrt(d.size)) >= float(norm.isf(float(alpha) / max(1, int(n_candidates)))))
 
 
 def prune_conditional_twins(
