@@ -484,7 +484,7 @@ def batch_mi_with_noise_gate_cuda_resident(
 
             threads_per_block = int(histgate_threads(n))
         # best-effort: the block size never changes the integer counts, so 128 gives the same MI and gate decision
-        except Exception as e:
+        except Exception as e:  # best-effort: the block size never changes the integer counts
             logger.debug("histgate_threads() lookup failed, using the default 128: %s", e)
             threads_per_block = 128
     K_y = int(freqs_y.shape[0])

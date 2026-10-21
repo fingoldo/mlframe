@@ -98,7 +98,7 @@ def _validate_cached_model_schema(
             if booster_names:
                 saved_names = list(booster_names)
         except Exception as e:
-            logger.debug("could not resolve booster feature names: %s", e)
+            logger.warning("could not resolve booster feature names: %s", e)
             saved_names = None
 
     # Behind a fitted pre-pipeline (selector / encoder) the model's names are the pipeline OUTPUT while ``current_df`` is the pipeline INPUT, so the
@@ -132,7 +132,7 @@ def _validate_cached_model_schema(
         try:
             saved_cat_names = {saved_names[i] for i in m._get_cat_feature_indices() if 0 <= i < len(saved_names)}
         except Exception as e:
-            logger.debug("could not resolve saved categorical feature names: %s", e)
+            logger.warning("could not resolve saved categorical feature names: %s", e)
             saved_cat_names = None
         if saved_cat_names is not None:
             current_pl_cats = set(_extract_polars_cat_columns(current_df))

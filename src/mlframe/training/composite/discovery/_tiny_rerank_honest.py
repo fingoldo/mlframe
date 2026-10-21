@@ -32,6 +32,7 @@ def _tiny_rerank_ram_checkpoint(label: str) -> None:
         from ._fit import _process_mem_mb
         rss_mb, uss_mb, commit_mb = _process_mem_mb()
     except Exception as exc:
+        # opportunistic: the RAM checkpoint is diagnostic logging only; a failed probe just skips that line.
         logger.debug("tiny_rerank RAM log: memory probe failed, skipping checkpoint: %s", exc)
         return
     logger.info(

@@ -336,7 +336,7 @@ def _as_numeric_axis(values) -> Optional[np.ndarray]:
 
             return np.asarray(pd.to_datetime(list(values)).astype("int64"), dtype=float)
         except Exception:
-            logger.debug("could not read the marker axis for label staggering; falling back to alternating rows", exc_info=True)
+            logger.warning("could not read the marker axis for label staggering; falling back to alternating rows", exc_info=True)
             return None
 
 def _label_rows(self, xs, texts, fig, p) -> list:

@@ -42,7 +42,7 @@ def timestamps_sort_keys(timestamps: Any) -> Optional[np.ndarray]:
         try:
             timestamps = timestamps.to_numpy()
         except Exception as exc:  # an exotic dtype: no keys, the caller keeps the old order
-            logger.debug("chronological order skipped: timestamps of type %s have no numpy view (%r)", type(timestamps).__name__, exc)
+            logger.warning("chronological order skipped: timestamps of type %s have no numpy view (%r)", type(timestamps).__name__, exc)
             return None
     if isinstance(timestamps, (pd.Series, pd.Index)):
         series = pd.Series(timestamps) if isinstance(timestamps, pd.Index) else timestamps

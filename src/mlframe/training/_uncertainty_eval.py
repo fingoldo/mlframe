@@ -74,5 +74,5 @@ def _narrow_numeric_frame(df, columns: Sequence[str]):
             return None
         return arr
     except Exception as exc:
-        logger.debug("TTA uncertainty eval: column extraction/coercion failed: %s", exc)
+        logger.warning("TTA uncertainty eval: column extraction/coercion failed: %s", exc)
         return None

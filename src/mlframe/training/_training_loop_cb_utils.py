@@ -31,7 +31,7 @@ def _in_interactive_notebook() -> bool:
 
         ip = get_ipython()
         return ip is not None and type(ip).__name__ == "ZMQInteractiveShell"
-    except Exception as exc:
+    except Exception as exc:  # fallback: IPython probe; any failure means the session is treated as non-interactive
         logger.debug("_in_interactive_notebook: IPython probe failed, assuming non-interactive: %s", exc)
         return False
 
@@ -113,7 +113,7 @@ def _ensure_cb_mtr_loss(model, train_target, pool=None) -> None:
         try:
             label_arr = np.asarray(pool.get_label())
         except Exception as e:
-            logger.debug("_ensure_cb_mtr_loss: pool.get_label() failed, treating label_arr as unavailable: %s", e)
+            logger.warning("_ensure_cb_mtr_loss: pool.get_label() failed, treating label_arr as unavailable: %s", e)
             label_arr = None
     if label_arr is None:
         label_arr = np.asarray(train_target) if train_target is not None else None
@@ -126,7 +126,7 @@ def _ensure_cb_mtr_loss(model, train_target, pool=None) -> None:
                 # hit the except below exactly as the prior np.stack did.
                 label_arr = np.array(label_arr.tolist())
             except Exception as e:
-                logger.debug("_ensure_cb_mtr_loss: ragged label_arr.tolist() -> np.array() failed: %s", e)
+                logger.warning("_ensure_cb_mtr_loss: ragged label_arr.tolist() -> np.array() failed: %s", e)
                 label_arr = None
     if label_arr is None or label_arr.ndim != 2 or label_arr.shape[1] < 2:
         return
@@ -178,7 +178,7 @@ def _ensure_cb_multilabel_loss(model, train_target, pool=None) -> None:
         try:
             label_arr = np.asarray(pool.get_label())
         except Exception as e:
-            logger.debug("_ensure_cb_multilabel_loss: pool.get_label() failed, treating label_arr as unavailable: %s", e)
+            logger.warning("_ensure_cb_multilabel_loss: pool.get_label() failed, treating label_arr as unavailable: %s", e)
             label_arr = None
     if label_arr is None:
         label_arr = np.asarray(train_target) if train_target is not None else None

@@ -61,7 +61,7 @@ def _is_object_array_col(df, c) -> bool:
     try:
         return str(df[c].dtype) == "object" and isinstance(df[c].iloc[0], np.ndarray)
     except Exception as exc:
-        logger.debug("_is_object_array_col: probe failed for column %r: %s", c, exc)
+        logger.warning("_is_object_array_col: probe failed for column %r: %s", c, exc)
         return False
 
 

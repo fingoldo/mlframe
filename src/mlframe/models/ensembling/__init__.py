@@ -164,7 +164,7 @@ def _build_votenrank_leaderboard_from_results(res: dict, *, is_regression: bool)
         lb = Leaderboard(table=pd.DataFrame(oriented, index=table.index))
         return EnsembleLeaderboard(table=table, lb=lb, is_regression=is_regression)
     except Exception as exc:
-        logger.debug("ensemble leaderboard build failed: %s", exc)
+        logger.warning("ensemble leaderboard build failed: %s", exc)
         return None
 
 

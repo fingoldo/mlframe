@@ -182,7 +182,7 @@ def _prefill_cond_MIs_gpu(
                 n_written += 1
         return n_written
     except Exception as _exc:
-        logger.debug("gpu cmi pre-fill skipped (%s); scalar CPU path used", _exc)
+        logger.warning("gpu cmi pre-fill skipped (%s); scalar CPU path used", _exc)
         return 0
 
 

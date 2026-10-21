@@ -146,7 +146,7 @@ def compute_train_envelope_stats(y_train: Any) -> Optional[TrainEnvelopeStats]:
             y_std=float(y_std),
         )
     except Exception as exc:
-        logger.debug("compute_train_envelope_stats failed: %s", exc)
+        logger.warning("compute_train_envelope_stats failed: %s", exc)
         return None
 
 

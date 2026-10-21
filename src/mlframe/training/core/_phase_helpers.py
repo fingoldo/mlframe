@@ -574,7 +574,7 @@ def _polars_to_pandas_for_cat_prep(was_polars_input, train_df, _cat_heavy_size, 
                 raw_v = float(val_df.estimated_size())
                 val_df_size_bytes_cached = _cat_heavy_size(val_df, raw_v)
         except Exception as e:
-            logger.debug("cached df-size estimation failed: %s", e)
+            logger.warning("cached df-size estimation failed: %s", e)
             train_df_size_bytes_cached = None
             val_df_size_bytes_cached = None
     return train_df_size_bytes_cached, val_df_size_bytes_cached

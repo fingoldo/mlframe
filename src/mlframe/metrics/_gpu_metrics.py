@@ -322,6 +322,7 @@ def gpu_multiple_rmse_scores(actual: Any, predicted: Any) -> Any:
             )
             BLOCK_N = int(_choice["block_n"]) if _choice and "block_n" in _choice else 256
         except Exception as e:
+            # fallback: the kernel tuning cache is optional; without a hit the built-in block size 256 is used.
             logger.debug("kernel_tuning_cache lookup for rmse_partial_sum block_n failed, using the default 256: %s", e)
             BLOCK_N = 256
         grid_x = (N + BLOCK_N - 1) // BLOCK_N

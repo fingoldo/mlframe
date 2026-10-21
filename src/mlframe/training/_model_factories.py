@@ -175,7 +175,7 @@ def _active_phase_name() -> str:
         from mlframe.training.phases import active_phase
 
         return active_phase()
-    except Exception as exc:
+    except Exception as exc:  # best-effort: the phase label is diagnostic only
         logger.debug("active_phase() unavailable (%s: %s); dataset built without a phase label", type(exc).__name__, exc)
         return ""
 

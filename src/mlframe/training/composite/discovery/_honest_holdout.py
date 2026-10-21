@@ -259,7 +259,7 @@ def _rescore_one_spec(spec, *, df, holdout_idx, y_holdout, x_remaining_for, preb
     try:
         valid = np.asarray(transform.domain_check(y_h, base_arg), dtype=bool)
     except Exception as exc:  # -- degenerate holdout for this spec
-        logger.debug("honest-holdout domain_check failed for %s: %s", spec.name, exc)
+        logger.warning("honest-holdout domain_check failed for %s: %s", spec.name, exc)
         return
     if valid.shape != y_h.shape:
         return
@@ -284,7 +284,7 @@ def _rescore_one_spec(spec, *, df, holdout_idx, y_holdout, x_remaining_for, preb
     try:
         t_holdout = call_transform(transform, "forward", y_h[valid], base_valid, params)
     except Exception as exc:  # -- transform raised on holdout rows
-        logger.debug("honest-holdout forward failed for %s: %s", spec.name, exc)
+        logger.warning("honest-holdout forward failed for %s: %s", spec.name, exc)
         return
     # The shared bin codes are only usable when this spec keeps every holdout row: the bin edges are quantiles of
     # the rows actually scored, so a spec whose domain filter drops rows must bin its own subset, as before.

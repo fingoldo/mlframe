@@ -288,7 +288,7 @@ def _phase_fit_pipeline_cb_native_auto_flip(_has_cb, train_df, _declared_cats):
             try:
                 _declared_cats = train_df.select_dtypes(include=["category", "object", "string"]).columns.tolist()
             except Exception as e:
-                logger.debug("select_dtypes for declared categoricals failed: %s", e)
+                logger.warning("select_dtypes for declared categoricals failed: %s", e)
                 _declared_cats = []
     return _declared_cats
 

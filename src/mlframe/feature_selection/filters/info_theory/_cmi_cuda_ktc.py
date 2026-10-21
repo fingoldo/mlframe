@@ -71,7 +71,7 @@ def cmi_use_cuda(n: int, p: int) -> bool | None:
     except Exception as exc:
         # a genuine KTC.choose bug permanently and
         # silently degraded every fit to the hardcoded bootstrap heuristic with no diagnostic trail.
-        logger.debug("mrmr: CMI KTC .choose() failed; falling back to the hardcoded crossover heuristic: %r", exc, exc_info=True)
+        logger.warning("mrmr: CMI KTC .choose() failed; falling back to the hardcoded crossover heuristic: %r", exc, exc_info=True)
         return None
     if choice == "cuda":
         return True

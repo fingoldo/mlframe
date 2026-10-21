@@ -111,7 +111,7 @@ def resident_codes_on_device(d_disc_resident: Any, disc_2d: np.ndarray, n: int, 
             if _rshape == (n, K) and _rdt.itemsize <= 2 and _rdt == np.dtype(_disc_dt):
                 d_disc = d_disc_resident  # resident device codes -> NO H2D (the round-trip we eliminate)
         # best-effort: a fresh upload of the same codes gives the same result, only with an extra transfer
-        except Exception as e:
+        except Exception as e:  # best-effort: a fresh upload of the same codes gives the same result
             logger.debug("resident device-codes reuse check failed, falling back to a fresh H2D upload: %s", e)
             d_disc = None
     if d_disc is None:

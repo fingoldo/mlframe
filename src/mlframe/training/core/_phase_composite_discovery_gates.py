@@ -51,7 +51,7 @@ def _target_pathologies_for_auto_enable(y_train: np.ndarray, target_name: str, t
 
             pathologies = list(analyze_target_distribution(y_train, target_type="regression", has_time_axis=False).pathologies)
         except Exception as e:
-            logger.debug("per-target heavy-tail/skew auto-enable check failed for %r (%s); treating as no pathology", target_name, e)
+            logger.warning("per-target heavy-tail/skew auto-enable check failed for %r (%s); treating as no pathology", target_name, e)
             return []
     return [p for p in pathologies if p.startswith(_AUTO_ENABLE_DISCOVERY_PATHOLOGY_PREFIXES)]
 

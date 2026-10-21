@@ -57,7 +57,7 @@ def _bench() -> None:
                 counts[c] += 1.0
             return sums, counts
     except Exception as e:
-        logger.debug("fused njit kernel build failed: %s", e)
+        logger.warning("fused njit kernel build failed: %s", e)
         _full_fused = None
 
     for c in combos[:5]:

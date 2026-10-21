@@ -28,5 +28,6 @@ def available_ram_bytes(caller: str = "caller") -> Optional[int]:
 
         return int(psutil.virtual_memory().available)
     except Exception as exc:
+        # fallback: psutil is optional; without it the RAM term is dropped and the caller proceeds on its own budget.
         logger.debug("available_ram_bytes: psutil unavailable or failed (%s); %s proceeds without the RAM term", exc, caller)
         return None

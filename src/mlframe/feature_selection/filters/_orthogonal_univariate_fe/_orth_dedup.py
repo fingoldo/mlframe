@@ -263,7 +263,7 @@ def _resolve_pc_backend(q: int, r: int, n: int) -> str:
 
         return lookup_pairwise_corr_backend(max(q, r), n)
     except Exception as e:
-        logger.debug("_resolve_pc_backend: kernel_tuning_cache lookup failed, defaulting the pairwise-corr backend to numpy: %s", e)
+        logger.warning("_resolve_pc_backend: kernel_tuning_cache lookup failed, defaulting the pairwise-corr backend to numpy: %s", e)
         return "numpy"
 
 

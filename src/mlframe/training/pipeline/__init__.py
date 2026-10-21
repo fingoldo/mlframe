@@ -361,7 +361,7 @@ def prepare_dfs_for_catboost_joint(
             try:
                 _first = next((v for v in _col_series.head(8) if v is not None), None)
             except Exception as e:
-                logger.debug("could not probe first non-null value for object-dtype column: %s", e)
+                logger.warning("could not probe first non-null value for object-dtype column: %s", e)
                 _first = None
             if _first is not None and (hasattr(_first, "shape") or (hasattr(_first, "__len__") and not isinstance(_first, (str, bytes)))):
                 log_throttle(
@@ -868,7 +868,7 @@ def _warn_on_schema_drift(
     """
     try:
         other_schema = dict(other_df.schema)
-    except Exception as exc:
+    except Exception as exc:  # best-effort: the drift check applies only to polars frames, other inputs are skipped
         logger.debug("schema-drift check: schema read failed, skipping: %s", exc)
         return  # not a polars frame or schema unavailable -- skip silently
 

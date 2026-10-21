@@ -31,7 +31,7 @@ def batched_unique(df: "pl.DataFrame", candidate_cols: List[str]) -> "Dict[str, 
             try:
                 d[c] = df[c].drop_nulls().unique().cast(pl.String).to_list()
             except Exception as e2:  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
-                logger.debug("per-column unique-level extraction failed for %s: %s", c, e2)
+                logger.warning("per-column unique-level extraction failed for %s: %s", c, e2)
                 d[c] = []
         return d
 

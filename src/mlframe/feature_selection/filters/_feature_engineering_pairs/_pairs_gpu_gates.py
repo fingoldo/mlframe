@@ -79,6 +79,7 @@ def _fe_gpu_discretize_enabled_uncached(n_rows: int, n_cands: int) -> bool:
         if not cuda_available_for_run():
             return False
     except Exception as e:
+        # fallback: CUDA absent is the normal CPU-only case; the GPU discretize gate then stays on the CPU path.
         logger.debug("_fe_gpu_discretize_enabled_uncached: cuda_available_for_run() check failed, defaulting to CPU: %s", e)
         return False
     if _env in ("1", "true", "yes", "on"):
@@ -132,6 +133,7 @@ def _fe_gpu_binning_enabled_uncached(n_rows: int, n_cands: int) -> bool:
         if not cuda_available_for_run():
             return False
     except Exception as e:
+        # fallback: CUDA absent is the normal CPU-only case; the GPU binning gate then stays on the CPU path.
         logger.debug("_fe_gpu_binning_enabled_uncached: cuda_available_for_run() check failed, defaulting to CPU: %s", e)
         return False
     if _env in ("1", "true", "yes", "on"):

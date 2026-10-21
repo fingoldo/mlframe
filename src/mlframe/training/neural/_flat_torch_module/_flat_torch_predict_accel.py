@@ -178,7 +178,7 @@ class _PredictAccelMixin(_PredictAccelBase):
             if any(isinstance(m, _recurrent) for m in _net.modules()):
                 return None
         except Exception as exc:
-            logger.debug("torch.compile predict path: recurrent-module scan failed, falling back to eager: %s", exc)
+            logger.warning("torch.compile predict path: recurrent-module scan failed, falling back to eager: %s", exc)
             return None
 
         if self._compiled_predict_fn is None:

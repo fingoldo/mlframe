@@ -128,5 +128,6 @@ def check_and_warn(throttle_key: Optional[str] = None) -> list[str]:
                 _retained_worth_repeating(private_gb)  # the startup report counts: the heartbeat continues from it
         return messages
     except Exception as exc:  # pragma: no cover - a diagnostic must never end a run
+        # best-effort: the commit-pressure diagnostic is advisory; a failed probe only means no warning this cycle.
         logger.debug("commit-pressure check failed: %s", exc)
         return []

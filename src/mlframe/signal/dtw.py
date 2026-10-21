@@ -46,7 +46,7 @@ cp, _HAS_CUPY = try_import_cupy()
 try:
     from numba import cuda as _nb_cuda
     _HAS_NB_CUDA = bool(_nb_cuda.is_available())
-except Exception as e:
+except Exception as e:  # fallback: numba CUDA not importable, the CPU kernels are used
     logger.debug("numba.cuda import/availability probe failed: %s", e)
     _nb_cuda = None
     _HAS_NB_CUDA = False

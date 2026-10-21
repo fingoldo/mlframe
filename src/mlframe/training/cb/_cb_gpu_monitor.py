@@ -268,6 +268,7 @@ class CatBoostGpuFitMonitor:
         try:
             snap = probe()
         except Exception as e:
+            # best-effort: the GPU snapshot is diagnostic text for the monitor; a failed probe only blanks the snapshot.
             self.logger.debug("cb-gpu-monitor GPU probe failed: %s", e)
             snap = None
         from .._gpu_state_probe import format_gpu_snapshot

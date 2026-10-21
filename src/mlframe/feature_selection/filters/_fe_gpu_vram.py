@@ -165,7 +165,7 @@ def fe_gpu_has_vram_cushion(bytes_needed: int = 0, *, free_b: "int | None" = Non
         pool.free_all_blocks()
         free_b2, total_b2 = cp.cuda.runtime.memGetInfo()
     except Exception as exc:
-        logger.debug("fe_gpu_has_vram_cushion: pool free_all_blocks/re-probe failed (%s); declining", exc)
+        logger.warning("fe_gpu_has_vram_cushion: pool free_all_blocks/re-probe failed (%s); declining", exc)
         return False
     return bool((int(free_b2) - int(bytes_needed)) >= _cushion_bytes(int(total_b2)))
 

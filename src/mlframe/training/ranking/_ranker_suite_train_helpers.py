@@ -312,7 +312,7 @@ def _train_mlframe_rank_protocol_beyond_just_group(_doc_field, df_features, trai
             _doc_va = _doc_full[val_idx]
             _doc_te = _doc_full[test_idx]
         except Exception:
-            logger.debug("failed to slice doc_ids field %r for LTR popularity baseline; disabling doc_ids", _doc_field, exc_info=True)
+            logger.warning("failed to slice doc_ids field %r for LTR popularity baseline; disabling doc_ids", _doc_field, exc_info=True)
             _doc_tr = _doc_va = _doc_te = None
     return _doc_te, _doc_tr, _doc_va
 

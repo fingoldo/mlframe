@@ -92,7 +92,7 @@ def _frame_to_text(obj) -> Optional[str]:
     try:
         return str(to_string())
     except Exception as exc:
-        logger.debug("_frame_to_text: to_string() rendering failed: %s", exc)
+        logger.warning("_frame_to_text: to_string() rendering failed: %s", exc)
         return None
 
 
@@ -351,7 +351,7 @@ def _slugify_class(name: str) -> str:
 
         slug = slugify(name)
     except Exception as e:
-        logger.debug("slugify() failed for name=%r: %s", name, e)
+        logger.warning("slugify() failed for name=%r: %s", name, e)
         slug = ""
     if not slug:
         slug = "".join(ch if ch.isalnum() else "-" for ch in name).strip("-")

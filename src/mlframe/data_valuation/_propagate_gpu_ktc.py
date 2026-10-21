@@ -142,7 +142,7 @@ try:
         cli_label="data_valuation_propagate_subsample_crossover",
     )
 except Exception as e:
-    logger.debug("data_valuation_propagate_subsample_crossover: kernel_tuner registration failed, tuning disabled for this kernel: %s", e)
+    logger.warning("data_valuation_propagate_subsample_crossover: kernel_tuner registration failed, tuning disabled for this kernel: %s", e)
     _PROPAGATE_SPEC = None
 
 

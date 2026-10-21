@@ -92,6 +92,7 @@ def _build_honest_loss_disk_key(model_template, X_tr, y_tr, X_ev, y_ev, idx, cla
         })
         return _HONEST_LOSS_CACHE_PREFIX + compose_key(x_tr_key, y_tr_key, x_ev_key, y_ev_key, state_key)
     except Exception as exc:
+        # best-effort: the disk cache is an optional speedup; without a key the fit runs uncached.
         logger.debug("_honest_loss: disk-cache key build failed (%s); skipping cache", exc)
         return None
 
@@ -128,6 +129,7 @@ def _build_perm_fit_disk_key(model_template, X_tr, y_tr, idx, n_estimators_cap, 
         })
         return _PERM_IMP_FIT_CACHE_PREFIX + compose_key(x_tr_key, y_tr_key, state_key)
     except Exception as exc:
+        # best-effort: the disk cache is an optional speedup; without a key the fit runs uncached.
         logger.debug("_permutation_importance_ranking: disk-cache key build failed (%s); skipping cache", exc)
         return None
 
@@ -145,6 +147,7 @@ def _open_disk_cache(disk_cache_dir):
 
         return DiskCache(disk_cache_dir)
     except Exception as exc:
+        # best-effort: the disk cache is an optional speedup; without a cache object the fit runs uncached.
         logger.debug("_honest_loss: disk-cache open failed for %r (%s); skipping cache", disk_cache_dir, exc)
         return None
 

@@ -28,5 +28,6 @@ def pipeline_input_names(pre_pipeline: Any) -> Optional[List[str]]:
         raw = getattr(first, "feature_names_in_", None)
         return None if raw is None else [str(c) for c in raw]
     except Exception as exc:  # an attribute that raises is the same as one that is absent
+        # best-effort: a raising attribute is treated as absent; the caller just cannot build its cache key from it.
         logger.debug("pipeline_input_names: %s", exc)
         return None

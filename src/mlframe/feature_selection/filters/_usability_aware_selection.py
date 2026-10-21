@@ -102,7 +102,7 @@ def _replay_matches_on_device(recipe: Any, X_df: Any, values: np.ndarray, featur
         want = cp.asarray(np.asarray(values), dtype=cp.float64)  # Intentional float64: GPU usability operand; kernel contract is float64
         return bool(rep.shape == want.shape and bool(cp.allclose(rep, want, atol=1e-4, equal_nan=True)))
     except Exception as e:
-        logger.debug("device replay verification failed, using the host replay: %s", e)
+        logger.warning("device replay verification failed, using the host replay: %s", e)
         return None
 
 

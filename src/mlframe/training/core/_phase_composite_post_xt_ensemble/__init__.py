@@ -143,7 +143,7 @@ def _is_multi_target_regression(_tt_e: Any) -> bool:
 
         return bool(str(_tt_e) == str(TargetTypes.MULTI_TARGET_REGRESSION) or (hasattr(_tt_e, "is_multi_target_regression") and _tt_e.is_multi_target_regression))
     except Exception as e:
-        logger.debug("multi-target-regression detection failed, defaulting to False: %s", e)
+        logger.warning("multi-target-regression detection failed, defaulting to False: %s", e)
         return False
 
 

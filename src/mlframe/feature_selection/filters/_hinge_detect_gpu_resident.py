@@ -44,6 +44,7 @@ def hinge_gpu_enabled() -> bool:
         from ._gpu_strict_fe import fe_gpu_strict_resident_enabled
         return bool(fe_gpu_strict_resident_enabled())
     except Exception as e:
+        # fallback: the GPU-strict resident flag is unreadable (typically no cupy); the host hinge detector runs.
         logger.debug("hinge_gpu_enabled: fe_gpu_strict_resident_enabled() check failed, defaulting to the host detector: %s", e)
         return False
 

@@ -215,7 +215,7 @@ def _device_regression_bins(y_arr: np.ndarray, finite: np.ndarray) -> "tuple[np.
         n_bins = int(present.sum())
         return np.ascontiguousarray(cp.asnumpy(remap[ids]), dtype=np.int64), n_bins
     except Exception as e:
-        _logger.debug("device stratification bins failed, using the host path: %s", e)
+        _logger.warning("device stratification bins failed, using the host path: %s", e)
         return None
 
 

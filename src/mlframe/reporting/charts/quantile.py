@@ -88,7 +88,7 @@ def _model_diagnostics_decompose():
     try:
         from model_diagnostics.scoring import PinballLoss, decompose
         return decompose, PinballLoss
-    except Exception as exc:
+    except Exception as exc:  # fallback: model_diagnostics not installed, plain pinball loss is used
         logger.debug("_model_diagnostics_decompose: model-diagnostics unavailable, using plain pinball: %s", exc)
         return None
 

@@ -145,7 +145,7 @@ def _content_key(values: np.ndarray):
         try:
             return arr.tobytes()
         except Exception as e2:
-            logger.debug("tobytes content key also failed, column excluded from duplicate detection: %s", e2)
+            logger.warning("tobytes content key also failed, column excluded from duplicate detection: %s", e2)
             return None
 
 

@@ -11,7 +11,6 @@ from typing import (
 )
 
 import numpy as np
-import pandas as pd
 
 # Module-level scipy import so external introspection (e.g. the
 # test_m3_spearman_demoter_uses_rankdata regression sensor) can confirm the

@@ -334,7 +334,7 @@ def _selector_kind(selector) -> str | None:
     try:
         _kind_marker = getattr(selector, "_mlframe_selector_kind_", None)
     except Exception as exc:
-        logger.debug("_selector_kind: getattr(selector, '_mlframe_selector_kind_') raised, falling back to class-name matching: %s", exc)
+        logger.warning("_selector_kind: getattr(selector, '_mlframe_selector_kind_') raised, falling back to class-name matching: %s", exc)
         _kind_marker = None
     if isinstance(_kind_marker, str) and _kind_marker in (
         "MRMR", "RFECV", "BorutaShap", "ShapProxiedFS", "ACE",
@@ -344,7 +344,7 @@ def _selector_kind(selector) -> str | None:
     try:
         _cls_name = type(selector).__name__
     except Exception as exc:
-        logger.debug("_selector_kind: type(selector).__name__ raised, cannot classify selector: %s", exc)
+        logger.warning("_selector_kind: type(selector).__name__ raised, cannot classify selector: %s", exc)
         return None
     if _cls_name == "MRMR":
         return "MRMR"
@@ -369,7 +369,7 @@ def _selector_kind(selector) -> str | None:
     try:
         _has_marker = hasattr(selector, "_mlframe_use_sample_weights_in_fs_") and hasattr(selector, "support_")
     except Exception as exc:
-        logger.debug("_selector_kind: attribute-shape defence check raised, cannot classify selector: %s", exc)
+        logger.warning("_selector_kind: attribute-shape defence check raised, cannot classify selector: %s", exc)
         return None
     if _has_marker:
         if hasattr(selector, "cv_results_"):
@@ -399,7 +399,7 @@ def _selector_params_hash(selector) -> str | None:
         # suite scale (targets x weights x models can produce thousands of param dicts).
         return hashlib.blake2b(_digest_src.encode("utf-8", errors="replace"), digest_size=16).hexdigest()
     except Exception as exc:
-        logger.debug("_selector_params_hash: params introspection/hash failed, report key omits selector-param invalidation: %s", exc)
+        logger.warning("_selector_params_hash: params introspection/hash failed, report key omits selector-param invalidation: %s", exc)
         return None
 
 
@@ -534,7 +534,7 @@ def _canonical_dtype_pairs(train_df) -> tuple:
         elif hasattr(train_df, "columns"):
             _ncols = len(train_df.columns)
     except Exception as e:
-        logger.debug("column-count probe failed: %s", e)
+        logger.warning("column-count probe failed: %s", e)
         _ncols = None
     if _ncols is None:
         return _canonical_dtype_pairs_compute(train_df)

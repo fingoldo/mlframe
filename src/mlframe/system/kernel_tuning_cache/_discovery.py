@@ -80,6 +80,7 @@ def _capture(name: str):
     try:
         return importlib.import_module(name)
     except Exception as exc:  # not installed / no driver: there is nothing to protect
+        # fallback: an optional tuner module that is not importable is an expected state
         logger.debug("tuner discovery: %s is not importable (%s: %s)", name, type(exc).__name__, exc)
         return None
 

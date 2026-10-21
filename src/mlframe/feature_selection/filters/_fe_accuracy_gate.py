@@ -74,7 +74,7 @@ def _baseline_cv_key(X_base: np.ndarray, y: np.ndarray, *, classification: bool,
             h.digest(),
             bool(classification), int(n_splits), int(seed),
         )
-    except Exception as e:
+    except Exception as e:  # fallback: unhashable inputs skip the baseline cache, the baseline is recomputed
         logger.debug("_baseline_cv_key: could not hash X_base/y cheaply, falling back to always recomputing: %s", e)
         return None
 
@@ -188,7 +188,7 @@ def measure_feature_uplift(
                 _fold_i += 1
                 deltas.append(aug_score - base_score)
         except Exception as exc:  # pragma: no cover - the probe must never break a fit
-            logger.debug("measure_feature_uplift: probe failed (%s); fail-open (None)", exc)
+            logger.warning("measure_feature_uplift: probe failed (%s); fail-open (None)", exc)
             return None
         if not deltas:
             return None

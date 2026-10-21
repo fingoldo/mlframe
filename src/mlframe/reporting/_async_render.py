@@ -57,7 +57,7 @@ def default_worker_count() -> int:
         import psutil
 
         physical = psutil.cpu_count(logical=False) or 0
-    except Exception:
+    except Exception:  # fallback: psutil unavailable, the core count comes from os.cpu_count()
         logger.debug("async render: psutil physical core count unavailable", exc_info=True)
         physical = 0
     if physical <= 0:
@@ -71,7 +71,7 @@ def physical_core_count() -> int:
         import psutil
 
         physical = psutil.cpu_count(logical=False) or 0
-    except Exception:
+    except Exception:  # fallback: psutil unavailable, the core count comes from os.cpu_count()
         logger.debug("async render: psutil physical core count unavailable", exc_info=True)
         physical = 0
     return physical if physical > 0 else max(1, (os.cpu_count() or 2) // 2)
@@ -386,7 +386,7 @@ class ReportRenderQueue:
                 with _workers_do_not_reimport_main():
                     ex.submit(_worker_noop)
             except Exception:  # noqa: PERF203 -- a failed warm-up submit ends the loop, it is not retried
-                logger.debug("render queue warm-up submit failed", exc_info=True)
+                logger.warning("render queue warm-up submit failed", exc_info=True)
                 return
 
     # ------------------------------------------------------------------ submit

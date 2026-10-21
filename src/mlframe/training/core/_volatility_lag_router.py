@@ -66,7 +66,7 @@ def _extract_column(X: Any, name: str) -> Optional[np.ndarray]:
         if cols is not None and name in cols:  # pandas
             return np.asarray(X[name].to_numpy())
     except Exception as exc:
-        logger.debug("_extract_column: %r extraction failed: %s", name, exc)
+        logger.warning("_extract_column: %r extraction failed: %s", name, exc)
         return None
     return None
 

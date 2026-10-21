@@ -181,7 +181,7 @@ def _engineer_columns(X_train, y_train, X_val, top_pairs, basis, discrete_target
                 early_stop_no_improve=max(15, n_trials // 3),
             )
         except Exception as e:
-            logger.debug("optimise_hermite_pair failed: %s", e)
+            logger.warning("optimise_hermite_pair failed: %s", e)
             res = None
         if res is None:
             continue

@@ -414,14 +414,14 @@ def _numeric_columns(df: Any) -> list[str]:
         try:
             return list(df.select_dtypes(include="number").columns)
         except Exception as exc:
-            logger.debug("drift: pandas select_dtypes(include='number') failed, treating as no numeric columns: %s", exc)
+            logger.warning("drift: pandas select_dtypes(include='number') failed, treating as no numeric columns: %s", exc)
             return []
     # polars path -- duck-type the schema walk
     if hasattr(df, "schema") and hasattr(df, "columns"):
         try:
             return [name for name, dt in df.schema.items() if dt.is_numeric()]
         except Exception as exc:
-            logger.debug("drift: polars schema walk for numeric columns failed, treating as no numeric columns: %s", exc)
+            logger.warning("drift: polars schema walk for numeric columns failed, treating as no numeric columns: %s", exc)
             return []
     return []
 
@@ -477,7 +477,7 @@ def _categorical_columns(df: Any) -> list[str]:
                 out.append(c)
             return out
         except Exception as exc:
-            logger.debug("drift: pandas select_dtypes for categorical columns failed, treating as no categorical columns: %s", exc)
+            logger.warning("drift: pandas select_dtypes for categorical columns failed, treating as no categorical columns: %s", exc)
             return []
     if hasattr(df, "schema") and hasattr(df, "columns"):
         try:
@@ -489,7 +489,7 @@ def _categorical_columns(df: Any) -> list[str]:
                     out.append(name)
             return out
         except Exception as exc:
-            logger.debug("drift: polars schema walk for categorical columns failed, treating as no categorical columns: %s", exc)
+            logger.warning("drift: polars schema walk for categorical columns failed, treating as no categorical columns: %s", exc)
             return []
     return []
 
@@ -512,7 +512,7 @@ def _col_value_counts(df: Any, col: str) -> Optional[dict[Any, int]]:
                 # bit-identical (same keys, same Python-int values).
                 return dict(zip(_vc.index.tolist(), _vc.values.tolist()))
             except Exception as exc:
-                logger.debug("drift: pandas value_counts on col %r failed: %r", col, exc, exc_info=True)
+                logger.warning("drift: pandas value_counts on col %r failed: %r", col, exc, exc_info=True)
                 return None
         # polars path
         if hasattr(df, "schema") and hasattr(df, "columns"):
@@ -530,10 +530,10 @@ def _col_value_counts(df: Any, col: str) -> Optional[dict[Any, int]]:
                 _cnts = _vc[_cnt_col].to_list()
                 return dict(zip(_vals, _cnts))
             except Exception as exc:
-                logger.debug("drift: polars value_counts on col %r failed: %r", col, exc, exc_info=True)
+                logger.warning("drift: polars value_counts on col %r failed: %r", col, exc, exc_info=True)
                 return None
     except Exception as exc:
-        logger.debug("drift: value_counts dispatch on col %r failed: %r", col, exc, exc_info=True)
+        logger.warning("drift: value_counts dispatch on col %r failed: %r", col, exc, exc_info=True)
         return None
     return None
 
@@ -679,7 +679,7 @@ def _col_to_numpy(df: Any, col: str) -> Optional[np.ndarray]:
             # polars frame
             return np.asarray(df[col].to_numpy())
     except Exception as exc:
-        logger.debug("drift: to_numpy on col %r failed: %r", col, exc, exc_info=True)
+        logger.warning("drift: to_numpy on col %r failed: %r", col, exc, exc_info=True)
         return None
     return None
 
@@ -726,6 +726,7 @@ def _drift_invariant_cache_key(
         hash(key)  # force-uncached on any unhashable (embedding) component.
         return key
     except Exception as exc:
+        # fallback: an unhashable component (e.g. embeddings) disables the drift cache, so drift is recomputed.
         logger.debug("drift: cache-key build failed (unhashable component?); drift cache disabled: %r", exc, exc_info=True)
         return None
 

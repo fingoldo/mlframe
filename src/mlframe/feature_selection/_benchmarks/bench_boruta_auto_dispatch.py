@@ -62,7 +62,7 @@ def _honest_holdout_auc(X, y, selected, seed):
         proba = clf.predict_proba(Xte)[:, 1]
         return float(roc_auc_score(yte, proba))
     except Exception as exc:
-        logger.debug("_honest_holdout_auc: refit/score failed, using chance-level 0.5: %s", exc)
+        logger.warning("_honest_holdout_auc: refit/score failed, using chance-level 0.5: %s", exc)
         return 0.5
 
 

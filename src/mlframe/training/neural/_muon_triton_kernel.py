@@ -90,7 +90,7 @@ def _get_kernel_tuning_cache() -> "Any":
     try:
         return get_kernel_tuning_cache()
     except Exception as exc:  # pragma: no cover - defensive; singleton already guards.
-        logger.debug("_get_kernel_tuning_cache: singleton construction failed: %s", exc)
+        logger.warning("_get_kernel_tuning_cache: singleton construction failed: %s", exc)
         return None
 
 
@@ -313,7 +313,7 @@ def maybe_newton_schulz_triton(
         dev_index = G.device.index if G.device.index is not None else torch.cuda.current_device()
         cc = torch.cuda.get_device_capability(dev_index)
     except Exception as exc:
-        logger.debug("Triton NS dispatch: compute-capability probe failed, falling back to eager: %s", exc)
+        logger.warning("Triton NS dispatch: compute-capability probe failed, falling back to eager: %s", exc)
         return None
     if forced is not True and cc < _MIN_COMPUTE_CAPABILITY:
         return None

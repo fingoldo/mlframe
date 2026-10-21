@@ -73,7 +73,7 @@ def windows_commit_status() -> Optional[Dict[str, float]]:
             "commit_limit_gb": ms.ullTotalPageFile / g, "commit_avail_gb": ms.ullAvailPageFile / g,
             "pagefile_gb": max(0.0, (ms.ullTotalPageFile - ms.ullTotalPhys) / g),
         }
-    except Exception as e:
+    except Exception as e:  # best-effort: diagnostics probe, the memory snapshot is omitted
         logger.debug("GlobalMemoryStatusEx probe failed: %s", e)
         return None
 
@@ -272,14 +272,14 @@ def heartbeat_line() -> str:
 
         ph = all_active_phases()
         phase_s = "; ".join(f"{k}: {v}" for k, v in ph.items()) if ph else "(no active phase)"
-    except Exception as e:
+    except Exception as e:  # best-effort: diagnostics line, the phase column falls back to '?'
         logger.debug("heartbeat phase lookup failed: %s", e)
         phase_s = "?"
     try:
         from ._gpu_state_probe import format_gpu_snapshot, gpu_snapshot
 
         gpu_s = format_gpu_snapshot(gpu_snapshot(), exclude_pid=None, max_procs=0)
-    except Exception as e:
+    except Exception as e:  # best-effort: diagnostics line, the GPU column falls back to 'gpu=?'
         logger.debug("heartbeat GPU probe failed: %s", e)
         gpu_s = "gpu=?"
     return f"[heartbeat] phase={phase_s} | {memory_line()} | {gpu_s}"
@@ -401,7 +401,7 @@ def _process_age_line() -> str:
         private = getattr(mi, "private", None)
         private_txt = f", private commit {private / 1024**3:.1f} GB" if private else ""
         return f"{age_s / 60.0:.0f} min old, RSS {mi.rss / 1024**3:.1f} GB{private_txt} (a reused interpreter starts with what earlier work committed)"
-    except Exception as e:
+    except Exception as e:  # best-effort: diagnostics probe, the age/memory text falls back to a placeholder
         logger.debug("process-age probe failed: %s", e)
         return "age/memory unavailable"
 

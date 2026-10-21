@@ -201,7 +201,7 @@ def _score_one_pair_step2_def_resolve_col(final_transformed_vals, chunk_state, t
                 :, 0
             ]
         except Exception as e:
-            logger.debug("device candidate column failed, falling back to the host column: %s", e)
+            logger.warning("device candidate column failed, falling back to the host column: %s", e)
             return None
 
     def _abs_corr(_buf_col, _y, _y_finite):
@@ -718,7 +718,7 @@ def _pair_batch_codes(binary_transformations, param_a, param_b, quantization_nbi
     try:
         codes = discretize_2d_quantile_batch(block, n_bins=quantization_nbins, dtype=quantization_dtype, parallel=True)
     except Exception as _exc:
-        logger.debug("pair-step: batched recompute failed, falling back to per-transform: %s", _exc)
+        logger.warning("pair-step: batched recompute failed, falling back to per-transform: %s", _exc)
         return None
     return {nm: codes[:, j] for j, nm in enumerate(names)}
 

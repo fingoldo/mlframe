@@ -51,7 +51,7 @@ def _probe_nvml() -> Dict[str, Any]:
         gpus.append({"index": i, "util_pct": float(util.gpu), "mem_used_mb": mem.used / 2**20, "mem_total_mb": mem.total / 2**20})
         try:
             plist = nv.nvmlDeviceGetComputeRunningProcesses(h)
-        except Exception as e:
+        except Exception as e:  # best-effort: per-process GPU listing is driver-dependent, the GPU totals are still reported
             logger.debug("nvmlDeviceGetComputeRunningProcesses failed on gpu%d: %s", i, e)
             plist = []
         for p in plist:
@@ -66,7 +66,7 @@ def _proc_name(pid: int) -> str:
         import psutil
 
         return cast(str, psutil.Process(pid).name())
-    except Exception as e:
+    except Exception as e:  # best-effort: the process may have exited or be unreadable, the name is reported as '?'
         logger.debug("process name lookup failed for pid %s: %s", pid, e)
         return "?"
 

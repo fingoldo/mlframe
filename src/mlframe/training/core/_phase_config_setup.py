@@ -79,7 +79,7 @@ def _heavy_libs_needed(mlframe_models, recurrent_models, reporting_config) -> bo
                 return True
         return bool(getattr(reporting_config, "use_shap", False))
     except Exception as exc:
-        logger.debug("could not decide whether heavy libs are needed (%s); warming them", exc)
+        logger.warning("could not decide whether heavy libs are needed (%s); warming them", exc)
         return True
 
 

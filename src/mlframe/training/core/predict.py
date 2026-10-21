@@ -101,7 +101,7 @@ def _validate_metadata_version_envelope(metadata: dict, models_path: str) -> Non
             from ..composite import env_signature as _env_sig
             live_sig = _env_sig()
         except Exception as _e_env:
-            logger.debug(
+            logger.warning(
                 "mlframe predict: env_signature() unavailable (%s); " "skipping composite-env skew check.",
                 _e_env,
             )
