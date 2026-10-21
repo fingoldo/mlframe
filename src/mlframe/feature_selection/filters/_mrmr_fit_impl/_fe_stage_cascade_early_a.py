@@ -137,7 +137,6 @@ def _fe_stage_cascade_early_a(
     # present (empty when hinge off / no kink) so transform / pickle / clone
     # never trip on a missing attribute.
     self._hinge_features_ = []
-    self._hinge_rejected_ = []
     # SUFFICIENT-SUMMARY EARLY-STOP verdict. The fitted-attribute mirror of
     # the last sufficient-summary check in the greedy FE loop (a SufficientSummaryVerdict,
     # or None when the early-stop never ran / was disabled). Surfaced so callers can inspect

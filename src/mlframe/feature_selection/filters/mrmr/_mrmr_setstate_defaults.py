@@ -468,7 +468,6 @@ _SETSTATE_LEGACY_DEFAULTS = {
     "sir_direction_features_": [],
     "temporal_agg_features_": [],
     "_hinge_features_": [],
-    "_hinge_rejected_": [],
     "_cluster_aggregate_removals_": [],
     "_gate_col_src_vars_": {},
     "_gate_raw_operands_": set(),
