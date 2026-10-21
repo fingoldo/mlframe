@@ -290,14 +290,7 @@ def _discretize_inputs_part1(
         # the categorise-per-permutation path.
         _kw_keys = set((_nbins_strategy_kwargs or {}).keys())
         _strategy_lc = str(_nbins_strategy).lower()
-        # ``mdlp_fast_mode=False`` is the production default (the validated recursion), so spelling it out selects the same
-        # categorisation; only ``True`` (the depth-capped Fayyad-Irani path) is outside the njit chain.
-        _fast_mode_off = not bool((_nbins_strategy_kwargs or {}).get("mdlp_fast_mode", False))
-        if (
-            _strategy_lc in ("mdlp", "fayyad_irani", "mdlp_validated", "fayyad_irani_validated")
-            and _kw_keys <= {"max_depth", "max_adaptive_nbins", "mdlp_fast_mode"}
-            and (_fast_mode_off or _kw_keys <= {"max_depth", "max_adaptive_nbins"})
-        ):
+        if _strategy_lc in ("mdlp", "fayyad_irani", "mdlp_validated", "fayyad_irani_validated") and _kw_keys <= {"max_depth", "max_adaptive_nbins"}:
             from mlframe.feature_selection.filters._honest_spec import build_honest_spec
 
             _validated = _strategy_lc in ("mdlp_validated", "fayyad_irani_validated")
