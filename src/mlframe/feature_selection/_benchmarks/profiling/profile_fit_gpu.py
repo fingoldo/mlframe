@@ -16,7 +16,7 @@ for k, v in {
     "MLFRAME_FE_GPU_DISCRETIZE": "1", "MLFRAME_FE_GPU_BINNING": "1", "PYTHONUNBUFFERED": "1",
 }.items():
     os.environ[k] = v
-import numpy as np, pandas as pd, cupy as cp
+import cupy as cp
 from mlframe.feature_selection._benchmarks.profiling._fe_fit_fixture import fit as _fe_fit
 
 n = int(sys.argv[1]) if len(sys.argv) > 1 else 100000
