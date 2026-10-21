@@ -28,6 +28,7 @@ arm says which rule it actually used rather than silently substituting one.
 from __future__ import annotations
 
 import logging
+from mlframe.utils.log_throttle import log_throttle
 from typing import Any, Callable, Dict, List, Tuple
 
 import numpy as np
@@ -110,7 +111,7 @@ def base_score_table(X: pd.DataFrame, y: np.ndarray, random_state: int = 0) -> p
             # A scorer that cannot run on this bed is dropped from the vote and NAMED, never replaced by
             # zeros: a column of zeros is a scorer that ranks every feature equally, which silently dilutes
             # every other scorer's opinion rather than abstaining.
-            logger.warning("base scorer %r could not run on this bed and is excluded from the vote: %s", name, exc)
+            log_throttle(logger, "_arms_rank_aggregation:113", logging.WARNING, "base scorer %r could not run on this bed and is excluded from the vote: %s", name, exc)
     if not columns:
         raise RuntimeError("no base scorer could run on this bed, so there is nothing to aggregate")
     return pd.DataFrame(columns, index=[str(column) for column in X.columns])

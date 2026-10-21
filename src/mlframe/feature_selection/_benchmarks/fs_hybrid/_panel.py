@@ -16,6 +16,7 @@ bans several sklearn metrics in production code and the fast kernels are the doc
 from __future__ import annotations
 
 import logging
+from mlframe.utils.log_throttle import log_throttle
 from typing import Any, Callable, Dict, List, Optional, Sequence
 
 import numpy as np
@@ -173,6 +174,6 @@ def fit_and_score_panel(
             prob = np.asarray(clf.predict_proba(xte))[:, 1]
             models[member] = score_predictions(y_test, prob)
         except Exception as exc:  # a single panel member failing must not lose the other member's row
-            logger.warning("panel member %s failed: %s: %s", member, type(exc).__name__, exc)
+            log_throttle(logger, "_panel:176", logging.WARNING, "panel member %s failed: %s: %s", member, type(exc).__name__, exc)
             models[member] = {"error": f"{type(exc).__name__}: {exc}"}
     return {"models": models, "n_model_fits": fits, "base_rate": base_rate_scores(y_train, y_test), "empty_selection": False}

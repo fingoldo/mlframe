@@ -24,6 +24,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+from mlframe.utils.log_throttle import log_throttle
 import os
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
@@ -167,7 +168,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 try:
                     rows.append(run_point(str(args.bed), arm_name, n_samples, seed))
                 except Exception as exc:
-                    logger.warning("n=%s arm=%s seed=%s failed: %s", n_samples, arm_name, seed, exc)
+                    log_throttle(logger, "sweep_recovery_vs_n:170", logging.WARNING, "n=%s arm=%s seed=%s failed: %s", n_samples, arm_name, seed, exc)
                     rows.append({"bed": str(args.bed), "arm": arm_name, "n_samples": n_samples, "seed": seed, "recall": float("nan"), "precision": float("nan"), "n_selected": 0, "error": f"{type(exc).__name__}: {exc}"})
             done = [r for r in rows if r["n_samples"] == n_samples and r["arm"] == arm_name]
             recalls = [float(r["recall"]) for r in done if np.isfinite(float(r["recall"]))]

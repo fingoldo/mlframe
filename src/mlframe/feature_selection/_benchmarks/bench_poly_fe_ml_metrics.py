@@ -30,6 +30,7 @@ Run::
 from __future__ import annotations
 
 import logging
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -181,7 +182,7 @@ def _engineer_columns(X_train, y_train, X_val, top_pairs, basis, discrete_target
                 early_stop_no_improve=max(15, n_trials // 3),
             )
         except Exception as e:
-            logger.warning("optimise_hermite_pair failed: %s", e)
+            log_throttle(logger, "bench_poly_fe_ml_metrics:184", logging.WARNING, "optimise_hermite_pair failed: %s", e)
             res = None
         if res is None:
             continue

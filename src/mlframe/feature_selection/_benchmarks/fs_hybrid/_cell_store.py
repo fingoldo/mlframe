@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import logging
+from mlframe.utils.log_throttle import log_throttle
 import os
 from pathlib import Path
 from typing import Any, Dict, Iterator, List, Optional, Set, Union
@@ -101,7 +102,7 @@ class JsonlCellStore:
             try:
                 obj = json.loads(line)
             except ValueError:
-                logger.warning("dropping unparseable JSONL line %d of %s (partial write?)", lineno, self.path)
+                log_throttle(logger, "_cell_store:104", logging.WARNING, "dropping unparseable JSONL line %d of %s (partial write?)", lineno, self.path)
                 continue
             if isinstance(obj, dict):
                 yield obj
