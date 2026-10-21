@@ -16,8 +16,6 @@ cat_num_interaction, conditional_dispersion, conditional_gate, integer_lattice, 
 
 | Family | Check | Observed |
 |---|---|---|
-| binned_numeric_agg | created, lift, power | detected in 10 of 14 seeds, lower bound 0.46 (seed 0 creates nothing; the lift is present on 2 of 3 seeds, R^2 0.85 against 0.00). The 14-seed fixture is below what a 10-cell permutation test resolves at the pair-wise family level (17 of 20 on the 30000-row fixture of the gate work) |
-| pairwise_log_ratio | power | 17 of 20, lower bound 0.66; on seeds 6, 10 and 11 the generic pair search selects an equivalent form (`div(invsqrt(revenue),invsqrt(cost))`, `mul(sqrt(revenue),invsqrt(cost))`) |
 
 ## Closed since the first run
 
@@ -34,6 +32,8 @@ cat_num_interaction, conditional_dispersion, conditional_gate, integer_lattice, 
 | pairwise_ratio | lift (R^2 0.50 against 0.55 on raw) | the target is a band `0.5 < revenue / cost < 2`, non-monotone in the ratio, so no linear model can use the ratio column or its log; the downstream estimator is now a boosted tree (lift 0.017 to 0.028 on every seed) |
 | count_encoding, frequency_encoding | lift 0.015 to 0.024 on 0.86 to 0.88 | the fixture: singleton ids were separable from the raw id code, leaving no headroom. User ids now carry counts between 5 and 120 in no order: raw 0.51 to 0.55, with the encoding 0.77 to 0.79. Power 19 of 20 on one seed where the count column reached the output as an operand (`min(prewarp(noise_b), invsqrt(cat_user__count))`); both families are now credited for that by name pattern, 20 of 20 |
 | all | `run_final_subsumption_prune` failed with `could not convert string to float` whenever a string raw column was selected, cancelling the whole pass (logged, the selection left as it was) | string and categorical raw columns are skipped as candidates; the compounds cannot subsume them |
+| binned_numeric_agg | created, lift, power (10 of 14; seed 0 created nothing) | the cell statistics are functions of the group column's bins, so the MI screen finds nothing in them beyond the selected group column `g` (data-processing inequality) and dropped `binagg_std(aux|qbin(g))` on seed 0, leaving only `g`, which a linear model cannot use. The orth-basis protection (held-out linear gain over the selection, floor 0.01) skipped it because it read two sources; it now handles a two-source `binned_numeric_agg` recipe. Now 14 of 14, lift 0.85 |
+| pairwise_log_ratio | power (17 of 20) | on seeds 6, 10, 11 the generic pair search selects `div(invsqrt(revenue),invsqrt(cost))` and similar, which are monotone in the family's `log_ratio__revenue__cost` (the family column was created). The registry now credits a selected engineered column whose absolute Spearman correlation with the family's own column is at least 0.95 (`equivalent_rank_corr`, `reference`); noise 0 of 5 |
 | all | `hybrid_orth_mi_fe` and the univariate basis generator raised on a string column in an explicit column list (`could not convert string to float: 'R_4'`), caught and logged, which dropped the stage for such frames | explicit lists are now filtered to numeric columns, as the docstring promised |
 
 ## What is a finding and what may be the fixture

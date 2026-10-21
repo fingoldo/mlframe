@@ -43,9 +43,9 @@ TEST_FRACTION = 0.3
 # (family, check) pairs that fail today. Each is a finding documented in audits/2026-10-20_fe_family_survival/FINDINGS.md, not a tolerance to widen: the check is left out of
 # the parametrization until the family is fixed, and this registry is the list of what is left out. A family that is fixed is removed from here and the test then covers it.
 OPEN_FINDINGS = {
-    "created": frozenset({"binned_numeric_agg"}),
-    "lift": frozenset({"binned_numeric_agg"}),
-    "power": frozenset({"binned_numeric_agg", "pairwise_log_ratio"}),
+    "created": frozenset({}),
+    "lift": frozenset({}),
+    "power": frozenset({}),
 }
 
 
@@ -69,6 +69,8 @@ class Family:
     extra: dict = field(default_factory=dict)
     panel: int = 20
     pattern: str = ""
+    equivalent_rank_corr: float = 0.0
+    reference: Optional[Callable] = None
 
 
 def default_on_fe_flags() -> list:
@@ -187,7 +189,29 @@ def family_columns(fit: FitResult, family: Family) -> tuple:
         direct = {str(r.name) for r in mine}
         via = [r for r in recipes if str(r.name) in selected and str(r.name) not in direct and any(re.search(operand, n) for n in _operand_names(r))]
         mine, kept = mine + via, kept + [r.name for r in via]
+    if family.equivalent_rank_corr and family.reference is not None and not kept:
+        kept = _equivalent_selected(fit, family, selected)
     return mine, kept
+
+
+def _equivalent_selected(fit: FitResult, family: Family, selected: set) -> list:
+    """Names of the family's reference columns (built by ``family.reference`` from the training frame) that a selected engineered column reproduces: absolute Spearman correlation on the training rows at least ``family.equivalent_rank_corr``."""
+    from scipy.stats import spearmanr
+
+    out = pd.DataFrame(fit.model.transform(fit.X_train))
+    own = {str(r.name) for r in recipes_of(fit.model)}
+    chosen = [c for c in out.columns if str(c) in selected and str(c) in own]
+    ref = family.reference(fit.X_train)
+    rows = np.arange(min(2000, len(fit.X_train)))
+    hits = []
+    for name in ref.columns:
+        theirs = np.asarray(ref[name], dtype=np.float64)[rows]
+        for c in chosen:
+            rho = spearmanr(theirs, np.asarray(out[c], dtype=np.float64)[rows], nan_policy="omit")[0]
+            if np.isfinite(rho) and abs(rho) >= family.equivalent_rank_corr:
+                hits.append(str(name))
+                break
+    return hits
 
 
 def _downstream(family: Family):
