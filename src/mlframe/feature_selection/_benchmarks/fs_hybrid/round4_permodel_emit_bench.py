@@ -268,7 +268,8 @@ def run_with_retry(name, X, y, seed):
 
 
 def main():
-    open(PROG, "w", encoding="utf-8").close()
+    with open(PROG, "w", encoding="utf-8"):
+        pass
     _ckpt("START per_model_emit bench")
     seeds = [0, 1, 2]
     allrows = []

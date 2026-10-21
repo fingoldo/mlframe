@@ -2,7 +2,8 @@
 
 Run: python src/mlframe/metrics/_benchmarks/bench_fused_regression_welford.py (PYTHONPATH=src, CUDA off).
 Result @N=10M (16-thread Ryzen, py3.14): NEW single-pass 1.59-1.79x faster, SS_tot rel-diff ~1e-13..1e-15 (FP reduction-order, non-decision-altering). RESOLVED: shipped as default for fast_regression_metrics_block."""
-import sys; sys.modules['cupy']=None
+import sys
+sys.modules['cupy']=None
 import numba, numpy as np
 from numba import njit, prange
 from mlframe._bench_timing_shared import best_of_min_median_args_no_warmup as bench

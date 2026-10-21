@@ -70,8 +70,10 @@ def log(msg):
 
 
 def main():
-    open(RES, "w", encoding="utf-8").close()
-    open(PROG, "w", encoding="utf-8").close()
+    with open(RES, "w", encoding="utf-8"):
+        pass
+    with open(PROG, "w", encoding="utf-8"):
+        pass
     from mlframe.feature_selection.wrappers import RFECV, FIConfig, SearchConfig
 
     cells = [(sc, sd, ig) for sc in SCENARIOS for sd in SEEDS for ig in IMPORTANCE]
@@ -109,7 +111,8 @@ def main():
 
 
 def summarize():
-    rows = [json.loads(l) for l in open(RES, encoding="utf-8") if l.strip()]
+    with open(RES, encoding="utf-8") as fh:
+        rows = [json.loads(l) for l in fh if l.strip()]
     ok = [r for r in rows if not r.get("error")]
     if not ok:
         log("no successful cells")

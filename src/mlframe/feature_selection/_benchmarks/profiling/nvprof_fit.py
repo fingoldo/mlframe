@@ -1,5 +1,5 @@
 """The profiled fit with the CUDA profiler window opened only around one warm fit (``nvprof --profile-from-start off``)."""
-import cProfile, pstats, os, sys, time, io, warnings
+import os, sys, time, warnings
 import sys
 from pathlib import Path
 

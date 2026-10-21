@@ -15,7 +15,7 @@ callers keep working at the cost of a one-time deferred import.
 from __future__ import annotations
 
 
-from mlframe.evaluation.bootstrap import auc_ci, auc_variance, bootstrap_metric, bootstrap_metrics, delong_test
+from mlframe.evaluation.bootstrap import auc_ci, auc_variance, bootstrap_metric, bootstrap_metrics
 from mlframe.evaluation.noise_band import cv_score_equivalence_band, is_within_noise_band
 # Promoted to the public surface rather than imported across a package boundary by its underscore name:
 # `calibration.policy` needs ECE's O(n) closed-form BCa jackknife, and reaching into

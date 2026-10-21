@@ -866,6 +866,3 @@ def _build_cross_target_e_step3_optional_top_cap(composite_target_discovery_conf
             "stored at models[%s][%s] for downstream consumers.",
             _orig_tname, _ens_report_err, _tt_e, st._ens_key,
         )
-
-
-from ._post_xt_ensemble_mtr import MTRPerColumnEqualMeanEnsemble

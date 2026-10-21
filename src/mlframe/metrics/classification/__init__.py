@@ -49,7 +49,6 @@ from ._classification_extras import (
 from ._threshold_optimization import (
     optimal_threshold,
     optimal_threshold_bootstrap_ci,
-    THRESHOLD_METRICS,
 )
 
 from ._gains_lift import (
@@ -62,11 +61,9 @@ from ._gains_lift import (
 from ._weighted_kappa import (
     quadratic_weighted_kappa,
     weighted_kappa,
-    KAPPA_WEIGHTS,  # public facade re-export (F401 already blanket-ignored for __init__.py)
 )
 
 from ._ordinal_cutpoints import (
     optimal_ordinal_cutpoints,
     apply_cutpoints,
-    CUTPOINT_METRICS,  # public facade re-export (F401 already blanket-ignored for __init__.py)
 )

@@ -111,44 +111,41 @@ def main(argv=None):
     ap.add_argument("--out_file", default=None)
     args = ap.parse_args(argv)
 
-    if args.out_file:
-        import atexit
-        import builtins
-        _fp = open(args.out_file, "w", buffering=1, encoding="utf-8")
-        atexit.register(_fp.close)
-        _orig = builtins.print
+    import builtins
+    import contextlib
+    with (open(args.out_file, "w", buffering=1, encoding="utf-8") if args.out_file else contextlib.nullcontext()) as _fp:
+        if _fp is not None:
+            _orig = builtins.print
+            builtins.print = make_tee_print(_orig, _fp)
 
-        builtins.print = make_tee_print(_orig, _fp)
+        requested = [c.strip() for c in args.configs.split(",") if c.strip()]
+        print(f"iter59 adaptive-prescreen A/B: scale={args.scale} configs={requested} n_jobs={args.n_jobs}", flush=True)
+        print("\n[warmup] tiny fit to amortise JIT compile across the A/B...", flush=True)
+        t_warm = time.perf_counter()
+        _warm_X, _warm_y, _ = make_dataset(dict(width=200, n_rows=400, n_informative=10, n_redundant=5, redundancy_rho=0.5, snr=4.0, seed=0))
+        _warm_sel = _build_selector(seed=0, adaptive=True, n_jobs=args.n_jobs)
+        _warm_sel.fit(_warm_X, _warm_y)
+        print(f"[warmup] done in {time.perf_counter()-t_warm:.1f}s", flush=True)
 
-    requested = [c.strip() for c in args.configs.split(",") if c.strip()]
-    print(f"iter59 adaptive-prescreen A/B: scale={args.scale} configs={requested} n_jobs={args.n_jobs}", flush=True)
-    print("\n[warmup] tiny fit to amortise JIT compile across the A/B...", flush=True)
-    t_warm = time.perf_counter()
-    _warm_X, _warm_y, _ = make_dataset(dict(width=200, n_rows=400, n_informative=10, n_redundant=5, redundancy_rho=0.5, snr=4.0, seed=0))
-    _warm_sel = _build_selector(seed=0, adaptive=True, n_jobs=args.n_jobs)
-    _warm_sel.fit(_warm_X, _warm_y)
-    print(f"[warmup] done in {time.perf_counter()-t_warm:.1f}s", flush=True)
+        overall = {}
+        for name in requested:
+            cfg = _config_for(args.scale, name)
+            print(f"\n[{name}] cfg={cfg}", flush=True)
+            t_data = time.perf_counter()
+            X, y, roles = make_dataset(cfg)
+            print(f"[{name}] dataset shape={X.shape} in {time.perf_counter()-t_data:.1f}s", flush=True)
+            results = []
+            for adaptive in (False, True):
+                t_one = time.perf_counter()
+                r = run_one(name, cfg, adaptive=adaptive, X=X, y=y, roles=roles, n_jobs=args.n_jobs)
+                print(f"  [{name}/{r['label']}] done in {time.perf_counter()-t_one:.1f}s "
+                      f"(e2e={r['total']:.2f}s, recall={r['recall']}, stab={r['stability']}, "
+                      f"cap={r['effective_cap']})", flush=True)
+                results.append(r)
+            overall[name] = results
+            _print_summary(name, results)
 
-    overall = {}
-    for name in requested:
-        cfg = _config_for(args.scale, name)
-        print(f"\n[{name}] cfg={cfg}", flush=True)
-        t_data = time.perf_counter()
-        X, y, roles = make_dataset(cfg)
-        print(f"[{name}] dataset shape={X.shape} in {time.perf_counter()-t_data:.1f}s", flush=True)
-        results = []
-        for adaptive in (False, True):
-            t_one = time.perf_counter()
-            r = run_one(name, cfg, adaptive=adaptive, X=X, y=y, roles=roles, n_jobs=args.n_jobs)
-            print(f"  [{name}/{r['label']}] done in {time.perf_counter()-t_one:.1f}s "
-                  f"(e2e={r['total']:.2f}s, recall={r['recall']}, stab={r['stability']}, "
-                  f"cap={r['effective_cap']})", flush=True)
-            results.append(r)
-        overall[name] = results
-        _print_summary(name, results)
-
-    return overall
-
+        return overall
 
 if __name__ == "__main__":
     main()

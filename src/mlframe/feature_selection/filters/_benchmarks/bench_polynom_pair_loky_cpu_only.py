@@ -44,6 +44,17 @@ class _VramSampler(threading.Thread):
         self.samples = []
         self._stop = threading.Event()
 
+    def __getstate__(self) -> dict:
+        """Pickle everything but the stop event, which cannot be pickled."""
+        state = self.__dict__.copy()
+        del state["_stop"]
+        return state
+
+    def __setstate__(self, state: dict) -> None:
+        """Restore the entries and give the copy a fresh stop event."""
+        self.__dict__.update(state)
+        self._stop = threading.Event()
+
     def run(self):
         while not self._stop.is_set():
             self.samples.append(_vram_used_mib())

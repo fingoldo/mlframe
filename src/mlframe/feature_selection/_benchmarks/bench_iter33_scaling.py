@@ -168,61 +168,58 @@ def main(argv=None):
                          "to flush.")
     args = ap.parse_args(argv)
 
-    if args.out_file:
-        import atexit
-        import builtins
-        _fp = open(args.out_file, "w", buffering=1, encoding="utf-8")
-        atexit.register(_fp.close)
-        _orig = builtins.print
+    import builtins
+    import contextlib
+    with (open(args.out_file, "w", buffering=1, encoding="utf-8") if args.out_file else contextlib.nullcontext()) as _fp:
+        if _fp is not None:
+            _orig = builtins.print
+            builtins.print = make_tee_print(_orig, _fp)
 
-        builtins.print = make_tee_print(_orig, _fp)
+        requested = [c.strip() for c in args.configs.split(",") if c.strip()]
+        profile_set = {c.strip() for c in args.cprofile_configs.split(",") if c.strip()}
+        for c in requested:
+            if c not in CONFIGS:
+                raise SystemExit(f"unknown config {c}; known: {sorted(CONFIGS)}")
 
-    requested = [c.strip() for c in args.configs.split(",") if c.strip()]
-    profile_set = {c.strip() for c in args.cprofile_configs.split(",") if c.strip()}
-    for c in requested:
-        if c not in CONFIGS:
-            raise SystemExit(f"unknown config {c}; known: {sorted(CONFIGS)}")
+        print(f"iter33 scaling sweep: configs={requested}  cprofile={sorted(profile_set)}", flush=True)
+        print(f"per-config cap = {args.per_config_cap_s:.0f}s (soft)", flush=True)
+        results = {}
+        t_bench0 = time.perf_counter()
+        for name in requested:
+            cfg = CONFIGS[name]
+            r = run_one(name, cfg, do_cprofile=(name in profile_set), run_preflight=not args.no_preflight)
+            results[name] = r
+            print_stage_table(r["stage_timings"], r["total"])
+            print(f"  recall: {r['recall'][0]}/{r['recall'][1]}  " f"n_selected={r['n_selected']}  trustworthy={r['trustworthy']}", flush=True)
+            if r["chosen_honest_loss"] is not None:
+                print(f"  chosen_honest_loss={r['chosen_honest_loss']:.4f}  "
+                      f"random_baseline_brier={r['random_baseline_brier']:.4f}  "
+                      f"lift_vs_random={r['random_baseline_brier']-r['chosen_honest_loss']:+.4f}",
+                      flush=True)
+            if r["preflight_recommendation"] is not None:
+                print(f"  preflight_recommendation={r['preflight_recommendation']}")
+            if r["profile"] is not None:
+                print("  cProfile top 10 by tottime:")
+                print_cprofile(r["profile"], n=10, sort="tottime")
+                print("  cProfile top 10 by cumulative:")
+                print_cprofile(r["profile"], n=10, sort="cumulative")
+            if r["total"] > args.per_config_cap_s:
+                print(f"  [WARN] {name} exceeded soft cap {args.per_config_cap_s:.0f}s " f"({r['total']:.1f}s)", flush=True)
 
-    print(f"iter33 scaling sweep: configs={requested}  cprofile={sorted(profile_set)}", flush=True)
-    print(f"per-config cap = {args.per_config_cap_s:.0f}s (soft)", flush=True)
-    results = {}
-    t_bench0 = time.perf_counter()
-    for name in requested:
-        cfg = CONFIGS[name]
-        r = run_one(name, cfg, do_cprofile=(name in profile_set), run_preflight=not args.no_preflight)
-        results[name] = r
-        print_stage_table(r["stage_timings"], r["total"])
-        print(f"  recall: {r['recall'][0]}/{r['recall'][1]}  " f"n_selected={r['n_selected']}  trustworthy={r['trustworthy']}", flush=True)
-        if r["chosen_honest_loss"] is not None:
-            print(f"  chosen_honest_loss={r['chosen_honest_loss']:.4f}  "
-                  f"random_baseline_brier={r['random_baseline_brier']:.4f}  "
-                  f"lift_vs_random={r['random_baseline_brier']-r['chosen_honest_loss']:+.4f}",
-                  flush=True)
-        if r["preflight_recommendation"] is not None:
-            print(f"  preflight_recommendation={r['preflight_recommendation']}")
-        if r["profile"] is not None:
-            print("  cProfile top 10 by tottime:")
-            print_cprofile(r["profile"], n=10, sort="tottime")
-            print("  cProfile top 10 by cumulative:")
-            print_cprofile(r["profile"], n=10, sort="cumulative")
-        if r["total"] > args.per_config_cap_s:
-            print(f"  [WARN] {name} exceeded soft cap {args.per_config_cap_s:.0f}s " f"({r['total']:.1f}s)", flush=True)
-
-    # Summary table
-    print("\n" + "=" * 70)
-    print("SCALING SUMMARY")
-    print("=" * 70)
-    header = f"{'config':<6} {'width':>6} {'rows':>6} {'inf':>4} {'red':>4} " f"{'total':>8} {'recall':>8} {'subset':>7} {'trust':>6}"
-    print(header)
-    for name in requested:
-        c = CONFIGS[name]; r = results[name]
-        rec = f"{r['recall'][0]}/{r['recall'][1]}"
-        print(f"{name:<6} {c['width']:>6} {c['n_rows']:>6} {c['n_informative']:>4} "
-              f"{c['n_redundant']:>4} {r['total']:>7.2f}s {rec:>8} {r['n_selected']:>7} "
-              f"{r['trustworthy']!s:>6}")
-    print(f"\nbench-wall total: {time.perf_counter()-t_bench0:.1f}s")
-    return results
-
+        # Summary table
+        print("\n" + "=" * 70)
+        print("SCALING SUMMARY")
+        print("=" * 70)
+        header = f"{'config':<6} {'width':>6} {'rows':>6} {'inf':>4} {'red':>4} " f"{'total':>8} {'recall':>8} {'subset':>7} {'trust':>6}"
+        print(header)
+        for name in requested:
+            c = CONFIGS[name]; r = results[name]
+            rec = f"{r['recall'][0]}/{r['recall'][1]}"
+            print(f"{name:<6} {c['width']:>6} {c['n_rows']:>6} {c['n_informative']:>4} "
+                  f"{c['n_redundant']:>4} {r['total']:>7.2f}s {rec:>8} {r['n_selected']:>7} "
+                  f"{r['trustworthy']!s:>6}")
+        print(f"\nbench-wall total: {time.perf_counter()-t_bench0:.1f}s")
+        return results
 
 if __name__ == "__main__":
     main()

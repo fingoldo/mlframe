@@ -19,7 +19,7 @@ import numpy as np
 import pytest
 from sklearn.metrics import mean_squared_error
 
-from mlframe.training.core._phase_composite_post_xt_ensemble import MTRPerColumnEqualMeanEnsemble
+from mlframe.training.core._phase_composite_post_xt_ensemble._post_xt_ensemble_mtr import MTRPerColumnEqualMeanEnsemble
 
 
 def _macro_rmse(y_true: np.ndarray, y_pred: np.ndarray) -> float:

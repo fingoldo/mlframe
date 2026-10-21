@@ -1,7 +1,8 @@
 """iter101 @10M: rare-value merge in analyse_and_clean_features via vectorized isin+mask vs per-cell .replace().
 Run: python bench_rareval_merge_iter101.py    Drives the full cleaning pass on a 10M discrete column with a rare tail.
 Result: NEW 13.5x faster on the merge step, full-frame bit-identical. See _loop_iter_log.md iter101."""
-import sys; sys.modules['cupy']=None
+import sys
+sys.modules['cupy']=None
 import numpy as np, pandas as pd, time
 from mlframe.preprocessing.cleaning import analyse_and_clean_features
 

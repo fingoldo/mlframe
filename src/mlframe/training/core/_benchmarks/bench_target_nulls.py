@@ -52,6 +52,22 @@ class PeakMemory:
         self._stop = threading.Event()
         self._thread = threading.Thread(target=self._run, daemon=True)
 
+    def __getstate__(self) -> dict:
+        """Pickle everything but the process handle, stop event and sampler thread, which cannot be pickled."""
+        state = self.__dict__.copy()
+        for key in ("_proc", "_stop", "_thread"):
+            del state[key]
+        return state
+
+    def __setstate__(self, state: dict) -> None:
+        """Restore the entries and rebuild the process handle, stop event and sampler thread."""
+        import psutil
+
+        self.__dict__.update(state)
+        self._proc = psutil.Process()
+        self._stop = threading.Event()
+        self._thread = threading.Thread(target=self._run, daemon=True)
+
     def _sample(self) -> int:
         info = self._proc.memory_info()
         return int(getattr(info, "private", 0) or info.rss)
