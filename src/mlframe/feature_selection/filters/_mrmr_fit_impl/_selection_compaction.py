@@ -261,9 +261,9 @@ def run_selection_compaction(
         y_codes = np.asarray(classes_y).ravel()
         changed = False
         # Features that add nothing to the rest go first: a proxy fragment would otherwise keep the replacement candidate from matching the set it replaces.
-        # A hinge leg is admitted on its held-out linear usability, which binned joint information cannot see (a monotone leg of a selected source adds none by the
+        # A hinge leg is admitted on its held-out linear usability, and a missingness indicator ties with the NaN bin of its source; binned joint information sees neither (a monotone leg of a selected source adds none by the
         # data-processing inequality), so the information-based compaction must not drop or replace it.
-        protected = set(getattr(self, "_hinge_features_", None) or [])
+        protected = {c for attr in ("_hinge_features_", "missingness_indicator_features_", "missingness_pattern_features_") for c in (getattr(self, attr, None) or [])}
         dropped = prune_redundant(columns, sel_raw + sel_eng, [e for e in sel_eng if e not in protected], y_codes, consumers)
         if dropped:
             sel_eng = [e for e in sel_eng if e not in dropped]

@@ -20,8 +20,6 @@ cat_num_interaction, conditional_dispersion, conditional_gate, integer_lattice, 
 | pair_cross | created, power | the orthogonal pair-cross recipe is never created: the always-on generic pair search finds `mul(prewarp(x0),prewarp(x1))` first on a product scenario; detected 5 of 14. The scenario is expressible by a cheaper mechanism, so it needs a target only the tensor basis can express |
 | row_argmax | power | 11 of 14, lower bound 0.53; the panel takes about 940 s |
 | pairwise_log_ratio | power | 17 of 20, lower bound 0.66; on seeds 6, 10 and 11 the generic pair search selects an equivalent form (`div(invsqrt(revenue),invsqrt(cost))`, `mul(sqrt(revenue),invsqrt(cost))`) |
-| missingness_indicator | power | 18 of 20, lower bound 0.72 |
-| missingness_pattern | power | 17 of 20, lower bound 0.66 |
 | pairwise_ratio | lift | held-out R^2 with the selection is below the raw columns on all three seeds (0.50, 0.51, 0.49 against 0.55, 0.52, 0.52) although the ratio column is selected |
 | count_encoding, frequency_encoding | lift | lifts are small and positive (0.015, 0.024, about 0) on a baseline of 0.86 to 0.88: the scenario leaves almost no headroom, so this may be the fixture |
 | wavelet | lift | on seeds 1 and 2 the lift is about 0.50 (R^2 0.55 against 0.05) and it is negative on seed 0 |

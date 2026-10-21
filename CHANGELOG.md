@@ -11,7 +11,7 @@ history.
 
 ## [Unreleased]
 ### Fixed
-- Selection compaction no longer drops hinge legs that the held-out linear-usability protection re-added: a monotone leg of a selected source carries no binned joint information, so the information-based prune removed every leg on some seeds (hinge detection on the survival panel 12 of 14 to 14 of 14).
+- Selection compaction no longer drops hinge legs, missingness indicators or missingness patterns that the held-out linear-usability protection re-added: a monotone leg of a selected source carries no binned joint information, so the information-based prune removed every leg on some seeds (hinge detection on the survival panel 12 of 14 to 14 of 14).
 
 
 ### Added
