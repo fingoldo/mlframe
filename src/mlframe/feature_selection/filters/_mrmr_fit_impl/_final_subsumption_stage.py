@@ -31,6 +31,16 @@ def _column_values(X, name):
     return np.asarray(col.to_numpy() if hasattr(col, "to_numpy") else col, dtype=_crit_np_dtype()).ravel()
 
 
+def _is_numeric_column(X, name):
+    """True when the raw column ``name`` (pandas or polars) holds numbers or booleans."""
+    import pandas as pd
+
+    dtype = X[name].dtype
+    if hasattr(dtype, "is_numeric"):
+        return bool(dtype.is_numeric()) or str(dtype) == "Boolean"
+    return bool(pd.api.types.is_numeric_dtype(dtype) or pd.api.types.is_bool_dtype(dtype))
+
+
 def run_final_subsumption_prune(
     self: "MRMR", X: "pd.DataFrame | pl.DataFrame", selected_vars: list[int], classes_y: np.ndarray, verbose: int | bool
 ) -> tuple[bool, list[int]]:
@@ -50,7 +60,9 @@ def run_final_subsumption_prune(
         raw_selected = [raw_names[int(v)] for v in selected_vars if 0 <= int(v) < len(raw_names)]
         candidates = {}
         for name in raw_selected:
-            candidates[name] = _column_values(X, name)
+            # a string / categorical column is not a continuous candidate: the compounds cannot subsume it, and converting it raised and cancelled the whole pass
+            if _is_numeric_column(X, name):
+                candidates[name] = _column_values(X, name)
         candidates.update(eng_values)
         anchors = [name for name in eng_values if len(_raw_sources(name, raw_set)) >= 2]
         if not anchors:

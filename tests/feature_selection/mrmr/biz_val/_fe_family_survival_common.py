@@ -44,7 +44,7 @@ TEST_FRACTION = 0.3
 # the parametrization until the family is fixed, and this registry is the list of what is left out. A family that is fixed is removed from here and the test then covers it.
 OPEN_FINDINGS = {
     "created": frozenset({"binned_numeric_agg"}),
-    "lift": frozenset({"binned_numeric_agg", "count_encoding", "frequency_encoding", "pairwise_ratio"}),
+    "lift": frozenset({"binned_numeric_agg"}),
     "power": frozenset({"binned_numeric_agg", "pairwise_log_ratio"}),
 }
 
@@ -156,6 +156,8 @@ OPERAND_PATTERNS = {
     "missingness_pattern": r"^missingness_pattern",
     "grouped_delta": r"^grouped_delta_",
     "lagged_diff": r"^lagged_diff_",
+    "count_encoding": r"__count$",
+    "frequency_encoding": r"__freq$",
     "pair_cross": r"^\w+\*\w+__",
     "pairwise_log_ratio": r"^log_ratio__",
     "pairwise_ratio": r"^ratio__",

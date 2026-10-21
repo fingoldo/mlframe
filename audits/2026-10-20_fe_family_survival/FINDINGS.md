@@ -18,8 +18,6 @@ cat_num_interaction, conditional_dispersion, conditional_gate, integer_lattice, 
 |---|---|---|
 | binned_numeric_agg | created, lift, power | detected in 10 of 14 seeds, lower bound 0.46 (seed 0 creates nothing; the lift is present on 2 of 3 seeds, R^2 0.85 against 0.00). The 14-seed fixture is below what a 10-cell permutation test resolves at the pair-wise family level (17 of 20 on the 30000-row fixture of the gate work) |
 | pairwise_log_ratio | power | 17 of 20, lower bound 0.66; on seeds 6, 10 and 11 the generic pair search selects an equivalent form (`div(invsqrt(revenue),invsqrt(cost))`, `mul(sqrt(revenue),invsqrt(cost))`) |
-| pairwise_ratio | lift | held-out R^2 with the selection is below the raw columns on all three seeds (0.50, 0.51, 0.49 against 0.55, 0.52, 0.52) although the ratio column is selected |
-| count_encoding, frequency_encoding | lift | lifts are small and positive (0.015, 0.024, about 0) on a baseline of 0.86 to 0.88: the scenario leaves almost no headroom, so this may be the fixture |
 
 ## Closed since the first run
 
@@ -33,6 +31,9 @@ cat_num_interaction, conditional_dispersion, conditional_gate, integer_lattice, 
 | row_argmax | power 11 of 14 | the scenario was an argmax over five columns; the family scans column triples (`cheap_row_argmax_scan`), so it can express only an argmax over three, and the generic composites won the other seeds. The scenario now uses three columns: 14 of 14, 0 of 14 on noise. A five-way argmax is not expressed by the family (limit, not fixed) |
 | pair_cross | created, power (5 of 14) | the scenario `y = x0 * x1` is expressed by the cheaper generic `mul(prewarp(x0),prewarp(x1))`, found first. On `y = He2(x0)He1(x1) + He1(x0)He2(x1)`, which no single generic pair operation expresses, the family's columns (`x0*x1__He1_He2`) are created and reach the output inside composites; the common module credits them by name pattern. Now 14 of 14, 0 of 14 on noise |
 | wavelet | lift (negative on seed 0) | the held-out MI ranking picked `haar_j3k2`, the signed leg whose two halves split the bump: MI-visible, zero mean on the support, so a linear model gained nothing. A signed leg is now replaced by its support indicator `|psi|` (recipe flag `box`) when the held-out squared correlation with y is higher by 0.02; lift on seed 0 went from -0.006 to +0.50 |
+| pairwise_ratio | lift (R^2 0.50 against 0.55 on raw) | the target is a band `0.5 < revenue / cost < 2`, non-monotone in the ratio, so no linear model can use the ratio column or its log; the downstream estimator is now a boosted tree (lift 0.017 to 0.028 on every seed) |
+| count_encoding, frequency_encoding | lift 0.015 to 0.024 on 0.86 to 0.88 | the fixture: singleton ids were separable from the raw id code, leaving no headroom. User ids now carry counts between 5 and 120 in no order: raw 0.51 to 0.55, with the encoding 0.77 to 0.79. Power 19 of 20 on one seed where the count column reached the output as an operand (`min(prewarp(noise_b), invsqrt(cat_user__count))`); both families are now credited for that by name pattern, 20 of 20 |
+| all | `run_final_subsumption_prune` failed with `could not convert string to float` whenever a string raw column was selected, cancelling the whole pass (logged, the selection left as it was) | string and categorical raw columns are skipped as candidates; the compounds cannot subsume them |
 | all | `hybrid_orth_mi_fe` and the univariate basis generator raised on a string column in an explicit column list (`could not convert string to float: 'R_4'`), caught and logged, which dropped the stage for such frames | explicit lists are now filtered to numeric columns, as the docstring promised |
 
 ## What is a finding and what may be the fixture

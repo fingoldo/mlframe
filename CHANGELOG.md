@@ -11,6 +11,7 @@ history.
 
 ## [Unreleased]
 ### Fixed
+- The end-of-fit subsumption pass no longer fails (and silently cancels itself) when a string or categorical raw column is selected; such columns are skipped as candidates.
 - Wavelet FE emits the support indicator `|psi|` (recipe flag `box`) instead of a signed Haar leg when the indicator has the higher held-out squared correlation with the target by 0.02; a signed leg whose halves split a localised bump is zero-mean there and useless to a linear model.
 - Selection compaction no longer drops hinge legs, missingness indicators or missingness patterns that the held-out linear-usability protection re-added: a monotone leg of a selected source carries no binned joint information, so the information-based prune removed every leg on some seeds (hinge detection on the survival panel 12 of 14 to 14 of 14).
 
