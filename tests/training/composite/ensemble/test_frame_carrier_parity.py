@@ -119,6 +119,7 @@ FRAME_ROW_SLICERS = {
     "composite/highlevel.py::_select_rows": "mlframe.training.composite.highlevel:_select_rows",
     "composite/meta.py::_row_subset": "mlframe.training.composite.meta:_row_subset",
     "composite/row_level_average_importance.py::_subset_rows": "mlframe.training.composite.row_level_average_importance:_subset_rows",
+    "core/_phase_helpers_split_steps.py::_carve_calib_df": "mlframe.training.core._phase_helpers_split_steps:_carve_calib_df",
     "core/_phase_composite_post_xt_ensemble/_phase_composite_post_xt_mtr_oof.py::_slice_rows_by_idx": "mlframe.training.core._phase_composite_post_xt_ensemble._phase_composite_post_xt_mtr_oof:_slice_rows_by_idx",
     "diagnostics/learning_curve.py::_take_rows": "mlframe.training.diagnostics.learning_curve:_take_rows",
     "preprocessing.py::create_split_dataframes": "tests.training.composite.ensemble.test_frame_carrier_parity:_first_of_split",

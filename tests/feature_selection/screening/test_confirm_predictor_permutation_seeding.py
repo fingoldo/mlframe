@@ -33,7 +33,7 @@ def _multi_signal_fixture(seed: int = 0, n: int = 600, n_features: int = 6):
     return df, pd.Series(y, name="y")
 
 
-def _mrmr_kw(random_seed, **overrides):
+def _mrmr_kw(random_state, **overrides):
     """Shared MRMR constructor kwargs that reliably exercise the full_npermutations confirm path."""
     kw = dict(
         verbose=0,
@@ -43,7 +43,7 @@ def _mrmr_kw(random_seed, **overrides):
         cluster_aggregate_enable=False,
         build_friend_graph=False,
         cat_fe_config=None,
-        random_seed=random_seed,
+        random_seed=random_state,
         use_simple_mode=False,
         full_npermutations=8,
         baseline_npermutations=4,
