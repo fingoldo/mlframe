@@ -39,6 +39,7 @@ import pickle  # nosec B403 -- test-only local pickle round-trip, never untruste
 import warnings
 
 import numpy as np
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 import pandas as pd
 import pytest
 
@@ -126,6 +127,10 @@ def _build_redundant_quadratic(seed: int, n: int = 2000):
 
 
 from tests.feature_selection._biz_val_synth import _build_linear, _quantile_bin_local
+
+# Values are stored and replayed at the precision-policy dtype (float32 by default), so a replay agrees with the fit-time column to a few machine epsilons of that dtype;
+# in the strict float64 mode this is tighter than the 1e-9 the checks used before.
+_REPLAY_RTOL = max(1e-9, 8 * float(np.finfo(_crit_np_dtype()).eps))
 
 
 def _pairwise_mi_mean(df: pd.DataFrame, nbins: int = 10) -> float:
@@ -513,7 +518,7 @@ class TestRecipeFreezesPreprocessParams:
             X_slice = X.iloc[:50].copy()
             fit_time_vals = X_aug[r.name].to_numpy()[:50]
             replayed_vals = apply_recipe(r, X_slice)
-            assert np.allclose(replayed_vals, fit_time_vals, rtol=1e-9, atol=1e-12), (
+            assert np.allclose(replayed_vals, fit_time_vals, rtol=_REPLAY_RTOL, atol=_REPLAY_RTOL * max(1.0, float(np.max(np.abs(fit_time_vals))))), (
                 f"recipe {r.name!r}: slice replay diverged from fit-time values "
                 f"(max abs diff={float(np.max(np.abs(replayed_vals - fit_time_vals)))}) -- "
                 f"the frozen preprocess_params are not being honoured at replay time."

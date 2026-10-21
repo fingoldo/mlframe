@@ -19,11 +19,11 @@ hinge                  fe_hinge_enable                                     hinge
 univariate_basis       fe_hybrid_orth_enable + fe_univariate_basis_enable  orth_univariate              y = x0 squared, ridge
 univariate_fourier     fe_hybrid_orth_enable + fe_univariate_fourier_...   orth_fourier                 y = sin(2 pi 6 u), ridge
 wavelet                fe_wavelet_enable                                   orth_wavelet                 y = localised dyadic step of u, ridge
-pair_cross             fe_hybrid_orth_enable + fe_hybrid_orth_pair_enable  orth_pair_cross/hermite_pair  y = x0 * x1, ridge
+pair_cross             fe_hybrid_orth_enable + fe_hybrid_orth_pair_enable  orth_pair_cross/hermite_pair  y = He2(x0)He1(x1)+He1(x0)He2(x1), ridge
 modular                fe_modular_enable                                   modular                      y = cos(2 pi x / 7), ridge
 pairwise_modular       discrete master + fe_pairwise_modular_enable        pairwise_modular             y = ((a + b) mod 7 < 2), boosted tree
 integer_lattice        discrete master + fe_integer_lattice_enable         pairwise_integer_lattice     y = gcd(a, b) >= 4, boosted tree
-row_argmax             discrete master + fe_row_argmax_enable              row_argmax                   y = argmax of 5 columns, ridge
+row_argmax             discrete master + fe_row_argmax_enable              row_argmax                   y = argmax of 3 columns, ridge
 conditional_gate       discrete master + fe_conditional_gate_enable        conditional_gate             y = c > 0 ? a : b, ridge
 conditional_dispersion fe_conditional_dispersion_enable                    conditional_dispersion       y = |a| / sigma(g), ridge
 offset_product         fe_offset_product_enable                            offset_product               y = ln(2c) sin(d / 3), ridge
@@ -92,10 +92,11 @@ def build_bump(seed: int):
     return X, ((u > 0.25) & (u < 0.375)) * 1.0 + 0.1 * r.standard_normal(len(X))
 
 
-def build_product(seed: int):
-    """``y = x0 * x1`` plus noise: two columns with flat marginals."""
+def build_tensor_cross(seed: int):
+    """``y = He2(x0) He1(x1) + He1(x0) He2(x1)`` plus noise: a sum of two Hermite tensor terms, which no single generic pair operation expresses (``x0 * x1`` is, and the generic search finds it first)."""
     X, r = _normal_frame(seed, p=4)
-    return X, X["x0"].to_numpy() * X["x1"].to_numpy() + 0.2 * r.standard_normal(len(X))
+    a, b = X["x0"].to_numpy(), X["x1"].to_numpy()
+    return X, (a * a - 1.0) * b + a * (b * b - 1.0) + 0.2 * r.standard_normal(len(X))
 
 
 def build_cyclic(seed: int):
@@ -122,9 +123,9 @@ def build_gcd(seed: int):
 
 
 def build_argmax(seed: int):
-    """``y = index of the largest of five columns`` plus noise."""
+    """``y = index of the largest of three columns`` plus noise (the family scans column triples; an argmax over five columns is outside what it expresses)."""
     X, r = _normal_frame(seed, p=7)
-    idx = np.argmax(X[[f"x{i}" for i in range(5)]].to_numpy(), axis=1).astype(float)
+    idx = np.argmax(X[[f"x{i}" for i in range(3)]].to_numpy(), axis=1).astype(float)
     return X, idx + 0.2 * r.standard_normal(len(X))
 
 
@@ -200,9 +201,10 @@ _ORTH = {"fe_hybrid_orth_enable": True}
 FAMILIES = [
     Family("hinge", {"fe_hinge_enable": True}, ("hinge_basis",), build_hinge, panel=14),
     Family("univariate_basis", {**_ORTH, "fe_univariate_basis_enable": True}, ("orth_univariate",), build_square, panel=14),
-    Family("univariate_fourier", {**_ORTH, "fe_univariate_fourier_enable": True}, ("orth_fourier", "orth_univariate", "orth_extra_basis"), build_sine, pattern=r"__(sin|cos)"),
+    # The Fourier basis runs inside the univariate-basis dispatch (the extra-basis stage needs both flags), so the basis flag is part of the family.
+    Family("univariate_fourier", {**_ORTH, "fe_univariate_fourier_enable": True, "fe_univariate_basis_enable": True}, ("orth_fourier",), build_sine),
     Family("wavelet", {**_ORTH, "fe_wavelet_enable": True}, ("orth_wavelet",), build_bump),
-    Family("pair_cross", {**_ORTH, "fe_hybrid_orth_pair_enable": True}, ("orth_pair_cross", "hermite_pair"), build_product, panel=14),
+    Family("pair_cross", {**_ORTH, "fe_hybrid_orth_pair_enable": True}, ("orth_pair_cross", "hermite_pair"), build_tensor_cross, panel=14),
     Family("modular", {"fe_modular_enable": True}, ("modular",), build_cyclic),
     Family("pairwise_modular", {**_DISCRETE, "fe_pairwise_modular_enable": True}, ("pairwise_modular",), build_pairwise_modular, "classification", "tree", panel=14),
     Family("integer_lattice", {**_DISCRETE, "fe_integer_lattice_enable": True}, ("pairwise_integer_lattice",), build_gcd, "classification", "tree"),

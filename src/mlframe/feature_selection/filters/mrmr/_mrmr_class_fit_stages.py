@@ -486,6 +486,9 @@ class _MRMRFitStagesMixin:
             # established pattern here - clear exactly once, at the SAME outer call-site boundary,
             # regardless of how _fit_impl exited.
             _clear_fe_deadline()
+            _clear_memo = getattr(getattr(self, "_honest_null_codes_fn", None), "clear_memo", None)
+            if _clear_memo is not None:
+                _clear_memo()  # the memo of re-binned codes under permuted targets lives for one fit only
         return result
 
     def _fit_body_post_fit(self, result: Any, X: Any, y: Any, st: Any) -> Any:

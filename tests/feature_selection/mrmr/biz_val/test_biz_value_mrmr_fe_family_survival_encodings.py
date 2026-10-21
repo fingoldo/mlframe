@@ -25,6 +25,8 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 import pytest
+from mlframe.feature_selection.filters._ratio_delta_fe import pairwise_log_ratio_features
+
 
 from tests.feature_selection.mrmr.biz_val._fe_family_survival_common import (
     checked,
@@ -41,15 +43,16 @@ N = 6000
 
 
 def build_count_signal(seed: int):
-    """``P(y=1)`` is a sigmoid of the log of how often a user id occurs; 8 heavy users and a tail of singletons."""
+    """``P(y=1)`` is a sigmoid of the log of how often a user id occurs; user ids carry counts between 5 and 120 in no order, so the id itself says nothing about the count."""
     rng = np.random.default_rng(seed)
-    heavy_w = np.array([700, 600, 500, 450, 400, 350, 300, 300])
-    heavy = np.concatenate([np.repeat(f"U_HEAVY_{i}", int(w)) for i, w in enumerate(heavy_w)])
-    rare = np.array([f"U_RARE_{i:05d}" for i in range(N - len(heavy))])
-    cat_user = np.concatenate([heavy, rare])
+    counts = np.exp(rng.uniform(np.log(5.0), np.log(120.0), 300)).astype(int)
+    counts = counts[np.cumsum(counts) <= N]
+    ids = rng.permutation(len(counts))
+    cat_user = np.concatenate([np.repeat(f"U_{i:04d}", c) for i, c in zip(ids, counts)])
+    cat_user = np.concatenate([cat_user, np.array([f"U_RARE_{i:05d}" for i in range(N - len(cat_user))])])
     rng.shuffle(cat_user)
-    counts = pd.Series(cat_user).value_counts()
-    log_cnt = np.log1p(pd.Series(cat_user).map(counts).to_numpy().astype(np.float64))
+    per_row = pd.Series(cat_user).map(pd.Series(cat_user).value_counts()).to_numpy().astype(np.float64)
+    log_cnt = np.log1p(per_row)
     p = 1.0 / (1.0 + np.exp(-2.0 * (log_cnt - np.median(log_cnt))))
     y = (rng.random(N) < p).astype(int)
     return pd.DataFrame({"cat_user": cat_user, "noise_a": rng.standard_normal(N), "noise_b": rng.standard_normal(N)}), y
@@ -106,6 +109,7 @@ def build_missing_pattern(seed: int):
     return X, y
 
 
+# The band is non-monotone in the ratio, so a linear model cannot use the ratio column (or its log) and the downstream estimator of ``pairwise_ratio`` is a boosted tree.
 def build_ratio_band(seed: int):
     """``y = 0.5 < revenue / cost < 2`` with both columns log-uniform over three orders of magnitude."""
     rng = np.random.default_rng(seed)
@@ -184,8 +188,8 @@ FAMILIES = [
         "linear",
         {"fe_missingness_indicator_cols": ("field_a", "field_b", "field_c"), "fe_missingness_pattern_top_k": 4},
     ),
-    Family("pairwise_ratio", {"fe_pairwise_ratio_enable": True}, ("pairwise_ratio",), build_ratio_band, _C, "linear", {"fe_pairwise_ratio_cols": ("revenue", "cost")}, pattern=r"^ratio__"),
-    Family("pairwise_log_ratio", {"fe_pairwise_log_ratio_enable": True}, ("pairwise_ratio",), build_ratio_band, _C, "linear", {"fe_pairwise_log_ratio_cols": ("revenue", "cost")}, pattern=r"^log_ratio__"),
+    Family("pairwise_ratio", {"fe_pairwise_ratio_enable": True}, ("pairwise_ratio",), build_ratio_band, _C, "boost", {"fe_pairwise_ratio_cols": ("revenue", "cost")}, pattern=r"^ratio__"),
+    Family("pairwise_log_ratio", {"fe_pairwise_log_ratio_enable": True}, ("pairwise_ratio",), build_ratio_band, _C, "linear", {"fe_pairwise_log_ratio_cols": ("revenue", "cost")}, pattern=r"^log_ratio__", equivalent_rank_corr=0.95, reference=lambda X: pairwise_log_ratio_features(X, ("revenue", "cost"))[0]),
     Family(
         "grouped_delta",
         {"fe_grouped_delta_enable": True},

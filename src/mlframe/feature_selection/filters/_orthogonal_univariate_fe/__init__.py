@@ -355,6 +355,9 @@ def generate_univariate_basis_features(
     _cols_auto = cols is None
     if cols is None:
         cols = [c for c in X.columns if pd.api.types.is_numeric_dtype(X[c])]
+    else:
+        # Explicit columns are filtered the same way ("non-numeric are silently skipped"): the triplet stage passes the caller's column list, which may hold a string key.
+        cols = [c for c in cols if c in X.columns and pd.api.types.is_numeric_dtype(X[c])]
     if dedup_collinear_sources:
         cols = _dedup_collinear_source_cols(
             X, list(cols), corr_threshold=dedup_corr_threshold,
@@ -613,6 +616,9 @@ def hybrid_orth_mi_fe(
     >>> X_aug, scores = hybrid_orth_mi_fe(X, y, degrees=(2, 3))
     >>> # X_aug now has x1__He2 and x2__L3 appended (assuming uplift > 1.05)
     """
+    if cols is not None:
+        # An explicit column list may hold a non-numeric key (the triplet stage passes the caller's list); both builders below read the values as floats, so keep the numeric columns only.
+        cols = [c for c in cols if c in X.columns and pd.api.types.is_numeric_dtype(X[c])]
     # MATRIX-NATIVE resident path (Piece 3, gated default-off): build the candidate matrix ON the device + score plug-in MI resident (no H2D). Falls back to the
     # host build/scoring on any failure or when off. STRICT: under MLFRAME_FE_GPU_STRICT this device-born build is FORCED even when the
     # MLFRAME_FE_GPU_RESIDENT_BASIS_MI opt-out turned it off - the STRICT mandate is "every selection- equivalent GPU twin runs on the device", and the

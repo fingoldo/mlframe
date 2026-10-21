@@ -471,7 +471,8 @@ class TestMissingnessSurvivesInPlaceImpute:
             fe_binned_numeric_agg_enable=True,
         ).fit(X, y)
         names = list(sel.get_feature_names_out())
-        assert "is_missing__credit_history" in names, f"is_missing__credit_history must survive the in-place impute of an earlier cat-FE stage; got {names}"
+        # reaching the output as an operand of a composite (``mul(f(noise), neg(is_missing__credit_history))``) counts: the column was not lost to the impute
+        assert any("is_missing__credit_history" in n for n in names), f"is_missing__credit_history must survive the in-place impute of an earlier cat-FE stage; got {names}"
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_pattern_survives_binned_numeric_agg_inplace_impute(self, seed: int):
@@ -484,7 +485,7 @@ class TestMissingnessSurvivesInPlaceImpute:
             fe_binned_numeric_agg_enable=True,
         ).fit(X, y)
         names = list(sel.get_feature_names_out())
-        assert "missingness_pattern" in names, f"missingness_pattern must survive the in-place impute of an earlier cat-FE stage; got {names}"
+        assert any("missingness_pattern" in n for n in names), f"missingness_pattern must survive the in-place impute of an earlier cat-FE stage; got {names}"
 
 
 # ---------------------------------------------------------------------------

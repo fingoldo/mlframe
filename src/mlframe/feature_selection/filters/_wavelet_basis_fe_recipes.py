@@ -36,6 +36,22 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# A signed Haar leg that is zero on the mean of its support (a localised bump the leg's two halves split) is invisible to a linear model although it is
+# MI-visible. The support indicator |psi| replaces it when the held-out squared correlation with y is higher by at least this margin (same scale as the
+# hinge held-out R^2 uplift floor).
+_WAVELET_BOX_MIN_R2_GAIN = 0.02
+
+
+def _heldout_r2(v: np.ndarray, y: np.ndarray) -> float:
+    """Squared Pearson correlation of ``v`` with ``y`` on the ``%3`` held-out stride slice (0.0 when degenerate)."""
+    idx = np.arange(v.shape[0])
+    ho = idx % 3 == 0
+    a = np.asarray(v[ho], dtype=np.float64)
+    b = np.asarray(y[ho], dtype=np.float64)
+    if a.size < 10 or float(a.std()) < 1e-12 or float(b.std()) < 1e-12:
+        return 0.0
+    return float(np.corrcoef(a, b)[0, 1] ** 2)
+
 
 def generate_wavelet_features(
     X: pd.DataFrame,
@@ -149,17 +165,22 @@ def generate_wavelet_features(
             leg = leg_arr if leg_arr.dtype == np.dtype(feature_dtype) else leg_arr.astype(feature_dtype)
             if float(np.std(leg)) <= 1e-12:
                 continue
-            name = f"{col}__haar_j{j}k{k}"
+            box = False
+            y_num = np.asarray(y_arr, dtype=np.float64)
+            if _heldout_r2(np.abs(leg), y_num) >= _heldout_r2(leg, y_num) + _WAVELET_BOX_MIN_R2_GAIN:
+                leg = np.abs(leg)
+                box = True
+            name = f"{col}__haar_{'box_' if box else ''}j{j}k{k}"
             out_cols[name] = leg
             meta[name] = {
                 "src": col, "j": int(j), "k": int(k),
-                "lo": float(lo), "span": float(span),
+                "lo": float(lo), "span": float(span), "box": box,
             }
     return pd.DataFrame(out_cols, index=X.index), meta
 
 
 def build_orth_wavelet_recipe(
-    *, name: str, src_name: str, j: int, k: int, lo: float, span: float,
+    *, name: str, src_name: str, j: int, k: int, lo: float, span: float, box: bool = False,
 ) -> "EngineeredRecipe":
     """Frozen recipe for one Haar wavelet basis column ``psi_{j,k}(z)`` where
     ``z = clip((X[src_name] - lo) / span, 0, 1)`` with the dyadic ``(j, k)`` and
@@ -168,16 +189,19 @@ def build_orth_wavelet_recipe(
     Replay is closed-form in the source column alone - no y reference captured,
     so ``transform`` is leakage-free by construction. Mirrors
     ``build_orth_spline_recipe`` (store basis params + ``lo``/``span``, replay a
-    closed-form basis function of x)."""
+    closed-form basis function of x). ``box`` stores the support indicator ``|psi_{j,k}|`` instead of the signed leg."""
     from .engineered_recipes import EngineeredRecipe
+    extra = {
+        "j": int(j), "k": int(k),
+        "lo": float(lo), "span": float(span),
+    }
+    if box:
+        extra["box"] = True
     return EngineeredRecipe(
         name=name,
         kind="orth_wavelet",
         src_names=(str(src_name),),
-        extra={
-            "j": int(j), "k": int(k),
-            "lo": float(lo), "span": float(span),
-        },
+        extra=extra,
     )
 
 
@@ -202,7 +226,8 @@ def _apply_orth_wavelet(recipe, X) -> np.ndarray:
         fill = float(np.nanmean(vals[finite])) if finite.any() else 0.0
         vals = np.where(finite, vals, fill)
     z = np.clip((vals - lo) / span, 0.0, 1.0)
-    return _dyadic_haar_leg(z, j, k)
+    leg = _dyadic_haar_leg(z, j, k)
+    return np.abs(leg) if recipe.extra.get("box") else leg
 
 
 def hybrid_wavelet_fe_with_recipes(
@@ -341,6 +366,6 @@ def hybrid_wavelet_fe_with_recipes(
         recipes.append(build_orth_wavelet_recipe(
             name=name, src_name=str(m["src"]),
             j=int(m["j"]), k=int(m["k"]),
-            lo=float(m["lo"]), span=float(m["span"]),
+            lo=float(m["lo"]), span=float(m["span"]), box=bool(m.get("box", False)),
         ))
     return X_aug, keep, recipes, scores

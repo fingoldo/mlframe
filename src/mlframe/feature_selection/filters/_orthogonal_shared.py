@@ -71,15 +71,20 @@ def parse_code_deg_with_basis(s: str) -> "tuple[str | None, int | None]":
 def coerce_y_classif(y: "np.ndarray | Any") -> np.ndarray:
     """Dense int64 class labels for MI estimators.
 
-    Integer dtypes pass straight through. Non-integer y (float / continuous /
-    categorical) is DENSIFIED via ``np.unique(return_inverse=...)`` rather than
-    truncated with ``.astype(int64)``: plain truncation merges distinct labels
-    (1.2 and 1.8 -> 1) and destroys continuous-y signal entirely (every value
-    in [0, 1) collapses to 0). The dense-rank mapping preserves every distinct
-    value as its own class, which is the contract the MI estimator expects.
+    Integer dtypes pass straight through. A float y with few distinct values (at most ``FEW_CLASSES_MAX``) is categorical and is DENSIFIED via
+    ``np.unique(return_inverse=...)`` rather than truncated with ``.astype(int64)`` (truncation merges 1.2 and 1.8 and collapses every value in [0, 1)
+    to one class). A float y with more distinct values is a continuous target and is quantile-binned into 10 classes, as every other gate does
+    (``_unified_fe_gate._coerce_y_classes``): giving each distinct value its own class makes nearly every row a class of its own, and the plug-in MI of
+    ANY binned feature with such a label equals the feature's own entropy (ln of the bin count), so the bootstrap-MI uplift of every engineered
+    column over its source was about 1 and the families scored this way (modular, decomposition, orthogonal bases) saw no signal on a regression target.
+    Other dtypes (strings, categoricals) are densified per distinct value.
     """
     arr = np.asarray(y).ravel()
     if np.issubdtype(arr.dtype, np.integer):
         return arr.astype(np.int64, copy=False)
+    if np.issubdtype(arr.dtype, np.floating):
+        from ._unified_fe_gate import _coerce_y_classes
+
+        return cast("np.ndarray", _coerce_y_classes(arr).astype(np.int64, copy=False))
     _, inv = np.unique(arr, return_inverse=True)
     return cast("np.ndarray", inv.astype(np.int64, copy=False))

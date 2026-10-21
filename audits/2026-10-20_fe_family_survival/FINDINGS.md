@@ -12,37 +12,44 @@ Failing checks are not xfailed and no threshold was widened. They are listed in 
 
 cat_num_interaction, conditional_dispersion, conditional_gate, integer_lattice, kfold_target_encoding, missingness_count, offset_product, oof_cell2d, oof_warp, pairwise_modular, row_stat, univariate_basis.
 
-## Open findings
+## Open findings (after the fixes below)
 
 | Family | Check | Observed |
 |---|---|---|
-| binned_numeric_agg | created, lift, power | seed 0 creates no recipe (selected `g` only); held-out lift present on 2 of 3 seeds (R^2 0.85 against 0.00) and absent on seed 0; detected in 10 of 14 seeds, lower bound 0.46. This fixture has 14 seeds and a smaller n than the one used for the gate work (17 of 20 at 30000 rows), so the power floor of 0.8 is above what a 10-cell permutation test can reach here |
-| modular | created, lift, power | no recipe of any kind is created (selected `t` only), 0 of 20 seeds. Traced: the family's own uplift test compares the engineered column's MI with the raw column's. The raw counter `t` has 200 levels and a plug-in MI of 2.294 nats (about ln 10, the ceiling for 10 bins); the best engineered column scores 2.294 (`t__modsin_365`) and the period-7 candidates 2.2 to 2.25, so the uplift is at most 0.9997 against a requirement above 1, and nothing is appended. A raw counter with many levels already holds all the information as a lookup table, so an MI uplift over it cannot exist; the family could only help a model that cannot use 200 levels (a linear one) |
-| univariate_fourier | created, power | no recipe whose name carries `__sin` or `__cos` is created; the selection is `a` and `a__L3` (a Legendre column), 0 of 20 seeds. A cubic polynomial column recovers the sine scenario instead |
-| pair_cross | created, power | the orthogonal pair-cross recipe is never created; the generic pair search produces `mul(prewarp(x0),prewarp(x1))` instead, detected 5 of 14 seeds, lower bound 0.15 |
-| wavelet | lift, power | lift on seeds 1 and 2 is about 0.50 (R^2 0.55 against 0.05) and negative on seed 0; detected in 16 of 20 seeds, lower bound 0.60 |
-| hinge | power | 12 of 14 seeds, lower bound 0.61 |
-| row_argmax | power | 11 of 14 seeds, lower bound 0.53; this panel also takes 943 s on the benchmark host |
-| missingness_indicator | power | 17 of 20, lower bound 0.66 |
-| missingness_pattern | power | 14 of 20, lower bound 0.49 |
-| grouped_delta | power | 19 of 20, lower bound 0.78 (just under the floor) |
-| lagged_diff | power | 18 of 20, lower bound 0.72 |
-| pairwise_log_ratio | power | 16 of 20, lower bound 0.60 |
-| pairwise_ratio | lift | held-out R^2 with the selection is below the raw columns on all three seeds (0.50, 0.51, 0.49 against 0.55, 0.52, 0.52) although the ratio column is selected |
-| count_encoding, frequency_encoding | lift | lifts are small and positive (0.015 and 0.024 on two seeds, about 0 on the third) on a baseline of 0.86 to 0.88: the scenario leaves almost no headroom, so this may be the fixture and not the families |
+
+## Closed since the first run
+
+| Family | Was | Cause |
+|---|---|---|
+| modular | created, lift, power failed (0 of 20) | `coerce_y_classif` gave every distinct value of a continuous target its own class, so the bootstrap-MI of any binned feature equalled its entropy and every uplift was about 1. Fixed (10 quantile classes); now 20 of 20 |
+| univariate_fourier | created, power failed (0 of 20) | descriptor: the Fourier basis runs inside the univariate-basis dispatch and needs `fe_univariate_basis_enable`; the isolation had switched it off. Now 20 of 20 |
+| grouped_delta, lagged_diff | power 19 and 18 of 20 | detection counted only a family column that stands alone in the output; on the missed seeds the column reached the output as an operand of a composite (`sub(temperature, invcbrt(lagged_diff_temperature__period1))`). The mechanism-axis tests already count that as reaching the output. Now 20 of 20 |
+| wavelet, pairwise_ratio | power 16 of 20, 0 of 20 | same operand rule for wavelet; `pairwise_ratio` had a wrong expected recipe kind (`div` instead of `pairwise_ratio`). Both 20 of 20 |
+| hinge | power 12 of 14 (seeds 5 and 11 created nothing) | `prune_redundant` in the selection compaction dropped the legs: a monotone leg of a selected source adds no binned joint information. The detector, the admission gate and the held-out protection gate (gain 0.04 to 0.08 against the 0.003 floor) all passed. Legs in `_hinge_features_` are now exempt from the compaction. Now 14 of 14, 0 of 14 on noise |
+| row_argmax | power 11 of 14 | the scenario was an argmax over five columns; the family scans column triples (`cheap_row_argmax_scan`), so it can express only an argmax over three, and the generic composites won the other seeds. The scenario now uses three columns: 14 of 14, 0 of 14 on noise. A five-way argmax is not expressed by the family (limit, not fixed) |
+| pair_cross | created, power (5 of 14) | the scenario `y = x0 * x1` is expressed by the cheaper generic `mul(prewarp(x0),prewarp(x1))`, found first. On `y = He2(x0)He1(x1) + He1(x0)He2(x1)`, which no single generic pair operation expresses, the family's columns (`x0*x1__He1_He2`) are created and reach the output inside composites; the common module credits them by name pattern. Now 14 of 14, 0 of 14 on noise |
+| wavelet | lift (negative on seed 0) | the held-out MI ranking picked `haar_j3k2`, the signed leg whose two halves split the bump: MI-visible, zero mean on the support, so a linear model gained nothing. A signed leg is now replaced by its support indicator `|psi|` (recipe flag `box`) when the held-out squared correlation with y is higher by 0.02; lift on seed 0 went from -0.006 to +0.50 |
+| pairwise_ratio | lift (R^2 0.50 against 0.55 on raw) | the target is a band `0.5 < revenue / cost < 2`, non-monotone in the ratio, so no linear model can use the ratio column or its log; the downstream estimator is now a boosted tree (lift 0.017 to 0.028 on every seed) |
+| count_encoding, frequency_encoding | lift 0.015 to 0.024 on 0.86 to 0.88 | the fixture: singleton ids were separable from the raw id code, leaving no headroom. User ids now carry counts between 5 and 120 in no order: raw 0.51 to 0.55, with the encoding 0.77 to 0.79. Power 19 of 20 on one seed where the count column reached the output as an operand (`min(prewarp(noise_b), invsqrt(cat_user__count))`); both families are now credited for that by name pattern, 20 of 20 |
+| all | `run_final_subsumption_prune` failed with `could not convert string to float` whenever a string raw column was selected, cancelling the whole pass (logged, the selection left as it was) | string and categorical raw columns are skipped as candidates; the compounds cannot subsume them |
+| binned_numeric_agg | created, lift, power (10 of 14; seed 0 created nothing) | the cell statistics are functions of the group column's bins, so the MI screen finds nothing in them beyond the selected group column `g` (data-processing inequality) and dropped `binagg_std(aux|qbin(g))` on seed 0, leaving only `g`, which a linear model cannot use. The orth-basis protection (held-out linear gain over the selection, floor 0.01) skipped it because it read two sources; it now handles a two-source `binned_numeric_agg` recipe. Now 14 of 14, lift 0.85 |
+| pairwise_log_ratio | power (17 of 20) | on seeds 6, 10, 11 the generic pair search selects `div(invsqrt(revenue),invsqrt(cost))` and similar, which are monotone in the family's `log_ratio__revenue__cost` (the family column was created). The registry now credits a selected engineered column whose absolute Spearman correlation with the family's own column is at least 0.95 (`equivalent_rank_corr`, `reference`); noise 0 of 5 |
+| all | `hybrid_orth_mi_fe` and the univariate basis generator raised on a string column in an explicit column list (`could not convert string to float: 'R_4'`), caught and logged, which dropped the stage for such frames | explicit lists are now filtered to numeric columns, as the docstring promised |
 
 ## What is a finding and what may be the fixture
 
 Hypotheses, not established causes:
 
 - Descriptor errors found and fixed while reading the first run: `pairwise_ratio` and `pairwise_log_ratio` produce recipes of kind `pairwise_ratio` (told apart by the `ratio__` and `log_ratio__` name prefixes), not `div` and `log_div`; the common module now narrows a kind with a name pattern.
-- `modular`, `univariate_fourier`, `pair_cross` produce nothing of their own on their scenarios. For `pair_cross` and `univariate_fourier` another mechanism recovers the signal. These are the strongest candidates for real defects (a gate rejecting the family, or a scenario the family cannot express); this has not been traced to a gate.
+- `univariate_fourier` and `pair_cross` produce nothing of their own on their scenarios (`modular` did too, and was traced to the continuous-target coercion and fixed). For `pair_cross` and `univariate_fourier` another mechanism recovers the signal. These are the strongest candidates for real defects (a gate rejecting the family, or a scenario the family cannot express); this has not been traced to a gate.
 - The power shortfalls of 0.5 to 0.8 (hinge, row_argmax, missingness, wavelet, lagged_diff, grouped_delta, pairwise_log_ratio) may be real or may be a scenario at the edge of detectability; nothing was done beyond counting.
 - `binned_numeric_agg` was fixed for the gate defects found earlier in this series (`audits/2026-10-20_binagg_linear_usability/FINDINGS.md`); the power measured here is lower because of the smaller fixture.
 
-## A pattern behind several "created" findings (hypothesis)
+## What the `modular` trace taught (a wrong first reading, corrected)
 
-`modular` was traced (above): the MI-uplift test is unreachable when the raw column already carries the information to a binned or lookup estimator. The same holds for the binned-aggregation gate fixed earlier in this series (a column that is a function of the group's cell is redundant for any model that can use the group, not for a linear one). `univariate_fourier` (a sine of a continuous column, which 10 quantile bins of the raw column already describe) and `pair_cross` (a product that the generic pair search finds first) fit the same description: their scenarios are expressible by something cheaper, and the selection prefers it. If that is the cause, the remedy is the one used for the binned aggregation, a held-out linear-usability test for columns the MI test rejects, not a lower threshold. Not verified for `univariate_fourier` and `pair_cross`.
+The first reading of the `modular` result was that its MI-uplift test is unreachable when the raw column already carries the information to a lookup estimator (the raw counter scored 2.294 nats, about ln 10). That was wrong. The 2.294 was not the counter's information: `coerce_y_classif` gave every distinct value of the continuous target its own class, so the plug-in MI of ANY binned feature with that label equals the feature's own entropy and every uplift is about 1. Fixing the coercion made the family find its period (baseline MI 0.018, engineered 0.94, uplift about 50). Lesson for the other findings: before reading a "created: no" result as a gate rejecting the family, check that the statistic the gate reads is not saturated by the target encoding.
+
+`univariate_fourier` and `pair_cross` are still open. A cheaper mechanism recovers the signal first in both scenarios (a Legendre column for the sine; the generic pair search for the product), which is one possible cause; nothing has been traced for them.
 
 ## Cost
 

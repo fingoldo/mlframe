@@ -142,7 +142,8 @@ def test_mrmr_fit_with_raw_protection_path_exercised_runs_clean():
     m.fit(X, y)
 
     assert m.support_ is not None
-    assert np.asarray(m.support_).sum() > 0
+    # ``support_`` holds raw column indices, so a lone selected ``x0`` is ``[0]``; the fit is non-degenerate when it outputs any feature
+    assert len(m.get_feature_names_out()) > 0
 
 
 if __name__ == "__main__":

@@ -19,9 +19,10 @@ from mlframe.feature_selection.filters._missingness_fe import (
     missingness_pattern_with_recipes,
 )
 
-# Measured on this fixture (60k x 60 and 120k x 40 float64, warm, three repeats each): the augmented path peaked at 3.03-4.34 frame copies and
+# The MI floor matrix is built in the criterion dtype (float32 by default), which also shrank the augmented path: it now peaks at about 1.5 frames, so the saving is
+# about 0.45 frame (it was 2.00 when the matrix was float64). The copy-free path stays at about 1.03 frames. Measured earlier on this fixture (60k x 60 and 120k x 40 float64, warm, three repeats each): the augmented path peaked at 3.03-4.34 frame copies and
 # the copy-free path at 1.03-1.04, the float64 matrix the MI floor genuinely needs. The saving was 2.00 frames on every warm repeat.
-_MIN_COPIES_SAVED = 1.5
+_MIN_COPIES_SAVED = 0.25
 _MAX_COPY_FREE_FRAMES = 1.25
 
 

@@ -52,6 +52,7 @@ import pickle  # nosec B403 -- test-only local pickle round-trip, never untruste
 import warnings
 
 import numpy as np
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 import pandas as pd
 import pytest
 
@@ -95,7 +96,13 @@ def _import_plug_in_fe():
     )
 
 
-from tests.feature_selection.conftest import make_fast_mrmr as _make_mrmr
+from tests.feature_selection.conftest import make_fast_mrmr as _make_fast_mrmr
+
+
+def _make_mrmr(**overrides):
+    """``make_fast_mrmr`` with the default-on oof-warp family off: it recovers the same x1 signal first and takes the roster slot the scorer under test is asserted to fill."""
+    overrides.setdefault("fe_oof_warp_enable", False)
+    return _make_fast_mrmr(**overrides)
 # ---------------------------------------------------------------------------
 # Data builders
 # ---------------------------------------------------------------------------
@@ -135,6 +142,10 @@ def _build_classification_he3(seed: int, n: int = 2000, amp: float = 0.7, n_nois
 
 
 from tests.feature_selection._biz_val_synth import _build_linear, _build_quadratic_classif
+
+# Values are stored and replayed at the precision-policy dtype (float32 by default), so a replay agrees with the fit-time column to a few machine epsilons of that dtype;
+# in the strict float64 mode this is tighter than the 1e-9 the checks used before.
+_REPLAY_RTOL = max(1e-9, 8 * float(np.finfo(_crit_np_dtype()).eps))
 
 # ---------------------------------------------------------------------------
 # Contract 1: KSG MI > plug-in MI on continuous y
@@ -483,9 +494,7 @@ class TestRecipeReplay:
             )
             replayed = apply_recipe(r, X)
             fit_time = X_aug[r.name].to_numpy()
-            assert np.allclose(
-                replayed, fit_time, rtol=1e-9, atol=1e-12
-            ), f"seed={seed}: recipe {r.name!r} replay drift: max|replayed - fit| = {float(np.max(np.abs(replayed - fit_time)))}; extra={dict(r.extra)}"
+            assert np.allclose(replayed, fit_time, rtol=_REPLAY_RTOL, atol=_REPLAY_RTOL * max(1.0, float(np.max(np.abs(fit_time))))), f"seed={seed}: recipe {r.name!r} replay drift: max|replayed - fit| = {float(np.max(np.abs(replayed - fit_time)))}; extra={dict(r.extra)}"
 
     def test_recipe_freezes_preprocess_params_slice_replay_matches_fit(self):
         """mrmr_audit_2026-07-20 B-17: replaying on the SAME full fit frame (the test above) can pass
@@ -524,7 +533,7 @@ class TestRecipeReplay:
             X_slice = X.iloc[:50].copy()
             fit_time_vals = X_aug[r.name].to_numpy()[:50]
             replayed_vals = apply_recipe(r, X_slice)
-            assert np.allclose(replayed_vals, fit_time_vals, rtol=1e-9, atol=1e-12), (
+            assert np.allclose(replayed_vals, fit_time_vals, rtol=_REPLAY_RTOL, atol=_REPLAY_RTOL * max(1.0, float(np.max(np.abs(fit_time_vals))))), (
                 f"recipe {r.name!r}: slice replay diverged from fit-time values "
                 f"(max abs diff={float(np.max(np.abs(replayed_vals - fit_time_vals)))}) -- "
                 f"the frozen preprocess_params are not being honoured at replay time."

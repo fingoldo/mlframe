@@ -137,7 +137,8 @@ def _friend_graph_and_redundancy_passes_group2(
     # ``engineered_recipes`` -> transform() replays it byte-for-byte.
     _hinge_feats = getattr(self, "_hinge_features_", None)
     selected_vars = _friend_graph_and_redundancy_passes_group2_part1(
-        _hinge_feats, self, selected_vars, cols, _y_np, data, X, _eng_continuous_snapshot, _hybrid_orth_pre_recipes, _hinge_deferred_values, verbose,
+        _hinge_feats, self, selected_vars, cols, _y_np, data, X, _eng_continuous_snapshot,
+        {**_hybrid_orth_pre_recipes, **{k: v for k, v in engineered_recipes.items() if getattr(v, "kind", None) == "binned_numeric_agg"}}, _hinge_deferred_values, verbose,
         target_indices, nbins, _effective_min_relevance_gain, cached_MIs,
     )
 
@@ -400,9 +401,12 @@ def _orth_feature_heldout_gate_pass(
             # the case the blanket drop was actually trying to fix (a real source composite-subsumed out of
             # selected_vars, e.g. x2 in the CMIM redundant-pool fixture) -- it costs O(32 perms) but ONLY
             # for the source-not-yet-selected case, not for every candidate.
-            if len(_src_o) != 1:
+            # A binned numeric aggregate reads two columns (group, aggregated); each cell statistic is a function of the group's bins, so the MI screen
+            # drops it behind the selected group column although the statistic (a V-shaped spread, a skew) is what a linear model needs.
+            _is_binagg = getattr(_rec_o, "kind", None) == "binned_numeric_agg"
+            if len(_src_o) != 1 and not (_is_binagg and len(_src_o) == 2):
                 continue
-            if _src_o[0] not in _sel_names_o and not _orth_source_is_signal(_src_o[0]):
+            if not any(_s in _sel_names_o for _s in _src_o) and not any(_orth_source_is_signal(_s) for _s in _src_o):
                 continue
             _basis_vals = _eng_continuous_snapshot.get(_on)
             if _basis_vals is None and isinstance(X, pd.DataFrame) and _on in X.columns:
