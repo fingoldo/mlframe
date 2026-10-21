@@ -9,6 +9,7 @@ columns into the shared augmented frame, gated by the shared honest FI so it sel
   - biz_value: on interaction-heavy data the member LIFTS held-out AUC vs use_tree_member=False (quantitative win).
 """
 from __future__ import annotations
+import functools
 import os, sys
 os.environ.setdefault("TQDM_DISABLE", "1")
 import warnings; warnings.filterwarnings("ignore")
@@ -37,6 +38,17 @@ def _interaction_frame(n=2000, seed=0, p_noise=25):
     y = ((a * b + 0.6 * c + 0.3 * rng.normal(size=n)) > 0).astype(int)
     X = pd.DataFrame(np.column_stack([a, b, c, noise]), columns=["a", "b", "c"] + [f"n{i}" for i in range(p_noise)])
     return X, pd.Series(y)
+
+
+@functools.lru_cache(maxsize=1)
+def _cached_interaction_frame():
+    return _interaction_frame()
+
+
+def _shared_interaction_frame():
+    """Default interaction frame, generated once per process; copies keep one test's edits out of the next."""
+    X, y = _cached_interaction_frame()
+    return X.copy(), y.copy()
 
 
 # ----------------------------------------------------------------- gate logic (deterministic, no model fit)
@@ -86,7 +98,7 @@ def test_gate_empty_when_no_products():
 
 # ----------------------------------------------------------------- tree signals + augment + pickle
 def test_tree_signals_finds_interaction_pair():
-    X, y = _interaction_frame()
+    X, y = _shared_interaction_frame()
     h = HybridSelector(use_tree_member=True, tree_cooccur_pairs=12)
     h.random_state = 0
     h._tree_signals(X, y)
@@ -99,7 +111,7 @@ def test_tree_signals_finds_interaction_pair():
 
 def test_augment_replays_tree_ops_leakage_free():
     from mlframe.feature_selection.hybrid_selector import _TREE_OPS
-    X, y = _interaction_frame()
+    X, y = _shared_interaction_frame()
     h = HybridSelector(use_tree_member=True).fit(X, y)
     # tree op columns present in the augmented frame (named t{op}_N: tmul_/tabsd_/tsign_/trat_)
     aug = h._augment(X)
@@ -117,7 +129,7 @@ def test_tree_signals_expands_rich_ops():
     """Default tree_rich_ops engineers one candidate column PER operator per co-occurrence pair, each tagged with
     its (a, b, op) in _tree_op_ so _augment replays it. products-only (tree_rich_ops=('mul',)) yields just tmul_."""
     from mlframe.feature_selection.hybrid_selector import _TREE_OPS
-    X, y = _interaction_frame()
+    X, y = _shared_interaction_frame()
     h = HybridSelector(use_tree_member=True, tree_rich_ops=("mul", "absd", "sign", "rat"))
     h.random_state = 0
     h._tree_signals(X, y)
@@ -131,7 +143,7 @@ def test_tree_signals_expands_rich_ops():
 
 def test_pickle_keeps_tree_attrs_drops_transient():
     import pickle  # nosec B403 - pickle used only for trusted same-process/dev-local round-trips, see call sites in this file
-    X, y = _interaction_frame()
+    X, y = _shared_interaction_frame()
     h = HybridSelector(use_tree_member=True).fit(X, y)
     h2 = pickle.loads(pickle.dumps(h))  # nosec B301 - round-trips a same-process object, no external input
     # Spec: the round-trip reproduces the tree replay state exactly (pairs are needed to replay op columns at transform).

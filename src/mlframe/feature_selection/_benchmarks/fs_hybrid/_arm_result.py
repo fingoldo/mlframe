@@ -26,10 +26,8 @@ from typing import Any, Dict, Optional, Tuple
 
 import numpy as np
 
-try:  # Python 3.9 floor: ``typing.Literal`` exists since 3.8, kept explicit for clarity.
-    from typing import Literal
-except ImportError:  # pragma: no cover - 3.7 and older are not supported by this package
-    from typing_extensions import Literal
+# Python 3.9 floor: ``typing.Literal`` exists since 3.8, kept explicit for clarity.
+from typing import Literal
 
 #: The four honest answers to "what kind of per-feature score can this arm produce?".
 SCORE_KINDS: Tuple[str, ...] = ("continuous", "ordinal", "selection_order", "none")

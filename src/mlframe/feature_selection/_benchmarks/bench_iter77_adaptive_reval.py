@@ -12,6 +12,7 @@ Run::
 from __future__ import annotations
 
 from mlframe.feature_selection._benchmarks._bench_shared import make_dataset, recovered_count, print_stage_table
+from mlframe.feature_selection._benchmarks._shap_selector_factory import build_shap_proxied_selector
 
 import argparse
 import time
@@ -30,17 +31,7 @@ CONFIGS = {
 
 
 def _build_selector(seed, *, adaptive):
-    from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS
-
-    return ShapProxiedFS(
-        classification=True, metric="brier", optimizer="auto",
-        prefilter_top=500, cluster_features=True, cluster_corr_threshold=0.7,
-        top_n=20, n_splits=4, n_revalidation_models=3, trust_guard=True, n_anchors=24,
-        run_importance_ablation=True, within_cluster_refine=True,
-        revalidation_ucb_enabled=True,
-        revalidation_adaptive_n_models=adaptive,
-        random_state=seed, verbose=False)
-
+    return build_shap_proxied_selector(seed, n_anchors=24, revalidation_adaptive_n_models=adaptive)
 
 
 def run_one(name, cfg, *, adaptive):
