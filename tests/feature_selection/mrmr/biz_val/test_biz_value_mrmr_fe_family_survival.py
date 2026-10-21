@@ -23,7 +23,7 @@ pair_cross             fe_hybrid_orth_enable + fe_hybrid_orth_pair_enable  orth_
 modular                fe_modular_enable                                   modular                      y = cos(2 pi x / 7), ridge
 pairwise_modular       discrete master + fe_pairwise_modular_enable        pairwise_modular             y = ((a + b) mod 7 < 2), boosted tree
 integer_lattice        discrete master + fe_integer_lattice_enable         pairwise_integer_lattice     y = gcd(a, b) >= 4, boosted tree
-row_argmax             discrete master + fe_row_argmax_enable              row_argmax                   y = argmax of 5 columns, ridge
+row_argmax             discrete master + fe_row_argmax_enable              row_argmax                   y = argmax of 3 columns, ridge
 conditional_gate       discrete master + fe_conditional_gate_enable        conditional_gate             y = c > 0 ? a : b, ridge
 conditional_dispersion fe_conditional_dispersion_enable                    conditional_dispersion       y = |a| / sigma(g), ridge
 offset_product         fe_offset_product_enable                            offset_product               y = ln(2c) sin(d / 3), ridge
@@ -122,9 +122,9 @@ def build_gcd(seed: int):
 
 
 def build_argmax(seed: int):
-    """``y = index of the largest of five columns`` plus noise."""
+    """``y = index of the largest of three columns`` plus noise (the family scans column triples; an argmax over five columns is outside what it expresses)."""
     X, r = _normal_frame(seed, p=7)
-    idx = np.argmax(X[[f"x{i}" for i in range(5)]].to_numpy(), axis=1).astype(float)
+    idx = np.argmax(X[[f"x{i}" for i in range(3)]].to_numpy(), axis=1).astype(float)
     return X, idx + 0.2 * r.standard_normal(len(X))
 
 
