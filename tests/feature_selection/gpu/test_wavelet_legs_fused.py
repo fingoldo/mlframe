@@ -66,7 +66,10 @@ def test_uniform_columns(max_scale, n):
 def test_exact_cell_boundaries_and_the_closed_right_edge():
     """Values exactly on k/2^j, (k+0.5)/2^j and 1.0 take the same side in both builds."""
     edges = np.concatenate([np.arange(0, 17) / 16.0, (np.arange(0, 16) + 0.5) / 16.0, np.arange(0, 9) / 8.0, [1.0, 0.0, 1.0 - 1e-16]])
-    z = cp.asarray(np.tile(edges, 40))
+    # the kernel reads z at the criterion dtype (1 - 1e-16 is the closed edge 1.0 there), so both builds are given values that dtype represents exactly
+    from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
+
+    z = cp.asarray(np.tile(edges.astype(_crit_np_dtype()).astype(np.float64), 40))
     metas = _same(z, 4, 1)
     assert (0, 0) in metas and (4, 15) in metas
     got_metas, tr, _ = leg_code_matrices(cp, z, 4, 1)

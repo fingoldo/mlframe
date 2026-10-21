@@ -170,6 +170,7 @@ def test_recipe_replay_is_leak_safe_and_bit_exact():
             k=m["k"],
             lo=m["lo"],
             span=m["span"],
+            box=m["box"],
         )
         replay = apply_recipe(r, X)
         assert np.array_equal(replay, eng[nm].to_numpy()), f"{nm} not bit-exact"

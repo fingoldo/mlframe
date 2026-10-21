@@ -44,7 +44,7 @@ TEST_FRACTION = 0.3
 # the parametrization until the family is fixed, and this registry is the list of what is left out. A family that is fixed is removed from here and the test then covers it.
 OPEN_FINDINGS = {
     "created": frozenset({"binned_numeric_agg"}),
-    "lift": frozenset({"binned_numeric_agg", "count_encoding", "frequency_encoding", "pairwise_ratio", "wavelet"}),
+    "lift": frozenset({"binned_numeric_agg", "count_encoding", "frequency_encoding", "pairwise_ratio"}),
     "power": frozenset({"binned_numeric_agg", "pairwise_log_ratio"}),
 }
 
