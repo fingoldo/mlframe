@@ -899,6 +899,40 @@ from ._stackers import (
     fit_lasso_meta_stacker,
 )
 
+__all__ = [
+    "Any",
+    "CompositeCrossTargetEnsemble",
+    "CompositeTargetEstimator",
+    "Dict",
+    "List",
+    "Optional",
+    "OrderedDict",
+    "OutputCalibrator",
+    "PrePipelinePredictShim",
+    "Ridge",
+    "RidgeCV",
+    "Sequence",
+    "Tuple",
+    "Union",
+    "UnknownTransformError",
+    "_align_fit_sw",
+    "_carve_inner_eval_split",
+    "_compute_oof_with_external_holdout",
+    "_disable_early_stopping",
+    "_is_polars_df",
+    "_slice_rows",
+    "annotations",
+    "build_meta_stack_ensemble",
+    "call_transform",
+    "cast",
+    "clone",
+    "fit_lasso_meta_stacker",
+    "fit_output_calibrator",
+    "get_transform",
+    "log_throttle",
+    "subset_to_fit_columns",
+]
+
 
 def compute_oof_holdout_predictions(*args: Any, return_rows: bool = False, **kwargs: Any) -> tuple:
     """Honest holdout predictions per component: ``(oof_matrix, y_holdout, surviving_names)``.
