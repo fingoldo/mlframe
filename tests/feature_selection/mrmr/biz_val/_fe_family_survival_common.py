@@ -43,8 +43,8 @@ TEST_FRACTION = 0.3
 # (family, check) pairs that fail today. Each is a finding documented in audits/2026-10-20_fe_family_survival/FINDINGS.md, not a tolerance to widen: the check is left out of
 # the parametrization until the family is fixed, and this registry is the list of what is left out. A family that is fixed is removed from here and the test then covers it.
 OPEN_FINDINGS = {
-    "created": frozenset({"binned_numeric_agg", "modular", "pair_cross", "univariate_fourier"}),
-    "lift": frozenset({"binned_numeric_agg", "count_encoding", "frequency_encoding", "modular", "pairwise_ratio", "wavelet"}),
+    "created": frozenset({"binned_numeric_agg", "pair_cross", "univariate_fourier"}),
+    "lift": frozenset({"binned_numeric_agg", "count_encoding", "frequency_encoding", "pairwise_ratio", "wavelet"}),
     "power": frozenset(
         {
             "binned_numeric_agg", "grouped_delta", "hinge", "lagged_diff", "missingness_indicator", "missingness_pattern", "modular", "pair_cross",

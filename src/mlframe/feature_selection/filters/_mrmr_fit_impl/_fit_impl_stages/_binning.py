@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 # --- imports (managed) ---
+import hashlib
+
 import numpy as np
 from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 import os
@@ -10,6 +12,8 @@ from mlframe.feature_selection.filters._mrmr_fit_impl._fit_impl_core import logg
 from typing import Optional, Any
 
 # --- end imports ---
+
+_HONEST_NULL_MEMO_BYTES = 128 * 1024 * 1024  # budget of the per-fit memo of re-binned codes under permuted targets
 
 
 def _validated_target_classes(y: np.ndarray, max_y_classes: int = 64) -> "np.ndarray | None":
@@ -25,6 +29,22 @@ def _validated_target_classes(y: np.ndarray, max_y_classes: int = 64) -> "np.nda
         return y
     edges = np.unique(np.quantile(y, np.linspace(0.0, 1.0, int(max_y_classes) + 1)[1:-1]))
     return np.searchsorted(edges, y, side="right")
+
+
+def _target_dependent_columns(x, cols) -> "set[str] | None":
+    """Names among ``cols`` whose supervised codes can change when the target is permuted.
+
+    Those are the numeric columns with more distinct finite values than the low-cardinality cap of the supervised binner. Every other column (categorical, or numeric with few
+    values) is binned without the target, so its observed codes are also its codes under any permutation of the target. ``None`` when ``x`` is not a pandas frame (the caller then
+    re-bins every column).
+    """
+    import pandas as pd
+
+    from mlframe.feature_selection.filters._honest_spec import _LOW_CARD_CAP
+
+    if not isinstance(x, pd.DataFrame):
+        return None
+    return {str(c) for c in cols if c in x.columns and pd.api.types.is_numeric_dtype(x[c]) and x[c].nunique(dropna=True) > _LOW_CARD_CAP}
 
 
 def _compact_code_storage(data):
@@ -200,11 +220,18 @@ def _discretize_inputs_part1(
     if _supervised:
         _y_raw_for_null = np.asarray(_y_for_strategy)
 
-        def _honest_null_codes(row_perm):
+        # Only the columns whose codes depend on the target are re-binned per permutation; the others keep their observed codes (copied now, so a later in-place
+        # edit of ``data`` cannot change them).
+        _dependent = _target_dependent_columns(_x_for_cat, cols)
+        _fixed_codes = None
+        if _dependent is not None and len(_dependent) < len(cols):
+            _fixed_codes = {str(c): (np.array(data[:, j]), int(nbins[j])) for j, c in enumerate(cols) if str(c) not in _dependent}
+
+        def _honest_null_codes_uncached(row_perm):
             """Codes of every column re-binned on the RAW target permuted by ``row_perm`` (same columns, same order as ``data``)."""
             y_perm = _y_raw_for_null[np.asarray(row_perm, dtype=np.int64)]
             d_perm, _c_perm, nb_perm = categorize_dataset(
-                df=_x_for_cat,
+                df=_x_for_cat if _fixed_codes is None else _x_for_cat[[c for c in _x_for_cat.columns if str(c) in _dependent]],
                 method=self.quantization_method,
                 n_bins=self.quantization_nbins,
                 dtype=self.quantization_dtype,
@@ -226,7 +253,36 @@ def _discretize_inputs_part1(
                 if k is not None:
                     _codes_aligned[:, j] = d_perm[:, k]
                     _nb_aligned[j] = int(nb_perm[k])
+                elif _fixed_codes is not None and str(c) in _fixed_codes:
+                    _codes_aligned[:, j], _nb_aligned[j] = _fixed_codes[str(c)]
             return _codes_aligned, _nb_aligned
+
+        # The screen floor is computed once before and once after the feature-engineering step, with the same seed and row count, hence the same sequence of row
+        # permutations, and the re-binned codes of the input columns depend on nothing else: the second pass would repeat every re-binning of the first. Memoise by the
+        # content of the permutation, stored narrow, up to a byte budget (a larger frame is simply not cached). The cache is dropped at the end of the fit.
+        _memo: dict = {}
+        _memo_bytes = [0]
+
+        def _honest_null_codes(row_perm):
+            """``_honest_null_codes_uncached`` memoised by the content of ``row_perm``; every call returns fresh int64 arrays."""
+            perm = np.ascontiguousarray(np.asarray(row_perm, dtype=np.int64))
+            key = hashlib.blake2b(perm.tobytes(), digest_size=16).digest()
+            hit = _memo.get(key)
+            if hit is not None:
+                return hit[0].astype(np.int64), hit[1].copy()
+            codes, nb = _honest_null_codes_uncached(perm)
+            compact = codes.astype(np.int16) if codes.size == 0 or int(codes.max()) < np.iinfo(np.int16).max else codes
+            if _memo_bytes[0] + compact.nbytes + nb.nbytes <= _HONEST_NULL_MEMO_BYTES:
+                _memo[key] = (compact, nb.copy())
+                _memo_bytes[0] += compact.nbytes + nb.nbytes
+            return codes, nb
+
+        def _clear_memo():
+            """Drop the memoised re-binned codes (called when the fit ends)."""
+            _memo.clear()
+            _memo_bytes[0] = 0
+
+        _honest_null_codes.clear_memo = _clear_memo  # type: ignore[attr-defined]
 
         # Numba spec for the honest null (see _mdlp_honest_njit): only the plain 'mdlp' (fayyad_irani) strategy with no extra kwargs is
         # covered by the njit chain, whose identity with categorize_dataset was verified on continuous columns; other strategies keep
