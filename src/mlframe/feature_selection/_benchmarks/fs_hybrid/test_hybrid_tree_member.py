@@ -56,7 +56,7 @@ def test_gate_raw_median_is_looser_than_synergy_on_noise_heavy_frame():
     fi = {"a": 0.5, "b": 0.5, "tprod_0": 0.02}
     fi.update({f"n{i}": 0.0 for i in range(20)})
     raw = ["a", "b"] + [f"n{i}" for i in range(20)]
-    rel = [*raw, "tprod_0"]
+    rel = ["a", "b", "tprod_0"]  # survivors only: the relevant median (0.5) must differ from the raw median (~0)
     # Spec: the raw-median bar sits near 0 on this frame, so the weak product (0.02) is admitted; synergy (0.5 operands) rejects it.
     assert _gate("raw_median", fi, [("a", "b")], rel, raw) == {"tprod_0"}, "raw_median gate should admit the weak product"
     assert _gate("synergy", fi, [("a", "b")], rel, raw) == set(), "synergy gate should reject a 0.02 product against 0.5 operands"
