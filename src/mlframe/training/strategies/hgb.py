@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+from mlframe.utils.log_throttle import log_throttle
 from typing import Dict, List, Optional, TYPE_CHECKING
 
 from .base import ModelPipelineStrategy
@@ -97,7 +98,7 @@ class HGBStrategy(ModelPipelineStrategy):
             try:
                 vals = df[col].drop_nulls().unique().cast(pl.String).to_list()
             except Exception as e:
-                logger.warning("could not resolve unique values for column %s: %s", col, e)
+                log_throttle(logger, "hgb:100", logging.WARNING, "could not resolve unique values for column %s: %s", col, e)
                 vals = []
             local_enum = pl.Enum(sorted(set(vals))) if vals else None
             if local_enum is None:

@@ -169,14 +169,14 @@ def _build_cross_target_per_spec_base_matrix(_spec_list, train_df_pd, val_df_pd,
             try:
                 _b_val = _b_stack_full[filtered_val_idx]
             except Exception as e:
-                logger.warning("indexing _b_stack_full by filtered_val_idx failed: %s", e)
+                log_throttle(logger, "_xt_ensemble_helpers:172", logging.WARNING, "indexing _b_stack_full by filtered_val_idx failed: %s", e)
                 _b_val = None
         else:
             _b_filtered = _b_primary[filtered_train_idx]
             try:
                 _b_val = _b_primary[filtered_val_idx]
             except Exception as e:
-                logger.warning("indexing _b_primary by filtered_val_idx failed: %s", e)
+                log_throttle(logger, "_xt_ensemble_helpers:179", logging.WARNING, "indexing _b_primary by filtered_val_idx failed: %s", e)
                 _b_val = None
         # Key by the UNIQUE spec name, not base_column. A multi-base
         # spec and a single-base spec sharing the same PRIMARY base column

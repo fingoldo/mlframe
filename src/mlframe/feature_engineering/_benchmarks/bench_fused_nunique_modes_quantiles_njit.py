@@ -30,6 +30,7 @@ import os
 import time
 
 import numpy as np
+from mlframe.feature_engineering._safe_ratio import safe_rel_err
 
 os.environ.setdefault("CUDA_VISIBLE_DEVICES", "")
 
@@ -92,7 +93,7 @@ def main() -> None:
             arr = np.round(rng.standard_normal(n), 1)
         o = np.array(old_fused(arr, q, 10), dtype=np.float64)
         w = np.array(N._fused_nunique_modes_quantiles(arr, q, "median_unbiased", 10), dtype=np.float64)
-        rel = np.abs(o - w) / (np.abs(o) + 1e-300)
+        rel = safe_rel_err(np.abs(o - w), np.abs(o))
         max_rel = max(max_rel, float(np.nanmax(rel)))
     print(f"identity: max relative diff over 3000 trials = {max_rel:.2e}")
 

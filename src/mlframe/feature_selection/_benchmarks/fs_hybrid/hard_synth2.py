@@ -93,7 +93,8 @@ def heavytail_linear(seed: int = 0, n: int = 6000, p: int = 60):
     logit = np.zeros(n)
     for k in range(n_lin):
         col = warp[:, k]
-        col = col / (np.std(col) + 1e-9)  # normalize the warped contribution
+        sd = np.std(col)
+        col = col / sd if sd > 0 else np.zeros_like(col)  # normalize the warped contribution
         logit += (1.0 - 0.1 * k) * col
     pr = 1.0 / (1.0 + np.exp(-logit / 1.5))
     y = (rng.random(n) < pr).astype(int)

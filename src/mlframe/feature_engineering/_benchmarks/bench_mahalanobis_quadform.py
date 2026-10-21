@@ -9,6 +9,7 @@ Run: CUDA_VISIBLE_DEVICES="" python bench_mahalanobis_quadform.py
 from __future__ import annotations
 import time
 import numpy as np
+from mlframe.feature_engineering._safe_ratio import safe_rel_err
 
 
 def old_mahalanobis(X, mean, inv_cov):
@@ -52,5 +53,5 @@ if __name__ == "__main__":
             ro = old_mahalanobis(X, mean, inv_cov)
             rn = new_mahalanobis(X, mean, inv_cov)
             mad = float(np.max(np.abs(ro - rn)))
-            mrel = float(np.max(np.abs(ro - rn) / (np.abs(ro) + 1e-12)))
+            mrel = float(np.max(safe_rel_err(np.abs(ro - rn), np.abs(ro))))
             print(f"{n:>8} {d:>4} {t_old*1e3:>10.3f} {t_new*1e3:>10.3f} {t_old/t_new:>8.2f} {mad:>14.3e} {mrel:>10.3e}")

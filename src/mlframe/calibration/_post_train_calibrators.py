@@ -254,7 +254,7 @@ def _train_one_model_postcalibrators(models: Any, _calib_target_np: Any, _calib_
             try:
                 _tt_np = _tt.values if hasattr(_tt, "values") else np.asarray(_tt)
             except Exception as exc:
-                logger.warning(
+                log_throttle(logger, "_post_train_calibrators:257", logging.WARNING,
                     "train_postcalibrators: could not coerce model %r test_target for calib==test safety check; "
                     "skipping this model in the identity guard: %r", _name, exc, exc_info=True
                 )

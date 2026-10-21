@@ -28,7 +28,7 @@ def main():
     F = np.vstack(fis)
     mean = F.mean(0); std = F.std(0)
     stab = pd.DataFrame({"feature": cols, "fi_mean": mean.round(5), "fi_std": std.round(5),
-                         "cv_stability": (1 - std / (mean + 1e-9)).round(3)}).sort_values("fi_mean", ascending=False)
+                         "cv_stability": np.where(mean > 0, 1 - std / np.where(mean > 0, mean, 1.0), np.nan).round(3)}).sort_values("fi_mean", ascending=False)
     # group: informative bases vs their redundant copies. manyredundant naming: inf_i and red_i_j (parent i).
     base = set(t["base"])
     print("=== top-20 by FI (feature, fi_mean, fi_std, cv_stability) ===")

@@ -50,7 +50,7 @@ def OLD_dfa_alpha(x):
             for i in range(s):
                 num += (t[i] - tm) * (seg[i] - sm)
                 den += (t[i] - tm) ** 2
-            slope = num / (den + 1e-12)
+            slope = num / den if den > 0 else 0.0
             intercept = sm - slope * tm
             resid_sq = 0.0
             for i in range(s):
@@ -67,7 +67,7 @@ def OLD_dfa_alpha(x):
     for k in range(log_s.size):
         num += (log_s[k] - lm) * (log_f[k] - fm)
         den += (log_s[k] - lm) ** 2
-    return num / (den + 1e-12)
+    return num / den if den > 0 else 0.0
 
 
 @njit(cache=True, fastmath=True)
@@ -134,7 +134,7 @@ def OLD_dfa_alpha2(x):
     for k in range(log_s.size):
         num += (log_s[k] - lm) * (log_f[k] - fm)
         den += (log_s[k] - lm) ** 2
-    return num / (den + 1e-12)
+    return num / den if den > 0 else 0.0
 
 
 def _bestof(fn, arg, n=200):

@@ -10,6 +10,7 @@ Run: python bench_inducing_attention_stage_a_gemm.py
 import time
 
 import numpy as np
+from mlframe.feature_engineering._safe_ratio import safe_rel_err
 
 
 def _old(anchors, X):
@@ -45,5 +46,5 @@ if __name__ == "__main__":
         ref = _old(anchors, X)
         got = _new(anchors, X)
         max_abs = float(np.max(np.abs(ref - got)))
-        rel = max_abs / (float(np.max(np.abs(ref))) + 1e-12)
+        rel = float(safe_rel_err(max_abs, float(np.max(np.abs(ref)))))
         print(f"M={M} N={N} d={d}: old={to*1e3:.2f}ms new={tn*1e3:.2f}ms speedup={to/tn:.2f}x max_abs={max_abs:.3e} rel={rel:.2e}")

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import time
 import numpy as np
+from mlframe.feature_engineering._safe_ratio import safe_div
 import pandas as pd
 
 from sklearn.linear_model import LinearRegression
@@ -33,8 +34,8 @@ def _build_phi_and_unit_f(X: pd.DataFrame, y: np.ndarray, *, top_cols: int = 400
     yn = y - y.mean()
     # Pearson |corr| as a cheap proxy for the production F-score ranking on this regime synthetic.
     num = (Xn - Xn.mean(0)).T @ yn
-    den = np.linalg.norm(Xn - Xn.mean(0), axis=0) * np.linalg.norm(yn) + 1e-12
-    fscore_all = np.abs(num / den)
+    den = np.linalg.norm(Xn - Xn.mean(0), axis=0) * np.linalg.norm(yn)
+    fscore_all = np.abs(safe_div(num, den))
     keep = np.argsort(-fscore_all)[:top_cols]
     keep.sort()
     Xk = Xn[:, keep]

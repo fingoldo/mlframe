@@ -361,7 +361,7 @@ def prepare_dfs_for_catboost_joint(
             try:
                 _first = next((v for v in _col_series.head(8) if v is not None), None)
             except Exception as e:
-                logger.warning("could not probe first non-null value for object-dtype column: %s", e)
+                log_throttle(logger, "__init__:364", logging.WARNING, "could not probe first non-null value for object-dtype column: %s", e)
                 _first = None
             if _first is not None and (hasattr(_first, "shape") or (hasattr(_first, "__len__") and not isinstance(_first, (str, bytes)))):
                 log_throttle(

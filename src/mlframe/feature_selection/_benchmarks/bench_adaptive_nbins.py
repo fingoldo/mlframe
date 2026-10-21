@@ -324,7 +324,7 @@ def _summarise(results: List[FoldResult], methods: List[str]) -> Dict:
                 continue
             mis = np.array([r.mi_val for r in rs])
             if mis.mean() > 1e-8:
-                cvs.append(float(mis.std() / (abs(mis.mean()) + 1e-12)))
+                cvs.append(float(mis.std() / abs(mis.mean())))
         if cvs:
             cv_of_mi_by_method[m] = float(np.mean(cvs))
 

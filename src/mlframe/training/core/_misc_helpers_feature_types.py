@@ -10,6 +10,7 @@ from __future__ import annotations
 from typing import Any
 
 import logging
+from mlframe.utils.log_throttle import log_throttle
 
 import polars as pl
 
@@ -391,7 +392,7 @@ def _auto_detect_featur_col_columns(_columns, user_assigned, _dtypes, honor_user
                     try:
                         _first = next((v for v in _series.head(8) if v is not None), None)
                     except Exception:
-                        logger.warning("failed probing object column %r for embedding detection; treating as non-embedding", col, exc_info=True)
+                        log_throttle(logger, "_misc_helpers_feature_types:394", logging.WARNING, "failed probing object column %r for embedding detection; treating as non-embedding", col, exc_info=True)
                         _first = None
                     _is_embedding = _first is not None and (hasattr(_first, "shape") or (hasattr(_first, "__len__") and not isinstance(_first, (str, bytes))))
                 if _is_embedding:
