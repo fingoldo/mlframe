@@ -26,7 +26,7 @@ from __future__ import annotations
 
 import logging
 from timeit import default_timer as timer
-from typing import Optional, cast, Any
+from typing import Any, Callable, Optional, cast
 
 import os
 
@@ -302,8 +302,9 @@ def confirm_candidate(ctx: ScreenContext, X: tuple, next_best_gain: float) -> tu
                 # Supervised binning: the fixed-codes null above keeps the cut points fitted on the real target, so a column whose cuts
                 # happened to fit the target beats every shuffle. Re-test it against the honest null, which refits the cuts per shuffle.
                 _honest = honest_candidate_nfailed(
-                    ctx.honest_null_codes_fn, ctx.honest_full_factors, factors_nbins, int(y[0]), int(X[0]),
-                    int(full_npermutations), int(random_seed), ctx.honest_eval_rows,
+                    cast(Callable[[np.ndarray], tuple[np.ndarray, np.ndarray]], ctx.honest_null_codes_fn),
+                    cast(np.ndarray, ctx.honest_full_factors), factors_nbins, int(y[0]), int(X[0]),
+                    int(full_npermutations), int(random_seed), cast("np.ndarray | None", ctx.honest_eval_rows),
                 )
                 if _honest is not None:
                     _nfailed_honest, _ = _honest

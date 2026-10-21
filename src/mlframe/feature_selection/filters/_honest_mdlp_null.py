@@ -279,7 +279,7 @@ def honest_fdr_floor(
 def honest_candidate_nfailed(
     honest_codes_fn: Callable[[np.ndarray], tuple[np.ndarray, np.ndarray]],
     full_factors: np.ndarray,
-    factors_nbins: np.ndarray,
+    factors_nbins: Sequence[int] | np.ndarray,
     y_idx: int,
     col: int,
     n_permutations: int,
