@@ -274,3 +274,41 @@ def honest_fdr_floor(
     for b in range(int(n_permutations)):
         nulls[b] = _honest_perm_best(honest_codes_fn, factors_data, factors_nbins, y_codes, cols, n, rng.permutation(n), eval_rows)
     return float(np.quantile(nulls, float(quantile), method="higher"))
+
+
+def honest_candidate_nfailed(
+    honest_codes_fn: Callable[[np.ndarray], tuple[np.ndarray, np.ndarray]],
+    full_factors: np.ndarray,
+    factors_nbins: np.ndarray,
+    y_idx: int,
+    col: int,
+    n_permutations: int,
+    seed: int | None,
+    eval_rows: np.ndarray | None = None,
+) -> tuple[int, float] | None:
+    """Exceedance count of one raw column's plug-in MI under the honest supervised null.
+
+    The observed MI uses the codes the fit produced (cut points fitted on the whole target). Each permutation draws a whole-target row
+    permutation, re-runs the production binning on the permuted target (``honest_codes_fn``), and scores the column against the permuted
+    target over the same rows. Returns ``(nfailed, observed_mi)``: the number of permutations whose MI reaches the observed MI, out of
+    ``n_permutations``. Returns ``None`` when ``col`` is not a column the honest codes cover (an engineered column appended after binning).
+    The row permutations depend only on ``seed``, so the memoised codes are shared by every candidate of one fit.
+    """
+    n = int(full_factors.shape[0])
+    y_full = np.ascontiguousarray(full_factors[:, int(y_idx)]).astype(np.int64)
+    x_full = np.ascontiguousarray(full_factors[:, int(col)]).astype(np.int64)
+    rows = np.arange(n) if eval_rows is None else np.asarray(eval_rows, dtype=np.int64)
+    x_obs, y_obs = x_full[rows], y_full[rows]
+    observed = float(_mi_codes_njit(x_obs, int(factors_nbins[int(col)]), y_obs, int(y_obs.max()) + 1))
+    rng = np.random.default_rng(0 if seed is None else int(seed))
+    nfailed = 0
+    for _ in range(int(n_permutations)):
+        row_perm = rng.permutation(n)
+        codes_p, nb_p = honest_codes_fn(row_perm)
+        if int(col) >= len(nb_p):
+            return None
+        x_p = np.ascontiguousarray(np.asarray(codes_p)[rows, int(col)]).astype(np.int64)
+        y_p = np.ascontiguousarray(y_full[row_perm][rows]).astype(np.int64)
+        if float(_mi_codes_njit(x_p, int(nb_p[int(col)]), y_p, int(y_p.max()) + 1)) >= observed:
+            nfailed += 1
+    return nfailed, observed

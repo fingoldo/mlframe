@@ -104,6 +104,11 @@ class ScreenContext:
     partial_gains: dict = field(default_factory=dict)
     added_candidates: set = field(default_factory=set)
     failed_candidates: set = field(default_factory=set)
+    # Supervised binning (``nbins_strategy`` mdlp family): the production categorisation re-run on a row-permuted target, the full
+    # factor matrix the observed codes were fitted on, and the screen's evaluation rows. ``None`` keeps the fixed-codes permutation null.
+    honest_null_codes_fn: object = None
+    honest_full_factors: object = None
+    honest_eval_rows: object = None
     # — directed-FE tie-break. ``raw_feature_names`` is the set of
     # ORIGINAL (pre-FE) column names; any ``factors_names[idx]`` not in it is an
     # engineered transform of its raw parent(s). On a near-tie in selection gain
