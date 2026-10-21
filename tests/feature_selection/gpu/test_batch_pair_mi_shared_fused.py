@@ -35,6 +35,7 @@ Two bugs were found and fixed en route (both regression-tested here):
 from __future__ import annotations
 
 import numpy as np
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 import pytest
 
 from mlframe.feature_selection.filters.batch_pair_mi_gpu import (
@@ -60,6 +61,9 @@ def _clean_gpu_state():
     yield
     clear_fe_resident_operands()
 
+
+# the cupy twin accumulates in the criterion dtype, the njit reference in float64: agreement is a few dozen units of that dtype's epsilon
+_CUPY_TOL = 64 * float(np.finfo(_crit_np_dtype()).eps)
 
 def _build_pair_inputs(n_samples, n_features, n_pairs, n_classes_y, nbins_range, seed):
     """Build a random factors/pair/class fixture for the shared-fused-kernel test suite."""
@@ -237,4 +241,4 @@ class TestCupyResidentUploadRegression:
         assert upload_calls["n"] == 1, f"factors_data-shaped cp.asarray called {upload_calls['n']} times across 2 calls (expected 1)"
 
         mi_cpu = batch_pair_mi_njit_prange(factors_data, pair_a, pair_b, nbins, classes_y, freqs_y)
-        np.testing.assert_allclose(np.concatenate([mi1, mi2]), mi_cpu, atol=1e-9, rtol=1e-9)
+        np.testing.assert_allclose(np.concatenate([mi1, mi2]), mi_cpu, atol=_CUPY_TOL * float(np.max(mi_cpu)), rtol=_CUPY_TOL)

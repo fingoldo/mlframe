@@ -18,9 +18,14 @@ not overridden by flipping the default in this same change; see the flag's own d
 from __future__ import annotations
 
 import numpy as np
+
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 import pytest
 
 cp = pytest.importorskip("cupy")
+
+# the device reduction accumulates in the criterion dtype, the exact CPU reduction in float64: parity is a few dozen units of that dtype's epsilon
+_TOL = 64 * float(np.finfo(_crit_np_dtype()).eps)
 
 
 def _need_cuda() -> bool:
@@ -63,7 +68,7 @@ class TestEntropySegmentsGpuUnit:
         h_cpu = np.array([_entropy_from_counts(segs[i], n) for i in range(len(segs))])
         h_gpu = entropy_segments_gpu(cp, cp.asarray(all_counts), n, offsets_arr)
 
-        np.testing.assert_allclose(h_gpu, h_cpu, rtol=1e-9, atol=1e-12)
+        np.testing.assert_allclose(h_gpu, h_cpu, rtol=_TOL, atol=_TOL)
 
     def test_all_zero_segment_returns_zero(self):
         """A segment with every bin zeroed (a genuinely empty joint) must return exactly 0.0,
@@ -110,17 +115,17 @@ class TestFriendGraphCupyBackendToggleParity:
 
         assert set(r_off.H) == set(r_on.H)
         for i in r_off.H:
-            assert abs(r_off.H[i] - r_on.H[i]) < 1e-9, f"node entropy diverged for column {i}: {r_off.H[i]} vs {r_on.H[i]}"
+            assert abs(r_off.H[i] - r_on.H[i]) < _TOL, f"node entropy diverged for column {i}: {r_off.H[i]} vs {r_on.H[i]}"
 
         assert (r_off.rel is None) == (r_on.rel is None)
         if r_off.rel is not None:
             assert set(r_off.rel) == set(r_on.rel)
             for i in r_off.rel:
-                assert abs(r_off.rel[i] - r_on.rel[i]) < 1e-9, f"relevance diverged for column {i}: {r_off.rel[i]} vs {r_on.rel[i]}"
+                assert abs(r_off.rel[i] - r_on.rel[i]) < _TOL, f"relevance diverged for column {i}: {r_off.rel[i]} vs {r_on.rel[i]}"
 
         assert set(r_off.edge_mi) == set(r_on.edge_mi)
         for e in r_off.edge_mi:
-            assert abs(r_off.edge_mi[e] - r_on.edge_mi[e]) < 1e-9, f"edge MI diverged for {e}: {r_off.edge_mi[e]} vs {r_on.edge_mi[e]}"
+            assert abs(r_off.edge_mi[e] - r_on.edge_mi[e]) < _TOL, f"edge MI diverged for {e}: {r_off.edge_mi[e]} vs {r_on.edge_mi[e]}"
 
     def test_toggle_selection_equivalent_larger_shape_with_pair_tiling(self, monkeypatch):
         """Repeat the toggle-parity check at a shape large enough to exercise the pairwise-edge
@@ -130,7 +135,7 @@ class TestFriendGraphCupyBackendToggleParity:
 
         assert len(r_off.edge_mi) == len(r_on.edge_mi) and len(r_off.edge_mi) > 0
         max_diff = max(abs(r_off.edge_mi[e] - r_on.edge_mi[e]) for e in r_off.edge_mi)
-        assert max_diff < 1e-9, f"max edge MI divergence {max_diff} exceeds the 1e-9 parity bar"
+        assert max_diff < _TOL, f"max edge MI divergence {max_diff} exceeds the {_TOL:.1e} parity bar"
 
     def test_device_failure_falls_back_to_exact_cpu_path(self, monkeypatch):
         """Forcing the device-resident helper to raise must fall back to the exact CPU reduction

@@ -7,8 +7,12 @@ import pytest
 
 cp = pytest.importorskip("cupy")
 
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 from mlframe.feature_selection.filters._orthogonal_univariate_fe import _fourier_detect_gpu_resident as det
 from mlframe.feature_selection.filters._orthogonal_univariate_fe import _fourier_fused_gpu as fused
+
+# both implementations read the samples in the criterion dtype and accumulate in double: they agree to a few units of that dtype's epsilon, not to float64 round-off
+_RTOL = 4 * float(np.finfo(_crit_np_dtype()).eps)
 
 GRID = [float(f) for f in (1, 2, 3, 4, 5, 6, 7, 8, 10, 12, 16, 20, 24, 32)]
 
@@ -36,7 +40,7 @@ def test_power_grid_matches_the_cupy_batch(n, monkeypatch):
     want = cp.asnumpy(det._power_grid_centered_gpu(cp, z, yc, y_ss, freqs))
     _set(monkeypatch, True)
     got = cp.asnumpy(det._power_grid_centered_gpu(cp, z, yc, y_ss, freqs))
-    np.testing.assert_allclose(got, want, rtol=1e-9, atol=1e-12)
+    np.testing.assert_allclose(got, want, rtol=_RTOL, atol=_RTOL * float(np.max(np.abs(want))))
     assert int(np.argmax(got)) == int(np.argmax(want))
 
 
@@ -47,7 +51,7 @@ def test_scalar_power_matches(monkeypatch):
     _set(monkeypatch, False)
     want = det._power_centered_gpu(cp, z, yc, y_ss, 3.1)
     _set(monkeypatch, True)
-    assert det._power_centered_gpu(cp, z, yc, y_ss, 3.1) == pytest.approx(want, rel=1e-9)
+    assert det._power_centered_gpu(cp, z, yc, y_ss, 3.1) == pytest.approx(want, rel=_RTOL)
 
 
 @pytest.mark.parametrize("freq", [1.0, 3.1, 12.5])
@@ -58,7 +62,7 @@ def test_deflation_matches(freq, monkeypatch):
     want = cp.asnumpy(det._deflate_sincos_gpu(cp, z, y, freq))
     _set(monkeypatch, True)
     got = cp.asnumpy(det._deflate_sincos_gpu(cp, z, y, freq))
-    np.testing.assert_allclose(got, want, rtol=1e-8, atol=1e-10)
+    np.testing.assert_allclose(got, want, rtol=_RTOL, atol=_RTOL * float(np.max(np.abs(want))))
 
 
 def test_singular_deflation_falls_back(monkeypatch):

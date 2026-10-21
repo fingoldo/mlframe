@@ -121,3 +121,16 @@ def test_polyeval_cuda_bit_identical_to_prefix_raw_path():
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v", "-s", "--tb=short"])
+
+
+@pytest.mark.parametrize("basis", ["hermite", "legendre", "chebyshev", "laguerre"])
+def test_polyeval_cuda_reads_a_float32_column_without_widening_it(basis):
+    """A float32 column is read by the float kernel and evaluated in double: the result equals the host evaluation of the same float32 values, for every basis."""
+    from mlframe.feature_selection.filters.hermite_fe import _NJIT_FUNCS
+
+    rng = np.random.default_rng(3)
+    x = rng.normal(size=4000).astype(np.float32)
+    c = rng.normal(size=6)
+    got = _polyeval_cuda(basis, x, c)
+    want = _NJIT_FUNCS[basis](x.astype(np.float64), c)
+    np.testing.assert_allclose(got, want, rtol=1e-9, atol=1e-9)

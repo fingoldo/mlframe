@@ -125,7 +125,10 @@ def bits_gate_mi(d_disc: Any, nbins_arr: np.ndarray, d_y_all: Any, n_y: int) -> 
         # Intentional float64: the xlogx table of the MI formula (exact permutation ties); the kernel takes its element type from this buffer
         table = cp.asarray(xlogx_table(n))
         const_b = table[n] - table[cnt].sum(axis=1)
-        n_x_all = cp.asarray(nbins)
+        # the per-column bin counts are constant across a fit's dispatches: a content-keyed resident upload, not a fresh copy per call
+        from ._fe_resident_operands import resident_operand
+
+        n_x_all = resident_operand(nbins, "bits_gate_nbins", dtype=np.int64)
         kern = _get_kernel_v2(cp, n_y - 1, "float" if table.dtype == cp.float32 else "double")
         free_bytes = int(cp.cuda.runtime.memGetInfo()[0])
         group = max(1, min(_BUDGET_CAP_BYTES, free_bytes // 4) // (cap * words * 8))

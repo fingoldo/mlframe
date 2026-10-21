@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import numpy as np
+
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 import pandas as pd
 import pytest
 
@@ -13,6 +15,9 @@ from mlframe.feature_selection.filters._offset_product_gpu import scan_offset_pr
 from mlframe.feature_selection.filters._offset_product_kernels import N_BASELINES, scan_offset_products
 
 N_BINS = 10
+
+# the device scan runs in the criterion dtype, the host reference in float64: parity is a few dozen units of that dtype's epsilon
+_TOL = 64 * float(np.finfo(_crit_np_dtype()).eps)
 
 
 def _inputs(n: int, seed: int = 0):
@@ -52,9 +57,9 @@ def test_gpu_scan_matches_cpu_scan(n):
     assert np.array_equal(np.isnan(cpu_shift), np.isnan(gpu_shift))
     assert np.array_equal(np.isnan(cpu_mi), np.isnan(gpu_mi))
     ok = ~np.isnan(cpu_shift[:, 0])
-    np.testing.assert_allclose(gpu_shift[ok], cpu_shift[ok], rtol=1e-8, atol=1e-10)
+    np.testing.assert_allclose(gpu_shift[ok], cpu_shift[ok], rtol=_TOL, atol=_TOL)
     diff = np.abs(gpu_mi[ok] - cpu_mi[ok])
-    assert np.quantile(diff, 0.99) < 1e-9
+    assert np.quantile(diff, 0.99) < _TOL
     assert diff.max() < 5e-3, "a rare bin-boundary flip may move one MI value slightly, never by a visible amount"
 
 
@@ -115,11 +120,11 @@ def test_device_built_inputs_match_host_built_inputs():
     res = scan_offset_products_device(cols, tuple(unaries), rows, tasks, yr, codes, ky, N_BINS, anchors, fe._WINSOR_Q)
     assert res is not None
     dev_mi, dev_clips = res
-    np.testing.assert_allclose(dev_clips, clips, rtol=1e-9, atol=1e-12)
+    np.testing.assert_allclose(dev_clips, clips, rtol=_TOL, atol=_TOL)
     assert np.array_equal(np.isnan(cpu_mi), np.isnan(dev_mi))
     ok = ~np.isnan(cpu_mi)
     diff = np.abs(dev_mi[ok] - cpu_mi[ok])
-    assert np.quantile(diff, 0.99) < 1e-9 and diff.max() < 5e-3
+    assert np.quantile(diff, 0.99) < _TOL and diff.max() < 5e-3
 
 
 def test_device_inputs_decline_a_unary_without_a_device_form():

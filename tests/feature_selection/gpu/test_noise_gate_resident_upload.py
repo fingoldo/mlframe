@@ -191,11 +191,13 @@ def test_histgate_off_nb_freq_dedup_via_resident_operand(monkeypatch):
         dtype=np.int32,
     )
     out1 = bg.batch_mi_with_noise_gate_cuda_resident(disc_2d=disc_2d_a, **kwargs_common)
+    after_first = dict(upload_calls)
     out2 = bg.batch_mi_with_noise_gate_cuda_resident(disc_2d=disc_2d_b, **kwargs_common)
 
-    assert upload_calls["off"] == 1, f"offsets upload count={upload_calls}"
-    assert upload_calls["nb"] == 1, f"nbins upload count={upload_calls}"
-    assert upload_calls["freq"] == 1, f"freqs_y upload count={upload_calls}"
+    # The first dispatch uploads each fit-constant operand (the offsets and the per-column bin counts are both (K,) int64, so a shape and dtype count cannot tell them apart); the second one,
+    # on the same constants and a different candidate chunk, must add none.
+    assert upload_calls == after_first, f"a second dispatch re-uploaded fit-constant operands: after first {after_first}, after second {upload_calls}"
+    assert after_first["nb"] <= 1 and after_first["freq"] <= 1, f"first dispatch uploads {after_first}"
 
     ref1 = _cpu_ref(disc_2d_a, factors_nbins, classes_y, freqs_y, nperm, use_su=False)
     ref2 = _cpu_ref(disc_2d_b, factors_nbins, classes_y, freqs_y, nperm, use_su=False)

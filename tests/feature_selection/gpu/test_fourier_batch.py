@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import numpy as np
+
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 import pytest
 
 cp = pytest.importorskip("cupy")
@@ -14,6 +16,9 @@ GRID = [round(0.25 * k, 3) for k in range(1, 17)]
 N = 6000
 PARAMS = dict(min_val_corr=0.15, min_rows=800, max_freqs=4, fourier_detect_max_n=0)
 
+
+# the single-column detector keeps its frequencies in the criterion dtype (3.075 reads 3.0750000477), the batch in float64: they agree to a few units of that dtype's epsilon
+_FREQ_TOL = 8 * float(np.finfo(_crit_np_dtype()).eps)
 
 def _jobs(seed: int = 0):
     """Columns with one tone, two tones, a tone of another frequency, pure noise and a constant, each with its own target."""
@@ -46,7 +51,7 @@ def test_batch_equals_single_column_detector():
     want = [_single(*j) for j in jobs]
     assert len(got) == len(want)
     for k, (g, w) in enumerate(zip(got, want)):
-        assert g == pytest.approx(w, abs=1e-9), f"column {k}: batch {g} single {w}"
+        assert g == pytest.approx(w, rel=_FREQ_TOL, abs=_FREQ_TOL), f"column {k}: batch {g} single {w}"
     assert any(len(w) for w in want) and want[4] == [] and want[3] == []
 
 
@@ -58,9 +63,9 @@ def test_columns_with_different_grids_and_a_batch_of_one():
     got = detect_fourier_freqs_batch_gpu(mixed, single=_single, **PARAMS)
     assert len(got) == len(mixed) > 0, "no results: the loop below would pass vacuously"
     for (z, y, g), res in zip(mixed, got):
-        assert res == pytest.approx(_single(z, y, g), abs=1e-9)
+        assert res == pytest.approx(_single(z, y, g), rel=_FREQ_TOL, abs=_FREQ_TOL)
     one = detect_fourier_freqs_batch_gpu([jobs[0]], single=_single, **PARAMS)
-    assert one[0] == pytest.approx(_single(*jobs[0]), abs=1e-9)
+    assert one[0] == pytest.approx(_single(*jobs[0]), rel=_FREQ_TOL, abs=_FREQ_TOL)
 
 
 def test_dispatcher_falls_back_to_the_loop_off_the_resident_mode(monkeypatch):

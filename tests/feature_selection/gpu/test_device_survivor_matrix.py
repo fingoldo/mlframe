@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import numpy as np
+
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 import pytest
 
 cp = pytest.importorskip("cupy")
@@ -14,6 +16,9 @@ from mlframe.feature_selection.filters._mrmr_fe_step._step_score_parts2 import _
 from mlframe.feature_selection.filters.discretization import discretize_2d_quantile_batch
 from mlframe.feature_selection.filters.engineered_recipes._recipe_unary_binary import _device_fit_edges
 from mlframe.feature_selection.filters._gpu_strict_fe import residency_audit
+
+# device edges come from criterion-dtype samples, the host edges from float64: parity is a few dozen units of that dtype's epsilon
+_TOL = 64 * float(np.finfo(_crit_np_dtype()).eps)
 
 
 def _matrix(n: int, k: int, seed: int) -> np.ndarray:
@@ -54,7 +59,7 @@ def test_device_fit_edges_equal_the_host_edges(method):
         host = np.nanpercentile(col, np.linspace(0.0, 100.0, 11))
     else:
         host = np.linspace(col.min(), col.max(), 11)
-    np.testing.assert_allclose(dev_edges, host, rtol=1e-12, atol=0)
+    np.testing.assert_allclose(dev_edges, host, rtol=_TOL, atol=0)
     assert _device_fit_edges(col, method, 10) is None
 
 

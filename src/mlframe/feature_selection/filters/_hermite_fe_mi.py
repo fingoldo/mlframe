@@ -468,34 +468,20 @@ def plugin_mi_classif_batch_dispatch(X_cols: np.ndarray, y: np.ndarray, n_bins: 
     return np.asarray(_plugin_mi_classif_batch_njit(X_cols, y, n_bins))
 
 
-_CUDA_KERNELS: dict = {}
-_CUDA_KERNELS_LOCK = threading.Lock()
-
-
-def _ensure_cuda_kernels():
-    """Lazy-compile CUDA RawKernels on first use."""
-    # Lazy import of parent-resident helpers: ``.hermite_fe`` re-imports
-    # this sibling at its bottom, so a top-level ``from .hermite_fe
-    # import ...`` would create a hard cycle the meta-test flags.
-    from mlframe.feature_selection.filters.hermite_fe.shared import CUDA_AVAILABLE as _CUDA_AVAILABLE
-
-    global _CUDA_KERNELS
-    if _CUDA_KERNELS or not _CUDA_AVAILABLE:
-        return
-    import cupy as cp
-
-    _kernels: dict = {}
-    _kernels["hermite"] = cp.RawKernel(
+# The x column is read as ``{REAL}`` (float or double) and every operation runs in double, so a column uploaded in the criterion dtype needs no float64 copy; the
+# coefficients and the output stay double. One kernel per (basis, real) is compiled on first use.
+_POLYEVAL_KERNEL_SRC = {
+    "hermite": (
         r"""
 extern "C" __global__
-void hermeval_kernel(const double* __restrict__ x,
+void hermeval_kernel(const {REAL}* __restrict__ x,
                      const double* __restrict__ c,
                      int nc, int n,
                      double* __restrict__ out)
 {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= n) return;
-    double xi = x[i];
+    double xi = (double)x[i];
     if (nc == 0) { out[i] = 0.0; return; }
     if (nc == 1) { out[i] = c[0]; return; }
     double p_prev = 1.0, p_curr = xi;
@@ -509,18 +495,18 @@ void hermeval_kernel(const double* __restrict__ x,
 }
 """,
         "hermeval_kernel",
-    )
-    _kernels["legendre"] = cp.RawKernel(
+    ),
+    "legendre": (
         r"""
 extern "C" __global__
-void legval_kernel(const double* __restrict__ x,
+void legval_kernel(const {REAL}* __restrict__ x,
                     const double* __restrict__ c,
                     int nc, int n,
                     double* __restrict__ out)
 {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= n) return;
-    double xi = x[i];
+    double xi = (double)x[i];
     if (nc == 0) { out[i] = 0.0; return; }
     if (nc == 1) { out[i] = c[0]; return; }
     double p_prev = 1.0, p_curr = xi;
@@ -535,18 +521,18 @@ void legval_kernel(const double* __restrict__ x,
 }
 """,
         "legval_kernel",
-    )
-    _kernels["chebyshev"] = cp.RawKernel(
+    ),
+    "chebyshev": (
         r"""
 extern "C" __global__
-void chebval_kernel(const double* __restrict__ x,
+void chebval_kernel(const {REAL}* __restrict__ x,
                      const double* __restrict__ c,
                      int nc, int n,
                      double* __restrict__ out)
 {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= n) return;
-    double xi = x[i];
+    double xi = (double)x[i];
     if (nc == 0) { out[i] = 0.0; return; }
     if (nc == 1) { out[i] = c[0]; return; }
     double p_prev = 1.0, p_curr = xi;
@@ -560,18 +546,18 @@ void chebval_kernel(const double* __restrict__ x,
 }
 """,
         "chebval_kernel",
-    )
-    _kernels["laguerre"] = cp.RawKernel(
+    ),
+    "laguerre": (
         r"""
 extern "C" __global__
-void lagval_kernel(const double* __restrict__ x,
+void lagval_kernel(const {REAL}* __restrict__ x,
                     const double* __restrict__ c,
                     int nc, int n,
                     double* __restrict__ out)
 {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= n) return;
-    double xi = x[i];
+    double xi = (double)x[i];
     if (nc == 0) { out[i] = 0.0; return; }
     if (nc == 1) { out[i] = c[0]; return; }
     double p_prev = 1.0, p_curr = 1.0 - xi;
@@ -586,7 +572,38 @@ void lagval_kernel(const double* __restrict__ x,
 }
 """,
         "lagval_kernel",
-    )
+    ),
+}
+
+_CUDA_KERNELS: dict = {}  # basis -> kernel reading x as double (the historical entry point)
+_CUDA_KERNELS_BY_REAL: dict = {}  # (basis, "float" | "double") -> kernel
+_CUDA_KERNELS_LOCK = threading.Lock()
+
+
+def _polyeval_kernel(basis: str, real: str):
+    """The polynomial-evaluation RawKernel of ``basis`` whose x pointer is ``real`` (``"float"`` or ``"double"``), compiled once."""
+    key = (basis, real)
+    kernel = _CUDA_KERNELS_BY_REAL.get(key)
+    if kernel is not None:
+        return kernel
+    import cupy as cp
+
+    src, name = _POLYEVAL_KERNEL_SRC[basis]
+    kernel = cp.RawKernel(src.replace("{REAL}", real), name)
+    with _CUDA_KERNELS_LOCK:
+        return _CUDA_KERNELS_BY_REAL.setdefault(key, kernel)
+
+
+def _ensure_cuda_kernels():
+    """Lazy-compile the double-x CUDA RawKernels on first use."""
+    # Lazy import of parent-resident helpers: ``.hermite_fe`` re-imports
+    # this sibling at its bottom, so a top-level ``from .hermite_fe
+    # import ...`` would create a hard cycle the meta-test flags.
+    from mlframe.feature_selection.filters.hermite_fe.shared import CUDA_AVAILABLE as _CUDA_AVAILABLE
+
+    if _CUDA_KERNELS or not _CUDA_AVAILABLE:
+        return
+    _kernels = {basis: _polyeval_kernel(basis, "double") for basis in _POLYEVAL_KERNEL_SRC}
     # Publish all kernels in one step: a thread that saw a half-filled dict would pass the emptiness check above and
     # then miss a kernel that was still compiling.
     with _CUDA_KERNELS_LOCK:

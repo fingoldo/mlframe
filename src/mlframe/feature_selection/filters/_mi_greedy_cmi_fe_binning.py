@@ -40,20 +40,15 @@ logger = logging.getLogger(__name__)
 
 
 def _qbin_float_dtype():
-    """Float dtype for the ``qbin_x`` candidate-column upload the device quantile binners do. Under
-    ``MLFRAME_FE_VRAM_F32`` (the FE-generation dtype discipline) bin in FLOAT32 - the candidate float upload is
-    HALF the bytes and the equi-frequency partition is selection-equivalent to float64 (f32 percentile edges
-    agree with f64 at all but ~1e-5 of near-edge rows, below the bin resolution the redundancy gate keys on;
-    this is the SAME f32/f64 discipline the FE materialise + the GPU discretiser already use). Falls back to
-    float64 when the flag is off or the probe fails, keeping BOTH binners on ONE dtype so identical candidate
-    content still content-dedups in the resident-operand cache."""
-    import cupy as cp
-    try:
-        from ._fe_gpu_batch._devices import fe_gpu_f32_enabled
-        return cp.float32 if fe_gpu_f32_enabled() else cp.float64  # Intentional float64: dtype fallback for the f32 knob (kept on its own switch)
-    except Exception as e:
-        logger.debug("_qbin_float_dtype: fe_gpu_f32_enabled() probe failed, falling back to float64: %s", e)
-        return cp.float64  # Intentional float64: dtype fallback when the probe fails (kept on float64)
+    """Float dtype for the ``qbin_x`` candidate-column upload the device quantile binners do: the criterion dtype, the same one the host ``_quantile_bin`` narrows its column to.
+
+    The two binners must see the same values. The host path casts to the criterion dtype before taking the quantile edges; a device path that uploaded float64 (the old default, selected by the
+    separate ``MLFRAME_FE_VRAM_F32`` flag) placed its edges on different order statistics and moved a few rows of a tied column into the neighbouring bin. One dtype for both binners also keeps
+    identical candidate content deduplicated in the resident-operand cache.
+    """
+    from ._fe_gpu_batch._devices import crit_float_dtype
+
+    return crit_float_dtype()
 
 
 def _sync_free_qbin_codes(cp, xd, nbins: int):
@@ -95,7 +90,9 @@ def _sync_free_qbin_codes(cp, xd, nbins: int):
     frac = pos - lo
     # numpy's interpolation form: exact when xs[lo] == xs[hi]. a*(1-f) + b*f rounds a tied value one ULP off (-0.9 -> -0.9000000000000001),
     # and searchsorted(side="right") then moves that value's whole mass into the neighbouring bin.
-    e = xs[lo] + (xs[hi] - xs[lo]) * frac  # sorted ascending, nbins+1 edges
+    # numpy's symmetric lerp: weights from the nearer order statistic, so an edge that coincides with a value in the last bit coincides on the device too
+    diff = xs[hi] - xs[lo]
+    e = cp.where(frac >= 0.5, xs[hi] - diff * (1 - frac), xs[lo] + diff * frac)  # sorted ascending, nbins+1 edges
     dup = cp.empty(e.shape, dtype=bool)
     dup[0] = False
     dup[1:] = e[1:] == e[:-1]
@@ -104,7 +101,8 @@ def _sync_free_qbin_codes(cp, xd, nbins: int):
     has_interior = cp.any((e > emin) & (e < emax))  # 0-dim device bool - no sync
     excl = (e == emin) | dup | (has_interior & (e == emax))
     e2 = cp.sort(cp.where(excl, cp.inf, e))  # excluded edges -> +inf, sorted to the tail
-    return cp.searchsorted(e2, xd, side="right").astype(cp.int64)
+    # numpy compares the (float32) values with the (float64) edges in float64; searchsorted on a float32 column would round the edges and move a value that sits on one into the next bin
+    return cp.searchsorted(e2, xd.astype(e2.dtype, copy=False), side="right").astype(cp.int64)
 
 
 def _quantile_bin_gpu(a: np.ndarray, nbins: int):

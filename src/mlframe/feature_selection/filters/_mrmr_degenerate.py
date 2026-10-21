@@ -283,12 +283,15 @@ def audit_degenerate_columns(X: Any, max_collinearity_cols: int = _COLLINEARITY_
         corr = _gram_matrix(M)  # unit-norm rows -> Gram matrix == correlation matrix
         np.fill_diagonal(corr, 0.0)
         abs_corr = np.abs(corr)
+        # the Gram matrix carries the rounding of the dtype it was accumulated in: an exact linear duplicate reads |corr| = 1 within about eps * sqrt(n), so the tolerance is the
+        # float64 contract 1e-9 or that bound, whichever is larger (a float32 matrix cannot resolve 1e-9)
+        collinear_tol = max(_COLLINEAR_TOL, 4.0 * float(np.finfo(M.dtype).eps) * float(np.sqrt(n_rows)))
         for j in range(len(live)):
             if not good[j]:
                 continue
             # earliest i < j with |corr| ~ 1 and i itself not already flagged collinear
             row = abs_corr[j, :j]
-            hits = np.where(np.abs(row - 1.0) <= _COLLINEAR_TOL)[0]
+            hits = np.where(np.abs(row - 1.0) <= collinear_tol)[0]
             for i in hits:
                 if good[i] and names[i] not in degenerate:
                     degenerate[names[j]] = f"collinear_with:{names[i]}"

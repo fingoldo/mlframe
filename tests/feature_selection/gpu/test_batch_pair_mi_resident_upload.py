@@ -10,6 +10,7 @@ from __future__ import annotations
 import itertools
 
 import numpy as np
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 import pytest
 
 from mlframe.feature_selection.filters.batch_pair_mi_gpu import (
@@ -21,6 +22,8 @@ from mlframe.feature_selection.filters.batch_pair_mi_gpu import (
 )
 from mlframe.feature_selection.filters._fe_resident_operands import clear_fe_resident_operands
 
+# the cupy twin accumulates in the criterion dtype, the njit reference in float64: agreement is a few dozen units of that dtype's epsilon
+_CUPY_TOL = 64 * float(np.finfo(_crit_np_dtype()).eps)
 
 def _gpu_available() -> bool:
     """Gpu available."""
@@ -119,7 +122,7 @@ def test_batch_pair_mi_cupy_uploads_factors_data_once_across_calls():
     assert upload_calls["n"] == 1, f"factors_data-shaped cp.asarray called {upload_calls['n']} times across 2 calls (expected 1)"
 
     mi_cpu = batch_pair_mi_njit_prange(data, pair_a, pair_b, nbins, y, freqs_y)
-    np.testing.assert_allclose(np.concatenate([mi1, mi2]), mi_cpu, atol=1e-9, rtol=1e-9)
+    np.testing.assert_allclose(np.concatenate([mi1, mi2]), mi_cpu, atol=_CUPY_TOL * float(np.max(mi_cpu)), rtol=_CUPY_TOL)
 
 
 @pytest.mark.skipif(not _CUDA_AVAIL, reason="numba.cuda not available on this host")

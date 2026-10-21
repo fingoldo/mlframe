@@ -22,12 +22,17 @@ def _pool(n, p, seed=0):
 
 @pytest.fixture
 def calls(monkeypatch):
-    """Record whether the resident twin was entered, delegating to the real one."""
+    """Record whether the resident twin was entered, delegating to the real one, in AUTO STRICT mode."""
     seen = []
     real = resident.usability_greedy_gpu_resident
     monkeypatch.setattr(resident, "usability_greedy_gpu_resident", lambda *a, **k: seen.append(1) or real(*a, **k))
-    monkeypatch.setenv("MLFRAME_FE_GPU_STRICT", "1")
-    return seen
+    # AUTO mode (variable unset) with a fit large enough to engage STRICT: the per-call work floors bind there; an explicit =1 skips them by design
+    monkeypatch.delenv("MLFRAME_FE_GPU_STRICT", raising=False)
+    from mlframe.feature_selection.filters._fe_gpu_strict import clear_auto_fit_n, set_auto_fit_n
+
+    set_auto_fit_n(1_000_000, 100)
+    yield seen
+    clear_auto_fit_n()
 
 
 def test_a_tiny_call_stays_on_the_host(calls):

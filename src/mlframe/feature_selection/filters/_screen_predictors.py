@@ -15,7 +15,6 @@ from collections.abc import Iterable, Sequence
 
 import numba
 import numpy as np
-from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 from joblib import Parallel
 from numba.core import types
 
@@ -148,7 +147,8 @@ def _resident_screen_targets(use_gpu, classes_y, freqs_y, classes_y_safe):
         from ._fe_resident_operands import resident_operand
 
         classes_y_safe = resident_operand(classes_y, "screen_classes_y", dtype=np.int32).copy()  # device buffer for ctx -> mi_direct_gpu
-        freqs_y_safe = resident_operand(freqs_y, "screen_freqs_y", dtype=_crit_np_dtype())
+        # Intentional float64: ``compute_mi_from_classes_cuda`` declares ``const double *freqs_y`` (a float32 buffer would be read as doubles); the vector has one entry per class
+        freqs_y_safe = resident_operand(freqs_y, "screen_freqs_y", dtype=np.float64)
     else:
         freqs_y_safe = None
     return classes_y_safe, freqs_y_safe

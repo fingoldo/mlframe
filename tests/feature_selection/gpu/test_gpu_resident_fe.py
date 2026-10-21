@@ -8,12 +8,17 @@ a**2/b-equivalent candidate top on an a**2/b target. Speed is exercised by a sep
 from __future__ import annotations
 
 import numpy as np
+
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 import pytest
 
 from mlframe.feature_selection.filters._gpu_resident_fe import (
     cpu_pair_candidate_mi,
     fe_gpu_resident_enabled,
 )
+
+# the device prewarp is built in the criterion dtype, the host replay in float64: parity is a few dozen units of that dtype's epsilon
+_TOL = 64 * float(np.finfo(_crit_np_dtype()).eps)
 
 
 def _require_gpu():
@@ -823,7 +828,7 @@ def test_gpu_apply_prewarp_resolves_clenshaw_dict_after_carve():
         want = apply_operand_prewarp(x_host, spec)
         assert got.shape == want.shape == x_host.shape, basis
         assert np.isfinite(got).all(), basis
-        np.testing.assert_allclose(got, want, rtol=1e-9, atol=1e-10, err_msg=f"device prewarp differs from host replay on basis {basis!r}")
+        np.testing.assert_allclose(got, want, rtol=_TOL, atol=_TOL * float(np.max(np.abs(want))), err_msg=f"device prewarp differs from host replay on basis {basis!r}")
 
 
 def test_fe_materialise_cm_bit_identical(monkeypatch):

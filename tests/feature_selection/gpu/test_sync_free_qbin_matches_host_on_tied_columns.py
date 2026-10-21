@@ -13,6 +13,7 @@ import pytest
 cp = pytest.importorskip("cupy")
 
 from mlframe.feature_selection.filters._mi_greedy_cmi_fe import _quantile_bin, _sync_free_qbin_codes
+from mlframe.feature_selection.filters._mi_greedy_cmi_fe_binning import _qbin_float_dtype
 
 NBINS = 10
 
@@ -46,7 +47,7 @@ def test_device_codes_equal_host_codes_on_tied_block(n, k, seed):
     for j in range(k):
         col = np.ascontiguousarray(block[:, j])
         host = np.asarray(_quantile_bin(col, NBINS))
-        dev = cp.asnumpy(_sync_free_qbin_codes(cp, cp.asarray(col), NBINS))
+        dev = cp.asnumpy(_sync_free_qbin_codes(cp, cp.asarray(col, dtype=_qbin_float_dtype()), NBINS))
         if not np.array_equal(dev, host):
             mismatched.append((j, int((dev != host).sum())))
     assert not mismatched, f"device codes differ from host on (column, rows): {mismatched[:10]}"
@@ -67,5 +68,5 @@ def test_device_codes_equal_host_codes_on_degenerate_shapes(values):
     """Low-cardinality, mass-point, constant and two-value columns keep the host partition and cardinality."""
     col = np.ascontiguousarray(np.asarray(values, dtype=np.float64))
     host = np.asarray(_quantile_bin(col, NBINS))
-    dev = cp.asnumpy(_sync_free_qbin_codes(cp, cp.asarray(col), NBINS))
+    dev = cp.asnumpy(_sync_free_qbin_codes(cp, cp.asarray(col, dtype=_qbin_float_dtype()), NBINS))
     np.testing.assert_array_equal(dev, host)
