@@ -45,7 +45,10 @@ Without the linear check, the CMI redundancy gate kept an aggregate of a pure-no
 
 Pinned by `test_the_cmi_gate_alone_does_not_keep_noise_aggregates_of_an_informative_group_above_the_nominal_rate`. With the previous behaviour that test would fail (7 of 30, 90 percent lower bound 0.11 against 0.05).
 
+## Cost at 1M rows
+
+1M rows, 10 numeric columns (float32), informative group, minimum of two runs each, final per-pair implementation: 69.1 s without the check and 74.1 s with it, about 7 percent. It keeps `binagg_std(aux|qbin(g))` and the two aggregates of `g` over the cells of `aux` (`std`, `kurt`), which carry the same spread signal in the other direction.
+
 ## Not verified
 
-- Cost at 1M rows, and after the final per-pair rewrite: only 200000 rows and the earlier per-candidate version were timed.
 - The probe covers one scenario family. A layout where a column survives the CMI gate on its own was not found, so the cap's effect on a gated column is unmeasured.
