@@ -18,16 +18,29 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
-# Counted at pyproject's max-complexity (25). The debt is fully paid: the ceiling is 0.
-C901_CEILING = 0
+# Counted at threshold 15 (the mandatory gate; ruff's own max-complexity stays 25). 300 functions over it today.
+C901_THRESHOLD = 15
+C901_CEILING = 300
 
 
 def _c901_findings() -> list[str]:
-    """Every C901 finding in src/mlframe, as "path:line" strings, via the repo's own ruff."""
+    """Every C901 finding in src/mlframe at C901_THRESHOLD, as "path:line" strings, via the repo's own ruff."""
     src = REPO_ROOT / "src" / "mlframe"
     assert src.is_dir(), f"src tree not found at {src}; this gate cannot run and must not report green"
     proc = subprocess.run(  # nosec B603 - fixed argv, no shell, no user input
-        [sys.executable, "-m", "ruff", "check", str(src), "--select", "C901", "--output-format", "json"],
+        [
+            sys.executable,
+            "-m",
+            "ruff",
+            "check",
+            str(src),
+            "--select",
+            "C901",
+            "--config",
+            f"lint.mccabe.max-complexity={C901_THRESHOLD}",
+            "--output-format",
+            "json",
+        ],
         capture_output=True,
         text=True,
         cwd=str(REPO_ROOT),
@@ -38,13 +51,13 @@ def _c901_findings() -> list[str]:
 
 
 def _quoted_counts(section_text: str) -> list[str]:
-    """Finding counts quoted by the mccabe comment as ``threshold=40 keeps N findings``."""
-    return re.findall(r"threshold=40 keeps\s*#?\s*(\d+) findings", section_text)
+    """Finding counts quoted by the mccabe comment as ``threshold=15 keeps N findings``."""
+    return re.findall(r"threshold=15 keeps\s*#?\s*(\d+) findings", section_text)
 
 
 def test_quoted_count_detector_catches_a_stale_number_and_passes_a_clean_comment():
     """The comment parser extracts the number from a quoting comment and finds nothing in a comment that quotes none."""
-    assert _quoted_counts("# threshold=40 keeps\n# 70 findings, real debt") == ["70"]
+    assert _quoted_counts("# threshold=15 keeps\n# 70 findings, real debt") == ["70"]
     assert _quoted_counts("# 25, measured on this codebase") == []
 
 

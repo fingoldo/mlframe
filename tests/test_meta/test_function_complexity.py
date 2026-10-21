@@ -1,4 +1,4 @@
-"""Blocking complexity ratchet: no new function over McCabe complexity 25, and the complex ones may not get worse.
+"""Blocking complexity ratchet: no new function over McCabe complexity 15, and the complex ones may not get worse.
 
 Complexity is ruff's C901 number, keyed by ``path::Qual.name`` (py_ci_shared.function_complexity). The threshold is
 this codebase's measured distribution (median 2, p90 9, p95 13, p99 30) read against the functions a reader actually
@@ -19,7 +19,7 @@ pytest.importorskip("ruff")
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 BASELINE = Path(__file__).resolve().parent / "_function_complexity_baseline.json"
-LIMIT = 25
+LIMIT = 15  # mandatory gate; the target steps 15 -> 10 (see pyproject [tool.ruff.lint.mccabe])
 
 
 def _src_files() -> list[Path]:

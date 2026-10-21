@@ -1032,6 +1032,13 @@ extend-ignore = [
 # percentile and flags only functions a reader genuinely has to hold in their head. The plain `ruff check` steps in CI and pre-commit
 # enforce it directly (no `--ignore C901`); tests/test_meta/test_function_complexity.py and test_c901_debt_ratchet.py keep a zero-debt ratchet on top.
 # NOT shared via ruff-base.toml -- this is mlframe's own measured number (pyutilz's is 20).
+#
+# TARGET STEPS: 15 -> 10 (owner). The mandatory gate is at 15 today: tests/test_meta/test_function_complexity.py enforces
+# LIMIT = 15 against tests/test_meta/_function_complexity_baseline.json (every function over 15, with its complexity as
+# ceiling; new offenders fail, removed ones must be deleted from the baseline), and test_c901_debt_ratchet.py keeps the
+# C901 count at threshold 15 from rising (threshold=15 keeps 300 findings). Ruff itself stays at 25 on purpose: at 15
+# the 300 pre-existing functions would block every commit, so ruff enforces only the 25 cut and the ratchet does the rest.
+# Moving to 10 means lowering LIMIT, the ratchet's threshold and the baseline together, after refactoring the offenders.
 max-complexity = 25
 
 # pep8-naming ignore-names = ["F", "L", "_F"] is inherited from ruff-base.toml -- no local
