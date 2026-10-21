@@ -122,7 +122,7 @@ def _map_group_keys(
     # copy=True: some pandas versions return a read-only view from to_numpy() when the
     # requested dtype already matches the mapped Series' dtype (no-op astype short-circuit),
     # which then raises "assignment destination is read-only" on the absent-key fill below.
-    out = s.map(lookup).to_numpy(dtype=_crit_np_dtype(), copy=True)
+    out = s.map(lookup).to_numpy(dtype=np.float64, copy=True)
     absent = ~s.isin(lookup.keys()).to_numpy()
     if absent.any():
         out[absent] = global_value
@@ -137,8 +137,8 @@ def _safe_div(a: np.ndarray, b: np.ndarray, eps: float) -> np.ndarray:
     in absolute value at ``eps`` so the output never blows up to inf/nan even
     when ``b`` contains zero / very small values.
     """
-    a = np.asarray(a, dtype=_crit_np_dtype())
-    b = np.asarray(b, dtype=_crit_np_dtype())
+    a = np.asarray(a, dtype=np.float64)
+    b = np.asarray(b, dtype=np.float64)
     sign_b = np.where(b >= 0.0, 1.0, -1.0)
     denom = sign_b * np.maximum(np.abs(b), eps)
     return np.asarray(a / denom)
@@ -174,8 +174,8 @@ def pairwise_ratio_features(
         for b in cols_present:
             if a == b:
                 continue
-            a_vals = np.asarray(X[a].to_numpy(), dtype=_crit_np_dtype())
-            b_vals = np.asarray(X[b].to_numpy(), dtype=_crit_np_dtype())
+            a_vals = np.asarray(X[a].to_numpy(), dtype=np.float64)
+            b_vals = np.asarray(X[b].to_numpy(), dtype=np.float64)
             r = _safe_div(a_vals, b_vals, float(eps))
             r = np.nan_to_num(r, nan=0.0, posinf=0.0, neginf=0.0)
             # Redundancy gate: drop ratios that are nearly linearly dependent
@@ -212,8 +212,8 @@ def pairwise_log_ratio_features(
         for b in cols_present:
             if a == b:
                 continue
-            a_vals = np.asarray(X[a].to_numpy(), dtype=_crit_np_dtype())
-            b_vals = np.asarray(X[b].to_numpy(), dtype=_crit_np_dtype())
+            a_vals = np.asarray(X[a].to_numpy(), dtype=np.float64)
+            b_vals = np.asarray(X[b].to_numpy(), dtype=np.float64)
             lr = np.log1p(np.abs(a_vals) + float(eps)) - np.log1p(np.abs(b_vals) + float(eps))
             lr = np.nan_to_num(lr, nan=0.0, posinf=0.0, neginf=0.0)
             if not _passes_redundancy(lr, a_vals, b_vals, redundancy_corr_threshold):
@@ -260,8 +260,8 @@ def apply_ratio(X_test: pd.DataFrame, a: str, b: str, eps: float) -> np.ndarray:
         raise TypeError(f"apply_ratio: X_test must be a DataFrame; got {type(X_test).__name__}")
     if a not in X_test.columns or b not in X_test.columns:
         raise KeyError(f"apply_ratio: missing source column(s) {a!r}/{b!r} from X_test")
-    a_vals = np.asarray(X_test[a].to_numpy(), dtype=_crit_np_dtype())
-    b_vals = np.asarray(X_test[b].to_numpy(), dtype=_crit_np_dtype())
+    a_vals = np.asarray(X_test[a].to_numpy(), dtype=np.float64)
+    b_vals = np.asarray(X_test[b].to_numpy(), dtype=np.float64)
     r = _safe_div(a_vals, b_vals, float(eps))
     return np.asarray(np.nan_to_num(r, nan=0.0, posinf=0.0, neginf=0.0))
 
@@ -271,8 +271,8 @@ def apply_log_ratio(X_test: pd.DataFrame, a: str, b: str, eps: float) -> np.ndar
         raise TypeError(f"apply_log_ratio: X_test must be a DataFrame; got {type(X_test).__name__}")
     if a not in X_test.columns or b not in X_test.columns:
         raise KeyError(f"apply_log_ratio: missing source column(s) {a!r}/{b!r} from X_test")
-    a_vals = np.asarray(X_test[a].to_numpy(), dtype=_crit_np_dtype())
-    b_vals = np.asarray(X_test[b].to_numpy(), dtype=_crit_np_dtype())
+    a_vals = np.asarray(X_test[a].to_numpy(), dtype=np.float64)
+    b_vals = np.asarray(X_test[b].to_numpy(), dtype=np.float64)
     lr = np.log1p(np.abs(a_vals) + float(eps)) - np.log1p(np.abs(b_vals) + float(eps))
     return np.asarray(np.nan_to_num(lr, nan=0.0, posinf=0.0, neginf=0.0))
 
@@ -308,7 +308,7 @@ def grouped_delta_features(
     # The grouper (hash of the group key) depends only on group_col, not num_col: build ONE frame holding every
     # num_col's float64-cast values alongside "_g" and group it ONCE, instead of rebuilding a fresh 2-column temp
     # frame + re-hashing the identical "_g" key on every num_col iteration (num_cols is uncapped by the caller).
-    x_by_col = {c: np.asarray(X[c].to_numpy(), dtype=_crit_np_dtype()) for c in num_cols}
+    x_by_col = {c: np.asarray(X[c].to_numpy(), dtype=np.float64) for c in num_cols}
     df_aux = pd.DataFrame({"_g": g.values, **x_by_col})
     gb = df_aux.groupby("_g")
     for num_col in num_cols:
@@ -316,7 +316,7 @@ def grouped_delta_features(
         # Per-group mean / std (sample std for unbiased; treat NaNs sanely).
         agg = gb[num_col].agg(["mean", "std"])
         # NaN std (single-row group) -> 1.0 fallback; std == 0 also -> 1.0.
-        agg_std = agg["std"].fillna(0.0).to_numpy(dtype=_crit_np_dtype())
+        agg_std = agg["std"].fillna(0.0).to_numpy(dtype=np.float64)
         agg_std = np.where(agg_std > 0.0, agg_std, 1.0)
         lookup_mean = {str(k): float(v) for k, v in agg["mean"].items()}
         lookup_std = {str(k): float(s) for k, s in zip(agg.index.astype(str), agg_std)}
@@ -374,7 +374,7 @@ def apply_grouped_delta(X_test: pd.DataFrame, recipe: dict) -> np.ndarray:
     if group_col not in X_test.columns or num_col not in X_test.columns:
         raise KeyError(f"apply_grouped_delta: missing column(s) {group_col!r}/{num_col!r} " f"from X_test")
     g_vals = group_key_strings(X_test[group_col])
-    x = np.asarray(X_test[num_col].to_numpy(), dtype=_crit_np_dtype())
+    x = np.asarray(X_test[num_col].to_numpy(), dtype=np.float64)
     per_row_mean = _map_group_keys(g_vals, lookup_mean, global_mean)
     delta = x - per_row_mean
     if op == "minus_mean":

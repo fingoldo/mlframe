@@ -579,7 +579,6 @@ def _apply_conditional_residual_recipe(recipe, X) -> np.ndarray:
     )
 
 
-
 _TOP_MI_CHUNK_COLS = 64
 
 
@@ -782,7 +781,8 @@ def generate_rankgauss_features(
         return pd.DataFrame(index=X.index), raw_recipes
 
     for col in num_cols:
-        x = np.asarray(X[col].to_numpy(), dtype=_crit_np_dtype())
+        # The rank and Gaussian outputs are a float64 contract, so the input is not cast to the relaxed crit dtype.
+        x = np.asarray(X[col].to_numpy(), dtype=np.float64)
         finite = np.isfinite(x)
         fit_sorted = np.sort(x[finite]) if finite.any() else np.array([0.0])
         n_fit = int(fit_sorted.size)
@@ -819,7 +819,7 @@ def apply_rankgauss(X_test: pd.DataFrame, recipe: dict) -> np.ndarray:
     # Intentional float64: recipe bin-edge contract kept f64 (exact replay)
     fit_sorted = np.asarray(recipe["fit_sorted"], dtype=np.float64)
     n_fit = int(recipe["n_fit"])
-    x = np.asarray(X_test[src_col].to_numpy(), dtype=_crit_np_dtype())
+    x = np.asarray(X_test[src_col].to_numpy(), dtype=np.float64)
     out = np.zeros_like(x)
     finite = np.isfinite(x)
     if n_fit > 0 and finite.any():

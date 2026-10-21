@@ -95,6 +95,7 @@ def score_pair_mi(x: np.ndarray, y: np.ndarray, *,
         I(X; Y) in nats. Clamped at 0 for finite-sample negative noise.
     """
     estimator_kwargs = dict(estimator_kwargs or {})
+    x_raw = np.asarray(x).ravel()
     x = np.asarray(x, dtype=_crit_np_dtype()).ravel()
     y_arr = np.asarray(y).ravel()
 
@@ -120,7 +121,8 @@ def score_pair_mi(x: np.ndarray, y: np.ndarray, *,
         # renyi_alpha_mi returns bits (its own module's documented, internally
         # self-consistent convention, log2-based); this dispatcher's contract is nats for every estimator
         # (see the docstring above) - convert at this boundary rather than changing the module's own units.
-        _mi_bits = float(renyi_alpha_mi(x, y_arr.astype(_crit_np_dtype()), **estimator_kwargs))
+        # Operands go in unrounded: the estimator centres in float64 so an additive offset cannot be rounded into the signal.
+        _mi_bits = float(renyi_alpha_mi(x_raw, np.asarray(y_arr, dtype=np.float64), **estimator_kwargs))
         return _mi_bits * math.log(2.0)
     if estimator in ("median", "genie"):
         return _score_aggregator(x, y_arr, kind=estimator, nbins_strategy=nbins_strategy, nbins_strategy_kwargs=nbins_strategy_kwargs)

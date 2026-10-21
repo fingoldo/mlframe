@@ -82,10 +82,12 @@ class _Evaluator:
             metric_local = metric
             return lambda margin: proxy_loss(margin, y, metric_local)
         code = METRIC_CODES[metric]
+        # Float64 objective, matching proxy_loss: a float32 margin or y would round the loss, not just the rank.
+        y64 = np.ascontiguousarray(y, dtype=np.float64)
         if metric == "rmse":
             from math import sqrt
-            return lambda margin: sqrt(score_margin_auto(margin, y, 1))
-        return lambda margin: float(score_margin_auto(margin, y, code))
+            return lambda margin: sqrt(score_margin_auto(np.asarray(margin, dtype=np.float64), y64, 1))
+        return lambda margin: float(score_margin_auto(np.asarray(margin, dtype=np.float64), y64, code))
 
     @staticmethod
     def _key(idx) -> tuple[int, ...]:
