@@ -243,7 +243,44 @@ def _record_prunes(self, pruned_raw: list, pruned_engineered: list) -> None:
         record_fe_rejection(self, gate="residual_rescue_prune", candidate=name, operator="engineered", reason="no held-out gain given the rest of the selection")
 
 
-def run_residual_rescue(self, X: Any, selected_vars: Any, cols: Any, engineered_recipes: Any, retention_added_eng_names: Any, verbose: Any) -> bool:
+def _admit_from_pool(self, X, y, design: dict, raw_cols, design_sources: list, engineered_held: list, classify, sel_names: set, prune_names: list, engineered_recipes: dict) -> tuple:
+    """``(cell_recipes, admitted, pool)``: the pool columns the residual rescue admits against ``design``, the recipes of the engineered candidates it scored (cell tables, target mix) and the pool itself."""
+    from ..engineered_recipes.shared import apply_recipe
+    from .._residual_rescue_fe import residual_rescue
+
+    # A raw operand the redundancy sweep already dropped as subsumed by a surviving compound is not re-admitted here:
+    # the rescue's linear gain for it is the same information the compound carries, not a new term.
+    redundancy_dropped = set(getattr(self, "_raw_redundancy_dropped_", None) or set())
+    # The sweep that records its drops only sees raws the pass selected: a pass whose raw support was already empty (the compounds carry every operand) records nothing, and the
+    # operands of those compounds would come back here as raws. Under the drop policy they are the same already subsumed information, so they are held out of the pool as well.
+    if bool(getattr(self, "fe_drop_redundant_raw_operands", True)) and getattr(self, "redundancy_policy", "emit_both") == "drop":
+        redundancy_dropped |= {str(c) for s in engineered_held for c in s}
+    pool = {
+        str(c): _pool_values(X, c, engineered_recipes, apply_recipe)
+        for c in X.columns
+        if str(c) not in design
+        and str(c) not in sel_names
+        and str(c) not in prune_names
+        and str(c) not in redundancy_dropped
+        and np.issubdtype(X[c].dtype, np.number)
+        and classify(_raw_sources(str(c), raw_cols)) != "skip"
+    }
+    linear_only = {name for name in pool if classify(_raw_sources(name, raw_cols)) == "linear"}
+    cell_recipes = _cell_table_candidates(self, X, y, design, raw_cols, design_sources, pool)
+    cell_recipes.update(_target_mix_candidates(self, X, y, design, raw_cols, classify, pool, linear_only, engineered_recipes))
+    admitted = residual_rescue(
+        design,
+        pool,
+        y,
+        min_relative_gain=float(self.fe_residual_rescue_min_relative_gain),
+        max_admit=int(self.fe_residual_rescue_max_admit),
+        linear_channel=True,
+        linear_only=frozenset(linear_only),
+    )
+    return cell_recipes, admitted, pool
+
+
+def run_residual_rescue(self, X: Any, selected_vars: Any, cols: Any, engineered_recipes: Any, retention_added_eng_names: Any, verbose: Any, prune_only: bool = False) -> bool:
     """Admit the pool columns that reduce the held-out residual of the selected design and prune the redundant raws (``redundancy_policy='drop'``); True when the selection changed."""
     if not getattr(self, "fe_residual_rescue_enable", False):
         return False
@@ -290,35 +327,10 @@ def run_residual_rescue(self, X: Any, selected_vars: Any, cols: Any, engineered_
                 return "linear"
             return "linear" if sources and _is_refinement(sources, raw_held) else "free"
 
-        # A raw operand the redundancy sweep already dropped as subsumed by a surviving compound is not re-admitted here:
-        # the rescue's linear gain for it is the same information the compound carries, not a new term.
-        redundancy_dropped = set(getattr(self, "_raw_redundancy_dropped_", None) or set())
-        # The sweep that records its drops only sees raws the pass selected: a pass whose raw support was already empty (the compounds carry every operand) records nothing, and the
-        # operands of those compounds would come back here as raws. Under the drop policy they are the same already subsumed information, so they are held out of the pool as well.
-        if bool(getattr(self, "fe_drop_redundant_raw_operands", True)) and getattr(self, "redundancy_policy", "emit_both") == "drop":
-            redundancy_dropped |= {str(c) for s in engineered_held for c in s}
-        pool = {
-            str(c): _pool_values(X, c, engineered_recipes, apply_recipe)
-            for c in X.columns
-            if str(c) not in design
-            and str(c) not in sel_names
-            and str(c) not in prune_names
-            and str(c) not in redundancy_dropped
-            and np.issubdtype(X[c].dtype, np.number)
-            and classify(_raw_sources(str(c), raw_cols)) != "skip"
-        }
-        linear_only = {name for name in pool if classify(_raw_sources(name, raw_cols)) == "linear"}
-        cell_recipes = _cell_table_candidates(self, X, y, design, raw_cols, design_sources, pool)
-        cell_recipes.update(_target_mix_candidates(self, X, y, design, raw_cols, classify, pool, linear_only, engineered_recipes))
-        admitted = residual_rescue(
-            design,
-            pool,
-            y,
-            min_relative_gain=float(self.fe_residual_rescue_min_relative_gain),
-            max_admit=int(self.fe_residual_rescue_max_admit),
-            linear_channel=True,
-            linear_only=frozenset(linear_only),
-        )
+        if prune_only:
+            cell_recipes, admitted, pool = {}, [], {}
+        else:
+            cell_recipes, admitted, pool = _admit_from_pool(self, X, y, design, raw_cols, design_sources, engineered_held, classify, sel_names, prune_names, engineered_recipes)
         eng_set = {str(n) for n in eng_names}
     except Exception:
         logger.warning("MRMR residual rescue failed; the selection is left as it was.", exc_info=True)
