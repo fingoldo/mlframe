@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import logging
 
+from functools import partial
+
 import numpy as np
 from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 
@@ -251,6 +253,11 @@ def _register_pair_recipes(self, engineered_recipes, this_pair_features, transfo
             log_shift_b=_ls_b,
         )
 
+def _discretise_inert_probe(self, n_rows, discretize_array, values):
+    """Bin one candidate column the way the pool bins its survivors, for the inert-leaf test."""
+    return _discretise_survivor_block(self, values, n_rows, values.shape[1], discretize_array)
+
+
 def _filter_unreplayable_pair_block(self, this_pair_features, transformed_vals, new_cols, new_nbins, engineered_recipes, cols, st, verbose):
     """Drop pair candidates whose engineered parent has no replayable recipe, before they can enter selection.
 
@@ -294,6 +301,13 @@ def _materialise_and_fina_step3_cols_space_index(self, prospective_additions, en
         if this_pair_features and engineered_recipes is not None:
             this_pair_features, transformed_vals, new_cols, new_nbins, kept_original_features = _filter_unreplayable_pair_block(
                 self, this_pair_features, transformed_vals, new_cols, new_nbins, engineered_recipes, cols, st, verbose
+            )
+        if this_pair_features and getattr(st, "_leaf_test_data", None) is not None and getattr(self, "fe_inert_leaf_filter_enable", True):
+            from ._step_inert_operands import filter_inert_leaf_block
+
+            this_pair_features, transformed_vals, new_cols, new_nbins, kept_original_features = filter_inert_leaf_block(
+                self, this_pair_features, transformed_vals, new_cols, new_nbins, cols, st._leaf_test_data,
+                partial(_discretise_inert_probe, self, len(X), discretize_array), verbose,
             )
         if this_pair_features:
             engineered_features.update(kept_original_features)
