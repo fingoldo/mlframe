@@ -125,7 +125,7 @@ def test_nonfe_single_col_fe_path_selection_bit_identical():
 def test_e7_triu_pair_build_matches_combinations(p):
     """E7: ``np.triu_indices`` over the materialised id list yields the SAME (a, b) pair sequence and
     kernel int64 arrays as ``list(combinations(ids, 2))`` -- the cached_MIs keys are unchanged."""
-    ids_set = set(int(x) for x in np.random.default_rng(p).permutation(40)[:p])
+    ids_set = set(int(x) for x in np.random.default_rng(p).permutation(2 * p)[:p])
 
     pairs_old = list(combinations(ids_set, 2))
     a_old = np.fromiter((q[0] for q in pairs_old), dtype=np.int64, count=len(pairs_old))

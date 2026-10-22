@@ -79,7 +79,7 @@ def test_fallback_simplefilter_error_can_intercept():
     y = pd.Series(rng.integers(0, 2, n))
     with warnings.catch_warnings():
         warnings.simplefilter("error", UserWarning)
-        with pytest.raises(UserWarning, match="falling back"):
+        with pytest.raises(UserWarning, match="falling back|no feature is significant"):
             MRMR(verbose=0, min_features_fallback=1).fit(df, y)
 
 

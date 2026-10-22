@@ -10,25 +10,14 @@ from ~0.67 to 0.13-0.38. The pair-scoped spec key pins the warp each pair actual
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
-from tests.feature_selection.conftest import make_fast_mrmr
-
-
-def _california():
-    """Return a train/test split of the first 1500 California housing rows."""
-    datasets = pytest.importorskip("sklearn.datasets")
-    c = datasets.fetch_california_housing(as_frame=True)
-    X = c.data.iloc[:1500].reset_index(drop=True)
-    y = c.target.iloc[:1500].reset_index(drop=True)
-    from sklearn.model_selection import train_test_split
-
-    return train_test_split(X, y, test_size=0.25, random_state=0)
+from mlframe.feature_selection.filters.mrmr import MRMR
 
 
 def test_prewarp_feature_replays_fit_time_values(monkeypatch):
     """A prewarp-engineered feature replayed at transform time equals the values computed during fit."""
-    X_tr, _X_te, y_tr, _y_te = _california()
+    from tests.feature_selection.mrmr.biz_val.test_biz_value_mrmr_pair_prewarp import _poly_data, _unb
+
     import mlframe.feature_selection.filters._fe_raw_redundancy_drop as rd
 
     captured: dict = {}
@@ -42,13 +31,11 @@ def test_prewarp_feature_replays_fit_time_values(monkeypatch):
         return orig(*args, **kwargs)
 
     monkeypatch.setattr(rd, "drop_redundant_raw_operands", _spy)
-    m = make_fast_mrmr(
-        fe_hybrid_orth_enable=True,
-        fe_hybrid_orth_pair_enable=False,
-        fe_hybrid_orth_basis="hermite",
-        fe_hybrid_orth_top_k=5,
-        fe_hybrid_orth_ksg_enable=True,
-    )
+    # The F-POLY fixture is the scenario whose selection is a pre-warped pair (the pre-warp is the decisive lever there); on california_housing the
+    # out-of-fold warp and the escalation composites now take the slots the pre-warp used to win.
+    X_tr, y_tr, _true = _poly_data()
+    MRMR.clear_fit_cache()
+    m = _unb(prewarp=True)
     m.fit(X_tr, y_tr)
     out = m.transform(X_tr)
     checked = [c for c in out.columns if "prewarp(" in c and c in captured]
