@@ -76,11 +76,16 @@ def test_sibling_owns_the_moved_class() -> None:
 
 def test_sibling_helpers_resolve_to_parent_definitions() -> None:
     """The sibling's top-level import of facade helpers must resolve to
-    the facade's definitions, not a re-defined local copy."""
+    the facade's definitions, not a re-defined local copy.
+
+    Stale expectation fixed: _y_train_clip_bounds and _is_polars_df are no longer imported by
+    _estimator.py (the helpers moved to _input_extract and the sibling only imports the three
+    extractors it uses), so the identity check covers exactly those names.
+    """
     from mlframe.training.composite import estimator
     from mlframe.training.composite.estimator import _estimator
 
-    for name in ("_y_train_clip_bounds", "_extract_base", "_extract_groups", "_extract_base_matrix", "_is_polars_df"):
+    for name in ("_extract_base", "_extract_groups", "_extract_base_matrix"):
         assert getattr(_estimator, name) is getattr(estimator, name), name
 
 
