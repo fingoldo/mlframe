@@ -92,7 +92,7 @@ def _make_cmi_inputs(dims: dict):
     p = int(dims["p"])
     nb = 16  # per-axis cardinality (joint_size = nb^3 = 4096, fits cc6.x 48KB shared)
     rng = np.random.default_rng(0)
-    factors = rng.integers(0, nb, size=(n, p + 2)).astype(np.int32)
+    factors = rng.integers(0, nb, size=(n, p + 2), dtype=np.int32)  # drawn as int32: the default int64 draw is 2 GB at the sweep's 1M x 258 corner and failed on a memory-starved host
     cand_indices = np.arange(p, dtype=np.int64)
     y_index = p
     z_index = p + 1
@@ -104,11 +104,14 @@ def _cmi_variant(factors, cand_indices, y_index, z_index, factors_nbins, *, back
     """Run the batched conditional MI through an EXPLICIT backend ('cuda'/'cpu') - the per-variant probe the
     sweep times. Both produce ~equal MI (the CUDA kernel reproduces the CPU reduction to ~1e-9), so the sweep's
     equivalence check passes and ranks by WALL only."""
-    from ._cmi_cuda import conditional_mi_batched_dispatch
+    from ._cmi_cuda import conditional_mi_batched_dispatch, reset_cmi_forder_cache
 
-    return conditional_mi_batched_dispatch(
-        factors, cand_indices, y_index, z_index, factors_nbins, force=backend,
-    )
+    try:
+        return conditional_mi_batched_dispatch(
+            factors, cand_indices, y_index, z_index, factors_nbins, force=backend,
+        )
+    finally:
+        reset_cmi_forder_cache()  # the per-fit F-order copy of this cell's matrix would otherwise stay cached until the next cell, doubling the sweep's peak memory
 
 
 def _run_cmi_sweep() -> list:

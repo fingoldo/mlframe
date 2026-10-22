@@ -11,6 +11,8 @@ history.
 
 ## [Unreleased]
 ### Fixed
+- The CPU/CUDA crossover sweep of the batched conditional MI no longer runs out of memory at its 1M x 256 corner: its inputs are drawn as int32 and the per-fit F-order copy is dropped after every timing, so the sweep persists its measured regions (15 of 16 cells on a memory-starved host) instead of none.
+- The streamed-MI path chooser reads the host free memory at most once per second instead of on every call (545 reads, 1.3 s of an 89 s profile on a memory-starved host).
 - A constant or all-NaN input column no longer takes part in the feature-engineering stages as an operand (it diluted the candidate pools and changed the selection); the frame that continues keeps every column.
 - The raw re-attach and the raw-signal augmentation no longer select both members of a duplicate / collinear class (the degenerate-column audit labels them), and the degenerate audit's collinearity tolerance follows the dtype of its Gram matrix so exact duplicates are found in float32.
 - `HybridSelector(twin_corr=0.8)` drops a kept near-twin column (|corr| >= `twin_corr`) that adds nothing to a held-out fit given the other kept columns (the noisy copy below `corr_thr` that took a slot beside the column it copies). The pass is opt-in (`twin_corr=None` by default): on the synthetic bench it kept 4 to 5 of the 6 to 8 true base features the vote finds, with held-out AUC unchanged.
