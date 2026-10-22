@@ -55,3 +55,14 @@ def test_a_failure_leaves_the_selection_as_it_was():
     """A frame the pass cannot handle returns the selection unchanged."""
     kept = prune_conditional_twins(pd.DataFrame({"a": [1, 2]}), [0, 1], ["a", "zzz"], {})
     assert kept == ["a", "zzz"]
+
+
+@pytest.mark.parametrize("seed", [0, 1])
+def test_the_tree_model_check_also_drops_a_redundant_copy_and_keeps_an_informative_twin(seed):
+    """With ``model_kind="hgb"`` the held-out fit is a gradient-boosted tree: the redundant copy still goes, the bridge that removes noise from the estimate of ``d`` still stays."""
+    X, y = _chain(seed, informative_bridge=False)
+    kept = prune_conditional_twins(X, y, ["a", "b", "c"], {"a": 0.3, "b": 0.2, "c": 0.25}, model_kind="hgb")
+    assert "b" not in kept and {"a", "c"} <= set(kept)
+    X, y = _chain(seed, informative_bridge=True)
+    kept = prune_conditional_twins(X, y, ["a", "b", "c"], {"a": 0.3, "b": 0.2, "c": 0.25}, model_kind="hgb")
+    assert "b" in kept
