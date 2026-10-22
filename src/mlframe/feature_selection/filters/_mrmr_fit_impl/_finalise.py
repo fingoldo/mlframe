@@ -365,6 +365,8 @@ def _apply_min_features_fallback(self, _min_fb, cols, data, target_indices, nbin
             _topk = _rescue_empty_topk(self, _topk, n_engineered_out, _raw_mi, _rescue_allowed_idx, _name_to_cols_idx, _cached)
             if _topk:
                 _fallback_msg = _commit_fallback_support(self, _topk, _raw_mi, n_engineered_out, _min_fb)
+        except Warning:  # a warning promoted to an error by the caller's filter (simplefilter("error")) is theirs to receive, not a fallback failure
+            raise
         except Exception as _exc:
             logger.warning(
                 "MRMR fallback to top-K MI failed: %s. Returning empty support_.",
