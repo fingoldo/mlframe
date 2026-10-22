@@ -254,6 +254,13 @@ def run_selection_compaction(
                 name, rec, codes = made
                 pool.append(name)
                 columns[name], sources[name], engineered_recipes[name] = codes, spanned, rec
+        from ._compaction_fusions import synthesized_fusions
+
+        for name, rec, codes in synthesized_fusions(self, X, sel_eng, by_recipe, all_recipes, raw_set, cols, classes_y):
+            if name in columns or name in pool:
+                continue
+            pool.append(name)
+            columns[name], sources[name], engineered_recipes[name] = codes, _recipe_sources(name, {**all_recipes, name: rec}, raw_set), rec
         consumers: dict = {}
         for r in list(recipes) + [engineered_recipes[nm] for nm in pool]:
             for s in getattr(r, "src_names", ()) or ():

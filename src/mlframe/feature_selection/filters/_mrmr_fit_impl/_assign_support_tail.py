@@ -109,6 +109,10 @@ def _assign_support_tail(
     _compact_changed, selected_vars = run_selection_compaction(self, X, selected_vars, cols, data, classes_y, engineered_recipes or {}, verbose)
     if _compact_changed:
         self.n_features_ = len(selected_vars) + len(self._engineered_recipes_)
+        # The compaction can create a compound (the fusion of two selected halves) after every raw-redundancy and rescue verdict was given: the raw operands and the hinge legs admitted
+        # beside the fragments were judged against the fragments only. The rescue's backward elimination runs once more on the finished design.
+        if run_residual_rescue(self, X, selected_vars, cols, engineered_recipes or {}, _retention_added_eng_names, verbose):
+            self.n_features_ = len(selected_vars) + len(self._engineered_recipes_)
 
     # HIERARCHY: the main effect a joint-cell composite only modulates stays beside it, however fully the composite subsumes it.
     from ._main_effect_restore import run_main_effect_restore
