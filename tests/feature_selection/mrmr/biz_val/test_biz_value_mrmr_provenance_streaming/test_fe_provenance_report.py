@@ -20,6 +20,8 @@ LAYER 54 IMPROVEMENT (pure additive metadata)
    - ``mechanism_details``: dict-as-string with src_names + mech knobs.
    - ``mrmr_gain``: greedy gain at the moment this feature was added.
    - ``support_rank``: 0-based position in the greedy selection order.
+   - ``in_output``: whether the row reached the finished output (``None`` when the output names are not available).
+   - ``dropped_by``: for a row that did not, the last ``fe_rejection_ledger_`` gate that dropped it (empty when no gate recorded it).
 
 2. ``MRMR.get_fe_report()`` -- single human-readable string with a
    per-origin summary header + the full ``to_string()`` table.
@@ -199,6 +201,8 @@ _PROV_COLUMNS = (
     "mechanism_details",
     "mrmr_gain",
     "support_rank",
+    "in_output",
+    "dropped_by",
 )
 
 

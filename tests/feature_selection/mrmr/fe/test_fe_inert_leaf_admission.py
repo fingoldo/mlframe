@@ -84,3 +84,24 @@ def test_admitted_and_rejected_pair_records_are_routed_to_their_own_ledgers():
     frame = holder.fe_admission_ledger_
     assert list(frame["candidate"]) == ["mul(c,e)"] and float(frame["best_mi"].iloc[0]) == 0.097 and int(frame["step"].iloc[0]) == 2
     assert list(frame["operand_names"]) == ["(c, e)"]
+
+
+def test_provenance_marks_the_rows_that_reached_the_output_and_names_the_gate_that_dropped_the_others():
+    """``in_output`` is True for a column of the finished output; a produced column that is not carries the last ledger gate that dropped it."""
+    from mlframe.feature_selection.filters._mrmr_fe_provenance import _output_membership
+
+    class _Fitted:
+        """Estimator stand-in with an output of two columns and one rejection record."""
+
+        _fe_rejection_records_ = [{"gate": "operand_uplift_floor", "candidate": "x"}, {"gate": "inert_leaf", "candidate": "x"}]
+
+        @staticmethod
+        def get_feature_names_out():
+            """The finished output."""
+            return np.array(["c", "mul(c,d)"])
+
+    names, last_gate = _output_membership(_Fitted())
+    assert names == {"c", "mul(c,d)"}
+    assert last_gate == {"x": "inert_leaf"}
+    names_missing, gates_missing = _output_membership(SimpleNamespace())
+    assert names_missing is None and gates_missing == {}
