@@ -49,6 +49,9 @@ def load_model(config_path: str, checkpoint_path: str) -> torch.nn.Module:
     # weights_only=True restricts the unpickler to plain tensors/state-dicts, blocking code execution from a tampered checkpoint. torch < 1.13
     # lacks the kwarg and raises TypeError: refuse rather than fall back to an unrestricted unpickle.
     state_dict = torch.load(checkpoint_path, map_location=device, weights_only=True)  # nosec B614
+    # The published checkpoints spell the attention query projection with the letters "e" and "u" swapped (an upstream typo); the module attribute is ``query``.
+    typo_key = ".qe" + "ury."
+    state_dict = {k.replace(typo_key, ".query."): v for k, v in state_dict.items()}
     model.load_state_dict(state_dict)
     model.eval()
     return model

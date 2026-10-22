@@ -29,7 +29,7 @@ import pandas as pd
 import pytest
 
 from mlframe.feature_selection.filters import _fe_gpu_strict, _gpu_resident_fe
-from mlframe.feature_selection.filters._feature_engineering_pairs import _pairs_core, _pairs_core_helpers
+from mlframe.feature_selection.filters._feature_engineering_pairs import _pairs_core, _pairs_core_helpers, _pairs_core_parts
 
 
 def _open_pipeline_gates(monkeypatch) -> None:
@@ -161,7 +161,7 @@ def test_the_blocking_shutdown_runs_when_the_pair_loop_raises(monkeypatch):
         threading.Timer(0.2, release.set).start()
         raise MemoryError("simulated device OOM in the pair loop")
 
-    monkeypatch.setattr(_pairs_core, "_check_prospective__read_weakref_cache_no", _fake_setup)
+    monkeypatch.setattr(_pairs_core_parts, "_check_prospective__read_weakref_cache_no", _fake_setup)
     monkeypatch.setattr(_pairs_core, "_score_one_pair", _raising_scorer)
 
     with pytest.raises(MemoryError, match="simulated device OOM"):

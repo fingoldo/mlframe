@@ -94,8 +94,11 @@ def _pack_module(cp: Any, cap: int, n_y: int, c_type: str) -> Any:
     return mod
 
 
-def bits_gate_mi(d_disc: Any, nbins_arr: np.ndarray, d_y_all: Any, n_y: int) -> Optional[np.ndarray]:
+def bits_gate_mi(d_disc: Any, nbins_arr: np.ndarray, d_y_all: Any, n_y: int, gate: "Optional[tuple]" = None) -> Optional[np.ndarray]:
     """``(P, K)`` plug-in MI (host double precision) of every column of the resident ``(n, K)`` codes against every row of the resident ``(P, n)`` target matrix, or ``None`` when the bit-set kernel does not apply.
+
+    ``gate=(min_nonzero_confidence,)`` applies the noise-gate rejection rule on the device and returns the ``(K,)`` gated MI vector instead of the matrix: a column whose MI is positive and that at least
+    ``max(1, int(P_perm * (1 - confidence)))`` shuffled targets reach is zeroed, exactly the rule ``_gate_from_mi`` applies on the host. Only K numbers cross the bus, not ``P * K``.
 
     It declines a code type it has no packing kernel for, more bins than ``MAX_BINS``, class bit sets that do not fit a block's shared memory, and any device failure (the caller then runs the histogram gate).
     """
@@ -149,6 +152,15 @@ def bits_gate_mi(d_disc: Any, nbins_arr: np.ndarray, d_y_all: Any, n_y: int) -> 
             )
             out[:, lo:hi] = part
             del bits, px, part
+        if gate is not None:
+            original = out[0]
+            n_shuffled = int(out.shape[0]) - 1
+            if n_shuffled > 0:
+                max_failed = max(1, int(n_shuffled * (1.0 - float(gate[0]))))
+                failed = ((out[1:] >= original[None, :]) & (original[None, :] > 0)).sum(axis=0)
+                original = cp.where((original > 0) & (failed >= max_failed), 0.0, original)
+            gated: np.ndarray = cp.asnumpy(original).astype(np.float64, copy=False)  # Intentional float64: MI output contract of the kernel is double precision
+            return gated
         host: np.ndarray = cp.asnumpy(out).astype(np.float64, copy=False)  # Intentional float64: MI output contract of the kernel is double precision
         return host
     except Exception as exc:  # nosec B110 - any device or compile failure falls back to the histogram gate

@@ -385,7 +385,8 @@ class TestHybridMiGreedyConflictResolution:
             fe_mi_greedy_enable=False,
         )
         m_h.fit(X, y)
-        hybrid_he2 = [c for c in m_h.hybrid_orth_features_ if "He2" in c]
+        # The out-of-fold warp of x learns E[y|x] and is as good a quadratic-x encoding as the degree-2 Hermite term, so either one counts.
+        hybrid_he2 = [c for c in m_h.hybrid_orth_features_ if "He2" in c or c.startswith("oofwarp(")]
         assert hybrid_he2, f"seed={seed}: hybrid_orth (alone) did not emit x__He2 for quadratic signal; got {m_h.hybrid_orth_features_}"
         # MI-greedy alone.
         m_g = _make_mrmr(

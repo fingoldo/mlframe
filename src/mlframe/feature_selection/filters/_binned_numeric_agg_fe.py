@@ -409,8 +409,10 @@ def fit_binned_numeric_agg(
             # Full-data moments, needed anyway for the ``full``/``lut`` recipe lookup below.
             # Finite rows gathered once per (gcol, acol): every fold's train subset is a boolean mask over these
             # compact arrays, not a fresh fancy-index gather from the full-n columns.
-            codes_fin = codes[finite]
-            av_fin = av[finite]
+            # Converted to the moment kernels' dtypes once per pair: every fold's train subset is sliced from these, so the six ``_per_cell_moments_stable`` calls of the pair
+            # (full data + five folds) no longer each re-convert their inputs. Same values, so the moments are unchanged.
+            codes_fin = np.ascontiguousarray(codes[finite], dtype=np.int64)
+            av_fin = np.ascontiguousarray(av[finite], dtype=np.float64)  # Intentional float64: moment-kernel input (centred moments) kept f64
             full_cnt, full_mean, full_cm2, full_cm3, full_cm4 = _per_cell_moments_stable(codes_fin, av_fin, n_cells)
             if not recipe_only:
                 # RECIPE_ONLY (device-born binagg) skips the 5-fold OOF feat-column build - the

@@ -85,10 +85,22 @@ def test_panel_needs_the_bound_not_the_rate():
     assert panel([{"ok": True, "n_forbidden": 0}] * 59, power_gate=0.9, fp_gate=0.05)["verdict"] == "PASS"
 
 
-def test_null_verdict_fails_on_any_selected_column():
-    """A pure-noise fit passes only when nothing is selected."""
+def test_null_verdict_accepts_nothing_or_the_flagged_fallback_column_only():
+    """A pure-noise fit passes with an empty selection, or with the one fallback column the selector flags; any other selection is a false positive."""
     assert null_verdict(_Stub([]))["ok"]
     assert not null_verdict(_Stub(["noise_3"]))["ok"]
+    flagged = _Stub(["noise_3"])
+    flagged.no_significant_features_ = True
+    assert null_verdict(flagged)["ok"]
+    two = _Stub(["noise_3", "noise_4"])
+    two.no_significant_features_ = True
+    assert not null_verdict(two)["ok"]
+
+
+def test_a_basis_suffix_after_a_double_underscore_does_not_hide_the_source_column():
+    """``x1*x2*x3__T1_T1_T1`` covers x1, x2 and x3; ``noise_29`` keeps its single underscore."""
+    assert cover_verdict(_Stub(["x1*x2*x3__T1_T1_T1"]), [["x1", "x2", "x3"]], max_cols=1)["ok"]
+    assert not cover_verdict(_Stub(["noise_29"]), [["x1"]])["ok"]
 
 
 def test_cover_verdict_accepts_the_composite_and_rejects_noise_or_missing_operands():

@@ -132,6 +132,15 @@ def fe_to_pandas(X: Any) -> Any:
     return X
 
 
+def fe_drop_columns(X: Any, names: Iterable[str]) -> Any:
+    """``X`` without the columns ``names`` (those present), for a pandas or a polars frame; ``X`` itself when there is nothing to drop."""
+    present = set(fe_columns(X))
+    drop = [c for c in names if c in present]
+    if not drop:
+        return X
+    return X.drop(columns=drop) if is_pandas(X) else X.drop(drop)
+
+
 def fe_append_columns(X: Any, cols: dict[str, np.ndarray]) -> Any:
     """Append engineered numpy columns ``{name: 1d-array}`` to ``X`` in ITS OWN framework (no whole-frame conversion).
 

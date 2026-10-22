@@ -222,6 +222,32 @@ def _assign_support_tai_f_step1_identical_seed_iloc(self, X, verbose, _retention
         logger.debug("MRMR usability-aware pure-form retention skipped (%s: %s).", type(_retain_exc).__name__, _retain_exc)
 
 
+def _degenerate_class_root(self, name) -> str:
+    """The earliest member of ``name``'s duplicate / collinear class according to the degenerate-column audit (``name`` itself when it is not flagged)."""
+    reason = str((getattr(self, "degenerate_columns_", None) or {}).get(str(name), ""))
+    for prefix in ("duplicate_of:", "collinear_with:"):
+        if reason.startswith(prefix):
+            return reason[len(prefix) :]
+    return str(name)
+
+
+def _degenerate_class_roots(self, names) -> set:
+    """The class roots of ``names`` (see :func:`_degenerate_class_root`)."""
+    return {_degenerate_class_root(self, n) for n in names}
+
+
+def _assign_support_tai_exclude_degenerate_twins(self, selected_vars, cols, raw_extra) -> None:
+    """Remove from ``raw_extra`` (in place) every raw that belongs to the same duplicate / collinear class as a raw already selected.
+
+    The degenerate-column audit labels a column ``duplicate_of:X`` or ``collinear_with:X`` against the earliest member ``X`` of its class. A raw whose class is represented in the selection is a copy
+    of information the selection holds, however the screen picked the representative: re-attaching the earliest member beside a selected later copy (or the reverse) selects both.
+    """
+    if not (getattr(self, "degenerate_columns_", None) or {}) or not isinstance(raw_extra, list):
+        return
+    selected_roots = _degenerate_class_roots(self, [cols[i] for i in selected_vars if 0 <= int(i) < len(cols)])
+    raw_extra[:] = [n for n in raw_extra if _degenerate_class_root(self, n) not in selected_roots]
+
+
 def _assign_support_tai_f_step2_re_attaches_only(self, X, verbose, _retention_prep_cache, selected_vars, cols, classes_y, _eng_continuous_snapshot, data, _allowed_raw_idx):
     """Step 2 of _assign_support_tai_fe_max_steps: lines starting at ``try:``."""
     try:
@@ -255,6 +281,7 @@ def _assign_support_tai_f_step2_re_attaches_only(self, X, verbose, _retention_pr
             _rr_excl_names = set(str(_n) for _n in (getattr(self, "_cluster_aggregate_removals_", None) or []))
             _cm_rr = getattr(self, "cluster_members_", None)
             _assign_support_tai_representative_exclude_every_cluster(self, _cm_rr, selected_vars, _raw_extra, _rr_excl_names)
+            _assign_support_tai_exclude_degenerate_twins(self, selected_vars, cols, _raw_extra)
             # SUBSUMED-OPERAND EXCLUSION (signal-aware, variant-3). A raw that is an operand of a
             # SURVIVING engineered feature MAY be fully represented by that feature (re-attaching it then
             # re-injects the raw-redundancy I4b forbids) - but it may instead carry a large PRIVATE signal
@@ -691,8 +718,10 @@ def _assign_support_tai_engineered_features_without_replayable(self, selected_va
                 # raw column the caller excluded re-entered support_ whenever its name appeared as a source
                 # token of a confirmed recipe and its marginal MI cleared the floor -- and the fit is cached
                 # and replayed, so the leak persisted.
+                _selected_degenerate_roots = _degenerate_class_roots(self, [cols[int(v)] for v in selected_vars if 0 <= int(v) < len(cols)])
                 _to_add = [i for i, _name, m in sorted(_raw_mi_aug, key=lambda kv: (-kv[2], kv[0]))
                            if m > _floor_aug and i not in _selected_set and _name in _eng_tokens
+                           and _degenerate_class_root(self, _name) not in _selected_degenerate_roots
                            and _name not in _aug_excluded_names
                            and _name not in _redund_dropped_names
                            and (_allowed_raw_idx is None or int(i) in _allowed_raw_idx)

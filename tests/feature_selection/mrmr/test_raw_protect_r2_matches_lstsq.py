@@ -54,3 +54,23 @@ def test_an_exact_copy_of_a_base_column_falls_back_to_the_minimum_norm_fit():
     mask = rng.random(n) < 0.7
     got = heldout_r2_scorer(base, y, mask, ~mask)(base[:, 1].copy())
     assert abs(got - _reference(base, base[:, 1], y, mask, ~mask)) < 1e-9
+
+
+def test_paired_gain_equals_the_r2_increment_and_separates_signal_from_noise():
+    """The paired gain is the held-out R^2 increment; its standard error makes a real column many errors above zero and a noise column about one."""
+    rng = np.random.default_rng(3)
+    n = 3_000
+    base = rng.normal(size=(n, 2))
+    signal = rng.normal(size=n)
+    noise = rng.normal(size=n)
+    y = base @ np.array([1.0, -0.5]) + 0.6 * signal + rng.normal(size=n)
+    mask = rng.random(n) < 0.67
+    scorer = heldout_r2_scorer(base, y, mask, ~mask)
+    for col in (signal, noise):
+        gain, se = scorer.paired_gain(col)  # type: ignore[attr-defined]
+        assert gain == pytest.approx(scorer(col) - scorer(None), abs=1e-12)
+        assert se > 0.0
+    gain_s, se_s = scorer.paired_gain(signal)  # type: ignore[attr-defined]
+    gain_n, se_n = scorer.paired_gain(noise)  # type: ignore[attr-defined]
+    assert gain_s / se_s > 5.0
+    assert abs(gain_n / se_n) < 3.0

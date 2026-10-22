@@ -47,7 +47,7 @@ from .evaluation import (
     _prefill_cond_MIs_gpu,
 )
 from .gpu import mi_direct_gpu
-from .permutation import mi_direct
+from .permutation import _perm_pvalue, mi_direct
 from ._honest_mdlp_null import honest_candidate_nfailed
 
 logger = logging.getLogger(__name__)
@@ -308,9 +308,12 @@ def confirm_candidate(ctx: ScreenContext, X: tuple, next_best_gain: float) -> tu
                 )
                 if _honest is not None:
                     _nfailed_honest, _ = _honest
-                    confidence = 1.0 - (1.0 + _nfailed_honest) / (int(full_npermutations) + 1.0)
-                    if confidence < min_nonzero_confidence:
+                    # Same rejection rule as ``mi_direct``: reject once the exceedances reach max_failed = max(1, int(budget * (1 - min_nonzero_confidence))). Comparing the add-one
+                    # confidence with min_nonzero_confidence instead rejects every candidate whenever the budget is below 1 / (1 - min_nonzero_confidence) shuffles.
+                    _max_failed_honest = max(1, int(int(full_npermutations) * (1.0 - float(min_nonzero_confidence))))
+                    if _nfailed_honest >= _max_failed_honest:
                         bootstrapped_gain = 0.0
+                        confidence = min(confidence, 1.0 - _perm_pvalue(_nfailed_honest, int(full_npermutations)))
             cached_confident_MIs[X] = bootstrapped_gain, confidence
     else:
         if X in cached_confident_MIs:
