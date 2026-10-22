@@ -11,7 +11,7 @@ neural/base/_cuda_fallback.py (1), training/neural/_flat_torch_module/__init__.p
 training/neural/_flat_torch_module/_flat_torch_loss.py (1), training/neural/_flat_torch_module/
 _flat_torch_predict_accel.py (1) -- all genuinely non-fatal graceful-degradation sites marked
 with the scanner's recognized "best-effort" rationale comment. This closes the non-MRMR
-log_only_except backlog to 0 (confirmed via a live pyutilz.dev.code_audit.silent_escalation
+log_only_except backlog to 0 (confirmed via a live py_ci_shared.code_audit.silent_escalation
 re-scan, not just baseline-count arithmetic).
 """
 
@@ -243,7 +243,7 @@ def test_non_mrmr_log_only_except_backlog_is_zero():
     """A live scanner re-scan confirms the non-MRMR log_only_except backlog is fully closed."""
     from pathlib import Path
 
-    from pyutilz.dev.code_audit import silent_escalation
+    from py_ci_shared.code_audit import silent_escalation
 
     findings = silent_escalation.scan_log_only_except(Path("src/mlframe"))
 

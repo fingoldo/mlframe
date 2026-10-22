@@ -22,7 +22,8 @@ import math
 import numpy as np
 from numba import njit, prange
 
-from ._mdlp_honest_bycol_njit import _codes_at_rows, _cuts_tie_free
+from ._mdlp_honest_bycol_njit import _cuts_tie_free
+from ._numba_utils import _codes_at_rows
 from ._mdlp_honest_njit import _analytic_p_value, _mdlp_cuts_presorted, _mi_codes, _n_unique_codes, _supervised_edges
 
 logger = logging.getLogger(__name__)
