@@ -57,6 +57,7 @@ SUPPORTED_FAMILIES: Tuple[str, ...] = (
     "zipf",
     "zero_inflated_normal",
     "categorical",
+    "id",
 )
 
 
@@ -115,6 +116,9 @@ def draw_family(family: str, params: Dict[str, float], size: int, rng: np.random
         zeros = rng.random(size) < _param(params, "inflation", 0.3)
         values[zeros] = 0.0
         return values
+    if family == "id":
+        # A permutation of 0..size-1: every row a distinct value, which no categorical draw with replacement can produce.
+        return rng.permutation(size).astype(np.float64)
     if family == "categorical":
         n_levels = int(_param(params, "n_levels", 3.0))
         return rng.integers(0, max(n_levels, 1), size).astype(np.float64)
