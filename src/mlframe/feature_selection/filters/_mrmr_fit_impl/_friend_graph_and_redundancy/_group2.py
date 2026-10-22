@@ -501,6 +501,13 @@ def _composite_subsumption_readd_pass(self, X, selected_vars, _y_np, data, cols,
                 # Judge candidates strongest-first, ties by name: each accepted copy joins the base before the next one is judged,
                 # so the outcome must not depend on where a column sits in the frame.
                 _rp_names.sort(key=lambda rn: (-float(cached_MIs.get((_cols_index_r.get(rn, -1),), 0.0)) if isinstance(cached_MIs, dict) else 0.0, str(rn)))
+                from scipy.stats import norm as _rp_norm
+
+                _rp_n_cand = sum(
+                    1 for _rn in _rp_names if _cols_index_r.get(_rn) is not None and _cols_index_r[_rn] not in _sv_set_r and isinstance(cached_MIs, dict)
+                    and float(cached_MIs.get((_cols_index_r[_rn],), 0.0)) > _rp_floor
+                )
+                _rp_z = float(_rp_norm.isf(0.05 / max(1, _rp_n_cand)))
                 for _rn in _rp_names:
                     _ridx = _cols_index_r.get(_rn)
                     if _ridx is None or _ridx in _sv_set_r or _rn not in X.columns:
@@ -515,6 +522,11 @@ def _composite_subsumption_readd_pass(self, X, selected_vars, _y_np, data, cols,
                     if _rv.shape[0] != _rp_n or not np.all(np.isfinite(_rv)):
                         continue
                     if _rp_r2(_rv) - _rp_r2_base < _RAW_PROTECT_MIN_INCR_R2:
+                        continue
+                    # The increment is one split's point estimate: require it to exceed its own sampling error (paired per-row squared-error reduction, one-sided,
+                    # corrected for the number of candidates judged), so a noise column that happens to clear the effect-size floor on this split is not resurrected.
+                    _rp_gain, _rp_se = _rp_r2.paired_gain(_rv)  # type: ignore[attr-defined]
+                    if _rp_se > 0.0 and _rp_gain / _rp_se < _rp_z:
                         continue
                     _readd_raw.append(_ridx)
                     _sv_set_r.add(_ridx)
