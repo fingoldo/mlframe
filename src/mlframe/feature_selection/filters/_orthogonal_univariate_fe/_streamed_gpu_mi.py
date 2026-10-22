@@ -15,6 +15,7 @@ Safety margins (measured, pinned against pageable on this host: 5.8 vs 3.8 GB/s 
 from __future__ import annotations
 
 import logging
+import time
 from typing import Any, Iterable, Optional
 
 import numpy as np
@@ -58,14 +59,25 @@ def _devices(max_devices: Optional[int] = None) -> list[tuple[int, int]]:
         return []
 
 
+_HOST_FREE_TTL_SECONDS = 1.0  # the probe costs ~2 ms on a memory-starved Windows host and runs once per MI path choice; free RAM does not move that fast
+_host_free_cache: "tuple[float, int]" = (float("-inf"), 0)
+
+
 def _host_free_bytes() -> int:
-    """Bytes of host RAM available now (2 GiB when psutil is missing, the conservative default)."""
+    """Bytes of host RAM available now, read at most once per ``_HOST_FREE_TTL_SECONDS`` (2 GiB when psutil is missing, the conservative default)."""
+    global _host_free_cache
+    now = time.monotonic()
+    stamp, cached = _host_free_cache
+    if now - stamp < _HOST_FREE_TTL_SECONDS:
+        return cached
     try:
         import psutil
-        return int(psutil.virtual_memory().available)
+        value = int(psutil.virtual_memory().available)
     except Exception as _exc:
         logger.debug("free-memory probe failed, assuming 2 GiB: %s", _exc)
-        return 2 * 1024**3
+        value = 2 * 1024**3
+    _host_free_cache = (now, value)
+    return value
 
 
 def plan_streamed_mi(n_rows: int, devices: list[tuple[int, int]], host_free: int, dtype: Any) -> dict:
