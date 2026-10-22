@@ -101,6 +101,11 @@ def _njit_null_columns(spec: dict, factors_data: np.ndarray, factors_nbins, y_id
     raw_cont = np.empty((n, max(1, len(cont_cols))), dtype=raw_dtype)
     for s_, c in enumerate(cont_cols):
         raw_cont[:, s_] = spec["raw"][:, c]
+    # Rows that were NaN before the median fill: they keep the column's NaN code instead of their filled value's bin.
+    nan_cont = np.zeros((n, max(1, len(cont_cols))), dtype=np.bool_)
+    if spec.get("nan_mask") is not None:
+        for s_, c in enumerate(cont_cols):
+            nan_cont[:, s_] = spec["nan_mask"][:, c]
     code_dtype = np.min_scalar_type(int(fixed_nb.max(initial=1)))
     fixed = np.zeros((n, max(1, len(fixed_cols))), dtype=code_dtype)
     for s_, c in enumerate(fixed_cols):
@@ -162,13 +167,14 @@ def _njit_null_columns(spec: dict, factors_data: np.ndarray, factors_nbins, y_id
             ev,
             col_slot,
         )
-        if _device_honest_null_enabled():
+        # The device kernel has no NaN-row handling, so a spec with NaN columns runs the host kernel.
+        if not spec.get("has_nan", False) and _device_honest_null_enabled():
             from ._honest_null_device import honest_null_columns_device
 
             on_device = honest_null_columns_device(*args)
             if on_device is not None:
                 return on_device
-        return honest_null_columns_bycol(*args)
+        return honest_null_columns_bycol(*args, nan_cont)
     perms = np.stack([rng.permutation(n) for _ in range(int(n_permutations))]).astype(np.int64)
     if spec.get("method") == "oos":
         return honest_validated_null_columns(
