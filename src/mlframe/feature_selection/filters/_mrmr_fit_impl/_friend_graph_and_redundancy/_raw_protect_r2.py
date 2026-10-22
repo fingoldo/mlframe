@@ -49,7 +49,8 @@ def heldout_r2_scorer(base_mat: np.ndarray | Sequence[np.ndarray], y: np.ndarray
     def _lstsq_pred(a_tr: np.ndarray, a_va: np.ndarray) -> np.ndarray:
         """Validation predictions of the rank-revealing least-squares solution."""
         coef = np.linalg.lstsq(a_tr, y_tr, rcond=None)[0]
-        return a_va @ coef
+        pred: np.ndarray = a_va @ coef
+        return pred
 
     Q: Any = None
     R: Any = None
