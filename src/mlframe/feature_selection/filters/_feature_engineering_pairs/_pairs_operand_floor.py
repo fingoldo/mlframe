@@ -3,9 +3,30 @@
 from __future__ import annotations
 
 import numpy as np
-from sklearn.metrics import mutual_info_score
+from numba import njit
 
 __all__ = ["_beats_the_larger_operand", "operand_uplift_null_bar"]
+
+
+@njit(cache=True)
+def _plugin_mi(codes_x: np.ndarray, codes_y: np.ndarray, n_x: int, n_y: int) -> float:
+    """Plug-in mutual information (nats) of two integer code vectors, the value ``sklearn.metrics.mutual_info_score`` gives, in one pass over the rows."""
+    n = codes_x.shape[0]
+    joint = np.zeros((n_x, n_y), dtype=np.int64)
+    for i in range(n):
+        joint[codes_x[i], codes_y[i]] += 1
+    px = joint.sum(axis=1)
+    py = joint.sum(axis=0)
+    total = float(n)
+    mi = 0.0
+    for a in range(n_x):
+        if px[a] == 0:
+            continue
+        for b in range(n_y):
+            c = joint[a, b]
+            if c > 0:
+                mi += (c / total) * np.log(c * total / (float(px[a]) * float(py[b])))
+    return mi
 
 
 def operand_uplift_null_bar(codes_a: np.ndarray | None, codes_b: np.ndarray | None, codes_y: np.ndarray, floor: float, n_perm: int = 20, quantile: float = 0.95, seed: int = 0) -> float:
@@ -20,11 +41,14 @@ def operand_uplift_null_bar(codes_a: np.ndarray | None, codes_b: np.ndarray | No
     codes_a = np.asarray(codes_a, dtype=np.int64)
     codes_b = np.asarray(codes_b, dtype=np.int64)
     n_b = int(codes_b.max()) + 1 if codes_b.size else 1
+    n_joint = (int(codes_a.max()) + 1) * n_b if codes_a.size else 1
+    y_codes = np.unique(np.asarray(codes_y), return_inverse=True)[1].astype(np.int64).ravel()
+    n_y = int(y_codes.max()) + 1 if y_codes.size else 1
     rng = np.random.default_rng(seed)
     null = np.empty(n_perm, dtype=np.float64)  # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
     for i in range(n_perm):
         joint = codes_a * n_b + codes_b[rng.permutation(codes_b.shape[0])]
-        null[i] = mutual_info_score(joint, codes_y) / floor
+        null[i] = _plugin_mi(joint, y_codes, n_joint, n_y) / floor
     return max(1.0, float(np.quantile(null, quantile)))
 
 
