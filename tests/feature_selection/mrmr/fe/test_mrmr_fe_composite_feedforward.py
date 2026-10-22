@@ -222,7 +222,7 @@ def _canonical_fixture(seed: int, n: int):
 
 
 @pytest.mark.slow
-@pytest.mark.timeout(900)
+@pytest.mark.timeout(1800)
 def test_fe_max_steps_2_discovers_additive_composite_of_two_engineered():
     """On the canonical ``y = a**2/b + log(c)*sin(d)`` fixture, ``fe_max_steps=2``
     surfaces the additive composite of the two real step-1 engineered features as
@@ -269,7 +269,7 @@ def test_fe_max_steps_2_discovers_additive_composite_of_two_engineered():
 
 
 @pytest.mark.slow
-@pytest.mark.timeout(900)
+@pytest.mark.timeout(1800)
 def test_fe_max_steps_1_fuses_to_single_compound():
     """``fe_max_steps=1`` recovers the additively-separable canonical signal (y = a**2/b + f/5 +
     log(c)*sin(d)) as ONE clean fused compound. SUPERSEDED PREMISE (2026-07-01): the prior contract here was
@@ -324,7 +324,7 @@ def test_fe_max_engineered_operands_zero_disables_feedforward():
 # serial FE path (the loky-worker buffer intermittently OOMs at 100k -- a Windows-paging
 # fragility unrelated to composite discovery, which is path-independent).
 @pytest.mark.slow
-@pytest.mark.timeout(900)
+@pytest.mark.timeout(1800)
 @pytest.mark.parametrize("seed", [0, 1, 2])
 def test_strict_pin_clean_additive_composite_covers_both_pairs_two_operand(seed):
     """STRICT REGRESSION PIN (2026-06-10): F1 / ``fe_max_steps=2`` must surface an

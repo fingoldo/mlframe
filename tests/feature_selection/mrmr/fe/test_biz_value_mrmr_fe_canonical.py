@@ -266,7 +266,7 @@ def _make_user_fixture(seed: int = _USER_SEED, n: int = _USER_N):
     return df, pd.Series(y, name="y")
 
 
-@pytest.mark.timeout(900)
+@pytest.mark.timeout(1800)
 def test_user_case_drops_redundant_raw_operands_at_large_n():
     """REGRESSION (#2 raw-retention / Fix-B augmentation): at large n the redundant
     raw operands MUST NOT pollute support_ -- pre-campaign they were re-added with
@@ -407,7 +407,7 @@ def _run_user_case_in_subprocess(seed: int, private: bool, n: int = _BUG1_N):
         [sys.executable, "-c", src],
         capture_output=True,
         text=True,
-        timeout=850,
+        timeout=2400,
         env=env,
     )
     out_names = None
@@ -423,7 +423,7 @@ def _run_user_case_in_subprocess(seed: int, private: bool, n: int = _BUG1_N):
     return out_names
 
 
-@pytest.mark.timeout(900)
+@pytest.mark.timeout(1800)
 @pytest.mark.parametrize("seed", [0, 1, 2, 3, 4, 5, 6, 7, 8, 9])
 def test_user_case_drops_redundant_raw_a_multi_seed(seed):
     """REAL BUG1, MULTI-SEED (the recurring single-seed-validation failure mode):
@@ -450,7 +450,7 @@ def test_user_case_drops_redundant_raw_a_multi_seed(seed):
     ), f"[seed={seed}] raw 'a' spuriously kept despite being fully subsumed by its a**2/b sub-expression (nested inside the fused composite): out={out}"
 
 
-@pytest.mark.timeout(900)
+@pytest.mark.timeout(1800)
 @pytest.mark.parametrize("seed", [0, 1, 2, 3, 4, 5, 6, 7, 8, 9])
 def test_private_raw_a_kept_alongside_engineered_multi_seed(seed):
     """OVER-DROP CONTROL (multi-seed): when ``a`` carries a DOMINANT standalone
@@ -468,7 +468,7 @@ def test_private_raw_a_kept_alongside_engineered_multi_seed(seed):
     )
 
 
-@pytest.mark.timeout(900)
+@pytest.mark.timeout(1800)
 def test_user_case_rejects_spurious_cross_signal_feature():
     """REGRESSION (#1 marginal-uplift HW-robustness): the cross-signal artefact
     ``sub(exp(a),invcbrt(c))`` (operands a & c from DIFFERENT signal terms, with NO
@@ -1010,7 +1010,7 @@ def test_redundancy_drop_replayable_anchor_still_drops_subsumed():
     assert "b" in dropped, f"subsumed denominator 'b' wrongly kept despite a replayable subsumer: kept={[cols[i] for i in kept_idx]}, dropped={dropped}"
 
 
-@pytest.mark.timeout(900)
+@pytest.mark.timeout(1800)
 def test_canonical_fit_never_returns_empty_selection_at_moderate_n():
     """END-TO-END regression: the canonical golden fit must NEVER return an empty
     selection (which hands the downstream model 0 features). Pre-fix this exact

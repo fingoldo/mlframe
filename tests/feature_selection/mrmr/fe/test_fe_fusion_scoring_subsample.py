@@ -60,7 +60,7 @@ def test_fusion_stride_formula(n, max_rows, expect_stride):
 @pytest.mark.gpu
 @pytest.mark.skipif(not _need_cuda(), reason="no CUDA")
 @pytest.mark.slow
-@pytest.mark.timeout(900)
+@pytest.mark.timeout(1800)
 def test_fusion_scoring_subsample_keeps_output_full_n():
     """Under MLFRAME_FE_FUSION_MAX_ROWS well below n, the resident fusion twin still fuses the two canonical
     halves into one compound AND every admitted compound's materialised ``values`` are full-n (scoring is

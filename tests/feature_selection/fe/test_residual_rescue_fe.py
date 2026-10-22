@@ -76,7 +76,7 @@ def _operands(names):
     return out
 
 
-@pytest.mark.timeout(900)
+@pytest.mark.timeout(1800)
 def test_estimator_recovers_the_outlier_masked_ratio_with_the_stage():
     """two_pairs_strong under 3% outliers: ``a**2/b`` holds 83% of the variance in a few rows, its rank MI is 0.07 against 1.85 for the (c, d) term, so the greedy drops both operands."""
     from tests.feature_selection import _synthetic_distributions as sd

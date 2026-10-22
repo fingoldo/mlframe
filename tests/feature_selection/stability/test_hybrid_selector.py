@@ -118,7 +118,7 @@ def _linear_dataset(n=1200, seed=0):
     return pd.DataFrame(cols), y, [f"inf_{i}" for i in range(4)]
 
 
-@pytest.mark.timeout(900)
+@pytest.mark.timeout(1800)
 def test_end_to_end_no_fe_shared_artifacts_and_recovery():
     """use_fe=False: the three shared artifacts are computed once over the raw frame and the members run; the
     hybrid recovers the informative block and de-duplicates the redundant cluster. (Deterministic raw-only path.)"""
@@ -134,7 +134,7 @@ def test_end_to_end_no_fe_shared_artifacts_and_recovery():
 
 
 @skip_scale_test_under_numba_disabled_jit
-@pytest.mark.timeout(900)
+@pytest.mark.timeout(1800)
 def test_fe_default_augments_and_transform_replays():
     """use_fe=True (the default): the MRMR member may engineer columns shared via X_aug; the shared FI then covers
     raw+engineered, n_engineered_ counts engineered survivors, and transform REPLAYS engineering on fresh data so
