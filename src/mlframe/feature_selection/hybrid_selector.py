@@ -178,7 +178,7 @@ class HybridSelector:
                  mrmr_synergy_cap: int = 250,
                  hybrid_corr_max_features: int = 2000,
                  random_state: int = 42, classification: "Optional[bool]" = None, name: str = "hybrid",
-                 keep_augmented_data: bool = True, twin_corr: "Optional[float]" = 0.8):
+                 keep_augmented_data: bool = True, twin_corr: "Optional[float]" = None):
         # cooccur_weight (default "gain" - MEASURED win on interaction beds): how the tree member ranks candidate
         # co-occurrence PAIRS proposed from GBM split co-occurrence. "count" weights a pair by raw frequency (how many
         # trees split on both a and b); "gain" weights it by the summed split GAIN the two features contribute within
@@ -215,8 +215,10 @@ class HybridSelector:
         # own singleton cluster and never be voted/selected anyway, so dropping them before clustering is selection-
         # neutral on the kept set. Set very high (or None) to cluster the full augmented frame (legacy behaviour).
         self.hybrid_corr_max_features = hybrid_corr_max_features
-        # twin_corr (default 0.8): the conditional-redundancy pass after the vote. A kept column whose |corr| with another kept column reaches this value is dropped when it adds nothing to a held-out
-        # fit given the rest (see ``_hybrid_twin_prune``); it catches the noisy copy that sits just below ``corr_thr`` and so is never clustered with the column it copies. ``None`` turns the pass off.
+        # twin_corr (default None, off): the conditional-redundancy pass after the vote. A kept column whose |corr| with another kept column reaches this value is dropped when it adds nothing to a held-out
+        # fit given the rest (see ``_hybrid_twin_prune``); it catches the noisy copy that sits just below ``corr_thr`` and so is never clustered with the column it copies. Off by default because it costs recall:
+        # on the synthetic bench (3 seeds, 6 to 8 true base features kept by the vote) 0.8 keeps 4, 5, 5 of them and the tree-model variant 5, 5, 4, with held-out AUC unchanged, so it removes informative
+        # columns whose information a correlated partner carries. Set 0.8 to opt in.
         self.twin_corr = twin_corr
         self.vote = vote
         self.prescreen = prescreen
