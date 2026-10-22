@@ -252,6 +252,13 @@ def generate(spec: DatasetSpec, target_name: Optional[str] = None) -> GeneratedD
     requested, achieved = calibration["requested"], calibration["achieved_auc"]
     if requested is not None and achieved is not None and abs(float(achieved) - float(requested)) > 0.01:
         caveats.append(f"requested ceiling AUC {float(requested):.3f} was not reachable; achieved {float(achieved):.3f}")
+    # A latent that drives the target and that no column reflects is part of the Bayes probability but not of anything an
+    # arm can observe, so the reported Bayes AUC overstates what the columns can reach. Say so where the number is read.
+    link_names = set(target.link.coefficients) | {name for term in target.link.basis_terms for name in term.columns} | {n for group in target.link.interactions for n in group}
+    unobserved = sorted(latent.name for latent in spec.latents if not latent.reflections and latent.name in link_names)
+    if unobserved:
+        caveats.append(f"the Bayes AUC counts the unobserved latent factor(s) {unobserved}, which no column carries; the AUC the columns can reach is lower")
+        calibration["bayes_auc_counts_unobserved"] = unobserved
     # Rebuilt rather than mutated: both records are frozen, and reaching past that with object.__setattr__
     # would work today and break the moment either grows a cached derived field.
     truth = replace(

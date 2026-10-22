@@ -26,7 +26,7 @@ from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 
-from mlframe.data.datasets._columns import standardize
+from mlframe.data.datasets._columns import draw_family, standardize
 from mlframe.data.datasets._rng import stream_for
 from mlframe.data.datasets.ground_truth import RedundancyGroup
 from mlframe.data.datasets.spec import LatentSpec, resolve_knob
@@ -108,7 +108,11 @@ def realize_latent(
     distinct_sd = resolve_knob(latent.distinct_sd, resolver)
     noise_sd = resolve_knob(latent.noise_sd, resolver)
 
-    values = rng.normal(0.0, 1.0, n) if latent.family == "normal" else rng.standard_t(4.0, n)
+    if latent.family in ("ar1", "random_walk"):
+        # A serially dependent factor, for a target that is a time series of its own; the columns never see it.
+        values = draw_family(latent.family, {}, n, rng)
+    else:
+        values = rng.normal(0.0, 1.0, n) if latent.family == "normal" else rng.standard_t(4.0, n)
     # Explicit emptiness rather than `or`: the spec validator already refuses a partially specified
     # loading vector, so an empty tuple means "unspecified" and any other length is exactly the
     # reflection count. A truthiness fallback would read the same today and silently swallow a

@@ -369,12 +369,15 @@
     },
     "pillar_conjunction": {
       "expected_to_break": [
-        "lars-order"
+        "skb-f",
+        "skb-mi",
+        "univariate-mi",
+        "select-fdr"
       ],
       "family": "pillar",
       "primary_target_set": "markov_blanket",
-      "purpose": "conjunction A B C among one hundred noise columns; the proxy decoys of the original test are NOT in this bed",
-      "spec_hash": "5a80e3abbd9a4c8592952913ed7e656f"
+      "purpose": "conjunction A B C with fifty correlated proxies per operand, among one hundred probes: the proxies of A fill the budget before B and C",
+      "spec_hash": "739079b6d17a371731ec6e41cfa9fa54"
     },
     "pillar_f2_compound": {
       "expected_to_break": [
@@ -389,6 +392,18 @@
       "purpose": "the published compound a**2/b + log|c| sin(d) with a pure noise operand: c is marginally invisible, d only weakly visible",
       "spec_hash": "9808640890046f144f52cb685975e594"
     },
+    "pillar_noise_ar1": {
+      "expected_to_break": [
+        "skb-f",
+        "select-fdr",
+        "skb-mi",
+        "univariate-mi"
+      ],
+      "family": "pillar",
+      "primary_target_set": "markov_blanket",
+      "purpose": "stationary AR(1) noise against an AR(1) target: an iid test's nominal rate is not its real one on serially dependent rows",
+      "spec_hash": "9debd9444ae7febc5e75e1a3571632eb"
+    },
     "pillar_noise_marginals": {
       "expected_to_break": [
         "skb-f",
@@ -401,6 +416,18 @@
       "primary_target_set": "markov_blanket",
       "purpose": "pure noise across nine marginal shapes (normal, uniform, t2, lognormal, exponential, binary, categorical, near-constant, id): every selection is a false discovery",
       "spec_hash": "36837857cc9ab25c016c97313f5a968e"
+    },
+    "pillar_noise_random_walk": {
+      "expected_to_break": [
+        "skb-f",
+        "select-fdr",
+        "skb-mi",
+        "univariate-mi"
+      ],
+      "family": "pillar",
+      "primary_target_set": "markov_blanket",
+      "purpose": "independent random walks against a random-walk target: spurious regression, flagged by any iid test",
+      "spec_hash": "a94244922816e54267d2388bab0ac73f"
     },
     "pillar_xor3": {
       "expected_to_break": [
