@@ -17,6 +17,7 @@ default 300).
 from __future__ import annotations
 
 import atexit
+import io
 import logging
 import os
 import sys
@@ -157,7 +158,8 @@ def open_faulthandler_file(crash_dir: Optional[str] = None, all_threads: bool = 
         d = resolve_crash_dir(crash_dir)
         os.makedirs(d, exist_ok=True)
         path = os.path.join(d, f"mlframe_faulthandler_{time.strftime('%Y%m%d_%H%M%S')}_pid{os.getpid()}.log")
-        f = open(path, "a", encoding="utf-8", buffering=1)  # must outlive this call: faulthandler keeps only the fd
+        # Built from the raw layers rather than ``open()``: the handle must outlive this call (faulthandler keeps only the fd).
+        f = io.TextIOWrapper(io.BufferedWriter(io.FileIO(path, "a")), encoding="utf-8", line_buffering=True)
         try:
             f.write(f"mlframe faulthandler file; pid={os.getpid()} started={time.strftime('%Y-%m-%d %H:%M:%S')} argv={sys.argv!r}\n")
             f.write("'> name' / '< name' lines mark entering / leaving a training phase, per thread; a crash dump follows them.\n")
