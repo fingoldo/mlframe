@@ -367,7 +367,9 @@ def _tae_run_pre_pipeline(st: SimpleNamespace, model: object, train_df: Any, cur
     # reject those at fit time. Rename the model-facing labels via a pure
     # deterministic map -- train/val here and test below map identically, so fit
     # and predict stay consistent. No-op when every name is already clean.
-    _pre_sanitize_columns = list(train_df.columns) if train_df is not None else []
+    # A custom pre_pipeline may return a bare ndarray (no ``.columns``); the sanitizer already passes those through unchanged.
+    _cols_attr = getattr(train_df, "columns", None)
+    _pre_sanitize_columns = list(_cols_attr) if _cols_attr is not None else []
     train_df = _sanitize_frame_columns(train_df)
     st.val_df = _sanitize_frame_columns(st.val_df)
     # ``cat_features`` names the frame's columns, so it must follow the rename: otherwise a hostile-named categorical is later
