@@ -67,7 +67,7 @@ def test_device_pipeline_matches_the_host_kernel(n_classes):
     """Plain and corrected null MI agree for every (permutation, column), including the pairs whose root split is accepted."""
     args = _inputs(30000, n_classes, 24, seed=n_classes)
     assert eligible(30000, n_classes, args[12], args[13])
-    host = honest_null_columns_bycol(*args)
+    host = honest_null_columns_bycol(*args, np.zeros(args[0].shape, dtype=bool))
     dev = honest_null_columns_device(*args)
     assert dev is not None
     assert len(host) == len(dev) == 2, "plain and corrected null MI must both be compared"
