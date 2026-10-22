@@ -367,6 +367,58 @@
       "purpose": "fixed-rate contamination rather than a heavy law, which is what a broken sensor actually produces",
       "spec_hash": "b880ba5cb3e8882a345b770b3e88b43b"
     },
+    "pillar_conjunction": {
+      "expected_to_break": [
+        "lars-order"
+      ],
+      "family": "pillar",
+      "primary_target_set": "markov_blanket",
+      "purpose": "conjunction A B C among one hundred noise columns; the proxy decoys of the original test are NOT in this bed",
+      "spec_hash": "5a80e3abbd9a4c8592952913ed7e656f"
+    },
+    "pillar_f2_compound": {
+      "expected_to_break": [
+        "skb-f",
+        "skb-mi",
+        "univariate-mi",
+        "select-fdr",
+        "near-noise-auc"
+      ],
+      "family": "pillar",
+      "primary_target_set": "markov_blanket",
+      "purpose": "the published compound a**2/b + log|c| sin(d) with a pure noise operand: c is marginally invisible, d only weakly visible",
+      "spec_hash": "9808640890046f144f52cb685975e594"
+    },
+    "pillar_noise_marginals": {
+      "expected_to_break": [
+        "skb-f",
+        "skb-mi",
+        "univariate-mi",
+        "select-fdr",
+        "near-noise-auc"
+      ],
+      "family": "pillar",
+      "primary_target_set": "markov_blanket",
+      "purpose": "pure noise across nine marginal shapes (normal, uniform, t2, lognormal, exponential, binary, categorical, near-constant, id): every selection is a false discovery",
+      "spec_hash": "36837857cc9ab25c016c97313f5a968e"
+    },
+    "pillar_xor3": {
+      "expected_to_break": [
+        "mrmr",
+        "univariate-mi",
+        "skb-f",
+        "skb-mi",
+        "lars-order",
+        "select-fdr",
+        "variance-sort",
+        "rank-vote",
+        "byproduct-ensemble"
+      ],
+      "family": "pillar",
+      "primary_target_set": "markov_blanket",
+      "purpose": "three-way parity among one hundred noise columns, the xor3 family at the width the parity test was written for",
+      "spec_hash": "286415eb2985a6d07d29eca5d0065970"
+    },
     "proxy_attenuation": {
       "expected_to_break": [
         "lars-order",

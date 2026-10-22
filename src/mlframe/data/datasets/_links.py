@@ -176,13 +176,20 @@ def basis_term_value(term: "BasisTerm", columns: Mapping[str, np.ndarray], rng: 
         levels, inverse = np.unique(operands[0], return_inverse=True)
         effects = np.asarray(rng.normal(0.0, 1.0, int(levels.shape[0])), dtype=np.float64)
         return np.asarray(weight * effects[np.asarray(inverse, dtype=np.intp)], dtype=np.float64)
+    if term.kind == "log_abs_sin":
+        # The published compound log|c| * sin(d). The epsilon matches the reference formula, so a value at c = 0 is finite.
+        return np.asarray(weight * np.log(np.abs(operands[0]) + 1e-9) * np.sin(operands[1]), dtype=np.float64)
     if term.kind == "ratio":
         # Floored rather than clipped to a tiny epsilon: a denominator near zero otherwise produces one
         # enormous row that sets the scale of the whole score, and the bed then measures outlier handling
         # instead of the ratio structure it claims to test.
         floor = float(term.params.get("floor", 0.1))
         denominator = np.where(np.abs(operands[1]) < floor, np.sign(operands[1]) * floor + (operands[1] == 0.0) * floor, operands[1])
-        return np.asarray(weight * (operands[0] / denominator), dtype=np.float64)
+        # A numerator power turns the ratio into the published a**2 / b without a separate kind; the default of 1.0 is the
+        # identity, so no existing bed's values move.
+        power = float(term.params.get("power", 1.0))
+        numerator = operands[0] if power == 1.0 else np.power(operands[0], power)
+        return np.asarray(weight * (numerator / denominator), dtype=np.float64)
     raise ValueError(f"unsupported basis term kind {term.kind!r}")
 
 
