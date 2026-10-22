@@ -84,6 +84,10 @@ def run_final_subsumption_prune(
         if dropped_eng:
             self._engineered_recipes_ = [r for r in recipes if str(getattr(r, "name", "")) not in dropped_eng]
             self._engineered_features_ = [f for f in (self._engineered_features_ or []) if str(f) not in dropped_eng]
+        from .._fe_rejection_ledger import record_fe_rejection
+
+        for dropped_name in sorted(dropped):
+            record_fe_rejection(self, gate="final_subsumption", candidate=dropped_name, operator="raw" if dropped_name in dropped_raw else "engineered", reason="no information beyond the compounds")
         if verbose:
             logger.info("MRMR final subsumption pass: dropped %d column(s) carrying no information beyond the compounds: %s", len(dropped), sorted(dropped))
         self._final_subsumption_dropped_ = sorted(dropped)

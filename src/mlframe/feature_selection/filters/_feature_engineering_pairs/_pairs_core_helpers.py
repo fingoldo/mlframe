@@ -321,7 +321,7 @@ def _check_prospective__read_weakref_cache_no(_chunk_global_batch, _chunk_buffer
                     _ex0.shutdown(wait=False)
 
 
-def _check_prospective__pair_res_entry_none(_pair_res_entry, res, raw_vars_pair, best_config, cols, pair_mi, _rejection_records, rejection_ledger_out):
+def _check_prospective__pair_res_entry_none(_pair_res_entry, res, raw_vars_pair, best_config, cols, pair_mi, _rejection_records, rejection_ledger_out, best_mi=None):
     """Block of check_prospective_fe_pairs starting at ``if _pair_res_entry is not None:``."""
     from mlframe.feature_selection.filters.feature_engineering import (
         logger,
@@ -329,6 +329,19 @@ def _check_prospective__pair_res_entry_none(_pair_res_entry, res, raw_vars_pair,
 
     if _pair_res_entry is not None:
         res[raw_vars_pair] = _pair_res_entry
+        try:
+            _ratio = float(best_mi) / float(pair_mi) if best_mi is not None and pair_mi else float("nan")
+            for _name in _pair_res_entry[2]:
+                _admitted = {
+                    "verdict": "admitted", "stage": "pair_gate", "candidate": str(_name), "operands": tuple(cols[i] for i in raw_vars_pair), "operator": "",
+                    "observed": _ratio, "best_mi": float("nan") if best_mi is None else float(best_mi), "pair_mi": float(pair_mi) if pair_mi is not None else float("nan"),
+                    "reason": "passed the pair gates: engineered MI against the pair's joint MI",
+                }
+                _rejection_records.append(_admitted)
+                if rejection_ledger_out is not None:
+                    rejection_ledger_out.append(_admitted)
+        except Exception as e:  # nosec B110 - instrumentation must never break the FE search
+            logger.debug("admission ledger record failed: %s", e)
     elif best_config is None:
         # A pair that produced NO candidate at all leaves no trace otherwise: the rejection ledger only
         # records candidates that were built and then failed a gate, so a pair whose operator search

@@ -16,6 +16,7 @@ this module carves out, not by inspection alone.
 
 from __future__ import annotations
 
+from functools import partial
 from typing import Any
 
 import logging
@@ -531,6 +532,8 @@ def _assign_support_tai_g_step1_try(self, _retention_added_eng_names, selected_v
 def _assign_support_tai_g_step1_map_each_surviving(self, _post_recipes, _post_sel_raw_names, cols, data, _eng_continuous_snapshot, _post_apply, X, _post_qbin, _post_raw_set, y, _post_drop, classes_y, _linear_usability_keep_enabled, verbose, selected_vars, target_indices, nbins):
     """Step 1 of _assign_support_tai_g_step1_try: lines starting at ``if _post_recipes and _post_sel_raw_names:``."""
     if _post_recipes and _post_sel_raw_names:
+        from mlframe.feature_selection.filters._fe_rejection_ledger import record_raw_redundancy_drop
+
         _post_cols = list(cols)
         _post_data = data
         _post_eng_cont = dict(_eng_continuous_snapshot or {})
@@ -583,6 +586,7 @@ def _assign_support_tai_g_step1_map_each_surviving(self, _post_recipes, _post_se
                 raw_X=X, floor_margin_mult=1.5,
                 linear_usability_keep=_linear_usability_keep_enabled(self),
                 seed=int(getattr(self, "random_seed", 0) or 0), verbose=verbose,
+                reject_sink=partial(record_raw_redundancy_drop, self),
             )
             if _post_dropped:
                 _post_drop_set = set(_post_dropped)
@@ -593,7 +597,11 @@ def _assign_support_tai_g_step1_map_each_surviving(self, _post_recipes, _post_se
                 # NEVER-EMPTY RAW FLOOR (mirrors the main sweep): the post-retention drop may not
                 # empty the raw support. If no raw survives, re-add the strongest dropped raw (by
                 # marginal MI) as the representative; the engineered survivor still rides along.
-                if not selected_vars:
+                # An engineered survivor that carries the dropped operands' information already satisfies the floor: the raw support is then intentionally
+                # empty (every raw operand was judged fully subsumed), the same engineered-only outcome the main sweep's floor reaches in full FE mode. Re-adding
+                # the strongest dropped raw by marginal MI here resurrected exactly the fully subsumed dominant operand the sweep had dropped (``c`` beside
+                # ``mul(prewarp(c),sin(d))`` in the F2 fixture).
+                if not selected_vars and not self._engineered_recipes_:
                     _bf_idx, _bf_rel = None, float("-inf")
                     _tgt_pf = np.asarray(target_indices, dtype=np.int64)
                     _fn_pf = np.asarray(nbins, dtype=np.int64)

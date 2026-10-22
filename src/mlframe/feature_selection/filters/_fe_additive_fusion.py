@@ -265,6 +265,12 @@ def _evaluate_fusion_pair(self: Any, ha: dict, hb: dict, y_dense: np.ndarray, nb
         _r_margin = float(getattr(self, "fe_additive_fusion_ols_r_margin_sd", 2.0)) / max(np.sqrt(float(n_rows)), 1.0)
         _ols_passes = _r_fused > _r_best_single + _r_margin
     if not (_binned_mi_passes or _ols_passes):
+        from ._fe_rejection_ledger import record_fe_rejection
+
+        record_fe_rejection(
+            self, gate="additive_fusion", candidate=f"{ha['name']}+{hb['name']}", operands=(ha["name"], hb["name"]), operator=_binary,
+            observed=float(fused_mi), threshold=float(_strong["mi"] + _floor_margin * _strong["floor"]), reason="binned MI and OLS multiple-R separability both below their bars",
+        )
         return None
     return _binary, fused_vals, fvb, fused_mi
 

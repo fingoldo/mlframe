@@ -66,7 +66,7 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import Iterable, Optional, Sequence, cast, Any
+from typing import Any, Callable, Iterable, Optional, Sequence, cast
 
 import numpy as np
 from ._y_encoding import _has_more_distinct_than
@@ -437,6 +437,7 @@ def drop_redundant_raw_operands(
     tail_subsume_rank_frac: float = 0.7,
     seed: int = 0,
     verbose: int = 0,
+    reject_sink: Optional[Callable[..., None]] = None,
 ) -> tuple[list, list]:
     """Drop selected RAW operands conditionally redundant given a surviving
     engineered child built from them.
@@ -507,6 +508,7 @@ def drop_redundant_raw_operands(
 
     st.drop_names = []
     st.drop_idx_set = set()
+    st.drop_info = {}
     _drop_redundant_raw_o_step1_ri_st_raw(st, cols, verbose, seed, _raw_marginal, floor_margin_mult, linear_usability_keep, raw_X, data, y_continuous, engineered_continuous, tail_subsume_enable, tail_subsume_min_corr, tail_subsume_rank_frac)
 
     # bench-attempt-rejected (2026-07-02): a NON-OPERAND redundant-raw pass here (test each still-selected
@@ -526,6 +528,9 @@ def drop_redundant_raw_operands(
         return _reverted
 
     st.kept = [i for i in st.sel if i not in st.drop_idx_set]
+    if reject_sink is not None:
+        for dropped_name in st.drop_names:
+            reject_sink(dropped_name, *st.drop_info.get(dropped_name, (float("nan"),) * 4))
     return st.kept, st.drop_names
 
 
@@ -628,6 +633,7 @@ def _drop_redundant_raw_o_step1_ri_st_raw(st, cols, verbose, seed, _raw_marginal
             continue
         st.drop_names.append(rname)
         st.drop_idx_set.add(ri)
+        st.drop_info[rname] = (cmi, floor, excess, raw_marg_excess)
         if verbose:
             logger.info(
                 "raw-redundancy: DROP %s (cmi=%.4f floor=%.4f cond_excess=%.5f "

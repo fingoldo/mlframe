@@ -31,8 +31,8 @@ def _raw_leaves(name: str, raw_name_set: "set[str]") -> "list[str]":
     return out
 
 
-def _has_inert_leaf(leaves: "list[str]", name_to_idx: "dict[str, int]", data: Any, codes: np.ndarray, seed: int) -> bool:
-    """Whether some raw leaf of the candidate (given by its binned ``codes``) is conditionally independent of it given the other leaves."""
+def _has_inert_leaf(leaves: "list[str]", name_to_idx: "dict[str, int]", data: Any, codes: np.ndarray, seed: int) -> "tuple[str, float, float] | None":
+    """``(leaf, cmi, floor)`` of the first raw leaf of the candidate (given by its binned ``codes``) that is conditionally independent of it given the other leaves, else ``None``."""
     from .._fe_raw_redundancy_helpers import _excess_and_floor
     from .._mi_greedy_cmi_fe import _renumber_joint
 
@@ -46,8 +46,8 @@ def _has_inert_leaf(leaves: "list[str]", name_to_idx: "dict[str, int]", data: An
         cmi, floor, _excess = _excess_and_floor(np.ascontiguousarray(data[:, li]), np.ascontiguousarray(codes), z, seed=seed)
         if not cmi > floor:
             logger.debug("FE admission: leaf %r is inert for the candidate (CMI %.5f does not clear its floor %.5f).", leaf, cmi, floor)
-            return True
-    return False
+            return leaf, float(cmi), float(floor)
+    return None
 
 
 def filter_inert_leaf_block(
@@ -69,7 +69,14 @@ def filter_inert_leaf_block(
         if len(leaves) >= 2:
             try:
                 codes = np.asarray(discretise(np.asarray(transformed_vals)[:, [j]]))[:, 0]
-                if _has_inert_leaf(leaves, name_to_idx, data, codes, seed):
+                inert = _has_inert_leaf(leaves, name_to_idx, data, codes, seed)
+                if inert is not None:
+                    from .._fe_rejection_ledger import record_fe_rejection
+
+                    record_fe_rejection(
+                        self, gate="inert_leaf", candidate=new_cols[j], operands=tuple(leaves), operator="pair", observed=inert[1], threshold=inert[2],
+                        reason=f"leaf {inert[0]} carries no information about the candidate beyond the other leaves",
+                    )
                     continue
             except Exception as exc:
                 logger.warning("FE admission: the inert-leaf test of %r failed (%s: %s); the candidate stays.", new_cols[j], type(exc).__name__, exc)

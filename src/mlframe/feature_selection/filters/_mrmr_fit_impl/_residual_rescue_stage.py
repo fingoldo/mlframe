@@ -214,6 +214,35 @@ def _is_group_leak_raw(X, name, y):
     return _impl(X, name, y)
 
 
+def _reprune_after_admission(self, design: dict, pool: dict, prune_names: list, admitted_engineered: list, y, raw_cols, residual_rescue) -> list:
+    """``prune_names`` extended with the raws that are redundant once the admitted compounds are in the design.
+
+    The raw operands were judged before these compounds existed: a raw supported only because nothing in the design carried its effect is redundant once the compound that does is admitted
+    (``c`` beside the admitted ``mul(prewarp(c),sin(d))``), so the raws are judged again against the design with the admitted columns in it.
+    """
+    if not admitted_engineered:
+        return prune_names
+    try:
+        design_after = {k: v for k, v in design.items() if k not in prune_names}
+        for admitted_name in admitted_engineered:
+            if admitted_name in pool:
+                design_after[admitted_name] = pool[admitted_name]
+        return [*prune_names, *(n for n in _unsupported_columns(self, design_after, y, raw_cols, residual_rescue) if n in raw_cols and n not in prune_names)]
+    except Exception:
+        logger.warning("MRMR residual rescue: the second pruning pass failed; the first pass's verdict stands.", exc_info=True)
+        return prune_names
+
+
+def _record_prunes(self, pruned_raw: list, pruned_engineered: list) -> None:
+    """Write the columns the rescue pruned to the rejection ledger."""
+    from .._fe_rejection_ledger import record_fe_rejection
+
+    for name in pruned_raw:
+        record_fe_rejection(self, gate="residual_rescue_prune", candidate=name, operator="raw", reason="no held-out gain given the rest of the selection")
+    for name in pruned_engineered:
+        record_fe_rejection(self, gate="residual_rescue_prune", candidate=name, operator="engineered", reason="no held-out gain given the rest of the selection")
+
+
 def run_residual_rescue(self, X: Any, selected_vars: Any, cols: Any, engineered_recipes: Any, retention_added_eng_names: Any, verbose: Any) -> bool:
     """Admit the pool columns that reduce the held-out residual of the selected design and prune the redundant raws (``redundancy_policy='drop'``); True when the selection changed."""
     if not getattr(self, "fe_residual_rescue_enable", False):
@@ -264,6 +293,10 @@ def run_residual_rescue(self, X: Any, selected_vars: Any, cols: Any, engineered_
         # A raw operand the redundancy sweep already dropped as subsumed by a surviving compound is not re-admitted here:
         # the rescue's linear gain for it is the same information the compound carries, not a new term.
         redundancy_dropped = set(getattr(self, "_raw_redundancy_dropped_", None) or set())
+        # The sweep that records its drops only sees raws the pass selected: a pass whose raw support was already empty (the compounds carry every operand) records nothing, and the
+        # operands of those compounds would come back here as raws. Under the drop policy they are the same already subsumed information, so they are held out of the pool as well.
+        if bool(getattr(self, "fe_drop_redundant_raw_operands", True)) and getattr(self, "redundancy_policy", "emit_both") == "drop":
+            redundancy_dropped |= {str(c) for s in engineered_held for c in s}
         pool = {
             str(c): _pool_values(X, c, engineered_recipes, apply_recipe)
             for c in X.columns
@@ -291,6 +324,7 @@ def run_residual_rescue(self, X: Any, selected_vars: Any, cols: Any, engineered_
         logger.warning("MRMR residual rescue failed; the selection is left as it was.", exc_info=True)
         return False
     names = []
+    admitted_engineered = []
     col_index = {str(c): i for i, c in enumerate(cols)}
     for name, t_stat, rel in admitted:
         rec = engineered_recipes.get(name) or cell_recipes.get(name)
@@ -298,6 +332,7 @@ def run_residual_rescue(self, X: Any, selected_vars: Any, cols: Any, engineered_
             self._engineered_recipes_.append(rec)
             self._engineered_features_.append(name)
             retention_added_eng_names.add(name)
+            admitted_engineered.append(name)
         elif name in col_index and col_index[name] not in selected_vars:
             # A between-group leak raw column is not re-admitted by the global residual test under group_aware_mi.
             if _is_group_leak_raw(X, name, np.asarray(y).ravel()):
@@ -308,6 +343,7 @@ def run_residual_rescue(self, X: Any, selected_vars: Any, cols: Any, engineered_
         names.append(name)
         if verbose:
             logger.info("MRMR residual rescue: admitted %r (t=%.1f, %.1f%% of the target variance).", name, t_stat, 100.0 * rel)
+    prune_names = _reprune_after_admission(self, design, pool, prune_names, admitted_engineered, y, raw_cols, residual_rescue)
     dropped = [col_index[n] for n in prune_names if n in col_index and col_index[n] in selected_vars and n not in eng_set]
     if dropped and not [i for i in selected_vars if i not in dropped] and not [f for f in self._engineered_features_ if str(f) not in prune_names]:
         # a selection never ends up with no column at all: the pruned raw that tracks the target best stays
@@ -320,6 +356,7 @@ def run_residual_rescue(self, X: Any, selected_vars: Any, cols: Any, engineered_
         if verbose:
             logger.info("MRMR residual rescue: pruned raw column %r (no held-out gain given the rest of the selection).", cols[idx])
     pruned_eng = [n for n in prune_names if n in eng_set]
+    _record_prunes(self, [str(cols[idx]) for idx in dropped], pruned_eng)
     if pruned_eng:
         keep = [(f, r) for f, r in zip(self._engineered_features_, self._engineered_recipes_) if str(f) not in pruned_eng]
         self._engineered_features_[:] = [f for f, _ in keep]

@@ -53,3 +53,34 @@ def test_without_pool_data_the_block_is_returned_unchanged():
     self, features, vals, new_cols, new_nbins, cols, _data = _setup(candidate_uses_e=False)
     kept, _vals, kept_cols, _nbins, _original = filter_inert_leaf_block(self, features, vals, new_cols, new_nbins, cols, None, _identity, 0)
     assert kept == features and kept_cols == new_cols
+
+
+def test_the_dropped_candidate_is_written_to_the_rejection_ledger_with_its_numbers():
+    """The drop leaves one ``inert_leaf`` row: the candidate, its raw leaves, the CMI that missed and the floor it had to clear."""
+    self, features, vals, new_cols, new_nbins, cols, data = _setup(candidate_uses_e=False)
+    filter_inert_leaf_block(self, features, vals, new_cols, new_nbins, cols, data, _identity, 0)
+    rows = [r for r in self._fe_rejection_records_ if r["gate"] == "inert_leaf"]
+    assert len(rows) == 1
+    row = rows[0]
+    assert row["candidate"] == "max(rint(c),neg(e))" and "e" in row["reason"]
+    assert row["observed"] <= row["threshold"]
+
+
+def test_admitted_and_rejected_pair_records_are_routed_to_their_own_ledgers():
+    """An admitted record lands in the admission list with its numbers; any other record is a rejection."""
+    from mlframe.feature_selection.filters._fe_rejection_ledger import drain_pair_records, populate_fe_admission_ledger
+
+    holder = SimpleNamespace(feature_names_in_=np.array(["c", "e"]))
+    drain_pair_records(
+        holder,
+        [
+            {"verdict": "admitted", "stage": "pair_gate", "candidate": "mul(c,e)", "operands": (0, 1), "operator": "", "observed": 0.97, "best_mi": 0.097, "pair_mi": 0.1, "reason": "passed"},
+            {"gate": "marginal_pair_mi_prescreen", "candidate": "(c,e)", "operands": (0, 1), "observed": 0.5, "threshold": 1.05, "reason": "ratio below the bar"},
+        ],
+        step=2,
+    )
+    assert [r["candidate"] for r in holder._fe_rejection_records_] == ["(c,e)"]
+    populate_fe_admission_ledger(holder)
+    frame = holder.fe_admission_ledger_
+    assert list(frame["candidate"]) == ["mul(c,e)"] and float(frame["best_mi"].iloc[0]) == 0.097 and int(frame["step"].iloc[0]) == 2
+    assert list(frame["operand_names"]) == ["(c, e)"]
