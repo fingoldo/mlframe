@@ -15,13 +15,13 @@ What is carried over and what is not, stated per pillar because the difference d
   originals are per-kind frames; here they share one frame, so a method's false discoveries are counted
   across shapes at once. The original's two extra columns in the categorical and id-like frames are already
   present as normal columns in the mix, so they are not repeated. The AR(1) and random-walk noise of the
-  four-pillar report is NOT here: those need a temporal bed the library does not have.
+  four-pillar report is carried by the two temporal beds (``pillar_noise_ar1``, ``pillar_noise_random_walk``), whose
+  columns and target share one serially dependent family.
 * **Three-way parity.** The same family as ``xor3``, at the test module's width of one hundred noise columns,
   so the bed differs from ``xor3`` by width alone.
-* **Conjunction.** ``A, B, C`` Bernoulli(1/2), the logit ``-1.5 + 2.5 A + 3 A B C`` and one hundred probes.
-  The original's proxy columns (fifty per operand, correlated with it at 0.7) are NOT here. They are the point
-  of that test, and a proxy is a noisy reflection of a BINARY operand, which the reflection machinery does not
-  express. Without them this is the conjunction core only, and the bed says so in its purpose.
+* **Conjunction.** ``A, B, C`` Bernoulli(1/2), the logit ``-1.5 + 2.5 A + 3 A B C`` and one hundred probes, plus
+  fifty proxies per operand. Each proxy is a derived child of its operand at correlation 0.7, so it is a decoy
+  with no path to the label except through its operand.
 """
 
 from __future__ import annotations
@@ -29,8 +29,9 @@ from __future__ import annotations
 import math
 from typing import Dict, Tuple
 
+from mlframe.data.datasets._derived import DEFAULT_RESIDUAL_SD
 from mlframe.data.datasets.scenarios._common import probes
-from mlframe.data.datasets.spec import BasisTerm, CeilingTarget, DatasetSpec, EdgeSpec, FeatureSpec, LinkSpec, TargetSpec
+from mlframe.data.datasets.spec import BasisTerm, CeilingTarget, DatasetSpec, EdgeSpec, FeatureSpec, LatentSpec, LinkSpec, TargetSpec
 from mlframe.data.datasets.scenarios._interactions import parity_spec
 
 __all__ = [
@@ -38,6 +39,8 @@ __all__ = [
     "pillar_noise_marginals_spec",
     "pillar_xor3_spec",
     "pillar_conjunction_spec",
+    "pillar_noise_ar1_spec",
+    "pillar_noise_random_walk_spec",
     "NOISE_KINDS",
 ]
 
@@ -112,23 +115,80 @@ def pillar_noise_marginals_spec(n_samples: int = 2000, seed: int = 0) -> Dataset
     )
 
 
+def _temporal_noise_spec(name: str, family: str, n_samples: int, seed: int, purpose: str) -> DatasetSpec:
+    """Return a pure-noise bed whose columns and target are both serially dependent, from one column family.
+
+    The target is a latent factor of the same family, which no column reads: the label is a time series of its own, so
+    every association between a column and the label is spurious, which is the setting the test is about. Both halves of the
+    pair are needed, because spurious regression needs two unrelated series that both wander.
+    """
+    if family == "ar1":
+        features = [FeatureSpec(name=f"x{j}", family="ar1", params={"rho": 0.9}, standardize=False) for j in range(8)]
+    else:
+        features = [FeatureSpec(name=f"x{j}", family="random_walk", standardize=False) for j in range(8)]
+    return DatasetSpec(
+        name=name,
+        n_samples=n_samples,
+        root_seed=seed,
+        features=tuple(features),
+        latents=(LatentSpec(name="u", family=family),),
+        targets=(TargetSpec(name="y", prevalence=0.5, link=LinkSpec(kind="logistic", coefficients={"u": 5.0})),),
+        edges=(EdgeSpec(source="u", target="y", kind="latent"),),
+        provenance={"family": "pillar", "purpose": purpose},
+    )
+
+
+def pillar_noise_ar1_spec(n_samples: int = 2000, seed: int = 0) -> DatasetSpec:
+    """Return the AR(1) half of the time-series noise pillar: rho 0.9 columns, an AR(1) target, no link between them."""
+    return _temporal_noise_spec(
+        "pillar_noise_ar1", "ar1", n_samples, seed, "stationary AR(1) noise against an AR(1) target: the iid permutation null is anti-conservative"
+    )
+
+
+def pillar_noise_random_walk_spec(n_samples: int = 2000, seed: int = 0) -> DatasetSpec:
+    """Return the random-walk half of the time-series noise pillar: walk columns against a walk target, no link."""
+    return _temporal_noise_spec(
+        "pillar_noise_random_walk", "random_walk", n_samples, seed, "independent random walks against a random-walk target: spurious regression"
+    )
+
+
 def pillar_xor3_spec(n_noise: int = 100, n_samples: int = 4000, seed: int = 0) -> DatasetSpec:
     """Return the three-way parity pillar: the ``xor3`` family at the pillar's width of one hundred noise columns."""
     base = parity_spec(order=3, n_noise=n_noise, n_samples=n_samples, seed=seed)
     return base.model_copy(update={"name": "pillar_xor3", "provenance": {"family": "pillar", "purpose": "three-way parity among one hundred noise columns"}})
 
 
-def pillar_conjunction_spec(n_noise: int = 100, n_samples: int = 4000, ceiling: float = 0.85, seed: int = 0) -> DatasetSpec:
-    """Return the conjunction core: ``logit = -1.5 + 2.5 A + 3 A B C`` over Bernoulli(1/2) operands and one hundred probes.
+#: Proxies per operand, and the correlation each has with its operand, as in the conjunction test's canonical frame.
+N_PROXY = 50
+PROXY_RHO = 0.7
 
-    The proxy columns of the original test are not included; see the module docstring.
+
+def _proxy_weight(rho: float = PROXY_RHO, operand_sd: float = 0.5) -> float:
+    """Return the edge weight that makes a derived proxy correlate ``rho`` with a binary operand of sd ``operand_sd``.
+
+    The derived layer builds a child as the standardised sum of its weighted parent and a residual of scale
+    ``DEFAULT_RESIDUAL_SD``. For a child ``w * x + s * e`` the correlation with ``x`` is ``w sd / sqrt(w^2 sd^2 + s^2)``,
+    which solves in closed form for ``w``. Solving rather than tuning keeps the declared 0.7 the delivered 0.7.
+    """
+    s = float(DEFAULT_RESIDUAL_SD)
+    return float(rho * s / (operand_sd * math.sqrt(1.0 - rho * rho)))
+
+
+def pillar_conjunction_spec(n_noise: int = 100, n_samples: int = 50_000, ceiling: float = 0.85, seed: int = 0) -> DatasetSpec:
+    """Return the conjunction pillar: ``logit = -1.5 + 2.5 A + 3 A B C``, fifty proxies per operand, and one hundred probes.
+
+    Each proxy is a derived copy of its operand with correlation 0.7, so the decoys are real structure in the graph: a
+    proxy is a child of its operand and of nothing else. At this width a fixed-K method takes a budget that the fifty
+    proxies of A nearly exhaust, which is the mechanism the bed is built to test.
     """
     binary = tuple(FeatureSpec(name=name, family="bernoulli", params={"p": 0.5}, standardize=False) for name in ("A", "B", "C"))
+    proxies = tuple(FeatureSpec(name=f"dec{op}_{k}") for op in ("A", "B", "C") for k in range(N_PROXY))
+    proxy_edges = tuple(EdgeSpec(source=op, target=f"dec{op}_{k}", kind="proxy", weight=_proxy_weight()) for op in ("A", "B", "C") for k in range(N_PROXY))
     return DatasetSpec(
         name="pillar_conjunction",
         n_samples=n_samples,
         root_seed=seed,
-        features=(*binary, *probes(n_noise)),
+        features=(*binary, *proxies, *probes(n_noise)),
         targets=(
             TargetSpec(
                 name="y",
@@ -143,6 +203,6 @@ def pillar_conjunction_spec(n_noise: int = 100, n_samples: int = 4000, ceiling: 
                 calibrate_to=CeilingTarget(metric="auc", value=ceiling),
             ),
         ),
-        edges=tuple(EdgeSpec(source=name, target="y") for name in ("A", "B", "C")),
-        provenance={"family": "pillar", "purpose": "conjunction of three operands among one hundred noise columns; the proxy decoys are not in this bed"},
+        edges=(*(EdgeSpec(source=name, target="y") for name in ("A", "B", "C")), *proxy_edges),
+        provenance={"family": "pillar", "purpose": "conjunction of three operands with fifty correlated proxies each, among one hundred probes"},
     )

@@ -34,7 +34,14 @@ from ._linear import linear_lowdim_spec, linear_spec
 from ._marginals import heavy_tail_spec, outlier_contaminated_spec, quantized_spec, zero_inflated_spec
 from ._mixed_types import graded_cardinality_spec, id_trap_spec, zipf_levels_spec
 from ._observation import concept_shift_spec, covariate_shift_spec, missingness_trio_spec, rare_class_spec
-from ._pillars import pillar_conjunction_spec, pillar_f2_compound_spec, pillar_noise_marginals_spec, pillar_xor3_spec
+from ._pillars import (
+    pillar_conjunction_spec,
+    pillar_f2_compound_spec,
+    pillar_noise_ar1_spec,
+    pillar_noise_marginals_spec,
+    pillar_noise_random_walk_spec,
+    pillar_xor3_spec,
+)
 from ._null import null_spec
 from ._redundant import exact_redundancy_spec, private_delta_spec
 from ._structure import grouped_rows_spec, simpson_reversal_spec
@@ -441,11 +448,28 @@ SCENARIOS: Tuple[Scenario, ...] = (
         name="pillar_conjunction",
         family="pillar",
         builder=pillar_conjunction_spec,
-        # PROVISIONAL. Measured: A is marginally strong (AUC 0.83), B and C only slightly above the probes (AUC 0.53 and 0.55).
-        # No mechanism stated for this bed makes a named arm fail, so the single entry below is a placeholder that the
-        # tests require, not a forecast. It is to be replaced by a reasoned prediction before the first run on this bed.
-        expected_to_break=("lars-order",),
-        purpose="conjunction A B C among one hundred noise columns; the proxy decoys of the original test are NOT in this bed",
+        # Arithmetic on the generated bed, not a guess. Width 250 gives a fixed budget of 62. By |correlation| with the
+        # label, A and fifty of its proxies lead (proxies of A correlate 0.49 with it, B and C 0.06 and 0.09), so 50 of
+        # the 62 slots go to copies of A. At the matched budget of |key| = 3, a fixed-K method takes A and two of its
+        # proxies and never reaches B or C. Breaking is the precision of the selection, and recall at matched K.
+        expected_to_break=("skb-f", "skb-mi", "univariate-mi", "select-fdr"),
+        purpose="conjunction A B C with fifty correlated proxies per operand, among one hundred probes: the proxies of A fill the budget before B and C",
+    ),
+    Scenario(
+        name="pillar_noise_ar1",
+        family="pillar",
+        builder=pillar_noise_ar1_spec,
+        # Measured on the bed family: at nominal 5%, an AR(1) rho 0.9 column against an AR(1) label is flagged 43% of the time.
+        expected_to_break=("skb-f", "select-fdr", "skb-mi", "univariate-mi"),
+        purpose="stationary AR(1) noise against an AR(1) target: an iid test's nominal rate is not its real one on serially dependent rows",
+    ),
+    Scenario(
+        name="pillar_noise_random_walk",
+        family="pillar",
+        builder=pillar_noise_random_walk_spec,
+        # Measured on the bed family: a random-walk column against a random-walk label is flagged 84% of the time at nominal 5%.
+        expected_to_break=("skb-f", "select-fdr", "skb-mi", "univariate-mi"),
+        purpose="independent random walks against a random-walk target: spurious regression, flagged by any iid test",
     ),
 )
 

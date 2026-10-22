@@ -87,7 +87,7 @@ Beds are grouped by what they attack, not by how they were built:
 | `corrupted` | 3 | label noise: the only place the declared ceiling and the reachable one diverge |
 | `economics` | 2 | columns that cost different amounts, and four correlation levels in one bed |
 | `structure` | 2 | a sign that flips between subgroups, and rows that are not independent |
-| `pillar` | 4 | the four pillars of the feature-selection tests, at their canonical parameters: the published F2 compound, pure noise across nine marginal shapes, three-way parity among noise, and the conjunction core (its proxy decoys are not in the bed) |
+| `pillar` | 6 | the four pillars of the feature-selection tests, at their canonical parameters: the published F2 compound, pure noise across nine marginal shapes, three-way parity among noise, and the conjunction with fifty correlated (0.7) proxies per operand among probes; plus two temporal noise beds (AR(1) and random-walk columns against a serially dependent target), whose driving latent is unobserved and is disclosed in the Bayes AUC caveat |
 
 Every scenario declares `expected_to_break` — which arms it is designed to defeat — **before** the run.
 Those declarations are scored afterwards, so declaring one costs something. Roughly half hold, which is
