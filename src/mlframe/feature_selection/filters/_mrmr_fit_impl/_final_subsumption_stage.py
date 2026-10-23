@@ -79,16 +79,41 @@ def _compound_halves(recipes, anchor_names, eng_values, X, raw_set):
     return halves
 
 
-def _standing_compounds(multi, eng_values, classes_y, y_continuous, seed):
-    """The multi-source columns that no other multi-source column subsumes; a column is judged against the rest of the list still standing."""
+def _nesting(recipes, multi, raw_set):
+    """``nested``: each multi-source column to the names of its nested parents; ``halves_of``: each to its non-raw halves."""
+    by_name = {str(getattr(r, "name", "")): r for r in recipes}
+    nested, halves_of = {}, {}
+    for name in multi:
+        recipe = by_name.get(name)
+        extra = (getattr(recipe, "extra", None) or {}) if recipe is not None else {}
+        parents = [str(getattr(extra.get(side), "name", "")) for side in ("nested_parent_a", "nested_parent_b") if extra.get(side) is not None]
+        nested[name] = set(parents)
+        halves_of[name] = [p for p in parents if p and p not in raw_set]
+    return nested, halves_of
+
+
+def _standing_compounds(multi, eng_values, classes_y, y_continuous, seed, nested, halves_of):
+    """The multi-source columns that no other standing column subsumes.
+
+    A column is judged against the others still standing, plus the halves of those others. A column never judges itself, and a
+    column that is built from it (directly or through a half) is not a judge: a nested compound is a function of the compound it
+    was built on, so letting it judge that compound would drop the compound on its own dependent.
+    ``nested`` maps a compound to the names of its nested parents; ``halves_of`` maps a compound to its non-raw halves.
+    """
     from .._fe_retention_subsumption import retention_form_is_subsumed
 
     y_binned = np.asarray(classes_y).ravel()
     standing = list(multi)
     for name in multi:
-        others = [o for o in standing if o != name]
+        judges = [o for o in standing if o != name and name not in nested.get(o, ())]
+        refs = []
+        for o in judges:
+            for h in halves_of.get(o, ()):
+                if h != name and h not in refs and h not in judges:
+                    refs.append(h)
+        others = judges + refs
         if not others:
-            break
+            continue
         if retention_form_is_subsumed(
             cand_continuous=np.asarray(eng_values[name], dtype=_crit_np_dtype()).ravel(),
             incumbent_continuous=[np.asarray(eng_values[o], dtype=_crit_np_dtype()).ravel() for o in others],
@@ -139,7 +164,8 @@ def run_final_subsumption_prune(
         # A compound is a function of its own halves, so the halves never judge a compound (they would always subsume it); they only
         # serve as anchors for the other columns.
         halves = _compound_halves(recipes, set(multi), eng_values, X, raw_set)
-        anchors = _standing_compounds(multi, eng_values, classes_y, y_continuous, seed) + halves
+        nested, halves_of = _nesting(recipes, multi, raw_set)
+        anchors = _standing_compounds(multi, eng_values, classes_y, y_continuous, seed, nested, halves_of) + halves
         candidates.update({name: eng_values[name] for name in anchors if name in eng_values})
         if not anchors:
             return False, selected_vars
