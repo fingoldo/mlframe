@@ -10,9 +10,6 @@ record (per-commit kernel tuning, profiling numbers, audit notes) see the git
 history.
 
 ## [Unreleased]
-### Changed
-- `MRMR(fe_pair_usability_prescan_max_pairs=None)` scans every pair for the dominant-pair usability check, in blocks sized from the free host RAM; the old default of 256 pairs is gone. The running maximum keeps the first pair of the largest value, so the decision is the same as one call over all pairs. The GPU admission check for the usability scan counts the operand matrix at its own dtype, not at float64, so a float32 scan is admitted on a smaller card; a block that does not fit the VRAM cushion is sized down, so the scan no longer falls back to the CPU block by block.
-
 ### Added
 - `MRMR(fe_binned_numeric_agg_max_pairs=None)` scores every (group, aggregate) pair of the binned numeric aggregate; the default stays 64. The pairs are scored in batches sized from the free memory, so no cap is needed to fit a wide frame.
 - `fe_provenance_` labels the columns admitted by the auto-escalation (`esc_*`) with the origin `escalation`, and the escalation writes its admissions to `fe_admission_ledger_` (stage `escalation`), so where such a column came from is readable without instrumenting the fit.

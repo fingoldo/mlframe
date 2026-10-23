@@ -22,38 +22,6 @@ from mlframe.utils.log_throttle import log_throttle
 
 from .._fe_rejection_ledger import record_fe_rejection as _record_fe_rejection
 
-# Share of the free host RAM one prescan block may hold (its operand rows and the usability kernel's working copies).
-_PRESCAN_FREE_FRACTION = 0.25
-# Pair forms the usability scan evaluates per pair (the five pair forms of ALL_PAIR_FORM_IDS).
-_N_PAIR_FORMS = 5
-
-
-def _prescan_budget_bytes(n_rows: int, dtype: Any) -> tuple[int, int]:
-    """``(budget, per_row)``: the bytes one usability-scan block may upload and the bytes of one operand row of ``n_rows`` values.
-
-    The budget is the host share of the free RAM, and when cupy is present the free VRAM less the cushion the dispatcher keeps,
-    the dispatcher's own admission test (its footprint is the operand matrix at its dtype plus the float64 outputs)."""
-    from .._orthogonal_univariate_fe._streamed_gpu_mi import _host_free_bytes
-
-    n = max(1, int(n_rows))
-    budget = _PRESCAN_FREE_FRACTION * _host_free_bytes()
-    try:
-        import cupy as cp
-
-        from .._fe_gpu_vram import _cushion_bytes
-
-        free_vram, total_vram = cp.cuda.runtime.memGetInfo()
-        budget = min(budget, max(0, int(free_vram) - _cushion_bytes(int(total_vram))) * 0.9)
-    except Exception as exc:  # no cupy or no device: the host budget governs
-        logger.debug("prescan block sizing uses the host budget only: %s", type(exc).__name__)
-    return int(budget), n * np.dtype(dtype).itemsize
-
-
-def _prescan_block_pairs(n_rows: int, dtype: Any) -> int:
-    """Pairs per usability-scan block: two operand rows per pair, sized from :func:`_prescan_budget_bytes` (at least one pair)."""
-    budget, per_row = _prescan_budget_bytes(n_rows, dtype)
-    return max(1, budget // (2 * per_row + 8 * _N_PAIR_FORMS))
-
 
 def _pair_gate_resident_enabled(*, n: int | None = None, p: int | None = None) -> bool:
     """True when the device-born candidate-code residency is active for the prospective-pair CMI gate.
@@ -189,7 +157,7 @@ def _maybe_relax_prevalence_for_tail_concentrated_pool(
         _min_corr_pre = float(getattr(self, "fe_pair_usability_admission_min_corr", 0.6))
         _margin_pre = float(getattr(self, "fe_pair_usability_admission_pairness_margin", 1.05))
         _rank_frac_pre = float(getattr(self, "fe_pair_usability_admission_rank_frac", 0.7))
-        _max_prescan = int(getattr(self, "fe_pair_usability_prescan_max_pairs", None) or 0)  # 0 = scan every pair, in memory-sized blocks
+        _max_prescan = int(getattr(self, "fe_pair_usability_prescan_max_pairs", 256))
         # DOMINANT-PAIR GATE (specificity): fire ONLY if the pool's dominant pair - the one with
         # the highest linear |corr(continuous y)| - is rank-collapsed. A small divisor operand makes
         # SPURIOUS forms (e.g. d/b ~ 1/b, which tracks an a**2/b target while d is noise) look tail-
@@ -259,36 +227,25 @@ def _maybe_relax_prevalence_for_tail_concentrated_pool(
             _dtype_pre = _crit_np_dtype()
             _y_batch = np.asarray(_ya_pre[::_stride_pre] if _stride_pre > 1 else _ya_pre, dtype=_dtype_pre)
 
-            def _op_rows_of(idx: int) -> np.ndarray:
-                """One operand's row, subsampled with the y rows."""
-                _op_full = cached_operand(idx)
-                return _op_full[::_stride_pre] if _stride_pre > 1 else _op_full
-
-            # Every scanned pair is scored, in blocks sized from the free host RAM: a block gathers only its own operands, and the
-            # running maximum keeps the first pair of the largest value, the same pair one call over all pairs would return.
-            # Operands are uploaded once per block, so when every operand of the scan fits the budget the whole scan is one block.
-            _n_scan_operands = len({_i for _pk in _scan_pks for _i in _pk})
-            _budget_pre, _row_pre = _prescan_budget_bytes(_y_batch.shape[0], _dtype_pre)
-            _block_pairs = len(_scan_pks) if _n_scan_operands * _row_pre <= _budget_pre else _prescan_block_pairs(_y_batch.shape[0], _dtype_pre)
-            for _b0 in range(0, len(_scan_pks), _block_pairs):
-                _block = _scan_pks[_b0 : _b0 + _block_pairs]
-                _blk_row_of: dict = {}
-                _blk_rows: list = []
-                for _pk in _block:
-                    for _idx in (_pk[0], _pk[1]):
-                        if _idx not in _blk_row_of:
-                            _blk_row_of[_idx] = len(_blk_rows)
-                            _blk_rows.append(np.asarray(_op_rows_of(_idx), dtype=_dtype_pre))
-                _pair_a = np.array([_blk_row_of[_pk[0]] for _pk in _block], dtype=np.int64)
-                _pair_b = np.array([_blk_row_of[_pk[1]] for _pk in _block], dtype=np.int64)
-                _pair_form_corrs, _ = dispatch_batch_pair_usability_corr(
-                    _y_batch, np.vstack(_blk_rows), _pair_a, _pair_b, form_ids=ALL_PAIR_FORM_IDS,
-                )
-                _cp_block = _pair_form_corrs.max(axis=1)
-                _bi = int(np.argmax(_cp_block))
-                if _dom_pk is None or float(_cp_block[_bi]) > _dom_cp:
-                    _dom_cp = float(_cp_block[_bi])
-                    _dom_pk = _block[_bi]
+            _op_row_of: dict = {}
+            _op_rows: list = []
+            for _pk in _scan_pks:
+                for _idx in (_pk[0], _pk[1]):
+                    if _idx not in _op_row_of:
+                        _op_row_of[_idx] = len(_op_rows)
+                        _op_full = cached_operand(_idx)
+                        _op_sub = _op_full[::_stride_pre] if _stride_pre > 1 else _op_full
+                        _op_rows.append(np.asarray(_op_sub, dtype=_dtype_pre))
+            _operand_matrix = np.vstack(_op_rows)
+            _pair_a = np.array([_op_row_of[_pk[0]] for _pk in _scan_pks], dtype=np.int64)
+            _pair_b = np.array([_op_row_of[_pk[1]] for _pk in _scan_pks], dtype=np.int64)
+            _pair_form_corrs, _ = dispatch_batch_pair_usability_corr(
+                _y_batch, _operand_matrix, _pair_a, _pair_b, form_ids=ALL_PAIR_FORM_IDS,
+            )
+            _cp_all = _pair_form_corrs.max(axis=1)
+            _best_i = int(np.argmax(_cp_all))
+            _dom_cp = float(_cp_all[_best_i])
+            _dom_pk = _scan_pks[_best_i]
             _dom_p0 = cached_operand(_dom_pk[0])
             _dom_p1 = cached_operand(_dom_pk[1])
         if _dom_p0 is not None and _dom_p1 is not None and _pair_is_tail_concentrated_rankaware(
