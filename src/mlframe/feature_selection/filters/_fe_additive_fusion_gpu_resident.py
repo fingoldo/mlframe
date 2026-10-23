@@ -240,30 +240,31 @@ def _gpu_evaluate_pair(
     _mi_add = float(_cmi_from_binned(_bcodes[0], y_dense_sc, None))  # resident codes -> no re-upload
     _mi_sub = float(_cmi_from_binned(_bcodes[1], y_dense_sc, None))
     if _mi_sub > _mi_add + _floor_margin * _strong["floor"]:
-        _binary, _, fvb_dev, fused_mi = "sub", _fsub, _bcodes[1], _mi_sub
+        _binary, fused_dev, fvb_dev, fused_mi = "sub", _fsub, _bcodes[1], _mi_sub
     else:
-        _binary, _, fvb_dev, fused_mi = "add", _fadd, _bcodes[0], _mi_add
+        _binary, fused_dev, fvb_dev, fused_mi = "add", _fadd, _bcodes[0], _mi_add
     # Fusion admission razor (not grid-snapped): fused_mi vs strong-half mi + margin*floor. The cupy-vs-
     # numpy reduction-order delta (~1e-12) is far below the floor-margin band, so it cannot flip this gate
     # in practice; the direct fusion-parity check (resident vs CPU proposed fusions) + F2 confirm the same
     # admissions. Accept-and-documented.
     _binned_mi_passes = fused_mi > _strong["mi"] + _floor_margin * _strong["floor"]
-    _ols_passes = False
-    if not _binned_mi_passes:
-        # OLS multiple-R separability, fully resident (the n-scaled lstsq runs on the device columns).
-        _r_a = _multiple_r_gpu(cp, ca[:, None], yc_dev, y_std)
-        _r_b = _multiple_r_gpu(cp, cb[:, None], yc_dev, y_std)
-        _r_fused = _multiple_r_gpu(cp, cp.stack([ca, cb], axis=1), yc_dev, y_std)
-        _r_best_single = max(_r_a, _r_b)
-        # Was `/ max(np.sqrt(float(n_sc)), 1.0)` - the
-        # SCORING-SUBSAMPLE row count - while the CPU sibling (_fe_additive_fusion.py) computes the
-        # identical margin against the TRUE, full fit row count. Above the subsample threshold this
-        # made the GPU threshold systematically stricter than the CPU one (2/sqrt(250k)=0.004 vs
-        # 2/sqrt(1M)=0.002 at n=1M), not merely the same decision scored on fewer rows (the separate,
-        # already-known B-20 sampling-noise divergence). Use n_rows (the true fit row count) to match.
-        _r_margin = float(getattr(self, "fe_additive_fusion_ols_r_margin_sd", 2.0)) / max(np.sqrt(float(n_rows)), 1.0)
-        _ols_passes = _r_fused > _r_best_single + _r_margin
-    if not (_binned_mi_passes or _ols_passes):
+    # OLS multiple-R separability, fully resident (the n-scaled lstsq runs on the device columns).
+    _r_a = _multiple_r_gpu(cp, ca[:, None], yc_dev, y_std)
+    _r_b = _multiple_r_gpu(cp, cb[:, None], yc_dev, y_std)
+    _r_fused = _multiple_r_gpu(cp, cp.stack([ca, cb], axis=1), yc_dev, y_std)
+    _r_best_single = max(_r_a, _r_b)
+    # Was `/ max(np.sqrt(float(n_sc)), 1.0)` - the
+    # SCORING-SUBSAMPLE row count - while the CPU sibling (_fe_additive_fusion.py) computes the
+    # identical margin against the TRUE, full fit row count. Above the subsample threshold this
+    # made the GPU threshold systematically stricter than the CPU one (2/sqrt(250k)=0.004 vs
+    # 2/sqrt(1M)=0.002 at n=1M), not merely the same decision scored on fewer rows (the separate,
+    # already-known B-20 sampling-noise divergence). Use n_rows (the true fit row count) to match.
+    _r_margin = float(getattr(self, "fe_additive_fusion_ols_r_margin_sd", 2.0)) / max(np.sqrt(float(n_rows)), 1.0)
+    _ols_passes = (not _binned_mi_passes) and _r_fused > _r_best_single + _r_margin
+    # As on the host: the compound is the UNWEIGHTED sum, so it must keep the linear usability of the two-half fit the scale-free tests approved.
+    # When the second half adds real linear signal to the pair, the compound must show that gain itself: it has to beat the stronger half alone by the same chance margin.
+    _keeps_both_halves = not (_r_fused > _r_best_single + _r_margin) or _multiple_r_gpu(cp, fused_dev[:, None], yc_dev, y_std) > _r_best_single + _r_margin
+    if not ((_binned_mi_passes or _ols_passes) and _keeps_both_halves):
         return None
     return _binary, fvb_dev, fused_mi
 

@@ -114,24 +114,42 @@ def _lof_fit_reference(X_ref: np.ndarray, k: int) -> "tuple[np.ndarray, np.ndarr
     return lrd, k_distance, k_eff
 
 
+_LOF_ROW_BLOCK_FREE_FRACTION = 0.25  # share of the free host RAM one row block of the distance matrices may use
+_LOF_ROW_BLOCK_COPIES = 4  # squared distances, distances, the partition index (int64) and the gathered reference columns coexist
+
+
+def _lof_row_block(n_ref: int, itemsize: int) -> int:
+    """Rows of ``X_new`` scored at once so that the ``(rows, n_ref)`` distance matrices fit the free host memory (at least one row)."""
+    from ._orthogonal_univariate_fe._streamed_gpu_mi import _host_free_bytes
+
+    per_row = max(1, int(n_ref)) * max(8, int(itemsize)) * _LOF_ROW_BLOCK_COPIES
+    return max(1, int(_LOF_ROW_BLOCK_FREE_FRACTION * _host_free_bytes() / per_row))
+
+
 def _lof_transform(X_new: np.ndarray, X_ref: np.ndarray, lrd_ref: np.ndarray, k_distance_ref: np.ndarray, k_eff: int) -> np.ndarray:
     """Score new rows' LOF against a FROZEN reference set (disjoint from ``X_new``, so no
     self-exclusion is needed): find each new row's k-NN within the reference, form reach-dist
     against the reference points' own frozen ``k_distance_ref``, and compare the new row's local
     reachability density to its neighbors' frozen ``lrd_ref`` - an out-of-sample LOF
     approximation (the reference set stands in for "all training rows" so a large fit only pays
-    the reference's bounded cost, not O(n_train^2), at transform time)."""
-    sq_new = np.sum(X_new * X_new, axis=1)
+    the reference's bounded cost, not O(n_train^2), at transform time). Rows are independent, so
+    they are scored in blocks sized from the free memory: the ``(rows, n_ref)`` distance matrices
+    of a million-row transform would not fit."""
     sq_ref = np.sum(X_ref * X_ref, axis=1)
-    d2 = sq_new[:, None] + sq_ref[None, :] - 2.0 * (X_new @ X_ref.T)
-    np.maximum(d2, 0.0, out=d2)
-    dist = np.sqrt(d2)
-    nn_idx = np.argpartition(dist, k_eff - 1, axis=1)[:, :k_eff]
-    nn_dist = np.take_along_axis(dist, nn_idx, axis=1)
-    reach_dist = np.maximum(k_distance_ref[nn_idx], nn_dist)
-    lrd_new = 1.0 / np.maximum(reach_dist.mean(axis=1), 1e-12)
-    lof_new = lrd_ref[nn_idx].mean(axis=1) / np.maximum(lrd_new, 1e-12)
-    return np.asarray(lof_new)
+    block = _lof_row_block(X_ref.shape[0], X_new.dtype.itemsize)
+    parts = []
+    for start in range(0, X_new.shape[0], block):
+        rows = X_new[start : start + block]
+        sq_new = np.sum(rows * rows, axis=1)
+        d2 = sq_new[:, None] + sq_ref[None, :] - 2.0 * (rows @ X_ref.T)
+        np.maximum(d2, 0.0, out=d2)
+        dist = np.sqrt(d2)
+        nn_idx = np.argpartition(dist, k_eff - 1, axis=1)[:, :k_eff]
+        nn_dist = np.take_along_axis(dist, nn_idx, axis=1)
+        reach_dist = np.maximum(k_distance_ref[nn_idx], nn_dist)
+        lrd_new = 1.0 / np.maximum(reach_dist.mean(axis=1), 1e-12)
+        parts.append(lrd_ref[nn_idx].mean(axis=1) / np.maximum(lrd_new, 1e-12))
+    return np.concatenate(parts) if parts else np.empty(0, dtype=np.asarray(lrd_ref).dtype)
 
 
 def engineered_name_lof(cols: Sequence[str]) -> str:

@@ -102,7 +102,7 @@ def test_failed_transform_nulls_slot_and_excludes_candidate(monkeypatch):
         gpu_mat_enabled=True,
     )
 
-    candidates, _fe_mi, _times = out[raw_vars_pair]
+    candidates, _fe_mi, _times, _codes = out[raw_vars_pair]
 
     # The failing op must NOT appear as a scored candidate.
     cand_op_names = {bin_func_name for (_tp, bin_func_name, _col, _pw) in candidates}

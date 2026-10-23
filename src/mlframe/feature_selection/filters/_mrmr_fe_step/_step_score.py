@@ -110,6 +110,7 @@ def materialise_and_finalise_fe_candidates(
         self, _is_polars_input, X, cols, prospective_additions, discretize_array, classes_y, verbose, num_fs_steps, engineered_recipes,
         _polynom_engineered_indices,
     )
+    st._leaf_test_data = data  # the binned matrix of the pool so far: the admission filter reads the raw leaves of each candidate from it
     X, cols, n_recommended_features, nbins = _materialise_and_fina_step3_cols_space_index(self, prospective_additions, engineered_features, verbose, fe_max_steps, X, discretize_array, cols, st, nbins, _is_polars_input, engineered_recipes, get_new_feature_name, _poly_coefs, fe_unary_preset, fe_binary_preset, n_recommended_features, checked_pairs)
 
     # Flush the accumulated per-pair code blocks into ``data`` in a SINGLE concatenate (column order

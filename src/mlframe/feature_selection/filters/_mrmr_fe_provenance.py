@@ -82,6 +82,7 @@ FE_ORIGIN_LABELS = (
     "dcd_aggregate",
     "cluster_aggregate",
     "unary_binary_pair",
+    "escalation",
     "hinge_basis",
     "numeric_decompose",
     "periodic",
@@ -247,6 +248,8 @@ _PROVENANCE_COLUMNS: tuple[str, ...] = (
     "mechanism_details",
     "mrmr_gain",
     "support_rank",
+    "in_output",
+    "dropped_by",
 )
 
 
@@ -443,6 +446,25 @@ def _final_feature_order(mrmr_self: Any) -> list[str]:
     return names
 
 
+def _output_membership(mrmr_self: Any) -> "tuple[set | None, dict]":
+    """``(names of the fitted output, {candidate: last gate that rejected it})``; ``(None, {})`` when the output names are not available yet.
+
+    ``support_rank`` is the position in the greedy screen and says nothing about the finished selection (the residual rescue and the later passes add and remove columns), so the frame also
+    says whether each row reached the output and, if it did not, the last ledger gate that dropped it.
+    """
+    try:
+        names = {str(n) for n in mrmr_self.get_feature_names_out()}
+    except Exception as exc:
+        _safe_log = logging.getLogger(__name__)
+        _safe_log.debug("fe_provenance_: output names unavailable (%s); in_output stays empty.", exc)
+        return None, {}
+    last_gate: dict = {}
+    for rec in getattr(mrmr_self, "_fe_rejection_records_", None) or ():
+        if isinstance(rec, dict) and rec.get("gate") and rec.get("candidate") is not None:
+            last_gate[str(rec["candidate"])] = str(rec["gate"])
+    return names, last_gate
+
+
 def compute_fe_provenance(mrmr_self: Any) -> pd.DataFrame:
     """Build the Layer 54 ``fe_provenance_`` DataFrame from the fitted
     estimator. Pure-read; no estimator state mutation.
@@ -477,6 +499,7 @@ def compute_fe_provenance(mrmr_self: Any) -> pd.DataFrame:
     _roster_sets = _build_roster_membership_sets(mrmr_self)
     _rank_index = _greedy_rank_index(predictors)
 
+    in_output, last_gate = _output_membership(mrmr_self)
     rows = []
     for name in final_names:
         rank = _rank_index.get(simplify_fe_name(str(name)), -1)
@@ -490,6 +513,8 @@ def compute_fe_provenance(mrmr_self: Any) -> pd.DataFrame:
             recipe = recipe_by_name.get(name)
             if recipe is not None:
                 origin, details = _origin_from_recipe(recipe)
+                if origin == "unary_binary_pair" and str(name).startswith("esc_"):
+                    origin = "escalation"  # a richer-basis candidate admitted by the auto-escalation: its recipe is a plain unary_binary one, its name carries the mechanism
             else:
                 # Engineered name without a recipe -> fall back to roster
                 # attrs. Higher-order interactions land here.
@@ -503,6 +528,8 @@ def compute_fe_provenance(mrmr_self: Any) -> pd.DataFrame:
                 "mechanism_details": _safe_str(details),
                 "mrmr_gain": gain_val,
                 "support_rank": int(rank),
+                "in_output": (None if in_output is None else str(name) in in_output),
+                "dropped_by": ("" if in_output is None or str(name) in in_output else last_gate.get(str(name), "")),
             }
         )
 

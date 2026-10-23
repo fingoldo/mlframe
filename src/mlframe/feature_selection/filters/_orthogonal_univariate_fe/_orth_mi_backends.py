@@ -571,7 +571,7 @@ def _streamed_block_mi(X_dense, y_i64, nbins, dtype):
             return None
         w = int(plan["width"])
         blocks = (X_dense[:, a : a + w] for a in range(0, p, w))
-        return mi_classif_streamed(blocks, y_i64, nbins=int(nbins), n_rows=n, dtype=dtype)
+        return mi_classif_streamed(blocks, y_i64, nbins=int(nbins), n_rows=n, dtype=dtype, n_cols=p)
     except Exception:
         logger.warning("streamed GPU MI unavailable for this slice; using the CPU column blocks.", exc_info=True)
         return None

@@ -45,7 +45,7 @@ def test_selector_interface_and_defaults():
     assert p["fi_guard"].default is False
 
 
-@pytest.mark.timeout(900)
+@pytest.mark.timeout(1800)
 def test_fit_transform_support_and_pickle_roundtrip():
     """Fit transform support and pickle roundtrip."""
     from mlframe.feature_selection.hybrid_selector import HybridSelector

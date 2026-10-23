@@ -34,6 +34,14 @@ from ._linear import linear_lowdim_spec, linear_spec
 from ._marginals import heavy_tail_spec, outlier_contaminated_spec, quantized_spec, zero_inflated_spec
 from ._mixed_types import graded_cardinality_spec, id_trap_spec, zipf_levels_spec
 from ._observation import concept_shift_spec, covariate_shift_spec, missingness_trio_spec, rare_class_spec
+from ._pillars import (
+    pillar_conjunction_spec,
+    pillar_f2_compound_spec,
+    pillar_noise_ar1_spec,
+    pillar_noise_marginals_spec,
+    pillar_noise_random_walk_spec,
+    pillar_xor3_spec,
+)
 from ._null import null_spec
 from ._redundant import exact_redundancy_spec, private_delta_spec
 from ._structure import grouped_rows_spec, simpson_reversal_spec
@@ -407,6 +415,61 @@ SCENARIOS: Tuple[Scenario, ...] = (
         builder=mediator_chain_spec,
         expected_to_break=("rfecv", "mrmr", "boruta-shap"),
         purpose="the declared answer key, not the method, decides who wins here",
+    ),
+    # The four pillars of the feature-selection tests, as beds. Canonical parameters are the test modules' own; see _pillars.
+    Scenario(
+        name="pillar_f2_compound",
+        family="pillar",
+        builder=pillar_f2_compound_spec,
+        # Measured on the generated bed, not assumed: c is marginally invisible (univariate AUC 0.50); d is weakly visible
+        # with the opposite sign (AUC 0.46), since sin(d) interacts with log|c| through the nonlinear link. At this width the
+        # fixed-K arms take one column, which is a, the strongest marginal.
+        expected_to_break=("skb-f", "skb-mi", "univariate-mi", "select-fdr", "near-noise-auc"),
+        purpose="the published compound a**2/b + log|c| sin(d) with a pure noise operand: c is marginally invisible, d only weakly visible",
+    ),
+    Scenario(
+        name="pillar_noise_marginals",
+        family="pillar",
+        builder=pillar_noise_marginals_spec,
+        # Fixed-K arms take K columns whatever the truth; the threshold arms keep noise by multiplicity over 72 columns.
+        expected_to_break=("skb-f", "skb-mi", "univariate-mi", "select-fdr", "near-noise-auc"),
+        purpose="pure noise across nine marginal shapes (normal, uniform, t2, lognormal, exponential, binary, categorical, near-constant, id): every selection is a false discovery",
+    ),
+    Scenario(
+        name="pillar_xor3",
+        family="pillar",
+        builder=pillar_xor3_spec,
+        # The xor3 family at the test module's width. Its operands have zero marginal association, as in xor3, which
+        # is the mechanism these predictions rest on; the width only adds probes that marginal scores also prefer.
+        expected_to_break=("mrmr", "univariate-mi", "skb-f", "skb-mi", "lars-order", "select-fdr", "variance-sort", "rank-vote", "byproduct-ensemble"),
+        purpose="three-way parity among one hundred noise columns, the xor3 family at the width the parity test was written for",
+    ),
+    Scenario(
+        name="pillar_conjunction",
+        family="pillar",
+        builder=pillar_conjunction_spec,
+        # Arithmetic on the generated bed, not a guess. Width 250 gives a fixed budget of 62. By |correlation| with the
+        # label, A and fifty of its proxies lead (proxies of A correlate 0.49 with it, B and C 0.06 and 0.09), so 50 of
+        # the 62 slots go to copies of A. At the matched budget of |key| = 3, a fixed-K method takes A and two of its
+        # proxies and never reaches B or C. Breaking is the precision of the selection, and recall at matched K.
+        expected_to_break=("skb-f", "skb-mi", "univariate-mi", "select-fdr"),
+        purpose="conjunction A B C with fifty correlated proxies per operand, among one hundred probes: the proxies of A fill the budget before B and C",
+    ),
+    Scenario(
+        name="pillar_noise_ar1",
+        family="pillar",
+        builder=pillar_noise_ar1_spec,
+        # Measured on the bed family: at nominal 5%, an AR(1) rho 0.9 column against an AR(1) label is flagged 43% of the time.
+        expected_to_break=("skb-f", "select-fdr", "skb-mi", "univariate-mi"),
+        purpose="stationary AR(1) noise against an AR(1) target: an iid test's nominal rate is not its real one on serially dependent rows",
+    ),
+    Scenario(
+        name="pillar_noise_random_walk",
+        family="pillar",
+        builder=pillar_noise_random_walk_spec,
+        # Measured on the bed family: a random-walk column against a random-walk label is flagged 84% of the time at nominal 5%.
+        expected_to_break=("skb-f", "select-fdr", "skb-mi", "univariate-mi"),
+        purpose="independent random walks against a random-walk target: spurious regression, flagged by any iid test",
     ),
 )
 

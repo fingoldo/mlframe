@@ -7,7 +7,7 @@ import logging
 
 import numpy as np
 
-from ._pairs_operand_floor import _beats_the_larger_operand
+from ._pairs_operand_floor import _beats_the_larger_operand, operand_uplift_null_bar
 from ._pairs_abs_corr_gpu import candidate_abs_corr
 from ._pairs_score_helpers import (
     logger,
@@ -122,8 +122,16 @@ def _score_one_pair_step4_iteration_serialization_point(
         st._gate_ratio,
     )
     st._passes_joint_gate = st._gate_ratio > fe_min_engineered_mi_prevalence * (1.0 if num_fs_steps < 1 else 1.025)
+    # The uplift bar over the larger operand is the null quantile of the uplift a noise partner reaches by chance (its codes permuted), not a bare 1.0: with one strong operand
+    # and one noise operand the engineered MI beats the strong operand's own by plug-in bias alone. Only pairs that already passed the joint gate pay for the permutations.
+    _uplift_bar = 1.0
+    if st._passes_joint_gate:
+        _floor = max(_operand_marginal_mi(raw_vars_pair[0]), _operand_marginal_mi(raw_vars_pair[1]))
+        _uplift_bar = operand_uplift_null_bar(
+            _operand_discretized(raw_vars_pair[0]), _operand_discretized(raw_vars_pair[1]), np.asarray(classes_y).ravel(), float(_floor)
+        )
     st._passes_joint_gate = st._passes_joint_gate and _beats_the_larger_operand(
-        st.best_mi, _operand_marginal_mi, raw_vars_pair, st.messages if verbose else None, pair_mi
+        st.best_mi, _operand_marginal_mi, raw_vars_pair, st.messages if verbose else None, pair_mi, _uplift_bar
     )
 
     # Alternative pre-warp acceptance: the joint-prevalence gate

@@ -326,51 +326,8 @@ def _orth_feature_heldout_gate_pass(
         _orth_sig_cache: dict = {}  # per-source-name memo: the permutation-significance probe below is O(32 perms), reused across every basis sharing a source
 
         def _orth_source_is_signal(_src_name: str) -> bool:
-            """Permutation-significance test (32 perms) on the RAW source column, mirroring EMIT-BOTH's
-            own operand-significance probe (``_assign_support.py``) -- used ONLY as a cheap fallback when
-            the source did NOT already survive the screen, so a basis on a genuinely-real-but-composite-
-            subsumed source (e.g. x2 in the CMIM redundant-pool fixture) still gets a fair shot without
-            reopening the self-limit to EVERY basis regardless of source quality (that regressed both a
-            noise-exclusion floor and this fit's wall-time budget -- see the commit history here)."""
-            if _src_name in _orth_sig_cache:
-                return bool(_orth_sig_cache[_src_name])
-            _sig = True  # estimator error -> do not silently drop a possibly-genuine source
-            _src_idx = _cols_index_o.get(_src_name)
-            if _src_idx is not None:
-                try:
-                    from mlframe.feature_selection.filters.permutation import mi_direct as _orth_mi_direct
-
-                    # was briefly tightened to npermutations=200/alpha=0.02 (6.25x the EMIT-BOTH
-                    # default 32/0.05) on the theory this probe's coarse resolution let noise sources through
-                    # on test_biz_val_suite_mrmr_multiclass_excludes_noise. That theory did not survive
-                    # direct testing -- swept npermutations 3->25 against the real fixture with ZERO change
-                    # in outcome, proving this probe was never the actual admission mechanism (the real cause
-                    # was the core MI-relevance confirm-screen's floor, fixed via a per-test
-                    # min_relevance_gain_frac override, unrelated to this probe). Keeping the tightened
-                    # value paid a real cost with no correctness benefit: test_all_enabled_fit_under_30s
-                    # regressed to 43-50s (30s budget) purely from this probe's 6.25x cost on fixtures that
-                    # call it often. Reverted to the EMIT-BOTH default (32/0.05).
-                    _r = _orth_mi_direct(
-                        data,
-                        x=(int(_src_idx),),
-                        y=target_indices,
-                        factors_nbins=nbins,
-                        npermutations=32,
-                        min_nonzero_confidence=0.0,
-                        return_null_mean=True,
-                        parallelism="none",
-                        prefer_gpu=False,
-                    )
-                    _sig = bool(float(_r[3]) < 0.05)  # p-value below alpha -> genuine marginal signal
-                except Exception as e:
-                    logger.debug(
-                        "orth-basis source significance probe failed for %r (%s: %s) -- not silently dropping a possibly-genuine source",
-                        _src_name,
-                        type(e).__name__,
-                        e,
-                    )
-            _orth_sig_cache[_src_name] = _sig
-            return _sig
+            """Significance of the raw source column, with the captured frame, target and cache passed explicitly."""
+            return _orth_source_is_signal_impl(_src_name, _cols_index_o, data, target_indices, nbins, _orth_sig_cache)
 
         _readd_orth = []
         for _on in _orth_feats:
@@ -431,24 +388,91 @@ def _orth_feature_heldout_gate_pass(
     return selected_vars
 
 
+def _probe_target(y_np: Any, n_rows: int) -> "np.ndarray | None":
+    """The target of the raw-protection probe as a finite float vector of ``n_rows`` values (class labels as their codes), or ``None`` (the pass is then off)."""
+    try:
+        raw = np.asarray(y_np).reshape(-1)
+        if raw.dtype.kind in "biuf":
+            values = raw.astype(np.float64)  # Intentional float64: held-out R^2 target of the probe (a statistic, not row data)
+        else:
+            # String / object class labels: their class codes, the target an integer-coded class y already gives this probe.
+            values = np.unique(raw.astype(str), return_inverse=True)[1].astype(np.float64)  # Intentional float64: probe R^2 target
+        if values.shape[0] == n_rows and np.all(np.isfinite(values)):
+            return values
+    except Exception as exc:
+        # WARNING, not DEBUG: this does not degrade the probe, it switches the whole raw-protection pass off, and a run where a raw
+        # feature was never considered for re-add is indistinguishable downstream from one where it was considered and rejected.
+        logger.warning("mrmr: y coercion for the raw-protection re-add probe failed; raw protection is DISABLED for this fit: %r", exc, exc_info=True)
+    return None
+
+
+def _finite_column(source: Any, n_rows: int) -> "np.ndarray | None":
+    """``source`` (an array or a Series) as a finite criterion-dtype vector of ``n_rows`` values, or ``None`` when it is missing, non-numeric, of another length or not finite."""
+    if source is None:
+        return None
+    try:
+        values = np.asarray(source.to_numpy() if hasattr(source, "to_numpy") else source, dtype=_crit_np_dtype()).reshape(-1)
+    except (TypeError, ValueError):
+        return None
+    return values if values.shape[0] == n_rows and np.all(np.isfinite(values)) else None
+
+
+def _orth_source_is_signal_impl(
+    _src_name: str,
+    _cols_index_o: dict,
+    data: np.ndarray,
+    target_indices,
+    nbins,
+    _orth_sig_cache: dict,
+) -> bool:
+    """Permutation-significance test (32 perms) on the RAW source column, mirroring EMIT-BOTH's
+    own operand-significance probe -- used ONLY as a cheap fallback when the source did NOT already
+    survive the screen, so a basis on a genuinely-real-but-composite-subsumed source still gets a fair shot."""
+    if _src_name in _orth_sig_cache:
+        return bool(_orth_sig_cache[_src_name])
+    _sig = True  # estimator error -> do not silently drop a possibly-genuine source
+    _src_idx = _cols_index_o.get(_src_name)
+    if _src_idx is not None:
+        try:
+            from mlframe.feature_selection.filters.permutation import mi_direct as _orth_mi_direct
+
+            # was briefly tightened to npermutations=200/alpha=0.02 (6.25x the EMIT-BOTH
+            # default 32/0.05) on the theory this probe's coarse resolution let noise sources through
+            # on test_biz_val_suite_mrmr_multiclass_excludes_noise. That theory did not survive
+            # direct testing -- swept npermutations 3->25 against the real fixture with ZERO change
+            # in outcome, proving this probe was never the actual admission mechanism (the real cause
+            # was the core MI-relevance confirm-screen's floor, fixed via a per-test
+            # min_relevance_gain_frac override, unrelated to this probe). Keeping the tightened
+            # value paid a real cost with no correctness benefit: test_all_enabled_fit_under_30s
+            # regressed to 43-50s (30s budget) purely from this probe's 6.25x cost on fixtures that
+            # call it often. Reverted to the EMIT-BOTH default (32/0.05).
+            _r = _orth_mi_direct(
+                data,
+                x=(int(_src_idx),),
+                y=target_indices,
+                factors_nbins=nbins,
+                npermutations=32,
+                min_nonzero_confidence=0.0,
+                return_null_mean=True,
+                parallelism="none",
+                prefer_gpu=False,
+            )
+            _sig = bool(float(_r[3]) < 0.05)  # p-value below alpha -> genuine marginal signal
+        except Exception as e:
+            logger.debug(
+                "orth-basis source significance probe failed for %r (%s: %s) -- not silently dropping a possibly-genuine source",
+                _src_name,
+                type(e).__name__,
+                e,
+            )
+    _orth_sig_cache[_src_name] = _sig
+    return _sig
+
+
 def _composite_subsumption_readd_pass(self, X, selected_vars, _y_np, data, cols, _eng_continuous_snapshot, _effective_min_relevance_gain, cached_MIs, verbose):
     """Re-add the raw features not subsumed by a selected composite."""
     if isinstance(X, pd.DataFrame) and len(selected_vars):
-        _rp_y = None
-        try:
-            _rp_raw = np.asarray(_y_np).reshape(-1)
-            if _rp_raw.dtype.kind in "biuf":
-                _rp_yv = _rp_raw.astype(np.float64)  # Intentional float64: held-out R^2 target of the probe (a statistic, not row data)
-            else:
-                # String / object class labels: their class codes, the target an integer-coded class y already gives this probe.
-                _rp_yv = np.unique(_rp_raw.astype(str), return_inverse=True)[1].astype(np.float64)  # Intentional float64: probe R^2 target
-            if _rp_yv.shape[0] == int(data.shape[0]) and np.all(np.isfinite(_rp_yv)):
-                _rp_y = _rp_yv
-        except Exception as exc:
-            # WARNING, not DEBUG: this does not degrade the probe, it switches the whole raw-protection pass off, and a run where a raw
-            # feature was never considered for re-add is indistinguishable downstream from one where it was considered and rejected.
-            logger.warning("mrmr: y coercion for the raw-protection re-add probe failed; raw protection is DISABLED for this fit: %r", exc, exc_info=True)
-            _rp_y = None
+        _rp_y = _probe_target(_y_np, int(data.shape[0]))
         if _rp_y is not None:
             _RAW_PROTECT_MIN_INCR_R2 = 0.005  # genuine linear raw signal lifts held-out R^2 >> 0.005; noise ~0
             _rp_n = _rp_y.shape[0]
@@ -462,14 +486,9 @@ def _composite_subsumption_readd_pass(self, X, selected_vars, _y_np, data, cols,
             for _sn in dict.fromkeys(cols[i] for i in selected_vars if 0 <= i < len(cols)):
                 _cv = _eng_continuous_snapshot.get(_sn)
                 if _cv is None and _sn in X.columns:
-                    _cv = X[_sn].to_numpy()
-                if _cv is None:
-                    continue
-                try:
-                    _cv = np.asarray(_cv, dtype=_crit_np_dtype()).reshape(-1)
-                except (TypeError, ValueError):
-                    continue  # raw categorical/string selected column - not a numeric R^2 regressor
-                if _cv.shape[0] == _rp_n and np.all(np.isfinite(_cv)):
+                    _cv = X[_sn]
+                _cv = _finite_column(_cv, _rp_n)  # a raw categorical/string selected column is not a numeric R^2 regressor
+                if _cv is not None:
                     _rp_base.append(_cv)
 
             # The base design is factorised once and extended by one column per candidate (measured 20x faster than a fresh lstsq per
@@ -501,6 +520,13 @@ def _composite_subsumption_readd_pass(self, X, selected_vars, _y_np, data, cols,
                 # Judge candidates strongest-first, ties by name: each accepted copy joins the base before the next one is judged,
                 # so the outcome must not depend on where a column sits in the frame.
                 _rp_names.sort(key=lambda rn: (-float(cached_MIs.get((_cols_index_r.get(rn, -1),), 0.0)) if isinstance(cached_MIs, dict) else 0.0, str(rn)))
+                from scipy.stats import norm as _rp_norm
+
+                _rp_n_cand = sum(
+                    1 for _rn in _rp_names if _cols_index_r.get(_rn) is not None and _cols_index_r[_rn] not in _sv_set_r and isinstance(cached_MIs, dict)
+                    and float(cached_MIs.get((_cols_index_r[_rn],), 0.0)) > _rp_floor
+                )
+                _rp_z = float(_rp_norm.isf(0.05 / max(1, _rp_n_cand)))
                 for _rn in _rp_names:
                     _ridx = _cols_index_r.get(_rn)
                     if _ridx is None or _ridx in _sv_set_r or _rn not in X.columns:
@@ -508,13 +534,15 @@ def _composite_subsumption_readd_pass(self, X, selected_vars, _y_np, data, cols,
                     _rp_cand_mi = float(cached_MIs.get((_ridx,), 0.0)) if isinstance(cached_MIs, dict) else 0.0
                     if _rp_cand_mi <= _rp_floor:
                         continue  # within-null / below the screen's relevance floor -> not a genuine signal, do not resurrect
-                    try:
-                        _rv = np.asarray(X[_rn].to_numpy(), dtype=_crit_np_dtype()).reshape(-1)
-                    except (TypeError, ValueError):
-                        continue  # non-numeric raw (categorical/string) -> not a linear-usability candidate
-                    if _rv.shape[0] != _rp_n or not np.all(np.isfinite(_rv)):
+                    _rv = _finite_column(X[_rn], _rp_n)  # non-numeric raw (categorical/string) -> not a linear-usability candidate
+                    if _rv is None:
                         continue
                     if _rp_r2(_rv) - _rp_r2_base < _RAW_PROTECT_MIN_INCR_R2:
+                        continue
+                    # The increment is one split's point estimate: require it to exceed its own sampling error (paired per-row squared-error reduction, one-sided,
+                    # corrected for the number of candidates judged), so a noise column that happens to clear the effect-size floor on this split is not resurrected.
+                    _rp_gain, _rp_se = _rp_r2.paired_gain(_rv)  # type: ignore[attr-defined]
+                    if _rp_se > 0.0 and _rp_gain / _rp_se < _rp_z:
                         continue
                     _readd_raw.append(_ridx)
                     _sv_set_r.add(_ridx)

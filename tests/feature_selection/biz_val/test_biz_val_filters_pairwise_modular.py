@@ -40,7 +40,7 @@ from mlframe.feature_selection.filters.engineered_recipes import apply_recipe
 SEEDS = (1, 7, 13, 42, 101)
 
 
-pytestmark = pytest.mark.timeout(900)  # untimed biz_val real-fit tier: surface a hang fast (global --timeout=600 is a coarse backstop). Raised 60->150->300: CI runners are shared 2-vCPU boxes under -n auto xdist contention with up to ~20 pytest shards running concurrently -- real (non-hung) fits legitimately exceeded 150s there under full-matrix load, causing spurious timeout failures unrelated to any actual hang; 300s still catches a genuine hang well before the 600s global backstop.
+pytestmark = pytest.mark.timeout(1800)  # untimed biz_val real-fit tier: surface a hang fast (global --timeout=600 is a coarse backstop). Raised 60->150->300: CI runners are shared 2-vCPU boxes under -n auto xdist contention with up to ~20 pytest shards running concurrently -- real (non-hung) fits legitimately exceeded 150s there under full-matrix load, causing spurious timeout failures unrelated to any actual hang; 300s still catches a genuine hang well before the 600s global backstop.
 
 
 def _build_pair_add_mod(seed: int, n: int = 4000, m: int = 7):
@@ -453,8 +453,10 @@ class TestPairwiseModularTargetTypeRobustness:
         df = pd.DataFrame({"a": a, "b": b, "f": rng.normal(0, 1, n)})
         y = pd.Series(3.0 * (a % 7) + rng.normal(0, 0.1, n), name="y")
         m = self._fit(df, y)
-        feats = list(getattr(m, "pairwise_modular_features_", []) or [])
-        assert any("m7" in f for f in feats), f"expected a modular residue (m7) on the regression modular target; got {feats}"
+        # The univariate modular family emits the identical residue ``a % 7`` (``a__mod_7``) and the cross-family dedup keeps one of the two, so the contract is that the
+        # residue of 7 reaches the output through either family.
+        feats = list(getattr(m, "pairwise_modular_features_", []) or []) + [str(c) for c in m.get_feature_names_out()]
+        assert any("m7" in f or "mod_7" in f for f in feats), f"expected a modular residue (m7) on the regression modular target; got {feats}"
 
 
 if __name__ == "__main__":

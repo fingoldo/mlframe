@@ -77,6 +77,11 @@ FE_GATE_LABELS = (
     "oof_warp_gain",  # out-of-fold warp candidate below the gain floor
     "pair_candidate_generation",  # pair never proposed by candidate generation
     "row_stat_gain",  # row-statistic candidate below the gain floor
+    "inert_leaf",  # pair candidate with a raw leaf that carries no information about it beyond its other leaves
+    "additive_fusion",  # two additively separable halves whose fusion does not beat the stronger half
+    "residual_rescue_prune",  # residual rescue: a raw or engineered column without held-out gain given the rest of the selection
+    "final_subsumption",  # end-of-fit pass: a column carrying no information beyond the compounds
+    "raw_redundancy_drop",  # raw operand conditionally subsumed by a surviving engineered child
     "ledger_capped",  # synthetic marker: records dropped past the memory cap
 )
 
@@ -125,6 +130,59 @@ def _operands_str(operands: Any) -> str:
     except Exception as e:
         log_throttle(logger, "_fe_rejection_ledger._operands_str", logging.WARNING, "_operands_str: could not stringify operand collection %r: %s", type(operands), e)
         return "<unstringifiable>"
+
+
+_ADMISSION_COLUMNS: tuple[str, ...] = ("candidate", "operands", "operator", "stage", "observed", "best_mi", "pair_mi", "reason", "step", "operand_names")
+
+
+def record_fe_admission(
+    mrmr_self: Any, *, candidate: Any, operands: Any = None, operator: Any = None, stage: str = "pair_gate", observed: Any = float("nan"),
+    best_mi: Any = float("nan"), pair_mi: Any = float("nan"), reason: str = "", step: int = -1,
+) -> None:
+    """Append ONE admission record (a candidate that passed the gates of ``stage``) to ``mrmr_self._fe_admission_records_``.
+
+    The answer to "where did this column come from, and by how much did it pass": ``observed`` is the gate ratio (engineered MI over the pair's joint MI) and ``best_mi`` / ``pair_mi`` its
+    two terms. Capped like the rejection list; swallows its own errors.
+    """
+    try:
+        records = getattr(mrmr_self, "_fe_admission_records_", None)
+        if records is None:
+            records = []
+            mrmr_self._fe_admission_records_ = records
+        _cap_cfg = getattr(mrmr_self, "fe_rejection_ledger_cap", None)
+        if len(records) >= int(FE_REJECTION_LEDGER_CAP if _cap_cfg is None else _cap_cfg):
+            return
+        records.append(
+            {
+                "candidate": str(candidate), "operands": _operands_str(operands), "operator": (None if operator is None else str(operator)), "stage": str(stage),
+                "observed": _safe_float(observed), "best_mi": _safe_float(best_mi), "pair_mi": _safe_float(pair_mi), "reason": str(reason), "step": int(step), "operand_names": "",
+            }
+        )
+    except Exception as exc:  # pragma: no cover - instrumentation must never break the fit
+        logger.debug("MRMR FE admission ledger record failed (%s); skipping.", exc)
+
+
+def drain_pair_records(mrmr_self: Any, records: Any, step: int) -> None:
+    """Route the per-pair records of one FE chunk: admitted candidates to the admission list, every other record to the rejection ledger."""
+    for rec in records or ():
+        if rec.get("verdict") == "admitted":
+            record_fe_admission(
+                mrmr_self, candidate=rec.get("candidate"), operands=rec.get("operands"), operator=rec.get("operator"), stage=rec.get("stage", "pair_gate"),
+                observed=rec.get("observed", float("nan")), best_mi=rec.get("best_mi", float("nan")), pair_mi=rec.get("pair_mi", float("nan")), reason=rec.get("reason", ""), step=step,
+            )
+        else:
+            record_fe_rejection(
+                mrmr_self, gate=rec["gate"], candidate=rec.get("candidate"), operands=rec.get("operands"), operator=rec.get("operator"),
+                observed=rec.get("observed", float("nan")), threshold=rec.get("threshold", float("nan")), reason=rec.get("reason", ""), step=step,
+            )
+
+
+def record_raw_redundancy_drop(mrmr_self: Any, name: str, cmi: float, floor: float, excess: float, marginal_excess: float) -> None:
+    """Ledger row for a raw operand the redundancy sweep dropped: ``observed`` is its debiased conditional excess, ``threshold`` the share of its own marginal excess it had to retain."""
+    record_fe_rejection(
+        mrmr_self, gate="raw_redundancy_drop", candidate=name, operator="raw", observed=excess, threshold=marginal_excess,
+        reason=f"conditional MI {cmi:.5f} against permutation floor {floor:.5f}: subsumed by a surviving engineered child",
+    )
 
 
 def record_fe_rejection(
@@ -272,6 +330,18 @@ def _resolve_index_columns(mrmr_self: Any, df: pd.DataFrame) -> None:
         logger.debug("fe_rejection_ledger_: operand-name resolution failed: %s", exc)
 
 
+def populate_fe_admission_ledger(mrmr_self: Any) -> None:
+    """Stash ``fe_admission_ledger_`` (one row per candidate a gate admitted) on the estimator; never raises."""
+    try:
+        records = getattr(mrmr_self, "_fe_admission_records_", None) or []
+        df = pd.DataFrame(list(records), columns=list(_ADMISSION_COLUMNS)) if records else pd.DataFrame({c: pd.Series([], dtype=object) for c in _ADMISSION_COLUMNS})
+        _resolve_index_columns(mrmr_self, df)
+        mrmr_self.fe_admission_ledger_ = df
+    except Exception as exc:
+        logger.warning("MRMR.fit: fe_admission_ledger_ population failed (%s: %s); it stays empty.", type(exc).__name__, exc)
+        mrmr_self.fe_admission_ledger_ = pd.DataFrame({c: pd.Series([], dtype=object) for c in _ADMISSION_COLUMNS})
+
+
 def populate_fe_rejection_ledger(mrmr_self: Any) -> None:
     """Run ``compute_fe_rejection_ledger`` and stash the result on the estimator.
 
@@ -282,6 +352,7 @@ def populate_fe_rejection_ledger(mrmr_self: Any) -> None:
         _led = compute_fe_rejection_ledger(mrmr_self)
         _resolve_index_columns(mrmr_self, _led)
         mrmr_self.fe_rejection_ledger_ = _led
+        populate_fe_admission_ledger(mrmr_self)
     except Exception as exc:
         logger.warning(
             "MRMR.fit: fe_rejection_ledger_ population failed (%s: %s); " "get_fe_rejection_report() will surface the empty-DataFrame message.",

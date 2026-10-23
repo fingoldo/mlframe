@@ -341,7 +341,7 @@ class BasisTerm(_DatasetSubSpec):
       sides of it and every estimate taken across that split is optimistic.
     """
 
-    kind: Literal["sin_product", "centered_square", "abs_deviation", "ratio", "identity", "group_effect"] = "identity"
+    kind: Literal["sin_product", "centered_square", "abs_deviation", "ratio", "identity", "group_effect", "log_abs_sin"] = "identity"
     columns: Tuple[str, ...] = Field(min_length=1)
     weight: float = 1.0
     #: Kind-specific constants: ``frequency`` for ``sin_product``, ``center`` for the centred kinds,
@@ -365,6 +365,8 @@ class BasisTerm(_DatasetSubSpec):
             raise ValueError(f"basis term {self.kind!r} takes exactly one column; got {self.columns!r}")
         if self.kind == "ratio" and len(self.columns) != 2:
             raise ValueError(f"basis term 'ratio' takes exactly two columns (numerator, denominator); got {self.columns!r}")
+        if self.kind == "log_abs_sin" and len(self.columns) != 2:
+            raise ValueError(f"basis term 'log_abs_sin' takes exactly two columns (the log operand, the sine operand); got {self.columns!r}")
         if self.kind == "sin_product" and len(self.columns) < 1:
             raise ValueError("basis term 'sin_product' needs at least one column")
         return self

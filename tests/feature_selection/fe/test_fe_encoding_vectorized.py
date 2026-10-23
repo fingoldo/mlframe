@@ -18,6 +18,7 @@ from mlframe.feature_selection.filters._count_freq_interaction_fe import (
     apply_frequency_encoding,
 )
 from mlframe.feature_selection.filters._cat_pair_fe import apply_cat_pair_cross
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 from mlframe.feature_selection.filters._target_encoding_fe import _column_to_str
 
 
@@ -109,7 +110,8 @@ def test_cat_pair_cross_target_vectorized_bit_identical():
     ci = np.asarray(_column_to_str(X["ci"]))
     cj = np.asarray(_column_to_str(X["cj"]))
     exp = _ref_cat_pair(ci, cj, mapping, "target", te_lookup, gm, len(mapping))
-    np.testing.assert_array_equal(got, exp)
+    assert got.dtype == _crit_np_dtype()
+    np.testing.assert_array_equal(got, np.asarray(exp).astype(_crit_np_dtype()))
 
 
 def test_cat_pair_cross_empty():

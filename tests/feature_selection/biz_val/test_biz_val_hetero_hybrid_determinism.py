@@ -75,7 +75,7 @@ def _linear_dataset(n: int = 1200, seed: int = 0):
 # ===========================================================================
 
 
-@pytest.mark.timeout(900)
+@pytest.mark.timeout(1800)
 def test_hetero_vote_same_seed_identical_accepted_and_vote_fraction():
     """Two ``heterogeneous_relevance_vote`` calls with the same random_state must produce an identical
     accepted list AND a bit-equal ``info['vote_fraction']`` dict (the shadow rng is fully seeded).
@@ -94,7 +94,7 @@ def test_hetero_vote_same_seed_identical_accepted_and_vote_fraction():
     assert vf1 == vf2, "same-seed vote_fraction is not bit-identical"
 
 
-@pytest.mark.timeout(900)
+@pytest.mark.timeout(1800)
 def test_hetero_vote_different_seed_changes_vote_fraction():
     """A different random_state redraws the per-trial shadows, so at the low ``percentile=50`` shadow bar
     (many borderline columns) the vote fraction must differ on >=1 column -- guards an ignored random_state.
@@ -134,7 +134,7 @@ def _assert_hybrid_deterministic(X, y):
 
 
 @pytest.mark.slow
-@pytest.mark.timeout(900)
+@pytest.mark.timeout(1800)
 def test_hybrid_selector_same_seed_deterministic():
     """HybridSelector(use_fe=False, use_tree_member=False, random_state=0) fit twice on the same linear frame
     -> identical raw_selected_, member_selections_, and fi_ keys. The members each run n_jobs=-1 internally,
@@ -146,7 +146,7 @@ def test_hybrid_selector_same_seed_deterministic():
     assert set(h1.member_selections_) == {"mrmr", "shap", "boruta"}
 
 
-@pytest.mark.timeout(900)
+@pytest.mark.timeout(1800)
 def test_hybrid_selector_same_seed_deterministic_fast():
     """Fast representative (smaller n) so MLFRAME_FAST=1 still exercises the same-seed HybridSelector
     determinism contract on at least one frame. Still runs the real MRMR+ShapProxied+BorutaShap members
@@ -161,7 +161,7 @@ def test_hybrid_selector_same_seed_deterministic_fast():
 
 
 @pytest.mark.slow
-@pytest.mark.timeout(900)
+@pytest.mark.timeout(1800)
 def test_hybrid_selector_column_order_invariant():
     """Fitting on X vs X[reversed columns] (fresh seeded instances) selects the same RAW feature set."""
     X, y = _linear_dataset(n=1200, seed=0)

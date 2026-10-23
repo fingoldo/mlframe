@@ -90,7 +90,11 @@ def test_the_score_itself_is_unchanged_by_the_rewrite():
     assert np.isfinite(score) and np.isfinite(with_zero_alpha)
     n_S = len(sel)
     expected_gap = alpha / (n_S * (n_S - 1) / 2.0) * _reference_pair_sum(x, y, sel, K_sel, K_x, K_y, cmi_y, marg, 1.0)
-    assert score - with_zero_alpha == pytest.approx(expected_gap, rel=1e-10, abs=1e-12)
+    from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
+
+    # the two scores are separate float sums in the criterion dtype, so their difference is exact only to a few eps of the larger one
+    eps = float(np.finfo(_crit_np_dtype()).eps)
+    assert score - with_zero_alpha == pytest.approx(expected_gap, rel=1e-10, abs=8 * eps * max(1.0, abs(score), abs(with_zero_alpha)))
 
 
 def test_both_sides_of_the_parallel_threshold_agree():

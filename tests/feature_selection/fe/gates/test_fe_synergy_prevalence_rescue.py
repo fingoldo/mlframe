@@ -116,18 +116,36 @@ def test_unit_rescue_fires_for_weak_smooth_interaction_inert_on_noise():
     )
     ab = _ab_from_recipes(sel)
     names = list(sel.get_feature_names_out())
+    # Provenance: an escalation product is labelled as such and its admission is in the admission ledger (stage "escalation"), so no spying is needed to see where it came from.
+    prov = sel.fe_provenance_
+    plain_esc = prov[prov["feature_name"].astype(str).str.startswith("esc_")]
+    assert len(plain_esc) > 0 and (plain_esc["origin"] == "escalation").all(), f"escalation products must carry the escalation origin: {plain_esc[['feature_name', 'origin']].to_dict('records')}"
+    admissions = sel.fe_admission_ledger_
+    escalated = admissions[admissions["stage"] == "escalation"]
+    assert len(escalated) > 0 and escalated["candidate"].astype(str).str.startswith("esc_").all(), f"escalation admissions missing from the admission ledger: {admissions['stage'].tolist()}"
     assert ab, f"an (a,b) engineered feature must be admitted by the rescue path; feature_names_out={names}; admitted={[h.get('admitted') for h in hist]}"
     # The rescued (a,b) escalation feature (base, or the nested child that consumed it)
     # must reach the output and carry the a**2/b signal.
     out_cols = _ab_in_output(sel)
     assert out_cols, f"an (a,b) escalation column must reach the output; names={names}"
     Xt = sel.transform(df.iloc[:2000])
-    truth = (df["a"].values[:2000] ** 2) / df["b"].values[:2000]
-    best = max(abs(float(np.corrcoef(np.nan_to_num(np.asarray(Xt[c], dtype=np.float64)), truth)[0, 1])) for c in out_cols if c in Xt.columns)
-    # Nested children wrap the (a,b) poly in further unaries (log/div/exp), so the |corr|
-    # vs the raw a**2/b is loosened from the base's ~1.0; the floor still confirms the
-    # term carries genuine a**2/b structure rather than noise.
-    assert best >= 0.35, f"rescued (a,b) feature must track a**2/b; best |corr|={best:.3f}"
+    a, b, c, d = (df[k].to_numpy(dtype=np.float64)[:2000] for k in ("a", "b", "c", "d"))
+    ab_term = 0.2 * a**2 / b
+    cd_term = np.log(c * 2) * np.sin(d / 3)
+
+    def _r2(col, regressors):
+        """R^2 of ``col`` on the intercept and ``regressors``."""
+        design = np.column_stack([np.ones_like(col), *regressors])
+        resid = col - design @ np.linalg.lstsq(design, col, rcond=None)[0]
+        return 1.0 - float(resid @ resid) / float(((col - col.mean()) ** 2).sum())
+
+    # The additive fusion may carry the rescued term inside a compound with the c,d term (``add(mul(c,d..), esc(a,b))``), whose correlation with a**2/b alone is small by construction.
+    # The contract is that the column carries the a**2/b signal BEYOND the c,d term: the R^2 the a,b term adds to a regression of the column on the c,d term.
+    best = max(
+        _r2(col, [cd_term, ab_term]) - _r2(col, [cd_term])
+        for col in (np.nan_to_num(np.asarray(Xt[c_], dtype=np.float64)) for c_ in out_cols if c_ in Xt.columns)
+    )
+    assert best >= 0.1, f"rescued (a,b) feature must carry the a**2/b signal beyond the c,d term; best R^2 gain={best:.3f}"
 
 
 def test_unit_rescue_can_be_disabled():

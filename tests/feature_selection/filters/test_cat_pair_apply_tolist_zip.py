@@ -41,6 +41,7 @@ def _indexed_per_row_loop(X_test, cat_i, cat_j, mapping, *, encoding="raw", te_l
 def test_apply_cat_pair_bit_identical_to_indexed_loop(ki, kj, encoding):
     """Apply cat pair bit identical to indexed loop."""
     from mlframe.feature_selection.filters._cat_pair_fe import apply_cat_pair_cross, _encode_pair
+    from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
     from mlframe.feature_selection.filters._target_encoding_fe import _column_to_str
 
     rng = np.random.default_rng(7)
@@ -85,13 +86,15 @@ def test_apply_cat_pair_bit_identical_to_indexed_loop(ki, kj, encoding):
         te_lookup=te_lookup,
         global_mean=global_mean,
     )
-    assert np.array_equal(expected, got), "tolist+zip replay diverged from indexed per-row loop"
+    assert got.dtype == _crit_np_dtype()
+    assert np.array_equal(expected.astype(_crit_np_dtype()), got), "tolist+zip replay diverged from indexed per-row loop"
 
 
 def test_apply_cat_pair_empty():
     """Apply cat pair empty."""
     from mlframe.feature_selection.filters._cat_pair_fe import apply_cat_pair_cross
+    from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 
     out = apply_cat_pair_cross(pd.DataFrame({"ci": [], "cj": []}), "ci", "cj", {}, encoding="raw")
     assert out.shape == (0,)
-    assert out.dtype == np.float64
+    assert out.dtype == _crit_np_dtype()

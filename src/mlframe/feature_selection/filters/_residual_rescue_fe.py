@@ -268,6 +268,8 @@ def residual_rescue(
     out: "list[tuple[str, float, float]]" = []
     alive = np.ones(len(pool_names), dtype=bool)
     for _ in range(int(max_admit)):
+        if not alive.any():
+            break  # every pool column has been admitted: there is nothing left to score (the linear block below would be empty)
         Qd = np.ascontiguousarray(np.stack(design_codes)) if design_codes else np.empty((0, len(rows)), dtype=np.int64)
         resid = _residual(Qd, _without_linear_part(lin_cols, yr, even), even, n_main)
         idx = np.flatnonzero(alive & ~only_linear)

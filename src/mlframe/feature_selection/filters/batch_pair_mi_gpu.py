@@ -110,7 +110,7 @@ def batch_pair_mi_cupy(
     from ._fe_resident_operands import resident_operand
     d_data = resident_operand(factors_data, "bpmi_cupy_factors_data", dtype=np.int32)
     d_classes_y = resident_operand(classes_y, "bpmi_cupy_classes_y", dtype=np.int32)
-    # the float64 resident buffer is the one the CUDA twin binds to ``const double *`` (content-keyed, so both backends share one upload); the cast to the working dtype is a device-side copy of a
+    # Intentional float64: the float64 resident buffer is the one the CUDA twin binds to ``const double *`` (content-keyed, so both backends share one upload); the cast to the working dtype is a device-side copy of a
     # vector with one entry per class
     d_freqs_y = resident_operand(freqs_y, "bpmi_cupy_freqs_y", dtype=np.float64).astype(crit_float_dtype(), copy=False)
     nb_arr = np.asarray(nbins, dtype=np.int32)

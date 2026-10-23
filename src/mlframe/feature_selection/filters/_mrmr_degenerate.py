@@ -192,6 +192,84 @@ def _column_values(X, name):
     return np.asarray(X)[:, name]
 
 
+def _flag_collinear(names: list, good: Any, hits_of: Any, degenerate: dict) -> None:
+    """Flag each column ``j`` as ``collinear_with:<earliest i>`` where ``hits_of(j)`` lists, ascending, the earlier columns it is perfectly correlated with; a reference column must itself be
+    well defined and not already flagged (the columns are walked in order, so an earlier verdict is already in ``degenerate``)."""
+    for j in range(len(names)):
+        if not good[j]:
+            continue
+        for i in hits_of(j):
+            if good[i] and names[i] not in degenerate:
+                degenerate[names[j]] = f"collinear_with:{names[i]}"
+                break
+
+
+def _unit_column(X: Any, name: Any) -> "np.ndarray | None":
+    """The column as a zero-mean unit-norm float64 vector (non-finite values replaced by the column mean, as the Gram path does), or ``None`` for a zero-variance column."""
+    v = np.asarray(_column_values(X, name), dtype=np.float64)
+    fin = np.isfinite(v)
+    if not fin.all():
+        v = np.where(fin, v, float(v[fin].mean()) if fin.any() else 0.0)
+    v = v - v.mean()
+    norm = float(np.sqrt(v @ v))
+    return v / norm if norm > 0 else None
+
+
+def _collinear_hits_streaming(X: Any, live: list, n_rows: int, tol: float = _COLLINEAR_TOL) -> "tuple[np.ndarray, dict]":
+    """``(good, hits)``: which of the ``live`` columns have variance, and for each column ``j`` the earlier columns ``i`` with ``| |corr| - 1 | <= tol``.
+
+    Memory is a few vectors of length ``n_rows``. Three Gaussian projections of every unit column give a signature that two columns equal up to sign share to within ``8 * sqrt(2 * tol)``
+    (a difference of unit vectors of squared norm ``2 * tol`` moves a projection by at most six standard deviations of that norm, with probability ~1 - 1e-9 per projection); the columns are
+    sorted by the first projection's magnitude, neighbours inside the window are candidates, and each candidate is confirmed by the exact dot product of the two unit columns."""
+    from collections import OrderedDict
+
+    n = len(live)
+    good = np.zeros(n, dtype=bool)
+    proj = np.zeros((n, 3), dtype=np.float64)
+    basis = np.random.default_rng(0).standard_normal((n_rows, 3))
+    for k, name in enumerate(live):
+        unit = _unit_column(X, name)
+        if unit is not None:
+            good[k] = True
+            proj[k] = unit @ basis
+    window = 8.0 * float(np.sqrt(2.0 * tol)) + 1e-12
+    idx = np.flatnonzero(good)
+    order = idx[np.argsort(np.abs(proj[idx, 0]), kind="stable")]
+    mag = np.abs(proj[order, 0])
+    candidates: "list[tuple[int, int]]" = []
+    for pos, a in enumerate(order):
+        hi = int(np.searchsorted(mag, mag[pos] + window, side="right"))
+        near = order[pos + 1 : hi]
+        if near.size == 0:
+            continue
+        # the sign relating the two columns is read from the first projection; near zero that sign is not reliable, so both are tried
+        ambiguous = np.minimum(abs(proj[a, 0]), np.abs(proj[near, 0])) <= window
+        product = proj[a, 0] * proj[near, 0]
+        same = (np.abs(proj[a, 0] - proj[near, 0]) <= window) & (np.max(np.abs(proj[a, 1:] - proj[near, 1:]), axis=1) <= window) & (ambiguous | (product >= 0))
+        flip = (np.abs(proj[a, 0] + proj[near, 0]) <= window) & (np.max(np.abs(proj[a, 1:] + proj[near, 1:]), axis=1) <= window) & (ambiguous | (product <= 0))
+        for b in near[same | flip]:
+            candidates.append((min(int(a), int(b)), max(int(a), int(b))))
+    cache: "OrderedDict[int, np.ndarray]" = OrderedDict()
+
+    def unit_of(k: int) -> "np.ndarray":
+        """The unit column ``k``, from a small least-recently-used cache (a confirmed candidate is rebuilt from the frame only when it fell out)."""
+        if k in cache:
+            cache.move_to_end(k)
+            return cache[k]
+        unit = _unit_column(X, live[k])
+        assert unit is not None
+        cache[k] = unit
+        if len(cache) > 128:
+            cache.popitem(last=False)
+        return unit
+
+    hits: dict = {}
+    for i, j in sorted(candidates, key=lambda ij: (ij[1], ij[0])):
+        if abs(abs(float(unit_of(i) @ unit_of(j))) - 1.0) <= tol:
+            hits.setdefault(j, []).append(i)
+    return good, hits
+
+
 def audit_degenerate_columns(X: Any, max_collinearity_cols: int = _COLLINEARITY_PASS_MAX_COLS, max_collinearity_bytes: int = _COLLINEARITY_PASS_MAX_BYTES) -> dict:
     """Cheap O(p) degenerate-column scan. Returns ``{column: reason}``.
 
@@ -241,18 +319,18 @@ def audit_degenerate_columns(X: Any, max_collinearity_cols: int = _COLLINEARITY_
     # numeric, non-degenerate columns participate; the first column of each collinear
     # group is the reference.
     live = [n for n in numeric_cols if n not in degenerate]
-    if len(live) > max_collinearity_cols:
+    gram_bytes = len(live) * n_rows * np.dtype(_crit_np_dtype()).itemsize
+    if len(live) >= 2 and (len(live) > max_collinearity_cols or gram_bytes > max_collinearity_bytes):
+        # Too wide for the dense Gram matrix (max_collinearity_cols / max_collinearity_bytes): the pass does not stop, it streams. A column that is a +-linear copy of another is the same unit-norm
+        # vector up to its sign, so random projections find the candidates in O(p * n) and an exact dot product confirms them; no (p, n) matrix and no p x p Gram matrix is held.
         logger.info(
-            "mrmr degenerate-column audit: skipping the collinearity pass (%d numeric candidate columns "
-            "exceeds max_collinearity_cols=%d) -- all_nan/constant/duplicate reasons are unaffected.",
-            len(live), max_collinearity_cols,
+            "mrmr degenerate-column audit: the collinearity pass streams (%d numeric candidate columns, a %.1f GiB matrix; limits %d columns, %.1f GiB) instead of building the Gram matrix.",
+            len(live), gram_bytes / 1024**3, max_collinearity_cols, max_collinearity_bytes / 1024**3,
         )
-    elif len(live) >= 2 and len(live) * n_rows * np.dtype(_crit_np_dtype()).itemsize > max_collinearity_bytes:
-        logger.info(
-            "mrmr degenerate-column audit: skipping the collinearity pass (a %d x %d matrix is %.1f GiB, above "
-            "max_collinearity_bytes=%.1f GiB) -- all_nan/constant/duplicate reasons are unaffected.",
-            len(live), n_rows, len(live) * n_rows * np.dtype(_crit_np_dtype()).itemsize / 1024**3, max_collinearity_bytes / 1024**3,
-        )
+        # the tolerance of the Gram branch: an exact linear copy reads |corr| = 1 within the rounding of the criterion dtype
+        stream_tol = max(_COLLINEAR_TOL, 4.0 * float(np.finfo(_crit_np_dtype()).eps) * float(np.sqrt(n_rows)))
+        good_stream, hits_stream = _collinear_hits_streaming(X, live, n_rows, stream_tol)
+        _flag_collinear(live, good_stream, lambda j: hits_stream.get(j, ()), degenerate)
     elif len(live) >= 2:
         names = live
         # ROW-major (K, n_rows), not (n_rows, K): writing ``M[k, :] = col`` fills a CONTIGUOUS row,
@@ -286,16 +364,7 @@ def audit_degenerate_columns(X: Any, max_collinearity_cols: int = _COLLINEARITY_
         # the Gram matrix carries the rounding of the dtype it was accumulated in: an exact linear duplicate reads |corr| = 1 within about eps * sqrt(n), so the tolerance is the
         # float64 contract 1e-9 or that bound, whichever is larger (a float32 matrix cannot resolve 1e-9)
         collinear_tol = max(_COLLINEAR_TOL, 4.0 * float(np.finfo(M.dtype).eps) * float(np.sqrt(n_rows)))
-        for j in range(len(live)):
-            if not good[j]:
-                continue
-            # earliest i < j with |corr| ~ 1 and i itself not already flagged collinear
-            row = abs_corr[j, :j]
-            hits = np.where(np.abs(row - 1.0) <= collinear_tol)[0]
-            for i in hits:
-                if good[i] and names[i] not in degenerate:
-                    degenerate[names[j]] = f"collinear_with:{names[i]}"
-                    break
+        _flag_collinear(names, good, lambda j: np.where(np.abs(abs_corr[j, :j] - 1.0) <= collinear_tol)[0], degenerate)
 
     return degenerate
 

@@ -42,7 +42,6 @@ def permuted_labels(y_raw: np.ndarray, y_codes: np.ndarray, perm_rows: Iterable[
 
 
 from ._numba_utils import (  # helpers hosted in _numba_utils_cross_module for the cross-module njit invariant
-    _codes_at_rows,
     _cuts_tie_free,
 )
 
@@ -76,6 +75,52 @@ def root_null_gain_threshold(labels: np.ndarray, n_classes_total: int, min_split
     return float(gains[q_idx])
 
 
+@njit(cache=True)
+def _codes_at_rows_nan(col, nan_rows, rows, cuts, nb_reg, out):
+    """``out[t]`` = number of cuts <= ``col[rows[t]]``, or ``nb_reg`` (the column's NaN code) where the row was NaN before filling."""
+    for t in range(rows.shape[0]):
+        r = rows[t]
+        if nan_rows[r]:
+            out[t] = nb_reg
+            continue
+        v = col[r]
+        lo = 0
+        hi = cuts.shape[0]
+        while lo < hi:
+            mid = (lo + hi) // 2
+            if cuts[mid] <= v:
+                lo = mid + 1
+            else:
+                hi = mid
+        out[t] = lo
+
+
+@njit(cache=True)
+def _prepare_column(raw_cont, order, nan_cont, fixed_codes, eval_rows, is_cont_j, slot, xsrt, col, xs_buf):
+    """Fill the per-column buffers of ``honest_null_columns_bycol``: a continuous column's sorted values ``xsrt`` and plain values ``col``, a fixed column's codes at the evaluation rows
+    ``xs_buf``. Returns ``(tie_free, has_nan_col)`` (both False for a fixed column)."""
+    n = xsrt.shape[0]
+    tie_free = False
+    has_nan_col = False
+    if is_cont_j:
+        for i in range(n):
+            xsrt[i] = raw_cont[order[slot, i], slot]
+            col[i] = raw_cont[i, slot]
+        tie_free = True
+        for i in range(1, n):
+            if xsrt[i] == xsrt[i - 1]:
+                tie_free = False
+                break
+        for i in range(n):
+            if nan_cont[i, slot]:
+                has_nan_col = True
+                break
+    else:
+        for t in range(eval_rows.shape[0]):
+            xs_buf[t] = fixed_codes[eval_rows[t], slot]
+    return tie_free, has_nan_col
+
+
 @njit(parallel=True, cache=True)
 def honest_null_columns_bycol(
     raw_cont: np.ndarray,
@@ -98,6 +143,7 @@ def honest_null_columns_bycol(
     q_refine_len: np.ndarray,
     eval_rows: np.ndarray,
     col_slot: np.ndarray,
+    nan_cont: np.ndarray,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Same result as ``honest_null_columns`` (``(plain, corrected)``, each ``(permutations, k)``), prange over columns.
 
@@ -112,30 +158,16 @@ def honest_null_columns_bycol(
     plain = np.zeros((n_perm_rows, k), dtype=np.float64)  # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
     corrected = np.zeros((n_perm_rows, k), dtype=np.float64)  # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
     order = _presort_columns(raw_cont)
+    # The root node takes its own per-permutation test, as the production recursion does: a threshold shared across permutations
+    # (root_null_gain_threshold, from one permutation's labels) changes accept decisions.
     root_crit = np.nan
-    if n_perm_rows > 0 and n < analytic_min_n:
-        root_crit = root_null_gain_threshold(y_raw_perm[0], n_classes_total, min_split_size, alpha, ROOT_NULL_DRAWS, seed + 104729)
     for j in prange(k):
         ysrt = np.empty(n, dtype=np.int64)
         ys = np.empty(m, dtype=np.int64)
         xs_buf = np.empty(m, dtype=np.int64)
-        tie_free = False
         xsrt = np.empty(n, dtype=raw_cont.dtype)
         col = np.empty(n, dtype=raw_cont.dtype)
-        if is_cont[j]:
-            sj = col_slot[j]
-            for i in range(n):
-                xsrt[i] = raw_cont[order[sj, i], sj]
-                col[i] = raw_cont[i, sj]
-            tie_free = True
-            for i in range(1, n):
-                if xsrt[i] == xsrt[i - 1]:
-                    tie_free = False
-                    break
-        else:
-            fs = col_slot[j]
-            for t in range(m):
-                xs_buf[t] = fixed_codes[eval_rows[t], fs]
+        tie_free, has_nan_col = _prepare_column(raw_cont, order, nan_cont, fixed_codes, eval_rows, is_cont[j], col_slot[j], xsrt, col, xs_buf)
         for b in range(n_perm_rows):
             yr_b = y_raw_perm[b]
             yc_b = y_codes_perm[b]
@@ -172,8 +204,9 @@ def honest_null_columns_bycol(
                         analytic_min_cell,
                     )
                 final = _supervised_edges(col, cuts, q_fallback[j, : q_fallback_len[j]], q_refine[j, : q_refine_len[j]])
-                n_x = final.shape[0] + 1
-                _codes_at_rows(col, eval_rows, final, xs_buf)
+                nb_reg = final.shape[0] + 1
+                _codes_at_rows_nan(col, nan_cont[:, sj], eval_rows, final, nb_reg, xs_buf)
+                n_x = nb_reg + 1 if has_nan_col else nb_reg
             else:
                 n_x = fixed_nbins[j]
             xs = xs_buf

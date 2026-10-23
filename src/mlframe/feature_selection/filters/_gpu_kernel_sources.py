@@ -156,6 +156,7 @@ COMPUTE_JOINT_HIST_MULTI_PAIR_SHARED_CUDA_SRC: str = r"""
     }
     """
 
+# Intentional float64: the class frequency vectors of the MI formula are bound to double* and every caller uploads them as float64 (statistic vectors, one entry per class).
 COMPUTE_MI_FROM_CLASSES_CUDA_SRC: str = r"""
     extern "C" __global__
     void compute_mi_from_classes_cuda(const int *classes_x, const double *freqs_x,const int *classes_y, const double *freqs_y, int *joint_counts, double *totals, int n,int nbins_x,int nbins_y) {

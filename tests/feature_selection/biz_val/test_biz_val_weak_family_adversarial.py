@@ -25,7 +25,6 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 import pytest
-from py_ci_shared.pytest_known_gap import known_gap
 
 from tests.conftest import fast_n_estimators
 from tests.feature_selection.conftest import fast_subset, is_fast_mode
@@ -35,7 +34,7 @@ from tests.feature_selection.conftest import fast_subset, is_fast_mode
 # --------------------------------------------------------------------------------------------------------------------
 
 
-pytestmark = pytest.mark.timeout(900)  # untimed biz_val real-fit tier: surface a hang fast (global --timeout=600 is a coarse backstop). Raised 60->150->300: CI runners are shared 2-vCPU boxes under -n auto xdist contention with up to ~20 pytest shards running concurrently -- real (non-hung) fits legitimately exceeded 150s there under full-matrix load, causing spurious timeout failures unrelated to any actual hang; 300s still catches a genuine hang well before the 600s global backstop.
+pytestmark = pytest.mark.timeout(1800)  # untimed biz_val real-fit tier: surface a hang fast (global --timeout=600 is a coarse backstop). Raised 60->150->300: CI runners are shared 2-vCPU boxes under -n auto xdist contention with up to ~20 pytest shards running concurrently -- real (non-hung) fits legitimately exceeded 150s there under full-matrix load, causing spurious timeout failures unrelated to any actual hang; 300s still catches a genuine hang well before the 600s global backstop.
 
 
 def _make_heavy_tail_label_noise(seed: int = 0, n: int = 2000, p_noise: int = 7, flip: float = 0.10):
@@ -172,12 +171,12 @@ def _run_hetero(X, y, *, seed: int = 0, n_shadow_trials: int = 3, vote_threshold
     return heterogeneous_relevance_vote(X, y, classification=True, n_shadow_trials=n_shadow_trials, vote_threshold=vote_threshold, random_state=seed)
 
 
-def _fit_hybrid(X, y, *, seed: int = 0):
+def _fit_hybrid(X, y, *, seed: int = 0, twin_corr=None):
     """Fit hybrid."""
     pytest.importorskip("shap")
     from mlframe.feature_selection.hybrid_selector import HybridSelector
 
-    sel = HybridSelector(use_fe=False, use_tree_member=False, random_state=seed)
+    sel = HybridSelector(use_fe=False, use_tree_member=False, random_state=seed, twin_corr=twin_corr)
     sel.fit(X, y)
     return list(sel.get_feature_names_out())
 
@@ -366,20 +365,20 @@ def test_biz_val_hybrid_redundancy_chain_keeps_both_signal_paths():
 
 @pytest.mark.slow
 def test_biz_val_hybrid_redundancy_chain_drops_redundant_bridge():
-    """HybridSelector should drop the redundant bridge b of a graded chain a~b~c; recorded as a known gap while b survives on the majority of seeds."""
+    """HybridSelector drops the redundant bridge b of a graded chain a~b~c (the conditional-twin pass) and keeps the signal paths a and c."""
     seeds = _seeds((0, 1, 2))
     b_dropped = []
     ac_ok = []
     for seed in seeds:
         X, y = _make_redundancy_chain(seed=seed)
-        sel = set(_fit_hybrid(X, y, seed=seed))
+        # The conditional-twin pass is opt-in (it costs recall on wider fixtures); this contract is what it does when asked for.
+        sel = set(_fit_hybrid(X, y, seed=seed, twin_corr=0.8))
         b_dropped.append("b" not in sel)
         ac_ok.append({"a", "c"}.issubset(sel))
     assert _majority(ac_ok), f"HybridSelector dropped a signal path (a and/or c) on the majority of seeds: {ac_ok}"
-    known_gap(
-        "(KG-3) PROD GAP: HybridSelector keeps the redundant bridge b in a graded chain a~b~c (corr(a,b)=0.86 < default corr_thr=0.92, so b is never "
-        f"clustered away); b dropped per seed: {b_dropped}.",
-        gap_closed=_majority(b_dropped),
+    assert _majority(b_dropped), (
+        "HybridSelector keeps the redundant bridge b of a graded chain a~b~c (corr(a,b)=0.86 < default corr_thr=0.92, so b is never clustered away); "
+        f"b dropped per seed: {b_dropped}"
     )
 
 

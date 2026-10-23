@@ -16,6 +16,7 @@ this module carves out, not by inspection alone.
 
 from __future__ import annotations
 
+from functools import partial
 from typing import Any
 
 import logging
@@ -108,6 +109,10 @@ def _assign_support_tail(
     _compact_changed, selected_vars = run_selection_compaction(self, X, selected_vars, cols, data, classes_y, engineered_recipes or {}, verbose)
     if _compact_changed:
         self.n_features_ = len(selected_vars) + len(self._engineered_recipes_)
+        # The compaction can create a compound (the fusion of two selected halves) after every raw-redundancy and rescue verdict was given: the raw operands and the hinge legs admitted
+        # beside the fragments were judged against the fragments only. The rescue's backward elimination runs once more on the finished design.
+        if run_residual_rescue(self, X, selected_vars, cols, engineered_recipes or {}, _retention_added_eng_names, verbose, prune_only=True):
+            self.n_features_ = len(selected_vars) + len(self._engineered_recipes_)
 
     # HIERARCHY: the main effect a joint-cell composite only modulates stays beside it, however fully the composite subsumes it.
     from ._main_effect_restore import run_main_effect_restore
@@ -222,6 +227,32 @@ def _assign_support_tai_f_step1_identical_seed_iloc(self, X, verbose, _retention
         logger.debug("MRMR usability-aware pure-form retention skipped (%s: %s).", type(_retain_exc).__name__, _retain_exc)
 
 
+def _degenerate_class_root(self, name) -> str:
+    """The earliest member of ``name``'s duplicate / collinear class according to the degenerate-column audit (``name`` itself when it is not flagged)."""
+    reason = str((getattr(self, "degenerate_columns_", None) or {}).get(str(name), ""))
+    for prefix in ("duplicate_of:", "collinear_with:"):
+        if reason.startswith(prefix):
+            return reason[len(prefix) :]
+    return str(name)
+
+
+def _degenerate_class_roots(self, names) -> set:
+    """The class roots of ``names`` (see :func:`_degenerate_class_root`)."""
+    return {_degenerate_class_root(self, n) for n in names}
+
+
+def _assign_support_tai_exclude_degenerate_twins(self, selected_vars, cols, raw_extra) -> None:
+    """Remove from ``raw_extra`` (in place) every raw that belongs to the same duplicate / collinear class as a raw already selected.
+
+    The degenerate-column audit labels a column ``duplicate_of:X`` or ``collinear_with:X`` against the earliest member ``X`` of its class. A raw whose class is represented in the selection is a copy
+    of information the selection holds, however the screen picked the representative: re-attaching the earliest member beside a selected later copy (or the reverse) selects both.
+    """
+    if not (getattr(self, "degenerate_columns_", None) or {}) or not isinstance(raw_extra, list):
+        return
+    selected_roots = _degenerate_class_roots(self, [cols[i] for i in selected_vars if 0 <= int(i) < len(cols)])
+    raw_extra[:] = [n for n in raw_extra if _degenerate_class_root(self, n) not in selected_roots]
+
+
 def _assign_support_tai_f_step2_re_attaches_only(self, X, verbose, _retention_prep_cache, selected_vars, cols, classes_y, _eng_continuous_snapshot, data, _allowed_raw_idx):
     """Step 2 of _assign_support_tai_fe_max_steps: lines starting at ``try:``."""
     try:
@@ -255,6 +286,7 @@ def _assign_support_tai_f_step2_re_attaches_only(self, X, verbose, _retention_pr
             _rr_excl_names = set(str(_n) for _n in (getattr(self, "_cluster_aggregate_removals_", None) or []))
             _cm_rr = getattr(self, "cluster_members_", None)
             _assign_support_tai_representative_exclude_every_cluster(self, _cm_rr, selected_vars, _raw_extra, _rr_excl_names)
+            _assign_support_tai_exclude_degenerate_twins(self, selected_vars, cols, _raw_extra)
             # SUBSUMED-OPERAND EXCLUSION (signal-aware, variant-3). A raw that is an operand of a
             # SURVIVING engineered feature MAY be fully represented by that feature (re-attaching it then
             # re-injects the raw-redundancy I4b forbids) - but it may instead carry a large PRIVATE signal
@@ -504,6 +536,8 @@ def _assign_support_tai_g_step1_try(self, _retention_added_eng_names, selected_v
 def _assign_support_tai_g_step1_map_each_surviving(self, _post_recipes, _post_sel_raw_names, cols, data, _eng_continuous_snapshot, _post_apply, X, _post_qbin, _post_raw_set, y, _post_drop, classes_y, _linear_usability_keep_enabled, verbose, selected_vars, target_indices, nbins):
     """Step 1 of _assign_support_tai_g_step1_try: lines starting at ``if _post_recipes and _post_sel_raw_names:``."""
     if _post_recipes and _post_sel_raw_names:
+        from mlframe.feature_selection.filters._fe_rejection_ledger import record_raw_redundancy_drop
+
         _post_cols = list(cols)
         _post_data = data
         _post_eng_cont = dict(_eng_continuous_snapshot or {})
@@ -556,6 +590,7 @@ def _assign_support_tai_g_step1_map_each_surviving(self, _post_recipes, _post_se
                 raw_X=X, floor_margin_mult=1.5,
                 linear_usability_keep=_linear_usability_keep_enabled(self),
                 seed=int(getattr(self, "random_seed", 0) or 0), verbose=verbose,
+                reject_sink=partial(record_raw_redundancy_drop, self),
             )
             if _post_dropped:
                 _post_drop_set = set(_post_dropped)
@@ -566,7 +601,11 @@ def _assign_support_tai_g_step1_map_each_surviving(self, _post_recipes, _post_se
                 # NEVER-EMPTY RAW FLOOR (mirrors the main sweep): the post-retention drop may not
                 # empty the raw support. If no raw survives, re-add the strongest dropped raw (by
                 # marginal MI) as the representative; the engineered survivor still rides along.
-                if not selected_vars:
+                # An engineered survivor that carries the dropped operands' information already satisfies the floor: the raw support is then intentionally
+                # empty (every raw operand was judged fully subsumed), the same engineered-only outcome the main sweep's floor reaches in full FE mode. Re-adding
+                # the strongest dropped raw by marginal MI here resurrected exactly the fully subsumed dominant operand the sweep had dropped (``c`` beside
+                # ``mul(prewarp(c),sin(d))`` in the F2 fixture).
+                if not selected_vars and not self._engineered_recipes_:
                     _bf_idx, _bf_rel = None, float("-inf")
                     _tgt_pf = np.asarray(target_indices, dtype=np.int64)
                     _fn_pf = np.asarray(nbins, dtype=np.int64)
@@ -691,8 +730,10 @@ def _assign_support_tai_engineered_features_without_replayable(self, selected_va
                 # raw column the caller excluded re-entered support_ whenever its name appeared as a source
                 # token of a confirmed recipe and its marginal MI cleared the floor -- and the fit is cached
                 # and replayed, so the leak persisted.
+                _selected_degenerate_roots = _degenerate_class_roots(self, [cols[int(v)] for v in selected_vars if 0 <= int(v) < len(cols)])
                 _to_add = [i for i, _name, m in sorted(_raw_mi_aug, key=lambda kv: (-kv[2], kv[0]))
                            if m > _floor_aug and i not in _selected_set and _name in _eng_tokens
+                           and _degenerate_class_root(self, _name) not in _selected_degenerate_roots
                            and _name not in _aug_excluded_names
                            and _name not in _redund_dropped_names
                            and (_allowed_raw_idx is None or int(i) in _allowed_raw_idx)

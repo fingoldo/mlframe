@@ -112,7 +112,7 @@ def test_chooser_streamed_routes_through_mi_classif_streamed(monkeypatch):
     X, y = _data()
     calls = []
 
-    def fake_streamed(blocks, y_arg, *, nbins, n_rows, dtype, max_devices=None):
+    def fake_streamed(blocks, y_arg, *, nbins, n_rows, dtype, max_devices=None, n_cols=None):
         """Stand-in for mi_classif_streamed that records the call and returns the CPU reference."""
         calls.append((len(list(blocks)), n_rows))
         return _cpu_reference(X, y)

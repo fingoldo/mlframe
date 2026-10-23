@@ -77,11 +77,12 @@ def test_scan_peak_stays_near_one_matrix():
     assert peak < 1.6 * frame_bytes, f"audit peak {peak / frame_bytes:.2f} frame copies"
 
 
-def test_byte_budget_skips_the_pass_before_allocating(caplog):
-    """A byte budget below the matrix size skips collinearity with a log; the other reasons are still reported."""
+def test_byte_budget_streams_the_pass_instead_of_allocating_the_matrix(caplog):
+    """A byte budget below the matrix size does not skip collinearity: the pass streams (logged) and reports the same collinear verdicts as the Gram pass."""
     X = _mixed_frame()
+    baseline = dg.audit_degenerate_columns(X)
     with caplog.at_level(logging.INFO):
         reasons = dg.audit_degenerate_columns(X, max_collinearity_bytes=1024)
-    assert not any(r.startswith("collinear_with") for r in reasons.values())
+    assert reasons == baseline
     assert reasons["dup_a"] == "duplicate_of:a" and reasons["const"] == "constant"
-    assert any("max_collinearity_bytes" in r.getMessage() for r in caplog.records)
+    assert any("the collinearity pass streams" in r.getMessage() for r in caplog.records)

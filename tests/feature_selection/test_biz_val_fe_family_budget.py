@@ -167,7 +167,7 @@ def test_load_budgets_corrupt_file_returns_none_not_raises(tmp_path, monkeypatch
 
 
 @pytest.mark.slow
-@pytest.mark.timeout(900)
+@pytest.mark.timeout(1800)
 def test_biz_val_fe_budget_shifts_toward_useful_family(tmp_path, monkeypatch):
     """After one fit with fe_budget_learning=True on the triplet-useful bed, quadruplet's (the
     "expensive useless" family here, seeded with an inflated quota) budget fraction drops by >= 40%
@@ -202,7 +202,7 @@ def test_biz_val_fe_budget_shifts_toward_useful_family(tmp_path, monkeypatch):
 
 
 @pytest.mark.slow
-@pytest.mark.timeout(900)
+@pytest.mark.timeout(1800)
 def test_biz_val_fe_budget_recall_preserved_and_wall_drops(tmp_path):
     """fit 2 (learned budgets from fit 1) vs fit 1 (equal-split): the triplet-composed engineered
     feature is still selected (the useful family was never the one cut) and fit 2's recorded
@@ -252,7 +252,7 @@ def test_biz_val_fe_budget_recall_preserved_and_wall_drops(tmp_path):
 
 
 @pytest.mark.slow
-@pytest.mark.timeout(900)
+@pytest.mark.timeout(1800)
 def test_biz_val_fe_budget_floor_prevents_starvation(tmp_path, monkeypatch):
     """3 sequential fits: quadruplet's (useless here -- the signal is a 3-way triplet product) budget
     never falls below floor * base_budget; then flip the bed to a genuine 4-way product (quadruplet

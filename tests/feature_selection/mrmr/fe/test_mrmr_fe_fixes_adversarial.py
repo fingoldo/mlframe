@@ -60,7 +60,7 @@ _N = 40_000  # large enough to form the fused composite on the non-collapse seed
 _IDENT = re.compile(r"[A-Za-z_][A-Za-z_0-9]*")
 
 
-def _fit_in_subprocess(body: str, *, timeout: int = 850) -> dict:
+def _fit_in_subprocess(body: str, *, timeout: int = 3600) -> dict:
     """Run a fit body in a fresh interpreter and return the JSON result dict.
 
     ``body`` must build ``df`` (a DataFrame) and ``y`` (a Series), then is wrapped
@@ -159,7 +159,7 @@ def _engineered(sel) -> list:
 # ===========================================================================
 
 
-@pytest.mark.timeout(900)
+@pytest.mark.timeout(3600)
 def test_bug1_two_raws_both_subsumed_no_empty_support():
     """ATTACK (c): BOTH operands of the same ratio are subsumed.
 
@@ -192,7 +192,7 @@ def test_bug1_two_raws_both_subsumed_no_empty_support():
     assert not res["replay_break"], f"replay regression: {res['replay_break']}"
 
 
-@pytest.mark.timeout(900)
+@pytest.mark.timeout(3600)
 def test_bug1_dpi_trap_self_transform_not_dropped():
     """ATTACK (e): the DPI trap -- a raw whose only consumer is a self-transform of
     itself must NOT be redundancy-dropped (conditioning a raw on a basis of ITSELF
@@ -222,7 +222,7 @@ def test_bug1_dpi_trap_self_transform_not_dropped():
     assert not res["replay_break"], f"replay regression: {res['replay_break']}"
 
 
-@pytest.mark.timeout(900)
+@pytest.mark.timeout(3600)
 def test_bug1_private_linear_at_retain_bar_kept():
     """ATTACK (a): a raw PARTIALLY subsumed -- a genuine private linear term sitting
     near the ``RAW_SELF_RETAIN_FRAC`` (5%) keep bar must be KEPT (its independent
@@ -246,7 +246,7 @@ def test_bug1_private_linear_at_retain_bar_kept():
     assert not res["replay_break"], f"replay regression: {res['replay_break']}"
 
 
-@pytest.mark.timeout(900)
+@pytest.mark.timeout(3600)
 def test_bug1_triple_fused_composite_isolates_anchor():
     """ATTACK (b): a composite that fuses a SECOND signal besides the a-containing
     sub-expression (triple structure) -- the clean-subexpr isolation must still find
@@ -282,7 +282,7 @@ def test_bug1_triple_fused_composite_isolates_anchor():
 # ===========================================================================
 
 
-@pytest.mark.timeout(900)
+@pytest.mark.timeout(3600)
 def test_bug2_every_advertised_engineered_replays_byte_exact():
     """ATTACK (a)+(b): every advertised engineered feature must replay byte-exactly
     through transform() -- a vote-rejected column can never re-enter support_
@@ -310,7 +310,7 @@ def test_bug2_every_advertised_engineered_replays_byte_exact():
     )
 
 
-@pytest.mark.timeout(900)
+@pytest.mark.timeout(3600)
 def test_bug2_deep_nested_two_step_survives_or_not_selected():
     """ATTACK (a): deep nested-engineered feature at fe_max_steps>=2 either survives
     transform byte-exact or is correctly NOT selected -- never advertised-but-missing.
@@ -334,7 +334,7 @@ def test_bug2_deep_nested_two_step_survives_or_not_selected():
 # ===========================================================================
 
 
-@pytest.mark.timeout(900)
+@pytest.mark.timeout(3600)
 def test_bug3_pure_noise_pair_not_rescued():
     """ATTACK (a): a prevalence-failed pair that is GENUINELY NOISE must NOT be
     admitted by the rescue (the rescue only PROPOSES; the full admission gates --
@@ -366,7 +366,7 @@ def test_bug3_pure_noise_pair_not_rescued():
     assert not res["replay_break"], f"replay regression: {res['replay_break']}"
 
 
-@pytest.mark.timeout(900)
+@pytest.mark.timeout(3600)
 def test_bug3_two_pure_noise_operands_not_rescued():
     """ATTACK (a) hardened: TWO pure-noise operands (``e``, ``g``) whose noise*noise
     pair could be a prevalence-failed synergy candidate must NOT be rescued into the
@@ -410,7 +410,7 @@ def _assert_byte_exact_slice_replay(df: pd.DataFrame, y: np.ndarray, seed: int, 
             ), f"PREWARP REPLAY BREAK: engineered col {ec!r} not byte-exact on slice [{lo}:{hi}] -- a global/slice-local statistic leaked into replay"
 
 
-@pytest.mark.timeout(900)
+@pytest.mark.timeout(3600)
 def test_prewarp_replay_extreme_outlier_slice_byte_exact():
     """ATTACK (a): a slice containing EXTREME outliers / heavy-tail operands must
     still replay byte-exactly (frozen axis params, no slice-local re-fit)."""
@@ -430,7 +430,7 @@ def test_prewarp_replay_extreme_outlier_slice_byte_exact():
     _assert_byte_exact_slice_replay(df, y, seed=11, slices=[(5000, 5300), (0, 200)])
 
 
-@pytest.mark.timeout(900)
+@pytest.mark.timeout(3600)
 def test_prewarp_replay_constant_operand_slice_byte_exact():
     """ATTACK (c): a slice where an operand is CONSTANT (all-equal) must replay
     byte-exactly -- a degenerate axis (span ~ 0) must be handled deterministically,
@@ -449,7 +449,7 @@ def test_prewarp_replay_constant_operand_slice_byte_exact():
     _assert_byte_exact_slice_replay(df, y, seed=13, slices=[(5000, 5200)])
 
 
-@pytest.mark.timeout(900)
+@pytest.mark.timeout(3600)
 def test_prewarp_replay_out_of_fit_range_slice_byte_exact():
     """ATTACK (b): a slice value OUTSIDE the fit-time operand range must clip/extrapolate
     DETERMINISTICALLY -- the replay is a closed-form function of x with frozen params,

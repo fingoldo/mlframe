@@ -19,6 +19,40 @@ def _well_conditioned(r: np.ndarray) -> bool:
     return bool(d.size) and bool(np.all(np.isfinite(d))) and float(d.min()) > _RCOND * float(d.max())
 
 
+def _base_blocks(base_mat: "np.ndarray | Sequence[np.ndarray]", tr_idx: np.ndarray, va_idx: np.ndarray) -> "tuple[np.ndarray, np.ndarray]":
+    """The train and validation row blocks of the base design, in float64 (a sequence of columns is sliced per column, so the full-height design never exists)."""
+    # Intentional float64: the design of a least-squares probe. The columns arrive in the criterion dtype, where the rounding noise (about 1e-7) is far above the ``_RCOND`` rank test (1e-10),
+    # so a column collinear with the base looked well conditioned and entered the fast QR update as noise; a float64 design keeps the rank test meaningful.
+    if isinstance(base_mat, np.ndarray):
+        base_tr = np.asarray(base_mat[tr_idx], dtype=np.float64)
+        base_va = np.asarray(base_mat[va_idx], dtype=np.float64)
+    else:
+        base_tr = np.column_stack([np.asarray(c, dtype=np.float64)[tr_idx] for c in base_mat])
+        base_va = np.column_stack([np.asarray(c, dtype=np.float64)[va_idx] for c in base_mat])
+    return base_tr, base_va
+
+
+def _base_qr(base_tr: np.ndarray, y_tr: np.ndarray) -> "tuple[Any, Any, Any, Any]":
+    """``(Q, R, coef_base, qty)`` of the economic QR of the base design when it is well conditioned, else ``(None, None, None, None)`` (the lstsq path then decides)."""
+    import scipy.linalg as sla
+
+    Q: Any = None
+    R: Any = None
+    coef_base: Any = None
+    qty: Any = None
+    try:
+        Q, R = sla.qr(base_tr, mode="economic")
+        if _well_conditioned(R):
+            qty = Q.T @ y_tr
+            coef_base = sla.solve_triangular(R, qty)
+        else:
+            Q = R = None
+    except Exception as exc:
+        logger.warning("mrmr: QR of the raw-protection base design failed; scoring with lstsq: %r", exc, exc_info=True)
+        Q = R = None
+    return Q, R, coef_base, qty
+
+
 def heldout_r2_scorer(base_mat: np.ndarray | Sequence[np.ndarray], y: np.ndarray, train_mask: np.ndarray, val_mask: np.ndarray) -> Callable[..., float]:
     """Return ``r2(extra=None)``: the held-out R^2 of a least-squares fit of ``y`` on ``[base | extra]``, trained on ``train_mask`` rows.
 
@@ -37,32 +71,15 @@ def heldout_r2_scorer(base_mat: np.ndarray | Sequence[np.ndarray], y: np.ndarray
     yv = y[va_idx]
     ss = float(np.sum((yv - yv.mean()) ** 2))
     y_tr = y[tr_idx]
-    if isinstance(base_mat, np.ndarray):
-        base_tr = base_mat[tr_idx]
-        base_va = base_mat[va_idx]
-    else:
-        base_tr = np.column_stack([np.asarray(c)[tr_idx] for c in base_mat])
-        base_va = np.column_stack([np.asarray(c)[va_idx] for c in base_mat])
+    base_tr, base_va = _base_blocks(base_mat, tr_idx, va_idx)
 
-    def _lstsq_r2(a_tr: np.ndarray, a_va: np.ndarray) -> float:
-        """Held-out R^2 from the rank-revealing least-squares solution."""
+    def _lstsq_pred(a_tr: np.ndarray, a_va: np.ndarray) -> np.ndarray:
+        """Validation predictions of the rank-revealing least-squares solution."""
         coef = np.linalg.lstsq(a_tr, y_tr, rcond=None)[0]
-        return 1.0 - float(np.sum((yv - a_va @ coef) ** 2)) / ss
+        pred: np.ndarray = a_va @ coef
+        return pred
 
-    Q: Any = None
-    R: Any = None
-    coef_base: Any = None
-    qty: Any = None
-    try:
-        Q, R = sla.qr(base_tr, mode="economic")
-        if _well_conditioned(R):
-            qty = Q.T @ y_tr
-            coef_base = sla.solve_triangular(R, qty)
-        else:
-            Q = R = None
-    except Exception as exc:
-        logger.warning("mrmr: QR of the raw-protection base design failed; scoring with lstsq: %r", exc, exc_info=True)
-        Q = R = None
+    Q, R, coef_base, qty = _base_qr(base_tr, y_tr)
 
     def _extended_coef(e_tr: np.ndarray):
         """Coefficients ``[beta_base; beta_extra]`` of ``y ~ [base | e]`` from the base QR without copying ``Q``: ``E = Q r + E_perp``, ``E_perp = Q2 R2``, so
@@ -77,14 +94,12 @@ def heldout_r2_scorer(base_mat: np.ndarray | Sequence[np.ndarray], y: np.ndarray
         beta_b = sla.solve_triangular(R, qty - r_blk @ beta_e)
         return np.concatenate((beta_b, beta_e))
 
-    def r2(extra=None):
-        """Held-out R^2 of ``[base | extra]``, where ``extra`` is one column or an ``(n, m)`` block of columns added together."""
-        if ss < 1e-24:
-            return 0.0
+    def _pred(extra):
+        """Validation predictions of ``[base | extra]`` (``extra`` one column, an ``(n, m)`` block, or ``None`` for the base alone)."""
         if extra is None:
             if coef_base is not None:
-                return 1.0 - float(np.sum((yv - base_va @ coef_base) ** 2)) / ss
-            return _lstsq_r2(base_tr, base_va)
+                return base_va @ coef_base
+            return _lstsq_pred(base_tr, base_va)
         extra = np.asarray(extra, dtype=np.float64)  # Intentional float64: rank-deficiency and exact-copy fallbacks need f64 lstsq precision
         extra = extra.reshape(-1, 1) if extra.ndim == 1 else extra
         extra_tr = extra[tr_idx]
@@ -94,11 +109,24 @@ def heldout_r2_scorer(base_mat: np.ndarray | Sequence[np.ndarray], y: np.ndarray
                 coef = _extended_coef(extra_tr)
                 if coef is not None:
                     p = base_va.shape[1]
-                    pred = base_va @ coef[:p] + extra_va @ coef[p:]
-                    return 1.0 - float(np.sum((yv - pred) ** 2)) / ss
+                    return base_va @ coef[:p] + extra_va @ coef[p:]
             except Exception as e:
                 logger.debug("QR-update regression probe failed (%s: %s); scoring this candidate with lstsq", type(e).__name__, e)
         # A candidate collinear with the base (or a rank-deficient base) lands here.
-        return _lstsq_r2(np.column_stack((base_tr, extra_tr)), np.column_stack((base_va, extra_va)))
+        return _lstsq_pred(np.column_stack((base_tr, extra_tr)), np.column_stack((base_va, extra_va)))
 
+    def r2(extra=None):
+        """Held-out R^2 of ``[base | extra]``, where ``extra`` is one column or an ``(n, m)`` block of columns added together."""
+        if ss < 1e-24:
+            return 0.0
+        return 1.0 - float(np.sum((yv - _pred(extra)) ** 2)) / ss
+
+    def paired_gain(extra) -> tuple:
+        """``(gain, se)``: the held-out R^2 gain of adding ``extra`` to the base and its standard error over the validation rows (paired per-row squared-error reduction)."""
+        if ss < 1e-24:
+            return 0.0, 0.0
+        d = (yv - _pred(None)) ** 2 - (yv - _pred(extra)) ** 2
+        return float(d.sum()) / ss, float(d.std(ddof=1)) * float(np.sqrt(d.size)) / ss if d.size > 1 else 0.0
+
+    r2.paired_gain = paired_gain  # type: ignore[attr-defined]
     return r2

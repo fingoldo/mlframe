@@ -15,6 +15,7 @@ Safety margins (measured, pinned against pageable on this host: 5.8 vs 3.8 GB/s 
 from __future__ import annotations
 
 import logging
+import time
 from typing import Any, Iterable, Optional
 
 import numpy as np
@@ -33,7 +34,7 @@ HOST_BLOCK_FRAC = 0.10  # share of free host RAM the CPU batch MI may take for o
 # batch MI uses through _crit_np_dtype(); the budget only over-estimates when the narrower width is in effect.
 CPU_WORK_ITEMSIZE = 8
 
-__all__ = ["plan_streamed_mi", "mi_classif_streamed", "choose_mi_path"]
+__all__ = ["plan_streamed_mi", "mi_classif_streamed", "null_max_streamed", "choose_mi_path"]
 
 
 def _devices(max_devices: Optional[int] = None) -> list[tuple[int, int]]:
@@ -58,14 +59,25 @@ def _devices(max_devices: Optional[int] = None) -> list[tuple[int, int]]:
         return []
 
 
+_HOST_FREE_TTL_SECONDS = 1.0  # the probe costs ~2 ms on a memory-starved Windows host and runs once per MI path choice; free RAM does not move that fast
+_host_free_cache: "tuple[float, int]" = (float("-inf"), 0)
+
+
 def _host_free_bytes() -> int:
-    """Bytes of host RAM available now (2 GiB when psutil is missing, the conservative default)."""
+    """Bytes of host RAM available now, read at most once per ``_HOST_FREE_TTL_SECONDS`` (2 GiB when psutil is missing, the conservative default)."""
+    global _host_free_cache
+    now = time.monotonic()
+    stamp, cached = _host_free_cache
+    if now - stamp < _HOST_FREE_TTL_SECONDS:
+        return cached
     try:
         import psutil
-        return int(psutil.virtual_memory().available)
+        value = int(psutil.virtual_memory().available)
     except Exception as _exc:
         logger.debug("free-memory probe failed, assuming 2 GiB: %s", _exc)
-        return 2 * 1024**3
+        value = 2 * 1024**3
+    _host_free_cache = (now, value)
+    return value
 
 
 def plan_streamed_mi(n_rows: int, devices: list[tuple[int, int]], host_free: int, dtype: Any) -> dict:
@@ -117,7 +129,7 @@ def choose_mi_path(n_rows: int, n_cols: int, dtype: Any, devices: list[tuple[int
     return "cpu_blocks"
 
 
-def mi_classif_streamed(blocks: Iterable[np.ndarray], y: np.ndarray, *, nbins: int, n_rows: int, dtype: Any, max_devices: Optional[int] = None) -> np.ndarray:
+def mi_classif_streamed(blocks: Iterable[np.ndarray], y: np.ndarray, *, nbins: int, n_rows: int, dtype: Any, max_devices: Optional[int] = None, n_cols: Optional[int] = None) -> np.ndarray:
     """Plug-in MI of every column of every block against ``y``, concatenated in block order.
 
     ``blocks`` yields ``(n_rows, w)`` arrays of ``dtype`` (each block may have its own width up to the planned one). Returns the
@@ -132,11 +144,8 @@ def mi_classif_streamed(blocks: Iterable[np.ndarray], y: np.ndarray, *, nbins: i
     plan = plan_streamed_mi(n_rows, devices, _host_free_bytes(), dtype)
     if plan["width"] <= 0:
         raise RuntimeError("streamed GPU MI: no device has VRAM for a column block")
-    stage: dict[int, list] = {}
-    for d in plan["devices"]:
-        with cp.cuda.Device(d):
-            # two pinned staging buffers per device, allocated once and reused for the whole run
-            stage[d] = [cp.cuda.alloc_pinned_memory(plan["block_bytes"]) for _ in range(2)]
+    # two pinned staging buffers per device, allocated once and reused for the whole run; the same values come from pageable uploads when the pinned pool is exhausted
+    stage = _pinned_staging(cp, plan, n_rows, n_cols, dtype)
     y64 = np.ascontiguousarray(y, dtype=np.int64)
     y_min = int(y64.min()) if y64.size else 0
     n_classes = (int(y64.max()) - y_min + 1) if y64.size else 1
@@ -151,11 +160,13 @@ def mi_classif_streamed(blocks: Iterable[np.ndarray], y: np.ndarray, *, nbins: i
         if w > plan["width"]:
             raise ValueError(f"block of {w} columns exceeds the planned width {plan['width']}")
         d = plan["devices"][k % len(plan["devices"])]
-        buf = stage[d][k // len(plan["devices"]) % 2]
         with cp.cuda.Device(d):
-            host = np.frombuffer(buf, dtype=dtype, count=n_rows * w).reshape(n_rows, w)
-            np.copyto(host, block)
-            dev_block = cp.asarray(host)
+            if stage is None:
+                dev_block = cp.asarray(np.ascontiguousarray(block))
+            else:
+                host = np.frombuffer(stage[d][k // len(plan["devices"]) % 2], dtype=dtype, count=n_rows * w).reshape(n_rows, w)
+                np.copyto(host, block)
+                dev_block = cp.asarray(host)
             mi = _plugin_mi_classif_batch_cuda_resident(
                 dev_block, dev_y[d], int(nbins), y_min=y_min, n_classes=n_classes, keep_dtype=True,
             )
@@ -164,6 +175,68 @@ def mi_classif_streamed(blocks: Iterable[np.ndarray], y: np.ndarray, *, nbins: i
     if not out:
         return np.zeros(0, dtype=dtype)
     return np.concatenate(out)
+
+
+def _pinned_staging(cp: Any, plan: dict, n_rows: int, n_cols: Optional[int], dtype: Any) -> "Optional[dict[int, list]]":
+    """Two pinned staging buffers per planned device, sized for ``n_cols`` columns when that is smaller than the planned block (a 12-column matrix does not need 500 MB of pinned memory per
+    buffer, and the pinned pool does not give it back), or ``None`` when the pinned allocation fails (the caller then uploads from pageable memory)."""
+    nbytes = int(plan["block_bytes"])
+    if n_cols is not None:
+        nbytes = min(nbytes, int(n_rows) * int(np.dtype(dtype).itemsize) * max(1, int(n_cols)))
+    try:
+        return {d: [cp.cuda.alloc_pinned_memory(nbytes) for _ in range(2)] for d in plan["devices"]}
+    except cp.cuda.runtime.CUDARuntimeError as exc:
+        logger.warning("streamed GPU MI: pinned staging unavailable (%s); uploading blocks from pageable memory.", exc)
+        return None
+
+
+def null_max_streamed(
+    blocks: Iterable[np.ndarray], y: np.ndarray, permutations: "list[np.ndarray]", *, nbins: int, n_rows: int, dtype: Any, max_devices: Optional[int] = None, n_cols: Optional[int] = None
+) -> np.ndarray:
+    """``max_j MI(X_j; y[perm])`` for every permutation over the columns of all ``blocks``, through the streamed GPU path.
+
+    Each block is staged and uploaded once and its bin edges are computed once (``candidate_cache``); every permutation then only counts, instead of the whole matrix going through
+    :func:`mi_classif_streamed` once per permutation. The permuted label vectors stay on the device when they take at most a quarter of its free VRAM, else they are uploaded per use.
+    The kernels and the ``keep_dtype`` setting are those of :func:`mi_classif_streamed`, so the maxima equal the repeated calls'. Raises when no CUDA device is usable."""
+    import cupy as cp
+    from .._hermite_fe_mi import _plugin_mi_classif_batch_cuda_resident
+
+    devices = _devices(max_devices)
+    plan = plan_streamed_mi(n_rows, devices, _host_free_bytes(), dtype)
+    if plan["width"] <= 0:
+        raise RuntimeError("streamed GPU MI: no device has VRAM for a column block")
+    y64 = np.ascontiguousarray(y, dtype=np.int64)
+    y_min = int(y64.min()) if y64.size else 0
+    n_classes = (int(y64.max()) - y_min + 1) if y64.size else 1
+    perm_labels = [np.ascontiguousarray(y64[perm]) for perm in permutations]
+    free_by_dev = dict(devices)
+    resident_perms: dict[int, list] = {}
+    for d in plan["devices"]:
+        with cp.cuda.Device(d):
+            if len(perm_labels) * n_rows * 8 <= free_by_dev[d] // 4:
+                resident_perms[d] = [cp.asarray(lab) for lab in perm_labels]
+    stage = _pinned_staging(cp, plan, n_rows, n_cols, dtype)  # None when the pinned pool is exhausted: the blocks are then uploaded from pageable memory
+    out = np.full(len(perm_labels), np.nan, dtype=np.float64)  # Intentional float64: statistic vector (null max), exact permutation ties
+    for k, block in enumerate(blocks):
+        block = np.asarray(block, dtype=dtype)
+        w = block.shape[1]
+        if w > plan["width"]:
+            raise ValueError(f"block of {w} columns exceeds the planned width {plan['width']}")
+        d = plan["devices"][k % len(plan["devices"])]
+        with cp.cuda.Device(d):
+            if stage is None:
+                dev_block = cp.asarray(np.ascontiguousarray(block))
+            else:
+                host = np.frombuffer(stage[d][k // len(plan["devices"]) % 2], dtype=dtype, count=n_rows * w).reshape(n_rows, w)
+                np.copyto(host, block)
+                dev_block = cp.asarray(host)
+            cache: dict = {}
+            for b in range(len(perm_labels)):
+                dev_y = resident_perms[d][b] if d in resident_perms else cp.asarray(perm_labels[b])
+                mi = _plugin_mi_classif_batch_cuda_resident(dev_block, dev_y, int(nbins), y_min=y_min, n_classes=n_classes, keep_dtype=True, candidate_cache=cache)
+                out[b] = np.fmax(out[b], np.nanmax(np.asarray(cp.asnumpy(mi), dtype=np.float64)))  # Intentional float64: statistic vector (MI), exact permutation ties
+            del dev_block, cache
+    return out
 
 
 def mi_classif_streamed_fill(fill: Any, n_blocks: int, widths: list, y: np.ndarray, *, nbins: int, n_rows: int, dtype: Any, max_devices: Optional[int] = None) -> np.ndarray:
@@ -181,10 +254,9 @@ def mi_classif_streamed_fill(fill: Any, n_blocks: int, widths: list, y: np.ndarr
         raise RuntimeError("streamed GPU MI: no device has VRAM for a column block")
     if max(widths, default=0) > plan["width"]:
         raise ValueError(f"a block of {max(widths)} columns exceeds the planned width {plan['width']}")
-    stage: dict[int, list] = {}
-    for d in plan["devices"]:
-        with cp.cuda.Device(d):
-            stage[d] = [cp.cuda.alloc_pinned_memory(plan["block_bytes"]) for _ in range(2)]
+    # the staging buffers hold the widest block that will actually be filled, not the planned maximum (the pinned pool does not give memory back); without pinned memory
+    # (the pinned policy refuses explicit allocations by default) each block is filled in an ordinary buffer and uploaded from there, with the same values
+    stage = _pinned_staging(cp, plan, n_rows, max(widths, default=1), dtype)
     y64 = np.ascontiguousarray(y, dtype=np.int64)
     y_min = int(y64.min()) if y64.size else 0
     n_classes = (int(y64.max()) - y_min + 1) if y64.size else 1
@@ -196,12 +268,17 @@ def mi_classif_streamed_fill(fill: Any, n_blocks: int, widths: list, y: np.ndarr
     for k in range(n_blocks):
         w = int(widths[k])
         d = plan["devices"][k % len(plan["devices"])]
-        buf = stage[d][k // len(plan["devices"]) % 2]
         with cp.cuda.Device(d):
-            host = np.frombuffer(buf, dtype=dtype, count=n_rows * w).reshape(n_rows, w)
-            fill(k, host)
-            dev_block = cp.empty((n_rows, w), dtype=dtype)
-            cp.cuda.runtime.memcpy(dev_block.data.ptr, buf.ptr, n_rows * w * host.itemsize, cp.cuda.runtime.memcpyHostToDevice)
+            if stage is None:
+                host = np.empty((n_rows, w), dtype=dtype)
+                fill(k, host)
+                dev_block = cp.asarray(host)
+            else:
+                buf = stage[d][k // len(plan["devices"]) % 2]
+                host = np.frombuffer(buf, dtype=dtype, count=n_rows * w).reshape(n_rows, w)
+                fill(k, host)
+                dev_block = cp.empty((n_rows, w), dtype=dtype)
+                cp.cuda.runtime.memcpy(dev_block.data.ptr, buf.ptr, n_rows * w * host.itemsize, cp.cuda.runtime.memcpyHostToDevice)
             mi = _plugin_mi_classif_batch_cuda_resident(dev_block, dev_y[d], int(nbins), y_min=y_min, n_classes=n_classes, keep_dtype=True)
             out.append(cp.asnumpy(mi))
             del dev_block

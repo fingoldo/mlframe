@@ -73,10 +73,14 @@ def _codes_from_edges_gpu(cp, xj_g, edges_g):
     ``[0, len(edges)-2]`` using the INTERIOR edges (``edges[1:-1]``), side='right'; clip; NaN ``x_j`` -> bin 0.
 
     Byte-identical integer codes to the host ``np.searchsorted(edges[1:-1], x, 'right')`` + ``np.clip`` +
-    NaN-fill (same f64 edges, same side, same clip bounds, same NaN handling)."""
+    NaN-fill (same f64 edges, x rounded to the criterion dtype as the host does, same side, same clip bounds, same NaN handling)."""
+    from ._fe_usability_signal import _crit_np_dtype
+
     n_edges = int(edges_g.shape[0])
     hi = max(0, n_edges - 2)  # == edges.size - 2, the top bin index
     interior = edges_g[1:-1]
+    # The host digitiser rounds x to the criterion dtype before it compares with the (float64) edges, so a value that sits on an edge falls into the same bin only if it is rounded the same way.
+    xj_g = xj_g.astype(_crit_np_dtype(), copy=False)
     codes = cp.searchsorted(interior, xj_g, side="right").astype(cp.int64)
     codes = cp.clip(codes, 0, hi)
     codes = cp.where(cp.isfinite(xj_g), codes, 0)

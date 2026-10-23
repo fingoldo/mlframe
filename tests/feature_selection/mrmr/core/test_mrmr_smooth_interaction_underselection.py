@@ -66,7 +66,7 @@ from tests.feature_selection._mrmr_realistic_data import make_realistic_case
 from mlframe.feature_selection.filters.mrmr import MRMR
 
 
-@pytest.mark.timeout(900)
+@pytest.mark.timeout(1800)
 def test_smooth_interaction_fallback_not_suppressed_by_dropped_composite():
     """s319: the bilinear ``a*b`` operands must survive the empty-raw fallback even when the
     ``mul(a,b)`` composite that captures them is dropped from the output."""

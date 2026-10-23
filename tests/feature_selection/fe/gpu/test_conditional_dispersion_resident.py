@@ -75,8 +75,10 @@ def test_device_dispersion_matrix_matches_host_columns():
     dev = cp.asnumpy(mat)
     host = enc_df.to_numpy(dtype=np.float64)
     assert dev.shape == host.shape
-    maxdiff = float(np.max(np.abs(dev - host)))
-    assert maxdiff < 1e-6, f"device dispersion columns differ from host by {maxdiff} (> 1e-6 band)"
+    # The host columns are stored at the criterion dtype (float32 by default), where one unit in the last place is ~1.2e-7 of the magnitude (1.9e-6 at |z| ~ 16): the band is absolute for small
+    # values and two ULPs relative for large ones.
+    excess = np.abs(dev - host) - (1e-6 + 2.4e-7 * np.abs(host))
+    assert float(np.max(excess)) <= 0.0, f"device dispersion columns differ from host by {float(np.max(np.abs(dev - host)))} (> 1e-6 + 2 ULP band)"
 
 
 def test_structural_codes_fold_fallback_bit_exact():
@@ -105,8 +107,8 @@ def test_structural_codes_fold_fallback_bit_exact():
         # assert the non-zero magnitudes agree to ULP.
         nz = ~host_zero
         assert nz.any(), f"column {spec['name']}: every row folded to zero"
-        md = float(np.max(np.abs(host[nz, j] - mat[nz, j])))
-        assert md < 1e-6, f"column {spec['name']}: non-zero magnitudes differ by {md} (> 1e-6 band)"
+        excess = np.abs(host[nz, j] - mat[nz, j]) - (1e-6 + 2.4e-7 * np.abs(host[nz, j]))  # absolute floor plus two float32 ULPs relative
+        assert float(np.max(excess)) <= 0.0, f"column {spec['name']}: non-zero magnitudes differ by {float(np.max(np.abs(host[nz, j] - mat[nz, j])))} (> 1e-6 + 2 ULP band)"
 
 
 def test_codes_bit_identical_to_host_digitize():

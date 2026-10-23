@@ -59,9 +59,12 @@ def f2_verdict(sel, gen: Callable, seed: int, noise_cols: Sequence[str] = ("e",)
 
 
 def null_verdict(sel) -> dict:
-    """Pure-noise contract: nothing is selected (the flag alone is not enough, the output must be empty or the single fallback column of a degenerate fit)."""
+    """Pure-noise contract: nothing is selected. The selector keeps one fallback column when it finds nothing significant and says so with ``no_significant_features_``; that single column, with the
+    flag raised, is the intended "nothing found" outcome. Any other selection, or a fallback column without the flag, is a false positive."""
     names = selected_names(sel)
-    return {"ok": len(names) == 0, "selected": names, "n_forbidden": len(names), "n_sel": len(names)}
+    flagged = bool(getattr(sel, "no_significant_features_", False))
+    ok = len(names) == 0 or (flagged and len(names) <= 1)
+    return {"ok": ok, "selected": names, "flagged": flagged, "n_forbidden": 0 if ok else len(names), "n_sel": len(names)}
 
 
 def cover_verdict(
@@ -91,7 +94,8 @@ def _strip(token: str, suffixes: Sequence[str]) -> str:
 
 def _identifiers(name: object) -> list:
     """Identifier tokens of an engineered feature name (``mul(x1,x2)`` gives ``mul``, ``x1``, ``x2``; ``x1*x2__T1_T1`` gives ``x1``, ``x2``, ``T1``)."""
-    return re.findall(r"[A-Za-z_][A-Za-z0-9_]*", str(name))
+    # a double underscore separates a source column from a basis suffix (``x3__T1_T1_T1`` is the column ``x3``), a single one stays inside a name (``noise_29``)
+    return [tok for part in re.findall(r"[A-Za-z_][A-Za-z0-9_]*", str(name)) for tok in part.split("__") if tok]
 
 
 def panel(rows: Sequence[dict], power_gate: float = 0.90, fp_gate: float = 0.10) -> dict:

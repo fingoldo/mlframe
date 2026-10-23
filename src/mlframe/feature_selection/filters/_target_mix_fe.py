@@ -25,7 +25,11 @@ import pandas as pd
 
 from mlframe.utils.log_throttle import log_throttle
 
+from ._analytic_mi_null import analytic_null_min_n_lowered
+
 logger = logging.getLogger(__name__)
+
+_CHILD_ANALYTIC_NULL_MIN_N = 20_000  # the floor from which the chi-square null is validated tight (see _analytic_mi_null)
 
 __all__ = ["choose_bases", "second_pass_recipes"]
 
@@ -114,12 +118,20 @@ def second_pass_recipes(estimator: Any, X: "pd.DataFrame", y: np.ndarray, design
 
     for name, u, beta in bases:
         mixed = y[train] - beta * u[train]
+        # A base that explains all but a sliver of the target leaves a mixed target that is rounding and binning noise: whatever a child fit found there would be measured against that tiny variance and
+        # look large. The residual has to carry at least the share of the target variance that a rescue admission needs.
+        if float(np.var(mixed)) < float(min_relative_gain) * float(np.var(y[train])):
+            logger.debug("target-mix base %r explains all but %.5f of the target variance; second pass skipped", name, float(np.var(mixed)) / max(float(np.var(y[train])), 1e-300))
+            continue
         if not target_has_structure(X_train, mixed, scan_rows=scan_rows):
             logger.debug("target-mix base %r leaves no structure in T; second pass skipped", name)
             continue
         try:
             child = _child(estimator)
-            child.fit(X_train, pd.Series(mixed, name="y"))
+            # The child only proposes candidates (the parent re-tests every one on held-out rows), and it runs on the scan rows: at 20000 rows the chi-square null is within its validated range, so it
+            # scores them as the parent does at its own size instead of running 99 shuffles per candidate.
+            with analytic_null_min_n_lowered(_CHILD_ANALYTIC_NULL_MIN_N):
+                child.fit(X_train, pd.Series(mixed, name="y"))
         except Exception:
             log_throttle(logger, "target_mix_fe.second_pass_failed", logging.WARNING, "MRMR target-mix second pass on the base %r failed; skipped.", name, exc_info=True)
             continue

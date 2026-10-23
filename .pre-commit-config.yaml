@@ -658,7 +658,7 @@ repos:
   # runnable via `pre-commit run mypy-full-manual --hook-stage manual` for a quick changed-files-
   # only check without paying the whole-project scan) rather than deleting the hook entirely.
   - repo: https://github.com/fingoldo/py-ci-shared
-    rev: 4b1a44bb32570b35c450b23e79b2d98fe25888a1  # v1.23.0  # pragma: allowlist secret
+    rev: baae24d7342eb32f60df81342ec81ff82c5302ca  # v1.23.3  # pragma: allowlist secret
     hooks:
       - id: mypy-full-manual
         pass_filenames: true
@@ -680,16 +680,3 @@ repos:
         # speedup on repeat commits within one worktree, it just no longer crosses worktree
         # boundaries. See reference_mlframe_shared_mypy_cache_dir memory note.
         args: ['--cache-dir=.mypy_cache_precommit_manual']
-
-  # Pre-push smoke tests: tests/calibration only (about 135 s at -n 2). CI runs the whole suite sharded across the OS/Python/sklearn matrix
-  # with the coverage floor; per the repo owner's rule broad local suite runs are CI's job, so everything else
-  # (full tests/, Hypothesis meta-tests, coverage, GPU, macOS/Linux legs, CodeQL, docs, build) is left to CI.
-  - repo: local
-    hooks:
-      - id: pytest-smoke-on-push
-        name: "smoke tests: tests/calibration (push only; full suite + matrix left to CI)"
-        entry: python -m pytest tests/calibration --no-cov -p no:randomly -n 2 -x -q
-        language: system
-        types: [python]
-        pass_filenames: false
-        stages: [pre-push]

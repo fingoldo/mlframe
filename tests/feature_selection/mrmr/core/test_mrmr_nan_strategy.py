@@ -190,9 +190,10 @@ class TestSeparateBinSurfacesInformativeNan:
         X, y = df_informative_missingness
         m = MRMR(quantization_nbins=4, nan_strategy="separate_bin", verbose=0)
         m.fit(X, y)
-        names = list(m.feature_names_in_)
-        order = [names[i] for i in m.support_]
-        assert order[0] == "measured_value_with_meaningful_nan", f"Informative NaN pattern should be picked first; got order={order}"
+        # The informative column can reach the output as itself or as an engineered form of it (the periodic family emits ``<column>__modcos_12`` on this frame), and the raw
+        # ``support_`` is then empty, so the order is read from the finished output.
+        order = [str(n) for n in m.get_feature_names_out()]
+        assert order and order[0].startswith("measured_value_with_meaningful_nan"), f"Informative NaN pattern should be picked first; got order={order}"
 
 
 # ---------------------------------------------------------------------------

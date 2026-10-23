@@ -267,6 +267,8 @@ _SETSTATE_LEGACY_DEFAULTS = {
     # list. Legacy pickles default to None / [] and the next fit() repopulates.
     "fe_rejection_ledger_": None,
     "_fe_rejection_records_": [],
+    "fe_admission_ledger_": None,
+    "_fe_admission_records_": [],
     "_predictors_log_": (),
     # Produced-recipes audit ledger: every EngineeredRecipe the FE stages emitted this fit (pre-screen). fe_provenance_ reads it so the audit / pickle-replay paths recover which mechanism
     # produced each engineered column even when the greedy CMI screen dropped it. Legacy pickles default to [] and the next fit() repopulates from the live FE run.

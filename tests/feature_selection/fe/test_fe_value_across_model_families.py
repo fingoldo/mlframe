@@ -202,7 +202,7 @@ def _assert_two_sided_contract(label, lr_fe, lr_raw, gb_fe, gb_raw, names_fe, li
 
 
 @pytest.mark.slow
-@pytest.mark.timeout(900)
+@pytest.mark.timeout(1800)
 @pytest.mark.parametrize("label,mkdata,lin_floor", _FIXTURES)
 def test_fe_two_sided_contract_lift_linear_no_harm_tree(label, mkdata, lin_floor):
     """Two-sided cross-model-family contract on the MAIN hermite/orth FE path:

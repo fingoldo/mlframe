@@ -50,7 +50,7 @@ def _check_prospective_fe_pairs_part9(
     best_mi: Any, _sweep_best_mi: Any, pair_pbar: Any,
 ) -> None:
     """Extracted block of ``check_prospective_fe_pairs`` (part 9); returns the names the caller still uses."""
-    _check_prospective__pair_res_entry_none(_pair_res_entry, st.res, raw_vars_pair, best_config, cols, pair_mi, st._rejection_records, rejection_ledger_out)
+    _check_prospective__pair_res_entry_none(_pair_res_entry, st.res, raw_vars_pair, best_config, cols, pair_mi, st._rejection_records, rejection_ledger_out, best_mi)
 
     # Live progress: surface the best engineered feature found so far in this sweep
     # (its MI with y) plus the pair just evaluated, on the "pair" bar. ``best_mi`` /

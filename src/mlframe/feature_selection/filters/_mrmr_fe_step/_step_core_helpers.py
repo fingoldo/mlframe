@@ -5,7 +5,7 @@ import logging
 
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
-from .._fe_rejection_ledger import record_fe_rejection as _record_fe_rejection
+from .._fe_rejection_ledger import drain_pair_records as _drain_pair_records
 
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
@@ -106,30 +106,14 @@ def _run_fe_step_impl_accumulators_during_merge_loop(self, dicts, _prewarp_specs
         # REJECTION LEDGER (additive): drain each chunk's per-pair-gate drops.
         _rej_chunk = next_dict.pop(_FE_REJECTION_RESULT_KEY, None)
         if _rej_chunk:
-            for _rr in _rej_chunk:
-                _record_fe_rejection(
-                    self, gate=_rr["gate"],
-                    candidate=_rr.get("candidate"), operands=_rr.get("operands"),
-                    operator=_rr.get("operator"),
-                    observed=_rr.get("observed", float("nan")),
-                    threshold=_rr.get("threshold", float("nan")),
-                    reason=_rr.get("reason", ""), step=int(num_fs_steps),
-                )
+            _drain_pair_records(self, _rej_chunk, int(num_fs_steps))
         prospective_additions.update(next_dict)
 
 
 def _run_fe_step_impl_joblib_branch_already_drained(self, _rej_from_res, num_fs_steps):
     """Block of _run_fe_step_impl starting at ``if _rej_from_res:``."""
     if _rej_from_res:
-        for _rr in _rej_from_res:
-            _record_fe_rejection(
-                self, gate=_rr["gate"],
-                candidate=_rr.get("candidate"), operands=_rr.get("operands"),
-                operator=_rr.get("operator"),
-                observed=_rr.get("observed", float("nan")),
-                threshold=_rr.get("threshold", float("nan")),
-                reason=_rr.get("reason", ""), step=int(num_fs_steps),
-            )
+        _drain_pair_records(self, _rej_from_res, int(num_fs_steps))
 
 
 def _resolve_prevalence_and_stratify_knobs(self, classes_y, fe_min_pair_mi_prevalence):

@@ -161,6 +161,23 @@ def _pool_values(X, column, engineered_recipes, apply_recipe) -> np.ndarray:
     return np.asarray(X[column].to_numpy(), dtype=_crit_np_dtype())
 
 
+def _exact_copies_of_raws(design: dict, raw_cols) -> "list[str]":
+    """Engineered design columns whose values equal a raw design column element for element (``a__mod_7`` for a column in [0, 7) is ``a`` itself).
+
+    Judged against a design that holds its own copy, the raw column looks redundant and goes, leaving the output with the copy under a name that says nothing; the copy is the column to drop."""
+    raw_values = {name: np.asarray(v) for name, v in design.items() if name in raw_cols}
+    copies: "list[str]" = []
+    for name, v in design.items():
+        if name in raw_cols:
+            continue
+        values = np.asarray(v)
+        for raw in raw_values.values():
+            if raw.shape == values.shape and np.array_equal(raw, values):
+                copies.append(name)
+                break
+    return copies
+
+
 def _unsupported_columns(self, design: dict, y, raw_cols, residual_rescue) -> "list[str]":
     """Design columns that add nothing to the rest of the selection (``redundancy_policy='drop'`` only).
 
@@ -168,7 +185,7 @@ def _unsupported_columns(self, design: dict, y, raw_cols, residual_rescue) -> "l
     of the design, it does not lower the held-out squared residual at all (free-form effects, t <= 0): an engineered column fitted to noise (``sub(sqrt(c),sqrt(d))`` on two unrelated columns)
     does not. The bar is deliberately not significance: on a small sample or a weak signal no single column is significant, and removing the weak useful ones would lower the out-of-sample fit. A raw OPERAND of a selected engineered column is pruned (``fe_drop_redundant_raw_operands``) unless it improves the held-out fit of a LINEAR model on the other columns significantly and by
     at least ``fe_residual_rescue_operand_min_linear_gain`` of the target variance: the engineered column already carries the operand's nonlinear effect, so what the operand can still add is a
-    private linear term (``10*a`` beside ``add(exp(a), ...)``), which only the linear fit sees. Pruned columns leave the design before the next one is judged."""
+    private linear term (``10*a`` beside ``add(exp(a), ...)``), which only the linear fit sees. Pruned columns leave the design before the next one is judged. An engineered column that is an exact copy of a raw design column is pruned first, so the raw column is never judged against its own copy."""
     from .._residual_rescue_fe import MIN_ROWS
 
     if getattr(self, "redundancy_policy", "emit_both") != "drop" or len(y) < MIN_ROWS:  # too few rows: no evidence is not evidence of no gain
@@ -190,8 +207,10 @@ def _unsupported_columns(self, design: dict, y, raw_cols, residual_rescue) -> "l
     z = float(norm.isf(FAMILY_ALPHA))
     floor = float(self.fe_residual_rescue_operand_min_linear_gain)
     prune_operands = bool(getattr(self, "fe_drop_redundant_raw_operands", True))
-    pruned: "list[str]" = []
+    pruned: "list[str]" = _exact_copies_of_raws(design, raw_cols)
     for name in list(design):
+        if name in pruned:
+            continue
         rest = {k: v for k, v in design.items() if k != name and k not in pruned}
         if not rest:
             continue
@@ -214,7 +233,83 @@ def _is_group_leak_raw(X, name, y):
     return _impl(X, name, y)
 
 
-def run_residual_rescue(self, X: Any, selected_vars: Any, cols: Any, engineered_recipes: Any, retention_added_eng_names: Any, verbose: Any) -> bool:
+def _reprune_after_admission(self, design: dict, pool: dict, prune_names: list, admitted_engineered: list, y, raw_cols, residual_rescue) -> list:
+    """``prune_names`` extended with the raws that are redundant once the admitted compounds are in the design.
+
+    The raw operands were judged before these compounds existed: a raw supported only because nothing in the design carried its effect is redundant once the compound that does is admitted
+    (``c`` beside the admitted ``mul(prewarp(c),sin(d))``), so the raws are judged again against the design with the admitted columns in it.
+    """
+    if not admitted_engineered:
+        return prune_names
+    try:
+        design_after = {k: v for k, v in design.items() if k not in prune_names}
+        for admitted_name in admitted_engineered:
+            if admitted_name in pool:
+                design_after[admitted_name] = pool[admitted_name]
+        return [*prune_names, *(n for n in _unsupported_columns(self, design_after, y, raw_cols, residual_rescue) if n in raw_cols and n not in prune_names)]
+    except Exception:
+        logger.warning("MRMR residual rescue: the second pruning pass failed; the first pass's verdict stands.", exc_info=True)
+        return prune_names
+
+
+def _record_prunes(self, pruned_raw: list, pruned_engineered: list) -> None:
+    """Write the columns the rescue pruned to the rejection ledger."""
+    from .._fe_rejection_ledger import record_fe_rejection
+
+    for name in pruned_raw:
+        record_fe_rejection(self, gate="residual_rescue_prune", candidate=name, operator="raw", reason="no held-out gain given the rest of the selection")
+    for name in pruned_engineered:
+        record_fe_rejection(self, gate="residual_rescue_prune", candidate=name, operator="engineered", reason="no held-out gain given the rest of the selection")
+
+
+def _admit_from_pool(self, X, y, design: dict, raw_cols, design_sources: list, engineered_held: list, classify, sel_names: set, prune_names: list, engineered_recipes: dict) -> tuple:
+    """``(cell_recipes, admitted, pool)``: the pool columns the residual rescue admits against ``design``, the recipes of the engineered candidates it scored (cell tables, target mix) and the pool itself."""
+    from ..engineered_recipes.shared import apply_recipe
+    from .._residual_rescue_fe import residual_rescue
+
+    # A raw operand the redundancy sweep already dropped as subsumed by a surviving compound is not re-admitted here:
+    # the rescue's linear gain for it is the same information the compound carries, not a new term.
+    redundancy_dropped = set(getattr(self, "_raw_redundancy_dropped_", None) or set())
+    # The sweep that records its drops only sees raws the pass selected: a pass whose raw support was already empty (the compounds carry every operand) records nothing, and the
+    # operands of those compounds would come back here as raws. Under the drop policy they are the same already subsumed information, so they are held out of the pool as well.
+    if bool(getattr(self, "fe_drop_redundant_raw_operands", True)) and getattr(self, "redundancy_policy", "emit_both") == "drop":
+        redundancy_dropped |= {str(c) for s in engineered_held for c in s}
+    pool = {
+        str(c): _pool_values(X, c, engineered_recipes, apply_recipe)
+        for c in X.columns
+        if str(c) not in design
+        and str(c) not in sel_names
+        and str(c) not in prune_names
+        and str(c) not in redundancy_dropped
+        and np.issubdtype(X[c].dtype, np.number)
+        and classify(_raw_sources(str(c), raw_cols)) != "skip"
+    }
+    linear_only = {name for name in pool if classify(_raw_sources(name, raw_cols)) == "linear"}
+    cell_recipes = _cell_table_candidates(self, X, y, design, raw_cols, design_sources, pool)
+    cell_recipes.update(_target_mix_candidates(self, X, y, design, raw_cols, classify, pool, linear_only, engineered_recipes))
+    admitted = residual_rescue(
+        design,
+        pool,
+        y,
+        min_relative_gain=float(self.fe_residual_rescue_min_relative_gain),
+        max_admit=int(self.fe_residual_rescue_max_admit),
+        linear_channel=True,
+        linear_only=frozenset(linear_only),
+    )
+    return cell_recipes, admitted, pool
+
+
+def _keep_best_raw_if_selection_empties(self: Any, X: Any, y: np.ndarray, cols: Any, selected_vars: Any, dropped: "list[int]", prune_names: Any) -> None:
+    """A selection never ends up with no column at all: when every selected raw is pruned and no engineered column survives, the pruned raw that tracks the target best stays (removed from ``dropped``)."""
+    if not dropped or [i for i in selected_vars if i not in dropped] or [f for f in self._engineered_features_ if str(f) not in prune_names]:
+        return
+    corr = {i: abs(float(np.corrcoef(np.asarray(X[cols[i]].to_numpy(), dtype=_crit_np_dtype()), y)[0, 1])) for i in dropped if cols[i] in X.columns}
+    corr = {i: (c if np.isfinite(c) else 0.0) for i, c in corr.items()}
+    if corr:
+        dropped.remove(max(corr, key=lambda k: corr[k]))
+
+
+def run_residual_rescue(self, X: Any, selected_vars: Any, cols: Any, engineered_recipes: Any, retention_added_eng_names: Any, verbose: Any, prune_only: bool = False) -> bool:
     """Admit the pool columns that reduce the held-out residual of the selected design and prune the redundant raws (``redundancy_policy='drop'``); True when the selection changed."""
     if not getattr(self, "fe_residual_rescue_enable", False):
         return False
@@ -261,36 +356,16 @@ def run_residual_rescue(self, X: Any, selected_vars: Any, cols: Any, engineered_
                 return "linear"
             return "linear" if sources and _is_refinement(sources, raw_held) else "free"
 
-        # A raw operand the redundancy sweep already dropped as subsumed by a surviving compound is not re-admitted here:
-        # the rescue's linear gain for it is the same information the compound carries, not a new term.
-        redundancy_dropped = set(getattr(self, "_raw_redundancy_dropped_", None) or set())
-        pool = {
-            str(c): _pool_values(X, c, engineered_recipes, apply_recipe)
-            for c in X.columns
-            if str(c) not in design
-            and str(c) not in sel_names
-            and str(c) not in prune_names
-            and str(c) not in redundancy_dropped
-            and np.issubdtype(X[c].dtype, np.number)
-            and classify(_raw_sources(str(c), raw_cols)) != "skip"
-        }
-        linear_only = {name for name in pool if classify(_raw_sources(name, raw_cols)) == "linear"}
-        cell_recipes = _cell_table_candidates(self, X, y, design, raw_cols, design_sources, pool)
-        cell_recipes.update(_target_mix_candidates(self, X, y, design, raw_cols, classify, pool, linear_only, engineered_recipes))
-        admitted = residual_rescue(
-            design,
-            pool,
-            y,
-            min_relative_gain=float(self.fe_residual_rescue_min_relative_gain),
-            max_admit=int(self.fe_residual_rescue_max_admit),
-            linear_channel=True,
-            linear_only=frozenset(linear_only),
-        )
+        if prune_only:
+            cell_recipes, admitted, pool = {}, [], {}
+        else:
+            cell_recipes, admitted, pool = _admit_from_pool(self, X, y, design, raw_cols, design_sources, engineered_held, classify, sel_names, prune_names, engineered_recipes)
         eng_set = {str(n) for n in eng_names}
     except Exception:
         logger.warning("MRMR residual rescue failed; the selection is left as it was.", exc_info=True)
         return False
     names = []
+    admitted_engineered = []
     col_index = {str(c): i for i, c in enumerate(cols)}
     for name, t_stat, rel in admitted:
         rec = engineered_recipes.get(name) or cell_recipes.get(name)
@@ -298,6 +373,7 @@ def run_residual_rescue(self, X: Any, selected_vars: Any, cols: Any, engineered_
             self._engineered_recipes_.append(rec)
             self._engineered_features_.append(name)
             retention_added_eng_names.add(name)
+            admitted_engineered.append(name)
         elif name in col_index and col_index[name] not in selected_vars:
             # A between-group leak raw column is not re-admitted by the global residual test under group_aware_mi.
             if _is_group_leak_raw(X, name, np.asarray(y).ravel()):
@@ -308,18 +384,15 @@ def run_residual_rescue(self, X: Any, selected_vars: Any, cols: Any, engineered_
         names.append(name)
         if verbose:
             logger.info("MRMR residual rescue: admitted %r (t=%.1f, %.1f%% of the target variance).", name, t_stat, 100.0 * rel)
+    prune_names = _reprune_after_admission(self, design, pool, prune_names, admitted_engineered, y, raw_cols, residual_rescue)
     dropped = [col_index[n] for n in prune_names if n in col_index and col_index[n] in selected_vars and n not in eng_set]
-    if dropped and not [i for i in selected_vars if i not in dropped] and not [f for f in self._engineered_features_ if str(f) not in prune_names]:
-        # a selection never ends up with no column at all: the pruned raw that tracks the target best stays
-        corr = {i: abs(float(np.corrcoef(np.asarray(X[cols[i]].to_numpy(), dtype=_crit_np_dtype()), y)[0, 1])) for i in dropped if cols[i] in X.columns}
-        corr = {i: (c if np.isfinite(c) else 0.0) for i, c in corr.items()}
-        if corr:
-            dropped.remove(max(corr, key=lambda k: corr[k]))
+    _keep_best_raw_if_selection_empties(self, X, y, cols, selected_vars, dropped, prune_names)
     for idx in dropped:
         selected_vars.remove(idx)
         if verbose:
             logger.info("MRMR residual rescue: pruned raw column %r (no held-out gain given the rest of the selection).", cols[idx])
     pruned_eng = [n for n in prune_names if n in eng_set]
+    _record_prunes(self, [str(cols[idx]) for idx in dropped], pruned_eng)
     if pruned_eng:
         keep = [(f, r) for f, r in zip(self._engineered_features_, self._engineered_recipes_) if str(f) not in pruned_eng]
         self._engineered_features_[:] = [f for f, _ in keep]

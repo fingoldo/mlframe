@@ -37,6 +37,7 @@ def build_honest_spec(X: pd.DataFrame, cols: Sequence[str], y_raw: np.ndarray, m
 
     n = len(y_raw)
     m = len(cols)
+    nan_cols = np.zeros((n, m), dtype=np.bool_)
     raw = np.zeros((n, m), dtype=np.float64)  # Intentional float64: MDLP cut search at the production binning width (cut points must match supervised_binning)
     is_cont = np.zeros(m, dtype=np.bool_)
     q_fb_rows: list[np.ndarray] = []
@@ -58,8 +59,16 @@ def build_honest_spec(X: pd.DataFrame, cols: Sequence[str], y_raw: np.ndarray, m
             continue
         # Intentional float64: MDLP cut search at the production binning width (cut points must match supervised_binning)
         v = np.asarray(X[c].to_numpy(), dtype=np.float64)
-        if not np.isfinite(v).all():
+        if np.isinf(v).any():
             return None
+        nan_here = np.isnan(v)
+        if nan_here.all():
+            return None
+        if nan_here.any():
+            # The production categorisation fills NaN with the column median before binning (``_handle_missing``): the cut search,
+            # the fallback edges and the unique-value count all see the filled column. The NaN rows keep their own code afterwards.
+            v = np.where(nan_here, float(np.nanmedian(v)), v)
+            nan_cols[:, j] = nan_here
         raw[:, j] = v
         uniq = np.unique(v)
         if uniq.size > _LOW_CARD_CAP:
@@ -73,6 +82,8 @@ def build_honest_spec(X: pd.DataFrame, cols: Sequence[str], y_raw: np.ndarray, m
             q_fb_rows.append(np.empty(0, dtype=np.float64))
             # Intentional float64: MDLP cut search at the production binning width (cut points must match supervised_binning)
             q_rf_rows.append(np.empty(0, dtype=np.float64))
+    if method == "oos" and nan_cols.any():
+        return None
     if method == "oos":
         # Held-out-validated MDLP: the cut search reads the raw (compact) class labels directly.
         _, enc = np.unique(np.asarray(y_raw), return_inverse=True)
@@ -92,6 +103,8 @@ def build_honest_spec(X: pd.DataFrame, cols: Sequence[str], y_raw: np.ndarray, m
     return {
         "method": method,
         "raw": np.ascontiguousarray(raw),
+        "nan_mask": nan_cols if nan_cols.any() else None,
+        "has_nan": bool(nan_cols.any()),
         "is_cont": is_cont,
         "q_fb": q_fb,
         "q_fb_len": q_fb_len,

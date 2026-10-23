@@ -295,6 +295,26 @@ def ensure_host_codes_filled(host_codes: np.ndarray) -> None:
         _fill_deferred(h)
 
 
+def peek_resident_codes(host_codes: Any) -> Any:
+    """The resident device codes stashed (or registered for a deferred fill) for ``host_codes`` iff they match it (same id, shape, dtype); else None.
+
+    A read that consumes nothing and is not a handoff: a caller that keeps the device copy alive for a later device-side reader (the family gate) uses this, so the producer / consumer
+    bookkeeping of ``take_resident_codes`` still sees exactly one consumer per stash.
+    """
+    with _DEFERRED_HOST_FILL_LOCK:
+        h = _RESIDENT_CODES_HANDOFF.get(id(host_codes))
+        deferred = _DEFERRED_HOST_FILL.get(id(host_codes))
+    if h is not None:
+        dev, shape, dtype, host_ref = h
+        if host_ref() is host_codes and tuple(host_codes.shape) == shape and np.dtype(host_codes.dtype) == dtype:
+            return dev
+    if deferred is not None:
+        host_ref, dev, shape, dtype, _filled = deferred
+        if host_ref() is host_codes and tuple(host_codes.shape) == shape and np.dtype(host_codes.dtype) == dtype:
+            return dev
+    return None
+
+
 def take_resident_codes(host_codes: Any) -> Any:
     """Return the resident device codes stashed for ``host_codes`` iff they match it (same id, shape,
     dtype); else None. The resident-CUDA gate consumes the returned device codes IN PLACE (no host read).

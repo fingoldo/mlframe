@@ -57,6 +57,9 @@ SUPPORTED_FAMILIES: Tuple[str, ...] = (
     "zipf",
     "zero_inflated_normal",
     "categorical",
+    "id",
+    "ar1",
+    "random_walk",
 )
 
 
@@ -68,6 +71,31 @@ def _param(params: Dict[str, float], name: str, default: float) -> float:
     """
     value = params.get(name)
     return float(default if value is None else value)
+
+
+def _draw_structured_family(family: str, params: Dict[str, float], size: int, rng: np.random.Generator) -> "np.ndarray | None":
+    """The serial and index families of :func:`draw_family` (``ar1``, ``random_walk``, ``id``, ``categorical``); ``None`` for any other name."""
+    if family == "ar1":
+        # A stationary AR(1) run through the row index: the rows are a time series, so this family is the only
+        # place a bed can carry serial dependence. The first state is drawn from the stationary law, so there is no
+        # burn-in transient to bias the early rows.
+        from scipy.signal import lfilter
+
+        rho = _param(params, "rho", 0.9)
+        innovations = rng.normal(0.0, 1.0, size)
+        start = rng.normal(0.0, 1.0)
+        series, _ = lfilter([np.sqrt(1.0 - rho * rho)], [1.0, -rho], innovations, zi=[rho * start])
+        return np.asarray(series, dtype=np.float64)
+    if family == "random_walk":
+        # The cumulative sum of standard normal steps, so the variance grows with the row index.
+        return np.asarray(np.cumsum(rng.normal(0.0, 1.0, size)), dtype=np.float64)
+    if family == "id":
+        # A permutation of 0..size-1: every row a distinct value, which no categorical draw with replacement can produce.
+        return rng.permutation(size).astype(np.float64)
+    if family == "categorical":
+        n_levels = int(_param(params, "n_levels", 3.0))
+        return rng.integers(0, max(n_levels, 1), size).astype(np.float64)
+    return None
 
 
 def draw_family(family: str, params: Dict[str, float], size: int, rng: np.random.Generator) -> np.ndarray:
@@ -115,9 +143,9 @@ def draw_family(family: str, params: Dict[str, float], size: int, rng: np.random
         zeros = rng.random(size) < _param(params, "inflation", 0.3)
         values[zeros] = 0.0
         return values
-    if family == "categorical":
-        n_levels = int(_param(params, "n_levels", 3.0))
-        return rng.integers(0, max(n_levels, 1), size).astype(np.float64)
+    drawn = _draw_structured_family(family, params, size, rng)
+    if drawn is not None:
+        return drawn
     raise ValueError(f"unsupported marginal family {family!r}; supported: {SUPPORTED_FAMILIES}")
 
 

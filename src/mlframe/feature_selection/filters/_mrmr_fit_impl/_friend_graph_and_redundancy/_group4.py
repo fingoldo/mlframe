@@ -8,6 +8,7 @@ section this fans out from and the ``(selected_vars, cols, data, nbins)`` thread
 
 from __future__ import annotations
 
+from functools import partial
 from typing import Any
 import logging
 
@@ -48,6 +49,7 @@ def _friend_graph_and_redundancy_passes_group4(
     if getattr(self, "fe_drop_redundant_raw_operands", True) and getattr(self, "redundancy_policy", "emit_both") == "drop" and len(selected_vars) >= 2:
         try:
             from ..._fe_raw_redundancy_drop import _linear_usability_keep_enabled, drop_redundant_raw_operands
+            from ..._fe_rejection_ledger import record_raw_redundancy_drop
             _raw_names_for_redund = set(self.feature_names_in_)
             # Only worth running when at least one engineered survivor and one raw operand
             # are both selected (otherwise the helper short-circuits anyway).
@@ -106,6 +108,7 @@ def _friend_graph_and_redundancy_passes_group4(
                     tail_subsume_rank_frac=float(getattr(self, "fe_pair_usability_admission_rank_frac", 0.7)),
                     seed=int(getattr(self, "random_seed", 0) or 0),
                     verbose=verbose,
+                    reject_sink=partial(record_raw_redundancy_drop, self),
                 )
                 selected_vars = _friend_graph_and_redundancy_passes_group4_part1(
                     _dropped_redund_names, _kept_redund, selected_vars, self, cols, _raw_names_for_redund, target_indices, nbins, _eng_continuous_snapshot,
