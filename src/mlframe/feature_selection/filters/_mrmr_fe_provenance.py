@@ -82,6 +82,7 @@ FE_ORIGIN_LABELS = (
     "dcd_aggregate",
     "cluster_aggregate",
     "unary_binary_pair",
+    "escalation",
     "hinge_basis",
     "numeric_decompose",
     "periodic",
@@ -512,6 +513,8 @@ def compute_fe_provenance(mrmr_self: Any) -> pd.DataFrame:
             recipe = recipe_by_name.get(name)
             if recipe is not None:
                 origin, details = _origin_from_recipe(recipe)
+                if origin == "unary_binary_pair" and str(name).startswith("esc_"):
+                    origin = "escalation"  # a richer-basis candidate admitted by the auto-escalation: its recipe is a plain unary_binary one, its name carries the mechanism
             else:
                 # Engineered name without a recipe -> fall back to roster
                 # attrs. Higher-order interactions land here.

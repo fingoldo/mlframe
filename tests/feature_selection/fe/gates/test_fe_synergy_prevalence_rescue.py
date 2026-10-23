@@ -116,6 +116,13 @@ def test_unit_rescue_fires_for_weak_smooth_interaction_inert_on_noise():
     )
     ab = _ab_from_recipes(sel)
     names = list(sel.get_feature_names_out())
+    # Provenance: an escalation product is labelled as such and its admission is in the admission ledger (stage "escalation"), so no spying is needed to see where it came from.
+    prov = sel.fe_provenance_
+    plain_esc = prov[prov["feature_name"].astype(str).str.startswith("esc_")]
+    assert len(plain_esc) > 0 and (plain_esc["origin"] == "escalation").all(), f"escalation products must carry the escalation origin: {plain_esc[['feature_name', 'origin']].to_dict('records')}"
+    admissions = sel.fe_admission_ledger_
+    escalated = admissions[admissions["stage"] == "escalation"]
+    assert len(escalated) > 0 and escalated["candidate"].astype(str).str.startswith("esc_").all(), f"escalation admissions missing from the admission ledger: {admissions['stage'].tolist()}"
     assert ab, f"an (a,b) engineered feature must be admitted by the rescue path; feature_names_out={names}; admitted={[h.get('admitted') for h in hist]}"
     # The rescued (a,b) escalation feature (base, or the nested child that consumed it)
     # must reach the output and carry the a**2/b signal.

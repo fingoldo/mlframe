@@ -621,6 +621,12 @@ def _admit_cmi_survivors(self, survivors, accepted, info, admitted):
         c["recipe"] = recipe
         admitted.append(c)
         info["admitted"].append(c["name"])
+        from ._fe_rejection_ledger import record_fe_admission
+
+        record_fe_admission(
+            self, candidate=c["name"], operands=c.get("pair"), operator=c.get("kind"), stage="escalation", observed=c.get("val_corr", float("nan")), best_mi=c.get("mi", float("nan")),
+            reason="richer-basis candidate admitted by the auto-escalation after the CMI redundancy gate",
+        )
 
 
 def _split_rescue_eligible(eligible_all, _rescue, _rescue_taken, _rescue_cap, eligible, _others):
