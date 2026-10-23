@@ -20,7 +20,7 @@ def _well_conditioned(r: np.ndarray) -> bool:
 
 
 def _base_blocks(base_mat: "np.ndarray | Sequence[np.ndarray]", tr_idx: np.ndarray, va_idx: np.ndarray) -> "tuple[np.ndarray, np.ndarray]":
-    """The train and validation row blocks of the base design, in float64 (a sequence of columns is sliced per column, so the full-height design never exists)."""
+    """The train and validation row blocks of the base design, in double precision (a sequence of columns is sliced per column, so the full-height design never exists)."""
     # Intentional float64: the design of a least-squares probe. The columns arrive in the criterion dtype, where the rounding noise (about 1e-7) is far above the ``_RCOND`` rank test (1e-10),
     # so a column collinear with the base looked well conditioned and entered the fast QR update as noise; a float64 design keeps the rank test meaningful.
     if isinstance(base_mat, np.ndarray):

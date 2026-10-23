@@ -155,7 +155,7 @@ def _null_max_streamed_path(X: np.ndarray, y: np.ndarray, permutations: "list[np
 
 
 def null_max_mi(X: np.ndarray, y: np.ndarray, permutations: "list[np.ndarray]", nbins: int, fallback: Callable[..., Any]) -> np.ndarray:
-    """``max_j MI(X_j; y[perm])`` (NaN-ignoring) for every permutation, as ``float64``, with the matrix binned once.
+    """``max_j MI(X_j; y[perm])`` (NaN-ignoring) for every permutation, in double precision, with the matrix binned once.
 
     Only the genuine ``_mi_classif_batch`` is shortcut. Runs through the STRICT-residency kernel (one upload, one edge computation) when STRICT is on, through the streamed GPU kernel when the matrix is routed there, through the rank-code kernel when ``_mi_classif_batch`` would take the CPU numba rank
     path, and otherwise through ``fallback`` (``_mi_classif_batch``) once per permutation."""
