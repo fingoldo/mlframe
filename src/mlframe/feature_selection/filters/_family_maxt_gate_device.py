@@ -102,7 +102,7 @@ class _FamilyOnDevice:
             yield part
 
     def observed(self) -> np.ndarray:
-        """The plug-in MI of every column against the original labels (host float64)."""
+        """The plug-in MI of every column against the original labels (host double precision)."""
         from ._family_maxt_null_v2_njit import label_bitsets_from_index
 
         cls = label_bitsets_from_index(self.y, np.arange(self.n, dtype=np.int32)[None, :], self.n_y, self.words)

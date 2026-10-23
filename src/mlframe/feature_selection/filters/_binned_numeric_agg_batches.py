@@ -50,7 +50,7 @@ def _free_device_bytes(n_rows: int) -> Optional[int]:
 
 
 def rows_per_batch(n_rows: int, itemsize: int, free_host: int, free_device: Optional[int]) -> int:
-    """Stored columns one batch may hold: the host budget, and the device budget (float64 upload) when the gate runs on the device. At least one."""
+    """Stored columns one batch may hold: the host budget, and the device budget (double precision upload) when the gate runs on the device. At least one."""
     host_rows = int(_BATCH_FREE_FRACTION * free_host / (_BLOCK_COPIES * max(1, n_rows) * max(1, itemsize)))
     if free_device is None:
         return max(1, host_rows)

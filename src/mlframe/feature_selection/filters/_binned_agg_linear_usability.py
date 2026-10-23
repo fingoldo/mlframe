@@ -46,7 +46,7 @@ _BATCH = 500
 
 
 def _to_host(a) -> np.ndarray:
-    """A host float64 array from a numpy or device array."""
+    """A host double precision array from a numpy or device array."""
     return np.asarray(a.get() if hasattr(a, "get") else a, dtype=np.float64)
 
 
