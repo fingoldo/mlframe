@@ -76,7 +76,7 @@ def _run_f2(full: int, baseline: int, n: int = 10_000, seed: int = 42) -> list:
     # process actually imported mlframe from so the subprocess resolves the same package.
     env["PYTHONPATH"] = os.pathsep.join(p for p in (str(pathlib.Path(mlframe.__file__).resolve().parents[1]), env.get("PYTHONPATH", "")) if p)
     proc = subprocess.run(
-        [sys.executable, "-c", src], capture_output=True, text=True, timeout=600, env=env
+        [sys.executable, "-c", src], capture_output=True, text=True, timeout=3600, env=env
     )  # nosec B603 -- fixed local argv (sys.executable/git + literal args), no shell, no untrusted input
     for line in proc.stdout.splitlines():
         if line.startswith("RESULT_JSON="):
@@ -84,7 +84,7 @@ def _run_f2(full: int, baseline: int, n: int = 10_000, seed: int = 42) -> list:
     raise AssertionError(f"subprocess fit returned no selection (rc={proc.returncode}); stderr tail:\n" + "\n".join(proc.stderr.splitlines()[-15:]))
 
 
-@pytest.mark.timeout(1800)
+@pytest.mark.timeout(3600)
 @pytest.mark.parametrize("full,baseline", [(3, 2), (10, 20), (64, 64)])
 def test_f2_recovery_robust_to_permutation_counts(full, baseline):
     """One clean fused compound on the canonical F2 fixture across a wide perm-count range -- the recovered

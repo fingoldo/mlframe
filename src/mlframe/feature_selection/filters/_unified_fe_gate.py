@@ -283,6 +283,45 @@ def raw_mi_noise_floor(
 _LOCAL_GATE_NULL_PERMUTATIONS = 39
 
 
+def local_gate_permutations(n_rows: int) -> "list[np.ndarray]":
+    """The row permutations of the local gate's family-wise null (fixed seed, so every candidate batch of one family is scored against the same permutations)."""
+    rng = np.random.default_rng(0)
+    return [rng.permutation(n_rows) for _ in range(_LOCAL_GATE_NULL_PERMUTATIONS)]
+
+
+def select_above_floor(cand_cols: Sequence[str], cand_mi: np.ndarray, floor: float, reject_sink: Optional[Callable[..., None]], top_k: Optional[int]) -> list[str]:
+    """The columns whose MI clears ``floor``, by descending MI, at most ``top_k`` of them (no cap when ``top_k`` is None / <= 0); every column that does not clear it goes to ``reject_sink``."""
+    scored = [(col, float(cand_mi[j])) for j, col in enumerate(cand_cols) if np.isfinite(cand_mi[j]) and cand_mi[j] >= floor]
+    # W6 (class-closure): record every candidate the shared abs-MAD noise floor
+    # kills (raw_mi_noise_floor = med+k*MAD). Pure-record; the kept set is
+    # computed independently above so selection is byte-identical.
+    if reject_sink is not None:
+        for j, col in enumerate(cand_cols):
+            _mi = cand_mi[j]
+            if not np.isfinite(_mi) or _mi < floor:
+                try:
+                    reject_sink(
+                        gate="marginal_uplift_floor",
+                        candidate=str(col),
+                        operands=None,
+                        operator="unified_local_mi_gate",
+                        observed=float(_mi),
+                        threshold=float(floor),
+                        reason=(
+                            "unified local-MI abs-MAD floor: MI below med+k*MAD raw noise floor"
+                            if np.isfinite(_mi)
+                            else "unified local-MI gate: MI could not be computed (non-finite), candidate dropped"
+                        ),
+                    )
+                except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+                    logger.debug("suppressed: %s", e)
+                    pass
+    scored.sort(key=lambda t: t[1], reverse=True)
+    if top_k is not None and int(top_k) > 0:
+        scored = scored[: int(top_k)]
+    return [col for col, _mi in scored]
+
+
 def local_mi_gate(
     enc_df: pd.DataFrame,
     y: np.ndarray | pd.Series,
@@ -333,43 +372,13 @@ def local_mi_gate(
     # floor is therefore raised to the 95th percentile of the per-permutation maximum MI over the same candidates. The candidates are
     # binned without the target, so permuting y only breaks the candidate-target pairing, which is what the null needs.
     if arr.shape[1] >= 2 and len(y_bin) > 0:
-        _rng = np.random.default_rng(0)
-        # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
-        _null_max = np.empty(_LOCAL_GATE_NULL_PERMUTATIONS, dtype=np.float64)
-        for _b in range(_LOCAL_GATE_NULL_PERMUTATIONS):
-            _yp = np.asarray(y_bin)[_rng.permutation(len(y_bin))]
-            # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
-            _null_max[_b] = float(np.nanmax(np.asarray(_mi_classif_batch(arr, _yp, nbins=nbins), dtype=np.float64)))
+        from ._orthogonal_univariate_fe._orth_mi_null_max import null_max_mi
+
+        _perms = local_gate_permutations(len(y_bin))
+        # The candidate matrix is binned once for all permutations (bit-identical to scoring it once per permutation).
+        _null_max = null_max_mi(arr, np.asarray(y_bin), _perms, nbins, _mi_classif_batch)
         floor = max(float(floor), float(np.quantile(_null_max, 0.95)))
-    scored = [(col, float(cand_mi[j])) for j, col in enumerate(cand_cols) if np.isfinite(cand_mi[j]) and cand_mi[j] >= floor]
-    # W6 (class-closure): record every candidate the shared abs-MAD noise floor
-    # kills (raw_mi_noise_floor = med+k*MAD). Pure-record; the kept set is
-    # computed independently above so selection is byte-identical.
-    if reject_sink is not None:
-        for j, col in enumerate(cand_cols):
-            _mi = cand_mi[j]
-            if not np.isfinite(_mi) or _mi < floor:
-                try:
-                    reject_sink(
-                        gate="marginal_uplift_floor",
-                        candidate=str(col),
-                        operands=None,
-                        operator="unified_local_mi_gate",
-                        observed=float(_mi),
-                        threshold=float(floor),
-                        reason=(
-                            "unified local-MI abs-MAD floor: MI below med+k*MAD raw noise floor"
-                            if np.isfinite(_mi)
-                            else "unified local-MI gate: MI could not be computed (non-finite), candidate dropped"
-                        ),
-                    )
-                except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-                    logger.debug("suppressed: %s", e)
-                    pass
-    scored.sort(key=lambda t: t[1], reverse=True)
-    if top_k is not None and int(top_k) > 0:
-        scored = scored[: int(top_k)]
-    return [col for col, _mi in scored]
+    return select_above_floor(cand_cols, cand_mi, floor, reject_sink, top_k)
 
 
 # ---------------------------------------------------------------------------

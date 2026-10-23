@@ -14,7 +14,7 @@ import faulthandler
 import os
 import sys
 
-HANG_WATCHDOG_SECONDS = int(os.environ.get("MLFRAME_HANG_WATCHDOG_SECONDS", "1800"))
+HANG_WATCHDOG_SECONDS = int(os.environ.get("MLFRAME_HANG_WATCHDOG_SECONDS", "3600"))
 
 
 def arm(node_id: str) -> None:

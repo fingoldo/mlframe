@@ -330,6 +330,23 @@ def _global_stats_all(v: np.ndarray, needed: Sequence[str]) -> dict:
         out["kurt"] = (m4 / (var * var) - 3.0) if n > 3 else 0.0
     return out
 
+def _visited_group_cols(group_num_cols: Sequence[str], pairs: "Optional[set]") -> list:
+    """The group columns of ``group_num_cols`` that some visited pair uses (all of them without a pair restriction): the edges and codes of any other group column would be built for nothing."""
+    if pairs is None:
+        return list(group_num_cols)
+    used = {g for g, _a in pairs}
+    return [g for g in group_num_cols if g in used]
+
+
+def _feature_block_rows(n_groups: int, n_aggs: int, n_stats: int, pairs: "Optional[set]", recipe_only: bool) -> int:
+    """Upper bound of the stored OOF columns: one per stat of every (group, agg) pair the fit visits. The visited pairs are the caller's ``pairs`` (the top ``max_pairs``) when it gives them,
+    so the block is sized for those, not for every group x agg combination (4 GB instead of 1 GB at 1M rows with the default caps)."""
+    if recipe_only:
+        return 0
+    n_pairs = n_groups * n_aggs if pairs is None else min(n_groups * n_aggs, len(pairs))
+    return n_pairs * n_stats
+
+
 def fit_binned_numeric_agg(
     X: pd.DataFrame, y: np.ndarray, *,
     group_num_cols: Sequence[str], agg_num_cols: Sequence[str],
@@ -354,8 +371,8 @@ def fit_binned_numeric_agg(
     fold_ids[rng.permutation(n)] = np.arange(n) % int(n_folds)
 
     # Stored columns are written straight into one preallocated (feature, row) block, so the output is a single copy:
-    # no per-name dict alongside a stacked frame. k_max is the upper bound (every group x agg x stat), the view is trimmed below.
-    k_max = 0 if recipe_only else len(group_num_cols) * len(agg_num_cols) * len(stats)
+    # no per-name dict alongside a stacked frame. k_max is the upper bound of the stored columns, the view is trimmed below.
+    k_max = _feature_block_rows(len(group_num_cols), len(agg_num_cols), len(stats), pairs, recipe_only)
     feat_block = np.empty((k_max, n), dtype=out_dtype)
     feat_names: list[str] = []
     recipes: dict[str, dict] = {}
@@ -371,7 +388,7 @@ def fit_binned_numeric_agg(
     _fold_test = None if recipe_only else [np.where(fold_ids == f)[0] for f in range(int(n_folds))]
     from ._fe_deadline import fe_deadline_passed
 
-    for gcol in group_num_cols:
+    for gcol in _visited_group_cols(group_num_cols, pairs):
         # Optional-enrichment wall-clock budget: stop the (group_col, agg_col) sweep once MRMR.fit's
         # deadline passes; return whatever columns/recipes were engineered so far. No-op without a budget
         # (mirrors the orth-univariate/pair-cross/extra-basis generators' internal deadline check).
@@ -606,11 +623,40 @@ def _redundancy_gate_binagg(
     return feat_df
 
 
+def _host_candidates(
+    X: pd.DataFrame, y: np.ndarray, gsel: Sequence[str], asel: Sequence[str], stats: Sequence[str], nbins_base: int, n_folds: int, random_state: int, ranked_pairs: list, precap_pairs: set,
+    cap_names: Callable[..., list], mi_gate: bool, reject_sink: Callable[..., None] | None,
+) -> "tuple[pd.DataFrame, dict] | None":
+    """``(feat_df, raw)`` of the host path, or ``None`` when no candidate survives: the pairs are taken in batches that fit the free memory (one batch when everything fits, the single fit),
+    every pair is scored, and the local MI gate keeps the columns that clear the raw noise floor and the family-wise null."""
+    from ._binned_numeric_agg_batches import pair_batches, streamed_host_candidates
+
+    batches = pair_batches(ranked_pairs, len(X), len(stats))
+    if len(batches) > 1:
+        feat_df, raw = streamed_host_candidates(fit_binned_numeric_agg, X, y, gsel, asel, stats, nbins_base, n_folds, random_state, batches, cap_names, mi_gate, reject_sink)
+        return (feat_df, raw) if feat_df.shape[1] else None
+    feat_df, raw = fit_binned_numeric_agg(
+        X, y, group_num_cols=gsel, agg_num_cols=asel, stats=stats, nbins_base=nbins_base, n_folds=n_folds, random_state=random_state, pairs=precap_pairs,
+    )
+    if feat_df.shape[1] == 0:
+        return None
+    feat_df = feat_df[cap_names(list(feat_df.columns), raw)]
+    # PROBE-GATE: keep only columns clearing the local MI floor vs the raw baseline (cheap exit if no signal).
+    if mi_gate and feat_df.shape[1] > 0:
+        from ._unified_fe_gate import local_mi_gate
+
+        survivors_set = set(local_mi_gate(feat_df, y, raw_X=X, reject_sink=reject_sink))
+        feat_df = feat_df[[c for c in feat_df.columns if c in survivors_set]]
+        if feat_df.shape[1] == 0:
+            return None
+    return feat_df, raw
+
+
 def binned_numeric_agg_with_recipes(
     X: pd.DataFrame, y: np.ndarray, *,
     group_num_cols: Sequence[str] | None = None, agg_num_cols: Sequence[str] | None = None,
     stats: Sequence[str] = SUPPORTED_STATS, nbins_base: int = 10,
-    n_folds: int = 5, random_state: int = 0, max_pairs: int = 64,
+    n_folds: int = 5, random_state: int = 0, max_pairs: int | None = 64,
     max_group_cols: int = 16, max_agg_cols: int = 16,
     mi_gate: bool = True, redundancy_gate: bool = True,
     min_cmi_gain: float = 0.005, reject_sink: Callable[..., None] | None = None, linear_usability: bool = True,
@@ -656,7 +702,9 @@ def binned_numeric_agg_with_recipes(
         ((g, a) for g in gsel for a in asel if g != a),
         key=lambda p: (g_mi.get(p[0], 0.0), a_var.get(p[1], 0.0)), reverse=True,
     )
-    _precap_pairs = set(_ranked_pairs[: max(1, int(max_pairs))])
+    _pair_cap = None if max_pairs is None else max(1, int(max_pairs))  # None: every pair is scored, in memory-bounded batches
+    _ranked_pairs = _ranked_pairs[:_pair_cap]
+    _precap_pairs = set(_ranked_pairs)
     # max_pairs cap on the (group, agg) pairs, by descending group MI then agg variance.
     pair_rank = {(g, a): (g_mi.get(g, 0.0), a_var.get(a, 0.0)) for g in gsel for a in asel}
 
@@ -665,7 +713,7 @@ def binned_numeric_agg_with_recipes(
         nbp: dict = {}
         for _nm in names:
             nbp.setdefault((recipes_map[_nm]["group_col"], recipes_map[_nm]["agg_col"]), []).append(_nm)
-        _tops = sorted(nbp, key=lambda p: pair_rank.get(p, (0.0, 0.0)), reverse=True)[: max(1, int(max_pairs))]
+        _tops = sorted(nbp, key=lambda p: pair_rank.get(p, (0.0, 0.0)), reverse=True)[:_pair_cap]
         return [_nm for p in _tops for _nm in nbp[p]]
 
     # DEVICE-BORN binagg fit: when the device MI gate is available, fit RECIPES-ONLY (skip the 5-fold
@@ -695,22 +743,10 @@ def binned_numeric_agg_with_recipes(
             return X, [], []
 
     if state == "unavailable":
-        # HOST path (unchanged behaviour): build ALL capped OOF columns, then the host CPU MI gate.
-        feat_df, raw = fit_binned_numeric_agg(
-            X, y, group_num_cols=gsel, agg_num_cols=asel,
-            stats=stats, nbins_base=nbins_base, n_folds=n_folds, random_state=random_state,
-            pairs=_precap_pairs,
-        )
-        if feat_df.shape[1] == 0:
+        host = _host_candidates(X, y, gsel, asel, stats, nbins_base, n_folds, random_state, _ranked_pairs, _precap_pairs, _cap_names, mi_gate, reject_sink)
+        if host is None:
             return X, [], []
-        feat_df = feat_df[_cap_names(list(feat_df.columns), raw)]
-        # PROBE-GATE: keep only columns clearing the local MI floor vs the raw baseline (cheap exit if no signal).
-        if mi_gate and feat_df.shape[1] > 0:
-            from ._unified_fe_gate import local_mi_gate
-            survivors_set = set(local_mi_gate(feat_df, y, raw_X=X, reject_sink=reject_sink))
-            feat_df = feat_df[[c for c in feat_df.columns if c in survivors_set]]
-            if feat_df.shape[1] == 0:
-                return X, [], []
+        feat_df, raw = host
 
     # REDUNDANCY GATE: a ``binagg_*`` column ``stat(a | qbin(g))`` is a deterministic function of its source
     # columns ``(g, a)``. The Tier-1 MI floor above keeps it whenever MI(col; y) clears the raw noise floor,

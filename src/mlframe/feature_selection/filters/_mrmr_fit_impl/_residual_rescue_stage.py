@@ -280,6 +280,16 @@ def _admit_from_pool(self, X, y, design: dict, raw_cols, design_sources: list, e
     return cell_recipes, admitted, pool
 
 
+def _keep_best_raw_if_selection_empties(self: Any, X: Any, y: np.ndarray, cols: Any, selected_vars: Any, dropped: "list[int]", prune_names: Any) -> None:
+    """A selection never ends up with no column at all: when every selected raw is pruned and no engineered column survives, the pruned raw that tracks the target best stays (removed from ``dropped``)."""
+    if not dropped or [i for i in selected_vars if i not in dropped] or [f for f in self._engineered_features_ if str(f) not in prune_names]:
+        return
+    corr = {i: abs(float(np.corrcoef(np.asarray(X[cols[i]].to_numpy(), dtype=_crit_np_dtype()), y)[0, 1])) for i in dropped if cols[i] in X.columns}
+    corr = {i: (c if np.isfinite(c) else 0.0) for i, c in corr.items()}
+    if corr:
+        dropped.remove(max(corr, key=lambda k: corr[k]))
+
+
 def run_residual_rescue(self, X: Any, selected_vars: Any, cols: Any, engineered_recipes: Any, retention_added_eng_names: Any, verbose: Any, prune_only: bool = False) -> bool:
     """Admit the pool columns that reduce the held-out residual of the selected design and prune the redundant raws (``redundancy_policy='drop'``); True when the selection changed."""
     if not getattr(self, "fe_residual_rescue_enable", False):
@@ -357,12 +367,7 @@ def run_residual_rescue(self, X: Any, selected_vars: Any, cols: Any, engineered_
             logger.info("MRMR residual rescue: admitted %r (t=%.1f, %.1f%% of the target variance).", name, t_stat, 100.0 * rel)
     prune_names = _reprune_after_admission(self, design, pool, prune_names, admitted_engineered, y, raw_cols, residual_rescue)
     dropped = [col_index[n] for n in prune_names if n in col_index and col_index[n] in selected_vars and n not in eng_set]
-    if dropped and not [i for i in selected_vars if i not in dropped] and not [f for f in self._engineered_features_ if str(f) not in prune_names]:
-        # a selection never ends up with no column at all: the pruned raw that tracks the target best stays
-        corr = {i: abs(float(np.corrcoef(np.asarray(X[cols[i]].to_numpy(), dtype=_crit_np_dtype()), y)[0, 1])) for i in dropped if cols[i] in X.columns}
-        corr = {i: (c if np.isfinite(c) else 0.0) for i, c in corr.items()}
-        if corr:
-            dropped.remove(max(corr, key=lambda k: corr[k]))
+    _keep_best_raw_if_selection_empties(self, X, y, cols, selected_vars, dropped, prune_names)
     for idx in dropped:
         selected_vars.remove(idx)
         if verbose:

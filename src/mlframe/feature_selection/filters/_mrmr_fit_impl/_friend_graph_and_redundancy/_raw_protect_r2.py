@@ -19,6 +19,40 @@ def _well_conditioned(r: np.ndarray) -> bool:
     return bool(d.size) and bool(np.all(np.isfinite(d))) and float(d.min()) > _RCOND * float(d.max())
 
 
+def _base_blocks(base_mat: "np.ndarray | Sequence[np.ndarray]", tr_idx: np.ndarray, va_idx: np.ndarray) -> "tuple[np.ndarray, np.ndarray]":
+    """The train and validation row blocks of the base design, in float64 (a sequence of columns is sliced per column, so the full-height design never exists)."""
+    # Intentional float64: the design of a least-squares probe. The columns arrive in the criterion dtype, where the rounding noise (about 1e-7) is far above the ``_RCOND`` rank test (1e-10),
+    # so a column collinear with the base looked well conditioned and entered the fast QR update as noise; a float64 design keeps the rank test meaningful.
+    if isinstance(base_mat, np.ndarray):
+        base_tr = np.asarray(base_mat[tr_idx], dtype=np.float64)
+        base_va = np.asarray(base_mat[va_idx], dtype=np.float64)
+    else:
+        base_tr = np.column_stack([np.asarray(c, dtype=np.float64)[tr_idx] for c in base_mat])
+        base_va = np.column_stack([np.asarray(c, dtype=np.float64)[va_idx] for c in base_mat])
+    return base_tr, base_va
+
+
+def _base_qr(base_tr: np.ndarray, y_tr: np.ndarray) -> "tuple[Any, Any, Any, Any]":
+    """``(Q, R, coef_base, qty)`` of the economic QR of the base design when it is well conditioned, else ``(None, None, None, None)`` (the lstsq path then decides)."""
+    import scipy.linalg as sla
+
+    Q: Any = None
+    R: Any = None
+    coef_base: Any = None
+    qty: Any = None
+    try:
+        Q, R = sla.qr(base_tr, mode="economic")
+        if _well_conditioned(R):
+            qty = Q.T @ y_tr
+            coef_base = sla.solve_triangular(R, qty)
+        else:
+            Q = R = None
+    except Exception as exc:
+        logger.warning("mrmr: QR of the raw-protection base design failed; scoring with lstsq: %r", exc, exc_info=True)
+        Q = R = None
+    return Q, R, coef_base, qty
+
+
 def heldout_r2_scorer(base_mat: np.ndarray | Sequence[np.ndarray], y: np.ndarray, train_mask: np.ndarray, val_mask: np.ndarray) -> Callable[..., float]:
     """Return ``r2(extra=None)``: the held-out R^2 of a least-squares fit of ``y`` on ``[base | extra]``, trained on ``train_mask`` rows.
 
@@ -37,14 +71,7 @@ def heldout_r2_scorer(base_mat: np.ndarray | Sequence[np.ndarray], y: np.ndarray
     yv = y[va_idx]
     ss = float(np.sum((yv - yv.mean()) ** 2))
     y_tr = y[tr_idx]
-    # Intentional float64: the design of a least-squares probe. The columns arrive in the criterion dtype, where the rounding noise (about 1e-7) is far above the ``_RCOND`` rank test (1e-10),
-    # so a column collinear with the base looked well conditioned and entered the fast QR update as noise; a float64 design keeps the rank test meaningful.
-    if isinstance(base_mat, np.ndarray):
-        base_tr = np.asarray(base_mat[tr_idx], dtype=np.float64)
-        base_va = np.asarray(base_mat[va_idx], dtype=np.float64)
-    else:
-        base_tr = np.column_stack([np.asarray(c, dtype=np.float64)[tr_idx] for c in base_mat])
-        base_va = np.column_stack([np.asarray(c, dtype=np.float64)[va_idx] for c in base_mat])
+    base_tr, base_va = _base_blocks(base_mat, tr_idx, va_idx)
 
     def _lstsq_pred(a_tr: np.ndarray, a_va: np.ndarray) -> np.ndarray:
         """Validation predictions of the rank-revealing least-squares solution."""
@@ -52,20 +79,7 @@ def heldout_r2_scorer(base_mat: np.ndarray | Sequence[np.ndarray], y: np.ndarray
         pred: np.ndarray = a_va @ coef
         return pred
 
-    Q: Any = None
-    R: Any = None
-    coef_base: Any = None
-    qty: Any = None
-    try:
-        Q, R = sla.qr(base_tr, mode="economic")
-        if _well_conditioned(R):
-            qty = Q.T @ y_tr
-            coef_base = sla.solve_triangular(R, qty)
-        else:
-            Q = R = None
-    except Exception as exc:
-        logger.warning("mrmr: QR of the raw-protection base design failed; scoring with lstsq: %r", exc, exc_info=True)
-        Q = R = None
+    Q, R, coef_base, qty = _base_qr(base_tr, y_tr)
 
     def _extended_coef(e_tr: np.ndarray):
         """Coefficients ``[beta_base; beta_extra]`` of ``y ~ [base | e]`` from the base QR without copying ``Q``: ``E = Q r + E_perp``, ``E_perp = Q2 R2``, so

@@ -95,6 +95,32 @@ def _codes_at_rows_nan(col, nan_rows, rows, cuts, nb_reg, out):
         out[t] = lo
 
 
+@njit(cache=True)
+def _prepare_column(raw_cont, order, nan_cont, fixed_codes, eval_rows, is_cont_j, slot, xsrt, col, xs_buf):
+    """Fill the per-column buffers of ``honest_null_columns_bycol``: a continuous column's sorted values ``xsrt`` and plain values ``col``, a fixed column's codes at the evaluation rows
+    ``xs_buf``. Returns ``(tie_free, has_nan_col)`` (both False for a fixed column)."""
+    n = xsrt.shape[0]
+    tie_free = False
+    has_nan_col = False
+    if is_cont_j:
+        for i in range(n):
+            xsrt[i] = raw_cont[order[slot, i], slot]
+            col[i] = raw_cont[i, slot]
+        tie_free = True
+        for i in range(1, n):
+            if xsrt[i] == xsrt[i - 1]:
+                tie_free = False
+                break
+        for i in range(n):
+            if nan_cont[i, slot]:
+                has_nan_col = True
+                break
+    else:
+        for t in range(eval_rows.shape[0]):
+            xs_buf[t] = fixed_codes[eval_rows[t], slot]
+    return tie_free, has_nan_col
+
+
 @njit(parallel=True, cache=True)
 def honest_null_columns_bycol(
     raw_cont: np.ndarray,
@@ -139,28 +165,9 @@ def honest_null_columns_bycol(
         ysrt = np.empty(n, dtype=np.int64)
         ys = np.empty(m, dtype=np.int64)
         xs_buf = np.empty(m, dtype=np.int64)
-        tie_free = False
         xsrt = np.empty(n, dtype=raw_cont.dtype)
         col = np.empty(n, dtype=raw_cont.dtype)
-        has_nan_col = False
-        if is_cont[j]:
-            sj = col_slot[j]
-            for i in range(n):
-                xsrt[i] = raw_cont[order[sj, i], sj]
-                col[i] = raw_cont[i, sj]
-            tie_free = True
-            for i in range(1, n):
-                if xsrt[i] == xsrt[i - 1]:
-                    tie_free = False
-                    break
-            for i in range(n):
-                if nan_cont[i, sj]:
-                    has_nan_col = True
-                    break
-        else:
-            fs = col_slot[j]
-            for t in range(m):
-                xs_buf[t] = fixed_codes[eval_rows[t], fs]
+        tie_free, has_nan_col = _prepare_column(raw_cont, order, nan_cont, fixed_codes, eval_rows, is_cont[j], col_slot[j], xsrt, col, xs_buf)
         for b in range(n_perm_rows):
             yr_b = y_raw_perm[b]
             yc_b = y_codes_perm[b]

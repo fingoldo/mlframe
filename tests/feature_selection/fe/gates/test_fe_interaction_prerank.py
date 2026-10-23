@@ -215,6 +215,14 @@ def test_all_target_types_score_finite_and_recover(target_kind):
     assert recall >= 0.5, f"{target_kind}: operand recall {recall:.2f} at top-100 (random ~{100 / 400:.2f})"
 
 
+def _score_tolerance() -> "tuple[float, float]":
+    """``(rtol, atol)`` for comparing a kernel score with the float64 per-class-loop reference at the criterion dtype: float32 (the default) carries ~1e-7 relative rounding per
+    accumulated term, so a sum over thousands of rows agrees to ~1e-5 relative; float64 keeps the tight bound."""
+    from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
+
+    return (1e-4, 1e-6) if np.dtype(_crit_np_dtype()) == np.float32 else (1e-8, 1e-10)
+
+
 @pytest.mark.parametrize("nclasses", [2, 5])
 @pytest.mark.parametrize(
     "backend",
@@ -243,7 +251,8 @@ def test_kernel_variants_match_per_class_loop_reference(backend, nclasses):
     ref = _discrete_score_numpy_loop(V, V2, yf, classes)
     got = _kernels.compute_discrete_score(V, V2, yf, classes, backend=backend)
 
-    assert np.allclose(got, ref, rtol=1e-8, atol=1e-10), f"{backend} score drift max={np.abs(got - ref).max():.2e}"
+    rtol, atol = _score_tolerance()
+    assert np.allclose(got, ref, rtol=rtol, atol=atol), f"{backend} score drift max={np.abs(got - ref).max():.2e}"
     # ranking (the only thing top-k consumes) must be bit-identical to the reference
     assert np.array_equal(np.argsort(-got, kind="stable"), np.argsort(-ref, kind="stable")), f"{backend} ranking differs from per-class-loop reference"
 
@@ -257,7 +266,8 @@ def test_second_moment_uses_kernel_and_matches_loop_end_to_end():
     got = second_moment_propensity(X, y)
     yf = y.astype(np.float64)
     ref = _discrete_score_numpy_loop(X, X * X, yf, np.unique(yf))
-    assert np.allclose(got, ref, rtol=1e-8, atol=1e-10)
+    rtol, atol = _score_tolerance()
+    assert np.allclose(got, ref, rtol=rtol, atol=atol)
 
 
 def test_fused_recall_floor_at_realistic_leakage():

@@ -219,6 +219,38 @@ def _recipe_sources(name: str, recipes: dict, raw_set: frozenset, _depth: int = 
     return _raw_sources(name, raw_set)
 
 
+def _add_synthesized_candidates(
+    self, X: Any, classes_y: np.ndarray, cols: list[str], sel_eng: list[str], by_recipe: dict, all_recipes: dict, raw_set: "frozenset[str]", pool: list[str], columns: dict, sources: dict,
+    engineered_recipes: dict,
+) -> None:
+    """Add the synthesized candidates (a cell joint of the best selected triple, additive fusions of the selected halves) to ``pool`` / ``columns`` / ``sources`` / ``engineered_recipes`` in place."""
+    spanned = _best_triple(sel_eng, sources)
+    if spanned is not None and not any(nm.startswith("cell3(") and sources[nm] >= spanned for nm in pool):
+        made = _synthesized_cell_triple(X[sorted(spanned)], spanned)
+        if made is None:
+            made = _synthesized_triplet(X, np.asarray(classes_y).ravel(), spanned)
+        if made is not None:
+            name, rec, codes = made
+            pool.append(name)
+            columns[name], sources[name], engineered_recipes[name] = codes, spanned, rec
+    from ._compaction_fusions import synthesized_fusions
+
+    for name, rec, codes in synthesized_fusions(self, X, sel_eng, by_recipe, all_recipes, raw_set, cols, classes_y):
+        if name in columns or name in pool:
+            continue
+        pool.append(name)
+        columns[name], sources[name], engineered_recipes[name] = codes, _recipe_sources(name, {**all_recipes, name: rec}, raw_set), rec
+
+
+def _recipe_consumers(recipes: list) -> dict:
+    """Source column name -> the names of the recipes that read it."""
+    consumers: dict = {}
+    for r in recipes:
+        for s in getattr(r, "src_names", ()) or ():
+            consumers.setdefault(str(s), set()).add(str(getattr(r, "name", "")))
+    return consumers
+
+
 def run_selection_compaction(
     self, X: Any, selected_vars: list[int], cols: list[str], data: np.ndarray, classes_y: np.ndarray, engineered_recipes: dict[str, Any], verbose: bool
 ) -> tuple[bool, list[int]]:
@@ -245,26 +277,8 @@ def run_selection_compaction(
         all_recipes = {**{str(k): v for k, v in engineered_recipes.items()}, **by_recipe}
         sources = {nm: _recipe_sources(nm, all_recipes, raw_set) for nm in wanted}
         engineered_recipes = dict(engineered_recipes)
-        spanned = _best_triple(sel_eng, sources)
-        if spanned is not None and not any(nm.startswith("cell3(") and sources[nm] >= spanned for nm in pool):
-            made = _synthesized_cell_triple(X[sorted(spanned)], spanned)
-            if made is None:
-                made = _synthesized_triplet(X, np.asarray(classes_y).ravel(), spanned)
-            if made is not None:
-                name, rec, codes = made
-                pool.append(name)
-                columns[name], sources[name], engineered_recipes[name] = codes, spanned, rec
-        from ._compaction_fusions import synthesized_fusions
-
-        for name, rec, codes in synthesized_fusions(self, X, sel_eng, by_recipe, all_recipes, raw_set, cols, classes_y):
-            if name in columns or name in pool:
-                continue
-            pool.append(name)
-            columns[name], sources[name], engineered_recipes[name] = codes, _recipe_sources(name, {**all_recipes, name: rec}, raw_set), rec
-        consumers: dict = {}
-        for r in list(recipes) + [engineered_recipes[nm] for nm in pool]:
-            for s in getattr(r, "src_names", ()) or ():
-                consumers.setdefault(str(s), set()).add(str(getattr(r, "name", "")))
+        _add_synthesized_candidates(self, X, classes_y, cols, sel_eng, by_recipe, all_recipes, raw_set, pool, columns, sources, engineered_recipes)
+        consumers = _recipe_consumers(list(recipes) + [engineered_recipes[nm] for nm in pool])
         y_codes = np.asarray(classes_y).ravel()
         changed = False
         # Features that add nothing to the rest go first: a proxy fragment would otherwise keep the replacement candidate from matching the set it replaces.

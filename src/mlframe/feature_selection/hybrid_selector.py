@@ -675,20 +675,7 @@ class HybridSelector:
         # dropped columns are pure-noise singletons (FI==0, not MRMR, not engineered) - they would each cluster alone
         # and never be voted/selected, so omitting them is selection-neutral on the kept set while bounding clustering
         # cost on wide frames. self.fi_ retains the FULL frame so _rep_fi / cluster_rep still see every column.
-        mrmr_set_pre = set(self.mrmr_selected_)
-        cluster_cols = [c for c in cols if self.fi_.get(c, 0.0) > 0.0 or c in mrmr_set_pre or c in engineered]
-        cap = getattr(self, "hybrid_corr_max_features", None)
-        if len(cluster_cols) < 2 or not self.prescreen:
-            cluster_cols = cols  # too few survivors / prescreen off -> cluster the full frame
-        elif cap is not None and len(cluster_cols) > cap:
-            # survivor set still over the cap: keep the engineered + MRMR cols (must survive) and top-FI raw fill.
-            must = [c for c in cluster_cols if c in engineered or c in mrmr_set_pre]
-            rest = [c for c in cluster_cols if c not in engineered and c not in mrmr_set_pre]
-            # Full sort key (-fi, col) so ties on importance break deterministically by column name instead of
-            # depending on the input order - otherwise two equal-FI columns at the cap boundary could be kept
-            # or dropped non-reproducibly across runs / platforms.
-            rest = sorted(rest, key=lambda c: (-self.fi_.get(c, 0.0), c))[: max(cap - len(must), 0)]
-            cluster_cols = [c for c in cols if c in set(must) | set(rest)]  # preserve original column order
+        cluster_cols = self._clustering_columns(cols, engineered)
         self._cluster_cols_ = cluster_cols
         X_cluster = X_aug[cluster_cols] if len(cluster_cols) != len(cols) else X_aug
         self.reps_, self.members_ = corr_clusters(X_cluster, self.corr_thr)
@@ -721,6 +708,44 @@ class HybridSelector:
         # RAM-tight ~8GB footprint + risks RNG non-determinism (re-seeded children break the bit-identical combine).
         # So the members stay SEQUENTIAL: the wall is irreducible sub-selector compute (already optimized upstream),
         # not glue. The hybrid's OWN glue is ~0.05s (<0.15% of wall); see corr_clusters for the one glue micro-opt.
+        member_sel = self._run_members(X_aug, y, relevant, cols, engineered)
+        self.member_selections_ = member_sel
+
+        # STAGE 3 - cluster-aware vote over the shared clusters (pure, deterministic; extracted for unit testing)
+        selected = self._combine(member_sel, cols)
+        if self.twin_corr is not None and len(selected) > 1:
+            from mlframe.feature_selection._hybrid_twin_prune import prune_conditional_twins
+
+            selected = prune_conditional_twins(X_aug, y, selected, self.fi_, twin_corr=float(self.twin_corr), classification=self.classification, seed=int(self.random_state))
+        self.raw_selected_ = [c for c in cols if c in set(selected)] or cols[:1]  # zero-vote degenerate case -> keep one column rather than an empty selector output, not a caller-supplied-empty trap
+        self.n_engineered_ = sum(1 for c in self.raw_selected_ if c in engineered)
+        # sklearn-style fitted attributes (raw_selected_ may include engineered eng_N names from X_aug)
+        self.feature_names_in_ = list(X.columns)
+        self.n_features_in_ = X.shape[1]
+        self.selected_features_ = list(self.raw_selected_)
+        return self
+
+    def _clustering_columns(self, cols, engineered):
+        """The columns that enter the O(p^2) correlation clustering: the relevance survivors (FI > 0, MRMR-relevant or engineered), capped at ``hybrid_corr_max_features`` with the engineered and
+        MRMR columns kept first. The full frame when there are too few survivors or the prescreen is off."""
+        mrmr_set_pre = set(self.mrmr_selected_)
+        cluster_cols = [c for c in cols if self.fi_.get(c, 0.0) > 0.0 or c in mrmr_set_pre or c in engineered]
+        cap = getattr(self, "hybrid_corr_max_features", None)
+        if len(cluster_cols) < 2 or not self.prescreen:
+            cluster_cols = cols  # too few survivors / prescreen off -> cluster the full frame
+        elif cap is not None and len(cluster_cols) > cap:
+            # survivor set still over the cap: keep the engineered + MRMR cols (must survive) and top-FI raw fill.
+            must = [c for c in cluster_cols if c in engineered or c in mrmr_set_pre]
+            rest = [c for c in cluster_cols if c not in engineered and c not in mrmr_set_pre]
+            # Full sort key (-fi, col) so ties on importance break deterministically by column name instead of
+            # depending on the input order - otherwise two equal-FI columns at the cap boundary could be kept
+            # or dropped non-reproducibly across runs / platforms.
+            rest = sorted(rest, key=lambda c: (-self.fi_.get(c, 0.0), c))[: max(cap - len(must), 0)]
+            cluster_cols = [c for c in cols if c in set(must) | set(rest)]  # preserve original column order
+        return cluster_cols
+
+    def _run_members(self, X_aug, y, relevant, cols, engineered):
+        """The selections of the member selectors on the shared narrowed space: ``{"mrmr", "shap", "boruta"[, "tree"]}``."""
         member_sel = {}
         _mrmr_hits = [c for c in (self.mrmr_selected_ + sorted(engineered)) if c in relevant]
         member_sel["mrmr"] = _mrmr_hits if _mrmr_hits else list(relevant)  # MRMR selected nothing relevant (degenerate) -> the mrmr member votes for everything rather than abstaining, not a caller-supplied-empty trap
@@ -749,21 +774,7 @@ class HybridSelector:
             tree_votes = [c for c in dict.fromkeys(tree_votes) if c in cols]
             if tree_votes:  # only register the member when it actually votes (dormant under
                 member_sel["tree"] = tree_votes  # use_fe=False + tree_top_k=0 -> no key, keeps the raw-only contract)
-        self.member_selections_ = member_sel
-
-        # STAGE 3 - cluster-aware vote over the shared clusters (pure, deterministic; extracted for unit testing)
-        selected = self._combine(member_sel, cols)
-        if self.twin_corr is not None and len(selected) > 1:
-            from mlframe.feature_selection._hybrid_twin_prune import prune_conditional_twins
-
-            selected = prune_conditional_twins(X_aug, y, selected, self.fi_, twin_corr=float(self.twin_corr), classification=self.classification, seed=int(self.random_state))
-        self.raw_selected_ = [c for c in cols if c in set(selected)] or cols[:1]  # zero-vote degenerate case -> keep one column rather than an empty selector output, not a caller-supplied-empty trap
-        self.n_engineered_ = sum(1 for c in self.raw_selected_ if c in engineered)
-        # sklearn-style fitted attributes (raw_selected_ may include engineered eng_N names from X_aug)
-        self.feature_names_in_ = list(X.columns)
-        self.n_features_in_ = X.shape[1]
-        self.selected_features_ = list(self.raw_selected_)
-        return self
+        return member_sel
 
     def _combine(self, member_sel, cols):
         """Cluster-aware vote: a cluster is kept when >= ``vote`` members picked any of its features; each kept

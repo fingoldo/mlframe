@@ -431,24 +431,39 @@ def _orth_feature_heldout_gate_pass(
     return selected_vars
 
 
+def _probe_target(y_np: Any, n_rows: int) -> "np.ndarray | None":
+    """The target of the raw-protection probe as a finite float vector of ``n_rows`` values (class labels as their codes), or ``None`` (the pass is then off)."""
+    try:
+        raw = np.asarray(y_np).reshape(-1)
+        if raw.dtype.kind in "biuf":
+            values = raw.astype(np.float64)  # Intentional float64: held-out R^2 target of the probe (a statistic, not row data)
+        else:
+            # String / object class labels: their class codes, the target an integer-coded class y already gives this probe.
+            values = np.unique(raw.astype(str), return_inverse=True)[1].astype(np.float64)  # Intentional float64: probe R^2 target
+        if values.shape[0] == n_rows and np.all(np.isfinite(values)):
+            return values
+    except Exception as exc:
+        # WARNING, not DEBUG: this does not degrade the probe, it switches the whole raw-protection pass off, and a run where a raw
+        # feature was never considered for re-add is indistinguishable downstream from one where it was considered and rejected.
+        logger.warning("mrmr: y coercion for the raw-protection re-add probe failed; raw protection is DISABLED for this fit: %r", exc, exc_info=True)
+    return None
+
+
+def _finite_column(source: Any, n_rows: int) -> "np.ndarray | None":
+    """``source`` (an array or a Series) as a finite criterion-dtype vector of ``n_rows`` values, or ``None`` when it is missing, non-numeric, of another length or not finite."""
+    if source is None:
+        return None
+    try:
+        values = np.asarray(source.to_numpy() if hasattr(source, "to_numpy") else source, dtype=_crit_np_dtype()).reshape(-1)
+    except (TypeError, ValueError):
+        return None
+    return values if values.shape[0] == n_rows and np.all(np.isfinite(values)) else None
+
+
 def _composite_subsumption_readd_pass(self, X, selected_vars, _y_np, data, cols, _eng_continuous_snapshot, _effective_min_relevance_gain, cached_MIs, verbose):
     """Re-add the raw features not subsumed by a selected composite."""
     if isinstance(X, pd.DataFrame) and len(selected_vars):
-        _rp_y = None
-        try:
-            _rp_raw = np.asarray(_y_np).reshape(-1)
-            if _rp_raw.dtype.kind in "biuf":
-                _rp_yv = _rp_raw.astype(np.float64)  # Intentional float64: held-out R^2 target of the probe (a statistic, not row data)
-            else:
-                # String / object class labels: their class codes, the target an integer-coded class y already gives this probe.
-                _rp_yv = np.unique(_rp_raw.astype(str), return_inverse=True)[1].astype(np.float64)  # Intentional float64: probe R^2 target
-            if _rp_yv.shape[0] == int(data.shape[0]) and np.all(np.isfinite(_rp_yv)):
-                _rp_y = _rp_yv
-        except Exception as exc:
-            # WARNING, not DEBUG: this does not degrade the probe, it switches the whole raw-protection pass off, and a run where a raw
-            # feature was never considered for re-add is indistinguishable downstream from one where it was considered and rejected.
-            logger.warning("mrmr: y coercion for the raw-protection re-add probe failed; raw protection is DISABLED for this fit: %r", exc, exc_info=True)
-            _rp_y = None
+        _rp_y = _probe_target(_y_np, int(data.shape[0]))
         if _rp_y is not None:
             _RAW_PROTECT_MIN_INCR_R2 = 0.005  # genuine linear raw signal lifts held-out R^2 >> 0.005; noise ~0
             _rp_n = _rp_y.shape[0]
@@ -462,14 +477,9 @@ def _composite_subsumption_readd_pass(self, X, selected_vars, _y_np, data, cols,
             for _sn in dict.fromkeys(cols[i] for i in selected_vars if 0 <= i < len(cols)):
                 _cv = _eng_continuous_snapshot.get(_sn)
                 if _cv is None and _sn in X.columns:
-                    _cv = X[_sn].to_numpy()
-                if _cv is None:
-                    continue
-                try:
-                    _cv = np.asarray(_cv, dtype=_crit_np_dtype()).reshape(-1)
-                except (TypeError, ValueError):
-                    continue  # raw categorical/string selected column - not a numeric R^2 regressor
-                if _cv.shape[0] == _rp_n and np.all(np.isfinite(_cv)):
+                    _cv = X[_sn]
+                _cv = _finite_column(_cv, _rp_n)  # a raw categorical/string selected column is not a numeric R^2 regressor
+                if _cv is not None:
                     _rp_base.append(_cv)
 
             # The base design is factorised once and extended by one column per candidate (measured 20x faster than a fresh lstsq per
@@ -515,11 +525,8 @@ def _composite_subsumption_readd_pass(self, X, selected_vars, _y_np, data, cols,
                     _rp_cand_mi = float(cached_MIs.get((_ridx,), 0.0)) if isinstance(cached_MIs, dict) else 0.0
                     if _rp_cand_mi <= _rp_floor:
                         continue  # within-null / below the screen's relevance floor -> not a genuine signal, do not resurrect
-                    try:
-                        _rv = np.asarray(X[_rn].to_numpy(), dtype=_crit_np_dtype()).reshape(-1)
-                    except (TypeError, ValueError):
-                        continue  # non-numeric raw (categorical/string) -> not a linear-usability candidate
-                    if _rv.shape[0] != _rp_n or not np.all(np.isfinite(_rv)):
+                    _rv = _finite_column(X[_rn], _rp_n)  # non-numeric raw (categorical/string) -> not a linear-usability candidate
+                    if _rv is None:
                         continue
                     if _rp_r2(_rv) - _rp_r2_base < _RAW_PROTECT_MIN_INCR_R2:
                         continue

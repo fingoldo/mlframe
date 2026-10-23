@@ -252,24 +252,29 @@ def _evaluate_fusion_pair(self: Any, ha: dict, hb: dict, y_dense: np.ndarray, nb
     # so two unrelated halves whose join adds no linear usability are NOT fused. OLS is
     # scale/sign-invariant, so it is robust to the operand-distribution imbalance the
     # binned-MI path is not.
-    _ols_passes = False
-    if not _binned_mi_passes:
-        _yc = y_dense.astype(_crit_np_dtype())
-        _r_a = _multiple_r(ha["vals"], _yc)
-        _r_b = _multiple_r(hb["vals"], _yc)
-        _r_fused = _multiple_r(np.column_stack([ha["vals"], hb["vals"]]), _yc)
-        _r_best_single = max(_r_a, _r_b)
-        # The 2-half fit must beat the best single half by more than a chance-fluctuation
-        # margin (~ 1/sqrt(n), the SE scale of a correlation). A genuine second additive
-        # term clears it; a noise half does not move multiple-R.
-        _r_margin = float(getattr(self, "fe_additive_fusion_ols_r_margin_sd", 2.0)) / max(np.sqrt(float(n_rows)), 1.0)
-        _ols_passes = _r_fused > _r_best_single + _r_margin
-    if not (_binned_mi_passes or _ols_passes):
+    _yc = y_dense.astype(_crit_np_dtype())
+    _r_a = _multiple_r(ha["vals"], _yc)
+    _r_b = _multiple_r(hb["vals"], _yc)
+    _r_fused = _multiple_r(np.column_stack([ha["vals"], hb["vals"]]), _yc)
+    _r_best_single = max(_r_a, _r_b)
+    # The 2-half fit must beat the best single half by more than a chance-fluctuation
+    # margin (~ 1/sqrt(n), the SE scale of a correlation). A genuine second additive
+    # term clears it; a noise half does not move multiple-R.
+    _r_margin = float(getattr(self, "fe_additive_fusion_ols_r_margin_sd", 2.0)) / max(np.sqrt(float(n_rows)), 1.0)
+    _ols_passes = (not _binned_mi_passes) and _r_fused > _r_best_single + _r_margin
+    # The separability tests above are scale-free (OLS fits a coefficient per half, the binned MI ranks), but the compound is the UNWEIGHTED sum of the halves. When one half is on a much
+    # smaller scale than the other the sum is the large half alone, and the second term the tests credited is lost to a linear model (F2: ``add(mul(c, d), esc(a,b))`` correlated 0.999 with
+    # the c,d term and 0.004 with the a**2/b term, held-out linear R^2 0.949 instead of 0.996). The compound must keep the linear usability of the pair it replaces.
+    # When the second half adds real linear signal to the pair (the OLS test above), the compound must show that gain itself: it has to beat the stronger half alone by the same chance margin.
+    _keeps_both_halves = not (_r_fused > _r_best_single + _r_margin) or _multiple_r(fused_vals, _yc) > _r_best_single + _r_margin
+    if not ((_binned_mi_passes or _ols_passes) and _keeps_both_halves):
         from ._fe_rejection_ledger import record_fe_rejection
 
         record_fe_rejection(
             self, gate="additive_fusion", candidate=f"{ha['name']}+{hb['name']}", operands=(ha["name"], hb["name"]), operator=_binary,
-            observed=float(fused_mi), threshold=float(_strong["mi"] + _floor_margin * _strong["floor"]), reason="binned MI and OLS multiple-R separability both below their bars",
+            observed=float(fused_mi), threshold=float(_strong["mi"] + _floor_margin * _strong["floor"]),
+            reason=("binned MI and OLS multiple-R separability both below their bars" if not (_binned_mi_passes or _ols_passes)
+                    else "the unweighted sum loses one half's linear signal (scale imbalance between the halves)"),
         )
         return None
     return _binary, fused_vals, fvb, fused_mi
