@@ -62,23 +62,43 @@ _SCORER_KW = dict(
 )
 
 
-def test_count_encoding_survives_when_raw_cat_is_selected():
-    """count_encoding survives when raw cat is selected."""
+def _fit(seed, **kw):
+    """Fit MRMR with one encoding enabled on the ``_categorical`` fixture and return the estimator."""
+    X, y = _categorical(seed)
+    return MRMR(verbose=0, random_state=0, fe_count_encoding_cols=("cat",), fe_frequency_encoding_cols=("cat",), **kw, **_SCORER_KW).fit(X, y)
+
+
+def test_the_rescue_returns_an_encoding_with_held_out_gain_and_leaves_a_noise_encoding_out():
+    """The mechanism itself, on controlled data: the held-out R^2 probe re-adds an encoding that carries the per-category effect the selected design lacks and skips one that is noise.
+
+    End to end this is no longer observable on a count encoding: counts of a uniformly drawn category are noise about the target, the raw category carries the effect, and the parsimony
+    compaction rightly removes an encoding that adds nothing to the finished selection."""
+    from mlframe.feature_selection.filters._mrmr_fit_impl._friend_graph_and_redundancy._group3 import _score_encoded_features_heldout
+
     X, y = _categorical(20)
-    sel = MRMR(verbose=0, random_state=0, fe_count_encoding_enable=True, fe_count_encoding_cols=("cat",), **_SCORER_KW)
-    sel.fit(X, y)
-    assert sel.count_encoding_features_ == ["cat__count"], (
-        f"count_encoding should survive the cat-FE floor-drop rescue on this fixture (raw 'cat' is an imperfect "
-        f"linear predictor of the shuffled per-category effect, leaving real residual R^2 for the encoding to "
-        f"recover); got {sel.count_encoding_features_!r}"
+    n = len(X)
+    rng = np.random.default_rng(0)
+    eff = np.array([-3, 0, 1, 2, 3, 0, -1, -2], dtype=float)[X["cat"].to_numpy()]
+    X = X.assign(informative=eff + 0.1 * rng.standard_normal(n), noise=rng.standard_normal(n))
+    cols = list(X.columns)
+    index = {c: i for i, c in enumerate(cols)}
+    yv = y.to_numpy(dtype=float)
+    va = np.zeros(n, dtype=bool)
+    va[rng.permutation(n)[: n // 3]] = True
+    base = [np.ones(n), X["num"].to_numpy(dtype=float)]  # the selected design: the intercept and ``num``; the category is not in it
+    kept = _score_encoded_features_heldout(
+        ~va, va, base, yv, ["informative", "noise"], index, {index["num"]}, {"num"}, {}, X, X.to_numpy(dtype=float), n, 0.005, [index["num"]], False, cols
     )
+    assert index["informative"] in kept and index["noise"] not in kept
 
 
-def test_frequency_encoding_survives_alongside_count_encoding():
-    """frequency_encoding (an exact monotone rescale of count_encoding: freq = count / n) must survive under the
-    SAME fixture/mechanism -- info-equivalent encodings should get the same rescue outcome."""
-    X, y = _categorical(20)
-    sel = MRMR(verbose=0, random_state=0, fe_frequency_encoding_enable=True, fe_frequency_encoding_cols=("cat",), **_SCORER_KW)
-    sel.fit(X, y)
-    msg = f"frequency_encoding should survive alongside count_encoding on an info-equivalent fixture; got {sel.frequency_encoding_features_!r}"
-    assert sel.frequency_encoding_features_ == ["cat__freq"], msg
+def test_count_and_frequency_encodings_get_the_same_outcome_and_the_category_information_reaches_the_output():
+    """Count and frequency encodings of one column are the same information up to a scale (freq = count / n): whatever the finished selection does with one it does with the other, and
+    the information of the category reaches the output through the raw column or an encoding."""
+    by_count = _fit(20, fe_count_encoding_enable=True)
+    by_freq = _fit(20, fe_frequency_encoding_enable=True)
+    out_count = set(by_count.get_feature_names_out())
+    out_freq = set(by_freq.get_feature_names_out())
+    assert bool(by_count.count_encoding_features_) == bool(by_freq.frequency_encoding_features_), (by_count.count_encoding_features_, by_freq.frequency_encoding_features_)
+    assert out_count - {"cat__count"} == out_freq - {"cat__freq"}
+    assert "cat" in out_count or "cat__count" in out_count

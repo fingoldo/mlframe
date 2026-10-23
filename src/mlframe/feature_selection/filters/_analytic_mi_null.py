@@ -33,6 +33,7 @@ import os
 from collections.abc import Iterator
 
 import numpy as np
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 import numba
 from numba import njit
 
@@ -184,8 +185,8 @@ def analytic_mi_null_batch(raw_mi_row: np.ndarray, n_rows: int, bx_per_col: np.n
     the #1 MRMR-screen hotspot: 138k scalar ``chi2.sf`` calls). ``bx_per_col`` is per-column occupied bins; ``by`` the
     target's occupied bins; non-finite ``raw_mi`` is treated as 0 (non-significant), matching the scalar path.
     """
-    bx = np.asarray(bx_per_col, dtype=np.float64)
-    mi = np.where(np.isfinite(raw_mi_row), raw_mi_row, 0.0).astype(np.float64)
+    bx = np.asarray(bx_per_col, dtype=_crit_np_dtype())
+    mi = np.where(np.isfinite(raw_mi_row), raw_mi_row, 0.0).astype(_crit_np_dtype())
     df = (bx - 1.0) * (float(by) - 1.0)
     ok_df = (df > 0.0) & (n_rows > 0)
     null_mean_row = np.where(ok_df, df / (2.0 * float(n_rows)), 0.0)
@@ -272,7 +273,7 @@ def analytic_batch_noise_gate(
     with ``npermutations=0``). ``disc_2d`` is the (n, K) discretised candidate matrix (integer codes);
     occupied marginal bin counts drive each column's G-test df. Returns ``fe_mi[K]``.
     """
-    observed = np.asarray(observed_mi, dtype=np.float64)
+    observed = np.asarray(observed_mi, dtype=_crit_np_dtype())
     # K from whichever the caller supplied: the device-resident FE pair-MI path passes disc_2d=None with a
     # precomputed bx_per_col (the (n,K) codes never leave the device), so deriving K from disc_2d.shape would
     # AttributeError and silently drop the whole GPU branch to the CPU fallback (the "GPU never helped" mode).

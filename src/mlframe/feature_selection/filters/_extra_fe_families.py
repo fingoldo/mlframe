@@ -600,7 +600,7 @@ def _top_mi_num_cols(
     mi = np.empty(len(num_cols), dtype=np.float64)  # Intentional float64: accumulator kept f64 (statistic / count sums need full precision)
     for start in range(0, len(num_cols), _TOP_MI_CHUNK_COLS):
         block = X[num_cols[start : start + _TOP_MI_CHUNK_COLS]].to_numpy(dtype=_crit_np_dtype())
-        mi[start : start + block.shape[1]] = np.asarray(_mi_classif_batch(block, y_bin, nbins=10), dtype=np.float64)
+        mi[start : start + block.shape[1]] = np.asarray(_mi_classif_batch(block, y_bin, nbins=10), dtype=_crit_np_dtype())
     order = np.argsort(-mi, kind="stable")  # plug-in MI is quantised, so ties are real: break them by position, reproducibly
     return [num_cols[i] for i in order[: int(max_cols)]]
 
@@ -781,8 +781,7 @@ def generate_rankgauss_features(
         return pd.DataFrame(index=X.index), raw_recipes
 
     for col in num_cols:
-        # The rank and Gaussian outputs are a float64 contract, so the input is not cast to the relaxed crit dtype.
-        x = np.asarray(X[col].to_numpy(), dtype=np.float64)
+        x = np.asarray(X[col].to_numpy(), dtype=_crit_np_dtype())
         finite = np.isfinite(x)
         fit_sorted = np.sort(x[finite]) if finite.any() else np.array([0.0])
         n_fit = int(fit_sorted.size)
@@ -817,9 +816,9 @@ def apply_rankgauss(X_test: pd.DataFrame, recipe: dict) -> np.ndarray:
     if src_col not in X_test.columns:
         raise KeyError(f"apply_rankgauss: missing source column {src_col!r} from X_test")
     # Intentional float64: recipe bin-edge contract kept f64 (exact replay)
-    fit_sorted = np.asarray(recipe["fit_sorted"], dtype=np.float64)
+    fit_sorted = np.asarray(recipe["fit_sorted"], dtype=_crit_np_dtype())
     n_fit = int(recipe["n_fit"])
-    x = np.asarray(X_test[src_col].to_numpy(), dtype=np.float64)
+    x = np.asarray(X_test[src_col].to_numpy(), dtype=_crit_np_dtype())
     out = np.zeros_like(x)
     finite = np.isfinite(x)
     if n_fit > 0 and finite.any():

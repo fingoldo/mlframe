@@ -112,6 +112,7 @@ def batch_pair_mi_cupy(
     d_classes_y = resident_operand(classes_y, "bpmi_cupy_classes_y", dtype=np.int32)
     # Intentional float64: the float64 resident buffer is the one the CUDA twin binds to ``const double *`` (content-keyed, so both backends share one upload); the cast to the working dtype is a device-side copy of a
     # vector with one entry per class
+    # Intentional float64: the CUDA kernel binds this buffer as const double *, so its signature fixes the element type.
     d_freqs_y = resident_operand(freqs_y, "bpmi_cupy_freqs_y", dtype=np.float64).astype(crit_float_dtype(), copy=False)
     nb_arr = np.asarray(nbins, dtype=np.int32)
     pa_arr = np.asarray(pair_a, dtype=np.int64)

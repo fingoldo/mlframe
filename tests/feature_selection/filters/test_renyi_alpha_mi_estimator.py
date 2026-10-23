@@ -168,7 +168,8 @@ class TestDispatcherRouting:
         x = rng.normal(size=n)
         y = x + 0.1 * rng.normal(size=n)
         mi_dispatched_nats = score_pair_mi(x, y, estimator="renyi_alpha")
-        mi_raw_bits = renyi_alpha_mi(x, y)
+        from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
+        mi_raw_bits = renyi_alpha_mi(x, y.astype(_crit_np_dtype()))
         assert mi_raw_bits > 0.0, "fixture invariant: dependent pair must show positive MI"
         expected_nats = mi_raw_bits * np.log(2.0)
         assert mi_dispatched_nats == pytest.approx(expected_nats, rel=1e-9), (

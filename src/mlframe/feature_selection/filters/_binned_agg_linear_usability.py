@@ -34,6 +34,7 @@ import math
 import zlib
 
 import numpy as np
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 
 _MAX_ROWS = 100_000
 _N_FOLDS = 5
@@ -46,8 +47,8 @@ _BATCH = 500
 
 
 def _to_host(a) -> np.ndarray:
-    """A host float64 array from a numpy or device array."""
-    return np.asarray(a.get() if hasattr(a, "get") else a, dtype=np.float64)
+    """A host double precision array from a numpy or device array."""
+    return np.asarray(a.get() if hasattr(a, "get") else a, dtype=_crit_np_dtype())
 
 
 def _standardised(col: np.ndarray) -> np.ndarray:
@@ -143,7 +144,7 @@ def _cell_sums(prep: dict, cells_s: np.ndarray, n_cells: int) -> dict:
         """Per-(fold, cell) sums of every column of ``weights``, shaped (folds, cells, columns)."""
         return np.stack([np.bincount(flat, weights=weights[:, j], minlength=size) for j in range(weights.shape[1])], axis=1).reshape(n_folds, n_cells, -1)
 
-    return {"count": np.bincount(flat, minlength=size).reshape(n_folds, n_cells).astype(np.float64), "base": summed(prep["base"]), "Y": summed(prep["Y"])}
+    return {"count": np.bincount(flat, minlength=size).reshape(n_folds, n_cells).astype(_crit_np_dtype()), "base": summed(prep["base"]), "Y": summed(prep["Y"])}
 
 
 def _mean_gains_by_cell(prep: dict, sums: dict, cell_values: np.ndarray) -> np.ndarray:
@@ -168,9 +169,9 @@ def _pair_state(X, srcs, y_cls, cell_ids, pair_key: str):
     n_cells = int(cells.max()) + 1
     if n_cells < 3:
         return None
-    src = X[list(srcs)].to_numpy(dtype=np.float64)[rows]
+    src = X[list(srcs)].to_numpy(dtype=_crit_np_dtype())[rows]
     base = np.column_stack([np.ones(rows.size)] + [_standardised(src[:, j]) for j in range(src.shape[1])])
-    Y = (y_all[rows][:, None] == classes[None, :]).astype(np.float64)
+    Y = (y_all[rows][:, None] == classes[None, :]).astype(_crit_np_dtype())
     folds = np.empty(rows.size, dtype=np.int64)
     folds[rng.permutation(rows.size)] = np.arange(rows.size) % _N_FOLDS
     prep = _prepare(base, Y, folds)

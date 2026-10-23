@@ -8,6 +8,7 @@ Pins that:
 """
 
 import numpy as np
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 import pandas as pd
 
 from mlframe.feature_selection.filters import _ratio_delta_fe as rd
@@ -15,7 +16,7 @@ from mlframe.feature_selection.filters import _ratio_delta_fe as rd
 
 def _ref_map(keys, lookup, global_value):
     """Reference per-row dict.get listcomp (pre-optimization behaviour)."""
-    return np.array([lookup.get(str(_k), global_value) for _k in keys], dtype=np.float64)
+    return np.array([lookup.get(str(_k), global_value) for _k in keys], dtype=_crit_np_dtype())
 
 
 def test_map_group_keys_matches_per_row_loop():
@@ -65,8 +66,8 @@ def test_pairwise_ratio_hoist_identity():
     df, acc = rd.pairwise_ratio_features(X, cols)
     # Reference: recompute each surviving pair directly from the columns.
     for a, b in acc:
-        a_vals = np.asarray(X[a].to_numpy(), dtype=np.float64)
-        b_vals = np.asarray(X[b].to_numpy(), dtype=np.float64)
+        a_vals = np.asarray(X[a].to_numpy(), dtype=_crit_np_dtype())
+        b_vals = np.asarray(X[b].to_numpy(), dtype=_crit_np_dtype())
         r = rd._safe_div(a_vals, b_vals, 1e-9)
         r = np.nan_to_num(r, nan=0.0, posinf=0.0, neginf=0.0)
         name = rd.engineered_name_ratio(a, b)
@@ -81,8 +82,8 @@ def test_pairwise_log_ratio_hoist_identity():
 
     df, acc = rd.pairwise_log_ratio_features(X, cols)
     for a, b in acc:
-        a_vals = np.asarray(X[a].to_numpy(), dtype=np.float64)
-        b_vals = np.asarray(X[b].to_numpy(), dtype=np.float64)
+        a_vals = np.asarray(X[a].to_numpy(), dtype=_crit_np_dtype())
+        b_vals = np.asarray(X[b].to_numpy(), dtype=_crit_np_dtype())
         lr = np.log1p(np.abs(a_vals) + 1e-9) - np.log1p(np.abs(b_vals) + 1e-9)
         lr = np.nan_to_num(lr, nan=0.0, posinf=0.0, neginf=0.0)
         name = rd.engineered_name_log_ratio(a, b)
@@ -109,7 +110,7 @@ def test_grouped_delta_and_apply_identity():
     from mlframe.feature_selection.filters._internals import group_key_strings
 
     g_vals = group_key_strings(X_test["grp"])
-    x = np.asarray(X_test["x0"].to_numpy(), dtype=np.float64)
+    x = np.asarray(X_test["x0"].to_numpy(), dtype=_crit_np_dtype())
     pm = _ref_map(g_vals, dict(rec["lookup_mean"]), float(rec["global_mean"]))
     ps = _ref_map(g_vals, dict(rec["lookup_std"]), float(rec["global_std"]) or 1.0)
     ps = np.where(ps > 0.0, ps, 1.0)

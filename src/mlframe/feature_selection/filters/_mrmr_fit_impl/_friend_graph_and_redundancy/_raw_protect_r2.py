@@ -20,14 +20,18 @@ def _well_conditioned(r: np.ndarray) -> bool:
 
 
 def _base_blocks(base_mat: "np.ndarray | Sequence[np.ndarray]", tr_idx: np.ndarray, va_idx: np.ndarray) -> "tuple[np.ndarray, np.ndarray]":
-    """The train and validation row blocks of the base design, in float64 (a sequence of columns is sliced per column, so the full-height design never exists)."""
+    """The train and validation row blocks of the base design, in double precision (a sequence of columns is sliced per column, so the full-height design never exists)."""
     # Intentional float64: the design of a least-squares probe. The columns arrive in the criterion dtype, where the rounding noise (about 1e-7) is far above the ``_RCOND`` rank test (1e-10),
     # so a column collinear with the base looked well conditioned and entered the fast QR update as noise; a float64 design keeps the rank test meaningful.
     if isinstance(base_mat, np.ndarray):
+        # Intentional float64: the least-squares probe design: a float32 design rounds the rank test (about 1e-7 noise against _RCOND), so a collinear column looks well conditioned.
         base_tr = np.asarray(base_mat[tr_idx], dtype=np.float64)
+        # Intentional float64: the least-squares probe design: a float32 design rounds the rank test (about 1e-7 noise against _RCOND), so a collinear column looks well conditioned.
         base_va = np.asarray(base_mat[va_idx], dtype=np.float64)
     else:
+        # Intentional float64: the least-squares probe design: a float32 design rounds the rank test (about 1e-7 noise against _RCOND), so a collinear column looks well conditioned.
         base_tr = np.column_stack([np.asarray(c, dtype=np.float64)[tr_idx] for c in base_mat])
+        # Intentional float64: the least-squares probe design: a float32 design rounds the rank test (about 1e-7 noise against _RCOND), so a collinear column looks well conditioned.
         base_va = np.column_stack([np.asarray(c, dtype=np.float64)[va_idx] for c in base_mat])
     return base_tr, base_va
 

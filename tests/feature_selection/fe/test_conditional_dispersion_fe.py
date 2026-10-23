@@ -42,6 +42,8 @@ import time
 import warnings
 
 import numpy as np
+
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 import pandas as pd
 import pytest
 
@@ -110,14 +112,14 @@ class TestConditionalDispersionUnit:
 
         codes = _digitize_with_edges(X["xj"].to_numpy(), rec["edges"])
         z = _zscore_from_bins(
-            X["xi"].to_numpy(dtype=float),
+            X["xi"].to_numpy(dtype=_crit_np_dtype()),
             codes,
             rec["bin_mean"],
             rec["bin_std"],
         )
-        np.testing.assert_allclose(enc[absz_name].to_numpy(), np.abs(z), rtol=0, atol=0)
+        np.testing.assert_allclose(enc[absz_name].to_numpy(), np.asarray(np.abs(z), dtype=_crit_np_dtype()), rtol=0, atol=0)
         z2_name = engineered_name_conditional_dispersion("xi", "xj", "z2")
-        np.testing.assert_allclose(enc[z2_name].to_numpy(), z * z, rtol=0, atol=0)
+        np.testing.assert_allclose(enc[z2_name].to_numpy(), np.asarray(z * z, dtype=_crit_np_dtype()), rtol=0, atol=0)
 
     def test_replay_is_leak_safe_and_exact(self):
         """Replay is leak safe and exact."""

@@ -36,6 +36,8 @@ import pickle  # nosec B403 -- test-only local pickle round-trip, never untruste
 import warnings
 
 import numpy as np
+
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 import pandas as pd
 
 warnings.filterwarnings("ignore")
@@ -100,8 +102,8 @@ class TestConditionalQuantileRankUnit:
         from mlframe.feature_selection.filters._extra_fe_families import _digitize_with_edges
 
         codes = _digitize_with_edges(X["xj"].to_numpy(), rec["edges"])
-        expected = conditional_quantile_rank_fe(X["xi"].to_numpy(dtype=float), codes)
-        np.testing.assert_allclose(enc[name].to_numpy(), expected, rtol=0, atol=0, equal_nan=True)
+        expected = conditional_quantile_rank_fe(X["xi"].to_numpy(dtype=_crit_np_dtype()), codes)
+        np.testing.assert_allclose(enc[name].to_numpy(), np.asarray(expected, dtype=_crit_np_dtype()), rtol=0, atol=0, equal_nan=True)
 
     def test_replay_is_leak_safe_and_exact(self):
         """apply_recipe (dispatch) and the direct apply function must reproduce the fit column
@@ -110,7 +112,7 @@ class TestConditionalQuantileRankUnit:
         enc, raw = generate_conditional_quantile_rank_features(X, ["xi", "xj"], n_bins=10)
         name = engineered_name_conditional_quantile_rank("xi", "xj")
         recipe = build_conditional_quantile_rank_recipe(name=name, **raw[name])
-        replay = np.asarray(apply_recipe(recipe, X), dtype=float)
+        replay = np.asarray(apply_recipe(recipe, X), dtype=_crit_np_dtype())
         np.testing.assert_allclose(replay, enc[name].to_numpy(), rtol=0, atol=0, equal_nan=True)
 
         head = X.head(500)

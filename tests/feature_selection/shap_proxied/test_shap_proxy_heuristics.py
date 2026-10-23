@@ -9,6 +9,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 from mlframe.feature_selection.shap_proxied_fs import _shap_proxy_heuristics as H
 from mlframe.feature_selection.shap_proxied_fs._shap_proxy_objective import coalition_margin, proxy_loss
 
@@ -111,7 +112,9 @@ def test_annealing_beats_random(easy_problem):
 
 @pytest.mark.parametrize("metric", ["brier", "logloss", "mae", "rmse", "mse", "auc"])
 def test_evaluator_loss_fast_parity(metric):
-    """_Evaluator._loss_fast must be bit-identical to proxy_loss(margin, y, metric).
+    """_Evaluator._loss_fast must match proxy_loss(margin, y, metric).
+
+    Bit-identical in strict float64 (MLFRAME_CRIT_DTYPE_RELAXED=0); within the crit-dtype rounding otherwise.
 
     Locks the invariant introduced by the iter102 hot-loop optimisation: the cached
     closure that pre-resolves METRIC_CODES + y dtype must not drift from the canonical
@@ -132,4 +135,8 @@ def test_evaluator_loss_fast_parity(metric):
         k = int(rng.integers(1, 20))
         idx = tuple(sorted(rng.choice(f, size=k, replace=False).tolist()))
         margin = coalition_margin(phi_p, base_p, list(idx))
-        assert ev._loss_fast(margin) == proxy_loss(margin, y_p, metric_resolved)
+        ref = proxy_loss(margin, y_p, metric_resolved)
+        if _crit_np_dtype() is np.float64:
+            assert ev._loss_fast(margin) == ref
+        else:
+            assert ev._loss_fast(margin) == pytest.approx(ref, rel=1e-6)
