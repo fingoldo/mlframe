@@ -161,6 +161,23 @@ def _pool_values(X, column, engineered_recipes, apply_recipe) -> np.ndarray:
     return np.asarray(X[column].to_numpy(), dtype=_crit_np_dtype())
 
 
+def _exact_copies_of_raws(design: dict, raw_cols) -> "list[str]":
+    """Engineered design columns whose values equal a raw design column element for element (``a__mod_7`` for a column in [0, 7) is ``a`` itself).
+
+    Judged against a design that holds its own copy, the raw column looks redundant and goes, leaving the output with the copy under a name that says nothing; the copy is the column to drop."""
+    raw_values = {name: np.asarray(v) for name, v in design.items() if name in raw_cols}
+    copies: "list[str]" = []
+    for name, v in design.items():
+        if name in raw_cols:
+            continue
+        values = np.asarray(v)
+        for raw in raw_values.values():
+            if raw.shape == values.shape and np.array_equal(raw, values):
+                copies.append(name)
+                break
+    return copies
+
+
 def _unsupported_columns(self, design: dict, y, raw_cols, residual_rescue) -> "list[str]":
     """Design columns that add nothing to the rest of the selection (``redundancy_policy='drop'`` only).
 
@@ -168,7 +185,7 @@ def _unsupported_columns(self, design: dict, y, raw_cols, residual_rescue) -> "l
     of the design, it does not lower the held-out squared residual at all (free-form effects, t <= 0): an engineered column fitted to noise (``sub(sqrt(c),sqrt(d))`` on two unrelated columns)
     does not. The bar is deliberately not significance: on a small sample or a weak signal no single column is significant, and removing the weak useful ones would lower the out-of-sample fit. A raw OPERAND of a selected engineered column is pruned (``fe_drop_redundant_raw_operands``) unless it improves the held-out fit of a LINEAR model on the other columns significantly and by
     at least ``fe_residual_rescue_operand_min_linear_gain`` of the target variance: the engineered column already carries the operand's nonlinear effect, so what the operand can still add is a
-    private linear term (``10*a`` beside ``add(exp(a), ...)``), which only the linear fit sees. Pruned columns leave the design before the next one is judged."""
+    private linear term (``10*a`` beside ``add(exp(a), ...)``), which only the linear fit sees. Pruned columns leave the design before the next one is judged. An engineered column that is an exact copy of a raw design column is pruned first, so the raw column is never judged against its own copy."""
     from .._residual_rescue_fe import MIN_ROWS
 
     if getattr(self, "redundancy_policy", "emit_both") != "drop" or len(y) < MIN_ROWS:  # too few rows: no evidence is not evidence of no gain
@@ -190,8 +207,10 @@ def _unsupported_columns(self, design: dict, y, raw_cols, residual_rescue) -> "l
     z = float(norm.isf(FAMILY_ALPHA))
     floor = float(self.fe_residual_rescue_operand_min_linear_gain)
     prune_operands = bool(getattr(self, "fe_drop_redundant_raw_operands", True))
-    pruned: "list[str]" = []
+    pruned: "list[str]" = _exact_copies_of_raws(design, raw_cols)
     for name in list(design):
+        if name in pruned:
+            continue
         rest = {k: v for k, v in design.items() if k != name and k not in pruned}
         if not rest:
             continue

@@ -114,6 +114,11 @@ def second_pass_recipes(estimator: Any, X: "pd.DataFrame", y: np.ndarray, design
 
     for name, u, beta in bases:
         mixed = y[train] - beta * u[train]
+        # A base that explains all but a sliver of the target leaves a mixed target that is rounding and binning noise: whatever a child fit found there would be measured against that tiny variance and
+        # look large. The residual has to carry at least the share of the target variance that a rescue admission needs.
+        if float(np.var(mixed)) < float(min_relative_gain) * float(np.var(y[train])):
+            logger.debug("target-mix base %r explains all but %.5f of the target variance; second pass skipped", name, float(np.var(mixed)) / max(float(np.var(y[train])), 1e-300))
+            continue
         if not target_has_structure(X_train, mixed, scan_rows=scan_rows):
             logger.debug("target-mix base %r leaves no structure in T; second pass skipped", name)
             continue
