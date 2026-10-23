@@ -12,6 +12,7 @@ already admitted, so the cost is a handful of conditional nulls per pair.
 from __future__ import annotations
 
 import logging
+from mlframe.utils.log_throttle import log_throttle
 import re
 from typing import Any, Callable
 
@@ -79,7 +80,7 @@ def filter_inert_leaf_block(
                     )
                     continue
             except Exception as exc:
-                logger.warning("FE admission: the inert-leaf test of %r failed (%s: %s); the candidate stays.", new_cols[j], type(exc).__name__, exc)
+                log_throttle(logger, "fe_inert_leaf_test_failed", logging.WARNING, "FE admission: the inert-leaf test of %r failed (%s: %s); the candidate stays.", new_cols[j], type(exc).__name__, exc)
         keep_positions.append(pos)
     if len(keep_positions) == len(this_pair_features):
         return this_pair_features, transformed_vals, new_cols, new_nbins, this_pair_features

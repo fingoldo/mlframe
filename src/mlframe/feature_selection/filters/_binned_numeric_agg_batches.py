@@ -45,7 +45,7 @@ def _free_device_bytes(n_rows: int) -> Optional[int]:
         free = [int(f) for _d, f in _devices()]
         return min(free) if free else None
     except Exception as exc:
-        logger.debug("device free-memory probe failed, the batch is bounded by host memory only: %s", exc)
+        logger.warning("device free-memory probe failed, the batch is bounded by host memory only: %s", exc)
         return None
 
 
