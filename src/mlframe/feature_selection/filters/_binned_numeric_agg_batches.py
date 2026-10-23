@@ -67,16 +67,32 @@ def pair_batches(ranked_pairs: Sequence[tuple], n_rows: int, n_stats: int) -> "l
     return [list(ranked_pairs[i : i + per_batch]) for i in range(0, len(ranked_pairs), per_batch)]
 
 
+def column_blocks(columns: Sequence[str], n_rows: int) -> "list[list[str]]":
+    """``columns`` cut into consecutive blocks whose matrix (and the copies the local gate makes of it) fits the free memory; one block when everything fits."""
+    if not columns:
+        return []
+    rows = rows_per_batch(n_rows, int(np.dtype(_crit_np_dtype()).itemsize), _free_host_bytes(), _free_device_bytes(n_rows))
+    return [list(columns[i : i + rows]) for i in range(0, len(columns), rows)]
+
+
 class StreamingLocalGate:
     """The Tier-1 local MI gate (``local_mi_gate``) over candidate columns that arrive in batches, with the same survivors in the same order as one call on the whole frame."""
 
-    def __init__(self, y: Any, raw_X: Any, reject_sink: Optional[Callable[..., None]], nbins: int = 10, mad_mult: float = 3.5) -> None:
+    def __init__(
+        self, y: Any, raw_X: Any, reject_sink: Optional[Callable[..., None]], nbins: int = 10, mad_mult: float = 3.5, floor0: Optional[float] = None, top_k: Optional[int] = None,
+        keep_columns: bool = True,
+    ) -> None:
         from ._unified_fe_gate import _coerce_y_classes, local_gate_permutations, raw_mi_noise_floor
 
         self._nbins = int(nbins)
         self._reject_sink = reject_sink
+        self._top_k = top_k
+        self._keep_columns = bool(keep_columns)
         self._y_bin = np.asarray(_coerce_y_classes(y))
-        self._floor0 = raw_mi_noise_floor(raw_X, y, nbins=nbins, mad_mult=mad_mult, columns=None) if raw_X is not None else 0.0
+        if floor0 is not None:
+            self._floor0 = float(floor0)  # the caller's own floor (an explicit one, or the raw noise floor it already computed)
+        else:
+            self._floor0 = raw_mi_noise_floor(raw_X, y, nbins=nbins, mad_mult=mad_mult, columns=None) if raw_X is not None else 0.0
         self._perms = local_gate_permutations(len(self._y_bin))
         self._null_max = np.full(len(self._perms), np.nan, dtype=np.float64)  # Intentional float64: statistic vector (null max), exact permutation ties
         self._names: list[str] = []
@@ -98,7 +114,7 @@ class StreamingLocalGate:
         self._names.extend(str(c) for c in cols)
         self._mi.extend(float(v) for v in mi)
         clear = [c for c, v in zip(cols, mi) if np.isfinite(v) and v >= self._floor0]
-        if clear:
+        if clear and self._keep_columns:
             self._kept_frames.append(batch[clear])
 
     def finalize(self) -> "tuple[list[str], pd.DataFrame]":
@@ -108,7 +124,7 @@ class StreamingLocalGate:
         floor = float(self._floor0)
         if len(self._names) >= 2 and len(self._y_bin) > 0:
             floor = max(floor, float(np.quantile(self._null_max, 0.95)))
-        survivors = select_above_floor(self._names, np.asarray(self._mi, dtype=np.float64), floor, self._reject_sink, None)  # Intentional float64: statistic vector (MI)
+        survivors = select_above_floor(self._names, np.asarray(self._mi, dtype=np.float64), floor, self._reject_sink, self._top_k)  # Intentional float64: statistic vector (MI)
         keep = set(survivors)
         frame = pd.concat(self._kept_frames, axis=1) if self._kept_frames else pd.DataFrame()
         return survivors, frame[[c for c in frame.columns if c in keep]]

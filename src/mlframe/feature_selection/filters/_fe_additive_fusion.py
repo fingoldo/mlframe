@@ -185,12 +185,19 @@ def _collect_relevant_halves(
     _mis = None
     try:
         if _cmi_gpu_enabled() and len(_pre) > 1:
+            from ._binned_numeric_agg_batches import _free_device_bytes, _free_host_bytes, rows_per_batch
             from ._fe_batched_mi import batched_cmi_gpu
 
-            _Xh = np.empty((int(n_rows), len(_pre)), dtype=np.int64)
-            for _j, _t in enumerate(_pre):
-                _Xh[:, _j] = _t[4]
-            _mis = np.asarray(batched_cmi_gpu(_Xh, y_dense, None), dtype=np.float64)  # Intentional float64: MI statistic output compared at full precision
+            # The MI of a half does not depend on the others, so the (n, H) code matrix is scored in column blocks that fit the free memory (one block when it all fits).
+            _width = rows_per_batch(int(n_rows), 8, _free_host_bytes(), _free_device_bytes(int(n_rows)))
+            _parts = []
+            for _start in range(0, len(_pre), _width):
+                _chunk = _pre[_start : _start + _width]
+                _Xh = np.empty((int(n_rows), len(_chunk)), dtype=np.int64)
+                for _j, _t in enumerate(_chunk):
+                    _Xh[:, _j] = _t[4]
+                _parts.append(np.asarray(batched_cmi_gpu(_Xh, y_dense, None), dtype=np.float64))  # Intentional float64: MI statistic output compared at full precision
+            _mis = np.concatenate(_parts)
     except Exception as e:
         logger.warning("batched_cmi_gpu failed, falling back to the per-candidate CPU path: %s", e)
         _mis = None

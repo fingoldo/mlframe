@@ -195,6 +195,24 @@ def _null_mi_floor(n_rows: int, nbins: int, n_y_classes: int) -> float:
     return float(chi2.isf(_NULL_FLOOR_ALPHA, df)) / (2.0 * float(n_rows))
 
 
+def _floor_from_raw_mi(raw_mi: np.ndarray, n_rows: int, nbins: int, y_bin: np.ndarray, mad_mult: float) -> float:
+    """The noise floor from the raw columns' marginal MIs: ``median + mad_mult * 1.4826 * MAD``, bounded above by the strongest raw MI and below by the analytic independence quantile."""
+    raw_mi = np.asarray(raw_mi, dtype=np.float64)  # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
+    raw_mi = raw_mi[np.isfinite(raw_mi)]
+    if raw_mi.size == 0:
+        return 0.0
+    _null_floor = _null_mi_floor(int(n_rows), int(nbins), count_distinct_int(y_bin))
+    med = float(np.median(raw_mi))
+    mad = float(np.median(np.abs(raw_mi - med)))
+    # MAD scaled to a std-equivalent (1.4826) so ``mad_mult`` reads like a
+    # sigma multiplier on a roughly-normal raw-MI distribution.
+    _est = med + float(mad_mult) * 1.4826 * mad
+    # Median + MAD of a handful of columns is erratic (on four raw columns it landed above the strongest one; with one more noise column it dropped
+    # 15x), so it is bounded on both sides: never above the strongest raw column's MI (a "noise floor" over every real column is outside the scale
+    # it was calibrated on), and never below the analytic independence quantile (a floor under the noise level is not a floor).
+    return max(min(_est, float(raw_mi.max())), _null_floor)
+
+
 def raw_mi_noise_floor(
     raw_X: pd.DataFrame,
     y: np.ndarray | pd.Series,
@@ -229,6 +247,15 @@ def raw_mi_noise_floor(
     if not num_cols:
         return 0.0
     y_bin = _coerce_y_classes(y)
+    from ._binned_numeric_agg_batches import column_blocks
+
+    blocks = column_blocks(num_cols, len(raw_X))
+    if len(blocks) > 1:
+        # The raw matrix does not fit the free memory in one piece: the MI of a column does not depend on the others, so the vector is scored block by block (no memo: the key hashes the whole matrix).
+        raw_mi = np.concatenate([
+            np.asarray(_mi_classif_batch(np.column_stack([raw_X[c].to_numpy(dtype=_crit_np_dtype()) for c in block]), y_bin, nbins=nbins), dtype=np.float64) for block in blocks
+        ])
+        return _floor_from_raw_mi(raw_mi, len(raw_X), nbins, y_bin, mad_mult)
     # Stack column by column: raw_X[num_cols] would copy a sub-frame before the float64 matrix copy the scorer needs.
     arr = np.column_stack([raw_X[c].to_numpy(dtype=_crit_np_dtype()) for c in num_cols])
 
@@ -256,21 +283,7 @@ def raw_mi_noise_floor(
         raw_mi = resident_raw_baseline_mi(arr, y_bin, ("raw_noise_floor", tuple(num_cols)), nbins=nbins)
         if raw_mi is None:
             raw_mi = _mi_classif_batch(arr, y_bin, nbins=nbins)
-        raw_mi = np.asarray(raw_mi, dtype=np.float64)  # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
-        raw_mi = raw_mi[np.isfinite(raw_mi)]
-        if raw_mi.size == 0:
-            _res = 0.0
-        else:
-            _null_floor = _null_mi_floor(int(arr.shape[0]), int(nbins), count_distinct_int(y_bin))
-            med = float(np.median(raw_mi))
-            mad = float(np.median(np.abs(raw_mi - med)))
-            # MAD scaled to a std-equivalent (1.4826) so ``mad_mult`` reads like a
-            # sigma multiplier on a roughly-normal raw-MI distribution.
-            _est = med + float(mad_mult) * 1.4826 * mad
-            # Median + MAD of a handful of columns is erratic (on four raw columns it landed above the strongest one; with one more noise column it dropped
-            # 15x), so it is bounded on both sides: never above the strongest raw column's MI (a "noise floor" over every real column is outside the scale
-            # it was calibrated on), and never below the analytic independence quantile (a floor under the noise level is not a floor).
-            _res = max(min(_est, float(raw_mi.max())), _null_floor)
+        _res = _floor_from_raw_mi(raw_mi, int(arr.shape[0]), nbins, y_bin, mad_mult)
 
         if _key is not None:
             if len(_RAW_MI_FLOOR_MEMO) > 8:
@@ -357,6 +370,16 @@ def local_mi_gate(
     if floor is None:
         floor = raw_mi_noise_floor(raw_X, y, nbins=nbins, mad_mult=mad_mult, columns=raw_columns) if raw_X is not None else 0.0
     y_bin = _coerce_y_classes(y)
+    from ._binned_numeric_agg_batches import StreamingLocalGate, column_blocks
+
+    blocks = column_blocks(cand_cols, len(enc_df))
+    if len(blocks) > 1:
+        # The candidate matrix does not fit the free memory in one piece: score it block by block. The observed MI of a column does not depend on the others and the family null is the maximum
+        # of the blocks' maxima under the same permutations, so the survivors are those of one pass.
+        gate = StreamingLocalGate(y, None, reject_sink, nbins=nbins, floor0=float(floor), top_k=top_k, keep_columns=False)
+        for block in blocks:
+            gate.score_batch(enc_df[block])
+        return gate.finalize()[0]
     arr = enc_df[cand_cols].to_numpy(dtype=_crit_np_dtype())
     # NOTE (device-born gate): unlike the CONDITIONAL gate (whose tau-grid candidates are derived
     # from a few RESIDENT operand columns and so can be built device-born, collapsing the host matrix upload),

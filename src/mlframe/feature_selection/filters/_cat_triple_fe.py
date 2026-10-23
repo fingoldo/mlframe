@@ -61,6 +61,7 @@ from __future__ import annotations
 
 from typing import cast
 import logging
+import math
 from itertools import combinations
 from typing import Optional, Sequence
 
@@ -404,7 +405,7 @@ def score_cat_triples_by_interaction_information(
     out = pd.DataFrame(rows)
     if not out.empty:
         out = out.sort_values("ii3", ascending=False, kind="mergesort").reset_index(drop=True)
-    n_exhaustive = len(list(combinations(cat_cols, 3)))
+    n_exhaustive = math.comb(len(cat_cols), 3)  # the count of triples, without materialising them
     out.attrs["n_triples_evaluated"] = int(n_evaluated)
     out.attrs["n_triples_exhaustive"] = int(n_exhaustive)
     return out

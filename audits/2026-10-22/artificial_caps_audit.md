@@ -294,4 +294,10 @@ Already memory-safe (not counted): pair-MI dispatch `dispatch_batch_pair_mi_chun
 |---|---|
 | 114 (`local_mi_gate` candidate matrix and null) | Implemented 2026-10-22: the null is binned once per matrix (`_orth_mi_null_max.py`, CPU rank, STRICT GPU and streamed GPU routes) and the binned-aggregate host path scores candidates through `StreamingLocalGate` in memory-bounded batches (`_binned_numeric_agg_batches.py`). |
 | 130 (binned numeric agg pair cap) | Library side done: `max_pairs=None` scores every pair in batches. MRMR still passes 64; switching the MRMR default is open. |
+| 19 (fusion half codes matrix) | Implemented 2026-10-23: the (n, H) int64 code matrix is scored in column blocks sized from free memory (`_collect_relevant_halves`); the MI of a half is independent of the others, so the result is unchanged. |
+| 106 (`_lof_transform` distance matrix) | Implemented 2026-10-23: `X_new` is scored in row blocks sized from free RAM (`_lof_row_block`); rows are independent. Test: `test_lof_transform_row_blocks.py`. |
+| 114 (`local_mi_gate` candidate matrix) | Implemented 2026-10-22/23: the gate itself scores column blocks (`StreamingLocalGate`, `column_blocks`) when the candidate matrix does not fit; identical survivors, order and rejection records (tests in `test_binned_agg_batches.py`). |
+| 115 (`raw_mi_noise_floor` column_stack) | Implemented 2026-10-23: the raw MI vector is scored in column blocks; the floor arithmetic is shared (`_floor_from_raw_mi`). |
+| 126 (`list(combinations)` only to count) | Implemented 2026-10-23: `math.comb`. |
+| 93 (dense p x p correlation matrix in `detect_correlated_pairs`) | Deferred: the matrix is the shared `cached_dense_finite_corr_matrix` memo used by other callers; a block-wise top-k needs the same finite-row semantics for every caller. |
 | all others | Not yet triaged. |

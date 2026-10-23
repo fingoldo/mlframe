@@ -82,3 +82,38 @@ def test_end_to_end_with_a_forced_tiny_budget_equals_the_single_pass(monkeypatch
     assert calls, "the streamed host path did not run"
     assert batched_names == single_names
     pd.testing.assert_frame_equal(batched_aug, single_aug)
+
+
+@pytest.mark.parametrize("top_k", [None, 2])
+@pytest.mark.parametrize("explicit_floor", [None, 0.002])
+def test_local_mi_gate_scores_blocks_when_the_matrix_does_not_fit_and_keeps_its_result(top_k, explicit_floor, monkeypatch):
+    """With a memory budget of a few columns the gate runs block by block; the survivors, their order and the rejection records equal the single-pass gate's."""
+    monkeypatch.delenv("MLFRAME_FE_GPU_STRICT", raising=False)
+    cand, raw, y = _candidates()
+    single_records, blocked_records = [], []
+
+    def sink(store):
+        """A reject sink that records (candidate, observed, threshold)."""
+        return lambda **kw: store.append((kw["candidate"], round(kw["observed"], 12), round(kw["threshold"], 12)))
+
+    single = local_mi_gate(cand, y, raw_X=raw, floor=explicit_floor, top_k=top_k, reject_sink=sink(single_records))
+    assert single, "the fixture must have survivors"
+    monkeypatch.setattr(bat, "_free_device_bytes", lambda n_rows: None)
+    monkeypatch.setattr(bat, "_free_host_bytes", lambda: int(len(cand) * 4 * 4 * 3 * 2))  # three columns per block
+    assert len(bat.column_blocks(list(cand.columns), len(cand))) > 1
+    blocked = local_mi_gate(cand, y, raw_X=raw, floor=explicit_floor, top_k=top_k, reject_sink=sink(blocked_records))
+    assert blocked == single
+    assert sorted(blocked_records) == sorted(single_records)
+
+
+def test_raw_noise_floor_scored_in_blocks_equals_the_single_pass(monkeypatch):
+    """The floor from the raw columns' MIs is the same number whether the matrix is scored whole or block by block."""
+    from mlframe.feature_selection.filters._unified_fe_gate import raw_mi_noise_floor
+
+    monkeypatch.delenv("MLFRAME_FE_GPU_STRICT", raising=False)
+    cand, _raw, y = _candidates(k=14)
+    whole = raw_mi_noise_floor(cand, y)
+    monkeypatch.setattr(bat, "_free_device_bytes", lambda n_rows: None)
+    monkeypatch.setattr(bat, "_free_host_bytes", lambda: int(len(cand) * 4 * 4 * 3 * 2))
+    assert len(bat.column_blocks(list(cand.columns), len(cand))) > 1
+    assert raw_mi_noise_floor(cand, y) == whole
