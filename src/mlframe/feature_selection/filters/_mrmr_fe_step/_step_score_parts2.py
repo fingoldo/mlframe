@@ -307,7 +307,7 @@ def _materialise_and_fina_step3_cols_space_index(self, prospective_additions, en
 
             this_pair_features, transformed_vals, new_cols, new_nbins, kept_original_features = filter_inert_leaf_block(
                 self, this_pair_features, transformed_vals, new_cols, new_nbins, cols, st._leaf_test_data,
-                partial(_discretise_inert_probe, self, len(X), discretize_array), verbose,
+                partial(_discretise_inert_probe, self, len(X), discretize_array), verbose, getattr(st, "_leaf_test_y", None),
             )
         if this_pair_features:
             engineered_features.update(kept_original_features)

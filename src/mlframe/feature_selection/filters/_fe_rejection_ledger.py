@@ -78,6 +78,7 @@ FE_GATE_LABELS = (
     "pair_candidate_generation",  # pair never proposed by candidate generation
     "row_stat_gain",  # row-statistic candidate below the gain floor
     "inert_leaf",  # pair candidate with a raw leaf that carries no information about it beyond its other leaves
+    "dominated_by_operands",  # pair candidate that adds no information about the target beyond its other raw leaves
     "additive_fusion",  # two additively separable halves whose fusion does not beat the stronger half
     "residual_rescue_prune",  # residual rescue: a raw or engineered column without held-out gain given the rest of the selection
     "final_subsumption",  # end-of-fit pass: a column carrying no information beyond the compounds
@@ -317,6 +318,9 @@ def _resolve_index_columns(mrmr_self: Any, df: pd.DataFrame) -> None:
             """The whole operand tuple, rendered."""
             if ops is None:
                 return ""
+            if isinstance(ops, str) and ops.startswith("(") and ops.endswith(")"):
+                # the records store ``_operands_str`` text, "(0, 1)"; resolve each piece
+                ops = [int(p) if p.isdigit() else p for p in ops[1:-1].split(", ") if p]
             if isinstance(ops, np.ndarray):
                 ops = ops.tolist()
             if isinstance(ops, (list, tuple)):
