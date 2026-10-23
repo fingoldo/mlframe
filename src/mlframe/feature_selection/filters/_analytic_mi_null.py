@@ -28,7 +28,9 @@ IMPORTANT validity conditions (the caller MUST gate on these):
 """
 from __future__ import annotations
 
+import contextlib
 import os
+from collections.abc import Iterator
 
 import numpy as np
 import numba
@@ -76,6 +78,23 @@ def analytic_null_enabled() -> bool:
     return _HAVE_CHI2 and os.environ.get("MLFRAME_MI_ANALYTIC_NULL", "1").strip() not in ("0", "false", "False")
 
 
+_min_n_override: "int | None" = None  # process-wide, set only inside ``analytic_null_min_n_lowered``
+
+
+@contextlib.contextmanager
+def analytic_null_min_n_lowered(floor: int) -> "Iterator[None]":
+    """Lower the minimum row count of the analytic null to ``floor`` for the duration of the block (never raises it; an explicit ``MLFRAME_MI_ANALYTIC_NULL_MIN_N`` still wins).
+
+    For a fit whose candidates are only proposals that another stage re-tests (the target-mix child), run on rows between the validated floor of the chi-square null and the default threshold."""
+    global _min_n_override
+    previous = _min_n_override
+    _min_n_override = int(floor) if previous is None else min(previous, int(floor))
+    try:
+        yield
+    finally:
+        _min_n_override = previous
+
+
 def analytic_null_min_n() -> int:
     """Minimum row count at/above which the analytic MI null replaces the permutation null.
 
@@ -90,6 +109,8 @@ def analytic_null_min_n() -> int:
                 return v
         except ValueError:
             pass
+    if _min_n_override is not None:
+        return min(_ANALYTIC_NULL_MIN_N_DEFAULT, _min_n_override)
     return _ANALYTIC_NULL_MIN_N_DEFAULT
 
 

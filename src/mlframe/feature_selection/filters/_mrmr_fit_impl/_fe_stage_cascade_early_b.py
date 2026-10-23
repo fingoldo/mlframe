@@ -733,7 +733,7 @@ def _stage_binned_numeric_agg(self, _fe_family_on, X, y, _binned_agg_pre_recipes
                 nbins_base=int(getattr(self, "fe_binned_numeric_agg_nbins", 10)),
                 n_folds=int(getattr(self, "fe_kfold_te_folds", 5)),
                 random_state=int(getattr(self, "random_seed", 0) or 0),
-                max_pairs=_optional_int(getattr(self, "fe_binned_numeric_agg_max_pairs", 64)),
+                max_pairs=_optional_int(getattr(self, "fe_binned_numeric_agg_max_pairs", None)),
                 redundancy_gate=bool(getattr(self, "fe_binned_numeric_agg_redundancy_gate", True)),
                 min_cmi_gain=float(getattr(self, "fe_binned_numeric_agg_min_cmi_gain", 0.005)),
             )

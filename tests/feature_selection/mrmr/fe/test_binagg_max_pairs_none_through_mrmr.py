@@ -13,8 +13,8 @@ def test_optional_int_keeps_none_and_converts_numbers():
     assert _optional_int("12") == 12
 
 
-def test_the_constructor_accepts_none_and_keeps_the_default():
-    """The default cap is unchanged (64) and None is accepted as a value (sklearn get_params round-trips it)."""
-    assert MRMR().fe_binned_numeric_agg_max_pairs == 64
-    est = MRMR(fe_binned_numeric_agg_max_pairs=None)
-    assert est.get_params()["fe_binned_numeric_agg_max_pairs"] is None
+def test_the_constructor_scores_every_pair_by_default():
+    """Every pair is scored by default (None, in memory-sized batches); an integer cap is still accepted and round-trips through get_params."""
+    assert MRMR().fe_binned_numeric_agg_max_pairs is None
+    est = MRMR(fe_binned_numeric_agg_max_pairs=32)
+    assert est.get_params()["fe_binned_numeric_agg_max_pairs"] == 32

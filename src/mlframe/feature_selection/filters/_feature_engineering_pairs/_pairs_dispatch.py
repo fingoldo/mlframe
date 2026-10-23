@@ -7,6 +7,8 @@ from typing import NamedTuple, Optional, Any
 
 import numpy as np
 
+from ._pairs_gate_dedupe import gate_on_distinct_columns
+
 from mlframe._numba_parallel_guard import parallel_kernel_entry
 from mlframe.utils.log_throttle import log_throttle
 
@@ -262,9 +264,10 @@ def _dispatch_batch_mi_with_noise_gate_impl(
 
     # CPU njit-prange kernel (the required win and always-correct fallback).
     _need_host_codes()  # CPU kernel reads host codes -> materialise the deferred D2H now
-    return np.asarray(_cpu_kernel(
-        disc_2d=disc_2d,
-        factors_nbins=factors_nbins,
+    return gate_on_distinct_columns(
+        _cpu_kernel,
+        disc_2d,
+        factors_nbins,
         classes_y=classes_y,
         classes_y_safe=classes_y_safe,
         freqs_y=freqs_y,
@@ -278,7 +281,7 @@ def _dispatch_batch_mi_with_noise_gate_impl(
         # cuts both the alloc (the 589MiB->147MiB classes_dense that OOM'd RAM-tight hosts) and
         # the per-permutation strided gather bandwidth. joint_counts (the real counter) stays int32.
         classes_dtype=_fe_classes_dtype(disc_2d.dtype, factors_nbins),
-    ))
+    )
 
 
 def _dispatch_batch_mi_with_noise_gate_impl_part1(
@@ -367,9 +370,10 @@ def _dispatch_batch_mi_with_noise_gate_impl_part1(
     # so the GPU try/except below never catches it). Skip the GPU route entirely when the user asked for no CUDA device.
     if env_gate.gpu_opted_out:
         _need_host_codes()  # CPU njit kernel reads host codes -> materialise the deferred D2H now
-        return True, (np.asarray(_cpu_kernel(
-            disc_2d=disc_2d,
-            factors_nbins=factors_nbins,
+        return True, gate_on_distinct_columns(
+            _cpu_kernel,
+            disc_2d,
+            factors_nbins,
             classes_y=classes_y,
             classes_y_safe=classes_y_safe,
             freqs_y=freqs_y,
@@ -379,7 +383,7 @@ def _dispatch_batch_mi_with_noise_gate_impl_part1(
             use_su=bool(use_su),
             dtype=np.int32,
             classes_dtype=_fe_classes_dtype(disc_2d.dtype, factors_nbins),
-        )))
+        )
     backend = _tuned_noise_gate_backend(int(n), int(K))
 
     # STRICT GPU mode (MLFRAME_FE_GPU_STRICT=1, diagnostic, default OFF): force the noise-gate MI onto the
