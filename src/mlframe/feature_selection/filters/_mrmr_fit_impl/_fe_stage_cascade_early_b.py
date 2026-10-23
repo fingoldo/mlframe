@@ -28,6 +28,11 @@ from ._fe_stage_merge import _fe_merge_new_columns
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
 
+def _optional_int(value: Any) -> "int | None":
+    """``None`` stays ``None`` (no cap); anything else is the integer cap."""
+    return None if value is None else int(value)
+
+
 def _fe_stage_cascade_early_b(
     self, *, X, y, verbose, fe_max_steps, _y_np, _fe_family_on, _fit_entry_nan_mask, _raw_input_cols_pre_fe,
     _kfold_te_pre_recipes, _binned_agg_pre_recipes, _count_enc_pre_recipes, _freq_enc_pre_recipes, _cat_num_pre_recipes,
@@ -728,7 +733,7 @@ def _stage_binned_numeric_agg(self, _fe_family_on, X, y, _binned_agg_pre_recipes
                 nbins_base=int(getattr(self, "fe_binned_numeric_agg_nbins", 10)),
                 n_folds=int(getattr(self, "fe_kfold_te_folds", 5)),
                 random_state=int(getattr(self, "random_seed", 0) or 0),
-                max_pairs=int(getattr(self, "fe_binned_numeric_agg_max_pairs", 64)),
+                max_pairs=_optional_int(getattr(self, "fe_binned_numeric_agg_max_pairs", 64)),
                 redundancy_gate=bool(getattr(self, "fe_binned_numeric_agg_redundancy_gate", True)),
                 min_cmi_gain=float(getattr(self, "fe_binned_numeric_agg_min_cmi_gain", 0.005)),
             )

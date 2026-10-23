@@ -542,9 +542,9 @@ def test_regression_accuracy_warning_refires_after_param_change():
 # ---------------------------------------------------------------------------
 
 
-def test_regression_audit_degenerate_columns_gates_collinearity_pass_on_width(caplog):
-    """Post-fix: above max_collinearity_cols, the collinearity pass is skipped (logged), while the
-    cheap all_nan/constant/duplicate checks still run."""
+def test_regression_audit_degenerate_columns_streams_collinearity_pass_above_width(caplog):
+    """Above max_collinearity_cols the dense Gram matrix is not built: the pass streams (logged) and still reports the collinear columns, while the cheap
+    all_nan/constant/duplicate checks run as before."""
     import logging
 
     from mlframe.feature_selection.filters._mrmr_degenerate import audit_degenerate_columns
@@ -555,12 +555,14 @@ def test_regression_audit_degenerate_columns_gates_collinearity_pass_on_width(ca
     X = pd.DataFrame(rng.standard_normal((n_rows, n_cols)), columns=[f"x{i}" for i in range(n_cols)])
     X["const_col"] = 1.0
     X["dup_col"] = X["x0"]
+    X["lin_col"] = 4.0 * X["x1"] - 2.0
 
     with caplog.at_level(logging.INFO, logger="mlframe.feature_selection.filters._mrmr_degenerate"):
         result = audit_degenerate_columns(X, max_collinearity_cols=3)
     assert result["const_col"] == "constant"
     assert result["dup_col"] == "duplicate_of:x0"
-    assert any("skipping the collinearity pass" in rec.message for rec in caplog.records)
+    assert result["lin_col"] == "collinear_with:x1"
+    assert any("the collinearity pass streams" in rec.message for rec in caplog.records)
 
 
 def test_regression_audit_degenerate_columns_still_finds_collinear_below_gate():

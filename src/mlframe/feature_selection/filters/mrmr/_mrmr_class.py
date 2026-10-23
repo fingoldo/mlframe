@@ -2505,7 +2505,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         fe_binned_numeric_agg_enable: bool = True,
         fe_binned_numeric_agg_stats: tuple = ("mean", "std", "skew", "kurt"),
         fe_binned_numeric_agg_nbins: int = 10,
-        fe_binned_numeric_agg_max_pairs: int = 64,
+        fe_binned_numeric_agg_max_pairs: "int | None" = 64,  # None scores every (group, aggregate) pair, in batches sized from the free memory
         # Redundancy gate (default ON): keep a ``binagg_*`` column only when it adds conditional information about y
         # BEYOND its own source columns (``CMI(col; y | group_col, agg_col) >= min_cmi_gain``). Without it the Tier-1
         # MI floor admits binned aggregates that merely re-encode raw signal (e.g. on a linearly-separable target the
