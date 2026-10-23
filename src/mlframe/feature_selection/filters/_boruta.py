@@ -61,7 +61,6 @@ def _resolve_undecided_features_for_round(resolved, hit_counts, rounds_run, n_fe
             raise ValueError(f"Unknown correction {correction!r}, expected 'bonferroni' or 'bh'")
 
 
-@logs_selection("boruta_select", _summ_boruta)
 def _resolve_feature_layout(X: Any, feature_names: Optional[Sequence[str]]) -> tuple:
     """Column names, feature count, reported names and pandas-ness of ``X``; returns ``(cols, n_features, names, is_pandas_frame)``."""
     import pandas as pd
@@ -83,6 +82,7 @@ def _resolve_feature_layout(X: Any, feature_names: Optional[Sequence[str]]) -> t
     return cols, n_features, names, is_pandas_frame
 
 
+@logs_selection("boruta_select", _summ_boruta)
 def boruta_select(
     X: Any,
     y: np.ndarray,
