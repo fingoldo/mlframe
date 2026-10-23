@@ -492,10 +492,10 @@ def batch_pair_usability_corr_cuda(y: np.ndarray, operand_matrix: np.ndarray, pa
 
 
 def _required_gpu_bytes(operand_matrix: np.ndarray, n_pairs: int, n_forms: int) -> int:
-    """Rough upload + output footprint for the VRAM cushion check - operands + y (input) + the (n_pairs,
-    n_forms) output matrix. Deliberately generous (float64 sizing even if inputs are f32) since this is a
-    pre-flight guard, not a tight allocator."""
-    operand_bytes = operand_matrix.size * 8
+    """Upload + output footprint for the VRAM cushion check: the operand matrix at its own dtype (the GPU path uploads it
+    as given, so an f32 matrix is 4 bytes an element), the float64 (n_pairs, n_forms) output, and 1 MiB of slack for y and
+    the index arrays."""
+    operand_bytes = operand_matrix.nbytes
     output_bytes = n_pairs * n_forms * 8
     return int(operand_bytes + output_bytes + (1 << 20))  # +1MiB slack for y / index arrays
 

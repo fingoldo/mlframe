@@ -377,7 +377,7 @@ _SETSTATE_LEGACY_DEFAULTS = {
     "fe_pair_usability_admission_pairness_margin": 1.05,
     "fe_pair_usability_admission_rank_frac": 0.7,
     "fe_raw_tail_subsume_min_corr": 0.85,
-    "fe_pair_usability_prescan_max_pairs": 256,
+    "fe_pair_usability_prescan_max_pairs": None,
     # ESCALATION FEATURES TERMINAL in feed-forward. Pre-fix pickles
     # default OFF too (matches the live default; escalation features were rare and
     # this only restricts NEW composite seeding, never replay of an existing recipe).
