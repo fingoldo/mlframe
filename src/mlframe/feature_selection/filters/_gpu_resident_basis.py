@@ -850,6 +850,7 @@ def _gpu_batched_abs_corr(cp, cand, y_cont):
         n, m = int(cand2.shape[0]), int(cand2.shape[1])
         # The kernel is templated on the element type and centres inside, so a column keeps the precision it arrived with: narrowing a float64 column to float32 BEFORE the centring
         # erases a signal that sits on a large offset (a 1e10 offset has a float32 spacing of 1024). Only a non-float input is promoted.
+        # Intentional float64: a float32 column with a large offset loses its signal before centring (1e10 offset = 1024 float32 spacing).
         work_dtype = cand2.dtype if cand2.dtype in (cp.float32, cp.float64) else cp.dtype(cp.float64)
         cand2 = cp.ascontiguousarray(cand2.astype(work_dtype, copy=False))
         yv = y_cont.astype(work_dtype, copy=False).ravel()

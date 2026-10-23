@@ -51,8 +51,30 @@ def _has_inert_leaf(leaves: "list[str]", name_to_idx: "dict[str, int]", data: An
     return None
 
 
+def _is_dominated_by_the_other_leaves(leaves: "list[str]", name_to_idx: "dict[str, int]", data: Any, codes: np.ndarray, y_codes: np.ndarray, seed: int) -> "tuple[str, float, float] | None":
+    """``(leaf, cmi, floor)`` for the first leaf ``r`` such that the candidate adds no information about the target beyond the OTHER leaves, else ``None``.
+
+    ``CMI(candidate; y | other leaves)`` is compared with its within-stratum permutation floor. A pair feature that is the product of a noise column and an informative one carries less
+    about ``y`` than the informative column alone and nothing beyond it: it is a degraded copy of that operand, which is in the pool already. A genuine pair feature (``a**2 / b``)
+    adds information beyond each of its operands taken alone."""
+    from .._fe_raw_redundancy_helpers import _excess_and_floor
+    from .._mi_greedy_cmi_fe import _renumber_joint
+
+    n_cols = int(data.shape[1])
+    for leaf in leaves:
+        others = [name_to_idx[o] for o in leaves if o != leaf and o in name_to_idx]
+        if not others or any(o >= n_cols for o in others):
+            continue
+        z, _card = _renumber_joint(*[np.ascontiguousarray(data[:, o]) for o in others])
+        cmi, floor, _excess = _excess_and_floor(np.ascontiguousarray(codes), np.ascontiguousarray(y_codes), z, seed=seed)
+        if not cmi > floor:
+            return leaf, float(cmi), float(floor)
+    return None
+
+
 def filter_inert_leaf_block(
-    self: Any, this_pair_features: list, transformed_vals: np.ndarray, new_cols: list, new_nbins: Any, cols: list, data: Any, discretise: Callable[[np.ndarray], np.ndarray], verbose: int
+    self: Any, this_pair_features: list, transformed_vals: np.ndarray, new_cols: list, new_nbins: Any, cols: list, data: Any, discretise: Callable[[np.ndarray], np.ndarray], verbose: int,
+    classes_y: "np.ndarray | None" = None,
 ) -> tuple:
     """Drop the candidates of one pair block that have an inert raw leaf; same return shape and re-indexing as ``_filter_unreplayable_pair_block``.
 
@@ -61,8 +83,9 @@ def filter_inert_leaf_block(
     """
     if data is None or not this_pair_features:
         return this_pair_features, transformed_vals, new_cols, new_nbins, this_pair_features
-    raw_names = set(getattr(self, "feature_names_in_", []))
     name_to_idx = {str(c): i for i, c in enumerate(cols)}
+    # A leaf is any named pool column: the input columns, and the missingness indicators built from them (``is_missing__x``), which are not inputs.
+    raw_names = set(getattr(self, "feature_names_in_", [])) | set(name_to_idx)
     seed = int(getattr(self, "random_seed", 0) or 0)
     keep_positions = []
     for pos, (_config, j) in enumerate(this_pair_features):
@@ -71,6 +94,17 @@ def filter_inert_leaf_block(
             try:
                 codes = np.asarray(discretise(np.asarray(transformed_vals)[:, [j]]))[:, 0]
                 inert = _has_inert_leaf(leaves, name_to_idx, data, codes, seed)
+                dominated = None
+                if inert is None and classes_y is not None and getattr(self, "fe_dominated_by_operands_filter_enable", True):
+                    dominated = _is_dominated_by_the_other_leaves(leaves, name_to_idx, data, codes, np.asarray(classes_y).ravel(), seed)
+                if dominated is not None:
+                    from .._fe_rejection_ledger import record_fe_rejection
+
+                    record_fe_rejection(
+                        self, gate="dominated_by_operands", candidate=new_cols[j], operands=tuple(leaves), operator="pair", observed=dominated[1], threshold=dominated[2],
+                        reason=f"given the other raw leaves (all but {dominated[0]}) the candidate adds no information about the target",
+                    )
+                    continue
                 if inert is not None:
                     from .._fe_rejection_ledger import record_fe_rejection
 

@@ -46,8 +46,8 @@ def _heldout_r2(v: np.ndarray, y: np.ndarray) -> float:
     """Squared Pearson correlation of ``v`` with ``y`` on the ``%3`` held-out stride slice (0.0 when degenerate)."""
     idx = np.arange(v.shape[0])
     ho = idx % 3 == 0
-    a = np.asarray(v[ho], dtype=np.float64)
-    b = np.asarray(y[ho], dtype=np.float64)
+    a = np.asarray(v[ho], dtype=_crit_np_dtype())
+    b = np.asarray(y[ho], dtype=_crit_np_dtype())
     if a.size < 10 or float(a.std()) < 1e-12 or float(b.std()) < 1e-12:
         return 0.0
     return float(np.corrcoef(a, b)[0, 1] ** 2)
@@ -166,7 +166,7 @@ def generate_wavelet_features(
             if float(np.std(leg)) <= 1e-12:
                 continue
             box = False
-            y_num = np.asarray(y_arr, dtype=np.float64)
+            y_num = np.asarray(y_arr, dtype=_crit_np_dtype())
             if _heldout_r2(np.abs(leg), y_num) >= _heldout_r2(leg, y_num) + _WAVELET_BOX_MIN_R2_GAIN:
                 leg = np.abs(leg)
                 box = True

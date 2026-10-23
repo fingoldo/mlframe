@@ -207,20 +207,29 @@ def _interaction_batch(
 
     for i in prange(n):
         pf_feat = np.empty(scratch, dtype=np.int64)
+        # Intentional float64: numba kernel body buffer or scalar (crit helper cannot run inside njit)
         pf_zero = np.empty(scratch, dtype=np.float64)
+        # Intentional float64: numba kernel body buffer or scalar (crit helper cannot run inside njit)
         pf_one = np.empty(scratch, dtype=np.float64)
+        # Intentional float64: numba kernel body buffer or scalar (crit helper cannot run inside njit)
         pweight = np.empty(scratch, dtype=np.float64)
         st_node = np.empty(stack_size, dtype=np.int64)
         st_level = np.empty(stack_size, dtype=np.int64)
         st_ud = np.empty(stack_size, dtype=np.int64)
+        # Intentional float64: numba kernel body buffer or scalar (crit helper cannot run inside njit)
         st_zero = np.empty(stack_size, dtype=np.float64)
+        # Intentional float64: numba kernel body buffer or scalar (crit helper cannot run inside njit)
         st_one = np.empty(stack_size, dtype=np.float64)
         st_pfeat = np.empty(stack_size, dtype=np.int64)
+        # Intentional float64: numba kernel body buffer or scalar (crit helper cannot run inside njit)
         st_cfrac = np.empty(stack_size, dtype=np.float64)
         xi = X[i]
 
+        # Intentional float64: numba kernel body buffer or scalar (crit helper cannot run inside njit)
         phi_unc = np.zeros(P, dtype=np.float64)
+        # Intentional float64: numba kernel body buffer or scalar (crit helper cannot run inside njit)
         phi_on = np.zeros(P, dtype=np.float64)
+        # Intentional float64: numba kernel body buffer or scalar (crit helper cannot run inside njit)
         phi_off = np.zeros(P, dtype=np.float64)
 
         # Unconditioned pass -> main effect phi.
@@ -302,7 +311,7 @@ def _per_tree_split_features(ensemble):
 def interaction_tensor_numba(ensemble: TreeEnsemble, X: np.ndarray) -> tuple[np.ndarray, np.ndarray, float]:
     """Run the numba path-dependent TreeSHAP interaction kernel.
 
-    Returns ``(Phi, phi, base)`` where ``Phi`` is (n, P, P) float64 interaction values in margin /
+    Returns ``(Phi, phi, base)`` where ``Phi`` is (n, P, P) double-precision interaction values in margin /
     log-odds space, ``phi`` is the (n, P) main-effect SHAP (== ``Phi.sum(axis=2)``, the row-sum
     identity), and ``base`` is the ensemble intercept so ``base + Phi.sum((1,2)) == model margin``.
     The off-diagonal is symmetrised inside the kernel so the exact symmetry invariant holds.
@@ -310,7 +319,9 @@ def interaction_tensor_numba(ensemble: TreeEnsemble, X: np.ndarray) -> tuple[np.
     Xf = np.ascontiguousarray(np.asarray(X, dtype=np.float32))
     n = Xf.shape[0]
     P = ensemble.n_features
+    # Intentional float64: numba kernel body buffer or scalar (crit helper cannot run inside njit)
     Phi = np.zeros((n, P, P), dtype=np.float64)
+    # Intentional float64: numba kernel body buffer or scalar (crit helper cannot run inside njit)
     phi_main = np.zeros((n, P), dtype=np.float64)
 
     tree_feat_ptr, tree_feat_idx = _per_tree_split_features(ensemble)

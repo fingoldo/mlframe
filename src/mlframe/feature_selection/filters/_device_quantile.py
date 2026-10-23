@@ -14,6 +14,7 @@ import threading
 from typing import Any, Optional
 
 import numpy as np
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 
 logger = logging.getLogger(__name__)
 
@@ -73,7 +74,7 @@ def _self_check() -> bool:
     """Compare the device result with ``np.quantile`` on arrays with ties, negatives and heavy tails; any difference disables the device path."""
     rng = np.random.default_rng(12345)
     qs = np.linspace(0.0, 1.0, 11)[1:-1]
-    for arr in (rng.standard_normal(1001), np.round(rng.standard_normal(2000), 1), rng.standard_normal(777) ** 3, rng.integers(0, 3, 500).astype(np.float64), rng.standard_normal(1001).astype(np.float32)):
+    for arr in (rng.standard_normal(1001), np.round(rng.standard_normal(2000), 1), rng.standard_normal(777) ** 3, rng.integers(0, 3, 500).astype(_crit_np_dtype()), rng.standard_normal(1001).astype(np.float32)):
         got = _device_quantile_raw(arr, qs)
         if got is None or not np.array_equal(got, np.quantile(arr, qs)):
             return False
