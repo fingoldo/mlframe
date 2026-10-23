@@ -306,6 +306,14 @@ def honest_candidate_nfailed(
     rows = np.arange(n) if eval_rows is None else np.asarray(eval_rows, dtype=np.int64)
     x_obs, y_obs = x_full[rows], y_full[rows]
     observed = float(_mi_codes_njit(x_obs, int(factors_nbins[int(col)]), y_obs, int(y_obs.max()) + 1))
+    spec = getattr(honest_codes_fn, "spec", None)
+    if spec is not None:
+        # The batched null serves the column with the same permutations (default_rng(seed)) and the same codes: one kernel call per candidate
+        # instead of one re-binning of the whole frame per permutation.
+        if int(col) >= int(spec["raw"].shape[1]):
+            return None
+        plain, _corr = _njit_null_columns(spec, full_factors, factors_nbins, y_idx, [int(col)], int(n_permutations), 0 if seed is None else int(seed), eval_rows)
+        return int(np.count_nonzero(plain[:, 0] >= observed)), observed
     rng = np.random.default_rng(0 if seed is None else int(seed))
     nfailed = 0
     for _ in range(int(n_permutations)):
