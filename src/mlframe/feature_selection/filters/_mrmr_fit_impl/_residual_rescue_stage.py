@@ -101,7 +101,9 @@ def _replayable_from_input(recipe, X, raw_cols, parents):
             extra[key] = parent
         recipe = dataclasses.replace(recipe, extra=extra)
     input_frame = X[[c for c in X.columns if str(c) in raw_cols]]
+    # Intentional float64: the recipe-equivalence check compares at atol=1e-6, which float32 cannot hold on these magnitudes; a rounding miss would drop a valid recipe.
     on_input = np.asarray(apply_recipe(recipe, input_frame), dtype=np.float64).ravel()
+    # Intentional float64: same equivalence check as on_input above.
     on_full = np.asarray(apply_recipe(recipe, X), dtype=np.float64).ravel()
     return recipe if on_input.shape == on_full.shape and np.allclose(on_input, on_full, atol=1e-6, equal_nan=True) else None
 
