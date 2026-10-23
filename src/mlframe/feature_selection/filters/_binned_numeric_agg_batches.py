@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 # A batch may use this share of the free memory; the block, its DataFrame view, the gate's candidate matrix and the rank codes (or the device upload) coexist, so each stored row costs this many copies.
 _BATCH_FREE_FRACTION = 0.5
 _BLOCK_COPIES = 4
-_DEVICE_COPIES = 3  # the float64 upload of the candidate matrix, its edges / codes, and the kernel's working set
+_DEVICE_COPIES = 3  # the double-precision upload of the candidate matrix, its edges / codes, and the kernel's working set
 
 
 def _free_host_bytes() -> int:
@@ -50,7 +50,7 @@ def _free_device_bytes(n_rows: int) -> Optional[int]:
 
 
 def rows_per_batch(n_rows: int, itemsize: int, free_host: int, free_device: Optional[int]) -> int:
-    """Stored columns one batch may hold: the host budget, and the device budget (float64 upload) when the gate runs on the device. At least one."""
+    """Stored columns one batch may hold: the host budget, and the device budget (double precision upload) when the gate runs on the device. At least one."""
     host_rows = int(_BATCH_FREE_FRACTION * free_host / (_BLOCK_COPIES * max(1, n_rows) * max(1, itemsize)))
     if free_device is None:
         return max(1, host_rows)

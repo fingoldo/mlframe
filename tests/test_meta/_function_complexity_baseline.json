@@ -75,7 +75,6 @@
   "src/mlframe/feature_selection/filters/_mah.py::_greedy_merge_with_history": 25,
   "src/mlframe/feature_selection/filters/_mdlp_validated_split.py::_mdlp_recurse_validated_bfs": 17,
   "src/mlframe/feature_selection/filters/_mi_greedy_cmi_fe_steps.py::_greedy_cmi_fe_constr_step3_while_st_remaining": 22,
-  "src/mlframe/feature_selection/filters/_mrmr_degenerate.py::audit_degenerate_columns": 17,
   "src/mlframe/feature_selection/filters/_mrmr_fe_step/_step_pairs_rank.py::_maybe_relax_prevalence_for_tail_concentrated_pool": 20,
   "src/mlframe/feature_selection/filters/_mrmr_fe_step/_step_score_parts.py::_materialise_and_fina_step1_no_op_byte": 22,
   "src/mlframe/feature_selection/filters/_mrmr_fe_step/_step_score_parts2.py::_materialise_and_fina_step2_esc_failed": 25,

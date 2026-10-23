@@ -16,6 +16,7 @@ import logging
 from typing import Any, Optional, Sequence
 
 import numpy as np
+from ._fe_usability_signal import _crit_np_dtype
 
 logger = logging.getLogger(__name__)
 
@@ -102,7 +103,7 @@ class _FamilyOnDevice:
             yield part
 
     def observed(self) -> np.ndarray:
-        """The plug-in MI of every column against the original labels (host float64)."""
+        """The plug-in MI of every column against the original labels (host double precision)."""
         from ._family_maxt_null_v2_njit import label_bitsets_from_index
 
         cls = label_bitsets_from_index(self.y, np.arange(self.n, dtype=np.int32)[None, :], self.n_y, self.words)
@@ -111,7 +112,7 @@ class _FamilyOnDevice:
         return np.concatenate([cp.asnumpy(p[0]).astype(np.float64) for p in self._parts(cls)])
 
     def null_max(self, m: int, rng: np.random.Generator) -> np.ndarray:
-        """The next ``m`` null maxima over every column of the family (host float64), the permutations drawn from ``rng`` exactly as the host gate draws them."""
+        """The next ``m`` null maxima over every column of the family (host double precision), the permutations drawn from ``rng`` exactly as the host gate draws them."""
         from ._family_maxt_gate import _permutation_block
         from ._family_maxt_null_v2_njit import label_bitsets_from_index
 
@@ -125,7 +126,7 @@ class _FamilyOnDevice:
             for part in self._parts(cls):
                 top = part.max(axis=1)
                 best = top if best is None else cp.maximum(best, top)
-            out[start : start + mm] = cp.asnumpy(best).astype(np.float64)
+            out[start : start + mm] = cp.asnumpy(best).astype(_crit_np_dtype())
         return out
 
 

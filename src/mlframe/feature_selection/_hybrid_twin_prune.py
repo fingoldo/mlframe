@@ -13,6 +13,7 @@ import logging
 from typing import Any, Optional, Sequence
 
 import numpy as np
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 
 logger = logging.getLogger(__name__)
 
@@ -80,7 +81,7 @@ def prune_conditional_twins(
             from sklearn.utils.multiclass import type_of_target
 
             classification = type_of_target(yv) in ("binary", "multiclass")
-        frame = X[numeric].to_numpy(dtype=np.float64)
+        frame = X[numeric].to_numpy(dtype=_crit_np_dtype())
         frame = np.where(np.isfinite(frame), frame, np.nanmean(np.where(np.isfinite(frame), frame, np.nan), axis=0)[None, :])
         sd = frame.std(axis=0)
         if np.any(sd <= 1e-12):

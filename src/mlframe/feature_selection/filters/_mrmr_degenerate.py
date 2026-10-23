@@ -205,8 +205,8 @@ def _flag_collinear(names: list, good: Any, hits_of: Any, degenerate: dict) -> N
 
 
 def _unit_column(X: Any, name: Any) -> "np.ndarray | None":
-    """The column as a zero-mean unit-norm float64 vector (non-finite values replaced by the column mean, as the Gram path does), or ``None`` for a zero-variance column."""
-    v = np.asarray(_column_values(X, name), dtype=np.float64)
+    """The column as a zero-mean unit-norm vector at the crit dtype (non-finite values replaced by the column mean, as the Gram path does), or ``None`` for a zero-variance column."""
+    v = np.asarray(_column_values(X, name), dtype=_crit_np_dtype())
     fin = np.isfinite(v)
     if not fin.all():
         v = np.where(fin, v, float(v[fin].mean()) if fin.any() else 0.0)
@@ -225,7 +225,7 @@ def _collinear_hits_streaming(X: Any, live: list, n_rows: int, tol: float = _COL
 
     n = len(live)
     good = np.zeros(n, dtype=bool)
-    proj = np.zeros((n, 3), dtype=np.float64)
+    proj = np.zeros((n, 3), dtype=_crit_np_dtype())
     basis = np.random.default_rng(0).standard_normal((n_rows, 3))
     for k, name in enumerate(live):
         unit = _unit_column(X, name)
