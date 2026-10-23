@@ -1798,7 +1798,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         fe_raw_tail_subsume_min_corr: float = 0.85,
         # Cost guard: max candidate pairs the first-sweep tail-concentration pre-scan inspects (early-exits on
         # the first tail-concentrated pair). Bounds the O(pairs) x O(n) |corr| scan on wide pools. 0 = no cap.
-        fe_pair_usability_prescan_max_pairs: int = 256,
+        fe_pair_usability_prescan_max_pairs: "int | None" = None,
         # PAIRNESS-ROUTED PREVALENCE RESCUE: route a SELECTED-SELECTED prevalence-
         # failing maxT-clearing pair to the auto-escalation second-chance (held-out ALS pairness
         # test, which CAN separate a multiplicative interaction from an additive cross-mix).
