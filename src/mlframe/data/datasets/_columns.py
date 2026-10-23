@@ -88,7 +88,7 @@ def _draw_structured_family(family: str, params: Dict[str, float], size: int, rn
         return np.asarray(series, dtype=np.float64)
     if family == "random_walk":
         # The cumulative sum of standard normal steps, so the variance grows with the row index.
-        return np.cumsum(rng.normal(0.0, 1.0, size))
+        return np.asarray(np.cumsum(rng.normal(0.0, 1.0, size)), dtype=np.float64)
     if family == "id":
         # A permutation of 0..size-1: every row a distinct value, which no categorical draw with replacement can produce.
         return rng.permutation(size).astype(np.float64)
