@@ -193,6 +193,7 @@ def abs_pearson(y: np.ndarray, v: np.ndarray) -> float:
     # form. The kernel promotes each value to f64 internally, so pass the arrays in their NATIVE dtype: when both are f32
     # (the common _crit_np_dtype path) this skips the full-length f64 copy the old code always paid - bit-identical
     # result, half the operand memory, and no wasted O(n) copy. Only upcast (copy) when the two dtypes differ.
+    # Intentional float64: mixed or non-f32 inputs keep the float64 reference; _abs_pearson_fast is bit-identical to this only on that path.
     _dt = np.float32 if (y.dtype == np.float32 and v.dtype == np.float32) else np.float64
     return float(_abs_pearson_njit(np.ascontiguousarray(y, _dt), np.ascontiguousarray(v, _dt)))
 
