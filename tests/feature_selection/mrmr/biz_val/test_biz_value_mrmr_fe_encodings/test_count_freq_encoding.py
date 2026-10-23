@@ -53,6 +53,7 @@ SEEDS = (1, 7, 13)
 
 from tests.feature_selection.conftest import make_fast_mrmr as _make_mrmr
 from tests.feature_selection._biz_val_synth import _logreg_auc, _train_holdout_split
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 
 # ---------------------------------------------------------------------------
 # Fixtures: signal that ONLY count / freq / cat_num residual can decode
@@ -282,17 +283,20 @@ class TestCatNumInteractionKernel:
                 out[i] = 0.0 if not fin[i] else nv[i] - float(recipe["lookup"].get(cstr[i], 3.0))
             return out
 
+        # The replay stores its output at the criterion dtype (float32 by default), so the reference is compared at that
+        # precision: a float64 reference differs from the float32 storage by rounding only, not by numerics.
         got = apply_cat_num_residual(X, "cat", "price", recipe)
-        assert np.array_equal(got, _reference(X), equal_nan=True)
+        assert got.dtype == _crit_np_dtype()
+        assert np.allclose(got, _reference(X), rtol=1e-6, atol=1e-6, equal_nan=True)
 
-        # Empty input must return an empty float64 array, not raise.
+        # Empty input must return an empty array at the criterion dtype, not raise.
         empty = apply_cat_num_residual(
             pd.DataFrame({"cat": pd.Series([], dtype=object), "price": pd.Series([], dtype=np.float64)}),
             "cat",
             "price",
             recipe,
         )
-        assert empty.shape == (0,) and empty.dtype == np.float64
+        assert empty.shape == (0,) and empty.dtype == _crit_np_dtype()
 
     def test_missing_columns_rejected(self):
         """Check test missing columns rejected."""
