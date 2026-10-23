@@ -43,6 +43,63 @@ def _is_numeric_column(X, name):
     return bool(pd.api.types.is_numeric_dtype(dtype) or pd.api.types.is_bool_dtype(dtype))
 
 
+def _replay_continuous(recipe, X):
+    """Continuous values of a compound recipe on ``X`` (quantisation stripped), or ``None`` when the replay is not possible."""
+    import dataclasses
+
+    from ..engineered_recipes import apply_recipe
+
+    try:
+        values = apply_recipe(dataclasses.replace(recipe, quantization=None), X)
+    except Exception as exc:  # a compound that cannot be replayed is left out of the pass, as before
+        logger.debug("final subsumption: %s not replayed (%s: %s)", getattr(recipe, "name", "?"), type(exc).__name__, exc)
+        return None
+    return np.asarray(values, dtype=_crit_np_dtype()).ravel()
+
+
+def _compound_halves(recipes, anchor_names, eng_values, X, raw_set):
+    """Names of the nested halves of the surviving compounds that are not raw columns; their continuous values join ``eng_values``."""
+    halves = []
+    by_name = {str(getattr(r, "name", "")): r for r in recipes}
+    for name in anchor_names:
+        recipe = by_name.get(name)
+        for side in ("nested_parent_a", "nested_parent_b"):
+            parent = (getattr(recipe, "extra", None) or {}).get(side) if recipe is not None else None
+            if parent is None:
+                continue
+            pname = str(getattr(parent, "name", ""))
+            if not pname or pname in raw_set or pname in halves:
+                continue
+            if pname not in eng_values:
+                values = _replay_continuous(parent, X)
+                if values is None:
+                    continue
+                eng_values[pname] = values
+            halves.append(pname)
+    return halves
+
+
+def _standing_compounds(multi, eng_values, classes_y, y_continuous, seed):
+    """The multi-source columns that no other multi-source column subsumes; a column is judged against the rest of the list still standing."""
+    from .._fe_retention_subsumption import retention_form_is_subsumed
+
+    y_binned = np.asarray(classes_y).ravel()
+    standing = list(multi)
+    for name in multi:
+        others = [o for o in standing if o != name]
+        if not others:
+            break
+        if retention_form_is_subsumed(
+            cand_continuous=np.asarray(eng_values[name], dtype=_crit_np_dtype()).ravel(),
+            incumbent_continuous=[np.asarray(eng_values[o], dtype=_crit_np_dtype()).ravel() for o in others],
+            y_binned=y_binned,
+            y_continuous=y_continuous,
+            seed=seed,
+        ):
+            standing.remove(name)
+    return standing
+
+
 def run_final_subsumption_prune(
     self: "MRMR", X: "pd.DataFrame | pl.DataFrame", selected_vars: list[int], classes_y: np.ndarray, verbose: int | bool
 ) -> tuple[bool, list[int]]:
@@ -59,6 +116,11 @@ def run_final_subsumption_prune(
             name = str(getattr(recipe, "name", ""))
             if name in store:
                 eng_values[name] = np.asarray(store[name], dtype=_crit_np_dtype()).ravel()
+            else:
+                # Not kept at fit time: replay the column on the raw columns, continuous (quantisation stripped), as its parents are replayed.
+                replayed = _replay_continuous(recipe, X)
+                if replayed is not None:
+                    eng_values[name] = replayed
         raw_selected = [raw_names[int(v)] for v in selected_vars if 0 <= int(v) < len(raw_names)]
         candidates = {}
         for name in raw_selected:
@@ -66,13 +128,22 @@ def run_final_subsumption_prune(
             if _is_numeric_column(X, name):
                 candidates[name] = _column_values(X, name)
         candidates.update(eng_values)
-        anchors = [name for name in eng_values if len(_raw_sources(name, raw_set)) >= 2]
+        multi = [name for name in eng_values if len(_raw_sources(name, raw_set)) >= 2]
+        y_continuous = getattr(self, "_fe_prewarp_y_continuous_", None)
+        seed = int(getattr(self, "random_seed", 0) or 0)
+        # A multi-source column is a compound only if the other compounds do not already carry its information: a three-operand
+        # product that the two-operand compound subsumes must not be kept as an anchor for that reason alone. Each one is judged
+        # against the others still standing, so the verdict does not depend on the order of the list.
+        # The halves a multi-source compound was built from carry its information too, even when the selection no longer holds them:
+        # they are references for the subsumption test (never dropped, not columns of the output).
+        # A compound is a function of its own halves, so the halves never judge a compound (they would always subsume it); they only
+        # serve as anchors for the other columns.
+        halves = _compound_halves(recipes, set(multi), eng_values, X, raw_set)
+        anchors = _standing_compounds(multi, eng_values, classes_y, y_continuous, seed) + halves
+        candidates.update({name: eng_values[name] for name in anchors if name in eng_values})
         if not anchors:
             return False, selected_vars
-        y_continuous = getattr(self, "_fe_prewarp_y_continuous_", None)
-        dropped = final_subsumption_prune(
-            candidates, anchors, np.asarray(classes_y).ravel(), y_continuous=y_continuous, seed=int(getattr(self, "random_seed", 0) or 0)
-        )
+        dropped = final_subsumption_prune(candidates, anchors, np.asarray(classes_y).ravel(), y_continuous=y_continuous, seed=seed)
         if not dropped:
             return False, selected_vars
         dropped_set = set(dropped)

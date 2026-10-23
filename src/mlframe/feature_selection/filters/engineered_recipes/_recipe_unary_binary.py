@@ -217,6 +217,9 @@ def _apply_unary_binary(recipe: EngineeredRecipe, X: Any, col_cache: "dict[str, 
     with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
         transformed_a = _apply_unary_side(recipe, "a", u_a, vals_a, unary_funcs)
         transformed_b = _apply_unary_side(recipe, "b", u_b, vals_b, unary_funcs)
+        if "fuse_scale_a" in recipe.extra:
+            transformed_a = transformed_a / float(recipe.extra["fuse_scale_a"])
+            transformed_b = transformed_b / float(recipe.extra["fuse_scale_b"])
         out = binary_funcs[recipe.binary_name](transformed_a, transformed_b)
 
     # Match fit-time NaN/Inf scrubbing in ``feature_engineering.check_prospective_fe_pairs``.
@@ -277,6 +280,7 @@ def build_unary_binary_recipe(
     nested_parent_b: "EngineeredRecipe | None" = None,
     log_shift_a: float | None = None,
     log_shift_b: float | None = None,
+    fuse_scales: "tuple[float, float] | None" = None,
 ) -> EngineeredRecipe:
     """Build an ``EngineeredRecipe`` of kind ``"unary_binary"``. ``quantization`` is ``None`` if no discretization, else a dict carrying the binning
     parameters AND, when ``fit_values_for_edges`` is provided, the fit-time bin edges. Dtype is stringified so the recipe is JSON-friendly and
@@ -339,6 +343,9 @@ def build_unary_binary_recipe(
     # must stay flat ndarray/scalar/str for ``_extra_equal`` - the nested
     # ``preprocess`` dict is JSON-stringified (sorted keys, deterministic).
     extra: dict = {}
+    # Additive-fusion compound: each nested half is divided by its fit-time scale before the binary op (see _fe_additive_fusion).
+    if fuse_scales is not None:
+        extra["fuse_scale_a"], extra["fuse_scale_b"] = (float(v) for v in fuse_scales)
     # ND-1: persist the hermite coefficient array of a ``poly_<coef>`` unary so recipe replay can reconstruct it
     # (hermval) instead of failing to find the per-fit ``poly_<coef>`` key in the static preset. Stored as a plain
     # list for JSON/pickle friendliness (mirrors prewarp_<side>_coef below).

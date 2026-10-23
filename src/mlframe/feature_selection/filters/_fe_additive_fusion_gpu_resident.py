@@ -213,15 +213,31 @@ def _gpu_relevant_halves(cp: Any, vals_sc: Any, nbins: int, y_dense_sc: np.ndarr
 def _gpu_evaluate_pair(
     self: Any, cp: Any, ha: dict, hb: dict, vals_sc: Any, y_dense_sc: np.ndarray, qs: Any, yc_dev: Any, y_std: float, n_rows: int, _floor_margin: float
 ) -> Optional[tuple]:
-    """Pick the ``add`` / ``sub`` alignment of two halves on the device and test additive separability; ``(binary, binned_codes, mi)`` or ``None``."""
+    """``(binary, binned_codes, mi, weights)`` of an admitted pair, or ``None``: the plain sum first, the scale-normalised sum only when
+    the plain sum is refused and the halves sit on different scales (the CPU path's :func:`_evaluate_fusion_pair`)."""
+    plain = _gpu_evaluate_pair_weighted(self, cp, ha, hb, vals_sc, y_dense_sc, qs, yc_dev, y_std, n_rows, _floor_margin, (1.0, 1.0))
+    if plain is not None:
+        return (*plain, (1.0, 1.0))
+    weights = (ha["scale"], hb["scale"])
+    if weights == (1.0, 1.0):
+        return None
+    scaled = _gpu_evaluate_pair_weighted(self, cp, ha, hb, vals_sc, y_dense_sc, qs, yc_dev, y_std, n_rows, _floor_margin, weights)
+    return None if scaled is None else (*scaled, weights)
+
+
+def _gpu_evaluate_pair_weighted(
+    self: Any, cp: Any, ha: dict, hb: dict, vals_sc: Any, y_dense_sc: np.ndarray, qs: Any, yc_dev: Any, y_std: float, n_rows: int, _floor_margin: float, weights: tuple
+) -> Optional[tuple]:
+    """Pick the ``add`` / ``sub`` alignment of two halves on the device and test additive separability; ``(binary, binned_codes, mi)`` or ``None``.
+    ``weights`` divides each half before the sum: ``(1.0, 1.0)`` is the plain sum."""
     from ._mi_greedy_cmi_fe import _cmi_from_binned
     from ._usability_njit_pool import _gpu_quantile_bin_codes
 
     # FUSED SUM + its bin codes RESIDENT: vals_a + vals_b on the device, then the distinct-edge-dedup
     # resident binner ``_gpu_quantile_bin_codes`` (selection-equivalent to the host ``_quantile_bin``;
     # no interpolation drift). The sum + binning both stay resident - no binning D2H.
-    ca = vals_sc[:, ha["col"]]  # SCORING operands (subsampled); output built full-n on admit
-    cb = vals_sc[:, hb["col"]]
+    ca = vals_sc[:, ha["col"]] / weights[0]  # SCORING operands (subsampled); output built full-n on admit
+    cb = vals_sc[:, hb["col"]] / weights[1]
     # SIGN-AWARE ALIGNMENT (mirrors the CPU path in _fe_additive_fusion.py). Each half is
     # picked by SIGN-INVARIANT MI, so ``ca + cb`` can be DESTRUCTIVE toward y (a garbage compound that
     # still clears the gate and forces retention re-attachment -> fragmentation). Build BOTH ``ca + cb``
@@ -269,7 +285,7 @@ def _gpu_evaluate_pair(
     return _binary, fvb_dev, fused_mi
 
 
-def _gpu_build_fusion(self: Any, cp: Any, ha: dict, hb: dict, _binary: str, vals_dev: Any, existing_names: set) -> tuple:
+def _gpu_build_fusion(self: Any, cp: Any, ha: dict, hb: dict, _binary: str, vals_dev: Any, existing_names: set, weights: tuple = (1.0, 1.0)) -> tuple:
     """Full-n fused values (kept lazily on the device) plus the unique name and ``unary_binary`` recipe of an admitted pair; returns ``(fused_vals, name, recipe)``."""
     from .engineered_recipes import build_unary_binary_recipe
 
@@ -279,8 +295,8 @@ def _gpu_build_fusion(self: Any, cp: Any, ha: dict, hb: dict, _binary: str, vals
     # chosen (add/sub) fused sum at FULL n from the full-resolution operands (the add/sub CHOICE was
     # decided on the scoring subsample; the materialised values must be full-n), clean it identically
     # to the scored sum, and pull it back ONCE here, only on an ADMITTED pair (bounded by the fusions).
-    _fa = vals_dev[:, ha["col"]]
-    _fb = vals_dev[:, hb["col"]]
+    _fa = vals_dev[:, ha["col"]] / weights[0]
+    _fb = vals_dev[:, hb["col"]] / weights[1]
     _tfull = (_fa - _fb) if _binary == "sub" else (_fa + _fb)
     _fused_full = cp.where(cp.isfinite(_tfull), _tfull, cp.asarray(0.0, dtype=_tfull.dtype))
     # Stays on the device: the recipe edges are fitted there and the consumer bins / stores it from there; a host reader copies it back (once) on demand.
@@ -304,6 +320,7 @@ def _gpu_build_fusion(self: Any, cp: Any, ha: dict, hb: dict, _binary: str, vals
         fit_values_for_edges=fused_vals,
         nested_parent_a=ha["recipe"],
         nested_parent_b=hb["recipe"],
+        fuse_scales=None if tuple(weights) == (1.0, 1.0) else (float(weights[0]), float(weights[1])),
     )
     return fused_vals, name, recipe
 
@@ -368,6 +385,12 @@ def propose_additive_fusions_gpu(
     if len(halves) < 2:
         return [], set(), set()
 
+    # Each half is divided by its own full-n standard deviation in the compound (the CPU path's _half_scale), one host read for all halves.
+    _scales = np.asarray(cp.asnumpy(cp.nanstd(vals_dev.astype(cp.float64, copy=False), axis=0)), dtype=np.float64)  # Intentional float64: scale statistics
+    for _h in halves:
+        _sd = float(_scales[_h["col"]])
+        _h["scale"] = _sd if np.isfinite(_sd) and _sd > 0.0 else 1.0
+
     # Strongest half first so the most-informative disjoint pair is fused before the cap.
     halves.sort(key=lambda h: h["mi"], reverse=True)
 
@@ -397,8 +420,8 @@ def propose_additive_fusions_gpu(
             _fusion = _gpu_evaluate_pair(self, cp, ha, hb, vals_sc, y_dense_sc, qs, yc_dev, y_std, n_rows, _floor_margin)
             if _fusion is None:
                 continue
-            _binary, fvb_dev, fused_mi = _fusion
-            fused_vals, name, recipe = _gpu_build_fusion(self, cp, ha, hb, _binary, vals_dev, existing_names)
+            _binary, fvb_dev, fused_mi, _weights = _fusion
+            fused_vals, name, recipe = _gpu_build_fusion(self, cp, ha, hb, _binary, vals_dev, existing_names, _weights)
             admitted.append({"name": name, "values": fused_vals, "recipe": recipe, "mi": fused_mi})
             existing_names.add(name)
             subsumed.add(ha["name"])

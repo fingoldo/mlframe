@@ -210,8 +210,32 @@ def _collect_relevant_halves(
     return halves
 
 
+def _half_scale(half: dict) -> float:
+    """The standard deviation of a half's continuous values: the divisor that puts it on the unit scale of the compound (1.0 for a constant or non-finite half)."""
+    sd = float(np.nanstd(np.asarray(half["vals"], dtype=np.float64)))  # Intentional float64: a scale statistic, read once per half
+    return sd if np.isfinite(sd) and sd > 0.0 else 1.0
+
+
 def _evaluate_fusion_pair(self: Any, ha: dict, hb: dict, y_dense: np.ndarray, nbins: int, n_rows: int, _floor_margin: float) -> Optional[tuple]:
-    """Pick the sign alignment (``add`` / ``sub``) of two disjoint halves and test additive separability; ``(binary, values, binned, mi)`` or ``None``."""
+    """``(binary, values, binned, mi, weights)`` of an admitted pair, or ``None``.
+
+    The compound is first tested as the plain sum of the halves, the form every fusion has always used. Only when that sum is
+    refused and the halves sit on different scales is the sum of the halves divided by their scales tried (see
+    :func:`_half_scale`); ``weights`` records which of the two was admitted, ``(1.0, 1.0)`` for the plain sum."""
+    plain = _evaluate_fusion_pair_weighted(self, ha, hb, y_dense, nbins, n_rows, _floor_margin, (1.0, 1.0))
+    if plain is not None:
+        return (*plain, (1.0, 1.0))
+    weights = (_half_scale(ha), _half_scale(hb))
+    if weights == (1.0, 1.0):
+        return None
+    scaled = _evaluate_fusion_pair_weighted(self, ha, hb, y_dense, nbins, n_rows, _floor_margin, weights)
+    return None if scaled is None else (*scaled, weights)
+
+
+def _evaluate_fusion_pair_weighted(self: Any, ha: dict, hb: dict, y_dense: np.ndarray, nbins: int, n_rows: int, _floor_margin: float, weights: tuple) -> Optional[tuple]:
+    """Pick the sign alignment (``add`` / ``sub``) of two disjoint halves and test additive separability; ``(binary, values, binned, mi)`` or ``None``.
+
+    ``weights`` divides each half before the sum: ``(1.0, 1.0)`` is the plain sum."""
     from ._fe_mi_contract import quantize_mi_tiebreak
     from ._mi_greedy_cmi_fe import _cmi_from_binned, _quantile_bin
 
@@ -229,8 +253,9 @@ def _evaluate_fusion_pair(self: Any, ha: dict, hb: dict, y_dense: np.ndarray, nb
     # flips). OLS multiple-R is NOT usable to pick the sign - it fits FREE per-column coefficients, so
     # ``R(ha,hb) == R(ha,-hb)`` exactly (same column space); it gates admission only, never the sign.
     _strong = ha if ha["mi"] >= hb["mi"] else hb
-    _fv_add = np.nan_to_num(ha["vals"] + hb["vals"], copy=False, nan=0.0, posinf=0.0, neginf=0.0)
-    _fv_sub = np.nan_to_num(ha["vals"] - hb["vals"], copy=False, nan=0.0, posinf=0.0, neginf=0.0)
+    _sa, _sb = weights
+    _fv_add = np.nan_to_num(ha["vals"] / _sa + hb["vals"] / _sb, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
+    _fv_sub = np.nan_to_num(ha["vals"] / _sa - hb["vals"] / _sb, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
     _fvb_add = _quantile_bin(_fv_add, nbins=int(nbins))
     _fvb_sub = _quantile_bin(_fv_sub, nbins=int(nbins))
     # kx=nbins: codes are nbins-binned -> [0, nbins-1], a safe upper bound that skips int(dx.max()).
@@ -287,7 +312,7 @@ def _evaluate_fusion_pair(self: Any, ha: dict, hb: dict, y_dense: np.ndarray, nb
     return _binary, fused_vals, fvb, fused_mi
 
 
-def _build_fusion_recipe(self: Any, ha: dict, hb: dict, _binary: str, fused_vals: np.ndarray, existing_names: set) -> tuple:
+def _build_fusion_recipe(self: Any, ha: dict, hb: dict, _binary: str, fused_vals: np.ndarray, existing_names: set, weights: tuple = (1.0, 1.0)) -> tuple:
     """Unique name and ``unary_binary`` recipe (with nested parents) of the fused ``add`` / ``sub`` compound; returns ``(name, recipe)``."""
     from .engineered_recipes import build_unary_binary_recipe
 
@@ -313,6 +338,8 @@ def _build_fusion_recipe(self: Any, ha: dict, hb: dict, _binary: str, fused_vals
         fit_values_for_edges=fused_vals,
         nested_parent_a=ha["recipe"],
         nested_parent_b=hb["recipe"],
+        # The replay divides each half by the scale it had at fit time, so the compound keeps the normalisation it was tested with.
+        fuse_scales=None if tuple(weights) == (1.0, 1.0) else (float(weights[0]), float(weights[1])),
     )
     return name, recipe
 
@@ -401,8 +428,8 @@ def propose_additive_fusions(
             _fusion = _evaluate_fusion_pair(self, ha, hb, y_dense, nbins, n_rows, _floor_margin)
             if _fusion is None:
                 continue
-            _binary, fused_vals, fvb, fused_mi = _fusion
-            name, recipe = _build_fusion_recipe(self, ha, hb, _binary, fused_vals, existing_names)
+            _binary, fused_vals, fvb, fused_mi, _weights = _fusion
+            name, recipe = _build_fusion_recipe(self, ha, hb, _binary, fused_vals, existing_names, _weights)
             admitted.append({"name": name, "values": fused_vals, "recipe": recipe, "mi": fused_mi})
             existing_names.add(name)
             # The two fragments are now subsumed by the fused compound (it carries BOTH
