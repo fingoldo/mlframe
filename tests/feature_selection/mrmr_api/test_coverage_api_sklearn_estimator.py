@@ -45,7 +45,8 @@ def test_get_set_params_round_trip_over_ctor():
     params = m.get_params()
     assert params["quantization_nbins"] == 7
     assert params["n_workers"] == 3
-    assert params["random_seed"] == 123
+    # ``random_state`` is the canonical seed name; ``random_seed`` is a deprecated alias that get_params no longer reports.
+    assert params["random_state"] == 123
     assert params["bur_lambda"] == 0.25
     assert params["mi_normalization"] == "su"
     assert params["nan_strategy"] == "ffill_bfill"
