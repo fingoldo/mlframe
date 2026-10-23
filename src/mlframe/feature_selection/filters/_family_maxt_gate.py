@@ -627,6 +627,12 @@ def family_pass_batches(batches: "Sequence[np.ndarray]", y_codes: np.ndarray, al
     n_y = int(y.max()) + 1
     mats = [np.asarray(c) for c in batches]
     widths = [m.shape[1] for m in mats]
+    # A family whose stacked code matrix does not fit the free host memory is scored one group of columns at a time (same decisions, see _family_maxt_stream).
+    from ._family_maxt_stream import family_pass_streamed, plan_stream_groups
+
+    groups = plan_stream_groups(mats, widths, int(mats[0].shape[0]))
+    if groups is not None:
+        return family_pass_streamed(mats, widths, y, n_y, alpha, n_perm, seed, groups)
     cols = _stack_codes_transposed(mats, widths)
     n_x = cols.max(axis=1).astype(np.int64) + 1
     with parallel_kernel_entry():
