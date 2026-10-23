@@ -262,6 +262,7 @@ def _polyeval_cuda(basis: str, x: np.ndarray, c: np.ndarray, device: int | None 
 
         # The kernel reads x at the CALLER's precision (float32 stays float32, anything else is float64) and computes in double: forcing float32 on a float64 column would round x, which a
         # high-degree polynomial amplifies (3e-5 relative against the CPU path at degree 5), and forcing float64 on a float32 column would double the upload for nothing.
+        # Intentional float64: high-degree polynomials amplify a float32 input rounding to 3e-5 relative against the CPU path at degree 5.
         x_dtype = cp.float32 if np.asarray(x).dtype == np.float32 else cp.float64
         x_gpu = resident_operand(x, "hermite_polyeval_x", dtype=x_dtype)
         # Intentional float64: coefficient / output contract kept f64
