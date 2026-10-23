@@ -285,6 +285,9 @@ def _synergy_screen_pass(self, _iac_max_order, cols, X, classes_y, fe_to_pandas,
                             len(_seed_syn),
                             [cols[i] for i in _seed_syn],
                         )
+            elif len(_cand_syn) > 60:
+                # The combination count grows as C(p, order): above this bound the screen is skipped for runtime, and the skip is stated.
+                logger.warning("MRMR n-way synergy screen skipped: %d raw candidates exceed the 60-candidate bound (combinations grow as C(p, order)).", len(_cand_syn))
         except Exception as _syn_exc:
             logger.warning("MRMR n-way synergy seeding failed: %s; keeping support.", _syn_exc)
     return selected_vars
