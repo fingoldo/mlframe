@@ -180,5 +180,6 @@ def null_max_mi(X: np.ndarray, y: np.ndarray, permutations: "list[np.ndarray]", 
                     out[b] = float(np.nanmax(_mi_from_codes_rows_njit(codes, np.ascontiguousarray(y_i64[perm]), int(nbins))))
             return out
     for b, perm in enumerate(permutations):
+        # Intentional float64: statistic vector (null max), exact permutation ties; the rank shortcut above is float64 too.
         out[b] = float(np.nanmax(np.asarray(fallback(X, np.asarray(y)[perm], nbins=nbins), dtype=np.float64)))
     return out

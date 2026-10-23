@@ -253,7 +253,7 @@ def raw_mi_noise_floor(
     if len(blocks) > 1:
         # The raw matrix does not fit the free memory in one piece: the MI of a column does not depend on the others, so the vector is scored block by block (no memo: the key hashes the whole matrix).
         blocked_mi = np.concatenate([
-            np.asarray(_mi_classif_batch(np.column_stack([raw_X[c].to_numpy(dtype=_crit_np_dtype()) for c in block]), y_bin, nbins=nbins), dtype=np.float64) for block in blocks
+            np.asarray(_mi_classif_batch(np.column_stack([raw_X[c].to_numpy(dtype=_crit_np_dtype()) for c in block]), y_bin, nbins=nbins), dtype=_crit_np_dtype()) for block in blocks
         ])
         return _floor_from_raw_mi(blocked_mi, len(raw_X), nbins, y_bin, mad_mult)
     # Stack column by column: raw_X[num_cols] would copy a sub-frame before the float64 matrix copy the scorer needs.

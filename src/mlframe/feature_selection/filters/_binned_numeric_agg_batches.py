@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 # A batch may use this share of the free memory; the block, its DataFrame view, the gate's candidate matrix and the rank codes (or the device upload) coexist, so each stored row costs this many copies.
 _BATCH_FREE_FRACTION = 0.5
 _BLOCK_COPIES = 4
-_DEVICE_COPIES = 3  # the float64 upload of the candidate matrix, its edges / codes, and the kernel's working set
+_DEVICE_COPIES = 3  # the double-precision upload of the candidate matrix, its edges / codes, and the kernel's working set
 
 
 def _free_host_bytes() -> int:
