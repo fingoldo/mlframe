@@ -179,7 +179,7 @@ def _pair_search_kernel_weighted_njit(
     marginal_mi: np.ndarray,
     nbins: np.ndarray,
     classes_y: np.ndarray,
-    weights: np.ndarray,  # (n,) float64; sum(weights) > 0
+    weights: np.ndarray,  # (n,) double; sum(weights) > 0
     dtype,
 ) -> tuple:
     """Weighted variant of ``_pair_search_kernel_njit``.

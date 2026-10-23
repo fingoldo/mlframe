@@ -168,3 +168,21 @@ def enumerate_device_profiles() -> list[DeviceProfile]:
             logger.debug("_profile_device(%d) failed, skipping: %s", i, e)
             continue
     return out
+
+
+def assert_kernel_buffers(kernel: str, real_t: str, **buffers: Any) -> None:
+    """Raise ``ValueError`` unless every named buffer has the element type ``real_t`` selects (``"float"`` -> float32, ``"double"`` -> double).
+
+    Launch wrappers call this before a ``{REAL}``-templated RawKernel runs, so a buffer whose dtype disagrees with the compiled
+    kernel fails loudly instead of being read or written past its end. No silent cast: the caller must allocate the right dtype.
+    """
+    import numpy as _np
+
+    if real_t not in ("float", "double"):
+        raise ValueError(f"{kernel}: unknown real_t {real_t!r} (expected 'float' or 'double')")
+    # Intentional float64: this is the reference the check compares buffers against, not a precision choice; the kernel's "double" template is float64.
+    expected = _np.dtype(_np.float32 if real_t == "float" else _np.float64)
+    for name, buf in buffers.items():
+        got = _np.dtype(buf.dtype)
+        if got != expected:
+            raise ValueError(f"{kernel}: buffer {name!r} has dtype {got} but the kernel is compiled for real_t={real_t!r} (expects {expected})")

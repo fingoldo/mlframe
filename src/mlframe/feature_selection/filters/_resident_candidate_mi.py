@@ -34,20 +34,22 @@ from typing import Optional, Sequence
 
 import numpy as np
 
+from mlframe.feature_selection.filters._fe_gpu_batch._devices import assert_kernel_buffers, crit_float_dtype
+
 logger = logging.getLogger(__name__)
 
 
 _BUILD_OPCANDS_SRC = r"""
 extern "C" __global__
-void build_op_cands(const double* __restrict__ M, const int* __restrict__ pi, const int* __restrict__ pj,
+void build_op_cands(const {REAL}* __restrict__ M, const int* __restrict__ pi, const int* __restrict__ pj,
                     const long long n, const int m, const int npairs, const int has_sum,
-                    const int k, double* __restrict__ out) {
+                    const int k, {REAL}* __restrict__ out) {
     long long t = (long long)blockIdx.x * blockDim.x + threadIdx.x;
     long long total = n * (long long)k;
     if (t >= total) return;
     int c = (int)(t % (long long)k);
     long long row = t / (long long)k;
-    const double* Mr = M + row * (long long)m;
+    const {REAL}* Mr = M + row * (long long)m;
     double val;
     if (c < m) {
         val = Mr[c];                                   // raw column
@@ -77,9 +79,9 @@ _BUILD_OPCANDS_KERNEL = None
 # and the store are both coalesced. Every value is the same expression on the same operands as the row-major kernel.
 _BUILD_OPCANDS_CM_SRC = r"""
 extern "C" __global__
-void build_op_cands_cm(const double* __restrict__ M, const int* __restrict__ pi, const int* __restrict__ pj,
+void build_op_cands_cm(const {REAL}* __restrict__ M, const int* __restrict__ pi, const int* __restrict__ pj,
                        const long long n, const int m, const int npairs, const int has_sum,
-                       const int k, double* __restrict__ out) {
+                       const int k, {REAL}* __restrict__ out) {
     long long t = (long long)blockIdx.x * blockDim.x + threadIdx.x;
     long long total = n * (long long)k;
     if (t >= total) return;
@@ -107,9 +109,6 @@ void build_op_cands_cm(const double* __restrict__ M, const int* __restrict__ pi,
     out[(long long)c * n + row] = val;
 }
 """
-_BUILD_OPCANDS_CM_F32_SRC = _BUILD_OPCANDS_CM_SRC.replace("void build_op_cands_cm(", "void build_op_cands_cm_f32(").replace("double* __restrict__ out)", "float* __restrict__ out)").replace(
-    "out[(long long)c * n + row] = val;", "out[(long long)c * n + row] = (float)val;"
-)
 _BUILD_OPCANDS_CM_KERNELS: dict = {}
 _BUILD_OPCANDS_CM_KERNELS_LOCK = threading.Lock()
 
@@ -120,49 +119,54 @@ def _pair_index_arrays(cp, pairs: list):
     return cp.asarray(np.ascontiguousarray(idx[:, 0])), cp.asarray(np.ascontiguousarray(idx[:, 1]))
 
 
-def _get_build_opcands_cm_kernel(cp, f32: bool = False):
-    """Lazily compile and cache the column-major ``build_op_cands_cm`` RawKernel (the ``f32`` twin rounds each value to float32 at the store)."""
-    key = "f32" if f32 else "f64"
+def _get_build_opcands_cm_kernel(cp, real_t: str = "double"):
+    """Lazily compile and cache the column-major ``build_op_cands_cm`` RawKernel for the buffer element type ``real_t`` (``"float"`` or ``"double"``)."""
     with _BUILD_OPCANDS_CM_KERNELS_LOCK:
-        ker = _BUILD_OPCANDS_CM_KERNELS.get(key)
+        ker = _BUILD_OPCANDS_CM_KERNELS.get(real_t)
         if ker is None:
-            ker = cp.RawKernel(_BUILD_OPCANDS_CM_F32_SRC if f32 else _BUILD_OPCANDS_CM_SRC, "build_op_cands_cm_f32" if f32 else "build_op_cands_cm")
-            _BUILD_OPCANDS_CM_KERNELS[key] = ker
+            ker = cp.RawKernel(_BUILD_OPCANDS_CM_SRC.replace("{REAL}", real_t), "build_op_cands_cm")
+            _BUILD_OPCANDS_CM_KERNELS[real_t] = ker
     return ker
 
 
 def _build_best_existing_op_candidates_gpu_cm(cols_arr_gpu: list, cp, out_dtype=None):
     """:func:`_build_best_existing_op_candidates_gpu` as a ``(k, n)`` column-major block (candidate ``c`` is row ``c``; same columns in the same order, same values).
 
-    ``out_dtype=float32`` stores each value rounded to float32 (what casting the finished float64 block gives), saving the cast pass and the double-width buffer."""
+    ``out_dtype=float32`` stores each value rounded to float32 (what casting the finished double block gives), saving the cast pass and the double-width buffer."""
     m = len(cols_arr_gpu)
-    f32 = out_dtype is not None and np.dtype(out_dtype) == np.dtype(np.float32)
+    buf_t = crit_float_dtype() if out_dtype is None else out_dtype
     try:
         n = int(cols_arr_gpu[0].shape[0])
-        M = cp.ascontiguousarray(cp.stack(cols_arr_gpu, axis=0).astype(cp.float64, copy=False))  # (m, n)  # Intentional float64: GPU candidate-MI operand stack; kernel contract is float64
+        M = cp.ascontiguousarray(cp.stack(cols_arr_gpu, axis=0).astype(buf_t, copy=False))  # (m, n)
         pairs = [(i, j) for i in range(m) for j in range(i + 1, m)]
         npairs = len(pairs)
         has_sum = 1 if m >= 3 else 0
         k = m + 4 * npairs + 2 + has_sum
         pi, pj = _pair_index_arrays(cp, pairs)
-        out = cp.empty((k, n), dtype=cp.float32 if f32 else cp.float64)  # Intentional float64: GPU candidate-MI output buffer
+        out = cp.empty((k, n), dtype=buf_t)
         total = n * k
         threads = 256
-        _get_build_opcands_cm_kernel(cp, f32)(
+        _real = "float" if buf_t == cp.float32 else "double"
+        assert_kernel_buffers("build_op_cands_cm", _real, M=M, out=out)
+        _get_build_opcands_cm_kernel(cp, _real)(
             ((total + threads - 1) // threads,), (threads,), (M, pi, pj, np.int64(n), np.int32(m), np.int32(npairs), np.int32(has_sum), np.int32(k), out)
         )
         return out
     except Exception as e:
         logger.debug("column-major batched-fill kernel failed, transposing the row-major build: %s", e)
-        return cp.ascontiguousarray(_build_best_existing_op_candidates_gpu(cols_arr_gpu, cp).T.astype(cp.float32 if f32 else cp.float64, copy=False))  # Intentional float64: GPU candidate-MI output cast
+        return cp.ascontiguousarray(_build_best_existing_op_candidates_gpu(cols_arr_gpu, cp).T.astype(buf_t, copy=False))
 
 
-def _get_build_opcands_kernel(cp):
-    """Lazily compile and cache the ``build_op_cands`` RawKernel (compiled once per process via NVRTC) so repeated calls pay only the launch cost."""
-    global _BUILD_OPCANDS_KERNEL
-    if _BUILD_OPCANDS_KERNEL is None:
-        _BUILD_OPCANDS_KERNEL = cp.RawKernel(_BUILD_OPCANDS_SRC, "build_op_cands")
-    return _BUILD_OPCANDS_KERNEL
+_BUILD_OPCANDS_KERNELS: dict = {}
+
+
+def _get_build_opcands_kernel(cp, real_t: str = "double"):
+    """Lazily compile and cache the ``build_op_cands`` RawKernel for the buffer element type ``real_t`` (compiled once per type per process)."""
+    ker = _BUILD_OPCANDS_KERNELS.get(real_t)
+    if ker is None:
+        ker = cp.RawKernel(_BUILD_OPCANDS_SRC.replace("{REAL}", real_t), "build_op_cands")
+        _BUILD_OPCANDS_KERNELS[real_t] = ker
+    return ker
 
 
 def _build_best_existing_op_candidates_gpu(cols_arr_gpu: list, cp):
@@ -170,7 +174,7 @@ def _build_best_existing_op_candidates_gpu(cols_arr_gpu: list, cp):
 
     Mirrors the host numpy generation in ``_conditional_gate_fe.best_existing_op_mi`` op-for-op (raw columns
     + pairwise product / diff / ratio / sum + row max / min + full row sum when >=3 operands). Returns an
-    (n, k) cupy float64 matrix - NO host transfer. Column ORDER is identical to the host path so the
+    (n, k) cupy double matrix - NO host transfer. Column ORDER is identical to the host path so the
     per-column MI maps 1:1.
 
     FUSED (launch-reduction): one op-table RawKernel builds ALL candidate columns (raw + 4 pairwise ops +
@@ -185,16 +189,19 @@ def _build_best_existing_op_candidates_gpu(cols_arr_gpu: list, cp):
     m = len(cols_arr_gpu)
     try:
         n = int(cols_arr_gpu[0].shape[0])
-        M = cp.ascontiguousarray(cp.stack(cols_arr_gpu, axis=1).astype(cp.float64, copy=False))  # (n, m)  # Intentional float64: GPU candidate-MI operand stack; kernel contract is float64
+        buf_t = crit_float_dtype()
+        M = cp.ascontiguousarray(cp.stack(cols_arr_gpu, axis=1).astype(buf_t, copy=False))  # (n, m)
         pairs = [(i, j) for i in range(m) for j in range(i + 1, m)]
         npairs = len(pairs)
         has_sum = 1 if m >= 3 else 0
         k = m + 4 * npairs + 2 + has_sum
         pi, pj = _pair_index_arrays(cp, pairs)
-        out = cp.empty((n, k), dtype=cp.float64)  # Intentional float64: GPU candidate-MI output buffer
+        out = cp.empty((n, k), dtype=buf_t)
         total = n * k
         threads = 256
-        _get_build_opcands_kernel(cp)(
+        _real = "float" if buf_t == cp.float32 else "double"
+        assert_kernel_buffers("build_op_cands", _real, M=M, out=out)
+        _get_build_opcands_kernel(cp, _real)(
             ((total + threads - 1) // threads,), (threads,), (M, pi, pj, np.int64(n), np.int32(m), np.int32(npairs), np.int32(has_sum), np.int32(k), out)
         )
         return out
@@ -243,7 +250,7 @@ def best_existing_op_mi_resident(
         # fit (selection-equivalent: same f64 values, just not re-uploaded). The candidate MATRIX built from
         # them below is device-born + transient and is NOT cached.
         from ._fe_resident_operands import resident_operand
-        cols_arr_gpu = [resident_operand(arrs[c], ("op", c), dtype=cp.float64) for c in names]  # Intentional float64: GPU resident operand dtype; kernel contract is float64
+        cols_arr_gpu = [resident_operand(arrs[c], ("op", c), dtype=crit_float_dtype()) for c in names]
         # column-major block unless the rank-binning kernel (which takes the (n, k) matrix) is asked for
         from ._hermite_fe_mi import relaxed_candidate_dtype
 
@@ -276,7 +283,7 @@ def gate_grid_mi_resident(
     """Resident-GPU twin of ``_conditional_gate_fe._gate_grid_mi`` that builds the tau-grid candidate columns
     ON THE DEVICE (no host-built matrix uploaded) and scores per-column MI with the resident plug-in kernel.
 
-    DEVICE-BORN TAU-GRID: the host gate-grid path materialises an ``(n, sum_k)`` float64 matrix on
+    DEVICE-BORN TAU-GRID: the host gate-grid path materialises an ``(n, sum_k)`` double matrix on
     the HOST then ``cp.asarray``-uploads it at ``_orth_mi_backends.py:311`` - the dominant H2D of a GPU-strict
     F2 fit (~2.8 GB / 65% on a 300k fit). Here each combo's tau-grid block is built directly on the device from
     the RESIDENT operand columns (uploaded once per fit via the operand cache), so ONLY the small operand
@@ -285,10 +292,10 @@ def gate_grid_mi_resident(
     ``specs`` is a list of per-combo build descriptors, each one of:
         ("mask",   ctup, (cv_arr, av_arr),        taus)  -> column j = (cv > taus[j]) * av
         ("select", ctup, (cv_arr, av_arr, bv_arr), taus) -> column j = where(cv > taus[j], av, bv)
-    where ``cv_arr`` / ``av_arr`` / ``bv_arr`` are HOST float64 operand columns and ``ctup`` is the operand
+    where ``cv_arr`` / ``av_arr`` / ``bv_arr`` are HOST double operand columns and ``ctup`` is the operand
     column-name tuple ((a, c) for mask = operands (cv=c, av=a); (a, b, c) for select = operands (cv=c, av=a,
     bv=b)) used as the STABLE resident-operand cache key so each recurring column uploads ONCE per fit (not once
-    per spec). ``taus`` is a host 1-D float64 array of thresholds. The returned (sum_k,) host MI vector
+    per spec). ``taus`` is a host 1-D double array of thresholds. The returned (sum_k,) host MI vector
     concatenates each combo's per-tau MIs in spec order - IDENTICAL layout to the host ``_gate_grid_mi`` of the
     concatenated blocks, so the caller's per-combo argmax slicing is unchanged.
 
@@ -297,7 +304,7 @@ def gate_grid_mi_resident(
     that could shift selection (the reg_mixed failure mode). Each column is binned INDEPENDENTLY, so the MI is
     per-column bit-identical to the host estimator's per-column MI.
 
-    Returns the host (sum_k,) float64 MI vector, or ``None`` on any cupy failure / no-cupy (caller falls back to
+    Returns the host (sum_k,) double MI vector, or ``None`` on any cupy failure / no-cupy (caller falls back to
     the exact host ``_gate_grid_mi``)."""
     try:
         import cupy as cp

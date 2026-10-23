@@ -324,7 +324,7 @@ def iter_candidates(
 def _materialise_candidate(
     X: pd.DataFrame, src_cols: tuple[str, ...], tname: str,
 ) -> Optional[np.ndarray]:
-    """Compute ONE candidate column as a float64 ndarray. NaN/Inf scrubbed."""
+    """Compute ONE candidate column as a double ndarray. NaN/Inf scrubbed."""
     try:
         if len(src_cols) == 1:
             x = X[src_cols[0]].to_numpy()

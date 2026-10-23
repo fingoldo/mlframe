@@ -95,14 +95,17 @@ def test_batch_pair_usability_corr_cuda_uploads_y_and_operand_once_across_calls(
         pair_b,
         ALL_SINGLE_FORM_IDS,
     )
-    np.testing.assert_allclose(out1, ref1, atol=1e-9, rtol=1e-9)
-    np.testing.assert_allclose(out2, ref2, atol=1e-9, rtol=1e-9)
+    # float32 CUDA output vs float64 CPU reference: 1e-6
+    np.testing.assert_allclose(out1, ref1, atol=1e-6, rtol=1e-6)
+    np.testing.assert_allclose(out2, ref2, atol=1e-6, rtol=1e-6)
 
 
 @_gpu_only
 def test_batch_pair_usability_corr_cuda_bit_identical_to_prefix_raw_path():
     """The resident-upload path must be bit-identical to the pre-fix raw to_device(y)/to_device(operand_matrix) path."""
     from numba import cuda as nb_cuda
+
+    from mlframe.feature_selection.filters._fe_gpu_batch._devices import crit_float_dtype
 
     y, operand_matrix, pair_a, pair_b = _inputs(seed=2)
     new_result = batch_pair_usability_corr_cuda(y, operand_matrix, pair_a, pair_b, ALL_FORM_IDS)
@@ -128,7 +131,7 @@ def test_batch_pair_usability_corr_cuda_bit_identical_to_prefix_raw_path():
     form_ids_d = nb_cuda.to_device(form_ids)
     n_pairs = pair_a.shape[0]
     n_forms = form_ids.shape[0]
-    out_d = nb_cuda.device_array((n_pairs, n_forms), dtype=np.float64)
+    out_d = nb_cuda.device_array((n_pairs, n_forms), dtype=crit_float_dtype())  # same output dtype as the path under test
     total = n_pairs * n_forms
     threads_per_block = 128
     blocks = (total + threads_per_block - 1) // threads_per_block

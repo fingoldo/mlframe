@@ -30,7 +30,7 @@ def test_device_abs_corr_matches_the_host_kernel(n, seed, nan_frac, offset):
     a, y, fin = _case(n, seed, nan_frac, offset)
     host = float(_abs_corr_finite_njit(a, y, fin, 8))
     dev = abs_corr_finite_gpu(cp.asarray(a), y, fin, 8)
-    assert dev == pytest.approx(host, rel=1e-9, abs=1e-12)
+    assert dev == pytest.approx(host, rel=1e-6, abs=1e-12)  # float32 device vs float64 host: 1e-6 tolerance
 
 
 def test_device_abs_corr_degenerate_inputs_return_zero_like_the_host():
@@ -62,7 +62,7 @@ def test_device_zerofill_corr_matches_the_host_kernel(n, seed, nan_frac):
 
     a, b, _ = _case(n, seed, nan_frac)
     host = float(_abs_corr_zerofill_njit(a, b))
-    assert abs_corr_zerofill_gpu(cp.asarray(a), b) == pytest.approx(host, rel=1e-9, abs=1e-12)
+    assert abs_corr_zerofill_gpu(cp.asarray(a), b) == pytest.approx(host, rel=1e-6, abs=1e-12)  # float32 device vs float64 host: 1e-6 tolerance
     assert abs_corr_zerofill_gpu(cp.full(n, 2.0), b) == 0.0
 
 

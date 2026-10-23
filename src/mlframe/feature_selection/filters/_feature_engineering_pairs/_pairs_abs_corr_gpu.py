@@ -11,6 +11,7 @@ import logging
 from typing import Any, Optional, cast
 
 import numpy as np
+from mlframe.feature_selection.filters._fe_gpu_batch._devices import crit_float_dtype
 
 from ._pairs_common import _DEGENERATE_REL_TOL
 
@@ -24,13 +25,13 @@ def abs_corr_finite_gpu(a_dev: Any, y: np.ndarray, y_finite: np.ndarray, min_n: 
 
     from mlframe.feature_selection.filters._fe_resident_operands import resident_operand
 
-    y_dev = resident_operand(y, ("abs_corr_y",), dtype=np.float64).ravel()
+    y_dev = resident_operand(y, ("abs_corr_y",), dtype=crit_float_dtype()).ravel()
     fin_dev = resident_operand(np.asarray(y_finite, dtype=np.uint8), ("abs_corr_yfin",), dtype=np.uint8).ravel() != 0
-    a = a_dev.astype(cp.float64, copy=False).ravel()
+    a = a_dev.astype(np.float64, copy=False).ravel()  # Intentional float64: offset data (~1e7) keeps no variance in float32 (test offset=1e7 case off by 1.2e-2)
     # Masked sums instead of boolean-index compaction: ``a[mask]`` and ``int(count_nonzero)`` each block the stream on a device read, and this runs per
     # candidate. Everything stays on the device and ONE small vector comes back at the end.
     mask = fin_dev & cp.isfinite(a)
-    m = mask.astype(cp.float64)
+    m = mask.astype(crit_float_dtype())
     n = m.sum()
     a0 = cp.where(mask, a, 0.0)
     y0 = cp.where(mask, y_dev, 0.0)
@@ -80,8 +81,8 @@ def abs_corr_zerofill_gpu(a_dev: Any, b: np.ndarray) -> float:
 
     from mlframe.feature_selection.filters._fe_resident_operands import resident_operand
 
-    a = a_dev.astype(cp.float64, copy=False).ravel()
-    bd = resident_operand(np.ascontiguousarray(np.asarray(b, dtype=np.float64)), ("zerofill_operand",), dtype=np.float64).ravel()
+    a = a_dev.astype(crit_float_dtype(), copy=False).ravel()
+    bd = resident_operand(np.ascontiguousarray(np.asarray(b, dtype=crit_float_dtype())), ("zerofill_operand",), dtype=crit_float_dtype()).ravel()
     n = int(a.shape[0])
     if n == 0:
         return 0.0

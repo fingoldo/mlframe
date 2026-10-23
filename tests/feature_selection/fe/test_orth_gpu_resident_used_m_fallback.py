@@ -57,14 +57,14 @@ def test_used_m_fallback_dedups_raw_column_upload_across_calls(monkeypatch):
     # round-trip, not a direct float64 cast of the raw pandas column.
     from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 
-    a64 = np.ascontiguousarray(X["a"].to_numpy(), dtype=_crit_np_dtype()).astype(np.float64)
+    a64 = np.ascontiguousarray(X["a"].to_numpy(), dtype=_crit_np_dtype())  # the uploaded column is this crit-dtype array
 
     upload_calls = {"n": 0}
     orig_asarray = cp.asarray
 
     def _counting_asarray(arr, *a, **kw):
         """Counting asarray."""
-        if isinstance(arr, np.ndarray) and arr.shape == a64.shape and arr.dtype == np.float64 and np.array_equal(arr, a64):
+        if isinstance(arr, np.ndarray) and arr.shape == a64.shape and arr.dtype == a64.dtype and np.array_equal(arr, a64):
             upload_calls["n"] += 1
         return orig_asarray(arr, *a, **kw)
 

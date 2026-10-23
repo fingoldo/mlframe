@@ -218,7 +218,7 @@ def su_from_classes_sparse(classes_x: np.ndarray, freqs_x: np.ndarray, classes_y
     if n == 0:
         return 0.0
     k_y = freqs_y.shape[0]
-    freqs = np.empty(freqs_x.shape[0] + k_y, dtype=np.float64)
+    freqs = np.empty(freqs_x.shape[0] + k_y, dtype=np.float64)  # Intentional float64: numba kernel body buffer or scalar (crit helper cannot run inside njit)
     freqs[: freqs_x.shape[0]] = freqs_x
     freqs[freqs_x.shape[0] :] = freqs_y
     keys = np.empty(n, dtype=np.int64)

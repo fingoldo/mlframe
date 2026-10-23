@@ -67,7 +67,7 @@ def _unary_funcs(preset: str) -> "dict[str, Callable]":
     return cast("dict[str, Callable]", create_unary_transformations(preset=preset))
 
 def _unary_column(fn: Callable, x: np.ndarray) -> np.ndarray:
-    """``fn(x)`` as float64 with the invalid-value warnings of the registry's domain-restricted maps silenced."""
+    """``fn(x)`` as double with the invalid-value warnings of the registry's domain-restricted maps silenced."""
     with np.errstate(all="ignore"):
         return np.asarray(fn(x), dtype=_crit_np_dtype())
 
@@ -272,7 +272,7 @@ def hybrid_offset_product_fe(
     ky = int(codes.max()) + 1
     funcs = _unary_funcs(unary_preset)
     unaries = tuple(u for u in OFFSET_UNARIES if u in funcs)
-    xs = [np.asarray(X[c].to_numpy()) for c in cols]  # the frame's own dtype: a float64 copy of every column is p x n x 8 bytes
+    xs = [np.asarray(X[c].to_numpy()) for c in cols]  # the frame's own dtype: a double copy of every column is p x n x 8 bytes
     nu = len(unaries)
     qcodes = [quantile_codes(x[rows], N_MI_BINS) for x in xs]
     yr_rows = _rank_scaled(y_arr[rows])

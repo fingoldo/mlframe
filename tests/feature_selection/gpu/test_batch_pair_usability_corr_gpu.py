@@ -207,7 +207,7 @@ def test_cuda_backend_matches_cpu_backend():
     cuda_result = batch_pair_usability_corr_cuda(y, operand_matrix, pair_a, pair_b, ALL_FORM_IDS)
 
     assert cuda_result.shape == cpu_result.shape
-    np.testing.assert_allclose(cuda_result, cpu_result, atol=1e-9, rtol=1e-9)
+    np.testing.assert_allclose(cuda_result, cpu_result, atol=1e-6, rtol=1e-6)
 
 
 @pytest.mark.gpu
@@ -239,7 +239,7 @@ def test_dispatcher_cuda_force_matches_cpu_result():
     cuda_result, cuda_backend = dispatch_batch_pair_usability_corr(y, operand_matrix, pair_a, pair_b, force_backend="cuda")
     assert cpu_backend == "cpu"
     assert cuda_backend == "cuda"
-    np.testing.assert_allclose(cuda_result, cpu_result, atol=1e-9, rtol=1e-9)
+    np.testing.assert_allclose(cuda_result, cpu_result, atol=1e-6, rtol=1e-6)
 
 
 @pytest.mark.gpu
@@ -255,7 +255,7 @@ def test_cuda_warp_backend_matches_cpu_backend():
     warp_result = batch_pair_usability_corr_cuda_warp(y, operand_matrix, pair_a, pair_b, ALL_FORM_IDS)
 
     assert warp_result.shape == cpu_result.shape
-    np.testing.assert_allclose(warp_result, cpu_result, atol=1e-9, rtol=1e-9)
+    np.testing.assert_allclose(warp_result, cpu_result, atol=1e-6, rtol=1e-6)
 
 
 @pytest.mark.gpu
@@ -290,7 +290,7 @@ def test_cuda_warp_backend_non_multiple_of_warp_size_row_count():
         pair_b = np.array([1], dtype=np.int64)
         cpu_result = batch_pair_usability_corr_njit_parallel(y, operand_matrix, pair_a, pair_b, ALL_FORM_IDS)
         warp_result = batch_pair_usability_corr_cuda_warp(y, operand_matrix, pair_a, pair_b, ALL_FORM_IDS)
-        np.testing.assert_allclose(warp_result, cpu_result, atol=1e-8, rtol=1e-8, err_msg=f"n={n}")
+        np.testing.assert_allclose(warp_result, cpu_result, atol=1e-6, rtol=1e-6, err_msg=f"n={n}")
 
 
 @pytest.mark.gpu
@@ -303,7 +303,7 @@ def test_dispatcher_cuda_warp_force_matches_cpu_result():
     warp_result, warp_backend = dispatch_batch_pair_usability_corr(y, operand_matrix, pair_a, pair_b, force_backend="cuda_warp")
     assert cpu_backend == "cpu"
     assert warp_backend == "cuda_warp"
-    np.testing.assert_allclose(warp_result, cpu_result, atol=1e-9, rtol=1e-9)
+    np.testing.assert_allclose(warp_result, cpu_result, atol=1e-6, rtol=1e-6)
 
 
 # ---------------------------------------------------------------------------

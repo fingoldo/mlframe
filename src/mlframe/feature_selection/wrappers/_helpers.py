@@ -79,7 +79,7 @@ def split_into_train_test(
     train/test slabs are taken from the NUMPY matrix by integer position instead of from the pandas frame.
     This feeds the inner estimator numpy directly so it skips the per-fit/per-predict ``_data_from_pandas``
     reconversion + the per-column dtype-validation storm (the RFECV fit hotspot on LightGBM). The y-side
-    slicing is unchanged. The numpy matrix is float64 (bit-identical to pandas for the all-numeric case;
+    slicing is unchanged. The numpy matrix is double (bit-identical to pandas for the all-numeric case;
     float32 would alter LightGBM splits), so the selection is unaffected. Only the X-DataFrame branch
     consults ``X_estimator``; the polars / ndarray branches are untouched.
     """

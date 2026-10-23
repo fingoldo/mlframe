@@ -15,6 +15,7 @@ from typing import Any, Optional, Sequence
 
 import numpy as np
 from mlframe.utils.log_throttle import log_throttle
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 
 logger = logging.getLogger(__name__)
 
@@ -230,7 +231,7 @@ def _subexpr_continuous(recipe, raw_X) -> Optional[np.ndarray]:
         _r = recipe
         if getattr(_r, "quantization", None) is not None:
             _r = _dc.replace(_r, quantization=None)
-        vals = np.asarray(apply_recipe(_r, raw_X), dtype=np.float64).ravel()
+        vals = np.asarray(apply_recipe(_r, raw_X), dtype=_crit_np_dtype()).ravel()
         vals = np.nan_to_num(vals, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
         return vals
     except Exception as e:
@@ -304,10 +305,10 @@ def _rank_transform(a: np.ndarray) -> np.ndarray:
     partial-correlation usability test handles a log-linked count target or an ordinal
     target the same as a plain linear one, while a non-monotone subsumed operand
     (``a`` in even ``a**2/b``) stays ~uncorrelated."""
-    a = np.asarray(a, dtype=np.float64).ravel()
+    a = np.asarray(a, dtype=_crit_np_dtype()).ravel()
     order = np.argsort(a, kind="mergesort")
-    ranks = np.empty(a.shape[0], dtype=np.float64)
-    ranks[order] = np.arange(1, a.shape[0] + 1, dtype=np.float64)
+    ranks = np.empty(a.shape[0], dtype=_crit_np_dtype())
+    ranks[order] = np.arange(1, a.shape[0] + 1, dtype=_crit_np_dtype())
     # average tied ranks so duplicate bin codes do not bias the correlation.
     _, inv, counts = np.unique(a, return_inverse=True, return_counts=True)
     csum = np.cumsum(counts)
@@ -321,7 +322,7 @@ def _residualize(target: np.ndarray, design: np.ndarray) -> Optional[np.ndarray]
     residual), or ``None`` on a degenerate / non-finite fit."""
     try:
         n = target.shape[0]
-        X = np.column_stack([np.ones(n, dtype=np.float64), design]) if design.size else np.ones((n, 1))
+        X = np.column_stack([np.ones(n, dtype=_crit_np_dtype()), design]) if design.size else np.ones((n, 1))
         coef, *_ = np.linalg.lstsq(X, target, rcond=None)
         resid = target - X @ coef
         if not np.all(np.isfinite(resid)):
@@ -358,11 +359,11 @@ def raw_retains_linear_signal_given_children(
     (n-invariant: shuffling the raw residual reproduces the spurious-correlation scale)
     AND ``min_pcorr`` (a finite-sample safety floor). No children -> not applicable
     (the caller's no-subsumer path handles that) -> returns False."""
-    _cv = [np.asarray(c, dtype=np.float64).ravel() for c in child_vals_list if c is not None]
+    _cv = [np.asarray(c, dtype=_crit_np_dtype()).ravel() for c in child_vals_list if c is not None]
     if not _cv:
         return False
-    rv = np.asarray(raw_vals, dtype=np.float64).ravel()
-    yv = np.asarray(y_vals, dtype=np.float64).ravel()
+    rv = np.asarray(raw_vals, dtype=_crit_np_dtype()).ravel()
+    yv = np.asarray(y_vals, dtype=_crit_np_dtype()).ravel()
     n = rv.shape[0]
     if n < _MIN_ROWS or any(c.shape[0] != n for c in _cv) or yv.shape[0] != n:
         return False
@@ -394,7 +395,7 @@ def raw_retains_linear_signal_given_children(
     rng = np.random.default_rng(seed)
     ryc = ry - ry.mean()
     denom = n * float(np.std(rx)) * float(np.std(ry))
-    null = np.empty(int(nperm), dtype=np.float64)
+    null = np.empty(int(nperm), dtype=_crit_np_dtype())
     for k in range(int(nperm)):
         perm = rng.permutation(rx)
         null[k] = abs(float(perm @ ryc) / denom) if denom > 0.0 else 0.0
@@ -463,8 +464,8 @@ def _heldout_ridge_r2(X: np.ndarray, y: np.ndarray, frac: float = 0.7) -> Option
     except ImportError as e:
         logger.debug("sklearn/mlframe metric imports failed: %s", e)
         return None
-    X = np.nan_to_num(np.asarray(X, dtype=np.float64), nan=0.0, posinf=0.0, neginf=0.0)
-    y = np.nan_to_num(np.asarray(y, dtype=np.float64).ravel(), nan=0.0, posinf=0.0, neginf=0.0)
+    X = np.nan_to_num(np.asarray(X, dtype=_crit_np_dtype()), nan=0.0, posinf=0.0, neginf=0.0)
+    y = np.nan_to_num(np.asarray(y, dtype=_crit_np_dtype()).ravel(), nan=0.0, posinf=0.0, neginf=0.0)
     if X.ndim != 2 or X.shape[0] != y.shape[0]:
         return None
     n = X.shape[0]

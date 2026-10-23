@@ -82,6 +82,8 @@ import numba
 import numpy as np
 from numba import prange
 
+from mlframe.feature_selection.filters._fe_gpu_batch._devices import crit_float_dtype
+
 from ._content_memo import ContentMemo
 
 logger = logging.getLogger(__name__)
@@ -189,9 +191,9 @@ def _abs_pearson_form_reduction(y, operand_matrix, a_idx, b_idx, form_id, eps, c
     sa: float | np.floating = 0.0
     sv: float | np.floating = 0.0
     for i in range(n_rows):
-        yi = np.float64(y[i])
-        x0 = np.float64(operand_matrix[a_idx, i])
-        x1 = np.float64(operand_matrix[b_idx, i])
+        yi = np.float64(y[i])  # Intentional float64: numba/CUDA kernel body, f64 Pearson accumulator (crit helper cannot run inside the kernel)
+        x0 = np.float64(operand_matrix[a_idx, i])  # Intentional float64: numba/CUDA kernel body, f64 Pearson accumulator (crit helper cannot run inside the kernel)
+        x1 = np.float64(operand_matrix[b_idx, i])  # Intentional float64: numba/CUDA kernel body, f64 Pearson accumulator (crit helper cannot run inside the kernel)
         v = _eval_form(form_id, x0, x1, eps)
         finite = math.isfinite(yi) and math.isfinite(v)
         av = yi if finite else 0.0
@@ -208,9 +210,9 @@ def _abs_pearson_form_reduction(y, operand_matrix, a_idx, b_idx, form_id, eps, c
     svv: float | np.floating = 0.0
     sav: float | np.floating = 0.0
     for i in range(n_rows):
-        yi = np.float64(y[i])
-        x0 = np.float64(operand_matrix[a_idx, i])
-        x1 = np.float64(operand_matrix[b_idx, i])
+        yi = np.float64(y[i])  # Intentional float64: numba/CUDA kernel body, f64 Pearson accumulator (crit helper cannot run inside the kernel)
+        x0 = np.float64(operand_matrix[a_idx, i])  # Intentional float64: numba/CUDA kernel body, f64 Pearson accumulator (crit helper cannot run inside the kernel)
+        x1 = np.float64(operand_matrix[b_idx, i])  # Intentional float64: numba/CUDA kernel body, f64 Pearson accumulator (crit helper cannot run inside the kernel)
         v = _eval_form(form_id, x0, x1, eps)
         finite = math.isfinite(yi) and math.isfinite(v)
         da = (yi - ma) if finite else 0.0
@@ -244,21 +246,21 @@ def batch_pair_usability_corr_njit_parallel(
 
     Parameters
     ----------
-    y : (n,) float32 or float64 - shared target, already subsampled + cast to ``_crit_np_dtype()`` by the
+    y : (n,) float32 or double - shared target, already subsampled + cast to ``_crit_np_dtype()`` by the
         caller (numba specializes per input dtype; NOT force-upcast here - see the dispatcher's own note).
-    operand_matrix : (n_operands, n) float32 or float64 - unique raw operand columns, row-major (one row per
+    operand_matrix : (n_operands, n) float32 or double - unique raw operand columns, row-major (one row per
         operand), same dtype as ``y``.
     pair_a, pair_b : (n_pairs,) int64 - operand-matrix row indices for each pair's two operands.
     form_ids : (n_forms,) int64 - which of the 9 FORM_* ids to evaluate for every pair.
 
     Returns
     -------
-    (n_pairs, n_forms) float64 - ``|corr|`` for each (pair, form); the reduction accumulator stays float64
-        regardless of input dtype (precision, not memory footprint, is what the accumulator affects).
+    (n_pairs, n_forms) float64 - ``|corr|`` for each (pair, form); the CUDA backends return ``crit_float_dtype()`` instead. The reduction
+        accumulator stays double regardless of input dtype (precision, not memory footprint, is what the accumulator affects).
     """
     n_pairs = pair_a.shape[0]
     n_forms = form_ids.shape[0]
-    out = np.zeros((n_pairs, n_forms), dtype=np.float64)
+    out = np.zeros((n_pairs, n_forms), dtype=np.float64)  # Intentional float64: numba/CUDA kernel body, f64 Pearson output buffer (crit helper cannot run inside the kernel)
     total = n_pairs * n_forms
     for tid in prange(total):
         p = tid // n_forms
@@ -352,9 +354,9 @@ def _cuda_kernel_warp_factory():
         sv: float | np.floating = 0.0
         i = lane
         while i < n_rows:
-            yi = np.float64(y[i])
-            x0 = np.float64(operand_matrix[a_idx, i])
-            x1 = np.float64(operand_matrix[b_idx, i])
+            yi = np.float64(y[i])  # Intentional float64: numba/CUDA kernel body, f64 Pearson accumulator (crit helper cannot run inside the kernel)
+            x0 = np.float64(operand_matrix[a_idx, i])  # Intentional float64: numba/CUDA kernel body, f64 Pearson accumulator (crit helper cannot run inside the kernel)
+            x1 = np.float64(operand_matrix[b_idx, i])  # Intentional float64: numba/CUDA kernel body, f64 Pearson accumulator (crit helper cannot run inside the kernel)
             v = _eval_form(form_id, x0, x1, eps)
             finite = math.isfinite(yi) and math.isfinite(v)
             if finite:
@@ -385,9 +387,9 @@ def _cuda_kernel_warp_factory():
         sav: float | np.floating = 0.0
         i = lane
         while i < n_rows:
-            yi = np.float64(y[i])
-            x0 = np.float64(operand_matrix[a_idx, i])
-            x1 = np.float64(operand_matrix[b_idx, i])
+            yi = np.float64(y[i])  # Intentional float64: numba/CUDA kernel body, f64 Pearson accumulator (crit helper cannot run inside the kernel)
+            x0 = np.float64(operand_matrix[a_idx, i])  # Intentional float64: numba/CUDA kernel body, f64 Pearson accumulator (crit helper cannot run inside the kernel)
+            x1 = np.float64(operand_matrix[b_idx, i])  # Intentional float64: numba/CUDA kernel body, f64 Pearson accumulator (crit helper cannot run inside the kernel)
             v = _eval_form(form_id, x0, x1, eps)
             finite = math.isfinite(yi) and math.isfinite(v)
             if finite:
@@ -440,7 +442,7 @@ def batch_pair_usability_corr_cuda_warp(y: np.ndarray, operand_matrix: np.ndarra
 
     n_pairs = pair_a.shape[0]
     n_forms = form_ids.shape[0]
-    out_d = _nb_cuda.device_array((n_pairs, n_forms), dtype=np.float64)
+    out_d = _nb_cuda.device_array((n_pairs, n_forms), dtype=crit_float_dtype())
 
     total_warps = n_pairs * n_forms
     threads_per_block = 128  # 4 warps/block
@@ -477,7 +479,7 @@ def batch_pair_usability_corr_cuda(y: np.ndarray, operand_matrix: np.ndarray, pa
 
     n_pairs = pair_a.shape[0]
     n_forms = form_ids.shape[0]
-    out_d = _nb_cuda.device_array((n_pairs, n_forms), dtype=np.float64)
+    out_d = _nb_cuda.device_array((n_pairs, n_forms), dtype=crit_float_dtype())
 
     total = n_pairs * n_forms
     threads_per_block = 128
@@ -493,7 +495,7 @@ def batch_pair_usability_corr_cuda(y: np.ndarray, operand_matrix: np.ndarray, pa
 
 def _required_gpu_bytes(operand_matrix: np.ndarray, n_pairs: int, n_forms: int) -> int:
     """Rough upload + output footprint for the VRAM cushion check - operands + y (input) + the (n_pairs,
-    n_forms) output matrix. Deliberately generous (float64 sizing even if inputs are f32) since this is a
+    n_forms) output matrix. Deliberately generous (double sizing even if inputs are f32) since this is a
     pre-flight guard, not a tight allocator."""
     operand_bytes = operand_matrix.size * 8
     output_bytes = n_pairs * n_forms * 8

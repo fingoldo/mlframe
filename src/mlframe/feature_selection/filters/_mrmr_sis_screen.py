@@ -26,7 +26,7 @@ MEMORY / I/O (load-bearing, measured - see the design doc)
 -----------------------------------------------------------
 At p=100k the (n,p) frame is an 8 GB on-disk float32 memmap and is NEVER fully resident. We read it in
 COLUMN blocks of width ``chunk_width`` (the survivor count is O(p) accumulators only). The production
-``second_moment_propensity`` upcasts a block to float64 and squares it -> transiently ~3x a block's float32
+``second_moment_propensity`` upcasts a block to double and squares it -> transiently ~3x a block's float32
 footprint, so ``chunk_width`` is chosen from FREE RAM via the kernel_tuning_cache (never hardcoded).
 
 HOTSPOT (cProfile, p=20000 n=4000, 2026-06-19)
@@ -78,8 +78,8 @@ def _ram_bucket(free_bytes: int) -> int:
 def _fallback_chunk_width(n_rows: int, free_bytes: int) -> int:
     """Measurement-backed default chunk width.
 
-    The second-moment kernel transiently needs ~3x a block's float64 footprint (upcast + square): a block is
-    ``n_rows * chunk_width * 8`` float64 bytes, and we budget ~3x of that plus headroom. Use at most ~1/8 of
+    The second-moment kernel transiently needs ~3x a block's double footprint (upcast + square): a block is
+    ``n_rows * chunk_width * 8`` double bytes, and we budget ~3x of that plus headroom. Use at most ~1/8 of
     free RAM for the transient so a sibling agent's large memmap is not starved. Clamp to a sane [256, 8192].
     """
     budget = max(1, free_bytes // 8)  # use at most 1/8 of free RAM for the transient
