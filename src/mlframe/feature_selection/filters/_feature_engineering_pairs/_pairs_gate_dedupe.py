@@ -84,7 +84,8 @@ def gate_on_distinct_columns(kernel: Callable[..., np.ndarray], disc_2d: np.ndar
         return np.asarray(kernel(disc_2d=disc_2d, factors_nbins=factors_nbins, **kwargs))
     keep, inverse = distinct
     result = np.asarray(kernel(disc_2d=np.ascontiguousarray(disc_2d[:, keep]), factors_nbins=np.asarray(factors_nbins)[keep], **kwargs))
-    return result[inverse]
+    expanded: np.ndarray = result[inverse]
+    return expanded
 
 
 __all__ = ["MIN_COLUMNS_TO_DEDUPE", "distinct_columns", "gate_on_distinct_columns"]
