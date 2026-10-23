@@ -326,51 +326,8 @@ def _orth_feature_heldout_gate_pass(
         _orth_sig_cache: dict = {}  # per-source-name memo: the permutation-significance probe below is O(32 perms), reused across every basis sharing a source
 
         def _orth_source_is_signal(_src_name: str) -> bool:
-            """Permutation-significance test (32 perms) on the RAW source column, mirroring EMIT-BOTH's
-            own operand-significance probe (``_assign_support.py``) -- used ONLY as a cheap fallback when
-            the source did NOT already survive the screen, so a basis on a genuinely-real-but-composite-
-            subsumed source (e.g. x2 in the CMIM redundant-pool fixture) still gets a fair shot without
-            reopening the self-limit to EVERY basis regardless of source quality (that regressed both a
-            noise-exclusion floor and this fit's wall-time budget -- see the commit history here)."""
-            if _src_name in _orth_sig_cache:
-                return bool(_orth_sig_cache[_src_name])
-            _sig = True  # estimator error -> do not silently drop a possibly-genuine source
-            _src_idx = _cols_index_o.get(_src_name)
-            if _src_idx is not None:
-                try:
-                    from mlframe.feature_selection.filters.permutation import mi_direct as _orth_mi_direct
-
-                    # was briefly tightened to npermutations=200/alpha=0.02 (6.25x the EMIT-BOTH
-                    # default 32/0.05) on the theory this probe's coarse resolution let noise sources through
-                    # on test_biz_val_suite_mrmr_multiclass_excludes_noise. That theory did not survive
-                    # direct testing -- swept npermutations 3->25 against the real fixture with ZERO change
-                    # in outcome, proving this probe was never the actual admission mechanism (the real cause
-                    # was the core MI-relevance confirm-screen's floor, fixed via a per-test
-                    # min_relevance_gain_frac override, unrelated to this probe). Keeping the tightened
-                    # value paid a real cost with no correctness benefit: test_all_enabled_fit_under_30s
-                    # regressed to 43-50s (30s budget) purely from this probe's 6.25x cost on fixtures that
-                    # call it often. Reverted to the EMIT-BOTH default (32/0.05).
-                    _r = _orth_mi_direct(
-                        data,
-                        x=(int(_src_idx),),
-                        y=target_indices,
-                        factors_nbins=nbins,
-                        npermutations=32,
-                        min_nonzero_confidence=0.0,
-                        return_null_mean=True,
-                        parallelism="none",
-                        prefer_gpu=False,
-                    )
-                    _sig = bool(float(_r[3]) < 0.05)  # p-value below alpha -> genuine marginal signal
-                except Exception as e:
-                    logger.debug(
-                        "orth-basis source significance probe failed for %r (%s: %s) -- not silently dropping a possibly-genuine source",
-                        _src_name,
-                        type(e).__name__,
-                        e,
-                    )
-            _orth_sig_cache[_src_name] = _sig
-            return _sig
+            """Significance of the raw source column, with the captured frame, target and cache passed explicitly."""
+            return _orth_source_is_signal_impl(_src_name, _cols_index_o, data, target_indices, nbins, _orth_sig_cache)
 
         _readd_orth = []
         for _on in _orth_feats:
@@ -458,6 +415,58 @@ def _finite_column(source: Any, n_rows: int) -> "np.ndarray | None":
     except (TypeError, ValueError):
         return None
     return values if values.shape[0] == n_rows and np.all(np.isfinite(values)) else None
+
+
+def _orth_source_is_signal_impl(
+    _src_name: str,
+    _cols_index_o: dict,
+    data: np.ndarray,
+    target_indices,
+    nbins,
+    _orth_sig_cache: dict,
+) -> bool:
+    """Permutation-significance test (32 perms) on the RAW source column, mirroring EMIT-BOTH's
+    own operand-significance probe -- used ONLY as a cheap fallback when the source did NOT already
+    survive the screen, so a basis on a genuinely-real-but-composite-subsumed source still gets a fair shot."""
+    if _src_name in _orth_sig_cache:
+        return bool(_orth_sig_cache[_src_name])
+    _sig = True  # estimator error -> do not silently drop a possibly-genuine source
+    _src_idx = _cols_index_o.get(_src_name)
+    if _src_idx is not None:
+        try:
+            from mlframe.feature_selection.filters.permutation import mi_direct as _orth_mi_direct
+
+            # was briefly tightened to npermutations=200/alpha=0.02 (6.25x the EMIT-BOTH
+            # default 32/0.05) on the theory this probe's coarse resolution let noise sources through
+            # on test_biz_val_suite_mrmr_multiclass_excludes_noise. That theory did not survive
+            # direct testing -- swept npermutations 3->25 against the real fixture with ZERO change
+            # in outcome, proving this probe was never the actual admission mechanism (the real cause
+            # was the core MI-relevance confirm-screen's floor, fixed via a per-test
+            # min_relevance_gain_frac override, unrelated to this probe). Keeping the tightened
+            # value paid a real cost with no correctness benefit: test_all_enabled_fit_under_30s
+            # regressed to 43-50s (30s budget) purely from this probe's 6.25x cost on fixtures that
+            # call it often. Reverted to the EMIT-BOTH default (32/0.05).
+            _r = _orth_mi_direct(
+                data,
+                x=(int(_src_idx),),
+                y=target_indices,
+                factors_nbins=nbins,
+                npermutations=32,
+                min_nonzero_confidence=0.0,
+                return_null_mean=True,
+                parallelism="none",
+                prefer_gpu=False,
+            )
+            _sig = bool(float(_r[3]) < 0.05)  # p-value below alpha -> genuine marginal signal
+        except Exception as e:
+            logger.debug(
+                "orth-basis source significance probe failed for %r (%s: %s) -- not silently dropping a possibly-genuine source",
+                _src_name,
+                type(e).__name__,
+                e,
+            )
+    _orth_sig_cache[_src_name] = _sig
+    return _sig
 
 
 def _composite_subsumption_readd_pass(self, X, selected_vars, _y_np, data, cols, _eng_continuous_snapshot, _effective_min_relevance_gain, cached_MIs, verbose):
