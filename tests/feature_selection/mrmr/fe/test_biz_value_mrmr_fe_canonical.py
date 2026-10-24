@@ -185,7 +185,9 @@ def test_canonical_transform_replays_engineered_columns_leak_safe():
     # feature that either never reached transform() or arrived as a dead
     # constant column; both are caught here.
     eng_idx = [i for i, nm in enumerate(out_names) if nm in eng]
-    assert len(eng_idx) >= 2, f"engineered features did not reach transform() output: out_names={out_names}, eng={eng}"
+    # One fused compound carrying both structural halves is the intended outcome (the single-compound contract), so one engineered column suffices;
+    # the check is that every recommended engineered column reaches the output, not how many halves the fit split the signal into.
+    assert len(eng_idx) >= 1 and len(eng_idx) == len(eng), f"engineered features did not reach transform() output: out_names={out_names}, eng={eng}"
     for i in eng_idx:
         col = Xt_full[:, i]
         assert np.isfinite(col).all(), f"engineered col {out_names[i]} has non-finite values"
