@@ -2759,7 +2759,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         fe_discrete_structural_operators_enable: bool = True,  # [ACCURACY-CAVEAT] False disables ALL FOUR discrete-structural FE families; see _param_accuracy_warnings.ACCURACY_SUBOPTIMAL
         fe_pairwise_modular_enable: bool = True,  # [ACCURACY-CAVEAT] False drops modular/parity/period interactions; see _param_accuracy_warnings.ACCURACY_SUBOPTIMAL
         fe_pairwise_modular_top_k: int = 4,
-        fe_pairwise_modular_max_int_cols: int = 30,
+        fe_pairwise_modular_max_int_cols: int = 200,
         fe_pairwise_modular_max_triple_cols: int = 20,
         # PAIRWISE INTEGER-LATTICE FE (sibling of pairwise-modular). Detects a target that is a function of a hidden
         # COMMON DIVISOR (gcd(a,b) - shared factor / grid alignment), its dual lcm(a,b), or a bit-level co-occurrence

@@ -532,7 +532,7 @@ def hybrid_pairwise_modular_fe_with_recipes(
     top_k: int = 4,
     nbins: int = 12,
     seed: int = 0,
-    max_int_cols: int = 30,
+    max_int_cols: int = 200,
     max_triple_cols: int = 20,
 ) -> tuple[list[str], list[EngineeredRecipe]]:
     """Detect responded pairwise/n-way modular structure and emit it as frozen, replayable ``EngineeredRecipe`` objects.

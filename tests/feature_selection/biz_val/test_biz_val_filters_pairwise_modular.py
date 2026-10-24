@@ -194,8 +194,10 @@ class TestMRMRIntegration:
         # Pairs-only still completes and recovers the pair-modular signal.
         assert appended, "pairs-only sweep produced nothing on a (c0+c1) mod 7 target."
 
-    def test_budget_guard_skips_whole_sweep_and_logs(self, caplog):
-        """Budget guard skips whole sweep and logs."""
+    def test_wide_frame_keeps_the_planted_pair_sweep_and_logs_the_triple_budget(self, caplog):
+        """A planted pairwise modular residue at 35 integer columns is found: the pair sweep runs past the old 30-column cap.
+
+        The whole-sweep cap was 30; its cost is the triple term, which keeps its own cap (``max_triple_cols``), so the pairs must survive."""
         rng = np.random.default_rng(7)
         n = 2000
         cols = {f"c{i}": rng.integers(0, 100, n) for i in range(35)}
@@ -203,11 +205,9 @@ class TestMRMRIntegration:
         y = ((a + b) % 7 >= 3).astype(int)
         X = pd.DataFrame(cols)
         with caplog.at_level(logging.INFO, logger="mlframe.feature_selection.filters._pairwise_modular_fe"):
-            appended, recipes = hybrid_pairwise_modular_fe_with_recipes(X, y, seed=7)
-        assert any(
-            "skipping the pairwise/n-way modular sweep" in r.message for r in caplog.records
-        ), "expected a whole-sweep-skipped budget log line for 35 int columns."
-        assert appended == [] and recipes == [], "above max_int_cols nothing should be emitted."
+            appended, _recipes = hybrid_pairwise_modular_fe_with_recipes(X, y, seed=7)
+        assert not any("skipping the pairwise/n-way modular sweep" in r.message for r in caplog.records)
+        assert any("c0" in name and "c1" in name for name in appended), appended
 
     def test_clone_preserves_params(self):
         """Clone preserves params."""

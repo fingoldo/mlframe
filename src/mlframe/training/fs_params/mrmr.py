@@ -486,7 +486,7 @@ class MRMRParams(BaseModel):
     fe_discrete_structural_operators_enable: bool = True
     fe_pairwise_modular_enable: bool = True
     fe_pairwise_modular_top_k: int = 4
-    fe_pairwise_modular_max_int_cols: int = 30
+    fe_pairwise_modular_max_int_cols: int = 200
     fe_pairwise_modular_max_triple_cols: int = 20
     fe_integer_lattice_enable: bool = True
     fe_integer_lattice_top_k: int = 4

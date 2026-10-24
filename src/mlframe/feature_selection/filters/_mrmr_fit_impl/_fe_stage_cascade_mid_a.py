@@ -698,7 +698,7 @@ def _stage_pairwise_modular(self, X, _y_class_mi_applicable, _y_class_mi_binned,
                     cols=_pm_raw_cols,
                     top_k=int(getattr(self, "fe_pairwise_modular_top_k", 4)),
                     seed=int(getattr(self, "random_seed", 0) or 0),
-                    max_int_cols=int(getattr(self, "fe_pairwise_modular_max_int_cols", 30)),
+                    max_int_cols=int(getattr(self, "fe_pairwise_modular_max_int_cols", 200)),
                     max_triple_cols=int(getattr(self, "fe_pairwise_modular_max_triple_cols", 20)),
                 )
             _pm_appended = [c for c in _pm_appended if c not in X.columns]
