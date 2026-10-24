@@ -29,7 +29,7 @@ Cost: K-means × 5 bands at M=4 anchors ~ trivial (~10ms per fold). Distance mat
 from __future__ import annotations
 
 import logging
-from typing import Any, Literal, Optional
+from typing import Any, Literal, Optional, Tuple
 
 import numpy as np
 import polars as pl
@@ -83,6 +83,56 @@ def _band_anchor_frame(
     return cols
 
 
+def _fit_band_anchors(
+    Xt_s: np.ndarray, y_t: np.ndarray, masks: list, n_bands: int, anchors_per_band: int, fold_seed: int
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """Fit ``anchors_per_band`` K-means anchors per band and record each band's target mean, std and emptiness."""
+    from sklearn.cluster import KMeans
+
+    d = Xt_s.shape[1]
+    n_anchors_total = n_bands * anchors_per_band
+    all_anchors = np.zeros((n_anchors_total, d), dtype=np.float32)
+    anchor_parent_band = np.zeros(n_anchors_total, dtype=np.int32)
+    band_y_mean = np.zeros(n_bands, dtype=np.float32)
+    band_y_std = np.zeros(n_bands, dtype=np.float32)
+    band_empty = np.zeros(n_bands, dtype=bool)
+    for b, mask in enumerate(masks):
+        X_band = Xt_s[mask]
+        y_band = y_t[mask]
+        if X_band.shape[0] < 1:
+            band_empty[b] = True
+            # Still label these anchor slots with their TRUE parent band (not the np.zeros default of
+            # 0), so band_masses/argmax_band aren't mislabeled into band 0 -- the anchors themselves
+            # are masked out of the softmax below, so their zero band_y_mean/band_y_std never leak
+            # into flat_y_mean/flat_y_std either.
+            for a_local in range(anchors_per_band):
+                anchor_parent_band[b * anchors_per_band + a_local] = b
+            continue
+        band_y_mean[b] = float(y_band.mean())
+        band_y_std[b] = float(y_band.std()) + 1e-9
+        # Need at least anchors_per_band points; otherwise pad with centroid replicas.
+        n_clusters_eff = min(anchors_per_band, max(1, X_band.shape[0]))
+        if n_clusters_eff == 1 or X_band.shape[0] < anchors_per_band:
+            centroid = X_band.mean(axis=0) if X_band.shape[0] >= 1 else np.zeros(d, dtype=np.float32)
+            for a_local in range(anchors_per_band):
+                idx = b * anchors_per_band + a_local
+                all_anchors[idx] = centroid
+                anchor_parent_band[idx] = b
+        else:
+            km = KMeans(
+                n_clusters=anchors_per_band,
+                n_init=4,
+                max_iter=50,
+                random_state=int(fold_seed) + b * 17,
+            )
+            km.fit(X_band)
+            for a_local in range(anchors_per_band):
+                idx = b * anchors_per_band + a_local
+                all_anchors[idx] = km.cluster_centers_[a_local].astype(np.float32)
+                anchor_parent_band[idx] = b
+    return all_anchors, anchor_parent_band, band_y_mean, band_y_std, band_empty
+
+
 def compute_band_conditional_anchor_features(
     X_train: np.ndarray,
     y_train: np.ndarray,
@@ -103,8 +153,6 @@ def compute_band_conditional_anchor_features(
     Output: n_bands*anchors_per_band attention weights + entropy + flat_y_mean + flat_y_std +
     n_bands band-masses + argmax_anchor + argmax_band = n_anchors + n_bands + 5 features.
     """
-    from sklearn.cluster import KMeans
-
     seed = require_seed(seed)
     validate_numeric_input(X_train, name="X_train", allow_fp16=False)
     if X_query is not None:
@@ -129,48 +177,9 @@ def compute_band_conditional_anchor_features(
         else:
             masks = _regression_band_masks(y_t, effective_n_bands)
 
-        # Per-band K-means with M anchors each.
-        d = Xt_s.shape[1]
-        n_anchors_total = effective_n_bands * anchors_per_band
-        all_anchors = np.zeros((n_anchors_total, d), dtype=np.float32)
-        anchor_parent_band = np.zeros(n_anchors_total, dtype=np.int32)
-        band_y_mean = np.zeros(effective_n_bands, dtype=np.float32)
-        band_y_std = np.zeros(effective_n_bands, dtype=np.float32)
-        band_empty = np.zeros(effective_n_bands, dtype=bool)
-        for b, mask in enumerate(masks):
-            X_band = Xt_s[mask]
-            y_band = y_t[mask]
-            if X_band.shape[0] < 1:
-                band_empty[b] = True
-                # Still label these anchor slots with their TRUE parent band (not the np.zeros default of
-                # 0), so band_masses/argmax_band aren't mislabeled into band 0 -- the anchors themselves
-                # are masked out of the softmax below, so their zero band_y_mean/band_y_std never leak
-                # into flat_y_mean/flat_y_std either.
-                for a_local in range(anchors_per_band):
-                    anchor_parent_band[b * anchors_per_band + a_local] = b
-                continue
-            band_y_mean[b] = float(y_band.mean())
-            band_y_std[b] = float(y_band.std()) + 1e-9
-            # Need at least anchors_per_band points; otherwise pad with centroid replicas.
-            n_clusters_eff = min(anchors_per_band, max(1, X_band.shape[0]))
-            if n_clusters_eff == 1 or X_band.shape[0] < anchors_per_band:
-                centroid = X_band.mean(axis=0) if X_band.shape[0] >= 1 else np.zeros(d, dtype=np.float32)
-                for a_local in range(anchors_per_band):
-                    idx = b * anchors_per_band + a_local
-                    all_anchors[idx] = centroid
-                    anchor_parent_band[idx] = b
-            else:
-                km = KMeans(
-                    n_clusters=anchors_per_band,
-                    n_init=4,
-                    max_iter=50,
-                    random_state=int(fold_seed) + b * 17,
-                )
-                km.fit(X_band)
-                for a_local in range(anchors_per_band):
-                    idx = b * anchors_per_band + a_local
-                    all_anchors[idx] = km.cluster_centers_[a_local].astype(np.float32)
-                    anchor_parent_band[idx] = b
+        all_anchors, anchor_parent_band, band_y_mean, band_y_std, band_empty = _fit_band_anchors(
+            Xt_s, y_t, masks, effective_n_bands, anchors_per_band, fold_seed
+        )
 
         # Per-query softmax over all anchors.
         sq = _squared_dists(Xq_s, all_anchors)  # (n_q, n_total)
