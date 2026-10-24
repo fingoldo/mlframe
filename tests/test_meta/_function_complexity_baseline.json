@@ -89,7 +89,6 @@
   "src/mlframe/feature_selection/filters/_orthogonal_triplet_fe.py::generate_triplet_cross_basis_features": 16,
   "src/mlframe/feature_selection/filters/_orthogonal_univariate_fe/_orth_extra_basis_fe_generate.py::_fourier_extra_basis": 17,
   "src/mlframe/feature_selection/filters/_orthogonal_univariate_fe/_orth_extra_basis_fe_generate.py::generate_extra_basis_features": 17,
-  "src/mlframe/feature_selection/filters/_orthogonal_univariate_fe/_orth_pair_cross_fe.py::generate_pair_cross_basis_features": 16,
   "src/mlframe/feature_selection/filters/_relaxmrmr_kernels.py::_cmi_mm_njit": 19,
   "src/mlframe/feature_selection/filters/_temporal_agg_fe.py::apply_temporal_expanding": 18,
   "src/mlframe/feature_selection/filters/_usability_aware_selection.py::_build_usability_cand_step1_ua_codes_none": 19,
