@@ -44,9 +44,17 @@ def _required_inputs() -> set[str]:
     from mlframe.training.composite.discovery import CompositeTargetDiscovery
 
     params = {p for p in inspect.signature(CompositeTargetDiscovery.fit).parameters if p != "self"}
-    phase = ast.parse((_TRAINING / "core" / "_phase_composite_discovery.py").read_text(encoding="utf-8"))
-    injected = {n.attr for n in ast.walk(phase) if isinstance(n, ast.Attribute) and isinstance(n.ctx, ast.Store)
-                and n.attr.startswith("_") and isinstance(n.value, ast.Name) and n.value.id == "_disc_instance"}
+    injected: set[str] = set()
+    for phase_path in (_TRAINING / "core").glob("_phase_composite_discovery*.py"):
+        for n in ast.walk(ast.parse(phase_path.read_text(encoding="utf-8"))):
+            if (
+                isinstance(n, ast.Attribute)
+                and isinstance(n.ctx, ast.Store)
+                and n.attr.startswith("_")
+                and isinstance(n.value, ast.Name)
+                and n.value.id == "_disc_instance"
+            ):
+                injected.add(n.attr)
     read: set[str] = set()
     for path in (_TRAINING / "composite" / "discovery").rglob("*.py"):
         for n in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
