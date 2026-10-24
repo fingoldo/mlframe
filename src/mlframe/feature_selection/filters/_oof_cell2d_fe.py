@@ -32,7 +32,7 @@ __all__ = ["fit_oof_cell2d", "apply_oof_cell2d_recipe", "build_oof_cell2d_recipe
 K_BINS = 10  # quantile bins per axis
 SHRINK = 3.0  # pseudo-counts that pull a cell toward the additive fit of its row and column
 N_FOLDS = 5
-MAX_PAIRS = 3  # tables offered to the pool: bounds the extra cross-validated candidates
+MAX_PAIRS = 16  # tables offered to the pool; the screen already keeps only the Bonferroni-significant pairs, and the candidates cost ~0.1 s in total
 DEFAULT_SCAN_ROWS = 100_000
 
 def _edges(x: np.ndarray, k: int = K_BINS) -> np.ndarray:
