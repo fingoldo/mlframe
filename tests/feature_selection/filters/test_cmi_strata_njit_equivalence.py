@@ -49,15 +49,30 @@ def test_observed_cmi_matches_sklearn(seed):
 
 
 @pytest.mark.parametrize("seed", range(3))
-def test_null_matches_the_per_stratum_permutation(seed):
-    """Null matches the per stratum permutation."""
+def test_permutation_sources_are_within_stratum_permutations(seed):
+    """Every draw permutes the positions of each stratum among themselves and leaves the strata in place."""
+    _x, _y, s = _data(seed)
+    src = permutation_sources(s, 40, np.random.default_rng([seed, 7]))
+    for row in src:
+        for v in np.unique(s):
+            idx = np.flatnonzero(s == v)
+            np.testing.assert_array_equal(np.sort(row[idx]), idx)
+
+
+@pytest.mark.parametrize("seed", range(3))
+def test_null_distribution_matches_the_per_stratum_permutation(seed):
+    """Rebaselined: the new generator stream gives different draws, so the null is compared in distribution, not draw by draw.
+
+    The null mean and spread over many draws agree with the per-stratum ``rng.permutation`` reference within sampling error."""
     x, y, s = _data(seed)
-    n_perm = 40
+    n_perm = 400
     rng = np.random.default_rng([seed, 7])
     ref = np.array([_reference_cmi(_reference_permutation(x, s, rng), y, s) for _ in range(n_perm)])
     x_d, y_d, s_d = _dense_codes(x, y, s)
     got = stratified_cmi_null(x_d, y_d, s_d, permutation_sources(s, n_perm, np.random.default_rng([seed, 7])), 30)
-    np.testing.assert_allclose(got, ref, atol=1e-12)
+    se = np.sqrt(ref.var() / n_perm + got.var() / n_perm)
+    assert abs(got.mean() - ref.mean()) <= 5 * se + 1e-9
+    assert abs(got.std() - ref.std()) <= 0.25 * ref.std() + 1e-9
 
 
 def test_small_strata_are_skipped():

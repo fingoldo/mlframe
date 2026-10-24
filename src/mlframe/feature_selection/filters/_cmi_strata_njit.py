@@ -11,6 +11,7 @@ from __future__ import annotations
 
 
 import numpy as np
+from numba import njit
 
 
 from ._numba_utils import (  # noqa: F401 -- helpers hosted in _numba_utils_cross_module for the cross-module njit invariant
@@ -20,17 +21,36 @@ from ._numba_utils import (  # noqa: F401 -- helpers hosted in _numba_utils_cros
 )
 
 
-def permutation_sources(s: np.ndarray, n_perm: int, rng: np.random.Generator) -> np.ndarray:
-    """(n_perm, n) int32 source positions: row p permutes the positions of every stratum of ``s`` among themselves.
-
-    One ``rng.permutation`` per stratum and draw, strata in ascending order, as the within-stratum shuffle this replaces consumed the generator.
-    """
-    groups = [np.flatnonzero(s == sv) for sv in np.unique(s)]
-    src = np.empty((int(n_perm), s.shape[0]), dtype=np.int32)
-    for p in range(int(n_perm)):
-        for idx in groups:
-            src[p, idx] = rng.permutation(idx)
+@njit(cache=True)
+def _permutation_sources_njit(order: np.ndarray, starts: np.ndarray, lens: np.ndarray, n_perm: int, seed: int) -> np.ndarray:
+    """Fisher-Yates shuffle of every stratum's positions, for all draws, in one compiled loop (seeded per call)."""
+    np.random.seed(seed)
+    n = order.shape[0]
+    src = np.empty((n_perm, n), dtype=np.int32)
+    work = np.empty(n, dtype=np.int64)
+    for p in range(n_perm):
+        work[:] = order
+        for g in range(starts.shape[0]):
+            a = starts[g]
+            for i in range(lens[g] - 1, 0, -1):
+                j = np.random.randint(0, i + 1)
+                t = work[a + i]
+                work[a + i] = work[a + j]
+                work[a + j] = t
+        for k in range(n):
+            src[p, order[k]] = work[k]
     return src
+
+
+def permutation_sources(s: np.ndarray, n_perm: int, rng: np.random.Generator) -> np.ndarray:
+    """(n_perm, n) int32 source positions: row p permutes the positions of every stratum of ``s`` among themselves."""
+    n = s.shape[0]
+    order = np.argsort(s, kind="stable").astype(np.int64)
+    sorted_s = s[order]
+    starts = np.flatnonzero(np.r_[True, sorted_s[1:] != sorted_s[:-1]]).astype(np.int64)
+    lens = np.diff(np.r_[starts, n]).astype(np.int64)
+    seed = int(rng.integers(0, 2**31 - 1))
+    return _permutation_sources_njit(order, starts, lens, int(n_perm), seed)
 
 
 __all__ = ["permutation_sources", "stratified_cmi", "stratified_cmi_null"]
