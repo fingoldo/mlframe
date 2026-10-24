@@ -58,14 +58,7 @@ def _fe_stage_cascade_early_b(
     if _fe_family_on("fe_kfold_te_enable", False):
         # K-fold target encoding is an OOF stat (no closed-form subsample-replay), so it needs the full frame: gate the
         # polars->pandas materialisation on size and skip a > ~2 GiB frame rather than whole-copy it (CLAUDE.md eager rule).
-        if fe_polars_exceeds(X):
-            warnings.warn(
-                "MRMR: fe_kfold_te_enable=True but X is a large polars frame (> ~2 GiB); K-fold target encoding needs a "
-                "full-frame OOF decision and is skipped to avoid a whole-frame to_pandas copy. Materialise a subset or "
-                "pass pandas if you need it.",
-                UserWarning, stacklevel=3,
-            )
-        else:
+        if True:
             try:
                 from .._target_encoding_fe import (
                     kfold_target_encode_with_recipes,
@@ -96,8 +89,9 @@ def _fe_stage_cascade_early_b(
                     """Reject-sink callback for the k-fold target-encoding FE stage; records abs-MAD floor kills into the FE rejection ledger (pure-record, does not affect selection)."""
                     _record_fe_rejection(self, step=_te_step, **_kw)
 
+                # A polars frame is encoded natively (column by column, no whole-frame copy); pandas input is unchanged.
                 X_te, _te_appended, _te_recipes = kfold_target_encode_with_recipes(
-                    fe_to_pandas(X), _y_for_te,
+                    X if hasattr(X, "schema") else fe_to_pandas(X), _y_for_te,
                     cat_cols=_te_cols,
                     n_folds=int(getattr(self, "fe_kfold_te_folds", 5)),
                     smoothing=float(getattr(self, "fe_kfold_te_smoothing", 10.0)),

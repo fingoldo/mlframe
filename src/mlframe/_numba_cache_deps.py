@@ -158,9 +158,15 @@ def _resolve_jit(module: str, name: str, seen: Set[Tuple[str, str]]) -> Optional
     return None
 
 
+_DEPENDENCY_FILES: dict = {}  # per-process memo: numba asks for the dependency list on every kernel cache load, and the walk stats every file each time
+
+
 def dependency_files(py_file: str) -> List[str]:
     """Other mlframe source files whose jit functions the kernels of ``py_file`` import, transitively (sorted, ``py_file`` excluded)."""
     start = os.path.abspath(py_file)
+    memo = _DEPENDENCY_FILES.get(start)
+    if memo is not None:
+        return list(memo)
     found: Set[str] = set()
     queue = [start]
     visited: Set[str] = set()
@@ -179,7 +185,8 @@ def dependency_files(py_file: str) -> List[str]:
                 if dep != start and dep not in found:
                     found.add(dep)
                     queue.append(dep)
-    return sorted(found)
+    _DEPENDENCY_FILES[start] = sorted(found)
+    return list(_DEPENDENCY_FILES[start])
 
 
 def dependency_digest(py_file: str) -> str:

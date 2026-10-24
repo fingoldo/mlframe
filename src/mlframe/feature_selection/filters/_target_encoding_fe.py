@@ -493,7 +493,7 @@ def kfold_target_encode_fit(
             "global_stats": {s: float(global_stats[s]) for s in stats},
         }
 
-    te_df = pd.DataFrame(encoded_cols, index=X.index)
+    te_df = pd.DataFrame(encoded_cols, index=getattr(X, "index", None))
     return te_df, recipes
 
 # ---------------------------------------------------------------------------
@@ -639,7 +639,12 @@ def kfold_target_encode_with_recipes(
 
     # Append the encoded columns without disturbing the source columns
     # (MRMR's screening handles them as ordinary numeric features).
-    X_aug = pd.concat([X, te_df], axis=1)
+    if hasattr(X, "schema"):  # polars: append the encoded columns natively, no pandas copy of the frame
+        import polars as pl
+
+        X_aug = X.hstack(pl.DataFrame({c: te_df[c].to_numpy() for c in te_df.columns}))
+    else:
+        X_aug = pd.concat([X, te_df], axis=1)
     appended = list(te_df.columns)
     _kept = set(appended)
 
