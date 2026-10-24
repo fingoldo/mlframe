@@ -157,7 +157,7 @@ class MRMRParams(BaseModel):
     fe_escalation_underdelivery_self_ratio: float = 3.0
     fe_synergy_prevalence_rescue_enable: bool = True
     fe_escalation_feedforward_enable: bool = False
-    fe_npermutations: int = 3
+    fe_npermutations: int = 99
     fe_ntop_features: int = 0
     fe_max_engineered_operands: int = 8
     fe_unary_preset: Literal["minimal", "medium", "maximal"] = "medium"
@@ -414,7 +414,7 @@ class MRMRParams(BaseModel):
     fe_binned_numeric_agg_enable: bool = True
     fe_binned_numeric_agg_stats: tuple = ("mean", "std", "skew", "kurt")
     fe_binned_numeric_agg_nbins: int = 10
-    fe_binned_numeric_agg_max_pairs: int = 64
+    fe_binned_numeric_agg_max_pairs: int | None = None
     fe_binned_numeric_agg_redundancy_gate: bool = True
     fe_binned_numeric_agg_min_cmi_gain: float = 0.005
     fe_count_encoding_enable: bool = False
