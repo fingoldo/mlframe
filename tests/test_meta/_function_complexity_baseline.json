@@ -158,7 +158,6 @@
   "src/mlframe/training/baselines/_dummy_report_type.py::BaselineReport.format_text": 18,
   "src/mlframe/training/callbacks/_callbacks.py::UniversalCallback.should_stop": 19,
   "src/mlframe/training/cb/_cb_pool.py::_maybe_rewrite_eval_set_as_cb_pool": 17,
-  "src/mlframe/training/cb/_cb_pool.py::_predict_with_fallback": 16,
   "src/mlframe/training/composite/discovery/_auto_base.py::_auto_base_step1_requires_mi_mean": 17,
   "src/mlframe/training/composite/discovery/_auto_base.py::_auto_base_step2_getattr_self_config": 16,
   "src/mlframe/training/composite/discovery/_honest_rmse_gate.py::apply_honest_rmse_gate": 24,

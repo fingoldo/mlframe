@@ -463,6 +463,30 @@ def _sticky_pandas_detail(model: Any) -> str:
     return _detail
 
 
+def _cb_val_pool_predict(model, X, fn, method, n_rows, _model_type) -> np.ndarray | list | None:
+    """Serve ``method`` from a cached CatBoost val Pool when one matches ``X``; ``None`` on a miss or a failed probe."""
+    from .._predict_guards import _cb_val_pool_cache_lookup
+
+    if not (_model_type in CATBOOST_MODEL_TYPES and hasattr(X, "columns") and hasattr(X, "shape")):
+        return None
+    try:
+        _hit = _cb_val_pool_cache_lookup(X, method)
+        if _hit is None:
+            return None
+        logger.info(
+            "[cb-val-pool-reuse] %s hit on cached val Pool -- " "skipping redundant Pool rebuild.",
+            method,
+        )
+        with phase(method, model=_model_type, n_rows=n_rows):
+            return _wrap_predict_result(fn(_hit), method=method, classes_=getattr(model, "classes_", None))
+    except (AttributeError, KeyError, TypeError, ValueError) as _exc:
+        logger.debug(
+            "[cb-val-pool-reuse] %s cache probe failed (%s: %s); "
+            "falling through.", method, type(_exc).__name__, _exc,
+        )
+        return None
+
+
 def _predict_with_fallback(
     model: Any,
     X: Any,
@@ -491,7 +515,6 @@ def _predict_with_fallback(
     from .._predict_guards import (
         _apply_nan_guard,
         _cb_polars_to_pandas,
-        _cb_val_pool_cache_lookup,
         _ensure_lgbm_gets_pandas,
         _pl_DataFrame,
     )
@@ -504,21 +527,9 @@ def _predict_with_fallback(
     X = _ensure_lgbm_gets_pandas(model, X, method)
 
     # ── 2. CB val Pool cache lookup ────────────────────────────────────
-    if _model_type in CATBOOST_MODEL_TYPES and hasattr(X, "columns") and hasattr(X, "shape"):
-        try:
-            _hit = _cb_val_pool_cache_lookup(X, method)
-            if _hit is not None:
-                logger.info(
-                    "[cb-val-pool-reuse] %s hit on cached val Pool -- " "skipping redundant Pool rebuild.",
-                    method,
-                )
-                with phase(method, model=_model_type, n_rows=n_rows):
-                    return _wrap_predict_result(fn(_hit), method=method, classes_=getattr(model, "classes_", None))
-        except (AttributeError, KeyError, TypeError, ValueError) as _exc:
-            logger.debug(
-                "[cb-val-pool-reuse] %s cache probe failed (%s: %s); "
-                "falling through.", method, type(_exc).__name__, _exc,
-            )
+    _cached = _cb_val_pool_predict(model, X, fn, method, n_rows, _model_type)
+    if _cached is not None:
+        return _cached
 
     # ── 3. Sticky-pandas short-circuit (previous Polars miss) ──────────
     _pl_df = _pl_DataFrame()
