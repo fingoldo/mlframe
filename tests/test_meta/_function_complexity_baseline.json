@@ -111,7 +111,6 @@
   "src/mlframe/feature_selection/filters/info_theory/_cmi_cuda.py::_should_use_cuda": 19,
   "src/mlframe/feature_selection/filters/info_theory/_entropy_kernels.py::conditional_mi": 24,
   "src/mlframe/feature_selection/filters/info_theory/_group_mi.py::_group_blocked_mi": 18,
-  "src/mlframe/feature_selection/filters/polynom_pair_fe.py::_pp_reduce_pair_results": 16,
   "src/mlframe/feature_selection/filters/stability.py::StabilityMRMR.fit": 16,
   "src/mlframe/feature_selection/pre_screen.py::_scan_columns_for_unsupervised_drops": 16,
   "src/mlframe/feature_selection/shap_proxied_fs/_shap_proxy_heuristics.py::_local_search": 16,

@@ -590,6 +590,34 @@ def _pp_append_prevalence_rejection(rejection_records: list, best_res: Any, raw_
     })
 
 
+def _pp_log_injection_failure(verbose: int, raw_vars_pair: Any, err: Exception) -> None:
+    """Report a survivor whose injection raised: a throttled warning when verbose, otherwise a debug line."""
+    if verbose:
+        log_throttle(
+            logger,
+            "polynom_pair_fe_injection_failed",
+            logging.WARNING,
+            "Polynomial-pair FE injection failed for pair=%s: %s. " "Standard FE block below still runs.",
+            raw_vars_pair,
+            err,
+        )
+    else:
+        logger.debug("Polynomial-pair FE injection failed for pair=%s: %s.", raw_vars_pair, err)
+
+
+def _pp_log_cheap_skips(n_skipped: int, n_pairs: int, skip_ratio: float) -> None:
+    """Summarise how many pairs the cheap-first dispatch spared from the optimiser."""
+    if n_skipped:
+        logger.info(
+            "Polynomial-pair FE cheap-first dispatch: skipped the optimiser for "
+            "%d/%d pair(s) whose trivial baseline already reached >= %.0f%% of "
+            "the joint-MI ceiling (the always-on unary/binary path materialises "
+            "those); optimised %d hard pair(s).",
+            n_skipped, n_pairs, 100.0 * skip_ratio,
+            n_pairs - n_skipped,
+        )
+
+
 def _pp_reduce_pair_results(_poly_pair_results: list, _n_pairs_to_eval: int, verbose: int, fe_min_engineered_mi_prevalence: float, cols: List[str], quantization_nbins: int, quantization_method: str, quantization_dtype: Any, is_polars_input: bool, X: Any, pl: Any, engineered_features: Set[str], hermite_features_list: List[Dict[str, Any]], engineered_recipes: Dict[str, Any], data: np.ndarray, nbins: np.ndarray, poly_cheap_skip_ratio: float, rejection_records: Optional[list]) -> Tuple[Any, List[str], np.ndarray, np.ndarray]:
     """Serial reduce: log, apply the uplift gate and inject the surviving engineered columns into ``data``/``cols``/``X``; returns ``(X, cols, data, nbins)``."""
     # Serial reduce: log + uplift gate + inject into data/cols/X.
@@ -685,17 +713,7 @@ def _pp_reduce_pair_results(_poly_pair_results: list, _n_pairs_to_eval: int, ver
                     float(best_res.baseline_mi), float(best_res.uplift),
                 )
         except Exception as _inj_err:
-            if verbose:
-                log_throttle(
-                    logger,
-                    "polynom_pair_fe_injection_failed",
-                    logging.WARNING,
-                    "Polynomial-pair FE injection failed for pair=%s: %s. " "Standard FE block below still runs.",
-                    raw_vars_pair,
-                    _inj_err,
-                )
-            else:
-                logger.debug("Polynomial-pair FE injection failed for pair=%s: %s.", raw_vars_pair, _inj_err)
+            _pp_log_injection_failure(verbose, raw_vars_pair, _inj_err)
     if _new_data_cols:
         # ONE reallocation for all survivors instead of one per survivor (see the loop-entry comment).
         data = np.concatenate([data, *_new_data_cols], axis=1)
@@ -704,15 +722,7 @@ def _pp_reduce_pair_results(_poly_pair_results: list, _n_pairs_to_eval: int, ver
             np.asarray(_new_col_nbins, dtype=nbins.dtype),
         ])
         cols = [*cols, *_new_col_names]
-    if _n_cheap_skipped:
-        logger.info(
-            "Polynomial-pair FE cheap-first dispatch: skipped the optimiser for "
-            "%d/%d pair(s) whose trivial baseline already reached >= %.0f%% of "
-            "the joint-MI ceiling (the always-on unary/binary path materialises "
-            "those); optimised %d hard pair(s).",
-            _n_cheap_skipped, _n_pairs_to_eval, 100.0 * poly_cheap_skip_ratio,
-            _n_pairs_to_eval - _n_cheap_skipped,
-        )
+    _pp_log_cheap_skips(_n_cheap_skipped, _n_pairs_to_eval, poly_cheap_skip_ratio)
     return X, cols, data, nbins
 
 
