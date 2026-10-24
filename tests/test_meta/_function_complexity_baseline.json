@@ -1,6 +1,5 @@
 {
   "src/mlframe/competition/leak_scan.py::find_shifted_column_groups": 16,
-  "src/mlframe/feature_engineering/auxiliary_feature_prediction.py::compute_auxiliary_feature_prediction_features": 18,
   "src/mlframe/feature_engineering/basic.py::add_cyclical_date_features": 22,
   "src/mlframe/feature_engineering/basic.py::create_date_features": 18,
   "src/mlframe/feature_engineering/bayesian.py::_bocpd_inner": 16,
