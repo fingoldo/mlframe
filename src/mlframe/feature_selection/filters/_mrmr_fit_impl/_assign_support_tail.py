@@ -87,7 +87,7 @@ def _assign_support_tail(
     # adds more raw columns - only the UAED elbow trim further down, which only shrinks).
     _pgn_n_final = int(data.shape[0])
     _pgn_p_final = int(getattr(self, "n_features_in_", 0) or 0)
-    _assign_support_tai_adds_more_raw_columns(self, _pgn_p_final, _pgn_n_final, selected_vars, cols, n_engineered_out, verbose)
+    selected_vars = _assign_support_tai_adds_more_raw_columns(self, _pgn_p_final, _pgn_n_final, selected_vars, cols, n_engineered_out, verbose)
 
     # RESIDUAL RESCUE runs last: every pass above that re-attaches or strips raw columns has finished, so what it prunes stays pruned and what it admits is judged against the final selection.
     from ._residual_rescue_stage import run_residual_rescue
@@ -789,3 +789,4 @@ def _assign_support_tai_adds_more_raw_columns(self, _pgn_p_final, _pgn_n_final, 
                     "retention passes added %d raw feature(s) beyond the ceiling (p=%d >= n=%d, ceiling=%d, engineered=%d).",
                     _pgn_budget_final, _pgn_overflow_final, _pgn_p_final, _pgn_n_final, _pgn_ceiling_final, _pgn_eng_final,
                 )
+    return selected_vars

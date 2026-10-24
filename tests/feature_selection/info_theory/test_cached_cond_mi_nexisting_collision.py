@@ -131,5 +131,7 @@ def test_mrmr_with_interactions_order_2_runs_clean():
             max_veteranes_interactions_order=2,
             only_unknown_interactions=False,
         ).fit(X, y)
-    # Must complete and return at least one selected feature.
-    assert len(sel.support_) >= 1
+    # Must complete and return at least one selected feature. Here the survivor is an engineered
+    # interaction (sign(a)/sign(b)), which lives in n_features_ and the transform output, not in the raw-index support_.
+    assert sel.n_features_ >= 1
+    assert sel.transform(X).shape[1] == sel.n_features_
