@@ -333,7 +333,9 @@ def test_regression_selection_stability_report_random_state_changes_bootstrap():
     rng = np.random.default_rng(0)
     n = 300
     X = pd.DataFrame(rng.standard_normal((n, 6)), columns=[f"x{i}" for i in range(6)])
-    y = (X["x0"] + 0.5 * X["x1"] > 0).astype(int)
+    # Equal weak signals on x1..x5 keep the top-n relevance cutoff contested across resamples. A single dominant
+    # signal puts every feature at frequency 0.0 or 1.0 on every seed, and the seed cannot show up in the report.
+    y = (X["x0"] + 0.25 * X[["x1", "x2", "x3", "x4", "x5"]].sum(axis=1) > 0).astype(int)
     m = MRMR(verbose=0, quantization_nbins=5, random_state=42)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", category=UserWarning)

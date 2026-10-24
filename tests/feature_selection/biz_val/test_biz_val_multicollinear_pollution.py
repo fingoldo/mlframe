@@ -217,9 +217,9 @@ _VIF_REDUCE_GAP = {
     "ZeroImportancePruning",
 }
 
-# Selectors that collapse so hard they lose the linear-combo signal: MRMR reduces to {x3} every seed,
-# reaching only ~0.6-0.68 AUC vs the ~0.991 x1+x2 baseline.
-_RECOVERY_GAP = {"MRMR"}
+# Selectors that collapse so hard they lose the linear-combo signal. Empty: MRMR now keeps {x1, x2, x3} on seed 0
+# (AUC 0.991 vs the 0.991 x1+x2 baseline), so its recovery gap is closed.
+_RECOVERY_GAP: set[str] = set()
 
 
 def _fit_or_report(spec, X, y):

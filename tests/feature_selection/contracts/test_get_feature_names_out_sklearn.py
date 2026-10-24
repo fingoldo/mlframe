@@ -93,7 +93,9 @@ def test_get_feature_names_out_ndarray_fit_honours_user_names():
     # Default: synthesized placeholders.
     out_none = list(sel.get_feature_names_out())
     assert out_none, "default get_feature_names_out returned no names for a fitted selector"
-    assert all(n in {f"feature_{i}" for i in range(4)} for n in out_none), out_none
+    # Engineered features are on by default and are named after their raw parent (``feature_0__mod_7``), so the raw part must be a placeholder.
+    placeholders = {f"feature_{i}" for i in range(4)}
+    assert all(n.split("__", 1)[0] in placeholders for n in out_none), out_none
     # With caller-supplied names: honoured (since fit-time names were synthesized).
     out_user = list(sel.get_feature_names_out(["a", "b", "c", "d"]))
     # The base selected feature must come from the user-supplied list,

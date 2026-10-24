@@ -13,6 +13,7 @@ import numpy as np
 import pytest
 
 from mlframe.feature_selection.filters import _gpu_resident_fe as grf
+from mlframe.feature_selection.filters import _gpu_resident_shared as grs
 from mlframe.feature_selection.filters import _joblib_safe as js
 from mlframe.feature_selection.filters import screen
 from mlframe.feature_selection.filters.mrmr import _mrmr_class_fit_helpers as fit_helpers
@@ -104,9 +105,21 @@ def _old_take(host_codes):
     return dev if tuple(host_codes.shape) == shape and np.dtype(host_codes.dtype) == dtype else None
 
 
+def _share_handoff(monkeypatch: pytest.MonkeyPatch, store: OrderedDict) -> None:
+    """Point the producer (``_gpu_resident_shared``) and the consumer (``_gpu_resident_fe``) at one handoff dict."""
+    monkeypatch.setattr(grs, "_RESIDENT_CODES_HANDOFF", store)
+    monkeypatch.setattr(grf, "_RESIDENT_CODES_HANDOFF", store)
+
+
+def _share_lock(monkeypatch: pytest.MonkeyPatch, lock: object) -> None:
+    """Point the producer and the consumer at one deferred-fill lock."""
+    monkeypatch.setattr(grs, "_DEFERRED_HOST_FILL_LOCK", lock)
+    monkeypatch.setattr(grf, "_DEFERRED_HOST_FILL_LOCK", lock)
+
+
 def test_resident_codes_not_served_to_a_recycled_id(monkeypatch: pytest.MonkeyPatch) -> None:
     """C5-02: an entry stashed for array A is never returned for a different live array B that inherited A's id()."""
-    monkeypatch.setattr(grf, "_RESIDENT_CODES_HANDOFF", OrderedDict())
+    _share_handoff(monkeypatch, OrderedDict())
     a = np.zeros((4, 3), dtype=np.int32)
     b = np.zeros((4, 3), dtype=np.int32)
     sentinel = object()
@@ -119,7 +132,7 @@ def test_resident_codes_not_served_to_a_recycled_id(monkeypatch: pytest.MonkeyPa
 
 def test_resident_codes_entry_dies_with_host_and_lookup_takes_the_lock(monkeypatch: pytest.MonkeyPatch) -> None:
     """C5-02: the handoff holds only a weakref to the host, and take_resident_codes reads under the registry lock."""
-    monkeypatch.setattr(grf, "_RESIDENT_CODES_HANDOFF", OrderedDict())
+    _share_handoff(monkeypatch, OrderedDict())
     acquisitions: list[str] = []
 
     class _SpyLock:
@@ -132,7 +145,7 @@ def test_resident_codes_entry_dies_with_host_and_lookup_takes_the_lock(monkeypat
         def __exit__(self, *exc: object) -> None:
             """Release (no-op)."""
 
-    monkeypatch.setattr(grf, "_DEFERRED_HOST_FILL_LOCK", _SpyLock())
+    _share_lock(monkeypatch, _SpyLock())
     a = np.zeros((2, 2), dtype=np.int32)
     grf._stash_resident_codes(a, object())
     acquisitions.clear()

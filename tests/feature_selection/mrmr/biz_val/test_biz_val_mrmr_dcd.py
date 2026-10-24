@@ -125,9 +125,12 @@ class TestDCDPoolPrune:
         sel = MRMR(dcd_enable=True, dcd_tau_cluster=0.5, verbose=0).fit(X, y)
         assert sel.dcd_["n_anchors"] >= 1
         anchors = sel.dcd_["cluster_anchors"]
-        assert 0 in anchors, f"the strongest copy f0 must anchor a cluster; got {anchors}"
-        members = set(anchors[0])
-        assert members and members <= {1, 2, 3}, f"anchor f0 must own only its noisy copies f1..f3; got {anchors}"
+        # FE is on by default, so the selected engineered child ``f0__par_*`` (index 6 here) can anchor the cluster instead of the raw
+        # strongest copy f0. The contract that holds either way: the signal copies share one cluster and no noise column joins it.
+        members = set().union(*(set(v) for v in anchors.values()))
+        assert members, f"the signal copies must form a cluster; got {anchors}"
+        assert members <= {0, 1, 2, 3}, f"only the signal copies f0..f3 may join a cluster; got {anchors}"
+        assert {1, 2, 3} <= members, f"the noisy copies f1..f3 must be clustered with the signal; got {anchors}"
 
     def test_dcd_no_signal_no_clusters(self):
         """Pure-noise data: DCD should still prune some noise pairs that
