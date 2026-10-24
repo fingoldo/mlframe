@@ -160,7 +160,6 @@
   "src/mlframe/training/composite/discovery/_auto_base.py::_auto_base_step1_requires_mi_mean": 17,
   "src/mlframe/training/composite/discovery/_auto_base.py::_auto_base_step2_getattr_self_config": 16,
   "src/mlframe/training/composite/discovery/_honest_rmse_gate.py::apply_honest_rmse_gate": 24,
-  "src/mlframe/training/composite/discovery/_screening_tiny.py::_tiny_cv_rmse_raw_y_multiseed": 16,
   "src/mlframe/training/composite/discovery/_screening_tiny.py::_tiny_cv_rmse_y_scale_multiseed": 16,
   "src/mlframe/training/composite/discovery/_tiny_rerank_waic.py::_apply_waic_tiebreak": 17,
   "src/mlframe/training/composite/discovery/auto_detect.py::detect_time_column_candidates": 18,
