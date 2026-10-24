@@ -29,35 +29,25 @@ from mlframe.utils.log_throttle import log_throttle
 logger = logging.getLogger(__name__)
 
 
-def _extract_training_history(model: Any) -> tuple[dict | None, int | None]:
-    """Extract ``{metric: {split: [...]}}`` history + the early-stopping iteration from a fitted booster.
-
-    Handles lgb (``evals_result_``: ``{split: {metric: [...]}}``), xgb (``evals_result()``: same shape), and
-    catboost (``get_evals_result()``: ``{split: {metric: [...]}}``). Returns ``(history_by_metric, es_iteration)``
-    transposed to the metric-major shape ``compose_training_curve_figure`` expects, or ``(None, None)`` when the
-    model carries no usable iteration history (non-boosting estimators, or boosters fit without an eval set).
-    """
-    est = _unwrap_booster(model)
-    raw = None
+def _read_evals_result(est):
+    """Raw split-major evals history from a fitted booster, or ``None`` when it exposes none or the read fails."""
     try:
         if hasattr(est, "evals_result_") and getattr(est, "evals_result_"):
-            raw = getattr(est, "evals_result_")
-        elif hasattr(est, "get_evals_result"):
+            return getattr(est, "evals_result_")
+        if hasattr(est, "get_evals_result"):
             r = est.get_evals_result()
-            raw = r if r else None
-        elif hasattr(est, "evals_result") and callable(getattr(est, "evals_result")):
+            return r if r else None
+        if hasattr(est, "evals_result") and callable(getattr(est, "evals_result")):
             r = est.evals_result()
-            raw = r if r else None
+            return r if r else None
     except Exception:
         logger.debug("training-curve: evals_result extraction raised; skipping curves for this model.", exc_info=True)
-        return None, None
-    if not raw:
-        return None, None
+        return None
+    return None
 
-    # raw is split-major ``{split: {metric: [...]}}``; transpose to metric-major ``{metric: {split: [...]}}`` and
-    # canonicalise the split names so ``normalize_history`` keeps both curves. lightgbm names eval sets ``valid_0``,
-    # ``valid_1``, ... in eval_set order (NOT recognised by the canonical alias set); by mlframe convention the FIRST
-    # eval set is train and the LAST is the holdout, so map the lowest ``valid_N`` -> train and the highest -> val.
+
+def _transpose_split_major(raw):
+    """Transpose split-major ``{split: {metric: [...]}}`` into metric-major ``{metric: {split: [...]}}`` with canonical split names; ``None`` on an unexpected shape."""
     split_names = list(raw.keys())
     canon_split = _canonicalize_split_names(split_names)
     by_metric: dict = {}
@@ -72,10 +62,12 @@ def _extract_training_history(model: Any) -> tuple[dict | None, int | None]:
                 by_metric.setdefault(str(metric), {}).setdefault(split_key, list(series))
     except Exception:
         logger.debug("training-curve: evals_result had an unexpected shape; skipping.", exc_info=True)
-        return None, None
-    if not by_metric:
-        return None, None
+        return None
+    return by_metric
 
+
+def _early_stop_iteration(est):
+    """Best-iteration count of a fitted booster when it is non-negative, else ``None``."""
     es_iteration = None
     for attr in ("best_iteration_", "best_iteration"):
         if hasattr(est, attr):
@@ -86,7 +78,31 @@ def _extract_training_history(model: Any) -> tuple[dict | None, int | None]:
                 break
             except (TypeError, ValueError):
                 pass
-    return by_metric, es_iteration
+    return es_iteration
+
+
+def _extract_training_history(model: Any) -> tuple[dict | None, int | None]:
+    """Extract ``{metric: {split: [...]}}`` history + the early-stopping iteration from a fitted booster.
+
+    Handles lgb (``evals_result_``: ``{split: {metric: [...]}}``), xgb (``evals_result()``: same shape), and
+    catboost (``get_evals_result()``: ``{split: {metric: [...]}}``). Returns ``(history_by_metric, es_iteration)``
+    transposed to the metric-major shape ``compose_training_curve_figure`` expects, or ``(None, None)`` when the
+    model carries no usable iteration history (non-boosting estimators, or boosters fit without an eval set).
+    """
+    est = _unwrap_booster(model)
+    raw = _read_evals_result(est)
+    if not raw:
+        return None, None
+
+    # raw is split-major ``{split: {metric: [...]}}``; transpose to metric-major ``{metric: {split: [...]}}`` and
+    # canonicalise the split names so ``normalize_history`` keeps both curves. lightgbm names eval sets ``valid_0``,
+    # ``valid_1``, ... in eval_set order (NOT recognised by the canonical alias set); by mlframe convention the FIRST
+    # eval set is train and the LAST is the holdout, so map the lowest ``valid_N`` -> train and the highest -> val.
+    by_metric = _transpose_split_major(raw)
+    if not by_metric:
+        return None, None
+
+    return by_metric, _early_stop_iteration(est)
 
 
 def _booster_metric_period(model: Any) -> int | None:

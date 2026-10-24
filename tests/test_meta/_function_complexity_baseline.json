@@ -215,7 +215,6 @@
   "src/mlframe/training/ranking/_ranker_fs.py::_group_relevance_one_group_add": 20,
   "src/mlframe/training/ranking/_ranker_suite_train_helpers.py::_train_mlframe_rank_lockstep_rank_fusion_math": 17,
   "src/mlframe/training/ranking/_ranker_suite_train_helpers.py::_train_mlframe_rank_pandas": 19,
-  "src/mlframe/training/reporting/_reporting_diagnostics.py::_extract_training_history": 16,
   "src/mlframe/training/reporting/_reporting_probabilistic.py::_report_probabilistic_step1_produced_single_most": 19,
   "src/mlframe/training/reporting/_reporting_regression/__init__.py::_report_regression_mo_step1_def_render_regression": 20,
   "src/mlframe/training/reporting/_reporting_regression/__init__.py::_report_regression_mo_step1_def_render_regression.<locals>._render_regression_token": 19,
