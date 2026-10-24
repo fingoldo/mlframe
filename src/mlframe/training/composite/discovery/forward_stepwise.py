@@ -38,6 +38,64 @@ def _as_f64_1d(arr: Any) -> np.ndarray:
     return np.asarray(a, dtype=np.float64).reshape(-1)
 
 
+def _build_stepwise_splitter(y, groups, cv_splitter, time_aware, cv_folds, random_state):
+    """Pick the CV splitter and group array for the stepwise scorer: a supplied splitter, time-aware, group-aware, or the discovery KFold."""
+    from sklearn.model_selection import TimeSeriesSplit
+
+    _n = int(y.size)
+    _groups_eff = None
+    if groups is not None:
+        _g = np.asarray(groups)
+        if _g.shape[0] == _n and np.unique(_g).size >= 2:
+            _groups_eff = _g
+    _use_groups = False
+    if cv_splitter is not None:
+        kf = cv_splitter
+    elif time_aware:
+        kf = TimeSeriesSplit(n_splits=int(cv_folds))
+    elif _groups_eff is not None:
+        # Group-aware CV so a per-group-CONSTANT base cannot show a phantom
+        # gain from rows of the same group spanning train+val. n_splits
+        # capped at the group count (avoid a silent GroupKFold->KFold when
+        # n_groups<cv_folds by clamping instead).
+        from sklearn.model_selection import GroupKFold
+        kf = GroupKFold(n_splits=max(2, min(int(cv_folds), int(np.unique(_groups_eff).size))))
+        _use_groups = True
+    else:
+        kf = make_discovery_splitter(int(cv_folds), random_state=int(random_state))[0]  # the one place a shuffled discovery KFold is built
+    return kf, _groups_eff, _use_groups
+
+
+def _zero_base_cv_rmse(y, _iter_splits, cv_selector_mode, cv_selector_alpha, cv_selector_confidence, cv_selector_quantile_level) -> tuple[float, list[float]]:
+    """CV-RMSE of the train-fold-mean predictor over the same folds, used as the zero-base baseline."""
+    from ..._cv_aggregation import aggregate_fold_scores
+
+    # Zero-base baseline = CV-RMSE of the train-fold-MEAN predictor over
+    # the SAME folds the candidates use, NOT the full-sample std. Under
+    # TimeSeriesSplit on trending y the train-fold mean lags the val
+    # fold, so full-sample std understated the no-base error and
+    # inflated the first base's apparent gain.
+    fold0: list[float] = []
+    _y_all_finite = y[np.isfinite(y)]
+    _global_mu = float(np.mean(_y_all_finite)) if _y_all_finite.size else 0.0
+    for _tr0, _va0 in _iter_splits():
+        _ytr0 = y[_tr0][np.isfinite(y[_tr0])]
+        _mu0 = float(np.mean(_ytr0)) if _ytr0.size else _global_mu
+        _d0 = y[_va0] - _mu0
+        _f0 = np.isfinite(_d0)
+        if _f0.sum():
+            fold0.append(float(np.sqrt(np.mean(_d0[_f0] * _d0[_f0]))))
+    if not fold0:
+        sentinel = float(np.std(_y_all_finite)) if _y_all_finite.size else 0.0
+        return sentinel, [sentinel]
+    agg0 = aggregate_fold_scores(
+        fold0, mode=cv_selector_mode, direction="min",
+        alpha=cv_selector_alpha, confidence=cv_selector_confidence,
+        quantile_level=cv_selector_quantile_level,
+    )
+    return agg0, fold0
+
+
 def _stepwise_cv_rmse_with_folds(
     y: np.ndarray,
     candidates: dict[str, np.ndarray],
@@ -62,31 +120,11 @@ def _stepwise_cv_rmse_with_folds(
     design matrix (kept-prefix reused across all candidates in a round), pass it to skip the
     per-trial ``np.column_stack``. The supplied matrix MUST be the column-stack of
     ``[candidates[n] for n in base_names]`` in order -- the scoring is byte-identical."""
-    from sklearn.model_selection import TimeSeriesSplit  # lazy
     from mlframe.training.composite.transforms.shared import linear_residual_multi_fit as _linear_residual_multi_fit
     from ..._cv_aggregation import aggregate_fold_scores
 
     _n = int(y.size)
-    _groups_eff = None
-    if groups is not None:
-        _g = np.asarray(groups)
-        if _g.shape[0] == _n and np.unique(_g).size >= 2:
-            _groups_eff = _g
-    _use_groups = False
-    if cv_splitter is not None:
-        kf = cv_splitter
-    elif time_aware:
-        kf = TimeSeriesSplit(n_splits=int(cv_folds))
-    elif _groups_eff is not None:
-        # Group-aware CV so a per-group-CONSTANT base cannot show a phantom
-        # gain from rows of the same group spanning train+val. n_splits
-        # capped at the group count (avoid a silent GroupKFold->KFold when
-        # n_groups<cv_folds by clamping instead).
-        from sklearn.model_selection import GroupKFold
-        kf = GroupKFold(n_splits=max(2, min(int(cv_folds), int(np.unique(_groups_eff).size))))
-        _use_groups = True
-    else:
-        kf = make_discovery_splitter(int(cv_folds), random_state=int(random_state))[0]  # the one place a shuffled discovery KFold is built
+    kf, _groups_eff, _use_groups = _build_stepwise_splitter(y, groups, cv_splitter, time_aware, cv_folds, random_state)
 
     def _iter_splits():
         """Dispatch to the group-aware or plain split call depending on whether GroupKFold was selected above, so callers don't need to branch on `_use_groups` themselves."""
@@ -94,30 +132,9 @@ def _stepwise_cv_rmse_with_folds(
             return kf.split(np.arange(_n), groups=_groups_eff)
         return kf.split(np.arange(_n))
     if not base_names:
-        # Zero-base baseline = CV-RMSE of the train-fold-MEAN predictor over
-        # the SAME folds the candidates use, NOT the full-sample std. Under
-        # TimeSeriesSplit on trending y the train-fold mean lags the val
-        # fold, so full-sample std understated the no-base error and
-        # inflated the first base's apparent gain.
-        fold0: list[float] = []
-        _y_all_finite = y[np.isfinite(y)]
-        _global_mu = float(np.mean(_y_all_finite)) if _y_all_finite.size else 0.0
-        for _tr0, _va0 in _iter_splits():
-            _ytr0 = y[_tr0][np.isfinite(y[_tr0])]
-            _mu0 = float(np.mean(_ytr0)) if _ytr0.size else _global_mu
-            _d0 = y[_va0] - _mu0
-            _f0 = np.isfinite(_d0)
-            if _f0.sum():
-                fold0.append(float(np.sqrt(np.mean(_d0[_f0] * _d0[_f0]))))
-        if not fold0:
-            sentinel = float(np.std(_y_all_finite)) if _y_all_finite.size else 0.0
-            return sentinel, [sentinel]
-        agg0 = aggregate_fold_scores(
-            fold0, mode=cv_selector_mode, direction="min",  # type: ignore[arg-type]  # cv_selector_mode is a validated str, not a narrowed Literal
-            alpha=cv_selector_alpha, confidence=cv_selector_confidence,
-            quantile_level=cv_selector_quantile_level,
+        return _zero_base_cv_rmse(
+            y, _iter_splits, cv_selector_mode, cv_selector_alpha, cv_selector_confidence, cv_selector_quantile_level,
         )
-        return agg0, fold0
     # All names are guaranteed to be in ``candidates`` by the validation above.
     if base_matrix is None:
         base_matrix = np.column_stack([candidates[n] for n in base_names])

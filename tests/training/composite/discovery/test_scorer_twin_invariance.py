@@ -116,7 +116,8 @@ SPEC_SCORERS = {
     "_screening_tiny._tiny_cv_rmse_raw_y_multiseed": ("n/a", "raw-y baseline: no transform"),
     "_causal_lag.causal_lag_predict_rmse": ("n/a", "raw-y AR failsafe baseline: no transform"),
     "_structural_hints.structural_affinity_scores": ("n/a", "scores feature columns, before any transform"),
-    "forward_stepwise._cv_rmse_with_folds": ("n/a", "y-scale CV RMSE of base subsets for one linear residual"),
+    "forward_stepwise._stepwise_cv_rmse_with_folds": ("n/a", "y-scale CV RMSE of base subsets for one linear residual"),
+    "forward_stepwise._zero_base_cv_rmse": ("n/a", "y-scale CV RMSE of the train-fold-mean predictor: the zero-base baseline"),
     "__init__.tiny_rerank_scores_": ("n/a", "read-only view of the rerank's scores"),
     "__init__.raw_y_baseline_rmse_": ("n/a", "read-only view of the raw-y baseline"),
 }

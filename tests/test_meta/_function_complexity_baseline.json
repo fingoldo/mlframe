@@ -164,7 +164,6 @@
   "src/mlframe/training/composite/discovery/_screening_tiny.py::_tiny_cv_rmse_y_scale_multiseed": 16,
   "src/mlframe/training/composite/discovery/_tiny_rerank_waic.py::_apply_waic_tiebreak": 17,
   "src/mlframe/training/composite/discovery/auto_detect.py::detect_time_column_candidates": 18,
-  "src/mlframe/training/composite/discovery/forward_stepwise.py::_stepwise_cv_rmse_with_folds": 16,
   "src/mlframe/training/composite/ensemble/__init__.py::_oof_holdout_predic_fold_train_idx_fold": 20,
   "src/mlframe/training/composite/ensemble/_cross_target.py::CompositeCrossTargetEnsemble.predict": 18,
   "src/mlframe/training/composite/ensemble/_oof_external.py::_compute_oof_with_external_holdout": 18,
