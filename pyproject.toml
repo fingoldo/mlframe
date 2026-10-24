@@ -97,6 +97,7 @@ dependencies = [
     "orjson>=3.9",
     "numba>=0.59",  # numpy-2-compatible floor (numba <0.59 is built against the numpy 1.x ABI)
     "psutil>=5.9",
+    "threadpoolctl>=3.1",  # HGB thread cap (_hgb_thread_cap.py) imports it directly; sklearn pulls it in too
     "matplotlib>=3.7",
     # Not imported directly; floors matplotlib's own transitive pillow resolution above the
     # patched version for CVE-2026-25990/40192/42309/42310/42311 (PYSEC-2026-165).
