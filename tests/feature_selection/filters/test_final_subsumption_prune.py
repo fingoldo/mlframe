@@ -72,3 +72,20 @@ def test_verdict_does_not_depend_on_candidate_order():
     forward = final_subsumption_prune(candidates, ["compound"], y_binned, y, seed=0)
     reverse = final_subsumption_prune(dict(reversed(list(candidates.items()))), ["compound"], y_binned, y, seed=0)
     assert set(forward) == set(reverse)
+
+
+def test_planted_signal_is_not_subsumed_by_many_weak_anchors():
+    """A balanced product that explains the target is kept however many weak compounds stand as anchors.
+
+    Conditioning on the joint partition of many anchors leaves about one row per cell, so the conditional information of every column collapses to
+    zero and the test would call even the true signal redundant. A verdict without power must keep the column.
+    """
+    rng = np.random.default_rng(500)
+    n = 5000
+    a, b = rng.standard_normal(n), rng.standard_normal(n)
+    y = (a * b + 0.3 * rng.standard_normal(n) > 0).astype(np.int64)
+    decoys = [y + (3.0 + 0.002 * k) * rng.standard_normal(n) for k in range(36)]
+    anchors = {f"weak{i}": decoys[3 * i] + decoys[3 * i + 1] - decoys[3 * i + 2] for i in range(10)}
+    candidates = {"product": np.cbrt(a) * np.cbrt(b), "noise": rng.standard_normal(n), **anchors}
+    dropped = final_subsumption_prune(candidates, list(anchors), y, seed=0)
+    assert "product" not in dropped

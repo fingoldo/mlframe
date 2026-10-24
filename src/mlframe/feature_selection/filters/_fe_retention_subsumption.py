@@ -99,6 +99,36 @@ def _to_host(x) -> np.ndarray:
     return cast(np.ndarray, x)
 
 
+def _max_conditional_excess(z: np.ndarray, y: np.ndarray, null_mean: float) -> float:
+    """Largest debiased conditional MI any candidate can show given the support ``z``: ``H(y | z)`` in nats minus the null bias ``null_mean``."""
+    zi = np.unique(z, return_inverse=True)[1].astype(np.int64)
+    yi = np.unique(y, return_inverse=True)[1].astype(np.int64)
+    n = float(zi.shape[0])
+    ky = int(yi.max()) + 1
+    joint = np.bincount(zi * ky + yi, minlength=(int(zi.max()) + 1) * ky).astype(np.float64)
+    cnt_z = joint.reshape(-1, ky).sum(axis=1)
+    nz = joint > 0
+    h_joint = -float(np.sum(joint[nz] / n * np.log(joint[nz] / n)))
+    nzz = cnt_z > 0
+    h_z = -float(np.sum(cnt_z[nzz] / n * np.log(cnt_z[nzz] / n)))
+    return max(0.0, h_joint - h_z - float(null_mean))
+
+
+def _verdict_is_subsumed(cmi: float, floor: float, excess: float, marg_excess: float, retain_frac: float, z: np.ndarray, y: np.ndarray, null_mean: float) -> bool:
+    """The subsumption verdict from the observed conditional MI, its permutation floor and the debiased excesses.
+
+    Power guard: I(cand; y | Z) cannot exceed H(y | Z), and the plug-in estimate carries the null bias ``null_mean``, so the largest excess any
+    candidate could show is H(y | Z) - null_mean. When that is below the relative bar the test cannot return "retained" for ANY candidate,
+    however informative: with many incumbents the joint support has about one row per cell, H(y | Z) collapses to ~0, and every column is
+    declared subsumed, the true signal included. Such a verdict proves nothing, so the candidate is kept.
+    """
+    bar = float(retain_frac) * max(0.0, marg_excess)
+    if _max_conditional_excess(z, y, null_mean) < bar:
+        logger.debug("retention_form_is_subsumed: the support leaves no power (H(y|Z) - null bias < relative bar); candidate kept")
+        return False
+    return not (cmi > floor and excess >= bar)
+
+
 def retention_form_is_subsumed(
     *,
     cand_continuous: np.ndarray,
@@ -230,12 +260,11 @@ def retention_form_is_subsumed(
         cmi = float(_cmi_from_binned(_cb, y_arr, _zc, kx=_cbkx, kz=int(_zcard)))
         floor, null_mean = _conditional_perm_null(_cb, y_arr, z_support, seed=seed, z_support_dev=z_support_dev)
         excess = max(0.0, cmi - null_mean)
+        _zh = _to_host(z_support_dev) if z_support is None else z_support
     except Exception as e:
         logger.warning("retention_form_is_subsumed: CMI/perm-null scoring failed, treating the candidate as NOT subsumed (conservative keep): %s", e)
         return False
 
-    passes_floor = cmi > floor
-    passes_rel = excess >= float(retain_frac) * max(0.0, marg_excess)
     # SUBSUMED iff it neither clears the significance floor NOR retains a meaningful fraction of
     # its marginal given the incumbents. Carrying genuinely new information requires BOTH legs to
     # hold - a redundant sub-fragment of an incumbent compound fails them; a complementary form
@@ -244,7 +273,7 @@ def retention_form_is_subsumed(
     # carried by an admitted fused compound is dropped even when a degenerate partial-linear test
     # would (spuriously, via the compound's nuisance second term) read a residual - the strengthened
     # ONE-fused-compound contract.
-    return not (passes_floor and passes_rel)
+    return _verdict_is_subsumed(cmi, floor, excess, marg_excess, retain_frac, np.asarray(_zh).ravel(), y_arr, null_mean)
 
 
 __all__ = ["retention_form_is_subsumed", "replay_candidate_continuous", "RETAIN_FRAC"]
