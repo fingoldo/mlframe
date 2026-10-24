@@ -321,6 +321,48 @@ def _cat_info_bonus(n_unique: int, sweet_spot_peak: float) -> float:
     return float(x * np.exp(1.0 - x))
 
 
+def _polars_default_cat_candidates(df, max_unique):
+    """Default categorical candidates for a polars frame: non-numeric columns plus low-cardinality integers, minus temporal dtypes."""
+    # Mirror the pandas branch: non-numeric cols + low-cardinality integer cols (int-as-cat heuristic), minus temporal dtypes whose target-encoding is a time-leak trap.
+    import polars as pl_local
+    int_dtypes = {pl_local.Int8, pl_local.Int16, pl_local.Int32, pl_local.Int64, pl_local.UInt8, pl_local.UInt16, pl_local.UInt32, pl_local.UInt64}
+    temporal_dtypes = {pl_local.Date, pl_local.Datetime, pl_local.Duration, pl_local.Time}
+    cand: list[str] = []
+    for c in df.columns:
+        try:
+            dtype = df.schema[c]
+        except Exception as e:  # nosec B112 - swallow converted to debug-log, non-fatal by design
+            logging.getLogger(__name__).debug("suppressed: %s", e)
+            continue
+        if dtype in temporal_dtypes:
+            continue
+        if not _is_numeric_column(df, c):
+            cand.append(c)
+            continue
+        if dtype in int_dtypes and df.get_column(c).drop_nulls().n_unique() <= max_unique:
+            cand.append(c)
+    return cand
+
+
+def _pandas_default_cat_candidates(df, max_unique):
+    """Default categorical candidates for a pandas frame: non-float columns (string, bool, low-cardinality int), minus temporal dtypes."""
+    # Default: non-float columns -- string, bool, low-cardinality int
+    # (the int-as-cat heuristic from project_mlframe_int_as_cat_detector).
+    return [
+        c for c in df.columns
+        if not pd.api.types.is_float_dtype(df[c])
+        # Temporal columns are excluded from defaults: target-encoding a date/time is a time-leak trap. Reachable via explicit candidate_columns.
+        and not pd.api.types.is_datetime64_any_dtype(df[c])
+        and not pd.api.types.is_period_dtype(df[c])
+        and not pd.api.types.is_timedelta64_dtype(df[c])
+        and (
+            not pd.api.types.is_numeric_dtype(df[c])
+            or pd.api.types.is_bool_dtype(df[c])
+            or (pd.api.types.is_integer_dtype(df[c]) and df[c].nunique() <= max_unique)
+        )
+    ]
+
+
 def detect_cat_columns(
     df: Any,
     *,
@@ -374,42 +416,12 @@ def detect_cat_columns(
     """
     if _is_polars_df(df):
         if candidate_columns is None:
-            # Mirror the pandas branch: non-numeric cols + low-cardinality integer cols (int-as-cat heuristic), minus temporal dtypes whose target-encoding is a time-leak trap.
-            import polars as pl_local
-            int_dtypes = {pl_local.Int8, pl_local.Int16, pl_local.Int32, pl_local.Int64, pl_local.UInt8, pl_local.UInt16, pl_local.UInt32, pl_local.UInt64}
-            temporal_dtypes = {pl_local.Date, pl_local.Datetime, pl_local.Duration, pl_local.Time}
-            cand: list[str] = []
-            for c in df.columns:
-                try:
-                    dtype = df.schema[c]
-                except Exception as e:  # nosec B112 - swallow converted to debug-log, non-fatal by design
-                    logging.getLogger(__name__).debug("suppressed: %s", e)
-                    continue
-                if dtype in temporal_dtypes:
-                    continue
-                if not _is_numeric_column(df, c):
-                    cand.append(c)
-                    continue
-                if dtype in int_dtypes and df.get_column(c).drop_nulls().n_unique() <= max_unique:
-                    cand.append(c)
-            candidate_columns = cand
+            candidate_columns = _polars_default_cat_candidates(df, max_unique)
     elif isinstance(df, pd.DataFrame):
         if candidate_columns is None:
             # Default: non-float columns -- string, bool, low-cardinality int
             # (the int-as-cat heuristic from project_mlframe_int_as_cat_detector).
-            candidate_columns = [
-                c for c in df.columns
-                if not pd.api.types.is_float_dtype(df[c])
-                # Temporal columns are excluded from defaults: target-encoding a date/time is a time-leak trap. Reachable via explicit candidate_columns.
-                and not pd.api.types.is_datetime64_any_dtype(df[c])
-                and not pd.api.types.is_period_dtype(df[c])
-                and not pd.api.types.is_timedelta64_dtype(df[c])
-                and (
-                    not pd.api.types.is_numeric_dtype(df[c])
-                    or pd.api.types.is_bool_dtype(df[c])
-                    or (pd.api.types.is_integer_dtype(df[c]) and df[c].nunique() <= max_unique)
-                )
-            ]
+            candidate_columns = _pandas_default_cat_candidates(df, max_unique)
     else:
         raise TypeError(f"detect_cat_columns: unsupported df type {type(df).__name__}")
 
