@@ -734,6 +734,37 @@ def _per_feature_edges_np_asarray(X, method, y):
     return X, method_resolved, n_features, needs_y, y
 
 
+def _resolve_edge_jobs(n_jobs: Any, n_miss: int) -> int:
+    """Worker-thread count for the edge computation: the physical core count when ``n_jobs`` is unset, capped at the number of columns that need computing."""
+    if n_jobs is None or int(n_jobs) <= 0:
+        try:
+            import psutil
+
+            _resolved_jobs = psutil.cpu_count(logical=False) or 1
+        except Exception as e:
+            logger.warning("psutil.cpu_count(logical=False) failed, falling back to os.cpu_count(): %s", e)
+            import os
+
+            _resolved_jobs = os.cpu_count() or 1
+    else:
+        _resolved_jobs = int(n_jobs)
+    _resolved_jobs = max(1, min(_resolved_jobs, max(1, n_miss)))
+    return _resolved_jobs
+
+
+def _cache_put_misses(_cache: Any, _miss_cols: list, _miss_keys: list, edges_list: list) -> None:
+    """Store the freshly computed edges of the missed columns; a failing put is logged at debug level and skipped."""
+    for j in _miss_cols:
+        _key = _miss_keys[j]
+        edges = edges_list[j]
+        if _key is not None and edges is not None:
+            try:
+                _cache.put(_key, edges)
+            except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+                logger.debug("suppressed: %s", e)
+                pass
+
+
 def _per_feature_edges_no_lock_needed_hit(n_features, X, _cache, _y_key, _kw_key, n_jobs, _compute_col_edges):
     """Block of per_feature_edges starting at ``edges_list: list = [None] * n_features``."""
     edges_list: list = [None] * n_features
@@ -772,19 +803,7 @@ def _per_feature_edges_no_lock_needed_hit(n_features, X, _cache, _y_key, _kw_key
     #   p=2000: serial 10.10s -> parallel 3.20s (3.16x)
     #   p=50  : serial 0.28s -> parallel 0.22s  (gated to serial, no regression)
     # (see test_per_feature_edges_parallel.py; numbers refreshed if hardware changes.)
-    if n_jobs is None or int(n_jobs) <= 0:
-        try:
-            import psutil
-
-            _resolved_jobs = psutil.cpu_count(logical=False) or 1
-        except Exception as e:
-            logger.warning("psutil.cpu_count(logical=False) failed, falling back to os.cpu_count(): %s", e)
-            import os
-
-            _resolved_jobs = os.cpu_count() or 1
-    else:
-        _resolved_jobs = int(n_jobs)
-    _resolved_jobs = max(1, min(_resolved_jobs, max(1, len(_miss_cols))))
+    _resolved_jobs = _resolve_edge_jobs(n_jobs, len(_miss_cols))
 
     # Bit-identity above assumes njit(nogil=True) kernels: numba's nopython-mode functions get their
     # own thread-isolated internal RNG state, so concurrent threads never see each other's draws even
@@ -833,13 +852,5 @@ def _per_feature_edges_no_lock_needed_hit(n_features, X, _cache, _y_key, _kw_key
 
     # ---- Phase 3 (serial): cache PUT for the misses. ----
     if _cache is not None:
-        for j in _miss_cols:
-            _key = _miss_keys[j]
-            edges = edges_list[j]
-            if _key is not None and edges is not None:
-                try:
-                    _cache.put(_key, edges)
-                except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-                    logger.debug("suppressed: %s", e)
-                    pass
+        _cache_put_misses(_cache, _miss_cols, _miss_keys, edges_list)
     return edges_list

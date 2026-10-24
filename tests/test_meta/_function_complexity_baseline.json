@@ -21,7 +21,6 @@
   "src/mlframe/feature_engineering/transformer/target_quantile.py::compute_target_quantile_attention": 17,
   "src/mlframe/feature_engineering/windowed_shape.py::_shannon_entropy_binned_kernel": 20,
   "src/mlframe/feature_selection/boruta_shap/_fit_explain.py::_fit_with_subsample_stability": 18,
-  "src/mlframe/feature_selection/filters/_adaptive_nbins.py::_per_feature_edges_no_lock_needed_hit": 16,
   "src/mlframe/feature_selection/filters/_batch_mi_noise_gate_kernels.py::_cuda_fused_gate_kernel_factory": 16,
   "src/mlframe/feature_selection/filters/_binned_agg_cheap_mi.py::_cheap_mi_edge_dedup_njit": 18,
   "src/mlframe/feature_selection/filters/_binned_numeric_agg_fe.py::fit_binned_numeric_agg": 16,
