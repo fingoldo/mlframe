@@ -34,7 +34,6 @@
   "src/mlframe/feature_selection/filters/_fe_auto_escalation.py::find_underdelivering_pairs": 17,
   "src/mlframe/feature_selection/filters/_fe_pure_form_retention_gpu_resident.py::adds_nonlinear_value_batch_gpu_resident": 18,
   "src/mlframe/feature_selection/filters/_fe_raw_redundancy_anchors.py::_build_raw_redundan_recipes_raw_none": 19,
-  "src/mlframe/feature_selection/filters/_fe_retention_subsumption.py::retention_form_is_subsumed": 16,
   "src/mlframe/feature_selection/filters/_fe_subsample.py::stratified_subsample_idx": 21,
   "src/mlframe/feature_selection/filters/_feature_engineering_pairs/_pairs_chunks.py::_compute_one_fe_chunk_part2": 17,
   "src/mlframe/feature_selection/filters/_feature_engineering_pairs/_pairs_core_steps.py::_check_prospective_fe_step1_def_extval_raw": 16,

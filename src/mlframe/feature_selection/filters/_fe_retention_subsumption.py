@@ -99,6 +99,20 @@ def _to_host(x) -> np.ndarray:
     return cast(np.ndarray, x)
 
 
+def _subsample_retention_rows(cand: np.ndarray, y_arr: np.ndarray, inc: list, n: int) -> tuple:
+    """Stride-subsample the candidate, the target and every incumbent together above ``MLFRAME_RETENTION_NULL_MAX_ROWS`` so they stay row-aligned."""
+    import os as _os_ss
+    _ret_max = int(_os_ss.environ.get("MLFRAME_RETENTION_NULL_MAX_ROWS", "250000"))
+    if _ret_max > 0 and n > _ret_max:
+        _st = int(n // _ret_max)
+        if _st > 1:
+            cand = cand[::_st]
+            y_arr = np.ascontiguousarray(y_arr[::_st])
+            inc = [c[::_st] for c in inc]
+            n = int(cand.shape[0])
+    return cand, y_arr, inc, n
+
+
 def retention_form_is_subsumed(
     *,
     cand_continuous: np.ndarray,
@@ -157,15 +171,7 @@ def retention_form_is_subsumed(
     # and every incumbent TOGETHER (same stride -> aligned rows) above MLFRAME_RETENTION_NULL_MAX_ROWS (default
     # 250k, 0=full-n) so the binning + observed CMI + null all decide on one consistent slice. The verdict is a
     # bool -> no output values to keep full-n.
-    import os as _os_ss
-    _ret_max = int(_os_ss.environ.get("MLFRAME_RETENTION_NULL_MAX_ROWS", "250000"))
-    if _ret_max > 0 and n > _ret_max:
-        _st = int(n // _ret_max)
-        if _st > 1:
-            cand = cand[::_st]
-            y_arr = np.ascontiguousarray(y_arr[::_st])
-            inc = [c[::_st] for c in inc]
-            n = int(cand.shape[0])
+    cand, y_arr, inc, n = _subsample_retention_rows(cand, y_arr, inc, n)
 
     try:
         cand = _clean(cand)
