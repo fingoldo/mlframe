@@ -56,6 +56,7 @@ import numpy as np
 from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 from ._fast_host_ops import count_distinct_int
 from ._y_encoding import FEW_CLASSES_MAX, _has_more_distinct_than
+from ._fe_frame_ops import is_pandas, is_polars
 import pandas as pd
 
 logger = logging.getLogger(__name__)
@@ -213,6 +214,18 @@ def _floor_from_raw_mi(raw_mi: np.ndarray, n_rows: int, nbins: int, y_bin: np.nd
     return max(min(_est, float(raw_mi.max())), _null_floor)
 
 
+def _column_is_numeric(frame, col) -> bool:
+    """Numeric test for one column of a pandas or polars frame (the floor reads raw columns one at a time)."""
+    if is_polars(frame):
+        return bool(frame[col].dtype.is_numeric())
+    return bool(pd.api.types.is_numeric_dtype(frame[col]))
+
+
+def _column_values(frame, col, dtype) -> np.ndarray:
+    """One column of a pandas or polars frame as a numpy array of ``dtype`` (a single-column copy, never the frame)."""
+    return np.asarray(frame[col].to_numpy(), dtype=dtype)
+
+
 def raw_mi_noise_floor(
     raw_X: pd.DataFrame,
     y: np.ndarray | pd.Series,
@@ -240,10 +253,10 @@ def raw_mi_noise_floor(
     """
     from ._orthogonal_univariate_fe import _mi_classif_batch
 
-    if not isinstance(raw_X, pd.DataFrame) or raw_X.shape[1] == 0:
+    if not (is_pandas(raw_X) or is_polars(raw_X)) or raw_X.shape[1] == 0:
         return 0.0
     _candidates = raw_X.columns if columns is None else [c for c in columns if c in raw_X.columns]
-    num_cols = [c for c in _candidates if pd.api.types.is_numeric_dtype(raw_X[c])]
+    num_cols = [c for c in _candidates if _column_is_numeric(raw_X, c)]
     if not num_cols:
         return 0.0
     y_bin = _coerce_y_classes(y)
@@ -253,11 +266,11 @@ def raw_mi_noise_floor(
     if len(blocks) > 1:
         # The raw matrix does not fit the free memory in one piece: the MI of a column does not depend on the others, so the vector is scored block by block (no memo: the key hashes the whole matrix).
         blocked_mi = np.concatenate([
-            np.asarray(_mi_classif_batch(np.column_stack([raw_X[c].to_numpy(dtype=_crit_np_dtype()) for c in block]), y_bin, nbins=nbins), dtype=_crit_np_dtype()) for block in blocks
+            np.asarray(_mi_classif_batch(np.column_stack([_column_values(raw_X, c, _crit_np_dtype()) for c in block]), y_bin, nbins=nbins), dtype=_crit_np_dtype()) for block in blocks
         ])
         return _floor_from_raw_mi(blocked_mi, len(raw_X), nbins, y_bin, mad_mult)
     # Stack column by column: raw_X[num_cols] would copy a sub-frame before the float64 matrix copy the scorer needs.
-    arr = np.column_stack([raw_X[c].to_numpy(dtype=_crit_np_dtype()) for c in num_cols])
+    arr = np.column_stack([_column_values(raw_X, c, _crit_np_dtype()) for c in num_cols])
 
     _key = None
     try:
