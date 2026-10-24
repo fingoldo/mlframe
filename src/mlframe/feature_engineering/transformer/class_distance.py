@@ -79,6 +79,24 @@ def _quantile_slices(X: np.ndarray, y: np.ndarray, q_low: float = 0.2, q_high: f
     return X[y >= y_hi], X[y <= y_lo]
 
 
+def _validate_class_distance_inputs(X_train: np.ndarray, X_query: Optional[np.ndarray], task: str) -> None:
+    """Reject non-numeric or fp16 feature matrices and a ``task`` other than binary or regression."""
+    validate_numeric_input(X_train, name="X_train", allow_fp16=False)
+    if X_query is not None:
+        validate_numeric_input(X_query, name="X_query", allow_fp16=False)
+    if task not in ("binary", "regression"):
+        raise ValueError(f"task must be 'binary' or 'regression'; got {task!r}.")
+
+
+def _drop_self_rows(X_train_f: np.ndarray, y_train_f: np.ndarray, exclude_self_ids: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+    """Return the training bank with the rows flagged in ``exclude_self_ids`` removed, so a query row cannot match itself."""
+    _mask = np.asarray(exclude_self_ids).ravel()
+    if _mask.shape[0] != X_train_f.shape[0]:
+        raise ValueError(f"exclude_self_ids length {_mask.shape[0]} != len(X_train) {X_train_f.shape[0]}.")
+    _keep = ~_mask.astype(bool)
+    return X_train_f[_keep], y_train_f[_keep]
+
+
 def compute_class_distance_features(
     X_train: np.ndarray,
     y_train: np.ndarray,
@@ -105,11 +123,7 @@ def compute_class_distance_features(
     """
     seed = require_seed(seed)
     try_patch_sklearn()
-    validate_numeric_input(X_train, name="X_train", allow_fp16=False)
-    if X_query is not None:
-        validate_numeric_input(X_query, name="X_query", allow_fp16=False)
-    if task not in ("binary", "regression"):
-        raise ValueError(f"task must be 'binary' or 'regression'; got {task!r}.")
+    _validate_class_distance_inputs(X_train, X_query, task)
 
     X_train_f = np.asarray(X_train, dtype=np.float32)
     y_train_f = np.asarray(y_train, dtype=np.float32).ravel()
@@ -151,12 +165,7 @@ def compute_class_distance_features(
         Xt_bank = X_train_f
         yt_bank = y_train_f
         if exclude_self_ids is not None:
-            _mask = np.asarray(exclude_self_ids).ravel()
-            if _mask.shape[0] != X_train_f.shape[0]:
-                raise ValueError(f"exclude_self_ids length {_mask.shape[0]} != len(X_train) {X_train_f.shape[0]}.")
-            _keep = ~_mask.astype(bool)
-            Xt_bank = X_train_f[_keep]
-            yt_bank = y_train_f[_keep]
+            Xt_bank, yt_bank = _drop_self_rows(X_train_f, y_train_f, exclude_self_ids)
         pos_d, neg_d, log_gap = _process(Xt_bank, Xq, yt_bank)
         return pl.DataFrame(_make_df(pos_d, neg_d, log_gap))
 
