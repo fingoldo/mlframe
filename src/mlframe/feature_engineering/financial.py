@@ -71,6 +71,61 @@ def _ta_ns(expr: pl.Expr) -> Any:
     return getattr(expr, "ta")
 
 
+def _validate_positive_lags(lags: Sequence[int], crossbar_ratios_lags: Sequence[int]) -> None:
+    """Reject non-positive lags, which would pull future prices into the current row."""
+    # Negative/zero lag pulls future prices into current row -> look-ahead leakage. Guard
+    # explicitly rather than let the polars expression succeed silently.
+    for _lag in lags:
+        if _lag <= 0:
+            raise ValueError(f"add_ohlcv_ratios_rlags: lag must be > 0, got {_lag} (negative/zero causes look-ahead leakage)")
+    for _lag in crossbar_ratios_lags:
+        if _lag <= 0:
+            raise ValueError(f"add_ohlcv_ratios_rlags: crossbar_ratios_lag must be > 0, got {_lag} (negative/zero causes look-ahead leakage)")
+
+
+def _interbar_ratio_exprs(
+    prefix: str,
+    ohlcv_fields_mapping: Dict[str, str],
+    crossbar_ratios_lags: Sequence[int],
+    ticker_column: str,
+    nans_filler: float,
+) -> list:
+    """Build the interbar ratio expressions for one market-action prefix."""
+    qty = pl.col(f"{prefix}{ohlcv_fields_mapping.get('qty')}")
+    low = pl.col(f"{prefix}{ohlcv_fields_mapping.get('low')}")
+    high = pl.col(f"{prefix}{ohlcv_fields_mapping.get('high')}")
+    open_col = pl.col(f"{prefix}{ohlcv_fields_mapping.get('open')}")
+    close = pl.col(f"{prefix}{ohlcv_fields_mapping.get('close')}")
+    volume = pl.col(f"{prefix}{ohlcv_fields_mapping.get('volume')}")
+
+    exprs: list = [
+        (close / open_col - 1).alias(f"{prefix}close_to_open"),
+        (high / open_col - 1).alias(f"{prefix}high_to_open"),
+        (open_col / low - 1).alias(f"{prefix}open_to_low"),
+        (close / low - 1).alias(f"{prefix}close_to_low"),
+        (high / low - 1).alias(f"{prefix}high_to_low"),
+        (high / close - 1).alias(f"{prefix}high_to_close"),
+        pllib.clean_numeric((volume / qty), nans_filler=nans_filler).alias(f"{prefix}avg_trade_size"),
+    ]
+    if ticker_column:
+        for period_shift in crossbar_ratios_lags:
+            exprs.extend(
+                [
+                    (close / open_col.shift(period_shift).over(ticker_column) - 1).alias(f"{prefix}close_to_open-{period_shift}"),
+                    (high / open_col.shift(period_shift).over(ticker_column) - 1).alias(f"{prefix}high_to_open-{period_shift}"),
+                    (open_col / low.shift(period_shift).over(ticker_column) - 1).alias(f"{prefix}open_to_low-{period_shift}"),
+                    (close / low.shift(period_shift).over(ticker_column) - 1).alias(f"{prefix}close_to_low-{period_shift}"),
+                    (high / low.shift(period_shift).over(ticker_column) - 1).alias(f"{prefix}high_to_low-{period_shift}"),
+                    (high / close.shift(period_shift).over(ticker_column) - 1).alias(f"{prefix}high_to_close-{period_shift}"),
+                    pllib.clean_numeric(
+                        (volume / qty.shift(period_shift).over(ticker_column)),
+                        nans_filler=nans_filler,
+                    ).alias(f"{prefix}avg_trade_size-{period_shift}"),
+                ]
+            )
+    return exprs
+
+
 def add_ohlcv_ratios_rlags(
     ohlcv: pl.DataFrame,
     columns_selector: str = "",
@@ -96,14 +151,7 @@ def add_ohlcv_ratios_rlags(
     if crossbar_ratios_lags is None:
         crossbar_ratios_lags = list(_DEFAULT_LAGS)
 
-    # Negative/zero lag pulls future prices into current row -> look-ahead leakage. Guard
-    # explicitly rather than let the polars expression succeed silently.
-    for _lag in lags:
-        if _lag <= 0:
-            raise ValueError(f"add_ohlcv_ratios_rlags: lag must be > 0, got {_lag} (negative/zero causes look-ahead leakage)")
-    for _lag in crossbar_ratios_lags:
-        if _lag <= 0:
-            raise ValueError(f"add_ohlcv_ratios_rlags: crossbar_ratios_lag must be > 0, got {_lag} (negative/zero causes look-ahead leakage)")
+    _validate_positive_lags(lags, crossbar_ratios_lags)
     if market_action_prefixes is None:
         market_action_prefixes = list(_DEFAULT_MARKET_ACTION_PREFIXES)
     if ohlcv_fields_mapping is None:
@@ -118,41 +166,7 @@ def add_ohlcv_ratios_rlags(
     interbar_ratios_features: list = []
     if add_ratios:
         for prefix in market_action_prefixes:
-
-            qty = pl.col(f"{prefix}{ohlcv_fields_mapping.get('qty')}")
-            low = pl.col(f"{prefix}{ohlcv_fields_mapping.get('low')}")
-            high = pl.col(f"{prefix}{ohlcv_fields_mapping.get('high')}")
-            open_col = pl.col(f"{prefix}{ohlcv_fields_mapping.get('open')}")
-            close = pl.col(f"{prefix}{ohlcv_fields_mapping.get('close')}")
-            volume = pl.col(f"{prefix}{ohlcv_fields_mapping.get('volume')}")
-
-            interbar_ratios_features.extend(
-                [
-                    (close / open_col - 1).alias(f"{prefix}close_to_open"),
-                    (high / open_col - 1).alias(f"{prefix}high_to_open"),
-                    (open_col / low - 1).alias(f"{prefix}open_to_low"),
-                    (close / low - 1).alias(f"{prefix}close_to_low"),
-                    (high / low - 1).alias(f"{prefix}high_to_low"),
-                    (high / close - 1).alias(f"{prefix}high_to_close"),
-                    pllib.clean_numeric((volume / qty), nans_filler=nans_filler).alias(f"{prefix}avg_trade_size"),
-                ]
-            )
-            if ticker_column:
-                for period_shift in crossbar_ratios_lags:
-                    interbar_ratios_features.extend(
-                        [
-                            (close / open_col.shift(period_shift).over(ticker_column) - 1).alias(f"{prefix}close_to_open-{period_shift}"),
-                            (high / open_col.shift(period_shift).over(ticker_column) - 1).alias(f"{prefix}high_to_open-{period_shift}"),
-                            (open_col / low.shift(period_shift).over(ticker_column) - 1).alias(f"{prefix}open_to_low-{period_shift}"),
-                            (close / low.shift(period_shift).over(ticker_column) - 1).alias(f"{prefix}close_to_low-{period_shift}"),
-                            (high / low.shift(period_shift).over(ticker_column) - 1).alias(f"{prefix}high_to_low-{period_shift}"),
-                            (high / close.shift(period_shift).over(ticker_column) - 1).alias(f"{prefix}high_to_close-{period_shift}"),
-                            pllib.clean_numeric(
-                                (volume / qty.shift(period_shift).over(ticker_column)),
-                                nans_filler=nans_filler,
-                            ).alias(f"{prefix}avg_trade_size-{period_shift}"),
-                        ]
-                    )
+            interbar_ratios_features.extend(_interbar_ratio_exprs(prefix, ohlcv_fields_mapping, crossbar_ratios_lags, ticker_column, nans_filler))
 
     if add_ratios:
         ohlcv = ohlcv.with_columns(*interbar_ratios_features)

@@ -1,7 +1,6 @@
 {
   "src/mlframe/feature_engineering/basic.py::create_date_features": 18,
   "src/mlframe/feature_engineering/bayesian.py::_bocpd_inner": 16,
-  "src/mlframe/feature_engineering/financial.py::add_ohlcv_ratios_rlags": 18,
   "src/mlframe/feature_engineering/grouped.py::per_group_rolling_reduce": 25,
   "src/mlframe/feature_engineering/grouped_rank.py::_per_group_rank_sorted_njit": 17,
   "src/mlframe/feature_engineering/hurst.py::multifractal_dfa": 21,
