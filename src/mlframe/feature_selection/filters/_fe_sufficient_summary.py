@@ -41,9 +41,13 @@ Why this is correct (DPI)
 -------------------------
 Any future engineered candidate ``g`` is a deterministic function of the raw features.
 By the Data-Processing Inequality ``I(r; g(raws)) <= I(r; raws)`` - a transform cannot
-manufacture information about ``r`` that the raws do not already have. So if NO raw
-clears the chance ceiling against the residual, NO engineered feature built from them can
-either. The residual being pure noise (entropy guard) certifies that ``E_hat[y|selected]``
+manufacture information about ``r`` that the raws do not already have. The bound is on the JOINT
+information of the raws, and the per-column test above sees only the marginals: a product or an XOR of
+two raws carries information about ``r`` while each raw alone carries none. So the stop also requires
+that no PAIR of raws clears its own Bonferroni ceiling against the residual
+(``_fe_sufficient_summary_pairs``). With both tests, no engineered feature built from one or two raws can help.
+Interactions of three or more columns with no informative pair or marginal are not covered.
+The residual being pure noise (entropy guard) certifies that ``E_hat[y|selected]``
 already explains the explainable part of ``y``; the maxT test certifies no observable can
 explain the leftover. Together they prove the remaining FE search cannot improve the
 captured information, so skipping it changes nothing the search could have found.
@@ -166,6 +170,9 @@ class SufficientSummaryVerdict:
     n_selected: int = 0
     n_raw_tested: int = 0
     blocking_raw: int = -1  # cols-index of the raw that blocked the stop (or -1)
+    max_pair_mi: float = float("nan")  # max over raw pairs of MI(r; x_i, x_j); nan when the pair test did not run
+    pair_floor: float = float("nan")  # the Bonferroni chi-square ceiling the best pair is compared with
+    blocking_pair: "tuple | None" = None  # cols-indices of the raw pair that blocked the stop (or None)
     per_raw_mi: dict = field(default_factory=dict)  # {cols_index: MI(r; x_j)}
     residual: "np.ndarray | None" = None  # continuous r = y - E_hat[y|selected]; surfaced so the FE
     # loop can RE-TARGET the next step on the residual when a raw still carries residual structure
@@ -481,17 +488,52 @@ def sufficient_summary_reached(
             logger.info("MRMR sufficient-summary: %s -> continue FE.", v.reason)
         return v
 
-    # BOTH conditions hold: residual is small relative to H(y) AND no raw beats the
-    # best-of-pool chance ceiling -> the selection reached I(observables; y). STOP.
+    # The marginal test cannot see an interaction: a product or XOR of two raws carries information about the residual
+    # while each raw alone carries none, and the data-processing inequality bounds the JOINT information, not the marginals.
+    # Test every pair before concluding that no engineered feature can help.
+    pair = _pair_block(v, raws, raw_codes, raw_nbins, r_codes)
+    if pair is not None:
+        if verbose:
+            logger.info("MRMR sufficient-summary: %s -> continue FE.", v.reason)
+        return v
+
+    # ALL conditions hold: residual is small relative to H(y), no raw beats the best-of-pool chance ceiling
+    # and no raw pair does either -> the selection reached I(observables; y). STOP.
     v.reached = True
     v.reason = (
         f"sufficient summary reached: H(r)/H(y)={v.residual_entropy_frac:.3f} <= "
         f"{float(residual_entropy_frac):.3f} AND max_j MI(r;x_j)={max_mi:.4f} <= maxT "
-        f"floor {floor:.4f} over {len(raws)} raws (DPI: no engineered candidate can help)"
+        f"floor {floor:.4f} over {len(raws)} raws, best pair MI(r;x_i,x_j)={v.max_pair_mi:.4f} <= pair ceiling {v.pair_floor:.4f}"
     )
     if verbose:
         logger.info("MRMR sufficient-summary: %s -> STOP FE search.", v.reason)
     return v
+
+
+def _pair_block(v: Any, raws: list, raw_codes: np.ndarray, raw_nbins: np.ndarray, r_codes: np.ndarray) -> Optional[tuple]:
+    """Run the pair-level residual test; returns the blocking pair (cols-indices) and fills ``v``, or ``None`` when the stop may go ahead.
+
+    When the test cannot be made (too many pairs for the row budget, too few rows) the stop is withheld: an untested interaction is not
+    proven absent.
+    """
+    from ._fe_sufficient_summary_pairs import pair_residual_test
+
+    res = pair_residual_test(raw_codes, raw_nbins, r_codes)
+    if res is None:
+        v.blocking_pair = (-1, -1)
+        v.reason = "the pair-level residual test could not be run (pair count or row budget); an untested interaction is not ruled out"
+        return v.blocking_pair
+    max_pair_mi, ceiling, (i, j) = res
+    v.max_pair_mi = float(max_pair_mi)
+    v.pair_floor = float(ceiling)
+    if max_pair_mi <= ceiling:
+        return None
+    v.blocking_pair = (int(raws[i]), int(raws[j]))
+    v.reason = (
+        f"raw pair {v.blocking_pair} carries MI(r;x_i,x_j)={max_pair_mi:.4f} > pair ceiling {ceiling:.4f}; "
+        "the residual holds an interaction no single raw shows"
+    )
+    return v.blocking_pair
 
 
 def _selected_columns_summary(sel, selected_continuous, cols_names, data, n, design_cols):
