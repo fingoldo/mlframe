@@ -208,9 +208,6 @@ _CLUSTER_KEEP_GAP = {
 # GreedyBackwardElimination/ZeroImportancePruning share the same GAP as
 # _CLUSTER_KEEP_GAP above (no collinearity-aware pruning mechanism) -- measured post max-VIF=inf on every
 # seed (singular Gram from the retained near-collinear cluster).
-# MRMR joins this set: it keeps the singular {x1, x2, x3} triple (post max-VIF=inf) to recover the linear-combo
-# signal, so the recovery and VIF contracts cannot both hold yet. Open defect, not a test artifact: a selection
-# guard against linearly dependent survivors is needed.
 _VIF_REDUCE_GAP = {
     "RFECV",
     "ShapProxiedFS",
@@ -218,7 +215,6 @@ _VIF_REDUCE_GAP = {
     "HybridSelector",
     "GreedyBackwardElimination",
     "ZeroImportancePruning",
-    "MRMR",
 }
 
 # Selectors that collapse so hard they lose the linear-combo signal. Empty: MRMR now keeps {x1, x2, x3} on seed 0
