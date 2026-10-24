@@ -17,6 +17,43 @@ from .utils import _entry_metric
 logger = logging.getLogger("mlframe.training.core._phase_composite_post")
 
 
+def _composite_names_by_target_type(metadata):
+    """Composite-target names keyed by target type, read from the spec list (populated for composites even when y-scale metrics are skipped)."""
+    names_by_tt: dict[str, set] = {}
+    for _tt_str, _by_tn in metadata.get("composite_target_specs", {}).items():
+        _names: set = set()
+        for _spec_list in (_by_tn or {}).values():
+            for _s in _spec_list or []:
+                _nm = _s.get("name") if isinstance(_s, dict) else getattr(_s, "name", None)
+                if _nm:
+                    _names.add(_nm)
+        names_by_tt[str(_tt_str)] = _names
+    return names_by_tt
+
+
+def _composite_to_raw_map(metadata):
+    """Map each (target_type, composite name) to the raw target it was derived from."""
+    composite_to_raw: dict[tuple[str, str], str] = {}
+    for _tt_str, _by_tname in metadata.get("composite_target_specs", {}).items():
+        for _raw_tname, _spec_list in _by_tname.items():
+            for _s in _spec_list or []:
+                _comp_name = _s.get("name")
+                if _comp_name:
+                    composite_to_raw[(_tt_str, _comp_name)] = _raw_tname
+    return composite_to_raw
+
+
+def _cross_target_ensemble_map(metadata):
+    """Cross-target ensemble metrics keyed by (target_type, original target name), keeping only non-empty dict entries."""
+    _ct_ens_raw = metadata.get("cross_target_ensemble_metrics", {})
+    metrics: dict[tuple[str, str], dict[str, float]] = {}
+    for _tt_str, _by_orig in _ct_ens_raw.items():
+        for _orig_tname, _m in _by_orig.items():
+            if isinstance(_m, dict) and _m:
+                metrics[(str(_tt_str), str(_orig_tname))] = _m
+    return metrics
+
+
 def _run_suite_end_dummy_baselines_summary(
     *,
     models: dict,
@@ -39,34 +76,15 @@ def _run_suite_end_dummy_baselines_summary(
         # composites), NOT from composite_target_y_scale_metrics -- the latter is skipped when
         # skip_wrap_pass_predict=True, which left ``_is_composite`` False so the verdict fell through to
         # the composite's T-scale (residual) model metric and printed a misleading y-vs-T comparison.
-        _composite_names_by_tt: dict[str, set] = {}
-        for _tt_str, _by_tn in metadata.get("composite_target_specs", {}).items():
-            _names: set = set()
-            for _spec_list in (_by_tn or {}).values():
-                for _s in _spec_list or []:
-                    _nm = _s.get("name") if isinstance(_s, dict) else getattr(_s, "name", None)
-                    if _nm:
-                        _names.add(_nm)
-            _composite_names_by_tt[str(_tt_str)] = _names
+        _composite_names_by_tt = _composite_names_by_target_type(metadata)
         _collect_best_model_metrics(metadata, models, _composite_names_by_tt, _best_metrics)
         # composite -> raw target map so the verdict block uses the raw median(y_raw) constant as the trivial baseline
         # (not the inverted-T fake baseline that uses fitted alpha).
-        _composite_to_raw: dict[tuple[str, str], str] = {}
-        for _tt_str, _by_tname in metadata.get("composite_target_specs", {}).items():
-            for _raw_tname, _spec_list in _by_tname.items():
-                for _s in _spec_list or []:
-                    _comp_name = _s.get("name")
-                    if _comp_name:
-                        _composite_to_raw[(_tt_str, _comp_name)] = _raw_tname
+        _composite_to_raw = _composite_to_raw_map(metadata)
         # Cross-target ensemble metrics (stamped by _phase_composite_post_xt_ensemble at the
         # val/test report site). Keyed by (target_type, original_target_name) -> {split_metric: value, model_name: ...}.
         # The verdict picker compares this against the single best model and uses whichever wins.
-        _ct_ens_raw = metadata.get("cross_target_ensemble_metrics", {})
-        _cross_target_ensemble_metrics: dict[tuple[str, str], dict[str, float]] = {}
-        for _tt_str, _by_orig in _ct_ens_raw.items():
-            for _orig_tname, _m in _by_orig.items():
-                if isinstance(_m, dict) and _m:
-                    _cross_target_ensemble_metrics[(str(_tt_str), str(_orig_tname))] = _m
+        _cross_target_ensemble_metrics = _cross_target_ensemble_map(metadata)
         _summary_text = format_suite_end_summary(
             dummy_baselines_metadata=metadata.get("dummy_baselines", {}),
             failures_metadata=metadata.get("dummy_baselines_failures", {}),
