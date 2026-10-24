@@ -35,8 +35,24 @@ this replaced issued several kernels per pair chunk and was about 149x slower on
 Reading: compute and shared-memory-atomic bound, not DRAM bound (the codes are int8 and re-read from L2). Occupancy is full, so the remaining lever is the
 shared-memory access pattern (efficiency 4.5%, atomics on k*k*kr cells) and the 29% synchronization stall.
 
-These counters were collected for v1. The v2 kernel (cell-parallel, warp-shuffle reduction, 1 barrier fewer per stage) was timed but its counters are NOT yet
-collected: the counter run needs elevation (ERR_NVGPUCTRPERM) and has not been repeated. v2 versus v1 measured by wall clock: 13 to 29 percent faster.
+### v2 kernel (`pair_mi_block_v2`, the default), same workload, 12 invocations, elevated nvprof
+
+| metric | v1 | v2 |
+|---|---|---|
+| achieved occupancy | 0.984 | 0.963 |
+| sm_efficiency | 99.89% | 96.9% |
+| executed IPC | 2.84 | 3.08 |
+| issue slot utilization | 67.0% | 72.0% |
+| dram read throughput | 4.6 GB/s | 5.8 GB/s (utilization Low) |
+| dram write throughput | 97 MB/s | 0.99 GB/s |
+| warp execution efficiency | 96.5% | 98.3% |
+| shared memory efficiency | 4.5% | 2.1% |
+| stall: synchronization | 29.2% | 5.9% |
+| stall: memory dependency | 30.8% | 31.7% |
+| stall: execution dependency | 20.8% | 23.5% |
+| stall: other | 9.7% | 27.1% |
+
+Reading: the warp-shuffle reduction removed most of the barrier stall (29% to 6%) and raised IPC and issue-slot use, which is the 13 to 29% wall gain. The memory-dependency stall (shared-memory atomics and global loads) is now the largest and unchanged, so the next lever is the shared-memory access pattern (efficiency 2.1%), for example warp-private histograms. Occupancy is still full; the kernel is not DRAM bound. The "other" stall grew to 27%, not decomposed (nvprof Pascal does not split it).
 
 ## Measured speedups
 
