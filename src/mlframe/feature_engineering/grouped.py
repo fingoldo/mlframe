@@ -291,6 +291,78 @@ def per_group_cum_reduce(
     return out
 
 
+def _prefix_sum_segment(
+    out: np.ndarray,
+    seg_idx: np.ndarray,
+    seg: np.ndarray,
+    window_K: int,
+    min_periods: int,
+    op: str,
+) -> None:
+    """Write trailing sum/mean for one group segment into ``out`` via a prefix-sum (O(n))."""
+    seg_len = seg.size
+    seg_f = np.where(np.isfinite(seg), seg, 0.0)
+    cs = np.concatenate(([0.0], np.cumsum(seg_f)))
+    window_sums = cs[window_K:] - cs[:-window_K]
+    if op == "mean":
+        window_sums = window_sums / window_K
+    # Write into out at last-position-anchor of each window.
+    out[seg_idx[window_K - 1 :]] = window_sums
+    # min_periods shorter prefix
+    if min_periods < window_K:
+        for k in range(min_periods - 1, window_K - 1):
+            if k >= seg_len:
+                break
+            s_partial = float(cs[k + 1])
+            out[seg_idx[k]] = s_partial / (k + 1) if op == "mean" else s_partial
+
+
+def _windowed_stat_segment(
+    out: np.ndarray,
+    seg_idx: np.ndarray,
+    seg: np.ndarray,
+    window_K: int,
+    min_periods: int,
+    op: str,
+) -> None:
+    """Write trailing std/var/median/min/max for one group segment into ``out``."""
+    from numpy.lib.stride_tricks import sliding_window_view
+
+    seg_len = seg.size
+    if seg_len >= window_K:
+        wins = sliding_window_view(seg, window_K)
+        if op == "std":
+            vals = wins.std(axis=1, ddof=1) if window_K > 1 else np.zeros(wins.shape[0])
+        elif op == "var":
+            vals = wins.var(axis=1, ddof=1) if window_K > 1 else np.zeros(wins.shape[0])
+        elif op == "median":
+            vals = np.median(wins, axis=1)
+        elif op == "min":
+            vals = wins.min(axis=1)
+        elif op == "max":
+            vals = wins.max(axis=1)
+        out[seg_idx[window_K - 1 :]] = vals
+    # min_periods shorter prefix: rows with fewer than window_K observations available (either because
+    # the segment itself is shorter than window_K, or -- when seg_len >= window_K -- the leading rows
+    # before the first full window) mirror the sum/mean branch's partial-prefix handling above via an
+    # EXPANDING (not sliding) window from the start of the group. sliding_window_view cannot express a
+    # window wider than the segment, so a full lstsq-style call would crash here whenever seg_len falls
+    # in [min_periods, window_K) -- this loop is the fix.
+    if min_periods < window_K:
+        for k in range(min_periods - 1, min(window_K - 1, seg_len)):
+            partial = seg[: k + 1]
+            if op == "std":
+                out[seg_idx[k]] = float(partial.std(ddof=1)) if partial.size > 1 else 0.0
+            elif op == "var":
+                out[seg_idx[k]] = float(partial.var(ddof=1)) if partial.size > 1 else 0.0
+            elif op == "median":
+                out[seg_idx[k]] = float(np.median(partial))
+            elif op == "min":
+                out[seg_idx[k]] = float(partial.min())
+            elif op == "max":
+                out[seg_idx[k]] = float(partial.max())
+
+
 def per_group_rolling_reduce(
     values: np.ndarray,
     group_ids: np.ndarray,
@@ -319,8 +391,6 @@ def per_group_rolling_reduce(
     if min_periods < 1 or min_periods > window_K:
         raise ValueError(f"min_periods must be in [1, window_K], got {min_periods}")
 
-    from numpy.lib.stride_tricks import sliding_window_view
-
     values_arr = np.ascontiguousarray(values, dtype=output_dtype)
     out = np.full(values_arr.size, fill_value, dtype=output_dtype)
     sort_idx, starts, ends = iter_group_segments(group_ids)
@@ -332,54 +402,9 @@ def per_group_rolling_reduce(
         if seg_len < min_periods:
             continue
         if op in ("sum", "mean"):
-            # Prefix-sum O(n).
-            seg_f = np.where(np.isfinite(seg), seg, 0.0)
-            cs = np.concatenate(([0.0], np.cumsum(seg_f)))
-            window_sums = cs[window_K:] - cs[:-window_K]
-            if op == "mean":
-                window_sums = window_sums / window_K
-            # Write into out at last-position-anchor of each window.
-            out[seg_idx[window_K - 1 :]] = window_sums
-            # min_periods shorter prefix
-            if min_periods < window_K:
-                for k in range(min_periods - 1, window_K - 1):
-                    if k >= seg_len:
-                        break
-                    s_partial = float(cs[k + 1])
-                    out[seg_idx[k]] = s_partial / (k + 1) if op == "mean" else s_partial
+            _prefix_sum_segment(out, seg_idx, seg, window_K, min_periods, op)
         elif op in ("std", "var", "median", "min", "max"):
-            if seg_len >= window_K:
-                wins = sliding_window_view(seg, window_K)
-                if op == "std":
-                    vals = wins.std(axis=1, ddof=1) if window_K > 1 else np.zeros(wins.shape[0])
-                elif op == "var":
-                    vals = wins.var(axis=1, ddof=1) if window_K > 1 else np.zeros(wins.shape[0])
-                elif op == "median":
-                    vals = np.median(wins, axis=1)
-                elif op == "min":
-                    vals = wins.min(axis=1)
-                elif op == "max":
-                    vals = wins.max(axis=1)
-                out[seg_idx[window_K - 1 :]] = vals
-            # min_periods shorter prefix: rows with fewer than window_K observations available (either because
-            # the segment itself is shorter than window_K, or -- when seg_len >= window_K -- the leading rows
-            # before the first full window) mirror the sum/mean branch's partial-prefix handling above via an
-            # EXPANDING (not sliding) window from the start of the group. sliding_window_view cannot express a
-            # window wider than the segment, so a full lstsq-style call would crash here whenever seg_len falls
-            # in [min_periods, window_K) -- this loop is the fix.
-            if min_periods < window_K:
-                for k in range(min_periods - 1, min(window_K - 1, seg_len)):
-                    partial = seg[: k + 1]
-                    if op == "std":
-                        out[seg_idx[k]] = float(partial.std(ddof=1)) if partial.size > 1 else 0.0
-                    elif op == "var":
-                        out[seg_idx[k]] = float(partial.var(ddof=1)) if partial.size > 1 else 0.0
-                    elif op == "median":
-                        out[seg_idx[k]] = float(np.median(partial))
-                    elif op == "min":
-                        out[seg_idx[k]] = float(partial.min())
-                    elif op == "max":
-                        out[seg_idx[k]] = float(partial.max())
+            _windowed_stat_segment(out, seg_idx, seg, window_K, min_periods, op)
         else:
             raise ValueError(f"op={op!r} not in {{'mean','sum','std','var','min','max','median'}}")
     return out
