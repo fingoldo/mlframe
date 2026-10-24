@@ -18,6 +18,70 @@ import numpy as np
 logger = logging.getLogger("mlframe.training.core._phase_train_one_target")
 
 
+def _all_in_for_report(selector, fitted_columns_in):
+    """Pre-FS feature names: the selector's ``feature_names_in_`` when readable, else the fitted columns."""
+    _all_in = None
+    if selector is not None:
+        try:
+            _all_in = getattr(selector, "feature_names_in_", None)
+        except Exception as e:
+            logger.warning("reading selector.feature_names_in_ failed: %s", e)
+            _all_in = None
+    if _all_in is None:
+        _all_in = fitted_columns_in
+    return _all_in
+
+
+def _dropped_features(_all_in, kept_columns):
+    """Pre-FS names not in ``kept_columns``; ``None`` when either side is unknown or the computation fails."""
+    if _all_in is None or kept_columns is None:
+        return None
+    try:
+        _kept_set = set(kept_columns)
+        return [c for c in _all_in if c not in _kept_set]
+    except Exception as e:
+        logger.warning("computing dropped_features failed: %s", e)
+        return None
+
+
+def _apply_registry_report_extract(_report, _kind, selector, kept_columns):
+    """Fill ``scores`` / ``reason_per_feature`` from the selector's registered ``report_extract`` where the built-in branches left them empty."""
+    if _kind is None:
+        return
+    try:
+        from mlframe.feature_selection.registry import get as _get_selector_spec
+        _spec = _get_selector_spec(_kind)
+        _extract = getattr(_spec, "report_extract", None)
+        if callable(_extract):
+            _frag = _extract(selector, kept_columns)
+            if isinstance(_frag, dict):
+                for _k in ("scores", "reason_per_feature"):
+                    if _report.get(_k) is None and _frag.get(_k) is not None:
+                        _report[_k] = _frag[_k]
+    except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+        logger.debug("suppressed: %s", e)
+
+
+def _add_mrmr_graph_summaries(_report, selector):
+    """Attach the MRMR friend-graph and clustered-aggregate summaries when the selector exposes them."""
+    try:
+        _fg = getattr(selector, "friend_graph_", None)
+        if _fg is not None and hasattr(_fg, "to_meta"):
+            _report["friend_graph"] = _fg.to_meta()
+    except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+        logger.debug("suppressed: %s", e)
+
+    # Clustered-feature aggregation summary (MRMR only). Lists each denoised aggregate built from a
+    # correlated-reflection cluster: its name, chosen combiner method, member features, and the
+    # MI(aggregate;y) vs best-member-MI gain. Already JSON-serializable. Read must never abort the run.
+    try:
+        _ca = getattr(selector, "cluster_aggregate_", None)
+        if _ca:
+            _report["cluster_aggregate"] = _ca
+    except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+        logger.debug("suppressed: %s", e)
+
+
 def _build_feature_selection_report(
     pre_pipeline,
     pre_pipeline_name: str | None,
@@ -70,22 +134,8 @@ def _build_feature_selection_report(
         "reason_per_feature": None,
     }
     # Compute dropped = feature_names_in_ \ kept; selectors stamp ``feature_names_in_`` post-fit.
-    _all_in = None
-    if selector is not None:
-        try:
-            _all_in = getattr(selector, "feature_names_in_", None)
-        except Exception as e:
-            logger.warning("reading selector.feature_names_in_ failed: %s", e)
-            _all_in = None
-    if _all_in is None:
-        _all_in = fitted_columns_in
-    if _all_in is not None and kept_columns is not None:
-        try:
-            _kept_set = set(kept_columns)
-            _report["dropped_features"] = [c for c in _all_in if c not in _kept_set]
-        except Exception as e:
-            logger.warning("computing dropped_features failed: %s", e)
-            _report["dropped_features"] = None
+    _all_in = _all_in_for_report(selector, fitted_columns_in)
+    _report["dropped_features"] = _dropped_features(_all_in, kept_columns)
 
     _mrmr_selection_report(_kind, _report, _all_in, kept_columns, selector)
 
@@ -93,42 +143,12 @@ def _build_feature_selection_report(
     # Selectors registered with a ``report_extract`` (e.g. ShapProxiedFS) get their scores / reason map filled
     # here without a hard-coded branch above, so adding a selector's report logic lives next to its spec. Only
     # fills fields the hard-coded branches left empty -- the built-in MRMR/RFECV/BorutaShap branches still win.
-    if _kind is not None:
-        try:
-            from mlframe.feature_selection.registry import get as _get_selector_spec
-            _spec = _get_selector_spec(_kind)
-            _extract = getattr(_spec, "report_extract", None)
-            if callable(_extract):
-                _frag = _extract(selector, kept_columns)
-                if isinstance(_frag, dict):
-                    for _k in ("scores", "reason_per_feature"):
-                        if _report.get(_k) is None and _frag.get(_k) is not None:
-                            _report[_k] = _frag[_k]
-        except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-            logger.debug("suppressed: %s", e)
-            pass
+    _apply_registry_report_extract(_report, _kind, selector, kept_columns)
 
     # Friend-graph post-analysis summary (MRMR only; absent on other selectors). Compact,
     # JSON-serializable: per-class counts, suspected-sink / pruned feature names, and per-node
     # entropy / relevance / redundancy stats. A failed read must never abort the run.
-    try:
-        _fg = getattr(selector, "friend_graph_", None)
-        if _fg is not None and hasattr(_fg, "to_meta"):
-            _report["friend_graph"] = _fg.to_meta()
-    except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-        logger.debug("suppressed: %s", e)
-        pass
-
-    # Clustered-feature aggregation summary (MRMR only). Lists each denoised aggregate built from a
-    # correlated-reflection cluster: its name, chosen combiner method, member features, and the
-    # MI(aggregate;y) vs best-member-MI gain. Already JSON-serializable. Read must never abort the run.
-    try:
-        _ca = getattr(selector, "cluster_aggregate_", None)
-        if _ca:
-            _report["cluster_aggregate"] = _ca
-    except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-        logger.debug("suppressed: %s", e)
-        pass
+    _add_mrmr_graph_summaries(_report, selector)
 
     return _report
 

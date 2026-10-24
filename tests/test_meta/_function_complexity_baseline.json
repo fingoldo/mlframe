@@ -179,7 +179,6 @@
   "src/mlframe/training/core/_phase_train_one_target.py::_apply_loss_recommendation_in_place": 21,
   "src/mlframe/training/core/_phase_train_one_target.py::_selector_kind": 17,
   "src/mlframe/training/core/_phase_train_one_target_ensembling.py::_tune_decision_thresholds": 17,
-  "src/mlframe/training/core/_phase_train_one_target_helpers.py::_build_feature_selection_report": 16,
   "src/mlframe/training/core/_phase_train_one_target_helpers.py::_mrmr_selection_report": 18,
   "src/mlframe/training/core/_phase_train_one_target_post.py::_run_per_model_post_train_tail": 16,
   "src/mlframe/training/core/_phase_train_one_target_pre_screen.py::_maybe_run_unsupervised_pre_screen": 18,
