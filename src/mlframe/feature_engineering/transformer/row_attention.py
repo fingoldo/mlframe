@@ -39,6 +39,74 @@ DEFAULT_ANN_EF_CONSTRUCTION = 200
 DEFAULT_ANN_EF_SEARCH = 64
 
 
+def _validate_row_attention_inputs(X_train, y_train, X_query, *, k, metric, softmax_temp, aggregate, head_dim, allow_overcomplete):
+    """Raise ``ValueError`` for any shape, range or option the row-attention pipeline cannot honour."""
+    validate_numeric_input(X_train, name="X_train", allow_fp16=True)
+    if X_query is not None:
+        validate_numeric_input(X_query, name="X_query", allow_fp16=True)
+        if X_query.shape[1] != X_train.shape[1]:
+            raise ValueError(f"X_query has d={X_query.shape[1]} but X_train has d={X_train.shape[1]}.")
+    if y_train.ndim != 1:
+        raise ValueError(f"y_train must be 1-D for v1 (multi-output deferred to v1.1); got shape {y_train.shape}.")
+    if y_train.shape[0] != X_train.shape[0]:
+        raise ValueError(f"y_train length {y_train.shape[0]} != X_train rows {X_train.shape[0]}.")
+    if k < 1 or k > X_train.shape[0]:
+        raise ValueError(f"k must be in [1, n_train]; got {k} with n_train={X_train.shape[0]}.")
+    if metric != "cosine":
+        raise ValueError(f"metric='{metric}' not in v1; only 'cosine' is supported (multi-metric cycling dropped per ML #9 critique).")
+    if softmax_temp <= 0:
+        raise ValueError(f"softmax_temp must be positive; got {softmax_temp}.")
+    valid_aggs = ("y_mean", "y_std", "x_mean", "y_iqr", "y_skew", "x_centroid_dist")
+    for agg in aggregate:
+        if agg not in valid_aggs:
+            raise ValueError(f"aggregate item '{agg}' not in {valid_aggs}.")
+
+    validate_projection_dims(X_train.shape[1], head_dim, allow_overcomplete=allow_overcomplete)
+
+def _attend_one_scale(
+    X_train, y_train, X_query, splitter, k_value, *,
+    seed, n_heads, head_dim, softmax_temp, aggregate, standardize, projection, keep_key_bank_on_gpu,
+    ann_M, ann_ef_construction, ann_ef_search, num_threads, stage4_callable, dtype, cache_dir,
+) -> dict:
+    """Run one k-scale of the pipeline: OOF over ``splitter`` in Mode A, key-bank attend in Mode B; return the per-head output arrays."""
+    if X_query is None:
+        outputs = kfold_attention_loop(
+            X_train=X_train, y_train=y_train, splitter=splitter,
+            seed=seed, n_heads=n_heads, head_dim=head_dim, k=k_value, softmax_temp=softmax_temp,
+            aggregate=aggregate, standardize=standardize,
+            ann_M=ann_M, ann_ef_construction=ann_ef_construction, ann_ef_search=ann_ef_search,
+            num_threads=num_threads, stage4_callable=stage4_callable, dtype=dtype,
+            projection=projection,
+        )
+    else:
+        bank = build_key_bank(
+            X_train=X_train, y_train=y_train, seed=seed, n_heads=n_heads, head_dim=head_dim,
+            standardize=standardize, ann_M=ann_M, ann_ef_construction=ann_ef_construction,
+            num_threads=num_threads, dtype=dtype, cache_dir=cache_dir, projection=projection,
+        )
+        if keep_key_bank_on_gpu and is_gpu_available():
+            bank.to_device()
+        try:
+            outputs = attend(
+                bank=bank, X_query=X_query, k=k_value, softmax_temp=softmax_temp, aggregate=aggregate,
+                ann_ef_search=ann_ef_search, num_threads=num_threads, stage4_callable=stage4_callable, dtype=dtype,
+            )
+        finally:
+            # wrap free_device in try/except so CUDA cleanup
+            # errors on a broken context (e.g. after attend() OOM) don't mask the
+            # original failure the operator needs to see.
+            if keep_key_bank_on_gpu:
+                try:
+                    bank.free_device()
+                except Exception as _free_err:
+                    import logging as _lg
+                    _lg.getLogger(__name__).warning(
+                        "row_attention: bank.free_device() failed (likely after upstream CUDA error): %s",
+                        _free_err,
+                    )
+    return outputs
+
+
 def compute_row_attention(
     X_train: np.ndarray,
     y_train: np.ndarray,
@@ -95,27 +163,10 @@ def compute_row_attention(
         - At N=10M, d=20k: Mode A takes ~1-2 hours (5x hnswlib build dominates); Mode B takes ~30-45 min one-time, then ~12 s per 1M-query batch.
     """
     seed = require_seed(seed)
-    validate_numeric_input(X_train, name="X_train", allow_fp16=True)
-    if X_query is not None:
-        validate_numeric_input(X_query, name="X_query", allow_fp16=True)
-        if X_query.shape[1] != X_train.shape[1]:
-            raise ValueError(f"X_query has d={X_query.shape[1]} but X_train has d={X_train.shape[1]}.")
-    if y_train.ndim != 1:
-        raise ValueError(f"y_train must be 1-D for v1 (multi-output deferred to v1.1); got shape {y_train.shape}.")
-    if y_train.shape[0] != X_train.shape[0]:
-        raise ValueError(f"y_train length {y_train.shape[0]} != X_train rows {X_train.shape[0]}.")
-    if k < 1 or k > X_train.shape[0]:
-        raise ValueError(f"k must be in [1, n_train]; got {k} with n_train={X_train.shape[0]}.")
-    if metric != "cosine":
-        raise ValueError(f"metric='{metric}' not in v1; only 'cosine' is supported (multi-metric cycling dropped per ML #9 critique).")
-    if softmax_temp <= 0:
-        raise ValueError(f"softmax_temp must be positive; got {softmax_temp}.")
-    valid_aggs = ("y_mean", "y_std", "x_mean", "y_iqr", "y_skew", "x_centroid_dist")
-    for agg in aggregate:
-        if agg not in valid_aggs:
-            raise ValueError(f"aggregate item '{agg}' not in {valid_aggs}.")
-
-    validate_projection_dims(X_train.shape[1], head_dim, allow_overcomplete=allow_overcomplete)
+    _validate_row_attention_inputs(
+        X_train, y_train, X_query, k=k, metric=metric, softmax_temp=softmax_temp, aggregate=aggregate,
+        head_dim=head_dim, allow_overcomplete=allow_overcomplete,
+    )
 
     stage4_callable = _select_stage4_backend(gpu_stage4=gpu_stage4, n_queries_hint=(X_query.shape[0] if X_query is not None else X_train.shape[0] // max(1, _splitter_n_splits(splitter))))
 
@@ -126,41 +177,13 @@ def compute_row_attention(
     all_names: list[str] = []
 
     for k_value in ks_to_run:
-        if X_query is None:
-            outputs = kfold_attention_loop(
-                X_train=X_train, y_train=y_train, splitter=splitter,
-                seed=seed, n_heads=n_heads, head_dim=head_dim, k=k_value, softmax_temp=softmax_temp,
-                aggregate=aggregate, standardize=standardize,
-                ann_M=ann_M, ann_ef_construction=ann_ef_construction, ann_ef_search=ann_ef_search,
-                num_threads=num_threads, stage4_callable=stage4_callable, dtype=dtype,
-                projection=projection,
-            )
-        else:
-            bank = build_key_bank(
-                X_train=X_train, y_train=y_train, seed=seed, n_heads=n_heads, head_dim=head_dim,
-                standardize=standardize, ann_M=ann_M, ann_ef_construction=ann_ef_construction,
-                num_threads=num_threads, dtype=dtype, cache_dir=cache_dir, projection=projection,
-            )
-            if keep_key_bank_on_gpu and is_gpu_available():
-                bank.to_device()
-            try:
-                outputs = attend(
-                    bank=bank, X_query=X_query, k=k_value, softmax_temp=softmax_temp, aggregate=aggregate,
-                    ann_ef_search=ann_ef_search, num_threads=num_threads, stage4_callable=stage4_callable, dtype=dtype,
-                )
-            finally:
-                # wrap free_device in try/except so CUDA cleanup
-                # errors on a broken context (e.g. after attend() OOM) don't mask the
-                # original failure the operator needs to see.
-                if keep_key_bank_on_gpu:
-                    try:
-                        bank.free_device()
-                    except Exception as _free_err:
-                        import logging as _lg
-                        _lg.getLogger(__name__).warning(
-                            "row_attention: bank.free_device() failed (likely after upstream CUDA error): %s",
-                            _free_err,
-                        )
+        outputs = _attend_one_scale(
+            X_train, y_train, X_query, splitter, k_value,
+            seed=seed, n_heads=n_heads, head_dim=head_dim, softmax_temp=softmax_temp, aggregate=aggregate,
+            standardize=standardize, projection=projection, keep_key_bank_on_gpu=keep_key_bank_on_gpu,
+            ann_M=ann_M, ann_ef_construction=ann_ef_construction, ann_ef_search=ann_ef_search,
+            num_threads=num_threads, stage4_callable=stage4_callable, dtype=dtype, cache_dir=cache_dir,
+        )
         # Tag each k-scale's output keys with the k value to keep column names unique across scales. The tag must be a PREFIX (k32_y_mean_h0) so the
         # ``stack_outputs_to_array`` lookup pattern ``f"{agg}_h{h}"`` continues to find the right key (k32_y_mean is the aggregate, h0 is appended by the stack).
         if len(ks_to_run) > 1:
