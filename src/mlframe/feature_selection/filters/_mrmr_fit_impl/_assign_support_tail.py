@@ -645,6 +645,93 @@ def _assign_support_tai_g_step1_map_each_surviving(self, _post_recipes, _post_se
     return selected_vars
 
 
+def _augment_support_with_raw_sources(self, selected_vars, n_engineered_out, cols, data, _allowed_raw_idx) -> None:
+    """Re-attach raw columns that are the source of a confirmed engineered recipe and clear the relevance floor, excluding operands the redundancy sweep dropped."""
+    # Source tokens referenced by any confirmed engineered recipe (split on the engineered-name separators ``__``, ``(``, ``|``, ``)``, ``,``).
+    import re as _re_aug
+    _eng_names = []
+    for _r in self._engineered_recipes_ or []:
+        # EngineeredRecipe's real field is `name` (`output_name` is not an attribute of any
+        # recipe class here); the dict fallback covers plain-dict recipe representations.
+        _nm = getattr(_r, "name", None)
+        if _nm is None and isinstance(_r, dict):
+            _nm = _r.get("name")
+        if _nm:
+            _eng_names.append(str(_nm))
+    _eng_tokens = set()
+    for _nm in _eng_names:
+        for _tok in _re_aug.split(r"[^0-9A-Za-z_]+", _nm.replace("__", " ")):
+            if _tok:
+                _eng_tokens.add(_tok)
+    # Members folded into a denoised aggregate - cluster_aggregate 'replace' mode (``_cluster_aggregate_removals_``) or a DCD PC1/mean_z swap (``cluster_members_``) - are
+    # ALREADY represented by that aggregate and were deliberately removed from the support. The token scan above matches them anyway because the member NAME survives as a
+    # token inside OTHER engineered recipe names (e.g. ``add(refl0,sin(indep))``), so without this exclusion the augmentation resurrects the very members 'replace' mode and
+    # DCD just collapsed, re-injecting the redundancy. Mirror the same exclusion the raw-retention block and the additional-RFECV rescue pool apply.
+    _aug_excluded_names = set(getattr(self, "_cluster_aggregate_removals_", None) or [])
+    _cm_for_aug = getattr(self, "cluster_members_", None)
+    if isinstance(_cm_for_aug, dict):
+        for _anchor, _members in _cm_for_aug.items():
+            _aug_excluded_names.add(_anchor)
+            if isinstance(_members, (list, tuple, set)):
+                _aug_excluded_names.update(_members)
+    _name_to_cols_idx_aug = {c: i for i, c in enumerate(cols)}
+    _abs_floor_aug = float(getattr(self, "min_relevance_gain", 0.0) or 0.0)
+    _rel_frac_aug = float(getattr(self, "min_relevance_gain_relative_to_first", 0.0) or 0.0)
+    _raw_mi_aug = []
+    for _i in range(self.n_features_in_):
+        _name = self.feature_names_in_[_i] if _i < len(self.feature_names_in_) else None
+        _aug_ci = _name_to_cols_idx_aug.get(_name)
+        _mi = self.cached_MIs.get((_aug_ci,), 0.0) if _aug_ci is not None else 0.0
+        _raw_mi_aug.append((_i, _name, float(_mi)))
+    _max_mi_aug = max((m for _, _, m in _raw_mi_aug), default=0.0)
+    _floor_aug = max(_abs_floor_aug, _max_mi_aug * _rel_frac_aug)
+    _selected_set = set(int(v) for v in selected_vars)
+    # LARGE-N SCOPE: this augmentation re-attaches a raw
+    # column whose NAME is a source token of a confirmed engineered recipe and whose
+    # MARGINAL MI clears the relevance floor. Marginal MI cannot tell a FULLY-ABSORBED
+    # operand (``a`` in ``div(sqr(a),abs(b))`` for ``y=a**2/b`` - high marginal MI, ZERO
+    # conditional signal beyond the ratio) from a genuine independent term, so on the
+    # canonical composite fixtures it resurrected exactly the redundant raw operands the
+    # post-FE re-selection had correctly dropped (support_rank -1, no gain). At large n the
+    # re-selection's conditional-MI redundancy verdict is reliable, so we DEFER to it: skip
+    # the token-based re-attach for any raw column that is an operand of a SURVIVING
+    # engineered feature. The small-n regime (where the augmentation was validated) keeps
+    # the marginal-MI re-attach. Threshold shared with the raw-retention pass above.
+    # ``selected_vars`` here holds RAW indices into ``feature_names_in_`` (the surviving
+    # engineered columns live in ``self._engineered_recipes_`` / ``_engineered_features_``,
+    # not in ``selected_vars``). Derive the surviving engineered OPERANDS from the recipe
+    # source tokens (``_eng_tokens`` already = every source token of every confirmed recipe,
+    # restricted here to raw names), since every confirmed engineered child contributes its
+    # operands to that set. A raw column that is such an operand was dropped by the
+    # re-selection IN FAVOUR of its engineered child -> at large n, do not resurrect it.
+    _aug_max_n = int(getattr(self, "fe_raw_retention_max_n", 20000) or 0)
+    _aug_large_n = int(data.shape[0]) > _aug_max_n
+    _raw_names_for_aug = set(self.feature_names_in_)
+    _surviving_eng_operands = {t for t in _eng_tokens if t in _raw_names_for_aug} if _aug_large_n else set()
+    # Operands the n-invariant conditional-redundancy sweep dropped are authoritative
+    # at EVERY n - never re-attach them here (the marginal-MI token match cannot tell
+    # a fully-subsumed operand from a genuine independent term; the excess-CMI sweep can).
+    _redund_dropped_names = set(getattr(self, "_raw_redundancy_dropped_", None) or ())
+    # The caller's pinned search space (``factors_names_to_use`` / ``factors_to_use``) is enforced
+    # at the single chokepoint before support_ is frozen, precisely because re-add passes like
+    # this one run AFTER it. Every sibling re-add re-checks it explicitly; this one did not, so a
+    # raw column the caller excluded re-entered support_ whenever its name appeared as a source
+    # token of a confirmed recipe and its marginal MI cleared the floor -- and the fit is cached
+    # and replayed, so the leak persisted.
+    _selected_degenerate_roots = _degenerate_class_roots(self, [cols[int(v)] for v in selected_vars if 0 <= int(v) < len(cols)])
+    _to_add = [i for i, _name, m in sorted(_raw_mi_aug, key=lambda kv: (-kv[2], kv[0]))
+               if m > _floor_aug and i not in _selected_set and _name in _eng_tokens
+               and _degenerate_class_root(self, _name) not in _selected_degenerate_roots
+               and _name not in _aug_excluded_names
+               and _name not in _redund_dropped_names
+               and (_allowed_raw_idx is None or int(i) in _allowed_raw_idx)
+               and not (_aug_large_n and _name in _surviving_eng_operands)]
+    if _to_add:
+        selected_vars.extend(_to_add)
+        self.support_ = np.array(selected_vars, dtype=np.int64)
+        self.n_features_ = len(selected_vars) + n_engineered_out
+
+
 def _assign_support_tai_engineered_features_without_replayable(self, selected_vars, n_engineered_out, cols, data, _allowed_raw_idx, nbins, target_indices):
     """Block of _assign_support_tail starting at ``if selected_vars:``."""
     if selected_vars:
@@ -659,89 +746,7 @@ def _assign_support_tai_engineered_features_without_replayable(self, selected_va
         _min_fb_aug = int(getattr(self, "min_features_fallback", 0) or 0)
         if _min_fb_aug >= 1 and self.n_features_in_ > 0 and hasattr(self, "cached_MIs") and n_engineered_out > 0:
             try:
-                # Source tokens referenced by any confirmed engineered recipe (split on the engineered-name separators ``__``, ``(``, ``|``, ``)``, ``,``).
-                import re as _re_aug
-                _eng_names = []
-                for _r in self._engineered_recipes_ or []:
-                    # EngineeredRecipe's real field is `name` (`output_name` is not an attribute of any
-                    # recipe class here); the dict fallback covers plain-dict recipe representations.
-                    _nm = getattr(_r, "name", None)
-                    if _nm is None and isinstance(_r, dict):
-                        _nm = _r.get("name")
-                    if _nm:
-                        _eng_names.append(str(_nm))
-                _eng_tokens = set()
-                for _nm in _eng_names:
-                    for _tok in _re_aug.split(r"[^0-9A-Za-z_]+", _nm.replace("__", " ")):
-                        if _tok:
-                            _eng_tokens.add(_tok)
-                # Members folded into a denoised aggregate - cluster_aggregate 'replace' mode (``_cluster_aggregate_removals_``) or a DCD PC1/mean_z swap (``cluster_members_``) - are
-                # ALREADY represented by that aggregate and were deliberately removed from the support. The token scan above matches them anyway because the member NAME survives as a
-                # token inside OTHER engineered recipe names (e.g. ``add(refl0,sin(indep))``), so without this exclusion the augmentation resurrects the very members 'replace' mode and
-                # DCD just collapsed, re-injecting the redundancy. Mirror the same exclusion the raw-retention block and the additional-RFECV rescue pool apply.
-                _aug_excluded_names = set(getattr(self, "_cluster_aggregate_removals_", None) or [])
-                _cm_for_aug = getattr(self, "cluster_members_", None)
-                if isinstance(_cm_for_aug, dict):
-                    for _anchor, _members in _cm_for_aug.items():
-                        _aug_excluded_names.add(_anchor)
-                        if isinstance(_members, (list, tuple, set)):
-                            _aug_excluded_names.update(_members)
-                _name_to_cols_idx_aug = {c: i for i, c in enumerate(cols)}
-                _abs_floor_aug = float(getattr(self, "min_relevance_gain", 0.0) or 0.0)
-                _rel_frac_aug = float(getattr(self, "min_relevance_gain_relative_to_first", 0.0) or 0.0)
-                _raw_mi_aug = []
-                for _i in range(self.n_features_in_):
-                    _name = self.feature_names_in_[_i] if _i < len(self.feature_names_in_) else None
-                    _aug_ci = _name_to_cols_idx_aug.get(_name)
-                    _mi = self.cached_MIs.get((_aug_ci,), 0.0) if _aug_ci is not None else 0.0
-                    _raw_mi_aug.append((_i, _name, float(_mi)))
-                _max_mi_aug = max((m for _, _, m in _raw_mi_aug), default=0.0)
-                _floor_aug = max(_abs_floor_aug, _max_mi_aug * _rel_frac_aug)
-                _selected_set = set(int(v) for v in selected_vars)
-                # LARGE-N SCOPE: this augmentation re-attaches a raw
-                # column whose NAME is a source token of a confirmed engineered recipe and whose
-                # MARGINAL MI clears the relevance floor. Marginal MI cannot tell a FULLY-ABSORBED
-                # operand (``a`` in ``div(sqr(a),abs(b))`` for ``y=a**2/b`` - high marginal MI, ZERO
-                # conditional signal beyond the ratio) from a genuine independent term, so on the
-                # canonical composite fixtures it resurrected exactly the redundant raw operands the
-                # post-FE re-selection had correctly dropped (support_rank -1, no gain). At large n the
-                # re-selection's conditional-MI redundancy verdict is reliable, so we DEFER to it: skip
-                # the token-based re-attach for any raw column that is an operand of a SURVIVING
-                # engineered feature. The small-n regime (where the augmentation was validated) keeps
-                # the marginal-MI re-attach. Threshold shared with the raw-retention pass above.
-                # ``selected_vars`` here holds RAW indices into ``feature_names_in_`` (the surviving
-                # engineered columns live in ``self._engineered_recipes_`` / ``_engineered_features_``,
-                # not in ``selected_vars``). Derive the surviving engineered OPERANDS from the recipe
-                # source tokens (``_eng_tokens`` already = every source token of every confirmed recipe,
-                # restricted here to raw names), since every confirmed engineered child contributes its
-                # operands to that set. A raw column that is such an operand was dropped by the
-                # re-selection IN FAVOUR of its engineered child -> at large n, do not resurrect it.
-                _aug_max_n = int(getattr(self, "fe_raw_retention_max_n", 20000) or 0)
-                _aug_large_n = int(data.shape[0]) > _aug_max_n
-                _raw_names_for_aug = set(self.feature_names_in_)
-                _surviving_eng_operands = {t for t in _eng_tokens if t in _raw_names_for_aug} if _aug_large_n else set()
-                # Operands the n-invariant conditional-redundancy sweep dropped are authoritative
-                # at EVERY n - never re-attach them here (the marginal-MI token match cannot tell
-                # a fully-subsumed operand from a genuine independent term; the excess-CMI sweep can).
-                _redund_dropped_names = set(getattr(self, "_raw_redundancy_dropped_", None) or ())
-                # The caller's pinned search space (``factors_names_to_use`` / ``factors_to_use``) is enforced
-                # at the single chokepoint before support_ is frozen, precisely because re-add passes like
-                # this one run AFTER it. Every sibling re-add re-checks it explicitly; this one did not, so a
-                # raw column the caller excluded re-entered support_ whenever its name appeared as a source
-                # token of a confirmed recipe and its marginal MI cleared the floor -- and the fit is cached
-                # and replayed, so the leak persisted.
-                _selected_degenerate_roots = _degenerate_class_roots(self, [cols[int(v)] for v in selected_vars if 0 <= int(v) < len(cols)])
-                _to_add = [i for i, _name, m in sorted(_raw_mi_aug, key=lambda kv: (-kv[2], kv[0]))
-                           if m > _floor_aug and i not in _selected_set and _name in _eng_tokens
-                           and _degenerate_class_root(self, _name) not in _selected_degenerate_roots
-                           and _name not in _aug_excluded_names
-                           and _name not in _redund_dropped_names
-                           and (_allowed_raw_idx is None or int(i) in _allowed_raw_idx)
-                           and not (_aug_large_n and _name in _surviving_eng_operands)]
-                if _to_add:
-                    selected_vars.extend(_to_add)
-                    self.support_ = np.array(selected_vars, dtype=np.int64)
-                    self.n_features_ = len(selected_vars) + n_engineered_out
+                _augment_support_with_raw_sources(self, selected_vars, n_engineered_out, cols, data, _allowed_raw_idx)
             except Exception as _exc_aug:
                 logger.warning("MRMR raw-signal-retention augmentation failed: %s; keeping greedy support.", _exc_aug)
     elif getattr(self, "_redundancy_emptied_raw_", False):
