@@ -7762,7 +7762,7 @@ requires-dist = [
     { name = "umap-learn", marker = "extra == 'unsupervised'", specifier = ">=0.5" },
     { name = "uncertainty-calibration", marker = "extra == 'calibration'", specifier = ">=0.1" },
     { name = "urllib3", marker = "python_full_version >= '3.10' and extra == 'dev'", specifier = ">=2.8.0" },
-    { name = "vegafusion", extras = ["embed"], marker = "extra == 'viz'", specifier = ">=1.5" },
+    { name = "vegafusion", extras = ["embed"], marker = "extra == 'viz'", specifier = ">=2.0.3" },
     { name = "venn-abers", marker = "extra == 'calibration'", specifier = ">=1.4" },
     { name = "virtualenv", marker = "extra == 'dev'", specifier = ">=21.14.5" },
     { name = "vl-convert-python", marker = "extra == 'viz'", specifier = ">=1.0" },
