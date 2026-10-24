@@ -916,8 +916,7 @@ def hybrid_conditional_gate_fe_with_recipes(
     RELEVANCE-PRUNED candidate set: the sweep cost is O(k_operand^2 * k_gate * tau-scan), FLAT in p - the gate column c is drawn
     from the top-``k_gate`` columns by raw MI vs y and the operands a, b from the top-``k_operand`` (see ``cheap_conditional_gate_scan``).
     With k=8/10 the added cost is a small constant whether p=30 or p=300, so the prior O(p^3) blow-up that forced this OFF is gone.
-    The column-count BUDGET GUARD (``max_cols``, default 200) is kept as a defense-in-depth outer cap: an absurdly wide frame still
-    skips the whole sweep (logged, never silent). The detector gates vs the HARDENED best-existing-op baseline so smooth / ordinary_mul
+    ``max_cols`` (default 200) no longer skips the sweep: it is logged when exceeded, and the relevance pruning bounds the cost. The detector gates vs the HARDENED best-existing-op baseline so smooth / ordinary_mul
     controls stay silent (0 FP at p=30 over 3 seeds).
 
     Returns ``(appended_names, recipes)`` - the materialised columns are NOT concatenated here (the MRMR caller appends them under
@@ -929,11 +928,12 @@ def hybrid_conditional_gate_fe_with_recipes(
 
     p = len(elig)
     if p > int(max_cols):
+        # The sweep is relevance-pruned (top-k gate and operand columns by raw MI), so its cost does not grow with p: a wide frame is swept
+        # in full rather than skipped. The planted gate is lost at p=260 with the skip and found without it (D:/Temp/gate_cap.py).
         logger.info(
-            "conditional_gate FE: %d eligible columns exceeds max_cols=%d; skipping the conditional-gate sweep for budget.",
+            "conditional_gate FE: %d eligible columns exceeds max_cols=%d; sweeping all of them over the relevance-pruned candidate set.",
             p, int(max_cols),
         )
-        return [], []
 
     hits = cheap_conditional_gate_scan(
         X, y, elig, nbins=nbins, seed=seed, k_gate=k_gate, k_operand=k_operand, subsample_n=subsample_n,

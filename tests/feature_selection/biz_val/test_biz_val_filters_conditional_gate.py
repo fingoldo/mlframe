@@ -295,17 +295,19 @@ class TestMRMRIntegration:
         assert any("sweeping all of them with the triple budget" in r.message for r in caplog.records)
         assert any({"c0", "c1", "c2"} <= set(name.replace("(", "_").replace(")", "_").replace(",", "_").split("_")) for name in appended), appended
 
-    def test_gate_budget_guard_skips_and_logs(self, caplog):
-        """Gate budget guard skips and logs."""
+    def test_gate_budget_guard_logs_and_still_sweeps_a_wide_frame(self, caplog):
+        """Over ``max_cols`` the gate sweep is logged and still runs: its candidates are relevance-pruned, so a wide frame keeps its gate.
+
+        A skipped sweep lost the planted gate at p=260 with the default budget of 200; the budget no longer decides whether the sweep runs."""
         rng = np.random.default_rng(7)
         n = 2000
         cols = {f"c{i}": rng.normal(0, 1, n) for i in range(25)}
         X = pd.DataFrame(cols)
         y = (np.where(X["c2"].to_numpy() > 0, X["c0"].to_numpy(), X["c1"].to_numpy()) > 0).astype(int)
         with caplog.at_level(logging.INFO, logger="mlframe.feature_selection.filters._conditional_gate_fe"):
-            appended, recipes = hybrid_conditional_gate_fe_with_recipes(X, y, seed=7, max_cols=20)
-        assert any("skipping the conditional-gate sweep" in r.message for r in caplog.records)
-        assert appended == [] and recipes == []
+            appended, _recipes = hybrid_conditional_gate_fe_with_recipes(X, y, seed=7, max_cols=20)
+        assert any("sweeping all of them over the relevance-pruned candidate set" in r.message for r in caplog.records)
+        assert any(name.startswith("gate_select") for name in appended), appended
 
     @pytest.mark.timeout(1800)
     def test_gate_specific_on_noise_regression_target_no_hang(self):
