@@ -102,7 +102,6 @@
   "src/mlframe/feature_selection/filters/composition.py::compose_pair_fe": 19,
   "src/mlframe/feature_selection/filters/discretization/__init__.py::categorize_1d_array": 18,
   "src/mlframe/feature_selection/filters/discretization/_multiselect.py::multiselect_inplace": 17,
-  "src/mlframe/feature_selection/filters/engineered_recipes/_recipe_extract.py::_coerce_to_int_with_nan_handling": 16,
   "src/mlframe/feature_selection/filters/engineered_recipes/_recipe_unary_binary.py::build_unary_binary_recipe": 17,
   "src/mlframe/feature_selection/filters/engineered_recipes/_recipe_unary_binary_gpu.py::_gpu_binary": 17,
   "src/mlframe/feature_selection/filters/engineered_recipes/_recipe_unary_binary_gpu.py::_gpu_unary": 20,
