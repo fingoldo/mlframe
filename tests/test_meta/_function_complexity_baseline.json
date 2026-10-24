@@ -1,5 +1,4 @@
 {
-  "src/mlframe/feature_engineering/basic.py::add_cyclical_date_features": 22,
   "src/mlframe/feature_engineering/basic.py::create_date_features": 18,
   "src/mlframe/feature_engineering/bayesian.py::_bocpd_inner": 16,
   "src/mlframe/feature_engineering/financial.py::add_ohlcv_ratios_rlags": 18,

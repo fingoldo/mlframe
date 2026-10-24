@@ -399,6 +399,74 @@ def create_date_features(
     return df
 
 
+def _cyclical_pandas_columns(
+    df: pd.DataFrame,
+    cols: List[str],
+    periods: Sequence[Tuple[str, Union[float, str]]],
+    two_pi: float,
+    _precomputed_bases: Optional[Dict[Tuple[str, str], np.ndarray]],
+) -> Dict[str, np.ndarray]:
+    """Return the sin/cos columns for the pandas backend, keyed by output column name."""
+    new_cols: Dict[str, np.ndarray] = {}
+    for col in cols:
+        obj = df[col].dt
+        for period_name, period_value in periods:
+            if period_value == MONTH_LENGTH_PERIOD:
+                if period_name != "day":
+                    raise ValueError(f"{MONTH_LENGTH_PERIOD!r} is a period for day-of-month only, got it for {period_name!r}")
+                fraction = ((obj.day - 1) / obj.days_in_month).to_numpy(dtype=np.float64)
+                s, c = _cyclical_sincos_njit(np.ascontiguousarray(fraction), two_pi)
+                new_cols[f"{col}_{period_name}_sin"] = s
+                new_cols[f"{col}_{period_name}_cos"] = c
+                continue
+            precomputed = None if _precomputed_bases is None else _precomputed_bases.get((col, period_name))
+            if precomputed is not None:
+                # The integer date field already extracted by create_date_features equals the float field
+                # bit-for-bit (verified: integer-cast-to-float == direct float extraction for day/weekday/month/day_of_year),
+                # so reuse it instead of decoding the int64-ns array a second time.
+                base = np.ascontiguousarray(precomputed, dtype=np.float64)
+            else:
+                base = _resolve_pandas_method(obj, period_name, np.float64).to_numpy()
+                base = np.ascontiguousarray(base, dtype=np.float64)
+            s, c = _cyclical_sincos_njit(base, two_pi / float(period_value))
+            new_cols[f"{col}_{period_name}_sin"] = s
+            new_cols[f"{col}_{period_name}_cos"] = c
+    return new_cols
+
+
+def _cyclical_polars_exprs(
+    cols: List[str],
+    periods: Sequence[Tuple[str, Union[float, str]]],
+    two_pi: float,
+) -> List[pl.Expr]:
+    """Return the polars sin/cos expressions for every ``(col, period)`` pair."""
+    all_exprs: List[pl.Expr] = []
+    for col in cols:
+        col_dt = pl.col(col).dt
+        for period_name, period_value in periods:
+            if period_name == "is_weekend":
+                raise ValueError("is_weekend is a binary indicator, not periodic; cyclical encoding is meaningless. Drop it from `periods`.")
+            if period_value == MONTH_LENGTH_PERIOD:
+                if period_name != "day":
+                    raise ValueError(f"{MONTH_LENGTH_PERIOD!r} is a period for day-of-month only, got it for {period_name!r}")
+                days_in_month = col_dt.month_end().dt.day().cast(pl.Float64)
+                angle_expr = (col_dt.day().cast(pl.Float64) - 1.0) / days_in_month * two_pi
+                all_exprs.append(angle_expr.sin().cast(pl.Float32).alias(f"{col}_{period_name}_sin"))
+                all_exprs.append(angle_expr.cos().cast(pl.Float32).alias(f"{col}_{period_name}_cos"))
+                continue
+            if period_name == "weekday":
+                base_expr = (col_dt.weekday() - 1).cast(pl.Float64)
+            else:
+                pl_name = _DATE_METHOD_ALIASES.get(period_name, (None, period_name))[1]
+                if pl_name is None or not hasattr(col_dt, pl_name):
+                    raise ValueError(f"Unknown polars .dt accessor for period {period_name!r}")
+                base_expr = getattr(col_dt, pl_name)().cast(pl.Float64)
+            angle_expr = base_expr * two_pi / float(period_value)
+            all_exprs.append(angle_expr.sin().cast(pl.Float32).alias(f"{col}_{period_name}_sin"))
+            all_exprs.append(angle_expr.cos().cast(pl.Float32).alias(f"{col}_{period_name}_cos"))
+    return all_exprs
+
+
 def add_cyclical_date_features(
     df: Union[pd.DataFrame, pl.DataFrame],
     cols: List[str],
@@ -466,62 +534,13 @@ def add_cyclical_date_features(
 
     if is_pandas:
         df = df.copy(deep=False)  # type: ignore[union-attr]  # is_pandas guards this to a pandas.DataFrame; mypy can't narrow the Union on a bool flag
-        # Batch all sin/cos columns into one pd.concat (see create_date_features) to avoid
-        # block-manager fragmentation from column-at-a-time assignment.
-        new_cols: Dict[str, np.ndarray] = {}
-        for col in cols:
-            obj = df[col].dt
-            for period_name, period_value in periods:
-                if period_value == MONTH_LENGTH_PERIOD:
-                    if period_name != "day":
-                        raise ValueError(f"{MONTH_LENGTH_PERIOD!r} is a period for day-of-month only, got it for {period_name!r}")
-                    fraction = ((obj.day - 1) / obj.days_in_month).to_numpy(dtype=np.float64)
-                    s, c = _cyclical_sincos_njit(np.ascontiguousarray(fraction), two_pi)
-                    new_cols[f"{col}_{period_name}_sin"] = s
-                    new_cols[f"{col}_{period_name}_cos"] = c
-                    continue
-                precomputed = None if _precomputed_bases is None else _precomputed_bases.get((col, period_name))
-                if precomputed is not None:
-                    # The integer date field already extracted by create_date_features equals the float field
-                    # bit-for-bit (verified: integer-cast-to-float == direct float extraction for day/weekday/month/day_of_year),
-                    # so reuse it instead of decoding the int64-ns array a second time.
-                    base = np.ascontiguousarray(precomputed, dtype=np.float64)
-                else:
-                    base = _resolve_pandas_method(obj, period_name, np.float64).to_numpy()
-                    base = np.ascontiguousarray(base, dtype=np.float64)
-                s, c = _cyclical_sincos_njit(base, two_pi / float(period_value))
-                new_cols[f"{col}_{period_name}_sin"] = s
-                new_cols[f"{col}_{period_name}_cos"] = c
+        new_cols = _cyclical_pandas_columns(df, cols, periods, two_pi, _precomputed_bases)
         if new_cols:
             df = pd.concat([df, pd.DataFrame(new_cols, index=df.index)], axis=1, copy=False)
         if delete_original_cols:
             df = df.drop(columns=cols)
     else:
-        all_exprs = []
-        for col in cols:
-            col_dt = pl.col(col).dt
-            for period_name, period_value in periods:
-                if period_name == "is_weekend":
-                    raise ValueError("is_weekend is a binary indicator, not periodic; cyclical encoding is meaningless. Drop it from `periods`.")
-                if period_value == MONTH_LENGTH_PERIOD:
-                    if period_name != "day":
-                        raise ValueError(f"{MONTH_LENGTH_PERIOD!r} is a period for day-of-month only, got it for {period_name!r}")
-                    days_in_month = col_dt.month_end().dt.day().cast(pl.Float64)
-                    angle_expr = (col_dt.day().cast(pl.Float64) - 1.0) / days_in_month * two_pi
-                    all_exprs.append(angle_expr.sin().cast(pl.Float32).alias(f"{col}_{period_name}_sin"))
-                    all_exprs.append(angle_expr.cos().cast(pl.Float32).alias(f"{col}_{period_name}_cos"))
-                    continue
-                if period_name == "weekday":
-                    base_expr = (col_dt.weekday() - 1).cast(pl.Float64)
-                else:
-                    pl_name = _DATE_METHOD_ALIASES.get(period_name, (None, period_name))[1]
-                    if pl_name is None or not hasattr(col_dt, pl_name):
-                        raise ValueError(f"Unknown polars .dt accessor for period {period_name!r}")
-                    base_expr = getattr(col_dt, pl_name)().cast(pl.Float64)
-                angle_expr = base_expr * two_pi / float(period_value)
-                all_exprs.append(angle_expr.sin().cast(pl.Float32).alias(f"{col}_{period_name}_sin"))
-                all_exprs.append(angle_expr.cos().cast(pl.Float32).alias(f"{col}_{period_name}_cos"))
-        df = df.with_columns(all_exprs)
+        df = df.with_columns(_cyclical_polars_exprs(cols, periods, two_pi))
         if delete_original_cols:
             df = df.drop(cols)
 
