@@ -57,7 +57,9 @@ def test_strict_gpu_branch_equals_repeated_strict_calls(monkeypatch):
 
 def test_streamed_gpu_branch_equals_repeated_streamed_calls(monkeypatch):
     """A matrix routed through the streamed GPU path (several narrow blocks): one upload and one edge computation per block give the repeated calls' maxima."""
-    pytest.importorskip("cupy")
+    cupy = pytest.importorskip("cupy")
+    if cupy.cuda.runtime.getDeviceCount() < 1:
+        pytest.skip("no CUDA device: the streamed GPU path cannot run")
     from mlframe.feature_selection.filters._orthogonal_univariate_fe import _orth_mi_backends as be
     from mlframe.feature_selection.filters._orthogonal_univariate_fe import _streamed_gpu_mi as sg
 
@@ -77,8 +79,7 @@ def test_streamed_gpu_branch_equals_repeated_streamed_calls(monkeypatch):
     monkeypatch.setattr(sg, "plan_streamed_mi", narrow)
     X, y, perms = _frame()
     fast = _null_max_streamed_path(X, y, perms, 10)
-    if fast is None:
-        pytest.skip("the streamed GPU path is not usable on this host")
+    assert fast is not None, "the streamed GPU path returned None on a host with a CUDA device"
     np.testing.assert_allclose(fast, _repeated(X, y, perms, 10), rtol=0, atol=0)
     np.testing.assert_allclose(null_max_mi(X, y, perms, 10, _mi_classif_batch), fast, rtol=0, atol=0)
 

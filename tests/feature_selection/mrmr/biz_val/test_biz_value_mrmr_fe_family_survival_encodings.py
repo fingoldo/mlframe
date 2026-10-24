@@ -31,12 +31,12 @@ from mlframe.feature_selection.filters._ratio_delta_fe import pairwise_log_ratio
 from tests.feature_selection.mrmr.biz_val._fe_family_survival_common import (
     checked,
     Family,
-    check_created_and_survived,
-    check_false_positive_rate,
-    check_lift,
-    check_noise_control,
-    check_power,
-    check_replay,
+    problem_created_and_survived,
+    problem_false_positive_rate,
+    problem_lift,
+    problem_noise_control,
+    problem_power,
+    problem_replay,
 )
 
 N = 6000
@@ -215,25 +215,29 @@ _IDS = [f.name for f in FAMILIES]
 @pytest.mark.parametrize("family", checked(FAMILIES, "created"))
 def test_family_column_is_created_and_survives_selection(family):
     """A recipe of the family's kind exists and at least one of its columns is in the selected output."""
-    check_created_and_survived(family)
+    problem = problem_created_and_survived(family)
+    assert problem is None, problem
 
 
 @pytest.mark.parametrize("family", FAMILIES, ids=_IDS)
 def test_family_replay_on_a_held_out_frame_is_finite(family):
     """``transform`` of the held-out rows has the selected shape and only finite engineered values."""
-    check_replay(family)
+    problem = problem_replay(family)
+    assert problem is None, problem
 
 
 @pytest.mark.parametrize("family", checked(FAMILIES, "lift"))
 def test_family_lifts_a_held_out_model(family):
     """The selected output beats the raw columns on held-out rows for every seed, by more than twice the seed-to-seed spread of the lift."""
-    check_lift(family)
+    problem = problem_lift(family)
+    assert problem is None, problem
 
 
 @pytest.mark.parametrize("family", FAMILIES, ids=_IDS)
 def test_family_adds_nothing_on_a_permuted_target(family):
     """With the target independent of every column no column of the family is selected."""
-    check_noise_control(family)
+    problem = problem_noise_control(family)
+    assert problem is None, problem
 
 
 @pytest.mark.slow
@@ -241,7 +245,8 @@ def test_family_adds_nothing_on_a_permuted_target(family):
 @pytest.mark.parametrize("family", checked(FAMILIES, "power"))
 def test_family_detection_power_over_the_seed_panel(family):
     """The family's column is created and selected on enough seeds that the Clopper-Pearson lower bound of the detection rate reaches the policy floor."""
-    check_power(family)
+    problem = problem_power(family)
+    assert problem is None, problem
 
 
 @pytest.mark.slow
@@ -249,4 +254,5 @@ def test_family_detection_power_over_the_seed_panel(family):
 @pytest.mark.parametrize("family", FAMILIES, ids=_IDS)
 def test_family_false_positive_rate_over_the_seed_panel(family):
     """On permuted targets the Clopper-Pearson upper bound of the rate of runs selecting a column of the family stays below the policy ceiling."""
-    check_false_positive_rate(family)
+    problem = problem_false_positive_rate(family)
+    assert problem is None, problem
