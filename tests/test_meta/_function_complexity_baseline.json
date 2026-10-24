@@ -167,7 +167,6 @@
   "src/mlframe/training/composite/ensemble/_oof_external.py::_compute_oof_with_external_holdout": 18,
   "src/mlframe/training/composite/estimator/__init__.py::predict_quantile_ensemble": 21,
   "src/mlframe/training/composite/qrf.py::_batch_weighted_quantiles_kernel": 17,
-  "src/mlframe/training/composite/transforms/interaction_bases.py::generate_interaction_bases": 16,
   "src/mlframe/training/core/_achievable_ceiling.py::measure_achievable_ceiling": 23,
   "src/mlframe/training/core/_main_train_suite_target_distribution.py::_maybe_auto_drop_after_feature_analyzer": 19,
   "src/mlframe/training/core/_misc_helpers.py::_augment_with_dropped_high_card_cols": 19,
