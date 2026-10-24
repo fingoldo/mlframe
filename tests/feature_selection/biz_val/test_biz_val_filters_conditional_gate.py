@@ -280,17 +280,20 @@ class TestMRMRIntegration:
         nan_cols = [c for c in out.columns if out[c].isna().any()]
         assert not nan_cols, f"replay emitted NaN columns (nested-engineered recipe): {nan_cols}"
 
-    def test_argmax_budget_guard_skips_and_logs(self, caplog):
-        """Argmax budget guard skips and logs."""
+    def test_argmax_budget_guard_sweeps_the_strongest_columns_and_keeps_the_structure(self, caplog):
+        """Over the column budget the sweep runs on the strongest columns by marginal MI: a wide frame keeps its argmax structure.
+
+        A skipped sweep lost every argmax feature of a frame wider than ``max_cols``; the budget now bounds the cost of the sweep,
+        not whether it runs."""
         rng = np.random.default_rng(7)
         n = 2000
         cols = {f"c{i}": rng.normal(0, 1, n) for i in range(35)}
         X = pd.DataFrame(cols)
         y = np.argmax(np.stack([X["c0"], X["c1"], X["c2"]], axis=1), axis=1)
         with caplog.at_level(logging.INFO, logger="mlframe.feature_selection.filters._conditional_gate_fe"):
-            appended, recipes = hybrid_row_argmax_fe_with_recipes(X, y, seed=7)
-        assert any("skipping the row-argmax sweep" in r.message for r in caplog.records)
-        assert appended == [] and recipes == []
+            appended, _recipes = hybrid_row_argmax_fe_with_recipes(X, y, seed=7)
+        assert any("sweeping all of them with the triple budget" in r.message for r in caplog.records)
+        assert any({"c0", "c1", "c2"} <= set(name.replace("(", "_").replace(")", "_").replace(",", "_").split("_")) for name in appended), appended
 
     def test_gate_budget_guard_skips_and_logs(self, caplog):
         """Gate budget guard skips and logs."""

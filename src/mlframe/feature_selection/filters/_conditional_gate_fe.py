@@ -450,6 +450,12 @@ def cheap_row_argmax_scan(
         cols = [c for c in cols if c in X.columns and _is_argmax_eligible(np.asarray(X[c]))]
     # Canonicalize the eligible-column order so the budgeted triple enumeration below scans the SAME triples regardless of the caller's input column order; without this a reversed-column frame walks a different ``max_triples`` prefix and synthesizes different argmax features, making the downstream selection column-order dependent.
     cols = sorted(cols, key=lambda c: str(c))
+    # The triple budget keeps the first ``max_triples`` triples of this order, so the order decides which columns can form a triple at all:
+    # name order alone drops a planted column past the first few names (x2 after x0, x1, x10 ... at p=200). Rank the columns by marginal MI
+    # against y instead, ties broken by name, so the budget is spent on the strongest triples and the result stays invariant to input order.
+    _yi_rank = encode_y_for_classif_mi(np.asarray(y))
+    _mi_rank = {c: _mi(np.asarray(X[c]), _yi_rank, nbins=nbins) for c in cols}
+    cols = sorted(cols, key=lambda c: (-_mi_rank[c], str(c)))
     # `encode_y_for_classif_mi`, NOT `astype(np.int64)`. The bare cast is the continuous-target truncation trap
     # `_y_encoding.py` exists to prevent, and every sibling FE family already routes through it: on a regression
     # target in [0, 1) -- log-returns, a normalised label, a probability -- the cast collapses every row to class
@@ -844,6 +850,14 @@ def detect_conditional_gate(
 # argmax / gate column at predict time identically. Replay is a pure function of X (argmax index; gate np.where / mask with the
 # FROZEN tau) - no y reference, so it is leak-free + deterministic + train/test bit-identical.
 
+def _top_marginal_mi_columns(X, y: np.ndarray, cols: Sequence[str], k: int, *, nbins: int) -> list[str]:
+    """The ``k`` columns of ``cols`` with the largest marginal binned MI against ``y``, in their original order."""
+    yi = encode_y_for_classif_mi(np.asarray(y))
+    scores = np.array([_mi(np.asarray(X[c]), yi, nbins=nbins) for c in cols], dtype=np.float64)  # Intentional float64: ranking statistic
+    keep = set(np.argsort(-scores, kind="stable")[:k].tolist())
+    return [c for i, c in enumerate(cols) if i in keep]
+
+
 def hybrid_row_argmax_fe_with_recipes(
     X: pd.DataFrame | pl.DataFrame, y: np.ndarray, *,
     cols: Optional[Sequence[str]] = None,
@@ -865,11 +879,12 @@ def hybrid_row_argmax_fe_with_recipes(
 
     p = len(elig)
     if p > int(max_cols):
+        # Every eligible column is ranked by marginal MI and the triple budget is spent on the strongest triples (cheap_row_argmax_scan), so a wide
+        # frame is swept in full instead of being skipped or cut to a subset of columns.
         logger.info(
-            "row_argmax FE: %d eligible columns exceeds max_cols=%d; skipping the row-argmax sweep for budget.",
+            "row_argmax FE: %d eligible columns exceeds max_cols=%d; sweeping all of them with the triple budget spent on the strongest.",
             p, int(max_cols),
         )
-        return [], []
 
     hits = cheap_row_argmax_scan(X, y, elig, nbins=nbins, seed=seed, _cols_prefiltered=True)
     appended: list[str] = []
