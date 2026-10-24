@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import logging
 import math
-from typing import Optional
+from typing import Any, Optional
 
 import numpy as np
 
@@ -199,6 +199,47 @@ def _should_apply_mm_for_pair(
     return (nbins_a * nbins_b * n_y_classes) / max(n_samples, 1) > threshold
 
 
+def _marginal_entropy_caches(
+    touched_cols: set,
+    factors_data: np.ndarray,
+    nbins: np.ndarray,
+    dtype: type,
+    weights: Any,
+    target_indices: np.ndarray,
+    n_samples: int,
+    use_kt: bool,
+    single_merge_cache_out: Any,
+) -> tuple[dict, dict, dict]:
+    """Cache H(X), H(X, Y) and the occupied bin count of X for every column touched by a surviving pair."""
+    h_marginal_cache: dict = {}  # idx -> H(X_idx)
+    h_marginal_y_cache: dict = {}  # idx -> H(X_idx, Y)
+    k_marginal_cache: dict = {}  # idx -> occupied bin count of X_idx (for the telescoped II bias)
+    for col_idx in touched_cols:
+        _cls_x, freqs_x, _ = merge_vars(
+            factors_data=factors_data,
+            vars_indices=np.array([col_idx], dtype=np.int64),
+            var_is_nominal=None, factors_nbins=nbins, dtype=dtype,
+        )
+        if single_merge_cache_out is not None:
+            single_merge_cache_out[col_idx] = (_cls_x, freqs_x)
+        freqs_x_w = _freqs_for_weights(freqs_x, _cls_x, weights)
+        h_marginal_cache[col_idx] = _entropy_for_mode(
+            freqs_x_w, n_samples, use_mm=False, use_kt=use_kt,
+        )
+        k_marginal_cache[col_idx] = len(freqs_x_w[freqs_x_w > 0])
+        vi_xy = np.concatenate(([col_idx], target_indices)).astype(np.int64)
+        _cls_xy, freqs_xy, _ = merge_vars(
+            factors_data=factors_data,
+            vars_indices=vi_xy,
+            var_is_nominal=None, factors_nbins=nbins, dtype=dtype,
+        )
+        freqs_xy_w = _freqs_for_weights(freqs_xy, _cls_xy, weights)
+        h_marginal_y_cache[col_idx] = _entropy_for_mode(
+            freqs_xy_w, n_samples, use_mm=False, use_kt=use_kt,
+        )
+    return h_marginal_cache, h_marginal_y_cache, k_marginal_cache
+
+
 def _maybe_rerank_with_mm(
     factors_data: np.ndarray,
     pairs_a: np.ndarray,
@@ -265,32 +306,9 @@ def _maybe_rerank_with_mm(
             touched_cols.add(int(pairs_a[k]))
             touched_cols.add(int(pairs_b[k]))
 
-    h_marginal_cache: dict = {}  # idx -> H(X_idx)
-    h_marginal_y_cache: dict = {}  # idx -> H(X_idx, Y)
-    k_marginal_cache: dict = {}  # idx -> occupied bin count of X_idx (for the telescoped II bias)
-    for col_idx in touched_cols:
-        _cls_x, freqs_x, _ = merge_vars(
-            factors_data=factors_data,
-            vars_indices=np.array([col_idx], dtype=np.int64),
-            var_is_nominal=None, factors_nbins=nbins, dtype=dtype,
-        )
-        if single_merge_cache_out is not None:
-            single_merge_cache_out[col_idx] = (_cls_x, freqs_x)
-        freqs_x_w = _freqs_for_weights(freqs_x, _cls_x, weights)
-        h_marginal_cache[col_idx] = _entropy_for_mode(
-            freqs_x_w, n_samples, use_mm=False, use_kt=use_kt,
-        )
-        k_marginal_cache[col_idx] = len(freqs_x_w[freqs_x_w > 0])
-        vi_xy = np.concatenate(([col_idx], target_indices)).astype(np.int64)
-        _cls_xy, freqs_xy, _ = merge_vars(
-            factors_data=factors_data,
-            vars_indices=vi_xy,
-            var_is_nominal=None, factors_nbins=nbins, dtype=dtype,
-        )
-        freqs_xy_w = _freqs_for_weights(freqs_xy, _cls_xy, weights)
-        h_marginal_y_cache[col_idx] = _entropy_for_mode(
-            freqs_xy_w, n_samples, use_mm=False, use_kt=use_kt,
-        )
+    h_marginal_cache, h_marginal_y_cache, k_marginal_cache = _marginal_entropy_caches(
+        touched_cols, factors_data, nbins, dtype, weights, target_indices, n_samples, use_kt, single_merge_cache_out
+    )
 
     if verbose:
         n_corrected = int(per_pair_mm.sum())
