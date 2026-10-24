@@ -81,9 +81,42 @@ def test_column_groups_do_not_change_the_result(monkeypatch):
     whole = bits.bits_gate_mi(cp.asarray(codes), nbins, cp.asarray(y_all), 10)
     words = (2000 + 63) // 64
     monkeypatch.setattr(bits, "_BUDGET_CAP_BYTES", 10 * words * 8 * 4)  # four columns per group
+    monkeypatch.setattr(bits, "_MIN_GROUP_COLUMNS", 1)
     grouped = bits.bits_gate_mi(cp.asarray(codes), nbins, cp.asarray(y_all), 10)
     assert whole is not None and grouped is not None
     assert whole.view(np.uint64).tolist() == grouped.view(np.uint64).tolist()
+
+
+def test_no_free_device_memory_still_launches_in_batches(monkeypatch):
+    """With no free device memory the group budget reaches zero; the launch-group floor keeps the kernel to one launch per batch of columns (not one per column), with the same matrix as an ample-memory run."""
+    from mlframe.feature_selection.filters import _batch_mi_noise_gate_bits as bits
+    from mlframe.feature_selection.filters import _family_maxt_cuda_bits as family
+
+    codes, _y, _f, y_all = _frame(2000, 3000, 10, 10)
+    nbins = np.full(3000, 10, dtype=np.int64)
+    ample = bits.bits_gate_mi(cp.asarray(codes), nbins, cp.asarray(y_all), 10)
+    assert ample is not None
+
+    real_kernel_factory = family._get_kernel_v2
+    launches = {"n": 0}
+
+    def counting_factory(*a, **k):
+        """Wrap the real kernel factory so every launch is counted."""
+        kern = real_kernel_factory(*a, **k)
+
+        def launch(*args, **kwargs):
+            """Count one kernel launch and forward it."""
+            launches["n"] += 1
+            return kern(*args, **kwargs)
+
+        return launch
+
+    monkeypatch.setattr(family, "_get_kernel_v2", counting_factory)
+    monkeypatch.setattr(cp.cuda.runtime, "memGetInfo", lambda: (0, 4 * 2**30))
+    starved = bits.bits_gate_mi(cp.asarray(codes), nbins, cp.asarray(y_all), 10)
+    assert starved is not None
+    assert launches["n"] <= 3, launches  # ceil(3000 / 1024) batches, not one launch per column
+    assert ample.view(np.uint64).tolist() == starved.view(np.uint64).tolist()
 
 
 def test_backend_choice_decides_the_path_and_a_forced_decline_raises(monkeypatch):
