@@ -363,6 +363,71 @@ def rank_gradient_interaction_pairs(
 # Plug-point proposer (same contract as apply_synergy_bootstrap)
 # ---------------------------------------------------------------------------------------------
 
+def _raw_numeric_candidate_idx(self, cols, target_indices, categorical_vars, non_numeric_idx):
+    """Raw numeric column indices eligible as gradient-interaction operands (target, categoricals and non-numeric excluded)."""
+    # feature_names_in_ is an ndarray; "or []" would test truthiness and raise on a multi-element array.
+    _raw_names = set(getattr(self, "feature_names_in_", []))
+    _target_idx_set = {int(t) for t in np.atleast_1d(target_indices)}
+    _cat_set = set(categorical_vars)
+    _raw_numeric_idx = {i for i, nm in enumerate(cols) if nm in _raw_names and i not in _target_idx_set and i not in _cat_set}
+    _raw_numeric_idx -= set(non_numeric_idx)
+    if getattr(self, "factors_to_use", None) is not None:
+        _raw_numeric_idx &= set(self.factors_to_use)
+    if getattr(self, "factors_names_to_use", None) is not None:
+        _raw_numeric_idx &= {cols.index(n) for n in self.factors_names_to_use if n in cols}
+    return _raw_numeric_idx
+
+
+def _rank_gradient_pool(X_continuous, data, pool, t0, row_cap, kernel):
+    """Return ``(proposed, diag)`` from the smooth-surrogate ranker, or ``None`` when the inputs or the ranker fail (best-effort proposer)."""
+    try:
+        Xfull = np.asarray(X_continuous, dtype=_crit_np_dtype())  # RAW continuous features
+        X = Xfull[:, pool]
+        y = np.asarray(data)[:, t0]  # discretised ordinal target
+    except Exception as exc:  # not array-coercible -> skip silently (proposer is best-effort)
+        # Was gated behind `if verbose`, so with the
+        # library's default verbose=0 ANY exception here was silently swallowed with zero log trace -
+        # inconsistent with the sibling GBM proposer (apply_surrogate_gbm_seeder), whose analogous
+        # try/except logs unconditionally. Log unconditionally now; the proposer stays best-effort
+        # (still returns gracefully rather than raising), only the diagnostic visibility changes.
+        logger.debug("MRMR FE gradient-interaction seeder: X not array-coercible (%s); skipping.", exc, exc_info=True)
+        return None
+    try:
+        proposed, _energies, diag = rank_gradient_interaction_pairs(
+            X, y, list(range(len(pool))),
+            row_cap=row_cap, kernel=kernel, seed=0,
+        )
+    except Exception as exc:
+        # See the matching fix above - this specific
+        # exception (confirmed by direct execution: sklearn KFold(n_splits=3) on n_samples=2, since
+        # _route_gradient_seeder gates only on pool size, never on row count) was silently swallowed at
+        # verbose=0. Log unconditionally, matching the sibling GBM seeder's unconditional logging.
+        logger.warning("MRMR FE gradient-interaction seeder failed (%s: %s); skipping.", type(exc).__name__, exc, exc_info=True)
+        return None
+    return proposed, diag
+
+
+def _admit_gradient_operands(numeric_vars_to_consider, pool, proposed, diag, verbose):
+    """Map proposed local pool pairs back to column indices; return ``(numeric_vars_to_consider, gradient_added_idx)``."""
+    added = set()
+    for a_loc, b_loc in proposed:
+        for loc in (a_loc, b_loc):
+            orig = pool[loc]
+            if orig not in numeric_vars_to_consider:
+                added.add(orig)
+    if not added:
+        return numeric_vars_to_consider, added
+    if verbose:
+        logger.info(
+            "MRMR FE gradient-interaction seeder: proposed %d smooth-interaction pairs "
+            "(null floor %.4g, max energy %.4g), augmented the pair pool with %d operand "
+            "columns. The maxT floor + CMI/prevalence gates decide admission.",
+            len(proposed), diag.get("null_floor", float("nan")), diag.get("real_max", float("nan")),
+            len(added),
+        )
+    return set(numeric_vars_to_consider) | added, added
+
+
 def propose_gradient_interaction_pairs(
     self: Any,
     *,
@@ -399,16 +464,7 @@ def propose_gradient_interaction_pairs(
 
     n_rows = int(data.shape[0]) if hasattr(data, "shape") else 0
     # build the raw-numeric candidate pool (mirror apply_synergy_bootstrap's filtering)
-    # feature_names_in_ is an ndarray; "or []" would test truthiness and raise on a multi-element array.
-    _raw_names = set(getattr(self, "feature_names_in_", []))
-    _target_idx_set = {int(t) for t in np.atleast_1d(target_indices)}
-    _cat_set = set(categorical_vars)
-    _raw_numeric_idx = {i for i, nm in enumerate(cols) if nm in _raw_names and i not in _target_idx_set and i not in _cat_set}
-    _raw_numeric_idx -= set(non_numeric_idx)
-    if getattr(self, "factors_to_use", None) is not None:
-        _raw_numeric_idx &= set(self.factors_to_use)
-    if getattr(self, "factors_names_to_use", None) is not None:
-        _raw_numeric_idx &= {cols.index(n) for n in self.factors_names_to_use if n in cols}
+    _raw_numeric_idx = _raw_numeric_candidate_idx(self, cols, target_indices, categorical_vars, non_numeric_idx)
 
     pool = sorted(set(numeric_vars_to_consider) | _raw_numeric_idx)
     should_run, kernel, row_cap = _route_gradient_seeder(n_rows, len(pool))
@@ -423,33 +479,12 @@ def propose_gradient_interaction_pairs(
         return numeric_vars_to_consider, gradient_added_idx
 
     # target column: first target index (read the discretised ordinal target from ``data``)
+    _target_idx_set = {int(t) for t in np.atleast_1d(target_indices)}
     t0 = int(min(_target_idx_set) if _target_idx_set else 0)
-    try:
-        Xfull = np.asarray(X_continuous, dtype=_crit_np_dtype())  # RAW continuous features
-        X = Xfull[:, pool]
-        y = np.asarray(data)[:, t0]  # discretised ordinal target
-    except Exception as exc:  # not array-coercible -> skip silently (proposer is best-effort)
-        # Was gated behind `if verbose`, so with the
-        # library's default verbose=0 ANY exception here was silently swallowed with zero log trace -
-        # inconsistent with the sibling GBM proposer (apply_surrogate_gbm_seeder), whose analogous
-        # try/except logs unconditionally. Log unconditionally now; the proposer stays best-effort
-        # (still returns gracefully rather than raising), only the diagnostic visibility changes.
-        logger.debug("MRMR FE gradient-interaction seeder: X not array-coercible (%s); skipping.", exc, exc_info=True)
+    ranked = _rank_gradient_pool(X_continuous, data, pool, t0, row_cap, kernel)
+    if ranked is None:
         return numeric_vars_to_consider, gradient_added_idx
-
-    topk = int(_resolve_grad_threshold("topk", _GRAD_DEFAULT_TOPK))
-    try:
-        proposed, _energies, diag = rank_gradient_interaction_pairs(
-            X, y, list(range(len(pool))),
-            row_cap=row_cap, kernel=kernel, seed=0,
-        )
-    except Exception as exc:
-        # See the matching fix above - this specific
-        # exception (confirmed by direct execution: sklearn KFold(n_splits=3) on n_samples=2, since
-        # _route_gradient_seeder gates only on pool size, never on row count) was silently swallowed at
-        # verbose=0. Log unconditionally, matching the sibling GBM seeder's unconditional logging.
-        logger.warning("MRMR FE gradient-interaction seeder failed (%s: %s); skipping.", type(exc).__name__, exc, exc_info=True)
-        return numeric_vars_to_consider, gradient_added_idx
+    proposed, diag = ranked
 
     if not diag.get("learned", False):
         if verbose:
@@ -461,22 +496,8 @@ def propose_gradient_interaction_pairs(
         return numeric_vars_to_consider, gradient_added_idx
 
     # map back from local pool indices to original column indices, keep top-K pairs
-    proposed = proposed[:topk]
-    added = set()
-    for a_loc, b_loc in proposed:
-        for loc in (a_loc, b_loc):
-            orig = pool[loc]
-            if orig not in numeric_vars_to_consider:
-                added.add(orig)
-    if added:
-        gradient_added_idx = added
-        numeric_vars_to_consider = set(numeric_vars_to_consider) | added
-        if verbose:
-            logger.info(
-                "MRMR FE gradient-interaction seeder: proposed %d smooth-interaction pairs "
-                "(null floor %.4g, max energy %.4g), augmented the pair pool with %d operand "
-                "columns. The maxT floor + CMI/prevalence gates decide admission.",
-                len(proposed), diag.get("null_floor", float("nan")), diag.get("real_max", float("nan")),
-                len(added),
-            )
+    topk = int(_resolve_grad_threshold("topk", _GRAD_DEFAULT_TOPK))
+    numeric_vars_to_consider, gradient_added_idx = _admit_gradient_operands(
+        numeric_vars_to_consider, pool, proposed[:topk], diag, verbose,
+    )
     return numeric_vars_to_consider, gradient_added_idx
