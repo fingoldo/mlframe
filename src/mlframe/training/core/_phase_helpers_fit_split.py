@@ -406,103 +406,121 @@ def _stratify_labels_for_split(timestamps, target_by_type, _MAX_COMPOSITE_CARDIN
     return _stratify_y
 
 
-def _classification_stratify_labels(_multilabel_target, _classification_targets, _MAX_COMPOSITE_CARDINALITY, _stratify_y):
-    """Build stratify labels from the classification and multilabel targets."""
-    if _multilabel_target is not None:
-        try:
-            _ml_arr = _multilabel_for_stratify(_multilabel_target)
-            if _ml_arr.ndim == 2 and _ml_arr.shape[1] >= 1:
-                # Prefer the proper iterative-stratification path when available.
-                try:
-                    from iterstrat.ml_stratifiers import MultilabelStratifiedShuffleSplit  # noqa: F401
+def _multilabel_stratify_labels(_multilabel_target, _stratify_y):
+    """Stratify labels from a multilabel target: iterative stratification when available, else the first label column."""
+    try:
+        _ml_arr = _multilabel_for_stratify(_multilabel_target)
+        if _ml_arr.ndim == 2 and _ml_arr.shape[1] >= 1:
+            # Prefer the proper iterative-stratification path when available.
+            try:
+                from iterstrat.ml_stratifiers import MultilabelStratifiedShuffleSplit  # noqa: F401
 
-                    _stratify_y = _ml_arr
-                except ImportError:
-                    # Best-effort fallback: stratify on the first label column. Better
-                    # than nothing when one of the K labels is the rare class.
-                    _first = _ml_arr[:, 0]
-                    _u, _c = np.unique(_first, return_counts=True)
-                    if len(_u) >= 2 and _c.min() >= 2:
-                        _stratify_y = _first
-                    else:
-                        logger.warning(
-                            "Auto-stratify: multilabel first-label fallback has %d "
-                            "unique values with min-count=%d (need >=2 + min-count>=2); "
-                            "stratification disabled. val/test slices may be class-degenerate.",
-                            len(_u),
-                            int(_c.min()) if len(_c) else 0,
-                        )
-        except Exception as _strat_err:
-            logger.warning(
-                "Auto-stratify: multilabel build failed (%s: %s); shuffled-only splits.",
-                type(_strat_err).__name__,
-                _strat_err,
-            )
-            _stratify_y = None
-    elif len(_classification_targets) == 1:
-        try:
-            _arr = _stratify_codes(_classification_targets[0])
-            if _arr.ndim == 1:
-                _u, _c = np.unique(_arr, return_counts=True)
+                _stratify_y = _ml_arr
+            except ImportError:
+                # Best-effort fallback: stratify on the first label column. Better
+                # than nothing when one of the K labels is the rare class.
+                _first = _ml_arr[:, 0]
+                _u, _c = np.unique(_first, return_counts=True)
                 if len(_u) >= 2 and _c.min() >= 2:
-                    _stratify_y = _arr
+                    _stratify_y = _first
                 else:
-                    # Surface so the rare-imbalance scenario (single-class slice OR
-                    # rare-class with one sample) isn't misdiagnosed as random-seed
-                    # flakiness when val ends up all-class-0. Pre-fix this branch
-                    # silently flipped to shuffled-only.
                     logger.warning(
-                        "Auto-stratify: single classification target has %d unique "
-                        "classes with min-count=%d (need >=2 + min-count>=2); "
+                        "Auto-stratify: multilabel first-label fallback has %d "
+                        "unique values with min-count=%d (need >=2 + min-count>=2); "
                         "stratification disabled. val/test slices may be class-degenerate.",
                         len(_u),
                         int(_c.min()) if len(_c) else 0,
                     )
-        except Exception as _strat_err:
-            logger.warning(
-                "Auto-stratify: single-target build failed (%s: %s); shuffled-only splits.",
-                type(_strat_err).__name__,
-                _strat_err,
-            )
-            _stratify_y = None
-    elif len(_classification_targets) > 1:
-        try:
-            _arrs = [_stratify_codes(_t) for _t in _classification_targets]
-            _n = len(_arrs[0])
-            if all(_a.ndim == 1 and len(_a) == _n for _a in _arrs):
-                # Composite key: each row maps to an integer class id from
-                # (val_t0, val_t1, ..., val_tK) tuple. np.unique on stacked (N, K)
-                # returns_inverse for the encoding in one pass.
-                _stack = np.stack(_arrs, axis=1)
-                _, _composite_ids = np.unique(_stack, axis=0, return_inverse=True)
-                _u, _c = np.unique(_composite_ids, return_counts=True)
-                if 2 <= len(_u) <= _MAX_COMPOSITE_CARDINALITY and _c.min() >= 2:
-                    _stratify_y = _composite_ids
-                elif len(_u) < 2 or _c.min() < 2:
-                    logger.warning(
-                        "Auto-stratify: composite key has %d distinct row-tuples with "
-                        "min-count=%d (need >=2 + min-count>=2); stratification disabled. "
-                        "val/test slices may be class-degenerate.",
-                        len(_u),
-                        int(_c.min()) if len(_c) else 0,
-                    )
-                elif len(_u) > _MAX_COMPOSITE_CARDINALITY:
-                    # Surface the silent fallback to shuffled-only splits so operators
-                    # know auto-stratification was abandoned on multi-head targets that
-                    # exceed the composite-cardinality cap; otherwise they re-discover
-                    # the all-class-0-val-slice bug under heavy class imbalance.
-                    logger.warning(
-                        "Auto-stratify: composite key has %d distinct row-tuples > "
-                        "_MAX_COMPOSITE_CARDINALITY=%d; falling back to UNstratified "
-                        "shuffle splits. Rare-class imbalance may produce all-one-class "
-                        "val/test slices. Reduce the number of classification heads or "
-                        "pre-compute a stratify_y manually to restore stratification.",
-                        len(_u),
-                        _MAX_COMPOSITE_CARDINALITY,
-                    )
-        except Exception as e:
-            logger.warning("classification stratify_y construction failed: %s", e)
-            _stratify_y = None
+    except Exception as _strat_err:
+        logger.warning(
+            "Auto-stratify: multilabel build failed (%s: %s); shuffled-only splits.",
+            type(_strat_err).__name__,
+            _strat_err,
+        )
+        _stratify_y = None
+    return _stratify_y
+
+
+def _single_target_stratify_labels(_target, _stratify_y):
+    """Stratify labels from one classification target, kept only when every class has at least two samples."""
+    try:
+        _arr = _stratify_codes(_target)
+        if _arr.ndim == 1:
+            _u, _c = np.unique(_arr, return_counts=True)
+            if len(_u) >= 2 and _c.min() >= 2:
+                _stratify_y = _arr
+            else:
+                # Surface so the rare-imbalance scenario (single-class slice OR
+                # rare-class with one sample) isn't misdiagnosed as random-seed
+                # flakiness when val ends up all-class-0. Pre-fix this branch
+                # silently flipped to shuffled-only.
+                logger.warning(
+                    "Auto-stratify: single classification target has %d unique "
+                    "classes with min-count=%d (need >=2 + min-count>=2); "
+                    "stratification disabled. val/test slices may be class-degenerate.",
+                    len(_u),
+                    int(_c.min()) if len(_c) else 0,
+                )
+    except Exception as _strat_err:
+        logger.warning(
+            "Auto-stratify: single-target build failed (%s: %s); shuffled-only splits.",
+            type(_strat_err).__name__,
+            _strat_err,
+        )
+        _stratify_y = None
+    return _stratify_y
+
+
+def _composite_stratify_labels(_classification_targets, _MAX_COMPOSITE_CARDINALITY, _stratify_y):
+    """Stratify labels from a composite key over several classification targets, bounded by the composite-cardinality cap."""
+    try:
+        _arrs = [_stratify_codes(_t) for _t in _classification_targets]
+        _n = len(_arrs[0])
+        if all(_a.ndim == 1 and len(_a) == _n for _a in _arrs):
+            # Composite key: each row maps to an integer class id from
+            # (val_t0, val_t1, ..., val_tK) tuple. np.unique on stacked (N, K)
+            # returns_inverse for the encoding in one pass.
+            _stack = np.stack(_arrs, axis=1)
+            _, _composite_ids = np.unique(_stack, axis=0, return_inverse=True)
+            _u, _c = np.unique(_composite_ids, return_counts=True)
+            if 2 <= len(_u) <= _MAX_COMPOSITE_CARDINALITY and _c.min() >= 2:
+                _stratify_y = _composite_ids
+            elif len(_u) < 2 or _c.min() < 2:
+                logger.warning(
+                    "Auto-stratify: composite key has %d distinct row-tuples with "
+                    "min-count=%d (need >=2 + min-count>=2); stratification disabled. "
+                    "val/test slices may be class-degenerate.",
+                    len(_u),
+                    int(_c.min()) if len(_c) else 0,
+                )
+            elif len(_u) > _MAX_COMPOSITE_CARDINALITY:
+                # Surface the silent fallback to shuffled-only splits so operators
+                # know auto-stratification was abandoned on multi-head targets that
+                # exceed the composite-cardinality cap; otherwise they re-discover
+                # the all-class-0-val-slice bug under heavy class imbalance.
+                logger.warning(
+                    "Auto-stratify: composite key has %d distinct row-tuples > "
+                    "_MAX_COMPOSITE_CARDINALITY=%d; falling back to UNstratified "
+                    "shuffle splits. Rare-class imbalance may produce all-one-class "
+                    "val/test slices. Reduce the number of classification heads or "
+                    "pre-compute a stratify_y manually to restore stratification.",
+                    len(_u),
+                    _MAX_COMPOSITE_CARDINALITY,
+                )
+    except Exception as e:
+        logger.warning("classification stratify_y construction failed: %s", e)
+        _stratify_y = None
+    return _stratify_y
+
+
+def _classification_stratify_labels(_multilabel_target, _classification_targets, _MAX_COMPOSITE_CARDINALITY, _stratify_y):
+    """Build stratify labels from the classification and multilabel targets."""
+    if _multilabel_target is not None:
+        return _multilabel_stratify_labels(_multilabel_target, _stratify_y)
+    if len(_classification_targets) == 1:
+        return _single_target_stratify_labels(_classification_targets[0], _stratify_y)
+    if len(_classification_targets) > 1:
+        return _composite_stratify_labels(_classification_targets, _MAX_COMPOSITE_CARDINALITY, _stratify_y)
     return _stratify_y
 
 
