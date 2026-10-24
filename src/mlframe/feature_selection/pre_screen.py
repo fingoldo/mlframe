@@ -144,6 +144,37 @@ def compute_unsupervised_drops(
     return []
 
 
+def _column_null_count(col, col_name, n_rows):
+    """Return the null count for one column, treating a failed ``isna().sum()`` as zero nulls."""
+    try:
+        if isinstance(col.dtype, pd.SparseDtype):
+            sp_arr = col.values  # pd.arrays.SparseArray
+            fill_v = sp_arr.fill_value
+            fill_is_nan = isinstance(fill_v, float) and np.isnan(fill_v)
+            # null_count = NaN in fill + NaN in stored sp_values
+            sp_vals = np.asarray(sp_arr.sp_values)
+            n_stored = sp_vals.size
+            n_unfilled = n_rows - n_stored
+            stored_nan_count = int(np.isnan(sp_vals).sum()) if sp_vals.dtype.kind == "f" else 0
+            return (n_unfilled if fill_is_nan else 0) + stored_nan_count
+        # Fast null-count path (bit-identical to ``col.isna().sum()``): for a plain numpy
+        # float column, ``isna`` is exactly ``np.isnan`` on the underlying buffer, but
+        # ``col.isna()`` allocates a fresh boolean Series + dispatches through pandas'
+        # nanops before summing (~6x slower per cProfile: 61us -> 11us/col).
+        # For numpy integer / bool columns no value can be null, so the count is exactly 0
+        # without touching the data at all. Every other dtype (object/None, datetime/NaT,
+        # nullable Int/Float ext, category, etc.) falls back to the exact ``isna().sum()``.
+        _np_dt = col.dtype
+        if np.issubdtype(_np_dt, np.floating):
+            return int(np.isnan(col.to_numpy()).sum())
+        if _np_dt == np.int64 or _np_dt == np.int32 or _np_dt == np.int16 or _np_dt == np.int8 or _np_dt == bool:  # noqa: E721 - numpy dtype `==` comparison is intended
+            return 0
+        return int(col.isna().sum())
+    except Exception as e:
+        log_throttle(logger, "pre_screen_isna_sum_failed", logging.WARNING, "isna().sum() failed for column %r, treating its null count as 0: %s", col_name, e)
+        return 0
+
+
 def _scan_columns_for_unsupervised_drops(col_labels, protected, train_df, n_rows, null_cutoff, drops, _var_cutoff):
     """Append to drops every non-protected column that is mostly null, constant, or below the variance cutoff."""
     for col_pos, col_name in enumerate(col_labels):
@@ -162,35 +193,7 @@ def _scan_columns_for_unsupervised_drops(col_labels, protected, train_df, n_rows
         # (``sp_values``), which represents the real non-fill data
         # the model will actually see.
         _is_sparse = isinstance(col.dtype, pd.SparseDtype)
-        try:
-            if _is_sparse:
-                sp_arr = col.values  # pd.arrays.SparseArray
-                fill_v = sp_arr.fill_value
-                fill_is_nan = isinstance(fill_v, float) and np.isnan(fill_v)
-                # null_count = NaN in fill + NaN in stored sp_values
-                sp_vals = np.asarray(sp_arr.sp_values)
-                n_stored = sp_vals.size
-                n_unfilled = n_rows - n_stored
-                stored_nan_count = int(np.isnan(sp_vals).sum()) if sp_vals.dtype.kind == "f" else 0
-                null_count = (n_unfilled if fill_is_nan else 0) + stored_nan_count
-            else:
-                # Fast null-count path (bit-identical to ``col.isna().sum()``): for a plain numpy
-                # float column, ``isna`` is exactly ``np.isnan`` on the underlying buffer, but
-                # ``col.isna()`` allocates a fresh boolean Series + dispatches through pandas'
-                # nanops before summing (~6x slower per cProfile: 61us -> 11us/col).
-                # For numpy integer / bool columns no value can be null, so the count is exactly 0
-                # without touching the data at all. Every other dtype (object/None, datetime/NaT,
-                # nullable Int/Float ext, category, etc.) falls back to the exact ``isna().sum()``.
-                _np_dt = col.dtype
-                if np.issubdtype(_np_dt, np.floating):
-                    null_count = int(np.isnan(col.to_numpy()).sum())
-                elif _np_dt == np.int64 or _np_dt == np.int32 or _np_dt == np.int16 or _np_dt == np.int8 or _np_dt == bool:  # noqa: E721 - numpy dtype `==` comparison is intended
-                    null_count = 0
-                else:
-                    null_count = int(col.isna().sum())
-        except Exception as e:
-            log_throttle(logger, "pre_screen_isna_sum_failed", logging.WARNING, "isna().sum() failed for column %r, treating its null count as 0: %s", col_name, e)
-            null_count = 0
+        null_count = _column_null_count(col, col_name, n_rows)
         if null_count > null_cutoff:
             drops.add(col_name)
             continue
