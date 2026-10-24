@@ -30,6 +30,9 @@ _C_TYPES = {
     np.dtype(np.int64): "long long",
 }
 _BUDGET_CAP_BYTES = 768 * 1024 * 1024  # bit sets of one column group, at most
+# Floor on the columns per launch group: when the device has almost no free memory the budget alone shrinks the group to one column, and the
+# launch-per-column loop is ~100x slower than the batched one.
+_MIN_GROUP_COLUMNS = 1024
 
 _PACK_SRC = r"""
 extern "C" __global__ void pack_bins(const {DT}* __restrict__ disc, const long long n, const int k_total, const int k0, const int kg, const int words,
@@ -128,7 +131,7 @@ def bits_gate_mi(d_disc: Any, nbins_arr: np.ndarray, d_y_all: Any, n_y: int) -> 
         n_x_all = cp.asarray(nbins)
         kern = _get_kernel_v2(cp, n_y - 1, "float" if table.dtype == cp.float32 else "double")
         free_bytes = int(cp.cuda.runtime.memGetInfo()[0])
-        group = max(1, min(_BUDGET_CAP_BYTES, free_bytes // 4) // (cap * words * 8))
+        group = max(_MIN_GROUP_COLUMNS, min(_BUDGET_CAP_BYTES, free_bytes // 4) // (cap * words * 8))
         out = cp.empty((n_perm, k_total), dtype=table.dtype)
         for lo in range(0, k_total, group):
             hi = min(lo + group, k_total)
