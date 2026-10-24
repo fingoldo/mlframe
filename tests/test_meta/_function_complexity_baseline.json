@@ -36,7 +36,6 @@
   "src/mlframe/feature_selection/filters/_fe_raw_redundancy_anchors.py::_build_raw_redundan_recipes_raw_none": 19,
   "src/mlframe/feature_selection/filters/_fe_subsample.py::stratified_subsample_idx": 21,
   "src/mlframe/feature_selection/filters/_feature_engineering_pairs/_pairs_chunks.py::_compute_one_fe_chunk_part2": 17,
-  "src/mlframe/feature_selection/filters/_feature_engineering_pairs/_pairs_core_steps.py::_check_prospective_fe_step1_def_extval_raw": 16,
   "src/mlframe/feature_selection/filters/_feature_engineering_pairs/_pairs_emit_extval.py::_emit_pair_features_step2_read_here_once": 17,
   "src/mlframe/feature_selection/filters/_feature_engineering_pairs/_pairs_materialise.py::_materialise_chunk_rowblock_njit_parallel": 16,
   "src/mlframe/feature_selection/filters/_feature_engineering_pairs/_pairs_score_steps.py::_score_one_pair_step3_step2_transformations_pair_st": 18,
