@@ -142,7 +142,6 @@
   "src/mlframe/reporting/renderers/matplotlib.py::MatplotlibRenderer._line": 24,
   "src/mlframe/reporting/renderers/matplotlib.py::MatplotlibRenderer.render": 18,
   "src/mlframe/reporting/renderers/plotly.py::PlotlyRenderer._histogram": 17,
-  "src/mlframe/training/_calibration_models.py::calibrate_namespace_model": 16,
   "src/mlframe/training/_data_helpers.py::_setup_eval_set": 18,
   "src/mlframe/training/_data_helpers.py::_validate_target_values": 18,
   "src/mlframe/training/_data_helpers_early_stopping.py::_setup_early_stopping_callback": 17,
