@@ -106,6 +106,20 @@ def fe_extract_columns(X: Any, names: Iterable[str]) -> dict[str, np.ndarray]:
 FE_EAGER_MATERIALIZE_MAX_BYTES = 2 * 1024**3
 
 
+def fe_numeric_float32_view(X: Any) -> Any:
+    """Pandas copy of the numeric columns of a polars frame, stored float32, built one column at a time.
+
+    Half the memory of ``to_pandas`` on a wide numeric frame, because the float64 copy of the whole frame never exists:
+    only one float64 column is alive at a time. Non-numeric columns are left out. Used by the families that must read
+    a large polars frame but need only its numeric columns (see audit row 28).
+    """
+    num = [c for c in X.columns if X[c].dtype.is_numeric()]
+    mat = np.empty((X.height, len(num)), dtype=np.float32)
+    for j, c in enumerate(num):
+        mat[:, j] = X[c].to_numpy()
+    return pd.DataFrame(mat, columns=num, index=pd.RangeIndex(X.height), copy=False)
+
+
 def fe_polars_exceeds(X: Any, max_bytes: int = FE_EAGER_MATERIALIZE_MAX_BYTES) -> bool:
     """True iff ``X`` is a polars frame whose in-memory size exceeds ``max_bytes`` (so an eager ``to_pandas`` would be a
     large whole-frame copy). pandas / ndarray return False (already pandas, or their family avoids the copy)."""

@@ -22,7 +22,7 @@ import numpy as np
 from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 import pandas as pd
 
-from .._fe_frame_ops import fe_to_pandas, fe_append_columns, fe_extract_columns, fe_polars_exceeds
+from .._fe_frame_ops import fe_to_pandas, fe_append_columns, fe_extract_columns, fe_numeric_float32_view, fe_polars_exceeds
 from ._fe_stage_merge import _fe_merge_new_columns
 
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
@@ -709,20 +709,19 @@ def _lagged_diff_block(self, _fe_family_on, X, _l38_mi_gate, _l38_mi_gate_top_k,
 
 def _stage_binned_numeric_agg(self, _fe_family_on, X, y, _binned_agg_pre_recipes, verbose):
     """Run the binned numeric aggregate family when it is enabled."""
-    if _fe_family_on("fe_binned_numeric_agg_enable", False) and fe_polars_exceeds(X):
-        warnings.warn(
-            "MRMR: fe_binned_numeric_agg_enable=True but X is a large polars frame (> ~2 GiB); binned-agg is an OOF stat "
-            "needing a full-frame decision and is skipped to avoid a whole-frame to_pandas copy.",
-            UserWarning, stacklevel=3,
-        )
-    elif _fe_family_on("fe_binned_numeric_agg_enable", False):
+    if _fe_family_on("fe_binned_numeric_agg_enable", False):
         try:
             from mlframe.feature_selection.filters._binned_numeric_agg_fe import binned_numeric_agg_with_recipes
+            # A large polars frame gets a float32 copy of its numeric columns (half the memory of a float64 whole-frame
+            # copy, the family reads numeric columns only); the appended columns stay float64 on the polars frame.
+            _ba_large = fe_polars_exceeds(X)
+            if _ba_large:
+                logger.info("MRMR.fit binned_numeric_agg: X is a large polars frame; the family reads a float32 copy of its numeric columns.")
             _ba_y = np.asarray(y.to_numpy() if hasattr(y, "to_numpy") else y, dtype=_crit_np_dtype()).ravel()
             _X_before_ba = list(X.columns)
             _bas_raw = getattr(self, "fe_binned_numeric_agg_stats", None)
             X_ba, _ba_appended, _ba_recipes = binned_numeric_agg_with_recipes(
-                fe_to_pandas(X), _ba_y,
+                fe_numeric_float32_view(X) if _ba_large else fe_to_pandas(X), _ba_y,
                 stats=tuple(_bas_raw) if _bas_raw is not None else ("mean", "std", "skew", "kurt"),
                 nbins_base=int(getattr(self, "fe_binned_numeric_agg_nbins", 10)),
                 n_folds=int(getattr(self, "fe_kfold_te_folds", 5)),
