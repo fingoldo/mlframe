@@ -265,7 +265,7 @@ def _fe_stage_cascade_mid_a_part1(
                         cols=_il_raw_cols,
                         top_k=int(getattr(self, "fe_integer_lattice_top_k", 4)),
                         seed=int(getattr(self, "random_seed", 0) or 0),
-                        max_int_cols=int(getattr(self, "fe_integer_lattice_max_int_cols", 30)),
+                        max_int_cols=int(getattr(self, "fe_integer_lattice_max_int_cols", 200)),
                     )
                 _il_appended = [c for c in _il_appended if c not in X.columns]
                 if _il_appended:

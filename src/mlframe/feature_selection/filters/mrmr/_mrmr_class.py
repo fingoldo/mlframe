@@ -2777,7 +2777,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # are binary, so the sweep is pairs-only (O(C(p,2))), no n-way analogue.
         fe_integer_lattice_enable: bool = True,
         fe_integer_lattice_top_k: int = 4,
-        fe_integer_lattice_max_int_cols: int = 30,
+        fe_integer_lattice_max_int_cols: int = 200,
         # ROW-ARGMAX FE (frontier pass 2). Emits, for a column TRIPLE (a, b, c), the integer index 0/1/2 of the row-maximum -
         # an ordinal/comparison pattern the MI/linear path cannot read off marginals or pairwise diffs (a single shipped column
         # never equals the 3-way argmax code; measured +0.55 single-column MI lift over the best shipped op). ZERO free params,

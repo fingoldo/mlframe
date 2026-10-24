@@ -490,7 +490,7 @@ class MRMRParams(BaseModel):
     fe_pairwise_modular_max_triple_cols: int = 20
     fe_integer_lattice_enable: bool = True
     fe_integer_lattice_top_k: int = 4
-    fe_integer_lattice_max_int_cols: int = 30
+    fe_integer_lattice_max_int_cols: int = 200
     fe_row_argmax_enable: bool = True
     fe_row_argmax_top_k: int = 4
     fe_row_argmax_max_cols: int = 30

@@ -385,7 +385,7 @@ def hybrid_integer_lattice_fe_with_recipes(
     top_k: int = 4,
     nbins: int = 12,
     seed: int = 0,
-    max_int_cols: int = 30,
+    max_int_cols: int = 200,
 ) -> tuple[list[str], list[EngineeredRecipe]]:
     """Detect responded integer-lattice structure and emit it as frozen, replayable ``EngineeredRecipe`` objects.
 
