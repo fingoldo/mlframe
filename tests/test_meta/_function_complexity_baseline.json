@@ -16,7 +16,6 @@
   "src/mlframe/feature_engineering/transformer/anchor_attention.py::compute_anchor_attention": 19,
   "src/mlframe/feature_engineering/transformer/apriori_itemsets.py::compute_apriori_itemsets_features": 19,
   "src/mlframe/feature_engineering/transformer/multi_temp_band_attention.py::compute_multi_temp_band_attention_features": 18,
-  "src/mlframe/feature_engineering/transformer/multi_temp_cbhr.py::compute_multi_temp_cbhr_features": 16,
   "src/mlframe/feature_engineering/transformer/multi_temp_residual_band.py::compute_multi_temp_residual_band_features": 16,
   "src/mlframe/feature_engineering/transformer/predictive_info_delta.py::compute_predictive_info_delta_features": 18,
   "src/mlframe/feature_engineering/transformer/quantile_band_attention.py::compute_quantile_band_attention_features": 16,
