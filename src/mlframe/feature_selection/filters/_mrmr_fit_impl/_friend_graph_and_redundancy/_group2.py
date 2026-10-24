@@ -412,7 +412,8 @@ def _finite_column(source: Any, n_rows: int) -> "np.ndarray | None":
         return None
     try:
         values = np.asarray(source.to_numpy() if hasattr(source, "to_numpy") else source, dtype=_crit_np_dtype()).reshape(-1)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError) as exc:
+        logger.warning("_finite_column: source is not a numeric column, treated as missing: %s", exc)
         return None
     return values if values.shape[0] == n_rows and np.all(np.isfinite(values)) else None
 

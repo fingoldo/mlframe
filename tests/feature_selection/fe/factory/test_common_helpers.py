@@ -1,6 +1,6 @@
 """Shared factory helpers: output paths, quantile-binned MI, the MAE / RMSE downstream harness and the brainstorm run_case / agg10 consumers of it."""
 
-import json
+import orjson
 import sys
 
 import numpy as np
@@ -98,7 +98,7 @@ def test_agg10_computes_relative_improvement_and_skips_legacy(tmp_path, monkeypa
     err = {f"{m}|{k}": (1.0 if k == "raw" else 0.5) for m in ("ridge", "hgb") for k in keys}
     rec = {"target": "T", "n": 100, "seed": 0, "mae": err, "rmse": err}
     legacy = {"target": "T", "n": 100, "seed": 0, "r2": {}}
-    (sub / "ds_0.json").write_text(json.dumps([rec, legacy]))
+    (sub / "ds_0.json").write_bytes(orjson.dumps([rec, legacy]))
     agg10.main()
     out = capsys.readouterr().out
     assert "1 records with MAE/RMSE, 1 legacy" in out

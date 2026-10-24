@@ -29,9 +29,12 @@ def test_distinct_columns_find_the_copies_and_map_every_column_to_its_first_copy
     codes, _nb, _kw = _inputs()
     keep, inverse = dd.distinct_columns(codes)
     assert keep.size < codes.shape[1] and np.all(np.diff(keep) > 0)
+    checked = 0
     for j in range(codes.shape[1]):
         assert np.array_equal(codes[:, j], codes[:, keep[inverse[j]]])
         assert keep[inverse[j]] <= j
+        checked += 1
+    assert checked == codes.shape[1], "every column must be mapped to its group's first copy"
 
 
 def test_gate_on_distinct_columns_equals_the_full_evaluation_bit_for_bit():

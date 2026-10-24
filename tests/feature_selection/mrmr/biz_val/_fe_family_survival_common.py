@@ -279,33 +279,38 @@ def finite_report(fit: FitResult, family: Family) -> Optional[str]:
     return None
 
 
-def check_created_and_survived(family: Family) -> None:
-    """Assert a recipe of the family's kind exists and at least one of its columns is in the selected output."""
+def problem_created_and_survived(family: Family) -> Optional[str]:
+    """Why no recipe of the family's kind was created or none of its columns survived selection; None when both hold."""
     fit = fit_family(family, SEEDS[0])
     mine, kept = family_columns(fit, family)
     selected = list(fit.model.get_feature_names_out())
-    assert mine, f"{family.name}: no recipe of kind {family.kinds} was created; selected={selected}; kinds seen={sorted({r.kind for r in recipes_of(fit.model)})}"
-    assert kept, f"{family.name}: recipes {[r.name for r in mine]} were created but none survived into {selected}"
+    if not mine:
+        return f"{family.name}: no recipe of kind {family.kinds} was created; selected={selected}; kinds seen={sorted({r.kind for r in recipes_of(fit.model)})}"
+    if not kept:
+        return f"{family.name}: recipes {[r.name for r in mine]} were created but none survived into {selected}"
+    return None
 
 
-def check_replay(family: Family) -> None:
-    """Assert ``transform`` of the held-out rows has the selected shape and only finite engineered values."""
+def problem_replay(family: Family) -> Optional[str]:
+    """Why ``transform`` of the held-out rows is not the selected shape with only finite engineered values; None when it is."""
     problem = finite_report(fit_family(family, SEEDS[0]), family)
-    assert problem is None, f"{family.name}: {problem}"
+    return None if problem is None else f"{family.name}: {problem}"
 
 
-def check_lift(family: Family) -> None:
-    """Assert the selected output beats the raw columns on every seed and the lift exceeds twice its seed-to-seed spread."""
+def problem_lift(family: Family) -> Optional[str]:
+    """Why the selected output fails to beat the raw columns on every seed with the lift above twice its seed-to-seed spread; None when it passes."""
     s = lift_summary(family)
     print(f"[lift] {family.name}: raw={s['raw']} selected={s['selected']} lifts={s['lifts']} mean={s['mean']:.4f} sd={s['sd']:.4f}")
-    assert min(s["lifts"]) > 0.0 and s["lower"] > 0.0, f"{family.name}: lift summary {s}"
+    if min(s["lifts"]) > 0.0 and s["lower"] > 0.0:
+        return None
+    return f"{family.name}: lift summary {s}"
 
 
-def check_noise_control(family: Family) -> None:
-    """Assert no column of the family is selected when the target is independent of every column."""
+def problem_noise_control(family: Family) -> Optional[str]:
+    """Why a column of the family is selected when the target is independent of every column; None when none is."""
     fit = fit_family(family, SEEDS[0], True)
     _, kept = family_columns(fit, family)
-    assert kept == [], f"{family.name}: selected {kept} on a target independent of every column"
+    return None if kept == [] else f"{family.name}: selected {kept} on a target independent of every column"
 
 
 POWER_TARGET = 0.8
@@ -352,17 +357,21 @@ def print_power_table(families) -> None:
         print(f"{fam.name} | {k}/{n} | [{a:.2f}, {b:.2f}] | {f}/{m} | [{c:.2f}, {d:.2f}]")
 
 
-def check_power(family: Family) -> None:
-    """Assert the lower bound of the detection rate over the signal panel is at least ``POWER_TARGET``."""
+def problem_power(family: Family) -> Optional[str]:
+    """Why the lower bound of the detection rate over the signal panel is below ``POWER_TARGET``; None when it is not."""
     k, n = panel(family, False)
     lo, hi = clopper_pearson(k, n)
     print(f"[power] {family.name}: {k}/{n} detected, 90% CI [{lo:.2f}, {hi:.2f}]")
-    assert lo >= POWER_TARGET, f"{family.name}: detected in {k}/{n} seeds, lower bound {lo:.2f} < {POWER_TARGET}"
+    if lo >= POWER_TARGET:
+        return None
+    return f"{family.name}: detected in {k}/{n} seeds, lower bound {lo:.2f} < {POWER_TARGET}"
 
 
-def check_false_positive_rate(family: Family) -> None:
-    """Assert the upper bound of the false-positive rate over the permuted-target panel is at most ``FALSE_POSITIVE_MAX``."""
+def problem_false_positive_rate(family: Family) -> Optional[str]:
+    """Why the upper bound of the false-positive rate over the permuted-target panel exceeds ``FALSE_POSITIVE_MAX``; None when it does not."""
     k, n = panel(family, True)
     lo, hi = clopper_pearson(k, n)
     print(f"[noise] {family.name}: {k}/{n} false positives, 90% CI [{lo:.2f}, {hi:.2f}]")
-    assert hi <= FALSE_POSITIVE_MAX, f"{family.name}: {k}/{n} false positives, upper bound {hi:.2f} > {FALSE_POSITIVE_MAX}"
+    if hi <= FALSE_POSITIVE_MAX:
+        return None
+    return f"{family.name}: {k}/{n} false positives, upper bound {hi:.2f} > {FALSE_POSITIVE_MAX}"

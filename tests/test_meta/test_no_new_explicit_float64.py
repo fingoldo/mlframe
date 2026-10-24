@@ -9,7 +9,7 @@ line above with the words ``Intentional float64`` and a reason (the test that ne
 
 from __future__ import annotations
 
-import json
+import orjson
 import re
 from pathlib import Path
 
@@ -54,7 +54,7 @@ def _current_counts() -> dict[str, int]:
 
 def test_no_file_gains_explicit_float64_uses():
     """Each feature-selection file keeps at most its recorded count of unmarked float64 lines."""
-    baseline = json.loads(BASELINE.read_text(encoding="utf-8"))
+    baseline = orjson.loads(BASELINE.read_text(encoding="utf-8"))
     current = _current_counts()
     grew = {f: (baseline.get(f, 0), c) for f, c in current.items() if c > baseline.get(f, 0)}
     assert not grew, f"explicit float64 grew in: {grew}. Use the caller's dtype, or mark an intentional family with '{MARKER}' and a reason."
@@ -62,7 +62,7 @@ def test_no_file_gains_explicit_float64_uses():
 
 def test_baseline_is_not_stale():
     """A file whose count dropped must have its baseline lowered, so the ratchet keeps tightening."""
-    baseline = json.loads(BASELINE.read_text(encoding="utf-8"))
+    baseline = orjson.loads(BASELINE.read_text(encoding="utf-8"))
     current = _current_counts()
     stale = {f: (b, current.get(f, 0)) for f, b in baseline.items() if current.get(f, 0) < b}
     assert not stale, f"lower the baseline for these files (cleaned up): {stale}"

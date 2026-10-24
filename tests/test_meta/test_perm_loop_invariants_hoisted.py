@@ -16,7 +16,7 @@ fills a buffer in place, which the detector cannot see). A new unlisted hit fail
 from __future__ import annotations
 
 import ast
-import json
+import orjson
 import re
 from pathlib import Path
 
@@ -158,7 +158,7 @@ def _current() -> "set[str]":
 
 def _baseline() -> "set[str]":
     """The reviewed ``{"<module path>::<function>"}`` list."""
-    return set(json.loads(BASELINE.read_text(encoding="utf-8")))
+    return set(orjson.loads(BASELINE.read_text(encoding="utf-8")))
 
 
 def test_no_new_unhoisted_permutation_invariants():

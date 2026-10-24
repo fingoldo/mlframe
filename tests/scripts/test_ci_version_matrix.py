@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import importlib.util
 import io
-import json
+import orjson
 import sys
 import urllib.error
 from pathlib import Path
@@ -91,7 +91,7 @@ def test_fetch_retries_network_errors_then_returns_the_release_map() -> None:
         calls["n"] += 1
         if calls["n"] < 3:
             raise urllib.error.URLError("boom")
-        return io.BytesIO(json.dumps({"releases": {"1.0.0": [{"yanked": False}]}}).encode())
+        return io.BytesIO(orjson.dumps({"releases": {"1.0.0": [{"yanked": False}]}}))
 
     assert cvm.fetch_releases("x", opener=opener, sleep=sleeps.append) == {"1.0.0": [{"yanked": False}]}
     assert calls["n"] == 3 and len(sleeps) == 2

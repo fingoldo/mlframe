@@ -455,8 +455,7 @@ def _output_membership(mrmr_self: Any) -> "tuple[set | None, dict]":
     try:
         names = {str(n) for n in mrmr_self.get_feature_names_out()}
     except Exception as exc:
-        _safe_log = logging.getLogger(__name__)
-        _safe_log.debug("fe_provenance_: output names unavailable (%s); in_output stays empty.", exc)
+        log_throttle(logging.getLogger(__name__), "_mrmr_fe_provenance.output_names", logging.WARNING, "fe_provenance_: output names unavailable (%s); in_output stays empty.", exc)
         return None, {}
     last_gate: dict = {}
     for rec in getattr(mrmr_self, "_fe_rejection_records_", None) or ():

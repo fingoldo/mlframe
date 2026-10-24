@@ -176,8 +176,10 @@ def _finalize_with_pipeline(monkeypatch, pipe):
     from types import SimpleNamespace
 
     from mlframe.training.core import _setup_helpers_metadata as meta
+    from mlframe.training.core import _setup_helpers_pipeline_cache as pipeline_cache
 
-    monkeypatch.setattr(meta, "_PIPELINE_JSON_ROUNDTRIP_CACHE", {})
+    # The round-trip cache dict is owned by _setup_helpers_pipeline_cache; the finalizer reaches it through that module's functions.
+    monkeypatch.setattr(pipeline_cache, "_PIPELINE_JSON_ROUNDTRIP_CACHE", {})
     monkeypatch.setattr(meta, "_load_pipeline_disk_cache_into_memory", lambda: None)
     monkeypatch.setattr(meta, "_persist_pipeline_disk_cache", lambda: None)
     ctx = SimpleNamespace(

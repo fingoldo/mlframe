@@ -34,7 +34,7 @@ from __future__ import annotations
 
 import ast
 import functools
-import json
+import orjson
 from pathlib import Path
 
 import pytest
@@ -290,7 +290,7 @@ def _current() -> "set[str]":
 
 def _baseline() -> "set[str]":
     """The reviewed ``{"<module path>::<function>"}`` worklist."""
-    return set(json.loads(BASELINE.read_text(encoding="utf-8")))
+    return set(orjson.loads(BASELINE.read_text(encoding="utf-8")))
 
 
 def test_no_new_launch_bound_cupy_loops():
