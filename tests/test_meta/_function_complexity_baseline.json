@@ -1,5 +1,4 @@
 {
-  "src/mlframe/calibration/quality.py::make_custom_calibration_plot": 17,
   "src/mlframe/calibration/quality.py::show_classifier_calibration": 17,
   "src/mlframe/competition/leak_scan.py::find_shifted_column_groups": 16,
   "src/mlframe/feature_engineering/auxiliary_feature_prediction.py::compute_auxiliary_feature_prediction_features": 18,

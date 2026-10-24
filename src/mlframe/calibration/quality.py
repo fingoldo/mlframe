@@ -122,6 +122,27 @@ METRICS_TO_SHOW = {
 }
 
 
+def _competing_prob_pos(competing_vars: list, plot_idx: int, X: "pd.DataFrame | np.ndarray | None") -> tuple | None:
+    """Resolve one competing-probs group to its positive-class probabilities and legend label; ``None`` when the group is empty."""
+    if len(competing_vars[plot_idx]) > 0:
+        var_name = competing_vars[plot_idx]
+        if X is None:
+            raise ValueError("make_custom_calibration_plot: competing_probs given but X is None")
+        prob_pos = X[var_name]
+    else:
+        named_vars = [var for var in competing_vars if len(var) > 0]
+        if not named_vars:
+            return None
+        if X is None:
+            raise ValueError("make_custom_calibration_plot: competing_probs given but X is None")
+        prob_pos = 1.0 - X[named_vars].sum(axis=1)
+        var_name = named_vars[0]  # any of them
+
+    if type(prob_pos) is not np.ndarray:
+        prob_pos = prob_pos.values
+    return prob_pos, "_".join(var_name.split("_")[1:])
+
+
 def make_custom_calibration_plot(
     y: np.ndarray,
     probs: np.ndarray,
@@ -195,27 +216,14 @@ def make_custom_calibration_plot(
         # Same axis, competing probs, if any
 
         for competing_vars in competing_probs:
-            if len(competing_vars[plot_idx]) > 0:
-                var_name = competing_vars[plot_idx]
-                if X is None:
-                    raise ValueError("make_custom_calibration_plot: competing_probs given but X is None")
-                prob_pos = X[var_name]
-            else:
-                named_vars = [var for var in competing_vars if len(var) > 0]
-                if not named_vars:
-                    continue  # an all-empty competing-probs group has nothing to plot -> skip (was IndexError)
-                if X is None:
-                    raise ValueError("make_custom_calibration_plot: competing_probs given but X is None")
-                prob_pos = 1.0 - X[named_vars].sum(axis=1)
-                var_name = named_vars[0]  # any of them
-
-            if type(prob_pos) is not np.ndarray:
-                prob_pos = prob_pos.values
-            var_name = "_".join(var_name.split("_")[1:])
+            resolved = _competing_prob_pos(competing_vars, plot_idx, X)
+            if resolved is None:
+                continue  # an all-empty competing-probs group has nothing to plot -> skip (was IndexError)
+            prob_pos, legend_label = resolved
             show_classifier_calibration(
                 y_true,
                 prob_pos,
-                legend_label=var_name,
+                legend_label=legend_label,
                 ax=None if skip_plotting else (ax_probs if nclasses == 1 else ax_probs[plot_idx]),
                 title=title,
                 append=True,
