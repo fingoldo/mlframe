@@ -27,6 +27,7 @@ import numpy as np
 from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 
 from ._helpers import _pgn_raw_budget
+from ._linear_dependence_guard import exact_dependence_keep_mask
 
 logger = logging.getLogger(__name__)
 
@@ -120,6 +121,40 @@ def _assign_support_tail(
     _restore_changed, selected_vars = run_main_effect_restore(self, X, selected_vars, cols, data, classes_y, verbose)
     if _restore_changed:
         self.n_features_ = len(selected_vars) + len(self._engineered_recipes_)
+
+    # LINEAR-DEPENDENCE GUARD runs last: the passes above can re-attach raw columns that complete an exact linear combination of the kept raws.
+    _ld_changed, selected_vars = _assign_support_tai_drop_exact_linear_dependence(self, X, cols, selected_vars, verbose)
+    if _ld_changed:
+        self.support_ = np.array(selected_vars, dtype=np.int64)
+        self.n_features_ = len(selected_vars) + len(self._engineered_recipes_)
+
+
+def _assign_support_tai_drop_exact_linear_dependence(self, X, cols, selected_vars, verbose):
+    """Drop raw survivors that are exact linear combinations of higher-ranked raw survivors. Returns ``(changed, selected_vars)``."""
+    if len(selected_vars) < 2:
+        return False, selected_vars
+    cached = self.cached_MIs if isinstance(getattr(self, "cached_MIs", None), dict) else {}
+    order = sorted((int(v) for v in selected_vars), key=lambda v: (-float(cached.get((v,), 0.0)), v))
+    numeric_order: list = []
+    blocks: list = []
+    for v in order:
+        try:
+            arr = np.asarray(X[cols[v]], dtype=np.float64)
+        except (TypeError, ValueError):
+            continue
+        if arr.ndim != 1 or not np.all(np.isfinite(arr)):
+            continue
+        numeric_order.append(v)
+        blocks.append(arr)
+    if len(blocks) < 2:
+        return False, selected_vars
+    keep = exact_dependence_keep_mask(np.column_stack(blocks))
+    dropped = {v for v, k in zip(numeric_order, keep) if not k}
+    if not dropped:
+        return False, selected_vars
+    if verbose:
+        logger.info("MRMR linear-dependence guard: dropped %d raw survivor(s) that are exact linear combinations of higher-ranked raws: %s", len(dropped), [cols[v] for v in sorted(dropped)])
+    return True, [v for v in selected_vars if int(v) not in dropped]
 
 
 def _assign_support_tai_fe_max_steps(self, fe_max_steps, X, verbose, _eng_continuous_snapshot, data, classes_y, y, _retention_added_eng_names, selected_vars, cols, _allowed_raw_idx):
