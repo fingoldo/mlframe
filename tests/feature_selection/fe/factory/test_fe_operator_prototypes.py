@@ -1,7 +1,7 @@
 """Wave-2 FE operator prototypes: out-of-fold warp service (leak safety, replay purity), row statistics (subset recovery) and the residual pair screen (picks the true pair)."""
 
 import itertools
-import json
+import orjson
 
 import numpy as np
 import pandas as pd
@@ -29,7 +29,7 @@ def test_oof_warp_is_leak_free_on_noise_and_replay_is_pure():
     Xn[:5, 0] = np.nan
     out = replay(rec, Xn)
     assert np.isfinite(out).all() and np.allclose(out[:5], rec["full"]["fill"])
-    assert len(json.dumps(rec)) < 20_000  # tables only: far smaller than the 3000-row target
+    assert len(orjson.dumps(rec)) < 20_000  # tables only: far smaller than the 3000-row target
 
 
 def test_cell2d_recovers_bumps_and_foldavg_matches_full_in_distribution():
@@ -50,7 +50,7 @@ def test_row_stat_recovers_the_informative_subset():
     X, y, _ = gen(np.random.default_rng(2), 6000)
     rec = fit_rowstat(X, y, cols)
     assert rec["stat"] in ("rng", "std") and set(rec["src"]) >= {0, 1, 2, 3, 4}
-    assert np.array_equal(replay_rowstat(rec, X), replay_rowstat(json.loads(json.dumps(rec)), X))
+    assert np.array_equal(replay_rowstat(rec, X), replay_rowstat(orjson.loads(orjson.dumps(rec)), X))
 
 
 def test_residual_cell_screen_finds_the_true_pair_on_the_additive_target():

@@ -16,7 +16,7 @@ test, and a baseline entry whose kernel is gone or fixed fails too, so the list 
 
 from __future__ import annotations
 
-import json
+import orjson
 import re
 from pathlib import Path
 
@@ -99,7 +99,7 @@ def _current() -> "set[str]":
 
 def _baseline() -> "set[str]":
     """The reviewed ``{"<module path>::<kernel>"}`` worklist."""
-    return set(json.loads(BASELINE.read_text(encoding="utf-8")))
+    return set(orjson.loads(BASELINE.read_text(encoding="utf-8")))
 
 
 def test_no_new_uncoalesced_row_reads():

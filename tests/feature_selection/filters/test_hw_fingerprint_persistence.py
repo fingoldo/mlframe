@@ -1,7 +1,7 @@
 """End to end against pyutilz: a failed or opted-out GPU probe must not poison the persisted hardware fingerprint that keys every kernel-tuning lookup."""
 from __future__ import annotations
 
-import json
+import orjson
 
 import pytest
 
@@ -51,7 +51,7 @@ def fp_env(tmp_path, monkeypatch):
 
 def _entries(path):
     """Persisted fingerprint entries, ``{}`` when the file does not exist."""
-    return json.loads(path.read_text(encoding="utf-8"))["entries"] if path.exists() else {}
+    return orjson.loads(path.read_text(encoding="utf-8"))["entries"] if path.exists() else {}
 
 
 def test_gpu_run_persists_its_gpu_fingerprint(fp_env):

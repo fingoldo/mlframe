@@ -13,7 +13,7 @@ compiles a ``double`` kernel for float32 buffers, which is the same out-of-bound
 from __future__ import annotations
 
 import ast
-import json
+import orjson
 import re
 from pathlib import Path
 
@@ -46,7 +46,7 @@ def _double_pointer_kernels():
 
 def _baseline():
     """The reviewed ``{module path: [kernel names]}`` baseline of double* kernels."""
-    return {k: set(v) for k, v in json.loads(BASELINE.read_text(encoding="utf-8")).items()}
+    return {k: set(v) for k, v in orjson.loads(BASELINE.read_text(encoding="utf-8")).items()}
 
 
 def test_double_pointer_kernels_are_templated_or_baselined():
