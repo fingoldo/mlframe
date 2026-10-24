@@ -780,6 +780,21 @@ def _wavelet_legs_mi_batch_njit(z, yb_tr, yb_va, tr_idx, va_idx, n_y_classes, js
     return mi_tr, mi_va
 
 
+def _try_gpu_leg_selection(x, y, lo, span, max_scale, max_legs, scale_sigma, return_arrays) -> Optional[list]:
+    """Batched device leg selection; ``None`` when the device path raises so the caller runs the host path."""
+    try:
+        from ._wavelet_basis_fe_batched import select_wavelet_legs_batched
+
+        _legs = select_wavelet_legs_batched(x, y, lo, span, max_scale=max_scale, max_legs=max_legs, scale_sigma=scale_sigma)
+        if not return_arrays:
+            return _legs
+        _z = np.clip((np.asarray(x, dtype=np.float64).ravel() - lo) / span, 0.0, 1.0)
+        return [(j, k, _dyadic_haar_leg(_z, j, k)) for j, k in _legs]
+    except Exception as e:  # nosec B110 - optional dependency import guard
+        logger.debug("GPU-resident leg-selection path failed, falling back to the host path: %s", e)
+        return None
+
+
 def _select_wavelet_legs(
     x: np.ndarray,
     y: np.ndarray,
@@ -816,15 +831,9 @@ def _select_wavelet_legs(
     # scores all candidate legs' train+held-out MI in two device workloads (one cp.bincount each) instead of
     # ~2 per-leg _binned_mi calls; parity-pinned to return the SAME admitted legs (test_wavelet_batched_mi_parity).
     if _binnedmi_gpu_enabled(n=int(np.asarray(x).size)):
-        try:
-            from ._wavelet_basis_fe_batched import select_wavelet_legs_batched
-            _legs = select_wavelet_legs_batched(x, y, lo, span, max_scale=max_scale, max_legs=max_legs, scale_sigma=scale_sigma)
-            if not return_arrays:
-                return _legs
-            _z = np.clip((np.asarray(x, dtype=np.float64).ravel() - lo) / span, 0.0, 1.0)
-            return [(j, k, _dyadic_haar_leg(_z, j, k)) for j, k in _legs]
-        except Exception as e:  # nosec B110 - optional dependency import guard
-            logger.debug("GPU-resident leg-selection path failed, falling back to the host path: %s", e)
+        _legs_gpu = _try_gpu_leg_selection(x, y, lo, span, max_scale, max_legs, scale_sigma, return_arrays)
+        if _legs_gpu is not None:
+            return _legs_gpu
     x = np.asarray(x, dtype=np.float64).ravel()
     y = np.asarray(y).ravel()
     n = x.size
