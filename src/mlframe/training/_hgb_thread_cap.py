@@ -15,7 +15,7 @@ from mlframe.config import HGBOOST_MODEL_TYPES
 
 logger = logging.getLogger(__name__)
 
-HGB_THREAD_CAP_ENABLED: bool = True
+HGB_THREAD_CAP_ENABLED: bool = False
 # psutil.cpu_percent is averaged over all logical CPUs: one fully busy core on a 22-thread host reads about 4.5%.
 # 50% therefore means roughly half the machine is already busy, which is where OpenMP barrier waits start to dominate.
 HGB_THREAD_CAP_LOAD_THRESHOLD_PCT: float = 50.0

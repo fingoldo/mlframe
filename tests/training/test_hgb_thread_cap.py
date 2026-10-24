@@ -50,6 +50,17 @@ def recorder(monkeypatch):
 
 
 @pytest.fixture
+def cap_enabled(monkeypatch):
+    """Turn the cap on for the test; it ships disabled by default."""
+    monkeypatch.setattr(cap, "HGB_THREAD_CAP_ENABLED", True)
+
+
+def test_shipped_default_is_disabled():
+    """The cap ships off until an A/B on a controlled host shows a win."""
+    assert cap.HGB_THREAD_CAP_ENABLED is False
+
+
+@pytest.fixture
 def probe(monkeypatch):
     """Patch the CPU-load probe; the test sets state["value"] to the load it should report."""
     state = {"value": 0.0, "calls": 0}
@@ -64,7 +75,7 @@ def probe(monkeypatch):
     return state
 
 
-def test_high_load_caps_hgb_threads(probe, recorder):
+def test_high_load_caps_hgb_threads(cap_enabled, probe, recorder):
     """Load above the threshold limits HGB to 4 threads and reports the cap as active."""
     probe["value"] = 90.0
     with cap.hgb_fit_thread_cap(_FakeHGBClassifier()) as active:
@@ -119,7 +130,7 @@ def test_probe_failure_keeps_default_threads(monkeypatch, recorder):
     assert recorder.calls == []
 
 
-def test_probe_runs_once_per_context_and_cap_scope_exits(probe, recorder):
+def test_probe_runs_once_per_context_and_cap_scope_exits(cap_enabled, probe, recorder):
     """One probe per context entry, and the limit scope is exited on normal completion."""
     probe["value"] = 90.0
     with cap.hgb_fit_thread_cap(_FakeHGBClassifier()):
@@ -129,7 +140,7 @@ def test_probe_runs_once_per_context_and_cap_scope_exits(probe, recorder):
     assert recorder.exits == 1
 
 
-def test_cap_scope_exits_when_fit_raises(probe, recorder):
+def test_cap_scope_exits_when_fit_raises(cap_enabled, probe, recorder):
     """The limit scope is exited even when the fit raises, and the exception propagates."""
     probe["value"] = 90.0
     with pytest.raises(RuntimeError, match="boom"):
@@ -149,7 +160,7 @@ def test_module_switch_read_at_call_time_disables_cap(monkeypatch, probe, record
     assert recorder.calls == []
 
 
-def test_threshold_read_at_call_time(monkeypatch, probe, recorder):
+def test_threshold_read_at_call_time(monkeypatch, cap_enabled, probe, recorder):
     """The threshold is read at call time, so a runtime change takes effect immediately."""
     monkeypatch.setattr(cap, "HGB_THREAD_CAP_LOAD_THRESHOLD_PCT", 80.0)
     probe["value"] = 90.0
