@@ -228,6 +228,22 @@ def frac_diff(
     return out
 
 
+def _parse_half_lives(half_life: float | Iterable[float]) -> Tuple[Tuple[float, ...], bool]:
+    """Normalise ``half_life`` to a non-empty tuple of positive floats, and report whether a single scalar was given."""
+    if isinstance(half_life, (int, float)):
+        hl_list: Tuple[float, ...] = (float(half_life),)
+        is_scalar = True
+    else:
+        hl_list = tuple(float(h) for h in half_life)
+        is_scalar = False
+    if not hl_list:
+        raise ValueError("half_life must be a float or non-empty iterable")
+    for h in hl_list:
+        if h <= 0:
+            raise ValueError(f"half_life must be > 0, got {h}")
+    return hl_list, is_scalar
+
+
 def ewma_residual(
     values: np.ndarray,
     half_life: float | Iterable[float] = 20.0,
@@ -252,17 +268,7 @@ def ewma_residual(
     arr = np.asarray(values, dtype=np.float64)
     n = arr.size
 
-    if isinstance(half_life, (int, float)):
-        hl_list: Tuple[float, ...] = (float(half_life),)
-        is_scalar = True
-    else:
-        hl_list = tuple(float(h) for h in half_life)
-        is_scalar = False
-    if not hl_list:
-        raise ValueError("half_life must be a float or non-empty iterable")
-    for h in hl_list:
-        if h <= 0:
-            raise ValueError(f"half_life must be > 0, got {h}")
+    hl_list, is_scalar = _parse_half_lives(half_life)
 
     def _ewma_single(seg: np.ndarray, hl: float) -> np.ndarray:
         """Compute the EWMA residual for one contiguous segment and one half-life: NaN/inf are zero-filled before the recurrence, then (optionally) bias-corrected via the pandas ``adjust`` convention before subtracting the EWMA from the raw segment."""
