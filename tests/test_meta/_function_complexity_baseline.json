@@ -120,7 +120,6 @@
   "src/mlframe/feature_selection/wrappers/rfecv/_init_validate.py::validate_init_params_late": 19,
   "src/mlframe/feature_selection/wrappers/rfecv/_nan_policy.py::apply_nan_in_X_policy": 22,
   "src/mlframe/feature_selection/wrappers/rfecv/_validate.py::_sanitize_X_inputs": 18,
-  "src/mlframe/inference/group_zero_sum_constraint.py::apply_group_zero_sum_constraint": 16,
   "src/mlframe/integrations/mlflow.py::get_or_create_mlflow_run": 18,
   "src/mlframe/metrics/_fairness_metrics.py::compute_fairness_metrics": 16,
   "src/mlframe/metrics/_ice_metric.py::ICE.evaluate": 17,

@@ -51,6 +51,46 @@ def _weighted_pava(values: np.ndarray, weights: np.ndarray, ascending: bool) -> 
     return out if ascending else out[::-1]
 
 
+def _validate_correction_inputs(
+    preds: np.ndarray,
+    group_ids: np.ndarray,
+    weights: np.ndarray,
+    extra_constraint_coefs: Optional[Sequence[np.ndarray]],
+) -> None:
+    """Reject mismatched shapes and signed weights or coefficients, which break the weighted-least-squares projection."""
+    if not (preds.shape == group_ids.shape == weights.shape):
+        raise ValueError("apply_group_zero_sum_constraint: preds, group_ids, weights must share the same shape")
+    if np.any(weights < 0):
+        raise ValueError("apply_group_zero_sum_constraint: weights must be non-negative (a signed weight breaks the weighted-least-squares projection)")
+    if extra_constraint_coefs is not None:
+        for c in extra_constraint_coefs:
+            if np.any(np.asarray(c, dtype=np.float64) < 0):
+                raise ValueError("apply_group_zero_sum_constraint: extra_constraint_coefs must be non-negative (a signed coefficient breaks the weighted-least-squares projection)")
+
+
+def _single_constraint_correction(
+    preds: np.ndarray,
+    group_codes: np.ndarray,
+    n_groups: int,
+    weights: np.ndarray,
+    target_sum: float,
+) -> np.ndarray:
+    """Subtract each group's weighted-mean excess over ``target_sum`` (the minimal correction for one constraint)."""
+    # np.unique + bincount instead of pandas groupby().transform("sum") (profiled 2x, one call per sum):
+    # pandas groupby machinery (code-factorization, cython dispatch) is rebuilt from scratch on EACH
+    # transform call despite both calls sharing the same grouping -- bincount on the shared integer group
+    # codes computes both weighted sums in one factorization pass, ~5x faster at 1M rows (measured in
+    # bench_group_zero_sum_constraint.py).
+    group_weighted_sum_by_code = np.bincount(group_codes, weights=preds * weights, minlength=n_groups)
+    group_weight_sum_by_code = np.bincount(group_codes, weights=weights, minlength=n_groups)
+
+    with np.errstate(invalid="ignore", divide="ignore"):
+        correction_by_code = np.where(group_weight_sum_by_code > 0, (group_weighted_sum_by_code - target_sum) / group_weight_sum_by_code, 0.0)
+    correction = correction_by_code[group_codes]
+
+    return np.asarray(preds - correction, dtype=np.float64)
+
+
 def apply_group_zero_sum_constraint(
     preds: np.ndarray,
     group_ids: np.ndarray,
@@ -105,32 +145,13 @@ def apply_group_zero_sum_constraint(
     preds = np.asarray(preds, dtype=np.float64)
     group_ids = np.asarray(group_ids)
     weights = np.ones_like(preds) if weights is None else np.asarray(weights, dtype=np.float64)
-    if not (preds.shape == group_ids.shape == weights.shape):
-        raise ValueError("apply_group_zero_sum_constraint: preds, group_ids, weights must share the same shape")
-    if np.any(weights < 0):
-        raise ValueError("apply_group_zero_sum_constraint: weights must be non-negative (a signed weight breaks the weighted-least-squares projection)")
-    if extra_constraint_coefs is not None:
-        for c in extra_constraint_coefs:
-            if np.any(np.asarray(c, dtype=np.float64) < 0):
-                raise ValueError("apply_group_zero_sum_constraint: extra_constraint_coefs must be non-negative (a signed coefficient breaks the weighted-least-squares projection)")
+    _validate_correction_inputs(preds, group_ids, weights, extra_constraint_coefs)
 
     _uniq, group_codes = np.unique(group_ids, return_inverse=True)
     n_groups = _uniq.shape[0]
 
     if extra_constraint_coefs is None:
-        # np.unique + bincount instead of pandas groupby().transform("sum") (profiled 2x, one call per sum):
-        # pandas groupby machinery (code-factorization, cython dispatch) is rebuilt from scratch on EACH
-        # transform call despite both calls sharing the same grouping -- bincount on the shared integer group
-        # codes computes both weighted sums in one factorization pass, ~5x faster at 1M rows (measured in
-        # bench_group_zero_sum_constraint.py).
-        group_weighted_sum_by_code = np.bincount(group_codes, weights=preds * weights, minlength=n_groups)
-        group_weight_sum_by_code = np.bincount(group_codes, weights=weights, minlength=n_groups)
-
-        with np.errstate(invalid="ignore", divide="ignore"):
-            correction_by_code = np.where(group_weight_sum_by_code > 0, (group_weighted_sum_by_code - target_sum) / group_weight_sum_by_code, 0.0)
-        correction = correction_by_code[group_codes]
-
-        return np.asarray(preds - correction, dtype=np.float64)
+        return _single_constraint_correction(preds, group_codes, n_groups, weights, target_sum)
 
     if extra_constraint_targets is None or len(extra_constraint_targets) != len(extra_constraint_coefs):
         raise ValueError("apply_group_zero_sum_constraint: extra_constraint_targets must match extra_constraint_coefs in length")
