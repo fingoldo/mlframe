@@ -174,7 +174,6 @@
   "src/mlframe/training/core/_misc_helpers.py::_validate_against_model_schemas": 21,
   "src/mlframe/training/core/_phase_composite_post_summary.py::_collect_best_model_metrics": 17,
   "src/mlframe/training/core/_phase_composite_post_summary.py::_run_suite_end_dummy_baselines_summary": 16,
-  "src/mlframe/training/core/_phase_composite_post_summary.py::format_composite_vs_raw_block": 16,
   "src/mlframe/training/core/_phase_finalize.py::_stamp_ensemble_composition": 17,
   "src/mlframe/training/core/_phase_finalize_calibration.py::_apply_confidence_shrinkage_to_regression": 18,
   "src/mlframe/training/core/_phase_finalize_calibration.py::_conformal_on_calib_slice": 22,

@@ -185,6 +185,31 @@ def _get_key_or_str(d: Any, key: Any) -> Any:
     return d.get(str(key))
 
 
+def _best_yscale_row(rows, metric, is_min):
+    """Best row by the y-scale VAL metric (finite values only), as ``(value, row)``, or ``None``."""
+    _best = None
+    for _r in rows:
+        _v = ((_r.get("metrics") or {}).get("val") or {}).get(metric)
+        if _v is not None and np.isfinite(_v) and (_best is None or _metric_better(float(_v), _best[0], is_min)):
+            _best = (float(_v), _r)
+    return _best
+
+
+def _composite_verdict(comp_val, comp_test, raw_best, l_raw_test):
+    """Verdict for one composite against its raw-y baseline, read on TEST (val verdicts are selection-biased)."""
+    if comp_val is None and comp_test is None:
+        return "NO_Y_SCALE_METRIC"
+    if not raw_best:
+        return "NO_RAW_MODEL_TO_COMPARE"
+    if l_raw_test is None:
+        return "NO_TEST_METRIC_TO_COMPARE"
+    if l_raw_test > 1.005:
+        return "COMPOSITE_BEATS_RAW"
+    if l_raw_test < 0.995:
+        return "RAW_BEATS_COMPOSITE"
+    return "TIE_WITH_RAW"
+
+
 def format_composite_vs_raw_block(*, models: dict, metadata: dict, best_metrics: dict, composite_to_raw: dict) -> str:
     """Answer "did the composite (log / cbrt / residual ...) beat training on raw y?" per composite target.
 
@@ -210,11 +235,7 @@ def format_composite_vs_raw_block(*, models: dict, metadata: dict, best_metrics:
         _dir = _mhb(_metric)
         _is_min = True if _dir is None else (not _dir)
         _rows = (_yscale.get(str(_tt)) or {}).get(_comp) or []
-        _best = None
-        for _r in _rows:
-            _v = ((_r.get("metrics") or {}).get("val") or {}).get(_metric)
-            if _v is not None and np.isfinite(_v) and (_best is None or _metric_better(float(_v), _best[0], _is_min)):
-                _best = (float(_v), _r)
+        _best = _best_yscale_row(_rows, _metric, _is_min)
         _have = {_r.get("model_name") for _r in _rows if (_r.get("metrics") or {})}
         _entries = (_get_key_or_str(models, _tt) or {}).get(_comp) or []
         if not _rows and not _entries:
@@ -247,18 +268,7 @@ def format_composite_vs_raw_block(*, models: dict, metadata: dict, best_metrics:
         # The verdict reads TEST for both sides: discovery kept only composites that beat raw on val, so a val verdict is
         # selection-biased toward COMPOSITE_BEATS_RAW. The val lift stays in the table for reference.
         _l_raw_test = _lift(_raw_test, _comp_test)
-        if _comp_val is None and _comp_test is None:
-            _verdict = "NO_Y_SCALE_METRIC"
-        elif not _raw_best:
-            _verdict = "NO_RAW_MODEL_TO_COMPARE"
-        elif _l_raw_test is None:
-            _verdict = "NO_TEST_METRIC_TO_COMPARE"
-        elif _l_raw_test > 1.005:
-            _verdict = "COMPOSITE_BEATS_RAW"
-        elif _l_raw_test < 0.995:
-            _verdict = "RAW_BEATS_COMPOSITE"
-        else:
-            _verdict = "TIE_WITH_RAW"
+        _verdict = _composite_verdict(_comp_val, _comp_test, _raw_best, _l_raw_test)
         _f = lambda v: "-" if v is None or not np.isfinite(v) else f"{v:.4f}"  # noqa: E731
         _fl = lambda v: "-" if v is None else f"{v:.3f}x"  # noqa: E731
         lines.append(
