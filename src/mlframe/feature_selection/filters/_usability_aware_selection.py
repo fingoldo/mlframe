@@ -97,7 +97,7 @@ def _replay_matches_on_device(recipe: Any, X_df: Any, values: np.ndarray, featur
         dev = apply_unary_binary_gpu_resident(recipe, X_df)
         if dev is None:
             return None
-        rep = dev.astype(feature_dtype)  # cast BEFORE the finite check, as _scrub does: a float64 value that overflows float32 scrubs to 0
+        rep = dev.astype(feature_dtype)  # cast BEFORE the finite check, as _scrub does: a double value that overflows float32 scrubs to 0
         rep = cp.where(cp.isfinite(rep), rep, cp.asarray(0, dtype=rep.dtype)).astype(cp.float64)  # Intentional float64: GPU usability operand; kernel contract is float64
         want = cp.asarray(np.asarray(values), dtype=cp.float64)  # Intentional float64: GPU usability operand; kernel contract is float64
         return bool(rep.shape == want.shape and bool(cp.allclose(rep, want, atol=1e-4, equal_nan=True)))
@@ -491,7 +491,7 @@ def _build_usability_cand_step2_sub_quantum_cpu(cand_here, _mi_key, max_per_pair
                 binary_name=bn, unary_preset=unary_preset, binary_preset=binary_preset,
                 quantization_nbins=quantization_nbins, quantization_method=quantization_method,
                 quantization_dtype=quantization_dtype,
-                fit_values_for_edges=_f64(c.values),  # edges need float64 precision
+                fit_values_for_edges=_f64(c.values),  # edges need double precision
             )
         except Exception as e:  # nosec B112 - optional/best-effort path, rationale documented
             logger.debug("recipe build failed, dropping this candidate as not replayable: %s", e)

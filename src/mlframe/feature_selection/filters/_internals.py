@@ -162,7 +162,7 @@ ENSURE_ARROW_DF_SUPPORT: bool = True
 # =============================================================================
 
 def smart_log(x: np.ndarray) -> np.ndarray:
-    """Numerically-safe ``log(x)``: additively shifts non-positive inputs. Preserves input dtype (a prior cast to float32 silently demoted float64).
+    """Numerically-safe ``log(x)``: additively shifts non-positive inputs. Preserves input dtype (a prior cast to float32 silently demoted double).
 
     When ``x_min == x_max == 0`` (a column of pure zeros emerging from
     Optuna's coefficient sweep at very small parameter magnitudes), the
@@ -189,7 +189,7 @@ def canonical_group_token(value: object) -> str:
     every per-group lookup and silently routes every row to the global fallback
     - the engineered column is then computed from the wrong (global) statistic
     with no error. Collapse integral-valued numerics so ``1``, ``1.0``,
-    ``np.int64(1)``, ``np.float64(1.0)`` all map to ``'1'``; non-integral floats
+    ``np.int64(1)``, ``np.double(1.0)`` all map to ``'1'``; non-integral floats
     keep their full repr; non-numeric labels pass through ``str`` unchanged.
 
     Mirrors ``training.composite.transforms._canonical_group_key`` so the whole

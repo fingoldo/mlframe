@@ -58,6 +58,7 @@ from ._numba_utils_offset import (  # noqa: F401
     _entropy_from_counts_njit,
 )
 
+
 @njit(cache=True)
 def count_cand_nbins(X: Sequence[int], factors_nbins: np.ndarray) -> int:
     """Sum the bin count across the factors named in candidate ``X``. Used by ``screen_predictors`` to gate the confirmation step (permutation testing is
@@ -90,13 +91,13 @@ def _joint_mi_3d_njit(x: np.ndarray, z: np.ndarray, y: np.ndarray, K_x: int, K_z
     if n <= 0:
         return 0.0
     K_xz = K_x * K_z
-    joint = np.zeros((K_xz, K_y), dtype=np.float64)
+    joint = np.zeros((K_xz, K_y), dtype=np.float64)  # Intentional float64: numba kernel body buffer or scalar (crit helper cannot run inside njit)
     for i in range(n):
         composite = int(x[i]) * K_z + int(z[i])
         joint[composite, int(y[i])] += 1.0
     n_f = float(n)
-    Px = np.zeros(K_xz, dtype=np.float64)
-    Py = np.zeros(K_y, dtype=np.float64)
+    Px = np.zeros(K_xz, dtype=np.float64)  # Intentional float64: numba kernel body buffer or scalar (crit helper cannot run inside njit)
+    Py = np.zeros(K_y, dtype=np.float64)  # Intentional float64: numba kernel body buffer or scalar (crit helper cannot run inside njit)
     for i in range(K_xz):
         for j in range(K_y):
             v = joint[i, j]
@@ -140,9 +141,9 @@ def _pair_mm_mi_njit(code_x, code_y, target, kx, ky, kt, min_rows_per_cell):
     if n == 0:
         return 0.0
     ncells = kx * ky
-    joint = np.zeros(ncells * kt, dtype=np.float64)
-    px = np.zeros(ncells, dtype=np.float64)
-    py = np.zeros(kt, dtype=np.float64)
+    joint = np.zeros(ncells * kt, dtype=np.float64)  # Intentional float64: numba kernel body buffer or scalar (crit helper cannot run inside njit)
+    px = np.zeros(ncells, dtype=np.float64)  # Intentional float64: numba kernel body buffer or scalar (crit helper cannot run inside njit)
+    py = np.zeros(kt, dtype=np.float64)  # Intentional float64: numba kernel body buffer or scalar (crit helper cannot run inside njit)
     for r in range(n):
         cell = code_x[r] * ky + code_y[r]
         t = target[r]
@@ -181,7 +182,7 @@ def _pair_mm_mi_njit(code_x, code_y, target, kx, ky, kt, min_rows_per_cell):
 
 @njit(cache=True, fastmath=True, inline="always")
 def _edge_bin_codes(val: np.ndarray, n_bins: int, codes_out: np.ndarray) -> int:
-    """Equi-frequency PERCENTILE-EDGE bin ``val`` (finite float64) into ``codes_out`` (int32, in
+    """Equi-frequency PERCENTILE-EDGE bin ``val`` (finite double) into ``codes_out`` (int32, in
     [0, n_bins)). Matches the GPU orth twin ``_hermite_fe_mi._plugin_mi_classif_batch_cuda_resident``
     EXACTLY: the FIXED ``n_bins-1`` interior edges ``cp.percentile(X, qs)[1:-1]`` (np.quantile linear
     interpolation at virtual index ``q*(n-1)``) with NO dedup, then ``searchsorted(interior, side='right')``.
@@ -199,7 +200,7 @@ def _edge_bin_codes(val: np.ndarray, n_bins: int, codes_out: np.ndarray) -> int:
     # at their sorted values in O(n) (introselect) vs the O(n log n) full sort; part[lo]/part[hi] are then
     # the identical order statistics np.sort would give, so the edges (and MI) are BIT-IDENTICAL.
     los = np.empty(nq, dtype=np.int64)
-    fracs = np.empty(nq, dtype=np.float64)
+    fracs = np.empty(nq, dtype=np.float64)  # Intentional float64: numba kernel body buffer or scalar (crit helper cannot run inside njit)
     kths = np.empty(2 * nq, dtype=np.int64)
     m = 0
     for k in range(nq):
@@ -210,7 +211,7 @@ def _edge_bin_codes(val: np.ndarray, n_bins: int, codes_out: np.ndarray) -> int:
         fracs[k] = pos - lo
         kths[m] = lo; kths[m + 1] = hi; m += 2
     part = np.partition(val, kths[:m])
-    edges = np.empty(nq, dtype=np.float64)
+    edges = np.empty(nq, dtype=np.float64)  # Intentional float64: numba kernel body buffer or scalar (crit helper cannot run inside njit)
     for k in range(nq):
         lo = los[k]
         hi = lo + 1 if lo < n - 1 else lo
@@ -236,7 +237,7 @@ def _edge_bin_codes(val: np.ndarray, n_bins: int, codes_out: np.ndarray) -> int:
 
 @njit(cache=True, fastmath=True)
 def _plugin_mi_classif_edge_njit(x: np.ndarray, y: np.ndarray, n_bins: int) -> float:
-    """Plain plug-in MI of continuous x (1-D float64) with discrete y (1-D int64), EDGE-binning x.
+    """Plain plug-in MI of continuous x (1-D double) with discrete y (1-D int64), EDGE-binning x.
     Same plug-in estimator (nats) and occupied-cell reduction order as
     ``_hermite_fe_mi._plugin_mi_classif_njit`` - only the x binning is percentile-edge, not rank."""
     n = x.shape[0]
@@ -282,11 +283,11 @@ def _plugin_mi_classif_edge_njit(x: np.ndarray, y: np.ndarray, n_bins: int) -> f
 
 @njit(cache=True, fastmath=True, parallel=True)
 def plugin_mi_classif_batch_edge_njit(X_cols: np.ndarray, y: np.ndarray, n_bins: int = 20) -> np.ndarray:
-    """Edge-binning plain plug-in MI of each column of ``X_cols`` (continuous, (n,k) float64) with discrete
+    """Edge-binning plain plug-in MI of each column of ``X_cols`` (continuous, (n,k) double) with discrete
     y. Parallel over columns. The CPU batcher's per-column MI core; identical (to ~fp reduction order) to
     the GPU resident edge plug-in MI, so the two batcher backends select the same forms on every column."""
     k = X_cols.shape[1]
-    out = np.zeros(k, dtype=np.float64)
+    out = np.zeros(k, dtype=np.float64)  # Intentional float64: numba kernel body buffer or scalar (crit helper cannot run inside njit)
     for j in prange(k):
         out[j] = _plugin_mi_classif_edge_njit(np.ascontiguousarray(X_cols[:, j]), y, n_bins)
     return out
@@ -294,7 +295,7 @@ def plugin_mi_classif_batch_edge_njit(X_cols: np.ndarray, y: np.ndarray, n_bins:
 
 @njit(cache=True, fastmath=True)
 def _plugin_mi_classif_njit(x: np.ndarray, y: np.ndarray, n_bins: int = 20) -> float:
-    """Plug-in MI estimator for continuous x (1-D float64) and discrete y (1-D int64). Returns MI in nats.
+    """Plug-in MI estimator for continuous x (1-D double) and discrete y (1-D int64). Returns MI in nats.
     ~50x faster than sklearn for n<=10k, single-thread."""
     # Lazy import of parent-resident helpers: ``.hermite_fe`` re-imports
     # this sibling at its bottom, so a top-level ``from .hermite_fe

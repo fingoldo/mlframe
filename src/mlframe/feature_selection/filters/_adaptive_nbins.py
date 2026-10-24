@@ -222,7 +222,7 @@ def edges_qs(x: np.ndarray, alpha: float = 0.30) -> np.ndarray:
             per Gupta 2021 empirics.
 
     Returns:
-        1-D float64 array of the inner quantile edges; empty when fewer than two distinct bins result.
+        1-D double array of the inner quantile edges; empty when fewer than two distinct bins result.
     """
     x = np.asarray(x, dtype=np.float64).ravel()  # Intentional float64: bin-edge computation input; edges compared at full precision
     x = x[np.isfinite(x)]
@@ -273,7 +273,7 @@ def edges_knuth(x: np.ndarray, edge_type: str = "uniform", m_max_cap: int = MAX_
             legacy pre-unification default.
 
     Returns:
-        1-D float64 array of the inner bin edges (outer boundaries dropped); empty when no interior edge exists.
+        1-D double array of the inner bin edges (outer boundaries dropped); empty when no interior edge exists.
     """
     full_edges = _knuth_bin_edges(np.asarray(x), edge_type=edge_type, m_max_cap=int(m_max_cap))
     if full_edges.size <= 2:
@@ -296,7 +296,7 @@ def edges_bayesian_blocks(
             data blows up downstream pairwise-MI cost).
 
     Returns:
-        1-D float64 array of the inner block edges (outer boundaries dropped); empty when no interior edge exists.
+        1-D double array of the inner block edges (outer boundaries dropped); empty when no interior edge exists.
     """
     full_edges = _bayesian_blocks_bin_edges(
         np.asarray(x), p0=p0, edge_placement=edge_placement, subsample_threshold=int(subsample_threshold), m_max_cap=int(m_max_cap),
@@ -359,7 +359,7 @@ def edges_fayyad_irani(
         y_pseudo_classes: pseudo-class count for a target above ``max_y_classes`` distinct values (default 16; see ``mdlp_bin_edges``).
 
     Returns:
-        1-D float64 array of the finite inner cut points (outer boundaries dropped); empty when no split was accepted.
+        1-D double array of the finite inner cut points (outer boundaries dropped); empty when no split was accepted.
     """
     full_edges = mdlp_bin_edges(
         np.asarray(x), np.asarray(y), max_depth=max_depth, min_split_size=min_split_size, backend=backend, scaled_min_split=scaled_min_split,
@@ -410,7 +410,7 @@ def edges_optimal_joint(
             n=50000 with ~50k unique int64 values. Same bug class as MDLP's ``max_y_classes``.
 
     Returns:
-        1-D float64 array of inner bin edges for the winning bin count, built on the full finite data; falls back to
+        1-D double array of inner bin edges for the winning bin count, built on the full finite data; falls back to
         Freedman-Diaconis edges when there is too little data to cross-validate.
     """
     x = np.asarray(x, dtype=np.float64).ravel()  # Intentional float64: bin-edge computation input; edges compared at full precision
@@ -739,7 +739,7 @@ def _per_feature_edges_no_lock_needed_hit(n_features, X, _cache, _y_key, _kw_key
     edges_list: list = [None] * n_features
     _miss_keys: list = [None] * n_features  # cache key per missed col (None => don't cache)
     _miss_cols: list = []  # indices needing compute, in ascending order
-    _cols: list = [None] * n_features  # float64 view per column (reused by phase 2)
+    _cols: list = [None] * n_features  # double view per column (reused by phase 2)
     for j in range(n_features):
         col = X[:, j].astype(np.float64, copy=False)  # Intentional float64: per-column float64 view consumed by the statistic loop
         _cols[j] = col

@@ -34,7 +34,7 @@ def _abs_pearson_njit(y, v):
     MEAN-CENTERED sums-of-squares/cross. No isfinite-mask + boolean-index copies (each pass is branchless). 0.0 on
     <2 valid rows or a (near-)constant side.
 
-    Accepts f32 OR f64 arrays: each value is promoted to float64 before arithmetic, so the result is bit-identical
+    Accepts f32 OR f64 arrays: each value is promoted to double before arithmetic, so the result is bit-identical
     whatever the input dtype - letting the caller pass an f32 array without a full-length f64 copy.
 
     Perf (2026-07): BRANCHLESS + REASSOC-fastmath accumulation -> 2.1-2.5x over the plain-branch fastmath=False
@@ -62,7 +62,7 @@ def _abs_pearson_njit(y, v):
     n = 0
     sa: float | np.floating = 0.0; sv: float | np.floating = 0.0
     for i in range(y.shape[0]):
-        a = np.float64(y[i]); b = np.float64(v[i])
+        a = np.float64(y[i]); b = np.float64(v[i])  # Intentional float64: numba kernel body buffer or scalar (crit helper cannot run inside njit)
         finite = np.isfinite(a) and np.isfinite(b)
         # Branchless: a non-finite row contributes 0 to every accumulator and 0 to ``n`` (exact row-drop, SIMD-friendly).
         av = a if finite else 0.0
@@ -76,7 +76,7 @@ def _abs_pearson_njit(y, v):
     mv = sv * inv
     saa: float | np.floating = 0.0; svv: float | np.floating = 0.0; sav: float | np.floating = 0.0
     for i in range(y.shape[0]):
-        a = np.float64(y[i]); b = np.float64(v[i])
+        a = np.float64(y[i]); b = np.float64(v[i])  # Intentional float64: numba kernel body buffer or scalar (crit helper cannot run inside njit)
         finite = np.isfinite(a) and np.isfinite(b)
         da = (a - ma) if finite else 0.0
         db = (b - mv) if finite else 0.0
@@ -147,12 +147,13 @@ except (ValueError, TypeError):
 
 def _crit_np_dtype() -> type[np.floating]:
     """np.float32 when the precision-critical relaxation is on (``MLFRAME_CRIT_DTYPE_RELAXED``, DEFAULT ON),
-    else np.float64 - the HOST/numpy mirror of ``_fe_gpu_batch._devices.crit_float_dtype`` (read directly here
+    else the strict double branch - the HOST/numpy mirror of ``_fe_gpu_batch._devices.crit_float_dtype`` (read directly here
     to keep this a numpy-only leaf module with no cupy import). The usability |corr| feeds WIDE-margin
     threshold decisions (min_corr 0.6; the tail-concentration gap is ~0.99 vs ~0.06), so operand casts follow
     the SAME f32 relaxation the discretiser-input / fourier-detrend / prewarp hotspots already use; set the env
     to 0 to force strict f64 everywhere (matching the rest of MRMR)."""
     if os.environ.get("MLFRAME_CRIT_DTYPE_RELAXED", "1").strip().lower() in ("0", "false", "off", "no"):
+        # Intentional float64: strict-branch definition of the policy itself, returned only when the relaxation is off
         return np.float64
     return np.float32
 
@@ -192,13 +193,14 @@ def abs_pearson(y: np.ndarray, v: np.ndarray) -> float:
     # form. The kernel promotes each value to f64 internally, so pass the arrays in their NATIVE dtype: when both are f32
     # (the common _crit_np_dtype path) this skips the full-length f64 copy the old code always paid - bit-identical
     # result, half the operand memory, and no wasted O(n) copy. Only upcast (copy) when the two dtypes differ.
+    # Intentional float64: mixed or non-f32 inputs keep the float64 reference; _abs_pearson_fast is bit-identical to this only on that path.
     _dt = np.float32 if (y.dtype == np.float32 and v.dtype == np.float32) else np.float64
     return float(_abs_pearson_njit(np.ascontiguousarray(y, _dt), np.ascontiguousarray(v, _dt)))
 
 
 def _abs_pearson_fast(y, v):
     """Same computation as :func:`abs_pearson` but ASSUMES both inputs are already 1-D, C-contiguous, and the
-    SAME float32-or-float64 dtype - no re-validation. For internal hot call sites (``usability_form_corrs``)
+    SAME float32-or-double dtype - no re-validation. For internal hot call sites (``usability_form_corrs``)
     that can guarantee this by construction: every form passed here is a numpy elementwise op on operands
     already cast to ``_crit_np_dtype()`` and ``.ravel()``-ed, which numpy always returns contiguous and
     dtype-preserving.
@@ -210,7 +212,7 @@ def _abs_pearson_fast(y, v):
     shape disproved that read: ``_abs_pearson_fast`` (no checks at all) is only ~3.8% faster (58.2us/call vs
     60.5us/call) - the ``np.asarray``/dtype-branch/``np.ascontiguousarray`` checks this skips were NEVER the
     bulk of the cost. What actually happened: numba dispatcher calls apparently don't get their own separate
-    frame in cProfile's stats here, so the njit kernel's REAL execution time (its two-pass float64 reduction
+    frame in cProfile's stats here, so the njit kernel's REAL execution time (its two-pass double reduction
     over the array, ~58us at n=30000) was silently folded into the CALLER's (``abs_pearson``'s) reported
     tottime rather than showing as a separate cumtime-only child cost. Kept anyway as a free, bit-identical,
     zero-risk ~3.8%/call win (validated in
@@ -359,8 +361,8 @@ def _rank_transform(v):
     """Ordinal ranks of ``v`` (argsort-of-argsort). Ties are broken by position (stable) - adequate for a
     monotone-association proxy; a Pearson corr over these ranks is a Spearman-style rank correlation."""
     order = np.argsort(v, kind="stable")
-    ranks = np.empty(order.shape[0], dtype=np.float64)
-    ranks[order] = np.arange(order.shape[0], dtype=np.float64)
+    ranks = np.empty(order.shape[0], dtype=_crit_np_dtype())
+    ranks[order] = np.arange(order.shape[0], dtype=_crit_np_dtype())
     return ranks
 
 

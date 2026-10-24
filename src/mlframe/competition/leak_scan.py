@@ -189,6 +189,31 @@ def sort_by_density_leak_scan(
     }
 
 
+def _best_lag_correlation(a: np.ndarray, b: np.ndarray, max_lag: int, min_overlap_rows: int) -> tuple[int, float]:
+    """Return the row-lag in ``-max_lag..max_lag`` whose shifted Pearson r has the largest magnitude, and that r."""
+    n = len(a)
+    best_lag = 0
+    best_corr = 0.0
+    for lag in range(-max_lag, max_lag + 1):
+        if lag >= 0:
+            a_seg, b_seg = a[: n - lag], b[lag:]
+        else:
+            a_seg, b_seg = a[-lag:], b[: n + lag]
+        if a_seg.size < min_overlap_rows:
+            continue
+        valid = np.isfinite(a_seg) & np.isfinite(b_seg)
+        if int(valid.sum()) < min_overlap_rows:
+            continue
+        a_valid, b_valid = a_seg[valid], b_seg[valid]
+        if a_valid.std() == 0 or b_valid.std() == 0:
+            continue
+        corr = float(np.corrcoef(a_valid, b_valid)[0, 1])
+        if abs(corr) > abs(best_corr):
+            best_corr = corr
+            best_lag = lag
+    return best_lag, best_corr
+
+
 def find_shifted_column_groups(
     df: pd.DataFrame,
     *,
@@ -242,7 +267,6 @@ def find_shifted_column_groups(
             UserWarning,
             stacklevel=2,
         )
-    n = len(df)
     arrays = {c: df[c].to_numpy(dtype=float) for c in numeric_cols}
 
     parent = {c: c for c in numeric_cols}
@@ -265,25 +289,7 @@ def find_shifted_column_groups(
         a = arrays[col_a]
         for col_b in numeric_cols[i + 1 :]:
             b = arrays[col_b]
-            best_lag = 0
-            best_corr = 0.0
-            for lag in range(-max_lag, max_lag + 1):
-                if lag >= 0:
-                    a_seg, b_seg = a[: n - lag], b[lag:]
-                else:
-                    a_seg, b_seg = a[-lag:], b[: n + lag]
-                if a_seg.size < min_overlap_rows:
-                    continue
-                valid = np.isfinite(a_seg) & np.isfinite(b_seg)
-                if int(valid.sum()) < min_overlap_rows:
-                    continue
-                a_valid, b_valid = a_seg[valid], b_seg[valid]
-                if a_valid.std() == 0 or b_valid.std() == 0:
-                    continue
-                corr = float(np.corrcoef(a_valid, b_valid)[0, 1])
-                if abs(corr) > abs(best_corr):
-                    best_corr = corr
-                    best_lag = lag
+            best_lag, best_corr = _best_lag_correlation(a, b, max_lag, min_overlap_rows)
             pairwise_best.append((col_a, col_b, best_lag, best_corr))
             if abs(best_corr) >= corr_threshold:
                 union(col_a, col_b)

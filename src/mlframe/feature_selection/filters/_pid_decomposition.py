@@ -66,11 +66,11 @@ def _i_ccs_redundancy_njit(joint_xyz: np.ndarray) -> float:
     if N <= 0.0:
         return 0.0
     # Marginals.
-    p_y = np.zeros(K_y, dtype=np.float64)
-    p_x1 = np.zeros(K_x1, dtype=np.float64)
-    p_x2 = np.zeros(K_x2, dtype=np.float64)
-    p_x1y = np.zeros((K_x1, K_y), dtype=np.float64)
-    p_x2y = np.zeros((K_x2, K_y), dtype=np.float64)
+    p_y = np.zeros(K_y, dtype=np.float64)  # Intentional float64: numba kernel body buffer or scalar (crit helper cannot run inside njit)
+    p_x1 = np.zeros(K_x1, dtype=np.float64)  # Intentional float64: numba kernel body buffer or scalar (crit helper cannot run inside njit)
+    p_x2 = np.zeros(K_x2, dtype=np.float64)  # Intentional float64: numba kernel body buffer or scalar (crit helper cannot run inside njit)
+    p_x1y = np.zeros((K_x1, K_y), dtype=np.float64)  # Intentional float64: numba kernel body buffer or scalar (crit helper cannot run inside njit)
+    p_x2y = np.zeros((K_x2, K_y), dtype=np.float64)  # Intentional float64: numba kernel body buffer or scalar (crit helper cannot run inside njit)
     for i in range(K_x1):
         for j in range(K_x2):
             for k in range(K_y):
@@ -118,9 +118,9 @@ def _mi_x_pair_y_njit(joint: np.ndarray) -> float:
     if N <= 0.0:
         return 0.0
     # Marginal p(y).
-    p_y = np.zeros(K_y, dtype=np.float64)
+    p_y = np.zeros(K_y, dtype=np.float64)  # Intentional float64: numba kernel body buffer or scalar (crit helper cannot run inside njit)
     # Composite (X_1, X_2) marginal.
-    p_xx = np.zeros((K_x1, K_x2), dtype=np.float64)
+    p_xx = np.zeros((K_x1, K_x2), dtype=np.float64)  # Intentional float64: numba kernel body buffer or scalar (crit helper cannot run inside njit)
     for i in range(K_x1):
         for j in range(K_x2):
             for k in range(K_y):
@@ -178,8 +178,8 @@ def _mi_xy_njit(p_xy: np.ndarray) -> float:
     """Plug-in MI from an already-normalised joint probability matrix ``p_xy`` (marginals derived by summation, not recomputed from raw counts)."""
     K_x, K_y = p_xy.shape
     # p_xy is already normalised joint.
-    p_x = np.zeros(K_x, dtype=np.float64)
-    p_y = np.zeros(K_y, dtype=np.float64)
+    p_x = np.zeros(K_x, dtype=np.float64)  # Intentional float64: numba kernel body buffer or scalar (crit helper cannot run inside njit)
+    p_y = np.zeros(K_y, dtype=np.float64)  # Intentional float64: numba kernel body buffer or scalar (crit helper cannot run inside njit)
     for i in range(K_x):
         for j in range(K_y):
             v = p_xy[i, j]

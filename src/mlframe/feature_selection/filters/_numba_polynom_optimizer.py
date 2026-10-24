@@ -69,6 +69,7 @@ from ._numba_utils import _plugin_mi_classif_njit, _plugin_mi_regression_njit
 from mlframe.feature_selection.filters.hermite_fe.shared import (
     plugin_mi_classif_batch_njit as _plugin_mi_classif_batch_njit, plugin_mi_regression_batch_njit as _plugin_mi_regression_batch_njit,
 )
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 
 logger = logging.getLogger(__name__)
 
@@ -160,7 +161,7 @@ def _bf_dispatch_njit(bf_id: int, a: np.ndarray, b: np.ndarray) -> np.ndarray:
     sub / div / atan2 / logabs) at BIT-PARITY - see test_numba_bf_dispatch_parity.py.
     """
     n = a.shape[0]
-    out = np.empty(n, dtype=np.float64)
+    out = np.empty(n, dtype=np.float64)  # Intentional float64: numba kernel body buffer or scalar (crit helper cannot run inside njit)
     if bf_id == BF_MUL:
         for i in range(n):
             out[i] = a[i] * b[i]
@@ -398,9 +399,9 @@ def _random_batch_one_pair_njit(
 
     Parameters
     ----------
-    uniform_stream : (n_iters * batch_size * (ca_size + cb_size),) float64
+    uniform_stream : (n_iters * batch_size * (ca_size + cb_size),) double
         Pre-generated U[coef_lo, coef_hi] draws. Consumed by cursor.
-    normal_stream : (n_iters * elitism_k * (ca_size + cb_size),) float64
+    normal_stream : (n_iters * elitism_k * (ca_size + cb_size),) double
         Pre-generated N(0, sigma_perturb) draws for elitism perturbation.
     warm_start_a, warm_start_b : (W, ca_size) / (W, cb_size)
         Optional warm-start coefficients evaluated before random search.
@@ -410,8 +411,8 @@ def _random_batch_one_pair_njit(
     best_score = -np.inf
     best_raw = 0.0
     best_bf = -1
-    best_ca = np.zeros(ca_size, dtype=np.float64)
-    best_cb = np.zeros(cb_size, dtype=np.float64)
+    best_ca = np.zeros(ca_size, dtype=np.float64)  # Intentional float64: numba kernel body buffer or scalar (crit helper cannot run inside njit)
+    best_cb = np.zeros(cb_size, dtype=np.float64)  # Intentional float64: numba kernel body buffer or scalar (crit helper cannot run inside njit)
     has_best = False
     n_evals = 0
 
@@ -435,14 +436,14 @@ def _random_batch_one_pair_njit(
             has_best = True
 
     # Scratch buffers for the candidate batch + batched-eval workspace.
-    coefs_a_batch = np.empty((batch_size, ca_size), dtype=np.float64)
-    coefs_b_batch = np.empty((batch_size, cb_size), dtype=np.float64)
+    coefs_a_batch = np.empty((batch_size, ca_size), dtype=np.float64)  # Intentional float64: numba kernel body buffer or scalar (crit helper cannot run inside njit)
+    coefs_b_batch = np.empty((batch_size, cb_size), dtype=np.float64)  # Intentional float64: numba kernel body buffer or scalar (crit helper cannot run inside njit)
     K = bf_ids.shape[0]
     n_rows = x_a.shape[0]
-    cols_scratch = np.empty((n_rows, batch_size * K), dtype=np.float64)
+    cols_scratch = np.empty((n_rows, batch_size * K), dtype=np.float64)  # Intentional float64: numba kernel body buffer or scalar (crit helper cannot run inside njit)
     col_valid_scratch = np.empty(batch_size * K, dtype=np.bool_)
-    batch_scores = np.empty(batch_size, dtype=np.float64)
-    batch_raws = np.empty(batch_size, dtype=np.float64)
+    batch_scores = np.empty(batch_size, dtype=np.float64)  # Intentional float64: numba kernel body buffer or scalar (crit helper cannot run inside njit)
+    batch_raws = np.empty(batch_size, dtype=np.float64)  # Intentional float64: numba kernel body buffer or scalar (crit helper cannot run inside njit)
     batch_bfs = np.empty(batch_size, dtype=np.int64)
 
     u_cursor = 0
@@ -543,8 +544,8 @@ def _optimize_all_pairs_kernel(
         col_b = pair_indices[p, 1]
         # X_arr is (N, F) - slice the two columns.
         n_rows = X_arr.shape[0]
-        x_a = np.empty(n_rows, dtype=np.float64)
-        x_b = np.empty(n_rows, dtype=np.float64)
+        x_a = np.empty(n_rows, dtype=np.float64)  # Intentional float64: numba kernel body buffer or scalar (crit helper cannot run inside njit)
+        x_b = np.empty(n_rows, dtype=np.float64)  # Intentional float64: numba kernel body buffer or scalar (crit helper cannot run inside njit)
         for i in range(n_rows):
             x_a[i] = X_arr[i, col_a]
             x_b[i] = X_arr[i, col_b]
@@ -631,14 +632,14 @@ def run_numba_kernel_search(*, ca_size: int, cb_size: int, coef_range: tuple, n_
 
     # Build x_a / x_b from z_a / z_b (already standardised) - the
     # njit polyeval operates on z directly.
-    x_a = np.ascontiguousarray(eval_kwargs["z_a"], dtype=np.float64)
-    x_b = np.ascontiguousarray(eval_kwargs["z_b"], dtype=np.float64)
+    x_a = np.ascontiguousarray(eval_kwargs["z_a"], dtype=_crit_np_dtype())
+    x_b = np.ascontiguousarray(eval_kwargs["z_b"], dtype=_crit_np_dtype())
     discrete_target = bool(eval_kwargs["discrete_target"])
     y_njit = eval_kwargs["y_njit"]
     if y_njit is None:
         # KSG path not supported here; require plugin MI.
         raise ValueError("numba_kernel requires mi_estimator='plugin'; y_njit was None " "(ksg path).")
-    y_arr = np.ascontiguousarray(y_njit, dtype=np.int64) if discrete_target else np.ascontiguousarray(y_njit, dtype=np.float64)
+    y_arr = np.ascontiguousarray(y_njit, dtype=np.int64) if discrete_target else np.ascontiguousarray(y_njit, dtype=_crit_np_dtype())
     n_bins = int(eval_kwargs["plugin_n_bins"])
     l2_penalty = float(eval_kwargs["l2_penalty"]) if not direction_only else 0.0
 
@@ -659,22 +660,22 @@ def run_numba_kernel_search(*, ca_size: int, cb_size: int, coef_range: tuple, n_
     # Warm-start seeds - pad / truncate to ca_size / cb_size.
     if warm_start_seeds:
         n_warm = len(warm_start_seeds)
-        warm_a = np.zeros((n_warm, ca_size), dtype=np.float64)
-        warm_b = np.zeros((n_warm, cb_size), dtype=np.float64)
+        warm_a = np.zeros((n_warm, ca_size), dtype=_crit_np_dtype())
+        warm_b = np.zeros((n_warm, cb_size), dtype=_crit_np_dtype())
         for i, s in enumerate(warm_start_seeds):
-            s_arr = np.asarray(s, dtype=np.float64)
+            s_arr = np.asarray(s, dtype=_crit_np_dtype())
             warm_a[i, : min(ca_size, s_arr.shape[0])] = s_arr[: min(ca_size, s_arr.shape[0])]
             if s_arr.shape[0] > ca_size:
                 warm_b[i, : min(cb_size, s_arr.shape[0] - ca_size)] = s_arr[ca_size : ca_size + cb_size]
     else:
         n_warm = 0
-        warm_a = np.zeros((1, ca_size), dtype=np.float64)
-        warm_b = np.zeros((1, cb_size), dtype=np.float64)
+        warm_a = np.zeros((1, ca_size), dtype=_crit_np_dtype())
+        warm_b = np.zeros((1, cb_size), dtype=_crit_np_dtype())
 
     # Single-pair wrapper around the multi-pair kernel: P=1, X = [x_a, x_b]
     # column-stacked.
     n_rows = x_a.shape[0]
-    X_arr = np.empty((n_rows, 2), dtype=np.float64)
+    X_arr = np.empty((n_rows, 2), dtype=_crit_np_dtype())
     X_arr[:, 0] = x_a
     X_arr[:, 1] = x_b
     pair_indices = np.array([[0, 1]], dtype=np.int64)
@@ -682,10 +683,10 @@ def run_numba_kernel_search(*, ca_size: int, cb_size: int, coef_range: tuple, n_
     uniform_streams = uniform_stream.reshape(1, -1)
     normal_streams = normal_stream.reshape(1, -1)
 
-    out_best_ca = np.zeros((1, ca_size), dtype=np.float64)
-    out_best_cb = np.zeros((1, cb_size), dtype=np.float64)
-    out_best_score = np.full(1, -np.inf, dtype=np.float64)
-    out_best_raw = np.zeros(1, dtype=np.float64)
+    out_best_ca = np.zeros((1, ca_size), dtype=_crit_np_dtype())
+    out_best_cb = np.zeros((1, cb_size), dtype=_crit_np_dtype())
+    out_best_score = np.full(1, -np.inf, dtype=_crit_np_dtype())
+    out_best_raw = np.zeros(1, dtype=_crit_np_dtype())
     out_best_bf = np.full(1, -1, dtype=np.int64)
     out_n_evals = np.zeros(1, dtype=np.int64)
 
@@ -759,27 +760,27 @@ def optimize_all_pairs_numba_kernel(
 
     if warm_start_seeds:
         n_warm = len(warm_start_seeds)
-        warm_a = np.zeros((n_warm, ca_size), dtype=np.float64)
-        warm_b = np.zeros((n_warm, cb_size), dtype=np.float64)
+        warm_a = np.zeros((n_warm, ca_size), dtype=_crit_np_dtype())
+        warm_b = np.zeros((n_warm, cb_size), dtype=_crit_np_dtype())
         for i, s in enumerate(warm_start_seeds):
-            s_arr = np.asarray(s, dtype=np.float64)
+            s_arr = np.asarray(s, dtype=_crit_np_dtype())
             warm_a[i, : min(ca_size, s_arr.shape[0])] = s_arr[: min(ca_size, s_arr.shape[0])]
             if s_arr.shape[0] > ca_size:
                 warm_b[i, : min(cb_size, s_arr.shape[0] - ca_size)] = s_arr[ca_size : ca_size + cb_size]
     else:
         n_warm = 0
-        warm_a = np.zeros((1, ca_size), dtype=np.float64)
-        warm_b = np.zeros((1, cb_size), dtype=np.float64)
+        warm_a = np.zeros((1, ca_size), dtype=_crit_np_dtype())
+        warm_b = np.zeros((1, cb_size), dtype=_crit_np_dtype())
 
-    out_best_ca = np.zeros((P, ca_size), dtype=np.float64)
-    out_best_cb = np.zeros((P, cb_size), dtype=np.float64)
-    out_best_score = np.full(P, -np.inf, dtype=np.float64)
-    out_best_raw = np.zeros(P, dtype=np.float64)
+    out_best_ca = np.zeros((P, ca_size), dtype=_crit_np_dtype())
+    out_best_cb = np.zeros((P, cb_size), dtype=_crit_np_dtype())
+    out_best_score = np.full(P, -np.inf, dtype=_crit_np_dtype())
+    out_best_raw = np.zeros(P, dtype=_crit_np_dtype())
     out_best_bf = np.full(P, -1, dtype=np.int64)
     out_n_evals = np.zeros(P, dtype=np.int64)
 
-    X_contig = np.ascontiguousarray(X_arr, dtype=np.float64)
-    y_arr = np.ascontiguousarray(y, dtype=np.int64) if discrete_target else np.ascontiguousarray(y, dtype=np.float64)
+    X_contig = np.ascontiguousarray(X_arr, dtype=_crit_np_dtype())
+    y_arr = np.ascontiguousarray(y, dtype=np.int64) if discrete_target else np.ascontiguousarray(y, dtype=_crit_np_dtype())
     pair_indices_arr = np.ascontiguousarray(pair_indices, dtype=np.int64)
 
     _optimize_all_pairs_kernel(

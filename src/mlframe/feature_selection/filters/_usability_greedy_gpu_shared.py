@@ -8,7 +8,7 @@ logger = logging.getLogger(__name__)
 
 
 def _shrink_shortlist_to_ram_budget(K, P, n, shortlist):
-    """Shrink the candidate buffer width K (and the shortlist with it) when a K-wide float64 copy of the rows would not fit the RAM budget."""
+    """Shrink the candidate buffer width K (and the shortlist with it) when a K-wide double copy of the rows would not fit the RAM budget."""
     try:
         from mlframe.feature_selection.filters.feature_engineering import _can_hoist_shared_buffer, _fe_effective_buffer_budget_bytes
         _k_eff = max(1, min(int(K), P))

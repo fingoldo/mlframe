@@ -62,9 +62,6 @@
  "src/mlframe/feature_selection/filters/_gpu_resident_extval_fused.py": [
   "extval_candidates"
  ],
- "src/mlframe/feature_selection/filters/_gpu_resident_fe.py": [
-  "prewarp_transform"
- ],
  "src/mlframe/feature_selection/filters/_gpu_resident_operand_build.py": [
   "batch_unary"
  ],
@@ -80,12 +77,6 @@
   "fused_gen",
   "fused_gen_bin_hist",
   "fused_gen_cm"
- ],
- "src/mlframe/feature_selection/filters/_hermite_fe_mi.py": [
-  "chebval_kernel",
-  "hermeval_kernel",
-  "lagval_kernel",
-  "legval_kernel"
  ],
  "src/mlframe/feature_selection/filters/_honest_null_device.py": [
   "root_split_stats",
@@ -106,10 +97,6 @@
  "src/mlframe/feature_selection/filters/_pair_mi_perm_cuda.py": [
   "pair_mi_perm"
  ],
- "src/mlframe/feature_selection/filters/_resident_candidate_mi.py": [
-  "build_op_cands",
-  "build_op_cands_cm"
- ],
  "src/mlframe/feature_selection/filters/_row_argmax_gpu.py": [
   "row_argmax"
  ],
@@ -120,12 +107,6 @@
   "gram_scaled",
   "matvec_stats",
   "solve_small"
- ],
- "src/mlframe/feature_selection/filters/info_theory/_cmi_cuda.py": [
-  "cmi_from_joint"
- ],
- "src/mlframe/feature_selection/shap_proxied_fs/_shap_proxy_gpu.py": [
-  "subset_loss"
  ],
  "src/mlframe/feature_selection/shap_proxied_fs/_shap_proxy_treeshap_gpu.py": [
   "treeshap"

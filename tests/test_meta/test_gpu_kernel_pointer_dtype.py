@@ -78,9 +78,22 @@ def test_baselined_module_exists(rel):
 
 
 def _launch_type_probe_violations(source: str) -> "list[str]":
-    """Functions whose ``"float" if X.dtype == <float32> else "double"`` probe names an array ``X`` that the same function never passes to a launch tuple by name."""
+    """Functions whose ``"float" if X.dtype == <float32> else "double"`` kernel-type selector names an array ``X`` that the module never passes to a launch tuple by name.
+
+    The launch can sit in a different method than the probe (a class builds its table in ``__init__`` and launches it later), so the launch arguments are collected module-wide.
+    """
+    tree = ast.parse(source)
+    named = {
+        ast.unparse(el)
+        for call in ast.walk(tree)
+        if isinstance(call, ast.Call)
+        for arg in call.args
+        if isinstance(arg, ast.Tuple)
+        for el in arg.elts
+        if isinstance(el, (ast.Name, ast.Attribute))
+    }
     problems: list[str] = []
-    for fn in (n for n in ast.walk(ast.parse(source)) if isinstance(n, ast.FunctionDef)):
+    for fn in (n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)):
         probes = {
             ast.unparse(node.test.left.value)
             for node in ast.walk(fn)
@@ -88,18 +101,10 @@ def _launch_type_probe_violations(source: str) -> "list[str]":
             and isinstance(node.test, ast.Compare)
             and isinstance(node.test.left, ast.Attribute)
             and node.test.left.attr == "dtype"
-            and "float32" in ast.unparse(node.test)
-        }
-        if not probes:
-            continue
-        named = {
-            ast.unparse(el)
-            for call in ast.walk(fn)
-            if isinstance(call, ast.Call)
-            for arg in call.args
-            if isinstance(arg, ast.Tuple)
-            for el in arg.elts
-            if isinstance(el, (ast.Name, ast.Attribute))
+            and isinstance(node.body, ast.Constant)
+            and node.body.value == "float"
+            and isinstance(node.orelse, ast.Constant)
+            and node.orelse.value == "double"
         }
         problems.extend(f"{fn.name}: the kernel type follows {p}.dtype but {p} is not a launch argument" for p in sorted(probes - named))
     return problems

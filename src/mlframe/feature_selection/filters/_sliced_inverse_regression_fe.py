@@ -28,6 +28,7 @@ import scipy.linalg
 
 from ._mi_greedy_cmi_fe import _quantile_bin
 import logging
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 
 logger = logging.getLogger(__name__)
 
@@ -73,32 +74,32 @@ def sir_direction_features(
 
     Returns
     -------
-    (n, n_directions) float64 array of projections ``X @ v_1, ..., X @ v_{n_directions}``.
+    (n, n_directions) double array of projections ``X @ v_1, ..., X @ v_{n_directions}``.
     Degenerate input (n < 2, p < 1, fewer than 2 realized slices, or a singular/near-singular
     ``Sigma``) returns an ``(n, 0)`` array rather than raising - callers treat zero emitted
     directions as "nothing to add".
     """
-    X = np.asarray(X, dtype=np.float64)
+    X = np.asarray(X, dtype=_crit_np_dtype())
     if X.ndim == 1:
         X = X[:, None]
     n, p = X.shape
-    y = np.asarray(y, dtype=np.float64).ravel()
+    y = np.asarray(y, dtype=_crit_np_dtype()).ravel()
     if n < 2 or p < 1 or y.size != n or n_directions < 1:
-        return np.empty((n, 0), dtype=np.float64)
+        return np.empty((n, 0), dtype=_crit_np_dtype())
     if not (np.isfinite(X).all() and np.isfinite(y).all()):
-        return np.empty((n, 0), dtype=np.float64)
+        return np.empty((n, 0), dtype=_crit_np_dtype())
 
     slice_ids = _quantile_bin(y, nbins=n_slices)
     uniq_slices = np.unique(slice_ids)
     if uniq_slices.size < 2:
-        return np.empty((n, 0), dtype=np.float64)
+        return np.empty((n, 0), dtype=_crit_np_dtype())
 
     x_mean = X.mean(axis=0)
     Xc = X - x_mean
     Sigma = (Xc.T @ Xc) / n
 
     # Between-slice-mean covariance M = sum_h (n_h/n) * (mean_h - x_mean) @ (mean_h - x_mean)^T.
-    M = np.zeros((p, p), dtype=np.float64)
+    M = np.zeros((p, p), dtype=_crit_np_dtype())
     for s in uniq_slices:
         mask = slice_ids == s
         n_h = int(mask.sum())
@@ -113,14 +114,14 @@ def sir_direction_features(
     # convention used elsewhere in this codebase (e.g. _fe_pure_form_retention_gpu_resident.py).
     trace = float(np.trace(Sigma))
     if trace <= 1e-12:
-        return np.empty((n, 0), dtype=np.float64)
+        return np.empty((n, 0), dtype=_crit_np_dtype())
     Sigma_ridge = Sigma + (1e-8 * trace / p) * np.eye(p)
 
     try:
         eigvals, eigvecs = scipy.linalg.eigh(M, Sigma_ridge)
     except (scipy.linalg.LinAlgError, ValueError) as _exc:
         logger.warning("sir_direction_features fell back to its default after %s", type(_exc).__name__)
-        return np.empty((n, 0), dtype=np.float64)
+        return np.empty((n, 0), dtype=_crit_np_dtype())
 
     # scipy.linalg.eigh returns ascending eigenvalues; SIR wants the LARGEST (most y-variation).
     order = np.argsort(eigvals)[::-1]
@@ -145,9 +146,9 @@ def generate_sir_direction_features(
     cols = [c for c in cols if c in X.columns]
     if len(cols) < 1:
         return pd.DataFrame(index=X.index), {}
-    X_cols = X[cols].to_numpy(dtype=np.float64)
+    X_cols = X[cols].to_numpy(dtype=_crit_np_dtype())
     n, p = X_cols.shape
-    y_arr = np.asarray(y, dtype=np.float64).ravel()
+    y_arr = np.asarray(y, dtype=_crit_np_dtype()).ravel()
     if n < 2 or p < 1 or y_arr.size != n or not np.isfinite(X_cols).all() or not np.isfinite(y_arr).all():
         return pd.DataFrame(index=X.index), {}
 
@@ -160,7 +161,7 @@ def generate_sir_direction_features(
     Xc = X_cols - x_mean
     Sigma = (Xc.T @ Xc) / n
 
-    M = np.zeros((p, p), dtype=np.float64)
+    M = np.zeros((p, p), dtype=_crit_np_dtype())
     for s in uniq_slices:
         mask = slice_ids == s
         n_h = int(mask.sum())
@@ -197,7 +198,7 @@ def apply_sir_direction(X_test: "pd.DataFrame", payload: dict) -> "pd.DataFrame"
     missing = [c for c in cols if c not in X_test.columns]
     if missing:
         raise KeyError(f"apply_sir_direction: missing column(s) {missing} from X_test")
-    X_cols = X_test[cols].to_numpy(dtype=np.float64)
+    X_cols = X_test[cols].to_numpy(dtype=_crit_np_dtype())
     Xc = X_cols - payload["x_mean"]
     Z = Xc @ payload["v"]
     names = [engineered_name_sir_direction(cols, i) for i in range(Z.shape[1])]
@@ -214,7 +215,7 @@ def build_sir_direction_recipe(*, name: str, idx: int, cols: Sequence[str], x_me
         name=name,
         kind="sir_direction",
         src_names=tuple(str(c) for c in cols),
-        extra={"cols": tuple(str(c) for c in cols), "x_mean": np.asarray(x_mean, dtype=np.float64).copy(), "v": np.asarray(v[:, idx], dtype=np.float64).copy()},
+        extra={"cols": tuple(str(c) for c in cols), "x_mean": np.asarray(x_mean, dtype=_crit_np_dtype()).copy(), "v": np.asarray(v[:, idx], dtype=_crit_np_dtype()).copy()},
     )
 
 
@@ -222,17 +223,17 @@ def _apply_sir_direction_recipe(recipe, X) -> np.ndarray:
     """Adapter consumed by ``engineered_recipes.apply_recipe`` for a single SIR direction column."""
     cols = list(recipe.extra["cols"])
     if isinstance(X, pd.DataFrame):
-        X_cols = X[cols].to_numpy(dtype=np.float64)
+        X_cols = X[cols].to_numpy(dtype=_crit_np_dtype())
     else:
         try:
             import polars as _pl
 
             if isinstance(X, _pl.DataFrame):
-                X_cols = X.select(cols).to_numpy().astype(np.float64)
+                X_cols = X.select(cols).to_numpy().astype(_crit_np_dtype())
             else:
-                X_cols = np.column_stack([np.asarray(X[c], dtype=np.float64) for c in cols])
+                X_cols = np.column_stack([np.asarray(X[c], dtype=_crit_np_dtype()) for c in cols])
         except ImportError:
-            X_cols = np.column_stack([np.asarray(X[c], dtype=np.float64) for c in cols])
+            X_cols = np.column_stack([np.asarray(X[c], dtype=_crit_np_dtype()) for c in cols])
     Xc = X_cols - recipe.extra["x_mean"]
     return np.asarray(Xc @ recipe.extra["v"])
 

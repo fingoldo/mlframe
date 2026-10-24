@@ -33,6 +33,17 @@ def _default_model_factory() -> Any:
     return GradientBoostingRegressor(n_estimators=50, max_depth=3)
 
 
+def _validate_aux_inputs(X_train: Any, target_features: Sequence[str], n_uncertainty_repeats: int) -> None:
+    """Reject a non-DataFrame training frame, target columns it lacks, or a non-positive repeat count."""
+    if not isinstance(X_train, pd.DataFrame):
+        raise TypeError("compute_auxiliary_feature_prediction_features: X_train must be a pandas DataFrame.")
+    missing = set(target_features) - set(X_train.columns)
+    if missing:
+        raise ValueError(f"compute_auxiliary_feature_prediction_features: target_features not in X_train.columns: {sorted(missing)}")
+    if n_uncertainty_repeats < 1:
+        raise ValueError(f"compute_auxiliary_feature_prediction_features: n_uncertainty_repeats must be >= 1, got {n_uncertainty_repeats}.")
+
+
 def compute_auxiliary_feature_prediction_features(
     X_train: pd.DataFrame,
     target_features: Sequence[str],
@@ -78,13 +89,7 @@ def compute_auxiliary_feature_prediction_features(
         ``{column_prefix}_{feature}_resid`` (``actual - predicted``); plus, when ``n_uncertainty_repeats > 1``,
         ``{column_prefix}_{feature}_uncertainty``.
     """
-    if not isinstance(X_train, pd.DataFrame):
-        raise TypeError("compute_auxiliary_feature_prediction_features: X_train must be a pandas DataFrame.")
-    missing = set(target_features) - set(X_train.columns)
-    if missing:
-        raise ValueError(f"compute_auxiliary_feature_prediction_features: target_features not in X_train.columns: {sorted(missing)}")
-    if n_uncertainty_repeats < 1:
-        raise ValueError(f"compute_auxiliary_feature_prediction_features: n_uncertainty_repeats must be >= 1, got {n_uncertainty_repeats}.")
+    _validate_aux_inputs(X_train, target_features, n_uncertainty_repeats)
     factory = model_factory or _default_model_factory
     want_uncertainty = n_uncertainty_repeats > 1
 

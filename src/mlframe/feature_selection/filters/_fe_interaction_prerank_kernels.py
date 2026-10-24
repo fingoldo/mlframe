@@ -251,7 +251,7 @@ def _get_numba_fn():
         """Per-column-parallel accumulation of sum_c(|corr(V,1[y=c])| + |corr(V2,1[y=c])|) via explicit dot-product loops (no BLAS)."""
         n, p = ZV.shape
         K = Yc.shape[1]
-        out = np.zeros(p, dtype=np.float64)
+        out = np.zeros(p, dtype=np.float64)  # Intentional float64: numba kernel body buffer or scalar (crit helper cannot run inside njit)
         for j in numba.prange(p):
             acc = 0.0
             for k in range(K):

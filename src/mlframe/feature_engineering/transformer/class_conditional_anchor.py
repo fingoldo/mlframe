@@ -31,7 +31,7 @@ Reference: stratified K-means clustering for imbalanced data (Liu et al. 2009); 
 from __future__ import annotations
 
 import logging
-from typing import Any, Literal, Optional
+from typing import Any, Literal, Optional, Tuple
 
 import numpy as np
 import polars as pl
@@ -89,6 +89,29 @@ def _compute_class_anchor_features(
     }
 
 
+def _validate_class_anchor_inputs(X_train: Any, X_query: Any, task: str, n_anchors_per_class: int, softmax_temp: float) -> None:
+    """Reject non-numeric matrices and the unsupported task, anchor count and softmax temperature values."""
+    validate_numeric_input(X_train, name="X_train", allow_fp16=False)
+    if X_query is not None:
+        validate_numeric_input(X_query, name="X_query", allow_fp16=False)
+    if task != "binary":
+        raise NotImplementedError(f"task={task!r} not yet supported; only 'binary' in iter 19.")
+    if n_anchors_per_class < 2:
+        raise ValueError(f"n_anchors_per_class must be >= 2; got {n_anchors_per_class}.")
+    if softmax_temp <= 0:
+        raise ValueError(f"softmax_temp must be > 0; got {softmax_temp}.")
+
+
+def _standardize_pair(X_fit: np.ndarray, X_other: np.ndarray, standardize: bool) -> Tuple[np.ndarray, np.ndarray]:
+    """Scale both matrices with a RobustScaler fitted on ``X_fit`` when ``standardize``; otherwise return them unchanged."""
+    if not standardize:
+        return X_fit, X_other
+    from sklearn.preprocessing import RobustScaler
+
+    scaler = RobustScaler().fit(X_fit)
+    return scaler.transform(X_fit).astype(np.float32), scaler.transform(X_other).astype(np.float32)
+
+
 def compute_class_conditional_anchor_attention(
     X_train: np.ndarray,
     y_train: np.ndarray,
@@ -111,28 +134,13 @@ def compute_class_conditional_anchor_attention(
     For now, only binary task is implemented (regression-quartile mode would need to be added separately).
     """
     seed = require_seed(seed)
-    validate_numeric_input(X_train, name="X_train", allow_fp16=False)
-    if X_query is not None:
-        validate_numeric_input(X_query, name="X_query", allow_fp16=False)
-    if task != "binary":
-        raise NotImplementedError(f"task={task!r} not yet supported; only 'binary' in iter 19.")
-    if n_anchors_per_class < 2:
-        raise ValueError(f"n_anchors_per_class must be >= 2; got {n_anchors_per_class}.")
-    if softmax_temp <= 0:
-        raise ValueError(f"softmax_temp must be > 0; got {softmax_temp}.")
+    _validate_class_anchor_inputs(X_train, X_query, task, n_anchors_per_class, softmax_temp)
 
     X_train_f = np.asarray(X_train, dtype=np.float32)
     y_train_f = np.asarray(y_train, dtype=np.float32).ravel()
 
     if X_query is not None:
-        if standardize:
-            from sklearn.preprocessing import RobustScaler
-            scaler = RobustScaler().fit(X_train_f)
-            Xt_std = scaler.transform(X_train_f).astype(np.float32)
-            Xq_std = scaler.transform(np.asarray(X_query, dtype=np.float32)).astype(np.float32)
-        else:
-            Xt_std = X_train_f
-            Xq_std = np.asarray(X_query, dtype=np.float32)
+        Xt_std, Xq_std = _standardize_pair(X_train_f, np.asarray(X_query, dtype=np.float32), standardize)
         pos_mask = y_train_f > 0.5
         neg_mask = ~pos_mask
         n_pos = int(pos_mask.sum())
@@ -174,14 +182,7 @@ def compute_class_conditional_anchor_attention(
         X_tr = X_train_f[train_idx]
         X_va = X_train_f[val_idx]
         y_tr = y_train_f[train_idx]
-        if standardize:
-            from sklearn.preprocessing import RobustScaler
-            scaler = RobustScaler().fit(X_tr)
-            X_tr_s = scaler.transform(X_tr).astype(np.float32)
-            X_va_s = scaler.transform(X_va).astype(np.float32)
-        else:
-            X_tr_s = X_tr
-            X_va_s = X_va
+        X_tr_s, X_va_s = _standardize_pair(X_tr, X_va, standardize)
         pos_mask = y_tr > 0.5
         neg_mask = ~pos_mask
         if int(pos_mask.sum()) < 2 or int(neg_mask.sum()) < 2:

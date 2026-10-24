@@ -708,8 +708,10 @@ _OFFLINE_GENERATORS = {
 
 #: Kernel versions kept deliberately when a faster one replaced them (the repository keeps every version for A/B and
 #: fallback): the typed-list DWT pair, the DFS MDLP twin of the BFS default, the CUDA DTW diagonal step, the numba column-
-#: stats kernel the benchmark compares against.
+#: stats kernel the benchmark compares against. ``root_null_gain_threshold`` is the shared-threshold root null that the
+#: per-permutation root test replaced: one threshold shared across permutations changes accept decisions.
 _RETAINED_KERNELS = {
+    "root_null_gain_threshold",
     # per-column numpy quantile coder, superseded by the parallel block coder quantile_codes_block (same codes); kept as the reference, parity pinned in
     # tests/feature_selection/filters/test_family_codes_njit_equivalence.py
     "_quantile_codes",
@@ -798,6 +800,10 @@ _RETAINED_KERNELS = {
     # gate for skipping the joint cat prep on linear-only runs; measured a net regression (25.05s to 32.48s), kept for future targeted opts
     "_models_need_pandas_cat_prep",
 }
+
+#: Error metric used by the benchmarks (``_benchmarks/``) and by its own unit test to compare an implementation against a
+#: reference. Benchmark-only by design: the shipped pipeline has no relative-error comparison to make.
+_BENCHMARK_HELPERS = {"safe_rel_err"}
 
 #: Called, but the pinned py-ci-shared (v1.17.0) cannot see it: a lazy import with an ``except ImportError: f = None``
 #: fallback reads as a local shadow there. Fixed upstream in 9b48122; drop this entry when the pin moves past it.
@@ -1171,6 +1177,7 @@ def test_no_new_function_without_a_caller(request):
         | _OFFLINE_GENERATORS
         | _TEST_UTILITIES
         | _RETAINED_KERNELS
+        | _BENCHMARK_HELPERS
         | _SCANNER_LAG
         | _NAME_DISPATCHED
         | _SUPERSEDED
