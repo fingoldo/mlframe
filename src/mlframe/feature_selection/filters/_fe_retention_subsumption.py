@@ -99,22 +99,37 @@ def _to_host(x) -> np.ndarray:
     return cast(np.ndarray, x)
 
 
-def _max_conditional_excess(z: np.ndarray, y: np.ndarray, null_mean: float) -> float:
-    """Largest debiased conditional MI any candidate can show given the support ``z``: ``H(y | z)`` in nats minus the null bias ``null_mean``."""
-    zi = np.unique(z, return_inverse=True)[1].astype(np.int64)
-    yi = np.unique(y, return_inverse=True)[1].astype(np.int64)
-    n = float(zi.shape[0])
-    ky = int(yi.max()) + 1
-    joint = np.bincount(zi * ky + yi, minlength=(int(zi.max()) + 1) * ky).astype(np.float64)
-    cnt_z = joint.reshape(-1, ky).sum(axis=1)
+def _power_ceiling_from_joint(joint: np.ndarray, null_mean: float) -> float:
+    """``H(y | z) - null_mean`` from the ``(z-cell, y-class)`` count matrix ``joint``: the largest debiased conditional MI any candidate can show."""
+    n = float(joint.sum())
     nz = joint > 0
     h_joint = -float(np.sum(joint[nz] / n * np.log(joint[nz] / n)))
+    cnt_z = joint.sum(axis=1)
     nzz = cnt_z > 0
     h_z = -float(np.sum(cnt_z[nzz] / n * np.log(cnt_z[nzz] / n)))
     return max(0.0, h_joint - h_z - float(null_mean))
 
 
-def _verdict_is_subsumed(cmi: float, floor: float, excess: float, marg_excess: float, retain_frac: float, z: np.ndarray, y: np.ndarray, null_mean: float) -> bool:
+def _max_conditional_excess(z: np.ndarray, y: np.ndarray, null_mean: float) -> float:
+    """Largest debiased conditional MI any candidate can show given the support ``z``: ``H(y | z)`` in nats minus the null bias ``null_mean``."""
+    zi = np.unique(z, return_inverse=True)[1].astype(np.int64)
+    yi = np.unique(y, return_inverse=True)[1].astype(np.int64)
+    ky = int(yi.max()) + 1
+    joint = np.bincount(zi * ky + yi, minlength=(int(zi.max()) + 1) * ky).astype(np.float64).reshape(-1, ky)
+    return _power_ceiling_from_joint(joint, null_mean)
+
+
+def _device_max_conditional_excess(z_dev, zcard: int, y: np.ndarray, null_mean: float) -> float:
+    """``_max_conditional_excess`` for a resident support ``z_dev`` of renumbered codes in ``[0, zcard)``: only the small count matrix crosses the bus, never the column."""
+    import cupy as cp
+
+    yi = np.unique(y, return_inverse=True)[1].astype(np.int64)
+    ky = int(yi.max()) + 1
+    joint = cp.bincount(z_dev.astype(cp.int64) * ky + cp.asarray(yi), minlength=int(zcard) * ky).astype(cp.float64).reshape(-1, ky)
+    return _power_ceiling_from_joint(cp.asnumpy(joint), null_mean)
+
+
+def _verdict_is_subsumed(cmi: float, floor: float, excess: float, marg_excess: float, retain_frac: float, power_ceiling: float) -> bool:
     """The subsumption verdict from the observed conditional MI, its permutation floor and the debiased excesses.
 
     Power guard: I(cand; y | Z) cannot exceed H(y | Z), and the plug-in estimate carries the null bias ``null_mean``, so the largest excess any
@@ -123,7 +138,7 @@ def _verdict_is_subsumed(cmi: float, floor: float, excess: float, marg_excess: f
     declared subsumed, the true signal included. Such a verdict proves nothing, so the candidate is kept.
     """
     bar = float(retain_frac) * max(0.0, marg_excess)
-    if _max_conditional_excess(z, y, null_mean) < bar:
+    if power_ceiling < bar:
         logger.debug("retention_form_is_subsumed: the support leaves no power (H(y|Z) - null bias < relative bar); candidate kept")
         return False
     return not (cmi > floor and excess >= bar)
@@ -266,7 +281,11 @@ def retention_form_is_subsumed(
         cmi = float(_cmi_from_binned(_cb, y_arr, _zc, kx=_cbkx, kz=int(_zcard)))
         floor, null_mean = _conditional_perm_null(_cb, y_arr, z_support, seed=seed, z_support_dev=z_support_dev)
         excess = max(0.0, cmi - null_mean)
-        _zh = _to_host(z_support_dev) if z_support is None else z_support
+        # The power guard reads the support only through its (z, y) counts: on the resident path those counts are built on the device.
+        if z_support is None:
+            power_ceiling = _device_max_conditional_excess(z_support_dev, _zcard, y_arr, null_mean)
+        else:
+            power_ceiling = _max_conditional_excess(z_support, y_arr, null_mean)
     except Exception as e:
         logger.warning("retention_form_is_subsumed: CMI/perm-null scoring failed, treating the candidate as NOT subsumed (conservative keep): %s", e)
         return False
@@ -279,7 +298,7 @@ def retention_form_is_subsumed(
     # carried by an admitted fused compound is dropped even when a degenerate partial-linear test
     # would (spuriously, via the compound's nuisance second term) read a residual - the strengthened
     # ONE-fused-compound contract.
-    return _verdict_is_subsumed(cmi, floor, excess, marg_excess, retain_frac, np.asarray(_zh).ravel(), y_arr, null_mean)
+    return _verdict_is_subsumed(cmi, floor, excess, marg_excess, retain_frac, power_ceiling)
 
 
 __all__ = ["retention_form_is_subsumed", "replay_candidate_continuous", "RETAIN_FRAC"]
