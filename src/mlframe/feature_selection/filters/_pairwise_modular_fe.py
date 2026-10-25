@@ -209,6 +209,38 @@ def _is_integer_col(x: np.ndarray) -> bool:
     finite = a[np.isfinite(a)]
     return bool(finite.size > 0 and np.all(finite == np.floor(finite)))
 
+
+# A float column counts as a noisy integer when its values cluster at integers: the mean distance to the nearest integer is at most this (a continuous column
+# spreads evenly, mean 0.25; Gaussian noise of sigma 0.15 gives about 0.12, and rounding then recovers the integer in over 99.9 percent of the rows).
+_NEAR_INT_MEAN_DIST = 0.12
+_NEAR_INT_MIN_ROWS = 50
+
+
+def _is_integer_like_col(x: np.ndarray) -> bool:
+    """True iff ``_is_integer_col`` or the float values sit within noise of integers (see ``_NEAR_INT_MEAN_DIST``) and take at least two distinct rounded values.
+
+    The modular sweep works on the rounded values (``_to_int64``), so an integer column that was measured with a little noise is not lost to the exact-integer test.
+    """
+    if _is_integer_col(x):
+        return True
+    a = np.asarray(x)
+    if not np.issubdtype(a.dtype, np.floating):
+        return False
+    finite = a[np.isfinite(a)]
+    if finite.size < _NEAR_INT_MIN_ROWS:
+        return False
+    rounded = np.rint(finite)
+    return bool(float(np.mean(np.abs(finite - rounded))) <= _NEAR_INT_MEAN_DIST and np.unique(rounded).size >= 2)
+
+
+def _to_int64(x) -> np.ndarray:
+    """The column as int64 codes: floats are ROUNDED to the nearest integer (a noisy integer column), not truncated; exact integers are unchanged."""
+    a = np.asarray(x)
+    if np.issubdtype(a.dtype, np.floating):
+        with np.errstate(invalid="ignore"):  # NaN / inf rows become INT64_MIN as before; apply_pairwise_modular masks them
+            return np.rint(a).astype(np.int64)
+    return a.astype(np.int64)
+
 @njit(cache=True, parallel=True)
 def _residue_rank_scores(cols: np.ndarray, ia: np.ndarray, ib: np.ndarray, mods: np.ndarray, ycls: np.ndarray, n_cls: int) -> np.ndarray:
     """Plug-in MI of ``(a op b) mod k`` vs the class of y, best over the three pair operators and the moduli, for every pair ``(ia[q], ib[q])``.
@@ -310,7 +342,7 @@ def _rank_subsample(cols: Sequence[str], arrs: dict, yi: np.ndarray, seed: int) 
         idx = np.sort(np.random.default_rng(seed).choice(n, _PAIR_RANK_ROWS, replace=False))
     else:
         idx = np.arange(n)
-    mat = np.stack([np.asarray(arrs[c])[idx] for c in cols]).astype(np.int64)
+    mat = np.stack([_to_int64(np.asarray(arrs[c])[idx]) for c in cols])
     ysub = np.asarray(yi)[idx].astype(np.int64)
     ysub -= ysub.min()
     return mat, ysub
@@ -403,10 +435,10 @@ def _select_triples_by_residue_score(
 
 def _combine(arrs: Sequence[np.ndarray], op: str) -> np.ndarray:
     """Fold one to three integer columns into a single combiner column."""
-    ai = np.asarray(arrs[0], dtype=np.int64)
+    ai = _to_int64(arrs[0])
     if op == "self":
         return ai
-    bi = np.asarray(arrs[1], dtype=np.int64)
+    bi = _to_int64(arrs[1])
     if op == "sum":
         return ai + bi
     if op == "diff":
@@ -414,7 +446,7 @@ def _combine(arrs: Sequence[np.ndarray], op: str) -> np.ndarray:
     if op == "prod":
         return ai * bi
     if op == "sum3":
-        return ai + bi + np.asarray(arrs[2], dtype=np.int64)
+        return ai + bi + _to_int64(arrs[2])
     raise ValueError(f"unknown combiner op {op!r}")
 
 def _residue_mi(c: np.ndarray, y: np.ndarray, k: int, nbins: int) -> float:
@@ -528,9 +560,9 @@ def cheap_modular_scan(
     import pandas as pd  # noqa: F401  (X may be pandas or polars; we pull ndarrays)
 
     if cols is None:
-        cols = [c for c in X.columns if _is_integer_col(np.asarray(X[c]))]
+        cols = [c for c in X.columns if _is_integer_like_col(np.asarray(X[c]))]
     elif not _cols_prefiltered:
-        cols = [c for c in cols if _is_integer_col(np.asarray(X[c]))]
+        cols = [c for c in cols if _is_integer_like_col(np.asarray(X[c]))]
     # else: caller (e.g. hybrid_pairwise_modular_fe_with_recipes) already ran this exact filter to
     # build ``cols`` - re-scanning it here was pure duplicate work.
     # Canonicalize eligible-column order so the budgeted pair/triple enumeration scans the same combinations regardless of caller column order (reversed-column invariance).
@@ -592,7 +624,7 @@ def cheap_modular_scan(
     for a, b, c in _select_triples_by_residue_score(cols, arrs, yi, mods, seed, max_triples):
         if _deadline_hit:
             break
-        _scan_one("sum3", (a, b, c), arrs[a].astype(np.int64) + arrs[b].astype(np.int64) + arrs[c].astype(np.int64))
+        _scan_one("sum3", (a, b, c), _combine([arrs[a], arrs[b], arrs[c]], "sum3"))
         _deadline_hit = fe_deadline_passed()
 
     # Canonical secondary key on (op, operand names) so near-ties don't break by enumeration (column) order.
@@ -742,9 +774,9 @@ def hybrid_pairwise_modular_fe_with_recipes(
     Returns ``(appended_names, recipes)`` - the materialised columns are NOT concatenated here (the MRMR caller appends
     them under its own RAM-safe path); each recipe replays the exact residue column from X alone, leak-free."""
     if cols is None:
-        int_cols = [c for c in X.columns if _is_integer_col(np.asarray(X[c]))]
+        int_cols = [c for c in X.columns if _is_integer_like_col(np.asarray(X[c]))]
     else:
-        int_cols = [c for c in cols if c in X.columns and _is_integer_col(np.asarray(X[c]))]
+        int_cols = [c for c in cols if c in X.columns and _is_integer_like_col(np.asarray(X[c]))]
 
     p = len(int_cols)
     if p > int(max_int_cols):
