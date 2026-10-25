@@ -333,7 +333,7 @@ def build_unary_binary_recipe(
         }
         # Persist fit-time edges so replay never re-quantiles on test data.
         if fit_values_for_edges is not None:
-            quantization["edges"] = _fit_quantization_edges(fit_values_for_edges, quantization["method"], int(quantization_nbins)).tolist()
+            quantization["edges"] = _fit_quantization_edges(fit_values_for_edges, str(quantization["method"]), int(quantization_nbins)).tolist()
 
     # Per-operand pre-warp: when the unary name on a side is the
     # learned ``prewarp`` pseudo-unary, persist its fitted spec (basis, degree,

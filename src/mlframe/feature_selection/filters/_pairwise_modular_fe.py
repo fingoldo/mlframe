@@ -61,6 +61,8 @@ from itertools import combinations
 from typing import TYPE_CHECKING, Any, Optional, Sequence
 
 import numpy as np
+from numba import njit, prange
+
 from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 
 from ._y_encoding import encode_y_for_classif_mi
@@ -115,6 +117,8 @@ COARSE_MODULI: tuple[int, ...] = (2, 3, 4, 5, 6, 7, 8, 10, 11, 12, 13, 16, 17, 1
 # Combiner op codes: how a pair (a, b) is folded into one integer column before taking the residue.
 # "self" uses column a alone (single-column hidden period); the rest are the pair combiners.
 _PAIR_OPS = ("sum", "diff", "prod")
+# Rows the pair ranking scores on (see ``_select_pairs_by_residue_score``): enough to see a modular residue, bounded so the all-pairs pass stays cheap.
+_PAIR_RANK_ROWS = 1000
 
 # Gate floor shared by ``_responded`` and the cheap-scan early-reject: a combiner whose residue MI does not beat its own
 # raw-combiner baseline by this margin can NEVER respond (``_responded`` requires margin AND null), so the expensive
@@ -199,6 +203,92 @@ def _is_integer_col(x: np.ndarray) -> bool:
         return False
     finite = a[np.isfinite(a)]
     return bool(finite.size > 0 and np.all(finite == np.floor(finite)))
+
+@njit(cache=True, parallel=True)
+def _residue_rank_scores(cols: np.ndarray, ia: np.ndarray, ib: np.ndarray, mods: np.ndarray, ycls: np.ndarray, n_cls: int) -> np.ndarray:
+    """Plug-in MI of ``(a op b) mod k`` vs the class of y, best over the three pair operators and the moduli, for every pair ``(ia[q], ib[q])``.
+
+    A discrete MI from the joint count of the residue and the class: the ranking only orders the candidates for the exact scan, so the plug-in
+    value is enough. ``cols`` is the (p, n) int64 matrix of the subsampled integer columns, ``ycls`` the 0-based class codes.
+    """
+    n = ycls.shape[0]
+    max_k = 1
+    for k in mods:
+        if k > max_k:
+            max_k = k
+    cy = np.zeros(n_cls)
+    for t in range(n):
+        cy[ycls[t]] += 1.0
+    hy = 0.0
+    for c in range(n_cls):
+        if cy[c] > 0:
+            pc = cy[c] / n
+            hy -= pc * np.log(pc)
+    scores = np.zeros(ia.shape[0])
+    for q in prange(ia.shape[0]):  # pairs are independent: each iteration owns its count buffers
+        a = ia[q]
+        b = ib[q]
+        joint = np.zeros(max_k * n_cls)
+        marg = np.zeros(max_k)
+        best = 0.0
+        for op in range(3):
+            for mi in range(mods.shape[0]):
+                k = mods[mi]
+                joint[: k * n_cls] = 0.0
+                marg[:k] = 0.0
+                for t in range(n):
+                    if op == 0:
+                        v = cols[a, t] + cols[b, t]
+                    elif op == 1:
+                        v = cols[a, t] - cols[b, t]
+                    else:
+                        v = cols[a, t] * cols[b, t]
+                    r = v % k
+                    if r < 0:
+                        r += k
+                    joint[r * n_cls + ycls[t]] += 1.0
+                    marg[r] += 1.0
+                hr = 0.0
+                for r in range(k):
+                    if marg[r] > 0:
+                        pr = marg[r] / n
+                        hr -= pr * np.log(pr)
+                hry = 0.0
+                for j in range(k * n_cls):
+                    if joint[j] > 0:
+                        pj = joint[j] / n
+                        hry -= pj * np.log(pj)
+                mi_val = hr + hy - hry
+                if mi_val > best:
+                    best = mi_val
+        scores[q] = best
+    return scores
+
+
+def _select_pairs_by_residue_score(cols: Sequence[str], arrs: dict, yi: np.ndarray, mods: Sequence[int], seed: int, budget: int) -> list[tuple[str, str]]:
+    """The ``budget`` column pairs with the highest residue score, every pair scored.
+
+    The pair budget used to keep the first pairs of the NAME-sorted columns, which all start with the first column, so a planted parity pair
+    ``(x0 + x5) mod 3`` at p=200 was never scored (audit row 72b). Every pair is scored on at most ``_PAIR_RANK_ROWS`` rows (a deterministic
+    subsample) by ``_residue_rank_scores``; the exact scan then runs on the top ``budget`` pairs only.
+    """
+    if budget <= 0 or len(cols) < 2:
+        return []
+    n = int(yi.shape[0])
+    if n > _PAIR_RANK_ROWS:
+        idx = np.sort(np.random.default_rng(seed).choice(n, _PAIR_RANK_ROWS, replace=False))
+    else:
+        idx = np.arange(n)
+    mat = np.stack([np.asarray(arrs[c])[idx] for c in cols]).astype(np.int64)
+    ysub = np.asarray(yi)[idx].astype(np.int64)
+    ysub -= ysub.min()
+    pairs = list(combinations(range(len(cols)), 2))
+    ia = np.fromiter((a for a, _ in pairs), dtype=np.int64, count=len(pairs))
+    ib = np.fromiter((b for _, b in pairs), dtype=np.int64, count=len(pairs))
+    scores = _residue_rank_scores(mat, ia, ib, np.asarray(mods, dtype=np.int64), ysub, int(ysub.max()) + 1)
+    order = np.argsort(-scores, kind="stable")[:budget]  # equal scores keep the column order
+    return [(cols[pairs[q][0]], cols[pairs[q][1]]) for q in order]
+
 
 def _combine(arrs: Sequence[np.ndarray], op: str) -> np.ndarray:
     """Fold one to three integer columns into a single combiner column."""
@@ -381,13 +471,11 @@ def cheap_modular_scan(
         _scan_one("self", (c,), _combine([arrs[c]], "self"))
         _deadline_hit = fe_deadline_passed()
 
-    pair_budget = max_pairs
-    for a, b in combinations(cols, 2):
-        if pair_budget <= 0 or _deadline_hit:
+    for a, b in _select_pairs_by_residue_score(cols, arrs, yi, mods, seed, max_pairs):
+        if _deadline_hit:
             break
         for op in _PAIR_OPS:
             _scan_one(op, (a, b), _combine([arrs[a], arrs[b]], op))
-        pair_budget -= 1
         _deadline_hit = fe_deadline_passed()
 
     triple_budget = max_triples

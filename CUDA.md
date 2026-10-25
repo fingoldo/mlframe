@@ -361,6 +361,15 @@ Cross-machine numbers are not comparable: record the GPU model, the architecture
 6. Tests: kernel versions equal; streamed equals unblocked for several block widths; GPU equals CPU for both REAL types; every pair covered once at block boundaries; memory-bound test; a regression test for the behaviour the module exists for.
 7. Profile: cProfile on the host path; a GPU profiler with occupancy, throughput, launch statistics and launches per call; record both under `audits/2026-10-22/profiles/<module>.md`.
 8. Move the module from `pending` to `compliant` in `tests/test_meta/_fe_gpu_contract.json`.
+9. Rules that cost time on other projects too (details in sections 12 and 13):
+   - Check the profiler install before claiming it is missing (nsys is often installed and not on `PATH`), and read `ncu` reports through `ncu_report` where the text pages fail on the host locale.
+   - Time GPU kernels as a warmed back-to-back loop and report the min; a laptop GPU idles at a fraction of its clock, so an interleaved CPU/GPU round measures the ramp. State the ramp-inclusive median separately.
+   - Read the profile for the limiter before tuning the launch: on a part with a 1/64 FP64 rate the number of FP64 operations per step is the cost, and occupancy may not matter.
+   - A kernel with a fallback (underflow re-run, CPU retry, shared-memory spill) needs tests that assert what the fallback received, plus one deletion mutation of the fast path; parity tests alone pass when the fast path is broken and the fallback repairs every answer.
+   - Do not let a failing device call end a request: log it, answer on the CPU kernel, and let an explicit environment override raise instead.
+   - NVRTC through cupy has no `INFINITY`; build it from `__longlong_as_double(0x7FF0000000000000LL)`. Check the dynamic shared-memory request against the device limit and fall back to global memory above a budget.
+   - Prepare tables on the device too: a kernel that takes 23 ms inside a 90 ms call is not the bottleneck.
+   - Persist the CPU/GPU crossover as one monotone threshold from a sweep (a noisy few-millisecond boundary otherwise alternates regions), keep a size rule as the fallback, and measure on first use when the host has no entry.
 
 ## 11. Open items
 
