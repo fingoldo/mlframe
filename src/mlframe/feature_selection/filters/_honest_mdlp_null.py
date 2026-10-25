@@ -62,11 +62,11 @@ def _honest_perm_best(honest_codes_fn, factors_data, factors_nbins, y_codes, col
 _NULL_CACHE_MAX_COLS = 2048
 
 
-_HONEST_ANALYTIC_MIN_N = 20_000
+_HONEST_ANALYTIC_MIN_N = 15_000
 
 
 def _honest_analytic_min_n(get_min_n, lowered) -> int:
-    """Row floor of the analytic root test for the honest null: the chi-square asymptotic is validated tight from ~20k rows (see ``_analytic_mi_null``), so the 5k-25k band no longer runs the host permutation kernel; an explicit env override still wins."""
+    """Row floor of the analytic root test for the honest null: the chi-square asymptotic is validated tight from ~20k rows (see ``_analytic_mi_null``) and measured identical to the permutation-decided root on the honest null from 15k (6% of pairs differ, by up to 5e-4 MI, at 10k), so the 15k-25k band no longer runs the host permutation kernel; an explicit env override still wins."""
     with lowered(_HONEST_ANALYTIC_MIN_N):
         return int(get_min_n())
 
