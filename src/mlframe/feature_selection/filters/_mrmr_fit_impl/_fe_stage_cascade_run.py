@@ -22,6 +22,8 @@ def _run_fe_stage_cascades(self, X, y, verbose, fe_max_steps, _y_np, _fe_family_
     """Run early_a, early_b, mid_a and mid_b on the same step-input frame; return the merged frame and the raw input columns recorded before FE."""
     # A constant or all-NaN input column carries no signal, and as an operand it only dilutes the candidate pools (the orth triplet seeds, the pair budget): the stages read the step input without
     # them, and the frame that continues keeps every column, so the support indices and the recorded raw columns are unchanged.
+    # A lap ends with its stage; an unset hook (tests passing a plain callable) is skipped.
+    _close_lap = getattr(_fe_family_on, "close_lap", lambda: None)
     _X_full = X
     _dead = [c for c, reason in (getattr(self, "degenerate_columns_", None) or {}).items() if reason in ("constant", "all_nan")]
     _X_step_input = fe_drop_columns(_X_full, _dead)
@@ -33,6 +35,7 @@ def _run_fe_stage_cascades(self, X, y, verbose, fe_max_steps, _y_np, _fe_family_
     if _X_step_input is not _X_full:
         X = _fe_merge_new_columns(_X_full, X, _X_step_input)
         _raw_input_cols_pre_fe = list(_X_full.columns) if hasattr(_X_full, "columns") else _raw_input_cols_pre_fe
+    _close_lap()
     X = _fe_merge_new_columns(X, _fe_stage_cascade_early_b(
         self, X=_X_step_input, y=y, verbose=verbose, fe_max_steps=fe_max_steps, _y_np=_y_np, _fe_family_on=_fe_family_on,
         _fit_entry_nan_mask=_fit_entry_nan_mask, _raw_input_cols_pre_fe=_raw_input_cols_pre_fe,
@@ -44,6 +47,7 @@ def _run_fe_stage_cascades(self, X, y, verbose, fe_max_steps, _y_np, _fe_family_
         _ratio_pre_recipes=recipes.ratio, _log_ratio_pre_recipes=recipes.log_ratio,
         _grouped_delta_pre_recipes=recipes.grouped_delta, _lagged_diff_pre_recipes=recipes.lagged_diff,
     ), _X_step_input)
+    _close_lap()
     X = _fe_merge_new_columns(X, _fe_stage_cascade_mid_a(
         self, X=_X_step_input, y=y, verbose=verbose, fe_max_steps=fe_max_steps, _y_np=_y_np, _fe_family_on=_fe_family_on,
         _fe_budget_ok=_fe_budget_ok, _raw_input_cols_pre_fe=_raw_input_cols_pre_fe,
@@ -58,6 +62,7 @@ def _run_fe_stage_cascades(self, X, y, verbose, fe_max_steps, _y_np, _fe_family_
         _pairwise_modular_pre_recipes=recipes.pairwise_modular,
         _row_argmax_pre_recipes=recipes.row_argmax,
     ), _X_step_input)
+    _close_lap()
     X = _fe_merge_new_columns(X, _fe_stage_cascade_mid_b(
         self, X=_X_step_input, y=y, verbose=verbose, fe_max_steps=fe_max_steps, _y_np=_y_np, _fe_family_on=_fe_family_on,
         _fe_budget_ok=_fe_budget_ok, _raw_input_cols_pre_fe=_raw_input_cols_pre_fe,
@@ -77,6 +82,5 @@ def _run_fe_stage_cascades(self, X, y, verbose, fe_max_steps, _y_np, _fe_family_
         _wavelet_pre_recipes=recipes.wavelet,
         _rankgauss_pre_recipes=recipes.rankgauss,
     ), _X_step_input)
-    # The last open family lap ends with the cascades; an unset hook (tests passing a plain callable) is skipped.
-    getattr(_fe_family_on, "close_lap", lambda: None)()
+    _close_lap()
     return X, _raw_input_cols_pre_fe

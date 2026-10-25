@@ -110,6 +110,7 @@ def _friend_graph_and_redundancy_passes_group4(
                     verbose=verbose,
                     reject_sink=partial(record_raw_redundancy_drop, self),
                 )
+                getattr(_fe_family_on, "close_lap", lambda: None)()
                 selected_vars = _friend_graph_and_redundancy_passes_group4_part1(
                     _dropped_redund_names, _kept_redund, selected_vars, self, cols, _raw_names_for_redund, target_indices, nbins, _eng_continuous_snapshot,
                     data, _y_np, classes_y, X, verbose,

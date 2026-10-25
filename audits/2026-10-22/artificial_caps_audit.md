@@ -366,3 +366,5 @@ Standing condition for every item in this table: each new or changed path is pro
 | all others | Not yet triaged. |
 
 - 73j. Per-family FE wall coverage: `FamilyLapTimer` (in `_fe_family_timing.py`) sits behind `_fe_family_on`, so every gated family is timed as `gate:<flag>` with no per-family edits; the lap closes at the next gate or at the end of the cascades. `gate:` rows are separate from `fe_timed` rows (some work appears under both). Test: `tests/feature_selection/fe/test_fe_family_lap_timer.py`.
+
+- 73k. Heaviest family with every FE flag on (p=34, n=20000, lap timer): `fe_hybrid_orth_auto_scorer_enable` 47.9 s of 125 s attributed. cProfile split: KSG 24.9 s (510 sklearn `mutual_info_classif` calls) and tail-dependence 16.0 s (50 shuffles x 2 tails per call). Fixes: `_ksg_cd_fast.py` reproduces sklearn's Ross estimate for single continuous columns in numba (agreement ~1e-12, 20-50x faster); the tail-dependence floor uses the exact shuffle expectation instead of a 50-shuffle Monte-Carlo mean. Family wall 49.3 s -> 11.9 s. Tests: `test_ksg_cd_fast.py`, `test_tail_dependence_exact_floor.py`. The family is opt-in, so default fits are unaffected.

@@ -100,11 +100,11 @@ def tail_dependence_score(
     raw_rate = _rate(u, v)
     if n_perm <= 0:
         return max(0.0, raw_rate)
-    rng = np.random.default_rng(random_state)
-    # Intentional float64: null-rate accumulator averaged into the floor; kept f64 so the null mean is precision-stable.
-    null_rates = np.empty(n_perm, dtype=np.float64)
-    for i in range(n_perm):
-        v_perm = v[rng.permutation(n)]
-        null_rates[i] = _rate(u, v_perm)
-    null_mean = float(np.mean(null_rates))
+    # Under an independent shuffle of v the expected co-exceedance rate is exactly P(u in tail) * P(v in tail) / (1-q); the permutation mean estimated that quantity with Monte-Carlo noise
+    # (and cost n_perm shuffles of n rows), so the floor uses the closed form. n_perm only switches the floor on; random_state is kept for the signature.
+    if tail == "upper":
+        p_u, p_v = float(np.mean(u > thresh)), float(np.mean(v > thresh))
+    else:
+        p_u, p_v = float(np.mean(u < thresh)), float(np.mean(v < thresh))
+    null_mean = p_u * p_v / denom
     return max(0.0, raw_rate - null_mean)
