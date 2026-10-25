@@ -159,34 +159,36 @@ def _resolve_jit(module: str, name: str, seen: Set[Tuple[str, str]]) -> Optional
 
 
 _DEPENDENCY_FILES: dict = {}  # per-process memo: numba asks for the dependency list on every kernel cache load, and the walk stats every file each time
+_DEPENDENCY_LOCK = threading.RLock()  # one lock across the memo test and its write: the walk runs under it, so a concurrent caller waits instead of duplicating it
 
 
 def dependency_files(py_file: str) -> List[str]:
     """Other mlframe source files whose jit functions the kernels of ``py_file`` import, transitively (sorted, ``py_file`` excluded)."""
     start = os.path.abspath(py_file)
-    memo = _DEPENDENCY_FILES.get(start)
-    if memo is not None:
-        return list(memo)
-    found: Set[str] = set()
-    queue = [start]
-    visited: Set[str] = set()
-    while queue:
-        current = queue.pop()
-        if current in visited:
-            continue
-        visited.add(current)
-        facts = _facts(current)
-        if facts is None:
-            continue
-        for imp in facts.imports:
-            dep = _resolve_jit(imp.module, imp.name, set())
-            if dep is not None:
-                dep = os.path.abspath(dep)
-                if dep != start and dep not in found:
-                    found.add(dep)
-                    queue.append(dep)
-    _DEPENDENCY_FILES[start] = sorted(found)
-    return list(_DEPENDENCY_FILES[start])
+    with _DEPENDENCY_LOCK:
+        memo = _DEPENDENCY_FILES.get(start)
+        if memo is not None:
+            return list(memo)
+        found: Set[str] = set()
+        queue = [start]
+        visited: Set[str] = set()
+        while queue:
+            current = queue.pop()
+            if current in visited:
+                continue
+            visited.add(current)
+            facts = _facts(current)
+            if facts is None:
+                continue
+            for imp in facts.imports:
+                dep = _resolve_jit(imp.module, imp.name, set())
+                if dep is not None:
+                    dep = os.path.abspath(dep)
+                    if dep != start and dep not in found:
+                        found.add(dep)
+                        queue.append(dep)
+        _DEPENDENCY_FILES[start] = sorted(found)
+        return list(_DEPENDENCY_FILES[start])
 
 
 def dependency_digest(py_file: str) -> str:

@@ -317,18 +317,20 @@ def _entropy_from_counts_axis(counts_3d, axes, n):
 
 
 _xlogx_kernels: dict = {}
+_XLOGX_KERNELS_LOCK = threading.Lock()
 
 
 def _get_xlogx_kernel(real_name: str):
     """Cached elementwise ``x*log(x)`` entropy term over integer counts, output and scalar in ``real_name`` (cupy type name, single or double)."""
-    kern = _xlogx_kernels.get(real_name)
-    if kern is None:
-        import cupy as cp
+    with _XLOGX_KERNELS_LOCK:
+        kern = _xlogx_kernels.get(real_name)
+        if kern is None:
+            import cupy as cp
 
-        kern = cp.ElementwiseKernel(
-            "T c, " + real_name + " invn", real_name + " o", "o = c > 0 ? (c * invn) * log(c * invn) : 0.0", "mrmr_xlogx_ek_" + real_name
-        )
-        _xlogx_kernels[real_name] = kern
+            kern = cp.ElementwiseKernel(
+                "T c, " + real_name + " invn", real_name + " o", "o = c > 0 ? (c * invn) * log(c * invn) : 0.0", "mrmr_xlogx_ek_" + real_name
+            )
+            _xlogx_kernels[real_name] = kern
     return kern
 
 # FIX3: y and z are fit-CONSTANTS across the greedy CMI loop (the same target / just-selected

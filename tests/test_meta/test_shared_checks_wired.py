@@ -729,6 +729,23 @@ _DOC_PARITY_IGNORED = {
     "--write",  # py_ci_shared.black_filtered_apply
     "--metrics",  # nvprof
     "--events",  # nvprof
+    # CUDA.md: flags and metric names of nvprof / Nsight Compute / Nsight Systems, and the example kernel pattern name in its guide
+    "--csv",  # ncu export
+    "--print-gpu-trace",  # nvprof
+    "--kernel-name",  # ncu filter
+    "--launch-count",  # ncu filter
+    "--binary",  # ncu helper script
+    "--source-folders",  # ncu import option
+    "issue_slot_utilization",
+    "dram_read_throughput",
+    "dram_write_throughput",
+    "gld_transactions_per_request",
+    "shared_load_transactions_per_request",
+    "stall_memory_dependency",
+    "stall_exec_dependency",
+    "local_load_transactions",
+    "local_store_transactions",
+    "warp_reduce_sum",  # the CUDA warp-reduction example pattern the guide shows
     "test_thing_works",  # the name CLAUDE.md tells you NOT to use
     "test_fused_bundle_returns_none_on_tied_scores",  # "was X, now Y" history
 }
