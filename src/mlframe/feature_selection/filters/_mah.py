@@ -171,7 +171,73 @@ def _stochastic_complexity(counts: np.ndarray) -> float:
 
 
 @njit(nogil=True, cache=True)
-def _greedy_merge_bins(joint: np.ndarray) -> np.ndarray:
+def _merge_adjacent(cur, i, axis):
+    """``cur`` with the slices ``i`` and ``i + 1`` along ``axis`` summed into slice ``i``."""
+    R, C = cur.shape
+    if axis == 1:
+        out = np.empty((R, C - 1), dtype=np.float64)  # Intentional float64: MAH partition accumulator state
+        for r in range(R):
+            for c in range(C - 1):
+                if c < i:
+                    out[r, c] = cur[r, c]
+                elif c == i:
+                    out[r, c] = cur[r, i] + cur[r, i + 1]
+                else:
+                    out[r, c] = cur[r, c + 1]
+    else:
+        out = np.empty((R - 1, C), dtype=np.float64)  # Intentional float64: MAH partition accumulator state
+        for r in range(R - 1):
+            for c in range(C):
+                if r < i:
+                    out[r, c] = cur[r, c]
+                elif r == i:
+                    out[r, c] = cur[i, c] + cur[i + 1, c]
+                else:
+                    out[r, c] = cur[r + 1, c]
+    return out
+
+
+@njit(nogil=True, cache=True)
+def _best_adjacent_merge(cur, axis):
+    """Index of the adjacent pair along ``axis`` whose merge lowers the stochastic complexity most, or ``-1`` when no merge lowers it."""
+    sci_now = _stochastic_complexity(cur.ravel())
+    best_delta = 0.0
+    best_i = -1
+    for i in range(cur.shape[axis] - 1):
+        delta = sci_now - _stochastic_complexity(_merge_adjacent(cur, i, axis).ravel())
+        if delta > best_delta:
+            best_delta = delta
+            best_i = i
+    return best_i
+
+
+@njit(nogil=True, cache=True)
+def _greedy_merge_core(joint):
+    """Column merges then row merges of ``joint``: the merged table and the merge positions, as arrays of the number of merges made."""
+    cur = joint.astype(np.float64)  # Intentional float64: MAH partition accumulator state
+    col_merges = np.empty(max(cur.shape[1], 1), dtype=np.int64)
+    n_col = 0
+    while cur.shape[1] > 2:
+        best_i = _best_adjacent_merge(cur, 1)
+        if best_i < 0:
+            break
+        col_merges[n_col] = best_i
+        n_col += 1
+        cur = _merge_adjacent(cur, best_i, 1)
+    row_merges = np.empty(max(cur.shape[0], 1), dtype=np.int64)
+    n_row = 0
+    while cur.shape[0] > 2:
+        best_i = _best_adjacent_merge(cur, 0)
+        if best_i < 0:
+            break
+        row_merges[n_row] = best_i
+        n_row += 1
+        cur = _merge_adjacent(cur, best_i, 0)
+    return cur, row_merges[:n_row], col_merges[:n_col]
+
+
+@njit(nogil=True, cache=True)
+def _greedy_merge_bins(joint):
     """Greedy column- and row-merging of a (K_x, K_y) joint table guided by
     the JOINT NML code length (Marx 2021 sec. 3.2): merge when the regret
     reduction outweighs the log-likelihood increase. Operates on the full
@@ -179,73 +245,7 @@ def _greedy_merge_bins(joint: np.ndarray) -> np.ndarray:
     (preserves the joint structure even when the marginal would otherwise
     collapse).
     """
-    cur = joint.copy()
-    while cur.shape[1] > 2:
-        best_delta = 0.0
-        best_i = -1
-        sci_now = _stochastic_complexity(cur.ravel())
-        for i in range(cur.shape[1] - 1):
-            # Build candidate merged matrix by adding columns i and i+1.
-            new_shape_c = cur.shape[1] - 1
-            cand = np.empty((cur.shape[0], new_shape_c), dtype=np.float64)  # Intentional float64: MAH partition accumulator state
-            for r in range(cur.shape[0]):
-                for c in range(new_shape_c):
-                    if c < i:
-                        cand[r, c] = cur[r, c]
-                    elif c == i:
-                        cand[r, c] = cur[r, i] + cur[r, i + 1]
-                    else:
-                        cand[r, c] = cur[r, c + 1]
-            sci_merged = _stochastic_complexity(cand.ravel())
-            delta = sci_now - sci_merged
-            if delta > best_delta:
-                best_delta = delta
-                best_i = i
-        if best_i < 0:
-            break
-        new = np.empty((cur.shape[0], cur.shape[1] - 1), dtype=np.float64)  # Intentional float64: MAH partition accumulator state
-        for r in range(cur.shape[0]):
-            for c in range(cur.shape[1] - 1):
-                if c < best_i:
-                    new[r, c] = cur[r, c]
-                elif c == best_i:
-                    new[r, c] = cur[r, best_i] + cur[r, best_i + 1]
-                else:
-                    new[r, c] = cur[r, c + 1]
-        cur = new
-    while cur.shape[0] > 2:
-        sci_now = _stochastic_complexity(cur.ravel())
-        best_delta = 0.0
-        best_i = -1
-        for i in range(cur.shape[0] - 1):
-            new_shape_r = cur.shape[0] - 1
-            cand = np.empty((new_shape_r, cur.shape[1]), dtype=np.float64)  # Intentional float64: MAH partition accumulator state
-            for r in range(new_shape_r):
-                for c in range(cur.shape[1]):
-                    if r < i:
-                        cand[r, c] = cur[r, c]
-                    elif r == i:
-                        cand[r, c] = cur[i, c] + cur[i + 1, c]
-                    else:
-                        cand[r, c] = cur[r + 1, c]
-            sci_merged = _stochastic_complexity(cand.ravel())
-            delta = sci_now - sci_merged
-            if delta > best_delta:
-                best_delta = delta
-                best_i = i
-        if best_i < 0:
-            break
-        new = np.empty((cur.shape[0] - 1, cur.shape[1]), dtype=np.float64)  # Intentional float64: MAH partition accumulator state
-        for r in range(cur.shape[0] - 1):
-            for c in range(cur.shape[1]):
-                if r < best_i:
-                    new[r, c] = cur[r, c]
-                elif r == best_i:
-                    new[r, c] = cur[best_i, c] + cur[best_i + 1, c]
-                else:
-                    new[r, c] = cur[r + 1, c]
-        cur = new
-    return np.asarray(cur)
+    return _greedy_merge_core(joint)[0]
 
 
 @njit(nogil=True, cache=True)
@@ -269,7 +269,7 @@ def _mi_from_joint(joint: np.ndarray) -> float:
     return mi
 
 
-def _greedy_merge_with_history(joint: np.ndarray):
+def _greedy_merge_with_history(joint: np.ndarray) -> tuple[np.ndarray, list[int], list[int]]:
     """Identical SCI-greedy merge to ``_greedy_merge_bins`` but ALSO records
     which row/col positions got merged at each step.
 
@@ -282,74 +282,8 @@ def _greedy_merge_with_history(joint: np.ndarray):
             that merged with index+1.
         col_merges (list[int]): same for columns.
     """
-    cur = joint.copy()
-    col_merges = []
-    row_merges = []
-    while cur.shape[1] > 2:
-        sci_now = _stochastic_complexity(cur.ravel())
-        best_delta = 0.0
-        best_i = -1
-        for i in range(cur.shape[1] - 1):
-            cand = np.empty((cur.shape[0], cur.shape[1] - 1), dtype=np.float64)  # Intentional float64: MAH partition accumulator state
-            for r in range(cur.shape[0]):
-                for c in range(cur.shape[1] - 1):
-                    if c < i:
-                        cand[r, c] = cur[r, c]
-                    elif c == i:
-                        cand[r, c] = cur[r, i] + cur[r, i + 1]
-                    else:
-                        cand[r, c] = cur[r, c + 1]
-            sci_merged = _stochastic_complexity(cand.ravel())
-            delta = sci_now - sci_merged
-            if delta > best_delta:
-                best_delta = delta
-                best_i = i
-        if best_i < 0:
-            break
-        col_merges.append(best_i)
-        new = np.empty((cur.shape[0], cur.shape[1] - 1), dtype=np.float64)  # Intentional float64: MAH partition accumulator state
-        for r in range(cur.shape[0]):
-            for c in range(cur.shape[1] - 1):
-                if c < best_i:
-                    new[r, c] = cur[r, c]
-                elif c == best_i:
-                    new[r, c] = cur[r, best_i] + cur[r, best_i + 1]
-                else:
-                    new[r, c] = cur[r, c + 1]
-        cur = new
-    while cur.shape[0] > 2:
-        sci_now = _stochastic_complexity(cur.ravel())
-        best_delta = 0.0
-        best_i = -1
-        for i in range(cur.shape[0] - 1):
-            cand = np.empty((cur.shape[0] - 1, cur.shape[1]), dtype=np.float64)  # Intentional float64: MAH partition accumulator state
-            for r in range(cur.shape[0] - 1):
-                for c in range(cur.shape[1]):
-                    if r < i:
-                        cand[r, c] = cur[r, c]
-                    elif r == i:
-                        cand[r, c] = cur[i, c] + cur[i + 1, c]
-                    else:
-                        cand[r, c] = cur[r + 1, c]
-            sci_merged = _stochastic_complexity(cand.ravel())
-            delta = sci_now - sci_merged
-            if delta > best_delta:
-                best_delta = delta
-                best_i = i
-        if best_i < 0:
-            break
-        row_merges.append(best_i)
-        new = np.empty((cur.shape[0] - 1, cur.shape[1]), dtype=np.float64)  # Intentional float64: MAH partition accumulator state
-        for r in range(cur.shape[0] - 1):
-            for c in range(cur.shape[1]):
-                if r < best_i:
-                    new[r, c] = cur[r, c]
-                elif r == best_i:
-                    new[r, c] = cur[best_i, c] + cur[best_i + 1, c]
-                else:
-                    new[r, c] = cur[r + 1, c]
-        cur = new
-    return np.asarray(cur), row_merges, col_merges
+    merged, row_merges, col_merges = _greedy_merge_core(joint)
+    return np.asarray(merged), row_merges.tolist(), col_merges.tolist()
 
 
 def _apply_merges_to_edges(initial_inner_edges: np.ndarray, row_merges) -> np.ndarray:
