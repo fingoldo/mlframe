@@ -12,7 +12,7 @@ Scope: the FE modules the MRMR layer imports (`src/mlframe/feature_selection/fil
 | CPU | Core i7-7700HQ, 4 cores, 8 threads |
 | stack | cupy 13.6, numba, CUDA toolkits 11.8, 12.8, 12.9 |
 
-There is a second machine with a newer GPU architecture. On it only `ncu` and `nsys` work, so the profiling recipes for that machine are in section 9; its hardware fingerprint and kernel-tuning cache are separate from this host's.
+There is a second machine with a newer GPU architecture. On it only `ncu` and `nsys` work, so the profiling recipes for that machine are in section 9; its hardware fingerprint and kernel-tuning cache are separate from this host's. A third host (RTX 500 Ada Laptop, cc 8.9) has its verified profiling recipe in section 12.
 
 Everything measured in this file was measured on this host unless it says otherwise. A kernel that wins here can lose on another GPU class (atomic latency, shared-memory budget and register pressure differ between compute capabilities), so every kernel version is kept and the dispatcher chooses per host (section 4).
 
@@ -370,3 +370,25 @@ Cross-machine numbers are not comparable: record the GPU model, the architecture
 - Re-measure the kernels that the cache sends only to the CPU on this host (`cmi_batched_cpu_cuda_crossover`, `discretize_2d_array`) on the newer GPU.
 - Not read from the surveyed sources: 24 of the 35 tensormux skills (none concerns histograms or atomics), the helper scripts and the remaining reference files of `ncu-report-skill`, and most of the atrex `gpu-wiki` records (ten were read, section 8). The Hugging Face benchmark scripts were not read, so its timing method is unknown.
 - Spot-check the quoted thresholds against the URLs in section 8 before relying on one in a decision; the extractions were made by a small model.
+
+## 12. Profiling CUDA kernels on the RTX 500 Ada host (verified recipe)
+
+Everything here was run on this host (RTX 500 Ada Laptop, cc 8.9, 4 GB, driver 596.58, CUDA toolkit 12.9, Nsight Systems 2025.1.3, Nsight Compute 2025.2.1, Python 3.14). The probe was a cupy `RawKernel` axpy on 2^24 floats, warmed up, then 5 launches inside `cp.cuda.runtime.profilerStart()` / `profilerStop()`.
+
+| tool | state on this host |
+|---|---|
+| `nsys` | works, but is not on `PATH`: `C:\Program Files\NVIDIA Corporation\Nsight Systems 2025.1.3\target-windows-x64\nsys.exe` |
+| `ncu` | works; `ncu.bat` is on `PATH` (under `Nsight Compute 2025.2.1`); collection works, text pages do not (below) |
+| `compute-sanitizer` | works (`--tool memcheck`) |
+| `nvprof` | does not start (exit 0xC0000135, missing DLL); not usable on cc 8.9 anyway |
+
+Rules that cost time to learn:
+
+1. Mark the window in the code with `profilerStart()` / `profilerStop()` after the warm-up launch, then restrict the tool to it. Without it NVRTC compilation and cupy initialisation dominate the trace.
+2. Timeline (what ran, how long, launches per call): `nsys profile --capture-range=cudaProfilerApi --capture-range-end=stop -o probe python probe.py`, then `nsys stats --report cuda_gpu_kern_sum probe.nsys-rep`. Call `nsys.exe` by full path from PowerShell.
+3. Per-kernel metrics: `ncu --profile-from-start off -k regex:axpy -f -o probe --set full python probe.py` (start `ncu.bat` through PowerShell, not Git Bash). `--set full` replays every kernel about 40 times: restrict with `-k` and `--launch-count`.
+4. Reading the report: `ncu --import probe.ncu-rep --page details` (also `raw`, `--csv`) fails on this ru-RU Windows with `bad conversion`; changing the locale environment variables does not help. Read the report with the `ncu_report` Python module shipped in `...\Nsight Compute 2025.2.1\extras\python` instead. `scripts/ncu_key_metrics.py` does this and prints duration, grid and block size, waves per SM, registers, occupancy, SM and DRAM throughput, FP64 pipe use and local-memory spill instructions per kernel.
+5. `compute-sanitizer --tool memcheck python probe.py` for out-of-bounds writes after any change to indexing.
+6. The honesty rules of section 6 apply: `ncu` kernel duration is the kernel alone, not latency, and its estimated speedups are hypotheses to test with an interleaved A/B, not results.
+7. The `venv_autopsia` environment has no cupy: install `cupy-cuda12x` before profiling there, or use an interpreter that has it.
+8. One heavy GPU job at a time: check `nvidia-smi` first, since a second process distorts both kernel durations and `ncu` replay.
