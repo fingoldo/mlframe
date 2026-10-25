@@ -389,6 +389,19 @@ def greedy_backward(phi: np.ndarray, base: np.ndarray, y: np.ndarray, *, classif
     return ev.top_n(top_n)
 
 
+def _first_improving_swap(ev, current: tuple[int, ...], cur_margin, best: float, f: int):
+    """The first swap of an operand in ``current`` for an outside feature that beats ``best``, as ``(loss, key, margin)``, or ``None``."""
+    cur_set = set(current)
+    for out in current:
+        for inn in range(f):
+            if inn in cur_set:
+                continue
+            lo, child_key, child_margin = ev.loss_from_parent_swap(current, cur_margin, out, inn)
+            if lo < best:
+                return lo, child_key, child_margin
+    return None
+
+
 def _local_search(ev, start: tuple[int, ...], f: int, max_card: int) -> tuple[int, ...]:
     """Hill-climb by add / drop / swap until no single move improves.
 
@@ -422,18 +435,9 @@ def _local_search(ev, start: tuple[int, ...], f: int, max_card: int) -> tuple[in
                     break
             if improved:
                 continue
-        for out in current:
-            stop = False
-            for inn in range(f):
-                if inn in cur_set:
-                    continue
-                lo, child_key, child_margin = ev.loss_from_parent_swap(current, cur_margin, out, inn)
-                if lo < best:
-                    best, current, cur_margin, improved = lo, child_key, child_margin, True
-                    stop = True
-                    break
-            if stop:
-                break
+        swap = _first_improving_swap(ev, current, cur_margin, best, f)
+        if swap is not None:
+            best, current, cur_margin, improved = swap[0], swap[1], swap[2], True
     return current
 
 

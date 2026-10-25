@@ -94,7 +94,6 @@
   "src/mlframe/feature_selection/filters/info_theory/_cmi_cuda.py::_should_use_cuda": 19,
   "src/mlframe/feature_selection/filters/info_theory/_entropy_kernels.py::conditional_mi": 24,
   "src/mlframe/feature_selection/filters/info_theory/_group_mi.py::_group_blocked_mi": 18,
-  "src/mlframe/feature_selection/shap_proxied_fs/_shap_proxy_heuristics.py::_local_search": 16,
   "src/mlframe/feature_selection/shap_proxied_fs/_shap_proxy_interaction_proxy.py::interaction_proxy_top_n": 18,
   "src/mlframe/feature_selection/shap_proxied_fs/_shap_proxy_revalidate/_shap_proxy_loss.py::_honest_loss": 17,
   "src/mlframe/feature_selection/wrappers/_auto_tune.py::DataFingerprint.from_xy": 23,
