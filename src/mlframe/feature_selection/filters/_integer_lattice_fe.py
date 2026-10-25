@@ -19,7 +19,7 @@ null upper band (so a non-lattice frame injects nothing). Each responded hit bec
 ``EngineeredRecipe``: replay is pure integer arithmetic on X (``np.gcd`` / ``np.lcm`` / ``np.bitwise_and`` on the
 integer-cast operands), no y reference -> leak-free + deterministic + train/test bit-identical.
 
-Only integer-typed (or exactly-integer-valued float) columns are eligible (reused ``_is_integer_col`` from the modular
+Only integer-typed, exactly-integer-valued or noisy-integer float columns are eligible (``_is_integer_like_col`` from the modular
 module) - the lattice structure is an integer property; quantising a continuous column would manufacture spurious shared
 factors.
 
@@ -50,7 +50,7 @@ from typing import Optional, Sequence
 import numba
 import numpy as np
 
-from ._pairwise_modular_fe import _is_integer_col, _mi
+from ._pairwise_modular_fe import _is_integer_like_col, _mi
 from ._y_encoding import encode_y_for_classif_mi
 from ._lattice_gate_hit_shared import margin_over_operands as _margin_over_operands, responded_property as _responded_property
 from typing import TYPE_CHECKING
@@ -281,9 +281,9 @@ def cheap_integer_lattice_scan(
     import pandas as pd  # noqa: F401  (X may be pandas or polars; we pull ndarrays)
 
     if cols is None:
-        cols = [c for c in X.columns if _is_integer_col(np.asarray(X[c]))]
+        cols = [c for c in X.columns if _is_integer_like_col(np.asarray(X[c]))]
     else:
-        cols = [c for c in cols if _is_integer_col(np.asarray(X[c]))]
+        cols = [c for c in cols if _is_integer_like_col(np.asarray(X[c]))]
     yi = encode_y_for_classif_mi(y)
     arrs = {c: np.asarray(X[c]) for c in cols}
     # Intentional float64: njit kernel / lattice MI dtype contract kept float64; policy switch deferred.
@@ -397,9 +397,9 @@ def hybrid_integer_lattice_fe_with_recipes(
     Returns ``(appended_names, recipes)`` - the materialised columns are NOT concatenated here (the MRMR caller appends
     them under its own RAM-safe path); each recipe replays the exact lattice column from X alone, leak-free."""
     if cols is None:
-        int_cols = [c for c in X.columns if _is_integer_col(np.asarray(X[c]))]
+        int_cols = [c for c in X.columns if _is_integer_like_col(np.asarray(X[c]))]
     else:
-        int_cols = [c for c in cols if c in X.columns and _is_integer_col(np.asarray(X[c]))]
+        int_cols = [c for c in cols if c in X.columns and _is_integer_like_col(np.asarray(X[c]))]
 
     p = len(int_cols)
     if p > int(max_int_cols):

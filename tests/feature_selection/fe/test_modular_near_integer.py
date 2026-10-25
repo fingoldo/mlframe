@@ -65,3 +65,20 @@ def test_replay_uses_the_same_rounding_as_the_scan():
     got = pm.apply_pairwise_modular(fresh, r.extra["op"], r.src_names, r.extra["modulus"])
     expected = np.mod(ints[:, 0] + ints[:, 5], int(r.extra["modulus"])).astype(float)
     assert np.array_equal(got, expected)
+
+
+@pytest.mark.parametrize("sigma", [0.02, 0.1])
+def test_integer_lattice_scan_finds_gcd_through_noise(sigma):
+    """The lattice sweep takes the same noisy integer columns: a planted gcd(a, b) >= 3 target is responded on float columns with noise."""
+    from mlframe.feature_selection.filters._integer_lattice_fe import cheap_integer_lattice_scan
+
+    rng = np.random.default_rng(0)
+    n = 3000
+    a = rng.integers(1, 60, n)
+    b = rng.integers(1, 60, n)
+    others = rng.integers(1, 60, size=(n, 4))
+    y = (np.gcd(a, b) >= 3).astype(np.int64)
+    ints = np.column_stack([a, b, others]).astype(float)
+    X = pd.DataFrame(ints + rng.normal(0, sigma, ints.shape), columns=["a", "b", "c", "d", "e", "f"])
+    hits = cheap_integer_lattice_scan(X, y)
+    assert any(h.op == "gcd" and set(h.cols) == {"a", "b"} and h.responded for h in hits), "planted gcd not responded through noise"
