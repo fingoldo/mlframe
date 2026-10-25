@@ -520,20 +520,21 @@ def _pair_block(v: Any, raws: list, raw_codes: np.ndarray, raw_nbins: np.ndarray
 
     res = pair_residual_test(raw_codes, raw_nbins, r_codes)
     if res is None:
-        v.blocking_pair = (-1, -1)
+        untested: tuple[int, int] = (-1, -1)
+        v.blocking_pair = untested
         v.reason = "the pair-level residual test could not be run (pair count or row budget); an untested interaction is not ruled out"
-        return v.blocking_pair
+        return untested
     max_pair_mi, ceiling, (i, j) = res
     v.max_pair_mi = float(max_pair_mi)
     v.pair_floor = float(ceiling)
     if max_pair_mi <= ceiling:
         return None
-    v.blocking_pair = (int(raws[i]), int(raws[j]))
+    blocking: tuple[int, int] = (int(raws[i]), int(raws[j]))
+    v.blocking_pair = blocking
     v.reason = (
-        f"raw pair {v.blocking_pair} carries MI(r;x_i,x_j)={max_pair_mi:.4f} > pair ceiling {ceiling:.4f}; "
-        "the residual holds an interaction no single raw shows"
+        f"raw pair {blocking} carries MI(r;x_i,x_j)={max_pair_mi:.4f} > pair ceiling {ceiling:.4f}; " "the residual holds an interaction no single raw shows"
     )
-    return v.blocking_pair
+    return blocking
 
 
 def _selected_columns_summary(sel, selected_continuous, cols_names, data, n, design_cols):

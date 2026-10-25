@@ -50,7 +50,7 @@ def permutation_sources(s: np.ndarray, n_perm: int, rng: np.random.Generator) ->
     starts = np.flatnonzero(np.r_[True, sorted_s[1:] != sorted_s[:-1]]).astype(np.int64)
     lens = np.diff(np.r_[starts, n]).astype(np.int64)
     seed = int(rng.integers(0, 2**31 - 1))
-    return _permutation_sources_njit(order, starts, lens, int(n_perm), seed)
+    return np.asarray(_permutation_sources_njit(order, starts, lens, int(n_perm), seed))
 
 
 __all__ = ["permutation_sources", "stratified_cmi", "stratified_cmi_null"]

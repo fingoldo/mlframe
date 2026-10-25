@@ -14,7 +14,7 @@ to the old behaviour.
 from __future__ import annotations
 
 import logging
-from typing import Optional
+from typing import Any, Optional
 
 import numpy as np
 from numba import njit, prange
@@ -48,9 +48,9 @@ def _pair_mi_best_per_first_v1(codes_t: np.ndarray, r: np.ndarray, k: int, kr: i
             cnt[:] = 0.0
             ca[:] = 0.0
             for t in range(n):
-                a = np.int64(codes_t[i, t]) * k + np.int64(codes_t[j, t])
-                cnt[a * kr + r[t]] += 1.0
-                ca[a] += 1.0
+                cell = np.int64(codes_t[i, t]) * k + np.int64(codes_t[j, t])
+                cnt[cell * kr + r[t]] += 1.0
+                ca[cell] += 1.0
             mi = 0.0
             for a in range(k * k):
                 if ca[a] > 0.0:
@@ -378,13 +378,14 @@ def best_pair_streamed(get_block, p: int, r: np.ndarray, k: int, kr: int, backen
     cr = np.bincount(r, minlength=kr).astype(np.float64)
     best_mi, best_pair = 0.0, (-1, -1)
     starts = list(range(0, p, block_cols))
-    xp = None
+    xp: Any = None
     r_dev = cr_dev = None
+    fused_real = ""
     if backend == "gpu_fused":
         import cupy as cp
 
         xp = cp
-        real = real or gpu_real_type()
+        fused_real = real or gpu_real_type()
         r_dev, cr_dev = cp.asarray(r.astype(np.int32)), cp.asarray(cr)
     for ia, c0 in enumerate(starts):
         a_t = get_block(c0, min(c0 + block_cols, p))
@@ -395,7 +396,7 @@ def best_pair_streamed(get_block, p: int, r: np.ndarray, k: int, kr: int, backen
             b_t = a_t if same else get_block(d0, min(d0 + block_cols, p))
             try:
                 if backend == "gpu_fused":
-                    mi, (i, j) = _block_best_gpu_fused(a_dev, a_dev if same else xp.asarray(b_t), r_dev, cr_dev, k, kr, same, real)
+                    mi, (i, j) = _block_best_gpu_fused(a_dev, a_dev if same else xp.asarray(b_t), r_dev, cr_dev, k, kr, same, fused_real)
                 elif backend == "gpu_dispatch":
                     mi, (i, j) = _block_best_gpu(a_t, b_t, r, k, kr, same)
                 else:
