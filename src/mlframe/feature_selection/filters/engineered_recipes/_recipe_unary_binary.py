@@ -256,6 +256,20 @@ def _apply_unary_binary(recipe: EngineeredRecipe, X: Any, col_cache: "dict[str, 
     return out_arr
 
 
+def _fit_quantization_edges(values: Any, method: str, nbins: int) -> Any:
+    """Return the ``nbins + 1`` fit-time bin edges for ``values``: device-computed when available, else host quantile or uniform edges."""
+    edges = _device_fit_edges(values, cast(str, method), nbins)
+    if edges is not None:
+        return edges
+    arr = np.asarray(values, dtype=_crit_np_dtype()).ravel()
+    if method == "quantile":
+        return np.nanpercentile(arr, np.linspace(0.0, 100.0, nbins + 1))
+    finite = arr[np.isfinite(arr)]
+    if finite.size:
+        return np.linspace(float(finite.min()), float(finite.max()), nbins + 1)
+    return np.linspace(0.0, 0.0, nbins + 1)
+
+
 def build_unary_binary_recipe(
     *,
     name: str,
@@ -319,22 +333,7 @@ def build_unary_binary_recipe(
         }
         # Persist fit-time edges so replay never re-quantiles on test data.
         if fit_values_for_edges is not None:
-            _edges = _device_fit_edges(fit_values_for_edges, cast(str, quantization["method"]), int(quantization_nbins))
-            _arr = np.empty(0, dtype=_crit_np_dtype()) if _edges is not None else np.asarray(fit_values_for_edges, dtype=_crit_np_dtype()).ravel()
-            if _edges is not None:
-                pass  # computed on the device: only the nbins + 1 edges crossed to the host
-            elif quantization["method"] == "quantile":
-                _q = np.linspace(0.0, 100.0, int(quantization_nbins) + 1)
-                _edges = np.nanpercentile(_arr, _q)
-            else:  # uniform
-                _finite = _arr[np.isfinite(_arr)]
-                if _finite.size:
-                    _lo = float(_finite.min())
-                    _hi = float(_finite.max())
-                    _edges = np.linspace(_lo, _hi, int(quantization_nbins) + 1)
-                else:
-                    _edges = np.linspace(0.0, 0.0, int(quantization_nbins) + 1)
-            quantization["edges"] = _edges.tolist()
+            quantization["edges"] = _fit_quantization_edges(fit_values_for_edges, quantization["method"], int(quantization_nbins)).tolist()
 
     # Per-operand pre-warp: when the unary name on a side is the
     # learned ``prewarp`` pseudo-unary, persist its fitted spec (basis, degree,
