@@ -22,7 +22,6 @@
   "src/mlframe/feature_selection/filters/_bootstrap_rank_mi_njit.py::_bootstrap_rank_mi_f32": 16,
   "src/mlframe/feature_selection/filters/_cat_triple_fe.py::score_cat_triples_by_interaction_information": 20,
   "src/mlframe/feature_selection/filters/_cluster_aggregate.py::_discover_clusters": 19,
-  "src/mlframe/feature_selection/filters/_dcd_tau_auto.py::_detect_valley_between_modes": 17,
   "src/mlframe/feature_selection/filters/_dynamic_cluster_discovery/__init__.py::discover_cluster_members": 23,
   "src/mlframe/feature_selection/filters/_extra_fe_families_dispersion.py::_dual_uplift_filter": 21,
   "src/mlframe/feature_selection/filters/_fe_accuracy_gate.py::measure_feature_uplift": 21,

@@ -50,6 +50,33 @@ _DCD_AUTO_TAU_MIN = 0.3
 _DCD_AUTO_TAU_MAX = 0.95
 
 
+def _histogram_peaks(counts: np.ndarray) -> list:
+    """Return ``(bin, count)`` for each mode of a histogram, collapsing a flat plateau to its leftmost bin."""
+    n_bins = len(counts)
+    # Local maxima - count must dominate BOTH neighbours, but we tolerate one-sided ties (plateau peaks) so adjacent
+    # equal-height bins still surface a single peak. A bin is a peak iff its count is >= both neighbours AND strictly
+    # greater than at least one of them (rules out flat runs of equal values).
+    peaks: list = []
+    for i in range(n_bins):
+        left = counts[i - 1] if i > 0 else -1
+        right = counts[i + 1] if i < n_bins - 1 else -1
+        c = counts[i]
+        if c < 2:
+            continue
+        if c >= left and c >= right and (c > left or c > right):
+            peaks.append((i, int(c)))
+    # Adjacent equal-height plateau peaks are a single mode; keep the leftmost, otherwise a flat-topped mode is counted twice.
+    if not peaks:
+        return peaks
+    deduped: list = [peaks[0]]
+    for bin_idx, c in peaks[1:]:
+        prev_bin, prev_c = deduped[-1]
+        if bin_idx == prev_bin + 1 and c == prev_c:
+            continue
+        deduped.append((bin_idx, c))
+    return deduped
+
+
 def _detect_valley_between_modes(scores: np.ndarray) -> Optional[float]:
     """Layer 47: bimodality detector + saddle-point picker.
 
@@ -85,31 +112,7 @@ def _detect_valley_between_modes(scores: np.ndarray) -> Optional[float]:
     )
     if counts.sum() < 10:
         return None
-    # Local maxima - count must dominate BOTH neighbours, but we tolerate
-    # one-sided ties (plateau peaks) so adjacent equal-height bins still
-    # surface a single peak rather than dropping out completely. A bin is a
-    # peak iff its count is >= both neighbours AND strictly greater than at
-    # least one of them (rules out flat runs of equal values).
-    peaks: list = []
-    for i in range(n_bins):
-        left = counts[i - 1] if i > 0 else -1
-        right = counts[i + 1] if i < n_bins - 1 else -1
-        c = counts[i]
-        if c < 2:
-            continue
-        if c >= left and c >= right and (c > left or c > right):
-            peaks.append((i, int(c)))
-    # Collapse adjacent equal-height plateau peaks - they're a single mode,
-    # pick the leftmost. Otherwise the bimodality check counts a flat-topped
-    # mode twice and the "modes >= 3 bins apart" rule rejects it.
-    if peaks:
-        deduped: list = [peaks[0]]
-        for bin_idx, c in peaks[1:]:
-            prev_bin, prev_c = deduped[-1]
-            if bin_idx == prev_bin + 1 and c == prev_c:
-                continue
-            deduped.append((bin_idx, c))
-        peaks = deduped
+    peaks = _histogram_peaks(counts)
     if len(peaks) < 2:
         return None
     # Pairing logic: in a redundancy-clustering SU sweep the IRRELEVANT-pair
