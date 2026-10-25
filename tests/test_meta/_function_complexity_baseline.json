@@ -18,7 +18,6 @@
   "src/mlframe/feature_selection/boruta_shap/_fit_explain.py::_fit_with_subsample_stability": 18,
   "src/mlframe/feature_selection/filters/_batch_mi_noise_gate_kernels.py::_cuda_fused_gate_kernel_factory": 16,
   "src/mlframe/feature_selection/filters/_binned_agg_cheap_mi.py::_cheap_mi_edge_dedup_njit": 18,
-  "src/mlframe/feature_selection/filters/_binned_numeric_agg_resident.py::local_mi_gate_binagg_resident": 16,
   "src/mlframe/feature_selection/filters/_bootstrap_rank_mi_njit.py::_bootstrap_rank_mi_f32": 16,
   "src/mlframe/feature_selection/filters/_cat_triple_fe.py::score_cat_triples_by_interaction_information": 20,
   "src/mlframe/feature_selection/filters/_cluster_aggregate.py::_discover_clusters": 19,
