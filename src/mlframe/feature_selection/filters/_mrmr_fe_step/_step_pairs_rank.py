@@ -158,6 +158,38 @@ def _batch_usability_admission_verdicts(self, *, need_usability, y_continuous, c
         return {}
 
 
+def _collect_prescan_pair_keys(cached_MIs, sorted_pairs, sort_dict_by_value, numeric_vars_to_consider, cached_operand, n_rows, max_prescan) -> list:
+    """Return the pair keys to usability-scan, highest joint MI first, skipping pairs whose operands are missing or not ``n_rows`` long.
+
+    ``max_prescan`` caps how many candidate pairs are visited (0 means no cap), so the scan stays bounded on a wide pool.
+    """
+    if sorted_pairs is not None:
+        _sorted_pairs_local = sorted_pairs
+    elif sort_dict_by_value is not None:
+        _sorted_pairs_local = sort_dict_by_value(cached_MIs)
+    else:
+        from pyutilz.pythonlib import sort_dict_by_value as _sort_dict_by_value_fallback
+        _sorted_pairs_local = _sort_dict_by_value_fallback(cached_MIs)
+    scan_pks = []
+    scanned = 0
+    for _pk in reversed(_sorted_pairs_local.keys()):
+        if len(_pk) != 2:
+            continue
+        if _pk[0] not in numeric_vars_to_consider or _pk[1] not in numeric_vars_to_consider:
+            continue
+        if max_prescan > 0 and scanned >= max_prescan:
+            break
+        scanned += 1
+        _p0 = cached_operand(_pk[0])
+        _p1 = cached_operand(_pk[1])
+        if _p0 is None or _p1 is None:
+            continue
+        if _p0.shape[0] != n_rows or _p1.shape[0] != n_rows:
+            continue
+        scan_pks.append(_pk)
+    return scan_pks
+
+
 def _maybe_relax_prevalence_for_tail_concentrated_pool(
     *, self, cached_MIs, numeric_vars_to_consider, data, num_fs_steps, verbose,
     fe_min_pair_mi_prevalence, cached_operand, sorted_pairs=None, sort_dict_by_value=None,
@@ -218,30 +250,9 @@ def _maybe_relax_prevalence_for_tail_concentrated_pool(
         # highest-|corr| dominant pair if it happened to be computed late, weakening the "fires only for the
         # pool's genuinely dominant pair" specificity this function's docstring claims.
         # sort_dict_by_value's default is ASCENDING, so the highest-MI pairs are at the END.
-        if sorted_pairs is not None:
-            _sorted_pairs_local = sorted_pairs
-        elif sort_dict_by_value is not None:
-            _sorted_pairs_local = sort_dict_by_value(cached_MIs)
-        else:
-            from pyutilz.pythonlib import sort_dict_by_value as _sort_dict_by_value_fallback
-            _sorted_pairs_local = _sort_dict_by_value_fallback(cached_MIs)
-        _scan_pks = []
-        _scanned = 0
-        for _pk in reversed(_sorted_pairs_local.keys()):
-            if len(_pk) != 2:
-                continue
-            if _pk[0] not in numeric_vars_to_consider or _pk[1] not in numeric_vars_to_consider:
-                continue
-            if _max_prescan > 0 and _scanned >= _max_prescan:
-                break
-            _scanned += 1
-            _p0 = cached_operand(_pk[0])
-            _p1 = cached_operand(_pk[1])
-            if _p0 is None or _p1 is None:
-                continue
-            if _p0.shape[0] != _ya_pre.shape[0] or _p1.shape[0] != _ya_pre.shape[0]:
-                continue
-            _scan_pks.append(_pk)
+        _scan_pks = _collect_prescan_pair_keys(
+            cached_MIs, sorted_pairs, sort_dict_by_value, numeric_vars_to_consider, cached_operand, _ya_pre.shape[0], _max_prescan
+        )
         if _scan_pks:
             from .._fe_usability_signal import _corr_stride
             from ..batch_pair_usability_corr_gpu import ALL_PAIR_FORM_IDS, dispatch_batch_pair_usability_corr

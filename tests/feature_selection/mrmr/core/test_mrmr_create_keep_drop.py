@@ -332,11 +332,15 @@ def _ws5(seed, n):
     )
 
 
+# e1..e3 are not in the drop set: y is noiseless and carries 0.015*(e1+e2+e3) on top of the ratio term. Their
+# contribution has sd 0.0075 against sd 37.5 for the ratio term, and adding them to a flexible fit on a..d lowers the
+# residual sd by 0.0017. Admitting them is a real (if immaterial) signal, not a false positive, so only the ratio
+# operands are asserted.
 _reg(
     "ws5_double_ratio_product_hard",
     _ws5,
     keep=[{"any_of": [{"a", "b"}, {"c", "d"}, {"a", "b", "c", "d"}]}],
-    drop={"e1", "e2", "e3"},
+    drop=set(),
     family="weak-scaled",
 )
 

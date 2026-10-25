@@ -237,6 +237,28 @@ def _score_transform_over_folds(
     return float(np.mean(fold_scores))
 
 
+def _default_probe_factories(task, random_state, probe_model_fn, multivariate_probe, multivariate_probe_model_fn):
+    """Fill in the default univariate and multivariate probe factories for ``task``, leaving any caller-supplied factory untouched."""
+    if probe_model_fn is None:
+        from sklearn.linear_model import LogisticRegression, Ridge
+
+        if task == "classification":
+            probe_model_fn = lambda: LogisticRegression(max_iter=200)  # noqa: E731
+        elif task == "regression":
+            probe_model_fn = lambda: Ridge()  # noqa: E731
+        else:
+            raise ValueError(f"select_column_transforms: task must be 'classification' or 'regression'; got {task!r}")
+
+    if multivariate_probe and multivariate_probe_model_fn is None:
+        from sklearn.ensemble import HistGradientBoostingClassifier, HistGradientBoostingRegressor
+
+        if task == "classification":
+            multivariate_probe_model_fn = lambda: HistGradientBoostingClassifier(max_iter=50, max_depth=3, random_state=random_state)  # noqa: E731
+        else:
+            multivariate_probe_model_fn = lambda: HistGradientBoostingRegressor(max_iter=50, max_depth=3, random_state=random_state)  # noqa: E731
+    return probe_model_fn, multivariate_probe_model_fn
+
+
 def select_column_transforms(
     df: pd.DataFrame,
     y: np.ndarray,
@@ -305,24 +327,9 @@ def select_column_transforms(
     if candidate_transforms is None:
         candidate_transforms = _candidate_transforms()
 
-    from sklearn.linear_model import LogisticRegression, Ridge
     from sklearn.model_selection import KFold, StratifiedKFold
 
-    if probe_model_fn is None:
-        if task == "classification":
-            probe_model_fn = lambda: LogisticRegression(max_iter=200)  # noqa: E731
-        elif task == "regression":
-            probe_model_fn = lambda: Ridge()  # noqa: E731
-        else:
-            raise ValueError(f"select_column_transforms: task must be 'classification' or 'regression'; got {task!r}")
-
-    if multivariate_probe and multivariate_probe_model_fn is None:
-        from sklearn.ensemble import HistGradientBoostingClassifier, HistGradientBoostingRegressor
-
-        if task == "classification":
-            multivariate_probe_model_fn = lambda: HistGradientBoostingClassifier(max_iter=50, max_depth=3, random_state=random_state)  # noqa: E731
-        else:
-            multivariate_probe_model_fn = lambda: HistGradientBoostingRegressor(max_iter=50, max_depth=3, random_state=random_state)  # noqa: E731
+    probe_model_fn, multivariate_probe_model_fn = _default_probe_factories(task, random_state, probe_model_fn, multivariate_probe, multivariate_probe_model_fn)
 
     if multivariate_probe:
         context_pool = list(context_columns) if context_columns is not None else [c for c in df.select_dtypes(include=[np.number]).columns]

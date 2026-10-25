@@ -12,7 +12,7 @@ Scope: the FE modules the MRMR layer imports (`src/mlframe/feature_selection/fil
 | CPU | Core i7-7700HQ, 4 cores, 8 threads |
 | stack | cupy 13.6, numba, CUDA toolkits 11.8, 12.8, 12.9 |
 
-There is a second machine with a newer GPU architecture. On it only `ncu` and `nsys` work, so the profiling recipes for that machine are in section 9; its hardware fingerprint and kernel-tuning cache are separate from this host's.
+There is a second machine with a newer GPU architecture. On it only `ncu` and `nsys` work, so the profiling recipes for that machine are in section 9; its hardware fingerprint and kernel-tuning cache are separate from this host's. A third host (RTX 500 Ada Laptop, cc 8.9) has its verified profiling recipe in section 12.
 
 Everything measured in this file was measured on this host unless it says otherwise. A kernel that wins here can lose on another GPU class (atomic latency, shared-memory budget and register pressure differ between compute capabilities), so every kernel version is kept and the dispatcher chooses per host (section 4).
 
@@ -361,6 +361,15 @@ Cross-machine numbers are not comparable: record the GPU model, the architecture
 6. Tests: kernel versions equal; streamed equals unblocked for several block widths; GPU equals CPU for both REAL types; every pair covered once at block boundaries; memory-bound test; a regression test for the behaviour the module exists for.
 7. Profile: cProfile on the host path; a GPU profiler with occupancy, throughput, launch statistics and launches per call; record both under `audits/2026-10-22/profiles/<module>.md`.
 8. Move the module from `pending` to `compliant` in `tests/test_meta/_fe_gpu_contract.json`.
+9. Rules that cost time on other projects too (details in sections 12 and 13):
+   - Check the profiler install before claiming it is missing (nsys is often installed and not on `PATH`), and read `ncu` reports through `ncu_report` where the text pages fail on the host locale.
+   - Time GPU kernels as a warmed back-to-back loop and report the min; a laptop GPU idles at a fraction of its clock, so an interleaved CPU/GPU round measures the ramp. State the ramp-inclusive median separately.
+   - Read the profile for the limiter before tuning the launch: on a part with a 1/64 FP64 rate the number of FP64 operations per step is the cost, and occupancy may not matter.
+   - A kernel with a fallback (underflow re-run, CPU retry, shared-memory spill) needs tests that assert what the fallback received, plus one deletion mutation of the fast path; parity tests alone pass when the fast path is broken and the fallback repairs every answer.
+   - Do not let a failing device call end a request: log it, answer on the CPU kernel, and let an explicit environment override raise instead.
+   - NVRTC through cupy has no `INFINITY`; build it from `__longlong_as_double(0x7FF0000000000000LL)`. Check the dynamic shared-memory request against the device limit and fall back to global memory above a budget.
+   - Prepare tables on the device too: a kernel that takes 23 ms inside a 90 ms call is not the bottleneck.
+   - Persist the CPU/GPU crossover as one monotone threshold from a sweep (a noisy few-millisecond boundary otherwise alternates regions), keep a size rule as the fallback, and measure on first use when the host has no entry.
 
 ## 11. Open items
 
@@ -370,3 +379,39 @@ Cross-machine numbers are not comparable: record the GPU model, the architecture
 - Re-measure the kernels that the cache sends only to the CPU on this host (`cmi_batched_cpu_cuda_crossover`, `discretize_2d_array`) on the newer GPU.
 - Not read from the surveyed sources: 24 of the 35 tensormux skills (none concerns histograms or atomics), the helper scripts and the remaining reference files of `ncu-report-skill`, and most of the atrex `gpu-wiki` records (ten were read, section 8). The Hugging Face benchmark scripts were not read, so its timing method is unknown.
 - Spot-check the quoted thresholds against the URLs in section 8 before relying on one in a decision; the extractions were made by a small model.
+
+## 12. Profiling CUDA kernels on the RTX 500 Ada host (verified recipe)
+
+Everything here was run on this host (RTX 500 Ada Laptop, cc 8.9, 4 GB, driver 596.58, CUDA toolkit 12.9, Nsight Systems 2025.1.3, Nsight Compute 2025.2.1, Python 3.14). The probe was a cupy `RawKernel` axpy on 2^24 floats, warmed up, then 5 launches inside `cp.cuda.runtime.profilerStart()` / `profilerStop()`.
+
+| tool | state on this host |
+|---|---|
+| `nsys` | works, but is not on `PATH`: `C:\Program Files\NVIDIA Corporation\Nsight Systems 2025.1.3\target-windows-x64\nsys.exe` |
+| `ncu` | works; `ncu.bat` is on `PATH` (under `Nsight Compute 2025.2.1`); collection works, text pages do not (below) |
+| `compute-sanitizer` | works (`--tool memcheck`) |
+| `nvprof` | does not start (exit 0xC0000135, missing DLL); not usable on cc 8.9 anyway |
+
+Rules that cost time to learn:
+
+1. Mark the window in the code with `profilerStart()` / `profilerStop()` after the warm-up launch, then restrict the tool to it. Without it NVRTC compilation and cupy initialisation dominate the trace.
+2. Timeline (what ran, how long, launches per call): `nsys profile --capture-range=cudaProfilerApi --capture-range-end=stop -o probe python probe.py`, then `nsys stats --report cuda_gpu_kern_sum probe.nsys-rep`. Call `nsys.exe` by full path from PowerShell.
+3. Per-kernel metrics: `ncu --profile-from-start off -k regex:axpy -f -o probe --set full python probe.py` (start `ncu.bat` through PowerShell, not Git Bash). `--set full` replays every kernel about 40 times: restrict with `-k` and `--launch-count`.
+4. Reading the report: `ncu --import probe.ncu-rep --page details` (also `raw`, `--csv`) fails on this ru-RU Windows with `bad conversion`; changing the locale environment variables does not help. Read the report with the `ncu_report` Python module shipped in `...\Nsight Compute 2025.2.1\extras\python` instead. `scripts/ncu_key_metrics.py` does this and prints duration, grid and block size, waves per SM, registers, occupancy, SM and DRAM throughput, FP64 pipe use and local-memory spill instructions per kernel.
+5. `compute-sanitizer --tool memcheck python probe.py` for out-of-bounds writes after any change to indexing.
+6. The honesty rules of section 6 apply: `ncu` kernel duration is the kernel alone, not latency, and its estimated speedups are hypotheses to test with an interleaved A/B, not results.
+7. The `venv_autopsia` environment has no cupy: install `cupy-cuda12x` before profiling there, or use an interpreter that has it.
+8. One heavy GPU job at a time: check `nvidia-smi` first, since a second process distorts both kernel durations and `ncu` replay.
+
+## 13. Case study: an enumeration kernel profiled to the FP64 limit (autopsia fused marginals)
+
+The kernel sums `exp(log-weight)` over all `2**H` assignments of a noisy-OR network, for 100-400 parameter draws, and returns per-cause masses. Full numbers and the failed attempts are in autopsia's `audits/2026-10-25/fused_marginals_gray.md`; what carries over to any kernel of this shape:
+
+1. **Change the traversal before tuning the launch.** The first version (and the existing CUDA one) rebuilt every factor's table index per assignment. Visiting assignments in Gray-code order changes one bit per step, so only the factors containing that bit are touched and the running weight is multiplied by a precomputed ratio. On the CPU this alone was 12-17x (width 16-22); on the GPU, v1 CUDA 2.69 s became 13-27 ms at width 20 (150 draws).
+2. **Read the profile for the limiter, not the occupancy.** `ncu --set full` on the first Gray-code kernel (width 20): FP64 pipe 84% active, SM throughput 84%, DRAM 0%, no spills, achieved occupancy 41.5%. On an Ada part FP64 runs at 1/64 of FP32, so the count of FP64 operations per step is the cost. The eight per-step `mass[p] += bit ? w : 0` accumulators were most of it. Replacing them with a 16-bin private histogram in shared memory (one add per step, read once at the end) and a sub-run total for the higher positions cut the kernel from 38 ms to 28 ms (cold clock) and to 12.7 ms (warm clock). After that: FP64 pipe 71%, occupancy 16.6% limited by shared memory (4 blocks), 4800 local loads and stores from one 29-element register array. Occupancy was not the lever.
+3. **Sweep the tiling on the device, with warm clocks.** Block threads {64, 128}, run length `2**{8,10,12}` steps, histogram bits {3..6}: best 12.7 ms (64, 10, 4), worst of 24 settings 25.5 ms. Defaults are constants in the module; a different GPU class should re-run the sweep.
+4. **A laptop GPU idles at 405 MHz and boosts to 3105 MHz.** In an interleaved benchmark where each round runs 1-4 s of CPU work, the GPU arm measured the ramp: min 38 ms, median 183 ms, spread 115-143%. Time a back-to-back warmed loop, report min, and say so in the table; the production call after a pause really does pay the ramp.
+5. **Put the preparation on the device too.** On the real query (21 hidden nodes, 108 draws) the kernel was 22.8 ms and the call 89-194 ms: the rest was NumPy normalisation, a 95 MB ratio table built on the host and uploaded, and an `astype`. Normalising the tables and building the ratios in two small kernels brought the call to 52 ms. Host-side `_build_log_tables` (18 ms) is the remaining host cost.
+6. **Shared memory is a budget, not a given.** A real plan's ratio table was about 400 KB per draw against a 99 KB block limit; the kernel now reads it from global memory above 40 KB, and the caller falls back to the CPU kernel with a logged warning rather than a bare `RuntimeError` in the middle of a request.
+7. **A fallback can hide the bug it falls back from.** The product-form kernel re-runs draws whose total underflowed through the log-form kernel. With its zero accounting deleted, every draw looked impossible, was re-run, and every parity test passed. Parity tests for a kernel with a fallback must also assert which draws the fallback received (here: exactly the impossible ones); the mutation then fails 3 CPU and 3 CUDA tests.
+8. **NVRTC through cupy has no `INFINITY`.** Build it from the bit pattern (`__longlong_as_double(0x7FF0000000000000LL)`).
+9. **Dispatch by measured crossover.** The GPU wins from about `log2(draws * 2**H) = 20.8` on this host (call-level, host inputs); `bench/tune_marginals_backend.py` sweeps it and writes one monotone crossover to the kernel-tuning cache, because a noisy few-millisecond boundary otherwise alternates regions.

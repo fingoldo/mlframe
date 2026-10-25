@@ -299,6 +299,20 @@ def _per_bin_metric_perfs(bins: Any, unique_bins: Any, metrics: dict, y_true: np
     return npoints, perfs, unique_bins
 
 
+def _fill_bin_extremes(line: dict, metric_perf: dict, min_boundary: float, max_boundary: float, real_top_n: int, higher_is_better: bool) -> None:
+    """Write the ``real_top_n`` worst and best bins of a sorted ``metric_perf`` into ``line``, marking Tukey outliers with ``*``."""
+    lo = len(metric_perf)
+    for i, (bin_name, metric_value) in enumerate(metric_perf.items()):
+        postfix = "*" if metric_value < min_boundary or metric_value > max_boundary else ""
+        text = f"{bin_name}: {metric_value:.3f}{postfix}"
+        if i < real_top_n:
+            key = ("bin-worst-" if higher_is_better else "bin-best-") + str(i + 1)
+            line[key] = text
+        elif i >= lo - real_top_n:
+            key = ("bin-best-" if higher_is_better else "bin-worst-") + str(lo - i)
+            line[key] = text
+
+
 def compute_fairness_metrics(
     metrics: dict,
     metrics_higher_is_better: dict,
@@ -409,21 +423,7 @@ def compute_fairness_metrics(
                 lo = len(metric_perf)
                 real_top_n = min(lo // 2, top_n)
 
-                for i, (bin_name, metric_value) in enumerate(metric_perf.items()):
-                    if metric_value < min_boundary or metric_value > max_boundary:
-                        postfix = "*"
-                    else:
-                        postfix = ""
-                    if i < real_top_n:
-                        if metrics_higher_is_better[metric_name]:
-                            line["bin-worst-" + str(i + 1)] = f"{bin_name}: {metric_value:.3f}{postfix}"
-                        else:
-                            line["bin-best-" + str(i + 1)] = f"{bin_name}: {metric_value:.3f}{postfix}"
-                    elif i >= lo - real_top_n:
-                        if metrics_higher_is_better[metric_name]:
-                            line["bin-best-" + str(lo - i)] = f"{bin_name}: {metric_value:.3f}{postfix}"
-                        else:
-                            line["bin-worst-" + str(lo - i)] = f"{bin_name}: {metric_value:.3f}{postfix}"
+                _fill_bin_extremes(line, metric_perf, min_boundary, max_boundary, real_top_n, metrics_higher_is_better[metric_name])
 
                 res.append(line)
         if res:

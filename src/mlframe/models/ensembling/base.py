@@ -582,6 +582,35 @@ def rrf_ensemble(
     return _rrf_aggregate_probs(stacked, k=k)
 
 
+def _validated_member_weights(precomputed_weights: Optional[np.ndarray], n_members: int) -> Optional[np.ndarray]:
+    """Return the member weights as a validated float64 vector summing to 1, or ``None`` when no weights were supplied."""
+    if precomputed_weights is None:
+        return None
+    weights_arr = np.asarray(precomputed_weights, dtype=np.float64).reshape(-1)
+    if weights_arr.shape != (n_members,):
+        raise ValueError(
+            f"combine_probs: precomputed_weights shape {weights_arr.shape} does not match "
+            f"stacked member axis (M={n_members},). Caller must align weights with the post-gate "
+            f"member ordering of ``stacked``."
+        )
+    if not np.all(np.isfinite(weights_arr)):
+        raise ValueError("combine_probs: precomputed_weights contains non-finite entries (NaN/inf).")
+    if (weights_arr < 0).any():
+        raise ValueError("combine_probs: precomputed_weights must be non-negative (NNLS contract).")
+    _wsum = float(weights_arr.sum())
+    if _wsum <= 0.0:
+        raise ValueError("combine_probs: precomputed_weights sum to zero; no member contributes.")
+    if abs(_wsum - 1.0) > 1e-3:
+        logger.warning(
+            "[ensemble] combine_probs: precomputed_weights sum=%.6f deviates from 1.0; renormalising.",
+            _wsum,
+        )
+        return weights_arr / _wsum
+    if _wsum != 1.0:
+        return weights_arr / _wsum
+    return weights_arr
+
+
 def combine_probs(
     stacked: np.ndarray,
     flavour: str,
@@ -630,31 +659,7 @@ def combine_probs(
     if ensure_prob_limits and flav in ("arithm", "harm", "quad", "qube", "median", "geo"):
         stacked = np.clip(stacked, 0.0, 1.0)
 
-    weights_arr: Optional[np.ndarray] = None
-    if precomputed_weights is not None:
-        weights_arr = np.asarray(precomputed_weights, dtype=np.float64).reshape(-1)
-        M = stacked.shape[0]
-        if weights_arr.shape != (M,):
-            raise ValueError(
-                f"combine_probs: precomputed_weights shape {weights_arr.shape} does not match "
-                f"stacked member axis (M={M},). Caller must align weights with the post-gate "
-                f"member ordering of ``stacked``."
-            )
-        if not np.all(np.isfinite(weights_arr)):
-            raise ValueError("combine_probs: precomputed_weights contains non-finite entries (NaN/inf).")
-        if (weights_arr < 0).any():
-            raise ValueError("combine_probs: precomputed_weights must be non-negative (NNLS contract).")
-        _wsum = float(weights_arr.sum())
-        if _wsum <= 0.0:
-            raise ValueError("combine_probs: precomputed_weights sum to zero; no member contributes.")
-        if abs(_wsum - 1.0) > 1e-3:
-            logger.warning(
-                "[ensemble] combine_probs: precomputed_weights sum=%.6f deviates from 1.0; renormalising.",
-                _wsum,
-            )
-            weights_arr = weights_arr / _wsum
-        elif _wsum != 1.0:
-            weights_arr = weights_arr / _wsum
+    weights_arr = _validated_member_weights(precomputed_weights, stacked.shape[0])
 
     combined = _combine_stacked_by_flavour(flav, stacked, weights_arr, rrf_k)
 
@@ -676,22 +681,26 @@ def combine_probs(
     return np.asarray(combined)
 
 
+def _harmonic_mean_stacked(stacked, weights_arr):
+    """Row-wise harmonic mean over the member axis; a row with any exactly-zero member is 0, as the harmonic mean is defined there."""
+    any_zero = (stacked == 0).any(axis=0)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        inv = 1.0 / stacked
+        if weights_arr is not None:
+            # Weighted harmonic mean: 1 / sum_i w_i * (1 / p_i). Weights normalised to sum=1.
+            w_shape = (weights_arr.shape[0],) + (1,) * (inv.ndim - 1)
+            combined = 1.0 / np.sum(weights_arr.reshape(w_shape) * inv, axis=0)
+        else:
+            combined = len(stacked) / np.sum(inv, axis=0)
+    if any_zero.any():
+        combined = np.where(any_zero, 0.0, combined)
+    return combined
+
+
 def _combine_stacked_by_flavour(flav, stacked, weights_arr, rrf_k):
     """Combine the stacked per-model probabilities row-wise by the named flavour (harm, arithm, median, quad, qube, geo, rrf, rank_average), honouring the weights where the flavour takes them."""
     if flav == "harm":
-        # Harmonic mean: when any model predicts exactly 0, HM is defined as 0.
-        any_zero = (stacked == 0).any(axis=0)
-        with np.errstate(divide="ignore", invalid="ignore"):
-            inv = 1.0 / stacked
-            if weights_arr is not None:
-                # Weighted harmonic mean: 1 / sum_i w_i * (1 / p_i). Weights normalised to sum=1.
-                w_shape = (weights_arr.shape[0],) + (1,) * (inv.ndim - 1)
-                combined = 1.0 / np.sum(weights_arr.reshape(w_shape) * inv, axis=0)
-            else:
-                inv_sum = np.sum(inv, axis=0)
-                combined = len(stacked) / inv_sum
-        if any_zero.any():
-            combined = np.where(any_zero, 0.0, combined)
+        combined = _harmonic_mean_stacked(stacked, weights_arr)
     elif flav == "arithm":
         if weights_arr is not None:
             combined = np.average(stacked, axis=0, weights=weights_arr)

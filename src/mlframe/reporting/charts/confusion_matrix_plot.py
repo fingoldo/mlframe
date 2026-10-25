@@ -83,6 +83,29 @@ def _normalize_matrix(matrix: np.ndarray, normalize: Optional[str]) -> np.ndarra
             return np.asarray(np.where(denom == 0, np.nan, m / np.where(denom == 0, 1.0, denom)))
 
 
+def _empty_confusion_matrix_axes(ax: Any, title: Optional[str]) -> tuple[Any, Any]:
+    """Return a figure whose axes say why there is no matrix, since imshow on a (0, 0) array draws an empty box with no ticks."""
+    from matplotlib.figure import Figure
+    from matplotlib.backends.backend_agg import FigureCanvasAgg
+
+    if ax is None:
+        fig = Figure(figsize=(5.0, 3.0), layout="constrained")
+        FigureCanvasAgg(fig)
+        ax = fig.add_subplot(1, 1, 1)
+    ax.set_axis_off()
+    ax.text(
+        0.5,
+        0.5,
+        "Confusion matrix unavailable: no class labels.\nNeither y_true nor y_pred holds a usable label.",
+        ha="center",
+        va="center",
+        transform=ax.transAxes,
+    )
+    if title:
+        ax.set_title(title, fontsize=10)
+    return ax.figure, ax
+
+
 def plot_confusion_matrix(
     y_true: Any,
     y_pred: Any,
@@ -149,26 +172,7 @@ def plot_confusion_matrix(
         values_format = "d" if normalize is None else ".2f"
 
     if K == 0:
-        # imshow on a (0, 0) array draws an empty box with no axis ticks and no indication of why.
-        from matplotlib.figure import Figure
-        from matplotlib.backends.backend_agg import FigureCanvasAgg
-
-        if ax is None:
-            fig = Figure(figsize=(5.0, 3.0), layout="constrained")
-            FigureCanvasAgg(fig)
-            ax = fig.add_subplot(1, 1, 1)
-        ax.set_axis_off()
-        ax.text(
-            0.5,
-            0.5,
-            "Confusion matrix unavailable: no class labels.\nNeither y_true nor y_pred holds a usable label.",
-            ha="center",
-            va="center",
-            transform=ax.transAxes,
-        )
-        if title:
-            ax.set_title(title, fontsize=10)
-        return ax.figure, ax
+        return _empty_confusion_matrix_axes(ax, title)
 
     if ax is None:
         from matplotlib.figure import Figure
