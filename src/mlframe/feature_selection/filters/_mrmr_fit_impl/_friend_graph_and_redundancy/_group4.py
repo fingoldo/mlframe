@@ -280,6 +280,19 @@ def _friend_graph_and_redundancy_passes_group4_part1(
     return selected_vars
 
 
+def _monotone_twin_ranks(X, cols, raw_selected, n_rows) -> dict:
+    """Average ranks of each selected raw column that is finite, non-constant and ``n_rows`` long, keyed by selection index."""
+    ranks: dict[int, np.ndarray] = {}
+    for _v in raw_selected:
+        try:
+            _cv = np.asarray(X[cols[_v]].to_numpy(), dtype=_crit_np_dtype()).reshape(-1)
+        except (TypeError, ValueError):
+            continue
+        if _cv.shape[0] == n_rows and np.all(np.isfinite(_cv)) and _cv.std() > 1e-12:
+            ranks[_v] = pd.Series(_cv).rank(method="average").to_numpy()
+    return ranks
+
+
 def _drop_redundant_raw_operands_pass(self, X, selected_vars, cols, data, cached_MIs, verbose):
     """Drop raw operands made redundant by their engineered monotone twins."""
     if getattr(self, "fe_drop_redundant_raw_operands", True) and isinstance(X, pd.DataFrame) and len(selected_vars) >= 2:
@@ -289,14 +302,7 @@ def _drop_redundant_raw_operands_pass(self, X, selected_vars, cols, data, cached
             _raw_sel_mt = [v for v in selected_vars if cols[v] in _raw_set_mt and cols[v] in X.columns]
             if len(_raw_sel_mt) >= 2:
                 _mt_n = int(data.shape[0])
-                _mt_ranks: dict[int, np.ndarray] = {}
-                for _v in _raw_sel_mt:
-                    try:
-                        _cv = np.asarray(X[cols[_v]].to_numpy(), dtype=_crit_np_dtype()).reshape(-1)
-                    except (TypeError, ValueError):
-                        continue
-                    if _cv.shape[0] == _mt_n and np.all(np.isfinite(_cv)) and _cv.std() > 1e-12:
-                        _mt_ranks[_v] = pd.Series(_cv).rank(method="average").to_numpy()
+                _mt_ranks = _monotone_twin_ranks(X, cols, _raw_sel_mt, _mt_n)
                 from mlframe.feature_selection.filters._feature_engineering_pairs._pairs_core import _abs_corr_finite_njit as _mt_corr_njit
                 _mt_keep: list[int] = []
                 _mt_drop: set[int] = set()
