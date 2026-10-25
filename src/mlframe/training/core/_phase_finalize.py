@@ -205,6 +205,36 @@ def _persist_chosen_ensemble_flavours(ctx: "TrainingContext") -> None:
         logger.info("[ensembles_chosen] finalize backfilled %d flavour entry/entries: %s", len(_added), _added)
 
 
+def _simple_ensemble_composition(ctx: "TrainingContext") -> dict:
+    """Return ``{target_type: {target_name: {flavour, members, fallback_reason}}}`` for the simple per-target ensembles in ``ctx.ensembles``."""
+    composition: dict = {}
+    _ens_by_target = getattr(ctx, "ensembles", None) or {}
+    _chosen = ctx.metadata.get("ensembles_chosen") if isinstance(ctx.metadata, dict) else None
+    _simple_chosen = (_chosen or {}).get("simple", {}) if isinstance(_chosen, dict) else {}
+    for _tt, _by_name in _ens_by_target.items():
+        if not isinstance(_by_name, dict):
+            continue
+        _tt_str = str(_tt)
+        for _tname, _methods in _by_name.items():
+            if not isinstance(_methods, dict) or not _methods:
+                continue
+            _tname_str = str(_tname)
+            _flavour = (_simple_chosen.get(_tt_str) or {}).get(_tname_str) if isinstance(_simple_chosen, dict) else None
+            # Simple ensembles aggregate per-model probs uniformly inside ``score_ensemble``; the "members" surfaced
+            # here are the underlying ensembling-method results (one per flavour evaluated). Weight is 1/n: reporting
+            # grade, not replay grade.
+            _members = [(str(_m), 1.0 / len(_methods)) for _m in sorted(_methods.keys())]
+            _fallback_reason = None
+            if _flavour is None:
+                _fallback_reason = "no metric-driven winner; predict will use first-emitted flavour fallback " "(deterministic via dict-insertion order)"
+            composition.setdefault(_tt_str, {})[_tname_str] = {
+                "flavour": _flavour,
+                "members": _members,
+                "fallback_reason": _fallback_reason,
+            }
+    return composition
+
+
 def _stamp_ensemble_composition(ctx: "TrainingContext") -> None:
     """Stamp ``metadata["ensemble_composition"]`` -- per-target snapshot of {flavour, members, fallback_reason}.
 
@@ -221,33 +251,7 @@ def _stamp_ensemble_composition(ctx: "TrainingContext") -> None:
             "strategy": <str>, "members": [(name, weight), ...], "fallback_reason": <str|None>,
         }
     """
-    _composition: dict = {"simple": {}, "cross_target": {}}
-
-    # Simple per-target ensembles: equal-weighted blend of every method in ``ctx.ensembles``.
-    _ens_by_target = getattr(ctx, "ensembles", None) or {}
-    _chosen = ctx.metadata.get("ensembles_chosen") if isinstance(ctx.metadata, dict) else None
-    _simple_chosen = (_chosen or {}).get("simple", {}) if isinstance(_chosen, dict) else {}
-    for _tt, _by_name in _ens_by_target.items():
-        if not isinstance(_by_name, dict):
-            continue
-        _tt_str = str(_tt)
-        for _tname, _methods in _by_name.items():
-            if not isinstance(_methods, dict) or not _methods:
-                continue
-            _tname_str = str(_tname)
-            _flavour = (_simple_chosen.get(_tt_str) or {}).get(_tname_str) if isinstance(_simple_chosen, dict) else None
-            # Simple ensembles aggregate per-model probs uniformly inside ``score_ensemble``; the
-            # "members" surfaced here are the underlying ensembling-method results (one per
-            # flavour evaluated). Weight is 1/n -- this is reporting-grade not replay-grade.
-            _members = [(str(_m), 1.0 / len(_methods)) for _m in sorted(_methods.keys())]
-            _fallback_reason = None
-            if _flavour is None:
-                _fallback_reason = "no metric-driven winner; predict will use first-emitted flavour fallback " "(deterministic via dict-insertion order)"
-            _composition["simple"].setdefault(_tt_str, {})[_tname_str] = {
-                "flavour": _flavour,
-                "members": _members,
-                "fallback_reason": _fallback_reason,
-            }
+    _composition: dict = {"simple": _simple_ensemble_composition(ctx), "cross_target": {}}
 
     # Cross-target ensembles: stored as ``_CT_ENSEMBLE__<orig>`` entries inside ctx.models[tt].
     for _tt, _by_name in (ctx.models or {}).items():
