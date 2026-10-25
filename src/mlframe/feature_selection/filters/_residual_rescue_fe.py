@@ -124,6 +124,11 @@ def _code_columns(cols: "Mapping[str, np.ndarray]", rows: np.ndarray, n_bins: in
     return [names[k] for k in keep], np.ascontiguousarray(codes[keep])
 
 
+def _scan_rows(n: int, scan_rows: int) -> np.ndarray:
+    """Row indices ``residual_rescue`` scores on: all of them up to ``scan_rows``, evenly spaced beyond."""
+    return np.arange(n) if n <= scan_rows else np.linspace(0, n - 1, int(scan_rows)).astype(np.int64)
+
+
 def _standardised(v: np.ndarray) -> Optional[np.ndarray]:
     """``v`` with non-finite values set to the median, clipped to Tukey's far-out fences and standardised; ``None`` for a constant column."""
     v = np.asarray(v, dtype=_crit_np_dtype())
@@ -158,7 +163,24 @@ def _residual(Qm: np.ndarray, yr: np.ndarray, even: np.ndarray, n_main: int) -> 
     return np.asarray(yr - mu - pred)
 
 
-def linear_oos_gain(rest: Mapping[str, np.ndarray], candidate: np.ndarray, y: np.ndarray) -> "tuple[float, float]":
+def design_precompute(design: Mapping[str, np.ndarray], n: int, scan_rows: int = DEFAULT_SCAN_ROWS) -> dict:
+    """Per-column pieces of ``design`` that do not depend on which other columns are present: the bin codes on the scan rows and the standardised column on both the scan rows and the full length.
+
+    Coding and standardising are per-column operations, so a caller that scores many subsets of one design (each leaving out a different column) computes them once and passes them as
+    ``precomputed`` to ``residual_rescue`` and ``std_full`` to ``linear_oos_gain``. Every name the subsets use must be a key of ``design``."""
+    rows = _scan_rows(n, scan_rows)
+    n_main = main_effect_bins((len(rows) + 1) // 2)
+    names, codes = _code_columns(design, rows, n_main)
+    return {
+        "rows": rows,
+        "n_main": n_main,
+        "codes": {nm: codes[i] for i, nm in enumerate(names)},
+        "std_rows": {k: _standardised(np.asarray(v)[rows]) for k, v in design.items()},
+        "std_full": {k: _standardised(v) for k, v in design.items()},
+    }
+
+
+def linear_oos_gain(rest: Mapping[str, np.ndarray], candidate: np.ndarray, y: np.ndarray, std_full: Optional[Mapping[str, Optional[np.ndarray]]] = None) -> "tuple[float, float]":
     """Held-out gain of ``candidate`` for a LINEAR model on the other columns: ``(t statistic, share of the target variance)``.
 
     OLS (fence-clipped, standardised columns and an intercept) fitted on the even rows with and without the candidate; the evidence is the paired per-row reduction of the squared error on the odd rows,
@@ -169,7 +191,10 @@ def linear_oos_gain(rest: Mapping[str, np.ndarray], candidate: np.ndarray, y: np
     yr = _winsorised(np.asarray(y, dtype=np.float64).ravel())
     n = len(yr)
     even = np.arange(n) % 2 == 0
-    cols = [c for c in (_standardised(v) for v in rest.values()) if c is not None]
+    if std_full is None:
+        cols = [c for c in (_standardised(v) for v in rest.values()) if c is not None]
+    else:
+        cols = [c for c in (std_full[k] for k in rest) if c is not None]
     x = _standardised(candidate)
     if x is None:
         return 0.0, 0.0
@@ -233,6 +258,7 @@ def residual_rescue(
     max_pool: int = MAX_POOL,
     linear_channel: bool = False,
     linear_only: "frozenset[str]" = frozenset(),
+    precomputed: Optional[dict] = None,
 ) -> "list[tuple[str, float, float]]":
     """Pool columns that reduce the held-out squared residual of the design, as ``(name, t statistic, relative gain)`` in admission order.
 
@@ -245,7 +271,7 @@ def residual_rescue(
     n = len(y)
     if n < MIN_ROWS or not len(pool) or int(max_admit) <= 0:
         return []
-    rows = np.arange(n) if n <= scan_rows else np.linspace(0, n - 1, int(scan_rows)).astype(np.int64)
+    rows = precomputed["rows"] if precomputed is not None else _scan_rows(n, scan_rows)
     # Intentional float64: target labels kept f64 (exact binning / comparison contract)
     yr = _winsorised(np.asarray(y, dtype=np.float64).ravel()[rows])
     even = np.arange(len(rows)) % 2 == 0
@@ -254,10 +280,14 @@ def residual_rescue(
     total = float(np.mean((yr[~even] - yr[~even].mean()) ** 2))
     if total == 0.0:
         total = 1.0
-    n_main = main_effect_bins((len(rows) + 1) // 2)
-    _, dcodes = _code_columns(design, rows, n_main)
-    design_codes = list(dcodes)
-    lin_cols = [c for c in (_standardised(np.asarray(v)[rows]) for v in design.values()) if c is not None]
+    n_main = precomputed["n_main"] if precomputed is not None else main_effect_bins((len(rows) + 1) // 2)
+    if precomputed is None:
+        _, dcodes = _code_columns(design, rows, n_main)
+        design_codes = list(dcodes)
+        lin_cols = [c for c in (_standardised(np.asarray(v)[rows]) for v in design.values()) if c is not None]
+    else:
+        design_codes = [precomputed["codes"][k] for k in design if k in precomputed["codes"]]
+        lin_cols = [c for c in (precomputed["std_rows"][k] for k in design) if c is not None]
     pool_names, Qp = _code_columns(pool, rows, n_main)
     if not pool_names:
         return []
