@@ -268,8 +268,6 @@ class TestScanOptimizationEquivalence:
     @staticmethod
     def _naive_scan(X, y):
         """Unoptimized reference scan: one MI call per residue and the 12-perm null for every combiner, over the same combiner enumeration."""
-        from itertools import combinations
-
         import mlframe.feature_selection.filters._pairwise_modular_fe as pm
         from mlframe.feature_selection.filters._pairwise_modular_fe import ModularHit
 
@@ -293,12 +291,9 @@ class TestScanOptimizationEquivalence:
         for a_, b_ in pm._select_pairs_by_residue_score(cols, arrs, yi, mods, 0, 24):
             for op in pm._PAIR_OPS:
                 one(op, (a_, b_), pm._combine([arrs[a_], arrs[b_]], op))
-        budget = 12
-        for a_, b_, c_ in combinations(cols, 3):
-            if budget <= 0:
-                break
+        # The triple budget keeps the top triples by residue score as well (audit row 73), so the reference takes the same triples.
+        for a_, b_, c_ in pm._select_triples_by_residue_score(cols, arrs, yi, mods, 0, 12):
             one("sum3", (a_, b_, c_), arrs[a_].astype(np.int64) + arrs[b_].astype(np.int64) + arrs[c_].astype(np.int64))
-            budget -= 1
         return hits
 
     @staticmethod
@@ -501,3 +496,17 @@ def test_planted_parity_pair_beyond_name_order_cut_is_found():
     hits = cheap_modular_scan(X, y)
     pair_hits = [h for h in hits if h.op == "sum" and set(h.cols) == {"x0", "x5"}]
     assert any(h.responded for h in pair_hits), f"planted parity pair not responded; sum hits={pair_hits}"
+
+
+def test_planted_three_way_parity_beyond_name_order_triple_cut_is_found():
+    """A 3-way parity ``(x3 + x9 + x15) mod 2`` among 18 integer columns is responded by the scan. The triple budget used to keep the first 12 triples of
+    the name-sorted columns, so a triple outside that prefix was never scored (audit row 73)."""
+    from mlframe.feature_selection.filters._pairwise_modular_fe import cheap_modular_scan
+
+    rng = np.random.default_rng(11)
+    n, p = 4000, 18
+    X = pd.DataFrame(rng.integers(0, 30, size=(n, p)), columns=[f"x{i}" for i in range(p)])
+    y = ((X["x3"].to_numpy() + X["x9"].to_numpy() + X["x15"].to_numpy()) % 2).astype(int)
+    hits = cheap_modular_scan(X, y)
+    triple_hits = [h for h in hits if h.op == "sum3" and set(h.cols) == {"x3", "x9", "x15"}]
+    assert any(h.responded for h in triple_hits), f"planted 3-way parity not responded; sum3 hits={triple_hits}"

@@ -58,6 +58,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 from itertools import combinations
+from math import comb
 from typing import TYPE_CHECKING, Any, Optional, Sequence
 
 import numpy as np
@@ -119,6 +120,8 @@ COARSE_MODULI: tuple[int, ...] = (2, 3, 4, 5, 6, 7, 8, 10, 11, 12, 13, 16, 17, 1
 _PAIR_OPS = ("sum", "diff", "prod")
 # Rows the pair ranking scores on (see ``_select_pairs_by_residue_score``): enough to see a modular residue, bounded so the all-pairs pass stays cheap.
 _PAIR_RANK_ROWS = 1000
+# Triples ranked exhaustively up to this count (see ``_select_triples_by_residue_score``); above it a deterministic random sample of this size is ranked.
+_TRIPLE_RANK_MAX = 250_000
 
 # Gate floor shared by ``_responded`` and the cheap-scan early-reject: a combiner whose residue MI does not beat its own
 # raw-combiner baseline by this margin can NEVER respond (``_responded`` requires margin AND null), so the expensive
@@ -274,6 +277,17 @@ def _select_pairs_by_residue_score(cols: Sequence[str], arrs: dict, yi: np.ndarr
     """
     if budget <= 0 or len(cols) < 2:
         return []
+    mat, ysub = _rank_subsample(cols, arrs, yi, seed)
+    pairs = list(combinations(range(len(cols)), 2))
+    ia = np.fromiter((a for a, _ in pairs), dtype=np.int64, count=len(pairs))
+    ib = np.fromiter((b for _, b in pairs), dtype=np.int64, count=len(pairs))
+    scores = _residue_rank_scores(mat, ia, ib, np.asarray(mods, dtype=np.int64), ysub, int(ysub.max()) + 1)
+    order = np.argsort(-scores, kind="stable")[:budget]  # equal scores keep the column order
+    return [(cols[pairs[q][0]], cols[pairs[q][1]]) for q in order]
+
+
+def _rank_subsample(cols: Sequence[str], arrs: dict, yi: np.ndarray, seed: int) -> tuple[np.ndarray, np.ndarray]:
+    """The (p, n_sub) int64 matrix of the integer columns and the 0-based class codes on at most ``_PAIR_RANK_ROWS`` deterministic rows."""
     n = int(yi.shape[0])
     if n > _PAIR_RANK_ROWS:
         idx = np.sort(np.random.default_rng(seed).choice(n, _PAIR_RANK_ROWS, replace=False))
@@ -282,12 +296,92 @@ def _select_pairs_by_residue_score(cols: Sequence[str], arrs: dict, yi: np.ndarr
     mat = np.stack([np.asarray(arrs[c])[idx] for c in cols]).astype(np.int64)
     ysub = np.asarray(yi)[idx].astype(np.int64)
     ysub -= ysub.min()
-    pairs = list(combinations(range(len(cols)), 2))
-    ia = np.fromiter((a for a, _ in pairs), dtype=np.int64, count=len(pairs))
-    ib = np.fromiter((b for _, b in pairs), dtype=np.int64, count=len(pairs))
-    scores = _residue_rank_scores(mat, ia, ib, np.asarray(mods, dtype=np.int64), ysub, int(ysub.max()) + 1)
-    order = np.argsort(-scores, kind="stable")[:budget]  # equal scores keep the column order
-    return [(cols[pairs[q][0]], cols[pairs[q][1]]) for q in order]
+    return mat, ysub
+
+
+@njit(cache=True, parallel=True)
+def _residue_rank_scores3(cols: np.ndarray, ia: np.ndarray, ib: np.ndarray, ic: np.ndarray, mods: np.ndarray, ycls: np.ndarray, n_cls: int) -> np.ndarray:
+    """Plug-in MI of ``(a + b + c) mod k`` vs the class of y, best over the moduli, for every triple ``(ia[q], ib[q], ic[q])``.
+
+    The 3-way parity combiner no pair can reach (``_residue_rank_scores`` has the pair operators); same plug-in estimate and layout.
+    """
+    n = ycls.shape[0]
+    max_k = 1
+    for k in mods:
+        if k > max_k:
+            max_k = k
+    cy = np.zeros(n_cls)
+    for t in range(n):
+        cy[ycls[t]] += 1.0
+    hy = 0.0
+    for c in range(n_cls):
+        if cy[c] > 0:
+            pc = cy[c] / n
+            hy -= pc * np.log(pc)
+    scores = np.zeros(ia.shape[0])
+    for q in prange(ia.shape[0]):
+        a = ia[q]
+        b = ib[q]
+        d = ic[q]
+        joint = np.zeros(max_k * n_cls)
+        marg = np.zeros(max_k)
+        best = 0.0
+        for mi in range(mods.shape[0]):
+            k = mods[mi]
+            joint[: k * n_cls] = 0.0
+            marg[:k] = 0.0
+            for t in range(n):
+                r = (cols[a, t] + cols[b, t] + cols[d, t]) % k
+                if r < 0:
+                    r += k
+                joint[r * n_cls + ycls[t]] += 1.0
+                marg[r] += 1.0
+            hr = 0.0
+            for r in range(k):
+                if marg[r] > 0:
+                    pr = marg[r] / n
+                    hr -= pr * np.log(pr)
+            hry = 0.0
+            for j in range(k * n_cls):
+                if joint[j] > 0:
+                    pj = joint[j] / n
+                    hry -= pj * np.log(pj)
+            mi_val = hr + hy - hry
+            if mi_val > best:
+                best = mi_val
+        scores[q] = best
+    return scores
+
+
+def _select_triples_by_residue_score(
+    cols: Sequence[str], arrs: dict, yi: np.ndarray, mods: Sequence[int], seed: int, budget: int
+) -> list[tuple[str, str, str]]:
+    """The ``budget`` column triples with the highest ``sum3`` residue score.
+
+    Every triple is scored when ``C(p, 3) <= _TRIPLE_RANK_MAX`` (the MRMR pipeline enables triples only for p <= ``max_triple_cols``, 1140 triples at 20
+    columns); a wider direct call ranks a deterministic random sample of ``_TRIPLE_RANK_MAX`` triples and says so, instead of cutting the name-ordered prefix.
+    """
+    p = len(cols)
+    if budget <= 0 or p < 3:
+        return []
+    mat, ysub = _rank_subsample(cols, arrs, yi, seed)
+    if comb(p, 3) <= _TRIPLE_RANK_MAX:
+        triples = np.array(list(combinations(range(p), 3)), dtype=np.int64)
+    else:
+        log_throttle(
+            logger,
+            "modular_triple_rank_sampled",
+            logging.WARNING,
+            "modular scan: C(%d, 3) triples exceed the ranking cap %d; ranking a deterministic random sample of triples",
+            p,
+            _TRIPLE_RANK_MAX,
+        )
+        draw = np.sort(np.random.default_rng(seed).integers(0, p, size=(_TRIPLE_RANK_MAX * 2, 3)), axis=1)
+        draw = draw[(draw[:, 0] < draw[:, 1]) & (draw[:, 1] < draw[:, 2])]
+        triples = np.unique(draw, axis=0)[:_TRIPLE_RANK_MAX]
+    scores = _residue_rank_scores3(mat, triples[:, 0], triples[:, 1], triples[:, 2], np.asarray(mods, dtype=np.int64), ysub, int(ysub.max()) + 1)
+    order = np.argsort(-scores, kind="stable")[:budget]  # equal scores keep the enumeration order
+    return [(cols[int(triples[q, 0])], cols[int(triples[q, 1])], cols[int(triples[q, 2])]) for q in order]
 
 
 def _combine(arrs: Sequence[np.ndarray], op: str) -> np.ndarray:
@@ -478,12 +572,10 @@ def cheap_modular_scan(
             _scan_one(op, (a, b), _combine([arrs[a], arrs[b]], op))
         _deadline_hit = fe_deadline_passed()
 
-    triple_budget = max_triples
-    for a, b, c in combinations(cols, 3):
-        if triple_budget <= 0 or _deadline_hit:
+    for a, b, c in _select_triples_by_residue_score(cols, arrs, yi, mods, seed, max_triples):
+        if _deadline_hit:
             break
         _scan_one("sum3", (a, b, c), arrs[a].astype(np.int64) + arrs[b].astype(np.int64) + arrs[c].astype(np.int64))
-        triple_budget -= 1
         _deadline_hit = fe_deadline_passed()
 
     # Canonical secondary key on (op, operand names) so near-ties don't break by enumeration (column) order.
