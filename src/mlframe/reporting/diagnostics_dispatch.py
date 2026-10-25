@@ -227,6 +227,16 @@ def _prepared_error_inputs(
     return shared_error_prep(df, _key_yt, _key_yp, task, seed, _build, extra=int(n))
 
 
+def _timestamps_for_diagnostics(timestamps, n, sample_idx):
+    """Return the timestamps aligned to the diagnostic rows: the first ``n`` when the frame is small enough to use in full, else the rows at ``sample_idx``."""
+    if timestamps is None:
+        return None
+    if n <= DIAG_ROW_CAP:
+        return list(timestamps[:n])
+    # Index by the same sample_idx as the subsampled yt/yp/sub_df, so worst-K rows keep their temporal context on large frames.
+    return list(np.asarray(timestamps)[sample_idx])
+
+
 def _render_split_error_diagnostics(
     *,
     df: Any,
@@ -275,15 +285,7 @@ def _render_split_error_diagnostics(
     # immediately afterwards and which prepared all of this a second time -- including the densify inside
     # its builder, 0.29 s on 100k x 200 all-numeric and 2.55 s with twenty object columns.
     loss, sample_idx, sub_df, names = _prepared_error_inputs(df, yt, yp, task, seed, n, feature_names, cache_key_arrays=(y_true, y_pred))
-    if timestamps is None:
-        ts_arg = None
-    elif n <= DIAG_ROW_CAP:
-        ts_arg = list(timestamps[:n])
-    else:
-        # Subsampled branch: index timestamps by the SAME sample_idx used for yt/yp/sub_df below, instead
-        # of dropping temporal context entirely -- this is exactly the large-frame (100GB+) case this
-        # subsystem targets, so it must not be the one case where worst-K rows lose their timestamps.
-        ts_arg = list(np.asarray(timestamps)[sample_idx])
+    ts_arg = _timestamps_for_diagnostics(timestamps, n, sample_idx)
     try:
         wk = worst_k_table(
             _select_feature_columns(df, feature_names, DIAG_MAX_FEATURES)[0] if n <= DIAG_ROW_CAP else sub_df,

@@ -126,7 +126,6 @@
   "src/mlframe/preprocessing/cleaning.py::is_variable_truly_continuous": 19,
   "src/mlframe/preprocessing/transforms.py::_prepare_pandas_categoricals_for_catboost": 19,
   "src/mlframe/preprocessing/transforms.py::_prepare_polars_for_catboost": 21,
-  "src/mlframe/reporting/diagnostics_dispatch.py::_render_split_error_diagnostics": 16,
   "src/mlframe/reporting/diagnostics_dispatch.py::render_target_drift_diagnostics": 24,
   "src/mlframe/reporting/renderers/_matplotlib_heatmap.py::_heatmap": 22,
   "src/mlframe/reporting/renderers/_matplotlib_scatter.py::_scatter": 20,
