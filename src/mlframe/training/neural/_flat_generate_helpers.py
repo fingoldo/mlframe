@@ -174,21 +174,27 @@ def _generate_mlp_affine_composition_extrapolation_motivated(output_activation, 
             raise ValueError(f"Unknown output_activation={output_activation!r}; expected " f"one of: 'linear', 'tanh_train_range'.")
 
 
+def _count_mlp_weights(model) -> int:
+    """Learnable parameter count of the linear, batch-norm and layer-norm modules of ``model`` (weights and biases)."""
+    total_weights = 0
+    for module in model.modules():
+        if isinstance(module, nn.Linear):
+            total_weights += module.weight.numel()
+            if module.bias is not None:
+                total_weights += module.bias.numel()
+        elif isinstance(module, (nn.BatchNorm1d, nn.LayerNorm)):
+            if hasattr(module, "weight") and module.weight is not None:
+                total_weights += module.weight.numel()
+            if hasattr(module, "bias") and module.bias is not None:
+                total_weights += module.bias.numel()
+    return total_weights
+
+
 def _generate_mlp_verbose(verbose, layer_sizes, model, neurons_by_layer_arch, nlayers, consec_layers_neurons_ratio, activation_function, use_batchnorm, use_layernorm, use_layernorm_per_layer, groupnorm_num_groups, weights_init_fcn, spectral_norm, model_type, inputs_dropout_prob, dropout_prob):
     """Block of generate_mlp starting at ``if verbose == 1:``."""
     if verbose == 1:
         total_neurons = sum(layer_sizes)
-        total_weights = 0
-        for module in model.modules():
-            if isinstance(module, nn.Linear):
-                total_weights += module.weight.numel()
-                if module.bias is not None:
-                    total_weights += module.bias.numel()
-            elif isinstance(module, (nn.BatchNorm1d, nn.LayerNorm)):
-                if hasattr(module, "weight") and module.weight is not None:
-                    total_weights += module.weight.numel()
-                if hasattr(module, "bias") and module.bias is not None:
-                    total_weights += module.bias.numel()
+        total_weights = _count_mlp_weights(model)
 
         def format_num(n):
             """Formats a neuron/weight count as e.g. ``7.6k`` above 1000, else the plain integer string."""
