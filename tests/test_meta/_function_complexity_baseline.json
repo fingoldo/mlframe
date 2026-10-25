@@ -56,7 +56,6 @@
   "src/mlframe/feature_selection/filters/_mrmr_fe_step/_step_score_parts2.py::_materialise_and_fina_step2_esc_failed": 25,
   "src/mlframe/feature_selection/filters/_mrmr_fe_step/_step_score_parts2.py::_materialise_and_fina_step4_contract_stay_off": 16,
   "src/mlframe/feature_selection/filters/_mrmr_fe_step_helpers.py::_apply_synergy_bootstrap_part1": 21,
-  "src/mlframe/feature_selection/filters/_mrmr_fit_impl/_assign_support.py::_readd_redundancy_dropped_engineered": 17,
   "src/mlframe/feature_selection/filters/_mrmr_fit_impl/_assign_support_tail.py::_assign_support_tai_g_step1_map_each_surviving": 23,
   "src/mlframe/feature_selection/filters/_mrmr_fit_impl/_eng_dedup_scan.py::scan_engineered_duplicates": 23,
   "src/mlframe/feature_selection/filters/_mrmr_fit_impl/_fit_impl_stages/_cat_fe.py::_run_categorical_fe": 17,
