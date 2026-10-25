@@ -62,6 +62,15 @@ def _honest_perm_best(honest_codes_fn, factors_data, factors_nbins, y_codes, col
 _NULL_CACHE_MAX_COLS = 2048
 
 
+_HONEST_ANALYTIC_MIN_N = 20_000
+
+
+def _honest_analytic_min_n(get_min_n, lowered) -> int:
+    """Row floor of the analytic root test for the honest null: the chi-square asymptotic is validated tight from ~20k rows (see ``_analytic_mi_null``), so the 5k-25k band no longer runs the host permutation kernel; an explicit env override still wins."""
+    with lowered(_HONEST_ANALYTIC_MIN_N):
+        return int(get_min_n())
+
+
 def _device_honest_null_enabled() -> bool:
     """The device root-split pipeline is used when a GPU is usable; ``MLFRAME_HONEST_NULL_DEVICE=0`` keeps the host kernel."""
     import os
@@ -85,7 +94,7 @@ def _device_honest_null_enabled() -> bool:
 def _njit_null_columns(spec: dict, factors_data: np.ndarray, factors_nbins, y_idx: int, cols, n_permutations: int, seed_key: int, eval_rows=None):
     """Per-permutation null MI of ``cols`` (no cache): ``(plain, corrected)`` each ``(n_permutations, len(cols))``, from ``honest_null_columns``."""
     from ._mdlp_oos_honest_njit import honest_validated_null_columns
-    from ._analytic_mi_null import analytic_null_min_n, _min_expected_cell
+    from ._analytic_mi_null import analytic_null_min_n, analytic_null_min_n_lowered, _min_expected_cell
 
     n = int(factors_data.shape[0])
     m = int(spec["raw"].shape[1])
@@ -158,7 +167,7 @@ def _njit_null_columns(spec: dict, factors_data: np.ndarray, factors_nbins, y_id
             float(spec["alpha"]),
             int(spec["n_permutations"]),
             int(spec["seed"]),
-            int(analytic_null_min_n()),
+            _honest_analytic_min_n(analytic_null_min_n, analytic_null_min_n_lowered),
             float(_min_expected_cell()),
             q_fb,
             q_fb_len,
