@@ -20,7 +20,7 @@ from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtyp
 from mlframe.feature_selection.filters._fe_gpu_batch._devices import crit_float_dtype
 from mlframe.utils.log_throttle import log_throttle
 
-from ._gpu_host_permutations import host_perm_batch_cap, host_permuted_y_batch
+from ._gpu_host_permutations import device_array_cached, host_perm_batch_cap, host_permuted_y_batch
 from ._internals import GPU_MAX_BLOCK_SIZE
 from .info_theory import compute_mi_from_classes, merge_vars
 
@@ -230,7 +230,7 @@ def _mi_direct_gpu_batched_part1(
     # Permutations come from the host LCG stream the CPU kernels use, so the null does not depend on the backend that evaluates it.
     while remaining > 0:
         b = min(batch_size, remaining)
-        perms_y = cp.asarray(host_permuted_y_batch(classes_y, base_seed, nchecked, b))
+        perms_y = device_array_cached(cp, host_permuted_y_batch(classes_y, base_seed, nchecked, b))
 
         joint_counts_batch = cp.zeros((b, nbins_x * nbins_y), dtype=cp.int32)
         if use_shared_hist:
@@ -480,7 +480,7 @@ def _mi_direct_gpu_batched_streamed_part1(
         stream = streams[iter_idx % len(streams)]
         host_perms = host_permuted_y_batch(classes_y, base_seed, nchecked, b)
         with stream:
-            perms_y = cp.asarray(host_perms)
+            perms_y = device_array_cached(cp, host_perms)
 
             joint_counts_batch = cp.zeros((b, joint_size), dtype=cp.int32)
             if use_shared_hist:

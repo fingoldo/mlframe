@@ -285,7 +285,7 @@ from ._gpu_batched import (  # noqa: F401
     mi_direct_gpu_batched_streamed,
 )
 
-from ._gpu_host_permutations import host_permuted_y_batch
+from ._gpu_host_permutations import device_array_cached, host_permuted_y_batch
 
 # Permutation MIs are staged on the device and read back in chunks of this many, so D2H traffic scales as
 # npermutations/chunk instead of once per permutation. 32 mirrors the crossover mi_direct_gpu_batched
@@ -404,7 +404,7 @@ def _gpu_single_perm_loop(
         _stop = False
         while _done < npermutations and not _stop:
             _m = min(_chunk, npermutations - _done)
-            _perm_rows = cp.asarray(host_permuted_y_batch(_y_host, base_seed, _done, _m))
+            _perm_rows = device_array_cached(cp, host_permuted_y_batch(_y_host, base_seed, _done, _m))
             for _j in range(_m):
                 classes_y_safe[:] = _perm_rows[_j]
                 joint_counts.fill(0)
