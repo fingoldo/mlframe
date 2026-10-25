@@ -576,7 +576,7 @@ def _score_recompute_blocked(
         if batch_mi_with_noise_gate is not None and len(_pending) > 1:
             try:
                 _code_dtype = _narrow_code_dtype(quantization_nbins, quantization_dtype)
-                _block = np.empty((_n_rows, len(_pending)), dtype=_code_dtype)
+                _block = np.empty((_n_rows, len(_pending)), dtype=np.dtype(_code_dtype))
                 for _j, _entry in enumerate(_pending):
                     _block[:, _j] = _entry[4]
                 _mi = _dispatch_batch_mi_with_noise_gate(
