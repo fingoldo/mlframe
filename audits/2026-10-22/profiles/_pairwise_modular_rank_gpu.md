@@ -31,7 +31,41 @@ The GPU wins from the smallest swept cell (100 operator-candidates); the kernel-
 
 cProfile inflates these numba-heavy calls about 7x: the same 17-modulus residue grid costs 7 ms unprofiled (`D:/Temp/grid_vs_direct.py`), not 42 ms, and the real wall times without a profiler (`D:/Temp/scan_wall.py`) are 0.82-0.92 s (12 triples) and 1.46-1.76 s (100 triples) at p=20, 2.3-2.6 s for a pairs-only scan at p=200 with the GPU ranking. Raising the default `max_triples` from 12 to 100 therefore adds about 0.6-0.8 s to a p=20 scan. The ranking no longer dominates once it runs on the device; the exact residue grid is the remaining cost, and it cannot be swapped for a direct plug-in MI (max diff 0.55 nats, argmax differs in 13 of 30 cases, because the pinned estimator quantile-bins the residues).
 
+## GPU profiler counters (nvprof on the GTX 1050 Ti, elevated shell, kernel `residue_rank`, two launches: pairs p=200 and triples p=100)
+
+Launch statistics (`--print-gpu-trace`): one launch per call, grid (19,900, 1, 1) for the pairs and (161,700, 1, 1) for the triples, block (128, 1, 1), 1 KB static plus 384 B dynamic shared memory; kernel time 264 ms and 570 ms for version 1, equal to the wall times, so the call is the kernel.
+
+| metric | v1 (64-bit values, 40 regs) | v4 (default: 32-bit values, 32 regs, no spill) |
+|---|---|---|
+| registers per thread / local bytes | 40 / 0 | 32 / 0 |
+| achieved occupancy | 0.749 (register-limited: 12 blocks of 128 per SM) | 0.997 |
+| sm_efficiency | 99.7% | 98.7% |
+| executed IPC / issue slot utilization | 2.38 / 55.3% | 2.21 / 50.0% |
+| dram read / write throughput | 1.9 GB/s / 86 MB/s | 2.0 GB/s / 496 MB/s |
+| warp execution efficiency | 86.6% | 94.0% |
+| shared memory efficiency | 3.9% | 0.35% |
+| gld_efficiency | 99.5% | 99.1% |
+| stall: synchronization / exec dependency / memory dependency | 33.7% / 31.9% / 12.8% | 44.5% / 34.9% / 8.1% |
+| local load / store transactions | 1.0 M / 1.7 M | 4.6 M / 1.3 M |
+
+## Kernel versions (all kept; `MLFRAME_MODULAR_RANK_KERNEL` selects one)
+
+Interleaved A/B in one process, 15 repeats, 32-bit values, median seconds (`D:/Temp/rank_ab.py`, `D:/Temp/rank_versions.py`):
+
+| version | what changed | regs / local bytes | pairs p=200 | triples p=100 |
+|---|---|---|---|---|
+| 1 | shared-memory tree reduction (about ten barriers per operator-modulus) | 40 / 0 | 0.206 | 0.586 |
+| 2 | warp-shuffle reduction | 38 / 0 | 0.199 | 0.558 |
+| 3 | v2 with `__launch_bounds__(128, 16)` | 32 / 16 (spills) | 0.194 | 0.526 |
+| 4 (default) | 32-bit row offsets, running best in shared memory, cap kept | 32 / 0 | 0.192 | 0.517 |
+| 5 | v4 without the cap | 38 / 0 | not timed | not timed |
+| 6 | v4 with one count matrix per warp (four copies) | 32 / 8 | 0.204 | 0.552 |
+
+The 32-bit value mode (used when no product or sum can overflow an int) is the one consistent gain: pairs 0.24 s -> 0.18 s and triples 0.61 s -> 0.56 s against 64-bit values on version 1. Every kernel version is within about 12 percent of the others. Register granularity on Pascal is 8, so any `__launch_bounds__` minimum of 13 to 16 blocks forces 32 registers; the way to avoid the spill is a body that needs at most 32 by itself (version 4), not a weaker cap.
+
+What the result says: raising occupancy from 0.75 to 1.0, removing the barriers' share, removing the register spills and splitting the shared atomics per warp each moved the wall by at most a few percent. The nvprof stall percentages (synchronization 44 percent) are serialization-distorted (CUDA.md section 6) and did not predict the wall. The kernel executes about 1e9 row-operator-modulus steps in 0.19 s, which is close to the integer throughput of this part, so a further gain needs less work, not a leaner kernel: for example a per-column residue table for the 17 moduli so the sum and difference operators need no division.
+
 ## Not yet done
 
-* nvprof/ncu counters for `residue_rank` (nvprof needs an elevated shell on this host).
+* The residue-table variant above (about 3.4 MB of int8 residues at p=200, 170 MB at p=10000).
 * The exact residue grid (`_residue_grid_mi`): batching across combiners with the pinned per-column binning is possible but gains little at 7 ms per grid; not pursued.

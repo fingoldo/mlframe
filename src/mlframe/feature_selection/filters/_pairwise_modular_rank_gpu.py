@@ -18,9 +18,9 @@ logger = logging.getLogger(__name__)
 _BLOCK = 128
 _SHARED_LIMIT_BYTES = 48 * 1024
 
-_KERNEL_SRC = r"""
-extern "C" __global__ void residue_rank(
-    const long long* __restrict__ cols, const int n,
+_KERNEL_TEMPLATE = r"""
+extern "C" __BOUNDS__ __global__ void residue_rank(
+    const __COLT__* __restrict__ cols, const int n,
     const int* __restrict__ ia, const int* __restrict__ ib, const int* __restrict__ ic,
     const int mode, const int* __restrict__ mods, const int n_mods,
     const int* __restrict__ ycls, const int n_cls, const int max_k, const double hy,
@@ -32,9 +32,9 @@ extern "C" __global__ void residue_rank(
     int* marg = sh + max_k * n_cls;
     const int q = blockIdx.x;
     const int tid = threadIdx.x;
-    const long long* ca = cols + (long long)ia[q] * n;
-    const long long* cb = cols + (long long)ib[q] * n;
-    const long long* cc = (mode == 1) ? cols + (long long)ic[q] * n : ca;
+    const __COLT__* ca = cols + (long long)ia[q] * n;
+    const __COLT__* cb = cols + (long long)ib[q] * n;
+    const __COLT__* cc = (mode == 1) ? cols + (long long)ic[q] * n : ca;
     const int n_ops = (mode == 1) ? 1 : 3;
     double best = 0.0;
     for (int op = 0; op < n_ops; ++op) {
@@ -45,7 +45,7 @@ extern "C" __global__ void residue_rank(
             for (int i = tid; i < k; i += blockDim.x) marg[i] = 0;
             __syncthreads();
             for (int t = tid; t < n; t += blockDim.x) {
-                long long v;
+                __COLT__ v;
                 if (mode == 1) v = ca[t] + cb[t] + cc[t];
                 else if (op == 0) v = ca[t] + cb[t];
                 else if (op == 1) v = ca[t] - cb[t];
@@ -62,7 +62,15 @@ extern "C" __global__ void residue_rank(
             for (int j = tid; j < cells; j += blockDim.x) {
                 if (joint[j] > 0) { double pj = (double)joint[j] / n; local += pj * log(pj); }
             }
-            red[tid] = local;
+__REDUCE__
+        }
+    }
+    if (tid == 0) scores[q] = best;
+}
+"""
+
+# Version 1: shared-memory tree reduction, about ten block barriers per (operator, modulus). Kept as the reference version.
+_REDUCE_V1 = """            red[tid] = local;
             __syncthreads();
             for (int s = blockDim.x >> 1; s > 0; s >>= 1) {
                 if (tid < s) red[tid] += red[tid + s];
@@ -72,24 +80,134 @@ extern "C" __global__ void residue_rank(
                 const double mi_val = hy + red[0];
                 if (mi_val > best) best = mi_val;
             }
+            __syncthreads();"""
+
+# Version 2: warp-shuffle reduction, one barrier after the four warp sums are written (the pair kernel's v2 measured the same stall drop).
+_REDUCE_V2 = """            for (int o = 16; o > 0; o >>= 1) local += __shfl_down_sync(0xffffffffu, local, o);
+            if ((tid & 31) == 0) red[tid >> 5] = local;
             __syncthreads();
+            if (tid == 0) {
+                const double mi_val = hy + red[0] + red[1] + red[2] + red[3];
+                if (mi_val > best) best = mi_val;
+            }"""
+
+# Version 4: version 2's reduction with fewer live registers - 32-bit row offsets instead of three 64-bit column pointers, and the running best kept in shared memory
+# by thread 0 instead of in every thread's registers - so the kernel can meet the 32-register cap of full occupancy on Pascal without spilling to local memory.
+_KERNEL_V4_TEMPLATE = r"""
+extern "C" __BOUNDS__ __global__ void residue_rank(
+    const __COLT__* __restrict__ cols, const int n,
+    const int* __restrict__ ia, const int* __restrict__ ib, const int* __restrict__ ic,
+    const int mode, const int* __restrict__ mods, const int n_mods,
+    const int* __restrict__ ycls, const int n_cls, const int max_k, const double hy,
+    double* __restrict__ scores)
+{
+    extern __shared__ int sh[];
+    __shared__ double red[4];
+    __shared__ double best_sh;
+    int* joint = sh;
+    int* marg = sh + max_k * n_cls;
+    const int q = blockIdx.x;
+    const int tid = threadIdx.x;
+    const int oa = ia[q] * n;  // width-ok: a row offset below p * n; the host refuses inputs whose element count reaches 2**31
+    const int ob = ib[q] * n;  // width-ok: same bound
+    const int oc = (mode == 1) ? ic[q] * n : oa;  // width-ok: same bound
+    const int n_ops = (mode == 1) ? 1 : 3;
+    if (tid == 0) best_sh = 0.0;
+    for (int op = 0; op < n_ops; ++op) {
+        for (int mi = 0; mi < n_mods; ++mi) {
+            const int k = mods[mi];
+            const int cells = k * n_cls;
+            for (int i = tid; i < cells; i += blockDim.x) joint[i] = 0;
+            for (int i = tid; i < k; i += blockDim.x) marg[i] = 0;
+            __syncthreads();
+            for (int t = tid; t < n; t += blockDim.x) {
+                __COLT__ v;
+                if (mode == 1) v = cols[oa + t] + cols[ob + t] + cols[oc + t];
+                else if (op == 0) v = cols[oa + t] + cols[ob + t];
+                else if (op == 1) v = cols[oa + t] - cols[ob + t];
+                else v = cols[oa + t] * cols[ob + t];
+                int r = (int)(((v % k) + k) % k);
+                atomicAdd(&joint[r * n_cls + ycls[t]], 1);
+                atomicAdd(&marg[r], 1);
+            }
+            __syncthreads();
+            double local = 0.0;
+            for (int r = tid; r < k; r += blockDim.x) {
+                if (marg[r] > 0) { double pr = (double)marg[r] / n; local -= pr * log(pr); }
+            }
+            for (int j = tid; j < cells; j += blockDim.x) {
+                if (joint[j] > 0) { double pj = (double)joint[j] / n; local += pj * log(pj); }
+            }
+            for (int o = 16; o > 0; o >>= 1) local += __shfl_down_sync(0xffffffffu, local, o);
+            if ((tid & 31) == 0) red[tid >> 5] = local;
+            __syncthreads();
+            if (tid == 0) {
+                const double mi_val = hy + red[0] + red[1] + red[2] + red[3];
+                if (mi_val > best_sh) best_sh = mi_val;
+            }
         }
     }
-    if (tid == 0) scores[q] = best;
+    if (tid == 0) scores[q] = best_sh;
 }
 """
 
-_kernel = None
+# Version 6: version 4 with one private (residue, class) count matrix per warp (four copies), so the atomics of a warp no longer collide with the other three warps' and
+# the copies are summed when the entropies are formed. The target is the shared-memory atomic contention on a handful of cells (shared efficiency 0.3 to 4 percent).
+_KERNEL_V6_TEMPLATE = _KERNEL_V4_TEMPLATE.replace(
+    "    int* joint = sh;\n    int* marg = sh + max_k * n_cls;\n",
+    "    const int sj = max_k * n_cls;\n    const int sm = max_k;\n    int* joint = sh;\n    int* marg = sh + 4 * sj;\n    const int wp = threadIdx.x >> 5;\n",
+).replace(
+    "            for (int i = tid; i < cells; i += blockDim.x) joint[i] = 0;\n            for (int i = tid; i < k; i += blockDim.x) marg[i] = 0;\n",
+    "            for (int i = tid; i < 4 * cells; i += blockDim.x) joint[(i / cells) * sj + (i % cells)] = 0;\n            for (int i = tid; i < 4 * k; i += blockDim.x) marg[(i / k) * sm + (i % k)] = 0;\n",
+).replace(
+    "                atomicAdd(&joint[r * n_cls + ycls[t]], 1);\n                atomicAdd(&marg[r], 1);\n",
+    "                atomicAdd(&joint[wp * sj + r * n_cls + ycls[t]], 1);\n                atomicAdd(&marg[wp * sm + r], 1);\n",
+).replace(
+    "                if (marg[r] > 0) { double pr = (double)marg[r] / n; local -= pr * log(pr); }\n",
+    "                const int mr = marg[r] + marg[sm + r] + marg[2 * sm + r] + marg[3 * sm + r];\n                if (mr > 0) { double pr = (double)mr / n; local -= pr * log(pr); }\n",
+).replace(
+    "                if (joint[j] > 0) { double pj = (double)joint[j] / n; local += pj * log(pj); }\n",
+    "                const int cj = joint[j] + joint[sj + j] + joint[2 * sj + j] + joint[3 * sj + j];\n                if (cj > 0) { double pj = (double)cj / n; local += pj * log(pj); }\n",
+)
+_KERNEL_COPIES = {6: 4}  # versions that keep several count-matrix copies in shared memory
+
+_KERNEL_SOURCES = {
+    1: _KERNEL_TEMPLATE.replace("__BOUNDS__", "").replace("__REDUCE__", _REDUCE_V1),
+    2: _KERNEL_TEMPLATE.replace("__BOUNDS__", "").replace("__REDUCE__", _REDUCE_V2),
+    # Version 3: version 2 capped at 32 registers per thread (__launch_bounds__(128, 16)) so a Pascal SM holds 16 blocks, i.e. full occupancy.
+    3: _KERNEL_TEMPLATE.replace("__BOUNDS__", "__launch_bounds__(128, 16)").replace("__REDUCE__", _REDUCE_V2),
+    4: _KERNEL_V4_TEMPLATE.replace("__BOUNDS__", "__launch_bounds__(128, 16)"),
+    5: _KERNEL_V4_TEMPLATE.replace("__BOUNDS__", ""),  # version 4 without the cap: shows the registers the leaner body needs by itself
+    6: _KERNEL_V6_TEMPLATE.replace("__BOUNDS__", "__launch_bounds__(128, 16)"),
+}
+_DEFAULT_VERSION = 4
+_kernels: dict = {}
 
 
-def _get_kernel():
-    """Compile the ranking kernel once per process."""
-    global _kernel
-    if _kernel is None:
+def _kernel_version() -> int:
+    """The kernel version to run: ``MLFRAME_MODULAR_RANK_KERNEL`` (1, 2 or 3) when set, else the measured default."""
+    import os
+
+    try:
+        v = int(os.environ.get("MLFRAME_MODULAR_RANK_KERNEL", _DEFAULT_VERSION))
+    except ValueError:
+        v = _DEFAULT_VERSION
+    return v if v in _KERNEL_SOURCES else _DEFAULT_VERSION
+
+
+_INT32_PRODUCT_LIMIT = 2**31 - 1
+
+
+def _get_kernel(version: Optional[int] = None, wide: bool = True):
+    """Compile the ranking kernel of ``version`` once per process; ``wide`` keeps the values in 64 bits, else they are 32-bit (cheaper modulo)."""
+    v = _kernel_version() if version is None else version
+    key = (v, wide)
+    if key not in _kernels:
         import cupy as cp
 
-        _kernel = cp.RawKernel(_KERNEL_SRC, "residue_rank")
-    return _kernel
+        src = _KERNEL_SOURCES[v].replace("__COLT__", "long long" if wide else "int")
+        _kernels[key] = cp.RawKernel(src, "residue_rank")
+    return _kernels[key]
 
 
 def residue_rank_scores_gpu(
@@ -105,11 +223,14 @@ def residue_rank_scores_gpu(
 
         n = int(ycls.shape[0])
         max_k = int(np.max(mods))
-        shared = (max_k * int(n_cls) + max_k) * 4
-        if shared > _SHARED_LIMIT_BYTES or ia.shape[0] == 0:
+        shared = _KERNEL_COPIES.get(_kernel_version(), 1) * (max_k * int(n_cls) + max_k) * 4
+        if shared > _SHARED_LIMIT_BYTES or ia.shape[0] == 0 or cols.size >= 2**31:  # the v4 kernel addresses rows with 32-bit offsets
             return None
         n_ops = 1 if ic is not None else 3
-        cols_d = cp.asarray(np.ascontiguousarray(cols, dtype=np.int64))
+        # 32-bit values when no pair product or triple sum can overflow an int: the modulo in the inner loop is then a 32-bit operation.
+        biggest = int(np.max(np.abs(cols))) if cols.size else 0
+        wide = biggest * biggest > _INT32_PRODUCT_LIMIT or 3 * biggest > _INT32_PRODUCT_LIMIT
+        cols_d = cp.asarray(np.ascontiguousarray(cols, dtype=np.int64 if wide else np.int32))
         ia_d = cp.asarray(ia.astype(np.int32))
         ib_d = cp.asarray(ib.astype(np.int32))
         ic_d = cp.asarray(ic.astype(np.int32)) if ic is not None else ia_d
@@ -119,7 +240,7 @@ def residue_rank_scores_gpu(
         nz = counts[counts > 0] / n
         hy = float(-np.sum(nz * np.log(nz)))
         scores = cp.zeros(ia.shape[0], dtype=cp.float64)
-        _get_kernel()(
+        _get_kernel(None, wide)(
             (int(ia.shape[0]),),
             (_BLOCK,),
             (cols_d, np.int32(n), ia_d, ib_d, ic_d, np.int32(0 if n_ops == 3 else 1), mods_d, np.int32(mods.shape[0]), y_d, np.int32(n_cls), np.int32(max_k), np.float64(hy), scores),

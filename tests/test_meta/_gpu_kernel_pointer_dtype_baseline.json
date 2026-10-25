@@ -97,6 +97,9 @@
  "src/mlframe/feature_selection/filters/_pair_mi_perm_cuda.py": [
   "pair_mi_perm"
  ],
+ "src/mlframe/feature_selection/filters/_pairwise_modular_rank_gpu.py": [
+  "residue_rank"
+ ],
  "src/mlframe/feature_selection/filters/_row_argmax_gpu.py": [
   "row_argmax"
  ],

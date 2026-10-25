@@ -185,7 +185,7 @@ void pair_mi_block(const signed char* A, const signed char* B, const int* R, {AC
     const signed char* ap = A + (size_t)a * n;
     const signed char* bp = B + (size_t)b * n;
     for (int t = threadIdx.x; t < n; t += blockDim.x) {
-        int idx = ((int)ap[t] * k + (int)bp[t]) * kr + R[t];
+        int idx = ((int)ap[t] * k + (int)bp[t]) * kr + R[t];  // width-ok: a histogram cell below k*k*kr (a few hundred cells in shared memory)
         atomicAdd(&hist[idx], 1);
     }
     __syncthreads();
@@ -234,7 +234,7 @@ void pair_mi_block_v2(const signed char* A, const signed char* B, const int* R, 
     const signed char* ap = A + (size_t)a * n;
     const signed char* bp = B + (size_t)b * n;
     for (int t = threadIdx.x; t < n; t += blockDim.x) {
-        int idx = ((int)ap[t] * k + (int)bp[t]) * kr + R[t];
+        int idx = ((int)ap[t] * k + (int)bp[t]) * kr + R[t];  // width-ok: a histogram cell below k*k*kr (a few hundred cells in shared memory)
         atomicAdd(&hist[idx], 1);
     }
     __syncthreads();
