@@ -289,13 +289,10 @@ class TestScanOptimizationEquivalence:
 
         for c in cols:
             one("self", (c,), pm._combine([arrs[c]], "self"))
-        budget = 24
-        for a_, b_ in combinations(cols, 2):
-            if budget <= 0:
-                break
+        # The pair budget keeps the top pairs by residue score (audit row 72b), so the reference takes the same pairs the scan does.
+        for a_, b_ in pm._select_pairs_by_residue_score(cols, arrs, yi, mods, 0, 24):
             for op in pm._PAIR_OPS:
                 one(op, (a_, b_), pm._combine([arrs[a_], arrs[b_]], op))
-            budget -= 1
         budget = 12
         for a_, b_, c_ in combinations(cols, 3):
             if budget <= 0:
@@ -490,3 +487,17 @@ def test_residue_grid_mi_ftranspose_build_matches_column_build():
         b = np.asarray(_mi_classif_batch(matT.T, yi, nbins=eff))
         worst = max(worst, float(np.max(np.abs(a - b))))
     assert worst == 0.0, f"F-view residue build diverges {worst:.2e}"
+
+
+def test_planted_parity_pair_beyond_name_order_cut_is_found():
+    """A parity pair ``(x0 + x5) mod 3`` at p=200 is responded by the scan. The pair budget used to keep the first pairs of the name-sorted
+    columns, which all start with ``x0``, so this pair was never scored (audit row 72b)."""
+    from mlframe.feature_selection.filters._pairwise_modular_fe import cheap_modular_scan
+
+    rng = np.random.default_rng(7)
+    n, p = 4000, 200
+    X = pd.DataFrame(rng.integers(0, 30, size=(n, p)), columns=[f"x{i}" for i in range(p)])
+    y = ((X["x0"].to_numpy() + X["x5"].to_numpy()) % 3).astype(int)
+    hits = cheap_modular_scan(X, y)
+    pair_hits = [h for h in hits if h.op == "sum" and set(h.cols) == {"x0", "x5"}]
+    assert any(h.responded for h in pair_hits), f"planted parity pair not responded; sum hits={pair_hits}"
