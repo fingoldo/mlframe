@@ -86,6 +86,22 @@ def _build_fold_projections(
     return projections
 
 
+def _allocate_oof_outputs(n_train, n_heads, head_dim, aggregate, dtype) -> dict[str, np.ndarray]:
+    """Return zeroed per-head output arrays sized to the full train set, keyed ``{aggregate}_h{head}``."""
+    outputs: dict[str, np.ndarray] = {}
+    for h in range(n_heads):
+        if "y_mean" in aggregate:
+            outputs[f"y_mean_h{h}"] = np.zeros(n_train, dtype=dtype)
+        if "y_std" in aggregate:
+            outputs[f"y_std_h{h}"] = np.zeros(n_train, dtype=dtype)
+        if "x_mean" in aggregate:
+            outputs[f"x_mean_h{h}"] = np.zeros((n_train, head_dim), dtype=dtype)
+        for ex in _EXTRA_AGGS:
+            if ex in aggregate:
+                outputs[f"{ex}_h{h}"] = np.zeros(n_train, dtype=dtype)
+    return outputs
+
+
 def kfold_attention_loop(
     X_train: np.ndarray,
     y_train: np.ndarray,
@@ -124,18 +140,7 @@ def kfold_attention_loop(
 
     n_train, d_input = X_train.shape
 
-    # Output arrays sized to full train, filled per-fold.
-    outputs: dict[str, np.ndarray] = {}
-    for h in range(n_heads):
-        if "y_mean" in aggregate:
-            outputs[f"y_mean_h{h}"] = np.zeros(n_train, dtype=dtype)
-        if "y_std" in aggregate:
-            outputs[f"y_std_h{h}"] = np.zeros(n_train, dtype=dtype)
-        if "x_mean" in aggregate:
-            outputs[f"x_mean_h{h}"] = np.zeros((n_train, head_dim), dtype=dtype)
-        for ex in _EXTRA_AGGS:
-            if ex in aggregate:
-                outputs[f"{ex}_h{h}"] = np.zeros(n_train, dtype=dtype)
+    outputs = _allocate_oof_outputs(n_train, n_heads, head_dim, aggregate, dtype)
 
     # Random projections are constructed ONCE, used unchanged across folds. PLS projections MUST be refit per fold (they use y_train, so a single global PLS fit
     # would leak the validation fold's targets through the projection matrix).
