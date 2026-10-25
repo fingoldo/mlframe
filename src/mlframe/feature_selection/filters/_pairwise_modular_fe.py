@@ -66,6 +66,10 @@ from numba import njit, prange
 
 from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 
+from ._integer_columns import eligible_integer_columns
+from ._integer_columns import is_integer_col as _is_integer_col  # noqa: F401  (re-exported: shared.py and the lattice prototype import it from here)
+from ._integer_columns import is_integer_like_col as _is_integer_like_col  # noqa: F401
+from ._integer_columns import to_int64 as _to_int64
 from ._y_encoding import encode_y_for_classif_mi
 
 from mlframe.utils.log_throttle import log_throttle
@@ -198,48 +202,6 @@ def _residue_grid_mi(c: np.ndarray, y: np.ndarray, mods: Sequence[int], nbins: i
         for j, idx in enumerate(idxs):
             out[idx] = float(mis[j])
     return out
-
-def _is_integer_col(x: np.ndarray) -> bool:
-    """True iff x is integer-typed OR exactly-integer-valued float (no fractional part), finite."""
-    a = np.asarray(x)
-    if np.issubdtype(a.dtype, np.integer):
-        return True
-    if not np.issubdtype(a.dtype, np.floating):
-        return False
-    finite = a[np.isfinite(a)]
-    return bool(finite.size > 0 and np.all(finite == np.floor(finite)))
-
-
-# A float column counts as a noisy integer when its values cluster at integers: the mean distance to the nearest integer is at most this (a continuous column
-# spreads evenly, mean 0.25; Gaussian noise of sigma 0.15 gives about 0.12, and rounding then recovers the integer in over 99.9 percent of the rows).
-_NEAR_INT_MEAN_DIST = 0.12
-_NEAR_INT_MIN_ROWS = 50
-
-
-def _is_integer_like_col(x: np.ndarray) -> bool:
-    """True iff ``_is_integer_col`` or the float values sit within noise of integers (see ``_NEAR_INT_MEAN_DIST``) and take at least two distinct rounded values.
-
-    The modular sweep works on the rounded values (``_to_int64``), so an integer column that was measured with a little noise is not lost to the exact-integer test.
-    """
-    if _is_integer_col(x):
-        return True
-    a = np.asarray(x)
-    if not np.issubdtype(a.dtype, np.floating):
-        return False
-    finite = a[np.isfinite(a)]
-    if finite.size < _NEAR_INT_MIN_ROWS:
-        return False
-    rounded = np.rint(finite)
-    return bool(float(np.mean(np.abs(finite - rounded))) <= _NEAR_INT_MEAN_DIST and np.unique(rounded).size >= 2)
-
-
-def _to_int64(x) -> np.ndarray:
-    """The column as int64 codes: floats are ROUNDED to the nearest integer (a noisy integer column), not truncated; exact integers are unchanged."""
-    a = np.asarray(x)
-    if np.issubdtype(a.dtype, np.floating):
-        with np.errstate(invalid="ignore"):  # NaN / inf rows become INT64_MIN as before; apply_pairwise_modular masks them
-            return np.rint(a).astype(np.int64)
-    return a.astype(np.int64)
 
 @njit(cache=True, parallel=True)
 def _residue_rank_scores(cols: np.ndarray, ia: np.ndarray, ib: np.ndarray, mods: np.ndarray, ycls: np.ndarray, n_cls: int) -> np.ndarray:
@@ -560,9 +522,9 @@ def cheap_modular_scan(
     import pandas as pd  # noqa: F401  (X may be pandas or polars; we pull ndarrays)
 
     if cols is None:
-        cols = [c for c in X.columns if _is_integer_like_col(np.asarray(X[c]))]
+        cols = eligible_integer_columns(X)
     elif not _cols_prefiltered:
-        cols = [c for c in cols if _is_integer_like_col(np.asarray(X[c]))]
+        cols = eligible_integer_columns(X, cols)
     # else: caller (e.g. hybrid_pairwise_modular_fe_with_recipes) already ran this exact filter to
     # build ``cols`` - re-scanning it here was pure duplicate work.
     # Canonicalize eligible-column order so the budgeted pair/triple enumeration scans the same combinations regardless of caller column order (reversed-column invariance).
@@ -774,9 +736,9 @@ def hybrid_pairwise_modular_fe_with_recipes(
     Returns ``(appended_names, recipes)`` - the materialised columns are NOT concatenated here (the MRMR caller appends
     them under its own RAM-safe path); each recipe replays the exact residue column from X alone, leak-free."""
     if cols is None:
-        int_cols = [c for c in X.columns if _is_integer_like_col(np.asarray(X[c]))]
+        int_cols = eligible_integer_columns(X)
     else:
-        int_cols = [c for c in cols if c in X.columns and _is_integer_like_col(np.asarray(X[c]))]
+        int_cols = eligible_integer_columns(X, cols)
 
     p = len(int_cols)
     if p > int(max_int_cols):

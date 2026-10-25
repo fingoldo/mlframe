@@ -19,9 +19,9 @@ null upper band (so a non-lattice frame injects nothing). Each responded hit bec
 ``EngineeredRecipe``: replay is pure integer arithmetic on X (``np.gcd`` / ``np.lcm`` / ``np.bitwise_and`` on the
 integer-cast operands), no y reference -> leak-free + deterministic + train/test bit-identical.
 
-Only integer-typed, exactly-integer-valued or noisy-integer float columns are eligible (``_is_integer_like_col`` from the modular
-module) - the lattice structure is an integer property; quantising a continuous column would manufacture spurious shared
-factors.
+Only integer-typed, exactly-integer-valued or noisy-integer float columns are eligible (``eligible_integer_columns`` of the shared
+``_integer_columns`` module, remembered per frame so the modular sweep and this one do not scan the columns twice) - the lattice
+structure is an integer property; quantising a continuous column would manufacture spurious shared factors.
 
 Cost: ~99% of the scan is the shipped binned-MI kernel (``_mi`` -> ``_mi_classif_batch``). The lever that keeps it cheap
 is the BATCHED grid MI (``_lattice_grid_mi``): the three op-columns for one pair stack into ONE multi-column
@@ -50,7 +50,8 @@ from typing import Optional, Sequence
 import numba
 import numpy as np
 
-from ._pairwise_modular_fe import _is_integer_like_col, _mi
+from ._integer_columns import eligible_integer_columns, to_int64
+from ._pairwise_modular_fe import _mi
 from ._y_encoding import encode_y_for_classif_mi
 from ._lattice_gate_hit_shared import margin_over_operands as _margin_over_operands, responded_property as _responded_property
 from typing import TYPE_CHECKING
@@ -120,14 +121,11 @@ _MIN_MARGIN = 0.02
 _MIN_NULL_MARGIN = 0.05
 
 def _to_int(x: np.ndarray) -> np.ndarray:
-    """Round-to-nearest int64 view of an exactly-integer-valued column (eligibility already checked by caller).
+    """Round-to-nearest int64 view of an integer column (eligibility already checked by the caller); the shared ``to_int64``.
 
-    A non-finite entry (only possible on a drifted REPLAY frame - fit data is finite by eligibility) casts
-    to INT64_MIN; the caller masks those rows to NaN afterward, so the intermediate value is discarded. The
-    errstate silences the harmless 'invalid value in cast' warning that would otherwise fire on that row."""
-    with np.errstate(invalid="ignore"):
-        # Intentional float64: njit kernel / lattice MI dtype contract kept float64; policy switch deferred.
-        return np.asarray(np.rint(np.asarray(x, dtype=np.float64)).astype(np.int64))
+    A non-finite entry (only possible on a drifted REPLAY frame - fit data is finite by eligibility) casts to INT64_MIN; the caller masks those rows to NaN afterward."""
+    return to_int64(x)
+
 
 def _nonfinite_mask(a: np.ndarray, b: np.ndarray) -> np.ndarray:
     """Rows where either operand is NOT a finite number. The fit-time eligibility scan guarantees finite
@@ -281,9 +279,9 @@ def cheap_integer_lattice_scan(
     import pandas as pd  # noqa: F401  (X may be pandas or polars; we pull ndarrays)
 
     if cols is None:
-        cols = [c for c in X.columns if _is_integer_like_col(np.asarray(X[c]))]
+        cols = eligible_integer_columns(X)
     else:
-        cols = [c for c in cols if _is_integer_like_col(np.asarray(X[c]))]
+        cols = eligible_integer_columns(X, cols)
     yi = encode_y_for_classif_mi(y)
     arrs = {c: np.asarray(X[c]) for c in cols}
     # Intentional float64: njit kernel / lattice MI dtype contract kept float64; policy switch deferred.
@@ -397,9 +395,9 @@ def hybrid_integer_lattice_fe_with_recipes(
     Returns ``(appended_names, recipes)`` - the materialised columns are NOT concatenated here (the MRMR caller appends
     them under its own RAM-safe path); each recipe replays the exact lattice column from X alone, leak-free."""
     if cols is None:
-        int_cols = [c for c in X.columns if _is_integer_like_col(np.asarray(X[c]))]
+        int_cols = eligible_integer_columns(X)
     else:
-        int_cols = [c for c in cols if c in X.columns and _is_integer_like_col(np.asarray(X[c]))]
+        int_cols = eligible_integer_columns(X, cols)
 
     p = len(int_cols)
     if p > int(max_int_cols):
