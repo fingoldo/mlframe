@@ -282,6 +282,15 @@ def _member_val_probs(member):
     return getattr(member, "val_probs", None)
 
 
+def _chosen_blend_result(ensembles, chosen_flavour):
+    """Return ``(result, val_probs)`` of the chosen ensemble flavour, or ``(None, None)`` when there is no chosen flavour."""
+    if ensembles is None or chosen_flavour is None:
+        return None, None
+    entry = ensembles.get(chosen_flavour)
+    result = entry[0] if isinstance(entry, tuple) and entry else entry
+    return result, getattr(result, "val_probs", None)
+
+
 def _tune_decision_thresholds(
     *, ens_models, target_type, cur_target_name, behavior_config, common_params, metadata, verbose,
     current_val_target=None, ensembles=None, chosen_flavour=None,
@@ -352,11 +361,7 @@ def _tune_decision_thresholds(
         for i, m, p in member_probs:
             _stamp(f"{target_key}|{_member_name(m, i)}", p, "member", owner=m, owner_name=_member_name(m, i))
 
-        blend_probs = None
-        if ensembles is not None and chosen_flavour is not None:
-            entry = ensembles.get(chosen_flavour)
-            result = entry[0] if isinstance(entry, tuple) and entry else entry
-            blend_probs = getattr(result, "val_probs", None)
+        result, blend_probs = _chosen_blend_result(ensembles, chosen_flavour)
         if blend_probs is not None:
             _stamp(target_key, blend_probs, f"ensemble '{chosen_flavour}'", owner=result, owner_name=f"ensemble '{chosen_flavour}'")
         elif len(member_probs) == 1:
