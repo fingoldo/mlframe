@@ -119,7 +119,6 @@
   "src/mlframe/metrics/ranking.py::_summary_batched_kernel": 23,
   "src/mlframe/models/ensembling/__init__.py::_build_votenrank_leaderboard_from_results": 17,
   "src/mlframe/models/ensembling/_correlation.py::compute_high_correlation_pairs": 19,
-  "src/mlframe/models/ensembling/base.py::combine_probs": 17,
   "src/mlframe/models/ensembling/predict.py::ensemble_probabilistic_predictions_streaming": 23,
   "src/mlframe/models/ensembling/selection.py::stepwise_ensemble_selection": 19,
   "src/mlframe/models/tuning_rules.py::check_rules": 21,

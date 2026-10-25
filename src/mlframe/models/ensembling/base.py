@@ -582,6 +582,35 @@ def rrf_ensemble(
     return _rrf_aggregate_probs(stacked, k=k)
 
 
+def _validated_member_weights(precomputed_weights: Optional[np.ndarray], n_members: int) -> Optional[np.ndarray]:
+    """Return the member weights as a validated float64 vector summing to 1, or ``None`` when no weights were supplied."""
+    if precomputed_weights is None:
+        return None
+    weights_arr = np.asarray(precomputed_weights, dtype=np.float64).reshape(-1)
+    if weights_arr.shape != (n_members,):
+        raise ValueError(
+            f"combine_probs: precomputed_weights shape {weights_arr.shape} does not match "
+            f"stacked member axis (M={n_members},). Caller must align weights with the post-gate "
+            f"member ordering of ``stacked``."
+        )
+    if not np.all(np.isfinite(weights_arr)):
+        raise ValueError("combine_probs: precomputed_weights contains non-finite entries (NaN/inf).")
+    if (weights_arr < 0).any():
+        raise ValueError("combine_probs: precomputed_weights must be non-negative (NNLS contract).")
+    _wsum = float(weights_arr.sum())
+    if _wsum <= 0.0:
+        raise ValueError("combine_probs: precomputed_weights sum to zero; no member contributes.")
+    if abs(_wsum - 1.0) > 1e-3:
+        logger.warning(
+            "[ensemble] combine_probs: precomputed_weights sum=%.6f deviates from 1.0; renormalising.",
+            _wsum,
+        )
+        return weights_arr / _wsum
+    if _wsum != 1.0:
+        return weights_arr / _wsum
+    return weights_arr
+
+
 def combine_probs(
     stacked: np.ndarray,
     flavour: str,
@@ -630,31 +659,7 @@ def combine_probs(
     if ensure_prob_limits and flav in ("arithm", "harm", "quad", "qube", "median", "geo"):
         stacked = np.clip(stacked, 0.0, 1.0)
 
-    weights_arr: Optional[np.ndarray] = None
-    if precomputed_weights is not None:
-        weights_arr = np.asarray(precomputed_weights, dtype=np.float64).reshape(-1)
-        M = stacked.shape[0]
-        if weights_arr.shape != (M,):
-            raise ValueError(
-                f"combine_probs: precomputed_weights shape {weights_arr.shape} does not match "
-                f"stacked member axis (M={M},). Caller must align weights with the post-gate "
-                f"member ordering of ``stacked``."
-            )
-        if not np.all(np.isfinite(weights_arr)):
-            raise ValueError("combine_probs: precomputed_weights contains non-finite entries (NaN/inf).")
-        if (weights_arr < 0).any():
-            raise ValueError("combine_probs: precomputed_weights must be non-negative (NNLS contract).")
-        _wsum = float(weights_arr.sum())
-        if _wsum <= 0.0:
-            raise ValueError("combine_probs: precomputed_weights sum to zero; no member contributes.")
-        if abs(_wsum - 1.0) > 1e-3:
-            logger.warning(
-                "[ensemble] combine_probs: precomputed_weights sum=%.6f deviates from 1.0; renormalising.",
-                _wsum,
-            )
-            weights_arr = weights_arr / _wsum
-        elif _wsum != 1.0:
-            weights_arr = weights_arr / _wsum
+    weights_arr = _validated_member_weights(precomputed_weights, stacked.shape[0])
 
     combined = _combine_stacked_by_flavour(flav, stacked, weights_arr, rrf_k)
 
