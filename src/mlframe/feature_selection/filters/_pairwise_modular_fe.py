@@ -59,7 +59,7 @@ import logging
 from dataclasses import dataclass, field
 from itertools import combinations
 from math import comb
-from typing import TYPE_CHECKING, Any, Optional, Sequence
+from typing import TYPE_CHECKING, Any, Optional, Sequence, cast
 
 import numpy as np
 from numba import njit, prange
@@ -293,8 +293,8 @@ def _rank_scores(mat: np.ndarray, ia: np.ndarray, ib: np.ndarray, ic: Optional[n
         if out is not None:
             return out
     if ic is None:
-        return _residue_rank_scores(mat, ia, ib, mods_arr, ysub, n_cls)
-    return _residue_rank_scores3(mat, ia, ib, ic, mods_arr, ysub, n_cls)
+        return cast(np.ndarray, _residue_rank_scores(mat, ia, ib, mods_arr, ysub, n_cls))
+    return cast(np.ndarray, _residue_rank_scores3(mat, ia, ib, ic, mods_arr, ysub, n_cls))
 
 
 def _rank_subsample(cols: Sequence[str], arrs: dict, yi: np.ndarray, seed: int) -> tuple[np.ndarray, np.ndarray]:
@@ -402,13 +402,13 @@ def _combine(arrs: Sequence[np.ndarray], op: str) -> np.ndarray:
         return ai
     bi = _to_int64(arrs[1])
     if op == "sum":
-        return ai + bi
+        return cast(np.ndarray, ai + bi)
     if op == "diff":
-        return ai - bi
+        return cast(np.ndarray, ai - bi)
     if op == "prod":
-        return ai * bi
+        return cast(np.ndarray, ai * bi)
     if op == "sum3":
-        return ai + bi + _to_int64(arrs[2])
+        return cast(np.ndarray, ai + bi + _to_int64(arrs[2]))
     raise ValueError(f"unknown combiner op {op!r}")
 
 def _residue_mi(c: np.ndarray, y: np.ndarray, k: int, nbins: int) -> float:

@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import logging
 from collections import OrderedDict
-from typing import Any, Optional, Sequence
+from typing import Any, Optional, Sequence, cast
 
 import numpy as np
 
@@ -64,8 +64,8 @@ def to_int64(x: Any) -> np.ndarray:
     a = np.asarray(x)
     if np.issubdtype(a.dtype, np.floating):
         with np.errstate(invalid="ignore"):  # NaN / inf rows become INT64_MIN; the replay functions mask them to NaN afterwards
-            return np.rint(a).astype(np.int64)
-    return a.astype(np.int64)
+            return cast(np.ndarray, np.rint(a).astype(np.int64))
+    return cast(np.ndarray, a.astype(np.int64))
 
 
 _cache: "OrderedDict[tuple, tuple[bytes, dict]]" = OrderedDict()

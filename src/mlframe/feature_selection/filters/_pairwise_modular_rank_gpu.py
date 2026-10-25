@@ -9,7 +9,7 @@ count matrix does not fit or cupy is unavailable, and the caller falls back to t
 from __future__ import annotations
 
 import logging
-from typing import Optional
+from typing import Optional, cast
 
 import numpy as np
 
@@ -334,14 +334,14 @@ def residue_rank_scores_gpu(
                 (table, np.int32(n), np.int32(mods.shape[0]), ia_d, ib_d, ic_d, np.int32(0 if n_ops == 3 else 1), mods_d, y_d, np.int32(n_cls), np.int32(max_k), np.float64(hy), scores),
                 shared_mem=shared,
             )
-            return cp.asnumpy(scores)
+            return cast(np.ndarray, cp.asnumpy(scores))
         _get_kernel(None, wide)(
             (int(ia.shape[0]),),
             (_BLOCK,),
             (cols_d, np.int32(n), ia_d, ib_d, ic_d, np.int32(0 if n_ops == 3 else 1), mods_d, np.int32(mods.shape[0]), y_d, np.int32(n_cls), np.int32(max_k), np.float64(hy), scores),
             shared_mem=shared,
         )
-        return cp.asnumpy(scores)
+        return cast(np.ndarray, cp.asnumpy(scores))
     except Exception as e:
         logger.warning("modular rank GPU kernel unavailable (%s), using the CPU kernel", e)
         return None
