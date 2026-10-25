@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Optional, cast
 
 import numpy as np
 from collections import defaultdict, OrderedDict
@@ -262,7 +262,7 @@ def _maybe_relax_prevalence_for_tail_concentrated_pool(
             def _op_rows_of(idx: int) -> np.ndarray:
                 """One operand's row, subsampled with the y rows."""
                 _op_full = cached_operand(idx)
-                return _op_full[::_stride_pre] if _stride_pre > 1 else _op_full
+                return cast(np.ndarray, _op_full[::_stride_pre] if _stride_pre > 1 else _op_full)
 
             # Every scanned pair is scored, in blocks sized from the free host RAM: a block gathers only its own operands, and the
             # running maximum keeps the first pair of the largest value, the same pair one call over all pairs would return.
@@ -289,8 +289,9 @@ def _maybe_relax_prevalence_for_tail_concentrated_pool(
                 if _dom_pk is None or float(_cp_block[_bi]) > _dom_cp:
                     _dom_cp = float(_cp_block[_bi])
                     _dom_pk = _block[_bi]
-            _dom_p0 = cached_operand(_dom_pk[0])
-            _dom_p1 = cached_operand(_dom_pk[1])
+            if _dom_pk is not None:
+                _dom_p0 = cached_operand(_dom_pk[0])
+                _dom_p1 = cached_operand(_dom_pk[1])
         if _dom_p0 is not None and _dom_p1 is not None and _pair_is_tail_concentrated_rankaware(
             _ya_pre, _dom_p0, _dom_p1,
             min_corr=_min_corr_pre, pairness_margin=_margin_pre, max_rank_frac=_rank_frac_pre,

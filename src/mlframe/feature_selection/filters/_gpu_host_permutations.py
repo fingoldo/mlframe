@@ -55,7 +55,7 @@ def host_permuted_y_batch(classes_y: np.ndarray, base_seed: object, first_perm: 
 
     seed = np.uint64(0 if base_seed is None else int(base_seed))  # type: ignore[call-overload]
     y = np.ascontiguousarray(classes_y, dtype=np.int32)
-    key = (hashlib.blake2b(memoryview(y).cast("B"), digest_size=16).digest(), y.shape[0], int(seed), int(first_perm), int(count))
+    key = (hashlib.blake2b(y.data, digest_size=16).digest(), y.shape[0], int(seed), int(first_perm), int(count))
     with _CACHE_LOCK:
         hit = _HOST_CACHE.get(key)
         if hit is not None:

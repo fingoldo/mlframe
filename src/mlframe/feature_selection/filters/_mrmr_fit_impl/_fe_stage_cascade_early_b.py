@@ -58,81 +58,80 @@ def _fe_stage_cascade_early_b(
     if _fe_family_on("fe_kfold_te_enable", False):
         # K-fold target encoding is an OOF stat (no closed-form subsample-replay), so it needs the full frame: gate the
         # polars->pandas materialisation on size and skip a > ~2 GiB frame rather than whole-copy it (CLAUDE.md eager rule).
-        if True:
-            try:
-                from .._target_encoding_fe import (
-                    kfold_target_encode_with_recipes,
-                )
+        try:
+            from .._target_encoding_fe import (
+                kfold_target_encode_with_recipes,
+            )
 
-                _te_cols_cfg = tuple(getattr(self, "fe_kfold_te_cols", ()) or ())
-                # Explicit empty tuple -> auto-detect; explicit names -> use
-                # exactly those (after intersecting with X.columns).
-                _te_cols = list(_te_cols_cfg) if _te_cols_cfg else None
-                if _te_cols is not None:
-                    _hybrid_appended = set(self.hybrid_orth_features_ or [])
-                    _mig_appended_set = set(self.mi_greedy_features_ or [])
-                    _te_cols = [c for c in _te_cols if c in X.columns and c not in _hybrid_appended and c not in _mig_appended_set]
-                _y_for_te = _y_np
-                # TE works for both binary classification and regression as-
-                # is (mean of {0,1} = P(y=1); mean of continuous = mean).
-                # Cast bool / object to float to avoid type errors inside
-                # the mean computation.
-                _y_for_te = np.asarray(_y_for_te, dtype=_crit_np_dtype()).ravel()
-                _X_before_te_cols = list(X.columns)
-                # W6 follow-up: record this family's unified local-MI abs-MAD
-                # floor kills into the FE rejection ledger (pure-record; the
-                # kept set is unchanged so selection is byte-identical).
-                from .._fe_rejection_ledger import record_fe_rejection as _record_fe_rejection
-                _te_step = int(getattr(self, "_fe_steps_executed_", -1))
+            _te_cols_cfg = tuple(getattr(self, "fe_kfold_te_cols", ()) or ())
+            # Explicit empty tuple -> auto-detect; explicit names -> use
+            # exactly those (after intersecting with X.columns).
+            _te_cols = list(_te_cols_cfg) if _te_cols_cfg else None
+            if _te_cols is not None:
+                _hybrid_appended = set(self.hybrid_orth_features_ or [])
+                _mig_appended_set = set(self.mi_greedy_features_ or [])
+                _te_cols = [c for c in _te_cols if c in X.columns and c not in _hybrid_appended and c not in _mig_appended_set]
+            _y_for_te = _y_np
+            # TE works for both binary classification and regression as-
+            # is (mean of {0,1} = P(y=1); mean of continuous = mean).
+            # Cast bool / object to float to avoid type errors inside
+            # the mean computation.
+            _y_for_te = np.asarray(_y_for_te, dtype=_crit_np_dtype()).ravel()
+            _X_before_te_cols = list(X.columns)
+            # W6 follow-up: record this family's unified local-MI abs-MAD
+            # floor kills into the FE rejection ledger (pure-record; the
+            # kept set is unchanged so selection is byte-identical).
+            from .._fe_rejection_ledger import record_fe_rejection as _record_fe_rejection
+            _te_step = int(getattr(self, "_fe_steps_executed_", -1))
 
-                def _te_reject_sink(**_kw):
-                    """Reject-sink callback for the k-fold target-encoding FE stage; records abs-MAD floor kills into the FE rejection ledger (pure-record, does not affect selection)."""
-                    _record_fe_rejection(self, step=_te_step, **_kw)
+            def _te_reject_sink(**_kw):
+                """Reject-sink callback for the k-fold target-encoding FE stage; records abs-MAD floor kills into the FE rejection ledger (pure-record, does not affect selection)."""
+                _record_fe_rejection(self, step=_te_step, **_kw)
 
-                # A polars frame is encoded natively (column by column, no whole-frame copy); pandas input is unchanged.
-                X_te, _te_appended, _te_recipes = kfold_target_encode_with_recipes(
-                    X if hasattr(X, "schema") else fe_to_pandas(X), _y_for_te,
-                    cat_cols=_te_cols,
-                    n_folds=int(getattr(self, "fe_kfold_te_folds", 5)),
-                    smoothing=float(getattr(self, "fe_kfold_te_smoothing", 10.0)),
-                    random_state=int(getattr(self, "random_seed", 0) or 0),
-                    mi_gate=bool(getattr(self, "fe_local_mi_gate", False)),
-                    mi_gate_top_k=int(getattr(self, "fe_local_mi_gate_top_k", 20)),
-                    reject_sink=_te_reject_sink,
-                    # Multi-stat target encoding: beyond the per-cell mean(y), also emit std / skew / kurt of y per
-                    # category when requested. Helps when the category MODULATES a raw feature (heteroscedastic /
-                    # varying-slope): +0.04..+0.09 OOS R^2 in those regimes (bench_multistat_cell_encoding). Default
-                    # ("mean",) is byte-identical to the prior single-stat behaviour.
-                    stats=tuple(getattr(self, "fe_kfold_te_stats", ("mean",)) or ("mean",)),
-                )
-                # Guard against silent overlap with prior stages: the
-                # ``{col}__te`` suffix is dedicated to this stage so the
-                # collision pre-condition would require a user-supplied
-                # source column literally named ``{src}__te``. Drop any
-                # accidental name collision rather than overwrite.
-                _te_appended = [c for c in _te_appended if c not in _X_before_te_cols]
-                if _te_appended:
-                    X_acc = fe_append_columns(X_acc, fe_extract_columns(X_te, _te_appended))
-                    self.kfold_te_features_ = list(_te_appended)
-                    # Route through hybrid_orth_features_ so the end-of-fit
-                    # remap routes by-name selected items into
-                    # _engineered_recipes_ (Layer 23 routing path).
-                    self.hybrid_orth_features_ = list(self.hybrid_orth_features_ or []) + list(_te_appended)
-                    for _r in _te_recipes:
-                        if _r.name in _te_appended:
-                            _kfold_te_pre_recipes[_r.name] = _r
-                    if verbose:
-                        logger.info(
-                            "MRMR.fit kfold_te: appended %d engineered " "column(s): %s",
-                            len(_te_appended),
-                            _te_appended[:8],
-                        )
-            except Exception as _te_exc:
-                logger.warning(
-                    "MRMR.fit kfold_te FE raised %s: %s; continuing " "without target-encoded columns.",
-                    type(_te_exc).__name__,
-                    _te_exc,
-                )
+            # A polars frame is encoded natively (column by column, no whole-frame copy); pandas input is unchanged.
+            X_te, _te_appended, _te_recipes = kfold_target_encode_with_recipes(
+                X if hasattr(X, "schema") else fe_to_pandas(X), _y_for_te,
+                cat_cols=_te_cols,
+                n_folds=int(getattr(self, "fe_kfold_te_folds", 5)),
+                smoothing=float(getattr(self, "fe_kfold_te_smoothing", 10.0)),
+                random_state=int(getattr(self, "random_seed", 0) or 0),
+                mi_gate=bool(getattr(self, "fe_local_mi_gate", False)),
+                mi_gate_top_k=int(getattr(self, "fe_local_mi_gate_top_k", 20)),
+                reject_sink=_te_reject_sink,
+                # Multi-stat target encoding: beyond the per-cell mean(y), also emit std / skew / kurt of y per
+                # category when requested. Helps when the category MODULATES a raw feature (heteroscedastic /
+                # varying-slope): +0.04..+0.09 OOS R^2 in those regimes (bench_multistat_cell_encoding). Default
+                # ("mean",) is byte-identical to the prior single-stat behaviour.
+                stats=tuple(getattr(self, "fe_kfold_te_stats", ("mean",)) or ("mean",)),
+            )
+            # Guard against silent overlap with prior stages: the
+            # ``{col}__te`` suffix is dedicated to this stage so the
+            # collision pre-condition would require a user-supplied
+            # source column literally named ``{src}__te``. Drop any
+            # accidental name collision rather than overwrite.
+            _te_appended = [c for c in _te_appended if c not in _X_before_te_cols]
+            if _te_appended:
+                X_acc = fe_append_columns(X_acc, fe_extract_columns(X_te, _te_appended))
+                self.kfold_te_features_ = list(_te_appended)
+                # Route through hybrid_orth_features_ so the end-of-fit
+                # remap routes by-name selected items into
+                # _engineered_recipes_ (Layer 23 routing path).
+                self.hybrid_orth_features_ = list(self.hybrid_orth_features_ or []) + list(_te_appended)
+                for _r in _te_recipes:
+                    if _r.name in _te_appended:
+                        _kfold_te_pre_recipes[_r.name] = _r
+                if verbose:
+                    logger.info(
+                        "MRMR.fit kfold_te: appended %d engineered " "column(s): %s",
+                        len(_te_appended),
+                        _te_appended[:8],
+                    )
+        except Exception as _te_exc:
+            logger.warning(
+                "MRMR.fit kfold_te FE raised %s: %s; continuing " "without target-encoded columns.",
+                type(_te_exc).__name__,
+                _te_exc,
+            )
 
     # GROUPED AGGREGATION OVER QUANTILE-BINNED NUMERIC CELLS. Appends leak-safe per-cell
     # mean/std/skew/kurt of numeric columns grouped by quantile-binned cells of other numerics. Runs in the
