@@ -80,3 +80,27 @@ def test_to_int64_rounds_floats_and_keeps_exact_integers():
     assert ic.to_int64(np.array([4.98, 5.02, -3.02, -2.6])).tolist() == [5, 5, -3, -3]
     assert ic.to_int64(np.array([0.0, 7.0, -4.0])).tolist() == [0, 7, -4]
     assert ic.to_int64(np.array([1, 2, 3], dtype=np.int32)).tolist() == [1, 2, 3]
+
+
+def test_the_recommender_integral_test_is_the_shared_exact_test():
+    """The meta recommender's whole-number test agrees with the shared exact test on integer, whole-float, fractional and noisy columns."""
+    from mlframe.feature_selection.filters._meta_fe_recommender import _is_integral
+
+    rng = np.random.default_rng(4)
+    n = 3000
+    base = rng.integers(0, 12, n)
+    for col in (base, base.astype(float), base + 0.5, base + rng.normal(0, 0.05, n), rng.normal(size=n)):
+        assert _is_integral(col) == ic.is_integer_col(col)
+
+
+def test_a_noisy_integer_column_is_not_a_group_key_for_the_recommender():
+    """Noisy integer columns are integer-structure candidates for the modular and lattice sweeps, but grouping by noisy values is meaningless: the recommender must not read one as an int-as-cat group key or an entity column."""
+    from mlframe.feature_selection.filters._meta_fe_recommender import _fe_structure
+
+    rng = np.random.default_rng(5)
+    n = 2000
+    exact = pd.DataFrame({"k": rng.integers(0, 30, n).astype(float)})
+    noisy = pd.DataFrame({"k": rng.integers(0, 30, n) + rng.normal(0, 0.05, n)})
+    assert _fe_structure(exact)["int_as_cat_group"] is True
+    s = _fe_structure(noisy)
+    assert s["int_as_cat_group"] is False and s["entity_col"] is False
