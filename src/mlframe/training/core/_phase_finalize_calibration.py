@@ -293,6 +293,36 @@ def _conformal_finalize_structure(ctx: "TrainingContext") -> str:
     )
 
 
+def _recalibrate_one_entry(_entry, _i, _ttype, _tname, method, min_gain):
+    """Recalibrate one regression entry when the calib-slice gain beats ``min_gain``; return ``(key, record)`` when applied, else ``None``."""
+    from .._regression_calibration import RecalibratedRegressor, cv2_recalibration_gain, fit_point_recalibrator
+
+    _e = _entry[0] if isinstance(_entry, tuple) and _entry else _entry
+    if getattr(_e, "test_probs", None) is not None:  # regression only
+        return None
+    cp = _arr(getattr(_e, "calib_preds", None))
+    ct = _arr(getattr(_e, "calib_target", None))
+    model = getattr(_e, "model", None)
+    if cp is None or ct is None or model is None or cp.size != ct.size:
+        return None
+    gain = cv2_recalibration_gain(cp, ct, method)
+    if gain <= min_gain:
+        return None
+    g = fit_point_recalibrator(cp, ct, method)
+    try:
+        _e.model = RecalibratedRegressor(model, g)
+    except Exception as _wrap_err:
+        log_throttle(logger, "finalize_calib_regression_recal_wrap_failed", logging.WARNING, "[regression_recal] wrap failed for %s/%s: %s", _ttype, _tname, _wrap_err)
+        return None
+    # Re-stamp cached preds to the SHIPPED (recalibrated) values so conformal + any later reader agree.
+    for _attr in ("test_preds", "val_preds", "train_preds", "oof_preds", "calib_preds"):
+        _v = _arr(getattr(_e, _attr, None))
+        if _v is not None:
+            setattr(_e, _attr, g.transform(_v))
+    _mn = _entry_model_name(_e, _i)
+    return f"{_ttype}/{_tname}/{_mn}", {"method": method, "cv2_gain": float(gain), "metrics_are_pre_recalibration": True}
+
+
 def _recalibrate_regression_on_calib_slice(ctx: "TrainingContext") -> None:
     """Apply a monotone point recalibration ``g(yhat)~=E[y|yhat]`` to regression models when it measurably helps.
 
@@ -303,8 +333,6 @@ def _recalibrate_regression_on_calib_slice(ctx: "TrainingContext") -> None:
     per-split predictions are re-stamped to the recalibrated values so the conformal pass (which runs after)
     scores the SHIPPED predictor. Runs before ``_conformal_on_calib_slice``.
     """
-    from .._regression_calibration import RecalibratedRegressor, cv2_recalibration_gain, fit_point_recalibrator
-
     _cfg = getattr(ctx, "regression_calibration_config", None)
     method = str(getattr(_cfg, "point", "off")) if _cfg is not None else "off"
     _env = os.environ.get("MLFRAME_REGRESSION_RECALIBRATION", "").strip().lower()
@@ -322,30 +350,9 @@ def _recalibrate_regression_on_calib_slice(ctx: "TrainingContext") -> None:
             if not isinstance(_entries, list):
                 continue
             for _i, _entry in enumerate(_entries):
-                _e = _entry[0] if isinstance(_entry, tuple) and _entry else _entry
-                if getattr(_e, "test_probs", None) is not None:  # regression only
-                    continue
-                cp = _arr(getattr(_e, "calib_preds", None))
-                ct = _arr(getattr(_e, "calib_target", None))
-                model = getattr(_e, "model", None)
-                if cp is None or ct is None or model is None or cp.size != ct.size:
-                    continue
-                gain = cv2_recalibration_gain(cp, ct, method)
-                if gain <= min_gain:
-                    continue
-                g = fit_point_recalibrator(cp, ct, method)
-                try:
-                    _e.model = RecalibratedRegressor(model, g)
-                except Exception as _wrap_err:
-                    log_throttle(logger, "finalize_calib_regression_recal_wrap_failed", logging.WARNING, "[regression_recal] wrap failed for %s/%s: %s", _ttype, _tname, _wrap_err)
-                    continue
-                # Re-stamp cached preds to the SHIPPED (recalibrated) values so conformal + any later reader agree.
-                for _attr in ("test_preds", "val_preds", "train_preds", "oof_preds", "calib_preds"):
-                    _v = _arr(getattr(_e, _attr, None))
-                    if _v is not None:
-                        setattr(_e, _attr, g.transform(_v))
-                _mn = _entry_model_name(_e, _i)
-                applied[f"{_ttype}/{_tname}/{_mn}"] = {"method": method, "cv2_gain": float(gain), "metrics_are_pre_recalibration": True}
+                _res = _recalibrate_one_entry(_entry, _i, _ttype, _tname, method, min_gain)
+                if _res is not None:
+                    applied[_res[0]] = _res[1]
     if applied:
         ctx.metadata["regression_recalibration"] = applied
         if getattr(ctx, "verbose", 0):

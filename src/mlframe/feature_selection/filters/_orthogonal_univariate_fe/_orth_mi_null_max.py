@@ -123,7 +123,8 @@ def _null_max_strict_gpu(X: np.ndarray, y: np.ndarray, permutations: "list[np.nd
             mi = _plugin_mi_classif_batch_cuda_resident(Xd, yd, int(nbins), y_min=y_min, n_classes=n_classes, candidate_cache=cache)
             out[b] = float(np.nanmax(np.asarray(mi, dtype=np.float64)))  # Intentional float64: statistic vector (MI), exact permutation ties
         return out
-    except (ImportError, *be._device_error_classes()):
+    except (ImportError, *be._device_error_classes()) as exc:
+        logger.warning("_null_max_strict_gpu: GPU null-max unavailable, falling back to the CPU path: %s", exc)
         return None
 
 

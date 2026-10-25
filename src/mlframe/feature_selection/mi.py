@@ -108,7 +108,7 @@ def _validate_bin_codes(data: np.ndarray, fn_name: str) -> np.ndarray:
 
 @njit(parallel=True, cache=True)
 def _grok_compute_mutual_information_kernel(
-    data: np.ndarray, target_indices: np.ndarray | list[int], n_bins: int = 15, hist_dtype=np.int64, out_dtype=np.float64
+    data: np.ndarray, target_indices: np.ndarray | list[int], n_bins: int = 15, hist_dtype=np.int64, out_dtype=np.float64  # Intentional float64: numba kernel body buffer or scalar (crit helper cannot run inside njit)
 ) -> np.ndarray:
     """Parallel ``(K, n_columns)`` MI matrix: every column of ``data`` against each of the ``target_indices`` targets, via ``grok_mutual_information``."""
     n_samples, n_columns = data.shape
@@ -203,7 +203,7 @@ def _chatgpt_mi_pair(x: np.ndarray, y: np.ndarray, n_bins: int = 15, hist_dtype=
 # All features vs. one target (parallel over the wide axis)
 @njit(parallel=True, fastmath=USE_FASTMATH, cache=True)
 def _chatgpt_mi_one_target(
-    data: np.ndarray, target_idx: int, n_bins: int = 15, hist_dtype=np.int64, out_dtype=np.float64
+    data: np.ndarray, target_idx: int, n_bins: int = 15, hist_dtype=np.int64, out_dtype=np.float64  # Intentional float64: numba kernel body buffer or scalar (crit helper cannot run inside njit)
 ) -> np.ndarray:  # shape (n_samples, n_cols), int8
     """Vector of MI(target, every feature)."""
     _n_rows, n_cols = data.shape
@@ -257,7 +257,7 @@ def chatgpt_compute_mutual_information(
 
 @njit(parallel=True, fastmath=USE_FASTMATH, cache=True)
 def _deepseek_compute_mutual_information_kernel(
-    data: np.ndarray, target_indices: np.ndarray | list[int], n_bins: int = 15, hist_dtype=np.int64, out_dtype=np.float64
+    data: np.ndarray, target_indices: np.ndarray | list[int], n_bins: int = 15, hist_dtype=np.int64, out_dtype=np.float64  # Intentional float64: numba kernel body buffer or scalar (crit helper cannot run inside njit)
 ) -> np.ndarray:
     """Parallel ``(n_targets, n_columns)`` MI matrix: every column of ``data`` against each of the ``target_indices`` targets (DeepSeek kernel variant, fastmath-enabled)."""
     n_samples, n_columns = data.shape

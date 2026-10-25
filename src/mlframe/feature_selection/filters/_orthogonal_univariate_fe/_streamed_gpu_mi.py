@@ -74,7 +74,7 @@ def _host_free_bytes() -> int:
         import psutil
         value = int(psutil.virtual_memory().available)
     except Exception as _exc:
-        logger.debug("free-memory probe failed, assuming 2 GiB: %s", _exc)
+        logger.warning("free-memory probe failed, assuming 2 GiB: %s", _exc)
         value = 2 * 1024**3
     _host_free_cache = (now, value)
     return value

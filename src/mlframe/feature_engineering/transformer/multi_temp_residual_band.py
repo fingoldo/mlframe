@@ -40,6 +40,19 @@ _DEFAULT_TEMPS: tuple[float, ...] = (0.3, 1.0, 3.0)
 from ._baseline_oof import fit_baseline_predict_oof as _fit_baseline_predict
 
 
+def _residual_band_masks(residuals: np.ndarray, quantiles: np.ndarray, n_bands: int) -> list[np.ndarray]:
+    """Return one boolean mask per quantile band of ``residuals``; the first band is closed at the bottom and the last band open at the top."""
+    masks: list[np.ndarray] = []
+    for b in range(n_bands):
+        if b == 0:
+            masks.append(residuals <= quantiles[b + 1])
+        elif b == n_bands - 1:
+            masks.append(residuals > quantiles[b])
+        else:
+            masks.append((residuals > quantiles[b]) & (residuals <= quantiles[b + 1]))
+    return masks
+
+
 def compute_multi_temp_residual_band_features(
     X_train: np.ndarray,
     y_train: np.ndarray,
@@ -85,14 +98,7 @@ def compute_multi_temp_residual_band_features(
         )
         residuals = np.abs(y_t - preds_tr).astype(np.float32)
         quantiles = np.quantile(residuals, np.linspace(0.0, 1.0, effective_n_bands + 1))
-        masks = []
-        for b in range(effective_n_bands):
-            if b == 0:
-                masks.append(residuals <= quantiles[b + 1])
-            elif b == effective_n_bands - 1:
-                masks.append(residuals > quantiles[b])
-            else:
-                masks.append((residuals > quantiles[b]) & (residuals <= quantiles[b + 1]))
+        masks = _residual_band_masks(residuals, quantiles, effective_n_bands)
 
         # Global fallback for a band that ends up empty (tied residual values collapsing a quantile
         # boundary) -- a phantom band left at 0.0 would otherwise sit near the origin in standardised

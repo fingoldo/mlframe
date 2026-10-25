@@ -57,6 +57,7 @@ from typing import Optional, Sequence
 import numpy as np
 from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 
+
 from mlframe.feature_selection.filters._y_encoding import encode_y_for_classif_mi
 
 from ._pairwise_modular_fe import _mi
@@ -132,7 +133,7 @@ def apply_row_argmax(X: pd.DataFrame | pl.DataFrame, cols: Sequence[str]) -> np.
     """Replay one row-argmax column: the integer index (0..k-1) of the row-maximum over the source columns.
 
     Pure function of X (no y, no fitted state) -> transform() is leak-free + deterministic + train/test bit-identical. Output
-    float64 in ``{0, .., k-1}``; ties resolve to the first max (numpy ``argmax`` semantics), stable across fit / replay."""
+    double in ``{0, .., k-1}``; ties resolve to the first max (numpy ``argmax`` semantics), stable across fit / replay."""
     if len(cols) < 2:
         raise ValueError(f"row-argmax needs >= 2 source columns; got {tuple(cols)!r}")
     stk = np.stack([np.asarray(X[c], dtype=_crit_np_dtype()) for c in cols], axis=1)
@@ -279,7 +280,7 @@ def _resident_cand(feat: np.ndarray, role):
 
 def _argmax_resident(arrs, tri):
     """DEVICE-BORN the row-argmax candidate ``argmax_k(operand_k)`` from the RESIDENT operand columns, returning
-    the resident float64 index column, or ``None`` when residency is off / any operand is non-finite / cupy faults
+    the resident double index column, or ``None`` when residency is off / any operand is non-finite / cupy faults
     (the caller then takes the host ``np.argmax`` + one-shot resident upload).
 
     ``cp.argmax`` returns the FIRST occurrence of the max along the axis - identical to ``np.argmax`` - and the
@@ -298,8 +299,8 @@ def _argmax_resident(arrs, tri):
             _h = np.ascontiguousarray(np.asarray(arrs[c], dtype=_crit_np_dtype()))
             if not all_finite_cached(_h):
                 return None  # host np.argmax NaN semantics differ -> keep the host path for a non-finite operand
-            _ops.append(resident_operand(_h, ("argmax_op", str(c)), dtype=cp.float64))
-        return row_argmax_cm(cp, _ops)  # first-max index as float64, one launch (cp.argmax over the interleaved stack ran a 15 ms cub reduction)
+            _ops.append(resident_operand(_h, ("argmax_op", str(c)), dtype=_crit_np_dtype()))
+        return row_argmax_cm(cp, _ops)  # first-max index as double, one launch (cp.argmax over the interleaved stack ran a 15 ms cub reduction)
     except Exception:
         logger.debug("device-born row-argmax failed; host fallback", exc_info=True)
         return None
@@ -576,7 +577,7 @@ def _rank_and_prune(X, cols: Sequence[str], yi: np.ndarray, nbins: int, k_gate: 
         if _grs():
             import cupy as _cp
             from ._fe_resident_operands import assemble_resident_matrix, resident_operand
-            _mat_dev = assemble_resident_matrix(mat, cols, ("gate_prune_raw", tuple(cols)), dtype=_cp.float64)
+            _mat_dev = assemble_resident_matrix(mat, cols, ("gate_prune_raw", tuple(cols)), dtype=_crit_np_dtype())
             _yi_dev = resident_operand(np.ascontiguousarray(np.asarray(yi)).astype(np.int64), "y_mi_classif", dtype=np.int64)
             _gate_dev = (_cp, _mat_dev, _yi_dev, _mat_dev[:, probe_idx])
     except Exception as _gate_dev_exc:

@@ -65,6 +65,8 @@ import os
 
 import numpy as np
 
+from mlframe.feature_selection.filters._fe_gpu_batch._devices import assert_kernel_buffers, crit_float_dtype
+
 from mlframe.feature_selection.filters._safe_scale import guarded_scale
 
 
@@ -434,9 +436,9 @@ _FULL_BINARY = (
 
 _PREWARP_TRANSFORM_SRC = r"""
 extern "C" __global__
-void prewarp_transform(const double* __restrict__ x, const int code, const double lo, const double span,
+void prewarp_transform(const {REAL}* __restrict__ x, const int code, const double lo, const double span,
                        const double mean, const double std_safe, const double clip_lo, const double clip_hi,
-                       const int has_clip, const long long n, double* __restrict__ out) {
+                       const int has_clip, const long long n, {REAL}* __restrict__ out) {
     long long i = (long long)blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= n) return;
     double v = x[i], z;
@@ -451,20 +453,25 @@ _PREWARP_TRANSFORM_KERNEL = None
 _PREWARP_CODE = {"hermite": 0, "legendre": 1, "chebyshev": 1, "laguerre": 2}
 
 
-def _get_prewarp_transform_kernel(cp):
-    """Lazily compiles and caches the fused prewarp min-max/z-score/shift+clip ``RawKernel`` (module-level singleton; pickle-safe)."""
-    global _PREWARP_TRANSFORM_KERNEL
-    if _PREWARP_TRANSFORM_KERNEL is None:
-        _PREWARP_TRANSFORM_KERNEL = cp.RawKernel(_PREWARP_TRANSFORM_SRC, "prewarp_transform")
-    return _PREWARP_TRANSFORM_KERNEL
+_PREWARP_TRANSFORM_KERNELS: dict = {}
+
+
+def _get_prewarp_transform_kernel(cp, real_t: str = "double"):
+    """Lazily compiles and caches the fused prewarp min-max/z-score/shift+clip ``RawKernel`` per buffer element type ``real_t`` (module-level; pickle-safe)."""
+    kern = _PREWARP_TRANSFORM_KERNELS.get(real_t)
+    if kern is None:
+        kern = cp.RawKernel(_PREWARP_TRANSFORM_SRC.replace("{REAL}", real_t), "prewarp_transform")
+        _PREWARP_TRANSFORM_KERNELS[real_t] = kern
+    return kern
 
 
 def _gpu_apply_prewarp(cp, x, spec):
     """Device port of ``hermite_fe.apply_operand_prewarp``. ``x`` is a device array (native float dtype);
-    returns a device float64 column. Raises for any basis/path not ported so the caller falls back to the
+    returns a device double column. Raises for any basis/path not ported so the caller falls back to the
     host copy."""
     basis = str(spec["basis"])
-    xf = x.astype(cp.float64, copy=False)  # Intentional float64: GPU operand cast; kernel contract is float64
+    buf_t = crit_float_dtype()
+    xf = x.astype(buf_t, copy=False)
     if basis == "fourier_adaptive":
         pp = dict(spec["preprocess"])
         if str(pp.get("arg", "linear")) == "quadratic":
@@ -514,9 +521,11 @@ def _gpu_apply_prewarp(cp, x, spec):
     try:
         xfc = cp.ascontiguousarray(xf)
         nrow = int(xfc.size)
-        z = cp.empty(nrow, dtype=cp.float64)  # Intentional float64: GPU output buffer; kernel contract is float64
+        z = cp.empty(nrow, dtype=buf_t)
         threads = 256
-        _get_prewarp_transform_kernel(cp)(
+        _real = "float" if buf_t == cp.float32 else "double"
+        assert_kernel_buffers("prewarp_transform", _real, x=xfc, out=z)
+        _get_prewarp_transform_kernel(cp, _real)(
             ((nrow + threads - 1) // threads,),
             (threads,),
             (

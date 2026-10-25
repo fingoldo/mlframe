@@ -200,13 +200,13 @@ def _expanding_stat_past_only_njit(sorted_vals, group_codes, stat_code, n_groups
     per-entity code) replace the Python dicts of the reference loop - same running arithmetic, bit-identical incl NaN.
     ``stat_code``: 0=count 1=mean 2=std 3=min 4=max. Not prange (running accumulator is order-dependent)."""
     n = sorted_vals.size
-    out = np.full(n, np.nan, dtype=np.float64)
+    out = np.full(n, np.nan, dtype=np.float64)  # Intentional float64: numba kernel body buffer or scalar (crit helper cannot run inside njit)
     n_seen = np.zeros(n_groups, dtype=np.int64)
-    run_sum = np.zeros(n_groups, dtype=np.float64)
-    run_mean = np.zeros(n_groups, dtype=np.float64)
-    run_m2 = np.zeros(n_groups, dtype=np.float64)
-    run_min = np.full(n_groups, np.inf, dtype=np.float64)
-    run_max = np.full(n_groups, -np.inf, dtype=np.float64)
+    run_sum = np.zeros(n_groups, dtype=np.float64)  # Intentional float64: numba kernel body buffer or scalar (crit helper cannot run inside njit)
+    run_mean = np.zeros(n_groups, dtype=np.float64)  # Intentional float64: numba kernel body buffer or scalar (crit helper cannot run inside njit)
+    run_m2 = np.zeros(n_groups, dtype=np.float64)  # Intentional float64: numba kernel body buffer or scalar (crit helper cannot run inside njit)
+    run_min = np.full(n_groups, np.inf, dtype=np.float64)  # Intentional float64: numba kernel body buffer or scalar (crit helper cannot run inside njit)
+    run_max = np.full(n_groups, -np.inf, dtype=np.float64)  # Intentional float64: numba kernel body buffer or scalar (crit helper cannot run inside njit)
     for i in range(n):
         g = group_codes[i]
         cnt = n_seen[g]
@@ -367,8 +367,8 @@ def _lag_ring_buffer_njit(sorted_vals, group_codes, lags_arr, n_groups):
     for k in range(n_lags):
         if lags_arr[k] > max_lag:
             max_lag = lags_arr[k]
-    out = np.full((n_lags, n), np.nan, dtype=np.float64)
-    ring = np.zeros((n_groups, max_lag), dtype=np.float64)
+    out = np.full((n_lags, n), np.nan, dtype=np.float64)  # Intentional float64: numba kernel body buffer or scalar (crit helper cannot run inside njit)
+    ring = np.zeros((n_groups, max_lag), dtype=np.float64)  # Intentional float64: numba kernel body buffer or scalar (crit helper cannot run inside njit)
     cnt = np.zeros(n_groups, dtype=np.int64)
     for i in range(n):
         g = group_codes[i]

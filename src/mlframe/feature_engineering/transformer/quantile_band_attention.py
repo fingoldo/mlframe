@@ -35,6 +35,20 @@ from ._utils import require_seed, validate_numeric_input, softmax
 logger = logging.getLogger(__name__)
 
 
+def _quantile_band_masks(y_t: np.ndarray, n_bands: int) -> list[np.ndarray]:
+    """Return one boolean mask per regression quantile band of ``y_t``; the first band is closed at the bottom and the last band open at the top."""
+    quantiles = np.quantile(y_t, np.linspace(0.0, 1.0, n_bands + 1))
+    masks: list[np.ndarray] = []
+    for b in range(n_bands):
+        if b == 0:
+            masks.append(y_t <= quantiles[b + 1])
+        elif b == n_bands - 1:
+            masks.append(y_t > quantiles[b])
+        else:
+            masks.append((y_t > quantiles[b]) & (y_t <= quantiles[b + 1]))
+    return masks
+
+
 def compute_quantile_band_attention_features(
     X_train: np.ndarray,
     y_train: np.ndarray,
@@ -75,15 +89,7 @@ def compute_quantile_band_attention_features(
         if task == "binary":
             masks = [y_t > 0.5, y_t <= 0.5]
         else:
-            quantiles = np.quantile(y_t, np.linspace(0.0, 1.0, effective_n_bands + 1))
-            masks = []
-            for b in range(effective_n_bands):
-                if b == 0:
-                    masks.append(y_t <= quantiles[b + 1])
-                elif b == effective_n_bands - 1:
-                    masks.append(y_t > quantiles[b])
-                else:
-                    masks.append((y_t > quantiles[b]) & (y_t <= quantiles[b + 1]))
+            masks = _quantile_band_masks(y_t, effective_n_bands)
         # Compute per-band centroid + y stats.
         band_centroids = np.zeros((effective_n_bands, Xt_s.shape[1]), dtype=np.float32)
         band_y_mean = np.zeros(effective_n_bands, dtype=np.float32)

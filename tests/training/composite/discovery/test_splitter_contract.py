@@ -12,7 +12,6 @@ import pandas as pd
 import pytest
 
 from mlframe.training.composite.discovery import _auto_chain, _eval_waic, _splitter
-from mlframe.training.composite.discovery import _tiny_rerank
 from mlframe.training.composite.discovery import shared as _shared
 
 
@@ -90,12 +89,12 @@ def test_one_rerank_scores_raw_and_every_spec_under_one_fold_scheme(monkeypatch)
     from mlframe.training.composite import CompositeTargetDiscovery
     from mlframe.training.configs import CompositeTargetDiscoveryConfig
 
-    from mlframe.training.composite.discovery import _tiny_rerank_process
+    from mlframe.training.composite.discovery import _tiny_rerank_blocks, _tiny_rerank_process
 
     seen: list[bool] = []
-    # The raw baseline is scored from _tiny_rerank; each spec through _tiny_rerank_process.score_spec, which calls the CV function
+    # The raw baseline is scored from _tiny_rerank_blocks; each spec through _tiny_rerank_process.score_spec, which calls the CV function
     # bound at its own module level (a patch on _screening_tiny would not reach it).
-    for module, name in ((_tiny_rerank, "_tiny_cv_rmse_raw_y"), (_tiny_rerank, "_tiny_cv_rmse_raw_y_multiseed"),
+    for module, name in ((_tiny_rerank_blocks, "_tiny_cv_rmse_raw_y"), (_tiny_rerank_blocks, "_tiny_cv_rmse_raw_y_multiseed"),
                          (_tiny_rerank_process, "_tiny_cv_rmse_y_scale_multiseed")):
         real = getattr(module, name)
 

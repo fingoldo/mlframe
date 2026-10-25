@@ -396,6 +396,66 @@ def _maybe_apply_posthoc_calibration(
     return model
 
 
+def _assert_calib_not_test(entry, _cy):
+    """Raise when the calib slice is identical to the model's stamped test slice (a wiring mistake that would fit on the holdout)."""
+    import numpy as _np
+
+    # Hard leak guard: calib must not be the honest test slice. The base model never trained on calib
+    # (carved from train), so the remaining hazard is a caller wiring calib == test by mistake.
+    _test_target = getattr(entry, "test_target", None)
+    if _test_target is not None:
+        _tt = _np.asarray(_test_target.values if hasattr(_test_target, "values") else _test_target)
+        if _tt.shape == _cy.shape and _np.array_equal(_tt, _cy):
+            raise ValueError(
+                "calibrate_namespace_model: calib_target is identical to the model's test_target; "
+                "refusing to fit the calibrator on the honest holdout slice."
+            )
+
+
+def _fit_calibrated_wrapper(entry, base, _cp, _cy, target_type, _is_multi):
+    """Fit the isotonic calibrator on the calib slice and wrap ``base`` in the matching post-hoc wrapper."""
+    wrapped: Any
+    if _is_multi:
+        from .configs import TargetTypes
+        _ttype = target_type if target_type is not None else getattr(entry, "target_type", None)
+        if isinstance(_ttype, str):
+            _resolved_ttype = getattr(TargetTypes, _ttype, None)
+            _ttype = _resolved_ttype if _resolved_ttype is not None else (TargetTypes.MULTILABEL_CLASSIFICATION if _cy.ndim == 2 else TargetTypes.MULTICLASS_CLASSIFICATION)
+        if _ttype is None:
+            _ttype = TargetTypes.MULTILABEL_CLASSIFICATION if _cy.ndim == 2 else TargetTypes.MULTICLASS_CLASSIFICATION
+        calibrator = _PerClassIsotonicCalibrator.fit(_cp, _cy, _ttype, classes=getattr(base, "classes_", None))
+        wrapped = _PostHocMultiCalibratedModel(base, calibrator, _ttype, classes_=getattr(base, "classes_", None))
+    else:
+        _pos = _cp[:, 1] if _cp.ndim == 2 else _cp.ravel()
+        iso = IsotonicRegression(out_of_bounds="clip", y_min=0.0, y_max=1.0)
+        iso.fit(_pos, _cy.ravel())
+        wrapped = _PostHocCalibratedModel(base, iso)
+    return wrapped
+
+
+def _stamp_calibrated_probs(entry, base, wrapped, _is_multi):
+    """Stamp ``calibrated_<split>_probs`` on the entry and base model for the ensembling read-side."""
+    import numpy as _np
+
+    # Stamp calibrated probs for the existing ensembling read-side (_select_member_probs).
+    for _split in ("val", "test"):
+        _raw = getattr(entry, f"{_split}_probs", None)
+        if _raw is None:
+            continue
+        try:
+            _cal = wrapped._calibrator.predict_proba(_np.asarray(_raw)) if _is_multi else None
+            if not _is_multi:
+                _p1 = _np.clip(wrapped._calibrator.predict(_np.asarray(_raw)[:, 1] if _np.asarray(_raw).ndim == 2 else _np.asarray(_raw).ravel()), 0.0, 1.0)
+                _cal = _np.column_stack([1.0 - _p1, _p1])
+            for _obj in (entry, base):
+                try:
+                    setattr(_obj, f"calibrated_{_split}_probs", _cal)
+                except (AttributeError, TypeError):  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
+                    pass
+        except Exception as _stamp_err:
+            log_throttle(logger, "calibrate_namespace_model_probs_stamp_failed", logging.WARNING, "calibrate_namespace_model: %s-probs stamp failed: %s", _split, _stamp_err)
+
+
 def calibrate_namespace_model(entry: Any, *, target_type: "TargetTypes | None" = None) -> bool:
     """Fit a post-hoc isotonic calibrator on a per-target model's DISJOINT calib slice and wrap it.
 
@@ -422,16 +482,7 @@ def calibrate_namespace_model(entry: Any, *, target_type: "TargetTypes | None" =
     if _cp.shape[0] == 0 or _cp.shape[0] != _cy.shape[0]:
         raise ValueError(f"calibrate_namespace_model: calib_probs/calib_target row mismatch {_cp.shape[0]} vs {_cy.shape[0]}")
 
-    # Hard leak guard: calib must not be the honest test slice. The base model never trained on calib
-    # (carved from train), so the remaining hazard is a caller wiring calib == test by mistake.
-    _test_target = getattr(entry, "test_target", None)
-    if _test_target is not None:
-        _tt = _np.asarray(_test_target.values if hasattr(_test_target, "values") else _test_target)
-        if _tt.shape == _cy.shape and _np.array_equal(_tt, _cy):
-            raise ValueError(
-                "calibrate_namespace_model: calib_target is identical to the model's test_target; "
-                "refusing to fit the calibrator on the honest holdout slice."
-            )
+    _assert_calib_not_test(entry, _cy)
 
     base = getattr(entry, "model", None)
     if base is None:
@@ -439,39 +490,9 @@ def calibrate_namespace_model(entry: Any, *, target_type: "TargetTypes | None" =
 
     wrapped: Any
     _is_multi = _cp.ndim == 2 and _cp.shape[1] != 2
-    if _is_multi:
-        from .configs import TargetTypes
-        _ttype = target_type if target_type is not None else getattr(entry, "target_type", None)
-        if isinstance(_ttype, str):
-            _resolved_ttype = getattr(TargetTypes, _ttype, None)
-            _ttype = _resolved_ttype if _resolved_ttype is not None else (TargetTypes.MULTILABEL_CLASSIFICATION if _cy.ndim == 2 else TargetTypes.MULTICLASS_CLASSIFICATION)
-        if _ttype is None:
-            _ttype = TargetTypes.MULTILABEL_CLASSIFICATION if _cy.ndim == 2 else TargetTypes.MULTICLASS_CLASSIFICATION
-        calibrator = _PerClassIsotonicCalibrator.fit(_cp, _cy, _ttype, classes=getattr(base, "classes_", None))
-        wrapped = _PostHocMultiCalibratedModel(base, calibrator, _ttype, classes_=getattr(base, "classes_", None))
-    else:
-        _pos = _cp[:, 1] if _cp.ndim == 2 else _cp.ravel()
-        iso = IsotonicRegression(out_of_bounds="clip", y_min=0.0, y_max=1.0)
-        iso.fit(_pos, _cy.ravel())
-        wrapped = _PostHocCalibratedModel(base, iso)
+    wrapped = _fit_calibrated_wrapper(entry, base, _cp, _cy, target_type, _is_multi)
 
-    # Stamp calibrated probs for the existing ensembling read-side (_select_member_probs).
-    for _split in ("val", "test"):
-        _raw = getattr(entry, f"{_split}_probs", None)
-        if _raw is None:
-            continue
-        try:
-            _cal = wrapped._calibrator.predict_proba(_np.asarray(_raw)) if _is_multi else None
-            if not _is_multi:
-                _p1 = _np.clip(wrapped._calibrator.predict(_np.asarray(_raw)[:, 1] if _np.asarray(_raw).ndim == 2 else _np.asarray(_raw).ravel()), 0.0, 1.0)
-                _cal = _np.column_stack([1.0 - _p1, _p1])
-            for _obj in (entry, base):
-                try:
-                    setattr(_obj, f"calibrated_{_split}_probs", _cal)
-                except (AttributeError, TypeError):  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
-                    pass
-        except Exception as _stamp_err:
-            log_throttle(logger, "calibrate_namespace_model_probs_stamp_failed", logging.WARNING, "calibrate_namespace_model: %s-probs stamp failed: %s", _split, _stamp_err)
+    _stamp_calibrated_probs(entry, base, wrapped, _is_multi)
 
     try:
         entry.model = wrapped

@@ -122,6 +122,27 @@ METRICS_TO_SHOW = {
 }
 
 
+def _competing_prob_pos(competing_vars: list, plot_idx: int, X: "pd.DataFrame | np.ndarray | None") -> tuple | None:
+    """Resolve one competing-probs group to its positive-class probabilities and legend label; ``None`` when the group is empty."""
+    if len(competing_vars[plot_idx]) > 0:
+        var_name = competing_vars[plot_idx]
+        if X is None:
+            raise ValueError("make_custom_calibration_plot: competing_probs given but X is None")
+        prob_pos = X[var_name]
+    else:
+        named_vars = [var for var in competing_vars if len(var) > 0]
+        if not named_vars:
+            return None
+        if X is None:
+            raise ValueError("make_custom_calibration_plot: competing_probs given but X is None")
+        prob_pos = 1.0 - X[named_vars].sum(axis=1)
+        var_name = named_vars[0]  # any of them
+
+    if type(prob_pos) is not np.ndarray:
+        prob_pos = prob_pos.values
+    return prob_pos, "_".join(var_name.split("_")[1:])
+
+
 def make_custom_calibration_plot(
     y: np.ndarray,
     probs: np.ndarray,
@@ -195,27 +216,14 @@ def make_custom_calibration_plot(
         # Same axis, competing probs, if any
 
         for competing_vars in competing_probs:
-            if len(competing_vars[plot_idx]) > 0:
-                var_name = competing_vars[plot_idx]
-                if X is None:
-                    raise ValueError("make_custom_calibration_plot: competing_probs given but X is None")
-                prob_pos = X[var_name]
-            else:
-                named_vars = [var for var in competing_vars if len(var) > 0]
-                if not named_vars:
-                    continue  # an all-empty competing-probs group has nothing to plot -> skip (was IndexError)
-                if X is None:
-                    raise ValueError("make_custom_calibration_plot: competing_probs given but X is None")
-                prob_pos = 1.0 - X[named_vars].sum(axis=1)
-                var_name = named_vars[0]  # any of them
-
-            if type(prob_pos) is not np.ndarray:
-                prob_pos = prob_pos.values
-            var_name = "_".join(var_name.split("_")[1:])
+            resolved = _competing_prob_pos(competing_vars, plot_idx, X)
+            if resolved is None:
+                continue  # an all-empty competing-probs group has nothing to plot -> skip (was IndexError)
+            prob_pos, legend_label = resolved
             show_classifier_calibration(
                 y_true,
                 prob_pos,
-                legend_label=var_name,
+                legend_label=legend_label,
                 ax=None if skip_plotting else (ax_probs if nclasses == 1 else ax_probs[plot_idx]),
                 title=title,
                 append=True,
@@ -322,6 +330,38 @@ def estimate_calibration_quality_binned(
     )
 
 
+def _plot_calibration_interval(ax: Any, x: Any, y: Any, performances: dict, legend_label: str | None, connected: bool, alpha: float, marker_size: int, metrics_digits: int) -> None:
+    """Draw one interval's predicted-vs-observed points, labelled with its rounded metrics."""
+    metrics_formatted = " ".join([f"{metric_name}: {round(metric_value,metrics_digits)}" for metric_name, metric_value in performances.items()])
+
+    if legend_label:
+        metrics_formatted = legend_label + ": " + metrics_formatted
+
+    if connected:
+        ax.plot(x, y, alpha=alpha, label=metrics_formatted, markersize=marker_size, marker="o")
+    else:
+        ax.scatter(x, y, alpha=alpha, label=metrics_formatted, s=marker_size)
+
+
+def _finish_calibration_axes(ax: Any, title: str, nbins: int, n_points: int, x_min: float, x_max: float, append: bool, is_profit: bool) -> None:
+    """Add the legend, and on the first plot the perfect-calibration diagonal, labels and profit zero lines."""
+    # y_min, y_max = np.min(y), np.max(y)
+    ax.legend(loc="lower right")
+    if not append:
+        # Set general params for the first time
+        ax.plot([x_min, x_max], [x_min, x_max], "g--", label="Perfect")
+        try:
+            ax.set_xlabel("Expected")
+            ax.set_ylabel("Real")
+            ax.set_title("%s, %d bins, %d points" % (title, nbins, n_points))
+        except (RuntimeError, ValueError, AttributeError):
+            pass
+
+        if is_profit:
+            ax.axhline(0.0, color="g", linestyle="--")
+            ax.axvline(0.0, color="g", linestyle="--")
+
+
 def show_classifier_calibration(
     y_true: np.ndarray,
     y_pred: np.ndarray,
@@ -386,15 +426,7 @@ def show_classifier_calibration(
         all_performances.append(performances)
 
         if not skip_plotting:
-            metrics_formatted = " ".join([f"{metric_name}: {round(metric_value,metrics_digits)}" for metric_name, metric_value in performances.items()])
-
-            if legend_label:
-                metrics_formatted = legend_label + ": " + metrics_formatted
-
-            if connected:
-                ax.plot(x, y, alpha=alpha, label=metrics_formatted, markersize=marker_size, marker="o")
-            else:
-                ax.scatter(x, y, alpha=alpha, label=metrics_formatted, s=marker_size)
+            _plot_calibration_interval(ax, x, y, performances, legend_label, connected, alpha, marker_size, metrics_digits)
             all_x.append(np.asarray(x))
             all_y.append(np.asarray(y))
         lo = r
@@ -407,21 +439,7 @@ def show_classifier_calibration(
         # diagonal that visually mis-spans the earlier intervals' points.
         x_min = min(float(np.min(a)) for a in all_x)
         x_max = max(float(np.max(a)) for a in all_x)
-        # y_min, y_max = np.min(y), np.max(y)
-        ax.legend(loc="lower right")
-        if not append:
-            # Set general params for the first time
-            ax.plot([x_min, x_max], [x_min, x_max], "g--", label="Perfect")
-            try:
-                ax.set_xlabel("Expected")
-                ax.set_ylabel("Real")
-                ax.set_title("%s, %d bins, %d points" % (title, nbins, len(y_true)))
-            except (RuntimeError, ValueError, AttributeError):
-                pass
-
-            if is_profit:
-                ax.axhline(0.0, color="g", linestyle="--")
-                ax.axvline(0.0, color="g", linestyle="--")
+        _finish_calibration_axes(ax, title, nbins, len(y_true), x_min, x_max, append, is_profit)
     if show_table:
         if is_profit:
             return pd.DataFrame(data, columns=["Predicted ROI", "TotalWinnings", "NBets", "Real ROI"])

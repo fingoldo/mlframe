@@ -79,7 +79,7 @@ def split_into_train_test(
     train/test slabs are taken from the NUMPY matrix by integer position instead of from the pandas frame.
     This feeds the inner estimator numpy directly so it skips the per-fit/per-predict ``_data_from_pandas``
     reconversion + the per-column dtype-validation storm (the RFECV fit hotspot on LightGBM). The y-side
-    slicing is unchanged. The numpy matrix is float64 (bit-identical to pandas for the all-numeric case;
+    slicing is unchanged. The numpy matrix is double (bit-identical to pandas for the all-numeric case;
     float32 would alter LightGBM splits), so the selection is unaffected. Only the X-DataFrame branch
     consults ``X_estimator``; the polars / ndarray branches are untouched.
     """
@@ -216,6 +216,88 @@ def store_averaged_cv_scores(pos: int, scores: list, evaluated_scores_mean: dict
     return scores_mean, scores_std, final_score, was_stored
 
 
+def _pick_next_nfeatures(*, top_predictors_search_method, remaining, n_total, evaluated_scores_mean, dichotomic_epsilon, dichotomic_step, rng, Optimizer):
+    """Choose the next feature-count candidate according to ``top_predictors_search_method``; ``None`` when the optimiser has nothing to offer."""
+    if top_predictors_search_method == OptimumSearch.ExhaustiveRandom:
+        # use the threaded seeded rng (np.random.default_rng); module-global random is unseeded -> not reproducible.
+        if rng is not None and hasattr(rng, "integers"):
+            return int(remaining[int(rng.integers(0, len(remaining)))])
+        else:  # nosec B311 - non-cryptographic sampling/jitter, not a security-sensitive use
+            return int(random.choice(remaining))  # nosec B311 - non-crypto sampling/jitter, not used for tokens/secrets
+    if top_predictors_search_method == OptimumSearch.ModelBasedHeuristic:
+        return Optimizer.suggest_candidate()
+    if top_predictors_search_method == OptimumSearch.ExhaustiveDichotomic:
+        return _suggest_dichotomic(
+            remaining=sorted(remaining),
+            evaluated_scores_mean=evaluated_scores_mean,
+            n_total=n_total,
+            epsilon=float(dichotomic_epsilon),
+            rng=rng,
+            step=dichotomic_step,
+        )
+    if top_predictors_search_method == OptimumSearch.ScipyLocal:
+        return _suggest_scipy_local(
+            remaining=remaining,
+            evaluated_scores_mean=evaluated_scores_mean,
+            n_total=n_total,
+            epsilon=float(dichotomic_epsilon),
+            rng=rng,
+        )
+    if top_predictors_search_method == OptimumSearch.ScipyGlobal:
+        return _suggest_scipy_global(
+            remaining=remaining,
+            evaluated_scores_mean=evaluated_scores_mean,
+            n_total=n_total,
+            epsilon=float(dichotomic_epsilon),
+            rng=rng,
+        )
+    raise NotImplementedError(
+        f"top_predictors_search_method={top_predictors_search_method!r} "
+        f"is declared in OptimumSearch but not implemented in "
+        f"get_next_features_subset. Currently supported: "
+        f"OptimumSearch.ExhaustiveRandom, OptimumSearch.ModelBasedHeuristic, "
+        f"OptimumSearch.ExhaustiveDichotomic, OptimumSearch.ScipyLocal, "
+        f"OptimumSearch.ScipyGlobal."
+    )
+
+
+def _fi_run_weights(fi_decay_rate, fi_run_order, fi_to_consider):
+    """Exponential per-run decay weights for the FI history, or ``None`` for legacy equal-weight voting."""
+    if not (fi_decay_rate and fi_decay_rate > 0.0 and fi_run_order):
+        return None
+    # fi_run_order is the insertion order (newest LAST). Map age -> weight.
+    _decay = float(fi_decay_rate)
+    _ordered_keys = [k for k in fi_run_order if k in fi_to_consider]
+    _n_runs = len(_ordered_keys)
+    if _n_runs == 0:
+        return None
+    return {k: (1.0 - _decay) ** (_n_runs - 1 - i) for i, k in enumerate(_ordered_keys)}
+
+
+def _rank_selected_features(*, fi_to_consider, importance_agg, fi_family, votes_aggregation_method, signed_importances, importance_agg_k_cv, fi_missing_policy, run_weights) -> list:
+    """Rank features by aggregated importances: the family-dispatched aggregator when requested, else the legacy voting ranking."""
+    if importance_agg == "dispatched" and fi_family in ("tree", "linear"):
+        from ._helpers_importance_agg import aggregate_importances_dispatched
+        _signed_subset = None
+        if signed_importances and fi_family == "linear":
+            _signed_subset = {k: v for k, v in signed_importances.items() if k in fi_to_consider}
+        return aggregate_importances_dispatched(
+            feature_importances=fi_to_consider,
+            family=fi_family,
+            votes_aggregation_method=votes_aggregation_method,
+            signed_importances=_signed_subset,
+            k_cv=float(importance_agg_k_cv),
+            fi_missing_policy=fi_missing_policy,
+            run_weights=run_weights,
+        )
+    return get_actual_features_ranking(
+        feature_importances=fi_to_consider,
+        votes_aggregation_method=votes_aggregation_method,
+        fi_missing_policy=fi_missing_policy,
+        run_weights=run_weights,
+    )
+
+
 def get_next_features_subset(
     nsteps: int,
     original_features: list,
@@ -252,49 +334,16 @@ def get_next_features_subset(
     if len(remaining) == 0:
         return []
 
-    next_nfeatures_to_check: Union[int, None]
-    if top_predictors_search_method == OptimumSearch.ExhaustiveRandom:
-        # use the threaded seeded rng (np.random.default_rng); module-global random is unseeded -> not reproducible.
-        if rng is not None and hasattr(rng, "integers"):
-            next_nfeatures_to_check = int(remaining[int(rng.integers(0, len(remaining)))])
-        else:  # nosec B311 - non-cryptographic sampling/jitter, not a security-sensitive use
-            next_nfeatures_to_check = int(random.choice(remaining))  # nosec B311 - non-crypto sampling/jitter, not used for tokens/secrets
-    elif top_predictors_search_method == OptimumSearch.ModelBasedHeuristic:
-        next_nfeatures_to_check = Optimizer.suggest_candidate()
-    elif top_predictors_search_method == OptimumSearch.ExhaustiveDichotomic:
-        next_nfeatures_to_check = _suggest_dichotomic(
-            remaining=sorted(remaining),
-            evaluated_scores_mean=evaluated_scores_mean,
-            n_total=len(original_features),
-            epsilon=float(dichotomic_epsilon),
-            rng=rng,
-            step=dichotomic_step,
-        )
-    elif top_predictors_search_method == OptimumSearch.ScipyLocal:
-        next_nfeatures_to_check = _suggest_scipy_local(
-            remaining=remaining,
-            evaluated_scores_mean=evaluated_scores_mean,
-            n_total=len(original_features),
-            epsilon=float(dichotomic_epsilon),
-            rng=rng,
-        )
-    elif top_predictors_search_method == OptimumSearch.ScipyGlobal:
-        next_nfeatures_to_check = _suggest_scipy_global(
-            remaining=remaining,
-            evaluated_scores_mean=evaluated_scores_mean,
-            n_total=len(original_features),
-            epsilon=float(dichotomic_epsilon),
-            rng=rng,
-        )
-    else:
-        raise NotImplementedError(
-            f"top_predictors_search_method={top_predictors_search_method!r} "
-            f"is declared in OptimumSearch but not implemented in "
-            f"get_next_features_subset. Currently supported: "
-            f"OptimumSearch.ExhaustiveRandom, OptimumSearch.ModelBasedHeuristic, "
-            f"OptimumSearch.ExhaustiveDichotomic, OptimumSearch.ScipyLocal, "
-            f"OptimumSearch.ScipyGlobal."
-        )
+    next_nfeatures_to_check = _pick_next_nfeatures(
+        top_predictors_search_method=top_predictors_search_method,
+        remaining=remaining,
+        n_total=len(original_features),
+        evaluated_scores_mean=evaluated_scores_mean,
+        dichotomic_epsilon=dichotomic_epsilon,
+        dichotomic_step=dichotomic_step,
+        rng=rng,
+        Optimizer=Optimizer,
+    )
 
     if next_nfeatures_to_check is None:
         return []
@@ -312,14 +361,7 @@ def get_next_features_subset(
     # F8: exponential decay of FI history. With ``fi_decay_rate > 0``, run K is weighted ``(1 - rate)^(age_K)``,
     # where ``age_K`` is the number of fresher runs that exist. So a 30-iter-old vote weighs (1-0.05)^30 = 0.21 vs the latest vote = 1.0
     # when rate=0.05. Default 0.0 keeps the legacy equal-weight voting. Recommended 0.02-0.1 for long runs (>=30 iters).
-    _run_weights = None
-    if fi_decay_rate and fi_decay_rate > 0.0 and fi_run_order:
-        # fi_run_order is the insertion order (newest LAST). Map age -> weight.
-        _decay = float(fi_decay_rate)
-        _ordered_keys = [k for k in fi_run_order if k in fi_to_consider]
-        _n_runs = len(_ordered_keys)
-        if _n_runs > 0:
-            _run_weights = {k: (1.0 - _decay) ** (_n_runs - 1 - i) for i, k in enumerate(_ordered_keys)}
+    _run_weights = _fi_run_weights(fi_decay_rate, fi_run_order, fi_to_consider)
     # elimination_rule='stability' (opt-in): rank for elimination by mean_importance discounted
     # by cross-fold selection-frequency at the elimination cut, protecting steady-mid-rank features
     # from one-fold-noise eviction. Operates on the RAW per-fold table independently of importance_agg
@@ -334,27 +376,16 @@ def get_next_features_subset(
                 key=lambda k: (-(_stab[k] if np.isfinite(_stab[k]) else -np.inf), str(k)),
             )
             return ranks[:next_nfeatures_to_check]
-    if importance_agg == "dispatched" and fi_family in ("tree", "linear"):
-        from ._helpers_importance_agg import aggregate_importances_dispatched
-        _signed_subset = None
-        if signed_importances and fi_family == "linear":
-            _signed_subset = {k: v for k, v in signed_importances.items() if k in fi_to_consider}
-        ranks = aggregate_importances_dispatched(
-            feature_importances=fi_to_consider,
-            family=fi_family,
-            votes_aggregation_method=votes_aggregation_method,
-            signed_importances=_signed_subset,
-            k_cv=float(importance_agg_k_cv),
-            fi_missing_policy=fi_missing_policy,
-            run_weights=_run_weights,
-        )
-    else:
-        ranks = get_actual_features_ranking(
-            feature_importances=fi_to_consider,
-            votes_aggregation_method=votes_aggregation_method,
-            fi_missing_policy=fi_missing_policy,
-            run_weights=_run_weights,
-        )
+    ranks = _rank_selected_features(
+        fi_to_consider=fi_to_consider,
+        importance_agg=importance_agg,
+        fi_family=fi_family,
+        votes_aggregation_method=votes_aggregation_method,
+        signed_importances=signed_importances,
+        importance_agg_k_cv=importance_agg_k_cv,
+        fi_missing_policy=fi_missing_policy,
+        run_weights=_run_weights,
+    )
     return ranks[:next_nfeatures_to_check]
 
 

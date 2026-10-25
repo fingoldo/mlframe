@@ -4,18 +4,19 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 
 
 def _native_ordinal_encode_2d(vals: np.ndarray) -> np.ndarray:
     """Drop-in pure-numpy replacement for sklearn OrdinalEncoder().fit_transform on a (n, 1) array.
 
-    Returns float64 ordinals so downstream digitize / dtype-promotion logic stays bit-for-bit
+    Returns double ordinals so downstream digitize / dtype-promotion logic stays bit-for-bit
     identical to the sklearn path. ``pd.factorize`` is asymptotically the same numpy unique
     + inverse-index lookup but skips estimator-validation overhead (~6x faster at n=10k).
     """
     flat = vals.reshape(-1)
     codes, _ = pd.factorize(flat, use_na_sentinel=True)
-    return np.asarray(codes, dtype=np.float64).reshape(vals.shape)
+    return np.asarray(codes, dtype=_crit_np_dtype()).reshape(vals.shape)
 
 
 def cap_categorical_cardinality(codes_2d: np.ndarray, max_cardinality: int) -> np.ndarray:
@@ -27,7 +28,7 @@ def cap_categorical_cardinality(codes_2d: np.ndarray, max_cardinality: int) -> n
     reduction: a categorical whose cardinality approaches N has sparse contingency cells, so its plug-in MI/CMI is
     unreliable anyway (the analytic null already guards on >=5 expected/cell) - folding the rare tail DENSIFIES the cells
     (better MI) while capping the code range so the whole codes matrix fits a narrow int (int8 for cap<=127). Operates on
-    a float64 code matrix (the ``_multi_col_factorize_native`` output) and returns float64.
+    a double code matrix (the ``_multi_col_factorize_native`` output) and returns double.
     """
     if max_cardinality is None or max_cardinality < 2 or codes_2d.size == 0:
         return codes_2d
@@ -52,8 +53,8 @@ def cap_categorical_cardinality(codes_2d: np.ndarray, max_cardinality: int) -> n
         # ascending-then-reverse - reversing a stable ascending sort would itself un-stabilize the tie
         # order (it reverses ties' relative order too), defeating the point of "stable".
         keep = np.argsort(-counts, kind="stable")[: max_cardinality - 1]
-        remap = np.full(k, max_cardinality - 1, dtype=np.float64)
-        remap[keep] = np.arange(max_cardinality - 1, dtype=np.float64)
+        remap = np.full(k, max_cardinality - 1, dtype=_crit_np_dtype())
+        remap[keep] = np.arange(max_cardinality - 1, dtype=_crit_np_dtype())
         if not _copied:
             out = codes_2d.copy()
             _copied = True
@@ -87,16 +88,16 @@ def _multi_col_factorize_native(categorical_df: "pd.DataFrame") -> np.ndarray:
     n_rows = len(categorical_df)
     cols = list(categorical_df.columns)
     if not cols:
-        return np.empty((n_rows, 0), dtype=np.float64)
+        return np.empty((n_rows, 0), dtype=_crit_np_dtype())
 
-    out = np.empty((n_rows, len(cols)), dtype=np.float64)
+    out = np.empty((n_rows, len(cols)), dtype=_crit_np_dtype())
     needs_factorize: list = []  # (j, col) for non-pre-categorical columns
     for _j, _c in enumerate(cols):
         _ser = categorical_df[_c]
         if isinstance(_ser.dtype, pd.CategoricalDtype):
             # Fast path: ``.cat.codes`` is a vectorised C-level attribute
             # access; NaN already encoded as -1.
-            out[:, _j] = _ser.cat.codes.to_numpy(dtype=np.float64, copy=False)
+            out[:, _j] = _ser.cat.codes.to_numpy(dtype=_crit_np_dtype(), copy=False)
         else:
             needs_factorize.append((_j, _c))
 
@@ -111,7 +112,7 @@ def _multi_col_factorize_native(categorical_df: "pd.DataFrame") -> np.ndarray:
         if len(needs_factorize) <= 8:
             for _j, _c in needs_factorize:
                 _codes, _ = pd.factorize(categorical_df[_c], use_na_sentinel=True)
-                out[:, _j] = _codes.astype(np.float64)
+                out[:, _j] = _codes.astype(_crit_np_dtype())
         else:
             # joblib threading. pd.factorize releases the GIL on the hash build,
             # so threads parallelise. prefer='threads' avoids the pickling cost
@@ -119,7 +120,7 @@ def _multi_col_factorize_native(categorical_df: "pd.DataFrame") -> np.ndarray:
             from joblib import Parallel, delayed as _delayed
 
             _results = Parallel(n_jobs=min(8, len(needs_factorize)), prefer="threads")(
-                _delayed(lambda c: pd.factorize(categorical_df[c], use_na_sentinel=True)[0].astype(np.float64))(_c) for _j, _c in needs_factorize
+                _delayed(lambda c: pd.factorize(categorical_df[c], use_na_sentinel=True)[0].astype(_crit_np_dtype()))(_c) for _j, _c in needs_factorize
             )
             for (_j, _), _codes in zip(needs_factorize, _results):
                 out[:, _j] = _codes
@@ -131,12 +132,12 @@ def _native_kbins_quantile(vals: np.ndarray, n_bins: int) -> np.ndarray:
 
     Uses np.nanpercentile for edge calc + np.searchsorted for bin lookup. ~12x faster than
     KBinsDiscretizer at n=10k single-column because we skip BaseEstimator validation +
-    sklearn's CSR-friendly hot-path scaffolding. Output shape matches sklearn's: (n, 1) float64.
+    sklearn's CSR-friendly hot-path scaffolding. Output shape matches sklearn's: (n, 1) double.
     """
-    flat = np.asarray(vals, dtype=np.float64).reshape(-1)
+    flat = np.asarray(vals, dtype=_crit_np_dtype()).reshape(-1)
     quantiles = np.linspace(0.0, 100.0, n_bins + 1)
     bin_edges = np.nanpercentile(flat, quantiles)
     # Inner edges only (drop both extremes, like sklearn's KBinsDiscretizer does internally).
     inner = bin_edges[1:-1]
-    codes = np.searchsorted(inner, flat, side="right").astype(np.float64)
+    codes = np.searchsorted(inner, flat, side="right").astype(_crit_np_dtype())
     return codes.reshape(vals.shape if vals.ndim == 2 else (-1, 1))

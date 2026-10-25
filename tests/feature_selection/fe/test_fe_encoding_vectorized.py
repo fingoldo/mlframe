@@ -50,8 +50,8 @@ def test_frequency_encoding_vectorized_bit_identical():
     recipe = {"lookup": lookup, "default": 0.0}
     got = apply_frequency_encoding(X, "c", recipe)
     cats = np.asarray(_column_to_str(X["c"]))
-    np.testing.assert_array_equal(got, _ref_freq(cats, lookup, 0.0))
-    assert got.dtype == np.float64
+    np.testing.assert_array_equal(got, _ref_freq(cats, lookup, 0.0).astype(_crit_np_dtype()))
+    assert got.dtype == _crit_np_dtype()
 
 
 def test_count_freq_empty_and_all_unseen():

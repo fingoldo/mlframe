@@ -730,11 +730,33 @@ def _strip_pseudo_remix_aggregate_members(self, _ca_final_excl, _cm_final):
     return _ca_final_excl
 
 
+def _collect_engineered_operands(_eb_recipes, _eb_raw_names, _eb_cols_idx, _eb_sel_set):
+    """Raw operands of the selected engineered features, and for each operand the columns of those features that contain it."""
+    from mlframe.feature_selection.filters._confirm_predictor_engineered import _PARENT_TOKEN_SPLIT as _EB_TOK_SPLIT
+    _eb_operands: list[str] = []
+    _eb_owners: dict[str, list[int]] = {}  # operand -> columns (in ``data``) of the selected engineered features that contain it
+    for _enm, _erec in _eb_recipes.items():
+        if _enm is None or _enm in _eb_raw_names or _enm not in _eb_cols_idx:
+            continue
+        if _eb_cols_idx[_enm] not in _eb_sel_set:
+            continue  # only SELECTED engineered features
+        _src = getattr(_erec, "src_names", None)
+        _eb_toks = list(_src) if _src else [t for t in _EB_TOK_SPLIT.split(str(_enm)) if t]
+        for _t in _eb_toks:
+            _base = _t if _t in _eb_raw_names else (_t.split("__", 1)[0] if "__" in _t else None)
+            if _base is not None and _base in _eb_raw_names:
+                if _base not in _eb_operands:
+                    _eb_operands.append(_base)
+                _eb_owners.setdefault(_base, [])
+                if _eb_cols_idx[_enm] not in _eb_owners[_base]:
+                    _eb_owners[_base].append(_eb_cols_idx[_enm])
+    return _eb_operands, _eb_owners
+
+
 def _readd_redundancy_dropped_engineered(self, selected_vars, cols, data, target_indices, nbins, _allowed_raw_idx, verbose):
     """Re-add selected engineered features dropped by the redundancy policy."""
     if getattr(self, "redundancy_policy", "emit_both") != "drop" and selected_vars:
         try:
-            from mlframe.feature_selection.filters._confirm_predictor_engineered import _PARENT_TOKEN_SPLIT as _EB_TOK_SPLIT
             _eb_raw_names = set(self.feature_names_in_)
             _eb_sel_set = set(int(v) for v in selected_vars)
             _eb_name_to_in = {nm: i for i, nm in enumerate(self.feature_names_in_)}
@@ -744,23 +766,7 @@ def _readd_redundancy_dropped_engineered(self, selected_vars, cols, data, target
 
             _eb_alpha = mrmr_null_signif_alpha()
             _eb_qdtype = getattr(self, "quantization_dtype", np.int32)
-            _eb_operands: list[str] = []
-            _eb_owners: dict[str, list[int]] = {}  # operand -> columns (in ``data``) of the selected engineered features that contain it
-            for _enm, _erec in _eb_recipes.items():
-                if _enm is None or _enm in _eb_raw_names or _enm not in _eb_cols_idx:
-                    continue
-                if _eb_cols_idx[_enm] not in _eb_sel_set:
-                    continue  # only SELECTED engineered features
-                _src = getattr(_erec, "src_names", None)
-                _eb_toks = list(_src) if _src else [t for t in _EB_TOK_SPLIT.split(str(_enm)) if t]
-                for _t in _eb_toks:
-                    _base = _t if _t in _eb_raw_names else (_t.split("__", 1)[0] if "__" in _t else None)
-                    if _base is not None and _base in _eb_raw_names:
-                        if _base not in _eb_operands:
-                            _eb_operands.append(_base)
-                        _eb_owners.setdefault(_base, [])
-                        if _eb_cols_idx[_enm] not in _eb_owners[_base]:
-                            _eb_owners[_base].append(_eb_cols_idx[_enm])
+            _eb_operands, _eb_owners = _collect_engineered_operands(_eb_recipes, _eb_raw_names, _eb_cols_idx, _eb_sel_set)
 
             def _eb_operand_is_signal(_cols_i, _operand):
                 """True when the raw operand adds information about y beyond EVERY selected engineered feature that contains it: its conditional MI given that feature's bins is significant against a within-stratum permutation null (alpha shared over the operands tested). An operand a composite already explains (the three operands of a XOR, whose marginals carry nothing) is redundant next to it; an estimator error keeps the operand, re-attached unverified."""

@@ -62,4 +62,4 @@
 # Bumped 2026-10-14 from v1.22.5 (8c19f17) to v1.22.12 (641677a): the silent_default_return, lock_held_across_io, check_then_act_outside_lock,
 # shared_mutable_placeholder and no_source_text_tests gates are wired in test_shared_checks_wired.py; every pin moves together.
 # Bumped 2026-10-09 from the v1.22.2 commit (8bcc683) to v1.22.3 (e3c24ab): v1.22.2 failed the release workflow's verify job and was never published; every pin moves together.
-py-ci-shared @ git+https://github.com/fingoldo/py-ci-shared@baae24d7342eb32f60df81342ec81ff82c5302ca  # v1.23.3  # pragma: allowlist secret
+py-ci-shared @ git+https://github.com/fingoldo/py-ci-shared@1665d75eb9caa9d7a8e7469fbb38d515e6cfdc81  # v1.23.4  # pragma: allowlist secret

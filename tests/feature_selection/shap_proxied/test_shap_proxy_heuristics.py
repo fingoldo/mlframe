@@ -136,7 +136,5 @@ def test_evaluator_loss_fast_parity(metric):
         idx = tuple(sorted(rng.choice(f, size=k, replace=False).tolist()))
         margin = coalition_margin(phi_p, base_p, list(idx))
         ref = proxy_loss(margin, y_p, metric_resolved)
-        if _crit_np_dtype() is np.float64:
-            assert ev._loss_fast(margin) == ref
-        else:
-            assert ev._loss_fast(margin) == pytest.approx(ref, rel=1e-6)
+        expected = ref if _crit_np_dtype() is np.float64 else pytest.approx(ref, rel=1e-6)
+        assert ev._loss_fast(margin) == expected

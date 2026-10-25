@@ -167,7 +167,8 @@ def test_regression_pgn_cap_reapplied_after_late_retention_passes(monkeypatch):
 
     ceiling = max(20, p // 3)
     assert m.n_features_ == ceiling, f"expected the p>=n cap to hold at {ceiling}, got {m.n_features_}"
-    assert len(m.support_) == ceiling
+    # support_ holds raw column indices only; engineered survivors count toward the ceiling via n_features_.
+    assert len(m.support_) + len(m._engineered_recipes_) == ceiling
 
 
 # ---------------------------------------------------------------------------

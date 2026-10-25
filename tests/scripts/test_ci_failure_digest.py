@@ -1,7 +1,7 @@
 """Unit tests for scripts/ci_failure_digest.py using inline log fixtures and a fake gh runner."""
 
 import importlib.util
-import json
+import orjson
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -176,7 +176,7 @@ def _fake_gh(responses: Dict[str, str]) -> Callable[[Sequence[str]], str]:
 
 def _jobs(*pairs):
     """Build a jobs API payload from (id, name, conclusion) tuples."""
-    return json.dumps({"jobs": [{"id": i, "name": n, "conclusion": c} for i, n, c in pairs]})
+    return orjson.dumps({"jobs": [{"id": i, "name": n, "conclusion": c} for i, n, c in pairs]}).decode()
 
 
 def _run(run_id: int, conclusion: str, created: str) -> dict:
@@ -190,10 +190,10 @@ def test_build_digest_end_to_end_with_fake_gh():
     prev_log = TS + "FAILED t/a.py::test_old - boom\n" + TS + "FAILED t/a.py::test_gone - boom\n"
     gh = _fake_gh(
         {
-            "workflow list": json.dumps([{"id": 1, "name": "CI"}, {"id": 2, "name": "Green"}, {"id": 3, "name": "Stale"}]),
-            "--workflow 1 ": json.dumps([_run(20, "failure", "2026-10-09T01:00:00Z"), _run(10, "failure", "2026-10-08T01:00:00Z")]),
-            "--workflow 2 ": json.dumps([_run(30, "success", "2026-10-09T01:00:00Z")]),
-            "--workflow 3 ": json.dumps([_run(40, "failure", "2026-01-01T00:00:00Z")]),
+            "workflow list": orjson.dumps([{"id": 1, "name": "CI"}, {"id": 2, "name": "Green"}, {"id": 3, "name": "Stale"}]).decode(),
+            "--workflow 1 ": orjson.dumps([_run(20, "failure", "2026-10-09T01:00:00Z"), _run(10, "failure", "2026-10-08T01:00:00Z")]).decode(),
+            "--workflow 2 ": orjson.dumps([_run(30, "success", "2026-10-09T01:00:00Z")]).decode(),
+            "--workflow 3 ": orjson.dumps([_run(40, "failure", "2026-01-01T00:00:00Z")]).decode(),
             "runs/20/jobs": _jobs((201, "py312", "failure"), (202, "lint", "success")),
             "runs/10/jobs": _jobs((101, "py312", "failure")),
             "jobs/201/logs": cur_log,
@@ -214,8 +214,8 @@ def test_green_latest_marks_previous_failures_fixed():
     """When the latest run succeeded, everything from the failed previous run is FIXED."""
     gh = _fake_gh(
         {
-            "workflow list": json.dumps([{"id": 1, "name": "CI"}]),
-            "--workflow 1 ": json.dumps([_run(2, "success", "2026-10-09T01:00:00Z"), _run(1, "failure", "2026-10-08T01:00:00Z")]),
+            "workflow list": orjson.dumps([{"id": 1, "name": "CI"}]).decode(),
+            "--workflow 1 ": orjson.dumps([_run(2, "success", "2026-10-09T01:00:00Z"), _run(1, "failure", "2026-10-08T01:00:00Z")]).decode(),
             "runs/1/jobs": _jobs((11, "j", "failure")),
             "jobs/11/logs": TS + "src/x.py:3: error: bad  [misc]\n",
         }
@@ -228,8 +228,8 @@ def test_cancelled_job_becomes_infra_group():
     """A cancelled job in a failed run is reported as the cancelled infrastructure class even with an empty log."""
     gh = _fake_gh(
         {
-            "workflow list": json.dumps([{"id": 1, "name": "CI"}]),
-            "--workflow 1 ": json.dumps([_run(5, "failure", "2026-10-09T01:00:00Z")]),
+            "workflow list": orjson.dumps([{"id": 1, "name": "CI"}]).decode(),
+            "--workflow 1 ": orjson.dumps([_run(5, "failure", "2026-10-09T01:00:00Z")]).decode(),
             "runs/5/jobs": _jobs((51, "slow", "cancelled")),
             "jobs/51/logs": "",
         }
@@ -246,7 +246,7 @@ def test_main_writes_markdown_and_json(tmp_path):
     rc = cfd.main(["--branch", "master", "--out", str(md), "--json", str(js)], run_gh=gh)
     assert rc == 0
     assert "(no failures)" in md.read_text(encoding="utf-8")
-    assert json.loads(js.read_text(encoding="utf-8")) == []
+    assert orjson.loads(js.read_text(encoding="utf-8")) == []
 
 
 class _FakeCompleted:

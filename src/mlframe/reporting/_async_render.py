@@ -386,6 +386,7 @@ class ReportRenderQueue:
                 with _workers_do_not_reimport_main():
                     ex.submit(_worker_noop)
             except Exception as exc:  # noqa: PERF203 -- a failed warm-up submit ends the loop, it is not retried
+                log_throttle(logger, "async_render_internal::render queue warm-up", logging.WARNING, "async render: %s failed: %s", "render queue warm-up", exc, exc_info=True)
                 self._record_internal_failure("render queue warm-up", exc)
                 return
 

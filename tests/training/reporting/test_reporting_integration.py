@@ -14,6 +14,7 @@ import numpy as np
 import pandas as pd
 
 from mlframe.training.reporting import _reporting as R
+from mlframe.training.reporting import _reporting_common as _common
 
 # ---------------------------------------------------------------------------
 # INV-52: _maybe_display logs a text frame when no IPython kernel is present
@@ -22,7 +23,7 @@ from mlframe.training.reporting import _reporting as R
 
 def test_maybe_display_logs_frame_when_no_ipython(monkeypatch, caplog):
     """Maybe display logs frame when no ipython."""
-    monkeypatch.setattr(R, "_ipython_display", None)
+    monkeypatch.setattr(_common, "_ipython_display", None)
     df = pd.DataFrame({"segment": ["a", "b"], "acc": [0.9, 0.6]})
     with caplog.at_level(logging.INFO, logger=R.logger.name):
         R._maybe_display(df)
@@ -32,7 +33,7 @@ def test_maybe_display_logs_frame_when_no_ipython(monkeypatch, caplog):
 
 def test_maybe_display_logs_styler_underlying_frame(monkeypatch, caplog):
     """Maybe display logs styler underlying frame."""
-    monkeypatch.setattr(R, "_ipython_display", None)
+    monkeypatch.setattr(_common, "_ipython_display", None)
     df = pd.DataFrame({"x": [1, 2], "y": [3, 4]})
     styler = R._style_with_caption(df, "caption")  # a Styler when jinja2 present, else the bare frame
     with caplog.at_level(logging.INFO, logger=R.logger.name):
@@ -64,6 +65,7 @@ def test_frame_to_text_handles_dataframe():
 
 class _FakeLGB:
     """Groups tests covering fake l g b."""
+
     def __init__(self, evals, best_iter):
         self.evals_result_ = evals
         self.best_iteration_ = best_iter
@@ -86,6 +88,7 @@ def test_training_curve_stamps_path_and_keeps_spec(tmp_path):
 
     class _Cfg:
         """Groups tests covering cfg."""
+
         training_curves = True
         keep_figure_handles = True
 
@@ -111,6 +114,7 @@ def test_keep_figure_handles_off_by_default(tmp_path):
 
     class _Cfg:
         """Groups tests covering cfg."""
+
         training_curves = True
         # no keep_figure_handles attr -> getattr default False
 
@@ -135,6 +139,7 @@ def test_kept_figure_spec_is_picklable(tmp_path):
 
     class _Cfg:
         """Groups tests covering cfg."""
+
         training_curves = True
         keep_figure_handles = True
 

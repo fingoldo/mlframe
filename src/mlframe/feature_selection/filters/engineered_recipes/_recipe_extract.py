@@ -123,6 +123,38 @@ def build_category_code_map(values: Any, block_has_nan: bool | None = None) -> d
     return base
 
 
+def _codes_from_cat_map(vals: np.ndarray, cat_code_map: dict, n_bins: int, recipe_name: str, col_name: str, unknown_strategy: str) -> np.ndarray:
+    """Map categorical or string test values to the fit-time integer codes through the stored code map; NaN and unseen values resolve per ``unknown_strategy``."""
+    # NaN cells route to the dedicated NaN code (``categorize_dataset`` shifts NaN -> 0 when the
+    # training column had any NaN); absent that key (training column was NaN-free) a transform-time
+    # NaN is genuinely unseen and resolves via ``unknown_strategy``.
+    # bench-attempt-rejected (2026-07-05): a pandas ``.map``-vectorised replacement of this loop measured only
+    # 1.11x @300k (bit-identical, 1200-case A/B) - str(_v) + dict.get on OBJECT arrays stays Python-per-element
+    # even through pandas, so vectorising it buys almost nothing while complicating this correctness-critical
+    # (serving-time recipe replay) path. Kept as the clear loop.
+    _nan_code = cat_code_map.get(_NAN_CODE_KEY)
+    out = np.empty(len(vals), dtype=np.int64)
+    for _i, _v in enumerate(vals):
+        if _v is None or (isinstance(_v, float) and _v != _v):
+            if _nan_code is not None:
+                out[_i] = _nan_code
+                continue
+            _code = None  # NaN unseen at fit -> unknown_strategy below
+        else:
+            _code = cat_code_map.get(str(_v))
+        if _code is None:
+            if unknown_strategy == "raise":
+                raise ValueError(
+                    f"Recipe '{recipe_name}': column '{col_name}' has value "
+                    f"{_v!r} unseen at fit time. Set unknown_strategy='clip' "
+                    f"or 'sentinel' to handle unseen categories silently."
+                )
+            out[_i] = n_bins - 1  # sentinel bin (clip/sentinel both resolve via lookup)
+        else:
+            out[_i] = _code
+    return out
+
+
 def _coerce_to_int_with_nan_handling(
     vals: np.ndarray, n_bins: int, recipe_name: str, col_name: str,
     unknown_strategy: str, cat_code_map: dict | None = None,
@@ -163,34 +195,7 @@ def _coerce_to_int_with_nan_handling(
     # first-appearance order for object via pd.factorize). Numeric columns skip
     # this branch (cat_code_map is empty / None for them).
     if cat_code_map and not (np.issubdtype(vals.dtype, np.floating) or np.issubdtype(vals.dtype, np.integer)):
-        # NaN cells route to the dedicated NaN code (``categorize_dataset`` shifts NaN -> 0 when the
-        # training column had any NaN); absent that key (training column was NaN-free) a transform-time
-        # NaN is genuinely unseen and resolves via ``unknown_strategy``.
-        # bench-attempt-rejected (2026-07-05): a pandas ``.map``-vectorised replacement of this loop measured only
-        # 1.11x @300k (bit-identical, 1200-case A/B) - str(_v) + dict.get on OBJECT arrays stays Python-per-element
-        # even through pandas, so vectorising it buys almost nothing while complicating this correctness-critical
-        # (serving-time recipe replay) path. Kept as the clear loop.
-        _nan_code = cat_code_map.get(_NAN_CODE_KEY)
-        out = np.empty(len(vals), dtype=np.int64)
-        for _i, _v in enumerate(vals):
-            if _v is None or (isinstance(_v, float) and _v != _v):
-                if _nan_code is not None:
-                    out[_i] = _nan_code
-                    continue
-                _code = None  # NaN unseen at fit -> unknown_strategy below
-            else:
-                _code = cat_code_map.get(str(_v))
-            if _code is None:
-                if unknown_strategy == "raise":
-                    raise ValueError(
-                        f"Recipe '{recipe_name}': column '{col_name}' has value "
-                        f"{_v!r} unseen at fit time. Set unknown_strategy='clip' "
-                        f"or 'sentinel' to handle unseen categories silently."
-                    )
-                out[_i] = n_bins - 1  # sentinel bin (clip/sentinel both resolve via lookup)
-            else:
-                out[_i] = _code
-        return out
+        return _codes_from_cat_map(vals, cat_code_map, n_bins, recipe_name, col_name, unknown_strategy)
     if np.issubdtype(vals.dtype, np.floating):
         nan_mask = np.isnan(vals)
         if nan_mask.any():

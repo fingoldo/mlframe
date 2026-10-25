@@ -161,6 +161,20 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def _set_pairs_postfix(_bar, _top_var, _top_var_mi, _top_pair, _top_pair_mi) -> None:
+    """Show the running top single feature and top pair in the progress bar postfix; a bar that refuses the update is logged at debug level."""
+    if _bar is not None and (_top_var is not None or _top_pair is not None):
+        _pf = {}
+        if _top_var is not None:
+            _pf["top_feat"] = f"col{_top_var}={_top_var_mi:.4f}"
+        if _top_pair is not None:
+            _pf["top_pair"] = f"({_top_pair[0]},{_top_pair[1]})={_top_pair_mi:.4f}"
+        try:
+            _bar.set_postfix(_pf, refresh=False)
+        except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+            logger.debug("suppressed: %s", e)
+
+
 def compute_pairs_mis(
     all_pairs: Iterable[Sequence[int]],
     data: np.ndarray,
@@ -241,17 +255,7 @@ def compute_pairs_mis(
                     except (TypeError, ValueError):
                         pass
 
-        if _bar is not None and (_top_var is not None or _top_pair is not None):
-            _pf = {}
-            if _top_var is not None:
-                _pf["top_feat"] = f"col{_top_var}={_top_var_mi:.4f}"
-            if _top_pair is not None:
-                _pf["top_pair"] = f"({_top_pair[0]},{_top_pair[1]})={_top_pair_mi:.4f}"
-            try:
-                _bar.set_postfix(_pf, refresh=False)
-            except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-                logger.debug("suppressed: %s", e)
-                pass
+        _set_pairs_postfix(_bar, _top_var, _top_var_mi, _top_pair, _top_pair_mi)
 
     return cached_MIs
 

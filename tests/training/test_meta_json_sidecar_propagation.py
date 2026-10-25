@@ -87,9 +87,10 @@ def test_calibrator_post_dump_writes_sidecar(tmp_path):
 
 def test_inference_read_trained_models_validates_sidecar(tmp_path, caplog):
     """read_trained_models warns about library-version drift recorded in a model's ``.meta.json`` and still loads the model."""
-    import json
+    from pathlib import Path
 
     import joblib
+    import orjson
     import pandas as pd
     from sklearn.linear_model import LinearRegression
 
@@ -102,20 +103,18 @@ def test_inference_read_trained_models_validates_sidecar(tmp_path, caplog):
     featureset_dir = tmp_path / "infer" / "fs"
     featureset_dir.mkdir(parents=True)
     features_json = featureset_dir / "features.dump.json"
-    features_json.write_text(json.dumps(["a", "b"]))
+    features_json.write_bytes(orjson.dumps(["a", "b"]))
     write_sidecar(str(features_json))
     model_path = featureset_dir / "model.pkl"
     joblib.dump(model, str(model_path))
     write_sidecar(str(model_path))
     _write_save_meta_sidecar(str(model_path), durable=False)
     envelope = _meta_sidecar_path(str(model_path))
-    with open(envelope, encoding="utf-8") as fh:
-        meta = json.load(fh)
+    meta = orjson.loads(Path(envelope).read_bytes())
     assert meta["lib_versions"], "the envelope must record library versions"
     lib = sorted(meta["lib_versions"])[0]
     meta["lib_versions"][lib] = "0.0.0-saved-elsewhere"
-    with open(envelope, "w", encoding="utf-8") as fh:
-        json.dump(meta, fh)
+    Path(envelope).write_bytes(orjson.dumps(meta))
 
     with caplog.at_level(logging.WARNING, logger="mlframe.training.io"):
         models, _X = read_trained_models("fs", frame, inference_folder=str(tmp_path / "infer"))

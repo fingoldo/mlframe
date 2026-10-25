@@ -7,7 +7,7 @@ njit that rebuilds four joint histograms per call via the per-row ``merge_vars``
 per round with no parallelism.
 
 This module adds a BATCHED GPU kernel that computes ``I(X_j; Y | Z)`` for ALL ``p`` candidates in a
-single launch, returning a ``(p,)`` float64 array. ``Y`` and ``Z`` are fixed across candidates, so
+single launch, returning a ``(p,)`` double array. ``Y`` and ``Z`` are fixed across candidates, so
 ``H(Y, Z)`` and ``H(Z)`` are computed ONCE per round; only the per-candidate 3-variable joint
 ``H(X_j, Y, Z)`` (and the 2-variable ``H(X_j, Z)``) are the per-candidate piece. One block per
 candidate, shared-memory histogram (mirrors ``filters/gpu.py``'s ``compute_joint_hist_*`` design).
@@ -18,8 +18,8 @@ returned RAW (clamped at 0), bit-comparable (within ~1e-9) to the CPU ``conditio
 SAME discretized inputs - see ``test_cmi_cuda_kernel.py``.
 
 PARITY: the CPU ``entropy`` reduces ``-(log(p) * p)`` over the NONZERO joint bins in ascending
-merged-class-id order, with ``p = count / n`` in float64. The kernel walks the dense per-candidate
-histogram in the same ascending merged-class order, skips zero bins, and accumulates in float64 -
+merged-class-id order, with ``p = count / n`` in double. The kernel walks the dense per-candidate
+histogram in the same ascending merged-class order, skips zero bins, and accumulates in double -
 reproducing the CPU reduction value (sequential add order matches numpy ``.sum`` for the small
 nonzero-bin counts here). The merged class id ``cz + cx * nbz + cy * (nbx * nbz)`` keeps ``Z`` the
 fastest-varying axis so the (X, Z) marginal and (Y, Z) marginal collapse in the same monotone order
@@ -43,6 +43,9 @@ import threading
 from typing import Any, Optional
 
 import numpy as np
+
+from mlframe.feature_selection.filters._fe_gpu_batch._devices import assert_kernel_buffers, crit_float_dtype
+
 from numba import njit, prange
 
 from ._entropy_kernels import conditional_mi, entropy, _entropy_xz_fused, _entropy_x_onto_classes
@@ -219,28 +222,10 @@ def _get_kernel():
 _cmi_from_joint_cuda = None
 
 
-def _get_cmi_from_joint_kernel():
-    """Build (idempotently) and return the fused CMI-from-joint-counts RawKernel.
-
-    One block per candidate reads the global joint histogram once, accumulates the (X,Z)/(Y,Z)/(Z) marginals in
-    shared memory via ``atomicAdd``, and reduces all four plug-in entropies in a single launch - replacing the
-    four separate ``_entropy_from_counts_axis`` launches (H(Z), H(X,Z), H(Y,Z), H(X,Y,Z)) that used to dominate
-    per-call CUDA launch count. Result is clamped to ``>= 0`` (plug-in CMI can go slightly negative from bias).
-    """
-    global _cmi_from_joint_cuda
-    if _cmi_from_joint_cuda is not None:
-        return _cmi_from_joint_cuda
-    import cupy as cp
-
-    with _KERNEL_LOCK:
-        if _cmi_from_joint_cuda is not None:
-            return _cmi_from_joint_cuda
-        module = sys.modules[__name__]
-        module._cmi_from_joint_cuda = cp.RawKernel(  # type: ignore[attr-defined]
-            r"""
+_CMI_FROM_JOINT_SRC = r"""
         extern "C" __global__
         void cmi_from_joint(const int* __restrict__ joint, const double inv_n, const int p,
-                            const int nbx, const int nby, const int nbz, double* __restrict__ cmi_out) {
+                            const int nbx, const int nby, const int nbz, {REAL}* __restrict__ cmi_out) {
             int cand = blockIdx.x;
             if (cand >= p) return;
             int tid = threadIdx.x, nt = blockDim.x;
@@ -285,12 +270,26 @@ def _get_cmi_from_joint_kernel():
             red[tid] = loc; __syncthreads();
             for (int s = nt >> 1; s > 0; s >>= 1) { if (tid < s) red[tid] += red[tid + s]; __syncthreads(); }
             double h_z = -red[0];
-            if (tid == 0) { double cmi = h_xz + h_yz - h_z - h_xyz; cmi_out[cand] = cmi > 0.0 ? cmi : 0.0; }
+            if (tid == 0) { double cmi = h_xz + h_yz - h_z - h_xyz; cmi_out[cand] = ({REAL})(cmi > 0.0 ? cmi : 0.0); }
         }
-        """,
-            "cmi_from_joint",
-        )
-        return module._cmi_from_joint_cuda
+        """
+_cmi_from_joint_kernels: dict = {}
+
+
+def _get_cmi_from_joint_kernel(real_t: str = "double"):
+    """Lazily compile-and-cache the fused CMI-from-joint-counts RawKernel for the output element type ``real_t`` (``"float"`` or ``"double"``).
+
+    One block per candidate reads the global joint histogram once, accumulates the marginals in shared memory and reduces the four plug-in
+    entropies in double in a single launch; only the output buffer is templated on ``{REAL}``. Result is clamped to ``>= 0``.
+    """
+    with _KERNEL_LOCK:
+        kern = _cmi_from_joint_kernels.get(real_t)
+        if kern is None:
+            import cupy as cp
+
+            kern = cp.RawKernel(_CMI_FROM_JOINT_SRC.replace("{REAL}", real_t), "cmi_from_joint")
+            _cmi_from_joint_kernels[real_t] = kern
+        return kern
 
 
 def _entropy_from_counts_axis(counts_3d, axes, n):
@@ -298,13 +297,12 @@ def _entropy_from_counts_axis(counts_3d, axes, n):
 
     ``counts_3d`` is (p, nby, nbx, nbz) int (Y, X, Z layout matching the merged id Z-fastest /
     X-next / Y-slowest). ``axes`` are the axes to SUM OUT before the entropy reduction (so the
-    remaining axes form the marginal). Returns a (p,) float64 entropy vector.
+    remaining axes form the marginal). Returns a (p,) double entropy vector.
 
-    Reduction matches the CPU ``entropy``: ``p_bin = count / n`` in float64, ``-sum p log p`` over
+    Reduction matches the CPU ``entropy``: ``p_bin = count / n`` in double, ``-sum p log p`` over
     nonzero bins. CuPy reduces a contiguous flattened marginal; the small nonzero-bin counts here
-    make the float64 accumulation track numpy's within ~1e-12 (well inside the 1e-9 gate).
+    make the double accumulation track numpy's within ~1e-12 (well inside the 1e-9 gate).
     """
-    import cupy as cp
 
     marg = counts_3d.sum(axis=axes)  # (p, ...) remaining axes
     marg = marg.reshape(marg.shape[0], -1)
@@ -313,14 +311,25 @@ def _entropy_from_counts_axis(counts_3d, axes, n):
     # (c*invn)*log(c*invn) : 0`` - then one sum(axis=1). Same float64 plug-in entropy -> within the 1e-9
     # selection gate (cmi_cuda parity tests stay < 1e-9). ElementwiseKernel launches via the same
     # cuLaunchKernel driver API -> genuine count reduction, not a counter shift.
-    global _XLOGX_EK
-    if _XLOGX_EK is None:
-        _XLOGX_EK = cp.ElementwiseKernel("T c, float64 invn", "float64 o", "o = c > 0 ? (c * invn) * log(c * invn) : 0.0", "mrmr_xlogx_ek")
-    contrib = _XLOGX_EK(marg, 1.0 / float(n))
+    real = crit_float_dtype()
+    contrib = _get_xlogx_kernel(real.__name__)(marg, 1.0 / float(n))
     return -contrib.sum(axis=1)
 
 
-_XLOGX_EK = None
+_xlogx_kernels: dict = {}
+
+
+def _get_xlogx_kernel(real_name: str):
+    """Cached elementwise ``x*log(x)`` entropy term over integer counts, output and scalar in ``real_name`` (cupy type name, single or double)."""
+    kern = _xlogx_kernels.get(real_name)
+    if kern is None:
+        import cupy as cp
+
+        kern = cp.ElementwiseKernel(
+            "T c, " + real_name + " invn", real_name + " o", "o = c > 0 ? (c * invn) * log(c * invn) : 0.0", "mrmr_xlogx_ek_" + real_name
+        )
+        _xlogx_kernels[real_name] = kern
+    return kern
 
 # FIX3: y and z are fit-CONSTANTS across the greedy CMI loop (the same target / just-selected
 # columns for every candidate batch in a round, and z changes only ONCE per greedy round). The prior code
@@ -517,7 +526,7 @@ def conditional_mi_batched_cuda(
     Xc_g: Any = None,
     codes_trusted: bool = False,
 ) -> np.ndarray:
-    """Compute ``I(X_j; Y | Z)`` for all ``p`` candidate columns in one launch -> (p,) float64.
+    """Compute ``I(X_j; Y | Z)`` for all ``p`` candidate columns in one launch -> (p,) double.
 
     Parameters
     ----------
@@ -586,10 +595,13 @@ def conditional_mi_batched_cuda(
     # cmi assembly + maximum. Same float64 p*log p over nonzero cells -> within the ~1e-9 parity gate.
     # Falls back to the four-call cupy path on any kernel error.
     try:
-        cmi_g = cp.empty(p, dtype=cp.float64)
+        cmi_t = crit_float_dtype()
+        cmi_g = cp.empty(p, dtype=cmi_t)
         red_threads = 256
         shmem_bytes = red_threads * 8 + (nbins_x * nbins_z + nbins_y * nbins_z + nbins_z) * 4
-        _get_cmi_from_joint_kernel()(
+        _real = "float" if cmi_t == cp.float32 else "double"
+        assert_kernel_buffers("cmi_from_joint", _real, cmi_out=cmi_g)
+        _get_cmi_from_joint_kernel(_real)(
             (p,), (red_threads,),
             (joint, 1.0 / float(n), np.int32(p), np.int32(nbins_x), np.int32(nbins_y), np.int32(nbins_z), cmi_g),
             shared_mem=shmem_bytes,
@@ -612,7 +624,7 @@ def _cpu_cmi_loop_parallel(factors_data, cand_indices, y, z, factors_nbins, var_
     loop (verified maxdiff 0.0; ~9x on 16 cores at p=400). ``var_is_nominal`` is passed through but unused inside
     ``conditional_mi`` (it hardcodes ``None`` to ``merge_vars``)."""
     p = len(cand_indices)
-    out = np.empty(p, dtype=np.float64)
+    out = np.empty(p, dtype=np.float64)  # Intentional float64: exact CPU CMI output vector, the reference oracle for the 1e-9 parity gate
     for i in prange(p):
         xi = np.array([cand_indices[i]], dtype=np.int64)
         out[i] = conditional_mi(factors_data, xi, y, z, var_is_nominal, factors_nbins)
@@ -677,7 +689,7 @@ def _cpu_cmi_loop_hoisted_parallel(factors_data, cand_indices, y, z, factors_nbi
     """prange CMI with the Y,Z terms hoisted out of the per-candidate loop. Bit-identical to
     ``_cpu_cmi_loop_parallel`` (maxdiff 0.0), 1.6-1.7x faster (two melts per candidate instead of four)."""
     p = len(cand_indices)
-    out = np.empty(p, dtype=np.float64)
+    out = np.empty(p, dtype=np.float64)  # Intentional float64: exact CPU CMI output vector, the reference oracle for the 1e-9 parity gate
     ent_z, classes_yz, ent_yz, nclasses_yz = _cmi_yz_fixed_terms(factors_data, y, z, factors_nbins, dtype)
     zi = z[0]
     for i in prange(p):
@@ -689,7 +701,7 @@ def _cpu_cmi_loop_hoisted_parallel(factors_data, cand_indices, y, z, factors_nbi
 def _cpu_cmi_loop_hoisted_serial(factors_data, cand_indices, y, z, factors_nbins, dtype=np.int32) -> np.ndarray:
     """Serial (tiny-pool) CMI with the Y,Z terms hoisted. Bit-identical to the serial ``conditional_mi`` loop."""
     p = len(cand_indices)
-    out = np.empty(p, dtype=np.float64)
+    out = np.empty(p, dtype=np.float64)  # Intentional float64: exact CPU CMI output vector, the reference oracle for the 1e-9 parity gate
     ent_z, classes_yz, ent_yz, nclasses_yz = _cmi_yz_fixed_terms(factors_data, y, z, factors_nbins, dtype)
     zi = z[0]
     for i in range(p):
@@ -698,7 +710,7 @@ def _cpu_cmi_loop_hoisted_serial(factors_data, cand_indices, y, z, factors_nbins
 
 
 def _cpu_cmi_loop(factors_data, cand_indices, y, z, factors_nbins, dtype=np.int32) -> np.ndarray:
-    """Exact CPU CMI over each candidate column index -> (p,) float64. Parallel (prange) across cores once the
+    """Exact CPU CMI over each candidate column index -> (p,) double. Parallel (prange) across cores once the
     candidate pool clears ``_CMI_PARALLEL_MIN_CANDS``; exact serial for a tiny pool (thread-spawn not worth it).
 
     ``cand_indices`` is a (p,) array of column indices into ``factors_data``; ``y`` / ``z`` are 1-element column-index
@@ -710,7 +722,7 @@ def _cpu_cmi_loop(factors_data, cand_indices, y, z, factors_nbins, dtype=np.int3
     cand_indices = np.asarray(cand_indices, dtype=np.int64)
     p = len(cand_indices)
     if p == 0:
-        return np.empty(0, dtype=np.float64)
+        return np.empty(0, dtype=np.float64)  # Intentional float64: exact CPU CMI output vector, the reference oracle for the 1e-9 parity gate
     y = np.asarray(y, dtype=np.int64)
     z = np.asarray(z, dtype=np.int64)
     factors_nbins = np.asarray(factors_nbins)
@@ -730,7 +742,7 @@ def _cpu_cmi_loop(factors_data, cand_indices, y, z, factors_nbins, dtype=np.int3
     # bench-attempt-baseline (MLFRAME_CMI_YZ_HOIST=0): un-hoisted recompute path kept for the A/B (REJECTED!=DELETED).
     if p >= _CMI_PARALLEL_MIN_CANDS:
         return np.asarray(_cpu_cmi_loop_parallel(fd, cand_indices, y, z, factors_nbins, _vin))
-    out = np.empty(p, dtype=np.float64)
+    out = np.empty(p, dtype=np.float64)  # Intentional float64: exact CPU CMI output vector, the reference oracle for the 1e-9 parity gate
     for i in range(p):
         out[i] = conditional_mi(fd, np.array([cand_indices[i]], dtype=np.int64), y, z, _vin, factors_nbins)
     return out
@@ -893,7 +905,7 @@ def conditional_mi_batched_dispatch(
     dtype: type = np.int32,
     force: Optional[str] = None,
 ) -> np.ndarray:
-    """Public entry: ``I(X_j; Y | Z)`` for every candidate column in ``cand_indices`` -> (p,) float64.
+    """Public entry: ``I(X_j; Y | Z)`` for every candidate column in ``cand_indices`` -> (p,) double.
 
     Routes to the batched CUDA kernel at large ``(n, p)`` (where it wins), else to the exact CPU
     ``conditional_mi`` loop. ``y_index`` / ``z_index`` are the single column indices of the target

@@ -30,6 +30,7 @@ from types import ModuleType
 from typing import TYPE_CHECKING
 
 from numpy.typing import DTypeLike
+from mlframe.feature_selection.filters._fe_gpu_batch._devices import crit_float_dtype
 
 if TYPE_CHECKING:
     import cupy
@@ -51,8 +52,8 @@ def resident_bincount(
     x : 1-D cupy int array of bin indices, all in ``[0, nc)``.
     nc : number of bins (the exact output length).
     weights : optional 1-D cupy array aligned with ``x``; unweighted count when None.
-    dtype : output dtype; defaults to float64 (weighted) / int64 (unweighted) to match the
-        ``.astype(cp.float64)`` the callers applied to ``cupy.bincount``'s result.
+    dtype : output dtype; defaults to double (weighted) / int64 (unweighted) to match the
+        ``.astype(cp.double)`` the callers applied to ``cupy.bincount``'s result.
     debug_check_bounds : opt-in bounds assert (costs one D2H sync - never enable on the hot path); raises
         ``ValueError`` if any index in ``x`` is outside ``[0, nc)``, matching ``cupy.bincount``'s own
         loud-failure behaviour instead of this function's default silent-wrap/OOB-write UB.
@@ -71,6 +72,6 @@ def resident_bincount(
         out = cp.zeros(n, dtype=(cp.int32 if dtype is None else dtype))
         cupyx.scatter_add(out, x, 1)
     else:
-        out = cp.zeros(n, dtype=(cp.float64 if dtype is None else dtype))
+        out = cp.zeros(n, dtype=(crit_float_dtype() if dtype is None else dtype))
         cupyx.scatter_add(out, x, weights)
     return out

@@ -12,6 +12,8 @@ import logging
 from typing import Any
 
 import numpy as np
+from mlframe.feature_selection.filters._fe_gpu_batch._devices import crit_float_dtype
+
 
 from mlframe.feature_selection.filters._relative_uplift import relative_uplift
 import pandas as pd
@@ -93,7 +95,7 @@ def _used_operand_matrix(_Mr: Any, used_idx: list, used_x: list, used_src: list)
         # same-fit caller later requesting the same column at float64 - without ever re-uploading the
         # whole (n, n_used) matrix as one un-deduped blob (the prior behaviour here).
         M = assemble_resident_matrix(
-            np.column_stack(used_x), used_src, ("orth_used_M", tuple(used_src)), dtype=np.float64,
+            np.column_stack(used_x), used_src, ("orth_used_M", tuple(used_src)), dtype=crit_float_dtype(),
         )
     return M
 
@@ -110,7 +112,7 @@ def _gpu_route_candidate_bases(cp: Any, cand_x: list, cand_cols: list, basis: st
     _gpu_routed = None
     _Mr = None  # resident (n, n_cand) operand matrix uploaded ONCE for routing, reused for the basis-MI build
     if basis == "auto" and y is not None and fe_gpu_routing_enabled():
-        _yc = np.asarray(_ya, dtype=np.float64).ravel()
+        _yc = np.asarray(_ya, dtype=crit_float_dtype()).ravel()
         if _yc.size == cand_x[0].size and cand_x[0].size >= 30 and np.isfinite(_yc).all() and float(np.std(_yc)) >= 1e-12:
             try:
                 # _Mr is the candidate-column matrix - each column is a RAW X base column (cand_x[j] =
@@ -120,12 +122,12 @@ def _gpu_route_candidate_bases(cp: Any, cand_x: list, cand_cols: list, basis: st
                 # Column j is the raw column verbatim -> same bytes -> selection-equivalent; a name/shape
                 # mismatch or cupy fault falls back to the whole-matrix upload.
                 _Mr = assemble_resident_matrix(
-                    np.column_stack(cand_x), cand_cols, ("orth_Mr", tuple(cand_cols)), dtype=np.float64,
+                    np.column_stack(cand_x), cand_cols, ("orth_Mr", tuple(cand_cols)), dtype=crit_float_dtype(),
                 )
                 # _yc is the FIT-CONSTANT routing target, re-uploaded per orth-family call (a fresh cp.asarray
                 # each time). Route through the content-keyed resident cache so it uploads ONCE per fit and
                 # every later orth call reuses the resident copy. Read-only f64 -> selection-equivalent.
-                _yc_gpu = resident_operand(_yc, "orth_route_y", dtype=np.float64)
+                _yc_gpu = resident_operand(_yc, "orth_route_y", dtype=crit_float_dtype())
                 _gpu_routed = _gpu_route_bases_batched(
                     cp, _Mr, _yc_gpu, list(_POLY_BASES), tuple(degrees), robust_axis=ra,
                 )
@@ -251,7 +253,7 @@ def _gpu_build_and_score_univariate(X, cols, degrees, basis, y, nbins):
     # bit-identical to two separate calls, with one launch set instead of two. Both are already device-
     # resident, so this stays H2D-free (do NOT route through the host-input batcher, which would round-trip).
     if raw_mat is not None:
-        _stacked = cp.concatenate((raw_mat, eng_mat.astype(cp.float64, copy=False)), axis=1)
+        _stacked = cp.concatenate((raw_mat, eng_mat.astype(crit_float_dtype(), copy=False)), axis=1)
         _all_mi = _plugin_mi_classif_batch_cuda_resident(_stacked, y_gpu, nbins, y_min=_ymin, n_classes=_ncls)
         _rk = int(raw_mat.shape[1])
         raw_mi_map = dict(zip(raw_cols, [float(v) for v in _all_mi[:_rk]]))

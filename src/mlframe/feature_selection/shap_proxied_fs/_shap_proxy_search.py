@@ -1,7 +1,7 @@
 """Exact brute-force subset search over SHAP-coalition proxies (numba).
 
 Ports the user's proven incremental-sum kernel (``find_top_n_combinations``) with three corrections:
-  1. float64 accumulator (the research had to switch from float32 to avoid running-sum drift over
+  1. double accumulator (the research had to switch from float32 to avoid running-sum drift over
      ~1e6+ combos - notebook cell re-ran with ``float_dtype=_crit_np_dtype()``).
   2. per-row base value (OOF folds carry distinct base values) instead of a scalar.
   3. a *proper* objective (``score_margin``: Brier/log-loss/RMSE/MAE) applied per combo instead of
@@ -82,11 +82,11 @@ def _topn_fixed_r(phi, base, y, combos, metric_code, top_n):
     n = phi.shape[0]
     top_n = min(top_n, C)
     top_combos = -np.ones((top_n, r), dtype=np.int32)
-    top_losses = np.full(top_n, np.inf, dtype=np.float64)
+    top_losses = np.full(top_n, np.inf, dtype=np.float64)  # Intentional float64: numba kernel body buffer or scalar (crit helper cannot run inside njit)
     prev = np.full(r, -1, dtype=np.int32)
-    main_sum = np.zeros(n, dtype=np.float64)
-    level_sums = np.zeros((r, n), dtype=np.float64)
-    margin = np.empty(n, dtype=np.float64)
+    main_sum = np.zeros(n, dtype=np.float64)  # Intentional float64: numba kernel body buffer or scalar (crit helper cannot run inside njit)
+    level_sums = np.zeros((r, n), dtype=np.float64)  # Intentional float64: numba kernel body buffer or scalar (crit helper cannot run inside njit)
+    margin = np.empty(n, dtype=np.float64)  # Intentional float64: numba kernel body buffer or scalar (crit helper cannot run inside njit)
     for c in range(C):
         comb = combos[c]
         for i in range(r - 1):
@@ -122,11 +122,11 @@ def _topn_fixed_r_colmajor(phi_T, base, y, combos, metric_code, top_n):
     n = phi_T.shape[1]
     top_n = min(top_n, C)
     top_combos = -np.ones((top_n, r), dtype=np.int32)
-    top_losses = np.full(top_n, np.inf, dtype=np.float64)
+    top_losses = np.full(top_n, np.inf, dtype=np.float64)  # Intentional float64: numba kernel body buffer or scalar (crit helper cannot run inside njit)
     prev = np.full(r, -1, dtype=np.int32)
-    main_sum = np.zeros(n, dtype=np.float64)
-    level_sums = np.zeros((r, n), dtype=np.float64)
-    margin = np.empty(n, dtype=np.float64)
+    main_sum = np.zeros(n, dtype=np.float64)  # Intentional float64: numba kernel body buffer or scalar (crit helper cannot run inside njit)
+    level_sums = np.zeros((r, n), dtype=np.float64)  # Intentional float64: numba kernel body buffer or scalar (crit helper cannot run inside njit)
+    margin = np.empty(n, dtype=np.float64)  # Intentional float64: numba kernel body buffer or scalar (crit helper cannot run inside njit)
     for c in range(C):
         comb = combos[c]
         for i in range(r - 1):
@@ -163,16 +163,16 @@ def _topn_fixed_r_parallel(phi, base, y, combos, metric_code, top_n, n_chunks):
     r = combos.shape[1]
     n = phi.shape[0]
     top_n = min(top_n, C)
-    chunk_losses = np.full((n_chunks, top_n), np.inf, dtype=np.float64)
+    chunk_losses = np.full((n_chunks, top_n), np.inf, dtype=np.float64)  # Intentional float64: numba kernel body buffer or scalar (crit helper cannot run inside njit)
     chunk_combos = -np.ones((n_chunks, top_n, r), dtype=np.int32)
     base_chunk = C // n_chunks
     for ch in prange(n_chunks):
         start = ch * base_chunk
         stop = C if ch == n_chunks - 1 else (ch + 1) * base_chunk
         prev = np.full(r, -1, dtype=np.int32)
-        main_sum = np.zeros(n, dtype=np.float64)
-        level_sums = np.zeros((r, n), dtype=np.float64)
-        margin = np.empty(n, dtype=np.float64)
+        main_sum = np.zeros(n, dtype=np.float64)  # Intentional float64: numba kernel body buffer or scalar (crit helper cannot run inside njit)
+        level_sums = np.zeros((r, n), dtype=np.float64)  # Intentional float64: numba kernel body buffer or scalar (crit helper cannot run inside njit)
+        margin = np.empty(n, dtype=np.float64)  # Intentional float64: numba kernel body buffer or scalar (crit helper cannot run inside njit)
         local_losses = chunk_losses[ch]
         local_combos = chunk_combos[ch]
         for c in range(start, stop):
@@ -206,16 +206,16 @@ def _topn_fixed_r_parallel_colmajor(phi_T, base, y, combos, metric_code, top_n, 
     r = combos.shape[1]
     n = phi_T.shape[1]
     top_n = min(top_n, C)
-    chunk_losses = np.full((n_chunks, top_n), np.inf, dtype=np.float64)
+    chunk_losses = np.full((n_chunks, top_n), np.inf, dtype=np.float64)  # Intentional float64: numba kernel body buffer or scalar (crit helper cannot run inside njit)
     chunk_combos = -np.ones((n_chunks, top_n, r), dtype=np.int32)
     base_chunk = C // n_chunks
     for ch in prange(n_chunks):
         start = ch * base_chunk
         stop = C if ch == n_chunks - 1 else (ch + 1) * base_chunk
         prev = np.full(r, -1, dtype=np.int32)
-        main_sum = np.zeros(n, dtype=np.float64)
-        level_sums = np.zeros((r, n), dtype=np.float64)
-        margin = np.empty(n, dtype=np.float64)
+        main_sum = np.zeros(n, dtype=np.float64)  # Intentional float64: numba kernel body buffer or scalar (crit helper cannot run inside njit)
+        level_sums = np.zeros((r, n), dtype=np.float64)  # Intentional float64: numba kernel body buffer or scalar (crit helper cannot run inside njit)
+        margin = np.empty(n, dtype=np.float64)  # Intentional float64: numba kernel body buffer or scalar (crit helper cannot run inside njit)
         local_losses = chunk_losses[ch]
         local_combos = chunk_combos[ch]
         for c in range(start, stop):

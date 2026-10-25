@@ -20,7 +20,7 @@ Cost: same baseline LGB + 3× softmax+aggregate. Sub-second.
 from __future__ import annotations
 
 import logging
-from typing import Any, Literal, Optional, Sequence
+from typing import Any, Literal, Optional, Sequence, Tuple
 
 import numpy as np
 import polars as pl
@@ -68,6 +68,40 @@ def _make_cbhr_columns(
         cols[f"{column_prefix}_{t_tag}_resid_side1"] = feats[:, base + n_total_anchors + 3].astype(dtype, copy=False)
         cols[f"{column_prefix}_{t_tag}_resid_side2"] = feats[:, base + n_total_anchors + 4].astype(dtype, copy=False)
     return cols
+
+
+def _select_hard_anchors(abs_residuals: np.ndarray, y_t: np.ndarray, task: str, n_hard_per_side: int) -> Tuple[np.ndarray, bool, bool]:
+    """Pick the largest-|residual| rows on each side as anchors, pad short sides, and report which sides had no rows at all."""
+    if task == "binary":
+        pos_mask_idx = np.where(y_t > 0.5)[0]
+        neg_mask_idx = np.where(y_t <= 0.5)[0]
+    else:
+        q1, q4 = np.quantile(y_t, [0.2, 0.8])
+        pos_mask_idx = np.where(y_t >= q4)[0]
+        neg_mask_idx = np.where(y_t <= q1)[0]
+
+    pos_top = _topk_within_subset(abs_residuals, pos_mask_idx, n_hard_per_side)
+    neg_top = _topk_within_subset(abs_residuals, neg_mask_idx, n_hard_per_side)
+    pos_side_empty = pos_top.size == 0
+    neg_side_empty = neg_top.size == 0
+    if pos_top.size < n_hard_per_side:
+        if pos_top.size > 0:
+            pad = np.full(n_hard_per_side - pos_top.size, pos_top[-1])
+            pos_top = np.concatenate([pos_top, pad])
+        else:
+            # No positive-side rows this fold: a placeholder index (row 0) is needed to keep anchors_X's
+            # shape fixed, but it must NEVER contribute -- reusing it unmasked would silently substitute
+            # an arbitrary (likely wrong-class) row as every positive-side anchor. Masked out of the
+            # softmax below instead.
+            pos_top = np.zeros(n_hard_per_side, dtype=np.int64)
+    if neg_top.size < n_hard_per_side:
+        if neg_top.size > 0:
+            pad = np.full(n_hard_per_side - neg_top.size, neg_top[-1])
+            neg_top = np.concatenate([neg_top, pad])
+        else:
+            neg_top = np.zeros(n_hard_per_side, dtype=np.int64)
+    anchors_idx = np.concatenate([pos_top, neg_top])
+    return anchors_idx, pos_side_empty, neg_side_empty
 
 
 def compute_multi_temp_cbhr_features(
@@ -120,36 +154,7 @@ def compute_multi_temp_cbhr_features(
         signed_residuals = (y_t - preds_tr).astype(np.float32)
         abs_residuals = np.abs(signed_residuals)
 
-        if task == "binary":
-            pos_mask_idx = np.where(y_t > 0.5)[0]
-            neg_mask_idx = np.where(y_t <= 0.5)[0]
-        else:
-            q1, q4 = np.quantile(y_t, [0.2, 0.8])
-            pos_mask_idx = np.where(y_t >= q4)[0]
-            neg_mask_idx = np.where(y_t <= q1)[0]
-
-        pos_top = _topk_within_subset(abs_residuals, pos_mask_idx, n_hard_per_side)
-        neg_top = _topk_within_subset(abs_residuals, neg_mask_idx, n_hard_per_side)
-        pos_side_empty = pos_top.size == 0
-        neg_side_empty = neg_top.size == 0
-        if pos_top.size < n_hard_per_side:
-            if pos_top.size > 0:
-                pad = np.full(n_hard_per_side - pos_top.size, pos_top[-1])
-                pos_top = np.concatenate([pos_top, pad])
-            else:
-                # No positive-side rows this fold: a placeholder index (row 0) is needed to keep anchors_X's
-                # shape fixed, but it must NEVER contribute -- reusing it unmasked would silently substitute
-                # an arbitrary (likely wrong-class) row as every positive-side anchor. Masked out of the
-                # softmax below instead.
-                pos_top = np.zeros(n_hard_per_side, dtype=np.int64)
-        if neg_top.size < n_hard_per_side:
-            if neg_top.size > 0:
-                pad = np.full(n_hard_per_side - neg_top.size, neg_top[-1])
-                neg_top = np.concatenate([neg_top, pad])
-            else:
-                neg_top = np.zeros(n_hard_per_side, dtype=np.int64)
-
-        anchors_idx = np.concatenate([pos_top, neg_top])
+        anchors_idx, pos_side_empty, neg_side_empty = _select_hard_anchors(abs_residuals, y_t, task, n_hard_per_side)
         anchors_X = Xt_s[anchors_idx]
         anchors_y = y_t[anchors_idx].astype(np.float32)
         anchors_abs = abs_residuals[anchors_idx].astype(np.float32)

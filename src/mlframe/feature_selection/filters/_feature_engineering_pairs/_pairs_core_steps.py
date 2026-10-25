@@ -96,6 +96,36 @@ def _abs_corr_finite_njit(a, y, yfin, min_n=8):
     return -r if r < 0.0 else r
 
 
+def _engineered_operand_vals(_name, X, engineered_operand_values, _use_subsample, _sample_idx, _full_n_rows, _densify_nullable):
+    """Continuous values of an engineered operand (preferred) or its augmented-frame column; ``None`` when neither is available."""
+    from mlframe.feature_selection.filters.feature_engineering import (
+        logger,
+    )
+
+    _vals = None
+    if engineered_operand_values is not None:
+        _cv = engineered_operand_values.get(_name)
+        if _cv is not None:
+            _cv = np.asarray(_cv)
+            # The continuous store is full-n; align to the (possibly subsampled) X.
+            if _cv.shape[0] == len(X):
+                _vals = _cv
+            elif _use_subsample and _cv.shape[0] == _full_n_rows:
+                _vals = _cv[_sample_idx]
+    if _vals is None:
+        try:
+            if isinstance(X, pd.DataFrame):
+                _vals = _densify_nullable(X[_name]) if isinstance(X[_name].dtype, ExtensionDtype) else (X[_name].to_numpy() if hasattr(X[_name], "to_numpy") else X[_name].values)
+            elif hasattr(X, "columns") and _name in getattr(X, "columns", []):
+                _vals = X[_name].to_numpy()  # polars
+            else:
+                _vals = None
+        except Exception as e:
+            logger.warning("reading column %r as numpy failed, skipping: %s", _name, e)
+            _vals = None
+    return _vals
+
+
 def _check_prospective_fe_step1_def_extval_raw(_extval_raw_col_cache, original_cols, X, _densify_nullable, allow_engineered_operands, cols, engineered_operand_values, _use_subsample, _full_n_rows, _sample_idx):
     """Step 1 of check_prospective_fe_pairs: lines starting at ``def _extval_raw_col(_var):``."""
     from mlframe.feature_selection.filters.feature_engineering import (
@@ -156,28 +186,7 @@ def _check_prospective_fe_step1_def_extval_raw(_extval_raw_col_cache, original_c
         # values). Fall back to the by-name frame extract when no continuous value is
         # stored (e.g. an engineered column produced by a stage that did not register one).
         if allow_engineered_operands and 0 <= _var < len(cols):
-            _name = cols[_var]
-            _vals = None
-            if engineered_operand_values is not None:
-                _cv = engineered_operand_values.get(_name)
-                if _cv is not None:
-                    _cv = np.asarray(_cv)
-                    # The continuous store is full-n; align to the (possibly subsampled) X.
-                    if _cv.shape[0] == len(X):
-                        _vals = _cv
-                    elif _use_subsample and _cv.shape[0] == _full_n_rows:
-                        _vals = _cv[_sample_idx]
-            if _vals is None:
-                try:
-                    if isinstance(X, pd.DataFrame):
-                        _vals = _densify_nullable(X[_name]) if isinstance(X[_name].dtype, ExtensionDtype) else (X[_name].to_numpy() if hasattr(X[_name], "to_numpy") else X[_name].values)
-                    elif hasattr(X, "columns") and _name in getattr(X, "columns", []):
-                        _vals = X[_name].to_numpy()  # polars
-                    else:
-                        _vals = None
-                except Exception as e:
-                    logger.warning("reading column %r as numpy failed, skipping: %s", _name, e)
-                    _vals = None
+            _vals = _engineered_operand_vals(cols[_var], X, engineered_operand_values, _use_subsample, _sample_idx, _full_n_rows, _densify_nullable)
             if _vals is not None:
                 _vals = np.asarray(_vals)
                 _extval_raw_col_cache[_var] = _vals

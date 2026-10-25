@@ -29,6 +29,7 @@ import numpy as np
 import pandas as pd
 
 from mlframe.utils.log_throttle import log_throttle
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 
 logger = logging.getLogger(__name__)
 
@@ -148,11 +149,11 @@ def _benjamini_yekutieli(p_values: np.ndarray, alpha: float) -> np.ndarray:
 def _rank_with_ties(x: np.ndarray) -> np.ndarray:
     """Mean-rank for tied values (matches scipy.stats.rankdata method='average').
 
-    Stable: ties get the mean of the rank range they span. Returns float64 ranks 1-indexed.
+    Stable: ties get the mean of the rank range they span. Returns double ranks 1-indexed.
     """
     n = x.shape[0]
     order = np.argsort(x, kind="mergesort")
-    ranks = np.empty(n, dtype=np.float64)
+    ranks = np.empty(n, dtype=np.float64)  # Intentional float64: numba kernel body buffer or scalar (crit helper cannot run inside njit)
     i = 0
     while i < n:
         j = i
@@ -174,7 +175,7 @@ def _rank_and_tiesum(x: np.ndarray) -> Tuple[np.ndarray, float]:
     """
     n = x.shape[0]
     order = np.argsort(x, kind="mergesort")
-    ranks = np.empty(n, dtype=np.float64)
+    ranks = np.empty(n, dtype=np.float64)  # Intentional float64: numba kernel body buffer or scalar (crit helper cannot run inside njit)
     tie_sum = 0.0
     i = 0
     while i < n:
@@ -272,7 +273,7 @@ def _mann_whitney_p_numeric_binary(x: np.ndarray, y: np.ndarray) -> float:
     mask = ~np.isnan(x) & ~_isnan_mask(y)
     if mask.sum() < 5:
         return 1.0
-    xm = x[mask].astype(np.float64, copy=False)
+    xm = x[mask].astype(_crit_np_dtype(), copy=False)
     # Binarise y into {0, 1} by comparison against the unique-sorted values.
     uniq = np.unique(y[mask])
     if uniq.size != 2:
@@ -291,7 +292,7 @@ def _kruskal_wallis_h(x: np.ndarray, group: np.ndarray, n_groups: int) -> Tuple[
     n = x.shape[0]
     ranks = _rank_with_ties(x)
     group_sizes = np.zeros(n_groups, dtype=np.int64)
-    group_rank_sums = np.zeros(n_groups, dtype=np.float64)
+    group_rank_sums = np.zeros(n_groups, dtype=np.float64)  # Intentional float64: numba kernel body buffer or scalar (crit helper cannot run inside njit)
     for i in range(n):
         g = group[i]
         if g >= 0:
@@ -329,7 +330,7 @@ def _kruskal_wallis_h_v2(x: np.ndarray, group: np.ndarray, n_groups: int) -> Tup
     n = x.shape[0]
     ranks, tie_sum = _rank_and_tiesum(x)
     group_sizes = np.zeros(n_groups, dtype=np.int64)
-    group_rank_sums = np.zeros(n_groups, dtype=np.float64)
+    group_rank_sums = np.zeros(n_groups, dtype=np.float64)  # Intentional float64: numba kernel body buffer or scalar (crit helper cannot run inside njit)
     for i in range(n):
         g = group[i]
         if g >= 0:
@@ -417,7 +418,7 @@ def _kw_p_numeric_multiclass(x: np.ndarray, y: np.ndarray) -> float:
     mask = ~np.isnan(x) & ~_isnan_mask(y)
     if mask.sum() < 5:
         return 1.0
-    xm = x[mask].astype(np.float64, copy=False)
+    xm = x[mask].astype(_crit_np_dtype(), copy=False)
     uniq, inv = np.unique(y[mask], return_inverse=True)
     if uniq.size < 2:
         return 1.0
@@ -518,8 +519,8 @@ def _kendall_p_numeric_continuous(
     mask = ~np.isnan(x) & ~np.isnan(y)
     if mask.sum() < 5:
         return 1.0
-    xm = x[mask].astype(np.float64, copy=False)
-    ym = y[mask].astype(np.float64, copy=False)
+    xm = x[mask].astype(_crit_np_dtype(), copy=False)
+    ym = y[mask].astype(_crit_np_dtype(), copy=False)
     # Test at FULL n. Subsampling large features to 2000 rows before testing mixed heterogeneous effective-n p-values into a
     # single BY family - a 2000-row p-value and a full-n p-value are NOT exchangeable, which loses power and breaks the
     # BY-FDR validity (the procedure assumes a homogeneous family). scipy.stats.kendalltau runs the tie-corrected tau-b in
@@ -549,7 +550,7 @@ def _chi2_independence_p(x_cat: np.ndarray, y_cat: np.ndarray) -> float:
     uniq_y = pd.unique(y_cat)
     if len(uniq_x) < 2 or len(uniq_y) < 2:
         return 1.0
-    table = pd.crosstab(pd.Series(x_cat), pd.Series(y_cat)).to_numpy(dtype=np.float64)
+    table = pd.crosstab(pd.Series(x_cat), pd.Series(y_cat)).to_numpy(dtype=_crit_np_dtype())
     row_sums = table.sum(axis=1, keepdims=True)
     col_sums = table.sum(axis=0, keepdims=True)
     total = float(table.sum())
@@ -620,13 +621,13 @@ def calculate_relevance_table(
         names.append(col)
         try:
             if _is_numeric_dtype(ser):
-                xv = ser.to_numpy(dtype=np.float64, na_value=np.nan)
+                xv = ser.to_numpy(dtype=_crit_np_dtype(), na_value=np.nan)
                 if target_type == "binary":
                     pv = _mann_whitney_p_numeric_binary(xv, y_arr)
                 elif target_type == "multiclass":
                     pv = _kw_p_numeric_multiclass(xv, y_arr)
                 else:
-                    yv = y_arr.astype(np.float64, copy=False)
+                    yv = y_arr.astype(_crit_np_dtype(), copy=False)
                     pv = _kendall_p_numeric_continuous(xv, yv, random_state=random_state)
             else:
                 # Categorical / object feature: chi-squared independence.

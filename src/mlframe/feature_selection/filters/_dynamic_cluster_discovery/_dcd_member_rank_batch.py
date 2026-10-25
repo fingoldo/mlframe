@@ -46,7 +46,7 @@ def batched_member_relevance(
 ) -> np.ndarray:
     """Relevance of every candidate in ``cand_indices`` against ``target_arr``, conditioned on
     ``s_minus_anchor`` when non-empty - one batched, parallel call replacing the per-member Python loop.
-    Returns ``(len(cand_indices),)`` float64, same order as ``cand_indices``.
+    Returns ``(len(cand_indices),)`` double, same order as ``cand_indices``.
     """
     cand = np.asarray(cand_indices, dtype=np.int64)
     if s_minus_anchor:

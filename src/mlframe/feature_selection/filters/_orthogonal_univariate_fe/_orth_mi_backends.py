@@ -86,6 +86,36 @@ def _fe_edge_binning_enabled() -> bool:
     return _os.environ.get("MLFRAME_FE_EDGE_BINNING", "").strip().lower() in ("1", "true", "on", "yes")
 
 
+def _retry_mi_column_blocks(X_dense, y_i64, nbins, dense_cols, mis, _n, _dt, e) -> None:
+    """Retry a failed batch MI slice in column blocks sized to the RAM budget: streamed, then GPU per block, then CPU dispatch, and sklearn only for a block that still fails."""
+    from ..hermite_fe import plugin_mi_classif_batch_dispatch
+
+    logger.warning(
+        "_mi_classif_batch_numba: batch dispatch failed for a %d-col slice (%s: %s); retrying in column blocks.",
+        dense_cols.size, type(e).__name__, e,
+    )
+    _blk = _mi_chunk_cols_for(_n)
+    _streamed = _streamed_block_mi(X_dense, y_i64, nbins, _dt)
+    if _streamed is not None:
+        mis[dense_cols] = _streamed
+        _blk = 0  # every block already scored by the streamed path
+    _gpu_mi = None if _streamed is not None else _block_mi_gpu_fn()
+    for _a in range(0, dense_cols.size, _blk) if _blk > 0 else ():
+        _sel = dense_cols[_a : _a + _blk]
+        _Xb = X_dense[:, _a : _a + _blk]
+        if _gpu_mi is not None:
+            try:
+                mis[_sel] = _gpu_mi(_Xb, y_i64, nbins)
+                continue
+            except Exception:
+                logger.debug("GPU block MI failed for a column block; using the CPU dispatch for it.", exc_info=True)
+        try:
+            mis[_sel] = plugin_mi_classif_batch_dispatch(_Xb, y_i64, nbins)
+        except Exception as _exc:
+            log_throttle(logger, "orth_mi.streamed_block_failed", logging.WARNING, "streamed MI block failed, using sklearn for it: %s", _exc)
+            mis[_sel] = _mi_classif_batch_sklearn(_Xb, y_i64, nbins=nbins)
+
+
 def _mi_classif_batch_numba(X: np.ndarray, y: np.ndarray, *, nbins: int = 10, rank_binning: bool = False) -> np.ndarray:
     """Numba prange batch MI(X_j; y) for classification.
 
@@ -202,30 +232,7 @@ def _mi_classif_batch_numba(X: np.ndarray, y: np.ndarray, *, nbins: int = 10, ra
                 # OOM on the full slice (the (n, cols) float64 batch and its intermediates exceed the memory limit) is not a
                 # kernel fault: the MI of each column is independent, so the same numba dispatch runs on column blocks sized to
                 # the RAM budget, with identical values. Only a single column that still fails goes to the sklearn reference.
-                logger.warning(
-                    "_mi_classif_batch_numba: batch dispatch failed for a %d-col slice (%s: %s); retrying in column blocks.",
-                    dense_cols.size, type(e).__name__, e,
-                )
-                _blk = _mi_chunk_cols_for(_n)
-                _streamed = _streamed_block_mi(X_dense, y_i64, nbins, _dt)
-                if _streamed is not None:
-                    mis[dense_cols] = _streamed
-                    _blk = 0  # every block already scored by the streamed path
-                _gpu_mi = None if _streamed is not None else _block_mi_gpu_fn()
-                for _a in range(0, dense_cols.size, _blk) if _blk > 0 else ():
-                    _sel = dense_cols[_a : _a + _blk]
-                    _Xb = X_dense[:, _a : _a + _blk]
-                    if _gpu_mi is not None:
-                        try:
-                            mis[_sel] = _gpu_mi(_Xb, y_i64, nbins)
-                            continue
-                        except Exception:
-                            logger.debug("GPU block MI failed for a column block; using the CPU dispatch for it.", exc_info=True)
-                    try:
-                        mis[_sel] = plugin_mi_classif_batch_dispatch(_Xb, y_i64, nbins)
-                    except Exception as _exc:
-                        log_throttle(logger, "orth_mi.streamed_block_failed", logging.WARNING, "streamed MI block failed, using sklearn for it: %s", _exc)
-                        mis[_sel] = _mi_classif_batch_sklearn(_Xb, y_i64, nbins=nbins)
+                _retry_mi_column_blocks(X_dense, y_i64, nbins, dense_cols, mis, _n, _dt, e)
 
     if partial_cols.size:
         _mi_partial_nan_columns(X, y_i64, nbins, partial_cols, mis)

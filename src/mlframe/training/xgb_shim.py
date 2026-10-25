@@ -226,6 +226,14 @@ def _xgb_cache_put(key: tuple, dmatrix: Any) -> None:
             _XGB_DMATRIX_CACHE.popitem(last=False)
 
 
+def _xgb_cache_discard(key: Any) -> None:
+    """Drop one cached DMatrix by its content-signature ``key``; a no-op when ``key`` is None or absent."""
+    if key is None:
+        return
+    with _XGB_DMATRIX_CACHE_LOCK:
+        _XGB_DMATRIX_CACHE.pop(key, None)
+
+
 def _xgb_cache_clear() -> None:
     """Release all cached DMatrixes (call between long-running suite
     invocations to free C++ memory)."""
@@ -431,7 +439,10 @@ class _DMatrixReuseMixin:
         suite runs to free the C++ memory backing the quantile sketches
         (the 2026-04-24 prod log captured ~8 GB held by a single cached
         train DMatrix on the 7.3M × 106 frame)."""
+        _keys = [getattr(self, _attr, None) for _attr in self._CACHE_KEY_ATTRS]
         self._init_cache()
+        for _key in _keys:
+            _xgb_cache_discard(_key)
 
     # ------------------------------------------------------------------
     # Public extras — in-place swaps on the cached DMatrix

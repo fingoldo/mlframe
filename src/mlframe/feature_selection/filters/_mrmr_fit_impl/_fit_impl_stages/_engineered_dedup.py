@@ -4,6 +4,8 @@ from __future__ import annotations
 
 # --- imports (managed) ---
 from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
+from typing import Any
+
 import pandas as pd
 from mlframe.feature_selection.filters._mrmr_fit_impl._fe_roster_attrs import drop_from_fe_rosters
 from mlframe.feature_selection.filters._mrmr_fit_impl._fit_impl_core import logger
@@ -101,6 +103,26 @@ _PRUNED_FAMILIES: tuple[str, ...] = (
 """Recipe registries a pruned column is removed from (``binned_agg`` is not pruned here)."""
 
 
+def _engineered_mi_scores(X: Any, _eng_cols_appended: list, _y_np: Any) -> dict[str, float]:
+    """Plug-in MI about y for each appended engineered column present in ``X``; empty on any failure so the dedup falls back to first-appended."""
+    _eng_mi: dict[str, float] = {}
+    try:
+        from mlframe.feature_selection.filters._orthogonal_univariate_fe import _mi_classif_batch
+
+        _y_for_eng_mi = _y_np
+        _y_for_eng_mi = encode_y_for_classif_mi(_y_for_eng_mi)
+        if isinstance(X, pd.DataFrame) and len(_eng_cols_appended) >= 2:
+            _mi_cols = [_c for _c in _eng_cols_appended if _c in X.columns]
+            if _mi_cols:
+                _mi_mat = X[_mi_cols].to_numpy(dtype=_crit_np_dtype())
+                _mi_vals = _mi_classif_batch(_mi_mat, _y_for_eng_mi, nbins=10)
+                _eng_mi = {_name: float(_v) for _name, _v in zip(_mi_cols, _mi_vals)}
+    except Exception as exc:
+        logger.warning("mrmr: engineered-MI dict computation failed; treating as empty (no engineered candidates this round): %r", exc, exc_info=True)
+        _eng_mi = {}
+    return _eng_mi
+
+
 def _dedup_engineered_across_stages(self, _y_np, X, recipes, verbose):
     """Cross-stage dedup of engineered columns, keeping the member of a near-duplicate cluster with the most information about y."""
     _eng_cols_appended_raw = list(self.hybrid_orth_features_ or []) + list(self.mi_greedy_features_ or [])
@@ -118,21 +140,7 @@ def _dedup_engineered_across_stages(self, _y_np, X, recipes, verbose):
     # bins identically, so MI is numerically equal - prefer the explicitly-requested constructor output). MI scoring is best-effort: any failure falls back to
     # the order-preserving first-appended policy so the dedup never crashes a fit.
     _mig_set = set(self.mi_greedy_features_ or [])
-    _eng_mi: dict[str, float] = {}
-    try:
-        from mlframe.feature_selection.filters._orthogonal_univariate_fe import _mi_classif_batch
-
-        _y_for_eng_mi = _y_np
-        _y_for_eng_mi = encode_y_for_classif_mi(_y_for_eng_mi)
-        if isinstance(X, pd.DataFrame) and len(_eng_cols_appended) >= 2:
-            _mi_cols = [_c for _c in _eng_cols_appended if _c in X.columns]
-            if _mi_cols:
-                _mi_mat = X[_mi_cols].to_numpy(dtype=_crit_np_dtype())
-                _mi_vals = _mi_classif_batch(_mi_mat, _y_for_eng_mi, nbins=10)
-                _eng_mi = {_name: float(_v) for _name, _v in zip(_mi_cols, _mi_vals)}
-    except Exception as exc:
-        logger.warning("mrmr: engineered-MI dict computation failed; treating as empty (no engineered candidates this round): %r", exc, exc_info=True)
-        _eng_mi = {}
+    _eng_mi = _engineered_mi_scores(X, _eng_cols_appended, _y_np)
 
     def _eng_dedup_prefer(cand: str, kept: str) -> bool:
         """Return True when ``cand`` should DISPLACE the already-kept ``kept`` on a near-duplicate collision.

@@ -16,17 +16,16 @@ from __future__ import annotations
 import logging
 import math
 import multiprocessing
-from typing import Any
 
 import numpy as np
 
+from mlframe.feature_selection.filters._fe_gpu_batch._devices import assert_kernel_buffers, crit_float_dtype
 from mlframe.feature_selection.shap_proxied_fs._shap_proxy_objective import METRIC_CODES, resolve_metric
 from mlframe.feature_selection.shap_proxied_fs._shap_proxy_search import generate_combinations, _merge_topn
 from mlframe.feature_selection.shap_proxied_fs._shap_proxy_treeshap_gpu import _cuda_demote_errors
 
 logger = logging.getLogger(__name__)
 
-_SUBSET_LOSS_KERNEL: Any = None
 _KERNEL_INIT_LOCK = multiprocessing.Lock()
 
 # Hand-tuned default; overridden by kernel_tuning_cache when available (guarded for None).
@@ -34,9 +33,9 @@ _DEFAULT_BLOCK_SIZE = 256
 
 _KERNEL_SRC = r"""
 extern "C" __global__
-void subset_loss(const double* phi, const double* base, const double* y,
+void subset_loss(const {REAL}* phi, const {REAL}* base, const {REAL}* y,
                  const int* combos, const int n, const int f, const int r,
-                 const long long C, const int metric_code, double* out){
+                 const long long C, const int metric_code, {REAL}* out){
     long long c = blockIdx.x * (long long)blockDim.x + threadIdx.x;
     if (c >= C) return;
     const int* comb = combos + c * r;
@@ -64,7 +63,7 @@ void subset_loss(const double* phi, const double* base, const double* y,
             }
         }
     }
-    out[c] = s / (double)n;
+    out[c] = ({REAL})(s / (double)n);
 }
 """
 
@@ -80,17 +79,22 @@ def gpu_available() -> bool:
         return False
 
 
-def _ensure_kernel():
-    """Lazily compile and cache the ``subset_loss`` RawKernel, double-checked-locking to avoid a compile race across concurrent callers."""
-    global _SUBSET_LOSS_KERNEL
-    if _SUBSET_LOSS_KERNEL is not None:
-        return _SUBSET_LOSS_KERNEL
+_SUBSET_LOSS_KERNELS: dict = {}
+
+
+def _ensure_kernel(real_t: str = "double"):
+    """Lazily compile and cache the ``subset_loss`` RawKernel for the buffer element type ``real_t`` (``"float"`` or ``"double"``).
+
+    The loss accumulates in double either way; only the buffers are templated on ``{REAL}``.
+    """
     with _KERNEL_INIT_LOCK:
-        if _SUBSET_LOSS_KERNEL is None:  # double-checked
+        kern = _SUBSET_LOSS_KERNELS.get(real_t)
+        if kern is None:
             import cupy as cp
 
-            _SUBSET_LOSS_KERNEL = cp.RawKernel(_KERNEL_SRC, "subset_loss")
-    return _SUBSET_LOSS_KERNEL
+            kern = cp.RawKernel(_KERNEL_SRC.replace("{REAL}", real_t), "subset_loss")
+            _SUBSET_LOSS_KERNELS[real_t] = kern
+        return kern
 
 
 def _block_size() -> int:
@@ -118,12 +122,15 @@ def brute_force_top_n_gpu(
     if metric_name == "auc":
         raise ValueError("GPU backend does not support metric='auc'; use brier/logloss.")
     metric_code = METRIC_CODES[metric_name]
-    kernel = _ensure_kernel()
+
+    buf_t = crit_float_dtype()
+    _real = "float" if buf_t == cp.float32 else "double"
+    kernel = _ensure_kernel(_real)
     block = _block_size()
 
-    phi_d = cp.asarray(np.ascontiguousarray(phi, dtype=np.float64))  # Intentional float64: SHAP values are summed over feature subsets in the loss (kernel contract double*)
-    base_d = cp.asarray(np.ascontiguousarray(base, dtype=np.float64))
-    y_d = cp.asarray(np.ascontiguousarray(y, dtype=np.float64))
+    phi_d = cp.asarray(np.ascontiguousarray(phi, dtype=buf_t))
+    base_d = cp.asarray(np.ascontiguousarray(base, dtype=buf_t))
+    y_d = cp.asarray(np.ascontiguousarray(y, dtype=buf_t))
     n, f = phi.shape
     max_card = f if max_card is None else min(max_card, f)
     seq = np.arange(f, dtype=np.int32)
@@ -137,8 +144,9 @@ def brute_force_top_n_gpu(
         if C == 0:
             continue
         combos_d = cp.asarray(np.ascontiguousarray(combos, dtype=np.int32).ravel())
-        out_d = cp.empty(C, dtype=cp.float64)
+        out_d = cp.empty(C, dtype=buf_t)
         grid = ((C + block - 1) // block,)
+        assert_kernel_buffers("subset_loss", _real, phi=phi_d, base=base_d, y=y_d, out=out_d)
         kernel(grid, (block,), (phi_d, base_d, y_d, combos_d, np.int32(n), np.int32(f), np.int32(r), np.int64(C), np.int32(metric_code), out_d))
         # SR1 (mirror of the CPU path): map non-finite losses to +inf so a NaN cannot be argpartition-
         # selected as "top"; lower=better, so +inf sinks. Cannot be exercised on this CPU-only box.

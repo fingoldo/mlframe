@@ -69,6 +69,48 @@ def _bucket_sums_counts(X_pool: np.ndarray, y_pool: np.ndarray, edges: np.ndarra
     return sums.sum(axis=0), counts.sum(axis=0)
 
 
+def _bucket_centroids(X_pool, y_pool, n_quantiles, dtype):
+    """Return (n_quantiles, d) centroids: bucket y_pool into quantiles, take mean X for rows in each bucket."""
+    d = X_pool.shape[1]
+    # Quantile edges (n_quantiles+1 boundaries including min/max).
+    edges = np.quantile(y_pool, np.linspace(0, 1, n_quantiles + 1))
+    # Make edges strictly increasing in case of ties (e.g. binary y or skewed continuous).
+    for i in range(1, len(edges)):
+        if edges[i] <= edges[i - 1]:
+            edges[i] = edges[i - 1] + 1e-9
+    sums, counts = _bucket_sums_counts(np.ascontiguousarray(X_pool), np.ascontiguousarray(y_pool), edges.astype(np.float64))
+    centroids: np.ndarray = np.zeros((n_quantiles, d), dtype=dtype)
+    pool_mean = None
+    for b in range(n_quantiles):
+        if counts[b] == 0:
+            # Empty bucket (can happen with ties on binary y); fall back to the previous bucket's centroid or the pool mean.
+            if b > 0:
+                centroids[b] = centroids[b - 1]
+            else:
+                if pool_mean is None:
+                    pool_mean = X_pool.mean(axis=0)
+                centroids[b] = pool_mean
+        else:
+            centroids[b] = (sums[b] / counts[b]).astype(dtype, copy=False)
+    return centroids
+
+
+def _similarity_to_centroids(X_anchor, centroids, similarity, rbf_gamma):
+    """Return (n_anchor, n_quantiles) similarity. Cosine or RBF as configured."""
+    if similarity == "cosine":
+        a_norms = np.linalg.norm(X_anchor, axis=1, keepdims=True)
+        c_norms = np.linalg.norm(centroids, axis=1, keepdims=True)
+        a_safe = np.maximum(a_norms, 1e-12)
+        c_safe = np.maximum(c_norms, 1e-12)
+        return np.asarray((X_anchor / a_safe) @ (centroids / c_safe).T)
+    # RBF: exp(-gamma * ||x - c||^2). Vectorise via the identity ||x-c||^2 = ||x||^2 + ||c||^2 - 2 x.c.
+    assert rbf_gamma is not None  # set to a concrete float above whenever similarity == "rbf"
+    a_sq = np.einsum("ij,ij->i", X_anchor, X_anchor)
+    c_sq = np.einsum("ij,ij->i", centroids, centroids)
+    dist_sq = a_sq[:, None] + c_sq[None, :] - 2.0 * (X_anchor @ centroids.T)
+    return np.asarray(np.exp(-rbf_gamma * np.maximum(dist_sq, 0.0)))
+
+
 def compute_target_quantile_attention(
     X_train: np.ndarray,
     y_train: np.ndarray,
@@ -127,46 +169,6 @@ def compute_target_quantile_attention(
     if similarity == "rbf" and rbf_gamma is None:
         rbf_gamma = 1.0 / max(X_train.shape[1], 1)
 
-    def _compute_centroids(X_pool: np.ndarray, y_pool: np.ndarray) -> np.ndarray:
-        """Return (n_quantiles, d) centroids: bucket y_pool into quantiles, take mean X for rows in each bucket."""
-        d = X_pool.shape[1]
-        # Quantile edges (n_quantiles+1 boundaries including min/max).
-        edges = np.quantile(y_pool, np.linspace(0, 1, n_quantiles + 1))
-        # Make edges strictly increasing in case of ties (e.g. binary y or skewed continuous).
-        for i in range(1, len(edges)):
-            if edges[i] <= edges[i - 1]:
-                edges[i] = edges[i - 1] + 1e-9
-        sums, counts = _bucket_sums_counts(np.ascontiguousarray(X_pool), np.ascontiguousarray(y_pool), edges.astype(np.float64))
-        centroids: np.ndarray = np.zeros((n_quantiles, d), dtype=dtype)
-        pool_mean = None
-        for b in range(n_quantiles):
-            if counts[b] == 0:
-                # Empty bucket (can happen with ties on binary y); fall back to the previous bucket's centroid or the pool mean.
-                if b > 0:
-                    centroids[b] = centroids[b - 1]
-                else:
-                    if pool_mean is None:
-                        pool_mean = X_pool.mean(axis=0)
-                    centroids[b] = pool_mean
-            else:
-                centroids[b] = (sums[b] / counts[b]).astype(dtype, copy=False)
-        return centroids
-
-    def _similarity_matrix(X_anchor: np.ndarray, centroids: np.ndarray) -> np.ndarray:
-        """Return (n_anchor, n_quantiles) similarity. Cosine or RBF as configured."""
-        if similarity == "cosine":
-            a_norms = np.linalg.norm(X_anchor, axis=1, keepdims=True)
-            c_norms = np.linalg.norm(centroids, axis=1, keepdims=True)
-            a_safe = np.maximum(a_norms, 1e-12)
-            c_safe = np.maximum(c_norms, 1e-12)
-            return np.asarray((X_anchor / a_safe) @ (centroids / c_safe).T)
-        # RBF: exp(-gamma * ||x - c||^2). Vectorise via the identity ||x-c||^2 = ||x||^2 + ||c||^2 - 2 x.c.
-        assert rbf_gamma is not None  # set to a concrete float above whenever similarity == "rbf"
-        a_sq = np.einsum("ij,ij->i", X_anchor, X_anchor)
-        c_sq = np.einsum("ij,ij->i", centroids, centroids)
-        dist_sq = a_sq[:, None] + c_sq[None, :] - 2.0 * (X_anchor @ centroids.T)
-        return np.asarray(np.exp(-rbf_gamma * np.maximum(dist_sq, 0.0)))
-
     if X_query is None:
         # Mode A: OOF. Scaler is refit per fold on the fold's train rows so the held-out rows' X-distribution never leaks into their own fold's scaler stats.
         out: np.ndarray = np.zeros((X_tr_s.shape[0], n_quantiles), dtype=dtype)
@@ -178,12 +180,12 @@ def compute_target_quantile_attention(
             else:
                 X_tr_fold = X_tr_s[tr_idx]
                 X_va_fold = X_tr_s[va_idx]
-            centroids = _compute_centroids(X_tr_fold, y_train[tr_idx])
-            out[va_idx] = _similarity_matrix(X_va_fold, centroids).astype(dtype, copy=False)
+            centroids = _bucket_centroids(X_tr_fold, y_train[tr_idx], n_quantiles, dtype)
+            out[va_idx] = _similarity_to_centroids(X_va_fold, centroids, similarity, rbf_gamma).astype(dtype, copy=False)
     else:
         # Mode B: single-pass with full-train centroids.
-        centroids = _compute_centroids(X_tr_s, y_train)
-        out = _similarity_matrix(X_q_s, centroids).astype(dtype, copy=False)
+        centroids = _bucket_centroids(X_tr_s, y_train, n_quantiles, dtype)
+        out = _similarity_to_centroids(X_q_s, centroids, similarity, rbf_gamma).astype(dtype, copy=False)
 
     names = [f"{column_prefix}_q{b}" for b in range(n_quantiles)]
     return pl.DataFrame({name: out[:, i] for i, name in enumerate(names)})

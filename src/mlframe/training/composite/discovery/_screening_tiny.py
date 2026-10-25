@@ -467,17 +467,7 @@ def _tiny_cv_rmse_y_scale_multiseed(
     _seed_invariant = bool(kwargs.get("time_aware", False) or (kwargs.get("groups", None) is not None))
     _effective_repeats = 1 if _seed_invariant else n_seed_repeats
     if _effective_repeats <= 1:
-        kwargs["random_state"] = base_random_state
-        result = _tiny_cv_rmse_y_scale(*args, **kwargs)
-        if return_per_seed:
-            mean = result[0] if isinstance(result, tuple) else result
-            # Fixed length 1: NaN when the single seed degenerated, so the
-            # consumer always sees one slot per scheduled seed.
-            per_seed_arr = np.array([mean], dtype=np.float64)
-            if isinstance(result, tuple):
-                return (*result, per_seed_arr)
-            return result, per_seed_arr
-        return result
+        return _single_seed_cv_rmse(_tiny_cv_rmse_y_scale, *args, kwargs=kwargs, base_random_state=base_random_state, return_per_seed=return_per_seed)
     seed_results = []
     seed_per_bins = []
     return_pb = kwargs.get("return_per_bin", False)
@@ -512,6 +502,25 @@ def _tiny_cv_rmse_y_scale_multiseed(
             res = float("nan"), np.full(kwargs.get("n_bins", 5), float("nan"))
             return (*res, seed_arr) if return_per_seed else res
         return (float("nan"), seed_arr) if return_per_seed else float("nan")
+    return _median_seed_result(seed_results, seed_per_bins, seed_arr, return_pb, return_per_seed, kwargs.get("n_bins", 5))
+
+
+def _single_seed_cv_rmse(fn, *args, kwargs, base_random_state, return_per_seed):
+    """One-seed path of the raw-y multi-seed wrapper: a single call, with the per-seed array fixed at length 1."""
+    kwargs["random_state"] = base_random_state
+    result = fn(*args, **kwargs)
+    if return_per_seed:
+        mean = result[0] if isinstance(result, tuple) else result
+        # Fixed length 1: NaN when the single seed degenerated.
+        per_seed_arr = np.array([mean], dtype=np.float64)
+        if isinstance(result, tuple):
+            return (*result, per_seed_arr)
+        return result, per_seed_arr
+    return result
+
+
+def _median_seed_result(seed_results, seed_per_bins, seed_arr, return_pb, return_per_seed, n_bins):
+    """Median across seeds of the scalar RMSE (and per-bin RMSE when requested), with the per-seed array appended when asked for."""
     median_rmse = float(np.median(seed_results))
     if return_pb:
         if seed_per_bins:
@@ -519,7 +528,7 @@ def _tiny_cv_rmse_y_scale_multiseed(
             with np.errstate(invalid="ignore"):
                 median_per_bin = np.nanmedian(stack, axis=0)
         else:
-            median_per_bin = np.full(kwargs.get("n_bins", 5), float("nan"))
+            median_per_bin = np.full(n_bins, float("nan"))
         if return_per_seed:
             return median_rmse, median_per_bin, seed_arr
         return median_rmse, median_per_bin
@@ -550,16 +559,7 @@ def _tiny_cv_rmse_raw_y_multiseed(
     _seed_invariant = bool(kwargs.get("time_aware", False) or (kwargs.get("groups", None) is not None))
     _effective_repeats = 1 if _seed_invariant else n_seed_repeats
     if _effective_repeats <= 1:
-        kwargs["random_state"] = base_random_state
-        result = _tiny_cv_rmse_raw_y(*args, **kwargs)
-        if return_per_seed:
-            mean = result[0] if isinstance(result, tuple) else result
-            # Fixed length 1: NaN when the single seed degenerated.
-            per_seed_arr = np.array([mean], dtype=np.float64)
-            if isinstance(result, tuple):
-                return (*result, per_seed_arr)
-            return result, per_seed_arr
-        return result
+        return _single_seed_cv_rmse(_tiny_cv_rmse_raw_y, *args, kwargs=kwargs, base_random_state=base_random_state, return_per_seed=return_per_seed)
     seed_results = []
     seed_per_bins = []
     return_pb = kwargs.get("return_per_bin", False)
@@ -589,20 +589,7 @@ def _tiny_cv_rmse_raw_y_multiseed(
             res = float("nan"), np.full(kwargs.get("n_bins", 5), float("nan"))
             return (*res, seed_arr) if return_per_seed else res
         return (float("nan"), seed_arr) if return_per_seed else float("nan")
-    median_rmse = float(np.median(seed_results))
-    if return_pb:
-        if seed_per_bins:
-            stack = np.stack(seed_per_bins, axis=0)
-            with np.errstate(invalid="ignore"):
-                median_per_bin = np.nanmedian(stack, axis=0)
-        else:
-            median_per_bin = np.full(kwargs.get("n_bins", 5), float("nan"))
-        if return_per_seed:
-            return median_rmse, median_per_bin, seed_arr
-        return median_rmse, median_per_bin
-    if return_per_seed:
-        return median_rmse, seed_arr
-    return median_rmse
+    return _median_seed_result(seed_results, seed_per_bins, seed_arr, return_pb, return_per_seed, kwargs.get("n_bins", 5))
 
 
 # per-bin RMSE + y-scale tiny-CV helpers carved to _screening_tiny_perbin.py (1k-LOC ceiling).

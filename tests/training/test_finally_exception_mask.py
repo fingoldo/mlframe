@@ -261,11 +261,15 @@ def test_logging_transformers_psutil_wrapped() -> None:
         logger.removeHandler(handler)
 
     assert records, "log_resources must still emit a record when post-call RSS read fails"
+    # The failed re-measurement first emits a throttled WARNING on the same logger, which carries no
+    # rss fields; the stage record that does is the INFO one, so select it by its stage label.
     # rss1 (the post-call re-measurement) defaults to 0.0 on failure; rss0 (the pre-call baseline)
     # still succeeded (a real, positive process RSS), so d_rss_mb = rss1 - rss0 = -rss0 is negative,
     # not necessarily 0.0 -- only rss1 itself is pinned to the 0.0 default.
-    assert records[0].rss_mb == 0.0
-    assert records[0].d_rss_mb < 0.0
+    stage_records = [r for r in records if getattr(r, "stage", None) == "probe"]
+    assert stage_records, "the stage record carrying rss_mb must still be emitted"
+    assert stage_records[0].rss_mb == 0.0
+    assert stage_records[0].d_rss_mb < 0.0
 
 
 def test_pipeline_temp_target_drop_wrapped(monkeypatch, caplog) -> None:

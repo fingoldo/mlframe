@@ -33,6 +33,55 @@ from mlframe.utils.log_throttle import log_throttle
 logger = logging.getLogger(__name__)
 
 
+def _alternative_picks(pareto_idx, means, stds, shard_history, alt_quantiles, direction):
+    """Pareto pick per alternative risk quantile, keyed by the quantile as a string; failed quantiles are skipped."""
+    alt_picks: dict[str, int] = {}
+    if pareto_idx:
+        for q in alt_quantiles:
+            try:
+                pick = select_from_pareto(
+                    pareto_idx, means.tolist(), stds.tolist(), shard_history,
+                    risk_quantile=float(q), direction=direction,
+                )
+                alt_picks[f"{q}"] = int(pick)
+            except Exception as exc:  # robust to numeric edge cases  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
+                logger.debug("Pareto alt-quantile %.2f failed: %s", q, exc)
+    return alt_picks
+
+
+def _render_pareto_backends(
+    backends, formats_by_backend, base_stem, means, stds, pareto_idx, best_iter, alt_picks,
+    *, title, monitor_metric_name, direction, target_name, model_name,
+):
+    """Render every configured backend and format; return the paths that were written, keyed by backend."""
+    saved_paths: dict[str, str] = {}
+    for backend in backends:
+        for fmt in formats_by_backend.get(backend, []):
+            out_path = f"{base_stem}.{backend}.{fmt}"
+            try:
+                if backend == "matplotlib":
+                    _render_matplotlib(
+                        out_path, means, stds, pareto_idx, best_iter, alt_picks, title=title, monitor_metric_name=monitor_metric_name, direction=direction
+                    )
+                elif backend == "plotly":
+                    _render_plotly(
+                        out_path, means, stds, pareto_idx, best_iter, alt_picks, title=title, monitor_metric_name=monitor_metric_name, direction=direction
+                    )
+                else:
+                    log_throttle(logger, "slice_pareto_unknown_backend", logging.WARNING, "Unknown Pareto plot backend %r; skipping", backend)
+                    continue
+                saved_paths[backend] = out_path
+            except Exception as exc:
+                log_throttle(
+                    logger,
+                    "slice_pareto_plot_failed",
+                    logging.WARNING,
+                    "slice-stable Pareto plot %s/%s failed for target=%s model=%s: %s",
+                    backend, fmt, target_name, model_name, exc,
+                )
+    return saved_paths
+
+
 def generate_pareto_artifact(
     ctx: Any,
     target_name: str,
@@ -75,17 +124,7 @@ def generate_pareto_artifact(
 
     # Alternative selections per risk-quantile knob.
     alt_quantiles = list(getattr(config, "pareto_plot_show_alt_quantiles", [0.5, 0.7, 0.9, 0.95]))
-    alt_picks: dict[str, int] = {}
-    if pareto_idx:
-        for q in alt_quantiles:
-            try:
-                pick = select_from_pareto(
-                    pareto_idx, means.tolist(), stds.tolist(), shard_history,
-                    risk_quantile=float(q), direction=direction,  # type: ignore[arg-type]
-                )
-                alt_picks[f"{q}"] = int(pick)
-            except Exception as exc:  # robust to numeric edge cases  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
-                logger.debug("Pareto alt-quantile %.2f failed: %s", q, exc)
+    alt_picks = _alternative_picks(pareto_idx, means, stds, shard_history, alt_quantiles, direction)
 
     # Build output paths.
     os.makedirs(output_dir, exist_ok=True)
@@ -93,33 +132,13 @@ def generate_pareto_artifact(
     backends = list(getattr(config, "pareto_plot_backends", ["plotly", "matplotlib"]))
     formats_by_backend = dict(getattr(config, "pareto_plot_formats", {"plotly": ["html"], "matplotlib": ["png"]}))
 
-    saved_paths: dict[str, str] = {}
     title = f"Slice-stable ES Pareto frontier - target={target_name} model={model_name} K={len(shard_history[0])}"
 
-    for backend in backends:
-        for fmt in formats_by_backend.get(backend, []):
-            out_path = f"{base_stem}.{backend}.{fmt}"
-            try:
-                if backend == "matplotlib":
-                    _render_matplotlib(
-                        out_path, means, stds, pareto_idx, best_iter, alt_picks, title=title, monitor_metric_name=monitor_metric_name, direction=direction
-                    )
-                elif backend == "plotly":
-                    _render_plotly(
-                        out_path, means, stds, pareto_idx, best_iter, alt_picks, title=title, monitor_metric_name=monitor_metric_name, direction=direction
-                    )
-                else:
-                    log_throttle(logger, "slice_pareto_unknown_backend", logging.WARNING, "Unknown Pareto plot backend %r; skipping", backend)
-                    continue
-                saved_paths[backend] = out_path
-            except Exception as exc:
-                log_throttle(
-                    logger,
-                    "slice_pareto_plot_failed",
-                    logging.WARNING,
-                    "slice-stable Pareto plot %s/%s failed for target=%s model=%s: %s",
-                    backend, fmt, target_name, model_name, exc,
-                )
+    saved_paths = _render_pareto_backends(
+        backends, formats_by_backend, base_stem, means, stds, pareto_idx, best_iter, alt_picks,
+        title=title, monitor_metric_name=monitor_metric_name, direction=direction,
+        target_name=target_name, model_name=model_name,
+    )
 
     persist_history = bool(getattr(config, "pareto_persist_shard_history", False))
     shard_history_path: str | None = None

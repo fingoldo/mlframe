@@ -44,14 +44,16 @@ def test_phase_helpers_fit_split_uses_signature_derived_filter(monkeypatch) -> N
     import pandas as pd
 
     import mlframe.training.core._phase_helpers_fit_split as ph
+    import mlframe.training.core._phase_helpers_split_steps as steps
     from mlframe.training._preprocessing_configs import TrainingSplitConfig
 
-    real_splitter = ph.make_train_test_split
+    # make_train_test_split is looked up in _phase_helpers_split_steps (the module that calls it), not re-exported by the fit-split facade.
+    real_splitter = steps.make_train_test_split
     seen: list = []
 
     def _run(splitter) -> None:
         """Run the split phase on a small frame with ``splitter`` in place of the production one."""
-        monkeypatch.setattr(ph, "make_train_test_split", splitter)
+        monkeypatch.setattr(steps, "make_train_test_split", splitter)
         rng = np.random.default_rng(0)
         df = pd.DataFrame({"x": rng.normal(size=300), "y": rng.normal(size=300)})
         ph._phase_train_val_test_split(

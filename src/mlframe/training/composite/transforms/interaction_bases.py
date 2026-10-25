@@ -25,6 +25,31 @@ logger = logging.getLogger(__name__)
 _INTERACTION_OPS_DEFAULT: tuple[str, ...] = ("mul", "div")
 
 
+def _normalise_train_mask(train_mask, selected_names, selected_arrays):
+    """Return ``train_mask`` as a flat bool array (or ``None``), raising when its length differs from the candidate arrays."""
+    if train_mask is None:
+        return None
+    train_mask = np.asarray(train_mask, dtype=bool).reshape(-1)
+    bad = [n for n, arr in zip(selected_names, selected_arrays) if arr.shape != train_mask.shape]
+    if bad:
+        raise ValueError(f"generate_interaction_bases: train_mask has {train_mask.size} rows but candidate(s) {bad} have a different length.")
+    return train_mask
+
+
+def _interaction_op_values(op, a, b, eps_b):
+    """Values of one binary op on ``(a, b)``, with the divisor floored at ``eps_b``; ``None`` for an op outside the supported set."""
+    if op == "mul":
+        return a * b
+    if op == "add":
+        return a + b
+    if op == "sub":
+        return a - b
+    if op == "div":
+        safe_b = np.where(np.abs(b) < eps_b, np.sign(b + 1e-300) * eps_b, b)
+        return a / safe_b
+    return None
+
+
 def generate_interaction_bases(
     candidates: dict[str, np.ndarray],
     *,
@@ -70,12 +95,8 @@ def generate_interaction_bases(
         raise ValueError(f"generate_interaction_bases: unsupported op(s) {bad_ops}. Valid: {sorted(valid_ops)}")
     selected_names = list(candidates.keys())[:top_k]
     selected_arrays = [np.asarray(candidates[n], dtype=np.float64).reshape(-1) for n in selected_names]
-    if train_mask is not None:
-        train_mask = np.asarray(train_mask, dtype=bool).reshape(-1)
-        bad = [n for n, arr in zip(selected_names, selected_arrays) if arr.shape != train_mask.shape]
-        if bad:
-            raise ValueError(f"generate_interaction_bases: train_mask has {train_mask.size} rows but candidate(s) {bad} have a different length.")
-    elif "div" in ops:
+    train_mask = _normalise_train_mask(train_mask, selected_names, selected_arrays)
+    if train_mask is None and "div" in ops:
         # Without a mask the div floor's scale is the median over EVERY row handed in, so a caller passing train+test rows
         # folds test scale into a synthetic column's values. Say so once per call rather than in the silent docstring only.
         logger.warning(
@@ -105,16 +126,8 @@ def generate_interaction_bases(
             eps_b = max(scale_b * eps_div_floor_factor, 1e-12)
             for op in ops:
                 synth_name = f"{name_a}__{op}__{name_b}"
-                if op == "mul":
-                    out = a * b
-                elif op == "add":
-                    out = a + b
-                elif op == "sub":
-                    out = a - b
-                elif op == "div":
-                    safe_b = np.where(np.abs(b) < eps_b, np.sign(b + 1e-300) * eps_b, b)
-                    out = a / safe_b
-                else:  # pragma: no cover -- guarded above
+                out = _interaction_op_values(op, a, b, eps_b)
+                if out is None:  # pragma: no cover -- guarded above
                     continue
                 synthetics[synth_name] = out
                 finite_out = np.isfinite(out)

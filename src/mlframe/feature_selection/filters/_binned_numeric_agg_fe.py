@@ -347,6 +347,50 @@ def _feature_block_rows(n_groups: int, n_aggs: int, n_stats: int, pairs: "Option
     return n_pairs * n_stats
 
 
+def _oof_stat_columns(
+    codes_fin: np.ndarray,
+    av_fin: np.ndarray,
+    finite: np.ndarray,
+    finite_count: int,
+    fold_ids: np.ndarray,
+    n: int,
+    n_folds: int,
+    n_cells: int,
+    kept_stats: list,
+    globals_: dict,
+    out_dtype: type,
+    fold_test: list,
+    ct_by_fold: list,
+) -> dict:
+    """Out-of-fold per-cell statistic column for each kept stat: rows of a held-out fold take their train-fold cell value, else the global fallback."""
+    oof: dict[str, np.ndarray] = {s: np.full(n, globals_[s], dtype=out_dtype) for s in kept_stats}
+    finite_idx = np.where(finite)[0]
+    fold_of_finite = fold_ids[finite_idx]
+    for f in range(int(n_folds)):
+        test = fold_test[f]
+        ct = ct_by_fold[f]
+        test_fin = test[finite[test]]
+        # Equivalent to a ``(fold_ids != f) & finite`` full-array-AND + ``.any()`` gate (an
+        # O(n) scan done once per (gcol, acol, fold), G*A*n_folds times total) without
+        # materialising it: train has zero finite rows iff ALL finite rows fell into this
+        # fold's test set, i.e. ``test_fin`` (already computed, O(n/n_folds)) covers every
+        # finite row.
+        if test_fin.size == finite_count:
+            continue
+        # CENTERED moments are NOT additive across row subsets (a subset's own mean differs
+        # from the full-data mean, so full - test is invalid for cm2/cm3/cm4, unlike the old
+        # raw-power form) -- compute TRAIN directly on its own rows instead of full-minus-test
+        # (mirrors the same correctness-over-the-old-buggy-optimization tradeoff already made
+        # for target-encoding's per-category moments -- see _target_encoding_fe.py).
+        train_fin = fold_of_finite != f
+        t_cnt, t_mean, t_cm2, t_cm3, t_cm4 = _per_cell_moments_stable(codes_fin[train_fin], av_fin[train_fin], n_cells)
+        per = _derive_cell_stats(t_cnt, t_mean, t_cm2, t_cm3, t_cm4, kept_stats)
+        for s in kept_stats:
+            vals = per[s][ct]
+            oof[s][test] = np.where(np.isfinite(vals), vals, globals_[s])
+    return oof
+
+
 def fit_binned_numeric_agg(
     X: pd.DataFrame, y: np.ndarray, *,
     group_num_cols: Sequence[str], agg_num_cols: Sequence[str],
@@ -439,31 +483,9 @@ def fit_binned_numeric_agg(
                 # dropped candidates is never computed. The ``full`` per-cell lookup + globals (the recipe
                 # fields) are cheap 1-pass njit and are always built.
                 assert _fold_test is not None and _ct_by_fold is not None  # populated whenever recipe_only is False
-                oof = {s: np.full(n, globals_[s], dtype=out_dtype) for s in kept_stats}
-                finite_idx = np.where(finite)[0]
-                fold_of_finite = fold_ids[finite_idx]
-                for f in range(int(n_folds)):
-                    test = _fold_test[f]
-                    ct = _ct_by_fold[f]
-                    test_fin = test[finite[test]]
-                    # Equivalent to a ``(fold_ids != f) & finite`` full-array-AND + ``.any()`` gate (an
-                    # O(n) scan done once per (gcol, acol, fold), G*A*n_folds times total) without
-                    # materialising it: train has zero finite rows iff ALL finite rows fell into this
-                    # fold's test set, i.e. ``test_fin`` (already computed, O(n/n_folds)) covers every
-                    # finite row.
-                    if test_fin.size == finite_count:
-                        continue
-                    # CENTERED moments are NOT additive across row subsets (a subset's own mean differs
-                    # from the full-data mean, so full - test is invalid for cm2/cm3/cm4, unlike the old
-                    # raw-power form) -- compute TRAIN directly on its own rows instead of full-minus-test
-                    # (mirrors the same correctness-over-the-old-buggy-optimization tradeoff already made
-                    # for target-encoding's per-category moments -- see _target_encoding_fe.py).
-                    train_fin = fold_of_finite != f
-                    t_cnt, t_mean, t_cm2, t_cm3, t_cm4 = _per_cell_moments_stable(codes_fin[train_fin], av_fin[train_fin], n_cells)
-                    per = _derive_cell_stats(t_cnt, t_mean, t_cm2, t_cm3, t_cm4, kept_stats)
-                    for s in kept_stats:
-                        vals = per[s][ct]
-                        oof[s][test] = np.where(np.isfinite(vals), vals, globals_[s])
+                oof = _oof_stat_columns(
+                    codes_fin, av_fin, finite, finite_count, fold_ids, n, n_folds, n_cells, kept_stats, globals_, out_dtype, _fold_test, _ct_by_fold
+                )
             full = _derive_cell_stats(full_cnt, full_mean, full_cm2, full_cm3, full_cm4, kept_stats)
             for s in kept_stats:
                 name = engineered_name_binned_agg(acol, gcol, s)

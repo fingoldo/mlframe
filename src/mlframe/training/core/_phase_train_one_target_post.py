@@ -155,24 +155,8 @@ def _evaluate_mlp_extreme_ar_gate(
     return False, _mlp_extreme_ar_fired, _mlp_ea_lag1
 
 
-def _run_per_model_post_train_tail(
-    *,
-    behavior_config,
-    test_df_transformed,
-    current_test_target,
-    ctx,
-    target_type,
-    cur_target_name: str,
-    mlframe_model_name: str,
-    metadata: dict,
-    test_df_pd,
-    _train_idx,
-) -> None:
-    """Run the per-model tail that fires right after a successful ``process_model``.
-
-    Mutates ``metadata`` (uncertainty_eval / composite y-scale emit) and reclaims RAM in
-    place; returns nothing. Behaviour is byte-for-byte the inline blocks it replaced.
-    """
+def _run_uncertainty_eval(behavior_config, test_df_transformed, current_test_target, ctx, target_type, cur_target_name, mlframe_model_name, metadata) -> None:
+    """Opt-in TTA predictive-uncertainty quality on the model-ready test frame, stamped into ``metadata["uncertainty_eval"]``."""
     # Opt-in (B): TTA predictive-uncertainty quality on the model-ready transformed test frame
     # (live here alongside the just-trained model entry). Regression + numeric features only.
     if getattr(behavior_config, "uncertainty_eval", False) and test_df_transformed is not None and current_test_target is not None:
@@ -209,6 +193,10 @@ def _run_per_model_post_train_tail(
                         metadata.setdefault("uncertainty_eval", {})[_ue_key] = {"test": _ue_rep}
         except Exception as _ue_err:
             logger.warning("[uncertainty_eval] eval failed for %s/%s: %s", target_type, cur_target_name, _ue_err)
+
+
+def _emit_composite_yscale_per_model(ctx, target_type, cur_target_name, mlframe_model_name, metadata, test_df_pd, _train_idx) -> None:
+    """Emit the per-model y-scale test metric and chart for a composite target right after its model is trained; non-fatal."""
     # Per-model IMMEDIATE y-scale emit for composite targets:
     # composite per-model reporting is suppressed upstream (the
     # T-scale chart is skipped and the T-scale metric line emits
@@ -268,6 +256,28 @@ def _run_per_model_post_train_tail(
             mlframe_model_name,
             _pmce,
         )
+
+
+def _run_per_model_post_train_tail(
+    *,
+    behavior_config,
+    test_df_transformed,
+    current_test_target,
+    ctx,
+    target_type,
+    cur_target_name: str,
+    mlframe_model_name: str,
+    metadata: dict,
+    test_df_pd,
+    _train_idx,
+) -> None:
+    """Run the per-model tail that fires right after a successful ``process_model``.
+
+    Mutates ``metadata`` (uncertainty_eval / composite y-scale emit) and reclaims RAM in
+    place; returns nothing. Behaviour is byte-for-byte the inline blocks it replaced.
+    """
+    _run_uncertainty_eval(behavior_config, test_df_transformed, current_test_target, ctx, target_type, cur_target_name, mlframe_model_name, metadata)
+    _emit_composite_yscale_per_model(ctx, target_type, cur_target_name, mlframe_model_name, metadata, test_df_pd, _train_idx)
     # Reclaim this model's transient bloat (float64 pre_pipeline
     # copies, intermediate frames) before the next model so they
     # don't stack with the next fit + the PipelineCache toward OOM.

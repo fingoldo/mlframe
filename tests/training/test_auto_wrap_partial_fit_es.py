@@ -246,13 +246,15 @@ def test_no_val_no_external_raises_on_partial_fit_strategy(reg_data) -> None:
 
 def test_detect_budget_param_explicit_mapping() -> None:
     """Per-category mapping wins over runtime probing."""
-    from sklearn.linear_model import Ridge
+    from sklearn.linear_model import Lasso, Ridge, RANSACRegressor
 
-    m = Ridge()
-    assert _detect_budget_param("ridge", m) == "max_iter"
-    assert _detect_budget_param("lasso", m) == "max_iter"
-    assert _detect_budget_param("ransac", m) == "max_trials"
-    assert _detect_budget_param("linear", m) is None  # closed-form
+    # A mapped category returns its knob only when the object actually carries it; a Ridge handed in under "ransac"
+    # has no max_trials, so the wrapper-guard in _detect_budget_param correctly reports no budget knob there.
+    assert _detect_budget_param("ridge", Ridge()) == "max_iter"
+    assert _detect_budget_param("lasso", Lasso()) == "max_iter"
+    assert _detect_budget_param("ransac", RANSACRegressor()) == "max_trials"
+    assert _detect_budget_param("ransac", Ridge()) is None
+    assert _detect_budget_param("linear", Ridge()) is None  # closed-form
 
 
 def test_detect_budget_param_runtime_probe() -> None:

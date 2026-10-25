@@ -17,6 +17,43 @@ from .utils import _entry_metric
 logger = logging.getLogger("mlframe.training.core._phase_composite_post")
 
 
+def _composite_names_by_target_type(metadata):
+    """Composite-target names keyed by target type, read from the spec list (populated for composites even when y-scale metrics are skipped)."""
+    names_by_tt: dict[str, set] = {}
+    for _tt_str, _by_tn in metadata.get("composite_target_specs", {}).items():
+        _names: set = set()
+        for _spec_list in (_by_tn or {}).values():
+            for _s in _spec_list or []:
+                _nm = _s.get("name") if isinstance(_s, dict) else getattr(_s, "name", None)
+                if _nm:
+                    _names.add(_nm)
+        names_by_tt[str(_tt_str)] = _names
+    return names_by_tt
+
+
+def _composite_to_raw_map(metadata):
+    """Map each (target_type, composite name) to the raw target it was derived from."""
+    composite_to_raw: dict[tuple[str, str], str] = {}
+    for _tt_str, _by_tname in metadata.get("composite_target_specs", {}).items():
+        for _raw_tname, _spec_list in _by_tname.items():
+            for _s in _spec_list or []:
+                _comp_name = _s.get("name")
+                if _comp_name:
+                    composite_to_raw[(_tt_str, _comp_name)] = _raw_tname
+    return composite_to_raw
+
+
+def _cross_target_ensemble_map(metadata):
+    """Cross-target ensemble metrics keyed by (target_type, original target name), keeping only non-empty dict entries."""
+    _ct_ens_raw = metadata.get("cross_target_ensemble_metrics", {})
+    metrics: dict[tuple[str, str], dict[str, float]] = {}
+    for _tt_str, _by_orig in _ct_ens_raw.items():
+        for _orig_tname, _m in _by_orig.items():
+            if isinstance(_m, dict) and _m:
+                metrics[(str(_tt_str), str(_orig_tname))] = _m
+    return metrics
+
+
 def _run_suite_end_dummy_baselines_summary(
     *,
     models: dict,
@@ -39,34 +76,15 @@ def _run_suite_end_dummy_baselines_summary(
         # composites), NOT from composite_target_y_scale_metrics -- the latter is skipped when
         # skip_wrap_pass_predict=True, which left ``_is_composite`` False so the verdict fell through to
         # the composite's T-scale (residual) model metric and printed a misleading y-vs-T comparison.
-        _composite_names_by_tt: dict[str, set] = {}
-        for _tt_str, _by_tn in metadata.get("composite_target_specs", {}).items():
-            _names: set = set()
-            for _spec_list in (_by_tn or {}).values():
-                for _s in _spec_list or []:
-                    _nm = _s.get("name") if isinstance(_s, dict) else getattr(_s, "name", None)
-                    if _nm:
-                        _names.add(_nm)
-            _composite_names_by_tt[str(_tt_str)] = _names
+        _composite_names_by_tt = _composite_names_by_target_type(metadata)
         _collect_best_model_metrics(metadata, models, _composite_names_by_tt, _best_metrics)
         # composite -> raw target map so the verdict block uses the raw median(y_raw) constant as the trivial baseline
         # (not the inverted-T fake baseline that uses fitted alpha).
-        _composite_to_raw: dict[tuple[str, str], str] = {}
-        for _tt_str, _by_tname in metadata.get("composite_target_specs", {}).items():
-            for _raw_tname, _spec_list in _by_tname.items():
-                for _s in _spec_list or []:
-                    _comp_name = _s.get("name")
-                    if _comp_name:
-                        _composite_to_raw[(_tt_str, _comp_name)] = _raw_tname
+        _composite_to_raw = _composite_to_raw_map(metadata)
         # Cross-target ensemble metrics (stamped by _phase_composite_post_xt_ensemble at the
         # val/test report site). Keyed by (target_type, original_target_name) -> {split_metric: value, model_name: ...}.
         # The verdict picker compares this against the single best model and uses whichever wins.
-        _ct_ens_raw = metadata.get("cross_target_ensemble_metrics", {})
-        _cross_target_ensemble_metrics: dict[tuple[str, str], dict[str, float]] = {}
-        for _tt_str, _by_orig in _ct_ens_raw.items():
-            for _orig_tname, _m in _by_orig.items():
-                if isinstance(_m, dict) and _m:
-                    _cross_target_ensemble_metrics[(str(_tt_str), str(_orig_tname))] = _m
+        _cross_target_ensemble_metrics = _cross_target_ensemble_map(metadata)
         _summary_text = format_suite_end_summary(
             dummy_baselines_metadata=metadata.get("dummy_baselines", {}),
             failures_metadata=metadata.get("dummy_baselines_failures", {}),
@@ -185,6 +203,31 @@ def _get_key_or_str(d: Any, key: Any) -> Any:
     return d.get(str(key))
 
 
+def _best_yscale_row(rows, metric, is_min):
+    """Best row by the y-scale VAL metric (finite values only), as ``(value, row)``, or ``None``."""
+    _best = None
+    for _r in rows:
+        _v = ((_r.get("metrics") or {}).get("val") or {}).get(metric)
+        if _v is not None and np.isfinite(_v) and (_best is None or _metric_better(float(_v), _best[0], is_min)):
+            _best = (float(_v), _r)
+    return _best
+
+
+def _composite_verdict(comp_val, comp_test, raw_best, l_raw_test):
+    """Verdict for one composite against its raw-y baseline, read on TEST (val verdicts are selection-biased)."""
+    if comp_val is None and comp_test is None:
+        return "NO_Y_SCALE_METRIC"
+    if not raw_best:
+        return "NO_RAW_MODEL_TO_COMPARE"
+    if l_raw_test is None:
+        return "NO_TEST_METRIC_TO_COMPARE"
+    if l_raw_test > 1.005:
+        return "COMPOSITE_BEATS_RAW"
+    if l_raw_test < 0.995:
+        return "RAW_BEATS_COMPOSITE"
+    return "TIE_WITH_RAW"
+
+
 def format_composite_vs_raw_block(*, models: dict, metadata: dict, best_metrics: dict, composite_to_raw: dict) -> str:
     """Answer "did the composite (log / cbrt / residual ...) beat training on raw y?" per composite target.
 
@@ -210,11 +253,7 @@ def format_composite_vs_raw_block(*, models: dict, metadata: dict, best_metrics:
         _dir = _mhb(_metric)
         _is_min = True if _dir is None else (not _dir)
         _rows = (_yscale.get(str(_tt)) or {}).get(_comp) or []
-        _best = None
-        for _r in _rows:
-            _v = ((_r.get("metrics") or {}).get("val") or {}).get(_metric)
-            if _v is not None and np.isfinite(_v) and (_best is None or _metric_better(float(_v), _best[0], _is_min)):
-                _best = (float(_v), _r)
+        _best = _best_yscale_row(_rows, _metric, _is_min)
         _have = {_r.get("model_name") for _r in _rows if (_r.get("metrics") or {})}
         _entries = (_get_key_or_str(models, _tt) or {}).get(_comp) or []
         if not _rows and not _entries:
@@ -247,18 +286,7 @@ def format_composite_vs_raw_block(*, models: dict, metadata: dict, best_metrics:
         # The verdict reads TEST for both sides: discovery kept only composites that beat raw on val, so a val verdict is
         # selection-biased toward COMPOSITE_BEATS_RAW. The val lift stays in the table for reference.
         _l_raw_test = _lift(_raw_test, _comp_test)
-        if _comp_val is None and _comp_test is None:
-            _verdict = "NO_Y_SCALE_METRIC"
-        elif not _raw_best:
-            _verdict = "NO_RAW_MODEL_TO_COMPARE"
-        elif _l_raw_test is None:
-            _verdict = "NO_TEST_METRIC_TO_COMPARE"
-        elif _l_raw_test > 1.005:
-            _verdict = "COMPOSITE_BEATS_RAW"
-        elif _l_raw_test < 0.995:
-            _verdict = "RAW_BEATS_COMPOSITE"
-        else:
-            _verdict = "TIE_WITH_RAW"
+        _verdict = _composite_verdict(_comp_val, _comp_test, _raw_best, _l_raw_test)
         _f = lambda v: "-" if v is None or not np.isfinite(v) else f"{v:.4f}"  # noqa: E731
         _fl = lambda v: "-" if v is None else f"{v:.3f}x"  # noqa: E731
         lines.append(

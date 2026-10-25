@@ -216,11 +216,11 @@ def _marginal_screen_njit(
 
     Runs ``prange`` over candidates - each thread merges its column into ``classes_x`` independently, then computes MI. No per-thread state shared.
 
-    Returns a 1-D float64 array of length ``len(candidate_idxs)``, aligned with the input order. Cells for unmergeable / zero-MI columns simply produce ``0.0``
+    Returns a 1-D double array of length ``len(candidate_idxs)``, aligned with the input order. Cells for unmergeable / zero-MI columns simply produce ``0.0``
     (downstream logic handles those via ``cfg.marginal_floor``).
     """
     n_candidates = len(candidate_idxs)
-    out = np.zeros(n_candidates, dtype=np.float64)
+    out = np.zeros(n_candidates, dtype=np.float64)  # Intentional float64: numba kernel body buffer or scalar (crit helper cannot run inside njit)
     for k in prange(n_candidates):
         idx = candidate_idxs[k]
         # Build a single-element vars_indices array; merge_vars handles k=1 as a degenerate case (just renumbers the column densely).
@@ -314,8 +314,8 @@ def _pair_search_kernel_njit(
     n_pairs = len(pairs_a)
     n_samples = factors_data.shape[0]
     nbins_y = int(classes_y.max()) + 1 if classes_y.size > 0 else 1
-    joint_mi_out = np.zeros(n_pairs, dtype=np.float64)
-    ii_out = np.zeros(n_pairs, dtype=np.float64)
+    joint_mi_out = np.zeros(n_pairs, dtype=np.float64)  # Intentional float64: numba kernel body buffer or scalar (crit helper cannot run inside njit)
+    ii_out = np.zeros(n_pairs, dtype=np.float64)  # Intentional float64: numba kernel body buffer or scalar (crit helper cannot run inside njit)
     n_uniq_out = np.zeros(n_pairs, dtype=np.int64)
     inv_n = 1.0 / float(n_samples)
 

@@ -209,7 +209,7 @@ class ShapProxiedMethodsMixin:
         return pd.DataFrame(arr, columns=[f"f{i}" for i in range(arr.shape[1])])
 
     def _coerce_target(self, y):
-        """Coerce ``y`` to the 1D float64 target the booster + numba proxy-loss kernels require, rejecting multi-output ``y`` with a clear error (rather than an opaque numba TypingError downstream); for ``classification=True`` also validates exactly 2 classes and binarises against ``classes_``."""
+        """Coerce ``y`` to the 1D double target the booster + numba proxy-loss kernels require, rejecting multi-output ``y`` with a clear error (rather than an opaque numba TypingError downstream); for ``classification=True`` also validates exactly 2 classes and binarises against ``classes_``."""
         try:
             import polars as pl
             if isinstance(y, pl.Series):

@@ -299,6 +299,81 @@ def _ece_score(y_true: np.ndarray, p_pred: np.ndarray, n_bins: int = DEFAULT_ECE
     return float(_ece_score_numba_serial(y, p, int(n_bins)))
 
 
+def _fit_sigmoid(p: np.ndarray, y: np.ndarray) -> Callable[[np.ndarray], np.ndarray]:
+    """Fit a Platt/logistic sigmoid calibrator on the (n, 1) score column ``p``."""
+    from sklearn.linear_model import LogisticRegression
+
+    clf = LogisticRegression(C=1e10, solver="lbfgs")
+    clf.fit(p, y)
+
+    def _apply_sigmoid(probs: np.ndarray) -> np.ndarray:
+        """Apply the fitted Platt/logistic sigmoid calibrator to (2-col or raveled) positive-class probabilities."""
+        q = np.asarray(probs, dtype=np.float64)
+        if q.ndim == 2 and q.shape[1] >= 2:
+            q = q[:, 1]
+        return np.asarray(clf.predict_proba(q.reshape(-1, 1))[:, 1])
+
+    return _apply_sigmoid
+
+
+def _fit_isotonic(p: np.ndarray, y: np.ndarray) -> Callable[[np.ndarray], np.ndarray]:
+    """Fit an isotonic-regression calibrator on the score column ``p``, clipped to [0, 1]."""
+    from sklearn.isotonic import IsotonicRegression
+
+    iso = IsotonicRegression(out_of_bounds="clip", y_min=0.0, y_max=1.0)
+    iso.fit(p.ravel(), y)
+
+    def _apply_iso(probs: np.ndarray) -> np.ndarray:
+        """Apply the fitted isotonic-regression calibrator to (2-col or raveled) positive-class probabilities."""
+        q = np.asarray(probs, dtype=np.float64)
+        if q.ndim == 2 and q.shape[1] >= 2:
+            q = q[:, 1]
+        return np.asarray(iso.predict(q.ravel()))
+
+    return _apply_iso
+
+
+def _fit_beta(p: np.ndarray, y: np.ndarray) -> Optional[Callable[[np.ndarray], np.ndarray]]:
+    """Fit a Beta calibrator (Kull 2017) on ``p``; ``None`` when betacal is not installed."""
+    try:
+        from betacal import BetaCalibration
+    except ImportError:
+        logger.debug("pick_best_calibrator: betacal not installed; skipping Beta")
+        return None
+    beta = BetaCalibration(parameters="abm")
+    beta.fit(p, y)
+
+    def _apply_beta(probs: np.ndarray) -> np.ndarray:
+        """Apply the fitted Beta calibrator (Kull 2017) to (2-col or raveled) positive-class probabilities."""
+        q = np.asarray(probs, dtype=np.float64)
+        if q.ndim == 2 and q.shape[1] >= 2:
+            q = q[:, 1]
+        out = beta.predict(q.reshape(-1, 1))
+        return np.asarray(out).ravel()
+
+    return _apply_beta
+
+
+def _fit_spline(p: np.ndarray, y: np.ndarray) -> Optional[Callable[[np.ndarray], np.ndarray]]:
+    """Fit an ml_insights spline calibrator on ``p``; ``None`` when ml_insights is not installed."""
+    try:
+        import ml_insights as mli
+    except ImportError:
+        logger.debug("pick_best_calibrator: ml_insights not installed; skipping Spline")
+        return None
+    spline = mli.SplineCalib()
+    spline.fit(p.ravel(), y)
+
+    def _apply_spline(probs: np.ndarray) -> np.ndarray:
+        """Apply the fitted spline calibrator (ml_insights SplineCalib) to (2-col or raveled) positive-class probabilities."""
+        q = np.asarray(probs, dtype=np.float64)
+        if q.ndim == 2 and q.shape[1] >= 2:
+            q = q[:, 1]
+        return np.asarray(spline.predict(q.ravel())).ravel()
+
+    return _apply_spline
+
+
 def _fit_calibrator(name: str, calib_p: np.ndarray, calib_y: np.ndarray) -> Optional[Callable[[np.ndarray], np.ndarray]]:
     """Fit ``name`` on ``(calib_p, calib_y)``; return ``predict_proba_pos(p_test) -> p_test_calibrated`` or ``None``.
 
@@ -313,58 +388,13 @@ def _fit_calibrator(name: str, calib_p: np.ndarray, calib_y: np.ndarray) -> Opti
     y = np.asarray(calib_y).ravel()
     try:
         if name == "Sigmoid":
-            from sklearn.linear_model import LogisticRegression
-            clf = LogisticRegression(C=1e10, solver="lbfgs")
-            clf.fit(p, y)
-            def _apply_sigmoid(probs: np.ndarray) -> np.ndarray:
-                """Apply the fitted Platt/logistic sigmoid calibrator to (2-col or raveled) positive-class probabilities."""
-                q = np.asarray(probs, dtype=np.float64)
-                if q.ndim == 2 and q.shape[1] >= 2:
-                    q = q[:, 1]
-                return np.asarray(clf.predict_proba(q.reshape(-1, 1))[:, 1])
-            return _apply_sigmoid
+            return _fit_sigmoid(p, y)
         if name == "Isotonic":
-            from sklearn.isotonic import IsotonicRegression
-            iso = IsotonicRegression(out_of_bounds="clip", y_min=0.0, y_max=1.0)
-            iso.fit(p.ravel(), y)
-            def _apply_iso(probs: np.ndarray) -> np.ndarray:
-                """Apply the fitted isotonic-regression calibrator to (2-col or raveled) positive-class probabilities."""
-                q = np.asarray(probs, dtype=np.float64)
-                if q.ndim == 2 and q.shape[1] >= 2:
-                    q = q[:, 1]
-                return np.asarray(iso.predict(q.ravel()))
-            return _apply_iso
+            return _fit_isotonic(p, y)
         if name == "Beta":
-            try:
-                from betacal import BetaCalibration
-            except ImportError:
-                logger.debug("pick_best_calibrator: betacal not installed; skipping Beta")
-                return None
-            beta = BetaCalibration(parameters="abm")
-            beta.fit(p, y)
-            def _apply_beta(probs: np.ndarray) -> np.ndarray:
-                """Apply the fitted Beta calibrator (Kull 2017) to (2-col or raveled) positive-class probabilities."""
-                q = np.asarray(probs, dtype=np.float64)
-                if q.ndim == 2 and q.shape[1] >= 2:
-                    q = q[:, 1]
-                out = beta.predict(q.reshape(-1, 1))
-                return np.asarray(out).ravel()
-            return _apply_beta
+            return _fit_beta(p, y)
         if name == "Spline":
-            try:
-                import ml_insights as mli
-            except ImportError:
-                logger.debug("pick_best_calibrator: ml_insights not installed; skipping Spline")
-                return None
-            spline = mli.SplineCalib()
-            spline.fit(p.ravel(), y)
-            def _apply_spline(probs: np.ndarray) -> np.ndarray:
-                """Apply the fitted spline calibrator (ml_insights SplineCalib) to (2-col or raveled) positive-class probabilities."""
-                q = np.asarray(probs, dtype=np.float64)
-                if q.ndim == 2 and q.shape[1] >= 2:
-                    q = q[:, 1]
-                return np.asarray(spline.predict(q.ravel())).ravel()
-            return _apply_spline
+            return _fit_spline(p, y)
     except Exception as exc:
         logger.warning("pick_best_calibrator: %s fit failed: %s", name, exc)
         return None
