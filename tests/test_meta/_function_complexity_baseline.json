@@ -157,7 +157,6 @@
   "src/mlframe/training/core/_phase_finalize_calibration.py::_conformal_on_calib_slice": 22,
   "src/mlframe/training/core/_phase_helpers_fit_pipeline.py::_phase_fit_pipeline_back_none_function_logs": 18,
   "src/mlframe/training/core/_phase_train_one_target.py::_apply_loss_recommendation_in_place": 21,
-  "src/mlframe/training/core/_phase_train_one_target.py::_selector_kind": 17,
   "src/mlframe/training/core/_phase_train_one_target_ensembling.py::_tune_decision_thresholds": 17,
   "src/mlframe/training/core/_phase_train_one_target_helpers.py::_mrmr_selection_report": 18,
   "src/mlframe/training/core/_phase_train_one_target_pre_screen.py::_maybe_run_unsupervised_pre_screen": 18,
