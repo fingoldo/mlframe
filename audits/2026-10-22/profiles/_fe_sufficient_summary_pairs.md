@@ -65,3 +65,14 @@ Reading: the warp-shuffle reduction removed most of the barrier stall (29% to 6%
 * 4-byte vector loads (`char4`) with a padded row stride.
 * Upper-triangle-only launch for diagonal blocks (about 5 to 10 percent of blocks are redundant).
 * Warp-private histograms to lift the 4.5% shared efficiency (atomics contend on few cells).
+
+## Scale: p = 1000 to 10000 (n=5000 rows, k=5 coarse bins, kr=10 residual codes, planted pair (1, 2), `D:/Temp/pair_scale.py`, warm, synchronized)
+
+| p | pairs | gpu_fused | njit | speedup |
+|---|---|---|---|---|
+| 1,000 | 499,500 | 0.11 s | 1.33 s | 12x |
+| 2,000 | 1,999,000 | 0.45 s | 4.85 s | 11x |
+| 5,000 | 12,497,500 | 3.43 s | 30.91 s | 9x |
+| 10,000 | 49,995,000 | 16.40 s | not run (about 120 s extrapolated) | |
+
+The planted pair (1, 2) is the best pair at every p on both backends and the MI values agree (0.6500, 0.6375, 0.6344, 0.6447 on the GPU). Cost grows with the pair count: about 0.2 to 0.3 microseconds per pair on the GPU and 2.4 microseconds on njit. No cap loses the pair in this range; the work budget (`PAIR_WORK_BUDGET`, `PAIR_WORK_BUDGET_GPU`) strides rows, not columns.
