@@ -292,7 +292,7 @@ class TestScanOptimizationEquivalence:
             for op in pm._PAIR_OPS:
                 one(op, (a_, b_), pm._combine([arrs[a_], arrs[b_]], op))
         # The triple budget keeps the top triples by residue score as well (audit row 73), so the reference takes the same triples.
-        for a_, b_, c_ in pm._select_triples_by_residue_score(cols, arrs, yi, mods, 0, 12):
+        for a_, b_, c_ in pm._select_triples_by_residue_score(cols, arrs, yi, mods, 0, pm._DEFAULT_MAX_TRIPLES):
             one("sum3", (a_, b_, c_), arrs[a_].astype(np.int64) + arrs[b_].astype(np.int64) + arrs[c_].astype(np.int64))
         return hits
 

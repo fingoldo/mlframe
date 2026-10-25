@@ -122,6 +122,8 @@ _PAIR_OPS = ("sum", "diff", "prod")
 _PAIR_RANK_ROWS = 1000
 # Triples ranked exhaustively up to this count (see ``_select_triples_by_residue_score``); above it a deterministic random sample of this size is ranked.
 _TRIPLE_RANK_MAX = 250_000
+# Default number of ranked triples that go to the exact scan (12 left most of the 1140 triples at the pipeline's 20-column ceiling unscanned).
+_DEFAULT_MAX_TRIPLES = 100
 
 # Gate floor shared by ``_responded`` and the cheap-scan early-reject: a combiner whose residue MI does not beat its own
 # raw-combiner baseline by this margin can NEVER respond (``_responded`` requires margin AND null), so the expensive
@@ -281,9 +283,24 @@ def _select_pairs_by_residue_score(cols: Sequence[str], arrs: dict, yi: np.ndarr
     pairs = list(combinations(range(len(cols)), 2))
     ia = np.fromiter((a for a, _ in pairs), dtype=np.int64, count=len(pairs))
     ib = np.fromiter((b for _, b in pairs), dtype=np.int64, count=len(pairs))
-    scores = _residue_rank_scores(mat, ia, ib, np.asarray(mods, dtype=np.int64), ysub, int(ysub.max()) + 1)
+    scores = _rank_scores(mat, ia, ib, None, mods, ysub)
     order = np.argsort(-scores, kind="stable")[:budget]  # equal scores keep the column order
     return [(cols[pairs[q][0]], cols[pairs[q][1]]) for q in order]
+
+
+def _rank_scores(mat: np.ndarray, ia: np.ndarray, ib: np.ndarray, ic: Optional[np.ndarray], mods: Sequence[int], ysub: np.ndarray) -> np.ndarray:
+    """Best plug-in residue MI per pair (``ic is None``, three operators) or triple (``sum3``), on the device when the kernel-tuning cache says so, else the njit kernels."""
+    from ._pairwise_modular_rank_gpu import rank_backend_choice, residue_rank_scores_gpu
+
+    mods_arr = np.asarray(mods, dtype=np.int64)
+    n_cls = int(ysub.max()) + 1
+    if rank_backend_choice(int(ia.shape[0]) * (3 if ic is None else 1)) == "gpu":
+        out = residue_rank_scores_gpu(mat, ia, ib, ic, mods_arr, ysub, n_cls)
+        if out is not None:
+            return out
+    if ic is None:
+        return _residue_rank_scores(mat, ia, ib, mods_arr, ysub, n_cls)
+    return _residue_rank_scores3(mat, ia, ib, ic, mods_arr, ysub, n_cls)
 
 
 def _rank_subsample(cols: Sequence[str], arrs: dict, yi: np.ndarray, seed: int) -> tuple[np.ndarray, np.ndarray]:
@@ -379,7 +396,7 @@ def _select_triples_by_residue_score(
         draw = np.sort(np.random.default_rng(seed).integers(0, p, size=(_TRIPLE_RANK_MAX * 2, 3)), axis=1)
         draw = draw[(draw[:, 0] < draw[:, 1]) & (draw[:, 1] < draw[:, 2])]
         triples = np.unique(draw, axis=0)[:_TRIPLE_RANK_MAX]
-    scores = _residue_rank_scores3(mat, triples[:, 0], triples[:, 1], triples[:, 2], np.asarray(mods, dtype=np.int64), ysub, int(ysub.max()) + 1)
+    scores = _rank_scores(mat, triples[:, 0], triples[:, 1], triples[:, 2], mods, ysub)
     order = np.argsort(-scores, kind="stable")[:budget]  # equal scores keep the enumeration order
     return [(cols[int(triples[q, 0])], cols[int(triples[q, 1])], cols[int(triples[q, 2])]) for q in order]
 
@@ -493,7 +510,7 @@ def cheap_modular_scan(
     *,
     moduli: Sequence[int] = COARSE_MODULI,
     max_pairs: int = 24,
-    max_triples: int = 12,
+    max_triples: int = _DEFAULT_MAX_TRIPLES,
     nbins: int = 12,
     seed: int = 0,
     _cols_prefiltered: bool = False,
@@ -737,7 +754,7 @@ def hybrid_pairwise_modular_fe_with_recipes(
         )
         return [], []
 
-    max_triples = 12
+    max_triples = _DEFAULT_MAX_TRIPLES
     if p > int(max_triple_cols):
         logger.info(
             "pairwise_modular FE: %d integer-eligible columns exceeds max_triple_cols=%d; limiting to "
