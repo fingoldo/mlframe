@@ -230,39 +230,48 @@ def _residue_rank_scores(cols: np.ndarray, ia: np.ndarray, ib: np.ndarray, mods:
         b = ib[q]
         joint = np.zeros(max_k * n_cls)
         marg = np.zeros(max_k)
-        best = 0.0
-        for op in range(3):
-            for mi in range(mods.shape[0]):
-                k = mods[mi]
-                joint[: k * n_cls] = 0.0
-                marg[:k] = 0.0
-                for t in range(n):
-                    if op == 0:
-                        v = cols[a, t] + cols[b, t]
-                    elif op == 1:
-                        v = cols[a, t] - cols[b, t]
-                    else:
-                        v = cols[a, t] * cols[b, t]
-                    r = v % k
-                    if r < 0:
-                        r += k
-                    joint[r * n_cls + ycls[t]] += 1.0
-                    marg[r] += 1.0
-                hr = 0.0
-                for r in range(k):
-                    if marg[r] > 0:
-                        pr = marg[r] / n
-                        hr -= pr * np.log(pr)
-                hry = 0.0
-                for j in range(k * n_cls):
-                    if joint[j] > 0:
-                        pj = joint[j] / n
-                        hry -= pj * np.log(pj)
-                mi_val = hr + hy - hry
-                if mi_val > best:
-                    best = mi_val
-        scores[q] = best
+        scores[q] = _residue_best_mi(cols, a, b, mods, ycls, n, n_cls, hy, joint, marg)
     return scores
+
+
+@njit(cache=True)
+def _residue_best_mi(cols, a, b, mods, ycls, n, n_cls, hy, joint, marg):
+    """Best plug-in MI of ``(a op b) mod k`` vs the class over the three pair operators and every modulus in ``mods``.
+
+    ``joint`` and ``marg`` are caller-owned scratch buffers, sized for the largest modulus, reset per (operator, modulus).
+    """
+    best = 0.0
+    for op in range(3):
+        for mi in range(mods.shape[0]):
+            k = mods[mi]
+            joint[: k * n_cls] = 0.0
+            marg[:k] = 0.0
+            for t in range(n):
+                if op == 0:
+                    v = cols[a, t] + cols[b, t]
+                elif op == 1:
+                    v = cols[a, t] - cols[b, t]
+                else:
+                    v = cols[a, t] * cols[b, t]
+                r = v % k
+                if r < 0:
+                    r += k
+                joint[r * n_cls + ycls[t]] += 1.0
+                marg[r] += 1.0
+            hr = 0.0
+            for r in range(k):
+                if marg[r] > 0:
+                    pr = marg[r] / n
+                    hr -= pr * np.log(pr)
+            hry = 0.0
+            for j in range(k * n_cls):
+                if joint[j] > 0:
+                    pj = joint[j] / n
+                    hry -= pj * np.log(pj)
+            mi_val = hr + hy - hry
+            if mi_val > best:
+                best = mi_val
+    return best
 
 
 def _select_pairs_by_residue_score(cols: Sequence[str], arrs: dict, yi: np.ndarray, mods: Sequence[int], seed: int, budget: int) -> list[tuple[str, str]]:

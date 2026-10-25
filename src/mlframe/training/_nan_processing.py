@@ -21,6 +21,25 @@ except ImportError:  # pragma: no cover
     cs = None  # type: ignore[assignment]
 
 
+def _drop_problem_columns(df, errors_df, is_polars, kind, verbose):
+    """Drop the flagged columns that exist in ``df`` and return the frame; a no-op when nothing is flagged."""
+    cols_to_drop = errors_df["column"].to_list()
+    if cols_to_drop:
+        from .utils import filter_existing  # lazy: breaks cycle with .utils
+        # Only drop columns that actually exist in the dataframe
+        if is_polars:
+            existing_cols = filter_existing(df, cols_to_drop)
+            if existing_cols:
+                df = df.drop(existing_cols)
+        else:
+            existing_cols = filter_existing(df, cols_to_drop)
+            if existing_cols:
+                df = df.drop(columns=existing_cols)
+    if verbose:
+        logger.info("Dropped %s %s.", len(cols_to_drop), kind)
+    return df
+
+
 def _process_special_values(
     df: pl.DataFrame | pd.DataFrame,
     expr_func: Callable[[], pl.Expr | None] | None = None,
@@ -59,20 +78,7 @@ def _process_special_values(
             logger.info("\n%s", errors_df)
 
         if drop_columns:
-            cols_to_drop = errors_df["column"].to_list()
-            if cols_to_drop:
-                from .utils import filter_existing  # lazy: breaks cycle with .utils
-                # Only drop columns that actually exist in the dataframe
-                if is_polars:
-                    existing_cols = filter_existing(df, cols_to_drop)
-                    if existing_cols:
-                        df = df.drop(existing_cols)
-                else:
-                    existing_cols = filter_existing(df, cols_to_drop)
-                    if existing_cols:
-                        df = df.drop(columns=existing_cols)  # type: ignore[call-arg]  # is_polars guards this to a pandas.DataFrame; mypy can't narrow the Union on a bool flag
-            if verbose:
-                logger.info("Dropped %s %s.", len(cols_to_drop), kind)
+            df = _drop_problem_columns(df, errors_df, is_polars, kind, verbose)
         elif fill_value is not None:
             if is_polars:
                 if fill_func_name is None:

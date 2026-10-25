@@ -135,7 +135,6 @@
   "src/mlframe/training/_feature_importances.py::get_model_feature_importances": 16,
   "src/mlframe/training/_fixed_splits.py::pinned_train_val_test_split": 23,
   "src/mlframe/training/_iterative_stratification_njit.py::_iterative_stratification_njit": 16,
-  "src/mlframe/training/_nan_processing.py::_process_special_values": 17,
   "src/mlframe/training/baselines/_dummy_metrics_pick_plot.py::_compute_metrics_table": 25,
   "src/mlframe/training/baselines/_dummy_report_type.py::BaselineReport.format_text": 18,
   "src/mlframe/training/callbacks/_callbacks.py::UniversalCallback.should_stop": 19,
