@@ -219,6 +219,50 @@ def _frame_contains_inf(df) -> bool:
         return True
 
 
+def _load_parquet_source(path: str, config: PreprocessingConfig, verbose: int) -> pl.DataFrame | pl.LazyFrame:
+    """Open a parquet path: eagerly with ``columns``/``n_rows`` pushed to the reader, otherwise lazily via ``scan_parquet``."""
+    if verbose:
+        logger.info("Loading dataframe from %s with Polars...", path)
+
+    if not path.lower().endswith(".parquet"):
+        raise ValueError(f"Only parquet format supported, got: {path}")
+
+    # Build efficient loading parameters
+    load_params: dict[str, Any] = {"parallel": "columns"}
+
+    # Use n_rows at load time for efficiency
+    if config.n_rows:
+        load_params["n_rows"] = config.n_rows
+        if verbose:
+            logger.info("Loading first %s rows...", config.n_rows)
+
+    # Use columns at load time for efficiency
+    if config.columns:
+        load_params["columns"] = config.columns
+        if verbose:
+            logger.info("Loading %s columns...", len(config.columns))
+
+    # Use read_parquet if columns/n_rows specified (scan_parquet has a narrower kwarg surface
+    # and does not accept `parallel="columns"` or `columns=`). Otherwise scan lazily and let
+    # Polars collect once downstream - keeps memory low for wide files.
+    if config.columns or config.n_rows:
+        return pl.read_parquet(path, **load_params)
+    # scan_parquet rejects `parallel="columns"` (only valid on eager read_parquet).
+    return pl.scan_parquet(path)
+
+
+def _collect_streaming(_df):
+    """Collect a LazyFrame through the streaming engine, falling back to a default collect on polars builds without the kwarg; a DataFrame passes through."""
+    if isinstance(_df, pl.LazyFrame):
+        _lf = _df
+        try:
+            _df = _lf.collect(streaming=True)  # type: ignore[call-overload]  # older polars stubs only; runtime TypeError fallback below covers newer polars that dropped this kwarg
+        except TypeError:
+            # polars version without the streaming kwarg falls back to default collect.
+            _df = _lf.collect()
+    return _df
+
+
 def load_and_prepare_dataframe(
     df: Union[pl.DataFrame, pd.DataFrame, str],
     config: PreprocessingConfig,
@@ -256,35 +300,7 @@ def load_and_prepare_dataframe(
     # Load from file if path provided
     _df: pl.DataFrame | pl.LazyFrame | str = df
     if isinstance(_df, str):
-        if verbose:
-            logger.info("Loading dataframe from %s with Polars...", _df)
-
-        if not _df.lower().endswith(".parquet"):
-            raise ValueError(f"Only parquet format supported, got: {_df}")
-
-        # Build efficient loading parameters
-        load_params: dict[str, Any] = {"parallel": "columns"}
-
-        # Use n_rows at load time for efficiency
-        if config.n_rows:
-            load_params["n_rows"] = config.n_rows
-            if verbose:
-                logger.info("Loading first %s rows...", config.n_rows)
-
-        # Use columns at load time for efficiency
-        if config.columns:
-            load_params["columns"] = config.columns
-            if verbose:
-                logger.info("Loading %s columns...", len(config.columns))
-
-        # Use read_parquet if columns/n_rows specified (scan_parquet has a narrower kwarg surface
-        # and does not accept `parallel="columns"` or `columns=`). Otherwise scan lazily and let
-        # Polars collect once downstream - keeps memory low for wide files.
-        if config.columns or config.n_rows:
-            _df = pl.read_parquet(_df, **load_params)
-        else:
-            # scan_parquet rejects `parallel="columns"` (only valid on eager read_parquet).
-            _df = pl.scan_parquet(_df)
+        _df = _load_parquet_source(_df, config, verbose)
 
     # Apply tail if specified (after loading). For a LazyFrame produced by scan_parquet,
     # collect via the streaming engine so the OS only ever needs (tail_size + per-batch buffer)
@@ -296,13 +312,7 @@ def load_and_prepare_dataframe(
             logger.info("Taking last %s rows...", config.tail)
         _df = _df.tail(config.tail)
 
-    if isinstance(_df, pl.LazyFrame):
-        _lf = _df
-        try:
-            _df = _lf.collect(streaming=True)  # type: ignore[call-overload]  # older polars stubs only; runtime TypeError fallback below covers newer polars that dropped this kwarg
-        except TypeError:
-            # polars version without the streaming kwarg falls back to default collect.
-            _df = _lf.collect()
+    _df = _collect_streaming(_df)
 
     if verbose:
         log_ram_usage()
