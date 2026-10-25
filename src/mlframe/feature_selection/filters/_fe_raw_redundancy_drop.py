@@ -350,6 +350,24 @@ def _no_harm_guard_result(
     return None
 
 
+def _some_consumer_adds_information(st: Any, consumers: Sequence[int], rname: str, seed: int) -> bool:
+    """Whether at least one consuming survivor has a marginal excess over ``y`` above the raw's by more than that survivor's own permutation floor.
+
+    Both excesses are the debiased MI above the permutation null (``_excess_and_floor`` against no conditioning), so the margin is the noise scale of the plug-in estimate at this
+    sample size and cardinality, not a fixed constant. A probe failure answers True: the existing verdict then decides, as it did before this guard."""
+    try:
+        raw_excess = float(st._raw_marginal(rname)[2])
+        for ei in consumers:
+            code = st.eng_bin[ei]
+            _cmi, floor_c, excess_c = _excess_and_floor(code, st.y_arr, None, seed=seed, kx=(int(code.max()) + 1 if getattr(code, "size", 0) else 1))
+            if float(excess_c) - raw_excess > float(floor_c):
+                return True
+        return False
+    except Exception as exc:
+        logger.debug("raw-redundancy: informativeness probe failed for %s (%s); the subsumption verdict decides", rname, exc)
+        return True
+
+
 def _raw_conditioning(st: Any, cols: Sequence[str], ri: int, rname: str, seed: int, verbose: int) -> Optional[tuple]:
     """Multi-source consumers and the raw's first conditional score; ``None`` when no legitimate subsumer exists (the raw is kept), else the scoring tuple."""
     all_consumers = st.eng_consumers.get(rname)
@@ -385,6 +403,14 @@ def _raw_conditioning(st: Any, cols: Sequence[str], ri: int, rname: str, seed: i
                 rname,
                 [cols[e] for e in all_consumers],
             )
+        return None
+    # STRICTLY-MORE-INFORMATIVE GUARD. The verdict below can only call a raw "subsumed by a strictly-more-informative combination child" if some consuming survivor really
+    # carries more about y than the raw does. A child whose binned code merely RE-ENCODES the raw (a monotone power of it with a weak second operand: the conditional MI given the
+    # child is exactly 0 because the child's bins determine the raw's value) adds nothing the raw lacks, yet a linear model that receives only the child cannot use the raw's
+    # non-monotone relation to y. Keep the raw unless a consumer's marginal excess exceeds the raw's by more than that consumer's own permutation floor.
+    if not _some_consumer_adds_information(st, consumers, rname, seed):
+        if verbose:
+            logger.debug("raw-redundancy: KEEP %s (no consuming survivor carries more information about y than the raw itself; the children re-encode it)", rname)
         return None
     # The raw column is binned via ``_raw_codes`` (see its definition): the selector's lossy fit codes
     # in the tuned regime (fit levels >= _eng_card, BYTE-IDENTICAL to the prior fit-code path - judge
