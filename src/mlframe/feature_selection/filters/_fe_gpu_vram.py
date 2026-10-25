@@ -75,6 +75,25 @@ def _pool_fraction() -> float:
     return frac
 
 
+def _warn_cushion_refused(free_b: int, bytes_needed: int, total_b: int) -> None:
+    """Say, at WARNING, that a GPU dispatch was refused for lack of free VRAM and runs on the CPU instead (at most five times per process).
+
+    The refusal used to be silent, so a fit that ran its FE on the CPU because another process held the card looked the same as one that ran on the GPU, and the two
+    can select differently."""
+    mib = 1024 * 1024
+    log_throttle(
+        logger,
+        "fe_gpu_vram_cushion_refused",
+        logging.WARNING,
+        "GPU path declined for lack of free VRAM: %d MiB free, %d MiB needed, %d MiB cushion required (device total %d MiB); this dispatch runs on the CPU. "
+        "Free the card or lower MLFRAME_FE_GPU_MIN_FREE_MB to allow it.",
+        int(free_b) // mib,
+        int(bytes_needed) // mib,
+        _cushion_bytes(int(total_b)) // mib,
+        int(total_b) // mib,
+    )
+
+
 def _cushion_bytes(total_b: int) -> int:
     """The absolute cushion floor in bytes for a device with ``total_b`` total VRAM - shared by
     ``fe_gpu_has_vram_cushion`` and ``ensure_fe_gpu_pool_limit`` so both mechanisms agree
@@ -147,6 +166,7 @@ def fe_gpu_has_vram_cushion(bytes_needed: int = 0, *, free_b: "int | None" = Non
     # (test_fe_gpu_vram_cushion_no_reprobe.py's whole point: "independent of any internal memGetInfo
     # probe" once free_b/total_b are supplied).
     if caller_supplied_probe:
+        _warn_cushion_refused(free_b, bytes_needed, total_b)
         return False
     # ``memGetInfo``'s free counts blocks RETAINED by our own cupy pool as used - after a few FE stages the
     # pool can hold most of the card in internally-FREE blocks (instantly reusable by the next cupy alloc,
@@ -161,13 +181,17 @@ def fe_gpu_has_vram_cushion(bytes_needed: int = 0, *, free_b: "int | None" = Non
         import cupy as cp
         pool = cp.get_default_memory_pool()
         if int(pool.free_bytes()) <= 0:
+            _warn_cushion_refused(free_b, bytes_needed, total_b)
             return False
         pool.free_all_blocks()
         free_b2, total_b2 = cp.cuda.runtime.memGetInfo()
     except Exception as exc:
         logger.warning("fe_gpu_has_vram_cushion: pool free_all_blocks/re-probe failed (%s); declining", exc)
         return False
-    return bool((int(free_b2) - int(bytes_needed)) >= _cushion_bytes(int(total_b2)))
+    ok = bool((int(free_b2) - int(bytes_needed)) >= _cushion_bytes(int(total_b2)))
+    if not ok:
+        _warn_cushion_refused(free_b2, bytes_needed, total_b2)
+    return ok
 
 
 def ensure_fe_gpu_pool_limit() -> bool:
