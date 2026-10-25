@@ -826,6 +826,10 @@ def _fit_impl_part1(_replay_from_fit_cache: Any, self: Any, _cache_key: Any, fe:
             return True
         return bool((timer() - start_time) / 60.0 < self.max_runtime_mins)
 
+    from .._fe_family_timing import FamilyLapTimer as _FamilyLapTimer
+
+    _fe_lap = _FamilyLapTimer()
+
     def _fe_family_on(flag: str, default: bool = False) -> bool:
         """True iff the family's own ``fe_*_enable`` flag is set AND this fit has an FE budget.
 
@@ -837,7 +841,9 @@ def _fit_impl_part1(_replay_from_fit_cache: Any, self: Any, _cache_key: Any, fe:
         engineered columns into fits that had explicitly asked for none. The wall-clock budget is part of the same question: ``_fe_budget_ok``
         used to be consulted at 4 of the ~35 cascade stages, so a spent ``max_runtime_mins`` still let the other ~31 families start.
         """
-        return bool(getattr(self, flag, default)) and int(getattr(self, "fe_max_steps", 0) or 0) > 0 and _fe_budget_ok()
+        return _fe_lap.gate(flag, bool(getattr(self, flag, default)) and int(getattr(self, "fe_max_steps", 0) or 0) > 0 and _fe_budget_ok())
+
+    _fe_family_on.close_lap = _fe_lap.close  # type: ignore[attr-defined]
 
     dtype = self.dtype
 

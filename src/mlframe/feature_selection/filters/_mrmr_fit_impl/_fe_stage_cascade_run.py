@@ -77,4 +77,6 @@ def _run_fe_stage_cascades(self, X, y, verbose, fe_max_steps, _y_np, _fe_family_
         _wavelet_pre_recipes=recipes.wavelet,
         _rankgauss_pre_recipes=recipes.rankgauss,
     ), _X_step_input)
+    # The last open family lap ends with the cascades; an unset hook (tests passing a plain callable) is skipped.
+    getattr(_fe_family_on, "close_lap", lambda: None)()
     return X, _raw_input_cols_pre_fe
