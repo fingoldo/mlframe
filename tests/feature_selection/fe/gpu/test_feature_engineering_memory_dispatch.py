@@ -184,6 +184,11 @@ class TestHoistHeadroomAcceptance:
         assert fe_mod._fe_hoist_headroom_overhead() == fe_mod._FE_HOIST_HEADROOM_OVERHEAD
 
 
+def _pair_keys(res):
+    """The pair keys of a ``check_prospective_fe_pairs`` result, without the service entries (e.g. the FE rejection records keyed by a name)."""
+    return [k for k in res if not (isinstance(k, tuple) and len(k) == 3 and isinstance(k[0], str) and k[1] == -1 and k[2] == -1)]
+
+
 class TestSubsampleMode:
     """subsample_n > 0 forces the MI sweep onto a row subset but survivor
     columns must still be produced at full n (mrmr.py contract)."""
@@ -246,7 +251,7 @@ class TestSubsampleMode:
         res_sub_full = self._run_with_subsample(synthetic_pair_inputs, subsample_n=full_n + 1)
         res_no_sub = self._run_with_subsample(synthetic_pair_inputs, subsample_n=0)
         # Same survivors regardless of the > full_n knob.
-        for key in res_no_sub:
+        for key in _pair_keys(res_no_sub):
             assert key in res_sub_full
             cols_no_sub = sorted(res_no_sub[key][2])
             cols_sub_full = sorted(res_sub_full[key][2])
@@ -274,8 +279,8 @@ class TestFastVsFallbackEquivalence:
         monkeypatch.setattr(fe_mod, "_FE_BUFFER_RAM_BUDGET_RATIO", 0.0)
         slow = _run_check(synthetic_pair_inputs, unary_preset="minimal", binary_preset="minimal")
 
-        assert set(fast.keys()) == set(slow.keys()), "Different pair keys returned"
-        for k in fast:
+        assert set(_pair_keys(fast)) == set(_pair_keys(slow)), "Different pair keys returned"
+        for k in _pair_keys(fast):
             fast_cols, fast_vals = self._normalise_features(fast[k])
             slow_cols, slow_vals = self._normalise_features(slow[k])
             assert fast_cols == slow_cols, f"{k}: survivor name set differs"
