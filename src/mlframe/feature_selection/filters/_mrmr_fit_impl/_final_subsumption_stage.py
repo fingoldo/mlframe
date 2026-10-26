@@ -149,7 +149,7 @@ def _without_linearly_useful(self: "MRMR", dropped: list, candidates: dict, anch
     for name in dropped:
         if name in candidates and name not in rest:
             gains[name] = linear_oos_gain(rest, candidates[name], y_arr)
-    kept = []
+    kept: list = []
     for name in sorted(gains, key=lambda n: -gains[n][0]):
         t_stat, rel = linear_oos_gain(rest, candidates[name], y_arr) if kept else gains[name]
         if t_stat > z and rel >= floor:

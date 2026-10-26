@@ -546,7 +546,8 @@ def _target_codes(y: Any, n_rows: int) -> Optional[np.ndarray]:
         return None
     uniq, inverse = np.unique(arr, return_inverse=True)
     if len(uniq) <= 20:
-        return inverse.astype(np.int64)
+        codes: np.ndarray = inverse.astype(np.int64)
+        return codes
     edges = np.quantile(arr.astype(np.float64), np.linspace(0.0, 1.0, 11)[1:-1])  # Intentional float64: quantile edges of the target
     return np.searchsorted(edges, arr, side="right").astype(np.int64)
 

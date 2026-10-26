@@ -25,7 +25,8 @@ def _rank(values: np.ndarray) -> np.ndarray:
     ranks[order] = np.arange(1, len(values) + 1)
     _, inverse, counts = np.unique(values, return_inverse=True, return_counts=True)
     sums = np.bincount(inverse, weights=ranks)
-    return (sums / counts)[inverse]
+    averaged: np.ndarray = (sums / counts)[inverse]
+    return averaged
 
 
 def leak_score(column: np.ndarray, y: np.ndarray) -> float:
