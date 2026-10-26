@@ -79,6 +79,45 @@ def _extra_equal(a: dict, b: dict) -> bool:
     return True
 
 
+_ATOMIC_TYPES = (int, float, complex, bool, str, bytes, type(None))
+
+
+def _copy_plain(obj, memo):
+    """``copy.deepcopy`` of a recipe ``extra`` for the plain containers it holds (dict, list, tuple, ndarray, scalars), without the generic machinery.
+
+    The nested lists of per-group quantile edges run to hundreds of thousands of atoms and the general ``deepcopy`` spent about a fifth of the grouped-quantile family there. Aliasing inside the structure is kept
+    (a container met twice is copied once, as ``deepcopy`` does); any other type, or a subclass of a container, goes to ``copy.deepcopy`` with the shared memo so the result is the same as before."""
+    t = type(obj)
+    if t in _ATOMIC_TYPES or isinstance(obj, np.generic):
+        return obj
+    done = memo.get(id(obj))
+    if done is not None:
+        return done
+    if t is dict:
+        out = {}
+        memo[id(obj)] = out
+        for key, value in obj.items():
+            out[key] = _copy_plain(value, memo)
+        return out
+    if t is list:
+        out = []
+        memo[id(obj)] = out
+        for value in obj:
+            out.append(_copy_plain(value, memo))
+        return out
+    if t is tuple:
+        out = tuple(_copy_plain(value, memo) for value in obj)
+        memo[id(obj)] = out
+        return out
+    if t is np.ndarray and obj.dtype != object:
+        out = obj.copy()
+        memo[id(obj)] = out
+        return out
+    import copy as _copy_mod
+
+    return _copy_mod.deepcopy(obj, memo)
+
+
 @dataclass(frozen=True, eq=False)
 class EngineeredRecipe:
     """One frozen description of how to recompute an engineered column. Survives pickle / ``sklearn.clone`` (no closures or fitted estimators captured).
@@ -171,11 +210,10 @@ class EngineeredRecipe:
         ``object.__setattr__`` because ``frozen=True`` blocks normal
         attribute writes inside ``__post_init__``.
         """
-        import copy as _copy_iter49
         import types as _types_iter49
         # Deep-copy so post-construction mutation of caller's source
         # dict can't propagate into the recipe.
-        _extra_copy = _copy_iter49.deepcopy(dict(self.extra))
+        _extra_copy = _copy_plain(dict(self.extra), {})
         # Freeze every ndarray value so ``recipe.extra['x'][:] = ...``
         # raises ValueError instead of silently corrupting downstream
         # replays. Skip arrays we don't own (views).
