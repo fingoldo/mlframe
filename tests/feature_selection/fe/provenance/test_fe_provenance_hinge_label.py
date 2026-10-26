@@ -152,4 +152,10 @@ def test_canonical_hinge_legs_labeled_not_unknown():
 
     # explain_selection names the real kind, not engineered_unknown.
     report = est.explain_selection()
-    assert "hinge_basis" in report
+    # The hinge legs are produced and labelled (checked above) but the better-matched pair forms win the selection on this frame, so the report names the kinds of the
+    # SURVIVORS: it must never say engineered_unknown, and every engineered survivor's real kind must appear in it.
+    assert "engineered_unknown" not in report
+    selected = set(map(str, est.get_feature_names_out()))
+    survivor_kinds = set(prov[prov["feature_name"].astype(str).isin(selected) & (prov["origin"].astype(str) != "raw")]["origin"].astype(str))
+    assert survivor_kinds, "no engineered survivor on the canonical fixture"
+    assert all(kind in report for kind in survivor_kinds), f"report misses the survivor kinds {survivor_kinds}"
