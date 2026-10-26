@@ -139,7 +139,8 @@ def test_transform_holdout_all_finite(mech, dtype):
 # ---------------------------------------------------------------------------
 
 
-_NOISE_COLUMN = re.compile(r"(?<![A-Za-z0-9_])x[2-5](?![A-Za-z0-9_])")
+# A column token is delimited by anything but a letter or digit: engineered names join their sources with "__" (gate_select__x3__x0__x1__t1.06), so "_" is a separator here
+_NOISE_COLUMN = re.compile(r"(?<![A-Za-z0-9])x[2-5](?![A-Za-z0-9])")
 
 
 def _lost_signal_features(lost: set) -> set:
