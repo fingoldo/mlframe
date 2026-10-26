@@ -117,7 +117,6 @@
   "src/mlframe/training/_eval_helpers.py::_align_xgb_cat_categories": 22,
   "src/mlframe/training/_eval_helpers.py::_render_split_diagnostics": 19,
   "src/mlframe/training/_feature_importances.py::get_model_feature_importances": 16,
-  "src/mlframe/training/_fixed_splits.py::pinned_train_val_test_split": 23,
   "src/mlframe/training/_iterative_stratification_njit.py::_iterative_stratification_njit": 16,
   "src/mlframe/training/baselines/_dummy_report_type.py::BaselineReport.format_text": 18,
   "src/mlframe/training/callbacks/_callbacks.py::UniversalCallback.should_stop": 19,
