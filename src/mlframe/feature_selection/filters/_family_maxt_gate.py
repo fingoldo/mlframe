@@ -597,7 +597,7 @@ def _stack_codes_transposed(mats, widths) -> np.ndarray:
     n = int(mats[0].shape[0])
     blocks = _column_runs(mats, widths)
     top = max((int(b.max()) for b, _ in blocks if b.size), default=0)
-    dt = np.int8 if top <= 127 else (np.int16 if top <= 32767 else np.int64)
+    dt = np.int8 if top <= np.iinfo(np.int8).max else (np.int16 if top <= np.iinfo(np.int16).max else np.int64)
     cols = np.empty((int(sum(widths)), n), dtype=dt)
     at = 0
     for b, merged in blocks:
