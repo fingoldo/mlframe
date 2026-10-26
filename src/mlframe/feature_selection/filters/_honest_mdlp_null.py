@@ -72,11 +72,13 @@ def _honest_analytic_min_n(get_min_n, lowered) -> int:
 
 
 def _device_honest_null_enabled() -> bool:
-    """The device root-split pipeline is used when a GPU is usable; ``MLFRAME_HONEST_NULL_DEVICE=0`` keeps the host kernel."""
+    """The device root-split pipeline is used when a GPU is usable; ``MLFRAME_HONEST_NULL_DEVICE=0`` or ``MLFRAME_FE_GPU_STRICT=0`` keeps the host kernel."""
     import os
 
     if os.environ.get("MLFRAME_HONEST_NULL_DEVICE", "1").strip().lower() not in ("1", "true", "on", "yes"):
         return False
+    if os.environ.get("MLFRAME_FE_GPU_STRICT", "").strip().lower() in ("0", "false", "off", "no"):
+        return False  # the documented explicit CPU pin of every FE dispatch
     try:
         from ._gpu_policy import gpu_globally_disabled
 

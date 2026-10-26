@@ -10,3 +10,11 @@ def test_floor_is_20k_and_env_override_wins(monkeypatch):
     assert A.analytic_null_min_n() == 25_000
     monkeypatch.setenv("MLFRAME_MI_ANALYTIC_NULL_MIN_N", "50000")
     assert _honest_analytic_min_n(A.analytic_null_min_n, A.analytic_null_min_n_lowered) == 50_000
+
+
+def test_explicit_cpu_pin_keeps_the_host_kernel(monkeypatch):
+    """MLFRAME_FE_GPU_STRICT=0 is the documented CPU pin: the device honest null stays off even with a GPU present."""
+    from mlframe.feature_selection.filters._honest_mdlp_null import _device_honest_null_enabled
+
+    monkeypatch.setenv("MLFRAME_FE_GPU_STRICT", "0")
+    assert not _device_honest_null_enabled()
