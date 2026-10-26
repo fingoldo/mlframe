@@ -517,7 +517,7 @@ def composite_group_agg_with_recipes(
 # Auto-detect composite key sets
 # ---------------------------------------------------------------------------
 
-def _auto_detect_group_cols(X: pd.DataFrame, max_cols: int = 6) -> list[str]:
+def _auto_detect_group_cols(X: pd.DataFrame, max_cols: int = 12) -> list[str]:
     """Reuse the Layer 87 / composite_auto_detect int-as-cat detector."""
     # This used to try a two-dot
     # `from .._grouped_agg_fe import ...` FIRST (wrong depth - `_grouped_agg_fe.py` is a SIBLING, one dot,
@@ -539,6 +539,31 @@ def _auto_detect_group_cols(X: pd.DataFrame, max_cols: int = 6) -> list[str]:
             out.append(str(c))
     return out[:max_cols]
 
+def _target_codes(y: Any, n_rows: int) -> Optional[np.ndarray]:
+    """Dense class codes of ``y`` (a target of at most 20 distinct values keeps its classes, a continuous one is cut into ten quantile bins); None when ``y`` has the wrong length."""
+    arr = np.asarray(y).ravel()
+    if len(arr) != n_rows:
+        return None
+    uniq, inverse = np.unique(arr, return_inverse=True)
+    if len(uniq) <= 20:
+        return inverse.astype(np.int64)
+    edges = np.quantile(arr.astype(np.float64), np.linspace(0.0, 1.0, 11)[1:-1])  # Intentional float64: quantile edges of the target
+    return np.searchsorted(edges, arr, side="right").astype(np.int64)
+
+
+def _corrected_key_mi(key_inverse: np.ndarray, n_keys: int, y_codes: np.ndarray) -> float:
+    """Mutual information (nats) of a composite key with the target codes minus its chance level ``(K - 1)(C - 1) / (2 n)``."""
+    n_classes = int(y_codes.max()) + 1
+    n = len(y_codes)
+    joint = np.bincount(np.asarray(key_inverse, dtype=np.int64) * n_classes + y_codes, minlength=n_keys * n_classes).reshape(n_keys, n_classes).astype(np.float64)  # Intentional float64: count table for the entropy sums
+    pj = joint / n
+    pk = pj.sum(axis=1, keepdims=True)
+    pc = pj.sum(axis=0, keepdims=True)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        terms = np.where(pj > 0, pj * np.log(pj / (pk * pc)), 0.0)
+    return float(terms.sum() - (n_keys - 1) * (n_classes - 1) / (2.0 * n))
+
+
 def auto_detect_key_sets(
     X: pd.DataFrame,
     *,
@@ -547,10 +572,14 @@ def auto_detect_key_sets(
     detected_group_cols: Optional[Sequence[str]] = None,
     max_sets: int = 12,
     _key_cache: Optional[dict] = None,
+    y: Optional[np.ndarray] = None,
 ) -> list[tuple[str, ...]]:
     """Enumerate composite key candidates: all r-combinations (2..max_arity) of
     the detected single group columns whose composite cardinality clears the
-    L29 guard. Returns ordered tuples, lowest-cardinality first.
+    L29 guard. Returns ordered tuples: with ``y`` supplied, by the bias-corrected mutual information of the
+    composite key with the target (the ``max_sets`` kept are the keys that carry the most about y; the lowest-cardinality
+    ones kept before said nothing about relevance, and a wider column pool would have filled the list with ties);
+    without ``y``, lowest-cardinality first.
 
     ``_key_cache``, when supplied, is populated with ``{combo: (keys, key_uniq, key_inverse, n_distinct)}``
     for every candidate combo built here - lets :func:`hybrid_composite_group_agg_fe` thread the already-built
@@ -560,6 +589,8 @@ def auto_detect_key_sets(
     cols = [c for c in cols if c in X.columns]
     n_rows = len(X)
     cand: list[tuple[tuple[str, ...], int]] = []
+    y_codes = _target_codes(y, n_rows) if y is not None else None
+    relevance: dict = {}
     for r in range(2, max(2, int(max_arity)) + 1):
         for combo in combinations(cols, r):
             keys = build_composite_keys(X, combo)
@@ -567,9 +598,14 @@ def auto_detect_key_sets(
             n_distinct = int(key_uniq.size) if key_uniq is not None else int(np.unique(keys).size)
             if composite_cardinality_ok(n_distinct, n_rows, max_card_frac):
                 cand.append((tuple(combo), n_distinct))
+                if y_codes is not None:
+                    relevance[tuple(combo)] = _corrected_key_mi(key_inverse if key_inverse is not None else np.unique(keys, return_inverse=True)[1], n_distinct, y_codes)
                 if _key_cache is not None:
                     _key_cache[tuple(combo)] = (keys, key_uniq, key_inverse, n_distinct)
-    cand.sort(key=lambda t: t[1])
+    if relevance:
+        cand.sort(key=lambda t: (-relevance[t[0]], t[1]))
+    else:
+        cand.sort(key=lambda t: t[1])
     return [c for c, _ in cand[:max_sets]]
 
 def hybrid_composite_group_agg_fe(
@@ -610,7 +646,7 @@ def hybrid_composite_group_agg_fe(
     if group_col_sets is None or len(group_col_sets) == 0:
         _key_cache = {}
         group_col_sets = auto_detect_key_sets(
-            X, max_arity=max_arity, max_card_frac=max_card_frac, _key_cache=_key_cache,
+            X, max_arity=max_arity, max_card_frac=max_card_frac, _key_cache=_key_cache, y=y,
         )
     else:
         group_col_sets = [tuple(c for c in gset if c in X.columns) for gset in group_col_sets]
