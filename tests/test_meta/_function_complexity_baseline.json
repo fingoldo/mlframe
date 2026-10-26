@@ -168,7 +168,6 @@
   "src/mlframe/training/neural/_flat_torch_module/_flat_torch_loss.py::_LossMixin.compute_metrics": 17,
   "src/mlframe/training/neural/_muon_triton_kernel.py::maybe_newton_schulz_triton": 16,
   "src/mlframe/training/neural/data.py::TorchDataset.__init__": 22,
-  "src/mlframe/training/pipeline/_categorical_composite_fe.py::apply_categorical_composite_fe": 25,
   "src/mlframe/training/pipeline/_entity_time_composite_fe.py::apply_entity_time_composite_fe": 17,
   "src/mlframe/training/pipeline/_pipeline_cache.py::_content_fingerprint_for_cache": 25,
   "src/mlframe/training/pipeline/_pipeline_cache.py::_full_x_content_hash": 18,

@@ -48,6 +48,76 @@ def _to_pandas_view(df: Any, columns: Sequence[str]) -> Optional[pd.DataFrame]:
     return df[list(columns)]
 
 
+def _attach_auto_group_composites(train_df: Any, val_df: Any, test_df: Any, train_cat_pd: pd.DataFrame, cat_cols: list, y_train: np.ndarray, config: Any, metadata: dict, verbose: int) -> tuple:
+    """Discover the categorical groups worth concatenating and attach them to every split, or to none of them."""
+    try:
+        _min_mi_gain = float(getattr(config, "categorical_group_concat_min_mi_gain", 0.0) or 0.0)
+        _max_group_size = getattr(config, "categorical_group_concat_max_group_size", None)
+        _, groups = auto_concat_categorical_groups(
+            train_cat_pd, columns=cat_cols, y=np.asarray(y_train),
+            separator=COMPOSITE_SEPARATOR, min_mi_gain=_min_mi_gain, max_group_size=_max_group_size,
+        )
+        _multi_col_groups = [g for g in groups if len(g) >= 2]
+        metadata["categorical_group_concat_auto_groups"] = _multi_col_groups
+        if _multi_col_groups:
+            # Compute every split's new columns FIRST, only attach once all splits succeed -- a val/test
+            # column-selection failure partway through must not leave train_df mutated while val_df/test_df
+            # aren't (schema-drifted splits), so the whole group is atomic: all splits or none.
+            _pending_new_cols = {}
+            for _split_name, _df in (("train", train_df), ("val", val_df), ("test", test_df)):
+                if _df is None:
+                    continue
+                _pd_view = train_cat_pd if _split_name == "train" else _to_pandas_view(_df, cat_cols)
+                if _pd_view is None:
+                    continue
+                _new_cols = pd.DataFrame(index=_pd_view.index)
+                for _group in _multi_col_groups:
+                    if not all(c in _pd_view.columns for c in _group):
+                        continue
+                    _fname = f"concat_group__{COMPOSITE_SEPARATOR.join(_group)}"
+                    _composed = concat_categorical_group(_pd_view, columns=_group, separator=COMPOSITE_SEPARATOR, feature_name=_fname)
+                    _new_cols[_fname] = pd.Categorical(_composed[_fname].to_numpy())
+                _pending_new_cols[_split_name] = _new_cols
+            if "train" in _pending_new_cols:
+                train_df = attach_new_columns(train_df, _pending_new_cols["train"])
+            if "val" in _pending_new_cols:
+                val_df = attach_new_columns(val_df, _pending_new_cols["val"])
+            if "test" in _pending_new_cols:
+                test_df = attach_new_columns(test_df, _pending_new_cols["test"])
+            if verbose:
+                logger.info("apply_categorical_composite_fe: auto-discovered %d composite group(s): %s", len(_multi_col_groups), _multi_col_groups)
+    except Exception:
+        logger.warning("apply_categorical_composite_fe: categorical_group_concat_auto step failed; skipping.", exc_info=True)
+    return train_df, val_df, test_df
+
+
+def _attach_powerset_composites(train_df: Any, val_df: Any, test_df: Any, train_cat_pd: pd.DataFrame, cat_cols: list, config: Any, metadata: dict, verbose: int) -> tuple:
+    """Attach the powerset concatenations of the categorical columns to every split."""
+    try:
+        _max_order = int(getattr(config, "categorical_powerset_concat_max_order", 2) or 2)
+        metadata["categorical_powerset_concat_columns"] = list(cat_cols)
+        metadata["categorical_powerset_concat_max_order"] = _max_order
+        for _split_name, _df in (("train", train_df), ("val", val_df), ("test", test_df)):
+            if _df is None:
+                continue
+            _pd_view = train_cat_pd if _split_name == "train" else _to_pandas_view(_df, cat_cols)
+            if _pd_view is None:
+                continue
+            _powerset_out = categorical_powerset_concat(_pd_view, columns=cat_cols, separator=COMPOSITE_SEPARATOR, max_order=_max_order)
+            _new_cols = _powerset_out.drop(columns=list(cat_cols))
+            if _split_name == "train":
+                train_df = attach_new_columns(train_df, _new_cols)
+            elif _split_name == "val":
+                val_df = attach_new_columns(val_df, _new_cols)
+            else:
+                test_df = attach_new_columns(test_df, _new_cols)
+        if verbose:
+            logger.info("apply_categorical_composite_fe: powerset-concat over %d source column(s), max_order=%d", len(cat_cols), _max_order)
+    except Exception:
+        logger.warning("apply_categorical_composite_fe: categorical_powerset_concat step failed; skipping.", exc_info=True)
+    return train_df, val_df, test_df
+
+
 def apply_categorical_composite_fe(
     train_df: Any,
     val_df: Any,
@@ -89,68 +159,10 @@ def apply_categorical_composite_fe(
         return train_df, val_df, test_df
 
     if _auto_group_on and y_train is not None and len(y_train) == train_cat_pd.shape[0]:
-        try:
-            _min_mi_gain = float(getattr(config, "categorical_group_concat_min_mi_gain", 0.0) or 0.0)
-            _max_group_size = getattr(config, "categorical_group_concat_max_group_size", None)
-            _, groups = auto_concat_categorical_groups(
-                train_cat_pd, columns=cat_cols, y=np.asarray(y_train),
-                separator=COMPOSITE_SEPARATOR, min_mi_gain=_min_mi_gain, max_group_size=_max_group_size,
-            )
-            _multi_col_groups = [g for g in groups if len(g) >= 2]
-            metadata["categorical_group_concat_auto_groups"] = _multi_col_groups
-            if _multi_col_groups:
-                # Compute every split's new columns FIRST, only attach once all splits succeed -- a val/test
-                # column-selection failure partway through must not leave train_df mutated while val_df/test_df
-                # aren't (schema-drifted splits), so the whole group is atomic: all splits or none.
-                _pending_new_cols = {}
-                for _split_name, _df in (("train", train_df), ("val", val_df), ("test", test_df)):
-                    if _df is None:
-                        continue
-                    _pd_view = train_cat_pd if _split_name == "train" else _to_pandas_view(_df, cat_cols)
-                    if _pd_view is None:
-                        continue
-                    _new_cols = pd.DataFrame(index=_pd_view.index)
-                    for _group in _multi_col_groups:
-                        if not all(c in _pd_view.columns for c in _group):
-                            continue
-                        _fname = f"concat_group__{COMPOSITE_SEPARATOR.join(_group)}"
-                        _composed = concat_categorical_group(_pd_view, columns=_group, separator=COMPOSITE_SEPARATOR, feature_name=_fname)
-                        _new_cols[_fname] = pd.Categorical(_composed[_fname].to_numpy())
-                    _pending_new_cols[_split_name] = _new_cols
-                if "train" in _pending_new_cols:
-                    train_df = attach_new_columns(train_df, _pending_new_cols["train"])
-                if "val" in _pending_new_cols:
-                    val_df = attach_new_columns(val_df, _pending_new_cols["val"])
-                if "test" in _pending_new_cols:
-                    test_df = attach_new_columns(test_df, _pending_new_cols["test"])
-                if verbose:
-                    logger.info("apply_categorical_composite_fe: auto-discovered %d composite group(s): %s", len(_multi_col_groups), _multi_col_groups)
-        except Exception:
-            logger.warning("apply_categorical_composite_fe: categorical_group_concat_auto step failed; skipping.", exc_info=True)
+        train_df, val_df, test_df = _attach_auto_group_composites(train_df, val_df, test_df, train_cat_pd, cat_cols, y_train, config, metadata, verbose)
 
     if _powerset_on:
-        try:
-            _max_order = int(getattr(config, "categorical_powerset_concat_max_order", 2) or 2)
-            metadata["categorical_powerset_concat_columns"] = list(cat_cols)
-            metadata["categorical_powerset_concat_max_order"] = _max_order
-            for _split_name, _df in (("train", train_df), ("val", val_df), ("test", test_df)):
-                if _df is None:
-                    continue
-                _pd_view = train_cat_pd if _split_name == "train" else _to_pandas_view(_df, cat_cols)
-                if _pd_view is None:
-                    continue
-                _powerset_out = categorical_powerset_concat(_pd_view, columns=cat_cols, separator=COMPOSITE_SEPARATOR, max_order=_max_order)
-                _new_cols = _powerset_out.drop(columns=list(cat_cols))
-                if _split_name == "train":
-                    train_df = attach_new_columns(train_df, _new_cols)
-                elif _split_name == "val":
-                    val_df = attach_new_columns(val_df, _new_cols)
-                else:
-                    test_df = attach_new_columns(test_df, _new_cols)
-            if verbose:
-                logger.info("apply_categorical_composite_fe: powerset-concat over %d source column(s), max_order=%d", len(cat_cols), _max_order)
-        except Exception:
-            logger.warning("apply_categorical_composite_fe: categorical_powerset_concat step failed; skipping.", exc_info=True)
+        train_df, val_df, test_df = _attach_powerset_composites(train_df, val_df, test_df, train_cat_pd, cat_cols, config, metadata, verbose)
 
     return train_df, val_df, test_df
 
