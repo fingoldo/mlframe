@@ -288,24 +288,8 @@ def _pool_relative_sizes(test_size: float, val_size: float, calib_size, *, n_row
     return t, v, c
 
 
-def pinned_train_val_test_split(
-    *,
-    n_rows: int,
-    row_ids: Optional[np.ndarray],
-    timestamps: Any,
-    split_config: Any,
-    stratify_y: Any,
-    groups: Any,
-    splitter: Callable,
-    splitter_kwargs: dict,
-) -> tuple:
-    """Split with some splits pinned by ids/windows; returns make_train_test_split's 8-tuple plus an info dict."""
-    ts = _ts_series(timestamps)
-    labels = np.full(n_rows, -1, dtype=np.int8)
-    source: dict = {}
-    starts: dict = {}
-    info: dict = {"missing_ids": {}}
-
+def _pin_from_split_ids_file(split_config: Any, row_ids: Optional[np.ndarray], ts: Any, labels: np.ndarray, source: dict, starts: dict, info: dict) -> None:
+    """Pin the reused splits named by ``split_config.reuse_splits`` from the ids file, recording each one's source and holdout start."""
     _path = getattr(split_config, "split_ids_path", None)
     if _path:
         _id_col = split_config.id_column
@@ -340,6 +324,27 @@ def pinned_train_val_test_split(
                     _notes.append(f"it has no {SPLIT_IDS_SIDECAR} sidecar, so the pinned test min timestamp {starts[_s]} is the train cutoff")
         if _notes:
             logger.warning("split_ids_path %s: %s.", _path, "; ".join(_notes))
+
+
+def pinned_train_val_test_split(
+    *,
+    n_rows: int,
+    row_ids: Optional[np.ndarray],
+    timestamps: Any,
+    split_config: Any,
+    stratify_y: Any,
+    groups: Any,
+    splitter: Callable,
+    splitter_kwargs: dict,
+) -> tuple:
+    """Split with some splits pinned by ids/windows; returns make_train_test_split's 8-tuple plus an info dict."""
+    ts = _ts_series(timestamps)
+    labels = np.full(n_rows, -1, dtype=np.int8)
+    source: dict = {}
+    starts: dict = {}
+    info: dict = {"missing_ids": {}}
+
+    _pin_from_split_ids_file(split_config, row_ids, ts, labels, source, starts, info)
 
     _pinned_split_bounds(split_config, source, ts, labels, starts)
 

@@ -315,6 +315,31 @@ def _eval_coef_pair_batch(
     return best_scores, best_raws, best_idxs
 
 
+def _absorb_batch_scores(scores, raws, idxs, a_batch, b_batch, n, direction_only, track_history, history, best_score, best_raw, best_idx, best_coefs):
+    """Fold the first ``n`` scored candidates of one batch into the running best and, when tracked, the history.
+
+    Returns the updated ``(best_score, best_raw, best_idx, best_coefs)``; a non-finite score never becomes the best.
+    """
+    from mlframe.feature_selection.filters.hermite_fe.shared import l2_normalize_pair as _l2_normalize_pair
+
+    for j in range(n):
+        sc = scores[j]
+        if not np.isfinite(sc):
+            continue
+        if track_history and idxs[j] >= 0:
+            history.append((float(sc), float(raws[j]), int(idxs[j]), a_batch[j].copy(), b_batch[j].copy()))
+        if sc > best_score:
+            best_score = sc
+            best_raw = raws[j]
+            best_idx = idxs[j]
+            if direction_only:
+                nc_a, nc_b = _l2_normalize_pair(a_batch[j], b_batch[j])
+                best_coefs = (nc_a.copy(), nc_b.copy())
+            else:
+                best_coefs = (a_batch[j].copy(), b_batch[j].copy())
+    return best_score, best_raw, best_idx, best_coefs
+
+
 def _run_cma_search_batch(*, ca_size, cb_size, coef_range, n_trials, seed,
                            direction_only, warm_start_seeds, eval_kwargs,
                            popsize=None, track_history=False,
@@ -326,7 +351,6 @@ def _run_cma_search_batch(*, ca_size, cb_size, coef_range, n_trials, seed,
 
     Same signature + return contract as ``_run_cma_search`` for drop-in
     replacement via ``optimizer="cma_batch"``."""
-    from mlframe.feature_selection.filters.hermite_fe.shared import l2_normalize_pair as _l2_normalize_pair
     import cma
     dim = ca_size + cb_size
     if popsize is None:
@@ -349,20 +373,10 @@ def _run_cma_search_batch(*, ca_size, cb_size, coef_range, n_trials, seed,
             ws_a, ws_b, direction_only=direction_only, **eval_kwargs,
         )
         n_evals += len(ws_scores)
-        for j, sc in enumerate(ws_scores):
-            if not np.isfinite(sc):
-                continue
-            if track_history and ws_idxs[j] >= 0:
-                history.append((float(sc), float(ws_raws[j]), int(ws_idxs[j]), ws_a[j].copy(), ws_b[j].copy()))  # type: ignore[union-attr]  # guarded by track_history, which is True exactly when history was allocated non-None
-            if sc > best_score:
-                best_score = sc
-                best_raw = ws_raws[j]
-                best_idx = ws_idxs[j]
-                if direction_only:
-                    nc_a, nc_b = _l2_normalize_pair(ws_a[j], ws_b[j])
-                    best_coefs = (nc_a.copy(), nc_b.copy())
-                else:
-                    best_coefs = (ws_a[j].copy(), ws_b[j].copy())
+        best_score, best_raw, best_idx, best_coefs = _absorb_batch_scores(
+            ws_scores, ws_raws, ws_idxs, ws_a, ws_b, len(ws_scores), direction_only, track_history, history,
+            best_score, best_raw, best_idx, best_coefs,
+        )
         x0 = np.concatenate([best_coefs[0], best_coefs[1]]) if best_coefs is not None else np.zeros(dim, dtype=np.float64)
         sigma0 = sigma0 * 0.5
     else:
@@ -406,22 +420,10 @@ def _run_cma_search_batch(*, ca_size, cb_size, coef_range, n_trials, seed,
             ca_batch, cb_batch, direction_only=direction_only, **eval_kwargs,
         )
         n_evals += len(sol_batch)
-        # Update best + history
-        for j in range(len(sol_batch)):
-            sc = scores_batch[j]
-            if not np.isfinite(sc):
-                continue
-            if track_history and idxs_batch[j] >= 0:
-                history.append((float(sc), float(raws_batch[j]), int(idxs_batch[j]), ca_batch[j].copy(), cb_batch[j].copy()))  # type: ignore[union-attr]  # guarded by track_history, which is True exactly when history was allocated non-None
-            if sc > best_score:
-                best_score = sc
-                best_raw = raws_batch[j]
-                best_idx = idxs_batch[j]
-                if direction_only:
-                    nc_a, nc_b = _l2_normalize_pair(ca_batch[j], cb_batch[j])
-                    best_coefs = (nc_a.copy(), nc_b.copy())
-                else:
-                    best_coefs = (ca_batch[j].copy(), cb_batch[j].copy())
+        best_score, best_raw, best_idx, best_coefs = _absorb_batch_scores(
+            scores_batch, raws_batch, idxs_batch, ca_batch, cb_batch, len(sol_batch), direction_only, track_history, history,
+            best_score, best_raw, best_idx, best_coefs,
+        )
         # Pad scores for any truncated solutions so es.tell still gets
         # popsize entries; truncated tail gets a large penalty so CMA
         # doesn't drift toward them.

@@ -411,10 +411,106 @@ def _operand_table_fits_vram(transformed_vars) -> bool:
     return fe_gpu_has_vram_cushion(int(transformed_vars.shape[0]) * int(transformed_vars.shape[1]) * 4)
 
 
-def _materialise_pair_operands(prospective_pairs, _extval_raw_col, _unary_names_eff, unary_transformations, _prewarp_spec_by_var, _gate_med_median_by_var, vars_transformations, transformed_vars, i, gpu_compatible_unary_names, logger, cols, _operand_col_specs):
-    """Materialise the unary-transformed operand arrays of the prospective pairs."""
+def _materialise_one_unary(var, tr_name, tr_func, vals, transformed_vars, i, key, _prewarp_spec_by_var, _gate_med_median_by_var,
+                           vars_transformations, gpu_compatible_unary_names, logger, cols, _operand_col_specs) -> bool:
+    """Apply one unary transform to an operand column into ``transformed_vars[:, i]``; True when the column was written."""
     from mlframe.feature_selection.filters.hermite_fe import apply_operand_prewarp
 
+    try:
+        if tr_name == _PREWARP_UNARY:
+            with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
+                transformed_vars[:, i] = apply_operand_prewarp(vals, _prewarp_spec_by_var[var])
+        elif tr_name == _GATE_MED_UNARY:
+            transformed_vars[:, i] = _gate_med_apply(vals, _gate_med_median_by_var[var])
+        elif "poly_" in tr_name:
+            # Unbounded hermval tails can overflow; suppress the resulting RuntimeWarnings,
+            # matching every sibling unary branch here (prewarp above, plain-unary below).
+            with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
+                transformed_vars[:, i] = hermval(vals, c=tr_func)
+        else:
+            # WAVE 5 (1/4): if CUDA is available, the
+            # transformation is GPU-compatible, AND the
+            # column is large enough to amortise the H2D
+            # + D2H round trip, run the elementwise op on
+            # GPU via cupy. The numpy-vs-cupy crossover for
+            # this n_samples is resolved per-host via the
+            # shared get_or_tune orchestrator (kernel
+            # "unary_elementwise"), with the old fixed
+            # ~500k-cell breakeven as the measurement-backed
+            # fallback. A "cupy" choice is still gated below
+            # on live CUDA availability + per-op compat.
+            _gpu_used = False
+            from pyutilz.performance.kernel_tuning import array_location
+
+            from mlframe.feature_selection.filters._unary_elementwise_tuning import unary_elementwise_backend_choice
+            # residency-aware: VRAM-resident input skips H2D, which flips the
+            # numpy/cupy crossover (measured), so pass where ``vals`` lives.
+            _want_gpu = unary_elementwise_backend_choice(int(vals.size), array_location(vals)) == "cupy"
+            if _want_gpu and tr_name in gpu_compatible_unary_names():
+                try:
+                    from mlframe.feature_selection.filters._gpu_policy import cuda_available_for_run
+                    if cuda_available_for_run():
+                        import cupy as cp
+                        _cp_fn = getattr(cp, tr_name, None)
+                        if _cp_fn is not None:
+                            d_vals = cp.asarray(vals)
+                            with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
+                                d_res = _cp_fn(d_vals)
+                            transformed_vars[:, i] = cp.asnumpy(d_res)
+                            _gpu_used = True
+                except Exception as e:
+                    log_throttle(_module_logger, "pairs_setup_gpu_unary", logging.WARNING, "GPU unary-transform application failed, falling through to CPU: %s", e)
+                    _gpu_used = False  # fall through to CPU
+            if not _gpu_used:
+                # Suppress unary-transform NaN/inf RuntimeWarnings
+                # (eg ``overflow in exp``, ``divide by zero in
+                # log``). The downstream nan_to_num + MI-gate
+                # already filter pathological rows; the bare
+                # numpy emit only spams stderr.
+                with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
+                    transformed_vars[:, i] = tr_func(vals)
+    except Exception as e:
+        # ``np.isnan`` / ``np.isinf`` / ``np.nanmin`` only work on float dtypes. When ``vals`` is object/string (e.g. a polars Utf8 cat column not encoded
+        # before reaching FE), calling them inside the error-log formatter itself raises - masking the real transformation error and aborting MRMR
+        # entirely. Compute numeric-only diagnostics conditionally.
+        if np.issubdtype(vals.dtype, np.floating):
+            # An ALL-NaN column reaches here legitimately (it is meant to be skipped silently), and
+            # ``np.nanmin`` on it emits "All-NaN slice encountered" - the diagnostic would leak a
+            # warning out of a handler whose whole job is to stay quiet. Report the emptiness instead.
+            _n_nan = int(np.isnan(vals).sum())
+            _nanmin = "all-NaN" if _n_nan == vals.size else np.nanmin(vals)
+            _diag = f", isnan={_n_nan}, " f"isinf={np.isinf(vals).sum()}, nanmin={_nanmin}"
+        else:
+            _diag = f", dtype={vals.dtype} (numeric diagnostics skipped)"
+        log_throttle(
+            logger,
+            "pairs_setup_unary_transform_error",
+            logging.ERROR,
+            "Error when performing %s on array %s, var=%s: %s%s", tr_name, vals[:5], cols[var], e, _diag,
+        )
+        return False
+    else:
+        vars_transformations[key] = i
+        if _operand_col_specs is not None:
+            # GPU-resident operand table. A PLAIN unary is GPU-built via _unary_apply from the
+            # resident raw (``vals``). PREWARP (R1) is GPU-APPLIED on the device
+            # from the resident raw + its stored spec via _gpu_apply_prewarp (no host-column
+            # H2D); the builder falls back to the host copy for any unported basis. gate_med /
+            # hermite-poly remain host-copied (raw_vals=None) -> not yet ported.
+            _is_plain = tr_name != _PREWARP_UNARY and tr_name != _GATE_MED_UNARY and "poly_" not in tr_name
+            _payload = None
+            _raw_for_spec = vals if _is_plain else None
+            if tr_name == _PREWARP_UNARY:
+                _spec = _prewarp_spec_by_var.get(var)
+                if _spec is not None:
+                    _payload = {"kind": "prewarp", "spec": _spec}
+                    _raw_for_spec = vals
+            _operand_col_specs.append((i, _raw_for_spec, tr_name, _payload))
+        return True
+
+
+def _materialise_pair_operands(prospective_pairs, _extval_raw_col, _unary_names_eff, unary_transformations, _prewarp_spec_by_var, _gate_med_median_by_var, vars_transformations, transformed_vars, i, gpu_compatible_unary_names, logger, cols, _operand_col_specs):
+    """Materialise the unary-transformed operand arrays of the prospective pairs."""
     for raw_vars_pair, _pair_mi in prospective_pairs.keys():
         for var in raw_vars_pair:
             # Q8: SHARED {var: raw-ndarray} memo. This main unary-materialise
@@ -452,93 +548,7 @@ def _materialise_pair_operands(prospective_pairs, _extval_raw_col, _unary_names_
                     if var not in _gate_med_median_by_var:
                         continue
                 if key not in vars_transformations:
-                    try:
-                        if tr_name == _PREWARP_UNARY:
-                            with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
-                                transformed_vars[:, i] = apply_operand_prewarp(vals, _prewarp_spec_by_var[var])
-                        elif tr_name == _GATE_MED_UNARY:
-                            transformed_vars[:, i] = _gate_med_apply(vals, _gate_med_median_by_var[var])
-                        elif "poly_" in tr_name:
-                            # Unbounded hermval tails can overflow; suppress the resulting RuntimeWarnings,
-                            # matching every sibling unary branch here (prewarp above, plain-unary below).
-                            with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
-                                transformed_vars[:, i] = hermval(vals, c=tr_func)
-                        else:
-                            # WAVE 5 (1/4): if CUDA is available, the
-                            # transformation is GPU-compatible, AND the
-                            # column is large enough to amortise the H2D
-                            # + D2H round trip, run the elementwise op on
-                            # GPU via cupy. The numpy-vs-cupy crossover for
-                            # this n_samples is resolved per-host via the
-                            # shared get_or_tune orchestrator (kernel
-                            # "unary_elementwise"), with the old fixed
-                            # ~500k-cell breakeven as the measurement-backed
-                            # fallback. A "cupy" choice is still gated below
-                            # on live CUDA availability + per-op compat.
-                            _gpu_used = False
-                            from pyutilz.performance.kernel_tuning import array_location
-
-                            from mlframe.feature_selection.filters._unary_elementwise_tuning import unary_elementwise_backend_choice
-                            # residency-aware: VRAM-resident input skips H2D, which flips the
-                            # numpy/cupy crossover (measured), so pass where ``vals`` lives.
-                            _want_gpu = unary_elementwise_backend_choice(int(vals.size), array_location(vals)) == "cupy"
-                            if _want_gpu and tr_name in gpu_compatible_unary_names():
-                                try:
-                                    from mlframe.feature_selection.filters._gpu_policy import cuda_available_for_run
-                                    if cuda_available_for_run():
-                                        import cupy as cp
-                                        _cp_fn = getattr(cp, tr_name, None)
-                                        if _cp_fn is not None:
-                                            d_vals = cp.asarray(vals)
-                                            with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
-                                                d_res = _cp_fn(d_vals)
-                                            transformed_vars[:, i] = cp.asnumpy(d_res)
-                                            _gpu_used = True
-                                except Exception as e:
-                                    log_throttle(_module_logger, "pairs_setup_gpu_unary", logging.WARNING, "GPU unary-transform application failed, falling through to CPU: %s", e)
-                                    _gpu_used = False  # fall through to CPU
-                            if not _gpu_used:
-                                # Suppress unary-transform NaN/inf RuntimeWarnings
-                                # (eg ``overflow in exp``, ``divide by zero in
-                                # log``). The downstream nan_to_num + MI-gate
-                                # already filter pathological rows; the bare
-                                # numpy emit only spams stderr.
-                                with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
-                                    transformed_vars[:, i] = tr_func(vals)
-                    except Exception as e:
-                        # ``np.isnan`` / ``np.isinf`` / ``np.nanmin`` only work on float dtypes. When ``vals`` is object/string (e.g. a polars Utf8 cat column not encoded
-                        # before reaching FE), calling them inside the error-log formatter itself raises - masking the real transformation error and aborting MRMR
-                        # entirely. Compute numeric-only diagnostics conditionally.
-                        if np.issubdtype(vals.dtype, np.floating):
-                            # An ALL-NaN column reaches here legitimately (it is meant to be skipped silently), and
-                            # ``np.nanmin`` on it emits "All-NaN slice encountered" - the diagnostic would leak a
-                            # warning out of a handler whose whole job is to stay quiet. Report the emptiness instead.
-                            _n_nan = int(np.isnan(vals).sum())
-                            _nanmin = "all-NaN" if _n_nan == vals.size else np.nanmin(vals)
-                            _diag = f", isnan={_n_nan}, " f"isinf={np.isinf(vals).sum()}, nanmin={_nanmin}"
-                        else:
-                            _diag = f", dtype={vals.dtype} (numeric diagnostics skipped)"
-                        log_throttle(
-                            logger,
-                            "pairs_setup_unary_transform_error",
-                            logging.ERROR,
-                            "Error when performing %s on array %s, var=%s: %s%s", tr_name, vals[:5], cols[var], e, _diag,
-                        )
-                    else:
-                        vars_transformations[key] = i
-                        if _operand_col_specs is not None:
-                            # GPU-resident operand table. A PLAIN unary is GPU-built via _unary_apply from the
-                            # resident raw (``vals``). PREWARP (R1) is GPU-APPLIED on the device
-                            # from the resident raw + its stored spec via _gpu_apply_prewarp (no host-column
-                            # H2D); the builder falls back to the host copy for any unported basis. gate_med /
-                            # hermite-poly remain host-copied (raw_vals=None) -> not yet ported.
-                            _is_plain = tr_name != _PREWARP_UNARY and tr_name != _GATE_MED_UNARY and "poly_" not in tr_name
-                            _payload = None
-                            _raw_for_spec = vals if _is_plain else None
-                            if tr_name == _PREWARP_UNARY:
-                                _spec = _prewarp_spec_by_var.get(var)
-                                if _spec is not None:
-                                    _payload = {"kind": "prewarp", "spec": _spec}
-                                    _raw_for_spec = vals
-                            _operand_col_specs.append((i, _raw_for_spec, tr_name, _payload))
+                    if _materialise_one_unary(var, tr_name, tr_func, vals, transformed_vars, i, key, _prewarp_spec_by_var,
+                                              _gate_med_median_by_var, vars_transformations, gpu_compatible_unary_names, logger, cols,
+                                              _operand_col_specs):
                         i += 1
