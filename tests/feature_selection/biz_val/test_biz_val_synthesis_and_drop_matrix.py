@@ -9,11 +9,11 @@ feature-selection family, family-by-family, as behavioral biz_value tests:
     ~0 LINEAR (univariate) signal but a single synthesized feature carries
     strong signal, and assert the FE-on selection lifts a held-out LINEAR
     downstream AUC over a raw-only selection by a measured floor.  Where the
-    FE machinery genuinely cannot synthesize the family (MODULAR -- a sawtooth
-    parity no smooth basis fits), the test is written to the CORRECT behavior
-    and ``xfail``-ed with the measured miss -- a documented capability GAP,
-    never a weakened assertion. The 3-way XOR (XOR3) is RECOVERED by the
-    ``fe_hybrid_orth_triplet_enable`` cross-basis synthesizer.
+    FE machinery genuinely cannot synthesize a family, the test is written to
+    the CORRECT behavior and ``xfail``-ed with the measured miss -- a documented
+    capability GAP, never a weakened assertion. The 3-way XOR (XOR3) is RECOVERED by
+    the ``fe_hybrid_orth_triplet_enable`` cross-basis synthesizer, and the parity of a
+    binned continuous column (MODULAR) by the adaptive Fourier detector.
 
 (B) DROPPING -- does the selector correctly DROP a redundancy / decoy column
     in favour of the real signal?  For each redundancy / decoy family we put
@@ -33,7 +33,7 @@ Calibration run (n=800, seed-7/seed-1, store py3.14, CPU):
     PRODUCT +0.54  RATIO +0.50  QUADRATIC/ABS/LOG +0.52  SINE +0.19
     MINMAX +0.09   CONDITIONAL +0.17   DIFFERENCE +0.00 (already raw-linear)
     XOR3 +0.50 (triplet cross-basis synthesizer, fe_hybrid_orth_triplet_enable)
-    MODULAR -0.15 (GAP -- smooth basis cannot fit a sawtooth/parity)
+    MODULAR +0.39 (adaptive Fourier tone at ~11 cycles: the detector grid reaches 16 and runs from 500 rows)
   DROPPING (MRMR, raw-only):  every twin family collapses to a single
     survivor; constant / near-constant / id-like / permuted-noise all dropped.
   DROPPING (RFECV):  exact_dup + constant dropped; permuted-noise, id-like,
@@ -163,19 +163,8 @@ _SYNTH_FAMILIES = [
     # 3-way XOR: recovered by the ``fe_hybrid_orth_triplet_enable`` cross-basis synthesizer (He1*He1*He1 cell), wired into _FE_FULL. Pair search alone misses it
     # (every pair MI is ~0); the triplet stage emits the single feature that carries the joint sign-product, and a linear downstream lifts to ~0.99 AUC.
     ("XOR3", lambda X, r: X[:, 0] * X[:, 1] * X[:, 2], 0.0, 0.40, None),
-    # --- documented GAP: the shipped mod generator is INTEGER-only by design ---
-    (
-        "MODULAR",
-        lambda X, r: ((np.floor(X[:, 0] * 3).astype(int)) % 2).astype(float),
-        0.5,
-        0.10,
-        (
-            "FS GAP: the pairwise-modular operator is integer-only (a+b mod m / hidden integer period); this single CONTINUOUS "
-            "column's floor-then-parity is not covered -- binning a continuous column before mod is deliberately not generated "
-            "(it would re-introduce the FP-explosion the integer-only eligibility prevents), and real tabular parity-of-a-binned-"
-            "continuous structure is almost always an already-encoded categorical. Smooth bases still cannot fit the sawtooth."
-        ),
-    ),
+    # Parity of a binned continuous column is a square wave: the adaptive Fourier detector finds its ~11-cycle tone once the sweep grid reaches 16 cycles and the detector runs from 500 rows.
+    ("MODULAR", lambda X, r: ((np.floor(X[:, 0] * 3).astype(int)) % 2).astype(float), 0.5, 0.33, None),
 ]
 
 

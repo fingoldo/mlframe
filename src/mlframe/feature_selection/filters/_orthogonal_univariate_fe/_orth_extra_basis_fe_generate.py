@@ -107,7 +107,7 @@ def generate_extra_basis_features(
     # snaps to the true non-integer frequency. The set of frequencies the
     # detector may ADD is disjoint from the fixed grid by construction (a
     # fixed freq that already recovers the signal needs no adaptive twin).
-    _adaptive_f_grid = tuple(0.5 * k for k in range(1, 17))  # 0.5 .. 8.0
+    _adaptive_f_grid = tuple(0.5 * k for k in range(1, 33))  # 0.5 .. 16.0
     # The CHIRP warp (u = sign(z)*z**2) concentrates a growing-frequency signal
     # at a HIGHER z-space frequency than the linear axis, so the chirp detector
     # sweeps a WIDER grid (0.5 .. 24.0). Phase-0: fast chirps land at u-space
@@ -251,7 +251,7 @@ def _fourier_extra_basis(extra_bases, x, fourier_powers, _y_adapt, _adaptive_fe_
                         z, _y_adapt,
                         f_grid=_adaptive_f_grid,
                         min_val_corr=float(fourier_adaptive_min_val_corr),
-                        min_rows=800,
+                        min_rows=500,
                         max_freqs=6,
                     )
                 _freqs_for_col = list(fourier_freqs)
