@@ -94,25 +94,24 @@ def _copy_plain(obj, memo):
     if done is not None:
         return done
     if t is dict:
-        out = {}
-        memo[id(obj)] = out
+        copied_dict: dict = {}
+        memo[id(obj)] = copied_dict
         for key, value in obj.items():
-            out[key] = _copy_plain(value, memo)
-        return out
+            copied_dict[key] = _copy_plain(value, memo)
+        return copied_dict
     if t is list:
-        out = []
-        memo[id(obj)] = out
-        for value in obj:
-            out.append(_copy_plain(value, memo))
-        return out
+        copied_list: list = []
+        memo[id(obj)] = copied_list
+        copied_list.extend(_copy_plain(value, memo) for value in obj)
+        return copied_list
     if t is tuple:
-        out = tuple(_copy_plain(value, memo) for value in obj)
-        memo[id(obj)] = out
-        return out
+        copied_tuple = tuple(_copy_plain(value, memo) for value in obj)
+        memo[id(obj)] = copied_tuple
+        return copied_tuple
     if t is np.ndarray and obj.dtype != object:
-        out = obj.copy()
-        memo[id(obj)] = out
-        return out
+        copied_array = obj.copy()
+        memo[id(obj)] = copied_array
+        return copied_array
     import copy as _copy_mod
 
     return _copy_mod.deepcopy(obj, memo)
