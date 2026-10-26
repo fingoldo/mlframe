@@ -18,6 +18,7 @@ from .._fe_family_timing import log_fe_family_summary as _log_fe_wall
 from .._fe_gpu_strict import clear_auto_fit_n as _clear_auto_fit_n
 from .._fe_gpu_strict import set_auto_fit_n as _set_auto_fit_n
 from .._fe_rejection_ledger import populate_fe_rejection_ledger as _pop_rej
+from .._leak_suspects import record_leak_suspects
 from .._mrmr_fe_provenance import populate_fe_provenance as _pop_prov
 from .._mrmr_fingerprints import _MRMR_IDENTITY_FP_CACHE
 from .._mrmr_fingerprints import _MRMR_IDENTITY_FP_LOCK
@@ -525,6 +526,7 @@ class _MRMRFitStagesMixin:
         # fit, defeating the whole "opt-in-once" contract).
         if st._fe_budget_learning_effective:
             update_fe_budgets_after_fit(self)
+        record_leak_suspects(self, X, y)
         _log_fe_wall()
         self._print_fit_summary()
         return result
