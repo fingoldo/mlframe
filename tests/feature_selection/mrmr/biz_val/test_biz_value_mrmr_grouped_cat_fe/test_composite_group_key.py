@@ -552,9 +552,14 @@ class TestMeanStdReuseBitIdentical:
             ref_mean = {str(k): float(v) for k, v in grouped.agg("mean").items()}
             ref_std = {str(k): (float(v) if np.isfinite(v) else 0.0) for k, v in grouped.agg("std").items()}
             keys_str = np.array([str(k) for k in keys], dtype=object)
+            from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
+
+            got_dtype = _crit_np_dtype()
             exp_mean = np.array([ref_mean[k] for k in keys_str], dtype=np.float64)
             exp_std = np.array([ref_std[k] for k in keys_str], dtype=np.float64)
             got_mean = enc[engineered_name_composite_agg("v", gset, "mean")].to_numpy()
             got_std = enc[engineered_name_composite_agg("v", gset, "std")].to_numpy()
-            assert np.max(np.abs(got_mean - exp_mean)) == 0.0, f"trial {trial}: mean drift"
-            assert np.max(np.abs(got_std - exp_std)) == 0.0, f"trial {trial}: std drift"
+            # float32 (the crit dtype) carries about 6e-8 relative precision: allow 8 ulps of the largest magnitude, none under strict float64
+            tol = 8.0 * float(np.finfo(got_dtype).eps)
+            assert np.max(np.abs(got_mean - exp_mean)) <= tol * np.max(np.abs(exp_mean)), f"trial {trial}: mean drift"
+            assert np.max(np.abs(got_std - exp_std)) <= tol * np.max(np.abs(exp_std)), f"trial {trial}: std drift"

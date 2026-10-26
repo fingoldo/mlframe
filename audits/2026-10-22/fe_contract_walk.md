@@ -128,3 +128,36 @@ Violations per module: 1 missing: 1 modules, 3 missing: 6 modules, 4 missing: 20
 ## Reading
 
 Almost every pending module lacks a profile record (89 of 90) and a kernel-tuning-cache registration (87). 63 have no numba CPU kernel at all, so they are not candidates for a GPU path until the CPU reference exists. The seven modules with three or fewer missing points are the cheapest to promote; `_hybrid_orth_family_variants` is listed as not found (the registry name does not resolve to a module). Promotion means meeting each point for real, not matching the static patterns.
+
+## Measured priority (2026-10-26, every FE flag on, n=20000, 34 columns, `D:/Temp/fe_all_on_probe.py`; fit 217 s -> 110 s)
+
+Wall per family from the lap timer (`gate:` rows); a module without a gated family has no row of its own and is part of a shared path. A module is only profiled when its wall is above about 2 s or its lap looked out of line; the others are recorded by wall alone. The contract points a module misses (fused GPU kernel, KTC registration, streaming, profile record) are not added for a module until a profile shows it dominating the fit.
+
+| wall (s) | module | disposition |
+|---:|---|---|
+| 4.78 | `_cat_triple_fe` | bulk tokens + high-cardinality column skip (73s, 73x): 11.4 -> 0.8 s |
+| 4.38 | `_binned_numeric_agg_fe` | no hotspot (73u), 1.3 s |
+| 2.78 | `_composite_group_agg_fe` | profiled: spread over joint entropy 0.6 s, arrow string iteration 0.26 s and a lookup dictcomp, nothing above 0.6 s; no change |
+| 2.75 | `_cat_pair_fe` | profiled standalone: 0.25 s (the 2.75 s lap includes the shared token work fixed in 73s); no change |
+| 2.03 | `_orthogonal_triplet_fe` | parallel permutation draws (73t): 5.98 -> 1.97 s |
+| 1.80 | `_grouped_agg_fe` | hash-based group lookup (73x): 3.79 -> 1.71 s |
+| 1.68 | `_grouped_quantile_fe` | wall only, not profiled; under the 3 s bar at this scale |
+| 1.40 | `_mi_greedy_fe` | wall only, not profiled; under the 3 s bar at this scale |
+| 1.35 | `_orthogonal_adaptive_degree_fe` | wall only, not profiled; under the 3 s bar at this scale |
+| 1.35 | `_group_distance_fe` | wall only, not profiled; under the 3 s bar at this scale |
+| 1.29 | `_conditional_gate_fe` | device-born tau grid by default (73r): 13.6 -> 2.1 s at n=20000, p=34 |
+| 1.24 | `_lof_fe` | wall only, not profiled; under the 3 s bar at this scale |
+| 1.20 | `_mi_greedy_cmi_fe` | wall only, not profiled; under the 3 s bar at this scale |
+| 1.09 | `_pairwise_modular_fe` | wall only, not profiled; under the 3 s bar at this scale |
+| 0.90 | `_orthogonal_cmim_fe` | wall only, not profiled; under the 3 s bar at this scale |
+| 0.85 | `_row_stat_fe` | profiled: 0.6-0.8 s standalone, the search kernel `eval_candidates` is 0.4 s; no change |
+| 0.61 | `_orthogonal_hsic_fe` | compiled median heuristic (73v) |
+| 0.47 | `_orthogonal_jmim_fe` | wall only, not profiled; under the 3 s bar at this scale |
+| 0.46 | `_ordinal_pattern_fe` | wall only, not profiled; under the 3 s bar at this scale |
+| 0.37 | `_oof_warp_fe` | wall only, not profiled; under the 3 s bar at this scale |
+| 0.34 | `_conditional_quantile_rank_fe` | wall only, not profiled; under the 3 s bar at this scale |
+| 0.00 | `_orthogonal_total_correlation_fe` | tail-dependence exact floor shared with the scorer family (73k) |
+| 0.00 | `_orthogonal_scorer_auto_fe` | KSG, tail dependence, HSIC fixed (73k, 73v): 49.3 -> 11.9 s |
+| 0.00 | `_orthogonal_ksg_mi_fe` | numba Ross estimator (73k) |
+
+54 further pending modules take under 0.3 s here or are not gated families: `_numeric_decompose_fe`, `_orthogonal_dcor_fe`, `_offset_product_fe`, `_orthogonal_quadruplet_fe`, `_orthogonal_adaptive_arity_fe`, `_mahalanobis_density_fe`, `_integer_lattice_fe`, `_orthogonal_diff_basis_fe`, `_orthogonal_cluster_basis_fe`, `polynom_pair_fe`, `feature_engineering`, `batch_pair_usability_corr_gpu`, `batch_pair_mi_gpu`, `_wavelet_basis_fe_recipes`, `_unified_fe_gate`, `_temporal_agg_fe`, `_target_encoding_fe`, `_synergy_detector`, `_sliced_inverse_regression_fe`, `_residual_rescue_fe`, `_ratio_delta_fe`, `_random_fourier_features_fe`, `_permutation_null_pair_resident`, `_periodic_fe`, `_parity_fe`, `_pair_residual_screen`, `_orthogonal_univariate_fe`, `_orthogonal_three_gate_mi_fe`, `_orthogonal_routing_fe`, `_orthogonal_meta_scorer_fe`, `_orthogonal_lasso_fe`, `_orthogonal_elasticnet_fe`, `_orthogonal_copula_mi_fe`, `_orthogonal_bootstrap_mi_fe`, `_oof_cell2d_fe`, `_mrmr_fe_step_helpers`, `_missingness_fe`, `_hinge_basis_fe`, `_fe_usability_signal`, `_fe_synergy_screen`, `_fe_sufficient_summary`, `_fe_subsample`, `_fe_stability_vote`, `_fe_retention_subsumption`, `_fe_raw_redundancy_helpers`, `_fe_raw_redundancy_drop`, `_fe_pure_form_retention`, `_fe_cmi_redundancy_gate`, `_fe_batched_mi`, `_fe_auto_escalation`, `_fe_additive_fusion`, `_family_maxt_gate`, `_extra_fe_families`, `_count_freq_interaction_fe`.
