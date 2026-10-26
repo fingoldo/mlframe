@@ -457,7 +457,7 @@ def _stage_cat_pair(self, _fe_family_on, X, _y_np, _raw_input_cols_pre_fe, _cat_
                 if _cp_cols is None:
                     _cp_cols = [c for c in _raw_input_cols_pre_fe if c in X.columns] or None
                 _cp_min_ii = float(getattr(self, "fe_cat_pair_min_interaction_info", 0.001))
-                _cp_top_k = int(getattr(self, "fe_cat_pair_top_k", 5))
+                _cp_top_k = int(getattr(self, "fe_cat_pair_top_k", 16))
                 _X_before_cp_cols = list(X.columns)
                 X_cp, _cp_appended, _cp_recipes, _cp_scores = hybrid_cat_pair_fe(
                     X, _y_for_cp,

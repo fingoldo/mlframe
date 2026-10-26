@@ -2679,7 +2679,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         fe_cat_pair_enable: bool = False,
         fe_cat_pair_min_interaction_info: float = 0.001,
         fe_cat_pair_cat_cols: tuple = (),
-        fe_cat_pair_top_k: int = 5,
+        fe_cat_pair_top_k: int = 16,
         # cat x cat x cat TRIPLE synergy cross via beam
         # search. Extends the Layer 89 pairwise interaction-information cross to
         # the THIRD order: II3(a,b,c;y) = I(a,b,c;y) - [I(a,b;y)+I(a,c;y)+
