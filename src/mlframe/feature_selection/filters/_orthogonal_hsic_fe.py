@@ -128,8 +128,41 @@ __all__ = [
 ]
 
 @njit(cache=True)
+def _kth_smallest(a, k):
+    """The ``k``-th smallest value of ``a`` (0-based) by iterative quickselect with a median-of-three pivot; ``a`` is reordered in place. Equal to ``np.sort(a)[k]``."""
+    lo = 0
+    hi = a.shape[0] - 1
+    while lo < hi:
+        mid = (lo + hi) // 2
+        x, y, z = a[lo], a[mid], a[hi]
+        pivot = y if (x <= y <= z or z <= y <= x) else (x if (y <= x <= z or z <= x <= y) else z)
+        i = lo
+        j = hi
+        while i <= j:
+            while a[i] < pivot:
+                i += 1
+            while a[j] > pivot:
+                j -= 1
+            if i <= j:
+                tmp = a[i]
+                a[i] = a[j]
+                a[j] = tmp
+                i += 1
+                j -= 1
+        if k <= j:
+            hi = j
+        elif k >= i:
+            lo = i
+        else:
+            return a[k]
+    return a[k]
+
+
+@njit(cache=True)
 def _median_pairwise_distance(arr: np.ndarray) -> float:
-    """Median of ``|arr[i] - arr[j]|`` over ``i < j``: the same multiset the dense upper-triangle gather builds, without the n x n matrix and the index arrays."""
+    """Median of ``|arr[i] - arr[j]|`` over ``i < j``: the same multiset the dense upper-triangle gather builds, without the n x n matrix and the index arrays.
+
+    The median is selected, not sorted out: one quickselect for the middle element and, for an even count, the largest of the values left of it (all of them are at most the middle one)."""
     n = arr.shape[0]
     vals = np.empty(n * (n - 1) // 2, dtype=arr.dtype)
     k = 0
@@ -137,12 +170,16 @@ def _median_pairwise_distance(arr: np.ndarray) -> float:
         for j in range(i + 1, n):
             vals[k] = abs(arr[i] - arr[j])
             k += 1
-    # median from the sorted vector (np.median inside @njit is version-fragile in numba nopython)
-    srt = np.sort(vals)
-    mid = srt.shape[0] // 2
-    if srt.shape[0] % 2 == 1:
-        return float(srt[mid])
-    return float(0.5 * (srt[mid - 1] + srt[mid]))
+    m = vals.shape[0]
+    mid = m // 2
+    upper = _kth_smallest(vals, mid)
+    if m % 2 == 1:
+        return float(upper)
+    lower = vals[0]
+    for t in range(1, mid):
+        if vals[t] > lower:
+            lower = vals[t]
+    return float(0.5 * (lower + upper))
 
 
 def median_heuristic_sigma(z: np.ndarray) -> float:
