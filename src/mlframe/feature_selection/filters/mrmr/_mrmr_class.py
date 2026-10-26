@@ -2000,9 +2000,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         fe_hybrid_orth_triplet_enable: bool = True,
         fe_hybrid_orth_triplet_max_degree: int = 1,
         fe_hybrid_orth_triplet_seed_k: int = 4,
-        # Triplet columns emitted per fit. 2 capped the search: with 4 independent planted 3-way products (n=10000, p=40) only 2 of 4 were found (4/8 over two seeds),
-        # with 8 all 4 (8/8) and no extra selection on pure noise (audits/2026-10-22 row 73al).
-        fe_hybrid_orth_triplet_top_count: int = 8,
+        fe_hybrid_orth_triplet_top_count: int = 8,  # 2 found only half of four planted 3-way products; 8 finds all, nothing extra on noise
         # QUADRUPLET (4-way) cross-basis FE (sibling
         # module ``_orthogonal_quadruplet_fe``). Captures genuine 4-way
         # interactions: ``y = sign(x_1 * x_2 * x_3 * x_4)`` (4-way XOR
