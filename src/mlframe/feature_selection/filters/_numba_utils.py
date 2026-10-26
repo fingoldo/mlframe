@@ -380,7 +380,7 @@ def _plugin_mi_regression_njit(x: np.ndarray, y: np.ndarray, n_bins: int = 20) -
 
 
 @njit(cache=True, fastmath=True)
-def _quantile_bin_njit(x: np.ndarray, n_bins: int) -> np.ndarray:
+def _quantile_bin_sorted_njit(x: np.ndarray, n_bins: int) -> np.ndarray:
     """Quantile-bin a 1-D continuous array into n_bins equi-frequency bins. Returns int32 bin indices in [0, n_bins).
 
     bench-attempt-rejected: kth-order-statistic edges via numba np.partition + searchsorted (the CPU analogue
@@ -414,6 +414,114 @@ def _quantile_bin_njit(x: np.ndarray, n_bins: int) -> np.ndarray:
         for _ in range(size):
             out[sort_idx[pos]] = b
             pos += 1
+    return out
+
+
+@njit(cache=True)
+def _select_in_range(a, lo, hi, k):
+    """Quickselect on ``a[lo..hi]``: afterwards ``a[k]`` is the ``k``-th smallest of the range and every element left of it in the range is at most it, every one right of it at least it."""
+    while lo < hi:
+        mid = (lo + hi) // 2
+        x, y, z = a[lo], a[mid], a[hi]
+        pivot = y if (x <= y <= z or z <= y <= x) else (x if (y <= x <= z or z <= x <= y) else z)
+        i = lo
+        j = hi
+        while i <= j:
+            while a[i] < pivot:
+                i += 1
+            while a[j] > pivot:
+                j -= 1
+            if i <= j:
+                tmp = a[i]
+                a[i] = a[j]
+                a[j] = tmp
+                i += 1
+                j -= 1
+        if k <= j:
+            hi = j
+        elif k >= i:
+            lo = i
+        else:
+            return
+
+
+@njit(cache=True)
+def _multi_select(a, ranks):
+    """Place the order statistics at the (ascending, distinct) ``ranks`` of ``a`` in one pass: each selected rank splits the range the remaining ranks are searched in."""
+    m = ranks.shape[0]
+    stack_lo = np.empty(64, dtype=np.int64)
+    stack_hi = np.empty(64, dtype=np.int64)
+    stack_i0 = np.empty(64, dtype=np.int64)
+    stack_i1 = np.empty(64, dtype=np.int64)
+    sp = 0
+    stack_lo[0] = 0
+    stack_hi[0] = a.shape[0] - 1
+    stack_i0[0] = 0
+    stack_i1[0] = m
+    sp = 1
+    while sp > 0:
+        sp -= 1
+        lo, hi, i0, i1 = stack_lo[sp], stack_hi[sp], stack_i0[sp], stack_i1[sp]
+        if i0 >= i1:
+            continue
+        im = (i0 + i1) // 2
+        k = ranks[im]
+        _select_in_range(a, lo, hi, k)
+        stack_lo[sp], stack_hi[sp], stack_i0[sp], stack_i1[sp] = lo, k - 1, i0, im
+        sp += 1
+        stack_lo[sp], stack_hi[sp], stack_i0[sp], stack_i1[sp] = k + 1, hi, im + 1, i1
+        sp += 1
+
+
+@njit(cache=True)  # no fastmath: the NaN test below must not be optimised away (a NaN would reach the selection)
+def _quantile_bin_njit(x: np.ndarray, n_bins: int) -> np.ndarray:
+    """Quantile-bin a 1-D continuous array into n_bins equi-frequency bins. Returns int32 bin indices in [0, n_bins).
+
+    Same result as :func:`_quantile_bin_sorted_njit` (the stable-argsort reference, kept below) without sorting: the values that open each bin are found with one multi-select, and a row's bin is the number of
+    those opening values at or below it. That equals the rank-position assignment whenever no run of equal values crosses a bin boundary, which is checked on the selected values (the last value of a
+    bin strictly below the first of the next); a column with NaN, too few rows for the bins, or a tie across a boundary takes the sorted reference, so the output is identical in every case.
+    bench-attempt-rejected (earlier, a different design): one ``np.partition`` per edge re-copied the array per edge and was 2.6x slower than the argsort form; a single multi-select on one copy is what is used here."""
+    n = x.shape[0]
+    if n < 8 * n_bins or n_bins < 2:
+        return _quantile_bin_sorted_njit(x, n_bins)
+    for i in range(n):
+        if x[i] != x[i]:
+            return _quantile_bin_sorted_njit(x, n_bins)
+    base = n // n_bins
+    rem = n % n_bins
+    ranks = np.empty(2 * (n_bins - 1), dtype=np.int64)
+    starts = np.empty(n_bins, dtype=np.int64)
+    pos = 0
+    for b in range(n_bins):
+        starts[b] = pos
+        pos += base + (1 if b < rem else 0)
+    t = 0
+    for b in range(1, n_bins):
+        ranks[t] = starts[b] - 1
+        ranks[t + 1] = starts[b]
+        t += 2
+    # ranks are ascending; equal neighbours cannot occur because every bin holds at least eight rows
+    work = x.copy()
+    _multi_select(work, ranks)
+    cuts = np.empty(n_bins - 1, dtype=x.dtype)
+    for b in range(1, n_bins):
+        last_below = work[starts[b] - 1]
+        first = work[starts[b]]
+        if not (last_below < first):
+            return _quantile_bin_sorted_njit(x, n_bins)
+        cuts[b - 1] = first
+    out = np.empty(n, dtype=np.int32)
+    for i in range(n):
+        v = x[i]
+        lo = 0
+        hi = n_bins - 1
+        while lo < hi:
+            m = (lo + hi) // 2
+            if cuts[m] <= v:
+                lo = m + 1
+            else:
+                hi = m
+        out[i] = lo
     return out
 
 
