@@ -208,13 +208,14 @@ def canonical_group_token(value: object) -> str:
 def canonical_group_tokens(values: np.ndarray) -> np.ndarray:
     """``np.array([canonical_group_token(v) for v in values], dtype=object)`` for a numeric / bool array, without a Python call per value.
 
-    The strings are identical to the per-value function: integers and bools go through ``astype(str)``, floats through ``repr`` of the float64 value (a float32 is widened first, as
+    The strings are identical to the per-value function: integers and bools go through ``astype(str)``, floats through ``repr`` of the double value (a float32 is widened first, as
     ``float(value)`` does), and finite integral floats below 9e18 through an int64 cast; integral floats of larger magnitude, which an int64 cannot hold, use the per-value function."""
     kind = values.dtype.kind
     if kind in ("i", "u", "b"):
         return cast("np.ndarray", values.astype(str).astype(object))
     if kind != "f":
         return np.array([canonical_group_token(v) for v in values], dtype=object)
+    # Intentional float64: float(value) widening: the token text is the repr of the double value
     wide = values.astype(np.float64)
     toks = np.empty(wide.shape[0], dtype=object)
     toks[:] = list(map(repr, wide.tolist()))

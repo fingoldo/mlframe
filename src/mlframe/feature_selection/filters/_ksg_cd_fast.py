@@ -102,7 +102,8 @@ def _mi_cd_columns(X, d, n_classes, n_neighbors):
 
 
 def ksg_mi_discrete_target(X: np.ndarray, y: np.ndarray, *, n_neighbors: int, random_state: int) -> np.ndarray:
-    """Drop-in for ``mutual_info_classif(X, y, discrete_features=False)``: float64 MI per column, nats."""
+    """Drop-in for ``mutual_info_classif(X, y, discrete_features=False)``: double MI per column, nats."""
+    # Intentional float64: reproduces sklearn mutual_info_classif, which scales and adds noise in double
     X = np.array(X, dtype=np.float64, copy=True)
     n = X.shape[0]
     std = X.std(axis=0)

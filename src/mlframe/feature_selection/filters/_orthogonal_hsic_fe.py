@@ -137,7 +137,12 @@ def _median_pairwise_distance(arr: np.ndarray) -> float:
         for j in range(i + 1, n):
             vals[k] = abs(arr[i] - arr[j])
             k += 1
-    return np.median(vals)
+    # median from the sorted vector (np.median inside @njit is version-fragile in numba nopython)
+    srt = np.sort(vals)
+    mid = srt.shape[0] // 2
+    if srt.shape[0] % 2 == 1:
+        return srt[mid]
+    return 0.5 * (srt[mid - 1] + srt[mid])
 
 
 def median_heuristic_sigma(z: np.ndarray) -> float:

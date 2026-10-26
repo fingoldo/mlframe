@@ -115,6 +115,7 @@ def _max_conditional_excess(z: np.ndarray, y: np.ndarray, null_mean: float) -> f
     zi = np.unique(z, return_inverse=True)[1].astype(np.int64)
     yi = np.unique(y, return_inverse=True)[1].astype(np.int64)
     ky = int(yi.max()) + 1
+    # Intentional float64: joint counts accumulated in double so large cell counts stay exact
     joint = np.bincount(zi * ky + yi, minlength=(int(zi.max()) + 1) * ky).astype(np.float64).reshape(-1, ky)
     return _power_ceiling_from_joint(joint, null_mean)
 
@@ -125,6 +126,7 @@ def _device_max_conditional_excess(z_dev, zcard: int, y: np.ndarray, null_mean: 
 
     yi = np.unique(y, return_inverse=True)[1].astype(np.int64)
     ky = int(yi.max()) + 1
+    # Intentional float64: joint counts accumulated in double so large cell counts stay exact
     joint = cp.bincount(z_dev.astype(cp.int64) * ky + cp.asarray(yi), minlength=int(zcard) * ky).astype(cp.float64).reshape(-1, ky)
     return _power_ceiling_from_joint(cp.asnumpy(joint), null_mean)
 

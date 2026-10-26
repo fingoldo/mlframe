@@ -45,7 +45,7 @@ def tail_dependence_score(
     tail: str = "upper",
     n_perm: int = 100,
     random_state: int = 0,
-) -> float:
+) -> float:  # unused-ok: random_state is kept for call-site compatibility, the floor is the exact shuffle expectation and needs no draws
     """Permutation-floored tail-dependence coefficient between two 1-D arrays.
 
     Parameters

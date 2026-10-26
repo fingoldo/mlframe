@@ -21,6 +21,7 @@ def exact_dependence_keep_mask(X_num: np.ndarray, rel_tol: float = 1e-9) -> np.n
     """
     n_cols = X_num.shape[1]
     keep = np.ones(n_cols, dtype=bool)
+    # Intentional float64: rank test of the linear basis needs double
     basis = np.empty((X_num.shape[0], 0), dtype=np.float64)
     for j in range(n_cols):
         v = X_num[:, j] - X_num[:, j].mean()

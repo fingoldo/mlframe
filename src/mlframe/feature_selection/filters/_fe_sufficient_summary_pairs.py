@@ -34,13 +34,17 @@ BLOCK_RAM_FRACTION = 0.2  # share of the free RAM the two code blocks may take
 def _pair_mi_best_per_first_v1(codes_t: np.ndarray, r: np.ndarray, k: int, kr: int) -> tuple:
     """First version of the kernel, kept as the reference for the equivalence test: for each column ``i``, the best joint MI of ``(x_i, x_j; r)`` over ``j > i`` and the arg ``j`` (-1 when there is no ``j``)."""
     p, n = codes_t.shape
+    # Intentional float64: count / best accumulators of the host reference
     best = np.zeros(p, dtype=np.float64)
     best_j = np.full(p, -1, dtype=np.int64)
+    # Intentional float64: count accumulators
     cr = np.zeros(kr, dtype=np.float64)
     for t in range(n):
         cr[r[t]] += 1.0
     for i in prange(p):
+        # Intentional float64: count accumulators
         cnt = np.zeros(k * k * kr, dtype=np.float64)
+        # Intentional float64: count accumulators
         ca = np.zeros(k * k, dtype=np.float64)
         bi = 0.0
         bj = -1
@@ -107,8 +111,10 @@ def _pair_mi_best_per_first(codes_t: np.ndarray, r: np.ndarray, k: int, kr: int)
     handed out in mirrored pairs ``(m, p - 1 - m)``, which makes every unit the same size.
     """
     p, n = codes_t.shape
+    # Intentional float64: count / best accumulators
     best = np.zeros(p, dtype=np.float64)
     best_j = np.full(p, -1, dtype=np.int64)
+    # Intentional float64: count accumulators
     cr = np.zeros(kr, dtype=np.float64)
     for t in range(n):
         cr[r[t]] += 1.0
@@ -130,6 +136,7 @@ def _pair_mi_block_cpu(a_t: np.ndarray, b_t: np.ndarray, r: np.ndarray, cr: np.n
     """Best joint MI of ``(a_i, b_j; r)`` for one block pair: per row ``i`` of ``a_t`` the best over the columns ``j`` of ``b_t`` (only ``j > i`` when the two blocks are the same block)."""
     pa, n = a_t.shape
     pb = b_t.shape[0]
+    # Intentional float64: best accumulator
     best = np.zeros(pa, dtype=np.float64)
     best_j = np.full(pa, -1, dtype=np.int64)
     nf = float(n)
@@ -276,13 +283,14 @@ def gpu_real_type() -> str:
 
 
 def pair_equiv_tolerance(real: Optional[str] = None) -> tuple:
-    """``(rtol, atol)`` within which the GPU variant must agree with the float64 CPU reference, taken from the machine epsilon of the ``{REAL}`` type as in the
+    """``(rtol, atol)`` within which the GPU variant must agree with the double CPU reference, taken from the machine epsilon of the ``{REAL}`` type as in the
     other crit-dtype tolerances (``max(1e-9, 8 * eps)``): about 1e-6 for the float32 terms, the 1e-9 floor for double.
 
     The tuning sweep drops a variant that diverges from its reference by more than this. A tolerance tighter than the real rounding of the type drops the GPU
     from every cell, and the sweep then silently picks the CPU everywhere.
     """
     real = real or gpu_real_type()
+    # Intentional float64: tolerance of the double CPU reference
     eps = float(np.finfo(np.float32 if real == "float" else np.float64).eps)
     rtol = max(1e-9, 8 * eps)
     return rtol, rtol * 1e-3
@@ -303,13 +311,14 @@ def _fused_kernel(real: str, version: Optional[str] = None):
 def _block_best_gpu_fused(a_dev, b_dev, r_dev, cr_dev, k: int, kr: int, same: bool, real: str, version: Optional[str] = None) -> tuple:
     """One block pair scored by ONE fused kernel: a CUDA block per pair fills the joint histogram in shared memory and reduces the MI in place.
 
-    ``a_dev``/``b_dev`` are ``(columns, n)`` int8 device arrays, ``r_dev`` the int32 residual codes and ``cr_dev`` its float64 counts, all resident, so a
+    ``a_dev``/``b_dev`` are ``(columns, n)`` int8 device arrays, ``r_dev`` the int32 residual codes and ``cr_dev`` its double counts, all resident, so a
     block pair costs one launch and a device argmax: nothing but the winner leaves the device. ``real`` is the ``{REAL}`` type of the per-cell terms.
     """
     import cupy as cp
 
     pa, n = a_dev.shape
     pb = b_dev.shape[0]
+    # Intentional float64: score accumulator of the device reduction
     out = cp.empty(pa * pb, dtype=cp.float64)
     shared = k * k * kr * 4
     _fused_kernel(real, version)((pb, pa), (_FUSED_THREADS,), (a_dev, b_dev, r_dev, out, cr_dev, pa, pb, n, k, kr, int(same)), shared_mem=shared)
@@ -376,6 +385,7 @@ def best_pair_streamed(get_block, p: int, r: np.ndarray, k: int, kr: int, backen
     the pairs inside a block, the off-diagonal blocks score the rectangle between block ``I`` and a later block ``J``; together they cover every pair once.
     A device that runs out of memory hands the remaining work to the CPU kernel instead of failing the check.
     """
+    # Intentional float64: residual counts accumulated in double
     cr = np.bincount(r, minlength=kr).astype(np.float64)
     best_mi, best_pair = 0.0, (-1, -1)
     starts = list(range(0, p, block_cols))

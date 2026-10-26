@@ -109,8 +109,8 @@ FE_EAGER_MATERIALIZE_MAX_BYTES = 2 * 1024**3
 def fe_numeric_float32_view(X: Any) -> Any:
     """Pandas copy of the numeric columns of a polars frame, stored float32, built one column at a time.
 
-    Half the memory of ``to_pandas`` on a wide numeric frame, because the float64 copy of the whole frame never exists:
-    only one float64 column is alive at a time. Non-numeric columns are left out. Used by the families that must read
+    Half the memory of ``to_pandas`` on a wide numeric frame, because the double copy of the whole frame never exists:
+    only one double column is alive at a time. Non-numeric columns are left out. Used by the families that must read
     a large polars frame but need only its numeric columns (see audit row 28).
     """
     num = [c for c in X.columns if X[c].dtype.is_numeric()]

@@ -320,9 +320,11 @@ def residue_rank_scores_gpu(
         ic_d = cp.asarray(ic.astype(np.int32)) if ic is not None else ia_d
         mods_d = cp.asarray(mods.astype(np.int32))
         y_d = cp.asarray(ycls.astype(np.int32))
+        # Intentional float64: class counts accumulated in double
         counts = np.bincount(ycls, minlength=int(n_cls)).astype(np.float64)
         nz = counts[counts > 0] / n
         hy = float(-np.sum(nz * np.log(nz)))
+        # Intentional float64: score accumulator of the device kernel
         scores = cp.zeros(ia.shape[0], dtype=cp.float64)
         if version in _TABLE_VERSIONS:
             table = cp.empty((cols.shape[0], mods.shape[0], n), dtype=cp.int8)
@@ -331,6 +333,7 @@ def residue_rank_scores_gpu(
             _get_kernel(version, wide)(
                 (int(ia.shape[0]),),
                 (_BLOCK,),
+                # Intentional float64: kernel argument: the double class counts
                 (table, np.int32(n), np.int32(mods.shape[0]), ia_d, ib_d, ic_d, np.int32(0 if n_ops == 3 else 1), mods_d, y_d, np.int32(n_cls), np.int32(max_k), np.float64(hy), scores),
                 shared_mem=shared,
             )
@@ -338,6 +341,7 @@ def residue_rank_scores_gpu(
         _get_kernel(None, wide)(
             (int(ia.shape[0]),),
             (_BLOCK,),
+            # Intentional float64: kernel argument: the double class counts
             (cols_d, np.int32(n), ia_d, ib_d, ic_d, np.int32(0 if n_ops == 3 else 1), mods_d, np.int32(mods.shape[0]), y_d, np.int32(n_cls), np.int32(max_k), np.float64(hy), scores),
             shared_mem=shared,
         )

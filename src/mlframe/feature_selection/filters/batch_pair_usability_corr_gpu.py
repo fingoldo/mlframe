@@ -255,7 +255,7 @@ def batch_pair_usability_corr_njit_parallel(
 
     Returns
     -------
-    (n_pairs, n_forms) float64 - ``|corr|`` for each (pair, form); the CUDA backends return ``crit_float_dtype()`` instead. The reduction
+    (n_pairs, n_forms) double - ``|corr|`` for each (pair, form); the CUDA backends return ``crit_float_dtype()`` instead. The reduction
         accumulator stays double regardless of input dtype (precision, not memory footprint, is what the accumulator affects).
     """
     n_pairs = pair_a.shape[0]
@@ -495,7 +495,7 @@ def batch_pair_usability_corr_cuda(y: np.ndarray, operand_matrix: np.ndarray, pa
 
 def _required_gpu_bytes(operand_matrix: np.ndarray, n_pairs: int, n_forms: int) -> int:
     """Upload + output footprint for the VRAM cushion check: the operand matrix at its own dtype (the GPU path uploads it
-    as given, so an f32 matrix is 4 bytes an element), the float64 (n_pairs, n_forms) output, and 1 MiB of slack for y and
+    as given, so an f32 matrix is 4 bytes an element), the double (n_pairs, n_forms) output, and 1 MiB of slack for y and
     the index arrays."""
     operand_bytes = operand_matrix.nbytes
     output_bytes = n_pairs * n_forms * 8
