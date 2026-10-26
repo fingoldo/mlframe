@@ -169,7 +169,6 @@
   "src/mlframe/training/neural/_muon_triton_kernel.py::maybe_newton_schulz_triton": 16,
   "src/mlframe/training/neural/data.py::TorchDataset.__init__": 22,
   "src/mlframe/training/pipeline/_entity_time_composite_fe.py::apply_entity_time_composite_fe": 17,
-  "src/mlframe/training/pipeline/_pipeline_cache.py::_content_fingerprint_for_cache": 25,
   "src/mlframe/training/pipeline/_pipeline_cache.py::_full_x_content_hash": 18,
   "src/mlframe/training/pipeline/_pipeline_extensions_row_wise.py::apply_row_wise_steps": 20,
   "src/mlframe/training/pipeline/_pipeline_fit_state.py::_passthrough_cols_fit_transform": 23,
