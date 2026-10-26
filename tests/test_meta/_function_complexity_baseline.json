@@ -163,7 +163,6 @@
   "src/mlframe/training/extractors/_extractors_simple.py::SimpleFeaturesAndTargetsExtractor.build_targets": 23,
   "src/mlframe/training/feature_drift_report.py::translate_sklearn_mlp_overrides_to_mlframe_mlp_kwargs": 17,
   "src/mlframe/training/feature_handling/assembler.py::assemble_for_model": 20,
-  "src/mlframe/training/feature_handling/fingerprint.py::fingerprint_df": 24,
   "src/mlframe/training/neural/_flat_torch_module/_flat_torch_loss.py::_LossMixin.compute_metrics": 17,
   "src/mlframe/training/neural/_muon_triton_kernel.py::maybe_newton_schulz_triton": 16,
   "src/mlframe/training/neural/data.py::TorchDataset.__init__": 22,
