@@ -336,7 +336,7 @@ def auto_detect_cat_pair_cols(
     *,
     min_card: int = 2,
     max_card: int = 500,
-    max_cols: int = 8,
+    max_cols: int = 32,
 ) -> list[str]:
     """Pick categorical-ish columns suitable for crossing.
 
