@@ -435,7 +435,7 @@ def rank_backend_choice(n_work: int) -> str:
         return "cpu"
     try:
         choice = _RANK_SPEC.choose(n_work=int(n_work))
-    except Exception as e:  # nosec B110 - a broken cache must not break the scan; the heuristic decides
+    except Exception as e:  # nosec B110  # best-effort: the choice only picks CPU or GPU, both backends rank identically, so a broken cache cannot change the scan
         logger.debug("modular rank kernel-tuning lookup failed (%r), the heuristic decides", e)
         choice = _rank_fallback_choice(n_work)
     return "gpu" if choice in ("gpu", "cuda", "cupy") else "cpu"
