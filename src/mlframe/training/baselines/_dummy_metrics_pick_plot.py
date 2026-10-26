@@ -52,6 +52,140 @@ logger = logging.getLogger(__name__)
 _isfinite = math.isfinite
 
 
+def _regression_metrics_rows(val_preds: dict[str, np.ndarray], test_preds: dict[str, np.ndarray], val_y: np.ndarray | None, test_y: np.ndarray | None, baseline_names: list[str]) -> list[dict[str, Any]]:
+    """One RMSE / MAE row per baseline and split."""
+    rows: list[dict[str, Any]] = []
+    for name in baseline_names:
+        row: dict[str, Any] = {"baseline": name}
+        vp = val_preds.get(name)
+        tp = test_preds.get(name)
+        if vp is not None and val_y is not None and len(vp) == len(val_y):
+            row["val_RMSE"] = _safe_metric(fast_root_mean_squared_error, val_y, vp)
+            row["val_MAE"] = _safe_metric(fast_mean_absolute_error, val_y, vp)
+        else:
+            row["val_RMSE"] = float("nan")
+            row["val_MAE"] = float("nan")
+        if tp is not None and test_y is not None and len(tp) == len(test_y):
+            row["test_RMSE"] = _safe_metric(fast_root_mean_squared_error, test_y, tp)
+            row["test_MAE"] = _safe_metric(fast_mean_absolute_error, test_y, tp)
+        else:
+            row["test_RMSE"] = float("nan")
+            row["test_MAE"] = float("nan")
+        row["failed"] = not _isfinite(row["val_RMSE"]) and not _isfinite(row["test_RMSE"])
+        rows.append(row)
+    return rows
+
+
+def _classification_metrics_rows(val_preds: dict[str, np.ndarray], test_preds: dict[str, np.ndarray], val_y: np.ndarray | None, test_y: np.ndarray | None, baseline_names: list[str], target_type: str, extras: dict[str, Any] | None) -> list[dict[str, Any]]:
+    """Log-loss and AUC row per baseline and split for binary and multiclass targets."""
+    rows: list[dict[str, Any]] = []
+    n_classes = (extras or {}).get("n_classes", 2)
+    labels = np.arange(n_classes)
+    for name in baseline_names:
+        row: dict[str, Any] = {"baseline": name}
+        vp = val_preds.get(name)
+        tp = test_preds.get(name)
+        _compute_metrics_ta_split_name_val_val(val_y, vp, test_y, tp, labels, row, target_type)
+        row["failed"] = not _isfinite(row.get("val_log_loss", float("nan"))) and not _isfinite(row.get("test_log_loss", float("nan")))
+        rows.append(row)
+    return rows
+
+
+def _multilabel_metrics_rows(val_preds: dict[str, np.ndarray], test_preds: dict[str, np.ndarray], val_y: np.ndarray | None, test_y: np.ndarray | None, baseline_names: list[str]) -> list[dict[str, Any]]:
+    """Macro and micro log-loss row per baseline and split for multilabel targets."""
+    rows: list[dict[str, Any]] = []
+    # ``y`` (val_y / test_y) is the SAME ground-truth matrix for every baseline -- only
+    # the per-baseline predictions ``p`` differ. The int64-cast + contiguity copy below
+    # was previously re-run once per baseline x split (len(baseline_names) x 2 redundant
+    # full-array copies of the SAME y); hoisted out of the baseline loop so each split's
+    # ``y`` is cast exactly once regardless of how many dummy baselines are being scored.
+    _y_int_by_split = {
+        "val": np.ascontiguousarray(val_y, dtype=np.int64) if val_y is not None and val_y.ndim == 2 else None,
+        "test": np.ascontiguousarray(test_y, dtype=np.int64) if test_y is not None and test_y.ndim == 2 else None,
+    }
+    for name in baseline_names:
+        row: dict[str, Any] = {"baseline": name}
+        vp = val_preds.get(name)
+        tp = test_preds.get(name)
+        for split_name, y, p in [("val", val_y, vp), ("test", test_y, tp)]:
+            if p is not None and y is not None and y.ndim == 2 and p.ndim == 2:
+                K = y.shape[1]
+                n = y.shape[0]
+                if _NUMBA_AVAILABLE and n > 0 and K > 0:
+                    # Numba kernel: ~57x faster than per-label sklearn loop.
+                    try:
+                        y_int = _y_int_by_split[split_name]
+                        p_arr = np.ascontiguousarray(p, dtype=np.float64)
+                        macro = float(_numba_macro_log_loss(y_int, p_arr, n, K))
+                        micro = float(_numba_micro_log_loss(y_int, p_arr, n, K))
+                    except (TypeError, ValueError, FloatingPointError, RuntimeError) as _ll_exc:
+                        # Numba kernel rejects non-contiguous / wrong-dtype input
+                        # with TypeError; ValueError on shape mismatch. Fall back
+                        # to NaN so the metric row still emits.
+                        logger.debug(
+                            "[dummy-baselines] numba log_loss kernel fallback: %s: %s",
+                            type(_ll_exc).__name__, _ll_exc,
+                        )
+                        macro = float("nan")
+                        micro = float("nan")
+                    row[f"{split_name}_log_loss_macro"] = macro
+                    row[f"{split_name}_log_loss_micro"] = micro
+                else:
+                    # Fallback: sklearn per-label loop.
+                    label_lls: list[float] = []
+                    for k in range(K):
+                        if len(np.unique(y[:, k])) >= 2:
+                            ll = _safe_metric(log_loss, y[:, k], p[:, k], labels=[0, 1])
+                            if _isfinite(ll):
+                                label_lls.append(ll)
+                    row[f"{split_name}_log_loss_macro"] = float(np.mean(label_lls)) if label_lls else float("nan")
+                    row[f"{split_name}_log_loss_micro"] = _safe_metric(
+                        log_loss, y.ravel(), p.ravel(), labels=[0, 1],
+                    )
+            else:
+                row[f"{split_name}_log_loss_macro"] = float("nan")
+                row[f"{split_name}_log_loss_micro"] = float("nan")
+        row["failed"] = not _isfinite(row["val_log_loss_macro"]) and not _isfinite(row["test_log_loss_macro"])
+        rows.append(row)
+    return rows
+
+
+def _ranking_metrics_rows(val_preds: dict[str, np.ndarray], test_preds: dict[str, np.ndarray], val_y: np.ndarray | None, test_y: np.ndarray | None, baseline_names: list[str], group_ids_val: Any, group_ids_test: Any) -> list[dict[str, Any]]:
+    """NDCG at 1, 5 and 10, MAP@10 and MRR per baseline and split for learning-to-rank targets."""
+    from mlframe.metrics.ranking import compute_ranking_summary
+
+    rows: list[dict[str, Any]] = []
+    for name in baseline_names:
+        row: dict[str, Any] = {"baseline": name}
+        for split_name, y, p, g in [
+            ("val", val_y, val_preds.get(name), group_ids_val),
+            ("test", test_y, test_preds.get(name), group_ids_test),
+        ]:
+            if p is not None and y is not None and g is not None and len(p) == len(y):
+                try:
+                    summary = compute_ranking_summary(
+                        np.asarray(y), np.asarray(p), np.asarray(g), eval_at=(1, 5, 10),
+                    )
+                    for k in (1, 5, 10):
+                        row[f"{split_name}_NDCG@{k}"] = summary.get(f"ndcg@{k}", float("nan"))
+                    row[f"{split_name}_MAP@10"] = summary.get("map@10", float("nan"))
+                    row[f"{split_name}_MRR"] = summary.get("mrr", float("nan"))
+                except Exception as e:
+                    logger.debug("ranking summary failed for baseline=%s split=%s: %s", name, split_name, e)
+                    for k in (1, 5, 10):
+                        row[f"{split_name}_NDCG@{k}"] = float("nan")
+                    row[f"{split_name}_MAP@10"] = float("nan")
+                    row[f"{split_name}_MRR"] = float("nan")
+            else:
+                for k in (1, 5, 10):
+                    row[f"{split_name}_NDCG@{k}"] = float("nan")
+                row[f"{split_name}_MAP@10"] = float("nan")
+                row[f"{split_name}_MRR"] = float("nan")
+        row["failed"] = not _isfinite(row.get("val_NDCG@10", float("nan"))) and not _isfinite(row.get("test_NDCG@10", float("nan")))
+        rows.append(row)
+    return rows
+
+
 def _compute_metrics_table(
     target_type: str,
     val_preds: dict[str, np.ndarray],
@@ -75,126 +209,16 @@ def _compute_metrics_table(
         _compute_metrics_ta_name_baseline_names(baseline_names, val_preds, test_preds, val_y, test_y, alphas, non_boundary_idx, rows)
     elif target_type in ("regression", "quantile_regression"):
         primary_metric = "val_RMSE"
-        for name in baseline_names:
-            row: dict[str, Any] = {"baseline": name}
-            vp = val_preds.get(name)
-            tp = test_preds.get(name)
-            if vp is not None and val_y is not None and len(vp) == len(val_y):
-                row["val_RMSE"] = _safe_metric(fast_root_mean_squared_error, val_y, vp)
-                row["val_MAE"] = _safe_metric(fast_mean_absolute_error, val_y, vp)
-            else:
-                row["val_RMSE"] = float("nan")
-                row["val_MAE"] = float("nan")
-            if tp is not None and test_y is not None and len(tp) == len(test_y):
-                row["test_RMSE"] = _safe_metric(fast_root_mean_squared_error, test_y, tp)
-                row["test_MAE"] = _safe_metric(fast_mean_absolute_error, test_y, tp)
-            else:
-                row["test_RMSE"] = float("nan")
-                row["test_MAE"] = float("nan")
-            row["failed"] = not _isfinite(row["val_RMSE"]) and not _isfinite(row["test_RMSE"])
-            rows.append(row)
-
+        rows = _regression_metrics_rows(val_preds, test_preds, val_y, test_y, baseline_names)
     elif target_type in ("binary_classification", "multiclass_classification"):
-        # log_loss is headline; AUC secondary.
         primary_metric = "val_log_loss"
-        n_classes = (extras or {}).get("n_classes", 2)
-        labels = np.arange(n_classes)
-        for name in baseline_names:
-            row = {"baseline": name}
-            vp = val_preds.get(name)
-            tp = test_preds.get(name)
-            _compute_metrics_ta_split_name_val_val(val_y, vp, test_y, tp, labels, row, target_type)
-            row["failed"] = not _isfinite(row.get("val_log_loss", float("nan"))) and not _isfinite(row.get("test_log_loss", float("nan")))
-            rows.append(row)
-
+        rows = _classification_metrics_rows(val_preds, test_preds, val_y, test_y, baseline_names, target_type, extras)
     elif target_type == "multilabel_classification":
         primary_metric = "val_log_loss_macro"
-        # ``y`` (val_y / test_y) is the SAME ground-truth matrix for every baseline -- only
-        # the per-baseline predictions ``p`` differ. The int64-cast + contiguity copy below
-        # was previously re-run once per baseline x split (len(baseline_names) x 2 redundant
-        # full-array copies of the SAME y); hoisted out of the baseline loop so each split's
-        # ``y`` is cast exactly once regardless of how many dummy baselines are being scored.
-        _y_int_by_split = {
-            "val": np.ascontiguousarray(val_y, dtype=np.int64) if val_y is not None and val_y.ndim == 2 else None,
-            "test": np.ascontiguousarray(test_y, dtype=np.int64) if test_y is not None and test_y.ndim == 2 else None,
-        }
-        for name in baseline_names:
-            row = {"baseline": name}
-            vp = val_preds.get(name)
-            tp = test_preds.get(name)
-            for split_name, y, p in [("val", val_y, vp), ("test", test_y, tp)]:
-                if p is not None and y is not None and y.ndim == 2 and p.ndim == 2:
-                    K = y.shape[1]
-                    n = y.shape[0]
-                    if _NUMBA_AVAILABLE and n > 0 and K > 0:
-                        # Numba kernel: ~57x faster than per-label sklearn loop.
-                        try:
-                            y_int = _y_int_by_split[split_name]
-                            p_arr = np.ascontiguousarray(p, dtype=np.float64)
-                            macro = float(_numba_macro_log_loss(y_int, p_arr, n, K))
-                            micro = float(_numba_micro_log_loss(y_int, p_arr, n, K))
-                        except (TypeError, ValueError, FloatingPointError, RuntimeError) as _ll_exc:
-                            # Numba kernel rejects non-contiguous / wrong-dtype input
-                            # with TypeError; ValueError on shape mismatch. Fall back
-                            # to NaN so the metric row still emits.
-                            logger.debug(
-                                "[dummy-baselines] numba log_loss kernel fallback: %s: %s",
-                                type(_ll_exc).__name__, _ll_exc,
-                            )
-                            macro = float("nan")
-                            micro = float("nan")
-                        row[f"{split_name}_log_loss_macro"] = macro
-                        row[f"{split_name}_log_loss_micro"] = micro
-                    else:
-                        # Fallback: sklearn per-label loop.
-                        label_lls: list[float] = []
-                        for k in range(K):
-                            if len(np.unique(y[:, k])) >= 2:
-                                ll = _safe_metric(log_loss, y[:, k], p[:, k], labels=[0, 1])
-                                if _isfinite(ll):
-                                    label_lls.append(ll)
-                        row[f"{split_name}_log_loss_macro"] = float(np.mean(label_lls)) if label_lls else float("nan")
-                        row[f"{split_name}_log_loss_micro"] = _safe_metric(
-                            log_loss, y.ravel(), p.ravel(), labels=[0, 1],
-                        )
-                else:
-                    row[f"{split_name}_log_loss_macro"] = float("nan")
-                    row[f"{split_name}_log_loss_micro"] = float("nan")
-            row["failed"] = not _isfinite(row["val_log_loss_macro"]) and not _isfinite(row["test_log_loss_macro"])
-            rows.append(row)
-
+        rows = _multilabel_metrics_rows(val_preds, test_preds, val_y, test_y, baseline_names)
     elif target_type == "learning_to_rank":
         primary_metric = "val_NDCG@10"
-        from mlframe.metrics.ranking import compute_ranking_summary
-        for name in baseline_names:
-            row = {"baseline": name}
-            for split_name, y, p, g in [
-                ("val", val_y, val_preds.get(name), group_ids_val),
-                ("test", test_y, test_preds.get(name), group_ids_test),
-            ]:
-                if p is not None and y is not None and g is not None and len(p) == len(y):
-                    try:
-                        summary = compute_ranking_summary(
-                            np.asarray(y), np.asarray(p), np.asarray(g), eval_at=(1, 5, 10),
-                        )
-                        for k in (1, 5, 10):
-                            row[f"{split_name}_NDCG@{k}"] = summary.get(f"ndcg@{k}", float("nan"))
-                        row[f"{split_name}_MAP@10"] = summary.get("map@10", float("nan"))
-                        row[f"{split_name}_MRR"] = summary.get("mrr", float("nan"))
-                    except Exception as e:
-                        logger.debug("ranking summary failed for baseline=%s split=%s: %s", name, split_name, e)
-                        for k in (1, 5, 10):
-                            row[f"{split_name}_NDCG@{k}"] = float("nan")
-                        row[f"{split_name}_MAP@10"] = float("nan")
-                        row[f"{split_name}_MRR"] = float("nan")
-                else:
-                    for k in (1, 5, 10):
-                        row[f"{split_name}_NDCG@{k}"] = float("nan")
-                    row[f"{split_name}_MAP@10"] = float("nan")
-                    row[f"{split_name}_MRR"] = float("nan")
-            row["failed"] = not _isfinite(row.get("val_NDCG@10", float("nan"))) and not _isfinite(row.get("test_NDCG@10", float("nan")))
-            rows.append(row)
-
+        rows = _ranking_metrics_rows(val_preds, test_preds, val_y, test_y, baseline_names, group_ids_val, group_ids_test)
     else:
         return pd.DataFrame(), ""
 
