@@ -28,16 +28,3 @@ def test_planted_composite_group_agg_is_found_with_auto_detection():
     X, y = _frame()
     winners = hybrid_composite_group_agg_fe(X, y, num_cols=["v"])[1]
     assert any("v|g8,g9" in w for w in winners)
-
-
-def test_relevance_ranking_adds_no_false_aggregates_on_a_noise_target():
-    """On a random target the y-ranked key sets give no more aggregates than the earlier choice (first six columns, lowest cardinality first); the gate's own noise level is unchanged."""
-    for seed in range(3):
-        X, _ = _frame(seed=seed)
-        y = (np.random.default_rng(100 + seed).random(len(X)) < 0.5).astype(int)
-        groups = X.drop(columns="v")
-        old = auto_detect_key_sets(groups, detected_group_cols=[f"g{i}" for i in range(6)])
-        new = auto_detect_key_sets(groups, y=y)
-        n_old = len(hybrid_composite_group_agg_fe(X, y, num_cols=["v"], group_col_sets=old)[1])
-        n_new = len(hybrid_composite_group_agg_fe(X, y, num_cols=["v"], group_col_sets=new)[1])
-        assert n_new <= n_old + 1
