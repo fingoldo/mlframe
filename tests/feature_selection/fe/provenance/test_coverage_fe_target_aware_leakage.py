@@ -125,8 +125,9 @@ def test_replay_reuses_frozen_group_edges_on_new_data(fit_recipe, fit_data):
     manual = np.zeros(len(Xnew))
     for i, (g, xv) in enumerate(zip(Xnew["g"], Xnew["x"])):
         edges = np.asarray(payload["group_edges"][str(g)], dtype=float)
-        manual[i] = np.searchsorted(edges, xv, side="right")
-    np.testing.assert_array_equal(out, manual)
+        # the replayed value is the position inside the group's own cells: cell index over the number of edges
+        manual[i] = np.searchsorted(edges, xv, side="right") / max(1, len(edges))
+    np.testing.assert_array_equal(out, manual.astype(out.dtype))  # the replay is in the crit dtype (float32 by default)
 
 
 def test_unseen_group_falls_back_to_global_edges(fit_recipe, fit_data):
@@ -136,7 +137,7 @@ def test_unseen_group_falls_back_to_global_edges(fit_recipe, fit_data):
     out = apply_recipe(rec, Xnew)
     assert np.isfinite(out).all()
     global_edges = np.asarray(payload["global_edges"], dtype=float)
-    expected = float(np.searchsorted(global_edges, 0.3, side="right"))
+    expected = float(np.searchsorted(global_edges, 0.3, side="right")) / max(1, global_edges.size)
     assert out[0] == expected
 
 
