@@ -56,7 +56,6 @@
   "src/mlframe/feature_selection/filters/_mrmr_partial_fit.py::partial_fit": 17,
   "src/mlframe/feature_selection/filters/_mrmr_validate_strings.py::_validate_string_params": 24,
   "src/mlframe/feature_selection/filters/_mrmr_validate_transform.py::_validate_inputs": 21,
-  "src/mlframe/feature_selection/filters/_numba_polynom_optimizer.py::_eval_batch_candidates_njit": 25,
   "src/mlframe/feature_selection/filters/_numba_polynom_optimizer.py::_random_batch_one_pair_njit": 21,
   "src/mlframe/feature_selection/filters/_numba_utils_cross_module.py::quantile_codes_block": 18,
   "src/mlframe/feature_selection/filters/_numba_utils_offset.py::_solve4": 16,
