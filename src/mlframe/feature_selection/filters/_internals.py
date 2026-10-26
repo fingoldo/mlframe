@@ -205,6 +205,28 @@ def canonical_group_token(value: object) -> str:
         return repr(f)
     return str(value)
 
+def canonical_group_tokens(values: np.ndarray) -> np.ndarray:
+    """``np.array([canonical_group_token(v) for v in values], dtype=object)`` for a numeric / bool array, without a Python call per value.
+
+    The strings are identical to the per-value function: integers and bools go through ``astype(str)``, floats through ``repr`` of the float64 value (a float32 is widened first, as
+    ``float(value)`` does), and finite integral floats below 9e18 through an int64 cast; integral floats of larger magnitude, which an int64 cannot hold, use the per-value function."""
+    kind = values.dtype.kind
+    if kind in ("i", "u", "b"):
+        return cast("np.ndarray", values.astype(str).astype(object))
+    if kind != "f":
+        return np.array([canonical_group_token(v) for v in values], dtype=object)
+    wide = values.astype(np.float64)
+    toks = np.empty(wide.shape[0], dtype=object)
+    toks[:] = list(map(repr, wide.tolist()))
+    with np.errstate(invalid="ignore"):
+        integral = np.isfinite(wide) & (wide == np.floor(wide))
+    small = integral & (np.abs(wide) < 9.0e18)
+    if small.any():
+        toks[small] = wide[small].astype(np.int64).astype(str).astype(object)
+    for i in np.flatnonzero(integral & ~small):
+        toks[i] = canonical_group_token(values[i])
+    return toks
+
 def group_key_strings(col: pd.Series) -> np.ndarray:
     """Object array of per-row canonical group keys (int<->float drift safe).
 
@@ -223,13 +245,12 @@ def group_key_strings(col: pd.Series) -> np.ndarray:
         uniq, inv = np.unique(arr, return_inverse=True)
         if arr.dtype.kind == "b":
             return cast("np.ndarray", uniq.astype(str).astype(object)[inv])
-        return np.array([str(int(u)) for u in uniq], dtype=object)[inv]
+        return canonical_group_tokens(uniq)[inv]
     if arr.dtype.kind == "f":
         # Float: canonicalise integral values to their int form so they match a
         # fit/predict counterpart that arrived as integer dtype.
         uniq, inv = np.unique(arr, return_inverse=True)
-        toks = np.array([canonical_group_token(u) for u in uniq], dtype=object)
-        return np.asarray(toks[inv])
+        return np.asarray(canonical_group_tokens(uniq)[inv])
     # object / categorical / string: per-value canonical (handles mixed dtypes,
     # python ints/floats embedded in object arrays, NaN sentinels via str()).
     return np.asarray(col.astype(object).map(canonical_group_token).to_numpy())
