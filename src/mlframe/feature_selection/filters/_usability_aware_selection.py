@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import itertools
 import logging
+import os
 from dataclasses import dataclass
 from typing import Any, Optional, Sequence, cast
 
@@ -776,7 +777,17 @@ def usability_greedy(
         """Per-fold MAE of each candidate appended to ``sel_idx``.
 
         Default: the exact per-candidate refit. The bordered normal-equations path agrees with it to ~1e-9, but on ULP-level ties between candidates
-        its rounding flips the greedy's pick (measured: a noise column entered the support on one hash seed and not another), so it is opt-in only."""
+        its rounding flips the greedy's pick (measured: a noise column entered the support on one hash seed and not another), so it is opt-in only.
+
+        A binary classification target takes one batched Newton fit per fold for the whole shortlist (the unique optimum of the same L2 objective the sklearn fit reaches), and keeps the exact refit for a fold
+        that is singular or does not converge; ``MLFRAME_USAB_CLF_NEWTON=0`` turns the batched fit off."""
+        if classification and n_classes == 2 and cand_list and os.environ.get("MLFRAME_USAB_CLF_NEWTON", "1") != "0":
+            from ._usability_greedy_clf_host_batched import HostBatchedFallbackError, cv_candidates_binary_host
+
+            try:
+                return cv_candidates_binary_host(_pv, list(sel_idx), list(cand_list), folds, n_folds, y_enc)
+            except HostBatchedFallbackError:
+                pass
         return {i: _cv_per_fold([*sel_idx, i]) for i in cand_list}
 
     _cv_per_fold = _usability_greedy_step2_def_cv_fold(classification, n_folds, folds, y_enc, n_classes, _logloss, _pv, _mk, y_cont)

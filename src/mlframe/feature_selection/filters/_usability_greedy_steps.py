@@ -242,12 +242,11 @@ def _usability_greedy_step4_consistency_across_folds(K, pool, _shortlist, st, cl
     for _ in range(min(K, len(pool))):
         cand_idx = _shortlist(st.selected)
         best_i, best_mean, best_folds = -1, st.mae_cur, st.folds_cur
-        # regression: score the whole shortlist via the incremental bordered solve (one selected-set
-        # Gram per fold, reused across candidates). classification stays on the per-candidate refit.
+        # the whole shortlist is scored in one call (regression: the per-candidate refit unless the incremental solve is opted in; binary classification: one batched Newton fit per fold).
         # ``_USAB_FORCE_FULL_REFIT`` (test-only) bypasses the incremental solve to A/B the selection.
         import os as _os
         _force_full = bool(_os.environ.get("_USAB_FORCE_FULL_REFIT"))
-        _mf_by_i = None if (classification or _force_full) else _cv_candidates_incremental(st.selected, cand_idx)
+        _mf_by_i = None if _force_full else _cv_candidates_incremental(st.selected, cand_idx)
         for i in cand_idx:
             mf = _mf_by_i[i] if _mf_by_i is not None else _cv_per_fold([*st.selected, i])
             if int(np.sum(mf < st.folds_cur)) < st.min_improving_folds:

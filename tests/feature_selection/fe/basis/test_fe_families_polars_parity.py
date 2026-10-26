@@ -221,6 +221,19 @@ _CASES = {
 }
 
 
+# Default-on families that are not under test here; each costs seconds per fit and none can change what a pandas-versus-polars comparison of the family under test shows.
+# A case's own kwargs are applied on top, so a family a case enables stays enabled.
+_UNRELATED_OFF = dict(
+    fe_wavelet_enable=False,
+    fe_univariate_fourier_enable=False,
+    fe_conditional_gate_enable=False,
+    fe_row_argmax_enable=False,
+    fe_pairwise_modular_enable=False,
+    fe_integer_lattice_enable=False,
+    fe_conditional_dispersion_enable=False,
+)
+
+
 def _fit(data, y, kwargs, to_polars):
     """Helper that fit."""
     if to_polars:
@@ -228,7 +241,7 @@ def _fit(data, y, kwargs, to_polars):
         X = pl.DataFrame(data)
     else:
         X = pd.DataFrame(data)
-    sel = MRMR(verbose=0, random_state=0, **kwargs)
+    sel = MRMR(verbose=0, random_state=0, **{**_UNRELATED_OFF, **kwargs})
     sel.fit(X, pd.Series(y))
     return sel
 
@@ -262,7 +275,7 @@ def test_bucket_a_family_adds_no_whole_frame_to_pandas_on_polars(monkeypatch):
         """Full count."""
         heights.clear()
         MRMR._FIT_CACHE.clear()
-        sel = MRMR(verbose=0, random_state=0, fe_check_pairs_subsample_n=500, fe_univariate_basis_enable=True, **kwargs)
+        sel = MRMR(verbose=0, random_state=0, fe_check_pairs_subsample_n=500, fe_univariate_basis_enable=True, **{**_UNRELATED_OFF, **kwargs})
         sel.fit(pl.DataFrame(data), y)
         return sum(h == n for h in heights), sel
 

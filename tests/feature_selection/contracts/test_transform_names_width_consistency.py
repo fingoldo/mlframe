@@ -9,10 +9,12 @@ Pipeline / ColumnTransformer / set_output on a legacy pickle.
 
 from __future__ import annotations
 
+import copy
 import warnings
 
 import numpy as np
 import pandas as pd
+import pytest
 
 
 def _fit_small_mrmr(seed=0, n=1500):
@@ -29,19 +31,26 @@ def _fit_small_mrmr(seed=0, n=1500):
     return fs, df
 
 
-def test_names_out_width_equals_transform_width_baseline():
+@pytest.fixture(scope="module")
+def fitted_small_mrmr():
+    """One fit shared by the module (about 30 s); a test that mutates the estimator takes a deep copy."""
+    return _fit_small_mrmr()
+
+
+def test_names_out_width_equals_transform_width_baseline(fitted_small_mrmr):
     """Names out width equals transform width baseline."""
-    fs, df = _fit_small_mrmr()
+    fs, df = fitted_small_mrmr
     assert len(fs.get_feature_names_out()) == fs.transform(df).shape[1]
 
 
-def test_legacy_non_replayable_recipe_excluded_from_both_names_and_transform():
+def test_legacy_non_replayable_recipe_excluded_from_both_names_and_transform(fitted_small_mrmr):
     """Inject a legacy recipe (requires_refit_for_replay, no chain_lookups) -- both
     get_feature_names_out and transform must DROP it, so widths stay equal. Pre-fix,
     get_feature_names_out counted it (width+1) while transform dropped it -> Pipeline-breaking mismatch."""
     from mlframe.feature_selection.filters.engineered_recipes import EngineeredRecipe
 
-    fs, df = _fit_small_mrmr()
+    fs, df = fitted_small_mrmr
+    fs = copy.deepcopy(fs)
     base_w = len(fs.get_feature_names_out())
     # a legacy k-way recipe with NO chain payload -> transform's _append_engineered filters it out.
     legacy = EngineeredRecipe(
