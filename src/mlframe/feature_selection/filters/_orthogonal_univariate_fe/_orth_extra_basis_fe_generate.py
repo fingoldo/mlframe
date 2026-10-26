@@ -191,13 +191,13 @@ def _adaptive_cols_by_relevance(X, cols, y, max_adaptive_cols):
         return None
     n = len(y)
     rows = np.arange(n) if n <= 50_000 else np.random.default_rng(0).choice(n, 50_000, replace=False)
-    yy = np.asarray(y, dtype=np.float64)[rows]
+    yy = np.asarray(y, dtype=_crit_np_dtype())[rows]
     yy = yy - yy.mean()
     scores = {}
     for c in cols:
         if c not in X.columns or not pd.api.types.is_numeric_dtype(X[c]):
             continue
-        x = np.asarray(X[c].to_numpy(), dtype=np.float64)[rows]
+        x = np.asarray(X[c].to_numpy(), dtype=_crit_np_dtype())[rows]
         if not np.isfinite(x).all():
             continue
         bins = np.minimum(np.argsort(np.argsort(x, kind="stable"), kind="stable") * 64 // len(x), 63)

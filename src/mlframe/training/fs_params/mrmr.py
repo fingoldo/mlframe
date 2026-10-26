@@ -330,8 +330,8 @@ class MRMRParams(BaseModel):
     fe_hybrid_orth_triplet_top_count: int = 8
     fe_hybrid_orth_quadruplet_enable: bool = True
     fe_hybrid_orth_quadruplet_max_degree: int = 1
-    fe_hybrid_orth_quadruplet_seed_k: int = 4
-    fe_hybrid_orth_quadruplet_top_count: int = 2
+    fe_hybrid_orth_quadruplet_seed_k: int = 12
+    fe_hybrid_orth_quadruplet_top_count: int = 6
     fe_hybrid_orth_adaptive_arity_enable: bool = False
     fe_hybrid_orth_adaptive_arity_max_arity: int = 3
     fe_hybrid_orth_adaptive_arity_max_degree: int = 1
@@ -469,7 +469,7 @@ class MRMRParams(BaseModel):
     fe_cat_pair_enable: bool = False
     fe_cat_pair_min_interaction_info: float = 0.001
     fe_cat_pair_cat_cols: tuple = ()
-    fe_cat_pair_top_k: int = 5
+    fe_cat_pair_top_k: int = 16
     fe_cat_triple_enable: bool = False
     fe_cat_triple_min_interaction_info: float = 0.001
     fe_cat_triple_cat_cols: tuple = ()

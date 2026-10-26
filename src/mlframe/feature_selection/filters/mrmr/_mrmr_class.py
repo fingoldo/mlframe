@@ -2000,9 +2000,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         fe_hybrid_orth_triplet_enable: bool = True,
         fe_hybrid_orth_triplet_max_degree: int = 1,
         fe_hybrid_orth_triplet_seed_k: int = 4,
-        # Triplet columns emitted per fit. 2 capped the search: with 4 independent planted 3-way products (n=10000, p=40) only 2 of 4 were found (4/8 over two seeds),
-        # with 8 all 4 (8/8) and no extra selection on pure noise (audits/2026-10-22 row 73al).
-        fe_hybrid_orth_triplet_top_count: int = 8,
+        fe_hybrid_orth_triplet_top_count: int = 8,  # 2 found only half of four planted 3-way products; 8 finds all, nothing extra on noise
         # QUADRUPLET (4-way) cross-basis FE (sibling
         # module ``_orthogonal_quadruplet_fe``). Captures genuine 4-way
         # interactions: ``y = sign(x_1 * x_2 * x_3 * x_4)`` (4-way XOR
@@ -2014,13 +2012,13 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # quadruplet * deg^4 cells; seed_k=5 yields C(5,4)=5 quadruplets
         # * deg^4 cells (~80 candidates at deg=2). Recipe kind
         # ``orth_quadruplet_cross``; replay reads X only, no y.
-        # DEFAULT ON: bounded by seed_k (C(seed_k,4) quadruplets - 1 at seed_k=4), replay
+        # DEFAULT ON: bounded by seed_k (C(seed_k,4) quadruplets; seed_k=4 was ONE quadruplet and found 2 of 6 planted four-way products, 12 finds 6 of 6 with no extra selection on noise), replay
         # P0 fixed, captures genuine 4-way interactions a linear model cannot otherwise form. Set False
         # to restore the previous behaviour.
         fe_hybrid_orth_quadruplet_enable: bool = True,
         fe_hybrid_orth_quadruplet_max_degree: int = 1,
-        fe_hybrid_orth_quadruplet_seed_k: int = 4,
-        fe_hybrid_orth_quadruplet_top_count: int = 2,
+        fe_hybrid_orth_quadruplet_seed_k: int = 12,
+        fe_hybrid_orth_quadruplet_top_count: int = 6,
         # ADAPTIVE-ARITY cross-basis FE (sibling
         # module ``_orthogonal_adaptive_arity_fe``). Tries arity 2/3/4
         # per seed tuple and emits ONLY the winning arity per maximal
@@ -2681,7 +2679,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         fe_cat_pair_enable: bool = False,
         fe_cat_pair_min_interaction_info: float = 0.001,
         fe_cat_pair_cat_cols: tuple = (),
-        fe_cat_pair_top_k: int = 5,
+        fe_cat_pair_top_k: int = 16,
         # cat x cat x cat TRIPLE synergy cross via beam
         # search. Extends the Layer 89 pairwise interaction-information cross to
         # the THIRD order: II3(a,b,c;y) = I(a,b,c;y) - [I(a,b;y)+I(a,c;y)+

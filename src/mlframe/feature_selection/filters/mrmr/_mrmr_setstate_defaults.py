@@ -88,8 +88,8 @@ _SETSTATE_LEGACY_DEFAULTS = {
     # Master switch OFF preserves legacy pickle byte-equivalence.
     "fe_hybrid_orth_quadruplet_enable": False,
     "fe_hybrid_orth_quadruplet_max_degree": 1,
-    "fe_hybrid_orth_quadruplet_seed_k": 4,
-    "fe_hybrid_orth_quadruplet_top_count": 2,
+    "fe_hybrid_orth_quadruplet_seed_k": 12,
+    "fe_hybrid_orth_quadruplet_top_count": 6,
     # adaptive-arity cross-basis FE defaults.
     # Master switch OFF preserves legacy pickle byte-equivalence.
     "fe_hybrid_orth_adaptive_arity_enable": False,

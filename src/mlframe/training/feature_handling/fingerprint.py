@@ -384,7 +384,7 @@ def _pandas_rows_payload(df: Any, cols_sorted: list, sample_idx: np.ndarray) -> 
                 logger.debug("to_numpy().tobytes() failed for column %r, falling back to str(to_list()): %s", c, e)
                 col_bytes = str(sub[c].to_list()).encode("utf-8")
             h_outer.update(xxhash.xxh3_64(col_bytes).digest())
-        return h_outer.digest()
+        return bytes(h_outer.digest())
     # xxhash-absent pandas fallback. CSV-encoding
     # every cell was the original hot path; per-column
     # numpy ``tobytes`` skips the string roundtrip on
