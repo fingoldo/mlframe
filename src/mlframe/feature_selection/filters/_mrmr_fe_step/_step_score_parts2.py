@@ -569,6 +569,27 @@ def _materialise_and_fina_step2_esc_failed(self, _esc_failed, classes_y, st, pro
     return X, cols, data, n_recommended_features, nbins
 
 
+def _fused_compound_codes(self, X, fused, discretize_array) -> np.ndarray:
+    """Return the ``(n_rows, len(fused))`` discretised code matrix for the fused compounds, in the dtype the quantizer's safe-code contract requires."""
+    from mlframe.feature_selection.filters.discretization.shared import safe_code_dtype as _safe_code_dtype
+
+    # Pre-widen to _safe_code_dtype so discretize_array's internally-widened return value isn't silently downcast on assignment.
+    _fz_safe_dtype = _safe_code_dtype(self.quantization_nbins, self.quantization_dtype, reserve_nan_slot=(self.quantization_method == "uniform"))
+    _fz_codes: np.ndarray = np.empty(shape=(len(X), len(fused)), dtype=_fz_safe_dtype)
+    for _jf, _fc in enumerate(fused):
+        _dev_codes = _device_codes_to_host(_fc["values"], self.quantization_nbins, self.quantization_dtype) if self.quantization_method == "quantile" else None
+        if _dev_codes is not None:
+            _fz_codes[:, _jf] = _dev_codes[:, 0]
+            continue
+        _fz_codes[:, _jf] = discretize_array(
+            arr=np.asarray(_fc["values"], dtype=_crit_np_dtype()),
+            n_bins=self.quantization_nbins,
+            method=self.quantization_method,
+            dtype=self.quantization_dtype,
+        )
+    return _fz_codes
+
+
 def _materialise_and_fina_step4_contract_stay_off(self, engineered_recipes, st, verbose, cols, classes_y, X, _is_polars_input, discretize_array, data, nbins, n_recommended_features, selected_vars):
     """Step 4 of materialise_and_finalise_fe_candidates: lines starting at ``if (``."""
     import polars as pl
@@ -607,20 +628,7 @@ def _materialise_and_fina_step4_contract_stay_off(self, engineered_recipes, st, 
                 # Same narrow-preallocation bug/fix as the escalation-materialize block above:
                 # pre-widen to _safe_code_dtype so discretize_array's internally-widened return value
                 # isn't silently downcast back on assignment.
-                from mlframe.feature_selection.filters.discretization.shared import safe_code_dtype as _safe_code_dtype
-                _fz_safe_dtype = _safe_code_dtype(self.quantization_nbins, self.quantization_dtype, reserve_nan_slot=(self.quantization_method == "uniform"))
-                _fz_codes: np.ndarray = np.empty(shape=(len(X), len(_fused)), dtype=_fz_safe_dtype)
-                for _jf, _fc in enumerate(_fused):
-                    _dev_codes = _device_codes_to_host(_fc["values"], self.quantization_nbins, self.quantization_dtype) if self.quantization_method == "quantile" else None
-                    if _dev_codes is not None:
-                        _fz_codes[:, _jf] = _dev_codes[:, 0]
-                        continue
-                    _fz_codes[:, _jf] = discretize_array(
-                        arr=np.asarray(_fc["values"], dtype=_crit_np_dtype()),
-                        n_bins=self.quantization_nbins,
-                        method=self.quantization_method,
-                        dtype=self.quantization_dtype,
-                    )
+                _fz_codes = _fused_compound_codes(self, X, _fused, discretize_array)
                 _n_cols_before_fz = len(cols)
                 data = np.append(data, _fz_codes.astype(data.dtype, copy=False), axis=1)
                 nbins = np.concatenate([

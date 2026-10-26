@@ -10,6 +10,57 @@ from mlframe.utils.log_throttle import log_throttle
 # --- end imports ---
 
 
+def _stamp_cat_code_maps(cat_fe_state, _x_for_cat) -> None:
+    """Attach the fit-time categorical-to-code maps to every cat-FE recipe whose source columns are categorical or string, in place."""
+    from mlframe.feature_selection.filters.engineered_recipes.shared import build_category_code_map as _build_cat_code_map
+
+    # ``categorize_dataset`` factorises ALL categorical columns as ONE block and applies the NaN +1
+    # shift to the WHOLE block when ANY column in it has a NaN. So even a NaN-FREE categorical source
+    # gets its codes shifted +1 at fit time. Compute the block-level NaN flag ONCE (mirroring
+    # ``categorize_dataset``'s ``select_dtypes`` block selection exactly) and thread it into every map
+    # build; a per-column flag would off-by-one the NaN-free partner of a NaN-bearing column - the
+    # same silent train/serve skew, for the mixed-block case the per-column path never handled.
+    _block_has_nan: bool | None = None
+    try:
+        _cat_block = _x_for_cat.select_dtypes(include=("category", "object", "string", "bool"))
+        if _cat_block.shape[1] > 0:
+            _block_has_nan = bool(_cat_block.isna().to_numpy().any())
+    except Exception as exc:
+        logger.warning("mrmr: NaN-block detection failed; treating as unknown: %r", exc, exc_info=True)
+        _block_has_nan = None
+    _src_map_cache: dict = {}
+    for _ri, r in enumerate(cat_fe_state.recipes):
+        _maps_for_recipe: dict = {}
+        for _src in getattr(r, "src_names", ()) or ():
+            if _src not in _src_map_cache:
+                if _src in _x_for_cat.columns:
+                    try:
+                        _src_map_cache[_src] = _build_cat_code_map(_x_for_cat[_src], block_has_nan=_block_has_nan)
+                    except Exception as exc:
+                        # Not cached: a transient failure must not pin this source as mapless for every later recipe.
+                        log_throttle(logger, "mrmr_cat_fe_source_map_build_failed", logging.WARNING, "mrmr: source-map build failed for recipe source %r; this recipe replays without it: %r", _src, exc, exc_info=True)
+                        continue
+                else:
+                    _src_map_cache[_src] = {}
+            if _src_map_cache[_src]:
+                _maps_for_recipe[_src] = _src_map_cache[_src]
+        if _maps_for_recipe:
+            # ``extra`` is a read-only MappingProxyType on a frozen recipe; ``with_extra`` returns a fresh copy carrying the maps.
+            try:
+                cat_fe_state.recipes[_ri] = r.with_extra(cat_code_maps=_maps_for_recipe)
+            except Exception as e:
+                # Without its train-time code maps the recipe replays categories with fresh codes at transform: silent train/serve skew.
+                log_throttle(
+                    logger,
+                    "mrmr_cat_code_maps_attach_failed",
+                    logging.WARNING,
+                    "mrmr: attaching cat_code_maps to recipe %r failed (%s: %s); its transform-time category codes may not match fit",
+                    getattr(r, "name", "?"),
+                    type(e).__name__,
+                    e,
+                )
+
+
 def _run_categorical_fe(
     self,
     cat_fe_cfg,
@@ -79,53 +130,7 @@ def _run_categorical_fe(
         # dependent); only a stored map can reproduce those codes at transform. The map is built ONCE per distinct source
         # column from the raw ``_x_for_cat`` frame and shared across recipes referencing that column.
         if cat_fe_state.recipes and not _is_polars_input and hasattr(_x_for_cat, "columns"):
-            from mlframe.feature_selection.filters.engineered_recipes.shared import build_category_code_map as _build_cat_code_map
-
-            # ``categorize_dataset`` factorises ALL categorical columns as ONE block and applies the NaN +1
-            # shift to the WHOLE block when ANY column in it has a NaN. So even a NaN-FREE categorical source
-            # gets its codes shifted +1 at fit time. Compute the block-level NaN flag ONCE (mirroring
-            # ``categorize_dataset``'s ``select_dtypes`` block selection exactly) and thread it into every map
-            # build; a per-column flag would off-by-one the NaN-free partner of a NaN-bearing column - the
-            # same silent train/serve skew, for the mixed-block case the per-column path never handled.
-            _block_has_nan: bool | None = None
-            try:
-                _cat_block = _x_for_cat.select_dtypes(include=("category", "object", "string", "bool"))
-                if _cat_block.shape[1] > 0:
-                    _block_has_nan = bool(_cat_block.isna().to_numpy().any())
-            except Exception as exc:
-                logger.warning("mrmr: NaN-block detection failed; treating as unknown: %r", exc, exc_info=True)
-                _block_has_nan = None
-            _src_map_cache: dict = {}
-            for _ri, r in enumerate(cat_fe_state.recipes):
-                _maps_for_recipe: dict = {}
-                for _src in getattr(r, "src_names", ()) or ():
-                    if _src not in _src_map_cache:
-                        if _src in _x_for_cat.columns:
-                            try:
-                                _src_map_cache[_src] = _build_cat_code_map(_x_for_cat[_src], block_has_nan=_block_has_nan)
-                            except Exception as exc:
-                                # Not cached: a transient failure must not pin this source as mapless for every later recipe.
-                                log_throttle(logger, "mrmr_cat_fe_source_map_build_failed", logging.WARNING, "mrmr: source-map build failed for recipe source %r; this recipe replays without it: %r", _src, exc, exc_info=True)
-                                continue
-                        else:
-                            _src_map_cache[_src] = {}
-                    if _src_map_cache[_src]:
-                        _maps_for_recipe[_src] = _src_map_cache[_src]
-                if _maps_for_recipe:
-                    # ``extra`` is a read-only MappingProxyType on a frozen recipe; ``with_extra`` returns a fresh copy carrying the maps.
-                    try:
-                        cat_fe_state.recipes[_ri] = r.with_extra(cat_code_maps=_maps_for_recipe)
-                    except Exception as e:
-                        # Without its train-time code maps the recipe replays categories with fresh codes at transform: silent train/serve skew.
-                        log_throttle(
-                            logger,
-                            "mrmr_cat_code_maps_attach_failed",
-                            logging.WARNING,
-                            "mrmr: attaching cat_code_maps to recipe %r failed (%s: %s); its transform-time category codes may not match fit",
-                            getattr(r, "name", "?"),
-                            type(e).__name__,
-                            e,
-                        )
+            _stamp_cat_code_maps(cat_fe_state, _x_for_cat)
         # Cat-FE recipes feed the same engineered_recipes dict numeric FE uses; the fit-end splitter copies
         # any recipe whose engineered name appears in selected_vars_names into ``self._engineered_recipes_``.
         for r in cat_fe_state.recipes:

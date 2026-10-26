@@ -204,12 +204,14 @@ def _unsupported_columns(self, design: dict, y, raw_cols, residual_rescue) -> "l
     from scipy.stats import norm
 
     from .._pair_residual_screen import FAMILY_ALPHA
-    from .._residual_rescue_fe import linear_oos_gain
+    from .._residual_rescue_fe import design_precompute, linear_oos_gain
 
     z = float(norm.isf(FAMILY_ALPHA))
     floor = float(self.fe_residual_rescue_operand_min_linear_gain)
     prune_operands = bool(getattr(self, "fe_drop_redundant_raw_operands", True))
     pruned: "list[str]" = _exact_copies_of_raws(design, raw_cols)
+    # Every leave-one-out subset below is a subset of ``design``, so its per-column coding and standardisation are computed once here.
+    pre = design_precompute(design, len(y))
     for name in list(design):
         if name in pruned:
             continue
@@ -220,10 +222,10 @@ def _unsupported_columns(self, design: dict, y, raw_cols, residual_rescue) -> "l
             continue
         if name in raw_cols and name in operands:
             if prune_operands:
-                t_stat, rel = linear_oos_gain(rest, design[name], y)
+                t_stat, rel = linear_oos_gain(rest, design[name], y, std_full=pre["std_full"])
                 if not (t_stat > z and rel >= floor):
                     pruned.append(name)
-        elif not residual_rescue(rest, {name: design[name]}, y, alpha=0.5, min_relative_gain=0.0, max_admit=1):
+        elif not residual_rescue(rest, {name: design[name]}, y, alpha=0.5, min_relative_gain=0.0, max_admit=1, precomputed=pre):
             pruned.append(name)  # alpha = 0.5 makes the bar t > 0: the column is removed only when its held-out gain is not even positive
     return pruned
 

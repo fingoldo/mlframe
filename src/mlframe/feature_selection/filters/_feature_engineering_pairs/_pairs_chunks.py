@@ -187,6 +187,32 @@ def _compute_one_fe_chunk(
     return out
 
 
+def _record_njit_chunk_candidates(chunk_pairs, pair_valid_combs, vars_transformations, prewarp_unary, binary_transformations, op_codes_by_name, col):
+    """Record the (operand A, operand B, op code) spec of every candidate in the chunk, in the (pair x transformation pair x bin func) order the config buffer indexes.
+
+    Returns ``(col, name_list, a_cols, b_cols, ops, cands_by_pair)`` with ``col`` advanced past the last recorded candidate.
+    """
+    _name_list = list(binary_transformations.keys())
+    _a_cols: list = []
+    _b_cols: list = []
+    _ops: list = []
+    _cands_by_pair: dict = {}
+    for raw_vars_pair in chunk_pairs:
+        cands = []
+        for transformations_pair in pair_valid_combs[raw_vars_pair]:
+            _ai = vars_transformations[transformations_pair[0]]
+            _bi = vars_transformations[transformations_pair[1]]
+            uses_pw = transformations_pair[0][1] == prewarp_unary or transformations_pair[1][1] == prewarp_unary
+            for _opn, bin_func_name in enumerate(_name_list):
+                _a_cols.append(_ai)
+                _b_cols.append(_bi)
+                _ops.append(int(op_codes_by_name[_opn]))
+                cands.append((transformations_pair, bin_func_name, col, uses_pw))
+                col += 1
+        _cands_by_pair[raw_vars_pair] = cands
+    return col, _name_list, _a_cols, _b_cols, _ops, _cands_by_pair
+
+
 def _compute_one_fe_chunk_part2(
     op_code_arr: Any, binary_transformations: Any, chunk_pairs: Any, pair_valid_combs: Any, vars_transformations: Any, prewarp_unary: Any,
     gpu_mat_enabled: bool, transformed_vars: Any, quantization_nbins: Any, quantization_dtype: Any, defer_float: bool, chunk_buffer: Any, logger: Any,
@@ -217,24 +243,9 @@ def _compute_one_fe_chunk_part2(
         # ENTIRE chunk in ONE prange(nogil) kernel -> threads spread the work across cores. Candidate ORDER is the
         # SAME (pair x transformations_pair x bin_func) as the numpy path, so the config buffer index ``col`` is
         # identical, and the float32 op kernel is bit-identical to the numpy bin_funcs (see _materialise_chunk_njit).
-        _name_list = list(binary_transformations.keys())
-        _a_cols: list = []
-        _b_cols: list = []
-        _ops: list = []
-        _cands_by_pair: dict = {}
-        for raw_vars_pair in chunk_pairs:
-            cands = []
-            for transformations_pair in pair_valid_combs[raw_vars_pair]:
-                _ai = vars_transformations[transformations_pair[0]]
-                _bi = vars_transformations[transformations_pair[1]]
-                uses_pw = transformations_pair[0][1] == prewarp_unary or transformations_pair[1][1] == prewarp_unary
-                for _opn, bin_func_name in enumerate(_name_list):
-                    _a_cols.append(_ai)
-                    _b_cols.append(_bi)
-                    _ops.append(int(_op_codes_by_name[_opn]))
-                    cands.append((transformations_pair, bin_func_name, col, uses_pw))
-                    col += 1
-            _cands_by_pair[raw_vars_pair] = cands
+        col, _name_list, _a_cols, _b_cols, _ops, _cands_by_pair = _record_njit_chunk_candidates(
+            chunk_pairs, pair_valid_combs, vars_transformations, prewarp_unary, binary_transformations, _op_codes_by_name, col
+        )
         _gpu_disc_2d, _deferred_float, _defer_a_cols, _defer_b_cols, _defer_ops, raw_vars_pair = _compute_one_fe_chunk_part1(
             timer, col, gpu_mat_enabled, transformed_vars, quantization_nbins, quantization_dtype, _a_cols, _b_cols, _ops, defer_float, chunk_buffer,
             _deferred_float, _defer_a_cols, _defer_b_cols, _defer_ops, logger, serial_main_thread, _name_list, chunk_pairs, _cands_by_pair, chunk_records,

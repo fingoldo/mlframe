@@ -105,6 +105,35 @@ def _run_suite_end_dummy_baselines_summary(
         )
 
 
+def _best_yscale_entry(yscale_entries, metric_name, is_minimize):
+    """Return ``(best_val, best_name, best_split)`` over the y-scale entries of one composite target, preferring val and falling back to test.
+
+    A y-scale entry may carry only test metrics (no finite val), so the test pass runs only when the val pass finds nothing. Name and split
+    are ``None``/``"-"`` when no entry has a finite metric.
+    """
+    best_val: float | None = None
+    best_name = "-"
+    best_split = None
+    for _ye in yscale_entries:
+        _v = _ye.get("metrics", {}).get("val", {}).get(metric_name)
+        if _v is None or not np.isfinite(_v):
+            continue
+        if best_val is None or (is_minimize and _v < best_val) or (not is_minimize and _v > best_val):
+            best_val = float(_v)
+            best_name = "Composite" if _ye.get("model_name") is None or _ye.get("model_name") == "" else _ye.get("model_name")
+            best_split = "val"
+    if best_val is None:
+        for _ye in yscale_entries:
+            _v = _ye.get("metrics", {}).get("test", {}).get(metric_name)
+            if _v is None or not np.isfinite(_v):
+                continue
+            if best_val is None or (is_minimize and _v < best_val) or (not is_minimize and _v > best_val):
+                best_val = float(_v)
+                best_name = "Composite" if _ye.get("model_name") is None or _ye.get("model_name") == "" else _ye.get("model_name")
+                best_split = "test"
+    return best_val, best_name, best_split
+
+
 def _collect_best_model_metrics(metadata, models, _composite_names_by_tt, _best_metrics):
     """Fill _best_metrics with the best val-ranked model of each (target type, target) and its test metric, for the end-of-suite baselines table."""
     for _tt, _by_name in metadata.get("dummy_baselines", {}).items():
@@ -133,26 +162,7 @@ def _collect_best_model_metrics(metadata, models, _composite_names_by_tt, _best_
             _best_split = None  # "val" or "test" -- track for tag
             _best_model = None  # the raw model picked, whose TEST metric the composite-vs-raw verdict compares on
             if _yscale_entries:
-                for _ye in _yscale_entries:
-                    _split_metric = _ye.get("metrics", {}).get("val", {})
-                    _v = _split_metric.get(_metric_name)
-                    if _v is None or not np.isfinite(_v):
-                        continue
-                    if _best_val is None or (_is_minimize and _v < _best_val) or (not _is_minimize and _v > _best_val):
-                        _best_val = float(_v)
-                        _best_name = "Composite" if _ye.get("model_name") is None or _ye.get("model_name") == "" else _ye.get("model_name")
-                        _best_split = "val"
-                # y-scale entries may carry only TEST metrics (no finite val); fall back to those before declaring "-".
-                if _best_val is None:
-                    for _ye in _yscale_entries:
-                        _split_metric = _ye.get("metrics", {}).get("test", {})
-                        _v = _split_metric.get(_metric_name)
-                        if _v is None or not np.isfinite(_v):
-                            continue
-                        if _best_val is None or (_is_minimize and _v < _best_val) or (not _is_minimize and _v > _best_val):
-                            _best_val = float(_v)
-                            _best_name = "Composite" if _ye.get("model_name") is None or _ye.get("model_name") == "" else _ye.get("model_name")
-                            _best_split = "test"
+                _best_val, _best_name, _best_split = _best_yscale_entry(_yscale_entries, _metric_name, _is_minimize)
             # When y-scale entries are absent OR carry no usable metric, fall through to the T-scale model-list metrics.
             # NOT for composite targets: their model_list metrics are on the T (residual) scale, while the dummy this
             # is compared against is y-scale -- mixing them produced a FALSE "TASK_NON_TRIVIAL_AND_MODELS_HEALTHY"

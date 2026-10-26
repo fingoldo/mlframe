@@ -459,6 +459,28 @@ def _binagg_null_calibrated_floor(cp: Any, mat_gpu: Any, y_gpu: Any, _yi: np.nda
     return max(float(floor), float(np.quantile(_null_max, 0.95)))
 
 
+def _binned_column_specs(cand_cols: list, recipes: dict) -> Optional[list]:
+    """Return one device-build spec per candidate column from its recipe, or ``None`` when any column lacks the recipe fields needed to rebuild it on device."""
+    # Every emitted feat column MUST have a recipe carrying its operand basis; if any is missing the caller falls back to
+    # the host gate (we cannot reconstruct it device-born).
+    col_specs = []
+    for c in cand_cols:
+        r = recipes.get(c) if isinstance(recipes, dict) else None
+        if not r or "group_col" not in r or "agg_col" not in r or "edges" not in r or "global" not in r:
+            return None
+        col_specs.append(
+            {
+                "name": c,
+                "group_col": r["group_col"],
+                "agg_col": r["agg_col"],
+                "stat": r.get("stat"),
+                "edges": r["edges"],
+                "global": r["global"],
+            }
+        )
+    return col_specs
+
+
 def local_mi_gate_binagg_resident(
     feat_df: pd.DataFrame,
     y: Any,
@@ -506,23 +528,9 @@ def local_mi_gate_binagg_resident(
         n = int(n_rows) if n_rows is not None else 0
     if not cand_cols or n <= 0:
         return []
-    # Every emitted feat column MUST have a recipe carrying its operand basis; if any is missing fall back to
-    # the host gate (we cannot reconstruct it device-born).
-    col_specs = []
-    for c in cand_cols:
-        r = recipes.get(c) if isinstance(recipes, dict) else None
-        if not r or "group_col" not in r or "agg_col" not in r or "edges" not in r or "global" not in r:
-            return None
-        col_specs.append(
-            {
-                "name": c,
-                "group_col": r["group_col"],
-                "agg_col": r["agg_col"],
-                "stat": r.get("stat"),
-                "edges": r["edges"],
-                "global": r["global"],
-            }
-        )
+    col_specs = _binned_column_specs(cand_cols, recipes)
+    if col_specs is None:
+        return None
 
     from ._unified_fe_gate import raw_mi_noise_floor, _coerce_y_classes
 

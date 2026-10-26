@@ -319,6 +319,18 @@ def _unwrap_selector(pre_pipeline) -> Any:
     return pre_pipeline
 
 
+_SELECTOR_KIND_BY_CLASS_NAME = {
+    "MRMR": "MRMR",
+    "BorutaShap": "BorutaShap",
+    "ShapProxiedFS": "ShapProxiedFS",
+    "ACESelector": "ACE",
+    "ForwardSelectSelector": "ForwardSelect",
+    "GreedyBackwardEliminationSelector": "GreedyBackwardElimination",
+    "ZeroImportancePruningSelector": "ZeroImportancePruning",
+    "CascadeSelectSelector": "CascadeSelect",
+}
+
+
 def _selector_kind(selector) -> str | None:
     """Classify the fitted selector as 'MRMR' / 'RFECV' / 'BorutaShap' / 'ShapProxiedFS' / 'ACE' /
     'ForwardSelect' / 'GreedyBackwardElimination' / 'ZeroImportancePruning' / 'CascadeSelect' / None.
@@ -346,24 +358,11 @@ def _selector_kind(selector) -> str | None:
     except Exception as exc:
         logger.warning("_selector_kind: type(selector).__name__ raised, cannot classify selector: %s", exc)
         return None
-    if _cls_name == "MRMR":
-        return "MRMR"
     if "RFECV" in _cls_name:
         return "RFECV"
-    if _cls_name == "BorutaShap":
-        return "BorutaShap"
-    if _cls_name == "ShapProxiedFS":
-        return "ShapProxiedFS"
-    if _cls_name == "ACESelector":
-        return "ACE"
-    if _cls_name == "ForwardSelectSelector":
-        return "ForwardSelect"
-    if _cls_name == "GreedyBackwardEliminationSelector":
-        return "GreedyBackwardElimination"
-    if _cls_name == "ZeroImportancePruningSelector":
-        return "ZeroImportancePruning"
-    if _cls_name == "CascadeSelectSelector":
-        return "CascadeSelect"
+    _kind_by_name = _SELECTOR_KIND_BY_CLASS_NAME.get(_cls_name)
+    if _kind_by_name is not None:
+        return _kind_by_name
     # Defence: the suite stamps ``_mlframe_use_sample_weights_in_fs_`` on MRMR / RFECV but not
     # BorutaShap; if the marker exists, classify via attribute shape (support_ -> selector-like).
     try:

@@ -132,6 +132,7 @@ def test_kernel_sources_have_no_bare_floating_point_type():
     """Every kernel source uses the ``{REAL}`` / ``{ACC}`` placeholders only, so the precision is chosen in one place (the contract check reads the same sources)."""
     import re
 
+    assert sp._FUSED_NAMES
     for src, _name in sp._FUSED_NAMES.values():
         assert "{REAL}" in src and "{ACC}" in src
         assert not re.search(r"\b(?:double|float)\b", src)

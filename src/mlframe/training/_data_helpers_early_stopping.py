@@ -253,6 +253,25 @@ def _cb_is_gpu(model_obj) -> bool:
         return False
 
 
+def _pop_callback_knobs(callback_params):
+    """Split the non-callback knobs out of ``callback_params``, returning ``(params, mono_patience, cap_iter, iter_stride)``.
+
+    The knobs are removed from a copy, so the caller's dict is never mutated; the UniversalCallback subclass does not accept them.
+    ``mono_patience=None`` disables the fixed-N monotonic stop, leaving the booster's native detector.
+    """
+    _mono_patience = 20
+    if isinstance(callback_params, dict) and "monotonic_decline_patience" in callback_params:
+        callback_params = dict(callback_params)
+        _mono_patience = callback_params.pop("monotonic_decline_patience")
+    _cap_iter = False
+    _iter_stride = 1
+    if isinstance(callback_params, dict) and "capture_iteration_metrics" in callback_params:
+        callback_params = dict(callback_params)
+        _cap_iter = bool(callback_params.pop("capture_iteration_metrics"))
+        _iter_stride = int(callback_params.pop("iteration_metrics_stride", 1))
+    return callback_params, _mono_patience, _cap_iter, _iter_stride
+
+
 def _setup_early_stopping_callback(model_category, fit_params, callback_params, model_obj=None):
     """Set up early stopping callback for the given model category."""
     no_callback_list_models = {"xgb", "hgb", "ngb"}
@@ -273,19 +292,7 @@ def _setup_early_stopping_callback(model_category, fit_params, callback_params, 
     # Pull the monotonic-decline patience out of callback_params (mirroring the lgb / xgb shims' own default)
     # before splatting the rest into the UniversalCallback subclass, which does not accept this kwarg.
     # ``None`` disables the fixed-N monotonic stop, leaving the booster's native detector.
-    _mono_patience = 20
-    if isinstance(callback_params, dict) and "monotonic_decline_patience" in callback_params:
-        callback_params = dict(callback_params)
-        _mono_patience = callback_params.pop("monotonic_decline_patience")
-
-    # Pull the per-iteration metric-capture knobs out before splatting callback_params into the UniversalCallback
-    # subclass (which does not accept them). Wired below for CatBoost (the lgb / xgb shims read them as fit kwargs).
-    _cap_iter = False
-    _iter_stride = 1
-    if isinstance(callback_params, dict) and "capture_iteration_metrics" in callback_params:
-        callback_params = dict(callback_params)
-        _cap_iter = bool(callback_params.pop("capture_iteration_metrics"))
-        _iter_stride = int(callback_params.pop("iteration_metrics_stride", 1))
+    callback_params, _mono_patience, _cap_iter, _iter_stride = _pop_callback_knobs(callback_params)
 
     # None on a GPU CatBoost model (no callback wired at all -- CatBoost rejects the whole list on GPU), or
     # any other category the if/elif chain below does not recognise; guarded at the bottom before use.

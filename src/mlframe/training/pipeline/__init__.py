@@ -429,7 +429,11 @@ def _scale_skip_reason(col_name, _scalar, stats_row, train_df, has_drop_nans, me
             n_non_null = col.drop_nulls().len()
     if n_non_null is None or n_non_null == 0:
         return "all-null/non-finite"
+    return _method_skip_reason(method, col_name, _scalar, stats_row, train_df, q_low, q_high)
 
+
+def _method_skip_reason(method, col_name, _scalar, stats_row, train_df, q_low, q_high):
+    """Why ``col_name`` has no spread for ``method`` (zero IQR, zero std, zero range, zero abs-max, or no quantile), or None when it does."""
     if method == "robust":
         _q_lo = _scalar(col_name, "qlo")
         _q_hi = _scalar(col_name, "qhi")

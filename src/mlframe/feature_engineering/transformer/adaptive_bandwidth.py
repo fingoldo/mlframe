@@ -69,9 +69,6 @@ def compute_adaptive_bandwidth_attention(
         validate_numeric_input(X_query, name="X_query", allow_fp16=True)
     n_train, d_input = X_train.shape
 
-    # Standardise train; refit per fold for OOF.
-    from sklearn.preprocessing import RobustScaler
-
     def _build_projections(X_fold: np.ndarray, y_fold: np.ndarray, fold_seed: int) -> np.ndarray:
         """Build the per-fold projection matrices for the requested ``projection`` mode, refit on the fold's own train rows to avoid leakage in Mode A OOF."""
         if projection == "random":
@@ -112,48 +109,53 @@ def compute_adaptive_bandwidth_attention(
         return outs
 
     if X_query is None:
-        # Mode A: OOF.
-        outputs: dict[str, np.ndarray] = {}
-        for h in range(n_heads):
-            if "y_mean" in aggregate:
-                outputs[f"y_mean_h{h}"] = np.zeros(n_train, dtype=dtype)
-            if "y_std" in aggregate:
-                outputs[f"y_std_h{h}"] = np.zeros(n_train, dtype=dtype)
-            if "x_mean" in aggregate:
-                outputs[f"x_mean_h{h}"] = np.zeros((n_train, head_dim), dtype=dtype)
+        # Mode A: OOF. Each fold refits the scaler and the projections on its own train rows.
+        outputs = _empty_outputs(n_train, n_heads, head_dim, aggregate, dtype)
         for fold_idx, (tr_idx, va_idx) in enumerate(splitter.split(X_train)):
-            X_tr = X_train[tr_idx]
-            X_va = X_train[va_idx]
             y_tr = y_train[tr_idx]
-            if standardize:
-                scaler = RobustScaler().fit(X_tr)
-                X_tr_s = scaler.transform(X_tr).astype(dtype, copy=False)
-                X_va_s = scaler.transform(X_va).astype(dtype, copy=False)
-            else:
-                X_tr_s = X_tr.astype(dtype, copy=False)
-                X_va_s = X_va.astype(dtype, copy=False)
+            X_tr_s, X_va_s = _standardise(X_train[tr_idx], [X_train[va_idx]], standardize, dtype)
             projections = _build_projections(X_tr_s, y_tr, fold_seed=seed + fold_idx)
             fold_outs = _run_attention(X_va_s, X_tr_s, y_tr, projections)
             for key, arr in fold_outs.items():
                 outputs[key][va_idx] = arr
     else:
         # Mode B: single-pass with full train.
-        if standardize:
-            scaler = RobustScaler().fit(X_train)
-            X_tr_s = scaler.transform(X_train).astype(dtype, copy=False)
-            X_q_s = scaler.transform(X_query).astype(dtype, copy=False)
-        else:
-            X_tr_s = X_train.astype(dtype, copy=False)
-            X_q_s = X_query.astype(dtype, copy=False)
+        X_tr_s, X_q_s = _standardise(X_train, [X_query], standardize, dtype)
         projections = _build_projections(X_tr_s, y_train, fold_seed=seed)
         outputs = _run_attention(X_q_s, X_tr_s, y_train, projections)
 
-    # Build polars frame.
+    return _frame_from_outputs(outputs, n_heads, aggregate, column_prefix)
+
+
+def _standardise(X_fit: np.ndarray, others: list[np.ndarray], standardize: bool, dtype: type) -> tuple[np.ndarray, ...]:
+    """``X_fit`` and each of ``others`` cast to ``dtype``, scaled by a RobustScaler fitted on ``X_fit`` when ``standardize`` is set."""
+    if not standardize:
+        return tuple(X.astype(dtype, copy=False) for X in [X_fit, *others])
+    from sklearn.preprocessing import RobustScaler
+
+    scaler = RobustScaler().fit(X_fit)
+    return tuple(scaler.transform(X).astype(dtype, copy=False) for X in [X_fit, *others])
+
+
+def _empty_outputs(n_rows: int, n_heads: int, head_dim: int, aggregate: tuple[str, ...], dtype: type) -> dict[str, np.ndarray]:
+    """Zero arrays for every requested per-head aggregate, to be filled fold by fold."""
+    outputs: dict[str, np.ndarray] = {}
+    for h in range(n_heads):
+        if "y_mean" in aggregate:
+            outputs[f"y_mean_h{h}"] = np.zeros(n_rows, dtype=dtype)
+        if "y_std" in aggregate:
+            outputs[f"y_std_h{h}"] = np.zeros(n_rows, dtype=dtype)
+        if "x_mean" in aggregate:
+            outputs[f"x_mean_h{h}"] = np.zeros((n_rows, head_dim), dtype=dtype)
+    return outputs
+
+
+def _frame_from_outputs(outputs: dict[str, np.ndarray], n_heads: int, aggregate: tuple[str, ...], column_prefix: str) -> pl.DataFrame:
+    """One polars column per (head, aggregate), with one column per dimension for the vector aggregates."""
     cols: dict[str, np.ndarray] = {}
     for h in range(n_heads):
         for agg in aggregate:
-            key = f"{agg}_h{h}"
-            _arr = outputs.get(key)
+            _arr = outputs.get(f"{agg}_h{h}")
             if _arr is None:
                 continue
             if _arr.ndim == 1:

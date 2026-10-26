@@ -106,6 +106,23 @@ class EnsembleLeaderboard:
         self.table.to_csv(path, **kwargs)
 
 
+def _flatten_leaderboard_metrics(_metrics) -> dict[str, float]:
+    """Flatten one flavour's ``{split: {metric: value}}`` mapping to ``{"split.metric": value}`` over finite numeric values, never the test split."""
+    _flat: dict[str, float] = {}
+    for _split, _split_metrics in (_metrics or {}).items():
+        if not isinstance(_split_metrics, dict):
+            continue
+        # Never the test split: this table is persisted under res["_leaderboard"] and named a ranking of
+        # flavours, so a consumer taking its top row would be selecting on test without passing through the
+        # split policy _choose_ensemble_flavour enforces.
+        if str(_split).lower() == "test":
+            continue
+        for _k, _v in _split_metrics.items():
+            if isinstance(_v, (int, float, np.floating, np.integer)) and np.isfinite(float(_v)):
+                _flat[f"{_split}.{_k}"] = float(_v)
+    return _flat
+
+
 def _build_votenrank_leaderboard_from_results(res: dict, *, is_regression: bool) -> Optional["EnsembleLeaderboard"]:
     """Construct an EnsembleLeaderboard from a `score_ensemble` result dict.
 
@@ -125,18 +142,7 @@ def _build_votenrank_leaderboard_from_results(res: dict, *, is_regression: bool)
             _metrics = _result.get("metrics") if isinstance(_result, dict) else None
         if not _metrics:
             continue
-        _flat: dict[str, float] = {}
-        for _split, _split_metrics in (_metrics or {}).items():
-            if not isinstance(_split_metrics, dict):
-                continue
-            # Never the test split: this table is persisted under res["_leaderboard"] and named a ranking of
-            # flavours, so a consumer taking its top row would be selecting on test without passing through the
-            # split policy _choose_ensemble_flavour enforces.
-            if str(_split).lower() == "test":
-                continue
-            for _k, _v in _split_metrics.items():
-                if isinstance(_v, (int, float, np.floating, np.integer)) and np.isfinite(float(_v)):
-                    _flat[f"{_split}.{_k}"] = float(_v)
+        _flat = _flatten_leaderboard_metrics(_metrics)
         if _flat:
             rows[_flavour] = _flat
     if not rows:

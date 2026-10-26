@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Any
+from typing import Any, Optional
 
 import numpy as np
 
@@ -422,6 +422,28 @@ def _try_collapse_recovery_ladder(
     return False
 
 
+def _finite_regression_target_std(train_target: Any) -> Optional[tuple[np.ndarray, float]]:
+    """Return ``(y, std)`` for a 1-D numeric regression target with at least ten finite values and non-zero spread, else ``None``."""
+    try:
+        _y = np.asarray(train_target)
+    except Exception as exc:
+        log_throttle(logger, "_training_loop_refit._maybe_refit_on_collapsed_predictions", logging.WARNING, "collapse-detector: train_target coercion failed, skipping refit-retry check: %s", exc)
+        return None
+    if _y.ndim != 1 or _y.size < 10:
+        return None
+    # Regression-only collapse detector; np.isfinite is undefined on string/object label arrays
+    # (string multiclass targets reach this guard before any numeric coercion). Skip non-numeric dtypes.
+    if not np.issubdtype(_y.dtype, np.number):
+        return None
+    _y_finite = _y[np.isfinite(_y)]
+    if _y_finite.size < 10:
+        return None
+    _y_std = float(_y_finite.std())
+    if _y_std <= 0.0:
+        return None
+    return _y, _y_std
+
+
 def _maybe_refit_on_collapsed_predictions(
     *,
     model: Any,
@@ -464,23 +486,10 @@ def _maybe_refit_on_collapsed_predictions(
       purpose; symmetric to ``_MIN_BEST_ITER_FRACTION`` gate on
       boosters).
     """
-    try:
-        _y = np.asarray(train_target)
-    except Exception as exc:
-        log_throttle(logger, "_training_loop_refit._maybe_refit_on_collapsed_predictions", logging.WARNING, "collapse-detector: train_target coercion failed, skipping refit-retry check: %s", exc)
+    _target = _finite_regression_target_std(train_target)
+    if _target is None:
         return False
-    if _y.ndim != 1 or _y.size < 10:
-        return False
-    # Regression-only collapse detector; np.isfinite is undefined on string/object label arrays
-    # (string multiclass targets reach this guard before any numeric coercion). Skip non-numeric dtypes.
-    if not np.issubdtype(_y.dtype, np.number):
-        return False
-    _y_finite = _y[np.isfinite(_y)]
-    if _y_finite.size < 10:
-        return False
-    _y_std = float(_y_finite.std())
-    if _y_std <= 0.0:
-        return False
+    _y, _y_std = _target
     # ``network_params`` lives on the Lightning estimator wrapped by
     # ``CompositeTargetEstimator`` / ``_TTRWithEvalSetScaling`` /
     # Pipeline; walk the common nesting paths to find it.

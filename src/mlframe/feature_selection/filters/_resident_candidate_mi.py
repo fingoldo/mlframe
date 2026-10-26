@@ -158,14 +158,16 @@ def _build_best_existing_op_candidates_gpu_cm(cols_arr_gpu: list, cp, out_dtype=
 
 
 _BUILD_OPCANDS_KERNELS: dict = {}
+_BUILD_OPCANDS_LOCK = threading.Lock()
 
 
 def _get_build_opcands_kernel(cp, real_t: str = "double"):
     """Lazily compile and cache the ``build_op_cands`` RawKernel for the buffer element type ``real_t`` (compiled once per type per process)."""
-    ker = _BUILD_OPCANDS_KERNELS.get(real_t)
-    if ker is None:
-        ker = cp.RawKernel(_BUILD_OPCANDS_SRC.replace("{REAL}", real_t), "build_op_cands")
-        _BUILD_OPCANDS_KERNELS[real_t] = ker
+    with _BUILD_OPCANDS_LOCK:
+        ker = _BUILD_OPCANDS_KERNELS.get(real_t)
+        if ker is None:
+            ker = cp.RawKernel(_BUILD_OPCANDS_SRC.replace("{REAL}", real_t), "build_op_cands")
+            _BUILD_OPCANDS_KERNELS[real_t] = ker
     return ker
 
 

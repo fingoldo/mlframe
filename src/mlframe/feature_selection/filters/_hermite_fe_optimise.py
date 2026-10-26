@@ -457,6 +457,37 @@ def _run_cma_search_batch(*, ca_size, cb_size, coef_range, n_trials, seed,
     return (best_coefs[0], best_coefs[1], best_idx, best_raw, n_evals)
 
 
+def _evaluate_warm_starts(warm_start_seeds, ca_size, direction_only, eval_kwargs, history, best_score, best_raw, best_idx, best_coefs, n_evals):
+    """Evaluate the canonical warm-start seeds in one batch and fold them into the running best.
+
+    Returns ``(n_evals, best_score, best_raw, best_idx, best_coefs)``. ``history`` is appended to in place when it is not None.
+    """
+    from mlframe.feature_selection.filters.hermite_fe.shared import l2_normalize_pair as _l2_normalize_pair
+
+    seeds_arr = np.stack([np.asarray(s, dtype=np.float64) for s in warm_start_seeds])
+    ws_a = seeds_arr[:, :ca_size]
+    ws_b = seeds_arr[:, ca_size:]
+    ws_scores, ws_raws, ws_idxs = _eval_coef_pair_batch(
+        ws_a, ws_b, direction_only=direction_only, **eval_kwargs,
+    )
+    n_evals += len(ws_scores)
+    for j, sc in enumerate(ws_scores):
+        if not np.isfinite(sc):
+            continue
+        if history is not None and ws_idxs[j] >= 0:
+            history.append((float(sc), float(ws_raws[j]), int(ws_idxs[j]), ws_a[j].copy(), ws_b[j].copy()))
+        if sc > best_score:
+            best_score = sc
+            best_raw = ws_raws[j]
+            best_idx = ws_idxs[j]
+            if direction_only:
+                nc_a, nc_b = _l2_normalize_pair(ws_a[j], ws_b[j])
+                best_coefs = (nc_a.copy(), nc_b.copy())
+            else:
+                best_coefs = (ws_a[j].copy(), ws_b[j].copy())
+    return n_evals, best_score, best_raw, best_idx, best_coefs
+
+
 def _run_random_batch_search(*, ca_size, cb_size, coef_range, n_trials, seed,
                                direction_only, warm_start_seeds, eval_kwargs,
                                batch_size: int = 20,
@@ -492,29 +523,10 @@ def _run_random_batch_search(*, ca_size, cb_size, coef_range, n_trials, seed,
     sigma = perturb_sigma_frac * (coef_range[1] - coef_range[0])
     n_iters = max(1, int(np.ceil(n_trials / max(1, batch_size))))
 
-    # Warm-start: evaluate canonical seeds in one batch first.
     if warm_start_seeds:
-        seeds_arr = np.stack([np.asarray(s, dtype=np.float64) for s in warm_start_seeds])
-        ws_a = seeds_arr[:, :ca_size]
-        ws_b = seeds_arr[:, ca_size:]
-        ws_scores, ws_raws, ws_idxs = _eval_coef_pair_batch(
-            ws_a, ws_b, direction_only=direction_only, **eval_kwargs,
+        n_evals, best_score, best_raw, best_idx, best_coefs = _evaluate_warm_starts(
+            warm_start_seeds, ca_size, direction_only, eval_kwargs, history, best_score, best_raw, best_idx, best_coefs, n_evals,
         )
-        n_evals += len(ws_scores)
-        for j, sc in enumerate(ws_scores):
-            if not np.isfinite(sc):
-                continue
-            if track_history and ws_idxs[j] >= 0:
-                history.append((float(sc), float(ws_raws[j]), int(ws_idxs[j]), ws_a[j].copy(), ws_b[j].copy()))  # type: ignore[union-attr]  # guarded by track_history, which is True exactly when history was allocated non-None
-            if sc > best_score:
-                best_score = sc
-                best_raw = ws_raws[j]
-                best_idx = ws_idxs[j]
-                if direction_only:
-                    nc_a, nc_b = _l2_normalize_pair(ws_a[j], ws_b[j])
-                    best_coefs = (nc_a.copy(), nc_b.copy())
-                else:
-                    best_coefs = (ws_a[j].copy(), ws_b[j].copy())
 
     for _it in range(n_iters):
         if n_evals >= n_trials:

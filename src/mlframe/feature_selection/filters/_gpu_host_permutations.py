@@ -61,17 +61,15 @@ def host_permuted_y_batch(classes_y: np.ndarray, base_seed: object, first_perm: 
         if hit is not None:
             _HOST_CACHE.move_to_end(key)
             return hit
-    with parallel_kernel_entry():
-        out = np.asarray(_lcg_permuted_y_batch_kernel(y, seed, np.int64(first_perm), np.int64(count)))
-    out.flags.writeable = False
-    if out.nbytes <= HOST_PERM_CACHE_BYTES:
-        with _CACHE_LOCK:
-            if key not in _HOST_CACHE:
-                _HOST_CACHE[key] = out
-                _HOST_CACHE_BYTES += out.nbytes
-                while _HOST_CACHE_BYTES > HOST_PERM_CACHE_BYTES and len(_HOST_CACHE) > 1:
-                    _, dropped = _HOST_CACHE.popitem(last=False)
-                    _HOST_CACHE_BYTES -= dropped.nbytes
+        with parallel_kernel_entry():
+            out = np.asarray(_lcg_permuted_y_batch_kernel(y, seed, np.int64(first_perm), np.int64(count)))
+        out.flags.writeable = False
+        if out.nbytes <= HOST_PERM_CACHE_BYTES and key not in _HOST_CACHE:
+            _HOST_CACHE[key] = out
+            _HOST_CACHE_BYTES += out.nbytes
+            while _HOST_CACHE_BYTES > HOST_PERM_CACHE_BYTES and len(_HOST_CACHE) > 1:
+                _, dropped = _HOST_CACHE.popitem(last=False)
+                _HOST_CACHE_BYTES -= dropped.nbytes
     return out
 
 
@@ -89,9 +87,8 @@ def device_array_cached(cp, host: np.ndarray):
         if hit is not None and hit[0] is host:
             _DEVICE_CACHE.move_to_end(key)
             return hit[1]
-    dev = cp.asarray(host)
-    cp.cuda.get_current_stream().synchronize()
-    with _CACHE_LOCK:
+        dev = cp.asarray(host)
+        cp.cuda.get_current_stream().synchronize()
         if key not in _DEVICE_CACHE:
             _DEVICE_CACHE[key] = (host, dev)  # holding the host array keeps its id from being reused
             _DEVICE_CACHE_BYTES += host.nbytes

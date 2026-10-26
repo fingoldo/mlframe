@@ -361,7 +361,8 @@ def _block_cols_for(n_used: int, p: int) -> int:
         import psutil
 
         free = int(psutil.virtual_memory().available)
-    except Exception:  # nosec B110 - psutil is optional; fall back to the fixed block width
+    except Exception as exc:
+        logger.warning("_block_cols_for: psutil free-RAM probe failed (%s); using the fixed block width %d", exc, BLOCK_COLS)
         return int(min(BLOCK_COLS, p))
     fit = int(free * BLOCK_RAM_FRACTION // (2 * max(1, n_used)))
     return int(max(16, min(BLOCK_COLS, fit, p)))
@@ -448,7 +449,8 @@ def _fused_gpu_available() -> bool:
         import cupy as cp
 
         return int(cp.cuda.runtime.getDeviceCount()) > 0
-    except Exception:  # nosec B110 - no cupy or no device: the CPU kernel serves
+    except Exception as exc:
+        logger.warning("_fused_gpu_available: no usable CUDA device (%s); the CPU kernel serves", exc)
         return False
 
 
