@@ -125,7 +125,6 @@
   "src/mlframe/training/cb/_cb_pool.py::_maybe_rewrite_eval_set_as_cb_pool": 17,
   "src/mlframe/training/composite/discovery/_auto_base.py::_auto_base_step1_requires_mi_mean": 17,
   "src/mlframe/training/composite/discovery/_auto_base.py::_auto_base_step2_getattr_self_config": 16,
-  "src/mlframe/training/composite/discovery/_honest_rmse_gate.py::apply_honest_rmse_gate": 24,
   "src/mlframe/training/composite/discovery/_tiny_rerank_waic.py::_apply_waic_tiebreak": 17,
   "src/mlframe/training/composite/discovery/auto_detect.py::detect_time_column_candidates": 18,
   "src/mlframe/training/composite/ensemble/__init__.py::_oof_holdout_predic_fold_train_idx_fold": 20,
