@@ -6,6 +6,8 @@ reproduces the same estimate (same scaling, same Kraskov noise drawn from the sa
 
 from __future__ import annotations
 
+from typing import cast
+
 import numpy as np
 from numba import njit, prange
 
@@ -111,4 +113,4 @@ def ksg_mi_discrete_target(X: np.ndarray, y: np.ndarray, *, n_neighbors: int, ra
     X += 1e-10 * means * rng.standard_normal(size=(n, X.shape[1]))
     _, d = np.unique(np.asarray(y).ravel(), return_inverse=True)
     d = np.ascontiguousarray(d, dtype=np.int64)
-    return _mi_cd_columns(np.ascontiguousarray(X), d, int(d.max()) + 1 if d.size else 0, int(n_neighbors))
+    return cast(np.ndarray, _mi_cd_columns(np.ascontiguousarray(X), d, int(d.max()) + 1 if d.size else 0, int(n_neighbors)))
