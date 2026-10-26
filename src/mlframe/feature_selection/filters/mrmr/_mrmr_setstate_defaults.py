@@ -83,7 +83,7 @@ _SETSTATE_LEGACY_DEFAULTS = {
     "fe_hybrid_orth_triplet_enable": False,
     "fe_hybrid_orth_triplet_max_degree": 1,
     "fe_hybrid_orth_triplet_seed_k": 4,
-    "fe_hybrid_orth_triplet_top_count": 2,
+    "fe_hybrid_orth_triplet_top_count": 8,
     # quadruplet (4-way) cross-basis FE defaults.
     # Master switch OFF preserves legacy pickle byte-equivalence.
     "fe_hybrid_orth_quadruplet_enable": False,

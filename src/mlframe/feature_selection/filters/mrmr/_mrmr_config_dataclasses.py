@@ -151,7 +151,7 @@ class HybridOrthConfig(_MRMRSubConfig):
     triplet_enable: bool = True
     triplet_max_degree: int = Field(default=1, ge=1)
     triplet_seed_k: int = Field(default=4, ge=1)
-    triplet_top_count: int = Field(default=2, ge=1)
+    triplet_top_count: int = Field(default=8, ge=1)
 
     quadruplet_enable: bool = True
     quadruplet_max_degree: int = Field(default=1, ge=1)
