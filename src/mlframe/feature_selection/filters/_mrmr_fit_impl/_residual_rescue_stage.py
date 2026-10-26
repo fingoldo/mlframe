@@ -212,9 +212,21 @@ def _unsupported_columns(self, design: dict, y, raw_cols, residual_rescue) -> "l
     pruned: "list[str]" = _exact_copies_of_raws(design, raw_cols)
     # Every leave-one-out subset below is a subset of ``design``, so its per-column coding and standardisation are computed once here.
     pre = design_precompute(design, len(y))
-    for name in list(design):
-        if name in pruned:
-            continue
+    # Weakest first: a single sweep in design order let whichever of two equally informative columns came first go, and the survivor was then whichever came last (a junk compound that
+    # recodes the same categorical kept over its dedicated target encoding). Each column is scored against all the others once (t, not just its sign) and the weakest are judged first;
+    # ties go to the column built from more operands. Every verdict is still taken against the design as it stands when the column is judged.
+    def _strength(name):
+        """Sort key of a design column: its held-out t statistic against all the others (raws sort last), then fewer-operands-last."""
+        if name in raw_cols:
+            return (float("inf"), 0)
+        rest_all = {k: v for k, v in design.items() if k != name and k not in pruned}
+        if not rest_all:
+            return (float("inf"), 0)
+        got = residual_rescue(rest_all, {name: design[name]}, y, alpha=0.999, min_relative_gain=0.0, max_admit=1, precomputed=pre)
+        return (float(got[0][1]) if got else float("-inf"), -len(_raw_sources(name, raw_cols)))
+
+    strength = {name: _strength(name) for name in design if name not in pruned}
+    for name in sorted(strength, key=strength.__getitem__):
         rest = {k: v for k, v in design.items() if k != name and k not in pruned}
         if not rest:
             continue
