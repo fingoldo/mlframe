@@ -245,12 +245,12 @@ def _quadruplet_device_col_specs(eng_columns, raw_cols):
     specs = []
     raw_set = set(raw_cols)
     for name in eng_columns:
-        head = name.split("__", 1)[0] if "__" in name else name
+        head = name.rsplit("__", 1)[0] if "__" in name else name
         legs = head.split("*")
         if len(legs) != 4 or any(leg not in raw_set for leg in legs):
             return None
         try:
-            suffix = name.split("__", 1)[1]
+            suffix = name.rsplit("__", 1)[1]
             parts = suffix.split("_")
         except (ValueError, IndexError) as _exc:
             logger.debug("_quadruplet_device_col_specs fell back to its default after %s", type(_exc).__name__)
@@ -310,7 +310,7 @@ def score_quadruplet_cross_basis_by_mi_uplift(
     rows = []
     for j, eng_name in enumerate(engineered_X.columns):
         # parse "{col_i}*{col_j}*{col_k}*{col_l}__..."
-        head = eng_name.split("__", 1)[0] if "__" in eng_name else eng_name
+        head = eng_name.rsplit("__", 1)[0] if "__" in eng_name else eng_name
         legs = head.split("*")
         if len(legs) != 4:
             # Not a quadruplet column - skip (triplet/pair/univariate output
@@ -532,12 +532,12 @@ def hybrid_orth_mi_quadruplet_fe_with_recipes(
 
     recipes = []
     for name in appended:
-        head = name.split("__", 1)[0]
+        head = name.rsplit("__", 1)[0]
         legs = head.split("*")
         if len(legs) == 4:
             # quadruplet cross: "{i}*{j}*{k}*{l}__{code_a}{deg_a}_{code_b}{deg_b}_{code_c}{deg_c}_{code_d}{deg_d}"
             try:
-                suffix = name.split("__", 1)[1]
+                suffix = name.rsplit("__", 1)[1]
                 parts = suffix.split("_")
             except (ValueError, IndexError):
                 log_throttle(
@@ -608,7 +608,7 @@ def hybrid_orth_mi_quadruplet_fe_with_recipes(
         elif len(legs) == 1:
             # univariate: "{col}__{code}{degree}"
             src = legs[0]
-            suffix = name.split("__", 1)[1] if "__" in name else ""
+            suffix = name.rsplit("__", 1)[1] if "__" in name else ""
             chosen_basis, chosen_degree = parse_code_deg_with_basis(suffix)
             if chosen_basis is None or chosen_degree is None:
                 log_throttle(

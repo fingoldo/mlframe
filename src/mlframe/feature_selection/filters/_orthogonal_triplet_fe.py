@@ -298,12 +298,12 @@ def _triplet_device_col_specs(eng_columns, raw_cols):
     specs = []
     raw_set = set(raw_cols)
     for name in eng_columns:
-        head = name.split("__", 1)[0] if "__" in name else name
+        head = name.rsplit("__", 1)[0] if "__" in name else name
         legs = head.split("*")
         if len(legs) != 3 or any(leg not in raw_set for leg in legs):
             return None
         try:
-            suffix = name.split("__", 1)[1]
+            suffix = name.rsplit("__", 1)[1]
             parts = suffix.split("_")
         except (ValueError, IndexError) as _exc:
             logger.debug("_triplet_device_col_specs fell back to its default after %s", type(_exc).__name__)
@@ -363,7 +363,7 @@ def score_triplet_cross_basis_by_cmi(
     raw_codes = {c: _quantile_codes(raw_X[c].to_numpy(dtype=_crit_np_dtype()), nbins) for c in raw_X.columns}
     legs_of = {}
     for eng_name in engineered_X.columns:
-        head = eng_name.split("__", 1)[0] if "__" in eng_name else eng_name
+        head = eng_name.rsplit("__", 1)[0] if "__" in eng_name else eng_name
         legs = head.split("*")
         if len(legs) == 3 and all(leg in raw_codes for leg in legs):
             legs_of[eng_name] = legs
@@ -457,7 +457,7 @@ def score_triplet_cross_basis_by_mi_uplift(
     rows = []
     for j, eng_name in enumerate(engineered_X.columns):
         # parse "{col_i}*{col_j}*{col_k}__..."
-        head = eng_name.split("__", 1)[0] if "__" in eng_name else eng_name
+        head = eng_name.rsplit("__", 1)[0] if "__" in eng_name else eng_name
         legs = head.split("*")
         if len(legs) != 3:
             # Not a triplet column - skip (pair/univariate output mistakenly
@@ -772,12 +772,12 @@ def _triplet_recipe_for_name(name: str, X: pd.DataFrame, basis: str) -> Optional
         build_orth_triplet_cross_recipe,
     )
 
-    head = name.split("__", 1)[0]
+    head = name.rsplit("__", 1)[0]
     legs = head.split("*")
     if len(legs) == 3:
         # triplet cross: "{col_i}*{col_j}*{col_k}__{code_a}{deg_a}_{code_b}{deg_b}_{code_c}{deg_c}"
         try:
-            suffix = name.split("__", 1)[1]
+            suffix = name.rsplit("__", 1)[1]
             parts = suffix.split("_")
         except (ValueError, IndexError):
             log_throttle(
@@ -854,7 +854,7 @@ def _triplet_recipe_for_name(name: str, X: pd.DataFrame, basis: str) -> Optional
     elif len(legs) == 1:
         # univariate: "{col}__{code}{degree}"
         src = legs[0]
-        suffix = name.split("__", 1)[1] if "__" in name else ""
+        suffix = name.rsplit("__", 1)[1] if "__" in name else ""
         chosen_basis, chosen_degree = parse_code_deg_with_basis(suffix)
         if chosen_basis is None or chosen_degree is None:
             log_throttle(
