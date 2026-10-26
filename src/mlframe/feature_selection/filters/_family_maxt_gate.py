@@ -242,12 +242,17 @@ def family_null_max(cols: np.ndarray, n_x: np.ndarray, y: np.ndarray, n_y: int, 
     # the same order either way, so the decisions do not depend on the path.
     from ._fe_gpu_strict import fe_gpu_strict_enabled
     from ._family_maxt_cuda import device_supported, family_null_max_device
+    from ._gpu_policy import gpu_globally_disabled
 
     # Size-gated device dispatch: the null costs B*K*n count updates, so a large family goes to the device even outside STRICT (the
     # pair family gate runs 9999 permutations; on the CPU an n=30000 fit exceeded the 600 s test watchdog). The floor is a measured
     # crossover on the dev GPU and belongs in the kernel-tuning cache; TODO(KTC).
     _work = int(n_perm) * int(cols.shape[0]) * int(y.shape[0])
-    if fe_gpu_strict_enabled():
+    if gpu_globally_disabled():
+        # MLFRAME_DISABLE_GPU=1 / CUDA_VISIBLE_DEVICES="" is the project-wide "no GPU on this run": it wins over STRICT and over the tuned backend choice (the tuned choice was "device" on this
+        # host and a "pure CPU" fit still ran the null on the GPU, 3.2 s of device work in the CPU-mode profile).
+        want_device = False
+    elif fe_gpu_strict_enabled():
         want_device = True
     else:
         want_device = _family_null_backend(int(y.shape[0]), int(cols.shape[0]), _work) == "device"
