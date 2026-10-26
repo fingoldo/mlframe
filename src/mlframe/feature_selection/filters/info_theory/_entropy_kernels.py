@@ -556,6 +556,58 @@ def _cmi_miller_madow_bias(factors_data, x, y, z, factors_nbins, dtype) -> float
 
 
 @njit(cache=True)
+def _cmi_entropy_z(factors_data, z, factors_nbins, dtype, entropy_cache) -> float:
+    """``H(Z)``, memoised in ``entropy_cache`` under the sorted ``z`` key when a cache is supplied."""
+    key_z = ""
+    if entropy_cache is not None:
+        key_z = arr2str(sorted(z))
+        cached_z: float = entropy_cache.get(key_z, -1)
+        if cached_z >= 0:
+            return cached_z
+    _, freqs_z, _ = merge_vars(
+        factors_data=factors_data,
+        vars_indices=z,
+        var_is_nominal=None,
+        factors_nbins=factors_nbins,
+        dtype=dtype,
+    )
+    entropy_z: float = entropy(freqs=freqs_z)
+    if entropy_cache is not None:
+        entropy_cache[key_z] = entropy_z
+    return entropy_z
+
+
+@njit(cache=True)
+def _cmi_entropy_xz(factors_data, x, z, factors_nbins, dtype, entropy_cache, can_use_x_cache) -> float:
+    """``H(X, Z)`` via the fused freqs-only melt, memoised under the sorted ``X u Z`` key when ``can_use_x_cache`` allows it."""
+    indices = unpack_and_sort(x, z)
+    key_xz = ""
+    if can_use_x_cache and entropy_cache is not None:
+        key_xz = arr2str(indices)
+        cached_xz: float = entropy_cache.get(key_xz, -1)
+        if cached_xz >= 0:
+            return cached_xz
+    # Fused freqs-only melt: the H(X,Z) path discards merge_vars' final_classes relabel array; compute
+    # entropy straight from the pruned joint freqs (bit-identical, ~5-6x on the common 2-var X u Z union).
+    entropy_xz: float = _entropy_xz_fused(factors_data, indices, factors_nbins, dtype)
+    if can_use_x_cache and entropy_cache is not None:
+        entropy_cache[key_xz] = entropy_xz
+    return entropy_xz
+
+
+@njit(cache=True)
+def _cmi_finalise(res: float, use_mm: bool, factors_data, x, y, z, factors_nbins, dtype) -> float:
+    """Floor the CMI at zero and, when ``use_mm``, subtract the Miller-Madow bias before flooring again."""
+    if res < 0.0:
+        res = 0.0
+    if use_mm:
+        res = res - _cmi_miller_madow_bias(factors_data, x, y, z, factors_nbins, dtype)
+        if res < 0.0:
+            res = 0.0
+    return res
+
+
+@njit(cache=True)
 def conditional_mi(
     factors_data: np.ndarray,
     x: np.ndarray,
@@ -581,38 +633,14 @@ def conditional_mi(
 
     Each cache branch owns its own key local (``key_z`` / ``key_xz`` / ``key_yz`` / ``key_xyz``) to avoid cross-branch aliasing.
     """
-    key_z = ""
-    key_xz = ""
     key_yz = ""
     key_xyz = ""
 
     if entropy_z < 0:
-        if entropy_cache is not None:
-            key_z = arr2str(sorted(z))
-            entropy_z = entropy_cache.get(key_z, -1)
-        if entropy_z < 0:
-            _, freqs_z, _ = merge_vars(
-                factors_data=factors_data,
-                vars_indices=z,
-                var_is_nominal=None,
-                factors_nbins=factors_nbins,
-                dtype=dtype,
-            )
-            entropy_z = entropy(freqs=freqs_z)
-            if entropy_cache is not None:
-                entropy_cache[key_z] = entropy_z
+        entropy_z = _cmi_entropy_z(factors_data, z, factors_nbins, dtype, entropy_cache)
 
     if entropy_xz < 0:
-        indices = unpack_and_sort(x, z)
-        if can_use_x_cache and entropy_cache is not None:
-            key_xz = arr2str(indices)
-            entropy_xz = entropy_cache.get(key_xz, -1)
-        if entropy_xz < 0:
-            # Fused freqs-only melt: the H(X,Z) path discards merge_vars' final_classes relabel array; compute
-            # entropy straight from the pruned joint freqs (bit-identical, ~5-6x on the common 2-var X u Z union).
-            entropy_xz = _entropy_xz_fused(factors_data, indices, factors_nbins, dtype)
-            if can_use_x_cache and entropy_cache is not None:
-                entropy_cache[key_xz] = entropy_xz
+        entropy_xz = _cmi_entropy_xz(factors_data, x, z, factors_nbins, dtype, entropy_cache, can_use_x_cache)
 
     current_nclasses_yz = 1
     if can_use_y_cache:
@@ -677,11 +705,5 @@ def conditional_mi(
             if entropy_cache is not None and can_use_y_cache and can_use_x_cache:
                 entropy_cache[key_xyz] = entropy_xyz
 
-    res = entropy_xz + entropy_yz - entropy_z - entropy_xyz
-    if res < 0.0:
-        res = 0.0
-    if use_mm:
-        res = res - _cmi_miller_madow_bias(factors_data, x, y, z, factors_nbins, dtype)
-        if res < 0.0:
-            res = 0.0
+    res: float = _cmi_finalise(entropy_xz + entropy_yz - entropy_z - entropy_xyz, use_mm, factors_data, x, y, z, factors_nbins, dtype)
     return res

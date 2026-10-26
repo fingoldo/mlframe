@@ -83,7 +83,6 @@
   "src/mlframe/feature_selection/filters/info_theory/_batch_kernels_v3.py::_observed_column": 17,
   "src/mlframe/feature_selection/filters/info_theory/_batch_kernels_v3.py::_perm_failcount_codes": 17,
   "src/mlframe/feature_selection/filters/info_theory/_cmi_cuda.py::_should_use_cuda": 19,
-  "src/mlframe/feature_selection/filters/info_theory/_entropy_kernels.py::conditional_mi": 24,
   "src/mlframe/feature_selection/filters/info_theory/_group_mi.py::_group_blocked_mi": 18,
   "src/mlframe/feature_selection/shap_proxied_fs/_shap_proxy_interaction_proxy.py::interaction_proxy_top_n": 18,
   "src/mlframe/feature_selection/shap_proxied_fs/_shap_proxy_revalidate/_shap_proxy_loss.py::_honest_loss": 17,
