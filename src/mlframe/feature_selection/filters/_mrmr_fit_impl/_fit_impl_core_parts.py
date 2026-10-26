@@ -746,6 +746,7 @@ def _fit_impl_part2(
     from ._fe_stage_temporal_agg import _fe_stage_temporal_agg
 
     X = _fe_stage_temporal_agg(self, X, _y_np, verbose, recipes.temporal_agg, _fe_family_on=_fe_family_on)
+    getattr(_fe_family_on, "close_lap", lambda: None)()
 
     # ACCURACY GATE (default ON via ``fe_accuracy_gate``). The MI-uplift gates inside the FE generators are fooled by plug-in MI's bias inflation: a Fourier / chirp / Hermite transform of a strong RAW signal earns an inflated MI estimate and out-ranks (then evicts) the raw column even when it adds NO real predictive value. The adaptive-Fourier PROTECTION block at support-finalisation then force-readds those hijackers past the MRMR screen, so they survive into support_ AND leak into ``hybrid_orth_features_`` / ``_adaptive_fourier_features_`` even when a genuine raw signal (or its is_missing__ MNAR indicator) carries the information. This gate runs a held-out multivariate linear-probe uplift check per engineered column against its raw source: a column that adds no held-out uplift over its source - or whose source is >2%-missing (MNAR fail-closed, the signal lives in the NaN pattern the probe cannot see) - is dropped here so it can neither evict the raw signal nor leak into the roster. Only orth_* engineered columns with a single resolvable raw source are gated; the is_missing__ / missingness_* indicators are exempt by construction (their recipes live in ``_miss_*_pre_recipes``, never ``_hybrid_orth_pre_recipes``, so they are never routed here). y is read only at fit; transform replays the survivors without y. Best-effort: any failure falls back to keeping the column.
     from mlframe.feature_selection.filters._mrmr_fit_impl._fit_impl_stages._engineered_gates import _gate_engineered_accuracy
@@ -826,6 +827,10 @@ def _fit_impl_part1(_replay_from_fit_cache: Any, self: Any, _cache_key: Any, fe:
             return True
         return bool((timer() - start_time) / 60.0 < self.max_runtime_mins)
 
+    from .._fe_family_timing import FamilyLapTimer as _FamilyLapTimer
+
+    _fe_lap = _FamilyLapTimer()
+
     def _fe_family_on(flag: str, default: bool = False) -> bool:
         """True iff the family's own ``fe_*_enable`` flag is set AND this fit has an FE budget.
 
@@ -837,7 +842,9 @@ def _fit_impl_part1(_replay_from_fit_cache: Any, self: Any, _cache_key: Any, fe:
         engineered columns into fits that had explicitly asked for none. The wall-clock budget is part of the same question: ``_fe_budget_ok``
         used to be consulted at 4 of the ~35 cascade stages, so a spent ``max_runtime_mins`` still let the other ~31 families start.
         """
-        return bool(getattr(self, flag, default)) and int(getattr(self, "fe_max_steps", 0) or 0) > 0 and _fe_budget_ok()
+        return _fe_lap.gate(flag, bool(getattr(self, flag, default)) and int(getattr(self, "fe_max_steps", 0) or 0) > 0 and _fe_budget_ok())
+
+    _fe_family_on.close_lap = _fe_lap.close  # type: ignore[attr-defined]
 
     dtype = self.dtype
 

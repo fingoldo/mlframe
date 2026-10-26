@@ -398,7 +398,9 @@ def generate_target_aware_group_bins(
                         edges = _fit_group_edges(x[tr], y_arr[tr], n_bins)
                     else:
                         edges = fold_global_edges
-                    oof_bin[te] = np.searchsorted(edges, x[te], side="right")
+                    # Position inside the group's own cells (0..1), not the raw cell index: MDLP cuts a different number of times in different groups (extra cuts inside a mode
+                    # on noisy labels), so index k means "high mode" in a one-cut group and "middle of the low mode" in a four-cut one.
+                    oof_bin[te] = np.searchsorted(edges, x[te], side="right") / max(1, int(edges.size))
 
             # ---- All-rows refit edges for the persisted recipe ----
             group_edges: dict[str, list] = {}
@@ -424,9 +426,10 @@ def generate_target_aware_group_bins(
     return enc_df, raw_recipes
 
 def apply_target_aware_group_bin(X_test: pd.DataFrame, recipe: dict) -> np.ndarray:
-    """Replay a target-aware group bin index from the stored per-group edges,
+    """Replay a target-aware group bin position from the stored per-group edges,
     reading only ``X_test``. Each row maps its value through ``searchsorted`` on
-    its group's stored edges; unseen groups use the pooled global edges.
+    its group's stored edges, divided by the number of edges (position 0..1 inside the
+    group's own cells); unseen groups use the pooled global edges.
     """
     if not isinstance(X_test, pd.DataFrame):
         raise TypeError(f"apply_target_aware_group_bin: X_test must be a DataFrame; got " f"{type(X_test).__name__}")
@@ -450,7 +453,7 @@ def apply_target_aware_group_bin(X_test: pd.DataFrame, recipe: dict) -> np.ndarr
             else:
                 edges = global_edges
             cache[key] = edges
-        out[rows] = np.searchsorted(edges, x[rows], side="right")
+        out[rows] = np.searchsorted(edges, x[rows], side="right") / max(1, int(edges.size))
     return np.nan_to_num(out, nan=0.0)
 
 # ---------------------------------------------------------------------------

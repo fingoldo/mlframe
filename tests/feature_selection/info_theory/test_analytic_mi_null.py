@@ -252,7 +252,8 @@ def test_analytic_batch_noise_gate_vectorised_matches_scalar_loop():
         bx = rng.integers(1, 15, K)  # 1 -> df=0 edge
         got = analytic_batch_noise_gate(None, observed.copy(), np.arange(by), n, min_conf, bx_per_col=bx.copy())
         exp = _scalar_gate(observed, by, n, min_conf, bx)
-        assert np.array_equal(got, exp), f"vectorised gate diverged (K={K}, n={n}, by={by})"
+        # the vectorised gate returns the crit dtype (float32 by default): the float64 scalar loop is rounded the same way
+        assert np.array_equal(got, exp.astype(got.dtype)), f"vectorised gate diverged (K={K}, n={n}, by={by})"
 
 
 def test_occupied_bins_per_col_rowchunk_parallel_matches_np_unique():

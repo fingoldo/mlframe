@@ -300,7 +300,7 @@ def _dispatch_batch_mi_with_noise_gate_impl_part1(
     if int(npermutations) > 0 and not use_su:
         try:
             from .._analytic_mi_null import (
-                analytic_batch_noise_gate, analytic_null_enabled, analytic_null_applicable,
+                analytic_batch_noise_gate, analytic_null_enabled, analytic_null_applicable, pair_gate_min_n,
             )
             # Candidates are quantised to ``quantization_nbins`` (low, fixed cardinality); each column's
             # OCCUPIED bins are <= that, so checking applicability with the declared count + occupied y
@@ -315,7 +315,7 @@ def _dispatch_batch_mi_with_noise_gate_impl_part1(
             # recomputed on every per-pair-batch analytic-gate dispatch (~1000x cheaper/call).
             _by_occ = int(np.count_nonzero(freqs_y))
             _an_ok = analytic_null_enabled() and analytic_null_applicable(
-                int(n), int(quantization_nbins), _by_occ,
+                int(n), int(quantization_nbins), _by_occ, min_n=pair_gate_min_n(),
             )
         except Exception as e:
             log_throttle(_module_logger, "pairs_dispatch_analytic_applicability", logging.WARNING, "analytic_null applicability check failed, skipping the analytic gate: %s", e)
@@ -339,7 +339,7 @@ def _dispatch_batch_mi_with_noise_gate_impl_part1(
                     classes_dtype=_fe_classes_dtype(disc_2d.dtype, factors_nbins),
                 )
                 return True, (analytic_batch_noise_gate(
-                    disc_2d, _observed, classes_y, int(n), float(min_nonzero_confidence), by=_by_occ,
+                    disc_2d, _observed, classes_y, int(n), float(min_nonzero_confidence), by=_by_occ, min_n=pair_gate_min_n(),
                 ))
             except Exception as _an_exc:  # any failure -> fall through to the permutation path
                 # The analytic and permutation gates are two APPROXIMATIONS of the same null, not the same

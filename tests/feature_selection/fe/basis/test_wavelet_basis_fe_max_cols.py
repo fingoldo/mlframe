@@ -42,8 +42,8 @@ def test_max_cols_zero_emits_no_wavelet_columns():
 
 
 def test_max_cols_bounds_which_columns_get_legs():
-    """Only f0 carries a real localized step; with a cap of 1 (only column index 0 = 'f0' eligible),
-    no OTHER column may ever get a wavelet leg regardless of its own structure."""
+    """f0 and f3 both carry a localized step; with a cap of 1 only the single most relevant column is eligible,
+    so legs come from at most one source column."""
     n = 1200
     rng = np.random.default_rng(5)
     X = pd.DataFrame({f"f{i}": rng.uniform(-1, 1, n) for i in range(4)})
@@ -51,7 +51,7 @@ def test_max_cols_bounds_which_columns_get_legs():
     y = (X["f0"] > 0.3).astype(float) + (X["f3"] < -0.3).astype(float) + 0.05 * rng.standard_normal(n)
     _eng, meta = generate_wavelet_features(X, y=y, cols=list(X.columns), max_cols=1)
     sources = {m["src"] for m in meta.values()}
-    assert sources.issubset({"f0"}), f"wavelet leg leaked past the column cap: {sources}"
+    assert len(sources) == 1 and sources <= {"f0", "f3"}, f"wavelet leg leaked past the column cap: {sources}"
 
 
 def test_max_cols_unbounded_can_select_a_later_column():

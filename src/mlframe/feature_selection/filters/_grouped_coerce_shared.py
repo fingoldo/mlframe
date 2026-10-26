@@ -15,26 +15,26 @@ import pandas as pd
 
 
 def broadcast_lookup(g_keys: np.ndarray, lookup: dict, glob: float) -> np.ndarray:
-    """Map each row's group key through ``lookup`` (str-keyed), unseen -> ``glob``.
+    """Map each row's group key through ``lookup`` (str-keyed), unseen -> ``glob``; the result is NaN-scrubbed to ``glob``.
 
-    Group columns are low-cardinality, so the ``str(key)`` + ``dict.get`` is resolved once per UNIQUE key
-    (``np.unique(return_inverse=True)``) and broadcast back via the inverse index, not once per row --
-    the per-row listcomp form was a Layer-88 hotspot. Bit-identical to the per-row mapping (same
-    ``str()``+``get`` per distinct key). Falls back to a per-row mapping on the ``TypeError``/``ValueError``
-    ``np.unique`` raises for unorderable mixed-type objects. Shared by the grouped_quantile_fe /
-    group_distance_fe pair."""
+    Group columns are low-cardinality, so the ``str(key)`` + ``dict.get`` is resolved once per DISTINCT key and broadcast back by code, not once per row (the per-row listcomp
+    form was a Layer-88 hotspot); output element for element equal to the per-row mapping. The distinct keys come from a hash-based ``pd.factorize``: the sort-based ``np.unique``
+    sorted all n string keys on every one of the (group, column, stat) calls (7.6 ms each at n=20000) and refuses unorderable mixed-type keys. NaN and None factorize into one
+    category but ``str()`` tells them apart ('nan' vs 'None'), so missing rows are mapped one by one; there are few. Shared by grouped_agg_fe, grouped_quantile_fe and group_distance_fe."""
     g_keys = np.asarray(g_keys)
-    try:
-        uniq, inverse = np.unique(g_keys, return_inverse=True)
-        inverse = np.asarray(inverse).reshape(-1)
+    missing = np.asarray(pd.isna(g_keys), dtype=bool)
+    out = np.empty(g_keys.shape[0], dtype=_crit_np_dtype())
+    present = ~missing
+    if present.any():
+        codes, uniq = pd.factorize(g_keys[present])
         uniq_vals = np.array([lookup.get(str(_k), glob) for _k in uniq], dtype=_crit_np_dtype())
-        out = uniq_vals[inverse]
-    except (TypeError, ValueError):
-        out = np.array([lookup.get(str(_k), glob) for _k in g_keys], dtype=_crit_np_dtype())
+        out[present] = uniq_vals[codes]
+    for i in np.flatnonzero(missing):
+        out[i] = lookup.get(str(g_keys[i]), glob)
     return cast("np.ndarray", np.nan_to_num(out, nan=glob, posinf=glob, neginf=glob))
 
 
-def auto_detect_num_cols_plain(X: pd.DataFrame, group_cols: "list | tuple | set", max_cols: int = 8) -> list:
+def auto_detect_num_cols_plain(X: pd.DataFrame, group_cols: "list | tuple | set", max_cols: int = 32) -> list:
     """Pick up to ``max_cols`` numeric candidate columns excluding ``group_cols``: all float columns
     qualify, integer columns only if high-cardinality (>500 uniques, i.e. not really categorical). No
     ``grp``-prefix exclusion -- shared by the group_distance_fe / composite_group_agg_fe pair."""
@@ -54,7 +54,7 @@ def auto_detect_num_cols_plain(X: pd.DataFrame, group_cols: "list | tuple | set"
     return out[:max_cols]
 
 
-def auto_detect_num_cols_skip_grp(X: pd.DataFrame, group_cols: "list | tuple | set", max_cols: int = 8) -> list:
+def auto_detect_num_cols_skip_grp(X: pd.DataFrame, group_cols: "list | tuple | set", max_cols: int = 32) -> list:
     """Pick up to ``max_cols`` numeric candidate columns excluding ``group_cols`` AND already-``grp``-prefixed
     engineered columns (a per-group stat of one of those would build a nested recipe that can't replay from
     raw X at transform time, and the aggregate is constant within group anyway): shared by the

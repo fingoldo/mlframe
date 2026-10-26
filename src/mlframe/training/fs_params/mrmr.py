@@ -327,7 +327,7 @@ class MRMRParams(BaseModel):
     fe_hybrid_orth_triplet_enable: bool = True
     fe_hybrid_orth_triplet_max_degree: int = 1
     fe_hybrid_orth_triplet_seed_k: int = 4
-    fe_hybrid_orth_triplet_top_count: int = 2
+    fe_hybrid_orth_triplet_top_count: int = 8
     fe_hybrid_orth_quadruplet_enable: bool = True
     fe_hybrid_orth_quadruplet_max_degree: int = 1
     fe_hybrid_orth_quadruplet_seed_k: int = 4

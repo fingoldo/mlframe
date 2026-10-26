@@ -49,8 +49,10 @@ def test_family_null_max_uses_the_bitset_path_and_keeps_the_permutation_stream()
     finally:
         V.BITSET_BUDGET_BYTES = old
     assert np.array_equal(a, b)
+    from mlframe.feature_selection.filters._family_maxt_gate import _permutation_block
+
     rng = np.random.default_rng(5)
-    ref = np.concatenate([family_null_max_njit(cols, n_x, y[np.stack([rng.permutation(len(y)) for _ in range(m)])], 2) for m in (32, 32, 6)])
+    ref = np.concatenate([family_null_max_njit(cols, n_x, y[_permutation_block(rng, y, m).astype(np.int64)], 2) for m in (32, 32, 6)])
     assert np.allclose(a, ref, rtol=0, atol=1e-12)
 
 

@@ -22,6 +22,8 @@ if TYPE_CHECKING:
 
     from ..mrmr import MRMR
 
+from mlframe.utils.log_throttle import log_throttle
+
 logger = logging.getLogger(__name__)
 
 
@@ -52,7 +54,7 @@ def _replay_continuous(recipe, X):
     try:
         values = apply_recipe(dataclasses.replace(recipe, quantization=None), X)
     except Exception as exc:  # a compound that cannot be replayed is left out of the pass, as before
-        logger.debug("final subsumption: %s not replayed (%s: %s)", getattr(recipe, "name", "?"), type(exc).__name__, exc)
+        log_throttle(logger, "final_subsumption_not_replayed", logging.WARNING, "final subsumption: %s not replayed (%s: %s)", getattr(recipe, "name", "?"), type(exc).__name__, exc)
         return None
     return np.asarray(values, dtype=_crit_np_dtype()).ravel()
 

@@ -41,7 +41,6 @@ at fit time, so ``transform`` is leakage-free by construction.
 """
 from __future__ import annotations
 
-from typing import cast
 from ._grouped_coerce_shared import auto_detect_group_cols, coerce_X_for_grouped, auto_detect_num_cols_skip_grp as _auto_detect_num_cols
 
 import logging
@@ -115,25 +114,9 @@ def _broadcast_lookup(
     grouped-agg profile: 2.9s tottime / 144 calls). Bit-identical to the
     per-row mapping (same str()+get per distinct key, deduplicated).
     """
-    group_keys = np.asarray(group_keys)
-    try:
-        uniq, inverse = np.unique(group_keys, return_inverse=True)
-        # numpy 2.0.0 briefly returned a 2-D inverse; ravel defensively so the
-        # broadcast index is always 1-D and length-n.
-        inverse = np.asarray(inverse).reshape(-1)
-        uniq_vals = np.array(
-            [lookup.get(str(_k), global_value) for _k in uniq],
-            dtype=_crit_np_dtype(),
-        )
-        out = uniq_vals[inverse]
-    except (TypeError, ValueError):
-        # np.unique raises on unorderable mixed-type object arrays; fall back
-        # to the per-row mapping (correct, just slower) so we never crash.
-        out = np.array(
-            [lookup.get(str(_k), global_value) for _k in group_keys],
-            dtype=_crit_np_dtype(),
-        )
-    return cast("np.ndarray", np.nan_to_num(out, nan=global_value, posinf=global_value, neginf=global_value))
+    from ._grouped_coerce_shared import broadcast_lookup
+
+    return broadcast_lookup(group_keys, lookup, global_value)
 
 def generate_grouped_agg_features(
     X: pd.DataFrame,

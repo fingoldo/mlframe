@@ -22,11 +22,9 @@
  "src/mlframe/feature_selection/filters/_family_maxt_gate_device.py::null_max",
  "src/mlframe/feature_selection/filters/_fe_additive_fusion.py::_collect_relevant_halves",
  "src/mlframe/feature_selection/filters/_fe_additive_fusion.py::_subsumed_raw_operand_check",
- "src/mlframe/feature_selection/filters/_fe_additive_fusion.py::propose_additive_fusions",
  "src/mlframe/feature_selection/filters/_fe_additive_fusion_gpu_resident.py::_gpu_relevant_halves",
  "src/mlframe/feature_selection/filters/_fe_additive_fusion_gpu_resident.py::_subsumed_raw_operand_check_gpu",
  "src/mlframe/feature_selection/filters/_fe_additive_fusion_gpu_resident.py::propose_additive_fusions_gpu",
- "src/mlframe/feature_selection/filters/_fe_auto_escalation.py::_admit_cmi_survivors",
  "src/mlframe/feature_selection/filters/_fe_auto_escalation.py::_apply_pair_maxt_floor",
  "src/mlframe/feature_selection/filters/_fe_auto_escalation.py::_propose_pair_candidates",
  "src/mlframe/feature_selection/filters/_fe_auto_escalation.py::_slice_admitted_pool",
@@ -64,8 +62,6 @@
  "src/mlframe/feature_selection/filters/_mrmr_fe_step/_step_pairs_rank.py::_prepass_gate_and_usability_candidates",
  "src/mlframe/feature_selection/filters/_mrmr_fe_step/_step_score.py::_score_candidates_one_by_one",
  "src/mlframe/feature_selection/filters/_mrmr_fe_step/_step_score_parts2.py::_materialise_and_fina_step2_esc_failed",
- "src/mlframe/feature_selection/filters/_mrmr_fe_step/_step_score_parts2.py::_materialise_and_fina_step4_contract_stay_off",
- "src/mlframe/feature_selection/filters/_mrmr_fe_step/_step_score_parts2.py::_register_pair_recipes",
  "src/mlframe/feature_selection/filters/_offset_product_gpu.py::scan_offset_products_device",
  "src/mlframe/feature_selection/filters/_orthogonal_adaptive_arity_fe.py::_best_cell_per_tuple",
  "src/mlframe/feature_selection/filters/_orthogonal_univariate_fe/_extra_basis_resident.py::_build_extra_basis_matrix_gpu",
@@ -123,5 +119,8 @@
  "src/mlframe/metrics/_gpu_metrics.py::compute_batch_aucs",
  "src/mlframe/metrics/_gpu_metrics.py::gpu_multiple_pr_auc_scores",
  "src/mlframe/metrics/_gpu_metrics.py::gpu_multiple_roc_auc_scores",
- "src/mlframe/models/ensembling/_correlation.py::compute_high_correlation_pairs"
+ "src/mlframe/models/ensembling/_correlation.py::compute_high_correlation_pairs",
+ "src/mlframe/feature_selection/filters/_fe_raw_redundancy_drop.py::_some_consumer_adds_information",
+ "src/mlframe/feature_selection/filters/_fe_sufficient_summary_pairs.py::best_pair_streamed",
+ "src/mlframe/feature_selection/filters/_mrmr_fe_step/_step_score_parts2.py::_fused_compound_codes"
 ]

@@ -450,9 +450,14 @@ def hybrid_cat_triple_fe(
         raise TypeError(f"hybrid_cat_triple_fe: X must be a pandas DataFrame; got " f"{type(X).__name__}")
     if cat_cols is None or len(cat_cols) == 0:
         from ._cat_pair_fe import auto_detect_cat_pair_cols
-        cat_cols = auto_detect_cat_pair_cols(X)
+        cat_cols = auto_detect_cat_pair_cols(X, max_cols=8)
     else:
         cat_cols = [c for c in cat_cols if c in X.columns]
+    # A column with more than half as many distinct values as rows (a continuous float read as a category) puts every cross it joins above the 0.5 * n cell
+    # bar, and its bias-corrected interaction information is negative, so it can never be a kept triple; building its string codes (a sort of n strings per column) is the
+    # whole cost of the stage on a wide numeric frame.
+    n_rows = len(X)
+    cat_cols = [c for c in cat_cols if int(X[c].nunique(dropna=False)) <= 0.5 * n_rows]
     if len(cat_cols) < 3:
         return X, [], [], pd.DataFrame()
 

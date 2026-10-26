@@ -186,8 +186,27 @@ _perm_block_cache_bytes = 0
 _perm_block_cache_lock = threading.Lock()  # move_to_end, insert and the byte-budget eviction are one read-modify-write on shared state
 
 
+@njit(cache=True, parallel=True)
+def _fill_permutations(idx: np.ndarray, base_seed: int) -> None:
+    """Fisher-Yates permutations of ``range(n)`` into the rows of ``idx``, one parallel task per row; row ``i`` is seeded ``base_seed + i`` so it does not depend on the thread schedule."""
+    m = idx.shape[0]
+    n = idx.shape[1]
+    for r in prange(m):
+        np.random.seed((base_seed + r) % 4294967295)
+        for i in range(n):
+            idx[r, i] = i
+        for i in range(n - 1, 0, -1):
+            j = np.random.randint(0, i + 1)
+            tmp = idx[r, i]
+            idx[r, i] = idx[r, j]
+            idx[r, j] = tmp
+
+
 def _permutation_block(rng: np.random.Generator, y: np.ndarray, m: int) -> np.ndarray:
-    """Row-permutation indices of the next ``m`` label permutations drawn from ``rng``.
+    """Row-permutation indices of the next ``m`` label permutations of the stream defined by ``rng``.
+
+    One draw is taken from ``rng`` (the block seed); permutation ``i`` of the block is the Fisher-Yates shuffle seeded ``seed + i``, generated in parallel (50,000 sequential
+    ``rng.permutation`` calls were 19.5 s of a 146 s CPU fit at n=20000). The block is a function of the generator state alone, as the cache below needs.
 
     The family gate rebuilds the same permutation stream for every candidate family (each call starts from the same seed), and drawing it
     costs more than the MI kernel itself. The block is cached under the generator state it was drawn from, and the stored state after the
@@ -207,8 +226,7 @@ def _permutation_block(rng: np.random.Generator, y: np.ndarray, m: int) -> np.nd
             return cached
         idx_dtype = np.uint16 if n <= np.iinfo(np.uint16).max else np.int32
         idx = np.empty((m, n), dtype=idx_dtype)
-        for i in range(m):
-            idx[i] = rng.permutation(n)
+        _fill_permutations(idx, int(rng.integers(0, 2**31 - 1)))
         _perm_block_cache[key] = (idx, rng.bit_generator.state)
         _perm_block_cache_bytes += idx.nbytes
         while _perm_block_cache_bytes > _PERM_BLOCK_CACHE_BYTES and len(_perm_block_cache) > 1:

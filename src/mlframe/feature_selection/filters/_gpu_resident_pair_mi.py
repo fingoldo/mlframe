@@ -81,10 +81,11 @@ def gpu_pairs_fe_mi(
             analytic_batch_noise_gate,
             analytic_null_applicable,
             analytic_null_enabled,
+            pair_gate_min_n,
         )
 
         by = int(np.unique(np.asarray(classes_y)).size)
-        if not (analytic_null_enabled() and analytic_null_applicable(n, int(quantization_nbins), by)):
+        if not (analytic_null_enabled() and analytic_null_applicable(n, int(quantization_nbins), by, min_n=pair_gate_min_n())):
             return None  # sparse / small-n -> the asymptotic is unreliable; CPU permutation path
         import cupy as cp
         from ._fe_batched_mi import binned_mi_from_codes_gpu
@@ -110,7 +111,7 @@ def gpu_pairs_fe_mi(
         bx = cp.asnumpy((_cnt.reshape(_nb, _K) > 0).sum(axis=0)).astype(np.int64)
         # The analytic keep/reject is cheap CPU post-processing on the (K,) observed MI + the device-counted
         # occupied-bin df (disc_2d unused - bx_per_col is supplied), identical to the host gate's decision.
-        return analytic_batch_noise_gate(None, observed, yc, n, float(min_nonzero_confidence), bx_per_col=bx, by=by)
+        return analytic_batch_noise_gate(None, observed, yc, n, float(min_nonzero_confidence), bx_per_col=bx, by=by, min_n=pair_gate_min_n())
     except Exception:
         # Surface the cause (don't silently degrade to CPU forever): a real logic/shape/numeric bug in
         # the GPU path would otherwise be invisible - the exact "GPU never helped" failure mode.

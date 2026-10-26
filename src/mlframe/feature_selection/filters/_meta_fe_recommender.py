@@ -234,10 +234,14 @@ def _iter_columns(X):
 
 
 def _is_integral(vals) -> bool:
-    """True iff every finite value is a whole number (fractional part exactly 0), used to detect float columns that actually hold integer-coded categories/ids."""
-    import numpy as np
+    """True iff every finite value is a whole number (fractional part exactly 0), used to detect float columns that actually hold integer-coded categories/ids.
+
+    The EXACT test of the shared integer-column module on purpose: a categorical key or an id is not measured with noise, so a noisy integer column (which the modular and lattice sweeps
+    accept) is not a group key here. A probe failure is treated as non-integral."""
+    from ._integer_columns import is_integer_col
+
     try:
-        return bool(np.all(np.equal(np.mod(vals, 1.0), 0.0)))
+        return is_integer_col(vals)
     except Exception as _int_exc:
         log_throttle(logger, "_meta_fe_recommender._is_integral", logging.WARNING, "_is_integral: probe failed (%s); treating column as non-integral.", _int_exc)
         return False

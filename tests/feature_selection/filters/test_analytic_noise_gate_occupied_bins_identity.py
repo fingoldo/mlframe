@@ -82,7 +82,8 @@ def test_gate_output_identical_to_np_unique_path():
             ref[k] = 0.0
 
     got = analytic_batch_noise_gate(disc, observed, y, n, min_nonzero_confidence=0.95)
-    assert np.array_equal(got, ref)
+    # the gate returns the crit dtype (float32 by default): the float64 reference is rounded the same way (zeros and survivors are compared)
+    assert np.array_equal(got, ref.astype(got.dtype))
 
 
 @pytest.mark.parametrize("ncls", [2, 3, 5])

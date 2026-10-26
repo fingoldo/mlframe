@@ -35,6 +35,7 @@ from __future__ import annotations
 import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 import warnings
 
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 import numpy as np
 import pandas as pd
 
@@ -333,7 +334,7 @@ class TestCardinalityControl:
             # Support does not explode: TE collapses the cross to a SINGLE dense
             # numeric column whose distinct-value count is bounded by n_cells but
             # whose effective range is just per-cell means in [0, 1].
-            assert col.dtype == np.float64
+            assert col.dtype == _crit_np_dtype()
             assert np.isfinite(col).all()
             assert 0.0 <= float(col.min()) and float(col.max()) <= 1.0
 

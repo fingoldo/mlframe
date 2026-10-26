@@ -57,6 +57,7 @@ from ._legacy import (  # explicit re-exports, kept stable
     distribute_permutations,
 )
 from ._mrmr_tree_rescue import MRMRTreeRescued
+from ._integer_columns import eligible_integer_columns
 from ._internals import canonical_group_token
 from ._analytic_mi_null import analytic_mi_null, analytic_mi_null_batch
 from ._null_importance import null_importance_filter
@@ -83,6 +84,7 @@ __all__ = [
     "assemble_full_frame",
     "MRMRTreeRescued",
     "canonical_group_token",
+    "eligible_integer_columns",
     "analytic_mi_null",
     "analytic_mi_null_batch",
     "null_importance_filter",

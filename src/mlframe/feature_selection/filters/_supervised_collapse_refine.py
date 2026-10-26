@@ -23,6 +23,7 @@ import numpy as np
 def _fallback_edges(finite: np.ndarray, base: str, n_bins: int) -> np.ndarray:
     """Unsupervised inner edges matching ``_adaptive_nbins``'s collapsed-column fallback."""
     if n_bins < 2 or finite.size == 0:
+        # Intentional float64: edge vector at the production binning width
         return np.array([], dtype=np.float64)
     if base == "quantile":
         full = np.percentile(finite, np.linspace(0.0, 100.0, n_bins + 1))
@@ -48,10 +49,12 @@ def refine_near_collapsed_supervised_edges(edges: Optional[np.ndarray], finite: 
         return edges
     # Edges are thresholds that rows are compared against, so they stay float64: a float32 cut can move the boundary rows and lose
     # the supervised cut's exact value.
+    # Intentional float64: edge vector at the production binning width
     inner = np.asarray(edges, dtype=np.float64)
     counts = np.bincount(np.searchsorted(inner, finite, side="right"), minlength=inner.size + 1)
     if counts.max() <= (1.0 - 1.0 / (2.0 * fallback_nbins)) * finite.size:
         return edges
+    # Intentional float64: edge vector at the production binning width
     extra = _fallback_edges(np.asarray(finite, dtype=np.float64), base, fallback_nbins)
     if extra.size == 0:
         return edges

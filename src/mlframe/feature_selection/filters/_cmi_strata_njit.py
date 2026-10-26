@@ -11,7 +11,7 @@ from __future__ import annotations
 
 
 import numpy as np
-from numba import njit
+from numba import njit, prange
 
 
 from ._numba_utils import (  # noqa: F401 -- helpers hosted in _numba_utils_cross_module for the cross-module njit invariant
@@ -21,15 +21,14 @@ from ._numba_utils import (  # noqa: F401 -- helpers hosted in _numba_utils_cros
 )
 
 
-@njit(cache=True)
+@njit(cache=True, parallel=True)
 def _permutation_sources_njit(order: np.ndarray, starts: np.ndarray, lens: np.ndarray, n_perm: int, seed: int) -> np.ndarray:
-    """Fisher-Yates shuffle of every stratum's positions, for all draws, in one compiled loop (seeded per call)."""
-    np.random.seed(seed)
+    """Fisher-Yates shuffle of every stratum's positions, one draw per parallel iteration; draw ``p`` is seeded ``seed + p`` so the result does not depend on the thread schedule."""
     n = order.shape[0]
     src = np.empty((n_perm, n), dtype=np.int32)
-    work = np.empty(n, dtype=np.int64)
-    for p in range(n_perm):
-        work[:] = order
+    for p in prange(n_perm):
+        np.random.seed((seed + p) % 4294967295)
+        work = order.copy()
         for g in range(starts.shape[0]):
             a = starts[g]
             for i in range(lens[g] - 1, 0, -1):

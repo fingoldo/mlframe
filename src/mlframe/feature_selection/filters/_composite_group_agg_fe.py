@@ -98,7 +98,7 @@ def build_composite_keys(X: pd.DataFrame, group_cols: Sequence[str]) -> np.ndarr
     join unambiguous). The result is an object ndarray usable as a group key by
     the Layer 87 per-group machinery and as a dict key in the replay lookup.
     """
-    from ._internals import canonical_group_token
+    from ._internals import canonical_group_token, canonical_group_tokens
 
     parts = []
     for c in group_cols:
@@ -113,7 +113,7 @@ def build_composite_keys(X: pd.DataFrame, group_cols: Sequence[str]) -> np.ndarr
             arr = ser.to_numpy()
             try:
                 uniq, inv = np.unique(arr, return_inverse=True)
-                toks = np.array([canonical_group_token(u) for u in uniq], dtype=object)
+                toks = canonical_group_tokens(uniq)
                 parts.append(toks[np.asarray(inv).reshape(-1)])
             except (TypeError, ValueError):
                 # Unorderable mixed-type object array: per-value canonical.
@@ -126,7 +126,7 @@ def build_composite_keys(X: pd.DataFrame, group_cols: Sequence[str]) -> np.ndarr
                 # is bit-identical to the per-row map AND runs canonical_group_token per-unique instead of per-row
                 # (~13x at 100k / few-hundred uniques; canonical_group_token was the fit's #1 tottime at 5.77M calls).
                 uniq, inv = np.unique(arr, return_inverse=True)
-                toks = np.array([canonical_group_token(u) for u in uniq], dtype=object)
+                toks = canonical_group_tokens(uniq)
                 parts.append(toks[np.asarray(inv).reshape(-1)])
             else:
                 parts.append(ser.astype(object).map(lambda v: "" if v is None else canonical_group_token(v)).to_numpy())

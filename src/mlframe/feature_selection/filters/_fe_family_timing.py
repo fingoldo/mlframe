@@ -81,6 +81,32 @@ def fe_timed(name: str) -> Callable[[_F], _F]:
     return _deco
 
 
+class FamilyLapTimer:
+    """Attribute stage wall to families from their on/off gate alone, so no family needs its own timer.
+
+    Every cascade family opens with ``_fe_family_on(flag)``. A lap starts when a gate returns True and ends at the next gate call or at ``close()`` (stage boundary / end of fit),
+    and its wall is recorded under ``gate:<flag>``. Gates that return False accrue nothing. The stage body between two gates is charged to the family whose gate opened last,
+    which is exact for the sequential cascade; ``gate:`` names stay apart from ``fe_timed`` names so the two kinds of buckets are never double counted in one ranking."""
+
+    def __init__(self) -> None:
+        self._flag: str | None = None
+        self._t0 = 0.0
+
+    def close(self) -> None:
+        """End the open lap, if any, and record its wall under ``gate:<flag>``."""
+        if self._flag is not None:
+            record_fe_family_wall("gate:" + self._flag, perf_counter() - self._t0)
+            self._flag = None
+
+    def gate(self, flag: str, is_on: bool) -> bool:
+        """Close the previous lap, open one for ``flag`` when ``is_on``, and return ``is_on`` unchanged."""
+        self.close()
+        if is_on:
+            self._flag = flag
+            self._t0 = perf_counter()
+        return is_on
+
+
 def reset_fe_family_wall() -> None:
     """Clear all accumulated per-family wall-time/invocation counters (e.g. between independent fits in the same process)."""
     global _MAX_INFLIGHT

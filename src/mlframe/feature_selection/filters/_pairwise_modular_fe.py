@@ -58,13 +58,18 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 from itertools import combinations
-from typing import TYPE_CHECKING, Any, Optional, Sequence
+from math import comb
+from typing import TYPE_CHECKING, Any, Optional, Sequence, cast
 
 import numpy as np
 from numba import njit, prange
 
 from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 
+from ._integer_columns import eligible_integer_columns
+from ._integer_columns import is_integer_col as _is_integer_col  # noqa: F401  (re-exported: shared.py and the lattice prototype import it from here)
+from ._integer_columns import is_integer_like_col as _is_integer_like_col  # noqa: F401
+from ._integer_columns import to_int64 as _to_int64
 from ._y_encoding import encode_y_for_classif_mi
 
 from mlframe.utils.log_throttle import log_throttle
@@ -119,6 +124,10 @@ COARSE_MODULI: tuple[int, ...] = (2, 3, 4, 5, 6, 7, 8, 10, 11, 12, 13, 16, 17, 1
 _PAIR_OPS = ("sum", "diff", "prod")
 # Rows the pair ranking scores on (see ``_select_pairs_by_residue_score``): enough to see a modular residue, bounded so the all-pairs pass stays cheap.
 _PAIR_RANK_ROWS = 1000
+# Triples ranked exhaustively up to this count (see ``_select_triples_by_residue_score``); above it a deterministic random sample of this size is ranked.
+_TRIPLE_RANK_MAX = 250_000
+# Default number of ranked triples that go to the exact scan (12 left most of the 1140 triples at the pipeline's 20-column ceiling unscanned).
+_DEFAULT_MAX_TRIPLES = 100
 
 # Gate floor shared by ``_responded`` and the cheap-scan early-reject: a combiner whose residue MI does not beat its own
 # raw-combiner baseline by this margin can NEVER respond (``_responded`` requires margin AND null), so the expensive
@@ -193,16 +202,6 @@ def _residue_grid_mi(c: np.ndarray, y: np.ndarray, mods: Sequence[int], nbins: i
         for j, idx in enumerate(idxs):
             out[idx] = float(mis[j])
     return out
-
-def _is_integer_col(x: np.ndarray) -> bool:
-    """True iff x is integer-typed OR exactly-integer-valued float (no fractional part), finite."""
-    a = np.asarray(x)
-    if np.issubdtype(a.dtype, np.integer):
-        return True
-    if not np.issubdtype(a.dtype, np.floating):
-        return False
-    finite = a[np.isfinite(a)]
-    return bool(finite.size > 0 and np.all(finite == np.floor(finite)))
 
 @njit(cache=True, parallel=True)
 def _residue_rank_scores(cols: np.ndarray, ia: np.ndarray, ib: np.ndarray, mods: np.ndarray, ycls: np.ndarray, n_cls: int) -> np.ndarray:
@@ -283,36 +282,142 @@ def _select_pairs_by_residue_score(cols: Sequence[str], arrs: dict, yi: np.ndarr
     """
     if budget <= 0 or len(cols) < 2:
         return []
+    mat, ysub = _rank_subsample(cols, arrs, yi, seed)
+    pairs = list(combinations(range(len(cols)), 2))
+    ia = np.fromiter((a for a, _ in pairs), dtype=np.int64, count=len(pairs))
+    ib = np.fromiter((b for _, b in pairs), dtype=np.int64, count=len(pairs))
+    scores = _rank_scores(mat, ia, ib, None, mods, ysub)
+    order = np.argsort(-scores, kind="stable")[:budget]  # equal scores keep the column order
+    return [(cols[pairs[q][0]], cols[pairs[q][1]]) for q in order]
+
+
+def _rank_scores(mat: np.ndarray, ia: np.ndarray, ib: np.ndarray, ic: Optional[np.ndarray], mods: Sequence[int], ysub: np.ndarray) -> np.ndarray:
+    """Best plug-in residue MI per pair (``ic is None``, three operators) or triple (``sum3``), on the device when the kernel-tuning cache says so, else the njit kernels."""
+    from ._pairwise_modular_rank_gpu import rank_backend_choice, residue_rank_scores_gpu
+
+    mods_arr = np.asarray(mods, dtype=np.int64)
+    n_cls = int(ysub.max()) + 1
+    if rank_backend_choice(int(ia.shape[0]) * (3 if ic is None else 1)) == "gpu":
+        out = residue_rank_scores_gpu(mat, ia, ib, ic, mods_arr, ysub, n_cls)
+        if out is not None:
+            return out
+    if ic is None:
+        return cast(np.ndarray, _residue_rank_scores(mat, ia, ib, mods_arr, ysub, n_cls))
+    return cast(np.ndarray, _residue_rank_scores3(mat, ia, ib, ic, mods_arr, ysub, n_cls))
+
+
+def _rank_subsample(cols: Sequence[str], arrs: dict, yi: np.ndarray, seed: int) -> tuple[np.ndarray, np.ndarray]:
+    """The (p, n_sub) int64 matrix of the integer columns and the 0-based class codes on at most ``_PAIR_RANK_ROWS`` deterministic rows."""
     n = int(yi.shape[0])
     if n > _PAIR_RANK_ROWS:
         idx = np.sort(np.random.default_rng(seed).choice(n, _PAIR_RANK_ROWS, replace=False))
     else:
         idx = np.arange(n)
-    mat = np.stack([np.asarray(arrs[c])[idx] for c in cols]).astype(np.int64)
+    mat = np.stack([_to_int64(np.asarray(arrs[c])[idx]) for c in cols])
     ysub = np.asarray(yi)[idx].astype(np.int64)
     ysub -= ysub.min()
-    pairs = list(combinations(range(len(cols)), 2))
-    ia = np.fromiter((a for a, _ in pairs), dtype=np.int64, count=len(pairs))
-    ib = np.fromiter((b for _, b in pairs), dtype=np.int64, count=len(pairs))
-    scores = _residue_rank_scores(mat, ia, ib, np.asarray(mods, dtype=np.int64), ysub, int(ysub.max()) + 1)
-    order = np.argsort(-scores, kind="stable")[:budget]  # equal scores keep the column order
-    return [(cols[pairs[q][0]], cols[pairs[q][1]]) for q in order]
+    return mat, ysub
+
+
+@njit(cache=True, parallel=True)
+def _residue_rank_scores3(cols: np.ndarray, ia: np.ndarray, ib: np.ndarray, ic: np.ndarray, mods: np.ndarray, ycls: np.ndarray, n_cls: int) -> np.ndarray:
+    """Plug-in MI of ``(a + b + c) mod k`` vs the class of y, best over the moduli, for every triple ``(ia[q], ib[q], ic[q])``.
+
+    The 3-way parity combiner no pair can reach (``_residue_rank_scores`` has the pair operators); same plug-in estimate and layout.
+    """
+    n = ycls.shape[0]
+    max_k = 1
+    for k in mods:
+        if k > max_k:
+            max_k = k
+    cy = np.zeros(n_cls)
+    for t in range(n):
+        cy[ycls[t]] += 1.0
+    hy = 0.0
+    for c in range(n_cls):
+        if cy[c] > 0:
+            pc = cy[c] / n
+            hy -= pc * np.log(pc)
+    scores = np.zeros(ia.shape[0])
+    for q in prange(ia.shape[0]):
+        a = ia[q]
+        b = ib[q]
+        d = ic[q]
+        joint = np.zeros(max_k * n_cls)
+        marg = np.zeros(max_k)
+        best = 0.0
+        for mi in range(mods.shape[0]):
+            k = mods[mi]
+            joint[: k * n_cls] = 0.0
+            marg[:k] = 0.0
+            for t in range(n):
+                r = (cols[a, t] + cols[b, t] + cols[d, t]) % k
+                if r < 0:
+                    r += k
+                joint[r * n_cls + ycls[t]] += 1.0
+                marg[r] += 1.0
+            hr = 0.0
+            for r in range(k):
+                if marg[r] > 0:
+                    pr = marg[r] / n
+                    hr -= pr * np.log(pr)
+            hry = 0.0
+            for j in range(k * n_cls):
+                if joint[j] > 0:
+                    pj = joint[j] / n
+                    hry -= pj * np.log(pj)
+            mi_val = hr + hy - hry
+            if mi_val > best:
+                best = mi_val
+        scores[q] = best
+    return scores
+
+
+def _select_triples_by_residue_score(
+    cols: Sequence[str], arrs: dict, yi: np.ndarray, mods: Sequence[int], seed: int, budget: int
+) -> list[tuple[str, str, str]]:
+    """The ``budget`` column triples with the highest ``sum3`` residue score.
+
+    Every triple is scored when ``C(p, 3) <= _TRIPLE_RANK_MAX`` (the MRMR pipeline enables triples only for p <= ``max_triple_cols``, 1140 triples at 20
+    columns); a wider direct call ranks a deterministic random sample of ``_TRIPLE_RANK_MAX`` triples and says so, instead of cutting the name-ordered prefix.
+    """
+    p = len(cols)
+    if budget <= 0 or p < 3:
+        return []
+    mat, ysub = _rank_subsample(cols, arrs, yi, seed)
+    if comb(p, 3) <= _TRIPLE_RANK_MAX:
+        triples = np.array(list(combinations(range(p), 3)), dtype=np.int64)
+    else:
+        log_throttle(
+            logger,
+            "modular_triple_rank_sampled",
+            logging.WARNING,
+            "modular scan: C(%d, 3) triples exceed the ranking cap %d; ranking a deterministic random sample of triples",
+            p,
+            _TRIPLE_RANK_MAX,
+        )
+        draw = np.sort(np.random.default_rng(seed).integers(0, p, size=(_TRIPLE_RANK_MAX * 2, 3)), axis=1)
+        draw = draw[(draw[:, 0] < draw[:, 1]) & (draw[:, 1] < draw[:, 2])]
+        triples = np.unique(draw, axis=0)[:_TRIPLE_RANK_MAX]
+    scores = _rank_scores(mat, triples[:, 0], triples[:, 1], triples[:, 2], mods, ysub)
+    order = np.argsort(-scores, kind="stable")[:budget]  # equal scores keep the enumeration order
+    return [(cols[int(triples[q, 0])], cols[int(triples[q, 1])], cols[int(triples[q, 2])]) for q in order]
 
 
 def _combine(arrs: Sequence[np.ndarray], op: str) -> np.ndarray:
     """Fold one to three integer columns into a single combiner column."""
-    ai = np.asarray(arrs[0], dtype=np.int64)
+    ai = _to_int64(arrs[0])
     if op == "self":
         return ai
-    bi = np.asarray(arrs[1], dtype=np.int64)
+    bi = _to_int64(arrs[1])
     if op == "sum":
-        return ai + bi
+        return cast(np.ndarray, ai + bi)
     if op == "diff":
-        return ai - bi
+        return cast(np.ndarray, ai - bi)
     if op == "prod":
-        return ai * bi
+        return cast(np.ndarray, ai * bi)
     if op == "sum3":
-        return ai + bi + np.asarray(arrs[2], dtype=np.int64)
+        return cast(np.ndarray, ai + bi + _to_int64(arrs[2]))
     raise ValueError(f"unknown combiner op {op!r}")
 
 def _residue_mi(c: np.ndarray, y: np.ndarray, k: int, nbins: int) -> float:
@@ -408,7 +513,7 @@ def cheap_modular_scan(
     *,
     moduli: Sequence[int] = COARSE_MODULI,
     max_pairs: int = 24,
-    max_triples: int = 12,
+    max_triples: int = _DEFAULT_MAX_TRIPLES,
     nbins: int = 12,
     seed: int = 0,
     _cols_prefiltered: bool = False,
@@ -426,9 +531,9 @@ def cheap_modular_scan(
     import pandas as pd  # noqa: F401  (X may be pandas or polars; we pull ndarrays)
 
     if cols is None:
-        cols = [c for c in X.columns if _is_integer_col(np.asarray(X[c]))]
+        cols = eligible_integer_columns(X)
     elif not _cols_prefiltered:
-        cols = [c for c in cols if _is_integer_col(np.asarray(X[c]))]
+        cols = eligible_integer_columns(X, cols)
     # else: caller (e.g. hybrid_pairwise_modular_fe_with_recipes) already ran this exact filter to
     # build ``cols`` - re-scanning it here was pure duplicate work.
     # Canonicalize eligible-column order so the budgeted pair/triple enumeration scans the same combinations regardless of caller column order (reversed-column invariance).
@@ -487,12 +592,10 @@ def cheap_modular_scan(
             _scan_one(op, (a, b), _combine([arrs[a], arrs[b]], op))
         _deadline_hit = fe_deadline_passed()
 
-    triple_budget = max_triples
-    for a, b, c in combinations(cols, 3):
-        if triple_budget <= 0 or _deadline_hit:
+    for a, b, c in _select_triples_by_residue_score(cols, arrs, yi, mods, seed, max_triples):
+        if _deadline_hit:
             break
-        _scan_one("sum3", (a, b, c), arrs[a].astype(np.int64) + arrs[b].astype(np.int64) + arrs[c].astype(np.int64))
-        triple_budget -= 1
+        _scan_one("sum3", (a, b, c), _combine([arrs[a], arrs[b], arrs[c]], "sum3"))
         _deadline_hit = fe_deadline_passed()
 
     # Canonical secondary key on (op, operand names) so near-ties don't break by enumeration (column) order.
@@ -642,9 +745,9 @@ def hybrid_pairwise_modular_fe_with_recipes(
     Returns ``(appended_names, recipes)`` - the materialised columns are NOT concatenated here (the MRMR caller appends
     them under its own RAM-safe path); each recipe replays the exact residue column from X alone, leak-free."""
     if cols is None:
-        int_cols = [c for c in X.columns if _is_integer_col(np.asarray(X[c]))]
+        int_cols = eligible_integer_columns(X)
     else:
-        int_cols = [c for c in cols if c in X.columns and _is_integer_col(np.asarray(X[c]))]
+        int_cols = eligible_integer_columns(X, cols)
 
     p = len(int_cols)
     if p > int(max_int_cols):
@@ -654,7 +757,7 @@ def hybrid_pairwise_modular_fe_with_recipes(
         )
         return [], []
 
-    max_triples = 12
+    max_triples = _DEFAULT_MAX_TRIPLES
     if p > int(max_triple_cols):
         logger.info(
             "pairwise_modular FE: %d integer-eligible columns exceeds max_triple_cols=%d; limiting to "

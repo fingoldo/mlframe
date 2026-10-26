@@ -90,7 +90,7 @@ def generate_wavelet_features(
         Profiled as the second-largest default-ON pre-FE cost on a wide-p fit (~26% of the
         pre-categorize wall at p=420), scaling with column count regardless of row count.
         ``None`` (default) = unlimited, byte-identical legacy behaviour. Unlike the Fourier
-        extra-basis cap, columns beyond this cap get NO wavelet legs at all (there is no cheap
+        extra-basis cap, the cap keeps the most relevant columns (between-bin variance of y, not position); the others get NO wavelet legs at all (there is no cheap
         fallback basis for wavelets the way Fourier has a fixed grid) - set only when the wide
         wall-time cost is a bigger concern than wavelet recall on the excluded columns.
 
@@ -119,9 +119,12 @@ def generate_wavelet_features(
     meta: dict = {}
     from ._fe_deadline import fe_deadline_passed
 
-    for _col_idx, col in enumerate(cols):
-        if max_cols is not None and _col_idx >= int(max_cols):
-            break
+    from ._orthogonal_univariate_fe._orth_extra_basis_fe_generate import _adaptive_cols_by_relevance
+
+    _allowed = _adaptive_cols_by_relevance(X, cols, y_arr, max_cols)
+    for col in cols:
+        if _allowed is not None and col not in _allowed:
+            continue
         # Optional-enrichment wall-clock budget: stop the per-column held-out scale-selection scan once
         # MRMR.fit's deadline passes; return whatever legs were engineered so far. No-op without a budget
         # (mirrors the orth-univariate/pair-cross/extra-basis generators' internal deadline check).

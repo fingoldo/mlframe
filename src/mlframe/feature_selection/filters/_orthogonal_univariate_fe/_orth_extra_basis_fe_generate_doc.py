@@ -63,8 +63,8 @@ GENERATE_EXTRA_BASIS_FEATURES_DOC = """For each column in cols and each requeste
         cost of this whole family (~34% of a wide-p fit's pre-categorize wall, roughly
         linear in column count since each call does its own held-out frequency sweep
         regardless of row count). ``None`` (default) = unlimited, byte-identical legacy
-        behaviour. When set and ``len(cols) > max_adaptive_cols``, only the first
-        ``max_adaptive_cols`` columns (in ``cols`` order) get adaptive/chirp detection;
+        behaviour. When set and ``len(cols) > max_adaptive_cols``, only the most relevant
+        ``max_adaptive_cols`` columns (by between-bin variance of y, not position) get adaptive/chirp detection;
         the remaining columns still get the cheap FIXED-GRID Fourier basis (unaffected
         by this cap) - only the expensive per-column detector is bounded, not basis
         emission itself.

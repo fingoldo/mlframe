@@ -32,7 +32,7 @@ def _prescan_budget_bytes(n_rows: int, dtype: Any) -> tuple[int, int]:
     """``(budget, per_row)``: the bytes one usability-scan block may upload and the bytes of one operand row of ``n_rows`` values.
 
     The budget is the host share of the free RAM, and when cupy is present the free VRAM less the cushion the dispatcher keeps,
-    the dispatcher's own admission test (its footprint is the operand matrix at its dtype plus the float64 outputs)."""
+    the dispatcher's own admission test (its footprint is the operand matrix at its dtype plus the double outputs)."""
     from .._orthogonal_univariate_fe._streamed_gpu_mi import _host_free_bytes
 
     n = max(1, int(n_rows))

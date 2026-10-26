@@ -244,7 +244,7 @@ def _column_to_str(col: pd.Series) -> np.ndarray:
     strings. NaN values map to a sentinel ``"__nan__"`` so they form their
     own implicit category at fit AND transform time (no NaN propagation
     when the test row has NaN in the source column)."""
-    from ._internals import canonical_group_token
+    from ._internals import canonical_group_token, canonical_group_tokens
 
     arr = col.to_numpy() if hasattr(col, "to_numpy") else np.asarray(col)
     # Integer / unsigned / bool columns can never hold None or NaN, so the
@@ -253,9 +253,12 @@ def _column_to_str(col: pd.Series) -> np.ndarray:
     # keys. Canonical tokens collapse integral int/float so a fit-int /
     # predict-float dtype drift still hits the per-category encoding instead of
     # the global fallback (the bare str() made '1' and '1.0' distinct keys).
-    if arr.dtype.kind in ("i", "u", "b"):
+    if arr.dtype.kind in ("i", "u", "b", "f"):
         uniq, inv = np.unique(arr, return_inverse=True)
-        toks = np.array([canonical_group_token(u) for u in uniq], dtype=object)
+        toks = canonical_group_tokens(uniq)
+        if arr.dtype.kind == "f":
+            # NaN is its own category with the explicit sentinel (the object path below does the same); np.unique merges all NaNs into one unique.
+            toks[np.isnan(uniq)] = "__nan__"
         return toks[inv]
     # object / mixed dtype: canonicalise per-UNIQUE then gather (was a per-ROW
     # Python loop - 200k calls of ``canonical_group_token`` per 200k-row object
