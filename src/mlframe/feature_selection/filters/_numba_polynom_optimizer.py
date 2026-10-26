@@ -276,6 +276,80 @@ def _eval_one_candidate_njit(
 
 
 @njit(cache=True, fastmath=True)
+def _coef_sq_norm(coefs, size):
+    """Sum of squares of the first ``size`` coefficients, accumulated in index order."""
+    total = 0.0
+    for i in range(size):
+        total += coefs[i] * coefs[i]
+    return total
+
+
+@njit(cache=True, fastmath=True)
+def _fill_candidate_columns(x_a, x_b, coefs_a_batch, coefs_b_batch, basis_id, bf_ids, direction_only, cols_scratch, col_valid_scratch, n):
+    """Polyeval both sides of every candidate, combine each with every basis function and store the finite columns in ``cols_scratch``."""
+    B = coefs_a_batch.shape[0]
+    K = bf_ids.shape[0]
+    ca_size = coefs_a_batch.shape[1]
+    cb_size = coefs_b_batch.shape[1]
+    for b in range(B):
+        ca = coefs_a_batch[b].copy()
+        cb = coefs_b_batch[b].copy()
+        if direction_only:
+            norm = np.sqrt(_coef_sq_norm(ca, ca_size) + _coef_sq_norm(cb, cb_size))
+            if norm > 1e-12:
+                for i in range(ca_size):
+                    ca[i] = ca[i] / norm
+                for i in range(cb_size):
+                    cb[i] = cb[i] / norm
+        h_a = _polyeval_dispatch_njit(basis_id, x_a, ca)
+        h_b = _polyeval_dispatch_njit(basis_id, x_b, cb)
+        if not _all_finite_njit(h_a) or not _all_finite_njit(h_b):
+            # Leave cols zeroed; column_valid stays False; MI naturally low.
+            continue
+        for k in range(K):
+            combined = _bf_dispatch_njit(bf_ids[k], h_a, h_b)
+            if not _all_finite_njit(combined):
+                continue
+            col_idx = b * K + k
+            for i in range(n):
+                cols_scratch[i, col_idx] = combined[i]
+            col_valid_scratch[col_idx] = True
+
+
+@njit(cache=True, fastmath=True)
+def _zero_invalid_columns(cols_scratch, col_valid_scratch, n, n_cols):
+    """Zero the columns that were not filled, so their MI is a zero-variance constant and the argmax skips them."""
+    for c in range(n_cols):
+        if not col_valid_scratch[c]:
+            for i in range(n):
+                cols_scratch[i, c] = 0.0
+
+
+@njit(cache=True, fastmath=True)
+def _argmax_per_candidate(mi_arr, coefs_a_batch, coefs_b_batch, bf_ids, direction_only, l2_penalty, col_valid_scratch, out_scores, out_raws, out_bfs):
+    """Per candidate, the best basis function by penalised MI, written to ``out_scores`` / ``out_raws`` / ``out_bfs``."""
+    B = coefs_a_batch.shape[0]
+    K = bf_ids.shape[0]
+    ca_size = coefs_a_batch.shape[1]
+    cb_size = coefs_b_batch.shape[1]
+    for b in range(B):
+        penalty = 0.0
+        if not direction_only and l2_penalty > 0.0:
+            s_norm = _coef_sq_norm(coefs_a_batch[b], ca_size) + _coef_sq_norm(coefs_b_batch[b], cb_size)
+            penalty = l2_penalty * s_norm / (s_norm + 1.0)  # saturating parity, see the single-eval note
+        for k in range(K):
+            col_idx = b * K + k
+            if not col_valid_scratch[col_idx]:
+                continue
+            raw = mi_arr[col_idx]
+            score = raw - penalty
+            if score > out_scores[b]:
+                out_scores[b] = score
+                out_raws[b] = raw
+                out_bfs[b] = bf_ids[k]
+
+
+@njit(cache=True, fastmath=True)
 def _eval_batch_candidates_njit(
     x_a: np.ndarray, x_b: np.ndarray, y: np.ndarray,
     coefs_a_batch: np.ndarray, coefs_b_batch: np.ndarray,
@@ -301,8 +375,6 @@ def _eval_batch_candidates_njit(
     B = coefs_a_batch.shape[0]
     K = bf_ids.shape[0]
     n = x_a.shape[0]
-    ca_size = coefs_a_batch.shape[1]
-    cb_size = coefs_b_batch.shape[1]
 
     # Init outputs + invalid mask.
     for b in range(B):
@@ -312,43 +384,8 @@ def _eval_batch_candidates_njit(
     for c in range(B * K):
         col_valid_scratch[c] = False
 
-    # Per-candidate polyeval + bf -> store columns.
-    for b in range(B):
-        ca = coefs_a_batch[b].copy()
-        cb = coefs_b_batch[b].copy()
-        if direction_only:
-            a_sq = 0.0
-            b_sq = 0.0
-            for i in range(ca_size):
-                a_sq += ca[i] * ca[i]
-            for i in range(cb_size):
-                b_sq += cb[i] * cb[i]
-            norm = np.sqrt(a_sq + b_sq)
-            if norm > 1e-12:
-                for i in range(ca_size):
-                    ca[i] = ca[i] / norm
-                for i in range(cb_size):
-                    cb[i] = cb[i] / norm
-        h_a = _polyeval_dispatch_njit(basis_id, x_a, ca)
-        h_b = _polyeval_dispatch_njit(basis_id, x_b, cb)
-        if not _all_finite_njit(h_a) or not _all_finite_njit(h_b):
-            # Leave cols zeroed; column_valid stays False; MI naturally low.
-            continue
-        for k in range(K):
-            combined = _bf_dispatch_njit(bf_ids[k], h_a, h_b)
-            if not _all_finite_njit(combined):
-                continue
-            col_idx = b * K + k
-            for i in range(n):
-                cols_scratch[i, col_idx] = combined[i]
-            col_valid_scratch[col_idx] = True
-
-    # Zero out columns that weren't filled (so MI on them == 0 from
-    # zero-variance constant, gets filtered by argmax).
-    for c in range(B * K):
-        if not col_valid_scratch[c]:
-            for i in range(n):
-                cols_scratch[i, c] = 0.0
+    _fill_candidate_columns(x_a, x_b, coefs_a_batch, coefs_b_batch, basis_id, bf_ids, direction_only, cols_scratch, col_valid_scratch, n)
+    _zero_invalid_columns(cols_scratch, col_valid_scratch, n, B * K)
 
     # ONE batched MI call. _plugin_mi_classif_batch_njit pranges over
     # columns; with B*K typically 100-200 this saturates all cores.
@@ -357,28 +394,7 @@ def _eval_batch_candidates_njit(
     else:
         mi_arr = _plugin_mi_regression_batch_njit(cols_scratch, y, n_bins)
 
-    # Per-candidate argmax over K bfs.
-    for b in range(B):
-        penalty = 0.0
-        if not direction_only and l2_penalty > 0.0:
-            a_sq = 0.0
-            b_sq = 0.0
-            for i in range(ca_size):
-                a_sq += coefs_a_batch[b, i] * coefs_a_batch[b, i]
-            for i in range(cb_size):
-                b_sq += coefs_b_batch[b, i] * coefs_b_batch[b, i]
-            s_norm = a_sq + b_sq
-            penalty = l2_penalty * s_norm / (s_norm + 1.0)  # saturating parity, see the single-eval note
-        for k in range(K):
-            col_idx = b * K + k
-            if not col_valid_scratch[col_idx]:
-                continue
-            raw = mi_arr[col_idx]
-            score = raw - penalty
-            if score > out_scores[b]:
-                out_scores[b] = score
-                out_raws[b] = raw
-                out_bfs[b] = bf_ids[k]
+    _argmax_per_candidate(mi_arr, coefs_a_batch, coefs_b_batch, bf_ids, direction_only, l2_penalty, col_valid_scratch, out_scores, out_raws, out_bfs)
 
 
 @njit(cache=True, fastmath=True)

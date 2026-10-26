@@ -20,6 +20,119 @@ _UNIMPLEMENTED_REDUNDANCY_ALGOS = {
 }
 
 
+def _validate_dcd_params(self):
+    """Range checks for the DCD constructor parameters; applied only when ``dcd_enable`` is set."""
+    if not bool(getattr(self, "dcd_enable", False)):
+        return
+    _d = getattr(self, "dcd_distance", "su")
+    _tau_raw = getattr(self, "dcd_tau_cluster", 0.7)
+    # Layer 47: ``dcd_tau_cluster='auto'`` opts into the
+    # per-fit bimodality-detection calibration sweep in
+    # ``make_dcd_state``. The string accepts only the literal lower-case
+    # ``"auto"``; any other string is a configuration error.
+    if isinstance(_tau_raw, str):
+        if _tau_raw.lower() != "auto":
+            raise ValueError(f"MRMR: dcd_tau_cluster must be a float in (0, 1] or the " f"literal string 'auto'; got {_tau_raw!r}.")
+    else:
+        _tau = float(_tau_raw)
+        # Layer 46: ``"auto"`` (distance) returns max(SU, VI_sim) so the
+        # score lives in [0, 1] just like SU; reuse the SU range check.
+        if _d in ("su", "auto") and not (0.0 < _tau <= 1.0):
+            raise ValueError(f"MRMR: dcd_tau_cluster must be in (0, 1] for " f"distance={_d!r}; got {_tau}.")
+        if _d in ("vi", "sotoca_pla") and _tau <= 0.0:
+            raise ValueError(f"MRMR: dcd_tau_cluster must be > 0 for distance={_d!r}; " f"got {_tau}.")
+    # The lower bound is 1, not 2. The threshold counts
+    # cluster MEMBERS (not anchor + members), so threshold=1 fires the
+    # PC1 swap on the strict 2-feature redundancy case (anchor + 1
+    # perfect duplicate); threshold=2 (the new default) fires only when
+    # the cluster grew anchor + >=2 members. Both are sane settings.
+    if int(getattr(self, "dcd_cluster_size_threshold", 2)) < 1:
+        raise ValueError(f"MRMR: dcd_cluster_size_threshold must be >= 1; got " f"{self.dcd_cluster_size_threshold}.")
+    if float(getattr(self, "dcd_swap_gain_threshold", 0.05)) < 0.0:
+        raise ValueError(f"MRMR: dcd_swap_gain_threshold must be >= 0; got " f"{self.dcd_swap_gain_threshold}.")
+    _alpha = float(getattr(self, "dcd_swap_alpha", 0.05))
+    if not (0.0 < _alpha <= 1.0):
+        raise ValueError(f"MRMR: dcd_swap_alpha must be in (0, 1]; got {_alpha}.")
+    if bool(getattr(self, "dcd_postoc_compose", False)) and bool(getattr(self, "cluster_aggregate_enable", True)):
+        import warnings as _w_dcd
+        _w_dcd.warn(
+            "MRMR: dcd_enable=True AND cluster_aggregate_enable=True AND "
+            "dcd_postoc_compose=True will double-aggregate clusters. The "
+            "post-hoc step will see almost no clusters DCD did not already "
+            "process. Consider dcd_postoc_compose=False (the default).",
+            UserWarning, stacklevel=4,
+        )
+
+
+def _warn_demoted_nbins_strategy(self):
+    """AccuracyWarning for a demoted nbins_strategy option."""
+    _demoted = getattr(self, "_DEMOTED_NBINS_STRATEGIES", ())
+    _nbins_strat = getattr(self, "nbins_strategy", None)
+    if _nbins_strat in _demoted:
+        import warnings as _w
+        _w.warn(
+            f"MRMR: nbins_strategy={_nbins_strat!r} is DEMOTED to research-only. "
+            f"F1-bench honest ranking by ``|err vs truth| + noise_floor`` "
+            f"places these demoted methods last: Knuth (combined 0.213), "
+            f"Bayesian Blocks (0.233), MAH/SCI (0.373, collapses to ~2 bins). "
+            f"Recommended: 'mdlp' (combined 0.107, only TRUE zero noise floor) "
+            f"for balanced production use; 'qs' (signal err 0.093 best, but "
+            f"noise floor 0.123 inflates false positives) when no-signal "
+            f"columns are absent. Opt-out via ``warnings.filterwarnings('ignore', "
+            f"category=UserWarning, module='mlframe.feature_selection.filters')``.",
+            UserWarning,
+            stacklevel=4,
+        )
+
+
+def _validate_default_scorer(self):
+    """Validate the orth default-scorer routing flag, listing every accepted scorer on a bad value."""
+    # Kept outside the ``_checks`` loop because the attribute lives on the
+    # MRMR class as ``_VALID_FE_HYBRID_ORTH_DEFAULT_SCORERS`` (longer name
+    # than the constants reused by the loop). Invalid value -> ValueError
+    # listing every accepted scorer so the message is actionable.
+    _default_scorer = getattr(self, "fe_hybrid_orth_default_scorer", None)
+    if _default_scorer is None:
+        return
+    _valid_scorers = getattr(
+        self, "_VALID_FE_HYBRID_ORTH_DEFAULT_SCORERS", None,
+    )
+    if _valid_scorers is None:
+        return
+    if not isinstance(_default_scorer, str):
+        raise ValueError(
+            f"MRMR: fe_hybrid_orth_default_scorer must be a string; "
+            f"got {type(_default_scorer).__name__}={_default_scorer!r}. "
+            f"Valid values: {_valid_scorers}."
+        )
+    if _default_scorer not in _valid_scorers:
+        raise ValueError(f"MRMR: fe_hybrid_orth_default_scorer={_default_scorer!r} " f"is not a recognised value. " f"Valid values: {_valid_scorers}.")
+
+
+def _validate_cluster_aggregate_methods(self):
+    """Validate each element of ``cluster_aggregate_methods`` against the accepted aggregates."""
+    # cluster_aggregate_methods is a sequence; validate each element.
+    _methods = getattr(self, "cluster_aggregate_methods", None)
+    if _methods is None:
+        return
+    for _m in _methods:
+        if _m not in self._VALID_CLUSTER_AGGREGATE_METHODS:
+            raise ValueError(
+                f"MRMR: cluster_aggregate_methods contains {_m!r}, not a recognised value. " f"Valid values: {self._VALID_CLUSTER_AGGREGATE_METHODS}."
+            )
+
+
+def _warn_unimplemented_redundancy_algo(self):
+    """Warn that an accepted but unimplemented redundancy algorithm runs the fleuret path."""
+    _redundancy = getattr(self, "mrmr_redundancy_algo", None)
+    if _redundancy in _UNIMPLEMENTED_REDUNDANCY_ALGOS:
+        logger.warning(
+            "mrmr_redundancy_algo=%r (%s) is accepted but not implemented: the fit runs the 'fleuret' redundancy path and the "
+            "result is identical to mrmr_redundancy_algo='fleuret'. Set it explicitly if that is what you want.",
+            _redundancy, _UNIMPLEMENTED_REDUNDANCY_ALGOS[_redundancy],
+        )
+
+
 def _validate_string_params(self):
     """Raise ValueError on bad constructor strings. Each branch lists the accepted values verbatim so the error message is actionable."""
     _checks = (
@@ -42,66 +155,8 @@ def _validate_string_params(self):
         # fit() start, consistent with the other MRMR string params.
         ("additional_rfecv_selection_rule", self._VALID_RFECV_SELECTION_RULES),
     )
-    # DCD range checks, gated on dcd_enable.
-    if bool(getattr(self, "dcd_enable", False)):
-        _d = getattr(self, "dcd_distance", "su")
-        _tau_raw = getattr(self, "dcd_tau_cluster", 0.7)
-        # Layer 47: ``dcd_tau_cluster='auto'`` opts into the
-        # per-fit bimodality-detection calibration sweep in
-        # ``make_dcd_state``. The string accepts only the literal lower-case
-        # ``"auto"``; any other string is a configuration error.
-        if isinstance(_tau_raw, str):
-            if _tau_raw.lower() != "auto":
-                raise ValueError(f"MRMR: dcd_tau_cluster must be a float in (0, 1] or the " f"literal string 'auto'; got {_tau_raw!r}.")
-            # 'auto' string short-circuits the numeric range check.
-            _tau = None
-        else:
-            _tau = float(_tau_raw)
-            # Layer 46: ``"auto"`` (distance) returns max(SU, VI_sim) so the
-            # score lives in [0, 1] just like SU; reuse the SU range check.
-            if _d in ("su", "auto") and not (0.0 < _tau <= 1.0):
-                raise ValueError(f"MRMR: dcd_tau_cluster must be in (0, 1] for " f"distance={_d!r}; got {_tau}.")
-            if _d in ("vi", "sotoca_pla") and _tau <= 0.0:
-                raise ValueError(f"MRMR: dcd_tau_cluster must be > 0 for distance={_d!r}; " f"got {_tau}.")
-        # The lower bound is 1, not 2. The threshold counts
-        # cluster MEMBERS (not anchor + members), so threshold=1 fires the
-        # PC1 swap on the strict 2-feature redundancy case (anchor + 1
-        # perfect duplicate); threshold=2 (the new default) fires only when
-        # the cluster grew anchor + >=2 members. Both are sane settings.
-        if int(getattr(self, "dcd_cluster_size_threshold", 2)) < 1:
-            raise ValueError(f"MRMR: dcd_cluster_size_threshold must be >= 1; got " f"{self.dcd_cluster_size_threshold}.")
-        if float(getattr(self, "dcd_swap_gain_threshold", 0.05)) < 0.0:
-            raise ValueError(f"MRMR: dcd_swap_gain_threshold must be >= 0; got " f"{self.dcd_swap_gain_threshold}.")
-        _alpha = float(getattr(self, "dcd_swap_alpha", 0.05))
-        if not (0.0 < _alpha <= 1.0):
-            raise ValueError(f"MRMR: dcd_swap_alpha must be in (0, 1]; got {_alpha}.")
-        if bool(getattr(self, "dcd_postoc_compose", False)) and bool(getattr(self, "cluster_aggregate_enable", True)):
-            import warnings as _w_dcd
-            _w_dcd.warn(
-                "MRMR: dcd_enable=True AND cluster_aggregate_enable=True AND "
-                "dcd_postoc_compose=True will double-aggregate clusters. The "
-                "post-hoc step will see almost no clusters DCD did not already "
-                "process. Consider dcd_postoc_compose=False (the default).",
-                UserWarning, stacklevel=3,
-            )
-    # AccuracyWarning for demoted nbins_strategy options.
-    _demoted = getattr(self, "_DEMOTED_NBINS_STRATEGIES", ())
-    _nbins_strat = getattr(self, "nbins_strategy", None)
-    if _nbins_strat in _demoted:
-        import warnings as _w
-        _w.warn(
-            f"MRMR: nbins_strategy={_nbins_strat!r} is DEMOTED to research-only. "
-            f"F1-bench honest ranking by ``|err vs truth| + noise_floor`` "
-            f"places these demoted methods last: Knuth (combined 0.213), "
-            f"Bayesian Blocks (0.233), MAH/SCI (0.373, collapses to ~2 bins). "
-            f"Recommended: 'mdlp' (combined 0.107, only TRUE zero noise floor) "
-            f"for balanced production use; 'qs' (signal err 0.093 best, but "
-            f"noise floor 0.123 inflates false positives) when no-signal "
-            f"columns are absent. Opt-out via ``warnings.filterwarnings('ignore', "
-            f"category=UserWarning, module='mlframe.feature_selection.filters')``.",
-            UserWarning,
-            stacklevel=3,
-        )
+    _validate_dcd_params(self)
+    _warn_demoted_nbins_strategy(self)
     for _name, _valid in _checks:
         _val = getattr(self, _name, None)
         if _val is None:
@@ -112,42 +167,11 @@ def _validate_string_params(self):
             raise ValueError(f"MRMR: {_name} must be a string; got {type(_val).__name__}={_val!r}. " f"Valid values: {_valid}.")
         if _val not in _valid:
             raise ValueError(f"MRMR: {_name}={_val!r} is not a recognised value. " f"Valid values: {_valid}.")
-    # Validate the orth default-scorer routing flag.
-    # Kept outside the ``_checks`` loop because the attribute lives on the
-    # MRMR class as ``_VALID_FE_HYBRID_ORTH_DEFAULT_SCORERS`` (longer name
-    # than the constants reused by the loop). Invalid value -> ValueError
-    # listing every accepted scorer so the message is actionable.
-    _default_scorer = getattr(self, "fe_hybrid_orth_default_scorer", None)
-    if _default_scorer is not None:
-        _valid_scorers = getattr(
-            self, "_VALID_FE_HYBRID_ORTH_DEFAULT_SCORERS", None,
-        )
-        if _valid_scorers is not None:
-            if not isinstance(_default_scorer, str):
-                raise ValueError(
-                    f"MRMR: fe_hybrid_orth_default_scorer must be a string; "
-                    f"got {type(_default_scorer).__name__}={_default_scorer!r}. "
-                    f"Valid values: {_valid_scorers}."
-                )
-            if _default_scorer not in _valid_scorers:
-                raise ValueError(f"MRMR: fe_hybrid_orth_default_scorer={_default_scorer!r} " f"is not a recognised value. " f"Valid values: {_valid_scorers}.")
+    _validate_default_scorer(self)
     _validate_hybrid_orth_string_params(self)
-    # cluster_aggregate_methods is a sequence; validate each element.
-    _methods = getattr(self, "cluster_aggregate_methods", None)
-    if _methods is not None:
-        for _m in _methods:
-            if _m not in self._VALID_CLUSTER_AGGREGATE_METHODS:
-                raise ValueError(
-                    f"MRMR: cluster_aggregate_methods contains {_m!r}, not a recognised value. " f"Valid values: {self._VALID_CLUSTER_AGGREGATE_METHODS}."
-                )
+    _validate_cluster_aggregate_methods(self)
+    _warn_unimplemented_redundancy_algo(self)
 
-    _redundancy = getattr(self, "mrmr_redundancy_algo", None)
-    if _redundancy in _UNIMPLEMENTED_REDUNDANCY_ALGOS:
-        logger.warning(
-            "mrmr_redundancy_algo=%r (%s) is accepted but not implemented: the fit runs the 'fleuret' redundancy path and the "
-            "result is identical to mrmr_redundancy_algo='fleuret'. Set it explicitly if that is what you want.",
-            _redundancy, _UNIMPLEMENTED_REDUNDANCY_ALGOS[_redundancy],
-        )
 
 def _validate_hybrid_orth_string_params(self) -> None:
     """Raise ValueError on an unrecognised hybrid-orth basis / kernel / aggregator / scorer string, listing the accepted values."""

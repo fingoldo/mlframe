@@ -73,6 +73,26 @@ DEFAULT_TITLE_METRICS_TOKENS: tuple = (
 )
 
 
+def _cov_precision(nbins: int) -> int:
+    """Decimal places of the COV token: derived from log10(nbins), matching the pre-template behaviour."""
+    return max(0, int(np.log10(max(nbins, 1))))
+
+
+def _auc_title(label: str, value: float, mean_group: Optional[float], ndigits: int) -> str:
+    """ROC AUC / PR AUC title fragment with the optional bracketed group mean."""
+    suffix = ""
+    if mean_group is not None and not np.isnan(mean_group):
+        suffix = f"[{mean_group:.{ndigits}f}]"
+    if np.isnan(value):
+        return f"{label}=N/A{suffix}"
+    return f"{label}={value:.{ndigits}f}{suffix}"
+
+
+def _prf_body(precision: float, recall: float, f1: float, pct_digits: int) -> str:
+    """The PR/RE/F1 percentages of the threshold tokens, without the threshold prefix."""
+    return f"PR={precision * 100:.{pct_digits}f}%,RE={recall * 100:.{pct_digits}f}%,F1={f1 * 100:.{pct_digits}f}%"
+
+
 def render_title_metric_token(
     token: str,
     *,
@@ -127,79 +147,42 @@ def render_title_metric_token(
     is unchanged.
     """
     pct_digits = max(0, ndigits - 1)
-    if token == "ICE":  # nosec B105 - identifier/config-key name matched by heuristic, not an embedded credential
-        return f"ICE={ice:.{ndigits}f}"
-    if token == "BR":  # nosec B105 - identifier/config-key name matched by heuristic, not an embedded credential
-        return f"BR={brier_loss * 100:.{pct_digits}f}%"
-    if token == "BR_DECOMP":  # nosec B105 - identifier/config-key name matched by heuristic, not an embedded credential
-        # Session 7 batch 8 (user feedback): compact form
-        # of the Brier decomposition. The math is BR = REL - RES + UNC
-        # (Murphy 1973), so the most informative compact rendering is
-        # the actual signed-sum: ``BR=X%(RL<rel>%+U<unc>%-RS<res>%)`` where
-        # RL = ReLiability (calibration error, lower is better),
-        # U  = Uncertainty (irreducible noise = base_rate * (1-base_rate)),
-        # RS = ReSolution (subtractive: how well bins separate from base
-        # rate, higher is better). Reads naturally as the formula with
-        # signs preserved, ~30% shorter than the labelled form.
-        return (
+
+    def _prf_tuned() -> str:
+        """Title fragment for the threshold tuned on validation, empty when no tuned threshold exists."""
+        if tuned_threshold is None or np.isnan(tuned_threshold):
+            return ""
+        return f"@F1-opt(val) {tuned_threshold:.2f}: [{_prf_body(tuned_precision, tuned_recall, tuned_f1, pct_digits)}]"
+
+    def _prf() -> str:
+        """Title fragment for the PR/RE/F1 triple at the binary threshold, prefixed by the threshold when one is given."""
+        prf = _prf_body(precision, recall, f1, pct_digits)
+        return f"@{binary_threshold:.2f}: [{prf}]" if binary_threshold is not None else prf
+
+    renderers = {
+        "ICE": lambda: f"ICE={ice:.{ndigits}f}",
+        "BR": lambda: f"BR={brier_loss * 100:.{pct_digits}f}%",
+        "BR_DECOMP": lambda: (
             f"BR={brier_loss * 100:.{pct_digits}f}%"
             f"(RL{brier_reliability * 100:.{pct_digits}f}%"
             f"+U{brier_uncertainty * 100:.{pct_digits}f}%"
             f"-RS{brier_resolution * 100:.{pct_digits}f}%)"
-        )
-    if token == "ECE":  # nosec B105 - identifier/config-key name matched by heuristic, not an embedded credential
-        return f"ECE={ece * 100:.{pct_digits}f}%"
-    if token == "CMAEW":  # nosec B105 - identifier/config-key name matched by heuristic, not an embedded credential
-        return f"CMAE{'W' if use_weights else ''}=" f"{calibration_mae * 100:.{pct_digits}f}%" f"±{calibration_std * 100:.{pct_digits}f}%"
-    if token == "COV":  # nosec B105 - identifier/config-key name matched by heuristic, not an embedded credential
-        # log10(nbins) decides COV's decimal precision; matches pre-template behaviour.
-        cov_prec = max(0, int(np.log10(max(nbins, 1))))
-        return f"COV={calibration_coverage * 100:.{cov_prec}f}%"
-    if token == "LL":  # nosec B105 - identifier/config-key name matched by heuristic, not an embedded credential
-        if ll is None:
-            return ""
-        return f"LL={ll:.{ndigits}f}"
-    if token == "DENS":  # nosec B105 - identifier/config-key name matched by heuristic, not an embedded credential
-        return f"DENS=[{max_hits:_};{min_hits:_}]"
-    if token == "ROC_AUC":  # nosec B105 - identifier/config-key name matched by heuristic, not an embedded credential
-        suffix = ""
-        if mean_group_roc_auc is not None and not np.isnan(mean_group_roc_auc):
-            suffix = f"[{mean_group_roc_auc:.{ndigits}f}]"
-        if np.isnan(roc_auc):
-            return f"ROC AUC=N/A{suffix}"
-        return f"ROC AUC={roc_auc:.{ndigits}f}{suffix}"
-    if token == "PR_AUC":  # nosec B105 - identifier/config-key name matched by heuristic, not an embedded credential
-        suffix = ""
-        if mean_group_pr_auc is not None and not np.isnan(mean_group_pr_auc):
-            suffix = f"[{mean_group_pr_auc:.{ndigits}f}]"
-        if np.isnan(pr_auc):
-            return f"PR AUC=N/A{suffix}"
-        return f"PR AUC={pr_auc:.{ndigits}f}{suffix}"
-    if token == "PRF":  # nosec B105 - identifier/config-key name matched by heuristic, not an embedded credential
-        # PR/RE/F1 are threshold-dependent, unlike the two AUCs, so they get their own token (the template places it after
-        # the threshold-free metrics) and the threshold is named ONCE, in front of the bracketed group it governs.
-        prf = f"PR={precision * 100:.{pct_digits}f}%,RE={recall * 100:.{pct_digits}f}%,F1={f1 * 100:.{pct_digits}f}%"
-        return f"@{binary_threshold:.2f}: [{prf}]" if binary_threshold is not None else prf
-    if token == "PRF_TUNED":  # nosec B105 - identifier/config-key name matched by heuristic, not an embedded credential
-        if tuned_threshold is None or np.isnan(tuned_threshold):
-            return ""
-        prf = f"PR={tuned_precision * 100:.{pct_digits}f}%,RE={tuned_recall * 100:.{pct_digits}f}%,F1={tuned_f1 * 100:.{pct_digits}f}%"
-        return f"@F1-opt(val) {tuned_threshold:.2f}: [{prf}]"
-    if token == "KS":  # nosec B105 - identifier/config-key name matched by heuristic, not an embedded credential
-        if np.isnan(ks):
-            return "KS=N/A"
-        return f"KS={ks:.{ndigits}f}"
-    if token == "MCC":  # nosec B105 - identifier/config-key name matched by heuristic, not an embedded credential
-        if np.isnan(mcc):
-            return "MCC=N/A"
-        return f"MCC={mcc:.{ndigits}f}"
-    if token == "BSS":  # nosec B105 - identifier/config-key name matched by heuristic, not an embedded credential
-        # Brier Skill Score - negative means worse than marginal baseline.
-        # Keep the sign in the title (it's information, not noise).
-        if np.isnan(bss):
-            return "BSS=N/A"
-        return f"BSS={bss:.{ndigits}f}"
-    return ""
+        ),
+        "ECE": lambda: f"ECE={ece * 100:.{pct_digits}f}%",
+        "CMAEW": lambda: f"CMAE{'W' if use_weights else ''}=" f"{calibration_mae * 100:.{pct_digits}f}%" f"±{calibration_std * 100:.{pct_digits}f}%",
+        "COV": lambda: f"COV={calibration_coverage * 100:.{_cov_precision(nbins)}f}%",
+        "LL": lambda: "" if ll is None else f"LL={ll:.{ndigits}f}",
+        "DENS": lambda: f"DENS=[{max_hits:_};{min_hits:_}]",
+        "ROC_AUC": lambda: _auc_title("ROC AUC", roc_auc, mean_group_roc_auc, ndigits),
+        "PR_AUC": lambda: _auc_title("PR AUC", pr_auc, mean_group_pr_auc, ndigits),
+        "PRF": _prf,
+        "PRF_TUNED": _prf_tuned,
+        "KS": lambda: "KS=N/A" if np.isnan(ks) else f"KS={ks:.{ndigits}f}",
+        "MCC": lambda: "MCC=N/A" if np.isnan(mcc) else f"MCC={mcc:.{ndigits}f}",
+        "BSS": lambda: "BSS=N/A" if np.isnan(bss) else f"BSS={bss:.{ndigits}f}",
+    }
+    render = renderers.get(token)
+    return render() if render is not None else ""
 
 
 # Threshold (in samples) above which the parallel prange binning kernel is dispatched.

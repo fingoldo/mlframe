@@ -442,58 +442,118 @@ def _materialise_and_fina_step1_column_reset_first(self, num_fs_steps, prospecti
     return _esc_done, _esc_failed
 
 
-def _materialise_and_fina_step2_esc_failed(self, _esc_failed, classes_y, st, prospective_additions, X, cols, _pair_maxt_floor, verbose, _prevalence_failed_synergy, _esc_done, _is_polars_input, discretize_array, data, nbins, n_recommended_features, engineered_recipes):
-    """Step 2 of _materialise_and_fina_step1_try: lines starting at ``if _esc_failed:``."""
-    import polars as pl
+def _escalation_admitted_pool(self, st, prospective_additions, _esc_y_dense) -> dict:
+    """Marginal MI of each engineered column the main path materialised, keyed by column name, for the S5 admitted-support gate of the escalation."""
+    from mlframe.feature_selection.filters._mi_greedy_cmi_fe import _cmi_from_binned as _esc_mi, _quantile_bin as _esc_qbin
 
-    if _esc_failed:
-        from mlframe.feature_selection.filters._fe_auto_escalation import run_fe_auto_escalation
-        from mlframe.feature_selection.filters._mi_greedy_cmi_fe import _cmi_from_binned as _esc_mi, _quantile_bin as _esc_qbin
-        # Admitted-support context for the S5 gate: the engineered columns
-        # the main path just materialised (continuous values + marginal MI).
-        from mlframe.feature_selection.filters._mrmr_fe_step._step_class_codes import dense_class_codes
+    _esc_admitted_pool: dict = {}
+    _esc_batched_done = False
+    if st._gate_resident:
+        from mlframe.feature_selection.filters._mrmr_fe_step._step_batched_marginals import batched_device_marginals
 
-        _esc_y_dense = dense_class_codes(classes_y)
-        _esc_admitted_pool: dict = {}
-        _esc_batched_done = False
-        if st._gate_resident:
-            from mlframe.feature_selection.filters._mrmr_fe_step._step_batched_marginals import batched_device_marginals
-
-            _e_names, _e_vals = [], []
-            for _tpf, _tvals, _ncols, _nnb, _msgs in prospective_additions.values():
-                if not _tpf or _tvals is None or not _ncols:
-                    continue
-                for _jc, _cname in enumerate(_ncols):
-                    if _tvals.shape[1] > _jc:
-                        _e_names.append(_cname)
-                        _ev = _tvals[:, _jc]
-                        _e_vals.append(_ev if hasattr(_ev, "dev") else np.asarray(_ev, dtype=_crit_np_dtype()))
-            _e_mi = batched_device_marginals(_e_vals, _esc_y_dense, int(self.quantization_nbins))
-            if _e_mi is not None:
-                _esc_admitted_pool = {_nm: (_vv, _mm) for _nm, _vv, _mm in zip(_e_names, _e_vals, _e_mi)}
-                _esc_batched_done = True
-        for _rp, (_tpf, _tvals, _ncols, _nnb, _msgs) in (() if _esc_batched_done else prospective_additions.items()):
+        _e_names, _e_vals = [], []
+        for _tpf, _tvals, _ncols, _nnb, _msgs in prospective_additions.values():
             if not _tpf or _tvals is None or not _ncols:
                 continue
             for _jc, _cname in enumerate(_ncols):
-                if _tvals.shape[1] <= _jc:
-                    continue
-                _cv = np.asarray(_tvals[:, _jc], dtype=_crit_np_dtype())
-                # DEVICE-BORN admitted-pool marginal MI (same residency contract as the gate's _cmi_cands
-                # build above): bin the admitted engineered column ONCE on device and score its marginal
-                # MI from the RESIDENT codes so the candidate float + codes never re-cross H2D. Host
-                # fallback per-column on any cupy fault. Selection-equivalent (same device partition).
-                _cb = None
-                if st._gate_resident and np.isfinite(_cv).all():
-                    try:
-                        from mlframe.feature_selection.filters._mi_greedy_cmi_fe import _quantile_bin_gpu_resident as _qbr_esc
-                        _cb = _qbr_esc(_cv, int(self.quantization_nbins))
-                    except Exception as e:
-                        log_throttle(logger, "step_score_parts2.hot_loop_warning", logging.WARNING, "_quantile_bin_gpu_resident (escape) failed, falling back to the host path: %s", e)
-                        _cb = None
-                if _cb is None:
-                    _cb = _esc_qbin(_cv, nbins=int(self.quantization_nbins))
-                _esc_admitted_pool[_cname] = (_cv, float(_esc_mi(_cb, _esc_y_dense, None, kx=int(self.quantization_nbins))))
+                if _tvals.shape[1] > _jc:
+                    _e_names.append(_cname)
+                    _ev = _tvals[:, _jc]
+                    _e_vals.append(_ev if hasattr(_ev, "dev") else np.asarray(_ev, dtype=_crit_np_dtype()))
+        _e_mi = batched_device_marginals(_e_vals, _esc_y_dense, int(self.quantization_nbins))
+        if _e_mi is not None:
+            _esc_admitted_pool = {_nm: (_vv, _mm) for _nm, _vv, _mm in zip(_e_names, _e_vals, _e_mi)}
+            _esc_batched_done = True
+    for _rp, (_tpf, _tvals, _ncols, _nnb, _msgs) in (() if _esc_batched_done else prospective_additions.items()):
+        if not _tpf or _tvals is None or not _ncols:
+            continue
+        for _jc, _cname in enumerate(_ncols):
+            if _tvals.shape[1] <= _jc:
+                continue
+            _cv = np.asarray(_tvals[:, _jc], dtype=_crit_np_dtype())
+            # DEVICE-BORN admitted-pool marginal MI (same residency contract as the gate's _cmi_cands
+            # build above): bin the admitted engineered column ONCE on device and score its marginal
+            # MI from the RESIDENT codes so the candidate float + codes never re-cross H2D. Host
+            # fallback per-column on any cupy fault. Selection-equivalent (same device partition).
+            _cb = None
+            if st._gate_resident and np.isfinite(_cv).all():
+                try:
+                    from mlframe.feature_selection.filters._mi_greedy_cmi_fe import _quantile_bin_gpu_resident as _qbr_esc
+                    _cb = _qbr_esc(_cv, int(self.quantization_nbins))
+                except Exception as e:
+                    log_throttle(logger, "step_score_parts2.hot_loop_warning", logging.WARNING, "_quantile_bin_gpu_resident (escape) failed, falling back to the host path: %s", e)
+                    _cb = None
+            if _cb is None:
+                _cb = _esc_qbin(_cv, nbins=int(self.quantization_nbins))
+            _esc_admitted_pool[_cname] = (_cv, float(_esc_mi(_cb, _esc_y_dense, None, kx=int(self.quantization_nbins))))
+    return _esc_admitted_pool
+
+
+def _materialise_escalation_admitted(self, st, _esc_admitted, X, data, cols, nbins, n_recommended_features, engineered_recipes, discretize_array, _is_polars_input):
+    """Append the escalation's admitted columns to ``X``, ``data``, ``cols`` and ``nbins``, and register their recipes and continuous values.
+
+    Returns ``(X, cols, data, n_recommended_features, nbins)``.
+    """
+    import polars as pl
+
+    # Materialise exactly like the unary/binary survivors above:
+    # discretised codes into data/X, name into cols, nbins in
+    # lockstep, recipe registered, continuous values stashed for
+    # the engineered-operand feed-forward, index promoted below.
+    if not _is_polars_input and hasattr(X, "columns") and not st._x_is_owned:
+        X = X.copy(deep=False)
+        st._x_is_owned = True
+    # Pre-widen to _safe_code_dtype, not the raw (possibly too-narrow) quantization_dtype:
+    # discretize_array widens its OWN return value internally and assigning that widened
+    # value into a narrow-dtype buffer silently downcasts it back, wrapping codes negative
+    # for quantization_nbins > 127 under quantization_dtype=int8 (same bug already fixed
+    # above at the unary/binary materialize block via _safe_code_dtype).
+    from mlframe.feature_selection.filters.discretization.shared import safe_code_dtype as _safe_code_dtype
+    _esc_safe_dtype = _safe_code_dtype(self.quantization_nbins, self.quantization_dtype, reserve_nan_slot=(self.quantization_method == "uniform"))
+    _esc_new_codes: np.ndarray = np.empty(
+        shape=(len(X), len(_esc_admitted)), dtype=_esc_safe_dtype,
+    )
+    for _je, _ec in enumerate(_esc_admitted):
+        _esc_new_codes[:, _je] = discretize_array(
+            arr=np.asarray(_ec["values"], dtype=_crit_np_dtype()),
+            n_bins=self.quantization_nbins,
+            method=self.quantization_method,
+            dtype=self.quantization_dtype,
+        )
+    _n_cols_before_esc = len(cols)
+    # Preserve the compact codes dtype (COMPACT CODES STORAGE in _fit_impl_core): nbins-bounded codes,
+    # cast down to data.dtype rather than upcasting the whole matrix back to int32.
+    data = np.append(data, _esc_new_codes.astype(data.dtype, copy=False), axis=1)
+    nbins = np.concatenate([
+        np.asarray(nbins),
+        np.asarray([self.quantization_nbins] * len(_esc_admitted), dtype=np.asarray(nbins).dtype),
+    ])
+    cols = cols + [_ec["name"] for _ec in _esc_admitted]
+    st._newly_engineered_indices.extend(range(_n_cols_before_esc, len(cols)))
+    n_recommended_features += len(_esc_admitted)
+    st._eng_cont_store = getattr(self, "_engineered_continuous_", None)
+    if st._eng_cont_store is None:
+        st._eng_cont_store = {}
+        self._engineered_continuous_ = st._eng_cont_store
+    if _is_polars_input:
+        X = X.with_columns([pl.Series(_ec["name"], _esc_new_codes[:, _je]) for _je, _ec in enumerate(_esc_admitted)])
+    for _je, _ec in enumerate(_esc_admitted):
+        if not _is_polars_input:
+            X[_ec["name"]] = _esc_new_codes[:, _je]
+        st._eng_cont_store[_ec["name"]] = np.asarray(_ec["values"], dtype=_crit_np_dtype())
+        if engineered_recipes is not None:
+            engineered_recipes[_ec["name"]] = _ec["recipe"]
+    return X, cols, data, n_recommended_features, nbins
+
+
+def _materialise_and_fina_step2_esc_failed(self, _esc_failed, classes_y, st, prospective_additions, X, cols, _pair_maxt_floor, verbose, _prevalence_failed_synergy, _esc_done, _is_polars_input, discretize_array, data, nbins, n_recommended_features, engineered_recipes):
+    """Step 2 of _materialise_and_fina_step1_try: lines starting at ``if _esc_failed:``."""
+    if _esc_failed:
+        from mlframe.feature_selection.filters._fe_auto_escalation import run_fe_auto_escalation
+        from mlframe.feature_selection.filters._mrmr_fe_step._step_class_codes import dense_class_codes
+
+        _esc_y_dense = dense_class_codes(classes_y)
+        _esc_admitted_pool = _escalation_admitted_pool(self, st, prospective_additions, _esc_y_dense)
         # Per-pair admitted-capture values: UNDERDELIVERY-triggered pairs
         # get their proposers fit on the RESIDUAL of the target given the
         # existing capture (see ``run_fe_auto_escalation``); zero-admission
@@ -519,53 +579,9 @@ def _materialise_and_fina_step2_esc_failed(self, _esc_failed, classes_y, st, pro
         # identical data cannot change the verdict.
         _esc_done.update(getattr(self, "fe_escalation_info_", {}).get("eligible_idx", []) or [])
         if _esc_admitted:
-            # Materialise exactly like the unary/binary survivors above:
-            # discretised codes into data/X, name into cols, nbins in
-            # lockstep, recipe registered, continuous values stashed for
-            # the engineered-operand feed-forward, index promoted below.
-            if not _is_polars_input and hasattr(X, "columns") and not st._x_is_owned:
-                X = X.copy(deep=False)
-                st._x_is_owned = True
-            # Pre-widen to _safe_code_dtype, not the raw (possibly too-narrow) quantization_dtype:
-            # discretize_array widens its OWN return value internally and assigning that widened
-            # value into a narrow-dtype buffer silently downcasts it back, wrapping codes negative
-            # for quantization_nbins > 127 under quantization_dtype=int8 (same bug already fixed
-            # above at the unary/binary materialize block via _safe_code_dtype).
-            from mlframe.feature_selection.filters.discretization.shared import safe_code_dtype as _safe_code_dtype
-            _esc_safe_dtype = _safe_code_dtype(self.quantization_nbins, self.quantization_dtype, reserve_nan_slot=(self.quantization_method == "uniform"))
-            _esc_new_codes: np.ndarray = np.empty(
-                shape=(len(X), len(_esc_admitted)), dtype=_esc_safe_dtype,
+            X, cols, data, n_recommended_features, nbins = _materialise_escalation_admitted(
+                self, st, _esc_admitted, X, data, cols, nbins, n_recommended_features, engineered_recipes, discretize_array, _is_polars_input,
             )
-            for _je, _ec in enumerate(_esc_admitted):
-                _esc_new_codes[:, _je] = discretize_array(
-                    arr=np.asarray(_ec["values"], dtype=_crit_np_dtype()),
-                    n_bins=self.quantization_nbins,
-                    method=self.quantization_method,
-                    dtype=self.quantization_dtype,
-                )
-            _n_cols_before_esc = len(cols)
-            # Preserve the compact codes dtype (COMPACT CODES STORAGE in _fit_impl_core): nbins-bounded codes,
-            # cast down to data.dtype rather than upcasting the whole matrix back to int32.
-            data = np.append(data, _esc_new_codes.astype(data.dtype, copy=False), axis=1)
-            nbins = np.concatenate([
-                np.asarray(nbins),
-                np.asarray([self.quantization_nbins] * len(_esc_admitted), dtype=np.asarray(nbins).dtype),
-            ])
-            cols = cols + [_ec["name"] for _ec in _esc_admitted]
-            st._newly_engineered_indices.extend(range(_n_cols_before_esc, len(cols)))
-            n_recommended_features += len(_esc_admitted)
-            st._eng_cont_store = getattr(self, "_engineered_continuous_", None)
-            if st._eng_cont_store is None:
-                st._eng_cont_store = {}
-                self._engineered_continuous_ = st._eng_cont_store
-            if _is_polars_input:
-                X = X.with_columns([pl.Series(_ec["name"], _esc_new_codes[:, _je]) for _je, _ec in enumerate(_esc_admitted)])
-            for _je, _ec in enumerate(_esc_admitted):
-                if not _is_polars_input:
-                    X[_ec["name"]] = _esc_new_codes[:, _je]
-                st._eng_cont_store[_ec["name"]] = np.asarray(_ec["values"], dtype=_crit_np_dtype())
-                if engineered_recipes is not None:
-                    engineered_recipes[_ec["name"]] = _ec["recipe"]
     return X, cols, data, n_recommended_features, nbins
 
 

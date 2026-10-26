@@ -319,6 +319,113 @@ def canonical_params_hash(params: Any) -> str:
     return h.hexdigest()
 
 
+def _column_dtype_lines(df: Any, cols_sorted: list) -> list[str]:
+    """``name:dtype`` lines of a polars or pandas frame, in the sorted column order."""
+    dtype_lines: list[str] = []
+    try:
+        import polars as pl
+        if isinstance(df, pl.DataFrame):
+            dtype_lines.extend(f"{c}:{df.schema[c]}" for c in cols_sorted)
+    except ImportError:  # pragma: no cover
+        pass
+    if not dtype_lines:
+        try:
+            import pandas as pd
+            if isinstance(df, pd.DataFrame):
+                dtype_lines.extend(f"{c}:{df[c].dtype}" for c in cols_sorted)
+        except ImportError:  # pragma: no cover
+            pass
+    return dtype_lines
+
+
+def _sample_row_indices(n_rows: int, n_sample: int) -> np.ndarray:
+    """Deterministic stride sample of row indices: all rows when there are few, evenly spaced otherwise."""
+    if n_rows == 0:
+        return np.array([], dtype=np.int64)
+    if n_rows <= max(1, n_sample):
+        return np.arange(n_rows, dtype=np.int64)
+    raw = np.linspace(0, n_rows - 1, n_sample).round().astype(np.int64)
+    return np.unique(raw)
+
+
+def _polars_rows_payload(df: Any, cols_sorted: list, sample_idx: np.ndarray) -> bytes:
+    """Bytes of the sampled rows of a polars frame: the xxhash row digests when available, otherwise the Arrow IPC stream."""
+    # polars accepts numpy int64 indices via gather()
+    sub = df.select(cols_sorted)[sample_idx.tolist()]
+    if _HAVE_XX:
+        # Fast path: ~100-700x faster than to_csv (see bench_fingerprint.py).
+        # ``hash_rows`` is the polars-native rowwise xxhash; we re-hash its bytes to
+        # collapse N×u64 into a fingerprint identical-length to the legacy blake path.
+        return bytes(sub.hash_rows().to_numpy().tobytes())
+    # xxhash-absent fallback. Legacy
+    # ``to_arrow().to_pandas().to_csv()`` materialised an
+    # entire pandas DataFrame and CSV-encoded every cell
+    # - ~45 ms / 173 kB on a 4096-row 5-column frame.
+    # ``write_ipc`` to a BytesIO is the polars-native Arrow
+    # IPC stream: zero-copy from the polars buffer, byte-
+    # deterministic across runs, and ~140x faster (~0.3 ms
+    # on the same frame).
+    buf = io.BytesIO()
+    sub.write_ipc(buf, compression="uncompressed")
+    return buf.getvalue()
+
+
+def _pandas_rows_payload(df: Any, cols_sorted: list, sample_idx: np.ndarray) -> bytes:
+    """Bytes of the sampled rows of a pandas frame, hashed per column from the underlying numpy buffers."""
+    sub = df.iloc[sample_idx][cols_sorted]
+    if _HAVE_XX:
+        # pandas fast path: hash each column's underlying numpy buffer via xxhash
+        # then xxhash the concatenated digests. Avoids a CSV materialisation.
+        h_outer = xxhash.xxh3_64()
+        for c in cols_sorted:
+            try:
+                col_bytes = sub[c].to_numpy().tobytes()
+            except Exception as e:
+                logger.debug("to_numpy().tobytes() failed for column %r, falling back to str(to_list()): %s", c, e)
+                col_bytes = str(sub[c].to_list()).encode("utf-8")
+            h_outer.update(xxhash.xxh3_64(col_bytes).digest())
+        return h_outer.digest()
+    # xxhash-absent pandas fallback. CSV-encoding
+    # every cell was the original hot path; per-column
+    # numpy ``tobytes`` skips the string roundtrip on
+    # numeric columns and only falls back to
+    # ``str(to_list())`` for object columns where
+    # ``tobytes`` is undefined.
+    parts: list = []
+    for c in cols_sorted:
+        try:
+            parts.append(sub[c].to_numpy().tobytes())
+        except Exception as e:
+            logger.debug("to_numpy().tobytes() failed for column %r, falling back to str(to_list()): %s", c, e)
+            parts.append(str(sub[c].to_list()).encode("utf-8"))
+        parts.append(f"|{c}|".encode())
+    return b"".join(parts)
+
+
+def _sampled_rows_payload(df: Any, cols_sorted: list, sample_idx: np.ndarray) -> Optional[bytes]:
+    """Sampled-row bytes of a polars or pandas frame, or ``None`` when ``df`` is neither.
+
+    A polars failure with a TypeError or ImportError is not raised: the pandas check that follows cannot match a
+    polars frame, so the result is ``None`` exactly as when the failure happened before the pandas check.
+    """
+    try:
+        import polars as pl
+        if isinstance(df, pl.DataFrame):
+            try:
+                return _polars_rows_payload(df, cols_sorted, sample_idx)
+            except TypeError:
+                return None
+    except ImportError:
+        pass
+    try:
+        import pandas as pd
+        if isinstance(df, pd.DataFrame):
+            return _pandas_rows_payload(df, cols_sorted, sample_idx)
+    except ImportError:  # pragma: no cover
+        pass
+    return None
+
+
 def fingerprint_df(
     df: Any,
     columns: Optional[Tuple[str, ...]] = None,
@@ -359,94 +466,17 @@ def fingerprint_df(
     cols_sorted = sorted(cols, key=str)
     n_cols = len(cols_sorted)
 
-    # Stride-sample row indices.
-    if n_rows == 0:
-        sample_idx = np.array([], dtype=np.int64)
-    elif n_rows <= max(1, n_sample):
-        sample_idx = np.arange(n_rows, dtype=np.int64)
-    else:
-        raw = np.linspace(0, n_rows - 1, n_sample).round().astype(np.int64)
-        sample_idx = np.unique(raw)
+    sample_idx = _sample_row_indices(n_rows, n_sample)
 
     # ---- column_dtypes_hash --------------------------------------
-    dtype_lines: list[str] = []
-    try:
-        import polars as pl
-        if isinstance(df, pl.DataFrame):
-            dtype_lines.extend(f"{c}:{df.schema[c]}" for c in cols_sorted)
-    except ImportError:  # pragma: no cover
-        pass
-    if not dtype_lines:
-        try:
-            import pandas as pd
-            if isinstance(df, pd.DataFrame):
-                dtype_lines.extend(f"{c}:{df[c].dtype}" for c in cols_sorted)
-        except ImportError:  # pragma: no cover
-            pass
-    column_dtypes_hash = hashlib.blake2b(";".join(dtype_lines).encode("utf-8"), digest_size=8).hexdigest()
+    column_dtypes_hash = hashlib.blake2b(";".join(_column_dtype_lines(df, cols_sorted)).encode("utf-8"), digest_size=8).hexdigest()
 
     # ---- sampled_rows_hash ---------------------------------------
     payload_parts: list = [str(n_rows).encode(), str(n_cols).encode()]
     if len(sample_idx) > 0:
-        try:
-            import polars as pl
-            if isinstance(df, pl.DataFrame):
-                # polars accepts numpy int64 indices via gather()
-                sub = df.select(cols_sorted)[sample_idx.tolist()]
-                if _HAVE_XX:
-                    # Fast path: ~100-700x faster than to_csv (see bench_fingerprint.py).
-                    # ``hash_rows`` is the polars-native rowwise xxhash; we re-hash its bytes to
-                    # collapse N×u64 into a fingerprint identical-length to the legacy blake path.
-                    payload_parts.append(sub.hash_rows().to_numpy().tobytes())
-                else:
-                    # xxhash-absent fallback. Legacy
-                    # ``to_arrow().to_pandas().to_csv()`` materialised an
-                    # entire pandas DataFrame and CSV-encoded every cell
-                    # - ~45 ms / 173 kB on a 4096-row 5-column frame.
-                    # ``write_ipc`` to a BytesIO is the polars-native Arrow
-                    # IPC stream: zero-copy from the polars buffer, byte-
-                    # deterministic across runs, and ~140x faster (~0.3 ms
-                    # on the same frame).
-                    buf = io.BytesIO()
-                    sub.write_ipc(buf, compression="uncompressed")
-                    payload_parts.append(buf.getvalue())
-            else:
-                raise TypeError("not polars")
-        except (ImportError, TypeError):
-            try:
-                import pandas as pd
-                if isinstance(df, pd.DataFrame):
-                    sub = df.iloc[sample_idx][cols_sorted]
-                    if _HAVE_XX:
-                        # pandas fast path: hash each column's underlying numpy buffer via xxhash
-                        # then xxhash the concatenated digests. Avoids a CSV materialisation.
-                        h_outer = xxhash.xxh3_64()
-                        for c in cols_sorted:
-                            try:
-                                col_bytes = sub[c].to_numpy().tobytes()
-                            except Exception as e:
-                                logger.debug("to_numpy().tobytes() failed for column %r, falling back to str(to_list()): %s", c, e)
-                                col_bytes = str(sub[c].to_list()).encode("utf-8")
-                            h_outer.update(xxhash.xxh3_64(col_bytes).digest())
-                        payload_parts.append(h_outer.digest())
-                    else:
-                        # xxhash-absent pandas fallback. CSV-encoding
-                        # every cell was the original hot path; per-column
-                        # numpy ``tobytes`` skips the string roundtrip on
-                        # numeric columns and only falls back to
-                        # ``str(to_list())`` for object columns where
-                        # ``tobytes`` is undefined.
-                        parts: list = []
-                        for c in cols_sorted:
-                            try:
-                                parts.append(sub[c].to_numpy().tobytes())
-                            except Exception as e:
-                                logger.debug("to_numpy().tobytes() failed for column %r, falling back to str(to_list()): %s", c, e)
-                                parts.append(str(sub[c].to_list()).encode("utf-8"))
-                            parts.append(f"|{c}|".encode())
-                        payload_parts.append(b"".join(parts))
-            except ImportError:  # pragma: no cover
-                pass
+        payload = _sampled_rows_payload(df, cols_sorted, sample_idx)
+        if payload is not None:
+            payload_parts.append(payload)
 
     h = hashlib.blake2b(digest_size=16)
     for p in payload_parts:

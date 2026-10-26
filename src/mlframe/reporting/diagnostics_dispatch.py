@@ -374,6 +374,80 @@ def render_split_error_diagnostics(**kwargs: Any) -> Dict[str, Any]:
         clear_feature_matrix_cache()
 
 
+def _render_psi_panel(test_frame: Any, timestamps: Any, non_calendar: Optional[List[Any]], calendar: list, plot_outputs: str, base_path: str, charts: Any) -> None:
+    """PSI heatmap of the test split against the timestamp buckets, with the calendar features noted when excluded."""
+    ts = np.asarray(timestamps)
+    try:
+        spec = _psi_heatmap_cached(test_frame, ts, non_calendar)
+        if calendar:
+            spec = _with_caption_note(spec, f"Excluded {len(calendar)} calendar feature(s) derived from the timestamp (they differ between time buckets by construction): {', '.join(calendar)}.")
+        ok = _save_spec(spec, plot_outputs, base_path + "_psi")
+        _record(charts, "psi_heatmap", ok)
+        if ok:
+            _record_path(charts, base_path + "_psi")
+    except Exception:
+        logger.exception("diagnostics_dispatch: psi_heatmap failed; continuing.")
+        _record(charts, "psi_heatmap", False)
+
+
+def _render_regression_drift_panels(yt: np.ndarray, yp: np.ndarray, ts: np.ndarray, cusum_drift: bool, plot_outputs: str, base_path: str, charts: Any) -> None:
+    """Residual-over-time panel and, when enabled, the CUSUM change-point panel for a regression target."""
+    from mlframe.reporting.charts.drift import residual_vs_time
+
+    try:
+        spec = residual_vs_time(yt, yp, ts)
+        ok = _save_spec(spec, plot_outputs, base_path + "_residual_vs_time")
+        _record(charts, "residual_vs_time", ok)
+        if ok:
+            _record_path(charts, base_path + "_residual_vs_time")
+    except Exception:
+        logger.exception("diagnostics_dispatch: residual_vs_time failed; continuing.")
+        _record(charts, "residual_vs_time", False)
+    # CUSUM change-point catches a SUSTAINED residual mean shift that per-bucket residual_vs_time misses.
+    if cusum_drift:
+        try:
+            from mlframe.reporting.charts.drift import cusum_residual_drift
+
+            spec = cusum_residual_drift(yt, yp, ts)
+            ok = _save_spec(spec, plot_outputs, base_path + "_cusum_drift")
+            _record(charts, "cusum_drift", ok)
+            if ok:
+                _record_path(charts, base_path + "_cusum_drift")
+        except Exception:
+            logger.exception("diagnostics_dispatch: cusum_drift failed; continuing.")
+            _record(charts, "cusum_drift", False)
+
+
+def _render_metric_over_time_panel(yt: np.ndarray, yp: np.ndarray, ts: np.ndarray, metric: str, plot_outputs: str, base_path: str, charts: Any) -> None:
+    """Metric-over-time panel, with the trend direction taken from the canonical metric-direction table."""
+    from mlframe.reporting.charts.drift import metric_over_time
+
+    try:
+        # Direction from the canonical metric-direction table, not a 2-item
+        # allowlist that mislabeled rmse/mae/mape/log_loss/ice/ece/pinball as
+        # higher-is-better and inverted the "over time" trend annotation.
+        from mlframe.training.metrics_registry import metric_name_higher_is_better
+        _dir = metric_name_higher_is_better(metric)
+        if _dir is None:
+            # Defaulting an UNKNOWN metric to higher-is-better silently inverts this panel's trend
+            # annotation for every custom error metric, which is the common case for a custom name.
+            # Warn and pick the safer default: most bespoke metric names in this codebase are losses.
+            logger.warning(
+                "metric_over_time: optimisation direction for metric=%r is unknown; assuming "
+                "lower-is-better. Register it via mlframe.training.metrics_registry.register_metric "
+                "to silence this and get the trend annotation right.", metric,
+            )
+        higher_is_better = False if _dir is None else _dir
+        spec = metric_over_time(yt, yp, ts, metric=metric, higher_is_better=higher_is_better)
+        ok = _save_spec(spec, plot_outputs, base_path + "_metric_over_time")
+        _record(charts, "metric_over_time", ok)
+        if ok:
+            _record_path(charts, base_path + "_metric_over_time")
+    except Exception:
+        logger.exception("diagnostics_dispatch: metric_over_time failed; continuing.")
+        _record(charts, "metric_over_time", False)
+
+
 def render_target_drift_diagnostics(
     *,
     train_frame: Any,
@@ -408,11 +482,6 @@ def render_target_drift_diagnostics(
     if not plot_outputs or not base_path:
         return
 
-    from mlframe.reporting.charts.drift import (
-        metric_over_time,
-        residual_vs_time,
-    )
-
     has_time = timestamps is not None and len(np.asarray(timestamps)) > 0
 
     # Calendar encodings of the timestamp (day/weekday/hour sin-cos, ...) differ between time buckets and between an
@@ -437,18 +506,7 @@ def render_target_drift_diagnostics(
         _non_calendar = _all_names
 
     if has_time and test_frame is not None:
-        ts = np.asarray(timestamps)
-        try:
-            spec = _psi_heatmap_cached(test_frame, ts, _non_calendar)
-            if _calendar:
-                spec = _with_caption_note(spec, f"Excluded {len(_calendar)} calendar feature(s) derived from the timestamp (they differ between time buckets by construction): {', '.join(_calendar)}.")
-            ok = _save_spec(spec, plot_outputs, base_path + "_psi")
-            _record(charts, "psi_heatmap", ok)
-            if ok:
-                _record_path(charts, base_path + "_psi")
-        except Exception:
-            logger.exception("diagnostics_dispatch: psi_heatmap failed; continuing.")
-            _record(charts, "psi_heatmap", False)
+        _render_psi_panel(test_frame, timestamps, _non_calendar, _calendar, plot_outputs, base_path, charts)
 
     if has_time and y_true is not None and y_pred is not None:
         ts = np.asarray(timestamps)
@@ -457,52 +515,8 @@ def render_target_drift_diagnostics(
         m = min(len(yt), len(yp), len(ts))
         if m > 0:
             if task == "regression":
-                try:
-                    spec = residual_vs_time(yt[:m], yp[:m], ts[:m])
-                    ok = _save_spec(spec, plot_outputs, base_path + "_residual_vs_time")
-                    _record(charts, "residual_vs_time", ok)
-                    if ok:
-                        _record_path(charts, base_path + "_residual_vs_time")
-                except Exception:
-                    logger.exception("diagnostics_dispatch: residual_vs_time failed; continuing.")
-                    _record(charts, "residual_vs_time", False)
-                # CUSUM change-point catches a SUSTAINED residual mean shift that per-bucket residual_vs_time misses.
-                if cusum_drift:
-                    try:
-                        from mlframe.reporting.charts.drift import cusum_residual_drift
-
-                        spec = cusum_residual_drift(yt[:m], yp[:m], ts[:m])
-                        ok = _save_spec(spec, plot_outputs, base_path + "_cusum_drift")
-                        _record(charts, "cusum_drift", ok)
-                        if ok:
-                            _record_path(charts, base_path + "_cusum_drift")
-                    except Exception:
-                        logger.exception("diagnostics_dispatch: cusum_drift failed; continuing.")
-                        _record(charts, "cusum_drift", False)
-            try:
-                # Direction from the canonical metric-direction table, not a 2-item
-                # allowlist that mislabeled rmse/mae/mape/log_loss/ice/ece/pinball as
-                # higher-is-better and inverted the "over time" trend annotation.
-                from mlframe.training.metrics_registry import metric_name_higher_is_better
-                _dir = metric_name_higher_is_better(metric)
-                if _dir is None:
-                    # Defaulting an UNKNOWN metric to higher-is-better silently inverts this panel's trend
-                    # annotation for every custom error metric, which is the common case for a custom name.
-                    # Warn and pick the safer default: most bespoke metric names in this codebase are losses.
-                    logger.warning(
-                        "metric_over_time: optimisation direction for metric=%r is unknown; assuming "
-                        "lower-is-better. Register it via mlframe.training.metrics_registry.register_metric "
-                        "to silence this and get the trend annotation right.", metric,
-                    )
-                higher_is_better = False if _dir is None else _dir
-                spec = metric_over_time(yt[:m], yp[:m], ts[:m], metric=metric, higher_is_better=higher_is_better)
-                ok = _save_spec(spec, plot_outputs, base_path + "_metric_over_time")
-                _record(charts, "metric_over_time", ok)
-                if ok:
-                    _record_path(charts, base_path + "_metric_over_time")
-            except Exception:
-                logger.exception("diagnostics_dispatch: metric_over_time failed; continuing.")
-                _record(charts, "metric_over_time", False)
+                _render_regression_drift_panels(yt[:m], yp[:m], ts[:m], cusum_drift, plot_outputs, base_path, charts)
+            _render_metric_over_time_panel(yt[:m], yp[:m], ts[:m], metric, plot_outputs, base_path, charts)
 
             # Calibration drift over time -- classification only (y_pred is the positive-class probability here).
             if calibration_drift and task != "regression":

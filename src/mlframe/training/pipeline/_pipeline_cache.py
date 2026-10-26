@@ -125,6 +125,119 @@ def _fresh_uncachable() -> tuple:
     return ("uncached", _UncachableSentinel())
 
 
+def _pandas_row_to_hashable(r) -> tuple:
+    """Coerce a pandas row into a hashable tuple by ``repr()``-ing any list/dict/ndarray cell (unhashable) and leaving plain scalars untouched."""
+    out = []
+    for v in r.values.tolist():
+        if isinstance(v, (list, dict)) or hasattr(v, "tolist"):
+            out.append(repr(v))
+        else:
+            out.append(v)
+    return tuple(out)
+
+
+def _polars_frame_fingerprint(arr) -> tuple:
+    """Fingerprint of a polars DataFrame from its shape, column metadata and four sampled rows."""
+    n_rows, n_cols = int(arr.height), int(arr.width)
+    col_names = tuple(str(c) for c in arr.columns)
+    dtypes_str = tuple(str(dt) for dt in arr.dtypes)
+    # Nested dtypes (List / Array / Struct) yield Python list/dict cells inside `arr.row(i)`;
+    # lists are unhashable, so the fingerprint tuple cannot be used as a dict key. Force-uncached
+    # on detection -- embedding columns are the common trigger (warning fired in
+    # get_pandas_view_of_polars_df) and the cache contract is content-isolated regardless.
+    if any(s.startswith(("List", "Array", "Struct")) for s in dtypes_str):
+        return _fresh_uncachable()
+    if n_rows == 0:
+        return ("pl", (n_rows, n_cols), col_names, dtypes_str, ())
+    sample_idx = (0, min(8, n_rows - 1), n_rows // 2, n_rows - 1)
+    try:
+        rows = tuple(arr.row(i) for i in sample_idx)
+    except Exception as exc:
+        logger.debug("_pipeline_cache: polars DataFrame row-sampling failed, forcing cache-uncachable: %s", exc)
+        return _fresh_uncachable()
+    return ("pl", (n_rows, n_cols), col_names, dtypes_str, rows)
+
+
+def _polars_series_fingerprint(arr) -> tuple:
+    """Fingerprint of a polars Series from its length, dtype and four sampled cells."""
+    n = int(arr.len())
+    dtype_str = str(arr.dtype)
+    # List / Array / Struct dtypes yield Python list/dict cells; lists are unhashable so the
+    # fingerprint tuple cannot be used as a dict key. Force-uncached on detection.
+    if dtype_str.startswith(("List", "Array", "Struct")):
+        return _fresh_uncachable()
+    if n == 0:
+        return ("pls", (n,), dtype_str, ())
+    sample_idx = (0, min(8, n - 1), n // 2, n - 1)
+    try:
+        cells = tuple(arr[i] for i in sample_idx)
+    except Exception as exc:
+        logger.debug("_pipeline_cache: polars Series cell-sampling failed, forcing cache-uncachable: %s", exc)
+        return _fresh_uncachable()
+    return ("pls", (n,), dtype_str, cells)
+
+
+def _pandas_frame_fingerprint(arr) -> tuple:
+    """Fingerprint of a pandas DataFrame from its shape, column metadata and four sampled rows."""
+    n_rows, n_cols = int(arr.shape[0]), int(arr.shape[1])
+    col_names = tuple(str(c) for c in arr.columns)
+    dtypes = tuple(str(dt) for dt in arr.dtypes)
+    if n_rows == 0:
+        return ("pd", (n_rows, n_cols), col_names, dtypes, ())
+    sample_idx = (0, min(8, n_rows - 1), n_rows // 2, n_rows - 1)
+    try:
+        # object-dtype cells from pyarrow ListArray materialise as Python lists -- unhashable.
+        # Coerce row cells to a hashable form: leave scalars alone, repr() any list/dict/ndarray.
+        # Bounded cost: 4 rows × O(embedding_len) chars per fingerprint call -- <<1ms even on
+        # wide embedding frames.
+        rows = tuple(_pandas_row_to_hashable(arr.iloc[i]) for i in sample_idx)
+    except Exception as exc:
+        logger.debug("_pipeline_cache: pandas DataFrame row-sampling failed, forcing cache-uncachable: %s", exc)
+        return _fresh_uncachable()
+    return ("pd", (n_rows, n_cols), col_names, dtypes, rows)
+
+
+def _pandas_series_fingerprint(arr) -> tuple:
+    """Fingerprint of a pandas Series from its length, dtype and four sampled cells."""
+    n = int(arr.shape[0])
+    dtype_str = str(arr.dtype)
+    if n == 0:
+        return ("pds", (n,), dtype_str, ())
+    sample_idx = (0, min(8, n - 1), n // 2, n - 1)
+    try:
+        cells = tuple(arr.iat[i] for i in sample_idx)
+    except Exception as exc:
+        logger.debug("_pipeline_cache: pandas Series cell-sampling failed, forcing cache-uncachable: %s", exc)
+        return _fresh_uncachable()
+    return ("pds", (n,), dtype_str, cells)
+
+
+def _numpy_fingerprint(arr) -> tuple:
+    """Fingerprint of an array-like from its shape, dtype and ten evenly spaced flat cells."""
+    # NumPy / array-like: a 1-D / 2-D array is already in RAM; the previous flat-index sample is fine.
+    if isinstance(arr, np.ndarray):
+        np_arr = arr
+    elif hasattr(arr, "values") and not hasattr(arr, "to_numpy"):
+        np_arr = arr.values
+    else:
+        np_arr = np.asarray(arr)
+    if not hasattr(np_arr, "shape") or not hasattr(np_arr, "dtype"):
+        return _fresh_uncachable()
+    shape = tuple(int(s) for s in np_arr.shape)
+    dtype_str = str(np_arr.dtype)
+    flat = np_arr.ravel()
+    n = int(flat.size)
+    if n == 0:
+        return ("np", shape, dtype_str, b"")
+    idx = [int(i * (n - 1) / 9) for i in range(10)] if n >= 10 else list(range(n))
+    try:
+        sampled = bytes(np.ascontiguousarray(flat[idx]).tobytes())
+    except Exception as exc:
+        logger.debug("_pipeline_cache: ndarray point-sampling failed, forcing cache-uncachable: %s", exc)
+        return _fresh_uncachable()
+    return ("np", shape, dtype_str, sampled)
+
+
 def _content_fingerprint_for_cache(arr) -> tuple:
     """Content-based fingerprint of an array / DataFrame / target.
 
@@ -144,109 +257,15 @@ def _content_fingerprint_for_cache(arr) -> tuple:
     if arr is None:
         return ("none",)
     try:
-        # Polars DataFrame: row(i) is a tuple of n_cols scalars -- O(n_cols), no full materialisation.
         if pl is not None and isinstance(arr, pl.DataFrame):
-            n_rows, n_cols = int(arr.height), int(arr.width)
-            col_names = tuple(str(c) for c in arr.columns)
-            dtypes_str = tuple(str(dt) for dt in arr.dtypes)
-            # Nested dtypes (List / Array / Struct) yield Python list/dict cells inside `arr.row(i)`;
-            # lists are unhashable, so the fingerprint tuple cannot be used as a dict key. Force-uncached
-            # on detection -- embedding columns are the common trigger (warning fired in
-            # get_pandas_view_of_polars_df) and the cache contract is content-isolated regardless.
-            if any(s.startswith(("List", "Array", "Struct")) for s in dtypes_str):
-                return _fresh_uncachable()
-            if n_rows == 0:
-                return ("pl", (n_rows, n_cols), col_names, dtypes_str, ())
-            sample_idx = (0, min(8, n_rows - 1), n_rows // 2, n_rows - 1)
-            try:
-                rows = tuple(arr.row(i) for i in sample_idx)
-            except Exception as exc:
-                logger.debug("_pipeline_cache: polars DataFrame row-sampling failed, forcing cache-uncachable: %s", exc)
-                return _fresh_uncachable()
-            return ("pl", (n_rows, n_cols), col_names, dtypes_str, rows)
-
-        # Polars Series: iloc-equivalent is ``arr[i]`` -- O(1), no full materialisation.
+            return _polars_frame_fingerprint(arr)
         if pl is not None and isinstance(arr, pl.Series):
-            n = int(arr.len())
-            dtype_str = str(arr.dtype)
-            # List / Array / Struct dtypes yield Python list/dict cells; lists are unhashable so the
-            # fingerprint tuple cannot be used as a dict key. Force-uncached on detection.
-            if dtype_str.startswith(("List", "Array", "Struct")):
-                return _fresh_uncachable()
-            if n == 0:
-                return ("pls", (n,), dtype_str, ())
-            sample_idx = (0, min(8, n - 1), n // 2, n - 1)
-            try:
-                cells = tuple(arr[i] for i in sample_idx)
-            except Exception as exc:
-                logger.debug("_pipeline_cache: polars Series cell-sampling failed, forcing cache-uncachable: %s", exc)
-                return _fresh_uncachable()
-            return ("pls", (n,), dtype_str, cells)
-
-        # Pandas DataFrame: .iat / .iloc[i].values -- O(n_cols), no full materialisation.
+            return _polars_series_fingerprint(arr)
         if isinstance(arr, pd.DataFrame):
-            n_rows, n_cols = int(arr.shape[0]), int(arr.shape[1])
-            col_names = tuple(str(c) for c in arr.columns)
-            dtypes = tuple(str(dt) for dt in arr.dtypes)
-            if n_rows == 0:
-                return ("pd", (n_rows, n_cols), col_names, dtypes, ())
-            sample_idx = (0, min(8, n_rows - 1), n_rows // 2, n_rows - 1)
-            try:
-                # object-dtype cells from pyarrow ListArray materialise as Python lists -- unhashable.
-                # Coerce row cells to a hashable form: leave scalars alone, repr() any list/dict/ndarray.
-                # Bounded cost: 4 rows × O(embedding_len) chars per fingerprint call -- <<1ms even on
-                # wide embedding frames.
-                def _row_to_hashable(r):
-                    """Coerce a pandas row into a hashable tuple by ``repr()``-ing any list/dict/ndarray cell (unhashable) and leaving plain scalars untouched."""
-                    out = []
-                    for v in r.values.tolist():
-                        if isinstance(v, (list, dict)) or hasattr(v, "tolist"):
-                            out.append(repr(v))
-                        else:
-                            out.append(v)
-                    return tuple(out)
-                rows = tuple(_row_to_hashable(arr.iloc[i]) for i in sample_idx)
-            except Exception as exc:
-                logger.debug("_pipeline_cache: pandas DataFrame row-sampling failed, forcing cache-uncachable: %s", exc)
-                return _fresh_uncachable()
-            return ("pd", (n_rows, n_cols), col_names, dtypes, rows)
-
-        # Pandas Series: .iat[i] -- O(1).
+            return _pandas_frame_fingerprint(arr)
         if isinstance(arr, pd.Series):
-            n = int(arr.shape[0])
-            dtype_str = str(arr.dtype)
-            if n == 0:
-                return ("pds", (n,), dtype_str, ())
-            sample_idx = (0, min(8, n - 1), n // 2, n - 1)
-            try:
-                cells = tuple(arr.iat[i] for i in sample_idx)
-            except Exception as exc:
-                logger.debug("_pipeline_cache: pandas Series cell-sampling failed, forcing cache-uncachable: %s", exc)
-                return _fresh_uncachable()
-            return ("pds", (n,), dtype_str, cells)
-
-        # NumPy / array-like: a 1-D / 2-D array is already in RAM; the previous flat-index sample is fine.
-        if isinstance(arr, np.ndarray):
-            np_arr = arr
-        elif hasattr(arr, "values") and not hasattr(arr, "to_numpy"):
-            np_arr = arr.values
-        else:
-            np_arr = np.asarray(arr)
-        if not hasattr(np_arr, "shape") or not hasattr(np_arr, "dtype"):
-            return _fresh_uncachable()
-        shape = tuple(int(s) for s in np_arr.shape)
-        dtype_str = str(np_arr.dtype)
-        flat = np_arr.ravel()
-        n = int(flat.size)
-        if n == 0:
-            return ("np", shape, dtype_str, b"")
-        idx = [int(i * (n - 1) / 9) for i in range(10)] if n >= 10 else list(range(n))
-        try:
-            sampled = bytes(np.ascontiguousarray(flat[idx]).tobytes())
-        except Exception as exc:
-            logger.debug("_pipeline_cache: ndarray point-sampling failed, forcing cache-uncachable: %s", exc)
-            return _fresh_uncachable()
-        return ("np", shape, dtype_str, sampled)
+            return _pandas_series_fingerprint(arr)
+        return _numpy_fingerprint(arr)
     except Exception as exc:
         logger.debug("_content_fingerprint_for_cache: outer dispatch failed for %r, forcing cache-uncachable: %s", type(arr).__name__, exc)
         return _fresh_uncachable()
