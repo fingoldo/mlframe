@@ -141,15 +141,15 @@ Wall per family from the lap timer (`gate:` rows); a module without a gated fami
 | 2.75 | `_cat_pair_fe` | profiled standalone: 0.25 s (the 2.75 s lap includes the shared token work fixed in 73s); no change |
 | 2.03 | `_orthogonal_triplet_fe` | parallel permutation draws (73t): 5.98 -> 1.97 s |
 | 1.80 | `_grouped_agg_fe` | hash-based group lookup (73x): 3.79 -> 1.71 s |
-| 1.68 | `_grouped_quantile_fe` | wall only, not profiled; under the 3 s bar at this scale |
+| 1.68 | `_grouped_quantile_fe` | whole-fit profile: 1.5 s cumulative in the family, spread; group lookup shared with 73x; no further change |
 | 1.40 | `_mi_greedy_fe` | wall only, not profiled; under the 3 s bar at this scale |
-| 1.35 | `_orthogonal_adaptive_degree_fe` | wall only, not profiled; under the 3 s bar at this scale |
-| 1.35 | `_group_distance_fe` | wall only, not profiled; under the 3 s bar at this scale |
+| 1.35 | `_orthogonal_adaptive_degree_fe` | whole-fit profile: 0.9 s cumulative, 0.8 s of it candidate building; no hotspot, no change |
+| 1.35 | `_group_distance_fe` | whole-fit profile: 1.3 s cumulative, spread; group lookup shared with 73x; no further change |
 | 1.29 | `_conditional_gate_fe` | device-born tau grid by default (73r): 13.6 -> 2.1 s at n=20000, p=34 |
-| 1.24 | `_lof_fe` | wall only, not profiled; under the 3 s bar at this scale |
-| 1.20 | `_mi_greedy_cmi_fe` | wall only, not profiled; under the 3 s bar at this scale |
+| 1.24 | `_lof_fe` | whole-fit profile: 0.8 s cumulative (`_lof_transform` 0.6 s); no change |
+| 1.20 | `_mi_greedy_cmi_fe` | whole-fit profile (n=20000): `_sync_free_qbin_codes` 1.3 s over 1002 calls is the largest function, cumulative 1.4 s; no hotspot, no change |
 | 1.09 | `_pairwise_modular_fe` | wall only, not profiled; under the 3 s bar at this scale |
-| 0.90 | `_orthogonal_cmim_fe` | wall only, not profiled; under the 3 s bar at this scale |
+| 0.90 | `_orthogonal_cmim_fe` | whole-fit profile: `score_features_by_cmim` 1.3 s cumulative, no function above 0.2 s of its own time; no change |
 | 0.85 | `_row_stat_fe` | profiled: 0.6-0.8 s standalone, the search kernel `eval_candidates` is 0.4 s; no change |
 | 0.61 | `_orthogonal_hsic_fe` | compiled median heuristic (73v) |
 | 0.47 | `_orthogonal_jmim_fe` | wall only, not profiled; under the 3 s bar at this scale |
