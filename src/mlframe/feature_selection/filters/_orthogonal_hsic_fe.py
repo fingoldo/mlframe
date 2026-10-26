@@ -141,8 +141,8 @@ def _median_pairwise_distance(arr: np.ndarray) -> float:
     srt = np.sort(vals)
     mid = srt.shape[0] // 2
     if srt.shape[0] % 2 == 1:
-        return srt[mid]
-    return 0.5 * (srt[mid - 1] + srt[mid])
+        return float(srt[mid])
+    return float(0.5 * (srt[mid - 1] + srt[mid]))
 
 
 def median_heuristic_sigma(z: np.ndarray) -> float:
