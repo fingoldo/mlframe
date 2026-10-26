@@ -32,7 +32,7 @@ from __future__ import annotations
 
 import logging
 from itertools import combinations
-from typing import Any, Optional, Sequence
+from typing import Any, Callable, Optional, Sequence
 
 import numpy as np
 import pandas as pd
@@ -235,6 +235,7 @@ def _emit_num_col_features(
     x = np.asarray(X[num_col].to_numpy(), dtype=_crit_np_dtype())
     # Group on the integer codes of the key when the caller has them (the key strings are then hashed once per column set, not once per numeric column and statistic);
     # the recipe lookups stay keyed by the key string, taken from the unique keys.
+    label: Callable[[Any], str]
     if key_uniq is not None and key_inverse is not None:
         tmp = pd.DataFrame({"_g": np.asarray(key_inverse), "_v": x}, index=X.index)
         key_labels = [str(u) for u in key_uniq]  # the key string of group code c is key_labels[c]

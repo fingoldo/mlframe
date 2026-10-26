@@ -483,10 +483,10 @@ def _quantile_bin_njit(x: np.ndarray, n_bins: int) -> np.ndarray:
     bench-attempt-rejected (earlier, a different design): one ``np.partition`` per edge re-copied the array per edge and was 2.6x slower than the argsort form; a single multi-select on one copy is what is used here."""
     n = x.shape[0]
     if n < 8 * n_bins or n_bins < 2:
-        return _quantile_bin_sorted_njit(x, n_bins)
+        return _quantile_bin_sorted_njit(x, n_bins)  # type: ignore[no-any-return]  # a numba dispatcher call is untyped for mypy
     for i in range(n):
         if x[i] != x[i]:
-            return _quantile_bin_sorted_njit(x, n_bins)
+            return _quantile_bin_sorted_njit(x, n_bins)  # type: ignore[no-any-return]  # a numba dispatcher call is untyped for mypy
     base = n // n_bins
     rem = n % n_bins
     ranks = np.empty(2 * (n_bins - 1), dtype=np.int64)
@@ -508,7 +508,7 @@ def _quantile_bin_njit(x: np.ndarray, n_bins: int) -> np.ndarray:
         last_below = work[starts[b] - 1]
         first = work[starts[b]]
         if not (last_below < first):
-            return _quantile_bin_sorted_njit(x, n_bins)
+            return _quantile_bin_sorted_njit(x, n_bins)  # type: ignore[no-any-return]  # a numba dispatcher call is untyped for mypy
         cuts[b - 1] = first
     out = np.empty(n, dtype=np.int32)
     for i in range(n):
