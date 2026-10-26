@@ -233,12 +233,21 @@ def _emit_num_col_features(
 ) -> None:
     """Compute one numeric column's per-composite-group broadcasts plus its z-within-group and ratio residuals into ``encoded`` / ``raw_recipes``."""
     x = np.asarray(X[num_col].to_numpy(), dtype=_crit_np_dtype())
-    tmp = pd.DataFrame({"_g": keys, "_v": x}, index=X.index)
+    # Group on the integer codes of the key when the caller has them (the key strings are then hashed once per column set, not once per numeric column and statistic);
+    # the recipe lookups stay keyed by the key string, taken from the unique keys.
+    if key_uniq is not None and key_inverse is not None:
+        tmp = pd.DataFrame({"_g": np.asarray(key_inverse), "_v": x}, index=X.index)
+        key_labels = [str(u) for u in key_uniq]  # the key string of group code c is key_labels[c]
+        label = key_labels.__getitem__
+
+    else:
+        tmp = pd.DataFrame({"_g": keys, "_v": x}, index=X.index)
+        label = str
     grouped = tmp.groupby("_g", observed=True, sort=False)["_v"]
     mean_series = grouped.mean()
     std_series = grouped.std(ddof=1)
-    lookup_mean = {str(k): float(v) for k, v in mean_series.items()}
-    lookup_std = {str(k): (float(v) if np.isfinite(v) else 0.0) for k, v in std_series.items()}
+    lookup_mean = {label(k): float(v) for k, v in mean_series.items()}
+    lookup_std = {label(k): (float(v) if np.isfinite(v) else 0.0) for k, v in std_series.items()}
     global_mean = _global_value_for_stat(x, "mean")
     global_std = _global_value_for_stat(x, "std")
 
@@ -253,7 +262,7 @@ def _emit_num_col_features(
             agg_series = std_series
         else:
             agg_series = grouped.agg(_agg_func_for_stat(stat))
-        lookup = {str(k): (float(v) if np.isfinite(v) else 0.0) for k, v in agg_series.items()}
+        lookup = {label(k): (float(v) if np.isfinite(v) else 0.0) for k, v in agg_series.items()}
         if stat in ("count", "nunique"):
             # The whole-population fallback
             # (finite.size / np.unique(finite).size) used to emit a WILDLY out-of-distribution
