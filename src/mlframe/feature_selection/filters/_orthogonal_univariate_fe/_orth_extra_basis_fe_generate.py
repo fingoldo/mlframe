@@ -114,6 +114,7 @@ def generate_extra_basis_features(
     # peaks up to ~12 and the multitone deflation needs headroom above them.
     _chirp_f_grid = tuple(0.5 * k for k in range(1, 49))  # 0.5 .. 24.0
     from .._fe_deadline import fe_deadline_passed
+    _adaptive_allowed = _adaptive_cols_by_relevance(X, cols, _y_adapt, max_adaptive_cols)
     for _col_idx, col in enumerate(cols):
         # Optional-enrichment wall-clock budget: stop the per-column extra-basis scan (spline / fourier / adaptive /
         # chirp + their pair-MI scoring) once MRMR.fit's deadline passes; return the partial output. No-op without a budget.
@@ -144,7 +145,7 @@ def generate_extra_basis_features(
             # Column-count cap on the expensive detector itself (fix, see max_adaptive_cols
             # docstring) - columns beyond the cap still get the cheap fixed-grid Fourier basis below,
             # only the held-out frequency-sweep detection is skipped for them.
-            if max_adaptive_cols is not None and _col_idx >= int(max_adaptive_cols):
+            if _adaptive_allowed is not None and col not in _adaptive_allowed:
                 _adaptive_fe_ok = False
         if "spline" in extra_bases:
             try:
@@ -182,6 +183,30 @@ def generate_extra_basis_features(
         # so the extra-basis MI-uplift gate can screen them like spline/Fourier.
         _wavelet_extra_basis(extra_bases, y, x, col, out_cols, meta)
     return pd.DataFrame(out_cols, index=X.index), meta
+
+def _adaptive_cols_by_relevance(X, cols, y, max_adaptive_cols):
+    """Columns allowed to run the expensive adaptive/chirp detector under ``max_adaptive_cols``: the top ones by a cheap shape-agnostic dependence score
+    (between-bin variance of y over 64 quantile bins of the column, on at most 50k rows), not the first ones by position. None = no restriction."""
+    if max_adaptive_cols is None or y is None or len(cols) <= int(max_adaptive_cols):
+        return None
+    n = len(y)
+    rows = np.arange(n) if n <= 50_000 else np.random.default_rng(0).choice(n, 50_000, replace=False)
+    yy = np.asarray(y, dtype=np.float64)[rows]
+    yy = yy - yy.mean()
+    scores = {}
+    for c in cols:
+        if c not in X.columns or not pd.api.types.is_numeric_dtype(X[c]):
+            continue
+        x = np.asarray(X[c].to_numpy(), dtype=np.float64)[rows]
+        if not np.isfinite(x).all():
+            continue
+        bins = np.minimum(np.argsort(np.argsort(x, kind="stable"), kind="stable") * 64 // len(x), 63)
+        cnt = np.bincount(bins, minlength=64)
+        sm = np.bincount(bins, weights=yy, minlength=64)
+        scores[c] = float(np.sum(np.where(cnt > 0, sm * sm / np.maximum(cnt, 1), 0.0)))
+    ranked = sorted(scores, key=lambda c: -scores[c])
+    return set(ranked[: int(max_adaptive_cols)])
+
 
 def _fourier_extra_basis(extra_bases, x, fourier_powers, _y_adapt, _adaptive_fe_ok, _adaptive_f_grid, fourier_adaptive_min_val_corr, fourier_freqs, col, out_cols, meta, fourier_chirp, _chirp_f_grid, fourier_chirp_min_val_corr):
     """Build the Fourier extra-basis candidates of one column."""

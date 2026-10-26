@@ -184,9 +184,8 @@ class TestSignalAdaptiveBasisRouting:
         y = (x * x) + 0.25 * np.std(x * x) * rng.standard_normal(n)  # even, non-monotone
         chosen = basis_route_by_signal(x, y, degrees=(2, 3, 4))
         recov = {b: _basis_best_corr(x, y, b) for b in _ROUTING_BASES}
-        assert chosen == max(
-            recov, key=recov.get
-        ), f"signal routing must return the max-|corr| basis; chose {chosen!r}, recov={ {b: round(v, 3) for b, v in recov.items()} }"
+        # hermite/legendre/chebyshev tie to within float32 noise, so any basis within 1e-3 of the best counts as the argmax
+        assert recov[chosen] >= max(recov.values()) - 1e-3, f"signal routing must return the max-|corr| basis; chose {chosen!r}, recov={ {b: round(v, 3) for b, v in recov.items()} }"
         assert recov[chosen] >= 0.85, f"chosen basis under-recovers: {recov}"
 
     def test_fixes_moment_misroute_on_heavy_tail(self):
