@@ -113,7 +113,6 @@
   "src/mlframe/reporting/renderers/_matplotlib_scatter.py::_scatter": 20,
   "src/mlframe/reporting/renderers/matplotlib.py::MatplotlibRenderer._bar": 19,
   "src/mlframe/reporting/renderers/matplotlib.py::MatplotlibRenderer._histogram": 18,
-  "src/mlframe/reporting/renderers/matplotlib.py::MatplotlibRenderer._line": 24,
   "src/mlframe/reporting/renderers/matplotlib.py::MatplotlibRenderer.render": 18,
   "src/mlframe/reporting/renderers/plotly.py::PlotlyRenderer._histogram": 17,
   "src/mlframe/training/_data_helpers.py::_setup_eval_set": 18,

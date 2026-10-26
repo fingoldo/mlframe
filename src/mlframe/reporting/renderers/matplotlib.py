@@ -761,6 +761,63 @@ class MatplotlibRenderer:
         if p.grid:
             ax.grid(True, alpha=0.3, axis="x" if horizontal else "y")
 
+    def _draw_line_series(self, ax, ax2, p: LinePanelSpec, ys, labels, styles, cols, sec, fills, _xi) -> None:
+        """Plot every series of a line panel, on the twin axis when flagged, with its optional fill to the baseline."""
+        for i, y in enumerate(ys):
+            token = styles[i % len(styles)]
+            color = cols[i % len(cols)]
+            label = labels[i] if i < len(labels) else None
+            target = ax2 if (ax2 is not None and sec[i]) else ax
+            xi = _xi(i)  # nosec B105 - not a credential -- config/format token label or sentinel string constant
+            if token == "markers":  # nosec B105 - identifier/config-key name matched by heuristic, not an embedded credential
+                target.plot(xi, y, linestyle="none", marker="o", markersize=4, color=color, label=label)  # nosec B105 - not a credential -- config/format token label or sentinel string constant
+            elif token == "lines+markers":  # nosec B105 - identifier/config-key name matched by heuristic, not an embedded credential
+                target.plot(xi, y, linestyle="-", marker="o", markersize=4, color=color, label=label)
+            else:
+                target.plot(xi, y, token, color=color, label=label)
+            if fills[i]:
+                step = "post" if p.step_fill else None
+                target.fill_between(xi, p.fill_baseline, y, color=color, alpha=0.2, step=step, zorder=0)
+
+    def _draw_line_overlays(self, ax, p: LinePanelSpec) -> list:
+        """Draw the vertical spans, lines and point markers over a line panel; returns the legend proxies of the labelled spans."""
+        proxies = []  # legend proxies for labeled vspans
+        for span in p.vspans or ():
+            vx0, vx1, vcolor, valpha = span[0], span[1], span[2], span[3]
+            vlabel = span[4] if len(span) > 4 else ""
+            ax.axvspan(vx0, vx1, color=vcolor, alpha=valpha, zorder=0)
+            if vlabel:
+                from matplotlib.patches import Patch
+                proxies.append(Patch(facecolor=vcolor, alpha=valpha, label=vlabel))
+        for vx, vcolor, vlabel in p.vlines or ():
+            ax.axvline(vx, color=vcolor, linestyle=":", linewidth=1.2, label=vlabel or None)
+
+        for mx, my, mlabel, mcolor, msym in (p.point_markers or ()):
+            ax.plot([mx], [my], marker=msym if msym else "*", markersize=13, color=mcolor,
+                    markeredgecolor="black", markeredgewidth=0.6, linestyle="none",
+                    label=mlabel or None, zorder=6)
+            # The label rides the legend entry above and is deliberately NOT repeated next to the marker. It used
+            # to be both, so every operating point printed its own caption twice on one panel -- and the second
+            # copy, anchored at the point with a fixed offset, ran off the axes on the PR panel and struck
+            # through the F1 curve on the threshold panel. The marker's colour and symbol tie it to its entry.
+        return proxies
+
+    def _add_line_legend(self, ax, ax2, p: LinePanelSpec, labels, sec, proxies) -> None:
+        """Merge the legend entries of both axes and the labelled overlay proxies, and place the legend when there is any entry."""
+        if any(labels) or p.band_label or any(p.vlines or ()) or any(p.point_markers or ()) or proxies or (ax2 is not None and any(sec)):
+            handles, leg_labels = ax.get_legend_handles_labels()
+            if ax2 is not None:
+                h2, l2 = ax2.get_legend_handles_labels()
+                handles += h2
+                leg_labels += l2
+            handles += proxies
+            leg_labels += [pr.get_label() for pr in proxies]
+            if handles:
+                _place_legend(ax, handles, leg_labels,
+                              force_outside=bool(getattr(p, "legend_outside", False)),
+                              ncol=int(getattr(p, "legend_ncol", 1)),
+                              has_secondary_y=ax2 is not None)
+
     def _line(self, ax, p: LinePanelSpec, fig=None) -> None:
         """Render a multi-series line panel: per-series x grids, styles, colors, secondary y-axis (twinx, lazily created), fill bands, vspans/vlines, and point markers; merges legends from both axes and optionally places the legend outside the panel."""
         from mlframe.reporting.colors import line_color
@@ -780,63 +837,18 @@ class MatplotlibRenderer:
 
         # Lazily create the twin axis only when a series actually needs it.
         ax2 = ax.twinx() if any(sec) else None
-        proxies = []  # legend proxies for labeled vspans
 
         if p.band is not None:
             lower, upper = np.asarray(p.band[0]), np.asarray(p.band[1])
             band_color = p.band_color or cols[0]
             ax.fill_between(_xi(0), lower, upper, color=band_color, alpha=0.2, label=p.band_label, zorder=0)
 
-        for i, y in enumerate(ys):
-            token = styles[i % len(styles)]
-            color = cols[i % len(cols)]
-            label = labels[i] if i < len(labels) else None
-            target = ax2 if (ax2 is not None and sec[i]) else ax
-            xi = _xi(i)  # nosec B105 - not a credential -- config/format token label or sentinel string constant
-            if token == "markers":  # nosec B105 - identifier/config-key name matched by heuristic, not an embedded credential
-                target.plot(xi, y, linestyle="none", marker="o", markersize=4, color=color, label=label)  # nosec B105 - not a credential -- config/format token label or sentinel string constant
-            elif token == "lines+markers":  # nosec B105 - identifier/config-key name matched by heuristic, not an embedded credential
-                target.plot(xi, y, linestyle="-", marker="o", markersize=4, color=color, label=label)
-            else:
-                target.plot(xi, y, token, color=color, label=label)
-            if fills[i]:
-                step = "post" if p.step_fill else None
-                target.fill_between(xi, p.fill_baseline, y, color=color, alpha=0.2, step=step, zorder=0)
-
-        for span in p.vspans or ():
-            vx0, vx1, vcolor, valpha = span[0], span[1], span[2], span[3]
-            vlabel = span[4] if len(span) > 4 else ""
-            ax.axvspan(vx0, vx1, color=vcolor, alpha=valpha, zorder=0)
-            if vlabel:
-                from matplotlib.patches import Patch
-                proxies.append(Patch(facecolor=vcolor, alpha=valpha, label=vlabel))
-        for vx, vcolor, vlabel in p.vlines or ():
-            ax.axvline(vx, color=vcolor, linestyle=":", linewidth=1.2, label=vlabel or None)
-
-        for mx, my, mlabel, mcolor, msym in (p.point_markers or ()):
-            ax.plot([mx], [my], marker=msym if msym else "*", markersize=13, color=mcolor,
-                    markeredgecolor="black", markeredgewidth=0.6, linestyle="none",
-                    label=mlabel or None, zorder=6)
-            # The label rides the legend entry above and is deliberately NOT repeated next to the marker. It used
-            # to be both, so every operating point printed its own caption twice on one panel -- and the second
-            # copy, anchored at the point with a fixed offset, ran off the axes on the PR panel and struck
-            # through the F1 curve on the threshold panel. The marker's colour and symbol tie it to its entry.
+        self._draw_line_series(ax, ax2, p, ys, labels, styles, cols, sec, fills, _xi)
+        proxies = self._draw_line_overlays(ax, p)
 
         if ax2 is not None:
             ax2.set_ylabel(p.secondary_ylabel)
-        if any(labels) or p.band_label or any(p.vlines or ()) or any(p.point_markers or ()) or proxies or (ax2 is not None and any(sec)):
-            handles, leg_labels = ax.get_legend_handles_labels()
-            if ax2 is not None:
-                h2, l2 = ax2.get_legend_handles_labels()
-                handles += h2
-                leg_labels += l2
-            handles += proxies
-            leg_labels += [pr.get_label() for pr in proxies]
-            if handles:
-                _place_legend(ax, handles, leg_labels,
-                              force_outside=bool(getattr(p, "legend_outside", False)),
-                              ncol=int(getattr(p, "legend_ncol", 1)),
-                              has_secondary_y=ax2 is not None)
+        self._add_line_legend(ax, ax2, p, labels, sec, proxies)
         ax.set_xlabel(p.xlabel)
         ax.set_ylabel(p.ylabel)
         _set_panel_title(ax, p.title)
