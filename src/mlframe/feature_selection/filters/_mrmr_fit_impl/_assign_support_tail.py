@@ -141,7 +141,7 @@ def _assign_support_tai_drop_exact_linear_dependence(self, X, cols, selected_var
         try:
             # Intentional float64: correlation input read in double
             arr = np.asarray(X[cols[v]], dtype=np.float64)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, KeyError):  # KeyError: a survivor that exists only as an engineered recipe (e.g. a target-encoded column) has no raw column in X
             continue
         if arr.ndim != 1 or not np.all(np.isfinite(arr)):
             continue
