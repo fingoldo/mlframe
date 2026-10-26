@@ -216,14 +216,14 @@ def _unsupported_columns(self, design: dict, y, raw_cols, residual_rescue) -> "l
     # recodes the same categorical kept over its dedicated target encoding). Each column is scored against all the others once (t, not just its sign) and the weakest are judged first;
     # ties go to the column built from more operands. Every verdict is still taken against the design as it stands when the column is judged.
     def _strength(name):
-        """Sort key of a design column: its held-out t statistic against all the others (raws sort last), then fewer-operands-last."""
+        """Sort key of a design column: its held-out LINEAR gain against all the others (raws sort last), then fewer-operands-last."""
         if name in raw_cols:
             return (float("inf"), 0)
         rest_all = {k: v for k, v in design.items() if k != name and k not in pruned}
         if not rest_all:
             return (float("inf"), 0)
-        got = residual_rescue(rest_all, {name: design[name]}, y, alpha=0.999, min_relative_gain=0.0, max_admit=1, precomputed=pre)
-        return (float(got[0][1]) if got else float("-inf"), -len(_raw_sources(name, raw_cols)))
+        t_lin, _rel = linear_oos_gain(rest_all, design[name], y, std_full=pre["std_full"])
+        return (float(t_lin), -len(_raw_sources(name, raw_cols)))
 
     strength = {name: _strength(name) for name in design if name not in pruned}
     for name in sorted(strength, key=strength.__getitem__):
@@ -238,7 +238,11 @@ def _unsupported_columns(self, design: dict, y, raw_cols, residual_rescue) -> "l
                 if not (t_stat > z and rel >= floor):
                     pruned.append(name)
         elif not residual_rescue(rest, {name: design[name]}, y, alpha=0.5, min_relative_gain=0.0, max_admit=1, precomputed=pre):
-            pruned.append(name)  # alpha = 0.5 makes the bar t > 0: the column is removed only when its held-out gain is not even positive
+            # The free-form scorer treats a column of few distinct values (a target encoding of an eight-level category) as nominal and leaves it out of its pool, and a function of a column
+            # the design holds has no free-form gain anyway; what a linear model can still take from it is judged directly, with the same bar as a raw operand.
+            t_stat, rel = linear_oos_gain(rest, design[name], y, std_full=pre["std_full"])
+            if not (t_stat > z and rel >= floor):
+                pruned.append(name)  # alpha = 0.5 makes the free-form bar t > 0: the column is removed only when it has neither a free-form nor a linear held-out gain
     return pruned
 
 

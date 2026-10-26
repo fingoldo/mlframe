@@ -8,7 +8,7 @@ alone, since they cannot be judged.
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
@@ -127,6 +127,37 @@ def _standing_compounds(multi, eng_values, classes_y, y_continuous, seed, nested
     return standing
 
 
+def _without_linearly_useful(self: "MRMR", dropped: list, candidates: dict, anchors: list, y: Any) -> list:
+    """``dropped`` minus the columns that still give a linear model a significant held-out gain beyond the anchors.
+
+    Information is not what a linear downstream uses: a target encoding of a category carries no information beyond a compound that recodes the same category, and a linear model still
+    takes most of the target variance from it and nothing from the compound. A column is kept when its gain, judged with the bar of a raw operand (``t > z`` and a share of the target
+    variance of at least ``fe_residual_rescue_operand_min_linear_gain``), is significant given the anchors and the columns kept before it; the strongest are judged first.
+    """
+    from scipy.stats import norm
+
+    from .._pair_residual_screen import FAMILY_ALPHA
+    from .._residual_rescue_fe import MIN_ROWS, linear_oos_gain
+
+    y_arr = np.asarray(y).ravel()
+    if not dropped or len(y_arr) < MIN_ROWS:
+        return dropped
+    z = float(norm.isf(FAMILY_ALPHA))
+    floor = float(getattr(self, "fe_residual_rescue_operand_min_linear_gain", 0.0))
+    rest = {a: candidates[a] for a in anchors if a in candidates}
+    gains = {}
+    for name in dropped:
+        if name in candidates and name not in rest:
+            gains[name] = linear_oos_gain(rest, candidates[name], y_arr)
+    kept = []
+    for name in sorted(gains, key=lambda n: -gains[n][0]):
+        t_stat, rel = linear_oos_gain(rest, candidates[name], y_arr) if kept else gains[name]
+        if t_stat > z and rel >= floor:
+            kept.append(name)
+            rest[name] = candidates[name]
+    return [n for n in dropped if n not in kept]
+
+
 def run_final_subsumption_prune(
     self: "MRMR", X: "pd.DataFrame | pl.DataFrame", selected_vars: list[int], classes_y: np.ndarray, verbose: int | bool
 ) -> tuple[bool, list[int]]:
@@ -172,6 +203,7 @@ def run_final_subsumption_prune(
         if not anchors:
             return False, selected_vars
         dropped = final_subsumption_prune(candidates, anchors, np.asarray(classes_y).ravel(), y_continuous=y_continuous, seed=seed)
+        dropped = _without_linearly_useful(self, dropped, candidates, anchors, y_continuous if y_continuous is not None else classes_y)
         if not dropped:
             return False, selected_vars
         dropped_set = set(dropped)
