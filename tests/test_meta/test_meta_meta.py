@@ -46,6 +46,9 @@ _PERMITTED_PRIVATE_IMPORTS: set[str] = {
     # make_scenario_data, ...) are real module-level attributes, not trapped inside an
     # `if __name__ == "__main__":` guard -- the private module IS the surface under test.
     "test_benchmarks_datasets_importable::mlframe.feature_selection._benchmarks._datasets",
+    # The GPU-gated sweep test monkeypatches the sweep's private grid constants and calls its private runner:
+    # those are the surface under test (which backend the sweep picks per shape), not reachable via the public API.
+    "test_ktc_dispatch_selects_more_than_one_path::mlframe.feature_selection.filters._fe_sufficient_summary_pairs",
     # 2026-09-01 audit meta-tests. Each audits a property of an internal that has no public surface at all --
     # a fail-closed gate, a latched downgrade flag, a mixin's position in an MRO, the value an except handler
     # substitutes. Reaching them through the public API would run a whole fit to observe one branch, and would
