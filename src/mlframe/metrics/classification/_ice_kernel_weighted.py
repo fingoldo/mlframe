@@ -21,6 +21,93 @@ import numpy as np
 
 
 @numba.njit(fastmath=False, cache=True, nogil=True)
+def _bin_calibration_errors(counts, mass, true_mass, pred_mass, nbins, use_weights):
+    """Weighted calibration MAE and spread over the scored bins, with the count of non-empty bins (coverage numerator)."""
+    n_nonempty = 0
+    n_scored = 0
+    for b in range(nbins):
+        if counts[b] > 0:
+            n_nonempty += 1
+            if mass[b] > 0:
+                n_scored += 1
+    freqs_pred = np.empty(n_scored, dtype=np.float64)
+    freqs_true = np.empty(n_scored, dtype=np.float64)
+    hits = np.empty(n_scored, dtype=np.float64)
+    ptr = 0
+    for b in range(nbins):
+        if counts[b] > 0 and mass[b] > 0:
+            freqs_pred[ptr] = pred_mass[b] / mass[b]
+            freqs_true[ptr] = true_mass[b] / mass[b]
+            hits[ptr] = mass[b]
+            ptr += 1
+
+    if n_scored == 0:
+        return 1.0, 1.0, n_nonempty
+    if use_weights:
+        bw = np.empty(n_scored, dtype=np.float64)
+        bw_sum = 0.0
+        for b in range(n_scored):
+            bw[b] = hits[b] ** 0.8
+            bw_sum += bw[b]
+        if bw_sum > 0:
+            for b in range(n_scored):
+                bw[b] /= bw_sum
+        cal_mae = 0.0
+        for b in range(n_scored):
+            cal_mae += abs(freqs_pred[b] - freqs_true[b]) * bw[b]
+        cal_var = 0.0
+        for b in range(n_scored):
+            d = abs(freqs_pred[b] - freqs_true[b]) - cal_mae
+            cal_var += d * d * bw[b]
+        return cal_mae, np.sqrt(cal_var), n_nonempty
+    cal_mae = 0.0
+    for b in range(n_scored):
+        cal_mae += abs(freqs_pred[b] - freqs_true[b])
+    cal_mae /= n_scored
+    cal_var = 0.0
+    for b in range(n_scored):
+        d = abs(freqs_pred[b] - freqs_true[b]) - cal_mae
+        cal_var += d * d
+    return cal_mae, np.sqrt(cal_var / n_scored), n_nonempty
+
+
+@numba.njit(fastmath=False, cache=True, nogil=True)
+def _weighted_roc_pr_auc(y_t, y_p, w, desc_idx):
+    """Weighted ROC-AUC and PR-AUC from one sweep over ``desc_idx``; both NaN when either class carries no weight."""
+    N = y_t.shape[0]
+    total_pos = 0.0
+    total_neg = 0.0
+    for i in range(N):
+        total_pos += w[i] * y_t[i]
+        total_neg += w[i] * (1 - y_t[i])
+    if total_pos <= 0.0 or total_neg <= 0.0:
+        return np.nan, np.nan
+    last_fps = 0.0
+    last_tps = 0.0
+    tps = 0.0
+    fps = 0.0
+    roc_acc = 0.0
+    pr_acc = 0.0
+    prev_recall = 0.0
+    for j in range(N):
+        i = desc_idx[j]
+        yi = y_t[i]
+        tps += w[i] * yi
+        fps += w[i] * (1 - yi)
+        if j == N - 1 or y_p[desc_idx[j + 1]] != y_p[i]:
+            roc_acc += (fps - last_fps) * (last_tps + tps)
+            last_fps = fps
+            last_tps = tps
+            precision = tps / (tps + fps) if (tps + fps) > 0 else 0.0
+            recall = tps / total_pos
+            pr_acc += (recall - prev_recall) * precision
+            prev_recall = recall
+    denom = tps * fps * 2
+    roc_auc = roc_acc / denom if denom > 0 else np.nan
+    return roc_auc, pr_acc
+
+
+@numba.njit(fastmath=False, cache=True, nogil=True)
 def _weighted_class_ice(
     y_t: np.ndarray,
     y_p: np.ndarray,
@@ -59,88 +146,8 @@ def _weighted_class_ice(
         true_mass[ind] += w[i] * y_t[i]
         pred_mass[ind] += w[i] * y_p[i]
 
-    n_nonempty = 0
-    n_scored = 0
-    for b in range(nbins):
-        if counts[b] > 0:
-            n_nonempty += 1
-            if mass[b] > 0:
-                n_scored += 1
-    freqs_pred = np.empty(n_scored, dtype=np.float64)
-    freqs_true = np.empty(n_scored, dtype=np.float64)
-    hits = np.empty(n_scored, dtype=np.float64)
-    ptr = 0
-    for b in range(nbins):
-        if counts[b] > 0 and mass[b] > 0:
-            freqs_pred[ptr] = pred_mass[b] / mass[b]
-            freqs_true[ptr] = true_mass[b] / mass[b]
-            hits[ptr] = mass[b]
-            ptr += 1
-
-    if n_scored > 0:
-        if use_weights:
-            bw = np.empty(n_scored, dtype=np.float64)
-            bw_sum = 0.0
-            for b in range(n_scored):
-                bw[b] = hits[b] ** 0.8
-                bw_sum += bw[b]
-            if bw_sum > 0:
-                for b in range(n_scored):
-                    bw[b] /= bw_sum
-            cal_mae = 0.0
-            for b in range(n_scored):
-                cal_mae += abs(freqs_pred[b] - freqs_true[b]) * bw[b]
-            cal_var = 0.0
-            for b in range(n_scored):
-                d = abs(freqs_pred[b] - freqs_true[b]) - cal_mae
-                cal_var += d * d * bw[b]
-            cal_std = np.sqrt(cal_var)
-        else:
-            cal_mae = 0.0
-            for b in range(n_scored):
-                cal_mae += abs(freqs_pred[b] - freqs_true[b])
-            cal_mae /= n_scored
-            cal_var = 0.0
-            for b in range(n_scored):
-                d = abs(freqs_pred[b] - freqs_true[b]) - cal_mae
-                cal_var += d * d
-            cal_std = np.sqrt(cal_var / n_scored)
-    else:
-        cal_mae = 1.0
-        cal_std = 1.0
-
-    total_pos = 0.0
-    total_neg = 0.0
-    for i in range(N):
-        total_pos += w[i] * y_t[i]
-        total_neg += w[i] * (1 - y_t[i])
-    if total_pos <= 0.0 or total_neg <= 0.0:
-        roc_auc = np.nan
-        pr_auc = np.nan
-    else:
-        last_fps = 0.0
-        last_tps = 0.0
-        tps = 0.0
-        fps = 0.0
-        roc_acc = 0.0
-        pr_acc = 0.0
-        prev_recall = 0.0
-        for j in range(N):
-            i = desc_idx[j]
-            yi = y_t[i]
-            tps += w[i] * yi
-            fps += w[i] * (1 - yi)
-            if j == N - 1 or y_p[desc_idx[j + 1]] != y_p[i]:
-                roc_acc += (fps - last_fps) * (last_tps + tps)
-                last_fps = fps
-                last_tps = tps
-                precision = tps / (tps + fps) if (tps + fps) > 0 else 0.0
-                recall = tps / total_pos
-                pr_acc += (recall - prev_recall) * precision
-                prev_recall = recall
-        denom = tps * fps * 2
-        roc_auc = roc_acc / denom if denom > 0 else np.nan
-        pr_auc = pr_acc
+    cal_mae, cal_std, n_nonempty = _bin_calibration_errors(counts, mass, true_mass, pred_mass, nbins, use_weights)
+    roc_auc, pr_auc = _weighted_roc_pr_auc(y_t, y_p, w, desc_idx)
 
     coverage = n_nonempty / nbins if nbins > 0 else 1.0
     base_loss = brier * brier_loss_weight + cal_mae * mae_weight + cal_std * std_weight + (1.0 - coverage) * coverage_weight
