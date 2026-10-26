@@ -13,6 +13,7 @@ import logging
 from typing import (
     TYPE_CHECKING,
     Literal,
+    Optional,
     Sequence,
 )
 
@@ -109,121 +110,122 @@ def _float_canonical_tokens(arr: np.ndarray) -> np.ndarray:
     return np.asarray(toks[codes])
 
 
-def _categorical_to_string_array(values: Sequence | np.ndarray | pd.Series) -> np.ndarray:
-    """Coerce a sequence of category values to a numpy string array of object dtype. Handles None / NaN
-    by mapping them to a sentinel ``"__NULL__"`` so they form their own category rather than being
-    silently dropped.
-
-    Vectorised path: numpy / pandas / polars Series take ``.astype(str)`` -- ~50x faster than per-row
-    Python loop on 1M+ rows. Plain Python sequences (list / tuple) fall back to the legacy loop.
-    """
-    # Fast path: pandas Series with vectorised str cast.
+def _series_tokens_pandas(values) -> Optional[np.ndarray]:
+    """Tokens of a pandas Series, or ``None`` when ``values`` is not one (or pandas is not importable)."""
     try:
         import pandas as pd
-        if isinstance(values, pd.Series):
-            mask_null = values.isna()
-            if values.dtype.kind == "f":
-                # Float column: canonicalise integral values to int form so a
-                # fit-int / transform-float drift (or vice versa) on the SAME
-                # integer-coded categorical still hits the per-category entry
-                # instead of returning the prior for every row.
-                arr = values.to_numpy()
-                out = _float_canonical_tokens(arr)
-            elif values.dtype.kind in ("M", "m"):
-                # Datetime / timedelta: route through flavour-neutral epoch-ns tokens.
-                nm = mask_null.to_numpy()
-                ns = values.to_numpy(dtype="datetime64[ns]" if values.dtype.kind == "M" else "timedelta64[ns]").astype("int64")
-                return _temporal_to_epoch_ns_tokens(ns, nm)
-            elif values.dtype.kind == "O":
-                # Object dtype can embed python ints/floats/dates/datetimes; canonicalise per value so
-                # an int 1 / float 1.0 collapse and python date/datetime objects emit the same epoch-ns
-                # token the typed Datetime branches do (parity with the numpy object-array branch).
-                arr = values.to_numpy()
-                out = np.array([_canonical_cat_token(v) for v in arr], dtype=object)
-            else:
-                out = values.astype(str).to_numpy(dtype=object)
-            if mask_null.any():
-                out[mask_null.to_numpy()] = _NULL_SENTINEL
-            return out
     except ImportError:
-        pass
-    # Fast path: polars Series.
+        return None
+    if not isinstance(values, pd.Series):
+        return None
+    mask_null = values.isna()
+    if values.dtype.kind == "f":
+        # Float column: canonicalise integral values to int form so a
+        # fit-int / transform-float drift (or vice versa) on the SAME
+        # integer-coded categorical still hits the per-category entry
+        # instead of returning the prior for every row.
+        arr = values.to_numpy()
+        out = _float_canonical_tokens(arr)
+    elif values.dtype.kind in ("M", "m"):
+        # Datetime / timedelta: route through flavour-neutral epoch-ns tokens.
+        nm = mask_null.to_numpy()
+        ns = values.to_numpy(dtype="datetime64[ns]" if values.dtype.kind == "M" else "timedelta64[ns]").astype("int64")
+        return _temporal_to_epoch_ns_tokens(ns, nm)
+    elif values.dtype.kind == "O":
+        # Object dtype can embed python ints/floats/dates/datetimes; canonicalise per value so
+        # an int 1 / float 1.0 collapse and python date/datetime objects emit the same epoch-ns
+        # token the typed Datetime branches do (parity with the numpy object-array branch).
+        arr = values.to_numpy()
+        out = np.array([_canonical_cat_token(v) for v in arr], dtype=object)
+    else:
+        out = values.astype(str).to_numpy(dtype=object)
+    if mask_null.any():
+        out[mask_null.to_numpy()] = _NULL_SENTINEL
+    return out
+
+
+def _series_tokens_polars(values) -> Optional[np.ndarray]:
+    """Tokens of a polars Series, or ``None`` when ``values`` is not one (or polars is not importable)."""
     try:
         import polars as pl
-        if isinstance(values, pl.Series):
-            mask_null = np.asarray(values.is_null().to_numpy())
-            if values.dtype in (pl.Float32, pl.Float64):
-                # Float column: canonicalise integral values to int form (see
-                # the pandas-float branch) so int<->float dtype drift on the
-                # same integer-coded categorical does not miss every key.
-                arr = values.to_numpy()
-                out = _float_canonical_tokens(arr)
-                # polars ``is_null()`` does NOT flag NaN, and the float token for
-                # NaN is ``repr(nan) == "nan"`` (not "NaN"), so the string rebrand
-                # below misses it. Mask NaN directly off the numeric array for
-                # parity with the pandas/numpy branches (NaN -> sentinel).
-                mask_null = mask_null | np.isnan(arr)
-            elif values.dtype == pl.Boolean:
-                # polars casts bool to lowercase ``"true"``/``"false"``, but the numpy/pandas/list paths
-                # emit canonical ``"True"``/``"False"`` via ``_canonical_cat_token``. Without this branch a
-                # bool categorical fit as polars then transformed as pandas (or vice versa) misses every key
-                # and returns the prior for every row -- the same drift the float canonicalisation guards.
-                arr = values.to_numpy()
-                out = np.where(mask_null, _NULL_SENTINEL, np.where(arr, "True", "False")).astype(object)
-                return out
-            elif values.dtype.is_temporal():
-                # Datetime / Date / Time / Duration: route through flavour-neutral epoch-ns tokens.
-                # polars Utf8 cast keeps microseconds while pandas drops sub-second + numpy uses
-                # ``T``/nanoseconds, so a temporal categorical fit one flavour then transformed another
-                # misses every key. Cast to ns-resolution physical int for a single canonical token.
-                if values.dtype == pl.Date:
-                    phys_s = values.cast(pl.Datetime("ns")).to_physical()
-                elif values.dtype == pl.Time:
-                    phys_s = values.to_physical()
-                elif values.dtype == pl.Duration:
-                    phys_s = values.cast(pl.Duration("ns")).to_physical()
-                else:
-                    phys_s = values.cast(pl.Datetime("ns")).to_physical()
-                # fill_null(0) before numpy avoids the null->NaN->int64 invalid-cast warning; the
-                # null_mask overwrites those slots with the sentinel so the filler value is irrelevant.
-                phys = phys_s.fill_null(0).to_numpy().astype("int64")
-                return _temporal_to_epoch_ns_tokens(phys, mask_null)
-            else:
-                # cast to Utf8 then numpy; ``__NULL__`` overwrites nulls (polars cast yields ``None``).
-                out = values.cast(pl.Utf8).to_numpy().astype(object)
-            if mask_null.any():
-                out[mask_null] = _NULL_SENTINEL
-            # Float NaN cells survive cast as ``"NaN"``; rebrand to sentinel for parity with pandas path.
-            nan_mask = out == "NaN"
-            if nan_mask.any():
-                out[nan_mask] = _NULL_SENTINEL
-            return out
     except ImportError:
-        pass
-    # Fast path: numpy array.
-    if isinstance(values, np.ndarray):
-        if values.dtype.kind == "f":
-            mask = np.isnan(values)
-            # Canonicalise integral float values to int form (int<->float drift).
-            out = _float_canonical_tokens(values)
-            if mask.any():
-                out[mask] = _NULL_SENTINEL
-            return out
-        if values.dtype.kind in ("O", "U", "S"):
-            # Object/string arrays can embed python ints/floats; canonicalise
-            # per value so an int 1 and a float 1.0 in the SAME logical category
-            # collapse to one key.
-            null_mask = _objectwise_isnull(values)
-            toks = np.array([_canonical_cat_token(v) for v in values], dtype=object)
-            out = np.where(null_mask, _NULL_SENTINEL, toks).astype(object)
-            return out
-        if values.dtype.kind in ("M", "m"):
-            # datetime64 / timedelta64: route through flavour-neutral epoch-ns tokens (see pandas branch).
-            null_mask = np.isnat(values)
-            ns = values.astype("datetime64[ns]" if values.dtype.kind == "M" else "timedelta64[ns]").astype("int64")
-            return _temporal_to_epoch_ns_tokens(ns, null_mask)
-        return values.astype(str).astype(object)
-    # Generic iterable / list / tuple: per-row loop is fine (length typically <= a few thousand for tests).
+        return None
+    if not isinstance(values, pl.Series):
+        return None
+    mask_null = np.asarray(values.is_null().to_numpy())
+    if values.dtype in (pl.Float32, pl.Float64):
+        # Float column: canonicalise integral values to int form (see
+        # the pandas-float branch) so int<->float dtype drift on the
+        # same integer-coded categorical does not miss every key.
+        arr = values.to_numpy()
+        out = _float_canonical_tokens(arr)
+        # polars ``is_null()`` does NOT flag NaN, and the float token for
+        # NaN is ``repr(nan) == "nan"`` (not "NaN"), so the string rebrand
+        # below misses it. Mask NaN directly off the numeric array for
+        # parity with the pandas/numpy branches (NaN -> sentinel).
+        mask_null = mask_null | np.isnan(arr)
+    elif values.dtype == pl.Boolean:
+        # polars casts bool to lowercase ``"true"``/``"false"``, but the numpy/pandas/list paths
+        # emit canonical ``"True"``/``"False"`` via ``_canonical_cat_token``. Without this branch a
+        # bool categorical fit as polars then transformed as pandas (or vice versa) misses every key
+        # and returns the prior for every row -- the same drift the float canonicalisation guards.
+        arr = values.to_numpy()
+        return np.where(mask_null, _NULL_SENTINEL, np.where(arr, "True", "False")).astype(object)
+    elif values.dtype.is_temporal():
+        # Datetime / Date / Time / Duration: route through flavour-neutral epoch-ns tokens.
+        # polars Utf8 cast keeps microseconds while pandas drops sub-second + numpy uses
+        # ``T``/nanoseconds, so a temporal categorical fit one flavour then transformed another
+        # misses every key. Cast to ns-resolution physical int for a single canonical token.
+        if values.dtype == pl.Date:
+            phys_s = values.cast(pl.Datetime("ns")).to_physical()
+        elif values.dtype == pl.Time:
+            phys_s = values.to_physical()
+        elif values.dtype == pl.Duration:
+            phys_s = values.cast(pl.Duration("ns")).to_physical()
+        else:
+            phys_s = values.cast(pl.Datetime("ns")).to_physical()
+        # fill_null(0) before numpy avoids the null->NaN->int64 invalid-cast warning; the
+        # null_mask overwrites those slots with the sentinel so the filler value is irrelevant.
+        phys = phys_s.fill_null(0).to_numpy().astype("int64")
+        return _temporal_to_epoch_ns_tokens(phys, mask_null)
+    else:
+        # cast to Utf8 then numpy; ``__NULL__`` overwrites nulls (polars cast yields ``None``).
+        out = values.cast(pl.Utf8).to_numpy().astype(object)
+    if mask_null.any():
+        out[mask_null] = _NULL_SENTINEL
+    # Float NaN cells survive cast as ``"NaN"``; rebrand to sentinel for parity with pandas path.
+    nan_mask = out == "NaN"
+    if nan_mask.any():
+        out[nan_mask] = _NULL_SENTINEL
+    return out
+
+
+def _ndarray_tokens(values: np.ndarray) -> np.ndarray:
+    """Tokens of a numpy array, whatever its dtype."""
+    if values.dtype.kind == "f":
+        mask = np.isnan(values)
+        # Canonicalise integral float values to int form (int<->float drift).
+        out = _float_canonical_tokens(values)
+        if mask.any():
+            out[mask] = _NULL_SENTINEL
+        return out
+    if values.dtype.kind in ("O", "U", "S"):
+        # Object/string arrays can embed python ints/floats; canonicalise
+        # per value so an int 1 and a float 1.0 in the SAME logical category
+        # collapse to one key.
+        null_mask = _objectwise_isnull(values)
+        toks = np.array([_canonical_cat_token(v) for v in values], dtype=object)
+        return np.where(null_mask, _NULL_SENTINEL, toks).astype(object)
+    if values.dtype.kind in ("M", "m"):
+        # datetime64 / timedelta64: route through flavour-neutral epoch-ns tokens (see pandas branch).
+        null_mask = np.isnat(values)
+        ns = values.astype("datetime64[ns]" if values.dtype.kind == "M" else "timedelta64[ns]").astype("int64")
+        return _temporal_to_epoch_ns_tokens(ns, null_mask)
+    return values.astype(str).astype(object)
+
+
+def _iterable_tokens(values) -> np.ndarray:
+    """Tokens of a generic iterable (list, tuple, ...), one row at a time; ``None`` and NaN map to the sentinel."""
     out = np.empty(len(values), dtype=object)
     for i, v in enumerate(values):
         if v is None:
@@ -234,6 +236,24 @@ def _categorical_to_string_array(values: Sequence | np.ndarray | pd.Series) -> n
             continue
         out[i] = _canonical_cat_token(v)
     return out
+
+
+def _categorical_to_string_array(values: Sequence | np.ndarray | pd.Series) -> np.ndarray:
+    """Coerce a sequence of category values to a numpy string array of object dtype. Handles None / NaN
+    by mapping them to a sentinel ``"__NULL__"`` so they form their own category rather than being
+    silently dropped.
+
+    Vectorised path: numpy / pandas / polars Series take ``.astype(str)`` -- ~50x faster than per-row
+    Python loop on 1M+ rows. Plain Python sequences (list / tuple) fall back to the legacy loop.
+    """
+    out = _series_tokens_pandas(values)
+    if out is None:
+        out = _series_tokens_polars(values)
+    if out is None and isinstance(values, np.ndarray):
+        out = _ndarray_tokens(values)
+    if out is not None:
+        return out
+    return _iterable_tokens(values)
 
 
 def _objectwise_isnull(arr: np.ndarray) -> np.ndarray:
