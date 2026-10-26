@@ -5,7 +5,7 @@ Every environment variable read anywhere in `src/mlframe/`, generated from the s
 | Variable | Default | First read at |
 |---|---|---|
 | `BENCH_DEBUG_CACHE` | — | [src/mlframe/training/_benchmarks/bench_per_target_hoist.py](../src/mlframe/training/_benchmarks/bench_per_target_hoist.py#L119) |
-| `CI` | `''` | [src/mlframe/feature_selection/filters/_numba_utils.py](../src/mlframe/feature_selection/filters/_numba_utils.py#L422) |
+| `CI` | `''` | [src/mlframe/feature_selection/filters/_numba_utils.py](../src/mlframe/feature_selection/filters/_numba_utils.py#L530) |
 | `COMPOUND_VIEWS_LINEAR` | — | [src/mlframe/feature_selection/_benchmarks/target_lens/exp_target_mix_stage.py](../src/mlframe/feature_selection/_benchmarks/target_lens/exp_target_mix_stage.py#L52) |
 | `COMPUTERNAME` | `os.environ.get('HOSTNAME', '?')` | [src/mlframe/training/composite/discovery/_benchmarks/bench_mi_from_binned_pair_njit.py](../src/mlframe/training/composite/discovery/_benchmarks/bench_mi_from_binned_pair_njit.py#L79) |
 | `CUDA_HOME` | — | [src/mlframe/__init__.py](../src/mlframe/__init__.py#L128) |
@@ -41,7 +41,7 @@ Every environment variable read anywhere in `src/mlframe/`, generated from the s
 | `MLFRAME_BORUTA_AUTO_PROBE_TREES` | `80` | [src/mlframe/feature_selection/boruta_shap/_auto_dispatch.py](../src/mlframe/feature_selection/boruta_shap/_auto_dispatch.py#L64) |
 | `MLFRAME_CALIBRATION_CMAP` | — | [src/mlframe/reporting/colors.py](../src/mlframe/reporting/colors.py#L69) |
 | `MLFRAME_CALIBRATION_RESAMPLE_MAX_BYTES` | — | [src/mlframe/calibration/policy.py](../src/mlframe/calibration/policy.py#L66) |
-| `MLFRAME_CALIB_BINNING_PRANGE_THRESHOLD` | `2000000` | [src/mlframe/metrics/calibration/_calibration_plot.py](../src/mlframe/metrics/calibration/_calibration_plot.py#L209) |
+| `MLFRAME_CALIB_BINNING_PRANGE_THRESHOLD` | `2000000` | [src/mlframe/metrics/calibration/_calibration_plot.py](../src/mlframe/metrics/calibration/_calibration_plot.py#L192) |
 | `MLFRAME_CAT_DIAG` | — | [src/mlframe/training/_eval_helpers.py](../src/mlframe/training/_eval_helpers.py#L81) |
 | `MLFRAME_CAT_FE_BENCH_PROD` | — | [src/mlframe/feature_selection/_benchmarks/bench_categorical_fe.py](../src/mlframe/feature_selection/_benchmarks/bench_categorical_fe.py#L136) |
 | `MLFRAME_CB_GPU_MONITOR_S` | `''` | [src/mlframe/training/cb/_cb_gpu_monitor.py](../src/mlframe/training/cb/_cb_gpu_monitor.py#L110) |
@@ -99,7 +99,7 @@ Every environment variable read anywhere in `src/mlframe/`, generated from the s
 | `MLFRAME_FE_CMI_PERM_NULL_SPARSE` | `'0'` | [src/mlframe/feature_selection/filters/_fe_cmi_perm_null_gpu.py](../src/mlframe/feature_selection/filters/_fe_cmi_perm_null_gpu.py#L315) |
 | `MLFRAME_FE_DEDUP_CORR_BACKEND` | `''` | [src/mlframe/feature_selection/filters/_orthogonal_univariate_fe/_orth_dedup.py](../src/mlframe/feature_selection/filters/_orthogonal_univariate_fe/_orth_dedup.py#L243) |
 | `MLFRAME_FE_DEDUP_MAX_CORR_ROWS` | `100000` | [src/mlframe/feature_selection/filters/_orthogonal_univariate_fe/_orth_dedup.py](../src/mlframe/feature_selection/filters/_orthogonal_univariate_fe/_orth_dedup.py#L37) |
-| `MLFRAME_FE_DROP_NO_HARM` | `'1'` | [src/mlframe/feature_selection/filters/_fe_raw_redundancy_drop.py](../src/mlframe/feature_selection/filters/_fe_raw_redundancy_drop.py#L302) |
+| `MLFRAME_FE_DROP_NO_HARM` | `'1'` | [src/mlframe/feature_selection/filters/_fe_raw_redundancy_drop.py](../src/mlframe/feature_selection/filters/_fe_raw_redundancy_drop.py#L304) |
 | `MLFRAME_FE_EDGE_BINNING` | `''` | [src/mlframe/feature_selection/filters/_orthogonal_univariate_fe/_orth_mi_backends.py](../src/mlframe/feature_selection/filters/_orthogonal_univariate_fe/_orth_mi_backends.py#L86) |
 | `MLFRAME_FE_FUSION_AB` | `'1'` | [src/mlframe/feature_selection/filters/_gpu_resident_materialise.py](../src/mlframe/feature_selection/filters/_gpu_resident_materialise.py#L636) |
 | `MLFRAME_FE_FUSION_MAX_ROWS` | `'250000'` | [src/mlframe/feature_selection/filters/_fe_additive_fusion_gpu_resident.py](../src/mlframe/feature_selection/filters/_fe_additive_fusion_gpu_resident.py#L159) |
@@ -212,7 +212,7 @@ Every environment variable read anywhere in `src/mlframe/`, generated from the s
 | `MLFRAME_MLP_PIN_MEMORY` | — | [src/mlframe/training/mlp_runtime_defaults.py](../src/mlframe/training/mlp_runtime_defaults.py#L36) |
 | `MLFRAME_MODULAR_DROP_COPIES` | `'0'` | [src/mlframe/feature_selection/filters/_periodic_fe.py](../src/mlframe/feature_selection/filters/_periodic_fe.py#L255) |
 | `MLFRAME_MODULAR_GATE_FIRST` | `'1'` | [src/mlframe/feature_selection/filters/_periodic_fe.py](../src/mlframe/feature_selection/filters/_periodic_fe.py#L429) |
-| `MLFRAME_MODULAR_RANK_KERNEL` | `8` | [src/mlframe/feature_selection/filters/_pairwise_modular_rank_gpu.py](../src/mlframe/feature_selection/filters/_pairwise_modular_rank_gpu.py#L271) |
+| `MLFRAME_MODULAR_RANK_KERNEL` | `8` | [src/mlframe/feature_selection/filters/_pairwise_modular_rank_gpu.py](../src/mlframe/feature_selection/filters/_pairwise_modular_rank_gpu.py#L273) |
 | `MLFRAME_MRMR_ADDONE_PVALUE` | `'1'` | [src/mlframe/feature_selection/filters/permutation.py](../src/mlframe/feature_selection/filters/permutation.py#L95) |
 | `MLFRAME_MRMR_BATCH_PAIR_MI` | `'1'` | [src/mlframe/feature_selection/filters/_mrmr_fe_step/_step_pairmi.py](../src/mlframe/feature_selection/filters/_mrmr_fe_step/_step_pairmi.py#L281) |
 | `MLFRAME_MRMR_COMPACT_CODES` | `'1'` | [src/mlframe/feature_selection/filters/_mrmr_fit_impl/_fit_impl_stages/_binning.py](../src/mlframe/feature_selection/filters/_mrmr_fit_impl/_fit_impl_stages/_binning.py#L53) |
@@ -288,6 +288,7 @@ Every environment variable read anywhere in `src/mlframe/`, generated from the s
 | `MLFRAME_TTR_DISABLE_PREDICT_CLIP` | — | [src/mlframe/training/targets/_ttr_eval_set_scaling.py](../src/mlframe/training/targets/_ttr_eval_set_scaling.py#L108) |
 | `MLFRAME_USABILITY_CORR_MAX_ROWS` | `'30000'` | [src/mlframe/feature_selection/filters/_fe_usability_signal.py](../src/mlframe/feature_selection/filters/_fe_usability_signal.py#L143) |
 | `MLFRAME_USABILITY_POOL_BACKEND` | `''` | [src/mlframe/feature_selection/filters/_usability_njit_pool.py](../src/mlframe/feature_selection/filters/_usability_njit_pool.py#L464) |
+| `MLFRAME_USAB_CLF_NEWTON` | `'1'` | [src/mlframe/feature_selection/filters/_usability_aware_selection.py](../src/mlframe/feature_selection/filters/_usability_aware_selection.py#L784) |
 | `MLFRAME_USE_SKLEARNEX` | `'1'` | [src/mlframe/feature_engineering/transformer/_intel_patch.py](../src/mlframe/feature_engineering/transformer/_intel_patch.py#L45) |
 | `MLFRAME_VARIANCE_GATED_DIFF_MAX_BYTES` | — | [src/mlframe/feature_engineering/variance_gated_pairwise_diff.py](../src/mlframe/feature_engineering/variance_gated_pairwise_diff.py#L35) |
 | `MLFRAME_WARMUP_MAPE_DIAG` | — | [src/mlframe/metrics/_core_numba_warmup.py](../src/mlframe/metrics/_core_numba_warmup.py#L393) |
@@ -306,4 +307,4 @@ Every environment variable read anywhere in `src/mlframe/`, generated from the s
 | `WELLBORE_MRMR_MODE` | `'gpu'` | [src/mlframe/feature_selection/_benchmarks/profile_wellbore_mrmr_only_100k.py](../src/mlframe/feature_selection/_benchmarks/profile_wellbore_mrmr_only_100k.py#L26) |
 | `WELLBORE_TARGET_ROWS` | `'100000'` | [src/mlframe/feature_selection/_benchmarks/profile_wellbore_mrmr_only_100k.py](../src/mlframe/feature_selection/_benchmarks/profile_wellbore_mrmr_only_100k.py#L28) |
 | `_SF3_ARM_SEEDS` | `'[0,1,2,3]'` | [src/mlframe/feature_selection/filters/_benchmarks/bench_sf3_jmim_exponent_selection.py](../src/mlframe/feature_selection/filters/_benchmarks/bench_sf3_jmim_exponent_selection.py#L107) |
-| `_USAB_FORCE_FULL_REFIT` | — | [src/mlframe/feature_selection/filters/_usability_greedy_steps.py](../src/mlframe/feature_selection/filters/_usability_greedy_steps.py#L249) |
+| `_USAB_FORCE_FULL_REFIT` | — | [src/mlframe/feature_selection/filters/_usability_greedy_steps.py](../src/mlframe/feature_selection/filters/_usability_greedy_steps.py#L248) |

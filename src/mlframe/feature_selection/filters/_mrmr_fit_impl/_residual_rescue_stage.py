@@ -180,6 +180,37 @@ def _exact_copies_of_raws(design: dict, raw_cols) -> "list[str]":
     return copies
 
 
+def _weakest_first(design: dict, raw_cols, pruned: list, pre: dict, y) -> list:
+    """The design's columns in the order they are judged: weakest first.
+
+    A single sweep in design order let whichever of two equally informative columns came first go, and the survivor was then whichever came last (a junk compound that recodes the same categorical kept
+    over its dedicated target encoding). Each non-raw column is scored once against all the others by its held-out LINEAR gain (t statistic) and the weakest are judged first; ties go to the column built
+    from more operands; raws sort last. Every verdict is still taken against the design as it stands when the column is judged."""
+    from .._residual_rescue_fe import linear_oos_gain
+
+    def key(name):
+        """Sort key of a design column: ``(linear t against the others, minus its raw-operand count)``; raws are ``(inf, 0)``."""
+        rest_all = {k: v for k, v in design.items() if k != name and k not in pruned}
+        if name in raw_cols or not rest_all:
+            return (float("inf"), 0)
+        t_lin, _share = linear_oos_gain(rest_all, design[name], y, std_full=pre["std_full"])
+        return (float(t_lin), -len(_raw_sources(name, raw_cols)))
+
+    keys = {name: key(name) for name in design if name not in pruned}
+    return sorted(keys, key=keys.__getitem__)
+
+
+def _linearly_useless(rest: dict, column, y, pre: dict, z: float, floor: float) -> bool:
+    """True when ``column`` gives a linear model no significant held-out gain beyond ``rest``: ``t > z`` and a share of the target variance of at least ``floor`` are both needed to keep it.
+
+    The free-form scorer treats a column of few distinct values (a target encoding of an eight-level category) as nominal and leaves it out of its pool, and a function of a column the design holds has no
+    free-form gain anyway; what a linear model can still take from it is judged directly, with the same bar as a raw operand."""
+    from .._residual_rescue_fe import linear_oos_gain
+
+    t_stat, share = linear_oos_gain(rest, column, y, std_full=pre["std_full"])
+    return not (t_stat > z and share >= floor)
+
+
 def _unsupported_columns(self, design: dict, y, raw_cols, residual_rescue) -> "list[str]":
     """Design columns that add nothing to the rest of the selection (``redundancy_policy='drop'`` only).
 
@@ -204,7 +235,7 @@ def _unsupported_columns(self, design: dict, y, raw_cols, residual_rescue) -> "l
     from scipy.stats import norm
 
     from .._pair_residual_screen import FAMILY_ALPHA
-    from .._residual_rescue_fe import design_precompute, linear_oos_gain
+    from .._residual_rescue_fe import design_precompute
 
     z = float(norm.isf(FAMILY_ALPHA))
     floor = float(self.fe_residual_rescue_operand_min_linear_gain)
@@ -212,37 +243,19 @@ def _unsupported_columns(self, design: dict, y, raw_cols, residual_rescue) -> "l
     pruned: "list[str]" = _exact_copies_of_raws(design, raw_cols)
     # Every leave-one-out subset below is a subset of ``design``, so its per-column coding and standardisation are computed once here.
     pre = design_precompute(design, len(y))
-    # Weakest first: a single sweep in design order let whichever of two equally informative columns came first go, and the survivor was then whichever came last (a junk compound that
-    # recodes the same categorical kept over its dedicated target encoding). Each column is scored against all the others once (t, not just its sign) and the weakest are judged first;
-    # ties go to the column built from more operands. Every verdict is still taken against the design as it stands when the column is judged.
-    def _strength(name):
-        """Sort key of a design column: its held-out LINEAR gain against all the others (raws sort last), then fewer-operands-last."""
-        if name in raw_cols:
-            return (float("inf"), 0)
-        rest_all = {k: v for k, v in design.items() if k != name and k not in pruned}
-        if not rest_all:
-            return (float("inf"), 0)
-        t_lin, _rel = linear_oos_gain(rest_all, design[name], y, std_full=pre["std_full"])
-        return (float(t_lin), -len(_raw_sources(name, raw_cols)))
-
-    strength = {name: _strength(name) for name in design if name not in pruned}
-    for name in sorted(strength, key=strength.__getitem__):
+    for name in _weakest_first(design, raw_cols, pruned, pre, y):
         rest = {k: v for k, v in design.items() if k != name and k not in pruned}
         if not rest:
             continue
         if name in raw_cols and name in unary_only and name not in operands:
             continue
         if name in raw_cols and name in operands:
-            if prune_operands:
-                t_stat, rel = linear_oos_gain(rest, design[name], y, std_full=pre["std_full"])
-                if not (t_stat > z and rel >= floor):
-                    pruned.append(name)
+            if prune_operands and _linearly_useless(rest, design[name], y, pre, z, floor):
+                pruned.append(name)
         elif not residual_rescue(rest, {name: design[name]}, y, alpha=0.5, min_relative_gain=0.0, max_admit=1, precomputed=pre):
-            # The free-form scorer treats a column of few distinct values (a target encoding of an eight-level category) as nominal and leaves it out of its pool, and a function of a column
-            # the design holds has no free-form gain anyway; what a linear model can still take from it is judged directly, with the same bar as a raw operand.
-            t_stat, rel = linear_oos_gain(rest, design[name], y, std_full=pre["std_full"])
-            if not (t_stat > z and rel >= floor):
-                pruned.append(name)  # alpha = 0.5 makes the free-form bar t > 0: the column is removed only when it has neither a free-form nor a linear held-out gain
+            # alpha = 0.5 makes the free-form bar t > 0: the column is removed only when it has neither a free-form nor a linear held-out gain
+            if _linearly_useless(rest, design[name], y, pre, z, floor):
+                pruned.append(name)
     return pruned
 
 

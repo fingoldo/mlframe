@@ -45,6 +45,8 @@ def cv_candidates_binary_host(pv: Callable[[int], np.ndarray], selected: "list[i
     cols = [*selected, *cand_idx]
     # Intentional float64: the exact path fits in double and the Newton stop (1e-9 on the weights) needs it
     V = np.column_stack([np.asarray(pv(i), dtype=np.float64) for i in cols])
+    if not np.isfinite(V).all():
+        raise HostBatchedFallbackError("a candidate column holds a non-finite value: the exact per-candidate refit decides")
     sel_local = list(range(len(selected)))
     cand_local = list(range(len(selected), len(cols)))
     tr_masks = [folds != fo for fo in range(n_folds)]
