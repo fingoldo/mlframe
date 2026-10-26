@@ -41,7 +41,6 @@ at fit time, so ``transform`` is leakage-free by construction.
 """
 from __future__ import annotations
 
-from typing import cast
 from ._grouped_coerce_shared import auto_detect_group_cols, coerce_X_for_grouped, auto_detect_num_cols_skip_grp as _auto_detect_num_cols
 
 import logging
@@ -115,21 +114,9 @@ def _broadcast_lookup(
     grouped-agg profile: 2.9s tottime / 144 calls). Bit-identical to the
     per-row mapping (same str()+get per distinct key, deduplicated).
     """
-    group_keys = np.asarray(group_keys)
-    # Hash-based factorize instead of the sort-based ``np.unique``: the keys are an object array of strings, ``np.unique`` sorted all n of them on every one of the
-    # (group, column, stat) calls (7.6 ms each at n=20000, 2.2 of 3.8 s of the family); it also takes unorderable mixed-type keys, so the per-row fallback is not needed.
-    # The lookup is per distinct key and broadcast back by code, so the output is the per-row mapping exactly.
-    # Missing keys (NaN and None) factorize into one category but str() tells them apart ('nan' vs 'None'), so those rows are mapped one by one; there are few.
-    missing = np.asarray(pd.isna(group_keys), dtype=bool)
-    out = np.empty(group_keys.shape[0], dtype=_crit_np_dtype())
-    present = ~missing
-    if present.any():
-        codes, uniq = pd.factorize(group_keys[present])
-        uniq_vals = np.array([lookup.get(str(_k), global_value) for _k in uniq], dtype=_crit_np_dtype())
-        out[present] = uniq_vals[codes]
-    for i in np.flatnonzero(missing):
-        out[i] = lookup.get(str(group_keys[i]), global_value)
-    return cast("np.ndarray", np.nan_to_num(out, nan=global_value, posinf=global_value, neginf=global_value))
+    from ._grouped_coerce_shared import broadcast_lookup
+
+    return broadcast_lookup(group_keys, lookup, global_value)
 
 def generate_grouped_agg_features(
     X: pd.DataFrame,

@@ -2,6 +2,7 @@
 import numpy as np
 
 from mlframe.feature_selection.filters._grouped_agg_fe import _broadcast_lookup
+from mlframe.feature_selection.filters._grouped_coerce_shared import broadcast_lookup
 
 
 def _per_row(keys, lookup, global_value):
@@ -24,3 +25,10 @@ def test_matches_on_a_large_low_cardinality_column():
     keys = rng.integers(0, 12, 20000).astype(str).astype(object)
     lookup = {str(i): float(i) * 0.5 for i in range(10)}
     np.testing.assert_array_equal(_broadcast_lookup(keys, lookup, 3.0), _per_row(keys, lookup, 3.0))
+
+
+def test_shared_helper_matches_the_same_reference():
+    """The grouped_quantile / group_distance helper is the same implementation."""
+    keys = np.array(["a", None, np.nan, "b", "a", 3, "3"], dtype=object)
+    lookup = {"a": 1.0, "None": 2.0, "nan": 3.0, "3": 4.0}
+    np.testing.assert_array_equal(broadcast_lookup(keys, lookup, -1.0), _per_row(keys, lookup, -1.0))
