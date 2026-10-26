@@ -162,10 +162,10 @@ def resident_observed_mi_and_bins(device_codes: Any, classes_y: np.ndarray, by: 
 def resident_analytic_gate(device_codes: Any, classes_y: np.ndarray, by: int, n_rows: int, min_nonzero_confidence: float) -> Optional[np.ndarray]:
     """``fe_mi[K]`` of the analytic noise gate computed from resident codes, or ``None`` on any device fault so the caller keeps the host path."""
     try:
-        from .._analytic_mi_null import analytic_batch_noise_gate
+        from .._analytic_mi_null import analytic_batch_noise_gate, pair_gate_min_n
 
         observed, bins = resident_observed_mi_and_bins(device_codes, classes_y, by)
-        return analytic_batch_noise_gate(None, observed, classes_y, int(n_rows), float(min_nonzero_confidence), bx_per_col=bins, by=int(by))
+        return analytic_batch_noise_gate(None, observed, classes_y, int(n_rows), float(min_nonzero_confidence), bx_per_col=bins, by=int(by), min_n=pair_gate_min_n())
     except Exception as e:
         logger.warning("resident analytic noise gate failed, using the host path: %s", e)
         return None

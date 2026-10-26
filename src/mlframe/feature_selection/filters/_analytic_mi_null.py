@@ -138,12 +138,25 @@ def _min_expected_cell() -> float:
     return _ANALYTIC_NULL_MIN_EXPECTED_CELL_DEFAULT
 
 
-def analytic_null_applicable(n_rows: int, n_bins_x: int, n_bins_y: int) -> bool:
+# Row floor of the analytic noise gate of the pair-FE candidates. Against the 99-permutation gate (confidence 0.99, 10-bin candidates, 40 columns from pure noise to weak signal,
+# 4 seeds each, `D:/Temp/gate_calib2.py`) the analytic gate flips 2-3 of 160 decisions at every n from 6000 to 25000 (the Monte-Carlo noise of 99 shuffles, equal to the 3 of 160 at 25000)
+# and 0 at 40000, so the 25000 default of the other consumers is not needed here. The min-expected-cell floor still applies.
+PAIR_GATE_ANALYTIC_MIN_N = 10_000
+
+
+def pair_gate_min_n() -> int:
+    """Row floor for the pair-FE analytic noise gate: the lower of the global floor and ``PAIR_GATE_ANALYTIC_MIN_N`` (an explicit ``MLFRAME_MI_ANALYTIC_NULL_MIN_N`` still wins)."""
+    if os.environ.get("MLFRAME_MI_ANALYTIC_NULL_MIN_N", "").strip():
+        return analytic_null_min_n()
+    return min(analytic_null_min_n(), PAIR_GATE_ANALYTIC_MIN_N)
+
+
+def analytic_null_applicable(n_rows: int, n_bins_x: int, n_bins_y: int, min_n: "int | None" = None) -> bool:
     """True when BOTH safe-conditions hold: n >= threshold AND the contingency cells are not sparse
     (average expected count N/(Bx*By) >= the min-cell floor). When False the caller must use the
     permutation test - the chi-square approximation is unreliable on sparse / high-cardinality tables.
     """
-    if int(n_rows) < analytic_null_min_n():
+    if int(n_rows) < (analytic_null_min_n() if min_n is None else int(min_n)):
         return False
     cells = max(1, int(n_bins_x) * int(n_bins_y))
     return (float(n_rows) / cells) >= _min_expected_cell()
@@ -262,6 +275,7 @@ def analytic_batch_noise_gate(
     min_nonzero_confidence: float,
     bx_per_col: "np.ndarray | None" = None,
     by: "int | None" = None,
+    min_n: "int | None" = None,
 ) -> np.ndarray:
     """Analytic large-n form of the batched FE-candidate permutation noise gate.
 
@@ -320,7 +334,7 @@ def analytic_batch_noise_gate(
     # or a sparse joint below the expected-cell floor) is NOT permutation-tested here - it keeps its raw MI ungated by
     # THIS gate and relies on the caller's conservative applicability gate (_pairs_dispatch) to have excluded it. A
     # per-column permutation fallback for the inapplicable case is a FUTURE hardening.
-    _applicable = (int(n_rows) >= analytic_null_min_n()) & ((float(n_rows) / _cells) >= _min_expected_cell())  # (K,) == analytic_null_applicable per col
+    _applicable = (int(n_rows) >= (analytic_null_min_n() if min_n is None else int(min_n))) & ((float(n_rows) / _cells) >= _min_expected_cell())  # (K,) == analytic_null_applicable per col
     # Intentional float64: tail p-values need full precision for small-p decisions
     _p = np.ones(K, dtype=np.float64)  # df<=0 / mi<=0 / no-chi2 -> p=1.0
     _use_chi2 = (_df > 0) & (fe_mi > 0.0)
