@@ -155,8 +155,8 @@ class HybridOrthConfig(_MRMRSubConfig):
 
     quadruplet_enable: bool = True
     quadruplet_max_degree: int = Field(default=1, ge=1)
-    quadruplet_seed_k: int = Field(default=4, ge=1)
-    quadruplet_top_count: int = Field(default=2, ge=1)
+    quadruplet_seed_k: int = Field(default=12, ge=1)
+    quadruplet_top_count: int = Field(default=6, ge=1)
 
     adaptive_arity_enable: bool = False
     adaptive_arity_max_arity: int = Field(default=3, ge=1)

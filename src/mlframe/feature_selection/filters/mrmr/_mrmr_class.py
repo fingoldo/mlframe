@@ -2014,13 +2014,13 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # quadruplet * deg^4 cells; seed_k=5 yields C(5,4)=5 quadruplets
         # * deg^4 cells (~80 candidates at deg=2). Recipe kind
         # ``orth_quadruplet_cross``; replay reads X only, no y.
-        # DEFAULT ON: bounded by seed_k (C(seed_k,4) quadruplets - 1 at seed_k=4), replay
+        # DEFAULT ON: bounded by seed_k (C(seed_k,4) quadruplets; seed_k=4 was ONE quadruplet and found 2 of 6 planted four-way products, 12 finds 6 of 6 with no extra selection on noise), replay
         # P0 fixed, captures genuine 4-way interactions a linear model cannot otherwise form. Set False
         # to restore the previous behaviour.
         fe_hybrid_orth_quadruplet_enable: bool = True,
         fe_hybrid_orth_quadruplet_max_degree: int = 1,
-        fe_hybrid_orth_quadruplet_seed_k: int = 4,
-        fe_hybrid_orth_quadruplet_top_count: int = 2,
+        fe_hybrid_orth_quadruplet_seed_k: int = 12,
+        fe_hybrid_orth_quadruplet_top_count: int = 6,
         # ADAPTIVE-ARITY cross-basis FE (sibling
         # module ``_orthogonal_adaptive_arity_fe``). Tries arity 2/3/4
         # per seed tuple and emits ONLY the winning arity per maximal

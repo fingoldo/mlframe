@@ -273,8 +273,8 @@ def _stage_quadruplet(self, _fe_family_on, _y_np, X, _hybrid_orth_pre_recipes, v
             # "could not convert string to float" and the broad guard below would silently drop the whole quadruplet stage. Categoricals are handled by the dedicated cat FE stages.
             _q_cols = [c for c in _q_cols if fe_is_numeric_col(X, c)]
             _q_max_degree = int(getattr(self, "fe_hybrid_orth_quadruplet_max_degree", 1))
-            _q_seed_k = int(getattr(self, "fe_hybrid_orth_quadruplet_seed_k", 4))
-            _q_top_count = int(getattr(self, "fe_hybrid_orth_quadruplet_top_count", 2))
+            _q_seed_k = int(getattr(self, "fe_hybrid_orth_quadruplet_seed_k", 12))
+            _q_top_count = int(getattr(self, "fe_hybrid_orth_quadruplet_top_count", 6))
             _q_basis = str(getattr(self, "fe_hybrid_orth_basis", "auto"))
             _q_degrees = tuple(int(d) for d in getattr(self, "fe_hybrid_orth_degrees", (2, 3)))
             _q_top_k = int(getattr(self, "fe_hybrid_orth_top_k", 5))
