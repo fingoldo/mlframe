@@ -24,7 +24,8 @@ def test_sparse_high_cardinality_candidate_not_rejected():
     assert not analytic_null_applicable(n, bx, 3)  # sparse: n/(bx*by) << min-cell floor
     observed = np.array([0.001])  # tiny but positive observed MI
     fe = analytic_batch_noise_gate(disc, observed, classes_y, n, min_nonzero_confidence=0.5)
-    assert fe[0] == observed[0], "sparse-table candidate wrongly zeroed -- the gate must not reject where the chi-square is invalid"
+    # the gate returns the crit dtype (float32 by default): compare with the observed value rounded the same way
+    assert fe[0] == observed.astype(fe.dtype)[0], "sparse-table candidate wrongly zeroed -- the gate must not reject where the chi-square is invalid"
 
 
 def test_dense_table_still_rejects_pure_noise():
