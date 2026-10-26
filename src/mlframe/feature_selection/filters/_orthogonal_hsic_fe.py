@@ -100,6 +100,7 @@ import logging
 from typing import Optional, Sequence
 
 import numpy as np
+from numba import njit
 from ._fe_usability_signal import _crit_np_dtype
 import pandas as pd
 
@@ -126,6 +127,19 @@ __all__ = [
     "hybrid_orth_mi_hsic_fe_with_recipes",
 ]
 
+@njit(cache=True)
+def _median_pairwise_distance(arr: np.ndarray) -> float:
+    """Median of ``|arr[i] - arr[j]|`` over ``i < j``: the same multiset the dense upper-triangle gather builds, without the n x n matrix and the index arrays."""
+    n = arr.shape[0]
+    vals = np.empty(n * (n - 1) // 2, dtype=arr.dtype)
+    k = 0
+    for i in range(n - 1):
+        for j in range(i + 1, n):
+            vals[k] = abs(arr[i] - arr[j])
+            k += 1
+    return np.median(vals)
+
+
 def median_heuristic_sigma(z: np.ndarray) -> float:
     """Median pairwise-distance bandwidth (Gretton 2005).
 
@@ -144,10 +158,7 @@ def median_heuristic_sigma(z: np.ndarray) -> float:
     # the standard median-heuristic definition (every UNORDERED pair
     # contributes once - the diagonal is dropped because |z_i - z_i| = 0
     # is uninformative and would pull the median down).
-    diff = np.abs(arr[:, None] - arr[None, :])
-    iu = np.triu_indices(n, k=1)
-    vals = diff[iu]
-    med = float(np.median(vals))
+    med = float(_median_pairwise_distance(np.ascontiguousarray(arr)))
     if med <= 0.0:
         # All values identical -> no scale information; neutral 1.0.
         return 1.0
