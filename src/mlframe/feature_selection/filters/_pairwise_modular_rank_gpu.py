@@ -11,6 +11,7 @@ from __future__ import annotations
 import logging
 from typing import Optional, cast
 
+import threading
 import numpy as np
 
 logger = logging.getLogger(__name__)
@@ -261,6 +262,7 @@ _KERNEL_SOURCES = {
 }
 _DEFAULT_VERSION = 8
 _kernels: dict = {}
+_kernels_lock = threading.Lock()  # the compile-once get-or-create is one critical section
 
 
 def _kernel_version() -> int:
@@ -281,12 +283,13 @@ def _get_kernel(version: Optional[int] = None, wide: bool = True):
     """Compile the ranking kernel of ``version`` once per process; ``wide`` keeps the values in 64 bits, else they are 32-bit (cheaper modulo)."""
     v = _kernel_version() if version is None else version
     key = (v, wide)
-    if key not in _kernels:
-        import cupy as cp
+    with _kernels_lock:
+        if key not in _kernels:
+            import cupy as cp
 
-        src = _KERNEL_SOURCES[v].replace("__COLT__", "long long" if wide else "int")
-        _kernels[key] = cp.RawKernel(src, "residue_rank")
-    return _kernels[key]
+            src = _KERNEL_SOURCES[v].replace("__COLT__", "long long" if wide else "int")
+            _kernels[key] = cp.RawKernel(src, "residue_rank")
+        return _kernels[key]
 
 
 def residue_rank_scores_gpu(
@@ -361,7 +364,8 @@ def _gpu_available() -> bool:
         import cupy as cp
 
         return int(cp.cuda.runtime.getDeviceCount()) > 0
-    except Exception:  # nosec B110 - no cupy or no device: the CPU kernels serve
+    except Exception as e:  # nosec B110 - no cupy or no device: the CPU kernels serve
+        logger.debug("modular rank GPU unavailable (%r), the CPU kernels serve", e)
         return False
 
 
@@ -431,6 +435,7 @@ def rank_backend_choice(n_work: int) -> str:
         return "cpu"
     try:
         choice = _RANK_SPEC.choose(n_work=int(n_work))
-    except Exception:  # nosec B110 - a broken cache must not break the scan; the heuristic decides
+    except Exception as e:  # nosec B110 - a broken cache must not break the scan; the heuristic decides
+        logger.debug("modular rank kernel-tuning lookup failed (%r), the heuristic decides", e)
         choice = _rank_fallback_choice(n_work)
     return "gpu" if choice in ("gpu", "cuda", "cupy") else "cpu"

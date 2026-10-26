@@ -23,6 +23,7 @@ import numpy as np
 from ._fe_usability_signal import _crit_np_dtype
 from numba import njit, prange
 
+from ._fe_scan_common import scan_index
 from ._numba_utils import _backfit
 from ._pair_residual_screen import BACKFIT_SWEEPS, FAMILY_ALPHA, OUTER_FENCE, SHRINK, _winsorised, main_effect_bins
 from ._y_encoding import FEW_CLASSES_MAX
@@ -124,11 +125,6 @@ def _code_columns(cols: "Mapping[str, np.ndarray]", rows: np.ndarray, n_bins: in
     return [names[k] for k in keep], np.ascontiguousarray(codes[keep])
 
 
-def _scan_rows(n: int, scan_rows: int) -> np.ndarray:
-    """Row indices ``residual_rescue`` scores on: all of them up to ``scan_rows``, evenly spaced beyond."""
-    return np.arange(n) if n <= scan_rows else np.linspace(0, n - 1, int(scan_rows)).astype(np.int64)
-
-
 def _standardised(v: np.ndarray) -> Optional[np.ndarray]:
     """``v`` with non-finite values set to the median, clipped to Tukey's far-out fences and standardised; ``None`` for a constant column."""
     v = np.asarray(v, dtype=_crit_np_dtype())
@@ -168,7 +164,7 @@ def design_precompute(design: Mapping[str, np.ndarray], n: int, scan_rows: int =
 
     Coding and standardising are per-column operations, so a caller that scores many subsets of one design (each leaving out a different column) computes them once and passes them as
     ``precomputed`` to ``residual_rescue`` and ``std_full`` to ``linear_oos_gain``. Every name the subsets use must be a key of ``design``."""
-    rows = _scan_rows(n, scan_rows)
+    rows = scan_index(n, scan_rows)
     n_main = main_effect_bins((len(rows) + 1) // 2)
     names, codes = _code_columns(design, rows, n_main)
     return {
@@ -271,7 +267,7 @@ def residual_rescue(
     n = len(y)
     if n < MIN_ROWS or not len(pool) or int(max_admit) <= 0:
         return []
-    rows = precomputed["rows"] if precomputed is not None else _scan_rows(n, scan_rows)
+    rows = precomputed["rows"] if precomputed is not None else scan_index(n, scan_rows)
     # Intentional float64: target labels kept f64 (exact binning / comparison contract)
     yr = _winsorised(np.asarray(y, dtype=np.float64).ravel()[rows])
     even = np.arange(len(rows)) % 2 == 0

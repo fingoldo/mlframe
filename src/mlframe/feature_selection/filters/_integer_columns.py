@@ -12,6 +12,7 @@ for free. The decision for a noisy column is made on at most ``NEAR_INT_DECISION
 from __future__ import annotations
 
 import logging
+import threading
 from collections import OrderedDict
 from typing import Any, Optional, Sequence, cast
 
@@ -68,7 +69,9 @@ def to_int64(x: Any) -> np.ndarray:
     return cast(np.ndarray, a.astype(np.int64))
 
 
-_cache: "OrderedDict[tuple, tuple[bytes, dict]]" = OrderedDict()
+# keyed by the frame's CONTENT fingerprint (not id(X), which a new frame can reuse), guarded by a lock: the get-or-compute-or-evict sequence is one critical section
+_cache: "OrderedDict[tuple, dict]" = OrderedDict()
+_cache_lock = threading.Lock()
 
 
 def _fingerprint(X: Any, columns: Sequence[str]) -> bytes:
@@ -88,18 +91,18 @@ def eligible_integer_columns(X: Any, cols: Optional[Sequence[str]] = None) -> li
     """
     columns = list(X.columns)
     wanted = columns if cols is None else [c for c in cols if c in X.columns]
-    key = (id(X), len(X), tuple(columns))
-    fp = _fingerprint(X, columns)
-    entry = _cache.get(key)
-    if entry is None or entry[0] != fp:
-        entry = (fp, {})
-        _cache[key] = entry
-        while len(_cache) > _CACHE_SIZE:
-            _cache.popitem(last=False)
-    else:
-        _cache.move_to_end(key)
-    known = entry[1]
-    for c in wanted:
-        if c not in known:
-            known[c] = is_integer_like_col(np.asarray(X[c]))
-    return [c for c in wanted if known[c]]
+    key = (len(X), tuple(columns), _fingerprint(X, columns))
+    with _cache_lock:
+        known = _cache.get(key)
+        if known is None:
+            known = {}
+            _cache[key] = known
+            while len(_cache) > _CACHE_SIZE:
+                _cache.popitem(last=False)  # evict-ok: a miss only recomputes the per-column answers, nothing is pending in an evicted entry
+        else:
+            _cache.move_to_end(key)
+        for c in wanted:
+            if c not in known:
+                known[c] = is_integer_like_col(np.asarray(X[c]))
+        result = [c for c in wanted if known[c]]
+    return result

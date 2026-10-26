@@ -26,6 +26,10 @@ BASELINE = Path(__file__).resolve().parent / "_uncalled_functions_baseline.json"
 #: `upgrade`/`downgrade` are alembic's.
 _INTERPRETER_INVOKED = {"__getattr__", "__dir__", "main", "upgrade", "downgrade"}
 
+#: Earlier CPU kernel versions of the sufficient-summary pair check, kept on purpose: the measured predecessors of `_pair_mi_block_cpu` stay in the module so a later sweep or a regression
+#: bisect can run them (see the profile record `audits/2026-10-22/profiles/_fe_sufficient_summary_pairs.md`).
+_KEPT_KERNEL_VERSIONS = {"_pair_mi_best_per_first", "_pair_mi_best_per_first_v1"}
+
 #: Documented public API: users call these, nothing inside the package has to. Each is exported (``__all__`` or a package
 #: re-export) and covered by tests of its own.
 _PUBLIC_API = {
@@ -1171,7 +1175,7 @@ def test_no_new_function_without_a_caller(request):
         files,
         REPO_ROOT,
         BASELINE,
-        ignore=_INTERPRETER_INVOKED
+        ignore=_INTERPRETER_INVOKED | _KEPT_KERNEL_VERSIONS
         | _PUBLIC_API
         | _REEXPORTED_PUBLIC_API
         | _OFFLINE_GENERATORS

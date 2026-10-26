@@ -88,6 +88,8 @@ from ._fe_usability_signal import (  # shared leaf |corr| (numpy-only, no cycle)
 )
 from types import SimpleNamespace as _SimpleNamespace
 
+from mlframe.utils.log_throttle import log_throttle
+
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
 # Scale-free retention fraction (TAU). Shared default with the S5 engineered-vs-
@@ -364,7 +366,7 @@ def _some_consumer_adds_information(st: Any, consumers: Sequence[int], rname: st
                 return True
         return False
     except Exception as exc:
-        logger.debug("raw-redundancy: informativeness probe failed for %s (%s); the subsumption verdict decides", rname, exc)
+        log_throttle(logger, "raw_redundancy_probe_failed", logging.WARNING, "raw-redundancy: informativeness probe failed for %s (%s); the subsumption verdict decides", rname, exc)
         return True
 
 

@@ -14,10 +14,13 @@ to the old behaviour.
 from __future__ import annotations
 
 import logging
-from typing import Any, Optional
+import threading
+from typing import Any, Callable, Optional
 
 import numpy as np
 from numba import njit, prange
+
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -272,6 +275,7 @@ _FUSED_NAMES = {"v1": (_FUSED_SRC, "pair_mi_block"), "v2": (_FUSED_SRC_V2, "pair
 FUSED_VERSION = "v2"  # v1: a thread per cell group, tree reduction with 7 barriers; v2: a thread per cell, warp-shuffle reduction. v2 is the default (see the profile record)
 _FUSED_THREADS = 128  # one block per pair; a multiple of 32 because of the warp shuffle
 _FUSED_KERNELS: dict = {}
+_FUSED_LOCK = threading.Lock()  # compile-once get-or-create of the kernels is one critical section
 _ACC_TYPE = "double"  # Intentional float64: the MI sum and the counts it divides by are statistics compared with a threshold; only the per-cell terms use the crit type
 
 
@@ -289,7 +293,7 @@ def pair_equiv_tolerance(real: Optional[str] = None) -> tuple:
     The tuning sweep drops a variant that diverges from its reference by more than this. A tolerance tighter than the real rounding of the type drops the GPU
     from every cell, and the sweep then silently picks the CPU everywhere.
     """
-    real = real or gpu_real_type()
+    real = gpu_real_type() if real is None else real
     # Intentional float64: tolerance of the double CPU reference
     eps = float(np.finfo(np.float32 if real == "float" else np.float64).eps)
     rtol = max(1e-9, 8 * eps)
@@ -298,14 +302,15 @@ def pair_equiv_tolerance(real: Optional[str] = None) -> tuple:
 
 def _fused_kernel(real: str, version: Optional[str] = None):
     """The compiled fused kernel for a ``{REAL}`` type and a kernel version (one module per pair, compiled once per process; cupy also caches the binary on disk)."""
-    version = version or FUSED_VERSION
-    kernel = _FUSED_KERNELS.get((real, version))
-    if kernel is None:
-        import cupy as cp
+    version = FUSED_VERSION if version is None else version
+    with _FUSED_LOCK:
+        kernel = _FUSED_KERNELS.get((real, version))
+        if kernel is None:
+            import cupy as cp
 
-        source, name = _FUSED_NAMES[version]
-        kernel = _FUSED_KERNELS[(real, version)] = cp.RawKernel(source.replace("{REAL}", real).replace("{ACC}", _ACC_TYPE), name)
-    return kernel
+            source, name = _FUSED_NAMES[version]
+            kernel = _FUSED_KERNELS[(real, version)] = cp.RawKernel(source.replace("{REAL}", real).replace("{ACC}", _ACC_TYPE), name)
+        return kernel
 
 
 def _block_best_gpu_fused(a_dev, b_dev, r_dev, cr_dev, k: int, kr: int, same: bool, real: str, version: Optional[str] = None) -> tuple:
@@ -377,7 +382,7 @@ def _block_cols_for(n_used: int, p: int) -> int:
     return int(max(16, min(BLOCK_COLS, fit, p)))
 
 
-def best_pair_streamed(get_block, p: int, r: np.ndarray, k: int, kr: int, backend: str, block_cols: int, real: Optional[str] = None) -> tuple:
+def best_pair_streamed(get_block: Callable[[int, int], np.ndarray], p: int, r: np.ndarray, k: int, kr: int, backend: str, block_cols: int, real: Optional[str] = None) -> tuple:
     """Best ``(mi, (i, j))`` over all pairs of ``p`` columns, streamed in column blocks so only two blocks of codes are alive at once.
 
     ``get_block(c0, c1)`` returns the ``(c1 - c0, n)`` int8 codes of those columns. ``backend`` is ``"njit"`` (the CPU kernel), ``"gpu_fused"`` (the fused
@@ -396,7 +401,7 @@ def best_pair_streamed(get_block, p: int, r: np.ndarray, k: int, kr: int, backen
         import cupy as cp
 
         xp = cp
-        fused_real = real or gpu_real_type()
+        fused_real = gpu_real_type() if real is None else real
         r_dev, cr_dev = cp.asarray(r.astype(np.int32)), cp.asarray(cr)
     for ia, c0 in enumerate(starts):
         a_t = get_block(c0, min(c0 + block_cols, p))
@@ -415,7 +420,7 @@ def best_pair_streamed(get_block, p: int, r: np.ndarray, k: int, kr: int, backen
             except Exception as exc:  # a device out of memory or a driver fault: finish this block pair on the CPU
                 if backend == "njit":
                     raise
-                logger.warning("pair residual test: the %s backend failed (%s: %s); this block pair runs on the CPU.", backend, type(exc).__name__, exc)
+                log_throttle(logger, "pair_residual_backend_failed", logging.WARNING, "pair residual test: the %s backend failed (%s: %s); this block pair runs on the CPU.", backend, type(exc).__name__, exc)
                 mi, i, j = _block_best_cpu(a_t, b_t, r, cr, k, kr, same)
             if mi > best_mi and j >= 0:
                 best_mi, best_pair = mi, (c0 + i, d0 + j)
@@ -527,7 +532,8 @@ def pair_residual_backend_choice(n_samples: int, n_pairs: int) -> str:
         return "njit"
     try:
         choice = _PRT_SPEC.choose(n_samples=int(n_samples), n_pairs=int(n_pairs))
-    except Exception:  # nosec B110 - a broken cache must not break the check; the heuristic decides
+    except Exception as e:  # nosec B110 - a broken cache must not break the check; the heuristic decides
+        logger.debug("pair residual kernel-tuning lookup failed (%r), the heuristic decides", e)
         choice = _pair_residual_fallback_choice(n_samples, n_pairs)
     return "gpu_fused" if choice in ("gpu_fused", "gpu", "cuda", "cupy") else "njit"
 
@@ -548,7 +554,7 @@ def pair_residual_test(raw_codes: np.ndarray, raw_nbins: np.ndarray, r_codes: np
     if p < 2:
         return None
     n_pairs = p * (p - 1) // 2
-    chosen = backend or pair_residual_backend_choice(n, n_pairs)
+    chosen = pair_residual_backend_choice(n, n_pairs) if backend is None else backend
     chosen = "gpu_fused" if chosen == "gpu" else chosen
     budget = PAIR_WORK_BUDGET_GPU if chosen.startswith("gpu") else PAIR_WORK_BUDGET
     stride = 1

@@ -190,7 +190,7 @@ def _modular_relations(X, y, names_ok, nbins, seed, max_int_cols, n_perm):
     turn every ``responded`` hit into a :class:`DiscoveredRelation`, escalating to the best modulus found and
     attaching a deeper permutation p-value. Returns ``[]`` when the integer-column budget (``max_int_cols``) is
     exceeded or there are no integer columns."""
-    from mlframe.feature_selection.filters._integer_columns import eligible_integer_columns
+    from mlframe.feature_selection.filters import eligible_integer_columns
     from mlframe.feature_selection.filters.shared import cheap_modular_scan, escalate_modulus, apply_pairwise_modular
 
     int_cols = eligible_integer_columns(X, names_ok)
@@ -217,7 +217,7 @@ def _lattice_relations(X, y, names_ok, nbins, seed, max_int_cols, n_perm):
     ``responded`` hit into a :class:`DiscoveredRelation`. Returns ``[]`` when the integer-column budget is exceeded
     or fewer than 2 integer-eligible columns are present (lattice ops need a pair)."""
     from mlframe.feature_selection.filters.shared import cheap_integer_lattice_scan, apply_integer_lattice
-    from mlframe.feature_selection.filters._integer_columns import eligible_integer_columns
+    from mlframe.feature_selection.filters import eligible_integer_columns
 
     int_cols = eligible_integer_columns(X, names_ok)
     if len(int_cols) > int(max_int_cols) or len(int_cols) < 2:
@@ -361,7 +361,7 @@ def discover_structure(
     yb = bin_y_for_class_mi(y_arr.ravel(), nbins=nbins)
     names = [str(c) for c in X.columns]
 
-    from mlframe.feature_selection.filters._integer_columns import eligible_integer_columns
+    from mlframe.feature_selection.filters import eligible_integer_columns
 
     n_int = len(eligible_integer_columns(X))
 
