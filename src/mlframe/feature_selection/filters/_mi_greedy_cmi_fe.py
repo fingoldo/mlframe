@@ -540,6 +540,35 @@ def joint_cardinalities_cupy(x: np.ndarray, y: np.ndarray, z: np.ndarray) -> tup
 # Public CMI scorer
 # ---------------------------------------------------------------------------
 
+def _batched_cmi_in_chunks(codes: Any, y_bin: np.ndarray, z_joint: Any, batched_cmi_gpu: Any) -> np.ndarray:
+    """``batched_cmi_gpu`` over all columns of ``codes``; when the device cannot hold the whole batch's joint histograms (a wide conditioning support makes them ``K x Kx x Kyz`` cells) the
+    columns are scored in chunks, halving the chunk until it fits. Every column is scored independently, so the values are the whole-batch values."""
+    import cupy as cp
+
+    k = int(codes.shape[1])
+
+    def attempt(step: int) -> "np.ndarray | None":
+        """All columns scored in chunks of ``step``; ``None`` when the device ran out of memory."""
+        try:
+            parts = [batched_cmi_gpu(codes[:, s : s + step], y_bin, z_joint, codes_trusted=True) for s in range(0, k, step)]
+        except cp.cuda.memory.OutOfMemoryError:
+            return None
+        return parts[0] if len(parts) == 1 else np.concatenate(parts)
+
+    step = k
+    while True:
+        out = attempt(step)
+        if out is not None:
+            return out
+        if step <= 1:
+            return batched_cmi_gpu(codes, y_bin, z_joint, codes_trusted=True)  # nothing left to halve: let the error reach the caller's CPU fallback
+        step = max(1, step // 2)
+        log_throttle(
+            logger, "cmi_batch_oom_chunking", logging.WARNING,
+            "batched CMI of %d candidates ran out of device memory; scoring in chunks of %d columns", k, step,
+        )
+
+
 def score_candidates_by_cmi(
     X_cand: pd.DataFrame,
     y: np.ndarray,
@@ -604,17 +633,20 @@ def score_candidates_by_cmi(
                 X_codes_dev = batched_quantile_bin_gpu(cp.asarray(X_float), nbins)
                 # codes_trusted: binner-produced (batched_quantile_bin_gpu) + dense renumbered y/z are 0-based ->
                 # the range guard cannot fire; skip its 2 blocking min/max syncs on the resident hot path (FIX1).
-                cmis = batched_cmi_gpu(X_codes_dev, y_bin, z_joint, codes_trusted=True)
+                cmis = _batched_cmi_in_chunks(X_codes_dev, y_bin, z_joint, batched_cmi_gpu)
             else:
                 # Non-finite columns -> host equi-freq binning (handles nan/inf), then device CMI.
                 X_codes = np.empty((y_bin.shape[0], len(cand_cols)), dtype=np.int64)
                 for j in range(len(cand_cols)):
                     X_codes[:, j] = _quantile_bin(X_float[:, j], nbins=nbins)
-                cmis = batched_cmi_gpu(X_codes, y_bin, z_joint, codes_trusted=True)  # host equi-freq binner -> 0-based
+                cmis = _batched_cmi_in_chunks(X_codes, y_bin, z_joint, batched_cmi_gpu)  # host equi-freq binner -> 0-based
             # Intentional float64: score output contract kept f64 (exact comparison)
             return pd.Series({c: float(cmis[j]) for j, c in enumerate(cand_cols)}, dtype=np.float64)
         except Exception as e:  # nosec B110 - optional/best-effort path, rationale documented
-            logger.debug("GPU-resident batched CMI path failed (%s: %s) -- falling back to exact CPU loop", type(e).__name__, e)
+            log_throttle(
+                logger, "cmi_gpu_batched_failed", logging.WARNING,
+                "GPU-resident batched CMI of %d candidates failed (%s: %s); scoring them one by one on the CPU", len(cand_cols), type(e).__name__, e,
+            )
     out = {}
     for c in cand_cols:
         x_bin = _quantile_bin(X_cand[c].to_numpy(), nbins=nbins)
