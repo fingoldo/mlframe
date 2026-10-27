@@ -478,8 +478,7 @@ def _quantile_bin_njit(x: np.ndarray, n_bins: int) -> np.ndarray:
     """Quantile-bin a 1-D continuous array into n_bins equi-frequency bins. Returns int32 bin indices in [0, n_bins).
 
     Same result as :func:`_quantile_bin_sorted_njit` (the stable-argsort reference, kept below) without sorting: the values that open each bin are found with one multi-select, and a row's bin is the number of
-    those opening values at or below it. That equals the rank-position assignment whenever no run of equal values crosses a bin boundary, which is checked on the selected values (the last value of a
-    bin strictly below the first of the next); a column with NaN, too few rows for the bins, or a tie across a boundary takes the sorted reference, so the output is identical in every case.
+    those opening values at or below it. A run of equal values that reaches across a boundary (checked on the selected values: the last value of a bin is not below the first of the next) is placed the way the stable sort places it, after the smaller values and in row order; a column with NaN or too few rows for the bins takes the sorted reference, so the output is identical in every case.
     bench-attempt-rejected (earlier, a different design): one ``np.partition`` per edge re-copied the array per edge and was 2.6x slower than the argsort form; a single multi-select on one copy is what is used here."""
     n = x.shape[0]
     if n < 8 * n_bins or n_bins < 2:
@@ -504,13 +503,44 @@ def _quantile_bin_njit(x: np.ndarray, n_bins: int) -> np.ndarray:
     work = x.copy()
     _multi_select(work, ranks)
     cuts = np.empty(n_bins - 1, dtype=x.dtype)
+    crossing = np.zeros(n_bins - 1, dtype=np.bool_)  # a run of equal values reaches across the boundary that opens this bin
+    any_crossing = False
     for b in range(1, n_bins):
-        last_below = work[starts[b] - 1]
-        first = work[starts[b]]
-        if not (last_below < first):
-            return _quantile_bin_sorted_njit(x, n_bins)  # type: ignore[no-any-return]  # a numba dispatcher call is untyped for mypy
-        cuts[b - 1] = first
+        cuts[b - 1] = work[starts[b]]
+        if not (work[starts[b] - 1] < work[starts[b]]):
+            crossing[b - 1] = True
+            any_crossing = True
     out = np.empty(n, dtype=np.int32)
+    if not any_crossing:
+        for i in range(n):
+            v = x[i]
+            lo = 0
+            hi = n_bins - 1
+            while lo < hi:
+                m = (lo + hi) // 2
+                if cuts[m] <= v:
+                    lo = m + 1
+                else:
+                    hi = m
+            out[i] = lo
+        return out
+    # Equal values that straddle a bin boundary are placed as the stable sort places them: after every smaller value, in row order. ``below`` is the number of smaller values of such a run
+    # (counted once per distinct value) and ``seen`` how many of its rows have been placed so far.
+    canon = np.empty(n_bins - 1, dtype=np.int64)
+    below = np.zeros(n_bins - 1, dtype=np.int64)
+    seen = np.zeros(n_bins - 1, dtype=np.int64)
+    for c in range(n_bins - 1):
+        if c > 0 and cuts[c] == cuts[c - 1]:
+            canon[c] = canon[c - 1]
+        else:
+            canon[c] = c
+            if crossing[c] or (c + 1 < n_bins - 1 and cuts[c + 1] == cuts[c]):  # the run may open exactly at this cut and straddle the next one
+                cnt = 0
+                v0 = cuts[c]
+                for i in range(n):
+                    if x[i] < v0:
+                        cnt += 1
+                below[c] = cnt
     for i in range(n):
         v = x[i]
         lo = 0
@@ -521,7 +551,21 @@ def _quantile_bin_njit(x: np.ndarray, n_bins: int) -> np.ndarray:
                 lo = m + 1
             else:
                 hi = m
-        out[i] = lo
+        if lo > 0 and cuts[lo - 1] == v and crossing[lo - 1]:
+            c = canon[lo - 1]
+            position = below[c] + seen[c]
+            seen[c] += 1
+            blo = 0
+            bhi = n_bins - 1
+            while blo < bhi:
+                m = (blo + bhi) // 2
+                if starts[m + 1] <= position:
+                    blo = m + 1
+                else:
+                    bhi = m
+            out[i] = blo
+        else:
+            out[i] = lo
     return out
 
 

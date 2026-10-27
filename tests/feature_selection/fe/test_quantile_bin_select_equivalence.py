@@ -24,6 +24,19 @@ def _column(kind, n, rng):
         x[::7] = np.inf
         x[3::11] = -np.inf
         return x
+    if kind == "half_zeros":
+        x = rng.standard_normal(n)
+        x[rng.random(n) < 0.5] = 0.0
+        return x
+    if kind == "mostly_zeros":
+        x = rng.standard_normal(n)
+        x[rng.random(n) < 0.9] = 0.0
+        return x
+    if kind == "two_runs":
+        x = rng.standard_normal(n)
+        x[rng.random(n) < 0.2] = -1.5
+        x[rng.random(n) < 0.2] = 2.0
+        return x
     if kind == "tie_on_boundary":
         x = np.sort(rng.standard_normal(n))
         x[n // 2 - 1] = x[n // 2]
@@ -31,7 +44,7 @@ def _column(kind, n, rng):
     return rng.standard_normal(n).astype(np.float32)
 
 
-@pytest.mark.parametrize("kind", ["normal", "ties_few", "ties_many", "int5", "constant", "sorted", "infinite", "tie_on_boundary", "float32"])
+@pytest.mark.parametrize("kind", ["normal", "ties_few", "ties_many", "int5", "constant", "sorted", "infinite", "tie_on_boundary", "half_zeros", "mostly_zeros", "two_runs", "float32"])
 @pytest.mark.parametrize("n", [50, 97, 1000, 20001])
 @pytest.mark.parametrize("n_bins", [2, 10, 12, 20])
 def test_selected_bins_equal_the_sorted_bins(kind, n, n_bins):
