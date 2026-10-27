@@ -667,7 +667,7 @@ def _composite_block_budget_bytes() -> int:
         return 256 * 1024 * 1024
 
 
-def _block_columns(n_rows: int, n_cols_total: int) -> int:
+def _block_columns(n_rows: int) -> int:
     """How many engineered columns one block may hold: a column is ``n_rows`` float64 values, and ``5`` columns per numeric source (one per stat, z, ratio) are built per block."""
     per_col = max(1, n_rows) * 8
     return max(1, _composite_block_budget_bytes() // max(1, per_col * 5))
@@ -722,7 +722,7 @@ def composite_group_agg_top_blockwise(
         if not composite_cardinality_ok(n_distinct, n_rows, max_card_frac):
             continue
         cur_num = [c for c in num_cols if c in X.columns and c not in set(group_cols) and pd.api.types.is_numeric_dtype(X[c])]
-        block = _block_columns(n_rows, len(cur_num))
+        block = _block_columns(n_rows)
         for start in range(0, len(cur_num), block):
             encoded: dict[str, np.ndarray] = {}
             recipes: dict[str, dict] = {}
