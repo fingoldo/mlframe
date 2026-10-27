@@ -341,14 +341,16 @@ def _xlogx(k: int) -> float:
 
 
 @njit(nogil=True, cache=True)
-def _mdlp_best_split_binary_njit(x_sorted: np.ndarray, y_sorted: np.ndarray, min_split_size: int):
-    """:func:`_mdlp_best_split_njit` for labels in ``{0, 1}``: the only state along the scan is the integer count of class 1 on the left, and the two side entropies are taken from the
+def _mdlp_best_split_binary_counted_njit(x_sorted: np.ndarray, y_sorted: np.ndarray, min_split_size: int):
+    """:func:`_mdlp_best_split_binary_njit` that also returns, as a sixth value, the number of candidate cut points the scan considered (what ``_count_candidates_njit`` counts in a separate pass, needed by the analytic multiplicity correction).
+
+    :func:`_mdlp_best_split_njit` for labels in ``{0, 1}``: the only state along the scan is the integer count of class 1 on the left, and the two side entropies are taken from the
     ``k log k`` table at the class-boundary candidates only (six lookups, no running float sums), instead of four table updates and two float accumulations on every row.
     The candidate set, the tie rule and the floor are those of the general kernel; a gain differs from the general kernel's by the rounding of the incremental sums (below 1e-13), and the arg-max
     agreed in 600 of 600 randomised trials (continuous and tied x, class priors 0.05 to 0.5, perfectly separated labels). 246 us -> 157 us at n = 20 000."""
     n = x_sorted.shape[0]
     if n < 2 * min_split_size:
-        return -1, -1.0, 0.0, 0, 0
+        return -1, -1.0, 0.0, 0, 0, 0
     tot1 = 0
     for i in range(n):
         tot1 += y_sorted[i]
@@ -357,13 +359,14 @@ def _mdlp_best_split_binary_njit(x_sorted: np.ndarray, y_sorted: np.ndarray, min
     counts_total[1] = tot1
     h_full = _entropy_from_counts_njit(counts_total, n)
     if h_full <= 0.0:
-        return -1, -1.0, h_full, 0, 0
+        return -1, -1.0, h_full, 0, 0, 0
     best_gain = -1e300
     best_idx = -1
     best_nl = 0
     best_nr = 0
     inv_n = 1.0 / n
     c1l = 0
+    n_cand = 0
     for i in range(n - 1):
         y_i = y_sorted[i]
         c1l += y_i
@@ -377,6 +380,7 @@ def _mdlp_best_split_binary_njit(x_sorted: np.ndarray, y_sorted: np.ndarray, min
             continue
         if x_sorted[i] == x_sorted[i + 1]:
             continue
+        n_cand += 1
         c0l = n_l - c1l
         c1r = tot1 - c1l
         c0r = n_r - c1r
@@ -387,6 +391,13 @@ def _mdlp_best_split_binary_njit(x_sorted: np.ndarray, y_sorted: np.ndarray, min
             best_idx = i
             best_nl = n_l
             best_nr = n_r
+    return best_idx, best_gain, h_full, best_nl, best_nr, n_cand
+
+
+@njit(nogil=True, cache=True)
+def _mdlp_best_split_binary_njit(x_sorted: np.ndarray, y_sorted: np.ndarray, min_split_size: int):
+    """:func:`_mdlp_best_split_njit` for labels in ``{0, 1}`` (the first five values of :func:`_mdlp_best_split_binary_counted_njit`)."""
+    best_idx, best_gain, h_full, best_nl, best_nr, _n_cand = _mdlp_best_split_binary_counted_njit(x_sorted, y_sorted, min_split_size)
     return best_idx, best_gain, h_full, best_nl, best_nr
 
 
@@ -464,6 +475,8 @@ def _mdlp_best_split_inc_njit(x_sorted: np.ndarray, y_sorted: np.ndarray, n_clas
     class-boundary candidate (a pass over K_y counts with a logarithm each). The candidate set, the tie rule (strictly greater gain wins) and the floor are unchanged; the gains agree with the old
     kernel to the rounding of a different summation order (about 1e-16), measured 6.1 ms -> 0.5 ms at n = 10 000, K_y = 16, where a permutation-null test calls it 15 times per tree node.
     """
+    if n_classes == 2:
+        return _mdlp_best_split_binary_njit(x_sorted, y_sorted, min_split_size)
     n = x_sorted.shape[0]
     if n < 2 * min_split_size:
         return -1, -1.0, 0.0, 0, 0

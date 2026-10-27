@@ -384,16 +384,24 @@ def _mdlp_dfs(
         n = e - s
         if n < 2 * min_split_size or depth >= max_depth:
             continue
-        y_c, n_classes_full = _compact_labels(ys[s:e], n_classes_total)
-        if n_classes_full <= 1:
-            continue
-        best_idx, best_gain, _h, _nl, _nr = _mdlp_best_split_njit(x, y_c, n_classes_full, min_split_size)
+        if n_classes_total == 2:
+            # Two classes: the labels are already 0 / 1, a node holding one class is the split kernel's h_full <= 0 exit, and the kernel counts the candidates the analytic path needs,
+            # so neither the label compaction nor the separate candidate pass is run.
+            y_c = ys[s:e]
+            n_classes_full = 2
+            best_idx, best_gain, _h, _nl, _nr, n_cand_fused = _mdlp_best_split_binary_counted_njit(x, y_c, min_split_size)
+        else:
+            y_c, n_classes_full = _compact_labels(ys[s:e], n_classes_total)
+            if n_classes_full <= 1:
+                continue
+            best_idx, best_gain, _h, _nl, _nr = _mdlp_best_split_njit(x, y_c, n_classes_full, min_split_size)
+            n_cand_fused = -1
         if best_idx < 0 or best_gain <= 0.0:
             continue
         best_split = 0.5 * (x[best_idx] + x[best_idx + 1])
         node_seed = seed + depth * 7919 + best_idx
         if n >= analytic_min_n and (float(n) / max(1.0, 2.0 * n_classes_full)) >= analytic_min_cell:
-            n_candidates = _count_candidates_njit(x, y_c, min_split_size)
+            n_candidates = n_cand_fused if n_cand_fused >= 0 else _count_candidates_njit(x, y_c, min_split_size)
             p_value = min(1.0, _analytic_p_value(best_gain, n, n_classes_full) * max(1, n_candidates))
             accepted = p_value < alpha
         elif depth == 0 and root_crit == root_crit:
@@ -695,4 +703,5 @@ def stratified_cmi_null(x: np.ndarray, y: np.ndarray, s: np.ndarray, sources: np
     return out
 
 
+from .supervised_binning import _mdlp_best_split_binary_counted_njit
 from .supervised_binning import _mdlp_best_split_inc_njit as _mdlp_best_split_njit
