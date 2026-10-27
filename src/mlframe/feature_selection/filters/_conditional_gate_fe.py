@@ -170,7 +170,7 @@ def apply_conditional_gate(X: pd.DataFrame | pl.DataFrame, mode: str, cols: Sequ
         return np.where(np.isfinite(c), res, np.nan)
     raise ValueError(f"conditional-gate mode must be one of {GATE_MODES}; got {mode!r}")
 
-def best_existing_op_mi(arrs: dict, names: Sequence[str], yi: np.ndarray, nbins: int) -> float:
+def best_existing_op_mi(arrs: dict, names: Sequence[str], yi: np.ndarray, nbins: int, raw_mi_memo: "dict | None" = None) -> float:
     """Max binned-MI over the cheap operators a selector already has on the given operands: raw columns + pairwise
     product / ratio / diff + row-max / row-min + ADDITIVE/linear combinations (pairwise sums + the full sum of all involved
     columns). This is the HARDENED baseline both detectors must beat - the prototype gated only vs the raw single-operand MI,
@@ -186,7 +186,10 @@ def best_existing_op_mi(arrs: dict, names: Sequence[str], yi: np.ndarray, nbins:
 
     All candidate columns stack into ONE batched ``_mi_classif_batch`` call (bit-identical to per-candidate - the kernel bins
     each column independently, only the per-call dispatch overhead is amortised); cProfile showed the per-``_mi`` dispatch was the
-    dominant mlframe-side cost of the hardened floor, so batching is the actionable caller-side lever."""
+    dominant mlframe-side cost of the hardened floor, so batching is the actionable caller-side lever.
+
+    ``raw_mi_memo`` (host path): a per-scan ``{column: MI}`` dictionary. The raw operand columns are the first entries of every operand set's batch and the same column recurs in many sets;
+    a column already in the memo is left out of the batch and its stored MI joins the maximum (one column's MI does not depend on the other columns of the batch)."""
     from ._orthogonal_univariate_fe import _mi_classif_batch
 
     names = list(names)
@@ -218,7 +221,16 @@ def best_existing_op_mi(arrs: dict, names: Sequence[str], yi: np.ndarray, nbins:
         logger.debug("suppressed: %s", e)
         pass
     cols_arr = [np.asarray(arrs[c], dtype=_crit_np_dtype()) for c in names]
-    cands = list(cols_arr)
+    memo_hit_best = -np.inf
+    if raw_mi_memo is None:
+        cands = list(cols_arr)
+        fresh_raw: list = []
+    else:
+        fresh_raw = [i for i, c in enumerate(names) if c not in raw_mi_memo]
+        cands = [cols_arr[i] for i in fresh_raw]
+        for c in names:
+            if c in raw_mi_memo and raw_mi_memo[c] > memo_hit_best:
+                memo_hit_best = raw_mi_memo[c]
     for i in range(len(names)):
         for j in range(i + 1, len(names)):
             u, v = cols_arr[i], cols_arr[j]
@@ -233,6 +245,10 @@ def best_existing_op_mi(arrs: dict, names: Sequence[str], yi: np.ndarray, nbins:
         cands.append(stk.sum(axis=1))  # full additive sum a+b+c - the multi-driver additive signal the gate must not reconstruct
     mat = np.column_stack(cands).astype(_crit_np_dtype(), copy=False)
     mis = _mi_classif_batch(np.ascontiguousarray(mat), yi.astype(np.int64), nbins=nbins, rank_binning=_gate_rank)
+    if raw_mi_memo is not None:
+        for slot, i in enumerate(fresh_raw):
+            raw_mi_memo[names[i]] = float(mis[slot])
+        return float(max(float(np.max(mis)), memo_hit_best))
     return float(np.max(mis))
 
 def _responded(feat_mi: float, baseline: float, null_hi: float, min_margin: float = _MIN_MARGIN, null_margin: float = _MIN_NULL_MARGIN) -> bool:
@@ -788,12 +804,13 @@ def cheap_conditional_gate_scan(
     arrs = {c: np.asarray(_X_for_scan[c], dtype=_crit_np_dtype()) for c in cols}
     # Cache the hardened best-existing-op baseline per operand set (it does not depend on tau / mode).
     _baseline_cache: dict[tuple[str, ...], float] = {}
+    _raw_mi_memo: dict[str, float] = {}  # single-column MI of the operands, shared by every operand set of this scan
 
     def _baseline(operands: tuple[str, ...]) -> float:
         """Memoised hardened best-existing-op MI floor for a given operand set - computed once per distinct operand combo since it is tau/mode-independent."""
         key = tuple(sorted(operands))
         if key not in _baseline_cache:
-            _baseline_cache[key] = best_existing_op_mi(arrs, key, yi, nbins)
+            _baseline_cache[key] = best_existing_op_mi(arrs, key, yi, nbins, _raw_mi_memo)
         return _baseline_cache[key]
 
     # BATCHED gate-MI: every (gate, operand-combo) builds a (n, n_tau) residue block

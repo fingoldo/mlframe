@@ -1205,3 +1205,18 @@ def _restore_reloaded_mlframe_modules():
 
     with reload_guard():
         yield
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _clear_stale_numba_caches():
+    """Clear the numba disk caches of the FE filters whose callee in another file changed since the last session (numba only tracks a function's own file)."""
+    from pathlib import Path
+
+    import mlframe
+    from mlframe.utils.numba_cache_guard import invalidate_stale_numba_caches
+
+    import contextlib
+
+    with contextlib.suppress(OSError):  # a read-only checkout or a parallel worker holding the file: the guard is a convenience, never a test failure
+        invalidate_stale_numba_caches(Path(mlframe.__file__).parent / "feature_selection" / "filters")
+    yield
