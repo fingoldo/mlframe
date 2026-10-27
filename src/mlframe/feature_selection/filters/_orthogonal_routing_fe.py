@@ -286,48 +286,76 @@ def _routing_scores(routing_criterion: str, y_arr: np.ndarray, cand_mat: np.ndar
     return route_score
 
 
-def _enumerate_routing_cells(X: pd.DataFrame, cols: Sequence[str], transform_variants: tuple, candidate_bases: tuple, degrees: tuple) -> tuple[list, list, list]:
-    """Enumerate every (col, pre_transform, basis, degree) cell; returns ``(cand_cols, cand_values, cand_meta)`` with ``cand_meta`` = ``(src, pre, basis, degree)``."""
-    # ---- Step 2: enumerate every (col, pre_transform, basis, degree) cell.
-    # Pre-compute pre-transformed columns ONCE per (col, pre_transform) so
-    # the basis evaluation doesn't re-run log/sqrt/tanh per basis.
+def _routing_cells_of_column(X: pd.DataFrame, col: str, transform_variants: tuple, candidate_bases: tuple, degrees: tuple) -> tuple[list, list, list]:
+    """The ``(cand_cols, cand_values, cand_meta)`` cells of ONE source column, in the (pre_transform, basis, degree) order of the serial enumeration."""
     cand_cols: list[str] = []
     cand_values: list[np.ndarray] = []
     cand_meta: list[tuple[str, str, str, int]] = []  # (src, pre, basis, degree)
+    # Value-construction site (feeds the engineered column, not just an MI score): always
+    # float64, matching _apply_orth_univariate's hardcoded replay dtype - a relaxed f32 cast
+    # here reproduces the fit/replay drift bug fixed in _orthogonal_univariate_fe/__init__.py.
+    x_raw = np.asarray(X[col].to_numpy(), dtype=_crit_np_dtype())
+    finite_mask = np.isfinite(x_raw)
+    if not finite_mask.all():
+        fill = float(np.nanmean(x_raw[finite_mask])) if finite_mask.any() else 0.0
+        x_raw = np.where(finite_mask, x_raw, fill)
+    # Pre-transform cache for this column.
+    pt_cache: dict[str, np.ndarray] = {}
+    _pre_transform_variants_for_column(transform_variants, x_raw, col, pt_cache)
+    for pt, xt in pt_cache.items():
+        for basis_name in candidate_bases:
+            for d in degrees:
+                try:
+                    vals = _evaluate_basis_column(xt, basis_name, int(d))
+                except Exception as exc:
+                    log_throttle(
+                        logger, "routing_fe_basis_eval_raised", logging.WARNING,
+                        "generate_conditional_basis_routing_features: "
+                        "basis=%r pre=%r degree=%d on col=%r raised %r; "
+                        "skipping.",
+                        basis_name, pt, d, col, exc,
+                    )
+                    continue
+                if not np.isfinite(vals).all():
+                    continue
+                if float(np.std(vals)) <= 1e-12:
+                    continue
+                cand_cols.append(_routing_col_name(col, basis_name, int(d), pt))
+                cand_values.append(vals)
+                cand_meta.append((col, pt, basis_name, int(d)))
+    return cand_cols, cand_values, cand_meta
 
-    for col in cols:
-        # Value-construction site (feeds the engineered column, not just an MI score): always
-        # float64, matching _apply_orth_univariate's hardcoded replay dtype - a relaxed f32 cast
-        # here reproduces the fit/replay drift bug fixed in _orthogonal_univariate_fe/__init__.py.
-        x_raw = np.asarray(X[col].to_numpy(), dtype=_crit_np_dtype())
-        finite_mask = np.isfinite(x_raw)
-        if not finite_mask.all():
-            fill = float(np.nanmean(x_raw[finite_mask])) if finite_mask.any() else 0.0
-            x_raw = np.where(finite_mask, x_raw, fill)
-        # Pre-transform cache for this column.
-        pt_cache: dict[str, np.ndarray] = {}
-        _pre_transform_variants_for_column(transform_variants, x_raw, col, pt_cache)
-        for pt, xt in pt_cache.items():
-            for basis_name in candidate_bases:
-                for d in degrees:
-                    try:
-                        vals = _evaluate_basis_column(xt, basis_name, int(d))
-                    except Exception as exc:
-                        log_throttle(
-                            logger, "routing_fe_basis_eval_raised", logging.WARNING,
-                            "generate_conditional_basis_routing_features: "
-                            "basis=%r pre=%r degree=%d on col=%r raised %r; "
-                            "skipping.",
-                            basis_name, pt, d, col, exc,
-                        )
-                        continue
-                    if not np.isfinite(vals).all():
-                        continue
-                    if float(np.std(vals)) <= 1e-12:
-                        continue
-                    cand_cols.append(_routing_col_name(col, basis_name, int(d), pt))
-                    cand_values.append(vals)
-                    cand_meta.append((col, pt, basis_name, int(d)))
+
+def _enumerate_routing_cells(
+    X: pd.DataFrame, cols: Sequence[str], transform_variants: tuple, candidate_bases: tuple, degrees: tuple, n_jobs: "int | None" = None
+) -> tuple[list, list, list]:
+    """Enumerate every (col, pre_transform, basis, degree) cell; returns ``(cand_cols, cand_values, cand_meta)`` with ``cand_meta`` = ``(src, pre, basis, degree)``.
+
+    The columns are independent and the cells of each keep their serial order, so the columns run in a thread pool and are concatenated in column order: the result is the serial result.
+    The first column runs on this thread before the pool exists (numba compiles once, not from several threads), and without compiled kernels the loop stays serial.
+    """
+    import numba
+
+    from ._adaptive_nbins import _resolve_edge_jobs
+
+    cols = list(cols)
+    jobs = _resolve_edge_jobs(n_jobs, len(cols))
+    if jobs <= 1 or len(cols) < 2 or numba.config.DISABLE_JIT:
+        per_col = [_routing_cells_of_column(X, col, transform_variants, candidate_bases, degrees) for col in cols]
+    else:
+        from concurrent.futures import ThreadPoolExecutor
+
+        first = _routing_cells_of_column(X, cols[0], transform_variants, candidate_bases, degrees)
+        with ThreadPoolExecutor(max_workers=jobs) as pool:
+            rest = list(pool.map(lambda col: _routing_cells_of_column(X, col, transform_variants, candidate_bases, degrees), cols[1:]))
+        per_col = [first, *rest]
+    cand_cols: list[str] = []
+    cand_values: list[np.ndarray] = []
+    cand_meta: list[tuple[str, str, str, int]] = []
+    for c_cols, c_values, c_meta in per_col:
+        cand_cols.extend(c_cols)
+        cand_values.extend(c_values)
+        cand_meta.extend(c_meta)
     return cand_cols, cand_values, cand_meta
 
 
