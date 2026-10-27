@@ -253,6 +253,22 @@ def sorted_string_codes(values: np.ndarray) -> "tuple[np.ndarray, np.ndarray]":
     return uniq[order], rank[codes]
 
 
+def column_string_codes(col: pd.Series) -> "tuple[np.ndarray, np.ndarray]":
+    """``sorted_string_codes(_column_to_str(col))`` without building the ``n``-long string array for an integer / bool / float column: the canonical tokens are made for the distinct values only,
+    the (few) tokens are sorted and de-duplicated (``1`` and ``1.0`` share a token), and the row codes are one gather. Same sorted unique tokens and same int64 codes."""
+    from ._internals import canonical_group_tokens
+
+    arr = col.to_numpy() if hasattr(col, "to_numpy") else np.asarray(col)
+    if arr.dtype.kind not in ("i", "u", "b", "f"):
+        return sorted_string_codes(_column_to_str(col))
+    uniq, inv = np.unique(arr, return_inverse=True)
+    toks = canonical_group_tokens(uniq)
+    if arr.dtype.kind == "f":
+        toks[np.isnan(uniq)] = "__nan__"
+    sorted_tokens, token_codes = np.unique(toks, return_inverse=True)
+    return sorted_tokens, token_codes.astype(np.int64)[inv]
+
+
 def _column_to_str(col: pd.Series) -> np.ndarray:
     """Coerce a categorical / object column to a numpy array of Python
     strings. NaN values map to a sentinel ``"__nan__"`` so they form their

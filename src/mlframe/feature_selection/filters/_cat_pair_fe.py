@@ -60,7 +60,7 @@ from ._fe_usability_signal import _crit_np_dtype
 import pandas as pd
 
 from ._fold_cell_stats import fold_cell_sum_cnt
-from ._target_encoding_fe import _column_to_str, _smooth, sorted_string_codes
+from ._target_encoding_fe import _column_to_str, _smooth, column_string_codes
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from .engineered_recipes import EngineeredRecipe
@@ -289,7 +289,7 @@ def score_cat_pairs_by_interaction_information(
     def _codes(col: str) -> np.ndarray:
         """Memoized dense integer codes (and cached cardinality) for column ``col``, computed once and reused across every pair that references it."""
         if col not in code_cache:
-            uniq, c = sorted_string_codes(_column_to_str(X[col]))
+            uniq, c = column_string_codes(X[col])
             c = c.astype(np.int64)
             code_cache[col] = c
             radix_cache[col] = (int(c.max()) + 1) if c.size else 1
