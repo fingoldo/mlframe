@@ -258,6 +258,7 @@ def score_cat_pairs_by_interaction_information(
     ``[cat_i, cat_j, engineered_col, mi_joint, mi_i, mi_j, ii]``.
     """
     from ._adaptive_nbins import _plug_in_mi
+    from ._mi_greedy_cmi_fe_binning import _factorize_dense_njit
 
     cat_cols = [c for c in cat_cols if c in X.columns]
     if pairs is None:
@@ -312,7 +313,8 @@ def score_cat_pairs_by_interaction_information(
         ci = _codes(cat_i)
         cj = _codes(cat_j)
         joint_key = ci * radix_cache[cat_j] + cj
-        _, joint_codes = np.unique(joint_key, return_inverse=True)
+        # First-seen dense ids in one O(n) pass instead of the sort inside np.unique: the plug-in MI counts cells, so the id order does not matter
+        joint_codes, _n_cells = _factorize_dense_njit(joint_key)
         mi_joint = float(_plug_in_mi(joint_codes, y_bin))
         ii = mi_joint - mi_i - mi_j
         rows.append({
