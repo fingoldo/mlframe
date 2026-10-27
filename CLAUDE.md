@@ -836,3 +836,6 @@ but this needs a standalone wall-clock microbench first (cProfile's per-call ins
 small torch-op dispatches inside a tight loop is a known inflation risk here, per this project's own
 "microbench the wrapper standalone before trusting a flagged frame" rule) and careful bit-identity
 verification against the existing OPT-7 output before touching a path this heavily tuned.
+
+## Say so when a gate makes a run slower
+Wherever a gate sends work down a slower path (a slower device chosen, a cache switched off or skipped because it would be too large, an out-of-memory fallback, a fast kernel declined for a shape it does not cover, a retry on the host), the gate logs it. Use `log_throttle(logger, <stable key>, logging.WARNING or logging.INFO, msg, ...)` (`mlframe.utils.log_throttle`) with the numbers that decided it (sizes, the cap, the chosen path). A plain `logger.warning` is fine outside loops. `logger.debug` only for a per-call hot path where even a throttled call would cost measurable time, and then only when a throttled summary is logged somewhere above it. A silent slow path is how a 50x regression survived for weeks. Cover the log with a test (`caplog`) next to the test of the gate itself.

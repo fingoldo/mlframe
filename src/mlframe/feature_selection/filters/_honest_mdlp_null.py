@@ -15,6 +15,8 @@ from collections.abc import Callable, Sequence
 
 import numpy as np
 
+from mlframe.utils.log_throttle import log_throttle
+
 from ._parity_fe import _mi_codes_njit
 
 logger = logging.getLogger(__name__)
@@ -93,6 +95,35 @@ def _device_honest_null_enabled() -> bool:
         return False
 
 
+_PERM_LABELS_CACHE_MAX_BYTES = 256 * 1024 * 1024  # per spec: the permuted-label matrices of one (seed, rows, permutations) draw; larger draws are regenerated each call
+
+
+def _permuted_labels_cached(spec: dict, y_raw: np.ndarray, y_codes: np.ndarray, rng, n: int, n_permutations: int, seed_key: int):
+    """``permuted_labels`` of the seeded permutation stream, kept on the spec: the screen asks for the null of one column after another with the same seed, rows and permutation count,
+    and every call drew the same ``n_permutations`` shuffles of ``n`` rows again (3483 draws, 1.5 s of a 20000-row fit, for 200 distinct ones)."""
+    from ._mdlp_honest_bycol_njit import permuted_labels
+
+    def draw():
+        """The permuted label matrices of a fresh draw from ``rng``."""
+        return permuted_labels(y_raw, y_codes, (rng.permutation(n) for _ in range(n_permutations)), n_permutations)
+
+    if n_permutations * n * 2 > _PERM_LABELS_CACHE_MAX_BYTES:
+        log_throttle(
+            logger, "honest_null_perm_labels_cache_too_large", logging.INFO,
+            "honest null: the permuted-label matrices (%d permutations x %d rows, %.0f MB) exceed the %.0f MB cache cap; they are redrawn on every call",
+            n_permutations, n, n_permutations * n * 2 / 2**20, _PERM_LABELS_CACHE_MAX_BYTES / 2**20,
+        )
+        return draw()
+    # The stream of one seed is a prefix-stable sequence: the first k of a longer draw are the k permutations a shorter draw would make, so one entry serves every count up to its own.
+    key = (seed_key, n, y_raw.dtype.str, hash(y_raw.tobytes()), hash(y_codes.tobytes()))
+    cache = spec.setdefault("_perm_labels", {})
+    hit = cache.get(key)
+    if hit is None or hit[0].shape[0] < n_permutations:
+        cache.clear()  # one stream at a time: the keys differ only across seeds, never within one fit
+        hit = cache[key] = draw()
+    return hit[0][:n_permutations], hit[1][:n_permutations]
+
+
 def _njit_null_columns(spec: dict, factors_data: np.ndarray, factors_nbins, y_idx: int, cols, n_permutations: int, seed_key: int, eval_rows=None):
     """Per-permutation null MI of ``cols`` (no cache): ``(plain, corrected)`` each ``(n_permutations, len(cols))``, from ``honest_null_columns``."""
     from ._mdlp_oos_honest_njit import honest_validated_null_columns
@@ -151,11 +182,10 @@ def _njit_null_columns(spec: dict, factors_data: np.ndarray, factors_nbins, y_id
     ev = np.arange(n, dtype=np.int64) if eval_rows is None else np.ascontiguousarray(np.asarray(eval_rows, dtype=np.int64))
     if spec.get("method") != "oos":
         # Column-parallel kernel: the permutations are applied to the labels one row at a time, so the (permutations, n) int64 permutation matrix is never built.
-        from ._mdlp_honest_bycol_njit import honest_null_columns_bycol, permuted_labels
+        from ._mdlp_honest_bycol_njit import honest_null_columns_bycol
 
         y_raw = np.asarray(spec["y_enc"])
-        perm_rows = (rng.permutation(n) for _ in range(int(n_permutations)))
-        y_raw_perm, y_codes_perm = permuted_labels(y_raw, y_codes, perm_rows, int(n_permutations))
+        y_raw_perm, y_codes_perm = _permuted_labels_cached(spec, y_raw, y_codes, rng, n, int(n_permutations), seed_key)
         args = (
             raw_cont,
             is_cont,
