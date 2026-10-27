@@ -37,6 +37,8 @@ from typing import Any, Callable, Optional, Sequence
 import numpy as np
 import pandas as pd
 
+from ._group_stats_njit import group_mean_std_count
+
 from ._fe_usability_signal import _crit_np_dtype
 from ._grouped_coerce_shared import auto_detect_num_cols_plain as _auto_detect_num_cols
 from typing import TYPE_CHECKING
@@ -229,6 +231,14 @@ def _group_lookup(series: pd.Series, label: Callable[[Any], str], zero_nonfinite
     return dict(zip(map(label, series.index.tolist()), values.tolist()))
 
 
+def _array_lookup(labels: list, values: np.ndarray, zero_nonfinite: bool) -> dict:
+    """:func:`_group_lookup` for a per-group-code array: ``{labels[code]: value}``."""
+    vals = np.asarray(values, dtype=np.float64)  # float32 -> float64 is exact
+    if zero_nonfinite:
+        vals = np.where(np.isfinite(vals), vals, 0.0)
+    return dict(zip(labels, vals.tolist()))
+
+
 def _emit_num_col_features(
     X: pd.DataFrame,
     num_col: str,
@@ -245,34 +255,47 @@ def _emit_num_col_features(
     # Group on the integer codes of the key when the caller has them (the key strings are then hashed once per column set, not once per numeric column and statistic);
     # the recipe lookups stay keyed by the key string, taken from the unique keys.
     label: Callable[[Any], str]
+    kernel = key_uniq is not None and key_inverse is not None and x.dtype in (np.float32, np.float64)
+    grouped = None
     if key_uniq is not None and key_inverse is not None:
-        tmp = pd.DataFrame({"_g": np.asarray(key_inverse), "_v": x}, index=X.index)
         key_labels = [str(u) for u in key_uniq]  # the key string of group code c is key_labels[c]
         label = key_labels.__getitem__
-
     else:
-        tmp = pd.DataFrame({"_g": keys, "_v": x}, index=X.index)
         label = str
-    grouped = tmp.groupby("_g", observed=True, sort=False)["_v"]
-    mean_series = grouped.mean()
-    std_series = grouped.std(ddof=1)
-    lookup_mean = _group_lookup(mean_series, label, zero_nonfinite=False)
-    lookup_std = _group_lookup(std_series, label, zero_nonfinite=True)
+    if kernel:
+        # mean / std / count over the group codes in one pass, bit-equal to the pandas groupby of the other branch (see ``_group_stats_njit``)
+        mean_arr, std_arr, count_arr = group_mean_std_count(np.ascontiguousarray(key_inverse, dtype=np.int64), np.ascontiguousarray(x), len(key_labels))
+        lookup_mean = _array_lookup(key_labels, mean_arr, zero_nonfinite=False)
+        lookup_std = _array_lookup(key_labels, std_arr, zero_nonfinite=True)
+    else:
+        if key_uniq is not None and key_inverse is not None:
+            tmp = pd.DataFrame({"_g": np.asarray(key_inverse), "_v": x}, index=X.index)
+        else:
+            tmp = pd.DataFrame({"_g": keys, "_v": x}, index=X.index)
+        grouped = tmp.groupby("_g", observed=True, sort=False)["_v"]
+        mean_series = grouped.mean()
+        std_series = grouped.std(ddof=1)
+        lookup_mean = _group_lookup(mean_series, label, zero_nonfinite=False)
+        lookup_std = _group_lookup(std_series, label, zero_nonfinite=True)
     global_mean = _global_value_for_stat(x, "mean")
     global_std = _global_value_for_stat(x, "std")
 
     for stat in stats:
-        # mean / std are already materialised above for the z / ratio
-        # residuals; reuse them instead of re-running the (O(n)) cython
-        # groupby a second time. ``grouped.mean()`` == ``grouped.agg("mean")``
-        # and ``grouped.std(ddof=1)`` == ``grouped.agg("std")`` bit-for-bit.
-        if stat == "mean":
-            agg_series = mean_series
-        elif stat == "std":
-            agg_series = std_series
+        # mean / std are already materialised above for the z / ratio residuals; reuse them instead of running the groupby a second time
+        if kernel and stat in ("mean", "std", "count"):
+            agg_values = {"mean": mean_arr, "std": std_arr, "count": count_arr}[stat]
+            lookup = _array_lookup(key_labels, agg_values, zero_nonfinite=True)
         else:
-            agg_series = grouped.agg(_agg_func_for_stat(stat))
-        lookup = _group_lookup(agg_series, label, zero_nonfinite=True)
+            if grouped is None:  # a statistic the kernel does not cover (min / max / median / skew / nunique)
+                tmp = pd.DataFrame({"_g": np.asarray(key_inverse), "_v": x}, index=X.index)
+                grouped = tmp.groupby("_g", observed=True, sort=False)["_v"]
+            if stat == "mean" and not kernel:
+                agg_series = mean_series
+            elif stat == "std" and not kernel:
+                agg_series = std_series
+            else:
+                agg_series = grouped.agg(_agg_func_for_stat(stat))
+            lookup = _group_lookup(agg_series, label, zero_nonfinite=True)
         if stat in ("count", "nunique"):
             # The whole-population fallback
             # (finite.size / np.unique(finite).size) used to emit a WILDLY out-of-distribution
@@ -280,7 +303,8 @@ def _emit_num_col_features(
             # count values were 14-25 (n=2000) vs a global fallback of 2000 (the entire training
             # set, ~100x). Every OTHER stat's fallback stays on the SAME SCALE as a per-cell value;
             # use the median PER-CELL count/nunique across fit-time cells instead.
-            global_value = float(np.median(agg_series.to_numpy())) if len(agg_series) else 0.0
+            cell_values = count_arr if (kernel and stat == "count") else agg_series.to_numpy()
+            global_value = float(np.median(cell_values)) if len(cell_values) else 0.0
         else:
             global_value = _global_value_for_stat(x, stat)
         broadcast = _broadcast_lookup(
