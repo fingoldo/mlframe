@@ -553,7 +553,8 @@ def _batched_cmi_in_chunks(codes: Any, y_bin: np.ndarray, z_joint: Any, batched_
             parts = [batched_cmi_gpu(codes[:, s : s + step], y_bin, z_joint, codes_trusted=True) for s in range(0, k, step)]
         except cp.cuda.memory.OutOfMemoryError:
             return None
-        return parts[0] if len(parts) == 1 else np.concatenate(parts)
+        scored: np.ndarray = parts[0] if len(parts) == 1 else np.concatenate(parts)
+        return scored
 
     step = k
     while True:
@@ -561,7 +562,8 @@ def _batched_cmi_in_chunks(codes: Any, y_bin: np.ndarray, z_joint: Any, batched_
         if out is not None:
             return out
         if step <= 1:
-            return batched_cmi_gpu(codes, y_bin, z_joint, codes_trusted=True)  # nothing left to halve: let the error reach the caller's CPU fallback
+            whole: np.ndarray = batched_cmi_gpu(codes, y_bin, z_joint, codes_trusted=True)  # nothing left to halve: let the error reach the caller's CPU fallback
+            return whole
         step = max(1, step // 2)
         log_throttle(
             logger, "cmi_batch_oom_chunking", logging.WARNING,
