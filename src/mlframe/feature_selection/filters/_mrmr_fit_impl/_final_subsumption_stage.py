@@ -127,12 +127,13 @@ def _standing_compounds(multi, eng_values, classes_y, y_continuous, seed, nested
     return standing
 
 
-def _without_linearly_useful(self: "MRMR", dropped: list, candidates: dict, anchors: list, y: Any) -> list:
+def _without_linearly_useful(self: "MRMR", dropped: list, candidates: dict, anchors: list, y: Any, standing: "list | tuple" = ()) -> list:
     """``dropped`` minus the columns that still give a linear model a significant held-out gain beyond the anchors.
 
     Information is not what a linear downstream uses: a target encoding of a category carries no information beyond a compound that recodes the same category, and a linear model still
     takes most of the target variance from it and nothing from the compound. A column is kept when its gain, judged with the bar of a raw operand (``t > z`` and a share of the target
-    variance of at least ``fe_residual_rescue_operand_min_linear_gain``), is significant given the anchors and the columns kept before it; the strongest are judged first.
+    variance of at least ``fe_residual_rescue_operand_min_linear_gain``), is significant given the anchors, the other columns that stay selected (``standing``) and the columns kept before it; the strongest
+    are judged first. Judging against the anchors alone resurrected a column the residual rescue had just pruned against the full design.
     """
     from scipy.stats import norm
 
@@ -144,7 +145,7 @@ def _without_linearly_useful(self: "MRMR", dropped: list, candidates: dict, anch
         return dropped
     z = float(norm.isf(FAMILY_ALPHA))
     floor = float(getattr(self, "fe_residual_rescue_operand_min_linear_gain", 0.0))
-    rest = {a: candidates[a] for a in anchors if a in candidates}
+    rest = {a: candidates[a] for a in (*anchors, *standing) if a in candidates}
     gains = {}
     for name in dropped:
         if name in candidates and name not in rest:
@@ -203,7 +204,8 @@ def run_final_subsumption_prune(
         if not anchors:
             return False, selected_vars
         dropped = final_subsumption_prune(candidates, anchors, np.asarray(classes_y).ravel(), y_continuous=y_continuous, seed=seed)
-        dropped = _without_linearly_useful(self, dropped, candidates, anchors, y_continuous if y_continuous is not None else classes_y)
+        standing = [n for n in candidates if n not in dropped and n not in anchors and (n in raw_selected or n in set(str(f) for f in (self._engineered_features_ or [])))]
+        dropped = _without_linearly_useful(self, dropped, candidates, anchors, y_continuous if y_continuous is not None else classes_y, standing)
         if not dropped:
             return False, selected_vars
         dropped_set = set(dropped)

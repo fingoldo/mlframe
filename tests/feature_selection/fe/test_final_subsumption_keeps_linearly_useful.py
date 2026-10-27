@@ -31,3 +31,12 @@ def test_a_noise_column_stays_dropped():
     model = SimpleNamespace(fe_residual_rescue_operand_min_linear_gain=0.01)
     kept = _without_linearly_useful(model, ["noise"], {"anchor": anchor, "noise": noise}, ["anchor"], y)
     assert kept == ["noise"]
+
+
+def test_a_column_a_standing_column_already_covers_stays_dropped():
+    """The per-category mean of y is kept against the anchor alone, but not when another column that stays selected already recodes the category as well."""
+    y, anchor, target_mean, _noise = _category_problem()
+    model = SimpleNamespace(fe_residual_rescue_operand_min_linear_gain=0.01)
+    candidates = {"anchor": anchor, "te": target_mean, "stays": target_mean * 2.0 + 1.0}
+    assert _without_linearly_useful(model, ["te"], candidates, ["anchor"], y) == []
+    assert _without_linearly_useful(model, ["te"], candidates, ["anchor"], y, ["stays"]) == ["te"]
