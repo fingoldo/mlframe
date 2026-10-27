@@ -347,6 +347,13 @@ def _stage_composite_group_agg(self, _fe_family_on, X, _y_np, _composite_group_a
                             len(_cga_appended),
                             _cga_appended[:8],
                         )
+            except MemoryError as _cga_exc:
+                # Not a bug: the (keys x rows) broadcast matrix does not fit. The whole stage is skipped, so the selection is WITHOUT composite-aggregate candidates, and the
+                # message says so; a silent fall-through here looks like a clean fit.
+                logger.warning(
+                    "MRMR.fit composite_group_agg: out of memory (%s); the selection is fitted WITHOUT composite-aggregate columns. Reduce the rows or the key cardinality to keep them.",
+                    _cga_exc,
+                )
             except Exception as _cga_exc:
                 logger.warning(
                     "MRMR.fit composite_group_agg FE raised %s: %s; continuing " "without composite-aggregate columns.",
