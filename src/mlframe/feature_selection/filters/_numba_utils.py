@@ -13,6 +13,8 @@ import math
 
 import numpy as np
 from numba import njit, prange
+
+from .discretization._multiselect import multiselect_inplace
 from typing import Any, Optional, Sequence
 
 from ._njit_key_helpers import arr2str, unpack_and_sort  # noqa: F401 -- re-exported; defined in the leaf so info_theory can import them without a cycle
@@ -417,62 +419,6 @@ def _quantile_bin_sorted_njit(x: np.ndarray, n_bins: int) -> np.ndarray:
     return out
 
 
-@njit(cache=True)
-def _select_in_range(a, lo, hi, k):
-    """Quickselect on ``a[lo..hi]``: afterwards ``a[k]`` is the ``k``-th smallest of the range and every element left of it in the range is at most it, every one right of it at least it."""
-    while lo < hi:
-        mid = (lo + hi) // 2
-        x, y, z = a[lo], a[mid], a[hi]
-        pivot = y if (x <= y <= z or z <= y <= x) else (x if (y <= x <= z or z <= x <= y) else z)
-        i = lo
-        j = hi
-        while i <= j:
-            while a[i] < pivot:
-                i += 1
-            while a[j] > pivot:
-                j -= 1
-            if i <= j:
-                tmp = a[i]
-                a[i] = a[j]
-                a[j] = tmp
-                i += 1
-                j -= 1
-        if k <= j:
-            hi = j
-        elif k >= i:
-            lo = i
-        else:
-            return
-
-
-@njit(cache=True)
-def _multi_select(a, ranks):
-    """Place the order statistics at the (ascending, distinct) ``ranks`` of ``a`` in one pass: each selected rank splits the range the remaining ranks are searched in."""
-    m = ranks.shape[0]
-    stack_lo = np.empty(64, dtype=np.int64)
-    stack_hi = np.empty(64, dtype=np.int64)
-    stack_i0 = np.empty(64, dtype=np.int64)
-    stack_i1 = np.empty(64, dtype=np.int64)
-    sp = 0
-    stack_lo[0] = 0
-    stack_hi[0] = a.shape[0] - 1
-    stack_i0[0] = 0
-    stack_i1[0] = m
-    sp = 1
-    while sp > 0:
-        sp -= 1
-        lo, hi, i0, i1 = stack_lo[sp], stack_hi[sp], stack_i0[sp], stack_i1[sp]
-        if i0 >= i1:
-            continue
-        im = (i0 + i1) // 2
-        k = ranks[im]
-        _select_in_range(a, lo, hi, k)
-        stack_lo[sp], stack_hi[sp], stack_i0[sp], stack_i1[sp] = lo, k - 1, i0, im
-        sp += 1
-        stack_lo[sp], stack_hi[sp], stack_i0[sp], stack_i1[sp] = k + 1, hi, im + 1, i1
-        sp += 1
-
-
 @njit(cache=True)  # no fastmath: the NaN test below must not be optimised away (a NaN would reach the selection)
 def _quantile_bin_njit(x: np.ndarray, n_bins: int) -> np.ndarray:
     """Quantile-bin a 1-D continuous array into n_bins equi-frequency bins. Returns int32 bin indices in [0, n_bins).
@@ -501,7 +447,7 @@ def _quantile_bin_njit(x: np.ndarray, n_bins: int) -> np.ndarray:
         t += 2
     # ranks are ascending; equal neighbours cannot occur because every bin holds at least eight rows
     work = x.copy()
-    _multi_select(work, ranks)
+    multiselect_inplace(work, ranks)
     cuts = np.empty(n_bins - 1, dtype=x.dtype)
     crossing = np.zeros(n_bins - 1, dtype=np.bool_)  # a run of equal values reaches across the boundary that opens this bin
     any_crossing = False

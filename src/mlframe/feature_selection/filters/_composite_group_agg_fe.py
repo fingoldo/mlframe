@@ -180,7 +180,7 @@ def _unique_inverse(keys: np.ndarray):
 
 def _broadcast_lookup(
     keys: np.ndarray, lookup: dict, global_value: float,
-    *, uniq=None, inverse=None,
+    *, uniq=None, inverse=None, out_dtype=np.float64,
 ) -> np.ndarray:
     """Map each row's composite key through ``lookup`` (str-keyed), unseen ->
     global. Resolved once per UNIQUE key then broadcast via the inverse index.
@@ -206,7 +206,7 @@ def _broadcast_lookup(
         )
     return np.asarray(np.nan_to_num(
         out, nan=global_value, posinf=global_value, neginf=global_value,
-    ))
+    ), dtype=out_dtype)
 
 # ---------------------------------------------------------------------------
 # Per-composite-key statistic computation
@@ -309,7 +309,7 @@ def _emit_num_col_features(
             global_value = _global_value_for_stat(x, stat)
         broadcast = _broadcast_lookup(
             keys, lookup, global_value,
-            uniq=key_uniq, inverse=key_inverse,
+            uniq=key_uniq, inverse=key_inverse, out_dtype=x.dtype,
         )
         name = engineered_name_composite_agg(num_col, group_cols, stat)
         encoded[name] = broadcast
@@ -338,7 +338,7 @@ def _emit_num_col_features(
     per_row_std = np.where(per_row_std > 0.0, per_row_std, 1.0)
     zscore = np.nan_to_num(
         (x - per_row_mean) / per_row_std, nan=0.0, posinf=0.0, neginf=0.0,
-    )
+    ).astype(x.dtype, copy=False)
     z_name = engineered_name_composite_z(num_col, group_cols)
     encoded[z_name] = zscore
     raw_recipes[z_name] = {
@@ -356,7 +356,7 @@ def _emit_num_col_features(
 
     # ---- ratio-to-composite-group residual ----
     denom = _ratio_denominator(per_row_mean, global_mean, global_std)
-    ratio = np.nan_to_num(x / denom, nan=1.0, posinf=1.0, neginf=1.0)
+    ratio = np.nan_to_num(x / denom, nan=1.0, posinf=1.0, neginf=1.0).astype(x.dtype, copy=False)
     r_name = engineered_name_composite_ratio(num_col, group_cols)
     encoded[r_name] = ratio
     raw_recipes[r_name] = {
@@ -488,10 +488,10 @@ def apply_composite_group_agg(X_test: pd.DataFrame, recipe: dict) -> np.ndarray:
         per_row_std = np.where(per_row_std > 0.0, per_row_std, 1.0)
         return np.asarray(np.nan_to_num(
             (x - per_row_mean) / per_row_std, nan=0.0, posinf=0.0, neginf=0.0,
-        ))
+        ), dtype=x.dtype)
     if op == "ratio":
         denom = _ratio_denominator(per_row_mean, global_mean, float(recipe.get("global_std", 1.0)))
-        return np.asarray(np.nan_to_num(x / denom, nan=1.0, posinf=1.0, neginf=1.0))
+        return np.asarray(np.nan_to_num(x / denom, nan=1.0, posinf=1.0, neginf=1.0), dtype=x.dtype)
     raise ValueError(f"apply_composite_group_agg: unknown op {op!r}")
 
 def _coerce_X_for_composite_agg(X, group_cols, num_col, recipe_name: str) -> pd.DataFrame:
@@ -652,6 +652,108 @@ def auto_detect_key_sets(
         cand.sort(key=lambda t: t[1])
     return [c for c, _ in cand[:max_sets]]
 
+def _composite_full_matrix_bytes(n_rows: int, n_keys: int, n_num: int, n_stats: int) -> int:
+    """Bytes of the full broadcast of composite aggregates: a column per (source, stat) plus the z and ratio residuals, float64 each, n rows."""
+    return int(n_rows) * 8 * int(n_num) * (int(n_stats) + 2) * max(1, min(int(n_keys), 1))
+
+
+def _composite_block_budget_bytes() -> int:
+    """Working-memory budget of one column block of the composite broadcast: ``MLFRAME_COMPOSITE_BLOCK_MB`` (default 256 MB)."""
+    import os
+
+    try:
+        return int(float(os.environ.get("MLFRAME_COMPOSITE_BLOCK_MB", "256")) * 1024 * 1024)
+    except ValueError:
+        return 256 * 1024 * 1024
+
+
+def _block_columns(n_rows: int, n_cols_total: int) -> int:
+    """How many engineered columns one block may hold: a column is ``n_rows`` float64 values, and ``5`` columns per numeric source (one per stat, z, ratio) are built per block."""
+    per_col = max(1, n_rows) * 8
+    return max(1, _composite_block_budget_bytes() // max(1, per_col * 5))
+
+
+def composite_group_agg_top_blockwise(
+    X: pd.DataFrame,
+    y: np.ndarray,
+    group_col_sets: Sequence[Sequence[str]],
+    num_cols: Sequence[str],
+    *,
+    base_cols: Sequence[str],
+    top_k: int,
+    n_bins: int,
+    min_cmi: float,
+    min_uplift: float,
+    eng_to_source: dict,
+    stats: Sequence[str] = COMPOSITE_STAT_NAMES,
+    max_card_frac: float = 0.5,
+    _precomputed_keys: Optional[dict] = None,
+) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
+    """The composite aggregates scored and reduced block by block, so the broadcast of ALL engineered columns is never held at once.
+
+    The engineered columns are generated per numeric column (one call of :func:`_emit_num_col_features` per source), each source's block is scored with the same CMI scorer as the
+    full path, and only the columns that pass the gate are kept: the running best ``top_k`` by CMI are retained (the full path keeps the same set, ranked by the same score). Returns
+    ``(winners_frame, scores, raw_recipes_of_winners)``. The scores of every scored column are returned in ``scores``, as the full path does. Peak memory is one block of
+    ``_block_columns`` source columns times the stats, not the number of keys times the rows times the sources.
+    """
+    from ._grouped_agg_fe import score_grouped_agg_by_cmi_uplift
+
+    stats = [s for s in stats if s in _VALID_STATS]
+    norm_sets: list[tuple[str, ...]] = []
+    seen: set[tuple[str, ...]] = set()
+    for gset in group_col_sets:
+        cols = tuple(c for c in gset if c in X.columns)
+        if len(cols) < 2 or cols in seen:
+            continue
+        seen.add(cols)
+        norm_sets.append(cols)
+    n_rows = len(X)
+    keep_frames: list[pd.DataFrame] = []
+    keep_recipes: dict = {}
+    scores_frames: list[pd.DataFrame] = []
+    for group_cols in norm_sets:
+        _pre = _precomputed_keys.get(group_cols) if _precomputed_keys is not None else None
+        if _pre is not None:
+            keys, key_uniq, key_inverse, n_distinct = _pre
+        else:
+            keys = build_composite_keys(X, group_cols)
+            key_uniq, key_inverse = _unique_inverse(keys)
+            n_distinct = int(key_uniq.size) if key_uniq is not None else int(np.unique(keys).size)
+        if not composite_cardinality_ok(n_distinct, n_rows, max_card_frac):
+            continue
+        cur_num = [c for c in num_cols if c in X.columns and c not in set(group_cols) and pd.api.types.is_numeric_dtype(X[c])]
+        block = _block_columns(n_rows, len(cur_num))
+        for start in range(0, len(cur_num), block):
+            encoded: dict[str, np.ndarray] = {}
+            recipes: dict[str, dict] = {}
+            for num_col in cur_num[start : start + block]:
+                _emit_num_col_features(X, num_col, keys, key_uniq, key_inverse, group_cols, stats, encoded, recipes)
+            if not encoded:
+                continue
+            enc_df = pd.DataFrame(encoded, index=X.index)
+            del encoded
+            scored = score_grouped_agg_by_cmi_uplift(X, enc_df, y, list(base_cols), n_bins=n_bins, eng_to_source=eng_to_source)
+            scores_frames.append(scored)
+            keep = scored[(scored["cmi"] >= float(min_cmi)) & (scored["uplift"] >= float(min_uplift))]
+            winners = list(keep["engineered_col"].head(int(top_k)))
+            if winners:
+                keep_frames.append(enc_df[winners])
+                for name in winners:
+                    keep_recipes[name] = recipes[name]
+            del enc_df, recipes
+            # the best ``top_k`` so far: earlier blocks' winners compete with this block's, by the same CMI ranking
+            if keep_frames:
+                merged = pd.concat(keep_frames, axis=1)
+                merged_scores = pd.concat(scores_frames, ignore_index=True)
+                ranked = merged_scores[merged_scores["engineered_col"].isin(merged.columns)].sort_values("cmi", ascending=False)
+                best = list(ranked["engineered_col"].head(int(top_k)))
+                keep_frames = [merged[best]] if best else []
+                keep_recipes = {k: v for k, v in keep_recipes.items() if k in best}
+    winners_frame = pd.concat(keep_frames, axis=1) if keep_frames else pd.DataFrame(index=X.index)
+    all_scores = pd.concat(scores_frames, ignore_index=True) if scores_frames else pd.DataFrame()
+    return winners_frame, all_scores, keep_recipes
+
+
 def hybrid_composite_group_agg_fe(
     X: pd.DataFrame,
     y: np.ndarray,
@@ -706,6 +808,24 @@ def hybrid_composite_group_agg_fe(
     if not num_cols:
         return X, [], [], pd.DataFrame()
 
+    base_cols = list(num_cols)
+    # The broadcast of every engineered column at once costs keys x rows x 8 bytes per source and stat; beyond the block budget the columns are generated, scored and reduced
+    # block by block (see composite_group_agg_top_blockwise), so the peak is one block and the selected set is the same ranking.
+    n_keys_max = max((n_d for n_d in (int(_key_cache[g][3]) if _key_cache and g in _key_cache else 0 for g in group_col_sets)), default=0)
+    if n_keys_max and _composite_full_matrix_bytes(len(X), n_keys_max, len(num_cols), len(stats)) > _composite_block_budget_bytes():
+        winners_frame, scores, recipes_of = composite_group_agg_top_blockwise(
+            X, y, group_col_sets, num_cols, base_cols=base_cols, top_k=top_k, n_bins=n_bins, min_cmi=min_cmi, min_uplift=min_uplift,
+            eng_to_source={}, stats=stats, max_card_frac=max_card_frac, _precomputed_keys=_key_cache,
+        )
+        if winners_frame.shape[1] == 0:
+            return X, [], [], scores
+        winners = list(winners_frame.columns)
+        X_aug = pd.concat([X, winners_frame], axis=1)
+        from .engineered_recipes import build_composite_group_agg_recipe
+
+        recipes = [build_composite_group_agg_recipe(name=name, **recipes_of[name]) for name in winners]
+        return X_aug, winners, recipes, scores
+
     enc_df, raw_recipes = generate_composite_group_agg_features(
         X, group_col_sets, num_cols, stats=stats, max_card_frac=max_card_frac,
         _precomputed_keys=_key_cache,
@@ -713,7 +833,6 @@ def hybrid_composite_group_agg_fe(
     if enc_df.empty:
         return X, [], [], pd.DataFrame()
 
-    base_cols = list(num_cols)
     eng_to_source = {name: raw_recipes[name]["num_col"] for name in enc_df.columns}
     scores = score_grouped_agg_by_cmi_uplift(
         X, enc_df, y, base_cols, n_bins=n_bins, eng_to_source=eng_to_source,
