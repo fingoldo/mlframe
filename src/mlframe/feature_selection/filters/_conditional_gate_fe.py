@@ -638,8 +638,8 @@ def _gate_build_feats(mode, operands, taus):
 def _gate_auto_device_enabled() -> bool:
     """Device-born tau grid outside STRICT: a usable CUDA device, no explicit CPU pin (``MLFRAME_FE_GPU_STRICT=0``) and not opted out (``MLFRAME_FE_GPU_GATE_AUTO=0``).
 
-    The batch bins by percentile edges (``MLFRAME_FE_GPU_STRICT_BYTEMATCH=1`` switches it to RANK): the same tau and the same gate columns as the host scan on planted gates (3 seeds,
-    n=20000, p=20), 4-5x faster than the host scan; the RANK variant is 2x faster. Faster than the host scan from n=2000 up (p=12 and p=34)."""
+    The batch bins by rank, which reproduces the host scan's MI to 1e-15 (the percentile-edge binner differs on tied mask columns and lost a planted pair on the F2 two-pair frame), 2x faster
+    than the host scan."""
     import os
 
     if os.environ.get("MLFRAME_FE_GPU_GATE_AUTO", "1").strip().lower() not in ("1", "true", "on", "yes"):
@@ -670,7 +670,9 @@ def _gate_device_born_all_mi(_pending, yi, nbins):
         # Carry the operand COLUMN NAMES (ctup) so the resident operand cache keys stably per column (the
         # same gate / operand column recurs across many specs -> uploaded ONCE per fit, not per spec).
         specs = [(mode, ctup, operands, taus) for (mode, ctup, operands, taus, _bkey) in _pending]
-        return gate_grid_mi_resident(specs, yi, nbins, rank_binning=_gate_rank_binning(), y_min=_ym, n_classes=_nc)
+        # Outside STRICT the device must give the host's numbers (the host scan bins by rank): the percentile-edge binner collapses the tied zeros of a mask column and its MI differs from
+        # the host's by up to 0.49 on the F2 two-pair frame at n=1000, which moved the chosen tau and lost a planted pair. The rank binner matches the host to 1e-15.
+        return gate_grid_mi_resident(specs, yi, nbins, rank_binning=_gate_rank_binning() or not strict, y_min=_ym, n_classes=_nc)
     except Exception as _resident_exc:
         logger.debug("gate_grid_mi_resident batch failed (%s); caller falls back to per-spec host scoring.", _resident_exc)
         return None
