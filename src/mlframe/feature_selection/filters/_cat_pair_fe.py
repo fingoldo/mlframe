@@ -258,7 +258,6 @@ def score_cat_pairs_by_interaction_information(
     ``[cat_i, cat_j, engineered_col, mi_joint, mi_i, mi_j, ii]``.
     """
     from ._adaptive_nbins import _plug_in_mi
-    from ._mi_greedy_cmi_fe_binning import _factorize_dense_njit
 
     cat_cols = [c for c in cat_cols if c in X.columns]
     if pairs is None:
@@ -303,19 +302,26 @@ def score_cat_pairs_by_interaction_information(
             marginal_mi[col] = float(_plug_in_mi(_codes(col), y_bin))
         return marginal_mi[col]
 
+    # Every pair's joint MI in one parallel pass (see ``_cat_pair_joint_njit``); the marginals stay the cached per-column values.
+    from ._adaptive_nbins import _bin_y_for_mi
+    from ._cat_pair_joint_njit import pair_joint_mi
+
+    columns = sorted({c for pair in pairs for c in pair})
+    column_row = {c: r for r, c in enumerate(columns)}
+    code_matrix = np.ascontiguousarray(np.vstack([_codes(c) for c in columns]), dtype=np.int64)
+    radix = np.array([radix_cache[c] for c in columns], dtype=np.int64)
+    y_b, k_y = _bin_y_for_mi(y_bin)
+    if y_b.size == 0 or k_y < 1:
+        joint_mis = np.zeros(len(pairs), dtype=np.float64)  # Intentional float64: MI statistic vector
+    else:
+        joint_mis = pair_joint_mi(
+            code_matrix, radix, np.array([column_row[a] for a, _ in pairs], dtype=np.int64), np.array([column_row[b] for _, b in pairs], dtype=np.int64),
+            np.ascontiguousarray(y_b, dtype=np.int64), int(k_y),
+        )
     rows = []
-    for cat_i, cat_j in pairs:
+    for (cat_i, cat_j), mi_joint in zip(pairs, joint_mis.tolist()):
         mi_i = _mi_col(cat_i)
         mi_j = _mi_col(cat_j)
-        # Joint cell code: dense-factorise the (code_i, code_j) tuple stream.
-        # Codes are already int64 (no per-pair astype copy); the Horner radix
-        # is the cached per-column ``card + 1`` (no per-pair ``cj.max()``).
-        ci = _codes(cat_i)
-        cj = _codes(cat_j)
-        joint_key = ci * radix_cache[cat_j] + cj
-        # First-seen dense ids in one O(n) pass instead of the sort inside np.unique: the plug-in MI counts cells, so the id order does not matter
-        joint_codes, _n_cells = _factorize_dense_njit(joint_key)
-        mi_joint = float(_plug_in_mi(joint_codes, y_bin))
         ii = mi_joint - mi_i - mi_j
         rows.append({
             "cat_i": cat_i,
