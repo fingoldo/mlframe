@@ -68,3 +68,33 @@ def test_permuted_labels_uses_the_narrowest_integer_type_and_reads_the_rows_as_d
     a, b = permuted_labels(y, y + 200, iter(perms), 3)
     assert a.dtype == np.int8 and b.dtype == np.int16
     assert all(np.array_equal(a[i], y[p]) and np.array_equal(b[i], (y + 200)[p]) for i, p in enumerate(perms))
+
+
+@pytest.mark.parametrize("n_classes", [2, 3])
+@pytest.mark.parametrize("rows", ["all", "subsample"])
+@pytest.mark.parametrize("seed", [0, 1, 2])
+def test_sorted_order_joint_equals_the_reference_on_every_row(n_classes, rows, seed):
+    """With every row evaluated and the tree's labels equal to the screen's codes, the joint is counted in one pass over the sorted values; the null MI must still be bit-equal to the
+    reference, for continuous columns with and without ties, in the analytic regime and with the sampled root test, next to the row-subsample case that takes the code path."""
+    common, y, perms = _inputs(5000, 6, 2, 10, n_classes, seed=100 + seed)
+    if rows == "all":
+        common["eval_rows"] = np.arange(5000, dtype=np.int64)
+    for analytic_min_n in (800, 10**9):
+        common["analytic_min_n"] = analytic_min_n
+        ref = honest_null_columns(y_raw=y, y_codes=y, perms=perms, **common)
+        y_raw_perm, y_codes_perm = permuted_labels(y, y, iter(perms), len(perms))
+        got = honest_null_columns_bycol(y_raw_perm=y_raw_perm, y_codes_perm=y_codes_perm, nan_cont=np.zeros(common["raw_cont"].shape, dtype=bool), **common)
+        for a, b in zip(ref, got):
+            assert np.array_equal(a, b)
+
+
+def test_distinct_raw_and_screen_labels_take_the_code_path_and_still_match():
+    """When the tree's labels differ from the screen's target codes (a binned continuous target), the fast path is off and the values equal the reference."""
+    common, y, perms = _inputs(4000, 4, 1, 8, 4, seed=7)
+    common["eval_rows"] = np.arange(4000, dtype=np.int64)
+    codes = (y // 2).astype(np.int64)
+    ref = honest_null_columns(y_raw=y, y_codes=codes, perms=perms, **common)
+    y_raw_perm, y_codes_perm = permuted_labels(y, codes, iter(perms), len(perms))
+    got = honest_null_columns_bycol(y_raw_perm=y_raw_perm, y_codes_perm=y_codes_perm, nan_cont=np.zeros(common["raw_cont"].shape, dtype=bool), **common)
+    for a, b in zip(ref, got):
+        assert np.array_equal(a, b)

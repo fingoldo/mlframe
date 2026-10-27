@@ -9,6 +9,7 @@ inner loop over permutations only gathers the permuted labels. The results are i
 
 from __future__ import annotations
 
+import math
 from collections.abc import Iterable
 
 import numpy as np
@@ -21,7 +22,6 @@ from ._mdlp_honest_njit import (
     _mi_codes,
     _n_unique_codes,
     _presort_columns,
-    _supervised_edges,
 )
 
 
@@ -121,6 +121,80 @@ def _prepare_column(raw_cont, order, nan_cont, fixed_codes, eval_rows, is_cont_j
     return tie_free, has_nan_col
 
 
+@njit(cache=True)
+def _supervised_edges_sorted(xsrt: np.ndarray, cuts: np.ndarray, q_fallback: np.ndarray, q_refine: np.ndarray) -> np.ndarray:
+    """:func:`_supervised_edges` for a column given by its SORTED values: the bin sizes of the cuts are differences of insertion positions in ``xsrt`` (a value belongs to bin ``b`` when
+    exactly ``b`` cuts are <= it, so bin ``b`` holds the values from ``cuts[b-1]`` up to, not including, ``cuts[b]``), so no per-row binary search is run. Same edges."""
+    if cuts.shape[0] == 0:
+        return q_fallback
+    n = xsrt.shape[0]
+    k = cuts.shape[0]
+    cmax = 0
+    prev = 0
+    for b in range(k + 1):
+        if b < k:
+            lo = 0
+            hi = n
+            c = cuts[b]
+            while lo < hi:
+                mid = (lo + hi) // 2
+                if xsrt[mid] < c:
+                    lo = mid + 1
+                else:
+                    hi = mid
+            pos = lo
+        else:
+            pos = n
+        if pos - prev > cmax:
+            cmax = pos - prev
+        prev = pos
+    if cmax <= (1.0 - 1.0 / (2.0 * 5)) * n:
+        return cuts
+    if q_refine.shape[0] == 0:
+        return cuts
+    merged = np.concatenate((cuts, q_refine))
+    merged.sort()
+    out = np.empty(merged.shape[0], dtype=np.float64)  # Intentional float64: bin-edge / cut vector, compared against values at full precision
+    m = 0
+    for i in range(merged.shape[0]):
+        if m == 0 or merged[i] != out[m - 1]:
+            out[m] = merged[i]
+            m += 1
+    return out[:m]
+
+
+@njit(cache=True)
+def _joint_from_sorted(xsrt: np.ndarray, ysrt: np.ndarray, edges: np.ndarray, n_x: int, n_y: int, joint: np.ndarray) -> None:
+    """``joint[b, c]`` = rows of class ``c`` whose value has exactly ``b`` of ``edges`` at or below it, from one pass over the sorted values: the bin index only grows along the sorted order."""
+    for a in range(n_x):
+        for c in range(n_y):
+            joint[a, c] = 0
+    b = 0
+    n_e = edges.shape[0]
+    for i in range(xsrt.shape[0]):
+        v = xsrt[i]
+        while b < n_e and edges[b] <= v:
+            b += 1
+        joint[b, ysrt[i]] += 1
+
+
+@njit(cache=True)
+def _mi_from_joint(joint: np.ndarray, n_x: int, n_y: int, n: int) -> float:
+    """The arithmetic of ``_mi_codes`` after its joint fill (same cell order), so the value equals ``_mi_codes`` of the same joint."""
+    px = joint.sum(axis=1)
+    py = joint.sum(axis=0)
+    mi = 0.0
+    for a in range(n_x):
+        if px[a] == 0:
+            continue
+        for b in range(n_y):
+            nab = joint[a, b]
+            if nab == 0:
+                continue
+            mi += (nab / n) * math.log((nab * n) / (px[a] * py[b]))
+    return mi
+
+
 @njit(parallel=True, cache=True)
 def honest_null_columns_bycol(
     raw_cont: np.ndarray,
@@ -158,6 +232,41 @@ def honest_null_columns_bycol(
     plain = np.zeros((n_perm_rows, k), dtype=np.float64)  # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
     corrected = np.zeros((n_perm_rows, k), dtype=np.float64)  # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
     order = _presort_columns(raw_cont)
+    # Per permutation (not per column): the number of target codes and of occupied target codes over the evaluation rows.
+    ny_perm = np.zeros(n_perm_rows, dtype=np.int64)
+    ky_eff_perm = np.zeros(n_perm_rows, dtype=np.float64)  # Intentional float64: statistic input
+    for b in range(n_perm_rows):
+        yc_row = y_codes_perm[b]
+        top = 0
+        for t in range(m):
+            v = yc_row[eval_rows[t]]
+            if v + 1 > top:
+                top = v + 1
+        present = np.zeros(top, dtype=np.bool_)
+        for t in range(m):
+            present[yc_row[eval_rows[t]]] = True
+        occupied = 0.0
+        for c in range(top):
+            if present[c]:
+                occupied += 1.0
+        ny_perm[b] = top
+        ky_eff_perm[b] = occupied
+    # The sorted-order joint below needs the evaluation rows to be every row, in order, and the tree's labels to be the screen's codes.
+    all_rows = m == n
+    if all_rows:
+        for t in range(m):
+            if eval_rows[t] != t:
+                all_rows = False
+                break
+    same_labels = all_rows
+    if same_labels:
+        for b in range(n_perm_rows):
+            for i in range(n):
+                if y_raw_perm[b, i] != y_codes_perm[b, i]:
+                    same_labels = False
+                    break
+            if not same_labels:
+                break
     # The root node takes its own per-permutation test, as the production recursion does: a threshold shared across permutations
     # (root_null_gain_threshold, from one permutation's labels) changes accept decisions.
     root_crit = np.nan
@@ -171,19 +280,9 @@ def honest_null_columns_bycol(
         for b in range(n_perm_rows):
             yr_b = y_raw_perm[b]
             yc_b = y_codes_perm[b]
-            ny = 0
-            for t in range(m):
-                v = yc_b[eval_rows[t]]
-                ys[t] = v
-                if v + 1 > ny:
-                    ny = v + 1
-            seen_y = np.zeros(ny, dtype=np.bool_)
-            for t in range(m):
-                seen_y[ys[t]] = True
-            ky_eff = 0.0
-            for c in range(ny):
-                if seen_y[c]:
-                    ky_eff += 1.0
+            ny = ny_perm[b]
+            ky_eff = ky_eff_perm[b]
+            fast = False
             if is_cont[j]:
                 sj = col_slot[j]
                 for i in range(n):
@@ -203,15 +302,30 @@ def honest_null_columns_bycol(
                         analytic_min_n,
                         analytic_min_cell,
                     )
-                final = _supervised_edges(col, cuts, q_fallback[j, : q_fallback_len[j]], q_refine[j, : q_refine_len[j]])
+                final = _supervised_edges_sorted(xsrt, cuts, q_fallback[j, : q_fallback_len[j]], q_refine[j, : q_refine_len[j]])
                 nb_reg = final.shape[0] + 1
-                _codes_at_rows_nan(col, nan_cont[:, sj], eval_rows, final, nb_reg, xs_buf)
-                n_x = nb_reg + 1 if has_nan_col else nb_reg
+                fast = same_labels and not has_nan_col
+                if fast:
+                    # every row is evaluated, the labels of the tree are the screen's codes, no NaN code: the joint is counted in one pass over the sorted values and labels
+                    n_x = nb_reg
+                    joint = np.zeros((n_x, ny), dtype=np.int64)
+                    _joint_from_sorted(xsrt, ysrt, final, n_x, ny, joint)
+                    mi = _mi_from_joint(joint, n_x, ny, m)
+                    occupied_x = 0
+                    for a in range(n_x):
+                        if joint[a].sum() > 0:
+                            occupied_x += 1
+                    kx_eff = float(occupied_x)
+                else:
+                    _codes_at_rows_nan(col, nan_cont[:, sj], eval_rows, final, nb_reg, xs_buf)
+                    n_x = nb_reg + 1 if has_nan_col else nb_reg
             else:
                 n_x = fixed_nbins[j]
-            xs = xs_buf
-            mi = _mi_codes(xs, n_x, ys, ny)
-            kx_eff = float(_n_unique_codes(xs))
+            if not fast:
+                for t in range(m):
+                    ys[t] = yc_b[eval_rows[t]]
+                mi = _mi_codes(xs_buf, n_x, ys, ny)
+                kx_eff = float(_n_unique_codes(xs_buf))
             plain[b, j] = mi
             corrected[b, j] = mi - (kx_eff - 1.0) * (ky_eff - 1.0) / (2.0 * m)
     return plain, corrected
