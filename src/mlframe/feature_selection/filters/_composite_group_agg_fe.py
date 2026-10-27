@@ -220,6 +220,15 @@ def composite_cardinality_ok(
         return False
     return n_distinct <= int(max_card_frac * n_rows)
 
+def _group_lookup(series: pd.Series, label: Callable[[Any], str], zero_nonfinite: bool) -> dict:
+    """``{label(group): float(value)}`` of a per-group statistic Series. One array conversion and one ``zip`` instead of ``Series.items()`` with a ``float()`` per group;
+    ``zero_nonfinite`` replaces NaN / inf by 0.0 (the std and aggregate lookups), exactly as ``float(v) if np.isfinite(v) else 0.0`` did."""
+    values = series.to_numpy(dtype=np.float64)  # float32 -> float64 is exact, so tolist() gives the same Python floats as float(v)
+    if zero_nonfinite:
+        values = np.where(np.isfinite(values), values, 0.0)
+    return dict(zip(map(label, series.index.tolist()), values.tolist()))
+
+
 def _emit_num_col_features(
     X: pd.DataFrame,
     num_col: str,
@@ -247,8 +256,8 @@ def _emit_num_col_features(
     grouped = tmp.groupby("_g", observed=True, sort=False)["_v"]
     mean_series = grouped.mean()
     std_series = grouped.std(ddof=1)
-    lookup_mean = {label(k): float(v) for k, v in mean_series.items()}
-    lookup_std = {label(k): (float(v) if np.isfinite(v) else 0.0) for k, v in std_series.items()}
+    lookup_mean = _group_lookup(mean_series, label, zero_nonfinite=False)
+    lookup_std = _group_lookup(std_series, label, zero_nonfinite=True)
     global_mean = _global_value_for_stat(x, "mean")
     global_std = _global_value_for_stat(x, "std")
 
@@ -263,7 +272,7 @@ def _emit_num_col_features(
             agg_series = std_series
         else:
             agg_series = grouped.agg(_agg_func_for_stat(stat))
-        lookup = {label(k): (float(v) if np.isfinite(v) else 0.0) for k, v in agg_series.items()}
+        lookup = _group_lookup(agg_series, label, zero_nonfinite=True)
         if stat in ("count", "nunique"):
             # The whole-population fallback
             # (finite.size / np.unique(finite).size) used to emit a WILDLY out-of-distribution
