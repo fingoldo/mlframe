@@ -69,7 +69,7 @@ import numpy as np
 from numpy.typing import ArrayLike
 import pandas as pd
 
-from ._target_encoding_fe import _column_to_str
+from ._target_encoding_fe import _column_to_str, sorted_string_codes
 from ._cat_pair_fe import (
     _bin_target,
     _cross_too_high_card,
@@ -339,7 +339,7 @@ def score_cat_triples_by_interaction_information(
     def _codes(col: str) -> np.ndarray:
         """Memoized dense integer codes for column ``col``, reused across every triple/pair/singleton MI lookup in the beam search."""
         if col not in code_cache:
-            uniq, c = np.unique(_column_to_str(X[col]), return_inverse=True)
+            uniq, c = sorted_string_codes(_column_to_str(X[col]))
             c = c.astype(np.int64)
             code_cache[col] = c
             if code_cache_out is not None:
