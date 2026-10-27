@@ -543,8 +543,8 @@ def score_grouped_quantile_by_mi_uplift(
         all_finite = fin.all()
         a_fin = a if all_finite else a[fin]
         # Integer-valued bin index columns (target_aware_bin) are used as-is.
-        uniq = np.unique(a_fin)
-        if uniq.size <= n_bins and a_fin.size and np.all(a_fin == np.round(a_fin)):
+        # The integer-valued test is one pass and fails at once on a continuous column; the sort inside np.unique ran for every column first and only then the cheap test
+        if a_fin.size and np.all(a_fin == np.round(a_fin)) and np.unique(a_fin).size <= n_bins:
             if all_finite:
                 out = a
             else:
