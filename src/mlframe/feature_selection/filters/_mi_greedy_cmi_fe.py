@@ -654,7 +654,7 @@ def score_candidates_by_cmi(
             )
     def _score(c: str) -> float:
         """CMI of one candidate: its quantile bins against ``y`` given the support."""
-        return _cmi_from_binned(_quantile_bin(X_cand[c].to_numpy(), nbins=nbins), y_bin, z_joint)
+        return float(_cmi_from_binned(_quantile_bin(X_cand[c].to_numpy(), nbins=nbins), y_bin, z_joint))
 
     # The candidates are independent and each score is a pure function of its own column, so a thread pool returns the serial values (the numpy partition and the njit CMI kernel release the GIL:
     # 300 columns of 20000 rows, 0.39 s -> 0.22 s on 8 threads). The first candidate runs on this thread so numba compiles once.
