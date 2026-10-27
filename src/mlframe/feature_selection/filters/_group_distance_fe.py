@@ -112,6 +112,31 @@ def _kl_divergence(group_vals: np.ndarray, global_edges: np.ndarray, global_hist
     q /= q.sum()
     return float(np.sum(p * np.log(p / q)))
 
+def _global_bin_index(x: np.ndarray, global_edges: np.ndarray) -> np.ndarray:
+    """Bin of every row of ``x`` on the fixed global edges, as ``np.histogram`` assigns it (left-closed bins, the last one closed on the right); ``-1`` for a non-finite row.
+
+    Computed once per numeric column so each group's histogram is one ``bincount`` of its rows' bins instead of an ``np.histogram`` call per group."""
+    n_bins = global_edges.size - 1
+    idx = np.full(x.shape, -1, dtype=np.int64)
+    finite = np.isfinite(x)
+    v = x[finite]
+    b = np.searchsorted(global_edges, v, side="right") - 1
+    b[v == global_edges[-1]] = n_bins - 1
+    inside = (b >= 0) & (b < n_bins)
+    b[~inside] = -1
+    idx[finite] = b
+    return idx
+
+
+def _kl_from_bin_counts(g_counts: np.ndarray, global_hist: np.ndarray) -> float:
+    """``KL(P_group || P_global)`` from the group's per-bin counts: the arithmetic of ``_kl_divergence`` after its histogram."""
+    p = g_counts.astype(np.float64) + _KL_EPS  # Intentional float64: accumulator or output buffer; statistic at float64
+    p /= p.sum()
+    q = global_hist.astype(np.float64) + _KL_EPS  # Intentional float64: KL divergence statistic input
+    q /= q.sum()
+    return float(np.sum(p * np.log(p / q)))
+
+
 if _HAVE_NUMBA:
 
     @njit(cache=True)
@@ -228,6 +253,7 @@ def generate_group_distance_features(
     # group_col), including an O(n log n) sort for global_sorted; memoize per num_col so they're computed once
     # and reused across every group_col instead of recomputed on each pass through the outer loop.
     _global_cache: dict[str, tuple] = {}
+    _gc_bins: dict[str, np.ndarray] = {}  # per num_col: the global-histogram bin of every row
     n = len(X)
     for group_col in group_cols:
         g_keys = group_key_strings(X[group_col])
@@ -260,6 +286,12 @@ def generate_group_distance_features(
                 _gc = (x, global_mean, global_std, global_edges, global_hist, global_sorted)
                 _global_cache[num_col] = _gc
             x, global_mean, global_std, global_edges, global_hist, global_sorted = _gc
+            if global_edges.size >= 2:
+                _bin_idx = _gc_bins.get(num_col)
+                if _bin_idx is None:
+                    _bin_idx = _gc_bins[num_col] = _global_bin_index(x, global_edges)
+            else:
+                _bin_idx = None
 
             z_lookup: dict[str, float] = {}
             kl_lookup: dict[str, float] = {}
@@ -269,7 +301,11 @@ def generate_group_distance_features(
                 fin = vals[np.isfinite(vals)]
                 if fin.size >= _MIN_GROUP_SIZE:
                     z_lookup[key] = float((np.mean(fin) - global_mean) / global_std)
-                    kl_lookup[key] = _kl_divergence(fin, global_edges, global_hist)
+                    if _bin_idx is None:
+                        kl_lookup[key] = _kl_divergence(fin, global_edges, global_hist)
+                    else:
+                        _rb = _bin_idx[rows]
+                        kl_lookup[key] = _kl_from_bin_counts(np.bincount(_rb[_rb >= 0], minlength=global_edges.size - 1), global_hist)
                     w_lookup[key] = _wasserstein1(fin, global_sorted)
                 else:
                     z_lookup[key] = 0.0
