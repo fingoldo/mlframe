@@ -27,12 +27,16 @@ replay time. ``MRMR.transform`` recomputes each column deterministically.
 """
 from __future__ import annotations
 
+import collections
 import logging
+import threading
 from typing import Callable, Optional, Sequence
 
 import numpy as np
 import pandas as pd
 from numba import njit
+
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -253,12 +257,62 @@ def sorted_string_codes(values: np.ndarray) -> "tuple[np.ndarray, np.ndarray]":
     return uniq[order], rank[codes]
 
 
+_COLUMN_CODES_CACHE: "collections.OrderedDict" = collections.OrderedDict()  # content key -> (sorted tokens, codes); the cat-pair and cat-triple stages code the same columns of one fit
+_COLUMN_CODES_CACHE_LOCK = threading.Lock()
+_COLUMN_CODES_CACHE_MAX_BYTES = 256 * 1024 * 1024  # total held; one entry above a fraction of it is not kept
+_COLUMN_CODES_ENTRY_MAX_BYTES = 32 * 1024 * 1024
+_column_codes_cache_bytes = 0
+
+
+def _column_content_key(arr: np.ndarray) -> tuple:
+    """Content key of a column: dtype, length and a hash of its values (the object path hashes the elements)."""
+    if arr.dtype.kind == "O":
+        return ("O", arr.shape[0], int(pd.util.hash_array(arr, categorize=False).sum() & 0xFFFFFFFFFFFFFFFF))
+    return (arr.dtype.str, arr.shape[0], hash(np.ascontiguousarray(arr).tobytes()))
+
+
 def column_string_codes(col: pd.Series) -> "tuple[np.ndarray, np.ndarray]":
     """``sorted_string_codes(_column_to_str(col))`` without building the ``n``-long string array for an integer / bool / float column: the canonical tokens are made for the distinct values only,
-    the (few) tokens are sorted and de-duplicated (``1`` and ``1.0`` share a token), and the row codes are one gather. Same sorted unique tokens and same int64 codes."""
+    the (few) tokens are sorted and de-duplicated (``1`` and ``1.0`` share a token), and the row codes are one gather. Same sorted unique tokens and same int64 codes.
+
+    The result is kept by the column's content (bounded, least-recently-used): the cat-pair stage and the cat-triple stage of one fit code the same columns, and each coding is 1 to 10 ms."""
+    global _column_codes_cache_bytes
+    arr = col.to_numpy() if hasattr(col, "to_numpy") else np.asarray(col)
+    try:
+        key = _column_content_key(arr)
+    except Exception as exc:  # an unhashable element: code the column without the cache
+        log_throttle(logger, "column_codes_cache_key", logging.INFO, "column coding cache skipped for a column whose content cannot be hashed (%s: %s)", type(exc).__name__, exc)
+        key = None
+    if key is not None:
+        with _COLUMN_CODES_CACHE_LOCK:
+            hit = _COLUMN_CODES_CACHE.get(key)
+            if hit is not None:
+                _COLUMN_CODES_CACHE.move_to_end(key)
+        if hit is not None:
+            return hit[0], hit[1].copy()
+    tokens, codes = _column_string_codes_uncached(col, arr)
+    if key is not None:
+        size = int(tokens.nbytes + codes.nbytes)
+        if size > _COLUMN_CODES_ENTRY_MAX_BYTES:
+            log_throttle(
+                logger, "column_codes_cache_entry_too_large", logging.INFO,
+                "column coding cache: a %.0f MB entry is above the %.0f MB per-entry cap and is recomputed on every call", size / 2**20, _COLUMN_CODES_ENTRY_MAX_BYTES / 2**20,
+            )
+        else:
+            with _COLUMN_CODES_CACHE_LOCK:
+                if key not in _COLUMN_CODES_CACHE:
+                    _COLUMN_CODES_CACHE[key] = (tokens, codes.copy())
+                    _column_codes_cache_bytes += size
+                while _column_codes_cache_bytes > _COLUMN_CODES_CACHE_MAX_BYTES and _COLUMN_CODES_CACHE:
+                    _old_key, (old_tokens, old_codes) = _COLUMN_CODES_CACHE.popitem(last=False)
+                    _column_codes_cache_bytes -= int(old_tokens.nbytes + old_codes.nbytes)
+    return tokens, codes
+
+
+def _column_string_codes_uncached(col: pd.Series, arr: np.ndarray) -> "tuple[np.ndarray, np.ndarray]":
+    """The coding itself: see :func:`column_string_codes`."""
     from ._internals import canonical_group_tokens
 
-    arr = col.to_numpy() if hasattr(col, "to_numpy") else np.asarray(col)
     if arr.dtype.kind not in ("i", "u", "b", "f"):
         return sorted_string_codes(_column_to_str(col))
     uniq, inv = np.unique(arr, return_inverse=True)

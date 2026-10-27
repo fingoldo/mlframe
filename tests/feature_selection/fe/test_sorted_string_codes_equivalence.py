@@ -55,3 +55,34 @@ def test_column_string_codes_matches_unique_of_the_string_column(series):
     assert np.array_equal(uniq, want_uniq)
     assert np.array_equal(codes, want_codes)
     assert codes.dtype == np.int64
+
+
+def test_the_second_coding_of_a_column_is_served_from_the_cache_and_is_not_aliased(monkeypatch):
+    """The same content codes once; the returned codes are a copy, so a caller that edits them does not corrupt the next one; a different column is a different entry; an oversized entry is skipped with a log."""
+    import logging
+
+    import mlframe.feature_selection.filters._target_encoding_fe as te
+
+    calls = []
+    real = te._column_string_codes_uncached
+
+    def counting(col, arr):
+        """Count the real codings."""
+        calls.append(1)
+        return real(col, arr)
+
+    monkeypatch.setattr(te, "_column_string_codes_uncached", counting)
+    te._COLUMN_CODES_CACHE.clear()
+    te._column_codes_cache_bytes = 0
+    s = pd.Series(np.random.default_rng(0).integers(0, 9, 500))
+    first_tokens, first_codes = te.column_string_codes(s)
+    first_codes[:] = -7  # a caller editing its copy
+    again_tokens, again_codes = te.column_string_codes(s.copy())
+    assert len(calls) == 1 and np.array_equal(first_tokens, again_tokens) and again_codes.min() >= 0
+    te.column_string_codes(pd.Series(np.random.default_rng(1).integers(0, 9, 500)))
+    assert len(calls) == 2
+    monkeypatch.setattr(te, "_COLUMN_CODES_ENTRY_MAX_BYTES", 10)
+    logging.getLogger(te.__name__).setLevel(logging.INFO)
+    te.column_string_codes(pd.Series(np.random.default_rng(2).integers(0, 9, 500)))
+    te.column_string_codes(pd.Series(np.random.default_rng(2).integers(0, 9, 500)))
+    assert len(calls) == 4  # the oversized entry is recomputed
