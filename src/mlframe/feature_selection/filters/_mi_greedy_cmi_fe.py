@@ -494,8 +494,8 @@ def joint_cardinalities_cupy(x: np.ndarray, y: np.ndarray, z: np.ndarray) -> tup
         dx = x.astype(cp.int64, copy=False).ravel()
     else:
         dx = resident_code_operand(np.asarray(x).ravel(), "card_cand_x")
-    dy = resident_code_operand(y, "card_y")
-    dz = resident_operand(z, "card_z", dtype=np.int64)
+    dy = y.astype(cp.int64, copy=False).ravel() if isinstance(y, cp.ndarray) else resident_code_operand(y, "card_y")
+    dz = z.astype(cp.int64, copy=False).ravel() if isinstance(z, cp.ndarray) else resident_operand(z, "card_z", dtype=np.int64)
     Kx = (int(dx.max()) + 1) if dx.size else 1
 
     from ._fe_batched_mi import joint_nnz_gpu
@@ -516,8 +516,9 @@ def joint_cardinalities_cupy(x: np.ndarray, y: np.ndarray, z: np.ndarray) -> tup
     # collision-safe (a GC'd y/z whose id is reused with matching size+endpoints but a LARGER max returns the
     # stale card); key on full O(n) content hashes instead (cheap CPU vs the H2D .max()+nnz it guards). Same
     # cardinalities on the happy path -> df / selection unchanged.
-    ya = np.ascontiguousarray(np.asarray(y).ravel())
-    za = np.ascontiguousarray(np.asarray(z).ravel())
+    # y / z may be device arrays (the resident support): the content key needs host bytes, and ``np.asarray`` on a cupy array raises
+    ya = np.ascontiguousarray((cp.asnumpy(y) if isinstance(y, cp.ndarray) else np.asarray(y)).ravel())
+    za = np.ascontiguousarray((cp.asnumpy(z) if isinstance(z, cp.ndarray) else np.asarray(z)).ravel())
     yzkey = (int(ya.size), ya.dtype.str, hash(ya.tobytes()), int(za.size), za.dtype.str, hash(za.tobytes()))
     with _YZ_CARD_CACHE_LOCK:
         _cached = _YZ_CARD_CACHE.get(yzkey)
