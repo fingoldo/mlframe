@@ -528,6 +528,21 @@ def _plug_in_mi_njit(x_binned: np.ndarray, y_b: np.ndarray, K_x: int, K_y: int, 
     return mi
 
 
+_DISTINCT_BINCOUNT_MAX_RANGE = 1 << 22  # widest integer range counted with a bincount (a 32 MB int64 count vector); wider columns are sorted
+
+
+def _distinct_exceeds(y: np.ndarray, cap: int) -> bool:
+    """``np.unique(y).size > cap`` for an integer / bool vector without the sort when the value range is narrow (class codes): one bincount pass instead."""
+    if y.dtype.kind == "b":
+        return 2 > cap
+    if y.size == 0:
+        return False
+    lo, hi = int(y.min()), int(y.max())
+    if hi - lo < _DISTINCT_BINCOUNT_MAX_RANGE:
+        return int(np.count_nonzero(np.bincount((y - lo).astype(np.intp, copy=False)))) > cap
+    return int(np.unique(y).size) > cap
+
+
 def _bin_y_for_mi(y: np.ndarray, max_y_classes: int = 64) -> "tuple[np.ndarray, int]":
     """Quantize ``y`` to int class codes the way :func:`_plug_in_mi` does internally (10-quantile bins
     for a non-integer/bool dtype, pass-through int codes otherwise). Factored out so a caller looping
@@ -551,7 +566,7 @@ def _bin_y_for_mi(y: np.ndarray, max_y_classes: int = 64) -> "tuple[np.ndarray, 
         Tuple ``(y_codes, K_y)`` of int64 class codes and the number of classes; an empty array and 0 when the quantile
         binning of a continuous ``y`` degenerates to a single value.
     """
-    if y.dtype.kind not in "iub" or np.unique(y).size > max_y_classes:
+    if y.dtype.kind not in "iub" or _distinct_exceeds(y, max_y_classes):
         q = np.quantile(y.astype(np.float64), np.linspace(0, 1, 11))  # Intentional float64: quantile edges of the target for the statistic
         q = np.unique(q)
         if q.size < 2:
