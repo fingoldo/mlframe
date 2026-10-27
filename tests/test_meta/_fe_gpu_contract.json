@@ -55,7 +55,10 @@
   "_orthogonal_jmim_fe": "measured exemption: its only consumer is the fe_hybrid_orth_jmim_enable region, 0.31 s of a 141 s CPU fit at n=20000 (under 0.5 s, audits/2026-10-22/profiles/fe_family_walls_cpu_n20000.md); a device twin has no payoff at this shape. Re-profile and move it back to pending if the region crosses 0.5 s at another n or column count",
   "_orthogonal_total_correlation_fe": "measured exemption: its only consumer is the fe_hybrid_orth_tc_enable region, 0.19 s of a 141 s CPU fit at n=20000 (under 0.5 s, audits/2026-10-22/profiles/fe_family_walls_cpu_n20000.md); a device twin has no payoff at this shape. Re-profile and move it back to pending if the region crosses 0.5 s at another n or column count",
   "_orthogonal_diff_basis_fe": "measured exemption: its only consumer is the fe_hybrid_orth_diff_basis_enable region, 0.02 s of a 141 s CPU fit at n=20000 (under 0.5 s, audits/2026-10-22/profiles/fe_family_walls_cpu_n20000.md); a device twin has no payoff at this shape. Re-profile and move it back to pending if the region crosses 0.5 s at another n or column count",
-  "_orthogonal_adaptive_degree_fe": "measured exemption: its only consumer is the fe_hybrid_orth_adaptive_arity_enable region, 0.33 s of a 141 s CPU fit at n=20000 (under 0.5 s, audits/2026-10-22/profiles/fe_family_walls_cpu_n20000.md); a device twin has no payoff at this shape. Re-profile and move it back to pending if the region crosses 0.5 s at another n or column count"
+  "_orthogonal_adaptive_degree_fe": "measured exemption: its only consumer is the fe_hybrid_orth_adaptive_arity_enable region, 0.33 s of a 141 s CPU fit at n=20000 (under 0.5 s, audits/2026-10-22/profiles/fe_family_walls_cpu_n20000.md); a device twin has no payoff at this shape. Re-profile and move it back to pending if the region crosses 0.5 s at another n or column count",
+  "_integer_lattice_fe": "measured exemption: its only consumers are its own stage and the transform-time replay; the fe_integer_lattice_enable region is 0.04 s of a 141 s CPU fit at n=20000 (under 0.5 s, audits/2026-10-22/profiles/fe_family_walls_cpu_n20000.md); a device twin has no payoff at this shape. Re-profile and move it back to pending if the region crosses 0.5 s at another n or column count",
+  "_hinge_basis_fe": "measured exemption: its only consumers are its own stage and the transform-time replay; the fe_hinge_enable region is 0.11 s of a 141 s CPU fit at n=20000 (under 0.5 s, audits/2026-10-22/profiles/fe_family_walls_cpu_n20000.md); a device twin has no payoff at this shape. Re-profile and move it back to pending if the region crosses 0.5 s at another n or column count",
+  "_orthogonal_cluster_basis_fe": "measured exemption: its only consumers are its own stage and the transform-time replay; the fe_hybrid_orth_cluster_basis_enable region is 0.01 s of a 141 s CPU fit at n=20000 (under 0.5 s, audits/2026-10-22/profiles/fe_family_walls_cpu_n20000.md); a device twin has no payoff at this shape. Re-profile and move it back to pending if the region crosses 0.5 s at another n or column count"
  },
  "pending": [
   "_binned_numeric_agg_fe",
@@ -81,8 +84,6 @@
   "_group_distance_fe",
   "_grouped_agg_fe",
   "_grouped_quantile_fe",
-  "_hinge_basis_fe",
-  "_integer_lattice_fe",
   "_lof_fe",
   "_mi_greedy_cmi_fe",
   "_mi_greedy_fe",
@@ -94,7 +95,6 @@
   "_oof_warp_fe",
   "_orthogonal_adaptive_arity_fe",
   "_orthogonal_bootstrap_mi_fe",
-  "_orthogonal_cluster_basis_fe",
   "_orthogonal_cmim_fe",
   "_orthogonal_copula_mi_fe",
   "_orthogonal_dcor_fe",
