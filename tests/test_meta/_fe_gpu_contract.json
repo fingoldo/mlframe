@@ -45,13 +45,13 @@
   "_target_mix_fe": "second-pass orchestration (chooses bases, fits a child estimator on y - beta*u): no numeric kernel of its own",
   "_y_encoding": "bookkeeping, frame glue, recipes and names: no numeric kernel",
   "cat_fe_state": "bookkeeping, frame glue, recipes and names: no numeric kernel",
-  "engineered_recipes": "bookkeeping, frame glue, recipes and names: no numeric kernel"
+  "engineered_recipes": "bookkeeping, frame glue, recipes and names: no numeric kernel",
+  "_composite_group_agg_fe": "per-group mean/std/count over integer key codes: a numba kernel bit-equal to pandas (2 ms per 20000-row column, 30 columns x 3 stats in 0.062 s); the candidate scoring that follows is the device-batched CMI (batched_cmi_gpu, chunked on OOM). A device twin would need the pandas Kahan/Welford order replayed per group to stay bit-equal and saves less than its own column transfer (audit 73cm); revisit if the generation share of a fit grows"
  },
  "pending": [
   "_binned_numeric_agg_fe",
   "_cat_pair_fe",
   "_cat_triple_fe",
-  "_composite_group_agg_fe",
   "_conditional_gate_fe",
   "_conditional_quantile_rank_fe",
   "_count_freq_interaction_fe",
