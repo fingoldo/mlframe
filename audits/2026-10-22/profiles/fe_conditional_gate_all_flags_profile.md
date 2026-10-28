@@ -27,3 +27,14 @@ GPU kernel time (share of the kernel total):
 CUDA API time: `cudaStreamSynchronize` 3.81 s over 825 calls, `cudaMemcpyAsync` 2.47 s over 3188 calls, `cuLaunchKernel` 0.13 s over 10578 launches. The fit is sync- and transfer-bound and dominated by sorting, not by the gate's grid MI.
 
 So the claim that the device grid-MI kernel is the remaining cost of the conditional gate is refuted. The gate-only attribution is not yet measured: it needs an NVTX range around `cheap_conditional_gate_scan` (not done here). Next step for this family: NVTX-label the gate, then re-run the same `nsys` recipe and read the kernels inside that range.
+
+## NVTX-labelled Nsight Systems run (2026-10-28): the gate's own GPU time
+
+`D:/Temp/gate_nsys2.py` wraps `hybrid_conditional_gate_fe_with_recipes` in an NVTX range `cond_gate` (one call per fit) and runs the same warm all-flags fit under `nsys` (`D:/Temp/gate_fit2.nsys-rep`). Read from the sqlite export: kernels that start and end inside the range.
+
+- Range wall: 5.53 s. Kernel time inside it: 4.43 s (80%).
+- cub `DeviceMergeSort` (the stable `cp.argsort` merge sort): 3.14 s, 696 launches, 71% of the gate's kernel time. The grid MI kernels `mi_from_codes` (0.11 s) and `mi_hist_split_f32` (0.04 s) are a few percent. The earlier claim that the grid MI kernel was the remaining cost is refuted for this range.
+- Callers (cProfile, `D:/Temp/gate_callers.py`): 24 `cupy.argsort` calls from `_gpu_resident_rank_bin.rank_bin_codes_batch_gpu_resident`, one per gate flush, costing 3.25 s cumulative.
+- Why: `_conditional_gate_fe._gate_device_born_all_mi` passes `rank_binning=_gate_rank_binning() or not strict`. Outside STRICT the rank binner is used on purpose: the percentile-edge binner lost a planted pair on the F2 two-pair frame at n=1000 (the comment at that line). So the gate's GPU cost is the stable argsort that makes it match the host.
+
+Lever (not done): a stable rank that is exact but cheaper than the cub merge sort. A selection-equivalence check is needed before any change, because the rank must reproduce the host's tie order.
