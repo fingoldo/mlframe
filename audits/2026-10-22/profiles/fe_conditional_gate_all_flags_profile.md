@@ -13,3 +13,17 @@ The gate's scan (`cheap_conditional_gate_scan`) takes 4.56 s of cProfile time in
 Reading: the family is already GPU-resident (the GPU profile in `fe_family_walls_gpu_vs_cpu_n20000.md` shows 4.68 s on GPU, 7.74 s on CPU). Its remaining cost is the device grid-MI kernel, 0.16 s per flush, so the next lever is that kernel (batch size per flush, or fewer flushes), which is a GPU change with its own equivalence check. Not changed here.
 
 Separate heavy part in the same fit, not in this family: `_gate_engineered_accuracy` (`measure_feature_uplift`, 4.21 s, a different gate). Recorded for the next profile round.
+
+## Correction: Nsight Systems on the warm all-flags fit (2026-10-28)
+
+The cProfile reading above (device grid-MI kernel as the remaining cost) was a hypothesis from cProfile wait time. It was checked with `nsys` (2025.1.3, `--capture-range=cudaProfilerApi`, `D:/Temp/gate_nsys.py`, report `D:/Temp/gate_fit.nsys-rep`, summaries `cuda_gpu_kern_sum` and `cuda_api_sum`). The window covers the whole warm fit, not the gate alone, so the shares below are whole-fit shares.
+
+GPU kernel time (share of the kernel total):
+- cub `DeviceMergeSortMergeKernel` + `DeviceMergeSortBlockSortKernel` (cupy sorts): about 50 percent together (29.7, 13.3, 3.7, 2.9).
+- `root_split_stats_k2` (`_honest_null_device.py`, device honest MDLP null): 15.9 percent, 8 instances, 124 ms average.
+- `cupy_copy__float64_float64`, `cupy_scatter_update`, `radix_select_interp_f64_v3`: about 12 percent together.
+- `gate_grid_mi_resident` does not appear in the top ten kernels: the grid MI kernel is not the dominant GPU cost.
+
+CUDA API time: `cudaStreamSynchronize` 3.81 s over 825 calls, `cudaMemcpyAsync` 2.47 s over 3188 calls, `cuLaunchKernel` 0.13 s over 10578 launches. The fit is sync- and transfer-bound and dominated by sorting, not by the gate's grid MI.
+
+So the claim that the device grid-MI kernel is the remaining cost of the conditional gate is refuted. The gate-only attribution is not yet measured: it needs an NVTX range around `cheap_conditional_gate_scan` (not done here). Next step for this family: NVTX-label the gate, then re-run the same `nsys` recipe and read the kernels inside that range.
