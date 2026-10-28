@@ -55,3 +55,12 @@ Reading: the stable device sort is already near the throughput of the merge sort
 - Columns handled across all flushes: 12631; distinct by content hash: 11864. So 94 percent are unique and a cross-flush rank cache would save at most about 6 percent of the sort time (about 0.2 s of the 3.66 s).
 
 Verdict on the lever stated above: fewer columns per flush is the only real lever, because almost every column is new in every flush. A rank cache is exact but worth about 6 percent. The earlier estimate, based on 31 specs, undercounted the sort work by about 17 times; this is the corrected figure.
+
+## Fewer columns per flush: tau grid 17 points against 9 points (2026-10-28, `D:/Temp/tau_sel.py`, logs `D:/Temp/tau17.log`, `D:/Temp/tau9.log`)
+
+Experiment, no code change: `_TAU_QUANTILES` patched in `_conditional_gate_fe_helpers` and `_conditional_gate_fe` (the 17-point grid 0.1..0.9 step 0.05 against a 9-point grid 0.1..0.9 step 0.1), all-flags warm fit, two data seeds (0 and 2).
+
+- Selected features: identical in both seeds for the two grids (seed 0: six features; seed 2: eight features, the same set under both grids).
+- Wall, seed 0 and seed 2: 70.6 s and 71.3 s with 17 points; 70.2 s and 67.8 s with 9 points. The difference is within the run-to-run noise of one fit, so the time saving is not measurable at this shape even though the rank sort is about half as large.
+
+Reading: on these two frames the 9-point grid keeps the selection and does not measurably cut the wall. Before any change to the grid, the F2 and fusion sets must be run (the rule for this repository), and a wall gain must show on a full fit. Not changed.
