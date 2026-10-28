@@ -115,3 +115,24 @@ def ksg_mi_discrete_target(X: np.ndarray, y: np.ndarray, *, n_neighbors: int, ra
     _, d = np.unique(np.asarray(y).ravel(), return_inverse=True)
     d = np.ascontiguousarray(d, dtype=np.int64)
     return cast(np.ndarray, _mi_cd_columns(np.ascontiguousarray(X), d, int(d.max()) + 1 if d.size else 0, int(n_neighbors)))
+
+
+def ksg_mi_discrete_target_columns(X: np.ndarray, y: np.ndarray, *, n_neighbors: int, random_state: int) -> np.ndarray:
+    """``ksg_mi_discrete_target`` of every column of ``X`` in one call, bit-identical to calling it per column.
+
+    The per-column call draws its Kraskov noise as one ``(n, 1)`` block from ``RandomState(random_state)``. A single ``(n, p)`` draw would give each column
+    other values, so every column here draws from its own fresh ``RandomState(random_state)``, the same ``n`` values the one-column call draws.
+    """
+    X = np.array(X, dtype=np.float64, copy=True)
+    n, p = X.shape
+    std = X.std(axis=0)
+    std[std == 0.0] = 1.0
+    X /= std
+    means = np.maximum(1.0, np.mean(np.abs(X), axis=0))
+    noise = np.empty((n, p), dtype=np.float64)
+    for j in range(p):
+        noise[:, j] = np.random.RandomState(int(random_state)).standard_normal(size=n)
+    X += 1e-10 * means * noise
+    _, d = np.unique(np.asarray(y).ravel(), return_inverse=True)
+    d = np.ascontiguousarray(d, dtype=np.int64)
+    return cast(np.ndarray, _mi_cd_columns(np.ascontiguousarray(X), d, int(d.max()) + 1 if d.size else 0, int(n_neighbors)))

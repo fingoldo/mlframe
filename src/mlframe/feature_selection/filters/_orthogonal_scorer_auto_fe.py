@@ -182,7 +182,7 @@ def _compute_per_scorer_rank_table(
     # subsample) stay per-column via _call.
     from ._fe_usability_signal import _crit_np_dtype
     _dt = _crit_np_dtype()  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); MI binning is scale-robust
-    _BATCHABLE = {"plug_in", "copula", "xi"}
+    _BATCHABLE = {"plug_in", "copula", "xi", "ksg"}
     _batch_scorers = [s for s in scorers if s in _BATCHABLE]
 
     def _batch_scores(frame: pd.DataFrame, cols: list) -> dict:
@@ -216,6 +216,16 @@ def _compute_per_scorer_rank_table(
                 from ._orthogonal_xi_fe import xi_correlation_batch
 
                 res[s] = xi_correlation_batch(Xmat, y_arr, random_state=int(random_state))
+            elif s == "ksg":
+                # KSG is per column in the per-column path (one kNN build each); the batch draws each column's noise from its own seed, so every column equals its
+                # single-column call bit for bit. A continuous target or a non-finite column keeps the per-column scorer.
+                from ._orthogonal_ksg_mi_fe import _is_discrete_target
+                from ._ksg_cd_fast import ksg_mi_discrete_target_columns
+
+                if _is_discrete_target(y_arr) and np.isfinite(Xmat).all():
+                    res[s] = ksg_mi_discrete_target_columns(Xmat, y_arr, n_neighbors=int(n_neighbors), random_state=int(random_state))
+                else:
+                    res[s] = np.array([_call(s, Xmat[:, j], y_arr) for j in range(Xmat.shape[1])], dtype=np.float64)
         return res
 
     raw_batched = _batch_scores(raw_X, raw_cols)
