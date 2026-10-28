@@ -182,7 +182,7 @@ def _compute_per_scorer_rank_table(
     # subsample) stay per-column via _call.
     from ._fe_usability_signal import _crit_np_dtype
     _dt = _crit_np_dtype()  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); MI binning is scale-robust
-    _BATCHABLE = {"plug_in", "copula", "xi", "ksg"}
+    _BATCHABLE = {"plug_in", "copula", "xi", "ksg", "dcor"}
     _batch_scorers = [s for s in scorers if s in _BATCHABLE]
 
     def _batch_scores(frame: pd.DataFrame, cols: list) -> dict:
@@ -216,6 +216,11 @@ def _compute_per_scorer_rank_table(
                 from ._orthogonal_xi_fe import xi_correlation_batch
 
                 res[s] = xi_correlation_batch(Xmat, y_arr, random_state=int(random_state))
+            elif s == "dcor":
+                from ._orthogonal_dcor_fe import _dcor_batch
+
+                # dCor shares one subsample index set across columns (same seed), so the batch equals each per-column call bit for bit.
+                res[s] = _dcor_batch(Xmat, y_arr, n_sample=int(dcor_n_sample), random_state=int(random_state))
             elif s == "ksg":
                 # KSG is per column in the per-column path (one kNN build each); the batch draws each column's noise from its own seed, so every column equals its
                 # single-column call bit for bit. A continuous target or a non-finite column keeps the per-column scorer.
