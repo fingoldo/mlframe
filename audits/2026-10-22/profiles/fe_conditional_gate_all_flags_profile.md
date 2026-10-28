@@ -47,3 +47,11 @@ Microbenchmark, n=20000, 200 columns, values rounded on every fifth column so ti
 - Float64 input: 43.7 ms, about 11 percent slower than float32. The dtype is not the lever.
 
 Reading: the stable device sort is already near the throughput of the merge sort the device exposes, and no exact host or dtype alternative is cheaper. The rank binner's cost per gate flush is its column count times the sort cost, so the real lever is algorithmic: fewer candidate columns sorted per flush (a change to the candidate set), which needs a selection-equivalence study before any change. No code change here.
+
+## Checked: how many columns the rank sort handles, and whether they recur (2026-10-28)
+
+`D:/Temp/rank_shapes.py`, `D:/Temp/rank_unique.py`, `D:/Temp/gate_cols.py` (all-flags warm fit, default device mode):
+- Each of the 24 gate flushes has 30 or 31 pending specs (743 in total), but the rank binner sorts a (20000, 527) matrix per flush, not 31 columns. Measured per call: 145 to 174 ms, 3.66 s over the 24 calls.
+- Columns handled across all flushes: 12631; distinct by content hash: 11864. So 94 percent are unique and a cross-flush rank cache would save at most about 6 percent of the sort time (about 0.2 s of the 3.66 s).
+
+Verdict on the lever stated above: fewer columns per flush is the only real lever, because almost every column is new in every flush. A rank cache is exact but worth about 6 percent. The earlier estimate, based on 31 specs, undercounted the sort work by about 17 times; this is the corrected figure.
