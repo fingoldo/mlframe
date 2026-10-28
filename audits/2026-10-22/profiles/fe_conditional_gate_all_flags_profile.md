@@ -38,3 +38,12 @@ So the claim that the device grid-MI kernel is the remaining cost of the conditi
 - Why: `_conditional_gate_fe._gate_device_born_all_mi` passes `rank_binning=_gate_rank_binning() or not strict`. Outside STRICT the rank binner is used on purpose: the percentile-edge binner lost a planted pair on the F2 two-pair frame at n=1000 (the comment at that line). So the gate's GPU cost is the stable argsort that makes it match the host.
 
 Lever (not done): a stable rank that is exact but cheaper than the cub merge sort. A selection-equivalence check is needed before any change, because the rank must reproduce the host's tie order.
+
+## Rank-binner sort: is there an exact cheaper stable rank? (2026-10-28, `D:/Temp/rank_bench.py`, `D:/Temp/rank_bench2.py`)
+
+Microbenchmark, n=20000, 200 columns, values rounded on every fifth column so ties exist:
+- GPU stable `cp.argsort(axis=0)` in float32: 39.6 ms. Its order equals the host stable argsort exactly (checked).
+- Host `np.argsort(kind="stable")` plus upload: 407 ms, so the host is about 10 times slower.
+- Float64 input: 43.7 ms, about 11 percent slower than float32. The dtype is not the lever.
+
+Reading: the stable device sort is already near the throughput of the merge sort the device exposes, and no exact host or dtype alternative is cheaper. The rank binner's cost per gate flush is its column count times the sort cost, so the real lever is algorithmic: fewer candidate columns sorted per flush (a change to the candidate set), which needs a selection-equivalence study before any change. No code change here.
