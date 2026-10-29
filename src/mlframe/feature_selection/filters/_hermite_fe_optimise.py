@@ -572,6 +572,44 @@ def _run_random_batch_search(*, ca_size, cb_size, coef_range, n_trials, seed,
     return (best_coefs[0], best_coefs[1], best_idx, best_raw, n_evals)
 
 
+def _best_coefs_for(coef_a, coef_b, direction_only):
+    """Coefficients stored as the incumbent: the L2-normalised pair in ``direction_only`` mode, else a copy of the raw pair."""
+    from mlframe.feature_selection.filters.hermite_fe.shared import l2_normalize_pair as _l2_normalize_pair
+    if direction_only:
+        nc_a, nc_b = _l2_normalize_pair(coef_a, coef_b)
+        return (nc_a.copy(), nc_b.copy())
+    return (coef_a.copy(), coef_b.copy())
+
+
+def _plateau_step(best_score, last_gen_best, plateau_gens, early_stop_no_improve_gens):
+    """Advance the plateau counter after a generation; returns ``(last_gen_best, plateau_gens, stop)``. Disabled (inputs returned, stop False) when the limit is None or not positive."""
+    if early_stop_no_improve_gens is None or early_stop_no_improve_gens <= 0:
+        return last_gen_best, plateau_gens, False
+    if best_score > last_gen_best:
+        return best_score, 0, False
+    plateau_gens += 1
+    return last_gen_best, plateau_gens, plateau_gens >= int(early_stop_no_improve_gens)
+
+
+def _cma_warm_start_pass(warm_start_seeds, ca_size, direction_only, eval_kwargs, eval_pair_fn, track_history, history, best_score, best_raw, best_idx, best_coefs, n_evals):
+    """Score every canonical warm-start seed once and fold each into the running best; returns ``(best_score, best_raw, best_idx, best_coefs, n_evals)``."""
+    for ws in warm_start_seeds:
+        ws = np.asarray(ws, dtype=np.float64)
+        coef_a = ws[:ca_size]
+        coef_b = ws[ca_size:]
+        score, raw_mi, bf_idx = (eval_pair_fn or _eval_coef_pair)(
+            coef_a, coef_b, direction_only=direction_only, **eval_kwargs,
+        )
+        n_evals += 1
+        if track_history and bf_idx >= 0 and np.isfinite(score):
+            history.append((float(score), float(raw_mi), int(bf_idx), coef_a.copy(), coef_b.copy()))  # guarded by track_history, which is True exactly when history was allocated non-None
+        if score > best_score:
+            best_score = score
+            best_raw = raw_mi
+            best_idx = bf_idx
+            best_coefs = _best_coefs_for(coef_a, coef_b, direction_only)
+    return best_score, best_raw, best_idx, best_coefs, n_evals
+
 def _run_cma_search(*, ca_size, cb_size, coef_range, n_trials, seed,
                      direction_only, warm_start_seeds, eval_kwargs,
                      popsize=None, eval_pair_fn=None,
@@ -591,7 +629,6 @@ def _run_cma_search(*, ca_size, cb_size, coef_range, n_trials, seed,
     # Lazy import of parent-resident helpers: ``.hermite_fe`` re-imports
     # this sibling at its bottom, so a top-level ``from .hermite_fe
     # import ...`` would create a hard cycle the meta-test flags.
-    from mlframe.feature_selection.filters.hermite_fe.shared import l2_normalize_pair as _l2_normalize_pair
     import cma
     dim = ca_size + cb_size
     if popsize is None:
@@ -608,25 +645,9 @@ def _run_cma_search(*, ca_size, cb_size, coef_range, n_trials, seed,
     n_evals = 0
     history: list | None = [] if track_history else None
     if warm_start_seeds:
-        for ws in warm_start_seeds:
-            ws = np.asarray(ws, dtype=np.float64)
-            coef_a = ws[:ca_size]
-            coef_b = ws[ca_size:]
-            score, raw_mi, bf_idx = (eval_pair_fn or _eval_coef_pair)(
-                coef_a, coef_b, direction_only=direction_only, **eval_kwargs,
-            )
-            n_evals += 1
-            if track_history and bf_idx >= 0 and np.isfinite(score):
-                history.append((float(score), float(raw_mi), int(bf_idx), coef_a.copy(), coef_b.copy()))  # type: ignore[union-attr]  # guarded by track_history, which is True exactly when history was allocated non-None
-            if score > best_score:
-                best_score = score
-                best_raw = raw_mi
-                best_idx = bf_idx
-                if direction_only:
-                    nc_a, nc_b = _l2_normalize_pair(coef_a, coef_b)
-                    best_coefs = (nc_a.copy(), nc_b.copy())
-                else:
-                    best_coefs = (coef_a.copy(), coef_b.copy())
+        best_score, best_raw, best_idx, best_coefs, n_evals = _cma_warm_start_pass(
+            warm_start_seeds, ca_size, direction_only, eval_kwargs, eval_pair_fn, track_history, history, best_score, best_raw, best_idx, best_coefs, n_evals,
+        )
         # Use the best canonical seed as CMA's starting point.
         x0 = np.concatenate([best_coefs[0], best_coefs[1]]) if best_coefs is not None else np.zeros(dim, dtype=np.float64)
         # Tighter sigma when we already have a good seed - exploit
@@ -692,11 +713,7 @@ def _run_cma_search(*, ca_size, cb_size, coef_range, n_trials, seed,
                 best_raw = raw_mi
                 best_idx = bf_idx
                 # Store post-projection coefs if direction_only mode.
-                if direction_only:
-                    nc_a, nc_b = _l2_normalize_pair(coef_a, coef_b)
-                    best_coefs = (nc_a.copy(), nc_b.copy())
-                else:
-                    best_coefs = (coef_a.copy(), coef_b.copy())
+                best_coefs = _best_coefs_for(coef_a, coef_b, direction_only)
             scores.append(-score if np.isfinite(score) else 1e6)
         if len(scores) < len(solutions):
             scores.extend([1e6] * (len(solutions) - len(scores)))
@@ -704,14 +721,9 @@ def _run_cma_search(*, ca_size, cb_size, coef_range, n_trials, seed,
         # Plateau early-stop check (after es.tell so the generation is
         # complete). Compare end-of-generation best_score to start-of-
         # generation; if no improvement, increment plateau counter.
-        if early_stop_no_improve_gens is not None and early_stop_no_improve_gens > 0:
-            if best_score > _last_gen_best_score:
-                _plateau_gens = 0
-                _last_gen_best_score = best_score
-            else:
-                _plateau_gens += 1
-                if _plateau_gens >= int(early_stop_no_improve_gens):
-                    break
+        _last_gen_best_score, _plateau_gens, _plateau_stop = _plateau_step(best_score, _last_gen_best_score, _plateau_gens, early_stop_no_improve_gens)
+        if _plateau_stop:
+            break
     if best_coefs is None:
         return None
     if track_history:

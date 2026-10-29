@@ -33,7 +33,6 @@
   "src/mlframe/feature_selection/filters/_gpu_resident_shared.py::_unary_apply": 21,
   "src/mlframe/feature_selection/filters/_gpu_strict_fe/_audit.py::residency_audit": 21,
   "src/mlframe/feature_selection/filters/_hermite_fe_optimise.py::_eval_coef_pair": 20,
-  "src/mlframe/feature_selection/filters/_hermite_fe_optimise.py::_run_cma_search": 22,
   "src/mlframe/feature_selection/filters/_hermite_fe_optimise_parts.py::_eval_coef_pair_batch_part1": 18,
   "src/mlframe/feature_selection/filters/_hermite_fe_optimise_parts.py::_optimise_pair_multimode_part1": 20,
   "src/mlframe/feature_selection/filters/_hinge_basis_fe.py::_hinge_cut_scan_njit": 19,
