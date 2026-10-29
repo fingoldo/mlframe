@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import logging
 import threading
+from typing import Any
 
 import numpy as np
 
@@ -136,11 +137,14 @@ class DeviceBitsets:
         self.groups = [(lo, hi, cp.ascontiguousarray(cp.asarray(bits).transpose(1, 2, 0))) for lo, hi, bits in groups]
 
 
-def null_max_bits_device(dev: DeviceBitsets, cls_host: np.ndarray, py_const: float) -> np.ndarray:
-    """Per-permutation maximum MI over the family. ``cls_host`` is ``(B, n_y, words)`` uint64; ``py_const = n log n - sum_b xlogx(py_b)``."""
+def null_max_bits_device(dev: DeviceBitsets, cls_host: np.ndarray, py_const: float, acc: Any = None) -> np.ndarray | None:
+    """Per-permutation maximum MI over the family. ``cls_host`` is ``(B, n_y, words)`` uint64; ``py_const = n log n - sum_b xlogx(py_b)``.
+
+    ``acc``: an optional device float64 vector of length ``B``. When given, the maxima are folded into it on the device and nothing
+    is copied to the host (returns ``None``); the caller reads the whole family's maxima back once, after every column group."""
     # Intentional float64: label-entropy constant of the MI formula (exact permutation ties)
     const_b = np.full(cls_host.shape[0], float(py_const), dtype=np.float64)
-    return _run(dev, cls_host, const_b, reduce_max=True)
+    return _run(dev, cls_host, const_b, reduce_max=True, acc=acc)
 
 
 def mi_matrix_bits_device(dev: DeviceBitsets, cls_host: np.ndarray, const_b: np.ndarray) -> np.ndarray:
@@ -148,7 +152,7 @@ def mi_matrix_bits_device(dev: DeviceBitsets, cls_host: np.ndarray, const_b: np.
     return _run(dev, cls_host, const_b, reduce_max=False)
 
 
-def _run(dev: DeviceBitsets, cls_host: np.ndarray, const_b: np.ndarray, reduce_max: bool) -> np.ndarray:
+def _run(dev: DeviceBitsets, cls_host: np.ndarray, const_b: np.ndarray, reduce_max: bool, acc: Any = None) -> np.ndarray | None:
     """Launch the bit-set kernel over every column group: the per-permutation maximum, or the full ``(B, K)`` matrix.
 
     The kernel's element type follows the resident MI table (``dev.table``); the constants and the output are built in that type, the sums are accumulated in double.
@@ -159,7 +163,7 @@ def _run(dev: DeviceBitsets, cls_host: np.ndarray, const_b: np.ndarray, reduce_m
     cls_d = cp.asarray(cls_host)
     # Intentional float64: label-entropy constants of the MI formula, converted to the table's element type below
     const_d = cp.asarray(np.ascontiguousarray(const_b, dtype=np.float64)).astype(dev.table.dtype, copy=False)
-    best = cp.zeros(B, dtype=cp.float64)  # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
+    best = cp.zeros(B, dtype=cp.float64) if acc is None else acc  # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
     parts = []
     use_v2 = _v2_applies(cp, n_y, dev.words)
     kern = _get_kernel_v2(cp, n_y - 1, real) if use_v2 else _get_kernel(cp, real)
@@ -210,10 +214,12 @@ def _run(dev: DeviceBitsets, cls_host: np.ndarray, const_b: np.ndarray, reduce_m
                 ),
             )
         if reduce_max:
-            best = cp.maximum(best, out.max(axis=1))
+            cp.maximum(best, out.max(axis=1), out=best)  # in place: the accumulator may be the caller's device vector
         else:
             parts.append(out)
     if reduce_max:
+        if acc is not None:
+            return None  # folded into the caller's device accumulator; no host copy here
         host: np.ndarray = cp.asnumpy(best)
         return host
     return np.asarray(cp.asnumpy(parts[0] if len(parts) == 1 else cp.concatenate(parts, axis=1)))

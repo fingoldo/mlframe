@@ -66,16 +66,33 @@ def streamed_null_max(mats: "list[np.ndarray]", groups: "list[list[tuple[int, in
     from ._family_maxt_gate import family_null_max
 
     def null_max(m: int, rng: np.random.Generator) -> np.ndarray:
-        """The next ``m`` null maxima over the whole family."""
+        """The next ``m`` null maxima over the whole family.
+
+        Device groups fold their maxima into one device accumulator, so the family's result crosses the bus once; host groups
+        fold into the host vector. The two are combined at the end (the maximum is associative, so the order does not matter)."""
+        from ._family_maxt_gate import _null_device_wanted
+
         out = np.zeros(int(m), dtype=np.float64)  # Intentional float64: statistic vector (null max), exact permutation ties
+        acc = None  # device accumulator, created when the first group runs on the device
         state = rng.bit_generator.state
         for group in groups:
             cols, n_x = _stack_group(mats, group)
             replay = np.random.default_rng()
             replay.bit_generator.state = state
-            out = np.maximum(out, family_null_max(cols, n_x, y, n_y, int(m), replay))
+            if _null_device_wanted(cols, y, int(m)):
+                import cupy as cp
+
+                if acc is None:
+                    acc = cp.zeros(int(m), dtype=cp.float64)  # Intentional float64: statistic vector, exact permutation ties
+                family_null_max(cols, n_x, y, n_y, int(m), replay, acc=acc)
+            else:
+                out = np.maximum(out, family_null_max(cols, n_x, y, n_y, int(m), replay))
             rng.bit_generator.state = replay.bit_generator.state
             del cols
+        if acc is not None:
+            import cupy as cp
+
+            out = np.maximum(out, cp.asnumpy(acc))
         return out
 
     return null_max
