@@ -586,6 +586,23 @@ def _assign_support_tai_g_step1_try(self, _retention_added_eng_names, selected_v
     return selected_vars
 
 
+def _replay_engineered_continuous(_post_recipes, _post_eng_cont, _post_cols, _post_extra_cols, X, _post_apply, _post_qbin, n_rows_post):
+    """Give each engineered survivor a cols-space column and a continuous snapshot, replaying any retained pure form the FE-step matrix does not already carry."""
+    for _enm, _erec in _post_recipes.items():
+        if _enm not in _post_eng_cont:
+            try:
+                _vals = np.asarray(_post_apply(_erec, X), dtype=_crit_np_dtype()).ravel()
+                _vals = np.nan_to_num(_vals, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
+                if _vals.shape[0] == n_rows_post:
+                    _post_eng_cont[_enm] = _vals
+            except Exception as e:  # nosec B112 - swallow converted to debug-log, non-fatal by design
+                logger.debug("mrmr: post-selection engineered-continuous coercion failed for %r: %r", _enm, e, exc_info=True)
+                continue
+        if _enm not in _post_cols and _enm in _post_eng_cont:
+            _post_extra_cols.append(_post_qbin(np.asarray(_post_eng_cont[_enm], dtype=_crit_np_dtype()), nbins=10))
+            _post_cols.append(_enm)
+
+
 def _assign_support_tai_g_step1_map_each_surviving(self, _post_recipes, _post_sel_raw_names, cols, data, _eng_continuous_snapshot, _post_apply, X, _post_qbin, _post_raw_set, y, _post_drop, classes_y, _linear_usability_keep_enabled, verbose, selected_vars, target_indices, nbins):
     """Step 1 of _assign_support_tai_g_step1_try: lines starting at ``if _post_recipes and _post_sel_raw_names:``."""
     if _post_recipes and _post_sel_raw_names:
@@ -598,19 +615,7 @@ def _assign_support_tai_g_step1_map_each_surviving(self, _post_recipes, _post_se
         # Ensure each engineered survivor has a cols-space column + continuous snapshot;
         # replay any retained pure form that the FE-step matrix does not already carry.
         _n_rows_post = int(data.shape[0])
-        for _enm, _erec in _post_recipes.items():
-            if _enm not in _post_eng_cont:
-                try:
-                    _vals = np.asarray(_post_apply(_erec, X), dtype=_crit_np_dtype()).ravel()
-                    _vals = np.nan_to_num(_vals, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
-                    if _vals.shape[0] == _n_rows_post:
-                        _post_eng_cont[_enm] = _vals
-                except Exception as e:  # nosec B112 - swallow converted to debug-log, non-fatal by design
-                    logger.debug("mrmr: post-selection engineered-continuous coercion failed for %r: %r", _enm, e, exc_info=True)
-                    continue
-            if _enm not in _post_cols and _enm in _post_eng_cont:
-                _post_extra_cols.append(_post_qbin(np.asarray(_post_eng_cont[_enm], dtype=_crit_np_dtype()), nbins=10))
-                _post_cols.append(_enm)
+        _replay_engineered_continuous(_post_recipes, _post_eng_cont, _post_cols, _post_extra_cols, X, _post_apply, _post_qbin, _n_rows_post)
         if _post_extra_cols:
             _post_data = np.column_stack([data] + [np.asarray(c).reshape(-1, 1) for c in _post_extra_cols])
         _post_name_to_idx = {nm: i for i, nm in enumerate(_post_cols)}
@@ -659,32 +664,7 @@ def _assign_support_tai_g_step1_map_each_surviving(self, _post_recipes, _post_se
                 # the strongest dropped raw by marginal MI here resurrected exactly the fully subsumed dominant operand the sweep had dropped (``c`` beside
                 # ``mul(prewarp(c),sin(d))`` in the F2 fixture).
                 if not selected_vars and not self._engineered_recipes_:
-                    _bf_idx, _bf_rel = None, float("-inf")
-                    _tgt_pf = np.asarray(target_indices, dtype=np.int64)
-                    _fn_pf = np.asarray(nbins, dtype=np.int64)
-                    # ``_post_name_to_idx`` (built above) is ``_post_cols`` = ``list(cols)`` plus
-                    # any appended engineered columns, so it agrees with ``cols.index`` for every
-                    # raw name here (``_post_drop_set`` only ever holds raw ``feature_names_in_``
-                    # names, always present in the original ``cols`` prefix) - reuse it instead
-                    # of a fresh ``.index()`` rescan of ``cols`` per ``_dn``.
-                    for _dn in _post_drop_set:
-                        _bf_ci = _post_name_to_idx.get(_dn)
-                        if _bf_ci is None:
-                            continue
-                        from mlframe.feature_selection.filters.info_theory import mi as _pf_mi
-                        from mlframe.feature_selection.filters._fallback_probe import call_or_default
-
-                        def _post_rel_probe(_ci: int = _bf_ci) -> float:
-                            """Marginal MI of dropped raw column ``_ci`` against the target."""
-                            return float(_pf_mi(data, np.array([int(_ci)], dtype=np.int64), _tgt_pf, _fn_pf))
-
-                        _rel = float(call_or_default(
-                            _post_rel_probe,
-                            float("-inf"), key="mrmr_post_drop_relevance_failed",
-                            message="mrmr: relevance probe failed for a post-drop raw floor candidate; it is excluded",
-                        ))
-                        if _rel > _bf_rel:
-                            _bf_rel, _bf_idx = _rel, _dn
+                    _bf_idx = _post_drop_raw_floor_pick(_post_drop_set, _post_name_to_idx, data, target_indices, nbins)
                     if _bf_idx is not None and _bf_idx in self.feature_names_in_:
                         selected_vars = [list(self.feature_names_in_).index(_bf_idx)]
                         self._raw_redundancy_dropped_ = set(getattr(self, "_raw_redundancy_dropped_", None) or set()) - {_bf_idx}
@@ -696,6 +676,37 @@ def _assign_support_tai_g_step1_map_each_surviving(self, _post_recipes, _post_se
                         len(_post_dropped), sorted(_post_drop_set),
                     )
     return selected_vars
+
+
+def _post_drop_raw_floor_pick(_post_drop_set, _post_name_to_idx, data, target_indices, nbins):
+    """Strongest dropped raw (by marginal MI) to re-admit as the representative when the post-retention drop emptied the raw support; None when no candidate probes."""
+    _bf_idx, _bf_rel = None, float("-inf")
+    _tgt_pf = np.asarray(target_indices, dtype=np.int64)
+    _fn_pf = np.asarray(nbins, dtype=np.int64)
+    # ``_post_name_to_idx`` (built above) is ``_post_cols`` = ``list(cols)`` plus
+    # any appended engineered columns, so it agrees with ``cols.index`` for every
+    # raw name here (``_post_drop_set`` only ever holds raw ``feature_names_in_``
+    # names, always present in the original ``cols`` prefix) - reuse it instead
+    # of a fresh ``.index()`` rescan of ``cols`` per ``_dn``.
+    for _dn in _post_drop_set:
+        _bf_ci = _post_name_to_idx.get(_dn)
+        if _bf_ci is None:
+            continue
+        from mlframe.feature_selection.filters.info_theory import mi as _pf_mi
+        from mlframe.feature_selection.filters._fallback_probe import call_or_default
+
+        def _post_rel_probe(_ci: int = _bf_ci) -> float:
+            """Marginal MI of dropped raw column ``_ci`` against the target."""
+            return float(_pf_mi(data, np.array([int(_ci)], dtype=np.int64), _tgt_pf, _fn_pf))
+
+        _rel = float(call_or_default(
+            _post_rel_probe,
+            float("-inf"), key="mrmr_post_drop_relevance_failed",
+            message="mrmr: relevance probe failed for a post-drop raw floor candidate; it is excluded",
+        ))
+        if _rel > _bf_rel:
+            _bf_rel, _bf_idx = _rel, _dn
+    return _bf_idx
 
 
 def _augment_support_with_raw_sources(self, selected_vars, n_engineered_out, cols, data, _allowed_raw_idx) -> None:
