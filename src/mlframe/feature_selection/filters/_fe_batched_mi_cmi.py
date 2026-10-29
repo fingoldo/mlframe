@@ -165,7 +165,7 @@ def _get_rows_ent_nnz_split_kernels(cp):
     return _ROWS_ENT_NNZ_SPLIT_KERNELS
 
 
-# LOOKUP-TABLE variant (profile 2026-10-29, GTX 1050 Ti, 1500 candidates x 200000 / 400000 int32 cells per row, n = 20000): rows_ent_nnz_i32 was 66 percent of the device
+# LOOKUP-TABLE variant (profiled on a GTX 1050 Ti, 1500 candidates x 200000 / 400000 int32 cells per row, n = 20000): rows_ent_nnz_i32 was 66 percent of the device
 # CMI batch (nvprof: occupancy 0.99, SM efficiency 98 percent, DRAM utilisation low, IPC 0.31, 55 to 68 percent of the stalls on execution dependency). The counts are
 # sparse (at most n of the M cells are occupied) but a warp always holds an occupied lane, so every warp ran the double precision log (1/32 rate on Pascal) for all cells.
 # Counts are integers <= n, so c*ln(c) comes from a table built once per n, and with p = c/n the row entropy is (ln(n) * sum(c) - sum(c ln c)) / n. It is the same entropy
