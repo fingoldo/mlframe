@@ -120,6 +120,12 @@ SPEC_SCORERS = {
     "forward_stepwise._zero_base_cv_rmse": ("n/a", "y-scale CV RMSE of the train-fold-mean predictor: the zero-base baseline"),
     "__init__.tiny_rerank_scores_": ("n/a", "read-only view of the rerank's scores"),
     "__init__.raw_y_baseline_rmse_": ("n/a", "read-only view of the raw-y baseline"),
+    "_eval._screen_mi_scores": ("n/a", "MI(T, X) on quantile bins: rank-based, invariant to a positive T rescale (as _auto_chain._mi_gain_of)"),
+    "_eval._bootstrap_mi_gain": ("n/a", "bootstrap LCB of the MI gain above: same quantile-bin MI, rank-based, invariant to a positive T rescale"),
+    "_eval_waic._invalid_score": ("t_scale", "sentinel WaicScore returned by compute_transform_waic; carries no comparison, same guard"),
+    "_honest_oof_select._reconstruction_score": ("n/a", "per-spec body of honest_oof_reconstruction_rmse, same inverse path"),
+    "_screening_tiny._single_seed_cv_rmse": ("n/a", "one-seed path of _tiny_cv_rmse_raw_y_multiseed: raw-y baseline, no transform"),
+    "_tiny_rerank._score_specs_parallel": ("n/a", "orchestrator: schedules the per-spec scorers and returns their results; scores nothing itself"),
 }
 
 

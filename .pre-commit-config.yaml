@@ -593,6 +593,16 @@ repos:
         pass_filenames: false
         stages: [pre-push]
 
+      # Pre-push: the function-complexity ratchet. Without this the ceiling is only enforced by CI's full pytest run, which is
+      # billing-limited and does not gate the push, so a function over 15 reached master unchecked.
+      - id: mlframe-function-complexity-on-push
+        name: "function complexity ratchet (push only)"
+        entry: python -m pytest tests/test_meta/test_function_complexity.py --no-cov -p no:randomly -q
+        language: system
+        types: [python]
+        pass_filenames: false
+        stages: [pre-push]
+
   # Keep the committed anonymized default kernel-tuning JSON in sync. On commit
   # this runs --check ONLY (skip_existing): it reads every kernel's live
   # code_version + the committed file and FAILS the commit if they drifted

@@ -13,6 +13,7 @@ import math
 from collections.abc import Iterable
 
 import numpy as np
+from mlframe.feature_selection.filters._mdlp_honest_bycol_stats import _bycol_perm_label_stats
 from numba import njit, prange
 
 from .supervised_binning import _mdlp_best_split_inc_njit as _mdlp_best_split_njit
@@ -195,6 +196,16 @@ def _mi_from_joint(joint: np.ndarray, n_x: int, n_y: int, n: int) -> float:
     return mi
 
 
+@njit(cache=True)
+def _occupied_rows(joint: np.ndarray, n_x: int) -> int:
+    """Number of rows of ``joint`` with a nonzero count (the occupied X bins)."""
+    occupied = 0
+    for a in range(n_x):
+        if joint[a].sum() > 0:
+            occupied += 1
+    return occupied
+
+
 @njit(parallel=True, cache=True)
 def honest_null_columns_bycol(
     raw_cont: np.ndarray,
@@ -233,40 +244,7 @@ def honest_null_columns_bycol(
     corrected = np.zeros((n_perm_rows, k), dtype=np.float64)  # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
     order = _presort_columns(raw_cont)
     # Per permutation (not per column): the number of target codes and of occupied target codes over the evaluation rows.
-    ny_perm = np.zeros(n_perm_rows, dtype=np.int64)
-    ky_eff_perm = np.zeros(n_perm_rows, dtype=np.float64)  # Intentional float64: statistic input
-    for b in range(n_perm_rows):
-        yc_row = y_codes_perm[b]
-        top = 0
-        for t in range(m):
-            v = yc_row[eval_rows[t]]
-            if v + 1 > top:
-                top = v + 1
-        present = np.zeros(top, dtype=np.bool_)
-        for t in range(m):
-            present[yc_row[eval_rows[t]]] = True
-        occupied = 0.0
-        for c in range(top):
-            if present[c]:
-                occupied += 1.0
-        ny_perm[b] = top
-        ky_eff_perm[b] = occupied
-    # The sorted-order joint below needs the evaluation rows to be every row, in order, and the tree's labels to be the screen's codes.
-    all_rows = m == n
-    if all_rows:
-        for t in range(m):
-            if eval_rows[t] != t:
-                all_rows = False
-                break
-    same_labels = all_rows
-    if same_labels:
-        for b in range(n_perm_rows):
-            for i in range(n):
-                if y_raw_perm[b, i] != y_codes_perm[b, i]:
-                    same_labels = False
-                    break
-            if not same_labels:
-                break
+    ky_eff_perm, ny_perm, same_labels = _bycol_perm_label_stats(n_perm_rows, y_codes_perm, m, eval_rows, n, y_raw_perm)
     # The root node takes its own per-permutation test, as the production recursion does: a threshold shared across permutations
     # (root_null_gain_threshold, from one permutation's labels) changes accept decisions.
     root_crit = np.nan
@@ -311,11 +289,7 @@ def honest_null_columns_bycol(
                     joint = np.zeros((n_x, ny), dtype=np.int64)
                     _joint_from_sorted(xsrt, ysrt, final, n_x, ny, joint)
                     mi = _mi_from_joint(joint, n_x, ny, m)
-                    occupied_x = 0
-                    for a in range(n_x):
-                        if joint[a].sum() > 0:
-                            occupied_x += 1
-                    kx_eff = float(occupied_x)
+                    kx_eff = float(_occupied_rows(joint, n_x))
                 else:
                     _codes_at_rows_nan(col, nan_cont[:, sj], eval_rows, final, nb_reg, xs_buf)
                     n_x = nb_reg + 1 if has_nan_col else nb_reg

@@ -221,6 +221,29 @@ def _raise_pre_pipeline_rowcount_change(n_in: int, n_out: int) -> None:
     )
 
 
+def _empty_selection_output(arg):
+    """An empty frame or array with the row count of ``arg``, for a transformer that dropped every column."""
+    if isinstance(arg, pl.DataFrame):
+        return arg.select([])
+    if hasattr(arg, "iloc"):
+        return arg.iloc[:, :0]
+    return np.empty((len(arg), 0))
+
+
+def _row_count(obj):
+    """Leading dimension of ``obj``, or None when it has no shape."""
+    shape: tuple[int, ...] = getattr(obj, "shape", ())
+    return shape[0] if len(shape) >= 1 else None
+
+
+def _check_row_preserving(out, held) -> None:
+    """Raise the shared actionable error when a resampler changed the row count, which would misalign the positional re-attach."""
+    out_n = _row_count(out)
+    held_n = _row_count(held)
+    if out_n is not None and held_n is not None and out_n != held_n:
+        _raise_pre_pipeline_rowcount_change(held_n, out_n)
+
+
 def _passthrough_cols_fit_transform(fn, df, *args, passthrough_cols=None, fit=False, target=None, groups=None, sample_weight=None):
     """Run a selector fit/transform on df with passthrough_cols hidden, then re-attach them.
 
@@ -336,11 +359,7 @@ def _passthrough_cols_fit_transform(fn, df, *args, passthrough_cols=None, fit=Fa
                 # Empty output (0 features); return an empty DataFrame of
                 # matching shape so the suite's downstream 0-feature guard
                 # catches it.
-                if isinstance(_arg, pl.DataFrame):
-                    return _arg.select([])
-                if hasattr(_arg, "iloc"):
-                    return _arg.iloc[:, :0]
-                return np.empty((len(_arg), 0))
+                return _empty_selection_output(_arg)
             raise
 
     if not passthrough_cols or df is None or not hasattr(df, "columns"):
@@ -358,10 +377,7 @@ def _passthrough_cols_fit_transform(fn, df, *args, passthrough_cols=None, fit=Fa
     out = _call_fit(fn, reduced, target) if fit else fn(reduced)
     # Row-preserving-slot guard: a resampler makes ``out`` grow/shrink vs ``held``, misaligning the
     # positional re-attach below. Raise the shared actionable message (not an opaque pandas error).
-    _out_n = out.shape[0] if hasattr(out, "shape") and len(getattr(out, "shape", ())) >= 1 else None
-    _held_n = held.shape[0] if hasattr(held, "shape") and len(getattr(held, "shape", ())) >= 1 else None
-    if _out_n is not None and _held_n is not None and _out_n != _held_n:
-        _raise_pre_pipeline_rowcount_change(_held_n, _out_n)
+    _check_row_preserving(out, held)
     out = _reattach_passthrough_to_frame(out, present, held, is_polars, reduced)
     return out
 

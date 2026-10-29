@@ -73,6 +73,46 @@ def showcase_features_and_targets(
         display(tail)
 
 
+def _histogram_plot_data(target, max_hist_samples, random_seed):
+    """The values a regression histogram plots: a seeded subsample capped at ``max_hist_samples`` with the min and max kept, or the whole target when it is small.
+
+    A local seeded Generator is used instead of the global numpy RNG so the histograms shown are reproducible across runs.
+    """
+    _hist_rng = np.random.default_rng(random_seed)
+    if len(target) > max_hist_samples:
+        if isinstance(target, (pl.Series, pd.Series)):
+            sample_idx = _hist_rng.choice(len(target), max_hist_samples, replace=False)
+            # polars Series ``target[sample_idx]`` with a numpy integer array works
+            # (polars treats it as ``.gather(sample_idx)``); pandas Series uses ``.iloc`` for
+            # positional indexing to avoid the FutureWarning on label-vs-position dispatch.
+            sample = target.iloc[sample_idx].values if isinstance(target, pd.Series) else target[sample_idx].to_numpy()
+        else:
+            sample_idx = _hist_rng.choice(len(target), max_hist_samples, replace=False)
+            sample = target[sample_idx]
+        # Add min and max to preserve full range (if not already in sample)
+        if isinstance(target, pl.Series):
+            min_val, max_val = target.min(), target.max()
+        elif isinstance(target, pd.Series):
+            min_val, max_val = target.min(), target.max()
+        else:  # np.ndarray
+            min_val, max_val = np.min(target), np.max(target)
+        extras = []
+        if min_val not in sample:
+            extras.append(min_val)
+        if max_val not in sample:
+            extras.append(max_val)
+        plot_data = np.concatenate([sample, extras]) if extras else sample
+    else:
+        # Convert to numpy array if needed
+        if isinstance(target, pl.Series):
+            plot_data = target.to_numpy()
+        elif isinstance(target, pd.Series):
+            plot_data = target.values
+        else:
+            plot_data = target
+    return plot_data
+
+
 def _showcase_target_distributions(target_by_type, in_jupyter, random_seed, max_hist_samples):
     """Show the distribution of every target of every target type: a histogram plus summary statistics, in Jupyter or on stdout."""
     from IPython.display import display
@@ -87,42 +127,7 @@ def _showcase_target_distributions(target_by_type, in_jupyter, random_seed, max_
             else:
                 print(line)
             if target_type == TargetTypes.REGRESSION:
-                # Subsample if target is large to speed up histogram. Use a
-                # local seeded Generator instead of the global numpy RNG so
-                # histograms shown to the user are reproducible across runs
-                # and don't depend on whatever else mutated np.random state.
-                _hist_rng = np.random.default_rng(random_seed)
-                if len(target) > max_hist_samples:
-                    if isinstance(target, (pl.Series, pd.Series)):
-                        sample_idx = _hist_rng.choice(len(target), max_hist_samples, replace=False)
-                        # polars Series ``target[sample_idx]`` with a numpy integer array works
-                        # (polars treats it as ``.gather(sample_idx)``); pandas Series uses ``.iloc`` for
-                        # positional indexing to avoid the FutureWarning on label-vs-position dispatch.
-                        sample = target.iloc[sample_idx].values if isinstance(target, pd.Series) else target[sample_idx].to_numpy()
-                    else:
-                        sample_idx = _hist_rng.choice(len(target), max_hist_samples, replace=False)
-                        sample = target[sample_idx]
-                    # Add min and max to preserve full range (if not already in sample)
-                    if isinstance(target, pl.Series):
-                        min_val, max_val = target.min(), target.max()
-                    elif isinstance(target, pd.Series):
-                        min_val, max_val = target.min(), target.max()
-                    else:  # np.ndarray
-                        min_val, max_val = np.min(target), np.max(target)
-                    extras = []
-                    if min_val not in sample:
-                        extras.append(min_val)
-                    if max_val not in sample:
-                        extras.append(max_val)
-                    plot_data = np.concatenate([sample, extras]) if extras else sample
-                else:
-                    # Convert to numpy array if needed
-                    if isinstance(target, pl.Series):
-                        plot_data = target.to_numpy()
-                    elif isinstance(target, pd.Series):
-                        plot_data = target.values
-                    else:
-                        plot_data = target
+                plot_data = _histogram_plot_data(target, max_hist_samples, random_seed)
                 _hist_fig = plt.figure()
                 plt.hist(plot_data, bins=30, color="skyblue", edgecolor="black")
                 plt.title(f"{target_name} Histogram")
