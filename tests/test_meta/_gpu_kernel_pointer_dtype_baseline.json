@@ -82,7 +82,8 @@
  ],
  "src/mlframe/feature_selection/filters/_honest_null_device.py": [
   "root_split_stats",
-  "root_split_stats_k2"
+  "root_split_stats_k2",
+  "root_split_stats_v2"
  ],
  "src/mlframe/feature_selection/filters/_mi_greedy_cmi_fe.py": [
   "ent_nnz"

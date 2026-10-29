@@ -673,7 +673,9 @@ filterwarnings = [
     # joblib/loky resource_tracker noise on Windows: the loky worker memmap-folder cleanup races the OS file deletion at shutdown (FileNotFoundError / "leaked folder objects"). Third-party, unfixable here; the in-process variant is filtered, the resource-tracker-subprocess variant is harmless shutdown stderr.
     "ignore:resource_tracker:UserWarning",
     # numba GPU under-utilisation hints on the tiny synthetic GPU-test shapes (grid size N): performance advice, not a defect; the production shapes that justify the kernels are far larger.
-    "ignore:Grid size.*will likely result in GPU under-utilization:numba.core.errors.NumbaPerformanceWarning",
+    "ignore:.*Grid size.*will likely result in GPU under-utilization:numba.core.errors.NumbaPerformanceWarning",
+    # mlframe.utils.cupy_pinned makes cupy take its synchronous pageable copy on purpose (measured faster than pinned staging at every size) and ignores cupy's warning about it, but pytest restores the warning filters after each test while the policy installs once per process, so every test after the first would show it again.
+    "ignore:Using synchronous transfer as pinned memory:cupy._util.PerformanceWarning",
     # cupy can't auto-detect a CUDA_PATH on this layout (it works regardless via the bundled libs); the mlframe auto-config sets CUDA_PATH for numba, cupy just emits this once.
     "ignore:CUDA path could not be detected:UserWarning:cupy",
     # shap.summary_plot seeds the legacy global numpy RNG internally (np.random.seed) -> numpy 2.x FutureWarning; third-party, not an mlframe call.

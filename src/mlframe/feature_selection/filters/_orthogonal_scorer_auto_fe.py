@@ -133,6 +133,48 @@ MUTUAL_RANK_AGGREGATORS = ("mutual_top_k",)
 #   seeds. Rank fusion averages the noise out and the consensus rank
 #   stabilises faster than the per-column-winner identity.
 
+def _batch_one_scorer(s, Xmat, y_arr, *, nbins, random_state, n_neighbors, copula_n_bins, dcor_n_sample, call):
+    """Scores of the batchable scorer ``s`` for every column of ``Xmat`` in one call (``call`` is the per-column dispatcher the non-finite KSG case falls back to)."""
+    if s == "plug_in":
+        from ._orthogonal_univariate_fe import _mi_classif_batch
+        y_mi = y_arr
+        if not np.issubdtype(y_mi.dtype, np.integer):
+            uniq = np.unique(y_mi[np.isfinite(y_mi)] if y_mi.dtype.kind in "fc" else y_mi)
+            if uniq.size <= 32:
+                # densify via np.unique(return_inverse=...) rather
+                # than truncating .astype(int64) - non-integer labels (e.g. 0.1/0.2/...) would
+                # otherwise all collapse to class 0.
+                _, y_mi = np.unique(y_mi, return_inverse=True)
+                y_mi = y_mi.astype(np.int64, copy=False)
+        # Intentional float64: MI batch scores kept as an f64 accumulator vector (ranking ties)
+        return np.asarray(_mi_classif_batch(Xmat, y_mi, nbins=int(nbins)), dtype=np.float64)
+    elif s == "copula":
+        from ._orthogonal_copula_mi_fe import _copula_mi_batch
+
+        # Intentional float64: copula MI batch scores kept as an f64 accumulator vector
+        return np.asarray(_copula_mi_batch(Xmat, y_arr, n_bins=int(copula_n_bins)), dtype=np.float64)
+    elif s == "xi":
+        from ._orthogonal_xi_fe import xi_correlation_batch
+
+        return xi_correlation_batch(Xmat, y_arr, random_state=int(random_state))
+    elif s == "dcor":
+        from ._orthogonal_dcor_fe import _dcor_batch
+
+        # dCor shares one subsample index set across columns (same seed), so the batch equals each per-column call bit for bit.
+        return _dcor_batch(Xmat, y_arr, n_sample=int(dcor_n_sample), random_state=int(random_state))
+    elif s == "ksg":
+        # KSG is per column in the per-column path (one kNN build each); the batch draws each column's noise from its own seed, so every column equals its
+        # single-column call bit for bit. A continuous target or a non-finite column keeps the per-column scorer.
+        from ._orthogonal_ksg_mi_fe import _is_discrete_target
+        from ._ksg_cd_fast import ksg_mi_discrete_target_columns
+
+        if _is_discrete_target(y_arr) and np.isfinite(Xmat).all():
+            return ksg_mi_discrete_target_columns(Xmat, y_arr, n_neighbors=int(n_neighbors), random_state=int(random_state))
+        else:
+            return np.array([call(s, Xmat[:, j], y_arr) for j in range(Xmat.shape[1])], dtype=np.float64)
+    raise ValueError(f"_batch_one_scorer: {s!r} is not a batchable scorer")
+
+
 def _compute_per_scorer_rank_table(
     raw_X: pd.DataFrame,
     engineered_X: pd.DataFrame,
@@ -194,43 +236,9 @@ def _compute_per_scorer_rank_table(
         Xmat = frame[cols].to_numpy(dtype=_dt)
         res: dict = {}
         for s in _batch_scorers:
-            if s == "plug_in":
-                from ._orthogonal_univariate_fe import _mi_classif_batch
-                y_mi = y_arr
-                if not np.issubdtype(y_mi.dtype, np.integer):
-                    uniq = np.unique(y_mi[np.isfinite(y_mi)] if y_mi.dtype.kind in "fc" else y_mi)
-                    if uniq.size <= 32:
-                        # densify via np.unique(return_inverse=...) rather
-                        # than truncating .astype(int64) - non-integer labels (e.g. 0.1/0.2/...) would
-                        # otherwise all collapse to class 0.
-                        _, y_mi = np.unique(y_mi, return_inverse=True)
-                        y_mi = y_mi.astype(np.int64, copy=False)
-                # Intentional float64: MI batch scores kept as an f64 accumulator vector (ranking ties)
-                res[s] = np.asarray(_mi_classif_batch(Xmat, y_mi, nbins=int(nbins)), dtype=np.float64)
-            elif s == "copula":
-                from ._orthogonal_copula_mi_fe import _copula_mi_batch
-
-                # Intentional float64: copula MI batch scores kept as an f64 accumulator vector
-                res[s] = np.asarray(_copula_mi_batch(Xmat, y_arr, n_bins=int(copula_n_bins)), dtype=np.float64)
-            elif s == "xi":
-                from ._orthogonal_xi_fe import xi_correlation_batch
-
-                res[s] = xi_correlation_batch(Xmat, y_arr, random_state=int(random_state))
-            elif s == "dcor":
-                from ._orthogonal_dcor_fe import _dcor_batch
-
-                # dCor shares one subsample index set across columns (same seed), so the batch equals each per-column call bit for bit.
-                res[s] = _dcor_batch(Xmat, y_arr, n_sample=int(dcor_n_sample), random_state=int(random_state))
-            elif s == "ksg":
-                # KSG is per column in the per-column path (one kNN build each); the batch draws each column's noise from its own seed, so every column equals its
-                # single-column call bit for bit. A continuous target or a non-finite column keeps the per-column scorer.
-                from ._orthogonal_ksg_mi_fe import _is_discrete_target
-                from ._ksg_cd_fast import ksg_mi_discrete_target_columns
-
-                if _is_discrete_target(y_arr) and np.isfinite(Xmat).all():
-                    res[s] = ksg_mi_discrete_target_columns(Xmat, y_arr, n_neighbors=int(n_neighbors), random_state=int(random_state))
-                else:
-                    res[s] = np.array([_call(s, Xmat[:, j], y_arr) for j in range(Xmat.shape[1])], dtype=np.float64)
+            res[s] = _batch_one_scorer(
+                s, Xmat, y_arr, nbins=nbins, random_state=random_state, n_neighbors=n_neighbors, copula_n_bins=copula_n_bins, dcor_n_sample=dcor_n_sample, call=_call
+            )
         return res
 
     raw_batched = _batch_scores(raw_X, raw_cols)
