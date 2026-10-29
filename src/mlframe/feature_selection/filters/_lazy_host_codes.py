@@ -77,7 +77,8 @@ class LazyHostCodes:
         if whole is not None:
             return whole.copy()
         if len(self.shape) == 2 and self.shape[1] > 0 and all((tag, j) in store for j in range(self.shape[1])):
-            return np.concatenate([store[(tag, j)] for j in range(self.shape[1])], axis=1)
+            joined: np.ndarray = np.concatenate([store[(tag, j)] for j in range(self.shape[1])], axis=1)
+            return joined
         return None
 
     def store_codes(self, nbins: int, dtype: Any, codes: np.ndarray) -> None:

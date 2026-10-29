@@ -32,8 +32,8 @@ def fit_logistic_ridge_newton(X: np.ndarray, y01: np.ndarray, C: float = 1.0) ->
     lam = 1.0 / float(C)
     reg = np.full(p, lam)
     reg[-1] = 0.0
-    w = np.zeros(p)
-    z = A @ w
+    w: np.ndarray = np.zeros(p)
+    z: np.ndarray = A @ w
     f = _objective(z, y, w, lam)
     for _ in range(_MAX_ITER):
         mu = 1.0 / (1.0 + np.exp(-z))
@@ -51,7 +51,7 @@ def fit_logistic_ridge_newton(X: np.ndarray, y01: np.ndarray, C: float = 1.0) ->
         t = 1.0
         for _ in range(12):
             w_new = w - t * step
-            z_new = A @ w_new
+            z_new: np.ndarray = A @ w_new
             f_new = _objective(z_new, y, w_new, lam)
             if np.isfinite(f_new) and f_new <= f:
                 break

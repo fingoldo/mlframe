@@ -43,7 +43,7 @@ class ChunkCodes:
 
     def host_ready(self) -> bool:
         """Whether the host buffer holds the codes (filled by some reader)."""
-        return self._filled[0]
+        return bool(self._filled[0])
 
     def full_host(self) -> np.ndarray:
         """The whole host block, copied from the device first if no reader has filled it."""

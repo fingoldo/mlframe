@@ -321,7 +321,8 @@ def apply_recipe(
     key = (str(recipe.name), str(recipe.kind), quant, id(X), getattr(X, "shape", None))
     hit = entries.get(key)
     if hit is not None and hit[0] is X:
-        return hit[1].copy()
+        cached: np.ndarray = hit[1]
+        return cached.copy()
     out = handler(recipe, X, col_cache, basis_cache)
     entries[key] = (X, np.array(out, copy=True))  # X is held so its id cannot be reused by another frame while the entry lives
     return out

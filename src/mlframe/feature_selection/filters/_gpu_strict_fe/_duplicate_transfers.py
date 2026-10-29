@@ -19,6 +19,7 @@ import logging
 import os
 import sys
 import threading
+import types
 from dataclasses import dataclass, field
 from typing import Any, Iterator
 
@@ -100,7 +101,7 @@ def _content_key(arr: np.ndarray) -> str:
 
 def _call_site() -> str:
     """The innermost ``_SITE_DEPTH`` mlframe frames of the caller as ``file:line(function)``, joined with ``<``."""
-    frame = sys._getframe(2)
+    frame: "types.FrameType | None" = sys._getframe(2)
     parts: list[str] = []
     while frame is not None and len(parts) < _SITE_DEPTH:
         path = frame.f_code.co_filename
