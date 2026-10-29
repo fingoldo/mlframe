@@ -69,6 +69,65 @@ def _try_astype_float32(series: pd.Series) -> tuple[pd.Series, bool]:
 # ----------------------------------------------------------------------------------------------------------------------------
 
 
+def _labels_to_tensor(labels, labels_dtype, device, share_memory):
+    """Labels as a tensor of ``labels_dtype``: multilabel 2-D kept, a single-column squeezed to 1-D, shared across DataLoader workers when possible."""
+    if isinstance(labels, (pd.DataFrame, pd.Series)):
+        labels = labels.to_numpy()
+    elif isinstance(labels, pl.DataFrame):
+        labels = labels.to_numpy()
+    elif not isinstance(labels, (np.ndarray, torch.Tensor)):
+        labels = np.asarray(labels)
+
+    # Preserve 2-D labels for multilabel ``(N, K)``. ``reshape(-1)`` would flatten to ``(N*K,)`` and silently break BCEWithLogitsLoss
+    # (``target.shape != input.shape``). Pure 1-D labels (regression / single-label classification) keep their original shape.
+    # ``pl.DataFrame.to_numpy()`` on a single-column frame returns ``(N, 1)`` - under default ``labels_dtype=int64`` cross_entropy then sees a
+    # 2-D Long target and errors with ``Expected floating point type for target with class probabilities, got Long``. Squeeze the trailing
+    # length-1 dim so single-label classification delivers ``(N,)`` regardless of whether the upstream carrier was a Series or a 1-col
+    # DataFrame. Genuine multilabel ``(N, K>=2)`` is unaffected.
+    _arr = np.asarray(labels)
+    if _arr.ndim == 1:
+        _arr = _arr.reshape(-1)  # explicit 1-D contiguous (no-op for already-1D)
+    elif _arr.ndim == 2 and _arr.shape[1] == 1:
+        _arr = _arr.reshape(-1)  # collapse (N, 1) -> (N,) for single-label paths
+    # 2-D ndarray with K>=2 passes through; ndim>=3 untouched (caller's responsibility)
+    _t = torch.tensor(_arr, dtype=labels_dtype, device=device)
+    # Same shared-memory promotion as features (labels are accessed per-batch alongside features).
+    if share_memory and isinstance(_t, torch.Tensor) and _t.device.type == "cpu":
+        try:
+            _t.share_memory_()
+        except (RuntimeError, NotImplementedError):
+            pass
+    return _t
+
+def _sample_weight_to_tensor(sample_weight, device, share_memory):
+    """Sample weights as a flat float32 tensor, shared across DataLoader workers when possible."""
+    if isinstance(sample_weight, (pd.DataFrame, pd.Series)):
+        sample_weight = sample_weight.to_numpy()
+    elif isinstance(sample_weight, pl.DataFrame):
+        sample_weight = sample_weight.to_numpy()
+    elif not isinstance(sample_weight, (np.ndarray, torch.Tensor)):
+        sample_weight = np.asarray(sample_weight)
+
+    sample_weight = np.asarray(sample_weight).reshape(-1)
+    _t = torch.tensor(sample_weight, dtype=torch.float32, device=device)
+    if share_memory and isinstance(_t, torch.Tensor) and _t.device.type == "cpu":
+        try:
+            _t.share_memory_()
+        except (RuntimeError, NotImplementedError):
+            pass
+    return _t
+
+def _features_length(features):
+    """Number of rows in a feature carrier (tensor, ndarray, pandas or polars frame)."""
+    if torch.is_tensor(features):
+        return len(features)
+    elif isinstance(features, (np.ndarray, pd.DataFrame)):
+        return len(features)
+    elif isinstance(features, pl.DataFrame):
+        return features.height
+    else:
+        raise TypeError(f"Cannot determine length from features type: {type(features)}")
+
 class TorchDataset(Dataset):
     """PyTorch ``Dataset`` wrapping feature/label/sample-weight arrays; eager-converts small inputs to tensors up front and defers per-batch conversion for large inputs to bound peak RAM (see the module's byte-size gate).
 
@@ -137,63 +196,15 @@ class TorchDataset(Dataset):
 
         # Handle labels (optional for prediction)
         if labels is not None:
-            if isinstance(labels, (pd.DataFrame, pd.Series)):
-                labels = labels.to_numpy()
-            elif isinstance(labels, pl.DataFrame):
-                labels = labels.to_numpy()
-            elif not isinstance(labels, (np.ndarray, torch.Tensor)):
-                labels = np.asarray(labels)
-
-            # Preserve 2-D labels for multilabel ``(N, K)``. ``reshape(-1)`` would flatten to ``(N*K,)`` and silently break BCEWithLogitsLoss
-            # (``target.shape != input.shape``). Pure 1-D labels (regression / single-label classification) keep their original shape.
-            # ``pl.DataFrame.to_numpy()`` on a single-column frame returns ``(N, 1)`` - under default ``labels_dtype=int64`` cross_entropy then sees a
-            # 2-D Long target and errors with ``Expected floating point type for target with class probabilities, got Long``. Squeeze the trailing
-            # length-1 dim so single-label classification delivers ``(N,)`` regardless of whether the upstream carrier was a Series or a 1-col
-            # DataFrame. Genuine multilabel ``(N, K>=2)`` is unaffected.
-            _arr = np.asarray(labels)
-            if _arr.ndim == 1:
-                _arr = _arr.reshape(-1)  # explicit 1-D contiguous (no-op for already-1D)
-            elif _arr.ndim == 2 and _arr.shape[1] == 1:
-                _arr = _arr.reshape(-1)  # collapse (N, 1) -> (N,) for single-label paths
-            # 2-D ndarray with K>=2 passes through; ndim>=3 untouched (caller's responsibility)
-            self.labels: Optional[torch.Tensor] = torch.tensor(_arr, dtype=labels_dtype, device=device)
-            # Same shared-memory promotion as features (labels are accessed per-batch alongside features).
-            if self._share_memory and isinstance(self.labels, torch.Tensor) and self.labels.device.type == "cpu":
-                try:
-                    self.labels.share_memory_()
-                except (RuntimeError, NotImplementedError):
-                    pass
+            self.labels: Optional[torch.Tensor] = _labels_to_tensor(labels, labels_dtype, device, self._share_memory)
             dataset_length = len(self.labels)
         else:
             self.labels = None
             # Determine length from features
-            if torch.is_tensor(self.features):
-                dataset_length = len(self.features)
-            elif isinstance(self.features, (np.ndarray, pd.DataFrame)):
-                dataset_length = len(self.features)
-            elif isinstance(self.features, pl.DataFrame):
-                dataset_length = self.features.height
-            else:
-                raise TypeError(f"Cannot determine length from features type: {type(self.features)}")
+            dataset_length = _features_length(self.features)
 
         # Handle sample weights (optional)
-        if sample_weight is not None:
-            if isinstance(sample_weight, (pd.DataFrame, pd.Series)):
-                sample_weight = sample_weight.to_numpy()
-            elif isinstance(sample_weight, pl.DataFrame):
-                sample_weight = sample_weight.to_numpy()
-            elif not isinstance(sample_weight, (np.ndarray, torch.Tensor)):
-                sample_weight = np.asarray(sample_weight)
-
-            sample_weight = np.asarray(sample_weight).reshape(-1)
-            self.sample_weight: Optional[torch.Tensor] = torch.tensor(sample_weight, dtype=torch.float32, device=device)
-            if self._share_memory and isinstance(self.sample_weight, torch.Tensor) and self.sample_weight.device.type == "cpu":
-                try:
-                    self.sample_weight.share_memory_()
-                except (RuntimeError, NotImplementedError):
-                    pass
-        else:
-            self.sample_weight = None
+        self.sample_weight: Optional[torch.Tensor] = None if sample_weight is None else _sample_weight_to_tensor(sample_weight, device, self._share_memory)
 
         if batch_size > 0:
             self.num_batches = int(np.ceil(dataset_length / batch_size))

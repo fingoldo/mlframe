@@ -140,7 +140,6 @@
   "src/mlframe/training/feature_handling/assembler.py::assemble_for_model": 20,
   "src/mlframe/training/neural/_flat_torch_module/_flat_torch_loss.py::_LossMixin.compute_metrics": 17,
   "src/mlframe/training/neural/_muon_triton_kernel.py::maybe_newton_schulz_triton": 16,
-  "src/mlframe/training/neural/data.py::TorchDataset.__init__": 22,
   "src/mlframe/training/pipeline/_entity_time_composite_fe.py::apply_entity_time_composite_fe": 17,
   "src/mlframe/training/pipeline/_pipeline_cache.py::_full_x_content_hash": 18,
   "src/mlframe/training/pipeline/_pipeline_extensions_row_wise.py::apply_row_wise_steps": 20,
