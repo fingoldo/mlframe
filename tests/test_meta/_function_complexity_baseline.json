@@ -45,7 +45,6 @@
   "src/mlframe/feature_selection/filters/_mrmr_fe_step/_step_score_parts.py::_materialise_and_fina_step1_no_op_byte": 22,
   "src/mlframe/feature_selection/filters/_mrmr_fe_step_helpers.py::_apply_synergy_bootstrap_part1": 21,
   "src/mlframe/feature_selection/filters/_mrmr_fit_impl/_assign_support_tail.py::_assign_support_tai_g_step1_map_each_surviving": 23,
-  "src/mlframe/feature_selection/filters/_mrmr_fit_impl/_eng_dedup_scan.py::scan_engineered_duplicates": 23,
   "src/mlframe/feature_selection/filters/_mrmr_fit_impl/_fit_impl_stages/_engineered_gates.py::_gate_engineered_accuracy": 21,
   "src/mlframe/feature_selection/filters/_mrmr_fit_impl/_fit_impl_stages/_post_selection.py::_run_additional_rfecv": 17,
   "src/mlframe/feature_selection/filters/_mrmr_fit_impl/_friend_graph_and_redundancy/_group3.py::_drop_redundant_raw_operands_sweep": 23,

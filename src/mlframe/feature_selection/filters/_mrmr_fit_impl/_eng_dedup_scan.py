@@ -203,33 +203,7 @@ def scan_engineered_duplicates(
             _row_to_kc: dict[int, str] = {}
             _collect_kept_engineered_rows(_eng_keep, _eng_row_of, _active_mask, _row_to_kc)
             _masked_corr_prefilter(_active_mask, _ranks_c, _rank_rows, _row_to_kc, _fast_kept_set, _colliding_kept)
-        for _kept_col in _eng_keep:
-            if _kept_col in _fast_kept_set:
-                continue
-            _arr_k = _eng_arrs[_kept_col]
-            # A kept column already known to be fully finite contributes an all-True mask; skip the O(n) isfinite pass for it.
-            _mask = _fin_c if _eng_fully_finite.get(_kept_col, False) else (_fin_c & np.isfinite(_arr_k))
-            if _mask.sum() < 8:
-                continue
-            _a, _b = _arr_c[_mask], _arr_k[_mask]
-            if _a.std() <= _REL_TOL * float(np.abs(_a).max()) or _b.std() <= _REL_TOL * float(np.abs(_b).max()):
-                continue
-            if bool(_mask.all()):
-                # No-NaN fast path: masked subset == full column, so reuse the cached full-column ranks
-                # (identical values) instead of re-sorting both columns for this pair.
-                _ranks_a = _ranks_c
-                _ranks_b = _eng_ranks.get(_kept_col)
-                if _ranks_b is None:
-                    _ranks_b = pd.Series(_arr_k).rank(method="average").to_numpy()
-                    _eng_ranks[_kept_col] = _ranks_b
-            else:
-                _ranks_a = pd.Series(_a).rank(method="average").to_numpy()
-                _ranks_b = pd.Series(_b).rank(method="average").to_numpy()
-            if _ranks_a.std() <= 1e-12 or _ranks_b.std() <= 1e-12:
-                continue
-            _rank_corr = abs(float(np.corrcoef(_ranks_a, _ranks_b)[0, 1]))
-            if np.isfinite(_rank_corr) and _rank_corr >= 0.99:
-                _colliding_kept.append(_kept_col)
+        _pair_collisions(_colliding_kept, _eng_keep, _fast_kept_set, _arr_c, _fin_c, _ranks_c, _eng_arrs, _eng_ranks, _eng_fully_finite)
         if _colliding_kept:
             # Keep-higher-MI: the candidate displaces every colliding kept column it out-scores, and is itself dropped only if some colliding kept column wins.
             # ``_eng_dedup_prefer`` returns False when MI is unavailable, so an unscored cluster degrades exactly to the original first-appended policy (candidate dropped).
@@ -255,6 +229,37 @@ def scan_engineered_duplicates(
                 if _row_c is not None:
                     _eng_row_of[_c] = _row_c
     return _eng_keep, _eng_drop, _eng_arrs, _eng_ranks
+
+
+def _pair_collisions(_colliding_kept, _eng_keep, _fast_kept_set, _arr_c, _fin_c, _ranks_c, _eng_arrs, _eng_ranks, _eng_fully_finite):
+    """Append each kept column the candidate Spearman-collides with (|rho| >= 0.99) to ``_colliding_kept``, skipping batched ones."""
+    for _kept_col in _eng_keep:
+        if _kept_col in _fast_kept_set:
+            continue
+        _arr_k = _eng_arrs[_kept_col]
+        # A kept column already known to be fully finite contributes an all-True mask; skip the O(n) isfinite pass for it.
+        _mask = _fin_c if _eng_fully_finite.get(_kept_col, False) else (_fin_c & np.isfinite(_arr_k))
+        if _mask.sum() < 8:
+            continue
+        _a, _b = _arr_c[_mask], _arr_k[_mask]
+        if _a.std() <= _REL_TOL * float(np.abs(_a).max()) or _b.std() <= _REL_TOL * float(np.abs(_b).max()):
+            continue
+        if bool(_mask.all()):
+            # No-NaN fast path: masked subset == full column, so reuse the cached full-column ranks
+            # (identical values) instead of re-sorting both columns for this pair.
+            _ranks_a = _ranks_c
+            _ranks_b = _eng_ranks.get(_kept_col)
+            if _ranks_b is None:
+                _ranks_b = pd.Series(_arr_k).rank(method="average").to_numpy()
+                _eng_ranks[_kept_col] = _ranks_b
+        else:
+            _ranks_a = pd.Series(_a).rank(method="average").to_numpy()
+            _ranks_b = pd.Series(_b).rank(method="average").to_numpy()
+        if _ranks_a.std() <= 1e-12 or _ranks_b.std() <= 1e-12:
+            continue
+        _rank_corr = abs(float(np.corrcoef(_ranks_a, _ranks_b)[0, 1]))
+        if np.isfinite(_rank_corr) and _rank_corr >= 0.99:
+            _colliding_kept.append(_kept_col)
 
 
 def _collect_kept_engineered_rows(_eng_keep, _eng_row_of, _active_mask, _row_to_kc):
