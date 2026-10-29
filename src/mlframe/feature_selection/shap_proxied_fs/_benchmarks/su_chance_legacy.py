@@ -28,7 +28,6 @@ CHANCE_N_PERM: int = 2
 
 
 @njit(nogil=True, cache=True)
-@njit(nogil=True, cache=True)
 def _mi_sorted(a: np.ndarray, b: np.ndarray, nb_b: int, ca: np.ndarray, cb: np.ndarray, keys: np.ndarray) -> float:
     n = a.shape[0]
     for k in range(n):

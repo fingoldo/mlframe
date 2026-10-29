@@ -1220,7 +1220,7 @@ class TestTrainMlframeModelsSuiteUseGroups:
     suppressed when ``use_groups=False``.
 
     Implementation strategy: monkeypatch ``make_train_test_split`` in
-    core.py to capture the ``groups=`` argument and short-circuit to a
+    the split-steps module (where the suite calls it) to capture the ``groups=`` argument and short-circuit to a
     trivial 3-way split. This is much faster than a full training run
     (no GBDT fitting) and more targeted than asserting via metadata,
     which doesn't carry the raw groups array.
@@ -1247,7 +1247,7 @@ class TestTrainMlframeModelsSuiteUseGroups:
         make_train_test_split`` binding) -- ``_phase_helpers`` no longer imports
         that name at all, so only the sibling needs patching.
         """
-        from mlframe.training.core import _phase_helpers_fit_split as _ph_fs_mod
+        from mlframe.training.core import _phase_helpers_split_steps as _ph_fs_mod
 
         def _fake_split(df, *, return_calib=False, **kwargs):
             """Fake split."""
