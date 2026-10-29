@@ -28,3 +28,11 @@ plain-MI numba kernel 2.3 s, Newton fit 1.2 s, `_permutation_sources_njit` 1.0 s
 
 No single leaf is above 7 percent of the wall; the remaining levers each have a recorded measurement (see the family notes in this directory).
 Open candidates not yet measured: `_permutation_sources_njit` (10 calls, 0.99 s) and `_materialise_extval_njit` (19 calls, 0.92 s).
+
+## Leaf follow-ups (2026-10-29)
+
+- `_materialise_extval_njit` (0.92 s own): row-outer loop order applied, kernel 2.4x to 6x, selection identical on seeds 0 and 2 (`_materialise_extval_njit.md`).
+- `_column_string_codes_uncached` (0.58 s over 35 calls, `canonical_group_tokens`): `repr` of a continuous float column, about 17 ms per 20000 values. The codes are ranks of the sorted token strings,
+  so replacing the strings changes code order; not changed (0.8 percent of the wall).
+- Pair chunks: `ensure_host_codes_filled` 2.09 s over 17 chunks is the deferred code D2H and its GPU wait, already analysed in `strict_fit_d2h_traffic_2026_10_29.md` (owner decision pending).
+- `_permutation_sources_njit` (0.99 s, 10 calls): rewriting the shuffle changes the random stream and so the permutation null; needs a selection check before any change.
