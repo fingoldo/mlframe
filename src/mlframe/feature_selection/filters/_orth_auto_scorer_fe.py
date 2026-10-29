@@ -226,10 +226,16 @@ _AUTO_SCORER_COLUMNS = [
 ]
 
 
-def _bootstrap_lcb_per_scorer(x_full: np.ndarray, y_arr: np.ndarray, boot_idx: list, random_state: int, scorer_call: Callable) -> dict:
-    """Bootstrap LCB of every scorer in ``SCORER_NAMES`` for one column: ``{scorer: lcb}``."""
+def _bootstrap_lcb_per_scorer(x_full: np.ndarray, y_arr: np.ndarray, boot_idx: list, random_state: int, scorer_call: Callable, pre: "dict | None" = None) -> dict:
+    """Bootstrap LCB of every scorer in ``SCORER_NAMES`` for one column: ``{scorer: lcb}``.
+
+    ``pre`` maps a scorer name to this column's per-bootstrap values when those were computed for all columns together (:func:`_batched_bootstrap_values`).
+    """
     per_scorer = {}
     for s in SCORER_NAMES:
+        if pre is not None and s in pre:
+            per_scorer[s] = _compute_lcb(pre[s])
+            continue
         # Intentional float64: bootstrap accumulator kept f64 (exact resample statistics)
         vals = np.empty(len(boot_idx), dtype=np.float64)
         for b, idx in enumerate(boot_idx):
@@ -241,7 +247,61 @@ def _bootstrap_lcb_per_scorer(x_full: np.ndarray, y_arr: np.ndarray, boot_idx: l
     return per_scorer
 
 
-def _bootstrap_lcb_tables(columns: list, y_arr: np.ndarray, boot_idx: list, random_state: int, scorer_call: Callable, n_jobs: "int | None") -> list:
+_BATCHED_BOOTSTRAP_SCORERS = ("plug_in", "ksg", "copula", "dcor", "hsic", "xi")
+
+
+def _batched_bootstrap_values(columns: list, y_arr: np.ndarray, boot_idx: list, random_state: int, hyper: dict) -> "dict | None":
+    """``{scorer: (len(columns), len(boot_idx)) values}`` of the column-separable scorers, one batched call per bootstrap resample.
+
+    Each value equals the per-column scorer call on that column and resample: the batch kernels are the ones the per-column calls route to (plug-in, copula, xi, dCor, HSIC), and the KSG batch draws
+    each column's noise from its own seed. Only a classification target with integer labels and all-finite columns is batched; ``None`` leaves everything to the per-column path.
+    """
+    from ._orthogonal_copula_mi_fe import _copula_mi_batch
+    from ._orthogonal_dcor_fe import _dcor_batch
+    from ._orthogonal_hsic_fe import _hsic_batch
+    from ._orthogonal_ksg_mi_fe import _is_discrete_target
+    from ._orthogonal_univariate_fe import _mi_classif_batch
+    from ._orthogonal_xi_fe import xi_correlation_batch
+    from ._ksg_cd_fast import ksg_mi_discrete_target_columns
+
+    if not columns or not np.issubdtype(np.asarray(y_arr).dtype, np.integer):
+        return None
+    dt = _crit_np_dtype()
+    if not all(np.isfinite(c).all() for c in columns):
+        return None
+    ksg_ok = _is_discrete_target(y_arr)
+    out = {s: np.empty((len(columns), len(boot_idx)), dtype=np.float64) for s in _BATCHED_BOOTSTRAP_SCORERS if s != "ksg" or ksg_ok}
+    def one_resample(b: int) -> None:
+        """All batched scorers of resample ``b`` for every column, written into column ``b`` of the result."""
+        idx = boot_idx[b]
+        block = np.column_stack([np.asarray(c[idx], dtype=dt) for c in columns])
+        yb = y_arr[idx]
+        seed = int(random_state) + b
+        out["plug_in"][:, b] = np.asarray(_mi_classif_batch(block, yb, nbins=int(hyper["nbins"])), dtype=np.float64)
+        out["copula"][:, b] = np.asarray(_copula_mi_batch(block, yb, n_bins=int(hyper["copula_n_bins"])), dtype=np.float64)
+        out["xi"][:, b] = xi_correlation_batch(block, yb, random_state=seed)
+        out["dcor"][:, b] = _dcor_batch(block, yb, n_sample=int(hyper["dcor_n_sample"]), random_state=seed)
+        out["hsic"][:, b] = _hsic_batch(block, yb, n_sample=int(hyper["dcor_n_sample"]), random_state=seed)
+        if ksg_ok:
+            out["ksg"][:, b] = ksg_mi_discrete_target_columns(block, yb, n_neighbors=int(hyper["n_neighbors"]), random_state=seed)
+
+    # The resamples are independent (own seed, own output column), so they run on the pool; the first runs on this thread so the njit kernels compile once.
+    from ._adaptive_nbins import _resolve_edge_jobs
+
+    jobs = _resolve_edge_jobs(hyper.get("n_jobs"), len(boot_idx))
+    one_resample(0)
+    if jobs > 1 and len(boot_idx) > 1:
+        from concurrent.futures import ThreadPoolExecutor
+
+        with ThreadPoolExecutor(max_workers=jobs) as pool:
+            list(pool.map(one_resample, range(1, len(boot_idx))))
+    else:
+        for b in range(1, len(boot_idx)):
+            one_resample(b)
+    return out
+
+
+def _bootstrap_lcb_tables(columns: list, y_arr: np.ndarray, boot_idx: list, random_state: int, scorer_call: Callable, n_jobs: "int | None", hyper: "dict | None" = None) -> list:
     """``_bootstrap_lcb_per_scorer`` of every column vector in ``columns``, in order.
 
     The columns are independent and every bootstrap seed is ``random_state + b``, so the tables do not depend on the order or the thread they are computed on: they are
@@ -253,13 +313,15 @@ def _bootstrap_lcb_tables(columns: list, y_arr: np.ndarray, boot_idx: list, rand
     from ._adaptive_nbins import _resolve_edge_jobs
 
     jobs = _resolve_edge_jobs(n_jobs, len(columns))
+    batched = _batched_bootstrap_values(columns, y_arr, boot_idx, random_state, hyper) if hyper is not None else None
+    precomputed = [None] * len(columns) if batched is None else [{s: v[i] for s, v in batched.items()} for i in range(len(columns))]
     if jobs <= 1 or len(columns) < 2 or numba.config.DISABLE_JIT:
-        return [_bootstrap_lcb_per_scorer(x, y_arr, boot_idx, random_state, scorer_call) for x in columns]
+        return [_bootstrap_lcb_per_scorer(x, y_arr, boot_idx, random_state, scorer_call, pre) for x, pre in zip(columns, precomputed)]
     from concurrent.futures import ThreadPoolExecutor
 
-    first = _bootstrap_lcb_per_scorer(columns[0], y_arr, boot_idx, random_state, scorer_call)
+    first = _bootstrap_lcb_per_scorer(columns[0], y_arr, boot_idx, random_state, scorer_call, precomputed[0])
     with ThreadPoolExecutor(max_workers=jobs) as pool:
-        rest = list(pool.map(lambda x: _bootstrap_lcb_per_scorer(x, y_arr, boot_idx, random_state, scorer_call), columns[1:]))
+        rest = list(pool.map(lambda xp: _bootstrap_lcb_per_scorer(xp[0], y_arr, boot_idx, random_state, scorer_call, xp[1]), zip(columns[1:], precomputed[1:])))
     return [first, *rest]
 
 
@@ -372,14 +434,15 @@ def select_best_scorer_per_column(
         """Bind this function's shared hyperparameters into the module-level scorer dispatcher."""
         return _dispatch_scorer(name, x_vec, y_vec, seed, nbins=nbins, n_neighbors=n_neighbors, copula_n_bins=copula_n_bins, dcor_n_sample=dcor_n_sample)
 
+    _batch_hyper = {"nbins": nbins, "n_neighbors": n_neighbors, "copula_n_bins": copula_n_bins, "dcor_n_sample": dcor_n_sample, "n_jobs": n_jobs}
     # Per-source baseline: { source_col: { scorer: lcb } }. Computed
     # ONCE per source - many engineered columns share the same source.
-    source_tables = _bootstrap_lcb_tables([raw_X[src].to_numpy(dtype=_crit_np_dtype()) for src in raw_cols], y_arr, boot_idx, random_state, _scorer_call, n_jobs)
+    source_tables = _bootstrap_lcb_tables([raw_X[src].to_numpy(dtype=_crit_np_dtype()) for src in raw_cols], y_arr, boot_idx, random_state, _scorer_call, n_jobs, _batch_hyper)
     source_lcb = dict(zip(raw_cols, source_tables))
 
     per_scorer_max, per_scorer_scale = _per_scorer_headroom_scales(source_lcb, raw_cols)
 
-    eng_tables = _bootstrap_lcb_tables([engineered_X[eng_name].to_numpy(dtype=_crit_np_dtype()) for eng_name in eng_cols], y_arr, boot_idx, random_state, _scorer_call, n_jobs)
+    eng_tables = _bootstrap_lcb_tables([engineered_X[eng_name].to_numpy(dtype=_crit_np_dtype()) for eng_name in eng_cols], y_arr, boot_idx, random_state, _scorer_call, n_jobs, _batch_hyper)
     rows = []
     for eng_name, per_scorer in zip(eng_cols, eng_tables):
         src = eng_name.split("__", 1)[0] if "__" in eng_name else eng_name
