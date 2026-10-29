@@ -342,6 +342,54 @@ def _keep_best_raw_if_selection_empties(self: Any, X: Any, y: np.ndarray, cols: 
         dropped.remove(max(corr, key=lambda k: corr[k]))
 
 
+def _admit_pool_columns(self, X, y, admitted, cols, selected_vars, engineered_recipes, cell_recipes, retention_added_eng_names, verbose) -> tuple:
+    """Append each admitted pool column to the selection (engineered recipes and raws); returns the admitted names and the engineered subset."""
+    names = []
+    admitted_engineered = []
+    col_index = {str(c): i for i, c in enumerate(cols)}
+    for name, t_stat, rel in admitted:
+        rec = engineered_recipes.get(name) or cell_recipes.get(name)
+        if rec is not None:
+            self._engineered_recipes_.append(rec)
+            self._engineered_features_.append(name)
+            retention_added_eng_names.add(name)
+            admitted_engineered.append(name)
+        elif name in col_index and col_index[name] not in selected_vars:
+            # A between-group leak raw column is not re-admitted by the global residual test under group_aware_mi.
+            if _is_group_leak_raw(X, name, np.asarray(y).ravel()):
+                continue
+            selected_vars.append(col_index[name])
+        else:
+            continue
+        names.append(name)
+        if verbose:
+            logger.info("MRMR residual rescue: admitted %r (t=%.1f, %.1f%% of the target variance).", name, t_stat, 100.0 * rel)
+    return names, admitted_engineered
+
+
+def _prune_after_admission(self, X, y, cols, selected_vars, design, pool, prune_names, admitted_engineered, raw_cols, eng_set, verbose) -> tuple:
+    """Re-prune the design after admission, then drop the raw and engineered columns that lost their held-out gain; returns the dropped raw indices and the pruned engineered names."""
+    from .._residual_rescue_fe import residual_rescue
+
+    col_index = {str(c): i for i, c in enumerate(cols)}
+    prune_names = _reprune_after_admission(self, design, pool, prune_names, admitted_engineered, y, raw_cols, residual_rescue)
+    dropped = [col_index[n] for n in prune_names if n in col_index and col_index[n] in selected_vars and n not in eng_set]
+    _keep_best_raw_if_selection_empties(self, X, y, cols, selected_vars, dropped, prune_names)
+    for idx in dropped:
+        selected_vars.remove(idx)
+        if verbose:
+            logger.info("MRMR residual rescue: pruned raw column %r (no held-out gain given the rest of the selection).", cols[idx])
+    pruned_eng = [n for n in prune_names if n in eng_set]
+    _record_prunes(self, [str(cols[idx]) for idx in dropped], pruned_eng)
+    if pruned_eng:
+        keep = [(f, r) for f, r in zip(self._engineered_features_, self._engineered_recipes_) if str(f) not in pruned_eng]
+        self._engineered_features_[:] = [f for f, _ in keep]
+        self._engineered_recipes_[:] = [r for _, r in keep]
+        if verbose:
+            logger.info("MRMR residual rescue: pruned engineered column(s) %s (no held-out gain given the rest of the selection).", pruned_eng)
+    return dropped, pruned_eng
+
+
 def run_residual_rescue(self, X: Any, selected_vars: Any, cols: Any, engineered_recipes: Any, retention_added_eng_names: Any, verbose: Any, prune_only: bool = False) -> bool:
     """Admit the pool columns that reduce the held-out residual of the selected design and prune the redundant raws (``redundancy_policy='drop'``); True when the selection changed."""
     if not getattr(self, "fe_residual_rescue_enable", False):
@@ -398,40 +446,8 @@ def run_residual_rescue(self, X: Any, selected_vars: Any, cols: Any, engineered_
         logger.warning("MRMR residual rescue failed; the selection is left as it was.", exc_info=True)
         return False
     names = []
-    admitted_engineered = []
-    col_index = {str(c): i for i, c in enumerate(cols)}
-    for name, t_stat, rel in admitted:
-        rec = engineered_recipes.get(name) or cell_recipes.get(name)
-        if rec is not None:
-            self._engineered_recipes_.append(rec)
-            self._engineered_features_.append(name)
-            retention_added_eng_names.add(name)
-            admitted_engineered.append(name)
-        elif name in col_index and col_index[name] not in selected_vars:
-            # A between-group leak raw column is not re-admitted by the global residual test under group_aware_mi.
-            if _is_group_leak_raw(X, name, np.asarray(y).ravel()):
-                continue
-            selected_vars.append(col_index[name])
-        else:
-            continue
-        names.append(name)
-        if verbose:
-            logger.info("MRMR residual rescue: admitted %r (t=%.1f, %.1f%% of the target variance).", name, t_stat, 100.0 * rel)
-    prune_names = _reprune_after_admission(self, design, pool, prune_names, admitted_engineered, y, raw_cols, residual_rescue)
-    dropped = [col_index[n] for n in prune_names if n in col_index and col_index[n] in selected_vars and n not in eng_set]
-    _keep_best_raw_if_selection_empties(self, X, y, cols, selected_vars, dropped, prune_names)
-    for idx in dropped:
-        selected_vars.remove(idx)
-        if verbose:
-            logger.info("MRMR residual rescue: pruned raw column %r (no held-out gain given the rest of the selection).", cols[idx])
-    pruned_eng = [n for n in prune_names if n in eng_set]
-    _record_prunes(self, [str(cols[idx]) for idx in dropped], pruned_eng)
-    if pruned_eng:
-        keep = [(f, r) for f, r in zip(self._engineered_features_, self._engineered_recipes_) if str(f) not in pruned_eng]
-        self._engineered_features_[:] = [f for f, _ in keep]
-        self._engineered_recipes_[:] = [r for _, r in keep]
-        if verbose:
-            logger.info("MRMR residual rescue: pruned engineered column(s) %s (no held-out gain given the rest of the selection).", pruned_eng)
+    names, admitted_engineered = _admit_pool_columns(self, X, y, admitted, cols, selected_vars, engineered_recipes, cell_recipes, retention_added_eng_names, verbose)
+    dropped, pruned_eng = _prune_after_admission(self, X, y, cols, selected_vars, design, pool, prune_names, admitted_engineered, raw_cols, eng_set, verbose)
     if names or dropped:
         self.support_ = np.array(selected_vars, dtype=np.int64)
     return bool(names or dropped or pruned_eng)
