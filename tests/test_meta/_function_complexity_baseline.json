@@ -159,7 +159,7 @@
   "src/mlframe/training/pipeline/_entity_time_composite_fe.py::apply_entity_time_composite_fe": 17,
   "src/mlframe/training/pipeline/_pipeline_cache.py::_full_x_content_hash": 18,
   "src/mlframe/training/pipeline/_pipeline_extensions_row_wise.py::apply_row_wise_steps": 20,
-  "src/mlframe/training/pipeline/_pipeline_fit_state.py::_passthrough_cols_fit_transform": 23,
+  "src/mlframe/training/pipeline/_pipeline_fit_state.py::_passthrough_cols_fit_transform": 20,
   "src/mlframe/training/preprocessing.py::preprocess_dataframe": 17,
   "src/mlframe/training/ranking/_ranker_fs.py::_group_features_mi_njit": 20,
   "src/mlframe/training/ranking/_ranker_fs.py::_group_relevance_one_group_add": 20,
