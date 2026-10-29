@@ -50,6 +50,7 @@ Run from the repository root. The script re-runs each meta-test in
 - `_stale_not_wired_docstring_baseline.json` - "not wired" docstrings on things that now are
 - `_tick_isinstance_baseline.json` - `isinstance` checks on matplotlib tick/offset objects
 - `_uncalled_functions_baseline.json` - module-level functions with no production call site
+- `_asarray_length_baseline.json` - `np.asarray(x).shape[0]` / `len(np.asarray(x))` copies made only to read a size, which on a lazy device-backed array is a full device-to-host transfer; use `length_of` / `size_of`, or mark a host-array line `# length-ok: <reason>` (test_no_asarray_for_length.py)
 - `_unlocked_module_cache_baseline.json` - module-level caches mutated without a lock
 - `_unprotected_treeexplainer_baseline.json` - `shap.TreeExplainer` calls with no guard
 - `_vacuous_loop_baseline.json` - test loops whose only asserts are inside the loop, so zero iterations pass (py_ci_shared.vacuous_loop_assertions, `regen_baselines.py`)

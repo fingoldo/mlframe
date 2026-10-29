@@ -19,6 +19,8 @@ class ChunkCodes:
 
     __slots__ = ("_dev", "_filled", "dtype", "host", "shape")
 
+    ndim = 2  # a chunk's codes are always an (n, K) block
+
     def __init__(self, host: np.ndarray, dev: Any, filled: list) -> None:
         self.host = host
         self._dev = dev
@@ -38,11 +40,6 @@ class ChunkCodes:
         if got is None or got[1][0]:
             return host
         return cls(host, got[0], got[1])
-
-    @property
-    def ndim(self) -> int:
-        """Number of dimensions."""
-        return len(self.shape)
 
     def host_ready(self) -> bool:
         """Whether the host buffer holds the codes (filled by some reader)."""

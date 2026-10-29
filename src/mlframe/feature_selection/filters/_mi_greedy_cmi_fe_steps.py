@@ -8,6 +8,7 @@ import threading
 from typing import Callable, Optional
 
 import numpy as np
+from mlframe.feature_selection.filters._lazy_host_codes import size_of
 from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 
 try:
@@ -495,7 +496,7 @@ def cmi_from_binned_fixed_yz(
     # see that, so an already-device x forces the cupy path regardless, and a cupy failure there pulls x/y_i/
     # z_i to host explicitly before falling through (np.ascontiguousarray cannot accept a cupy array).
     _x_device = hasattr(x, "__cuda_array_interface__")
-    if _x_device or _cmi_gpu_enabled(n=int(np.asarray(x).size), p=1):
+    if _x_device or _cmi_gpu_enabled(n=size_of(x), p=1):
         try:
             return _cmi_from_binned_fixed_yz_cupy(x, y_i, z_i, h_yz, h_z, k_yz, k_z, n)
         except Exception as e:
@@ -570,7 +571,7 @@ def _cmi_candidate_batch_on_device(*, n: int, p: int) -> bool:
 
         return bool(_cuda_usable()) and int(p) >= _STRICT_MIN_CALL_P and int(n) * int(p) >= _STRICT_MIN_CALL_WORK
     except Exception as e:
-        logger.debug("candidate-batch device probe failed (%s: %s) -- host path", type(e).__name__, e)
+        log_throttle(logger, "cmi_candidate_batch_probe", logging.WARNING, "candidate-batch device probe failed (%s: %s); scoring on the host", type(e).__name__, e)
         return False
 
 

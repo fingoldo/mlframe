@@ -13,6 +13,7 @@ from typing import Any
 import logging
 
 import numpy as np
+from mlframe.feature_selection.filters._lazy_host_codes import length_of
 from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 import pandas as pd
 
@@ -200,7 +201,7 @@ def _friend_graph_and_redundancy_passes_group4_part1(
                 if _enm in _raw_names_for_redund:
                     continue
                 _cv = (_eng_continuous_snapshot or {}).get(_enm)
-                if _cv is not None and np.asarray(_cv).shape[0] == int(data.shape[0]):
+                if _cv is not None and length_of(_cv) == int(data.shape[0]):
                     _floor_child_vals.append(np.asarray(_cv, dtype=_crit_np_dtype()).ravel())
                 else:
                     _floor_child_vals.append(np.asarray(data[:, _ei], dtype=_crit_np_dtype()).ravel())

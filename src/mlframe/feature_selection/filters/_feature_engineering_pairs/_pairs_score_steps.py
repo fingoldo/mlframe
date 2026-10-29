@@ -9,6 +9,7 @@ from timeit import default_timer as timer
 from functools import partial
 
 import numpy as np
+from mlframe.feature_selection.filters._lazy_host_codes import length_of
 
 from ._pairs_abs_corr_gpu import abs_corr_or_none
 from ._pairs_chunk_codes import code_column
@@ -952,8 +953,8 @@ def _score_one_pair_step5_any_error_leaves(
             if (
                 _tc_x0 is not None
                 and _tc_x1 is not None
-                and np.asarray(_tc_x0).shape[0] == _corr_y_cont.shape[0]
-                and np.asarray(_tc_x1).shape[0] == _corr_y_cont.shape[0]
+                and length_of(_tc_x0) == _corr_y_cont.shape[0]
+                and length_of(_tc_x1) == _corr_y_cont.shape[0]
                 and pair_is_tail_concentrated_rankaware(
                     _corr_y_cont,
                     _tc_x0,

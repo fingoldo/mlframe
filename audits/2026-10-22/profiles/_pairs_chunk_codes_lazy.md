@@ -34,3 +34,46 @@ tuning-cache state that I could not reproduce afterwards.
   shuffles (`_permutation_sources_njit` runs on the host), so the copy stays, now a single narrow transfer of 30 KB.
 
 Full fit (`fit_sel_gate.py`, GPU shared): seed 0 68.5 -> 58.0 s, seed 2 83.9 -> 67.3 s, selection identical on both. 76 tests of the touched modules pass.
+
+## Systematic pass over repeated copies (2026-10-29)
+
+Fixing readers one by one from the top of a site list missed some and moved copies around (a narrowed read that is not shared leaves a later dense read to pay again; the traffic total went up
+once). `duplicate_transfer_audit` (`filters/_gpu_strict_fe/_duplicate_transfers.py`, CLI `_benchmarks/profiling/duplicate_d2h.py`) hashes the host array of every device-to-host copy of at
+least 2 KB after a normalising cast (floats as float32, integers as int64), so a dense and a narrowed copy of one array are the same content, and lists every group of repeats with its call
+sites. On the strict pair-search audit (n=30000) it found 420,000 B of repeated content in 2,362,048 B:
+
+- one engineered column read narrow by the held-out gate and dense float64 by `_assign_support_tail` (`np.asarray(x).shape[0]` copied it just for the length), `_fe_raw_redundancy_drop._cont_of`,
+  `_fe_raw_redundancy_anchors` and `_finite_column` (240 KB, then 120 KB);
+- the same compound recipe replayed by the residual rescue and then by the final subsumption (120 KB, plus the replay itself).
+
+Fixes: `LazyHostCodes.host_as(dtype)` keeps one copy per dtype (float arrays narrowed on the device, so half the bytes), `__array__(dtype)` goes through it, so `np.asarray(lazy, dtype=...)` anywhere
+shares it; `length_of` / `size_of` read a length without a copy (six sites, plus the meta gate `test_no_asarray_for_length.py` that freezes 126 harmless hits on host arrays and rejects new ones);
+`replay_value_cache` shares recipe replays between the stages of `_assign_support_tail` for the duration of that call (thread-local, nothing kept on the estimator; a `unary_binary` replay ignores
+`quantization`, so the stripped copy of a recipe hits the same entry).
+
+Result: 2,002,048 B in 80 transfers, 60,000 B repeated; `test_strict_fit_copies_back_only_result_columns` passes on repeated runs (2,480,307 B before the pass, over the 2.4 MB budget).
+`test_strict_fit_does_not_copy_the_same_content_back_repeatedly` pins the repeated bytes at 3 n.
+
+Left: two int8 code columns (30 KB each) binned by `_discretise_inert_probe` and again by `_materialise_and_fina_step3_cols_space_index`. A cache keyed on the device address would
+return stale codes when a pair buffer is rewritten in place, for 60 KB; not done.
+
+The device cast of float64 to float32 flushes results below 1.2e-38 to zero where the host keeps a subnormal. The selection bar is equivalence, not bit identity, and no consumer of a
+criterion-dtype column can tell, so `host_as` does not guard against it (a guard was written first and removed; its cost was an extra scalar read per call).
+
+## `_fused_observed_mi_and_bins` wait (2026-10-29)
+
+cProfile attributes 1.7 s of `lock.acquire` / `.get` to `_pairs_analytic_gpu._fused_observed_mi_and_bins` (108 calls). nsys shows the kernel it launches, `analytic_obs_mi_bins_i8`, at 4.8 ms per
+launch (26 launches, 0.125 s). The rest is the first read of the function (`cp.stack([min, max]).get()`) waiting for the kernels the chunk producer queued before it: candidate
+materialise, binning, the transposes and the radix select. So the function is where the host first synchronises, not where the time is spent; splitting its launch from its reads would only
+move the wait to the next read. The levers are shorter producer kernels (the radix select is at its measured floor on this card, see `_gpu_resident_select_kernels.py`) or a deeper chunk
+prefetch (a third candidate buffer of n x K float32, about 300 MB at n=20000, K=3888, on a 4 GB card shared with other processes), which needs a quiet device to measure. Not changed.
+
+## Last repeated columns and the CI question (2026-10-29)
+
+`LazyHostCodes` keeps the quantile codes it has already produced (`codes_cached` / `store_codes`, per array and per `(nbins, dtype)`; a one-column view of a block files its column under the block).
+The inert-leaf probe bins each candidate column and the survivor block bins the same columns again; with the cache the second step reads the first one's codes. The cache lives on the array object,
+so it cannot go stale across objects, and every hit returns a copy. On the strict pair-search audit the repeated content is now 0 B of 1,942,048 B (it was 420,000 B of 2,362,048 B), and the guard
+`test_strict_fit_does_not_copy_the_same_content_back_repeatedly` allows one int8 code column.
+
+A nightly CI job for `duplicate_d2h` was considered and not added: the GitHub-hosted runners have no GPU (`fs-benchmark-nightly.yml` says so), so the job would silently measure nothing. What CI can
+run is static: `test_no_asarray_for_length.py` rejects a new `np.asarray(x).shape[0]`, the pattern behind most of the repeated copies. The device guard runs wherever the GPU tests run.

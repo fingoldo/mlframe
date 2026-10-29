@@ -34,7 +34,7 @@ def batched_device_marginals(cols: list, y_codes: np.ndarray, nbins: int) -> Opt
             # never copied to the host just to be uploaded again.
             if any(int(c.shape[0]) != n or not bool(cp.isfinite(c.dev).all()) for c in cols):
                 return None
-        elif any(int(np.asarray(c).shape[0]) != n or not np.isfinite(c).all() for c in cols):
+        elif any(int(np.asarray(c).shape[0]) != n or not np.isfinite(c).all() for c in cols):  # length-ok: the device-backed columns took the branch above
             return None
         from .._fe_batched_mi import batched_cmi_gpu, batched_quantile_bin_gpu
 

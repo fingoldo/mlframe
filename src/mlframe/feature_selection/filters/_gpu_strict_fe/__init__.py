@@ -6,6 +6,7 @@ crossover, selection-equivalent), with multi-GPU sharding + per-device hw-spec-a
 modules + the plan for the contract + phasing. Phase 0 is a scaffold (the entry stub falls back to the existing
 per-family FE step until later phases implement the resident pipeline)."""
 from ._audit import BULK_BYTES, ResidencyReport, residency_audit
+from ._duplicate_transfers import DuplicateTransferReport, duplicate_transfer_audit
 from ._entry import (
     fe_gpu_device_born_binagg_enabled,
     fe_gpu_device_born_crossbasis_enabled,
@@ -24,6 +25,8 @@ from ._entry import (
 from ._state import ResidentFEState
 
 __all__ = [
+    "DuplicateTransferReport",
+    "duplicate_transfer_audit",
     "ResidentFEState",
     "run_fe_step_gpu_strict",
     "fe_gpu_strict_resident_enabled",

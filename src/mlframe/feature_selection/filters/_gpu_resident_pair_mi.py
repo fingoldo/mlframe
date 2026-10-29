@@ -24,6 +24,7 @@ from collections.abc import Sequence
 
 from mlframe.utils.log_throttle import log_throttle
 import numpy as np
+from mlframe.feature_selection.filters._lazy_host_codes import length_of
 
 if TYPE_CHECKING:
     from .engineered_recipes import EngineeredRecipe
@@ -697,7 +698,7 @@ def pair_candidate_mi_dispatch(a: np.ndarray, b: np.ndarray, y_codes: np.ndarray
     (cupy present, n >= the crossover, VRAM-chunked so it can't thrash), CPU njit otherwise. Returns
     ``(names, mi)`` identical in shape/order to both paths. The default FE pipeline does NOT call this
     yet (gated prototype); it is the dispatcher the production wiring will use."""
-    n = int(np.asarray(a).shape[0])
+    n = length_of(a)
     # Per-host crossover via the shared kernel_tuning_cache (mirrors the FE pair-MI path) rather than the
     # hardcoded 50k: the per-host CPU-vs-GPU sweep decides, and _GPU_RESIDENT_MIN_N is only the source-code
     # FALLBACK (inside _fe_gpu_pairs_mi_fallback_choice) when the cache is cold / lookup fails. Honours the

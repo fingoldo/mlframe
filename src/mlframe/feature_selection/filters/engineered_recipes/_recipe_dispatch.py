@@ -10,7 +10,9 @@ appliers (which themselves recurse back here for nested-engineered operands).
 
 from __future__ import annotations
 
+import contextlib
 import importlib
+import threading
 from typing import Any, Callable, cast
 
 import numpy as np
@@ -275,6 +277,26 @@ _KIND_HANDLERS: dict[str, _Handler] = {
 }
 
 
+_REPLAY_VALUES = threading.local()
+
+
+@contextlib.contextmanager
+def replay_value_cache():
+    """Within the block, ``apply_recipe`` returns a copy of a previous replay of the same recipe on the same ``X`` object instead of replaying it again.
+
+    For stages that run one after another on one frame and each replay the engineered columns (the residual rescue, then the final subsumption), so a compound is computed and, on
+    the device path, copied back once. The cache is thread-local, lives only for the block and holds nothing on the estimator.
+    """
+    outer = getattr(_REPLAY_VALUES, "entries", None)
+    if outer is None:
+        _REPLAY_VALUES.entries = {}
+    try:
+        yield
+    finally:
+        if outer is None:
+            _REPLAY_VALUES.entries = None
+
+
 def apply_recipe(
     recipe: EngineeredRecipe, X: Any,
     col_cache: "dict[str, np.ndarray] | None" = None,
@@ -291,4 +313,15 @@ def apply_recipe(
     handler = _KIND_HANDLERS.get(recipe.kind)
     if handler is None:
         raise ValueError(f"Unknown recipe kind: {recipe.kind!r}")
-    return handler(recipe, X, col_cache, basis_cache)
+    entries = getattr(_REPLAY_VALUES, "entries", None)
+    if entries is None:
+        return handler(recipe, X, col_cache, basis_cache)
+    # unary_binary replays are continuous whatever ``quantization`` says (it is provenance only there), so a stripped copy of the recipe hits the same entry.
+    quant = None if recipe.kind == "unary_binary" else repr(getattr(recipe, "quantization", None))
+    key = (str(recipe.name), str(recipe.kind), quant, id(X), getattr(X, "shape", None))
+    hit = entries.get(key)
+    if hit is not None and hit[0] is X:
+        return hit[1].copy()
+    out = handler(recipe, X, col_cache, basis_cache)
+    entries[key] = (X, np.array(out, copy=True))  # X is held so its id cannot be reused by another frame while the entry lives
+    return out

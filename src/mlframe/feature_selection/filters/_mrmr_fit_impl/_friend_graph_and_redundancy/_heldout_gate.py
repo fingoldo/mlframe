@@ -17,6 +17,7 @@ import logging
 
 import numpy as np
 from ..._fe_usability_signal import _crit_np_dtype
+from ..._lazy_host_codes import host_as
 import pandas as pd
 
 from mlframe.feature_selection.filters._mrmr_fit_impl._friend_graph_and_redundancy._raw_protect_r2 import heldout_r2_scorer
@@ -36,7 +37,7 @@ def selected_design_columns(*, X: Any, cols: Sequence[str], selected_vars: Seque
         if values is None:
             continue
         try:
-            values = np.asarray(values, dtype=_crit_np_dtype()).reshape(-1)
+            values = host_as(values, _crit_np_dtype()).reshape(-1)
         except (TypeError, ValueError):
             # A raw categorical/string selected column (e.g. under skip_categorical_encoding) is not a numeric R^2-baseline regressor.
             continue
