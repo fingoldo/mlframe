@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import numpy as np
 from numba import njit, prange, types
-from numba.extending import intrinsic
+from numba.extending import intrinsic, overload
 
 
 @njit(cache=True)
@@ -90,7 +90,7 @@ def family_null_max_counts(cols: np.ndarray, n_x: np.ndarray, y_perms: np.ndarra
 
 
 @intrinsic
-def _popcount64(typingctx, x):
+def _ctpop64(typingctx, x):
     """Population count of a uint64 (the LLVM ``ctpop`` intrinsic, a single ``popcnt`` instruction on x86)."""
     sig = types.uint64(types.uint64)
 
@@ -100,6 +100,24 @@ def _popcount64(typingctx, x):
         return builder.call(fn, args)
 
     return sig, codegen
+
+
+def _popcount64(x):
+    """Population count of a uint64: ``_ctpop64`` inside numba, ``int.bit_count`` when JIT is disabled (an intrinsic cannot run as Python)."""
+    return int(x).bit_count()
+
+
+@overload(_popcount64)
+def _popcount64_overload(x):
+    """Route the numba-compiled call to the ``ctpop`` intrinsic for uint64 arguments."""
+    if x == types.uint64:
+
+        def impl(x):
+            """Emit the intrinsic popcount."""
+            return _ctpop64(x)
+
+        return impl
+    return None
 
 
 @njit(cache=True, parallel=True)
