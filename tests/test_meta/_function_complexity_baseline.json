@@ -96,7 +96,6 @@
   "src/mlframe/integrations/mlflow.py::get_or_create_mlflow_run": 18,
   "src/mlframe/metrics/_ice_metric.py::ICE.evaluate": 17,
   "src/mlframe/metrics/calibration/_calibration_plot.py::_fast_calibration_binning_prange_kernel": 17,
-  "src/mlframe/metrics/ranking.py::_summary_batched_kernel": 23,
   "src/mlframe/models/ensembling/_correlation.py::compute_high_correlation_pairs": 19,
   "src/mlframe/models/ensembling/predict.py::ensemble_probabilistic_predictions_streaming": 23,
   "src/mlframe/models/ensembling/selection.py::stepwise_ensemble_selection": 19,

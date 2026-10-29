@@ -271,6 +271,78 @@ def mrr(
     return _nan_mean(vals)
 
 
+@numba.njit(fastmath=False, cache=True, nogil=True)
+def _summary_one_group(y_t: np.ndarray, y_sc: np.ndarray, eval_ks: np.ndarray, ndcg_row: np.ndarray, map_row: np.ndarray) -> float:
+    """Write one query's NDCG@k and MAP@k into ``ndcg_row`` / ``map_row`` and return its MRR (NaN when it has no positive)."""
+    n = y_t.shape[0]
+    # Sort the group's items by score descending for both NDCG and MAP / MRR; reused across all per-k metrics.
+    # Stable sort so tied scores do not shift NDCG/MAP/MRR across runs.
+    order = np.argsort(-y_sc, kind="mergesort")
+    rels_pred = y_t[order]
+    # bench-attempt-rejected (CPX23, 2026-06-23): the per-query double sort and n_rel_total are already hoisted here.
+    # A naive re-sort/re-count-per-k kernel is 1.81x-3.57x SLOWER (bench _benchmarks/bench_ndcg_sort_count_hoist_cpx23.py).
+    # numba's @njit np.sort doesn't accept ``kind=`` (only np.argsort does), and tie order does not change its values.
+    rels_ideal = -np.sort(-y_t)
+
+    # Count positives once (shared by MAP, MRR, and idcg-degeneracy).
+    n_rel_total = 0
+    for j in range(n):
+        if y_t[j] > 0:
+            n_rel_total += 1
+
+    mrr = np.nan
+    if n_rel_total > 0:
+        for j in range(n):
+            if rels_pred[j] > 0:
+                mrr = 1.0 / (j + 1.0)
+                break
+
+    for kj in range(eval_ks.shape[0]):
+        k = eval_ks[kj]
+        limit = k if k < n else n
+
+        # IDCG@k -- if 0 the per-k NDCG is undefined (NaN sentinel).
+        idcg = 0.0
+        for j in range(limit):
+            rel = rels_ideal[j]
+            if rel > 0:
+                idcg += ((2.0**rel) - 1.0) / np.log2(j + 2.0)
+        if idcg > 0.0:
+            dcg = 0.0
+            for j in range(limit):
+                rel = rels_pred[j]
+                if rel > 0:
+                    dcg += ((2.0**rel) - 1.0) / np.log2(j + 2.0)
+            ndcg_row[kj] = dcg / idcg
+
+        # MAP@k -- needs at least one positive globally.
+        if n_rel_total > 0:
+            n_hits = 0
+            sum_prec = 0.0
+            for j in range(limit):
+                if rels_pred[j] > 0:
+                    n_hits += 1
+                    sum_prec += n_hits / (j + 1.0)
+            denom = k if k < n_rel_total else n_rel_total
+            map_row[kj] = sum_prec / denom
+    return mrr
+
+
+@numba.njit(fastmath=False, cache=True, nogil=True)
+def _nan_column_sums(per_group: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+    """Per-column sum and non-NaN count of a (groups, K) matrix, accumulated over groups in ascending order."""
+    K = per_group.shape[1]
+    sums = np.zeros(K, dtype=np.float64)
+    counts = np.zeros(K, dtype=np.int64)
+    for kj in range(K):
+        for i in range(per_group.shape[0]):
+            v = per_group[i, kj]
+            if not np.isnan(v):
+                sums[kj] += v
+                counts[kj] += 1
+    return sums, counts
+
+
 @numba.njit(fastmath=False, cache=True, nogil=True, parallel=True)
 def _summary_batched_kernel(
     sorted_y_true: np.ndarray,
@@ -309,12 +381,8 @@ def _summary_batched_kernel(
     n_groups = len(group_starts) - 1
     K = len(eval_ks)
 
-    # prange parallelises across groups; each iteration writes its own
-    # row into per-group temp buffers, then we reduce afterwards.
-    # Numba's prange supports +reduction natively on scalar accumulators,
-    # but we have K-vector reductions which need explicit per-thread
-    # buffering. Easiest: materialise per-group ndcg / map / mrr arrays
-    # and reduce in a second (vectorised, no Python overhead) pass.
+    # prange parallelises across groups; each iteration writes its own row of the per-group buffers,
+    # then the buffers are reduced in a second pass without Python overhead.
     ndcg_per_group = np.full((n_groups, K), np.nan, dtype=np.float64)
     map_per_group = np.full((n_groups, K), np.nan, dtype=np.float64)
     mrr_per_group = np.full(n_groups, np.nan, dtype=np.float64)
@@ -322,90 +390,12 @@ def _summary_batched_kernel(
     for i in prange(n_groups):
         s = group_starts[i]
         e = group_starts[i + 1]
-        n = e - s
-        if n == 0:
+        if e == s:
             continue
+        mrr_per_group[i] = _summary_one_group(sorted_y_true[s:e], sorted_y_score[s:e], eval_ks, ndcg_per_group[i], map_per_group[i])
 
-        # Sort group's items by score descending for both NDCG and MAP /
-        # MRR; reused across all per-k metrics for this group.
-        y_t = sorted_y_true[s:e]
-        y_sc = sorted_y_score[s:e]
-        # stable sort so tied scores don't shift NDCG/MAP/MRR
-        # across runs.
-        order = np.argsort(-y_sc, kind="mergesort")
-        rels_pred = y_t[order]
-        # bench-attempt-rejected (CPX23, 2026-06-23): the per-query double sort
-        # (argsort of score + sort of true) and n_rel_total are ALREADY hoisted
-        # here -- computed once per group and reused across the per-k loop below.
-        # A naive re-sort/re-count-per-k kernel is 1.81x-3.57x SLOWER (bench
-        # _benchmarks/bench_ndcg_sort_count_hoist_cpx23.py, shapes 2000x100 ..
-        # 200x1000), bit-identical. No further win to extract.
-        # numba's @njit np.sort doesn't accept ``kind=`` (only np.argsort does).
-        # Stable sort is irrelevant on np.sort's VALUES anyway - the per-tie
-        # output positions all hold the same value, so default-quicksort and
-        # stable-mergesort produce identical arrays here. The stable
-        # arg on this line was a copy-paste from line 339 (argsort) where it
-        # genuinely matters for tie-breaking indices.
-        rels_ideal = -np.sort(-y_t)
-
-        # Count positives once (shared by MAP, MRR, and idcg-degeneracy).
-        n_rel_total = 0
-        for j in range(n):
-            if y_t[j] > 0:
-                n_rel_total += 1
-
-        # MRR: first relevant rank in score-descending order.
-        if n_rel_total > 0:
-            for j in range(n):
-                if rels_pred[j] > 0:
-                    mrr_per_group[i] = 1.0 / (j + 1.0)
-                    break
-
-        # Per-k NDCG / MAP.
-        for kj in range(K):
-            k = eval_ks[kj]
-            limit = k if k < n else n
-
-            # IDCG@k -- if 0 the per-k NDCG is undefined (NaN sentinel).
-            idcg = 0.0
-            for j in range(limit):
-                rel = rels_ideal[j]
-                if rel > 0:
-                    idcg += ((2.0**rel) - 1.0) / np.log2(j + 2.0)
-            if idcg > 0.0:
-                dcg = 0.0
-                for j in range(limit):
-                    rel = rels_pred[j]
-                    if rel > 0:
-                        dcg += ((2.0**rel) - 1.0) / np.log2(j + 2.0)
-                ndcg_per_group[i, kj] = dcg / idcg
-
-            # MAP@k -- needs at least one positive globally.
-            if n_rel_total > 0:
-                n_hits = 0
-                sum_prec = 0.0
-                for j in range(limit):
-                    if rels_pred[j] > 0:
-                        n_hits += 1
-                        sum_prec += n_hits / (j + 1.0)
-                denom = k if k < n_rel_total else n_rel_total
-                map_per_group[i, kj] = sum_prec / denom
-
-    # Reduce: NaN-aware mean per metric.
-    ndcg_sums = np.zeros(K, dtype=np.float64)
-    ndcg_counts = np.zeros(K, dtype=np.int64)
-    map_sums = np.zeros(K, dtype=np.float64)
-    map_counts = np.zeros(K, dtype=np.int64)
-    for kj in range(K):
-        for i in range(n_groups):
-            v = ndcg_per_group[i, kj]
-            if not np.isnan(v):
-                ndcg_sums[kj] += v
-                ndcg_counts[kj] += 1
-            v = map_per_group[i, kj]
-            if not np.isnan(v):
-                map_sums[kj] += v
-                map_counts[kj] += 1
+    ndcg_sums, ndcg_counts = _nan_column_sums(ndcg_per_group)
+    map_sums, map_counts = _nan_column_sums(map_per_group)
 
     mrr_sum = 0.0
     mrr_count = 0
