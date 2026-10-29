@@ -43,6 +43,119 @@ from mlframe.feature_selection.wrappers.rfecv.shared import SearchConfig, FIConf
 logger = logging.getLogger(__name__)
 
 
+def _target_type_and_imbalance(y_arr: np.ndarray, n: int) -> tuple[str, float]:
+    """Target type (binary / multiclass / regression) and the imbalance measure of ``y_arr`` over ``n`` rows."""
+    # Target type
+    # Absolute label cap (mirrors _univariate_ht._MULTICLASS_MAX_LABELS): a sqrt(n)-growing threshold mis-labels a
+    # high-cardinality integer regression target (counts / ages / integer-coded ordinals) as 'multiclass' on large n.
+    _MAX_LABELS = 50
+    if y_arr.dtype.kind in "iub":
+        uniq = np.unique(y_arr)
+        if uniq.size == 2:
+            target_type = "binary"
+        elif uniq.size <= _MAX_LABELS and uniq.size <= 0.05 * n:
+            target_type = "multiclass"
+        else:
+            target_type = "regression"
+    else:
+        uniq = np.unique(y_arr[~np.isnan(y_arr)]) if y_arr.dtype.kind == "f" else np.unique(y_arr)
+        if uniq.size == 2:
+            target_type = "binary"
+        elif uniq.size <= _MAX_LABELS and uniq.size <= 0.05 * n:
+            target_type = "multiclass"
+        else:
+            target_type = "regression"
+    # Target imbalance
+    if target_type in ("binary", "multiclass"):
+        # np.unique handles negative / non-contiguous integer labels; np.bincount(astype(int)) would raise
+        # on negative labels and silently allocate up-to-max_label bins on sparse high integer codes.
+        counts = np.unique(y_arr, return_counts=True)[1]
+        counts = counts[counts > 0]
+        target_imbalance = float(counts.min() / counts.sum()) if counts.size else 0.0
+    else:
+        ystd = float(np.nanstd(y_arr))
+        ymean = float(np.nanmean(y_arr))
+        target_imbalance = float(ystd / max(abs(ymean), 1e-12))
+    return target_type, target_imbalance
+
+def _array_column_signals(X, y_arr: np.ndarray, p: int) -> tuple[bool, float, float]:
+    """NaN presence and the max / mean absolute target correlation of a fully numeric ndarray ``X``."""
+    max_corr = 0.0
+    mean_corr = 0.0
+    # ndarray path - assume fully numeric.
+    X_arr = np.asarray(X, dtype=float)
+    has_nan = bool(np.isnan(X_arr).any())
+    yfloat = y_arr.astype(float)
+    corrs = []
+    for j in range(p):
+        col = X_arr[:, j]
+        mask = np.isfinite(col) & np.isfinite(yfloat)
+        if mask.sum() < 10:
+            continue
+        xstd = np.nanstd(col[mask])
+        if xstd < 1e-12:
+            continue
+        rho = float(np.corrcoef(col[mask], yfloat[mask])[0, 1])
+        if np.isfinite(rho):
+            corrs.append(abs(rho))
+    if corrs:
+        max_corr = float(np.max(corrs))
+        mean_corr = float(np.mean(corrs))
+    return has_nan, max_corr, mean_corr
+
+
+def _column_signals(X, y_arr: np.ndarray, p: int, n: int) -> tuple[float, float, float, float, float, bool]:
+    """Cheap per-column signals of ``X`` against ``y_arr``: fractions, target-correlation stats and NaN presence."""
+    # Column-level signals (cheap pass).
+    frac_numeric = 1.0
+    frac_high_card = 0.0
+    frac_constant = 0.0
+    max_corr = 0.0
+    mean_corr = 0.0
+    has_nan = False
+    if isinstance(X, pd.DataFrame):
+        from pandas.api.types import is_numeric_dtype
+        numeric_cols = [c for c in X.columns if is_numeric_dtype(X[c])]
+        frac_numeric = len(numeric_cols) / max(1, p)
+        hi_card = 0
+        const = 0
+        corrs = []
+        yfloat = y_arr.astype(float)
+        for c in numeric_cols:
+            col = X[c].to_numpy()
+            try:
+                nu = int(X[c].nunique(dropna=True))
+            except (TypeError, ValueError):
+                nu = -1
+            if nu <= 1:
+                const += 1
+                continue
+            # 'high-card' is meaningful only for INTEGER-typed columns where
+            # nunique > 0.5*n suggests a hash / ID-like encoding. Continuous
+            # floats trivially exceed this threshold and are NOT high-card.
+            if X[c].dtype.kind in "iub" and nu > 0.5 * n:
+                hi_card += 1
+            col_f = col.astype(float, copy=False)
+            mask = np.isfinite(col_f) & np.isfinite(yfloat)
+            if mask.sum() < 10:
+                continue
+            if np.isnan(col_f).any():
+                has_nan = True
+            xstd = np.nanstd(col_f[mask])
+            if xstd < 1e-12:
+                continue
+            rho = float(np.corrcoef(col_f[mask], yfloat[mask])[0, 1])
+            if np.isfinite(rho):
+                corrs.append(abs(rho))
+        frac_high_card = hi_card / max(1, p)
+        frac_constant = const / max(1, p)
+        if corrs:
+            max_corr = float(np.max(corrs))
+            mean_corr = float(np.mean(corrs))
+    else:
+        has_nan, max_corr, mean_corr = _array_column_signals(X, y_arr, p)
+    return frac_numeric, frac_high_card, frac_constant, max_corr, mean_corr, has_nan
+
 @dataclass(frozen=True)
 class DataFingerprint:
     """Cheap (X, y) signals consumed by the auto-tuner. All computed in O(n*p)."""
@@ -68,103 +181,8 @@ class DataFingerprint:
             arr = np.asarray(X)
             n, p = int(arr.shape[0]), int(arr.shape[1])
         y_arr = np.asarray(y)
-        # Target type
-        # Absolute label cap (mirrors _univariate_ht._MULTICLASS_MAX_LABELS): a sqrt(n)-growing threshold mis-labels a
-        # high-cardinality integer regression target (counts / ages / integer-coded ordinals) as 'multiclass' on large n.
-        _MAX_LABELS = 50
-        if y_arr.dtype.kind in "iub":
-            uniq = np.unique(y_arr)
-            if uniq.size == 2:
-                target_type = "binary"
-            elif uniq.size <= _MAX_LABELS and uniq.size <= 0.05 * n:
-                target_type = "multiclass"
-            else:
-                target_type = "regression"
-        else:
-            uniq = np.unique(y_arr[~np.isnan(y_arr)]) if y_arr.dtype.kind == "f" else np.unique(y_arr)
-            if uniq.size == 2:
-                target_type = "binary"
-            elif uniq.size <= _MAX_LABELS and uniq.size <= 0.05 * n:
-                target_type = "multiclass"
-            else:
-                target_type = "regression"
-        # Target imbalance
-        if target_type in ("binary", "multiclass"):
-            # np.unique handles negative / non-contiguous integer labels; np.bincount(astype(int)) would raise
-            # on negative labels and silently allocate up-to-max_label bins on sparse high integer codes.
-            counts = np.unique(y_arr, return_counts=True)[1]
-            counts = counts[counts > 0]
-            target_imbalance = float(counts.min() / counts.sum()) if counts.size else 0.0
-        else:
-            ystd = float(np.nanstd(y_arr))
-            ymean = float(np.nanmean(y_arr))
-            target_imbalance = float(ystd / max(abs(ymean), 1e-12))
-        # Column-level signals (cheap pass).
-        frac_numeric = 1.0
-        frac_high_card = 0.0
-        frac_constant = 0.0
-        max_corr = 0.0
-        mean_corr = 0.0
-        has_nan = False
-        if isinstance(X, pd.DataFrame):
-            from pandas.api.types import is_numeric_dtype
-            numeric_cols = [c for c in X.columns if is_numeric_dtype(X[c])]
-            frac_numeric = len(numeric_cols) / max(1, p)
-            hi_card = 0
-            const = 0
-            corrs = []
-            yfloat = y_arr.astype(float)
-            for c in numeric_cols:
-                col = X[c].to_numpy()
-                try:
-                    nu = int(X[c].nunique(dropna=True))
-                except (TypeError, ValueError):
-                    nu = -1
-                if nu <= 1:
-                    const += 1
-                    continue
-                # 'high-card' is meaningful only for INTEGER-typed columns where
-                # nunique > 0.5*n suggests a hash / ID-like encoding. Continuous
-                # floats trivially exceed this threshold and are NOT high-card.
-                if X[c].dtype.kind in "iub" and nu > 0.5 * n:
-                    hi_card += 1
-                col_f = col.astype(float, copy=False)
-                mask = np.isfinite(col_f) & np.isfinite(yfloat)
-                if mask.sum() < 10:
-                    continue
-                if np.isnan(col_f).any():
-                    has_nan = True
-                xstd = np.nanstd(col_f[mask])
-                if xstd < 1e-12:
-                    continue
-                rho = float(np.corrcoef(col_f[mask], yfloat[mask])[0, 1])
-                if np.isfinite(rho):
-                    corrs.append(abs(rho))
-            frac_high_card = hi_card / max(1, p)
-            frac_constant = const / max(1, p)
-            if corrs:
-                max_corr = float(np.max(corrs))
-                mean_corr = float(np.mean(corrs))
-        else:
-            # ndarray path - assume fully numeric.
-            X_arr = np.asarray(X, dtype=float)
-            has_nan = bool(np.isnan(X_arr).any())
-            yfloat = y_arr.astype(float)
-            corrs = []
-            for j in range(p):
-                col = X_arr[:, j]
-                mask = np.isfinite(col) & np.isfinite(yfloat)
-                if mask.sum() < 10:
-                    continue
-                xstd = np.nanstd(col[mask])
-                if xstd < 1e-12:
-                    continue
-                rho = float(np.corrcoef(col[mask], yfloat[mask])[0, 1])
-                if np.isfinite(rho):
-                    corrs.append(abs(rho))
-            if corrs:
-                max_corr = float(np.max(corrs))
-                mean_corr = float(np.mean(corrs))
+        target_type, target_imbalance = _target_type_and_imbalance(y_arr, n)
+        frac_numeric, frac_high_card, frac_constant, max_corr, mean_corr, has_nan = _column_signals(X, y_arr, p, n)
         return cls(
             n_rows=n, n_features=p, target_type=target_type,
             target_imbalance=target_imbalance,
