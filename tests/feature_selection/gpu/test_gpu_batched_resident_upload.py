@@ -84,6 +84,11 @@ def test_target_uploaded_once_across_candidate_calls(monkeypatch, fn):
     )
     classes_y_i32 = np.ascontiguousarray(classes_y.astype(np.int32))
 
+    # The resident cache is process-wide: an earlier test that scored this same target leaves it warm, and the
+    # first upload here would then be a cache hit with no cp.asarray call. Start from an empty cache.
+    from mlframe.feature_selection.filters._fe_resident_operands import clear_fe_resident_operands
+
+    clear_fe_resident_operands()
     y_calls = _count_asarray_calls_matching(monkeypatch, classes_y_i32)
 
     mi0, _ = fn(
