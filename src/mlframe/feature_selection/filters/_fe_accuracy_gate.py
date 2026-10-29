@@ -79,6 +79,13 @@ def _baseline_cv_key(X_base: np.ndarray, y: np.ndarray, *, classification: bool,
         return None
 
 
+def _newton_probe_enabled() -> bool:
+    """Whether the binary probe may use the Newton fit (``MLFRAME_GATE_NEWTON=0`` keeps the scikit-learn fit for every fold)."""
+    import os
+
+    return os.environ.get("MLFRAME_GATE_NEWTON", "1") != "0"
+
+
 def measure_feature_uplift(
     X_base: np.ndarray,
     X_eng: np.ndarray,
@@ -124,6 +131,7 @@ def measure_feature_uplift(
     from sklearn.model_selection import GroupKFold, KFold, StratifiedKFold
     from mlframe.metrics.core import fast_roc_auc, fast_r2_score
     from sklearn.preprocessing import StandardScaler
+    from ._fe_accuracy_gate_newton import fit_logistic_ridge_newton
 
     X_aug = np.concatenate([X_base, X_eng], axis=1)
     if classification:
@@ -168,6 +176,12 @@ def measure_feature_uplift(
                     Xt = sc.fit_transform(Xfull[tr])
                     Xv = sc.transform(Xfull[va])
                     if classification:
+                        if binary and _newton_probe_enabled():
+                            # Unique optimum of a strictly convex fit: Newton reaches it at about half the scikit-learn call cost; no convergence -> the scikit-learn fit below decides.
+                            _fit = fit_logistic_ridge_newton(Xt, y_enc[tr], 1.0)
+                            if _fit is not None:
+                                _w, _b = _fit
+                                return fast_roc_auc(y_enc[va], 1.0 / (1.0 + np.exp(-(np.asarray(Xv, dtype=np.float64) @ _w + _b))))
                         m = LogisticRegression(max_iter=200, C=1.0)
                         m.fit(Xt, y_enc[tr])
                         if binary:

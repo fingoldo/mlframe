@@ -106,7 +106,8 @@ def test_missing_source_is_fail_closed():
 
 
 # ----------------------------------------------- exception path -> fail-OPEN (regression)
-def test_probe_exception_is_fail_open(monkeypatch):
+@pytest.mark.parametrize("newton", ["0", "1"])
+def test_probe_exception_is_fail_open(monkeypatch, newton):
     """A probe-internal exception must KEEP the candidate (fail-open), NOT drop it.
     Pre-fix the except branch returned 0.0 -> keep returned False (fail-closed),
     silently evicting a candidate whenever the probe raised."""
@@ -120,8 +121,16 @@ def test_probe_exception_is_fail_open(monkeypatch):
             """Helper that fit."""
             raise RuntimeError("simulated probe failure")
 
+    from mlframe.feature_selection.filters import _fe_accuracy_gate_newton as _newton
+
+    def _newton_boom(*a, **k):
+        """Newton fit raising like the sklearn stand-in."""
+        raise RuntimeError("simulated probe failure")
+
+    monkeypatch.setenv("MLFRAME_GATE_NEWTON", newton)
     monkeypatch.setattr(gate, "measure_feature_uplift", measure_feature_uplift)
     monkeypatch.setattr("sklearn.linear_model.LogisticRegression", _Boom)
+    monkeypatch.setattr(_newton, "fit_logistic_ridge_newton", _newton_boom)
 
     up = measure_feature_uplift(src, eng, y, classification=True)
     assert up is None, "a probe exception must surface as None (the fail-open sentinel)"
@@ -158,7 +167,8 @@ def test_bin_y_for_class_mi_numeric_classification_unchanged():
 
 
 # ------------------------------------------------------ baseline-CV sibling cache
-def test_sibling_baseline_cv_is_cached_and_equivalent():
+@pytest.mark.parametrize("newton", ["0", "1"])
+def test_sibling_baseline_cv_is_cached_and_equivalent(monkeypatch, newton):
     """Wave 13 finding #1: several engineered SIBLINGS derived from the same raw source
     (x__He2, x__He3, x__T2, x__L2, ...) share an IDENTICAL X_base/y/seed, so the
     ``_score(X_base)`` CV baseline is deterministic across sibling calls and must be
@@ -167,7 +177,9 @@ def test_sibling_baseline_cv_is_cached_and_equivalent():
     fit ``Ridge.fit``/``LogisticRegression.fit`` on ``X_base`` is invoked far fewer times
     across 4 siblings sharing one base than the naive 4x."""
     import sklearn.linear_model as _lm
+    from mlframe.feature_selection.filters import _fe_accuracy_gate_newton as _newton
 
+    monkeypatch.setenv("MLFRAME_GATE_NEWTON", newton)
     gate._BASELINE_CV_MEMO.clear()
 
     rng = np.random.default_rng(11)
@@ -184,14 +196,21 @@ def test_sibling_baseline_cv_is_cached_and_equivalent():
 
     fit_calls = {"n": 0}
     _orig_fit = _lm.LogisticRegression.fit
+    _orig_newton = _newton.fit_logistic_ridge_newton
 
     def _counting_fit(self, *a, **k):
         """Counting fit."""
         fit_calls["n"] += 1
         return _orig_fit(self, *a, **k)
 
+    def _counting_newton(*a, **k):
+        """Counting Newton fit."""
+        fit_calls["n"] += 1
+        return _orig_newton(*a, **k)
+
     with pytest.MonkeyPatch.context() as mp:
         mp.setattr(_lm.LogisticRegression, "fit", _counting_fit)
+        mp.setattr(_newton, "fit_logistic_ridge_newton", _counting_newton)
         ups_cached = [measure_feature_uplift(X_base, eng, y, classification=True, seed=0) for eng in siblings]
     calls_cached = fit_calls["n"]
 
@@ -200,6 +219,7 @@ def test_sibling_baseline_cv_is_cached_and_equivalent():
     ups_uncached = []
     with pytest.MonkeyPatch.context() as mp:
         mp.setattr(_lm.LogisticRegression, "fit", _counting_fit)
+        mp.setattr(_newton, "fit_logistic_ridge_newton", _counting_newton)
         for eng in siblings:
             gate._BASELINE_CV_MEMO.clear()
             ups_uncached.append(measure_feature_uplift(X_base, eng, y, classification=True, seed=0))
