@@ -203,6 +203,55 @@ class SimpleFeaturesAndTargetsExtractor(FeaturesAndTargetsExtractor):
             self.ftextractor_emitted_columns[self.ts_field] = _derived
         return df
 
+    def _classification_targets(self, df: Union[pd.DataFrame, pl.DataFrame], df_columns: set) -> Dict[str, Any]:
+        """Build one binary target per configured threshold or exact-value mapping, plus the raw label column when no mapping applies."""
+        targets: Dict[str, Any] = {}
+        if self.columns_to_drop is None:
+            self.columns_to_drop = set()
+        for col in self.classification_targets or []:
+            if col not in df_columns:
+                raise KeyError(f"Classification target column '{col}' not found in DataFrame. Available: {list(df.columns)[:10]}...")
+            # A missing source label stays missing in every target derived from it: a fillna(0) used to label those
+            # rows as the positive class when thresh_val<=0 and as a real 0 otherwise. The suite decides what to do
+            # with rows without a label.
+            col_data = df[col]
+            missing = _missing_label_mask(col_data)
+            self.columns_to_drop.add(col)
+
+            # Threshold targets: one column per configured (attr, op) whose mapping names this col.
+            _has_threshold = False
+            for _attr, _suffix, _cmp in _THRESHOLD_OPS:
+                _mapping = getattr(self, _attr, None)
+                if _mapping and col in _mapping:
+                    thresh_val = _mapping[col]
+                    target_name = f"{col}_{_suffix}_{thresh_val}"
+                    targets[target_name] = _binary_target(_cmp(col_data, thresh_val), missing)
+                    _has_threshold = True
+
+            # Process exact values
+            if self.classification_exact_values and col in self.classification_exact_values:
+                exact_val = self.classification_exact_values[col]
+                # pre-fix accepted only
+                # ``list``; ``classification_exact_values={"col": (1,2,3)}``
+                # got wrapped as ``[(1,2,3)]`` then ``col_data == (1,2,3)`` raised on
+                # both pandas and polars. Accept any iterable container.
+                if isinstance(exact_val, (list, tuple, set, frozenset)):
+                    exact_vals = list(exact_val)
+                else:
+                    exact_vals = [exact_val]
+
+                for val in exact_vals:
+                    target_name = f"{col}_eq_{val}"
+                    targets[target_name] = _binary_target(col_data == val, missing)
+
+            # Default: use column as-is. Don't pre-cast to int8 here -- intize_targets()
+            # below promotes int8/16/32/64 based on actual value range, so multiclass labels
+            # with cardinality >127 don't wrap silently (pandas) or raise (polars).
+            if not _has_threshold and col not in (self.classification_exact_values or {}):
+                target_name = col
+                targets[target_name] = col_data
+        return targets
+
     def build_targets(self, df: Union[pd.DataFrame, pl.DataFrame]) -> Dict[TargetTypes, Dict[str, Any]]:
         """Build regression and classification targets from DataFrame columns.
 
@@ -221,50 +270,7 @@ class SimpleFeaturesAndTargetsExtractor(FeaturesAndTargetsExtractor):
         df_columns = set(df.columns)
 
         if self.classification_targets:
-            targets = {}
-            for col in self.classification_targets:
-                if col not in df_columns:
-                    raise KeyError(f"Classification target column '{col}' not found in DataFrame. Available: {list(df.columns)[:10]}...")
-                # A missing source label stays missing in every target derived from it: a fillna(0) used to label those
-                # rows as the positive class when thresh_val<=0 and as a real 0 otherwise. The suite decides what to do
-                # with rows without a label.
-                col_data = df[col]
-                missing = _missing_label_mask(col_data)
-                self.columns_to_drop.add(col)
-
-                # Threshold targets: one column per configured (attr, op) whose mapping names this col.
-                _has_threshold = False
-                for _attr, _suffix, _cmp in _THRESHOLD_OPS:
-                    _mapping = getattr(self, _attr, None)
-                    if _mapping and col in _mapping:
-                        thresh_val = _mapping[col]
-                        target_name = f"{col}_{_suffix}_{thresh_val}"
-                        targets[target_name] = _binary_target(_cmp(col_data, thresh_val), missing)
-                        _has_threshold = True
-
-                # Process exact values
-                if self.classification_exact_values and col in self.classification_exact_values:
-                    exact_val = self.classification_exact_values[col]
-                    # pre-fix accepted only
-                    # ``list``; ``classification_exact_values={"col": (1,2,3)}``
-                    # got wrapped as ``[(1,2,3)]`` then ``col_data == (1,2,3)`` raised on
-                    # both pandas and polars. Accept any iterable container.
-                    if isinstance(exact_val, (list, tuple, set, frozenset)):
-                        exact_vals = list(exact_val)
-                    else:
-                        exact_vals = [exact_val]
-
-                    for val in exact_vals:
-                        target_name = f"{col}_eq_{val}"
-                        targets[target_name] = _binary_target(col_data == val, missing)
-
-                # Default: use column as-is. Don't pre-cast to int8 here -- intize_targets()
-                # below promotes int8/16/32/64 based on actual value range, so multiclass labels
-                # with cardinality >127 don't wrap silently (pandas) or raise (polars).
-                if not _has_threshold and col not in (self.classification_exact_values or {}):
-                    target_name = col
-                    targets[target_name] = col_data
-
+            targets = self._classification_targets(df, df_columns)
             intize_targets(targets)
             target_by_type[TargetTypes.BINARY_CLASSIFICATION] = targets
 
