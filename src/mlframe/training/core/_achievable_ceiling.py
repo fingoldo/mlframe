@@ -300,6 +300,28 @@ def _collapsed_ceiling_verdict_kwargs(
     )
 
 
+def _ceiling_decision(common: dict, *, raw_rmse: float, lag_rmse: float, best_composite_rmse: float, floor_rmse: float, margin: float,
+                      y_hold_std: float, strong_floor_frac: float) -> dict:
+    """Turn the measured floor and optimistic composite RMSE into the proceed/skip verdict."""
+    headroom = (floor_rmse - best_composite_rmse) / floor_rmse if floor_rmse > 0 else float("nan")
+    if np.isfinite(headroom) and headroom >= margin:
+        reason = (f"optimistic composite RMSE {best_composite_rmse:.4g} beats min(raw={raw_rmse:.4g}, "
+                  f"lag={lag_rmse:.4g}) floor {floor_rmse:.4g} by {headroom:.1%} >= margin {margin:.1%}")
+        return _verdict(headroom=headroom, decision="proceed", reason=reason, **common)
+
+    # The optimistic composite cannot beat the floor. Only SKIP when that floor is ALREADY strong (the deployed model /
+    # AR failsafe explains most variance) -- on a weak / near-random target the ceiling estimate is unreliable, so proceed.
+    strong_floor = y_hold_std > 0 and floor_rmse <= strong_floor_frac * y_hold_std
+    if not strong_floor:
+        reason = (f"optimistic composite cannot beat the floor (headroom {headroom:.1%}) but the floor {floor_rmse:.4g} "
+                  f"is weak vs std(y)={y_hold_std:.4g} (> {strong_floor_frac:.0%}); low-confidence, discovery proceeds")
+        return _verdict(headroom=headroom, decision="proceed", reason=reason, **common)
+    reason = (f"optimistic composite RMSE {best_composite_rmse:.4g} cannot beat min(raw={raw_rmse:.4g}, "
+              f"lag={lag_rmse:.4g}) floor {floor_rmse:.4g} by margin {margin:.1%} "
+              f"(headroom {headroom:.1%}); the failsafe already explains the target, lag_predict deployed instead")
+    return _verdict(headroom=headroom, decision="skip", reason=reason, **common)
+
+
 def measure_achievable_ceiling(
     *,
     df: Any,
@@ -433,23 +455,8 @@ def measure_achievable_ceiling(
         return _verdict(**_collapsed_ceiling_verdict_kwargs(n_offered=len(base_cands), n_evaluated=n_evaluated, n_collapsed=n_collapsed,
                                                             floor_rmse=floor_rmse, y_hold_std=y_hold_std, strong_floor_frac=strong_floor_frac), **common)
 
-    headroom = (floor_rmse - best_composite_rmse) / floor_rmse if floor_rmse > 0 else float("nan")
-    if np.isfinite(headroom) and headroom >= margin:
-        reason = (f"optimistic composite RMSE {best_composite_rmse:.4g} beats min(raw={raw_rmse:.4g}, "
-                  f"lag={lag_rmse:.4g}) floor {floor_rmse:.4g} by {headroom:.1%} >= margin {margin:.1%}")
-        return _verdict(headroom=headroom, decision="proceed", reason=reason, **common)
-
-    # The optimistic composite cannot beat the floor. Only SKIP when that floor is ALREADY strong (the deployed model /
-    # AR failsafe explains most variance) -- on a weak / near-random target the ceiling estimate is unreliable, so proceed.
-    strong_floor = y_hold_std > 0 and floor_rmse <= strong_floor_frac * y_hold_std
-    if not strong_floor:
-        reason = (f"optimistic composite cannot beat the floor (headroom {headroom:.1%}) but the floor {floor_rmse:.4g} "
-                  f"is weak vs std(y)={y_hold_std:.4g} (> {strong_floor_frac:.0%}); low-confidence, discovery proceeds")
-        return _verdict(headroom=headroom, decision="proceed", reason=reason, **common)
-    reason = (f"optimistic composite RMSE {best_composite_rmse:.4g} cannot beat min(raw={raw_rmse:.4g}, "
-              f"lag={lag_rmse:.4g}) floor {floor_rmse:.4g} by margin {margin:.1%} "
-              f"(headroom {headroom:.1%}); the failsafe already explains the target, lag_predict deployed instead")
-    return _verdict(headroom=headroom, decision="skip", reason=reason, **common)
+    return _ceiling_decision(common, raw_rmse=raw_rmse, lag_rmse=lag_rmse, best_composite_rmse=best_composite_rmse,
+                             floor_rmse=floor_rmse, margin=margin, y_hold_std=y_hold_std, strong_floor_frac=strong_floor_frac)
 
 
 def run_achievable_ceiling_precheck(

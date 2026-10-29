@@ -393,6 +393,41 @@ def ensemble_probabilistic_predictions(
 ENSEMBLE_STREAMING_THRESHOLD_BYTES = 500 * 1024 * 1024
 
 
+def _push_transformed(acc: "_WelfordAccumulator", p: np.ndarray, ensemble_method: str) -> None:
+    """Feed one member's predictions, mapped into the method's target space, into the primary Welford accumulator."""
+    if ensemble_method == "arithm":
+        acc.push(p)
+    elif ensemble_method == "harm":
+        # Harm = len / sum(1/p). Accumulator sums 1/p; finalize at end.
+        with np.errstate(divide="ignore", invalid="ignore"):
+            inv = np.where(p == 0, 0.0, 1.0 / p)
+        acc.push(inv)
+    elif ensemble_method == "quad":
+        acc.push(p * p)
+    elif ensemble_method == "qube":
+        acc.push(p * p * p)
+    elif ensemble_method == "geo":
+        # log-space; clip at 1e-300 (smallest safe float64) to preserve
+        # signal from well-calibrated rare-event probabilities.
+        with np.errstate(divide="ignore"):
+            acc.push(np.log(np.clip(p, 1e-300, None)))
+
+
+def _finalize_mean_of_transformed(mean_of_t: np.ndarray, ensemble_method: str) -> np.ndarray:
+    """Map the mean in the method's target space back to the probability scale."""
+    if ensemble_method == "arithm":
+        return mean_of_t
+    if ensemble_method == "harm":
+        # mean_of_t is mean(1/p); harmonic mean = 1 / mean(1/p)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            return np.asarray(np.where(mean_of_t == 0, 0.0, 1.0 / mean_of_t), dtype=np.float64)
+    if ensemble_method == "quad":
+        return np.asarray(np.sqrt(np.maximum(mean_of_t, 0.0)), dtype=np.float64)
+    if ensemble_method == "qube":
+        return np.asarray(np.cbrt(mean_of_t), dtype=np.float64)
+    return np.asarray(np.exp(mean_of_t), dtype=np.float64)  # "geo"
+
+
 def ensemble_probabilistic_predictions_streaming(
     *preds,
     ensemble_method: str = "harm",
@@ -485,37 +520,10 @@ def ensemble_probabilistic_predictions_streaming(
         if p.ndim == 1:
             p = p.reshape(-1, 1)
         raw_acc.push(p)
-        if ensemble_method == "arithm":
-            primary_acc.push(p)
-        elif ensemble_method == "harm":
-            # Harm = len / sum(1/p). Accumulator sums 1/p; finalize at end.
-            with np.errstate(divide="ignore", invalid="ignore"):
-                inv = np.where(p == 0, 0.0, 1.0 / p)
-            primary_acc.push(inv)
-        elif ensemble_method == "quad":
-            primary_acc.push(p * p)
-        elif ensemble_method == "qube":
-            primary_acc.push(p * p * p)
-        elif ensemble_method == "geo":
-            # log-space; clip at 1e-300 (smallest safe float64) to preserve
-            # signal from well-calibrated rare-event probabilities.
-            with np.errstate(divide="ignore"):
-                primary_acc.push(np.log(np.clip(p, 1e-300, None)))
+        _push_transformed(primary_acc, p, ensemble_method)
 
     # Finalize per method
-    mean_of_t = primary_acc.mean  # (N, K) in transformed space
-    if ensemble_method == "arithm":
-        ensembled_predictions = mean_of_t
-    elif ensemble_method == "harm":
-        # mean_of_t is mean(1/p); harmonic mean = 1 / mean(1/p)
-        with np.errstate(divide="ignore", invalid="ignore"):
-            ensembled_predictions = np.where(mean_of_t == 0, 0.0, 1.0 / mean_of_t)
-    elif ensemble_method == "quad":
-        ensembled_predictions = np.sqrt(np.maximum(mean_of_t, 0.0))
-    elif ensemble_method == "qube":
-        ensembled_predictions = np.cbrt(mean_of_t)
-    elif ensemble_method == "geo":
-        ensembled_predictions = np.exp(mean_of_t)
+    ensembled_predictions = _finalize_mean_of_transformed(primary_acc.mean, ensemble_method)
 
     # Non-finite fallback to arithmetic mean (same policy as materialised path)
     non_finite_mask = ~np.isfinite(ensembled_predictions)
