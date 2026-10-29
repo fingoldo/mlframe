@@ -36,3 +36,12 @@ Open candidates not yet measured: `_permutation_sources_njit` (10 calls, 0.99 s)
   so replacing the strings changes code order; not changed (0.8 percent of the wall).
 - Pair chunks: `ensure_host_codes_filled` 2.09 s over 17 chunks is the deferred code D2H and its GPU wait, already analysed in `strict_fit_d2h_traffic_2026_10_29.md` (owner decision pending).
 - `_permutation_sources_njit` (0.99 s, 10 calls): rewriting the shuffle changes the random stream and so the permutation null; needs a selection check before any change.
+
+## Loop iteration notes (2026-10-29, after the narrow-copy commit)
+
+- Strict-fit D2H budget test: green without a budget change (see `_pairs_chunk_codes_lazy.md`). Fusion OLS margin test: fixture re-aimed (`_fe_additive_fusion_ols_margin_fixture.md`). Both old red tests are closed.
+- `_pairwise_modular_fe._residue_grid_mi` (0.86 s over 360 calls, about 2.4 ms each): already one batched `_mi_classif_batch` call per effective-nbins group with a device-born residue path under strict
+  mode; what is left is per-call dispatch overhead of many short calls. Estimated ceiling 0.2 s (0.3 percent of the wall); not changed.
+- Whole fit wall at this point: 58.0 s (seed 0) and 67.3 s (seed 2) in `fit_sel_gate.py`, against 69.5 s and 82.6 s before the Newton, extval and narrow-copy commits.
+- Open: `_permutation_sources_njit` (0.99 s, changing it alters the permutation null), `_column_string_codes_uncached` (0.58 s, token order is part of the code), device argsort in the conditional gate (3.3 s,
+  covered by the tau-grid and rank-cache notes), GPU wait inside `cupy .get` (4.7 s, needs an nsys pass over the final code).
