@@ -11,6 +11,7 @@ from functools import partial
 import numpy as np
 
 from ._pairs_abs_corr_gpu import abs_corr_or_none
+from ._pairs_chunk_codes import code_column
 from ._pairs_chunks import _compute_one_fe_chunk
 from ._pairs_dispatch import _dispatch_batch_mi_with_noise_gate
 from ._pairs_materialise import (
@@ -296,7 +297,7 @@ def _score_one_pair_step3_resolve_col_treat(
                 st.var_pairs_perf[config] = fe_mi
                 _chunk_codes = getattr(st, "_chunk_codes", None)
                 if _chunk_codes is not None:
-                    st.__dict__.setdefault("var_pairs_codes", {})[config] = np.asarray(_chunk_codes[:, _ci : _ci + 1]).reshape(-1, 1)
+                    st.__dict__.setdefault("var_pairs_codes", {})[config] = code_column(_chunk_codes, _ci)
                 if _need_recompute_map:
                     assert _config_by_i is not None
                     _config_by_i[_ci] = (transformations_pair[0], transformations_pair[1], bin_func_name)

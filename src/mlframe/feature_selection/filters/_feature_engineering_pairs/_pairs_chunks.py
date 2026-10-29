@@ -161,6 +161,9 @@ def _compute_one_fe_chunk(
     if _ret_compute_one_fe_chunk_part2[0]:
         return _ret_compute_one_fe_chunk_part2[1]
     chunk_records, _gpu_disc_2d, _deferred_float, _defer_a_cols, _defer_b_cols, _defer_ops, raw_vars_pair, candidates, local_times, out, disc_2d = _ret_compute_one_fe_chunk_part2[1:]
+    from ._pairs_chunk_codes import ChunkCodes
+
+    chunk_codes = ChunkCodes.capture(disc_2d)  # before the dispatch: it clears the deferred-fill record
     fe_mi_arr = _dispatch_batch_mi_with_noise_gate(
         disc_2d=disc_2d,
         quantization_nbins=quantization_nbins,
@@ -177,7 +180,7 @@ def _compute_one_fe_chunk(
     for raw_vars_pair in chunk_pairs:
         candidates, local_times = chunk_records[raw_vars_pair]
         # The chunk's discretised codes travel with the MI so the pair-level family gate can read each configuration's bins (no copy: shared reference).
-        out[raw_vars_pair] = (candidates, fe_mi_full, local_times, disc_2d)
+        out[raw_vars_pair] = (candidates, fe_mi_full, local_times, chunk_codes)
     # Residency deferral signal: True iff the GPU FUSED codes path produced disc_2d AND we skipped the
     # float D2H (out_cand=None). The caller then GPU-re-materialises the few buffer columns it reads via
     # the chunk-wide (a_col,b_col,op_code) arrays. False whenever the float buffer WAS filled (CPU
@@ -336,12 +339,9 @@ def _compute_one_fe_chunk_part2(
             # discretiser's per-call ``np.isnan().any()`` scan is guaranteed-False wasted work; skip it.
             assume_finite=True,
         )
-    # The pair family gate reads this chunk's codes on the host after the dispatch (they travel with the MI below). A deferred GPU codes buffer
-    # is unfilled until a host reader asks for it, and the dispatch drops its deferred-fill record when it ends, so fill it now: an unfilled
-    # buffer reads as all-zero codes, and the exact family test then rejected every winner whose best MI cleared the table floor.
-    from .._gpu_resident_fe import ensure_host_codes_filled
-
-    ensure_host_codes_filled(disc_2d)
+    # The pair family gate reads some of this chunk's codes after the dispatch, and the dispatch drops its deferred-fill record when it ends.
+    # The host buffer is therefore NOT filled here: ``_compute_one_fe_chunk`` captures the device codes before the dispatch and hands them to the gate
+    # as a ``ChunkCodes``, which copies back only the columns of the pairs that reach the exact family test.
     return False, chunk_records, _gpu_disc_2d, _deferred_float, _defer_a_cols, _defer_b_cols, _defer_ops, raw_vars_pair, candidates, local_times, out, disc_2d
 
 

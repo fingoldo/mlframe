@@ -297,6 +297,22 @@ def ensure_host_codes_filled(host_codes: np.ndarray) -> None:
         _fill_deferred(h)
 
 
+def capture_deferred_codes(host_codes: Any) -> "tuple[Any, list] | None":
+    """``(device_codes, filled)`` of an UNREAD deferred fill registered for ``host_codes`` (same id, shape, dtype), else None.
+
+    ``filled`` is the registry's own one-element flag: it turns True when any reader (the dispatch, an eviction) fills the host buffer. The record is not consumed, so
+    the dispatch still finds it; the caller keeps the device array alive past the dispatch's ``clear_resident_codes_handoff``.
+    """
+    with _DEFERRED_HOST_FILL_LOCK:
+        h = _DEFERRED_HOST_FILL.get(id(host_codes))
+    if h is None:
+        return None
+    host_ref, dev, shape, dtype, filled = h
+    if host_ref() is not host_codes or tuple(host_codes.shape) != shape or np.dtype(host_codes.dtype) != dtype:
+        return None
+    return dev, filled
+
+
 def peek_resident_codes(host_codes: Any) -> Any:
     """The resident device codes stashed (or registered for a deferred fill) for ``host_codes`` iff they match it (same id, shape, dtype); else None.
 
