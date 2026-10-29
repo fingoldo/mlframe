@@ -6,6 +6,8 @@ import numpy as np
 import pytest
 
 cp = pytest.importorskip("cupy")
+if cp.cuda.runtime.getDeviceCount() < 1:
+    pytest.skip("no CUDA device", allow_module_level=True)
 
 from mlframe.feature_selection.filters._feature_engineering_pairs._pairs_chunk_codes import (
     ChunkCodes,
@@ -19,10 +21,7 @@ from mlframe.feature_selection.filters._gpu_resident_fe import clear_resident_co
 
 def _deferred_chunk(n=40, k=7):
     """An unfilled host buffer with a registered deferred fill from a device array; returns (host, device_values, captured)."""
-    try:
-        dev = cp.asarray(np.random.default_rng(1).integers(0, 10, (n, k)).astype(np.int8))
-    except Exception as e:  # no usable device
-        pytest.skip(f"no CUDA device: {e}")
+    dev = cp.asarray(np.random.default_rng(1).integers(0, 10, (n, k)).astype(np.int8))
     host = np.zeros((n, k), dtype=np.int8)
     _stash_deferred_host_fill(host, dev)
     chunk = ChunkCodes.capture(host)
@@ -65,10 +64,7 @@ def test_filled_host_buffer_is_not_wrapped_and_other_items_pass_through():
 def test_switch_off_fills_the_host_block(monkeypatch):
     """MLFRAME_PAIR_LAZY_CODES=0 restores the eager fill of the whole block."""
     monkeypatch.setenv("MLFRAME_PAIR_LAZY_CODES", "0")
-    try:
-        dev = cp.asarray(np.arange(20, dtype=np.int8).reshape(5, 4))
-    except Exception as e:
-        pytest.skip(f"no CUDA device: {e}")
+    dev = cp.asarray(np.arange(20, dtype=np.int8).reshape(5, 4))
     host = np.zeros((5, 4), dtype=np.int8)
     _stash_deferred_host_fill(host, dev)
     got = ChunkCodes.capture(host)

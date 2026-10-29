@@ -123,12 +123,14 @@ def ksg_mi_discrete_target_columns(X: np.ndarray, y: np.ndarray, *, n_neighbors:
     The per-column call draws its Kraskov noise as one ``(n, 1)`` block from ``RandomState(random_state)``. A single ``(n, p)`` draw would give each column
     other values, so every column here draws from its own fresh ``RandomState(random_state)``, the same ``n`` values the one-column call draws.
     """
+    # Intentional float64: reproduces sklearn mutual_info_classif, which scales and adds the noise in double precision
     X = np.array(X, dtype=np.float64, copy=True)
     n, p = X.shape
     std = X.std(axis=0)
     std[std == 0.0] = 1.0
     X /= std
     means = np.maximum(1.0, np.mean(np.abs(X), axis=0))
+    # Intentional float64: the noise is drawn in double precision, as the per-column call draws it
     noise = np.empty((n, p), dtype=np.float64)
     for j in range(p):
         noise[:, j] = np.random.RandomState(int(random_state)).standard_normal(size=n)

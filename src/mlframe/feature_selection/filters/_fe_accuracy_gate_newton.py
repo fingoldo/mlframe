@@ -7,7 +7,11 @@ twentieth of the cost. A fit that does not converge, or whose weights are not fi
 
 from __future__ import annotations
 
+import logging
+
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 _MAX_ITER = 30
 _GRAD_TOL = 1e-8
@@ -22,6 +26,7 @@ def fit_logistic_ridge_newton(X: np.ndarray, y01: np.ndarray, C: float = 1.0) ->
     """``(weights, intercept)`` of the L2 logistic fit with inverse strength ``C`` on columns ``X`` and 0/1 labels, or ``None`` when Newton does not converge to a finite optimum."""
     # Intentional float64: the optimum is solved in double so the stop test (gradient 1e-8) is meaningful for float32 inputs
     A = np.concatenate([np.asarray(X, dtype=np.float64), np.ones((X.shape[0], 1), dtype=np.float64)], axis=1)
+    # Intentional float64: the Newton solve is in double precision (normal equations of a few columns)
     y = np.asarray(y01, dtype=np.float64)
     p = A.shape[1]
     lam = 1.0 / float(C)
@@ -41,6 +46,7 @@ def fit_logistic_ridge_newton(X: np.ndarray, y01: np.ndarray, C: float = 1.0) ->
         try:
             step = np.linalg.solve(hess, grad)
         except np.linalg.LinAlgError:
+            logger.debug("logistic Newton probe: singular Hessian, the scikit-learn fit decides")
             return None
         t = 1.0
         for _ in range(12):

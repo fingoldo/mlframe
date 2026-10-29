@@ -16,6 +16,8 @@ import logging
 from typing import Callable, Optional, Sequence
 
 import numpy as np
+
+from mlframe._numba_parallel_guard import parallel_kernel_entry
 from ._fe_usability_signal import _crit_np_dtype
 
 from mlframe.feature_selection.filters._relative_uplift import relative_uplift
@@ -270,6 +272,7 @@ def _batched_bootstrap_values(columns: list, y_arr: np.ndarray, boot_idx: list, 
     if not all(np.isfinite(c).all() for c in columns):
         return None
     ksg_ok = _is_discrete_target(y_arr)
+    # Intentional float64: the scorer values are kept as double precision vectors (ranking ties)
     out = {s: np.empty((len(columns), len(boot_idx)), dtype=np.float64) for s in _BATCHED_BOOTSTRAP_SCORERS if s != "ksg" or ksg_ok}
     def one_resample(b: int) -> None:
         """All batched scorers of resample ``b`` for every column, written into column ``b`` of the result."""
@@ -277,13 +280,17 @@ def _batched_bootstrap_values(columns: list, y_arr: np.ndarray, boot_idx: list, 
         block = np.column_stack([np.asarray(c[idx], dtype=dt) for c in columns])
         yb = y_arr[idx]
         seed = int(random_state) + b
-        out["plug_in"][:, b] = np.asarray(_mi_classif_batch(block, yb, nbins=int(hyper["nbins"])), dtype=np.float64)
-        out["copula"][:, b] = np.asarray(_copula_mi_batch(block, yb, n_bins=int(hyper["copula_n_bins"])), dtype=np.float64)
-        out["xi"][:, b] = xi_correlation_batch(block, yb, random_state=seed)
-        out["dcor"][:, b] = _dcor_batch(block, yb, n_sample=int(hyper["dcor_n_sample"]), random_state=seed)
-        out["hsic"][:, b] = _hsic_batch(block, yb, n_sample=int(hyper["dcor_n_sample"]), random_state=seed)
-        if ksg_ok:
-            out["ksg"][:, b] = ksg_mi_discrete_target_columns(block, yb, n_neighbors=int(hyper["n_neighbors"]), random_state=seed)
+        # These batches reach numba ``parallel=True`` kernels, which must be entered by one thread at a time (see ``mlframe._numba_parallel_guard``); the slicing above overlaps freely.
+        with parallel_kernel_entry():
+            # Intentional float64: MI batch scores kept as a double precision accumulator vector (ranking ties)
+            out["plug_in"][:, b] = np.asarray(_mi_classif_batch(block, yb, nbins=int(hyper["nbins"])), dtype=np.float64)
+            # Intentional float64: copula MI batch scores kept as a double precision accumulator vector
+            out["copula"][:, b] = np.asarray(_copula_mi_batch(block, yb, n_bins=int(hyper["copula_n_bins"])), dtype=np.float64)
+            out["xi"][:, b] = xi_correlation_batch(block, yb, random_state=seed)
+            out["dcor"][:, b] = _dcor_batch(block, yb, n_sample=int(hyper["dcor_n_sample"]), random_state=seed)
+            out["hsic"][:, b] = _hsic_batch(block, yb, n_sample=int(hyper["dcor_n_sample"]), random_state=seed)
+            if ksg_ok:
+                out["ksg"][:, b] = ksg_mi_discrete_target_columns(block, yb, n_neighbors=int(hyper["n_neighbors"]), random_state=seed)
 
     # The resamples are independent (own seed, own output column), so they run on the pool; the first runs on this thread so the njit kernels compile once.
     from ._adaptive_nbins import _resolve_edge_jobs
@@ -299,6 +306,12 @@ def _batched_bootstrap_values(columns: list, y_arr: np.ndarray, boot_idx: list, 
         for b in range(1, len(boot_idx)):
             one_resample(b)
     return out
+
+
+def _guarded_bootstrap_lcb(x, y_arr: np.ndarray, boot_idx: list, random_state: int, scorer_call: Callable, pre: "dict | None"):
+    """``_bootstrap_lcb_per_scorer`` for one column from a pool thread: its scorers reach numba ``parallel=True`` kernels, entered one thread at a time."""
+    with parallel_kernel_entry():
+        return _bootstrap_lcb_per_scorer(x, y_arr, boot_idx, random_state, scorer_call, pre)
 
 
 def _bootstrap_lcb_tables(columns: list, y_arr: np.ndarray, boot_idx: list, random_state: int, scorer_call: Callable, n_jobs: "int | None", hyper: "dict | None" = None) -> list:
@@ -321,7 +334,7 @@ def _bootstrap_lcb_tables(columns: list, y_arr: np.ndarray, boot_idx: list, rand
 
     first = _bootstrap_lcb_per_scorer(columns[0], y_arr, boot_idx, random_state, scorer_call, precomputed[0])
     with ThreadPoolExecutor(max_workers=jobs) as pool:
-        rest = list(pool.map(lambda xp: _bootstrap_lcb_per_scorer(xp[0], y_arr, boot_idx, random_state, scorer_call, xp[1]), zip(columns[1:], precomputed[1:])))
+        rest = list(pool.map(lambda xp: _guarded_bootstrap_lcb(xp[0], y_arr, boot_idx, random_state, scorer_call, xp[1]), zip(columns[1:], precomputed[1:])))
     return [first, *rest]
 
 

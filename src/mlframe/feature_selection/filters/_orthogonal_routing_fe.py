@@ -280,9 +280,11 @@ def _routing_scores(routing_criterion: str, y_arr: np.ndarray, cand_mat: np.ndar
             # |corr| per candidate without the standardised copy of the candidate matrix: sum_i z_ij * yz_i = (sum_i x_ij * yz_i - m_j * sum_i yz_i) / s_j,
             # with the same degenerate-column rule as ``standardise`` (zero score where the spread is degenerate). Equal to the copy-based value to rounding.
             _yz = (_yf - _yf.mean()) / _ystd
+            # Intentional float64: the correlation statistics accumulate in double precision
             _m = cand_mat.mean(axis=0, dtype=np.float64)
-            _s = cand_mat.std(axis=0, dtype=np.float64)
+            _s = cand_mat.std(axis=0, dtype=np.float64)  # Intentional float64: as the mean above
             _ok = _s > _REL_TOL * np.abs(cand_mat).max(axis=0)
+            # Intentional float64: the correlation numerator accumulates in double precision
             _num = cand_mat.astype(np.float64, copy=False).T @ _yz
             route_score = np.abs(np.where(_ok, (_num - _m * _yz.sum()) / np.where(_ok, _s, 1.0), 0.0) / _yf.size)
         else:

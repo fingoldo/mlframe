@@ -556,6 +556,7 @@ def _batched_cmi_in_chunks(codes: Any, y_bin: np.ndarray, z_joint: Any, batched_
         try:
             parts = [batched_cmi_gpu(codes[:, s : s + step], y_bin, z_joint, codes_trusted=True) for s in range(0, k, step)]
         except cp.cuda.memory.OutOfMemoryError:
+            logger.debug("batched CMI of %d columns in chunks of %d ran out of device memory", k, step)
             return None
         scored: np.ndarray = parts[0] if len(parts) == 1 else np.concatenate(parts)
         return scored

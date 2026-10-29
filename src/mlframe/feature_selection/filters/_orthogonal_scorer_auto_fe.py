@@ -171,6 +171,7 @@ def _batch_one_scorer(s, Xmat, y_arr, *, nbins, random_state, n_neighbors, copul
         if _is_discrete_target(y_arr) and np.isfinite(Xmat).all():
             return ksg_mi_discrete_target_columns(Xmat, y_arr, n_neighbors=int(n_neighbors), random_state=int(random_state))
         else:
+            # Intentional float64: scorer values kept as a double precision vector, like the batched ones
             return np.array([call(s, Xmat[:, j], y_arr) for j in range(Xmat.shape[1])], dtype=np.float64)
     raise ValueError(f"_batch_one_scorer: {s!r} is not a batchable scorer")
 

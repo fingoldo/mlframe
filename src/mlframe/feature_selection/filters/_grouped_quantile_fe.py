@@ -100,9 +100,10 @@ def engineered_name_target_aware_bin(num_col: str, group_col: str) -> str:
 # ---------------------------------------------------------------------------
 
 def _sorted_linear_quantiles(sv: np.ndarray, qs: Sequence[float]) -> np.ndarray:
-    """``np.quantile(x, qs)`` (linear method, float64 result) computed from ``sv = np.sort(x)``: the same virtual index and the same lerp as numpy's
-    ``_quantile``, so the values equal numpy's bit for bit (checked on 6000 random arrays, float32 and float64, with ties)."""
+    """``np.quantile(x, qs)`` (linear method, double precision result) computed from ``sv = np.sort(x)``: the same virtual index and the same lerp as numpy's
+    ``_quantile``, so the values equal numpy's bit for bit (checked on 6000 random arrays, in single and double precision, with ties)."""
     n = sv.size
+    # Intentional float64: np.quantile returns double precision and these values equal it bit for bit
     out = np.empty(len(qs), dtype=np.float64)
     for k, q in enumerate(qs):
         v = q * (n - 1)
