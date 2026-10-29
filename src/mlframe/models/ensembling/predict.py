@@ -420,12 +420,12 @@ def _finalize_mean_of_transformed(mean_of_t: np.ndarray, ensemble_method: str) -
     if ensemble_method == "harm":
         # mean_of_t is mean(1/p); harmonic mean = 1 / mean(1/p)
         with np.errstate(divide="ignore", invalid="ignore"):
-            return np.where(mean_of_t == 0, 0.0, 1.0 / mean_of_t)
+            return np.asarray(np.where(mean_of_t == 0, 0.0, 1.0 / mean_of_t), dtype=np.float64)
     if ensemble_method == "quad":
-        return np.sqrt(np.maximum(mean_of_t, 0.0))
+        return np.asarray(np.sqrt(np.maximum(mean_of_t, 0.0)), dtype=np.float64)
     if ensemble_method == "qube":
-        return np.cbrt(mean_of_t)
-    return np.exp(mean_of_t)  # "geo"
+        return np.asarray(np.cbrt(mean_of_t), dtype=np.float64)
+    return np.asarray(np.exp(mean_of_t), dtype=np.float64)  # "geo"
 
 
 def ensemble_probabilistic_predictions_streaming(
