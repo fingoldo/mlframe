@@ -63,11 +63,76 @@ def _calmest_corner(matrix: np.ndarray) -> str:
     return best
 
 
+def _draw_threshold_contours(ax, p, drew_cell_text):
+    """Overlay the iso-value contours at the named matrix levels, labelling them inline or in a legend when cell numbers already fill the grid."""
+    mat = np.asarray(p.matrix, dtype=float)
+    contour_legend: list = []
+    if mat.ndim == 2 and mat.shape[0] >= 2 and mat.shape[1] >= 2:
+        gx, gy = np.meshgrid(np.arange(mat.shape[1]), np.arange(mat.shape[0]))
+        # Hoisted out of the loop: both are full-matrix reductions over the same unchanged matrix,
+        # so recomputing them per contour level was O(levels * cells) for an O(cells) answer. The
+        # plotly twin already hoists them.
+        lo, hi = float(np.nanmin(mat)), float(np.nanmax(mat))
+        for _entry in p.threshold_contours:
+            level, color = _entry[0], _entry[1]
+            dash = _entry[2] if len(_entry) > 2 else "solid"
+            label = _entry[3] if len(_entry) > 3 else ""
+            if lo < level < hi:  # contour only exists when the level is crossed
+                cs = ax.contour(gx, gy, mat, levels=[level], colors=[color], linewidths=1.4, linestyles=_DASH_STYLES.get(dash, "-"))
+                if label and not drew_cell_text:
+                    ax.clabel(cs, fmt={level: label}, fontsize=7)
+                elif label:
+                    # An inline contour label follows the contour, so on a grid that also carries
+                    # per-cell numbers it runs diagonally across them: seen writing "significant 0.25"
+                    # over two cells of a drift heatmap. The cell values are the more precise reading,
+                    # so the wording moves to the legend rather than competing for the same pixels.
+                    # The plotly twin suppresses its own inline label in the same case and keeps the
+                    # trace name, so both backends still name the threshold.
+                    from matplotlib.lines import Line2D as _CLine
+
+                    contour_legend.append(_CLine([], [], color=color, linewidth=1.4, label=label, linestyle=_DASH_STYLES.get(dash, "-")))
+        if contour_legend:
+            ax.legend(handles=contour_legend, fontsize=6, loc=_calmest_corner(mat), framealpha=0.85)
+
+def _draw_trend_line(ax, p):
+    """Draw the robust trend and y=x reference lines, mapped from value space into the bin-index space of the heatmap."""
+    from .matplotlib import _place_legend
+
+    from mlframe.reporting.renderers._trend import robust_fit_endpoints
+    # The imshow axes live in BIN-INDEX space (0..nbins-1); robust_fit_endpoints + the y=x
+    # diagonal are in VALUE space. Map value -> index using the SAME (lo, hi) the panel binned on
+    # (lo = min over both arrays, hi = max), else the line is plotted at value coords (~1e4) on a
+    # 0..79 axis, auto-expanding the axis and squishing the density into a corner.
+    _xv = np.asarray(p.trend_xy[0], dtype=np.float64).ravel()
+    _yv = np.asarray(p.trend_xy[1], dtype=np.float64).ravel()
+    _fin = np.isfinite(_xv) & np.isfinite(_yv)
+    _nb = len(p.col_labels)
+    if int(_fin.sum()) >= 2 and _nb >= 2:
+        _lo = float(min(_xv[_fin].min(), _yv[_fin].min()))
+        _hi = float(max(_xv[_fin].max(), _yv[_fin].max()))
+        if _hi > _lo:
+            # Shared with the plotly renderer so the two backends cannot drift on this map again.
+            _to_idx = heatmap_value_to_index(_lo, _hi, _nb)
+            # y=x reference in index space (origin="lower" -> bottom-left to top-right).
+            ax.plot([0, _nb - 1], [0, _nb - 1], color="0.4", linestyle=":", linewidth=1.0, label="y=x")
+            ends = robust_fit_endpoints(_xv, _yv, p.trend_line)
+            if ends is not None:
+                (tx0, ty0), (tx1, ty1) = ends
+                ax.plot(
+                    [_to_idx(tx0), _to_idx(tx1)], [_to_idx(ty0), _to_idx(ty1)],
+                    color=TREND_LINE, linestyle="-", linewidth=1.6,
+                    label=f"robust fit ({p.trend_line})",
+                )
+            ax.set_xlim(-0.5, _nb - 0.5)
+            ax.set_ylim(-0.5, _nb - 0.5)
+            _place_legend(ax)
+
+
 def _heatmap(self, ax, p: HeatmapPanelSpec, fig) -> None:
     """Render a matrix heatmap: cell text (auto-flipped color by luminance) when the grid is small enough, iso-value threshold contours, and an optional trend/y=x line mapped from value-space into bin-index space via the panel's own binning range."""
     # Imported at call time, not at module scope: ``matplotlib.py`` binds these two functions onto its
     # renderer at the BOTTOM of its own module, so a top-level import back into it would be circular.
-    from .matplotlib import _HEATMAP_TICK_FONTSIZE, _place_legend, _set_panel_title
+    from .matplotlib import _HEATMAP_TICK_FONTSIZE, _set_panel_title
 
     import matplotlib
     cmap_name = resolve_heatmap_cmap(p.colormap)
@@ -135,63 +200,9 @@ def _heatmap(self, ax, p: HeatmapPanelSpec, fig) -> None:
     # Iso-value contour overlays at named matrix levels (PSI 0.10 / 0.25 triage lines on the drift heatmap).
     # Contour coords are the imshow cell-center grid (0..ncols-1, 0..nrows-1) so lines land between cells.
     if p.threshold_contours:
-        mat = np.asarray(p.matrix, dtype=float)
-        contour_legend: list = []
-        if mat.ndim == 2 and mat.shape[0] >= 2 and mat.shape[1] >= 2:
-            gx, gy = np.meshgrid(np.arange(mat.shape[1]), np.arange(mat.shape[0]))
-            # Hoisted out of the loop: both are full-matrix reductions over the same unchanged matrix,
-            # so recomputing them per contour level was O(levels * cells) for an O(cells) answer. The
-            # plotly twin already hoists them.
-            lo, hi = float(np.nanmin(mat)), float(np.nanmax(mat))
-            for _entry in p.threshold_contours:
-                level, color = _entry[0], _entry[1]
-                dash = _entry[2] if len(_entry) > 2 else "solid"
-                label = _entry[3] if len(_entry) > 3 else ""
-                if lo < level < hi:  # contour only exists when the level is crossed
-                    cs = ax.contour(gx, gy, mat, levels=[level], colors=[color], linewidths=1.4, linestyles=_DASH_STYLES.get(dash, "-"))
-                    if label and not drew_cell_text:
-                        ax.clabel(cs, fmt={level: label}, fontsize=7)
-                    elif label:
-                        # An inline contour label follows the contour, so on a grid that also carries
-                        # per-cell numbers it runs diagonally across them: seen writing "significant 0.25"
-                        # over two cells of a drift heatmap. The cell values are the more precise reading,
-                        # so the wording moves to the legend rather than competing for the same pixels.
-                        # The plotly twin suppresses its own inline label in the same case and keeps the
-                        # trace name, so both backends still name the threshold.
-                        from matplotlib.lines import Line2D as _CLine
-
-                        contour_legend.append(_CLine([], [], color=color, linewidth=1.4, label=label, linestyle=_DASH_STYLES.get(dash, "-")))
-            if contour_legend:
-                ax.legend(handles=contour_legend, fontsize=6, loc=_calmest_corner(mat), framealpha=0.85)
+        _draw_threshold_contours(ax, p, drew_cell_text)
     if p.trend_line is not None and p.trend_xy is not None:
-        from mlframe.reporting.renderers._trend import robust_fit_endpoints
-        # The imshow axes live in BIN-INDEX space (0..nbins-1); robust_fit_endpoints + the y=x
-        # diagonal are in VALUE space. Map value -> index using the SAME (lo, hi) the panel binned on
-        # (lo = min over both arrays, hi = max), else the line is plotted at value coords (~1e4) on a
-        # 0..79 axis, auto-expanding the axis and squishing the density into a corner.
-        _xv = np.asarray(p.trend_xy[0], dtype=np.float64).ravel()
-        _yv = np.asarray(p.trend_xy[1], dtype=np.float64).ravel()
-        _fin = np.isfinite(_xv) & np.isfinite(_yv)
-        _nb = len(p.col_labels)
-        if int(_fin.sum()) >= 2 and _nb >= 2:
-            _lo = float(min(_xv[_fin].min(), _yv[_fin].min()))
-            _hi = float(max(_xv[_fin].max(), _yv[_fin].max()))
-            if _hi > _lo:
-                # Shared with the plotly renderer so the two backends cannot drift on this map again.
-                _to_idx = heatmap_value_to_index(_lo, _hi, _nb)
-                # y=x reference in index space (origin="lower" -> bottom-left to top-right).
-                ax.plot([0, _nb - 1], [0, _nb - 1], color="0.4", linestyle=":", linewidth=1.0, label="y=x")
-                ends = robust_fit_endpoints(_xv, _yv, p.trend_line)
-                if ends is not None:
-                    (tx0, ty0), (tx1, ty1) = ends
-                    ax.plot(
-                        [_to_idx(tx0), _to_idx(tx1)], [_to_idx(ty0), _to_idx(ty1)],
-                        color=TREND_LINE, linestyle="-", linewidth=1.6,
-                        label=f"robust fit ({p.trend_line})",
-                    )
-                ax.set_xlim(-0.5, _nb - 0.5)
-                ax.set_ylim(-0.5, _nb - 0.5)
-                _place_legend(ax)
+        _draw_trend_line(ax, p)
     cbar = fig.colorbar(im, ax=ax)
     if p.colorbar_label:
         cbar.set_label(p.colorbar_label)
