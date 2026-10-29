@@ -386,14 +386,17 @@ def _materialise_extval_njit(param_a, param_b_mat, op_codes, out):
     n = param_b_mat.shape[0]
     n_ext = param_b_mat.shape[1]
     n_ops = op_codes.shape[0]
-    for e in range(n_ext):
-        for o in range(n_ops):
-            op = op_codes[o]
-            col = e * n_ops + o
-            for r in range(n):
-                # Intentional float64: operands at numpy's float64 op width, so device candidates and codes match the host bin_func path
-                a = np.float64(param_a[r])
-                b = param_b_mat[r, e]
+    # Row-outermost so the (n, n_ext * n_ops) output is written along contiguous rows; the column-outer order wrote a stride of n_ext * n_ops doubles.
+    for r in range(n):
+        # Intentional float64: operands at numpy's float64 op width, so device candidates and codes match the host bin_func path
+        a = np.float64(param_a[r])
+        sgn = 0.0 if a == 0.0 else (1.0 if a > 0.0 else -1.0)
+        for e in range(n_ext):
+            b = param_b_mat[r, e]
+            has_nan = a != a or b != b
+            base = e * n_ops
+            for o in range(n_ops):
+                op = op_codes[o]
                 if op == 0:  # mul
                     v = a * b
                 elif op == 1:  # add
@@ -403,23 +406,13 @@ def _materialise_extval_njit(param_a, param_b_mat, op_codes, out):
                 elif op == 3:  # div = _safe_div: exact x/y for y != 0, eps floor only on an exact-zero denominator
                     v = a / (b if b != 0.0 else 1e-9)
                 elif op == 4:  # max = np.maximum (nan-propagating)
-                    if a != a or b != b:
-                        v = a + b
-                    else:
-                        v = a if a > b else b
+                    v = a + b if has_nan else (a if a > b else b)
                 elif op == 5:  # min = np.minimum (nan-propagating)
-                    if a != a or b != b:
-                        v = a + b
-                    else:
-                        v = a if a < b else b
+                    v = a + b if has_nan else (a if a < b else b)
                 elif op == 6:  # abs_diff = |a - b|
                     v = abs(a - b)
                 elif op == 7:  # signed = sign(a)*|b| (nan-propagating)
-                    if a != a or b != b:
-                        v = a + b
-                    else:
-                        sgn = 0.0 if a == 0.0 else (1.0 if a > 0.0 else -1.0)
-                        v = sgn * abs(b)
+                    v = a + b if has_nan else sgn * abs(b)
                 else:  # op == 8: ratio_abs = a/(|b|+1)
                     v = a / (abs(b) + 1.0)
-                out[r, col] = v
+                out[r, base + o] = v
