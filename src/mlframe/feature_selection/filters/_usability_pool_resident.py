@@ -59,6 +59,7 @@ import logging
 from typing import Any, Optional, Sequence
 
 import numpy as np
+from mlframe.feature_selection.filters._lazy_host_codes import length_of
 
 logger = logging.getLogger(__name__)
 
@@ -182,7 +183,7 @@ def score_pair_combos_table_resident(
         _, h_y, k_y = y_terms
         h_y = float(h_y)
         k_y = int(k_y)
-        n = int(np.asarray(operands[0][0]).shape[0])
+        n = length_of(operands[0][0])
         qs = np.linspace(0.0, 1.0, int(nbins) + 1)
         # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
         d_qs = cp.asarray(qs, dtype=cp.float64)

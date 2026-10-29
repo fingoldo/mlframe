@@ -24,6 +24,7 @@ import logging
 from mlframe.utils.log_throttle import log_throttle
 
 import numpy as np
+from mlframe.feature_selection.filters._lazy_host_codes import length_of
 from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 
 from ._helpers import _pgn_raw_budget
@@ -32,6 +33,22 @@ from ._linear_dependence_guard import exact_dependence_keep_mask
 logger = logging.getLogger(__name__)
 
 
+def _with_replay_value_cache(fn):
+    """Run ``fn`` inside ``replay_value_cache`` so the stages of the support tail share their recipe replays."""
+    import functools
+
+    from ..engineered_recipes._recipe_dispatch import replay_value_cache
+
+    @functools.wraps(fn)
+    def inner(*args, **kwargs):
+        """Call ``fn`` with the replay cache open."""
+        with replay_value_cache():
+            return fn(*args, **kwargs)
+
+    return inner
+
+
+@_with_replay_value_cache
 def _assign_support_tail(
     self,
     *,
@@ -466,7 +483,7 @@ def _assign_support_tai_inc_names(_inc_names, _eng_continuous_snapshot, data, _i
     """Block of _assign_support_tail starting at ``for _in in _inc_names:``."""
     for _in in _inc_names:
         _iv = _eng_continuous_snapshot.get(_in)
-        if _iv is not None and np.asarray(_iv).shape[0] == int(data.shape[0]):
+        if _iv is not None and length_of(_iv) == int(data.shape[0]):
             _inc_cont.append(np.asarray(_iv, dtype=_crit_np_dtype()).ravel())
 
 

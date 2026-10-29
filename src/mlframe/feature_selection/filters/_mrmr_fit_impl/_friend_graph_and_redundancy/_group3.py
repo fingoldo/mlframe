@@ -14,6 +14,7 @@ from mlframe.utils.log_throttle import log_throttle
 import logging
 
 import numpy as np
+from mlframe.feature_selection.filters._lazy_host_codes import length_of
 from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 
 from ._raw_protect_r2 import heldout_r2_scorer
@@ -433,7 +434,7 @@ def _drop_redundant_raw_operands_sweep(self, selected_vars, cols, classes_y, _y_
                     for _gi in _pcr_genuine_eng:
                         if _rn in {t for t in _TOKEN_SPLIT.split(cols[_gi]) if t}:
                             _cont = _pcr_eng_cont.get(cols[_gi])
-                            if _cont is not None and np.asarray(_cont).shape[0] == int(data.shape[0]):
+                            if _cont is not None and length_of(_cont) == int(data.shape[0]):
                                 _child_bins.append(_pcr_qbin(np.asarray(_cont, dtype=_crit_np_dtype()), nbins=10))
                             else:
                                 _child_bins.append(np.asarray(data[:, _gi]).astype(np.int64).ravel())

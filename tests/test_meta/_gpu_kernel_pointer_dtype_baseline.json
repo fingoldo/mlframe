@@ -47,6 +47,10 @@
   "rows_ent_nnz_i32",
   "rows_ent_nnz_i32_split"
  ],
+ "src/mlframe/feature_selection/filters/_fe_batched_mi_cmi_lut.py": [
+  "rows_ent_nnz_i32_lut1",
+  "rows_ent_nnz_i32_lut4"
+ ],
  "src/mlframe/feature_selection/filters/_feature_engineering_pairs/_pairs_analytic_gpu.py": [
   "analytic_obs_mi_bins_i8"
  ],
@@ -80,7 +84,8 @@
  ],
  "src/mlframe/feature_selection/filters/_honest_null_device.py": [
   "root_split_stats",
-  "root_split_stats_k2"
+  "root_split_stats_k2",
+  "root_split_stats_v2"
  ],
  "src/mlframe/feature_selection/filters/_mi_greedy_cmi_fe.py": [
   "ent_nnz"

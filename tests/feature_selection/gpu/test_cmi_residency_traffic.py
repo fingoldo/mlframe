@@ -189,7 +189,7 @@ def _run_pair_search_audit():
     from mlframe.feature_selection.filters import _gpu_resident_fe as _FE
     from mlframe.feature_selection.filters import _gpu_resident_materialise as _RM
     from mlframe.feature_selection.filters._feature_engineering_pairs import _pairs_dispatch as _DI
-    from mlframe.feature_selection.filters._gpu_strict_fe import residency_audit
+    from mlframe.feature_selection.filters._gpu_strict_fe import duplicate_transfer_audit, residency_audit
     from mlframe.feature_selection.filters.mrmr import MRMR
 
     saved = {
@@ -305,10 +305,11 @@ def _run_pair_search_audit():
     try:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            with residency_audit() as rep:
+            with duplicate_transfer_audit() as dup, residency_audit() as rep:
                 fs = MRMR(full_npermutations=10, baseline_npermutations=20, fe_max_steps=2, fe_min_pair_mi_prevalence=1.05, verbose=0, n_jobs=1).fit(df, y)
         names = [str(s) for s in fs.get_feature_names_out()]
         cnt["operand_table_distinct"] = len(_seen_tv)
+        cnt["duplicates"] = dup
         return names, cnt, rep, n
     finally:
         _RM._stash_resident_codes = _o_stash
@@ -455,3 +456,16 @@ def test_audit_tag_and_exempt_route_transfers_away_from_the_bulk_tally():
         cp.asnumpy(x)
     assert rep.d2h == [x.nbytes, x.nbytes], "cp.asnumpy calls ndarray.get itself; one copy must be tallied once"
     assert rep.tagged == {"t": [x.nbytes, x.nbytes]}
+
+
+def test_strict_fit_does_not_copy_the_same_content_back_repeatedly(pair_search_audit):
+    """No array crosses to the host more than once: every reader of a device column shares one copy, in the criterion dtype.
+
+    ``test_strict_fit_copies_back_only_result_columns`` bounds the bytes; this bounds the bytes that REPEAT earlier content (equal after a normalising cast, so a dense
+    and a narrowed copy of one column are one array). It caught a held-out gate, a raw-redundancy probe and a support-assignment step each reading the same engineered
+    column on their own, the same recipe replayed by two stages in a row, and the same column binned by the inert-leaf probe and again by the survivor block.
+    One int8 code column (n bytes) is allowed for the backend choices the kernel-tuning cache makes per host.
+    """
+    _names, cnt, _rep, n = pair_search_audit
+    dup = cnt["duplicates"]
+    assert dup.redundant_bytes <= n, dup.summary()

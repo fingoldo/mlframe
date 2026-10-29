@@ -58,6 +58,7 @@ ast.walk = _shared_walk
 
 _REFRESH_FLAGS = [
     "--refresh-api-snapshot",
+    "--refresh-asarray-length-baseline",
     "--refresh-annotation-baseline",
     "--refresh-nondiscriminating-assert-baseline",
     "--refresh-audit-metadata-baseline",

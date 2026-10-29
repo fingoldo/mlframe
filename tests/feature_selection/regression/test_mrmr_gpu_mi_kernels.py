@@ -189,7 +189,9 @@ def test_regression_fe_additive_fusion_gpu_ols_margin_uses_full_n_rows(monkeypat
     """Pre-fix: the OLS separability margin was divided by sqrt of the SCORING subsample size, so above the subsample cap
     the GPU twin's threshold sat at 2/sqrt(n_sc) rather than the CPU sibling's 2/sqrt(n_rows). Post-fix: the margin uses
     the true fit row count. The fixture (n=4000, cap=1000) places the fused R-gain between 2/sqrt(4000) and 2/sqrt(1000),
-    so the fusion is admitted only under the full-n margin."""
+    so the fusion is admitted only under the full-n margin. The fixture has to satisfy three bounds at once: both halves clear their relevance floor on the
+    1000-row scoring sample, the OLS gain stays inside (2/sqrt(4000), 2/sqrt(1000)), and the unweighted sum keeps the gain (the keeps-both-halves rule). Equal
+    weights cannot do it (the relevance floor alone puts the gain just above 2/sqrt(1000)); the second half at 0.6 of the first can."""
     cp = pytest.importorskip("cupy")
     if _cuda_device_count(cp) < 1:
         pytest.skip("no usable CUDA device")
@@ -206,7 +208,9 @@ def test_regression_fe_additive_fusion_gpu_ols_margin_uses_full_n_rows(monkeypat
     d = rng.standard_normal(n)
     h_c = c**2 - 1.0
     h_d = d**2 - 1.0
-    y_cont = h_c + 0.2 * h_d + 0.5 * rng.standard_normal(n)
+    # On the scoring subsample (every 4th row, binned y) the OLS gain of the pair over its best half is 0.053 and the unweighted sum's is 0.049: both above 2/sqrt(4000) = 0.032,
+    # below 2/sqrt(1000) = 0.063.
+    y_cont = h_c + 0.6 * h_d + 5.0 * rng.standard_normal(n)
     y_dense = pd.qcut(y_cont, q=8, labels=False, duplicates="drop").astype(np.int64)
     name_c, name_d = "c__He2", "d__He2"
     recipes = {
@@ -217,19 +221,26 @@ def test_regression_fe_additive_fusion_gpu_ols_margin_uses_full_n_rows(monkeypat
     fs.fe_additive_fusion_floor_margin = 1e9  # the binned-MI gate can never pass, so only the OLS margin decides
     monkeypatch.setenv("MLFRAME_FE_FUSION_MAX_ROWS", str(cap))
 
-    admitted, _subsumed, _subsumed_raws = fus.propose_additive_fusions_gpu(
-        fs,
-        engineered_recipes=recipes,
-        engineered_continuous={name_c: h_c, name_d: h_d},
-        newly_engineered_names=[name_c, name_d],
-        raw_name_set={"c", "d"},
-        cols=["c", "d"],
-        classes_y=y_dense,
-        X=pd.DataFrame({"c": c, "d": d}),
-        nbins=10,
-        seed=0,
-    )
-    assert [a["name"] for a in admitted] == ["add(c__He2,d__He2)"], "the full-n OLS margin must admit this fusion under the cap"
+    def run() -> list:
+        """Names of the fusions admitted for the fixture under the current margin settings."""
+        admitted, _subsumed, _subsumed_raws = fus.propose_additive_fusions_gpu(
+            fs,
+            engineered_recipes=recipes,
+            engineered_continuous={name_c: h_c, name_d: h_d},
+            newly_engineered_names=[name_c, name_d],
+            raw_name_set={"c", "d"},
+            cols=["c", "d"],
+            classes_y=y_dense,
+            X=pd.DataFrame({"c": c, "d": d}),
+            nbins=10,
+            seed=0,
+        )
+        return [a["name"] for a in admitted]
+
+    assert run() == ["add(c__He2,d__He2)"], "the full-n OLS margin must admit this fusion under the cap"
+    # Control: the pre-fix margin 2/sqrt(n_scoring) is twice as wide here (4/sqrt(4000)); the same gain must then be rejected.
+    fs.fe_additive_fusion_ols_r_margin_sd = 4.0
+    assert run() == [], "a margin scaled to the scoring subsample rejects this fusion, so the test separates the two margins"
 
 
 # ---------------------------------------------------------------------------

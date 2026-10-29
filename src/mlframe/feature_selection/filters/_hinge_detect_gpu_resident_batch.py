@@ -40,6 +40,7 @@ import logging
 from typing import Optional, Sequence
 
 import numpy as np
+from mlframe.feature_selection.filters._lazy_host_codes import length_of
 from ._fe_gpu_batch._devices import crit_float_dtype
 from ._fe_usability_signal import _crit_np_dtype
 
@@ -124,7 +125,7 @@ def detect_hinge_breakpoints_gpu_batch(
         from ._hinge_detect_gpu_resident import detect_hinge_breakpoints_gpu
         from ._fe_resident_operands import resident_operand
 
-        n = int(np.asarray(x_cols[0]).shape[0])
+        n = length_of(x_cols[0])
         # Intentional float64: target labels kept f64 (exact binning / comparison contract)
         y_arr = np.asarray(y, dtype=np.float64).ravel()
         if y_arr.size != n or n < min_rows:

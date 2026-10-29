@@ -120,6 +120,7 @@ from ._mi_greedy_cmi_fe_steps import (  # noqa: F401  -- carved helpers
     marginal_mi_binned_fixed_y,
     precompute_cmi_yz_terms,
     cmi_from_binned_fixed_yz,
+    _cmi_candidate_batch_on_device,
     _cmi_gpu_enabled,
     _CARD_MAX_CACHE,
     _CARD_MAX_CACHE_LOCK,
@@ -555,6 +556,7 @@ def _batched_cmi_in_chunks(codes: Any, y_bin: np.ndarray, z_joint: Any, batched_
         try:
             parts = [batched_cmi_gpu(codes[:, s : s + step], y_bin, z_joint, codes_trusted=True) for s in range(0, k, step)]
         except cp.cuda.memory.OutOfMemoryError:
+            logger.debug("batched CMI of %d columns in chunks of %d ran out of device memory", k, step)
             return None
         scored: np.ndarray = parts[0] if len(parts) == 1 else np.concatenate(parts)
         return scored
@@ -625,7 +627,7 @@ def score_candidates_by_cmi(
     # BATCHED born-on-device path under STRICT (default OFF -> per-candidate CPU loop, byte-identical):
     # bin all candidates into one (n, K) code matrix and score CMI for EVERY candidate in ONE device
     # workload (batched_cmi_gpu), instead of a per-candidate cp.unique CMI. Parity-pinned selection-equiv.
-    if _cmi_gpu_enabled(n=int(y_bin.shape[0]), p=len(cand_cols)) and len(cand_cols) > 1:
+    if (_cmi_gpu_enabled(n=int(y_bin.shape[0]), p=len(cand_cols)) or _cmi_candidate_batch_on_device(n=int(y_bin.shape[0]), p=len(cand_cols))) and len(cand_cols) > 1:
         try:
             from ._fe_batched_mi import batched_cmi_gpu, batched_quantile_bin_gpu
             X_float = np.empty((y_bin.shape[0], len(cand_cols)), dtype=_crit_np_dtype())

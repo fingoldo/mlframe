@@ -13,6 +13,7 @@ from typing import Any
 
 import numpy as np
 from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
+from mlframe.feature_selection.filters._lazy_host_codes import LazyHostCodes
 
 from mlframe.feature_selection.cv_policy import get_cv_policy
 
@@ -411,7 +412,10 @@ def _finite_column(source: Any, n_rows: int) -> "np.ndarray | None":
     if source is None:
         return None
     try:
-        values = np.asarray(source.to_numpy() if hasattr(source, "to_numpy") else source, dtype=_crit_np_dtype()).reshape(-1)
+        if isinstance(source, LazyHostCodes):
+            values = source.host_as(_crit_np_dtype()).reshape(-1)  # a lazy device column crosses once, in the criterion dtype, shared with the held-out gate
+        else:
+            values = np.asarray(source.to_numpy() if hasattr(source, "to_numpy") else source, dtype=_crit_np_dtype()).reshape(-1)
     except (TypeError, ValueError) as exc:
         logger.warning("_finite_column: source is not a numeric column, treated as missing: %s", exc)
         return None

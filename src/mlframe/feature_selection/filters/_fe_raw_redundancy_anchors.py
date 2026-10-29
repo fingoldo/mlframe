@@ -22,7 +22,7 @@ import numpy as np
 from ._fe_usability_signal import _crit_np_dtype
 
 from ._fast_host_ops import count_distinct_int
-from ._lazy_host_codes import LazyHostCodes
+from ._lazy_host_codes import LazyHostCodes, host_as, length_of
 from ._fe_raw_redundancy_helpers import _excess_and_floor, _recipe_subexprs, _subexpr_continuous
 from types import SimpleNamespace as _SimpleNamespace
 
@@ -350,8 +350,9 @@ def _build_raw_redundan_cont_none_np_asarray(_cont, n_rows, _dev_from_cont, _eng
     """Block of build_raw_redundancy_anchors starting at ``if _cont is not None and np.asarray(_cont).shape[0] == n_rows:``."""
     from mlframe.feature_selection.filters._mi_greedy_cmi_fe import _quantile_bin
 
-    if _cont is not None and np.asarray(_cont).shape[0] == n_rows:
-        _cvals = np.asarray(_cont, dtype=_crit_np_dtype())
+    # A lazy device column knows its length without a copy, and is read once in the criterion dtype (shared with the other readers of the column).
+    if _cont is not None and length_of(_cont) == n_rows:
+        _cvals = host_as(_cont, _crit_np_dtype())
         _eb_dev = _dev_from_cont(_cvals, _eng_card)
         if _eb_dev is not None:
             eb: Any = LazyHostCodes(_eb_dev, np.int64)

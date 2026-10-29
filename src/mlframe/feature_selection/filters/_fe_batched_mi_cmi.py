@@ -164,6 +164,15 @@ def _get_rows_ent_nnz_split_kernels(cp):
     return _ROWS_ENT_NNZ_SPLIT_KERNELS
 
 
+from ._fe_batched_mi_cmi_lut import (  # noqa: F401 -- carved lookup-table entropy kernels, re-exported
+    _ROWS_ENT_NNZ_LUT_SRC,
+    _XLOGX_TABLES,
+    _get_rows_ent_nnz_lut_kernels,
+    _rows_entropy_lut,
+    _xlogx_table,
+)
+
+
 def _rows_entropy_and_k(counts, inv_n):
     """Per-row (per-candidate) plug-in entropy + occupied-cell count from a (K, M) device count matrix.
 
@@ -203,6 +212,10 @@ def _rows_entropy_and_k(counts, inv_n):
             _split((K, S), (threads,), (c, float(inv_n), np.int32(K), np.int64(M), np.int32(S), part_h, part_k))
             _finish(((K + 255) // 256,), (256,), (part_h, part_k, np.int32(K), np.int32(S), out_h, out_k))
             return out_h, out_k
+        if counts.dtype == cp.int32:
+            _lut = _rows_entropy_lut(cp, c, inv_n)
+            if _lut is not None:
+                return _lut
         _ker((K,), (threads,), (c, float(inv_n), np.int32(K), np.int64(M), out_h, out_k))
         return out_h, out_k
     except Exception as e:

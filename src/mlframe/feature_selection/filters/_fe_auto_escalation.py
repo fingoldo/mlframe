@@ -61,6 +61,7 @@ import logging
 from typing import Any, Sequence
 
 import numpy as np
+from mlframe.feature_selection.filters._lazy_host_codes import length_of
 from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 
 from mlframe.utils.log_throttle import log_throttle
@@ -87,7 +88,7 @@ def _resolve_operand(X, name: str, engineered_continuous: dict | None) -> np.nda
     symmetry); pandas / polars by-name extraction; ``None`` when unresolvable."""
     if engineered_continuous:
         v = engineered_continuous.get(name)
-        if v is not None and np.asarray(v).shape[0] == len(X):
+        if v is not None and length_of(v) == len(X):
             return np.asarray(v, dtype=_crit_np_dtype())
     try:
         if hasattr(X, "columns") and name in list(X.columns):

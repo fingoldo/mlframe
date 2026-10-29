@@ -8,6 +8,7 @@ import threading
 from typing import Callable, Optional
 
 import numpy as np
+from mlframe.feature_selection.filters._lazy_host_codes import size_of
 from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 
 try:
@@ -495,7 +496,7 @@ def cmi_from_binned_fixed_yz(
     # see that, so an already-device x forces the cupy path regardless, and a cupy failure there pulls x/y_i/
     # z_i to host explicitly before falling through (np.ascontiguousarray cannot accept a cupy array).
     _x_device = hasattr(x, "__cuda_array_interface__")
-    if _x_device or _cmi_gpu_enabled(n=int(np.asarray(x).size), p=1):
+    if _x_device or _cmi_gpu_enabled(n=size_of(x), p=1):
         try:
             return _cmi_from_binned_fixed_yz_cupy(x, y_i, z_i, h_yz, h_z, k_yz, k_z, n)
         except Exception as e:
@@ -551,6 +552,26 @@ def _cmi_gpu_enabled(*, n: Optional[int] = None, p: Optional[int] = None, min_p:
     except Exception as e:
         # fallback: the strict-GPU gate is an optional probe; any failure keeps the CPU host path.
         logger.debug("fe_gpu_strict_enabled probe failed (%s: %s) -- defaulting to CPU host path", type(e).__name__, e)
+        return False
+
+
+def _cmi_candidate_batch_on_device(*, n: int, p: int) -> bool:
+    """Whether one scoring call of ``p`` candidates over ``n`` rows is worth the batched device CMI even when STRICT/AUTO-STRICT is off.
+
+    The device CMI counts the same partitions as the host kernel, so the scores equal the host's to rounding (measured max difference 1.3e-13 over n = 20000 and 100000, p = 32 to 1000, support of 0, 2 and 30 columns,
+    with identical ranking), and unlike the other STRICT paths it does not change a binning or a selection. It was 2 to 3 times faster than the host at every measured shape (1500 candidates, 30-column support, n = 20000: 4.5 s to 2.1 s).
+    It needs a usable CUDA device, an explicit STRICT=off opt-out is honoured, and the call must clear the per-call work and column floors of the strict dispatch.
+    """
+    import os as _os
+
+    if _os.environ.get("MLFRAME_FE_GPU_STRICT", "").strip().lower() in ("0", "false", "off", "no"):
+        return False
+    try:
+        from ._fe_gpu_strict import _STRICT_MIN_CALL_P, _STRICT_MIN_CALL_WORK, _cuda_usable
+
+        return bool(_cuda_usable()) and int(p) >= _STRICT_MIN_CALL_P and int(n) * int(p) >= _STRICT_MIN_CALL_WORK
+    except Exception as e:
+        log_throttle(logger, "cmi_candidate_batch_probe", logging.WARNING, "candidate-batch device probe failed (%s: %s); scoring on the host", type(e).__name__, e)
         return False
 
 

@@ -9,8 +9,10 @@ from timeit import default_timer as timer
 from functools import partial
 
 import numpy as np
+from mlframe.feature_selection.filters._lazy_host_codes import length_of
 
 from ._pairs_abs_corr_gpu import abs_corr_or_none
+from ._pairs_chunk_codes import code_column
 from ._pairs_chunks import _compute_one_fe_chunk
 from ._pairs_dispatch import _dispatch_batch_mi_with_noise_gate
 from ._pairs_materialise import (
@@ -296,7 +298,7 @@ def _score_one_pair_step3_resolve_col_treat(
                 st.var_pairs_perf[config] = fe_mi
                 _chunk_codes = getattr(st, "_chunk_codes", None)
                 if _chunk_codes is not None:
-                    st.__dict__.setdefault("var_pairs_codes", {})[config] = np.asarray(_chunk_codes[:, _ci : _ci + 1]).reshape(-1, 1)
+                    st.__dict__.setdefault("var_pairs_codes", {})[config] = code_column(_chunk_codes, _ci)
                 if _need_recompute_map:
                     assert _config_by_i is not None
                     _config_by_i[_ci] = (transformations_pair[0], transformations_pair[1], bin_func_name)
@@ -951,8 +953,8 @@ def _score_one_pair_step5_any_error_leaves(
             if (
                 _tc_x0 is not None
                 and _tc_x1 is not None
-                and np.asarray(_tc_x0).shape[0] == _corr_y_cont.shape[0]
-                and np.asarray(_tc_x1).shape[0] == _corr_y_cont.shape[0]
+                and length_of(_tc_x0) == _corr_y_cont.shape[0]
+                and length_of(_tc_x1) == _corr_y_cont.shape[0]
                 and pair_is_tail_concentrated_rankaware(
                     _corr_y_cont,
                     _tc_x0,

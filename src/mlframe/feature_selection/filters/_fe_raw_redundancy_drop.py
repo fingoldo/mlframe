@@ -82,6 +82,7 @@ from ._fe_raw_redundancy_helpers import (
     RAW_SELF_RETAIN_FRAC,
     _MIN_ROWS,
 )
+from ._lazy_host_codes import host_as
 from ._fe_usability_signal import (  # shared leaf |corr| (numpy-only, no cycle)
     abs_pearson as _abs_pearson,
     _crit_np_dtype,  # MLFRAME_CRIT_DTYPE_RELAXED-aware dtype for the usability-corr casts
@@ -315,7 +316,8 @@ def _no_harm_guard_result(
                 if nm in raw_name_set and raw_X is not None and hasattr(raw_X, "columns") and nm in raw_X.columns:
                     return np.asarray(raw_X[nm], dtype=np.float64).ravel()
                 if engineered_continuous and nm in engineered_continuous:
-                    return np.asarray(engineered_continuous[nm], dtype=np.float64).ravel()
+                    # A lazy device column is read once in the criterion dtype, shared with the other readers of it, and widened for the probe's own float64 solve.
+                    return host_as(engineered_continuous[nm], _crit_np_dtype()).astype(np.float64, copy=False).ravel()
                 return np.asarray(data[:, i], dtype=np.float64).ravel()
 
             _kept_idx = [i for i in st.sel if i not in st.drop_idx_set]

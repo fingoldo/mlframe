@@ -8,6 +8,7 @@ Workflow used to take the F2 example from 15 s to 11 s at 1M rows (and to find t
 4. `python nvprof_autotag.py`, then run the generated `nvprof_auto.py` under `nvprof --profile-from-start off --print-gpu-summary` (put CUPTI's `lib64` on `PATH`) and
    `python nvprof_range_summary.py <log>` - kernel launches and GPU ms per function. High launches with low GPU ms: fuse the function. Low launches with high GPU ms: tune the kernel.
 5. `python cupy_call_overheads.py` - host cost of the individual cupy operations, to size what a launch-bound stage costs.
-6. `python time_tuner.py <kernel> <seconds>` - how long one kernel-tuning sweep takes and where it is when it exceeds the limit.
+6. `python -m mlframe.feature_selection._benchmarks.profiling.duplicate_d2h [rows]` - the device-to-host copies of one warm fit that move the same content more than once (a dense and a narrowed copy of one column count as one), with the call sites of every copy. Total bytes alone do not show this; a second reader of an array that takes its own copy only makes the total larger. Fix the readers so they share one copy (`LazyHostCodes.host_as`), and keep the redundant bytes at the level `test_cmi_residency_traffic.py` asserts.
+7. `python time_tuner.py <kernel> <seconds>` - how long one kernel-tuning sweep takes and where it is when it exceeds the limit.
 
 Always profile on a quiet machine and compare paired runs: a concurrent GPU process moves every figure by more than most single optimisations gain.

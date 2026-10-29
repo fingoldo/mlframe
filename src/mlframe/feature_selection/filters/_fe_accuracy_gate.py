@@ -24,6 +24,7 @@ single MI or R^2 metric cannot.
 from __future__ import annotations
 
 import hashlib
+from functools import partial
 import logging
 import threading
 
@@ -79,6 +80,45 @@ def _baseline_cv_key(X_base: np.ndarray, y: np.ndarray, *, classification: bool,
         return None
 
 
+def _newton_probe_enabled() -> bool:
+    """Whether the binary probe may use the Newton fit (``MLFRAME_GATE_NEWTON=0`` keeps the scikit-learn fit for every fold)."""
+    import os
+
+    return os.environ.get("MLFRAME_GATE_NEWTON", "1") != "0"
+
+
+def _held_out_probe_score(Xfull, *, tr, va, y_enc, classification, binary):
+    """Fit a standardized logistic/linear probe on this fold's train rows ``tr`` of ``Xfull`` and return its score on the held-out rows ``va`` (ROC-AUC for binary, the hit rate for multiclass, R^2 for regression)."""
+    from sklearn.linear_model import LogisticRegression, Ridge
+    from sklearn.preprocessing import StandardScaler
+
+    from mlframe.metrics.core import fast_r2_score, fast_roc_auc
+
+    from ._fe_accuracy_gate_newton import fit_logistic_ridge_newton
+
+    sc = StandardScaler()
+    Xt = sc.fit_transform(Xfull[tr])
+    Xv = sc.transform(Xfull[va])
+    if classification:
+        if binary and _newton_probe_enabled():
+            # Unique optimum of a strictly convex fit: Newton reaches it at about half the scikit-learn call cost; no convergence -> the scikit-learn fit below decides.
+            _fit = fit_logistic_ridge_newton(Xt, y_enc[tr], 1.0)
+            if _fit is not None:
+                _w, _b = _fit
+                # Intentional float64: the Newton weights are double precision, so the held-out score is computed in that precision
+                return fast_roc_auc(y_enc[va], 1.0 / (1.0 + np.exp(-(np.asarray(Xv, dtype=np.float64) @ _w + _b))))
+        m = LogisticRegression(max_iter=200, C=1.0)
+        m.fit(Xt, y_enc[tr])
+        if binary:
+            return fast_roc_auc(y_enc[va], m.predict_proba(Xv)[:, 1])
+        # Multiclass accuracy (fraction correct); accuracy_ratio is CAP-AR (2*AUC-1),
+        # a different quantity, so compute the exact hit-rate directly.
+        return float(np.mean(y_enc[va] == m.predict(Xv)))
+    m = Ridge(alpha=1.0)
+    m.fit(Xt, y_enc[tr])
+    return fast_r2_score(y_enc[va], m.predict(Xv))
+
+
 def measure_feature_uplift(
     X_base: np.ndarray,
     X_eng: np.ndarray,
@@ -120,10 +160,7 @@ def measure_feature_uplift(
         groups = np.asarray(groups).ravel()
         groups = groups[finite] if groups.shape[0] == finite.shape[0] else None
 
-    from sklearn.linear_model import LogisticRegression, Ridge
     from sklearn.model_selection import GroupKFold, KFold, StratifiedKFold
-    from mlframe.metrics.core import fast_roc_auc, fast_r2_score
-    from sklearn.preprocessing import StandardScaler
 
     X_aug = np.concatenate([X_base, X_eng], axis=1)
     if classification:
@@ -162,22 +199,7 @@ def measure_feature_uplift(
                 if classification and np.unique(y_enc[tr]).size < 2:
                     continue
 
-                def _score(Xfull, tr=tr, va=va):
-                    """Fit a standardized logistic/linear probe on this fold's train rows of ``Xfull`` and return its held-out score (ROC-AUC for binary, otherwise the classifier/regressor's native scorer), closing over the current fold's ``tr``/``va`` indices via default args."""
-                    sc = StandardScaler()
-                    Xt = sc.fit_transform(Xfull[tr])
-                    Xv = sc.transform(Xfull[va])
-                    if classification:
-                        m = LogisticRegression(max_iter=200, C=1.0)
-                        m.fit(Xt, y_enc[tr])
-                        if binary:
-                            return fast_roc_auc(y_enc[va], m.predict_proba(Xv)[:, 1])
-                        # Multiclass accuracy (fraction correct); accuracy_ratio is CAP-AR (2*AUC-1),
-                        # a different quantity, so compute the exact hit-rate directly.
-                        return float(np.mean(y_enc[va] == m.predict(Xv)))
-                    m = Ridge(alpha=1.0)
-                    m.fit(Xt, y_enc[tr])
-                    return fast_r2_score(y_enc[va], m.predict(Xv))
+                _score = partial(_held_out_probe_score, tr=tr, va=va, y_enc=y_enc, classification=classification, binary=binary)
 
                 aug_score = _score(X_aug)
                 if _bcache is not None and _fold_i < len(_bcache):

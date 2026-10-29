@@ -55,6 +55,7 @@ from itertools import combinations
 from typing import Optional, Sequence
 
 import numpy as np
+from mlframe.feature_selection.filters._lazy_host_codes import length_of
 from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 
 
@@ -207,7 +208,7 @@ def best_existing_op_mi(arrs: dict, names: Sequence[str], yi: np.ndarray, nbins:
     _gate_rank = _gate_rank_binning()
     try:
         from ._resident_candidate_mi_ktc import rescand_use_resident
-        if rescand_use_resident(int(np.asarray(arrs[names[0]]).shape[0]), _k):
+        if rescand_use_resident(length_of(arrs[names[0]]), _k):
             from ._resident_candidate_mi import best_existing_op_mi_resident
             # y is a fit-constant -> host-derive y_min / n_classes once and pass them so the resident plug-in
             # skips the per-call GPU cp.min + cp.max reduction (same data -> bit-identical bincount layout).

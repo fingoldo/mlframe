@@ -73,14 +73,68 @@ extern "C" __global__ void root_split_stats(const int* __restrict__ order, const
 }
 """
 
+_SOURCE_V2 = r"""
+extern "C" __global__ void root_split_stats_v2(const int* __restrict__ order, const unsigned char* __restrict__ tie, const signed char* __restrict__ ylab,
+                                            const double* __restrict__ tab, const long long* __restrict__ ctot, const int K, const int n, const int B,
+                                            const int Kc, const int min_split, const double h_full, double* __restrict__ out_gain, int* __restrict__ out_ncand,
+                                            int* __restrict__ out_idx) {
+    const long long idx = (long long)blockDim.x * blockIdx.x + threadIdx.x;
+    if (idx >= (long long)B * Kc) return;
+    const int j = (int)(idx / B);
+    const int b = (int)(idx - (long long)j * B);
+    const int* ord = order + (long long)j * n;
+    const unsigned char* tj = tie + (long long)j * n;
+    long long cl[16], cr[16];
+    for (int c = 0; c < K; ++c) { cl[c] = 0; cr[c] = ctot[c]; }
+    double s_left = 0.0, s_right = 0.0;
+    for (int c = 0; c < K; ++c) { const long long v = cr[c]; s_right += (v < 32768) ? tab[v] : (double)v * log((double)v); }
+    const double n_f = (double)n;
+    double best_gain = -1e300;
+    int best_idx = -1, ncand = 0;
+    // The label of row i + 1 is both the boundary test of step i and the label of step i + 1: it is read once, one step ahead, so the dependent
+    // ord -> ylab load chain is off the critical path of the count / table updates. The arithmetic is unchanged.
+    int ycur = ylab[(long long)ord[0] * B + b];
+    for (int i = 0; i < n - 1; ++i) {
+        const int yi = ycur;
+        ycur = ylab[(long long)ord[i + 1] * B + b];
+        const long long c_l = cl[yi], c_r = cr[yi];
+        s_left += ((c_l + 1 < 32768) ? tab[c_l + 1] : (double)(c_l + 1) * log((double)(c_l + 1))) - ((c_l < 32768) ? tab[c_l] : (double)c_l * log((double)c_l));
+        s_right += ((c_r - 1 < 32768) ? tab[c_r - 1] : (double)(c_r - 1) * log((double)(c_r - 1))) - ((c_r < 32768) ? tab[c_r] : (double)c_r * log((double)c_r));
+        cl[yi] = c_l + 1;
+        cr[yi] = c_r - 1;
+        const int n_l = i + 1, n_r = n - n_l;
+        if (n_l < min_split || n_r < min_split) continue;
+        if (yi == ycur) continue;
+        if (tj[i]) continue;
+        ++ncand;
+        const double xl_l = (n_l < 32768) ? tab[n_l] : (double)n_l * log((double)n_l);
+        const double xl_r = (n_r < 32768) ? tab[n_r] : (double)n_r * log((double)n_r);
+        const double gain = h_full - (xl_l - s_left + xl_r - s_right) / n_f;
+        if (gain > best_gain) { best_gain = gain; best_idx = i; }
+    }
+    out_gain[idx] = best_gain;
+    out_ncand[idx] = ncand;
+    out_idx[idx] = best_idx;
+}
+"""
+
+
 _kernel = None
 
 
 def _get_kernel(cp):
-    """Compile the root-split kernel once per process (no fused multiply-add: the gains must round as the host's)."""
+    """Compile the root-split kernel once per process (no fused multiply-add: the gains must round as the host's).
+
+    The default is the look-ahead version (``_SOURCE_V2``, same arithmetic, the next row's label read one step early); ``MLFRAME_HONEST_ROOT_SPLIT_V2=0`` selects the original ``_SOURCE``.
+    """
     global _kernel
     if _kernel is None:
-        _kernel = cp.RawKernel(_SOURCE, "root_split_stats", options=("--fmad=false",))
+        import os
+
+        if os.environ.get("MLFRAME_HONEST_ROOT_SPLIT_V2", "1") == "0":
+            _kernel = cp.RawKernel(_SOURCE, "root_split_stats", options=("--fmad=false",))
+        else:
+            _kernel = cp.RawKernel(_SOURCE_V2, "root_split_stats_v2", options=("--fmad=false",))
     return _kernel
 
 
