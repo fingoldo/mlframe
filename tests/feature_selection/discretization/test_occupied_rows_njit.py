@@ -14,9 +14,9 @@ def test_occupied_rows_counts_only_rows_with_mass():
     joint[0, 1] = 4
     joint[2, 0] = 1
     joint[4, 2] = 7
-    assert _occupied_rows(joint) == 3
+    assert _occupied_rows(joint, joint.shape[0]) == 3
 
 
 def test_occupied_rows_all_empty_is_zero():
     """A joint with no counts has no occupied rows."""
-    assert _occupied_rows(np.zeros((4, 2), dtype=np.int64)) == 0
+    assert _occupied_rows(np.zeros((4, 2), dtype=np.int64), 4) == 0

@@ -14,7 +14,7 @@ import math
 import numpy as np
 from numba import njit, prange
 
-from .discretization._multiselect import multiselect_inplace
+from ._quantile_bin_stages import _quantile_crossing_cuts, _quantile_crossing_offsets
 from typing import Any, Optional, Sequence
 
 from ._njit_key_helpers import arr2str, unpack_and_sort  # noqa: F401 -- re-exported; defined in the leaf so info_theory can import them without a cycle
@@ -432,30 +432,7 @@ def _quantile_bin_njit(x: np.ndarray, n_bins: int) -> np.ndarray:
     for i in range(n):
         if x[i] != x[i]:
             return _quantile_bin_sorted_njit(x, n_bins)  # type: ignore[no-any-return]  # a numba dispatcher call is untyped for mypy
-    base = n // n_bins
-    rem = n % n_bins
-    ranks = np.empty(2 * (n_bins - 1), dtype=np.int64)
-    starts = np.empty(n_bins, dtype=np.int64)
-    pos = 0
-    for b in range(n_bins):
-        starts[b] = pos
-        pos += base + (1 if b < rem else 0)
-    t = 0
-    for b in range(1, n_bins):
-        ranks[t] = starts[b] - 1
-        ranks[t + 1] = starts[b]
-        t += 2
-    # ranks are ascending; equal neighbours cannot occur because every bin holds at least eight rows
-    work = x.copy()
-    multiselect_inplace(work, ranks)
-    cuts = np.empty(n_bins - 1, dtype=x.dtype)
-    crossing = np.zeros(n_bins - 1, dtype=np.bool_)  # a run of equal values reaches across the boundary that opens this bin
-    any_crossing = False
-    for b in range(1, n_bins):
-        cuts[b - 1] = work[starts[b]]
-        if not (work[starts[b] - 1] < work[starts[b]]):
-            crossing[b - 1] = True
-            any_crossing = True
+    any_crossing, crossing, cuts, starts = _quantile_crossing_cuts(n, n_bins, x)
     out = np.empty(n, dtype=np.int32)
     if not any_crossing:
         for i in range(n):
@@ -472,21 +449,7 @@ def _quantile_bin_njit(x: np.ndarray, n_bins: int) -> np.ndarray:
         return out
     # Equal values that straddle a bin boundary are placed as the stable sort places them: after every smaller value, in row order. ``below`` is the number of smaller values of such a run
     # (counted once per distinct value) and ``seen`` how many of its rows have been placed so far.
-    canon = np.empty(n_bins - 1, dtype=np.int64)
-    below = np.zeros(n_bins - 1, dtype=np.int64)
-    seen = np.zeros(n_bins - 1, dtype=np.int64)
-    for c in range(n_bins - 1):
-        if c > 0 and cuts[c] == cuts[c - 1]:
-            canon[c] = canon[c - 1]
-        else:
-            canon[c] = c
-            if crossing[c] or (c + 1 < n_bins - 1 and cuts[c + 1] == cuts[c]):  # the run may open exactly at this cut and straddle the next one
-                cnt = 0
-                v0 = cuts[c]
-                for i in range(n):
-                    if x[i] < v0:
-                        cnt += 1
-                below[c] = cnt
+    below, canon, seen = _quantile_crossing_offsets(n_bins, cuts, crossing, n, x)
     for i in range(n):
         v = x[i]
         lo = 0
