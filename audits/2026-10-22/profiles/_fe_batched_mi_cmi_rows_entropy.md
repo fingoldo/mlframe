@@ -29,3 +29,9 @@ Counts are integers <= n, so `c * ln(c)` comes from a table built once per n, an
 
 ## Next kernel (not done)
 `batched_joint_hist2_i32` is 53% of the kernel time now. One thread per (row, column) cell does a random `atomicAdd` into the (K, Kx*Kb) int32 buffer; consecutive threads are consecutive columns, so every warp-level atomic touches 32 distant regions. Candidates: a row-fast thread mapping with the rows grouped by the joint support code, or a per-block shared-memory privatised histogram for the small cells; each needs the nvprof counters re-collected and a full-fit A/B before it ships.
+
+## Attempt on `batched_joint_hist2_i32`: thread mapping (benchmark only, not applied; `D:/Temp/hist2_bench.py`, `hist2_bench2.py`)
+Real shapes: n = 20000, K = 1500 columns, Kx = 10, Kb = 20000 and 40000 (counts buffers of 1.2 GB and 2.4 GB). The current kernel maps consecutive threads to consecutive columns of one row. Variants checked for identical counts against it:
+- row-fast mapping, X read in its (n, K) layout: 109 ms against 96 ms (M = 200000), 608 ms against 582 ms (M = 400000): no gain.
+- row-fast mapping on a pre-transposed int32 (K, n) matrix: 41.8 ms against 95.9 ms at M = 200000 (2.3x), 581 ms against 582 ms at M = 400000 (no gain; that size is dominated by the 2.4 GB buffer on a 4 GB card, not by the thread mapping). Times include the memset of the counts buffer, not the transpose.
+Reading: the 2.3x at M = 200000 needs the codes produced as a transposed int32 matrix by the binner (an interface change), and it saves about 35 ms of about 520 ms per call (7 percent); at M = 400000 it saves nothing. Not applied. A run in the first benchmark (fresh `cp.zeros` per run) showed 264 ms and 2065 ms for the current kernel: the allocation and zeroing of the large buffer dominates there, which is the lever left for this kernel (smaller buffers: fewer candidates per chunk, or a sparse key-sort formulation), not the thread mapping.
