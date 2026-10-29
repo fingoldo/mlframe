@@ -23,7 +23,9 @@ _STACK_FREE_FRACTION = 0.25
 
 def _code_itemsize(mats: "list[np.ndarray]") -> int:
     """Bytes per code of the narrowest integer width that holds the codes of ``mats`` (as :func:`_stack_codes_transposed` chooses it)."""
-    top = max((int(m.max()) for m in mats if m.size), default=0)
+    # A matrix whose dtype cannot exceed 127 (int8) needs no scan of its values: its maximum is bounded by the type. The family holds thousands of int8 matrices per call, so the scan cost seconds.
+    scan = [m for m in mats if m.size and not (m.dtype.kind == "i" and np.iinfo(m.dtype).max <= 127)]
+    top = max((int(m.max()) for m in scan), default=0)
     return 1 if top <= 127 else (2 if top <= 32767 else 8)
 
 
