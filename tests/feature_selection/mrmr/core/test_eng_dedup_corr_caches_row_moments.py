@@ -44,8 +44,9 @@ def _reference(a, mat, active):
     return out
 
 
-def test_the_correlations_match_numpy(buffer):
-    """Whatever the kernel caches, it must still compute Pearson."""
+def test_the_correlations_match_numpy(buffer, monkeypatch):
+    """Whatever the kernel caches, it must still compute Pearson, at strict float64 (the default runs float32, see the next test)."""
+    monkeypatch.setenv("MLFRAME_CRIT_DTYPE_RELAXED", "0")
     a, mat = buffer
     active = np.ones(mat.shape[0], dtype=np.bool_)
     got = one_vs_many_abs_corr_masked(a, mat, active)
@@ -67,8 +68,18 @@ def test_cached_moments_give_the_same_answer_as_recomputing_them(buffer):
     assert np.array_equal(cached, recomputed), f"cached {cached} vs recomputed {recomputed}"
 
 
-def test_inactive_rows_stay_zero_and_are_not_read(buffer):
+def test_a_default_run_agrees_with_numpy_to_single_precision(buffer, monkeypatch):
+    """The default ``MLFRAME_CRIT_DTYPE_RELAXED=1`` path computes in float32, so it is pinned to that precision, not to 1e-12."""
+    monkeypatch.delenv("MLFRAME_CRIT_DTYPE_RELAXED", raising=False)
+    a, mat = buffer
+    active = np.ones(mat.shape[0], dtype=np.bool_)
+    got = one_vs_many_abs_corr_masked(a, mat, active)
+    assert np.allclose(got, _reference(a, mat, active), atol=1e-5)
+
+
+def test_inactive_rows_stay_zero_and_are_not_read(buffer, monkeypatch):
     """The mask is what lets the caller pass its whole history buffer, so an inactive row must contribute nothing."""
+    monkeypatch.setenv("MLFRAME_CRIT_DTYPE_RELAXED", "0")
     a, mat = buffer
     active = np.ones(mat.shape[0], dtype=np.bool_)
     active[0] = False
@@ -85,8 +96,9 @@ def test_a_candidate_with_no_variance_correlates_with_nothing():
     assert np.array_equal(got, np.zeros(4))
 
 
-def test_row_moments_match_numpy(buffer):
-    """The cached moments are the row's own mean and centred sum-of-squares."""
+def test_row_moments_match_numpy(buffer, monkeypatch):
+    """The cached moments are the row's own mean and centred sum-of-squares, at strict float64."""
+    monkeypatch.setenv("MLFRAME_CRIT_DTYPE_RELAXED", "0")
     _a, mat = buffer
     for j in range(mat.shape[0]):
         mean, ss = row_mean_and_centred_ss(mat[j])
