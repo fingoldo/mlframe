@@ -232,7 +232,7 @@ def _empty_selection_output(arg):
 
 def _row_count(obj):
     """Leading dimension of ``obj``, or None when it has no shape."""
-    shape = getattr(obj, "shape", ())
+    shape: tuple[int, ...] = getattr(obj, "shape", ())
     return shape[0] if len(shape) >= 1 else None
 
 
