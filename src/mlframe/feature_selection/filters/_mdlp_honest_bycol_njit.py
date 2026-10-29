@@ -195,6 +195,16 @@ def _mi_from_joint(joint: np.ndarray, n_x: int, n_y: int, n: int) -> float:
     return mi
 
 
+@njit(cache=True)
+def _occupied_rows(joint: np.ndarray) -> int:
+    """Count the x-rows of a joint histogram holding at least one row. A helper keeps numba's SSA pass off a nested loop with a branch."""
+    occupied = 0
+    for a in range(joint.shape[0]):
+        if joint[a].sum() > 0:
+            occupied += 1
+    return occupied
+
+
 @njit(parallel=True, cache=True)
 def honest_null_columns_bycol(
     raw_cont: np.ndarray,
@@ -311,11 +321,7 @@ def honest_null_columns_bycol(
                     joint = np.zeros((n_x, ny), dtype=np.int64)
                     _joint_from_sorted(xsrt, ysrt, final, n_x, ny, joint)
                     mi = _mi_from_joint(joint, n_x, ny, m)
-                    occupied_x = 0
-                    for a in range(n_x):
-                        if joint[a].sum() > 0:
-                            occupied_x += 1
-                    kx_eff = float(occupied_x)
+                    kx_eff = float(_occupied_rows(joint))
                 else:
                     _codes_at_rows_nan(col, nan_cont[:, sj], eval_rows, final, nb_reg, xs_buf)
                     n_x = nb_reg + 1 if has_nan_col else nb_reg
