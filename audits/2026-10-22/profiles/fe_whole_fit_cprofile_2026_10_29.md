@@ -16,3 +16,15 @@
 - `_materialise_extval_njit` (0.98 s, 19 calls): serial nogil kernel by design (a prange nested in the threading layer deadlocks, see `_fe_use_parallel_kernels`).
 - `np.quantile` binners (`_mi_greedy_cmi_fe_binning._quantile_bin` 2.6 s, `_grouped_quantile_fe._bin` 1.7 s): introselect partition is already the cheapest exact path (documented as a rejected rank-binner attempt in the code).
 - The conditional gate rank sort: 90 percent of the sorted columns come from `select`-mode specs (666 of 743 specs, 11322 of 12631 columns); an exact rank derived from one operand sort works for mask mode (prototype exact on four tie patterns, 1.6x on the sort) but covers only 10 percent of the columns, so it is not worth wiring in.
+
+## Re-profile at HEAD after LUT entropy, device CMI default and Newton gate probe (2026-10-29, 76.5 s wall, GPU shared)
+
+Stage cumulative: composite group-agg 2.8 s (was 6.0), accuracy gate 3.5 s (was 4.9), operand pool 6.1 s (surrogate GBM 5.5 s, multiclass tree cost), conditional gate 5.2 s,
+binned numeric agg 4.2 s, auto scorer 5.0 s, grouped quantile 2.7 s.
+
+Leaf time (own time): cupy `.get` 4.6 s (GPU wait), `_thread.lock.acquire` 5.1 s (pool waits), LightGBM update 3.6 s, device `argsort` 3.4 s (24 gate flushes, covered in the conditional gate note),
+`np.partition` 2.4 s and `searchsorted` 2.0 s (np.quantile edge binning; value-edge binning is required for MI equivalence, see the rejected rank-binner note in `_mi_greedy_cmi_fe_binning.py`),
+plain-MI numba kernel 2.3 s, Newton fit 1.2 s, `_permutation_sources_njit` 1.0 s, `_materialise_extval_njit` 0.9 s.
+
+No single leaf is above 7 percent of the wall; the remaining levers each have a recorded measurement (see the family notes in this directory).
+Open candidates not yet measured: `_permutation_sources_njit` (10 calls, 0.99 s) and `_materialise_extval_njit` (19 calls, 0.92 s).
