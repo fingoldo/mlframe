@@ -186,5 +186,6 @@ def test_run_temporal_audit_batch_pandas_fallback_when_polars_missing(_audit_cal
     )
 
     # With polars blocked the wrapper must hand the audit a pandas frame, for exactly one target.
-    assert _audit_call_recorder["df_type"] == "pandas.core.frame.DataFrame"
+    # type.__module__ of pandas.DataFrame varies across pandas versions (pandas 3 re-exports it as top-level ``pandas``).
+    assert _audit_call_recorder["df_type"] in ("pandas.core.frame.DataFrame", "pandas.DataFrame")
     assert _audit_call_recorder["n_targets"] == 1
