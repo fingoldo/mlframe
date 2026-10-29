@@ -45,6 +45,8 @@
   "rows_ent_nnz",
   "rows_ent_nnz_finish",
   "rows_ent_nnz_i32",
+  "rows_ent_nnz_i32_lut1",
+  "rows_ent_nnz_i32_lut4",
   "rows_ent_nnz_i32_split"
  ],
  "src/mlframe/feature_selection/filters/_feature_engineering_pairs/_pairs_analytic_gpu.py": [

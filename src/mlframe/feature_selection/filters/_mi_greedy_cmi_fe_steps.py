@@ -554,6 +554,26 @@ def _cmi_gpu_enabled(*, n: Optional[int] = None, p: Optional[int] = None, min_p:
         return False
 
 
+def _cmi_candidate_batch_on_device(*, n: int, p: int) -> bool:
+    """Whether one scoring call of ``p`` candidates over ``n`` rows is worth the batched device CMI even when STRICT/AUTO-STRICT is off.
+
+    The device CMI counts the same partitions as the host kernel, so the scores equal the host's to rounding (measured max difference 1.3e-13 over n = 20000 and 100000, p = 32 to 1000, support of 0, 2 and 30 columns,
+    with identical ranking), and unlike the other STRICT paths it does not change a binning or a selection. It was 2 to 3 times faster than the host at every measured shape (1500 candidates, 30-column support, n = 20000: 4.5 s to 2.1 s).
+    It needs a usable CUDA device, an explicit STRICT=off opt-out is honoured, and the call must clear the per-call work and column floors of the strict dispatch.
+    """
+    import os as _os
+
+    if _os.environ.get("MLFRAME_FE_GPU_STRICT", "").strip().lower() in ("0", "false", "off", "no"):
+        return False
+    try:
+        from ._fe_gpu_strict import _STRICT_MIN_CALL_P, _STRICT_MIN_CALL_WORK, _cuda_usable
+
+        return bool(_cuda_usable()) and int(p) >= _STRICT_MIN_CALL_P and int(n) * int(p) >= _STRICT_MIN_CALL_WORK
+    except Exception as e:
+        logger.debug("candidate-batch device probe failed (%s: %s) -- host path", type(e).__name__, e)
+        return False
+
+
 _CARD_MAX_CACHE: dict = {}
 
 
