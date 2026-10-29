@@ -45,3 +45,20 @@ Open candidates not yet measured: `_permutation_sources_njit` (10 calls, 0.99 s)
 - Whole fit wall at this point: 58.0 s (seed 0) and 67.3 s (seed 2) in `fit_sel_gate.py`, against 69.5 s and 82.6 s before the Newton, extval and narrow-copy commits.
 - Open: `_permutation_sources_njit` (0.99 s, changing it alters the permutation null), `_column_string_codes_uncached` (0.58 s, token order is part of the code), device argsort in the conditional gate (3.3 s,
   covered by the tau-grid and rank-cache notes), GPU wait inside `cupy .get` (4.7 s, needs an nsys pass over the final code).
+
+## Final state of the optimisation loop (2026-10-29)
+
+Whole fit (`fit_top.py`, n=20000, all FE flags, GPU shared): 65.1 s in the last cProfile run; `fit_sel_gate.py` 58.3 s (seed 0) and 67.3 s (seed 2), against 69.5 s and 82.6 s before today's commits, selection identical on both seeds
+at every step. Commits of the day: Newton gate probe, extval kernel row order, lazy pair-chunk codes and device family test, narrow copies of codes, honest-null look-ahead kernel, two closed red tests.
+
+Every own-time leaf above 3 percent of the wall now has a recorded measurement or an attribution:
+- `_thread.lock.acquire` 4.5 s: `Condition.wait` of the main thread on the prefetched pair chunks (874 waits); bounded by the chunk kernels below.
+- `cupy .get` 3.8 s: mostly `_fused_observed_mi_and_bins` (1.7 s, 108 calls), the wait for its kernel; total kernel time in the window is about 5 s (nsys, `_honest_null_device_root_split.md`).
+- LightGBM `update` 3.2 s: surrogate seeder, multiclass tree cost (`_surrogate_interaction_seeder.md`).
+- device `argsort` 3.0 s: conditional gate rank binner, 24 flushes (`fe_conditional_gate_all_flags_profile.md`: near the device sort throughput, 94 percent of columns unique, tau grid change not measurable).
+- `np.partition` 2.1 s and `searchsorted` 1.7 s: value-edge `np.quantile` binning, required for MI equivalence on ties (rejected rank binner note in `_mi_greedy_cmi_fe_binning.py`).
+- plug-in MI numba kernel 2.0 s: argsort bound, column-parallel already, numpy argsort breaks ties differently (notes in `hermite_fe/__init__.py`).
+- `radix_select_f32_v3` (kernel, 0.64 s): at its Pascal floor by the 2026-06-23 decomposition in `_gpu_resident_select_kernels.py`.
+
+Below the 3 percent line and left unchanged, with the reason: `_permutation_sources_njit` 0.85 s (1.3 percent; a faster shuffle changes the permutation null stream), `_column_string_codes_uncached` 0.58 s (0.9 percent;
+token strings fix the code order), `_residue_grid_mi` 0.86 s (ceiling 0.2 s), `ensure`-style host copies (now 3 percent of the old traffic), Newton fit 1.2 s (1.9 percent, float64 normal equations).
