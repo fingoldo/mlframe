@@ -445,6 +445,9 @@ gpu = [
     "cupy-cuda12x[ctk]>=14.0,<15.0; python_version >= '3.10'",
     "cupy-cuda12x>=13.0,<14.0; python_version < '3.10'",
     "nvidia-cuda-nvcc-cu12>=12.9",
+    # cuBLAS 12.9.2.10 with cupy 14.1 on driver 13.2 fails every float32 matmul with CUBLAS_STATUS_INVALID_VALUE
+    # (a process-wide emulation default); 12.8.5.5 is the verified line. Keep the GPU matmul paths on it.
+    "nvidia-cublas-cu12>=12.8,<12.9",
     "gpu-info>=0.1",
 ]
 gpu-cuda12 = ["mlframe[gpu]"]
@@ -852,6 +855,7 @@ DEP002 = [
     "anywidget",  # ipywidgets 8's own runtime backend for custom widgets -- the progress widget fails to render without it, but nothing here imports it by name
     "sqlalchemy", "psycopg2-binary", "pymongo", "duckdb", "hdbscan",
     "nvidia-cuda-nvcc-cu12", "gpu-info", "cupy-cuda11x", "cupy-cuda12x", "nvidia-cuda-nvcc-cu11",
+    "nvidia-cublas-cu12",  # version pin for the gpu extra only (cuBLAS line cupy's matmul loads); never imported by name
     "mkdocs-material", "mkdocs-jupyter",
     "pytest", "pytest-cov", "pytest-xdist", "pytest-timeout", "pytest-benchmark", "pytest-order",
     "pytest-randomly", "pytest-instafail", "pytest-progress", "pytest-split", "pytest-rerunfailures", "coverage", "freezegun",

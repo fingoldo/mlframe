@@ -23,6 +23,8 @@ from typing import Any
 
 import numpy as np
 
+from mlframe.utils.cublas_probe import cublas_matmul_ok
+
 from ._utils import gpu_available_bytes, is_gpu_available
 
 logger = logging.getLogger(__name__)
@@ -194,6 +196,12 @@ def _get_pinned_buffer(name: str, shape: tuple[int, ...], dtype: np.dtype):
         return arr
 
 
+def _rff_numpy(X: np.ndarray, W: np.ndarray, b: np.ndarray) -> np.ndarray:
+    """Unscaled RFF features ``[cos(XW + b), sin(XW + b)]`` on the host: the demoted path when cuBLAS cannot matmul."""
+    ang = np.asarray(X, dtype=np.float64) @ np.asarray(W, dtype=np.float64) + np.asarray(b, dtype=np.float64)
+    return np.hstack([np.cos(ang), np.sin(ang)])
+
+
 def rff_matmul_cupy(
     X: np.ndarray,
     W: np.ndarray,
@@ -222,7 +230,6 @@ def rff_matmul_cupy(
     """
     if not is_gpu_available():
         raise RuntimeError("rff_matmul_cupy called but GPU is not available; caller must dispatch via is_gpu_available().")
-    import cupy as cp
     n, d = X.shape
     m = W.shape[1]
     if not (out.shape == (n, 2 * m)):
@@ -230,6 +237,11 @@ def rff_matmul_cupy(
 
     if n == 0:
         return
+    if not cublas_matmul_ok():
+        # The cupy/cuBLAS build here fails every float32 matmul (see ``mlframe.utils.cublas_probe``); compute on the host.
+        out[...] = scale * _rff_numpy(X, W, b)
+        return
+    import cupy as cp
     batch_rows = max(1, min(int(batch_rows), n))
 
     # One-shot upload of W and b - they're tiny (a few MB at most) and reused across all batches.

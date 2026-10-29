@@ -30,6 +30,7 @@ import numpy as np
 from numba import njit
 
 from mlframe.feature_selection.shap_proxied_fs._shap_proxy_gpu_tuning import DENSE_FALLBACK_MIN_FEATURES, dense_gpu_pays_off
+from mlframe.utils.cublas_probe import cublas_matmul_ok
 
 logger = logging.getLogger(__name__)
 
@@ -179,6 +180,10 @@ def cluster_correlated_features(
             gpu = False
     if use_gpu is False:
         gpu = False
+    if gpu and not cublas_matmul_ok():
+        # The GPU Gram matmul cannot run on this cupy/cuBLAS build; the blocked path reads ``use_gpu`` too.
+        gpu = False
+        use_gpu = False
     # Small-f opt-out: even when CUDA is present, route the dense path to CPU if the GEMM is
     # tiny relative to the GPU cold-init cost. Forced GPU (`use_gpu=True` explicit) honours the
     # caller and skips this check.
