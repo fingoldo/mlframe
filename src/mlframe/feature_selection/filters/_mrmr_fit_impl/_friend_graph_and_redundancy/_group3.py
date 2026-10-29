@@ -333,6 +333,80 @@ def _score_encoded_features_heldout(_cf_tr, _cf_va, _cf_base, _cf_y, _cf_names, 
     return selected_vars
 
 
+def _keep_rule_classes(classes_y, _y_np, data, nbins):
+    """Classes the masked-raw keep rule bins on: the screening classes, re-binned on a finer quantile grid when y is continuous."""
+    from mlframe.feature_selection.filters._mi_greedy_cmi_fe import _quantile_bin as _pcr_qbin
+    _pcr_y = np.ascontiguousarray(np.asarray(classes_y)).ravel().astype(np.int64)
+    try:
+        _pcr_yv = np.asarray(_y_np)
+        _pcr_yv = np.asarray(_pcr_yv).reshape(-1)
+        if (_pcr_yv.shape[0] == int(data.shape[0]) and np.issubdtype(_pcr_yv.dtype, np.number)
+                and int(np.unique(_pcr_yv).size) > max(20, 2 * int(np.unique(_pcr_y).size))):
+            _pcr_nb = int(min(max(10, int(np.unique(_pcr_y).size)), max(2, int(data.shape[0]) // 50)))
+            _pcr_y = np.ascontiguousarray(_pcr_qbin(_pcr_yv.astype(_crit_np_dtype()), nbins=_pcr_nb)).astype(np.int64)
+    except Exception as e:
+        # Not neutral: the keep rule then runs on the coarser screening classes, which can change its verdict.
+        logger.warning(
+            "mrmr: post-cluster-rescue y re-binning failed (%s: %s); the masked-raw keep rule uses the coarser screening classes instead",
+            type(e).__name__, e,
+        )
+    return _pcr_y
+
+def _genuine_child_bins(_rn, _pcr_genuine_eng, cols, _pcr_eng_cont, data):
+    """Quantile-bin each genuine selected engineered child that consumes raw ``_rn``, for the masked-raw keep rule."""
+    from mlframe.feature_selection.filters._fe_raw_redundancy_drop import _TOKEN_SPLIT
+    from mlframe.feature_selection.filters._mi_greedy_cmi_fe import _quantile_bin as _pcr_qbin
+    _child_bins = []
+    for _gi in _pcr_genuine_eng:
+        if _rn in {t for t in _TOKEN_SPLIT.split(cols[_gi]) if t}:
+            _cont = _pcr_eng_cont.get(cols[_gi])
+            if _cont is not None and length_of(_cont) == int(data.shape[0]):
+                _child_bins.append(_pcr_qbin(np.asarray(_cont, dtype=_crit_np_dtype()), nbins=10))
+            else:
+                _child_bins.append(np.asarray(data[:, _gi]).astype(np.int64).ravel())
+    return _child_bins
+
+
+def _masked_raw_significance_probe(self, data, nbins, target_indices):
+    """Permutation-significance probe for the masked-raw rescue: a closure that is True when a raw column clears its own null against y."""
+    # PERMUTATION-SIGNIFICANCE GATE on the masked-raw rescue (I4 noise
+    # admission). The keep-rule conditions on the GENUINE children only; when a raw's
+    # ONLY consumer is a pseudo binagg/gate/argmax re-mix the conditioning set is empty
+    # and the keep-rule returns True by construction (it cannot prove subsumption). A
+    # PURE-NOISE raw (``e``, not in y, consumed only by ``binagg_std(e|qbin(a))``) thus
+    # sails through and is re-added - the I4 noise true-negative violation. Gate the
+    # rescue on the SAME within-data marginal permutation-significance test the
+    # raw-retention re-add uses: a raw must sit ABOVE its own permutation null against y
+    # to be a genuine masked signal. ``e`` sits WITHIN its null (p>=alpha) -> NOT rescued;
+    # a genuinely masked raw (``a`` carrying ``3*a``) clears it. Best-effort: a kernel
+    # failure falls through to the permissive rescue (never drop on an estimator error).
+    try:
+        from mlframe.feature_selection.filters.permutation import mi_direct as _pcr_mi_direct
+    except Exception as exc:
+        logger.warning("mrmr: mi_direct import/binding failed for the post-cluster-rescue significance probe; probe disabled: %r", exc, exc_info=True)
+        _pcr_mi_direct = None  # type: ignore[assignment]
+    from mlframe.feature_selection.filters.evaluation import mrmr_null_signif_alpha
+
+    _pcr_signif_alpha = mrmr_null_signif_alpha()
+    _pcr_q_dtype = getattr(self, "quantization_dtype", np.int32)
+
+    def _pcr_raw_is_significant(_idx):
+        """Permutation-significance test (32 permutations) for raw column ``_idx`` against y; True when it clears its own null (p<alpha) or the MI estimator is unavailable/errors, gating the masked-raw rescue against pure-noise raws whose only consumer is a pseudo binagg/gate/argmax re-mix."""
+        if _pcr_mi_direct is None:
+            return True
+        try:
+            _sig = _pcr_mi_direct(
+                data, x=np.array([int(_idx)], dtype=np.int64), y=target_indices,  # type: ignore[arg-type]
+                factors_nbins=nbins, npermutations=32, min_nonzero_confidence=0.0,
+                return_null_mean=True, parallelism="none", dtype=_pcr_q_dtype, prefer_gpu=False,
+            )
+            return float(_sig[3]) < _pcr_signif_alpha
+        except Exception as e:
+            log_throttle(logger, "_group3._pcr_raw_is_significant", logging.WARNING, "Marginal-MI significance re-add probe failed (%s: %s) -- permissive re-add", type(e).__name__, e)
+            return True
+    return _pcr_raw_is_significant
+
+
 def _drop_redundant_raw_operands_sweep(self, selected_vars, cols, classes_y, _y_np, data, _eng_continuous_snapshot, target_indices, nbins, verbose):
     """Sweep the selection for raw operands made redundant by selected engineered features."""
     if getattr(self, "fe_drop_redundant_raw_operands", True) and len(selected_vars) >= 1:
@@ -342,7 +416,6 @@ def _drop_redundant_raw_operands_sweep(self, selected_vars, cols, classes_y, _y_
                 _PSEUDO_SRC_SPLIT,
                 raw_retains_signal_given_genuine_children as _pcr_keep,
             )
-            from mlframe.feature_selection.filters._mi_greedy_cmi_fe import _quantile_bin as _pcr_qbin
             _pcr_raw_set = set(self.feature_names_in_)
             _pcr_sel_set = set(selected_vars)
             _pcr_sel_names = {cols[i] for i in selected_vars}
@@ -359,57 +432,9 @@ def _drop_redundant_raw_operands_sweep(self, selected_vars, cols, classes_y, _y_
                 # A raw is also consumed by a GENUINE (non-pseudo) selected engineered child when its
                 # name token appears there; such a raw is left to the DROP sweep (might be subsumed).
                 _pcr_genuine_eng = [i for i in selected_vars if (cols[i] not in _pcr_raw_set) and not _pcr_is_pseudo(cols[i])]
-                _pcr_y = np.ascontiguousarray(np.asarray(classes_y)).ravel().astype(np.int64)
-                try:
-                    _pcr_yv = np.asarray(_y_np)
-                    _pcr_yv = np.asarray(_pcr_yv).reshape(-1)
-                    if (_pcr_yv.shape[0] == int(data.shape[0]) and np.issubdtype(_pcr_yv.dtype, np.number)
-                            and int(np.unique(_pcr_yv).size) > max(20, 2 * int(np.unique(_pcr_y).size))):
-                        _pcr_nb = int(min(max(10, int(np.unique(_pcr_y).size)), max(2, int(data.shape[0]) // 50)))
-                        _pcr_y = np.ascontiguousarray(_pcr_qbin(_pcr_yv.astype(_crit_np_dtype()), nbins=_pcr_nb)).astype(np.int64)
-                except Exception as e:
-                    # Not neutral: the keep rule then runs on the coarser screening classes, which can change its verdict.
-                    logger.warning(
-                        "mrmr: post-cluster-rescue y re-binning failed (%s: %s); the masked-raw keep rule uses the coarser screening classes instead",
-                        type(e).__name__, e,
-                    )
+                _pcr_y = _keep_rule_classes(classes_y, _y_np, data, nbins)
                 _pcr_eng_cont = _eng_continuous_snapshot
-                from mlframe.feature_selection.filters._fe_raw_redundancy_drop import _TOKEN_SPLIT
-                # PERMUTATION-SIGNIFICANCE GATE on the masked-raw rescue (I4 noise
-                # admission). The keep-rule conditions on the GENUINE children only; when a raw's
-                # ONLY consumer is a pseudo binagg/gate/argmax re-mix the conditioning set is empty
-                # and the keep-rule returns True by construction (it cannot prove subsumption). A
-                # PURE-NOISE raw (``e``, not in y, consumed only by ``binagg_std(e|qbin(a))``) thus
-                # sails through and is re-added - the I4 noise true-negative violation. Gate the
-                # rescue on the SAME within-data marginal permutation-significance test the
-                # raw-retention re-add uses: a raw must sit ABOVE its own permutation null against y
-                # to be a genuine masked signal. ``e`` sits WITHIN its null (p>=alpha) -> NOT rescued;
-                # a genuinely masked raw (``a`` carrying ``3*a``) clears it. Best-effort: a kernel
-                # failure falls through to the permissive rescue (never drop on an estimator error).
-                try:
-                    from mlframe.feature_selection.filters.permutation import mi_direct as _pcr_mi_direct
-                except Exception as exc:
-                    logger.warning("mrmr: mi_direct import/binding failed for the post-cluster-rescue significance probe; probe disabled: %r", exc, exc_info=True)
-                    _pcr_mi_direct = None  # type: ignore[assignment]
-                from mlframe.feature_selection.filters.evaluation import mrmr_null_signif_alpha
-
-                _pcr_signif_alpha = mrmr_null_signif_alpha()
-                _pcr_q_dtype = getattr(self, "quantization_dtype", np.int32)
-
-                def _pcr_raw_is_significant(_idx):
-                    """Permutation-significance test (32 permutations) for raw column ``_idx`` against y; True when it clears its own null (p<alpha) or the MI estimator is unavailable/errors, gating the masked-raw rescue against pure-noise raws whose only consumer is a pseudo binagg/gate/argmax re-mix."""
-                    if _pcr_mi_direct is None:
-                        return True
-                    try:
-                        _sig = _pcr_mi_direct(
-                            data, x=np.array([int(_idx)], dtype=np.int64), y=target_indices,  # type: ignore[arg-type]
-                            factors_nbins=nbins, npermutations=32, min_nonzero_confidence=0.0,
-                            return_null_mean=True, parallelism="none", dtype=_pcr_q_dtype, prefer_gpu=False,
-                        )
-                        return float(_sig[3]) < _pcr_signif_alpha
-                    except Exception as e:
-                        log_throttle(logger, "_group3._pcr_raw_is_significant", logging.WARNING, "Marginal-MI significance re-add probe failed (%s: %s) -- permissive re-add", type(e).__name__, e)
-                        return True
+                _pcr_raw_is_significant = _masked_raw_significance_probe(self, data, nbins, target_indices)
                 _pcr_readd = []
                 # name -> index map built once (O(F)) instead of a ``.index()`` rescan of ``cols`` per
                 # ``_rn`` (O(F) each) - turns the O(K*F) loop below into O(K+F).
@@ -430,14 +455,7 @@ def _drop_redundant_raw_operands_sweep(self, selected_vars, cols, classes_y, _y_
                     # rescued (and would be dropped by the sweep anyway). When NO genuine child consumes the
                     # raw the conditioning set is empty and the keep-rule returns True (the drop was a pure
                     # pseudo-mask) -> RESCUE.
-                    _child_bins = []
-                    for _gi in _pcr_genuine_eng:
-                        if _rn in {t for t in _TOKEN_SPLIT.split(cols[_gi]) if t}:
-                            _cont = _pcr_eng_cont.get(cols[_gi])
-                            if _cont is not None and length_of(_cont) == int(data.shape[0]):
-                                _child_bins.append(_pcr_qbin(np.asarray(_cont, dtype=_crit_np_dtype()), nbins=10))
-                            else:
-                                _child_bins.append(np.asarray(data[:, _gi]).astype(np.int64).ravel())
+                    _child_bins = _genuine_child_bins(_rn, _pcr_genuine_eng, cols, _pcr_eng_cont, data)
                     _rb = np.asarray(data[:, _ridx]).astype(np.int64).ravel()
                     if _pcr_keep(
                         raw_bin=_rb,
