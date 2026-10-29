@@ -283,26 +283,8 @@ def _resolve_cv_and_val_cv(
                 "RFECV: temporal CV upgrade applied because outer split_config is temporal " "(detected via %s); inner FS folds will respect time ordering.",
                 "fit_params['timestamps'] hint" if _ts_hint is not None else ("polars datetime schema" if _polars_time_series_hint else "pandas DatetimeIndex"),
             )
-        elif is_classifier(estimator):
-            if groups is not None and _use_group_time_series:
-                cv = _make_group_time_series(cv, groups, StratifiedGroupKFold(n_splits=cv, shuffle=False), verbose)
-            elif groups is not None:
-                cv = StratifiedGroupKFold(n_splits=cv, shuffle=cv_shuffle, random_state=random_state if cv_shuffle else None)
-            else:
-                if cv_shuffle:
-                    cv = StratifiedKFold(n_splits=cv, shuffle=True, random_state=random_state)
-                else:
-                    cv = StratifiedKFold(n_splits=cv, shuffle=False)
         else:
-            if groups is not None and _use_group_time_series:
-                cv = _make_group_time_series(cv, groups, GroupKFold(n_splits=cv), verbose)
-            elif groups is not None:
-                cv = GroupKFold(n_splits=cv)  # GroupKFold doesn't support shuffle/random_state
-            else:
-                if cv_shuffle:
-                    cv = KFold(n_splits=cv, shuffle=True, random_state=random_state)
-                else:
-                    cv = KFold(n_splits=cv, shuffle=False)
+            cv = _standard_fold_splitter(cv, estimator, groups, cv_shuffle, random_state, _use_group_time_series, verbose)
         if verbose and not _is_time_series and not _ts_hint_unsorted:
             logger.info("Using cv=%s", cv)
 
@@ -314,6 +296,31 @@ def _resolve_cv_and_val_cv(
         val_cv = None
 
     return cv, val_cv, early_stopping_rounds
+
+
+def _standard_fold_splitter(cv, estimator, groups, cv_shuffle, random_state, _use_group_time_series, verbose):
+    """Plain (non-temporal) fold splitter for ``cv`` ints: stratified for classifiers, group-aware when ``groups`` is given."""
+    if is_classifier(estimator):
+        if groups is not None and _use_group_time_series:
+            cv = _make_group_time_series(cv, groups, StratifiedGroupKFold(n_splits=cv, shuffle=False), verbose)
+        elif groups is not None:
+            cv = StratifiedGroupKFold(n_splits=cv, shuffle=cv_shuffle, random_state=random_state if cv_shuffle else None)
+        else:
+            if cv_shuffle:
+                cv = StratifiedKFold(n_splits=cv, shuffle=True, random_state=random_state)
+            else:
+                cv = StratifiedKFold(n_splits=cv, shuffle=False)
+    else:
+        if groups is not None and _use_group_time_series:
+            cv = _make_group_time_series(cv, groups, GroupKFold(n_splits=cv), verbose)
+        elif groups is not None:
+            cv = GroupKFold(n_splits=cv)  # GroupKFold doesn't support shuffle/random_state
+        else:
+            if cv_shuffle:
+                cv = KFold(n_splits=cv, shuffle=True, random_state=random_state)
+            else:
+                cv = KFold(n_splits=cv, shuffle=False)
+    return cv
 
 
 def _default_time_series_cv(_is_time_series, groups, _polars_time_series_hint, X, verbose):

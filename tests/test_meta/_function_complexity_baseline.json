@@ -82,7 +82,6 @@
   "src/mlframe/feature_selection/shap_proxied_fs/_shap_proxy_revalidate/_shap_proxy_loss.py::_honest_loss": 17,
   "src/mlframe/feature_selection/wrappers/_helpers_importance.py::_conditional_permutation_importance": 17,
   "src/mlframe/feature_selection/wrappers/_helpers_importance.py::_make_fast_default_scorer": 18,
-  "src/mlframe/feature_selection/wrappers/rfecv/_cv_setup.py::_resolve_cv_and_val_cv": 22,
   "src/mlframe/feature_selection/wrappers/rfecv/_init_validate.py::validate_init_params_late": 19,
   "src/mlframe/feature_selection/wrappers/rfecv/_nan_policy.py::apply_nan_in_X_policy": 22,
   "src/mlframe/feature_selection/wrappers/rfecv/_validate.py::_sanitize_X_inputs": 18,
