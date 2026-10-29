@@ -533,6 +533,34 @@ def _raw_rank_corr(a: np.ndarray, b: np.ndarray) -> Optional[float]:
     return abs(float(c)) if np.isfinite(c) else None
 
 
+def _resolve_anchor(just_selected) -> Optional[int]:
+    """Anchor column index of ``just_selected``: the int itself, or the first component of a tuple; None when there is no usable component."""
+    if isinstance(just_selected, (int, np.integer)):
+        return int(just_selected)
+    try:
+        return int(next(iter(just_selected)))
+    except (TypeError, StopIteration) as _exc:
+        logger.debug("discover_cluster_members fell back to its default after %s", type(_exc).__name__)
+        return None
+
+
+def _eligible_candidate(c, anchor, state, _tgt_set, n_cols) -> Optional[int]:
+    """The candidate column index when it may join ``anchor``'s cluster; None when it is unparseable, the anchor or a target, out of range, pruned, or already clustered."""
+    try:
+        c_int = int(c)
+    except (TypeError, ValueError):
+        return None
+    if c_int == anchor or c_int in _tgt_set:
+        return None
+    if c_int < 0 or c_int >= n_cols:
+        return None
+    if state.pool_pruned_mask[c_int]:
+        return None
+    if c_int in state.member_to_anchor:
+        return None
+    return c_int
+
+
 def discover_cluster_members(
     state: DCDState,
     just_selected,
@@ -558,14 +586,9 @@ def discover_cluster_members(
     """
     if state is None or state.pool_pruned_mask is None:
         return set()
-    if isinstance(just_selected, (int, np.integer)):
-        anchor = int(just_selected)
-    else:
-        try:
-            anchor = int(next(iter(just_selected)))
-        except (TypeError, StopIteration) as _exc:
-            logger.debug("discover_cluster_members fell back to its default after %s", type(_exc).__name__)
-            return set()
+    anchor = _resolve_anchor(just_selected)
+    if anchor is None:
+        return set()
     # Refuse to anchor on a
     # column that was already swap-pruned. Pre-fix
     # ``state.cluster_anchors.setdefault(anchor, set())`` resurrected a
@@ -609,17 +632,8 @@ def discover_cluster_members(
     # fall through to the untouched per-pair loop.
     _su_distance_members(state, _tgt_set, candidate_pool, anchor, n_cols, factors_data, factors_nbins, entropy_cache)
     for c in candidate_pool:
-        try:
-            c_int = int(c)
-        except (TypeError, ValueError):
-            continue
-        if c_int == anchor or c_int in _tgt_set:
-            continue
-        if c_int < 0 or c_int >= n_cols:
-            continue
-        if state.pool_pruned_mask[c_int]:
-            continue
-        if c_int in state.member_to_anchor:
+        c_int = _eligible_candidate(c, anchor, state, _tgt_set, n_cols)
+        if c_int is None:
             continue
         if len(anchors) >= int(state.max_cluster_size):
             break
@@ -645,22 +659,7 @@ def discover_cluster_members(
                         _lin_c = _linear_usability(_c_raw)
                         if _lin_a is not None and _lin_c is not None and _lin_c - _lin_a > float(state.warp_linear_margin):
                             # ``c`` is the linear-usable leg of a monotone twin -> swap roles with the anchor.
-                            try:
-                                _pos = [int(s) for s in selected_vars].index(int(anchor))
-                                selected_vars[_pos] = c_int
-                            except ValueError:
-                                selected_vars.append(c_int)
-                            if int(anchor) < n_cols:
-                                state.pool_pruned_mask[int(anchor)] = True
-                            state.pool_pruned_mask[c_int] = False
-                            # Reseat the cluster under the new anchor ``c``: the old anchor becomes a pruned member.
-                            _existing = state.cluster_anchors.pop(int(anchor), set())
-                            _new_members = {int(m) for m in _existing if int(m) != c_int}
-                            _new_members.add(int(anchor))
-                            state.cluster_anchors[c_int] = _new_members
-                            for _m in _new_members:
-                                state.member_to_anchor[int(_m)] = c_int
-                            state.member_to_anchor.pop(c_int, None)
+                            _displace_anchor_with_linear_twin(state, anchor, c_int, selected_vars, n_cols)
                             anchor = c_int
                             anchors = state.cluster_anchors[c_int]
                             _anchor_cache_id = None  # anchor changed -> force recompute on next hit
@@ -670,6 +669,26 @@ def discover_cluster_members(
             state.pool_pruned_mask[c_int] = True
             newly_added.add(c_int)
     return newly_added
+
+
+def _displace_anchor_with_linear_twin(state, anchor, c_int, selected_vars, n_cols) -> None:
+    """Swap the selected anchor for its strictly more linearly-usable monotone twin ``c_int`` and reseat its cluster under ``c_int``."""
+    try:
+        _pos = [int(s) for s in selected_vars].index(int(anchor))
+        selected_vars[_pos] = c_int
+    except ValueError:
+        selected_vars.append(c_int)
+    if int(anchor) < n_cols:
+        state.pool_pruned_mask[int(anchor)] = True
+    state.pool_pruned_mask[c_int] = False
+    # Reseat the cluster under the new anchor ``c``: the old anchor becomes a pruned member.
+    _existing = state.cluster_anchors.pop(int(anchor), set())
+    _new_members = {int(m) for m in _existing if int(m) != c_int}
+    _new_members.add(int(anchor))
+    state.cluster_anchors[c_int] = _new_members
+    for _m in _new_members:
+        state.member_to_anchor[int(_m)] = c_int
+    state.member_to_anchor.pop(c_int, None)
 
 
 def _su_distance_members(state, _tgt_set, candidate_pool, anchor, n_cols, factors_data, factors_nbins, entropy_cache):
