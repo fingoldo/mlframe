@@ -92,7 +92,9 @@ def filter_inert_leaf_block(
         leaves = _raw_leaves(new_cols[j], raw_names)
         if len(leaves) >= 2:
             try:
-                codes = np.asarray(discretise(np.asarray(transformed_vals)[:, [j]]))[:, 0]
+                # A device-backed block keeps its column on the device: it is binned there and only the narrow codes cross to the host, instead of the float64 column.
+                column = transformed_vals[:, j : j + 1] if hasattr(transformed_vals, "dev") else np.asarray(transformed_vals)[:, [j]]
+                codes = np.asarray(discretise(column))[:, 0]
                 inert = _has_inert_leaf(leaves, name_to_idx, data, codes, seed)
                 dominated = None
                 if inert is None and classes_y is not None and getattr(self, "fe_dominated_by_operands_filter_enable", True):

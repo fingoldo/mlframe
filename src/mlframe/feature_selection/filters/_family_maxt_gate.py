@@ -648,7 +648,9 @@ def family_pass_batches(batches: "Sequence[np.ndarray]", y_codes: np.ndarray, al
         return on_device
     y = np.ascontiguousarray(np.asarray(y_codes, dtype=np.int64).ravel())
     n_y = int(y.max()) + 1
-    mats = [np.asarray(c) for c in batches]
+    from ._feature_engineering_pairs._pairs_chunk_codes import resolve_code_columns
+
+    mats = [np.asarray(c) for c in resolve_code_columns(batches)]  # lazy pair-chunk columns come back in one transfer per chunk
     widths = [m.shape[1] for m in mats]
     # A family whose stacked code matrix does not fit the free host memory is scored one group of columns at a time (same decisions, see _family_maxt_stream).
     from ._family_maxt_stream import family_pass_streamed, plan_stream_groups

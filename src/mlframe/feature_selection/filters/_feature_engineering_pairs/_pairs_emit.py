@@ -116,9 +116,7 @@ def _apply_pair_family_gate(pair_batches, valid_pairs_perf, classes_y, n_bins, a
         for cfg, _ in pair_batches:
             valid_pairs_perf[cfg] = 0.0
         return
-    from ._pairs_chunk_codes import resolve_code_columns
-
-    passed = family_pass_batches(resolve_code_columns([codes for _, codes in pair_batches]), np.asarray(classes_y).ravel(), alpha=alpha, n_perm=PAIR_FAMILY_PERMUTATIONS)
+    passed = family_pass_batches([codes for _, codes in pair_batches], np.asarray(classes_y).ravel(), alpha=alpha, n_perm=PAIR_FAMILY_PERMUTATIONS)
     for (cfg, _), ok in zip(pair_batches, passed):
         if not ok:
             valid_pairs_perf[cfg] = 0.0

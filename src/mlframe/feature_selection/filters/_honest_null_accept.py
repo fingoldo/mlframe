@@ -15,6 +15,13 @@ from mlframe.feature_selection.filters._mdlp_honest_njit import _presort_columns
 # --- end imports ---
 
 
+def _int_to_host(cp, dev, bound: int) -> np.ndarray:
+    """``cp.asnumpy(dev)`` for an integer device array whose values lie in ``[0, bound]``, copied as int16 when ``bound`` fits and widened back on the host."""
+    if int(bound) <= 32767 and dev.dtype.kind in "iu" and dev.dtype.itemsize > 2:
+        return np.asarray(cp.asnumpy(dev.astype(cp.int16))).astype(dev.dtype)
+    return np.asarray(cp.asnumpy(dev))
+
+
 def _continuous_accept_block(kc, raw_cont, y_raw_perm, n_classes_total, n, xlogx_table, cp, n_perm, min_split_size, alpha, accepted_c, order, tie):
     """Stage of ``honest_null_columns_device``."""
     if kc:
@@ -72,8 +79,9 @@ def _continuous_accept_block(kc, raw_cont, y_raw_perm, n_classes_total, n, xlogx
                 ),
             )
         gain = np.ascontiguousarray(cp.asnumpy(d_gain).reshape(kc, n_perm).T)
-        ncand = np.ascontiguousarray(cp.asnumpy(d_ncand).reshape(kc, n_perm).T)
-        bidx = np.ascontiguousarray(cp.asnumpy(d_idx).reshape(kc, n_perm).T)
+        # The candidate counts and split positions are at most ``n``: below 32768 rows they cross to the host as int16 and are widened there, which gives the same arrays.
+        ncand = np.ascontiguousarray(_int_to_host(cp, d_ncand, n).reshape(kc, n_perm).T)
+        bidx = np.ascontiguousarray(_int_to_host(cp, d_idx, n).reshape(kc, n_perm).T)
         if h_full > 0.0:
             accepted_c = _accepted(gain, ncand, bidx, n, n_classes_total, float(alpha))
     return accepted_c, order, tie

@@ -15,3 +15,22 @@ Result (all-flags warm fit): `ensure_host_codes_filled` removed from the profile
 Not changed by this: the strict-fit test (pair-search audit, n=30000) measures 3,275,410 B with the switch on and off, because that path keeps `LazyHostCodes` and never copies chunk codes; its
 overrun against the 2.4 MB budget comes from the sites listed in `strict_fit_d2h_traffic_2026_10_29.md` (score tables and the single-column reads). An earlier audit run showed 12.9 GB in one
 tuning-cache state that I could not reproduce afterwards.
+
+## Follow-up: device family test, narrow transfers, strict-fit traffic test green (2026-10-29)
+
+- `LazyCodeColumn.dev` is the (n, 1) device view of a column, so `family_pass_batches_device` scores a pair's configurations from the device codes without any copy; the host test asks
+  `resolve_code_columns` for its columns in one transfer per chunk. In one tuning-cache state of the pair-search audit a pair's whole configuration set (1944 columns of 30000 rows) was
+  requested by the host test, 1.75 GB in all; with the device test that audit copies 3.2 MB.
+- `LazyHostCodes.host()` copies wide integer arrays as int8 plus a 16 byte min/max tail in ONE transfer and widens on the host; a range outside int8 discards the attempt and copies densely
+  (tests: `test_lazy_host_codes_narrow.py`). A first version read min and max as two extra scalar syncs and broke `test_first_real_read_copies_once_and_matches_the_eager_copy`
+  (it counts every device-to-host operation); the range now rides in the same transfer instead of loosening the test.
+- `_device_codes_to_host` (survivor block) copies in int8/int16 by `nbins`; `filter_inert_leaf_block` keeps its probe column on the device, bins it there and copies narrow codes instead of the
+  float64 column; the device family gate copies the level counts of int8 codes as int16; the honest-null accept block copies `ncand` and `bidx` as int16 when `n` < 32768.
+- `test_strict_fit_copies_back_only_result_columns` (budget 2,400,000 B): 3,295,159 B at HEAD, 2,815,175 after the code narrowing, 2,417,035 after the inert-leaf probe, below the budget after the accept block.
+  No budget or test was changed. Remaining sites are the genuine results: MI score tables, the engineered columns, the held-out gate's float design columns.
+- Rejected: copying only the non-zero entries of the gated MI vector in `bits_gate_mi` (index plus value pairs). The vector is almost never sparse after the gate, bytes were unchanged and 76 extra
+  operations were added; reverted.
+- Not done: the readers of one lazy array (`_cmi_from_binned_cupy`, `_fe_cmi_redundancy_null._NullInputs`) are not moved to the device. The null needs the host codes for its within-stratum
+  shuffles (`_permutation_sources_njit` runs on the host), so the copy stays, now a single narrow transfer of 30 KB.
+
+Full fit (`fit_sel_gate.py`, GPU shared): seed 0 68.5 -> 58.0 s, seed 2 83.9 -> 67.3 s, selection identical on both. 76 tests of the touched modules pass.

@@ -12,6 +12,9 @@ from typing import Any, cast
 
 import numpy as np
 
+# Below this many elements the copy is too small for the two range reductions to pay for themselves.
+_NARROW_MIN_ELEMENTS = 4096
+
 
 class LazyHostCodes:
     """Deferred ``cp.asnumpy(dev).astype(dtype)`` of a device code array.
@@ -50,10 +53,31 @@ class LazyHostCodes:
     def host(self) -> np.ndarray:
         """The host array, copied from the device on first use."""
         if self._host is None:
-            import cupy as cp
+            self._host = self._narrow_copy()
+            if self._host is None:
+                import cupy as cp
 
-            self._host = np.asarray(cp.asnumpy(self._dev)).astype(self._dtype, copy=False)
+                self._host = np.asarray(cp.asnumpy(self._dev)).astype(self._dtype, copy=False)
         return self._host
+
+    def _narrow_copy(self) -> "np.ndarray | None":
+        """The host array from ONE transfer of int8 codes with the array's min and max appended, or None when the values do not fit int8 or the array is not worth it.
+
+        Codes are small ordinals but often stored as int64. The range travels in the same transfer, so the copy stays a single device-to-host operation; the host checks it
+        and widens back to the requested dtype, which leaves the array identical to the dense copy. A range that does not fit costs a second, dense copy.
+        """
+        dev = self._dev
+        if self._dtype.kind not in "iu" or dev.dtype.kind not in "iu" or dev.dtype.itemsize <= 1 or int(dev.size) < _NARROW_MIN_ELEMENTS:
+            return None
+        import cupy as cp
+
+        flat = dev.reshape(-1)
+        tail = cp.stack([flat.min(), flat.max()]).astype(cp.int64).view(cp.int8)
+        packed = np.asarray(cp.asnumpy(cp.concatenate([flat.astype(cp.int8), tail])))
+        lo, hi = packed[-16:].view(np.int64)
+        if lo < -128 or hi > 127:
+            return None
+        return packed[:-16].reshape(dev.shape).astype(self._dtype, copy=False)
 
     def max(self) -> Any:
         """Largest code: a scalar reduction on the device unless the host copy already exists."""

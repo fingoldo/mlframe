@@ -89,6 +89,12 @@ class LazyCodeColumn:
         """Always 2."""
         return 2
 
+    @property
+    def dev(self) -> Any:
+        """The (n, 1) device view of this column, or None when the chunk has no device copy; the device family gate scores batches that carry one without copying them back."""
+        d = self.chunk._dev
+        return None if d is None else d[:, self.j : self.j + 1]
+
     def __array__(self, dtype: Any = None, copy: Any = None) -> np.ndarray:
         """numpy conversion: a one-column copy."""
         a = self.chunk.columns([self.j])

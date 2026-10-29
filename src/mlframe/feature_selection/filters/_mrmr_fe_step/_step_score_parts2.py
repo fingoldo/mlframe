@@ -54,7 +54,11 @@ def _device_codes_to_host(transformed_vals, nbins, dtype):
         code_dtype: np.dtype = np.dtype(_safe_code_dtype(int(nbins), dtype))
         dev = transformed_vals.dev
         codes = _gpu_resident_discretize_codes(dev.reshape(-1, 1) if dev.ndim == 1 else dev, int(nbins), out_dtype=code_dtype)
-        return np.asarray(cp.asnumpy(codes.astype(cp.dtype(code_dtype), copy=False)))
+        # The codes are ordinals below ``nbins`` (plus one slot for NaN): copy them in the narrowest dtype that holds them and widen on the host, so the host array is unchanged.
+        wire = np.dtype(np.int8) if int(nbins) < 126 else np.dtype(np.int16) if int(nbins) < 32766 else code_dtype
+        if wire.itemsize >= code_dtype.itemsize:
+            wire = code_dtype
+        return np.asarray(cp.asnumpy(codes.astype(cp.dtype(wire), copy=False))).astype(code_dtype, copy=False)
     except Exception as e:
         logger.warning("device binning of the survivor matrix failed, binning on the host: %s", e)
         return None

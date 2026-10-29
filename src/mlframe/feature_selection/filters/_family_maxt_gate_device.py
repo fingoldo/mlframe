@@ -55,7 +55,8 @@ class _FamilyOnDevice:
         k_total = int(codes.shape[1])
         self.n, self.k_total = n, k_total
         n_x = (codes.max(axis=0) + 1).astype(cp.int64)
-        host_nx = cp.asnumpy(n_x)
+        # The level counts of int8 codes are at most 128, so they cross to the host as int16 and are widened there (same values, a quarter of the bytes).
+        host_nx = cp.asnumpy(n_x.astype(cp.int16)).astype(np.int64) if codes.dtype.itemsize == 1 else cp.asnumpy(n_x)
         cap = int(host_nx.max()) if host_nx.size else 0
         words = (n + 63) // 64
         if n == 0 or k_total == 0 or not 1 <= cap <= MAX_BINS or not _v2_applies(cp, self.n_y, words):
