@@ -232,6 +232,17 @@ def _group_recency_weighted_agg_sorted(v_sorted: np.ndarray, starts: np.ndarray,
 
 
 @njit(fastmath=False, cache=True)
+def _recency_weight(scheme_code, param, m, i):
+    """Weight of the observation ``i`` steps from the end of a group of ``m`` rows under decay scheme ``scheme_code``."""
+    if scheme_code == 0:
+        return ((m - i + 1) / m) ** param
+    elif scheme_code == 1:
+        return param**i
+    else:
+        return 1.0 / (i**param)
+
+
+@njit(fastmath=False, cache=True)
 def _group_recency_weighted_agg_multi_sorted(
     v_sorted: np.ndarray, starts: np.ndarray, ends: np.ndarray, scheme_code: int, params: np.ndarray, agg_code: int
 ) -> np.ndarray:
@@ -262,12 +273,7 @@ def _group_recency_weighted_agg_multi_sorted(
                 den = 0.0
                 for pos in range(m):
                     i = m - pos
-                    if scheme_code == 0:
-                        w = ((m - i + 1) / m) ** param
-                    elif scheme_code == 1:
-                        w = param**i
-                    else:
-                        w = 1.0 / (i**param)
+                    w = _recency_weight(scheme_code, param, m, i)
                     num += w * v_sorted[s + pos]
                     den += w
                 mean = num / den if den > 0.0 else np.nan
@@ -280,12 +286,7 @@ def _group_recency_weighted_agg_multi_sorted(
                 sq = 0.0
                 for pos in range(m):
                     i = m - pos
-                    if scheme_code == 0:
-                        w = ((m - i + 1) / m) ** param
-                    elif scheme_code == 1:
-                        w = param**i
-                    else:
-                        w = 1.0 / (i**param)
+                    w = _recency_weight(scheme_code, param, m, i)
                     dv = v_sorted[s + pos] - mean
                     sq += w * dv * dv
                 var = sq / den
@@ -294,12 +295,7 @@ def _group_recency_weighted_agg_multi_sorted(
                 acc = 0.0 if agg_code == 1 else np.nan
                 for pos in range(m):
                     i = m - pos
-                    if scheme_code == 0:
-                        w = ((m - i + 1) / m) ** param
-                    elif scheme_code == 1:
-                        w = param**i
-                    else:
-                        w = 1.0 / (i**param)
+                    w = _recency_weight(scheme_code, param, m, i)
                     wv = w * v_sorted[s + pos]
                     if agg_code == 1:
                         acc += wv
