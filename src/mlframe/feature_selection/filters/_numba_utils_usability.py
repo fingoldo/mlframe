@@ -15,6 +15,14 @@ def _apply_unary(v, code, xmin):
     """One element of the medium-preset unary, in double precision (the Python path applies the numpy unary to
     the double precision operand). ``xmin`` is the operand column's ``nanmin`` - only ``log`` (smart_log) uses
     it (additive shift ``1e-5 - xmin`` when ``xmin<=0``, exact ``log`` when ``xmin>0``)."""
+    if 0 <= code <= 8:
+        return _apply_unary_low(v, code, xmin)
+    return _apply_unary_high(v, code)
+
+
+@njit(cache=True, inline="always")
+def _apply_unary_low(v, code, xmin):
+    """Codes 0-8 of :func:`_apply_unary`: identity through sign."""
     if code == 0:  # identity
         return v
     elif code == 1:  # neg
@@ -33,7 +41,7 @@ def _apply_unary(v, code, xmin):
         return np.log(v + (1e-5 - xmin))
     elif code == 7:  # sin
         return np.sin(v)
-    elif code == 8:  # sign = np.sign
+    else:  # code == 8: sign = np.sign
         # NaN input used to fall through to the else branch
         # (IEEE comparisons with NaN are always False) and get coerced to -1.0, disagreeing with both
         # np.sign(nan)==nan and this module's own cupy twin cp.sign(nan)==nan. Unreachable today via the
@@ -42,7 +50,12 @@ def _apply_unary(v, code, xmin):
         if np.isnan(v):
             return v
         return 0.0 if v == 0.0 else (1.0 if v > 0.0 else -1.0)
-    elif code == 9:  # rint
+
+
+@njit(cache=True, inline="always")
+def _apply_unary_high(v, code):
+    """Codes 9-16 of :func:`_apply_unary`: rint through exp (any other code falls through to exp, as before)."""
+    if code == 9:  # rint
         return np.rint(v)
     elif code == 10:  # qubed = np.power(x, 3)
         return v * v * v
