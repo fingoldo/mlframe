@@ -28,7 +28,6 @@
   "src/mlframe/feature_selection/filters/_feature_engineering_pairs/_pairs_emit_extval.py::_emit_pair_features_step2_read_here_once": 17,
   "src/mlframe/feature_selection/filters/_feature_engineering_pairs/_pairs_materialise.py::_materialise_chunk_rowblock_njit_parallel": 16,
   "src/mlframe/feature_selection/filters/_feature_engineering_pairs/_pairs_score_steps.py::_score_one_pair_step3_step2_transformations_pair_st": 18,
-  "src/mlframe/feature_selection/filters/_gpu_resident_operand_build.py::_build_resident_operand_table_part1": 22,
   "src/mlframe/feature_selection/filters/_gpu_resident_shared.py::_binary_apply": 18,
   "src/mlframe/feature_selection/filters/_gpu_resident_shared.py::_unary_apply": 21,
   "src/mlframe/feature_selection/filters/_gpu_strict_fe/_audit.py::residency_audit": 21,
