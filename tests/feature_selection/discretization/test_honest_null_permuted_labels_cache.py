@@ -99,3 +99,13 @@ def test_the_seeded_shuffles_are_permutations_and_depend_on_the_seed_alone():
         np.testing.assert_array_equal(np.sort(row), np.sort(y_raw))
     assert len({row.tobytes() for row in a[0]}) == 12
     assert not np.array_equal(a[0], permuted_labels_seeded(y_raw, y_codes, 12, 100)[0])
+
+
+def test_identical_raw_and_coded_labels_share_one_matrix_with_the_same_values():
+    """When the codes are the raw labels a draw holds one matrix for both, and its rows are those of the draw with distinct arrays."""
+    y_raw, y_codes = _labels()
+    same = permuted_labels_seeded(y_raw, y_codes, 15, 7)
+    assert same[0] is same[1]
+    other = permuted_labels_seeded(y_raw, y_codes + 1, 15, 7)
+    np.testing.assert_array_equal(same[0], other[0])
+    np.testing.assert_array_equal(other[1], other[0] + 1)

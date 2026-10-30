@@ -177,3 +177,27 @@ def test_corrected_mi_best_at_a_row_subset_equals_the_kernel_on_the_subset():
     got = corrected_mi_best(codes, nb, fixed, fnb, cols, yc[rows], 2, 2.0, m, rows)
     want = corrected_mi_best(np.ascontiguousarray(codes[rows]), nb, np.ascontiguousarray(fixed[rows]), fnb, cols, yc[rows], 2, 2.0, m, np.arange(m, dtype=np.int64))
     assert got == want
+
+
+def test_target_dependent_columns_equal_the_full_distinct_count():
+    """The head-sample shortcut decides ``nunique > cap`` exactly as the full count: continuous, low-cardinality, constant and late-diverse columns."""
+    from mlframe.feature_selection.filters._honest_spec import _LOW_CARD_CAP
+    from mlframe.feature_selection.filters._mrmr_fit_impl._fit_impl_stages._binning import _target_dependent_columns
+
+    rng = np.random.default_rng(0)
+    n = 20000
+    late = np.zeros(n)
+    late[-(_LOW_CARD_CAP + 5) :] = np.arange(_LOW_CARD_CAP + 5)  # many distinct values, none in the head
+    frame = pd.DataFrame(
+        {
+            "cont": rng.standard_normal(n),
+            "few": rng.integers(0, _LOW_CARD_CAP, n).astype(np.float64),
+            "edge": rng.integers(0, _LOW_CARD_CAP + 1, n).astype(np.float64),
+            "const": np.ones(n),
+            "late": late,
+            "nan_cont": np.where(rng.random(n) < 0.3, np.nan, rng.standard_normal(n)),
+        }
+    )
+    got = _target_dependent_columns(frame, list(frame.columns))
+    want = {c for c in frame.columns if frame[c].nunique(dropna=True) > _LOW_CARD_CAP}
+    assert got == want and {"cont", "late"} <= got and "const" not in got
