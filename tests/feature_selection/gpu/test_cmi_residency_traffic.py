@@ -336,27 +336,21 @@ def pair_search_audit():
     residency regression -- so skip rather than false-fail (the path is byte-audited green in a quiet process;
     verified in isolation). A genuine wiring regression instead shows the path running with a BROKEN invariant
     (take-miss / host re-upload / per-pair operand H2D), which the assertions below still catch hard."""
-    # The product declines device residency when free VRAM is short, and that decline is CORRECT: the codes
-    # matrix this audit wants resident is ~445 MiB on its own. Asking the same question the product asks
-    # means a contended card is reported as an environment condition instead of a residency regression -
-    # the stash==0 guard below cannot see this case, because the producer stashes once and only the LATER,
-    # larger allocation is refused, leaving a genuine-looking take-miss plus a bulk D2H.
+    # The audit measures the device-resident path, so it pins that regime for the whole module: the absolute VRAM
+    # cushion floor is set to 0 (read on every check by ``_fe_gpu_vram._min_free_mb``), so no dispatch is refused for
+    # lack of free VRAM. Without the pin the same code measured either the GPU path (~10 GiB copied back) or the CPU
+    # fallback (~1 GiB, different chunk split) depending on what else held the card, and the counters were incomparable.
+    # The env var is read at each check, so no module that imported the cushion function earlier can bypass the pin.
+    import cupy as _cp
+
+    _budget = pytest.MonkeyPatch()
+    _total_b = int(_cp.cuda.runtime.memGetInfo()[1])
+    _fixed_free_b = 3 * 1024**3  # every VRAM gate reads memGetInfo, so one fixed reading fixes every gate's decision
+    _budget.setattr(_cp.cuda.runtime, "memGetInfo", lambda: (_fixed_free_b, _total_b))
     try:
-        from mlframe.feature_selection.filters._fe_gpu_vram import fe_gpu_has_vram_cushion
-
-        if not fe_gpu_has_vram_cushion(0):
-            import cupy as _cp
-
-            _free_b, _total_b = _cp.cuda.runtime.memGetInfo()
-            pytest.skip(
-                f"GPU VRAM cushion unavailable ({_free_b / 2**20:.0f} MiB free of {_total_b / 2**20:.0f} MiB): the "
-                "product correctly declines device residency here, so the resident path cannot be audited. "
-                "Free the card (other CUDA processes) and re-run."
-            )
-    except ImportError:
-        pass  # no cushion helper: fall through to the audit and let the counters speak
-
-    names, cnt, rep, n = _run_pair_search_audit()
+        names, cnt, rep, n = _run_pair_search_audit()
+    finally:
+        _budget.undo()
     print("\nPAIR-SEARCH residency: " + rep.summary() + f"  counters={cnt}  names={names}")
     if cnt["stash"] == 0:
         pytest.skip(
