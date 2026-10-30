@@ -72,6 +72,62 @@ def _extension_output_names(ext_pipeline, n_out: int) -> list:
     return list(names)
 
 
+def _apply_tfidf_expansion(df, ext_pipeline):
+    """Replace each declared text column with its train-time TF-IDF expansion (TF-IDF-only persistence shape)."""
+    # TF-IDF-only shape -- replicate the training-time per-column replacement using the saved vectorizers.
+    # Train hard-failed on missing tfidf-source cols (apply_preprocessing_extensions raises KeyError before
+    # fit). Symmetric behaviour at predict: collect every missing source up front and raise once with the
+    # full list. The previous WARN-and-skip silently produced models whose feature_names_in_ included tfidf
+    # cols that never appeared at predict, then crashed at model.predict_proba with an opaque "missing
+    # features" error. Loud-fail beats silent skip.
+    _missing_tfidf = [_col for _col in ext_pipeline if _col not in df.columns]
+    if _missing_tfidf:
+        raise KeyError(
+            f"[extensions_pipeline] tfidf source columns missing from predict frame: "
+            f"{_missing_tfidf}. Training pipeline saw these cols at fit time; predict must too. "
+            "Restore the upstream extraction or retrain on the current schema."
+        )
+    for _col, _vec in ext_pipeline.items():
+        _text = df[_col].fillna("").astype(str).values
+        _spmat = _vec.transform(_text)
+        try:
+            _n_feats = len(_vec.get_feature_names_out())
+        except Exception as e:
+            logger.debug("get_feature_names_out() failed, using the sparse matrix width: %s", e)
+            _n_feats = _spmat.shape[1]
+        _new_cols = [f"{_col}__tfidf_{i}" for i in range(_n_feats)]
+        from ..pipeline import sparse_df_from_spmatrix
+        _new_df = sparse_df_from_spmatrix(_spmat, _new_cols, df.index)
+        df = df.drop(columns=[_col]).join(_new_df)
+    return df
+
+
+def _align_frame_to_fit_features(df, ext_pipeline):
+    """Subset and reorder the predict frame to the fit-time feature names before the pipeline transform."""
+    _fit_feature_names = getattr(ext_pipeline, "feature_names_in_", None)
+    if _fit_feature_names is not None and isinstance(df, pd.DataFrame):
+        _fit_list = [str(_c) for _c in _fit_feature_names]
+        _fit_set = set(_fit_list)
+        _df_cols = [str(_c) for _c in df.columns]
+        _present_set = _fit_set & set(_df_cols)
+        if len(_present_set) < len(_fit_set):
+            _missing = [c for c in _fit_list if c not in _present_set]
+            logger.warning(
+                "[extensions_pipeline] predict frame is missing %d "
+                "fit-time column(s): %s. Pipeline.transform will likely "
+                "fail; downstream model will see raw input. Restore "
+                "upstream extraction or retrain on the current schema.",
+                len(_missing), _missing[:10],
+            )
+        elif _df_cols != _fit_list:
+            # All fit-time cols present but ORDER (and/or extras like
+            # cat_low/cat_mid/x_null carried over from the pre-filter
+            # frame) doesn't match -- sklearn's strict feature-name
+            # check rejects both. Subset + reorder to the fit-time list.
+            df = df.loc[:, _fit_list]
+    return df
+
+
 def _apply_extensions_pipeline(df: Any, ext_pipeline: Any, verbose: int = 0):
     """Apply the persisted ``extensions_pipeline`` to a predict frame.
 
@@ -100,32 +156,8 @@ def _apply_extensions_pipeline(df: Any, ext_pipeline: Any, verbose: int = 0):
             df = _apply_extensions_pipeline(df, ext_pipeline.sklearn_pipe, verbose=verbose)
         return df
     if isinstance(ext_pipeline, dict):
-        # TF-IDF-only shape -- replicate the training-time per-column replacement using the saved vectorizers.
-        # Train hard-failed on missing tfidf-source cols (apply_preprocessing_extensions raises KeyError before
-        # fit). Symmetric behaviour at predict: collect every missing source up front and raise once with the
-        # full list. The previous WARN-and-skip silently produced models whose feature_names_in_ included tfidf
-        # cols that never appeared at predict, then crashed at model.predict_proba with an opaque "missing
-        # features" error. Loud-fail beats silent skip.
-        _missing_tfidf = [_col for _col in ext_pipeline if _col not in df.columns]
-        if _missing_tfidf:
-            raise KeyError(
-                f"[extensions_pipeline] tfidf source columns missing from predict frame: "
-                f"{_missing_tfidf}. Training pipeline saw these cols at fit time; predict must too. "
-                "Restore the upstream extraction or retrain on the current schema."
-            )
-        for _col, _vec in ext_pipeline.items():
-            _text = df[_col].fillna("").astype(str).values
-            _spmat = _vec.transform(_text)
-            try:
-                _n_feats = len(_vec.get_feature_names_out())
-            except Exception as e:
-                logger.debug("get_feature_names_out() failed, using the sparse matrix width: %s", e)
-                _n_feats = _spmat.shape[1]
-            _new_cols = [f"{_col}__tfidf_{i}" for i in range(_n_feats)]
-            from ..pipeline import sparse_df_from_spmatrix
-            _new_df = sparse_df_from_spmatrix(_spmat, _new_cols, df.index)
-            df = df.drop(columns=[_col]).join(_new_df)
-        return df
+        return _apply_tfidf_expansion(df, ext_pipeline)
+
     # Pipeline shape -- run .transform on the full frame; reuse fit-time output column names when available.
     # Subset the predict frame to the fit-time feature set before calling
     # .transform. The training-side apply_preprocessing_extensions drops
@@ -140,27 +172,7 @@ def _apply_extensions_pipeline(df: Any, ext_pipeline: Any, verbose: int = 0):
     # "expects features missing from input: ['pca0', ...]". Surfaced by
     # iter-49 300k seed=13 cb-regression where dim_reducer=PCA was on.
     _df_in = df  # the non-numeric columns fit time passed around the pipeline are re-attached from here
-    _fit_feature_names = getattr(ext_pipeline, "feature_names_in_", None)
-    if _fit_feature_names is not None and isinstance(df, pd.DataFrame):
-        _fit_list = [str(_c) for _c in _fit_feature_names]
-        _fit_set = set(_fit_list)
-        _df_cols = [str(_c) for _c in df.columns]
-        _present_set = _fit_set & set(_df_cols)
-        if len(_present_set) < len(_fit_set):
-            _missing = [c for c in _fit_list if c not in _present_set]
-            logger.warning(
-                "[extensions_pipeline] predict frame is missing %d "
-                "fit-time column(s): %s. Pipeline.transform will likely "
-                "fail; downstream model will see raw input. Restore "
-                "upstream extraction or retrain on the current schema.",
-                len(_missing), _missing[:10],
-            )
-        elif _df_cols != _fit_list:
-            # All fit-time cols present but ORDER (and/or extras like
-            # cat_low/cat_mid/x_null carried over from the pre-filter
-            # frame) doesn't match -- sklearn's strict feature-name
-            # check rejects both. Subset + reorder to the fit-time list.
-            df = df.loc[:, _fit_list]
+    df = _align_frame_to_fit_features(df, ext_pipeline)
     try:
         _arr = ext_pipeline.transform(df)
     except Exception as _exc:
