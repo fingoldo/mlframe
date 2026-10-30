@@ -43,3 +43,24 @@ def test_family_null_max_from_class_bitsets_equals_the_label_matrix_route():
     table, c_a, px, groups = V.bitset_groups(cols, n_x)
     want = V.null_max_bitsets((table, c_a, px, groups), n_x, y[idx], 3)
     assert np.array_equal(got[:256], want)
+
+
+def test_column_bit_sets_are_built_once_for_all_blocks_of_one_exact_test(monkeypatch):
+    """The blocks of one family test share the column bit sets (one build), and the pass flags equal those with a build per block."""
+    from mlframe.feature_selection.filters import _family_maxt_gate as gate
+
+    rng = np.random.default_rng(13)
+    n, k = 2000, 8
+    cols = np.ascontiguousarray(rng.integers(0, 5, size=(k, n)).astype(np.int64))
+    n_x = (cols.max(axis=1) + 1).astype(np.int64)
+    y = rng.integers(0, 2, size=n).astype(np.int64)
+    observed_max = np.array([0.0005, 0.02])
+    built = []
+    real = gate.bitset_groups
+    monkeypatch.setattr(gate, "bitset_groups", lambda *a, **kw: (built.append(1), real(*a, **kw))[1])
+    shared = gate._permutation_pass_flags(cols, n_x, y, 2, observed_max, 0.05, 700, 0)
+    n_shared = len(built)
+    built.clear()
+    per_block = gate._permutation_pass_flags_with(lambda m, r: gate.family_null_max(cols, n_x, y, 2, m, r), observed_max, 0.05, 700, 0)
+    assert n_shared == 1 and len(built) > 1
+    assert np.array_equal(shared, per_block)
