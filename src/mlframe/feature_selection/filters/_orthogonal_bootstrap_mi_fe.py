@@ -95,6 +95,28 @@ def _bootstrap_rows(rng: np.random.Generator, y_arr: np.ndarray, n: int, sample_
     return idx
 
 
+_REPS_CACHE: dict = {}  # the latest resample set: (seed, rows, sample rows, resamples, y fingerprint) -> the list of row-index vectors
+
+
+def seeded_bootstrap_rows(rng_seed: int, y_arr: np.ndarray, n: int, sample_n: int, n_boot: int) -> "list[np.ndarray]":
+    """The ``n_boot`` resamples of one seeded stream (:func:`_bootstrap_rows` after :func:`_bootstrap_rows`, from ``default_rng(rng_seed)``), kept for the next call with the same seed, sizes and labels.
+
+    The scorers of one fit ask for the same resamples again and again (one call per chunk of source columns, the seed and the labels never change); drawing 10 resamples of 800000 rows each time
+    (and checking each for a single class) cost 54 s of a 1M-row modular fit. The same list object comes back, which lets the rank-MI preparation recognise it."""
+    from mlframe.utils.disk_cache import hash_array_content
+
+    key = (int(rng_seed), int(n), int(sample_n), int(n_boot), hash_array_content(np.ascontiguousarray(y_arr)))
+    hit = _REPS_CACHE.get("latest")
+    if hit is not None and hit[0] == key:
+        reps: "list[np.ndarray]" = hit[1]
+        return reps
+    rng = np.random.default_rng(int(rng_seed))
+    reps = [_bootstrap_rows(rng, y_arr, n, sample_n) for _ in range(n_boot)]
+    _REPS_CACHE.clear()
+    _REPS_CACHE["latest"] = (key, reps)
+    return reps
+
+
 def _replicate_mi(arr: np.ndarray, y_arr: np.ndarray, rep_rows: "list[np.ndarray]", nbins: int) -> np.ndarray:
     """``(B, k)`` rank-binned MI of every column of ``arr`` on every resample in ``rep_rows``.
 
@@ -127,8 +149,7 @@ def baseline_lcb_by_bootstrap_mi(raw_X: pd.DataFrame, y: np.ndarray, *, n_boot: 
     raw_arr = raw_X.to_numpy(dtype=_crit_np_dtype())
     n_boot_eff = max(1, int(n_boot))
     sample_n = max(2, round(float(sample_fraction) * n))
-    rng = np.random.default_rng(int(seed))
-    reps = [_bootstrap_rows(rng, y_arr, n, sample_n) for _ in range(n_boot_eff)]
+    reps = seeded_bootstrap_rows(int(seed), y_arr, n, sample_n, n_boot_eff)
     mat = _replicate_mi(raw_arr, y_arr, reps, nbins)
     ddof = 1 if n_boot_eff >= 2 else 0
     std = mat.std(axis=0, ddof=ddof) if n_boot_eff >= 2 else np.zeros(mat.shape[1])
@@ -251,7 +272,6 @@ def score_features_by_bootstrap_mi(
 
     n_boot_eff = max(1, int(n_boot))
     sample_n = max(2, round(float(sample_fraction) * n))
-    rng = np.random.default_rng(int(seed))
 
     # Precompute engineered-col -> raw-col position ONCE so the baseline matrix is a vectorised column gather ``raw_mi[:, src_idx]``. Engineered cols whose source is absent from raw_X
     # map to -1 -> 0.0 baseline.
@@ -260,7 +280,7 @@ def score_features_by_bootstrap_mi(
     _src_valid = _src_idx >= 0
     _src_idx_clipped = np.where(_src_valid, _src_idx, 0)
 
-    reps = [_bootstrap_rows(rng, y_arr, n, sample_n) for _ in range(n_boot_eff)]
+    reps = seeded_bootstrap_rows(int(seed), y_arr, n, sample_n, n_boot_eff)
     raw_mi = _replicate_mi(raw_arr, y_arr, reps, nbins)
     eng_mi = _replicate_mi(eng_arr, y_arr, reps, nbins)
     baseline_replicates: list[np.ndarray] = []  # one (n_eng,) vector per boot
