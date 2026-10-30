@@ -79,7 +79,6 @@
   "src/mlframe/training/composite/ensemble/_cross_target.py::CompositeCrossTargetEnsemble.predict": 18,
   "src/mlframe/training/composite/ensemble/_oof_external.py::_compute_oof_with_external_holdout": 18,
   "src/mlframe/training/composite/qrf.py::_batch_weighted_quantiles_kernel": 17,
-  "src/mlframe/training/core/_main_train_suite_target_distribution.py::_maybe_auto_drop_after_feature_analyzer": 19,
   "src/mlframe/training/core/_phase_finalize_calibration.py::_apply_confidence_shrinkage_to_regression": 18,
   "src/mlframe/training/core/_phase_helpers_fit_pipeline.py::_phase_fit_pipeline_back_none_function_logs": 18,
   "src/mlframe/training/core/_phase_train_one_target_ensembling.py::_tune_decision_thresholds": 16,
