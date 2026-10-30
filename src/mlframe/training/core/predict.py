@@ -560,6 +560,54 @@ def _resolve_chosen_ensemble_params(metadata: dict, target_type: Any = None, tar
     return {}
 
 
+def _looks_like_flat_flavour_map(ensembles_chosen: dict) -> bool:
+    """Detect the pre-Arch-3 flat layout ``{target_type: {target_name: flavour}}`` at the top level of ``ensembles_chosen``."""
+    return any(
+        (isinstance(_v, dict) and _v and all(isinstance(_kk, str) and isinstance(_vv, str) for _kk, _vv in _v.items())) for _v in ensembles_chosen.values()
+    )
+
+
+def _flavour_for_target(bucket: dict, target_type: Any, target_name: Any) -> str | None:
+    """Flavour persisted for ``(target_type, target_name)`` in one bucket; a single-entry target falls back to its only flavour."""
+    _by_tt = bucket.get(target_type)
+    if _by_tt is None:
+        _by_tt = bucket.get(str(target_type))
+    if isinstance(_by_tt, str):
+        return _by_tt
+    if not isinstance(_by_tt, dict):
+        return None
+    if target_name is not None:
+        _fl = _by_tt.get(target_name)
+        if _fl is None:
+            _fl = _by_tt.get(str(target_name))
+        if _fl:
+            return str(_fl)
+    # Single-target fallback -- if there's only one entry, use it.
+    if len(_by_tt) == 1:
+        return str(next(iter(_by_tt.values())))
+    return None
+
+
+def _single_flavour_across_map(ensembles_chosen: dict) -> str | None:
+    """The one flavour used anywhere in the map across both buckets, or ``None`` when several (or none) are present."""
+    _all: list = []
+    for _fam in ensembles_chosen.values():
+        if isinstance(_fam, dict):
+            for _v in _fam.values():
+                if isinstance(_v, dict):
+                    _all.extend(_v.values())
+                elif isinstance(_v, str):
+                    _all.append(_v)
+        elif isinstance(_fam, str):
+            _all.append(_fam)
+    _all_set = {f for f in _all if f}
+    if len(_all_set) == 1:
+        # Set with cardinality 1 is deterministic, but sort-then-pick documents the intent and survives the
+        # accidental len==N>1 case if a future caller widens the guard.
+        return str(sorted(_all_set)[0])
+    return None
+
+
 def _resolve_chosen_flavour(metadata: dict, target_type: Any = None, target_name: Any = None) -> str | None:
     """Look up the persisted chosen ensemble flavour for ``(target_type, target_name)``.
 
@@ -586,44 +634,14 @@ def _resolve_chosen_flavour(metadata: dict, target_type: Any = None, target_name
         # flavour}}`` directly. Detect that shape by checking whether any
         # known TargetType-style key sits at the top level; if so, use _ec
         # itself as the bucket so old persisted metadata still resolves.
-        _looks_flat = isinstance(_ec, dict) and any(
-            (isinstance(_v, dict) and _v and all(isinstance(_kk, str) and isinstance(_vv, str) for _kk, _vv in _v.items())) for _v in _ec.values()
-        )
-        _bucket = _ec if _looks_flat else None
+        _bucket = _ec if _looks_like_flat_flavour_map(_ec) else None
     if _bucket is not None and target_type is not None:
-        _by_tt = _bucket.get(target_type)
-        if _by_tt is None:
-            _by_tt = _bucket.get(str(target_type))
-        if isinstance(_by_tt, dict):
-            if target_name is not None:
-                _fl = _by_tt.get(target_name)
-                if _fl is None:
-                    _fl = _by_tt.get(str(target_name))
-                if _fl:
-                    return str(_fl)
-            # Single-target fallback -- if there's only one entry, use it.
-            if len(_by_tt) == 1:
-                return str(next(iter(_by_tt.values())))
-        elif isinstance(_by_tt, str):
-            return _by_tt
+        _fl = _flavour_for_target(_bucket, target_type, target_name)
+        if _fl is not None:
+            return _fl
     # No (tt, tname) match in the dispatched bucket -- if the whole map has a single flavour
     # everywhere across BOTH buckets, use it.
-    _all: list = []
-    for _fam in _ec.values():
-        if isinstance(_fam, dict):
-            for _v in _fam.values():
-                if isinstance(_v, dict):
-                    _all.extend(_v.values())
-                elif isinstance(_v, str):
-                    _all.append(_v)
-        elif isinstance(_fam, str):
-            _all.append(_fam)
-    _all_set = {f for f in _all if f}
-    if len(_all_set) == 1:
-        # Set with cardinality 1 is deterministic, but sort-then-pick documents the intent and survives the
-        # accidental len==N>1 case if a future caller widens the guard.
-        return str(sorted(_all_set)[0])
-    return None
+    return _single_flavour_across_map(_ec)
 
 
 def _replay_suite_datetime_decomposition(df, metadata, verbose: int = 0):

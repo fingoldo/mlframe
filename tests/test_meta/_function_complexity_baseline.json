@@ -116,7 +116,6 @@
   "src/mlframe/training/core/_setup_helpers_metadata.py::_finalize_and_save_metadata": 17,
   "src/mlframe/training/core/_target_row_scope.py::_narrowed_fields": 18,
   "src/mlframe/training/core/predict.py::_coerce_cat_dtype_for_lgb_xgb": 17,
-  "src/mlframe/training/core/predict.py::_resolve_chosen_flavour": 20,
   "src/mlframe/training/feature_drift_report.py::translate_sklearn_mlp_overrides_to_mlframe_mlp_kwargs": 17,
   "src/mlframe/training/feature_handling/assembler.py::assemble_for_model": 20,
   "src/mlframe/training/neural/_flat_torch_module/_flat_torch_loss.py::_LossMixin.compute_metrics": 17,
