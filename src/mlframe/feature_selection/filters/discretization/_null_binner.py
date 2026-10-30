@@ -59,7 +59,7 @@ class PermutedTargetBinner:
         self._dtype = dtype
         self._lock = threading.Lock()
         self._slots: "dict[tuple, int]" = {}
-        self._table = np.empty((0, arr.shape[0]), dtype=dtype)
+        self._table: np.ndarray = np.empty((0, arr.shape[0]), dtype=dtype)
         self._col_max = np.empty(0, dtype=np.int64)
         self._used = 0
         self._plans: Optional[list] = None  # the cached optimal-joint plan of every re-binned column, once they all exist
@@ -86,7 +86,7 @@ class PermutedTargetBinner:
 
         if not isinstance(df, pd.DataFrame) or df.shape[0] == 0 or df.shape[1] == 0:
             return False
-        return df.select_dtypes(include=("category", "object", "string", "bool")).shape[1] == 0
+        return bool(df.select_dtypes(include=("category", "object", "string", "bool")).shape[1] == 0)
 
     def _edges_slot(self, j: int, y: np.ndarray) -> Optional[int]:
         """Table row of column ``j`` under the edges the strategy gives it for ``y``; ``None`` when the codes do not fit the dtype or the table."""
@@ -159,7 +159,7 @@ class PermutedTargetBinner:
             grown = max(8, 2 * self._table.shape[0])
             if grown * self._table.shape[1] * self._table.itemsize > _TABLE_BYTES:
                 return None
-            table = np.empty((grown, self._table.shape[1]), dtype=self._dtype)
+            table: np.ndarray = np.empty((grown, self._table.shape[1]), dtype=self._dtype)
             table[: self._used] = self._table[: self._used]
             col_max = np.zeros(grown, dtype=np.int64)
             col_max[: self._used] = self._col_max[: self._used]
@@ -197,7 +197,7 @@ class PermutedTargetBinner:
                     return None
                 dep_slots[j] = s
         slots = np.where(self._out_dep >= 0, dep_slots[np.maximum(self._out_dep, 0)], self._out_fixed)
-        out_t = np.empty((slots.shape[0], self._arr.shape[0]), dtype=self._dtype)  # one contiguous run per column, in the code dtype; the caller reads columns
+        out_t: np.ndarray = np.empty((slots.shape[0], self._arr.shape[0]), dtype=self._dtype)  # one contiguous run per column, in the code dtype; the caller reads columns
         with self._lock:
             table, col_max = self._table, self._col_max
         with parallel_kernel_entry():

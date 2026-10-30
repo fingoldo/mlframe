@@ -288,7 +288,8 @@ def family_null_max_bitsets_blocked(bits: np.ndarray, n_x: np.ndarray, y_perms: 
     """:func:`family_null_max_bitsets_classes` for permuted label vectors ``y_perms``: the class bit sets are packed first."""
     words = bits.shape[2]
     py = np.bincount(y_perms[0], minlength=n_y).astype(np.int64)
-    return family_null_max_bitsets_classes(bits, n_x, label_bitsets_batch(y_perms, n_y, words), y_perms.shape[1], table, c_a, px, py)
+    out: np.ndarray = family_null_max_bitsets_classes(bits, n_x, label_bitsets_batch(y_perms, n_y, words), y_perms.shape[1], table, c_a, px, py)
+    return out
 
 
 BITSET_MAX_BINS = 32  # columns with more bins than this are counted with the histogram kernel

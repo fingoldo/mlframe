@@ -1003,7 +1003,8 @@ def root_decision_binary(
     lo = min_split_size - 1  # first scanned position: n_l = lo + 1 >= min_split_size
     hi = n - min_split_size - 1  # last scanned position: n_r = n - hi - 1 >= min_split_size
     n_cand = _count_stream_candidates(yd, forb, n_forb, lo, hi)
-    return _root_verdict(yd, forb, n_forb, n, tot1, n_cand, lo, hi, alpha)
+    verdict: int = _root_verdict(yd, forb, n_forb, n, tot1, n_cand, lo, hi, alpha)
+    return verdict
 
 
 @njit(cache=True)
@@ -1060,7 +1061,8 @@ def root_decision_tie_free(ys: np.ndarray, ones: int, trans: int, min_split_size
     for i in range(hi + 1, n - 1):
         if ys[i] != ys[i + 1]:
             n_cand -= 1
-    return _root_verdict(ys, np.empty(0, dtype=np.int64), 0, n, ones, n_cand, lo, hi, alpha)
+    verdict: int = _root_verdict(ys, np.empty(0, dtype=np.int64), 0, n, ones, n_cand, lo, hi, alpha)
+    return verdict
 
 
 @njit(cache=True)
