@@ -86,6 +86,19 @@ def _entry_metric(entry, split: str, name: str) -> float:
     return float("nan")
 
 
+def _od_aligned_rows(arr, n_rows: int, od_idx):
+    """Rows of a captured column matching a frame of ``n_rows`` rows, sliced by ``od_idx`` when the capture predates the OD filter; ``None`` when they do not line up."""
+    if od_idx is not None and len(arr) != n_rows:
+        aligned = arr[od_idx] if len(arr) == len(od_idx) else None
+    elif len(arr) == n_rows:
+        aligned = arr
+    else:
+        aligned = None
+    if aligned is not None and len(aligned) == n_rows:
+        return aligned
+    return None
+
+
 def _augment_with_dropped_high_card_cols(
     dropped_data,
     train_df,
@@ -110,29 +123,17 @@ def _augment_with_dropped_high_card_cols(
 
     for col, data in dropped_data.items():
         if "train" in data and train_df is not None:
-            arr = data["train"]
-            if train_od_idx is not None and len(arr) != n_train:
-                arr_aligned = arr[train_od_idx] if len(arr) == len(train_od_idx) else None
-            elif len(arr) == n_train:
-                arr_aligned = arr
-            else:
-                arr_aligned = None
-            if arr_aligned is not None and len(arr_aligned) == n_train:
-                train_extras[col] = arr_aligned
+            aligned = _od_aligned_rows(data["train"], n_train, train_od_idx)
+            if aligned is not None:
+                train_extras[col] = aligned
         if "val" in data and val_df is not None:
-            arr = data["val"]
-            if val_od_idx is not None and len(arr) != n_val:
-                arr_aligned = arr[val_od_idx] if len(arr) == len(val_od_idx) else None
-            elif len(arr) == n_val:
-                arr_aligned = arr
-            else:
-                arr_aligned = None
-            if arr_aligned is not None and len(arr_aligned) == n_val:
-                val_extras[col] = arr_aligned
+            aligned = _od_aligned_rows(data["val"], n_val, val_od_idx)
+            if aligned is not None:
+                val_extras[col] = aligned
         if "test" in data and test_df is not None:
-            arr = data["test"]
-            if len(arr) == n_test:
-                test_extras[col] = arr
+            aligned = _od_aligned_rows(data["test"], n_test, None)
+            if aligned is not None:
+                test_extras[col] = aligned
         if col in train_extras:
             added.append(col)
 
