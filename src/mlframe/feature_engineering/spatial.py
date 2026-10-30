@@ -370,6 +370,62 @@ def knn_aggregate(
     return out_aggs
 
 
+def _bucket_pool(tree_cls, ref_coords, ref_labels, ref_bucket, ref_group_ids, k):
+    """One KDTree per ref bucket with at least ``k`` rows, plus each bucket's labels and group ids."""
+    bucket_to_tree: dict = {}
+    bucket_to_labels: dict = {}
+    bucket_to_groups: dict = {}
+    for b in np.unique(ref_bucket):
+        mask = ref_bucket == b
+        if mask.sum() < k:
+            # Too few candidates to satisfy k-query; skip this bucket.
+            continue
+        bucket_to_tree[b] = tree_cls(ref_coords[mask])
+        bucket_to_labels[b] = ref_labels[mask]
+        if ref_group_ids is not None:
+            bucket_to_groups[b] = ref_group_ids[mask]
+    return bucket_to_tree, bucket_to_labels, bucket_to_groups
+
+
+def _compact_bucket_neighbours(indices, distances, labels_b, ref_g_b, q_g_b, k):
+    """Keep the first ``k`` neighbours per query that are not in the query's group; returns (labels, distances, use_nan)."""
+    q_k = indices.shape[1]
+    same_group = ref_g_b[indices] == q_g_b[:, None]
+    sorted_mask = np.where(same_group, np.iinfo(np.int64).max, np.arange(q_k))
+    order = np.argsort(sorted_mask, axis=1)
+    keep_idx = order[:, :k]
+    compact_indices = np.take_along_axis(indices, keep_idx, axis=1)
+    compact_dist = np.take_along_axis(distances, keep_idx, axis=1)
+    compact_mask = ~np.take_along_axis(same_group, keep_idx, axis=1)
+    labels_arr = np.where(compact_mask, labels_b[compact_indices], np.nan)
+    return labels_arr, compact_dist, True
+
+
+def _bucket_agg(labels_arr, name, use_nan):
+    """One aggregate over the per-query neighbour labels; NaN-aware when the group filter left gaps."""
+    if name == "median":
+        return np.nanmedian(labels_arr, axis=1) if use_nan else np.median(labels_arr, axis=1)
+    if name == "mean":
+        return np.nanmean(labels_arr, axis=1) if use_nan else labels_arr.mean(axis=1)
+    if name == "std":
+        return (
+            np.nanstd(labels_arr, axis=1, ddof=1) if use_nan else labels_arr.std(axis=1, ddof=1) if labels_arr.shape[1] > 1 else np.zeros(labels_arr.shape[0])
+        )
+    if name == "iqr":
+        q25 = np.nanpercentile(labels_arr, 25, axis=1) if use_nan else np.percentile(labels_arr, 25, axis=1)
+        q75 = np.nanpercentile(labels_arr, 75, axis=1) if use_nan else np.percentile(labels_arr, 75, axis=1)
+        return q75 - q25
+    if name == "min":
+        return np.nanmin(labels_arr, axis=1) if use_nan else labels_arr.min(axis=1)
+    if name == "max":
+        return np.nanmax(labels_arr, axis=1) if use_nan else labels_arr.max(axis=1)
+    if name == "p10":
+        return np.nanpercentile(labels_arr, 10, axis=1) if use_nan else np.percentile(labels_arr, 10, axis=1)
+    if name == "p90":
+        return np.nanpercentile(labels_arr, 90, axis=1) if use_nan else np.percentile(labels_arr, 90, axis=1)
+    raise ValueError(f"agg_fn={name!r} not supported in bucket mode")
+
+
 def knn_within_bucket_aggregate(
     query_coords: np.ndarray,
     ref_coords: np.ndarray,
@@ -423,18 +479,7 @@ def knn_within_bucket_aggregate(
 
     # Pre-bucket the ref pool. For each bucket value -> KDTree + label
     # subset + group_ids subset.
-    bucket_to_tree: dict = {}
-    bucket_to_labels: dict = {}
-    bucket_to_groups: dict = {}
-    for b in np.unique(ref_bucket):
-        mask = ref_bucket == b
-        if mask.sum() < k:
-            # Too few candidates to satisfy k-query; skip this bucket.
-            continue
-        bucket_to_tree[b] = KDTree(ref_coords[mask])
-        bucket_to_labels[b] = ref_labels[mask]
-        if ref_group_ids is not None:
-            bucket_to_groups[b] = ref_group_ids[mask]
+    bucket_to_tree, bucket_to_labels, bucket_to_groups = _bucket_pool(KDTree, ref_coords, ref_labels, ref_bucket, ref_group_ids, k)
 
     out_aggs: dict = {name: np.full(n_q, np.nan, dtype=np.float64) for name in agg_fns}
     out_aggs["_nearest_distance"] = np.full(n_q, np.nan, dtype=np.float64)
@@ -454,47 +499,16 @@ def knn_within_bucket_aggregate(
         )
         distances, indices = tree.query(q_clean, k=q_k)
         if q_group_ids is not None and b in bucket_to_groups:
-            ref_g_b = bucket_to_groups[b]
-            q_g_b = np.asarray(q_group_ids)[q_idx]
-            same_group = ref_g_b[indices] == q_g_b[:, None]
-            sorted_mask = np.where(same_group, np.iinfo(np.int64).max, np.arange(q_k))
-            order = np.argsort(sorted_mask, axis=1)
-            keep_idx = order[:, :k]
-            compact_indices = np.take_along_axis(indices, keep_idx, axis=1)
-            compact_dist = np.take_along_axis(distances, keep_idx, axis=1)
-            compact_mask = ~np.take_along_axis(same_group, keep_idx, axis=1)
-            labels_arr = np.where(compact_mask, labels_b[compact_indices], np.nan)
-            use_nan = True
+            labels_arr, compact_dist, use_nan = _compact_bucket_neighbours(
+                indices, distances, labels_b, bucket_to_groups[b], np.asarray(q_group_ids)[q_idx], k,
+            )
         else:
             compact_indices = indices[:, :k]
             compact_dist = distances[:, :k]
             labels_arr = labels_b[compact_indices]
             use_nan = False
         for name in agg_fns:
-            if name == "median":
-                out_aggs[name][q_idx] = np.nanmedian(labels_arr, axis=1) if use_nan else np.median(labels_arr, axis=1)
-            elif name == "mean":
-                out_aggs[name][q_idx] = np.nanmean(labels_arr, axis=1) if use_nan else labels_arr.mean(axis=1)
-            elif name == "std":
-                out_aggs[name][q_idx] = (
-                    np.nanstd(labels_arr, axis=1, ddof=1)
-                    if use_nan
-                    else labels_arr.std(axis=1, ddof=1) if labels_arr.shape[1] > 1 else np.zeros(labels_arr.shape[0])
-                )
-            elif name == "iqr":
-                q25 = np.nanpercentile(labels_arr, 25, axis=1) if use_nan else np.percentile(labels_arr, 25, axis=1)
-                q75 = np.nanpercentile(labels_arr, 75, axis=1) if use_nan else np.percentile(labels_arr, 75, axis=1)
-                out_aggs[name][q_idx] = q75 - q25
-            elif name == "min":
-                out_aggs[name][q_idx] = np.nanmin(labels_arr, axis=1) if use_nan else labels_arr.min(axis=1)
-            elif name == "max":
-                out_aggs[name][q_idx] = np.nanmax(labels_arr, axis=1) if use_nan else labels_arr.max(axis=1)
-            elif name == "p10":
-                out_aggs[name][q_idx] = np.nanpercentile(labels_arr, 10, axis=1) if use_nan else np.percentile(labels_arr, 10, axis=1)
-            elif name == "p90":
-                out_aggs[name][q_idx] = np.nanpercentile(labels_arr, 90, axis=1) if use_nan else np.percentile(labels_arr, 90, axis=1)
-            else:
-                raise ValueError(f"agg_fn={name!r} not supported in bucket mode")
+            out_aggs[name][q_idx] = _bucket_agg(labels_arr, name, use_nan)
         out_aggs["_nearest_distance"][q_idx] = compact_dist[:, 0]
     return out_aggs
 
