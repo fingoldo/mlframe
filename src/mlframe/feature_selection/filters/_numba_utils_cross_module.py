@@ -613,6 +613,78 @@ def _supervised_edges(v: np.ndarray, cuts: np.ndarray, q_fallback: np.ndarray, q
     return out[:m]
 
 
+@njit(cache=True)
+def _select_in_place(a: np.ndarray, lo: int, hi: int, k: int) -> None:
+    """Reorder ``a[lo:hi + 1]`` so that ``a[k]`` holds the value a full sort would put there (smaller or equal values before it, larger or equal after)."""
+    while hi > lo:
+        mid = (lo + hi) // 2
+        x, y, z = a[lo], a[mid], a[hi]
+        pivot = max(min(x, y), min(max(x, y), z))
+        i = lo
+        j = hi
+        while i <= j:
+            while a[i] < pivot:
+                i += 1
+            while a[j] > pivot:
+                j -= 1
+            if i <= j:
+                t = a[i]
+                a[i] = a[j]
+                a[j] = t
+                i += 1
+                j -= 1
+        if k <= j:
+            hi = j
+        elif k >= i:
+            lo = i
+        else:
+            return
+
+
+@njit(cache=True)
+def _multi_select_in_place(a: np.ndarray, ks: np.ndarray) -> None:
+    """Put the order statistics at the sorted distinct positions ``ks`` in place, by selecting the middle position and then each side on its own range."""
+    stack = np.empty((128, 4), dtype=np.int64)
+    stack[0, 0] = 0
+    stack[0, 1] = a.shape[0] - 1
+    stack[0, 2] = 0
+    stack[0, 3] = ks.shape[0] - 1
+    top = 1
+    while top > 0:
+        top -= 1
+        lo, hi, kl, kh = stack[top, 0], stack[top, 1], stack[top, 2], stack[top, 3]
+        if kl > kh or hi <= lo:
+            continue
+        km = (kl + kh) // 2
+        pos = ks[km]
+        _select_in_place(a, lo, hi, pos)
+        stack[top, 0], stack[top, 1], stack[top, 2], stack[top, 3] = lo, pos - 1, kl, km - 1
+        stack[top + 1, 0], stack[top + 1, 1], stack[top + 1, 2], stack[top + 1, 3] = pos + 1, hi, km + 1, kh
+        top += 2
+
+
+@njit(cache=True)
+def _few_distinct_levels(x: np.ndarray, limit: int) -> np.ndarray:
+    """The sorted distinct values of ``x`` when there are at most ``limit`` of them, else an empty array; stops at the first value that exceeds the limit."""
+    levels = np.empty(limit, dtype=x.dtype)
+    d = 0
+    for i in range(x.shape[0]):
+        v = x[i]
+        found = False
+        for t in range(d):
+            if levels[t] == v:
+                found = True
+                break
+        if not found:
+            if d == limit:
+                return levels[:0]
+            levels[d] = v
+            d += 1
+    out = levels[:d].copy()
+    out.sort()
+    return out
+
+
 @njit(cache=True, parallel=True)
 def quantile_codes_block(v: np.ndarray, n_bins: int, codes: np.ndarray, nx: np.ndarray) -> None:
     """Fill ``codes[j]`` (int16) and ``nx[j]`` for every row ``j`` of ``v`` ``(columns, n)`` exactly as ``_quantile_codes`` does for a finite column."""
@@ -620,19 +692,9 @@ def quantile_codes_block(v: np.ndarray, n_bins: int, codes: np.ndarray, nx: np.n
     n = v.shape[1]
     step = 1.0 / n_bins
     for j in prange(k):
-        s = np.sort(v[j])
-        d = 1
-        for i in range(1, n):
-            if s[i] != s[i - 1]:
-                d += 1
-        if d <= n_bins:
-            levels = np.empty(d, dtype=s.dtype)
-            levels[0] = s[0]
-            m = 1
-            for i in range(1, n):
-                if s[i] != s[i - 1]:
-                    levels[m] = s[i]
-                    m += 1
+        levels = _few_distinct_levels(v[j], n_bins)
+        d = levels.shape[0]
+        if d > 0:
             for i in range(n):
                 lo = 0
                 hi = d
@@ -646,6 +708,22 @@ def quantile_codes_block(v: np.ndarray, n_bins: int, codes: np.ndarray, nx: np.n
                 codes[j, i] = lo
             nx[j] = d
             continue
+        # only the order statistics the edges read are needed, not the whole sort
+        want = np.empty(2 * (n_bins + 1), dtype=np.int64)
+        for b in range(n_bins + 1):
+            q = 1.0 if b == n_bins else b * step
+            virtual = (n - 1) * q
+            i0 = n - 1 if virtual >= n - 1 else int(np.floor(virtual))
+            want[2 * b] = i0
+            want[2 * b + 1] = min(i0 + 1, n - 1)
+        want.sort()
+        nw = 1
+        for b in range(1, want.shape[0]):
+            if want[b] != want[nw - 1]:
+                want[nw] = want[b]
+                nw += 1
+        s = v[j].copy()
+        _multi_select_in_place(s, want[:nw])
         edges = np.empty(n_bins + 1, dtype=np.float64)  # Intentional float64: quantile edges in numpy's arithmetic (equal codes to the numpy path)
         m = 0
         for b in range(n_bins + 1):
