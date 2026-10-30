@@ -111,7 +111,6 @@
   "src/mlframe/training/core/_predict_pre_pipeline.py::_apply_extensions_pipeline": 20,
   "src/mlframe/training/core/_predict_pre_pipeline.py::_apply_pre_pipeline_with_passthrough": 17,
   "src/mlframe/training/core/_predict_pre_pipeline.py::_apply_row_wise_extensions": 18,
-  "src/mlframe/training/core/_predict_pre_pipeline.py::_try_predict_with_pp_fallback": 20,
   "src/mlframe/training/core/_setup_helpers_metadata.py::_finalize_and_save_metadata": 17,
   "src/mlframe/training/core/_target_row_scope.py::_narrowed_fields": 18,
   "src/mlframe/training/core/predict.py::_coerce_cat_dtype_for_lgb_xgb": 17,

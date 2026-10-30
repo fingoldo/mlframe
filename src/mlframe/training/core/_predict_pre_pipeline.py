@@ -314,6 +314,48 @@ def _apply_row_wise_extensions(
     return df
 
 
+def _align_fallback_frame(fb, expected_list):
+    """Drop columns the model never saw and reorder the rest to fit-time order (LGB/XGB accept a wrong order silently and predict nonsense)."""
+    if expected_list is not None and hasattr(fb, "columns"):
+        _drop_fb = [c for c in fb.columns if c not in expected_list]
+        if _drop_fb:
+            if isinstance(fb, pl.DataFrame):
+                fb = fb.drop(_drop_fb)
+            else:
+                fb = fb.drop(columns=_drop_fb)
+        # Normalise column ORDER to fit-time expectation: LGB/XGB
+        # silently accept all-required-cols + wrong-order then produce
+        # nonsense predictions (feature_names_in_ consulted only at fit
+        # time). Cheap view-only reorder.
+        _fb_have = {str(c) for c in fb.columns}
+        _order = [c for c in expected_list if str(c) in _fb_have]
+        if _order and list(map(str, fb.columns)) != list(map(str, _order)):
+            if isinstance(fb, pl.DataFrame):
+                fb = fb.select(_order)
+            else:
+                fb = fb.loc[:, _order]
+    return fb
+
+
+def _subset_to_expected_columns(primary, expected_list, model_name, fn_name, msg):
+    """Subset ``primary`` to the fit-time feature names after a feature-names mismatch; ``None`` when there is nothing to drop."""
+    _drop = [c for c in primary.columns if c not in expected_list]
+    if not _drop:
+        return None
+    logger.warning(
+        "predict_from_models: %s.%s tripped feature-names mismatch " "(%s); dropping %d unseen column(s) %s and retrying.",
+        model_name,
+        fn_name,
+        msg.splitlines()[0][:120],
+        len(_drop), _drop[:5],
+    )
+    _have = {str(c) for c in primary.columns}
+    _order = [c for c in expected_list if str(c) in _have]
+    if isinstance(primary, pl.DataFrame):
+        return primary.select(_order) if _order else primary.drop(_drop)
+    return primary.loc[:, _order] if _order else primary.drop(columns=_drop)
+
+
 def _try_predict_with_pp_fallback(
     fn,
     primary,
@@ -399,26 +441,7 @@ def _try_predict_with_pp_fallback(
                 model_name, fn.__name__,
                 _msg.splitlines()[0][:120],
             )
-            _fb = fallback
-            if expected_list is not None and hasattr(_fb, "columns"):
-                _drop_fb = [c for c in _fb.columns if c not in expected_list]
-                if _drop_fb:
-                    if isinstance(_fb, pl.DataFrame):
-                        _fb = _fb.drop(_drop_fb)
-                    else:
-                        _fb = _fb.drop(columns=_drop_fb)
-                # Normalise column ORDER to fit-time expectation: LGB/XGB
-                # silently accept all-required-cols + wrong-order then produce
-                # nonsense predictions (feature_names_in_ consulted only at fit
-                # time). Cheap view-only reorder.
-                _fb_have = {str(c) for c in _fb.columns}
-                _order = [c for c in expected_list if str(c) in _fb_have]
-                if _order and list(map(str, _fb.columns)) != list(map(str, _order)):
-                    if isinstance(_fb, pl.DataFrame):
-                        _fb = _fb.select(_order)
-                    else:
-                        _fb = _fb.loc[:, _order]
-            return fn(_fb)
+            return fn(_align_fallback_frame(fallback, expected_list))
         # Polars-input rejection (older CB / sklearn-wrapped XGB): retry via shared pandas view.
         if isinstance(primary, pl.DataFrame):
             logger.warning(
@@ -447,21 +470,8 @@ def _try_predict_with_pp_fallback(
         # whole call.
         _msg = str(_exc)
         if isinstance(_exc, ValueError) and expected_list is not None and hasattr(primary, "columns") and "feature names" in _msg.lower():
-            _drop = [c for c in primary.columns if c not in expected_list]
-            if _drop:
-                logger.warning(
-                    "predict_from_models: %s.%s tripped feature-names mismatch " "(%s); dropping %d unseen column(s) %s and retrying.",
-                    model_name,
-                    fn.__name__,
-                    _msg.splitlines()[0][:120],
-                    len(_drop), _drop[:5],
-                )
-                _have = {str(c) for c in primary.columns}
-                _order = [c for c in expected_list if str(c) in _have]
-                if isinstance(primary, pl.DataFrame):
-                    _subset = primary.select(_order) if _order else primary.drop(_drop)
-                else:
-                    _subset = primary.loc[:, _order] if _order else primary.drop(columns=_drop)
+            _subset = _subset_to_expected_columns(primary, expected_list, model_name, fn.__name__, _msg)
+            if _subset is not None:
                 return fn(_subset)
         raise
 
