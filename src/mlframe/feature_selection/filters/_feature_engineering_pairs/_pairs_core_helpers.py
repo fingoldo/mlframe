@@ -198,6 +198,12 @@ def _check_prospective__ignored_thread_multiplication_byte(max_n_combs, X, _n_bi
                     max_n_combs * _n_binary,
                     min(_fe_chunk_max_cols, _FE_CHUNK_MAX_COLS_HARD_CAP),
                 )
+                # Device envelope: a chunk's int8 codes must fit the free-VRAM budget, or the resident path declines it mid-fit.
+                from ._pairs_chunks import device_chunk_cols_cap
+
+                _dev_cap = device_chunk_cols_cap(len(X))
+                if _dev_cap is not None:
+                    _fe_chunk_max_cols = max(max_n_combs * _n_binary, min(_fe_chunk_max_cols, _dev_cap))
             except MemoryError:
                 # psutil over-reported available; falling back stays safe.
                 final_transformed_vals_shared = None
