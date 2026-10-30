@@ -1082,3 +1082,190 @@ def scrub_nonfinite_2d(a: np.ndarray) -> None:
             v = a[i, j]
             if not (v - v == 0):
                 a[i, j] = 0
+
+
+# ---- bit-packed binary label streams: the root test of the honest null on 64 labels per word ----
+
+
+@njit(cache=True)
+def _pc64(x):
+    """Population count of a uint64 (SWAR)."""
+    x = x - ((x >> np.uint64(1)) & np.uint64(0x5555555555555555))
+    x = (x & np.uint64(0x3333333333333333)) + ((x >> np.uint64(2)) & np.uint64(0x3333333333333333))
+    x = (x + (x >> np.uint64(4))) & np.uint64(0x0F0F0F0F0F0F0F0F)
+    return np.int64((x * np.uint64(0x0101010101010101)) >> np.uint64(56))
+
+
+@njit(cache=True)
+def pack_sorted_labels(yr_b: np.ndarray, order_row: np.ndarray, raw_bits: np.ndarray) -> int:
+    """Pack the 0/1 labels read through ``order_row`` (``yr_b[order_row[i]]``, the labels in the column's sorted order) into ``raw_bits`` (bit ``i`` of the stream is bit ``i & 63`` of word ``i >> 6``) and return the
+    number of ones. ``raw_bits`` is overwritten, bits past the end of the stream are zero."""
+    n = order_row.shape[0]
+    words = (n + 63) >> 6
+    ones = 0
+    for w in range(words):
+        base = w << 6
+        count = min(64, n - base)
+        acc = np.uint64(0)
+        for k in range(count):
+            acc |= np.uint64(yr_b[order_row[base + k]]) << np.uint64(k)
+        raw_bits[w] = acc
+        ones += _pc64(acc)
+    return ones
+
+
+@njit(cache=True)
+def _copy_bits(src: np.ndarray, start: int, stop: int, dst: np.ndarray, offset: int) -> int:
+    """Copy bits ``[start, stop)`` of the stream ``src`` to ``dst`` from bit ``offset`` on (``dst`` bits there must be zero); returns the offset after the copy."""
+    s = start
+    off = offset
+    while s < stop:
+        w = s >> 6
+        sh = s & 63
+        take = min(64 - sh, stop - s)
+        val = (src[w] >> np.uint64(sh)) & (np.uint64(0xFFFFFFFFFFFFFFFF) >> np.uint64(64 - take))
+        dw = off >> 6
+        dsh = off & 63
+        dst[dw] |= val << np.uint64(dsh)
+        if dsh + take > 64:
+            dst[dw + 1] |= val >> np.uint64(64 - dsh)
+        s += take
+        off += take
+    return off
+
+
+@njit(cache=True)
+def dedup_label_bits(raw_bits: np.ndarray, n: int, run_start: np.ndarray, run_end: np.ndarray, out_bits: np.ndarray, forb: np.ndarray) -> "tuple[int, int]":
+    """The deduplicated stream (see ``_dedup_binary_stream``) of the packed stream ``raw_bits`` of length ``n``, packed into ``out_bits`` (overwritten): rows outside tie runs are copied, a run of tied values
+    emits its distinct labels ascending. Returns ``(points, forbidden)``; ``forb[:forbidden]`` are the stream positions whose boundary to the next point lies inside a run."""
+    for w in range(out_bits.shape[0]):
+        out_bits[w] = np.uint64(0)
+    m = 0
+    nf = 0
+    p = 0
+    for r in range(run_start.shape[0]):
+        a = run_start[r]
+        e = run_end[r]
+        m = _copy_bits(raw_bits, p, a, out_bits, m)
+        ones = 0
+        for i in range(a, e):
+            ones += np.int64((raw_bits[i >> 6] >> np.uint64(i & 63)) & np.uint64(1))
+        zeros = (e - a) - ones
+        if zeros > 0:
+            m += 1  # a 0 point: the bit stays zero
+        if ones > 0:
+            if zeros > 0:
+                forb[nf] = m - 1
+                nf += 1
+            out_bits[m >> 6] |= np.uint64(1) << np.uint64(m & 63)
+            m += 1
+        p = e
+    m = _copy_bits(raw_bits, p, n, out_bits, m)
+    return m, nf
+
+
+@njit(cache=True)
+def _count_ones_bits(bits: np.ndarray, start: int, stop: int) -> int:
+    """Ones among stream positions ``[start, stop)``."""
+    if stop <= start:
+        return 0
+    total = 0
+    w0 = start >> 6
+    w1 = (stop - 1) >> 6
+    for w in range(w0, w1 + 1):
+        word = bits[w]
+        lo_bit = start - (w << 6) if w == w0 else 0
+        hi_bit = stop - (w << 6) if w == w1 else 64  # exclusive
+        if lo_bit > 0:
+            word = word >> np.uint64(lo_bit) << np.uint64(lo_bit)
+        if hi_bit < 64:
+            word = word & ((np.uint64(1) << np.uint64(hi_bit)) - np.uint64(1))
+        total += _pc64(word)
+    return total
+
+
+@njit(cache=True)
+def _candidate_count_bits(bits: np.ndarray, forb: np.ndarray, n_forb: int, lo: int, hi: int) -> int:
+    """``_count_stream_candidates`` on the packed stream: label changes between positions ``i`` and ``i + 1`` for ``i`` in ``lo..hi``, minus the boundaries that lie inside a run of equal values."""
+    n_words = bits.shape[0]
+    n_cand = 0
+    for w in range(lo >> 6, (hi >> 6) + 1):
+        cur = bits[w]
+        nxt = bits[w + 1] if w + 1 < n_words else np.uint64(0)
+        change = cur ^ ((cur >> np.uint64(1)) | (nxt << np.uint64(63)))
+        base = w << 6
+        k0 = max(lo - base, 0)
+        k1 = min(hi - base, 63)
+        if k0 > 0:
+            change = change >> np.uint64(k0) << np.uint64(k0)
+        if k1 < 63:
+            change = change & ((np.uint64(1) << np.uint64(k1 + 1)) - np.uint64(1))
+        n_cand += _pc64(change)
+    for k in range(n_forb):
+        if lo <= forb[k] <= hi:
+            n_cand -= 1
+    return n_cand
+
+
+@njit(cache=True)
+def root_decision_packed(bits: np.ndarray, m: int, forb: np.ndarray, n_forb: int, min_split_size: int, alpha: float, analytic_min_n: int, analytic_min_cell: float) -> int:
+    """``root_decision_binary`` for the packed deduplicated stream ``bits`` of ``m`` points (see ``dedup_label_bits``): the same verdict.
+
+    The candidate count is a popcount of the label changes. The scan for a position whose bound reaches the acceptance threshold skips every word of 64 positions that cannot reach it: from the
+    value ``d`` at the start of the word, ``|d|`` moves by at most ``max(n_1, n_0)`` per position, so the word is skipped when even that largest value stays below the smallest threshold in the word.
+    A word that may reach it is scanned position by position with the arithmetic of the unpacked scan, and when a position does reach it the unpacked stream goes to ``_best_gain_over_bound``."""
+    n = m
+    if n < 2 * min_split_size:
+        return REJECTED
+    if not (n >= analytic_min_n and float(n) / max(1.0, 2.0 * 2) >= analytic_min_cell):
+        return UNDECIDED
+    tot1 = _count_ones_bits(bits, 0, n)
+    counts_total = np.empty(2, dtype=np.int64)
+    counts_total[0] = n - tot1
+    counts_total[1] = tot1
+    h_full = _entropy_from_counts_njit(counts_total, n)
+    if h_full <= 0.0:
+        return REJECTED
+    lo = min_split_size - 1
+    hi = n - min_split_size - 1
+    n_cand = _candidate_count_bits(bits, forb, n_forb, lo, hi)
+    x_star = _tail_threshold(alpha / max(1, n_cand)) * (1.0 - 1e-6)
+    scale = math.expm1(x_star / n) * float(tot1) * float(n - tot1)
+    fn = float(n)
+    ft1 = float(tot1)
+    step = float(max(tot1, n - tot1))
+    reached = False
+    c1_before = 0
+    for w in range(0, (hi >> 6) + 1):
+        base = w << 6
+        word = bits[w]
+        first = max(base, lo)
+        last = min(base + 63, hi)
+        if last >= first:
+            d_prev = float(c1_before) * fn - float(base) * ft1
+            bound = (abs(d_prev) + 64.0 * step) ** 2
+            f_first = scale * float(first + 1) * (fn - float(first + 1))
+            f_last = scale * float(last + 1) * (fn - float(last + 1))
+            if bound >= 0.999999 * min(f_first, f_last):
+                c1 = c1_before
+                for i in range(base, last + 1):
+                    c1 += np.int64((word >> np.uint64(i - base)) & np.uint64(1))
+                    if i >= first:
+                        fl = float(i + 1)
+                        dd = float(c1) * fn - fl * ft1
+                        if dd * dd >= scale * fl * (fn - fl):
+                            reached = True
+                            break
+                if reached:
+                    break
+        c1_before += _pc64(word)
+    if not reached:
+        return REJECTED
+    yd = np.empty(n, dtype=np.int8)
+    for i in range(n):
+        yd[i] = np.int8((bits[i >> 6] >> np.uint64(i & 63)) & np.uint64(1))
+    best_gain = _best_gain_over_bound(yd, forb, n_forb, lo, hi, n, tot1, h_full, scale)
+    if best_gain <= 0.0:
+        return REJECTED
+    p_value = min(1.0, _analytic_p_value(best_gain, n, 2) * max(1, n_cand))
+    return ACCEPTED if p_value < alpha else REJECTED

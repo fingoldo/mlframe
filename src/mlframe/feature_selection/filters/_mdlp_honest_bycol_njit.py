@@ -90,9 +90,10 @@ def permuted_labels_seeded(y_raw: np.ndarray, y_codes: np.ndarray, count: int, b
 from ._numba_utils import (  # helpers hosted in _numba_utils_cross_module for the cross-module njit invariant
     _cuts_tie_free,
     column_tie_runs,
-    gather_binary_stream,
-    root_decision_binary,
-    root_decision_tie_free,
+    _count_ones_bits,
+    dedup_label_bits,
+    pack_sorted_labels,
+    root_decision_packed,
 )
 
 ROOT_NULL_DRAWS = 2000
@@ -229,6 +230,36 @@ def _joint_from_sorted(xsrt: np.ndarray, ysrt: np.ndarray, edges: np.ndarray, n_
 
 
 @njit(cache=True)
+def _joint_from_bits(xsrt: np.ndarray, raw_bits: np.ndarray, edges: np.ndarray, n_x: int, n_y: int, joint: np.ndarray) -> None:
+    """``_joint_from_sorted`` for 0/1 labels packed in ``raw_bits`` (in the sorted order of ``xsrt``): the rows of bin ``b`` are the run of sorted positions between the first value at or above edge ``b - 1`` and
+    the first at or above edge ``b``, so each bin's ones are a popcount over a range."""
+    n = xsrt.shape[0]
+    n_e = edges.shape[0]
+    start = 0
+    for b in range(n_x):
+        stop = n
+        if b < n_e:
+            lo = start
+            hi = n
+            while lo < hi:  # first position whose value is at or above edges[b]
+                mid = (lo + hi) >> 1
+                if xsrt[mid] < edges[b]:
+                    lo = mid + 1
+                else:
+                    hi = mid
+            stop = lo
+        ones = _count_ones_bits(raw_bits, start, stop)
+        for c in range(n_y):
+            joint[b, c] = 0
+        if n_y > 1:
+            joint[b, 0] = (stop - start) - ones
+            joint[b, 1] = ones
+        else:
+            joint[b, 0] = stop - start
+        start = stop
+
+
+@njit(cache=True)
 def _mi_from_joint(joint: np.ndarray, n_x: int, n_y: int, n: int) -> float:
     """The arithmetic of ``_mi_codes`` after its joint fill (same cell order), so the value equals ``_mi_codes`` of the same joint."""
     px = joint.sum(axis=1)
@@ -257,21 +288,17 @@ def _occupied_rows(joint: np.ndarray, n_x: int) -> int:
 
 @njit(cache=True)
 def _perm_cuts(
-    use_precheck, tie_free, order_row, yr_b, ys8, yd8, ysrt, xsrt, run_start, run_end, forb, no_cuts, n_classes_total, min_split_size, max_depth, alpha, n_permutations, seed, analytic_min_n,
-    analytic_min_cell,
+    use_precheck, tie_free, order_row, yr_b, raw_bits, dd_bits, ysrt, xsrt, run_start, run_end, forb, no_cuts, n_classes_total, min_split_size, max_depth, alpha, n_permutations, seed,
+    analytic_min_n, analytic_min_cell,
 ):
-    """``(cuts, root_rejected)`` of the tree of one (column, permutation). With the precheck on, a rejected root ends the tree without the int64 label copy (``ysrt`` is then left unfilled and the
-    caller reads the labels from ``ys8``); otherwise the sorted labels are gathered and the tree is searched."""
+    """``(cuts, root_rejected)`` of the tree of one (column, permutation). With the precheck on, the sorted 0/1 labels are packed 64 to a word (``raw_bits``), the root is judged on the packed
+    deduplicated stream (``dd_bits``), and a rejected root ends the tree without the int64 label copy (``ysrt`` is then left unfilled and the caller reads the labels from ``raw_bits``); otherwise the
+    sorted labels are gathered and the tree is searched."""
     n = ysrt.shape[0]
     if use_precheck:
-        if run_start.shape[0] == 0:
-            # no tied values: the gather also counts what the root test needs, in the same pass
-            ones, trans = gather_binary_stream(yr_b, order_row, ys8)
-            verdict = root_decision_tie_free(ys8, ones, trans, min_split_size, alpha, analytic_min_n, analytic_min_cell)
-        else:
-            for i in range(n):
-                ys8[i] = yr_b[order_row[i]]
-            verdict = root_decision_binary(ys8, run_start, run_end, yd8, forb, min_split_size, alpha, analytic_min_n, analytic_min_cell)
+        pack_sorted_labels(yr_b, order_row, raw_bits)
+        m_d, n_forb = dedup_label_bits(raw_bits, n, run_start, run_end, dd_bits, forb)
+        verdict = root_decision_packed(dd_bits, m_d, forb, n_forb, min_split_size, alpha, analytic_min_n, analytic_min_cell)
         if verdict == 0:
             return no_cuts, True
     for i in range(n):
@@ -308,7 +335,7 @@ def honest_null_columns_bycol(
 ) -> tuple[np.ndarray, np.ndarray]:
     """Same result as ``honest_null_columns`` (``(plain, corrected)``, each ``(permutations, k)``), prange over columns.
 
-    ``precheck``: for binary labels the root test of each tree is first decided on an int8 label stream (``root_decision_binary``); a rejected root, which is the usual outcome on a permuted label,
+    ``precheck``: for binary labels the root test of each tree is first decided on a bit-packed label stream (``root_decision_packed``, the verdict of ``root_decision_binary``); a rejected root, which is the usual outcome on a permuted label,
     ends the tree there. The decision is the one the general route reaches, so the result does not depend on the flag.
 
     ``y_raw_perm[b]`` / ``y_codes_perm[b]`` are the raw labels and the screen's target codes under permutation ``b`` (``y[perms[b]]``), stored in the
@@ -339,8 +366,8 @@ def honest_null_columns_bycol(
         kx_on_fallback = 0.0
         use_precheck = precheck and is_cont[j] and n_classes_total == 2
         run_start, run_end = column_tie_runs(xsrt) if use_precheck else (np.empty(0, dtype=np.int64), np.empty(0, dtype=np.int64))
-        ys8 = np.empty(n if use_precheck else 0, dtype=np.int8)
-        yd8 = np.empty(n if use_precheck else 0, dtype=np.int8)
+        raw_bits = np.empty(((n + 63) >> 6) if use_precheck else 0, dtype=np.uint64)
+        dd_bits = np.empty((((n + 63) >> 6) + 1) if use_precheck else 0, dtype=np.uint64)
         forb = np.empty(run_start.shape[0] + 1, dtype=np.int64)
         no_cuts = np.empty(0, dtype=np.float64)  # Intentional float64: bin-edge / cut vector
         for b in range(n_perm_rows):
@@ -352,8 +379,8 @@ def honest_null_columns_bycol(
             if is_cont[j]:
                 sj = col_slot[j]
                 cuts, root_rejected = _perm_cuts(
-                    use_precheck, tie_free, order[sj], yr_b, ys8, yd8, ysrt, xsrt, run_start, run_end, forb, no_cuts, n_classes_total, min_split_size, max_depth, alpha, n_permutations, seed,
-                    analytic_min_n, analytic_min_cell,
+                    use_precheck, tie_free, order[sj], yr_b, raw_bits, dd_bits, ysrt, xsrt, run_start, run_end, forb, no_cuts, n_classes_total, min_split_size, max_depth, alpha, n_permutations,
+                    seed, analytic_min_n, analytic_min_cell,
                 )
                 final = _supervised_edges_sorted(xsrt, cuts, q_fallback[j, : q_fallback_len[j]], q_refine[j, : q_refine_len[j]])
                 nb_reg = final.shape[0] + 1
@@ -363,7 +390,7 @@ def honest_null_columns_bycol(
                     n_x = nb_reg
                     joint = np.zeros((n_x, ny), dtype=np.int64)
                     if root_rejected:
-                        _joint_from_sorted(xsrt, ys8, final, n_x, ny, joint)  # the labels of a rejected root stay in the int8 stream; ``ysrt`` was not filled
+                        _joint_from_bits(xsrt, raw_bits, final, n_x, ny, joint)  # the labels of a rejected root stay in the packed stream; ``ysrt`` was not filled
                     else:
                         _joint_from_sorted(xsrt, ysrt, final, n_x, ny, joint)
                     mi = _mi_from_joint(joint, n_x, ny, m)
