@@ -219,6 +219,61 @@ def _device_regression_bins(y_arr: np.ndarray, finite: np.ndarray) -> "tuple[np.
         return None
 
 
+def _proportional_stratum_pick(rng, members, counts, n, size, floor):
+    """Draw about ``size`` rows proportionally across strata, keeping at least ``min(floor, count)`` per stratum; returns the concatenated row indices."""
+    alloc = np.maximum(
+        np.minimum(counts, floor),
+        np.floor(counts.astype(_crit_np_dtype()) / n * size).astype(np.int64),
+    )
+    alloc = np.minimum(alloc, counts)
+    picked = []
+    for m, k in zip(members, alloc):
+        if k >= m.shape[0]:
+            picked.append(m)
+        else:
+            picked.append(rng.choice(m, size=int(k), replace=False))
+    return np.concatenate(picked)
+
+
+def _regression_stratified_idx(rng, y_arr, size, n):
+    """Stratified draw over quantile bins of a continuous target; None when the draw is not applicable and the caller should fall back to a uniform draw."""
+    finite = np.isfinite(y_arr)
+    if finite.sum() < 2 or np.nanmin(y_arr[finite]) == np.nanmax(y_arr[finite]):
+        return None
+    if _HAVE_NUMBA and n >= _DEVICE_STRATIFY_MIN_N:
+        _dev_codes = _device_regression_bins(y_arr, finite)
+        if _dev_codes is not None:
+            bin_codes, n_bin_ids = _dev_codes
+            idx = _strat_reg_kernel(bin_codes, int(n_bin_ids), size, int(n), _derive_seed(rng))
+            if idx.shape[0] == 0:
+                return None
+            return idx
+    # Quantile bins over the FINITE values; non-finite rows form their own stratum so they
+    # are still representable (and never crash the digitize).
+    yv = y_arr.copy()
+    edges = np.quantile(yv[finite], np.linspace(0.0, 1.0, _FE_STRATIFY_REG_BINS + 1))
+    edges = np.unique(edges)
+    if edges.shape[0] < 2:
+        return None
+    bin_ids = np.digitize(yv, edges[1:-1], right=False)
+    bin_ids[~finite] = edges.shape[0]  # dedicated bin for NaN/inf rows
+    if _HAVE_NUMBA:
+        # Remap bin ids to a contiguous [0, n_bins) range for the kernel.
+        uniq = np.unique(bin_ids)
+        remap = np.zeros(int(bin_ids.max()) + 1, dtype=np.int64)
+        remap[uniq] = np.arange(uniq.shape[0], dtype=np.int64)
+        bin_codes = np.ascontiguousarray(remap[bin_ids].astype(np.int64))
+        idx = _strat_reg_kernel(bin_codes, int(uniq.shape[0]), size, int(n), _derive_seed(rng))
+        if idx.shape[0] == 0:
+            return None
+        return idx
+    uniq_bins = np.unique(bin_ids)
+    members = [np.flatnonzero(bin_ids == b) for b in uniq_bins]
+    counts = np.array([m.shape[0] for m in members], dtype=np.int64)
+    idx = _proportional_stratum_pick(rng, members, counts, n, size, 1)
+    return idx
+
+
 def stratified_subsample_idx(rng: np.random.Generator, y: np.ndarray, size: int, *, is_clf: bool) -> np.ndarray:
     """Return SORTED row indices of a target-stratified subsample of ``y`` of (about) ``size`` rows.
 
@@ -295,64 +350,11 @@ def stratified_subsample_idx(rng: np.random.Generator, y: np.ndarray, size: int,
             members = [np.flatnonzero(inv == c) for c in range(n_classes)]
             counts = np.array([m.shape[0] for m in members], dtype=np.int64)
             # Proportional target per class, floored at the per-class minimum.
-            alloc = np.maximum(
-                np.minimum(counts, 2),
-                np.floor(counts.astype(_crit_np_dtype()) / n * size).astype(np.int64),
-            )
-            alloc = np.minimum(alloc, counts)  # cannot draw more than a class holds
-            picked = []
-            for m, k in zip(members, alloc):
-                if k >= m.shape[0]:
-                    picked.append(m)
-                else:
-                    picked.append(rng.choice(m, size=int(k), replace=False))
-            idx = np.concatenate(picked)
+            idx = _proportional_stratum_pick(rng, members, counts, n, size, 2)  # cannot draw more than a class holds
         else:
-            finite = np.isfinite(y_arr)
-            if finite.sum() < 2 or np.nanmin(y_arr[finite]) == np.nanmax(y_arr[finite]):
+            idx = _regression_stratified_idx(rng, y_arr, size, n)
+            if idx is None:
                 return _uniform()
-            if _HAVE_NUMBA and n >= _DEVICE_STRATIFY_MIN_N:
-                _dev_codes = _device_regression_bins(y_arr, finite)
-                if _dev_codes is not None:
-                    bin_codes, n_bin_ids = _dev_codes
-                    idx = _strat_reg_kernel(bin_codes, int(n_bin_ids), size, int(n), _derive_seed(rng))
-                    if idx.shape[0] == 0:
-                        return _uniform()
-                    return np.sort(idx).astype(np.int64, copy=False)
-            # Quantile bins over the FINITE values; non-finite rows form their own stratum so they
-            # are still representable (and never crash the digitize).
-            yv = y_arr.copy()
-            edges = np.quantile(yv[finite], np.linspace(0.0, 1.0, _FE_STRATIFY_REG_BINS + 1))
-            edges = np.unique(edges)
-            if edges.shape[0] < 2:
-                return _uniform()
-            bin_ids = np.digitize(yv, edges[1:-1], right=False)
-            bin_ids[~finite] = edges.shape[0]  # dedicated bin for NaN/inf rows
-            if _HAVE_NUMBA:
-                # Remap bin ids to a contiguous [0, n_bins) range for the kernel.
-                uniq = np.unique(bin_ids)
-                remap = np.zeros(int(bin_ids.max()) + 1, dtype=np.int64)
-                remap[uniq] = np.arange(uniq.shape[0], dtype=np.int64)
-                bin_codes = np.ascontiguousarray(remap[bin_ids].astype(np.int64))
-                idx = _strat_reg_kernel(bin_codes, int(uniq.shape[0]), size, int(n), _derive_seed(rng))
-                if idx.shape[0] == 0:
-                    return _uniform()
-                return np.sort(idx).astype(np.int64, copy=False)
-            uniq_bins = np.unique(bin_ids)
-            members = [np.flatnonzero(bin_ids == b) for b in uniq_bins]
-            counts = np.array([m.shape[0] for m in members], dtype=np.int64)
-            alloc = np.maximum(
-                np.minimum(counts, 1),
-                np.floor(counts.astype(_crit_np_dtype()) / n * size).astype(np.int64),
-            )
-            alloc = np.minimum(alloc, counts)
-            picked = []
-            for m, k in zip(members, alloc):
-                if k >= m.shape[0]:
-                    picked.append(m)
-                else:
-                    picked.append(rng.choice(m, size=int(k), replace=False))
-            idx = np.concatenate(picked)
     except Exception as e:
         _logger.debug("stratified_subsample_idx: stratified draw failed, falling back to a plain uniform draw: %s", e)
         return _uniform()
