@@ -440,16 +440,49 @@ class UniversalCallback:
         self._refresh_widget(force=True)
         self._widget.finalize(best_iter=self.best_iter if self.best_metric is not None else None, best_metric=self.best_metric, stopped_early=stopped_early)
 
-    def should_stop(self) -> bool:
-        """Evaluate all early-stop triggers in order (time budget, external stop flag, then the metric-plateau/patience logic) and return whether training should halt now."""
-        cur_ts = timer()
+    def _time_budget_exceeded(self, cur_ts: float) -> bool:
+        """Whether elapsed training time has passed ``time_budget_mins``; logs the stop when it has."""
         if self.time_budget_mins is not None and self.start_time is not None:
-
             elapsed = cur_ts - self.start_time
             if elapsed > self.time_budget_mins * 60:
                 if self.verbose > 0:
                     logger.info("Stopping early due to time budget exceeded (%.2f sec).", elapsed)
                 return True
+        return False
+
+    def _decision_metric(self, history: Any) -> tuple[float, float] | None:
+        """(value, min_delta) the stop decision reads this iteration, or ``None`` to skip it when the slice aggregate is unavailable."""
+        # Slice-stable ES path: aggregate per-shard scores before applying patience/min_delta.
+        # When slice_k>0 AND the aggregate is unavailable this iter (CB metric_period>1
+        # phantom or shards not yet registered) we SKIP the decision rather than
+        # contaminate best_metric with the single-val number on a different scale.
+        # In ``diagnostic_only`` mode we still call _compute_slice_aggregate so the
+        # per-shard history populates for the Pareto artefact, but the stop decision
+        # reads single-val (legacy path).
+        slice_value: float | None = None
+        slice_shards: list[float] | None = None
+        if int(self.slice_k) > 0:
+            slice_value = self._compute_slice_aggregate()
+            if slice_value is None and not self.slice_diagnostic_only:
+                return None
+            # Independent of slice_persist_history: _last_slice_shard_values is always kept
+            # (see _compute_slice_aggregate) so slice_min_delta_in_se scaling works even when
+            # the caller left the full Pareto-plot history off.
+            if self._last_slice_shard_values:
+                slice_shards = self._last_slice_shard_values
+        if self.slice_diagnostic_only:
+            current_value = history[-1]
+            effective_delta = self.min_delta
+        else:
+            current_value = slice_value if slice_value is not None else history[-1]
+            effective_delta = self._effective_min_delta(slice_shards) if slice_shards else self.min_delta
+        return current_value, effective_delta
+
+    def should_stop(self) -> bool:
+        """Evaluate all early-stop triggers in order (time budget, external stop flag, then the metric-plateau/patience logic) and return whether training should halt now."""
+        cur_ts = timer()
+        if self._time_budget_exceeded(cur_ts):
+            return True
 
         if self.stop_flag():
             if self.verbose > 0:
@@ -459,30 +492,10 @@ class UniversalCallback:
         if self.monitor_dataset in self.metric_history and self.monitor_metric in self.metric_history[self.monitor_dataset]:
             history = self.metric_history[self.monitor_dataset][self.monitor_metric]
             if history:
-                # Slice-stable ES path: aggregate per-shard scores before applying patience/min_delta.
-                # When slice_k>0 AND the aggregate is unavailable this iter (CB metric_period>1
-                # phantom or shards not yet registered) we SKIP the decision rather than
-                # contaminate best_metric with the single-val number on a different scale.
-                # In ``diagnostic_only`` mode we still call _compute_slice_aggregate so the
-                # per-shard history populates for the Pareto artefact, but the stop decision
-                # reads single-val (legacy path).
-                slice_value: float | None = None
-                slice_shards: list[float] | None = None
-                if int(self.slice_k) > 0:
-                    slice_value = self._compute_slice_aggregate()
-                    if slice_value is None and not self.slice_diagnostic_only:
-                        return False
-                    # Independent of slice_persist_history: _last_slice_shard_values is always kept
-                    # (see _compute_slice_aggregate) so slice_min_delta_in_se scaling works even when
-                    # the caller left the full Pareto-plot history off.
-                    if self._last_slice_shard_values:
-                        slice_shards = self._last_slice_shard_values
-                if self.slice_diagnostic_only:
-                    current_value = history[-1]
-                    effective_delta = self.min_delta
-                else:
-                    current_value = slice_value if slice_value is not None else history[-1]
-                    effective_delta = self._effective_min_delta(slice_shards) if slice_shards else self.min_delta
+                decision = self._decision_metric(history)
+                if decision is None:
+                    return False
+                current_value, effective_delta = decision
                 if self.best_metric is None:
                     self.iter = 0
                     self.best_iter = self.iter
