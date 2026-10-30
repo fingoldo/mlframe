@@ -175,6 +175,36 @@ def _walk_sorted(
         out[b, col] = _mi_of_hist(hist[b], pos[b])
 
 
+@njit(cache=True, fastmath=True)
+def _float32_sort_keys(row, keys):
+    """Order-preserving uint32 sort keys of one float32 column given as raw bits; False when the column has a non-finite value."""
+    n = row.shape[0]
+    for i in range(n):
+        u = row[i]
+        if (u & np.uint32(0x7F800000)) == np.uint32(0x7F800000):
+            return False
+        if u == np.uint32(0x80000000):
+            u = np.uint32(0)  # -0.0 equals +0.0
+        if u & np.uint32(0x80000000):
+            u = ~u
+        else:
+            u = u | np.uint32(0x80000000)
+        keys[i] = u
+    return True
+
+
+@njit(cache=True, fastmath=True)
+def _rank_blocks(va, ra, rk):
+    """Dense rank of every row from the sorted values ``va`` (rows ordered by ``ra``) into ``rk``; returns the largest rank."""
+    n = va.shape[0]
+    blk = 0
+    for pp in range(n):
+        if pp > 0 and va[pp] != va[pp - 1]:
+            blk += 1
+        rk[ra[pp]] = blk
+    return blk
+
+
 @njit(cache=True, fastmath=True, parallel=True)
 def _bootstrap_rank_mi_f32(
     bits: np.ndarray,
@@ -215,20 +245,7 @@ def _bootstrap_rank_mi_f32(
         ord_rows = np.empty(n, dtype=np.int64)
         rk = np.empty(n, dtype=np.int32)
         for t in range(width):
-            finite = True
-            for i in range(n):
-                u = tb[t, i]
-                if (u & np.uint32(0x7F800000)) == np.uint32(0x7F800000):
-                    finite = False
-                    break
-                if u == np.uint32(0x80000000):
-                    u = np.uint32(0)  # -0.0 equals +0.0
-                if u & np.uint32(0x80000000):
-                    u = ~u
-                else:
-                    u = u | np.uint32(0x80000000)
-                keys[i] = u
-            if not finite:
+            if not _float32_sort_keys(tb[t], keys):
                 continue
             ok[j0 + t] = True
             _radix_sort_pairs(keys, va, ra, vb, rb)
@@ -241,11 +258,7 @@ def _bootstrap_rank_mi_f32(
             if n - distinct <= max_ties:
                 _walk_sorted(ord_rows, va, y_codes, counts_t, rowptr, poslist, idx, cum, n_classes, out, j0 + t)
             else:
-                blk = 0
-                for pp in range(n):
-                    if pp > 0 and va[pp] != va[pp - 1]:
-                        blk += 1
-                    rk[ra[pp]] = blk
+                blk = _rank_blocks(va, ra, rk)
                 _replicate_mis(rk, blk + 1, y_codes, n_classes, idx, lens, binpos, n_bins, out, j0 + t)
     return out, ok
 
