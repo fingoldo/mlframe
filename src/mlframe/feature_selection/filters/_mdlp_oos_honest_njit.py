@@ -52,14 +52,44 @@ def oos_dedupe_njit(x: np.ndarray, y: np.ndarray) -> tuple[np.ndarray, np.ndarra
 
 
 @njit(cache=True)
+def oos_dedupe_presorted_njit(x: np.ndarray, y: np.ndarray, order_row: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """The distinct ``(x, y)`` pairs in ``(x, y)`` order, read off the ascending order ``order_row`` of ``x``: one pass, with the labels of a run of tied values sorted and de-duplicated on their own."""
+    n = x.shape[0]
+    xd = np.empty(n, dtype=np.float64)  # Intentional float64: MDLP cut search at the production binning width (cut points must match supervised_binning)
+    yd = np.empty(n, dtype=y.dtype)
+    m = 0
+    i = 0
+    while i < n:
+        xv = x[order_row[i]]
+        j = i + 1
+        while j < n and x[order_row[j]] == xv:
+            j += 1
+        if j - i == 1:
+            xd[m] = xv
+            yd[m] = y[order_row[i]]
+            m += 1
+        else:
+            ys = np.empty(j - i, dtype=y.dtype)
+            for t in range(j - i):
+                ys[t] = y[order_row[i + t]]
+            ys.sort()
+            for t in range(ys.shape[0]):
+                if t == 0 or ys[t] != ys[t - 1]:
+                    xd[m] = xv
+                    yd[m] = ys[t]
+                    m += 1
+        i = j
+    return xd[:m], yd[:m]
+
+
+@njit(cache=True)
 def oos_mdlp_cuts_presorted_njit(
     x: np.ndarray, y: np.ndarray, order_row: np.ndarray, n_classes_total: int, min_split: int, max_depth: int, tol: float, val_min: int, holdout_frac: float
 ) -> np.ndarray:
-    """``oos_mdlp_cuts_njit`` for a column without tied values, whose ascending order ``order_row`` is known: the train part is read off that order instead of being sorted for every split.
-
-    Without ties no ``(x, y)`` pair repeats, so the de-duplicated arrays are the originals; the split is drawn exactly as in ``oos_mdlp_cuts_njit`` (same generator calls), and the sorted train rows are
-    the rows of ``order_row`` that are not in the holdout, so the cuts are those of ``oos_mdlp_cuts_njit``."""
-    n = x.shape[0]
+    """``oos_mdlp_cuts_njit`` on a column whose ascending order ``order_row`` is known: the distinct pairs come out already sorted (:func:`oos_dedupe_presorted_njit`) and the train rows are the
+    sorted rows outside the holdout, so nothing is sorted per split. The split is a uniform random holdout of the sorted pairs drawn with the same generator calls as ``oos_mdlp_cuts_njit``."""
+    xd, yd = oos_dedupe_presorted_njit(x, y, order_row)
+    n = xd.shape[0]
     if n == 0:
         return np.empty(0, dtype=np.float64)  # Intentional float64: bin-edge / cut vector, compared against values at full precision
     perm = np.arange(n)
@@ -77,16 +107,15 @@ def oos_mdlp_cuts_presorted_njit(
     is_hold = np.zeros(n, dtype=np.bool_)
     for h in range(n_hold):
         is_hold[hold_idx[h]] = True
-    xt = np.empty(n - n_hold, dtype=x.dtype)
-    yt = np.empty(n - n_hold, dtype=y.dtype)
+    xt = np.empty(n - n_hold, dtype=np.float64)  # Intentional float64: MDLP cut search at the production binning width (cut points must match supervised_binning)
+    yt = np.empty(n - n_hold, dtype=yd.dtype)
     m = 0
     for i in range(n):
-        r = order_row[i]
-        if not is_hold[r]:
-            xt[m] = x[r]
-            yt[m] = y[r]
+        if not is_hold[i]:
+            xt[m] = xd[i]
+            yt[m] = yd[i]
             m += 1
-    cuts: np.ndarray = oos_cuts_from_split_njit(xt, yt, x[hold_idx], y[hold_idx], n_classes_total, min_split, max_depth, tol, val_min)
+    cuts: np.ndarray = oos_cuts_from_split_njit(xt, yt, xd[hold_idx], yd[hold_idx], n_classes_total, min_split, max_depth, tol, val_min)
     return cuts
 
 
@@ -259,15 +288,11 @@ def oos_cuts_from_split_njit(
 
 
 @njit(cache=True)
-def _oos_column_codes(xj, yr_p, nan_rows, has_nan_col, n_classes_total, min_split, max_depth, tol, val_min, holdout_frac, q_fb, q_rf, eval_rows, xs, order_row, tie_free):
+def _oos_column_codes(xj, yr_p, nan_rows, has_nan_col, n_classes_total, min_split, max_depth, tol, val_min, holdout_frac, q_fb, q_rf, eval_rows, xs, order_row):
     """Fill ``xs`` with the codes, at the evaluation rows, of the continuous column ``xj`` binned on the permuted raw labels ``yr_p``; returns the number of codes.
 
     ``xj`` holds the column with its missing values filled by the median (the cut search reads the filled column); the rows of ``nan_rows`` take one more code after the last bin."""
-    if tie_free:
-        cuts = oos_mdlp_cuts_presorted_njit(xj, yr_p, order_row, n_classes_total, min_split, max_depth, tol, val_min, holdout_frac)
-    else:
-        xd, yd = oos_dedupe_njit(xj, yr_p)
-        cuts = oos_mdlp_cuts_njit(xd, yd, n_classes_total, min_split, max_depth, tol, val_min, holdout_frac)
+    cuts = oos_mdlp_cuts_presorted_njit(xj, yr_p, order_row, n_classes_total, min_split, max_depth, tol, val_min, holdout_frac)
     final = _supervised_edges(xj, cuts, q_fb, q_rf)
     xc = _codes_from_cuts(xj, final)
     nb_reg = final.shape[0] + 1
@@ -317,14 +342,8 @@ def honest_validated_null_columns(
                 break
     plain = np.zeros((n_perm_rows, k), dtype=np.float64)  # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
     corrected = np.zeros((n_perm_rows, k), dtype=np.float64)  # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
-    # the sort order of each continuous column does not depend on the permutation: a column without tied values reads its train part off it
+    # the sort order of each continuous column does not depend on the permutation: the distinct pairs and the train part are read off it
     order = _presort_columns(raw_cont)
-    slot_tie_free = np.ones(raw_cont.shape[1], dtype=np.bool_)
-    for s_ in range(raw_cont.shape[1]):
-        for i_ in range(1, n):
-            if raw_cont[order[s_, i_], s_] == raw_cont[order[s_, i_ - 1], s_]:
-                slot_tie_free[s_] = False
-                break
     for b in prange(n_perm_rows):
         rp = perms[b]
         yc_p = np.empty(n, dtype=np.int64)
@@ -357,7 +376,7 @@ def honest_validated_null_columns(
                 xs = np.empty(m, dtype=np.int64)
                 n_x = _oos_column_codes(
                     raw_cont[:, slot], yr_p, nan_cont[:, slot], slot_has_nan[slot], n_classes_total, min_split, max_depth, tol, val_min, holdout_frac,
-                    q_fallback[j, : q_fallback_len[j]], q_refine[j, : q_refine_len[j]], eval_rows, xs, order[slot], slot_tie_free[slot],
+                    q_fallback[j, : q_fallback_len[j]], q_refine[j, : q_refine_len[j]], eval_rows, xs, order[slot],
                 )
             else:
                 fs = col_slot[j]
