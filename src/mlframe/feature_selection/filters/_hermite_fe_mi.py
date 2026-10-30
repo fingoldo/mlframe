@@ -415,7 +415,46 @@ def plugin_mi_classif_dispatch(x: np.ndarray, y: np.ndarray, n_bins: int = 20) -
     return float(_plugin_mi_classif_njit(x, y, n_bins))
 
 
+_COLUMN_MI_MEMO: "dict[tuple, float]" = {}  # (column content, target content, bins, dtype) -> plug-in MI; filled by plugin_mi_classif_batch_dispatch
+_COLUMN_MI_MEMO_MAX = 400_000  # entries kept (a float and a key each); the memo is dropped when it fills up
+_COLUMN_MI_MEMO_LOCK = threading.Lock()
+
+
 def plugin_mi_classif_batch_dispatch(X_cols: np.ndarray, y: np.ndarray, n_bins: int = 20) -> np.ndarray:
+    """Batch plug-in MI per column of ``X_cols`` against discrete ``y``, scoring each distinct (column, target) once.
+
+    The families of one fit score the same columns against the same target again and again (a raw column and each family's re-derivation of it: about a fifth of the column scorings of a fit with every family
+    on are exact repeats), and the MI of a column does not depend on the other columns of its batch, so a column seen before takes its stored value and only the new ones are scored. A host matrix only;
+    ``MLFRAME_COLUMN_MI_MEMO=0`` switches it off."""
+    if not isinstance(X_cols, np.ndarray) or X_cols.ndim != 2 or X_cols.shape[1] == 0 or os.environ.get("MLFRAME_COLUMN_MI_MEMO", "1") == "0":
+        return _plugin_mi_classif_batch_dispatch_uncached(X_cols, y, n_bins)
+    from mlframe.utils.disk_cache import hash_array_content
+
+    y_arr = np.ascontiguousarray(y)
+    base = (hash_array_content(y_arr), int(n_bins), str(X_cols.dtype), int(X_cols.shape[0]))
+    keys = [(hash_array_content(np.ascontiguousarray(X_cols[:, j])), *base) for j in range(X_cols.shape[1])]
+    out = np.empty(len(keys), dtype=np.float64)  # Intentional float64: MI statistic vector, output contract kept f64
+    missing = []
+    with _COLUMN_MI_MEMO_LOCK:
+        for j, key in enumerate(keys):
+            hit = _COLUMN_MI_MEMO.get(key)
+            if hit is None:
+                missing.append(j)
+            else:
+                out[j] = hit
+    if missing:
+        sub = X_cols if len(missing) == len(keys) else np.ascontiguousarray(X_cols[:, missing])
+        fresh = np.asarray(_plugin_mi_classif_batch_dispatch_uncached(sub, y, n_bins), dtype=np.float64)
+        out[missing] = fresh
+        with _COLUMN_MI_MEMO_LOCK:
+            if len(_COLUMN_MI_MEMO) + len(missing) > _COLUMN_MI_MEMO_MAX:
+                _COLUMN_MI_MEMO.clear()
+            for j, v in zip(missing, fresh):
+                _COLUMN_MI_MEMO[keys[j]] = float(v)
+    return out
+
+
+def _plugin_mi_classif_batch_dispatch_uncached(X_cols: np.ndarray, y: np.ndarray, n_bins: int = 20) -> np.ndarray:
     """Batch plug-in MI per column of ``X_cols`` against discrete ``y``.
 
     see:func:`plugin_mi_classif_dispatch`'s matching
