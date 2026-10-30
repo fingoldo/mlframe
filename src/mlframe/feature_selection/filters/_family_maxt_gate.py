@@ -235,6 +235,19 @@ def _permutation_block(rng: np.random.Generator, y: np.ndarray, m: int) -> np.nd
     return idx
 
 
+def _device_null_oom_errors() -> tuple[type[BaseException], ...]:
+    """Exceptions that mean the device could not hold this null block (pool limit or allocation failure), so the host kernel takes over.
+
+    Narrow on purpose: only cupy's out-of-memory and runtime errors, never a bug in the scoring code."""
+    try:
+        from cupy.cuda import memory as _cp_memory
+        from cupy_backends.cuda.api import runtime as _cp_runtime
+
+        return (_cp_memory.OutOfMemoryError, _cp_runtime.CUDARuntimeError)
+    except ImportError:
+        return ()
+
+
 def _null_device_wanted(cols: np.ndarray, y: np.ndarray, n_perm: int) -> bool:
     """Whether the family null for this call runs on the device (the same decision ``family_null_max`` takes for its blocks)."""
     from ._fe_gpu_strict import fe_gpu_strict_enabled
@@ -297,7 +310,12 @@ def family_null_max(cols: np.ndarray, n_x: np.ndarray, y: np.ndarray, n_y: int, 
             if bit_prep is not None:
                 out[start : start + m] = null_max_bitsets(bit_prep, n_x, perms, int(n_y))
             elif use_device:
-                out[start : start + m] = family_null_max_device(cols, n_x, perms, int(n_y))
+                try:
+                    out[start : start + m] = family_null_max_device(cols, n_x, perms, int(n_y))
+                except _device_null_oom_errors():
+                    # The device pool's limit (or a busy card) refused this block: the same maxima come from the host kernel,
+                    # since the permutations were drawn on the host in the same order either way.
+                    out[start : start + m] = family_null_max_njit(cols, n_x, perms, int(n_y))
             else:
                 out[start : start + m] = family_null_max_njit(cols, n_x, perms, int(n_y))
             if acc is not None:
