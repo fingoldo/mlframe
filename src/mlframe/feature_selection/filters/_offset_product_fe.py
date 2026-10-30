@@ -149,8 +149,8 @@ def apply_offset_product_recipe(recipe: EngineeredRecipe, X: pd.DataFrame | pl.D
             raise KeyError(f"Unary function '{un}' not in '{recipe.unary_preset}' preset. Replay requires the same preset that was active at fit time.")
     u = _apply_unary(funcs, ua, _replay_column(extract_column(X, recipe.src_names[0])), ex["log_shift_u"])
     v = _apply_unary(funcs, ub, _replay_column(extract_column(X, recipe.src_names[1])), ex["log_shift_v"])
-    out = _product(u, v, ex["s"], ex["t"], ex["fill_u"], ex["fill_v"])
-    return np.asarray(np.clip(out, ex["clip_lo"], ex["clip_hi"]))
+    out = _product(u, v, np.float64(ex["s"]), np.float64(ex["t"]), ex["fill_u"], ex["fill_v"])
+    return np.asarray(np.clip(out, np.float64(ex["clip_lo"]), np.float64(ex["clip_hi"])))
 
 def _scan_inputs(cols: "list[np.ndarray]", funcs: "dict[str, Callable]", unaries: Sequence[str], rows: np.ndarray, log_shifts: Optional[Sequence[float]] = None):
     """Unary outputs of every pooled column on the scan rows, non-finite entries filled, plus the winsorisation bounds fitted on the even (training) rows.
