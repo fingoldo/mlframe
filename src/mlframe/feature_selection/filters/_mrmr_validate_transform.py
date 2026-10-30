@@ -141,14 +141,8 @@ def _warn_transform_dtype_drift(self, X, columns) -> None:
         )
 
 
-def _validate_inputs(self, X, y):
-    """Validate constructor params and ``X``/``y`` shapes/dtypes for MRMR.fit (see module-level contract above)."""
-    # Validate string-valued constructor params on every fit. We intentionally
-    # do NOT validate inside __init__ to preserve sklearn-style "no work in
-    # __init__" semantics (clone() must not raise).
-    self._validate_string_params()
-    _snapshot_fit_dtypes(self, X)
-    import warnings as _w
+def _check_fit_footprint(X):
+    """Refuse a fit whose int32 binned working set would exceed half of the free RAM; a no-op for frames without a row count."""
     n_rows = getattr(X, "shape", (None,))[0]
     if n_rows is not None:
         n_cols = X.shape[1] if len(X.shape) > 1 else 1
@@ -181,6 +175,18 @@ def _validate_inputs(self, X, y):
                     f"(~{_headroom_bytes / 1e9:.2f} GB). Subsample, split the dataset, or free RAM "
                     "headroom before fitting."
                 )
+
+
+def _validate_inputs(self, X, y):
+    """Validate constructor params and ``X``/``y`` shapes/dtypes for MRMR.fit (see module-level contract above)."""
+    # Validate string-valued constructor params on every fit. We intentionally
+    # do NOT validate inside __init__ to preserve sklearn-style "no work in
+    # __init__" semantics (clone() must not raise).
+    self._validate_string_params()
+    _snapshot_fit_dtypes(self, X)
+    import warnings as _w
+    _check_fit_footprint(X)
+
     if self.quantization_nbins > 1000:
         raise ValueError(f"quantization_nbins={self.quantization_nbins} > 1000 likely OOMs")
     if self.interactions_max_order > 5:
