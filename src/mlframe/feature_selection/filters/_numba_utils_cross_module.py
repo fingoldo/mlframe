@@ -1317,3 +1317,20 @@ def within_stratum_shuffles(keys: np.ndarray, z_rank: np.ndarray, order: np.ndar
         within = np.argsort(z_rank + keys[i], kind="mergesort")
         for j in range(within.shape[0]):
             out[i, order[j]] = x_sorted[within[j]]
+
+
+@njit(cache=True)
+def rows_to_columns(rows: np.ndarray) -> np.ndarray:
+    """``(n, k)`` C-ordered copy of the ``(k, n)`` matrix ``rows`` (``out[r, j] = rows[j, r]``), by tiles of rows so that every tile of the output is written while it is cache resident.
+
+    Writing the candidate columns of a block one by one into an ``(n, k)`` matrix touches a cache line and a page per element (a stride of ``k`` items); filling contiguous rows and transposing once is the same
+    data movement without that pattern."""
+    k, n = rows.shape
+    out = np.empty((n, k), dtype=rows.dtype)
+    tile = 64
+    for r0 in range(0, n, tile):
+        r1 = min(n, r0 + tile)
+        for j in range(k):
+            for r in range(r0, r1):
+                out[r, j] = rows[j, r]
+    return out

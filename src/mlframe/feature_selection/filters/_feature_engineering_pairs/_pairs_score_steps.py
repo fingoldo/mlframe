@@ -14,6 +14,7 @@ from mlframe.feature_selection.filters._lazy_host_codes import length_of
 from ._pairs_abs_corr_gpu import abs_corr_or_none
 from ._pairs_chunk_codes import code_column
 from ._pairs_code_bins import code_table_bins, scrub_nonfinite
+from .._numba_utils import rows_to_columns
 from ._pairs_chunks import _compute_one_fe_chunk
 from ._pairs_dispatch import _dispatch_batch_mi_with_noise_gate
 from ._pairs_materialise import (
@@ -571,9 +572,10 @@ def _score_pending_candidates(
     if batch_mi_with_noise_gate is not None and len(pending) > 1:
         try:
             _code_dtype: Any = _narrow_code_dtype(quantization_nbins, quantization_dtype)
-            _block = np.empty((n_rows, len(pending)), dtype=_code_dtype)
+            _rows = np.empty((len(pending), n_rows), dtype=_code_dtype)
             for _j, _entry in enumerate(pending):
-                _block[:, _j] = _entry[4]
+                _rows[_j] = _entry[4]
+            _block = rows_to_columns(_rows)
             _mi = _dispatch_batch_mi_with_noise_gate(
                 disc_2d=_block,
                 quantization_nbins=quantization_nbins,
@@ -633,7 +635,7 @@ def _replay_pending_scores(st, pending, scores, fe_print_best_mis_only, verbose,
 def _bin_held_block(blk, blk_cols, meta, pending, st, need_recompute_map, config_by_i, quantization_nbins, quantization_dtype, quantization_method, discretize_array) -> None:
     """Clean and quantile-bin the ``len(meta)`` columns held in ``blk`` in one call, and queue each (config, codes) entry on ``pending`` in order."""
     _n_held = len(meta)
-    _vals = blk if _n_held == blk_cols else np.ascontiguousarray(blk[:, :_n_held])
+    _vals = rows_to_columns(blk[:_n_held])  # ``blk`` holds one candidate per row
     scrub_nonfinite(_vals)
     try:
         from mlframe.feature_selection.filters.discretization import discretize_2d_quantile_batch
@@ -671,7 +673,7 @@ def _score_recompute_blocked(
     # in ONE ``discretize_2d_quantile_batch`` call (bit-identical to the per-column binning) and its MI is scored by the batched noise gate.
     _blk_dtype = st._col_buf_1d.dtype
     _blk_cols = max(1, min(4096, (64 << 20) // max(1, _n_rows * np.dtype(_blk_dtype).itemsize)))
-    _blk = np.empty((_n_rows, _blk_cols), dtype=_blk_dtype)
+    _blk = np.empty((_blk_cols, _n_rows), dtype=_blk_dtype)  # one candidate per contiguous row; transposed once per block
     _meta: list = []  # (transformations_pair, bin_func_name, uses_pw, config index) of the columns held in _blk
 
     def _close_block() -> None:
@@ -703,7 +705,7 @@ def _score_recompute_blocked(
             for bin_func_name, bin_func in binary_transformations.items():
                 start = timer()
                 try:
-                    _blk[:, len(_meta)] = bin_func(param_a, param_b)
+                    _blk[len(_meta)] = bin_func(param_a, param_b)
                 except Exception:
                     # Failed transform: no candidate is recorded for this bin_func (its block column is overwritten by the next candidate).
                     log_throttle(logger, "pairs_score_transform_recompute_failed", logging.ERROR, "Error when performing %s", bin_func, exc_info=True)

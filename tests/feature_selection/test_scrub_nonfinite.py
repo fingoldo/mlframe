@@ -40,3 +40,14 @@ def test_integer_arrays_are_left_to_numpy():
     a = np.arange(10, dtype=np.int32)
     scrub_nonfinite(a)
     assert np.array_equal(a, np.arange(10))
+
+
+@pytest.mark.parametrize("shape", [(1, 1), (3, 5), (7, 64), (5, 65), (130, 4097)])
+@pytest.mark.parametrize("dtype", [np.int8, np.int16, np.float32])
+def test_rows_to_columns_is_the_transpose_copy(shape, dtype):
+    """Tile boundaries and odd sizes give ``rows.T`` as a C-ordered copy."""
+    from mlframe.feature_selection.filters._numba_utils import rows_to_columns
+
+    rows = (np.arange(shape[0] * shape[1]) % 100).reshape(shape).astype(dtype)
+    got = rows_to_columns(rows)
+    assert got.flags.c_contiguous and got.shape == shape[::-1] and np.array_equal(got, rows.T)
