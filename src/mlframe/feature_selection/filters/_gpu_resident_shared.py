@@ -206,11 +206,11 @@ def _xp_special(xp):
     return _s
 
 
-def _unary_apply(xp, name, x):
-    """Apply unary ``name`` to ``x`` using array module ``xp`` (numpy or cupy). Semantics mirror
-    ``feature_engineering.create_unary_transformations`` EXACTLY (full maximal catalog), incl.
-    smart_log's full-column nanmin shift. Raises ValueError for an op with no ``xp`` equivalent (the
-    caller excludes it from the GPU grid - see _GPU_UNAVAILABLE_UNARY)."""
+_UNHANDLED = object()
+
+
+def _unary_minimal(xp, name, x):
+    """Elementwise unary ops of the minimal catalog; ``_UNHANDLED`` for any other name."""
     # --- minimal ---
     if name == "identity":
         return x
@@ -230,6 +230,11 @@ def _unary_apply(xp, name, x):
         return xp.log(x) if float(x_min) > 0 else xp.log(x + (1e-5 - x_min))
     if name == "sin":
         return xp.sin(x)
+    return _UNHANDLED
+
+
+def _unary_medium(xp, name, x):
+    """Elementwise unary ops of the medium catalog; ``_UNHANDLED`` for any other name."""
     # --- medium ---
     if name == "sign":
         return xp.sign(x)
@@ -249,6 +254,11 @@ def _unary_apply(xp, name, x):
         return xp.power(x, -1.0 / 2.0)
     if name == "exp":
         return xp.exp(x)
+    return _UNHANDLED
+
+
+def _unary_maximal(xp, name, x):
+    """Trig, hyperbolic and special-function unary ops of the maximal catalog; ``_UNHANDLED`` for any other name."""
     # --- maximal: trig / inverse-trig / hyperbolic / inverse-hyperbolic (all native to numpy AND cupy) ---
     if name in ("sinc", "cos", "tan", "arcsin", "arccos", "arctan", "sinh", "cosh", "tanh", "arcsinh", "arccosh", "arctanh"):
         return getattr(xp, name)(x)
@@ -266,6 +276,18 @@ def _unary_apply(xp, name, x):
     #     return xp.gradient(x, edge_order=2)
     # if name == "dawsn":
     #     return _xp_special(xp).dawsn(x)
+    return _UNHANDLED
+
+
+def _unary_apply(xp, name, x):
+    """Apply unary ``name`` to ``x`` using array module ``xp`` (numpy or cupy). Semantics mirror
+    ``feature_engineering.create_unary_transformations`` EXACTLY (full maximal catalog), incl.
+    smart_log's full-column nanmin shift. Raises ValueError for an op with no ``xp`` equivalent (the
+    caller excludes it from the GPU grid - see _GPU_UNAVAILABLE_UNARY)."""
+    for _family in (_unary_minimal, _unary_medium, _unary_maximal):
+        _out = _family(xp, name, x)
+        if _out is not _UNHANDLED:
+            return _out
     raise ValueError(f"unknown unary {name!r}")
 
 

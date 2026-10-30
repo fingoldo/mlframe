@@ -29,7 +29,6 @@
   "src/mlframe/feature_selection/filters/_feature_engineering_pairs/_pairs_materialise.py::_materialise_chunk_rowblock_njit_parallel": 16,
   "src/mlframe/feature_selection/filters/_feature_engineering_pairs/_pairs_score_steps.py::_score_one_pair_step3_step2_transformations_pair_st": 18,
   "src/mlframe/feature_selection/filters/_gpu_resident_shared.py::_binary_apply": 18,
-  "src/mlframe/feature_selection/filters/_gpu_resident_shared.py::_unary_apply": 21,
   "src/mlframe/feature_selection/filters/_gpu_strict_fe/_audit.py::residency_audit": 21,
   "src/mlframe/feature_selection/filters/_hermite_fe_optimise.py::_eval_coef_pair": 20,
   "src/mlframe/feature_selection/filters/_hermite_fe_optimise_parts.py::_eval_coef_pair_batch_part1": 18,
@@ -43,7 +42,6 @@
   "src/mlframe/feature_selection/filters/_mrmr_fit_impl/_fit_impl_stages/_post_selection.py::_run_additional_rfecv": 17,
   "src/mlframe/feature_selection/filters/_mrmr_fit_impl/_friend_graph_and_redundancy/_group4.py::_friend_graph_and_redundancy_passes_group4_part1": 19,
   "src/mlframe/feature_selection/filters/_mrmr_partial_fit.py::partial_fit": 17,
-  "src/mlframe/feature_selection/filters/_mrmr_validate_transform.py::_validate_inputs": 21,
   "src/mlframe/feature_selection/filters/_numba_polynom_optimizer.py::_random_batch_one_pair_njit": 21,
   "src/mlframe/feature_selection/filters/_numba_utils_cross_module.py::quantile_codes_block": 18,
   "src/mlframe/feature_selection/filters/_numba_utils_offset.py::_solve4": 16,
@@ -153,6 +151,5 @@
   "src/mlframe/training/targets/_target_temporal_types.py::TemporalAuditResult.recommended_filter_mask": 17,
   "src/mlframe/training/targets/_train_eval_select_target.py::_select_regression_target": 20,
   "src/mlframe/training/train_eval.py::_validate_cached_model_schema": 19,
-  "src/mlframe/training/utils.py::compute_model_input_fingerprint": 20,
-  "src/mlframe/training/utils.py::get_pandas_view_of_polars_df": 21
+  "src/mlframe/training/utils.py::compute_model_input_fingerprint": 20
 }
