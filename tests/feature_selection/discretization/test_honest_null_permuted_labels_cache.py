@@ -60,9 +60,13 @@ def test_a_different_seed_or_label_vector_is_a_different_entry():
     assert c_rng.draws == 1
 
 
-def test_a_draw_above_the_byte_cap_is_not_kept_and_says_so(caplog):
-    """Beyond the cap the matrices are regenerated each call, nothing is stored on the spec, and the skipped cache is logged."""
-    y_raw, y_codes = _labels(200)
+def test_a_draw_above_the_byte_cap_is_not_kept_and_says_so(caplog, monkeypatch):
+    """Beyond the cap the matrices are regenerated each call, nothing is stored on the spec, and the skipped cache is logged (distinct codes: two bytes per label; no free-memory widening of the cap)."""
+    import mlframe.feature_selection.filters._honest_mdlp_null as hn
+
+    monkeypatch.setattr(hn, "_free_memory_bytes", lambda: 0)
+    y_raw, _ = _labels(200)
+    y_codes = y_raw + 1
     count = _PERM_LABELS_CACHE_MAX_BYTES // (2 * len(y_raw)) + 1
     spec: dict = {}
     rng = _CountingRng(3)
@@ -109,3 +113,13 @@ def test_identical_raw_and_coded_labels_share_one_matrix_with_the_same_values():
     other = permuted_labels_seeded(y_raw, y_codes + 1, 15, 7)
     np.testing.assert_array_equal(same[0], other[0])
     np.testing.assert_array_equal(other[1], other[0] + 1)
+
+
+def test_the_label_rows_are_the_rows_of_the_seeded_permutations():
+    """Row ``b`` of a draw is the labels read through ``seeded_permutation(n, base_seed + b)`` (the int32 shuffle in the kernel makes the same swaps)."""
+    from mlframe.feature_selection.filters._mdlp_honest_bycol_njit import seeded_permutation
+
+    y_raw, y_codes = _labels(700)
+    rows, _ = permuted_labels_seeded(y_raw, y_codes, 6, 123)
+    for b in range(6):
+        np.testing.assert_array_equal(rows[b], y_raw[seeded_permutation(700, 123 + b)])

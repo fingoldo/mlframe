@@ -60,7 +60,14 @@ def _permuted_labels_kernel(src_raw: np.ndarray, src_codes: np.ndarray, base_see
     """Row ``b`` of ``out_raw`` / ``out_codes`` is the labels read through the Fisher-Yates shuffle seeded ``base_seed + b``, one parallel task per row (independent of the thread schedule)."""
     n = src_raw.shape[0]
     for b in prange(out_raw.shape[0]):
-        perm = seeded_permutation(n, base_seed + b)
+        # the shuffle of ``seeded_permutation(n, base_seed + b)`` (the same generator calls) on int32 indices: half the footprint of the random swaps
+        np.random.seed((base_seed + b) % 4294967295)
+        perm = np.arange(n).astype(np.int32)
+        for i in range(n - 1, 0, -1):
+            j = np.random.randint(0, i + 1)
+            t = perm[i]
+            perm[i] = perm[j]
+            perm[j] = t
         for i in range(n):
             out_raw[b, i] = src_raw[perm[i]]
             out_codes[b, i] = src_codes[perm[i]]

@@ -90,6 +90,16 @@ def _device_honest_null_enabled() -> bool:
 _PERM_LABELS_CACHE_MAX_BYTES = 256 * 1024 * 1024  # per spec: the permuted-label matrices of one (seed, rows, permutations) draw; larger draws are regenerated each call
 
 
+def _free_memory_bytes() -> int:
+    """Free physical memory in bytes (0 when it cannot be read)."""
+    try:
+        import psutil
+
+        return int(psutil.virtual_memory().available)
+    except Exception:  # a missing probe keeps the fixed cap
+        return 0
+
+
 def _permuted_labels_cached(spec: dict, y_raw: np.ndarray, y_codes: np.ndarray, rng, n: int, n_permutations: int, seed_key: int):
     """``permuted_labels`` of the seeded permutation stream, kept on the spec: the screen asks for the null of one column after another with the same seed, rows and permutation count,
     and every call drew the same ``n_permutations`` shuffles of ``n`` rows again (3483 draws, 1.5 s of a 20000-row fit, for 200 distinct ones)."""
@@ -99,11 +109,15 @@ def _permuted_labels_cached(spec: dict, y_raw: np.ndarray, y_codes: np.ndarray, 
         """The permuted label matrices of a fresh draw from ``rng``: one seed is taken from it and the shuffles are generated in parallel from that seed."""
         return permuted_labels_seeded(y_raw, y_codes, n_permutations, int(rng.integers(0, 2**31 - 1)))
 
-    if n_permutations * n * 2 > _PERM_LABELS_CACHE_MAX_BYTES:
+    # one byte per label per permutation when the codes are the raw labels (one shared matrix), two otherwise; the cap is a fixed budget, widened to a quarter of the free memory (at most 2 GiB)
+    # so that a million-row draw (about 1 GB) is kept for the next call instead of redrawn
+    draw_bytes = n_permutations * n * (1 if np.array_equal(y_raw, y_codes) else 2)
+    cap = max(_PERM_LABELS_CACHE_MAX_BYTES, min(2 * 1024**3, _free_memory_bytes() // 4))
+    if draw_bytes > cap:
         log_throttle(
             logger, "honest_null_perm_labels_cache_too_large", logging.INFO,
             "honest null: the permuted-label matrices (%d permutations x %d rows, %.0f MB) exceed the %.0f MB cache cap; they are redrawn on every call",
-            n_permutations, n, n_permutations * n * 2 / 2**20, _PERM_LABELS_CACHE_MAX_BYTES / 2**20,
+            n_permutations, n, draw_bytes / 2**20, cap / 2**20,
         )
         return draw()
     # The stream of one seed is a prefix-stable sequence: the first k of a longer draw are the k permutations a shorter draw would make, so one entry serves every count up to its own.
