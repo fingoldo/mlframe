@@ -100,6 +100,29 @@ def _rarest_label(num_labels: np.ndarray, min_candidates: np.ndarray) -> int:
 
 
 @njit(cache=True)
+def _distribute_leftovers(processed: np.ndarray, test_folds: np.ndarray, c_folds: np.ndarray, fold_max_buf: np.ndarray) -> None:
+    """Assign every unprocessed sample, one at a time, to the fold with the largest remaining desired count."""
+    for i in range(processed.shape[0]):
+        if processed[i]:
+            continue
+        n_max = _collect_max_indices(c_folds, fold_max_buf)
+        fold_idx = _pick_tied(fold_max_buf, n_max)
+        test_folds[i] = fold_idx
+        c_folds[fold_idx] -= 1.0
+        processed[i] = True
+
+
+@njit(cache=True)
+def _pick_fold_for_label(label_fold_counts: np.ndarray, c_folds: np.ndarray, fold_max_buf: np.ndarray, fold_sub_buf: np.ndarray) -> int:
+    """Fold with the largest remaining desired count for the chosen label, ties first broken by the overall fold count, then at random."""
+    n_max = _collect_max_indices(label_fold_counts, fold_max_buf)
+    if n_max == 1:
+        return int(fold_max_buf[0])
+    n_sub = _max_among(fold_max_buf, n_max, c_folds, fold_sub_buf)
+    return int(_pick_tied(fold_sub_buf, n_sub))
+
+
+@njit(cache=True)
 def _iterative_stratification_njit(labels: np.ndarray, r: np.ndarray, seed: int) -> np.ndarray:
     """njit twin of ``iterstrat.ml_stratifiers.IterativeStratification(labels, r, random_state)``.
 
@@ -139,15 +162,7 @@ def _iterative_stratification_njit(labels: np.ndarray, r: np.ndarray, seed: int)
         if total == 0:
             # All remaining unprocessed samples carry no (unprocessed-relevant) label: distribute
             # them one at a time to whichever fold currently has the largest remaining desired count.
-            for i in range(n):
-                if processed[i]:
-                    continue
-                n_max = _collect_max_indices(c_folds, fold_max_buf)
-                fold_idx = _pick_tied(fold_max_buf, n_max)
-                test_folds[i] = fold_idx
-                c_folds[fold_idx] -= 1.0
-                processed[i] = True
-                unprocessed -= 1
+            _distribute_leftovers(processed, test_folds, c_folds, fold_max_buf)
             break
 
         label_idx = _rarest_label(num_labels, min_candidates)
@@ -155,12 +170,7 @@ def _iterative_stratification_njit(labels: np.ndarray, r: np.ndarray, seed: int)
         for i in range(n):
             if processed[i] or not labels[i, label_idx]:
                 continue
-            n_max = _collect_max_indices(c_folds_labels[:, label_idx], fold_max_buf)
-            if n_max == 1:
-                fold_idx = fold_max_buf[0]
-            else:
-                n_sub = _max_among(fold_max_buf, n_max, c_folds, fold_sub_buf)
-                fold_idx = _pick_tied(fold_sub_buf, n_sub)
+            fold_idx = _pick_fold_for_label(c_folds_labels[:, label_idx], c_folds, fold_max_buf, fold_sub_buf)
 
             test_folds[i] = fold_idx
             processed[i] = True
