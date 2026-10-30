@@ -201,8 +201,8 @@ def pack_plans(plans: "list[dict]", candidates: tuple) -> Optional[dict]:
     return {"xb": xb, "kx": kx, "nv": nv, "folds": [(k, vm) for k, vm, _c in first], "ms": ms}
 
 
-def prescore_best_m(packed: dict, plans: "list[dict]", y: np.ndarray, y_key: str, fold_target: Any) -> None:
-    """Pick the winning bin count of every column for the target ``y`` in one parallel kernel and leave it on the plan (``plan["best"][y_key]``), where ``edges_optimal_joint`` finds it."""
+def prescore_best_m(packed: dict, plans: "list[dict]", y: np.ndarray, y_key: str, fold_target: Any) -> "list[Optional[int]]":
+    """Pick the winning bin count of every column for the target ``y`` in one parallel kernel and leave it on the plan (``plan["best"][y_key]``), where ``edges_optimal_joint`` finds it; returns the winners (``None`` for a column no fold scored)."""
     from mlframe._numba_parallel_guard import parallel_kernel_entry
 
     n_f = len(packed["folds"])
@@ -214,12 +214,15 @@ def prescore_best_m(packed: dict, plans: "list[dict]", y: np.ndarray, y_key: str
         ky[f] = k_y
     with parallel_kernel_entry():
         pick = _a()._oj_pick_candidates(packed["xb"], packed["kx"], packed["nv"], vy, ky)
+    winners: "list[Optional[int]]" = []
     for plan, m in zip(plans, pick):
         best = plan.setdefault("best", {})
         if len(best) >= 4:
             best.clear()
         if m >= 0:
             best[y_key] = packed["ms"][int(m)]
+        winners.append(packed["ms"][int(m)] if m >= 0 else None)
+    return winners
 
 
 _MEMO_ENTRIES = 20000  # collapse refinements kept per cache: columns x the few edge sets each can take
