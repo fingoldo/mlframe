@@ -102,6 +102,5 @@
   "src/mlframe/training/reporting/_reporting_probabilistic.py::_report_probabilistic_step1_produced_single_most": 19,
   "src/mlframe/training/targets/_target_distribution_analyzer_features.py::_target_leakage_scan": 18,
   "src/mlframe/training/targets/_target_temporal_changepoint.py::find_change_points_zscore": 17,
-  "src/mlframe/training/targets/_target_temporal_types.py::TemporalAuditResult.recommended_filter_mask": 17,
-  "src/mlframe/training/train_eval.py::_validate_cached_model_schema": 19
+  "src/mlframe/training/targets/_target_temporal_types.py::TemporalAuditResult.recommended_filter_mask": 17
 }
