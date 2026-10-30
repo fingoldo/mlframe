@@ -614,6 +614,35 @@ def _render_split_diagnostics(
     """
     if df is None or not split_plot_file or not plot_outputs:
         return
+    resolved = _resolve_split_task(target_type, target, preds, probs)
+    if resolved is None:
+        return
+    task, y_arr, y_pred = resolved
+
+    feature_names = list(columns) if columns else None
+    fi = None
+    if isinstance(metrics_dict, dict):
+        _fi = metrics_dict.get("feature_importances")
+        if isinstance(_fi, dict) and feature_names:
+            fi = [float(_fi.get(c, 0.0)) for c in feature_names]
+
+    split_subgroups, split_ts = _split_row_views(subgroups, split_timestamps, idx)
+
+    from mlframe.reporting.diagnostics_dispatch import render_split_error_diagnostics
+
+    res = render_split_error_diagnostics(
+        df=df, y_true=y_arr, y_pred=y_pred, task=task,
+        plot_outputs=plot_outputs, base_path=split_plot_file,
+        metrics_dict=metrics_dict, feature_names=feature_names,
+        feature_importances=fi, subgroups=split_subgroups,
+        timestamps=split_ts,
+    )
+    _attach_worst_k_table(metrics_dict, split_name, res)
+    _render_temporal_panels(task, probs, y_arr, y_pred, split_ts, plot_outputs, split_plot_file, metrics_dict, feature_names, reporting_config)
+
+
+def _resolve_split_task(target_type, target, preds, probs):
+    """Task name plus the 1-D (y_true, y_pred) pair the error analysis scores, or ``None`` when the split is not 1-D material."""
     tt = (target_type or "").lower()
     # Regression vs classification gate; the error-analysis builders take "regression" / "classification".
     if "regress" in tt:
@@ -627,7 +656,7 @@ def _render_split_diagnostics(
     # Multilabel / multiclass y is not 1-D pred-vs-actual error analysis material; skip those (their own panels cover them).
     y_arr = np.asarray(target)
     if y_arr.ndim != 1:
-        return
+        return None
     # The per-row error signal the builders score: hard predicted class by default, but for BINARY classification the
     # positive-class probability is a far richer worst-K / weak-segment signal (log-loss vs coarse 0/1 incorrectness),
     # so prefer probs[:, 1] when present. Regression / multiclass keep the point prediction.
@@ -639,16 +668,12 @@ def _render_split_diagnostics(
         elif probs_arr.ndim == 1:
             y_pred = probs_arr
     if y_pred is None or np.ndim(y_pred) != 1 or len(y_pred) != len(y_arr):
-        return
-    y_pred = np.asarray(y_pred).ravel()
+        return None
+    return task, y_arr, np.asarray(y_pred).ravel()
 
-    feature_names = list(columns) if columns else None
-    fi = None
-    if isinstance(metrics_dict, dict):
-        _fi = metrics_dict.get("feature_importances")
-        if isinstance(_fi, dict) and feature_names:
-            fi = [float(_fi.get(c, 0.0)) for c in feature_names]
 
+def _split_row_views(subgroups, split_timestamps, idx):
+    """Resolve subgroup masks and timestamps to this split's rows; an indexing failure drops that input with a warning."""
     # Resolve subgroups to this split's row masks (subgroups are full-length boolean arrays keyed by name).
     split_subgroups = None
     if subgroups and idx is not None:
@@ -665,18 +690,11 @@ def _render_split_diagnostics(
         except Exception as e:
             logger.warning("timestamp indexing failed, dropping timestamps for this split: %s", e)
             split_ts = None
+    return split_subgroups, split_ts
 
-    from mlframe.reporting.diagnostics_dispatch import (
-        render_split_error_diagnostics, render_target_drift_diagnostics,
-    )
 
-    res = render_split_error_diagnostics(
-        df=df, y_true=y_arr, y_pred=y_pred, task=task,
-        plot_outputs=plot_outputs, base_path=split_plot_file,
-        metrics_dict=metrics_dict, feature_names=feature_names,
-        feature_importances=fi, subgroups=split_subgroups,
-        timestamps=split_ts,
-    )
+def _attach_worst_k_table(metrics_dict, split_name, res):
+    """Store the worst-K table under a split-qualified key, plus unqualified aliases for existing readers."""
     if isinstance(metrics_dict, dict) and res.get("worst_k_table") is not None:
         # Qualify the key with the split. val, test and OOF mean different things -- val is the early-stopping
         # split and is optimistically biased, test/OOS is the honest estimate -- so an unqualified
@@ -686,7 +704,11 @@ def _render_split_diagnostics(
         metrics_dict["worst_k_table"] = res["worst_k_table"]  # unqualified alias, for existing readers
         metrics_dict["worst_k_indices"] = res["worst_k_indices"]
 
-    # Temporal per-split panels (residual-vs-time / metric-over-time) only when timestamps cover this split.
+
+def _render_temporal_panels(task, probs, y_arr, y_pred, split_ts, plot_outputs, split_plot_file, metrics_dict, feature_names, reporting_config):
+    """Temporal per-split panels (residual-vs-time / metric-over-time) only when timestamps cover this split."""
+    from mlframe.reporting.diagnostics_dispatch import render_target_drift_diagnostics
+
     if split_ts is not None and task == "regression":
         # MSE-over-time for regression; roc_auc would need a binary target.
         render_target_drift_diagnostics(
