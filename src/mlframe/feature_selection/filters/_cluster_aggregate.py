@@ -455,7 +455,7 @@ def _discover_clusters(
     edges = _significant_pool_edges(pool, corr, data, nbins, n_samples, corr_threshold, mi_eps, edge_significance, dtype)
 
     clusters = []
-    used = set()
+    used: set[int] = set()
     for comp in sorted(_connected_components(len(pool), edges), key=len, reverse=True):
         cluster = _component_cluster(
             comp, pool, rel, corr, X, cols, used,
