@@ -65,11 +65,56 @@ def _axes_size_in(ax) -> tuple:
         return (6.0, 4.0)
 
 
+def _draw_scatter_error_bars(ax, p, x, y, weak):
+    """Draw the x/y error bars, muting the intervals of low-evidence points."""
+    from .matplotlib import _err_to_mpl
+
+    if p.y_err is not None or p.x_err is not None:
+        yerr = _err_to_mpl(p.y_err)
+        xerr = _err_to_mpl(p.x_err)
+
+        def _slice_err(err, mask):
+            """Select the masked columns of an error spec, keeping the (2, N) asymmetric shape intact."""
+            if err is None:
+                return None
+            arr = np.asarray(err)
+            return arr[:, mask] if arr.ndim == 2 else arr[mask]
+
+        # Same reasoning as the marker branch below: requiring a STRONG point too meant an all-low-evidence
+        # panel drew ordinary solid error bars, so the muted dotted treatment vanished alongside the hollow
+        # markers. The inner ``strong.any()`` already handles the empty subset.
+        if weak.any():
+            strong = ~weak
+            if strong.any():
+                ax.errorbar(x[strong], y[strong], yerr=_slice_err(yerr, strong), xerr=_slice_err(xerr, strong), fmt="none", ecolor="gray", elinewidth=1.0, capsize=3, alpha=0.7, zorder=1)
+            ax.errorbar(x[weak], y[weak], yerr=_slice_err(yerr, weak), xerr=_slice_err(xerr, weak), fmt="none", ecolor="0.75", elinewidth=0.6, capsize=0, alpha=0.5, linestyle=":", zorder=1)
+        else:
+            ax.errorbar(x, y, yerr=yerr, xerr=xerr, fmt="none", ecolor="gray", elinewidth=1.0, capsize=3, alpha=0.7, zorder=1)
+
+
+def _draw_scatter_overlays(ax, p, n):
+    """Draw the robust trend line, the overlay band and the overlay line."""
+    if p.trend_line is not None and n > 1:
+        from mlframe.reporting.renderers._trend import robust_fit_endpoints
+        ends = robust_fit_endpoints(np.asarray(p.x), np.asarray(p.y), p.trend_line)
+        if ends is not None:
+            (tx0, ty0), (tx1, ty1) = ends
+            ax.plot([tx0, tx1], [ty0, ty1], color=TREND_LINE, linestyle="-", linewidth=1.6, zorder=4, label=f"robust fit ({p.trend_line})")
+
+    if p.overlay_band is not None:
+        bx, blo, bhi = (np.asarray(a) for a in p.overlay_band)
+        ax.fill_between(bx, blo, bhi, color=OVERLAY_LINE, alpha=0.18, zorder=3, linewidth=0, label="curve 95% band")
+
+    if p.overlay_line is not None:
+        ox_grid, oy_grid, olabel = p.overlay_line
+        ax.plot(np.asarray(ox_grid), np.asarray(oy_grid), color=OVERLAY_LINE, linestyle="-", linewidth=1.8, zorder=4, label=olabel)
+
+
 def _scatter(self, ax, p: ScatterPanelSpec, fig, cbar_axes=None) -> None:
     """Render a scatter panel: subsamples above ``_SCATTER_MAX_POINTS`` (preserving extremes, rasterized), then layers optional error bars, highlighted worst-K points, trend line, overlay band/line, y=x reference and inline labels/colorbar/legend on top."""
     # Lazy, function-local, matching the plotly sibling: the parent module imports this one at its own bottom,
     # so a module-level ``from .matplotlib import ...`` would be a hard cycle. By call time the parent is loaded.
-    from .matplotlib import _err_to_mpl, _set_panel_title
+    from .matplotlib import _set_panel_title
 
     x = np.asarray(p.x)
     y = np.asarray(p.y)
@@ -95,27 +140,7 @@ def _scatter(self, ax, p: ScatterPanelSpec, fig, cbar_axes=None) -> None:
     # their marker hollow, so the pair keeps its honest width without carrying an observation's weight.
     weak = low_evidence_mask(p.low_evidence_indices if len(x) == len(np.asarray(p.x)) else None, len(x))
 
-    if p.y_err is not None or p.x_err is not None:
-        yerr = _err_to_mpl(p.y_err)
-        xerr = _err_to_mpl(p.x_err)
-
-        def _slice_err(err, mask):
-            """Select the masked columns of an error spec, keeping the (2, N) asymmetric shape intact."""
-            if err is None:
-                return None
-            arr = np.asarray(err)
-            return arr[:, mask] if arr.ndim == 2 else arr[mask]
-
-        # Same reasoning as the marker branch below: requiring a STRONG point too meant an all-low-evidence
-        # panel drew ordinary solid error bars, so the muted dotted treatment vanished alongside the hollow
-        # markers. The inner ``strong.any()`` already handles the empty subset.
-        if weak.any():
-            strong = ~weak
-            if strong.any():
-                ax.errorbar(x[strong], y[strong], yerr=_slice_err(yerr, strong), xerr=_slice_err(xerr, strong), fmt="none", ecolor="gray", elinewidth=1.0, capsize=3, alpha=0.7, zorder=1)
-            ax.errorbar(x[weak], y[weak], yerr=_slice_err(yerr, weak), xerr=_slice_err(xerr, weak), fmt="none", ecolor="0.75", elinewidth=0.6, capsize=0, alpha=0.5, linestyle=":", zorder=1)
-        else:
-            ax.errorbar(x, y, yerr=yerr, xerr=xerr, fmt="none", ecolor="gray", elinewidth=1.0, capsize=3, alpha=0.7, zorder=1)
+    _draw_scatter_error_bars(ax, p, x, y, weak)
 
     # plotly names the scatter trace from `legend_label`; matplotlib never passed it to `ax.scatter`, so
     # the label was dropped AND the legend call below drew an empty box (matplotlib warns about it) on
@@ -136,21 +161,7 @@ def _scatter(self, ax, p: ScatterPanelSpec, fig, cbar_axes=None) -> None:
     # ORIGINAL arrays, so resolve against the pre-subsample data (``p.x`` / ``p.y``), not the capped ``x``/``y``.
     _scatter_original_arrays_resolve_against(p, size_arr, ax)
 
-    if p.trend_line is not None and n > 1:
-        from mlframe.reporting.renderers._trend import robust_fit_endpoints
-        ends = robust_fit_endpoints(np.asarray(p.x), np.asarray(p.y), p.trend_line)
-        if ends is not None:
-            (tx0, ty0), (tx1, ty1) = ends
-            ax.plot([tx0, tx1], [ty0, ty1], color=TREND_LINE, linestyle="-", linewidth=1.6, zorder=4, label=f"robust fit ({p.trend_line})")
-
-    if p.overlay_band is not None:
-        bx, blo, bhi = (np.asarray(a) for a in p.overlay_band)
-        ax.fill_between(bx, blo, bhi, color=OVERLAY_LINE, alpha=0.18, zorder=3, linewidth=0, label="curve 95% band")
-
-    if p.overlay_line is not None:
-        ox_grid, oy_grid, olabel = p.overlay_line
-        ax.plot(np.asarray(ox_grid), np.asarray(oy_grid), color=OVERLAY_LINE, linestyle="-", linewidth=1.8, zorder=4, label=olabel)
-
+    _draw_scatter_overlays(ax, p, n)
     _draw_perfect_fit_line(p, n, x, y, ax)
     if p.xlim is not None:
         ax.set_xlim(*p.xlim)
