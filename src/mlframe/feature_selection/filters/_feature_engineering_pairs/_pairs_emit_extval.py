@@ -13,6 +13,7 @@ import logging
 import numpy as np
 
 from mlframe.utils.env_flags import env_int
+from ._pairs_code_bins import code_table_bins
 from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
@@ -175,7 +176,7 @@ def _emit_pair_features_step2_read_here_once(
                         discretized_transformed_values.reshape(-1, 1),
                         x=np.array([0], dtype=np.int64),
                         y=None,
-                        factors_nbins=np.array([quantization_nbins], dtype=np.int64),
+                        factors_nbins=np.array([code_table_bins(discretized_transformed_values, quantization_nbins)], dtype=np.int64),
                         classes_y=classes_y,
                         classes_y_safe=classes_y_safe,
                         freqs_y=freqs_y,

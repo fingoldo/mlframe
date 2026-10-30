@@ -327,9 +327,12 @@ def _entropy_from_labels(y: np.ndarray) -> float:
 
 # k*log(k) for k < _XLOGX_SIZE, a numba-frozen table: the split scan needs two entropies per candidate, and a log per class per candidate was
 # the dominant cost of the validated/permutation path. Above the table the same term is computed directly.
-_XLOGX_SIZE = 32768
-_XLOGX = np.array([k * np.log(k) if k > 0 else 0.0 for k in range(_XLOGX_SIZE)], dtype=np.float64)  # Intentional float64: log lookup table of the MI kernels
-_LOGN = np.array([np.log(k) if k > 0 else 0.0 for k in range(_XLOGX_SIZE)], dtype=np.float64)  # Intentional float64: log lookup table of the MI kernels
+# 100 001 entries cover the node sizes of a 100 000-row screen: with 32 768 most counts of the root scan there fell through to a direct log. The two tables must stay under
+# numba's cacheable constant-array size (about 1 MiB each, measured: 131 071 entries already stop every function that reads them from being cached).
+_XLOGX_SIZE = 100001
+_K_RANGE = np.arange(_XLOGX_SIZE, dtype=np.float64)  # Intentional float64: log lookup table of the MI kernels
+_LOGN = np.log(np.maximum(_K_RANGE, 1.0))  # log(0) is stored as 0: a zero count never contributes
+_XLOGX = _K_RANGE * _LOGN
 
 
 @njit(nogil=True, cache=True)

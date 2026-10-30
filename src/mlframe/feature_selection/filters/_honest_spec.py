@@ -82,8 +82,6 @@ def build_honest_spec(X: pd.DataFrame, cols: Sequence[str], y_raw: np.ndarray, m
             q_fb_rows.append(np.empty(0, dtype=np.float64))
             # Intentional float64: MDLP cut search at the production binning width (cut points must match supervised_binning)
             q_rf_rows.append(np.empty(0, dtype=np.float64))
-    if method == "oos" and nan_cols.any():
-        return None
     if method == "oos":
         # Held-out-validated MDLP: the cut search reads the raw (compact) class labels directly.
         _, enc = np.unique(np.asarray(y_raw), return_inverse=True)

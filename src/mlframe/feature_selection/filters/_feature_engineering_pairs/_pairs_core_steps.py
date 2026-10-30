@@ -13,6 +13,7 @@ from pandas.api.extensions import ExtensionDtype
 _DEGENERATE_REL_TOL = 32.0 * np.finfo(np.float64).eps
 
 
+from ._pairs_code_bins import code_table_bins
 from ._pairs_core_helpers import (  # noqa: F401  -- carved helpers
     _short_fe_name,
     _check_prospective__use_subsample,
@@ -249,7 +250,7 @@ def _check_prospective_fe_step3_gpu_clock_variance(_operand_marginal_mi_cache, v
                     _disc.reshape(-1, 1),
                     x=np.array([0], dtype=np.int64),  # type: ignore[arg-type]  # same reason as `y` below: the annotation is stricter than the accepted call shape
                     y=None,  # type: ignore[arg-type]  # mi_direct (permutation.py, sibling-owned) accepts this call shape at runtime; its x/y annotation (tuple) is stricter than actual usage
-                    factors_nbins=np.array([quantization_nbins], dtype=np.int64),
+                    factors_nbins=np.array([code_table_bins(_disc, quantization_nbins)], dtype=np.int64),
                     classes_y=classes_y,
                     classes_y_safe=classes_y_safe,
                     freqs_y=freqs_y,
