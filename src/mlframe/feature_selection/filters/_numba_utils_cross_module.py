@@ -1061,3 +1061,22 @@ def root_decision_tie_free(ys: np.ndarray, ones: int, trans: int, min_split_size
         if ys[i] != ys[i + 1]:
             n_cand -= 1
     return _root_verdict(ys, np.empty(0, dtype=np.int64), 0, n, ones, n_cand, lo, hi, alpha)
+
+
+@njit(cache=True)
+def scrub_nonfinite_1d(a: np.ndarray) -> None:
+    """Set every NaN and infinity of ``a`` to 0 in place (one pass; ``np.nan_to_num(a, nan=0, posinf=0, neginf=0)``)."""
+    for i in range(a.shape[0]):
+        v = a[i]
+        if not (v - v == 0):  # NaN and +-inf: the difference is not 0
+            a[i] = 0
+
+
+@njit(cache=True)
+def scrub_nonfinite_2d(a: np.ndarray) -> None:
+    """Set every NaN and infinity of the 2-D ``a`` to 0 in place, row by row."""
+    for i in range(a.shape[0]):
+        for j in range(a.shape[1]):
+            v = a[i, j]
+            if not (v - v == 0):
+                a[i, j] = 0
