@@ -162,9 +162,10 @@ def atomic_write_bytes(target_path: str, writer_fn: Callable[[Any], None], *, fs
     # collisions cheaply.
     _tmp_basename = f"{os.path.basename(target_path)}.tmp." f"{os.getpid()}.{_atomic_write_counter():d}.{uuid.uuid4().hex[:8]}"
     tmp_path = os.path.join(target_dir, _tmp_basename)
-    # "xb" is open(O_CREAT | O_EXCL | O_WRONLY) in binary mode: the exclusive create the mkstemp replacement needs.
+    # O_EXCL is the exclusive create the mkstemp replacement needs; a direct os.open keeps it on the same syscall path as the rest of the writer.
     try:
-        with open(tmp_path, "xb") as f:
+        fd = os.open(tmp_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY | getattr(os, "O_BINARY", 0))
+        with os.fdopen(fd, "wb") as f:
             writer_fn(f)
             if fsync:
                 # fsync inside the with-block: pickle.dump / dill.dump / numpy.save
