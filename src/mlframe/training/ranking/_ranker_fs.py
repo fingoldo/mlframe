@@ -80,6 +80,69 @@ def _mi_from_edges(x: np.ndarray, y: np.ndarray, xe: np.ndarray, ye: np.ndarray)
     return mi
 
 
+@numba.njit(cache=True)
+def _joint_mi_nats(block, j, y_g, xe, nx, ye):
+    """Plug-in MI (nats) of one column's binned joint histogram against the binned group target."""
+    n = block.shape[0]
+    ny = ye.shape[0] - 1
+    joint = np.zeros((nx, ny), dtype=np.float64)
+    for i in range(n):
+        xv = block[i, j]
+        b = 0
+        while b < nx - 1 and xv >= xe[b + 1]:
+            b += 1
+        yv = y_g[i]
+        c = 0
+        while c < ny - 1 and yv >= ye[c + 1]:
+            c += 1
+        joint[b, c] += 1.0
+    for a in range(nx):
+        for b2 in range(ny):
+            joint[a, b2] /= n
+    px = np.zeros(nx)
+    py = np.zeros(ny)
+    for a in range(nx):
+        for b2 in range(ny):
+            px[a] += joint[a, b2]
+            py[b2] += joint[a, b2]
+    mi = 0.0
+    for a in range(nx):
+        for b2 in range(ny):
+            jj = joint[a, b2]
+            if jj > 0.0:
+                mi += jj * np.log(jj / (px[a] * py[b2]))
+    return mi
+
+
+@numba.njit(cache=True)
+def _column_mi_from_qa(block, j, y_g, qa, ye):
+    """MI of one finite feature column against the group target over its deduplicated quantile edges (0.0 when constant or degenerate)."""
+    n = block.shape[0]
+    nqe = qa.shape[0]
+    # ptp guard (constant column contributes 0)
+    cmin = block[0, j]
+    cmax = block[0, j]
+    for i in range(1, n):
+        v = block[i, j]
+        if v < cmin:
+            cmin = v
+        elif v > cmax:
+            cmax = v
+    if cmax <= cmin:
+        return 0.0
+    # Dedup the monotone qa[:, j] into xe (== np.unique on already-sorted edges)
+    xe = np.empty(nqe, dtype=np.float64)
+    xe[0] = qa[0, j]
+    m = 1
+    for e in range(1, nqe):
+        if qa[e, j] > xe[m - 1]:
+            xe[m] = qa[e, j]
+            m += 1
+    if m < 2:
+        return 0.0
+    return _joint_mi_nats(block, j, y_g, xe, m - 1, ye)
+
+
 @numba.njit(cache=True, parallel=True)
 def _group_features_mi_njit(block, y_g, qa, ye, col_fin, out_mi):
     """Fused per-group MI over ALL finite feature columns in ONE njit(parallel) dispatch.
@@ -92,62 +155,10 @@ def _group_features_mi_njit(block, y_g, qa, ye, col_fin, out_mi):
     shared, precomputed unique y-edges. Output ``out_mi[j]`` matches ``_mi_from_edges`` bit-for-bit
     (same searchsorted binning + joint histogram + entropy)."""
     ncols = block.shape[1]
-    n = block.shape[0]
-    nqe = qa.shape[0]
-    ny = ye.shape[0] - 1
     for j in numba.prange(ncols):
         out_mi[j] = 0.0
-        if not col_fin[j]:
-            continue
-        # ptp guard (constant column contributes 0)
-        cmin = block[0, j]
-        cmax = block[0, j]
-        for i in range(1, n):
-            v = block[i, j]
-            if v < cmin:
-                cmin = v
-            elif v > cmax:
-                cmax = v
-        if cmax <= cmin:
-            continue
-        # Dedup the monotone qa[:, j] into xe (== np.unique on already-sorted edges)
-        xe = np.empty(nqe, dtype=np.float64)
-        xe[0] = qa[0, j]
-        m = 1
-        for e in range(1, nqe):
-            if qa[e, j] > xe[m - 1]:
-                xe[m] = qa[e, j]
-                m += 1
-        if m < 2:
-            continue
-        nx = m - 1
-        joint = np.zeros((nx, ny), dtype=np.float64)
-        for i in range(n):
-            xv = block[i, j]
-            b = 0
-            while b < nx - 1 and xv >= xe[b + 1]:
-                b += 1
-            yv = y_g[i]
-            c = 0
-            while c < ny - 1 and yv >= ye[c + 1]:
-                c += 1
-            joint[b, c] += 1.0
-        for a in range(nx):
-            for b2 in range(ny):
-                joint[a, b2] /= n
-        px = np.zeros(nx)
-        py = np.zeros(ny)
-        for a in range(nx):
-            for b2 in range(ny):
-                px[a] += joint[a, b2]
-                py[b2] += joint[a, b2]
-        mi = 0.0
-        for a in range(nx):
-            for b2 in range(ny):
-                jj = joint[a, b2]
-                if jj > 0.0:
-                    mi += jj * np.log(jj / (px[a] * py[b2]))
-        out_mi[j] = mi
+        if col_fin[j]:
+            out_mi[j] = _column_mi_from_qa(block, j, y_g, qa, ye)
 
 
 def _binned_mi(x: np.ndarray, y: np.ndarray, bins: int = 8) -> float:

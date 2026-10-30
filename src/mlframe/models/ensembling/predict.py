@@ -428,6 +428,63 @@ def _finalize_mean_of_transformed(mean_of_t: np.ndarray, ensemble_method: str) -
     return np.asarray(np.exp(mean_of_t), dtype=np.float64)  # "geo"
 
 
+def _validate_streaming_method(ensemble_method: str) -> None:
+    """Reject methods the streaming path cannot compute exactly."""
+    if ensemble_method not in SIMPLE_ENSEMBLING_METHODS:
+        raise ValueError(f"unknown ensemble_method {ensemble_method!r}")
+    if ensemble_method == "median":
+        raise NotImplementedError(
+            "ensemble_probabilistic_predictions_streaming: 'median' requires "
+            "a cross-member quantile sketch (e.g. P^2-Quantile) not yet "
+            "available. Use ensemble_probabilistic_predictions (materialised) "
+            "or pick a moment-based method (arithm/harm/quad/qube/geo)."
+        )
+    if ensemble_method == "rrf":
+        # Rank-fusion needs to see ALL N rows together to assign ranks; cannot
+        # be done with O(N*K)-memory streaming over one (N, K) chunk at a time
+        # without sacrificing the cross-row ordering RRF depends on.
+        raise NotImplementedError(
+            "ensemble_probabilistic_predictions_streaming: 'rrf' requires "
+            "the full N-row tensor to compute cross-row ranks. Use the "
+            "materialised ensemble_probabilistic_predictions path or call "
+            "rrf_ensemble directly."
+        )
+
+
+def _collect_streaming_members(preds: tuple, verbose: bool) -> list:
+    """Drop ``None`` members, raising when none remain, and warn when the outlier filter cannot run."""
+    _n_received = len(preds)
+    preds_list: list = [p for p in preds if p is not None]
+    if len(preds_list) == 0:
+        raise ValueError(
+            "ensemble_probabilistic_predictions_streaming: no non-None member predictions to ensemble "
+            f"(received {_n_received} member(s), all None). Provide at least one non-None prediction."
+        )
+    if len(preds_list) > 2 and verbose:
+        logger.warning(
+            "ensemble_probabilistic_predictions_streaming: outlier-member "
+            "filter is not applied in streaming mode (would require "
+            "materialised cross-member median). Use materialised path for "
+            "small-M suites where filter matters."
+        )
+    return preds_list
+
+
+def _streaming_nonfinite_fallback(ensembled_predictions: np.ndarray, raw_acc: "_WelfordAccumulator", verbose: bool) -> np.ndarray:
+    """Replace non-finite ensemble values with the arithmetic mean (same policy as the materialised path)."""
+    non_finite_mask = ~np.isfinite(ensembled_predictions)
+    if not non_finite_mask.any():
+        return ensembled_predictions
+    arith_mean = raw_acc.mean
+    n_replaced = int(np.sum(non_finite_mask))
+    if verbose:
+        logger.info("%s non-finite values replaced with arithmetic mean", n_replaced)
+    # shape-contract assert as defensive forward-compat.
+    if not (ensembled_predictions.shape == arith_mean.shape):
+        raise AssertionError(f"streaming ensemble combine: shape mismatch ensembled={ensembled_predictions.shape} " f"vs raw_acc.mean={arith_mean.shape}")
+    return np.where(non_finite_mask, arith_mean, ensembled_predictions)
+
+
 def ensemble_probabilistic_predictions_streaming(
     *preds,
     ensemble_method: str = "harm",
@@ -469,41 +526,8 @@ def ensemble_probabilistic_predictions_streaming(
         std_preds.mean(axis=1) for consistency). ``confident_indices``
         is None (no quantile-based filtering).
     """
-    # assert -> ValueError.
-    if ensemble_method not in SIMPLE_ENSEMBLING_METHODS:
-        raise ValueError(f"unknown ensemble_method {ensemble_method!r}")
-    if ensemble_method == "median":
-        raise NotImplementedError(
-            "ensemble_probabilistic_predictions_streaming: 'median' requires "
-            "a cross-member quantile sketch (e.g. P^2-Quantile) not yet "
-            "available. Use ensemble_probabilistic_predictions (materialised) "
-            "or pick a moment-based method (arithm/harm/quad/qube/geo)."
-        )
-    if ensemble_method == "rrf":
-        # Rank-fusion needs to see ALL N rows together to assign ranks; cannot
-        # be done with O(N*K)-memory streaming over one (N, K) chunk at a time
-        # without sacrificing the cross-row ordering RRF depends on.
-        raise NotImplementedError(
-            "ensemble_probabilistic_predictions_streaming: 'rrf' requires "
-            "the full N-row tensor to compute cross-row ranks. Use the "
-            "materialised ensemble_probabilistic_predictions path or call "
-            "rrf_ensemble directly."
-        )
-
-    _n_received = len(preds)
-    preds_list: list = [p for p in preds if p is not None]
-    if len(preds_list) == 0:
-        raise ValueError(
-            "ensemble_probabilistic_predictions_streaming: no non-None member predictions to ensemble "
-            f"(received {_n_received} member(s), all None). Provide at least one non-None prediction."
-        )
-    if len(preds_list) > 2 and verbose:
-        logger.warning(
-            "ensemble_probabilistic_predictions_streaming: outlier-member "
-            "filter is not applied in streaming mode (would require "
-            "materialised cross-member median). Use materialised path for "
-            "small-M suites where filter matters."
-        )
+    _validate_streaming_method(ensemble_method)
+    preds_list = _collect_streaming_members(preds, verbose)
 
     # Transform-per-model, feed Welford. Separate instances for each
     # moment we need (mean + the method-specific transform).
@@ -525,17 +549,7 @@ def ensemble_probabilistic_predictions_streaming(
     # Finalize per method
     ensembled_predictions = _finalize_mean_of_transformed(primary_acc.mean, ensemble_method)
 
-    # Non-finite fallback to arithmetic mean (same policy as materialised path)
-    non_finite_mask = ~np.isfinite(ensembled_predictions)
-    if non_finite_mask.any():
-        arith_mean = raw_acc.mean
-        n_replaced = int(np.sum(non_finite_mask))
-        if verbose:
-            logger.info("%s non-finite values replaced with arithmetic mean", n_replaced)
-        # shape-contract assert as defensive forward-compat.
-        if not (ensembled_predictions.shape == arith_mean.shape):
-            raise AssertionError(f"streaming ensemble combine: shape mismatch ensembled={ensembled_predictions.shape} " f"vs raw_acc.mean={arith_mean.shape}")
-        ensembled_predictions = np.where(non_finite_mask, arith_mean, ensembled_predictions)
+    ensembled_predictions = _streaming_nonfinite_fallback(ensembled_predictions, raw_acc, verbose)
 
     if ensure_prob_limits:
         ensembled_predictions = np.clip(ensembled_predictions, 0.0, 1.0)
