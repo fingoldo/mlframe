@@ -566,6 +566,102 @@ def _oof_holdout_predictions_with_rows(
 
 
 
+def _composite_fold_holdout_preds(inner, spec, base_train_full_per_spec, X_stack, X_stack_t, X_holdout, X_holdout_t, y_stack, fold_train_idx, group_ids, sample_weight, random_state, group_arr_all, n_train):
+    """Holdout predictions of one composite component refit on this fold's train rows (re-fit transform params, inner eval carve)."""
+    if spec is None:
+        raise ValueError("composite component with no spec")
+    base_full = base_train_full_per_spec.get(str(spec.get("base_column") if spec.get("name") is None or spec.get("name") == "" else spec.get("name")))
+    if base_full is None:
+        raise ValueError(f"missing base column '{spec['base_column']}'")
+    base_stack = base_full[fold_train_idx]
+    transform = get_transform(spec["transform_name"])
+    valid = transform.domain_check(y_stack, base_stack)
+    if valid.sum() < 10:
+        raise ValueError("too few valid rows after domain filter")
+    # Re-fit the transform params on THIS fold's train
+    # rows so alpha/beta/MAD do not see the held-out fold
+    # (spec["fitted_params"] were fit on the FULL train, incl.
+    # this fold's holdout -> mild OOF optimism). Fall back to
+    # the global params when the transform cannot 1-D-refit
+    # (e.g. multi-base needs the K-column matrix).
+    _g_fold = _rows_of(group_ids, fold_train_idx, valid)
+    _fold_params = _refit_fold_params(transform, spec, y_stack[valid], base_stack[valid], _g_fold, _rows_of(sample_weight, fold_train_idx, valid))
+    t_stack = call_transform(transform, "forward", y_stack[valid], base_stack[valid], _fold_params, groups=_g_fold)
+    inner_clone = clone(inner.estimator_)
+    if isinstance(X_stack_t, pd.DataFrame):
+        X_stack_valid = X_stack_t.iloc[valid].reset_index(drop=True)
+    elif _is_polars_df(X_stack_t):
+        X_stack_valid = X_stack_t.filter(pl.Series(valid))
+    else:
+        X_stack_valid = X_stack_t[valid]
+    _sw_stack_valid = None if sample_weight is None else sample_weight[fold_train_idx][valid]
+    # Carve an inner eval_set so early-stopping boosters do not raise (they did, and the per-component except below silently dropped every ES composite component each fold -- default oof_holdout_source IS kfold). Mirrors the single-split composite branch + the raw kfold branch.
+    _group_fold_valid = None
+    if group_ids is not None:
+        try:
+            _g_arr = group_arr_all
+            assert _g_arr is not None  # guaranteed by the `group_ids is not None` check above
+            if _g_arr.shape[0] == n_train:
+                _gf = _g_arr[fold_train_idx]
+                if _gf.shape[0] == valid.shape[0]:
+                    _group_fold_valid = _gf[valid]
+            else:
+                log_throttle(
+                    logger, "ensemble_group_ids_length_mismatch_composite", logging.WARNING,
+                    "[ensemble] group_ids length %d != n_train %d; group-aware carve skipped for this split.",
+                    _g_arr.shape[0], n_train,
+                )
+        except (TypeError, IndexError, ValueError):
+            _group_fold_valid = None
+    _Xf_c, _tf_c, _Xe_c, _te_c, _fm_kc = _carve_inner_eval_split(
+        X_stack_valid, t_stack, random_state=int(random_state),
+        group_ids=_group_fold_valid, return_fit_mask=True,
+    )
+    _eval_set_kc = (_Xe_c, _te_c) if _Xe_c is not None else None
+    _sw_fit_kc = _align_fit_sw(_sw_stack_valid, _fm_kc, len(_tf_c))
+    _maybe_pass_sample_weight(
+        inner_clone, _Xf_c, _tf_c, _sw_fit_kc,
+        eval_set=_eval_set_kc, fitted_source=inner.estimator_,
+    )
+    # Multi-base parity with _phase_composite_post: pass the full base_columns tuple so predict reconstructs the K-column base matrix matching the K alphas.
+    wrapped = _wrap_fitted_inner(spec, inner_clone, _fold_params, y_stack[valid], base_stack[valid], getattr(inner, "group_column", None), X_stack, valid)
+    preds = wrapped.predict(X_holdout, inner_X=X_holdout_t)
+    return preds
+
+
+def _plain_fold_holdout_preds(inner, X_stack_t, X_holdout_t, y_stack, fold_train_idx, group_ids, sample_weight, random_state, group_arr_all, n_train):
+    """Holdout predictions of one plain component refit on this fold's train rows (group-aware inner eval carve)."""
+    inner_clone = clone(inner)
+    _sw_stack = None if sample_weight is None else sample_weight[fold_train_idx]
+    _group_for_fold = None
+    if group_ids is not None:
+        try:
+            _g_arr = group_arr_all
+            assert _g_arr is not None  # guaranteed by the `group_ids is not None` check above
+            if _g_arr.shape[0] == n_train:
+                _group_for_fold = _g_arr[fold_train_idx]
+            else:
+                log_throttle(
+                    logger, "ensemble_group_ids_length_mismatch_plain", logging.WARNING,
+                    "[ensemble] group_ids length %d != n_train %d; group-aware carve skipped for this split.",
+                    _g_arr.shape[0], n_train,
+                )
+        except (TypeError, IndexError, ValueError):
+            _group_for_fold = None
+    _X_fit, _y_fit, _X_ev, _y_ev, _fm_kr = _carve_inner_eval_split(
+        X_stack_t, y_stack, random_state=int(random_state),
+        group_ids=_group_for_fold, return_fit_mask=True,
+    )
+    _eval_set = (_X_ev, _y_ev) if _X_ev is not None else None
+    _sw_fit = _align_fit_sw(_sw_stack, _fm_kr, len(_y_fit))
+    _maybe_pass_sample_weight(
+        inner_clone, _X_fit, _y_fit, _sw_fit,
+        eval_set=_eval_set, fitted_source=inner,
+    )
+    preds = inner_clone.predict(X_holdout_t)
+    return preds
+
+
 def _oof_holdout_predic_fold_train_idx_fold(_kf_split, train_X, y_train_full, component_models, component_names, component_specs, base_train_full_per_spec, group_ids, sample_weight, n_train, random_state, kfold, survived_set, oof_preds_by_name):
     """Block of _oof_holdout_predictions_with_rows starting at ``for fold_train_idx, fold_holdout_idx in _kf_split:``."""
     fold_train_idx: Any = None
@@ -589,93 +685,15 @@ def _oof_holdout_predic_fold_train_idx_fold(_kf_split, train_X, y_train_full, co
                     _pair_memo, pp, X_stack, X_holdout, y_train=y_stack, refit_supervised=True,
                 )
                 if isinstance(inner, CompositeTargetEstimator):
-                    if spec is None:
-                        raise ValueError("composite component with no spec")
-                    base_full = base_train_full_per_spec.get(str(spec.get("base_column") if spec.get("name") is None or spec.get("name") == "" else spec.get("name")))
-                    if base_full is None:
-                        raise ValueError(f"missing base column '{spec['base_column']}'")
-                    base_stack = base_full[fold_train_idx]
-                    transform = get_transform(spec["transform_name"])
-                    valid = transform.domain_check(y_stack, base_stack)
-                    if valid.sum() < 10:
-                        raise ValueError("too few valid rows after domain filter")
-                    # Re-fit the transform params on THIS fold's train
-                    # rows so alpha/beta/MAD do not see the held-out fold
-                    # (spec["fitted_params"] were fit on the FULL train, incl.
-                    # this fold's holdout -> mild OOF optimism). Fall back to
-                    # the global params when the transform cannot 1-D-refit
-                    # (e.g. multi-base needs the K-column matrix).
-                    _g_fold = _rows_of(group_ids, fold_train_idx, valid)
-                    _fold_params = _refit_fold_params(transform, spec, y_stack[valid], base_stack[valid], _g_fold, _rows_of(sample_weight, fold_train_idx, valid))
-                    t_stack = call_transform(transform, "forward", y_stack[valid], base_stack[valid], _fold_params, groups=_g_fold)
-                    inner_clone = clone(inner.estimator_)
-                    if isinstance(X_stack_t, pd.DataFrame):
-                        X_stack_valid = X_stack_t.iloc[valid].reset_index(drop=True)
-                    elif _is_polars_df(X_stack_t):
-                        X_stack_valid = X_stack_t.filter(pl.Series(valid))
-                    else:
-                        X_stack_valid = X_stack_t[valid]
-                    _sw_stack_valid = None if sample_weight is None else sample_weight[fold_train_idx][valid]
-                    # Carve an inner eval_set so early-stopping boosters do not raise (they did, and the per-component except below silently dropped every ES composite component each fold -- default oof_holdout_source IS kfold). Mirrors the single-split composite branch + the raw kfold branch.
-                    _group_fold_valid = None
-                    if group_ids is not None:
-                        try:
-                            _g_arr = _g_arr_all
-                            assert _g_arr is not None  # guaranteed by the `group_ids is not None` check above
-                            if _g_arr.shape[0] == n_train:
-                                _gf = _g_arr[fold_train_idx]
-                                if _gf.shape[0] == valid.shape[0]:
-                                    _group_fold_valid = _gf[valid]
-                            else:
-                                log_throttle(
-                                    logger, "ensemble_group_ids_length_mismatch_composite", logging.WARNING,
-                                    "[ensemble] group_ids length %d != n_train %d; group-aware carve skipped for this split.",
-                                    _g_arr.shape[0], n_train,
-                                )
-                        except (TypeError, IndexError, ValueError):
-                            _group_fold_valid = None
-                    _Xf_c, _tf_c, _Xe_c, _te_c, _fm_kc = _carve_inner_eval_split(
-                        X_stack_valid, t_stack, random_state=int(random_state),
-                        group_ids=_group_fold_valid, return_fit_mask=True,
+                    preds = _composite_fold_holdout_preds(
+                        inner, spec, base_train_full_per_spec, X_stack, X_stack_t, X_holdout, X_holdout_t,
+                        y_stack, fold_train_idx, group_ids, sample_weight, random_state, _g_arr_all, n_train,
                     )
-                    _eval_set_kc = (_Xe_c, _te_c) if _Xe_c is not None else None
-                    _sw_fit_kc = _align_fit_sw(_sw_stack_valid, _fm_kc, len(_tf_c))
-                    _maybe_pass_sample_weight(
-                        inner_clone, _Xf_c, _tf_c, _sw_fit_kc,
-                        eval_set=_eval_set_kc, fitted_source=inner.estimator_,
-                    )
-                    # Multi-base parity with _phase_composite_post: pass the full base_columns tuple so predict reconstructs the K-column base matrix matching the K alphas.
-                    wrapped = _wrap_fitted_inner(spec, inner_clone, _fold_params, y_stack[valid], base_stack[valid], getattr(inner, "group_column", None), X_stack, valid)
-                    preds = wrapped.predict(X_holdout, inner_X=X_holdout_t)
                 else:
-                    inner_clone = clone(inner)
-                    _sw_stack = None if sample_weight is None else sample_weight[fold_train_idx]
-                    _group_for_fold = None
-                    if group_ids is not None:
-                        try:
-                            _g_arr = _g_arr_all
-                            assert _g_arr is not None  # guaranteed by the `group_ids is not None` check above
-                            if _g_arr.shape[0] == n_train:
-                                _group_for_fold = _g_arr[fold_train_idx]
-                            else:
-                                log_throttle(
-                                    logger, "ensemble_group_ids_length_mismatch_plain", logging.WARNING,
-                                    "[ensemble] group_ids length %d != n_train %d; group-aware carve skipped for this split.",
-                                    _g_arr.shape[0], n_train,
-                                )
-                        except (TypeError, IndexError, ValueError):
-                            _group_for_fold = None
-                    _X_fit, _y_fit, _X_ev, _y_ev, _fm_kr = _carve_inner_eval_split(
-                        X_stack_t, y_stack, random_state=int(random_state),
-                        group_ids=_group_for_fold, return_fit_mask=True,
+                    preds = _plain_fold_holdout_preds(
+                        inner, X_stack_t, X_holdout_t, y_stack, fold_train_idx, group_ids, sample_weight,
+                        random_state, _g_arr_all, n_train,
                     )
-                    _eval_set = (_X_ev, _y_ev) if _X_ev is not None else None
-                    _sw_fit = _align_fit_sw(_sw_stack, _fm_kr, len(_y_fit))
-                    _maybe_pass_sample_weight(
-                        inner_clone, _X_fit, _y_fit, _sw_fit,
-                        eval_set=_eval_set, fitted_source=inner,
-                    )
-                    preds = inner_clone.predict(X_holdout_t)
                 preds = np.asarray(preds).reshape(-1).astype(np.float64)
                 if not np.all(np.isfinite(preds)):
                     raise ValueError("non-finite holdout predictions")

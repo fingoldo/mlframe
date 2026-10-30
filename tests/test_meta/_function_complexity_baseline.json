@@ -95,7 +95,6 @@
   "src/mlframe/training/composite/discovery/_auto_base.py::_auto_base_step2_getattr_self_config": 16,
   "src/mlframe/training/composite/discovery/_tiny_rerank_waic.py::_apply_waic_tiebreak": 17,
   "src/mlframe/training/composite/discovery/auto_detect.py::detect_time_column_candidates": 18,
-  "src/mlframe/training/composite/ensemble/__init__.py::_oof_holdout_predic_fold_train_idx_fold": 20,
   "src/mlframe/training/composite/ensemble/_cross_target.py::CompositeCrossTargetEnsemble.predict": 18,
   "src/mlframe/training/composite/ensemble/_oof_external.py::_compute_oof_with_external_holdout": 18,
   "src/mlframe/training/composite/qrf.py::_batch_weighted_quantiles_kernel": 17,
