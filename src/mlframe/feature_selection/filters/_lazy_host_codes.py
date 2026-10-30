@@ -73,9 +73,9 @@ class LazyHostCodes:
         if not store:
             return None
         tag = (int(nbins), np.dtype(dtype))
-        whole = store.get((tag, None))
+        whole: np.ndarray | None = store.get((tag, None))
         if whole is not None:
-            return whole.copy()
+            return np.asarray(whole.copy())
         if len(self.shape) == 2 and self.shape[1] > 0 and all((tag, j) in store for j in range(self.shape[1])):
             joined: np.ndarray = np.concatenate([store[(tag, j)] for j in range(self.shape[1])], axis=1)
             return joined
@@ -136,7 +136,8 @@ class LazyHostCodes:
         lo, hi = packed[-16:].view(np.int64)
         if lo < -128 or hi > 127:
             return None
-        return packed[:-16].reshape(dev.shape).astype(self._dtype, copy=False)
+        out: np.ndarray = packed[:-16].reshape(dev.shape).astype(self._dtype, copy=False)
+        return out
 
     def max(self) -> Any:
         """Largest code: a scalar reduction on the device unless the host copy already exists."""

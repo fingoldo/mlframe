@@ -101,7 +101,7 @@ pytest.importorskip("shap")
 pytest.importorskip("xgboost")
 
 
-def _shap_sel(n_features, *, su_seeded=True, top_k=8, snr_z=3.0, min_selected_ratio=0.0, active_learning=False, active_learning_budget=None):
+def _shap_sel(n_features, *, su_seeded=True, top_k=8, snr_z=3.0, min_selected_ratio=0.0, active_learning=False, active_learning_budget=None, proxy_mode="auto"):
     """Shap sel."""
     from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS
 
@@ -120,6 +120,7 @@ def _shap_sel(n_features, *, su_seeded=True, top_k=8, snr_z=3.0, min_selected_ra
         cluster_features="auto",
         within_cluster_refine=True,
         parsimony_tol=0.005,
+        proxy_mode=proxy_mode,
         su_seeded_interactions=su_seeded,
         su_seeded_top_k=top_k,
         su_seeded_snr_z=snr_z,
@@ -186,7 +187,9 @@ def test_su_seeded_snr_z_absurdly_high_is_byte_identical_no_op():
     ytr = ytr.reset_index(drop=True)
     n_features = Xtr.shape[1]
 
-    sel_off = _shap_sel(n_features, su_seeded=False)
+    # proxy_mode="auto" always runs the screen (_su_screen_enabled), so the reference must be the
+    # additive mode, which skips it entirely; auto's own screen legitimately rescues the weak pair.
+    sel_off = _shap_sel(n_features, su_seeded=False, proxy_mode="additive")
     sel_off.fit(Xtr, ytr)
     sel_hi = _shap_sel(n_features, su_seeded=True, snr_z=500.0)
     sel_hi.fit(Xtr, ytr)

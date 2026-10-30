@@ -238,6 +238,90 @@ def _binary_column_replacement_value(real_val: Any, col_is_numeric: bool, col_is
         return f"not {real_val}"
 
 
+def _rarevals_cleaning_applies(col_is_numeric, col_is_boolean, col_is_datetime, col_is_continuous, col_is_discrete, nunique, clean_nonnumeric_rarevals, clean_numeric_continuous_rarevals, max_cont_col_nuniques_for_rarevals_cleaning, clean_numeric_discrete_rarevals, max_discrete_col_nuniques_for_rarevals_cleaning):
+    """Whether the rare-values merge applies to a column: non-numeric, continuous or discrete numeric, each under its enable flag and its unique-count cap."""
+    return (
+        ((clean_nonnumeric_rarevals and not col_is_numeric) and not (col_is_boolean or col_is_datetime))
+        or (
+            clean_numeric_continuous_rarevals
+            and col_is_numeric
+            and col_is_continuous
+            and (max_cont_col_nuniques_for_rarevals_cleaning <= 0 or max_cont_col_nuniques_for_rarevals_cleaning >= nunique)
+        )
+        or (
+            clean_numeric_discrete_rarevals
+            and col_is_numeric
+            and col_is_discrete
+            and (max_discrete_col_nuniques_for_rarevals_cleaning <= 0 or max_discrete_col_nuniques_for_rarevals_cleaning >= nunique)
+        )
+    )
+
+
+def _rare_value_replacements(to_be_merged, features_transforms, col, default_na_val):
+    """Map every rare value to ``default_na_val``, warning when a rare key already carries a transform for this feature."""
+    repl_instructions = {}
+    for next_var in to_be_merged.index:
+        if next_var in features_transforms[col]:
+            # collision-detection warning verified
+            # in production logs; keep as honest WARN, drop the "remove
+            # once checked" TODO.
+            log_throttle(
+                logger,
+                "cleaning_features_transforms_key_collision",
+                logging.WARNING,
+                "Key %s of feature %s already in features_transforms with value %s!",
+                next_var, col, features_transforms[col][next_var],
+            )
+        repl_instructions[next_var] = default_na_val
+    return repl_instructions
+
+def _merged_column_dtype(col_is_numeric, default_na_val, default_float_type, df, col):
+    """Dtype name to restore a merged column to: float when NaNs are added to a numeric column, else the current dtype."""
+    if col_is_numeric and pd.isnull(default_na_val):
+        the_type = default_float_type  # to make sure ints are converted to float when NaNs are added
+    else:
+        # The CURRENT dtype, not `head`'s. `head = df.head(1)` was snapshotted before
+        # step 3's `astype("category")` ran, so restoring from it silently converted a
+        # just-categorised column back to object -- undoing the documented memory saving
+        # and leaving a 10M-row, 40-distinct-value column at full string-per-row cost,
+        # with `dtypes=df.dtypes` recording the regression as if intended.
+        the_type = df[col].dtype.name
+    return the_type
+
+
+def _binary_column_fill(nunique, col_is_datetime, col_unique_values, col_is_object, col_is_boolean, col_is_categorical, col_is_numeric, st, features_transforms, features_dtypes, col, verbose, update_data, df, analyse_mask):
+    """Fill the NaN of a two-valued column with the other option when that is the only one, and return the column state refreshed afterwards."""
+    from mlframe.preprocessing.cleaning import _update_sub_df_col
+
+    if nunique == 2 and not col_is_datetime:
+        # 6. Replaces nan with some other value when there is only one option except NAN. Like, for numerics, -real_val if real_val<>0, else real_val+1.
+        # For category, "NOT "+option_name.
+        real_val = None
+        na_val = True
+        na_val, real_val = _analyse_and_clean__category_option_name(col_unique_values, na_val, real_val)
+        if (real_val is not None) and (na_val is not True):
+            repl_value = _binary_column_replacement_value(real_val, col_is_numeric, col_is_boolean)
+
+            if verbose:
+                logger.info("feature %s: %s->%s in %s.", col, na_val, repl_value, col_unique_values)
+
+            repl_instructions = {na_val: repl_value}
+
+            features_transforms[col].update(repl_instructions)
+            features_dtypes.setdefault(col, st.head[col].dtype.name)
+            if update_data:
+                if col_is_categorical:
+                    df[col] = df[col].astype("object")
+                df[col] = df[col].replace(repl_instructions).astype(st.head[col].dtype.name)
+                col_unique_values, nunique = _update_sub_df_col(
+                    df=df, sub_df=st.sub_df, analyse_mask=analyse_mask, col=col, col_unique_values=col_unique_values, nunique=nunique
+                )
+                col_is_boolean, col_is_object, col_is_datetime, col_is_categorical, col_is_numeric = classify_column_types(df=df, col=col)
+        else:
+            _analyse_and_clean__real_val_none(real_val, verbose, col, col_unique_values, st.constant_features)
+    return col_unique_values, nunique, col_is_boolean, col_is_object, col_is_datetime, col_is_categorical, col_is_numeric
+
+
 def _analyse_and_clean__m_step2_col_iterable_columns(iterable_columns, df, st, verbose, cont_use_quantile, cont_max_scarceness, cont_max_fract_digits, cont_min_fract_level_increase_perecent, cont_max_allowed_outliers_percent, potentially_outlying_features, min_fewlyvalued_rows_per_value, fewlyvalued_features, analyse_mask, potentially_categorical_features, exclude_columns, clean_nonnumeric_rarevals, clean_numeric_continuous_rarevals, max_cont_col_nuniques_for_rarevals_cleaning, clean_numeric_discrete_rarevals, max_discrete_col_nuniques_for_rarevals_cleaning, max_rarevals_imbalance, default_na_val, features_transforms, default_float_type, features_dtypes, update_data, features_unique_values, features_ranges):
     """Step 2 of _analyse_and_clean__manyvalued_features_set: lines starting at ``for col in iterable_columns: # head.select_dtypes(include=["category",``."""
     from mlframe.preprocessing.cleaning import _update_sub_df_col
@@ -267,21 +351,7 @@ def _analyse_and_clean__m_step2_col_iterable_columns(iterable_columns, df, st, v
             if (col in exclude_columns) or (st.exclude_mask_regexp and st.exclude_mask_regexp.search(col)):
                 continue
             # 5. Optionally merges all under-presented categories into one RARE category (usually a NaN). Should this be a transformer suitable for a pipeline?
-            if (
-                ((clean_nonnumeric_rarevals and not col_is_numeric) and not (col_is_boolean or col_is_datetime))
-                or (
-                    clean_numeric_continuous_rarevals
-                    and col_is_numeric
-                    and col_is_continuous
-                    and (max_cont_col_nuniques_for_rarevals_cleaning <= 0 or max_cont_col_nuniques_for_rarevals_cleaning >= nunique)
-                )
-                or (
-                    clean_numeric_discrete_rarevals
-                    and col_is_numeric
-                    and col_is_discrete
-                    and (max_discrete_col_nuniques_for_rarevals_cleaning <= 0 or max_discrete_col_nuniques_for_rarevals_cleaning >= nunique)
-                )
-            ):
+            if _rarevals_cleaning_applies(col_is_numeric, col_is_boolean, col_is_datetime, col_is_continuous, col_is_discrete, nunique, clean_nonnumeric_rarevals, clean_numeric_continuous_rarevals, max_cont_col_nuniques_for_rarevals_cleaning, clean_numeric_discrete_rarevals, max_discrete_col_nuniques_for_rarevals_cleaning):
                 to_be_merged = col_unique_values[col_unique_values * nunique * max_rarevals_imbalance < st.nrows]
                 nan_vals_already_in_index = col_unique_values.index.isna().astype(int).sum()
                 nmerged = len(to_be_merged)
@@ -311,30 +381,9 @@ def _analyse_and_clean__m_step2_col_iterable_columns(iterable_columns, df, st, v
                                     round(nrows_merged / st.nrows * 100, 4),
                                     to_be_merged.index.to_list(),
                                 )
-                            repl_instructions = {}
-                            for next_var in to_be_merged.index:
-                                if next_var in features_transforms[col]:
-                                    # collision-detection warning verified
-                                    # in production logs; keep as honest WARN, drop the "remove
-                                    # once checked" TODO.
-                                    log_throttle(
-                                        logger,
-                                        "cleaning_features_transforms_key_collision",
-                                        logging.WARNING,
-                                        "Key %s of feature %s already in features_transforms with value %s!",
-                                        next_var, col, features_transforms[col][next_var],
-                                    )
-                                repl_instructions[next_var] = default_na_val
+                            repl_instructions = _rare_value_replacements(to_be_merged, features_transforms, col, default_na_val)
 
-                            if col_is_numeric and pd.isnull(default_na_val):
-                                the_type = default_float_type  # to make sure ints are converted to float when NaNs are added
-                            else:
-                                # The CURRENT dtype, not `head`'s. `head = df.head(1)` was snapshotted before
-                                # step 3's `astype("category")` ran, so restoring from it silently converted a
-                                # just-categorised column back to object -- undoing the documented memory saving
-                                # and leaving a 10M-row, 40-distinct-value column at full string-per-row cost,
-                                # with `dtypes=df.dtypes` recording the regression as if intended.
-                                the_type = df[col].dtype.name
+                            the_type = _merged_column_dtype(col_is_numeric, default_na_val, default_float_type, df, col)
 
                             features_transforms[col].update(repl_instructions)
                             features_dtypes[col] = str(the_type if isinstance(the_type, str) else np.dtype(the_type).name)
@@ -352,32 +401,9 @@ def _analyse_and_clean__m_step2_col_iterable_columns(iterable_columns, df, st, v
                         else:
                             # nmerged=1 and nan_vals_already_in_index=0. No point in merging just one category.
                             pass
-            if nunique == 2 and not col_is_datetime:
-                # 6. Replaces nan with some other value when there is only one option except NAN. Like, for numerics, -real_val if real_val<>0, else real_val+1.
-                # For category, "NOT "+option_name.
-                real_val = None
-                na_val = True
-                na_val, real_val = _analyse_and_clean__category_option_name(col_unique_values, na_val, real_val)
-                if (real_val is not None) and (na_val is not True):
-                    repl_value = _binary_column_replacement_value(real_val, col_is_numeric, col_is_boolean)
-
-                    if verbose:
-                        logger.info("feature %s: %s->%s in %s.", col, na_val, repl_value, col_unique_values)
-
-                    repl_instructions = {na_val: repl_value}
-
-                    features_transforms[col].update(repl_instructions)
-                    features_dtypes.setdefault(col, st.head[col].dtype.name)
-                    if update_data:
-                        if col_is_categorical:
-                            df[col] = df[col].astype("object")
-                        df[col] = df[col].replace(repl_instructions).astype(st.head[col].dtype.name)
-                        col_unique_values, nunique = _update_sub_df_col(
-                            df=df, sub_df=st.sub_df, analyse_mask=analyse_mask, col=col, col_unique_values=col_unique_values, nunique=nunique
-                        )
-                        col_is_boolean, col_is_object, col_is_datetime, col_is_categorical, col_is_numeric = classify_column_types(df=df, col=col)
-                else:
-                    _analyse_and_clean__real_val_none(real_val, verbose, col, col_unique_values, st.constant_features)
+            col_unique_values, nunique, col_is_boolean, col_is_object, col_is_datetime, col_is_categorical, col_is_numeric = _binary_column_fill(
+                nunique, col_is_datetime, col_unique_values, col_is_object, col_is_boolean, col_is_categorical, col_is_numeric, st, features_transforms, features_dtypes, col, verbose, update_data, df, analyse_mask,
+            )
             if nunique == 1:
                 # 7. Vars having only one unique value, after all, are constant and must be dropped.
                 st.constant_features.add(col)

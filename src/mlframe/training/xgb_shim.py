@@ -466,57 +466,8 @@ class _DMatrixReuseMixin:
     # Override .fit() — the cache + native xgb.train() path
     # ------------------------------------------------------------------
 
-    def fit(
-        self,
-        X,
-        y,
-        sample_weight=None,
-        eval_set=None,
-        sample_weight_eval_set=None,
-        verbose=False,
-        monotonic_decline_patience=20,
-        capture_iteration_metrics=False,
-        iteration_metrics_stride=1,
-        **fit_kwargs,
-    ):
-        """Cached-DMatrix fit.
-
-        Lifecycle:
-          1. Build train DMatrix from cache or fresh; mutate label /
-             weight in place on cache hit.
-          2. Build val DMatrix(s) from cache or fresh.
-          3. Call ``xgb.train(params, dtrain, num_boost_round=N, evals=...)``
-             with proper params resolved from ``self.get_xgb_params()``.
-          4. Attach Booster to ``self._Booster`` (sklearn convention)
-             so inherited predict/predict_proba/feature_importances_
-             work transparently.
-          5. Set ``n_features_in_`` / ``feature_names_in_`` so sklearn
-             pipeline integration sees the proper estimator state.
-
-        Parameters mirror ``XGBClassifier.fit`` so the shim is a
-        drop-in replacement.
-        """
-        # Lazy init in case __init__ wasn't called via subclass route
-        # (sklearn.clone() of an exotic estimator).
-        if not hasattr(self, "_cached_train_dmatrix"):
-            self._init_cache()
-
-        # ---- Train DMatrix: cache-or-build ---------------------------
-        # Lookup priority:
-        #   1. Instance-level cache (same shim instance, same data) --
-        #      fast path, no global-dict contention.
-        #   2. Module-level cache (different shim, e.g. sklearn.clone() in
-        #      composite-ensemble OOF refit, with identical content) --
-        #      survives the clone-empties-cache problem.
-        #   3. Fresh build, populate BOTH caches.
-        # Fold max_bin into the cache key: a QuantileDMatrix bakes the bin
-        # count into its quantile cuts, so two models with the same X but
-        # different max_bin must NOT share a cached DMatrix (xgb.train would
-        # raise "Inconsistent max_bin"). Without max_bin in the key the
-        # module-level cross-clone cache hands a 256-bin matrix to a model
-        # configured for a different bin count.
-        _max_bin = self.get_params().get("max_bin")  # type: ignore[attr-defined]  # provided by the XGBModel sklearn base this mixin is combined with
-        train_key = (_signature_of(X), _max_bin)
+    def _cache_or_build_train_dmatrix(self, X, y, sample_weight, train_key, _max_bin):
+        """Train DMatrix from the instance cache, the module cache, or a fresh build; mutates label and weight in place on a hit."""
         dtrain = None
         _cache_source: str = "miss"
         if self._cached_train_key == train_key and self._cached_train_dmatrix is not None:
@@ -558,8 +509,10 @@ class _DMatrixReuseMixin:
                 "stored in module cache for cross-clone reuse",
                 id(dtrain), dtrain.num_row(), dtrain.num_col(),
             )
+        return dtrain
 
-        # ---- Eval DMatrix(s): cache-or-build -------------------------
+    def _build_eval_dmatrices(self, X, y, eval_set, sample_weight_eval_set, dtrain, train_key, _max_bin):
+        """Eval DMatrices for each ``(X_val, y_val)`` pair, cached by content, plus the first one used for iteration metrics."""
         evals: list[tuple[Any, str]] = []
         _iter_metrics_dval = None
         _iter_metrics_yval = None
@@ -625,6 +578,63 @@ class _DMatrixReuseMixin:
                 if i == 0:
                     _iter_metrics_dval = dval
                     _iter_metrics_yval = np.asarray(y_val)
+        return evals, _iter_metrics_dval, _iter_metrics_yval
+
+    def fit(
+        self,
+        X,
+        y,
+        sample_weight=None,
+        eval_set=None,
+        sample_weight_eval_set=None,
+        verbose=False,
+        monotonic_decline_patience=20,
+        capture_iteration_metrics=False,
+        iteration_metrics_stride=1,
+        **fit_kwargs,
+    ):
+        """Cached-DMatrix fit.
+
+        Lifecycle:
+          1. Build train DMatrix from cache or fresh; mutate label /
+             weight in place on cache hit.
+          2. Build val DMatrix(s) from cache or fresh.
+          3. Call ``xgb.train(params, dtrain, num_boost_round=N, evals=...)``
+             with proper params resolved from ``self.get_xgb_params()``.
+          4. Attach Booster to ``self._Booster`` (sklearn convention)
+             so inherited predict/predict_proba/feature_importances_
+             work transparently.
+          5. Set ``n_features_in_`` / ``feature_names_in_`` so sklearn
+             pipeline integration sees the proper estimator state.
+
+        Parameters mirror ``XGBClassifier.fit`` so the shim is a
+        drop-in replacement.
+        """
+        # Lazy init in case __init__ wasn't called via subclass route
+        # (sklearn.clone() of an exotic estimator).
+        if not hasattr(self, "_cached_train_dmatrix"):
+            self._init_cache()
+
+        # ---- Train DMatrix: cache-or-build ---------------------------
+        # Lookup priority:
+        #   1. Instance-level cache (same shim instance, same data) --
+        #      fast path, no global-dict contention.
+        #   2. Module-level cache (different shim, e.g. sklearn.clone() in
+        #      composite-ensemble OOF refit, with identical content) --
+        #      survives the clone-empties-cache problem.
+        #   3. Fresh build, populate BOTH caches.
+        # Fold max_bin into the cache key: a QuantileDMatrix bakes the bin
+        # count into its quantile cuts, so two models with the same X but
+        # different max_bin must NOT share a cached DMatrix (xgb.train would
+        # raise "Inconsistent max_bin"). Without max_bin in the key the
+        # module-level cross-clone cache hands a 256-bin matrix to a model
+        # configured for a different bin count.
+        _max_bin = self.get_params().get("max_bin")  # type: ignore[attr-defined]  # provided by the XGBModel sklearn base this mixin is combined with
+        train_key = (_signature_of(X), _max_bin)
+        dtrain = self._cache_or_build_train_dmatrix(X, y, sample_weight, train_key, _max_bin)
+
+        # ---- Eval DMatrix(s): cache-or-build -------------------------
+        evals, _iter_metrics_dval, _iter_metrics_yval = self._build_eval_dmatrices(X, y, eval_set, sample_weight_eval_set, dtrain, train_key, _max_bin)
 
         # ---- Resolve params for xgb.train() --------------------------
         # ``get_xgb_params()`` excludes sklearn-only fields (n_estimators,

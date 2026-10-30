@@ -36,6 +36,49 @@ from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
+def _categorical_columns(train_df):
+    """Names of the pandas columns of ``train_df`` whose dtype is categorical; a column whose dtype cannot be read is logged and skipped."""
+    cat_cols_to_align = []
+    for _col in train_df.columns:
+        try:
+            _dt = train_df[_col].dtype
+        except (KeyError, AttributeError, ValueError) as _e_dt:
+            # Narrowed from a bare ``except Exception``: only the expected
+            # column-access / dtype-resolution failures are tolerated. A skip
+            # here means a Categorical that should be aligned across
+            # train/val/test silently isn't, so later asserts on category-set
+            # equality may misreport -- log a WARNING (not a silent debug) so
+            # the gap is visible. Any other exception now propagates instead of
+            # masking a genuine bug.
+            log_throttle(
+                logger,
+                "eval_helpers_dtype_access_failed",
+                logging.WARNING,
+                "_eval_helpers: dtype access failed for col=%r (%s: %s); col "
+                "will NOT be added to cat-alignment list, so train/val/test "
+                "category alignment may be incomplete for it.",
+                _col, type(_e_dt).__name__, _e_dt,
+            )
+            continue
+        if isinstance(_dt, pd.CategoricalDtype):
+            cat_cols_to_align.append(_col)
+    return cat_cols_to_align
+
+def _train_val_category_union(train_df, val_df, _col):
+    """Categories of ``_col`` in train order with val's new levels appended; test is deliberately excluded so no test-set information reaches the fit."""
+    train_cats = list(train_df[_col].cat.categories)
+    union_cats = list(train_cats)
+    seen = set(train_cats)
+    if val_df is not None and isinstance(val_df, pd.DataFrame) and _col in val_df.columns:
+        _val_dtype = val_df[_col].dtype
+        if isinstance(_val_dtype, pd.CategoricalDtype):
+            for _cat in _val_dtype.categories:
+                if _cat not in seen:
+                    union_cats.append(_cat)
+                    seen.add(_cat)
+    return train_cats, union_cats
+
+
 def _align_xgb_cat_categories(model_type_name, train_df, val_df=None, test_df=None):
     """Make ``pd.CategoricalDtype`` columns use the SAME ``categories``
     list across train / val / test so XGBoost's ``enable_categorical``
@@ -98,30 +141,7 @@ def _align_xgb_cat_categories(model_type_name, train_df, val_df=None, test_df=No
     if not isinstance(train_df, pd.DataFrame):
         return train_df, val_df, test_df
 
-    cat_cols_to_align = []
-    for _col in train_df.columns:
-        try:
-            _dt = train_df[_col].dtype
-        except (KeyError, AttributeError, ValueError) as _e_dt:
-            # Narrowed from a bare ``except Exception``: only the expected
-            # column-access / dtype-resolution failures are tolerated. A skip
-            # here means a Categorical that should be aligned across
-            # train/val/test silently isn't, so later asserts on category-set
-            # equality may misreport -- log a WARNING (not a silent debug) so
-            # the gap is visible. Any other exception now propagates instead of
-            # masking a genuine bug.
-            log_throttle(
-                logger,
-                "eval_helpers_dtype_access_failed",
-                logging.WARNING,
-                "_eval_helpers: dtype access failed for col=%r (%s: %s); col "
-                "will NOT be added to cat-alignment list, so train/val/test "
-                "category alignment may be incomplete for it.",
-                _col, type(_e_dt).__name__, _e_dt,
-            )
-            continue
-        if isinstance(_dt, pd.CategoricalDtype):
-            cat_cols_to_align.append(_col)
+    cat_cols_to_align = _categorical_columns(train_df)
 
     # DIAG: print full cat layout to localise cat-alignment failures.
     _log_cat_diagnostics(train_df, val_df, test_df, cat_cols_to_align, model_type_name)
@@ -151,16 +171,7 @@ def _align_xgb_cat_categories(model_type_name, train_df, val_df=None, test_df=No
         # NaN-tolerant backends (CB/HGB/LGB) handle the NaN natively. XGBoost's hard-rejection of unseen
         # categories is the only path that requires upfront alignment - and for those, the upstream polars
         # Enum builder (build_polars_enum_map) already does the leak-free train+val union.
-        train_cats = list(train_df[_col].cat.categories)
-        union_cats = list(train_cats)
-        seen = set(train_cats)
-        if val_df is not None and isinstance(val_df, pd.DataFrame) and _col in val_df.columns:
-            _val_dtype = val_df[_col].dtype
-            if isinstance(_val_dtype, pd.CategoricalDtype):
-                for _cat in _val_dtype.categories:
-                    if _cat not in seen:
-                        union_cats.append(_cat)
-                        seen.add(_cat)
+        train_cats, union_cats = _train_val_category_union(train_df, val_df, _col)
         if union_cats == train_cats:
             continue  # No new categories -- alignment unnecessary.
         # Re-cast each split's column to the union categories. test_df gets the train+val union as well
