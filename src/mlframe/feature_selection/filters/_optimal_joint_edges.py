@@ -8,7 +8,7 @@ The names are re-exported by ``_adaptive_nbins``.
 from __future__ import annotations
 
 import threading
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 import numpy as np
 
@@ -85,9 +85,9 @@ def _optimal_joint_final_edges(plan: dict, M: int) -> np.ndarray:
     edges = plan["final"].get(M)
     if edges is None:
         x = plan["x"]
-        edges = _a()._edges_from_quantiles(x, M) if plan["base"] == "quantile" else _a()._edges_from_uniform(x, M)
+        edges = cast(np.ndarray, _a()._edges_from_quantiles(x, M) if plan["base"] == "quantile" else _a()._edges_from_uniform(x, M))
         plan["final"][M] = edges
-    return edges
+    return cast(np.ndarray, edges)
 
 
 def edges_optimal_joint(
@@ -152,7 +152,7 @@ def edges_optimal_joint(
     n = x.size
     if n < n_splits * 4:
         # Fall back to FD on small samples.
-        return _a().edges_freedman_diaconis(x, base=base)
+        return cast(np.ndarray, _a().edges_freedman_diaconis(x, base=base))
     # The plan depends on the column (after the mask) and the settings, not on y; it is kept per column when a cache is given. A y with a different finite pattern gives a different masked
     # column, hence a different key, so the cache can never serve a plan built for other rows.
     # The plan is keyed on the array the caller handed in (hashed once per call, shared with the column facts) when nothing was dropped; the float64 copy is only built on a miss.
@@ -173,7 +173,7 @@ def edges_optimal_joint(
         # all, exactly the MDLP silent-empty-output bug class. Fall back to the same Freedman-Diaconis
         # path used for the too-small-n guard above - at least one principled, unconditional binning
         # instead of an untested/possibly-invalid M.
-        return _a().edges_freedman_diaconis(x, base=base)
+        return cast(np.ndarray, _a().edges_freedman_diaconis(x, base=base))
     # Return edges built on full data at the winning M.
     return _optimal_joint_final_edges(plan, best_M)
 
@@ -208,7 +208,7 @@ class OptimalJointPlanCache:
 
         last = getattr(self._local, "last", None)
         if last is not None and last[0] is arr:
-            return last[1]
+            return cast(str, last[1])
         key = hash_array_content(arr)
         self._local.last = (arr, key)
         return key
@@ -259,7 +259,7 @@ class OptimalJointPlanCache:
 
         last = getattr(self._local, "last_y", None)
         if last is not None and last[0] is y:
-            return last[1]
+            return cast(str, last[1])
         key = hash_array_content(y)
         self._local.last_y = (y, key)
         return key
@@ -281,7 +281,7 @@ class OptimalJointPlanCache:
                 while len(self._targets) >= _FOLD_TARGET_MEMO:
                     self._targets.pop(next(iter(self._targets)))
                 self._targets[key] = out
-            return out
+            return cast("tuple[np.ndarray, int]", out)
 
         return fold_target
 
