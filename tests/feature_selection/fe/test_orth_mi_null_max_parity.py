@@ -97,3 +97,52 @@ def test_a_substituted_scorer_is_honoured_not_shortcut(monkeypatch):
 
     out = null_max_mi(X, y, perms, 10, own)
     assert len(seen) == len(perms) and np.all(out == 1.0)
+
+
+def _frame_with_missing(n: int = 4000, k: int = 12, seed: int = 0):
+    """The candidate frame with a few missing values in two columns, as the out-of-fold aggregates have for empty cells."""
+    X, y, perms = _frame(n, k, seed)
+    X[::37, 2] = np.nan
+    X[5, 7] = np.nan
+    return X, y, perms
+
+
+def test_a_matrix_with_missing_columns_keeps_the_shortcut_for_the_finite_ones(monkeypatch):
+    """Columns with a missing value are scored on their own, the others are rank-binned once: the maxima equal the repeated calls bit for bit."""
+    from mlframe.feature_selection.filters._orthogonal_univariate_fe import _orth_mi_null_max as M
+
+    monkeypatch.delenv("MLFRAME_FE_GPU_STRICT", raising=False)
+    monkeypatch.delenv("MLFRAME_FE_IMBALANCE_MI", raising=False)
+    X, y, perms = _frame_with_missing()
+    assert not M._takes_cpu_rank_path(X, 10) and M._cpu_rank_path_applies(X, 10)
+    calls = []
+    real = M._rank_codes_cols_njit
+    monkeypatch.setattr(M, "_rank_codes_cols_njit", lambda *a: (calls.append(1), real(*a))[1])
+    np.testing.assert_array_equal(null_max_mi(X, y, perms, 10, _mi_classif_batch), _repeated(X, y, perms, 10))
+    assert len(calls) == 1, "the finite columns must be rank-binned once, not once per permutation"
+
+
+def test_a_matrix_whose_every_column_has_a_missing_value_matches(monkeypatch):
+    """No finite column at all: every value comes from the per-column route."""
+    monkeypatch.delenv("MLFRAME_FE_GPU_STRICT", raising=False)
+    monkeypatch.delenv("MLFRAME_FE_IMBALANCE_MI", raising=False)
+    X, y, perms = _frame(k=4)
+    X[3, :] = np.nan
+    np.testing.assert_array_equal(null_max_mi(X, y, perms, 10, _mi_classif_batch), _repeated(X, y, perms, 10))
+
+
+def test_a_matrix_scored_in_column_blocks_is_binned_once_per_block(monkeypatch):
+    """When the batch MI routes the matrix to CPU column blocks (a memory bound), each block is rank-binned once for all permutations and the maxima equal the repeated block-wise calls."""
+    from mlframe.feature_selection.filters._orthogonal_univariate_fe import _orth_mi_backends as be
+    from mlframe.feature_selection.filters._orthogonal_univariate_fe import _orth_mi_null_max as M
+
+    monkeypatch.delenv("MLFRAME_FE_GPU_STRICT", raising=False)
+    monkeypatch.delenv("MLFRAME_FE_IMBALANCE_MI", raising=False)
+    monkeypatch.setattr(be, "_mi_path_for", lambda n, p, dtype, rank_binning: "cpu_blocks")
+    monkeypatch.setattr(be, "_mi_chunk_cols_for", lambda n: 5)
+    X, y, perms = _frame_with_missing(k=13)
+    calls = []
+    real = M._rank_codes_cols_njit
+    monkeypatch.setattr(M, "_rank_codes_cols_njit", lambda *a: (calls.append(1), real(*a))[1])
+    np.testing.assert_array_equal(null_max_mi(X, y, perms, 10, _mi_classif_batch), _repeated(X, y, perms, 10))
+    assert len(calls) == 3, "13 columns in blocks of 5 are three blocks, each binned once for all permutations"

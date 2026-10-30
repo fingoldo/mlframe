@@ -923,7 +923,9 @@ from ._numba_utils_cross_module import (  # noqa: F401
     _presorted_dedup,
     _relevance_mi_1var_fused,
     _supervised_edges,
+    column_tie_runs,
     quantile_codes_block,
+    root_decision_binary,
     stratified_cmi,
     stratified_cmi_null,
 )

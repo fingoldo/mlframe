@@ -44,6 +44,8 @@ def permuted_labels(y_raw: np.ndarray, y_codes: np.ndarray, perm_rows: Iterable[
 
 from ._numba_utils import (  # helpers hosted in _numba_utils_cross_module for the cross-module njit invariant
     _cuts_tie_free,
+    column_tie_runs,
+    root_decision_binary,
 )
 
 ROOT_NULL_DRAWS = 2000
@@ -206,6 +208,26 @@ def _occupied_rows(joint: np.ndarray, n_x: int) -> int:
     return occupied
 
 
+@njit(cache=True)
+def _perm_cuts(
+    use_precheck, tie_free, order_row, yr_b, ys8, yd8, ysrt, xsrt, run_start, run_end, forb, no_cuts, n_classes_total, min_split_size, max_depth, alpha, n_permutations, seed, analytic_min_n,
+    analytic_min_cell,
+):
+    """``(cuts, root_rejected)`` of the tree of one (column, permutation). With the precheck on, a rejected root ends the tree without the int64 label copy (``ysrt`` is then left unfilled and the
+    caller reads the labels from ``ys8``); otherwise the sorted labels are gathered and the tree is searched."""
+    n = ysrt.shape[0]
+    if use_precheck:
+        for i in range(n):
+            ys8[i] = yr_b[order_row[i]]
+        if root_decision_binary(ys8, run_start, run_end, yd8, forb, min_split_size, alpha, analytic_min_n, analytic_min_cell) == 0:
+            return no_cuts, True
+    for i in range(n):
+        ysrt[i] = yr_b[order_row[i]]
+    if tie_free:
+        return _cuts_tie_free(xsrt, ysrt, n_classes_total, min_split_size, max_depth, alpha, n_permutations, seed, analytic_min_n, analytic_min_cell, np.nan), False
+    return _mdlp_cuts_presorted(xsrt, ysrt, n_classes_total, min_split_size, max_depth, alpha, n_permutations, seed, analytic_min_n, analytic_min_cell), False
+
+
 @njit(parallel=True, cache=True)
 def honest_null_columns_bycol(
     raw_cont: np.ndarray,
@@ -229,8 +251,12 @@ def honest_null_columns_bycol(
     eval_rows: np.ndarray,
     col_slot: np.ndarray,
     nan_cont: np.ndarray,
+    precheck: bool = True,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Same result as ``honest_null_columns`` (``(plain, corrected)``, each ``(permutations, k)``), prange over columns.
+
+    ``precheck``: for binary labels the root test of each tree is first decided on an int8 label stream (``root_decision_binary``); a rejected root, which is the usual outcome on a permuted label,
+    ends the tree there. The decision is the one the general route reaches, so the result does not depend on the flag.
 
     ``y_raw_perm[b]`` / ``y_codes_perm[b]`` are the raw labels and the screen's target codes under permutation ``b`` (``y[perms[b]]``), stored in the
     narrowest integer type that holds them (see ``permuted_labels``): the per-row gathers then read a small, cache-resident row instead of two
@@ -245,9 +271,8 @@ def honest_null_columns_bycol(
     order = _presort_columns(raw_cont)
     # Per permutation (not per column): the number of target codes and of occupied target codes over the evaluation rows.
     ky_eff_perm, ny_perm, same_labels = _bycol_perm_label_stats(n_perm_rows, y_codes_perm, m, eval_rows, n, y_raw_perm)
-    # The root node takes its own per-permutation test, as the production recursion does: a threshold shared across permutations
+    # The root node takes its own per-permutation test (``_perm_cuts`` passes no shared root threshold), as the production recursion does: a threshold shared across permutations
     # (root_null_gain_threshold, from one permutation's labels) changes accept decisions.
-    root_crit = np.nan
     for j in prange(k):
         ysrt = np.empty(n, dtype=np.int64)
         ys = np.empty(m, dtype=np.int64)
@@ -255,6 +280,16 @@ def honest_null_columns_bycol(
         xsrt = np.empty(n, dtype=raw_cont.dtype)
         col = np.empty(n, dtype=raw_cont.dtype)
         tie_free, has_nan_col = _prepare_column(raw_cont, order, nan_cont, fixed_codes, eval_rows, is_cont[j], col_slot[j], xsrt, col, xs_buf)
+        # A tree without cuts leaves the column on its fallback edges, which do not depend on the permutation: the codes in ``xs_buf`` and their occupied count are then kept
+        # from the first such permutation instead of being rebuilt for each one (most permutations of a noise column accept no cut).
+        codes_on_fallback = False
+        kx_on_fallback = 0.0
+        use_precheck = precheck and is_cont[j] and n_classes_total == 2
+        run_start, run_end = column_tie_runs(xsrt) if use_precheck else (np.empty(0, dtype=np.int64), np.empty(0, dtype=np.int64))
+        ys8 = np.empty(n if use_precheck else 0, dtype=np.int8)
+        yd8 = np.empty(n if use_precheck else 0, dtype=np.int8)
+        forb = np.empty(run_start.shape[0] + 1, dtype=np.int64)
+        no_cuts = np.empty(0, dtype=np.float64)  # Intentional float64: bin-edge / cut vector
         for b in range(n_perm_rows):
             yr_b = y_raw_perm[b]
             yc_b = y_codes_perm[b]
@@ -263,23 +298,10 @@ def honest_null_columns_bycol(
             fast = False
             if is_cont[j]:
                 sj = col_slot[j]
-                for i in range(n):
-                    ysrt[i] = yr_b[order[sj, i]]
-                if tie_free:
-                    cuts = _cuts_tie_free(xsrt, ysrt, n_classes_total, min_split_size, max_depth, alpha, n_permutations, seed, analytic_min_n, analytic_min_cell, root_crit)
-                else:
-                    cuts = _mdlp_cuts_presorted(
-                        xsrt,
-                        ysrt,
-                        n_classes_total,
-                        min_split_size,
-                        max_depth,
-                        alpha,
-                        n_permutations,
-                        seed,
-                        analytic_min_n,
-                        analytic_min_cell,
-                    )
+                cuts, root_rejected = _perm_cuts(
+                    use_precheck, tie_free, order[sj], yr_b, ys8, yd8, ysrt, xsrt, run_start, run_end, forb, no_cuts, n_classes_total, min_split_size, max_depth, alpha, n_permutations, seed,
+                    analytic_min_n, analytic_min_cell,
+                )
                 final = _supervised_edges_sorted(xsrt, cuts, q_fallback[j, : q_fallback_len[j]], q_refine[j, : q_refine_len[j]])
                 nb_reg = final.shape[0] + 1
                 fast = same_labels and not has_nan_col
@@ -287,19 +309,32 @@ def honest_null_columns_bycol(
                     # every row is evaluated, the labels of the tree are the screen's codes, no NaN code: the joint is counted in one pass over the sorted values and labels
                     n_x = nb_reg
                     joint = np.zeros((n_x, ny), dtype=np.int64)
-                    _joint_from_sorted(xsrt, ysrt, final, n_x, ny, joint)
+                    if root_rejected:
+                        _joint_from_sorted(xsrt, ys8, final, n_x, ny, joint)  # the labels of a rejected root stay in the int8 stream; ``ysrt`` was not filled
+                    else:
+                        _joint_from_sorted(xsrt, ysrt, final, n_x, ny, joint)
                     mi = _mi_from_joint(joint, n_x, ny, m)
                     kx_eff = float(_occupied_rows(joint, n_x))
+                    reuse_codes = False
                 else:
-                    _codes_at_rows_nan(col, nan_cont[:, sj], eval_rows, final, nb_reg, xs_buf)
+                    reuse_codes = cuts.shape[0] == 0 and codes_on_fallback
+                    if not reuse_codes:
+                        _codes_at_rows_nan(col, nan_cont[:, sj], eval_rows, final, nb_reg, xs_buf)
                     n_x = nb_reg + 1 if has_nan_col else nb_reg
             else:
                 n_x = fixed_nbins[j]
+                reuse_codes = False
             if not fast:
                 for t in range(m):
                     ys[t] = yc_b[eval_rows[t]]
                 mi = _mi_codes(xs_buf, n_x, ys, ny)
-                kx_eff = float(_n_unique_codes(xs_buf))
+                if reuse_codes:
+                    kx_eff = kx_on_fallback
+                else:
+                    kx_eff = float(_n_unique_codes(xs_buf))
+                    if is_cont[j]:
+                        codes_on_fallback = cuts.shape[0] == 0
+                        kx_on_fallback = kx_eff
             plain[b, j] = mi
             corrected[b, j] = mi - (kx_eff - 1.0) * (ky_eff - 1.0) / (2.0 * m)
     return plain, corrected

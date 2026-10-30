@@ -28,7 +28,6 @@ import multiprocessing
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
-from mlframe.feature_selection.filters.shared import crit_float_dtype
 
 if TYPE_CHECKING:
     from mlframe.feature_selection.shap_proxied_fs._shap_proxy_treeshap import TreeEnsemble
@@ -37,7 +36,7 @@ from mlframe.feature_selection.shap_proxied_fs._shap_proxy_treeshap_gpu import _
 
 logger = logging.getLogger(__name__)
 
-_INTERACTION_KERNEL: Any = None
+_INTERACTION_KERNELS: dict[tuple[int, int], Any] = {}
 _KERNEL_INIT_LOCK = multiprocessing.Lock()
 
 # Max tree depth the local-memory path scratch supports without spilling to slow global memory. Matches
@@ -265,31 +264,37 @@ def _block_size() -> int:
     return block_size_from_tuning_cache("shap_proxy_treeshap", "interaction_gpu_block_size", _DEFAULT_BLOCK_SIZE)
 
 
-def _ensure_kernel():
-    """Lazily compile (once, double-checked-locked) and cache the ``treeshap_interactions`` RawModule kernel, injecting the scratch-size #defines ahead of the device-scan and kernel source."""
-    global _INTERACTION_KERNEL
-    if _INTERACTION_KERNEL is not None:
-        return _INTERACTION_KERNEL
+def _ensure_kernel(max_depth: int, n_features: int):
+    """Compile (once per size pair, double-checked-locked) and cache the ``treeshap_interactions`` RawModule kernel.
+
+    The per-thread scratch is sized by the ensemble's real depth and feature count, not the caps: the caps (depth 24,
+    256 features) would reserve roughly 2.6 GB of device local memory for the whole kernel on a 4 GB card, which then
+    starves every later GPU path in the process. Each distinct (depth, width) gets its own module.
+    """
+    key = (int(max_depth), int(n_features))
+    kernel = _INTERACTION_KERNELS.get(key)
+    if kernel is not None:
+        return kernel
     with _KERNEL_INIT_LOCK:
-        if _INTERACTION_KERNEL is None:  # double-checked
+        kernel = _INTERACTION_KERNELS.get(key)
+        if kernel is None:
             import cupy as cp
 
             # The __device__ scan must precede the kernel that calls it; compile them as one module
-            # and fetch the kernel entry point. Scratch-size #defines (T1) are injected from the Python
-            # caps at the very front so neither the device scan nor the kernel can use a drifted literal.
-            module = cp.RawModule(code=_defines_header() + _DEVICE_SRC + _KERNEL_SRC)
-            _INTERACTION_KERNEL = module.get_function("treeshap_interactions")
-    return _INTERACTION_KERNEL
+            # and fetch the kernel entry point. Scratch-size #defines are injected at the very front.
+            module = cp.RawModule(code=_defines_header(int(max_depth), int(n_features)) + _DEVICE_SRC + _KERNEL_SRC)
+            kernel = module.get_function("treeshap_interactions")
+            _INTERACTION_KERNELS[key] = kernel
+    return kernel
 
 
-def _defines_header() -> str:
-    """CUDA ``#define``s for the scratch caps, derived from the Python constants (T1): MAXW = depth + 2,
-    MAXLVL = depth + 3 (conditioned child reaches one level deeper), MAXP = max supported features. The
-    host asserts ``ensemble.max_depth <= _MAX_SUPPORTED_DEPTH`` and width ``<= _MAX_SUPPORTED_FEATURES``
-    before launch, so these bound the realised path/stack depth and the per-thread phi accumulators."""
-    maxw = _MAX_SUPPORTED_DEPTH + 2
-    maxlvl = _MAX_SUPPORTED_DEPTH + 3
-    return f"#define MAXW {maxw}\n#define MAXLVL {maxlvl}\n#define MAXP {_MAX_SUPPORTED_FEATURES}\n"
+def _defines_header(max_depth: int, n_features: int) -> str:
+    """CUDA ``#define``s for the scratch sizes of one ensemble: MAXW = depth + 2, MAXLVL = depth + 3 (a conditioned
+    child reaches one level deeper), MAXP = the feature count. The host asserts ``max_depth <= _MAX_SUPPORTED_DEPTH``
+    and ``n_features <= _MAX_SUPPORTED_FEATURES`` before launch, so these bound the realised path and accumulators."""
+    maxw = int(max_depth) + 2
+    maxlvl = int(max_depth) + 3
+    return f"#define MAXW {maxw}\n#define MAXLVL {maxlvl}\n#define MAXP {max(int(n_features), 1)}\n"
 
 
 def interaction_tensor_gpu(ensemble: TreeEnsemble, X: np.ndarray) -> tuple[np.ndarray, np.ndarray, float]:
@@ -316,7 +321,7 @@ def interaction_tensor_gpu(ensemble: TreeEnsemble, X: np.ndarray) -> tuple[np.nd
     split_feats = ensemble.features[ensemble.features >= 0]
     cond_feats = np.unique(split_feats).astype(np.int32) if split_feats.size else np.empty(0, dtype=np.int32)
 
-    kernel = _ensure_kernel()
+    kernel = _ensure_kernel(ensemble.max_depth, P)
     block = _block_size()
 
     X_d = cp.asarray(Xf)
@@ -325,14 +330,15 @@ def interaction_tensor_gpu(ensemble: TreeEnsemble, X: np.ndarray) -> tuple[np.nd
     cd_d = cp.asarray(ensemble.children_default)
     feat_d = cp.asarray(ensemble.features)
     thr_d = cp.asarray(ensemble.thresholds)
-    val_d = cp.asarray(ensemble.values)
-    cover_d = cp.asarray(ensemble.node_sample_weight)
+    # Intentional float64: the interaction CUDA kernel reads leaf values and cover as double*, so float32 host arrays would be misread.
+    val_d = cp.asarray(ensemble.values, dtype=np.float64)
+    cover_d = cp.asarray(ensemble.node_sample_weight, dtype=np.float64)
     roots_d = cp.asarray(ensemble.tree_roots)
     cond_d = cp.asarray(cond_feats)
     # Intentional float64: the interaction CUDA kernel writes Phi as double*, so this buffer must be f64.
-    Phi_d = cp.zeros((n, P, P), dtype=crit_float_dtype())
+    Phi_d = cp.zeros((n, P, P), dtype=np.float64)
     # Intentional float64: the interaction CUDA kernel writes phi_main as double*, so this buffer must be f64.
-    phi_d = cp.zeros((n, P), dtype=crit_float_dtype())
+    phi_d = cp.zeros((n, P), dtype=np.float64)
 
     grid = ((n + block - 1) // block,)
     kernel(grid, (block,), (

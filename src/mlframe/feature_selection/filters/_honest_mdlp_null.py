@@ -11,12 +11,14 @@ With a spec the permutations run in a numba prange kernel; otherwise the product
 from __future__ import annotations
 
 import logging
+import os
 from collections.abc import Callable, Sequence
 
 import numpy as np
 
 from mlframe.utils.log_throttle import log_throttle
 
+from ._numba_utils import _n_unique_codes
 from ._parity_fe import _mi_codes_njit
 
 logger = logging.getLogger(__name__)
@@ -51,7 +53,7 @@ def _honest_perm_best(honest_codes_fn, factors_data, factors_nbins, y_codes, col
             x = np.ascontiguousarray(np.asarray(factors_data[:, c]).astype(np.int64))
             kx = int(factors_nbins[c])
         mi = _mi_codes_njit(x, kx, yc_p, ny)
-        kx_eff = float(np.unique(x).shape[0])
+        kx_eff = float(_n_unique_codes(x))
         corr = mi - (kx_eff - 1.0) * (ky_eff - 1.0) / (2.0 * n)
         if corr > best:
             best = corr
@@ -215,7 +217,7 @@ def _njit_null_columns(spec: dict, factors_data: np.ndarray, factors_nbins, y_id
             on_device = honest_null_columns_device(*args)
             if on_device is not None:
                 return on_device
-        return honest_null_columns_bycol(*args, nan_cont)
+        return honest_null_columns_bycol(*args, nan_cont, os.environ.get("MLFRAME_HONEST_ROOT_PRECHECK", "1") != "0")
     perms = np.stack([rng.permutation(n) for _ in range(int(n_permutations))]).astype(np.int64)
     if spec.get("method") == "oos":
         return honest_validated_null_columns(
@@ -239,6 +241,7 @@ def _njit_null_columns(spec: dict, factors_data: np.ndarray, factors_nbins, y_id
             q_rf_len,
             ev,
             col_slot,
+            nan_cont,
         )
 
 

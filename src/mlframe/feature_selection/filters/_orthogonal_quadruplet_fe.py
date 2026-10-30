@@ -343,6 +343,38 @@ def score_quadruplet_cross_basis_by_mi_uplift(
         df = df.sort_values("uplift", ascending=False).reset_index(drop=True)
     return df
 
+_QUADRUPLET_NULL_N_PERM = 8
+_QUADRUPLET_NULL_QUANTILE = 0.95
+_QUADRUPLET_NULL_SEED = 0
+
+
+def _quadruplet_null_engineered_mi_floor(
+    raw_X_seed: pd.DataFrame,
+    quad_eng: pd.DataFrame,
+    y: np.ndarray,
+    *,
+    nbins: int,
+    basis: str,
+    n_perm: int,
+    quantile: float,
+) -> float:
+    """Permutation-null floor on the best quadruplet engineered MI.
+
+    The sigma-based noise floor needs a pool of candidates to estimate the spread of the null; with the
+    default ``top_quadruplet_seed_k=4`` the pool is a single product, so that floor degenerates to zero and
+    only the uplift and fraction-of-max gates remain, which a pure-noise product clears by chance. Shuffling
+    the target and taking the ``quantile`` of the per-permutation maxima gives the chance ceiling a winner
+    must exceed, independent of the pool size.
+    """
+    rng = np.random.default_rng(_QUADRUPLET_NULL_SEED)
+    y_arr = np.asarray(y)
+    maxima = []
+    for _ in range(int(n_perm)):
+        null_df = score_quadruplet_cross_basis_by_mi_uplift(raw_X_seed, quad_eng, rng.permutation(y_arr), nbins=nbins, basis=basis)
+        maxima.append(float(null_df["engineered_mi"].max()) if not null_df.empty else 0.0)
+    return float(np.quantile(maxima, float(quantile)))
+
+
 def hybrid_orth_mi_quadruplet_fe(
     X: pd.DataFrame,
     y: np.ndarray,
@@ -359,6 +391,8 @@ def hybrid_orth_mi_quadruplet_fe(
     quadruplet_min_uplift: float = 1.05,
     quadruplet_min_abs_mi_frac: float = 0.1,
     nbins: int = 10,
+    quadruplet_null_n_perm: int = _QUADRUPLET_NULL_N_PERM,
+    quadruplet_null_quantile: float = _QUADRUPLET_NULL_QUANTILE,
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """Two-stage hybrid: (1) univariate orthogonal-poly FE + MI-greedy,
     then (2) cross-basis QUADRUPLET FE on the top-N raw source columns,
@@ -477,6 +511,11 @@ def hybrid_orth_mi_quadruplet_fe(
     _eng_mis = quad_scores["engineered_mi"].to_numpy() if not quad_scores.empty else np.array([])
     eng_noise_floor = _noise_aware_floor(_eng_mis, sigma_thresh)
     abs_floor = max(legacy_floor, noise_floor, eng_noise_floor)
+    if int(quadruplet_null_n_perm) > 0 and not quad_scores.empty:
+        abs_floor = max(abs_floor, _quadruplet_null_engineered_mi_floor(
+            raw_X_seed, quad_eng, y, nbins=nbins, basis=basis,
+            n_perm=int(quadruplet_null_n_perm), quantile=float(quadruplet_null_quantile),
+        ))
     qualified = quad_scores[(quad_scores["uplift"] >= float(quadruplet_min_uplift)) & (quad_scores["engineered_mi"] >= abs_floor)]
     winners = qualified.head(int(top_quadruplet_count))
     keep_quad = list(winners["engineered_col"])

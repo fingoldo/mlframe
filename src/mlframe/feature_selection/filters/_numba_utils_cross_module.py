@@ -9,6 +9,8 @@ import math
 import numpy as np
 from numba import njit, prange
 
+from ._internals import _entropy_from_counts_njit
+
 
 @njit(cache=True)
 def _accept_split_serial(
@@ -703,5 +705,193 @@ def stratified_cmi_null(x: np.ndarray, y: np.ndarray, s: np.ndarray, sources: np
     return out
 
 
-from .supervised_binning import _mdlp_best_split_binary_counted_njit
+from .supervised_binning import _mdlp_best_split_binary_counted_njit, _xlogx
 from .supervised_binning import _mdlp_best_split_inc_njit as _mdlp_best_split_njit
+
+# --- Root decision of the MDLP tree for binary labels, read off the int8 label stream (``honest_null_columns_bycol``) -------------------------------------------------------------------
+#
+# A tree is built for every (column, permutation) of the honest null. On a permuted label the root split is almost never accepted, and the general route pays for that decision with a
+# deduplicated copy of the sorted values (8 bytes per row) and labels (8 bytes per row) before it scans them. The decision needs only the labels: the candidate cut points are the class
+# boundaries of the sorted points, and the sorted values enter only through the runs of tied values, which are few and fixed per column. ``root_decision_binary`` rebuilds the deduplicated label
+# stream in an int8 buffer (the working set shrinks from megabytes to the size of an L2 cache) and applies the root test of ``_mdlp_dfs`` to it with the same arithmetic. It answers only when
+# the root is judged by the analytic test; otherwise it returns UNDECIDED and the caller takes the general route, which is also the route for an accepted root (it needs the cut and the children).
+
+REJECTED = 0
+ACCEPTED = 1
+UNDECIDED = -1
+
+
+@njit(cache=True)
+def column_tie_runs(xsrt: np.ndarray) -> "tuple[np.ndarray, np.ndarray]":
+    """``(starts, ends)`` of the maximal runs of equal values (two or more points) in the sorted column ``xsrt``; ``ends`` is exclusive."""
+    n = xsrt.shape[0]
+    n_runs = 0
+    i = 0
+    while i < n - 1:
+        if xsrt[i] == xsrt[i + 1]:
+            n_runs += 1
+            j = i + 1
+            while j < n and xsrt[j] == xsrt[i]:
+                j += 1
+            i = j
+        else:
+            i += 1
+    starts = np.empty(n_runs, dtype=np.int64)
+    ends = np.empty(n_runs, dtype=np.int64)
+    r = 0
+    i = 0
+    while i < n - 1:
+        if xsrt[i] == xsrt[i + 1]:
+            j = i + 1
+            while j < n and xsrt[j] == xsrt[i]:
+                j += 1
+            starts[r] = i
+            ends[r] = j
+            r += 1
+            i = j
+        else:
+            i += 1
+    return starts, ends
+
+
+@njit(cache=True)
+def _dedup_binary_stream(ys: np.ndarray, run_start: np.ndarray, run_end: np.ndarray, yd: np.ndarray, forb: np.ndarray) -> "tuple[int, int]":
+    """Write the labels of the deduplicated points into ``yd`` and return ``(points, forbidden)``.
+
+    Within a run of tied values the distinct labels are emitted ascending, as ``_presorted_dedup`` does. ``forb[:forbidden]`` holds the stream positions ``i`` whose boundary to ``i + 1`` lies inside
+    a run (the ``0`` and ``1`` point of one value): equal values never bound a candidate cut."""
+    m = 0
+    nf = 0
+    p = 0
+    for r in range(run_start.shape[0]):
+        a = run_start[r]
+        e = run_end[r]
+        yd[m : m + (a - p)] = ys[p:a]
+        m += a - p
+        ones = 0
+        for i in range(a, e):
+            ones += ys[i]
+        zeros = (e - a) - ones
+        if zeros > 0:
+            yd[m] = 0
+            m += 1
+        if ones > 0:
+            if zeros > 0:
+                forb[nf] = m - 1
+                nf += 1
+            yd[m] = 1
+            m += 1
+        p = e
+    n = ys.shape[0]
+    yd[m : m + (n - p)] = ys[p:n]
+    m += n - p
+    return m, nf
+
+
+@njit(cache=True)
+def _tail_threshold(p_star: float) -> float:
+    """The largest ``x`` (to bisection accuracy) with ``erfc(sqrt(x)) > p_star``, the chi-square(1) tail, so the analytic test of a gain ``g`` passes only if ``n * g`` exceeds it."""
+    if p_star >= 1.0:
+        return 0.0
+    lo = 0.0
+    hi = 1.0
+    while math.erfc(math.sqrt(hi)) > p_star and hi < 1e7:
+        hi *= 2.0
+    for _ in range(60):
+        mid = 0.5 * (lo + hi)
+        if math.erfc(math.sqrt(mid)) > p_star:
+            lo = mid
+        else:
+            hi = mid
+    return lo
+
+
+@njit(cache=True)
+def _count_stream_candidates(yd: np.ndarray, forb: np.ndarray, n_forb: int, lo: int, hi: int) -> int:
+    """Candidate cut positions in ``lo..hi``: label changes of the stream, minus the boundaries that lie inside a run of equal values."""
+    n_cand = 0
+    for i in range(lo, hi + 1):
+        if yd[i] != yd[i + 1]:
+            n_cand += 1
+    for k in range(n_forb):
+        if lo <= forb[k] <= hi:
+            n_cand -= 1
+    return n_cand
+
+
+@njit(cache=True)
+def _best_gain_over_bound(yd: np.ndarray, forb: np.ndarray, n_forb: int, lo: int, hi: int, n: int, tot1: int, h_full: float, scale: float) -> float:
+    """Largest exact split gain among the candidates whose bound ``ln(1 + phi^2)`` reaches the acceptance threshold (``-1e300`` when none does).
+
+    A candidate's gain is the mutual information of its 2 x 2 table, bounded by ln(1 + phi^2) with phi^2 = d^2 / (n_l n_r n_1 n_0), d = c1l * n - n_l * n_1 (KL <= ln(1 + chi^2)); ``scale`` is
+    phi_min^2 * n_1 * n_0, so a candidate is skipped when d^2 < scale * n_l * n_r."""
+    c1l = 0
+    for i in range(lo):
+        c1l += yd[i]
+    best_gain = -1e300
+    inv_n = 1.0 / n
+    fb = 0
+    for i in range(lo, hi + 1):
+        y_i = yd[i]
+        c1l += y_i
+        n_l = i + 1
+        n_r = n - n_l
+        d = float(c1l * n - n_l * tot1)
+        if d * d < scale * float(n_l) * float(n_r):
+            continue
+        if y_i == yd[i + 1]:
+            continue
+        while fb < n_forb and forb[fb] < i:
+            fb += 1
+        if fb < n_forb and forb[fb] == i:
+            continue
+        c0l = n_l - c1l
+        c1r = tot1 - c1l
+        c0r = n_r - c1r
+        h_split = (_xlogx(n_l) - _xlogx(c0l) - _xlogx(c1l) + _xlogx(n_r) - _xlogx(c0r) - _xlogx(c1r)) * inv_n
+        gain = h_full - h_split
+        if gain > best_gain:
+            best_gain = gain
+    return best_gain
+
+
+@njit(cache=True)
+def root_decision_binary(
+    ys: np.ndarray,
+    run_start: np.ndarray,
+    run_end: np.ndarray,
+    yd: np.ndarray,
+    forb: np.ndarray,
+    min_split_size: int,
+    alpha: float,
+    analytic_min_n: int,
+    analytic_min_cell: float,
+) -> int:
+    """Whether the root split of the sorted column with 0/1 labels ``ys`` is accepted, as ``_mdlp_dfs`` decides it: ACCEPTED, REJECTED, or UNDECIDED when the root is not judged by the analytic test.
+
+    ``yd`` (int8, ``len(ys)``) and ``forb`` (int64, one slot per tie run) are scratch buffers. The root is accepted when p(best gain) * n_cand < alpha, i.e. when some candidate's gain exceeds the
+    threshold g*; only the positions whose bound reaches g* get the exact gain."""
+    n, n_forb = _dedup_binary_stream(ys, run_start, run_end, yd, forb)
+    if n < 2 * min_split_size:
+        return REJECTED
+    if not (n >= analytic_min_n and float(n) / max(1.0, 2.0 * 2) >= analytic_min_cell):
+        return UNDECIDED
+    tot1 = 0
+    for i in range(n):
+        tot1 += yd[i]
+    counts_total = np.empty(2, dtype=np.int64)
+    counts_total[0] = n - tot1
+    counts_total[1] = tot1
+    h_full = _entropy_from_counts_njit(counts_total, n)
+    if h_full <= 0.0:
+        return REJECTED
+    lo = min_split_size - 1  # first scanned position: n_l = lo + 1 >= min_split_size
+    hi = n - min_split_size - 1  # last scanned position: n_r = n - hi - 1 >= min_split_size
+    n_cand = _count_stream_candidates(yd, forb, n_forb, lo, hi)
+    x_star = _tail_threshold(alpha / max(1, n_cand)) * (1.0 - 1e-6)
+    scale = math.expm1(x_star / n) * float(tot1) * float(n - tot1)
+    best_gain = _best_gain_over_bound(yd, forb, n_forb, lo, hi, n, tot1, h_full, scale)
+    if best_gain <= 0.0:
+        return REJECTED
+    p_value = min(1.0, _analytic_p_value(best_gain, n, 2) * max(1, n_cand))
+    return ACCEPTED if p_value < alpha else REJECTED
