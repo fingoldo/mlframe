@@ -44,7 +44,6 @@
   "src/mlframe/feature_selection/filters/_usability_greedy_clf_gpu_resident.py::_usability_greedy_clf_step1_def_fit_binary": 18,
   "src/mlframe/feature_selection/filters/_usability_greedy_clf_gpu_resident.py::usability_greedy_clf_gpu_resident": 19,
   "src/mlframe/feature_selection/filters/_usability_njit_pool.py::_gpu_apply_unary": 18,
-  "src/mlframe/feature_selection/filters/_wavelet_basis_fe.py::_wavelet_legs_mi_batch_njit": 20,
   "src/mlframe/feature_selection/filters/batch_mi_noise_gate_gpu.py::batch_mi_with_noise_gate_cuda_resident": 18,
   "src/mlframe/feature_selection/filters/batch_pair_usability_corr_gpu.py::_cuda_kernel_warp_factory": 16,
   "src/mlframe/feature_selection/filters/cat_fe_state.py::CatFEConfig.__post_init__": 18,

@@ -678,6 +678,41 @@ def _heldout_incremental_mi(
     return _heldout_incremental_mi_from_prep(_heldout_incremental_mi_prep(x, y, nbins=nbins), leg)
 
 
+@njit(cache=True)
+def _leg_split_mi(z, yb, idx, left, mid, right, n_y_classes):
+    """Plug-in MI between one Haar leg's ternary code and the target codes over one split's row positions."""
+    n = idx.shape[0]
+    joint = np.zeros((3, n_y_classes), dtype=np.int64)
+    ca = np.zeros(3, dtype=np.int64)
+    for ii in range(n):
+        zi = z[idx[ii]]
+        if zi >= left and zi < mid:
+            code = 2
+        elif zi >= mid and zi < right:
+            code = 0
+        else:
+            code = 1
+        joint[code, yb[ii]] += 1
+        ca[code] += 1
+    cb = np.zeros(n_y_classes, dtype=np.int64)
+    for a in range(3):
+        for b in range(n_y_classes):
+            cb[b] += joint[a, b]
+    mi = 0.0
+    nf = float(n)
+    for a in range(3):
+        pa = ca[a] / nf
+        if pa <= 0.0:
+            continue
+        for b in range(n_y_classes):
+            cab = joint[a, b]
+            if cab > 0:
+                pab = cab / nf
+                pb = cb[b] / nf
+                mi += pab * np.log(pab / (pa * pb))
+    return mi if mi > 0.0 else 0.0
+
+
 @njit(cache=True, parallel=True)
 def _wavelet_legs_mi_batch_njit(z, yb_tr, yb_va, tr_idx, va_idx, n_y_classes, js, ks):
     """``prange``-parallel batch of the per-leg train/held-out ``_binned_mi`` scoring
@@ -702,8 +737,6 @@ def _wavelet_legs_mi_batch_njit(z, yb_tr, yb_va, tr_idx, va_idx, n_y_classes, js
     order only); wired at the sole CPU fallback call site, byte-identical candidate-list order preserved
     (``js``/``ks`` built in the same ``for j: for k:`` enumeration order as before)."""
     n_legs = js.shape[0]
-    n_tr = tr_idx.shape[0]
-    n_va = va_idx.shape[0]
     mi_tr = np.zeros(n_legs, dtype=np.float64)
     mi_va = np.zeros(n_legs, dtype=np.float64)
     for li in prange(n_legs):
@@ -713,70 +746,8 @@ def _wavelet_legs_mi_batch_njit(z, yb_tr, yb_va, tr_idx, va_idx, n_y_classes, js
         left = k * width
         mid = left + width / 2.0
         right = left + width
-
-        joint_tr = np.zeros((3, n_y_classes), dtype=np.int64)
-        ca_tr = np.zeros(3, dtype=np.int64)
-        for ii in range(n_tr):
-            i = tr_idx[ii]
-            zi = z[i]
-            if zi >= left and zi < mid:
-                code = 2
-            elif zi >= mid and zi < right:
-                code = 0
-            else:
-                code = 1
-            yc = yb_tr[ii]
-            joint_tr[code, yc] += 1
-            ca_tr[code] += 1
-        cb_tr = np.zeros(n_y_classes, dtype=np.int64)
-        for a in range(3):
-            for b in range(n_y_classes):
-                cb_tr[b] += joint_tr[a, b]
-        mi = 0.0
-        nf = float(n_tr)
-        for a in range(3):
-            pa = ca_tr[a] / nf
-            if pa <= 0.0:
-                continue
-            for b in range(n_y_classes):
-                cab = joint_tr[a, b]
-                if cab > 0:
-                    pab = cab / nf
-                    pb = cb_tr[b] / nf
-                    mi += pab * np.log(pab / (pa * pb))
-        mi_tr[li] = mi if mi > 0.0 else 0.0
-
-        joint_va = np.zeros((3, n_y_classes), dtype=np.int64)
-        ca_va = np.zeros(3, dtype=np.int64)
-        for ii in range(n_va):
-            i = va_idx[ii]
-            zi = z[i]
-            if zi >= left and zi < mid:
-                code = 2
-            elif zi >= mid and zi < right:
-                code = 0
-            else:
-                code = 1
-            yc = yb_va[ii]
-            joint_va[code, yc] += 1
-            ca_va[code] += 1
-        cb_va = np.zeros(n_y_classes, dtype=np.int64)
-        for a in range(3):
-            for b in range(n_y_classes):
-                cb_va[b] += joint_va[a, b]
-        mi = 0.0
-        nf = float(n_va)
-        for a in range(3):
-            pa = ca_va[a] / nf
-            if pa <= 0.0:
-                continue
-            for b in range(n_y_classes):
-                cab = joint_va[a, b]
-                if cab > 0:
-                    pab = cab / nf
-                    pb = cb_va[b] / nf
-                    mi += pab * np.log(pab / (pa * pb))
-        mi_va[li] = mi if mi > 0.0 else 0.0
+        mi_tr[li] = _leg_split_mi(z, yb_tr, tr_idx, left, mid, right, n_y_classes)
+        mi_va[li] = _leg_split_mi(z, yb_va, va_idx, left, mid, right, n_y_classes)
     return mi_tr, mi_va
 
 
