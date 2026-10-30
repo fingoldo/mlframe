@@ -50,13 +50,13 @@ def _set_mode(mode: str) -> None:
 
 
 def _fit(a: argparse.Namespace, data: tuple, on: "str | None", profile: bool) -> tuple:
-    """One timed fit of ``data`` with family ``on`` (``None``/``BASE``: every family off; ``DEFAULTS``: the library defaults) after a warm-up fit with the same flags; returns ``(wall, profiler, model)``."""
+    """One timed fit of ``data`` with family ``on`` (``None``/``BASE``: every family off; ``DEFAULTS``: the library defaults; ``ALL``: every family on) after a warm-up fit with the same flags; returns ``(wall, profiler, model)``."""
     from mlframe.feature_selection.filters import _fe_family_timing as FT
     from mlframe.feature_selection.filters.mrmr import MRMR
 
-    kw = {} if on == "DEFAULTS" else {f: False for f in F._flag_names()}
+    kw = {} if on == "DEFAULTS" else {f: on == "ALL" for f in F._flag_names()}  # ALL switches every fe_*_enable family on
     kw.update(binning_kwargs(a.binning))
-    if on and on not in ("BASE", "DEFAULTS"):
+    if on and on not in ("BASE", "DEFAULTS", "ALL"):
         kw[f"fe_{on}_enable"] = True
     MRMR(verbose=0, random_seed=0, n_jobs=1, **kw).fit(*F._make(20_000, 30, 1))  # warm JIT / kernels with the same flags
     FT.reset_fe_family_wall()

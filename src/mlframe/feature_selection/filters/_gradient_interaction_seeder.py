@@ -137,6 +137,14 @@ def _route_gradient_seeder(n_rows: int, n_pool: int):
 
 def _standardize(X: np.ndarray):
     """Column-wise zero-mean/unit-std standardization; degenerate (all-constant) columns get std=1 to avoid a divide-by-zero."""
+    if not np.isfinite(X).all():
+        # a missing value is the column mean: zero after standardising (the surrogate's RBF features reject NaN); statistics from the finite values, an all-missing column is all zeros
+        with np.errstate(all="ignore"):
+            mu = np.nanmean(np.where(np.isfinite(X), X, np.nan), axis=0)
+            sd = np.nanstd(np.where(np.isfinite(X), X, np.nan), axis=0)
+        mu = np.where(np.isfinite(mu), mu, 0.0)
+        sd = np.where(np.isfinite(sd) & (sd != 0.0), sd, 1.0)
+        return np.where(np.isfinite(X), (X - mu) / sd, 0.0)
     mu = X.mean(axis=0)
     sd = X.std(axis=0)
     sd = np.where(sd == 0.0, 1.0, sd)
