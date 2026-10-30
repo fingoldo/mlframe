@@ -78,6 +78,41 @@ def _is_regression_target_type(target_type: Any) -> bool:
     return bool(target_type == TargetTypes.REGRESSION)
 
 
+def _eval_metric_for_backend(_backend: str, _value: str) -> tuple[str, Any] | None:
+    """Per-backend ``(param_name, eval_metric_value)`` matching the chosen loss/objective ``_value``, so LGB/XGB/CB early-stopping tracks the same surface the optimiser descends instead of a mismatched suite-default metric; returns None when no mapping is needed for that backend/value."""
+    if _backend == "cb":
+        if _value == "RMSE":
+            return ("eval_metric", "RMSE")
+        if _value == "MAE":
+            return ("eval_metric", "MAE")
+        if _value == "MultiRMSE":
+            # MTR target: CatBoost refuses a MultiRMSE loss beside the default RMSE eval_metric
+            # ("metric [RMSE] and loss [MultiRMSE] are incompatible"), so ES tracks the same multi-output surface.
+            return ("eval_metric", "MultiRMSE")
+        if _value.startswith("Huber"):
+            # Huber:delta=X IS a valid CB eval_metric (CatBoost 1.0+);
+            # match the loss exactly so ES tracks the same surface
+            # the optimiser descends. Prior code returned MAE which
+            # has a constant-magnitude gradient and stops ES at iter=1
+            # on small-residual composite targets (observed in prod:
+            # CB pred [-25,+5] for T in [-45,+45], R2=-0.41).
+            return ("eval_metric", _value)
+    elif _backend == "lgb":
+        if _value == "regression":
+            return ("metric", "l2")  # l2 == rmse-squared, LGB stops on it
+        if _value == "regression_l1":
+            return ("metric", "l1")
+        if _value == "huber":
+            return ("metric", "huber")
+    elif _backend == "xgb":
+        if _value == "reg:squarederror":
+            return ("eval_metric", "rmse")
+        if _value == "reg:absoluteerror":
+            return ("eval_metric", "mae")
+        if _value == "reg:pseudohubererror":
+            return ("eval_metric", "mphe")
+    return None
+
 def _apply_loss_recommendation_in_place(
     *,
     models_params: dict,
@@ -140,44 +175,10 @@ def _apply_loss_recommendation_in_place(
     # was RMSE -- MAE-eval surface plateaued much earlier than RMSE objective
     # could keep improving. Mismatch caused systematic under-convergence,
     # boosters' TEST RMSE was WORSE than the trivial lag_predict baseline.
-    def _eval_metric_for(_backend: str, _value: str) -> tuple[str, Any] | None:
-        """Per-backend ``(param_name, eval_metric_value)`` matching the chosen loss/objective ``_value``, so LGB/XGB/CB early-stopping tracks the same surface the optimiser descends instead of a mismatched suite-default metric; returns None when no mapping is needed for that backend/value."""
-        if _backend == "cb":
-            if _value == "RMSE":
-                return ("eval_metric", "RMSE")
-            if _value == "MAE":
-                return ("eval_metric", "MAE")
-            if _value == "MultiRMSE":
-                # MTR target: CatBoost refuses a MultiRMSE loss beside the default RMSE eval_metric
-                # ("metric [RMSE] and loss [MultiRMSE] are incompatible"), so ES tracks the same multi-output surface.
-                return ("eval_metric", "MultiRMSE")
-            if _value.startswith("Huber"):
-                # Huber:delta=X IS a valid CB eval_metric (CatBoost 1.0+);
-                # match the loss exactly so ES tracks the same surface
-                # the optimiser descends. Prior code returned MAE which
-                # has a constant-magnitude gradient and stops ES at iter=1
-                # on small-residual composite targets (observed in prod:
-                # CB pred [-25,+5] for T in [-45,+45], R2=-0.41).
-                return ("eval_metric", _value)
-        elif _backend == "lgb":
-            if _value == "regression":
-                return ("metric", "l2")  # l2 == rmse-squared, LGB stops on it
-            if _value == "regression_l1":
-                return ("metric", "l1")
-            if _value == "huber":
-                return ("metric", "huber")
-        elif _backend == "xgb":
-            if _value == "reg:squarederror":
-                return ("eval_metric", "rmse")
-            if _value == "reg:absoluteerror":
-                return ("eval_metric", "mae")
-            if _value == "reg:pseudohubererror":
-                return ("eval_metric", "mphe")
-        return None
 
     _applied: list[str] = []
     _skipped: list[str] = []
-    _apply_loss_recomme_backend_param_name_value(_backend_param, _skipped, models_params, _eval_metric_for, rec, _applied, verbose, logger_)
+    _apply_loss_recomme_backend_param_name_value(_backend_param, _skipped, models_params, _eval_metric_for_backend, rec, _applied, verbose, logger_)
 
     # Linear / Ridge / Lasso protection on heavy-kurt regression
     # An additive_residual composite ``y-addres-
