@@ -650,6 +650,17 @@ class MatplotlibRenderer:
         """Render a bar panel: grouped bars when ``values`` is a tuple of series, single-series otherwise; supports a perpendicular reference line and thins x-tick labels above 25 categories so they don't overlap."""
         horizontal = p.orientation == "horizontal"
         pos = np.arange(len(p.categories))
+        self._draw_bars(ax, p, pos, horizontal)
+        self._draw_bar_hline(ax, p, horizontal)
+        self._thin_bar_ticks(ax, p, pos, horizontal)
+        ax.set_xlabel(p.xlabel)
+        ax.set_ylabel(p.ylabel)
+        _set_panel_title(ax, p.title)
+        if p.grid:
+            ax.grid(True, alpha=0.3, axis="x" if horizontal else "y")
+
+    def _draw_bars(self, ax, p: BarPanelSpec, pos, horizontal: bool) -> None:
+        """Draw grouped bars (``values`` a tuple of series) or one series of per-bar values."""
         if isinstance(p.values, tuple):
             # Grouped bars.
             n_series = len(p.values)
@@ -682,6 +693,8 @@ class MatplotlibRenderer:
             else:
                 ax.bar(pos, p.values, **kw)
 
+    def _draw_bar_hline(self, ax, p: BarPanelSpec, horizontal: bool) -> None:
+        """Draw the perpendicular reference line, or symmetric band, of a bar panel."""
         # Reference line perpendicular to the bars (global metric across a per-segment bar). axvline for
         # horizontal bars (value axis is x), axhline for vertical bars (value axis is y).
         if p.hline is not None:
@@ -698,6 +711,8 @@ class MatplotlibRenderer:
             if hlabel:
                 _place_legend(ax)
 
+    def _thin_bar_ticks(self, ax, p: BarPanelSpec, pos, horizontal: bool) -> None:
+        """Truncate and thin the category tick labels so they stay readable at the axis's measured length."""
         if horizontal:
             # Thin AND truncate, as the vertical branch below and both plotly orientations do. A 200-category horizontal feature-importance chart otherwise smears its
             # y axis into an unreadable band of overlapping text, and a long generated feature name runs off
@@ -755,11 +770,6 @@ class MatplotlibRenderer:
                 ha="right" if _rotation else "center", fontsize=_HEATMAP_TICK_FONTSIZE,
             )
             _pad_sparse_category_axis(ax, len(p.categories), horizontal=False)
-        ax.set_xlabel(p.xlabel)
-        ax.set_ylabel(p.ylabel)
-        _set_panel_title(ax, p.title)
-        if p.grid:
-            ax.grid(True, alpha=0.3, axis="x" if horizontal else "y")
 
     def _draw_line_series(self, ax, ax2, p: LinePanelSpec, ys, labels, styles, cols, sec, fills, _xi) -> None:
         """Plot every series of a line panel, on the twin axis when flagged, with its optional fill to the baseline."""
