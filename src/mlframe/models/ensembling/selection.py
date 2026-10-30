@@ -554,6 +554,45 @@ class StepwiseSelectionResult:
     predict = _uniform_mean_blend_predict
 
 
+def _check_stepwise_inputs(stacked, y, max_picks: int, min_models: int):
+    """Validate the stepwise inputs and return ``(arr, yv, m, n)`` -- the float tensor, flat ground truth, model and row counts."""
+    arr = np.asarray(stacked, dtype=np.float64)
+    if arr.ndim not in (2, 3):
+        raise ValueError(f"stepwise_ensemble_selection: stacked must be (M, N) or (M, N, K); got {arr.shape}.")
+    m, n = arr.shape[0], arr.shape[1]
+    if m == 0:
+        raise ValueError("stepwise_ensemble_selection: empty model axis (M=0).")
+    yv = np.asarray(y).reshape(-1)
+    if yv.shape[0] != n:
+        raise ValueError(f"stepwise_ensemble_selection: y length {yv.shape[0]} != row axis N={n}.")
+    if max_picks < 1:
+        raise ValueError(f"stepwise_ensemble_selection: max_picks must be >= 1, got {max_picks}.")
+    if min_models < 1:
+        raise ValueError(f"stepwise_ensemble_selection: min_models must be >= 1, got {min_models}.")
+    return arr, yv, m, n
+
+
+def _forward_candidates(m: int, kept: list, removed_order: list, with_replacement: bool) -> list:
+    """Models eligible to be added this round: not in the bag, and never removed earlier unless re-adding is allowed."""
+    already_in = set(kept)
+    if with_replacement:
+        return [i for i in range(m) if i not in already_in]
+    ever_removed = set(removed_order)
+    return [i for i in range(m) if i not in already_in and i not in ever_removed]
+
+
+def _best_candidate(candidates: list, arr, running_sum, new_size: int, yv, metric, sign: float, tol: float, best_score: float, adding: bool):
+    """Best-scoring single add (``adding``) or drop over ``candidates`` against the bag's running sum; returns ``(index or -1, score)``."""
+    best_cand, best_cand_score = -1, best_score
+    for i in candidates:
+        cand_blend = (running_sum + arr[i]) / new_size if adding else (running_sum - arr[i]) / new_size
+        s = _score_blend(cand_blend, yv, metric)
+        if _better(s, best_cand_score, sign, tol):
+            best_cand_score = s
+            best_cand = i
+    return best_cand, best_cand_score
+
+
 def stepwise_ensemble_selection(
     stacked: np.ndarray,
     y: np.ndarray,
@@ -617,19 +656,7 @@ def stepwise_ensemble_selection(
     StepwiseSelectionResult
         Surviving model indices / add order / remove order / best score reached.
     """
-    arr = np.asarray(stacked, dtype=np.float64)
-    if arr.ndim not in (2, 3):
-        raise ValueError(f"stepwise_ensemble_selection: stacked must be (M, N) or (M, N, K); got {arr.shape}.")
-    m, n = arr.shape[0], arr.shape[1]
-    if m == 0:
-        raise ValueError("stepwise_ensemble_selection: empty model axis (M=0).")
-    yv = np.asarray(y).reshape(-1)
-    if yv.shape[0] != n:
-        raise ValueError(f"stepwise_ensemble_selection: y length {yv.shape[0]} != row axis N={n}.")
-    if max_picks < 1:
-        raise ValueError(f"stepwise_ensemble_selection: max_picks must be >= 1, got {max_picks}.")
-    if min_models < 1:
-        raise ValueError(f"stepwise_ensemble_selection: min_models must be >= 1, got {min_models}.")
+    arr, yv, m, _ = _check_stepwise_inputs(stacked, y, max_picks, min_models)
 
     sign = 1.0 if greater_is_better else -1.0
 
@@ -648,27 +675,15 @@ def stepwise_ensemble_selection(
         if n_picks >= max_picks:
             break
         # --- forward step: add the single best-improving model not currently in the bag. ---
-        already_in = set(kept)
-        if with_replacement:
-            fwd_candidates = [i for i in range(m) if i not in already_in]
-        else:
-            ever_removed = set(removed_order)
-            fwd_candidates = [i for i in range(m) if i not in already_in and i not in ever_removed]
+        fwd_candidates = _forward_candidates(m, kept, removed_order, with_replacement)
         added_this_round = -1
         if fwd_candidates:
-            new_size = bag_size + 1
-            best_cand, best_cand_score = -1, best_score
-            for i in fwd_candidates:
-                cand_blend = (running_sum + arr[i]) / new_size
-                s = _score_blend(cand_blend, yv, metric)
-                if _better(s, best_cand_score, sign, tol):
-                    best_cand_score = s
-                    best_cand = i
+            best_cand, best_cand_score = _best_candidate(fwd_candidates, arr, running_sum, bag_size + 1, yv, metric, sign, tol, best_score, adding=True)
             if best_cand >= 0:
                 kept.append(best_cand)
                 order.append(best_cand)
                 running_sum += arr[best_cand]
-                bag_size = new_size
+                bag_size += 1
                 n_picks += 1
                 best_score = best_cand_score
                 added_this_round = best_cand
@@ -679,17 +694,10 @@ def stepwise_ensemble_selection(
         if bag_size > min_models:
             bwd_candidates = [i for i in kept if i != added_this_round]
             if bwd_candidates:
-                new_size = bag_size - 1
-                best_cand, best_cand_score = -1, best_score
-                for i in bwd_candidates:
-                    cand_blend = (running_sum - arr[i]) / new_size
-                    s = _score_blend(cand_blend, yv, metric)
-                    if _better(s, best_cand_score, sign, tol):
-                        best_cand_score = s
-                        best_cand = i
+                best_cand, best_cand_score = _best_candidate(bwd_candidates, arr, running_sum, bag_size - 1, yv, metric, sign, tol, best_score, adding=False)
                 if best_cand >= 0:
                     running_sum -= arr[best_cand]
-                    bag_size = new_size
+                    bag_size -= 1
                     kept.remove(best_cand)
                     removed_order.append(best_cand)
                     best_score = best_cand_score
