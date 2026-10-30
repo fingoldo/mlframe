@@ -377,10 +377,54 @@ def _build_raw_redundan_ei_eng_idx(eng_idx, _eng_base_sets, cols, raw_name_set, 
         _eng_signal_parents[ei] = {p for p in _parents if _raw_is_signal_bearing(p)}
 
 
-def _build_raw_redundan_recipes_raw_none(_recipes, raw_X, eng_idx, cols, raw_name_set, _raw_is_signal_bearing, _eng_signal_parents, n_rows, _dev_from_cont, _eng_card, _clean_subexpr_bin, _clean_subexpr_bin_dev, _clean_subexpr_leaf_pair, verbose):
-    """Block of build_raw_redundancy_anchors starting at ``if _recipes and raw_X is not None:``."""
+def _record_clean_subexpression(_rn, ei, _subtree, _sub_parents, cols, raw_X, _eng_signal_parents, n_rows, _dev_from_cont, _eng_card, _clean_subexpr_bin, _clean_subexpr_bin_dev, _clean_subexpr_leaf_pair, verbose):
+    """Condition raw ``_rn`` on the cleanest sub-expression of consumer ``ei`` that references it, when that sub-expression sheds signal parents."""
     from mlframe.feature_selection.filters._mi_greedy_cmi_fe import _quantile_bin
 
+    _cands = []
+    for _sname, _sub in _subtree.items():
+        _sp = _sub_parents[_sname]
+        if _rn in _sp and len(_sp - {_rn}) >= 1:
+            _cands.append((len(_sp), _sname, _sub))
+    if not _cands:
+        return
+    _cands.sort(key=lambda t: (t[0], len(t[1])))
+    _, _best_name, _best_sub = _cands[0]
+    if len(_sub_parents[_best_name]) >= len(_eng_signal_parents.get(ei, set())):
+        return
+    _cs_dev = getattr(_dev_from_cont, "from_recipe", lambda *_: None)(_best_sub, raw_X, _eng_card)
+    if _cs_dev is not None and int(_cs_dev.shape[0]) != n_rows:
+        return
+    if _cs_dev is None:
+        _vals = _subexpr_continuous(_best_sub, raw_X)
+        if _vals is None or _vals.shape[0] != n_rows:
+            return
+        _cvals_clean = np.asarray(_vals, dtype=_crit_np_dtype())
+        _cs_dev = _dev_from_cont(_cvals_clean, _eng_card)
+    if _cs_dev is not None:
+        _clean_subexpr_bin[(_rn, ei)] = LazyHostCodes(_cs_dev, np.int64)
+        _clean_subexpr_bin_dev[(_rn, ei)] = _cs_dev
+    else:
+        _clean_subexpr_bin[(_rn, ei)] = _quantile_bin(_cvals_clean, nbins=_eng_card)
+        _clean_subexpr_bin_dev[(_rn, ei)] = None
+    # LEAF-PAIR marker: the clean sub-expression is a DIRECT elementary form (no further
+    # nested-parent composite of its own) over EXACTLY {rname, one other raw} - the tightest
+    # possible subsumption evidence (e.g. ``mul(log(c),sin(d))``, not a further composite that
+    # merely CONTAINS rname alongside other structure). See ``_LEAF_PAIR_RETAIN_FRAC`` at the
+    # call site for why this class gets a stricter self-retention bar.
+    _extra = getattr(_best_sub, "extra", None) or {}
+    _is_leaf = _extra.get("nested_parent_a") is None and _extra.get("nested_parent_b") is None
+    _clean_subexpr_leaf_pair[(_rn, ei)] = bool(_is_leaf and len(_sub_parents[_best_name]) == 2)
+    if verbose:
+        logger.info(
+            "raw-redundancy: conditioning raw %s on CLEAN nested sub-expression "
+            "%s (isolated from fused composite %s) instead of the whole composite.",
+            _rn, _best_name, cols[ei],
+        )
+
+
+def _build_raw_redundan_recipes_raw_none(_recipes, raw_X, eng_idx, cols, raw_name_set, _raw_is_signal_bearing, _eng_signal_parents, n_rows, _dev_from_cont, _eng_card, _clean_subexpr_bin, _clean_subexpr_bin_dev, _clean_subexpr_leaf_pair, verbose):
+    """Block of build_raw_redundancy_anchors starting at ``if _recipes and raw_X is not None:``."""
     if _recipes and raw_X is not None:
         _consumer_subtrees: dict[int, dict] = {}
         for ei in eng_idx:
@@ -415,43 +459,7 @@ def _build_raw_redundan_recipes_raw_none(_recipes, raw_X, eng_idx, cols, raw_nam
             # candidate anyway, since `_rn in _sp` would always be False for them).
             _all_relevant_raws = set().union(*_sub_parents.values()) if _sub_parents else set()
             for _rn in _all_relevant_raws:
-                _cands = []
-                for _sname, _sub in _subtree.items():
-                    _sp = _sub_parents[_sname]
-                    if _rn in _sp and len(_sp - {_rn}) >= 1:
-                        _cands.append((len(_sp), _sname, _sub))
-                if not _cands:
-                    continue
-                _cands.sort(key=lambda t: (t[0], len(t[1])))
-                _, _best_name, _best_sub = _cands[0]
-                if len(_sub_parents[_best_name]) >= len(_eng_signal_parents.get(ei, set())):
-                    continue
-                _cs_dev = getattr(_dev_from_cont, "from_recipe", lambda *_: None)(_best_sub, raw_X, _eng_card)
-                if _cs_dev is not None and int(_cs_dev.shape[0]) != n_rows:
-                    continue
-                if _cs_dev is None:
-                    _vals = _subexpr_continuous(_best_sub, raw_X)
-                    if _vals is None or _vals.shape[0] != n_rows:
-                        continue
-                    _cvals_clean = np.asarray(_vals, dtype=_crit_np_dtype())
-                    _cs_dev = _dev_from_cont(_cvals_clean, _eng_card)
-                if _cs_dev is not None:
-                    _clean_subexpr_bin[(_rn, ei)] = LazyHostCodes(_cs_dev, np.int64)
-                    _clean_subexpr_bin_dev[(_rn, ei)] = _cs_dev
-                else:
-                    _clean_subexpr_bin[(_rn, ei)] = _quantile_bin(_cvals_clean, nbins=_eng_card)
-                    _clean_subexpr_bin_dev[(_rn, ei)] = None
-                # LEAF-PAIR marker: the clean sub-expression is a DIRECT elementary form (no further
-                # nested-parent composite of its own) over EXACTLY {rname, one other raw} - the tightest
-                # possible subsumption evidence (e.g. ``mul(log(c),sin(d))``, not a further composite that
-                # merely CONTAINS rname alongside other structure). See ``_LEAF_PAIR_RETAIN_FRAC`` at the
-                # call site for why this class gets a stricter self-retention bar.
-                _extra = getattr(_best_sub, "extra", None) or {}
-                _is_leaf = _extra.get("nested_parent_a") is None and _extra.get("nested_parent_b") is None
-                _clean_subexpr_leaf_pair[(_rn, ei)] = bool(_is_leaf and len(_sub_parents[_best_name]) == 2)
-                if verbose:
-                    logger.info(
-                        "raw-redundancy: conditioning raw %s on CLEAN nested sub-expression "
-                        "%s (isolated from fused composite %s) instead of the whole composite.",
-                        _rn, _best_name, cols[ei],
-                    )
+                _record_clean_subexpression(
+                    _rn, ei, _subtree, _sub_parents, cols, raw_X, _eng_signal_parents, n_rows, _dev_from_cont, _eng_card,
+                    _clean_subexpr_bin, _clean_subexpr_bin_dev, _clean_subexpr_leaf_pair, verbose,
+                )
