@@ -86,6 +86,19 @@ def _entry_metric(entry, split: str, name: str) -> float:
     return float("nan")
 
 
+def _od_aligned_rows(arr, n_rows: int, od_idx):
+    """Rows of a captured column matching a frame of ``n_rows`` rows, sliced by ``od_idx`` when the capture predates the OD filter; ``None`` when they do not line up."""
+    if od_idx is not None and len(arr) != n_rows:
+        aligned = arr[od_idx] if len(arr) == len(od_idx) else None
+    elif len(arr) == n_rows:
+        aligned = arr
+    else:
+        aligned = None
+    if aligned is not None and len(aligned) == n_rows:
+        return aligned
+    return None
+
+
 def _augment_with_dropped_high_card_cols(
     dropped_data,
     train_df,
@@ -110,29 +123,17 @@ def _augment_with_dropped_high_card_cols(
 
     for col, data in dropped_data.items():
         if "train" in data and train_df is not None:
-            arr = data["train"]
-            if train_od_idx is not None and len(arr) != n_train:
-                arr_aligned = arr[train_od_idx] if len(arr) == len(train_od_idx) else None
-            elif len(arr) == n_train:
-                arr_aligned = arr
-            else:
-                arr_aligned = None
-            if arr_aligned is not None and len(arr_aligned) == n_train:
-                train_extras[col] = arr_aligned
+            aligned = _od_aligned_rows(data["train"], n_train, train_od_idx)
+            if aligned is not None:
+                train_extras[col] = aligned
         if "val" in data and val_df is not None:
-            arr = data["val"]
-            if val_od_idx is not None and len(arr) != n_val:
-                arr_aligned = arr[val_od_idx] if len(arr) == len(val_od_idx) else None
-            elif len(arr) == n_val:
-                arr_aligned = arr
-            else:
-                arr_aligned = None
-            if arr_aligned is not None and len(arr_aligned) == n_val:
-                val_extras[col] = arr_aligned
+            aligned = _od_aligned_rows(data["val"], n_val, val_od_idx)
+            if aligned is not None:
+                val_extras[col] = aligned
         if "test" in data and test_df is not None:
-            arr = data["test"]
-            if len(arr) == n_test:
-                test_extras[col] = arr
+            aligned = _od_aligned_rows(data["test"], n_test, None)
+            if aligned is not None:
+                test_extras[col] = aligned
         if col in train_extras:
             added.append(col)
 
@@ -423,6 +424,36 @@ def _validate_input_columns_against_metadata(
     return df
 
 
+def _classify_schema_drift(expected_idx, live_schema_idx):
+    """Split the column differences between a trained input schema and the serving one into critical, role, family and soft buckets."""
+    critical_removed: list = []
+    family_changes: list = []
+    role_changes: list = []
+    soft_width_changes: list = []
+    soft_family_changes: list = []
+    for col, e in expected_idx.items():
+        if col not in live_schema_idx:
+            if e["role"] in ("cat", "text", "embedding"):
+                critical_removed.append(col)
+            continue
+        live = live_schema_idx[col]
+        role_critical = e["role"] in ("cat", "text", "embedding") or live["role"] in ("cat", "text", "embedding")
+        if live["role"] != e["role"]:
+            if role_critical:
+                role_changes.append(f"    {col}: trained role={e['role']} serving role={live['role']}")
+        if live["dtype"] != e["dtype"]:
+            ef = _dtype_family(e["dtype"])
+            lf = _dtype_family(live["dtype"])
+            if ef != lf:
+                if role_critical:
+                    family_changes.append(f"    {col}: trained={e['dtype']!r} ({ef}) serving={live['dtype']!r} ({lf})")
+                else:
+                    soft_family_changes.append(f"    {col}: trained={e['dtype']!r} ({ef}) serving={live['dtype']!r} ({lf}) (numeric role)")
+            else:
+                soft_width_changes.append(f"    {col}: trained={e['dtype']!r} serving={live['dtype']!r} (same family={lf})")
+    return critical_removed, family_changes, role_changes, soft_width_changes, soft_family_changes
+
+
 def _validate_against_model_schemas(model_schemas, df, metadata):
     """Check the live frame against every trained model's recorded input schema and fingerprint, warning or raising on a mismatch."""
     if model_schemas:
@@ -444,31 +475,7 @@ def _validate_against_model_schemas(model_schemas, df, metadata):
             # Trained snapshot is POST-pipeline; live snapshot is PRE-pipeline. For cat/text/embedding columns
             # role/dtype is user-declared and stable, so family changes there are critical (silent label-encoding/vocab drift).
             # For numeric-role columns the pipeline casts internally, so family changes are expected -> soft-warn.
-            critical_removed: list = []
-            family_changes: list = []
-            role_changes: list = []
-            soft_width_changes: list = []
-            soft_family_changes: list = []
-            for col, e in expected_idx.items():
-                if col not in live_schema_idx:
-                    if e["role"] in ("cat", "text", "embedding"):
-                        critical_removed.append(col)
-                    continue
-                live = live_schema_idx[col]
-                role_critical = e["role"] in ("cat", "text", "embedding") or live["role"] in ("cat", "text", "embedding")
-                if live["role"] != e["role"]:
-                    if role_critical:
-                        role_changes.append(f"    {col}: trained role={e['role']} serving role={live['role']}")
-                if live["dtype"] != e["dtype"]:
-                    ef = _dtype_family(e["dtype"])
-                    lf = _dtype_family(live["dtype"])
-                    if ef != lf:
-                        if role_critical:
-                            family_changes.append(f"    {col}: trained={e['dtype']!r} ({ef}) serving={live['dtype']!r} ({lf})")
-                        else:
-                            soft_family_changes.append(f"    {col}: trained={e['dtype']!r} ({ef}) serving={live['dtype']!r} ({lf}) (numeric role)")
-                    else:
-                        soft_width_changes.append(f"    {col}: trained={e['dtype']!r} serving={live['dtype']!r} (same family={lf})")
+            critical_removed, family_changes, role_changes, soft_width_changes, soft_family_changes = _classify_schema_drift(expected_idx, live_schema_idx)
             hard_fail = bool(critical_removed or family_changes or role_changes)
             if hard_fail:
                 diff_lines = []

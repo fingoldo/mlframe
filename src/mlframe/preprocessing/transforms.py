@@ -86,6 +86,51 @@ def prepare_df_for_catboost(
     return df
 
 
+def _polars_categorical_exprs(df, cols_ordered, cat_features, na_filler, verbose, ensure_categorical, skipped_columns, pl):
+    """Polars expressions that null-fill and re-cast the categorical features for CatBoost, appending any newly detected categorical to ``cat_features``."""
+    cat_exprs = []
+    for var in tqdmu(cols_ordered, desc="Processing categorical features for CatBoost...", leave=False):
+        dtype = df[var].dtype
+        is_cat = dtype == pl.Categorical or isinstance(dtype, pl.Enum)
+        if is_cat:
+            if df[var].is_null().any():
+                if isinstance(dtype, pl.Enum):
+                    # Preserve the per-Series Enum domain by re-casting back into the SAME Enum after the str-roundtrip.
+                    _enum_dom = list(dtype.categories.to_list()) if hasattr(dtype.categories, "to_list") else list(dtype.categories)
+                    if na_filler not in _enum_dom:
+                        _enum_dom = [*_enum_dom, na_filler]
+                    cat_exprs.append(pl.col(var).cast(pl.String).fill_null(na_filler).cast(pl.Enum(_enum_dom)))
+                else:
+                    log_throttle(
+                        logger, "catboost_prep_bare_categorical_recast", logging.WARNING,
+                        "prepare_df_for_catboost: bare pl.Categorical re-cast for null-fill on %r (widens global string cache). Prefer pl.Enum upstream.", var,
+                    )
+                    cat_exprs.append(pl.col(var).cast(pl.String).fill_null(na_filler).cast(pl.Categorical))
+            if var not in cat_features:
+                if verbose:
+                    logger.info("%s appended to cat_features", var)
+                cat_features.append(var)
+        elif var in cat_features:
+            expr = pl.col(var)
+            if df[var].is_null().any():
+                expr = expr.fill_null(na_filler)
+            if ensure_categorical:
+                try:
+                    log_throttle(
+                        logger, "catboost_prep_bare_categorical_cast", logging.WARNING,
+                        "prepare_df_for_catboost: bare pl.Categorical cast for %r (widens global string cache). Prefer pl.Enum upstream.", var,
+                    )
+                    expr = expr.cast(pl.Categorical)
+                except Exception:
+                    log_throttle(logger, "catboost_prep_polars_categorical_convert_failed", logging.WARNING, "Could not convert column %s to categorical.", var)
+                    if skipped_columns is not None:
+                        skipped_columns.append(var)
+                    expr = None
+            if expr is not None:
+                cat_exprs.append(expr)
+    return cat_exprs
+
+
 def _prepare_polars_for_catboost(is_polars, text_features, cols, df, pl, na_filler, cols_ordered, cat_features, verbose, ensure_categorical, skipped_columns):
     """Prepare a polars frame for CatBoost."""
     if is_polars:
@@ -114,46 +159,7 @@ def _prepare_polars_for_catboost(is_polars, text_features, cols, df, pl, na_fill
         # has no Enum-domain context (caller path: CB inference / standalone use); warn-once so the
         # operator notices the global-string-cache widening and threads enum domains via the suite
         # train path instead (see _phase_polars_fixes.apply_polars_categorical_fixes).
-        cat_exprs = []
-        for var in tqdmu(cols_ordered, desc="Processing categorical features for CatBoost...", leave=False):
-            dtype = df[var].dtype
-            is_cat = dtype == pl.Categorical or isinstance(dtype, pl.Enum)
-            if is_cat:
-                if df[var].is_null().any():
-                    if isinstance(dtype, pl.Enum):
-                        # Preserve the per-Series Enum domain by re-casting back into the SAME Enum after the str-roundtrip.
-                        _enum_dom = list(dtype.categories.to_list()) if hasattr(dtype.categories, "to_list") else list(dtype.categories)
-                        if na_filler not in _enum_dom:
-                            _enum_dom = [*_enum_dom, na_filler]
-                        cat_exprs.append(pl.col(var).cast(pl.String).fill_null(na_filler).cast(pl.Enum(_enum_dom)))
-                    else:
-                        log_throttle(
-                            logger, "catboost_prep_bare_categorical_recast", logging.WARNING,
-                            "prepare_df_for_catboost: bare pl.Categorical re-cast for null-fill on %r (widens global string cache). Prefer pl.Enum upstream.", var,
-                        )
-                        cat_exprs.append(pl.col(var).cast(pl.String).fill_null(na_filler).cast(pl.Categorical))
-                if var not in cat_features:
-                    if verbose:
-                        logger.info("%s appended to cat_features", var)
-                    cat_features.append(var)
-            elif var in cat_features:
-                expr = pl.col(var)
-                if df[var].is_null().any():
-                    expr = expr.fill_null(na_filler)
-                if ensure_categorical:
-                    try:
-                        log_throttle(
-                            logger, "catboost_prep_bare_categorical_cast", logging.WARNING,
-                            "prepare_df_for_catboost: bare pl.Categorical cast for %r (widens global string cache). Prefer pl.Enum upstream.", var,
-                        )
-                        expr = expr.cast(pl.Categorical)
-                    except Exception:
-                        log_throttle(logger, "catboost_prep_polars_categorical_convert_failed", logging.WARNING, "Could not convert column %s to categorical.", var)
-                        if skipped_columns is not None:
-                            skipped_columns.append(var)
-                        expr = None
-                if expr is not None:
-                    cat_exprs.append(expr)
+        cat_exprs = _polars_categorical_exprs(df, cols_ordered, cat_features, na_filler, verbose, ensure_categorical, skipped_columns, pl)
         if cat_exprs:
             df = df.with_columns(cat_exprs)
     else:
@@ -198,22 +204,7 @@ def _prepare_pandas_categoricals_for_catboost(cols_ordered, text_feature_set, df
             continue
         if isinstance(df[var].dtype, pd.CategoricalDtype):
             if df[var].isna().any():
-                # CRITICAL: never do ``astype(str)`` on a Categorical to
-                # fill NaN. pandas materializes ``categories._values`` as
-                # a fixed-width Unicode array sized by
-                # ``len(categories) × max_str_len × 4``. On columns where
-                # Polars passed through an untrimmed global string-pool
-                # dictionary (3.3M unique categories, 6133-char longest
-                # string seen in prod), that's a 75+ GiB
-                # allocation → MemoryError.
-                #
-                # Instead, operate on the integer codes: add ``na_filler``
-                # to the category list (O(1) dict growth) and fillna
-                # (O(n_rows) code update, no string materialization).
-                cats = df[var].cat.categories
-                if na_filler not in cats:
-                    df[var] = df[var].cat.add_categories([na_filler])
-                df[var] = df[var].fillna(na_filler)
+                _fill_categorical_nans(df, var, na_filler)
             if var not in cat_features:
                 if verbose:
                     logger.info("%s appended to cat_features", var)
@@ -230,40 +221,65 @@ def _prepare_pandas_categoricals_for_catboost(cols_ordered, text_feature_set, df
                         if skipped_columns is not None:
                             skipped_columns.append(var)
             elif pd.api.types.is_extension_array_dtype(df[var].dtype):
-                # Nullable extension dtypes (Int64, Float64, boolean, etc.) use pd.NA,
-                # which CatBoost cannot handle — convert to numpy floats so pd.NA → np.nan.
-                # Preserve precision: Float32Dtype must stay float32 (callers explicitly
-                # chose narrow precision for memory/GPU); Int8/16/32 and Boolean fit
-                # exactly into float32, only Int64/UInt64/Float64 need float64.
-                try:
-                    src = df[var].dtype
-                    target: type
-                    if isinstance(src, pd.Float32Dtype):
-                        target = np.float32
-                    elif isinstance(src, pd.Float64Dtype):
-                        target = np.float64
-                    elif isinstance(src, (pd.Int8Dtype, pd.Int16Dtype, pd.Int32Dtype, pd.UInt8Dtype, pd.UInt16Dtype, pd.UInt32Dtype, pd.BooleanDtype)):
-                        target = np.float32
-                    else:
-                        # Int64 / UInt64 / unknown extension: widen to float64.
-                        target = np.float64
-                    df[var] = df[var].astype(target)
-                except Exception as _e_cast:
-                    # Sibling branch at L179 logs WARN; this pd.NA-clearing
-                    # branch was added later WITHOUT a log. Silent failure
-                    # here leaves the nullable extension dtype intact, then
-                    # CatBoost crashes downstream on pd.NA -- the exact
-                    # corruption this code targets to PREVENT.
-                    log_throttle(
-                        logger, "catboost_prep_extension_dtype_convert_failed", logging.WARNING,
-                        "Could not convert extension-dtype column %s "
-                        "(dtype=%s, target=%s) for CatBoost: %s. "
-                        "Column still carries pd.NA which CatBoost cannot "
-                        "handle - downstream fit/predict will fail loudly.",
-                        var, df[var].dtype, target, _e_cast,
-                    )
-                    if skipped_columns is not None:
-                        skipped_columns.append(var)
+                _clear_extension_na(df, var, skipped_columns)
+
+
+def _fill_categorical_nans(df: pd.DataFrame, var: str, na_filler: Any) -> None:
+    """Fill NaN in a categorical column by extending its categories, without materialising them as strings."""
+    # CRITICAL: never do ``astype(str)`` on a Categorical to
+    # fill NaN. pandas materializes ``categories._values`` as
+    # a fixed-width Unicode array sized by
+    # ``len(categories) × max_str_len × 4``. On columns where
+    # Polars passed through an untrimmed global string-pool
+    # dictionary (3.3M unique categories, 6133-char longest
+    # string seen in prod), that's a 75+ GiB
+    # allocation → MemoryError.
+    #
+    # Instead, operate on the integer codes: add ``na_filler``
+    # to the category list (O(1) dict growth) and fillna
+    # (O(n_rows) code update, no string materialization).
+    cats = df[var].cat.categories
+    if na_filler not in cats:
+        df[var] = df[var].cat.add_categories([na_filler])
+    df[var] = df[var].fillna(na_filler)
+
+
+def _clear_extension_na(df: pd.DataFrame, var: str, skipped_columns: Optional[list]) -> None:
+    """Convert a nullable extension column to numpy floats so pd.NA becomes np.nan, which CatBoost accepts."""
+    # Nullable extension dtypes (Int64, Float64, boolean, etc.) use pd.NA,
+    # which CatBoost cannot handle — convert to numpy floats so pd.NA → np.nan.
+    # Preserve precision: Float32Dtype must stay float32 (callers explicitly
+    # chose narrow precision for memory/GPU); Int8/16/32 and Boolean fit
+    # exactly into float32, only Int64/UInt64/Float64 need float64.
+    try:
+        src = df[var].dtype
+        target: type
+        if isinstance(src, pd.Float32Dtype):
+            target = np.float32
+        elif isinstance(src, pd.Float64Dtype):
+            target = np.float64
+        elif isinstance(src, (pd.Int8Dtype, pd.Int16Dtype, pd.Int32Dtype, pd.UInt8Dtype, pd.UInt16Dtype, pd.UInt32Dtype, pd.BooleanDtype)):
+            target = np.float32
+        else:
+            # Int64 / UInt64 / unknown extension: widen to float64.
+            target = np.float64
+        df[var] = df[var].astype(target)
+    except Exception as _e_cast:
+        # Sibling branch at L179 logs WARN; this pd.NA-clearing
+        # branch was added later WITHOUT a log. Silent failure
+        # here leaves the nullable extension dtype intact, then
+        # CatBoost crashes downstream on pd.NA -- the exact
+        # corruption this code targets to PREVENT.
+        log_throttle(
+            logger, "catboost_prep_extension_dtype_convert_failed", logging.WARNING,
+            "Could not convert extension-dtype column %s "
+            "(dtype=%s, target=%s) for CatBoost: %s. "
+            "Column still carries pd.NA which CatBoost cannot "
+            "handle - downstream fit/predict will fail loudly.",
+            var, df[var].dtype, target, _e_cast,
+        )
+        if skipped_columns is not None:
+            skipped_columns.append(var)
 
 
 def prepare_df_for_xgboost(

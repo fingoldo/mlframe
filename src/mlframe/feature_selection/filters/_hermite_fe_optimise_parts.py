@@ -130,31 +130,9 @@ def _eval_coef_pair_batch_part1(
     return False, p, col_meta, k, best_scores, best_raws, best_idxs, mi_arr, penalties
 
 
-def _optimise_pair_multimode_part1(
-    bin_funcs: dict | None, basis: str, x_a: np.ndarray, x_b: np.ndarray, y: np.ndarray, n_neighbors: int | None, mi_estimator: str, discrete_target: bool,
-    plugin_n_bins: int, seed: int, sweep_degrees: bool, min_degree: int, max_degree: int, l2_penalty: float, warm_start: bool, coef_range: tuple,
-    n_trials: int, direction_only: bool, top_m: int, min_l2_distance: float, baseline_uplift_threshold: float,
-) -> tuple[Any, ...]:
-    """Extracted block of ``optimise_pair_multimode`` (part 1); returns the names the caller still uses."""
-    from ._hermite_fe_optimise import _baseline_mi_pair, _run_cma_search
-    # Lazy import of parent-resident helpers: ``.hermite_fe`` re-imports
-    # this sibling at its bottom, so a top-level ``from .hermite_fe
-    # import ...`` would create a hard cycle the meta-test flags.
-    from mlframe.feature_selection.filters.hermite_fe.shared import HermiteResult, CUDA_AVAILABLE as _CUDA_AVAILABLE, CUDA_THRESHOLD as _CUDA_THRESHOLD, DEFAULT_BIN_FUNCS as _DEFAULT_BIN_FUNCS, NJIT_FUNCS as _NJIT_FUNCS, NJIT_PAR_FUNCS as _NJIT_PAR_FUNCS, PAR_THRESHOLD as _PAR_THRESHOLD, POLY_BASES as _POLY_BASES, canonical_seeds as _canonical_seeds
-    # Forced CMA-ES because diverse top-M needs a bag of evaluations, which CMA's population gives naturally;
-    # Optuna's TPE samples are less diverse early-on (coupled by the multivariate prior).
-    if bin_funcs is None:
-        bin_funcs = _DEFAULT_BIN_FUNCS
-
-    if basis not in _POLY_BASES:
-        raise ValueError(f"unknown basis {basis!r}; expected one of {list(_POLY_BASES)}")
-    basis_info = _POLY_BASES[basis]
-
-    z_a, preprocess_a = basis_info["fit"](x_a)
-    z_b, preprocess_b = basis_info["fit"](x_b)
-    z_a = np.ascontiguousarray(z_a, dtype=_crit_np_dtype())
-    z_b = np.ascontiguousarray(z_b, dtype=_crit_np_dtype())
-
+def _select_pair_eval_funcs(basis, basis_info, z_a, preprocess_a, preprocess_b):
+    """Pick the (a-side, b-side) evaluators for one pair by basis family and sample-size ladder."""
+    from mlframe.feature_selection.filters.hermite_fe.shared import CUDA_AVAILABLE as _CUDA_AVAILABLE, CUDA_THRESHOLD as _CUDA_THRESHOLD, NJIT_FUNCS as _NJIT_FUNCS, NJIT_PAR_FUNCS as _NJIT_PAR_FUNCS, PAR_THRESHOLD as _PAR_THRESHOLD
     # Pick eval_func via the size-aware ladder (mirrors optimise_hermite_pair). For factory bases (RBF/Sigmoid) eval_func_b is a separate closure over
     # preprocess_b so the b-side feature evaluates with its OWN centres/thresholds; for njit polynomial bases both are the same callable.
     factory_top = basis_info.get("eval_njit_factory")
@@ -173,6 +151,49 @@ def _optimise_pair_multimode_part1(
     else:
         eval_func = basis_info["eval_njit"]
         eval_func_b = eval_func
+    return eval_func, eval_func_b
+
+
+def _warm_start_seeds(basis, degree, warm_start, canonical_seeds_func):
+    """Warm-start coefficient pairs for one degree: the canonical seeds crossed with themselves, plus the sign-flipped leading pair."""
+    from mlframe.feature_selection.filters.hermite_fe.shared import canonical_seeds as _canonical_seeds
+    warm_seeds: list = []
+    if warm_start:
+        seeds_per_feat = canonical_seeds_func(degree) if canonical_seeds_func else _canonical_seeds(basis, degree)
+        for s_a in seeds_per_feat:
+            warm_seeds.extend(np.concatenate([s_a, s_b]) for s_b in seeds_per_feat)
+        if seeds_per_feat:
+            s = seeds_per_feat[0]
+            warm_seeds.append(np.concatenate([s, -s]))
+    return warm_seeds
+
+
+def _optimise_pair_multimode_part1(
+    bin_funcs: dict | None, basis: str, x_a: np.ndarray, x_b: np.ndarray, y: np.ndarray, n_neighbors: int | None, mi_estimator: str, discrete_target: bool,
+    plugin_n_bins: int, seed: int, sweep_degrees: bool, min_degree: int, max_degree: int, l2_penalty: float, warm_start: bool, coef_range: tuple,
+    n_trials: int, direction_only: bool, top_m: int, min_l2_distance: float, baseline_uplift_threshold: float,
+) -> tuple[Any, ...]:
+    """Extracted block of ``optimise_pair_multimode`` (part 1); returns the names the caller still uses."""
+    from ._hermite_fe_optimise import _baseline_mi_pair, _run_cma_search
+    # Lazy import of parent-resident helpers: ``.hermite_fe`` re-imports
+    # this sibling at its bottom, so a top-level ``from .hermite_fe
+    # import ...`` would create a hard cycle the meta-test flags.
+    from mlframe.feature_selection.filters.hermite_fe.shared import HermiteResult, DEFAULT_BIN_FUNCS as _DEFAULT_BIN_FUNCS, POLY_BASES as _POLY_BASES
+    # Forced CMA-ES because diverse top-M needs a bag of evaluations, which CMA's population gives naturally;
+    # Optuna's TPE samples are less diverse early-on (coupled by the multivariate prior).
+    if bin_funcs is None:
+        bin_funcs = _DEFAULT_BIN_FUNCS
+
+    if basis not in _POLY_BASES:
+        raise ValueError(f"unknown basis {basis!r}; expected one of {list(_POLY_BASES)}")
+    basis_info = _POLY_BASES[basis]
+
+    z_a, preprocess_a = basis_info["fit"](x_a)
+    z_b, preprocess_b = basis_info["fit"](x_b)
+    z_a = np.ascontiguousarray(z_a, dtype=_crit_np_dtype())
+    z_b = np.ascontiguousarray(z_b, dtype=_crit_np_dtype())
+
+    eval_func, eval_func_b = _select_pair_eval_funcs(basis, basis_info, z_a, preprocess_a, preprocess_b)
 
     n = len(y)
     if n_neighbors is None:
@@ -212,14 +233,7 @@ def _optimise_pair_multimode_part1(
             n_neighbors=n_neighbors, discrete_target=discrete_target,
             l2_penalty=l2_penalty, random_state=seed,
         )
-        warm_seeds: list = []
-        if warm_start:
-            seeds_per_feat = canonical_seeds_func(degree) if canonical_seeds_func else _canonical_seeds(basis, degree)
-            for s_a in seeds_per_feat:
-                warm_seeds.extend(np.concatenate([s_a, s_b]) for s_b in seeds_per_feat)
-            if seeds_per_feat:
-                s = seeds_per_feat[0]
-                warm_seeds.append(np.concatenate([s, -s]))
+        warm_seeds = _warm_start_seeds(basis, degree, warm_start, canonical_seeds_func)
         try:
             r = _run_cma_search(
                 ca_size=ca_size, cb_size=cb_size, coef_range=coef_range,

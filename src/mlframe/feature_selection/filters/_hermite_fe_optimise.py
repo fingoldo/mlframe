@@ -52,6 +52,69 @@ def detect_pair_symmetry(
     # Geometric mean of both signals.
     return float(np.sqrt(marginal_score * diff_score))
 
+def _pair_bf_rows(h_a, h_b, bf_names, bf_callables):
+    """Basis-function columns of one pair as a row matrix, keeping the finite ones; ``(None, None)`` when none are finite."""
+    _bf_name_to_id: dict[str, int]
+    try:
+        from ._numba_polynom_optimizer import _BF_NAME_TO_ID as _bf_name_to_id, _fill_bf_batch_njit  # noqa: N811
+    except ImportError as e:
+        logger.warning("_numba_polynom_optimizer import failed: %s", e)
+        _bf_name_to_id = {}
+        _fill_bf_batch_njit = None
+    _bf_ids1 = [_bf_name_to_id.get(nm, -1) for nm in bf_names] if _bf_name_to_id else [-1]
+    cols = []
+    valid_idx = []
+    if _fill_bf_batch_njit is not None and all(i >= 0 for i in _bf_ids1):
+        KBF = len(bf_callables)
+        rows = np.empty((KBF, h_a.shape[0]), dtype=np.float64)
+        finite = np.zeros(KBF, dtype=np.bool_)
+        _fill_bf_batch_njit(np.ascontiguousarray(h_a, dtype=np.float64)[None, :],
+                            np.ascontiguousarray(h_b, dtype=np.float64)[None, :],
+                            np.ones(1, dtype=np.bool_), np.asarray(_bf_ids1, dtype=np.int64), rows, finite)
+        nc1 = 0
+        for k in range(KBF):
+            if finite[k]:
+                if k != nc1:
+                    rows[nc1] = rows[k]
+                valid_idx.append(k)
+                nc1 += 1
+        if nc1 == 0:
+            return None, None
+        X_rows = rows[:nc1]
+    else:
+        for k, bf in enumerate(bf_callables):
+            try:
+                combined = bf(h_a, h_b)
+            except Exception as e:  # nosec B112 - swallow converted to debug-log, non-fatal by design
+                logger.debug("suppressed: %s", e)
+                continue
+            if np.all(np.isfinite(combined)):
+                cols.append(combined)
+                valid_idx.append(k)
+        if not cols:
+            return None, None
+        X_rows = np.ascontiguousarray(np.stack(cols, axis=0), dtype=np.float64)
+    return X_rows, valid_idx
+
+
+def _pair_mi(X_rows, y, y_njit, discrete_target, mi_estimator, plugin_n_bins, n_neighbors, random_state):
+    """MI of each basis-function row against the target (plugin or KSG estimator)."""
+    X_batch = X_rows.T  # (n, K_valid) view for the ksg legs below; plugin uses the rows form directly
+    from mlframe.feature_selection.filters.hermite_fe.shared import plugin_mi_regression_batch_njit as _plugin_mi_regression_batch_njit
+    if mi_estimator == "plugin":
+        from mlframe.feature_selection.filters.hermite_fe.shared import plugin_mi_classif_batch_rows_njit as _plugin_mi_classif_batch_rows_njit
+        if discrete_target:
+            mi_arr = _plugin_mi_classif_batch_rows_njit(X_rows, y_njit, plugin_n_bins)
+        else:
+            mi_arr = _plugin_mi_regression_batch_njit(np.ascontiguousarray(X_batch), y_njit, plugin_n_bins)
+    else:  # ksg
+        if discrete_target:
+            mi_arr = mutual_info_classif(X_batch, y, n_neighbors=n_neighbors, random_state=ksg_random_state(random_state), discrete_features=False)
+        else:
+            mi_arr = mutual_info_regression(X_batch, y, n_neighbors=n_neighbors, random_state=ksg_random_state(random_state), discrete_features=False)
+    return mi_arr
+
+
 def _eval_coef_pair(coef_a, coef_b, *, z_a, z_b, eval_func, bf_callables,
                      bf_names, y, y_njit, mi_estimator, plugin_n_bins,
                      n_neighbors, discrete_target, l2_penalty,
@@ -74,7 +137,7 @@ def _eval_coef_pair(coef_a, coef_b, *, z_a, z_b, eval_func, bf_callables,
     # Lazy import of parent-resident helpers: ``.hermite_fe`` re-imports
     # this sibling at its bottom, so a top-level ``from .hermite_fe
     # import ...`` would create a hard cycle the meta-test flags.
-    from mlframe.feature_selection.filters.hermite_fe.shared import L2_PENALTY_SATURATION_DEFAULT as _L2_PENALTY_SATURATION_DEFAULT, l2_normalize_pair as _l2_normalize_pair, l2_penalty_value as _l2_penalty_value, plugin_mi_regression_batch_njit as _plugin_mi_regression_batch_njit
+    from mlframe.feature_selection.filters.hermite_fe.shared import L2_PENALTY_SATURATION_DEFAULT as _L2_PENALTY_SATURATION_DEFAULT, l2_normalize_pair as _l2_normalize_pair, l2_penalty_value as _l2_penalty_value
     if l2_penalty_saturation is None:
         l2_penalty_saturation = _L2_PENALTY_SATURATION_DEFAULT
     if direction_only:
@@ -122,59 +185,10 @@ def _eval_coef_pair(coef_a, coef_b, *, z_a, z_b, eval_func, bf_callables,
     # Same njit bf twins + fused row-major fill as the batched evaluator (P=1 degenerate case): one prange
     # call computes every bf column, finiteness-scanned in-kernel, rows feeding the copy-free MI rows twin.
     # Optuna's per-trial objective goes through HERE, so the cma_batch-round optimizations carry over to it.
-    _bf_name_to_id: dict[str, int]
-    try:
-        from ._numba_polynom_optimizer import _BF_NAME_TO_ID as _bf_name_to_id, _fill_bf_batch_njit  # noqa: N811
-    except ImportError as e:
-        logger.warning("_numba_polynom_optimizer import failed: %s", e)
-        _bf_name_to_id = {}
-        _fill_bf_batch_njit = None
-    _bf_ids1 = [_bf_name_to_id.get(nm, -1) for nm in bf_names] if _bf_name_to_id else [-1]
-    cols = []
-    valid_idx = []
-    if _fill_bf_batch_njit is not None and all(i >= 0 for i in _bf_ids1):
-        KBF = len(bf_callables)
-        rows = np.empty((KBF, h_a.shape[0]), dtype=np.float64)
-        finite = np.zeros(KBF, dtype=np.bool_)
-        _fill_bf_batch_njit(np.ascontiguousarray(h_a, dtype=np.float64)[None, :],
-                            np.ascontiguousarray(h_b, dtype=np.float64)[None, :],
-                            np.ones(1, dtype=np.bool_), np.asarray(_bf_ids1, dtype=np.int64), rows, finite)
-        nc1 = 0
-        for k in range(KBF):
-            if finite[k]:
-                if k != nc1:
-                    rows[nc1] = rows[k]
-                valid_idx.append(k)
-                nc1 += 1
-        if nc1 == 0:
-            return -np.inf, 0.0, -1
-        X_rows = rows[:nc1]
-    else:
-        for k, bf in enumerate(bf_callables):
-            try:
-                combined = bf(h_a, h_b)
-            except Exception as e:  # nosec B112 - swallow converted to debug-log, non-fatal by design
-                logger.debug("suppressed: %s", e)
-                continue
-            if np.all(np.isfinite(combined)):
-                cols.append(combined)
-                valid_idx.append(k)
-        if not cols:
-            return -np.inf, 0.0, -1
-        X_rows = np.ascontiguousarray(np.stack(cols, axis=0), dtype=np.float64)
-    X_batch = X_rows.T  # (n, K_valid) view for the ksg legs below; plugin uses the rows form directly
-    if mi_estimator == "plugin":
-        from mlframe.feature_selection.filters.hermite_fe.shared import plugin_mi_classif_batch_rows_njit as _plugin_mi_classif_batch_rows_njit
-        if discrete_target:
-            mi_arr = _plugin_mi_classif_batch_rows_njit(X_rows, y_njit, plugin_n_bins)
-        else:
-            mi_arr = _plugin_mi_regression_batch_njit(np.ascontiguousarray(X_batch), y_njit, plugin_n_bins)
-    else:  # ksg
-        if discrete_target:
-            mi_arr = mutual_info_classif(X_batch, y, n_neighbors=n_neighbors, random_state=ksg_random_state(random_state), discrete_features=False)
-        else:
-            mi_arr = mutual_info_regression(X_batch, y, n_neighbors=n_neighbors,
-                                             random_state=ksg_random_state(random_state), discrete_features=False)
+    X_rows, valid_idx = _pair_bf_rows(h_a, h_b, bf_names, bf_callables)
+    if X_rows is None:
+        return -np.inf, 0.0, -1
+    mi_arr = _pair_mi(X_rows, y, y_njit, discrete_target, mi_estimator, plugin_n_bins, n_neighbors, random_state)
     penalty = 0.0 if direction_only else _l2_penalty_value(
         coef_a, coef_b, l2_penalty, l2_penalty_saturation,
     )

@@ -53,6 +53,20 @@ def _build_two_candidate_inputs(n=2000, seed=1):
     return factors, factors_nbins
 
 
+def _clear_resident_caches():
+    """Empty the process-wide device caches an earlier test in the same process may have warmed.
+
+    A warm cache serves the content without calling ``cp.asarray``, so a count of 0 would reflect test order,
+    not the upload contract under test. Clearing here keeps each test's count independent of what ran before it.
+    """
+    from mlframe.feature_selection.filters._fe_resident_operands import clear_fe_resident_operands
+    from mlframe.feature_selection.filters.info_theory._cmi_cuda import clear_cmi_resident_cache, clear_cmi_xc_resident_cache
+
+    clear_fe_resident_operands()
+    clear_cmi_resident_cache()
+    clear_cmi_xc_resident_cache()
+
+
 def _count_asarray_calls_matching(monkeypatch, target_values):
     """Count ``cp.asarray`` calls whose input equals ``target_values`` exactly (content-based, not just
     shape -- ``classes_x``/``classes_y`` share the same 1-D shape, so shape alone can't distinguish them)."""
@@ -84,6 +98,7 @@ def test_target_uploaded_once_across_candidate_calls(monkeypatch, fn):
     )
     classes_y_i32 = np.ascontiguousarray(classes_y.astype(np.int32))
 
+    _clear_resident_caches()
     y_calls = _count_asarray_calls_matching(monkeypatch, classes_y_i32)
 
     mi0, _ = fn(
@@ -120,6 +135,7 @@ def test_target_uploaded_once_across_candidate_calls(monkeypatch, fn):
 def test_candidate_x_still_uploaded_fresh_every_call(monkeypatch, fn):
     """classes_x/freqs_x genuinely vary per candidate -- must NOT be resident-cached (would either never
     hit, since content differs every call, or grow the cache unboundedly across a wide candidate pool)."""
+    _clear_resident_caches()
     factors, factors_nbins = _build_two_candidate_inputs(seed=5)
     classes_y, freqs_y, _ = merge_vars(
         factors_data=factors,

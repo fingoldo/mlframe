@@ -55,6 +55,120 @@ def apply_synergy_bootstrap(
     return numeric_vars_to_consider, synergy_added_idx
 
 
+def _synergy_raw_numeric_pool(self: Any, cols: list[str], target_indices: Sequence[int] | np.ndarray, categorical_vars: Any, non_numeric_idx: set) -> set:
+    """Raw numeric columns eligible as synergy operands: named in the input, not targets, not categorical, honouring the factor selectors."""
+    # feature_names_in_ is an ndarray; "or []" would test truthiness and raise on a multi-element array.
+    _raw_names = set(getattr(self, "feature_names_in_", []))
+    _target_idx_set = {int(t) for t in np.atleast_1d(target_indices)}
+    _cat_set = set(categorical_vars)
+    _raw_numeric_idx = {i for i, nm in enumerate(cols) if nm in _raw_names and i not in _target_idx_set and i not in _cat_set}
+    _raw_numeric_idx -= non_numeric_idx
+    if self.factors_to_use is not None:
+        _raw_numeric_idx &= set(self.factors_to_use)
+    if self.factors_names_to_use is not None:
+        _raw_numeric_idx &= {cols.index(n) for n in self.factors_names_to_use if n in cols}
+    return _raw_numeric_idx
+
+
+def _exhaustive_sweep_selected(self: Any, n_rows_for_synergy: int, n_raw: int, verbose: int) -> bool:
+    """Ask the exhaustive-sweep decision whether every raw numeric column should be swept; any failure keeps the pre-rank path."""
+    # SECOND FUNNEL STAGE - GPU-EXHAUSTIVE SYNERGY SWEEP. The pre-rank below is an O(p)
+    # propensity score; it PROVABLY cannot recover a perfectly-balanced (L=0) interaction whose every
+    # univariate higher moment vs y is zero (balanced XOR / sign product). Only the EXHAUSTIVE C(p,2)
+    # joint-MI sweep recovers such a pair. When ``fe_synergy_exhaustive`` is "force"/True AND a CUDA GPU is
+    # available AND the predicted wall-time (measured CUDA pairs/s via kernel_tuning_cache, ~5e4 fallback) is
+    # under ``fe_synergy_exhaustive_max_seconds`` (default 180s), bypass the cap + pre-rank + sweep-cost gate
+    # and sweep ALL raw numeric columns. "auto" (default) keeps the pre-rank + capped behaviour below.
+    _exhaustive_on = False
+    try:
+        from ._fe_synergy_exhaustive import decide_exhaustive_sweep
+
+        _exhaustive_on, _exh_reason = decide_exhaustive_sweep(
+            self, n_samples=n_rows_for_synergy, n_raw=n_raw, verbose=verbose,
+        )
+        if verbose:
+            logger.info("MRMR FE synergy exhaustive: %s", _exh_reason)
+    except Exception as _exh_e:
+        if verbose:
+            logger.info("MRMR FE synergy exhaustive decision degraded (%s: %s); using pre-rank path.", type(_exh_e).__name__, _exh_e)
+        else:
+            logger.debug("MRMR FE synergy exhaustive decision degraded (%s: %s); using pre-rank path.", type(_exh_e).__name__, _exh_e)
+    return _exhaustive_on
+
+
+def _prerank_wide_frame(self: Any, data: np.ndarray, target_indices: Sequence[int] | np.ndarray, raw_numeric_idx: set, synergy_cap: int, verbose: int) -> list | None:
+    """Keep the top ``synergy_cap`` raw columns by interaction propensity; ``None`` when the pre-rank degrades (legacy skip-past-cap)."""
+    # WIDE-FRAME PRE-RANK. Above the cap the bootstrap historically SKIPPED entirely, so a
+    # zero-marginal interaction on a wide frame (p >> cap) was engineered as NOTHING. Marginal MI cannot
+    # pick the surviving cap columns (the operands have ~0 marginal MI by construction - the whole reason
+    # the bootstrap exists). Instead rank by an interaction-propensity score |corr(x^2,y)|+|corr(x,y^2)|
+    # (higher moments leak even when the linear marginal is flat) and keep the top ``synergy_cap`` so the
+    # exhaustive O(cap^2) sweep runs on the columns most likely to carry interaction signal. Bench
+    # (test_fe_interaction_prerank): recovers the planted operands into the top-250 at recall
+    # ~0.88 (L=0.1) vs marginal-MI 0.68 / random 0.12, at O(p*n) ~5s for p=10k. IRREDUCIBLE: a perfectly
+    # balanced zero-higher-moment interaction (L=0) is invisible to any O(p) score and still needs the full
+    # exhaustive sweep - the pre-rank does not claim it. Default ON (fe_synergy_prerank); set False to
+    # restore the legacy skip-past-cap behaviour. The ranking uses the discretised ``data`` codes (a
+    # monotone transform preserves the higher-moment structure; bench-confirmed code-path recall holds).
+    try:
+        from ._fe_interaction_prerank import top_k_by_interaction_propensity
+
+        _ty = int(np.atleast_1d(target_indices)[0])
+        _y_codes = np.asarray(data)[:, _ty]
+        # Thread MRMR's own time budget so the "auto" criterion can size-gate the high-recall
+        # gbm-fused pre-rank (max_runtime_mins * 60); None => the pre-rank's soft default budget.
+        _mins = getattr(self, "max_runtime_mins", None)
+        try:
+            _budget_s = float(_mins) * 60.0 if (_mins is not None and float(_mins) > 0) else None
+        except (TypeError, ValueError):
+            _budget_s = None
+        return top_k_by_interaction_propensity(
+            np.asarray(data), _y_codes, raw_numeric_idx, top_k=synergy_cap,
+            budget_seconds=_budget_s,
+        )
+    except Exception as _e:  # correctness over the optimisation - fall back to the legacy skip
+        if verbose:
+            logger.info("MRMR FE synergy pre-rank degraded (%s: %s); using legacy skip-past-cap.", type(_e).__name__, _e)
+        else:
+            logger.debug("MRMR FE synergy pre-rank degraded (%s: %s); using legacy skip-past-cap.", type(_e).__name__, _e)
+        return None
+
+
+def _augment_synergy_pool(
+    numeric_vars_to_consider: set, synergy_added_idx: Any, raw_numeric_idx: set, n_rows_for_synergy: int, n_raw: int,
+    synergy_cap: int, synergy_max_sweep_cost: float, verbose: int,
+) -> tuple[Any, ...]:
+    """Widen the pair pool with the raw columns when the all-pairs sweep is affordable; log why it is skipped otherwise."""
+    _sweep_cost = n_rows_for_synergy * (n_raw**2)
+    if 0 < n_raw <= synergy_cap and _sweep_cost <= synergy_max_sweep_cost:
+        _added = raw_numeric_idx - numeric_vars_to_consider
+        if _added:
+            synergy_added_idx = set(_added)
+            numeric_vars_to_consider = numeric_vars_to_consider | raw_numeric_idx
+            if verbose:
+                logger.debug(
+                    "MRMR FE synergy bootstrap: augmented pair pool with %d unselected raw "
+                    "numeric columns (%d raw <= cap %d) so zero-marginal synergy pairs "
+                    "(a*d / sign products / log*sin) get joint-MI screened.",
+                    len(_added), n_raw, synergy_cap,
+                )
+    elif 0 < n_raw <= synergy_cap and _sweep_cost > synergy_max_sweep_cost and verbose:
+        logger.info(
+            "MRMR FE synergy bootstrap: %d raw numeric cols <= cap %d but sweep cost n*p^2=%.2g exceeds "
+            "fe_synergy_max_sweep_cost=%.2g (O(p^2*n) blow-up on large n); skipping the all-pairs sweep. "
+            "Raise fe_synergy_max_sweep_cost to force it.",
+            n_raw, synergy_cap, float(_sweep_cost), synergy_max_sweep_cost,
+        )
+    elif n_raw > synergy_cap and verbose:
+        logger.info(
+            "MRMR FE synergy bootstrap: %d raw numeric columns > cap %d; skipping the "
+            "all-pairs synergy sweep (keeping the selected-only pool). Raise "
+            "fe_synergy_screen_max_features to enable it on this frame.",
+            n_raw, synergy_cap,
+        )
+    return numeric_vars_to_consider, synergy_added_idx
+
+
 def _apply_synergy_bootstrap_part1(
     self: Any, data: np.ndarray, synergy_cap: Any, num_fs_steps: int, target_indices: Sequence[int] | np.ndarray, categorical_vars: Any, cols: list[str],
     non_numeric_idx: set, verbose: int, numeric_vars_to_consider: set, synergy_added_idx: Any,
@@ -70,50 +184,9 @@ def _apply_synergy_bootstrap_part1(
     _synergy_max_sweep_cost_raw = getattr(self, "fe_synergy_max_sweep_cost", 5e8)
     synergy_max_sweep_cost = float(_synergy_max_sweep_cost_raw) if _synergy_max_sweep_cost_raw is not None else float("inf")
     if synergy_cap > 0 and num_fs_steps == 0 and n_rows_for_synergy >= synergy_min_rows:
-        # feature_names_in_ is an ndarray; "or []" would test truthiness and raise on a multi-element array.
-        _raw_names = set(getattr(self, "feature_names_in_", []))
-        _target_idx_set = {int(t) for t in np.atleast_1d(target_indices)}
-        _cat_set = set(categorical_vars)
-        _raw_numeric_idx = {i for i, nm in enumerate(cols) if nm in _raw_names and i not in _target_idx_set and i not in _cat_set}
-        _raw_numeric_idx -= non_numeric_idx
-        if self.factors_to_use is not None:
-            _raw_numeric_idx &= set(self.factors_to_use)
-        if self.factors_names_to_use is not None:
-            _raw_numeric_idx &= {cols.index(n) for n in self.factors_names_to_use if n in cols}
+        _raw_numeric_idx = _synergy_raw_numeric_pool(self, cols, target_indices, categorical_vars, non_numeric_idx)
         _n_raw = len(_raw_numeric_idx)
-        # SECOND FUNNEL STAGE - GPU-EXHAUSTIVE SYNERGY SWEEP. The pre-rank below is an O(p)
-        # propensity score; it PROVABLY cannot recover a perfectly-balanced (L=0) interaction whose every
-        # univariate higher moment vs y is zero (balanced XOR / sign product). Only the EXHAUSTIVE C(p,2)
-        # joint-MI sweep recovers such a pair. When ``fe_synergy_exhaustive`` is "force"/True AND a CUDA GPU is
-        # available AND the predicted wall-time (measured CUDA pairs/s via kernel_tuning_cache, ~5e4 fallback) is
-        # under ``fe_synergy_exhaustive_max_seconds`` (default 180s), bypass the cap + pre-rank + sweep-cost gate
-        # and sweep ALL raw numeric columns. "auto" (default) keeps the pre-rank + capped behaviour below.
-        _exhaustive_on = False
-        try:
-            from ._fe_synergy_exhaustive import decide_exhaustive_sweep
-
-            _exhaustive_on, _exh_reason = decide_exhaustive_sweep(
-                self, n_samples=n_rows_for_synergy, n_raw=_n_raw, verbose=verbose,
-            )
-            if verbose:
-                logger.info("MRMR FE synergy exhaustive: %s", _exh_reason)
-        except Exception as _exh_e:
-            if verbose:
-                logger.info("MRMR FE synergy exhaustive decision degraded (%s: %s); using pre-rank path.", type(_exh_e).__name__, _exh_e)
-            else:
-                logger.debug("MRMR FE synergy exhaustive decision degraded (%s: %s); using pre-rank path.", type(_exh_e).__name__, _exh_e)
-        # WIDE-FRAME PRE-RANK. Above the cap the bootstrap historically SKIPPED entirely, so a
-        # zero-marginal interaction on a wide frame (p >> cap) was engineered as NOTHING. Marginal MI cannot
-        # pick the surviving cap columns (the operands have ~0 marginal MI by construction - the whole reason
-        # the bootstrap exists). Instead rank by an interaction-propensity score |corr(x^2,y)|+|corr(x,y^2)|
-        # (higher moments leak even when the linear marginal is flat) and keep the top ``synergy_cap`` so the
-        # exhaustive O(cap^2) sweep runs on the columns most likely to carry interaction signal. Bench
-        # (test_fe_interaction_prerank): recovers the planted operands into the top-250 at recall
-        # ~0.88 (L=0.1) vs marginal-MI 0.68 / random 0.12, at O(p*n) ~5s for p=10k. IRREDUCIBLE: a perfectly
-        # balanced zero-higher-moment interaction (L=0) is invisible to any O(p) score and still needs the full
-        # exhaustive sweep - the pre-rank does not claim it. Default ON (fe_synergy_prerank); set False to
-        # restore the legacy skip-past-cap behaviour. The ranking uses the discretised ``data`` codes (a
-        # monotone transform preserves the higher-moment structure; bench-confirmed code-path recall holds).
+        _exhaustive_on = _exhaustive_sweep_selected(self, n_rows_for_synergy, _n_raw, verbose)
         _prerank_on = bool(getattr(self, "fe_synergy_prerank", True))
         if _exhaustive_on:
             # FULL exhaustive sweep selected: treat EVERY raw numeric column as in-pool. Lift the cap to _n_raw
@@ -136,65 +209,22 @@ def _apply_synergy_bootstrap_part1(
                     _n_raw, synergy_cap, float(n_rows_for_synergy * (synergy_cap ** 2)), synergy_max_sweep_cost,
                 )
         elif _prerank_on and _n_raw > synergy_cap:
-            try:
-                from ._fe_interaction_prerank import top_k_by_interaction_propensity
-
-                _ty = int(np.atleast_1d(target_indices)[0])
-                _y_codes = np.asarray(data)[:, _ty]
-                # Thread MRMR's own time budget so the "auto" criterion can size-gate the high-recall
-                # gbm-fused pre-rank (max_runtime_mins * 60); None => the pre-rank's soft default budget.
-                _mins = getattr(self, "max_runtime_mins", None)
-                try:
-                    _budget_s = float(_mins) * 60.0 if (_mins is not None and float(_mins) > 0) else None
-                except (TypeError, ValueError):
-                    _budget_s = None
-                _kept = top_k_by_interaction_propensity(
-                    np.asarray(data), _y_codes, _raw_numeric_idx, top_k=synergy_cap,
-                    budget_seconds=_budget_s,
-                )
-                if _kept:
-                    _raw_numeric_idx = set(_kept)
-                    _n_raw = len(_raw_numeric_idx)
-                    if verbose:
-                        logger.info(
-                            "MRMR FE synergy bootstrap: wide frame (>%d raw numeric cols); interaction-propensity "
-                            "pre-rank kept the top %d by |corr(x^2,y)|+|corr(x,y^2)| (marginal MI cannot rank "
-                            "zero-marginal operands). A perfectly-balanced interaction is irreducible to this "
-                            "O(p) score; set fe_synergy_prerank=False to restore the legacy skip-past-cap.",
-                            synergy_cap, _n_raw,
-                        )
-            except Exception as _e:  # correctness over the optimisation - fall back to the legacy skip
+            _kept = _prerank_wide_frame(self, data, target_indices, _raw_numeric_idx, synergy_cap, verbose)
+            if _kept:
+                _raw_numeric_idx = set(_kept)
+                _n_raw = len(_raw_numeric_idx)
                 if verbose:
-                    logger.info("MRMR FE synergy pre-rank degraded (%s: %s); using legacy skip-past-cap.", type(_e).__name__, _e)
-                else:
-                    logger.debug("MRMR FE synergy pre-rank degraded (%s: %s); using legacy skip-past-cap.", type(_e).__name__, _e)
-        _sweep_cost = n_rows_for_synergy * (_n_raw**2)
-        if 0 < _n_raw <= synergy_cap and _sweep_cost <= synergy_max_sweep_cost:
-            _added = _raw_numeric_idx - numeric_vars_to_consider
-            if _added:
-                synergy_added_idx = set(_added)
-                numeric_vars_to_consider = numeric_vars_to_consider | _raw_numeric_idx
-                if verbose:
-                    logger.debug(
-                        "MRMR FE synergy bootstrap: augmented pair pool with %d unselected raw "
-                        "numeric columns (%d raw <= cap %d) so zero-marginal synergy pairs "
-                        "(a*d / sign products / log*sin) get joint-MI screened.",
-                        len(_added), _n_raw, synergy_cap,
+                    logger.info(
+                        "MRMR FE synergy bootstrap: wide frame (>%d raw numeric cols); interaction-propensity "
+                        "pre-rank kept the top %d by |corr(x^2,y)|+|corr(x,y^2)| (marginal MI cannot rank "
+                        "zero-marginal operands). A perfectly-balanced interaction is irreducible to this "
+                        "O(p) score; set fe_synergy_prerank=False to restore the legacy skip-past-cap.",
+                        synergy_cap, _n_raw,
                     )
-        elif 0 < _n_raw <= synergy_cap and _sweep_cost > synergy_max_sweep_cost and verbose:
-            logger.info(
-                "MRMR FE synergy bootstrap: %d raw numeric cols <= cap %d but sweep cost n*p^2=%.2g exceeds "
-                "fe_synergy_max_sweep_cost=%.2g (O(p^2*n) blow-up on large n); skipping the all-pairs sweep. "
-                "Raise fe_synergy_max_sweep_cost to force it.",
-                _n_raw, synergy_cap, float(_sweep_cost), synergy_max_sweep_cost,
-            )
-        elif _n_raw > synergy_cap and verbose:
-            logger.info(
-                "MRMR FE synergy bootstrap: %d raw numeric columns > cap %d; skipping the "
-                "all-pairs synergy sweep (keeping the selected-only pool). Raise "
-                "fe_synergy_screen_max_features to enable it on this frame.",
-                _n_raw, synergy_cap,
-            )
+        numeric_vars_to_consider, synergy_added_idx = _augment_synergy_pool(
+            numeric_vars_to_consider, synergy_added_idx, _raw_numeric_idx, n_rows_for_synergy, _n_raw,
+            synergy_cap, synergy_max_sweep_cost, verbose,
+        )
     return numeric_vars_to_consider, synergy_added_idx
 
 

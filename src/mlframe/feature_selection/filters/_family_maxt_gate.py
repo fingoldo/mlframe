@@ -13,7 +13,7 @@ import threading
 from collections import OrderedDict
 
 from collections.abc import Sequence
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
@@ -237,27 +237,48 @@ def _permutation_block(rng: np.random.Generator, y: np.ndarray, m: int) -> np.nd
     return idx
 
 
-def family_null_max(cols: np.ndarray, n_x: np.ndarray, y: np.ndarray, n_y: int, n_perm: int, rng: np.random.Generator, block: int = 256) -> np.ndarray:
-    """Null maxima over ``n_perm`` label permutations drawn from ``rng`` in the same order as a per-permutation loop (results are identical)."""
-    out = np.empty(int(n_perm), dtype=np.float64)  # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
-    # STRICT GPU mode (MLFRAME_FE_GPU_STRICT=1, or AUTO at scale) runs the null on the device; the permutations are drawn on the host in
-    # the same order either way, so the decisions do not depend on the path.
+def _device_null_oom_errors() -> tuple[type[BaseException], ...]:
+    """Exceptions that mean the device could not hold this null block (pool limit or allocation failure), so the host kernel takes over.
+
+    Narrow on purpose: only cupy's out-of-memory and runtime errors, never a bug in the scoring code."""
+    try:
+        from cupy.cuda import memory as _cp_memory
+        from cupy_backends.cuda.api import runtime as _cp_runtime
+
+        return (_cp_memory.OutOfMemoryError, _cp_runtime.CUDARuntimeError)
+    except ImportError:
+        return ()
+
+
+def _null_device_wanted(cols: np.ndarray, y: np.ndarray, n_perm: int) -> bool:
+    """Whether the family null for this call runs on the device (the same decision ``family_null_max`` takes for its blocks)."""
     from ._fe_gpu_strict import fe_gpu_strict_enabled
-    from ._family_maxt_cuda import device_supported, family_null_max_device
     from ._gpu_policy import gpu_globally_disabled
 
-    # Size-gated device dispatch: the null costs B*K*n count updates, so a large family goes to the device even outside STRICT (the
-    # pair family gate runs 9999 permutations; on the CPU an n=30000 fit exceeded the 600 s test watchdog). The floor is a measured
-    # crossover on the dev GPU and belongs in the kernel-tuning cache; TODO(KTC).
     _work = int(n_perm) * int(cols.shape[0]) * int(y.shape[0])
     if gpu_globally_disabled():
         # MLFRAME_DISABLE_GPU=1 / CUDA_VISIBLE_DEVICES="" is the project-wide "no GPU on this run": it wins over STRICT and over the tuned backend choice (the tuned choice was "device" on this
         # host and a "pure CPU" fit still ran the null on the GPU, 3.2 s of device work in the CPU-mode profile).
-        want_device = False
-    elif fe_gpu_strict_enabled():
-        want_device = True
-    else:
-        want_device = _family_null_backend(int(y.shape[0]), int(cols.shape[0]), _work) == "device"
+        return False
+    if fe_gpu_strict_enabled():
+        return True
+    return _family_null_backend(int(y.shape[0]), int(cols.shape[0]), _work) == "device"
+
+
+def family_null_max(cols: np.ndarray, n_x: np.ndarray, y: np.ndarray, n_y: int, n_perm: int, rng: np.random.Generator, block: int = 256, acc: Any = None) -> np.ndarray | None:
+    """Null maxima over ``n_perm`` label permutations drawn from ``rng`` in the same order as a per-permutation loop (results are identical).
+
+    ``acc``: an optional device float64 vector of length ``n_perm``. The maxima are folded into it (elementwise, in place) and the
+    function returns ``None``, so a caller that scores several column groups against the same draw reads the result back once."""
+    out = np.empty(int(n_perm), dtype=np.float64)  # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
+    # STRICT GPU mode (MLFRAME_FE_GPU_STRICT=1, or AUTO at scale) runs the null on the device; the permutations are drawn on the host in
+    # the same order either way, so the decisions do not depend on the path.
+    from ._family_maxt_cuda import device_supported, family_null_max_device
+
+    # Size-gated device dispatch: the null costs B*K*n count updates, so a large family goes to the device even outside STRICT (the
+    # pair family gate runs 9999 permutations; on the CPU an n=30000 fit exceeded the 600 s test watchdog). The floor is a measured
+    # crossover on the dev GPU and belongs in the kernel-tuning cache; TODO(KTC).
+    want_device = _null_device_wanted(cols, y, n_perm)
     # Bin x class counts as popcounts of bit sets (host and device): the column bit sets are built once per call and reused by every block;
     # columns with many bins or labels with many classes keep the histogram kernels.
     bit_prep = None
@@ -282,17 +303,31 @@ def family_null_max(cols: np.ndarray, n_x: np.ndarray, y: np.ndarray, n_y: int, 
                 from ._family_maxt_cuda_bits import null_max_bits_device
 
                 # The class bit sets are packed straight from the permutation indices: the (block, n) matrix of permuted labels is never built.
-                out[start : start + m] = null_max_bits_device(dev_bits, label_bitsets_from_index(y, perm_idx, int(n_y), words), py_const)
+                labels = label_bitsets_from_index(y, perm_idx, int(n_y), words)
+                if acc is not None:
+                    null_max_bits_device(dev_bits, labels, py_const, acc=acc[start : start + m])
+                    continue
+                out[start : start + m] = null_max_bits_device(dev_bits, labels, py_const)
                 continue
             if bit_prep is not None:
                 # the class bit sets are packed straight from the permutation indices: the (block, n) matrix of permuted labels is never built
                 out[start : start + m] = null_max_bitsets_from_classes(bit_prep, n_x, label_bitsets_from_index(y, perm_idx, int(n_y), words), int(y.shape[0]), py_counts)
-                continue
-            perms = y[perm_idx]
-            if use_device:
-                out[start : start + m] = family_null_max_device(cols, n_x, perms, int(n_y))
+            elif use_device:
+                perms = y[perm_idx]
+                try:
+                    out[start : start + m] = family_null_max_device(cols, n_x, perms, int(n_y))
+                except _device_null_oom_errors():
+                    # The device pool's limit (or a busy card) refused this block: the same maxima come from the host kernel,
+                    # since the permutations were drawn on the host in the same order either way.
+                    out[start : start + m] = family_null_max_njit(cols, n_x, perms, int(n_y))
             else:
-                out[start : start + m] = family_null_max_njit(cols, n_x, perms, int(n_y))
+                out[start : start + m] = family_null_max_njit(cols, n_x, y[perm_idx], int(n_y))
+            if acc is not None:
+                import cupy as cp
+
+                cp.maximum(acc[start : start + m], cp.asarray(out[start : start + m]), out=acc[start : start + m])
+    if acc is not None:
+        return None
     return out
 
 

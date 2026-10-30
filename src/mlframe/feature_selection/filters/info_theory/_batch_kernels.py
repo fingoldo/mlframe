@@ -750,6 +750,55 @@ def batch_mi_with_noise_gate(
     return fe_mi
 
 
+@njit(cache=True, nogil=True)
+def _permutation_locals_mat(classes_y_safe, npermutations, base_seed):
+    """Seeded Fisher-Yates shuffles of ``classes_y_safe``, one row per permutation; the shuffle stream the noise gate relies on."""
+    ny = classes_y_safe.shape[0]
+    locals_mat = np.empty((npermutations, ny), dtype=classes_y_safe.dtype)
+    for i in range(npermutations):
+        state = np.uint64(base_seed) * np.uint64(2654435761) + np.uint64(i + 1)
+        local = classes_y_safe.copy()
+        for j in range(ny - 1, 0, -1):
+            state = state * np.uint64(6364136223846793005) + np.uint64(1442695040888963407)
+            kk = int(state >> np.uint64(33)) % (j + 1)
+            tmp = local[j]
+            local[j] = local[kk]
+            local[kk] = tmp
+        locals_mat[i] = local
+    return locals_mat
+
+
+@njit(cache=True, nogil=True)
+def _max_nbins_checked(factors_nbins, K, classes_dtype):
+    """Largest per-column bin count, raising when ``classes_dtype`` cannot store the dense code range."""
+    max_nbins = 1
+    for k in range(K):
+        nb_k = int(factors_nbins[k])
+        if nb_k > max_nbins:
+            max_nbins = nb_k
+    # Dense codes live in [0, max_nbins); if classes_dtype cannot represent max_nbins-1 the store WRAPS
+    # silently into a negative bucket -> wrong MI / wrong noise-gate verdict. The dispatch layer widens the
+    # dtype for its own call sites, but direct and GPU-resident callers pass classes_dtype themselves, so
+    # fail loudly here rather than returning a plausible-but-wrong number.
+    if max_nbins > 1 and classes_dtype(max_nbins - 1) != max_nbins - 1:
+        raise ValueError("batch_mi_with_noise_gate: factors_nbins exceeds classes_dtype capacity; widen classes_dtype (int32).")
+    return max_nbins
+
+
+@njit(cache=True, nogil=True)
+def _gate_verdicts(original_mi, nfailed, max_failed):
+    """Per-column MI after the permutation noise gate: zeroed when too many shuffles reached the observed value."""
+    fe_mi = np.zeros(original_mi.shape[0], dtype=np.float64)  # Intentional float64: accumulator or output buffer; statistic at float64
+    for k in range(original_mi.shape[0]):
+        om = original_mi[k]
+        if om > 0.0 and nfailed[k] >= max_failed:
+            fe_mi[k] = 0.0
+        else:
+            fe_mi[k] = om
+
+    return fe_mi
+
+
 @njit(parallel=True, nogil=True, cache=True)
 def batch_mi_with_noise_gate_v2(
     disc_2d: np.ndarray,
@@ -781,17 +830,7 @@ def batch_mi_with_noise_gate_v2(
     if K == 0 or n == 0:
         return fe_mi
 
-    max_nbins = 1
-    for k in range(K):
-        nb_k = int(factors_nbins[k])
-        if nb_k > max_nbins:
-            max_nbins = nb_k
-    # Dense codes live in [0, max_nbins); if classes_dtype cannot represent max_nbins-1 the store WRAPS
-    # silently into a negative bucket -> wrong MI / wrong noise-gate verdict. The dispatch layer widens the
-    # dtype for its own call sites, but direct and GPU-resident callers pass classes_dtype themselves, so
-    # fail loudly here rather than returning a plausible-but-wrong number.
-    if max_nbins > 1 and classes_dtype(max_nbins - 1) != max_nbins - 1:
-        raise ValueError("batch_mi_with_noise_gate: factors_nbins exceeds classes_dtype capacity; widen classes_dtype (int32).")
+    max_nbins = _max_nbins_checked(factors_nbins, K, classes_dtype)
 
     classes_dense: np.ndarray = np.zeros((n, K), dtype=classes_dtype)
     freqs_dense = np.zeros((K, max_nbins), dtype=np.float64)  # Intentional float64: accumulator or output buffer; statistic at float64
@@ -832,19 +871,8 @@ def batch_mi_with_noise_gate_v2(
         max_failed = 1
 
     nfailed = np.zeros(K, dtype=np.int64)
-    ny = classes_y_safe.shape[0]
 
-    locals_mat = np.empty((npermutations, ny), dtype=classes_y_safe.dtype)
-    for i in range(npermutations):
-        state = np.uint64(base_seed) * np.uint64(2654435761) + np.uint64(i + 1)
-        local = classes_y_safe.copy()
-        for j in range(ny - 1, 0, -1):
-            state = state * np.uint64(6364136223846793005) + np.uint64(1442695040888963407)
-            kk = int(state >> np.uint64(33)) % (j + 1)
-            tmp = local[j]
-            local[j] = local[kk]
-            local[kk] = tmp
-        locals_mat[i] = local
+    locals_mat = _permutation_locals_mat(classes_y_safe, npermutations, base_seed)
 
     for k in prange(K):
         if original_mi[k] <= 0.0:
@@ -854,14 +882,7 @@ def batch_mi_with_noise_gate_v2(
             npermutations, original_mi[k], use_su, dtype, max_failed,
         )
 
-    for k in range(K):
-        om = original_mi[k]
-        if om > 0.0 and nfailed[k] >= max_failed:
-            fe_mi[k] = 0.0
-        else:
-            fe_mi[k] = om
-
-    return fe_mi
+    return np.asarray(_gate_verdicts(original_mi, nfailed, max_failed), dtype=np.float64)
 
 
 @njit(nogil=True, cache=True)

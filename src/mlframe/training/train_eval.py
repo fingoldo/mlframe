@@ -81,6 +81,34 @@ def _validate_cached_model_schema(
         return None
 
     # 1. Feature-name sequence check (CB / XGB / LGB / sklearn linear).
+    saved_names = _saved_feature_names(m)
+
+    # Behind a fitted pre-pipeline (selector / encoder) the model's names are the pipeline OUTPUT while ``current_df`` is the pipeline INPUT, so the
+    # comparable quantity is the input the pipeline was fitted on. A pipeline that records no input names (old dumps) cannot be checked that way.
+    pipeline = getattr(loaded_model, "pre_pipeline", None)
+    pipeline_active = pipeline is not None and pipeline is not False
+    compare_names: Optional[List[str]] = saved_names
+    if pipeline_active:
+        input_names = pipeline_input_names(pipeline)
+        if input_names is None and saved_names and current_df is not None and saved_names != [str(c) for c in current_df.columns]:
+            return (
+                "the cached model sits behind a pre-pipeline that records no input column names, so its input schema cannot be compared "
+                "with the current frame (the feature names saved on the model are the pipeline's OUTPUT); keeping the conservative invalidation"
+            )
+        pipeline_active = input_names is not None
+        compare_names = input_names if input_names is not None else saved_names
+
+    reason = _feature_name_mismatch(compare_names, current_df, pipeline_active)
+    if reason is not None:
+        return reason
+
+    # 2. CatBoost-specific cat_features check. Only meaningful if we have
+    # saved feature names (to resolve indices back to names).
+    return _catboost_cat_mismatch(m, saved_names, current_df, pipeline_active)
+
+
+def _saved_feature_names(m) -> Optional[List[str]]:
+    """Feature names the fitted model was trained on, from its attributes or its booster; ``None`` when neither exposes them."""
     saved_names: Optional[List[str]] = None
     for attr in ("feature_names_", "feature_names_in_"):
         if hasattr(m, attr):
@@ -100,22 +128,11 @@ def _validate_cached_model_schema(
         except Exception as e:
             logger.warning("could not resolve booster feature names: %s", e)
             saved_names = None
+    return saved_names
 
-    # Behind a fitted pre-pipeline (selector / encoder) the model's names are the pipeline OUTPUT while ``current_df`` is the pipeline INPUT, so the
-    # comparable quantity is the input the pipeline was fitted on. A pipeline that records no input names (old dumps) cannot be checked that way.
-    pipeline = getattr(loaded_model, "pre_pipeline", None)
-    pipeline_active = pipeline is not None and pipeline is not False
-    compare_names: Optional[List[str]] = saved_names
-    if pipeline_active:
-        input_names = pipeline_input_names(pipeline)
-        if input_names is None and saved_names and current_df is not None and saved_names != [str(c) for c in current_df.columns]:
-            return (
-                "the cached model sits behind a pre-pipeline that records no input column names, so its input schema cannot be compared "
-                "with the current frame (the feature names saved on the model are the pipeline's OUTPUT); keeping the conservative invalidation"
-            )
-        pipeline_active = input_names is not None
-        compare_names = input_names if input_names is not None else saved_names
 
+def _feature_name_mismatch(compare_names: Optional[List[str]], current_df, pipeline_active: bool) -> Optional[str]:
+    """Reason string when the saved feature names differ from the current frame's columns (set or order), else None."""
     if compare_names:
         current_names = [str(c) for c in current_df.columns] if current_df is not None else []
         if compare_names != current_names:
@@ -125,9 +142,11 @@ def _validate_cached_model_schema(
                 sample = sorted(diff)[:8]
                 return f"{what} mismatch (saved={len(compare_names)}, current={len(current_names)}); " f"symmetric diff sample={sample}"
             return f"{what} order differs between saved model and current df"
+    return None
 
-    # 2. CatBoost-specific cat_features check. Only meaningful if we have
-    # saved feature names (to resolve indices back to names).
+
+def _catboost_cat_mismatch(m, saved_names: Optional[List[str]], current_df, pipeline_active: bool) -> Optional[str]:
+    """Reason string when a Polars Categorical column of the current frame was not a cat_feature of the saved CatBoost model, else None."""
     if saved_names and hasattr(m, "_get_cat_feature_indices"):
         try:
             saved_cat_names = {saved_names[i] for i in m._get_cat_feature_indices() if 0 <= i < len(saved_names)}

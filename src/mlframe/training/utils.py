@@ -289,6 +289,81 @@ def _canonical_dtype_str(dtype) -> str:
     return s
 
 
+def _fingerprint_schema(df_at_fit, cat_features, text_features, embedding_features) -> list:
+    """Order-stable ``{"name", "dtype", "role"}`` records for every column of ``df_at_fit``."""
+    cat_set = set(cat_features or [])
+    text_set = set(text_features or [])
+    emb_set = set(embedding_features or [])
+
+    schema = []
+    # Sort by ``str(col)`` so a frame carrying a mix of int-positional and string column labels
+    # (engineered string-named columns alongside raw integer-indexed ones) does not raise
+    # ``TypeError: '<' not supported between instances of 'int' and 'str'`` on the bare sort.
+    for col in sorted(df_at_fit.columns, key=str):
+        try:
+            if pl is not None and isinstance(df_at_fit, pl.DataFrame):
+                dt: Any = df_at_fit.schema[col]
+            else:
+                dt = df_at_fit[col].dtype
+        except Exception as e:
+            log_throttle(logger, "utils.compute_model_input_fingerprint", logging.WARNING, "failed to read dtype for column %r, using placeholder '?' in the fingerprint schema: %s", col, e)
+            dt = "?"
+        if col in cat_set:
+            role = "cat"
+        elif col in text_set:
+            role = "text"
+        elif col in emb_set:
+            role = "embedding"
+        else:
+            role = "numeric"
+        schema.append({"name": col, "dtype": _canonical_dtype_str(dt), "role": role})
+    return schema
+
+
+def _idx_digest(idx) -> str:
+    """Digest an index-like array as ``n<size>:<blake2b of the full content>``."""
+    import hashlib
+
+    if idx is None:
+        return "none"
+    try:
+        arr = np.asarray(idx).ravel()
+        n = int(arr.size)
+        if n == 0:
+            return "empty"
+        if arr.dtype.kind in "biuf":
+            raw = np.ascontiguousarray(arr).tobytes()
+        else:
+            raw = "\x1f".join(map(str, arr.tolist())).encode("utf-8", "backslashreplace")
+        return f"n{n}:{hashlib.blake2b(raw, digest_size=8).hexdigest()}"
+    except Exception as e:
+        logger.debug("failed to digest index-like object of type %s for the fit fingerprint: %s", type(idx).__name__, e)
+        return f"unhashable_{type(idx).__name__}"
+
+
+def _config_digest(cfg) -> str:
+    """Reduce a config object (pydantic model, dict, or arbitrary object) to a stable blake2b digest over its sorted-key JSON payload."""
+    import hashlib
+
+    from mlframe.training._canonical_json import canonical_json_bytes
+
+    if cfg is None:
+        return "none"
+    try:
+        if hasattr(cfg, "model_dump"):
+            payload = cfg.model_dump(mode="json")
+        elif hasattr(cfg, "dict"):
+            payload = cfg.dict()
+        elif isinstance(cfg, dict):
+            payload = cfg
+        else:
+            payload = repr(cfg)
+    except Exception as e:
+        logger.debug("failed to dump a config object for the fit fingerprint, digesting its repr instead: %s", e)
+        payload = repr(cfg)
+    return hashlib.blake2b(canonical_json_bytes(payload), digest_size=8).hexdigest()
+
+
 def compute_model_input_fingerprint(
     df_at_fit: pd.DataFrame | pl.DataFrame,
     cat_features: list | None = None,
@@ -334,78 +409,16 @@ def compute_model_input_fingerprint(
     """
     import hashlib
     import orjson
-    from mlframe.training._canonical_json import canonical_json_bytes
 
     if df_at_fit is None:
         # CACHE-Low-1: marker length must equal SHA-256 prefix length (10) so
         # downstream `len(fingerprint) == 10` invariants hold.
         return "__nodf____", []
 
-    cat_set = set(cat_features or [])
-    text_set = set(text_features or [])
-    emb_set = set(embedding_features or [])
-
-    schema = []
-    # Sort by ``str(col)`` so a frame carrying a mix of int-positional and string column labels
-    # (engineered string-named columns alongside raw integer-indexed ones) does not raise
-    # ``TypeError: '<' not supported between instances of 'int' and 'str'`` on the bare sort.
-    for col in sorted(df_at_fit.columns, key=str):
-        try:
-            if pl is not None and isinstance(df_at_fit, pl.DataFrame):
-                dt: Any = df_at_fit.schema[col]
-            else:
-                dt = df_at_fit[col].dtype
-        except Exception as e:
-            log_throttle(logger, "utils.compute_model_input_fingerprint", logging.WARNING, "failed to read dtype for column %r, using placeholder '?' in the fingerprint schema: %s", col, e)
-            dt = "?"
-        if col in cat_set:
-            role = "cat"
-        elif col in text_set:
-            role = "text"
-        elif col in emb_set:
-            role = "embedding"
-        else:
-            role = "numeric"
-        schema.append({"name": col, "dtype": _canonical_dtype_str(dt), "role": role})
+    schema = _fingerprint_schema(df_at_fit, cat_features, text_features, embedding_features)
 
     # Extra context dimensions. None is serialised stably; pydantic configs are reduced via ``model_dump``;
     # ndarrays / lists are digested over their full content so distinct splits never collide.
-    def _idx_digest(idx) -> str:
-        """Digest an index-like array as ``n<size>:<blake2b of the full content>``."""
-        if idx is None:
-            return "none"
-        try:
-            arr = np.asarray(idx).ravel()
-            n = int(arr.size)
-            if n == 0:
-                return "empty"
-            if arr.dtype.kind in "biuf":
-                raw = np.ascontiguousarray(arr).tobytes()
-            else:
-                raw = "\x1f".join(map(str, arr.tolist())).encode("utf-8", "backslashreplace")
-            return f"n{n}:{hashlib.blake2b(raw, digest_size=8).hexdigest()}"
-        except Exception as e:
-            logger.debug("failed to digest index-like object of type %s for the fit fingerprint: %s", type(idx).__name__, e)
-            return f"unhashable_{type(idx).__name__}"
-
-    def _config_digest(cfg) -> str:
-        """Reduce a config object (pydantic model, dict, or arbitrary object) to a stable blake2b digest over its sorted-key JSON payload."""
-        if cfg is None:
-            return "none"
-        try:
-            if hasattr(cfg, "model_dump"):
-                payload = cfg.model_dump(mode="json")
-            elif hasattr(cfg, "dict"):
-                payload = cfg.dict()
-            elif isinstance(cfg, dict):
-                payload = cfg
-            else:
-                payload = repr(cfg)
-        except Exception as e:
-            logger.debug("failed to dump a config object for the fit fingerprint, digesting its repr instead: %s", e)
-            payload = repr(cfg)
-        return hashlib.blake2b(canonical_json_bytes(payload), digest_size=8).hexdigest()
-
     try:
         n_rows = len(df_at_fit)
     except Exception as e:

@@ -19,12 +19,25 @@ def _cuda_ok() -> bool:
 pytestmark = [pytest.mark.gpu, pytest.mark.skipif(not _cuda_ok(), reason="no CUDA device with free VRAM")]
 
 
+def _cublas_ok() -> bool:
+    """True when this cupy/cuBLAS build completes a float32 matmul (the one-time probe in ``mlframe.utils.cublas_probe``)."""
+    from mlframe.utils.cublas_probe import cublas_matmul_ok
+
+    return cublas_matmul_ok()
+
+
+# Tests that run the cuBLAS matmul on the device skip with the probe's reason when this build cannot do it; the
+# fallback test below forces the host path instead, so the contract stays covered on such a machine.
+needs_cublas = pytest.mark.skipif(not _cublas_ok(), reason="cupy/cuBLAS matmul probe failed on this build (see cublas_probe warning)")
+
+
 def _reference(X, W, b, scale):
     """NumPy RFF: ``scale * [cos(XW + b), sin(XW + b)]``."""
     ang = X @ W + b
     return scale * np.hstack([np.cos(ang), np.sin(ang)])
 
 
+@needs_cublas
 def test_staging_buffers_are_clamped_to_the_row_count(monkeypatch):
     """With 10 rows and the default 100_000-row batch, no staging buffer is allocated for more than 10 rows, and the result matches NumPy."""
     from mlframe.feature_engineering.transformer import _kernels_cupy as k
@@ -48,6 +61,7 @@ def test_staging_buffers_are_clamped_to_the_row_count(monkeypatch):
     np.testing.assert_allclose(out, _reference(X, W, b, 0.5), atol=1e-5)
 
 
+@needs_cublas
 @pytest.mark.parametrize("n,batch", [(7, 3), (8, 4), (1, 100)])
 def test_multi_batch_result_matches_numpy(n, batch):
     """Row counts that are and are not a multiple of the batch size, and a single row, all reproduce the NumPy result."""
@@ -71,6 +85,7 @@ def test_empty_input_returns_without_launching():
     assert out.shape == (0, 4)
 
 
+@needs_cublas
 def test_failure_mid_loop_leaves_the_pipeline_usable():
     """An exception while the copy streams are busy is raised after they are drained, and the next call works."""
     from mlframe.feature_engineering.transformer import _kernels_cupy as k
@@ -86,3 +101,17 @@ def test_failure_mid_loop_leaves_the_pipeline_usable():
     out = np.empty((8, 4), dtype=np.float32)
     k.rff_matmul_cupy(X, W, b, out, 1.0, batch_rows=4)
     np.testing.assert_allclose(out, _reference(X, W, b, 1.0), atol=1e-5)
+
+
+def test_failed_cublas_probe_demotes_to_the_host_path(monkeypatch):
+    """A cupy/cuBLAS build whose matmul probe fails computes the same RFF features on the host, not an error or zeros."""
+    from mlframe.feature_engineering.transformer import _kernels_cupy as k
+
+    monkeypatch.setattr(k, "cublas_matmul_ok", lambda: False)
+    rng = np.random.default_rng(3)
+    X = rng.normal(size=(9, 4)).astype(np.float32)
+    W = rng.normal(size=(4, 3)).astype(np.float32)
+    b = rng.uniform(0, 6, 3).astype(np.float32)
+    out = np.empty((9, 6), dtype=np.float32)
+    k.rff_matmul_cupy(X, W, b, out, 0.5, batch_rows=4)
+    np.testing.assert_allclose(out, _reference(X, W, b, 0.5), atol=1e-5)

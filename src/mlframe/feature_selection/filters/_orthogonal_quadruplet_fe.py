@@ -86,6 +86,58 @@ def _quadruplet_eng_col_name(
     code = _BASIS_CODE.get(basis, basis)
     return f"{col_i}*{col_j}*{col_k}*{col_l}__" f"{code}{deg_a}_{code}{deg_b}_{code}{deg_c}_{code}{deg_d}"
 
+def _fill_nonfinite_in_place(x):
+    """Replace non-finite entries of ``x`` in place with the mean of its finite entries (0.0 when none are finite)."""
+    finite_mask = np.isfinite(x)
+    if not finite_mask.all():
+        fill = float(np.nanmean(x[finite_mask])) if finite_mask.any() else 0.0
+        np.copyto(x, np.where(finite_mask, x, fill))
+
+
+def _emit_quadruplet_products(out_cols, cache, x_i, x_j, x_k, x_l, basis_i, basis_j, basis_k, basis_l, col_i, col_j, col_k, col_l, min_d, max_d):
+    """Write every ``basis_a(x_i) * basis_b(x_j) * basis_c(x_k) * basis_d(x_l)`` product in the degree grid into ``out_cols``."""
+    with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
+        for deg_a in range(min_d, max_d + 1):
+            for deg_b in range(min_d, max_d + 1):
+                for deg_c in range(min_d, max_d + 1):
+                    for deg_d in range(min_d, max_d + 1):
+                        if deg_a == 0 and deg_b == 0 and deg_c == 0 and deg_d == 0:
+                            continue
+                        try:
+                            key_a = (col_i, deg_a, basis_i)
+                            if key_a not in cache:
+                                cache[key_a] = _evaluate_basis_column(x_i, basis_i, deg_a)
+                            h_a = cache[key_a]
+                            key_b = (col_j, deg_b, basis_j)
+                            if key_b not in cache:
+                                cache[key_b] = _evaluate_basis_column(x_j, basis_j, deg_b)
+                            h_b = cache[key_b]
+                            key_c = (col_k, deg_c, basis_k)
+                            if key_c not in cache:
+                                cache[key_c] = _evaluate_basis_column(x_k, basis_k, deg_c)
+                            h_c = cache[key_c]
+                            key_d = (col_l, deg_d, basis_l)
+                            if key_d not in cache:
+                                cache[key_d] = _evaluate_basis_column(x_l, basis_l, deg_d)
+                            h_d = cache[key_d]
+                            name = _quadruplet_eng_col_name(
+                                col_i, col_j, col_k, col_l, basis_i,
+                                deg_a, deg_b, deg_c, deg_d,
+                            )
+                            out_cols[name] = np.nan_to_num(h_a * h_b * h_c * h_d, nan=0.0, posinf=0.0, neginf=0.0)
+                        except Exception as exc:
+                            log_throttle(
+                                logger, "quadruplet_basis_eval_raised", logging.WARNING,
+                                "generate_quadruplet_cross_basis_features: "
+                                "basis=%r/%r/%r/%r deg=%d/%d/%d/%d on quadruplet "
+                                "(%r,%r,%r,%r) raised %r; skipping",
+                                basis_i, basis_j, basis_k, basis_l,
+                                deg_a, deg_b, deg_c, deg_d,
+                                col_i, col_j, col_k, col_l, exc,
+                            )
+                            continue
+
+
 def generate_quadruplet_cross_basis_features(
     X: pd.DataFrame,
     quadruplets: Sequence[tuple[str, str, str, str]],
@@ -166,10 +218,7 @@ def generate_quadruplet_cross_basis_features(
         x_k = np.array(X[col_k].to_numpy(), dtype=_dt)
         x_l = np.array(X[col_l].to_numpy(), dtype=_dt)
         for x in (x_i, x_j, x_k, x_l):
-            finite_mask = np.isfinite(x)
-            if not finite_mask.all():
-                fill = float(np.nanmean(x[finite_mask])) if finite_mask.any() else 0.0
-                np.copyto(x, np.where(finite_mask, x, fill))
+            _fill_nonfinite_in_place(x)
         basis_i = basis_route_by_moments(x_i) if basis == "auto" else basis
         basis_j = basis_route_by_moments(x_j) if basis == "auto" else basis
         basis_k = basis_route_by_moments(x_k) if basis == "auto" else basis
@@ -186,46 +235,10 @@ def generate_quadruplet_cross_basis_features(
         # A 4-way basis product is even more overflow-prone than the pair-cross 2-way product; suppress
         # the resulting numpy RuntimeWarnings and scrub the product below rather than leaving a
         # non-finite value to surface as a silent NaN downstream (mirrors generate_pair_cross_basis_features).
-        with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
-            for deg_a in range(min_d, max_d + 1):
-                for deg_b in range(min_d, max_d + 1):
-                    for deg_c in range(min_d, max_d + 1):
-                        for deg_d in range(min_d, max_d + 1):
-                            if deg_a == 0 and deg_b == 0 and deg_c == 0 and deg_d == 0:
-                                continue
-                            try:
-                                key_a = (col_i, deg_a, basis_i)
-                                if key_a not in cache:
-                                    cache[key_a] = _evaluate_basis_column(x_i, basis_i, deg_a)
-                                h_a = cache[key_a]
-                                key_b = (col_j, deg_b, basis_j)
-                                if key_b not in cache:
-                                    cache[key_b] = _evaluate_basis_column(x_j, basis_j, deg_b)
-                                h_b = cache[key_b]
-                                key_c = (col_k, deg_c, basis_k)
-                                if key_c not in cache:
-                                    cache[key_c] = _evaluate_basis_column(x_k, basis_k, deg_c)
-                                h_c = cache[key_c]
-                                key_d = (col_l, deg_d, basis_l)
-                                if key_d not in cache:
-                                    cache[key_d] = _evaluate_basis_column(x_l, basis_l, deg_d)
-                                h_d = cache[key_d]
-                                name = _quadruplet_eng_col_name(
-                                    col_i, col_j, col_k, col_l, basis_i,
-                                    deg_a, deg_b, deg_c, deg_d,
-                                )
-                                out_cols[name] = np.nan_to_num(h_a * h_b * h_c * h_d, nan=0.0, posinf=0.0, neginf=0.0)
-                            except Exception as exc:
-                                log_throttle(
-                                    logger, "quadruplet_basis_eval_raised", logging.WARNING,
-                                    "generate_quadruplet_cross_basis_features: "
-                                    "basis=%r/%r/%r/%r deg=%d/%d/%d/%d on quadruplet "
-                                    "(%r,%r,%r,%r) raised %r; skipping",
-                                    basis_i, basis_j, basis_k, basis_l,
-                                    deg_a, deg_b, deg_c, deg_d,
-                                    col_i, col_j, col_k, col_l, exc,
-                                )
-                                continue
+        _emit_quadruplet_products(
+            out_cols, cache, x_i, x_j, x_k, x_l, basis_i, basis_j, basis_k, basis_l,
+            col_i, col_j, col_k, col_l, min_d, max_d,
+        )
     return pd.DataFrame(out_cols, index=X.index)
 
 _QUADRUPLET_SCORE_EMPTY_COLS = [
@@ -343,6 +356,38 @@ def score_quadruplet_cross_basis_by_mi_uplift(
         df = df.sort_values("uplift", ascending=False).reset_index(drop=True)
     return df
 
+_QUADRUPLET_NULL_N_PERM = 8
+_QUADRUPLET_NULL_QUANTILE = 0.95
+_QUADRUPLET_NULL_SEED = 0
+
+
+def _quadruplet_null_engineered_mi_floor(
+    raw_X_seed: pd.DataFrame,
+    quad_eng: pd.DataFrame,
+    y: np.ndarray,
+    *,
+    nbins: int,
+    basis: str,
+    n_perm: int,
+    quantile: float,
+) -> float:
+    """Permutation-null floor on the best quadruplet engineered MI.
+
+    The sigma-based noise floor needs a pool of candidates to estimate the spread of the null; with the
+    default ``top_quadruplet_seed_k=4`` the pool is a single product, so that floor degenerates to zero and
+    only the uplift and fraction-of-max gates remain, which a pure-noise product clears by chance. Shuffling
+    the target and taking the ``quantile`` of the per-permutation maxima gives the chance ceiling a winner
+    must exceed, independent of the pool size.
+    """
+    rng = np.random.default_rng(_QUADRUPLET_NULL_SEED)
+    y_arr = np.asarray(y)
+    maxima = []
+    for _ in range(int(n_perm)):
+        null_df = score_quadruplet_cross_basis_by_mi_uplift(raw_X_seed, quad_eng, rng.permutation(y_arr), nbins=nbins, basis=basis)
+        maxima.append(float(null_df["engineered_mi"].max()) if not null_df.empty else 0.0)
+    return float(np.quantile(maxima, float(quantile)))
+
+
 def hybrid_orth_mi_quadruplet_fe(
     X: pd.DataFrame,
     y: np.ndarray,
@@ -359,6 +404,8 @@ def hybrid_orth_mi_quadruplet_fe(
     quadruplet_min_uplift: float = 1.05,
     quadruplet_min_abs_mi_frac: float = 0.1,
     nbins: int = 10,
+    quadruplet_null_n_perm: int = _QUADRUPLET_NULL_N_PERM,
+    quadruplet_null_quantile: float = _QUADRUPLET_NULL_QUANTILE,
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """Two-stage hybrid: (1) univariate orthogonal-poly FE + MI-greedy,
     then (2) cross-basis QUADRUPLET FE on the top-N raw source columns,
@@ -477,6 +524,11 @@ def hybrid_orth_mi_quadruplet_fe(
     _eng_mis = quad_scores["engineered_mi"].to_numpy() if not quad_scores.empty else np.array([])
     eng_noise_floor = _noise_aware_floor(_eng_mis, sigma_thresh)
     abs_floor = max(legacy_floor, noise_floor, eng_noise_floor)
+    if int(quadruplet_null_n_perm) > 0 and not quad_scores.empty:
+        abs_floor = max(abs_floor, _quadruplet_null_engineered_mi_floor(
+            raw_X_seed, quad_eng, y, nbins=nbins, basis=basis,
+            n_perm=int(quadruplet_null_n_perm), quantile=float(quadruplet_null_quantile),
+        ))
     qualified = quad_scores[(quad_scores["uplift"] >= float(quadruplet_min_uplift)) & (quad_scores["engineered_mi"] >= abs_floor)]
     winners = qualified.head(int(top_quadruplet_count))
     keep_quad = list(winners["engineered_col"])

@@ -80,6 +80,69 @@ def _mi_from_edges(x: np.ndarray, y: np.ndarray, xe: np.ndarray, ye: np.ndarray)
     return mi
 
 
+@numba.njit(cache=True)
+def _joint_mi_nats(block, j, y_g, xe, nx, ye):
+    """Plug-in MI (nats) of one column's binned joint histogram against the binned group target."""
+    n = block.shape[0]
+    ny = ye.shape[0] - 1
+    joint = np.zeros((nx, ny), dtype=np.float64)
+    for i in range(n):
+        xv = block[i, j]
+        b = 0
+        while b < nx - 1 and xv >= xe[b + 1]:
+            b += 1
+        yv = y_g[i]
+        c = 0
+        while c < ny - 1 and yv >= ye[c + 1]:
+            c += 1
+        joint[b, c] += 1.0
+    for a in range(nx):
+        for b2 in range(ny):
+            joint[a, b2] /= n
+    px = np.zeros(nx)
+    py = np.zeros(ny)
+    for a in range(nx):
+        for b2 in range(ny):
+            px[a] += joint[a, b2]
+            py[b2] += joint[a, b2]
+    mi = 0.0
+    for a in range(nx):
+        for b2 in range(ny):
+            jj = joint[a, b2]
+            if jj > 0.0:
+                mi += jj * np.log(jj / (px[a] * py[b2]))
+    return mi
+
+
+@numba.njit(cache=True)
+def _column_mi_from_qa(block, j, y_g, qa, ye):
+    """MI of one finite feature column against the group target over its deduplicated quantile edges (0.0 when constant or degenerate)."""
+    n = block.shape[0]
+    nqe = qa.shape[0]
+    # ptp guard (constant column contributes 0)
+    cmin = block[0, j]
+    cmax = block[0, j]
+    for i in range(1, n):
+        v = block[i, j]
+        if v < cmin:
+            cmin = v
+        elif v > cmax:
+            cmax = v
+    if cmax <= cmin:
+        return 0.0
+    # Dedup the monotone qa[:, j] into xe (== np.unique on already-sorted edges)
+    xe = np.empty(nqe, dtype=np.float64)
+    xe[0] = qa[0, j]
+    m = 1
+    for e in range(1, nqe):
+        if qa[e, j] > xe[m - 1]:
+            xe[m] = qa[e, j]
+            m += 1
+    if m < 2:
+        return 0.0
+    return _joint_mi_nats(block, j, y_g, xe, m - 1, ye)
+
+
 @numba.njit(cache=True, parallel=True)
 def _group_features_mi_njit(block, y_g, qa, ye, col_fin, out_mi):
     """Fused per-group MI over ALL finite feature columns in ONE njit(parallel) dispatch.
@@ -92,62 +155,10 @@ def _group_features_mi_njit(block, y_g, qa, ye, col_fin, out_mi):
     shared, precomputed unique y-edges. Output ``out_mi[j]`` matches ``_mi_from_edges`` bit-for-bit
     (same searchsorted binning + joint histogram + entropy)."""
     ncols = block.shape[1]
-    n = block.shape[0]
-    nqe = qa.shape[0]
-    ny = ye.shape[0] - 1
     for j in numba.prange(ncols):
         out_mi[j] = 0.0
-        if not col_fin[j]:
-            continue
-        # ptp guard (constant column contributes 0)
-        cmin = block[0, j]
-        cmax = block[0, j]
-        for i in range(1, n):
-            v = block[i, j]
-            if v < cmin:
-                cmin = v
-            elif v > cmax:
-                cmax = v
-        if cmax <= cmin:
-            continue
-        # Dedup the monotone qa[:, j] into xe (== np.unique on already-sorted edges)
-        xe = np.empty(nqe, dtype=np.float64)
-        xe[0] = qa[0, j]
-        m = 1
-        for e in range(1, nqe):
-            if qa[e, j] > xe[m - 1]:
-                xe[m] = qa[e, j]
-                m += 1
-        if m < 2:
-            continue
-        nx = m - 1
-        joint = np.zeros((nx, ny), dtype=np.float64)
-        for i in range(n):
-            xv = block[i, j]
-            b = 0
-            while b < nx - 1 and xv >= xe[b + 1]:
-                b += 1
-            yv = y_g[i]
-            c = 0
-            while c < ny - 1 and yv >= ye[c + 1]:
-                c += 1
-            joint[b, c] += 1.0
-        for a in range(nx):
-            for b2 in range(ny):
-                joint[a, b2] /= n
-        px = np.zeros(nx)
-        py = np.zeros(ny)
-        for a in range(nx):
-            for b2 in range(ny):
-                px[a] += joint[a, b2]
-                py[b2] += joint[a, b2]
-        mi = 0.0
-        for a in range(nx):
-            for b2 in range(ny):
-                jj = joint[a, b2]
-                if jj > 0.0:
-                    mi += jj * np.log(jj / (px[a] * py[b2]))
-        out_mi[j] = mi
+        if col_fin[j]:
+            out_mi[j] = _column_mi_from_qa(block, j, y_g, qa, ye)
 
 
 def _binned_mi(x: np.ndarray, y: np.ndarray, bins: int = 8) -> float:
@@ -252,55 +263,61 @@ def _pair_binned_mi_njit(x: np.ndarray, y: np.ndarray, probs: np.ndarray) -> flo
 
 
 @numba.njit(cache=True)
-def _group_relevance_one_group_add(block: np.ndarray, y_g: np.ndarray, probs: np.ndarray, acc: np.ndarray, w: float) -> None:
-    """Accumulate ``w * MI(feature, y_g)`` for every column into ``acc`` in place, for one query group."""
-    n = block.shape[0]
-    ncols = block.shape[1]
-    y_ok = True
+def _group_y_edges(y_g: np.ndarray, probs: np.ndarray):
+    """Quantile edges of one group's target; the bool is False when the target is non-finite, constant, or yields fewer than two edges."""
+    n = y_g.shape[0]
     for i in range(n):
         if not np.isfinite(y_g[i]):
-            y_ok = False
+            return np.empty(0, dtype=np.float64), False
+    ymin = y_g[0]
+    ymax = y_g[0]
+    for i in range(1, n):
+        if y_g[i] < ymin:
+            ymin = y_g[i]
+        elif y_g[i] > ymax:
+            ymax = y_g[i]
+    if ymax <= ymin:
+        return np.empty(0, dtype=np.float64), False
+    ye = _dedupe_monotone(_quantile_linear_from_sorted(np.sort(y_g), probs))
+    return ye, ye.shape[0] >= 2
+
+
+@numba.njit(cache=True)
+def _accumulate_column_mi(col: np.ndarray, y_g: np.ndarray, probs: np.ndarray, ye: np.ndarray, w: float, acc: np.ndarray, j: int) -> None:
+    """Add ``w * MI(col, y_g)`` into ``acc[j]`` for one column of a group whose target has usable edges ``ye``."""
+    n = col.shape[0]
+    col_ok = True
+    for i in range(n):
+        if not np.isfinite(col[i]):
+            col_ok = False
             break
-    ye = np.empty(0, dtype=np.float64)
-    if y_ok:
-        ymin = y_g[0]
-        ymax = y_g[0]
+    if col_ok:
+        cmin = col[0]
+        cmax = col[0]
         for i in range(1, n):
-            if y_g[i] < ymin:
-                ymin = y_g[i]
-            elif y_g[i] > ymax:
-                ymax = y_g[i]
-        if ymax > ymin:
-            ye = _dedupe_monotone(_quantile_linear_from_sorted(np.sort(y_g), probs))
-            if ye.shape[0] < 2:
-                y_ok = False
-        else:
-            y_ok = False
+            v = col[i]
+            if v < cmin:
+                cmin = v
+            elif v > cmax:
+                cmax = v
+        if cmax <= cmin:
+            return
+        xe = _dedupe_monotone(_quantile_linear_from_sorted(np.sort(col), probs))
+        if xe.shape[0] < 2:
+            return
+        acc[j] += w * _mi_from_edges(col, y_g, xe, ye)
+    else:
+        acc[j] += w * _pair_binned_mi_njit(col, y_g, probs)
+
+
+@numba.njit(cache=True)
+def _group_relevance_one_group_add(block: np.ndarray, y_g: np.ndarray, probs: np.ndarray, acc: np.ndarray, w: float) -> None:
+    """Accumulate ``w * MI(feature, y_g)`` for every column into ``acc`` in place, for one query group."""
+    ncols = block.shape[1]
+    ye, y_ok = _group_y_edges(y_g, probs)
     if y_ok:
         for j in range(ncols):
-            col = np.ascontiguousarray(block[:, j])
-            col_ok = True
-            for i in range(n):
-                if not np.isfinite(col[i]):
-                    col_ok = False
-                    break
-            if col_ok:
-                cmin = col[0]
-                cmax = col[0]
-                for i in range(1, n):
-                    v = col[i]
-                    if v < cmin:
-                        cmin = v
-                    elif v > cmax:
-                        cmax = v
-                if cmax <= cmin:
-                    continue
-                xe = _dedupe_monotone(_quantile_linear_from_sorted(np.sort(col), probs))
-                if xe.shape[0] < 2:
-                    continue
-                acc[j] += w * _mi_from_edges(col, y_g, xe, ye)
-            else:
-                acc[j] += w * _pair_binned_mi_njit(col, y_g, probs)
+            _accumulate_column_mi(np.ascontiguousarray(block[:, j]), y_g, probs, ye, w, acc, j)
     else:
         for j in range(ncols):
             acc[j] += w * _pair_binned_mi_njit(np.ascontiguousarray(block[:, j]), y_g, probs)

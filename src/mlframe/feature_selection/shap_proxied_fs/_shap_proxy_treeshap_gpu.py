@@ -19,7 +19,6 @@ import multiprocessing
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
-from mlframe.feature_selection.filters.shared import crit_float_dtype
 
 if TYPE_CHECKING:
     from mlframe.feature_selection.shap_proxied_fs._shap_proxy_treeshap import TreeEnsemble
@@ -45,7 +44,7 @@ def _cuda_demote_errors():
     return excs
 
 
-_TREESHAP_KERNEL: Any = None
+_TREESHAP_KERNELS: dict[int, Any] = {}
 _KERNEL_INIT_LOCK = multiprocessing.Lock()
 
 # Max tree depth the local-memory scratch supports without spilling to slow global memory.
@@ -193,26 +192,29 @@ def _block_size() -> int:
     return block_size_from_tuning_cache("shap_proxy_treeshap", "gpu_block_size", _DEFAULT_BLOCK_SIZE)
 
 
-def _ensure_kernel():
-    """Lazily compile (or return the already-compiled) ``cp.RawKernel`` for the TreeSHAP scan, guarded by a module-global lock + double-checked locking so concurrent callers (including Windows-spawned worker processes) never race the NVCC compile."""
-    global _TREESHAP_KERNEL
-    if _TREESHAP_KERNEL is not None:
-        return _TREESHAP_KERNEL
+def _ensure_kernel(max_depth: int):
+    """Compile (once per depth, under a module-global lock with double-checked locking) and cache the ``cp.RawKernel``
+    for the TreeSHAP scan. The per-thread scratch is sized by the ensemble's real depth, not the cap: at the cap's
+    depth 24 the kernel reserves gigabytes of device local memory that stay allocated and starve later GPU paths."""
+    key = int(max_depth)
+    kernel = _TREESHAP_KERNELS.get(key)
+    if kernel is not None:
+        return kernel
     with _KERNEL_INIT_LOCK:
-        if _TREESHAP_KERNEL is None:  # double-checked
+        kernel = _TREESHAP_KERNELS.get(key)
+        if kernel is None:
             import cupy as cp
 
-            _TREESHAP_KERNEL = cp.RawKernel(_kernel_source(), "treeshap")
-    return _TREESHAP_KERNEL
+            kernel = cp.RawKernel(_kernel_source(key), "treeshap")
+            _TREESHAP_KERNELS[key] = kernel
+    return kernel
 
 
-def _kernel_source() -> str:
-    """Prepend ``#define``s derived from the Python ``_MAX_SUPPORTED_DEPTH`` cap so the CUDA scratch sizes
-    cannot drift from the host cap (T1). MAXW = depth + 2 (entries per level); MAXSP sizes the explicit DFS
-    stack at 2*MAXW + 12 (the original literal was 64 at depth 24, i.e. 2*26 + 12; this formula reproduces
-    that headroom and scales with the cap). The host asserts ``ensemble.max_depth <= _MAX_SUPPORTED_DEPTH``
-    before launch, so these sizes always bound the realised path/stack depth."""
-    maxw = _MAX_SUPPORTED_DEPTH + 2
+def _kernel_source(max_depth: int) -> str:
+    """Prepend ``#define``s sized for one ensemble depth: MAXW = depth + 2 (entries per level); MAXSP sizes the explicit
+    DFS stack at 2*MAXW + 12. The host asserts ``max_depth <= _MAX_SUPPORTED_DEPTH`` before launch, so these sizes
+    always bound the realised path and stack depth."""
+    maxw = int(max_depth) + 2
     maxsp = 2 * maxw + 12
     return f"#define MAXW {maxw}\n#define MAXSP {maxsp}\n" + _KERNEL_SRC
 
@@ -232,7 +234,7 @@ def treeshap_phi_base_gpu(ensemble: TreeEnsemble, X: np.ndarray) -> tuple[np.nda
     if f != ensemble.n_features:
         raise ValueError(f"X has {f} features but ensemble expects {ensemble.n_features}.")
 
-    kernel = _ensure_kernel()
+    kernel = _ensure_kernel(ensemble.max_depth)
     block = _block_size()
 
     X_d = cp.asarray(Xf)
@@ -241,11 +243,12 @@ def treeshap_phi_base_gpu(ensemble: TreeEnsemble, X: np.ndarray) -> tuple[np.nda
     cd_d = cp.asarray(ensemble.children_default)
     feat_d = cp.asarray(ensemble.features)
     thr_d = cp.asarray(ensemble.thresholds)
-    val_d = cp.asarray(ensemble.values)
-    cover_d = cp.asarray(ensemble.node_sample_weight)
+    # Intentional float64: the main-effect CUDA kernel reads leaf values and cover as double*, so float32 host arrays would be misread.
+    val_d = cp.asarray(ensemble.values, dtype=np.float64)
+    cover_d = cp.asarray(ensemble.node_sample_weight, dtype=np.float64)
     roots_d = cp.asarray(ensemble.tree_roots)
     # Intentional float64: the treeshap CUDA kernel writes its phi output as double*, so this buffer must be f64.
-    phi_d = cp.zeros((n, f), dtype=crit_float_dtype())
+    phi_d = cp.zeros((n, f), dtype=np.float64)
 
     grid = ((n + block - 1) // block,)
     kernel(grid, (block,), (

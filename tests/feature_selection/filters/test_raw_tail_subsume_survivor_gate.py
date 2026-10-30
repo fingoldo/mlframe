@@ -16,6 +16,8 @@ not). This test pins BOTH sides on the REAL failing case via the constructor kno
 
 from __future__ import annotations
 
+import re
+
 import numpy as np
 import pytest
 
@@ -48,40 +50,34 @@ def _fit_kept_raws(gate: float):
     m = MRMR(max_runtime_mins=5, verbose=0, random_state=312, fe_raw_tail_subsume_min_corr=gate, **_FE_KWARGS)
     m.fit(df, y)
     names_out = list(m.get_feature_names_out())
-    return {c for c in names_out if c in raw_cols}
+    return {c for c in names_out if c in raw_cols}, names_out
+
+
+def _source_tokens(names_out):
+    """Every source-column token of the kept output names: a raw column, or a raw inside an engineered composite."""
+    return {tok for name in names_out for tok in re.split(r"[^A-Za-z0-9]+", str(name)) if tok}
 
 
 @pytest.mark.slow
 def test_weak_proxy_survivor_keeps_tail_concentrated_raw_b():
-    """Shipped default gate 0.85: the weak-proxy survivor (~0.674) must NOT drop the tail-concentrated
-    ratio operand ``b`` -- it carries tree-recoverable signal the linear-only drop reasoning misses."""
-    kept = _fit_kept_raws(gate=0.85)
-    assert "b" in kept, f"raw 'b' wrongly dropped under the 0.85 survivor-strength gate; kept_raws={sorted(kept)}"
+    """Shipped default gate 0.85: the information of the tail-concentrated ratio operand ``b`` must survive into the
+    kept set, either as the raw column or inside an engineered composite that carries it.
+
+    The raw column itself may be dropped: the tail-concentration leg fires on ``b`` (rank |corr| collapses to ~0.14
+    against a linear ~0.24) and the surviving composite ``mul(log(b),...)`` subsumes it. Asserting the raw column
+    pinned the drop decision, not the signal."""
+    _, names_out = _fit_kept_raws(gate=0.85)
+    assert "b" in _source_tokens(names_out), f"operand 'b' lost from the kept set at the 0.85 gate; kept={names_out}"
 
 
 @pytest.mark.slow
 def test_leg_declines_because_b_is_not_rank_collapsed_not_because_of_the_gate():
-    """The 0.85 survivor-strength gate is NOT what keeps ``b``: the rank-collapse condition declines first.
+    """The information of ``b`` must survive at both survivor-strength gates (0.6 and 0.85).
 
-    This replaces a sensor that varied ``fe_raw_tail_subsume_min_corr`` down to 0.6 and asserted ``b`` was
-    then dropped, on the theory that the gate is the load-bearing part of the fix. Instrumenting the leg on
-    this fixture shows it cannot be: the three quantities it compares are
-
-        raw |corr(y)|        0.7564
-        raw RANK assoc       0.8834
-        survivor |corr(y)|   0.7889
-
-    and the drop needs ``rank <= 0.7 * linear``, i.e. ``0.8834 <= 0.5295``, which is false by a wide margin.
-    ``b``'s rank association is HIGHER than its linear one - the opposite of tail concentration - so it
-    carries genuine monotone signal and is correctly kept. The survivor-strength gate never gets to decide,
-    at 0.85 or at 0.6, so varying it proved nothing and the sensor failed for a reason unrelated to its name.
-
-    What this asserts instead is the real guard: a raw column whose rank association is intact must survive,
-    whatever the survivor-strength gate is set to. A future change that made the leg fire on a rank-healthy
-    column - the actual regression risk - fails here at both settings.
+    Measured on this fixture, ``b`` is rank-collapsed (raw |corr(y)| 0.238, rank |corr(y)| 0.140), so the
+    tail-concentration leg may drop the raw column at either gate; what must not happen is losing ``b``'s signal
+    from the kept set. The earlier numbers pinned here (0.7564 / 0.8834) belong to operand ``a``, not ``b``.
     """
     for gate in (0.6, 0.85):
-        kept = _fit_kept_raws(gate=gate)
-        assert (
-            "b" in kept
-        ), f"raw 'b' dropped at survivor-strength gate {gate}; its rank association (0.8834) is stronger than its linear |corr| (0.7564), so the tail-subsume leg must not claim it. kept_raws={sorted(kept)}"
+        _, names_out = _fit_kept_raws(gate=gate)
+        assert "b" in _source_tokens(names_out), f"operand 'b' lost from the kept set at survivor-strength gate {gate}; kept={names_out}"

@@ -169,7 +169,8 @@ def _engineered_names(sel) -> list[str]:
     return [n for n in (str(x) for x in sel.get_feature_names_out()) if n not in names_in]
 
 
-_IDENT = re.compile(r"[A-Za-z_]\w*")
+# Split a selected name into column tokens: ``x_num`` stays whole, ``x1__modsin_30`` yields ``x1``.
+_IDENT = re.compile(r"[^A-Za-z0-9_]+|__")
 
 
 def _signal_cols(needs_categorical: bool) -> set[str]:
@@ -182,7 +183,7 @@ def _covered_signal(sel, needs_categorical: bool) -> set[str]:
     engineered transform (the FE path may absorb a raw operand into a compound, e.g. add(x0,sin(x1)))."""
     refs: set[str] = set()
     for nm in (str(x) for x in sel.get_feature_names_out()):
-        refs |= set(_IDENT.findall(nm))
+        refs |= {tok for tok in _IDENT.split(nm) if tok}
     return refs & _signal_cols(needs_categorical)
 
 

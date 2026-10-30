@@ -272,6 +272,76 @@ def generate_cat_triple_crosses(
 # Beam search over triples seeded by Layer-89 pairwise synergy
 # ---------------------------------------------------------------------------
 
+class _TripleIIScorer:
+    """Memoised three-way interaction-information scorer over one frame: dense codes per column and joint MI per column set.
+
+    Binds the frame, the binned target and the optional code-cache output.
+    """
+
+    def __init__(self, X, y_bin, code_cache_out):
+        from ._adaptive_nbins import _plug_in_mi
+
+        self._X = X
+        self._y_bin = y_bin
+        self._code_cache_out = code_cache_out
+        self._plug_in_mi = _plug_in_mi
+        self._code_cache: dict[str, np.ndarray] = {}
+        self._mi_cache: dict[frozenset, float] = {}
+
+    def codes(self, col: str) -> np.ndarray:
+        """Memoized dense integer codes for column ``col``, reused across every triple/pair/singleton MI lookup in the beam search."""
+        if col not in self._code_cache:
+            uniq, c = column_string_codes(self._X[col])
+            c = c.astype(np.int64)
+            self._code_cache[col] = c
+            if self._code_cache_out is not None:
+                self._code_cache_out[col] = (uniq, c)
+        return self._code_cache[col]
+
+    def mi(self, cols: tuple[str, ...]) -> float:
+        """Memoized MI(joint(cols), y_bin) keyed by the column set (order-independent), since the same pairs/singletons recur across many triples."""
+        key = frozenset(cols)
+        if key not in self._mi_cache:
+            joint = _join_codes(*(self.codes(c) for c in cols))
+            self._mi_cache[key] = float(self._plug_in_mi(joint, self._y_bin))
+        return self._mi_cache[key]
+
+    def ii3(self, a: str, b: str, c: str) -> float:
+        """3-way interaction information via inclusion-exclusion: joint MI minus pairwise MIs plus singleton MIs; positive means synergy beyond any pair."""
+        return self.mi((a, b, c)) - (self.mi((a, b)) + self.mi((a, c)) + self.mi((b, c))) + (self.mi((a,)) + self.mi((b,)) + self.mi((c,)))
+
+
+def _refine_seed_pairs(triple_ii3, beam_width):
+    """Next round's seed pairs: the distinct sub-pairs of the ``beam_width`` best triples found so far (the parity-escape step)."""
+    best = sorted(
+        triple_ii3.items(), key=lambda kv: kv[1], reverse=True,
+    )[: max(1, int(beam_width))]
+    next_seeds: list[tuple[str, str]] = []
+    for trip, _ in best:
+        for pr in combinations(sorted(trip), 2):
+            if pr not in next_seeds:
+                next_seeds.append(pr)
+    return next_seeds
+
+
+def _triples_frame(triple_ii3):
+    """Frame of evaluated triples (``cat_a``, ``cat_b``, ``cat_c``, ``engineered_col``, ``ii3``) sorted by ``ii3`` descending."""
+    rows: list[dict] = []
+    for trip, ii3 in triple_ii3.items():
+        a_s, b_s, c_s = sorted(trip)
+        rows.append({
+            "cat_a": a_s,
+            "cat_b": b_s,
+            "cat_c": c_s,
+            "engineered_col": engineered_name_cat_triple_cross(a_s, b_s, c_s),
+            "ii3": float(ii3),
+        })
+    out = pd.DataFrame(rows)
+    if not out.empty:
+        out = out.sort_values("ii3", ascending=False, kind="mergesort").reset_index(drop=True)
+    return out
+
+
 def score_cat_triples_by_interaction_information(
     X: pd.DataFrame,
     y: np.ndarray,
@@ -334,33 +404,7 @@ def score_cat_triples_by_interaction_information(
 
     # Cache dense codes + the discrete-MI primitive so repeated sweeps do not
     # recompute marginals / joints per candidate.
-    code_cache: dict[str, np.ndarray] = {}
-
-    def _codes(col: str) -> np.ndarray:
-        """Memoized dense integer codes for column ``col``, reused across every triple/pair/singleton MI lookup in the beam search."""
-        if col not in code_cache:
-            uniq, c = column_string_codes(X[col])
-            c = c.astype(np.int64)
-            code_cache[col] = c
-            if code_cache_out is not None:
-                code_cache_out[col] = (uniq, c)
-        return code_cache[col]
-
-    from ._adaptive_nbins import _plug_in_mi
-
-    mi_cache: dict[frozenset, float] = {}
-
-    def _mi(cols: tuple[str, ...]) -> float:
-        """Memoized MI(joint(cols), y_bin) keyed by the column set (order-independent), since the same pairs/singletons recur across many triples."""
-        key = frozenset(cols)
-        if key not in mi_cache:
-            joint = _join_codes(*(_codes(c) for c in cols))
-            mi_cache[key] = float(_plug_in_mi(joint, y_bin))
-        return mi_cache[key]
-
-    def _ii3(a: str, b: str, c: str) -> float:
-        """3-way interaction information via inclusion-exclusion: joint MI minus pairwise MIs plus singleton MIs; positive means synergy beyond any pair."""
-        return _mi((a, b, c)) - (_mi((a, b)) + _mi((a, c)) + _mi((b, c))) + (_mi((a,)) + _mi((b,)) + _mi((c,)))
+    scorer = _TripleIIScorer(X, y_bin, code_cache_out)
 
     seen: set[frozenset] = set()
     triple_ii3: dict[frozenset, float] = {}
@@ -376,35 +420,14 @@ def score_cat_triples_by_interaction_information(
                 if trip in seen:
                     continue
                 seen.add(trip)
-                triple_ii3[trip] = _ii3(a, b, c)
+                triple_ii3[trip] = scorer.ii3(a, b, c)
                 n_evaluated += 1
         # Refine: next round seeds = the sub-pairs of the best beam_width
         # triples found so far. This re-seeds the search from the strongest
         # partial-synergy neighbourhoods (the parity-escape step).
-        best = sorted(
-            triple_ii3.items(), key=lambda kv: kv[1], reverse=True,
-        )[: max(1, int(beam_width))]
-        next_seeds: list[tuple[str, str]] = []
-        for trip, _ in best:
-            for pr in combinations(sorted(trip), 2):
-                if pr not in next_seeds:
-                    next_seeds.append(pr)
-        seed_pairs = next_seeds
+        seed_pairs = _refine_seed_pairs(triple_ii3, beam_width)
 
-    rows: list[dict] = []
-    for trip, ii3 in triple_ii3.items():
-        a_s, b_s, c_s = sorted(trip)
-        rows.append({
-            "cat_a": a_s,
-            "cat_b": b_s,
-            "cat_c": c_s,
-            "engineered_col": engineered_name_cat_triple_cross(a_s, b_s, c_s),
-            "ii3": float(ii3),
-        })
-
-    out = pd.DataFrame(rows)
-    if not out.empty:
-        out = out.sort_values("ii3", ascending=False, kind="mergesort").reset_index(drop=True)
+    out = _triples_frame(triple_ii3)
     n_exhaustive = math.comb(len(cat_cols), 3)  # the count of triples, without materialising them
     out.attrs["n_triples_evaluated"] = int(n_evaluated)
     out.attrs["n_triples_exhaustive"] = int(n_exhaustive)

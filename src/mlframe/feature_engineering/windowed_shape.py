@@ -194,6 +194,77 @@ def _entropy_of_counts(counts: np.ndarray) -> float:
     return e
 
 
+@njit(cache=True, fastmath=False)
+def _uniform_bin_entropy(fin, m, n_bins):
+    """Binned Shannon entropy of a sorted window over equal-width bins spanning its range."""
+    lo_v = fin[0]
+    hi_v = fin[m - 1]
+    if hi_v - lo_v < 1e-12:
+        return 0.0
+    right = hi_v + 1e-12
+    width = (right - lo_v) / n_bins
+    counts = np.zeros(n_bins, dtype=np.int64)
+    for j in range(m):
+        x = fin[j]
+        b = int((x - lo_v) / width)
+        if b < 0:
+            b = 0
+        elif b >= n_bins:
+            b = n_bins - 1
+        counts[b] += 1
+    return _entropy_of_counts(counts)
+
+
+@njit(cache=True, fastmath=False)
+def _window_entropy_sorted(fin, m, n_bins, quantile_strategy):
+    """Binned Shannon entropy of one window's sorted finite values (quantile or uniform edges)."""
+    n_edges = n_bins + 1
+    if quantile_strategy:
+        # numpy linear-interpolation quantiles at probs linspace(0,1,n_bins+1) over sorted fin.
+        edges = np.empty(n_edges, dtype=np.float64)
+        for i in range(n_edges):
+            if n_bins == 0:
+                q = 0.0
+            else:
+                q = i / n_bins
+            pos = q * (m - 1)
+            lo_i = int(np.floor(pos))
+            if lo_i >= m - 1:
+                edges[i] = fin[m - 1]
+            else:
+                frac = pos - lo_i
+                edges[i] = fin[lo_i] + (fin[lo_i + 1] - fin[lo_i]) * frac
+        # np.unique: collapse duplicate edges (sorted already).
+        uniq = np.empty(n_edges, dtype=np.float64)
+        nu = 0
+        for i in range(n_edges):
+            if nu == 0 or edges[i] != uniq[nu - 1]:
+                uniq[nu] = edges[i]
+                nu += 1
+        if nu < 2:
+            return 0.0
+        counts = np.zeros(nu - 1, dtype=np.int64)
+        for j in range(m):
+            x = fin[j]
+            # half-open [e[k], e[k+1]); last bin closed at the right edge.
+            # binary search for the rightmost edge <= x.
+            lo = 0
+            hi = nu - 1
+            while lo < hi:
+                mid = (lo + hi + 1) // 2
+                if uniq[mid] <= x:
+                    lo = mid
+                else:
+                    hi = mid - 1
+            b = lo
+            if b >= nu - 1:
+                b = nu - 2  # closed last bin (x == right edge)
+            counts[b] += 1
+        return _entropy_of_counts(counts)
+    else:
+        return _uniform_bin_entropy(fin, m, n_bins)
+
+
 @njit(cache=True, fastmath=False, parallel=True)
 def _shannon_entropy_binned_kernel(wins: np.ndarray, n_bins: int, quantile_strategy: bool) -> np.ndarray:
     """Per-window binned Shannon entropy over the rows of a sliding-window matrix.
@@ -206,7 +277,6 @@ def _shannon_entropy_binned_kernel(wins: np.ndarray, n_bins: int, quantile_strat
     """
     n_wins, K = wins.shape
     ent = np.full(n_wins, np.nan, dtype=np.float64)
-    n_edges = n_bins + 1
     for r in prange(n_wins):
         buf = np.empty(K, dtype=np.float64)
         m = 0
@@ -219,67 +289,7 @@ def _shannon_entropy_binned_kernel(wins: np.ndarray, n_bins: int, quantile_strat
             continue
         fin = buf[:m]
         fin.sort()
-        if quantile_strategy:
-            # numpy linear-interpolation quantiles at probs linspace(0,1,n_bins+1) over sorted fin.
-            edges = np.empty(n_edges, dtype=np.float64)
-            for i in range(n_edges):
-                if n_bins == 0:
-                    q = 0.0
-                else:
-                    q = i / n_bins
-                pos = q * (m - 1)
-                lo_i = int(np.floor(pos))
-                if lo_i >= m - 1:
-                    edges[i] = fin[m - 1]
-                else:
-                    frac = pos - lo_i
-                    edges[i] = fin[lo_i] + (fin[lo_i + 1] - fin[lo_i]) * frac
-            # np.unique: collapse duplicate edges (sorted already).
-            uniq = np.empty(n_edges, dtype=np.float64)
-            nu = 0
-            for i in range(n_edges):
-                if nu == 0 or edges[i] != uniq[nu - 1]:
-                    uniq[nu] = edges[i]
-                    nu += 1
-            if nu < 2:
-                ent[r] = 0.0
-                continue
-            counts = np.zeros(nu - 1, dtype=np.int64)
-            for j in range(m):
-                x = fin[j]
-                # half-open [e[k], e[k+1]); last bin closed at the right edge.
-                # binary search for the rightmost edge <= x.
-                lo = 0
-                hi = nu - 1
-                while lo < hi:
-                    mid = (lo + hi + 1) // 2
-                    if uniq[mid] <= x:
-                        lo = mid
-                    else:
-                        hi = mid - 1
-                b = lo
-                if b >= nu - 1:
-                    b = nu - 2  # closed last bin (x == right edge)
-                counts[b] += 1
-            ent[r] = _entropy_of_counts(counts)
-        else:
-            lo_v = fin[0]
-            hi_v = fin[m - 1]
-            if hi_v - lo_v < 1e-12:
-                ent[r] = 0.0
-                continue
-            right = hi_v + 1e-12
-            width = (right - lo_v) / n_bins
-            counts = np.zeros(n_bins, dtype=np.int64)
-            for j in range(m):
-                x = fin[j]
-                b = int((x - lo_v) / width)
-                if b < 0:
-                    b = 0
-                elif b >= n_bins:
-                    b = n_bins - 1
-                counts[b] += 1
-            ent[r] = _entropy_of_counts(counts)
+        ent[r] = _window_entropy_sorted(fin, m, n_bins, quantile_strategy)
     return ent
 
 
