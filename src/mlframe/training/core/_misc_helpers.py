@@ -423,6 +423,36 @@ def _validate_input_columns_against_metadata(
     return df
 
 
+def _classify_schema_drift(expected_idx, live_schema_idx):
+    """Split the column differences between a trained input schema and the serving one into critical, role, family and soft buckets."""
+    critical_removed: list = []
+    family_changes: list = []
+    role_changes: list = []
+    soft_width_changes: list = []
+    soft_family_changes: list = []
+    for col, e in expected_idx.items():
+        if col not in live_schema_idx:
+            if e["role"] in ("cat", "text", "embedding"):
+                critical_removed.append(col)
+            continue
+        live = live_schema_idx[col]
+        role_critical = e["role"] in ("cat", "text", "embedding") or live["role"] in ("cat", "text", "embedding")
+        if live["role"] != e["role"]:
+            if role_critical:
+                role_changes.append(f"    {col}: trained role={e['role']} serving role={live['role']}")
+        if live["dtype"] != e["dtype"]:
+            ef = _dtype_family(e["dtype"])
+            lf = _dtype_family(live["dtype"])
+            if ef != lf:
+                if role_critical:
+                    family_changes.append(f"    {col}: trained={e['dtype']!r} ({ef}) serving={live['dtype']!r} ({lf})")
+                else:
+                    soft_family_changes.append(f"    {col}: trained={e['dtype']!r} ({ef}) serving={live['dtype']!r} ({lf}) (numeric role)")
+            else:
+                soft_width_changes.append(f"    {col}: trained={e['dtype']!r} serving={live['dtype']!r} (same family={lf})")
+    return critical_removed, family_changes, role_changes, soft_width_changes, soft_family_changes
+
+
 def _validate_against_model_schemas(model_schemas, df, metadata):
     """Check the live frame against every trained model's recorded input schema and fingerprint, warning or raising on a mismatch."""
     if model_schemas:
@@ -444,31 +474,7 @@ def _validate_against_model_schemas(model_schemas, df, metadata):
             # Trained snapshot is POST-pipeline; live snapshot is PRE-pipeline. For cat/text/embedding columns
             # role/dtype is user-declared and stable, so family changes there are critical (silent label-encoding/vocab drift).
             # For numeric-role columns the pipeline casts internally, so family changes are expected -> soft-warn.
-            critical_removed: list = []
-            family_changes: list = []
-            role_changes: list = []
-            soft_width_changes: list = []
-            soft_family_changes: list = []
-            for col, e in expected_idx.items():
-                if col not in live_schema_idx:
-                    if e["role"] in ("cat", "text", "embedding"):
-                        critical_removed.append(col)
-                    continue
-                live = live_schema_idx[col]
-                role_critical = e["role"] in ("cat", "text", "embedding") or live["role"] in ("cat", "text", "embedding")
-                if live["role"] != e["role"]:
-                    if role_critical:
-                        role_changes.append(f"    {col}: trained role={e['role']} serving role={live['role']}")
-                if live["dtype"] != e["dtype"]:
-                    ef = _dtype_family(e["dtype"])
-                    lf = _dtype_family(live["dtype"])
-                    if ef != lf:
-                        if role_critical:
-                            family_changes.append(f"    {col}: trained={e['dtype']!r} ({ef}) serving={live['dtype']!r} ({lf})")
-                        else:
-                            soft_family_changes.append(f"    {col}: trained={e['dtype']!r} ({ef}) serving={live['dtype']!r} ({lf}) (numeric role)")
-                    else:
-                        soft_width_changes.append(f"    {col}: trained={e['dtype']!r} serving={live['dtype']!r} (same family={lf})")
+            critical_removed, family_changes, role_changes, soft_width_changes, soft_family_changes = _classify_schema_drift(expected_idx, live_schema_idx)
             hard_fail = bool(critical_removed or family_changes or role_changes)
             if hard_fail:
                 diff_lines = []
