@@ -44,7 +44,7 @@ from __future__ import annotations
 
 import logging
 import math
-from typing import Any
+from typing import Any, Callable
 
 import numpy as np
 
@@ -174,6 +174,59 @@ def _sample_indices(n_rows: int) -> tuple:
     return tuple(dict.fromkeys(round(i * (n_rows - 1) / (n_samples - 1)) for i in range(n_samples)))
 
 
+def _hash_sampled_rows(sampler: Callable[[], list], label: str) -> int | None:
+    """Hash the canonical rows a sampler returns, or ``None`` (logged at debug) when sampling raises."""
+    try:
+        return hash(tuple(sampler()))
+    except Exception as exc:
+        logger.debug("_row_sample_hash: %s sampling failed, cache key falls back to id()-based: %s", label, exc)
+        return None
+
+
+def _polars_row_samples(X: Any, indices: tuple, n_rows: int) -> list:
+    """Canonical rows of a polars frame at the sampled indices, via the O(n_cols) ``row()`` call."""
+    return [_canonicalise_row(X.row(idx)) for idx in indices if 0 <= idx < n_rows]
+
+
+def _pandas_iloc_samples(X: Any, indices: tuple, n_rows: int) -> list:
+    """Canonical rows of a pandas frame at the sampled indices, via ``iloc``."""
+    samples: list = []
+    for idx in indices:
+        if 0 <= idx < n_rows:
+            row = X.iloc[idx]
+            try:
+                vals = row.tolist()
+            except AttributeError:
+                vals = list(row)
+            samples.append(_canonicalise_row(vals))
+    return samples
+
+
+def _to_numpy_samples(arr: Any, indices: tuple, n_rows: int) -> list:
+    """Canonical rows of a ``to_numpy()`` array at the sampled indices."""
+    samples: list = []
+    for idx in indices:
+        if 0 <= idx < n_rows:
+            row = arr[idx]
+            if hasattr(row, "tolist"):
+                row = row.tolist()
+            samples.append(_canonicalise_row(row))
+    return samples
+
+
+def _ndarray_row_samples(arr: np.ndarray, indices: tuple, n_rows: int) -> list:
+    """Canonical rows of an ndarray at the sampled indices; a 1-D array's scalars are wrapped as 1-tuples."""
+    samples: list = []
+    for idx in indices:
+        if 0 <= idx < n_rows:
+            row = arr[idx]
+            if isinstance(row, np.ndarray):
+                samples.append(_canonicalise_row(row.tolist()))
+            else:
+                samples.append(_canonicalise_row((row,)))
+    return samples
+
+
 def _row_sample_hash(X: Any, n_rows: int | None) -> int | None:
     """Hash an evenly-strided row sample of ``X`` (see :func:`_sample_indices`).
 
@@ -192,57 +245,16 @@ def _row_sample_hash(X: Any, n_rows: int | None) -> int | None:
     if n_rows is None or n_rows < 1:
         return None
     indices = _sample_indices(n_rows)
-    samples: list = []
     # Polars fast path FIRST: many polars frames also expose ``iloc``
     # via newer compat layers, but we want the O(n_cols) ``row()`` call
     # not the n_rows-materialising ``iloc``. Detect polars by the
     # (.row, .slice) method pair, which pandas does not expose.
     if hasattr(X, "row") and hasattr(X, "slice") and callable(getattr(X, "row", None)):
-        try:
-            samples = [_canonicalise_row(X.row(idx)) for idx in indices if 0 <= idx < n_rows]
-            return hash(tuple(samples))
-        except Exception as exc:
-            logger.debug("_row_sample_hash: polars .row() sampling failed, cache key falls back to id()-based: %s", exc)
-            return None
+        return _hash_sampled_rows(lambda: _polars_row_samples(X, indices, n_rows), "polars .row()")
     if hasattr(X, "iloc"):
-        try:
-            for idx in indices:
-                if 0 <= idx < n_rows:
-                    row = X.iloc[idx]
-                    try:
-                        vals = row.tolist()
-                    except AttributeError:
-                        vals = list(row)
-                    samples.append(_canonicalise_row(vals))
-            return hash(tuple(samples))
-        except Exception as exc:
-            logger.debug("_row_sample_hash: pandas .iloc sampling failed, cache key falls back to id()-based: %s", exc)
-            return None
+        return _hash_sampled_rows(lambda: _pandas_iloc_samples(X, indices, n_rows), "pandas .iloc")
     if hasattr(X, "to_numpy"):
-        try:
-            arr = X.to_numpy()
-            for idx in indices:
-                if 0 <= idx < n_rows:
-                    row = arr[idx]
-                    if hasattr(row, "tolist"):
-                        row = row.tolist()
-                    samples.append(_canonicalise_row(row))
-            return hash(tuple(samples))
-        except Exception as exc:
-            logger.debug("_row_sample_hash: to_numpy() sampling failed, cache key falls back to id()-based: %s", exc)
-            return None
+        return _hash_sampled_rows(lambda: _to_numpy_samples(X.to_numpy(), indices, n_rows), "to_numpy()")
     if hasattr(X, "__getitem__") and hasattr(X, "ndim"):
-        try:
-            arr = np.asarray(X)
-            for idx in indices:
-                if 0 <= idx < n_rows:
-                    row = arr[idx]
-                    if isinstance(row, np.ndarray):
-                        samples.append(_canonicalise_row(row.tolist()))
-                    else:
-                        samples.append(_canonicalise_row((row,)))
-            return hash(tuple(samples))
-        except Exception as exc:
-            logger.debug("_row_sample_hash: np.asarray() sampling failed, cache key falls back to id()-based: %s", exc)
-            return None
+        return _hash_sampled_rows(lambda: _ndarray_row_samples(np.asarray(X), indices, n_rows), "np.asarray()")
     return None

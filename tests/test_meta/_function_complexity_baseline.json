@@ -74,7 +74,6 @@
   "src/mlframe/reporting/renderers/plotly.py::PlotlyRenderer._histogram": 17,
   "src/mlframe/training/_data_helpers.py::_setup_eval_set": 18,
   "src/mlframe/training/_data_helpers.py::_validate_target_values": 18,
-  "src/mlframe/training/_dataset_cache_fingerprint.py::_row_sample_hash": 19,
   "src/mlframe/training/_eval_helpers.py::_render_split_diagnostics": 19,
   "src/mlframe/training/_feature_importances.py::get_model_feature_importances": 16,
   "src/mlframe/training/_iterative_stratification_njit.py::_iterative_stratification_njit": 16,
