@@ -39,6 +39,49 @@ def validate_init_params_early(params: dict[str, Any]) -> None:
         raise ValueError(f"cv must be >= 2 (or a CV splitter object); got cv={cv}. " f"k-fold CV requires at least 2 splits.")
 
 
+def _check_estimator_family_consistency(estimators) -> None:
+    """Reject an ``estimators=`` list that mixes classifiers and regressors."""
+    # E9: assert all entries in ``estimators=`` share the
+    # same type-family (classifier vs regressor). Mixing silently picks the
+    # first estimator's family for CV stratification / scoring and the other
+    # estimator crashes mid-fold with cryptic errors.
+    if estimators:
+        from sklearn.base import is_classifier as _is_clf
+        from sklearn.base import is_regressor as _is_reg
+        _est_list = list(estimators)
+        if len(_est_list) >= 2:
+            _is_clf_flags = [_is_clf(e) for e in _est_list]
+            _is_reg_flags = [_is_reg(e) for e in _est_list]
+            # Allow estimators that are NEITHER (custom transformers used as importers)
+            # but reject mixing detectable classifier+regressor.
+            if any(_is_clf_flags) and any(_is_reg_flags):
+                raise ValueError(
+                    "RFECV: estimators=[...] mixes classifier and regressor "
+                    "families. All entries must share type-family for CV "
+                    "stratification + scoring to be consistent. Got: "
+                    f"{[type(e).__name__ for e in _est_list]}"
+                )
+
+
+def _warn_unsafe_multi_estimator_aggregation(estimators, votes_aggregation_method, verbose) -> None:
+    """Warn when several estimators are combined with raw arithmetic/geometric-mean vote aggregation."""
+    # F6: multi-estimator + AM/GM is unsafe.
+    # LR coef ~ 0.01..1, RF Gini ~ 0..0.1, CB split-gain ~ thousands - raw
+    # arithmetic / geometric mean is dominated by the largest-magnitude
+    # estimator (AM) or zeroed by any single zero (GM). Force rank-based
+    # rules (Borda / Copeland) for multi-estimator. User can opt back in
+    # via allow_unsafe_aggregation=True for benchmarks.
+    if estimators and votes_aggregation_method in (VotesAggregation.AM, VotesAggregation.GM):
+        if verbose:
+            logger.warning(
+                "RFECV: multi-estimator + votes_aggregation_method=%s mixes raw "
+                "FI values from incomparable scales (LR coef ~ 0.01-1, RF Gini ~ "
+                "0-0.1, CB split-gain ~ 1000s). Switching to Borda (rank-based). "
+                "Pass allow_unsafe_aggregation=True to keep the original choice.",
+                votes_aggregation_method,
+            )
+
+
 def validate_init_params_late(params: dict[str, Any]) -> None:
     """Validate the remaining enumerated knobs, the estimators= type-family consistency and warn on multi-estimator AM/GM aggregation."""
     nan_in_X_policy = params["nan_in_X_policy"]
@@ -95,39 +138,5 @@ def validate_init_params_late(params: dict[str, Any]) -> None:
     if coef_scale_source not in ("train", "test", "none"):
         raise ValueError(f"coef_scale_source must be 'train', 'test', or 'none'; got {coef_scale_source!r}.")
 
-    # E9: assert all entries in ``estimators=`` share the
-    # same type-family (classifier vs regressor). Mixing silently picks the
-    # first estimator's family for CV stratification / scoring and the other
-    # estimator crashes mid-fold with cryptic errors.
-    if estimators:
-        from sklearn.base import is_classifier as _is_clf
-        from sklearn.base import is_regressor as _is_reg
-        _est_list = list(estimators)
-        if len(_est_list) >= 2:
-            _is_clf_flags = [_is_clf(e) for e in _est_list]
-            _is_reg_flags = [_is_reg(e) for e in _est_list]
-            # Allow estimators that are NEITHER (custom transformers used as importers)
-            # but reject mixing detectable classifier+regressor.
-            if any(_is_clf_flags) and any(_is_reg_flags):
-                raise ValueError(
-                    "RFECV: estimators=[...] mixes classifier and regressor "
-                    "families. All entries must share type-family for CV "
-                    "stratification + scoring to be consistent. Got: "
-                    f"{[type(e).__name__ for e in _est_list]}"
-                )
-
-    # F6: multi-estimator + AM/GM is unsafe.
-    # LR coef ~ 0.01..1, RF Gini ~ 0..0.1, CB split-gain ~ thousands - raw
-    # arithmetic / geometric mean is dominated by the largest-magnitude
-    # estimator (AM) or zeroed by any single zero (GM). Force rank-based
-    # rules (Borda / Copeland) for multi-estimator. User can opt back in
-    # via allow_unsafe_aggregation=True for benchmarks.
-    if estimators and votes_aggregation_method in (VotesAggregation.AM, VotesAggregation.GM):
-        if verbose:
-            logger.warning(
-                "RFECV: multi-estimator + votes_aggregation_method=%s mixes raw "
-                "FI values from incomparable scales (LR coef ~ 0.01-1, RF Gini ~ "
-                "0-0.1, CB split-gain ~ 1000s). Switching to Borda (rank-based). "
-                "Pass allow_unsafe_aggregation=True to keep the original choice.",
-                votes_aggregation_method,
-            )
+    _check_estimator_family_consistency(estimators)
+    _warn_unsafe_multi_estimator_aggregation(estimators, votes_aggregation_method, verbose)
