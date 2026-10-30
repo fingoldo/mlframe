@@ -117,3 +117,23 @@ def test_null_columns_are_the_same_with_and_without_the_precheck(rows):
     off = honest_null_columns_bycol(*args, False)
     on = honest_null_columns_bycol(*args, True)
     assert np.array_equal(off[0], on[0]) and np.array_equal(off[1], on[1])
+
+
+@pytest.mark.parametrize("n", [40, 20000, 60000])
+@pytest.mark.parametrize("balance", [0.5, 0.1])
+@pytest.mark.parametrize("signal", [0.0, 0.03, 0.2])
+def test_tie_free_verdict_equals_the_run_based_verdict(n, balance, signal):
+    """For a column without ties the fused gather-and-count route gives the verdict of ``root_decision_binary``, noise or a planted step, accepted or rejected."""
+    from mlframe.feature_selection.filters._numba_utils import gather_binary_stream, root_decision_tie_free
+
+    rng = np.random.default_rng(n + int(100 * signal))
+    xs = np.sort(rng.standard_normal(n))
+    labels = (rng.random(n) < balance).astype(np.int8)
+    labels[n // 2 :] = np.where(rng.random(n - n // 2) < balance + signal, 1, labels[n // 2 :])
+    order = rng.permutation(n).astype(np.int64)  # the labels are read through a row order, as the null does
+    yr = labels[np.argsort(order)]
+    ys = np.empty(n, dtype=np.int8)
+    ones, trans = gather_binary_stream(yr, order, ys)
+    assert np.array_equal(ys, yr[order]) and ones == int(ys.sum()) and trans == int((ys[1:] != ys[:-1]).sum())
+    want = _precheck(xs, ys)
+    assert int(root_decision_tie_free(ys, ones, trans, _MIN_SPLIT, _ALPHA, _ANALYTIC_MIN_N, _MIN_CELL)) == want

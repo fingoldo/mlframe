@@ -906,6 +906,20 @@ def _best_gain_over_bound(yd: np.ndarray, forb: np.ndarray, n_forb: int, lo: int
     c1l = 0
     for i in range(lo):
         c1l += yd[i]
+    # Usual outcome on a permuted label: no position reaches the bound. A branch-light scan over all positions (a superset of the candidates) settles that before the per-candidate work.
+    run1 = c1l
+    reached = False
+    fn = float(n)
+    ft1 = float(tot1)
+    for i in range(lo, hi + 1):
+        run1 += yd[i]
+        fl = float(i + 1)
+        dd = float(run1) * fn - fl * ft1
+        if dd * dd >= scale * fl * (fn - fl):
+            reached = True
+            break
+    if not reached:
+        return -1e300
     best_gain = -1e300
     inv_n = 1.0 / n
     fb = 0
@@ -957,15 +971,21 @@ def root_decision_binary(
     tot1 = 0
     for i in range(n):
         tot1 += yd[i]
+    lo = min_split_size - 1  # first scanned position: n_l = lo + 1 >= min_split_size
+    hi = n - min_split_size - 1  # last scanned position: n_r = n - hi - 1 >= min_split_size
+    n_cand = _count_stream_candidates(yd, forb, n_forb, lo, hi)
+    return _root_verdict(yd, forb, n_forb, n, tot1, n_cand, lo, hi, alpha)
+
+
+@njit(cache=True)
+def _root_verdict(yd: np.ndarray, forb: np.ndarray, n_forb: int, n: int, tot1: int, n_cand: int, lo: int, hi: int, alpha: float) -> int:
+    """ACCEPTED or REJECTED for a stream of ``n`` points with ``tot1`` ones and ``n_cand`` candidate cuts among positions ``lo..hi``."""
     counts_total = np.empty(2, dtype=np.int64)
     counts_total[0] = n - tot1
     counts_total[1] = tot1
     h_full = _entropy_from_counts_njit(counts_total, n)
     if h_full <= 0.0:
         return REJECTED
-    lo = min_split_size - 1  # first scanned position: n_l = lo + 1 >= min_split_size
-    hi = n - min_split_size - 1  # last scanned position: n_r = n - hi - 1 >= min_split_size
-    n_cand = _count_stream_candidates(yd, forb, n_forb, lo, hi)
     x_star = _tail_threshold(alpha / max(1, n_cand)) * (1.0 - 1e-6)
     scale = math.expm1(x_star / n) * float(tot1) * float(n - tot1)
     best_gain = _best_gain_over_bound(yd, forb, n_forb, lo, hi, n, tot1, h_full, scale)
@@ -973,3 +993,42 @@ def root_decision_binary(
         return REJECTED
     p_value = min(1.0, _analytic_p_value(best_gain, n, 2) * max(1, n_cand))
     return ACCEPTED if p_value < alpha else REJECTED
+
+
+@njit(cache=True)
+def gather_binary_stream(yr_b: np.ndarray, order_row: np.ndarray, ys: np.ndarray) -> "tuple[int, int]":
+    """``ys[i] = yr_b[order_row[i]]`` in one pass that also counts the ones and the label changes between neighbours (``i`` and ``i + 1``)."""
+    ones = 0
+    trans = 0
+    prev = yr_b[order_row[0]]
+    ys[0] = prev
+    ones += prev
+    for i in range(1, ys.shape[0]):
+        v = yr_b[order_row[i]]
+        ys[i] = v
+        ones += v
+        if v != prev:
+            trans += 1
+        prev = v
+    return ones, trans
+
+
+@njit(cache=True)
+def root_decision_tie_free(ys: np.ndarray, ones: int, trans: int, min_split_size: int, alpha: float, analytic_min_n: int, analytic_min_cell: float) -> int:
+    """``root_decision_binary`` for a column without tied values, from the label stream ``ys`` and the ``ones`` / ``trans`` counted by ``gather_binary_stream``: no tie run, so the stream is the
+    deduplicated one and no boundary is forbidden."""
+    n = ys.shape[0]
+    if n < 2 * min_split_size:
+        return REJECTED
+    if not (n >= analytic_min_n and float(n) / max(1.0, 2.0 * 2) >= analytic_min_cell):
+        return UNDECIDED
+    lo = min_split_size - 1
+    hi = n - min_split_size - 1
+    n_cand = trans
+    for i in range(lo):
+        if ys[i] != ys[i + 1]:
+            n_cand -= 1
+    for i in range(hi + 1, n - 1):
+        if ys[i] != ys[i + 1]:
+            n_cand -= 1
+    return _root_verdict(ys, np.empty(0, dtype=np.int64), 0, n, ones, n_cand, lo, hi, alpha)

@@ -45,7 +45,9 @@ def permuted_labels(y_raw: np.ndarray, y_codes: np.ndarray, perm_rows: Iterable[
 from ._numba_utils import (  # helpers hosted in _numba_utils_cross_module for the cross-module njit invariant
     _cuts_tie_free,
     column_tie_runs,
+    gather_binary_stream,
     root_decision_binary,
+    root_decision_tie_free,
 )
 
 ROOT_NULL_DRAWS = 2000
@@ -217,9 +219,15 @@ def _perm_cuts(
     caller reads the labels from ``ys8``); otherwise the sorted labels are gathered and the tree is searched."""
     n = ysrt.shape[0]
     if use_precheck:
-        for i in range(n):
-            ys8[i] = yr_b[order_row[i]]
-        if root_decision_binary(ys8, run_start, run_end, yd8, forb, min_split_size, alpha, analytic_min_n, analytic_min_cell) == 0:
+        if run_start.shape[0] == 0:
+            # no tied values: the gather also counts what the root test needs, in the same pass
+            ones, trans = gather_binary_stream(yr_b, order_row, ys8)
+            verdict = root_decision_tie_free(ys8, ones, trans, min_split_size, alpha, analytic_min_n, analytic_min_cell)
+        else:
+            for i in range(n):
+                ys8[i] = yr_b[order_row[i]]
+            verdict = root_decision_binary(ys8, run_start, run_end, yd8, forb, min_split_size, alpha, analytic_min_n, analytic_min_cell)
+        if verdict == 0:
             return no_cuts, True
     for i in range(n):
         ysrt[i] = yr_b[order_row[i]]
