@@ -322,6 +322,33 @@ def _ceiling_decision(common: dict, *, raw_rmse: float, lag_rmse: float, best_co
     return _verdict(headroom=headroom, decision="skip", reason=reason, **common)
 
 
+def _lag_floor_rmse(df, target_col, lag_values, n, rows_hold, y_hold):
+    """AR failsafe (lag_predict) RMSE on the holdout rows, with the detected causal lag column (None when the frame has none)."""
+    lag_rmse = float("nan")
+    lag_col = detect_causal_lag_column(df, target_col)
+    if lag_values is not None:
+        lv = np.asarray(lag_values, dtype=np.float64).reshape(-1)
+        if lv.shape[0] == n:
+            lag_rmse = causal_lag_predict_rmse(lv[rows_hold], y_hold)
+    elif lag_col is not None:
+        try:
+            lag_hold = _extract_column_array(df, lag_col, rows=rows_hold).astype(np.float64, copy=False)
+            lag_rmse = causal_lag_predict_rmse(lag_hold, y_hold)
+        except Exception as exc:  # -- lag probe failure -> no lag floor (raw floor still applies)
+            logger.debug("[achievable_ceiling] lag probe failed for %s: %s", lag_col, exc)
+    return lag_col, lag_rmse
+
+
+def _holdout_split(grp_sub, n_sub, holdout_frac, rng, min_groups):
+    """Group-disjoint holdout split when a usable group key exists, else a random one."""
+    split = None
+    if grp_sub is not None:
+        split = _group_disjoint_split(grp_sub, holdout_frac, rng, min_groups)
+    if split is None:
+        split = _random_split(n_sub, holdout_frac, rng)
+    return split
+
+
 def measure_achievable_ceiling(
     *,
     df: Any,
@@ -382,11 +409,7 @@ def measure_achievable_ceiling(
         lag1_ar = _recompute_lag1_ar_per_group(y_sub, grp_sub, np.arange(y_sub.shape[0]))
 
     # Group-disjoint holdout when a usable group key exists; random holdout otherwise.
-    split = None
-    if grp_sub is not None:
-        split = _group_disjoint_split(grp_sub, holdout_frac, rng, min_groups)
-    if split is None:
-        split = _random_split(y_sub.shape[0], holdout_frac, rng)
+    split = _holdout_split(grp_sub, y_sub.shape[0], holdout_frac, rng, min_groups)
     fit_pos, hold_pos = split
     if fit_pos.size < _MIN_HOLDOUT_ROWS or hold_pos.size < _MIN_HOLDOUT_ROWS:
         return _proceed(f"holdout too small (fit={fit_pos.size}, hold={hold_pos.size})", lag1_ar=lag1_ar)
@@ -422,18 +445,7 @@ def measure_achievable_ceiling(
         return _proceed("raw baseline RMSE non-finite", lag1_ar=lag1_ar, n_fit=fit_pos.size, n_hold=hold_pos.size)
 
     # (b) AR failsafe (lag_predict) RMSE on the SAME holdout rows.
-    lag_rmse = float("nan")
-    lag_col = detect_causal_lag_column(df, target_col)
-    if lag_values is not None:
-        lv = np.asarray(lag_values, dtype=np.float64).reshape(-1)
-        if lv.shape[0] == n:
-            lag_rmse = causal_lag_predict_rmse(lv[rows_hold], y_hold)
-    elif lag_col is not None:
-        try:
-            lag_hold = _extract_column_array(df, lag_col, rows=rows_hold).astype(np.float64, copy=False)
-            lag_rmse = causal_lag_predict_rmse(lag_hold, y_hold)
-        except Exception as exc:  # -- lag probe failure -> no lag floor (raw floor still applies)
-            logger.debug("[achievable_ceiling] lag probe failed for %s: %s", lag_col, exc)
+    lag_col, lag_rmse = _lag_floor_rmse(df, target_col, lag_values, n, rows_hold, y_hold)
 
     # (c) OPTIMISTIC achievable-composite ceiling: best (min-RMSE) linear-residual reconstruction over candidate bases.
     base_cands = _pick_base_candidates(df, feature_cols, target_col, lag_col, y_sub, idx_all, max_base_candidates)
