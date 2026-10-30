@@ -13,7 +13,7 @@ from mlframe.feature_selection.filters._lazy_host_codes import length_of
 
 from ._pairs_abs_corr_gpu import abs_corr_or_none
 from ._pairs_chunk_codes import code_column
-from ._pairs_code_bins import code_table_bins
+from ._pairs_code_bins import code_table_bins, scrub_nonfinite
 from ._pairs_chunks import _compute_one_fe_chunk
 from ._pairs_dispatch import _dispatch_batch_mi_with_noise_gate
 from ._pairs_materialise import (
@@ -183,7 +183,7 @@ def _score_one_pair_step2_def_resolve_col(final_transformed_vals, chunk_state, t
             _ops[_buf_col : _buf_col + 1],
         )
         _col = np.ascontiguousarray(cp.asnumpy(_cand)[:, 0])
-        np.nan_to_num(_col, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
+        scrub_nonfinite(_col)
         chunk_state["resolved_cols"][_buf_col] = _col
         del _cand
         return _col
@@ -634,7 +634,7 @@ def _bin_held_block(blk, blk_cols, meta, pending, st, need_recompute_map, config
     """Clean and quantile-bin the ``len(meta)`` columns held in ``blk`` in one call, and queue each (config, codes) entry on ``pending`` in order."""
     _n_held = len(meta)
     _vals = blk if _n_held == blk_cols else np.ascontiguousarray(blk[:, :_n_held])
-    np.nan_to_num(_vals, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
+    scrub_nonfinite(_vals)
     try:
         from mlframe.feature_selection.filters.discretization import discretize_2d_quantile_batch
 
@@ -817,7 +817,7 @@ def _score_one_pair_step3_step2_transformations_pair_st(
                     if final_transformed_vals is not None:
                         final_transformed_vals[:, st.i] = np.nan
                 else:
-                    np.nan_to_num(_col_view, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
+                    scrub_nonfinite(_col_view)
 
                     # ``times_spent`` is shared across mrmr.py's
                     # parallel threading dispatch. Accumulate this pair's
@@ -903,7 +903,7 @@ def _pair_batch_codes(binary_transformations, param_a, param_b, quantization_nbi
     block = np.empty((len(param_a), len(cols)), dtype=scratch_dtype)
     for j, col in enumerate(cols):
         block[:, j] = col
-    np.nan_to_num(block, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
+    scrub_nonfinite(block)
     try:
         codes = discretize_2d_quantile_batch(block, n_bins=quantization_nbins, dtype=quantization_dtype, parallel=True)
     except Exception as _exc:

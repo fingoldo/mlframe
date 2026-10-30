@@ -44,7 +44,7 @@ from typing import Optional, Any
 
 import numpy as np
 import numba
-from numba import njit
+from numba import njit, prange
 
 from mlframe.utils.log_throttle import log_throttle
 from mlframe.feature_selection.filters.discretization.shared import (
@@ -411,6 +411,36 @@ def _plug_in_mi_njit(x_binned: np.ndarray, y_b: np.ndarray, K_x: int, K_y: int, 
         if mi < 0.0:
             mi = 0.0
     return mi
+
+
+@njit(nogil=True, cache=True, parallel=True)
+def _oj_pick_candidates(xb: np.ndarray, kx: np.ndarray, nv: np.ndarray, vy: np.ndarray, ky: np.ndarray) -> np.ndarray:
+    """Index of the candidate bin count with the highest mean fold MI, per column (``-1`` when no fold scored any), parallel over columns.
+
+    ``xb[f, j, m, :nv[f]]`` are the binned validation values of column ``j`` at candidate ``m`` in fold ``f`` (``kx[f, j, m]`` classes, 0 when that cell does not exist), ``vy[f, :nv[f]]`` the
+    binned validation target with ``ky[f]`` classes. The first candidate wins a tie, as in the per-column search."""
+    n_f, p, n_m = kx.shape
+    pick = np.full(p, -1, dtype=np.int64)
+    for j in prange(p):
+        best = -np.inf
+        best_m = -1
+        for m in range(n_m):
+            total = 0.0
+            cells = 0
+            for f in range(n_f):
+                k_x = kx[f, j, m]
+                if k_x == 0:
+                    continue
+                mi = 0.0
+                if ky[f] >= 1:
+                    mi = _plug_in_mi_njit(xb[f, j, m, : nv[f]], vy[f, : nv[f]], k_x, ky[f], False)
+                total += mi
+                cells += 1
+            if cells > 0 and total / cells > best:
+                best = total / cells
+                best_m = m
+        pick[j] = best_m
+    return pick
 
 
 _DISTINCT_BINCOUNT_MAX_RANGE = 1 << 22  # widest integer range counted with a bincount (a 32 MB int64 count vector); wider columns are sorted

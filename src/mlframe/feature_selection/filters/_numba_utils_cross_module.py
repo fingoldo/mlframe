@@ -479,6 +479,35 @@ def _n_unique_codes(x: np.ndarray) -> int:
     return cnt
 
 
+@njit(cache=True, parallel=True)
+def corrected_mi_best(
+    codes_p: np.ndarray, nb_p: np.ndarray, fixed_codes: np.ndarray, fixed_nbins: np.ndarray, cols: np.ndarray, yc: np.ndarray, ny: int, ky_eff: float, n_eff: int, rows: np.ndarray,
+) -> float:
+    """Largest Miller-Madow corrected plug-in MI with ``yc`` over the columns ``cols``, parallel over columns: a column below ``codes_p.shape[1]`` is read from ``codes_p`` (the codes re-binned on a
+    permuted target), any other from ``fixed_codes`` (columns binned without the target); both are read at ``rows`` (``yc`` is the target at those rows); ``0`` when none is positive."""
+    k = cols.shape[0]
+    corr = np.zeros(k, dtype=np.float64)  # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
+    for t in prange(k):
+        c = cols[t]
+        x = np.empty(rows.shape[0], dtype=np.int64)
+        if c < codes_p.shape[1]:
+            for i in range(rows.shape[0]):
+                x[i] = codes_p[rows[i], c]
+            kx = nb_p[c]
+        else:
+            for i in range(rows.shape[0]):
+                x[i] = fixed_codes[rows[i], c]
+            kx = fixed_nbins[c]
+        mi = _mi_codes_njit(x, kx, yc, ny)
+        kx_eff = float(_n_unique_codes(x))
+        corr[t] = mi - (kx_eff - 1.0) * (ky_eff - 1.0) / (2.0 * n_eff)
+    best = 0.0
+    for t in range(k):
+        if corr[t] > best:
+            best = corr[t]
+    return best
+
+
 @njit(cache=True)
 def _presorted_dedup(xs: np.ndarray, ys: np.ndarray, n_classes_total: int):
     """``_sorted_dedup`` for a column already sorted by x, ``ys`` the labels in that sorted order. Within each run of equal x the distinct
@@ -613,6 +642,78 @@ def _supervised_edges(v: np.ndarray, cuts: np.ndarray, q_fallback: np.ndarray, q
     return out[:m]
 
 
+@njit(cache=True)
+def _select_in_place(a: np.ndarray, lo: int, hi: int, k: int) -> None:
+    """Reorder ``a[lo:hi + 1]`` so that ``a[k]`` holds the value a full sort would put there (smaller or equal values before it, larger or equal after)."""
+    while hi > lo:
+        mid = (lo + hi) // 2
+        x, y, z = a[lo], a[mid], a[hi]
+        pivot = max(min(x, y), min(max(x, y), z))
+        i = lo
+        j = hi
+        while i <= j:
+            while a[i] < pivot:
+                i += 1
+            while a[j] > pivot:
+                j -= 1
+            if i <= j:
+                t = a[i]
+                a[i] = a[j]
+                a[j] = t
+                i += 1
+                j -= 1
+        if k <= j:
+            hi = j
+        elif k >= i:
+            lo = i
+        else:
+            return
+
+
+@njit(cache=True)
+def _multi_select_in_place(a: np.ndarray, ks: np.ndarray) -> None:
+    """Put the order statistics at the sorted distinct positions ``ks`` in place, by selecting the middle position and then each side on its own range."""
+    stack = np.empty((128, 4), dtype=np.int64)
+    stack[0, 0] = 0
+    stack[0, 1] = a.shape[0] - 1
+    stack[0, 2] = 0
+    stack[0, 3] = ks.shape[0] - 1
+    top = 1
+    while top > 0:
+        top -= 1
+        lo, hi, kl, kh = stack[top, 0], stack[top, 1], stack[top, 2], stack[top, 3]
+        if kl > kh or hi <= lo:
+            continue
+        km = (kl + kh) // 2
+        pos = ks[km]
+        _select_in_place(a, lo, hi, pos)
+        stack[top, 0], stack[top, 1], stack[top, 2], stack[top, 3] = lo, pos - 1, kl, km - 1
+        stack[top + 1, 0], stack[top + 1, 1], stack[top + 1, 2], stack[top + 1, 3] = pos + 1, hi, km + 1, kh
+        top += 2
+
+
+@njit(cache=True)
+def _few_distinct_levels(x: np.ndarray, limit: int) -> np.ndarray:
+    """The sorted distinct values of ``x`` when there are at most ``limit`` of them, else an empty array; stops at the first value that exceeds the limit."""
+    levels = np.empty(limit, dtype=x.dtype)
+    d = 0
+    for i in range(x.shape[0]):
+        v = x[i]
+        found = False
+        for t in range(d):
+            if levels[t] == v:
+                found = True
+                break
+        if not found:
+            if d == limit:
+                return levels[:0]
+            levels[d] = v
+            d += 1
+    out = levels[:d].copy()
+    out.sort()
+    return out
+
+
 @njit(cache=True, parallel=True)
 def quantile_codes_block(v: np.ndarray, n_bins: int, codes: np.ndarray, nx: np.ndarray) -> None:
     """Fill ``codes[j]`` (int16) and ``nx[j]`` for every row ``j`` of ``v`` ``(columns, n)`` exactly as ``_quantile_codes`` does for a finite column."""
@@ -620,19 +721,9 @@ def quantile_codes_block(v: np.ndarray, n_bins: int, codes: np.ndarray, nx: np.n
     n = v.shape[1]
     step = 1.0 / n_bins
     for j in prange(k):
-        s = np.sort(v[j])
-        d = 1
-        for i in range(1, n):
-            if s[i] != s[i - 1]:
-                d += 1
-        if d <= n_bins:
-            levels = np.empty(d, dtype=s.dtype)
-            levels[0] = s[0]
-            m = 1
-            for i in range(1, n):
-                if s[i] != s[i - 1]:
-                    levels[m] = s[i]
-                    m += 1
+        levels = _few_distinct_levels(v[j], n_bins)
+        d = levels.shape[0]
+        if d > 0:
             for i in range(n):
                 lo = 0
                 hi = d
@@ -646,6 +737,22 @@ def quantile_codes_block(v: np.ndarray, n_bins: int, codes: np.ndarray, nx: np.n
                 codes[j, i] = lo
             nx[j] = d
             continue
+        # only the order statistics the edges read are needed, not the whole sort
+        want = np.empty(2 * (n_bins + 1), dtype=np.int64)
+        for b in range(n_bins + 1):
+            q = 1.0 if b == n_bins else b * step
+            virtual = (n - 1) * q
+            i0 = n - 1 if virtual >= n - 1 else int(np.floor(virtual))
+            want[2 * b] = i0
+            want[2 * b + 1] = min(i0 + 1, n - 1)
+        want.sort()
+        nw = 1
+        for b in range(1, want.shape[0]):
+            if want[b] != want[nw - 1]:
+                want[nw] = want[b]
+                nw += 1
+        s = v[j].copy()
+        _multi_select_in_place(s, want[:nw])
         edges = np.empty(n_bins + 1, dtype=np.float64)  # Intentional float64: quantile edges in numpy's arithmetic (equal codes to the numpy path)
         m = 0
         for b in range(n_bins + 1):
@@ -828,6 +935,20 @@ def _best_gain_over_bound(yd: np.ndarray, forb: np.ndarray, n_forb: int, lo: int
     c1l = 0
     for i in range(lo):
         c1l += yd[i]
+    # Usual outcome on a permuted label: no position reaches the bound. A branch-light scan over all positions (a superset of the candidates) settles that before the per-candidate work.
+    run1 = c1l
+    reached = False
+    fn = float(n)
+    ft1 = float(tot1)
+    for i in range(lo, hi + 1):
+        run1 += yd[i]
+        fl = float(i + 1)
+        dd = float(run1) * fn - fl * ft1
+        if dd * dd >= scale * fl * (fn - fl):
+            reached = True
+            break
+    if not reached:
+        return -1e300
     best_gain = -1e300
     inv_n = 1.0 / n
     fb = 0
@@ -879,15 +1000,22 @@ def root_decision_binary(
     tot1 = 0
     for i in range(n):
         tot1 += yd[i]
+    lo = min_split_size - 1  # first scanned position: n_l = lo + 1 >= min_split_size
+    hi = n - min_split_size - 1  # last scanned position: n_r = n - hi - 1 >= min_split_size
+    n_cand = _count_stream_candidates(yd, forb, n_forb, lo, hi)
+    verdict: int = _root_verdict(yd, forb, n_forb, n, tot1, n_cand, lo, hi, alpha)
+    return verdict
+
+
+@njit(cache=True)
+def _root_verdict(yd: np.ndarray, forb: np.ndarray, n_forb: int, n: int, tot1: int, n_cand: int, lo: int, hi: int, alpha: float) -> int:
+    """ACCEPTED or REJECTED for a stream of ``n`` points with ``tot1`` ones and ``n_cand`` candidate cuts among positions ``lo..hi``."""
     counts_total = np.empty(2, dtype=np.int64)
     counts_total[0] = n - tot1
     counts_total[1] = tot1
     h_full = _entropy_from_counts_njit(counts_total, n)
     if h_full <= 0.0:
         return REJECTED
-    lo = min_split_size - 1  # first scanned position: n_l = lo + 1 >= min_split_size
-    hi = n - min_split_size - 1  # last scanned position: n_r = n - hi - 1 >= min_split_size
-    n_cand = _count_stream_candidates(yd, forb, n_forb, lo, hi)
     x_star = _tail_threshold(alpha / max(1, n_cand)) * (1.0 - 1e-6)
     scale = math.expm1(x_star / n) * float(tot1) * float(n - tot1)
     best_gain = _best_gain_over_bound(yd, forb, n_forb, lo, hi, n, tot1, h_full, scale)
@@ -895,3 +1023,62 @@ def root_decision_binary(
         return REJECTED
     p_value = min(1.0, _analytic_p_value(best_gain, n, 2) * max(1, n_cand))
     return ACCEPTED if p_value < alpha else REJECTED
+
+
+@njit(cache=True)
+def gather_binary_stream(yr_b: np.ndarray, order_row: np.ndarray, ys: np.ndarray) -> "tuple[int, int]":
+    """``ys[i] = yr_b[order_row[i]]`` in one pass that also counts the ones and the label changes between neighbours (``i`` and ``i + 1``)."""
+    ones = 0
+    trans = 0
+    prev = yr_b[order_row[0]]
+    ys[0] = prev
+    ones += prev
+    for i in range(1, ys.shape[0]):
+        v = yr_b[order_row[i]]
+        ys[i] = v
+        ones += v
+        if v != prev:
+            trans += 1
+        prev = v
+    return ones, trans
+
+
+@njit(cache=True)
+def root_decision_tie_free(ys: np.ndarray, ones: int, trans: int, min_split_size: int, alpha: float, analytic_min_n: int, analytic_min_cell: float) -> int:
+    """``root_decision_binary`` for a column without tied values, from the label stream ``ys`` and the ``ones`` / ``trans`` counted by ``gather_binary_stream``: no tie run, so the stream is the
+    deduplicated one and no boundary is forbidden."""
+    n = ys.shape[0]
+    if n < 2 * min_split_size:
+        return REJECTED
+    if not (n >= analytic_min_n and float(n) / max(1.0, 2.0 * 2) >= analytic_min_cell):
+        return UNDECIDED
+    lo = min_split_size - 1
+    hi = n - min_split_size - 1
+    n_cand = trans
+    for i in range(lo):
+        if ys[i] != ys[i + 1]:
+            n_cand -= 1
+    for i in range(hi + 1, n - 1):
+        if ys[i] != ys[i + 1]:
+            n_cand -= 1
+    verdict: int = _root_verdict(ys, np.empty(0, dtype=np.int64), 0, n, ones, n_cand, lo, hi, alpha)
+    return verdict
+
+
+@njit(cache=True)
+def scrub_nonfinite_1d(a: np.ndarray) -> None:
+    """Set every NaN and infinity of ``a`` to 0 in place (one pass; ``np.nan_to_num(a, nan=0, posinf=0, neginf=0)``)."""
+    for i in range(a.shape[0]):
+        v = a[i]
+        if not (v - v == 0):  # NaN and +-inf: the difference is not 0
+            a[i] = 0
+
+
+@njit(cache=True)
+def scrub_nonfinite_2d(a: np.ndarray) -> None:
+    """Set every NaN and infinity of the 2-D ``a`` to 0 in place, row by row."""
+    for i in range(a.shape[0]):
+        for j in range(a.shape[1]):
+            v = a[i, j]
+            if not (v - v == 0):
+                a[i, j] = 0

@@ -8,6 +8,7 @@ the number of permutations. Under the null the pass probability is at most alpha
 
 from __future__ import annotations
 
+import os
 import threading
 from collections import OrderedDict
 
@@ -30,6 +31,7 @@ from ._family_maxt_null_v2_njit import (
     label_bitsets_from_index,
     mi_all_columns_counts as mi_all_columns_njit,
     null_max_bitsets,
+    null_max_bitsets_from_classes,
 )
 
 if TYPE_CHECKING:
@@ -180,7 +182,7 @@ def family_null_max_njit(cols: np.ndarray, n_x: np.ndarray, y_perms: np.ndarray,
     return out
 
 
-_PERM_BLOCK_CACHE_BYTES = 256 * 1024 * 1024
+_PERM_BLOCK_CACHE_BYTES = int(os.environ.get("MLFRAME_PERM_BLOCK_CACHE_MB", "1024")) * 1024 * 1024  # one full permutation stream of a 100k-row family is ~400 MB; a smaller budget makes the cyclic re-reads of it miss every time
 _perm_block_cache: "OrderedDict[tuple, tuple]" = OrderedDict()
 _perm_block_cache_bytes = 0
 _perm_block_cache_lock = threading.Lock()  # move_to_end, insert and the byte-budget eviction are one read-modify-write on shared state
@@ -214,7 +216,7 @@ def _permutation_block(rng: np.random.Generator, y: np.ndarray, m: int) -> np.nd
     """
     global _perm_block_cache_bytes
     state_before = rng.bit_generator.state
-    key = (y.shape[0], int(m), hash(y.tobytes()), repr(state_before))
+    key = (y.shape[0], int(m), repr(state_before))  # the indices depend on the row count and the generator state only, so every target of that length shares them
     n = y.shape[0]
     with _perm_block_cache_lock:
         hit = _perm_block_cache.get(key)
@@ -290,6 +292,7 @@ def family_null_max(cols: np.ndarray, n_x: np.ndarray, y: np.ndarray, n_y: int, 
     use_device = want_device and bit_prep is None and device_supported(n_x, int(n_y))
     py_const = _label_const(bit_prep[0], y, int(n_y)) if (dev_bits is not None and bit_prep is not None) else 0.0
     words = (int(y.shape[0]) + 63) // 64
+    py_counts = np.bincount(np.asarray(y, dtype=np.int64), minlength=int(n_y)).astype(np.int64)
     for start in range(0, int(n_perm), block):
         m = min(block, int(n_perm) - start)
         perm_idx = _permutation_block(rng, y, m)
@@ -306,10 +309,11 @@ def family_null_max(cols: np.ndarray, n_x: np.ndarray, y: np.ndarray, n_y: int, 
                     continue
                 out[start : start + m] = null_max_bits_device(dev_bits, labels, py_const)
                 continue
-            perms = y[perm_idx]
             if bit_prep is not None:
-                out[start : start + m] = null_max_bitsets(bit_prep, n_x, perms, int(n_y))
+                # the class bit sets are packed straight from the permutation indices: the (block, n) matrix of permuted labels is never built
+                out[start : start + m] = null_max_bitsets_from_classes(bit_prep, n_x, label_bitsets_from_index(y, perm_idx, int(n_y), words), int(y.shape[0]), py_counts)
             elif use_device:
+                perms = y[perm_idx]
                 try:
                     out[start : start + m] = family_null_max_device(cols, n_x, perms, int(n_y))
                 except _device_null_oom_errors():
@@ -317,7 +321,7 @@ def family_null_max(cols: np.ndarray, n_x: np.ndarray, y: np.ndarray, n_y: int, 
                     # since the permutations were drawn on the host in the same order either way.
                     out[start : start + m] = family_null_max_njit(cols, n_x, perms, int(n_y))
             else:
-                out[start : start + m] = family_null_max_njit(cols, n_x, perms, int(n_y))
+                out[start : start + m] = family_null_max_njit(cols, n_x, y[perm_idx], int(n_y))
             if acc is not None:
                 import cupy as cp
 
