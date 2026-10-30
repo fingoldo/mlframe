@@ -421,6 +421,75 @@ def report_probabilistic_model_perf(
     return preds, probs
 
 
+def _apply_optional_report_kwargs(fcr_kwargs, st, class_base_path, title_metrics_tokens, calibration_binning, reliability_show_ci, classes, class_id) -> None:
+    """Add the optional DSL render, title, binning, Wilson-CI and precomputed-AUC arguments to a ``fast_calibration_report`` call."""
+    # Thread the DSL render path: when ReportingConfig.plot_outputs is set,
+    # fast_calibration_report routes the reliability diagram through
+    # build_calibration_spec (matplotlib PNG + plotly HTML + any future
+    # backend) instead of the matplotlib-only legacy plotter.
+    if st._plot_outputs_dsl and class_base_path:
+        fcr_kwargs["plot_outputs"] = st._plot_outputs_dsl
+        fcr_kwargs["base_path"] = class_base_path
+    if title_metrics_tokens is not None:
+        fcr_kwargs["title_metrics_tokens"] = title_metrics_tokens
+    # calibration binning strategy (auto/uniform/quantile) from ReportingConfig; default "auto" already picks
+    # quantile under rare-event base rates. reliability_show_ci toggles the Wilson-CI band on the reliability
+    # diagram and reaches the chart via fast_calibration_report -> build_calibration_spec(show_wilson_ci=...).
+    if calibration_binning:
+        fcr_kwargs["binning_strategy"] = calibration_binning
+    if reliability_show_ci is not None:
+        fcr_kwargs["reliability_show_ci"] = reliability_show_ci
+
+    # Inject precomputed (roc, pr) for THIS class id when the batched GPU/CPU fastpath ran above; fast_calibration_report then skips its own
+    # ``fast_aucs_per_group_optimized`` call. Multilabel and multiclass matrices have K columns indexed by class_id; the binary matrix has ONE
+    # column (we only get here for class_id=1), indexed at 0.
+    if st._precomputed_aucs_per_class is not None:
+        fcr_kwargs["_precomputed_aucs"] = st._precomputed_aucs_per_class[0 if (not st.is_multilabel and len(classes) == 2) else class_id]
+
+
+def _append_class_summary(
+    calibs,
+    pr_aucs,
+    roc_aucs,
+    brs,
+    integral_errors,
+    log_losses,
+    robust_integral_errors,
+    *,
+    str_class_name,
+    use_weights,
+    calib_report_ndigits,
+    report_ndigits,
+    rice_reported,
+    class_robust_integral_error,
+    calibration_mae,
+    calibration_std,
+    calibration_coverage,
+    brier_loss,
+    pr_auc,
+    roc_auc,
+    ice,
+    ll,
+) -> None:
+    """Append one class's calibration, AUC, Brier, ICE, log-loss and RICE summary strings to the report lists."""
+    # A partial-coverage calibration figure describes only the covered slice: a constant dummy baseline
+    # reported "MAEW=0.00%, COV=10%", which reads as perfect calibration unless the caveat travels along.
+    _cov_note = "" if calibration_coverage >= 0.999 else " (over the covered slice only)"
+    calibs.append(
+        f"\t{str_class_name}: MAE{'W' if use_weights else ''}={calibration_mae * 100:.{calib_report_ndigits}f}%, STD={calibration_std * 100:.{calib_report_ndigits}f}%, COV={calibration_coverage * 100:.0f}%{_cov_note}"
+    )
+    pr_aucs.append(f"{str_class_name}={'N/A' if np.isnan(pr_auc) else f'{pr_auc:.{report_ndigits}f}'}")
+    roc_aucs.append(f"{str_class_name}={'N/A' if np.isnan(roc_auc) else f'{roc_auc:.{report_ndigits}f}'}")
+    brs.append(f"{str_class_name}={brier_loss * 100:.{report_ndigits}f}%")
+    integral_errors.append(f"{str_class_name}={ice:.{report_ndigits}f}")
+    if ll is None:
+        log_losses.append(f"{str_class_name}=None")
+    else:
+        log_losses.append(f"{str_class_name}={ll:.{report_ndigits}f}")
+    if rice_reported:
+        robust_integral_errors.append(f"{str_class_name}={class_robust_integral_error:.{report_ndigits}f}")
+
+
 def _report_probabilistic_step1_produced_single_most(
     classes,
     target_label_encoder,
@@ -492,6 +561,7 @@ def _report_probabilistic_step1_produced_single_most(
         n_cols = n_features if n_features is not None else (len(columns) if columns is not None and len(columns) > 0 else 0)
         nfeatures = f"{n_cols:_}F/" if n_cols > 0 else ""
         title += f" [{nfeatures}{get_human_readable_set_size(len(y_true))} rows]"
+        class_robust_integral_error = None
         if custom_rice_metric and custom_rice_metric != custom_ice_metric:
             class_robust_integral_error = custom_rice_metric(y_true=y_true, y_score=y_score)
             title += f", RICE={class_robust_integral_error:.{calib_report_ndigits}f}"
@@ -539,29 +609,8 @@ def _report_probabilistic_step1_produced_single_most(
             # views it already holds as raw_probs/raw_labels, so the overlay is default-ON in suite reliability diagrams.
             reliability_smoothed=reliability_smoothed,
         )
-        # Thread the DSL render path: when ReportingConfig.plot_outputs is set,
-        # fast_calibration_report routes the reliability diagram through
-        # build_calibration_spec (matplotlib PNG + plotly HTML + any future
-        # backend) instead of the matplotlib-only legacy plotter.
-        if st._plot_outputs_dsl and _class_base_path:
-            _fcr_kwargs["plot_outputs"] = st._plot_outputs_dsl
-            _fcr_kwargs["base_path"] = _class_base_path
-        if title_metrics_tokens is not None:
-            _fcr_kwargs["title_metrics_tokens"] = title_metrics_tokens
         _fcr_kwargs.update(_tuned_threshold_kwargs(len(classes) == 2 and class_id == 1, y_true, y_score, f1_opt_threshold, tune_f1_threshold, metrics))
-        # calibration binning strategy (auto/uniform/quantile) from ReportingConfig; default "auto" already picks
-        # quantile under rare-event base rates. reliability_show_ci toggles the Wilson-CI band on the reliability
-        # diagram and reaches the chart via fast_calibration_report -> build_calibration_spec(show_wilson_ci=...).
-        if calibration_binning:
-            _fcr_kwargs["binning_strategy"] = calibration_binning
-        if reliability_show_ci is not None:
-            _fcr_kwargs["reliability_show_ci"] = reliability_show_ci
-
-        # Inject precomputed (roc, pr) for THIS class id when the batched GPU/CPU fastpath ran above; fast_calibration_report then skips its own
-        # ``fast_aucs_per_group_optimized`` call. Multilabel and multiclass matrices have K columns indexed by class_id; the binary matrix has ONE
-        # column (we only get here for class_id=1), indexed at 0.
-        if st._precomputed_aucs_per_class is not None:
-            _fcr_kwargs["_precomputed_aucs"] = st._precomputed_aucs_per_class[0 if (not st.is_multilabel and len(classes) == 2) else class_id]
+        _apply_optional_report_kwargs(_fcr_kwargs, st, _class_base_path, title_metrics_tokens, calibration_binning, reliability_show_ci, classes, class_id)
 
         with phase("fast_calibration_report", class_id=str_class_name, n_rows=len(y_true)):
             (
@@ -585,22 +634,29 @@ def _report_probabilistic_step1_produced_single_most(
             ) = fast_calibration_report(**_fcr_kwargs)
 
         if print_report:
-            # A partial-coverage calibration figure describes only the covered slice: a constant dummy baseline
-            # reported "MAEW=0.00%, COV=10%", which reads as perfect calibration unless the caveat travels along.
-            _cov_note = "" if calibration_coverage >= 0.999 else " (over the covered slice only)"
-            calibs.append(
-                f"\t{str_class_name}: MAE{'W' if use_weights else ''}={calibration_mae * 100:.{calib_report_ndigits}f}%, STD={calibration_std * 100:.{calib_report_ndigits}f}%, COV={calibration_coverage * 100:.0f}%{_cov_note}"
+            _append_class_summary(
+                calibs,
+                pr_aucs,
+                roc_aucs,
+                brs,
+                integral_errors,
+                log_losses,
+                robust_integral_errors,
+                str_class_name=str_class_name,
+                use_weights=use_weights,
+                calib_report_ndigits=calib_report_ndigits,
+                report_ndigits=report_ndigits,
+                rice_reported=bool(custom_rice_metric and custom_rice_metric != custom_ice_metric),
+                class_robust_integral_error=class_robust_integral_error,
+                calibration_mae=calibration_mae,
+                calibration_std=calibration_std,
+                calibration_coverage=calibration_coverage,
+                brier_loss=brier_loss,
+                pr_auc=pr_auc,
+                roc_auc=roc_auc,
+                ice=ice,
+                ll=ll,
             )
-            pr_aucs.append(f"{str_class_name}={'N/A' if np.isnan(pr_auc) else f'{pr_auc:.{report_ndigits}f}'}")
-            roc_aucs.append(f"{str_class_name}={'N/A' if np.isnan(roc_auc) else f'{roc_auc:.{report_ndigits}f}'}")
-            brs.append(f"{str_class_name}={brier_loss * 100:.{report_ndigits}f}%")
-            integral_errors.append(f"{str_class_name}={ice:.{report_ndigits}f}")
-            if ll is None:
-                log_losses.append(f"{str_class_name}=None")
-            else:
-                log_losses.append(f"{str_class_name}={ll:.{report_ndigits}f}")
-            if custom_rice_metric and custom_rice_metric != custom_ice_metric:
-                robust_integral_errors.append(f"{str_class_name}={class_robust_integral_error:.{report_ndigits}f}")
 
         if metrics is not None:
             class_metrics = dict(
