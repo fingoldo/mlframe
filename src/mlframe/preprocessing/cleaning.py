@@ -510,6 +510,39 @@ def _to_naive_datetime64(values: Any) -> np.ndarray:
     return np.asarray(values, dtype="datetime64[ns]")
 
 
+def _datetime_rounding_resolution(values: np.ndarray) -> tuple[int, str]:
+    """Coarsest datetime unit that still represents every value exactly, with the cumulative multiplier to reach it."""
+    full_multiplier = 1
+    prev_date_fract = "D"
+    for date_fract, multiplier in zip(DATEFRACTS_CODES, DATEFRACTS_MULTIPLIERS):
+        if np.all(values.astype(f"datetime64[{date_fract}]") == values):
+            break
+        full_multiplier *= multiplier
+        prev_date_fract = date_fract
+    return full_multiplier, prev_date_fract
+
+
+def _continuity_ratio(
+    nexpected_unique_values: Any,
+    real_unique_values: int,
+    sample_size: int,
+    max_scarceness: float,
+    log_scarceness_divisor: int,
+) -> tuple[Any, Any]:
+    """Observed distinct count relative to the count random draws over the span would give; returns (ratio, scaled max_scarceness)."""
+    if nexpected_unique_values <= 0:
+        return 0.0, max_scarceness
+    """
+    for max_nunique in double_scarcenes_after:
+        if real_unique_values > max_nunique:
+            max_scarceness *= 2
+    """
+    max_scarceness = np.round(max_scarceness * (1.0 + np.max([0.0, np.log(sample_size / log_scarceness_divisor)])), 2)
+    if real_unique_values <= 1:
+        return 0.0, max_scarceness
+    return real_unique_values / (nexpected_unique_values / max_scarceness), max_scarceness
+
+
 def is_variable_truly_continuous(
     df: Optional[pd.DataFrame] = None,
     variable_name: str = "",
@@ -591,15 +624,7 @@ def is_variable_truly_continuous(
         cur_fract_digits = cur_fract_digits - 1
     elif var_is_datetime:
         # values is a tz-naive numpy datetime64 array (normalized above), so the rounding-resolution probe works uniformly across pandas eras.
-        _vals_naive = values
-        full_multiplier = 1
-        prev_date_fract = "D"
-        for date_fract, multiplier in zip(DATEFRACTS_CODES, DATEFRACTS_MULTIPLIERS):
-            if np.all(_vals_naive.astype(f"datetime64[{date_fract}]") == _vals_naive):
-                break
-            else:
-                full_multiplier *= multiplier
-                prev_date_fract = date_fract
+        full_multiplier, prev_date_fract = _datetime_rounding_resolution(values)
 
     # -----------------------------------------------------------------------------------------------------------------------------------------------------
     # get quantiles and count outliers
@@ -635,19 +660,7 @@ def is_variable_truly_continuous(
     # unique-array build is washed out by the extra njit pass. No win — keep the simple np.unique.
     real_unique_values = len(np.unique(values_in_span))
 
-    if nexpected_unique_values > 0:
-        """
-        for max_nunique in double_scarcenes_after:
-            if real_unique_values > max_nunique:
-                max_scarceness *= 2
-        """
-        max_scarceness = np.round(max_scarceness * (1.0 + np.max([0.0, np.log(sample_size / log_scarceness_divisor)])), 2)
-        if real_unique_values <= 1:
-            cont_ratio = 0.0
-        else:
-            cont_ratio = real_unique_values / (nexpected_unique_values / max_scarceness)
-    else:
-        cont_ratio = 0.0
+    cont_ratio, max_scarceness = _continuity_ratio(nexpected_unique_values, real_unique_values, sample_size, max_scarceness, log_scarceness_divisor)
 
     # -----------------------------------------------------------------------------------------------------------------------------------------------------
     # report if needed
