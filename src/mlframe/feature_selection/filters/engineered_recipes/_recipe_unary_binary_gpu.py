@@ -73,6 +73,22 @@ def _vram_f32() -> bool:
         return False
 
 
+_GPU_UNARY_CUPY_FN = {
+    "abs": "abs",
+    "sign": "sign",
+    "rint": "rint",
+    "cbrt": "cbrt",
+    "exp": "exp",
+    "sin": "sin",
+    "cos": "cos",
+    "tan": "tan",
+    "sinh": "sinh",
+    "cosh": "cosh",
+    "tanh": "tanh",
+}
+_GPU_SAFE_POW_EXPONENT = {"reciproc": -1, "invsquared": -2, "invqubed": -3, "invcbrt": -1.0 / 3.0, "invsqrt": -1.0 / 2.0}
+
+
 def _gpu_unary(cp, name: str, x, recipe: EngineeredRecipe, side: str):
     """Apply one unary operator on device, byte-faithful to the numpy registry.
 
@@ -83,60 +99,48 @@ def _gpu_unary(cp, name: str, x, recipe: EngineeredRecipe, side: str):
         return x
     if name == "neg":
         return -x
-    if name == "abs":
-        return cp.abs(x)
-    if name == "sign":
-        return cp.sign(x)
-    if name == "rint":
-        return cp.rint(x)
     if name == "sqr":
         return cp.power(x, 2)
     if name == "qubed":
         return cp.power(x, 3)
-    if name in ("reciproc", "invsquared", "invqubed", "invcbrt", "invsqrt"):
-        # Mirrors the numpy registry's ``_safe_pow`` EXACTLY, including its fixed-ceiling (not fixed-eps)
-        # substitution: a fixed eps=1e-9 floor would give eps**-1=1e9 for reciproc but eps**-2=1e18 /
-        # eps**-3=1e27 for invsquared/invqubed, well outside the codebase's normal ~1e9 zero-substitution
-        # scale and able to dominate a downstream model by many orders of magnitude (see _safe_pow's
-        # docstring for the traced regression). The substituted x==0 output is the SAME 1e9 ceiling
-        # regardless of exponent; every nonzero x is untouched.
-        is_zero = x == 0.0
-        safe_x = cp.where(is_zero, cp.asarray(1.0, dtype=x.dtype), x)
-        _exponent = {"reciproc": -1, "invsquared": -2, "invqubed": -3, "invcbrt": -1.0 / 3.0, "invsqrt": -1.0 / 2.0}[name]
-        result = cp.power(safe_x, _exponent)
-        return cp.where(is_zero, cp.asarray(1e9, dtype=x.dtype), result)
-    if name == "cbrt":
-        return cp.cbrt(x)
     if name == "sqrt":
         return cp.sqrt(cp.abs(x))
-    if name == "exp":
-        return cp.exp(x)
-    if name == "sin":
-        return cp.sin(x)
-    if name == "cos":
-        return cp.cos(x)
-    if name == "tan":
-        return cp.tan(x)
-    if name == "sinh":
-        return cp.sinh(x)
-    if name == "cosh":
-        return cp.cosh(x)
-    if name == "tanh":
-        return cp.tanh(x)
+    if name in _GPU_UNARY_CUPY_FN:
+        return getattr(cp, _GPU_UNARY_CUPY_FN[name])(x)
+    if name in _GPU_SAFE_POW_EXPONENT:
+        return _gpu_safe_pow(cp, name, x)
     if name == "log":
-        _skey = f"log_shift_{side}"
-        if _skey in recipe.extra:
-            # FROZEN fit-time anchor (BUG2 FIX): replay log from that exact shift,
-            # mirroring ``_apply_unary_binary``'s frozen-anchor branch.
-            _shift = float(recipe.extra[_skey])
-            return cp.log(x + _shift) if _shift != 0.0 else cp.log(x)
-        # ``smart_log``: shift non-positive inputs by ``(1e-5 - nanmin(x))``. Branchless + resident: keep the
-        # shift as a device 0-dim scalar (cp.where picks 0 when min>0) instead of a float(x_min) sync - x+0.0
-        # is identity, so this is bit-identical to the min>0 -> log(x) branch.
-        x_min = cp.nanmin(x)
-        shift = cp.where(x_min > 0.0, cp.float64(0.0), 1e-5 - x_min)
-        return cp.log(x + shift)
+        return _gpu_smart_log(cp, x, recipe, side)
     raise ValueError(f"GPU unary missing for {name!r}")
+
+
+def _gpu_safe_pow(cp, name: str, x):
+    """Negative-power unary mirroring the numpy registry's ``_safe_pow`` exactly."""
+    # Fixed-ceiling (not fixed-eps) substitution: a fixed eps=1e-9 floor would give eps**-1=1e9 for reciproc but
+    # eps**-2=1e18 / eps**-3=1e27 for invsquared/invqubed, well outside the codebase's normal ~1e9 zero-substitution
+    # scale and able to dominate a downstream model by many orders of magnitude (see _safe_pow's docstring for the
+    # traced regression). The substituted x==0 output is the SAME 1e9 ceiling regardless of exponent; every nonzero
+    # x is untouched.
+    is_zero = x == 0.0
+    safe_x = cp.where(is_zero, cp.asarray(1.0, dtype=x.dtype), x)
+    result = cp.power(safe_x, _GPU_SAFE_POW_EXPONENT[name])
+    return cp.where(is_zero, cp.asarray(1e9, dtype=x.dtype), result)
+
+
+def _gpu_smart_log(cp, x, recipe: EngineeredRecipe, side: str):
+    """Log replay: the FROZEN fit-time ``log_shift_<side>`` anchor when stored, else ``smart_log`` on the batch."""
+    _skey = f"log_shift_{side}"
+    if _skey in recipe.extra:
+        # FROZEN fit-time anchor (BUG2 FIX): replay log from that exact shift,
+        # mirroring ``_apply_unary_binary``'s frozen-anchor branch.
+        _shift = float(recipe.extra[_skey])
+        return cp.log(x + _shift) if _shift != 0.0 else cp.log(x)
+    # ``smart_log``: shift non-positive inputs by ``(1e-5 - nanmin(x))``. Branchless + resident: keep the
+    # shift as a device 0-dim scalar (cp.where picks 0 when min>0) instead of a float(x_min) sync - x+0.0
+    # is identity, so this is bit-identical to the min>0 -> log(x) branch.
+    x_min = cp.nanmin(x)
+    shift = cp.where(x_min > 0.0, cp.float64(0.0), 1e-5 - x_min)
+    return cp.log(x + shift)
 
 
 def _gpu_binary(cp, name: str, a, b):

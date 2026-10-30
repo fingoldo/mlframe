@@ -51,7 +51,6 @@
   "src/mlframe/feature_selection/filters/discretization/__init__.py::categorize_1d_array": 18,
   "src/mlframe/feature_selection/filters/discretization/_multiselect.py::multiselect_inplace": 17,
   "src/mlframe/feature_selection/filters/engineered_recipes/_recipe_unary_binary_gpu.py::_gpu_binary": 17,
-  "src/mlframe/feature_selection/filters/engineered_recipes/_recipe_unary_binary_gpu.py::_gpu_unary": 20,
   "src/mlframe/feature_selection/filters/info_theory/_batch_kernels.py::_perm_failcount_col": 18,
   "src/mlframe/feature_selection/filters/info_theory/_batch_kernels_v3.py::_observed_column": 17,
   "src/mlframe/feature_selection/filters/info_theory/_batch_kernels_v3.py::_perm_failcount_codes": 17,
