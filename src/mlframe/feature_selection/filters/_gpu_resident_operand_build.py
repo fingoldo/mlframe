@@ -147,23 +147,12 @@ def build_resident_operand_table(transformed_vars: np.ndarray, col_specs: Sequen
         return _ret_build_resident_operand_table_part1[1]
 
 
-def _build_resident_operand_table_part1(
-    col_specs: Sequence[Any], fb: Any, cp: Any, n: Any, n_operands: Any, g: Any, _gpu_apply_prewarp: Any, transformed_vars: np.ndarray,
-) -> tuple[Any, ...]:
-    """Extracted block of ``build_resident_operand_table`` (part 1); returns the names the caller still uses."""
-    # ONE-TRANSFER (phase R0): batch the DISTINCT raw operands referenced by the GPU-buildable
-    # specs into per-dtype host matrices and upload each in ONE H2D, instead of one cp.asarray per distinct
-    # raw. Each raw keeps its NATIVE float dtype (we group BY dtype) so the unary still applies in the exact
-    # dtype the CPU ``tr_func`` saw -> the GPU column matches the host column to fp round-off (the invariant
-    # the per-operand path enforced). Values are byte-identical; only the H2D packaging changes. Per-dtype
-    # grouping means uniform-dtype fits (the common case: all-pandas f64 -> 14 distinct raws) collapse to ONE
-    # upload. The device column is a strided VIEW into the group matrix - _unary_apply is elementwise, so the
-    # result equals the contiguous-input result bit-for-bit. Any group/build failure falls that column back to
-    # the host copy below (never a correctness regression).
+def _group_raw_operands(col_specs, fb):
+    """Group the distinct raw operands of the GPU-buildable specs by native dtype; returns ``(raw_slot, groups)``."""
     _raw_slot: dict = {}  # id(raw_vals) -> (dtype_key, slot_in_group)
     _groups: dict = {}  # dtype_key -> list[host column in native float dtype]
     for _spec_t in col_specs:
-        col_idx, raw_vals, unary_name = _spec_t[0], _spec_t[1], _spec_t[2]
+        _, raw_vals, unary_name = _spec_t[0], _spec_t[1], _spec_t[2]
         if raw_vals is not None and unary_name not in fb:
             _rk = id(raw_vals)
             if _rk not in _raw_slot:
@@ -174,6 +163,10 @@ def _build_resident_operand_table_part1(
                 grp = _groups.setdefault(_dk, [])
                 _raw_slot[_rk] = (_dk, len(grp))
                 grp.append(_rv)
+    return _raw_slot, _groups
+
+def _upload_dtype_groups(cp, _groups):
+    """One device upload per dtype group (the column-stacked host matrix); a failed group is recorded as None so its columns take the per-column path."""
     _dev_groups: dict = {}  # dtype_key -> device (n, m) array (ONE H2D per dtype group)
     for _dk, cols in _groups.items():
         try:
@@ -189,13 +182,10 @@ def _build_resident_operand_table_part1(
                 e,
             )
             _dev_groups[_dk] = None
-    n_gpu = 0
-    n_cpu = 0
-    # BATCHED PRE-PASS (launch-reduction): collect the GPU-buildable plain-unary columns per dtype-group and
-    # apply them with ONE batch_unary kernel each (libdevice math = bit-identical to per-column _unary_apply),
-    # writing f32 straight into g - replacing ~3 cuLaunchKernel/col (_unary_apply + astype + slice-assign).
-    # Only ops in _BATCH_UNARY_OPS and non-prewarp specs whose group loaded qualify; everything else stays on
-    # the exact per-column path below (which skips the already-batched col_idx).
+    return _dev_groups
+
+def _batched_unary_prepass(cp, col_specs, _raw_slot, _dev_groups, fb, g, n, n_operands):
+    """Apply the GPU-buildable plain-unary columns per float64 group with one batch kernel each; returns the set of batched column indices."""
     _batched: set = set()
     _f64_key = np.dtype(np.float64).str  # batch ONLY the float64 group: the kernel computes in f64, matching  # Intentional float64: float64 batching key; kernel contract
     try:  # the CPU tr_func's f64 math; an f32 group must compute in f32 -> per-col
@@ -233,7 +223,6 @@ def _build_resident_operand_table_part1(
                     ((total + threads - 1) // threads,), (threads,), (G, slot, opc, out_col, np.int64(n), np.int32(m), np.int32(ncols), np.int32(n_operands), g)
                 )
                 _batched.update(oc)
-            n_gpu += len(_batched)
     except Exception as e:
         log_throttle(
             logger,
@@ -243,6 +232,28 @@ def _build_resident_operand_table_part1(
             e,
         )
         _batched = set()  # any batch failure -> every column rebuilt by the exact per-column path below
+    return _batched
+
+
+def _build_resident_operand_table_part1(
+    col_specs: Sequence[Any], fb: Any, cp: Any, n: Any, n_operands: Any, g: Any, _gpu_apply_prewarp: Any, transformed_vars: np.ndarray,
+) -> tuple[Any, ...]:
+    """Extracted block of ``build_resident_operand_table`` (part 1); returns the names the caller still uses."""
+    # ONE-TRANSFER (phase R0): batch the DISTINCT raw operands referenced by the GPU-buildable
+    # specs into per-dtype host matrices and upload each in ONE H2D, instead of one cp.asarray per distinct
+    # raw. Each raw keeps its NATIVE float dtype (we group BY dtype) so the unary still applies in the exact
+    # dtype the CPU ``tr_func`` saw -> the GPU column matches the host column to fp round-off (the invariant
+    # the per-operand path enforced). Values are byte-identical; only the H2D packaging changes. Per-dtype
+    # grouping means uniform-dtype fits (the common case: all-pandas f64 -> 14 distinct raws) collapse to ONE
+    # upload. The device column is a strided VIEW into the group matrix - _unary_apply is elementwise, so the
+    # result equals the contiguous-input result bit-for-bit. Any group/build failure falls that column back to
+    # the host copy below (never a correctness regression).
+    _raw_slot, _groups = _group_raw_operands(col_specs, fb)
+    _dev_groups = _upload_dtype_groups(cp, _groups)
+    n_gpu = 0
+    n_cpu = 0
+    _batched = _batched_unary_prepass(cp, col_specs, _raw_slot, _dev_groups, fb, g, n, n_operands)
+    n_gpu += len(_batched)
     for _spec_t in col_specs:
         col_idx, raw_vals, unary_name = _spec_t[0], _spec_t[1], _spec_t[2]
         if col_idx in _batched:

@@ -107,6 +107,68 @@ def _any_core_tolerates_nan(self) -> bool:
     return all(_estimator_tolerates_nan(e) for e in estimators)
 
 
+def _impute_frame(X, nan_cols, indicator_cols, verbose):
+    """Median/mode-impute the NaN columns of a DataFrame on a shallow copy, appending the requested missingness indicators from the pre-impute masks."""
+    # Capture the PRE-impute missingness masks for the requested indicator columns BEFORE fillna,
+    # so an ``is_missing__{col}`` indicator reflects the original missingness pattern (MNAR signal).
+    indicator_masks: dict = {}
+    for c in indicator_cols:
+        if c not in X.columns:
+            if verbose:
+                log_throttle(logger, "rfecv_nan_policy_indicator_col_missing", logging.WARNING, "RFECV nan_indicator_cols: %r not in X; skipping indicator.", c)
+            continue
+        indicator_masks[c] = X[c].isna().to_numpy().astype(np.int8)
+
+    # Work on a shallow copy so the caller's frame is never mutated; column reassignment below
+    # only rebinds the imputed columns (no full-frame value copy of the untouched columns).
+    X = X.copy(deep=False)
+    for c in nan_cols:
+        col = X[c]
+        if pd.api.types.is_numeric_dtype(col) and not isinstance(col.dtype, pd.CategoricalDtype):
+            arr = col.to_numpy(dtype=float, na_value=np.nan)
+            med = float(np.nanmedian(arr)) if np.isfinite(arr).any() else 0.0
+            X[c] = col.fillna(med)
+        else:
+            # Non-numeric (object / string / category, e.g. a Decimal or Timestamp column):
+            # a numeric median is meaningless and ``to_numpy(dtype=float, ...)`` raises. Fall
+            # back to mode-imputation so the graceful-impute contract holds for every dtype.
+            non_null = col.dropna()
+            if non_null.empty:
+                continue
+            fill_value = non_null.mode().iloc[0]
+            if isinstance(col.dtype, pd.CategoricalDtype) and fill_value not in col.cat.categories:
+                col = col.cat.add_categories([fill_value])
+            X[c] = col.fillna(fill_value)
+
+    for c, mask in indicator_masks.items():
+        name = f"{INDICATOR_PREFIX}{c}"
+        if name not in X.columns:
+            X[name] = mask
+
+    if verbose:
+        logger.info(
+            "RFECV nan_in_X_policy='impute': median-imputed %d column(s) with NaN " "(core estimator does not tolerate NaN).",
+            len(nan_cols),
+        )
+    return X
+
+def _impute_array(X, indicator_cols, verbose):
+    """Median-impute an ndarray's NaN cells on a float copy; indicators need column names, so they are skipped with a warning."""
+    arr = np.array(X, dtype=float, copy=True)
+    if indicator_cols and verbose:
+        logger.warning("RFECV nan_in_X_policy: nan_indicator_cols requires a named DataFrame; " "ignoring indicators for ndarray X.")
+    for j in range(arr.shape[1]):
+        col = arr[:, j]
+        mask = np.isnan(col)
+        if mask.any():
+            finite = col[~mask]
+            med = float(np.median(finite)) if finite.size else 0.0
+            arr[mask, j] = med
+    if verbose:
+        logger.info("RFECV nan_in_X_policy='impute': median-imputed ndarray X NaN cells.")
+    return arr
+
+
 def apply_nan_in_X_policy(self, X: Union[pd.DataFrame, np.ndarray]) -> Union[pd.DataFrame, np.ndarray]:
     """Resolve ``nan_in_X_policy`` against the (sanitised) working frame ``X``; return the possibly-modified X.
 
@@ -147,60 +209,5 @@ def apply_nan_in_X_policy(self, X: Union[pd.DataFrame, np.ndarray]) -> Union[pd.
     indicator_cols = tuple(getattr(self, "nan_indicator_cols", ()) or ())
 
     if isinstance(X, pd.DataFrame):
-        # Capture the PRE-impute missingness masks for the requested indicator columns BEFORE fillna,
-        # so an ``is_missing__{col}`` indicator reflects the original missingness pattern (MNAR signal).
-        indicator_masks: dict = {}
-        for c in indicator_cols:
-            if c not in X.columns:
-                if verbose:
-                    log_throttle(logger, "rfecv_nan_policy_indicator_col_missing", logging.WARNING, "RFECV nan_indicator_cols: %r not in X; skipping indicator.", c)
-                continue
-            indicator_masks[c] = X[c].isna().to_numpy().astype(np.int8)
-
-        # Work on a shallow copy so the caller's frame is never mutated; column reassignment below
-        # only rebinds the imputed columns (no full-frame value copy of the untouched columns).
-        X = X.copy(deep=False)
-        for c in nan_cols:
-            col = X[c]
-            if pd.api.types.is_numeric_dtype(col) and not isinstance(col.dtype, pd.CategoricalDtype):
-                arr = col.to_numpy(dtype=float, na_value=np.nan)
-                med = float(np.nanmedian(arr)) if np.isfinite(arr).any() else 0.0
-                X[c] = col.fillna(med)
-            else:
-                # Non-numeric (object / string / category, e.g. a Decimal or Timestamp column):
-                # a numeric median is meaningless and ``to_numpy(dtype=float, ...)`` raises. Fall
-                # back to mode-imputation so the graceful-impute contract holds for every dtype.
-                non_null = col.dropna()
-                if non_null.empty:
-                    continue
-                fill_value = non_null.mode().iloc[0]
-                if isinstance(col.dtype, pd.CategoricalDtype) and fill_value not in col.cat.categories:
-                    col = col.cat.add_categories([fill_value])
-                X[c] = col.fillna(fill_value)
-
-        for c, mask in indicator_masks.items():
-            name = f"{INDICATOR_PREFIX}{c}"
-            if name not in X.columns:
-                X[name] = mask
-
-        if verbose:
-            logger.info(
-                "RFECV nan_in_X_policy='impute': median-imputed %d column(s) with NaN " "(core estimator does not tolerate NaN).",
-                len(nan_cols),
-            )
-        return X
-
-    # ndarray path
-    arr = np.array(X, dtype=float, copy=True)
-    if indicator_cols and verbose:
-        logger.warning("RFECV nan_in_X_policy: nan_indicator_cols requires a named DataFrame; " "ignoring indicators for ndarray X.")
-    for j in range(arr.shape[1]):
-        col = arr[:, j]
-        mask = np.isnan(col)
-        if mask.any():
-            finite = col[~mask]
-            med = float(np.median(finite)) if finite.size else 0.0
-            arr[mask, j] = med
-    if verbose:
-        logger.info("RFECV nan_in_X_policy='impute': median-imputed ndarray X NaN cells.")
-    return arr
+        return _impute_frame(X, nan_cols, indicator_cols, verbose)
+    return _impute_array(X, indicator_cols, verbose)

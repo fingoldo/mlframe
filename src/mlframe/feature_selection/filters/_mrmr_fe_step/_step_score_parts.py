@@ -282,6 +282,40 @@ def _materialise_and_fina_step2_final_support_gate(_all_names, _gates_of, st, _r
             _gate_composite_drop.add(_nm)
 
 
+def _cross_group_overmaterialised_drops(st, _all_names_fsc, _gmap_fsc, _gates_fsc, _raw_src_fsc, _clean_token_sets_fsc):
+    """Names of the over-materialised engineered columns to drop: standalone cross-group gates and cross-signal binary artefacts fully covered by the clean survivors."""
+    _fsc_drop: set = set()
+    for _nm in _all_names_fsc:
+        st._gcs = _gates_fsc.get(_nm, ())
+        if _nm in _gmap_fsc:
+            # (A) STANDALONE bare gate column. Drop iff cross-group AND fully covered by clean survivors.
+            st._gate_src = set(_gmap_fsc.get(_nm, ()))
+            if len(st._gate_src) < 2:
+                continue
+            # Coverage of OTHER (non-this) clean survivors - never let the candidate cover itself.
+            _other_cov = set().union(*_clean_token_sets_fsc) if _clean_token_sets_fsc else set()
+            st._within_one = any(st._gate_src <= _ts for _ts in _clean_token_sets_fsc)
+            if (not st._within_one) and st._gate_src and st._gate_src <= _other_cov:
+                _fsc_drop.add(_nm)
+            continue
+        if st._gcs:
+            continue  # gate COMPOSITES already handled by the block above
+        # (B) non-gate engineered binary node: cross-group cross-signal artefact.
+        _toks = set(_raw_src_fsc.get(_nm, frozenset()))
+        if len(_toks) < 2:
+            continue
+        _others = [_ts for _ts in _clean_token_sets_fsc if _ts != _toks]
+        # "Cross-group" == no OTHER single clean survivor jointly covers this node's whole token set.
+        st._within_one = any(_toks <= _ts for _ts in _clean_token_sets_fsc if _ts != _toks)
+        if st._within_one:
+            continue
+        _union_others = set().union(*_others) if _others else set()
+        # Each operand already covered by some clean within-group survivor -> dropping loses nothing.
+        if _toks and _toks <= _union_others:
+            _fsc_drop.add(_nm)
+    return _fsc_drop
+
+
 def _materialise_and_fina_step1_no_op_byte(self, prospective_additions, cols, engineered_recipes, st, num_fs_steps, verbose):
     """Step 1 of materialise_and_finalise_fe_candidates: lines starting at ``if prospective_additions:``."""
     if prospective_additions:
@@ -296,36 +330,7 @@ def _materialise_and_fina_step1_no_op_byte(self, prospective_additions, cols, en
         # survivor" can be tested for a candidate operand pair (mirrors the composite block's _clean_forms).
         _clean_token_sets_fsc = [_raw_src_fsc.get(_nm, frozenset()) for _nm in _all_names_fsc if not _gates_fsc.get(_nm, ())]
 
-        _fsc_drop: set = set()
-        for _nm in _all_names_fsc:
-            st._gcs = _gates_fsc.get(_nm, ())
-            if _nm in _gmap_fsc:
-                # (A) STANDALONE bare gate column. Drop iff cross-group AND fully covered by clean survivors.
-                st._gate_src = set(_gmap_fsc.get(_nm, ()))
-                if len(st._gate_src) < 2:
-                    continue
-                # Coverage of OTHER (non-this) clean survivors - never let the candidate cover itself.
-                _other_cov = set().union(*_clean_token_sets_fsc) if _clean_token_sets_fsc else set()
-                st._within_one = any(st._gate_src <= _ts for _ts in _clean_token_sets_fsc)
-                if (not st._within_one) and st._gate_src and st._gate_src <= _other_cov:
-                    _fsc_drop.add(_nm)
-                continue
-            if st._gcs:
-                continue  # gate COMPOSITES already handled by the block above
-            # (B) non-gate engineered binary node: cross-group cross-signal artefact.
-            _toks = set(_raw_src_fsc.get(_nm, frozenset()))
-            if len(_toks) < 2:
-                continue
-            _others = [_ts for _ts in _clean_token_sets_fsc if _ts != _toks]
-            # "Cross-group" == no OTHER single clean survivor jointly covers this node's whole token set.
-            st._within_one = any(_toks <= _ts for _ts in _clean_token_sets_fsc if _ts != _toks)
-            if st._within_one:
-                continue
-            _union_others = set().union(*_others) if _others else set()
-            # Each operand already covered by some clean within-group survivor -> dropping loses nothing.
-            if _toks and _toks <= _union_others:
-                _fsc_drop.add(_nm)
-
+        _fsc_drop = _cross_group_overmaterialised_drops(st, _all_names_fsc, _gmap_fsc, _gates_fsc, _raw_src_fsc, _clean_token_sets_fsc)
         if _fsc_drop:
             from mlframe.feature_selection.filters.mrmr import get_new_feature_name as _gnf_fsc
             _filtered_fsc: dict = {}

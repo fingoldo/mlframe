@@ -780,6 +780,84 @@ def _greedy_cmi_fe_constr_step2_rng_raw_small(cand_names, rng_floor, y_bin, z_jo
     return _noise_floor_for_current_z
 
 
+def _batched_cmi_argmax(st, _scan, _have_z, y_bin, z_joint_dev, z_joint, _host_bins, nbins, cand_bins_dev):
+    """Argmax of the batched CMI over ``_scan`` on the GPU; returns ``(done, best_name, best_cmi)``, with ``done`` False when the batched path is off or faulted."""
+    best_name = None
+    best_cmi = -1.0
+    _batched_done = False
+    try:
+        if _cmi_gpu_enabled(n=int(y_bin.shape[0]), p=len(_scan)) and len(_scan) > 1:
+            from mlframe.feature_selection.filters._fe_batched_mi import batched_cmi_gpu, cmi_device_argmax
+
+            if cand_bins_dev:
+                # RESIDENT: the candidate codes are already device-resident (binned once up front via
+                # ``_quantile_bin_gpu_resident``) - stack them directly instead of rebuilding + re-uploading
+                # a host (n, K) matrix every round.
+                import cupy as _cp
+
+                _Xc = _cp.stack([cand_bins_dev[_nm] for _nm in _scan], axis=1)
+            else:
+                # bench-attempt-rejected (2026-07): np.column_stack(...).astype(int64) vs this per-column loop was noise (-9.8%..+8.8%, no consistent >=5%).
+                _Xc = np.empty((int(y_bin.shape[0]), len(_scan)), dtype=np.int64)
+                for _j, _nm in enumerate(_scan):
+                    _Xc[:, _j] = _host_bins(_nm)
+            # RESIDENT Z: prefer the resident conditioning support - folded fully on-device by
+            # ``_renumber_joint_gpu`` at the winner-fold step below - over the host mirror. batched_cmi_gpu
+            # accepts a resident z as-is (no H2D), closing the round-constant ``cmi_z`` re-upload this loop
+            # otherwise pays every round Z changes.
+            _zc = z_joint_dev if z_joint_dev is not None else (z_joint if _have_z else None)
+            # RESIDENCY: the greedy loop only needs the argmax of the (K,) CMI vector (rest is discarded),
+            # and y_bin is fit-constant / z_joint round-constant. Pass the RESIDENT y_bin_dev (uploaded once)
+            # so y never re-crosses H2D; return_device keeps the (K,) vector on the device (no per-round bulk
+            # D2H); cmi_device_argmax pulls only the winning (idx, val) scalars. first-max == the sequential
+            # ``cmi > best_cmi`` tie-break. Falls back to host y_bin if the one-time device upload failed.
+            _yarg = st.y_bin_dev if st.y_bin_dev is not None else y_bin
+            # kx=nbins: candidate codes are equi-frequency bins in [0, nbins-1] -> width is known, skip int(max) sync.
+            _mi_d = batched_cmi_gpu(_Xc, _yarg, _zc, codes_trusted=True, return_device=True, kx=int(nbins))
+            _bi, _bv = cmi_device_argmax(_mi_d)
+            best_cmi = float(_bv); best_name = _scan[_bi]
+            _batched_done = True
+    except Exception as e:
+        log_throttle(logger, "mi_greedy_cmi_fe_steps.hot_loop_warning", logging.WARNING, "batched CMI argmax computation failed, falling back to the per-candidate path: %s", e)
+        _batched_done = False
+    return _batched_done, best_name, best_cmi
+
+
+def _per_candidate_cmi_argmax(st, _scan, _have_z, y_bin, z_joint_dev, z_joint, _host_bins):
+    """Per-candidate CMI argmax over ``_scan`` on the host; the fallback when the batched GPU path is off or faulted. Returns ``(best_name, best_cmi)``."""
+    best_name = None
+    best_cmi = -1.0
+    # FALLBACK ONLY (GPU-off / batched call faulted): the y/z-invariant CMI block
+    # (H(Y,Z)/H(Z) + their renumberings) is only needed by this per-candidate loop, not the batched
+    # path above - computed here, lazily, instead of eagerly every round (: it used to run
+    # unconditionally even when the batched path succeeded and its output went unused, and it forced
+    # ``z_joint`` to be a HOST array every round). The host mirror ``_z_host`` of ``z_joint_dev`` is built below, on first use in this
+    # fallback only.
+    _yz_dense = None
+    _y_marg = None
+    if not _have_z:
+        _y_marg = precompute_marginal_y_terms(y_bin)
+    else:
+        if z_joint is not None:
+            _z_host = z_joint
+        else:
+            import cupy as _cp
+
+            _z_host = _cp.asnumpy(z_joint_dev)
+        _y_i, _z_i, _h_yz, _h_z, _k_yz, _k_z, _n = precompute_cmi_yz_terms(y_bin, _z_host)
+        _yz_dense, _ = _renumber_joint(_y_i, _z_i)
+    for name in _scan:
+        if _have_z:
+            cmi = cmi_from_binned_fixed_yz(_host_bins(name), _y_i, _z_i, _h_yz, _h_z, _k_yz, _k_z, _n, yz_i=_yz_dense)
+        else:
+            assert _y_marg is not None  # not _have_z guarantees this was precomputed above
+            cmi = marginal_mi_binned_fixed_y(_host_bins(name), *_y_marg)
+        if cmi > best_cmi:
+            best_cmi = cmi
+            best_name = name
+    return best_name, best_cmi
+
+
 def _greedy_cmi_fe_constr_step3_while_st_remaining(st, top_k, _noise_floor_for_current_z, min_cmi_gain, z_joint_dev, z_joint, y_bin, cand_bins_dev, _host_bins, nbins):
     """Step 3 of greedy_cmi_fe_construct: lines starting at ``while st.remaining and len(st.winners) < int(top_k):``."""
     while st.remaining and len(st.winners) < int(top_k):
@@ -804,73 +882,11 @@ def _greedy_cmi_fe_constr_step3_while_st_remaining(st, top_k, _noise_floor_for_c
         # (== the sequential ``cmi > best_cmi`` tie-break). Same MM plug-in CMI -> selection-equivalent;
         # per-candidate loop fallback on any error / GPU-off.
         _scan = [name for name in st.remaining if st.cand_fp[name] not in st.winner_fps]
-        _batched_done = False
-        try:
-            if _cmi_gpu_enabled(n=int(y_bin.shape[0]), p=len(_scan)) and len(_scan) > 1:
-                from mlframe.feature_selection.filters._fe_batched_mi import batched_cmi_gpu, cmi_device_argmax
-
-                if cand_bins_dev:
-                    # RESIDENT: the candidate codes are already device-resident (binned once up front via
-                    # ``_quantile_bin_gpu_resident``) - stack them directly instead of rebuilding + re-uploading
-                    # a host (n, K) matrix every round.
-                    import cupy as _cp
-
-                    _Xc = _cp.stack([cand_bins_dev[_nm] for _nm in _scan], axis=1)
-                else:
-                    # bench-attempt-rejected (2026-07): np.column_stack(...).astype(int64) vs this per-column loop was noise (-9.8%..+8.8%, no consistent >=5%).
-                    _Xc = np.empty((int(y_bin.shape[0]), len(_scan)), dtype=np.int64)
-                    for _j, _nm in enumerate(_scan):
-                        _Xc[:, _j] = _host_bins(_nm)
-                # RESIDENT Z: prefer the resident conditioning support - folded fully on-device by
-                # ``_renumber_joint_gpu`` at the winner-fold step below - over the host mirror. batched_cmi_gpu
-                # accepts a resident z as-is (no H2D), closing the round-constant ``cmi_z`` re-upload this loop
-                # otherwise pays every round Z changes.
-                _zc = z_joint_dev if z_joint_dev is not None else (z_joint if _have_z else None)
-                # RESIDENCY: the greedy loop only needs the argmax of the (K,) CMI vector (rest is discarded),
-                # and y_bin is fit-constant / z_joint round-constant. Pass the RESIDENT y_bin_dev (uploaded once)
-                # so y never re-crosses H2D; return_device keeps the (K,) vector on the device (no per-round bulk
-                # D2H); cmi_device_argmax pulls only the winning (idx, val) scalars. first-max == the sequential
-                # ``cmi > best_cmi`` tie-break. Falls back to host y_bin if the one-time device upload failed.
-                _yarg = st.y_bin_dev if st.y_bin_dev is not None else y_bin
-                # kx=nbins: candidate codes are equi-frequency bins in [0, nbins-1] -> width is known, skip int(max) sync.
-                _mi_d = batched_cmi_gpu(_Xc, _yarg, _zc, codes_trusted=True, return_device=True, kx=int(nbins))
-                _bi, _bv = cmi_device_argmax(_mi_d)
-                best_cmi = float(_bv); best_name = _scan[_bi]
-                _batched_done = True
-        except Exception as e:
-            log_throttle(logger, "mi_greedy_cmi_fe_steps.hot_loop_warning", logging.WARNING, "batched CMI argmax computation failed, falling back to the per-candidate path: %s", e)
-            _batched_done = False
+        _batched_done, _batched_name, _batched_cmi = _batched_cmi_argmax(st, _scan, _have_z, y_bin, z_joint_dev, z_joint, _host_bins, nbins, cand_bins_dev)
         if _batched_done:
-            pass
+            best_name, best_cmi = _batched_name, _batched_cmi
         else:
-            # FALLBACK ONLY (GPU-off / batched call faulted): the y/z-invariant CMI block
-            # (H(Y,Z)/H(Z) + their renumberings) is only needed by this per-candidate loop, not the batched
-            # path above - computed here, lazily, instead of eagerly every round (: it used to run
-            # unconditionally even when the batched path succeeded and its output went unused, and it forced
-            # ``z_joint`` to be a HOST array every round). The host mirror ``_z_host`` of ``z_joint_dev`` is built below, on first use in this
-            # fallback only.
-            _yz_dense = None
-            _y_marg = None
-            if not _have_z:
-                _y_marg = precompute_marginal_y_terms(y_bin)
-            else:
-                if z_joint is not None:
-                    _z_host = z_joint
-                else:
-                    import cupy as _cp
-
-                    _z_host = _cp.asnumpy(z_joint_dev)
-                _y_i, _z_i, _h_yz, _h_z, _k_yz, _k_z, _n = precompute_cmi_yz_terms(y_bin, _z_host)
-                _yz_dense, _ = _renumber_joint(_y_i, _z_i)
-            for name in _scan:
-                if _have_z:
-                    cmi = cmi_from_binned_fixed_yz(_host_bins(name), _y_i, _z_i, _h_yz, _h_z, _k_yz, _k_z, _n, yz_i=_yz_dense)
-                else:
-                    assert _y_marg is not None  # not _have_z guarantees this was precomputed above
-                    cmi = marginal_mi_binned_fixed_y(_host_bins(name), *_y_marg)
-                if cmi > best_cmi:
-                    best_cmi = cmi
-                    best_name = name
+            best_name, best_cmi = _per_candidate_cmi_argmax(st, _scan, _have_z, y_bin, z_joint_dev, z_joint, _host_bins)
         if best_name is None:
             break
         if best_cmi < effective_floor:

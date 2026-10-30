@@ -382,6 +382,87 @@ def _stamp_composite_estimator_recommendation(ctx: "TrainingContext") -> None:
             logger.info("[estimator_recommendation] %s recommended (%s).", rec["estimator"], rec["reason"])
 
 
+def _raw1d(v):
+    """Like _arr but preserves the original dtype (needed for classification labels, not just floats)."""
+    import numpy as _np
+
+    if v is None:
+        return None
+    a = _np.asarray(v.values if hasattr(v, "values") else v).reshape(-1)
+    return a if a.size else None
+
+def _classification_conformal_report(_e, _ttype, _tname, cls_mode, alphas, structure):
+    """Conformal prediction sets (LAC or APS) for one classification entry, or None when the entry cannot be scored."""
+    import numpy as _np
+
+    from .._conformal_finalize import conformal_classification_report
+    if cls_mode == "off":
+        return None
+    _cp = getattr(_e, "calib_probs", None)
+    _ct = _raw1d(getattr(_e, "calib_target", None))
+    _tt = _raw1d(getattr(_e, "test_target", None))
+    if _cp is None or _ct is None or _tt is None:
+        return None
+    _tp = _np.asarray(getattr(_e, "test_probs", None), dtype=_np.float64)
+    _cp = _np.asarray(_cp, dtype=_np.float64)
+    if _tp.ndim != 2 or _cp.ndim != 2 or _tp.shape[1] != _cp.shape[1]:
+        return None
+    _classes = getattr(getattr(_e, "model", None), "classes_", None)
+    if _classes is None:
+        _classes = _np.unique(_np.concatenate([_ct, _tt]))
+    _classes = _np.asarray(_classes)
+    if _classes.size != _tp.shape[1]:
+        return None
+    _cset_score = "aps" if "aps" in cls_mode else "lac"
+    try:
+        _rep = conformal_classification_report(
+            test_probs=_tp,
+            test_target=_tt,
+            calib_probs=_cp,
+            calib_target=_ct,
+            classes=_classes,
+            alphas=alphas,
+            score=_cset_score,
+            structure=structure,
+        )
+    except Exception as _cls_err:
+        log_throttle(logger, "finalize_calib_conformal_classification_failed", logging.WARNING, "[conformal] classification sets failed for %s/%s: %s", _ttype, _tname, _cls_err)
+        return None
+    return _rep
+
+def _regression_conformal_report(_e, _ttype, _tname, alphas, score, structure):
+    """Split-conformal (calibration residuals) or CV+/Jackknife+ (OOF residuals) interval report for one regression entry, or None when it cannot be scored."""
+    from .._conformal_finalize import conformal_regression_report
+    y_pred_test = _arr(getattr(_e, "test_preds", None))
+    y_true_test = _arr(getattr(_e, "test_target", None))
+    if y_pred_test is None or y_true_test is None or y_pred_test.size != y_true_test.size:
+        return None
+    calib_preds = _arr(getattr(_e, "calib_preds", None))
+    calib_target = _arr(getattr(_e, "calib_target", None))
+    oof_preds = _arr(getattr(_e, "oof_preds", None))
+    train_target = _arr(getattr(_e, "train_target", None))
+    kwargs: dict = {}
+    if calib_preds is not None and calib_target is not None and calib_preds.size == calib_target.size:
+        kwargs = dict(residuals_cal=calib_target - calib_preds, y_pred_cal=calib_preds, score=score)
+    elif oof_preds is not None and train_target is not None and oof_preds.size == train_target.size:
+        kwargs = dict(oof_residuals=train_target - oof_preds)
+    else:
+        return None
+    try:
+        rep = conformal_regression_report(
+            y_pred_test=y_pred_test,
+            y_true_test=y_true_test,
+            alphas=alphas,
+            structure=structure,
+            **kwargs,
+        )
+    except Exception as _cf_err:
+        log_throttle(logger, "finalize_calib_conformal_report_failed", logging.WARNING, "[conformal] report failed for %s/%s: %s", _ttype, _tname, _cf_err)
+        return None
+    rep.pop("intervals", None)  # drop per-row arrays; keep the compact per-alpha coverage summary
+    return rep
+
+
 def _conformal_on_calib_slice(ctx: "TrainingContext") -> None:
     """Stamp regression conformal prediction intervals + achieved test coverage per per-target model.
 
@@ -392,9 +473,6 @@ def _conformal_on_calib_slice(ctx: "TrainingContext") -> None:
     model, so a run without calib/OOF data is a clean no-op. The compact report drops the per-row interval
     arrays to keep metadata small.
     """
-    import numpy as _np
-
-    from .._conformal_finalize import conformal_classification_report, conformal_regression_report
 
     _cfg = getattr(ctx, "conformal_config", None)
     if _cfg is not None and not bool(getattr(_cfg, "enabled", True)):
@@ -403,13 +481,6 @@ def _conformal_on_calib_slice(ctx: "TrainingContext") -> None:
     score = str(getattr(_cfg, "score", "normalized")) if _cfg is not None else "normalized"
     cls_mode = str(getattr(_cfg, "classification_mode", "sets_lac")) if _cfg is not None else "sets_lac"
     structure = _conformal_finalize_structure(ctx)
-
-    def _raw1d(v):
-        """Like _arr but preserves the original dtype (needed for classification labels, not just floats)."""
-        if v is None:
-            return None
-        a = _np.asarray(v.values if hasattr(v, "values") else v).reshape(-1)
-        return a if a.size else None
 
     out: dict = {}
     for _ttype, _by_name in (ctx.models or {}).items():
@@ -422,68 +493,14 @@ def _conformal_on_calib_slice(ctx: "TrainingContext") -> None:
                 _e = _entry[0] if isinstance(_entry, tuple) and _entry else _entry
                 # Classification entries carry test_probs -> conformal prediction SETS (LAC/APS) from the calib probs.
                 if getattr(_e, "test_probs", None) is not None:
-                    if cls_mode == "off":
-                        continue
-                    _cp = getattr(_e, "calib_probs", None)
-                    _ct = _raw1d(getattr(_e, "calib_target", None))
-                    _tt = _raw1d(getattr(_e, "test_target", None))
-                    if _cp is None or _ct is None or _tt is None:
-                        continue
-                    _tp = _np.asarray(getattr(_e, "test_probs", None), dtype=_np.float64)
-                    _cp = _np.asarray(_cp, dtype=_np.float64)
-                    if _tp.ndim != 2 or _cp.ndim != 2 or _tp.shape[1] != _cp.shape[1]:
-                        continue
-                    _classes = getattr(getattr(_e, "model", None), "classes_", None)
-                    if _classes is None:
-                        _classes = _np.unique(_np.concatenate([_ct, _tt]))
-                    _classes = _np.asarray(_classes)
-                    if _classes.size != _tp.shape[1]:
-                        continue
-                    _cset_score = "aps" if "aps" in cls_mode else "lac"
-                    try:
-                        _rep = conformal_classification_report(
-                            test_probs=_tp,
-                            test_target=_tt,
-                            calib_probs=_cp,
-                            calib_target=_ct,
-                            classes=_classes,
-                            alphas=alphas,
-                            score=_cset_score,
-                            structure=structure,
-                        )
-                    except Exception as _cls_err:
-                        log_throttle(logger, "finalize_calib_conformal_classification_failed", logging.WARNING, "[conformal] classification sets failed for %s/%s: %s", _ttype, _tname, _cls_err)
-                        continue
-                    _mn = _entry_model_name(_e, _i)
-                    out[f"{_ttype}/{_tname}/{_mn}"] = _rep
+                    _rep = _classification_conformal_report(_e, _ttype, _tname, cls_mode, alphas, structure)
+                    if _rep is not None:
+                        _mn = _entry_model_name(_e, _i)
+                        out[f"{_ttype}/{_tname}/{_mn}"] = _rep
                     continue
-                y_pred_test = _arr(getattr(_e, "test_preds", None))
-                y_true_test = _arr(getattr(_e, "test_target", None))
-                if y_pred_test is None or y_true_test is None or y_pred_test.size != y_true_test.size:
+                rep = _regression_conformal_report(_e, _ttype, _tname, alphas, score, structure)
+                if rep is None:
                     continue
-                calib_preds = _arr(getattr(_e, "calib_preds", None))
-                calib_target = _arr(getattr(_e, "calib_target", None))
-                oof_preds = _arr(getattr(_e, "oof_preds", None))
-                train_target = _arr(getattr(_e, "train_target", None))
-                kwargs: dict = {}
-                if calib_preds is not None and calib_target is not None and calib_preds.size == calib_target.size:
-                    kwargs = dict(residuals_cal=calib_target - calib_preds, y_pred_cal=calib_preds, score=score)
-                elif oof_preds is not None and train_target is not None and oof_preds.size == train_target.size:
-                    kwargs = dict(oof_residuals=train_target - oof_preds)
-                else:
-                    continue
-                try:
-                    rep = conformal_regression_report(
-                        y_pred_test=y_pred_test,
-                        y_true_test=y_true_test,
-                        alphas=alphas,
-                        structure=structure,
-                        **kwargs,
-                    )
-                except Exception as _cf_err:
-                    log_throttle(logger, "finalize_calib_conformal_report_failed", logging.WARNING, "[conformal] report failed for %s/%s: %s", _ttype, _tname, _cf_err)
-                    continue
-                rep.pop("intervals", None)  # drop per-row arrays; keep the compact per-alpha coverage summary
                 _mn = _entry_model_name(_e, _i)
                 out[f"{_ttype}/{_tname}/{_mn}"] = rep
     if out:
