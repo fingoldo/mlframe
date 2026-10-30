@@ -348,15 +348,14 @@ def _discretize_with_nbins_strategy(
     for j, ej in enumerate(edges_per_col):
         if ej.size:
             edges_padded[: ej.size, j] = ej
-    _codes = np.empty((n_rows, n_cols), dtype=np.int64)
     from ._kernels import _searchsorted_2d_right_njit_parallel
     # ``arr`` passed at its NATIVE dtype (float32 or float64): the kernel promotes per-element against
     # the float64 edges, byte-identical to pre-upcasting the whole column (see the kernel's own
     # docstring) - avoids an (n_rows, n_cols) float64 copy on top of the input buffer.
     # Reachable from the FE pair sweep's threaded paths; see mlframe._numba_parallel_guard.
     with parallel_kernel_entry():
-        _searchsorted_2d_right_njit_parallel(edges_padded, arr, _codes)
-    data[:, :] = _codes.astype(dtype)
+        # The codes are written straight into ``data`` (their values are below ``max_bins``, validated against ``dtype`` above): no (n_rows, n_cols) int64 temporary and no cast pass.
+        _searchsorted_2d_right_njit_parallel(edges_padded, arr, data)
     return data, per_col_bins
 
 

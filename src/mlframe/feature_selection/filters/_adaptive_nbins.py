@@ -39,6 +39,7 @@ from __future__ import annotations
 
 import logging
 import math
+import threading
 from typing import Optional, Any
 
 import numpy as np
@@ -373,122 +374,6 @@ def edges_fayyad_irani(
     return np.asarray(inner, dtype=np.float64)  # Intentional float64: inner cut-point output contract
 
 
-def edges_optimal_joint(
-    x: np.ndarray, y: np.ndarray,
-    *,
-    candidates: tuple = (4, 8, 16, 32),
-    n_splits: int = 3,
-    base: str = "quantile",
-    random_state: int = 0,
-    max_y_classes: int = 64,
-) -> np.ndarray:
-    """CV-folded MI maximisation across candidate nbins.
-
-    For each n_bins in ``candidates``:
-      * Split (x, y) into ``n_splits`` folds.
-      * For each fold: compute quantile edges on TRAIN x, bin VAL x with those edges,
-        estimate I(X_val; y_val) via the standard plug-in histogram MI.
-      * Score = mean fold MI.
-    Pick the n_bins with highest score, return its edges built on the FULL data.
-
-    This is the OptimalJoint / "wrapper-style" method recommended for MRMR when
-    compute is not a bottleneck. ~K_candidates * n_splits times more expensive
-    than a single Freedman-Diaconis call.
-
-    Args:
-        x: the 1-D numeric column to bin.
-        y: the target used to score each candidate bin count's fold MI.
-        candidates: candidate bin counts to sweep.
-        n_splits: number of CV folds used to score each candidate.
-        base: ``'quantile'`` or ``'uniform'`` edge placement within a candidate.
-        random_state: fold-split RNG seed.
-        max_y_classes: Cardinality cap forwarded to :func:`_bin_y_for_mi` for the internal
-            fold-scoring MI. Without this cap, an int/bool-dtype ``y`` with high cardinality (a
-            continuous target mistakenly int-typed - e.g. a timestamp or counter column) was
-            treated as one discrete class per distinct value: confirmed to SEGFAULT the process
-            (oversized ``(K_x, K_y)`` dense joint-count allocation in ``_plug_in_mi_njit``) at
-            n=50000 with ~50k unique int64 values. Same bug class as MDLP's ``max_y_classes``.
-
-    Returns:
-        1-D double array of inner bin edges for the winning bin count, built on the full finite data; falls back to
-        Freedman-Diaconis edges when there is too little data to cross-validate.
-    """
-    x = np.asarray(x, dtype=np.float64).ravel()  # Intentional float64: bin-edge computation input; edges compared at full precision
-    y = np.asarray(y).ravel()
-    mask = np.isfinite(x)
-    # The mask used to check only x's finiteness - a
-    # NaN-y row with finite x survived and could propagate NaN into that fold's quantile edges via
-    # _bin_y_for_mi's np.quantile call. Fold y's finiteness into the mask too (only meaningful when y is
-    # float-dtype; an int/bool y is never NaN-capable).
-    if y.dtype.kind == "f":
-        mask &= np.isfinite(y)
-    x = x[mask]
-    y = y[mask]
-    n = x.size
-    if n < n_splits * 4:
-        # Fall back to FD on small samples.
-        return edges_freedman_diaconis(x, base=base)
-    rng = np.random.default_rng(random_state)
-    fold_idx = rng.permutation(n) % n_splits
-    # LOOP ORDER (outer k, inner M): the pre-fix ``for M: for k:`` nesting recomputed the SAME
-    # train/val fold slices and re-quantized the SAME val_y (via _plug_in_mi's np.quantile call)
-    # once per (M, k) pair, even though neither depends on M. Swapping to outer-k makes the fold
-    # slice and val_y quantization happen ONCE per k and get reused across every candidate M, with
-    # the exact same per-(M, k) skip conditions and running per-M fold-score aggregation as before
-    # (only the ORDER the (M, k) cells are visited in changes, not which cells are skipped/scored).
-    fold_scores_by_M: "dict[int, list]" = {M: [] for M in candidates if M >= 2}
-    for k in range(n_splits):
-        train_mask = fold_idx != k
-        val_mask = ~train_mask
-        if val_mask.sum() < 4:
-            continue  # val-fold-too-small check does not depend on M -> applies to every M for this k
-        train_x = x[train_mask]
-        val_x, val_y = x[val_mask], y[val_mask]
-        n_train = int(train_mask.sum())
-        # val_y quantization (_plug_in_mi's np.quantile-based 10-bin regression target) depends only
-        # on val_y, not on M -> computed once per k and reused for every candidate M below.
-        val_y_b, K_y = _bin_y_for_mi(val_y, max_y_classes=max_y_classes)
-        for M in candidates:
-            if M < 2:
-                continue
-            if n_train < M:
-                continue
-            edges = _edges_from_quantiles(train_x, M) if base == "quantile" else _edges_from_uniform(train_x, M)
-            if edges.size == 0:
-                continue
-            binned_val_x = np.searchsorted(edges, val_x, side="right")
-            x_b = np.ascontiguousarray(binned_val_x.astype(np.int64), dtype=np.int64)
-            if x_b.size == 0 or val_y_b.size == 0:
-                mi = 0.0
-            else:
-                K_x = int(x_b.max()) + 1 if x_b.size else 1
-                mi = 0.0 if (K_x < 1 or K_y < 1) else float(_plug_in_mi_njit(x_b, val_y_b, K_x, K_y, False))
-            fold_scores_by_M[M].append(mi)
-    best_score = -np.inf
-    best_M = None
-    for M in candidates:
-        if M < 2:
-            continue
-        fold_scores = fold_scores_by_M.get(M, [])
-        if fold_scores:
-            mean_mi = float(np.mean(fold_scores))
-            if mean_mi > best_score:
-                best_score = mean_mi
-                best_M = M
-    if best_M is None:
-        # No candidate M was ever scored by ANY fold - e.g. every candidate in ``candidates`` exceeds
-        # every fold's train size, or every fold/candidate combination produced degenerate (empty) train
-        # edges. The pre-fix code silently fell back to ``candidates[0]`` here UNVALIDATED by the CV
-        # search - when ``candidates[0] < 2`` (a caller passing e.g. ``candidates=(1, 1000)`` to probe a
-        # single-bin option) this returned EMPTY edges with no signal that the CV search never ran at
-        # all, exactly the MDLP silent-empty-output bug class. Fall back to the same Freedman-Diaconis
-        # path used for the too-small-n guard above - at least one principled, unconditional binning
-        # instead of an untested/possibly-invalid M.
-        return edges_freedman_diaconis(x, base=base)
-    # Return edges built on full data at the winning M.
-    return _edges_from_quantiles(x, best_M) if base == "quantile" else _edges_from_uniform(x, best_M)
-
-
 @njit(nogil=True, cache=True)
 def _plug_in_mi_njit(x_binned: np.ndarray, y_b: np.ndarray, K_x: int, K_y: int, miller_madow: bool) -> float:
     """njit core: plug-in MI from already-integer-encoded bins, optional Miller-Madow.
@@ -749,6 +634,27 @@ def _per_feature_edges_np_asarray(X, method, y):
     return X, method_resolved, n_features, needs_y, y
 
 
+_EDGES_WARMED = False  # set once a threaded call has finished: the njit kernels of the edge builders are compiled in this process
+_EDGE_POOL: Any = None
+_EDGE_POOL_WORKERS = 0
+_EDGE_POOL_LOCK = threading.Lock()
+
+
+def _edge_pool(workers: int) -> Any:
+    """The process-wide thread pool of the per-column edge computation, grown (never shrunk) to ``workers`` threads. Its tasks are leaf computations that never wait on the pool, so callers
+    sharing it cannot deadlock."""
+    global _EDGE_POOL, _EDGE_POOL_WORKERS
+    with _EDGE_POOL_LOCK:
+        if _EDGE_POOL is None or _EDGE_POOL_WORKERS < workers:
+            from concurrent.futures import ThreadPoolExecutor
+
+            if _EDGE_POOL is not None:
+                _EDGE_POOL.shutdown(wait=False)
+            _EDGE_POOL = ThreadPoolExecutor(max_workers=int(workers), thread_name_prefix="edges")
+            _EDGE_POOL_WORKERS = int(workers)
+        return _EDGE_POOL
+
+
 def _resolve_edge_jobs(n_jobs: Any, n_miss: int) -> int:
     """Worker-thread count for the edge computation: the physical core count when ``n_jobs`` is unset, capped at the number of columns that need computing."""
     if n_jobs is None or int(n_jobs) <= 0:
@@ -839,13 +745,7 @@ def _per_feature_edges_no_lock_needed_hit(n_features, X, _cache, _y_key, _kw_key
     # rationale) -- there is no performance cost to this safety gate, only a latent bug it closes.
     _jit_active = not numba.config.DISABLE_JIT
     if _jit_active and _resolved_jobs > 1 and len(_miss_cols) >= _PARALLEL_EDGES_MIN_COLS:
-        from concurrent.futures import ThreadPoolExecutor
-
-        def _one(j):
-            """Column-index-preserving wrapper around ``_compute_col_edges`` so ``ThreadPoolExecutor.map`` results can be scattered back into ``edges_list`` by their original column position."""
-            return j, _compute_col_edges(_cols[j])
-
-        # The first column is computed on THIS thread, before the pool exists. The njit kernels reached
+        # The first column is computed on THIS thread, before any worker runs. The njit kernels reached
         # from ``_compute_col_edges`` (``_mdlp_recurse_validated_bfs`` and friends, all ``cache=True``)
         # are compiled on first call, and several threads entering numba's compiler at once aborts the
         # process on macOS: mlframe's first macOS CI run crashed 150 xdist workers across 10 shards with
@@ -853,13 +753,28 @@ def _per_feature_edges_no_lock_needed_hit(n_features, X, _cache, _y_key, _kw_key
         # ``_mdlp_recurse_validated_bfs`` -> ``dispatcher.compile``. Warming serially costs one column's
         # worth of parallelism on a cold cache and nothing at all on a warm one, and it leaves the pool
         # executing already-compiled code, which is what the measured 1.2x-7.2x speedup was ever about.
-        _warm, _rest = _miss_cols[0], _miss_cols[1:]
-        _warm_edges, _ = _compute_col_edges(_cols[_warm])
-        edges_list[_warm] = _warm_edges
+        # Once a call has completed in this process the kernels are compiled (and the pool exists), so later calls skip the serial column.
+        global _EDGES_WARMED
+        if _EDGES_WARMED:
+            _warm, _rest = None, list(_miss_cols)
+        else:
+            _warm, _rest = _miss_cols[0], _miss_cols[1:]
+            _warm_edges, _ = _compute_col_edges(_cols[_warm])
+            edges_list[_warm] = _warm_edges
         if _rest:
-            with ThreadPoolExecutor(max_workers=_resolved_jobs) as _ex:
-                for j, (edges, _was_lc) in _ex.map(_one, _rest):
+            # One task per worker (strided so that neighbouring, similarly expensive columns spread out) on a pool that lives as long as the process: a call that bins a dozen
+            # cheap columns used to spend most of its time creating threads and waiting for a future per column.
+            _workers = min(_resolved_jobs, len(_rest))
+            _chunks = [_rest[i::_workers] for i in range(_workers)]
+
+            def _run_chunk(chunk):
+                """Edges of the columns in ``chunk``, as ``(column index, edges)`` pairs."""
+                return [(j, _compute_col_edges(_cols[j])[0]) for j in chunk]
+
+            for _pairs in _edge_pool(_resolved_jobs).map(_run_chunk, _chunks):
+                for j, edges in _pairs:
                     edges_list[j] = edges
+        _EDGES_WARMED = True
     else:
         for j in _miss_cols:
             edges, _was_lc = _compute_col_edges(_cols[j])
@@ -869,3 +784,12 @@ def _per_feature_edges_no_lock_needed_hit(n_features, X, _cache, _y_key, _kw_key
     if _cache is not None:
         _cache_put_misses(_cache, _miss_cols, _miss_keys, edges_list)
     return edges_list
+
+
+from ._optimal_joint_edges import (  # noqa: F401  -- the optimal-joint search lives in its own module; re-exported so importers keep one path
+    OptimalJointPlanCache,
+    _optimal_joint_best_m,
+    _optimal_joint_final_edges,
+    _optimal_joint_plan,
+    edges_optimal_joint,
+)

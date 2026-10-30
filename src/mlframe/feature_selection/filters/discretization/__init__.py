@@ -111,9 +111,14 @@ def _handle_missing(arr: np.ndarray, *, strategy: str = "fillna_zero", nan_mask:
         # nanmedian emits RuntimeWarning("All-NaN slice encountered") on all-NaN columns, but the
         # np.where below handles that case explicitly by falling back to 0.0; suppress the noise to
         # keep test output clean.
+        # Only a column that holds a NaN is filled, so only its median is used: the median of a frame with a handful of NaN columns used to be taken over every column (``nanmedian`` along
+        # axis 0 loops over the columns in Python), and a target-permutation null repeats that for every permutation.
+        nan_cols = np.flatnonzero(_mask.any(axis=0))
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", RuntimeWarning)
-            col_medians = np.nanmedian(arr, axis=0)
+            nan_col_medians = np.nanmedian(arr[:, nan_cols], axis=0)
+        col_medians = np.zeros(arr.shape[1], dtype=nan_col_medians.dtype)  # the dtype ``nanmedian`` gives, so the fill keeps the dtype of ``arr``
+        col_medians[nan_cols] = nan_col_medians
         # Empty / all-NaN columns: median is NaN; fall back to 0.0 for the
         # discretize edges (the column will be all-NaN-bin anyway).
         col_medians = np.where(np.isnan(col_medians), 0.0, col_medians)

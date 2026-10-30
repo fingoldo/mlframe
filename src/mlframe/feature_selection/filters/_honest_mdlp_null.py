@@ -18,6 +18,7 @@ import numpy as np
 
 from mlframe.utils.log_throttle import log_throttle
 
+from ._numba_utils import _n_unique_codes
 from ._parity_fe import _mi_codes_njit
 
 logger = logging.getLogger(__name__)
@@ -52,7 +53,7 @@ def _honest_perm_best(honest_codes_fn, factors_data, factors_nbins, y_codes, col
             x = np.ascontiguousarray(np.asarray(factors_data[:, c]).astype(np.int64))
             kx = int(factors_nbins[c])
         mi = _mi_codes_njit(x, kx, yc_p, ny)
-        kx_eff = float(np.unique(x).shape[0])
+        kx_eff = float(_n_unique_codes(x))
         corr = mi - (kx_eff - 1.0) * (ky_eff - 1.0) / (2.0 * n)
         if corr > best:
             best = corr

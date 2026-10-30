@@ -82,7 +82,7 @@ Every environment variable read anywhere in `src/mlframe/`, generated from the s
 | `MLFRAME_DISCRETIZE_COL_CACHE` | `'1'` | [src/mlframe/feature_selection/filters/discretization/_discretization_dataset.py](../src/mlframe/feature_selection/filters/discretization/_discretization_dataset.py#L112) |
 | `MLFRAME_DISCRETIZE_COL_CACHE_MAX_BYTES` | `512 * 1024 * 1024` | [src/mlframe/feature_selection/filters/discretization/_discretization_dataset.py](../src/mlframe/feature_selection/filters/discretization/_discretization_dataset.py#L77) |
 | `MLFRAME_DISCRETIZE_FLOAT32` | `''` | [src/mlframe/feature_selection/filters/discretization/_discretization_dataset.py](../src/mlframe/feature_selection/filters/discretization/_discretization_dataset.py#L55) |
-| `MLFRAME_DISCRETIZE_UNIFORM_PAR_THRESHOLD` | `50000` | [src/mlframe/feature_selection/filters/discretization/__init__.py](../src/mlframe/feature_selection/filters/discretization/__init__.py#L421) |
+| `MLFRAME_DISCRETIZE_UNIFORM_PAR_THRESHOLD` | `50000` | [src/mlframe/feature_selection/filters/discretization/__init__.py](../src/mlframe/feature_selection/filters/discretization/__init__.py#L426) |
 | `MLFRAME_DTW_AUTOTUNE` | `'1'` | [src/mlframe/signal/dtw.py](../src/mlframe/signal/dtw.py#L535) |
 | `MLFRAME_DTW_BACKEND` | `''` | [src/mlframe/signal/dtw.py](../src/mlframe/signal/dtw.py#L566) |
 | `MLFRAME_ENT_LUT` | `'1'` | [src/mlframe/feature_selection/filters/_fe_batched_mi_cmi_lut.py](../src/mlframe/feature_selection/filters/_fe_batched_mi_cmi_lut.py#L106) |
@@ -186,8 +186,8 @@ Every environment variable read anywhere in `src/mlframe/`, generated from the s
 | `MLFRAME_GROUPED_COUNT_VECTORIZE_MAX_AVG` | `64` | [src/mlframe/feature_engineering/grouped.py](../src/mlframe/feature_engineering/grouped.py#L62) |
 | `MLFRAME_HINGE_BATCH_MIN_K` | `''` | [src/mlframe/feature_selection/filters/_hinge_basis_fe.py](../src/mlframe/feature_selection/filters/_hinge_basis_fe.py#L498) |
 | `MLFRAME_HINGE_MAX_ROWS` | `'250000'` | [src/mlframe/feature_selection/filters/_hinge_detect_gpu_resident.py](../src/mlframe/feature_selection/filters/_hinge_detect_gpu_resident.py#L173) |
-| `MLFRAME_HONEST_NULL_DEVICE` | `'1'` | [src/mlframe/feature_selection/filters/_honest_mdlp_null.py](../src/mlframe/feature_selection/filters/_honest_mdlp_null.py#L81) |
-| `MLFRAME_HONEST_ROOT_PRECHECK` | `'1'` | [src/mlframe/feature_selection/filters/_honest_mdlp_null.py](../src/mlframe/feature_selection/filters/_honest_mdlp_null.py#L219) |
+| `MLFRAME_HONEST_NULL_DEVICE` | `'1'` | [src/mlframe/feature_selection/filters/_honest_mdlp_null.py](../src/mlframe/feature_selection/filters/_honest_mdlp_null.py#L82) |
+| `MLFRAME_HONEST_ROOT_PRECHECK` | `'1'` | [src/mlframe/feature_selection/filters/_honest_mdlp_null.py](../src/mlframe/feature_selection/filters/_honest_mdlp_null.py#L220) |
 | `MLFRAME_HONEST_ROOT_SPLIT_V2` | `'1'` | [src/mlframe/feature_selection/filters/_honest_null_device.py](../src/mlframe/feature_selection/filters/_honest_null_device.py#L134) |
 | `MLFRAME_HYP_PROFILE` | `'mlframe-fast'` | [src/mlframe/testing/parametric.py](../src/mlframe/testing/parametric.py#L89) |
 | `MLFRAME_INFONET_CACHE` | `str(Path.home() / '.cache' / 'mlframe' / 'infonet')` | [src/mlframe/feature_selection/filters/_neural_mi.py](../src/mlframe/feature_selection/filters/_neural_mi.py#L266) |
@@ -237,6 +237,7 @@ Every environment variable read anywhere in `src/mlframe/`, generated from the s
 | `MLFRAME_NUMBA_MI` | `''` | [src/mlframe/feature_selection/filters/_orthogonal_univariate_fe/_orth_mi_backends.py](../src/mlframe/feature_selection/filters/_orthogonal_univariate_fe/_orth_mi_backends.py#L280) |
 | `MLFRAME_NUMBA_WARMUP_SKIP_PARALLEL` | — | [src/mlframe/metrics/_core_numba_warmup.py](../src/mlframe/metrics/_core_numba_warmup.py#L190) |
 | `MLFRAME_NW_PARALLEL_MIN_QUERIES` | `2000` | [src/mlframe/feature_engineering/nadaraya_watson.py](../src/mlframe/feature_engineering/nadaraya_watson.py#L42) |
+| `MLFRAME_OJ_PLAN_CACHE` | `'1'` | [src/mlframe/feature_selection/filters/_mrmr_fit_impl/_fit_impl_stages/_binning.py](../src/mlframe/feature_selection/filters/_mrmr_fit_impl/_fit_impl_stages/_binning.py#L161) |
 | `MLFRAME_OOF_BATCH_BINNING_MAX_TRAIN_ROWS` | `16000` | [src/mlframe/feature_selection/filters/_orthogonal_three_gate_mi_fe.py](../src/mlframe/feature_selection/filters/_orthogonal_three_gate_mi_fe.py#L227) |
 | `MLFRAME_PAIR_FAMILY_EXACT_MAX_MCELLS` | `400` | [src/mlframe/feature_selection/filters/_feature_engineering_pairs/_pairs_emit_extval.py](../src/mlframe/feature_selection/filters/_feature_engineering_pairs/_pairs_emit_extval.py#L26) |
 | `MLFRAME_PAIR_LAZY_CODES` | `'1'` | [src/mlframe/feature_selection/filters/_feature_engineering_pairs/_pairs_chunk_codes.py](../src/mlframe/feature_selection/filters/_feature_engineering_pairs/_pairs_chunk_codes.py#L36) |
