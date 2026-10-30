@@ -481,19 +481,22 @@ def _n_unique_codes(x: np.ndarray) -> int:
 
 @njit(cache=True, parallel=True)
 def corrected_mi_best(
-    codes_p: np.ndarray, nb_p: np.ndarray, fixed_codes: np.ndarray, fixed_nbins: np.ndarray, cols: np.ndarray, yc: np.ndarray, ny: int, ky_eff: float, n_eff: int,
+    codes_p: np.ndarray, nb_p: np.ndarray, fixed_codes: np.ndarray, fixed_nbins: np.ndarray, cols: np.ndarray, yc: np.ndarray, ny: int, ky_eff: float, n_eff: int, rows: np.ndarray,
 ) -> float:
     """Largest Miller-Madow corrected plug-in MI with ``yc`` over the columns ``cols``, parallel over columns: a column below ``codes_p.shape[1]`` is read from ``codes_p`` (the codes re-binned on a
-    permuted target), any other from ``fixed_codes`` (columns binned without the target); ``0`` when none is positive."""
+    permuted target), any other from ``fixed_codes`` (columns binned without the target); both are read at ``rows`` (``yc`` is the target at those rows); ``0`` when none is positive."""
     k = cols.shape[0]
     corr = np.zeros(k, dtype=np.float64)  # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
     for t in prange(k):
         c = cols[t]
+        x = np.empty(rows.shape[0], dtype=np.int64)
         if c < codes_p.shape[1]:
-            x = codes_p[:, c].astype(np.int64)
+            for i in range(rows.shape[0]):
+                x[i] = codes_p[rows[i], c]
             kx = nb_p[c]
         else:
-            x = fixed_codes[:, c].astype(np.int64)
+            for i in range(rows.shape[0]):
+                x[i] = fixed_codes[rows[i], c]
             kx = fixed_nbins[c]
         mi = _mi_codes_njit(x, kx, yc, ny)
         kx_eff = float(_n_unique_codes(x))

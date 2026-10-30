@@ -33,21 +33,18 @@ def _honest_perm_best(honest_codes_fn, factors_data, factors_nbins, y_codes, col
     """
 
     codes_p, nb_p = honest_codes_fn(row_perm)
-    if eval_rows is not None:
-        codes_p = np.asarray(codes_p)[eval_rows]
-        factors_data = factors_data[eval_rows]
-        n = len(eval_rows)
-    yc_p = np.ascontiguousarray(y_codes[row_perm])
-    if eval_rows is not None:
-        yc_p = np.ascontiguousarray(yc_p[eval_rows])
-    ny = int(yc_p.max()) + 1
-    ky_eff = float(np.unique(yc_p).shape[0])
+    rows = np.arange(n, dtype=np.int64) if eval_rows is None else np.asarray(eval_rows, dtype=np.int64)  # the kernel reads the codes at these rows: no copy of the frame per permutation
+    n = len(rows)
+    yc_p = np.ascontiguousarray(y_codes[row_perm][rows])
+    counts = np.bincount(yc_p)  # a sort of the labels to count the occupied classes is the dearest line of a permutation at 100k rows
+    ny = counts.shape[0]
+    ky_eff = float(np.count_nonzero(counts))
     # Supervised bins (columns below ``codes_p.shape[1]``) are the ones re-binned on the permuted target above; columns added after binning (engineered features) are binned without the target,
     # so their observed codes are valid under permutation of the target: the fixed codes are the correct null for them.
     with parallel_kernel_entry():
         return float(
             corrected_mi_best(
-                np.asarray(codes_p), np.asarray(nb_p, dtype=np.int64), np.asarray(factors_data), np.asarray(factors_nbins, dtype=np.int64), np.asarray(cols, dtype=np.int64), yc_p, ny, ky_eff, n,
+                np.asarray(codes_p), np.asarray(nb_p, dtype=np.int64), np.asarray(factors_data), np.asarray(factors_nbins, dtype=np.int64), np.asarray(cols, dtype=np.int64), yc_p, ny, ky_eff, n, rows,
             )
         )
 

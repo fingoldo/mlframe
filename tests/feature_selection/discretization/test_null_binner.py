@@ -123,7 +123,7 @@ def test_corrected_mi_best_equals_the_per_column_loop():
         mi = _mi_codes_njit(np.ascontiguousarray(x), int(kx), yc, 2)
         best = max(best, mi - (np.unique(x).size - 1.0) * (np.unique(yc).size - 1.0) / (2.0 * n))
     for layout in (np.ascontiguousarray, np.asfortranarray):
-        got = corrected_mi_best(layout(codes), nb, fixed, fnb, cols, yc, 2, float(np.unique(yc).size), n)
+        got = corrected_mi_best(layout(codes), nb, fixed, fnb, cols, yc, 2, float(np.unique(yc).size), n, np.arange(n, dtype=np.int64))
         assert got == pytest.approx(best, abs=1e-12)
 
 
@@ -160,3 +160,20 @@ def test_a_single_column_equals_its_column_of_the_matrix():
         for i in range(len(out_cols)):
             one = binner.column(yy, i)
             assert one is not None and np.array_equal(one[0], full[0][:, i]) and one[1] == full[2][i], (s, i)
+
+
+def test_corrected_mi_best_at_a_row_subset_equals_the_kernel_on_the_subset():
+    """Reading the codes at ``rows`` gives the value of the kernel run on the row-subset copy of the codes."""
+    from mlframe.feature_selection.filters._numba_utils import corrected_mi_best
+
+    rng = np.random.default_rng(4)
+    n, m = 2000, 700
+    codes = rng.integers(0, 5, (n, 3)).astype(np.int16)
+    fixed = rng.integers(0, 4, (n, 5)).astype(np.int8)
+    nb, fnb = np.array([5, 5, 5]), np.array([0, 0, 0, 4, 4])
+    rows = np.sort(rng.choice(n, m, replace=False)).astype(np.int64)
+    yc = (rng.random(n) < 0.4).astype(np.int64)
+    cols = np.array([0, 1, 2, 3, 4])
+    got = corrected_mi_best(codes, nb, fixed, fnb, cols, yc[rows], 2, 2.0, m, rows)
+    want = corrected_mi_best(np.ascontiguousarray(codes[rows]), nb, np.ascontiguousarray(fixed[rows]), fnb, cols, yc[rows], 2, 2.0, m, np.arange(m, dtype=np.int64))
+    assert got == want
