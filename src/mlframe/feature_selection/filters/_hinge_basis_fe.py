@@ -280,6 +280,57 @@ def _heldout_hinge_r2_uplift(
     return float(r2_hinge - r2_lin)
 
 
+@njit(cache=True)
+def _is_already_found(c: float, found_arr: np.ndarray) -> bool:
+    """True when ``c`` lies within 1e-9 of a breakpoint already accepted this fit."""
+    for fi in range(found_arr.shape[0]):
+        d = c - found_arr[fi]
+        if d < 0:
+            d = -d
+        if d < 1e-9:
+            return True
+    return False
+
+
+@njit(cache=True)
+def _hinge_cut_sse(Q: np.ndarray, r_y: np.ndarray, sse_B: float, x: np.ndarray, c: float, min_seg_rows: int, found_arr: np.ndarray) -> float:
+    """FWL SSE of the hinge design at cut ``c``; ``inf`` when the cut fails the segment-size or already-found gates."""
+    n = x.shape[0]
+    k = Q.shape[1]
+    n_right = 0
+    for i in range(n):
+        if x[i] > c:
+            n_right += 1
+    if n_right < min_seg_rows or (n - n_right) < min_seg_rows:
+        return np.inf
+    if _is_already_found(c, found_arr):
+        return np.inf
+    qr = np.zeros(k)
+    for j in range(k):
+        s = 0.0
+        for i in range(n):
+            relu_i = x[i] - c
+            if relu_i < 0.0:
+                relu_i = 0.0
+            s += Q[i, j] * relu_i
+        qr[j] = s
+    rr_dot_rr = 0.0
+    rr_dot_ry = 0.0
+    for i in range(n):
+        relu_i = x[i] - c
+        if relu_i < 0.0:
+            relu_i = 0.0
+        proj_i = 0.0
+        for j in range(k):
+            proj_i += Q[i, j] * qr[j]
+        r_relu_i = relu_i - proj_i
+        rr_dot_rr += r_relu_i * r_relu_i
+        rr_dot_ry += r_relu_i * r_y[i]
+    if rr_dot_rr < VARIANCE_FLOOR:
+        return sse_B
+    return sse_B - (rr_dot_ry * rr_dot_ry) / rr_dot_rr
+
+
 @njit(cache=True, parallel=True)
 def _hinge_cut_scan_njit(Q: np.ndarray, r_y: np.ndarray, sse_B: float, x: np.ndarray, cand: np.ndarray, min_seg_rows: int, found_arr: np.ndarray) -> tuple:
     """``prange``-parallel fusion of the per-candidate-cut FWL scan loop in :func:`_detect_hinge_breakpoints`.
@@ -303,53 +354,10 @@ def _hinge_cut_scan_njit(Q: np.ndarray, r_y: np.ndarray, sse_B: float, x: np.nda
     identity's own already-documented ~1e-12 FP-reorder tolerance) against the original Python loop across
     40 synthetic scenarios (varying `n`, design width `k`, and already-found taus) -- see
     ``bench_hinge_cut_scan.py``. 2.4x (serial) / 14x (this parallel form) faster at n=2M/24 candidates."""
-    n = x.shape[0]
-    k = Q.shape[1]
     m = cand.shape[0]
     sse_out = np.full(m, np.inf)
     for ci in prange(m):
-        c = cand[ci]
-        n_right = 0
-        for i in range(n):
-            if x[i] > c:
-                n_right += 1
-        if n_right < min_seg_rows or (n - n_right) < min_seg_rows:
-            continue
-        skip = False
-        for fi in range(found_arr.shape[0]):
-            d = c - found_arr[fi]
-            if d < 0:
-                d = -d
-            if d < 1e-9:
-                skip = True
-                break
-        if skip:
-            continue
-        qr = np.zeros(k)
-        for j in range(k):
-            s = 0.0
-            for i in range(n):
-                relu_i = x[i] - c
-                if relu_i < 0.0:
-                    relu_i = 0.0
-                s += Q[i, j] * relu_i
-            qr[j] = s
-        rr_dot_rr = 0.0
-        rr_dot_ry = 0.0
-        for i in range(n):
-            relu_i = x[i] - c
-            if relu_i < 0.0:
-                relu_i = 0.0
-            proj_i = 0.0
-            for j in range(k):
-                proj_i += Q[i, j] * qr[j]
-            r_relu_i = relu_i - proj_i
-            rr_dot_rr += r_relu_i * r_relu_i
-            rr_dot_ry += r_relu_i * r_y[i]
-        if rr_dot_rr < VARIANCE_FLOOR:
-            sse_out[ci] = sse_B
-        else:
-            sse_out[ci] = sse_B - (rr_dot_ry * rr_dot_ry) / rr_dot_rr
+        sse_out[ci] = _hinge_cut_sse(Q, r_y, sse_B, x, cand[ci], min_seg_rows, found_arr)
     best_ci = -1
     best_sse = np.inf
     for ci in range(m):
