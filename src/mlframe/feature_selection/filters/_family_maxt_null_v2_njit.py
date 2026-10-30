@@ -204,19 +204,16 @@ def family_null_max_bitsets(bits: np.ndarray, n_x: np.ndarray, y_perms: np.ndarr
 
 
 @njit(cache=True, parallel=True)
-def family_null_max_bitsets_blocked(bits: np.ndarray, n_x: np.ndarray, y_perms: np.ndarray, n_y: int, table: np.ndarray, c_a: np.ndarray, px: np.ndarray) -> np.ndarray:
-    """:func:`family_null_max_bitsets` with four permutations per pass over the column bitsets.
+def family_null_max_bitsets_classes(bits: np.ndarray, n_x: np.ndarray, cls_all: np.ndarray, n: int, table: np.ndarray, c_a: np.ndarray, px: np.ndarray, py: np.ndarray) -> np.ndarray:
+    """:func:`family_null_max_bitsets` from the class bit sets ``cls_all`` ``(permutations, n_y, words)`` of the permuted labels, four permutations per pass over the column bitsets.
 
     The kernel is bound by reading the bitsets (every permutation streams all of them); a block of four permutations loads each bitset word once and ANDs it with the class words of all four, so the
     memory traffic is a quarter and the per-permutation arithmetic, and so every result, is unchanged (the sums run in the same order). The last block is padded with empty permutations that are not written."""
-    b_count = y_perms.shape[0]
+    b_count = cls_all.shape[0]
+    n_y = cls_all.shape[1]
     k = bits.shape[0]
     words = bits.shape[2]
-    n = y_perms.shape[1]
     out = np.zeros(b_count, dtype=np.float64)  # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
-    py = np.zeros(n_y, dtype=np.int64)
-    for i in range(n):
-        py[y_perms[0, i]] += 1
     c_b = 0.0
     for b in range(n_y):
         c_b += table[py[b]]
@@ -224,10 +221,10 @@ def family_null_max_bitsets_blocked(bits: np.ndarray, n_x: np.ndarray, y_perms: 
     n_blocks = (b_count + 3) // 4
     for blk in prange(n_blocks):
         b0 = blk * 4
-        cls0 = label_bitsets(y_perms[b0], n_y, words)
-        cls1 = label_bitsets(y_perms[b0 + 1], n_y, words) if b0 + 1 < b_count else np.zeros((n_y, words), dtype=np.uint64)
-        cls2 = label_bitsets(y_perms[b0 + 2], n_y, words) if b0 + 2 < b_count else np.zeros((n_y, words), dtype=np.uint64)
-        cls3 = label_bitsets(y_perms[b0 + 3], n_y, words) if b0 + 3 < b_count else np.zeros((n_y, words), dtype=np.uint64)
+        cls0 = cls_all[b0]
+        cls1 = cls_all[b0 + 1] if b0 + 1 < b_count else np.zeros((n_y, words), dtype=np.uint64)
+        cls2 = cls_all[b0 + 2] if b0 + 2 < b_count else np.zeros((n_y, words), dtype=np.uint64)
+        cls3 = cls_all[b0 + 3] if b0 + 3 < b_count else np.zeros((n_y, words), dtype=np.uint64)
         best0 = 0.0
         best1 = 0.0
         best2 = 0.0
@@ -287,6 +284,13 @@ def family_null_max_bitsets_blocked(bits: np.ndarray, n_x: np.ndarray, y_perms: 
     return out
 
 
+def family_null_max_bitsets_blocked(bits: np.ndarray, n_x: np.ndarray, y_perms: np.ndarray, n_y: int, table: np.ndarray, c_a: np.ndarray, px: np.ndarray) -> np.ndarray:
+    """:func:`family_null_max_bitsets_classes` for permuted label vectors ``y_perms``: the class bit sets are packed first."""
+    words = bits.shape[2]
+    py = np.bincount(y_perms[0], minlength=n_y).astype(np.int64)
+    return family_null_max_bitsets_classes(bits, n_x, label_bitsets_batch(y_perms, n_y, words), y_perms.shape[1], table, c_a, px, py)
+
+
 BITSET_MAX_BINS = 32  # columns with more bins than this are counted with the histogram kernel
 BITSET_MAX_CLASSES = 16  # label vectors with more classes are counted with the histogram kernel (measured break-even near 24 classes at 10 bins)
 BITSET_BUDGET_BYTES = 128 * 1024 * 1024  # column bitsets held at a time
@@ -310,6 +314,15 @@ def null_max_bitsets(prep: tuple, n_x: np.ndarray, y_perms: np.ndarray, n_y: int
     out = np.zeros(y_perms.shape[0], dtype=np.float64)  # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
     for lo, hi, bits in groups:
         np.maximum(out, family_null_max_bitsets_blocked(bits, n_x[lo:hi], y_perms, int(n_y), table, c_a[lo:hi], px[lo:hi]), out=out)
+    return out
+
+
+def null_max_bitsets_from_classes(prep: tuple, n_x: np.ndarray, cls_all: np.ndarray, n: int, py: np.ndarray) -> np.ndarray:
+    """:func:`null_max_bitsets` from the class bit sets of the permuted labels (see :func:`label_bitsets_from_index`) and the class counts ``py`` of the label vector."""
+    table, c_a, px, groups = prep
+    out = np.zeros(cls_all.shape[0], dtype=np.float64)  # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
+    for lo, hi, bits in groups:
+        np.maximum(out, family_null_max_bitsets_classes(bits, n_x[lo:hi], cls_all, n, table, c_a[lo:hi], px[lo:hi], py), out=out)
     return out
 
 

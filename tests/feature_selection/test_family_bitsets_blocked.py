@@ -25,3 +25,21 @@ def test_blocked_kernel_equals_the_single_permutation_kernel(n_y, b_count, n):
     got = V.family_null_max_bitsets_blocked(bits, n_x, y_perms, n_y, table, c_a, px)
     assert np.array_equal(want, got)
     assert np.array_equal(V.null_max_bitsets((table, c_a, px, groups), n_x, y_perms, n_y), want)
+
+
+def test_family_null_max_from_class_bitsets_equals_the_label_matrix_route():
+    """The family gate packs the class bit sets from the permutation indices; its maxima equal those of the kernel run on the permuted label matrix."""
+    from mlframe.feature_selection.filters import _family_maxt_gate as gate
+
+    rng = np.random.default_rng(11)
+    n, k = 900, 9
+    cols = np.ascontiguousarray(rng.integers(0, 5, size=(k, n)).astype(np.int64))
+    n_x = (cols.max(axis=1) + 1).astype(np.int64)
+    y = rng.integers(0, 3, size=n).astype(np.int64)
+    got = gate.family_null_max(cols, n_x, y, 3, 300, np.random.default_rng(2))
+    idx = gate._permutation_block(np.random.default_rng(2), y, 256)
+    idx2 = gate._permutation_block(np.random.default_rng(2), y, 256)
+    assert np.array_equal(idx, idx2)
+    table, c_a, px, groups = V.bitset_groups(cols, n_x)
+    want = V.null_max_bitsets((table, c_a, px, groups), n_x, y[idx], 3)
+    assert np.array_equal(got[:256], want)

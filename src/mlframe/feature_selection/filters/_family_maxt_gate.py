@@ -30,6 +30,7 @@ from ._family_maxt_null_v2_njit import (
     label_bitsets_from_index,
     mi_all_columns_counts as mi_all_columns_njit,
     null_max_bitsets,
+    null_max_bitsets_from_classes,
 )
 
 if TYPE_CHECKING:
@@ -269,6 +270,7 @@ def family_null_max(cols: np.ndarray, n_x: np.ndarray, y: np.ndarray, n_y: int, 
     use_device = want_device and bit_prep is None and device_supported(n_x, int(n_y))
     py_const = _label_const(bit_prep[0], y, int(n_y)) if (dev_bits is not None and bit_prep is not None) else 0.0
     words = (int(y.shape[0]) + 63) // 64
+    py_counts = np.bincount(np.asarray(y, dtype=np.int64), minlength=int(n_y)).astype(np.int64)
     for start in range(0, int(n_perm), block):
         m = min(block, int(n_perm) - start)
         perm_idx = _permutation_block(rng, y, m)
@@ -281,10 +283,12 @@ def family_null_max(cols: np.ndarray, n_x: np.ndarray, y: np.ndarray, n_y: int, 
                 # The class bit sets are packed straight from the permutation indices: the (block, n) matrix of permuted labels is never built.
                 out[start : start + m] = null_max_bits_device(dev_bits, label_bitsets_from_index(y, perm_idx, int(n_y), words), py_const)
                 continue
-            perms = y[perm_idx]
             if bit_prep is not None:
-                out[start : start + m] = null_max_bitsets(bit_prep, n_x, perms, int(n_y))
-            elif use_device:
+                # the class bit sets are packed straight from the permutation indices: the (block, n) matrix of permuted labels is never built
+                out[start : start + m] = null_max_bitsets_from_classes(bit_prep, n_x, label_bitsets_from_index(y, perm_idx, int(n_y), words), int(y.shape[0]), py_counts)
+                continue
+            perms = y[perm_idx]
+            if use_device:
                 out[start : start + m] = family_null_max_device(cols, n_x, perms, int(n_y))
             else:
                 out[start : start + m] = family_null_max_njit(cols, n_x, perms, int(n_y))
