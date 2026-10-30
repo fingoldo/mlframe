@@ -86,6 +86,58 @@ def _quadruplet_eng_col_name(
     code = _BASIS_CODE.get(basis, basis)
     return f"{col_i}*{col_j}*{col_k}*{col_l}__" f"{code}{deg_a}_{code}{deg_b}_{code}{deg_c}_{code}{deg_d}"
 
+def _fill_nonfinite_in_place(x):
+    """Replace non-finite entries of ``x`` in place with the mean of its finite entries (0.0 when none are finite)."""
+    finite_mask = np.isfinite(x)
+    if not finite_mask.all():
+        fill = float(np.nanmean(x[finite_mask])) if finite_mask.any() else 0.0
+        np.copyto(x, np.where(finite_mask, x, fill))
+
+
+def _emit_quadruplet_products(out_cols, cache, x_i, x_j, x_k, x_l, basis_i, basis_j, basis_k, basis_l, col_i, col_j, col_k, col_l, min_d, max_d):
+    """Write every ``basis_a(x_i) * basis_b(x_j) * basis_c(x_k) * basis_d(x_l)`` product in the degree grid into ``out_cols``."""
+    with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
+        for deg_a in range(min_d, max_d + 1):
+            for deg_b in range(min_d, max_d + 1):
+                for deg_c in range(min_d, max_d + 1):
+                    for deg_d in range(min_d, max_d + 1):
+                        if deg_a == 0 and deg_b == 0 and deg_c == 0 and deg_d == 0:
+                            continue
+                        try:
+                            key_a = (col_i, deg_a, basis_i)
+                            if key_a not in cache:
+                                cache[key_a] = _evaluate_basis_column(x_i, basis_i, deg_a)
+                            h_a = cache[key_a]
+                            key_b = (col_j, deg_b, basis_j)
+                            if key_b not in cache:
+                                cache[key_b] = _evaluate_basis_column(x_j, basis_j, deg_b)
+                            h_b = cache[key_b]
+                            key_c = (col_k, deg_c, basis_k)
+                            if key_c not in cache:
+                                cache[key_c] = _evaluate_basis_column(x_k, basis_k, deg_c)
+                            h_c = cache[key_c]
+                            key_d = (col_l, deg_d, basis_l)
+                            if key_d not in cache:
+                                cache[key_d] = _evaluate_basis_column(x_l, basis_l, deg_d)
+                            h_d = cache[key_d]
+                            name = _quadruplet_eng_col_name(
+                                col_i, col_j, col_k, col_l, basis_i,
+                                deg_a, deg_b, deg_c, deg_d,
+                            )
+                            out_cols[name] = np.nan_to_num(h_a * h_b * h_c * h_d, nan=0.0, posinf=0.0, neginf=0.0)
+                        except Exception as exc:
+                            log_throttle(
+                                logger, "quadruplet_basis_eval_raised", logging.WARNING,
+                                "generate_quadruplet_cross_basis_features: "
+                                "basis=%r/%r/%r/%r deg=%d/%d/%d/%d on quadruplet "
+                                "(%r,%r,%r,%r) raised %r; skipping",
+                                basis_i, basis_j, basis_k, basis_l,
+                                deg_a, deg_b, deg_c, deg_d,
+                                col_i, col_j, col_k, col_l, exc,
+                            )
+                            continue
+
+
 def generate_quadruplet_cross_basis_features(
     X: pd.DataFrame,
     quadruplets: Sequence[tuple[str, str, str, str]],
@@ -166,10 +218,7 @@ def generate_quadruplet_cross_basis_features(
         x_k = np.array(X[col_k].to_numpy(), dtype=_dt)
         x_l = np.array(X[col_l].to_numpy(), dtype=_dt)
         for x in (x_i, x_j, x_k, x_l):
-            finite_mask = np.isfinite(x)
-            if not finite_mask.all():
-                fill = float(np.nanmean(x[finite_mask])) if finite_mask.any() else 0.0
-                np.copyto(x, np.where(finite_mask, x, fill))
+            _fill_nonfinite_in_place(x)
         basis_i = basis_route_by_moments(x_i) if basis == "auto" else basis
         basis_j = basis_route_by_moments(x_j) if basis == "auto" else basis
         basis_k = basis_route_by_moments(x_k) if basis == "auto" else basis
@@ -186,46 +235,10 @@ def generate_quadruplet_cross_basis_features(
         # A 4-way basis product is even more overflow-prone than the pair-cross 2-way product; suppress
         # the resulting numpy RuntimeWarnings and scrub the product below rather than leaving a
         # non-finite value to surface as a silent NaN downstream (mirrors generate_pair_cross_basis_features).
-        with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
-            for deg_a in range(min_d, max_d + 1):
-                for deg_b in range(min_d, max_d + 1):
-                    for deg_c in range(min_d, max_d + 1):
-                        for deg_d in range(min_d, max_d + 1):
-                            if deg_a == 0 and deg_b == 0 and deg_c == 0 and deg_d == 0:
-                                continue
-                            try:
-                                key_a = (col_i, deg_a, basis_i)
-                                if key_a not in cache:
-                                    cache[key_a] = _evaluate_basis_column(x_i, basis_i, deg_a)
-                                h_a = cache[key_a]
-                                key_b = (col_j, deg_b, basis_j)
-                                if key_b not in cache:
-                                    cache[key_b] = _evaluate_basis_column(x_j, basis_j, deg_b)
-                                h_b = cache[key_b]
-                                key_c = (col_k, deg_c, basis_k)
-                                if key_c not in cache:
-                                    cache[key_c] = _evaluate_basis_column(x_k, basis_k, deg_c)
-                                h_c = cache[key_c]
-                                key_d = (col_l, deg_d, basis_l)
-                                if key_d not in cache:
-                                    cache[key_d] = _evaluate_basis_column(x_l, basis_l, deg_d)
-                                h_d = cache[key_d]
-                                name = _quadruplet_eng_col_name(
-                                    col_i, col_j, col_k, col_l, basis_i,
-                                    deg_a, deg_b, deg_c, deg_d,
-                                )
-                                out_cols[name] = np.nan_to_num(h_a * h_b * h_c * h_d, nan=0.0, posinf=0.0, neginf=0.0)
-                            except Exception as exc:
-                                log_throttle(
-                                    logger, "quadruplet_basis_eval_raised", logging.WARNING,
-                                    "generate_quadruplet_cross_basis_features: "
-                                    "basis=%r/%r/%r/%r deg=%d/%d/%d/%d on quadruplet "
-                                    "(%r,%r,%r,%r) raised %r; skipping",
-                                    basis_i, basis_j, basis_k, basis_l,
-                                    deg_a, deg_b, deg_c, deg_d,
-                                    col_i, col_j, col_k, col_l, exc,
-                                )
-                                continue
+        _emit_quadruplet_products(
+            out_cols, cache, x_i, x_j, x_k, x_l, basis_i, basis_j, basis_k, basis_l,
+            col_i, col_j, col_k, col_l, min_d, max_d,
+        )
     return pd.DataFrame(out_cols, index=X.index)
 
 _QUADRUPLET_SCORE_EMPTY_COLS = [

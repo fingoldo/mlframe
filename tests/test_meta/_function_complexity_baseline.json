@@ -39,7 +39,6 @@
   "src/mlframe/feature_selection/filters/_numba_utils_offset.py::_stat_of": 16,
   "src/mlframe/feature_selection/filters/_numba_utils_usability.py::_apply_unary": 19,
   "src/mlframe/feature_selection/filters/_offset_product_fe.py::hybrid_offset_product_fe": 17,
-  "src/mlframe/feature_selection/filters/_orthogonal_quadruplet_fe.py::generate_quadruplet_cross_basis_features": 20,
   "src/mlframe/feature_selection/filters/_orthogonal_univariate_fe/_orth_extra_basis_fe_generate.py::_fourier_extra_basis": 17,
   "src/mlframe/feature_selection/filters/_orthogonal_univariate_fe/_orth_extra_basis_fe_generate.py::generate_extra_basis_features": 17,
   "src/mlframe/feature_selection/filters/_relaxmrmr_kernels.py::_cmi_mm_njit": 19,
