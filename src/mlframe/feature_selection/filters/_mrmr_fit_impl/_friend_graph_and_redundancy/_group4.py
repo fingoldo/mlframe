@@ -189,89 +189,10 @@ def _friend_graph_and_redundancy_passes_group4_part1(
             # So the floor re-adds a dropped raw ONLY in simple mode and ONLY when it clears the same
             # permutation-floored partial-rank-correlation probe; in full FE mode the empty raw support
             # is the intended engineered-only outcome (the ``uniform`` profile's result).
-            _floor_simple = bool(getattr(self, "use_simple_mode", False))
-            from ..._fe_raw_redundancy_drop import raw_retains_linear_signal_given_children as _floor_lin
-            _best_floor_idx, _best_floor_rel = None, float("-inf")
-            _tgt_floor = np.asarray(target_indices, dtype=np.int64)
-            _fn_floor = np.asarray(nbins, dtype=np.int64)
-            # Continuous engineered survivor values (for the linear-usability child design).
-            _floor_child_vals = []
-            for _ei in _kept_redund:
-                _enm = cols[_ei]
-                if _enm in _raw_names_for_redund:
-                    continue
-                _cv = (_eng_continuous_snapshot or {}).get(_enm)
-                if _cv is not None and length_of(_cv) == int(data.shape[0]):
-                    _floor_child_vals.append(np.asarray(_cv, dtype=_crit_np_dtype()).ravel())
-                else:
-                    _floor_child_vals.append(np.asarray(data[:, _ei], dtype=_crit_np_dtype()).ravel())
-            try:
-                _yv_floor = np.asarray(_y_np)
-                _yv_floor = np.asarray(_yv_floor, dtype=_crit_np_dtype()).reshape(-1)
-            except Exception as exc:
-                logger.warning("mrmr: y coercion failed for the floor-drop rescue; falling back to classes_y: %r", exc, exc_info=True)
-                _yv_floor = np.asarray(classes_y, dtype=_crit_np_dtype()).reshape(-1)
-            # name -> index map built once (O(F)) instead of a ``.index()`` rescan of
-            # ``cols`` per ``_dn`` (O(F) each) - turns the O(K*F) loop below into O(K+F).
-            _floor_cols_idx = {nm: i for i, nm in enumerate(cols)}
-            for _dn in _dropped_redund_names:
-                _floor_ci = _floor_cols_idx.get(_dn)
-                if _floor_ci is None:
-                    continue
-                # Only a dropped raw with genuine PRIVATE linear signal beyond the engineered
-                # survivors is eligible to be the raw representative; a fully-subsumed operand is not.
-                # Full FE mode: no operand is eligible (defer to engineered-only - the I4b contract).
-                _eligible_floor = _floor_simple
-                if _floor_simple and _floor_child_vals:
-                    from ..._fallback_probe import call_or_default
-
-                    def _eligible(_dn=_dn, _floor_ci=_floor_ci):
-                        """Whether this dropped raw carries private linear signal beyond the engineered survivors."""
-                        _rawv = None
-                        if isinstance(X, pd.DataFrame) and _dn in X.columns:
-                            _rawv = np.asarray(X[_dn], dtype=_crit_np_dtype()).ravel()
-                        if _rawv is None:
-                            _rawv = np.asarray(data[:, _floor_ci], dtype=_crit_np_dtype()).ravel()
-                        return bool(_floor_lin(_rawv, _yv_floor, _floor_child_vals, seed=int(getattr(self, "random_seed", 0) or 0)))
-
-                    # Ineligible on failure (conservative), but visible: a systematic fault here empties the whole floor pool.
-                    _eligible_floor = bool(call_or_default(
-                        _eligible, False, key="mrmr_floor_eligibility_failed",
-                        message="mrmr: floor-eligibility check failed for a dropped raw; it is treated as ineligible",
-                    ))
-                if not _eligible_floor:
-                    continue
-                from ...info_theory import mi as _floor_mi
-                from ..._fallback_probe import call_or_default
-
-                def _floor_rel_probe(_ci: int = _floor_ci) -> float:
-                    """Marginal MI of floor candidate column ``_ci`` against the target."""
-                    return float(_floor_mi(data, np.array([int(_ci)], dtype=np.int64), _tgt_floor, _fn_floor))
-
-                _rel = float(call_or_default(
-                    _floor_rel_probe,
-                    float("-inf"), key="mrmr_floor_relevance_failed",
-                    message="mrmr: relevance probe failed for a raw floor candidate; it is excluded",
-                ))
-                if _rel > _best_floor_rel:
-                    _best_floor_rel, _best_floor_idx = _rel, int(_floor_ci)
-            if _best_floor_idx is not None:
-                selected_vars = [*list(_kept_redund), _best_floor_idx]
-                _kept_name_floor = cols[_best_floor_idx]
-                # The re-kept raw is no longer "dropped": remove it from the verdict set so the
-                # downstream retention / rescue passes treat it as a genuine survivor.
-                self._raw_redundancy_dropped_ = set(getattr(self, "_raw_redundancy_dropped_", None) or set()) - {_kept_name_floor}
-                if verbose:
-                    logger.info(
-                        "MRMR raw-redundancy never-empty floor: dropping all raw operands would "
-                                    "empty support_; retained strongest LINEAR-USABLE raw %r (marginal MI %.4f) "
-                                    "as the raw representative beside the surviving engineered child.",
-                        _kept_name_floor, _best_floor_rel,
-                    )
-            else:
-                # Every dropped raw is fully subsumed by a surviving engineered child - the
-                # engineered recipe(s) ARE the complete feature set (the uniform-profile outcome).
-                self._redundancy_emptied_raw_ = True
+            selected_vars = _raw_never_empty_floor(
+                self, selected_vars, _kept_redund, _dropped_redund_names, cols, _raw_names_for_redund, target_indices, nbins,
+                _eng_continuous_snapshot, data, _y_np, classes_y, X, verbose,
+            )
         if verbose:
             logger.info(
                 "MRMR raw-redundancy drop: removed %d raw operand(s) conditionally "
@@ -279,6 +200,109 @@ def _friend_graph_and_redundancy_passes_group4_part1(
                             "CMI below the relative bar): %s",
                 len(_dropped_redund_names), _dropped_redund_names,
             )
+    return selected_vars
+
+
+def _pick_linear_usable_floor_raw(
+    self, X: Any, _dropped_redund_names: Any, _kept_redund: Any, cols: Any, _raw_names_for_redund: Any, target_indices: Any, nbins: Any,
+    _eng_continuous_snapshot: Any, data: Any, _y_np: Any, classes_y: Any,
+) -> tuple:
+    """Return ``(index, relevance)`` of the strongest dropped raw with private linear signal, or ``(None, -inf)``."""
+    _floor_simple = bool(getattr(self, "use_simple_mode", False))
+    from ..._fe_raw_redundancy_drop import raw_retains_linear_signal_given_children as _floor_lin
+    _best_floor_idx, _best_floor_rel = None, float("-inf")
+    _tgt_floor = np.asarray(target_indices, dtype=np.int64)
+    _fn_floor = np.asarray(nbins, dtype=np.int64)
+    # Continuous engineered survivor values (for the linear-usability child design).
+    _floor_child_vals = []
+    for _ei in _kept_redund:
+        _enm = cols[_ei]
+        if _enm in _raw_names_for_redund:
+            continue
+        _cv = (_eng_continuous_snapshot or {}).get(_enm)
+        if _cv is not None and length_of(_cv) == int(data.shape[0]):
+            _floor_child_vals.append(np.asarray(_cv, dtype=_crit_np_dtype()).ravel())
+        else:
+            _floor_child_vals.append(np.asarray(data[:, _ei], dtype=_crit_np_dtype()).ravel())
+    try:
+        _yv_floor = np.asarray(_y_np)
+        _yv_floor = np.asarray(_yv_floor, dtype=_crit_np_dtype()).reshape(-1)
+    except Exception as exc:
+        logger.warning("mrmr: y coercion failed for the floor-drop rescue; falling back to classes_y: %r", exc, exc_info=True)
+        _yv_floor = np.asarray(classes_y, dtype=_crit_np_dtype()).reshape(-1)
+    # name -> index map built once (O(F)) instead of a ``.index()`` rescan of
+    # ``cols`` per ``_dn`` (O(F) each) - turns the O(K*F) loop below into O(K+F).
+    _floor_cols_idx = {nm: i for i, nm in enumerate(cols)}
+    for _dn in _dropped_redund_names:
+        _floor_ci = _floor_cols_idx.get(_dn)
+        if _floor_ci is None:
+            continue
+        # Only a dropped raw with genuine PRIVATE linear signal beyond the engineered
+        # survivors is eligible to be the raw representative; a fully-subsumed operand is not.
+        # Full FE mode: no operand is eligible (defer to engineered-only - the I4b contract).
+        _eligible_floor = _floor_simple
+        if _floor_simple and _floor_child_vals:
+            from ..._fallback_probe import call_or_default
+
+            def _eligible(_dn=_dn, _floor_ci=_floor_ci):
+                """Whether this dropped raw carries private linear signal beyond the engineered survivors."""
+                _rawv = None
+                if isinstance(X, pd.DataFrame) and _dn in X.columns:
+                    _rawv = np.asarray(X[_dn], dtype=_crit_np_dtype()).ravel()
+                if _rawv is None:
+                    _rawv = np.asarray(data[:, _floor_ci], dtype=_crit_np_dtype()).ravel()
+                return bool(_floor_lin(_rawv, _yv_floor, _floor_child_vals, seed=int(getattr(self, "random_seed", 0) or 0)))
+
+            # Ineligible on failure (conservative), but visible: a systematic fault here empties the whole floor pool.
+            _eligible_floor = bool(call_or_default(
+                _eligible, False, key="mrmr_floor_eligibility_failed",
+                message="mrmr: floor-eligibility check failed for a dropped raw; it is treated as ineligible",
+            ))
+        if not _eligible_floor:
+            continue
+        from ...info_theory import mi as _floor_mi
+        from ..._fallback_probe import call_or_default
+
+        def _floor_rel_probe(_ci: int = _floor_ci) -> float:
+            """Marginal MI of floor candidate column ``_ci`` against the target."""
+            return float(_floor_mi(data, np.array([int(_ci)], dtype=np.int64), _tgt_floor, _fn_floor))
+
+        _rel = float(call_or_default(
+            _floor_rel_probe,
+            float("-inf"), key="mrmr_floor_relevance_failed",
+            message="mrmr: relevance probe failed for a raw floor candidate; it is excluded",
+        ))
+        if _rel > _best_floor_rel:
+            _best_floor_rel, _best_floor_idx = _rel, int(_floor_ci)
+    return _best_floor_idx, _best_floor_rel
+
+
+def _raw_never_empty_floor(
+    self, selected_vars: Any, _kept_redund: Any, _dropped_redund_names: Any, cols: Any, _raw_names_for_redund: Any, target_indices: Any, nbins: Any,
+    _eng_continuous_snapshot: Any, data: Any, _y_np: Any, classes_y: Any, X: Any, verbose: Any,
+) -> Any:
+    """Re-attach the strongest linear-usable dropped raw when the drop would empty the raw support, else flag the engineered-only outcome."""
+    _best_floor_idx, _best_floor_rel = _pick_linear_usable_floor_raw(
+        self, X, _dropped_redund_names, _kept_redund, cols, _raw_names_for_redund, target_indices, nbins,
+        _eng_continuous_snapshot, data, _y_np, classes_y,
+    )
+    if _best_floor_idx is not None:
+        selected_vars = [*list(_kept_redund), _best_floor_idx]
+        _kept_name_floor = cols[_best_floor_idx]
+        # The re-kept raw is no longer "dropped": remove it from the verdict set so the
+        # downstream retention / rescue passes treat it as a genuine survivor.
+        self._raw_redundancy_dropped_ = set(getattr(self, "_raw_redundancy_dropped_", None) or set()) - {_kept_name_floor}
+        if verbose:
+            logger.info(
+                "MRMR raw-redundancy never-empty floor: dropping all raw operands would "
+                            "empty support_; retained strongest LINEAR-USABLE raw %r (marginal MI %.4f) "
+                            "as the raw representative beside the surviving engineered child.",
+                _kept_name_floor, _best_floor_rel,
+            )
+    else:
+        # Every dropped raw is fully subsumed by a surviving engineered child - the
+        # engineered recipe(s) ARE the complete feature set (the uniform-profile outcome).
+        self._redundancy_emptied_raw_ = True
     return selected_vars
 
 
