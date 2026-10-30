@@ -37,8 +37,9 @@ def _reference(xi, xj, n_bins, kind):
 
 
 @pytest.mark.parametrize("nan_frac", [0.0, 0.15])
-def test_generator_matches_the_plain_reference(nan_frac):
+def test_generator_matches_the_plain_reference(nan_frac, monkeypatch):
     """Every emitted column equals the reference for its (x_i, x_j, kind)."""
+    monkeypatch.setenv("MLFRAME_CRIT_DTYPE_RELAXED", "0")
     rng = np.random.default_rng(5)
     n = 3_000
     df = pd.DataFrame({"a": rng.normal(size=n), "b": rng.exponential(size=n), "c": rng.normal(size=n) * 4 + 2})
