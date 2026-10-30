@@ -470,6 +470,69 @@ def clear_pandas_view_cache() -> None:
         _PD_VIEW_LAST_CACHE["result"] = None
 
 
+def _small_dict_heavy_raw_view(df):
+    """Raw ``df.to_pandas()`` view for a small frame dominated by Categorical or Enum columns (where the Arrow cast overhead bites), else None."""
+    if isinstance(df, pl.DataFrame) and os.environ.get("MLFRAME_FORCE_HELPER_PD_VIEW") != "1":
+        _n_rows = df.shape[0]
+        _n_cols = df.shape[1]
+        _size_bytes_proxy = _n_rows * _n_cols * 8
+        _LARGE_FRAME_BYTES = 50 * 1024 * 1024  # 50 MB
+        _dict_cols = sum(1 for dt in df.schema.values() if dt == pl.Categorical or (hasattr(pl, "Enum") and isinstance(dt, pl.Enum)))
+        # Small + many-dict frames take the raw path; everything else
+        # (including all production-scale frames) takes the helper for
+        # zero-copy numeric safety.
+        if _size_bytes_proxy < _LARGE_FRAME_BYTES and _dict_cols >= 5:
+            _raw = df.to_pandas()
+            # Apply the SAME nullable-Boolean coercion the helper path does below: a Boolean column with any null
+            # materialises as pandas ``object`` (Python True/False/None), which the tree backends reject. The raw
+            # fast-path must not silently emit object dtype just because the frame happened to be dict-heavy + small.
+            for _bname, _bdt in df.schema.items():
+                if _bdt == pl.Boolean and _raw[_bname].dtype == object:
+                    _raw[_bname] = _raw[_bname].astype("boolean").astype("Int8")
+            return _raw
+    return None
+
+
+def _normalise_dictionary_columns(df, tbl):
+    """Arrow table with each dictionary column re-indexed to int32 and Enum columns kept ordered, so the pandas bridge yields pd.Categorical."""
+    import pyarrow as pa
+    enum_cols = {name for name, dt in df.schema.items() if isinstance(dt, pl.Enum)} if pl is not None and isinstance(df, pl.DataFrame) else set()
+    fixed_cols = []
+    for name, col in zip(tbl.column_names, tbl.columns):
+        if pa.types.is_dictionary(col.type) and (col.type.index_type != pa.int32() or (name in enum_cols and not col.type.ordered)):
+            # Whole-ChunkedArray cast: ~5.5x faster than the prior per-chunk
+            # ``pa.compute.cast(chunk.indices, ...)`` + ``DictionaryArray.from_arrays``
+            # rebuild loop on 1M-row x 3-col frames (microbench:
+            # 8.20ms -> 1.48ms). PyArrow's C++ cast dispatches index narrowing
+            # once per array instead of once per chunk + Python-level chunk
+            # rewrap, and preserves the dictionary buffer by reference. The
+            # ``ordered`` flag is threaded explicitly so ordered enums don't
+            # silently lose their ordering metadata.
+            target_type = pa.dictionary(pa.int32(), col.type.value_type, ordered=bool(col.type.ordered) | (name in enum_cols))
+            col = pa.compute.cast(col, target_type)
+        fixed_cols.append(col)
+
+    return pa.table(fixed_cols, names=tbl.column_names)
+
+
+def _log_slow_bridge(_elapsed, log_threshold_seconds, _shape_str, _rss_before_gb, self_destruct):
+    """Log a bridge conversion that crossed ``log_threshold_seconds`` with its elapsed time and RSS delta; quiet otherwise."""
+    if _elapsed >= log_threshold_seconds:
+        _rss_after_gb = get_own_memory_usage()
+        if _rss_before_gb is not None and _rss_after_gb is not None:
+            logger.info(
+                "get_pandas_view_of_polars_df %s: %.2fs, RAM %.2f->%.2f GB (delta%+.2f), "
+                "self_destruct=%s",
+                _shape_str, _elapsed, _rss_before_gb, _rss_after_gb,
+                _rss_after_gb - _rss_before_gb, self_destruct,
+            )
+        else:
+            logger.info(
+                "get_pandas_view_of_polars_df %s: %.2fs, RAM usage unavailable, self_destruct=%s",
+                _shape_str, _elapsed, self_destruct,
+            )
+
+
 def get_pandas_view_of_polars_df(
     df: pl.DataFrame,
     self_destruct: bool = False,
@@ -605,24 +668,9 @@ def get_pandas_view_of_polars_df(
         #     frames where the cast overhead bites and there's no numeric
         #     buffer to keep zero-copy.
         #   * Override via env var for forensic A/B benchmarks.
-        if isinstance(df, pl.DataFrame) and os.environ.get("MLFRAME_FORCE_HELPER_PD_VIEW") != "1":
-            _n_rows = df.shape[0]
-            _n_cols = df.shape[1]
-            _size_bytes_proxy = _n_rows * _n_cols * 8
-            _LARGE_FRAME_BYTES = 50 * 1024 * 1024  # 50 MB
-            _dict_cols = sum(1 for dt in df.schema.values() if dt == pl.Categorical or (hasattr(pl, "Enum") and isinstance(dt, pl.Enum)))
-            # Small + many-dict frames take the raw path; everything else
-            # (including all production-scale frames) takes the helper for
-            # zero-copy numeric safety.
-            if _size_bytes_proxy < _LARGE_FRAME_BYTES and _dict_cols >= 5:
-                _raw = df.to_pandas()
-                # Apply the SAME nullable-Boolean coercion the helper path does below: a Boolean column with any null
-                # materialises as pandas ``object`` (Python True/False/None), which the tree backends reject. The raw
-                # fast-path must not silently emit object dtype just because the frame happened to be dict-heavy + small.
-                for _bname, _bdt in df.schema.items():
-                    if _bdt == pl.Boolean and _raw[_bname].dtype == object:
-                        _raw[_bname] = _raw[_bname].astype("boolean").astype("Int8")
-                return _raw
+        _raw_view = _small_dict_heavy_raw_view(df)
+        if _raw_view is not None:
+            return _raw_view
 
         import pyarrow as pa
 
@@ -687,23 +735,7 @@ def get_pandas_view_of_polars_df(
         # delivered only 1.16x on pure-numeric workloads (below 1.2x threshold), so the
         # per-column scan is retained for code uniformity.
         # polars Enum is ordered, but older polars (1.36) hands Arrow an unordered dictionary for it; the order is restored from the source dtype.
-        enum_cols = {name for name, dt in df.schema.items() if isinstance(dt, pl.Enum)} if pl is not None and isinstance(df, pl.DataFrame) else set()
-        fixed_cols = []
-        for name, col in zip(tbl.column_names, tbl.columns):
-            if pa.types.is_dictionary(col.type) and (col.type.index_type != pa.int32() or (name in enum_cols and not col.type.ordered)):
-                # Whole-ChunkedArray cast: ~5.5x faster than the prior per-chunk
-                # ``pa.compute.cast(chunk.indices, ...)`` + ``DictionaryArray.from_arrays``
-                # rebuild loop on 1M-row x 3-col frames (microbench:
-                # 8.20ms -> 1.48ms). PyArrow's C++ cast dispatches index narrowing
-                # once per array instead of once per chunk + Python-level chunk
-                # rewrap, and preserves the dictionary buffer by reference. The
-                # ``ordered`` flag is threaded explicitly so ordered enums don't
-                # silently lose their ordering metadata.
-                target_type = pa.dictionary(pa.int32(), col.type.value_type, ordered=bool(col.type.ordered) | (name in enum_cols))
-                col = pa.compute.cast(col, target_type)
-            fixed_cols.append(col)
-
-        tbl_fixed = pa.table(fixed_cols, names=tbl.column_names)
+        tbl_fixed = _normalise_dictionary_columns(df, tbl)
 
         # Capture which Arrow columns were bool BEFORE to_pandas(). Nullable Boolean
         # columns (those with any null) materialize as pandas ``object`` dtype with
@@ -786,20 +818,7 @@ def get_pandas_view_of_polars_df(
             )
 
         _elapsed = _time.perf_counter() - _t0
-        if _elapsed >= log_threshold_seconds:
-            _rss_after_gb = get_own_memory_usage()
-            if _rss_before_gb is not None and _rss_after_gb is not None:
-                logger.info(
-                    "get_pandas_view_of_polars_df %s: %.2fs, RAM %.2f->%.2f GB (delta%+.2f), "
-                    "self_destruct=%s",
-                    _shape_str, _elapsed, _rss_before_gb, _rss_after_gb,
-                    _rss_after_gb - _rss_before_gb, self_destruct,
-                )
-            else:
-                logger.info(
-                    "get_pandas_view_of_polars_df %s: %.2fs, RAM usage unavailable, self_destruct=%s",
-                    _shape_str, _elapsed, self_destruct,
-                )
+        _log_slow_bridge(_elapsed, log_threshold_seconds, _shape_str, _rss_before_gb, self_destruct)
 
         # iter628 (perf): populate the single-entry memo so the NEXT
         # identical-id call returns the cached view. Skip when
