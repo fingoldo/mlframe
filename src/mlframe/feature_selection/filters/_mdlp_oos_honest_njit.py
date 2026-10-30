@@ -219,6 +219,22 @@ def oos_cuts_from_split_njit(
     return res
 
 
+@njit(cache=True)
+def _oos_column_codes(xj, yr_p, nan_rows, has_nan_col, n_classes_total, min_split, max_depth, tol, val_min, holdout_frac, q_fb, q_rf, eval_rows, xs):
+    """Fill ``xs`` with the codes, at the evaluation rows, of the continuous column ``xj`` binned on the permuted raw labels ``yr_p``; returns the number of codes.
+
+    ``xj`` holds the column with its missing values filled by the median (the cut search reads the filled column); the rows of ``nan_rows`` take one more code after the last bin."""
+    xd, yd = oos_dedupe_njit(xj, yr_p)
+    cuts = oos_mdlp_cuts_njit(xd, yd, n_classes_total, min_split, max_depth, tol, val_min, holdout_frac)
+    final = _supervised_edges(xj, cuts, q_fb, q_rf)
+    xc = _codes_from_cuts(xj, final)
+    nb_reg = final.shape[0] + 1
+    for t in range(eval_rows.shape[0]):
+        r_t = eval_rows[t]
+        xs[t] = nb_reg if (has_nan_col and nan_rows[r_t]) else xc[r_t]
+    return nb_reg + 1 if has_nan_col else nb_reg
+
+
 @njit(parallel=True, cache=True)
 def honest_validated_null_columns(
     raw_cont: np.ndarray,
@@ -241,12 +257,22 @@ def honest_validated_null_columns(
     q_refine_len: np.ndarray,
     eval_rows: np.ndarray,
     col_slot: np.ndarray,
+    nan_cont: np.ndarray,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Per-permutation, per-column null MI for the held-out-validated strategy (prange over permutations). Returns ``(plain, corrected)``
-    of shape ``(perms.shape[0], k)``, the same contract as :func:`_mdlp_honest_njit.honest_null_columns`."""
+    of shape ``(perms.shape[0], k)``, the same contract as :func:`_mdlp_honest_njit.honest_null_columns`.
+
+    ``raw_cont`` holds each continuous column with its missing values already filled by the column median (the cut search reads the filled column, as the production
+    categorisation does); ``nan_cont[r, slot]`` marks the rows that were missing, which take one more code after the last bin instead of their filled value's bin."""
     n_perm_rows = perms.shape[0]
     n = perms.shape[1]
     k = is_cont.shape[0]
+    slot_has_nan = np.zeros(nan_cont.shape[1], dtype=np.bool_)
+    for s_ in range(nan_cont.shape[1]):
+        for r_ in range(nan_cont.shape[0]):
+            if nan_cont[r_, s_]:
+                slot_has_nan[s_] = True
+                break
     plain = np.zeros((n_perm_rows, k), dtype=np.float64)  # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
     corrected = np.zeros((n_perm_rows, k), dtype=np.float64)  # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
     for b in prange(n_perm_rows):
@@ -277,15 +303,12 @@ def honest_validated_null_columns(
             if is_cont[j]:
                 # Per-(permutation, column) seed: the holdout split is drawn by numba's generator inside the cut search.
                 np.random.seed(seed + b * 1000003 + j)
-                xj = raw_cont[:, col_slot[j]]
-                xd, yd = oos_dedupe_njit(xj, yr_p)
-                cuts = oos_mdlp_cuts_njit(xd, yd, n_classes_total, min_split, max_depth, tol, val_min, holdout_frac)
-                final = _supervised_edges(xj, cuts, q_fallback[j, : q_fallback_len[j]], q_refine[j, : q_refine_len[j]])
-                xc = _codes_from_cuts(xj, final)
-                n_x = final.shape[0] + 1
+                slot = col_slot[j]
                 xs = np.empty(m, dtype=np.int64)
-                for t in range(m):
-                    xs[t] = xc[eval_rows[t]]
+                n_x = _oos_column_codes(
+                    raw_cont[:, slot], yr_p, nan_cont[:, slot], slot_has_nan[slot], n_classes_total, min_split, max_depth, tol, val_min, holdout_frac,
+                    q_fallback[j, : q_fallback_len[j]], q_refine[j, : q_refine_len[j]], eval_rows, xs,
+                )
             else:
                 fs = col_slot[j]
                 n_x = fixed_nbins[j]

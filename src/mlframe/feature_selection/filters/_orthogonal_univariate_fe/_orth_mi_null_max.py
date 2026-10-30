@@ -33,6 +33,16 @@ def _rank_codes_rows_njit(X: np.ndarray, n_bins: int) -> np.ndarray:
     return codes
 
 
+@njit(cache=True, parallel=True)
+def _rank_codes_cols_njit(X: np.ndarray, cols: np.ndarray, n_bins: int) -> np.ndarray:
+    """:func:`_rank_codes_rows_njit` for the columns ``cols`` of ``X`` only: (len(cols), n) int32 rank-bin codes."""
+    n = X.shape[0]
+    codes = np.empty((cols.shape[0], n), dtype=np.int32)
+    for t in prange(cols.shape[0]):
+        codes[t, :] = _quantile_bin_njit(X[:, cols[t]].copy(), n_bins)
+    return codes
+
+
 @njit(cache=True, fastmath=True, parallel=True)
 def _mi_from_codes_rows_njit(codes: np.ndarray, y: np.ndarray, n_bins: int) -> np.ndarray:
     """Plug-in MI of each row of the (k, n) ``codes`` against ``y``; the arithmetic of ``_plugin_mi_classif_njit`` after its binning step."""
@@ -80,8 +90,9 @@ def _imbalance_weighting_on() -> bool:
     return os.environ.get("MLFRAME_FE_IMBALANCE_MI", "").strip().lower() in ("on", "1", "true", "yes", "auto")
 
 
-def _takes_cpu_rank_path(X: np.ndarray, nbins: int) -> bool:
-    """Whether ``_mi_classif_batch(X, y, nbins=nbins)`` would run the CPU numba rank batch kernel on every column of ``X``."""
+def _cpu_rank_path_applies(X: np.ndarray, nbins: int) -> bool:
+    """Whether ``_mi_classif_batch(X, y, nbins=nbins)`` would score the finite columns of ``X`` with the CPU numba rank batch kernel (no GPU route, no edge binning, resident path); the finiteness of
+    the values is not part of this test, a column with a missing value is scored on its own."""
     from . import _orth_mi_backends as be
 
     if X.ndim != 2 or X.shape[1] == 0 or be._MI_BACKEND != "numba":
@@ -95,9 +106,15 @@ def _takes_cpu_rank_path(X: np.ndarray, nbins: int) -> bool:
         return False
     from .._fe_usability_signal import _crit_np_dtype
 
-    if be._mi_path_for(n, p, _crit_np_dtype(), False) != "resident":
-        return False
-    return bool(np.isfinite(X).all())
+    return be._mi_path_for(n, p, _crit_np_dtype(), False) in ("resident", "cpu_blocks")
+
+
+def _takes_cpu_rank_path(X: np.ndarray, nbins: int) -> bool:
+    """Whether ``_mi_classif_batch(X, y, nbins=nbins)`` would run the CPU numba rank batch kernel on every column of ``X`` (the rank path applies and every value is finite)."""
+    from . import _orth_mi_backends as be
+    from .._fe_usability_signal import _crit_np_dtype
+
+    return _cpu_rank_path_applies(X, nbins) and be._mi_path_for(int(X.shape[0]), int(X.shape[1]), _crit_np_dtype(), False) == "resident" and bool(np.isfinite(X).all())
 
 
 def _null_max_strict_gpu(X: np.ndarray, y: np.ndarray, permutations: "list[np.ndarray]", nbins: int) -> "np.ndarray | None":
@@ -155,6 +172,40 @@ def _null_max_streamed_path(X: np.ndarray, y: np.ndarray, permutations: "list[np
         return None
 
 
+def _null_max_rank_mixed(X: np.ndarray, y: np.ndarray, permutations: "list[np.ndarray]", nbins: int, fallback: Callable[..., Any]) -> np.ndarray:
+    """The rank-code shortcut for a matrix that ``_mi_classif_batch`` scores in column blocks and/or whose columns may hold a missing value.
+
+    ``_mi_classif_batch`` scores the finite columns of each block in one batch and every column with a missing value on its own, on the finite rows of that column. Here each block's finite columns are
+    rank-binned once and each permutation only counts; the columns with a missing value are scored through ``fallback`` (the genuine batch MI) on their own, so each value is the one the repeated calls give.
+    The maximum over a permutation is the maximum over the blocks and both groups. Only one block's codes are held at a time, the memory bound that routed the matrix to column blocks."""
+    from mlframe._numba_parallel_guard import parallel_kernel_entry
+    from . import _orth_mi_backends as be
+    from .._fe_usability_signal import _crit_np_dtype
+
+    n, p = int(X.shape[0]), int(X.shape[1])
+    resident = be._mi_path_for(n, p, _crit_np_dtype(), False) == "resident"
+    width = p if resident else max(1, int(be._mi_chunk_cols_for(n)))
+    y_i64 = np.ascontiguousarray(y, dtype=np.int64)
+    y_arr = np.asarray(y)
+    out = np.full(len(permutations), np.nan, dtype=np.float64)  # Intentional float64: statistic vector (null max), exact permutation ties
+    with parallel_kernel_entry():
+        for a in range(0, p, width):
+            block = X[:, a : a + width]
+            finite = np.isfinite(block).all(axis=0)
+            dense = np.flatnonzero(finite).astype(np.int64)
+            partial = np.flatnonzero(~finite)
+            codes = _rank_codes_cols_njit(block, dense, int(nbins)) if dense.size else None
+            block_partial = np.ascontiguousarray(block[:, partial]) if partial.size else None
+            for b, perm in enumerate(permutations):
+                if codes is not None:
+                    out[b] = np.fmax(out[b], np.nanmax(_mi_from_codes_rows_njit(codes, np.ascontiguousarray(y_i64[perm]), int(nbins))))
+                if block_partial is not None:
+                    part = np.asarray(fallback(block_partial, y_arr[perm], nbins=nbins), dtype=np.float64)  # Intentional float64: statistic vector (MI), exact permutation ties
+                    out[b] = np.fmax(out[b], np.nanmax(part))
+            del codes
+    return out
+
+
 def null_max_mi(X: np.ndarray, y: np.ndarray, permutations: "list[np.ndarray]", nbins: int, fallback: Callable[..., Any]) -> np.ndarray:
     """``max_j MI(X_j; y[perm])`` (NaN-ignoring) for every permutation, in double precision, with the matrix binned once.
 
@@ -180,6 +231,8 @@ def null_max_mi(X: np.ndarray, y: np.ndarray, permutations: "list[np.ndarray]", 
                 for b, perm in enumerate(permutations):
                     out[b] = float(np.nanmax(_mi_from_codes_rows_njit(codes, np.ascontiguousarray(y_i64[perm]), int(nbins))))
             return out
+        if _cpu_rank_path_applies(X, nbins):
+            return _null_max_rank_mixed(X, y, permutations, nbins, fallback)
     for b, perm in enumerate(permutations):
         # Intentional float64: statistic vector (null max), exact permutation ties; the rank shortcut above is float64 too.
         out[b] = float(np.nanmax(np.asarray(fallback(X, np.asarray(y)[perm], nbins=nbins), dtype=np.float64)))

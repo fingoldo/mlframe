@@ -155,6 +155,14 @@ def _install_honest_null_hook(
     if _dependent_names is not None and len(_dependent) < len(cols):
         _fixed_codes = {str(c): (np.array(data[:, j]), int(nbins[j])) for j, c in enumerate(cols) if str(c) not in _dependent}
 
+    # The cross-validated bin-count search (``optimal_joint``) splits and bins the SAME column for every permutation; only the target changes. A plan cache keeps the target-independent part per
+    # column, so a permutation costs the fold scoring only (identical edges; MLFRAME_OJ_PLAN_CACHE=0 restores the uncached search).
+    _null_strategy_kwargs = _nbins_strategy_kwargs
+    if str(_nbins_strategy).lower() in ("optimal_joint", "cv") and os.environ.get("MLFRAME_OJ_PLAN_CACHE", "1") != "0":
+        from mlframe.feature_selection.filters._adaptive_nbins import OptimalJointPlanCache
+
+        _null_strategy_kwargs = {**(_nbins_strategy_kwargs or {}), "optimal_joint_plan_cache": OptimalJointPlanCache()}
+
     def _honest_null_codes_uncached(row_perm):
         """Codes of every column re-binned on the RAW target permuted by ``row_perm`` (same columns, same order as ``data``)."""
         y_perm = _y_raw_for_null[np.asarray(row_perm, dtype=np.int64)]
@@ -166,7 +174,7 @@ def _install_honest_null_hook(
             max_categorical_cardinality=getattr(self, "max_categorical_cardinality", None),
             missing_strategy=_strategy_for_categorize,
             nbins_strategy=_nbins_strategy,
-            nbins_strategy_kwargs=_nbins_strategy_kwargs,
+            nbins_strategy_kwargs=_null_strategy_kwargs,
             y_for_strategy=np.asarray(y_perm),
             cache_dir=None,
         )

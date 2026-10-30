@@ -103,6 +103,7 @@ def _optimal_joint(col: np.ndarray, y: Optional[np.ndarray], base: str, kwargs: 
         base=base,
         random_state=kwargs.get("random_state", 0),
         max_y_classes=kwargs.get("optimal_joint_max_y_classes", 64),
+        plan_cache=kwargs.get("optimal_joint_plan_cache"),
     )
 
 
@@ -161,7 +162,7 @@ _EDGE_BUILDERS: dict[str, Callable[[np.ndarray, Optional[np.ndarray], str, dict]
 }
 
 
-def _collapsed_supervised_edges(edges: Any, col: np.ndarray, finite: np.ndarray, base: str, kwargs: dict) -> Any:
+def _collapsed_supervised_edges(edges: Any, col: np.ndarray, finite: np.ndarray, base: str, kwargs: dict, facts_key: Any = None) -> Any:
     """Edges of a supervised method after the collapse handling.
 
     When a supervised binning method (MDLP / Mah / optimal_joint /
@@ -185,7 +186,13 @@ def _collapsed_supervised_edges(edges: Any, col: np.ndarray, finite: np.ndarray,
         return _an()._edges_from_uniform(col, _fallback_nb)
     from ._supervised_collapse_refine import refine_near_collapsed_supervised_edges
 
-    return refine_near_collapsed_supervised_edges(edges, finite, base, int(kwargs.get("collapsed_fallback_nbins", 5)))
+    fallback_nbins = int(kwargs.get("collapsed_fallback_nbins", 5))
+    cache = kwargs.get("optimal_joint_plan_cache")
+    if cache is not None and facts_key is not None and hasattr(edges, "tobytes"):
+        # The refinement reads the column and the edges only; a null that permutes the target meets the same few edge sets of a column again and again.
+        refined = cache.memo(("refine", facts_key, edges.tobytes(), base, fallback_nbins), lambda: refine_near_collapsed_supervised_edges(edges, finite, base, fallback_nbins))
+        return np.array(refined, copy=True) if hasattr(refined, "size") else refined
+    return refine_near_collapsed_supervised_edges(edges, finite, base, fallback_nbins)
 
 
 def _sparse_dominance_edges(edges: Any, finite: np.ndarray, uniq: np.ndarray, uniq_counts: np.ndarray, kwargs: dict) -> Any:
@@ -251,14 +258,20 @@ def compute_col_edges(col: np.ndarray, method_resolved: str, base: str, kwargs: 
     1-bin because ``_edges_from_quantiles`` returns empty edges after ``np.unique`` dedup. Such columns get midpoint-edges between consecutive unique
     values - this preserves the column's natural cardinality without going through quantile / supervised logic that doesn't apply.
     """
-    _finite = col[np.isfinite(col)]
-    # return_counts=True up front so the rare sparse-dominance fallback below (which needs the
-    # per-value counts) reuses THIS array instead of re-running np.unique a second time.
-    if _finite.size > 0:
-        _uniq, _uniq_counts = np.unique(_finite, return_counts=True)
+    _facts_cache = kwargs.get("optimal_joint_plan_cache")
+    _facts_key = None
+    if _facts_cache is not None:
+        # The finite values and their unique counts depend on the column only; a null that permutes the target bins the same columns for every permutation.
+        _facts_key, _finite, _uniq, _uniq_counts = _facts_cache.column_facts(col)
     else:
-        _uniq = np.empty(0, dtype=_crit_np_dtype())
-        _uniq_counts = np.empty(0, dtype=np.int64)
+        _finite = col[np.isfinite(col)]
+        # return_counts=True up front so the rare sparse-dominance fallback below (which needs the
+        # per-value counts) reuses THIS array instead of re-running np.unique a second time.
+        if _finite.size > 0:
+            _uniq, _uniq_counts = np.unique(_finite, return_counts=True)
+        else:
+            _uniq = np.empty(0, dtype=_crit_np_dtype())
+            _uniq_counts = np.empty(0, dtype=np.int64)
     if 1 < _uniq.size <= low_card_cap:
         # Use midpoints between consecutive uniques as edges so
         # each unique value lands in its own bin.
@@ -268,7 +281,7 @@ def compute_col_edges(col: np.ndarray, method_resolved: str, base: str, kwargs: 
         raise NotImplementedError(method_resolved)
     edges = builder(col, y, base, kwargs)
     if method_resolved in _SUPERVISED_METHODS:
-        edges = _collapsed_supervised_edges(edges, col, _finite, base, kwargs)
+        edges = _collapsed_supervised_edges(edges, col, _finite, base, kwargs, _facts_key)
     edges = _sparse_dominance_edges(edges, _finite, _uniq, _uniq_counts, kwargs)
     # Systemic silent-degenerate-fallback guardrail: EVERY method funnels through this
     # single return point, so this is the ONE place that can catch "binning method returned empty/

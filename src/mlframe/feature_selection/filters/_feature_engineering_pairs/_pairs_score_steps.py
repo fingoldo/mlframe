@@ -13,6 +13,7 @@ from mlframe.feature_selection.filters._lazy_host_codes import length_of
 
 from ._pairs_abs_corr_gpu import abs_corr_or_none
 from ._pairs_chunk_codes import code_column
+from ._pairs_code_bins import code_table_bins
 from ._pairs_chunks import _compute_one_fe_chunk
 from ._pairs_dispatch import _dispatch_batch_mi_with_noise_gate
 from ._pairs_materialise import (
@@ -593,7 +594,7 @@ def _score_pending_candidates(
             _entry[4].reshape(-1, 1),
             x=np.array([0], dtype=np.int64),
             y=None,
-            factors_nbins=np.array([quantization_nbins], dtype=np.int64),
+            factors_nbins=np.array([code_table_bins(_entry[4], quantization_nbins)], dtype=np.int64),
             classes_y=classes_y,
             classes_y_safe=classes_y_safe,
             freqs_y=freqs_y,
@@ -836,7 +837,7 @@ def _score_one_pair_step3_step2_transformations_pair_st(
                         discretized_transformed_values.reshape(-1, 1),
                         x=np.array([0], dtype=np.int64),
                         y=None,
-                        factors_nbins=np.array([quantization_nbins], dtype=np.int64),
+                        factors_nbins=np.array([code_table_bins(discretized_transformed_values, quantization_nbins)], dtype=np.int64),
                         classes_y=classes_y,
                         classes_y_safe=classes_y_safe,
                         freqs_y=freqs_y,
