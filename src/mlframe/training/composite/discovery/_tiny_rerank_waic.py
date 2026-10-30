@@ -147,12 +147,23 @@ def _apply_waic_tiebreak(self, order, kept_specs, agg_scores, names, *, y_screen
         pos += len(band)
 
     to_score = base_ordered(to_score, lambda i: str(getattr(kept_specs[i], "base_column", None) or ""))
-    n_jobs = max(1, min(len(to_score), cpu_count_physical()))
-    if n_jobs > 1:
-        results = Parallel(n_jobs=n_jobs, backend="threading", prefer="threads")(delayed(_waic_for)(i) for i in to_score)
-    else:
-        results = [_waic_for(i) for i in to_score]
-    waic: dict[int, float] = {i: v for i, v in zip(to_score, results) if v is not None}
+    # One base at a time: threads spanning several bases would each hold that base's matrix at once, past the cache bound.
+    # Parallelism stays across the specs of each base, which share its matrix.
+    base_groups: list[list[int]] = []
+    for i in to_score:
+        if base_groups and getattr(kept_specs[base_groups[-1][0]], "base_column", None) == getattr(kept_specs[i], "base_column", None):
+            base_groups[-1].append(i)
+        else:
+            base_groups.append([i])
+    scored: dict[int, float | None] = {}
+    for group in base_groups:
+        n_jobs = max(1, min(len(group), cpu_count_physical()))
+        if n_jobs > 1:
+            group_results = Parallel(n_jobs=n_jobs, backend="threading", prefer="threads")(delayed(_waic_for)(i) for i in group)
+        else:
+            group_results = [_waic_for(i) for i in group]
+        scored.update(zip(group, group_results))
+    waic: dict[int, float] = {i: v for i in to_score if (v := scored[i]) is not None}
     self._tiny_rerank_waic_scores = {kept_specs[i].name: v for i, v in waic.items()}
     if not waic:
         return order
