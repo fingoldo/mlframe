@@ -67,7 +67,6 @@
   "src/mlframe/metrics/calibration/_calibration_plot.py::_fast_calibration_binning_prange_kernel": 17,
   "src/mlframe/models/ensembling/_correlation.py::compute_high_correlation_pairs": 19,
   "src/mlframe/models/ensembling/selection.py::stepwise_ensemble_selection": 19,
-  "src/mlframe/preprocessing/transforms.py::_prepare_pandas_categoricals_for_catboost": 19,
   "src/mlframe/reporting/renderers/matplotlib.py::MatplotlibRenderer._bar": 19,
   "src/mlframe/reporting/renderers/matplotlib.py::MatplotlibRenderer._histogram": 18,
   "src/mlframe/reporting/renderers/matplotlib.py::MatplotlibRenderer.render": 18,
