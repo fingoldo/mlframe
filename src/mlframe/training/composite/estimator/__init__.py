@@ -59,6 +59,68 @@ from ._estimator import CompositeTargetEstimator
 # ----------------------------------------------------------------------
 
 
+def _normalised_member_weights(weights, n_members):
+    """Per-member blend weights: uniform when ``weights`` is None, else validated, non-negative and renormalised to sum to 1."""
+    if weights is None:
+        w = np.full(n_members, 1.0 / n_members, dtype=np.float64)
+    else:
+        w = np.asarray(weights, dtype=np.float64)
+        if w.shape != (n_members,):
+            raise ValueError(f"predict_quantile_ensemble: weights length {w.shape!r} != n_members {n_members}")
+        if np.any(w < 0):
+            raise ValueError(f"predict_quantile_ensemble: weights must be non-negative; got {w.tolist()!r}")
+        w_sum = float(w.sum())
+        if w_sum <= 0:
+            raise ValueError("predict_quantile_ensemble: weights sum to zero")
+        w = w / w_sum
+    return w
+
+def _member_quantile_matrix(m, idx, X, quantiles_arr, quantiles_list):
+    """One member's ``(n_samples, n_quantiles)`` prediction matrix: a single batched call when supported, else one scalar-alpha call per quantile."""
+    if not hasattr(m, "predict_quantile"):
+        raise ValueError(
+            f"predict_quantile_ensemble: member {idx} ({type(m).__name__!r}) lacks predict_quantile(X, alpha); "
+            "wrap each member in CompositeTargetEstimator or another quantile-aware estimator."
+        )
+    # Single batched call when the member's ``predict_quantile`` accepts a sequence
+    # (e.g. CatBoost MultiQuantile, CompositeTargetEstimator). We attempt one batched
+    # call and fall back to per-alpha scalar calls only on TypeError / ValueError /
+    # mismatched-shape -- LightGBM and sklearn QuantileRegressor are scalar-only.
+    member_mat: Optional[np.ndarray] = None
+    try:
+        batched = m.predict_quantile(X, quantiles_list)
+        batched_arr = np.asarray(batched, dtype=np.float64)
+        if batched_arr.ndim == 2 and batched_arr.shape[1] == len(quantiles_list):
+            member_mat = batched_arr
+    except Exception as _probe_err:  # best-effort: the per-alpha path computes the same quantiles
+        logger.debug(
+            "predict_quantile_ensemble: batched probe for member %d (%s) failed (%r); falling back to per-alpha calls.",
+            idx,
+            type(m).__name__,
+            _probe_err,
+        )
+        member_mat = None
+    if member_mat is None:
+        cols: list[np.ndarray] = []
+        for alpha_v in quantiles_arr:
+            try:
+                pred = m.predict_quantile(X, float(alpha_v))
+            except TypeError:
+                pred = m.predict_quantile(X, alpha=float(alpha_v))
+            pred_arr = np.asarray(pred, dtype=np.float64)
+            if pred_arr.ndim == 2:
+                if pred_arr.shape[1] != 1:
+                    raise ValueError(
+                        f"predict_quantile_ensemble: member {idx} returned shape {pred_arr.shape!r} for scalar alpha={alpha_v}; "
+                        "expected (n_samples,) or (n_samples, 1)."
+                    )
+                pred_arr = pred_arr[:, 0]
+            elif pred_arr.ndim != 1:
+                raise ValueError(f"predict_quantile_ensemble: member {idx} predict_quantile returned ndim={pred_arr.ndim} (expected 1 or 2)")
+            cols.append(pred_arr)
+        member_mat = np.column_stack(cols)
+    return member_mat
+
 def predict_quantile_ensemble(
     members: Sequence[Any],
     X: Any,
@@ -117,18 +179,7 @@ def predict_quantile_ensemble(
     if not np.all(np.diff(quantiles_arr) > 0):
         raise ValueError(f"predict_quantile_ensemble: quantiles must be sorted ascending and unique; got {quantiles_arr.tolist()!r}")
 
-    if weights is None:
-        w = np.full(len(members), 1.0 / len(members), dtype=np.float64)
-    else:
-        w = np.asarray(weights, dtype=np.float64)
-        if w.shape != (len(members),):
-            raise ValueError(f"predict_quantile_ensemble: weights length {w.shape!r} != n_members {len(members)}")
-        if np.any(w < 0):
-            raise ValueError(f"predict_quantile_ensemble: weights must be non-negative; got {w.tolist()!r}")
-        w_sum = float(w.sum())
-        if w_sum <= 0:
-            raise ValueError("predict_quantile_ensemble: weights sum to zero")
-        w = w / w_sum
+    w = _normalised_member_weights(weights, len(members))
 
     # Materialise every member's (n_samples, n_quantiles) matrix. Different quantile sets
     # MUST raise -- silently truncating the union would hand back a confidence interval
@@ -137,48 +188,7 @@ def predict_quantile_ensemble(
     expected_shape: Optional[Tuple[int, ...]] = None
     quantiles_list = [float(v) for v in quantiles_arr]
     for idx, m in enumerate(members):
-        if not hasattr(m, "predict_quantile"):
-            raise ValueError(
-                f"predict_quantile_ensemble: member {idx} ({type(m).__name__!r}) lacks predict_quantile(X, alpha); "
-                "wrap each member in CompositeTargetEstimator or another quantile-aware estimator."
-            )
-        # Single batched call when the member's ``predict_quantile`` accepts a sequence
-        # (e.g. CatBoost MultiQuantile, CompositeTargetEstimator). We attempt one batched
-        # call and fall back to per-alpha scalar calls only on TypeError / ValueError /
-        # mismatched-shape -- LightGBM and sklearn QuantileRegressor are scalar-only.
-        member_mat: Optional[np.ndarray] = None
-        try:
-            batched = m.predict_quantile(X, quantiles_list)
-            batched_arr = np.asarray(batched, dtype=np.float64)
-            if batched_arr.ndim == 2 and batched_arr.shape[1] == len(quantiles_list):
-                member_mat = batched_arr
-        except Exception as _probe_err:  # best-effort: the per-alpha path computes the same quantiles
-            logger.debug(
-                "predict_quantile_ensemble: batched probe for member %d (%s) failed (%r); falling back to per-alpha calls.",
-                idx,
-                type(m).__name__,
-                _probe_err,
-            )
-            member_mat = None
-        if member_mat is None:
-            cols: list[np.ndarray] = []
-            for alpha_v in quantiles_arr:
-                try:
-                    pred = m.predict_quantile(X, float(alpha_v))
-                except TypeError:
-                    pred = m.predict_quantile(X, alpha=float(alpha_v))
-                pred_arr = np.asarray(pred, dtype=np.float64)
-                if pred_arr.ndim == 2:
-                    if pred_arr.shape[1] != 1:
-                        raise ValueError(
-                            f"predict_quantile_ensemble: member {idx} returned shape {pred_arr.shape!r} for scalar alpha={alpha_v}; "
-                            "expected (n_samples,) or (n_samples, 1)."
-                        )
-                    pred_arr = pred_arr[:, 0]
-                elif pred_arr.ndim != 1:
-                    raise ValueError(f"predict_quantile_ensemble: member {idx} predict_quantile returned ndim={pred_arr.ndim} (expected 1 or 2)")
-                cols.append(pred_arr)
-            member_mat = np.column_stack(cols)
+        member_mat = _member_quantile_matrix(m, idx, X, quantiles_arr, quantiles_list)
         if expected_shape is None:
             expected_shape = member_mat.shape
         elif member_mat.shape != expected_shape:

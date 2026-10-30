@@ -72,6 +72,62 @@ def _extension_output_names(ext_pipeline, n_out: int) -> list:
     return list(names)
 
 
+def _apply_tfidf_expansion(df, ext_pipeline):
+    """Replace each declared text column with its train-time TF-IDF expansion (TF-IDF-only persistence shape)."""
+    # TF-IDF-only shape -- replicate the training-time per-column replacement using the saved vectorizers.
+    # Train hard-failed on missing tfidf-source cols (apply_preprocessing_extensions raises KeyError before
+    # fit). Symmetric behaviour at predict: collect every missing source up front and raise once with the
+    # full list. The previous WARN-and-skip silently produced models whose feature_names_in_ included tfidf
+    # cols that never appeared at predict, then crashed at model.predict_proba with an opaque "missing
+    # features" error. Loud-fail beats silent skip.
+    _missing_tfidf = [_col for _col in ext_pipeline if _col not in df.columns]
+    if _missing_tfidf:
+        raise KeyError(
+            f"[extensions_pipeline] tfidf source columns missing from predict frame: "
+            f"{_missing_tfidf}. Training pipeline saw these cols at fit time; predict must too. "
+            "Restore the upstream extraction or retrain on the current schema."
+        )
+    for _col, _vec in ext_pipeline.items():
+        _text = df[_col].fillna("").astype(str).values
+        _spmat = _vec.transform(_text)
+        try:
+            _n_feats = len(_vec.get_feature_names_out())
+        except Exception as e:
+            logger.debug("get_feature_names_out() failed, using the sparse matrix width: %s", e)
+            _n_feats = _spmat.shape[1]
+        _new_cols = [f"{_col}__tfidf_{i}" for i in range(_n_feats)]
+        from ..pipeline import sparse_df_from_spmatrix
+        _new_df = sparse_df_from_spmatrix(_spmat, _new_cols, df.index)
+        df = df.drop(columns=[_col]).join(_new_df)
+    return df
+
+
+def _align_frame_to_fit_features(df, ext_pipeline):
+    """Subset and reorder the predict frame to the fit-time feature names before the pipeline transform."""
+    _fit_feature_names = getattr(ext_pipeline, "feature_names_in_", None)
+    if _fit_feature_names is not None and isinstance(df, pd.DataFrame):
+        _fit_list = [str(_c) for _c in _fit_feature_names]
+        _fit_set = set(_fit_list)
+        _df_cols = [str(_c) for _c in df.columns]
+        _present_set = _fit_set & set(_df_cols)
+        if len(_present_set) < len(_fit_set):
+            _missing = [c for c in _fit_list if c not in _present_set]
+            logger.warning(
+                "[extensions_pipeline] predict frame is missing %d "
+                "fit-time column(s): %s. Pipeline.transform will likely "
+                "fail; downstream model will see raw input. Restore "
+                "upstream extraction or retrain on the current schema.",
+                len(_missing), _missing[:10],
+            )
+        elif _df_cols != _fit_list:
+            # All fit-time cols present but ORDER (and/or extras like
+            # cat_low/cat_mid/x_null carried over from the pre-filter
+            # frame) doesn't match -- sklearn's strict feature-name
+            # check rejects both. Subset + reorder to the fit-time list.
+            df = df.loc[:, _fit_list]
+    return df
+
+
 def _apply_extensions_pipeline(df: Any, ext_pipeline: Any, verbose: int = 0):
     """Apply the persisted ``extensions_pipeline`` to a predict frame.
 
@@ -100,32 +156,8 @@ def _apply_extensions_pipeline(df: Any, ext_pipeline: Any, verbose: int = 0):
             df = _apply_extensions_pipeline(df, ext_pipeline.sklearn_pipe, verbose=verbose)
         return df
     if isinstance(ext_pipeline, dict):
-        # TF-IDF-only shape -- replicate the training-time per-column replacement using the saved vectorizers.
-        # Train hard-failed on missing tfidf-source cols (apply_preprocessing_extensions raises KeyError before
-        # fit). Symmetric behaviour at predict: collect every missing source up front and raise once with the
-        # full list. The previous WARN-and-skip silently produced models whose feature_names_in_ included tfidf
-        # cols that never appeared at predict, then crashed at model.predict_proba with an opaque "missing
-        # features" error. Loud-fail beats silent skip.
-        _missing_tfidf = [_col for _col in ext_pipeline if _col not in df.columns]
-        if _missing_tfidf:
-            raise KeyError(
-                f"[extensions_pipeline] tfidf source columns missing from predict frame: "
-                f"{_missing_tfidf}. Training pipeline saw these cols at fit time; predict must too. "
-                "Restore the upstream extraction or retrain on the current schema."
-            )
-        for _col, _vec in ext_pipeline.items():
-            _text = df[_col].fillna("").astype(str).values
-            _spmat = _vec.transform(_text)
-            try:
-                _n_feats = len(_vec.get_feature_names_out())
-            except Exception as e:
-                logger.debug("get_feature_names_out() failed, using the sparse matrix width: %s", e)
-                _n_feats = _spmat.shape[1]
-            _new_cols = [f"{_col}__tfidf_{i}" for i in range(_n_feats)]
-            from ..pipeline import sparse_df_from_spmatrix
-            _new_df = sparse_df_from_spmatrix(_spmat, _new_cols, df.index)
-            df = df.drop(columns=[_col]).join(_new_df)
-        return df
+        return _apply_tfidf_expansion(df, ext_pipeline)
+
     # Pipeline shape -- run .transform on the full frame; reuse fit-time output column names when available.
     # Subset the predict frame to the fit-time feature set before calling
     # .transform. The training-side apply_preprocessing_extensions drops
@@ -140,27 +172,7 @@ def _apply_extensions_pipeline(df: Any, ext_pipeline: Any, verbose: int = 0):
     # "expects features missing from input: ['pca0', ...]". Surfaced by
     # iter-49 300k seed=13 cb-regression where dim_reducer=PCA was on.
     _df_in = df  # the non-numeric columns fit time passed around the pipeline are re-attached from here
-    _fit_feature_names = getattr(ext_pipeline, "feature_names_in_", None)
-    if _fit_feature_names is not None and isinstance(df, pd.DataFrame):
-        _fit_list = [str(_c) for _c in _fit_feature_names]
-        _fit_set = set(_fit_list)
-        _df_cols = [str(_c) for _c in df.columns]
-        _present_set = _fit_set & set(_df_cols)
-        if len(_present_set) < len(_fit_set):
-            _missing = [c for c in _fit_list if c not in _present_set]
-            logger.warning(
-                "[extensions_pipeline] predict frame is missing %d "
-                "fit-time column(s): %s. Pipeline.transform will likely "
-                "fail; downstream model will see raw input. Restore "
-                "upstream extraction or retrain on the current schema.",
-                len(_missing), _missing[:10],
-            )
-        elif _df_cols != _fit_list:
-            # All fit-time cols present but ORDER (and/or extras like
-            # cat_low/cat_mid/x_null carried over from the pre-filter
-            # frame) doesn't match -- sklearn's strict feature-name
-            # check rejects both. Subset + reorder to the fit-time list.
-            df = df.loc[:, _fit_list]
+    df = _align_frame_to_fit_features(df, ext_pipeline)
     try:
         _arr = ext_pipeline.transform(df)
     except Exception as _exc:
@@ -314,6 +326,48 @@ def _apply_row_wise_extensions(
     return df
 
 
+def _align_fallback_frame(fb, expected_list):
+    """Drop columns the model never saw and reorder the rest to fit-time order (LGB/XGB accept a wrong order silently and predict nonsense)."""
+    if expected_list is not None and hasattr(fb, "columns"):
+        _drop_fb = [c for c in fb.columns if c not in expected_list]
+        if _drop_fb:
+            if isinstance(fb, pl.DataFrame):
+                fb = fb.drop(_drop_fb)
+            else:
+                fb = fb.drop(columns=_drop_fb)
+        # Normalise column ORDER to fit-time expectation: LGB/XGB
+        # silently accept all-required-cols + wrong-order then produce
+        # nonsense predictions (feature_names_in_ consulted only at fit
+        # time). Cheap view-only reorder.
+        _fb_have = {str(c) for c in fb.columns}
+        _order = [c for c in expected_list if str(c) in _fb_have]
+        if _order and list(map(str, fb.columns)) != list(map(str, _order)):
+            if isinstance(fb, pl.DataFrame):
+                fb = fb.select(_order)
+            else:
+                fb = fb.loc[:, _order]
+    return fb
+
+
+def _subset_to_expected_columns(primary, expected_list, model_name, fn_name, msg):
+    """Subset ``primary`` to the fit-time feature names after a feature-names mismatch; ``None`` when there is nothing to drop."""
+    _drop = [c for c in primary.columns if c not in expected_list]
+    if not _drop:
+        return None
+    logger.warning(
+        "predict_from_models: %s.%s tripped feature-names mismatch " "(%s); dropping %d unseen column(s) %s and retrying.",
+        model_name,
+        fn_name,
+        msg.splitlines()[0][:120],
+        len(_drop), _drop[:5],
+    )
+    _have = {str(c) for c in primary.columns}
+    _order = [c for c in expected_list if str(c) in _have]
+    if isinstance(primary, pl.DataFrame):
+        return primary.select(_order) if _order else primary.drop(_drop)
+    return primary.loc[:, _order] if _order else primary.drop(columns=_drop)
+
+
 def _try_predict_with_pp_fallback(
     fn,
     primary,
@@ -399,26 +453,7 @@ def _try_predict_with_pp_fallback(
                 model_name, fn.__name__,
                 _msg.splitlines()[0][:120],
             )
-            _fb = fallback
-            if expected_list is not None and hasattr(_fb, "columns"):
-                _drop_fb = [c for c in _fb.columns if c not in expected_list]
-                if _drop_fb:
-                    if isinstance(_fb, pl.DataFrame):
-                        _fb = _fb.drop(_drop_fb)
-                    else:
-                        _fb = _fb.drop(columns=_drop_fb)
-                # Normalise column ORDER to fit-time expectation: LGB/XGB
-                # silently accept all-required-cols + wrong-order then produce
-                # nonsense predictions (feature_names_in_ consulted only at fit
-                # time). Cheap view-only reorder.
-                _fb_have = {str(c) for c in _fb.columns}
-                _order = [c for c in expected_list if str(c) in _fb_have]
-                if _order and list(map(str, _fb.columns)) != list(map(str, _order)):
-                    if isinstance(_fb, pl.DataFrame):
-                        _fb = _fb.select(_order)
-                    else:
-                        _fb = _fb.loc[:, _order]
-            return fn(_fb)
+            return fn(_align_fallback_frame(fallback, expected_list))
         # Polars-input rejection (older CB / sklearn-wrapped XGB): retry via shared pandas view.
         if isinstance(primary, pl.DataFrame):
             logger.warning(
@@ -447,21 +482,8 @@ def _try_predict_with_pp_fallback(
         # whole call.
         _msg = str(_exc)
         if isinstance(_exc, ValueError) and expected_list is not None and hasattr(primary, "columns") and "feature names" in _msg.lower():
-            _drop = [c for c in primary.columns if c not in expected_list]
-            if _drop:
-                logger.warning(
-                    "predict_from_models: %s.%s tripped feature-names mismatch " "(%s); dropping %d unseen column(s) %s and retrying.",
-                    model_name,
-                    fn.__name__,
-                    _msg.splitlines()[0][:120],
-                    len(_drop), _drop[:5],
-                )
-                _have = {str(c) for c in primary.columns}
-                _order = [c for c in expected_list if str(c) in _have]
-                if isinstance(primary, pl.DataFrame):
-                    _subset = primary.select(_order) if _order else primary.drop(_drop)
-                else:
-                    _subset = primary.loc[:, _order] if _order else primary.drop(columns=_drop)
+            _subset = _subset_to_expected_columns(primary, expected_list, model_name, fn.__name__, _msg)
+            if _subset is not None:
                 return fn(_subset)
         raise
 

@@ -574,6 +574,92 @@ def dfa_alpha2_quadratic(x: np.ndarray) -> float:
 
 
 @njit(cache=True, fastmath=True)
+def _mfdfa_profile(x):
+    """Cumulative sum of the mean-centred series, the profile DFA detrends."""
+    n = x.size
+    mu = x.mean()
+    y = np.empty(n)
+    acc = 0.0
+    for i in range(n):
+        acc += x[i] - mu
+        y[i] = acc
+    return y
+
+
+@njit(cache=True, fastmath=True)
+def _mfdfa_segment_variances(y, s, m):
+    """Linear-detrended residual variance of each of the ``m`` length-``s`` segments of the profile."""
+    var_per_seg = np.empty(m)
+    # ``t`` (and its mean ``tm``) depend only on the loop-invariant segment length ``s``; hoist out of the per-segment ``j`` loop.
+    t = np.arange(s).astype(np.float64)
+    tm = t.mean()
+    for j in range(m):
+        seg = y[j * s : (j + 1) * s]
+        sm = seg.mean()
+        num = 0.0
+        den = 0.0
+        for i in range(s):
+            num += (t[i] - tm) * (seg[i] - sm)
+            den += (t[i] - tm) ** 2
+        slope = num / den if den > 0.0 else 0.0
+        intercept = sm - slope * tm
+        resid_sq = 0.0
+        for i in range(s):
+            fit = intercept + slope * t[i]
+            resid_sq += (seg[i] - fit) ** 2
+        var_per_seg[j] = resid_sq / s
+    return var_per_seg
+
+
+@njit(cache=True, fastmath=True)
+def _mfdfa_fq_column(var_per_seg, q_values, m, F_qs, ks):
+    """Fill column ``ks`` of ``F_qs`` with the q-th fluctuation function of one scale."""
+    # F_q(s) = ( mean(var^(q/2)) )^(1/q) for q != 0
+    for kq in range(q_values.size):
+        q = q_values[kq]
+        if abs(q) < 1e-6:
+            continue
+        powered = 0.0
+        for j in range(m):
+            v = var_per_seg[j]
+            if v <= 0:
+                powered += 0.0
+            else:
+                powered += v ** (q * 0.5)
+        mean_pow = powered / m
+        F_qs[kq, ks] = max(mean_pow, _LOG_FLOOR) ** (1.0 / q)
+
+
+@njit(cache=True, fastmath=True)
+def _mfdfa_hurst_slope(row, log_s):
+    """Slope of log F_q against log s for one q, or NaN when fewer than two scales are usable."""
+    # Fit H(q) = slope of log F_q(s) vs log s over the finite, positive scales.
+    finite = 0
+    x_sum = 0.0
+    y_sum = 0.0
+    for ks in range(log_s.size):
+        if row[ks] > 0 and not np.isnan(row[ks]):
+            finite += 1
+            x_sum += log_s[ks]
+            y_sum += np.log(row[ks])
+    if finite < 2:
+        return np.nan
+    x_mean = x_sum / finite
+    y_mean = y_sum / finite
+    num = 0.0
+    den = 0.0
+    for ks in range(log_s.size):
+        if row[ks] > 0 and not np.isnan(row[ks]):
+            lr = log_s[ks]
+            lf = np.log(row[ks])
+            num += (lr - x_mean) * (lf - y_mean)
+            den += (lr - x_mean) ** 2
+    if den > 0:
+        return num / den
+    return np.nan
+
+
+@njit(cache=True, fastmath=True)
 def multifractal_dfa(
     x: np.ndarray,
     q_values: np.ndarray,
@@ -598,82 +684,21 @@ def multifractal_dfa(
     out = np.full(q_values.size, np.nan)
     if n < 50:
         return out
-    mu = x.mean()
-    y = np.empty(n)
-    acc = 0.0
-    for i in range(n):
-        acc += x[i] - mu
-        y[i] = acc
     scales_valid = scales[scales < n // 2]
     if scales_valid.size < 2:
         return out
+    y = _mfdfa_profile(x)
     log_s = np.empty(scales_valid.size)
     for k in range(scales_valid.size):
         log_s[k] = np.log(scales_valid[k])
-    # F_q(s) per (q, s)
     F_qs = np.full((q_values.size, scales_valid.size), np.nan)
     for ks in range(scales_valid.size):
         s = scales_valid[ks]
         m = n // s
         if m < 1:
             continue
-        # Variance per sub-segment (linear-detrended).
-        var_per_seg = np.empty(m)
-        # ``t`` (and its mean ``tm``) depend only on the loop-invariant segment length ``s``; hoist out of the per-segment ``j`` loop.
-        t = np.arange(s).astype(np.float64)
-        tm = t.mean()
-        for j in range(m):
-            seg = y[j * s : (j + 1) * s]
-            sm = seg.mean()
-            num = 0.0
-            den = 0.0
-            for i in range(s):
-                num += (t[i] - tm) * (seg[i] - sm)
-                den += (t[i] - tm) ** 2
-            slope = num / den if den > 0.0 else 0.0
-            intercept = sm - slope * tm
-            resid_sq = 0.0
-            for i in range(s):
-                fit = intercept + slope * t[i]
-                resid_sq += (seg[i] - fit) ** 2
-            var_per_seg[j] = resid_sq / s
-        # F_q(s) = ( mean(var^(q/2)) )^(1/q) for q != 0
-        for kq in range(q_values.size):
-            q = q_values[kq]
-            if abs(q) < 1e-6:
-                continue
-            powered = 0.0
-            for j in range(m):
-                v = var_per_seg[j]
-                if v <= 0:
-                    powered += 0.0
-                else:
-                    powered += v ** (q * 0.5)
-            mean_pow = powered / m
-            F_qs[kq, ks] = max(mean_pow, _LOG_FLOOR) ** (1.0 / q)
-    # Fit H(q) = slope of log F_q(s) vs log s.
+        var_per_seg = _mfdfa_segment_variances(y, s, m)
+        _mfdfa_fq_column(var_per_seg, q_values, m, F_qs, ks)
     for kq in range(q_values.size):
-        row = F_qs[kq]
-        finite = 0
-        x_sum = 0.0
-        y_sum = 0.0
-        for ks in range(scales_valid.size):
-            if row[ks] > 0 and not np.isnan(row[ks]):
-                finite += 1
-                x_sum += log_s[ks]
-                y_sum += np.log(row[ks])
-        if finite < 2:
-            continue
-        x_mean = x_sum / finite
-        y_mean = y_sum / finite
-        num = 0.0
-        den = 0.0
-        for ks in range(scales_valid.size):
-            if row[ks] > 0 and not np.isnan(row[ks]):
-                lr = log_s[ks]
-                lf = np.log(row[ks])
-                num += (lr - x_mean) * (lf - y_mean)
-                den += (lr - x_mean) ** 2
-        if den > 0:
-            out[kq] = num / den
+        out[kq] = _mfdfa_hurst_slope(F_qs[kq], log_s)
     return out

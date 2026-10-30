@@ -185,41 +185,8 @@ def _apply_svd(
 # =====================================================================
 
 
-def assemble_for_model(
-    blocks: Sequence[HandlerOutput],
-    *,
-    model_kind: str,
-    numeric_block: Optional[np.ndarray] = None,
-    numeric_feature_names: Optional[List[str]] = None,
-    svd_default_dim: int = 256,
-    svd_trigger_ncols: int = DEFAULT_SVD_TRIGGER_NCOLS,
-    per_handler_svd_dim: Optional[Dict[str, int]] = None,
-) -> AssembledMatrix:
-    """Concatenate handler outputs for a specific model.
-
-    Routing logic:
-
-    1. Validate same-column + same-method overlap raises.
-    2. Group blocks by output_kind: sparse / dense / embedding.
-    3. If model is sparse-aware: hstack all sparse blocks into ONE
-       sparse matrix; concat all dense + embedding blocks; output
-       two-track matrix.
-    4. If model is dense-only: for each sparse block, decide if SVD
-       fires (n_features > svd_trigger_ncols) -> reduce to dense;
-       otherwise ``.toarray()`` densify in place. Then concat
-       everything into a single dense matrix.
-
-    ``numeric_block`` is the upstream-derived numeric feature matrix
-    (post-imputer / scaler from PreprocessingBackendConfig). Its
-    column names go into ``feature_names`` UNCHANGED (no prefix
-    disambiguation -- they're already user-facing).
-
-    ``per_handler_svd_dim`` maps ``"{column}__{method}"`` to a custom
-    SVD dim, overriding ``svd_default_dim``.
-    """
-    import scipy.sparse as sp
-
-    # ---- 1. Validate overlap (same col + same method = error) ---
+def _validate_block_overlap(blocks: Sequence[HandlerOutput]) -> None:
+    """Raise when two handlers share a (column, method) signature."""
     seen = set()
     for b in blocks:
         sig = (b.column, b.method)
@@ -227,55 +194,59 @@ def assemble_for_model(
             raise ValueError(f"duplicate handler on column={b.column!r} method={b.method!r}; " f"same-column + same-method handlers are not allowed.")
         seen.add(sig)
 
-    sparse_blocks = [b for b in blocks if b.output_kind == "sparse"]
-    dense_blocks = [b for b in blocks if b.output_kind == "dense"]
-    embedding_blocks = [b for b in blocks if b.output_kind == "embedding"]
-    routing_trace: List[str] = []
 
-    if accepts_sparse(model_kind):  # SPARSE_AWARE_MODELS already includes cb/xgb/lgb -- see routing.py
-        # ---- Two-track concat -------------------------------------
-        sparse_mat: Optional[sp.csr_matrix] = None
-        sparse_names: List[str] = []
-        if sparse_blocks:
-            stacked = sp.hstack(
-                [b.data.tocsr() for b in sparse_blocks], format="csr",
-            )
-            sparse_mat = stacked
-            for b in sparse_blocks:
-                sparse_names.extend(b.expanded_feature_names())
-            routing_trace.append(f"sparse_block: {len(sparse_blocks)} handlers -> " f"{stacked.shape[1]} cols")
-        dense_parts: List[np.ndarray] = []
-        dense_names: List[str] = []
-        for b in dense_blocks + embedding_blocks:
-            arr = b.data
-            if not isinstance(arr, np.ndarray):
-                arr = np.asarray(arr)
-            if arr.dtype != np.float32:
-                arr = arr.astype(np.float32, copy=False)
-            dense_parts.append(arr)
-            dense_names.extend(b.expanded_feature_names())
-            routing_trace.append(f"dense_block: {b.column!r} {b.method!r} {arr.shape}")
-        if numeric_block is not None:
-            dense_parts.append(numeric_block)
-            if numeric_feature_names is not None:
-                dense_names.extend(numeric_feature_names)
-            else:
-                dense_names.extend([f"num__{i}" for i in range(numeric_block.shape[1])])
-        if dense_parts:
-            dense_mat = np.concatenate(dense_parts, axis=1)
-        else:
-            dense_mat = None
+def _assemble_two_track(
+    sparse_blocks, dense_blocks, embedding_blocks, numeric_block, numeric_feature_names, routing_trace: List[str],
+) -> AssembledMatrix:
+    """Sparse-aware model: one hstacked sparse matrix plus one concatenated dense matrix."""
+    import scipy.sparse as sp
 
-        all_names = sparse_names + dense_names
-        return AssembledMatrix(
-            sparse_block=sparse_mat,
-            dense_block=dense_mat,
-            feature_names=all_names,
-            routing_applied=routing_trace,
+    sparse_mat: Optional[sp.csr_matrix] = None
+    sparse_names: List[str] = []
+    if sparse_blocks:
+        stacked = sp.hstack(
+            [b.data.tocsr() for b in sparse_blocks], format="csr",
         )
+        sparse_mat = stacked
+        for b in sparse_blocks:
+            sparse_names.extend(b.expanded_feature_names())
+        routing_trace.append(f"sparse_block: {len(sparse_blocks)} handlers -> " f"{stacked.shape[1]} cols")
+    dense_parts: List[np.ndarray] = []
+    dense_names: List[str] = []
+    for b in dense_blocks + embedding_blocks:
+        arr = b.data
+        if not isinstance(arr, np.ndarray):
+            arr = np.asarray(arr)
+        if arr.dtype != np.float32:
+            arr = arr.astype(np.float32, copy=False)
+        dense_parts.append(arr)
+        dense_names.extend(b.expanded_feature_names())
+        routing_trace.append(f"dense_block: {b.column!r} {b.method!r} {arr.shape}")
+    if numeric_block is not None:
+        dense_parts.append(numeric_block)
+        if numeric_feature_names is not None:
+            dense_names.extend(numeric_feature_names)
+        else:
+            dense_names.extend([f"num__{i}" for i in range(numeric_block.shape[1])])
+    if dense_parts:
+        dense_mat = np.concatenate(dense_parts, axis=1)
+    else:
+        dense_mat = None
 
-    # ---- Single-track DENSE concat (with auto-SVD on big sparse) -
-    # is_dense_only(model_kind) OR unknown model -> safest path.
+    all_names = sparse_names + dense_names
+    return AssembledMatrix(
+        sparse_block=sparse_mat,
+        dense_block=dense_mat,
+        feature_names=all_names,
+        routing_applied=routing_trace,
+    )
+
+
+def _assemble_single_track_dense(
+    sparse_blocks, dense_blocks, embedding_blocks, numeric_block, numeric_feature_names, model_kind,
+    svd_default_dim, svd_trigger_ncols, per_handler_svd_dim, routing_trace: List[str],
+) -> AssembledMatrix:
+    """Dense-only model: sparse blocks are SVD-reduced or densified, then everything is concatenated."""
     dense_parts = []
     all_names = []
 
@@ -328,6 +299,56 @@ def assemble_for_model(
         dense_block=dense_mat,
         feature_names=all_names,
         routing_applied=routing_trace,
+    )
+
+
+def assemble_for_model(
+    blocks: Sequence[HandlerOutput],
+    *,
+    model_kind: str,
+    numeric_block: Optional[np.ndarray] = None,
+    numeric_feature_names: Optional[List[str]] = None,
+    svd_default_dim: int = 256,
+    svd_trigger_ncols: int = DEFAULT_SVD_TRIGGER_NCOLS,
+    per_handler_svd_dim: Optional[Dict[str, int]] = None,
+) -> AssembledMatrix:
+    """Concatenate handler outputs for a specific model.
+
+    Routing logic:
+
+    1. Validate same-column + same-method overlap raises.
+    2. Group blocks by output_kind: sparse / dense / embedding.
+    3. If model is sparse-aware: hstack all sparse blocks into ONE
+       sparse matrix; concat all dense + embedding blocks; output
+       two-track matrix.
+    4. If model is dense-only: for each sparse block, decide if SVD
+       fires (n_features > svd_trigger_ncols) -> reduce to dense;
+       otherwise ``.toarray()`` densify in place. Then concat
+       everything into a single dense matrix.
+
+    ``numeric_block`` is the upstream-derived numeric feature matrix
+    (post-imputer / scaler from PreprocessingBackendConfig). Its
+    column names go into ``feature_names`` UNCHANGED (no prefix
+    disambiguation -- they're already user-facing).
+
+    ``per_handler_svd_dim`` maps ``"{column}__{method}"`` to a custom
+    SVD dim, overriding ``svd_default_dim``.
+    """
+    _validate_block_overlap(blocks)
+
+    sparse_blocks = [b for b in blocks if b.output_kind == "sparse"]
+    dense_blocks = [b for b in blocks if b.output_kind == "dense"]
+    embedding_blocks = [b for b in blocks if b.output_kind == "embedding"]
+    routing_trace: List[str] = []
+
+    if accepts_sparse(model_kind):  # SPARSE_AWARE_MODELS already includes cb/xgb/lgb -- see routing.py
+        return _assemble_two_track(sparse_blocks, dense_blocks, embedding_blocks, numeric_block, numeric_feature_names, routing_trace)
+
+    # ---- Single-track DENSE concat (with auto-SVD on big sparse) -
+    # is_dense_only(model_kind) OR unknown model -> safest path.
+    return _assemble_single_track_dense(
+        sparse_blocks, dense_blocks, embedding_blocks, numeric_block, numeric_feature_names, model_kind,
+        svd_default_dim, svd_trigger_ncols, per_handler_svd_dim, routing_trace,
     )
 
 

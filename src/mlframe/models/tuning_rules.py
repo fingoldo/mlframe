@@ -80,6 +80,61 @@ def value_by_key(dct: dict, key: Any, expected_value: Any) -> bool:
     return bool(dct.get(key) == expected_value)
 
 
+def _skip_if_values_or_vetoes(skip_if_values_or, params):
+    """True when a veto in ``skip_if_values_or`` rejects the candidate: a gate holds and a field condition also holds."""
+    for conditions, fields in skip_if_values_or.items():
+        skip = False
+        skip = _check_rules_condition_conditions(conditions, params, skip)
+        if not skip:
+            for field_cond in fields:
+                if check_condition(field_cond, params):
+                    return True
+                else:
+                    pass
+    return False
+
+
+def _allow_if_values_or_vetoes(allow_if_values_or, params):
+    """True when a gated ``allow_if_values_or`` rule rejects the candidate: its gate holds and no field condition does."""
+    for conditions, fields in allow_if_values_or.items():
+        skip = False
+        for condition in conditions:
+            if not check_condition(condition, params):
+                skip = True
+                break
+        if not skip:
+            # `skip is False` already means every gate condition in `conditions` held (or `conditions`
+            # was empty) -- no need to re-check any single condition here. A prior version re-checked
+            # the loop's leftover `condition` variable, which was dead code (re-testing an already-true
+            # condition) when `conditions` was non-empty, and raised NameError when `conditions` was an
+            # empty tuple (a legal DSL input meaning "no gate, always evaluate the field conditions").
+            any_triggered = False
+            for field_cond in fields:
+                if check_condition(field_cond, params):
+                    any_triggered = True
+                    break
+            if not any_triggered:
+                return True
+    return False
+
+
+def _allow_if_values_and_vetoes(allow_if_values_and, params):
+    """True when a gated ``allow_if_values_and`` rule rejects the candidate: its gate holds and some field condition does not."""
+    for conditions, fields in allow_if_values_and.items():
+        skip = False
+        for condition in conditions:
+            if not check_condition(condition, params):
+                skip = True
+                break
+        if not skip:
+            for field_cond in fields:
+                if not check_condition(field_cond, params):
+                    return True
+            # (HashableDict({"posterior_sampling": True}),): [
+            # {"model_shrink_mode": "Constant"},  # Posterior Sampling requires Сonstant Model Shrink Mode
+            # {"langevin": True},  # Posterior Sampling requires Langevin boosting],
+    return False
+
 def check_rules(
     params: dict,
     drop_if_rules: Any = None,
@@ -109,55 +164,14 @@ def check_rules(
     Returns False as soon as any veto rule rejects the candidate; True if the candidate survives all rules
     (params may still have been mutated by the drop rules along the way).
     """
-    conditions: Any = None
     _check_rules_drop_rules(drop_if_rules, params)
     _apply_drop_if_not_rules(drop_if_not_rules, params)
-    if skip_if_values_or:
-        for conditions, fields in skip_if_values_or.items():
-            skip = False
-            skip = _check_rules_condition_conditions(conditions, params, skip)
-            if not skip:
-                for field_cond in fields:
-                    if check_condition(field_cond, params):
-                        return False
-                    else:
-                        pass
-
-    if allow_if_values_or:
-        for conditions, fields in allow_if_values_or.items():
-            skip = False
-            for condition in conditions:
-                if not check_condition(condition, params):
-                    skip = True
-                    break
-            if not skip:
-                # `skip is False` already means every gate condition in `conditions` held (or `conditions`
-                # was empty) -- no need to re-check any single condition here. A prior version re-checked
-                # the loop's leftover `condition` variable, which was dead code (re-testing an already-true
-                # condition) when `conditions` was non-empty, and raised NameError when `conditions` was an
-                # empty tuple (a legal DSL input meaning "no gate, always evaluate the field conditions").
-                any_triggered = False
-                for field_cond in fields:
-                    if check_condition(field_cond, params):
-                        any_triggered = True
-                        break
-                if not any_triggered:
-                    return False
-
-    if allow_if_values_and:
-        for conditions, fields in allow_if_values_and.items():
-            skip = False
-            for condition in conditions:
-                if not check_condition(condition, params):
-                    skip = True
-                    break
-            if not skip:
-                for field_cond in fields:
-                    if not check_condition(field_cond, params):
-                        return False
-                # (HashableDict({"posterior_sampling": True}),): [
-                # {"model_shrink_mode": "Constant"},  # Posterior Sampling requires Сonstant Model Shrink Mode
-                # {"langevin": True},  # Posterior Sampling requires Langevin boosting],
+    if skip_if_values_or and _skip_if_values_or_vetoes(skip_if_values_or, params):
+        return False
+    if allow_if_values_or and _allow_if_values_or_vetoes(allow_if_values_or, params):
+        return False
+    if allow_if_values_and and _allow_if_values_and_vetoes(allow_if_values_and, params):
+        return False
     return True
 
 

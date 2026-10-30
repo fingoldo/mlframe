@@ -478,7 +478,6 @@ def _dual_uplift_filter(
         return []
     from ._orthogonal_univariate_fe import _mi_classif_batch
     from ._unified_fe_gate import _coerce_y_classes
-    from ._extra_fe_families import generate_conditional_residual_features
 
     y_bin = _coerce_y_classes(y)
     # MI of the candidate dispersion columns.
@@ -492,85 +491,8 @@ def _dual_uplift_filter(
         rec = raw_recipes.get(nm, {})
         pairs[(rec.get("x_i"), rec.get("x_j"))] = None
     raw_cols = sorted({xi for (xi, _xj) in pairs if xi is not None and xi in X.columns})
-    raw_mi = {}
-    if raw_cols:
-        # Column blocks bound the float64 copy to one RAM-sized slab instead of the whole raw frame (L-27 MemoryError).
-        from ._orthogonal_univariate_fe._orth_mi_backends import _mi_chunk_cols_for
-        block_width = _mi_chunk_cols_for(len(X))
-        for start in range(0, len(raw_cols), block_width):
-            block = raw_cols[start : start + block_width]
-            block_arr = X[block].to_numpy(dtype=_crit_np_dtype())
-            rmi = np.asarray(_mi_classif_batch(block_arr, y_bin, nbins=n_bins), dtype=_crit_np_dtype())
-            raw_mi.update({c: float(rmi[j]) for j, c in enumerate(block)})
-
-    # Family-B mean-residual sibling MI per distinct pair.
-    sib_cols = [xi for (xi, xj) in pairs if xi is not None and xj is not None]
-    sib_mi = {}
-    if sib_cols:
-        uniq_num = sorted({c for p in pairs for c in p if c is not None and c in X.columns})
-        try:
-            enc_b, sib_recipes = generate_conditional_residual_features(
-                X[uniq_num], uniq_num, n_bins=n_bins,
-            )
-        except Exception as e:
-            logger.warning("generate_conditional_residual_features failed: %s", e)
-            enc_b = pd.DataFrame(index=X.index)
-            sib_recipes = {}
-        from ._extra_fe_families import engineered_name_conditional_residual
-        sib_names = {}
-        for xi, xj in pairs:
-            if xi is None or xj is None:
-                continue
-            sn = engineered_name_conditional_residual(xi, xj)
-            if sn in enc_b.columns:
-                sib_names[(xi, xj)] = sn
-        if sib_names:
-            # Compare against the |mean-residual| (the ABSOLUTE Family-B residual),
-            # NOT the signed residual. The load-bearing dispersion emissions are
-            # FOLDS (|z|, z^2); the fair "cheaper location feature it could be
-            # replacing" is the matching FOLD of the location residual. On
-            # homoscedastic data |z| = |resid| / sigma_const is rank-identical to
-            # |resid|, so MI(|z|) == MI(|resid|) and the uplift is ~0 -> dropped
-            # (self-limiting). On heteroscedastic data the per-bin scale-norm makes
-            # |z| carry MI the unnormalised |resid| cannot -> uplift clears.
-            #
-            # DEVICE-BORN route: under STRICT-residency the host-built sib_abs matrix is the
-            # ~120 MB host->device upload at this site. Rebuild the |Family-B residual| candidate matrix ON the
-            # device from the small resident operand columns (each (x_i, x_j) sibling recipe carries x_i / x_j /
-            # edges / bin_mean - the SAME bin-code + per-bin-mean gather as the device dispersion builder, only
-            # WITHOUT the /sigma divide -> just subtract + abs), and score with the SAME resident plug-in MI the
-            # host STRICT _mi_classif_batch routes to - collapsing the matrix H2D. The transform is PURE-X /
-            # Y-INDEPENDENT (no OOF / fold / target -> no leak surface) and there is NO divide, so the bin-code /
-            # NaN-fold STRUCTURE is bit-identical AND the values match the host to the last ULP. The dual-uplift
-            # comparison is ADDITIVE on the SAME estimator (cand / raw / sibling MI all route through the resident
-            # plug-in under STRICT), so there is NO uplift-RATIO / baseline-mismatch flip. ``None`` (no cupy /
-            # non-strict / any GPU failure) -> exact host _mi_classif_batch over the host-built sib_abs.
-            sib_pairs = list(sib_names.keys())
-            smi = None
-            try:
-                from ._gpu_strict_fe import fe_gpu_device_born_dual_uplift_enabled
-                if fe_gpu_device_born_dual_uplift_enabled():
-                    sib_specs = []
-                    _ok = True
-                    for xi, xj in sib_pairs:
-                        sn = sib_names[(xi, xj)]
-                        r = sib_recipes.get(sn) if isinstance(sib_recipes, dict) else None
-                        if not r or "x_i" not in r or "x_j" not in r or "edges" not in r or "bin_mean" not in r:
-                            _ok = False
-                            break
-                        sib_specs.append({"x_i": r["x_i"], "x_j": r["x_j"], "edges": r["edges"], "bin_mean": r["bin_mean"]})
-                    if _ok:
-                        from ._extra_fe_families_dispersion_resident import dual_uplift_sibling_mi_resident
-                        _dev = dual_uplift_sibling_mi_resident(X, y_bin, sib_specs, nbins=n_bins)
-                        if _dev is not None:
-                            smi = np.asarray(_dev, dtype=_crit_np_dtype())
-            except Exception as e:
-                logger.warning("dual_uplift_sibling_mi_resident failed, falling back to the host path: %s", e)
-                smi = None
-            if smi is None:
-                sib_abs = np.abs(enc_b[list(sib_names.values())].to_numpy(dtype=_crit_np_dtype()))
-                smi = np.asarray(_mi_classif_batch(sib_abs, y_bin, nbins=n_bins), dtype=_crit_np_dtype())
-            sib_mi = {pair: float(smi[j]) for j, pair in enumerate(sib_pairs)}
+    raw_mi = _raw_source_column_mi(X, raw_cols, y_bin, n_bins)
+    sib_mi = _sibling_residual_mi(X, pairs, y_bin, n_bins)
 
     kept = []
     for nm in winners:
@@ -584,6 +506,103 @@ def _dual_uplift_filter(
         if m >= base_raw + min_uplift and m >= base_sib + min_uplift:
             kept.append(nm)
     return kept
+
+
+def _raw_source_column_mi(X: pd.DataFrame, raw_cols: list, y_bin, n_bins: int) -> dict:
+    """MI of each raw source column, scored in RAM-sized column blocks."""
+    from ._orthogonal_univariate_fe import _mi_classif_batch
+
+    raw_mi: dict = {}
+    if not raw_cols:
+        return raw_mi
+    # Column blocks bound the float64 copy to one RAM-sized slab instead of the whole raw frame (L-27 MemoryError).
+    from ._orthogonal_univariate_fe._orth_mi_backends import _mi_chunk_cols_for
+
+    block_width = _mi_chunk_cols_for(len(X))
+    for start in range(0, len(raw_cols), block_width):
+        block = raw_cols[start : start + block_width]
+        block_arr = X[block].to_numpy(dtype=_crit_np_dtype())
+        rmi = np.asarray(_mi_classif_batch(block_arr, y_bin, nbins=n_bins), dtype=_crit_np_dtype())
+        raw_mi.update({c: float(rmi[j]) for j, c in enumerate(block)})
+    return raw_mi
+
+
+def _sibling_residual_mi(X: pd.DataFrame, pairs: dict, y_bin, n_bins: int) -> dict:
+    """MI of the Family-B mean-residual sibling of each ``(x_i, x_j)`` pair, keyed by the pair."""
+    from ._orthogonal_univariate_fe import _mi_classif_batch
+    from ._extra_fe_families import generate_conditional_residual_features, engineered_name_conditional_residual
+
+    sib_cols = [xi for (xi, xj) in pairs if xi is not None and xj is not None]
+    if not sib_cols:
+        return {}
+    uniq_num = sorted({c for p in pairs for c in p if c is not None and c in X.columns})
+    try:
+        enc_b, sib_recipes = generate_conditional_residual_features(
+            X[uniq_num], uniq_num, n_bins=n_bins,
+        )
+    except Exception as e:
+        logger.warning("generate_conditional_residual_features failed: %s", e)
+        enc_b = pd.DataFrame(index=X.index)
+        sib_recipes = {}
+    sib_names = {}
+    for xi, xj in pairs:
+        if xi is None or xj is None:
+            continue
+        sn = engineered_name_conditional_residual(xi, xj)
+        if sn in enc_b.columns:
+            sib_names[(xi, xj)] = sn
+    if not sib_names:
+        return {}
+    # Compare against the |mean-residual| (the ABSOLUTE Family-B residual),
+    # NOT the signed residual. The load-bearing dispersion emissions are
+    # FOLDS (|z|, z^2); the fair "cheaper location feature it could be
+    # replacing" is the matching FOLD of the location residual. On
+    # homoscedastic data |z| = |resid| / sigma_const is rank-identical to
+    # |resid|, so MI(|z|) == MI(|resid|) and the uplift is ~0 -> dropped
+    # (self-limiting). On heteroscedastic data the per-bin scale-norm makes
+    # |z| carry MI the unnormalised |resid| cannot -> uplift clears.
+    sib_pairs = list(sib_names.keys())
+    smi = _device_born_sibling_mi(X, y_bin, sib_names, sib_recipes, n_bins)
+    if smi is None:
+        sib_abs = np.abs(enc_b[list(sib_names.values())].to_numpy(dtype=_crit_np_dtype()))
+        smi = np.asarray(_mi_classif_batch(sib_abs, y_bin, nbins=n_bins), dtype=_crit_np_dtype())
+    return {pair: float(smi[j]) for j, pair in enumerate(sib_pairs)}
+
+
+def _device_born_sibling_mi(X: pd.DataFrame, y_bin, sib_names: dict, sib_recipes: dict, n_bins: int):
+    """Sibling MI from the device-resident rebuild, or None when that route does not apply."""
+    # DEVICE-BORN route: under STRICT-residency the host-built sib_abs matrix is the
+    # ~120 MB host->device upload at this site. Rebuild the |Family-B residual| candidate matrix ON the
+    # device from the small resident operand columns (each (x_i, x_j) sibling recipe carries x_i / x_j /
+    # edges / bin_mean - the SAME bin-code + per-bin-mean gather as the device dispersion builder, only
+    # WITHOUT the /sigma divide -> just subtract + abs), and score with the SAME resident plug-in MI the
+    # host STRICT _mi_classif_batch routes to - collapsing the matrix H2D. The transform is PURE-X /
+    # Y-INDEPENDENT (no OOF / fold / target -> no leak surface) and there is NO divide, so the bin-code /
+    # NaN-fold STRUCTURE is bit-identical AND the values match the host to the last ULP. The dual-uplift
+    # comparison is ADDITIVE on the SAME estimator (cand / raw / sibling MI all route through the resident
+    # plug-in under STRICT), so there is NO uplift-RATIO / baseline-mismatch flip. ``None`` (no cupy /
+    # non-strict / any GPU failure) -> exact host _mi_classif_batch over the host-built sib_abs.
+    sib_pairs = list(sib_names.keys())
+    try:
+        from ._gpu_strict_fe import fe_gpu_device_born_dual_uplift_enabled
+        if fe_gpu_device_born_dual_uplift_enabled():
+            sib_specs = []
+            _ok = True
+            for xi, xj in sib_pairs:
+                sn = sib_names[(xi, xj)]
+                r = sib_recipes.get(sn) if isinstance(sib_recipes, dict) else None
+                if not r or "x_i" not in r or "x_j" not in r or "edges" not in r or "bin_mean" not in r:
+                    _ok = False
+                    break
+                sib_specs.append({"x_i": r["x_i"], "x_j": r["x_j"], "edges": r["edges"], "bin_mean": r["bin_mean"]})
+            if _ok:
+                from ._extra_fe_families_dispersion_resident import dual_uplift_sibling_mi_resident
+                _dev = dual_uplift_sibling_mi_resident(X, y_bin, sib_specs, nbins=n_bins)
+                if _dev is not None:
+                    return np.asarray(_dev, dtype=_crit_np_dtype())
+    except Exception as e:
+        logger.warning("dual_uplift_sibling_mi_resident failed, falling back to the host path: %s", e)
+    return None
 
 
 def hybrid_conditional_dispersion_fe(

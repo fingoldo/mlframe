@@ -252,55 +252,61 @@ def _pair_binned_mi_njit(x: np.ndarray, y: np.ndarray, probs: np.ndarray) -> flo
 
 
 @numba.njit(cache=True)
-def _group_relevance_one_group_add(block: np.ndarray, y_g: np.ndarray, probs: np.ndarray, acc: np.ndarray, w: float) -> None:
-    """Accumulate ``w * MI(feature, y_g)`` for every column into ``acc`` in place, for one query group."""
-    n = block.shape[0]
-    ncols = block.shape[1]
-    y_ok = True
+def _group_y_edges(y_g: np.ndarray, probs: np.ndarray):
+    """Quantile edges of one group's target; the bool is False when the target is non-finite, constant, or yields fewer than two edges."""
+    n = y_g.shape[0]
     for i in range(n):
         if not np.isfinite(y_g[i]):
-            y_ok = False
+            return np.empty(0, dtype=np.float64), False
+    ymin = y_g[0]
+    ymax = y_g[0]
+    for i in range(1, n):
+        if y_g[i] < ymin:
+            ymin = y_g[i]
+        elif y_g[i] > ymax:
+            ymax = y_g[i]
+    if ymax <= ymin:
+        return np.empty(0, dtype=np.float64), False
+    ye = _dedupe_monotone(_quantile_linear_from_sorted(np.sort(y_g), probs))
+    return ye, ye.shape[0] >= 2
+
+
+@numba.njit(cache=True)
+def _accumulate_column_mi(col: np.ndarray, y_g: np.ndarray, probs: np.ndarray, ye: np.ndarray, w: float, acc: np.ndarray, j: int) -> None:
+    """Add ``w * MI(col, y_g)`` into ``acc[j]`` for one column of a group whose target has usable edges ``ye``."""
+    n = col.shape[0]
+    col_ok = True
+    for i in range(n):
+        if not np.isfinite(col[i]):
+            col_ok = False
             break
-    ye = np.empty(0, dtype=np.float64)
-    if y_ok:
-        ymin = y_g[0]
-        ymax = y_g[0]
+    if col_ok:
+        cmin = col[0]
+        cmax = col[0]
         for i in range(1, n):
-            if y_g[i] < ymin:
-                ymin = y_g[i]
-            elif y_g[i] > ymax:
-                ymax = y_g[i]
-        if ymax > ymin:
-            ye = _dedupe_monotone(_quantile_linear_from_sorted(np.sort(y_g), probs))
-            if ye.shape[0] < 2:
-                y_ok = False
-        else:
-            y_ok = False
+            v = col[i]
+            if v < cmin:
+                cmin = v
+            elif v > cmax:
+                cmax = v
+        if cmax <= cmin:
+            return
+        xe = _dedupe_monotone(_quantile_linear_from_sorted(np.sort(col), probs))
+        if xe.shape[0] < 2:
+            return
+        acc[j] += w * _mi_from_edges(col, y_g, xe, ye)
+    else:
+        acc[j] += w * _pair_binned_mi_njit(col, y_g, probs)
+
+
+@numba.njit(cache=True)
+def _group_relevance_one_group_add(block: np.ndarray, y_g: np.ndarray, probs: np.ndarray, acc: np.ndarray, w: float) -> None:
+    """Accumulate ``w * MI(feature, y_g)`` for every column into ``acc`` in place, for one query group."""
+    ncols = block.shape[1]
+    ye, y_ok = _group_y_edges(y_g, probs)
     if y_ok:
         for j in range(ncols):
-            col = np.ascontiguousarray(block[:, j])
-            col_ok = True
-            for i in range(n):
-                if not np.isfinite(col[i]):
-                    col_ok = False
-                    break
-            if col_ok:
-                cmin = col[0]
-                cmax = col[0]
-                for i in range(1, n):
-                    v = col[i]
-                    if v < cmin:
-                        cmin = v
-                    elif v > cmax:
-                        cmax = v
-                if cmax <= cmin:
-                    continue
-                xe = _dedupe_monotone(_quantile_linear_from_sorted(np.sort(col), probs))
-                if xe.shape[0] < 2:
-                    continue
-                acc[j] += w * _mi_from_edges(col, y_g, xe, ye)
-            else:
-                acc[j] += w * _pair_binned_mi_njit(col, y_g, probs)
+            _accumulate_column_mi(np.ascontiguousarray(block[:, j]), y_g, probs, ye, w, acc, j)
     else:
         for j in range(ncols):
             acc[j] += w * _pair_binned_mi_njit(np.ascontiguousarray(block[:, j]), y_g, probs)
