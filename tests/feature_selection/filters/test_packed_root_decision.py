@@ -83,3 +83,20 @@ def test_joint_counts_from_packed_labels_equal_the_unpacked_pass():
             _joint_from_sorted(x, ys.astype(np.int64), edges, n_x, 2, want)
             _joint_from_bits(x, raw, edges, n_x, 2, got)
             assert np.array_equal(want, got), (n, edges)
+
+
+def test_sorted_labels_packed_from_packed_rows_equal_the_direct_pack():
+    """Packing the permuted label rows first and gathering bits gives the packed sorted stream (and the one count) the direct gather gives."""
+    from mlframe.feature_selection.filters._numba_utils_cross_module import pack_label_rows, pack_sorted_labels_from_bits
+
+    rng = np.random.default_rng(8)
+    for n in (1, 63, 64, 65, 1000, 4099):
+        rows = (rng.random((3, n)) < 0.4).astype(np.int8)
+        order = rng.permutation(n).astype(np.int32)
+        bits = pack_label_rows(rows)
+        for b in range(3):
+            want = np.zeros((n + 63) >> 6, dtype=np.uint64)
+            got = np.zeros((n + 63) >> 6, dtype=np.uint64)
+            ones_want = pack_sorted_labels(rows[b], order, want)
+            ones_got = pack_sorted_labels_from_bits(bits[b], order, got)
+            assert np.array_equal(want, got) and ones_want == ones_got

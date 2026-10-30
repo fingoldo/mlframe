@@ -92,7 +92,8 @@ from ._numba_utils import (  # helpers hosted in _numba_utils_cross_module for t
     column_tie_runs,
     _count_ones_bits,
     dedup_label_bits,
-    pack_sorted_labels,
+    pack_label_rows,
+    pack_sorted_labels_from_bits,
     root_decision_packed,
 )
 
@@ -288,7 +289,7 @@ def _occupied_rows(joint: np.ndarray, n_x: int) -> int:
 
 @njit(cache=True)
 def _perm_cuts(
-    use_precheck, tie_free, order_row, yr_b, raw_bits, dd_bits, ysrt, xsrt, run_start, run_end, forb, no_cuts, n_classes_total, min_split_size, max_depth, alpha, n_permutations, seed,
+    use_precheck, tie_free, order_row, yr_b, yr_bits, raw_bits, dd_bits, ysrt, xsrt, run_start, run_end, forb, no_cuts, n_classes_total, min_split_size, max_depth, alpha, n_permutations, seed,
     analytic_min_n, analytic_min_cell,
 ):
     """``(cuts, root_rejected)`` of the tree of one (column, permutation). With the precheck on, the sorted 0/1 labels are packed 64 to a word (``raw_bits``), the root is judged on the packed
@@ -296,7 +297,7 @@ def _perm_cuts(
     sorted labels are gathered and the tree is searched."""
     n = ysrt.shape[0]
     if use_precheck:
-        pack_sorted_labels(yr_b, order_row, raw_bits)
+        pack_sorted_labels_from_bits(yr_bits, order_row, raw_bits)
         m_d, n_forb = dedup_label_bits(raw_bits, n, run_start, run_end, dd_bits, forb)
         verdict = root_decision_packed(dd_bits, m_d, forb, n_forb, min_split_size, alpha, analytic_min_n, analytic_min_cell)
         if verdict == 0:
@@ -349,6 +350,8 @@ def honest_null_columns_bycol(
     plain = np.zeros((n_perm_rows, k), dtype=np.float64)  # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
     corrected = np.zeros((n_perm_rows, k), dtype=np.float64)  # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
     order = _presort_columns(raw_cont)
+    # the permuted 0/1 labels of the root test, 64 to a word: the gather through a column's sorted order reads a row of n / 8 bytes
+    y_bits = pack_label_rows(y_raw_perm) if (precheck and n_classes_total == 2) else np.zeros((n_perm_rows, 0), dtype=np.uint64)
     # Per permutation (not per column): the number of target codes and of occupied target codes over the evaluation rows.
     ky_eff_perm, ny_perm, same_labels = _bycol_perm_label_stats(n_perm_rows, y_codes_perm, m, eval_rows, n, y_raw_perm)
     # The root node takes its own per-permutation test (``_perm_cuts`` passes no shared root threshold), as the production recursion does: a threshold shared across permutations
@@ -379,7 +382,7 @@ def honest_null_columns_bycol(
             if is_cont[j]:
                 sj = col_slot[j]
                 cuts, root_rejected = _perm_cuts(
-                    use_precheck, tie_free, order[sj], yr_b, raw_bits, dd_bits, ysrt, xsrt, run_start, run_end, forb, no_cuts, n_classes_total, min_split_size, max_depth, alpha, n_permutations,
+                    use_precheck, tie_free, order[sj], yr_b, y_bits[b], raw_bits, dd_bits, ysrt, xsrt, run_start, run_end, forb, no_cuts, n_classes_total, min_split_size, max_depth, alpha, n_permutations,
                     seed, analytic_min_n, analytic_min_cell,
                 )
                 final = _supervised_edges_sorted(xsrt, cuts, q_fallback[j, : q_fallback_len[j]], q_refine[j, : q_refine_len[j]])

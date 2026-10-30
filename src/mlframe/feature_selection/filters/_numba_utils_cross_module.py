@@ -1269,3 +1269,39 @@ def root_decision_packed(bits: np.ndarray, m: int, forb: np.ndarray, n_forb: int
         return REJECTED
     p_value = min(1.0, _analytic_p_value(best_gain, n, 2) * max(1, n_cand))
     return ACCEPTED if p_value < alpha else REJECTED
+
+
+@njit(cache=True, parallel=True)
+def pack_label_rows(rows: np.ndarray) -> np.ndarray:
+    """``(rows, words)`` uint64: every row of the 0/1 matrix ``rows`` packed 64 labels to a word (bit ``i`` of a row is bit ``i & 63`` of word ``i >> 6``)."""
+    n_rows = rows.shape[0]
+    n = rows.shape[1]
+    words = (n + 63) >> 6
+    out = np.zeros((n_rows, words), dtype=np.uint64)
+    for b in prange(n_rows):
+        for w in range(words):
+            base = w << 6
+            count = min(64, n - base)
+            acc = np.uint64(0)
+            for k in range(count):
+                acc |= np.uint64(rows[b, base + k]) << np.uint64(k)
+            out[b, w] = acc
+    return out
+
+
+@njit(cache=True)
+def pack_sorted_labels_from_bits(label_bits: np.ndarray, order_row: np.ndarray, raw_bits: np.ndarray) -> int:
+    """``pack_sorted_labels`` for labels held packed in ``label_bits``: the random reads of the gather hit a row of n / 8 bytes (cache resident) instead of n."""
+    n = order_row.shape[0]
+    words = (n + 63) >> 6
+    ones = 0
+    for w in range(words):
+        base = w << 6
+        count = min(64, n - base)
+        acc = np.uint64(0)
+        for k in range(count):
+            r = order_row[base + k]
+            acc |= ((label_bits[r >> 6] >> np.uint64(r & 63)) & np.uint64(1)) << np.uint64(k)
+        raw_bits[w] = acc
+        ones += _pc64(acc)
+    return ones
