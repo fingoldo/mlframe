@@ -37,7 +37,6 @@
   "src/mlframe/feature_selection/filters/_hinge_basis_fe.py::_hinge_cut_scan_njit": 19,
   "src/mlframe/feature_selection/filters/_hinge_detect_gpu_resident.py::detect_hinge_breakpoints_gpu": 16,
   "src/mlframe/feature_selection/filters/_mdlp_validated_split.py::_mdlp_recurse_validated_bfs": 17,
-  "src/mlframe/feature_selection/filters/_mi_greedy_cmi_fe_steps.py::_greedy_cmi_fe_constr_step3_while_st_remaining": 22,
   "src/mlframe/feature_selection/filters/_mrmr_fe_step/_step_pairs_rank.py::_maybe_relax_prevalence_for_tail_concentrated_pool": 16,
   "src/mlframe/feature_selection/filters/_mrmr_fe_step/_step_score_parts.py::_materialise_and_fina_step1_no_op_byte": 22,
   "src/mlframe/feature_selection/filters/_mrmr_fe_step_helpers.py::_apply_synergy_bootstrap_part1": 21,
