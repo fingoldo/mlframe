@@ -1149,7 +1149,7 @@ def dedup_label_bits(raw_bits: np.ndarray, n: int, run_start: np.ndarray, run_en
         m = _copy_bits(raw_bits, p, a, out_bits, m)
         ones = 0
         for i in range(a, e):
-            ones += np.int64((raw_bits[i >> 6] >> np.uint64(i & 63)) & np.uint64(1))
+            ones += int((raw_bits[i >> 6] >> np.uint64(i & 63)) & np.uint64(1))
         zeros = (e - a) - ones
         if zeros > 0:
             m += 1  # a 0 point: the bit stays zero
@@ -1249,7 +1249,7 @@ def root_decision_packed(bits: np.ndarray, m: int, forb: np.ndarray, n_forb: int
             if bound >= 0.999999 * min(f_first, f_last):
                 c1 = c1_before
                 for i in range(base, last + 1):
-                    c1 += np.int64((word >> np.uint64(i - base)) & np.uint64(1))
+                    c1 += int((word >> np.uint64(i - base)) & np.uint64(1))
                     if i >= first:
                         fl = float(i + 1)
                         dd = float(c1) * fn - fl * ft1
