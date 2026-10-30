@@ -163,7 +163,10 @@ def edges_optimal_joint(
         if plan_cache is not None:
             plan_cache.put(keyed, candidates, n_splits, base, random_state, plan)
     fold_target = plan_cache.fold_target_provider(y, plan["shape_key"], max_y_classes) if plan_cache is not None else None
-    best_M = _optimal_joint_best_m(plan, y, candidates, max_y_classes, fold_target)
+    # a binner that scored every column of a permutation at once (``prescore_best_m``) left the winner on the plan
+    best_M = plan.get("best", {}).get(plan_cache._target_key(y)) if plan_cache is not None else None
+    if best_M is None:
+        best_M = _optimal_joint_best_m(plan, y, candidates, max_y_classes, fold_target)
     if best_M is None:
         # No candidate M was ever scored by ANY fold - e.g. every candidate in ``candidates`` exceeds
         # every fold's train size, or every fold/candidate combination produced degenerate (empty) train
@@ -176,6 +179,47 @@ def edges_optimal_joint(
         return cast(np.ndarray, _a().edges_freedman_diaconis(x, base=base))
     # Return edges built on full data at the winning M.
     return _optimal_joint_final_edges(plan, best_M)
+
+
+def pack_plans(plans: "list[dict]", candidates: tuple) -> Optional[dict]:
+    """The validation values of many columns' plans in one array per quantity, for :func:`prescore_best_m`; ``None`` when the plans do not share folds or hold wide bin codes."""
+    ms = [M for M in candidates if M >= 2]
+    first = plans[0]["folds"]
+    if not first or any(plan["shape_key"] != plans[0]["shape_key"] or [f[0] for f in plan["folds"]] != [f[0] for f in first] for plan in plans):
+        return None
+    n_f, p = len(first), len(plans)
+    nv = np.array([int(vm.sum()) for _k, vm, _c in first], dtype=np.int64)
+    xb = np.zeros((n_f, p, len(ms), int(nv.max())), dtype=np.int8)
+    kx = np.zeros((n_f, p, len(ms)), dtype=np.int64)
+    for j, plan in enumerate(plans):
+        for f, (_k, _vm, cells) in enumerate(plan["folds"]):
+            for M, x_b, k_x in cells:
+                if x_b.dtype != np.int8:
+                    return None
+                xb[f, j, ms.index(M), : x_b.size] = x_b
+                kx[f, j, ms.index(M)] = k_x
+    return {"xb": xb, "kx": kx, "nv": nv, "folds": [(k, vm) for k, vm, _c in first], "ms": ms}
+
+
+def prescore_best_m(packed: dict, plans: "list[dict]", y: np.ndarray, y_key: str, fold_target: Any) -> None:
+    """Pick the winning bin count of every column for the target ``y`` in one parallel kernel and leave it on the plan (``plan["best"][y_key]``), where ``edges_optimal_joint`` finds it."""
+    from mlframe._numba_parallel_guard import parallel_kernel_entry
+
+    n_f = len(packed["folds"])
+    vy = np.zeros((n_f, int(packed["nv"].max())), dtype=np.int64)
+    ky = np.zeros(n_f, dtype=np.int64)
+    for f, (k, vm) in enumerate(packed["folds"]):
+        val_y_b, k_y = fold_target(k, vm)
+        vy[f, : val_y_b.size] = val_y_b
+        ky[f] = k_y
+    with parallel_kernel_entry():
+        pick = _a()._oj_pick_candidates(packed["xb"], packed["kx"], packed["nv"], vy, ky)
+    for plan, m in zip(plans, pick):
+        best = plan.setdefault("best", {})
+        if len(best) >= 4:
+            best.clear()
+        if m >= 0:
+            best[y_key] = packed["ms"][int(m)]
 
 
 _MEMO_ENTRIES = 20000  # collapse refinements kept per cache: columns x the few edge sets each can take

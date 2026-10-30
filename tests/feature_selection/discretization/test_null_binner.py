@@ -125,3 +125,20 @@ def test_corrected_mi_best_equals_the_per_column_loop():
     for layout in (np.ascontiguousarray, np.asfortranarray):
         got = corrected_mi_best(layout(codes), nb, fixed, fnb, cols, yc, 2, float(np.unique(yc).size), n)
         assert got == pytest.approx(best, abs=1e-12)
+
+
+def test_the_candidate_scoring_runs_once_per_permutation_in_one_kernel(monkeypatch):
+    """After the first permutation built the plans, the winners of all columns come from the batched kernel and the per-column search is not run."""
+    from mlframe.feature_selection.filters import _optimal_joint_edges as O
+
+    frame = _frame()
+    y = (np.random.default_rng(1).random(len(frame)) < 0.4).astype(np.int64)
+    kwargs = {"optimal_joint_plan_cache": A.OptimalJointPlanCache()}
+    binner = PermutedTargetBinner(frame[["normal", "skew", "withnan", "f32"]], "separate_bin", "optimal_joint", kwargs, np.int16)
+    assert binner.codes(y) is not None  # builds the plans
+    calls = []
+    real = O._optimal_joint_best_m
+    monkeypatch.setattr(O, "_optimal_joint_best_m", lambda *a, **k: (calls.append(1), real(*a, **k))[1])
+    for s in range(1, 4):
+        assert binner.codes(y[np.random.default_rng(s).permutation(y.size)]) is not None
+    assert not calls and binner._packed is not None

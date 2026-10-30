@@ -51,7 +51,8 @@ class PermutedTargetBinner:
         nan_mask = np.isnan(arr) if (missing_strategy in ("separate_bin", "propagate") and arr.size > 0) else None
         nan_cols = np.flatnonzero(nan_mask.any(axis=0)) if nan_mask is not None else np.empty(0, dtype=np.int64)
         arr = _handle_missing(arr, strategy=missing_strategy, nan_mask=nan_mask)
-        self._arr = np.asfortranarray(arr)  # a column is one contiguous run
+        # a column is one contiguous run, in the float64 the edge builders convert each column to (the float32 values widen exactly, so every comparison is the same)
+        self._arr = np.asfortranarray(arr, dtype=np.float64)
         self._nan = {int(j): nan_mask[:, j].copy() for j in nan_cols} if nan_mask is not None else {}
         self._strategy = nbins_strategy
         self._kwargs = dict(nbins_strategy_kwargs or {})
@@ -61,6 +62,8 @@ class PermutedTargetBinner:
         self._table = np.empty((0, arr.shape[0]), dtype=dtype)
         self._col_max = np.empty(0, dtype=np.int64)
         self._used = 0
+        self._plans: Optional[list] = None  # the cached optimal-joint plan of every re-binned column, once they all exist
+        self._packed: Optional[dict] = None
         # place of each output column: a position among the re-binned columns, or the table row of a fixed column
         position = {str(c): j for j, c in enumerate(self.cols)}
         names = [str(c) for c in (self.cols if out_cols is None else out_cols)]
@@ -83,6 +86,29 @@ class PermutedTargetBinner:
         if not isinstance(df, pd.DataFrame) or df.shape[0] == 0 or df.shape[1] == 0:
             return False
         return df.select_dtypes(include=("category", "object", "string", "bool")).shape[1] == 0
+
+    def _prescore(self, y: np.ndarray) -> None:
+        """Score the candidate bin counts of every column for ``y`` in one parallel kernel (``optimal_joint`` with a plan cache), once the plans of all columns are cached."""
+        cache = self._kwargs.get("optimal_joint_plan_cache")
+        if cache is None or str(self._strategy).lower() not in ("optimal_joint", "cv") or (y.dtype.kind == "f" and not np.isfinite(y).all()):
+            return
+        from .._optimal_joint_edges import pack_plans, prescore_best_m
+
+        candidates = tuple(self._kwargs.get("candidates", (4, 8, 16, 32)))
+        n_splits, seed = self._kwargs.get("n_splits", 3), self._kwargs.get("random_state", 0)
+        if self._packed is None:
+            if self._plans is False:  # type: ignore[comparison-overlap]
+                return
+            plans = [cache.get(self._arr[:, j], candidates, n_splits, "quantile", seed) for j in range(self._arr.shape[1])]
+            if any(plan is None for plan in plans):
+                return  # the first permutation builds the plans on the normal route
+            packed = pack_plans(plans, candidates)
+            if packed is None:
+                self._plans = False  # type: ignore[assignment]
+                return
+            self._plans, self._packed = plans, packed
+        assert self._plans is not None
+        prescore_best_m(self._packed, self._plans, y, cache._target_key(y), cache.fold_target_provider(y, self._plans[0]["shape_key"], self._kwargs.get("optimal_joint_max_y_classes", 64)))
 
     def _slot(self, j: int, edges: np.ndarray, nan_code: int) -> Optional[int]:
         """Table row holding the code column of column ``j`` under ``edges``, encoded on first use; ``None`` when the table is at its budget."""
@@ -122,6 +148,7 @@ class PermutedTargetBinner:
         """``(codes, columns, bin counts)`` as ``categorize_dataset`` returns them for the target ``y`` (codes as int64, column-contiguous), or ``None`` when the caller should use ``categorize_dataset`` (budget, dtype range)."""
         from .._adaptive_nbins import per_feature_edges
 
+        self._prescore(np.asarray(y).ravel())
         edges_list = per_feature_edges(self._arr, y=np.asarray(y).ravel(), method=self._strategy, cache_dir=None, **self._kwargs)
         if max((int(e.size) + 1 for e in edges_list), default=1) > np.iinfo(self._dtype).max:
             return None
