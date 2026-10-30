@@ -582,6 +582,9 @@ def _finalise_fs_results_part1(
     from ._fe_roster_attrs import reconcile_fe_rosters
 
     reconcile_fe_rosters(self)
+    from ._recipe_operand_retention import retain_recipe_operands_final
+
+    retain_recipe_operands_final(self)
 
     # Final re-alignment: the group-aware demotion just above is the LAST n_features_ mutation, and it does
     # not touch mrmr_gains_. Re-run the trim/pad here so the len(mrmr_gains_) == n_features_ contract holds

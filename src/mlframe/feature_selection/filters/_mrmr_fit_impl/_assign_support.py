@@ -762,29 +762,8 @@ def _readd_redundancy_dropped_engineered(self, selected_vars, cols, data, target
             _eb_name_to_in = {nm: i for i, nm in enumerate(self.feature_names_in_)}
             _eb_cols_idx = {nm: i for i, nm in enumerate(cols)}
             _eb_recipes = {getattr(_r, "name", None): _r for _r in (getattr(self, "_engineered_recipes_", None) or [])}
-            from mlframe.feature_selection.filters.evaluation import mrmr_null_signif_alpha
-
-            _eb_alpha = mrmr_null_signif_alpha()
-            _eb_qdtype = getattr(self, "quantization_dtype", np.int32)
+            # Every raw operand of a selected recipe is kept: the downstream model may learn from it what the composite does not express. Noise stays out because operands come only from selected recipes.
             _eb_operands, _eb_owners = _collect_engineered_operands(_eb_recipes, _eb_raw_names, _eb_cols_idx, _eb_sel_set)
-
-            def _eb_operand_is_signal(_cols_i, _operand):
-                """True when the raw operand adds information about y beyond EVERY selected engineered feature that contains it: its conditional MI given that feature's bins is significant against a within-stratum permutation null (alpha shared over the operands tested). An operand a composite already explains (the three operands of a XOR, whose marginals carry nothing) is redundant next to it; an estimator error keeps the operand, re-attached unverified."""
-                from mlframe.feature_selection.filters._fallback_probe import call_or_default
-
-                def _probe():
-                    """Conditional-significance verdict over the operand's owners."""
-                    from mlframe.feature_selection.filters._mrmr_fit_impl._operand_information import operand_adds_information
-
-                    return operand_adds_information(
-                        data, int(target_indices[0]), int(_cols_i), _eb_owners.get(_operand, []), _eb_alpha / max(1, len(_eb_operands)),
-                        int(getattr(self, "random_seed", 0) or 0), _operand,
-                    )
-
-                return bool(call_or_default(
-                    _probe, True, key="mrmr_emit_both_operand_probe_failed",
-                    message="mrmr: conditional-MI significance probe failed; the operand is re-attached without verification",
-                ))
             _eb_added = []
             for _op in _eb_operands:
                 _idx = _eb_name_to_in.get(_op)
@@ -792,9 +771,8 @@ def _readd_redundancy_dropped_engineered(self, selected_vars, cols, data, target
                     continue
                 if _allowed_raw_idx is not None and int(_idx) not in _allowed_raw_idx:
                     continue
-                _eb_ci = _eb_cols_idx.get(_op)
-                if _eb_ci is None or not _eb_operand_is_signal(_eb_ci, _op):
-                    continue  # the composite already explains this operand -> not re-attached
+                if _eb_cols_idx.get(_op) is None:
+                    continue
                 selected_vars.append(int(_idx))
                 _eb_sel_set.add(int(_idx))
                 _eb_added.append(_op)
