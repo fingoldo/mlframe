@@ -25,7 +25,6 @@
   "src/mlframe/feature_selection/filters/_feature_engineering_pairs/_pairs_score_steps.py::_score_one_pair_step3_step2_transformations_pair_st": 18,
   "src/mlframe/feature_selection/filters/_gpu_resident_shared.py::_binary_apply": 18,
   "src/mlframe/feature_selection/filters/_hermite_fe_optimise_parts.py::_eval_coef_pair_batch_part1": 18,
-  "src/mlframe/feature_selection/filters/_hermite_fe_optimise_parts.py::_optimise_pair_multimode_part1": 20,
   "src/mlframe/feature_selection/filters/_hinge_basis_fe.py::_hinge_cut_scan_njit": 19,
   "src/mlframe/feature_selection/filters/_hinge_detect_gpu_resident.py::detect_hinge_breakpoints_gpu": 16,
   "src/mlframe/feature_selection/filters/_mdlp_validated_split.py::_mdlp_recurse_validated_bfs": 17,
