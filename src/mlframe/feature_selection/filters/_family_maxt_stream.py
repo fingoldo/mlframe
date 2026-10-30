@@ -13,6 +13,8 @@ A family whose stack fits the budget keeps the single-pass path (and its column 
 
 from __future__ import annotations
 
+from typing import cast
+
 import numpy as np
 
 from mlframe._numba_parallel_guard import parallel_kernel_entry
@@ -86,7 +88,7 @@ def streamed_null_max(mats: "list[np.ndarray]", groups: "list[list[tuple[int, in
                     acc = cp.zeros(int(m), dtype=cp.float64)  # Intentional float64: statistic vector, exact permutation ties
                 family_null_max(cols, n_x, y, n_y, int(m), replay, acc=acc)
             else:
-                out = np.maximum(out, family_null_max(cols, n_x, y, n_y, int(m), replay))
+                out = np.maximum(out, cast(np.ndarray, family_null_max(cols, n_x, y, n_y, int(m), replay)))  # no accumulator: the maxima come back
             rng.bit_generator.state = replay.bit_generator.state
             del cols
         if acc is not None:

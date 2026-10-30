@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import logging
 import threading
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 
@@ -149,7 +149,7 @@ def null_max_bits_device(dev: DeviceBitsets, cls_host: np.ndarray, py_const: flo
 
 def mi_matrix_bits_device(dev: DeviceBitsets, cls_host: np.ndarray, const_b: np.ndarray) -> np.ndarray:
     """``(B, K)`` plug-in MI of every column against every label vector; ``const_b[b] = n log n - sum_c xlogx(count_c)`` of label vector ``b`` (they differ when each vector has its own class counts)."""
-    return _run(dev, cls_host, const_b, reduce_max=False)
+    return cast(np.ndarray, _run(dev, cls_host, const_b, reduce_max=False))  # no accumulator, so the matrix is always returned
 
 
 def _run(dev: DeviceBitsets, cls_host: np.ndarray, const_b: np.ndarray, reduce_max: bool, acc: Any = None) -> np.ndarray | None:
