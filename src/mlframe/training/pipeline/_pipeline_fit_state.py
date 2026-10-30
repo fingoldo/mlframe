@@ -244,6 +244,74 @@ def _check_row_preserving(out, held) -> None:
         _raise_pre_pipeline_rowcount_change(held_n, out_n)
 
 
+def _fit_with_optional_kwargs(_fn, _arg, _target_arg, *, groups, sample_weight, wants_sw, sw_kwarg):
+    """Invoke fit/fit_transform with ``groups`` / ``sample_weight`` when supported.
+
+    sklearn feature selectors that consume groups (RFECV(cv=GroupKFold()), MRMR)
+    accept ``groups`` as a kwarg on ``fit`` / ``fit_transform``. MRMR.fit and
+    RFECV.fit also accept ``sample_weight``; the marker
+    ``_mlframe_use_sample_weights_in_fs_`` gates whether to forward it.
+    Best-effort: if the underlying transformer does not accept a kwarg we retry
+    without it instead of failing.
+
+    sklearn Pipeline.fit raises ``ValueError`` (not ``TypeError``) when an
+    unrecognised kwarg like ``groups`` is passed; the routing layer rejects
+    non-step-namespaced parameters with a "Pipeline.fit does not accept"
+    message. Treat that as the same "does not consume groups" signal as
+    a plain ``TypeError`` from a bare transformer.
+    """
+    _kwargs = {}
+    if groups is not None:
+        _kwargs["groups"] = groups
+    if wants_sw:
+        _kwargs[sw_kwarg] = sample_weight
+    if not _kwargs:
+        return _fn(_arg, _target_arg)
+    try:
+        return _fn(_arg, _target_arg, **_kwargs)
+    except TypeError:
+        # Drop sample_weight first (more selectors accept groups than sw); then drop groups.
+        if sw_kwarg in _kwargs:
+            _kwargs.pop(sw_kwarg)
+            if _kwargs:
+                try:
+                    return _fn(_arg, _target_arg, **_kwargs)
+                except TypeError:
+                    pass
+        return _fn(_arg, _target_arg)
+    except ValueError as _exc:
+        _msg = str(_exc)
+        if (
+            "does not accept the groups parameter" in _msg
+            or "got an unexpected keyword argument" in _msg
+            or "unexpected keyword argument 'groups'" in _msg
+            or "unexpected keyword argument 'sample_weight'" in _msg
+        ):
+            if sw_kwarg in _kwargs:
+                _kwargs.pop(sw_kwarg)
+                if _kwargs:
+                    try:
+                        return _fn(_arg, _target_arg, **_kwargs)
+                    except (TypeError, ValueError):
+                        pass
+            return _fn(_arg, _target_arg)
+        raise
+
+
+def _run_and_empty_check(_fn, _arg, _target_arg, *, fit, fit_kwargs):
+    """Run the (possibly fit-)transform and, if it fails with numpy's "need at least one array to concatenate" (a transformer that dropped every column), swallow it and return an empty frame/array of matching row count so downstream 0-feature guards see a consistent shape instead of a raw crash."""
+    try:
+        return _fit_with_optional_kwargs(_fn, _arg, _target_arg, **fit_kwargs) if fit else _fn(_arg)
+    except ValueError as _exc:
+        _m = str(_exc)
+        if "need at least one array to concatenate" in _m or "at least one array or dtype is required" in _m:
+            # Empty output (0 features); return an empty DataFrame of
+            # matching shape so the suite's downstream 0-feature guard
+            # catches it.
+            return _empty_selection_output(_arg)
+        raise
+
+
 def _passthrough_cols_fit_transform(fn, df, *args, passthrough_cols=None, fit=False, target=None, groups=None, sample_weight=None):
     """Run a selector fit/transform on df with passthrough_cols hidden, then re-attach them.
 
@@ -296,77 +364,13 @@ def _passthrough_cols_fit_transform(fn, df, *args, passthrough_cols=None, fit=Fa
     _wants_sw = bool(sample_weight is not None and getattr(_selector, "_mlframe_use_sample_weights_in_fs_", False))
     _sw_kwarg = "pre__sample_weight" if _sw_via_pipeline else "sample_weight"
 
-    def _call_fit(_fn, _arg, _target_arg):
-        """Invoke fit/fit_transform with ``groups`` / ``sample_weight`` when supported.
-
-        sklearn feature selectors that consume groups (RFECV(cv=GroupKFold()), MRMR)
-        accept ``groups`` as a kwarg on ``fit`` / ``fit_transform``. MRMR.fit and
-        RFECV.fit also accept ``sample_weight``; the marker
-        ``_mlframe_use_sample_weights_in_fs_`` gates whether to forward it.
-        Best-effort: if the underlying transformer does not accept a kwarg we retry
-        without it instead of failing.
-
-        sklearn Pipeline.fit raises ``ValueError`` (not ``TypeError``) when an
-        unrecognised kwarg like ``groups`` is passed; the routing layer rejects
-        non-step-namespaced parameters with a "Pipeline.fit does not accept"
-        message. Treat that as the same "does not consume groups" signal as
-        a plain ``TypeError`` from a bare transformer.
-        """
-        _kwargs = {}
-        if groups is not None:
-            _kwargs["groups"] = groups
-        if _wants_sw:
-            _kwargs[_sw_kwarg] = sample_weight
-        if not _kwargs:
-            return _fn(_arg, _target_arg)
-        try:
-            return _fn(_arg, _target_arg, **_kwargs)
-        except TypeError:
-            # Drop sample_weight first (more selectors accept groups than sw); then drop groups.
-            if _sw_kwarg in _kwargs:
-                _kwargs.pop(_sw_kwarg)
-                if _kwargs:
-                    try:
-                        return _fn(_arg, _target_arg, **_kwargs)
-                    except TypeError:
-                        pass
-            return _fn(_arg, _target_arg)
-        except ValueError as _exc:
-            _msg = str(_exc)
-            if (
-                "does not accept the groups parameter" in _msg
-                or "got an unexpected keyword argument" in _msg
-                or "unexpected keyword argument 'groups'" in _msg
-                or "unexpected keyword argument 'sample_weight'" in _msg
-            ):
-                if _sw_kwarg in _kwargs:
-                    _kwargs.pop(_sw_kwarg)
-                    if _kwargs:
-                        try:
-                            return _fn(_arg, _target_arg, **_kwargs)
-                        except (TypeError, ValueError):
-                            pass
-                return _fn(_arg, _target_arg)
-            raise
-
-    def _run_and_empty_check(_fn, _arg, _target_arg):
-        """Run the (possibly fit-)transform and, if it fails with numpy's "need at least one array to concatenate" (a transformer that dropped every column), swallow it and return an empty frame/array of matching row count so downstream 0-feature guards see a consistent shape instead of a raw crash."""
-        try:
-            return _call_fit(_fn, _arg, _target_arg) if fit else _fn(_arg)
-        except ValueError as _exc:
-            _m = str(_exc)
-            if "need at least one array to concatenate" in _m or "at least one array or dtype is required" in _m:
-                # Empty output (0 features); return an empty DataFrame of
-                # matching shape so the suite's downstream 0-feature guard
-                # catches it.
-                return _empty_selection_output(_arg)
-            raise
+    _fit_kwargs = {"groups": groups, "sample_weight": sample_weight, "wants_sw": _wants_sw, "sw_kwarg": _sw_kwarg}
 
     if not passthrough_cols or df is None or not hasattr(df, "columns"):
-        return _run_and_empty_check(fn, df, target)
+        return _run_and_empty_check(fn, df, target, fit=fit, fit_kwargs=_fit_kwargs)
     present = [c for c in passthrough_cols if c in df.columns]
     if not present:
-        return _run_and_empty_check(fn, df, target)
+        return _run_and_empty_check(fn, df, target, fit=fit, fit_kwargs=_fit_kwargs)
     is_polars = isinstance(df, pl.DataFrame)
     if is_polars:
         held = df.select(present)
@@ -374,7 +378,7 @@ def _passthrough_cols_fit_transform(fn, df, *args, passthrough_cols=None, fit=Fa
     else:
         held = df[present]
         reduced = df.drop(columns=present)
-    out = _call_fit(fn, reduced, target) if fit else fn(reduced)
+    out = _fit_with_optional_kwargs(fn, reduced, target, **_fit_kwargs) if fit else fn(reduced)
     # Row-preserving-slot guard: a resampler makes ``out`` grow/shrink vs ``held``, misaligning the
     # positional re-attach below. Raise the shared actionable message (not an opaque pandas error).
     _check_row_preserving(out, held)
