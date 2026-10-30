@@ -36,7 +36,6 @@
   "src/mlframe/feature_selection/filters/_mrmr_fit_impl/_fit_impl_stages/_post_selection.py::_run_additional_rfecv": 17,
   "src/mlframe/feature_selection/filters/_mrmr_fit_impl/_friend_graph_and_redundancy/_group4.py::_friend_graph_and_redundancy_passes_group4_part1": 19,
   "src/mlframe/feature_selection/filters/_mrmr_partial_fit.py::partial_fit": 17,
-  "src/mlframe/feature_selection/filters/_numba_polynom_optimizer.py::_random_batch_one_pair_njit": 21,
   "src/mlframe/feature_selection/filters/_numba_utils_cross_module.py::quantile_codes_block": 18,
   "src/mlframe/feature_selection/filters/_numba_utils_offset.py::_solve4": 16,
   "src/mlframe/feature_selection/filters/_numba_utils_offset.py::_stat_of": 16,

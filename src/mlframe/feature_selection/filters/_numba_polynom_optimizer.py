@@ -398,6 +398,102 @@ def _eval_batch_candidates_njit(
 
 
 @njit(cache=True, fastmath=True)
+def _warm_start_best(
+    x_a, x_b, y, ca_size, cb_size, warm_start_a, warm_start_b, n_warm,
+    basis_id, bf_ids, n_bins, l2_penalty, direction_only, discrete_target,
+):
+    """Evaluate the provided warm-start seeds; return the running best and the evaluation count."""
+    best_score = -np.inf
+    best_raw = 0.0
+    best_bf = -1
+    best_ca = np.zeros(ca_size, dtype=np.float64)  # Intentional float64: numba kernel body buffer or scalar (crit helper cannot run inside njit)
+    best_cb = np.zeros(cb_size, dtype=np.float64)  # Intentional float64: numba kernel body buffer or scalar (crit helper cannot run inside njit)
+    has_best = False
+    n_evals = 0
+    for w in range(n_warm):
+        ca = warm_start_a[w].copy()
+        cb = warm_start_b[w].copy()
+        score, raw, bf = _eval_one_candidate_njit(
+            x_a, x_b, y, ca, cb, basis_id, bf_ids,
+            n_bins, l2_penalty, direction_only, discrete_target,
+        )
+        n_evals += 1
+        if score > best_score:
+            best_score = score
+            best_raw = raw
+            best_bf = bf
+            for j in range(ca_size):
+                best_ca[j] = ca[j]
+            for j in range(cb_size):
+                best_cb[j] = cb[j]
+            has_best = True
+    return best_ca, best_cb, best_score, best_raw, best_bf, has_best, n_evals
+
+
+@njit(cache=True, fastmath=True)
+def _sample_batch_candidates(
+    coefs_a_batch, coefs_b_batch, best_ca, best_cb, has_best, uniform_stream, normal_stream,
+    u_cursor, n_cursor, ca_size, cb_size, batch_size, elitism_k, coef_lo, coef_hi,
+):
+    """Fill the candidate batch from the uniform stream, then overwrite the first elitism slots with Gaussian perturbations of the best; return both cursors."""
+    dim = ca_size + cb_size
+    # Phase 1: sample batch_size candidates uniformly from coef_range.
+    for i in range(batch_size):
+        for j in range(ca_size):
+            coefs_a_batch[i, j] = uniform_stream[u_cursor]
+            u_cursor += 1
+        for j in range(cb_size):
+            coefs_b_batch[i, j] = uniform_stream[u_cursor]
+            u_cursor += 1
+
+    # Phase 2: elitism - replace first elitism_k slots with
+    # Gaussian perturbations of the current best (after iter 0).
+    if has_best:
+        k_eff = elitism_k if elitism_k < batch_size else batch_size
+        for i in range(k_eff):
+            for j in range(ca_size):
+                v = best_ca[j] + normal_stream[n_cursor]
+                n_cursor += 1
+                if v < coef_lo:
+                    v = coef_lo
+                elif v > coef_hi:
+                    v = coef_hi
+                coefs_a_batch[i, j] = v
+            for j in range(cb_size):
+                v = best_cb[j] + normal_stream[n_cursor]
+                n_cursor += 1
+                if v < coef_lo:
+                    v = coef_lo
+                elif v > coef_hi:
+                    v = coef_hi
+                coefs_b_batch[i, j] = v
+    else:
+        # No best yet - skip normal_stream cursor advance to keep
+        # the per-iter consumption deterministic across pairs.
+        n_cursor += elitism_k * dim
+    return u_cursor, n_cursor
+
+
+@njit(cache=True, fastmath=True)
+def _track_batch_best(
+    batch_scores, batch_raws, batch_bfs, coefs_a_batch, coefs_b_batch,
+    best_ca, best_cb, best_score, best_raw, best_bf, has_best, batch_size, ca_size, cb_size,
+):
+    """Fold the scored batch into the running best; return the updated best and whether one exists."""
+    for i in range(batch_size):
+        if batch_scores[i] > best_score:
+            best_score = batch_scores[i]
+            best_raw = batch_raws[i]
+            best_bf = batch_bfs[i]
+            for j in range(ca_size):
+                best_ca[j] = coefs_a_batch[i, j]
+            for j in range(cb_size):
+                best_cb[j] = coefs_b_batch[i, j]
+            has_best = True
+    return best_score, best_raw, best_bf, has_best
+
+
+@njit(cache=True, fastmath=True)
 def _random_batch_one_pair_njit(
     x_a: np.ndarray, x_b: np.ndarray, y: np.ndarray,
     ca_size: int, cb_size: int,
@@ -424,32 +520,10 @@ def _random_batch_one_pair_njit(
     n_warm : int
         How many warm-start rows to use (W >= n_warm). 0 = skip warm.
     """
-    best_score = -np.inf
-    best_raw = 0.0
-    best_bf = -1
-    best_ca = np.zeros(ca_size, dtype=np.float64)  # Intentional float64: numba kernel body buffer or scalar (crit helper cannot run inside njit)
-    best_cb = np.zeros(cb_size, dtype=np.float64)  # Intentional float64: numba kernel body buffer or scalar (crit helper cannot run inside njit)
-    has_best = False
-    n_evals = 0
-
-    # Warm-start phase: evaluate the provided seeds first.
-    for w in range(n_warm):
-        ca = warm_start_a[w].copy()
-        cb = warm_start_b[w].copy()
-        score, raw, bf = _eval_one_candidate_njit(
-            x_a, x_b, y, ca, cb, basis_id, bf_ids,
-            n_bins, l2_penalty, direction_only, discrete_target,
-        )
-        n_evals += 1
-        if score > best_score:
-            best_score = score
-            best_raw = raw
-            best_bf = bf
-            for j in range(ca_size):
-                best_ca[j] = ca[j]
-            for j in range(cb_size):
-                best_cb[j] = cb[j]
-            has_best = True
+    best_ca, best_cb, best_score, best_raw, best_bf, has_best, n_evals = _warm_start_best(
+        x_a, x_b, y, ca_size, cb_size, warm_start_a, warm_start_b, n_warm,
+        basis_id, bf_ids, n_bins, l2_penalty, direction_only, discrete_target,
+    )
 
     # Scratch buffers for the candidate batch + batched-eval workspace.
     coefs_a_batch = np.empty((batch_size, ca_size), dtype=np.float64)  # Intentional float64: numba kernel body buffer or scalar (crit helper cannot run inside njit)
@@ -464,43 +538,12 @@ def _random_batch_one_pair_njit(
 
     u_cursor = 0
     n_cursor = 0
-    dim = ca_size + cb_size
 
     for _it in range(n_iters):
-        # Phase 1: sample batch_size candidates uniformly from coef_range.
-        for i in range(batch_size):
-            for j in range(ca_size):
-                coefs_a_batch[i, j] = uniform_stream[u_cursor]
-                u_cursor += 1
-            for j in range(cb_size):
-                coefs_b_batch[i, j] = uniform_stream[u_cursor]
-                u_cursor += 1
-
-        # Phase 2: elitism - replace first elitism_k slots with
-        # Gaussian perturbations of the current best (after iter 0).
-        if has_best:
-            k_eff = elitism_k if elitism_k < batch_size else batch_size
-            for i in range(k_eff):
-                for j in range(ca_size):
-                    v = best_ca[j] + normal_stream[n_cursor]
-                    n_cursor += 1
-                    if v < coef_lo:
-                        v = coef_lo
-                    elif v > coef_hi:
-                        v = coef_hi
-                    coefs_a_batch[i, j] = v
-                for j in range(cb_size):
-                    v = best_cb[j] + normal_stream[n_cursor]
-                    n_cursor += 1
-                    if v < coef_lo:
-                        v = coef_lo
-                    elif v > coef_hi:
-                        v = coef_hi
-                    coefs_b_batch[i, j] = v
-        else:
-            # No best yet - skip normal_stream cursor advance to keep
-            # the per-iter consumption deterministic across pairs.
-            n_cursor += elitism_k * dim
+        u_cursor, n_cursor = _sample_batch_candidates(
+            coefs_a_batch, coefs_b_batch, best_ca, best_cb, has_best, uniform_stream, normal_stream,
+            u_cursor, n_cursor, ca_size, cb_size, batch_size, elitism_k, coef_lo, coef_hi,
+        )
 
         # Phase 3: batched eval - ONE MI batch call across all
         # (batch_size * K) columns. _plugin_mi_classif_batch_njit pranges
@@ -515,16 +558,10 @@ def _random_batch_one_pair_njit(
         n_evals += batch_size
 
         # Phase 4: track per-iter best across the batch.
-        for i in range(batch_size):
-            if batch_scores[i] > best_score:
-                best_score = batch_scores[i]
-                best_raw = batch_raws[i]
-                best_bf = batch_bfs[i]
-                for j in range(ca_size):
-                    best_ca[j] = coefs_a_batch[i, j]
-                for j in range(cb_size):
-                    best_cb[j] = coefs_b_batch[i, j]
-                has_best = True
+        best_score, best_raw, best_bf, has_best = _track_batch_best(
+            batch_scores, batch_raws, batch_bfs, coefs_a_batch, coefs_b_batch,
+            best_ca, best_cb, best_score, best_raw, best_bf, has_best, batch_size, ca_size, cb_size,
+        )
 
     return best_ca, best_cb, best_score, best_raw, best_bf, n_evals
 
