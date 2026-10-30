@@ -97,7 +97,6 @@
   "src/mlframe/training/pipeline/_pipeline_cache.py::_full_x_content_hash": 18,
   "src/mlframe/training/preprocessing.py::preprocess_dataframe": 17,
   "src/mlframe/training/ranking/_ranker_suite_train_helpers.py::_train_mlframe_rank_lockstep_rank_fusion_math": 17,
-  "src/mlframe/training/ranking/_ranker_suite_train_helpers.py::_train_mlframe_rank_pandas": 19,
   "src/mlframe/training/targets/_target_distribution_analyzer_features.py::_target_leakage_scan": 18,
   "src/mlframe/training/targets/_target_temporal_changepoint.py::find_change_points_zscore": 17,
   "src/mlframe/training/targets/_target_temporal_types.py::TemporalAuditResult.recommended_filter_mask": 17

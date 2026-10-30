@@ -226,6 +226,65 @@ def _train_mlframe_rank_embedding_features_kwarg_which(_embedding_cols, X_tr, X_
     return X_te, X_tr, X_va
 
 
+def _build_cat_vocabs(to_encode, splits_for_vocab):
+    """Stable integer code per category of every string cat column, and the columns whose cells are unhashable (skipped)."""
+    _vocabs: dict[str, dict] = {}
+    _skip_cols: set[str] = set()
+    for _c in to_encode:
+        _vals: set = set()
+        _abort = False
+        for _split in splits_for_vocab:
+            if _c in _split.columns:
+                try:
+                    # set.update on a C-level list comprehension is ~1.45x
+                    # faster than a Python ``for _v in ...: _vals.add(_v)``
+                    # loop at 200k rows x 15 cat cols (bench
+                    # ``profiling/bench_ranker_suite_vocab_build.py``,
+                    # 720ms -> 490ms). Unhashable cells (numpy arrays /
+                    # lists inside an object column mis-labelled as
+                    # cat_feature) still raise TypeError, which we catch
+                    # the same way as the prior per-cell try.
+                    _vals.update(_split[_c].dropna().tolist())
+                except TypeError:
+                    _abort = True
+                    break
+        if _abort:
+            _skip_cols.add(_c)
+            continue
+        # Stable code assignment via sorted string repr -- avoids
+        # run-to-run drift on dict-ordering of insertion sets. ``key=str``
+        # (not the equivalent ``lambda x: str(x)``) sidesteps the per-call
+        # Python-frame overhead.
+        _vocabs[_c] = {v: i for i, v in enumerate(sorted(_vals, key=str))}
+    return _vocabs, _skip_cols
+
+
+def _remap_cat_split(split, to_encode, vocabs, skip_cols):
+    """Return ``split`` with each encoded cat column replaced by its vocabulary code (missing -> -1), assembled in one concat."""
+    _orig_cols = list(split.columns)
+    _new_series: dict[str, pd.Series] = {}
+    for _c in to_encode:
+        if _c in skip_cols:
+            continue
+        if _c in split.columns:
+            _vmap = vocabs[_c]
+            # Cast to object before .map(): Categorical[string]
+            # propagates its dtype through .map(), and the resulting
+            # Categorical[int] rejects .fillna(-1) ("Cannot setitem
+            # on a Categorical with a new category") because -1 is
+            # not in the mapped vocabulary. Plain object dtype
+            # demotes to float64 on missing cells and lets fillna(-1)
+            # land cleanly.
+            _new_series[_c] = split[_c].astype(object).map(_vmap).fillna(-1).astype("int32")
+    if not _new_series:
+        return split
+    _kept = [c for c in _orig_cols if c not in _new_series]
+    return pd.concat(
+        [split[_kept]] + [_new_series[c].rename(c) for c in _orig_cols if c in _new_series],
+        axis=1,
+    )[_orig_cols]
+
+
 def _train_mlframe_rank_pandas(X_tr, cat_features, X_va, X_te):
     """Block of train_mlframe_ranker_suite starting at ``if isinstance(X_tr, pd.DataFrame) and cat_features:``."""
     if isinstance(X_tr, pd.DataFrame) and cat_features:
@@ -236,34 +295,7 @@ def _train_mlframe_rank_pandas(X_tr, cat_features, X_va, X_te):
                 _splits_for_vocab.append(X_va)
             if isinstance(X_te, pd.DataFrame):
                 _splits_for_vocab.append(X_te)
-            _vocabs: dict[str, dict] = {}
-            _skip_cols: set[str] = set()
-            for _c in _to_encode:
-                _vals: set = set()
-                _abort = False
-                for _split in _splits_for_vocab:
-                    if _c in _split.columns:
-                        try:
-                            # set.update on a C-level list comprehension is ~1.45x
-                            # faster than a Python ``for _v in ...: _vals.add(_v)``
-                            # loop at 200k rows x 15 cat cols (bench
-                            # ``profiling/bench_ranker_suite_vocab_build.py``,
-                            # 720ms -> 490ms). Unhashable cells (numpy arrays /
-                            # lists inside an object column mis-labelled as
-                            # cat_feature) still raise TypeError, which we catch
-                            # the same way as the prior per-cell try.
-                            _vals.update(_split[_c].dropna().tolist())
-                        except TypeError:
-                            _abort = True
-                            break
-                if _abort:
-                    _skip_cols.add(_c)
-                    continue
-                # Stable code assignment via sorted string repr -- avoids
-                # run-to-run drift on dict-ordering of insertion sets. ``key=str``
-                # (not the equivalent ``lambda x: str(x)``) sidesteps the per-call
-                # Python-frame overhead.
-                _vocabs[_c] = {v: i for i, v in enumerate(sorted(_vals, key=str))}
+            _vocabs, _skip_cols = _build_cat_vocabs(_to_encode, _splits_for_vocab)
             # Per-col ``_split_local[_c] = ...`` triggers BlockManager rebuilds
             # for each column. Build a {col: new_series} dict in one pass, then
             # assemble the result frame with a single ``pd.concat`` so the
@@ -271,29 +303,7 @@ def _train_mlframe_rank_pandas(X_tr, cat_features, X_va, X_te):
             for _split_name, _split in (("train", X_tr), ("val", X_va), ("test", X_te)):
                 if not isinstance(_split, pd.DataFrame):
                     continue
-                _orig_cols = list(_split.columns)
-                _new_series: dict[str, pd.Series] = {}
-                for _c in _to_encode:
-                    if _c in _skip_cols:
-                        continue
-                    if _c in _split.columns:
-                        _vmap = _vocabs[_c]
-                        # Cast to object before .map(): Categorical[string]
-                        # propagates its dtype through .map(), and the resulting
-                        # Categorical[int] rejects .fillna(-1) ("Cannot setitem
-                        # on a Categorical with a new category") because -1 is
-                        # not in the mapped vocabulary. Plain object dtype
-                        # demotes to float64 on missing cells and lets fillna(-1)
-                        # land cleanly.
-                        _new_series[_c] = _split[_c].astype(object).map(_vmap).fillna(-1).astype("int32")
-                if _new_series:
-                    _kept = [c for c in _orig_cols if c not in _new_series]
-                    _split_local = pd.concat(
-                        [_split[_kept]] + [_new_series[c].rename(c) for c in _orig_cols if c in _new_series],
-                        axis=1,
-                    )[_orig_cols]
-                else:
-                    _split_local = _split
+                _split_local = _remap_cat_split(_split, _to_encode, _vocabs, _skip_cols)
                 if _split_name == "train":
                     X_tr = _split_local
                 elif _split_name == "val":
