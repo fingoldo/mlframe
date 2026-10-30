@@ -50,6 +50,28 @@ def _recency_weight(m: int, pos: int, scheme_code: int, param: float) -> float:
     return float(1.0 / (i**param))
 
 
+@njit(fastmath=False, cache=True)
+def _kde_bandwidth(v_sorted, s, e, mean, span, bandwidth, h_span_frac):
+    """Gaussian-KDE bandwidth of group ``v_sorted[s:e]``: scale-relative when ``h_span_frac > 0``, else the absolute ``bandwidth`` when positive, else a Silverman-like rule."""
+    m = e - s
+    if h_span_frac > 0.0:
+        h = h_span_frac * span if span > 0.0 else 1.0
+    elif bandwidth > 0.0:
+        h = bandwidth
+    else:
+        var = 0.0
+        for k in range(s, e):
+            d = v_sorted[k] - mean
+            var += d * d
+        std = (var / m) ** 0.5
+        if std <= 0.0:
+            std = span if span > 0.0 else 1.0
+        h = 1.06 * std * (m ** (-0.2))
+    if h <= 0.0:
+        h = 1.0
+    return h
+
+
 @njit(fastmath=False, cache=True, inline="always")
 def _kde_one_group(v_sorted, s, e, scheme_code, param, bandwidth, n_grid, h_span_frac):
     """Recency-weighted Gaussian-KDE mode + peak height for a single contiguous, oldest-first group ``v_sorted[s:e]``.
@@ -76,21 +98,7 @@ def _kde_one_group(v_sorted, s, e, scheme_code, param, bandwidth, n_grid, h_span
         mean += val
     mean /= m
     span = vmax - vmin
-    if h_span_frac > 0.0:
-        h = h_span_frac * span if span > 0.0 else 1.0
-    elif bandwidth > 0.0:
-        h = bandwidth
-    else:
-        var = 0.0
-        for k in range(s, e):
-            d = v_sorted[k] - mean
-            var += d * d
-        std = (var / m) ** 0.5
-        if std <= 0.0:
-            std = span if span > 0.0 else 1.0
-        h = 1.06 * std * (m ** (-0.2))
-    if h <= 0.0:
-        h = 1.0
+    h = _kde_bandwidth(v_sorted, s, e, mean, span, bandwidth, h_span_frac)
     w_sum = 0.0
     for pos in range(m):
         w_sum += _recency_weight(m, pos, scheme_code, param)

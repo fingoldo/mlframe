@@ -1,7 +1,6 @@
 {
   "src/mlframe/feature_engineering/basic.py::create_date_features": 18,
   "src/mlframe/feature_engineering/recency_aggregation.py::_group_recency_weighted_agg_sorted": 17,
-  "src/mlframe/feature_engineering/recency_density.py::_kde_one_group": 17,
   "src/mlframe/feature_engineering/transformer/adversarial_flip.py::compute_adversarial_flip_features": 18,
   "src/mlframe/feature_engineering/transformer/multi_temp_band_attention.py::compute_multi_temp_band_attention_features": 18,
   "src/mlframe/feature_engineering/transformer/predictive_info_delta.py::compute_predictive_info_delta_features": 18,
