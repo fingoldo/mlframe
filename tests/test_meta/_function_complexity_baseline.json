@@ -136,6 +136,5 @@
   "src/mlframe/training/targets/_target_temporal_changepoint.py::find_change_points_zscore": 17,
   "src/mlframe/training/targets/_target_temporal_types.py::TemporalAuditResult.recommended_filter_mask": 17,
   "src/mlframe/training/targets/_train_eval_select_target.py::_select_regression_target": 20,
-  "src/mlframe/training/train_eval.py::_validate_cached_model_schema": 19,
-  "src/mlframe/training/utils.py::compute_model_input_fingerprint": 20
+  "src/mlframe/training/train_eval.py::_validate_cached_model_schema": 19
 }
