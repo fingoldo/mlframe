@@ -54,6 +54,54 @@ def _stacked_corrcoef(M: np.ndarray) -> np.ndarray:
     return np.asarray(np.corrcoef(M))
 
 
+def _preds_pairs(arrays: list, member_tags: Sequence[str], threshold: float, split_used: Optional[str]) -> tuple[list[dict], Optional[str]]:
+    """Pairs above ``threshold`` for same-length prediction vectors; empty when the lengths or the correlation matrix are degenerate."""
+    if not all(a.size == arrays[0].size and a.size >= 2 for a in arrays):
+        return [], split_used
+    M_stack = np.vstack(arrays)  # (K, N)
+    corr_matrix = _pairwise_corr_or_nan(M_stack)
+    if corr_matrix is None:
+        return [], split_used
+    K_use = corr_matrix.shape[0]
+    idx_use = np.arange(K_use)
+    return _emit_pairs_above_threshold(corr_matrix, idx_use, member_tags, threshold, split_used)
+
+
+def _probs_pairs(probs_arrays: list, member_tags: Sequence[str], threshold: float, split_used: Optional[str]) -> tuple[list[dict], Optional[str]]:
+    """Pairs above ``threshold`` for probability outputs: one column for binary, per-class correlations averaged for multiclass."""
+    # All probs arrays must share (N, C) (or (N,) which we promote to (N, 1)).
+    norm = []
+    for a in probs_arrays:
+        if a.ndim == 1:
+            a = a.reshape(-1, 1)
+        norm.append(a)
+    probs_arrays = norm
+    if not all(a.shape == probs_arrays[0].shape and a.shape[0] >= 2 for a in probs_arrays):
+        return [], split_used
+    K_members = len(probs_arrays)
+    n_classes = probs_arrays[0].shape[1]
+    if n_classes == 1:
+        # Single-column / binary-as-1D path: stack as (K, N) and reuse the standard corr.
+        M_stack = np.vstack([a.ravel() for a in probs_arrays])
+        corr_matrix = _pairwise_corr_or_nan(M_stack)
+        if corr_matrix is None:
+            return [], split_used
+        return _emit_pairs_above_threshold(corr_matrix, np.arange(corr_matrix.shape[0]), member_tags, threshold, split_used)
+    # Multiclass per-class correlation, then average the off-diagonal entries across classes.
+    per_class_corrs: list[np.ndarray] = []
+    for _ci in range(n_classes):
+        M_stack_ci = np.vstack([a[:, _ci] for a in probs_arrays])
+        corr_ci = _pairwise_corr_or_nan(M_stack_ci, return_full_shape=True, original_k=K_members)
+        if corr_ci is not None:
+            per_class_corrs.append(corr_ci)
+    if not per_class_corrs:
+        return [], split_used
+    stack_corrs = np.stack(per_class_corrs, axis=0)
+    with np.errstate(invalid="ignore"):
+        avg_corr = np.nanmean(stack_corrs, axis=0)
+    return _emit_pairs_above_threshold(avg_corr, np.arange(K_members), member_tags, threshold, split_used)
+
+
 def compute_high_correlation_pairs(
     members: Sequence,
     member_tags: Sequence[str],
@@ -95,47 +143,9 @@ def compute_high_correlation_pairs(
                 split_used = attr
                 break
     if arrays:
-        if not all(a.size == arrays[0].size and a.size >= 2 for a in arrays):
-            return pairs, split_used
-        M_stack = np.vstack(arrays)  # (K, N)
-        corr_matrix = _pairwise_corr_or_nan(M_stack)
-        if corr_matrix is None:
-            return pairs, split_used
-        K_use = corr_matrix.shape[0]
-        idx_use = np.arange(K_use)
-        return _emit_pairs_above_threshold(corr_matrix, idx_use, member_tags, threshold, split_used)
+        return _preds_pairs(arrays, member_tags, threshold, split_used)
     if probs_arrays:
-        # All probs arrays must share (N, C) (or (N,) which we promote to (N, 1)).
-        norm = []
-        for a in probs_arrays:
-            if a.ndim == 1:
-                a = a.reshape(-1, 1)
-            norm.append(a)
-        probs_arrays = norm
-        if not all(a.shape == probs_arrays[0].shape and a.shape[0] >= 2 for a in probs_arrays):
-            return pairs, split_used
-        K_members = len(probs_arrays)
-        n_classes = probs_arrays[0].shape[1]
-        if n_classes == 1:
-            # Single-column / binary-as-1D path: stack as (K, N) and reuse the standard corr.
-            M_stack = np.vstack([a.ravel() for a in probs_arrays])
-            corr_matrix = _pairwise_corr_or_nan(M_stack)
-            if corr_matrix is None:
-                return pairs, split_used
-            return _emit_pairs_above_threshold(corr_matrix, np.arange(corr_matrix.shape[0]), member_tags, threshold, split_used)
-        # Multiclass per-class correlation, then average the off-diagonal entries across classes.
-        per_class_corrs: list[np.ndarray] = []
-        for _ci in range(n_classes):
-            M_stack_ci = np.vstack([a[:, _ci] for a in probs_arrays])
-            corr_ci = _pairwise_corr_or_nan(M_stack_ci, return_full_shape=True, original_k=K_members)
-            if corr_ci is not None:
-                per_class_corrs.append(corr_ci)
-        if not per_class_corrs:
-            return pairs, split_used
-        stack_corrs = np.stack(per_class_corrs, axis=0)
-        with np.errstate(invalid="ignore"):
-            avg_corr = np.nanmean(stack_corrs, axis=0)
-        return _emit_pairs_above_threshold(avg_corr, np.arange(K_members), member_tags, threshold, split_used)
+        return _probs_pairs(probs_arrays, member_tags, threshold, split_used)
     return pairs, split_used
 
 
