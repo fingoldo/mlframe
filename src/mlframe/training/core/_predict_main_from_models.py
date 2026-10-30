@@ -722,9 +722,46 @@ def _predict_from_model_raising_lightgbmerror_number_features(_expected, input_f
     return input_for_model
 
 
+def _apply_suite_ensemble(all_probs, all_calib_flags, metadata, per_target_probs, results) -> None:
+    """Combine every member into the suite-wide ensemble and write its probabilities and predictions into ``results``."""
+    from mlframe.training.core.predict import _combine_probs, _resolve_chosen_flavour, suite_binary_threshold
+
+    # Suite-wide ensemble: resolve a single flavour when one was chosen across the suite, else arithmetic mean.
+    _suite_flavour = _resolve_chosen_flavour(metadata)
+    # Pass the target_type only when the suite is homogeneously multiclass so the simplex renorm in
+    # _combine_probs fires for the multiclass-only case without touching mixed / binary / multilabel suites.
+    _suite_tts = {tt for (tt, _tn) in per_target_probs.keys()}
+    _suite_tt = next(iter(_suite_tts)) if len(_suite_tts) == 1 else None
+    avg_probs = _combine_probs(
+        all_probs, _suite_flavour,
+        is_calibrated_per_model=all_calib_flags or None,
+        metadata=metadata,
+        target_label="suite",
+        target_type=_suite_tt,
+    )
+    results["ensemble_probabilities"] = avg_probs
+    if isinstance(results.get("probabilities"), dict):
+        results["probabilities"]["ensemble"] = avg_probs
+
+    if avg_probs.ndim == 2:
+        if avg_probs.shape[1] == 2:
+            ensemble_preds = (avg_probs[:, 1] >= suite_binary_threshold(metadata, per_target_probs)).astype(int)
+        else:
+            # NaN-safe argmax for the suite-wide ensemble row.
+            from mlframe.utils.nan_safe import argmax_classes_safe
+            ensemble_preds = argmax_classes_safe(
+                avg_probs, context="predict_from_models.suite_ensemble",
+            )
+    else:
+        ensemble_preds = (avg_probs > DEFAULT_PROBABILITY_THRESHOLD).astype(int)
+    results["ensemble_predictions"] = ensemble_preds
+    if isinstance(results.get("predictions"), dict):
+        results["predictions"]["ensemble"] = ensemble_preds
+
+
 def _predict_from_model_len_all_probs(all_probs, verbose, results, per_target_probs, metadata, models, per_target_member_names, per_target_calib_flags, all_calib_flags, all_preds, per_target_preds):
     """Block of predict_from_models starting at ``if len(all_probs) > 1:``."""
-    from mlframe.training.core.predict import _combine_probs, _resolve_chosen_ensemble_params, _select_trained_members, suite_binary_threshold, _resolve_chosen_flavour, _resolve_quantile_alphas
+    from mlframe.training.core.predict import _combine_probs, _resolve_chosen_ensemble_params, _select_trained_members, _resolve_chosen_flavour, _resolve_quantile_alphas
 
     if len(all_probs) > 1:
         if verbose:
@@ -787,37 +824,7 @@ def _predict_from_model_len_all_probs(all_probs, verbose, results, per_target_pr
                 _t_preds = (_combined >= _ens_thr).astype(int)
             results["per_target_predictions"][_key] = _t_preds
 
-        # Suite-wide ensemble: resolve a single flavour when one was chosen across the suite, else arithmetic mean.
-        _suite_flavour = _resolve_chosen_flavour(metadata)
-        # Pass the target_type only when the suite is homogeneously multiclass so the simplex renorm in
-        # _combine_probs fires for the multiclass-only case without touching mixed / binary / multilabel suites.
-        _suite_tts = {tt for (tt, _tn) in per_target_probs.keys()}
-        _suite_tt = next(iter(_suite_tts)) if len(_suite_tts) == 1 else None
-        avg_probs = _combine_probs(
-            all_probs, _suite_flavour,
-            is_calibrated_per_model=all_calib_flags or None,
-            metadata=metadata,
-            target_label="suite",
-            target_type=_suite_tt,
-        )
-        results["ensemble_probabilities"] = avg_probs
-        if isinstance(results.get("probabilities"), dict):
-            results["probabilities"]["ensemble"] = avg_probs
-
-        if avg_probs.ndim == 2:
-            if avg_probs.shape[1] == 2:
-                ensemble_preds = (avg_probs[:, 1] >= suite_binary_threshold(metadata, per_target_probs)).astype(int)
-            else:
-                # NaN-safe argmax for the suite-wide ensemble row.
-                from mlframe.utils.nan_safe import argmax_classes_safe
-                ensemble_preds = argmax_classes_safe(
-                    avg_probs, context="predict_from_models.suite_ensemble",
-                )
-        else:
-            ensemble_preds = (avg_probs > DEFAULT_PROBABILITY_THRESHOLD).astype(int)
-        results["ensemble_predictions"] = ensemble_preds
-        if isinstance(results.get("predictions"), dict):
-            results["predictions"]["ensemble"] = ensemble_preds
+        _apply_suite_ensemble(all_probs, all_calib_flags, metadata, per_target_probs, results)
 
     elif len(all_preds) > 1:
         # Dtype-aware ensemble fallback when no probabilities exist.
