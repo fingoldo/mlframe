@@ -126,7 +126,6 @@
   "src/mlframe/training/pipeline/_pipeline_fit_state.py::_passthrough_cols_fit_transform": 20,
   "src/mlframe/training/preprocessing.py::preprocess_dataframe": 17,
   "src/mlframe/training/ranking/_ranker_fs.py::_group_features_mi_njit": 20,
-  "src/mlframe/training/ranking/_ranker_fs.py::_group_relevance_one_group_add": 20,
   "src/mlframe/training/ranking/_ranker_suite_train_helpers.py::_train_mlframe_rank_lockstep_rank_fusion_math": 17,
   "src/mlframe/training/ranking/_ranker_suite_train_helpers.py::_train_mlframe_rank_pandas": 19,
   "src/mlframe/training/reporting/_reporting_probabilistic.py::_report_probabilistic_step1_produced_single_most": 19,
