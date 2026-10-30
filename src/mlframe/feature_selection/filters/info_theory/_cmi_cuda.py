@@ -781,30 +781,8 @@ def _cmi_cuda_shmem_fits(joint_size: int, nbins_x: int = 0, nbins_y: int = 0, nb
     return True
 
 
-def _should_use_cuda(n: int, p: int, joint_size: int, nbins_x: int = 0, nbins_y: int = 0, nbins_z: int = 0) -> bool:
-    """Size/HW gate. Routes to CUDA at large (n, p) where the batched launch wins; CPU otherwise.
-
-    Integrates with the FS kernel_tuning_cache singleton (pyutilz). On cache hit the decision is the
-    measured one; on cache miss / pyutilz-unavailable a hand fallback applies (NO hardcoded value on
-    the hot path - the fallback is the documented bootstrap heuristic only). VRAM guard: the joint
-    buffer is ``p * joint_size * 4`` bytes; reject if it would exceed a conservative slice.
-    """
-    # The project-wide opt-out is checked FIRST, before every other gate including STRICT mode. STRICT's
-    # `return True` below sits above the tuning-cache path, and that path is the only one that consulted
-    # `cmi_use_cuda` -- whose own comment says 'The global GPU opt-out outranks both the tuning cache and
-    # STRICT mode'. With STRICT on, MLFRAME_DISABLE_GPU=1 was therefore ignored here while every other call
-    # site in the package honoured it.
-    try:
-        from mlframe.feature_selection.filters._gpu_policy import gpu_globally_disabled
-
-        if gpu_globally_disabled():
-            return False
-    except Exception as e:  # nosec B110 - the policy module is optional; absence must not force GPU ON
-        logger.debug("gpu_globally_disabled() unavailable in _should_use_cuda: %s", e)
-    if _CMI_GPU_FAILED:  # context poisoned by a prior launch fault -> never re-attempt the GPU this process.
-        return False
-    if not cupy_available():
-        return False
+def _vram_guard_passes(n: int, p: int, joint_size: int) -> bool:
+    """Whether the batched launch's device buffers fit the free-VRAM cap and the absolute cushion floor."""
     # VRAM guard (GTX 1050 Ti = 4 GB): the dominant device buffer is the candidate matrix Xc
     # (p * n * 4 bytes); the joint output is p * joint_size * 4. Reject if the combined working
     # set would exceed a conservative slice of free VRAM (leave headroom for the model / other
@@ -841,10 +819,11 @@ def _should_use_cuda(n: int, p: int, joint_size: int, nbins_x: int = 0, nbins_y:
     except Exception as e:
         logger.warning("_should_use_cuda: VRAM cushion check failed (%s: %s); keeping CMI on the CPU", type(e).__name__, e)
         return False
-    # Shared-mem guard: cc 6.x has 48 KB/block and BOTH kernels must fit (see _cmi_cuda_shmem_fits).
-    if not _cmi_cuda_shmem_fits(joint_size, nbins_x, nbins_y, nbins_z):
-        return False
+    return True
 
+
+def _strict_forces_cuda(n: int, p: int) -> bool:
+    """Whether MLFRAME_FE_GPU_STRICT forces CUDA for this call's (n, p) shape."""
     # STRICT GPU mode (MLFRAME_FE_GPU_STRICT=1, diagnostic, default OFF): force CUDA past the KTC crossover /
     # size threshold once the VRAM + shared-mem guards above have passed (forcing past those would OOM, not
     # diagnose). The CPU/CUDA conditional-MI backends are numerically equivalent (~1e-9) -> selection-equivalent.
@@ -861,7 +840,11 @@ def _should_use_cuda(n: int, p: int, joint_size: int, nbins_x: int = 0, nbins_y:
     except Exception as e:
         logger.debug("swallowed exception in _cmi_cuda.py: %s", e)
         pass
+    return False
 
+
+def _kernel_tuning_cache_decision(n: int, p: int, joint_size: int) -> Optional[bool]:
+    """The use_cuda verdict from the FS kernel-tuning cache, or ``None`` when the cache has no decision."""
     try:
         from mlframe.feature_selection.filters._kernel_tuning import get_kernel_tuning_cache
 
@@ -876,7 +859,11 @@ def _should_use_cuda(n: int, p: int, joint_size: int, nbins_x: int = 0, nbins_y:
                 logger.debug("cmi_cuda: kernel_tuning_cache lookup failed (%s); hand fallback", _exc)
     except Exception as _exc:
         logger.debug("cmi_cuda: kernel_tuning_cache unavailable (%s); hand fallback", _exc)
+    return None
 
+
+def _ktc_crossover_decision(n: int, p: int) -> Optional[bool]:
+    """The per-host swept CPU-vs-CUDA crossover verdict, or ``None`` when the sweep has not measured this shape."""
     # per-host KTC-derived crossover (sibling _cmi_cuda_ktc). The legacy "FS
     # kernel_tuning_cache singleton" lookup above is a manual cache; this adds the SWEPT crossover the repo
     # rule mandates - a kernel_tuner that benches CPU vs CUDA on the real (n, p) conditional-MI shapes and
@@ -890,6 +877,49 @@ def _should_use_cuda(n: int, p: int, joint_size: int, nbins_x: int = 0, nbins_y:
             return bool(_decision)
     except Exception as _exc:
         logger.debug("cmi_cuda: KTC crossover unavailable (%s); hand fallback", _exc)
+    return None
+
+
+def _should_use_cuda(n: int, p: int, joint_size: int, nbins_x: int = 0, nbins_y: int = 0, nbins_z: int = 0) -> bool:
+    """Size/HW gate. Routes to CUDA at large (n, p) where the batched launch wins; CPU otherwise.
+
+    Integrates with the FS kernel_tuning_cache singleton (pyutilz). On cache hit the decision is the
+    measured one; on cache miss / pyutilz-unavailable a hand fallback applies (NO hardcoded value on
+    the hot path - the fallback is the documented bootstrap heuristic only). VRAM guard: the joint
+    buffer is ``p * joint_size * 4`` bytes; reject if it would exceed a conservative slice.
+    """
+    # The project-wide opt-out is checked FIRST, before every other gate including STRICT mode. STRICT's
+    # `return True` below sits above the tuning-cache path, and that path is the only one that consulted
+    # `cmi_use_cuda` -- whose own comment says 'The global GPU opt-out outranks both the tuning cache and
+    # STRICT mode'. With STRICT on, MLFRAME_DISABLE_GPU=1 was therefore ignored here while every other call
+    # site in the package honoured it.
+    try:
+        from mlframe.feature_selection.filters._gpu_policy import gpu_globally_disabled
+
+        if gpu_globally_disabled():
+            return False
+    except Exception as e:  # nosec B110 - the policy module is optional; absence must not force GPU ON
+        logger.debug("gpu_globally_disabled() unavailable in _should_use_cuda: %s", e)
+    if _CMI_GPU_FAILED:  # context poisoned by a prior launch fault -> never re-attempt the GPU this process.
+        return False
+    if not cupy_available():
+        return False
+    if not _vram_guard_passes(n, p, joint_size):
+        return False
+    # Shared-mem guard: cc 6.x has 48 KB/block and BOTH kernels must fit (see _cmi_cuda_shmem_fits).
+    if not _cmi_cuda_shmem_fits(joint_size, nbins_x, nbins_y, nbins_z):
+        return False
+
+    if _strict_forces_cuda(n, p):
+        return True
+
+    decision = _kernel_tuning_cache_decision(n, p, joint_size)
+    if decision is not None:
+        return decision
+
+    decision = _ktc_crossover_decision(n, p)
+    if decision is not None:
+        return decision
 
     # Hand bootstrap heuristic (un-tuned default ONLY): the batched launch amortizes its host<->device
     # transfer + launch overhead once p and n are both sizable. Measured crossover (GTX 1050 Ti,
