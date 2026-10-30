@@ -63,6 +63,39 @@ logger = logging.getLogger(__name__)
 _FE_CHUNK_MAX_COLS_HARD_CAP: int = 65536
 
 
+_DEVICE_CHUNK_BUDGET_BYTES: int = 1536 * 1024 * 1024  # same ceiling as the GPU upload guards (batch_pair_mi_gpu._gpu_upload_fits)
+
+
+def flush_idle_device_pool() -> None:
+    """Return the cupy pool's idle blocks to the device: the pool keeps every block it ever allocated, so earlier chunks can
+    hold most of the card while the next chunk's free-VRAM reading says there is none. Best-effort: never raises."""
+    try:
+        import cupy as cp
+
+        pool = cp.get_default_memory_pool()
+        if int(pool.total_bytes()) - int(pool.used_bytes()) > 0:
+            pool.free_all_blocks()
+    except Exception as e:  # nosec B110 - no device or no cupy: nothing to release
+        logger.debug("flush_idle_device_pool: %s", e)
+
+
+def device_chunk_cols_cap(n_rows: int) -> int | None:
+    """Largest column count of int8 candidate codes that fits the device budget, or ``None`` when no GPU can be read.
+
+    The budget is ``min(1.5 GB, half of the free VRAM)``, the same rule the GPU upload guards apply.
+    """
+    try:
+        import cupy as cp
+
+        flush_idle_device_pool()
+        free_b, _total_b = cp.cuda.runtime.memGetInfo()
+    except Exception as e:  # nosec B110 - no readable device: the RAM budget alone bounds the chunk
+        logger.debug("device_chunk_cols_cap: no device budget (%s)", e)
+        return None
+    budget = min(_DEVICE_CHUNK_BUDGET_BYTES, int(free_b * 0.5))
+    return int(budget // max(1, int(n_rows)))
+
+
 def _plan_fe_chunks(*, prospective_pairs, pair_combs, vars_transformations, n_binary, chunk_max_cols):
     """Partition ``prospective_pairs`` (in iteration order) into CHUNKS of raw-pairs
     whose summed candidate-column count fits ``chunk_max_cols``.
