@@ -214,7 +214,7 @@ def _permutation_block(rng: np.random.Generator, y: np.ndarray, m: int) -> np.nd
     """
     global _perm_block_cache_bytes
     state_before = rng.bit_generator.state
-    key = (y.shape[0], int(m), hash(y.tobytes()), repr(state_before))
+    key = (y.shape[0], int(m), repr(state_before))  # the indices depend on the row count and the generator state only, so every target of that length shares them
     n = y.shape[0]
     with _perm_block_cache_lock:
         hit = _perm_block_cache.get(key)

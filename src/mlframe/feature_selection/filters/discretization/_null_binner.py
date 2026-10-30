@@ -87,6 +87,21 @@ class PermutedTargetBinner:
             return False
         return df.select_dtypes(include=("category", "object", "string", "bool")).shape[1] == 0
 
+    def column(self, y: np.ndarray, out_index: int) -> "Optional[tuple[np.ndarray, int]]":
+        """``(codes, bin count)`` of output column ``out_index`` alone under the target ``y`` (the column's edges depend on that column and ``y`` only), or ``None`` when the caller should bin the frame."""
+        from .._adaptive_nbins import per_feature_edges
+
+        slot = int(self._out_fixed[out_index])
+        if slot < 0:
+            j = int(self._out_dep[out_index])
+            edges = per_feature_edges(self._arr[:, j : j + 1], y=np.asarray(y).ravel(), method=self._strategy, cache_dir=None, **self._kwargs)[0]
+            s = self._slot(j, np.asarray(edges), int(edges.size) + 1)
+            if s is None:
+                return None
+            slot = s
+        with self._lock:
+            return self._table[slot], int(self._col_max[slot]) + 1
+
     def _prescore(self, y: np.ndarray) -> None:
         """Score the candidate bin counts of every column for ``y`` in one parallel kernel (``optimal_joint`` with a plan cache), once the plans of all columns are cached."""
         cache = self._kwargs.get("optimal_joint_plan_cache")
@@ -145,7 +160,7 @@ class PermutedTargetBinner:
         return slot
 
     def codes(self, y: np.ndarray) -> "Optional[tuple[np.ndarray, list, np.ndarray]]":
-        """``(codes, columns, bin counts)`` as ``categorize_dataset`` returns them for the target ``y`` (codes as int64, column-contiguous), or ``None`` when the caller should use ``categorize_dataset`` (budget, dtype range)."""
+        """``(codes, columns, bin counts)`` as ``categorize_dataset`` returns them for the target ``y`` (codes in the code dtype, column-contiguous), or ``None`` when the caller should use ``categorize_dataset`` (budget, dtype range)."""
         from .._adaptive_nbins import per_feature_edges
 
         self._prescore(np.asarray(y).ravel())
@@ -159,7 +174,7 @@ class PermutedTargetBinner:
                 return None
             dep_slots[j] = s
         slots = np.where(self._out_dep >= 0, dep_slots[np.maximum(self._out_dep, 0)], self._out_fixed)
-        out_t = np.empty((slots.shape[0], self._arr.shape[0]), dtype=np.int64)  # one contiguous run per column; the caller reads columns
+        out_t = np.empty((slots.shape[0], self._arr.shape[0]), dtype=self._dtype)  # one contiguous run per column, in the code dtype; the caller reads columns
         with self._lock:
             table, col_max = self._table, self._col_max
         with parallel_kernel_entry():

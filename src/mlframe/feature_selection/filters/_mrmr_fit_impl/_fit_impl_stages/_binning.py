@@ -221,9 +221,9 @@ def _install_honest_null_hook(
         key = hashlib.blake2b(array_buffer(perm), digest_size=16).digest()
         hit = _memo.get(key)
         if hit is not None:
-            return hit[0].astype(np.int64), hit[1].copy()
+            return hit[0], hit[1].copy()
         codes, nb = _honest_null_codes_uncached(perm)
-        compact = codes.astype(np.int16) if codes.size == 0 or int(codes.max()) < np.iinfo(np.int16).max else codes
+        compact = codes if codes.dtype == np.int16 else codes.astype(np.int16) if codes.size == 0 or int(codes.max()) < np.iinfo(np.int16).max else codes
         if _memo_bytes[0] + compact.nbytes + nb.nbytes <= _HONEST_NULL_MEMO_BYTES:
             _memo[key] = (compact, nb.copy())
             _memo_bytes[0] += compact.nbytes + nb.nbytes
@@ -235,6 +235,16 @@ def _install_honest_null_hook(
         _memo_bytes[0] = 0
 
     _honest_null_codes.clear_memo = _clear_memo  # type: ignore[attr-defined]
+
+    if _binner is not None:
+
+        def _honest_null_column(row_perm, col):
+            """``(codes, bin count)`` of column ``col`` alone under the target permuted by ``row_perm`` (what the matrix of ``_honest_null_codes`` holds in that column), or ``None``."""
+            if int(col) >= len(cols):
+                return None  # an engineered column appended after binning
+            return _binner.column(_y_raw_for_null[np.asarray(row_perm, dtype=np.int64)], int(col))
+
+        _honest_null_codes.column = _honest_null_column  # type: ignore[attr-defined]
 
     # Numba spec for the honest null (see _mdlp_honest_njit): only the plain 'mdlp' (fayyad_irani) strategy with no extra kwargs is
     # covered by the njit chain, whose identity with categorize_dataset was verified on continuous columns; other strategies keep

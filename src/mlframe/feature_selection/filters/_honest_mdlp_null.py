@@ -351,14 +351,19 @@ def honest_candidate_nfailed(
         plain, _corr = _njit_null_columns(spec, full_factors, factors_nbins, y_idx, [int(col)], int(n_permutations), 0 if seed is None else int(seed), eval_rows)
         return int(np.count_nonzero(plain[:, 0] >= observed)), observed
     rng = np.random.default_rng(0 if seed is None else int(seed))
+    column_codes = getattr(honest_codes_fn, "column", None)  # bins one column under a permuted target when the hook can (a candidate needs one column per permutation)
     nfailed = 0
     for _ in range(int(n_permutations)):
         row_perm = rng.permutation(n)
-        codes_p, nb_p = honest_codes_fn(row_perm)
-        if int(col) >= len(nb_p):
-            return None
-        x_p = np.ascontiguousarray(np.asarray(codes_p)[rows, int(col)]).astype(np.int64)
+        one = column_codes(row_perm, int(col)) if column_codes is not None else None
+        if one is not None:
+            x_p, nb_col = np.ascontiguousarray(one[0][rows]).astype(np.int64), one[1]
+        else:
+            codes_p, nb_p = honest_codes_fn(row_perm)
+            if int(col) >= len(nb_p):
+                return None
+            x_p, nb_col = np.ascontiguousarray(np.asarray(codes_p)[rows, int(col)]).astype(np.int64), int(nb_p[int(col)])
         y_p = np.ascontiguousarray(y_full[row_perm][rows]).astype(np.int64)
-        if float(_mi_codes_njit(x_p, int(nb_p[int(col)]), y_p, int(y_p.max()) + 1)) >= observed:
+        if float(_mi_codes_njit(x_p, int(nb_col), y_p, int(y_p.max()) + 1)) >= observed:
             nfailed += 1
     return nfailed, observed

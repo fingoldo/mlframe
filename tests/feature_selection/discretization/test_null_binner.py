@@ -142,3 +142,21 @@ def test_the_candidate_scoring_runs_once_per_permutation_in_one_kernel(monkeypat
     for s in range(1, 4):
         assert binner.codes(y[np.random.default_rng(s).permutation(y.size)]) is not None
     assert not calls and binner._packed is not None
+
+
+def test_a_single_column_equals_its_column_of_the_matrix():
+    """``column`` returns the codes and bin count the full matrix holds for that column, for re-binned and fixed columns, permutation after permutation."""
+    frame = _frame()
+    y = (np.random.default_rng(1).random(len(frame)) < 0.4).astype(np.int64)
+    dep = frame[["normal", "skew", "withnan"]]
+    fixed_codes = np.arange(len(frame)) % 5
+    out_cols = ["skew", "fx", "normal", "withnan"]
+    kwargs = {"optimal_joint_plan_cache": A.OptimalJointPlanCache()}
+    binner = PermutedTargetBinner(dep, "separate_bin", "optimal_joint", kwargs, np.int16, out_cols=out_cols, fixed={"fx": (fixed_codes, 5)})
+    for s in range(4):
+        yy = y[np.random.default_rng(s).permutation(y.size)]
+        full = binner.codes(yy)
+        assert full is not None
+        for i in range(len(out_cols)):
+            one = binner.column(yy, i)
+            assert one is not None and np.array_equal(one[0], full[0][:, i]) and one[1] == full[2][i], (s, i)
