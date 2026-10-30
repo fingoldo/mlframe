@@ -43,7 +43,7 @@ from __future__ import annotations
 
 import logging
 import math
-from typing import Optional
+from typing import Any, Optional
 
 import numpy as np
 from ._fe_gpu_batch._devices import crit_float_dtype
@@ -109,6 +109,50 @@ _FULL_CORR_MAX_COLS = 4096  # the P x P diversity matrix stays under ~70 MB in f
 # path. (Binary is selection-equivalent and DOES run - the binary L2 Newton is non-singular.)
 
 
+def _resident_binary_codes(y_cont: np.ndarray) -> Optional[tuple[np.ndarray, int]]:
+    """Dense 0..C-1 class codes (identical to the CPU path's ``np.unique`` inverse), or ``None`` for a target the resident path does not handle."""
+    y_raw = np.asarray(y_cont).ravel()
+    _classes, y_enc = np.unique(y_raw, return_inverse=True)
+    n_classes = int(_classes.size)
+    if n_classes < 2:
+        return None  # CPU returns [] for <2 classes; [] != a selection here, so defer to CPU
+    if n_classes > 2:
+        # MULTICLASS stays on the exact CPU sklearn path; see the note above this function for the evidence.
+        return None
+    if int(y_enc.shape[0]) < 2:
+        return None
+    return y_enc, n_classes
+
+
+def _pack_pool_matrix(pool: list, n: int) -> Optional[np.ndarray]:
+    """Stack every pool candidate's value column into one dense (n, P) host matrix, or ``None`` if any column has the wrong length."""
+    from ._usability_aware_selection import _f64
+
+    Vhost = np.empty((n, len(pool)), dtype=_crit_np_dtype())
+    for j in range(len(pool)):
+        col = _f64(pool[j].values)
+        if col.shape[0] != n:
+            return None
+        Vhost[:, j] = col
+    return Vhost
+
+
+def _import_cupy_unless_disabled() -> Any:
+    """Return the cupy module, or ``None`` when cupy is missing or GPU use is globally disabled."""
+    try:
+        import cupy as cp
+    except ImportError as e:
+        logger.debug("cupy import failed: %s", e)
+        return None
+    try:
+        from ._gpu_policy import gpu_globally_disabled
+        if gpu_globally_disabled():
+            return None
+    except Exception as e:  # nosec B110 - optional dependency import guard
+        logger.debug("gpu_globally_disabled() check failed, proceeding without the global-disable gate: %s", e)
+    return cp
+
+
 def usability_greedy_clf_gpu_resident(
     pool: list, y_cont: np.ndarray, *, w: float = 0.7, K: int = 8, seed: int = 0, n_folds: int = 4, mae_improve_rel: float = 0.01, shortlist: int = 40,
     shortlist_diversity_corr: float = 0.97,
@@ -124,42 +168,22 @@ def usability_greedy_clf_gpu_resident(
     regression path the dispatcher forwards from)."""
     if not pool:
         return None
-    try:
-        import cupy as cp
-    except ImportError as e:
-        logger.debug("cupy import failed: %s", e)
+    cp = _import_cupy_unless_disabled()
+    if cp is None:
         return None
-    try:
-        from ._gpu_policy import gpu_globally_disabled
-        if gpu_globally_disabled():
-            return None
-    except Exception as e:  # nosec B110 - optional dependency import guard
-        logger.debug("gpu_globally_disabled() check failed, proceeding without the global-disable gate: %s", e)
 
     try:
-        from ._usability_aware_selection import _f64
-
-        # Encode to dense 0..C-1 class codes IDENTICALLY to the CPU path (np.unique inverse).
-        y_raw = np.asarray(y_cont).ravel()
-        _classes, y_enc = np.unique(y_raw, return_inverse=True)
-        n_classes = int(_classes.size)
-        if n_classes < 2:
-            return None  # CPU returns [] for <2 classes; [] != a selection here, so defer to CPU
-        if n_classes > 2:
-            # MULTICLASS stays on the exact CPU sklearn path; see the note above this function for the evidence.
+        coded = _resident_binary_codes(y_cont)
+        if coded is None:
             return None
+        y_enc, n_classes = coded
         n = int(y_enc.shape[0])
-        if n < 2:
-            return None
 
         P = len(pool)
         # ---- ONE bulk H2D: the (n, P) candidate value matrix + the (n,) class codes. Resident hereafter. ----
-        Vhost = np.empty((n, P), dtype=_crit_np_dtype())
-        for j in range(P):
-            col = _f64(pool[j].values)
-            if col.shape[0] != n:
-                return None  # ragged pool -> let the CPU path handle it exactly
-            Vhost[:, j] = col
+        Vhost = _pack_pool_matrix(pool, n)
+        if Vhost is None:
+            return None  # ragged pool -> let the CPU path handle it exactly
         Vdev = cp.asarray(Vhost)  # (n, P) resident
         yenc_dev = cp.asarray(y_enc.astype(np.int64))  # (n,) resident class codes
         ydev_f = yenc_dev.astype(crit_float_dtype())  # binary positive-class indicator helper
