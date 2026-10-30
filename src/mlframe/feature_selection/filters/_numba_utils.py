@@ -921,6 +921,7 @@ from ._numba_utils_cross_module import (  # noqa: F401
     _mi_codes_njit,
     _n_unique_codes,
     _presorted_dedup,
+    corrected_mi_best,
     _relevance_mi_1var_fused,
     _supervised_edges,
     column_tie_runs,

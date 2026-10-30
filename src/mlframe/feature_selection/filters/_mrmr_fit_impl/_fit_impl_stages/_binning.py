@@ -163,9 +163,25 @@ def _install_honest_null_hook(
 
         _null_strategy_kwargs = {**(_nbins_strategy_kwargs or {}), "optimal_joint_plan_cache": OptimalJointPlanCache()}
 
+    # ``optimal_joint`` takes a handful of edge sets per column over the permutations: a binner that prepares the frame once and memoises the code column of each edge set replaces the
+    # whole-frame ``categorize_dataset`` pass per permutation (MLFRAME_OJ_NULL_BINNER=0 restores it).
+    _binner = None
+    if str(_nbins_strategy).lower() in ("optimal_joint", "cv") and os.environ.get("MLFRAME_OJ_NULL_BINNER", "1") != "0":
+        from mlframe.feature_selection.filters.discretization._null_binner import PermutedTargetBinner
+
+        _dep_df = _x_for_cat if _fixed_codes is None else _x_for_cat[[c for c in _x_for_cat.columns if str(c) in _dependent]]
+        if PermutedTargetBinner.supported(_dep_df):
+            _binner = PermutedTargetBinner(
+                _dep_df, _strategy_for_categorize, _nbins_strategy, _null_strategy_kwargs, self.quantization_dtype, out_cols=[str(c) for c in cols], fixed=_fixed_codes
+            )
+            _binner = _binner if _binner.ok else None
+
     def _honest_null_codes_uncached(row_perm):
         """Codes of every column re-binned on the RAW target permuted by ``row_perm`` (same columns, same order as ``data``)."""
         y_perm = _y_raw_for_null[np.asarray(row_perm, dtype=np.int64)]
+        _fast = _binner.codes(np.asarray(y_perm)) if _binner is not None else None
+        if _fast is not None:
+            return _fast[0], np.asarray(_fast[2], dtype=np.int64)
         d_perm, _c_perm, nb_perm = categorize_dataset(
             df=_x_for_cat if _fixed_codes is None else _x_for_cat[[c for c in _x_for_cat.columns if str(c) in _dependent]],
             method=self.quantization_method,

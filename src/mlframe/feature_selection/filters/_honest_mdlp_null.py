@@ -18,7 +18,8 @@ import numpy as np
 
 from mlframe.utils.log_throttle import log_throttle
 
-from ._numba_utils import _n_unique_codes
+from mlframe._numba_parallel_guard import parallel_kernel_entry
+from ._numba_utils import corrected_mi_best
 from ._parity_fe import _mi_codes_njit
 
 logger = logging.getLogger(__name__)
@@ -41,23 +42,14 @@ def _honest_perm_best(honest_codes_fn, factors_data, factors_nbins, y_codes, col
         yc_p = np.ascontiguousarray(yc_p[eval_rows])
     ny = int(yc_p.max()) + 1
     ky_eff = float(np.unique(yc_p).shape[0])
-    best = 0.0
-    for c in cols:
-        if c < codes_p.shape[1]:
-            # Supervised bins: re-binned on the permuted target above.
-            x = np.ascontiguousarray(np.asarray(codes_p[:, c]).astype(np.int64))
-            kx = int(nb_p[c])
-        else:
-            # Columns added after binning (engineered features) are binned without the target, so their observed codes are valid under
-            # permutation of the target: the fixed codes are the correct null here.
-            x = np.ascontiguousarray(np.asarray(factors_data[:, c]).astype(np.int64))
-            kx = int(factors_nbins[c])
-        mi = _mi_codes_njit(x, kx, yc_p, ny)
-        kx_eff = float(_n_unique_codes(x))
-        corr = mi - (kx_eff - 1.0) * (ky_eff - 1.0) / (2.0 * n)
-        if corr > best:
-            best = corr
-    return best
+    # Supervised bins (columns below ``codes_p.shape[1]``) are the ones re-binned on the permuted target above; columns added after binning (engineered features) are binned without the target,
+    # so their observed codes are valid under permutation of the target: the fixed codes are the correct null for them.
+    with parallel_kernel_entry():
+        return float(
+            corrected_mi_best(
+                np.asarray(codes_p), np.asarray(nb_p, dtype=np.int64), np.asarray(factors_data), np.asarray(factors_nbins, dtype=np.int64), np.asarray(cols, dtype=np.int64), yc_p, ny, ky_eff, n,
+            )
+        )
 
 
 # Raw columns whose per-permutation null is cached on the spec for the rest of the fit: 999 permutations x 2048 columns x 2 matrices x 8 bytes
