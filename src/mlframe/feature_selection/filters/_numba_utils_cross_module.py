@@ -1305,3 +1305,15 @@ def pack_sorted_labels_from_bits(label_bits: np.ndarray, order_row: np.ndarray, 
         raw_bits[w] = acc
         ones += _pc64(acc)
     return ones
+
+
+@njit(cache=True, parallel=True)
+def within_stratum_shuffles(keys: np.ndarray, z_rank: np.ndarray, order: np.ndarray, x_sorted: np.ndarray, out: np.ndarray) -> None:
+    """Row ``i`` of ``out`` is the candidate column shuffled within the strata of the support: ``out[i][order[j]] = x_sorted[w[j]]`` with ``w`` the stable argsort of ``z_rank + keys[i]``.
+
+    ``order`` sorts the rows by stratum, ``x_sorted`` is the candidate in that order and ``z_rank`` the dense stratum number of each sorted row, so adding a key in ``[0, 1)`` sorts the rows of a stratum
+    by their key: a uniform shuffle inside each stratum. The rows are independent, hence one parallel task per shuffle; the result is that of ``np.argsort(z_rank + keys[i], kind="stable")`` row by row."""
+    for i in prange(keys.shape[0]):
+        within = np.argsort(z_rank + keys[i], kind="mergesort")
+        for j in range(within.shape[0]):
+            out[i, order[j]] = x_sorted[within[j]]

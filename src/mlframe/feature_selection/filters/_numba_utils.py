@@ -924,6 +924,7 @@ from ._numba_utils_cross_module import (  # noqa: F401
     corrected_mi_best,
     scrub_nonfinite_1d,
     scrub_nonfinite_2d,
+    within_stratum_shuffles,
     _count_ones_bits,
     dedup_label_bits,
     pack_label_rows,
