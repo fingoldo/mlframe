@@ -2,21 +2,26 @@
 import numpy as np
 
 from mlframe.feature_selection.filters._honest_mdlp_null import _PERM_LABELS_CACHE_MAX_BYTES, _permuted_labels_cached
-from mlframe.feature_selection.filters._mdlp_honest_bycol_njit import permuted_labels
+from mlframe.feature_selection.filters._mdlp_honest_bycol_njit import permuted_labels_seeded
 
 
 class _CountingRng:
-    """A seeded generator that counts the permutations it is asked for."""
+    """A seeded generator that counts the seeds it is asked for (a draw takes one seed and generates its shuffles from it)."""
 
     def __init__(self, seed):
         """Wrap a default generator."""
         self.rng = np.random.default_rng(seed)
         self.draws = 0
 
-    def permutation(self, n):
-        """One permutation of ``n`` rows."""
+    def integers(self, low, high):
+        """One seed."""
         self.draws += 1
-        return self.rng.permutation(n)
+        return self.rng.integers(low, high)
+
+
+def _reference(y_raw, y_codes, seed, count):
+    """The labels of the draw a generator seeded ``seed`` makes: its first seed expands to ``count`` shuffles."""
+    return permuted_labels_seeded(y_raw, y_codes, count, int(np.random.default_rng(seed).integers(0, 2**31 - 1)))
 
 
 def _labels(n=500):
@@ -34,9 +39,8 @@ def test_second_call_with_the_same_key_draws_nothing_and_matches_uncached():
     first = _permuted_labels_cached(spec, y_raw, y_codes, first_rng, n, count, seed)
     second_rng = _CountingRng(seed)
     second = _permuted_labels_cached(spec, y_raw, y_codes, second_rng, n, count, seed)
-    ref_rng = np.random.default_rng(seed)
-    reference = permuted_labels(y_raw, y_codes, (ref_rng.permutation(n) for _ in range(count)), count)
-    assert first_rng.draws == count and second_rng.draws == 0
+    reference = _reference(y_raw, y_codes, seed, count)
+    assert first_rng.draws == 1 and second_rng.draws == 0
     for got, again, want in zip(first, second, reference):
         np.testing.assert_array_equal(got, want)
         np.testing.assert_array_equal(again, want)
@@ -53,7 +57,7 @@ def test_a_different_seed_or_label_vector_is_a_different_entry():
     flipped = (y_raw + 1) % 3
     c_rng = _CountingRng(2)
     _permuted_labels_cached(spec, flipped, flipped.copy(), c_rng, n, count, 2)
-    assert c_rng.draws == count
+    assert c_rng.draws == 1
 
 
 def test_a_draw_above_the_byte_cap_is_not_kept_and_says_so(caplog):
@@ -76,11 +80,22 @@ def test_a_shorter_count_is_served_from_a_longer_draw_and_a_longer_one_redraws()
     _permuted_labels_cached(spec, y_raw, y_codes, _CountingRng(seed), n, 60, seed)
     short_rng = _CountingRng(seed)
     short = _permuted_labels_cached(spec, y_raw, y_codes, short_rng, n, 25, seed)
-    ref_rng = np.random.default_rng(seed)
-    want = permuted_labels(y_raw, y_codes, (ref_rng.permutation(n) for _ in range(25)), 25)
+    want = _reference(y_raw, y_codes, seed, 25)
     assert short_rng.draws == 0
     np.testing.assert_array_equal(short[0], want[0])
     np.testing.assert_array_equal(short[1], want[1])
     long_rng = _CountingRng(seed)
     longer = _permuted_labels_cached(spec, y_raw, y_codes, long_rng, n, 90, seed)
-    assert long_rng.draws == 90 and longer[0].shape[0] == 90
+    assert long_rng.draws == 1 and longer[0].shape[0] == 90
+
+
+def test_the_seeded_shuffles_are_permutations_and_depend_on_the_seed_alone():
+    """Every row of a draw holds the labels of the target in another order (same multiset), the rows differ from each other, and the same seed gives the same matrices."""
+    y_raw, y_codes = _labels()
+    a = permuted_labels_seeded(y_raw, y_codes, 12, 99)
+    b = permuted_labels_seeded(y_raw, y_codes, 12, 99)
+    np.testing.assert_array_equal(a[0], b[0])
+    for row in a[0]:
+        np.testing.assert_array_equal(np.sort(row), np.sort(y_raw))
+    assert len({row.tobytes() for row in a[0]}) == 12
+    assert not np.array_equal(a[0], permuted_labels_seeded(y_raw, y_codes, 12, 100)[0])

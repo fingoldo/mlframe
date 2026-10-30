@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import numpy as np
+from mlframe.feature_selection.filters._mdlp_honest_bycol_njit import seeded_permutation
 
 from mlframe.feature_selection.filters._honest_mdlp_null import honest_candidate_nfailed
 from mlframe.feature_selection.filters._numba_utils_cross_module import _mi_codes_njit
@@ -28,10 +29,10 @@ def test_honest_candidate_nfailed_matches_direct_loop():
     nfailed, observed = honest_candidate_nfailed(_fixed_codes_fn(full, nbins), full, nbins, 1, 0, B, seed)
     expected_obs = _mi_codes_njit(full[:, 0].copy(), 4, full[:, 1].copy(), 3)
     assert observed == expected_obs
-    rng2 = np.random.default_rng(seed)
+    base_seed = int(np.random.default_rng(seed).integers(0, 2**31 - 1))  # the shuffle seeded base_seed + b is permutation b of the batched null's stream
     expected = 0
-    for _ in range(B):
-        perm = rng2.permutation(n)
+    for b in range(B):
+        perm = seeded_permutation(n, base_seed + b)
         if _mi_codes_njit(full[:, 0].copy(), 4, np.ascontiguousarray(full[perm, 1]), 3) >= observed:
             expected += 1
     assert nfailed == expected

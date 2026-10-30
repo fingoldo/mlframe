@@ -42,6 +42,44 @@ def permuted_labels(y_raw: np.ndarray, y_codes: np.ndarray, perm_rows: Iterable[
     return out[0], out[1]
 
 
+@njit(cache=True)
+def seeded_permutation(n: int, seed: int) -> np.ndarray:
+    """The Fisher-Yates shuffle of ``range(n)`` seeded ``seed`` (numba's generator): the permutation ``b`` of the stream of ``permuted_labels_seeded`` is ``seeded_permutation(n, base_seed + b)``."""
+    np.random.seed(seed % 4294967295)
+    perm = np.arange(n)
+    for i in range(n - 1, 0, -1):
+        j = np.random.randint(0, i + 1)
+        t = perm[i]
+        perm[i] = perm[j]
+        perm[j] = t
+    return perm
+
+
+@njit(parallel=True, cache=True)
+def _permuted_labels_kernel(src_raw: np.ndarray, src_codes: np.ndarray, base_seed: int, out_raw: np.ndarray, out_codes: np.ndarray) -> None:
+    """Row ``b`` of ``out_raw`` / ``out_codes`` is the labels read through the Fisher-Yates shuffle seeded ``base_seed + b``, one parallel task per row (independent of the thread schedule)."""
+    n = src_raw.shape[0]
+    for b in prange(out_raw.shape[0]):
+        perm = seeded_permutation(n, base_seed + b)
+        for i in range(n):
+            out_raw[b, i] = src_raw[perm[i]]
+            out_codes[b, i] = src_codes[perm[i]]
+
+
+def permuted_labels_seeded(y_raw: np.ndarray, y_codes: np.ndarray, count: int, base_seed: int) -> "tuple[np.ndarray, np.ndarray]":
+    """``(y_raw[perm], y_codes[perm])`` for ``count`` shuffles seeded ``base_seed + b``, in the narrowest signed integer type that holds the labels (as ``permuted_labels``); the shuffles are drawn in parallel
+    and no index matrix is held. The permutations are a function of ``base_seed`` alone."""
+    outs = []
+    srcs = []
+    for labels in (y_raw, y_codes):
+        top = int(np.asarray(labels).max(initial=0))
+        dtype = np.int8 if top < 127 else np.int16 if top < 32767 else np.int32
+        outs.append(np.empty((count, labels.shape[0]), dtype=dtype))
+        srcs.append(np.asarray(labels).astype(dtype))
+    _permuted_labels_kernel(srcs[0], srcs[1], int(base_seed), outs[0], outs[1])
+    return outs[0], outs[1]
+
+
 from ._numba_utils import (  # helpers hosted in _numba_utils_cross_module for the cross-module njit invariant
     _cuts_tie_free,
     column_tie_runs,
