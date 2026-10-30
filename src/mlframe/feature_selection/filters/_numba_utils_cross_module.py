@@ -709,7 +709,7 @@ def _few_distinct_levels(x: np.ndarray, limit: int) -> np.ndarray:
                 return levels[:0]
             levels[d] = v
             d += 1
-    out = levels[:d].copy()
+    out: np.ndarray = levels[:d].copy()
     out.sort()
     return out
 

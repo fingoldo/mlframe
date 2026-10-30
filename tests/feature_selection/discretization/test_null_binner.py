@@ -71,6 +71,19 @@ def test_fixed_columns_fill_their_place_in_the_requested_order():
     assert not PermutedTargetBinner(dep, "separate_bin", "optimal_joint", {}, np.int16, out_cols=["normal", "missing"]).ok
 
 
+def test_a_fixed_column_past_the_table_budget_declines_instead_of_crashing(monkeypatch):
+    """A fixed column that no longer fits the table budget makes the binner decline (``codes`` is None, so the caller falls back) instead of writing ``None`` into its column map."""
+    from mlframe.feature_selection.filters.discretization import _null_binner
+
+    monkeypatch.setattr(_null_binner, "_TABLE_BYTES", 0)
+    frame = _frame()
+    y = (np.random.default_rng(2).random(len(frame)) < 0.4).astype(np.int64)
+    binner = PermutedTargetBinner(
+        frame[["normal", "skew"]], "separate_bin", "optimal_joint", {}, np.int16, out_cols=["normal", "fx"], fixed={"fx": (np.arange(len(frame)) % 5, 5)}
+    )
+    assert binner.codes(y) is None
+
+
 def test_the_binner_declines_what_it_does_not_cover():
     """A frame with a categorical column, or an empty one, is not supported (the caller uses ``categorize_dataset``)."""
     frame = _frame(100)

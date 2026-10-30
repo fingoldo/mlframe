@@ -70,6 +70,7 @@ class PermutedTargetBinner:
         names = [str(c) for c in (self.cols if out_cols is None else out_cols)]
         fixed = {str(k): v for k, v in (fixed or {}).items()}
         self.ok = all(c in position or c in fixed for c in names)
+        self._fixed_fits = True  # False once a fixed column no longer fits the table budget; codes() then falls back
         self._out_names = names
         self._out_dep = np.array([position.get(c, -1) for c in names], dtype=np.int64)
         self._out_fixed = np.full(len(names), -1, dtype=np.int64)
@@ -77,7 +78,11 @@ class PermutedTargetBinner:
             for i, c in enumerate(names):
                 if self._out_dep[i] < 0:
                     codes, nb = fixed[c]
-                    self._out_fixed[i] = self._add_row(np.asarray(codes), int(nb) - 1)
+                    slot = self._add_row(np.asarray(codes), int(nb) - 1)
+                    if slot is None:
+                        self._fixed_fits = False
+                        break
+                    self._out_fixed[i] = slot
 
     @staticmethod
     def supported(df: Any) -> bool:
@@ -173,6 +178,8 @@ class PermutedTargetBinner:
         """``(codes, columns, bin counts)`` as ``categorize_dataset`` returns them for the target ``y`` (codes in the code dtype, column-contiguous), or ``None`` when the caller should use ``categorize_dataset`` (budget, dtype range)."""
         from .._adaptive_nbins import per_feature_edges
 
+        if not self._fixed_fits:
+            return None
         y = np.asarray(y).ravel()
         winners = self._prescore(y)
         n_cols = self._arr.shape[1]
