@@ -178,9 +178,11 @@ def _check_prospective__ignored_thread_multiplication_byte(max_n_combs, X, _n_bi
         _can_hoist, _bb, _avail = _can_hoist_shared_buffer(_buf_bytes, n_workers=_n_workers)
         if _can_hoist:
             try:
+                # column-major: a candidate is written as one contiguous run (a row-major buffer made each store a cache line and a page), and a block of the first columns is itself contiguous
                 final_transformed_vals_shared = np.empty(
                     shape=(len(X), max_n_combs * _n_binary),
                     dtype=np.float32,
+                    order="F",
                 )
                 # Cross-pair chunk width cap: the largest column count whose
                 # ``n_rows * cols * 4`` float32 buffer stays inside the overhead+worker-aware
@@ -262,7 +264,7 @@ def _check_prospective__only_worth_chunking_least(_fe_chunks, _chunk_buf_width, 
 
     if _fe_chunks and max(len(c) for c in _fe_chunks) > 1 and _chunk_buf_width > 0:
         try:
-            _chunk_buffer = np.empty((len(X), _chunk_buf_width), dtype=np.float32)
+            _chunk_buffer = np.empty((len(X), _chunk_buf_width), dtype=np.float32, order="F")  # column-major, see the shared buffer
             for _ci_chunk, _chunk in enumerate(_fe_chunks):
                 for _p in _chunk:
                     _pair_to_chunk[_p] = _ci_chunk
