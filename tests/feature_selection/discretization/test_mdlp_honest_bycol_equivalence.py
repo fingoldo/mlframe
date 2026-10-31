@@ -41,6 +41,7 @@ def test_bycol_matches_the_permutation_parallel_reference(n_classes):
     y_raw_perm, y_codes_perm = permuted_labels(y, y, iter(perms), len(perms))
     got = honest_null_columns_bycol(y_raw_perm=y_raw_perm, y_codes_perm=y_codes_perm, nan_cont=np.zeros(common["raw_cont"].shape, dtype=bool), **common)
     assert len(ref) == len(got) == 2, "plain and corrected null MI must both be compared"
+    assert len(ref) == len(got) > 0
     for a, b in zip(ref, got):
         assert np.array_equal(a, b)
 
@@ -84,6 +85,7 @@ def test_sorted_order_joint_equals_the_reference_on_every_row(n_classes, rows, s
         ref = honest_null_columns(y_raw=y, y_codes=y, perms=perms, **common)
         y_raw_perm, y_codes_perm = permuted_labels(y, y, iter(perms), len(perms))
         got = honest_null_columns_bycol(y_raw_perm=y_raw_perm, y_codes_perm=y_codes_perm, nan_cont=np.zeros(common["raw_cont"].shape, dtype=bool), **common)
+        assert len(ref) == len(got) > 0
         for a, b in zip(ref, got):
             assert np.array_equal(a, b)
 
@@ -96,5 +98,6 @@ def test_distinct_raw_and_screen_labels_take_the_code_path_and_still_match():
     ref = honest_null_columns(y_raw=y, y_codes=codes, perms=perms, **common)
     y_raw_perm, y_codes_perm = permuted_labels(y, codes, iter(perms), len(perms))
     got = honest_null_columns_bycol(y_raw_perm=y_raw_perm, y_codes_perm=y_codes_perm, nan_cont=np.zeros(common["raw_cont"].shape, dtype=bool), **common)
+    assert len(ref) == len(got) > 0
     for a, b in zip(ref, got):
         assert np.array_equal(a, b)
