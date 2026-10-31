@@ -239,7 +239,7 @@ def _cheap_mi_edge_dedup_njit(cv: np.ndarray, y_codes: np.ndarray, nbins: int) -
         hist_xy[b, c] += 1
         hist_x[b] += 1
         hist_y[c] += 1
-    return _mi_from_joint_counts(hist_xy, hist_x, hist_y, n)
+    return float(_mi_from_joint_counts(hist_xy, hist_x, hist_y, n))
 
 
 @njit(cache=True, fastmath=True, parallel=True)
