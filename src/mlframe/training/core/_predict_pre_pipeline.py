@@ -499,6 +499,53 @@ def _try_predict_with_pp_fallback(
                 return fn(_subset)
         raise
 
+def _stash_passthrough_columns(metadata, df_pre_pipeline, df, input_for_model, model_name) -> dict[str, Any]:
+    """Read the text and embedding passthrough columns off the broadest source frame so the per-model pre_pipeline cannot disturb them; a column that fails to stash is logged."""
+    _meta_text = list(metadata.get("text_features") or [])
+    _meta_emb = list(metadata.get("embedding_features") or [])
+    _passthrough_cols = _meta_text + _meta_emb
+    _stashed_passthrough: dict[str, Any] = {}
+    if _passthrough_cols:
+        _src_for_stash = None
+        for _candidate in (df_pre_pipeline, df, input_for_model):
+            if _candidate is None or not hasattr(_candidate, "columns"):
+                continue
+            if all(c in _candidate.columns for c in _passthrough_cols):
+                _src_for_stash = _candidate
+                break
+        if _src_for_stash is not None:
+            # Batch the polars->pandas conversion ONCE for all passthrough cols
+            # (was per-column get_column(_pc).to_pandas() -- N conversions on a
+            # potentially 100GB frame). Narrow select keeps it to the stash cols.
+            _stash_pd_view = None
+            if isinstance(_src_for_stash, pl.DataFrame):
+                try:
+                    _stash_pd_view = _src_for_stash.select(_passthrough_cols).to_pandas()
+                except (KeyError, AttributeError, ValueError, TypeError):
+                    _stash_pd_view = None
+            for _pc in _passthrough_cols:
+                try:
+                    if isinstance(_src_for_stash, pl.DataFrame):
+                        if _stash_pd_view is not None:
+                            _stashed_passthrough[_pc] = _stash_pd_view[_pc]
+                        else:
+                            _stashed_passthrough[_pc] = _src_for_stash.get_column(_pc).to_pandas()
+                    else:
+                        _stashed_passthrough[_pc] = _src_for_stash[_pc].reset_index(drop=True)
+                except (KeyError, AttributeError, ValueError, TypeError) as _stash_err:  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
+                    log_throttle(
+                        logger,
+                        "predict_passthrough_stash_failed",
+                        logging.WARNING,
+                        "predict_from_models: %s passthrough col %r failed to stash "
+                        "(%s: %s); downstream model will receive a frame missing this "
+                        "column. Predictions on rows whose pre-fit pipeline depended on "
+                        "it may be wrong.",
+                        model_name, _pc, type(_stash_err).__name__, _stash_err,
+                    )
+    return _stashed_passthrough
+
+
 def _apply_pre_pipeline_with_passthrough(
     input_for_model,
     *,
@@ -558,48 +605,7 @@ def _apply_pre_pipeline_with_passthrough(
             )
         return input_for_model
 
-    _meta_text = list(metadata.get("text_features") or [])
-    _meta_emb = list(metadata.get("embedding_features") or [])
-    _passthrough_cols = _meta_text + _meta_emb
-    _stashed_passthrough: dict[str, Any] = {}
-    if _passthrough_cols:
-        _src_for_stash = None
-        for _candidate in (df_pre_pipeline, df, input_for_model):
-            if _candidate is None or not hasattr(_candidate, "columns"):
-                continue
-            if all(c in _candidate.columns for c in _passthrough_cols):
-                _src_for_stash = _candidate
-                break
-        if _src_for_stash is not None:
-            # Batch the polars->pandas conversion ONCE for all passthrough cols
-            # (was per-column get_column(_pc).to_pandas() -- N conversions on a
-            # potentially 100GB frame). Narrow select keeps it to the stash cols.
-            _stash_pd_view = None
-            if isinstance(_src_for_stash, pl.DataFrame):
-                try:
-                    _stash_pd_view = _src_for_stash.select(_passthrough_cols).to_pandas()
-                except (KeyError, AttributeError, ValueError, TypeError):
-                    _stash_pd_view = None
-            for _pc in _passthrough_cols:
-                try:
-                    if isinstance(_src_for_stash, pl.DataFrame):
-                        if _stash_pd_view is not None:
-                            _stashed_passthrough[_pc] = _stash_pd_view[_pc]
-                        else:
-                            _stashed_passthrough[_pc] = _src_for_stash.get_column(_pc).to_pandas()
-                    else:
-                        _stashed_passthrough[_pc] = _src_for_stash[_pc].reset_index(drop=True)
-                except (KeyError, AttributeError, ValueError, TypeError) as _stash_err:  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
-                    log_throttle(
-                        logger,
-                        "predict_passthrough_stash_failed",
-                        logging.WARNING,
-                        "predict_from_models: %s passthrough col %r failed to stash "
-                        "(%s: %s); downstream model will receive a frame missing this "
-                        "column. Predictions on rows whose pre-fit pipeline depended on "
-                        "it may be wrong.",
-                        model_name, _pc, type(_stash_err).__name__, _stash_err,
-                    )
+    _stashed_passthrough = _stash_passthrough_columns(metadata, df_pre_pipeline, df, input_for_model, model_name)
 
     input_for_model = _transform_with_model_pre_pipeline(model_obj, input_for_model, _stashed_passthrough, model_name, model)
 
