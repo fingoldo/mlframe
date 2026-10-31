@@ -116,6 +116,7 @@ from ._mi_greedy_cmi_fe import (
     _entropy_from_classes,
     quantile_bin_columns,
 )
+from ._fe_content_memo import content_memo
 from ._orthogonal_shared import coerce_y_classif
 from ._orthogonal_univariate_fe import (
     _mi_classif_batch,
@@ -329,6 +330,7 @@ def _reference_support_bins(raw_X: pd.DataFrame, engineered_X: pd.DataFrame, cur
     return sel_bins, list(use_support.columns)
 
 
+@content_memo()
 def score_features_by_cmim(
     raw_X: pd.DataFrame,
     engineered_X: pd.DataFrame,
