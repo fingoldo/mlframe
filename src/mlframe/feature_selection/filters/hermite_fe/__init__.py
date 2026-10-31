@@ -32,6 +32,7 @@ Usage::
 
 from __future__ import annotations
 
+import importlib.util
 import logging
 from dataclasses import dataclass, field
 from typing import Any, Callable, cast
@@ -229,15 +230,9 @@ from ._hermite_basis_eval import (
 # Optional CUDA RawKernel backend. One thread per output element with the recurrence kept in registers.
 # Wins at n >= 500k once host->device transfer is amortised.
 
-_CUDA_AVAILABLE = False
+# find_spec, not an import: importing cupy at package import builds a CUDA context on any host.
+_CUDA_AVAILABLE = importlib.util.find_spec("cupy") is not None
 _CUDA_KERNELS: dict = {}
-
-try:
-    import cupy as _cp
-
-    _CUDA_AVAILABLE = True
-except ImportError:
-    pass
 
 
 def _polyeval_cuda(basis: str, x: np.ndarray, c: np.ndarray, device: int | None = None) -> np.ndarray:
