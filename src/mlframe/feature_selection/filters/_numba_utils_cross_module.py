@@ -784,6 +784,55 @@ def quantile_codes_block(v: np.ndarray, n_bins: int, codes: np.ndarray, nx: np.n
         nx[j] = top + 1
 
 
+@njit(cache=True, parallel=True)
+def quantile_bin_block(v: np.ndarray, n_bins: int, codes: np.ndarray) -> None:
+    """Fill ``codes[j]`` (an integer matrix) for every row ``j`` of the finite block ``v`` ``(columns, n)`` exactly as the CMI-greedy ``_quantile_bin`` does for a finite column.
+
+    The edges are numpy's linear-interpolation quantiles with the repeated ones dropped; a column with at most two distinct edges collapses to one class, or to the two-class indicator ``x >= edges[1]``."""
+    k = v.shape[0]
+    n = v.shape[1]
+    step = 1.0 / n_bins
+    for j in prange(k):
+        want = np.empty(2 * (n_bins + 1), dtype=np.int64)
+        for b in range(n_bins + 1):
+            q = 1.0 if b == n_bins else b * step
+            virtual = (n - 1) * q
+            i0 = n - 1 if virtual >= n - 1 else int(np.floor(virtual))
+            want[2 * b] = i0
+            want[2 * b + 1] = min(i0 + 1, n - 1)
+        want.sort()
+        nw = 1
+        for b in range(1, want.shape[0]):
+            if want[b] != want[nw - 1]:
+                want[nw] = want[b]
+                nw += 1
+        s = v[j].copy()
+        _multi_select_in_place(s, want[:nw])
+        edges = np.empty(n_bins + 1, dtype=np.float64)  # Intentional float64: quantile edges in numpy's arithmetic (equal codes to the numpy path)
+        m = 0
+        for b in range(n_bins + 1):
+            q = 1.0 if b == n_bins else b * step
+            e = _edge_value(s, q)
+            if m == 0 or e != edges[m - 1]:
+                edges[m] = e
+                m += 1
+        if m <= 2:
+            for i in range(n):
+                codes[j, i] = 1 if (m == 2 and v[j, i] >= edges[1]) else 0
+            continue
+        for i in range(n):
+            x = v[j, i]
+            lo = 0
+            hi = m - 2
+            while lo < hi:
+                mid = (lo + hi) // 2
+                if edges[1 + mid] <= x:
+                    lo = mid + 1
+                else:
+                    hi = mid
+            codes[j, i] = lo
+
+
 @njit(cache=True)
 def stratified_cmi(x: np.ndarray, y: np.ndarray, s: np.ndarray, min_rows: int) -> float:
     """Plug-in I(x; y | s) summed over the strata of ``s`` (non-negative integer codes), skipping strata below ``min_rows`` rows."""

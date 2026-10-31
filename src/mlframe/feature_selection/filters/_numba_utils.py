@@ -938,6 +938,7 @@ from ._numba_utils_cross_module import (  # noqa: F401
     _supervised_edges,
     column_tie_runs,
     quantile_codes_block,
+    quantile_bin_block,
     gather_binary_stream,
     root_decision_binary,
     root_decision_tie_free,
