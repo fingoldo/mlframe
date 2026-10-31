@@ -629,6 +629,32 @@ def _prebinned_candidates(X_cand: Any, cand_cols: list, nbins: int, score: "Call
     return out
 
 
+def _binned_cmi_in_column_blocks(cp: Any, X_float: np.ndarray, nbins: int, y_bin: np.ndarray, z_joint: Any, batched_cmi_gpu: Any, batched_quantile_bin_gpu: Any) -> np.ndarray:
+    """``CMI(candidate; y | z)`` of every column of the host matrix ``X_float`` ``(n, k)``: the columns are binned and scored on the device in blocks sized from the free VRAM.
+
+    Binning the whole candidate matrix at once converts it to a double-precision device copy plus the binner's temporaries (1920 candidates of 100000 rows: a 1.5 GB allocation against a 2.6 GB pool limit),
+    so the device path failed with an out-of-memory error and the whole batch fell to the per-candidate CPU loop. A block that still does not fit is halved and retried; a single column that does not fit raises."""
+    n, k = int(X_float.shape[0]), int(X_float.shape[1])
+    per_col = max(1, n * 36)  # f32 upload + f64 copy + the binner's temporaries + int64 codes
+    free = int(cp.cuda.runtime.memGetInfo()[0])
+    block = int(max(1, min(k, (free // 3) // per_col)))
+    parts: list = []
+    j0 = 0
+    while j0 < k:
+        j1 = min(k, j0 + block)
+        try:
+            codes_dev = batched_quantile_bin_gpu(cp.asarray(X_float[:, j0:j1]), nbins)
+            parts.append(np.asarray(_batched_cmi_in_chunks(codes_dev, y_bin, z_joint, batched_cmi_gpu)))
+            del codes_dev
+            j0 = j1
+        except cp.cuda.memory.OutOfMemoryError:
+            cp.get_default_memory_pool().free_all_blocks()
+            if block <= 1:
+                raise
+            block = max(1, block // 2)
+    return np.concatenate(parts) if parts else np.empty(0, dtype=np.float64)
+
+
 def score_candidates_by_cmi(
     X_cand: pd.DataFrame,
     y: np.ndarray,
@@ -690,10 +716,9 @@ def score_candidates_by_cmi(
                 # Born-on-device: bin the whole candidate matrix on the GPU (one batched cp.percentile
                 # sort) and keep the codes RESIDENT, scoring CMI on them without a code H2D round-trip.
                 import cupy as cp
-                X_codes_dev = batched_quantile_bin_gpu(cp.asarray(X_float), nbins)
                 # codes_trusted: binner-produced (batched_quantile_bin_gpu) + dense renumbered y/z are 0-based ->
                 # the range guard cannot fire; skip its 2 blocking min/max syncs on the resident hot path (FIX1).
-                cmis = _batched_cmi_in_chunks(X_codes_dev, y_bin, z_joint, batched_cmi_gpu)
+                cmis = _binned_cmi_in_column_blocks(cp, X_float, nbins, y_bin, z_joint, batched_cmi_gpu, batched_quantile_bin_gpu)
             else:
                 # Non-finite columns -> host equi-freq binning (handles nan/inf), then device CMI.
                 X_codes = np.empty((y_bin.shape[0], len(cand_cols)), dtype=np.int64)
