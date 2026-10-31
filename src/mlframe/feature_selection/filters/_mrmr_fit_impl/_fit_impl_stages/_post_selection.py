@@ -36,6 +36,77 @@ def _assign_support(
     )
 
 
+def _is_classification_target(self, y) -> bool:
+    """Classifier-vs-regressor detection for the additional RFECV pass: an explicit ``target_type`` wins, otherwise a dtype and cardinality heuristic."""
+    _explicit_tt = getattr(self, "target_type", None)
+    if _explicit_tt is not None:
+        _tt_str = str(_explicit_tt).lower()
+        _is_classification = "classif" in _tt_str or _tt_str in ("binary", "multiclass", "multilabel")
+    else:
+        _y_arr = np.asarray(y)
+        _n_unique = len(np.unique(_y_arr))
+        _ratio = len(_y_arr) / max(1, _n_unique)
+        _is_float = _y_arr.dtype.kind == "f"
+        _is_classification = (not _is_float) and _ratio > 100 and _n_unique <= 64
+        if _ratio > 100 and _is_float:
+            logger.warning(
+                "MRMR.run_additional_rfecv: target is float dtype with %d unique values; "
+                "treating as regression despite samples/unique ratio %.1f>100. Pass "
+                "target_type='classification' explicitly to override.",
+                _n_unique,
+                _ratio,
+            )
+    return _is_classification
+
+
+def _rfecv_rescue_pool(self, X, selected_vars) -> list:
+    """Raw input columns the additional RFECV pass may reconsider: discarded by MRMR, not excluded as aggregated, subsumed or engineered."""
+    # order-preserving set difference. The prior ``list(set(X.columns) - set(...))`` produced a HASH-SEED-DEPENDENT column order because Python's
+    # randomized string hashing reorders ``set`` iteration across processes. That order flowed into RFECV's CatBoost feature importances, whose
+    # tie-breaks then gave different ``self.support_`` across runs that differed only in ``PYTHONHASHSEED``. Concrete demo: 5/5 distinct orderings
+    # observed across seeds 0-4. Breaks the "same random_seed -> identical support_" contract for any user with ``run_additional_rfecv_minutes`` > 0.
+    _sel_names = {self.feature_names_in_[i] for i in selected_vars}
+    # ``selected_vars`` indexes ``feature_names_in_`` (full, includes passthrough); ``X`` here is the passthrough-narrowed working frame, so map names
+    # via ``feature_names_in_`` rather than ``X.columns[...]`` (positional mismatch when passthrough is active). Passthrough columns are never in the
+    # narrowed X and never enter the RFECV rescue pool below regardless.
+    # Cluster members already folded into a denoised aggregate (post-hoc cluster_aggregate 'replace' mode,
+    # _cluster_aggregate_removals_) or into a DCD PC1/mean_z swap (cluster_members_) are REPRESENTED by that
+    # aggregate. Excluding them from the rescue pool stops RFECV re-admitting the raw members and re-injecting
+    # the very redundancy the aggregation removed - only features dropped for low marginal/joint relevance get reconsidered.
+    _excluded_from_rescue = set(getattr(self, "_cluster_aggregate_removals_", None) or [])
+    _cm = getattr(self, "cluster_members_", None)
+    if isinstance(_cm, dict):
+        for _anchor, _members in _cm.items():
+            _excluded_from_rescue.add(_anchor)
+            if isinstance(_members, (list, tuple, set)):
+                _excluded_from_rescue.update(_members)
+    # Engineered FE columns (univariate basis a__T2, hybrid/pair/triplet crosses,
+    # MI-greedy) survive in X.columns but were deliberately excluded from
+    # feature_names_in_ (raw columns only, line above). They cannot be indexed
+    # into support_ via feature_names_in_.index() -> ValueError. Exclude them from
+    # the rescue pool so RFECV only reconsiders RAW discarded columns.
+    _excluded_from_rescue.update(getattr(self, "hybrid_orth_features_", None) or [])
+    _excluded_from_rescue.update(getattr(self, "mi_greedy_features_", None) or [])
+    # Raw operands the conditional-redundancy sweep judged FULLY SUBSUMED by a
+    # surviving engineered child (``_raw_redundancy_dropped_``) must NOT re-enter
+    # via the RFECV rescue pool. The n-invariant CMI verdict is authoritative: a
+    # raw whose entire y-information is captured by an admitted engineered feature
+    # (e.g. ``a`` / ``b`` in ``a**2/b`` once ``div(neg(a),sqrt(b))`` is selected)
+    # carries no independent signal, but CatBoost RFECV - which scores raw
+    # MARGINAL usefulness, blind to the engineered child's coverage - would re-admit
+    # it, resurrecting the exact redundancy the sweep removed (observed at n=2000/5000
+    # on ``y=0.30 a**2/b``: the sweep dropped a+b, RFECV re-added a). Excluding the
+    # dropped set keeps the redundancy decision consistent across both the FE-step
+    # finalisation AND the downstream RFECV rescue.
+    _excluded_from_rescue.update(getattr(self, "_raw_redundancy_dropped_", None) or set())
+    # The rescue maps pool columns back through feature_names_in_, so only raw input columns are eligible. Filtering by membership,
+    # not by per-family rosters, keeps every FE family's engineered columns out (an unary/binary pair column reached this pool and
+    # would have raised KeyError if RFECV had selected it).
+    _raw_rescue_names = set(self.feature_names_in_)
+    temp_columns = [c for c in X.columns if c in _raw_rescue_names and c not in _sel_names and c not in _excluded_from_rescue]
+    return temp_columns
+
+
 def _run_additional_rfecv(self, X, selected_vars, verbose, y, categorical_vars_names, _fni_idx):
     """Optional RFECV pass over the MRMR-selected columns (``additional_rfecv``)."""
     from mlframe.feature_selection.filters.mrmr import (
@@ -81,67 +152,8 @@ def _run_additional_rfecv(self, X, selected_vars, verbose, y, categorical_vars_n
             # Pre-fix, the regression else-branch silently skipped the additional-RFECV pass entirely, so regression callers got no benefit
             # from run_additional_rfecv_minutes. The dtype guard prevents misclassifying
             # zero-inflated float targets. fix audit row FS-L-2.
-            _explicit_tt = getattr(self, "target_type", None)
-            if _explicit_tt is not None:
-                _tt_str = str(_explicit_tt).lower()
-                _is_classification = "classif" in _tt_str or _tt_str in ("binary", "multiclass", "multilabel")
-            else:
-                _y_arr = np.asarray(y)
-                _n_unique = len(np.unique(_y_arr))
-                _ratio = len(_y_arr) / max(1, _n_unique)
-                _is_float = _y_arr.dtype.kind == "f"
-                _is_classification = (not _is_float) and _ratio > 100 and _n_unique <= 64
-                if _ratio > 100 and _is_float:
-                    logger.warning(
-                        "MRMR.run_additional_rfecv: target is float dtype with %d unique values; "
-                        "treating as regression despite samples/unique ratio %.1f>100. Pass "
-                        "target_type='classification' explicitly to override.",
-                        _n_unique,
-                        _ratio,
-                    )
-            # order-preserving set difference. The prior ``list(set(X.columns) - set(...))`` produced a HASH-SEED-DEPENDENT column order because Python's
-            # randomized string hashing reorders ``set`` iteration across processes. That order flowed into RFECV's CatBoost feature importances, whose
-            # tie-breaks then gave different ``self.support_`` across runs that differed only in ``PYTHONHASHSEED``. Concrete demo: 5/5 distinct orderings
-            # observed across seeds 0-4. Breaks the "same random_seed -> identical support_" contract for any user with ``run_additional_rfecv_minutes`` > 0.
-            # ``selected_vars`` indexes ``feature_names_in_`` (full, includes passthrough); ``X`` here is the passthrough-narrowed working frame, so map names
-            # via ``feature_names_in_`` rather than ``X.columns[...]`` (positional mismatch when passthrough is active). Passthrough columns are never in the
-            # narrowed X and never enter the RFECV rescue pool below regardless.
-            _sel_names = {self.feature_names_in_[i] for i in selected_vars}
-            # Cluster members already folded into a denoised aggregate (post-hoc cluster_aggregate 'replace' mode,
-            # _cluster_aggregate_removals_) or into a DCD PC1/mean_z swap (cluster_members_) are REPRESENTED by that
-            # aggregate. Excluding them from the rescue pool stops RFECV re-admitting the raw members and re-injecting
-            # the very redundancy the aggregation removed - only features dropped for low marginal/joint relevance get reconsidered.
-            _excluded_from_rescue = set(getattr(self, "_cluster_aggregate_removals_", None) or [])
-            _cm = getattr(self, "cluster_members_", None)
-            if isinstance(_cm, dict):
-                for _anchor, _members in _cm.items():
-                    _excluded_from_rescue.add(_anchor)
-                    if isinstance(_members, (list, tuple, set)):
-                        _excluded_from_rescue.update(_members)
-            # Engineered FE columns (univariate basis a__T2, hybrid/pair/triplet crosses,
-            # MI-greedy) survive in X.columns but were deliberately excluded from
-            # feature_names_in_ (raw columns only, line above). They cannot be indexed
-            # into support_ via feature_names_in_.index() -> ValueError. Exclude them from
-            # the rescue pool so RFECV only reconsiders RAW discarded columns.
-            _excluded_from_rescue.update(getattr(self, "hybrid_orth_features_", None) or [])
-            _excluded_from_rescue.update(getattr(self, "mi_greedy_features_", None) or [])
-            # Raw operands the conditional-redundancy sweep judged FULLY SUBSUMED by a
-            # surviving engineered child (``_raw_redundancy_dropped_``) must NOT re-enter
-            # via the RFECV rescue pool. The n-invariant CMI verdict is authoritative: a
-            # raw whose entire y-information is captured by an admitted engineered feature
-            # (e.g. ``a`` / ``b`` in ``a**2/b`` once ``div(neg(a),sqrt(b))`` is selected)
-            # carries no independent signal, but CatBoost RFECV - which scores raw
-            # MARGINAL usefulness, blind to the engineered child's coverage - would re-admit
-            # it, resurrecting the exact redundancy the sweep removed (observed at n=2000/5000
-            # on ``y=0.30 a**2/b``: the sweep dropped a+b, RFECV re-added a). Excluding the
-            # dropped set keeps the redundancy decision consistent across both the FE-step
-            # finalisation AND the downstream RFECV rescue.
-            _excluded_from_rescue.update(getattr(self, "_raw_redundancy_dropped_", None) or set())
-            # The rescue maps pool columns back through feature_names_in_, so only raw input columns are eligible. Filtering by membership,
-            # not by per-family rosters, keeps every FE family's engineered columns out (an unary/binary pair column reached this pool and
-            # would have raised KeyError if RFECV had selected it).
-            _raw_rescue_names = set(self.feature_names_in_)
-            temp_columns = [c for c in X.columns if c in _raw_rescue_names and c not in _sel_names and c not in _excluded_from_rescue]
+            _is_classification = _is_classification_target(self, y)
+            temp_columns = _rfecv_rescue_pool(self, X, selected_vars)
 
             if not temp_columns:
                 # Every raw column is already selected or excluded (cluster members, subsumed operands, engineered columns); the
