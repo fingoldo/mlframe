@@ -91,7 +91,8 @@ def _score_from_frozen(X_cols: np.ndarray, mu: np.ndarray, sigma_inv: np.ndarray
     payload, which differed in the 7th digit."""
     delta = X_cols - mu
     d2 = np.einsum("ni,ij,nj->n", delta, sigma_inv, delta)
-    return np.sqrt(np.maximum(d2, 0.0)).astype(_crit_np_dtype())
+    scores: np.ndarray = np.sqrt(np.maximum(d2, 0.0)).astype(_crit_np_dtype())
+    return scores
 
 
 def engineered_name_mahalanobis_density(cols: Sequence[str]) -> str:
