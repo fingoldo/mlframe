@@ -225,14 +225,21 @@ def ensure_fe_gpu_pool_limit() -> bool:
     try:
         requested_frac = _pool_fraction()
         try:
-            _, total_b = cp.cuda.runtime.memGetInfo()
+            free0_b, total_b = cp.cuda.runtime.memGetInfo()
         except Exception as e:
             logger.warning("cp.cuda.runtime.memGetInfo() failed, treating total VRAM as 0: %s", e)
-            total_b = 0
+            free0_b, total_b = 0, 0
         frac = requested_frac
         if total_b > 0:
             cushion_frac = _cushion_bytes(total_b) / total_b
             frac = max(0.0, min(requested_frac, 1.0 - cushion_frac))
+            # The device is rarely empty: the display and other applications already hold part of it (0.75 GB of 4 GB here). A cap taken from the TOTAL then lets the pool grow until the
+            # device shows less free memory than the cushion, and every later dispatch is declined (observed: 634 MiB free against a 1024 MiB cushion, the rest of the fit on the CPU). The pool is
+            # still empty when this runs, so the memory free NOW is what it can have while the cushion stays satisfiable.
+            if free0_b > 0:
+                room_frac = (int(free0_b) - _cushion_bytes(total_b)) / total_b
+                if room_frac >= 0.1:
+                    frac = min(frac, room_frac)
         cp.get_default_memory_pool().set_limit(fraction=frac)
         if total_b > 0:
             logger.info(
