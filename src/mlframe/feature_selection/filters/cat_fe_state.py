@@ -213,6 +213,11 @@ class CatFEConfig:
 
     def __post_init__(self):
         """Validate ranges and types at construction time so misconfig fails fast (not deep in ``fit()``)."""
+        self._check_counts_and_thresholds()
+        self._check_cross_field_and_bounds()
+
+    def _check_counts_and_thresholds(self):
+        """Range checks on the count, threshold and nbins fields that carry no cross-field dependency."""
         if self.top_k_pairs <= 0:
             raise ValueError(f"top_k_pairs must be > 0; got {self.top_k_pairs}")
         if self.max_kway_order < 2:
@@ -235,6 +240,9 @@ class CatFEConfig:
             raise ValueError(f"min_n_samples must be >= 2 (MI estimation degenerates below); got {self.min_n_samples}")
         if self.min_class_count < 1:
             raise ValueError(f"min_class_count must be >= 1; got {self.min_class_count}")
+
+    def _check_cross_field_and_bounds(self):
+        """Cross-field sanity and the bounds of the bootstrap, streaming and encoding fields."""
         # Cross-field sanity: shortlist_npermutations should not exceed full_npermutations - the shortlist is supposed to be cheaper.
         if self.shortlist_npermutations > 0 and self.full_npermutations > 0 and self.shortlist_npermutations > self.full_npermutations:
             raise ValueError(
