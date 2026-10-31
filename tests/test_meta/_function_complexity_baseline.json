@@ -16,7 +16,6 @@
   "src/mlframe/reporting/renderers/matplotlib.py::MatplotlibRenderer._histogram": 18,
   "src/mlframe/reporting/renderers/matplotlib.py::MatplotlibRenderer.render": 18,
   "src/mlframe/reporting/renderers/plotly.py::PlotlyRenderer._histogram": 17,
-  "src/mlframe/training/composite/ensemble/_oof_external.py::_compute_oof_with_external_holdout": 18,
   "src/mlframe/training/composite/qrf.py::_batch_weighted_quantiles_kernel": 17,
   "src/mlframe/training/neural/_muon_triton_kernel.py::maybe_newton_schulz_triton": 16
 }
