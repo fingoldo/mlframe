@@ -517,8 +517,8 @@ def unified_second_pass_gate(
     while remaining and len(winners) < cap:
         best_name = None
         best_cmi = -1.0
-        for name in remaining:
-            if cand_fp[name] in winner_fps:
+        for name in eng:  # candidate order, not set order: equal-CMI candidates must resolve the same way in every process
+            if name not in remaining or cand_fp[name] in winner_fps:
                 continue
             cmi = _cmi_from_binned(cand_bins[name], y_bin, z_joint)
             if cmi > best_cmi:

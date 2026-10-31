@@ -774,6 +774,7 @@ def _greedy_cmi_fe_constr_step2_rng_raw_small(cand_names, rng_floor, y_bin, z_jo
     st.winner_fps = set()
     st.rows = []
     st.remaining = set(cand_names)
+    st.cand_order = list(cand_names)  # the scan order: a set of strings iterates in hash-seed order, which would decide exact ties between runs
     st.step = 0
     st.z_card_at_floor = -1
     st.cur_floor = 0.0
@@ -881,7 +882,7 @@ def _greedy_cmi_fe_constr_step3_while_st_remaining(st, top_k, _noise_floor_for_c
         # across them, so score ALL their CMI in ONE batched_cmi_gpu workload and take the first-max argmax
         # (== the sequential ``cmi > best_cmi`` tie-break). Same MM plug-in CMI -> selection-equivalent;
         # per-candidate loop fallback on any error / GPU-off.
-        _scan = [name for name in st.remaining if st.cand_fp[name] not in st.winner_fps]
+        _scan = [name for name in st.cand_order if name in st.remaining and st.cand_fp[name] not in st.winner_fps]
         _batched_done, _batched_name, _batched_cmi = _batched_cmi_argmax(st, _scan, _have_z, y_bin, z_joint_dev, z_joint, _host_bins, nbins, cand_bins_dev)
         if _batched_done:
             best_name, best_cmi = _batched_name, _batched_cmi
