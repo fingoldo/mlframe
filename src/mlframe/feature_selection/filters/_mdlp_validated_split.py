@@ -332,6 +332,41 @@ def _mdlp_permutation_batch_njit(
     return accept
 
 
+def _decide_pending_level(pending_permutation: list, min_split_size: int, n_permutations: int) -> None:
+    """Batch every node one BFS level deferred to the permutation branch into a single njit call and accept the nodes it passes."""
+    max_n = max(len(p[0]) for p in pending_permutation)
+    n_nodes = len(pending_permutation)
+    x_padded = np.zeros((n_nodes, max_n), dtype=np.float64)  # Intentional float64: padded per-node operand; kernel contract is float64
+    y_padded = np.zeros((n_nodes, max_n), dtype=np.int64)
+    node_sizes = np.empty(n_nodes, dtype=np.int64)
+    node_gains = np.empty(n_nodes, dtype=np.float64)  # Intentional float64: per-node gain accumulator
+    n_classes_arr = np.empty(n_nodes, dtype=np.int64)
+    base_seeds = np.empty(n_nodes, dtype=np.int64)
+    # Bonferroni alpha can differ per node (depth-decay) but is uniform within one BFS level
+    # (every pending node here shares the same `depth`), so a single scalar alpha per batch call
+    # is correct; assert the invariant defensively rather than silently averaging wrong alphas.
+    _alphas = {p[6] for p in pending_permutation}
+    if not (len(_alphas) == 1):
+        raise AssertionError("BFS level batch: nodes at the same depth must share the same alpha")
+    _batch_alpha = next(iter(_alphas))
+    for i, (_x_i, _y_i, _nc_i, gain_i, seed_i, _accept_fn, _a) in enumerate(pending_permutation):
+        ni = len(_x_i)
+        x_padded[i, :ni] = _x_i
+        y_padded[i, :ni] = _y_i
+        node_sizes[i] = ni
+        node_gains[i] = gain_i
+        n_classes_arr[i] = _nc_i
+        base_seeds[i] = seed_i
+    # One thread at a time inside the prange region; see mlframe._numba_parallel_guard.
+    with parallel_kernel_entry():
+        accepts = _mdlp_permutation_batch_njit(
+            x_padded, y_padded, node_sizes, node_gains, n_classes_arr, min_split_size, n_permutations, base_seeds, _batch_alpha,
+        )
+    for i, (_x_i, _y_i, _nc_i, _gain_i, _seed_i, _accept_fn, _a) in enumerate(pending_permutation):
+        if accepts[i]:
+            _accept_fn()
+
+
 def _mdlp_recurse_validated_bfs(
     x: np.ndarray,
     y: np.ndarray,
@@ -429,37 +464,7 @@ def _mdlp_recurse_validated_bfs(
 
         # Pass 2: ONE batched njit call for every node this level deferred to the permutation branch.
         if pending_permutation:
-            max_n = max(len(p[0]) for p in pending_permutation)
-            n_nodes = len(pending_permutation)
-            x_padded = np.zeros((n_nodes, max_n), dtype=np.float64)  # Intentional float64: padded per-node operand; kernel contract is float64
-            y_padded = np.zeros((n_nodes, max_n), dtype=np.int64)
-            node_sizes = np.empty(n_nodes, dtype=np.int64)
-            node_gains = np.empty(n_nodes, dtype=np.float64)  # Intentional float64: per-node gain accumulator
-            n_classes_arr = np.empty(n_nodes, dtype=np.int64)
-            base_seeds = np.empty(n_nodes, dtype=np.int64)
-            # Bonferroni alpha can differ per node (depth-decay) but is uniform within one BFS level
-            # (every pending node here shares the same `depth`), so a single scalar alpha per batch call
-            # is correct; assert the invariant defensively rather than silently averaging wrong alphas.
-            _alphas = {p[6] for p in pending_permutation}
-            if not (len(_alphas) == 1):
-                raise AssertionError("BFS level batch: nodes at the same depth must share the same alpha")
-            _batch_alpha = next(iter(_alphas))
-            for i, (_x_i, _y_i, _nc_i, gain_i, seed_i, _accept_fn, _a) in enumerate(pending_permutation):
-                ni = len(_x_i)
-                x_padded[i, :ni] = _x_i
-                y_padded[i, :ni] = _y_i
-                node_sizes[i] = ni
-                node_gains[i] = gain_i
-                n_classes_arr[i] = _nc_i
-                base_seeds[i] = seed_i
-            # One thread at a time inside the prange region; see mlframe._numba_parallel_guard.
-            with parallel_kernel_entry():
-                accepts = _mdlp_permutation_batch_njit(
-                    x_padded, y_padded, node_sizes, node_gains, n_classes_arr, min_split_size, n_permutations, base_seeds, _batch_alpha,
-                )
-            for i, (_x_i, _y_i, _nc_i, _gain_i, _seed_i, _accept_fn, _a) in enumerate(pending_permutation):
-                if accepts[i]:
-                    _accept_fn()
+            _decide_pending_level(pending_permutation, min_split_size, n_permutations)
 
         frontier = next_frontier
     return splits
