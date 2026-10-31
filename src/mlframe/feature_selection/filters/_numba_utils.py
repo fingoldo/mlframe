@@ -925,6 +925,7 @@ from ._numba_utils_cross_module import (  # noqa: F401
     scrub_nonfinite_1d,
     column_fingerprints,
     rows_to_columns,
+    rows_to_columns_into,
     scrub_nonfinite_2d,
     within_stratum_shuffles,
     _count_ones_bits,

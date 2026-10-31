@@ -1353,3 +1353,15 @@ def column_fingerprints(bits: np.ndarray) -> np.ndarray:
         out[j, 0] = h1
         out[j, 1] = h2
     return out
+
+
+@njit(cache=True)
+def rows_to_columns_into(rows: np.ndarray, out: np.ndarray, col0: int) -> None:
+    """``out[r, col0 + j] = rows[j, r]``: the ``(k, n)`` block ``rows`` written, tile by tile, into columns ``col0 .. col0 + k`` of the ``(n, K)`` matrix ``out`` (see ``rows_to_columns``)."""
+    k, n = rows.shape
+    tile = 64
+    for r0 in range(0, n, tile):
+        r1 = min(n, r0 + tile)
+        for j in range(k):
+            for r in range(r0, r1):
+                out[r, col0 + j] = rows[j, r]
