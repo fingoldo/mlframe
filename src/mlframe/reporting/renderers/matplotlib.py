@@ -330,29 +330,10 @@ class MatplotlibRenderer:
     # Bound at the bottom of this module from ``._matplotlib_network``.
     _network: ClassVar[Any]
 
-    def render(self, spec: FigureSpec, *, static_legend: bool = False) -> Any:
-        """Build the grid of subplots described by ``spec`` (row/col ratios, optional suptitle/caption), render every panel into its cell, and return the assembled ``Figure``."""
-        # static_legend is a plotly-only concept (see PlotlyRenderer.render); matplotlib legends
-        # are always static, so this backend accepts and ignores the flag to satisfy the Renderer Protocol.
-        del static_legend
-        # REMOVED ``matplotlib.use("Agg", force=False)``
-        # here. The renderer creates its own ``FigureCanvasAgg(fig)``
-        # explicitly below, so the global-backend mutation is
-        # redundant -- AND it broke inline FI display in Jupyter
-        # because once Agg is locked in globally, downstream
-        # ``plt.show()`` calls in feature_importance.py print
-        # "Matplotlib is currently using agg, which is a non-GUI
-        # backend, so cannot show the figure." Per the
-        # CLAUDE.md rule, the renderer must NOT pollute global state
-        # to make its own save path easier when downstream consumers
-        # rely on that state for inline rendering.
+    def _build_panel_grid(self, spec: FigureSpec, rows: int, cols: int):
+        """Create the figure and gridspec, add one axes per non-empty panel cell, and return ``(fig, axes_grid, col_axes)``."""
         from matplotlib.figure import Figure
         from matplotlib.backends.backend_agg import FigureCanvasAgg
-
-        rows = len(spec.panels)
-        cols = max((len(r) for r in spec.panels), default=0)
-        if rows == 0 or cols == 0:
-            raise ValueError("FigureSpec has no panels")
 
         # Force constrained_layout whenever a suptitle is present: with the
         # default (None) layout engine the suptitle stamps at y=0.98 figure
@@ -400,16 +381,10 @@ class MatplotlibRenderer:
                 col_axes.setdefault(c, []).append(ax)
             axes_grid.append(row_axes)
 
-        # A colorbar attached to a single axes shrinks only that axes; when a shared-x panel (calibration histogram)
-        # sits below the scatter, anchor the bar across the whole column so both data axes keep the same width.
-        for r, row in enumerate(spec.panels):
-            for c, panel in enumerate(row):
-                if panel is None:
-                    continue
-                ax = axes_grid[r][c]
-                cbar_axes = col_axes[c] if (spec.sharex and len(col_axes[c]) > 1) else ax
-                self._render_panel(ax, panel, fig, cbar_axes=cbar_axes)
+        return fig, axes_grid, col_axes
 
+    def _measure_title_caption_bands(self, fig, spec: FigureSpec):
+        """Measure the wrapped suptitle and caption and reserve their bands outside the axes; return ``(top_band, bottom_band, sup_text, cap)``."""
         # Title and caption both live in bands reserved OUTSIDE the axes rectangle, and both bands are measured
         # from the wrapped line count rather than assumed. constrained_layout is documented to make room for a
         # suptitle, but it under-reserves for a multi-line one: a three-line model identity on a 12x6 figure
@@ -437,11 +412,47 @@ class MatplotlibRenderer:
             _cap_lines = wrap_text_to_width(spec.caption, fontsize=_CAPTION_FONTSIZE, width_in=fig.get_size_inches()[0], fallback_chars=_CAPTION_WRAP_CHARS)
             _cap = "\n".join(_cap_lines)
             _bottom_band = min(0.30, (len(_cap_lines) * 11.0 + 12.0) / _h_px)
+        return _top_band, _bottom_band, _sup_text, _cap
+
+    def render(self, spec: FigureSpec, *, static_legend: bool = False) -> Any:
+        """Build the grid of subplots described by ``spec`` (row/col ratios, optional suptitle/caption), render every panel into its cell, and return the assembled ``Figure``."""
+        # static_legend is a plotly-only concept (see PlotlyRenderer.render); matplotlib legends
+        # are always static, so this backend accepts and ignores the flag to satisfy the Renderer Protocol.
+        del static_legend
+        # REMOVED ``matplotlib.use("Agg", force=False)``
+        # here. The renderer creates its own ``FigureCanvasAgg(fig)``
+        # explicitly below, so the global-backend mutation is
+        # redundant -- AND it broke inline FI display in Jupyter
+        # because once Agg is locked in globally, downstream
+        # ``plt.show()`` calls in feature_importance.py print
+        # "Matplotlib is currently using agg, which is a non-GUI
+        # backend, so cannot show the figure." Per the
+        # CLAUDE.md rule, the renderer must NOT pollute global state
+        # to make its own save path easier when downstream consumers
+        # rely on that state for inline rendering.
+        rows = len(spec.panels)
+        cols = max((len(r) for r in spec.panels), default=0)
+        if rows == 0 or cols == 0:
+            raise ValueError("FigureSpec has no panels")
+
+        fig, axes_grid, col_axes = self._build_panel_grid(spec, rows, cols)
+
+        # A colorbar attached to a single axes shrinks only that axes; when a shared-x panel (calibration histogram)
+        # sits below the scatter, anchor the bar across the whole column so both data axes keep the same width.
+        for r, row in enumerate(spec.panels):
+            for c, panel in enumerate(row):
+                if panel is None:
+                    continue
+                ax = axes_grid[r][c]
+                cbar_axes = col_axes[c] if (spec.sharex and len(col_axes[c]) > 1) else ax
+                self._render_panel(ax, panel, fig, cbar_axes=cbar_axes)
+
+        _top_band, _bottom_band, _sup_text, _cap = self._measure_title_caption_bands(fig, spec)
         if _top_band or _bottom_band:
             _eng = fig.get_layout_engine()
             if _eng is not None:
                 try:
-                    _eng.set(rect=(0.0, _bottom_band, 1.0, 1.0 - _bottom_band - _top_band))  # type: ignore[call-arg]  # matplotlib stubs type _eng as the base LayoutEngine; constrained_layout was forced on above so this is always a ConstrainedLayoutEngine, whose .set() does accept rect
+                    _eng.set(rect=(0.0, _bottom_band, 1.0, 1.0 - _bottom_band - _top_band))  # matplotlib stubs type _eng as the base LayoutEngine; constrained_layout was forced on above so this is always a ConstrainedLayoutEngine, whose .set() does accept rect
                 except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
                     logger.debug("suppressed: %s", e)
                     pass
