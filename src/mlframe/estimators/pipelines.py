@@ -151,6 +151,10 @@ def optimize_pipeline_by_gridsearch(
         cv_results = {}
     if possible_pipeline_blocks is None:
         possible_pipeline_blocks = {}
+    if output_dir is None:
+        # Read back with joblib.load, so the dump must not sit at a name any local user can pre-create in the shared temp root.
+        output_dir = tempfile.mkdtemp(prefix="mlframe-cv-")
+        logger.info("CV results dump directory: %s", output_dir)
     if not possible_pipeline_blocks:
         # what's this paramset unique (but meaningful) hash?
         paramset_hash = get_fqn(constants)
@@ -160,8 +164,7 @@ def optimize_pipeline_by_gridsearch(
         logger.info("Submitting CV pipeline %s", paramset_hash)
         cv_results[title][paramset_hash] = cv_func(X=X, Y=Y, title=title, **constants)
 
-        out_dir = output_dir if output_dir is not None else tempfile.gettempdir()
-        _dump_path = os.path.join(out_dir, f"cv_results-{slugify(title)}.dump")
+        _dump_path = os.path.join(output_dir, f"cv_results-{slugify(title)}.dump")
         joblib.dump(cv_results, _dump_path, compress=9)
         # replay_cv_results (below) fail-closed-refuses any dump lacking a .sha256 sidecar -- without this
         # call the module's own documented round-trip was broken by default (every other joblib/pickle

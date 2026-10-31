@@ -26,8 +26,12 @@ proposed disposition: **RESOLVED** (already safe, citation given), **FUTURE** (r
   **Proposed: FUTURE** (needs a manifest format change).
 - **DESER-06 (Medium)**, `estimators/pipelines.py:111`: unrestricted `joblib.load` after an integrity-only sidecar check.
   **Proposed: FUTURE.**
-- **FS-02 (Medium)**, `estimators/pipelines.py:163-166`: predictable file in the shared temp dir, read back as a pickle.
-  **Proposed: FUTURE** (per-user 0o700 directory and `mkstemp`).
+- **FS-02 (Medium), RESOLVED**: `estimators/pipelines.py`: the default dump no longer sits at a predictable name in the shared temp
+  root; it goes to a fresh `tempfile.mkdtemp` directory (0o700 on POSIX) created once per top-level call. Pinned by
+  `tests/estimators/test_pipeline_gridsearch_default_dump_dir_private.py`, which fails on the previous code.
+- **DESER-06 (Medium), FUTURE**: `pipelines.py` `replay_cv_results` still calls `joblib.load` after an integrity-only sidecar.
+  `safe_pickle.safe_load` cannot be swapped in because it uses `pickle.loads` and the dumps are zlib-compressed joblib. Needs an
+  authenticity key or a format change, which is a design decision.
 - **SEC-01 (Medium), RESOLVED** in `620c0d2d2`: the give-up log carries the scrubbed message only, and the re-raised error is no longer
   chained to the original. Pinned by `tests/integrations/test_mlflow_scrubbed_giveup_log.py`, which fails on the previous code.
 - **SUP-02 (Medium)**, `pyproject.toml:154`: `pyutilz>=1.0.0` is not on PyPI, so pip users are exposed to dependency confusion.
