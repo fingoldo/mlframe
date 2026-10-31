@@ -68,7 +68,7 @@ def test_device_pipeline_matches_the_host_kernel(n_classes):
     args = _inputs(30000, n_classes, 24, seed=n_classes)
     assert eligible(30000, n_classes, args[12], args[13])
     host = honest_null_columns_bycol(*args, np.zeros(args[0].shape, dtype=bool))
-    dev = honest_null_columns_device(*args)
+    dev = honest_null_columns_device(*args, np.zeros(args[0].shape, dtype=bool))
     assert dev is not None
     assert len(host) == len(dev) == 2, "plain and corrected null MI must both be compared"
     for a, b in zip(host, dev):
@@ -78,4 +78,22 @@ def test_device_pipeline_matches_the_host_kernel(n_classes):
 def test_small_samples_stay_on_the_host_kernel():
     """Below the analytic regime (permutation-decided roots) the device pipeline declines."""
     args = _inputs(3000, 2, 4, seed=5)
-    assert honest_null_columns_device(*args) is None
+    assert honest_null_columns_device(*args, np.zeros(args[0].shape, dtype=bool)) is None
+
+
+@pytest.mark.parametrize("n_classes", [2, 3])
+def test_device_pipeline_matches_the_host_kernel_with_nan_rows(n_classes):
+    """Columns that had NaN rows before the median fill: those rows take the extra NaN code on both paths, and the null MI agrees for every (permutation, column)."""
+    args = list(_inputs(30000, n_classes, 24, seed=10 + n_classes))
+    raw = args[0]
+    rng = np.random.default_rng(3)
+    nan_cont = np.zeros(raw.shape, dtype=bool)
+    for c in (1, 3):
+        rows = rng.random(raw.shape[0]) < 0.08
+        nan_cont[rows, c] = True
+        raw[rows, c] = np.median(raw[~rows, c])  # the median fill the screen applies
+    host = honest_null_columns_bycol(*args, nan_cont)
+    dev = honest_null_columns_device(*args, nan_cont)
+    assert dev is not None
+    for a, b in zip(host, dev):
+        assert np.allclose(a, b, rtol=0, atol=1e-12)

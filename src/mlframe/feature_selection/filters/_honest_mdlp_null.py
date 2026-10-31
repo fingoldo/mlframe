@@ -214,11 +214,10 @@ def _njit_null_columns(spec: dict, factors_data: np.ndarray, factors_nbins, y_id
             ev,
             col_slot,
         )
-        # The device kernel has no NaN-row handling, so a spec with NaN columns runs the host kernel.
-        if not spec.get("has_nan", False) and _device_honest_null_enabled():
+        if _device_honest_null_enabled():
             from ._honest_null_device import honest_null_columns_device
 
-            on_device = honest_null_columns_device(*args)
+            on_device = honest_null_columns_device(*args, nan_cont)
             if on_device is not None:
                 return on_device
         return honest_null_columns_bycol(*args, nan_cont, os.environ.get("MLFRAME_HONEST_ROOT_PRECHECK", "1") != "0")

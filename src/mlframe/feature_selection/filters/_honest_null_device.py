@@ -270,6 +270,7 @@ def _redo_accepted(
     eval_rows,
     plain,
     corrected,
+    nan_cont,
 ):
     """Host cut search and MI for the listed (permutation, column) pairs, written into ``plain`` / ``corrected`` (the body of ``honest_null_columns_bycol`` for one pair)."""
     n = raw_cont.shape[0]
@@ -292,6 +293,16 @@ def _redo_accepted(
         final = _supervised_edges(col, cuts, q_fallback[j, : q_fallback_len[j]], q_refine[j, : q_refine_len[j]])
         xs = np.empty(m, dtype=np.int64)
         _codes_at_rows(col, eval_rows, final, xs)
+        nb_reg = final.shape[0] + 1
+        has_nan = False
+        for i in range(n):
+            if nan_cont[i, sj]:
+                has_nan = True
+                break
+        if has_nan:
+            for r in range(m):
+                if nan_cont[eval_rows[r], sj]:
+                    xs[r] = nb_reg
         ys = np.empty(m, dtype=np.int64)
         ny = 0
         for r in range(m):
@@ -306,14 +317,16 @@ def _redo_accepted(
         for c in range(ny):
             if seen[c]:
                 ky += 1.0
-        mi = _mi_codes(xs, final.shape[0] + 1, ys, ny)
+        mi = _mi_codes(xs, nb_reg + 1 if has_nan else nb_reg, ys, ny)
         plain[b, j] = mi
         corrected[b, j] = mi - (float(_n_unique_codes(xs)) - 1.0) * (ky - 1.0) / (2.0 * m)
 
 
 @njit(cache=True, parallel=True)
-def _fallback_codes(raw_cont, is_cont, fixed_codes, fixed_nbins, col_slot, q_fallback, q_fallback_len, eval_rows):
-    """``(codes, bins, occupied bins)``: the codes of every column at the evaluation rows when no cut is accepted (``(columns, m)`` int16)."""
+def _fallback_codes(raw_cont, is_cont, fixed_codes, fixed_nbins, col_slot, q_fallback, q_fallback_len, eval_rows, nan_cont):
+    """``(codes, bins, occupied bins)``: the codes of every column at the evaluation rows when no cut is accepted (``(columns, m)`` int16).
+
+    A row that was NaN before the median fill keeps the column's NaN code ``nb_reg`` (one past the regular bins), and a column with any NaN has ``nb_reg + 1`` bins, as in the host kernel."""
     k = is_cont.shape[0]
     m = eval_rows.shape[0]
     codes = np.zeros((k, m), dtype=np.int16)
@@ -328,7 +341,17 @@ def _fallback_codes(raw_cont, is_cont, fixed_codes, fixed_nbins, col_slot, q_fal
                 col[i] = raw_cont[i, sj]
             edges = q_fallback[j, : q_fallback_len[j]]
             _codes_at_rows(col, eval_rows, edges, xs)
-            nx[j] = edges.shape[0] + 1
+            nb_reg = edges.shape[0] + 1
+            has_nan = False
+            for i in range(raw_cont.shape[0]):
+                if nan_cont[i, sj]:
+                    has_nan = True
+                    break
+            if has_nan:
+                for r in range(m):
+                    if nan_cont[eval_rows[r], sj]:
+                        xs[r] = nb_reg
+            nx[j] = nb_reg + 1 if has_nan else nb_reg
         else:
             fs = col_slot[j]
             for r in range(m):
@@ -377,6 +400,7 @@ def honest_null_columns_device(
     q_refine_len: np.ndarray,
     eval_rows: np.ndarray,
     col_slot: np.ndarray,
+    nan_cont: np.ndarray,
 ) -> tuple[np.ndarray, np.ndarray] | None:
     """``(plain, corrected)`` as ``honest_null_columns_bycol`` returns them, or ``None`` when the device path does not apply (see the module docstring)."""
     try:
@@ -393,7 +417,7 @@ def honest_null_columns_device(
     kc = raw_cont.shape[1] if bool(is_cont.any()) else 0
     if not eligible(n, n_classes_total, analytic_min_n, analytic_min_cell):
         return None
-    codes, nx, kx = _fallback_codes(raw_cont, is_cont, fixed_codes, fixed_nbins, col_slot, q_fallback, q_fallback_len, eval_rows)
+    codes, nx, kx = _fallback_codes(raw_cont, is_cont, fixed_codes, fixed_nbins, col_slot, q_fallback, q_fallback_len, eval_rows, nan_cont)
     if int(nx.max()) > MAX_BINS:
         return None
     ys = np.ascontiguousarray(y_codes_perm[:, eval_rows], dtype=np.int64)
@@ -450,5 +474,6 @@ def honest_null_columns_device(
                 eval_rows,
                 plain,
                 corrected,
+                nan_cont,
             )
     return plain, corrected
