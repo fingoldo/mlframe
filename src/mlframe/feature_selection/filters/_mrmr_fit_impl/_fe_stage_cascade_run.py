@@ -15,6 +15,7 @@ from ._fe_stage_cascade_early_b import _fe_stage_cascade_early_b
 from ._fe_stage_cascade_mid_a import _fe_stage_cascade_mid_a
 from ._fe_stage_cascade_mid_b import _fe_stage_cascade_mid_b
 from ._fe_stage_merge import _fe_merge_new_columns
+from .._fe_dominant_candidate import dominant_candidate
 from .._fe_frame_ops import fe_drop_columns
 
 
@@ -36,6 +37,9 @@ def _run_fe_stage_cascades(self, X, y, verbose, fe_max_steps, _y_np, _fe_family_
         X = _fe_merge_new_columns(_X_full, X, _X_step_input)
         _raw_input_cols_pre_fe = list(_X_full.columns) if hasattr(_X_full, "columns") else _raw_input_cols_pre_fe
     _close_lap()
+    # One column that already carries nearly all of y leaves nothing for the remaining families to add.
+    if dominant_candidate(X, _y_np) is not None:
+        return X, _raw_input_cols_pre_fe
     X = _fe_merge_new_columns(X, _fe_stage_cascade_early_b(
         self, X=_X_step_input, y=y, verbose=verbose, fe_max_steps=fe_max_steps, _y_np=_y_np, _fe_family_on=_fe_family_on,
         _fit_entry_nan_mask=_fit_entry_nan_mask, _raw_input_cols_pre_fe=_raw_input_cols_pre_fe,

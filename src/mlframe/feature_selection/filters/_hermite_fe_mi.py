@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import logging
 import math
+import contextlib
 import os
 import threading
 import weakref
@@ -418,6 +419,18 @@ def plugin_mi_classif_dispatch(x: np.ndarray, y: np.ndarray, n_bins: int = 20) -
 _COLUMN_MI_MEMO: "dict[tuple, float]" = {}  # (column content, target content, bins, dtype) -> plug-in MI; filled by plugin_mi_classif_batch_dispatch
 _COLUMN_MI_MEMO_MAX = 400_000  # entries kept (a float and a key each); the memo is dropped when it fills up
 _COLUMN_MI_MEMO_LOCK = threading.Lock()
+_MEMO_OFF = threading.local()
+
+
+@contextlib.contextmanager
+def column_mi_memo_disabled():
+    """Scope in which this thread's batch MI calls skip the column memo: resampled blocks never repeat, so fingerprinting them only costs time."""
+    prev = getattr(_MEMO_OFF, "on", False)
+    _MEMO_OFF.on = True
+    try:
+        yield
+    finally:
+        _MEMO_OFF.on = prev
 
 
 def plugin_mi_classif_batch_dispatch(X_cols: np.ndarray, y: np.ndarray, n_bins: int = 20) -> np.ndarray:
@@ -426,7 +439,7 @@ def plugin_mi_classif_batch_dispatch(X_cols: np.ndarray, y: np.ndarray, n_bins: 
     The families of one fit score the same columns against the same target again and again (a raw column and each family's re-derivation of it: about a fifth of the column scorings of a fit with every family
     on are exact repeats), and the MI of a column does not depend on the other columns of its batch, so a column seen before takes its stored value and only the new ones are scored. A host matrix only;
     ``MLFRAME_COLUMN_MI_MEMO=0`` switches it off."""
-    if not isinstance(X_cols, np.ndarray) or X_cols.ndim != 2 or X_cols.shape[1] == 0 or os.environ.get("MLFRAME_COLUMN_MI_MEMO", "1") == "0":
+    if not isinstance(X_cols, np.ndarray) or X_cols.ndim != 2 or X_cols.shape[1] == 0 or getattr(_MEMO_OFF, "on", False) or os.environ.get("MLFRAME_COLUMN_MI_MEMO", "1") == "0":
         return _plugin_mi_classif_batch_dispatch_uncached(X_cols, y, n_bins)
     from mlframe.utils.disk_cache import hash_array_content
 

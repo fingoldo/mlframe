@@ -258,6 +258,7 @@ def _batched_bootstrap_values(columns: list, y_arr: np.ndarray, boot_idx: list, 
     Each value equals the per-column scorer call on that column and resample: the batch kernels are the ones the per-column calls route to (plug-in, copula, xi, dCor, HSIC), and the KSG batch draws
     each column's noise from its own seed. Only a classification target with integer labels and all-finite columns is batched; ``None`` leaves everything to the per-column path.
     """
+    from ._hermite_fe_mi import column_mi_memo_disabled
     from ._orthogonal_copula_mi_fe import _copula_mi_batch
     from ._orthogonal_dcor_fe import _dcor_batch
     from ._orthogonal_hsic_fe import _hsic_batch
@@ -281,7 +282,7 @@ def _batched_bootstrap_values(columns: list, y_arr: np.ndarray, boot_idx: list, 
         yb = y_arr[idx]
         seed = int(random_state) + b
         # These batches reach numba ``parallel=True`` kernels, which must be entered by one thread at a time (see ``mlframe._numba_parallel_guard``); the slicing above overlaps freely.
-        with parallel_kernel_entry():
+        with parallel_kernel_entry(), column_mi_memo_disabled():
             # Intentional float64: MI batch scores kept as a double precision accumulator vector (ranking ties)
             out["plug_in"][:, b] = np.asarray(_mi_classif_batch(block, yb, nbins=int(hyper["nbins"])), dtype=np.float64)
             # Intentional float64: copula MI batch scores kept as a double precision accumulator vector
