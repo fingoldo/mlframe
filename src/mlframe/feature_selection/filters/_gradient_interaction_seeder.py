@@ -389,8 +389,11 @@ def _raw_numeric_candidate_idx(self, cols, target_indices, categorical_vars, non
 def _rank_gradient_pool(X_continuous, data, pool, t0, row_cap, kernel):
     """Return ``(proposed, diag)`` from the smooth-surrogate ranker, or ``None`` when the inputs or the ranker fail (best-effort proposer)."""
     try:
-        Xfull = np.asarray(X_continuous, dtype=_crit_np_dtype())  # RAW continuous features
-        X = Xfull[:, pool]
+        # Only the pool columns are materialised: converting the whole (wide, mixed-dtype) frame to one matrix first cost 1.9 s per call at 100000 rows.
+        if hasattr(X_continuous, "iloc"):
+            X = np.asarray(X_continuous.iloc[:, list(pool)], dtype=_crit_np_dtype())  # RAW continuous features
+        else:
+            X = np.asarray(X_continuous, dtype=_crit_np_dtype())[:, pool]
         y = np.asarray(data)[:, t0]  # discretised ordinal target
     except Exception as exc:  # not array-coercible -> skip silently (proposer is best-effort)
         # Was gated behind `if verbose`, so with the
