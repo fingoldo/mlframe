@@ -17,7 +17,7 @@ import math
 import numpy as np
 from numba import njit, prange
 
-from ._batch_kernels import _shuffled_y_matrix
+from ._batch_kernels import _mi_from_joint, _plogp_sum, _shuffled_y_matrix
 
 
 @njit(parallel=True, nogil=True, cache=True)
@@ -99,29 +99,6 @@ def _perm_failcount_codes(
             if stop_at > 0 and nfk >= stop_at:
                 return nfk
     return nfk
-
-
-@njit(nogil=True, cache=True)
-def _plogp_sum(p: np.ndarray, m: int) -> float:
-    """Shannon entropy in nats of the first ``m`` probabilities; zero entries contribute nothing."""
-    h = 0.0
-    for i in range(m):
-        if p[i] > 0:
-            h -= p[i] * math.log(p[i])
-    return h
-
-
-@njit(nogil=True, cache=True)
-def _mi_from_joint(joint: np.ndarray, prob_x: np.ndarray, prob_y: np.ndarray, inv_n: float) -> float:
-    """Plug-in mutual information in nats of a joint count table given its marginal frequencies."""
-    mi_xy = 0.0
-    for i in range(joint.shape[0]):
-        for j in range(joint.shape[1]):
-            jc = joint[i, j]
-            if jc != 0:
-                jf = jc * inv_n
-                mi_xy += jf * math.log(jf / (prob_x[i] * prob_y[j]))
-    return mi_xy
 
 
 @njit(nogil=True, cache=True)
