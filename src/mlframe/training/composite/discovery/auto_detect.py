@@ -53,30 +53,7 @@ def detect_time_column_candidates(
 
     Empty when no column qualifies.
     """
-    if _is_polars_df(df):
-        if candidate_columns is None:
-            candidate_columns = list(df.columns)
-        # ``_is_polars_df`` already ensured polars is importable, so we
-        # can reference the module-level ``pl`` symbol directly. The
-        # prior local re-import was dead code that obscured the
-        # dependency from static analysers.
-        def get_col(c):
-            """Polars column accessor for the scan loop below."""
-            return df.get_column(c)
-        def get_dtype(c):
-            """Polars dtype-as-string accessor for the scan loop below."""
-            return str(df.schema[c])
-    elif isinstance(df, pd.DataFrame):
-        if candidate_columns is None:
-            candidate_columns = list(df.columns)
-        def get_col(c):
-            """Pandas column accessor for the scan loop below."""
-            return df[c]
-        def get_dtype(c):
-            """Pandas dtype-as-string accessor for the scan loop below."""
-            return str(df[c].dtype)
-    else:
-        raise TypeError(f"detect_time_column_candidates: unsupported df type {type(df).__name__}")
+    candidate_columns, get_col, get_dtype = _time_column_accessors(df, candidate_columns)
 
     results: list[tuple[str, dict[str, Any]]] = []
     for col in candidate_columns:
@@ -93,47 +70,83 @@ def detect_time_column_candidates(
                 "detect_time_column_candidates: skipping col=%r: %s", col, _e,
             )
             continue
-        is_datetime = "datetime" in dtype_str or "timestamp" in dtype_str or dtype_str.startswith("date")
-        info: dict[str, Any] = {
-            "dtype": dtype_str,
-            "is_datetime": is_datetime,
-            "is_monotonic": False,
-            "monotonic_direction": None,
-            "score": 0.0,
-        }
-        if is_datetime:
-            info["score"] = 100.0
-            results.append((str(col), info))
-            continue
-        # Numeric: check monotonicity. ``series.to_numpy()`` (polars/pandas)
-        # already returns an ndarray, no extra np.asarray wrap needed; the
-        # subsequent astype is copy=False so dtype-match becomes a no-op.
-        try:
-            if hasattr(series, "to_numpy"):
-                arr = series.to_numpy()
-            else:
-                arr = np.asarray(series)
-            if not np.issubdtype(arr.dtype, np.number):
-                arr = arr.astype(np.float64, copy=False)
-        except (TypeError, ValueError):
-            continue
-        finite = np.isfinite(arr)
-        if finite.sum() < 2:
-            continue
-        diffs = np.diff(arr[finite])
-        # Weak monotonicity: timestamp columns with duplicate ticks (common in event data) are still valid time keys; the np.any(>0)/(<0) guard excludes a constant column.
-        if np.all(diffs >= 0) and np.any(diffs > 0):
-            info["is_monotonic"] = True
-            info["monotonic_direction"] = "asc"
-            info["score"] = 50.0
-            results.append((str(col), info))
-        elif np.all(diffs <= 0) and np.any(diffs < 0):
-            info["is_monotonic"] = True
-            info["monotonic_direction"] = "desc"
-            info["score"] = 50.0
+        info = _time_column_info(series, dtype_str)
+        if info is not None:
             results.append((str(col), info))
     results.sort(key=lambda kv: kv[1]["score"], reverse=True)
     return results
+
+
+def _time_column_accessors(df: Any, candidate_columns: Sequence[str] | None):
+    """Return ``(candidate_columns, get_col, get_dtype)`` for a polars or pandas frame."""
+    if _is_polars_df(df):
+        if candidate_columns is None:
+            candidate_columns = list(df.columns)
+        # ``_is_polars_df`` already ensured polars is importable, so we
+        # can reference the module-level ``pl`` symbol directly. The
+        # prior local re-import was dead code that obscured the
+        # dependency from static analysers.
+        def get_col(c):
+            """Polars column accessor for the scan loop below."""
+            return df.get_column(c)
+        def get_dtype(c):
+            """Polars dtype-as-string accessor for the scan loop below."""
+            return str(df.schema[c])
+        return candidate_columns, get_col, get_dtype
+    if isinstance(df, pd.DataFrame):
+        if candidate_columns is None:
+            candidate_columns = list(df.columns)
+        def get_col(c):
+            """Pandas column accessor for the scan loop below."""
+            return df[c]
+        def get_dtype(c):
+            """Pandas dtype-as-string accessor for the scan loop below."""
+            return str(df[c].dtype)
+        return candidate_columns, get_col, get_dtype
+    raise TypeError(f"detect_time_column_candidates: unsupported df type {type(df).__name__}")
+
+
+def _time_column_info(series: Any, dtype_str: str) -> dict[str, Any] | None:
+    """Return the time-key info dict for one column, or None when it does not qualify as a time key."""
+    is_datetime = "datetime" in dtype_str or "timestamp" in dtype_str or dtype_str.startswith("date")
+    info: dict[str, Any] = {
+        "dtype": dtype_str,
+        "is_datetime": is_datetime,
+        "is_monotonic": False,
+        "monotonic_direction": None,
+        "score": 0.0,
+    }
+    if is_datetime:
+        info["score"] = 100.0
+        return info
+    # Numeric: check monotonicity. ``series.to_numpy()`` (polars/pandas)
+    # already returns an ndarray, no extra np.asarray wrap needed; the
+    # subsequent astype is copy=False so dtype-match becomes a no-op.
+    try:
+        if hasattr(series, "to_numpy"):
+            arr = series.to_numpy()
+        else:
+            arr = np.asarray(series)
+        if not np.issubdtype(arr.dtype, np.number):
+            arr = arr.astype(np.float64, copy=False)
+    except (TypeError, ValueError):
+        return None
+    finite = np.isfinite(arr)
+    if finite.sum() < 2:
+        return None
+    diffs = np.diff(arr[finite])
+    # Weak monotonicity: timestamp columns with duplicate ticks (common in event data) are still valid time keys; the np.any(>0)/(<0) guard excludes a constant column.
+    if np.all(diffs >= 0) and np.any(diffs > 0):
+        info["is_monotonic"] = True
+        info["monotonic_direction"] = "asc"
+        info["score"] = 50.0
+        return info
+    if np.all(diffs <= 0) and np.any(diffs < 0):
+        info["is_monotonic"] = True
+        info["monotonic_direction"] = "desc"
+        info["score"] = 50.0
+        return info
+    return None
 
 
 def sort_df_by_time_column(df: Any, time_column: str, *, ascending: bool = True) -> Any:
