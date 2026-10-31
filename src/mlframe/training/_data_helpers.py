@@ -660,38 +660,9 @@ def _setup_eval_set(
     # one eval per element; LGB tuple-only path is upgraded to list (LGB accepts both).
     use_shards = extra_eval_sets is not None and len(extra_eval_sets) > 0
     if use_shards:
-        assert extra_eval_sets is not None  # guaranteed by use_shards construction above
-        eval_list: list[tuple[Any, Any]] = [(val_df, val_target)]
-        eval_list.extend((shard.X, shard.y) for shard in extra_eval_sets)
-        if value_format == "list_of_tuples_values":
-            eval_list = [(X.values if hasattr(X, "values") else X, y.values if hasattr(y, "values") else y) for X, y in eval_list]
-        if value_format in ("tuple", "list_of_tuples", "list_of_tuples_values"):
-            fit_params[param_name] = eval_list
-        elif value_format == "separate":
-            # HGB / NGB only support a single (X_val, y_val) pair. Slice-stable ES is not supported
-            # for these models via the online multi-eval-set path; the caller should route through
-            # ``on_unsupported`` policy (default ``posthoc``). Here we just register the full val.
-            if _hgb_supports_external_val(model_obj):
-                fit_params["X_val"] = val_df
-                fit_params["y_val"] = val_target
-        elif value_format == "separate_Y":
-            fit_params["X_val"] = val_df
-            fit_params["Y_val"] = val_target
+        _register_shard_eval_sets(fit_params, param_name, value_format, val_df, val_target, extra_eval_sets, model_obj)
     else:
-        if value_format == "tuple":
-            fit_params[param_name] = (val_df, val_target)
-        elif value_format == "list_of_tuples":
-            fit_params[param_name] = [(val_df, val_target)]
-        elif value_format == "list_of_tuples_values":
-            _val_df_values = val_df.values if hasattr(val_df, "values") else val_df
-            fit_params[param_name] = [(_val_df_values, val_target.values if hasattr(val_target, "values") else val_target)]
-        elif value_format == "separate":
-            if _hgb_supports_external_val(model_obj):
-                fit_params["X_val"] = val_df
-                fit_params["y_val"] = val_target
-        elif value_format == "separate_Y":
-            fit_params["X_val"] = val_df
-            fit_params["Y_val"] = val_target
+        _register_single_eval_set(fit_params, param_name, value_format, val_df, val_target, model_obj)
 
     _attach_eval_row_attributes(
         fit_params, model_category, model_obj, model_type_name, (extra_eval_sets if extra_eval_sets is not None else []) if use_shards else [],
@@ -700,6 +671,45 @@ def _setup_eval_set(
 
     if callback_params:
         _setup_early_stopping_callback(model_category, fit_params, callback_params, model_obj)
+
+
+def _register_shard_eval_sets(fit_params, param_name, value_format, val_df, val_target, extra_eval_sets, model_obj) -> None:
+    """Register ``[full_val, shard_0, ..., shard_K-1]`` under the booster's eval-set kwarg; formats that take one pair get the full val only."""
+    assert extra_eval_sets is not None  # guaranteed by use_shards construction in _setup_eval_set
+    eval_list: list[tuple[Any, Any]] = [(val_df, val_target)]
+    eval_list.extend((shard.X, shard.y) for shard in extra_eval_sets)
+    if value_format == "list_of_tuples_values":
+        eval_list = [(X.values if hasattr(X, "values") else X, y.values if hasattr(y, "values") else y) for X, y in eval_list]
+    if value_format in ("tuple", "list_of_tuples", "list_of_tuples_values"):
+        fit_params[param_name] = eval_list
+    elif value_format == "separate":
+        # HGB / NGB only support a single (X_val, y_val) pair. Slice-stable ES is not supported
+        # for these models via the online multi-eval-set path; the caller should route through
+        # ``on_unsupported`` policy (default ``posthoc``). Here we just register the full val.
+        if _hgb_supports_external_val(model_obj):
+            fit_params["X_val"] = val_df
+            fit_params["y_val"] = val_target
+    elif value_format == "separate_Y":
+        fit_params["X_val"] = val_df
+        fit_params["Y_val"] = val_target
+
+
+def _register_single_eval_set(fit_params, param_name, value_format, val_df, val_target, model_obj) -> None:
+    """Register the full val alone under the booster's eval-set kwarg, in the format that booster reads."""
+    if value_format == "tuple":
+        fit_params[param_name] = (val_df, val_target)
+    elif value_format == "list_of_tuples":
+        fit_params[param_name] = [(val_df, val_target)]
+    elif value_format == "list_of_tuples_values":
+        _val_df_values = val_df.values if hasattr(val_df, "values") else val_df
+        fit_params[param_name] = [(_val_df_values, val_target.values if hasattr(val_target, "values") else val_target)]
+    elif value_format == "separate":
+        if _hgb_supports_external_val(model_obj):
+            fit_params["X_val"] = val_df
+            fit_params["y_val"] = val_target
+    elif value_format == "separate_Y":
+        fit_params["X_val"] = val_df
+        fit_params["Y_val"] = val_target
 
 
 def _fit_accepts(model_obj: Any, kwarg: str, model_type_name: str) -> bool:
