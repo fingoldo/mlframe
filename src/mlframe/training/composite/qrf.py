@@ -134,57 +134,66 @@ def _batch_weighted_quantiles_kernel(
             for li in range(nl):
                 out[start + r, li] = np.nan
             continue
-        vbuf = np.empty(m, dtype=np.float64)
-        wbuf = np.empty(m, dtype=np.float64)
-        p = 0
-        total = 0.0
-        for j in range(nt):
-            wj = w[r, j]
-            if wj > 0.0:
-                vbuf[p] = y_train[j]
-                wbuf[p] = wj
-                total += wj
-                p += 1
-        for a in range(1, m):
-            kv = vbuf[a]
-            kw = wbuf[a]
-            b = a - 1
-            while b >= 0 and vbuf[b] > kv:
-                vbuf[b + 1] = vbuf[b]
-                wbuf[b + 1] = wbuf[b]
-                b -= 1
-            vbuf[b + 1] = kv
-            wbuf[b + 1] = kw
+        vbuf, wbuf, total = _sorted_nonzero_members(w[r], y_train, m)
         posbuf = np.empty(m, dtype=np.float64)
         cum = 0.0
         for j in range(m):
             cum += wbuf[j]
             posbuf[j] = (cum - 0.5 * wbuf[j]) / total
         for li in range(nl):
-            x = levels[li]
-            if x <= posbuf[0]:
-                out[start + r, li] = vbuf[0]
-                continue
-            if x >= posbuf[m - 1]:
-                out[start + r, li] = vbuf[m - 1]
-                continue
-            lo = 0
-            hi = m - 1
-            while hi - lo > 1:
-                mid = (lo + hi) // 2
-                if posbuf[mid] <= x:
-                    lo = mid
-                else:
-                    hi = mid
-            p0 = posbuf[lo]
-            p1 = posbuf[hi]
-            if p1 == p0:
-                out[start + r, li] = vbuf[lo]
-            else:
-                out[start + r, li] = vbuf[lo] + (vbuf[hi] - vbuf[lo]) * (x - p0) / (p1 - p0)
+            out[start + r, li] = _interp_level(posbuf, vbuf, levels[li], m)
+
+
+def _sorted_nonzero_members(w_row: np.ndarray, y_train: np.ndarray, m: int):
+    """Gather the ``m`` nonzero ``(value, weight)`` pairs of one row, insertion-sorted by value; returns ``(vbuf, wbuf, total)``."""
+    vbuf = np.empty(m, dtype=np.float64)
+    wbuf = np.empty(m, dtype=np.float64)
+    p = 0
+    total = 0.0
+    for j in range(w_row.shape[0]):
+        wj = w_row[j]
+        if wj > 0.0:
+            vbuf[p] = y_train[j]
+            wbuf[p] = wj
+            total += wj
+            p += 1
+    for a in range(1, m):
+        kv = vbuf[a]
+        kw = wbuf[a]
+        b = a - 1
+        while b >= 0 and vbuf[b] > kv:
+            vbuf[b + 1] = vbuf[b]
+            wbuf[b + 1] = wbuf[b]
+            b -= 1
+        vbuf[b + 1] = kv
+        wbuf[b + 1] = kw
+    return vbuf, wbuf, total
+
+
+def _interp_level(posbuf: np.ndarray, vbuf: np.ndarray, x: float, m: int) -> float:
+    """Invert the monotone plotting-position curve at level ``x`` by binary search and linear interpolation."""
+    if x <= posbuf[0]:
+        return float(vbuf[0])
+    if x >= posbuf[m - 1]:
+        return float(vbuf[m - 1])
+    lo = 0
+    hi = m - 1
+    while hi - lo > 1:
+        mid = (lo + hi) // 2
+        if posbuf[mid] <= x:
+            lo = mid
+        else:
+            hi = mid
+    p0 = posbuf[lo]
+    p1 = posbuf[hi]
+    if p1 == p0:
+        return float(vbuf[lo])
+    return float(vbuf[lo] + (vbuf[hi] - vbuf[lo]) * (x - p0) / (p1 - p0))
 
 
 if _HAS_NUMBA:  # pragma: no branch
+    _sorted_nonzero_members = numba.njit(cache=True, fastmath=True)(_sorted_nonzero_members)
+    _interp_level = numba.njit(cache=True, fastmath=True)(_interp_level)
     _batch_weighted_quantiles_kernel = numba.njit(parallel=True, cache=True, fastmath=True)(_batch_weighted_quantiles_kernel)
 
 logger = logging.getLogger(__name__)
