@@ -90,6 +90,34 @@ _DEFAULT_SUPER_TAU = 0.5
 _DEFAULT_MAX_LEVELS = 3
 
 
+def _su_codes_of_finite_columns(columns: list, n_bins: int) -> list:
+    """``(int32 codes, bin count)`` for every all-finite column of ``columns`` (``None`` for the others), binned together in parallel blocks.
+
+    The rule is the quantiser's own: ``np.unique`` of the ``n_bins + 1`` quantile edges, fewer than three distinct edges -> one class, else ``searchsorted(edges[1:-1], x, "right")``."""
+    from ._numba_utils import quantile_bin_block
+
+    out: list = [None] * len(columns)
+    if not columns:
+        return out
+    n = int(columns[0].shape[0])
+    block = max(1, (128 << 20) // (np.dtype(_crit_np_dtype()).itemsize * max(n, 1)))
+    for j0 in range(0, len(columns), block):
+        part = columns[j0 : j0 + block]
+        v = np.ascontiguousarray(np.stack([np.asarray(c, dtype=_crit_np_dtype()) for c in part]))
+        ok = np.isfinite(v).all(axis=1)
+        if not ok.any():
+            continue
+        codes = np.empty((int(ok.sum()), n), dtype=np.int16)
+        quantile_bin_block(np.ascontiguousarray(v[ok]), int(n_bins), codes, False)
+        r = 0
+        for j in range(len(part)):
+            if ok[j]:
+                binned = codes[r].astype(np.int32)
+                out[j0 + j] = (binned, int(binned.max()) + 1 if n else 1)
+                r += 1
+    return out
+
+
 def _quantize_for_su(X) -> tuple:
     """Quantize a DataFrame / ndarray into integer bin codes the same
     way the L47 calibration test does, so the resulting ``factors_data``
@@ -105,9 +133,14 @@ def _quantize_for_su(X) -> tuple:
     names: list = []
     if hasattr(X, "columns"):
         col_iter = list(X.columns)
-        for c in col_iter:
+        pre = _su_codes_of_finite_columns([X[c].to_numpy(dtype=_crit_np_dtype(), copy=False) for c in col_iter], n_bins)
+        for ci, c in enumerate(col_iter):
             col = X[c].to_numpy(dtype=_crit_np_dtype(), copy=False)
             names.append(str(c))
+            if pre[ci] is not None:
+                cols.append(pre[ci][0])
+                nbins.append(pre[ci][1])
+                continue
             edges = np.quantile(col[np.isfinite(col)] if np.isfinite(col).any() else col, np.linspace(0, 1, n_bins + 1))
             edges = np.unique(edges)
             if edges.size < 3:
@@ -122,9 +155,14 @@ def _quantize_for_su(X) -> tuple:
         arr = np.asarray(X)
         if arr.ndim != 2:
             return None, None, []
+        pre = _su_codes_of_finite_columns([arr[:, j].astype(_crit_np_dtype(), copy=False) for j in range(arr.shape[1])], n_bins)
         for j in range(arr.shape[1]):
             col = arr[:, j].astype(_crit_np_dtype(), copy=False)
             names.append(f"col_{j}")
+            if pre[j] is not None:
+                cols.append(pre[j][0])
+                nbins.append(pre[j][1])
+                continue
             # mirror the DataFrame
             # branch's finite-mask. np.quantile over a column containing any
             # NaN/Inf returns NaN edges -> searchsorted assigns a single bin ->

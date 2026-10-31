@@ -785,10 +785,10 @@ def quantile_codes_block(v: np.ndarray, n_bins: int, codes: np.ndarray, nx: np.n
 
 
 @njit(cache=True, parallel=True)
-def quantile_bin_block(v: np.ndarray, n_bins: int, codes: np.ndarray) -> None:
+def quantile_bin_block(v: np.ndarray, n_bins: int, codes: np.ndarray, two_class: bool = True) -> None:
     """Fill ``codes[j]`` (an integer matrix) for every row ``j`` of the finite block ``v`` ``(columns, n)`` exactly as the CMI-greedy ``_quantile_bin`` does for a finite column.
 
-    The edges are numpy's linear-interpolation quantiles with the repeated ones dropped; a column with at most two distinct edges collapses to one class, or to the two-class indicator ``x >= edges[1]``."""
+    The edges are numpy's linear-interpolation quantiles with the repeated ones dropped; a column with at most two distinct edges collapses to one class, or (``two_class``) to the two-class indicator ``x >= edges[1]``; without ``two_class`` a two-edge column is all zeros, as in the cluster hierarchy's quantiser."""
     k = v.shape[0]
     n = v.shape[1]
     step = 1.0 / n_bins
@@ -818,7 +818,7 @@ def quantile_bin_block(v: np.ndarray, n_bins: int, codes: np.ndarray) -> None:
                 m += 1
         if m <= 2:
             for i in range(n):
-                codes[j, i] = 1 if (m == 2 and v[j, i] >= edges[1]) else 0
+                codes[j, i] = 1 if (two_class and m == 2 and v[j, i] >= edges[1]) else 0
             continue
         for i in range(n):
             x = v[j, i]
