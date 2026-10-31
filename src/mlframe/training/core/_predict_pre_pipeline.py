@@ -223,6 +223,59 @@ def _reattach_passthrough(out: pd.DataFrame, df_in: Any, ext_pipeline: Any) -> p
     return pd.concat([out, df_in[cols].set_axis(out.index)], axis=1) if cols else out
 
 
+def _replay_row_summary_stats(df, config, _cols):
+    """Append the fit-time row-wise summary statistics to ``df``; a failed replay is logged and leaves the frame unchanged."""
+    try:
+        from mlframe.feature_engineering.row_wise_summary import row_wise_summary_stats
+        _stats_kwargs: dict = {"columns": _cols}
+        _stats_list = config.get("summary_stats_list")
+        if _stats_list:
+            _stats_kwargs["stats"] = _stats_list
+        df = df.join(row_wise_summary_stats(df, **_stats_kwargs))
+    except Exception as _exc:
+        logger.warning("_apply_row_wise_extensions: row_wise_summary_stats replay failed (%s); predict-time columns will diverge from fit-time.", _exc)
+    return df
+
+
+def _replay_row_extreme_columns(df, config, _cols):
+    """Append the fit-time row-wise top-k extremality scores to ``df``, NaN-padded to the fit-time width; a failed replay is logged and leaves the frame unchanged."""
+    try:
+        from mlframe.feature_engineering.row_wise_extremality import row_wise_top_k_extreme_columns
+        _k_raw = config.get("extreme_columns_k")
+        _k = int(_k_raw) if _k_raw is not None else 3
+        _ref_raw = config.get("extreme_columns_reference")
+        _reference = None
+        if _ref_raw:
+            _reference = {str(_c): np.asarray(_v, dtype=np.float64) for _c, _v in _ref_raw.items() if _c in _cols}
+            _absent = [str(_c) for _c in _cols if str(_c) not in _reference]
+            if _absent:
+                logger.warning(
+                    "_apply_row_wise_extensions: no fit-time extremality reference for %d column(s) (%s); those "
+                    "columns are ranked within the serving batch, which is NOT what the model was fitted on.",
+                    len(_absent), _absent[:5],
+                )
+        elif config.get("extreme_columns_fit_reference", True):
+            logger.warning(
+                "_apply_row_wise_extensions: this artefact carries no fitted extremality reference, so the scores "
+                "are ranked within the serving batch: a single-row batch scores 0.0 on every column regardless of "
+                "how extreme it is. Retrain to persist the reference, or score in batches resembling train."
+            )
+        _out = row_wise_top_k_extreme_columns(df, columns=_cols, k=_k, reference=_reference)
+        # return_column_summary not passed -> always the plain-DataFrame overload
+        if not (isinstance(_out, pd.DataFrame)):
+            raise AssertionError
+        _score_cols = [c for c in _out.columns if c.endswith("_score")]
+        _result = _out[_score_cols].add_prefix("row_extreme_")
+        for _i in range(1, _k + 1):
+            _expected = f"row_extreme_top{_i}_score"
+            if _expected not in _result.columns:
+                _result[_expected] = float("nan")
+        df = df.join(_result[[f"row_extreme_top{_i}_score" for _i in range(1, _k + 1)]])
+    except Exception as _exc:
+        logger.warning("_apply_row_wise_extensions: row_wise_top_k_extreme_columns replay failed (%s); predict-time columns will diverge from fit-time.", _exc)
+    return df
+
+
 def _apply_row_wise_extensions(
     df: Any,
     config: Optional[dict],
@@ -279,50 +332,9 @@ def _apply_row_wise_extensions(
                 len(_missing), _missing[:5], len(_cols),
             )
     if config.get("summary_stats_enabled"):
-        try:
-            from mlframe.feature_engineering.row_wise_summary import row_wise_summary_stats
-            _stats_kwargs: dict = {"columns": _cols}
-            _stats_list = config.get("summary_stats_list")
-            if _stats_list:
-                _stats_kwargs["stats"] = _stats_list
-            df = df.join(row_wise_summary_stats(df, **_stats_kwargs))
-        except Exception as _exc:
-            logger.warning("_apply_row_wise_extensions: row_wise_summary_stats replay failed (%s); predict-time columns will diverge from fit-time.", _exc)
+        df = _replay_row_summary_stats(df, config, _cols)
     if config.get("extreme_columns_enabled"):
-        try:
-            from mlframe.feature_engineering.row_wise_extremality import row_wise_top_k_extreme_columns
-            _k_raw = config.get("extreme_columns_k")
-            _k = int(_k_raw) if _k_raw is not None else 3
-            _ref_raw = config.get("extreme_columns_reference")
-            _reference = None
-            if _ref_raw:
-                _reference = {str(_c): np.asarray(_v, dtype=np.float64) for _c, _v in _ref_raw.items() if _c in _cols}
-                _absent = [str(_c) for _c in _cols if str(_c) not in _reference]
-                if _absent:
-                    logger.warning(
-                        "_apply_row_wise_extensions: no fit-time extremality reference for %d column(s) (%s); those "
-                        "columns are ranked within the serving batch, which is NOT what the model was fitted on.",
-                        len(_absent), _absent[:5],
-                    )
-            elif config.get("extreme_columns_fit_reference", True):
-                logger.warning(
-                    "_apply_row_wise_extensions: this artefact carries no fitted extremality reference, so the scores "
-                    "are ranked within the serving batch: a single-row batch scores 0.0 on every column regardless of "
-                    "how extreme it is. Retrain to persist the reference, or score in batches resembling train."
-                )
-            _out = row_wise_top_k_extreme_columns(df, columns=_cols, k=_k, reference=_reference)
-            # return_column_summary not passed -> always the plain-DataFrame overload
-            if not (isinstance(_out, pd.DataFrame)):
-                raise AssertionError
-            _score_cols = [c for c in _out.columns if c.endswith("_score")]
-            _result = _out[_score_cols].add_prefix("row_extreme_")
-            for _i in range(1, _k + 1):
-                _expected = f"row_extreme_top{_i}_score"
-                if _expected not in _result.columns:
-                    _result[_expected] = float("nan")
-            df = df.join(_result[[f"row_extreme_top{_i}_score" for _i in range(1, _k + 1)]])
-        except Exception as _exc:
-            logger.warning("_apply_row_wise_extensions: row_wise_top_k_extreme_columns replay failed (%s); predict-time columns will diverge from fit-time.", _exc)
+        df = _replay_row_extreme_columns(df, config, _cols)
     return df
 
 

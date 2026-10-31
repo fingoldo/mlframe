@@ -29,7 +29,6 @@
   "src/mlframe/training/core/_phase_train_one_target_ensembling.py::_tune_decision_thresholds": 16,
   "src/mlframe/training/core/_predict_main_suite.py::_predict_mlframe_mo_len_all_probs": 18,
   "src/mlframe/training/core/_predict_pre_pipeline.py::_apply_pre_pipeline_with_passthrough": 17,
-  "src/mlframe/training/core/_predict_pre_pipeline.py::_apply_row_wise_extensions": 18,
   "src/mlframe/training/core/predict.py::_coerce_cat_dtype_for_lgb_xgb": 17,
   "src/mlframe/training/neural/_flat_torch_module/_flat_torch_loss.py::_LossMixin.compute_metrics": 17,
   "src/mlframe/training/neural/_muon_triton_kernel.py::maybe_newton_schulz_triton": 16,
