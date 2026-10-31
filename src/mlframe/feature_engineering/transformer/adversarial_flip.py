@@ -47,6 +47,68 @@ def _adversarial_feats_to_cols(feats: np.ndarray, column_prefix: str, dtype: typ
     return cols
 
 
+def _stacked_flip_update(
+    model: Any,
+    task: str,
+    Xq_s: np.ndarray,
+    feat_std: np.ndarray,
+    combos: list,
+    orig_class: Any,
+    pred_orig: np.ndarray,
+    train_resid_decile: float,
+    flip_dists: np.ndarray,
+) -> None:
+    """Score all perturbation combos with one stacked predict, then replay the per-combo flip updates in combo order.
+
+    Batches every (feature, scale, sign) perturbation into one ``(n_combo*n_q, d)`` matrix; the replay keeps the per-combo
+    update order, so the result is bit-identical to the per-combo predicts for tree models.
+    """
+    n_combo = len(combos)
+    n_q, d = Xq_s.shape
+    stack = np.broadcast_to(Xq_s, (n_combo, n_q, d)).reshape(n_combo * n_q, d).copy()
+    for c, (j, scale, sign) in enumerate(combos):
+        stack[c * n_q : (c + 1) * n_q, j] += sign * scale * feat_std[j]
+    if task == "binary":
+        pred_all = np.asarray(model.predict_proba(stack))[:, 1].astype(np.float32).reshape(n_combo, n_q)
+    else:
+        pred_all = np.asarray(model.predict(stack)).astype(np.float32).reshape(n_combo, n_q)
+    for c, (j, scale, _sign) in enumerate(combos):
+        pred_pert = pred_all[c]
+        if task == "binary":
+            flipped = (pred_pert > 0.5).astype(np.float32) != orig_class
+        else:
+            flipped = np.abs(pred_pert - pred_orig) > train_resid_decile
+        update_mask = flipped & (flip_dists[:, j] > scale)
+        flip_dists[update_mask, j] = scale
+
+
+def _per_combo_flip_update(
+    model: Any,
+    task: str,
+    Xq_s: np.ndarray,
+    feat_std: np.ndarray,
+    orig_class: Any,
+    pred_orig: np.ndarray,
+    train_resid_decile: float,
+    flip_dists: np.ndarray,
+) -> None:
+    """Fallback flip search: one predict per (feature, scale, sign) perturbation, used when the stacked matrix would exceed ``_MAX_STACK_ELEMS``."""
+    for j in range(Xq_s.shape[1]):
+        for scale in _SCALES:
+            for sign in (-1.0, 1.0):
+                Xq_perturbed = Xq_s.copy()
+                Xq_perturbed[:, j] = Xq_perturbed[:, j] + sign * scale * feat_std[j]
+                if task == "binary":
+                    pred_pert = np.asarray(model.predict_proba(Xq_perturbed))[:, 1].astype(np.float32)
+                    flipped = (pred_pert > 0.5).astype(np.float32) != orig_class
+                else:
+                    pred_pert = np.asarray(model.predict(Xq_perturbed)).astype(np.float32)
+                    flipped = np.abs(pred_pert - pred_orig) > train_resid_decile
+                # Update minimum scale where flip occurred.
+                update_mask = flipped & (flip_dists[:, j] > scale)
+                flip_dists[update_mask, j] = scale
+
+
 def compute_adversarial_flip_features(
     X_train: np.ndarray,
     y_train: np.ndarray,
@@ -94,6 +156,7 @@ def compute_adversarial_flip_features(
             model.fit(Xt_s, y_t.astype(np.int32))
             pred_orig = np.asarray(model.predict_proba(Xq_s))[:, 1].astype(np.float32)
             orig_class = (pred_orig > 0.5).astype(np.float32)
+            train_resid_decile = 0.0  # regression-only threshold; never read on the binary path
         else:
             model = lgb.LGBMRegressor(n_estimators=50, max_depth=3, learning_rate=0.1, random_state=int(fold_seed), verbose=-1, n_jobs=-1)
             model.fit(Xt_s, y_t)
@@ -109,41 +172,11 @@ def compute_adversarial_flip_features(
         # (j, scale, sign) perturbation combos — each is one full predict in the per-feature loop.
         combos = [(j, scale, sign) for j in range(d) for scale in _SCALES for sign in (-1.0, 1.0)]
         n_combo = len(combos)
-        # Batched path: stack all n_combo perturbations into one (n_combo*n_q, d) matrix and do a
-        # SINGLE predict, then replay the per-combo flip-update in the SAME order. Bit-identical to
-        # the per-combo predict for tree models. Gated on stack size to bound peak RAM.
         stack_elems = n_combo * n_q * d
         if stack_elems <= _MAX_STACK_ELEMS and n_combo > 0:
-            stack = np.broadcast_to(Xq_s, (n_combo, n_q, d)).reshape(n_combo * n_q, d).copy()
-            for c, (j, scale, sign) in enumerate(combos):
-                stack[c * n_q : (c + 1) * n_q, j] += sign * scale * feat_std[j]
-            if task == "binary":
-                pred_all = np.asarray(model.predict_proba(stack))[:, 1].astype(np.float32).reshape(n_combo, n_q)
-            else:
-                pred_all = np.asarray(model.predict(stack)).astype(np.float32).reshape(n_combo, n_q)
-            for c, (j, scale, _sign) in enumerate(combos):
-                pred_pert = pred_all[c]
-                if task == "binary":
-                    flipped = (pred_pert > 0.5).astype(np.float32) != orig_class
-                else:
-                    flipped = np.abs(pred_pert - pred_orig) > train_resid_decile
-                update_mask = flipped & (flip_dists[:, j] > scale)
-                flip_dists[update_mask, j] = scale
+            _stacked_flip_update(model, task, Xq_s, feat_std, combos, orig_class, pred_orig, train_resid_decile, flip_dists)
         else:
-            for j in range(d):
-                for scale in _SCALES:
-                    for sign in (-1.0, 1.0):
-                        Xq_perturbed = Xq_s.copy()
-                        Xq_perturbed[:, j] = Xq_perturbed[:, j] + sign * scale * feat_std[j]
-                        if task == "binary":
-                            pred_pert = np.asarray(model.predict_proba(Xq_perturbed))[:, 1].astype(np.float32)
-                            flipped = (pred_pert > 0.5).astype(np.float32) != orig_class
-                        else:
-                            pred_pert = np.asarray(model.predict(Xq_perturbed)).astype(np.float32)
-                            flipped = np.abs(pred_pert - pred_orig) > train_resid_decile
-                        # Update minimum scale where flip occurred.
-                        update_mask = flipped & (flip_dists[:, j] > scale)
-                        flip_dists[update_mask, j] = scale
+            _per_combo_flip_update(model, task, Xq_s, feat_std, orig_class, pred_orig, train_resid_decile, flip_dists)
 
         min_dist = flip_dists.min(axis=1).astype(np.float32)
         mean_dist = flip_dists.mean(axis=1).astype(np.float32)
