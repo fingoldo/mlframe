@@ -208,6 +208,48 @@ def _adaptive_cols_by_relevance(X, cols, y, max_adaptive_cols):
     return set(ranked[: int(max_adaptive_cols)])
 
 
+def _emit_chirp_fourier_legs(x, col, y_adapt, adaptive_fe_ok, fourier_chirp, chirp_f_grid, fourier_chirp_min_val_corr, out_cols, meta) -> None:
+    """Emit the quadratic-warp (chirp axis) sin/cos legs of one column, detected by the same held-out multitone detector as the linear legs."""
+    if fourier_chirp and y_adapt is not None and adaptive_fe_ok:
+        _c_mean, _c_std, _c_lo, _c_span = _fit_chirp_warp_for_col(x)
+        if _c_span > 1e-12 and _c_std > 1e-12:
+            u_axis = _chirp_axis(x, _c_mean, _c_std, _c_lo, _c_span)
+            if np.all(np.isfinite(u_axis)) and float(np.std(u_axis)) > 1e-12:
+                _chirp_freqs = _detect_fourier_freqs_for_col(
+                    u_axis, y_adapt,
+                    f_grid=chirp_f_grid,
+                    min_val_corr=float(fourier_chirp_min_val_corr),
+                    min_rows=800,
+                    max_freqs=6,
+                )
+                for _cf in _chirp_freqs:
+                    ang_c = 2.0 * np.pi * _cf * u_axis
+                    sc_vals = np.sin(ang_c)
+                    cc_vals = np.cos(ang_c)
+                    if float(np.std(sc_vals)) > 1e-12:
+                        name_qs = f"{col}__qsin{_cf:g}"
+                        out_cols[name_qs] = sc_vals
+                        meta[name_qs] = {
+                            "basis": "fourier", "src": col,
+                            "kind": "sin", "freq": float(_cf),
+                            "arg": "quadratic",
+                            "mean": float(_c_mean), "std": float(_c_std),
+                            "lo": float(_c_lo), "span": float(_c_span),
+                            "power": 1, "adaptive": True,
+                        }
+                    if float(np.std(cc_vals)) > 1e-12:
+                        name_qc = f"{col}__qcos{_cf:g}"
+                        out_cols[name_qc] = cc_vals
+                        meta[name_qc] = {
+                            "basis": "fourier", "src": col,
+                            "kind": "cos", "freq": float(_cf),
+                            "arg": "quadratic",
+                            "mean": float(_c_mean), "std": float(_c_std),
+                            "lo": float(_c_lo), "span": float(_c_span),
+                            "power": 1, "adaptive": True,
+                        }
+
+
 def _fourier_extra_basis(extra_bases, x, fourier_powers, _y_adapt, _adaptive_fe_ok, _adaptive_f_grid, fourier_adaptive_min_val_corr, fourier_freqs, col, out_cols, meta, fourier_chirp, _chirp_f_grid, fourier_chirp_min_val_corr):
     """Build the Fourier extra-basis candidates of one column."""
     if "fourier" in extra_bases and not _is_int_as_cat_axis(x):
@@ -297,44 +339,7 @@ def _fourier_extra_basis(extra_bases, x, fourier_powers, _y_adapt, _adaptive_fe_
             # additive (on a plain linear target the chirp legs are harmless,
             # Ridge regularises them to ~0). N-gated identically (>= 800 rows
             # inside the detector); a pure-noise column admits none.
-            if fourier_chirp and _y_adapt is not None and _adaptive_fe_ok:
-                _c_mean, _c_std, _c_lo, _c_span = _fit_chirp_warp_for_col(x)
-                if _c_span > 1e-12 and _c_std > 1e-12:
-                    u_axis = _chirp_axis(x, _c_mean, _c_std, _c_lo, _c_span)
-                    if np.all(np.isfinite(u_axis)) and float(np.std(u_axis)) > 1e-12:
-                        _chirp_freqs = _detect_fourier_freqs_for_col(
-                            u_axis, _y_adapt,
-                            f_grid=_chirp_f_grid,
-                            min_val_corr=float(fourier_chirp_min_val_corr),
-                            min_rows=800,
-                            max_freqs=6,
-                        )
-                        for _cf in _chirp_freqs:
-                            ang_c = 2.0 * np.pi * _cf * u_axis
-                            sc_vals = np.sin(ang_c)
-                            cc_vals = np.cos(ang_c)
-                            if float(np.std(sc_vals)) > 1e-12:
-                                name_qs = f"{col}__qsin{_cf:g}"
-                                out_cols[name_qs] = sc_vals
-                                meta[name_qs] = {
-                                    "basis": "fourier", "src": col,
-                                    "kind": "sin", "freq": float(_cf),
-                                    "arg": "quadratic",
-                                    "mean": float(_c_mean), "std": float(_c_std),
-                                    "lo": float(_c_lo), "span": float(_c_span),
-                                    "power": 1, "adaptive": True,
-                                }
-                            if float(np.std(cc_vals)) > 1e-12:
-                                name_qc = f"{col}__qcos{_cf:g}"
-                                out_cols[name_qc] = cc_vals
-                                meta[name_qc] = {
-                                    "basis": "fourier", "src": col,
-                                    "kind": "cos", "freq": float(_cf),
-                                    "arg": "quadratic",
-                                    "mean": float(_c_mean), "std": float(_c_std),
-                                    "lo": float(_c_lo), "span": float(_c_span),
-                                    "power": 1, "adaptive": True,
-                                }
+            _emit_chirp_fourier_legs(x, col, _y_adapt, _adaptive_fe_ok, fourier_chirp, _chirp_f_grid, fourier_chirp_min_val_corr, out_cols, meta)
         except Exception as exc:
             log_throttle(
                 logger, "extra_basis_fourier_raised", logging.WARNING,
