@@ -18,7 +18,6 @@
   "src/mlframe/reporting/renderers/matplotlib.py::MatplotlibRenderer.render": 18,
   "src/mlframe/reporting/renderers/plotly.py::PlotlyRenderer._histogram": 17,
   "src/mlframe/training/_feature_importances.py::get_model_feature_importances": 16,
-  "src/mlframe/training/composite/ensemble/_cross_target.py::CompositeCrossTargetEnsemble.predict": 18,
   "src/mlframe/training/composite/ensemble/_oof_external.py::_compute_oof_with_external_holdout": 18,
   "src/mlframe/training/composite/qrf.py::_batch_weighted_quantiles_kernel": 17,
   "src/mlframe/training/neural/_flat_torch_module/_flat_torch_loss.py::_LossMixin.compute_metrics": 17,
