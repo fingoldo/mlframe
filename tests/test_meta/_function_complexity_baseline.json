@@ -25,7 +25,6 @@
   "src/mlframe/reporting/renderers/matplotlib.py::MatplotlibRenderer.render": 18,
   "src/mlframe/reporting/renderers/plotly.py::PlotlyRenderer._histogram": 17,
   "src/mlframe/training/_data_helpers.py::_setup_eval_set": 18,
-  "src/mlframe/training/_data_helpers.py::_validate_target_values": 18,
   "src/mlframe/training/_feature_importances.py::get_model_feature_importances": 16,
   "src/mlframe/training/baselines/_dummy_report_type.py::BaselineReport.format_text": 18,
   "src/mlframe/training/composite/discovery/_auto_base.py::_auto_base_step1_requires_mi_mean": 17,

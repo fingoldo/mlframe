@@ -219,25 +219,8 @@ def _initialize_mutable_defaults(drop_columns, default_drop_columns, fi_kwargs, 
     return drop_columns, default_drop_columns, fi_kwargs, confidence_model_kwargs
 
 
-def _validate_target_values(target, subset_name="train", is_classification=None):
-    """Check target for NaN / infinity values and (for classification)
-    single-class collapse before training.
-
-    Single-class detection: when ``is_classification=True`` and the
-    target carries fewer than 2 unique values, raise a ValueError
-    BEFORE the per-backend fit. CatBoost otherwise crashes with
-    ``target_converter.cpp:404: Target contains only one unique value``,
-    XGBoost with ``num_class is 1, expected at least 2``, etc. -- all
-    opaque C++ errors. The proximate cause in fuzz is upstream filter
-    aggression (outlier_detection + trainset_aging_limit + rare imbalance
-    class) eliminating the minority class entirely from train. The
-    early raise gives operators a clear diagnostic instead of a deep
-    backend crash (fuzz seed=99 c0016 / 2026-04-27).
-
-    is_classification=None preserves the historical behaviour: only
-    the NaN/inf check runs, so callers that haven't been migrated to
-    pass the flag explicitly are unaffected.
-    """
+def _target_as_numpy(target):
+    """Plain numpy array of a target for the finiteness checks; nullable and polars nulls come through as NaN."""
     # Coerce target to a plain numpy ndarray for the np.isfinite checks below.
     # Pre-fix shape (previous silent-coercion audit): bare
     # ``target.values if pd.Series else target`` returned a pandas
@@ -265,6 +248,91 @@ def _validate_target_values(target, subset_name="train", is_classification=None)
                 arr = target.to_numpy()
         else:
             arr = np.asarray(target)
+    return arr
+
+
+def _check_classification_target(target, subset_name):
+    """Raise on a single-class classification target and log degenerate multilabel columns."""
+    try:
+        arr_np = np.asarray(target)
+        # Object dtype with nested arrays (polars ``pl.List`` roundtrip
+        # for multilabel) presents as 1-D but each cell is itself an
+        # array. Stack to a true 2-D shape so the per-label degenerate
+        # check below works without ``np.unique`` choking on cell-array
+        # comparison ("truth value ambiguous", surfaced 3-way fuzz
+        # c0000).
+        if arr_np.dtype == object and arr_np.ndim == 1 and arr_np.shape[0] > 0:
+            _first = arr_np[0]
+            if hasattr(_first, "shape") or (hasattr(_first, "__len__") and not isinstance(_first, (str, bytes))):
+                try:
+                    arr_np = np.stack([np.asarray(c) for c in arr_np], axis=0)
+                except Exception as e:
+                    logger.debug("swallowed exception in _data_helpers.py: %s", e)
+                    pass
+        if arr_np.ndim > 1:
+            # Multilabel / multiclass-prob: per-column unique check.
+            # If ANY column has only one unique value, the model
+            # for that label is degenerate but the others may
+            # train. Report at WARNING and let the per-backend
+            # path decide.
+            degenerate_cols = [_i for _i in range(arr_np.shape[1]) if len(np.unique(arr_np[:, _i])) < 2]
+            if degenerate_cols:
+                logger.warning(
+                    "%s target has %d label column(s) with a single unique "
+                    "value: %s. The corresponding per-label model(s) will "
+                    "fail; the rest may train normally if the multilabel "
+                    "strategy supports it.",
+                    subset_name,
+                    len(degenerate_cols),
+                    degenerate_cols,
+                )
+        else:
+            if len(np.unique(arr_np)) < 2:
+                # arr_np.size == 0 (an empty target) means np.unique returns an empty array too
+                # (len 0 < 2), so this branch also fires on a genuinely EMPTY target, not just a
+                # single-value one -- arr_np.flat[0] on an empty array raises IndexError, which
+                # the `except ValueError: raise` below does NOT match, so it fell through to the
+                # generic `except Exception` and was silently swallowed as a debug log, masking
+                # the intended diagnostic entirely and letting the empty target proceed straight
+                # to a much more opaque downstream backend crash. Guard the message construction
+                # so both the single-value and empty-target cases raise their own clear ValueError.
+                _value_desc = f"({arr_np.flat[0]!r}); classification needs at least 2 classes" if arr_np.size > 0 else "-- the target is EMPTY (0 rows)"
+                raise ValueError(
+                    f"{subset_name} target has only one unique value "
+                    f"{_value_desc}. Most likely cause: upstream filtering "
+                    f"(outlier_detection + trainset_aging_limit + rare "
+                    f"imbalance) eliminated the minority class entirely. "
+                    f"Investigate the filter pipeline OR loosen the "
+                    f"contamination / aging knobs."
+                )
+    except ValueError:
+        raise
+    except Exception as e:  # nosec B110 - non-trivial body
+        # np.unique/asarray edge cases on object dtype etc -- let the
+        # downstream backend surface its own error.
+        logger.debug("target uniqueness pre-check failed, deferring to downstream backend: %s", e)
+
+
+def _validate_target_values(target, subset_name="train", is_classification=None):
+    """Check target for NaN / infinity values and (for classification)
+    single-class collapse before training.
+
+    Single-class detection: when ``is_classification=True`` and the
+    target carries fewer than 2 unique values, raise a ValueError
+    BEFORE the per-backend fit. CatBoost otherwise crashes with
+    ``target_converter.cpp:404: Target contains only one unique value``,
+    XGBoost with ``num_class is 1, expected at least 2``, etc. -- all
+    opaque C++ errors. The proximate cause in fuzz is upstream filter
+    aggression (outlier_detection + trainset_aging_limit + rare imbalance
+    class) eliminating the minority class entirely from train. The
+    early raise gives operators a clear diagnostic instead of a deep
+    backend crash (fuzz seed=99 c0016 / 2026-04-27).
+
+    is_classification=None preserves the historical behaviour: only
+    the NaN/inf check runs, so callers that haven't been migrated to
+    pass the flag explicitly are unaffected.
+    """
+    arr = _target_as_numpy(target)
     # Single-pass finiteness check; only re-scan the (typically empty) non-finite subset to split nan_count vs inf_count.
     # Two separate isnan/isinf .sum() calls walked the full array twice on the common all-finite case.
     finite_mask = _finite_mask_or_none(arr)
@@ -282,64 +350,7 @@ def _validate_target_values(target, subset_name="train", is_classification=None)
             parts.append(f"{inf_count:_} infinity")
         raise ValueError(f"{subset_name} target contains {' and '.join(parts)} value(s). " f"Clean the target before training.")
     if is_classification:
-        try:
-            arr_np = np.asarray(target)
-            # Object dtype with nested arrays (polars ``pl.List`` roundtrip
-            # for multilabel) presents as 1-D but each cell is itself an
-            # array. Stack to a true 2-D shape so the per-label degenerate
-            # check below works without ``np.unique`` choking on cell-array
-            # comparison ("truth value ambiguous", surfaced 3-way fuzz
-            # c0000).
-            if arr_np.dtype == object and arr_np.ndim == 1 and arr_np.shape[0] > 0:
-                _first = arr_np[0]
-                if hasattr(_first, "shape") or (hasattr(_first, "__len__") and not isinstance(_first, (str, bytes))):
-                    try:
-                        arr_np = np.stack([np.asarray(c) for c in arr_np], axis=0)
-                    except Exception as e:
-                        logger.debug("swallowed exception in _data_helpers.py: %s", e)
-                        pass
-            if arr_np.ndim > 1:
-                # Multilabel / multiclass-prob: per-column unique check.
-                # If ANY column has only one unique value, the model
-                # for that label is degenerate but the others may
-                # train. Report at WARNING and let the per-backend
-                # path decide.
-                degenerate_cols = [_i for _i in range(arr_np.shape[1]) if len(np.unique(arr_np[:, _i])) < 2]
-                if degenerate_cols:
-                    logger.warning(
-                        "%s target has %d label column(s) with a single unique "
-                        "value: %s. The corresponding per-label model(s) will "
-                        "fail; the rest may train normally if the multilabel "
-                        "strategy supports it.",
-                        subset_name,
-                        len(degenerate_cols),
-                        degenerate_cols,
-                    )
-            else:
-                if len(np.unique(arr_np)) < 2:
-                    # arr_np.size == 0 (an empty target) means np.unique returns an empty array too
-                    # (len 0 < 2), so this branch also fires on a genuinely EMPTY target, not just a
-                    # single-value one -- arr_np.flat[0] on an empty array raises IndexError, which
-                    # the `except ValueError: raise` below does NOT match, so it fell through to the
-                    # generic `except Exception` and was silently swallowed as a debug log, masking
-                    # the intended diagnostic entirely and letting the empty target proceed straight
-                    # to a much more opaque downstream backend crash. Guard the message construction
-                    # so both the single-value and empty-target cases raise their own clear ValueError.
-                    _value_desc = f"({arr_np.flat[0]!r}); classification needs at least 2 classes" if arr_np.size > 0 else "-- the target is EMPTY (0 rows)"
-                    raise ValueError(
-                        f"{subset_name} target has only one unique value "
-                        f"{_value_desc}. Most likely cause: upstream filtering "
-                        f"(outlier_detection + trainset_aging_limit + rare "
-                        f"imbalance) eliminated the minority class entirely. "
-                        f"Investigate the filter pipeline OR loosen the "
-                        f"contamination / aging knobs."
-                    )
-        except ValueError:
-            raise
-        except Exception as e:  # nosec B110 - non-trivial body
-            # np.unique/asarray edge cases on object dtype etc -- let the
-            # downstream backend surface its own error.
-            logger.debug("target uniqueness pre-check failed, deferring to downstream backend: %s", e)
+        _check_classification_target(target, subset_name)
 
 
 def _validate_infinity_and_columns(df, train_df, skip_infinity_checks, drop_columns):
