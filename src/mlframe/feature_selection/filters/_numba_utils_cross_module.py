@@ -844,8 +844,8 @@ def _joint_entropy_codes(a: np.ndarray, b: np.ndarray, a_max: int, b_max: int) -
     span = (a_max + 1) * stride
     if span < 0 or span >= _CMI_COLUMNS_SPAN_CAP:
         return 0.0, -1
-    seen = np.full(span, -1, dtype=np.int64)
-    counts = np.empty(n, dtype=np.int64)
+    seen = np.full(span, -1, dtype=np.int32)
+    counts = np.empty(n, dtype=np.int32)
     nc = 0
     for i in range(n):
         k = np.int64(a[i]) * stride + b[i]
