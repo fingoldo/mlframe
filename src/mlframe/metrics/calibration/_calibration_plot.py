@@ -327,12 +327,7 @@ def _fast_calibration_binning_prange_kernel(y_true: np.ndarray, y_pred: np.ndarr
             # Empty slice (nth > n): neutral sentinels that lose the cross-thread min/max reduction.
             pmin[t] = np.inf
             pmax[t] = -np.inf
-    min_val, max_val = np.inf, -np.inf
-    for t in range(nth):
-        if pmin[t] < min_val:
-            min_val = pmin[t]
-        if pmax[t] > max_val:
-            max_val = pmax[t]
+    min_val, max_val = _merge_partial_extrema(pmin, pmax)
     span = max_val - min_val
 
     part_pred = np.zeros((nth, nbins), dtype=np.int64)
@@ -348,11 +343,7 @@ def _fast_calibration_binning_prange_kernel(y_true: np.ndarray, y_pred: np.ndarr
             lo = t * chunk
             hi = min(lo + chunk, n)
             for i in range(lo, hi):
-                ind = floor((y_pred[i] - min_val) * multiplier)
-                if ind < 0:
-                    ind = 0
-                elif ind >= nbins:
-                    ind = nbins - 1
+                ind = _pocket_index((y_pred[i] - min_val) * multiplier, nbins)
                 part_pred[t, ind] += 1
                 part_true[t, ind] += y_true[i]
                 part_sum[t, ind] += y_pred[i]
@@ -369,6 +360,35 @@ def _fast_calibration_binning_prange_kernel(y_true: np.ndarray, y_pred: np.ndarr
     pockets_true = part_true.sum(axis=0)
     pockets_pred_sum = part_sum.sum(axis=0)
 
+    return _finalize_pockets(pockets_predicted, pockets_true, pockets_pred_sum)
+
+
+@numba.njit(cache=True, nogil=True)
+def _merge_partial_extrema(pmin, pmax):
+    """Reduce the per-slice (min, max) partials to the global ``(min_val, max_val)``."""
+    min_val, max_val = np.inf, -np.inf
+    for t in range(pmin.shape[0]):
+        if pmin[t] < min_val:
+            min_val = pmin[t]
+        if pmax[t] > max_val:
+            max_val = pmax[t]
+    return min_val, max_val
+
+
+@numba.njit(cache=True, nogil=True)
+def _pocket_index(scaled, nbins):
+    """Clamp a scaled bin coordinate into ``[0, nbins - 1]``; the maximum itself lands in the last bin."""
+    ind = floor(scaled)
+    if ind < 0:
+        ind = 0
+    elif ind >= nbins:
+        ind = nbins - 1
+    return ind
+
+
+@numba.njit(cache=True, nogil=True)
+def _finalize_pockets(pockets_predicted, pockets_true, pockets_pred_sum):
+    """Keep the non-empty pockets and return their ``(freqs_predicted, freqs_true, hits)``."""
     idx = np.nonzero(pockets_predicted > 0)[0]
     hits = pockets_predicted[idx]
     if len(hits) > 0:
