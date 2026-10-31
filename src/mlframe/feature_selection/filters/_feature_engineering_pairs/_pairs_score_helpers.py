@@ -8,6 +8,7 @@ from timeit import default_timer as timer
 import numpy as np
 
 from ._pairs_common import _TIMES_SPENT_LOCK
+from ._pairs_code_bins import scrub_nonfinite
 from ._pairs_gates import (
     _FE_MARGINAL_UPLIFT_MIN_JOINT_RATIO,
     _FE_MARGINAL_UPLIFT_MIN_RATIO,
@@ -134,7 +135,7 @@ def _score_one_pair_gpu_fused_done(_gpu_fused_done, combs, vars_transformations,
         # -> byte-identical to the per-column scrub; one contiguous-block C pass.
         # SKIPPED on the GPU fused path (the kernel scrubs NaN/inf inline - bit-identical).
         if i > 0:
-            np.nan_to_num(final_transformed_vals[:, :i], copy=False, nan=0.0, posinf=0.0, neginf=0.0)
+            scrub_nonfinite(final_transformed_vals[:, :i])
     return i
 
 
