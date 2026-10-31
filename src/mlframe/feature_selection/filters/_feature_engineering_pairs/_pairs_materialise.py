@@ -206,6 +206,42 @@ def _materialise_chunk_njit_parallel(tv, a_cols, b_cols, op_codes, out):
             out[r, k] = v
 
 
+@njit(cache=True, error_model="numpy")
+def _pair_op(a, b, op, one, zero):
+    """Apply one pair operation code to a float32 operand pair; the non-finite result is zeroed by the caller."""
+    if op == 0:  # mul
+        v = a * b
+    elif op == 1:  # add
+        v = a + b
+    elif op == 2:  # sub
+        v = a - b
+    elif op == 3:  # div = _safe_div
+        # Intentional float64: same float64 promotion of the division as the numpy op (bit-identical to the reference path)
+        v = np.float32(np.float64(a) / (np.float64(b) if b != zero else 1e-9))
+    elif op == 4:  # max, nan-propagating
+        if a != a or b != b:
+            v = a + b
+        else:
+            v = a if a > b else b
+    elif op == 5:  # min, nan-propagating
+        if a != a or b != b:
+            v = a + b
+        else:
+            v = a if a < b else b
+    elif op == 6:  # abs_diff
+        v = abs(a - b)
+    elif op == 7:  # signed = sign(a)*|b|
+        if a != a or b != b:
+            v = a + b
+        else:
+            sgn = zero if a == zero else (one if a > zero else -one)
+            v = sgn * abs(b)
+    else:  # op == 8: ratio_abs
+        # Intentional float64: same float64 promotion of the division as the numpy op (bit-identical to the reference path)
+        v = np.float32(np.float64(a) / (np.float64(abs(b)) + 1.0))
+    return v
+
+
 @njit(parallel=True, cache=True, error_model="numpy")
 def _materialise_chunk_rowblock_njit_parallel(tv, a_cols, b_cols, op_codes, out):
     """Row-block twin of :func:`_materialise_chunk_njit_parallel`: BYTE-IDENTICAL output, same per-element body, but the loop order is
@@ -221,39 +257,7 @@ def _materialise_chunk_rowblock_njit_parallel(tv, a_cols, b_cols, op_codes, out)
         r1 = min(n, r0 + 256)
         for r in range(r0, r1):
             for k in range(K):
-                a = tv[r, a_cols[k]]
-                b = tv[r, b_cols[k]]
-                op = op_codes[k]
-                if op == 0:  # mul
-                    v = a * b
-                elif op == 1:  # add
-                    v = a + b
-                elif op == 2:  # sub
-                    v = a - b
-                elif op == 3:  # div = _safe_div
-                    # Intentional float64: same float64 promotion of the division as the numpy op (bit-identical to the reference path)
-                    v = np.float32(np.float64(a) / (np.float64(b) if b != zero else 1e-9))
-                elif op == 4:  # max, nan-propagating
-                    if a != a or b != b:
-                        v = a + b
-                    else:
-                        v = a if a > b else b
-                elif op == 5:  # min, nan-propagating
-                    if a != a or b != b:
-                        v = a + b
-                    else:
-                        v = a if a < b else b
-                elif op == 6:  # abs_diff
-                    v = abs(a - b)
-                elif op == 7:  # signed = sign(a)*|b|
-                    if a != a or b != b:
-                        v = a + b
-                    else:
-                        sgn = zero if a == zero else (one if a > zero else -one)
-                        v = sgn * abs(b)
-                else:  # op == 8: ratio_abs
-                    # Intentional float64: same float64 promotion of the division as the numpy op (bit-identical to the reference path)
-                    v = np.float32(np.float64(a) / (np.float64(abs(b)) + 1.0))
+                v = _pair_op(tv[r, a_cols[k]], tv[r, b_cols[k]], op_codes[k], one, zero)
                 if not (v == v and v != np.inf and v != -np.inf):
                     v = zero
                 out[r, k] = v
