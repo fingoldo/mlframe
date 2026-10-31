@@ -19,17 +19,17 @@ proposed disposition: **RESOLVED** (already safe, citation given), **FUTURE** (r
 
 ## Priority items (proposed)
 
-- **DESER-10 (High)**, `training/composite/cache_store.py:385`: the cache loader reads unsigned pickles from `cache_dir`
-  with `allow_unverified=True` hard-coded. Anyone who can write to a shared cache directory gets code execution on the next
-  read. **Proposed: fix now** (refuse unverified loads by default; opt-in flag for legacy caches).
+- **DESER-10 (High), RESOLVED** in `303e54be4`: the cache loader deferred to `MLFRAME_ALLOW_UNVERIFIED_PICKLE` (default closed) instead
+  of forcing `allow_unverified=True`. Pinned by `tests/training/composite/cache/test_cache_unsigned_pickle_rejected.py`, which fails
+  on the previous code.
 - **DESER-02 (Medium)**, `training/io.py` `load_mlframe_model`: the default model-bundle loader has no sha256 check.
   **Proposed: FUTURE** (needs a manifest format change).
 - **DESER-06 (Medium)**, `estimators/pipelines.py:111`: unrestricted `joblib.load` after an integrity-only sidecar check.
   **Proposed: FUTURE.**
 - **FS-02 (Medium)**, `estimators/pipelines.py:163-166`: predictable file in the shared temp dir, read back as a pickle.
   **Proposed: FUTURE** (per-user 0o700 directory and `mkstemp`).
-- **SEC-01 (Medium)**, `integrations/mlflow.py:148`: `exc_info=True` after retries can log a password from the tracking URL.
-  **Proposed: fix now** (redact the URL before logging).
+- **SEC-01 (Medium), RESOLVED** in `620c0d2d2`: the give-up log carries the scrubbed message only, and the re-raised error is no longer
+  chained to the original. Pinned by `tests/integrations/test_mlflow_scrubbed_giveup_log.py`, which fails on the previous code.
 - **SUP-02 (Medium)**, `pyproject.toml:154`: `pyutilz>=1.0.0` is not on PyPI, so pip users are exposed to dependency confusion.
   **Proposed: FUTURE** (pin or document the pre-install).
 - **SUP-03 (Medium)**, `.github/workflows/dependabot-auto-merge.yml:36-43`: every dependabot PR auto-merges without review.
@@ -39,7 +39,7 @@ proposed disposition: **RESOLVED** (already safe, citation given), **FUTURE** (r
 
 ## Status
 
-No finding has been fixed yet. Everything above is a proposal. Per the project's audit rule, the fixes are triaged with the
+Two items fixed (DESER-10, SEC-01), each with a regression test that fails on the previous code. The rest are proposals. Per the project's audit rule, the fixes are triaged with the
 owner before any code changes, because several change public behaviour (DESER-10 most of all). The remaining Low and Info
 rows are recorded in their class reports with the same vocabulary.
 
