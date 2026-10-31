@@ -146,12 +146,27 @@ def _gate_base_columns(X, gate_cols, y, seed):
 
     surviving_by_src: dict[str, list[str]] = {}
     dropped: list[str] = []
-    for _gc, _src, _is_fourier in gate_cols:
-        if _is_fourier:
-            continue
-        _src_arr = _gate_col_arr(X, _src)
-        _eng_arr = _gate_col_arr(X, _gc)
-        if keep_engineered_over_source(_src_arr, _eng_arr, y, seed=seed):
+    base_cols = [(_gc, _src) for _gc, _src, _is_fourier in gate_cols if not _is_fourier]
+
+    def _keep(item: tuple) -> bool:
+        """The probe of one candidate; candidates are independent (each fold fit is deterministic and the baseline memo is lock-protected)."""
+        _gc, _src = item
+        return bool(keep_engineered_over_source(_gate_col_arr(X, _src), _gate_col_arr(X, _gc), y, seed=seed))
+
+    # The first candidate runs on this thread so numba compiles once; the rest are probed on a pool (numpy / BLAS release the GIL, the AUC kernel is entered one thread at a time).
+    from concurrent.futures import ThreadPoolExecutor
+
+    from mlframe.feature_selection.filters._adaptive_nbins import _resolve_edge_jobs
+
+    jobs = _resolve_edge_jobs(None, len(base_cols))
+    if jobs > 1 and len(base_cols) > 1:
+        first = _keep(base_cols[0])
+        with ThreadPoolExecutor(max_workers=jobs) as pool:
+            decisions = [first, *pool.map(_keep, base_cols[1:])]
+    else:
+        decisions = [_keep(item) for item in base_cols]
+    for (_gc, _src), keep in zip(base_cols, decisions):
+        if keep:
             surviving_by_src.setdefault(_src, []).append(_gc)
         else:
             dropped.append(_gc)
