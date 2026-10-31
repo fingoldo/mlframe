@@ -442,6 +442,8 @@ def select_best_scorer_per_column(
         raise ValueError(f"select_best_scorer_per_column: raw_X has {len(raw_X)} rows " f"but y has {len(y_arr)}; positional row alignment required.")
     if engineered_X.empty:
         return pd.DataFrame(columns=_AUTO_SCORER_COLUMNS)
+    # bench-attempt-rejected: skipping scorers for a column that one scorer already decides. The winner is the argmax over ALL scorers of the headroom over each scorer's own raw maximum,
+    # so every scorer's value enters every column's choice; a partial skip changes the selected scorer and the uplift (the per-resample cost is spread evenly, 0.3-0.5 s per scorer at 100k).
     n = len(raw_X)
     boot_idx = _bootstrap_subsample_indices(
         n, int(n_boot), int(random_state),
