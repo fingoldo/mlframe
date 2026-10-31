@@ -31,6 +31,24 @@ from .._fe_usability_signal import _crit_np_dtype
 from numba import prange
 
 
+@numba.njit(cache=True, parallel=True)
+def average_ranks_many(cols, out: np.ndarray) -> None:
+    """``out[k]`` = average ranks (ties share the mean rank, as ``pandas.Series.rank(method="average")``) of the all-finite 1-D column ``cols[k]``; one parallel task per column."""
+    for k in prange(len(cols)):
+        c = cols[k]
+        n = c.shape[0]
+        order = np.argsort(c, kind="mergesort")
+        i = 0
+        while i < n:
+            e = i + 1
+            while e < n and c[order[e]] == c[order[i]]:
+                e += 1
+            r = 0.5 * (i + 1 + e)
+            for t in range(i, e):
+                out[k, order[t]] = r
+            i = e
+
+
 @numba.njit(cache=True)
 def _avg_ranks_inplace(v: np.ndarray, m: int, order: np.ndarray, ranks: np.ndarray) -> None:
     """Average ranks (ties share the mean rank, as ``pandas.Series.rank(method="average")``) of the first ``m`` values of ``v`` into ``ranks``; ``order`` is scratch."""

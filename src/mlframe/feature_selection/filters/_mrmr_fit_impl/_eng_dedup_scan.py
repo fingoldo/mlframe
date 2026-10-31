@@ -106,6 +106,47 @@ class _RankRowBuffer:
         return row
 
 
+_PRE_RANK_MAX_BYTES = 512 * 1024 * 1024  # the ranks of all fully finite candidates are held until the scan reaches them (it keeps them anyway); more than this are ranked one by one
+
+
+def _precompute_full_ranks(X: pd.DataFrame, scan_order: list, fourier_keep: set) -> "dict[str, np.ndarray]":
+    """Average ranks of every fully finite, non-constant candidate column, computed together by one parallel kernel (the scan ranked them one at a time with pandas, 2.2 s of a 100000-row fit)."""
+    n = len(X)
+    if n < 8 or len(scan_order) < 4:
+        return {}
+    # the batch obeys the rank-buffer byte budget (a column over it is ranked one by one when the scan reaches it), so no allocation here exceeds what the scan itself may hold
+    max_cols = min(int(_PRE_RANK_MAX_BYTES), int(_RANK_BUF_MAX_BYTES)) // (8 * n)
+    if max_cols < 2:
+        return {}
+    names: list = []
+    arrays = []
+    for c in scan_order:
+        if c in fourier_keep or c not in X.columns:
+            continue
+        v = X[c]
+        if isinstance(v, pd.DataFrame):
+            v = v.iloc[:, 0]
+        a = np.asarray(v.to_numpy(), dtype=_crit_np_dtype())
+        if not np.isfinite(a).all() or a.std() <= _REL_TOL * float(np.abs(a).max()):
+            continue
+        names.append(c)
+        arrays.append(np.ascontiguousarray(a))
+        if len(names) >= max_cols:
+            break
+    if len(names) < 2:
+        return {}
+    from numba.typed import List as _TypedList
+
+    from ._eng_dedup_batch_corr import average_ranks_many
+
+    cols = _TypedList()
+    for a in arrays:
+        cols.append(a)
+    ranks = np.empty((len(names), n), dtype=np.float64)  # Intentional float64: rank values kept at the width pandas ranks have
+    average_ranks_many(cols, ranks)
+    return {c: ranks[i] for i, c in enumerate(names)}
+
+
 def scan_engineered_duplicates(
     X: pd.DataFrame,
     _eng_cols_appended: list[str],
@@ -151,6 +192,7 @@ def scan_engineered_duplicates(
 
     _eng_fully_finite: dict[str, bool] = {}
     _scan_order = sorted(_eng_cols_appended, key=cmp_to_key(partial(_strongest_first_cmp, _eng_dedup_prefer=_eng_dedup_prefer)))
+    _pre_ranks = _precompute_full_ranks(X, _scan_order, _adaptive_fourier_keep)
     for _c in _scan_order:
         if _c in _eng_drop:
             continue
@@ -188,7 +230,9 @@ def scan_engineered_duplicates(
         # catches the full monotone-equivalent family that MRMR's
         # downstream gate cannot distinguish.
         # Full-column ranks of the candidate, cached (reused below when a pair is fully finite).
-        _ranks_c = pd.Series(_arr_c).rank(method="average").to_numpy()
+        _ranks_c = _pre_ranks.pop(_c, None)
+        if _ranks_c is None:
+            _ranks_c = pd.Series(_arr_c).rank(method="average").to_numpy()
         _eng_ranks[_c] = _ranks_c
         _colliding_kept: list[str] = []
         # BATCHED FAST PATH: the ``_mask.all()`` fast-path condition below can only ever
