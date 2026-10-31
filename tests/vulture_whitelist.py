@@ -166,3 +166,8 @@ sigma0  # tests/feature_selection/regression/test_mrmr_core.py (CMA-ES stub __in
 solutions  # tests/feature_selection/regression/test_mrmr_core.py (CMA-ES stub tell)
 n_pool  # tests/feature_selection/regression/test_mrmr_fe_orthogonal.py
 url  # tests/scripts/test_ci_version_matrix.py (urlopen stub)
+
+# --- autouse-style fixtures requested by name for their side effect; the test body does not read them (vulture 100% false positive). ---
+host_only  # tests/feature_selection/mrmr/core/test_prescan_block_pairs.py
+cap_enabled  # tests/training/test_hgb_thread_cap.py
+prune_only  # tests/feature_selection/regression/test_regression_pgn_cap_selected_vars.py (stand-in residual-rescue signature)
