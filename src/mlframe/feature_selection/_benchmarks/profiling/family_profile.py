@@ -49,6 +49,25 @@ def _set_mode(mode: str) -> None:
         os.environ.setdefault(key, value)
 
 
+class _SnapshotLedger(dict):
+    """The family wall ledger with a ``clear`` that first keeps a copy: the fit clears the ledger when it ends, before the profiler could read it."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.last: dict = {}
+
+    def __missing__(self, key: str) -> list:
+        value: list = [0.0, 0]
+        self[key] = value
+        return value
+
+    def clear(self) -> None:
+        """Keep the finished fit's totals, then empty the ledger."""
+        if self:
+            self.last = {k: (v[0], int(v[1])) for k, v in self.items()}
+        super().clear()
+
+
 def _fit(a: argparse.Namespace, data: tuple, on: "str | None", profile: bool) -> tuple:
     """One timed fit of ``data`` with family ``on`` (``None``/``BASE``: every family off; ``DEFAULTS``: the library defaults; ``ALL``: every family on) after a warm-up fit with the same flags; returns ``(wall, profiler, model)``."""
     from mlframe.feature_selection.filters import _fe_family_timing as FT
@@ -59,6 +78,8 @@ def _fit(a: argparse.Namespace, data: tuple, on: "str | None", profile: bool) ->
     if on and on not in ("BASE", "DEFAULTS", "ALL"):
         kw[f"fe_{on}_enable"] = True
     MRMR(verbose=0, random_seed=0, n_jobs=1, **kw).fit(*F._make(20_000, 30, 1))  # warm JIT / kernels with the same flags
+    ledger = _SnapshotLedger()
+    FT._FE_FAMILY_WALL = ledger  # type: ignore[assignment]
     FT.reset_fe_family_wall()
     pr = cProfile.Profile() if profile else None
     t0 = time.perf_counter()
@@ -67,6 +88,7 @@ def _fit(a: argparse.Namespace, data: tuple, on: "str | None", profile: bool) ->
     model = MRMR(verbose=0, random_seed=0, n_jobs=1, **kw).fit(*data)
     if pr:
         pr.disable()
+    model._family_wall_snapshot = ledger.last or {k: (v[0], int(v[1])) for k, v in ledger.items()}
     return time.perf_counter() - t0, pr, model
 
 
@@ -89,7 +111,8 @@ def main() -> None:
     wall, pr, model = _fit(a, data, a.family, True)
     print(f"{a.family} [{a.mode}/{a.binning}] wall {wall:.1f}s" + (f"  cost over BASE {wall - base:+.1f}s" if base else ""), flush=True)
     print("selected:", [str(s) for s in model.get_feature_names_out()][:12])
-    print("family walls:", {k: round(v[0], 2) for k, v in sorted(FT.get_fe_family_wall().items(), key=lambda kv: -kv[1][0])[:8]})
+    walls = model._family_wall_snapshot
+    print("family walls:", {k: round(v[0], 2) for k, v in sorted(walls.items(), key=lambda kv: -kv[1][0])[:25]})
     assert pr is not None
     pr.dump_stats(str(OUT_DIR / f"prof_{a.family}_{a.mode}_{a.binning}.pstats"))
     for key in ("tottime", "cumulative"):
