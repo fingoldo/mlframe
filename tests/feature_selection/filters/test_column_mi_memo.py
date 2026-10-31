@@ -42,3 +42,22 @@ def test_another_target_or_bin_count_is_a_different_entry():
     b = H.plugin_mi_classif_batch_dispatch(X, 1 - y, 10)
     c = H.plugin_mi_classif_batch_dispatch(X, y, 5)
     assert np.allclose(a, b) and not np.array_equal(a, c)
+
+
+def test_column_fingerprints_follow_content_and_order_not_layout():
+    """Equal columns get equal fingerprints (also from a differently laid out matrix), and a changed value or a changed order changes them."""
+    from mlframe.feature_selection.filters._numba_utils import column_fingerprints
+
+    rng = np.random.default_rng(3)
+    X = rng.standard_normal((2000, 5)).astype(np.float32)
+    X[:, 3] = X[:, 1]
+    fp = column_fingerprints(np.ascontiguousarray(X).view(np.uint32))
+    assert np.array_equal(fp[1], fp[3]) and len({tuple(r) for r in fp}) == 4
+    fp_f = column_fingerprints(np.asfortranarray(X).view(np.uint32))
+    assert np.array_equal(fp, fp_f)
+    changed = X.copy()
+    changed[777, 1] += 1e-3
+    assert not np.array_equal(column_fingerprints(changed.view(np.uint32))[1], fp[1])
+    swapped = X.copy()
+    swapped[[10, 11], 1] = swapped[[11, 10], 1]
+    assert not np.array_equal(column_fingerprints(swapped.view(np.uint32))[1], fp[1])

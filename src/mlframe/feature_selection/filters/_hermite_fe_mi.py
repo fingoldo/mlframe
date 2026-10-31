@@ -432,7 +432,15 @@ def plugin_mi_classif_batch_dispatch(X_cols: np.ndarray, y: np.ndarray, n_bins: 
 
     y_arr = np.ascontiguousarray(y)
     base = (hash_array_content(y_arr), int(n_bins), str(X_cols.dtype), int(X_cols.shape[0]))
-    keys = [(hash_array_content(np.ascontiguousarray(X_cols[:, j])), *base) for j in range(X_cols.shape[1])]
+    if X_cols.dtype.itemsize in (4, 8) and X_cols.dtype.kind == "f":
+        # the columns are fingerprinted in place by one parallel pass over the matrix (a copy of each strided column cost more than the scoring it saves)
+        from ._numba_utils import column_fingerprints
+
+        raw = np.ascontiguousarray(X_cols).view(np.uint32 if X_cols.dtype.itemsize == 4 else np.uint64)
+        fp = column_fingerprints(raw)
+        keys = [(int(fp[j, 0]), int(fp[j, 1]), *base) for j in range(fp.shape[0])]
+    else:
+        keys = [(hash_array_content(np.ascontiguousarray(X_cols[:, j])), *base) for j in range(X_cols.shape[1])]
     out = np.empty(len(keys), dtype=np.float64)  # Intentional float64: MI statistic vector, output contract kept f64
     missing = []
     with _COLUMN_MI_MEMO_LOCK:

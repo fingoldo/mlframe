@@ -1334,3 +1334,22 @@ def rows_to_columns(rows: np.ndarray) -> np.ndarray:
             for r in range(r0, r1):
                 out[r, j] = rows[j, r]
     return out
+
+
+@njit(cache=True, parallel=True)
+def column_fingerprints(bits: np.ndarray) -> np.ndarray:
+    """``(k, 2)`` uint64 content fingerprints of the columns of the ``(n, k)`` integer matrix ``bits`` (the raw bit patterns of a float matrix): two independent FNV-1a style lanes over the column in row order, so
+    two columns with equal values in the same order get equal fingerprints and a different value or order changes both. Reads the columns in place (no per-column copy of a strided column)."""
+    n, k = bits.shape
+    out = np.empty((k, 2), dtype=np.uint64)
+    for j in prange(k):
+        h1 = np.uint64(14695981039346656037)
+        h2 = np.uint64(0x9E3779B97F4A7C15)
+        for i in range(n):
+            v = np.uint64(bits[i, j])
+            h1 = (h1 ^ v) * np.uint64(1099511628211)
+            h2 = (h2 ^ (v + np.uint64(0x632BE59BD9B4E019))) * np.uint64(0xC2B2AE3D27D4EB4F)
+            h2 ^= h2 >> np.uint64(29)
+        out[j, 0] = h1
+        out[j, 1] = h2
+    return out

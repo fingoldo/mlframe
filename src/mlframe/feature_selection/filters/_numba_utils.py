@@ -923,6 +923,7 @@ from ._numba_utils_cross_module import (  # noqa: F401
     _presorted_dedup,
     corrected_mi_best,
     scrub_nonfinite_1d,
+    column_fingerprints,
     rows_to_columns,
     scrub_nonfinite_2d,
     within_stratum_shuffles,
