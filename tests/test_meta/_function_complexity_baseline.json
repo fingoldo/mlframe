@@ -1,4 +1,3 @@
 {
-  "src/mlframe/feature_selection/filters/_fe_pure_form_retention_gpu_resident.py::adds_nonlinear_value_batch_gpu_resident": 18,
   "src/mlframe/feature_selection/filters/_hinge_detect_gpu_resident.py::detect_hinge_breakpoints_gpu": 16
 }
