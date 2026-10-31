@@ -558,7 +558,6 @@ class MatplotlibRenderer:
 
     def _histogram(self, ax, p: HistogramPanelSpec) -> None:
         """Render a histogram panel: uses pre-binned ``bin_centers`` when given (or pre-bins above ``_HIST_PREBIN_THRESHOLD`` rather than letting ``ax.hist`` re-scan the full array), else falls back to ``ax.hist`` on finite values only; optionally overlays a fitted Normal PDF."""
-        import matplotlib
         overlay_x_lo = overlay_x_hi = None
         bin_centers = p.bin_centers
         heights = None
@@ -569,53 +568,72 @@ class MatplotlibRenderer:
             heights, bin_centers, width = prebin_histogram(np.asarray(p.values), p.bins, p.density)
 
         if bin_centers is not None:
-            if heights is None:
-                heights = np.asarray(p.values)
-                if isinstance(p.bin_width, np.ndarray):
-                    width = np.asarray(p.bin_width, dtype=float)
-                else:
-                    # `is not None`, matching the plotly twin: `bin_width=0.0` is a deliberate spec value, and
-                    # `or` read it as "unset" and derived a width from the centre spacing instead -- one spec,
-                    # two pictures.
-                    width = float(p.bin_width if p.bin_width is not None else ((bin_centers[1] - bin_centers[0]) if len(bin_centers) > 1 else 1.0))
-            colors_kw: dict[str, Any] = {"color": p.color}
-            if p.bar_colors is not None:
-                cm = matplotlib.colormaps[resolve_heatmap_cmap(p.colormap)]  # same resolver as every other lookup; a sentinel default must not reach matplotlib
-                _h_min = float(np.min(p.bar_colors))
-                _h_max = float(np.max(p.bar_colors))
-                if _h_max <= _h_min:
-                    _h_max = _h_min + 1.0
-                colors_kw = {"color": cm((np.asarray(p.bar_colors) - _h_min) / (_h_max - _h_min))}
-            ax.bar(bin_centers, heights, width=width, align="center", edgecolor="white", linewidth=0.5, **colors_kw)
-            if len(bin_centers) > 0:
-                assert width is not None
-                overlay_x_lo, overlay_x_hi = histogram_bar_extent(bin_centers, width)
+            overlay_x_lo, overlay_x_hi = self._draw_prebinned_bars(ax, p, bin_centers, heights, width)
         else:
-            # ax.hist autodetects its range from the data and raises on empty / all-non-finite input; drop
-            # non-finite first and fall back to an empty axes when nothing is left to bin.
-            vals = np.asarray(p.values, dtype=float).ravel()
-            vals = vals[np.isfinite(vals)]
-            if vals.size:
-                ax.hist(vals, bins=p.bins, alpha=0.6, color=p.color, edgecolor="white", linewidth=0.4, density=p.density)
+            self._draw_raw_histogram(ax, p)
+
+        self._draw_normal_overlay(ax, p, overlay_x_lo, overlay_x_hi)
+        self._finish_histogram_axes(ax, p)
+
+    def _draw_prebinned_bars(self, ax, p: HistogramPanelSpec, bin_centers, heights, width):
+        """Draw bars at pre-binned centres and return the ``(lo, hi)`` x-extent for the Normal overlay."""
+        import matplotlib
+        overlay_x_lo = overlay_x_hi = None
+        if heights is None:
+            heights = np.asarray(p.values)
+            if isinstance(p.bin_width, np.ndarray):
+                width = np.asarray(p.bin_width, dtype=float)
             else:
-                ax.text(0.5, 0.5, "no finite values", ha="center", va="center", transform=ax.transAxes, fontsize=9)
+                # `is not None`, matching the plotly twin: `bin_width=0.0` is a deliberate spec value, and
+                # `or` read it as "unset" and derived a width from the centre spacing instead -- one spec,
+                # two pictures.
+                width = float(p.bin_width if p.bin_width is not None else ((bin_centers[1] - bin_centers[0]) if len(bin_centers) > 1 else 1.0))
+        colors_kw: dict[str, Any] = {"color": p.color}
+        if p.bar_colors is not None:
+            cm = matplotlib.colormaps[resolve_heatmap_cmap(p.colormap)]  # same resolver as every other lookup; a sentinel default must not reach matplotlib
+            _h_min = float(np.min(p.bar_colors))
+            _h_max = float(np.max(p.bar_colors))
+            if _h_max <= _h_min:
+                _h_max = _h_min + 1.0
+            colors_kw = {"color": cm((np.asarray(p.bar_colors) - _h_min) / (_h_max - _h_min))}
+        ax.bar(bin_centers, heights, width=width, align="center", edgecolor="white", linewidth=0.5, **colors_kw)
+        if len(bin_centers) > 0:
+            assert width is not None
+            overlay_x_lo, overlay_x_hi = histogram_bar_extent(bin_centers, width)
+        return overlay_x_lo, overlay_x_hi
 
-        if p.overlay_normal is not None:
-            mu, sigma = p.overlay_normal
-            if sigma > 0:
-                if overlay_x_lo is None:
-                    vals = np.asarray(p.values)
-                    overlay_x_lo, overlay_x_hi = float(np.min(vals)), float(np.max(vals))
-                assert overlay_x_hi is not None
-                x_grid = np.linspace(overlay_x_lo, overlay_x_hi, 200)
-                normal_pdf = 1 / (sigma * np.sqrt(2 * np.pi)) * np.exp(-0.5 * ((x_grid - mu) / sigma) ** 2)
-                # `overlay_label=""` is a deliberate blank, which plotly honours; `or` substituted the auto label.
-                # This cluster recognises the empty-string-means-no-label distinction elsewhere (see
-                # `calibration.py`'s `colorbar_label`).
-                label = p.overlay_label if p.overlay_label is not None else f"Normal(mu={mu:.2g}, sigma={sigma:.2g})"
-                ax.plot(x_grid, normal_pdf, "r--", linewidth=1.4, label=label)
-                _place_legend(ax)
+    def _draw_raw_histogram(self, ax, p: HistogramPanelSpec) -> None:
+        """Bin the finite raw values with ``ax.hist``, or write an explicit empty-panel note when none survive."""
+        # ax.hist autodetects its range from the data and raises on empty / all-non-finite input; drop
+        # non-finite first and fall back to an empty axes when nothing is left to bin.
+        vals = np.asarray(p.values, dtype=float).ravel()
+        vals = vals[np.isfinite(vals)]
+        if vals.size:
+            ax.hist(vals, bins=p.bins, alpha=0.6, color=p.color, edgecolor="white", linewidth=0.4, density=p.density)
+        else:
+            ax.text(0.5, 0.5, "no finite values", ha="center", va="center", transform=ax.transAxes, fontsize=9)
 
+    def _draw_normal_overlay(self, ax, p: HistogramPanelSpec, overlay_x_lo, overlay_x_hi) -> None:
+        """Overlay the fitted Normal PDF across the bin range when a positive sigma is supplied."""
+        if p.overlay_normal is None:
+            return
+        mu, sigma = p.overlay_normal
+        if sigma > 0:
+            if overlay_x_lo is None:
+                vals = np.asarray(p.values)
+                overlay_x_lo, overlay_x_hi = float(np.min(vals)), float(np.max(vals))
+            assert overlay_x_hi is not None
+            x_grid = np.linspace(overlay_x_lo, overlay_x_hi, 200)
+            normal_pdf = 1 / (sigma * np.sqrt(2 * np.pi)) * np.exp(-0.5 * ((x_grid - mu) / sigma) ** 2)
+            # `overlay_label=""` is a deliberate blank, which plotly honours; `or` substituted the auto label.
+            # This cluster recognises the empty-string-means-no-label distinction elsewhere (see
+            # `calibration.py`'s `colorbar_label`).
+            label = p.overlay_label if p.overlay_label is not None else f"Normal(mu={mu:.2g}, sigma={sigma:.2g})"
+            ax.plot(x_grid, normal_pdf, "r--", linewidth=1.4, label=label)
+            _place_legend(ax)
+
+    def _finish_histogram_axes(self, ax, p: HistogramPanelSpec) -> None:
+        """Apply the x/y scales, labels, tick density, limits and grid shared by every histogram panel."""
         if getattr(p, "xscale", "linear") == "asinh":
             _apply_asinh_x(ax, float(getattr(p, "xscale_linear_width", 1.0)))
         ax.set_xlabel(p.xlabel)
