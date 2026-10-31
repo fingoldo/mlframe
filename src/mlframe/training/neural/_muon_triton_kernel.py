@@ -327,6 +327,7 @@ def maybe_newton_schulz_triton(
         key = (dev_index, size_bucket)
         with _TRITON_VERDICT_LOCK:
             verdict = _TRITON_VERDICT.get(key)
+            speedup = None
             if verdict is None:
                 device_name = torch.cuda.get_device_name(dev_index)
                 # Route through the repo's shared per-hardware measurement cache
@@ -344,7 +345,6 @@ def maybe_newton_schulz_triton(
                     return [{"use_triton": _speedup >= _TRITON_WIN_MARGIN, "speedup": _speedup, "size_bucket_max": size_bucket}]
 
                 cache = _get_kernel_tuning_cache()
-                speedup = None
                 if cache is not None:
                     try:
                         result = cache.get_or_tune(
@@ -362,7 +362,7 @@ def maybe_newton_schulz_triton(
                 _TRITON_VERDICT[key] = verdict
             logger.info(
                 "Muon Triton calibration on %s (bucket %d): %.2fx vs eager -> %s",
-                device_name, size_bucket, speedup if speedup is not None else float("nan"),
+                torch.cuda.get_device_name(dev_index), size_bucket, speedup if speedup is not None else float("nan"),
                 "Triton" if verdict else "eager",
             )
         if not verdict:

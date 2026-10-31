@@ -154,3 +154,25 @@ def test_muon_step_routes_through_triton_gate(monkeypatch):
     layer(torch.randn(16, 8)).sum().backward()
     opt.step()
     assert hits["n"] >= 1
+
+
+def test_cached_verdict_second_call_does_not_raise(monkeypatch):
+    """A second call at a shape whose verdict is already cached must not raise ``UnboundLocalError``.
+
+    The calibration log line reads the device name, which was only bound on the first (uncached) call; every later
+    step on a qualifying GPU then crashed before the Triton kernel ran.
+    """
+    if not torch.cuda.is_available():
+        pytest.skip("needs CUDA for the is_cuda gate")
+    mtk._TRITON_VERDICT.clear()
+    monkeypatch.setattr(mtk, "_env_force", lambda: None)
+    monkeypatch.setattr(torch.cuda, "get_device_capability", lambda _idx: (8, 0))
+    monkeypatch.setattr(mtk, "get_triton_ns_fn", lambda: (lambda G, steps: G))
+    monkeypatch.setattr(mtk, "_calibrate_triton_vs_eager", lambda *a, **k: 2.0)
+    monkeypatch.setattr(mtk, "_get_kernel_tuning_cache", lambda: None)
+    G = torch.randn(256, 256, device="cuda")
+    try:
+        assert mtk.maybe_newton_schulz_triton(G) is not None
+        assert mtk.maybe_newton_schulz_triton(G) is not None
+    finally:
+        mtk._TRITON_VERDICT.clear()
