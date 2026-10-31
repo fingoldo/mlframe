@@ -237,23 +237,27 @@ def _auto_base_step2_genuinely_high_mi(self, finite, hint_kept, usable_features,
             )
 
 
+def _resolve_null_block_length(config, n_screen) -> int:
+    """Block length for the block-shuffled null: the configured integer, or ``sqrt(n_screen)`` for ``"auto"`` or an unparseable value."""
+    block_len_cfg = getattr(
+        config, "auto_base_null_block_length", "auto",
+    )
+    if isinstance(block_len_cfg, str) and block_len_cfg == "auto":
+        return max(1, int(np.sqrt(n_screen)))
+    try:
+        return max(1, int(block_len_cfg))
+    except (TypeError, ValueError):
+        return max(1, int(np.sqrt(n_screen)))
+
+
 def _auto_base_step1_requires_mi_mean(self, n_perms, finite, y_screen, x_matrix, use_per_pair, x_matrix_for_mi, mi_per_feature, usable_features):
     """Step 1 of _auto_base: lines starting at ``if n_perms > 0:``."""
     if n_perms > 0:
         n_sigma = float(getattr(
             self.config, "auto_base_null_z_threshold", 3.0,
         ))
-        block_len_cfg = getattr(
-            self.config, "auto_base_null_block_length", "auto",
-        )
         n_screen = int(finite.sum())
-        if isinstance(block_len_cfg, str) and block_len_cfg == "auto":
-            block_len = max(1, int(np.sqrt(n_screen)))
-        else:
-            try:
-                block_len = max(1, int(block_len_cfg))
-            except (TypeError, ValueError):
-                block_len = max(1, int(np.sqrt(n_screen)))
+        block_len = _resolve_null_block_length(self.config, n_screen)
 
         rng_perm = np.random.default_rng(int(self.config.random_state) + 7919)
         y_finite = y_screen[finite]
