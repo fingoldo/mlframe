@@ -58,6 +58,35 @@ def apply_honest_oof_floor(self, kept_specs: list[Any], agg_scores: Any, honest_
     return kept_specs, agg_scores
 
 
+def _specs_to_score(bands, top_m, kept_specs) -> list[int]:
+    """Indices of the specs whose WAIC can change the result: members of multi-spec bands that reach the top-m window and keep T in y units."""
+    # A WAIC over T compares densities in T units, so it can only order transforms whose T is in y units: the additive ones
+    # (T = y - g(base)). Between a residual and a compressive transform (log, cbrt, a ratio) it rewarded the smaller T scale
+    # by ~log(scale_y / scale_T) nats per row, which is not generalisation; such bands keep their y-scale RMSE order.
+    def _same_scale(band) -> bool:
+        """True when every spec in the band keeps T in y units, which is what makes a WAIC comparison valid."""
+        return all(_additive_in_t(kept_specs[b]) for b in band)
+
+    to_score: list[int] = []
+    pos = 0
+    for band in bands:
+        if len(band) > 1 and pos < top_m and _same_scale(band):
+            to_score.extend(band)
+        pos += len(band)
+    return to_score
+
+
+def _reorder_bands_by_waic(bands, waic, kept_specs, names) -> list[int]:
+    """Flatten the noise bands, re-ranking each band whose every member has a WAIC by that WAIC (descending)."""
+    new_order: list[int] = []
+    for band in bands:
+        if len(band) > 1 and all(b in waic for b in band):
+            band = rank_specs(band, lambda b: Score(waic[b], "waic_nats", "screen_oof", "waic", kept_specs[b].transform_name), descending=True,
+                              name=lambda b: names[b], transform=lambda b: kept_specs[b].transform_name)
+        new_order.extend(band)
+    return new_order
+
+
 def _apply_waic_tiebreak(self, order, kept_specs, agg_scores, names, *, y_screen, per_base_cache, rel_tol: float = 0.02, groups=None, time_aware: bool = False):
     """Re-order the RMSE-ascending ``order`` so that, within each relative-RMSE noise band, transforms are ranked by
     WAIC (higher = better out-of-fold generalisation). Only bands where every member has a valid WAIC are re-ordered;
@@ -132,20 +161,7 @@ def _apply_waic_tiebreak(self, order, kept_specs, agg_scores, names, *, y_screen
     # Scoring every spec ran 4 folds each for scores that were then discarded.
     bands = rmse_bands([int(i) for i in order], agg_scores, rel_tol)
     top_m = max(1, int(getattr(self.config, "top_m_after_tiny", len(order)) or len(order)))
-    # A WAIC over T compares densities in T units, so it can only order transforms whose T is in y units: the additive ones
-    # (T = y - g(base)). Between a residual and a compressive transform (log, cbrt, a ratio) it rewarded the smaller T scale
-    # by ~log(scale_y / scale_T) nats per row, which is not generalisation; such bands keep their y-scale RMSE order.
-    def _same_scale(band) -> bool:
-        """True when every spec in the band keeps T in y units, which is what makes a WAIC comparison valid."""
-        return all(_additive_in_t(kept_specs[b]) for b in band)
-
-    to_score: list[int] = []
-    pos = 0
-    for band in bands:
-        if len(band) > 1 and pos < top_m and _same_scale(band):
-            to_score.extend(band)
-        pos += len(band)
-
+    to_score = _specs_to_score(bands, top_m, kept_specs)
     to_score = base_ordered(to_score, lambda i: str(getattr(kept_specs[i], "base_column", None) or ""))
     n_jobs = max(1, min(len(to_score), cpu_count_physical()))
     if n_jobs > 1:
@@ -157,13 +173,7 @@ def _apply_waic_tiebreak(self, order, kept_specs, agg_scores, names, *, y_screen
     if not waic:
         return order
 
-    new_order: list[int] = []
-    for band in bands:
-        if len(band) > 1 and all(b in waic for b in band):
-            band = rank_specs(band, lambda b: Score(waic[b], "waic_nats", "screen_oof", "waic", kept_specs[b].transform_name), descending=True,
-                              name=lambda b: names[b], transform=lambda b: kept_specs[b].transform_name)
-        new_order.extend(band)
-    return np.asarray(new_order, dtype=int)
+    return np.asarray(_reorder_bands_by_waic(bands, waic, kept_specs, names), dtype=int)
 
 
 def _additive_in_t(spec) -> bool:
