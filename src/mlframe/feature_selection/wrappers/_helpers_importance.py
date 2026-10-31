@@ -264,8 +264,6 @@ def _conditional_permutation_importance(
     importances : ndarray of shape (p,)
         Per-feature mean score loss (baseline - permuted). Higher = more important.
     """
-    from sklearn.tree import DecisionTreeRegressor, DecisionTreeClassifier
-
     if isinstance(X, pd.DataFrame):
         is_dataframe = True
         X_arr = X.to_numpy()
@@ -326,59 +324,68 @@ def _conditional_permutation_importance(
             importances[j] = _cpi_single_feature_importance(model, y, X_arr, X_perm, j, n_repeats, rng, baseline, is_dataframe, cols, idx)
             continue
 
-        # F10/F11: pass max_depth + min_samples_leaf. max_depth=None grows the tree
-        # until min_samples_leaf binds (recommended by Strobl 2008 on >=5).
-        # F11: _is_discrete heuristic improved to require
-        # integer-dtype OR n_unique<=max(5, sqrt(n)) so decile-binned continuous
-        # variables don't trigger Classifier mis-detection.
-        if _is_discrete_v2(Xj):
-            tree = DecisionTreeClassifier(
-                max_depth=max_depth, min_samples_leaf=min_samples_leaf,
-                random_state=random_state,
-            )
-        else:
-            tree = DecisionTreeRegressor(
-                max_depth=max_depth, min_samples_leaf=min_samples_leaf,
-                random_state=random_state,
-            )
-
-        try:
-            tree.fit(Xnotj, Xj)
-            leaves = tree.apply(Xnotj)
-        except (ValueError, TypeError, MemoryError, RuntimeError):
-            # E11: widen the except to catch MemoryError
-            # on 1M-row Xnotj and RuntimeError from custom-estimator paths
-            # raising AttributeError-like wrapped exceptions. Conditioning
-            # fit failed (constant Xj, all-NaN row, etc.); skip. NaN = "not measured", never a rank-competitive 0.0.
+        leaves = _cpi_conditioning_leaves(Xj, Xnotj, max_depth, min_samples_leaf, random_state)
+        if leaves is None:
+            # NaN = "not measured", never a rank-competitive 0.0.
             importances[j] = np.nan
             continue
-
-        score_losses = []
-        orig_col = X_arr[:, j].copy()
-        unique_leaves = np.unique(leaves)
-        try:
-            for _ in range(n_repeats):
-                for leaf_id in unique_leaves:
-                    in_leaf = np.where(leaves == leaf_id)[0]
-                    if in_leaf.size <= 1:
-                        continue
-                    shuffled_positions = rng.permutation(in_leaf)
-                    X_perm[in_leaf, j] = orig_col[shuffled_positions]
-                X_for_score = pd.DataFrame(X_perm, columns=cols, index=idx) if is_dataframe else X_perm
-                # E11 ext: wrap model.score in try/except so a custom scorer crash
-                # on the permuted X doesn't kill the whole CPI loop. NaN signals
-                # the failure to the consumer.
-                try:
-                    score_losses.append(baseline - float(model.score(X_for_score, y)))
-                except Exception as e:
-                    logger.debug("permutation-importance score() failed, recording NaN: %s", e)
-                    score_losses.append(np.nan)
-        finally:
-            X_perm[:, j] = orig_col
-        # Same as the single-feature branch: NaN when every repeat failed, never a 0.0 that outranks harmful features.
-        importances[j] = float(np.nanmean(score_losses)) if any(not np.isnan(s) for s in score_losses) else np.nan
+        importances[j] = _cpi_leaf_permutation_score(model, y, X_arr, X_perm, j, leaves, n_repeats, rng, baseline, is_dataframe, cols, idx)
 
     return importances
+
+
+def _cpi_conditioning_leaves(Xj, Xnotj, max_depth, min_samples_leaf, random_state):
+    """Fit the conditioning tree ``X_{-j} -> X_j`` and return each row's leaf id, or None when the fit fails.
+
+    F10/F11: max_depth=None grows the tree until min_samples_leaf binds (recommended by Strobl 2008 on >=5).
+    The discrete check routes integer-like targets to a classifier so an ordinal X_j is not regressed.
+    E11: catches MemoryError on 1M-row Xnotj and RuntimeError from custom-estimator paths.
+    """
+    from sklearn.tree import DecisionTreeRegressor, DecisionTreeClassifier
+
+    if _is_discrete_v2(Xj):
+        tree = DecisionTreeClassifier(
+            max_depth=max_depth, min_samples_leaf=min_samples_leaf,
+            random_state=random_state,
+        )
+    else:
+        tree = DecisionTreeRegressor(
+            max_depth=max_depth, min_samples_leaf=min_samples_leaf,
+            random_state=random_state,
+        )
+    try:
+        tree.fit(Xnotj, Xj)
+        return tree.apply(Xnotj)
+    except (ValueError, TypeError, MemoryError, RuntimeError):
+        return None
+
+
+def _cpi_leaf_permutation_score(model, y, X_arr, X_perm, j, leaves, n_repeats, rng, baseline, is_dataframe, cols, idx) -> float:
+    """Permute column ``j`` within each leaf ``n_repeats`` times and return the mean score loss (NaN when every repeat fails)."""
+    score_losses = []
+    orig_col = X_arr[:, j].copy()
+    unique_leaves = np.unique(leaves)
+    try:
+        for _ in range(n_repeats):
+            for leaf_id in unique_leaves:
+                in_leaf = np.where(leaves == leaf_id)[0]
+                if in_leaf.size <= 1:
+                    continue
+                shuffled_positions = rng.permutation(in_leaf)
+                X_perm[in_leaf, j] = orig_col[shuffled_positions]
+            X_for_score = pd.DataFrame(X_perm, columns=cols, index=idx) if is_dataframe else X_perm
+            # E11 ext: wrap model.score in try/except so a custom scorer crash
+            # on the permuted X doesn't kill the whole CPI loop. NaN signals
+            # the failure to the consumer.
+            try:
+                score_losses.append(baseline - float(model.score(X_for_score, y)))
+            except Exception as e:
+                logger.debug("permutation-importance score() failed, recording NaN: %s", e)
+                score_losses.append(np.nan)
+    finally:
+        X_perm[:, j] = orig_col
+    # Same as the single-feature branch: NaN when every repeat failed, never a 0.0 that outranks harmful features.
+    return float(np.nanmean(score_losses)) if any(not np.isnan(s) for s in score_losses) else np.nan
 
 
 def get_feature_importances(
