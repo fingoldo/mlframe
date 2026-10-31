@@ -143,47 +143,32 @@ def _gpu_smart_log(cp, x, recipe: EngineeredRecipe, side: str):
     return cp.log(x + shift)
 
 
+_GPU_BINARY_OPS = {
+    "mul": lambda cp, a, b: a * b,
+    "add": lambda cp, a, b: a + b,
+    "sub": lambda cp, a, b: a - b,
+    "div": lambda cp, a, b: a / cp.where(b == 0.0, cp.asarray(1e-9, dtype=b.dtype), b),
+    "max": lambda cp, a, b: cp.maximum(a, b),
+    "min": lambda cp, a, b: cp.minimum(a, b),
+    "abs_diff": lambda cp, a, b: cp.abs(a - b),
+    "hypot": lambda cp, a, b: cp.hypot(a, b),
+    "signed": lambda cp, a, b: cp.sign(a) * cp.abs(b),
+    "ratio_abs": lambda cp, a, b: a / (cp.abs(b) + 1.0),
+    "pow": lambda cp, a, b: cp.power(a, b),
+    "logaddexp": lambda cp, a, b: cp.logaddexp(a, b),
+    "heaviside": lambda cp, a, b: cp.heaviside(a, b),
+    "greater": lambda cp, a, b: cp.greater(a, b).astype(cp.int64),
+    "less": lambda cp, a, b: cp.less(a, b).astype(cp.int64),
+    "equal": lambda cp, a, b: cp.equal(a, b).astype(cp.int64),
+}
+
+
 def _gpu_binary(cp, name: str, a, b):
     """Apply one binary operator on device, byte-faithful to the numpy registry."""
-    if name == "mul":
-        return a * b
-    if name == "add":
-        return a + b
-    if name == "sub":
-        return a - b
-    if name == "div":
-        # ``_safe_div``: EXACT for every nonzero denominator; eps only substitutes
-        # for an exact-zero denominator (matches numpy ``where(y==0, eps, y)``).
-        safe_b = cp.where(b == 0.0, cp.asarray(1e-9, dtype=b.dtype), b)
-        return a / safe_b
-    if name == "max":
-        return cp.maximum(a, b)
-    if name == "min":
-        return cp.minimum(a, b)
-    if name == "abs_diff":
-        return cp.abs(a - b)
-    if name == "hypot":
-        return cp.hypot(a, b)
-    if name == "signed":
-        return cp.sign(a) * cp.abs(b)
-    if name == "ratio_abs":
-        return a / (cp.abs(b) + 1.0)
-    if name == "pow":
-        return cp.power(a, b)
-    if name == "logaddexp":
-        return cp.logaddexp(a, b)
-    if name == "heaviside":
-        return cp.heaviside(a, b)
-    if name == "greater":
-        # Was `.astype(a.dtype)` (float32/float64),
-        # diverging from the CPU registry's `.astype(int)` (feature_engineering.py) for identical 0/1
-        # values - only the returned ndarray dtype differed by backend. Match the CPU int dtype.
-        return cp.greater(a, b).astype(cp.int64)
-    if name == "less":
-        return cp.less(a, b).astype(cp.int64)
-    if name == "equal":
-        return cp.equal(a, b).astype(cp.int64)
-    raise ValueError(f"GPU binary missing for {name!r}")
+    op = _GPU_BINARY_OPS.get(name)
+    if op is None:
+        raise ValueError(f"GPU binary missing for {name!r}")
+    return op(cp, a, b)
 
 
 def _materialise_recipe_gpu(recipe: EngineeredRecipe, X: Any, cp, dt, col_cache: "dict[str, np.ndarray] | None" = None):

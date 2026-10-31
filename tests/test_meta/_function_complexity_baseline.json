@@ -7,6 +7,5 @@
   "src/mlframe/feature_selection/filters/_usability_njit_pool.py::_gpu_apply_unary": 18,
   "src/mlframe/feature_selection/filters/batch_mi_noise_gate_gpu.py::batch_mi_with_noise_gate_cuda_resident": 18,
   "src/mlframe/feature_selection/filters/batch_pair_usability_corr_gpu.py::_cuda_kernel_warp_factory": 16,
-  "src/mlframe/feature_selection/filters/engineered_recipes/_recipe_unary_binary_gpu.py::_gpu_binary": 17,
   "src/mlframe/training/neural/_muon_triton_kernel.py::maybe_newton_schulz_triton": 16
 }
