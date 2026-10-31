@@ -939,6 +939,7 @@ from ._numba_utils_cross_module import (  # noqa: F401
     column_tie_runs,
     quantile_codes_block,
     quantile_bin_block,
+    cmi_columns_given_support,
     gather_binary_stream,
     root_decision_binary,
     root_decision_tie_free,

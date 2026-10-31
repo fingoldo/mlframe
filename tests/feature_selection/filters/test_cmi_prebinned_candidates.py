@@ -36,8 +36,8 @@ def test_scores_equal_the_per_column_scores(monkeypatch):
 
     X = _candidates(seed=1)
     y = (X["c0"].to_numpy() + np.random.default_rng(2).normal(size=len(X)) > 0).astype(int)
-    support = X[["c1"]]
+    support = X[["c1", "c2", "ties"]]
     got = score_candidates_by_cmi(X, y, support, nbins=10)
     monkeypatch.setattr(M, "_prebinned_candidates", lambda *a, **k: {})
     ref = score_candidates_by_cmi(X, y, support, nbins=10)
-    pd.testing.assert_series_equal(got, ref)
+    pd.testing.assert_series_equal(got, ref, check_exact=True)

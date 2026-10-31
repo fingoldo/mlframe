@@ -833,6 +833,68 @@ def quantile_bin_block(v: np.ndarray, n_bins: int, codes: np.ndarray) -> None:
             codes[j, i] = lo
 
 
+_CMI_COLUMNS_SPAN_CAP = 4_000_000  # cells of the (x, z) histogram one column may use; a column past it is reported as -1 and scored by the generic path
+
+
+@njit(cache=True)
+def _joint_entropy_codes(a: np.ndarray, b: np.ndarray, a_max: int, b_max: int) -> tuple:
+    """Plug-in entropy and occupied-cell count of the joint of two non-negative int arrays, with the first-seen cell order and arithmetic of ``_joint_entropy_two_dense_njit``; ``k == -1`` past the span cap."""
+    n = a.shape[0]
+    stride = b_max + 1
+    span = (a_max + 1) * stride
+    if span < 0 or span >= _CMI_COLUMNS_SPAN_CAP:
+        return 0.0, -1
+    seen = np.full(span, -1, dtype=np.int64)
+    counts = np.empty(n, dtype=np.int64)
+    nc = 0
+    for i in range(n):
+        k = np.int64(a[i]) * stride + b[i]
+        s = seen[k]
+        if s >= 0:
+            counts[s] += 1
+        else:
+            seen[k] = nc
+            counts[nc] = 1
+            nc += 1
+    h = 0.0
+    inv_n = 1.0 / n
+    for j in range(nc):
+        c = counts[j]
+        p = c * inv_n
+        h -= p * math.log(p)
+    return h, nc
+
+
+@njit(cache=True, parallel=True)
+def cmi_columns_given_support(codes: np.ndarray, z: np.ndarray, yz: np.ndarray, h_z: float, k_z: int, h_yz: float, k_yz: int, out: np.ndarray) -> None:
+    """``out[j]`` = the Miller-Madow corrected ``CMI(codes[j]; y | z)`` of every row of ``codes`` ``(columns, n)``, where ``yz`` is the dense joint id of ``(y, z)``.
+
+    The entropies, cell counts and their combination follow ``_cmi_from_binned`` operation for operation; a column whose histogram passes the span cap gets ``-1``."""
+    kk = codes.shape[0]
+    n = codes.shape[1]
+    z_max = 0
+    yz_max = 0
+    for i in range(n):
+        if z[i] > z_max:
+            z_max = z[i]
+        if yz[i] > yz_max:
+            yz_max = yz[i]
+    for j in prange(kk):
+        x = codes[j]
+        x_max = 0
+        for i in range(n):
+            if x[i] > x_max:
+                x_max = x[i]
+        h_xz, k_xz = _joint_entropy_codes(x, z, x_max, z_max)
+        h_xyz, k_xyz = _joint_entropy_codes(x, yz, x_max, yz_max)
+        if k_xz < 0 or k_xyz < 0:
+            out[j] = -1.0
+            continue
+        cmi_plugin = h_xz + h_yz - h_z - h_xyz
+        bias = (k_xyz + k_z - k_xz - k_yz) / (2.0 * n)
+        out[j] = max(0.0, cmi_plugin - bias)
+
+
 @njit(cache=True)
 def stratified_cmi(x: np.ndarray, y: np.ndarray, s: np.ndarray, min_rows: int) -> float:
     """Plug-in I(x; y | s) summed over the strata of ``s`` (non-negative integer codes), skipping strata below ``min_rows`` rows."""
