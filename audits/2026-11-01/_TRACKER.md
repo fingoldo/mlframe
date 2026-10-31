@@ -112,4 +112,8 @@ No High finding in any class.
 | DSR2-01 | `1c3e12f11` | `validate_trusted_path` resolves both sides with `realpath` | `tests/core/test_validate_trusted_path_symlink_escape.py` (fails on the previous code) |
 | SUP2-1 | `b2955e718` | `twine` pinned to 6.2.0 in `ci.yml` and `release.yml` | workflow change, checked by YAML parse and the `git diff` |
 
+| INP2-1 | `94f9a13e9` | `brute_force_top_n` refuses a combination table above 1 GiB before materialising it | `tests/feature_selection/shap_proxied/test_brute_force_combination_cap.py` (the refusal test was not run on the previous code, which would allocate the whole table) |
+| CON2-1 | `d77a62c80` | tuning lock created with its pid already in it (hard link); a young empty lock counts as live | `tests/system/test_kernel_tuning_lock_race.py` (the young-lock test fails on the previous code) |
+| CON2-2 | `80ec158f5` | analytic-null floor override kept per block in a locked list, not a saved and restored global | `tests/feature_selection/filters/test_analytic_null_override_overlap.py` (both tests fail on the previous code) |
+
 The other FUTURE and DOC rows above are not implemented yet. Each needs the owner's triage first.
