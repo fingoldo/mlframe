@@ -147,11 +147,25 @@ def build_composite_keys(X: pd.DataFrame, group_cols: Sequence[str]) -> np.ndarr
         keys = keys + sep + p
     return np.asarray(keys, dtype=object)
 
+_GLOBAL_STAT_MEMO: "dict[tuple, float]" = {}  # (column content, statistic) -> whole-column fallback; one numeric column meets every key set of a fit
+_GLOBAL_STAT_MEMO_MAX = 4096
+
+
 def _global_value_for_stat(x: np.ndarray, stat: str) -> float:
-    """Global fallback statistic for unseen composite cells at replay time."""
+    """Global fallback statistic for unseen composite cells at replay time; a column seen before (another key set of the same fit) takes its stored value."""
+    from mlframe.utils.disk_cache import hash_array_content
+
     from ._agg_stat_helpers import global_value_for_stat
 
-    return global_value_for_stat(stat, x, "composite_group_agg")
+    key = (hash_array_content(np.ascontiguousarray(x)), x.dtype.str, int(x.size), stat)
+    hit = _GLOBAL_STAT_MEMO.get(key)
+    if hit is not None:
+        return hit
+    value = global_value_for_stat(stat, x, "composite_group_agg")
+    if len(_GLOBAL_STAT_MEMO) >= _GLOBAL_STAT_MEMO_MAX:
+        _GLOBAL_STAT_MEMO.clear()
+    _GLOBAL_STAT_MEMO[key] = value
+    return value
 
 def _ratio_denominator(per_row_mean: np.ndarray, global_mean: float, global_std: float) -> np.ndarray:
     """Per-row group mean with near-zero cells set to NaN; "near zero" is 1e-12 of the column scale, capped at the absolute 1e-12 for scale >= 1."""
