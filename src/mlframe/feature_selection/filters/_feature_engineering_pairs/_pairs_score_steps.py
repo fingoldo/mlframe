@@ -729,6 +729,51 @@ def _takes_blocked_recompute(st, final_transformed_vals, quantization_method, ba
     return final_transformed_vals is None and quantization_method == "quantile" and batch_mi_with_noise_gate is not None and st._col_buf_1d is not None
 
 
+def _record_pair_candidate(
+    st,
+    transformations_pair,
+    bin_func_name,
+    fe_mi,
+    discretized_transformed_values,
+    uses_pw,
+    need_recompute_map,
+    config_by_i,
+    fe_print_best_mis_only,
+    verbose,
+    pair_mi,
+):
+    """Store one scored candidate of the pair: its configuration's MI and codes, and the running best overall, with prewarp and without it."""
+    config = (transformations_pair, bin_func_name, st.i)
+    st.var_pairs_perf[config] = fe_mi
+    # Keep the codes this configuration was scored on: the pair-level family gate (_pairs_emit.apply_pair_family_gate_from_state)
+    # needs every configuration of the pair to test the winner against the maximum over all of them.
+    st.__dict__.setdefault("var_pairs_codes", {})[config] = np.asarray(discretized_transformed_values).reshape(-1, 1)
+    if need_recompute_map:
+        # Map i -> (a_key, b_key, bin_func_name) for downstream
+        # rebuild; bin_func is looked up via the original dict.
+        assert config_by_i is not None
+        config_by_i[st.i] = (transformations_pair[0], transformations_pair[1], bin_func_name)
+
+    if fe_mi > st.best_mi:
+        st.best_mi = fe_mi
+        st.best_config = config
+    # Track best-with-prewarp vs best-without so the alternative
+    # uplift gate below can decide whether the prewarp earned its
+    # place (``uses_pw`` hoisted above the bin_func loop).
+    if uses_pw:
+        if fe_mi > st.best_prewarp_mi:
+            st.best_prewarp_mi = fe_mi
+            st.best_prewarp_config = config
+    else:
+        if fe_mi > st.best_nonprewarp_mi:
+            st.best_nonprewarp_mi = fe_mi
+            st.best_nonprewarp_config = config
+    if fe_mi > st.best_mi * 0.85:
+        if not fe_print_best_mis_only or (fe_mi == st.best_mi):
+            if verbose > 2:
+                logger.debug("MI of transformed pair %s(%s)=%.4f, MI of the plain pair %.4f", bin_func_name, transformations_pair, fe_mi, pair_mi)
+
+
 def _score_one_pair_step3_step2_transformations_pair_st(
     st,
     vars_transformations,
@@ -845,37 +890,10 @@ def _score_one_pair_step3_step2_transformations_pair_st(
                         npermutations=fe_npermutations,
                     )
 
-                    config = (transformations_pair, bin_func_name, st.i)
-                    st.var_pairs_perf[config] = fe_mi
-                    # Keep the codes this configuration was scored on: the pair-level family gate (_pairs_emit.apply_pair_family_gate_from_state)
-                    # needs every configuration of the pair to test the winner against the maximum over all of them.
-                    st.__dict__.setdefault("var_pairs_codes", {})[config] = np.asarray(discretized_transformed_values).reshape(-1, 1)
-                    if _need_recompute_map:
-                        # Map i -> (a_key, b_key, bin_func_name) for downstream
-                        # rebuild; bin_func is looked up via the original dict.
-                        assert _config_by_i is not None
-                        _config_by_i[st.i] = (transformations_pair[0], transformations_pair[1], bin_func_name)
-
-                    if fe_mi > st.best_mi:
-                        st.best_mi = fe_mi
-                        st.best_config = config
-                    # Track best-with-prewarp vs best-without so the alternative
-                    # uplift gate below can decide whether the prewarp earned its
-                    # place (``_uses_pw`` hoisted above the bin_func loop).
-                    if _uses_pw:
-                        if fe_mi > st.best_prewarp_mi:
-                            st.best_prewarp_mi = fe_mi
-                            st.best_prewarp_config = config
-                    else:
-                        if fe_mi > st.best_nonprewarp_mi:
-                            st.best_nonprewarp_mi = fe_mi
-                            st.best_nonprewarp_config = config
-                    if fe_mi > st.best_mi * 0.85:
-                        if not fe_print_best_mis_only or (fe_mi == st.best_mi):
-                            if verbose > 2:
-                                logger.debug(
-                                    "MI of transformed pair %s(%s)=%.4f, MI of the plain pair %.4f", bin_func_name, transformations_pair, fe_mi, pair_mi
-                                )
+                    _record_pair_candidate(
+                        st, transformations_pair, bin_func_name, fe_mi, discretized_transformed_values, _uses_pw, _need_recompute_map,
+                        _config_by_i, fe_print_best_mis_only, verbose, pair_mi,
+                    )
                     st.i += 1
 
 
