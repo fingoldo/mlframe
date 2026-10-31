@@ -99,8 +99,12 @@ from typing import cast
 import logging
 from typing import Optional, Sequence
 
+import math
+
 import numpy as np
-from numba import njit
+from numba import njit, prange
+
+from mlframe._numba_parallel_guard import parallel_kernel_entry
 from ._fe_usability_signal import _crit_np_dtype
 import pandas as pd
 
@@ -180,6 +184,36 @@ def _median_pairwise_distance(arr: np.ndarray) -> float:
         if vals[t] > lower:
             lower = vals[t]
     return float(0.5 * (lower + upper))
+
+
+@njit(cache=True, parallel=True)
+def _hsic_biased_columns_njit(xs_rows: np.ndarray, lc: np.ndarray, denom: float, out: np.ndarray) -> None:
+    """``out[j]`` = biased HSIC of row ``j`` of ``xs_rows`` ``(k, m)`` against the y-side CENTRED Gram matrix ``lc`` ``(m, m)``.
+
+    ``trace(H K H Lc) = sum(K * Lc)`` when ``Lc`` is already centred (its row and column sums vanish), so the x-side Gram matrix is never centred, and only its upper triangle is evaluated (``K`` is
+    symmetric with a unit diagonal). One parallel task per column; the bandwidth is the median pairwise distance of the column, ``1`` for a constant one."""
+    kk = xs_rows.shape[0]
+    m = xs_rows.shape[1]
+    diag = 0.0
+    for a in range(m):
+        diag += lc[a, a]
+    for j in prange(kk):
+        xs = xs_rows[j]
+        sx = _median_pairwise_distance(xs)
+        s = sx if sx > 0.0 else 1.0
+        inv_two_s2 = 1.0 / (2.0 * s * s)
+        tot = 0.0
+        for a in range(m - 1):
+            xa = xs[a]
+            acc = 0.0
+            for b in range(a + 1, m):
+                d = xa - xs[b]
+                acc += math.exp(-d * d * inv_two_s2) * lc[a, b]
+            tot += acc
+        val = (diag + 2.0 * tot) / denom
+        if val < 0.0 and val > -1e-12:
+            val = 0.0
+        out[j] = val
 
 
 def median_heuristic_sigma(z: np.ndarray) -> float:
@@ -412,18 +446,10 @@ def _hsic_batch(
     out = np.empty(X_arr.shape[1], dtype=np.float64)
     if estimator == "biased":
         denom = float((n - 1) * (n - 1))
-        for j in range(X_arr.shape[1]):
-            xs = X_arr[idx, j]
-            sx = median_heuristic_sigma(xs)
-            K = _rbf_gram(xs, sx)
-            K_row = K.mean(axis=1, keepdims=True)
-            K_col = K.mean(axis=0, keepdims=True)
-            K_all = K.mean()
-            Kc = K - K_row - K_col + K_all
-            val = float(np.sum(Kc * Lc)) / denom
-            if val < 0.0 and val > -1e-12:
-                val = 0.0
-            out[j] = val
+        # One parallel kernel over the columns (no x-side centring: ``Lc`` is centred), in double precision.
+        xs_rows = np.ascontiguousarray(X_arr[idx].T, dtype=np.float64)  # Intentional float64: Gram sums in double precision
+        with parallel_kernel_entry():
+            _hsic_biased_columns_njit(xs_rows, np.ascontiguousarray(Lc, dtype=np.float64), denom, out)  # Intentional float64: Gram sums in double precision
         return out
     # Unbiased path - match the single-pair helper for parity.
     L_t, sum_L, row_sum_L = unbiased_terms
