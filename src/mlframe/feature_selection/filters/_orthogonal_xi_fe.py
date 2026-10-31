@@ -103,12 +103,21 @@ def xi_correlation_batch(X: np.ndarray, y: np.ndarray, *, random_state: int = 0)
     if not np.isfinite(y).all():
         return out
     rng = np.random.default_rng(random_state)
+    # the tie-corrected right ranks of ``y`` do not depend on the column: derived once per row, then gathered in each column's order (the values ``_xi_from_order`` computes per column)
+    _uniq, inv, counts = np.unique(y, return_counts=True, return_inverse=True)
+    # Intentional float64: exact rank accumulator kept f64
+    r_row = np.cumsum(counts)[inv].astype(np.float64)
+    # Intentional float64: exact rank accumulator kept f64
+    l_row = np.cumsum(counts[::-1])[::-1][inv].astype(np.float64)
     for j in range(k):
         col = X[:, j]
         if not np.isfinite(col).all():
             continue
         perm = rng.permutation(n)
+        # bench-attempt-rejected: np.argsort plus a tie check instead of lexsort when the column has no repeated value (1.25 s against 0.92 s for 40 columns of 100000 rows)
         order = np.lexsort((perm, col))
-        y_ordered = y[order]
-        out[j] = _xi_from_order(y_ordered)
+        ll = l_row[order]
+        num = float(n) * float(np.sum(np.abs(np.diff(r_row[order]))))
+        den = 2.0 * float(np.sum(ll * (n - ll)))
+        out[j] = float(1.0 - num / den) if den > 0.0 else 0.0
     return out
