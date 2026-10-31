@@ -714,12 +714,63 @@ def _few_distinct_levels(x: np.ndarray, limit: int) -> np.ndarray:
     return out
 
 
+@njit(cache=True)
+def _continuous_quantile_codes(v_row: np.ndarray, n_bins: int, codes_row: np.ndarray) -> int:
+    """Codes of one continuous column into ``codes_row`` (quantile edges, deduplicated); returns the number of distinct codes used."""
+    n = v_row.shape[0]
+    step = 1.0 / n_bins
+    # only the order statistics the edges read are needed, not the whole sort
+    want = np.empty(2 * (n_bins + 1), dtype=np.int64)
+    for b in range(n_bins + 1):
+        q = 1.0 if b == n_bins else b * step
+        virtual = (n - 1) * q
+        i0 = n - 1 if virtual >= n - 1 else int(np.floor(virtual))
+        want[2 * b] = i0
+        want[2 * b + 1] = min(i0 + 1, n - 1)
+    want.sort()
+    nw = 1
+    for b in range(1, want.shape[0]):
+        if want[b] != want[nw - 1]:
+            want[nw] = want[b]
+            nw += 1
+    s = v_row.copy()
+    _multi_select_in_place(s, want[:nw])
+    edges = np.empty(n_bins + 1, dtype=np.float64)  # Intentional float64: quantile edges in numpy's arithmetic (equal codes to the numpy path)
+    m = 0
+    for b in range(n_bins + 1):
+        q = 1.0 if b == n_bins else b * step
+        e = _edge_value(s, q)
+        if m == 0 or e != edges[m - 1]:
+            edges[m] = e
+            m += 1
+    hi_code = max(m - 2, 0)
+    top = 0
+    for i in range(n):
+        x = v_row[i]
+        lo = 0
+        hi = m
+        while lo < hi:
+            mid = (lo + hi) // 2
+            if edges[mid] <= x:
+                lo = mid + 1
+            else:
+                hi = mid
+        c = lo - 1
+        if c < 0:
+            c = 0
+        elif c > hi_code:
+            c = hi_code
+        codes_row[i] = c
+        if c > top:
+            top = c
+    return top + 1
+
+
 @njit(cache=True, parallel=True)
 def quantile_codes_block(v: np.ndarray, n_bins: int, codes: np.ndarray, nx: np.ndarray) -> None:
     """Fill ``codes[j]`` (int16) and ``nx[j]`` for every row ``j`` of ``v`` ``(columns, n)`` exactly as ``_quantile_codes`` does for a finite column."""
     k = v.shape[0]
     n = v.shape[1]
-    step = 1.0 / n_bins
     for j in prange(k):
         levels = _few_distinct_levels(v[j], n_bins)
         d = levels.shape[0]
@@ -737,51 +788,7 @@ def quantile_codes_block(v: np.ndarray, n_bins: int, codes: np.ndarray, nx: np.n
                 codes[j, i] = lo
             nx[j] = d
             continue
-        # only the order statistics the edges read are needed, not the whole sort
-        want = np.empty(2 * (n_bins + 1), dtype=np.int64)
-        for b in range(n_bins + 1):
-            q = 1.0 if b == n_bins else b * step
-            virtual = (n - 1) * q
-            i0 = n - 1 if virtual >= n - 1 else int(np.floor(virtual))
-            want[2 * b] = i0
-            want[2 * b + 1] = min(i0 + 1, n - 1)
-        want.sort()
-        nw = 1
-        for b in range(1, want.shape[0]):
-            if want[b] != want[nw - 1]:
-                want[nw] = want[b]
-                nw += 1
-        s = v[j].copy()
-        _multi_select_in_place(s, want[:nw])
-        edges = np.empty(n_bins + 1, dtype=np.float64)  # Intentional float64: quantile edges in numpy's arithmetic (equal codes to the numpy path)
-        m = 0
-        for b in range(n_bins + 1):
-            q = 1.0 if b == n_bins else b * step
-            e = _edge_value(s, q)
-            if m == 0 or e != edges[m - 1]:
-                edges[m] = e
-                m += 1
-        hi_code = max(m - 2, 0)
-        top = 0
-        for i in range(n):
-            x = v[j, i]
-            lo = 0
-            hi = m
-            while lo < hi:
-                mid = (lo + hi) // 2
-                if edges[mid] <= x:
-                    lo = mid + 1
-                else:
-                    hi = mid
-            c = lo - 1
-            if c < 0:
-                c = 0
-            elif c > hi_code:
-                c = hi_code
-            codes[j, i] = c
-            if c > top:
-                top = c
-        nx[j] = top + 1
+        nx[j] = _continuous_quantile_codes(v[j], n_bins, codes[j])
 
 
 @njit(cache=True)
