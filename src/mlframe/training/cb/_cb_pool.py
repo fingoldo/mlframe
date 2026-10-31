@@ -828,6 +828,50 @@ def _stamp_val_pool_dtypes_sig(val_pool: Any, val_df: Any) -> None:
         val_pool._mlframe_dtypes_sig = None
 
 
+def _build_val_pool_on_miss(_Pool, key, val_df, val_target, cat_features, text_features, embedding_features):
+    """Build a fresh val Pool with float32-cast label, cache it under ``key`` and return it; None when the Pool cannot be built."""
+    from ._cb_pool_budget import POOL_CACHE_LOCK
+
+    with POOL_CACHE_LOCK:
+        while len(_CB_VAL_POOL_CACHE) >= _CB_POOL_CACHE_MAX_ENTRIES:
+            # evict-ok: a miss rebuilds the val Pool
+            _CB_VAL_POOL_CACHE.pop(next(iter(_CB_VAL_POOL_CACHE)), None)
+
+    try:
+        _lab_build = _coerce_label_for_cb_pool(val_target)
+    except Exception as e:
+        logger.debug("_coerce_label_for_cb_pool failed, using val_target as-is: %s", e)
+        _lab_build = val_target
+
+    try:
+        val_pool = _Pool(
+            data=text_columns_as_strings(val_df, text_features),
+            label=_lab_build,
+            cat_features=list(cat_features) or None,
+            text_features=list(text_features) or None,
+            embedding_features=list(embedding_features) or None,
+        )
+    except Exception as exc:
+        logger.info(
+            "[cb-val-pool-reuse] Pool build failed (%s: %s); " "leaving eval_set entry as (df, target) tuple for sklearn-wrapper rebuild.",
+            type(exc).__name__,
+            exc,
+        )
+        return None
+
+    from mlframe.training.pipeline.shared import full_target_content_hash as _full_target_content_hash
+    val_pool._mlframe_last_target_sig = _full_target_content_hash(val_target)
+    _stamp_val_pool_dtypes_sig(val_pool, val_df)
+    from ._cb_pool_budget import admit_pool
+
+    if admit_pool(_CB_VAL_POOL_CACHE, "val", key, val_pool):
+        logger.info(
+            "[cb-val-pool-reuse] miss; stored fresh val Pool (cache size=%d)",
+            len(_CB_VAL_POOL_CACHE),
+        )
+    return val_pool
+
+
 def _maybe_rewrite_eval_set_as_cb_pool(fit_params: dict[str, Any]) -> None:
     """Fix Orch-1 (2026-04-21): for CatBoost, rewrite
     ``fit_params['eval_set']`` from ``[(val_df, val_target)]`` /
@@ -895,47 +939,10 @@ def _maybe_rewrite_eval_set_as_cb_pool(fit_params: dict[str, Any]) -> None:
             changed = True
             continue
 
-        # Miss: build fresh val Pool with float32-cast label.
-        from ._cb_pool_budget import POOL_CACHE_LOCK
-
-        with POOL_CACHE_LOCK:
-            while len(_CB_VAL_POOL_CACHE) >= _CB_POOL_CACHE_MAX_ENTRIES:
-                # evict-ok: a miss rebuilds the val Pool
-                _CB_VAL_POOL_CACHE.pop(next(iter(_CB_VAL_POOL_CACHE)), None)
-
-        try:
-            _lab_build = _coerce_label_for_cb_pool(val_target)
-        except Exception as e:
-            logger.debug("_coerce_label_for_cb_pool failed, using val_target as-is: %s", e)
-            _lab_build = val_target
-
-        try:
-            val_pool = _Pool(
-                data=text_columns_as_strings(val_df, text_features),
-                label=_lab_build,
-                cat_features=list(cat_features) or None,
-                text_features=list(text_features) or None,
-                embedding_features=list(embedding_features) or None,
-            )
-        except Exception as exc:
-            logger.info(
-                "[cb-val-pool-reuse] Pool build failed (%s: %s); " "leaving eval_set entry as (df, target) tuple for sklearn-wrapper rebuild.",
-                type(exc).__name__,
-                exc,
-            )
+        val_pool = _build_val_pool_on_miss(_Pool, key, val_df, val_target, cat_features, text_features, embedding_features)
+        if val_pool is None:
             rewritten.append(entry)
             continue
-
-        from mlframe.training.pipeline.shared import full_target_content_hash as _full_target_content_hash
-        val_pool._mlframe_last_target_sig = _full_target_content_hash(val_target)
-        _stamp_val_pool_dtypes_sig(val_pool, val_df)
-        from ._cb_pool_budget import admit_pool
-
-        if admit_pool(_CB_VAL_POOL_CACHE, "val", key, val_pool):
-            logger.info(
-                "[cb-val-pool-reuse] miss; stored fresh val Pool (cache size=%d)",
-                len(_CB_VAL_POOL_CACHE),
-            )
         rewritten.append(val_pool)
         changed = True
 
