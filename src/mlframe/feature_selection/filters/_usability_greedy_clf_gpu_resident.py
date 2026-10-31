@@ -285,46 +285,8 @@ def usability_greedy_clf_gpu_resident(
         return None
 
 
-def _usability_greedy_clf_step1_def_fit_binary(cp, n_classes):
-    """Step 1 of usability_greedy_clf_gpu_resident: lines starting at ``def _fit_binary(Xs, yb):``."""
-    def _fit_binary(Xs, yb):
-        """L2 Newton for binary logistic on standardized design ``Xs`` (intercept appended,
-        unpenalised). ``yb`` is a resident {0,1} float vector. Returns w (k+1,) or raises."""
-        nn, k = Xs.shape
-        A = cp.empty((nn, k + 1), dtype=crit_float_dtype())
-        A[:, :k] = Xs
-        A[:, k] = 1.0
-        wv = cp.zeros(k + 1, dtype=crit_float_dtype())
-        reg = cp.ones(k + 1, dtype=crit_float_dtype())
-        reg[k] = 0.0
-        lam = 1.0 / _C
-        for _ in range(_NEWTON_MAX_ITER):
-            z = A @ wv
-            p = 1.0 / (1.0 + cp.exp(-z))
-            Wd = p * (1.0 - p)
-            grad = A.T @ (p - yb) + lam * reg * wv
-            H = (A * Wd[:, None]).T @ A
-            H[cp.arange(k + 1), cp.arange(k + 1)] += lam * reg
-            try:
-                step = cp.linalg.solve(H, grad)
-            except Exception:
-                raise _ResidentClfFallbackError()
-            wv = wv - step
-            if not bool(cp.all(cp.isfinite(wv))):
-                raise _ResidentClfFallbackError()
-            if float(cp.max(cp.abs(step))) < _newton_tol(A.dtype):
-                break
-        else:
-            raise _ResidentClfFallbackError()  # did not converge -> defer to CPU
-        return wv
-
-    def _proba_binary(Xs, wv):
-        """Sigmoid positive-class probability from the fitted binary weight vector ``wv`` (last entry
-        is the unpenalised intercept) evaluated on the standardized design ``Xs``."""
-        k = Xs.shape[1]
-        z = Xs @ wv[:k] + wv[k]
-        return 1.0 / (1.0 + cp.exp(-z))
-
+def _usability_greedy_clf_multinomial_fns(cp, n_classes):
+    """Multinomial fit and predict closures for the >2-class branch of the resident usability greedy (the fit is only reached through the dispatcher's class-count guard)."""
     def _fit_multinomial(Xs, yc):
         """Symmetric multinomial L2 Newton (full block Hessian) on standardized design. ``yc`` is a
         resident int code vector. Returns W (k+1, C) or raises. sklearn 1.x multinomial default.
@@ -387,6 +349,51 @@ def _usability_greedy_clf_step1_def_fit_binary(cp, n_classes):
         Z = Z - Z.max(axis=1, keepdims=True)
         E = cp.exp(Z)
         return E / E.sum(axis=1, keepdims=True)
+
+    return _fit_multinomial, _proba_multinomial
+
+
+def _usability_greedy_clf_step1_def_fit_binary(cp, n_classes):
+    """Step 1 of usability_greedy_clf_gpu_resident: lines starting at ``def _fit_binary(Xs, yb):``."""
+    def _fit_binary(Xs, yb):
+        """L2 Newton for binary logistic on standardized design ``Xs`` (intercept appended,
+        unpenalised). ``yb`` is a resident {0,1} float vector. Returns w (k+1,) or raises."""
+        nn, k = Xs.shape
+        A = cp.empty((nn, k + 1), dtype=crit_float_dtype())
+        A[:, :k] = Xs
+        A[:, k] = 1.0
+        wv = cp.zeros(k + 1, dtype=crit_float_dtype())
+        reg = cp.ones(k + 1, dtype=crit_float_dtype())
+        reg[k] = 0.0
+        lam = 1.0 / _C
+        for _ in range(_NEWTON_MAX_ITER):
+            z = A @ wv
+            p = 1.0 / (1.0 + cp.exp(-z))
+            Wd = p * (1.0 - p)
+            grad = A.T @ (p - yb) + lam * reg * wv
+            H = (A * Wd[:, None]).T @ A
+            H[cp.arange(k + 1), cp.arange(k + 1)] += lam * reg
+            try:
+                step = cp.linalg.solve(H, grad)
+            except Exception:
+                raise _ResidentClfFallbackError()
+            wv = wv - step
+            if not bool(cp.all(cp.isfinite(wv))):
+                raise _ResidentClfFallbackError()
+            if float(cp.max(cp.abs(step))) < _newton_tol(A.dtype):
+                break
+        else:
+            raise _ResidentClfFallbackError()  # did not converge -> defer to CPU
+        return wv
+
+    def _proba_binary(Xs, wv):
+        """Sigmoid positive-class probability from the fitted binary weight vector ``wv`` (last entry
+        is the unpenalised intercept) evaluated on the standardized design ``Xs``."""
+        k = Xs.shape[1]
+        z = Xs @ wv[:k] + wv[k]
+        return 1.0 / (1.0 + cp.exp(-z))
+
+    _fit_multinomial, _proba_multinomial = _usability_greedy_clf_multinomial_fns(cp, n_classes)
 
     def _logloss(yc_dev, proba):
         """CV-logloss over ALL ``labels_dev`` classes (mirrors sklearn ``log_loss(..., labels)``).
