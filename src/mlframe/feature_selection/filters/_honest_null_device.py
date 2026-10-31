@@ -200,6 +200,8 @@ extern "C" __global__ void root_split_stats_k2(const int* __restrict__ order, co
 # bench-attempt-rejected (2026-11-01, GTX 1050 Ti, 60 columns x 200 permutations x 100000 rows, 559 ms): tile sizes 4 / 16 / 32 (570 / 581 / 730 ms) and block sizes 64 / 256 / 512 (562 / 550 / 553 ms), outputs
 # identical. The kernel does ~2.1 G scan steps per second whatever the tiling: it is bound by the random gather of label bits (the (words, permutations) table is 2.5 MB against a 1 MB L2), not by
 # occupancy or the prefetch depth. A leaner version needs the labels in sorted order without a per-step gather, which costs the same gather once per (column, permutation).
+# Cost split of the 568 ms (variants with the term removed, outputs wrong, timing only): entropy arithmetic ~100 ms (18%), label-bit gather ~295 ms (52%), loop skeleton ~172 ms (30%). Running the permutations in
+# chunks so each launch's label table fits the 1 MB L2 did not help (chunks of 200 / 100 / 50 / 25 permutations: 594 / 571 / 810 / 1461 ms): the cost is the 37.5 M random line fetches, not L2 capacity.
 _kernel_k2 = None
 
 
