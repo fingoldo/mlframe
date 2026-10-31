@@ -118,44 +118,30 @@ _GPU_COMBO_CHUNK = 256
 
 def _gpu_apply_unary(x, code, xmin):
     """cupy double precision vectorised twin of :func:`_apply_unary` over the whole column ``x`` (1-D device
-    array). ``code`` is a Python int; ``xmin`` the operand's nanmin (only smart_log uses it)."""
-    cp = _cp
-    if code == 0:  # identity
-        return x
-    elif code == 1:  # neg
-        return -x
-    elif code == 2:  # abs
-        return cp.abs(x)
-    elif code == 3:  # sqr
-        return x * x
-    elif code == 4:  # reciproc
-        return 1.0 / x
-    elif code == 5:  # sqrt = sqrt(abs)
-        return cp.sqrt(cp.abs(x))
-    elif code == 6:  # log = smart_log
-        if xmin > 0.0:
-            return cp.log(x)
-        return cp.log(x + (1e-5 - xmin))
-    elif code == 7:  # sin
-        return cp.sin(x)
-    elif code == 8:  # sign
-        return cp.sign(x)
-    elif code == 9:  # rint
-        return cp.rint(x)
-    elif code == 10:  # qubed
-        return x * x * x
-    elif code == 11:  # invsquared
-        return 1.0 / (x * x)
-    elif code == 12:  # invqubed
-        return 1.0 / (x * x * x)
-    elif code == 13:  # cbrt
-        return cp.cbrt(x)
-    elif code == 14:  # invcbrt
-        return x ** (-1.0 / 3.0)
-    elif code == 15:  # invsqrt
-        return x ** (-0.5)
-    else:  # exp
-        return cp.exp(x)
+    array). ``code`` is a Python int; ``xmin`` the operand's nanmin (only smart_log uses it). Unknown codes take the ``exp`` branch."""
+    op = _GPU_UNARY_OPS.get(code, _GPU_UNARY_OPS[16])
+    return op(_cp, x, xmin)
+
+
+_GPU_UNARY_OPS = {
+    0: lambda cp, x, xmin: x,
+    1: lambda cp, x, xmin: -x,
+    2: lambda cp, x, xmin: cp.abs(x),
+    3: lambda cp, x, xmin: x * x,
+    4: lambda cp, x, xmin: 1.0 / x,
+    5: lambda cp, x, xmin: cp.sqrt(cp.abs(x)),
+    6: lambda cp, x, xmin: cp.log(x) if xmin > 0.0 else cp.log(x + (1e-5 - xmin)),
+    7: lambda cp, x, xmin: cp.sin(x),
+    8: lambda cp, x, xmin: cp.sign(x),
+    9: lambda cp, x, xmin: cp.rint(x),
+    10: lambda cp, x, xmin: x * x * x,
+    11: lambda cp, x, xmin: 1.0 / (x * x),
+    12: lambda cp, x, xmin: 1.0 / (x * x * x),
+    13: lambda cp, x, xmin: cp.cbrt(x),
+    14: lambda cp, x, xmin: x ** (-1.0 / 3.0),
+    15: lambda cp, x, xmin: x ** (-0.5),
+    16: lambda cp, x, xmin: cp.exp(x),
+}
 
 
 def _gpu_apply_binary(a, b, bn):
