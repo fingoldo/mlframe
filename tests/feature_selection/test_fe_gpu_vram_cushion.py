@@ -350,3 +350,16 @@ def test_regression_guard_declines_gpu_at_low_free(monkeypatch, vram):
 
     # A modest shape whose working set easily fits the RELATIVE cap but the card is near-full.
     assert _cmi_cuda._should_use_cuda(n=50_000, p=8, joint_size=64, nbins_x=4, nbins_y=4, nbins_z=4) is False
+
+
+def test_supplied_probe_reclaims_the_own_pool_when_that_reaches_the_cushion(monkeypatch, vram):
+    """A caller's free figure of 885 MiB is below the 1 GiB cushion, but the pool holds 2 GiB of cached unused blocks: the guard releases them and allows the dispatch; with nothing cached it still declines."""
+    released = []
+    monkeypatch.setattr(vram, "_own_pool_free_bytes", lambda: 2 * GB)
+    monkeypatch.setattr(vram, "_release_own_pool", lambda: released.append(1))
+    assert vram.fe_gpu_has_vram_cushion(22 * 1024 * 1024, free_b=885 * 1024 * 1024, total_b=4 * GB) is True
+    assert released == [1]
+    released.clear()
+    monkeypatch.setattr(vram, "_own_pool_free_bytes", lambda: 0)
+    assert vram.fe_gpu_has_vram_cushion(22 * 1024 * 1024, free_b=885 * 1024 * 1024, total_b=4 * GB) is False
+    assert released == []
