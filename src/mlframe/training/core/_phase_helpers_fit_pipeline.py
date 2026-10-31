@@ -318,6 +318,30 @@ def _phase_fit_pipeline_post_fit_transform_pipeline(preprocessing_extensions):
     return preprocessing_extensions
 
 
+def _align_pysr_target_to_train(_y_train_for_ext, train_idx, train_df, verbose):
+    """Slice the PySR target to the training rows; a target that still disagrees in length with the training frame is dropped (None), so symbolic FE is skipped rather than fitted on misaligned rows."""
+    # target_by_type carries the PRE-split full target; slice to train_idx
+    # so PySR's symbolic FE only sees train-set y. Without this we hit a
+    # length mismatch (e.g. full ~5M rows vs train ~4M) and PySR is silently
+    # skipped.
+    if _y_train_for_ext is not None and train_idx is not None and hasattr(train_df, "shape") and len(_y_train_for_ext) != train_df.shape[0]:
+        try:
+            _idx_arr = np.asarray(train_idx)
+            if len(_idx_arr) == train_df.shape[0] and int(_idx_arr.max()) < len(_y_train_for_ext):
+                _y_train_for_ext = _y_train_for_ext[_idx_arr]
+        except (TypeError, ValueError, IndexError):
+            pass
+    if hasattr(train_df, "shape") and _y_train_for_ext is not None and len(_y_train_for_ext) != train_df.shape[0]:
+        if verbose:
+            logger.warning(
+                "PySR y_train length mismatch (target=%d, train rows=%d); skipping symbolic FE.",
+                len(_y_train_for_ext),
+                train_df.shape[0],
+            )
+        _y_train_for_ext = None
+    return _y_train_for_ext
+
+
 def _phase_fit_pipeline_back_none_function_logs(preprocessing_extensions, target_by_type, verbose, train_idx, train_df, _y_train_for_ext):
     """Block of _phase_fit_pipeline starting at ``if preprocessing_extensions is not None and getattr(preprocessing_exte``."""
     if preprocessing_extensions is not None and getattr(preprocessing_extensions, "pysr_enabled", False) and target_by_type is not None:
@@ -360,25 +384,7 @@ def _phase_fit_pipeline_back_none_function_logs(preprocessing_extensions, target
                             _first_name,
                         )
                     _y_train_for_ext = _y_train_for_ext[:, 0]
-                # target_by_type carries the PRE-split full target; slice to train_idx
-                # so PySR's symbolic FE only sees train-set y. Without this we hit a
-                # length mismatch (e.g. full ~5M rows vs train ~4M) and PySR is silently
-                # skipped.
-                if _y_train_for_ext is not None and train_idx is not None and hasattr(train_df, "shape") and len(_y_train_for_ext) != train_df.shape[0]:
-                    try:
-                        _idx_arr = np.asarray(train_idx)
-                        if len(_idx_arr) == train_df.shape[0] and int(_idx_arr.max()) < len(_y_train_for_ext):
-                            _y_train_for_ext = _y_train_for_ext[_idx_arr]
-                    except (TypeError, ValueError, IndexError):
-                        pass
-                if hasattr(train_df, "shape") and _y_train_for_ext is not None and len(_y_train_for_ext) != train_df.shape[0]:
-                    if verbose:
-                        logger.warning(
-                            "PySR y_train length mismatch (target=%d, train rows=%d); skipping symbolic FE.",
-                            len(_y_train_for_ext),
-                            train_df.shape[0],
-                        )
-                    _y_train_for_ext = None
+                _y_train_for_ext = _align_pysr_target_to_train(_y_train_for_ext, train_idx, train_df, verbose)
         except Exception as _exc:
             if verbose:
                 _diag = "n/a"
