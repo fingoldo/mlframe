@@ -145,6 +145,44 @@ def _should_stop_tentative_tail(accepted_history, hits, tentative_indices, itera
     return not _tentative_near_boundary(hits, tentative_indices, iteration, n_tests, pvalue, margin, null_p=null_p)
 
 
+def _per_row_stratify_array(stratify, n: int):
+    """The stratify labels as a length-``n`` 1-D array, or None when ``stratify`` is unset or not a per-row array."""
+    if stratify is None:
+        return None
+    candidate = np.asarray(stratify.to_numpy() if hasattr(stratify, "to_numpy") else stratify)
+    if candidate.ndim == 1 and candidate.shape[0] == n:
+        return candidate
+    return None
+
+
+def _apply_stability_selection(self, all_columns: list, accept_counts: dict, n_sub: int, thr: float) -> int:
+    """Set the accepted / rejected / tentative buckets, support mask and selected features from the per-feature accept counts; returns the vote threshold count."""
+    need = max(1, int(np.ceil(thr * n_sub)))
+    self.accepted_ = [c for c in all_columns if accept_counts[c] >= need]
+    self.rejected_ = [c for c in all_columns if accept_counts[c] == 0]
+    self.tentative_ = [c for c in all_columns if 0 < accept_counts[c] < need]
+    # Intersection mode (stability_threshold==1.0, the default once stability is enabled) keeps ONLY
+    # features accepted by ALL subsamples - that is exactly set(self.accepted_) with need==n_sub. The
+    # 'tentative' bucket here is 0<count<need, i.e. features accepted by SOME but not all subsamples:
+    # precisely the draw-level-spurious columns intersection is meant to drop. So in intersection mode we
+    # must NOT let optimistic re-add tentative (which would silently keep the spurious column the class
+    # docstring promises to remove). optimistic only applies to majority-vote thresholds (<1.0).
+    if thr >= 1.0:
+        kept = set(self.accepted_)
+    else:
+        kept = set(self.accepted_) | (set(self.tentative_) if self.optimistic else set())
+    if getattr(self, "_premerge_active_", False):  # re-expand accepted representatives to their cluster members
+        kept, self.support_ = _premerge_expand(kept, self._premerge_members_, self._premerge_original_cols_)
+        self.selected_features_ = [c for c in self._premerge_original_cols_ if c in kept]
+        self.feature_names_in_ = np.asarray(self._premerge_original_cols_)
+    else:
+        self.support_ = np.array([c in kept for c in all_columns], dtype=bool)
+        self.selected_features_ = [c for c in all_columns if c in kept]
+        self.feature_names_in_ = np.asarray(all_columns)
+    self.n_features_in_ = len(all_columns)
+    return need
+
+
 def _fit_with_subsample_stability(self, X, y):
     """Run BorutaShap on several distinct row-subsamples (WITHOUT replacement) and keep only features
     ACCEPTED in >= stability_threshold of them. Removes the finite-sample-spurious top real-noise column
@@ -189,12 +227,7 @@ def _fit_with_subsample_stability(self, X, y):
     # Check_if_chose_train_or_test_and_train_model passes it to train_test_split(X_sub, y_sub, stratify=...)
     # and the length mismatch raises ValueError. Detect a per-row stratify array here so each sub-fit can
     # slice it positionally with its own ``idx`` (scalars / None / mismatched lengths are passed through).
-    _stratify = getattr(self, "stratify", None)
-    _stratify_arr = None
-    if _stratify is not None:
-        _strat_candidate = np.asarray(_stratify.to_numpy() if hasattr(_stratify, "to_numpy") else _stratify)
-        if _strat_candidate.ndim == 1 and _strat_candidate.shape[0] == n:
-            _stratify_arr = _strat_candidate
+    _stratify_arr = _per_row_stratify_array(getattr(self, "stratify", None), n)
 
     def _run_one_subfit(k: int):
         """Draw the k-th random row subsample (with a de-correlated model random_state) and run one full BorutaShap sub-fit for the stability-selection vote."""
@@ -241,29 +274,7 @@ def _fit_with_subsample_stability(self, X, y):
             if c in accept_counts:
                 accept_counts[c] += 1
 
-    need = max(1, int(np.ceil(thr * n_sub)))
-    self.accepted_ = [c for c in all_columns if accept_counts[c] >= need]
-    self.rejected_ = [c for c in all_columns if accept_counts[c] == 0]
-    self.tentative_ = [c for c in all_columns if 0 < accept_counts[c] < need]
-    # Intersection mode (stability_threshold==1.0, the default once stability is enabled) keeps ONLY
-    # features accepted by ALL subsamples - that is exactly set(self.accepted_) with need==n_sub. The
-    # 'tentative' bucket here is 0<count<need, i.e. features accepted by SOME but not all subsamples:
-    # precisely the draw-level-spurious columns intersection is meant to drop. So in intersection mode we
-    # must NOT let optimistic re-add tentative (which would silently keep the spurious column the class
-    # docstring promises to remove). optimistic only applies to majority-vote thresholds (<1.0).
-    if thr >= 1.0:
-        kept = set(self.accepted_)
-    else:
-        kept = set(self.accepted_) | (set(self.tentative_) if self.optimistic else set())
-    if getattr(self, "_premerge_active_", False):  # re-expand accepted representatives to their cluster members
-        kept, self.support_ = _premerge_expand(kept, self._premerge_members_, self._premerge_original_cols_)
-        self.selected_features_ = [c for c in self._premerge_original_cols_ if c in kept]
-        self.feature_names_in_ = np.asarray(self._premerge_original_cols_)
-    else:
-        self.support_ = np.array([c in kept for c in all_columns], dtype=bool)
-        self.selected_features_ = [c for c in all_columns if c in kept]
-        self.feature_names_in_ = np.asarray(all_columns)
-    self.n_features_in_ = len(all_columns)
+    need = _apply_stability_selection(self, all_columns, accept_counts, n_sub, thr)
     self.stability_accept_counts_ = dict(accept_counts)  # diagnostic: per-feature accept frequency
     if self.verbose:
         logger.info(
