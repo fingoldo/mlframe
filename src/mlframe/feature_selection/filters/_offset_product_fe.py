@@ -237,6 +237,68 @@ def _scan_all(
     scan_offset_products(U, tasks, yr, codes, ky, N_MI_BINS, clips, out_shift, out_mi)
     return out_mi, clips
 
+def _accept_offset_pairs(pairs, out_mi, tasks, unaries, funcs, xs, cols, rows, codes, ky, yr_rows, clips, slot, min_relative_gain, reject_sink) -> list[tuple]:
+    """Held-out gate: keep each column pair's winning unary-pair candidate only when its MI gain over the best shift-free baseline is significant and practically large."""
+    accepted: list[tuple] = []
+    per_pair = len(unaries) ** 2
+    for p, (i, j) in enumerate(pairs):
+        rows_p = slice(p * per_pair, (p + 1) * per_pair)
+        with np.errstate(invalid="ignore", all="ignore"):
+            # The winner is picked on the even rows against the baselines of the SAME unary pair; the held-out test then compares it with the best shift-free baseline of ANY unary pair of this
+            # column pair (the preset's own products and sums included).
+            train_gain = out_mi[rows_p, 0, 0] - np.nanmax(out_mi[rows_p, 0, 1:], axis=1)
+            if not np.isfinite(train_gain).any():
+                continue
+            k = p * per_pair + int(np.nanargmax(train_gain))
+            base_ho = float(np.nanmax(out_mi[rows_p, 1, 1:]))
+        a, b = int(tasks[k, 2]), int(tasks[k, 3])
+        cand_ho = float(out_mi[k, 1, 0])
+        gain = cand_ho - base_ho
+        se = float("nan")
+        if gain > 0.0:
+            # Last gates, run for the few screened winners only: the best weighted sum of the winner's own two factors (a product with large shifts degenerates into one, and a weighted sum with
+            # better weights than the least-squares baseline beats the fixed baselines with no interaction at all), then significance against the standard error of the gain.
+            u_rows = _unary_rows(xs[i], unaries[a], rows, funcs)
+            v_rows = _unary_rows(xs[j], unaries[b], rows, funcs)
+            base_ho = max(base_ho, float(weighted_sum_heldout_mi(u_rows, v_rows, codes, ky, N_MI_BINS, MIX_DIRECTIONS)))
+            gain = cand_ho - base_ho
+            if gain > 0.0:
+                se = _winner_standard_error(u_rows, v_rows, yr_rows, codes, ky, clips[slot[i], a], clips[slot[j], b])
+        if gain > SIGNIFICANCE_Z * se and gain > float(min_relative_gain) * base_ho:
+            accepted.append((gain, i, j, a, b))
+        elif reject_sink is not None:
+            reject_sink(gate="offset_product_gain", candidate=f"{cols[i]}x{cols[j]}", operand_names=f"{cols[i]},{cols[j]}", operator="offmul", observed=gain, threshold=SIGNIFICANCE_Z * se, reason="held-out MI gain not significant or below the practical effect")
+    return accepted
+
+
+def _offset_product_candidate(X, new_cols, cols, xs, unaries, funcs, unary_preset, rows, clips, slot, yr_full, i, j, a, b):
+    """Materialise one accepted offset product: refit its shifts on all rows and clip its output; returns ``(name, column, recipe)``, or None when the shifts or output degenerate or the name is taken."""
+    ua, ub = unaries[a], unaries[b]
+    log_shifts = (_log_anchor(xs[i]) if ua == "log" else 0.0, _log_anchor(xs[j]) if ub == "log" else 0.0)
+    u = _apply_unary(funcs, ua, xs[i], log_shifts[0])
+    v = _apply_unary(funcs, ub, xs[j], log_shifts[1])
+    fills = (_finite_fill(u), _finite_fill(v))
+    u = np.where(np.isfinite(u), u, fills[0])
+    v = np.where(np.isfinite(v), v, fills[1])
+    qu = clips[slot[i], a]  # winsorisation bounds fitted on the scan rows, the same ones the scan regressed with
+    qv = clips[slot[j], b]
+    shifts = np.empty(4)
+    ols2_shift(u, v, yr_full, 0, 1, qu[0], qu[1], qv[0], qv[1], shifts)
+    if not np.isfinite(shifts[:2]).all():
+        return None
+    col = _product(u, v, shifts[0], shifts[1], fills[0], fills[1])
+    lo, hi = np.quantile(col[rows], _OUTPUT_CLIP_Q)
+    if not hi > lo:
+        return None
+    name = f"offmul({_op_label(ua, cols[i])}{_shift_label(shifts[0])},{_op_label(ub, cols[j])}{_shift_label(shifts[1])})"
+    if name in X.columns or name in new_cols:
+        return None
+    recipe = build_offset_product_recipe(
+        name=name, src_names=(cols[i], cols[j]), unary_names=(ua, ub), unary_preset=unary_preset, shifts=(float(shifts[0]), float(shifts[1])), fills=fills, out_clip=(lo, hi), log_shifts=log_shifts
+    )
+    return name, np.clip(col, lo, hi), recipe
+
+
 def hybrid_offset_product_fe(
     X: "pd.DataFrame",
     y: np.ndarray,
@@ -287,68 +349,18 @@ def hybrid_offset_product_fe(
     tasks = np.array([(slot[i], slot[j], a, b) for (i, j) in pairs for a in range(nu) for b in range(nu)], dtype=np.int64)
     used_xs = [xs[c] for c in used]
     out_mi, clips = _scan_all(used_xs, funcs, unaries, rows, tasks, yr_rows, codes, ky, [_log_anchor(x) for x in used_xs])
-    accepted: list[tuple] = []
-    per_pair = len(unaries) ** 2
-    accepted = []
-    per_pair = len(unaries) ** 2
-    for p, (i, j) in enumerate(pairs):
-        rows_p = slice(p * per_pair, (p + 1) * per_pair)
-        with np.errstate(invalid="ignore", all="ignore"):
-            # The winner is picked on the even rows against the baselines of the SAME unary pair; the held-out test then compares it with the best shift-free baseline of ANY unary pair of this
-            # column pair (the preset's own products and sums included).
-            train_gain = out_mi[rows_p, 0, 0] - np.nanmax(out_mi[rows_p, 0, 1:], axis=1)
-            if not np.isfinite(train_gain).any():
-                continue
-            k = p * per_pair + int(np.nanargmax(train_gain))
-            base_ho = float(np.nanmax(out_mi[rows_p, 1, 1:]))
-        a, b = int(tasks[k, 2]), int(tasks[k, 3])
-        cand_ho = float(out_mi[k, 1, 0])
-        gain = cand_ho - base_ho
-        se = float("nan")
-        if gain > 0.0:
-            # Last gates, run for the few screened winners only: the best weighted sum of the winner's own two factors (a product with large shifts degenerates into one, and a weighted sum with
-            # better weights than the least-squares baseline beats the fixed baselines with no interaction at all), then significance against the standard error of the gain.
-            u_rows = _unary_rows(xs[i], unaries[a], rows, funcs)
-            v_rows = _unary_rows(xs[j], unaries[b], rows, funcs)
-            base_ho = max(base_ho, float(weighted_sum_heldout_mi(u_rows, v_rows, codes, ky, N_MI_BINS, MIX_DIRECTIONS)))
-            gain = cand_ho - base_ho
-            if gain > 0.0:
-                se = _winner_standard_error(u_rows, v_rows, yr_rows, codes, ky, clips[slot[i], a], clips[slot[j], b])
-        if gain > SIGNIFICANCE_Z * se and gain > float(min_relative_gain) * base_ho:
-            accepted.append((gain, i, j, a, b))
-        elif reject_sink is not None:
-            reject_sink(gate="offset_product_gain", candidate=f"{cols[i]}x{cols[j]}", operand_names=f"{cols[i]},{cols[j]}", operator="offmul", observed=gain, threshold=SIGNIFICANCE_Z * se, reason="held-out MI gain not significant or below the practical effect")
+    accepted = _accept_offset_pairs(pairs, out_mi, tasks, unaries, funcs, xs, cols, rows, codes, ky, yr_rows, clips, slot, min_relative_gain, reject_sink)
     accepted.sort(key=lambda r: -r[0])
     yr_full = _rank_all_rows(y_arr, rows) if accepted else None  # ranking every row is only needed to refit the shifts of an accepted candidate
     new_cols: "dict[str, np.ndarray]" = {}
     recipes = []
     for _, i, j, a, b in accepted[: int(top_k)]:
-        ua, ub = unaries[a], unaries[b]
-        log_shifts = (_log_anchor(xs[i]) if ua == "log" else 0.0, _log_anchor(xs[j]) if ub == "log" else 0.0)
-        u = _apply_unary(funcs, ua, xs[i], log_shifts[0])
-        v = _apply_unary(funcs, ub, xs[j], log_shifts[1])
-        fills = (_finite_fill(u), _finite_fill(v))
-        u = np.where(np.isfinite(u), u, fills[0])
-        v = np.where(np.isfinite(v), v, fills[1])
-        qu = clips[slot[i], a]  # winsorisation bounds fitted on the scan rows, the same ones the scan regressed with
-        qv = clips[slot[j], b]
-        shifts = np.empty(4)
-        ols2_shift(u, v, yr_full, 0, 1, qu[0], qu[1], qv[0], qv[1], shifts)
-        if not np.isfinite(shifts[:2]).all():
+        built = _offset_product_candidate(X, new_cols, cols, xs, unaries, funcs, unary_preset, rows, clips, slot, yr_full, i, j, a, b)
+        if built is None:
             continue
-        col = _product(u, v, shifts[0], shifts[1], fills[0], fills[1])
-        lo, hi = np.quantile(col[rows], _OUTPUT_CLIP_Q)
-        if not hi > lo:
-            continue
-        name = f"offmul({_op_label(ua, cols[i])}{_shift_label(shifts[0])},{_op_label(ub, cols[j])}{_shift_label(shifts[1])})"
-        if name in X.columns or name in new_cols:
-            continue
-        new_cols[name] = np.clip(col, lo, hi)
-        recipes.append(
-            build_offset_product_recipe(
-                name=name, src_names=(cols[i], cols[j]), unary_names=(ua, ub), unary_preset=unary_preset, shifts=(float(shifts[0]), float(shifts[1])), fills=fills, out_clip=(lo, hi), log_shifts=log_shifts
-            )
-        )
+        name, col, recipe = built
+        new_cols[name] = col
+        recipes.append(recipe)
     if not new_cols:
         return empty
     enc_df = pd.DataFrame(new_cols, index=X.index)

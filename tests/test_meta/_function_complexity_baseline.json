@@ -4,7 +4,6 @@
   "src/mlframe/feature_selection/filters/_feature_engineering_pairs/_pairs_materialise.py::_materialise_chunk_rowblock_njit_parallel": 16,
   "src/mlframe/feature_selection/filters/_gpu_resident_shared.py::_binary_apply": 18,
   "src/mlframe/feature_selection/filters/_hinge_detect_gpu_resident.py::detect_hinge_breakpoints_gpu": 16,
-  "src/mlframe/feature_selection/filters/_offset_product_fe.py::hybrid_offset_product_fe": 17,
   "src/mlframe/feature_selection/filters/_temporal_agg_fe.py::apply_temporal_expanding": 18,
   "src/mlframe/feature_selection/filters/_usability_greedy_clf_gpu_resident.py::_usability_greedy_clf_step1_def_fit_binary": 18,
   "src/mlframe/feature_selection/filters/_usability_njit_pool.py::_gpu_apply_unary": 18,
