@@ -409,6 +409,40 @@ def _noise_gate_bits_matrix(d_disc, nbins_arr, d_y, K_y, n, K, gate=None):
     return mi
 
 
+def _ensure_resident_hist_kernels() -> None:
+    """Build the batched histogram and MI kernels once per process; raises when numba.cuda is unavailable or a factory fails."""
+    global _CUDA_HIST_KERNEL_BATCHED, _CUDA_HIST_KERNEL_BATCHED_SHARED, _CUDA_HIST_KERNEL_BATCHED_SHARED_CM, _CUDA_MI_KERNEL
+    if not cuda_available():
+        raise RuntimeError("numba.cuda is not available on this host")
+    if _CUDA_HIST_KERNEL_BATCHED is None:
+        _CUDA_HIST_KERNEL_BATCHED = _cuda_hist_kernel_batched_factory()
+    if _CUDA_HIST_KERNEL_BATCHED_SHARED is None:
+        _CUDA_HIST_KERNEL_BATCHED_SHARED = _cuda_hist_kernel_batched_shared_factory()
+    if _CUDA_HIST_KERNEL_BATCHED_SHARED_CM is None:
+        _CUDA_HIST_KERNEL_BATCHED_SHARED_CM = _cuda_hist_kernel_batched_shared_cm_factory()
+    if _CUDA_MI_KERNEL is None:
+        _CUDA_MI_KERNEL = _cuda_mi_from_counts_kernel_factory()
+    if _CUDA_HIST_KERNEL_BATCHED is None or _CUDA_MI_KERNEL is None:
+        raise RuntimeError("numba.cuda kernel factory failed to build")
+
+
+def _resolve_gate_threads(n: int, threads_per_block: "int | None") -> int:
+    """Block size for the batched-histogram launch: the caller's pinned count, else the per-host tuned count, else 128.
+
+    The block size never changes the integer counts, so every choice gives the same MI and gate decision.
+    """
+    if threads_per_block is not None:
+        return threads_per_block
+    try:
+        from ._gpu_resident_histgate_ktc import histgate_threads
+
+        return int(histgate_threads(n))
+    # best-effort: the block size never changes the integer counts, so 128 gives the same MI and gate decision
+    except Exception as e:  # best-effort: the block size never changes the integer counts
+        logger.debug("histgate_threads() lookup failed, using the default 128: %s", e)
+        return 128
+
+
 def batch_mi_with_noise_gate_cuda_resident(
     disc_2d: np.ndarray,
     factors_nbins: np.ndarray,
@@ -446,19 +480,7 @@ def batch_mi_with_noise_gate_cuda_resident(
             return _batch_mi_noise_gate_su_delegate(
                 disc_2d, factors_nbins, classes_y, classes_y_safe, freqs_y, npermutations, base_seed, min_nonzero_confidence, use_su, dtype, threads_per_block
             )
-    global _CUDA_HIST_KERNEL_BATCHED, _CUDA_HIST_KERNEL_BATCHED_SHARED, _CUDA_HIST_KERNEL_BATCHED_SHARED_CM, _CUDA_MI_KERNEL
-    if not cuda_available():
-        raise RuntimeError("numba.cuda is not available on this host")
-    if _CUDA_HIST_KERNEL_BATCHED is None:
-        _CUDA_HIST_KERNEL_BATCHED = _cuda_hist_kernel_batched_factory()
-    if _CUDA_HIST_KERNEL_BATCHED_SHARED is None:
-        _CUDA_HIST_KERNEL_BATCHED_SHARED = _cuda_hist_kernel_batched_shared_factory()
-    if _CUDA_HIST_KERNEL_BATCHED_SHARED_CM is None:
-        _CUDA_HIST_KERNEL_BATCHED_SHARED_CM = _cuda_hist_kernel_batched_shared_cm_factory()
-    if _CUDA_MI_KERNEL is None:
-        _CUDA_MI_KERNEL = _cuda_mi_from_counts_kernel_factory()
-    if _CUDA_HIST_KERNEL_BATCHED is None or _CUDA_MI_KERNEL is None:
-        raise RuntimeError("numba.cuda kernel factory failed to build")
+    _ensure_resident_hist_kernels()
 
     n = int(disc_2d.shape[0])
     K = int(disc_2d.shape[1])
@@ -478,15 +500,7 @@ def batch_mi_with_noise_gate_cuda_resident(
     # (threads_per_block is None) look the per-host tuned count up from the kernel_tuning_cache (candidate set
     # derived from device occupancy); falls back to 128 on any failure. Block size NEVER changes the integer
     # counts -> MI + gate decision bit-identical. The KTC probe passes an explicit count (skips the lookup).
-    if threads_per_block is None:
-        try:
-            from ._gpu_resident_histgate_ktc import histgate_threads
-
-            threads_per_block = int(histgate_threads(n))
-        # best-effort: the block size never changes the integer counts, so 128 gives the same MI and gate decision
-        except Exception as e:  # best-effort: the block size never changes the integer counts
-            logger.debug("histgate_threads() lookup failed, using the default 128: %s", e)
-            threads_per_block = 128
+    threads_per_block = _resolve_gate_threads(n, threads_per_block)
     K_y = int(freqs_y.shape[0])
     nbins_arr = np.asarray(factors_nbins, dtype=np.int64)
     per_col_size = nbins_arr * K_y
