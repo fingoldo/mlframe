@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import contextlib
 import os
+import threading
 from collections.abc import Iterator
 
 import numpy as np
@@ -79,21 +80,32 @@ def analytic_null_enabled() -> bool:
     return _HAVE_CHI2 and os.environ.get("MLFRAME_MI_ANALYTIC_NULL", "1").strip() not in ("0", "false", "False")
 
 
-_min_n_override: "int | None" = None  # process-wide, set only inside ``analytic_null_min_n_lowered``
+_min_n_overrides: list[int] = []  # one entry per active ``analytic_null_min_n_lowered`` block, across all threads
+_min_n_overrides_lock = threading.Lock()
 
 
 @contextlib.contextmanager
 def analytic_null_min_n_lowered(floor: int) -> "Iterator[None]":
     """Lower the minimum row count of the analytic null to ``floor`` for the duration of the block (never raises it; an explicit ``MLFRAME_MI_ANALYTIC_NULL_MIN_N`` still wins).
 
-    For a fit whose candidates are only proposals that another stage re-tests (the target-mix child), run on rows between the validated floor of the chi-square null and the default threshold."""
-    global _min_n_override
-    previous = _min_n_override
-    _min_n_override = int(floor) if previous is None else min(previous, int(floor))
+    For a fit whose candidates are only proposals that another stage re-tests (the target-mix child), run on rows between the validated floor of the chi-square null and the default threshold.
+
+    Blocks may overlap across threads. Each block removes only its own entry on exit, so one thread leaving cannot restore a value another thread still depends on (CON2-2).
+    """
+    entry = int(floor)
+    with _min_n_overrides_lock:
+        _min_n_overrides.append(entry)
     try:
         yield
     finally:
-        _min_n_override = previous
+        with _min_n_overrides_lock:
+            _min_n_overrides.remove(entry)
+
+
+def _min_n_override() -> "int | None":
+    """The lowest floor among the blocks active right now, or None when no block is active."""
+    with _min_n_overrides_lock:
+        return min(_min_n_overrides) if _min_n_overrides else None
 
 
 def analytic_null_min_n() -> int:
@@ -110,8 +122,9 @@ def analytic_null_min_n() -> int:
                 return v
         except ValueError:
             pass
-    if _min_n_override is not None:
-        return min(_ANALYTIC_NULL_MIN_N_DEFAULT, _min_n_override)
+    override = _min_n_override()
+    if override is not None:
+        return min(_ANALYTIC_NULL_MIN_N_DEFAULT, override)
     return _ANALYTIC_NULL_MIN_N_DEFAULT
 
 
