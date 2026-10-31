@@ -270,12 +270,16 @@ def raw_mi_noise_floor(
         blocked_mi = np.concatenate([_mi_classif_batch(np.column_stack([_column_values(raw_X, c, _crit_np_dtype()) for c in block]), y_bin, nbins=nbins) for block in blocks])
         return _floor_from_raw_mi(blocked_mi, len(raw_X), nbins, y_bin, mad_mult)
     # Stack column by column: raw_X[num_cols] would copy a sub-frame before the float64 matrix copy the scorer needs.
-    arr = np.column_stack([_column_values(raw_X, c, _crit_np_dtype()) for c in num_cols])
+    # The columns are collected as contiguous rows and hashed in that layout; the (n, k) matrix the scorer needs is built (by tiles) only on a memo miss, since stacking it column by column
+    # writes with a stride of k items (0.28 s per call at 100000 x 100).
+    rows = np.empty((len(num_cols), len(raw_X)), dtype=_crit_np_dtype())
+    for _i, _c in enumerate(num_cols):
+        rows[_i] = _column_values(raw_X, _c, _crit_np_dtype())
 
     _key = None
     try:
         # Hash the buffers directly; tobytes() would copy the whole matrix just to key the memo.
-        _key = (tuple(num_cols), arr.shape, _buffer_hash(arr), _buffer_hash(y_bin), int(nbins), float(mad_mult))
+        _key = (tuple(num_cols), (rows.shape[1], rows.shape[0]), _buffer_hash(rows), _buffer_hash(y_bin), int(nbins), float(mad_mult))
     except Exception as e:
         logger.warning("raw-MI-floor memo key computation failed, skipping the memo: %s", e)
         _key = None
@@ -291,8 +295,10 @@ def raw_mi_noise_floor(
         # through the resident-operand cache -> uploaded ONCE. Same percentile-edge resident estimator the host
         # STRICT path uses -> byte-identical per-column MI -> byte-identical median+MAD floor. None on any cupy
         # failure / non-strict -> the EXACT host scorer below (byte-identical default path untouched).
+        from ._numba_utils import rows_to_columns
         from ._resident_raw_mi import resident_raw_baseline_mi
 
+        arr = rows_to_columns(rows)
         raw_mi = resident_raw_baseline_mi(arr, y_bin, ("raw_noise_floor", tuple(num_cols)), nbins=nbins)
         if raw_mi is None:
             raw_mi = _mi_classif_batch(arr, y_bin, nbins=nbins)
@@ -402,7 +408,10 @@ def local_mi_gate(
     # wrapper only RELOCATES the same one-shot upload without collapsing it, so this path stays on the exact
     # host ``_mi_classif_batch`` (byte-identical; the STRICT branch inside already uploads once + caches y).
     # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
-    cand_mi = np.asarray(_mi_classif_batch(arr, y_bin, nbins=nbins), dtype=np.float64)
+    from ._hermite_fe_mi import column_mi_memo_disabled
+
+    with column_mi_memo_disabled():  # a family's candidates are new columns: no memo hit, only the fingerprint pass
+        cand_mi = np.asarray(_mi_classif_batch(arr, y_bin, nbins=nbins), dtype=np.float64)
     # Family-wise calibration: the raw-column floor says nothing about the null of the MAXIMUM over this candidate set (engineered and
     # aggregated candidates have their own spread; a grouped-aggregate of an id-like column cleared the raw floor under STRICT). The
     # floor is therefore raised to the 95th percentile of the per-permutation maximum MI over the same candidates. The candidates are
@@ -517,8 +526,8 @@ def unified_second_pass_gate(
     while remaining and len(winners) < cap:
         best_name = None
         best_cmi = -1.0
-        for name in remaining:
-            if cand_fp[name] in winner_fps:
+        for name in eng:  # candidate order, not set order: equal-CMI candidates must resolve the same way in every process
+            if name not in remaining or cand_fp[name] in winner_fps:
                 continue
             cmi = _cmi_from_binned(cand_bins[name], y_bin, z_joint)
             if cmi > best_cmi:

@@ -531,6 +531,31 @@ def _replay_keys_times(X_test, entity_cols, time_col):
     times = X_test[time_col].to_numpy()
     return key, times
 
+def _expanding_readout(
+    stat: str,
+    ent: str,
+    acc_n: dict[str, int],
+    acc_sum: dict[str, float],
+    acc_mean: dict[str, float],
+    acc_m2: dict[str, float],
+    acc_min: dict[str, float],
+    acc_max: dict[str, float],
+) -> float:
+    """Value of expanding ``stat`` for entity ``ent`` from its running accumulators; stats the accumulators cannot express go through the generic reducer."""
+    cnt = acc_n[ent]
+    if stat == "count":
+        return float(cnt)
+    if stat == "mean":
+        return acc_sum[ent] / cnt
+    if stat == "std":
+        return float(np.sqrt(acc_m2[ent] / (cnt - 1))) if cnt > 1 else 0.0
+    if stat == "min":
+        return acc_min[ent]
+    if stat == "max":
+        return acc_max[ent]
+    return _reduce_expanding(np.array([acc_mean[ent]]), stat)
+
+
 def apply_temporal_expanding(X_test: pd.DataFrame, recipe_extra: dict) -> np.ndarray:
     """Replay an expanding stat for each test row against the stored TRAIN
     history (all earlier-timestamped train rows of the same entity) PLUS
@@ -626,18 +651,7 @@ def apply_temporal_expanding(X_test: pd.DataFrame, recipe_extra: dict) -> np.nda
         h_pos[ent] = _p
         cnt = acc_n[ent]
         if cnt > 0:
-            if stat == "count":
-                out[idx] = float(cnt)
-            elif stat == "mean":
-                out[idx] = acc_sum[ent] / cnt
-            elif stat == "std":
-                out[idx] = float(np.sqrt(acc_m2[ent] / (cnt - 1))) if cnt > 1 else 0.0
-            elif stat == "min":
-                out[idx] = acc_min[ent]
-            elif stat == "max":
-                out[idx] = acc_max[ent]
-            else:
-                out[idx] = _reduce_expanding(np.array([acc_mean[ent]]), stat)
+            out[idx] = _expanding_readout(stat, ent, acc_n, acc_sum, acc_mean, acc_m2, acc_min, acc_max)
         v = vals[idx]
         if np.isfinite(v):
             _fold(ent, v)

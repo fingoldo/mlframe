@@ -5,13 +5,33 @@ across copies.
 """
 from __future__ import annotations
 
-from typing import cast
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 
 from ._fe_usability_signal import _crit_np_dtype
 import pandas as pd
+
+
+_KEY_PREP: "dict[int, tuple]" = {}  # id(key array) -> (the array, missing mask, present mask, codes, distinct keys); the array is held so its id cannot be reused while the entry lives
+_KEY_PREP_MAX = 8
+
+
+def _prepared_keys(g_keys: np.ndarray) -> tuple:
+    """``(missing, present, codes, uniq)`` of a key array; the families call ``broadcast_lookup`` with the SAME array for every (column, statistic) of a group, so the mask and the hash pass are done once per array."""
+    hit = _KEY_PREP.get(id(g_keys))
+    if hit is not None and hit[0] is g_keys:
+        return hit[1:]
+    missing = np.asarray(pd.isna(g_keys), dtype=bool)
+    present = ~missing
+    codes: np.ndarray = np.empty(0, dtype=np.intp)
+    uniq: Any = np.empty(0, dtype=object)
+    if present.any():
+        codes, uniq = pd.factorize(g_keys[present])
+    if len(_KEY_PREP) >= _KEY_PREP_MAX:
+        _KEY_PREP.pop(next(iter(_KEY_PREP)))
+    _KEY_PREP[id(g_keys)] = (g_keys, missing, present, codes, uniq)
+    return missing, present, codes, uniq
 
 
 def broadcast_lookup(g_keys: np.ndarray, lookup: dict, glob: float) -> np.ndarray:
@@ -22,11 +42,9 @@ def broadcast_lookup(g_keys: np.ndarray, lookup: dict, glob: float) -> np.ndarra
     sorted all n string keys on every one of the (group, column, stat) calls (7.6 ms each at n=20000) and refuses unorderable mixed-type keys. NaN and None factorize into one
     category but ``str()`` tells them apart ('nan' vs 'None'), so missing rows are mapped one by one; there are few. Shared by grouped_agg_fe, grouped_quantile_fe and group_distance_fe."""
     g_keys = np.asarray(g_keys)
-    missing = np.asarray(pd.isna(g_keys), dtype=bool)
+    missing, present, codes, uniq = _prepared_keys(g_keys)
     out = np.empty(g_keys.shape[0], dtype=_crit_np_dtype())
-    present = ~missing
     if present.any():
-        codes, uniq = pd.factorize(g_keys[present])
         uniq_vals = np.array([lookup.get(str(_k), glob) for _k in uniq], dtype=_crit_np_dtype())
         out[present] = uniq_vals[codes]
     for i in np.flatnonzero(missing):

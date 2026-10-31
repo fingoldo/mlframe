@@ -127,6 +127,7 @@ FRAME_ROW_SLICERS = {
 }
 _NOT_ROW_SLICERS = {
     "_dataset_cache_fingerprint.py::_row_sample_hash": "hashes a row sample for a cache key; it returns no rows",
+    "_dataset_cache_fingerprint.py::_polars_row_samples": "canonical row tuples at sampled indices for a cache key; it returns no frame rows",
     "composite/_canonical_hash.py::row_order_fingerprint": "fingerprints the row order itself; it returns no rows",
     "neural/data.py::_extract": "a torch Dataset method: plain positional indexing into a tensor or array, no mask branch",
     "trainer.py::_row": "a closure (not importable); .iloc for pandas, plain positional df[idx] otherwise, no mask branch",

@@ -91,6 +91,46 @@ def _interaction_extra(idx: np.ndarray, pair_rows: np.ndarray, out: np.ndarray) 
                 out[t] += 2.0 * row[t]
 
 
+def _rescore_candidate_subsets(_loss, candidate_subsets, min_card, max_card) -> None:
+    """Score externally supplied candidates (the additive top-N) under the interaction proxy, filtered to the cardinality window."""
+    if candidate_subsets is not None:
+        for c in candidate_subsets:
+            key = tuple(sorted(int(i) for i in c))
+            if min_card <= len(key) <= max_card:
+                _loss(key)
+
+
+def _sweep_gated_singletons_and_pairs(_loss, in_gate, min_card, max_card) -> None:
+    """Always sweep gated singletons and gated pairs so pure-interaction pairs (XOR) surface even when the
+    additive candidates never included them. O(k^2) pairs, k = interaction_top_k."""
+    gated = [int(i) for i in np.flatnonzero(in_gate)]
+    if min_card <= 1:
+        for j in gated:
+            _loss((j,))
+    if max_card >= 2:
+        for a in range(len(gated)):
+            for b in range(a + 1, len(gated)):
+                _loss(tuple(sorted((gated[a], gated[b]))))
+
+
+def _greedy_forward_interaction_search(_loss, P, max_card) -> None:
+    """Greedy-forward over the interaction proxy (recovers larger interacting subsets cheaply); results land in the loss cache."""
+    current: tuple[int, ...] = ()
+    best = float("inf")
+    remaining = set(range(P))
+    while remaining and len(current) < max_card:
+        cand, cl = None, float("inf")
+        for j in remaining:
+            lo = _loss(tuple(sorted((*current, j))))
+            if lo < cl:
+                cl, cand = lo, j
+        if cand is None or cl >= best:
+            break
+        current = tuple(sorted((*current, cand)))
+        best = cl
+        remaining.discard(cand)
+
+
 def interaction_proxy_top_n(
     phi: np.ndarray,
     Phi: np.ndarray,
@@ -147,39 +187,9 @@ def interaction_proxy_top_n(
         cache[key] = v
         return v
 
-    # Re-score externally supplied candidates (the additive top-N) under the interaction proxy.
-    if candidate_subsets is not None:
-        for c in candidate_subsets:
-            key = tuple(sorted(int(i) for i in c))
-            if min_card <= len(key) <= max_card:
-                _loss(key)
-
-    # Always sweep gated singletons + gated pairs so pure-interaction pairs (XOR) surface even when the
-    # additive candidates never included them. O(k^2) pairs, k = interaction_top_k.
-    gated = [int(i) for i in np.flatnonzero(in_gate)]
-    if min_card <= 1:
-        for j in gated:
-            _loss((j,))
-    if max_card >= 2:
-        for a in range(len(gated)):
-            for b in range(a + 1, len(gated)):
-                _loss(tuple(sorted((gated[a], gated[b]))))
-
-    # Greedy-forward over the interaction proxy (recovers larger interacting subsets cheaply).
-    current: tuple[int, ...] = ()
-    best = float("inf")
-    remaining = set(range(P))
-    while remaining and len(current) < max_card:
-        cand, cl = None, float("inf")
-        for j in remaining:
-            lo = _loss(tuple(sorted((*current, j))))
-            if lo < cl:
-                cl, cand = lo, j
-        if cand is None or cl >= best:
-            break
-        current = tuple(sorted((*current, cand)))
-        best = cl
-        remaining.discard(cand)
+    _rescore_candidate_subsets(_loss, candidate_subsets, min_card, max_card)
+    _sweep_gated_singletons_and_pairs(_loss, in_gate, min_card, max_card)
+    _greedy_forward_interaction_search(_loss, P, max_card)
 
     items = [(v, k) for k, v in cache.items() if k and np.isfinite(v)]
     items.sort(key=lambda t: t[0])

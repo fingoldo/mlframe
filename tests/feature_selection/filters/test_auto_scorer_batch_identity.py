@@ -36,7 +36,8 @@ def test_batch_matches_per_column(seed):
     mi_b = np.asarray(_mi_classif_batch(X, y.astype(np.int64), nbins=10))
     cop_b = np.asarray(_copula_mi_batch(X, y, n_bins=20))
     assert np.array_equal(mi_pc, mi_b)
-    assert np.array_equal(cop_pc, cop_b)
+    # the copula batch ranks and bins in one parallel kernel; it equals the scalar path up to rounding (4e-16), not bit for bit
+    np.testing.assert_allclose(cop_b, cop_pc, rtol=0, atol=1e-12)
 
 
 def test_rank_table_plug_in_copula_unchanged():
@@ -70,4 +71,4 @@ def test_rank_table_plug_in_copula_unchanged():
         # libm across platforms (matches on Windows, diverges by ~1 ULP on CI's ubuntu-latest; same
         # class already fixed for SafePowEpsilonFloor in test_fe_numeric_hygiene_guards.py).
         assert float(table.loc[rowmask, "score_plug_in"].iloc[0]) == pytest.approx(ref_mi, rel=1e-14)
-        assert float(table.loc[rowmask, "score_copula"].iloc[0]) == pytest.approx(ref_cop, rel=1e-14)
+        assert float(table.loc[rowmask, "score_copula"].iloc[0]) == pytest.approx(ref_cop, rel=1e-9, abs=1e-12)

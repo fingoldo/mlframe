@@ -46,6 +46,31 @@ if _NUMBA_AVAILABLE:
     _FASTMATH = {"reassoc", "contract", "arcp", "afn"}
 
     @_numba.njit(cache=True, fastmath=_FASTMATH)
+    def _bocpd_normalise(rl_probs, cur_len):
+        """Renormalise the first ``cur_len`` run-length probabilities to sum to one."""
+        total = 0.0
+        for r in range(cur_len):
+            total += rl_probs[r]
+        inv_t = 1.0 / max(total, 1e-300)
+        for r in range(cur_len):
+            rl_probs[r] *= inv_t
+
+    @_numba.njit(cache=True, fastmath=_FASTMATH)
+    def _bocpd_log_pred(x, mu, kappa, alpha, beta, cur_len, log_pred):
+        """Closed-form Student-t log predictive per live run length into ``log_pred``; returns the maximum."""
+        log_pred_max = -1e300
+        for r in range(cur_len):
+            df = 2.0 * alpha[r]
+            scale_sq = beta[r] * (kappa[r] + 1.0) / (alpha[r] * kappa[r])
+            half_df = 0.5 * df
+            z2 = (x - mu[r]) * (x - mu[r]) / scale_sq
+            lp = math.lgamma(half_df + 0.5) - math.lgamma(half_df) - 0.5 * math.log(math.pi * df * scale_sq) - (half_df + 0.5) * math.log1p(z2 / df)
+            log_pred[r] = lp
+            if lp > log_pred_max:
+                log_pred_max = lp
+        return log_pred_max
+
+    @_numba.njit(cache=True, fastmath=_FASTMATH)
     def _bocpd_inner(seg, hazard, mu0, kappa0, alpha0, beta0, out_p_change, out_expected_rl, out_max_rl, max_run_length):
         """Adams & MacKay (2007) BOCPD forward recursion over one contiguous segment.
 
@@ -93,24 +118,10 @@ if _NUMBA_AVAILABLE:
                 alpha[0] = alpha0; beta[0] = beta0
                 rl_probs[0] = cp_mass
                 cur_len = shift_top + 1
-                total = 0.0
-                for r in range(cur_len):
-                    total += rl_probs[r]
-                inv_t = 1.0 / max(total, 1e-300)
-                for r in range(cur_len):
-                    rl_probs[r] *= inv_t
+                _bocpd_normalise(rl_probs, cur_len)
             else:
                 # Closed-form Student-t log-pdf per run length.
-                log_pred_max = -1e300
-                for r in range(cur_len):
-                    df = 2.0 * alpha[r]
-                    scale_sq = beta[r] * (kappa[r] + 1.0) / (alpha[r] * kappa[r])
-                    half_df = 0.5 * df
-                    z2 = (x - mu[r]) * (x - mu[r]) / scale_sq
-                    lp = math.lgamma(half_df + 0.5) - math.lgamma(half_df) - 0.5 * math.log(math.pi * df * scale_sq) - (half_df + 0.5) * math.log1p(z2 / df)
-                    log_pred[r] = lp
-                    if lp > log_pred_max:
-                        log_pred_max = lp
+                log_pred_max = _bocpd_log_pred(x, mu, kappa, alpha, beta, cur_len, log_pred)
                 # Posterior over run length.
                 cp = 0.0
                 for r in range(cur_len):
@@ -129,12 +140,7 @@ if _NUMBA_AVAILABLE:
                 alpha[0] = alpha0; beta[0] = beta0
                 rl_probs[0] = cp
                 cur_len = shift_top + 1
-                total = 0.0
-                for r in range(cur_len):
-                    total += rl_probs[r]
-                inv_t = 1.0 / max(total, 1e-300)
-                for r in range(cur_len):
-                    rl_probs[r] *= inv_t
+                _bocpd_normalise(rl_probs, cur_len)
             # Summaries.
             ex = 0.0
             mx_idx = 0

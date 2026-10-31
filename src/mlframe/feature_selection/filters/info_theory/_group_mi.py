@@ -40,6 +40,37 @@ def prepare_group_segments(groups: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
 
 
 @njit(cache=True)
+def _group_joint_mi(joint, mx, my, nv, K_x, K_y, use_mm):
+    """MI of one group's joint histogram; Miller-Madow debiased and clamped at zero when ``use_mm``."""
+    inv = 1.0 / nv
+    mi = 0.0
+    for i in range(K_x):
+        if mx[i] == 0:
+            continue
+        px = mx[i] * inv
+        for j in range(K_y):
+            jc = joint[i, j]
+            if jc != 0:
+                py = my[j] * inv
+                jf = jc * inv
+                mi += jf * math.log(jf / (px * py))
+    if use_mm:
+        kx = 0
+        for i in range(K_x):
+            if mx[i] > 0:
+                kx += 1
+        ky = 0
+        for j in range(K_y):
+            if my[j] > 0:
+                ky += 1
+        if kx > 1 and ky > 1:
+            mi -= (kx - 1) * (ky - 1) / (2.0 * nv)
+        if mi < 0.0:
+            mi = 0.0
+    return mi
+
+
+@njit(cache=True)
 def _group_blocked_mi(
     codes_x: np.ndarray,
     codes_y: np.ndarray,
@@ -79,31 +110,7 @@ def _group_blocked_mi(
             nv += 1
         if nv < min_rows:
             continue
-        inv = 1.0 / nv
-        mi = 0.0
-        for i in range(K_x):
-            if mx[i] == 0:
-                continue
-            px = mx[i] * inv
-            for j in range(K_y):
-                jc = joint[i, j]
-                if jc != 0:
-                    py = my[j] * inv
-                    jf = jc * inv
-                    mi += jf * math.log(jf / (px * py))
-        if use_mm:
-            kx = 0
-            for i in range(K_x):
-                if mx[i] > 0:
-                    kx += 1
-            ky = 0
-            for j in range(K_y):
-                if my[j] > 0:
-                    ky += 1
-            if kx > 1 and ky > 1:
-                mi -= (kx - 1) * (ky - 1) / (2.0 * nv)
-            if mi < 0.0:
-                mi = 0.0
+        mi = _group_joint_mi(joint, mx, my, nv, K_x, K_y, use_mm)
         w = float(nv) if size_weighted else 1.0
         total_mi += w * mi
         total_w += w

@@ -53,6 +53,46 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from ..engineered_recipes import EngineeredRecipe
 
+def _adaptive_fe_ok_for_col(x, col, y_adapt, y_adapt_prep, fourier_adaptive, fourier_chirp, adaptive_allowed) -> bool:
+    """Whether the adaptive Fourier/chirp detector may run on one column: the raw column must not already be a strong smooth predictor of y, and it must be within the column cap."""
+    if y_adapt is None or not (fourier_adaptive or fourier_chirp):
+        return True
+    _r2 = _heldout_smooth_r2_fast(x, y_adapt_prep) if y_adapt_prep is not None else _heldout_smooth_r2(x, y_adapt)
+    if not _r2 < _ADAPTIVE_FE_RAW_USABILITY_CAP:
+        return False
+    return adaptive_allowed is None or col in adaptive_allowed
+
+
+def _emit_spline_legs(x, col, spline_knots, out_cols, meta) -> None:
+    """Emit the cubic B-spline basis columns of one column; a failing fit is logged and that column's spline legs are skipped."""
+    from mlframe.feature_selection.filters.engineered_recipes.shared import bspline_basis_values as _bspline_basis_values  # local import
+    try:
+        knots, lo, hi, n_basis = _fit_spline_for_col(x, spline_knots)
+        span = max(hi - lo, 1e-12)
+        z = np.clip((x - lo) / span, 0.0, 1.0)
+        for i in range(n_basis):
+            vals = _bspline_basis_values(z, knots, i, degree=3)
+            # Skip near-constant columns - the boundary cubic
+            # B-splines occasionally collapse to ~0 on quantile-
+            # placed knots when ties pile at the edge.
+            if float(np.std(vals)) <= 1e-12:
+                continue
+            name = f"{col}__sp{i}"
+            out_cols[name] = vals
+            meta[name] = {
+                "basis": "spline", "src": col,
+                "knots": knots, "idx": i,
+                "lo": float(lo), "hi": float(hi),
+            }
+    except Exception as exc:
+        log_throttle(
+            logger, "extra_basis_spline_raised", logging.WARNING,
+            "generate_extra_basis_features: spline on col=%r raised " "%r; skipping spline for that column.",
+            col,
+            exc,
+        )
+
+
 @set_doc(GENERATE_EXTRA_BASIS_FEATURES_DOC)
 def generate_extra_basis_features(
     X: pd.DataFrame,
@@ -82,7 +122,6 @@ def generate_extra_basis_features(
         cols = _dedup_collinear_source_cols(
             X, list(cols), corr_threshold=dedup_corr_threshold,
         )
-    from mlframe.feature_selection.filters.engineered_recipes.shared import bspline_basis_values as _bspline_basis_values  # local import
     out_cols: dict = {}
     meta: dict = {}
     fourier_freqs = tuple(float(f) for f in fourier_freqs)
@@ -138,41 +177,10 @@ def generate_extra_basis_features(
             # then the conservative skip stays (correctness over coverage).
             continue
         # Auto-gate: only let the adaptive Fourier/chirp operators fire where the raw column is NOT already a strong smooth predictor of y (see _ADAPTIVE_FE_RAW_USABILITY_CAP).
-        _adaptive_fe_ok = True
-        if _y_adapt is not None and (fourier_adaptive or fourier_chirp):
-            _r2 = _heldout_smooth_r2_fast(x, _y_adapt_prep) if _y_adapt_prep is not None else _heldout_smooth_r2(x, _y_adapt)
-            _adaptive_fe_ok = _r2 < _ADAPTIVE_FE_RAW_USABILITY_CAP
-            # Column-count cap on the expensive detector itself (fix, see max_adaptive_cols
-            # docstring) - columns beyond the cap still get the cheap fixed-grid Fourier basis below,
-            # only the held-out frequency-sweep detection is skipped for them.
-            if _adaptive_allowed is not None and col not in _adaptive_allowed:
-                _adaptive_fe_ok = False
+        # Column-count cap on the expensive detector (see max_adaptive_cols): columns beyond it still get the cheap fixed-grid Fourier basis.
+        _adaptive_fe_ok = _adaptive_fe_ok_for_col(x, col, _y_adapt, _y_adapt_prep, fourier_adaptive, fourier_chirp, _adaptive_allowed)
         if "spline" in extra_bases:
-            try:
-                knots, lo, hi, n_basis = _fit_spline_for_col(x, spline_knots)
-                span = max(hi - lo, 1e-12)
-                z = np.clip((x - lo) / span, 0.0, 1.0)
-                for i in range(n_basis):
-                    vals = _bspline_basis_values(z, knots, i, degree=3)
-                    # Skip near-constant columns - the boundary cubic
-                    # B-splines occasionally collapse to ~0 on quantile-
-                    # placed knots when ties pile at the edge.
-                    if float(np.std(vals)) <= 1e-12:
-                        continue
-                    name = f"{col}__sp{i}"
-                    out_cols[name] = vals
-                    meta[name] = {
-                        "basis": "spline", "src": col,
-                        "knots": knots, "idx": i,
-                        "lo": float(lo), "hi": float(hi),
-                    }
-            except Exception as exc:
-                log_throttle(
-                    logger, "extra_basis_spline_raised", logging.WARNING,
-                    "generate_extra_basis_features: spline on col=%r raised " "%r; skipping spline for that column.",
-                    col,
-                    exc,
-                )
+            _emit_spline_legs(x, col, spline_knots, out_cols, meta)
         # Skip Fourier on integer-valued low-cardinality categorical group keys: sin/cos of an arbitrary label code (region 0..9)
         # is spurious periodicity that floods the support and displaces the genuinely useful grouped aggregates of that key.
         _fourier_extra_basis(extra_bases, x, fourier_powers, _y_adapt, _adaptive_fe_ok, _adaptive_f_grid, fourier_adaptive_min_val_corr, fourier_freqs, col, out_cols, meta, fourier_chirp, _chirp_f_grid, fourier_chirp_min_val_corr)
@@ -206,6 +214,48 @@ def _adaptive_cols_by_relevance(X, cols, y, max_adaptive_cols):
         scores[c] = float(np.sum(np.where(cnt > 0, sm * sm / np.maximum(cnt, 1), 0.0)))
     ranked = sorted(scores, key=lambda c: -scores[c])
     return set(ranked[: int(max_adaptive_cols)])
+
+
+def _emit_chirp_fourier_legs(x, col, y_adapt, adaptive_fe_ok, fourier_chirp, chirp_f_grid, fourier_chirp_min_val_corr, out_cols, meta) -> None:
+    """Emit the quadratic-warp (chirp axis) sin/cos legs of one column, detected by the same held-out multitone detector as the linear legs."""
+    if fourier_chirp and y_adapt is not None and adaptive_fe_ok:
+        _c_mean, _c_std, _c_lo, _c_span = _fit_chirp_warp_for_col(x)
+        if _c_span > 1e-12 and _c_std > 1e-12:
+            u_axis = _chirp_axis(x, _c_mean, _c_std, _c_lo, _c_span)
+            if np.all(np.isfinite(u_axis)) and float(np.std(u_axis)) > 1e-12:
+                _chirp_freqs = _detect_fourier_freqs_for_col(
+                    u_axis, y_adapt,
+                    f_grid=chirp_f_grid,
+                    min_val_corr=float(fourier_chirp_min_val_corr),
+                    min_rows=800,
+                    max_freqs=6,
+                )
+                for _cf in _chirp_freqs:
+                    ang_c = 2.0 * np.pi * _cf * u_axis
+                    sc_vals = np.sin(ang_c)
+                    cc_vals = np.cos(ang_c)
+                    if float(np.std(sc_vals)) > 1e-12:
+                        name_qs = f"{col}__qsin{_cf:g}"
+                        out_cols[name_qs] = sc_vals
+                        meta[name_qs] = {
+                            "basis": "fourier", "src": col,
+                            "kind": "sin", "freq": float(_cf),
+                            "arg": "quadratic",
+                            "mean": float(_c_mean), "std": float(_c_std),
+                            "lo": float(_c_lo), "span": float(_c_span),
+                            "power": 1, "adaptive": True,
+                        }
+                    if float(np.std(cc_vals)) > 1e-12:
+                        name_qc = f"{col}__qcos{_cf:g}"
+                        out_cols[name_qc] = cc_vals
+                        meta[name_qc] = {
+                            "basis": "fourier", "src": col,
+                            "kind": "cos", "freq": float(_cf),
+                            "arg": "quadratic",
+                            "mean": float(_c_mean), "std": float(_c_std),
+                            "lo": float(_c_lo), "span": float(_c_span),
+                            "power": 1, "adaptive": True,
+                        }
 
 
 def _fourier_extra_basis(extra_bases, x, fourier_powers, _y_adapt, _adaptive_fe_ok, _adaptive_f_grid, fourier_adaptive_min_val_corr, fourier_freqs, col, out_cols, meta, fourier_chirp, _chirp_f_grid, fourier_chirp_min_val_corr):
@@ -297,44 +347,7 @@ def _fourier_extra_basis(extra_bases, x, fourier_powers, _y_adapt, _adaptive_fe_
             # additive (on a plain linear target the chirp legs are harmless,
             # Ridge regularises them to ~0). N-gated identically (>= 800 rows
             # inside the detector); a pure-noise column admits none.
-            if fourier_chirp and _y_adapt is not None and _adaptive_fe_ok:
-                _c_mean, _c_std, _c_lo, _c_span = _fit_chirp_warp_for_col(x)
-                if _c_span > 1e-12 and _c_std > 1e-12:
-                    u_axis = _chirp_axis(x, _c_mean, _c_std, _c_lo, _c_span)
-                    if np.all(np.isfinite(u_axis)) and float(np.std(u_axis)) > 1e-12:
-                        _chirp_freqs = _detect_fourier_freqs_for_col(
-                            u_axis, _y_adapt,
-                            f_grid=_chirp_f_grid,
-                            min_val_corr=float(fourier_chirp_min_val_corr),
-                            min_rows=800,
-                            max_freqs=6,
-                        )
-                        for _cf in _chirp_freqs:
-                            ang_c = 2.0 * np.pi * _cf * u_axis
-                            sc_vals = np.sin(ang_c)
-                            cc_vals = np.cos(ang_c)
-                            if float(np.std(sc_vals)) > 1e-12:
-                                name_qs = f"{col}__qsin{_cf:g}"
-                                out_cols[name_qs] = sc_vals
-                                meta[name_qs] = {
-                                    "basis": "fourier", "src": col,
-                                    "kind": "sin", "freq": float(_cf),
-                                    "arg": "quadratic",
-                                    "mean": float(_c_mean), "std": float(_c_std),
-                                    "lo": float(_c_lo), "span": float(_c_span),
-                                    "power": 1, "adaptive": True,
-                                }
-                            if float(np.std(cc_vals)) > 1e-12:
-                                name_qc = f"{col}__qcos{_cf:g}"
-                                out_cols[name_qc] = cc_vals
-                                meta[name_qc] = {
-                                    "basis": "fourier", "src": col,
-                                    "kind": "cos", "freq": float(_cf),
-                                    "arg": "quadratic",
-                                    "mean": float(_c_mean), "std": float(_c_std),
-                                    "lo": float(_c_lo), "span": float(_c_span),
-                                    "power": 1, "adaptive": True,
-                                }
+            _emit_chirp_fourier_legs(x, col, _y_adapt, _adaptive_fe_ok, fourier_chirp, _chirp_f_grid, fourier_chirp_min_val_corr, out_cols, meta)
         except Exception as exc:
             log_throttle(
                 logger, "extra_basis_fourier_raised", logging.WARNING,

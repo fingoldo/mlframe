@@ -17,7 +17,7 @@ import math
 import numpy as np
 from numba import njit, prange
 
-from ._batch_kernels import _shuffled_y_matrix
+from ._batch_kernels import _mi_from_joint, _plogp_sum, _shuffled_y_matrix
 
 
 @njit(parallel=True, nogil=True, cache=True)
@@ -35,6 +35,24 @@ def _transpose_blocked(src: np.ndarray, dst: np.ndarray) -> None:
             for k in range(k0, k1):
                 for r in range(r0, r1):
                     dst[k, r] = src[r, k]
+
+
+@njit(nogil=True, cache=True)
+def _flat_joint_mi(joint, K_x, K_y, freqs_x, freqs_y, inv_n, use_su, su_denom) -> float:
+    """Plug-in MI (symmetric uncertainty when ``use_su``) of a flat row-major ``K_x x K_y`` joint count table."""
+    mi_perm = 0.0
+    for a in range(K_x):
+        prob_x = freqs_x[a]
+        for b in range(K_y):
+            jc = joint[a * K_y + b]
+            if jc != 0:
+                jf = jc * inv_n
+                mi_perm += jf * math.log(jf / (prob_x * freqs_y[b]))
+    if use_su:
+        if mi_perm < 0.0:
+            mi_perm = 0.0
+        mi_perm = 0.0 if su_denom <= 1e-12 else 2.0 * mi_perm / su_denom
+    return mi_perm
 
 
 @njit(nogil=True, cache=True)
@@ -62,17 +80,7 @@ def _perm_failcount_codes(
     inv_n = 1.0 / n
     su_denom = 0.0
     if use_su:
-        h_x = 0.0
-        for a in range(K_x):
-            p = freqs_k[a]
-            if p > 0:
-                h_x -= p * math.log(p)
-        h_y = 0.0
-        for b in range(K_y):
-            p = freqs_y[b]
-            if p > 0:
-                h_y -= p * math.log(p)
-        su_denom = h_x + h_y
+        su_denom = _plogp_sum(freqs_k, K_x) + _plogp_sum(freqs_y, K_y)
     nfk = 0
     for i in range(npermutations):
         joint[:] = 0
@@ -85,18 +93,7 @@ def _perm_failcount_codes(
             joint[col_codes[n - 1] * K_y + lm[n - 1]] += 1
         for c in range(K_x * K_y):
             joint[c] += joint2[c]
-        mi_perm = 0.0
-        for a in range(K_x):
-            prob_x = freqs_k[a]
-            for b in range(K_y):
-                jc = joint[a * K_y + b]
-                if jc != 0:
-                    jf = jc * inv_n
-                    mi_perm += jf * math.log(jf / (prob_x * freqs_y[b]))
-        if use_su:
-            if mi_perm < 0.0:
-                mi_perm = 0.0
-            mi_perm = 0.0 if su_denom <= 1e-12 else 2.0 * mi_perm / su_denom
+        mi_perm = _flat_joint_mi(joint, K_x, K_y, freqs_k, freqs_y, inv_n, use_su, su_denom)
         if mi_perm >= original_mi_k:
             nfk += 1
             if stop_at > 0 and nfk >= stop_at:
@@ -130,29 +127,11 @@ def _observed_column(disc_t, k, nb_k, classes_y, freqs_y, n, use_su, classes_den
         dc = lookup[disc_t[k, r]]
         classes_dense_t[k, r] = dc
         joint[dc, classes_y[r]] += 1
-    mi_xy = 0.0
-    for i in range(K_x):
-        prob_x = freqs_dense[k, i]
-        for j in range(K_y):
-            jc = joint[i, j]
-            if jc != 0:
-                prob_y = freqs_y[j]
-                jf = jc * inv_n
-                mi_xy += jf * math.log(jf / (prob_x * prob_y))
+    mi_xy = _mi_from_joint(joint, freqs_dense[k], freqs_y, inv_n)
     if not use_su:
         original_mi[k] = mi_xy
         return
-    h_x = 0.0
-    for i in range(K_x):
-        p = freqs_dense[k, i]
-        if p > 0:
-            h_x -= p * math.log(p)
-    h_y = 0.0
-    for j in range(K_y):
-        p = freqs_y[j]
-        if p > 0:
-            h_y -= p * math.log(p)
-    denom = h_x + h_y
+    denom = _plogp_sum(freqs_dense[k], K_x) + _plogp_sum(freqs_y, K_y)
     if denom <= 1e-12:
         original_mi[k] = 0.0
     else:

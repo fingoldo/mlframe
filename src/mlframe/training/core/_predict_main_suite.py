@@ -602,9 +602,57 @@ def _predict_mlframe_mo_try(model, _primary_for_model, verbose, _pandas_view_cac
     return preds
 
 
+def _ensemble_one_target(results, metadata, _tt_k, _tn_k, _probs_list, per_target_sample_model, per_target_member_names, per_target_calib_flags):
+    """Combine one target's member probabilities with its persisted flavour and write its probabilities and predictions into ``results``."""
+    from mlframe.training.core.predict import _combine_probs, _resolve_chosen_ensemble_params, _resolve_chosen_flavour, _select_trained_members, _resolve_quantile_alphas
+
+    if not _probs_list:
+        return
+    _flavour = _resolve_chosen_flavour(metadata, _tt_k, _tn_k)
+    _ens_params = _resolve_chosen_ensemble_params(metadata, _tt_k, _tn_k)
+    _rrf_k_replay = int(_ens_params.get("rrf_k", 60))
+    _key = f"{_tt_k}_{_tn_k}"
+    _q_alphas = _resolve_quantile_alphas(metadata, _tt_k, _tn_k, per_target_sample_model.get((_tt_k, _tn_k)))
+    _probs_list, _cal_flags_sel, _weights_sel = _select_trained_members(_probs_list, per_target_member_names.get((_tt_k, _tn_k), []),
+                                                                        per_target_calib_flags.get((_tt_k, _tn_k)), _ens_params, target_label=f"{_tt_k}/{_tn_k}")
+    if len(_probs_list) > 1:
+        _combined = _combine_probs(
+            _probs_list, _flavour, quantile_alphas=_q_alphas, rrf_k=_rrf_k_replay,
+            is_calibrated_per_model=_cal_flags_sel,
+            metadata=metadata,
+            target_label=f"{_tt_k}/{_tn_k}",
+            target_type=_tt_k,
+            precomputed_weights=_weights_sel,
+        )
+    else:
+        _combined = _probs_list[0]
+        if _q_alphas is not None and _combined.ndim == 2 and _combined.shape[1] == len(_q_alphas):
+            try:
+                from mlframe.training.quantile_postproc import fix_quantile_crossing
+                _combined = fix_quantile_crossing(_combined, _q_alphas, mode="sort")
+            except Exception as _qe:
+                log_throttle(logger, "predict_suite_fix_quantile_crossing_failed", logging.WARNING, "predict_mlframe_models_suite: fix_quantile_crossing failed: %s", _qe)
+    results["per_target_probabilities"][_key] = _combined
+    _ens_thr = get_decision_threshold(metadata, f"{_tt_k}|{_tn_k}", DEFAULT_PROBABILITY_THRESHOLD)
+    if _combined.ndim == 2:
+        if _combined.shape[1] == 2:
+            _t_preds = (_combined[:, 1] >= _ens_thr).astype(int)
+        else:
+            # NaN-safe argmax: _combine_probs (RRF / geomean / harmonic) can emit
+            # NaN when a member row was NaN; plain np.argmax silently routes the
+            # row to class 0 and poisons the downstream confusion matrix.
+            from mlframe.utils.nan_safe import argmax_classes_safe
+            _t_preds = argmax_classes_safe(
+                _combined, context=f"predict_mlframe_models_suite.per_target.{_key}",
+            )
+    else:
+        _t_preds = (_combined >= _ens_thr).astype(int)
+    results["per_target_predictions"][_key] = _t_preds
+
+
 def _predict_mlframe_mo_len_all_probs(all_probs, verbose, results, per_target_probs, metadata, per_target_sample_model, per_target_member_names, per_target_calib_flags, all_calib_flags, all_preds, per_target_preds):
     """Block of predict_mlframe_models_suite starting at ``if len(all_probs) > 1:``."""
-    from mlframe.training.core.predict import _combine_probs, _resolve_chosen_ensemble_params, _resolve_chosen_flavour, _select_trained_members, suite_binary_threshold, _resolve_quantile_alphas
+    from mlframe.training.core.predict import _combine_probs, _resolve_chosen_flavour, suite_binary_threshold
 
     if len(all_probs) > 1:
         if verbose:
@@ -617,48 +665,7 @@ def _predict_mlframe_mo_len_all_probs(all_probs, verbose, results, per_target_pr
         results.setdefault("per_target_probabilities", {})
         results.setdefault("per_target_predictions", {})
         for (_tt_k, _tn_k), _probs_list in per_target_probs.items():
-            if not _probs_list:
-                continue
-            _flavour = _resolve_chosen_flavour(metadata, _tt_k, _tn_k)
-            _ens_params = _resolve_chosen_ensemble_params(metadata, _tt_k, _tn_k)
-            _rrf_k_replay = int(_ens_params.get("rrf_k", 60))
-            _key = f"{_tt_k}_{_tn_k}"
-            _q_alphas = _resolve_quantile_alphas(metadata, _tt_k, _tn_k, per_target_sample_model.get((_tt_k, _tn_k)))
-            _probs_list, _cal_flags_sel, _weights_sel = _select_trained_members(_probs_list, per_target_member_names.get((_tt_k, _tn_k), []),
-                                                                                per_target_calib_flags.get((_tt_k, _tn_k)), _ens_params, target_label=f"{_tt_k}/{_tn_k}")
-            if len(_probs_list) > 1:
-                _combined = _combine_probs(
-                    _probs_list, _flavour, quantile_alphas=_q_alphas, rrf_k=_rrf_k_replay,
-                    is_calibrated_per_model=_cal_flags_sel,
-                    metadata=metadata,
-                    target_label=f"{_tt_k}/{_tn_k}",
-                    target_type=_tt_k,
-                    precomputed_weights=_weights_sel,
-                )
-            else:
-                _combined = _probs_list[0]
-                if _q_alphas is not None and _combined.ndim == 2 and _combined.shape[1] == len(_q_alphas):
-                    try:
-                        from mlframe.training.quantile_postproc import fix_quantile_crossing
-                        _combined = fix_quantile_crossing(_combined, _q_alphas, mode="sort")
-                    except Exception as _qe:
-                        log_throttle(logger, "predict_suite_fix_quantile_crossing_failed", logging.WARNING, "predict_mlframe_models_suite: fix_quantile_crossing failed: %s", _qe)
-            results["per_target_probabilities"][_key] = _combined
-            _ens_thr = get_decision_threshold(metadata, f"{_tt_k}|{_tn_k}", DEFAULT_PROBABILITY_THRESHOLD)
-            if _combined.ndim == 2:
-                if _combined.shape[1] == 2:
-                    _t_preds = (_combined[:, 1] >= _ens_thr).astype(int)
-                else:
-                    # NaN-safe argmax: _combine_probs (RRF / geomean / harmonic) can emit
-                    # NaN when a member row was NaN; plain np.argmax silently routes the
-                    # row to class 0 and poisons the downstream confusion matrix.
-                    from mlframe.utils.nan_safe import argmax_classes_safe
-                    _t_preds = argmax_classes_safe(
-                        _combined, context=f"predict_mlframe_models_suite.per_target.{_key}",
-                    )
-            else:
-                _t_preds = (_combined >= _ens_thr).astype(int)
-            results["per_target_predictions"][_key] = _t_preds
+            _ensemble_one_target(results, metadata, _tt_k, _tn_k, _probs_list, per_target_sample_model, per_target_member_names, per_target_calib_flags)
 
         # Suite-wide ensemble: resolve a single flavour when one was chosen across the suite, else arithmetic mean.
         _suite_flavour = _resolve_chosen_flavour(metadata)

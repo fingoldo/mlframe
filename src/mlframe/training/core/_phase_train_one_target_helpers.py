@@ -153,6 +153,61 @@ def _build_feature_selection_report(
     return _report
 
 
+def _rfecv_ranking_reason(selector, _all_in, kept_columns, _report):
+    """Attach the per-feature kept/dropped reason from the RFECV elimination ranking."""
+    # Ranking-based reason
+    try:
+        _ranking = getattr(selector, "ranking_", None)
+        if _ranking is not None and _all_in is not None and kept_columns is not None:
+            _kept_set = set(kept_columns)
+            _rank_arr = list(_ranking)
+            if len(_rank_arr) == len(_all_in):
+                _report["reason_per_feature"] = {
+                    str(c): (f"kept@rank={_rank_arr[i]}" if c in _kept_set else f"dropped@rank={_rank_arr[i]}") for i, c in enumerate(_all_in)
+                }
+    except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+        logger.debug("suppressed: %s", e)
+        pass
+
+
+def _boruta_selection_report(selector, _all_in, _report):
+    """Attach the mean SHAP history scores and the accepted/rejected/tentative verdict reason of a BorutaShap selector."""
+    # ``history_x_`` columns map 1:1 to ``all_columns_``; the per-feature score is the mean
+    # historical SHAP importance across all Boruta iterations. ``accepted_`` / ``rejected_`` /
+    # ``tentative_`` carry the final per-feature verdicts.
+    try:
+        _history = getattr(selector, "history_x_", None)
+        if _history is not None and hasattr(_history, "mean"):
+            _means = _history.mean(axis=0)
+            if hasattr(_means, "to_dict"):
+                _report["scores"] = {str(k): float(v) for k, v in _means.to_dict().items()}
+    except Exception as e:
+        logger.warning("computing mean-history scores failed: %s", e)
+        _report["scores"] = None
+    try:
+        _accepted = set(getattr(selector, "accepted_", None) or [])
+        _rejected = set(getattr(selector, "rejected_", None) or [])
+        _tentative = set(getattr(selector, "tentative_", None) or [])
+        _all_cols_attr = getattr(selector, "all_columns_", None)
+        _iter = list(_all_cols_attr) if _all_cols_attr is not None else (_all_in or [])
+        if _iter:
+            _reasons = {}
+            for c in _iter:
+                _cs = str(c)
+                if c in _accepted:
+                    _reasons[_cs] = "accepted"
+                elif c in _rejected:
+                    _reasons[_cs] = "rejected"
+                elif c in _tentative:
+                    _reasons[_cs] = "tentative"
+                else:
+                    _reasons[_cs] = "unknown"
+            _report["reason_per_feature"] = _reasons
+    except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+        logger.debug("suppressed: %s", e)
+        pass
+
+
 def _mrmr_selection_report(_kind, _report, _all_in, kept_columns, selector):
     """Build the feature-selection report for an MRMR selector."""
     if _kind == "MRMR":
@@ -174,54 +229,9 @@ def _mrmr_selection_report(_kind, _report, _all_in, kept_columns, selector):
         # ``feature_names_in_``; both shapes are aggregated here. ``ranking_`` (when present) gives the
         # per-feature elimination order surfaced as the reason below.
         _rfecv_importances_report(selector, _all_in, _report)
-        # Ranking-based reason
-        try:
-            _ranking = getattr(selector, "ranking_", None)
-            if _ranking is not None and _all_in is not None and kept_columns is not None:
-                _kept_set = set(kept_columns)
-                _rank_arr = list(_ranking)
-                if len(_rank_arr) == len(_all_in):
-                    _report["reason_per_feature"] = {
-                        str(c): (f"kept@rank={_rank_arr[i]}" if c in _kept_set else f"dropped@rank={_rank_arr[i]}") for i, c in enumerate(_all_in)
-                    }
-        except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-            logger.debug("suppressed: %s", e)
-            pass
+        _rfecv_ranking_reason(selector, _all_in, kept_columns, _report)
     elif _kind == "BorutaShap":
-        # ``history_x_`` columns map 1:1 to ``all_columns_``; the per-feature score is the mean
-        # historical SHAP importance across all Boruta iterations. ``accepted_`` / ``rejected_`` /
-        # ``tentative_`` carry the final per-feature verdicts.
-        try:
-            _history = getattr(selector, "history_x_", None)
-            if _history is not None and hasattr(_history, "mean"):
-                _means = _history.mean(axis=0)
-                if hasattr(_means, "to_dict"):
-                    _report["scores"] = {str(k): float(v) for k, v in _means.to_dict().items()}
-        except Exception as e:
-            logger.warning("computing mean-history scores failed: %s", e)
-            _report["scores"] = None
-        try:
-            _accepted = set(getattr(selector, "accepted_", None) or [])
-            _rejected = set(getattr(selector, "rejected_", None) or [])
-            _tentative = set(getattr(selector, "tentative_", None) or [])
-            _all_cols_attr = getattr(selector, "all_columns_", None)
-            _iter = list(_all_cols_attr) if _all_cols_attr is not None else (_all_in or [])
-            if _iter:
-                _reasons = {}
-                for c in _iter:
-                    _cs = str(c)
-                    if c in _accepted:
-                        _reasons[_cs] = "accepted"
-                    elif c in _rejected:
-                        _reasons[_cs] = "rejected"
-                    elif c in _tentative:
-                        _reasons[_cs] = "tentative"
-                    else:
-                        _reasons[_cs] = "unknown"
-                _report["reason_per_feature"] = _reasons
-        except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-            logger.debug("suppressed: %s", e)
-            pass
+        _boruta_selection_report(selector, _all_in, _report)
 
 
 def _rfecv_importances_report(selector, _all_in, _report):

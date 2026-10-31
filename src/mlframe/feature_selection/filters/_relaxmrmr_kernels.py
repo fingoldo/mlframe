@@ -71,14 +71,33 @@ def _mi_mm_njit(a: np.ndarray, b: np.ndarray, K_a: int, K_b: int) -> float:
 
 
 @njit(nogil=True, cache=True)
-def _cmi_mm_njit(x: np.ndarray, y: np.ndarray, z: np.ndarray, K_x: int, K_y: int, K_z: int) -> float:
-    """Miller-Madow-corrected plug-in I(X; Y | Z) on integer codes, unclamped."""
+def _count_positive_1d(P: np.ndarray) -> int:
+    """Number of strictly positive cells in a 1-D table."""
+    m = 0
+    for k in range(P.shape[0]):
+        if P[k] > 0.0:
+            m += 1
+    return m
+
+
+@njit(nogil=True, cache=True)
+def _count_positive_2d(P: np.ndarray) -> int:
+    """Number of strictly positive cells in a 2-D table."""
+    m = 0
+    for i in range(P.shape[0]):
+        for j in range(P.shape[1]):
+            if P[i, j] > 0.0:
+                m += 1
+    return m
+
+
+@njit(nogil=True, cache=True)
+def _cmi_joint_tables_njit(
+    x: np.ndarray, y: np.ndarray, z: np.ndarray, K_x: int, K_y: int, K_z: int
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, int]:
+    """Joint (x, y, z) count table, its z, xz and yz marginals, and the number of occupied joint cells."""
 
     n = x.shape[0]
-
-    if n <= 0:
-
-        return 0.0
 
     # Intentional float64: njit joint-table accumulator; numba cannot call _crit_np_dtype, and the MI sums need exact f64 ties.
     joint = np.zeros((K_x, K_y, K_z), dtype=np.float64)
@@ -116,6 +135,21 @@ def _cmi_mm_njit(x: np.ndarray, y: np.ndarray, z: np.ndarray, K_x: int, K_y: int
 
                 Pyz[j, k] += v
 
+    return joint, Pz, Pxz, Pyz, m_xyz
+
+
+@njit(nogil=True, cache=True)
+def _cmi_mm_njit(x: np.ndarray, y: np.ndarray, z: np.ndarray, K_x: int, K_y: int, K_z: int) -> float:
+    """Miller-Madow-corrected plug-in I(X; Y | Z) on integer codes, unclamped."""
+
+    n = x.shape[0]
+
+    if n <= 0:
+
+        return 0.0
+
+    joint, Pz, Pxz, Pyz, m_xyz = _cmi_joint_tables_njit(x, y, z, K_x, K_y, K_z)
+
     n_f = float(n)
 
     cmi = 0.0
@@ -132,35 +166,13 @@ def _cmi_mm_njit(x: np.ndarray, y: np.ndarray, z: np.ndarray, K_x: int, K_y: int
 
                     cmi += (v / n_f) * math.log((v * Pz[k]) / (Pxz[i, k] * Pyz[j, k]))
 
-    m_z = 0
+    m_z: int = _count_positive_1d(Pz)
 
-    for k in range(K_z):
+    m_xz: int = _count_positive_2d(Pxz)
 
-        if Pz[k] > 0.0:
+    m_yz: int = _count_positive_2d(Pyz)
 
-            m_z += 1
-
-    m_xz = 0
-
-    for i in range(K_x):
-
-        for k in range(K_z):
-
-            if Pxz[i, k] > 0.0:
-
-                m_xz += 1
-
-    m_yz = 0
-
-    for j in range(K_y):
-
-        for k in range(K_z):
-
-            if Pyz[j, k] > 0.0:
-
-                m_yz += 1
-
-    return cmi - (m_xyz - m_xz - m_yz + m_z) / (2.0 * n_f)
+    return float(cmi - (m_xyz - m_xz - m_yz + m_z) / (2.0 * n_f))
 
 
 @njit(nogil=True, cache=True)

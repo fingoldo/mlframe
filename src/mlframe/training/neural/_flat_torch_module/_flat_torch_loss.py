@@ -150,28 +150,8 @@ class _LossMixin(_LossBase):
                 self._warned_zero_weight_batch = True
         return weighted_loss
 
-    def compute_metrics(self, predictions_and_labels: List[Tuple[torch.Tensor, torch.Tensor]], prefix: str = "val") -> None:
-        """
-        Compute and log all metrics given raw predictions and labels.
-        Optimized: compute argmax, softmax, CPU/numpy only if needed, once each.
-
-        Args:
-            predictions_and_labels: List of (raw_predictions, labels) tuples from each batch (on CPU)
-            prefix: Logging prefix ('train' or 'val')
-        """
-        _raw_predictions_parts, _labels_parts = zip(*predictions_and_labels)
-        raw_predictions: torch.Tensor = torch.cat(_raw_predictions_parts)
-        labels: torch.Tensor = torch.cat(_labels_parts)
-
-        need_argmax = any(m.requires_argmax for m in self.metrics)
-        need_softmax = any(m.requires_probs for m in self.metrics)
-        need_cpu = any(m.requires_cpu for m in self.metrics)
-
-        # argmax along the class dim only makes sense for multi-class K>1 logits (shape (N, K)).
-        # Regression (dim==1) or multilabel BCE (each label independent) would silently emit
-        # garbage from raw_predictions.argmax(dim=1); guard explicitly.
-        _is_multiclass = raw_predictions.dim() == 2 and raw_predictions.shape[1] > 1 and self.task_type != "multilabel"
-
+    def _predictions_by_tag(self, raw_predictions: torch.Tensor, _is_multiclass: bool, need_argmax: bool, need_softmax: bool) -> dict[str, Optional[torch.Tensor]]:
+        """Build the ``argmax`` / ``softmax`` prediction tensors each metric may request, keyed by tag."""
         preds_dict: dict[str, Optional[torch.Tensor]] = {}
         if need_argmax:
             if _is_multiclass:
@@ -199,6 +179,47 @@ class _LossMixin(_LossBase):
                 preds_dict["softmax"] = torch.stack([p0, p1], dim=1)
             else:
                 preds_dict["softmax"] = raw_predictions
+
+        return preds_dict
+
+    def _log_metric_value(self, metric: Any, prefix: str, labels_np: Any, preds_np: Any) -> None:
+        """Compute one metric and log it on epoch end; a failing metric is logged and skipped, never raised."""
+        try:
+            value = metric.fcn(y_true=labels_np, y_score=preds_np)
+            self.log(
+                f"{prefix}_{metric.name}",
+                value,
+                prog_bar=True,
+                on_step=False,
+                on_epoch=True,
+                sync_dist=True,
+            )
+        except Exception:  # best-effort: this metric is simply not logged for this step
+            log_throttle(logger, "flat_torch_loss_metric_compute_failed", logging.ERROR, "Failed to compute metric %s_%s", prefix, metric.name, exc_info=True)
+
+    def compute_metrics(self, predictions_and_labels: List[Tuple[torch.Tensor, torch.Tensor]], prefix: str = "val") -> None:
+        """
+        Compute and log all metrics given raw predictions and labels.
+        Optimized: compute argmax, softmax, CPU/numpy only if needed, once each.
+
+        Args:
+            predictions_and_labels: List of (raw_predictions, labels) tuples from each batch (on CPU)
+            prefix: Logging prefix ('train' or 'val')
+        """
+        _raw_predictions_parts, _labels_parts = zip(*predictions_and_labels)
+        raw_predictions: torch.Tensor = torch.cat(_raw_predictions_parts)
+        labels: torch.Tensor = torch.cat(_labels_parts)
+
+        need_argmax = any(m.requires_argmax for m in self.metrics)
+        need_softmax = any(m.requires_probs for m in self.metrics)
+        need_cpu = any(m.requires_cpu for m in self.metrics)
+
+        # argmax along the class dim only makes sense for multi-class K>1 logits (shape (N, K)).
+        # Regression (dim==1) or multilabel BCE (each label independent) would silently emit
+        # garbage from raw_predictions.argmax(dim=1); guard explicitly.
+        _is_multiclass = raw_predictions.dim() == 2 and raw_predictions.shape[1] > 1 and self.task_type != "multilabel"
+
+        preds_dict = self._predictions_by_tag(raw_predictions, _is_multiclass, need_argmax, need_softmax)
 
         labels_cpu = None
         if need_cpu:
@@ -236,15 +257,4 @@ class _LossMixin(_LossBase):
                 preds_np = preds
                 labels_np = labels
 
-            try:
-                value = metric.fcn(y_true=labels_np, y_score=preds_np)
-                self.log(
-                    f"{prefix}_{metric.name}",
-                    value,
-                    prog_bar=True,
-                    on_step=False,
-                    on_epoch=True,
-                    sync_dist=True,
-                )
-            except Exception:  # best-effort: this metric is simply not logged for this step
-                log_throttle(logger, "flat_torch_loss_metric_compute_failed", logging.ERROR, "Failed to compute metric %s_%s", prefix, metric.name, exc_info=True)
+            self._log_metric_value(metric, prefix, labels_np, preds_np)

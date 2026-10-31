@@ -157,6 +157,50 @@ def _maybe_collect_lazy(df):
 # =============================================================================
 
 
+def _fill_nan_1d(vals, nan_filler):
+    """Replace NaN entries of ``vals`` with ``nan_filler``, warning about the MI bias; raises when ``nan_filler`` is None."""
+    # Surface the legacy bias when it actually fires.
+    if nan_filler is None:
+        raise ValueError("categorize_1d_array: input contains NaN and nan_filler=None; " "drop NaN upstream or pick a non-colliding sentinel.")
+    import warnings as _w
+
+    _w.warn(
+        f"categorize_1d_array: filling NaN with {nan_filler!r} biases MI by mixing " "NaN rows with real-equal values. Pass nan_filler=None to raise instead.",
+        stacklevel=3,
+    )
+    vals = pd.Series(vals).fillna(nan_filler).values
+    return vals
+
+
+def _histogram_encode_1d(vals, method, bins):
+    """Ordinal-encode one column by numpy histogram bin edges (``numpy``, or the deprecated ``astropy`` served the same way)."""
+    if method == "numpy":
+        bin_edges = np.histogram_bin_edges(vals, bins=bins if bins is not None else "auto")
+    elif method == "astropy":
+        # Astropy removed from the install graph. The legacy 'astropy'
+        # method used Bayesian-blocks / Knuth-rule binning; both have native numba
+        # implementations elsewhere in the project (see filters/supervised_binning.py).
+        # Until callers migrate, downgrade to numpy's histogram_bin_edges with bin
+        # count derived from the legacy 'bins' arg.
+        _bins_for_numpy = bins if isinstance(bins, (int, np.integer)) else "auto"
+        bin_edges = np.histogram_bin_edges(vals, bins=_bins_for_numpy)
+        logger.info(
+            "categorize_1d_array: method='astropy' is deprecated; " "using numpy histogram_bin_edges(bins=%r). astropy removed from install graph 2026-05-28.",
+            _bins_for_numpy,
+        )
+    else:
+        # pre-fix, an unknown method (typo / "quantile" / "kmeans")
+        # left bin_edges undefined and the next line raised UnboundLocalError. Raise
+        # honestly with the offender so callers see a typed contract failure.
+        raise ValueError(f"categorize_1d_array: unknown method={method!r}; expected one of " "'discretizer', 'numpy', 'astropy'.")
+
+    if bin_edges[0] <= vals.min():
+        bin_edges = bin_edges[1:]
+
+    new_vals = _native_ordinal_encode_2d(np.digitize(vals, bins=bin_edges, right=True))
+    return new_vals
+
+
 def categorize_1d_array(
     vals: np.ndarray,
     min_ncats: int,
@@ -187,17 +231,7 @@ def categorize_1d_array(
         vals = vals.astype(np.int8)
 
     if pd.isna(vals).any():
-        # Surface the legacy bias when it actually fires.
-        if nan_filler is None:
-            raise ValueError("categorize_1d_array: input contains NaN and nan_filler=None; " "drop NaN upstream or pick a non-colliding sentinel.")
-        import warnings as _w
-
-        _w.warn(
-            f"categorize_1d_array: filling NaN with {nan_filler!r} biases MI by mixing "
-            "NaN rows with real-equal values. Pass nan_filler=None to raise instead.",
-            stacklevel=2,
-        )
-        vals = pd.Series(vals).fillna(nan_filler).values
+        vals = _fill_nan_1d(vals, nan_filler)
 
     vals = vals.reshape(-1, 1)
 
@@ -232,31 +266,7 @@ def categorize_1d_array(
             else:
                 new_vals = _native_ordinal_encode_2d(vals)
         else:
-            if method == "numpy":
-                bin_edges = np.histogram_bin_edges(vals, bins=bins if bins is not None else "auto")
-            elif method == "astropy":
-                # Astropy removed from the install graph. The legacy 'astropy'
-                # method used Bayesian-blocks / Knuth-rule binning; both have native numba
-                # implementations elsewhere in the project (see filters/supervised_binning.py).
-                # Until callers migrate, downgrade to numpy's histogram_bin_edges with bin
-                # count derived from the legacy 'bins' arg.
-                _bins_for_numpy = bins if isinstance(bins, (int, np.integer)) else "auto"
-                bin_edges = np.histogram_bin_edges(vals, bins=_bins_for_numpy)
-                logger.info(
-                    "categorize_1d_array: method='astropy' is deprecated; "
-                    "using numpy histogram_bin_edges(bins=%r). astropy removed from install graph 2026-05-28.",
-                    _bins_for_numpy,
-                )
-            else:
-                # pre-fix, an unknown method (typo / "quantile" / "kmeans")
-                # left bin_edges undefined and the next line raised UnboundLocalError. Raise
-                # honestly with the offender so callers see a typed contract failure.
-                raise ValueError(f"categorize_1d_array: unknown method={method!r}; expected one of " "'discretizer', 'numpy', 'astropy'.")
-
-            if bin_edges[0] <= vals.min():
-                bin_edges = bin_edges[1:]
-
-            new_vals = _native_ordinal_encode_2d(np.digitize(vals, bins=bin_edges, right=True))
+            new_vals = _histogram_encode_1d(vals, method, bins)
     else:
         new_vals = _native_ordinal_encode_2d(vals)
 
@@ -511,6 +521,33 @@ from ._count_le_rowmajor import _count_le_2d_rowmajor_njit, _count_le_2d_rowmajo
 _COUNT_LE_MAX_EDGES = 31
 
 
+def _finite_quantile_edges(arr2d: np.ndarray, quantiles: np.ndarray) -> np.ndarray:
+    """``(len(quantiles), n_cols)`` linear-interpolation quantile edge_matrix of every column of a NaN-free ``arr2d`` (sort kernels; bit-identical to ``np.percentile(axis=0)``)."""
+    n_rows, n_cols = arr2d.shape
+    edge_matrix = np.empty((quantiles.shape[0], n_cols), dtype=np.float64)  # Intentional float64: percentile bin edge_matrix compared against the native-dtype column at full precision
+    if n_cols > 0 and n_rows > 0:
+        # Order-statistic indices the kernel's lerp actually reads (lo / lo+1 per
+        # quantile, with the n-1 endpoint clamp). Partitioning at exactly these is O(n)
+        # vs the full O(n log n) sort and bit-identical at the read indices.
+        _vidx = (quantiles / 100.0) * (n_rows - 1)
+        _lo = np.floor(_vidx).astype(np.int64)
+        _kths_set = set()
+        for _l in _lo.tolist():
+            if _l >= n_rows - 1:
+                _kths_set.add(n_rows - 1)
+            else:
+                _kths_set.add(int(_l))
+                _kths_set.add(int(_l) + 1)
+        _kths = np.array(sorted(_kths_set), dtype=np.int64)
+        # Reachable from the FE pair sweep's threaded paths; see mlframe._numba_parallel_guard.
+        with parallel_kernel_entry():
+            if arr2d.dtype == np.float32:
+                _quantile_edges_2d_radix_tiled_njit(np.ascontiguousarray(arr2d), quantiles, edge_matrix)
+            else:
+                _quantile_edges_2d_njit(np.ascontiguousarray(arr2d), quantiles, _kths, edge_matrix)
+    return edge_matrix
+
+
 def discretize_2d_quantile_batch(arr2d: np.ndarray, n_bins: int = 10, dtype: type = np.int8, parallel: bool = False, assume_finite: bool = False) -> np.ndarray:
     """Batch (quantile-only) discretiser: bit-identical to per-column ``discretize_array(method='quantile')``.
 
@@ -568,30 +605,17 @@ def discretize_2d_quantile_batch(arr2d: np.ndarray, n_bins: int = 10, dtype: typ
     # whose result is always False. Skipping it goes straight to the fast ``_quantile_edges_2d_njit``
     # branch; BIT-IDENTICAL by construction on a NaN-free buffer (the scan would pick exactly that branch).
     # Leave the default False so any caller that has NOT scrubbed keeps the safe NaN-aware path.
-    if not assume_finite and np.isnan(arr2d).any():
-        edges = np.nanpercentile(arr2d, quantiles, axis=0)
-    else:
+    nan_cols = None if assume_finite else np.flatnonzero(np.isnan(arr2d).any(axis=0))
+    if nan_cols is not None and nan_cols.size:
+        # only the columns that hold a NaN take the slow ``np.nanpercentile``; the others go through the sort kernels (per column the two give the same edges)
         edges = np.empty((quantiles.shape[0], n_cols), dtype=np.float64)  # Intentional float64: percentile bin edges compared against the native-dtype column at full precision
-        if n_cols > 0 and n_rows > 0:
-            # Order-statistic indices the kernel's lerp actually reads (lo / lo+1 per
-            # quantile, with the n-1 endpoint clamp). Partitioning at exactly these is O(n)
-            # vs the full O(n log n) sort and bit-identical at the read indices.
-            _vidx = (quantiles / 100.0) * (n_rows - 1)
-            _lo = np.floor(_vidx).astype(np.int64)
-            _kths_set = set()
-            for _l in _lo.tolist():
-                if _l >= n_rows - 1:
-                    _kths_set.add(n_rows - 1)
-                else:
-                    _kths_set.add(int(_l))
-                    _kths_set.add(int(_l) + 1)
-            _kths = np.array(sorted(_kths_set), dtype=np.int64)
-            # Reachable from the FE pair sweep's threaded paths; see mlframe._numba_parallel_guard.
-            with parallel_kernel_entry():
-                if arr2d.dtype == np.float32:
-                    _quantile_edges_2d_radix_tiled_njit(np.ascontiguousarray(arr2d), quantiles, edges)
-                else:
-                    _quantile_edges_2d_njit(np.ascontiguousarray(arr2d), quantiles, _kths, edges)
+        clean = np.ones(n_cols, dtype=bool)
+        clean[nan_cols] = False
+        if clean.any():
+            edges[:, clean] = _finite_quantile_edges(arr2d[:, clean], quantiles)
+        edges[:, nan_cols] = np.nanpercentile(arr2d[:, nan_cols], quantiles, axis=0)
+    else:
+        edges = _finite_quantile_edges(arr2d, quantiles)
     out: np.ndarray = np.empty((n_rows, n_cols), dtype=dtype)
     # njit per-column searchsorted (bit-identical to the numpy loop, incl. NaN
     # -> rightmost bin; see ``_searchsorted_2d_right_njit``). ``edges`` is float64 from

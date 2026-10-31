@@ -119,6 +119,36 @@ def _held_out_probe_score(Xfull, *, tr, va, y_enc, classification, binary):
     return fast_r2_score(y_enc[va], m.predict(Xv))
 
 
+def _probe_splits(X_base: np.ndarray, y: np.ndarray, *, classification: bool, n_splits: int, seed: int, groups: np.ndarray | None):
+    """Fold iterator of the uplift probe as ``(split_iter, y_enc, binary, n_splits)``, or ``None`` when the classes or the smallest class cannot support ``n_splits >= 2`` folds.
+
+    Group-disjoint ``GroupKFold`` when at least two groups exist, otherwise stratified (classification) or plain shuffled ``KFold`` (regression). ``n_splits`` is returned clamped to what the folds support.
+    """
+    from sklearn.model_selection import GroupKFold, KFold, StratifiedKFold
+
+    if classification:
+        classes, y_enc = np.unique(y, return_inverse=True)
+        if classes.size < 2:
+            return None
+        binary = classes.size == 2
+        n_splits = min(n_splits, int(np.min(np.bincount(y_enc))))
+        if n_splits < 2:
+            return None
+        if groups is not None and np.unique(groups).size >= 2:
+            n_splits = min(n_splits, int(np.unique(groups).size))
+            split_iter = GroupKFold(n_splits=n_splits).split(X_base, y_enc, groups)
+        else:
+            split_iter = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=seed).split(X_base, y_enc)
+        return split_iter, y_enc, binary, n_splits
+    y_enc = y.astype(_crit_np_dtype())
+    if groups is not None and np.unique(groups).size >= 2:
+        n_splits = min(n_splits, int(np.unique(groups).size))
+        split_iter = GroupKFold(n_splits=n_splits).split(X_base, y_enc, groups)
+    else:
+        split_iter = KFold(n_splits=n_splits, shuffle=True, random_state=seed).split(X_base)
+    return split_iter, y_enc, False, n_splits
+
+
 def measure_feature_uplift(
     X_base: np.ndarray,
     X_eng: np.ndarray,
@@ -160,31 +190,12 @@ def measure_feature_uplift(
         groups = np.asarray(groups).ravel()
         groups = groups[finite] if groups.shape[0] == finite.shape[0] else None
 
-    from sklearn.model_selection import GroupKFold, KFold, StratifiedKFold
+    probe = _probe_splits(X_base, y, classification=classification, n_splits=n_splits, seed=seed, groups=groups)
+    if probe is None:
+        return None
+    split_iter, y_enc, binary, n_splits = probe
 
     X_aug = np.concatenate([X_base, X_eng], axis=1)
-    if classification:
-        classes, y_enc = np.unique(y, return_inverse=True)
-        if classes.size < 2:
-            return None
-        binary = classes.size == 2
-        n_splits = min(n_splits, int(np.min(np.bincount(y_enc))))
-        if n_splits < 2:
-            return None
-        if groups is not None and np.unique(groups).size >= 2:
-            n_splits = min(n_splits, int(np.unique(groups).size))
-            split_iter = GroupKFold(n_splits=n_splits).split(X_base, y_enc, groups)
-        else:
-            split_iter = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=seed).split(X_base, y_enc)
-    else:
-        y_enc = y.astype(_crit_np_dtype())
-        binary = False
-        if groups is not None and np.unique(groups).size >= 2:
-            n_splits = min(n_splits, int(np.unique(groups).size))
-            split_iter = GroupKFold(n_splits=n_splits).split(X_base, y_enc, groups)
-        else:
-            split_iter = KFold(n_splits=n_splits, shuffle=True, random_state=seed).split(X_base)
-
     deltas = []
     # Siblings derived from the SAME raw source share an IDENTICAL X_base/y_enc/seed, so the
     # X_base-only baseline CV score is deterministic across sibling calls - cache it keyed on

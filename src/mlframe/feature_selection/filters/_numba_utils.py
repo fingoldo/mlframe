@@ -15,7 +15,8 @@ import numpy as np
 from numba import njit, prange
 
 from ._quantile_bin_stages import _quantile_crossing_cuts, _quantile_crossing_offsets
-from typing import Any, Optional, Sequence
+from collections.abc import Sequence
+from typing import Any, Optional
 
 from ._njit_key_helpers import arr2str, unpack_and_sort  # noqa: F401 -- re-exported; defined in the leaf so info_theory can import them without a cycle
 
@@ -924,7 +925,9 @@ from ._numba_utils_cross_module import (  # noqa: F401
     corrected_mi_best,
     _relevance_mi_1var_fused,
     _supervised_edges,
+    quantile_bin_block,
     quantile_codes_block,
+    cmi_columns_given_support,
     stratified_cmi,
     stratified_cmi_null,
 )

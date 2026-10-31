@@ -18,6 +18,87 @@ import logging
 logger = logging.getLogger("mlframe.training.core._phase_train_one_target")
 
 
+def _pre_screen_protected_columns(ctx, targets) -> set[str]:
+    """Columns the unsupervised pre-screen must never drop: every target across the suite, cat/text/embedding features, and the group and timestamp columns."""
+    _protected: set[str] = set()
+    # Pre-screen runs ONCE per suite (gated by ctx._pre_screen_done). The protected set
+    # must therefore cover EVERY target across EVERY (target_type, target_name) pair in
+    # the suite, not just the first target's siblings. Pre-fix used the local ``targets``
+    # arg which is target_type-scoped, so a multi-target-type suite (regression + binary)
+    # would protect only the type that won the iteration order and drop its sibling's
+    # target column if it satisfied the variance/null thresholds. Same hazard for
+    # group/timestamp columns referenced via ctx.
+    for _tt_targets in (ctx.target_by_type or {}).values():
+        if isinstance(_tt_targets, dict):
+            _protected.update(str(k) for k in _tt_targets.keys())
+    if isinstance(targets, dict):
+        _protected.update(str(k) for k in targets.keys())
+    # Cat features were meant to be added here but the original code had
+    # ``if ctx.cat_features: pass`` -- a dead no-op that silently dropped categorical
+    # columns from the suite if they happened to be near-constant or near-all-null.
+    # Same for text / embedding features and group / timestamp columns: those carry
+    # semantic meaning the model relies on, so they must never be pre-screened out.
+    if ctx.cat_features:
+        _protected.update(str(c) for c in ctx.cat_features)
+    if getattr(ctx, "text_features", None):
+        _protected.update(str(c) for c in ctx.text_features)
+    if getattr(ctx, "embedding_features", None):
+        _protected.update(str(c) for c in ctx.embedding_features)
+    # Protect the group / timestamp columns from the default-ON pre-screen. Without this, variance/null
+    # pruning can drop the group_id column itself (a high-cardinality string ID looks exactly like a
+    # "near-all-unique string") and break GroupShuffleSplit downstream.
+    #
+    # The names come from the Series the context actually carries. Three earlier "defensive double-source"
+    # blocks probed `ctx.group_id_col`, `ctx.ts_field`, `ctx.extractor`,
+    # `ctx.features_and_targets_extractor`, and `split_config.group_field` / `timestamps_column` /
+    # `ts_column` -- none of which is a slot on `TrainingContext` or a field on `TrainingSplitConfig`. The
+    # dataclass is `slots=True`, so `getattr(..., None)` returned None silently instead of raising, and the
+    # protected set never contained a group or ts name at all. `TrainingContext` addresses these as ARRAYS
+    # (`group_ids_raw`, `group_ids`, `timestamps`), not by column name, so a pandas Series' own `.name` is
+    # the only real source available here; the `use_groups and not _protected` skip below remains the
+    # backstop for everything else.
+    for _series in (getattr(ctx, "group_ids_raw", None), getattr(ctx, "group_ids", None), getattr(ctx, "timestamps", None)):
+        _name = getattr(_series, "name", None)
+        if isinstance(_name, str) and _name:
+            _protected.add(_name)
+    return _protected
+
+
+def _apply_pre_screen_drops(ctx, _drops, _fs_cfg) -> None:
+    """Drop the screened columns from every train, val, test and calibration frame atomically, keeping the raw calibration slice for replay."""
+    from mlframe.feature_selection.pre_screen import apply_drops
+
+    if _drops:
+        # Atomic across all train/val/test mirrors: compute every dropped frame into a staging dict
+        # FIRST, and only reassign ctx attributes once ALL succeed. A per-mirror failure used to leave
+        # some frames with the dropped columns and others without -> schema drift that surfaces later as
+        # an opaque "feature missing" training error. Now any single failure raises (caught by the outer
+        # except, which then SKIPS the whole pre-screen) so no frame is partially dropped.
+        _frame_attrs = (
+            "filtered_train_df", "filtered_val_df",
+            "train_df_pd", "val_df_pd", "test_df_pd",
+            "train_df_polars", "val_df_polars", "test_df_polars",
+            "calib_df",  # the calibration slice is predicted on with the same models; it must lose the same columns
+        )
+        # The raw calib slice is kept for replay: the fitted pipeline still expects the screened columns as input.
+        ctx.calib_df_raw = getattr(ctx, "calib_df", None)
+        _staged: dict[str, object] = {}
+        for _frame_attr in _frame_attrs:
+            _f = getattr(ctx, _frame_attr, None)
+            if _f is not None:
+                _staged[_frame_attr] = apply_drops(_f, _drops)
+        for _frame_attr, _new_f in _staged.items():
+            setattr(ctx, _frame_attr, _new_f)
+        if ctx.verbose:
+            logger.info(
+                "[pre-screen] dropped %d column(s) suite-wide (variance=%s, null_fraction>%s): %s",
+                len(_drops),
+                getattr(getattr(_fs_cfg, "pre_screen", None), "variance_threshold", 0.0),
+                getattr(getattr(_fs_cfg, "pre_screen", None), "null_fraction_threshold", 0.99),
+                _drops[:20] + (["..."] if len(_drops) > 20 else []),
+            )
+
+
 def _maybe_run_unsupervised_pre_screen(ctx, targets):
     """Run the suite-once unsupervised pre-screen if configured and not yet done.
 
@@ -37,48 +118,8 @@ def _maybe_run_unsupervised_pre_screen(ctx, targets):
         # The shorter path avoids triggering ``filters/__init__.py``'s ``from ._legacy import *``,
         # which cascades into ``_numba_utils`` and pays ~0.8s of @njit decorator init on
         # cold-start. Saves that wall on every suite call that doesn't also use MRMR.
-        from mlframe.feature_selection.pre_screen import compute_unsupervised_drops, apply_drops
-        _protected: set[str] = set()
-        # Pre-screen runs ONCE per suite (gated by ctx._pre_screen_done). The protected set
-        # must therefore cover EVERY target across EVERY (target_type, target_name) pair in
-        # the suite, not just the first target's siblings. Pre-fix used the local ``targets``
-        # arg which is target_type-scoped, so a multi-target-type suite (regression + binary)
-        # would protect only the type that won the iteration order and drop its sibling's
-        # target column if it satisfied the variance/null thresholds. Same hazard for
-        # group/timestamp columns referenced via ctx.
-        for _tt_targets in (ctx.target_by_type or {}).values():
-            if isinstance(_tt_targets, dict):
-                _protected.update(str(k) for k in _tt_targets.keys())
-        if isinstance(targets, dict):
-            _protected.update(str(k) for k in targets.keys())
-        # Cat features were meant to be added here but the original code had
-        # ``if ctx.cat_features: pass`` -- a dead no-op that silently dropped categorical
-        # columns from the suite if they happened to be near-constant or near-all-null.
-        # Same for text / embedding features and group / timestamp columns: those carry
-        # semantic meaning the model relies on, so they must never be pre-screened out.
-        if ctx.cat_features:
-            _protected.update(str(c) for c in ctx.cat_features)
-        if getattr(ctx, "text_features", None):
-            _protected.update(str(c) for c in ctx.text_features)
-        if getattr(ctx, "embedding_features", None):
-            _protected.update(str(c) for c in ctx.embedding_features)
-        # Protect the group / timestamp columns from the default-ON pre-screen. Without this, variance/null
-        # pruning can drop the group_id column itself (a high-cardinality string ID looks exactly like a
-        # "near-all-unique string") and break GroupShuffleSplit downstream.
-        #
-        # The names come from the Series the context actually carries. Three earlier "defensive double-source"
-        # blocks probed `ctx.group_id_col`, `ctx.ts_field`, `ctx.extractor`,
-        # `ctx.features_and_targets_extractor`, and `split_config.group_field` / `timestamps_column` /
-        # `ts_column` -- none of which is a slot on `TrainingContext` or a field on `TrainingSplitConfig`. The
-        # dataclass is `slots=True`, so `getattr(..., None)` returned None silently instead of raising, and the
-        # protected set never contained a group or ts name at all. `TrainingContext` addresses these as ARRAYS
-        # (`group_ids_raw`, `group_ids`, `timestamps`), not by column name, so a pandas Series' own `.name` is
-        # the only real source available here; the `use_groups and not _protected` skip below remains the
-        # backstop for everything else.
-        for _series in (getattr(ctx, "group_ids_raw", None), getattr(ctx, "group_ids", None), getattr(ctx, "timestamps", None)):
-            _name = getattr(_series, "name", None)
-            if isinstance(_name, str) and _name:
-                _protected.add(_name)
+        from mlframe.feature_selection.pre_screen import compute_unsupervised_drops
+        _protected = _pre_screen_protected_columns(ctx, targets)
         _split_cfg = getattr(ctx, "split_config", None)
         _split_cfg_use_groups = bool(getattr(_split_cfg, "use_groups", False)) if _split_cfg is not None else False
         if _split_cfg_use_groups and not _protected:
@@ -120,35 +161,7 @@ def _maybe_run_unsupervised_pre_screen(ctx, targets):
         except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
             logger.debug("suppressed: %s", e)
             pass
-        if _drops:
-            # Atomic across all train/val/test mirrors: compute every dropped frame into a staging dict
-            # FIRST, and only reassign ctx attributes once ALL succeed. A per-mirror failure used to leave
-            # some frames with the dropped columns and others without -> schema drift that surfaces later as
-            # an opaque "feature missing" training error. Now any single failure raises (caught by the outer
-            # except, which then SKIPS the whole pre-screen) so no frame is partially dropped.
-            _frame_attrs = (
-                "filtered_train_df", "filtered_val_df",
-                "train_df_pd", "val_df_pd", "test_df_pd",
-                "train_df_polars", "val_df_polars", "test_df_polars",
-                "calib_df",  # the calibration slice is predicted on with the same models; it must lose the same columns
-            )
-            # The raw calib slice is kept for replay: the fitted pipeline still expects the screened columns as input.
-            ctx.calib_df_raw = getattr(ctx, "calib_df", None)
-            _staged: dict[str, object] = {}
-            for _frame_attr in _frame_attrs:
-                _f = getattr(ctx, _frame_attr, None)
-                if _f is not None:
-                    _staged[_frame_attr] = apply_drops(_f, _drops)
-            for _frame_attr, _new_f in _staged.items():
-                setattr(ctx, _frame_attr, _new_f)
-            if ctx.verbose:
-                logger.info(
-                    "[pre-screen] dropped %d column(s) suite-wide (variance=%s, null_fraction>%s): %s",
-                    len(_drops),
-                    getattr(getattr(_fs_cfg, "pre_screen", None), "variance_threshold", 0.0),
-                    getattr(getattr(_fs_cfg, "pre_screen", None), "null_fraction_threshold", 0.99),
-                    _drops[:20] + (["..."] if len(_drops) > 20 else []),
-                )
+        _apply_pre_screen_drops(ctx, _drops, _fs_cfg)
     except Exception as _e:
         # Pre-screen is a perf optimization; never block training on its failure.
         ctx._pre_screen_done = True

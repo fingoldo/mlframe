@@ -64,3 +64,26 @@ def test_column_bit_sets_are_built_once_for_all_blocks_of_one_exact_test(monkeyp
     per_block = gate._permutation_pass_flags_with(lambda m, r: gate.family_null_max(cols, n_x, y, 2, m, r), observed_max, 0.05, 700, 0)
     assert n_shared == 1 and len(built) > 1
     assert np.array_equal(shared, per_block)
+
+
+def test_a_strong_family_is_settled_early_and_flags_equal_the_full_count(monkeypatch):
+    """With a planted signal the batch passes after a few blocks (far fewer null draws than the full count), and with the early stop off the same flags come out after every draw."""
+    from mlframe.feature_selection.filters import _family_maxt_gate as gate
+
+    rng = np.random.default_rng(21)
+    n, k = 3000, 6
+    cols = np.ascontiguousarray(rng.integers(0, 4, size=(k, n)).astype(np.int64))
+    n_x = (cols.max(axis=1) + 1).astype(np.int64)
+    y = np.where(rng.random(n) < 0.85, cols[2] % 2, rng.integers(0, 2, n)).astype(np.int64)
+    observed = np.array([0.35, 0.0002])  # one batch far above the null, one at noise level
+    drawn = []
+    real = gate.family_null_max
+    monkeypatch.setattr(gate, "family_null_max", lambda c, nx, yy, ny, m, r, **kw: (drawn.append(m), real(c, nx, yy, ny, m, r, **kw))[1])
+    early = gate._permutation_pass_flags(cols, n_x, y, 2, observed[:1], 0.01, 9999, 0)
+    n_early = sum(drawn)
+    drawn.clear()
+    monkeypatch.setattr(gate, "_CERTAINTY_DELTA", 0.0)
+    full = gate._permutation_pass_flags(cols, n_x, y, 2, observed[:1], 0.01, 9999, 0)
+    assert np.array_equal(early, full) and bool(early[0])
+    assert n_early < 0.5 * sum(drawn) and sum(drawn) == 9999
+    assert not gate._passes_for_certain(np.array([60]), 1500, 9999, 0.01)  # a count near the limit is never settled early

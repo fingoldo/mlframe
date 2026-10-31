@@ -712,12 +712,63 @@ def _few_distinct_levels(x: np.ndarray, limit: int) -> np.ndarray:
     return out
 
 
+@njit(cache=True)
+def _continuous_quantile_codes(v_row: np.ndarray, n_bins: int, codes_row: np.ndarray) -> int:
+    """Codes of one continuous column into ``codes_row`` (quantile edges, deduplicated); returns the number of distinct codes used."""
+    n = v_row.shape[0]
+    step = 1.0 / n_bins
+    # only the order statistics the edges read are needed, not the whole sort
+    want = np.empty(2 * (n_bins + 1), dtype=np.int64)
+    for b in range(n_bins + 1):
+        q = 1.0 if b == n_bins else b * step
+        virtual = (n - 1) * q
+        i0 = n - 1 if virtual >= n - 1 else int(np.floor(virtual))
+        want[2 * b] = i0
+        want[2 * b + 1] = min(i0 + 1, n - 1)
+    want.sort()
+    nw = 1
+    for b in range(1, want.shape[0]):
+        if want[b] != want[nw - 1]:
+            want[nw] = want[b]
+            nw += 1
+    s = v_row.copy()
+    _multi_select_in_place(s, want[:nw])
+    edges = np.empty(n_bins + 1, dtype=np.float64)  # Intentional float64: quantile edges in numpy's arithmetic (equal codes to the numpy path)
+    m = 0
+    for b in range(n_bins + 1):
+        q = 1.0 if b == n_bins else b * step
+        e = _edge_value(s, q)
+        if m == 0 or e != edges[m - 1]:
+            edges[m] = e
+            m += 1
+    hi_code = max(m - 2, 0)
+    top = 0
+    for i in range(n):
+        x = v_row[i]
+        lo = 0
+        hi = m
+        while lo < hi:
+            mid = (lo + hi) // 2
+            if edges[mid] <= x:
+                lo = mid + 1
+            else:
+                hi = mid
+        c = lo - 1
+        if c < 0:
+            c = 0
+        elif c > hi_code:
+            c = hi_code
+        codes_row[i] = c
+        if c > top:
+            top = c
+    return top + 1
+
+
 @njit(cache=True, parallel=True)
 def quantile_codes_block(v: np.ndarray, n_bins: int, codes: np.ndarray, nx: np.ndarray) -> None:
     """Fill ``codes[j]`` (int16) and ``nx[j]`` for every row ``j`` of ``v`` ``(columns, n)`` exactly as ``_quantile_codes`` does for a finite column."""
     k = v.shape[0]
     n = v.shape[1]
-    step = 1.0 / n_bins
     for j in prange(k):
         levels = _few_distinct_levels(v[j], n_bins)
         d = levels.shape[0]
@@ -735,7 +786,18 @@ def quantile_codes_block(v: np.ndarray, n_bins: int, codes: np.ndarray, nx: np.n
                 codes[j, i] = lo
             nx[j] = d
             continue
-        # only the order statistics the edges read are needed, not the whole sort
+        nx[j] = _continuous_quantile_codes(v[j], n_bins, codes[j])
+
+
+@njit(cache=True, parallel=True)
+def quantile_bin_block(v: np.ndarray, n_bins: int, codes: np.ndarray) -> None:
+    """Fill ``codes[j]`` (an integer matrix) for every row ``j`` of the finite block ``v`` ``(columns, n)`` exactly as the CMI-greedy ``_quantile_bin`` does for a finite column.
+
+    The edges are numpy's linear-interpolation quantiles with the repeated ones dropped; a column with at most two distinct edges collapses to one class, or to the two-class indicator ``x >= edges[1]``."""
+    k = v.shape[0]
+    n = v.shape[1]
+    step = 1.0 / n_bins
+    for j in prange(k):
         want = np.empty(2 * (n_bins + 1), dtype=np.int64)
         for b in range(n_bins + 1):
             q = 1.0 if b == n_bins else b * step
@@ -759,27 +821,83 @@ def quantile_codes_block(v: np.ndarray, n_bins: int, codes: np.ndarray, nx: np.n
             if m == 0 or e != edges[m - 1]:
                 edges[m] = e
                 m += 1
-        hi_code = max(m - 2, 0)
-        top = 0
+        if m <= 2:
+            for i in range(n):
+                codes[j, i] = 1 if (m == 2 and v[j, i] >= edges[1]) else 0
+            continue
         for i in range(n):
             x = v[j, i]
             lo = 0
-            hi = m
+            hi = m - 2
             while lo < hi:
                 mid = (lo + hi) // 2
-                if edges[mid] <= x:
+                if edges[1 + mid] <= x:
                     lo = mid + 1
                 else:
                     hi = mid
-            c = lo - 1
-            if c < 0:
-                c = 0
-            elif c > hi_code:
-                c = hi_code
-            codes[j, i] = c
-            if c > top:
-                top = c
-        nx[j] = top + 1
+            codes[j, i] = lo
+
+
+_CMI_COLUMNS_SPAN_CAP = 4_000_000  # cells of the (x, z) histogram one column may use; a column past it is reported as -1 and scored by the generic path
+
+
+@njit(cache=True)
+def _joint_entropy_codes(a: np.ndarray, b: np.ndarray, a_max: int, b_max: int) -> tuple:
+    """Plug-in entropy and occupied-cell count of the joint of two non-negative int arrays, with the first-seen cell order and arithmetic of ``_joint_entropy_two_dense_njit``; ``k == -1`` past the span cap."""
+    n = a.shape[0]
+    stride = b_max + 1
+    span = (a_max + 1) * stride
+    if span < 0 or span >= _CMI_COLUMNS_SPAN_CAP:
+        return 0.0, -1
+    seen = np.full(span, -1, dtype=np.int32)
+    counts = np.empty(n, dtype=np.int32)
+    nc = 0
+    for i in range(n):
+        k = np.int64(a[i]) * stride + b[i]
+        s = seen[k]
+        if s >= 0:
+            counts[s] += 1
+        else:
+            seen[k] = nc
+            counts[nc] = 1
+            nc += 1
+    h = 0.0
+    inv_n = 1.0 / n
+    for j in range(nc):
+        c = counts[j]
+        p = c * inv_n
+        h -= p * math.log(p)
+    return h, nc
+
+
+@njit(cache=True, parallel=True)
+def cmi_columns_given_support(codes: np.ndarray, z: np.ndarray, yz: np.ndarray, h_z: float, k_z: int, h_yz: float, k_yz: int, out: np.ndarray) -> None:
+    """``out[j]`` = the Miller-Madow corrected ``CMI(codes[j]; y | z)`` of every row of ``codes`` ``(columns, n)``, where ``yz`` is the dense joint id of ``(y, z)``.
+
+    The entropies, cell counts and their combination follow ``_cmi_from_binned`` operation for operation; a column whose histogram passes the span cap gets ``-1``."""
+    kk = codes.shape[0]
+    n = codes.shape[1]
+    z_max = 0
+    yz_max = 0
+    for i in range(n):
+        if z[i] > z_max:
+            z_max = z[i]
+        if yz[i] > yz_max:
+            yz_max = yz[i]
+    for j in prange(kk):
+        x = codes[j]
+        x_max = 0
+        for i in range(n):
+            if x[i] > x_max:
+                x_max = x[i]
+        h_xz, k_xz = _joint_entropy_codes(x, z, x_max, z_max)
+        h_xyz, k_xyz = _joint_entropy_codes(x, yz, x_max, yz_max)
+        if k_xz < 0 or k_xyz < 0:
+            out[j] = -1.0
+            continue
+        cmi_plugin = h_xz + h_yz - h_z - h_xyz
+        bias = (k_xyz + k_z - k_xz - k_yz) / (2.0 * n)
+        out[j] = max(0.0, cmi_plugin - bias)
 
 
 @njit(cache=True)

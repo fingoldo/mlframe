@@ -201,6 +201,11 @@ def run_final_subsumption_prune(
         nested, halves_of = _nesting(recipes, multi, raw_set)
         anchors = _standing_compounds(multi, eng_values, classes_y, y_continuous, seed, nested, halves_of) + halves
         candidates.update({name: eng_values[name] for name in anchors if name in eng_values})
+        # A cluster aggregate is a denoised substitute for its members, so it is never judged redundant against the compounds
+        # built from those same members (that verdict is what removed it after screening had confirmed it).
+        aggregates = {str(getattr(r, "name", "")) for r in recipes if getattr(r, "kind", None) == "cluster_aggregate"}
+        for name in aggregates - set(anchors):
+            candidates.pop(name, None)
         if not anchors:
             return False, selected_vars
         dropped = final_subsumption_prune(candidates, anchors, np.asarray(classes_y).ravel(), y_continuous=y_continuous, seed=seed)

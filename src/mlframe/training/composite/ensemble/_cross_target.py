@@ -510,76 +510,10 @@ class CompositeCrossTargetEnsemble:
         # blend, so the default NNLS / oof_weighted / mean ensembles stay bit-identical.
         _meta = getattr(self, "_meta_model", None)
         if _meta is not None:
-            if len(surviving_idx) == len(self.component_models):
-                _raw = np.asarray(_meta.predict(preds_matrix), dtype=np.float64).reshape(-1)
-                return self._apply_output_calibration(_raw)
-            # A component dropped out at predict time. The meta-model expects the full K-column design it was fit on; we
-            # cannot drop a column without changing its input space. Reconstruct the full matrix, filling the missing
-            # column with that component's OOF/train mean (a neutral, deterministic stand-in), so predict stays a pure
-            # function of the inputs. This is a graceful degradation, NOT a refit.
-            n_rows = preds_matrix.shape[0]
-            full = np.empty((n_rows, len(self.component_models)), dtype=np.float64)
-            _means = getattr(self, "_meta_col_means", None)
-            for col, p in enumerate(per_component):
-                if p is not None:
-                    full[:, col] = p
-                elif _means is not None and col < len(_means):
-                    full[:, col] = float(_means[col])
-                else:
-                    full[:, col] = 0.0
-            logger.warning(
-                "[CompositeCrossTargetEnsemble] %s: %d of %d components dropped out at predict time; filling missing "
-                "meta-stacker columns with per-component means (graceful degradation, no refit).",
-                self.strategy, len(self.component_models) - len(surviving_idx), len(self.component_models),
-            )
-            _raw = np.asarray(_meta.predict(full), dtype=np.float64).reshape(-1)
-            return self._apply_output_calibration(_raw)
+            return self._predict_meta_stacked(per_component, surviving_idx, preds_matrix, _meta)
 
         if not getattr(self, "is_convex", True):
-            # Non-convex strategies (linear_stack, nnls_stack): weights are the raw solver output,
-            # possibly negative (Ridge) or with arbitrary sum (NNLS). When every component is present
-            # predict is the exact deployed stack. When a component drops out at predict time we keep
-            # only the surviving columns' raw weights (plus the linear_stack intercept) -- a NO-REFIT
-            # policy so predict stays a pure deterministic function of the inputs: the same input yields
-            # the same output across repeated / batched calls. The earlier behaviour refit a fresh
-            # solver on a stashed (n_train, K) train matrix, which (a) made predict depend on which
-            # columns dropped, (b) was non-deterministic across batches when different batches lost
-            # different components, and (c) forced a multi-GB stash to survive every pickle. Dropping a
-            # column from a linear stack is a sensible, deterministic fallback; the alternative refit was
-            # not worth the leakage/RAM/non-determinism cost.
-            full_weights = np.asarray(self.weights, dtype=np.float64)
-            full_intercept = float(getattr(self, "_linear_stack_intercept", 0.0))
-            if len(surviving_idx) == len(self.component_models):
-                _raw = (preds_matrix * full_weights[None, :]).sum(axis=1) + full_intercept
-                return self._apply_output_calibration(_raw)
-
-            _intercept = full_intercept if self.strategy == "linear_stack" else 0.0
-            _col_means = getattr(self, "_component_col_means", None)
-            if _col_means is None:  # models pickled before the means were stored keep the stashed OOF design
-                _stash = getattr(self, "_linear_stack_train_preds", None)
-                if _stash is None:
-                    _stash = getattr(self, "_nnls_stack_train_preds", None)
-                if _stash is not None and np.asarray(_stash).size:
-                    _col_means = np.asarray(_stash, dtype=np.float64).mean(axis=0).tolist()
-            logger.warning(
-                "[CompositeCrossTargetEnsemble] %s: %d of %d components dropped out at predict time; %s "
-                "(no refit, deterministic).",
-                self.strategy, len(self.component_models) - len(surviving_idx), len(self.component_models),
-                "filling their columns with the per-component OOF means" if _col_means is not None else "combining the surviving columns with their original weights",
-            )
-            if _col_means is None:
-                # Nothing to stand in with: the sum is short by the dropped components' contribution.
-                _raw = (preds_matrix * full_weights[surviving_idx][None, :]).sum(axis=1) + _intercept
-                return self._apply_output_calibration(_raw)
-            # The weights are the raw solver output for the FULL design, so dropping a column shrinks the prediction by
-            # that component's whole contribution (a 0.5-weight dropout halved the served forecast). Rebuilding the design
-            # with the component's own mean keeps every surviving weight the one it was solved with, and stays a pure
-            # function of the inputs.
-            full = np.empty((preds_matrix.shape[0], len(self.component_models)), dtype=np.float64)
-            for col, p in enumerate(per_component):
-                full[:, col] = p if p is not None else float(_col_means[col]) if col < len(_col_means) else 0.0
-            _raw = (full * full_weights[None, :]).sum(axis=1) + _intercept
-            return self._apply_output_calibration(_raw)
+            return self._predict_nonconvex(per_component, surviving_idx, preds_matrix)
 
         # Convex strategies (mean / oof_weighted): re-normalise across surviving components.
         if weights.sum() <= 0:
@@ -589,6 +523,80 @@ class CompositeCrossTargetEnsemble:
         else:
             weights = weights / weights.sum()
         _raw = (preds_matrix * weights[None, :]).sum(axis=1)
+        return self._apply_output_calibration(_raw)
+
+    def _predict_meta_stacked(self, per_component, surviving_idx, preds_matrix, _meta) -> np.ndarray:
+        """Blend through an attached meta-stacker, filling a dropped component with its training mean instead of refitting."""
+        if len(surviving_idx) == len(self.component_models):
+            _raw = np.asarray(_meta.predict(preds_matrix), dtype=np.float64).reshape(-1)
+            return self._apply_output_calibration(_raw)
+        # A component dropped out at predict time. The meta-model expects the full K-column design it was fit on; we
+        # cannot drop a column without changing its input space. Reconstruct the full matrix, filling the missing
+        # column with that component's OOF/train mean (a neutral, deterministic stand-in), so predict stays a pure
+        # function of the inputs. This is a graceful degradation, NOT a refit.
+        n_rows = preds_matrix.shape[0]
+        full = np.empty((n_rows, len(self.component_models)), dtype=np.float64)
+        _means = getattr(self, "_meta_col_means", None)
+        for col, p in enumerate(per_component):
+            if p is not None:
+                full[:, col] = p
+            elif _means is not None and col < len(_means):
+                full[:, col] = float(_means[col])
+            else:
+                full[:, col] = 0.0
+        logger.warning(
+            "[CompositeCrossTargetEnsemble] %s: %d of %d components dropped out at predict time; filling missing "
+            "meta-stacker columns with per-component means (graceful degradation, no refit).",
+            self.strategy, len(self.component_models) - len(surviving_idx), len(self.component_models),
+        )
+        _raw = np.asarray(_meta.predict(full), dtype=np.float64).reshape(-1)
+        return self._apply_output_calibration(_raw)
+
+    def _predict_nonconvex(self, per_component, surviving_idx, preds_matrix) -> np.ndarray:
+        """Predict with the raw non-convex stack weights (linear_stack / nnls_stack); a dropped component is stood in for, never refit."""
+        # Non-convex strategies (linear_stack, nnls_stack): weights are the raw solver output,
+        # possibly negative (Ridge) or with arbitrary sum (NNLS). When every component is present
+        # predict is the exact deployed stack. When a component drops out at predict time we keep
+        # only the surviving columns' raw weights (plus the linear_stack intercept) -- a NO-REFIT
+        # policy so predict stays a pure deterministic function of the inputs: the same input yields
+        # the same output across repeated / batched calls. The earlier behaviour refit a fresh
+        # solver on a stashed (n_train, K) train matrix, which (a) made predict depend on which
+        # columns dropped, (b) was non-deterministic across batches when different batches lost
+        # different components, and (c) forced a multi-GB stash to survive every pickle. Dropping a
+        # column from a linear stack is a sensible, deterministic fallback; the alternative refit was
+        # not worth the leakage/RAM/non-determinism cost.
+        full_weights = np.asarray(self.weights, dtype=np.float64)
+        full_intercept = float(getattr(self, "_linear_stack_intercept", 0.0))
+        if len(surviving_idx) == len(self.component_models):
+            _raw = (preds_matrix * full_weights[None, :]).sum(axis=1) + full_intercept
+            return self._apply_output_calibration(_raw)
+
+        _intercept = full_intercept if self.strategy == "linear_stack" else 0.0
+        _col_means = getattr(self, "_component_col_means", None)
+        if _col_means is None:  # models pickled before the means were stored keep the stashed OOF design
+            _stash = getattr(self, "_linear_stack_train_preds", None)
+            if _stash is None:
+                _stash = getattr(self, "_nnls_stack_train_preds", None)
+            if _stash is not None and np.asarray(_stash).size:
+                _col_means = np.asarray(_stash, dtype=np.float64).mean(axis=0).tolist()
+        logger.warning(
+            "[CompositeCrossTargetEnsemble] %s: %d of %d components dropped out at predict time; %s "
+            "(no refit, deterministic).",
+            self.strategy, len(self.component_models) - len(surviving_idx), len(self.component_models),
+            "filling their columns with the per-component OOF means" if _col_means is not None else "combining the surviving columns with their original weights",
+        )
+        if _col_means is None:
+            # Nothing to stand in with: the sum is short by the dropped components' contribution.
+            _raw = (preds_matrix * full_weights[surviving_idx][None, :]).sum(axis=1) + _intercept
+            return self._apply_output_calibration(_raw)
+        # The weights are the raw solver output for the FULL design, so dropping a column shrinks the prediction by
+        # that component's whole contribution (a 0.5-weight dropout halved the served forecast). Rebuilding the design
+        # with the component's own mean keeps every surviving weight the one it was solved with, and stays a pure
+        # function of the inputs.
+        full = np.empty((preds_matrix.shape[0], len(self.component_models)), dtype=np.float64)
+        for col, p in enumerate(per_component):
+            full[:, col] = p if p is not None else float(_col_means[col]) if col < len(_col_means) else 0.0
+        _raw = (full * full_weights[None, :]).sum(axis=1) + _intercept
         return self._apply_output_calibration(_raw)
 
     # ------------------------------------------------------------------

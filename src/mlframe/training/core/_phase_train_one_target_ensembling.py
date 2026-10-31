@@ -291,6 +291,30 @@ def _chosen_blend_result(ensembles, chosen_flavour):
     return result, getattr(result, "val_probs", None)
 
 
+def _stamp_decision_threshold(key: str, probs, label: str, owner=None, owner_name: str = "", *, thresholds, paths, y, tune, metric, verbose, report_tuned, fallback_targets) -> None:
+    """Record the decision threshold and how it was chosen for ``key``: tuned on ``probs``, or the 0.5 default."""
+    import numpy as _np
+    from ._setup_helpers import tune_decision_threshold as _tune
+
+    if not tune:
+        thresholds[key], paths[key] = 0.5, "default_0.5"
+        return
+    arr = _np.asarray(probs)
+    pos = arr[:, 1] if arr.ndim == 2 and arr.shape[1] >= 2 else arr.ravel()
+    if pos.shape[0] != y.shape[0]:
+        return  # a confidence-filtered subset cannot be scored against the full val target
+    thresholds[key] = float(_tune(y, pos, metric=metric))
+    paths[key] = "tuned"
+    if verbose:
+        logger.info("tuned decision threshold for %s: %.4f (metric=%s, val, %s)", key, thresholds[key], metric, label)
+    if report_tuned and owner is not None:
+        from ._tuned_threshold_report import log_tuned_threshold_report
+
+        log_tuned_threshold_report(
+            label=owner_name or key, owner=owner, threshold=thresholds[key], metric=metric, fallback_targets=fallback_targets,
+        )
+
+
 def _tune_decision_thresholds(
     *, ens_models, target_type, cur_target_name, behavior_config, common_params, metadata, verbose,
     current_val_target=None, ensembles=None, chosen_flavour=None,
@@ -321,7 +345,7 @@ def _tune_decision_thresholds(
         if val_target is None:
             return
         import numpy as _np
-        from ._setup_helpers import should_tune_decision_threshold as _should_tune, tune_decision_threshold as _tune
+        from ._setup_helpers import should_tune_decision_threshold as _should_tune
 
         y = _np.asarray(val_target).ravel()
         target_key = f"{target_type}|{cur_target_name}"
@@ -336,25 +360,12 @@ def _tune_decision_thresholds(
             "test": common_params.get("test_target") if isinstance(common_params, dict) else None,
         }
 
-        def _stamp(key: str, probs, label: str, owner=None, owner_name: str = "") -> None:
-            """Record the decision threshold and how it was chosen for ``key``: tuned on ``probs``, or the 0.5 default."""
-            if not tune:
-                thresholds[key], paths[key] = 0.5, "default_0.5"
-                return
-            arr = _np.asarray(probs)
-            pos = arr[:, 1] if arr.ndim == 2 and arr.shape[1] >= 2 else arr.ravel()
-            if pos.shape[0] != y.shape[0]:
-                return  # a confidence-filtered subset cannot be scored against the full val target
-            thresholds[key] = float(_tune(y, pos, metric=metric))
-            paths[key] = "tuned"
-            if verbose:
-                logger.info("tuned decision threshold for %s: %.4f (metric=%s, val, %s)", key, thresholds[key], metric, label)
-            if report_tuned and owner is not None:
-                from ._tuned_threshold_report import log_tuned_threshold_report
+        import functools as _functools
 
-                log_tuned_threshold_report(
-                    label=owner_name or key, owner=owner, threshold=thresholds[key], metric=metric, fallback_targets=_fallback_targets,
-                )
+        _stamp = _functools.partial(
+            _stamp_decision_threshold, thresholds=thresholds, paths=paths, y=y, tune=tune, metric=metric,
+            verbose=verbose, report_tuned=report_tuned, fallback_targets=_fallback_targets,
+        )
 
         member_probs = [(i, m, _member_val_probs(m)) for i, m in enumerate(ens_models or [])]
         member_probs = [(i, m, p) for i, m, p in member_probs if p is not None]

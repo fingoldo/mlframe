@@ -591,42 +591,11 @@ class ICE:
         # used to score perfectly on every iteration and freeze early stopping at iteration 1. CatBoost rejects a non-finite
         # custom metric value, hence a large finite one.
         _skip_value = -ICE_UNCOMPUTABLE if self.higher_is_better else ICE_UNCOMPUTABLE
-        sample_n = 0
-        if self.max_arr_size and n_rows > self.max_arr_size:
-            sample_n = int(self.max_arr_size)
-        elif getattr(self, "skip_largest_set", False):
-            self._seen_sizes.add(n_rows)
-            if getattr(self, "_learn_size", None) is None:
-                self._learn_size = n_rows
-            if len(self._seen_sizes) > 1 and n_rows == self._learn_size:
-                sample_n = int(getattr(self, "learn_sample_size", 50_000) or 0)
-                if sample_n <= 0:
-                    return _skip_value, output_weight
-        if sample_n:
-            if not getattr(self, "subsample_skipped_sets", True):
-                return _skip_value, output_weight
-            if sample_n < n_rows:
-                idx = self._subsample_index(n_rows, sample_n)
-                approxes = [np.asarray(a)[idx] for a in approxes]
-                target = np.asarray(target)[idx]
-                if weight is not None:
-                    weight = np.asarray(weight)[idx]
+        approxes, target, weight, skipped = self._subsample_eval_set(approxes, target, weight, n_rows)
+        if skipped:
+            return _skip_value, output_weight
 
-        # A weighted fit (fairness / inverse-frequency / recency weights) is scored with the same per-row weights, so the
-        # metric driving early stopping describes the sample the loss minimises. Equal weights change nothing and are
-        # not passed. A custom ``metric`` that takes no ``sample_weight`` is scored unweighted, said once per fit.
-        metric_kwargs = {}
-        if weight is not None:
-            w = np.asarray(weight, dtype=np.float64)
-            if w.size and not np.all(w == w[0]):
-                if _accepts_sample_weight(self.metric):
-                    metric_kwargs["sample_weight"] = w
-                elif not self._sample_weights_checked:
-                    self._sample_weights_checked = True
-                    logger.warning(
-                        "ICE: this fit carries per-row sample weights but the metric %r takes no sample_weight, so the value "
-                        "driving early stopping is unweighted.", self.metric,
-                    )
+        metric_kwargs = self._weight_metric_kwargs(weight)
 
         # Convert CatBoost logits to probabilities using numba-optimized functions
         from .core import cb_logits_to_probs_binary, cb_logits_to_probs_multiclass  # lazy: import-cycle, see module top
@@ -651,26 +620,79 @@ class ICE:
         # Additional visualization of training process (for the last class_id) is possible.
 
         if self.calibration_plot_period and (self.calibration_plot_period > 0 and (self.nruns % self.calibration_plot_period == 0)):
-            y_true = (target == class_id).astype(np.int8)
-            # fast_calibration_report shows/saves the plot itself (show_plots defaults True, plot_file
-            # opts into a disk copy); ``fig`` here is only the resulting Figure handle. Pre-fix it was
-            # silently discarded -- harmless for the show/save side effect (already done internally) but
-            # the unclosed Figure object leaked memory every ``calibration_plot_period`` training
-            # iterations over a long run. Always close it once logged.
-            _, _, _, _, _, _, _, _, *_, metrics_string, fig = fast_calibration_report(
-                y_true=y_true,
-                y_pred=y_pred,
-                title=f"{len(approxes[0]):_} records of class {class_id}, integral error={total_error:.4f}, nruns={self.nruns:_}\r\n",
-                use_weights=True,
-                verbose=False,
-                plot_file=self.plot_file or "",
-            )
-            logger.info(metrics_string)
-            if fig is not None:
-                import matplotlib.pyplot as _plt
-                _plt.close(fig)
+            self._log_calibration_report(approxes, target, y_pred, class_id, total_error)
 
         return total_error, output_weight
+
+    def _log_calibration_report(self, approxes, target, y_pred, class_id, total_error) -> None:
+        """Log the calibration report for ``class_id`` and close the figure it returns."""
+        y_true = (target == class_id).astype(np.int8)
+        # fast_calibration_report shows/saves the plot itself (show_plots defaults True, plot_file
+        # opts into a disk copy); ``fig`` here is only the resulting Figure handle. Pre-fix it was
+        # silently discarded -- harmless for the show/save side effect (already done internally) but
+        # the unclosed Figure object leaked memory every ``calibration_plot_period`` training
+        # iterations over a long run. Always close it once logged.
+        _, _, _, _, _, _, _, _, *_, metrics_string, fig = fast_calibration_report(
+            y_true=y_true,
+            y_pred=y_pred,
+            title=f"{len(approxes[0]):_} records of class {class_id}, integral error={total_error:.4f}, nruns={self.nruns:_}\r\n",
+            use_weights=True,
+            verbose=False,
+            plot_file=self.plot_file or "",
+        )
+        logger.info(metrics_string)
+        if fig is not None:
+            import matplotlib.pyplot as _plt
+            _plt.close(fig)
+
+    def _subsample_eval_set(self, approxes, target, weight, n_rows: int):
+        """Apply the size-based subsampling policy to one eval set.
+
+        Returns ``(approxes, target, weight, skipped)``; ``skipped`` is True when this set is deliberately left unscored
+        (``subsample_skipped_sets=False``).
+        """
+        sample_n = 0
+        if self.max_arr_size and n_rows > self.max_arr_size:
+            sample_n = int(self.max_arr_size)
+        elif getattr(self, "skip_largest_set", False):
+            self._seen_sizes.add(n_rows)
+            if getattr(self, "_learn_size", None) is None:
+                self._learn_size = n_rows
+            if len(self._seen_sizes) > 1 and n_rows == self._learn_size:
+                sample_n = int(getattr(self, "learn_sample_size", 50_000) or 0)
+                if sample_n <= 0:
+                    return approxes, target, weight, True
+        if sample_n:
+            if not getattr(self, "subsample_skipped_sets", True):
+                return approxes, target, weight, True
+            if sample_n < n_rows:
+                idx = self._subsample_index(n_rows, sample_n)
+                approxes = [np.asarray(a)[idx] for a in approxes]
+                target = np.asarray(target)[idx]
+                if weight is not None:
+                    weight = np.asarray(weight)[idx]
+        return approxes, target, weight, False
+
+    def _weight_metric_kwargs(self, weight) -> dict:
+        """Build the ``sample_weight`` kwarg for the metric call.
+
+        A weighted fit (fairness / inverse-frequency / recency weights) is scored with the same per-row weights, so the
+        metric driving early stopping describes the sample the loss minimises. Equal weights change nothing and are
+        not passed. A custom ``metric`` that takes no ``sample_weight`` is scored unweighted, said once per fit.
+        """
+        metric_kwargs = {}
+        if weight is not None:
+            w = np.asarray(weight, dtype=np.float64)
+            if w.size and not np.all(w == w[0]):
+                if _accepts_sample_weight(self.metric):
+                    metric_kwargs["sample_weight"] = w
+                elif not self._sample_weights_checked:
+                    self._sample_weights_checked = True
+                    logger.warning(
+                        "ICE: this fit carries per-row sample weights but the metric %r takes no sample_weight, so the value "
+                        "driving early stopping is unweighted.", self.metric,
+                    )
+        return metric_kwargs
 
     def get_final_error(self, error, weight):
         """CatBoost custom-metric protocol hook: the per-iteration error IS the final error (no cross-batch aggregation needed)."""

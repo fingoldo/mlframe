@@ -355,6 +355,18 @@ def _coerce_cat_dtype_for_lgb_xgb(input_for_model, *, model, cat_features, enum_
     """
     if not cat_features or not hasattr(input_for_model, "columns"):
         return input_for_model
+    _is_lgb, _is_xgb, _is_hgb = _cat_dtype_model_families(model)
+    if not (_is_lgb or _is_xgb or _is_hgb):
+        return input_for_model
+    if not isinstance(input_for_model, pl.DataFrame):
+        return _cast_pandas_cat_cols(input_for_model, cat_features, _is_lgb=_is_lgb, _is_xgb=_is_xgb)
+    if _is_xgb:
+        return _cast_polars_xgb_cat_cols(input_for_model, cat_features, enum_domains)
+    return input_for_model
+
+
+def _cat_dtype_model_families(model) -> tuple[bool, bool, bool]:
+    """Return ``(is_lgb, is_xgb, is_hgb)`` for ``model``, scanning Pipeline steps for HGB."""
     _model_module = type(model).__module__ or ""
     _model_cls_name = type(model).__name__
     _is_lgb = _model_module.startswith("lightgbm") or _model_module.endswith("lgb_shim") or "LGBM" in _model_cls_name
@@ -365,63 +377,66 @@ def _coerce_cat_dtype_for_lgb_xgb(input_for_model, *, model, cat_features, enum_
         # scanning each step's class name too, in case a caller ever wraps
         # HGB in a Pipeline (LGB/XGB never are, in this codebase).
         _is_hgb = any("HistGradientBoosting" in type(_step).__name__ for _, _step in getattr(model, "steps", []))
-    if not (_is_lgb or _is_xgb or _is_hgb):
-        return input_for_model
+    return _is_lgb, _is_xgb, _is_hgb
 
-    # Pandas path (LGB + XGB + HGB all use the same assign(**dict) pattern --
-    # the prior implementation's input_for_model.copy() allocated a fresh
-    # copy of every column even when only 1-2 cat cols needed casting; the
-    # assign(**) keeps BlockManager-level reuse for un-cast columns on
-    # pandas >= 2.0, the biggest single allocation saving on wide frames).
-    if not isinstance(input_for_model, pl.DataFrame):
-        _to_cast: dict[str, Any] = {}
-        for _cf in cat_features:
-            if _cf not in input_for_model.columns:
-                continue
-            try:
-                if input_for_model[_cf].dtype.name != "category":
-                    _to_cast[_cf] = input_for_model[_cf].astype("category")
-            except Exception as _exc:
-                logger.debug(
-                    "predict_from_models: %s cat-cast for %r failed (%s); leaving as-is",
-                    "LGB" if _is_lgb else ("XGB" if _is_xgb else "HGB"), _cf, type(_exc).__name__,
-                )
-        if _to_cast:
-            input_for_model = input_for_model.assign(**_to_cast)
-        return input_for_model
 
-    # Polars path: only the XGB branch needs this -- LGB on polars reads
-    # categorical dtype natively without an explicit cast.
-    if _is_xgb:
-        _pl_cast_exprs = []
-        _enum_domains = enum_domains or {}
-        for _cf in cat_features:
-            if _cf not in input_for_model.columns:
-                continue
-            _dt = input_for_model.schema.get(_cf)
-            if _dt in (pl.String, pl.Utf8) or str(_dt).startswith("LargeString"):
-                _dom = _enum_domains.get(_cf)
-                if _dom:
-                    # Persisted Enum domain from training: out-of-domain values cast to null via strict=False (matches training semantics for "truly unseen" test categories) and avoids widening the polars global string cache.
-                    _pl_cast_exprs.append(pl.col(_cf).cast(pl.Enum(list(_dom)), strict=False))
-                else:
-                    # Legacy bundle without persisted enum_domains: fall back to pl.Categorical with a one-time WARN. Categorical participates in the process-wide string cache that grows monotonically; subsequent inference calls accumulate stale categories. Re-train + re-save the bundle to populate enum_domains.
-                    log_throttle(
-                        logger,
-                        "predict_xgb_polars_categorical_fallback",
-                        logging.WARNING,
-                        "predict_from_models: XGB polars cat-cast for %r falling back to pl.Categorical (no enum_domains in bundle). Widens global string cache; re-train+save to persist enum domain.",
-                        _cf,
-                    )
-                    _pl_cast_exprs.append(pl.col(_cf).cast(pl.Categorical))
-        if _pl_cast_exprs:
-            try:
-                input_for_model = input_for_model.with_columns(_pl_cast_exprs)
-            except Exception as _exc:
-                logger.debug(
-                    "predict_from_models: XGB polars cat-cast failed (%s); leaving as-is",
-                    type(_exc).__name__,
+def _cast_pandas_cat_cols(input_for_model, cat_features, *, _is_lgb: bool, _is_xgb: bool):
+    """Cast non-category ``cat_features`` to pandas ``category`` via a single ``assign`` call.
+
+    Pandas path for LGB + XGB + HGB. ``assign(**)`` keeps BlockManager-level reuse for un-cast
+    columns on pandas >= 2.0, the biggest single allocation saving on wide frames.
+    """
+    _to_cast: dict[str, Any] = {}
+    for _cf in cat_features:
+        if _cf not in input_for_model.columns:
+            continue
+        try:
+            if input_for_model[_cf].dtype.name != "category":
+                _to_cast[_cf] = input_for_model[_cf].astype("category")
+        except Exception as _exc:
+            logger.debug(
+                "predict_from_models: %s cat-cast for %r failed (%s); leaving as-is",
+                "LGB" if _is_lgb else ("XGB" if _is_xgb else "HGB"), _cf, type(_exc).__name__,
+            )
+    if _to_cast:
+        input_for_model = input_for_model.assign(**_to_cast)
+    return input_for_model
+
+
+def _cast_polars_xgb_cat_cols(input_for_model, cat_features, enum_domains):
+    """Cast polars String cat columns to ``pl.Enum`` (persisted domain) or ``pl.Categorical`` (legacy bundle).
+
+    Polars path, XGB only: LGB on polars reads categorical dtype natively without an explicit cast.
+    """
+    _pl_cast_exprs = []
+    _enum_domains = enum_domains or {}
+    for _cf in cat_features:
+        if _cf not in input_for_model.columns:
+            continue
+        _dt = input_for_model.schema.get(_cf)
+        if _dt in (pl.String, pl.Utf8) or str(_dt).startswith("LargeString"):
+            _dom = _enum_domains.get(_cf)
+            if _dom:
+                # Persisted Enum domain from training: out-of-domain values cast to null via strict=False (matches training semantics for "truly unseen" test categories) and avoids widening the polars global string cache.
+                _pl_cast_exprs.append(pl.col(_cf).cast(pl.Enum(list(_dom)), strict=False))
+            else:
+                # Legacy bundle without persisted enum_domains: fall back to pl.Categorical with a one-time WARN. Categorical participates in the process-wide string cache that grows monotonically; subsequent inference calls accumulate stale categories. Re-train + re-save the bundle to populate enum_domains.
+                log_throttle(
+                    logger,
+                    "predict_xgb_polars_categorical_fallback",
+                    logging.WARNING,
+                    "predict_from_models: XGB polars cat-cast for %r falling back to pl.Categorical (no enum_domains in bundle). Widens global string cache; re-train+save to persist enum domain.",
+                    _cf,
                 )
+                _pl_cast_exprs.append(pl.col(_cf).cast(pl.Categorical))
+    if _pl_cast_exprs:
+        try:
+            input_for_model = input_for_model.with_columns(_pl_cast_exprs)
+        except Exception as _exc:
+            logger.debug(
+                "predict_from_models: XGB polars cat-cast failed (%s); leaving as-is",
+                type(_exc).__name__,
+            )
     return input_for_model
 
 

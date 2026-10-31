@@ -323,6 +323,51 @@ def _multiclass_loss_from_proba(proba, y_ev, metric):
     return float(log_loss(y_ev, np.clip(proba, 1e-7, 1.0), labels=all_labels))
 
 
+def _honest_loss_disk_lookup(disk_cache, model_template, X_tr, y_tr, X_ev, y_ev, idx, classification, metric, seed, n_estimators_cap, template_id):
+    """Return ``(disk_key, disk_hit)`` for an honest-loss retrain; ``disk_key`` is None when the key cannot be built."""
+    disk_key = _build_honest_loss_disk_key(
+        model_template, X_tr, y_tr, X_ev, y_ev, idx, classification, metric, seed,
+        n_estimators_cap, template_id,
+    )
+    if disk_key is None:
+        return None, None
+    try:
+        disk_hit = disk_cache.get(disk_key)
+    except Exception as exc:
+        logger.warning("_honest_loss: disk cache get failed (%s); skipping", exc)
+        disk_hit = None
+    return disk_key, disk_hit
+
+
+def _fit_and_score_honest(model_template, X_tr, y_tr, X_ev, y_ev, idx, classification, metric, seed, inner_n_jobs, n_estimators_cap) -> float:
+    """Fit a fresh clone of ``model_template`` on the columns ``idx`` and return its holdout loss."""
+    cols = list(idx)
+    est = clone(model_template)
+    if n_estimators_cap is not None:
+        _try_cap_n_estimators(est, n_estimators_cap)
+    if seed is not None and hasattr(est, "random_state"):
+        try:
+            est.set_params(random_state=int(seed))
+        except (ValueError, TypeError):
+            pass
+    # Cap per-fit threads when many fits run in parallel (avoid CPU oversubscription).
+    if inner_n_jobs is not None and hasattr(est, "n_jobs"):
+        try:
+            est.set_params(n_jobs=int(inner_n_jobs))
+        except (ValueError, TypeError):
+            pass
+    # Numpy-slice the fit/predict columns (strip pandas feature names -> xgboost skips the
+    # per-call ``from_cstr_to_pystr`` + ``_validate_features`` marshalling; bit-identical, see
+    # ``_slice_cols_to_numpy``). Same ``cols`` order on both sides keeps positional == named.
+    est.fit(_slice_cols_to_numpy(X_tr, cols), y_tr)
+    X_ev_arr = _slice_cols_to_numpy(X_ev, cols)
+    if classification:
+        p = _positive_class_proba(est, X_ev_arr)
+    else:
+        p = est.predict(X_ev_arr)
+    return float(_loss_from_predictions(p, y_ev, classification, metric))
+
+
 def _honest_loss(model_template, X_tr, y_tr, X_ev, y_ev, idx, classification, metric, seed=None,
                  inner_n_jobs=None, cache=None, n_estimators_cap=None, template_id=None,
                  disk_cache=None):
@@ -360,48 +405,21 @@ def _honest_loss(model_template, X_tr, y_tr, X_ev, y_ev, idx, classification, me
     # (None key) and DiskCache.get failure both degrade silently to the compute path.
     disk_key = None
     if disk_cache is not None:
-        disk_key = _build_honest_loss_disk_key(
-            model_template, X_tr, y_tr, X_ev, y_ev, idx, classification, metric, seed,
+        disk_key, disk_hit = _honest_loss_disk_lookup(
+            disk_cache, model_template, X_tr, y_tr, X_ev, y_ev, idx, classification, metric, seed,
             n_estimators_cap, template_id,
         )
-        if disk_key is not None:
-            try:
-                disk_hit = disk_cache.get(disk_key)
-            except Exception as exc:
-                logger.warning("_honest_loss: disk cache get failed (%s); skipping", exc)
-                disk_hit = None
-            if disk_hit is not None:
-                # Warm the in-memory cache too, so further same-fit calls don't pay the disk
-                # round-trip cost for what is now a known-deterministic value.
-                if cache is not None:
-                    cache.put(idx, seed, float(disk_hit), template_id)
-                return float(disk_hit)
+        if disk_hit is not None:
+            # Warm the in-memory cache too, so further same-fit calls don't pay the disk
+            # round-trip cost for what is now a known-deterministic value.
+            if cache is not None:
+                cache.put(idx, seed, float(disk_hit), template_id)
+            return float(disk_hit)
 
-    cols = list(idx)
-    est = clone(model_template)
-    if n_estimators_cap is not None:
-        _try_cap_n_estimators(est, n_estimators_cap)
-    if seed is not None and hasattr(est, "random_state"):
-        try:
-            est.set_params(random_state=int(seed))
-        except (ValueError, TypeError):
-            pass
-    # Cap per-fit threads when many fits run in parallel (avoid CPU oversubscription).
-    if inner_n_jobs is not None and hasattr(est, "n_jobs"):
-        try:
-            est.set_params(n_jobs=int(inner_n_jobs))
-        except (ValueError, TypeError):
-            pass
-    # Numpy-slice the fit/predict columns (strip pandas feature names -> xgboost skips the
-    # per-call ``from_cstr_to_pystr`` + ``_validate_features`` marshalling; bit-identical, see
-    # ``_slice_cols_to_numpy``). Same ``cols`` order on both sides keeps positional == named.
-    est.fit(_slice_cols_to_numpy(X_tr, cols), y_tr)
-    X_ev_arr = _slice_cols_to_numpy(X_ev, cols)
-    if classification:
-        p = _positive_class_proba(est, X_ev_arr)
-    else:
-        p = est.predict(X_ev_arr)
-    loss = _loss_from_predictions(p, y_ev, classification, metric)
+    loss = _fit_and_score_honest(
+        model_template, X_tr, y_tr, X_ev, y_ev, idx, classification, metric, seed,
+        inner_n_jobs, n_estimators_cap,
+    )
     if cache is not None:
         cache.put(idx, seed, loss, template_id)
     if disk_cache is not None and disk_key is not None:

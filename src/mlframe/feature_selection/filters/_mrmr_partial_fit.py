@@ -283,32 +283,37 @@ def partial_fit(
         weights = np.ones(len(X_buf), dtype=_crit_np_dtype())
 
     if sample_weight is not None:
-        sw_new = np.asarray(sample_weight, dtype=_crit_np_dtype()).ravel()
-        kept_new = batch_sizes[-1]
-        # The trailing-slice recovery below is only a legitimate
-        # recovery when the CURRENT batch was actually truncated by the rolling window (kept_new < len(X_df)
-        # - fewer rows survived than the caller's sample_weight covers). When no truncation occurred
-        # (kept_new == len(X_df), the common case with the default partial_fit_window=None), a length
-        # mismatch is a genuine caller error: a too-LONG sample_weight used to be silently sliced
-        # (`sw_new[-kept_new:]`) and misattributed to the wrong rows with zero warning, instead of raising
-        # the same actionable error the too-short branch already gives.
-        _window_truncated = kept_new < len(X_df)
-        if sw_new.shape[0] != len(X_df):
-            if not _window_truncated:
-                raise ValueError(f"MRMR.partial_fit: sample_weight length {sw_new.shape[0]} " f"does not align with the new batch length {len(X_df)}.")
-            # New batch may have been partially truncated by the rolling
-            # window. Trim sw_new to the surviving suffix of the new batch.
-            if sw_new.shape[0] >= kept_new:
-                sw_new = sw_new[-kept_new:]
-            else:
-                raise ValueError(f"MRMR.partial_fit: sample_weight length {sw_new.shape[0]} " f"does not align with the new batch length {len(X_df)}.")
-        # Apply the caller weights to the trailing block (new batch survivors).
-        n_new_kept = batch_sizes[-1]
-        weights[-n_new_kept:] = weights[-n_new_kept:] * sw_new[-n_new_kept:]
+        _weight_trailing_batch(weights, sample_weight, batch_sizes, len(X_df))
 
     self._partial_fit_n_since_refit_ = 0
     _fit_from_partial_fit(self, X_buf, y_buf, sample_weight=weights, **fit_params)
     return self
+
+
+def _weight_trailing_batch(weights, sample_weight, batch_sizes, n_new_rows):
+    """Multiply the newest batch's decay weights by the caller's ``sample_weight``, trimming the caller weights to the rows the rolling window kept."""
+    sw_new = np.asarray(sample_weight, dtype=_crit_np_dtype()).ravel()
+    kept_new = batch_sizes[-1]
+    # The trailing-slice recovery below is only a legitimate
+    # recovery when the CURRENT batch was actually truncated by the rolling window (kept_new < n_new_rows
+    # - fewer rows survived than the caller's sample_weight covers). When no truncation occurred
+    # (kept_new == n_new_rows, the common case with the default partial_fit_window=None), a length
+    # mismatch is a genuine caller error: a too-LONG sample_weight used to be silently sliced
+    # (`sw_new[-kept_new:]`) and misattributed to the wrong rows with zero warning, instead of raising
+    # the same actionable error the too-short branch already gives.
+    _window_truncated = kept_new < n_new_rows
+    if sw_new.shape[0] != n_new_rows:
+        if not _window_truncated:
+            raise ValueError(f"MRMR.partial_fit: sample_weight length {sw_new.shape[0]} " f"does not align with the new batch length {n_new_rows}.")
+        # New batch may have been partially truncated by the rolling
+        # window. Trim sw_new to the surviving suffix of the new batch.
+        if sw_new.shape[0] >= kept_new:
+            sw_new = sw_new[-kept_new:]
+        else:
+            raise ValueError(f"MRMR.partial_fit: sample_weight length {sw_new.shape[0]} " f"does not align with the new batch length {n_new_rows}.")
+    # Apply the caller weights to the trailing block (new batch survivors).
+    n_new_kept = batch_sizes[-1]
+    weights[-n_new_kept:] = weights[-n_new_kept:] * sw_new[-n_new_kept:]
 
 
 def _fit_from_partial_fit(est, X, y, **kwargs):

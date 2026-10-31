@@ -309,45 +309,11 @@ _CUDA_KERNEL_WARP: Any = None
 _WARP_SIZE = 32
 
 
-def _cuda_kernel_warp_factory():
-    """Build (once) the WARP-coalesced CUDA kernel variant: one WARP (32 threads) per
-    (pair, form) instead of one THREAD. The rejected thread-per-item design has each thread do a full
-    serial n_rows-length loop over its OWN (pair, form)'s operand rows; since ``pair_a``/``pair_b`` are
-    essentially arbitrary indices, adjacent threads in a warp read completely DIFFERENT operand-matrix
-    rows at every step - the module docstring's own root-cause diagnosis (memory-bandwidth-bound,
-    inherently uncoalesced, confirmed via a resident-input decomposed remeasurement, NOT the shared-
-    memory-histogram-staging idea that section separately (and correctly) ruled out as inapplicable here).
-
-    This variant assigns the 32 lanes of ONE warp to a STRIDED partition of the SAME (pair, form)'s
-    n_rows elements (lane L reads indices L, L+32, L+64, ...) - at any given step every lane reads the
-    SAME row, adjacent columns, the textbook coalesced-access pattern - then combines each lane's partial
-    (count, sum) / (sum-of-squares, sum-of-cross-products) via ``cuda.shfl_down_sync`` warp reduction
-    (register-only, no shared memory needed). Same two-pass mean-then-center algorithm, same fastmath-free
-    accumulation as ``_abs_pearson_form_reduction`` - only the summation ORDER differs (strided-partial-
-    then-warp-reduced instead of serial), the same class of ~1e-13-ULP FP-reorder divergence this module's
-    own docstring already documents between its two EXISTING backends. Lazy so importing this module on a
-    CPU-only host never triggers a CUDA driver lookup."""
-    if not _CUDA_AVAIL or _nb_cuda is None:
-        return None
-
-    @_nb_cuda.jit(cache=True)
-    def _kernel_warp(y, operand_matrix, pair_a, pair_b, form_ids, eps, cv2, out):
-        """One WARP per (pair, form): lanes stride-partition the row range for coalesced reads, then
-        warp-shuffle-reduce the two-pass moment sums."""
-        n_rows = y.shape[0]
-        n_forms = form_ids.shape[0]
-        n_pairs = pair_a.shape[0]
-        global_tid = _nb_cuda.blockIdx.x * _nb_cuda.blockDim.x + _nb_cuda.threadIdx.x
-        warp_id = global_tid // _WARP_SIZE
-        lane = global_tid % _WARP_SIZE
-        if warp_id >= n_pairs * n_forms:
-            return
-        p = warp_id // n_forms
-        f = warp_id - p * n_forms
-        a_idx = pair_a[p]
-        b_idx = pair_b[p]
-        form_id = form_ids[f]
-
+def _warp_pass_helpers():
+    """Device helpers of the warp kernel: the strided mean pass and the centred-moment pass, each warp-reduced so every lane holds the totals."""
+    @_nb_cuda.jit(device=True)
+    def _warp_mean_sums(y, operand_matrix, a_idx, b_idx, form_id, eps, n_rows, lane):
+        """Strided per-lane (count, sum_y, sum_v) for one (pair, form), warp-reduced so every lane holds the totals."""
         # Pass 1: strided partial (count, sum_y, sum_v) per lane, coalesced across the warp.
         cnt = 0
         sa: float | np.floating = 0.0
@@ -373,14 +339,11 @@ def _cuda_kernel_warp_factory():
         cnt = _nb_cuda.shfl_sync(0xFFFFFFFF, cnt, 0)
         sa = _nb_cuda.shfl_sync(0xFFFFFFFF, sa, 0)
         sv = _nb_cuda.shfl_sync(0xFFFFFFFF, sv, 0)
-        if cnt < 2:
-            if lane == 0:
-                out[p, f] = 0.0
-            return
-        inv = 1.0 / cnt
-        ma = sa * inv
-        mv = sv * inv
+        return cnt, sa, sv
 
+    @_nb_cuda.jit(device=True)
+    def _warp_centered_sums(y, operand_matrix, a_idx, b_idx, form_id, eps, n_rows, lane, ma, mv):
+        """Strided per-lane centred (saa, svv, sav) about the warp-reduced means, warp-reduced so every lane holds the totals."""
         # Pass 2: strided partial (saa, svv, sav) per lane, same coalesced pattern.
         saa: float | np.floating = 0.0
         svv: float | np.floating = 0.0
@@ -405,6 +368,62 @@ def _cuda_kernel_warp_factory():
             svv += _nb_cuda.shfl_down_sync(0xFFFFFFFF, svv, offset)
             sav += _nb_cuda.shfl_down_sync(0xFFFFFFFF, sav, offset)
             offset //= 2
+        return saa, svv, sav
+
+    return _warp_mean_sums, _warp_centered_sums
+
+
+def _cuda_kernel_warp_factory():
+    """Build (once) the WARP-coalesced CUDA kernel variant: one WARP (32 threads) per
+    (pair, form) instead of one THREAD. The rejected thread-per-item design has each thread do a full
+    serial n_rows-length loop over its OWN (pair, form)'s operand rows; since ``pair_a``/``pair_b`` are
+    essentially arbitrary indices, adjacent threads in a warp read completely DIFFERENT operand-matrix
+    rows at every step - the module docstring's own root-cause diagnosis (memory-bandwidth-bound,
+    inherently uncoalesced, confirmed via a resident-input decomposed remeasurement, NOT the shared-
+    memory-histogram-staging idea that section separately (and correctly) ruled out as inapplicable here).
+
+    This variant assigns the 32 lanes of ONE warp to a STRIDED partition of the SAME (pair, form)'s
+    n_rows elements (lane L reads indices L, L+32, L+64, ...) - at any given step every lane reads the
+    SAME row, adjacent columns, the textbook coalesced-access pattern - then combines each lane's partial
+    (count, sum) / (sum-of-squares, sum-of-cross-products) via ``cuda.shfl_down_sync`` warp reduction
+    (register-only, no shared memory needed). Same two-pass mean-then-center algorithm, same fastmath-free
+    accumulation as ``_abs_pearson_form_reduction`` - only the summation ORDER differs (strided-partial-
+    then-warp-reduced instead of serial), the same class of ~1e-13-ULP FP-reorder divergence this module's
+    own docstring already documents between its two EXISTING backends. Lazy so importing this module on a
+    CPU-only host never triggers a CUDA driver lookup."""
+    if not _CUDA_AVAIL or _nb_cuda is None:
+        return None
+
+    _warp_mean_sums, _warp_centered_sums = _warp_pass_helpers()
+
+    @_nb_cuda.jit(cache=True)
+    def _kernel_warp(y, operand_matrix, pair_a, pair_b, form_ids, eps, cv2, out):
+        """One WARP per (pair, form): lanes stride-partition the row range for coalesced reads, then
+        warp-shuffle-reduce the two-pass moment sums."""
+        n_rows = y.shape[0]
+        n_forms = form_ids.shape[0]
+        n_pairs = pair_a.shape[0]
+        global_tid = _nb_cuda.blockIdx.x * _nb_cuda.blockDim.x + _nb_cuda.threadIdx.x
+        warp_id = global_tid // _WARP_SIZE
+        lane = global_tid % _WARP_SIZE
+        if warp_id >= n_pairs * n_forms:
+            return
+        p = warp_id // n_forms
+        f = warp_id - p * n_forms
+        a_idx = pair_a[p]
+        b_idx = pair_b[p]
+        form_id = form_ids[f]
+
+        cnt, sa, sv = _warp_mean_sums(y, operand_matrix, a_idx, b_idx, form_id, eps, n_rows, lane)
+        if cnt < 2:
+            if lane == 0:
+                out[p, f] = 0.0
+            return
+        inv = 1.0 / cnt
+        ma = sa * inv
+        mv = sv * inv
+
+        saa, svv, sav = _warp_centered_sums(y, operand_matrix, a_idx, b_idx, form_id, eps, n_rows, lane, ma, mv)
         if lane == 0:
             if saa <= cnt * cv2 * ma * ma or svv <= cnt * cv2 * mv * mv:
                 out[p, f] = 0.0

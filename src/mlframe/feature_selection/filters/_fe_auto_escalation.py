@@ -102,6 +102,29 @@ def _resolve_operand(X, name: str, engineered_continuous: dict | None) -> np.nda
     return None
 
 
+def _joint_pair_codes(ca: np.ndarray, cb: np.ndarray) -> np.ndarray:
+    """Dense joint code of two per-column quantile-bin encodings."""
+    joint = ca * (int(cb.max()) + 1) + cb
+    _, joint = np.unique(joint, return_inverse=True)
+    return joint.astype(np.int64)
+
+
+def _best_admitted_column(tvals: Any, ncols_names: Any, sl: slice, nbq: int, y_dense: np.ndarray) -> tuple:
+    """The admitted column with the largest marginal MI on the subsample, as ``(mi, codes, values)``; ``(-1.0, None, None)`` when none is usable."""
+    from ._mi_greedy_cmi_fe import _cmi_from_binned, _quantile_bin
+
+    best_mi, best_codes, best_vals = -1.0, None, None
+    for j in range(min(len(ncols_names), int(tvals.shape[1]))):
+        vj = tvals[sl, j]
+        if not hasattr(vj, "dev"):
+            vj = np.asarray(vj, dtype=_crit_np_dtype())
+        cj = _codes_of(vj, nbq, _quantile_bin)
+        mij = float(_cmi_from_binned(cj, y_dense, None))
+        if mij > best_mi:
+            best_mi, best_codes, best_vals = mij, cj, vj
+    return best_mi, best_codes, best_vals
+
+
 def find_underdelivering_pairs(
     self: Any,
     *,
@@ -205,26 +228,13 @@ def find_underdelivering_pairs(
             x_b = _resolve_operand(X, nb, eng_cont)
             if x_a is None or x_b is None or x_a.size != n or x_b.size != n:
                 continue
-            ca = _qbin_cached(na, x_a)
-            cb = _qbin_cached(nb, x_b)
-            joint = ca * (int(cb.max()) + 1) + cb
-            _, joint = np.unique(joint, return_inverse=True)
-            joint = joint.astype(np.int64)
+            joint = _joint_pair_codes(_qbin_cached(na, x_a), _qbin_cached(nb, x_b))
             # Conditioning support: the SINGLE best admitted column (by marginal MI on
             # the same subsample). Conditioning on one column keeps the null's strata
             # populated; a multi-column capture that is only jointly complete merely
             # causes a false trigger, which the downstream S5 gate (conditioned on ALL
             # admitted columns) absorbs.
-            tvals, ncols_names = v[1], v[2]
-            best_mi, best_codes, best_vals = -1.0, None, None
-            for j in range(min(len(ncols_names), int(tvals.shape[1]))):
-                vj = tvals[sl, j]
-                if not hasattr(vj, "dev"):
-                    vj = np.asarray(vj, dtype=_crit_np_dtype())
-                cj = _codes_of(vj, nbq, _quantile_bin)
-                mij = float(_cmi_from_binned(cj, y_dense, None))
-                if mij > best_mi:
-                    best_mi, best_codes, best_vals = mij, cj, vj
+            best_mi, best_codes, best_vals = _best_admitted_column(v[1], v[2], sl, nbq, y_dense)
             if best_codes is None or best_mi <= 0.0:
                 continue
             assert best_vals is not None  # set together with best_codes above

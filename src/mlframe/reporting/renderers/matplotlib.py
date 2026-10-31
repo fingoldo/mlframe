@@ -31,6 +31,7 @@ from ._shared_helpers import (  # noqa: F401 -- _HEATMAP_MAX_TICKS re-exported f
 )
 
 from mlframe.reporting.colors import BAR_PRIMARY, resolve_heatmap_cmap
+from ._matplotlib_legend import _legend_overflows, _panel_is_rightmost, _place_legend  # noqa: F401 -- legend placement lives in its own module; re-exported for callers importing it from here
 logger = logging.getLogger(__name__)
 
 # Panel-title font cap so a verbose diagnostic title can't dwarf the panel. The chars-per-line budget is
@@ -147,52 +148,6 @@ def _pad_sparse_category_axis(ax, n_categories: int, *, horizontal: bool) -> Non
 # and the panel's real width instead: the axes position is fixed by the gridspec before any draw, so this needs
 # no renderer pass (measuring after ``draw()`` would fight constrained layout, which has not run yet).
 _VIOLIN_LABEL_MAXLEN = 20  # rotated 30 deg under the axis, so a long name projects most of its length horizontally
-_LEGEND_MAX_PANEL_FRACTION = 0.62  # widest entry may claim at most this share of the panel
-_LEGEND_MAX_INSIDE_ENTRIES = 8  # beyond this the stack is taller than most panels regardless of width
-_LEGEND_CHAR_WIDTH_RATIO = 0.6  # mean glyph advance as a fraction of font size, DejaVu Sans at these sizes
-_LEGEND_HANDLE_INCHES = 0.45  # marker/line sample plus padding, left of the text
-
-
-def _legend_overflows(ax, labels, *, fontsize: int = 8) -> bool:
-    """True when this legend cannot sit inside ``ax`` without covering a meaningful part of it."""
-    texts = [str(lbl) for lbl in labels if lbl]
-    if not texts:
-        return False
-    if len(texts) > _LEGEND_MAX_INSIDE_ENTRIES:
-        return True
-    fig_w_in = float(ax.figure.get_size_inches()[0])
-    panel_w_in = max(0.5, float(ax.get_position().width) * fig_w_in)
-    widest_in = (max(len(t) for t in texts) * _LEGEND_CHAR_WIDTH_RATIO * fontsize) / 72.0 + _LEGEND_HANDLE_INCHES
-    return widest_in > _LEGEND_MAX_PANEL_FRACTION * panel_w_in
-
-
-def _panel_is_rightmost(ax) -> bool:
-    """True when nothing in the figure is drawn to the right of ``ax``."""
-    x1 = float(ax.get_position().x1)
-    return all(float(other.get_position().x1) <= x1 + 1e-3 for other in ax.figure.axes)
-
-
-def _place_legend(ax, handles=None, labels=None, *, force_outside: bool = False, ncol: int = 1, has_secondary_y: bool = False):
-    """Draw the legend inside the panel, or beside it when it would not fit and there is room beside it.
-
-    "Outside" is only an improvement where the space actually exists. Anchoring past the right edge of an INNER
-    grid column parks the legend in the narrow gutter between panels, where it overlaps its neighbour; doing it
-    on a panel with a right-hand axis lands it straight on that axis's label. In both cases an in-axes legend at
-    a smaller size, over a more opaque box, is the lesser harm -- so the automatic promotion is gated on the
-    panel being the rightmost one and having no secondary axis. An explicit ``legend_outside`` from the builder
-    is still honoured unconditionally: the builder knows its own layout.
-    """
-    if handles is None or labels is None:
-        handles, labels = ax.get_legend_handles_labels()
-    if not handles:
-        return
-    overflows = _legend_overflows(ax, labels)
-    if force_outside or (overflows and _panel_is_rightmost(ax) and not has_secondary_y):
-        ax.legend(handles, labels, loc="center left", bbox_to_anchor=(1.02, 0.5), fontsize=7, framealpha=0.7, ncol=max(1, int(ncol)))
-    else:
-        ax.legend(handles, labels, loc="best", fontsize=7 if overflows else 8, framealpha=0.85 if overflows else 0.7, ncol=max(1, int(ncol)))
-
-
 def _set_panel_title(ax, title) -> None:
     """Set an axes title, wrapped to the panel's REAL width by measuring the font, and capped in size.
 
@@ -330,29 +285,10 @@ class MatplotlibRenderer:
     # Bound at the bottom of this module from ``._matplotlib_network``.
     _network: ClassVar[Any]
 
-    def render(self, spec: FigureSpec, *, static_legend: bool = False) -> Any:
-        """Build the grid of subplots described by ``spec`` (row/col ratios, optional suptitle/caption), render every panel into its cell, and return the assembled ``Figure``."""
-        # static_legend is a plotly-only concept (see PlotlyRenderer.render); matplotlib legends
-        # are always static, so this backend accepts and ignores the flag to satisfy the Renderer Protocol.
-        del static_legend
-        # REMOVED ``matplotlib.use("Agg", force=False)``
-        # here. The renderer creates its own ``FigureCanvasAgg(fig)``
-        # explicitly below, so the global-backend mutation is
-        # redundant -- AND it broke inline FI display in Jupyter
-        # because once Agg is locked in globally, downstream
-        # ``plt.show()`` calls in feature_importance.py print
-        # "Matplotlib is currently using agg, which is a non-GUI
-        # backend, so cannot show the figure." Per the
-        # CLAUDE.md rule, the renderer must NOT pollute global state
-        # to make its own save path easier when downstream consumers
-        # rely on that state for inline rendering.
+    def _build_panel_grid(self, spec: FigureSpec, rows: int, cols: int):
+        """Create the figure and gridspec, add one axes per non-empty panel cell, and return ``(fig, axes_grid, col_axes)``."""
         from matplotlib.figure import Figure
         from matplotlib.backends.backend_agg import FigureCanvasAgg
-
-        rows = len(spec.panels)
-        cols = max((len(r) for r in spec.panels), default=0)
-        if rows == 0 or cols == 0:
-            raise ValueError("FigureSpec has no panels")
 
         # Force constrained_layout whenever a suptitle is present: with the
         # default (None) layout engine the suptitle stamps at y=0.98 figure
@@ -400,16 +336,10 @@ class MatplotlibRenderer:
                 col_axes.setdefault(c, []).append(ax)
             axes_grid.append(row_axes)
 
-        # A colorbar attached to a single axes shrinks only that axes; when a shared-x panel (calibration histogram)
-        # sits below the scatter, anchor the bar across the whole column so both data axes keep the same width.
-        for r, row in enumerate(spec.panels):
-            for c, panel in enumerate(row):
-                if panel is None:
-                    continue
-                ax = axes_grid[r][c]
-                cbar_axes = col_axes[c] if (spec.sharex and len(col_axes[c]) > 1) else ax
-                self._render_panel(ax, panel, fig, cbar_axes=cbar_axes)
+        return fig, axes_grid, col_axes
 
+    def _measure_title_caption_bands(self, fig, spec: FigureSpec):
+        """Measure the wrapped suptitle and caption and reserve their bands outside the axes; return ``(top_band, bottom_band, sup_text, cap)``."""
         # Title and caption both live in bands reserved OUTSIDE the axes rectangle, and both bands are measured
         # from the wrapped line count rather than assumed. constrained_layout is documented to make room for a
         # suptitle, but it under-reserves for a multi-line one: a three-line model identity on a 12x6 figure
@@ -437,11 +367,47 @@ class MatplotlibRenderer:
             _cap_lines = wrap_text_to_width(spec.caption, fontsize=_CAPTION_FONTSIZE, width_in=fig.get_size_inches()[0], fallback_chars=_CAPTION_WRAP_CHARS)
             _cap = "\n".join(_cap_lines)
             _bottom_band = min(0.30, (len(_cap_lines) * 11.0 + 12.0) / _h_px)
+        return _top_band, _bottom_band, _sup_text, _cap
+
+    def render(self, spec: FigureSpec, *, static_legend: bool = False) -> Any:
+        """Build the grid of subplots described by ``spec`` (row/col ratios, optional suptitle/caption), render every panel into its cell, and return the assembled ``Figure``."""
+        # static_legend is a plotly-only concept (see PlotlyRenderer.render); matplotlib legends
+        # are always static, so this backend accepts and ignores the flag to satisfy the Renderer Protocol.
+        del static_legend
+        # REMOVED ``matplotlib.use("Agg", force=False)``
+        # here. The renderer creates its own ``FigureCanvasAgg(fig)``
+        # explicitly below, so the global-backend mutation is
+        # redundant -- AND it broke inline FI display in Jupyter
+        # because once Agg is locked in globally, downstream
+        # ``plt.show()`` calls in feature_importance.py print
+        # "Matplotlib is currently using agg, which is a non-GUI
+        # backend, so cannot show the figure." Per the
+        # CLAUDE.md rule, the renderer must NOT pollute global state
+        # to make its own save path easier when downstream consumers
+        # rely on that state for inline rendering.
+        rows = len(spec.panels)
+        cols = max((len(r) for r in spec.panels), default=0)
+        if rows == 0 or cols == 0:
+            raise ValueError("FigureSpec has no panels")
+
+        fig, axes_grid, col_axes = self._build_panel_grid(spec, rows, cols)
+
+        # A colorbar attached to a single axes shrinks only that axes; when a shared-x panel (calibration histogram)
+        # sits below the scatter, anchor the bar across the whole column so both data axes keep the same width.
+        for r, row in enumerate(spec.panels):
+            for c, panel in enumerate(row):
+                if panel is None:
+                    continue
+                ax = axes_grid[r][c]
+                cbar_axes = col_axes[c] if (spec.sharex and len(col_axes[c]) > 1) else ax
+                self._render_panel(ax, panel, fig, cbar_axes=cbar_axes)
+
+        _top_band, _bottom_band, _sup_text, _cap = self._measure_title_caption_bands(fig, spec)
         if _top_band or _bottom_band:
             _eng = fig.get_layout_engine()
             if _eng is not None:
                 try:
-                    _eng.set(rect=(0.0, _bottom_band, 1.0, 1.0 - _bottom_band - _top_band))  # type: ignore[call-arg]  # matplotlib stubs type _eng as the base LayoutEngine; constrained_layout was forced on above so this is always a ConstrainedLayoutEngine, whose .set() does accept rect
+                    _eng.set(rect=(0.0, _bottom_band, 1.0, 1.0 - _bottom_band - _top_band))  # matplotlib stubs type _eng as the base LayoutEngine; constrained_layout was forced on above so this is always a ConstrainedLayoutEngine, whose .set() does accept rect
                 except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
                     logger.debug("suppressed: %s", e)
                     pass
@@ -558,7 +524,6 @@ class MatplotlibRenderer:
 
     def _histogram(self, ax, p: HistogramPanelSpec) -> None:
         """Render a histogram panel: uses pre-binned ``bin_centers`` when given (or pre-bins above ``_HIST_PREBIN_THRESHOLD`` rather than letting ``ax.hist`` re-scan the full array), else falls back to ``ax.hist`` on finite values only; optionally overlays a fitted Normal PDF."""
-        import matplotlib
         overlay_x_lo = overlay_x_hi = None
         bin_centers = p.bin_centers
         heights = None
@@ -569,53 +534,72 @@ class MatplotlibRenderer:
             heights, bin_centers, width = prebin_histogram(np.asarray(p.values), p.bins, p.density)
 
         if bin_centers is not None:
-            if heights is None:
-                heights = np.asarray(p.values)
-                if isinstance(p.bin_width, np.ndarray):
-                    width = np.asarray(p.bin_width, dtype=float)
-                else:
-                    # `is not None`, matching the plotly twin: `bin_width=0.0` is a deliberate spec value, and
-                    # `or` read it as "unset" and derived a width from the centre spacing instead -- one spec,
-                    # two pictures.
-                    width = float(p.bin_width if p.bin_width is not None else ((bin_centers[1] - bin_centers[0]) if len(bin_centers) > 1 else 1.0))
-            colors_kw: dict[str, Any] = {"color": p.color}
-            if p.bar_colors is not None:
-                cm = matplotlib.colormaps[resolve_heatmap_cmap(p.colormap)]  # same resolver as every other lookup; a sentinel default must not reach matplotlib
-                _h_min = float(np.min(p.bar_colors))
-                _h_max = float(np.max(p.bar_colors))
-                if _h_max <= _h_min:
-                    _h_max = _h_min + 1.0
-                colors_kw = {"color": cm((np.asarray(p.bar_colors) - _h_min) / (_h_max - _h_min))}
-            ax.bar(bin_centers, heights, width=width, align="center", edgecolor="white", linewidth=0.5, **colors_kw)
-            if len(bin_centers) > 0:
-                assert width is not None
-                overlay_x_lo, overlay_x_hi = histogram_bar_extent(bin_centers, width)
+            overlay_x_lo, overlay_x_hi = self._draw_prebinned_bars(ax, p, bin_centers, heights, width)
         else:
-            # ax.hist autodetects its range from the data and raises on empty / all-non-finite input; drop
-            # non-finite first and fall back to an empty axes when nothing is left to bin.
-            vals = np.asarray(p.values, dtype=float).ravel()
-            vals = vals[np.isfinite(vals)]
-            if vals.size:
-                ax.hist(vals, bins=p.bins, alpha=0.6, color=p.color, edgecolor="white", linewidth=0.4, density=p.density)
+            self._draw_raw_histogram(ax, p)
+
+        self._draw_normal_overlay(ax, p, overlay_x_lo, overlay_x_hi)
+        self._finish_histogram_axes(ax, p)
+
+    def _draw_prebinned_bars(self, ax, p: HistogramPanelSpec, bin_centers, heights, width):
+        """Draw bars at pre-binned centres and return the ``(lo, hi)`` x-extent for the Normal overlay."""
+        import matplotlib
+        overlay_x_lo = overlay_x_hi = None
+        if heights is None:
+            heights = np.asarray(p.values)
+            if isinstance(p.bin_width, np.ndarray):
+                width = np.asarray(p.bin_width, dtype=float)
             else:
-                ax.text(0.5, 0.5, "no finite values", ha="center", va="center", transform=ax.transAxes, fontsize=9)
+                # `is not None`, matching the plotly twin: `bin_width=0.0` is a deliberate spec value, and
+                # `or` read it as "unset" and derived a width from the centre spacing instead -- one spec,
+                # two pictures.
+                width = float(p.bin_width if p.bin_width is not None else ((bin_centers[1] - bin_centers[0]) if len(bin_centers) > 1 else 1.0))
+        colors_kw: dict[str, Any] = {"color": p.color}
+        if p.bar_colors is not None:
+            cm = matplotlib.colormaps[resolve_heatmap_cmap(p.colormap)]  # same resolver as every other lookup; a sentinel default must not reach matplotlib
+            _h_min = float(np.min(p.bar_colors))
+            _h_max = float(np.max(p.bar_colors))
+            if _h_max <= _h_min:
+                _h_max = _h_min + 1.0
+            colors_kw = {"color": cm((np.asarray(p.bar_colors) - _h_min) / (_h_max - _h_min))}
+        ax.bar(bin_centers, heights, width=width, align="center", edgecolor="white", linewidth=0.5, **colors_kw)
+        if len(bin_centers) > 0:
+            assert width is not None
+            overlay_x_lo, overlay_x_hi = histogram_bar_extent(bin_centers, width)
+        return overlay_x_lo, overlay_x_hi
 
-        if p.overlay_normal is not None:
-            mu, sigma = p.overlay_normal
-            if sigma > 0:
-                if overlay_x_lo is None:
-                    vals = np.asarray(p.values)
-                    overlay_x_lo, overlay_x_hi = float(np.min(vals)), float(np.max(vals))
-                assert overlay_x_hi is not None
-                x_grid = np.linspace(overlay_x_lo, overlay_x_hi, 200)
-                normal_pdf = 1 / (sigma * np.sqrt(2 * np.pi)) * np.exp(-0.5 * ((x_grid - mu) / sigma) ** 2)
-                # `overlay_label=""` is a deliberate blank, which plotly honours; `or` substituted the auto label.
-                # This cluster recognises the empty-string-means-no-label distinction elsewhere (see
-                # `calibration.py`'s `colorbar_label`).
-                label = p.overlay_label if p.overlay_label is not None else f"Normal(mu={mu:.2g}, sigma={sigma:.2g})"
-                ax.plot(x_grid, normal_pdf, "r--", linewidth=1.4, label=label)
-                _place_legend(ax)
+    def _draw_raw_histogram(self, ax, p: HistogramPanelSpec) -> None:
+        """Bin the finite raw values with ``ax.hist``, or write an explicit empty-panel note when none survive."""
+        # ax.hist autodetects its range from the data and raises on empty / all-non-finite input; drop
+        # non-finite first and fall back to an empty axes when nothing is left to bin.
+        vals = np.asarray(p.values, dtype=float).ravel()
+        vals = vals[np.isfinite(vals)]
+        if vals.size:
+            ax.hist(vals, bins=p.bins, alpha=0.6, color=p.color, edgecolor="white", linewidth=0.4, density=p.density)
+        else:
+            ax.text(0.5, 0.5, "no finite values", ha="center", va="center", transform=ax.transAxes, fontsize=9)
 
+    def _draw_normal_overlay(self, ax, p: HistogramPanelSpec, overlay_x_lo, overlay_x_hi) -> None:
+        """Overlay the fitted Normal PDF across the bin range when a positive sigma is supplied."""
+        if p.overlay_normal is None:
+            return
+        mu, sigma = p.overlay_normal
+        if sigma > 0:
+            if overlay_x_lo is None:
+                vals = np.asarray(p.values)
+                overlay_x_lo, overlay_x_hi = float(np.min(vals)), float(np.max(vals))
+            assert overlay_x_hi is not None
+            x_grid = np.linspace(overlay_x_lo, overlay_x_hi, 200)
+            normal_pdf = 1 / (sigma * np.sqrt(2 * np.pi)) * np.exp(-0.5 * ((x_grid - mu) / sigma) ** 2)
+            # `overlay_label=""` is a deliberate blank, which plotly honours; `or` substituted the auto label.
+            # This cluster recognises the empty-string-means-no-label distinction elsewhere (see
+            # `calibration.py`'s `colorbar_label`).
+            label = p.overlay_label if p.overlay_label is not None else f"Normal(mu={mu:.2g}, sigma={sigma:.2g})"
+            ax.plot(x_grid, normal_pdf, "r--", linewidth=1.4, label=label)
+            _place_legend(ax)
+
+    def _finish_histogram_axes(self, ax, p: HistogramPanelSpec) -> None:
+        """Apply the x/y scales, labels, tick density, limits and grid shared by every histogram panel."""
         if getattr(p, "xscale", "linear") == "asinh":
             _apply_asinh_x(ax, float(getattr(p, "xscale_linear_width", 1.0)))
         ax.set_xlabel(p.xlabel)

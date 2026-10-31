@@ -585,12 +585,32 @@ def _permutation_pass_flags_with(null_max, observed_max, alpha, n_perm, seed) ->
     done = first.shape[0]
     alive = (1.0 + R) / (B + 1.0) <= float(alpha)
     while done < B and alive.any():
+        if _passes_for_certain(R[alive], done, B, float(alpha)):
+            break  # every batch still alive passes whatever the remaining permutations draw (see _passes_for_certain)
         m = min(FAMILY_EARLY_BLOCK, B - done)
         blk = null_max(m, rng)
         done += m
         R += (blk[:, None] >= observed_max[None, :]).sum(axis=0)
         alive &= (1.0 + R) / (B + 1.0) <= float(alpha)
     return np.asarray(alive, dtype=np.bool_)
+
+
+_CERTAINTY_DELTA = 1e-9  # chance, per batch, that the early "passes" differs from the answer of the full permutation count (0 switches the early stop off)
+
+
+def _passes_for_certain(r_alive: np.ndarray, done: int, total: int, alpha: float) -> bool:
+    """Whether every batch with ``r_alive`` exceedances in ``done`` draws will still satisfy ``(1 + R) / (total + 1) <= alpha`` after the remaining ``total - done`` draws, with probability at least ``1 - _CERTAINTY_DELTA`` each.
+
+    The exceedance rate of a batch has the Clopper-Pearson upper bound ``q`` from its count so far; the exceedances still to come are at most ``(total - done) * q`` (their expectation under that rate). A batch with a strong signal has
+    no or few exceedances in the first couple of thousand draws, so its pass is settled long before the count of 9999 that the pair-level gate asks for; one near the threshold never satisfies the bound and runs to the end."""
+    if _CERTAINTY_DELTA <= 0.0 or done < 512 or r_alive.size == 0:
+        return False
+    from scipy.special import betaincinv
+
+    limit = alpha * (total + 1.0) - 1.0
+    r = r_alive.astype(np.float64)
+    q = betaincinv(r + 1.0, float(done) - r, 1.0 - _CERTAINTY_DELTA)
+    return bool(np.all(r + (total - done) * q <= limit))
 
 
 def _family_flags(cols, n_x, y, n_y, observed, starts, alpha, n_perm, seed) -> list:

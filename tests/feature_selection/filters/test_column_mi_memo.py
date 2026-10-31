@@ -61,3 +61,17 @@ def test_column_fingerprints_follow_content_and_order_not_layout():
     swapped = X.copy()
     swapped[[10, 11], 1] = swapped[[11, 10], 1]
     assert not np.array_equal(column_fingerprints(swapped.view(np.uint32))[1], fp[1])
+
+
+def test_memo_disabled_scope_neither_reads_nor_fills_the_memo():
+    """Inside the disabled scope the memo is neither read nor filled and the values are unchanged."""
+    from mlframe.feature_selection.filters import _hermite_fe_mi as H
+
+    rng = np.random.default_rng(5)
+    X = rng.normal(size=(2000, 3)).astype(np.float32)
+    y = (rng.random(2000) > 0.5).astype(np.int32)
+    H._COLUMN_MI_MEMO.clear()
+    with H.column_mi_memo_disabled():
+        a = H.plugin_mi_classif_batch_dispatch(X, y, 12)
+    assert not H._COLUMN_MI_MEMO
+    np.testing.assert_array_equal(a, H.plugin_mi_classif_batch_dispatch(X, y, 12))

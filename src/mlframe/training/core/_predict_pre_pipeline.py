@@ -223,6 +223,59 @@ def _reattach_passthrough(out: pd.DataFrame, df_in: Any, ext_pipeline: Any) -> p
     return pd.concat([out, df_in[cols].set_axis(out.index)], axis=1) if cols else out
 
 
+def _replay_row_summary_stats(df, config, _cols):
+    """Append the fit-time row-wise summary statistics to ``df``; a failed replay is logged and leaves the frame unchanged."""
+    try:
+        from mlframe.feature_engineering.row_wise_summary import row_wise_summary_stats
+        _stats_kwargs: dict = {"columns": _cols}
+        _stats_list = config.get("summary_stats_list")
+        if _stats_list:
+            _stats_kwargs["stats"] = _stats_list
+        df = df.join(row_wise_summary_stats(df, **_stats_kwargs))
+    except Exception as _exc:
+        logger.warning("_apply_row_wise_extensions: row_wise_summary_stats replay failed (%s); predict-time columns will diverge from fit-time.", _exc)
+    return df
+
+
+def _replay_row_extreme_columns(df, config, _cols):
+    """Append the fit-time row-wise top-k extremality scores to ``df``, NaN-padded to the fit-time width; a failed replay is logged and leaves the frame unchanged."""
+    try:
+        from mlframe.feature_engineering.row_wise_extremality import row_wise_top_k_extreme_columns
+        _k_raw = config.get("extreme_columns_k")
+        _k = int(_k_raw) if _k_raw is not None else 3
+        _ref_raw = config.get("extreme_columns_reference")
+        _reference = None
+        if _ref_raw:
+            _reference = {str(_c): np.asarray(_v, dtype=np.float64) for _c, _v in _ref_raw.items() if _c in _cols}
+            _absent = [str(_c) for _c in _cols if str(_c) not in _reference]
+            if _absent:
+                logger.warning(
+                    "_apply_row_wise_extensions: no fit-time extremality reference for %d column(s) (%s); those "
+                    "columns are ranked within the serving batch, which is NOT what the model was fitted on.",
+                    len(_absent), _absent[:5],
+                )
+        elif config.get("extreme_columns_fit_reference", True):
+            logger.warning(
+                "_apply_row_wise_extensions: this artefact carries no fitted extremality reference, so the scores "
+                "are ranked within the serving batch: a single-row batch scores 0.0 on every column regardless of "
+                "how extreme it is. Retrain to persist the reference, or score in batches resembling train."
+            )
+        _out = row_wise_top_k_extreme_columns(df, columns=_cols, k=_k, reference=_reference)
+        # return_column_summary not passed -> always the plain-DataFrame overload
+        if not (isinstance(_out, pd.DataFrame)):
+            raise AssertionError
+        _score_cols = [c for c in _out.columns if c.endswith("_score")]
+        _result = _out[_score_cols].add_prefix("row_extreme_")
+        for _i in range(1, _k + 1):
+            _expected = f"row_extreme_top{_i}_score"
+            if _expected not in _result.columns:
+                _result[_expected] = float("nan")
+        df = df.join(_result[[f"row_extreme_top{_i}_score" for _i in range(1, _k + 1)]])
+    except Exception as _exc:
+        logger.warning("_apply_row_wise_extensions: row_wise_top_k_extreme_columns replay failed (%s); predict-time columns will diverge from fit-time.", _exc)
+    return df
+
+
 def _apply_row_wise_extensions(
     df: Any,
     config: Optional[dict],
@@ -279,50 +332,9 @@ def _apply_row_wise_extensions(
                 len(_missing), _missing[:5], len(_cols),
             )
     if config.get("summary_stats_enabled"):
-        try:
-            from mlframe.feature_engineering.row_wise_summary import row_wise_summary_stats
-            _stats_kwargs: dict = {"columns": _cols}
-            _stats_list = config.get("summary_stats_list")
-            if _stats_list:
-                _stats_kwargs["stats"] = _stats_list
-            df = df.join(row_wise_summary_stats(df, **_stats_kwargs))
-        except Exception as _exc:
-            logger.warning("_apply_row_wise_extensions: row_wise_summary_stats replay failed (%s); predict-time columns will diverge from fit-time.", _exc)
+        df = _replay_row_summary_stats(df, config, _cols)
     if config.get("extreme_columns_enabled"):
-        try:
-            from mlframe.feature_engineering.row_wise_extremality import row_wise_top_k_extreme_columns
-            _k_raw = config.get("extreme_columns_k")
-            _k = int(_k_raw) if _k_raw is not None else 3
-            _ref_raw = config.get("extreme_columns_reference")
-            _reference = None
-            if _ref_raw:
-                _reference = {str(_c): np.asarray(_v, dtype=np.float64) for _c, _v in _ref_raw.items() if _c in _cols}
-                _absent = [str(_c) for _c in _cols if str(_c) not in _reference]
-                if _absent:
-                    logger.warning(
-                        "_apply_row_wise_extensions: no fit-time extremality reference for %d column(s) (%s); those "
-                        "columns are ranked within the serving batch, which is NOT what the model was fitted on.",
-                        len(_absent), _absent[:5],
-                    )
-            elif config.get("extreme_columns_fit_reference", True):
-                logger.warning(
-                    "_apply_row_wise_extensions: this artefact carries no fitted extremality reference, so the scores "
-                    "are ranked within the serving batch: a single-row batch scores 0.0 on every column regardless of "
-                    "how extreme it is. Retrain to persist the reference, or score in batches resembling train."
-                )
-            _out = row_wise_top_k_extreme_columns(df, columns=_cols, k=_k, reference=_reference)
-            # return_column_summary not passed -> always the plain-DataFrame overload
-            if not (isinstance(_out, pd.DataFrame)):
-                raise AssertionError
-            _score_cols = [c for c in _out.columns if c.endswith("_score")]
-            _result = _out[_score_cols].add_prefix("row_extreme_")
-            for _i in range(1, _k + 1):
-                _expected = f"row_extreme_top{_i}_score"
-                if _expected not in _result.columns:
-                    _result[_expected] = float("nan")
-            df = df.join(_result[[f"row_extreme_top{_i}_score" for _i in range(1, _k + 1)]])
-        except Exception as _exc:
-            logger.warning("_apply_row_wise_extensions: row_wise_top_k_extreme_columns replay failed (%s); predict-time columns will diverge from fit-time.", _exc)
+        df = _replay_row_extreme_columns(df, config, _cols)
     return df
 
 
@@ -487,6 +499,53 @@ def _try_predict_with_pp_fallback(
                 return fn(_subset)
         raise
 
+def _stash_passthrough_columns(metadata, df_pre_pipeline, df, input_for_model, model_name) -> dict[str, Any]:
+    """Read the text and embedding passthrough columns off the broadest source frame so the per-model pre_pipeline cannot disturb them; a column that fails to stash is logged."""
+    _meta_text = list(metadata.get("text_features") or [])
+    _meta_emb = list(metadata.get("embedding_features") or [])
+    _passthrough_cols = _meta_text + _meta_emb
+    _stashed_passthrough: dict[str, Any] = {}
+    if _passthrough_cols:
+        _src_for_stash = None
+        for _candidate in (df_pre_pipeline, df, input_for_model):
+            if _candidate is None or not hasattr(_candidate, "columns"):
+                continue
+            if all(c in _candidate.columns for c in _passthrough_cols):
+                _src_for_stash = _candidate
+                break
+        if _src_for_stash is not None:
+            # Batch the polars->pandas conversion ONCE for all passthrough cols
+            # (was per-column get_column(_pc).to_pandas() -- N conversions on a
+            # potentially 100GB frame). Narrow select keeps it to the stash cols.
+            _stash_pd_view = None
+            if isinstance(_src_for_stash, pl.DataFrame):
+                try:
+                    _stash_pd_view = _src_for_stash.select(_passthrough_cols).to_pandas()
+                except (KeyError, AttributeError, ValueError, TypeError):
+                    _stash_pd_view = None
+            for _pc in _passthrough_cols:
+                try:
+                    if isinstance(_src_for_stash, pl.DataFrame):
+                        if _stash_pd_view is not None:
+                            _stashed_passthrough[_pc] = _stash_pd_view[_pc]
+                        else:
+                            _stashed_passthrough[_pc] = _src_for_stash.get_column(_pc).to_pandas()
+                    else:
+                        _stashed_passthrough[_pc] = _src_for_stash[_pc].reset_index(drop=True)
+                except (KeyError, AttributeError, ValueError, TypeError) as _stash_err:  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
+                    log_throttle(
+                        logger,
+                        "predict_passthrough_stash_failed",
+                        logging.WARNING,
+                        "predict_from_models: %s passthrough col %r failed to stash "
+                        "(%s: %s); downstream model will receive a frame missing this "
+                        "column. Predictions on rows whose pre-fit pipeline depended on "
+                        "it may be wrong.",
+                        model_name, _pc, type(_stash_err).__name__, _stash_err,
+                    )
+    return _stashed_passthrough
+
+
 def _apply_pre_pipeline_with_passthrough(
     input_for_model,
     *,
@@ -546,48 +605,7 @@ def _apply_pre_pipeline_with_passthrough(
             )
         return input_for_model
 
-    _meta_text = list(metadata.get("text_features") or [])
-    _meta_emb = list(metadata.get("embedding_features") or [])
-    _passthrough_cols = _meta_text + _meta_emb
-    _stashed_passthrough: dict[str, Any] = {}
-    if _passthrough_cols:
-        _src_for_stash = None
-        for _candidate in (df_pre_pipeline, df, input_for_model):
-            if _candidate is None or not hasattr(_candidate, "columns"):
-                continue
-            if all(c in _candidate.columns for c in _passthrough_cols):
-                _src_for_stash = _candidate
-                break
-        if _src_for_stash is not None:
-            # Batch the polars->pandas conversion ONCE for all passthrough cols
-            # (was per-column get_column(_pc).to_pandas() -- N conversions on a
-            # potentially 100GB frame). Narrow select keeps it to the stash cols.
-            _stash_pd_view = None
-            if isinstance(_src_for_stash, pl.DataFrame):
-                try:
-                    _stash_pd_view = _src_for_stash.select(_passthrough_cols).to_pandas()
-                except (KeyError, AttributeError, ValueError, TypeError):
-                    _stash_pd_view = None
-            for _pc in _passthrough_cols:
-                try:
-                    if isinstance(_src_for_stash, pl.DataFrame):
-                        if _stash_pd_view is not None:
-                            _stashed_passthrough[_pc] = _stash_pd_view[_pc]
-                        else:
-                            _stashed_passthrough[_pc] = _src_for_stash.get_column(_pc).to_pandas()
-                    else:
-                        _stashed_passthrough[_pc] = _src_for_stash[_pc].reset_index(drop=True)
-                except (KeyError, AttributeError, ValueError, TypeError) as _stash_err:  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
-                    log_throttle(
-                        logger,
-                        "predict_passthrough_stash_failed",
-                        logging.WARNING,
-                        "predict_from_models: %s passthrough col %r failed to stash "
-                        "(%s: %s); downstream model will receive a frame missing this "
-                        "column. Predictions on rows whose pre-fit pipeline depended on "
-                        "it may be wrong.",
-                        model_name, _pc, type(_stash_err).__name__, _stash_err,
-                    )
+    _stashed_passthrough = _stash_passthrough_columns(metadata, df_pre_pipeline, df, input_for_model, model_name)
 
     input_for_model = _transform_with_model_pre_pipeline(model_obj, input_for_model, _stashed_passthrough, model_name, model)
 

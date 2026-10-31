@@ -249,7 +249,7 @@ def _bootstrap_lcb_per_scorer(x_full: np.ndarray, y_arr: np.ndarray, boot_idx: l
     return per_scorer
 
 
-_BATCHED_BOOTSTRAP_SCORERS = ("plug_in", "ksg", "copula", "dcor", "hsic", "xi")
+_BATCHED_BOOTSTRAP_SCORERS = ("plug_in", "ksg", "copula", "dcor", "hsic", "xi", "tail_dep")
 
 
 def _batched_bootstrap_values(columns: list, y_arr: np.ndarray, boot_idx: list, random_state: int, hyper: dict) -> "dict | None":
@@ -258,11 +258,13 @@ def _batched_bootstrap_values(columns: list, y_arr: np.ndarray, boot_idx: list, 
     Each value equals the per-column scorer call on that column and resample: the batch kernels are the ones the per-column calls route to (plug-in, copula, xi, dCor, HSIC), and the KSG batch draws
     each column's noise from its own seed. Only a classification target with integer labels and all-finite columns is batched; ``None`` leaves everything to the per-column path.
     """
+    from ._hermite_fe_mi import column_mi_memo_disabled
     from ._orthogonal_copula_mi_fe import _copula_mi_batch
     from ._orthogonal_dcor_fe import _dcor_batch
     from ._orthogonal_hsic_fe import _hsic_batch
     from ._orthogonal_ksg_mi_fe import _is_discrete_target
     from ._orthogonal_univariate_fe import _mi_classif_batch
+    from ._orthogonal_tail_dependence_fe import tail_dependence_columns
     from ._orthogonal_xi_fe import xi_correlation_batch
     from ._ksg_cd_fast import ksg_mi_discrete_target_columns
 
@@ -280,16 +282,19 @@ def _batched_bootstrap_values(columns: list, y_arr: np.ndarray, boot_idx: list, 
         block = np.column_stack([np.asarray(c[idx], dtype=dt) for c in columns])
         yb = y_arr[idx]
         seed = int(random_state) + b
-        # These batches reach numba ``parallel=True`` kernels, which must be entered by one thread at a time (see ``mlframe._numba_parallel_guard``); the slicing above overlaps freely.
-        with parallel_kernel_entry():
+        # Only the plug-in and KSG batches reach numba ``parallel=True`` kernels, which must be entered by one thread at a time (see ``mlframe._numba_parallel_guard``); the copula, xi, dCor and HSIC
+        # batches are numpy / scipy / serial njit and overlap across the pool threads.
+        with parallel_kernel_entry(), column_mi_memo_disabled():
             # Intentional float64: MI batch scores kept as a double precision accumulator vector (ranking ties)
             out["plug_in"][:, b] = np.asarray(_mi_classif_batch(block, yb, nbins=int(hyper["nbins"])), dtype=np.float64)
-            # Intentional float64: copula MI batch scores kept as a double precision accumulator vector
-            out["copula"][:, b] = np.asarray(_copula_mi_batch(block, yb, n_bins=int(hyper["copula_n_bins"])), dtype=np.float64)
-            out["xi"][:, b] = xi_correlation_batch(block, yb, random_state=seed)
-            out["dcor"][:, b] = _dcor_batch(block, yb, n_sample=int(hyper["dcor_n_sample"]), random_state=seed)
-            out["hsic"][:, b] = _hsic_batch(block, yb, n_sample=int(hyper["dcor_n_sample"]), random_state=seed)
-            if ksg_ok:
+        # Intentional float64: copula MI batch scores kept as a double precision accumulator vector
+        out["copula"][:, b] = np.asarray(_copula_mi_batch(block, yb, n_bins=int(hyper["copula_n_bins"])), dtype=np.float64)
+        out["xi"][:, b] = xi_correlation_batch(block, yb, random_state=seed)
+        out["dcor"][:, b] = _dcor_batch(block, yb, n_sample=int(hyper["dcor_n_sample"]), random_state=seed)
+        out["hsic"][:, b] = _hsic_batch(block, yb, n_sample=int(hyper["dcor_n_sample"]), random_state=seed)
+        out["tail_dep"][:, b] = tail_dependence_columns(np.ascontiguousarray(block.T), yb)
+        if ksg_ok:
+            with parallel_kernel_entry():
                 out["ksg"][:, b] = ksg_mi_discrete_target_columns(block, yb, n_neighbors=int(hyper["n_neighbors"]), random_state=seed)
 
     # The resamples are independent (own seed, own output column), so they run on the pool; the first runs on this thread so the njit kernels compile once.
@@ -441,6 +446,8 @@ def select_best_scorer_per_column(
         raise ValueError(f"select_best_scorer_per_column: raw_X has {len(raw_X)} rows " f"but y has {len(y_arr)}; positional row alignment required.")
     if engineered_X.empty:
         return pd.DataFrame(columns=_AUTO_SCORER_COLUMNS)
+    # bench-attempt-rejected: skipping scorers for a column that one scorer already decides. The winner is the argmax over ALL scorers of the headroom over each scorer's own raw maximum,
+    # so every scorer's value enters every column's choice; a partial skip changes the selected scorer and the uplift (the per-resample cost is spread evenly, 0.3-0.5 s per scorer at 100k).
     n = len(raw_X)
     boot_idx = _bootstrap_subsample_indices(
         n, int(n_boot), int(random_state),
