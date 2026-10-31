@@ -41,8 +41,35 @@ def _is_foreign(state, factors_data, factors_nbins) -> bool:
             return True
     return False
 
+_SCRATCH_BY_STATE: "dict[int, dict]" = {}  # id(state) -> {(id(factors_data), id(factors_nbins)): (scratch state, factors_data, factors_nbins)}; dropped with the state
+_SCRATCH_PER_STATE_MAX = 4
+
+
 def _scratch_state(state, factors_data, factors_nbins):
-    """A shallow copy of ``state`` pointed at the override data, with empty caches so nothing crosses datasets."""
+    """A shallow copy of ``state`` pointed at the override data, with empty caches so nothing crosses datasets.
+
+    The copy is kept per (state, override arrays): the screen hands the same row-subsample matrix to every call of a cluster-discovery pass, and a fresh copy per call had empty caches, so the batch
+    warm-up (joint entropies, per-column entropies, pair SU) was computed on a copy that was thrown away and every later call recomputed the same pairs (half of the SU calls of a 40000-row fit).
+    The arrays are held by the entry, so the ids stay valid while it lives."""
+    import weakref
+
+    per_state = _SCRATCH_BY_STATE.get(id(state))
+    if per_state is None:
+        per_state = _SCRATCH_BY_STATE[id(state)] = {}
+        weakref.finalize(state, _SCRATCH_BY_STATE.pop, id(state), None)
+    key = (id(factors_data), id(factors_nbins))
+    hit = per_state.get(key)
+    if hit is not None and hit[1] is factors_data and hit[2] is factors_nbins:
+        return hit[0]
+    scratch = _new_scratch_state(state, factors_data, factors_nbins)
+    if len(per_state) >= _SCRATCH_PER_STATE_MAX:
+        per_state.pop(next(iter(per_state)))
+    per_state[key] = (scratch, factors_data, factors_nbins)
+    return scratch
+
+
+def _new_scratch_state(state, factors_data, factors_nbins):
+    """The uncached construction of :func:`_scratch_state`."""
     import copy
     from collections import OrderedDict
 
