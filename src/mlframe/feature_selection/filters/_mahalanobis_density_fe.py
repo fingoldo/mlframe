@@ -84,6 +84,16 @@ def mahalanobis_density_feature(
     return np.asarray(np.sqrt(np.maximum(d2, 0.0)))
 
 
+def _score_from_frozen(X_cols: np.ndarray, mu: np.ndarray, sigma_inv: np.ndarray) -> np.ndarray:
+    """Mahalanobis distance of the rows of ``X_cols`` from the frozen double-precision ``mu`` / ``sigma_inv``, at the policy dtype.
+
+    The fit and the replay both go through this, so a replayed column equals the fitted one: the fit used to score in the policy dtype while the replay scored against the promoted double-precision
+    payload, which differed in the 7th digit."""
+    delta = X_cols - mu
+    d2 = np.einsum("ni,ij,nj->n", delta, sigma_inv, delta)
+    return np.sqrt(np.maximum(d2, 0.0)).astype(_crit_np_dtype())
+
+
 def engineered_name_mahalanobis_density(cols: Sequence[str]) -> str:
     """Deterministic engineered-column name for the joint Mahalanobis-density score."""
     return "mahal__" + "_".join(str(c) for c in cols)
@@ -102,16 +112,14 @@ def generate_mahalanobis_density_features(X: "pd.DataFrame", cols: Sequence[str]
         return pd.DataFrame(index=X.index), {}
 
     lw = LedoitWolf().fit(X_cols)
-    mu = lw.location_
-    Sigma_inv = lw.get_precision()
-    delta = X_cols - mu
-    d2 = np.einsum("ni,ij,nj->n", delta, Sigma_inv, delta)
-    scores = np.sqrt(np.maximum(d2, 0.0))
+    # Intentional float64: serialised recipe payload (mu / Sigma_inv) keeps a fixed f64 contract across the policy switch.
+    mu = np.asarray(lw.location_, dtype=np.float64).copy()
+    Sigma_inv = np.asarray(lw.get_precision(), dtype=np.float64).copy()
+    scores = _score_from_frozen(X_cols, mu, Sigma_inv)
 
     name = engineered_name_mahalanobis_density(cols)
     enc = pd.DataFrame({name: scores}, index=X.index)
-    # Intentional float64: serialised recipe payload (mu / Sigma_inv) keeps a fixed f64 contract across the policy switch.
-    payload = {"cols": tuple(cols), "mu": np.asarray(mu, dtype=np.float64).copy(), "Sigma_inv": np.asarray(Sigma_inv, dtype=np.float64).copy()}
+    payload = {"cols": tuple(cols), "mu": mu, "Sigma_inv": Sigma_inv}
     return enc, payload
 
 
@@ -123,9 +131,7 @@ def apply_mahalanobis_density(X_test: "pd.DataFrame", payload: dict) -> "pd.Data
     if missing:
         raise KeyError(f"apply_mahalanobis_density: missing column(s) {missing} from X_test")
     X_cols = X_test[cols].to_numpy(dtype=_crit_np_dtype())
-    delta = X_cols - payload["mu"]
-    d2 = np.einsum("ni,ij,nj->n", delta, payload["Sigma_inv"], delta)
-    scores = np.sqrt(np.maximum(d2, 0.0))
+    scores = _score_from_frozen(X_cols, payload["mu"], payload["Sigma_inv"])
     name = engineered_name_mahalanobis_density(cols)
     return pd.DataFrame({name: scores}, index=X_test.index)
 
@@ -159,9 +165,7 @@ def _apply_mahalanobis_density_recipe(recipe, X) -> np.ndarray:
                 X_cols = np.column_stack([np.asarray(X[c], dtype=_crit_np_dtype()) for c in cols])
         except ImportError:
             X_cols = np.column_stack([np.asarray(X[c], dtype=_crit_np_dtype()) for c in cols])
-    delta = X_cols - recipe.extra["mu"]
-    d2 = np.einsum("ni,ij,nj->n", delta, recipe.extra["Sigma_inv"], delta)
-    return np.asarray(np.sqrt(np.maximum(d2, 0.0)))
+    return _score_from_frozen(X_cols, recipe.extra["mu"], recipe.extra["Sigma_inv"])
 
 
 def hybrid_mahalanobis_density_fe(
