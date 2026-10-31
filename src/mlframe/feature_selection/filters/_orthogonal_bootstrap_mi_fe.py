@@ -66,6 +66,8 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+from ._cache_release import register_cache_releaser
+
 __all__ = [
     "baseline_lcb_by_bootstrap_mi",
     "score_features_by_bootstrap_mi",
@@ -96,6 +98,17 @@ def _bootstrap_rows(rng: np.random.Generator, y_arr: np.ndarray, n: int, sample_
 
 
 _REPS_CACHE: dict = {}  # the latest resample set: (seed, rows, sample rows, resamples, y fingerprint) -> the list of row-index vectors
+
+
+def _release_reps_cache() -> int:
+    """Drop the cached resample list (registered for release under memory pressure); returns the bytes freed."""
+    hit = _REPS_CACHE.get("latest")
+    freed = sum(int(r.nbytes) for r in hit[1]) if hit else 0
+    _REPS_CACHE.clear()
+    return freed
+
+
+register_cache_releaser(_release_reps_cache)
 
 
 def seeded_bootstrap_rows(rng_seed: int, y_arr: np.ndarray, n: int, sample_n: int, n_boot: int) -> "list[np.ndarray]":

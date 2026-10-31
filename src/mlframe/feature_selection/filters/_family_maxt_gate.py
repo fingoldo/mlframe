@@ -17,6 +17,8 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
+from ._cache_release import register_cache_releaser
+
 from mlframe.feature_selection.filters._family_columns_dedupe import unique_columns
 from mlframe._numba_parallel_guard import parallel_kernel_entry
 from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
@@ -202,6 +204,19 @@ def _fill_permutations(idx: np.ndarray, base_seed: int) -> None:
             tmp = idx[r, i]
             idx[r, i] = idx[r, j]
             idx[r, j] = tmp
+
+
+def _release_perm_block_cache() -> int:
+    """Drop the cached permutation blocks (registered for release under memory pressure); returns the bytes freed."""
+    global _perm_block_cache_bytes
+    with _perm_block_cache_lock:
+        freed = _perm_block_cache_bytes
+        _perm_block_cache.clear()
+        _perm_block_cache_bytes = 0
+    return int(freed)
+
+
+register_cache_releaser(_release_perm_block_cache)
 
 
 def _permutation_block(rng: np.random.Generator, y: np.ndarray, m: int) -> np.ndarray:

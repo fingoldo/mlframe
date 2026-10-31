@@ -18,6 +18,8 @@ from numba import njit, prange
 
 from mlframe._numba_parallel_guard import parallel_kernel_entry
 
+from ._cache_release import register_cache_releaser
+
 __all__ = ["bootstrap_rank_mi"]
 
 _TILE = 16  # columns a thread ranks together; their buffers are reused
@@ -281,6 +283,17 @@ def _bootstrap_rank_mi_generic(arr: np.ndarray, y_codes: np.ndarray, n_classes: 
 
 
 _PREP_CACHE: dict = {}  # the latest resample tables, with the resample list they were built from
+
+
+def _release_prep_cache() -> int:
+    """Drop the cached resample tables (registered for release under memory pressure); returns the bytes freed."""
+    hit = _PREP_CACHE.get("latest")
+    freed = sum(int(v.nbytes) for v in hit["prep"].values() if hasattr(v, "nbytes")) if hit else 0
+    _PREP_CACHE.clear()
+    return freed
+
+
+register_cache_releaser(_release_prep_cache)
 
 
 def _resample_tables(rep_rows: "list[np.ndarray]", y_arr: np.ndarray, n: int, n_bins: int, with_walk_tables: bool) -> dict:
