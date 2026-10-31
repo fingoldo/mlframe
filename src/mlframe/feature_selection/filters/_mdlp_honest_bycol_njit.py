@@ -42,17 +42,7 @@ def permuted_labels(y_raw: np.ndarray, y_codes: np.ndarray, perm_rows: Iterable[
     return out[0], out[1]
 
 
-@njit(cache=True)
-def seeded_permutation(n: int, seed: int) -> np.ndarray:
-    """The Fisher-Yates shuffle of ``range(n)`` seeded ``seed`` (numba's generator): the permutation ``b`` of the stream of ``permuted_labels_seeded`` is ``seeded_permutation(n, base_seed + b)``."""
-    np.random.seed(seed % 4294967295)
-    perm = np.arange(n)
-    for i in range(n - 1, 0, -1):
-        j = np.random.randint(0, i + 1)
-        t = perm[i]
-        perm[i] = perm[j]
-        perm[j] = t
-    return perm
+from ._numba_utils_shared import seeded_permutation  # noqa: F401  -- hosted in _numba_utils_shared for the cross-module njit invariant
 
 
 @njit(parallel=True, cache=True)

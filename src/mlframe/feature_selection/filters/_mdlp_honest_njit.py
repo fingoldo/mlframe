@@ -93,18 +93,7 @@ def mdlp_inner_cuts(
     return cuts
 
 
-@njit(parallel=True, cache=True)
-def _presort_columns(raw_cont: np.ndarray):
-    """Sort order of every column of the (compact, continuous-only) ``raw_cont``, int32, one row per column: 4 bytes per cell, the sorted
-    values are gathered per call instead of stored."""
-    n = raw_cont.shape[0]
-    k = raw_cont.shape[1]
-    order = np.zeros((k, n), dtype=np.int32)
-    for j in prange(k):
-        o = np.argsort(raw_cont[:, j], kind="mergesort")
-        for i in range(n):
-            order[j, i] = o[i]
-    return order
+from ._numba_utils_shared import _presort_columns  # hosted in _numba_utils_shared for the cross-module njit invariant
 
 
 @njit(parallel=True, cache=True)

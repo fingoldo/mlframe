@@ -901,7 +901,7 @@ from ._numba_utils_usability import (  # noqa: F401
     _pair_combo_mi_njit_table_parallel,
 )
 
-# Cross-module @njit helpers hosted in _numba_utils_cross_module.py (re-exported so importers keep one path).
+# Cross-module @njit helpers hosted in _numba_utils_cross_module.py and _numba_utils_root_decision.py (re-exported so importers keep one path).
 from ._numba_utils_cross_module import (  # noqa: F401
     _accept_split_serial,
     _analytic_p_value,
@@ -922,6 +922,13 @@ from ._numba_utils_cross_module import (  # noqa: F401
     _n_unique_codes,
     _presorted_dedup,
     corrected_mi_best,
+    _relevance_mi_1var_fused,
+    _supervised_edges,
+    quantile_codes_block,
+    stratified_cmi,
+    stratified_cmi_null,
+)
+from ._numba_utils_root_decision import (  # noqa: F401
     scrub_nonfinite_1d,
     column_fingerprints,
     rows_to_columns,
@@ -934,13 +941,8 @@ from ._numba_utils_cross_module import (  # noqa: F401
     pack_sorted_labels,
     pack_sorted_labels_from_bits,
     root_decision_packed,
-    _relevance_mi_1var_fused,
-    _supervised_edges,
     column_tie_runs,
-    quantile_codes_block,
     gather_binary_stream,
     root_decision_binary,
     root_decision_tie_free,
-    stratified_cmi,
-    stratified_cmi_null,
 )

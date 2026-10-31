@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 
 from mlframe.feature_selection.filters._numba_utils import column_tie_runs, root_decision_binary
-from mlframe.feature_selection.filters._numba_utils_cross_module import (
+from mlframe.feature_selection.filters._numba_utils_root_decision import (
     dedup_label_bits,
     pack_sorted_labels,
     root_decision_packed,
@@ -87,7 +87,7 @@ def test_joint_counts_from_packed_labels_equal_the_unpacked_pass():
 
 def test_sorted_labels_packed_from_packed_rows_equal_the_direct_pack():
     """Packing the permuted label rows first and gathering bits gives the packed sorted stream (and the one count) the direct gather gives."""
-    from mlframe.feature_selection.filters._numba_utils_cross_module import pack_label_rows, pack_sorted_labels_from_bits
+    from mlframe.feature_selection.filters._numba_utils_root_decision import pack_label_rows, pack_sorted_labels_from_bits
 
     rng = np.random.default_rng(8)
     for n in (1, 63, 64, 65, 1000, 4099):

@@ -374,43 +374,7 @@ def edges_fayyad_irani(
     return np.asarray(inner, dtype=np.float64)  # Intentional float64: inner cut-point output contract
 
 
-@njit(nogil=True, cache=True)
-def _plug_in_mi_njit(x_binned: np.ndarray, y_b: np.ndarray, K_x: int, K_y: int, miller_madow: bool) -> float:
-    """njit core: plug-in MI from already-integer-encoded bins, optional Miller-Madow.
-
-    Miller-Madow (Miller 1955; Madow 1948) bias term: ``(K_x - 1) * (K_y - 1) / (2 * N)``.
-    Subtracted post-accumulation, floored at 0 so honest no-signal MI is exactly 0.
-    """
-    n = x_binned.shape[0]
-    if n == 0:
-        return 0.0
-    joint = np.zeros((K_x, K_y), dtype=np.float64)  # Intentional float64: joint-count accumulator for the MI statistic
-    for i in range(n):
-        joint[x_binned[i], y_b[i]] += 1.0
-    n_f = float(n)
-    Px = np.zeros(K_x, dtype=np.float64)  # Intentional float64: marginal-count accumulator for the MI statistic
-    Py = np.zeros(K_y, dtype=np.float64)  # Intentional float64: marginal-count accumulator for the MI statistic
-    for i in range(K_x):
-        for j in range(K_y):
-            v = joint[i, j]
-            Px[i] += v
-            Py[j] += v
-    mi = 0.0
-    for i in range(K_x):
-        if Px[i] <= 0.0:
-            continue
-        for j in range(K_y):
-            v = joint[i, j]
-            if v <= 0.0 or Py[j] <= 0.0:
-                continue
-            p = v / n_f
-            mi += p * math.log(p * n_f / (Px[i] * Py[j] / n_f))
-    if miller_madow:
-        bias = (K_x - 1) * (K_y - 1) / (2.0 * n_f)
-        mi -= bias
-        if mi < 0.0:
-            mi = 0.0
-    return mi
+from ._numba_utils_shared import _plug_in_mi_njit  # hosted in _numba_utils_shared for the cross-module njit invariant
 
 
 @njit(nogil=True, cache=True, parallel=True)
