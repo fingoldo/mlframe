@@ -31,9 +31,11 @@ def _target_codes(y: np.ndarray) -> "np.ndarray | None":
         return None
     levels, codes = np.unique(y, return_inverse=True)
     if len(levels) <= _MAX_Y_LEVELS:
-        return codes.astype(np.int32)
+        dense: np.ndarray = codes.astype(np.int32)
+        return dense
     edges = np.quantile(y, np.linspace(0, 1, _Y_BINS + 1)[1:-1])
-    return np.searchsorted(np.unique(edges), y).astype(np.int32)
+    binned: np.ndarray = np.searchsorted(np.unique(edges), y).astype(np.int32)
+    return binned
 
 
 def dominant_candidate(X, y, n_rows_min: int = _MIN_ROWS) -> "str | None":
