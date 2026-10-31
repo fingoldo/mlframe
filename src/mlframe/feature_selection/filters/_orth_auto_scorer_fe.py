@@ -249,7 +249,7 @@ def _bootstrap_lcb_per_scorer(x_full: np.ndarray, y_arr: np.ndarray, boot_idx: l
     return per_scorer
 
 
-_BATCHED_BOOTSTRAP_SCORERS = ("plug_in", "ksg", "copula", "dcor", "hsic", "xi")
+_BATCHED_BOOTSTRAP_SCORERS = ("plug_in", "ksg", "copula", "dcor", "hsic", "xi", "tail_dep")
 
 
 def _batched_bootstrap_values(columns: list, y_arr: np.ndarray, boot_idx: list, random_state: int, hyper: dict) -> "dict | None":
@@ -264,6 +264,7 @@ def _batched_bootstrap_values(columns: list, y_arr: np.ndarray, boot_idx: list, 
     from ._orthogonal_hsic_fe import _hsic_batch
     from ._orthogonal_ksg_mi_fe import _is_discrete_target
     from ._orthogonal_univariate_fe import _mi_classif_batch
+    from ._orthogonal_tail_dependence_fe import tail_dependence_columns
     from ._orthogonal_xi_fe import xi_correlation_batch
     from ._ksg_cd_fast import ksg_mi_discrete_target_columns
 
@@ -291,6 +292,7 @@ def _batched_bootstrap_values(columns: list, y_arr: np.ndarray, boot_idx: list, 
         out["xi"][:, b] = xi_correlation_batch(block, yb, random_state=seed)
         out["dcor"][:, b] = _dcor_batch(block, yb, n_sample=int(hyper["dcor_n_sample"]), random_state=seed)
         out["hsic"][:, b] = _hsic_batch(block, yb, n_sample=int(hyper["dcor_n_sample"]), random_state=seed)
+        out["tail_dep"][:, b] = tail_dependence_columns(np.ascontiguousarray(block.T), yb)
         if ksg_ok:
             with parallel_kernel_entry():
                 out["ksg"][:, b] = ksg_mi_discrete_target_columns(block, yb, n_neighbors=int(hyper["n_neighbors"]), random_state=seed)
