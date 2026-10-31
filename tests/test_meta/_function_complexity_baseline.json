@@ -19,6 +19,5 @@
   "src/mlframe/training/_feature_importances.py::get_model_feature_importances": 16,
   "src/mlframe/training/composite/ensemble/_oof_external.py::_compute_oof_with_external_holdout": 18,
   "src/mlframe/training/composite/qrf.py::_batch_weighted_quantiles_kernel": 17,
-  "src/mlframe/training/neural/_flat_torch_module/_flat_torch_loss.py::_LossMixin.compute_metrics": 17,
   "src/mlframe/training/neural/_muon_triton_kernel.py::maybe_newton_schulz_triton": 16
 }
