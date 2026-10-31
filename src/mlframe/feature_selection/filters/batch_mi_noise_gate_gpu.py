@@ -422,7 +422,7 @@ def batch_mi_with_noise_gate_cuda_resident(
     dtype: type = np.int32,
     threads_per_block: "int | None" = None,
     d_disc_resident: cupy.ndarray | None = None,
-) -> np.ndarray:
+) -> np.ndarray | None:
     """FULL-GPU-RESIDENT noise gate: batched histogram (all perms, one launch) -> GPU MI kernel -> only
     the (P, K) MI matrix D2H -> host gate decision. The entire permutation noise gate runs on the device
     from resident counts (no per-perm counts D2H, no CPU entropy). Selection-equivalent to
@@ -495,6 +495,36 @@ def batch_mi_with_noise_gate_cuda_resident(
     total_size = int(offsets[K])
     nperm = int(npermutations) if npermutations and npermutations > 0 else 0
     P = nperm + 1
+
+    # The (P, total_size) int64 counts buffer for all columns at once can exceed free VRAM, and the codes upload below is
+    # already (n, K) on the device. Gate the columns in tiles that each fit instead, so the work stays on the device.
+    counts_bytes = P * total_size * 8
+    try:
+        from ._fe_gpu_vram import fe_gpu_has_vram_cushion
+
+        fits = fe_gpu_has_vram_cushion(counts_bytes)
+    except Exception as e:  # best-effort: an unreadable VRAM probe fails closed in fe_gpu_has_vram_cushion itself
+        logger.debug("fe_gpu_has_vram_cushion() failed for the resident counts buffer (%s); assuming it fits", e)
+        fits = True
+    if not fits:
+        from ._batch_mi_noise_gate_column_tiles import gate_in_column_tiles
+
+        return gate_in_column_tiles(
+            batch_mi_with_noise_gate_cuda_resident,
+            disc_2d,
+            nbins_arr,
+            classes_y,
+            classes_y_safe,
+            freqs_y,
+            npermutations,
+            base_seed,
+            min_nonzero_confidence,
+            use_su,
+            dtype,
+            threads_per_block,
+            K_y,
+            P,
+        )
 
     # d_y (P, n) device shuffle matrix - cached once per fit (target constant across dispatches).
     d_y = _resident_y_all_device(classes_y, classes_y_safe, base_seed, nperm, n, P)
