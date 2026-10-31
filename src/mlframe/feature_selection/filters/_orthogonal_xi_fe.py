@@ -29,6 +29,10 @@ Cost: O(n log n) (one argsort), not O(n^2) like dCor/HSIC - no subsampling neede
 from __future__ import annotations
 
 import numpy as np
+from numba import njit, prange
+
+from mlframe._numba_parallel_guard import parallel_kernel_entry
+
 from ._fe_usability_signal import _crit_np_dtype
 
 __all__ = ["xi_correlation", "xi_correlation_batch"]
@@ -85,6 +89,40 @@ def xi_correlation(x: np.ndarray, y: np.ndarray, *, random_state: int = 0) -> fl
     return _xi_from_order(y_ordered)
 
 
+@njit(cache=True, parallel=True)
+def _xi_columns_njit(cols: np.ndarray, perms: np.ndarray, r_row: np.ndarray, l_row: np.ndarray, out: np.ndarray) -> None:
+    """``out[j]`` = Xi of column ``cols[j]`` (a row of ``(K, n)``) against the target, the x-ties broken by ``perms[j]`` exactly as ``np.lexsort((perm, col))`` orders them."""
+    kk = cols.shape[0]
+    n = cols.shape[1]
+    for j in prange(kk):
+        col = cols[j]
+        order = np.argsort(col, kind="mergesort")
+        i = 0
+        while i < n:
+            e = i + 1
+            while e < n and col[order[e]] == col[order[i]]:
+                e += 1
+            if e - i > 1:
+                tied = order[i:e].copy()
+                keys = perms[j][tied]
+                sub = np.argsort(keys, kind="mergesort")
+                for q in range(e - i):
+                    order[i + q] = tied[sub[q]]
+            i = e
+        sdiff = 0.0
+        den = 0.0
+        prev = r_row[order[0]]
+        den += l_row[order[0]] * (n - l_row[order[0]])
+        for q in range(1, n):
+            cur = r_row[order[q]]
+            sdiff += abs(cur - prev)
+            prev = cur
+            lq = l_row[order[q]]
+            den += lq * (n - lq)
+        den = 2.0 * den
+        out[j] = 1.0 - float(n) * sdiff / den if den > 0.0 else 0.0
+
+
 def xi_correlation_batch(X: np.ndarray, y: np.ndarray, *, random_state: int = 0) -> np.ndarray:
     """Vectorized ``xi_correlation`` for every column of ``X`` (shape ``(n, K)``) against the same
     ``y`` - avoids re-deriving ``y``'s own rank array K times (the walk depends only on the
@@ -109,15 +147,17 @@ def xi_correlation_batch(X: np.ndarray, y: np.ndarray, *, random_state: int = 0)
     r_row = np.cumsum(counts)[inv].astype(np.float64)
     # Intentional float64: exact rank accumulator kept f64
     l_row = np.cumsum(counts[::-1])[::-1][inv].astype(np.float64)
-    for j in range(k):
-        col = X[:, j]
-        if not np.isfinite(col).all():
-            continue
-        perm = rng.permutation(n)
-        # bench-attempt-rejected: np.argsort plus a tie check instead of lexsort when the column has no repeated value (1.25 s against 0.92 s for 40 columns of 100000 rows)
-        order = np.lexsort((perm, col))
-        ll = l_row[order]
-        num = float(n) * float(np.sum(np.abs(np.diff(r_row[order]))))
-        den = 2.0 * float(np.sum(ll * (n - ll)))
-        out[j] = float(1.0 - num / den) if den > 0.0 else 0.0
+    finite = [j for j in range(k) if np.isfinite(X[:, j]).all()]
+    # the generator is advanced once per finite column in column order, as the per-column calls do; the columns are then ordered and scored in parallel blocks
+    block = max(1, min(32, (64 << 20) // (8 * max(n, 1))))
+    for s0 in range(0, len(finite), block):
+        js = finite[s0 : s0 + block]
+        perms = np.empty((len(js), n), dtype=np.int64)
+        for r in range(len(js)):
+            perms[r] = rng.permutation(n)
+        cols = np.ascontiguousarray(X[:, js].T)
+        vals = np.empty(len(js), dtype=np.float64)  # Intentional float64: accumulator output kept f64
+        with parallel_kernel_entry():
+            _xi_columns_njit(cols, perms, r_row, l_row, vals)
+        out[js] = vals
     return out
